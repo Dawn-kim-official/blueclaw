@@ -31,7 +31,6 @@ func TestEvaluateRecoveryAllowanceStopsRepeatedStructuralFailure(t2 *testing.T) 
 	}
 }
 
-
 func TestProgressEventsCapsFailureProgressWithoutSuccess(t *testing.T) {
 	fingerprints := []string{"fp-a", "fp-b", "fp-c", "fp-d", "fp-e", "fp-f"}
 	observations := []turnObservation{}
@@ -176,6 +175,16 @@ func TestSkillSearchSuccessDoesNotCountAsLoopProgress(t *testing.T) {
 
 	if progressEventCount(observations) != 0 {
 		t.Fatalf("expected skill discovery not to count as task progress, got %+v", progressEvents(observations))
+	}
+}
+
+func TestEvaluateRecoveryAllowanceDoesNotInventAdjacentRoute(t *testing.T) {
+	failedObservation := terminalFailureObservation("obs-001", "tmp/deck", "bun run build", "missing package.json")
+	budget := RecoveryBudget{AdjacentTool: 2}
+	allowance := evaluateRecoveryAllowance([]turnObservation{failedObservation}, budget)
+
+	if allowance.CanRecover {
+		t.Fatalf("expected no adjacent recovery without typed hints, got %+v", allowance)
 	}
 }
 

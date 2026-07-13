@@ -182,7 +182,7 @@ func failActionSchema(hasFailureDebt bool) map[string]any {
 	}
 }
 
-func continueActionSchema(toolDefinition ToolDefinition, hasFailureDebt bool) map[string]any {
+func continueActionSchema(toolDefinition ToolDefinition, _ bool) map[string]any {
 	properties := map[string]any{
 		"action":               enumStringSchema("continue"),
 		"toolName":             enumStringSchema(toolDefinition.Name),
@@ -195,13 +195,6 @@ func continueActionSchema(toolDefinition ToolDefinition, hasFailureDebt bool) ma
 		"executionStateUpdate": executionStateSchema(),
 	}
 	requiredFields := []string{"action", "toolName", "toolInput", "executionStateUpdate"}
-	if hasFailureDebt {
-		properties["recoveryForObservationID"] = map[string]any{
-			"type":        "string",
-			"description": "Exact observationID of the active FailureDebt that this tool call is intended to recover.",
-		}
-		requiredFields = append(requiredFields, "recoveryForObservationID")
-	}
 	schema := map[string]any{
 		"type":       "object",
 		"properties": properties,

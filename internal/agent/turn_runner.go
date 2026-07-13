@@ -479,7 +479,7 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 				return agentTurnRunner.cancelledTaskResultOrCurrent(taskRun.TaskRunID, state.Attachments), nil
 			}
 			if errors.Is(actionError, context.DeadlineExceeded) {
-				finalization := agentTurnRunner.finalizeLimitIfPossible(taskContext, taskRun.TaskRunID, request, toolUseRequirements, state.Observations, state.Attachments, state.QualityCriteria, state.ExecutionState)
+				finalization := agentTurnRunner.settleCompletionBeforeExit(taskContext, taskRun.TaskRunID, request, toolUseRequirements, state.Observations, state.Attachments, state.QualityCriteria, state.ExecutionState)
 				if finalization.IsCompleted {
 					return finalization.Result, nil
 				}
@@ -702,7 +702,7 @@ func (agentTurnRunner *AgentTurnRunner) handleToolCallAction(ctx context.Context
 	if outcome := agentTurnRunner.rejectRepeatedToolCall(taskRunID, stepID, state, actionDocument, successfulToolCalls, stopForNoProgress); outcome.WasHandled {
 		return outcome
 	}
-	recoveryStep, outcome := agentTurnRunner.prepareRecoveryAttempt(ctx, taskRunID, stepID, request, state, actionDocument, stopForNoProgress)
+	recoveryStep, recoveryForObservationID, outcome := agentTurnRunner.prepareRecoveryAttempt(ctx, taskRunID, stepID, request, state, actionDocument, stopForNoProgress)
 	if outcome.WasHandled {
 		return outcome
 	}
@@ -713,7 +713,7 @@ func (agentTurnRunner *AgentTurnRunner) handleToolCallAction(ctx context.Context
 		return outcome
 	}
 	if !request.IsApprovalContinuation && toolRequiresRuntimeApproval(request.ToolSet, actionDocument.ToolName) {
-		return agentTurnRunner.requestHeldCallApproval(ctx, taskRunID, stepID, request, state, actionDocument)
+		return agentTurnRunner.requestHeldCallApproval(ctx, taskRunID, stepID, request, state, actionDocument, recoveryStep, recoveryForObservationID)
 	}
 	state.ToolCallCount++
 	if state.ToolCallCount > maxToolCallCountWithRecovery(agentTurnRunner.options, state.Observations) {
@@ -731,9 +731,9 @@ func (agentTurnRunner *AgentTurnRunner) handleToolCallAction(ctx context.Context
 		return toolCallActionOutcome{Result: cancelledResult, ShouldReturn: true, WasHandled: true}
 	}
 	if isApprovalRequiredObservation(observation) {
-		return agentTurnRunner.requestHeldCallApproval(ctx, taskRunID, stepID, request, state, actionDocument)
+		return agentTurnRunner.requestHeldCallApproval(ctx, taskRunID, stepID, request, state, actionDocument, recoveryStep, recoveryForObservationID)
 	}
-	agentTurnRunner.recordToolObservation(taskRunID, state, actionDocument, successfulToolCalls, observation, recoveryStep)
+	agentTurnRunner.recordToolObservation(taskRunID, state, actionDocument, successfulToolCalls, observation, recoveryStep, recoveryForObservationID)
 	if pausedResult, isPaused := agentTurnRunner.pausedTaskResult(taskRunID, observation, state.Attachments); isPaused {
 		agentTurnRunner.saveStep(taskRunID, stepID, pausedResult.TaskRun.Status, "continue "+actionDocument.ToolName, observation.ContentText())
 		return toolCallActionOutcome{Result: pausedResult, ShouldReturn: true, WasHandled: true}
@@ -1437,7 +1437,7 @@ func (agentTurnRunner *AgentTurnRunner) blockTurnForStall(ctx context.Context, t
 }
 
 func (agentTurnRunner *AgentTurnRunner) finalizeStalledTurnIfPossible(ctx context.Context, taskRunID string, request AgentTurnRequest, state *agentTaskState) (AgentTurnResult, bool) {
-	finalization := agentTurnRunner.finalizeLimitIfPossible(ctx, taskRunID, request, state.Requirements, state.Observations, state.Attachments, state.QualityCriteria, state.ExecutionState)
+	finalization := agentTurnRunner.settleCompletionBeforeExit(ctx, taskRunID, request, state.Requirements, state.Observations, state.Attachments, state.QualityCriteria, state.ExecutionState)
 	state.Observations = finalization.Observations
 	state.Attachments = finalization.Attachments
 	return finalization.Result, finalization.IsCompleted
@@ -1467,7 +1467,7 @@ func blockedGoal(taskRunID string, request AgentTurnRequest, reason string) Acti
 // success. Finalize the satisfied turn before declaring failure, so a delivered
 // artifact never ends as a failed task.
 func (agentTurnRunner *AgentTurnRunner) finalizeIfSatisfiedOrFail(ctx context.Context, taskRunID string, request AgentTurnRequest, reason string, requirements []toolUseRequirement, observations []turnObservation, attachments []FileAttachment, criteria []qualityCriterion, executionState ExecutionState) (AgentTurnResult, error) {
-	finalization := agentTurnRunner.finalizeLimitIfPossible(ctx, taskRunID, request, requirements, observations, attachments, criteria, executionState)
+	finalization := agentTurnRunner.settleCompletionBeforeExit(ctx, taskRunID, request, requirements, observations, attachments, criteria, executionState)
 	if finalization.IsCompleted {
 		return finalization.Result, nil
 	}
@@ -1475,6 +1475,7 @@ func (agentTurnRunner *AgentTurnRunner) finalizeIfSatisfiedOrFail(ctx context.Co
 }
 
 func (agentTurnRunner *AgentTurnRunner) failTurn(taskRunID string, request AgentTurnRequest, reason string, observations []turnObservation, attachments []FileAttachment, executionState ExecutionState) (AgentTurnResult, error) {
+	attachments = deliverableFailureAttachments(request, attachments)
 	failedTaskRun, _ := agentTurnRunner.taskRunService.FailTaskRun(taskRunID, reason)
 	failureNotice, replyStatus, hasReply := agentTurnRunner.generateFailureNotice(taskRunID, request, reason, observations, attachments, executionState)
 	agentTurnRunner.appendEvent(taskRunID, "agent.failure_reply", marshalEventBody(replyStatus))
@@ -1482,11 +1483,11 @@ func (agentTurnRunner *AgentTurnRunner) failTurn(taskRunID string, request Agent
 		agentTurnRunner.appendUnavailableReplyEvents(taskRunID, "failure", reason, replyStatus)
 		fallbackReply := rawFailureSummaryForUnavailableNotice(reason, observations)
 		failedTaskRun = persistTaskRunResult(agentTurnRunner.taskRunService, failedTaskRun, fallbackReply)
-		return AgentTurnResult{TaskRun: failedTaskRun, UserNotice: fallbackReply, RecoveryActions: recoveryActionsFromObservations(observations)}, nil
+		return AgentTurnResult{TaskRun: failedTaskRun, UserNotice: fallbackReply, Attachments: attachments, RecoveryActions: recoveryActionsFromObservations(observations)}, nil
 	}
 	reply := failureNotice.SendableMessage()
 	failedTaskRun = persistTaskRunResult(agentTurnRunner.taskRunService, failedTaskRun, reply)
-	return AgentTurnResult{TaskRun: failedTaskRun, UserNotice: reply, FailureNotice: failureNotice, RecoveryActions: recoveryActionsFromObservations(observations)}, nil
+	return AgentTurnResult{TaskRun: failedTaskRun, UserNotice: reply, FailureNotice: failureNotice, Attachments: attachments, RecoveryActions: recoveryActionsFromObservations(observations)}, nil
 }
 
 func rawFailureSummaryForUnavailableNotice(reason string, observations []turnObservation) string {
@@ -1587,38 +1588,71 @@ type limitFinalizationResult struct {
 }
 
 func (agentTurnRunner *AgentTurnRunner) finalizeOrStopForLimit(ctx context.Context, taskRunID string, request AgentTurnRequest, reason string, requirements []toolUseRequirement, observations []turnObservation, attachments []FileAttachment, criteria []qualityCriterion, executionState ExecutionState, usedIterationCount int, usedToolCallCount int) (AgentTurnResult, error) {
-	finalization := agentTurnRunner.finalizeLimitIfPossible(ctx, taskRunID, request, requirements, observations, attachments, criteria, executionState)
+	finalization := agentTurnRunner.settleCompletionBeforeExit(ctx, taskRunID, request, requirements, observations, attachments, criteria, executionState)
 	if finalization.IsCompleted {
 		return finalization.Result, nil
 	}
 	return agentTurnRunner.stopForLimit(taskRunID, request, reason, finalization.Observations, finalization.Attachments, executionState, usedIterationCount, usedToolCallCount)
 }
 
-func (agentTurnRunner *AgentTurnRunner) finalizeLimitIfPossible(ctx context.Context, taskRunID string, request AgentTurnRequest, requirements []toolUseRequirement, observations []turnObservation, attachments []FileAttachment, criteria []qualityCriterion, executionState ExecutionState) limitFinalizationResult {
-	if ctx.Err() == nil {
-		transition := agentTurnRunner.applyCompletionState(ctx, taskRunID, taskRunID+":completion", request, requirements, observations, attachments, criteria, "")
+func (agentTurnRunner *AgentTurnRunner) settleCompletionBeforeExit(ctx context.Context, taskRunID string, request AgentTurnRequest, requirements []toolUseRequirement, observations []turnObservation, attachments []FileAttachment, criteria []qualityCriterion, executionState ExecutionState) limitFinalizationResult {
+	if !agentTurnRunner.taskRunAllowsSettlement(taskRunID) {
+		return limitFinalizationResult{Observations: observations, Attachments: attachments}
+	}
+	if errors.Is(ctx.Err(), context.Canceled) {
+		return limitFinalizationResult{Observations: observations, Attachments: attachments}
+	}
+	settlementContext := ctx
+	cancel := func() {}
+	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		settlementContext, cancel = context.WithTimeout(context.Background(), 10*time.Second)
+		settlementContext = llm.ContextWithRequestContext(settlementContext, llm.RequestContext{
+			RequesterPersonID:       request.RequesterPersonID,
+			RequesterEmail:          request.RequesterEmail,
+			RequesterName:           request.RequesterName,
+			RequesterPlatformUserID: request.RequesterPlatformUserID,
+			ConversationID:          request.ConversationID,
+			Platform:                request.Platform,
+		})
+	}
+	defer cancel()
+	for attempt := 0; attempt < 2; attempt++ {
+		if errors.Is(settlementContext.Err(), context.Canceled) || !agentTurnRunner.taskRunAllowsSettlement(taskRunID) {
+			break
+		}
+		transition := agentTurnRunner.applyCompletionState(settlementContext, taskRunID, taskRunID+":completion", request, requirements, observations, attachments, criteria, "")
 		if transition.IsCompleted {
-			return limitFinalizationResult{Result: transition.Result, IsCompleted: true, Observations: observations, Attachments: attachments}
+			return limitFinalizationResult{Result: transition.Result, IsCompleted: true, Observations: transition.Observations, Attachments: transition.Attachments}
 		}
-		if transition.DidTransition {
-			transition = agentTurnRunner.applyCompletionState(ctx, taskRunID, taskRunID+":completion", request, requirements, transition.Observations, transition.Attachments, criteria, "")
-			if transition.IsCompleted {
-				return limitFinalizationResult{Result: transition.Result, IsCompleted: true, Observations: transition.Observations, Attachments: transition.Attachments}
-			}
-			observations = transition.Observations
-			attachments = transition.Attachments
+		if !transition.DidTransition {
+			break
 		}
-		if completionRequirementsHaveEvidence(requirements, observations) {
-			if result, isFinalized := agentTurnRunner.finalizeSatisfiedTurn(ctx, taskRunID, request, requirements, observations, criteria, executionState); isFinalized {
-				return limitFinalizationResult{Result: result, IsCompleted: true, Observations: observations, Attachments: attachments}
-			}
+		observations = transition.Observations
+		attachments = transition.Attachments
+	}
+	if !errors.Is(settlementContext.Err(), context.Canceled) && agentTurnRunner.taskRunAllowsSettlement(taskRunID) && completionRequirementsHaveEvidence(requirements, observations) {
+		if result, isFinalized := agentTurnRunner.finalizeSatisfiedTurn(settlementContext, taskRunID, request, requirements, observations, criteria, executionState); isFinalized {
+			return limitFinalizationResult{Result: result, IsCompleted: true, Observations: observations, Attachments: attachments}
 		}
 	}
 	return limitFinalizationResult{Observations: observations, Attachments: attachments}
 }
 
+func (agentTurnRunner *AgentTurnRunner) taskRunAllowsSettlement(taskRunID string) bool {
+	taskRun, isFound := agentTurnRunner.taskRunService.FindTaskRun(taskRunID)
+	if !isFound {
+		return false
+	}
+	switch taskRun.Status {
+	case task.TaskStatusPlanned, task.TaskStatusRunning, task.TaskStatusWaitingUserInput, task.TaskStatusWaitingApproval, task.TaskStatusBlocked:
+		return true
+	default:
+		return false
+	}
+}
+
 func (agentTurnRunner *AgentTurnRunner) finalizeEscalateOrStopForLimit(ctx context.Context, taskRunID string, request AgentTurnRequest, reason string, requirements []toolUseRequirement, observations []turnObservation, attachments []FileAttachment, criteria []qualityCriterion, executionState ExecutionState, usedIterationCount int, usedToolCallCount int) (AgentTurnResult, bool, error) {
-	finalization := agentTurnRunner.finalizeLimitIfPossible(ctx, taskRunID, request, requirements, observations, attachments, criteria, executionState)
+	finalization := agentTurnRunner.settleCompletionBeforeExit(ctx, taskRunID, request, requirements, observations, attachments, criteria, executionState)
 	if finalization.IsCompleted {
 		return finalization.Result, false, nil
 	}
@@ -1759,7 +1793,10 @@ func (agentTurnRunner *AgentTurnRunner) finalizeSatisfiedTurn(ctx context.Contex
 		return AgentTurnResult{}, false
 	}
 	reply = agentTurnRunner.prepareFinishMessageForPlatform(request, reply, completionGateResult.Attachments)
-	completedTaskRun, _ := agentTurnRunner.taskRunService.CompleteTaskRun(taskRunID, reply)
+	completedTaskRun, errorValue := agentTurnRunner.taskRunService.CompleteTaskRun(taskRunID, reply)
+	if errorValue != nil {
+		return AgentTurnResult{}, false
+	}
 	return AgentTurnResult{TaskRun: completedTaskRun, FinishMessage: reply, Attachments: completionGateResult.Attachments, RecoveryActions: recoveryActionsFromObservations(observations)}, true
 }
 
@@ -1851,7 +1888,7 @@ func (agentTurnRunner *AgentTurnRunner) applyTerminalNoToolsAction(ctx context.C
 	case "finish":
 		return agentTurnRunner.completeTerminalNoToolsFinish(ctx, taskRunID, stepID, request, state, actionDocument)
 	case "fail":
-		return agentTurnRunner.failTerminalNoToolsFailure(taskRunID, stepID, request, state, actionDocument)
+		return agentTurnRunner.failTerminalNoToolsFailure(ctx, taskRunID, stepID, request, state, actionDocument)
 	default:
 		return AgentTurnResult{}, false, "terminal no-tools action must be finish or fail"
 	}
@@ -1877,11 +1914,17 @@ func (agentTurnRunner *AgentTurnRunner) completeTerminalNoToolsFinish(ctx contex
 	return AgentTurnResult{TaskRun: completedTaskRun, FinishMessage: reply, Attachments: completionGateResult.Attachments, RecoveryActions: recoveryActionsFromObservations(state.Observations)}, true, ""
 }
 
-func (agentTurnRunner *AgentTurnRunner) failTerminalNoToolsFailure(taskRunID string, stepID string, request AgentTurnRequest, state *agentTaskState, actionDocument turnActionDocument) (AgentTurnResult, bool, string) {
+func (agentTurnRunner *AgentTurnRunner) failTerminalNoToolsFailure(ctx context.Context, taskRunID string, stepID string, request AgentTurnRequest, state *agentTaskState, actionDocument turnActionDocument) (AgentTurnResult, bool, string) {
 	facts := buildFailureReportFacts(state.Observations, agentTurnRunner.options.RecoveryBudget)
 	failureReportResult := validateFailureReportAction(actionDocument, facts)
 	if !failureReportResult.IsSatisfied {
 		return AgentTurnResult{}, false, failureReportResult.Message
+	}
+	finalization := agentTurnRunner.settleCompletionBeforeExit(ctx, taskRunID, request, state.Requirements, state.Observations, state.Attachments, state.QualityCriteria, state.ExecutionState)
+	state.Observations = finalization.Observations
+	state.Attachments = deliverableFailureAttachments(request, finalization.Attachments)
+	if finalization.IsCompleted {
+		return finalization.Result, true, ""
 	}
 	reason := strings.TrimSpace(firstNonEmptyString(actionDocument.Reason, "agent reported failure"))
 	notice, failureReport, validationMessage := failureNoticeFromTerminalAction(request, taskRunID, reason, state.Observations, state.Attachments, state.ExecutionState)
@@ -1895,7 +1938,7 @@ func (agentTurnRunner *AgentTurnRunner) failTerminalNoToolsFailure(taskRunID str
 	agentTurnRunner.saveStep(taskRunID, stepID, task.TaskStatusFailed, "terminal_no_tools_fail", reason)
 	reply := notice.SendableMessage()
 	failedTaskRun = persistTaskRunResult(agentTurnRunner.taskRunService, failedTaskRun, reply)
-	return AgentTurnResult{TaskRun: failedTaskRun, UserNotice: reply, FailureNotice: notice, RecoveryActions: recoveryActionsFromObservations(state.Observations)}, true, ""
+	return AgentTurnResult{TaskRun: failedTaskRun, UserNotice: reply, FailureNotice: notice, Attachments: state.Attachments, RecoveryActions: recoveryActionsFromObservations(state.Observations)}, true, ""
 }
 
 func failureNoticeFromTerminalAction(request AgentTurnRequest, taskRunID string, reason string, observations []turnObservation, attachments []FileAttachment, executionState ExecutionState) (FailureNotice, FailureReport, string) {
@@ -1921,6 +1964,9 @@ func (agentTurnRunner *AgentTurnRunner) recordTerminalNoToolsRejection(taskRunID
 }
 
 func (agentTurnRunner *AgentTurnRunner) stopForLimit(taskRunID string, request AgentTurnRequest, reason string, observations []turnObservation, attachments []FileAttachment, executionState ExecutionState, usedIterationCount int, usedToolCallCount int) (AgentTurnResult, error) {
+	if result, isCancelled := agentTurnRunner.cancelledTaskResult(taskRunID, attachments); isCancelled {
+		return result, nil
+	}
 	body := map[string]any{
 		"taskLevel":          agentTurnRunner.options.TaskLevel,
 		"maxIterationCount":  agentTurnRunner.options.MaxIterationCount,
@@ -1936,18 +1982,40 @@ func (agentTurnRunner *AgentTurnRunner) stopForLimit(taskRunID string, request A
 		"recentObservations": recentProgressObservations(observations),
 	}
 	agentTurnRunner.appendEvent(taskRunID, "agent.limit_stop", marshalEventBody(body))
-	blockedTaskRun, _ := agentTurnRunner.taskRunService.PauseTaskRun(taskRunID, task.TaskStatusBlocked, reason)
-	failureNotice, replyStatus, hasReply := agentTurnRunner.generateLimitReachedNotice(taskRunID, request, reason, observations, nil, executionState)
+	blockedTaskRun, errorValue := agentTurnRunner.taskRunService.PauseTaskRun(taskRunID, task.TaskStatusBlocked, reason)
+	if errorValue != nil {
+		return agentTurnRunner.cancelledTaskResultOrCurrent(taskRunID, attachments), nil
+	}
+	failureNotice, replyStatus, hasReply := agentTurnRunner.generateLimitReachedNotice(taskRunID, request, reason, observations, deliverableFailureAttachments(request, attachments), executionState)
 	agentTurnRunner.appendEvent(taskRunID, "agent.limit_reply", marshalEventBody(replyStatus))
 	if !hasReply {
 		agentTurnRunner.appendUnavailableReplyEvents(taskRunID, "limit", reason, replyStatus)
 		fallbackReply := rawFailureSummaryForUnavailableNotice(reason, observations)
 		blockedTaskRun = persistTaskRunResult(agentTurnRunner.taskRunService, blockedTaskRun, fallbackReply)
-		return AgentTurnResult{TaskRun: blockedTaskRun, UserNotice: fallbackReply, RecoveryActions: recoveryActionsFromObservations(observations)}, nil
+		return AgentTurnResult{TaskRun: blockedTaskRun, UserNotice: fallbackReply, Attachments: deliverableFailureAttachments(request, attachments), RecoveryActions: recoveryActionsFromObservations(observations)}, nil
 	}
 	reply := failureNotice.SendableMessage()
 	blockedTaskRun = persistTaskRunResult(agentTurnRunner.taskRunService, blockedTaskRun, reply)
-	return AgentTurnResult{TaskRun: blockedTaskRun, UserNotice: reply, FailureNotice: failureNotice, RecoveryActions: recoveryActionsFromObservations(observations)}, nil
+	return AgentTurnResult{TaskRun: blockedTaskRun, UserNotice: reply, FailureNotice: failureNotice, Attachments: deliverableFailureAttachments(request, attachments), RecoveryActions: recoveryActionsFromObservations(observations)}, nil
+}
+
+func deliverableFailureAttachments(request AgentTurnRequest, attachments []FileAttachment) []FileAttachment {
+	if len(attachments) == 0 {
+		return nil
+	}
+	if len(requiredFileAttachmentSuffixes(deriveToolUseRequirements(request))) > 0 || expectedResultRequiresFileAttachment(request.OutcomeContract) || hasRequiredFileDeliveryTool(request.RequiredEvidenceTools) {
+		return attachments
+	}
+	return nil
+}
+
+func hasRequiredFileDeliveryTool(toolNames []string) bool {
+	for _, toolName := range toolNames {
+		if IsArtifactDeliveryTool(toolName) {
+			return true
+		}
+	}
+	return false
 }
 
 func persistTaskRunResult(taskRunService *task.TaskRunService, taskRun task.TaskRun, result string) task.TaskRun {

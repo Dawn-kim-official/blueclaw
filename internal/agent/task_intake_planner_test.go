@@ -1499,7 +1499,7 @@ func TestAgentKernelQuickReplyPromotesToolFailureToRecovery(t *testing.T) {
 	}}
 	replyLanguageModel := &sequenceLanguageModel{contents: []string{
 		`{"action":"continue","toolName":"capability.invoke","toolInput":{"operation":"primary.lookup","input":{"query":"hello"}}}`,
-		`{"action":"continue","toolName":"capability.invoke","toolInput":{"operation":"backup.lookup","input":{"query":"hello"}},"recoveryForObservationID":"obs-001"}`,
+		`{"action":"continue","toolName":"capability.invoke","toolInput":{"operation":"backup.lookup","input":{"query":"hello"}}}`,
 		finishMessageWithEvidence("backup answer", "obs-003", "backup.lookup", 0),
 	}}
 	services := newKernelIntakeTestServices(replyLanguageModel, intakeLanguageModel)
@@ -1508,7 +1508,9 @@ func TestAgentKernelQuickReplyPromotesToolFailureToRecovery(t *testing.T) {
 	backupCallCount := 0
 	toolRegistry.RegisterTool(ToolDefinition{Name: "primary.lookup"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		primaryCallCount++
-		return ToolFailureResult(FailureExternalService, FailureCodes.OperationFailed, "primary_lookup", "primary lookup failed"), nil
+		result := ToolFailureResult(FailureExternalService, FailureCodes.OperationFailed, "primary_lookup", "primary lookup failed")
+		result.Failure.RecoveryHints = []RecoveryHint{{Action: "use_backup", ToolNames: []string{"backup.lookup"}}}
+		return result, nil
 	})
 	toolRegistry.RegisterTool(ToolDefinition{Name: "backup.lookup"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		backupCallCount++

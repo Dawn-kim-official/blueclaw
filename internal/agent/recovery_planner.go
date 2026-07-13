@@ -254,11 +254,11 @@ func recoveryPreconditionSatisfied(precondition string, failedObservation turnOb
 		}
 		switch normalizedPrecondition {
 		case "source_changed":
-			if observation.Tool == "file.write" || observation.Tool == "file.edit" {
+			if observation.RecoveryStep == recoveryStepPrecondition && observation.RecoveryForObservationID == failedObservation.ObservationID && (observation.Tool == "file.write" || observation.Tool == "file.edit") {
 				return true
 			}
 		case "workspace_repaired":
-			if observation.Tool == "site.repair" || observation.Tool == "site.status" {
+			if observation.RecoveryStep == recoveryStepPrecondition && observation.RecoveryForObservationID == failedObservation.ObservationID && (observation.Tool == "site.repair" || observation.Tool == "site.status") {
 				return true
 			}
 		case "dependency_changed":
@@ -266,11 +266,11 @@ func recoveryPreconditionSatisfied(precondition string, failedObservation turnOb
 				return true
 			}
 		case siteBuiltRecoveryPrecondition:
-			if observation.Tool == "terminal.run" && terminalObservationIsSiteBuild(observation) {
+			if observation.RecoveryStep == recoveryStepPrecondition && observation.RecoveryForObservationID == failedObservation.ObservationID && observation.Tool == "terminal.run" && terminalObservationIsSiteBuild(observation) {
 				return true
 			}
 		case "inspected_failure":
-			if observation.Tool == "file.read" || observation.Tool == "site.status" {
+			if observation.RecoveryStep == recoveryStepInspection && observation.RecoveryForObservationID == failedObservation.ObservationID {
 				return true
 			}
 		default:

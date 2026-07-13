@@ -177,7 +177,10 @@ func (agentTurnRunner *AgentTurnRunner) finalizeCompletionState(taskRunID string
 	}))
 	reply := agentTurnRunner.prepareFinishMessageForPlatform(request, finishActionMessage(actionDocument), completionGateResult.Attachments)
 	agentTurnRunner.saveStep(taskRunID, taskStepID, task.TaskStatusCompleted, "completion_state "+string(completionActionFinalizeWithEvidence), reply)
-	completedTaskRun, _ := agentTurnRunner.taskRunService.CompleteTaskRun(taskRunID, reply)
+	completedTaskRun, errorValue := agentTurnRunner.taskRunService.CompleteTaskRun(taskRunID, reply)
+	if errorValue != nil {
+		return completionTransition{Observations: observations, Attachments: attachments}
+	}
 	return completionTransition{
 		Observations:  observations,
 		Attachments:   appendUniqueAttachments(attachments, completionGateResult.Attachments),

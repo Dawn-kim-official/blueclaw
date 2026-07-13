@@ -36,7 +36,7 @@ done
 
 requester_person_id="$(curl -fsS "$blueclaw_url/admin/api/policy" | jq -er '.people[0].personID')"
 task_response="$(curl -fsS --max-time 900 -H 'Content-Type: application/json' \
-  -d "$(jq -nc --arg person "$requester_person_id" '{requesterPersonID:$person,requesterName:"Artifact Delivery Regression",conversationID:"regression:artifact-delivery",prompt:"Create a small valid HTML file named artifact-delivery.html containing the heading Local Fleet Artifact Delivery Test, then attach and deliver the HTML file to me.",pinnedSkillNames:["presentation"]}')" \
+  -d "$(jq -nc --arg person "$requester_person_id" '{requesterPersonID:$person,requesterName:"Artifact Delivery Regression",conversationID:"regression:artifact-delivery",prompt:"First call file.read with materialID regression:missing-material to confirm that unavailable input does not stop independent work. Whether that read succeeds or fails, create a small valid HTML file named artifact-delivery.html containing the exact heading Local Fleet Recovery Artifact Delivery Test, then attach and deliver the HTML file to me.",pinnedSkillNames:["presentation"]}')" \
   "$blueclaw_url/admin/api/task/run")"
 task_run_id="$(jq -er '.taskRun.taskRunID' <<<"$task_response")"
 printf '%s\n' "$task_response" >"$evidence_directory_path/task-run.json"
@@ -46,6 +46,13 @@ jq -e '[.attachments[]? | select((.filename // "") | endswith(".html"))] | lengt
 
 task_detail="$(curl -fsS "$blueclaw_url/admin/api/task/detail?taskRunID=$task_run_id")"
 printf '%s\n' "$task_detail" >"$evidence_directory_path/task-detail.json"
+read_observation_id="$(jq -er '[.taskEvents[]? | select(.name == "tool.file.read.result") | .body | fromjson? | select(.failure.code == "invalid_input")] | first | .observationID' <<<"$task_detail")"
+write_observation_id="$(jq -er '[.taskEvents[]? | select(.name == "tool.file.write.result") | .body | fromjson? | select(.failure == null)] | first | .observationID' <<<"$task_detail")"
+read_observation_number="${read_observation_id#obs-}"
+write_observation_number="${write_observation_id#obs-}"
+test "$((10#$write_observation_number))" -gt "$((10#$read_observation_number))"
+jq -e '[.taskEvents[]? | select(.name == "agent.recovery_choice_rejected")] | length == 0' <<<"$task_detail" >/dev/null
+jq -e '[.taskEvents[]? | select(.name == "tool.file.write.requested") | .body | fromjson? | select((.input.content // "") | contains("Local Fleet Recovery Artifact Delivery Test"))] | length > 0' <<<"$task_detail" >/dev/null
 jq -e '[.taskEvents[]? | select(.name == "tool.file.deliver.result") | .body | fromjson? | .attachments[]? | select((.filename // "") | endswith(".html"))] | length > 0' <<<"$task_detail" >/dev/null
 
 html_filename="$(jq -er '.attachments[] | select((.filename // "") | endswith(".html")) | .filename' <<<"$task_response" | head -n 1)"

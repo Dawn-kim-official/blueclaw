@@ -526,6 +526,136 @@ func TestFileReadUsesCachedAttachmentPreviewWhenMaterialFileIsNotMounted(t *test
 	}
 }
 
+func TestFileReadResolvesAttachmentMaterialID(t *testing.T) {
+	workspacePath := t.TempDir()
+	filePath := filepath.Join(workspacePath, "private", "people", "person-1", "inbox", "mattermost", "post-1", "report.html")
+	writeTestFile(t, filePath, "<h1>Material Read</h1>")
+	toolCatalogBuilder := newFileToolTestCatalogBuilder(workspacePath)
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
+		ProfileName:       "default",
+		RequesterPersonID: "person-1",
+		PersonAccess:      policy.PersonAccess{PersonID: "person-1", Circles: []string{"staff"}},
+		AttachmentMaterialResolver: staticAttachmentMaterialResolver{
+			material: agent.VisibleContextMaterial{
+				MaterialID:  "mattermost:file-1",
+				Filename:    "report.html",
+				ContentType: "text/html",
+				Path:        "inbox/mattermost/post-1/report.html",
+			},
+		},
+	})
+
+	readResult, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+		ToolName: "file.read",
+		Input:    agent.MarshalToolInput(map[string]any{"materialID": "mattermost:file-1"}),
+	})
+
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if readResult.Failed() {
+		t.Fatalf("expected resolved material file.read success, got %s", readResult.ContentText())
+	}
+	if !strings.Contains(readResult.ContentText(), "Material Read") || strings.Contains(readResult.ContentText(), `"source":"attachmentPreview"`) {
+		t.Fatalf("expected exact resolved material read, got %s", readResult.ContentText())
+	}
+}
+
+func TestFileReadUsesResolvedAttachmentPreviewWithoutWorkspaceStat(t *testing.T) {
+	workspacePath := t.TempDir()
+	toolCatalogBuilder := newFileToolTestCatalogBuilder(workspacePath)
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
+		ProfileName:       "default",
+		RequesterPersonID: "person-1",
+		PersonAccess:      policy.PersonAccess{PersonID: "person-1", Circles: []string{"staff"}},
+		AttachmentMaterialResolver: staticAttachmentMaterialResolver{
+			material: agent.VisibleContextMaterial{
+				MaterialID:        "mattermost:file-1",
+				Filename:          "report.html",
+				ContentType:       "text/html",
+				Path:              "home/inbox/mattermost/post-1/report.html",
+				MarkdownPreview:   "<h1>Resolved Read Preview</h1>",
+				ConversionStatus:  "converted",
+				ConversionMessage: "raw text preview",
+			},
+		},
+	})
+
+	readResult, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+		ToolName: "file.read",
+		Input:    agent.MarshalToolInput(map[string]any{"materialID": "mattermost:file-1"}),
+	})
+
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if readResult.Failed() {
+		t.Fatalf("expected resolved attachment preview read success, got %s", readResult.ContentText())
+	}
+	if !strings.Contains(readResult.ContentText(), "Resolved Read Preview") || !strings.Contains(readResult.ContentText(), `"source":"attachmentPreview"`) {
+		t.Fatalf("expected resolved attachment preview read, got %s", readResult.ContentText())
+	}
+}
+
+func TestFileReadDoesNotTreatFailedEmptyPreviewAsContent(t *testing.T) {
+	workspacePath := t.TempDir()
+	filePath := filepath.Join(workspacePath, "private", "people", "person-1", "inbox", "mattermost", "post-1", "report.html")
+	writeTestFile(t, filePath, "<h1>Exact Material Content</h1>")
+	toolCatalogBuilder := newFileToolTestCatalogBuilder(workspacePath)
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
+		ProfileName:       "default",
+		RequesterPersonID: "person-1",
+		PersonAccess:      policy.PersonAccess{PersonID: "person-1", Circles: []string{"staff"}},
+		AttachmentMaterialResolver: staticAttachmentMaterialResolver{
+			material: agent.VisibleContextMaterial{
+				MaterialID:        "mattermost:file-1",
+				Filename:          "report.html",
+				ContentType:       "text/html",
+				Path:              "inbox/mattermost/post-1/report.html",
+				ConversionStatus:  "failed",
+				ConversionMessage: "conversion unavailable",
+			},
+		},
+	})
+
+	readResult, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+		ToolName: "file.read",
+		Input:    agent.MarshalToolInput(map[string]any{"materialID": "mattermost:file-1"}),
+	})
+
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if readResult.Failed() || !strings.Contains(readResult.ContentText(), "Exact Material Content") || strings.Contains(readResult.ContentText(), `"source":"attachmentPreview"`) {
+		t.Fatalf("expected exact file read instead of empty failed preview, got %+v", readResult)
+	}
+}
+
+func TestFileReadMaterialIDResolutionFailureIsTyped(t *testing.T) {
+	workspacePath := t.TempDir()
+	toolCatalogBuilder := newFileToolTestCatalogBuilder(workspacePath)
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
+		ProfileName:       "default",
+		RequesterPersonID: "person-1",
+		PersonAccess:      policy.PersonAccess{PersonID: "person-1", Circles: []string{"staff"}},
+	})
+
+	readResult, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+		ToolName: "file.read",
+		Input:    agent.MarshalToolInput(map[string]any{"materialID": "mattermost:file-1"}),
+	})
+
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if !readResult.Failed() || readResult.Failure == nil || readResult.Failure.Stage != "file_read" {
+		t.Fatalf("expected typed attachment-resolution failure, got %+v", readResult)
+	}
+	if !strings.Contains(readResult.ContentText(), "attachment material resolver is unavailable") || strings.Contains(readResult.ContentText(), "path or materialID is required") {
+		t.Fatalf("expected truthful attachment-resolution failure, got %s", readResult.ContentText())
+	}
+}
+
 func TestFilePreviewResolvesAttachmentMaterialID(t *testing.T) {
 	workspacePath := t.TempDir()
 	filePath := filepath.Join(workspacePath, "private", "people", "person-1", "inbox", "mattermost", "post-1", "report.html")

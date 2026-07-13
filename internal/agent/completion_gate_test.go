@@ -1488,9 +1488,9 @@ func TestAgentTurnRunnerFileExpectedResultRequiresAttachment(t *testing.T) {
 func TestAgentTurnRunnerRejectsQualityGateRetryUntilSourceChanges(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		`{"action":"continue","toolName":"capability.invoke","toolInput":{"operation":"site.build","input":{"siteID":"site-1"}}}`,
-		`{"action":"continue","toolName":"capability.invoke","toolInput":{"operation":"site.build","input":{"siteID":"site-1"}},"recoveryForObservationID":"obs-001"}`,
-		`{"action":"continue","toolName":"file.write","toolInput":{"path":"/workspace/sites/site-1/app/src/App.tsx","content":"export default function App(){return <main>Portfolio</main>}"},"recoveryForObservationID":"obs-001"}`,
-		`{"action":"continue","toolName":"capability.invoke","toolInput":{"operation":"site.build","input":{"siteID":"site-1"}},"recoveryForObservationID":"obs-001"}`,
+		`{"action":"continue","toolName":"capability.invoke","toolInput":{"operation":"site.build","input":{"siteID":"site-1"}}}`,
+		`{"action":"continue","toolName":"file.write","toolInput":{"path":"/workspace/sites/site-1/app/src/App.tsx","content":"export default function App(){return <main>Portfolio</main>}"}}`,
+		`{"action":"continue","toolName":"capability.invoke","toolInput":{"operation":"site.build","input":{"siteID":"site-1"}}}`,
 		finishMessageWithEvidence("수정 후 빌드했습니다.", "obs-005", "site.build", 0),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 8, MaxToolCallCount: 6})
@@ -1624,8 +1624,8 @@ func TestAgentTurnRunnerFinalizesScheduleCreateAfterSuccess(t *testing.T) {
 func TestAgentTurnRunnerDoesNotBlockTerminalRerunForMissingFile(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		`{"action":"continue","toolName":"terminal.run","toolInput":{"command":"NAME=deck ./build.sh"}}`,
-		`{"action":"continue","toolName":"file.write","toolInput":{"path":"tmp/deck/presentation.md","content":"# Deck"},"recoveryForObservationID":"obs-001"}`,
-		`{"action":"continue","toolName":"terminal.run","toolInput":{"command":"NAME=deck ./build.sh"},"recoveryForObservationID":"obs-001"}`,
+		`{"action":"continue","toolName":"file.write","toolInput":{"path":"tmp/deck/presentation.md","content":"# Deck"}}`,
+		`{"action":"continue","toolName":"terminal.run","toolInput":{"command":"NAME=deck ./build.sh"}}`,
 		finishMessageDocument("done"),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 6, MaxToolCallCount: 6})
@@ -1634,7 +1634,10 @@ func TestAgentTurnRunnerDoesNotBlockTerminalRerunForMissingFile(t *testing.T) {
 	toolRegistry.RegisterTool(ToolDefinition{Name: "terminal.run"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		terminalCallCount++
 		if terminalCallCount == 1 {
-			return ToolFailureResult(FailureExternalService, FailureCodes.OperationFailed, "terminal_run", `{"exitCode":1,"stdout":"","stderr":"Error: presentation.md not found. Create presentation.md or set SRC=yourfile.md\n","timedOut":false}`), nil
+			result := ToolFailureResult(FailureExternalService, FailureCodes.OperationFailed, "terminal_run", `{"exitCode":1,"stdout":"","stderr":"Error: presentation.md not found. Create presentation.md or set SRC=yourfile.md\n","timedOut":false}`)
+			result.Failure.RequiredPreconditions = []string{"source_changed"}
+			result.Failure.RecoveryHints = []RecoveryHint{{Action: "create_source", ToolNames: []string{"file.write"}}}
+			return result, nil
 		}
 		return ToolSuccess(`{"exitCode":0,"stdout":"built","stderr":"","timedOut":false}`), nil
 	})
@@ -1718,8 +1721,8 @@ func TestAgentTurnRunnerStopsRepeatedMissingEvidenceState(t *testing.T) {
 func TestAgentTurnRunnerDoesNotBlockTerminalRerunForMissingDesignFile(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		`{"action":"continue","toolName":"terminal.run","toolInput":{"command":"NAME=deck ./build.sh"}}`,
-		`{"action":"continue","toolName":"file.write","toolInput":{"path":"tmp/deck/DESIGN.md","content":"colors: blue"},"recoveryForObservationID":"obs-001"}`,
-		`{"action":"continue","toolName":"terminal.run","toolInput":{"command":"NAME=deck ./build.sh"},"recoveryForObservationID":"obs-001"}`,
+		`{"action":"continue","toolName":"file.write","toolInput":{"path":"tmp/deck/DESIGN.md","content":"colors: blue"}}`,
+		`{"action":"continue","toolName":"terminal.run","toolInput":{"command":"NAME=deck ./build.sh"}}`,
 		finishMessageDocument("done"),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 6, MaxToolCallCount: 6})
@@ -1728,7 +1731,10 @@ func TestAgentTurnRunnerDoesNotBlockTerminalRerunForMissingDesignFile(t *testing
 	toolRegistry.RegisterTool(ToolDefinition{Name: "terminal.run"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		terminalCallCount++
 		if terminalCallCount == 1 {
-			return ToolFailureResult(FailureExternalService, FailureCodes.OperationFailed, "terminal_run", `{"exitCode":1,"stdout":"","stderr":"DESIGN.md is missing colors:\n","timedOut":false}`), nil
+			result := ToolFailureResult(FailureExternalService, FailureCodes.OperationFailed, "terminal_run", `{"exitCode":1,"stdout":"","stderr":"DESIGN.md is missing colors:\n","timedOut":false}`)
+			result.Failure.RequiredPreconditions = []string{"source_changed"}
+			result.Failure.RecoveryHints = []RecoveryHint{{Action: "create_design", ToolNames: []string{"file.write"}}}
+			return result, nil
 		}
 		return ToolSuccess(`{"exitCode":0,"stdout":"built","stderr":"","timedOut":false}`), nil
 	})

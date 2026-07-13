@@ -104,9 +104,13 @@ func (agentTurnRunner *AgentTurnRunner) rejectRepeatedToolCall(taskRunID string,
 		result, shouldStop := stopForNoProgress(stepID)
 		return toolCallActionOutcome{Result: result, ShouldReturn: shouldStop, WasHandled: true}
 	}
-	if duplicateFailure, isDuplicateFailure := previousFailedToolInput(state.Observations, actionDocument.ToolName, actionDocument.ToolInput); isDuplicateFailure {
+	if duplicateFailure, isDuplicateFailure := latestFailedToolInput(state.Observations, actionDocument.ToolName, actionDocument.ToolInput); isDuplicateFailure {
 		if len(requiredPreconditionsForObservation(duplicateFailure)) > 0 {
-			observation := recoveryChoiceRejectedObservation(len(state.Observations)+1, duplicateFailure, "Retrying "+strings.TrimSpace(actionDocument.ToolName)+" requires evidence first: "+strings.Join(missingRecoveryPreconditions(duplicateFailure, state.Observations), ", "))
+			missingPreconditions := missingRecoveryPreconditions(duplicateFailure, state.Observations)
+			if len(missingPreconditions) == 0 {
+				return toolCallActionOutcome{}
+			}
+			observation := recoveryChoiceRejectedObservation(len(state.Observations)+1, duplicateFailure, "Retrying "+strings.TrimSpace(actionDocument.ToolName)+" requires evidence first: "+strings.Join(missingPreconditions, ", "))
 			state.Observations = append(state.Observations, observation)
 			agentTurnRunner.appendEvent(taskRunID, "agent.recovery_choice_rejected", marshalEventBody(observation))
 			agentTurnRunner.saveStep(taskRunID, stepID, task.TaskStatusCompleted, "recovery_choice_rejected "+actionDocument.ToolName, observation.ContentText())

@@ -6,10 +6,52 @@ import (
 	"testing"
 )
 
+func TestAgentTurnRunnerAllowsUnrelatedWriteAfterReadFailure(t *testing.T) {
+	languageModel := &sequenceLanguageModel{contents: []string{
+		`{"action":"continue","toolName":"file.read","toolInput":{"materialID":"missing-material"}}`,
+		`{"action":"continue","toolName":"file.write","toolInput":{"path":"home/documents/result.html","content":"<h1>Recovered output</h1>"}}`,
+		failureReportDocument("원본 읽기는 실패했지만 결과 파일은 생성했습니다.", "file.read", "continue", FailureCodes.InvalidInput.String(), "file_read", "material not found"),
+	}}
+	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 5, MaxToolCallCount: 5})
+	toolRegistry := newTestToolSet([]string{"file.read", "file.write"})
+	toolRegistry.RegisterTool(ToolDefinition{Name: "file.read"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return ToolFailureResult(FailureInvalidInput, FailureCodes.InvalidInput, "file_read", "material not found"), nil
+	})
+	writeCallCount := 0
+	toolRegistry.RegisterTool(ToolDefinition{Name: "file.write"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		writeCallCount++
+		return ToolSuccess(`{"path":"home/documents/result.html","sizeBytes":25}`), nil
+	})
+
+	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
+		RequesterPersonID: "person-1",
+		ConversationID:    "conversation-1",
+		Prompt:            "create the result",
+		ToolSet:           toolRegistry,
+		PinnedToolNames:   toolRegistry.ListToolNames(),
+	})
+	if errorValue != nil {
+		t.Fatalf("expected unrelated progress to execute: %v", errorValue)
+	}
+	if writeCallCount != 1 {
+		t.Fatalf("expected file.write to execute once, got %d", writeCallCount)
+	}
+	events := services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID)
+	if taskEventsContain(events, "agent.recovery_choice_rejected", "file.write") {
+		t.Fatal("expected no recovery rejection for unrelated file.write")
+	}
+	if taskEventsContain(events, "agent.recovery_attempt", "file.write") {
+		t.Fatal("expected unrelated file.write not to spend recovery budget")
+	}
+	if !taskEventsContain(events, "agent.failure_debt_created", "missing-material") {
+		t.Fatal("expected original file.read debt to remain recorded")
+	}
+}
+
 func TestAgentTurnRunnerAllowsCorrectedRetryAfterSafeFailure(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		`{"action":"continue","toolName":"capability.invoke","toolInput":{"operation":"message.send","input":{"targetType":"directMessage","personHint":"샘플","message":"확인 부탁해"}}}`,
-		`{"action":"continue","toolName":"capability.invoke","toolInput":{"operation":"message.send","input":{"targetType":"directMessage","personHint":"이샘플","message":"확인 부탁해"}},"recoveryForObservationID":"obs-001"}`,
+		`{"action":"continue","toolName":"capability.invoke","toolInput":{"operation":"message.send","input":{"targetType":"directMessage","personHint":"이샘플","message":"확인 부탁해"}}}`,
 		finishMessageWithEvidence("sent", "obs-003", "message.send", 0),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{RecoveryAttemptLimit: 3})
@@ -99,8 +141,8 @@ func TestRecoveryAttemptCountOnlyIncludesSpentInterventions(t *testing.T) {
 func TestAgentTurnRunnerAllowsInspectionAfterAdjacentRecoveryBudgetExhausted(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		`{"action":"continue","toolName":"site.build","toolInput":{"siteID":"site-1"}}`,
-		`{"action":"continue","toolName":"file.read","toolInput":{"path":"home/sites/site-1/draft/app/src/App.tsx"},"recoveryForObservationID":"obs-001"}`,
-		`{"action":"continue","toolName":"file.edit","toolInput":{"path":"home/sites/site-1/draft/app/src/App.tsx","oldText":"broken","newText":"fixed"},"recoveryForObservationID":"obs-001"}`,
+		`{"action":"continue","toolName":"file.read","toolInput":{"path":"home/sites/site-1/draft/app/src/App.tsx"}}`,
+		`{"action":"continue","toolName":"file.edit","toolInput":{"path":"home/sites/site-1/draft/app/src/App.tsx","oldText":"broken","newText":"fixed"}}`,
 		finishMessageDocument("확인했습니다."),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{

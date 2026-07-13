@@ -10,7 +10,7 @@ import (
 func TestAgentTurnRunnerRejectsOffTopicAskInputAfterToolFailureRecovery(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		`{"action":"continue","toolName":"terminal.run","toolInput":{"input":"continue"}}`,
-		`{"action":"continue","toolName":"ask.input","toolInput":{"question":"What is Gemma"},"recoveryForObservationID":"obs-001"}`,
+		`{"action":"continue","toolName":"ask.input","toolInput":{"question":"What is Gemma"}}`,
 		failureReportDocument("업무 등록에 필요한 실행이 실패했습니다.", "terminal.run", "continue", FailureCodes.InvalidInput.String(), "terminal_run", "executableName is required"),
 	}, askRelevanceDecisions: []string{`{"isRequired":false,"reason":"The question changes the subject from task registration to Gemma."}`}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{RecoveryAttemptLimit: 3, MaxIterationCount: 6, MaxToolCallCount: 6})

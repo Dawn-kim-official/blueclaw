@@ -175,42 +175,57 @@ func attemptFingerprint(toolInputKey string, errorCode string) string {
 	return normalizedToolInputKey + "\x00" + normalizedErrorCode
 }
 
-func previousFailedToolInput(observations []turnObservation, toolName string, toolInput json.RawMessage) (turnObservation, bool) {
+func latestFailedToolInput(observations []turnObservation, toolName string, toolInput json.RawMessage) (turnObservation, bool) {
 	expectedKey := canonicalToolCallKey(toolName, toolInput)
 	for index := len(observations) - 1; index >= 0; index-- {
 		observation := observations[index]
-		if observation.Action != "continue" {
+		if observation.Action != "continue" || !observation.Failed() || strings.TrimSpace(observation.ToolInputKey) != expectedKey {
 			continue
 		}
-		if !observation.Failed() {
-			return turnObservation{}, false
-		}
-		if strings.TrimSpace(observation.ToolInputKey) == expectedKey {
-			return observation, true
-		}
+		return observation, true
 	}
 	return turnObservation{}, false
 }
 
-func classifyRecoveryStep(failureDebt FailureDebt, toolName string) string {
+func classifyRecoveryStep(failureDebt FailureDebt, toolName string) (string, bool) {
 	failedToolName := strings.TrimSpace(failureDebt.LatestFailure.Tool)
 	recoveryToolName := strings.TrimSpace(toolName)
 	if failedToolName == recoveryToolName {
-		return recoveryStepCorrectedRetry
+		return recoveryStepCorrectedRetry, true
 	}
 	if isAlternateRouteToolPair(failedToolName, recoveryToolName) {
-		return recoveryStepAlternateRoute
+		return recoveryStepAlternateRoute, true
 	}
 	if toolCanSatisfyRecoveryPrecondition(failureDebt.LatestFailure, recoveryToolName) {
-		return recoveryStepPrecondition
+		return recoveryStepPrecondition, true
 	}
-	if isInspectionRecoveryTool(recoveryToolName) {
-		return recoveryStepInspection
+	if recoveryHintAllowsTool(failureDebt.LatestFailure, recoveryToolName) {
+		if isInspectionRecoveryTool(recoveryToolName) {
+			return recoveryStepInspection, true
+		}
+		return recoveryStepAdjacentTool, true
 	}
-	return recoveryStepAdjacentTool
+	return "", false
+}
+
+func recoveryHintAllowsTool(failedObservation turnObservation, toolName string) bool {
+	if failedObservation.Failure == nil {
+		return false
+	}
+	for _, recoveryHint := range failedObservation.Failure.RecoveryHints {
+		for _, recoveryToolName := range recoveryHint.ToolNames {
+			if strings.TrimSpace(recoveryToolName) == strings.TrimSpace(toolName) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func toolCanSatisfyRecoveryPrecondition(failedObservation turnObservation, toolName string) bool {
+	if !recoveryHintAllowsTool(failedObservation, toolName) {
+		return false
+	}
 	for _, precondition := range requiredPreconditionsForObservation(failedObservation) {
 		switch strings.TrimSpace(precondition) {
 		case "source_changed":
@@ -240,28 +255,11 @@ func isInspectionRecoveryTool(toolName string) bool {
 }
 
 func isAlternateRouteToolPair(firstToolName string, secondToolName string) bool {
-	if isMemorySearchWebSearchRoute(firstToolName, secondToolName) {
-		return true
-	}
-	firstRoute := recoveryRouteGroup(firstToolName)
-	secondRoute := recoveryRouteGroup(secondToolName)
-	return firstRoute != "" && firstRoute == secondRoute
+	return isMemorySearchWebSearchRoute(firstToolName, secondToolName)
 }
 
 func isMemorySearchWebSearchRoute(firstToolName string, secondToolName string) bool {
 	return strings.TrimSpace(firstToolName) == "memory.search" && strings.TrimSpace(secondToolName) == "web.search"
-}
-
-func recoveryRouteGroup(toolName string) string {
-	trimmedToolName := strings.TrimSpace(toolName)
-	switch {
-	case strings.HasPrefix(trimmedToolName, "browser.") || strings.HasPrefix(trimmedToolName, "browser_handoff.") || strings.HasPrefix(trimmedToolName, "web."):
-		return "web"
-	case strings.HasPrefix(trimmedToolName, "terminal."):
-		return "terminal"
-	default:
-		return ""
-	}
 }
 
 func recoveryBudgetAllowsStep(observations []turnObservation, budget RecoveryBudget, recoveryStep string) bool {
@@ -481,7 +479,7 @@ func recoveryToolBudgetExhaustedForRequest(observations []turnObservation, toolS
 			return false
 		}
 	}
-	if adjacentRecoveryToolIsAvailable(toolSet, failureDebt.LatestFailure.Tool) {
+	if adjacentRecoveryToolIsAvailable(toolSet, failureDebt.LatestFailure) {
 		if recoveryStepUseCount(observations, recoveryStepAdjacentTool) < budget.AdjacentTool {
 			return false
 		}
@@ -506,14 +504,14 @@ func alternateRouteToolIsAvailable(toolSet *ToolSet, failedToolName string) bool
 	return false
 }
 
-func adjacentRecoveryToolIsAvailable(toolSet *ToolSet, failedToolName string) bool {
+func adjacentRecoveryToolIsAvailable(toolSet *ToolSet, failedObservation turnObservation) bool {
 	if toolSet == nil {
 		return false
 	}
-	normalizedFailedToolName := strings.TrimSpace(failedToolName)
+	failedToolName := strings.TrimSpace(failedObservation.Tool)
 	for _, toolName := range toolSet.ListToolNames() {
 		normalizedToolName := strings.TrimSpace(toolName)
-		if normalizedToolName != "" && normalizedToolName != normalizedFailedToolName && !isAlternateRouteToolPair(normalizedFailedToolName, normalizedToolName) {
+		if normalizedToolName != "" && normalizedToolName != failedToolName && !isAlternateRouteToolPair(failedToolName, normalizedToolName) && recoveryHintAllowsTool(failedObservation, normalizedToolName) {
 			return true
 		}
 	}

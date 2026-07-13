@@ -1598,13 +1598,14 @@ func TestConnectorRuntimeDoesNotFilterUserNoticeAttachmentClaimText(t *testing.T
 	sentReplies := []OutboundReply{}
 	event := testInboundEvent("message-1")
 	event.Prompt = "파일 만들어줘"
+	attachment := agent.FileAttachment{DevicePath: "home/documents/result.html", Filename: "result.html", ContentType: "text/html"}
 	dispatchID, isSent := connectorRuntime.sendUserNoticeReply(
 		context.Background(),
 		"test",
 		event,
 		"task-1",
 		ReplyTarget{ConversationID: "direct-1", ReplyTargetID: "reply-target-1"},
-		agent.AgentTurnResult{UserNotice: "파일을 생성해 첨부했습니다."},
+		agent.AgentTurnResult{UserNotice: "파일을 생성해 첨부했습니다.", Attachments: []agent.FileAttachment{attachment}},
 		func(_ context.Context, _ ReplyTarget, reply OutboundReply) (string, error) {
 			sentReplies = append(sentReplies, reply)
 			return "dispatch-1", nil
@@ -1614,8 +1615,8 @@ func TestConnectorRuntimeDoesNotFilterUserNoticeAttachmentClaimText(t *testing.T
 	if !isSent || dispatchID != "dispatch-1" {
 		t.Fatalf("expected user notice to send, got dispatchID=%q sent=%v", dispatchID, isSent)
 	}
-	if len(sentReplies) != 1 || sentReplies[0].Message != "파일을 생성해 첨부했습니다." {
-		t.Fatalf("expected unchanged user notice reply, got %+v", sentReplies)
+	if len(sentReplies) != 1 || sentReplies[0].Message != "파일을 생성해 첨부했습니다." || len(sentReplies[0].Attachments) != 1 || sentReplies[0].Attachments[0].Filename != "result.html" {
+		t.Fatalf("expected unchanged user notice with attachment, got %+v", sentReplies)
 	}
 }
 

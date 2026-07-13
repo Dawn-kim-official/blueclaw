@@ -77,10 +77,22 @@ func evaluateRecoveryAllowance(observations []turnObservation, budget RecoveryBu
 	if recoveryBudgetAllowsStep(observations, budget, recoveryStepAlternateRoute) {
 		return recoveryAllowance{CanRecover: true, Reason: "alternate route budget remains"}
 	}
-	if recoveryBudgetAllowsStep(observations, budget, recoveryStepAdjacentTool) {
+	if recoveryHintAllowsAnyTool(failureDebt.LatestFailure) && recoveryBudgetAllowsStep(observations, budget, recoveryStepAdjacentTool) {
 		return recoveryAllowance{CanRecover: true, Reason: "adjacent tool budget remains"}
 	}
 	return recoveryAllowance{CanRecover: false, Reason: "tool recovery budget exhausted"}
+}
+
+func recoveryHintAllowsAnyTool(observation turnObservation) bool {
+	if observation.Failure == nil {
+		return false
+	}
+	for _, recoveryHint := range observation.Failure.RecoveryHints {
+		if len(recoveryHint.ToolNames) > 0 {
+			return true
+		}
+	}
+	return false
 }
 
 // repeatedFailureSignature returns a human-readable signature when the latest

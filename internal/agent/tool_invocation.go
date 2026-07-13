@@ -10,12 +10,12 @@ import (
 	"blueclaw/internal/llm"
 )
 
-func (agentTurnRunner *AgentTurnRunner) recordToolObservation(taskRunID string, state *agentTaskState, actionDocument turnActionDocument, successfulToolCalls map[string]turnObservation, observation turnObservation, recoveryStep string) {
+func (agentTurnRunner *AgentTurnRunner) recordToolObservation(taskRunID string, state *agentTaskState, actionDocument turnActionDocument, successfulToolCalls map[string]turnObservation, observation turnObservation, recoveryStep string, recoveryForObservationID string) {
 	if recoveryStep != "" {
 		observation.RecoveryStep = recoveryStep
 		observation.RecoveryAttemptSpent = recoveryStep != recoveryStepInspection
 		observation.RecoveryAttemptKey = canonicalToolCallKey(actionDocument.ToolName, actionDocument.ToolInput)
-		observation.RecoveryForObservationID = strings.TrimSpace(actionDocument.RecoveryForObservationID)
+		observation.RecoveryForObservationID = strings.TrimSpace(recoveryForObservationID)
 	}
 	state.Observations = append(state.Observations, observation)
 	state.Attachments = appendObservationAttachments(state.Attachments, observation)

@@ -7,30 +7,24 @@ import (
 	"blueclaw/internal/task"
 )
 
-func (agentTurnRunner *AgentTurnRunner) prepareRecoveryAttempt(ctx context.Context, taskRunID string, stepID string, request AgentTurnRequest, state *agentTaskState, actionDocument turnActionDocument, stopForNoProgress func(string) (AgentTurnResult, bool)) (string, toolCallActionOutcome) {
+func (agentTurnRunner *AgentTurnRunner) prepareRecoveryAttempt(ctx context.Context, taskRunID string, stepID string, request AgentTurnRequest, state *agentTaskState, actionDocument turnActionDocument, stopForNoProgress func(string) (AgentTurnResult, bool)) (string, string, toolCallActionOutcome) {
 	failureDebt, hasFailureDebt := activeFailureDebt(state.Observations)
 	if !hasFailureDebt {
-		return "", toolCallActionOutcome{}
-	}
-	if strings.TrimSpace(actionDocument.RecoveryForObservationID) != failureDebt.LatestFailure.ObservationID {
-		reason := "Recovery tool calls must set recoveryForObservationID to the active FailureDebt observationID " + failureDebt.LatestFailure.ObservationID + "."
-		observation := recoveryChoiceRejectedObservation(len(state.Observations)+1, failureDebt.LatestFailure, reason)
-		state.Observations = append(state.Observations, observation)
-		agentTurnRunner.appendEvent(taskRunID, "agent.recovery_choice_rejected", marshalEventBody(observation))
-		agentTurnRunner.saveStep(taskRunID, stepID, task.TaskStatusCompleted, "recovery_choice_rejected", observation.ContentText())
-		result, shouldStop := stopForNoProgress(stepID)
-		return "", toolCallActionOutcome{Result: result, ShouldReturn: shouldStop, WasHandled: true}
+		return "", "", toolCallActionOutcome{}
 	}
 	effectiveToolName := effectiveObservationToolName(actionDocument.ToolName, actionDocument.ToolInput)
+	recoveryStep, isRecovery := classifyRecoveryStep(failureDebt, effectiveToolName)
+	if !isRecovery {
+		return "", "", toolCallActionOutcome{}
+	}
 	if isAllowed, reason := recoveryChoiceIsAllowed(failureDebt, state.Observations, effectiveToolName); !isAllowed {
 		observation := recoveryChoiceRejectedObservation(len(state.Observations)+1, failureDebt.LatestFailure, reason)
 		state.Observations = append(state.Observations, observation)
 		agentTurnRunner.appendEvent(taskRunID, "agent.recovery_choice_rejected", marshalEventBody(observation))
 		agentTurnRunner.saveStep(taskRunID, stepID, task.TaskStatusCompleted, "recovery_choice_rejected "+effectiveToolName, observation.ContentText())
 		result, shouldStop := stopForNoProgress(stepID)
-		return "", toolCallActionOutcome{Result: result, ShouldReturn: shouldStop, WasHandled: true}
+		return "", "", toolCallActionOutcome{Result: result, ShouldReturn: shouldStop, WasHandled: true}
 	}
-	recoveryStep := classifyRecoveryStep(failureDebt, effectiveToolName)
 	if !recoveryBudgetAllowsStep(state.Observations, agentTurnRunner.options.RecoveryBudget, recoveryStep) {
 		observation := recoveryBudgetExhaustedObservation(len(state.Observations)+1, failureDebt.LatestFailure, recoveryStep, firstNonEmptyString(request.ActiveGoal.OriginalInstruction, request.Prompt))
 		state.Observations = append(state.Observations, observation)
@@ -38,18 +32,19 @@ func (agentTurnRunner *AgentTurnRunner) prepareRecoveryAttempt(ctx context.Conte
 		agentTurnRunner.saveStep(taskRunID, stepID, task.TaskStatusCompleted, "recovery_budget_exhausted "+effectiveToolName, observation.ContentText())
 		if recoveryToolBudgetExhaustedForRequest(state.Observations, request.ToolSet, agentTurnRunner.options.RecoveryBudget, failureDebt) {
 			result := agentTurnRunner.runTerminalNoToolsStep(ctx, taskRunID, stepID, request, state, "recovery_tool_budget_exhausted")
-			return "", toolCallActionOutcome{Result: result, ShouldReturn: true, WasHandled: true}
+			return "", "", toolCallActionOutcome{Result: result, ShouldReturn: true, WasHandled: true}
 		}
 		result, shouldStop := stopForNoProgress(stepID)
-		return "", toolCallActionOutcome{Result: result, ShouldReturn: shouldStop, WasHandled: true}
+		return "", "", toolCallActionOutcome{Result: result, ShouldReturn: shouldStop, WasHandled: true}
 	}
 	agentTurnRunner.appendEvent(taskRunID, "agent.recovery_attempt", marshalEventBody(map[string]any{
-		"status":       "started",
-		"recoveryStep": recoveryStep,
-		"toolName":     effectiveToolName,
-		"debt":         failureDebt,
+		"status":                   "started",
+		"recoveryStep":             recoveryStep,
+		"recoveryForObservationID": failureDebt.LatestFailure.ObservationID,
+		"toolName":                 effectiveToolName,
+		"debt":                     failureDebt,
 	}))
-	return recoveryStep, toolCallActionOutcome{}
+	return recoveryStep, failureDebt.LatestFailure.ObservationID, toolCallActionOutcome{}
 }
 
 func recoveryGuidanceObservation(index int, observation turnObservation, originalInstruction string) turnObservation {

@@ -13,9 +13,11 @@ import (
 )
 
 type approvalHeldCall struct {
-	ToolName     string          `json:"toolName"`
-	ToolInput    json.RawMessage `json:"toolInput"`
-	Confirmation string          `json:"confirmation"`
+	ToolName                 string          `json:"toolName"`
+	ToolInput                json.RawMessage `json:"toolInput"`
+	Confirmation             string          `json:"confirmation"`
+	RecoveryStep             string          `json:"recoveryStep,omitempty"`
+	RecoveryForObservationID string          `json:"recoveryForObservationID,omitempty"`
 }
 
 type approvalExecutedCall struct {
@@ -47,7 +49,7 @@ func approvalObservationText(observation turnObservation) string {
 	}, " "))
 }
 
-func (agentTurnRunner *AgentTurnRunner) requestHeldCallApproval(ctx context.Context, taskRunID string, stepID string, request AgentTurnRequest, state *agentTaskState, actionDocument turnActionDocument) toolCallActionOutcome {
+func (agentTurnRunner *AgentTurnRunner) requestHeldCallApproval(ctx context.Context, taskRunID string, stepID string, request AgentTurnRequest, state *agentTaskState, actionDocument turnActionDocument, recoveryValues ...string) toolCallActionOutcome {
 	confirmation, errorValue := agentTurnRunner.heldCallConfirmationWording(ctx, request, actionDocument)
 	if errorValue != nil {
 		result, _ := agentTurnRunner.failTurn(taskRunID, request, errorValue.Error(), state.Observations, state.Attachments, state.ExecutionState)
@@ -57,6 +59,12 @@ func (agentTurnRunner *AgentTurnRunner) requestHeldCallApproval(ctx context.Cont
 		ToolName:     strings.TrimSpace(actionDocument.ToolName),
 		ToolInput:    copyJSONRawMessage(actionDocument.ToolInput),
 		Confirmation: confirmation,
+	}
+	if len(recoveryValues) > 0 {
+		heldCall.RecoveryStep = strings.TrimSpace(recoveryValues[0])
+	}
+	if len(recoveryValues) > 1 {
+		heldCall.RecoveryForObservationID = strings.TrimSpace(recoveryValues[1])
 	}
 	agentTurnRunner.appendEvent(taskRunID, "approval.pending_call", marshalEventBody(heldCall))
 	pausedTaskRun, errorValue := agentTurnRunner.taskRunService.PauseTaskRun(taskRunID, task.TaskStatusWaitingApproval, confirmation)
@@ -104,7 +112,7 @@ func (agentTurnRunner *AgentTurnRunner) executeApprovedHeldCall(ctx context.Cont
 	state.ToolCallCount++
 	observationID := nextApprovalExecutionObservationID(taskEvents)
 	observation := agentTurnRunner.invokeTool(ctx, request.ToolSet, taskRunID, observationID, heldCall.ToolName, heldCall.ToolInput, request.WorkspaceRootPath, request.TurnStartedAt, request.ResponseLanguage, "")
-	agentTurnRunner.recordToolObservation(taskRunID, state, actionDocument, successfulToolCalls, observation, "")
+	agentTurnRunner.recordToolObservation(taskRunID, state, actionDocument, successfulToolCalls, observation, heldCall.RecoveryStep, heldCall.RecoveryForObservationID)
 	agentTurnRunner.appendEvent(taskRunID, "approval.executed", marshalEventBody(approvalExecutedCall{ToolName: heldCall.ToolName, ToolInput: copyJSONRawMessage(heldCall.ToolInput)}))
 	if pausedResult, isPaused := agentTurnRunner.pausedTaskResult(taskRunID, observation, state.Attachments); isPaused {
 		agentTurnRunner.saveStep(taskRunID, stepID, pausedResult.TaskRun.Status, "approval "+heldCall.ToolName, observation.ContentText())

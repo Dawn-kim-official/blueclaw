@@ -157,6 +157,8 @@ func TestSiteBuiltRecoveryPreconditionRequiresSiteBuildCommand(t *testing.T) {
 	}
 
 	build := siteBuildObservation("obs-005", "home/sites/site-1/draft/app", "bun scripts/build.ts")
+	build.RecoveryStep = recoveryStepPrecondition
+	build.RecoveryForObservationID = failedPublish.ObservationID
 	if missing := missingRecoveryPreconditions(failedPublish, []turnObservation{failedPublish, build}); len(missing) != 0 {
 		t.Fatalf("expected site build to satisfy precondition, got %+v", missing)
 	}

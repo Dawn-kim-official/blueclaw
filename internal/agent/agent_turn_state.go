@@ -345,7 +345,7 @@ func BuildAgentActionRequest(state agentTaskState) llm.StructuredResponseRequest
 	modelToolSet := modelCallableToolSet(state.Request.ToolSet)
 	blockedToolNames := blockedToolNamesForPreconditions(modelToolSet, requirements, state.Observations)
 	failureFacts := buildFailureReportFacts(state.Observations, state.Options.RecoveryBudget)
-	hasFailureDebt := len(failureFacts.Attempts) > 0
+	_, hasFailureDebt := activeFailureDebt(state.Observations)
 	allowFail := shouldExposeFailAction(state)
 	messages := (PromptAssembler{}).BuildTurnMessages(
 		state.Request,

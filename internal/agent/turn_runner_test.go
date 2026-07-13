@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -1619,6 +1620,81 @@ func TestAgentTurnRunnerDoesNotCompleteEffortStopFromUnrequestedAttachment(t *te
 	}
 	if len(result.Attachments) != 0 {
 		t.Fatalf("expected no delivery attachments, got %+v", result.Attachments)
+	}
+}
+
+func TestSettlementSkipsTerminalTaskRun(t *testing.T) {
+	services := newTurnRunnerTestServices(&sequenceLanguageModel{}, TurnOptions{})
+	taskRun := services.taskRunService.CreateTaskRun("person-1", "conversation-1", "make html")
+	if _, errorValue := services.taskRunService.FailTaskRun(taskRun.TaskRunID, "already failed"); errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	toolRegistry := newTestToolSet([]string{FileDeliverToolName})
+	deliveryCount := 0
+	toolRegistry.RegisterTool(ToolDefinition{Name: FileDeliverToolName}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		deliveryCount++
+		return ToolSuccess("delivered"), nil
+	})
+	request := AgentTurnRequest{
+		RequesterPersonID:          "person-1",
+		WorkspaceRootPath:          t.TempDir(),
+		TurnStartedAt:              time.Now().Add(-time.Second),
+		ToolSet:                    toolRegistry,
+		RequiredEvidenceTools:      []string{FileDeliverToolName},
+		RequiredAttachmentSuffixes: []string{".html"},
+	}
+	if errorValue := os.WriteFile(filepath.Join(request.WorkspaceRootPath, "result.html"), []byte("<h1>result</h1>"), 0o600); errorValue != nil {
+		t.Fatal(errorValue)
+	}
+
+	finalization := services.runner.settleCompletionBeforeExit(context.Background(), taskRun.TaskRunID, request, deriveToolUseRequirements(request), nil, nil, nil, ExecutionState{})
+
+	if finalization.IsCompleted || deliveryCount != 0 || len(finalization.Attachments) != 0 {
+		t.Fatalf("expected terminal task to skip settlement side effects, got completed=%v deliveries=%d attachments=%+v", finalization.IsCompleted, deliveryCount, finalization.Attachments)
+	}
+}
+
+func TestDeliverableFailureAttachmentsUsesOutcomeContract(t *testing.T) {
+	attachments := []FileAttachment{{Filename: "result.pdf", DevicePath: "/workspace/result.pdf"}}
+	request := AgentTurnRequest{OutcomeContract: OutcomeContract{
+		ArtifactRequirement:        ArtifactRequirementRequired,
+		RequiredAttachmentSuffixes: []string{".pdf"},
+	}}
+
+	result := deliverableFailureAttachments(request, attachments)
+
+	if len(result) != 1 || result[0].Filename != "result.pdf" {
+		t.Fatalf("expected outcome-contract attachment to survive failure, got %+v", result)
+	}
+}
+
+func TestSettlementSkipsDeliveryAfterContextCancellation(t *testing.T) {
+	services := newTurnRunnerTestServices(&sequenceLanguageModel{}, TurnOptions{})
+	taskRun := services.taskRunService.CreateTaskRun("person-1", "conversation-1", "make html")
+	toolRegistry := newTestToolSet([]string{FileDeliverToolName})
+	deliveryCount := 0
+	toolRegistry.RegisterTool(ToolDefinition{Name: FileDeliverToolName}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		deliveryCount++
+		return ToolSuccess("delivered"), nil
+	})
+	request := AgentTurnRequest{
+		RequesterPersonID:          "person-1",
+		WorkspaceRootPath:          t.TempDir(),
+		TurnStartedAt:              time.Now().Add(-time.Second),
+		ToolSet:                    toolRegistry,
+		RequiredEvidenceTools:      []string{FileDeliverToolName},
+		RequiredAttachmentSuffixes: []string{".html"},
+	}
+	if errorValue := os.WriteFile(filepath.Join(request.WorkspaceRootPath, "result.html"), []byte("<h1>result</h1>"), 0o600); errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	cancelledContext, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	finalization := services.runner.settleCompletionBeforeExit(cancelledContext, taskRun.TaskRunID, request, deriveToolUseRequirements(request), nil, nil, nil, ExecutionState{})
+
+	if finalization.IsCompleted || deliveryCount != 0 || len(finalization.Attachments) != 0 {
+		t.Fatalf("expected cancellation to skip settlement side effects, got completed=%v deliveries=%d attachments=%+v", finalization.IsCompleted, deliveryCount, finalization.Attachments)
 	}
 }
 

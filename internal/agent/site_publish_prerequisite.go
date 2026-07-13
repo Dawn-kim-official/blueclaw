@@ -22,6 +22,7 @@ func sitePublishPrerequisiteFailure(observations []turnObservation, actionDocume
 	observation.Failure.Retryable = true
 	observation.Failure.SafeRetry = true
 	observation.Failure.RequiredPreconditions = []string{siteBuiltRecoveryPrecondition}
+	observation.Failure.RecoveryHints = []RecoveryHint{{Action: "build_site", ToolNames: []string{"terminal.run"}}}
 	return observation, true
 }
 

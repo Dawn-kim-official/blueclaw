@@ -277,6 +277,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) readFileTool(toolContext context.C
 		if result, isCached := cachedFileReadResultByMaterialID(handlerContext.request.InputParts, materialID, input); isCached {
 			return result, nil
 		}
+		return toolCatalogBuilder.fileReadResolvedMaterial(toolContext, input, handlerContext)
 	}
 	if path == "" {
 		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "file_read", "path or materialID is required"), nil
@@ -341,6 +342,23 @@ func (toolCatalogBuilder *ToolCatalogBuilder) readFileTool(toolContext context.C
 		"sizeBytes":         fileInformation.SizeBytes,
 		"isTruncated":       isFileTruncated || readResult.IsTruncated,
 	}, readResult))), nil
+}
+
+func (toolCatalogBuilder *ToolCatalogBuilder) fileReadResolvedMaterial(toolContext context.Context, input fileReadToolInput, handlerContext toolHandlerContext) (agent.ToolResult, error) {
+	material, errorValue := resolveReadableAttachmentMaterial(toolContext, handlerContext.request, input.MaterialID)
+	if errorValue != nil {
+		return attachmentResolutionFailure("file_read", errorValue), nil
+	}
+	if attachmentMaterialLooksLikeImage(material) {
+		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "file_read", "attachment material is an image; use image.read"), nil
+	}
+	if preview, hasPreview := filePreviewResultFromVisibleMaterial(material); hasPreview && fileReadPreviewHasContent(preview) {
+		return cachedFileReadResultFromPreview(preview, input), nil
+	}
+	resolvedInput := input
+	resolvedInput.Path = material.Path
+	resolvedInput.MaterialID = ""
+	return toolCatalogBuilder.readFileTool(toolContext, resolvedInput, handlerContext)
 }
 
 func optionalSiteControlFileMissingResult(resolvedPath ResolvedWorkspacePath, input fileReadToolInput, maxOutputBytes int) agent.ToolResult {
@@ -475,6 +493,10 @@ func cachedFileReadResultFromPreview(preview map[string]any, input fileReadToolI
 	}, readResult)))
 }
 
+func fileReadPreviewHasContent(preview map[string]any) bool {
+	return strings.TrimSpace(stringMapValue(preview, "markdownPreview")) != ""
+}
+
 func (toolCatalogBuilder *ToolCatalogBuilder) fileReadFallbackFromAttachmentMaterial(toolContext context.Context, path string, input fileReadToolInput, handlerContext toolHandlerContext) (agent.ToolResult, error, bool) {
 	material, isFound := visibleAttachmentMaterialForPath(handlerContext.request.VisibleContext, path)
 	if !isFound {
@@ -491,7 +513,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) fileReadFallbackFromAttachmentMate
 	if attachmentMaterialLooksLikeImage(resolvedMaterial) {
 		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "file_read", "attachment material is an image; use image.read"), nil, true
 	}
-	if preview, hasPreview := filePreviewResultFromVisibleMaterial(resolvedMaterial); hasPreview {
+	if preview, hasPreview := filePreviewResultFromVisibleMaterial(resolvedMaterial); hasPreview && fileReadPreviewHasContent(preview) {
 		return cachedFileReadResultFromPreview(preview, input), nil, true
 	}
 	fallbackPath := strings.TrimSpace(resolvedMaterial.Path)
