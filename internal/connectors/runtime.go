@@ -1200,7 +1200,7 @@ func (connectorRuntime *ConnectorRuntime) resolveAskReply(ctx context.Context, p
 			Route:            agent.TurnRouteContinueTask,
 			Classification:   agent.IntakeClassificationBoundedTask,
 			TaskShape:        agent.TaskShapeMaintenanceTask,
-			TaskLevel:      agent.TaskLevelLow,
+			TaskLevel:        agent.TaskLevelLow,
 			ResponseLanguage: responseLanguageForEvent(event),
 			Reason:           "deterministic_choice_selection",
 			Choices:          choices,
@@ -1675,7 +1675,7 @@ func ambiguousTaskWaitTurnDecision(taskWaitTokens []task.TaskWaitToken, response
 		Route:                  agent.TurnRouteClarify,
 		Classification:         agent.IntakeClassificationNeedsConfirmation,
 		TaskShape:              agent.TaskShapeApprovalGatedTask,
-		TaskLevel:            agent.TaskLevelLow,
+		TaskLevel:              agent.TaskLevelLow,
 		ResponseLanguage:       responseLanguage,
 		Reason:                 "ambiguous_wait_resolution",
 		ClarificationOptions:   taskWaitClarificationOptions(taskWaitTokens),
@@ -3588,6 +3588,7 @@ func agentVisibleContextMaterials(attachments []InputAttachment) []agent.Visible
 			continue
 		}
 		materials = append(materials, agent.VisibleContextMaterial{
+			FileHint:    attachmentFileHint(attachment),
 			MaterialID:  attachmentMaterialID(attachment),
 			Platform:    attachment.Platform,
 			MessageID:   attachment.MessageID,
@@ -3601,6 +3602,10 @@ func agentVisibleContextMaterials(attachments []InputAttachment) []agent.Visible
 		})
 	}
 	return materials
+}
+
+func attachmentFileHint(attachment InputAttachment) string {
+	return "attachment:" + attachmentMaterialID(attachment)
 }
 
 func attachmentMaterialID(attachment InputAttachment) string {

@@ -42,6 +42,7 @@ type ToolCatalogBuilder struct {
 	terminalService                *security.TerminalSessionService
 	workspaceActorFactory          security.WorkspaceActorFactory
 	taskRunService                 *task.TaskRunService
+	taskArtifactService            *task.TaskArtifactService
 	taskScheduleRepository         task.TaskScheduleRepository
 	taskWaitTokenRepository        task.TaskWaitTokenRepository
 	workspaceRootPath              string
@@ -191,6 +192,10 @@ func (toolCatalogBuilder *ToolCatalogBuilder) UseWorkspaceActorFactory(workspace
 
 func (toolCatalogBuilder *ToolCatalogBuilder) UseTaskRunService(taskRunService *task.TaskRunService) {
 	toolCatalogBuilder.taskRunService = taskRunService
+}
+
+func (toolCatalogBuilder *ToolCatalogBuilder) UseTaskArtifactService(taskArtifactService *task.TaskArtifactService) {
+	toolCatalogBuilder.taskArtifactService = taskArtifactService
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) UseTaskScheduleRepository(taskScheduleRepository task.TaskScheduleRepository) {

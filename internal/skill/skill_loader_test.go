@@ -14,6 +14,7 @@ name: presentation
 description: Create presentation decks.
 when_to_use: Use for 피피티, PowerPoint, and slide deck requests.
 category: document-generation
+recommendedMinutes: 60
 tags: [slides, pptx]
 activation:
   keywords:
@@ -72,6 +73,9 @@ Build slides.
 	}
 	if skillBundle.Category != "document-generation" {
 		t.Fatalf("expected category from frontmatter, got %q", skillBundle.Category)
+	}
+	if skillBundle.RecommendedMinutes != 60 {
+		t.Fatalf("expected recommended minutes from frontmatter, got %d", skillBundle.RecommendedMinutes)
 	}
 	if !containsString(skillBundle.Tags, "slides") || !containsString(skillBundle.Tags, "pptx") {
 		t.Fatalf("expected tags, got %+v", skillBundle.Tags)

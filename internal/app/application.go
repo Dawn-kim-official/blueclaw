@@ -219,6 +219,7 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 	toolCatalogBuilder.UseSkillSearch(skillRetriever, instructionBundleLoader)
 	toolCatalogBuilder.UseTerminalService(terminalService)
 	toolCatalogBuilder.UseTaskRunService(taskRunService)
+	toolCatalogBuilder.UseTaskArtifactService(taskArtifactService)
 	toolCatalogBuilder.UseTaskScheduleRepository(taskScheduleRepository)
 	toolCatalogBuilder.UseTaskWaitTokenRepository(taskWaitTokenRepository)
 	toolCatalogBuilder.UseWorkspaceRootPath(runtimeConfiguration.Terminal.WorkspaceRootPath)
@@ -565,6 +566,7 @@ func readSkillInstructions(rootPath string) []agent.SkillInstruction {
 						Activation:             agent.SkillActivation(skillBundle.Activation),
 						Completion:             agent.SkillCompletion(skillBundle.Completion),
 						Quality:                agent.SkillQuality(skillBundle.Quality),
+						RecommendedMinutes:     skillBundle.RecommendedMinutes,
 						AllowedTools:           append([]string{}, skillBundle.AllowedTools...),
 						AllowedProfiles:        append([]string{}, skillBundle.AllowedProfiles...),
 						HiddenFromCircles:      append([]string{}, skillBundle.HiddenFromCircles...),

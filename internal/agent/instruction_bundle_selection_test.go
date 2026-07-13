@@ -17,6 +17,19 @@ func namedSkillBundle(skillName string) InstructionBundle {
 	}
 }
 
+func TestSelectedSkillRecommendedMinutesRaisesEstimate(t *testing.T) {
+	bundle := namedSkillBundle("presentation")
+	bundle.Skills[0].RecommendedMinutes = 60
+	promoted := promoteIntakeDecisionForSelectedSkills(
+		IntakeDecision{Classification: IntakeClassificationBoundedTask, TaskLevel: TaskLevelLow, EstimatedMinutes: 2},
+		bundle,
+		IntakeOptions{},
+	)
+	if promoted.EstimatedMinutes != 60 {
+		t.Fatalf("expected selected skill estimate floor, got %d", promoted.EstimatedMinutes)
+	}
+}
+
 func TestSkillTaskLevelFloorRaisesBoundedTaskLevel(t *testing.T) {
 	decision := IntakeDecision{
 		Classification: IntakeClassificationBoundedTask,

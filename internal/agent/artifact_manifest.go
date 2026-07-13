@@ -2,6 +2,7 @@ package agent
 
 import (
 	"encoding/json"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
@@ -14,6 +15,8 @@ import (
 const artifactManifestEntryLimit = 10
 
 type ArtifactManifestEntry struct {
+	FileHint       string    `json:"fileHint"`
+	TaskRunID      string    `json:"taskRunID"`
 	RelativePath   string    `json:"relativePath"`
 	ProducingTool  string    `json:"producingTool,omitempty"`
 	ProducingSkill string    `json:"producingSkill,omitempty"`
@@ -21,6 +24,7 @@ type ArtifactManifestEntry struct {
 }
 
 type artifactManifestCandidate struct {
+	taskRunID      string
 	path           string
 	producingTool  string
 	producingSkill string
@@ -34,10 +38,10 @@ func buildConversationArtifactManifest(request AgentTurnRequest, taskRunService 
 	for _, taskRun := range conversationArtifactTaskRuns(request, taskRunService.ListTaskRun()) {
 		taskEvents := taskRunService.ListTaskEvent(taskRun.TaskRunID)
 		producingSkill := selectedSkillNameFromTaskEvents(taskEvents)
-		candidates = append(candidates, artifactManifestCandidatesFromTaskEvents(taskEvents, producingSkill)...)
+		candidates = append(candidates, artifactManifestCandidatesFromTaskEvents(taskRun.TaskRunID, taskEvents, producingSkill)...)
 		if taskArtifactService != nil {
 			taskArtifacts := taskArtifactService.ListTaskArtifact(taskRun.TaskRunID)
-			candidates = append(candidates, artifactManifestCandidatesFromTaskArtifacts(taskArtifacts, producingSkill)...)
+			candidates = append(candidates, artifactManifestCandidatesFromTaskArtifacts(taskRun.TaskRunID, taskArtifacts, producingSkill)...)
 		}
 	}
 	return boundedArtifactManifestEntries(request, candidates)
@@ -59,23 +63,23 @@ func conversationArtifactTaskRuns(request AgentTurnRequest, taskRuns []task.Task
 	return matchingTaskRuns
 }
 
-func artifactManifestCandidatesFromTaskEvents(taskEvents []task.TaskEvent, producingSkill string) []artifactManifestCandidate {
+func artifactManifestCandidatesFromTaskEvents(taskRunID string, taskEvents []task.TaskEvent, producingSkill string) []artifactManifestCandidate {
 	candidates := []artifactManifestCandidate{}
 	for _, taskEvent := range taskEvents {
 		toolName := artifactManifestToolNameFromEvent(taskEvent.Name)
 		if toolName == "" {
 			continue
 		}
-		candidates = append(candidates, artifactManifestCandidatesFromToolBody(taskEvent.Body, toolName, producingSkill)...)
+		candidates = append(candidates, artifactManifestCandidatesFromToolBody(taskRunID, taskEvent.Body, toolName, producingSkill)...)
 	}
 	return candidates
 }
 
-func artifactManifestCandidatesFromTaskArtifacts(taskArtifacts []task.TaskArtifact, producingSkill string) []artifactManifestCandidate {
+func artifactManifestCandidatesFromTaskArtifacts(taskRunID string, taskArtifacts []task.TaskArtifact, producingSkill string) []artifactManifestCandidate {
 	candidates := []artifactManifestCandidate{}
 	for _, taskArtifact := range taskArtifacts {
 		toolName := artifactManifestToolNameFromEvent(taskArtifact.Name)
-		candidates = append(candidates, artifactManifestCandidatesFromToolBody(taskArtifact.Body, toolName, producingSkill)...)
+		candidates = append(candidates, artifactManifestCandidatesFromToolBody(taskRunID, taskArtifact.Body, toolName, producingSkill)...)
 	}
 	return candidates
 }
@@ -88,11 +92,12 @@ func artifactManifestToolNameFromEvent(name string) string {
 	return strings.TrimSuffix(strings.TrimPrefix(trimmedName, "tool."), ".result")
 }
 
-func artifactManifestCandidatesFromToolBody(body string, toolName string, producingSkill string) []artifactManifestCandidate {
+func artifactManifestCandidatesFromToolBody(taskRunID string, body string, toolName string, producingSkill string) []artifactManifestCandidate {
 	paths := artifactManifestPathsFromBody(body)
 	candidates := []artifactManifestCandidate{}
 	for _, path := range paths {
 		candidates = append(candidates, artifactManifestCandidate{
+			taskRunID:      strings.TrimSpace(taskRunID),
 			path:           path,
 			producingTool:  strings.TrimSpace(toolName),
 			producingSkill: strings.TrimSpace(producingSkill),
@@ -218,11 +223,21 @@ func artifactManifestEntryForCandidate(request AgentTurnRequest, candidate artif
 	}
 	relativePath := relativeWorkspacePath(request.WorkspaceRootPath, concretePath)
 	return ArtifactManifestEntry{
+		FileHint:       artifactFileHint(candidate.taskRunID, relativePath),
+		TaskRunID:      candidate.taskRunID,
 		RelativePath:   filepath.ToSlash(relativePath),
 		ProducingTool:  strings.TrimSpace(candidate.producingTool),
 		ProducingSkill: strings.TrimSpace(candidate.producingSkill),
 		ModifiedAt:     fileInformation.ModTime(),
 	}, true
+}
+
+func artifactFileHint(taskRunID string, relativePath string) string {
+	return "artifact:" + url.PathEscape(strings.TrimSpace(taskRunID)) + ":" + url.QueryEscape(filepath.ToSlash(strings.TrimSpace(relativePath)))
+}
+
+func BuildConversationArtifactManifest(request AgentTurnRequest, taskRunService *task.TaskRunService, taskArtifactService *task.TaskArtifactService) []ArtifactManifestEntry {
+	return buildConversationArtifactManifest(request, taskRunService, taskArtifactService)
 }
 
 func concreteArtifactManifestPath(request AgentTurnRequest, path string) string {
