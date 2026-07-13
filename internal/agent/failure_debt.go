@@ -179,8 +179,11 @@ func latestFailedToolInput(observations []turnObservation, toolName string, tool
 	expectedKey := canonicalToolCallKey(toolName, toolInput)
 	for index := len(observations) - 1; index >= 0; index-- {
 		observation := observations[index]
-		if observation.Action != "continue" || !observation.Failed() || strings.TrimSpace(observation.ToolInputKey) != expectedKey {
+		if observation.Action != "continue" || strings.TrimSpace(observation.ToolInputKey) != expectedKey {
 			continue
+		}
+		if !observation.Failed() {
+			return turnObservation{}, false
 		}
 		return observation, true
 	}
@@ -190,7 +193,7 @@ func latestFailedToolInput(observations []turnObservation, toolName string, tool
 func classifyRecoveryStep(failureDebt FailureDebt, toolName string) (string, bool) {
 	failedToolName := strings.TrimSpace(failureDebt.LatestFailure.Tool)
 	recoveryToolName := strings.TrimSpace(toolName)
-	if failedToolName == recoveryToolName {
+	if failedToolName == recoveryToolName && sameToolRecoveryIsTyped(failureDebt.LatestFailure) {
 		return recoveryStepCorrectedRetry, true
 	}
 	if isAlternateRouteToolPair(failedToolName, recoveryToolName) {
@@ -206,6 +209,21 @@ func classifyRecoveryStep(failureDebt FailureDebt, toolName string) (string, boo
 		return recoveryStepAdjacentTool, true
 	}
 	return "", false
+}
+
+func sameToolRecoveryIsTyped(failedObservation turnObservation) bool {
+	if failedObservation.Failure == nil {
+		return false
+	}
+	if failedObservation.Failure.Retryable || failedObservation.Failure.SafeRetry {
+		return true
+	}
+	switch strings.TrimSpace(failedObservation.Failure.RetryPolicy) {
+	case retryPolicyDifferentInput, retryPolicyAfterPrecondition:
+		return true
+	default:
+		return len(requiredPreconditionsForObservation(failedObservation)) > 0
+	}
 }
 
 func recoveryHintAllowsTool(failedObservation turnObservation, toolName string) bool {

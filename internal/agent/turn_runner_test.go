@@ -613,7 +613,9 @@ func TestAgentTurnRunnerSelectToolsWithExhaustedFailureDebtRunsTerminalNoTools(t
 		return ToolSuccess(`{"siteID":"site-1"}`), nil
 	})
 	toolRegistry.RegisterTool(ToolDefinition{Name: "math.calculate"}, func(context.Context, ToolInvocation) (ToolResult, error) {
-		return structuredFailureToolResult("exec: \"bc\": executable file not found in $PATH", "bc: command not found", "calculator_failed", "bc_execution", false, false), nil
+		result := structuredFailureToolResult("exec: \"bc\": executable file not found in $PATH", "bc: command not found", "calculator_failed", "bc_execution", false, false)
+		result.Failure.RetryPolicy = "different_input"
+		return result, nil
 	})
 	registerCapabilityInvokeVerb(toolRegistry)
 
@@ -791,7 +793,9 @@ func TestAgentTurnRunnerBudgetExhaustedContinueTriggersSingleTerminalNoToolsCall
 	toolRegistry := newTestCapabilityToolSet([]string{"math.calculate"})
 	toolRegistry.RegisterTool(ToolDefinition{Name: "math.calculate"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		toolCallCount++
-		return structuredFailureToolResult("exec: \"bc\": executable file not found in $PATH", "bc: command not found", "calculator_failed", "bc_execution", false, false), nil
+		result := structuredFailureToolResult("exec: \"bc\": executable file not found in $PATH", "bc: command not found", "calculator_failed", "bc_execution", false, false)
+		result.Failure.RetryPolicy = "different_input"
+		return result, nil
 	})
 
 	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
@@ -831,7 +835,9 @@ func TestAgentTurnRunnerTerminalNoToolsAcceptsNoToolFallbackFinish(t *testing.T)
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 6, RecoveryBudget: terminalNoToolRecoveryBudgetForTest()})
 	toolRegistry := newTestToolSet([]string{"math.calculate"})
 	toolRegistry.RegisterTool(ToolDefinition{Name: "math.calculate"}, func(context.Context, ToolInvocation) (ToolResult, error) {
-		return structuredFailureToolResult("exec: \"bc\": executable file not found in $PATH", "bc: command not found", "calculator_failed", "bc_execution", false, false), nil
+		result := structuredFailureToolResult("exec: \"bc\": executable file not found in $PATH", "bc: command not found", "calculator_failed", "bc_execution", false, false)
+		result.Failure.RetryPolicy = "different_input"
+		return result, nil
 	})
 
 	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
@@ -859,7 +865,9 @@ func TestAgentTurnRunnerTerminalNoToolsAcceptsFailureReportFail(t *testing.T) {
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 6, RecoveryBudget: terminalNoToolRecoveryBudgetForTest()})
 	toolRegistry := newTestCapabilityToolSet([]string{"math.calculate"})
 	toolRegistry.RegisterTool(ToolDefinition{Name: "math.calculate"}, func(context.Context, ToolInvocation) (ToolResult, error) {
-		return structuredFailureToolResult("exec: \"bc\": executable file not found in $PATH", "bc: command not found", "calculator_failed", "bc_execution", false, false), nil
+		result := structuredFailureToolResult("exec: \"bc\": executable file not found in $PATH", "bc: command not found", "calculator_failed", "bc_execution", false, false)
+		result.Failure.RetryPolicy = "different_input"
+		return result, nil
 	})
 
 	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
@@ -896,7 +904,9 @@ func TestAgentTurnRunnerTerminalNoToolsRepairsInvalidOutputWithoutReopeningTools
 	toolRegistry := newTestCapabilityToolSet([]string{"math.calculate"})
 	toolRegistry.RegisterTool(ToolDefinition{Name: "math.calculate"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		toolCallCount++
-		return structuredFailureToolResult("exec: \"bc\": executable file not found in $PATH", "bc: command not found", "calculator_failed", "bc_execution", false, false), nil
+		result := structuredFailureToolResult("exec: \"bc\": executable file not found in $PATH", "bc: command not found", "calculator_failed", "bc_execution", false, false)
+		result.Failure.RetryPolicy = "different_input"
+		return result, nil
 	})
 
 	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{

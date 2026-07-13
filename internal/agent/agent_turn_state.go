@@ -674,16 +674,37 @@ func qualityCriteriaForActionRequest(allowQualityCriteria bool) []qualityCriteri
 
 func observationsFromTaskEvents(events []task.TaskEvent) []turnObservation {
 	observations := []turnObservation{}
+	recoveryProvenance := recoveryProvenanceFromTaskEvents(events)
 	for _, event := range events {
 		if !strings.HasPrefix(event.Name, "tool.") || !strings.HasSuffix(event.Name, ".result") {
 			continue
 		}
 		observation, errorValue := decodeTurnObservation([]byte(event.Body))
 		if errorValue == nil && strings.TrimSpace(observation.ObservationID) != "" && !isApprovalRequiredObservation(observation) {
+			if provenance, isFound := recoveryProvenance[observation.ObservationID]; isFound {
+				observation.RecoveryAttemptKey = provenance.RecoveryAttemptKey
+				observation.RecoveryForObservationID = provenance.RecoveryForObservationID
+				observation.RecoveryStep = provenance.RecoveryStep
+				observation.RecoveryAttemptSpent = provenance.RecoveryAttemptSpent
+			}
 			observations = append(observations, observation)
 		}
 	}
 	return observations
+}
+
+func recoveryProvenanceFromTaskEvents(events []task.TaskEvent) map[string]turnObservation {
+	provenance := map[string]turnObservation{}
+	for _, event := range events {
+		if event.Name != "agent.recovery_provenance" {
+			continue
+		}
+		observation, errorValue := decodeTurnObservation([]byte(event.Body))
+		if errorValue == nil && strings.TrimSpace(observation.ObservationID) != "" {
+			provenance[observation.ObservationID] = observation
+		}
+	}
+	return provenance
 }
 
 func attachmentsFromObservations(observations []turnObservation) []FileAttachment {

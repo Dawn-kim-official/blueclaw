@@ -92,6 +92,31 @@ func TestPreviousFailedToolInputSurvivesUnrelatedSuccess(t *testing.T) {
 	}
 }
 
+func TestLatestFailedToolInputStopsAtLaterSuccess(t *testing.T) {
+	toolInput := json.RawMessage(`{"materialID":"material-1"}`)
+	toolInputKey := canonicalToolCallKey("file.read", toolInput)
+	failure, isFound := latestFailedToolInput([]turnObservation{
+		{
+			ObservationID: "obs-001",
+			Action:        "continue",
+			Tool:          "file.read",
+			Failure:       &ToolFailure{Code: FailureCodes.InvalidInput.String()},
+			ToolInputKey:  toolInputKey,
+		},
+		{
+			ObservationID: "obs-002",
+			Action:        "continue",
+			Tool:          "file.read",
+			Output:        ToolOutput{Content: "read"},
+			ToolInputKey:  toolInputKey,
+		},
+	}, "file.read", toolInput)
+
+	if isFound {
+		t.Fatalf("expected later exact success to supersede old failure, got %+v", failure)
+	}
+}
+
 func TestClassifyRecoveryStepLeavesUnrelatedToolUnlinked(t *testing.T) {
 	failureDebt := FailureDebt{LatestFailure: turnObservation{
 		ObservationID: "obs-001",
@@ -125,6 +150,25 @@ func TestBroadToolFamilyDoesNotInventAlternateRecoveryRoute(t *testing.T) {
 	}}
 	if recoveryStep, isRecovery := classifyRecoveryStep(browserFailure, "web.search"); isRecovery {
 		t.Fatalf("expected unrelated web-family tool not to resolve debt, got step %q", recoveryStep)
+	}
+}
+
+func TestClassifyRecoveryStepRequiresTypedSameToolRetry(t *testing.T) {
+	failureDebt := FailureDebt{LatestFailure: turnObservation{
+		ObservationID: "obs-001",
+		Tool:          "terminal.run",
+		Failure:       &ToolFailure{Code: FailureCodes.OperationFailed.String()},
+	}}
+	if recoveryStep, isRecovery := classifyRecoveryStep(failureDebt, "terminal.run"); isRecovery {
+		t.Fatalf("expected untyped same-tool work to remain unrelated, got step=%q", recoveryStep)
+	}
+	failureDebt.LatestFailure.Failure.RetryPolicy = retryPolicyDifferentInput
+	if recoveryStep, isRecovery := classifyRecoveryStep(failureDebt, "terminal.run"); !isRecovery || recoveryStep != recoveryStepCorrectedRetry {
+		t.Fatalf("expected typed same-tool retry, got step=%q recovery=%v", recoveryStep, isRecovery)
+	}
+	failureDebt.LatestFailure.Failure.RetryPolicy = retryPolicyDoNotRetry
+	if recoveryStep, isRecovery := classifyRecoveryStep(failureDebt, "terminal.run"); isRecovery {
+		t.Fatalf("expected do-not-retry policy to reject same-tool recovery, got step=%q", recoveryStep)
 	}
 }
 

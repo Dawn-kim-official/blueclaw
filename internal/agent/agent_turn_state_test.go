@@ -438,6 +438,30 @@ func TestRestoreAgentTaskStateRestoresToolProgressOnly(t *testing.T) {
 	}
 }
 
+func TestRestoreAgentTaskStateRestoresRecoveryProvenance(t *testing.T) {
+	events := []task.TaskEvent{
+		toolResultTestEvent("tool.file.read.result", "obs-001", "file.read", "missing", true),
+		toolResultTestEvent("tool.file.read.result", "obs-002", "file.read", "recovered", false),
+		{
+			Name: "agent.recovery_provenance",
+			Body: `{"observationID":"obs-002","action":"continue","tool":"file.read","recoveryForObservationID":"obs-001","recoveryStep":"corrected_retry","recoveryAttemptSpent":true}`,
+		},
+	}
+
+	observations := observationsFromTaskEvents(events)
+
+	if len(observations) != 2 {
+		t.Fatalf("expected two restored observations, got %+v", observations)
+	}
+	recovered := observations[1]
+	if recovered.RecoveryForObservationID != "obs-001" || recovered.RecoveryStep != recoveryStepCorrectedRetry || !recovered.RecoveryAttemptSpent {
+		t.Fatalf("expected restored recovery provenance, got %+v", recovered)
+	}
+	if _, hasFailureDebt := activeFailureDebt(observations); hasFailureDebt {
+		t.Fatal("expected restored successful recovery to keep debt resolved")
+	}
+}
+
 func TestBlockedResumeRestoresPriorObservations(t *testing.T) {
 	taskEventService := task.NewTaskEventService()
 	taskRunService := task.NewTaskRunService(taskEventService)

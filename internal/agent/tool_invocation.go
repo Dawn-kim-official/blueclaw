@@ -16,6 +16,7 @@ func (agentTurnRunner *AgentTurnRunner) recordToolObservation(taskRunID string, 
 		observation.RecoveryAttemptSpent = recoveryStep != recoveryStepInspection
 		observation.RecoveryAttemptKey = canonicalToolCallKey(actionDocument.ToolName, actionDocument.ToolInput)
 		observation.RecoveryForObservationID = strings.TrimSpace(recoveryForObservationID)
+		agentTurnRunner.appendEvent(taskRunID, "agent.recovery_provenance", marshalEventBody(observation))
 	}
 	state.Observations = append(state.Observations, observation)
 	state.Attachments = appendObservationAttachments(state.Attachments, observation)
