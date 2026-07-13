@@ -83,6 +83,7 @@ type VisibleContextMessage struct {
 }
 
 type VisibleContextMaterial struct {
+	FileHint          string
 	MaterialID        string
 	Platform          string
 	MessageID         string
@@ -156,13 +157,13 @@ func buildVisibleContextDescription(visibleContext VisibleContext) string {
 
 	sections := []string{}
 	if len(currentMaterialLines) > 0 {
-		sections = append(sections, "Current attachments:\nUse the listed materialID or path directly with file.preview, file.read, or image.read when the user asks about the current attachment.\n"+strings.Join(currentMaterialLines, "\n"))
+		sections = append(sections, "Current attachments:\nUse the listed fileHint exactly with file.preview, file.read, image.read, or file.materialize. fileHint is a deterministic locator, not a natural-language description.\n"+strings.Join(currentMaterialLines, "\n"))
 	}
 	if len(contextLines) > 0 {
 		sections = append(sections, strings.Join(contextLines, "\n"))
 	}
 	if len(materialLines) > 0 {
-		sections = append(sections, "Previous attachments:\nUse the listed materialID or path directly with file.preview, file.read, or image.read when older conversation context is relevant.\n"+strings.Join(materialLines, "\n"))
+		sections = append(sections, "Previous attachments:\nUse the listed fileHint exactly with file.preview, file.read, image.read, or file.materialize when older conversation context is relevant.\n"+strings.Join(materialLines, "\n"))
 	}
 	sections = append(sections, historyLine)
 	return "Recent visible conversation context:\n" + strings.Join(sections, "\n")
@@ -171,12 +172,16 @@ func buildVisibleContextDescription(visibleContext VisibleContext) string {
 func formatVisibleContextMaterial(material VisibleContextMaterial) string {
 	filename := strings.TrimSpace(material.Filename)
 	path := strings.TrimSpace(material.Path)
+	fileHint := strings.TrimSpace(material.FileHint)
 	materialID := strings.TrimSpace(material.MaterialID)
-	if materialID == "" && filename == "" && path == "" {
+	if fileHint == "" && materialID == "" && filename == "" && path == "" {
 		return ""
 	}
 	includeDiagnosticMetadata := path == "" || !material.IsAvailable
 	values := []string{}
+	if fileHint != "" {
+		values = append(values, "fileHint="+fileHint)
+	}
 	if materialID != "" {
 		values = append(values, "materialID="+materialID)
 	}
