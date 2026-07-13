@@ -91,7 +91,6 @@ type AgentTurnRequest struct {
 	TaskShape                  TaskShape
 	TaskLevel                  TaskLevel
 	EstimatedMinutes           int
-	LaunchNotice               string
 	TurnStartedAt              time.Time
 	CheckpointSender           AgentCheckpointSender
 	StepBudgetContext          string
@@ -344,7 +343,6 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 	defer unregisterTaskCancel()
 	defer taskCancel()
 	agentTurnRunner.appendInstructionEvent(taskRun.TaskRunID, request)
-	agentTurnRunner.sendLaunchNotice(taskContext, taskRun.TaskRunID, request)
 
 	state, errorValue := agentTaskStateForTurn(request, agentTurnRunner.options, taskRun, agentTurnRunner.taskRunService.ListTaskEvent(taskRun.TaskRunID))
 	if errorValue != nil {
@@ -814,29 +812,6 @@ func (agentTurnRunner *AgentTurnRunner) cancelledTaskResultOrCurrent(taskRunID s
 	}
 	taskRun, _ := agentTurnRunner.taskRunService.FindTaskRun(taskRunID)
 	return AgentTurnResult{TaskRun: taskRun, ReplySuppressed: true, Attachments: attachments}
-}
-
-// sendLaunchNotice posts the intake's launch acknowledgement as a durable
-// (non-ephemeral) message the moment a longer task starts, so the requester gets
-// an immediate first reply with a rough ETA instead of silence until the final
-// result. It fires only for a fresh task the intake sized at more than two
-// minutes; quick tasks stay silent until their final reply.
-func (agentTurnRunner *AgentTurnRunner) sendLaunchNotice(ctx context.Context, taskRunID string, request AgentTurnRequest) {
-	notice := strings.TrimSpace(request.LaunchNotice)
-	if notice == "" || request.EstimatedMinutes <= 2 || request.CheckpointSender == nil {
-		return
-	}
-	if request.IsApprovalContinuation || request.IsRuntimeRestartResume {
-		return
-	}
-	if errorValue := request.CheckpointSender(ctx, AgentCheckpoint{TaskRunID: taskRunID, Message: notice, Durable: true}); errorValue != nil {
-		agentTurnRunner.appendEvent(taskRunID, "agent.launch_notice.failed", marshalEventBody(map[string]any{"error": errorValue.Error()}))
-		return
-	}
-	agentTurnRunner.appendEvent(taskRunID, "agent.launch_notice.sent", marshalEventBody(map[string]any{
-		"estimatedMinutes": request.EstimatedMinutes,
-		"message":          notice,
-	}))
 }
 
 func (agentTurnRunner *AgentTurnRunner) sendCheckpointMessage(ctx context.Context, taskRunID string, request AgentTurnRequest, actionDocument turnActionDocument, observations []turnObservation) []turnObservation {
@@ -1463,7 +1438,7 @@ func (agentTurnRunner *AgentTurnRunner) nextLimitPressureWarning(usedIterationCo
 		Observation: newContentObservation(nextObservationID(observationIndex), "limit_pressure", "", message),
 		EventBody: map[string]any{
 			"level":              level,
-			"taskLevel":         agentTurnRunner.options.TaskLevel,
+			"taskLevel":          agentTurnRunner.options.TaskLevel,
 			"usedIterationCount": usedIterationCount,
 			"usedToolCallCount":  usedToolCallCount,
 			"maxIterationCount":  agentTurnRunner.options.MaxIterationCount,
@@ -1820,7 +1795,7 @@ func (agentTurnRunner *AgentTurnRunner) recordTerminalNoToolsRejection(taskRunID
 
 func (agentTurnRunner *AgentTurnRunner) stopForLimit(taskRunID string, request AgentTurnRequest, reason string, observations []turnObservation, attachments []FileAttachment, executionState ExecutionState, usedIterationCount int, usedToolCallCount int) (AgentTurnResult, error) {
 	body := map[string]any{
-		"taskLevel":         agentTurnRunner.options.TaskLevel,
+		"taskLevel":          agentTurnRunner.options.TaskLevel,
 		"maxIterationCount":  agentTurnRunner.options.MaxIterationCount,
 		"maxElapsedSecond":   agentTurnRunner.options.MaxElapsedSecond,
 		"maxToolCallCount":   agentTurnRunner.options.MaxToolCallCount,

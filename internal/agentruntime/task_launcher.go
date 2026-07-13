@@ -3,6 +3,7 @@ package agentruntime
 import (
 	"context"
 	"errors"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -161,6 +162,7 @@ func (taskLauncher *TaskLauncher) Launch(ctx context.Context, request TaskLaunch
 	})
 	request.ActiveCircleID = activeCircleRequest.ActiveCircleID
 	request.ActiveCircleConflict = activeCircleRequest.ActiveCircleConflict
+	request.VisibleContext = taskLauncher.visibleContextWithArtifactManifest(request, normalizedProfileName)
 	execution := &taskLaunchExecution{
 		Launcher:              taskLauncher,
 		Request:               request,
@@ -406,6 +408,28 @@ func (taskLauncher *TaskLauncher) agentTurnRequestForLaunch(request TaskLaunchRe
 		WorkspaceDefaultPath:    conversationScope.DefaultDirectoryPath,
 		CheckpointSender:        request.CheckpointSender,
 	}
+}
+
+func (taskLauncher *TaskLauncher) visibleContextWithArtifactManifest(request TaskLaunchRequest, profileName string) agent.VisibleContext {
+	if taskLauncher.toolCatalogBuilder.taskRunService == nil {
+		return request.VisibleContext
+	}
+	conversationScope := ConversationScopeForRequest(taskLauncher.toolCatalogBuilder.WorkspaceRootPath(), taskLauncher.toolCatalogRequestForLaunch(request, profileName))
+	manifest := agent.BuildConversationArtifactManifest(agent.AgentTurnRequest{
+		ConversationID:       request.ConversationID,
+		ExistingTaskRunID:    request.ExistingTaskRunID,
+		WorkspaceRootPath:    taskLauncher.toolCatalogBuilder.WorkspaceRootPath(),
+		WorkspaceDefaultPath: conversationScope.DefaultDirectoryPath,
+	}, taskLauncher.toolCatalogBuilder.taskRunService, taskLauncher.toolCatalogBuilder.taskArtifactService)
+	for _, artifact := range manifest {
+		request.VisibleContext.Materials = append(request.VisibleContext.Materials, agent.VisibleContextMaterial{
+			FileHint:    artifact.FileHint,
+			Filename:    filepath.Base(artifact.RelativePath),
+			Path:        filepath.ToSlash(filepath.Join(taskLauncher.toolCatalogBuilder.WorkspaceRootPath(), artifact.RelativePath)),
+			IsAvailable: true,
+		})
+	}
+	return request.VisibleContext
 }
 
 func (taskLauncher *TaskLauncher) appendAmbientDutyLaunchEvent(taskRunID string, request TaskLaunchRequest) {

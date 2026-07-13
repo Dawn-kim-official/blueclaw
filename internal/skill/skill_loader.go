@@ -3,6 +3,7 @@ package skill
 import (
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 )
 
@@ -32,6 +33,7 @@ func (skillLoader SkillLoader) LoadSkillBundle(directoryPath string) (SkillBundl
 		Activation:             metadata.Activation,
 		Completion:             metadata.Completion,
 		Quality:                metadata.Quality,
+		RecommendedMinutes:     metadata.RecommendedMinutes,
 		AllowedTools:           metadata.AllowedTools,
 		AllowedProfiles:        metadata.AllowedProfiles,
 		HiddenFromCircles:      metadata.HiddenFromCircles,
@@ -55,6 +57,7 @@ type skillMetadata struct {
 	Activation             SkillActivation
 	Completion             SkillCompletion
 	Quality                SkillQuality
+	RecommendedMinutes     int
 	AllowedTools           []string
 	AllowedProfiles        []string
 	HiddenFromCircles      []string
@@ -140,6 +143,8 @@ func setSkillMetadataValue(metadata skillMetadata, key string, value string) ski
 		metadata.WhenToUse = joinSkillDescription(metadata.WhenToUse, cleanSkillScalar(value))
 	case "category":
 		metadata.Category = cleanSkillScalar(value)
+	case "recommendedMinutes":
+		metadata.RecommendedMinutes = cleanSkillPositiveInteger(value)
 	case "tags":
 		metadata.Tags = append(metadata.Tags, parseSkillList(value)...)
 	case "allowed-tools":
@@ -273,6 +278,14 @@ func parseSkillSpaceSeparatedList(value string) []string {
 
 func cleanSkillScalar(value string) string {
 	return strings.Trim(strings.TrimSpace(value), `"'`)
+}
+
+func cleanSkillPositiveInteger(value string) int {
+	parsedValue, errorValue := strconv.Atoi(cleanSkillScalar(value))
+	if errorValue != nil || parsedValue <= 0 {
+		return 0
+	}
+	return parsedValue
 }
 
 func cleanSkillBoolean(value string) bool {

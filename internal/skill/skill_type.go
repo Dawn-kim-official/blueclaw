@@ -9,6 +9,7 @@ type SkillBundle struct {
 	Activation             SkillActivation `json:"activation,omitempty"`
 	Completion             SkillCompletion `json:"completion,omitempty"`
 	Quality                SkillQuality    `json:"quality,omitempty"`
+	RecommendedMinutes     int             `json:"recommendedMinutes,omitempty"`
 	AllowedTools           []string        `json:"allowedTools,omitempty"`
 	AllowedProfiles        []string        `json:"allowedProfiles,omitempty"`
 	HiddenFromCircles      []string        `json:"hiddenFromCircles,omitempty"`

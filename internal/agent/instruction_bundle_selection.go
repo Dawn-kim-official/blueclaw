@@ -7,6 +7,7 @@ import (
 
 func promoteIntakeDecisionForSelectedSkills(decision IntakeDecision, instructionBundle InstructionBundle, options IntakeOptions) IntakeDecision {
 	decision = applySkillTaskLevelFloor(decision, instructionBundle, options.SkillTaskLevelFloor)
+	decision.EstimatedMinutes = selectedSkillRecommendedMinutesFloor(decision.EstimatedMinutes, instructionBundle)
 	defaultTaskLevel := options.DefaultTaskLevel
 	if !canPromoteIntakeDecisionForSelectedSkills(decision) || !selectedSkillsNeedBoundedExecution(instructionBundle, decision.Classification) {
 		return decision
@@ -43,6 +44,16 @@ var taskLevelFloorBySelectedSkillName = map[string]TaskLevel{
 	"website":      TaskLevelXHigh,
 }
 
+func selectedSkillRecommendedMinutesFloor(estimatedMinutes int, instructionBundle InstructionBundle) int {
+	result := estimatedMinutes
+	for _, skillInstruction := range selectedSkillInstructionList(instructionBundle) {
+		if skillInstruction.RecommendedMinutes > result {
+			result = skillInstruction.RecommendedMinutes
+		}
+	}
+	return result
+}
+
 func applySkillTaskLevelFloor(decision IntakeDecision, instructionBundle InstructionBundle, defaultSkillFloor TaskLevel) IntakeDecision {
 	for _, skillInstruction := range selectedSkillInstructionList(instructionBundle) {
 		if !selectedSkillRequiresCompletionEvidence(skillInstruction) {
@@ -59,7 +70,6 @@ func applySkillTaskLevelFloor(decision IntakeDecision, instructionBundle Instruc
 	}
 	return decision
 }
-
 
 func attachmentSuffixFormats(suffixes []string) []string {
 	formats := []string{}
