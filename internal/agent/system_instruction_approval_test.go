@@ -44,6 +44,15 @@ func TestSystemInstructionRestrictsCheckpointsAndRequiresRecovery(t *testing.T) 
 	}
 }
 
+func TestSystemInstructionRequiresConcreteReadResults(t *testing.T) {
+	instruction := buildAgentSystemInstruction(AgentTurnRequest{})
+	for _, expected := range []string{"final reply must state the concrete result facts", "status-only reply"} {
+		if !strings.Contains(instruction, expected) {
+			t.Fatalf("expected system instruction to contain %q, got %s", expected, instruction)
+		}
+	}
+}
+
 func TestSystemInstructionGuidesApprovalMessageAsNaturalQuestion(t *testing.T) {
 	instruction := buildAgentSystemInstruction(AgentTurnRequest{})
 
