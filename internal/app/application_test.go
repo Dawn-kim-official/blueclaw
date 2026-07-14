@@ -5,11 +5,14 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"log/slog"
+	"reflect"
+	"slices"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -93,6 +96,85 @@ func TestResolveIntakeLanguageModelProviderUsesExplicitModel(t *testing.T) {
 	}
 	if primaryClient.ModelName != "x-ai/grok-4.3" {
 		t.Fatalf("expected explicit intake model, got %q", primaryClient.ModelName)
+	}
+}
+
+func TestMaximumXLowTierCapsTaskModelsAndUsesLowForImages(t *testing.T) {
+	runtimeConfiguration := configuredModelTierRuntime("xlow")
+	providers := resolveTaskTierLanguageModelProviders(runtimeConfiguration, slog.New(slog.DiscardHandler))
+
+	for providerName, provider := range map[string]llm.LanguageModelProvider{
+		"low": providers.Low, "xlow": providers.XLow, "medium": providers.Medium,
+		"high": providers.High, "xhigh": providers.XHigh, "max": providers.Max, "coding": providers.Coding,
+	} {
+		modelNames := languageModelProviderNames(provider)
+		if !reflect.DeepEqual(modelNames, []string{"vendor/low", "vendor/xlow"}) {
+			t.Fatalf("expected %s provider to use only xlow text and low vision models, got %v", providerName, modelNames)
+		}
+	}
+}
+
+func TestMaximumLowTierCapsIntakeFallbacks(t *testing.T) {
+	runtimeConfiguration := configuredModelTierRuntime("low")
+	runtimeConfiguration.Agent.Intake.Enabled = true
+	provider := resolveIntakeLanguageModelProvider(runtimeConfiguration, newCapabilityClient(runtimeConfiguration), nil)
+
+	modelNames := languageModelProviderNames(provider)
+	if !reflect.DeepEqual(modelNames, []string{"vendor/low", "vendor/xlow"}) {
+		t.Fatalf("expected intake to stay at or below low, got %v", modelNames)
+	}
+}
+
+func TestCodingUsesConfiguredModelOnlyWithoutMaximumTier(t *testing.T) {
+	uncappedProviders := resolveTaskTierLanguageModelProviders(configuredModelTierRuntime(""), slog.New(slog.DiscardHandler))
+	if modelNames := languageModelProviderNames(uncappedProviders.Coding); !slices.Contains(modelNames, "vendor/coding") {
+		t.Fatalf("expected uncapped coding provider to use the configured coding model, got %v", modelNames)
+	}
+
+	cappedProviders := resolveTaskTierLanguageModelProviders(configuredModelTierRuntime("high"), slog.New(slog.DiscardHandler))
+	modelNames := languageModelProviderNames(cappedProviders.Coding)
+	if slices.Contains(modelNames, "vendor/coding") || slices.Contains(modelNames, "vendor/xhigh") || slices.Contains(modelNames, "vendor/max") {
+		t.Fatalf("expected capped coding provider to use the high ceiling and lower fallbacks, got %v", modelNames)
+	}
+	if !slices.Contains(modelNames, "vendor/high") {
+		t.Fatalf("expected capped coding provider to include the high ceiling model, got %v", modelNames)
+	}
+}
+
+func configuredModelTierRuntime(maximumModelTier string) config.RuntimeConfiguration {
+	runtimeConfiguration := config.RuntimeConfiguration{}
+	runtimeConfiguration.LanguageModel.Capability.MaximumModelTier = maximumModelTier
+	runtimeConfiguration.LanguageModel.Capability.MaxModel = "vendor/max"
+	runtimeConfiguration.LanguageModel.Capability.XHighModel = "vendor/xhigh"
+	runtimeConfiguration.LanguageModel.Capability.HighModel = "vendor/high"
+	runtimeConfiguration.LanguageModel.Capability.MediumModel = "vendor/medium"
+	runtimeConfiguration.LanguageModel.Capability.LowModel = "vendor/low"
+	runtimeConfiguration.LanguageModel.Capability.XLowModel = "vendor/xlow"
+	runtimeConfiguration.LanguageModel.Capability.CodingModel = "vendor/coding"
+	return runtimeConfiguration
+}
+
+func languageModelProviderNames(provider llm.LanguageModelProvider) []string {
+	modelNames := map[string]bool{}
+	collectLanguageModelProviderNames(provider, modelNames)
+	result := make([]string, 0, len(modelNames))
+	for modelName := range modelNames {
+		result = append(result, modelName)
+	}
+	sort.Strings(result)
+	return result
+}
+
+func collectLanguageModelProviderNames(provider llm.LanguageModelProvider, modelNames map[string]bool) {
+	switch typedProvider := provider.(type) {
+	case llm.CapabilityLLMClient:
+		modelNames[typedProvider.ModelName] = true
+	case llm.FallbackLanguageModelProvider:
+		collectLanguageModelProviderNames(typedProvider.PrimaryProvider, modelNames)
+		collectLanguageModelProviderNames(typedProvider.FallbackProvider, modelNames)
+	case llm.VisionFallbackProvider:
+		collectLanguageModelProviderNames(typedProvider.TextOnlyModel, modelNames)
+		collectLanguageModelProviderNames(typedProvider.VisionModel, modelNames)
 	}
 }
 

@@ -119,6 +119,11 @@ wait_for_blueclaw_health() {
   return 1
 }
 
+read_root_secret() {
+  local path="$1"
+  printf '%s\n' "$sudo_password" | sudo -S -p '' cat "$path"
+}
+
 delete_post() {
   local post_identifier="$1"
   if [ -z "$post_identifier" ] || [ "$post_identifier" = "null" ] || [ -z "$admin_token" ]; then
@@ -165,7 +170,7 @@ phase "wait for Blueclaw"
 wait_for_blueclaw_health
 
 phase "admin login"
-admin_password="$(printf '%s\n' "$sudo_password" | sudo -S cat /root/.internkim/secrets/mm-admin-pass)"
+admin_password="$(read_root_secret /root/.internkim/secrets/mm-admin-pass)"
 login_headers="$(mktemp)"
 login_body="$(jq -cn --arg login_id admin --arg password "$admin_password" '{login_id:$login_id,password:$password}')"
 curl --silent --show-error --fail -D "$login_headers" -o /tmp/internkim-dm-recipient-resolve-admin-login.json \
@@ -176,7 +181,7 @@ admin_token="$(awk 'tolower($1) == "token:" {print $2}' "$login_headers" | tr -d
 test -n "$admin_token"
 
 phase "bot lookup"
-mattermost_token="$(cat /root/.internkim/secrets/mattermost-bot-token)"
+mattermost_token="$(read_root_secret /root/.internkim/secrets/mattermost-bot-token)"
 bot_user_identifier="$(mattermost_request "bot lookup" GET "http://$mattermost_listen_address/api/v4/users/me" "$mattermost_token" | jq -r '.id // empty')"
 test -n "$bot_user_identifier"
 
