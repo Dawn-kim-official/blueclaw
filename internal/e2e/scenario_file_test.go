@@ -46,6 +46,9 @@ func TestLoadScenarioFileReadsSequentialStepsAndResolvesSkills(t *testing.T) {
 	if scenario.Turns[0].ExpectedResponse != VirtualResponseBackgroundAction {
 		t.Fatalf("expected background action response, got %q", scenario.Turns[0].ExpectedResponse)
 	}
+	if scenario.Turns[0].MinimumReplyLength != 0 || scenario.Turns[1].MinimumReplyLength != 1 {
+		t.Fatalf("expected only reply steps to require non-empty text, got %+v", scenario.Turns)
+	}
 }
 
 func TestLoadScenarioFileRejectsUnknownFieldsAndEmptySteps(t *testing.T) {
