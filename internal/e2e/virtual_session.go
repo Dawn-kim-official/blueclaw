@@ -1187,6 +1187,9 @@ func (service *virtualCapabilityService) calendarResponse(toolName string, reque
 	case "calendar.list":
 		return virtualCapabilitySuccess(toolName, "listed virtual calendar events", map[string]any{"events": virtualCapabilityRecordValues(service.events)})
 	case "calendar.update":
+		if strings.TrimSpace(stringValue(input["query"])) == "" {
+			input["query"] = strings.TrimSpace(stringValue(input["title"]))
+		}
 		index := virtualCapabilityRecordIndex(service.events, input, "eventID")
 		if index < 0 {
 			return virtualCapabilityNotFound(toolName, "calendar event")

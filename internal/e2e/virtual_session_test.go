@@ -397,6 +397,22 @@ func TestCalendarEventLifecycleAcceptance(t *testing.T) {
 	}
 }
 
+func TestVirtualCalendarUpdateUsesUnchangedTitleAsTarget(t *testing.T) {
+	service := virtualCapabilityService{}
+	addResponse := service.calendarResponse("calendar.add", []byte(`{"input":{"title":"비용 테스트 일정","startISO":"2026-07-16T10:00:00+09:00","endISO":"2026-07-16T11:00:00+09:00"}}`))
+	if !strings.Contains(addResponse, `"eventID":"event-1"`) {
+		t.Fatalf("expected created event, got %s", addResponse)
+	}
+	updateResponse := service.calendarResponse("calendar.update", []byte(`{"input":{"title":"비용 테스트 일정","startISO":"2026-07-16T14:00:00+09:00","endISO":"2026-07-16T15:00:00+09:00"}}`))
+	if !strings.Contains(updateResponse, `"status":"ok"`) || !strings.Contains(updateResponse, `T14:00:00+09:00`) {
+		t.Fatalf("expected title-targeted update, got %s", updateResponse)
+	}
+	renameResponse := service.calendarResponse("calendar.update", []byte(`{"input":{"title":"새 일정 이름","startISO":"2026-07-16T16:00:00+09:00","endISO":"2026-07-16T17:00:00+09:00"}}`))
+	if !strings.Contains(renameResponse, `"status":"error"`) || !strings.Contains(renameResponse, `not found`) {
+		t.Fatalf("expected rename without an old target to fail, got %s", renameResponse)
+	}
+}
+
 func TestAmbientDutyCalendarAcceptance(t *testing.T) {
 	result, errorValue := RunVirtualSession(context.Background(), AmbientDutyCalendarAcceptanceScenario(t.TempDir()))
 	if errorValue != nil {

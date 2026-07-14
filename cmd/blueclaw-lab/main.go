@@ -285,13 +285,13 @@ func runVirtualSession(ctx context.Context, arguments virtualSessionArguments) e
 }
 
 func validateStrictEmbeddingRetrieval(result e2e.VirtualSessionResult) error {
-	foundInstructionEvent := false
+	foundRetrievalEvidence := false
 	for _, turnResult := range result.TurnResults {
 		for _, event := range turnResult.Events {
-			if event.Name != "agent.system_instruction" {
+			if event.Name != "agent.instructions_loaded" {
 				continue
 			}
-			foundInstructionEvent = true
+			foundRetrievalEvidence = true
 			var retrieval struct {
 				Mode        string `json:"retrievalMode"`
 				IndexStatus string `json:"indexStatus"`
@@ -304,7 +304,7 @@ func validateStrictEmbeddingRetrieval(result e2e.VirtualSessionResult) error {
 			}
 		}
 	}
-	if !foundInstructionEvent {
+	if !foundRetrievalEvidence {
 		return errors.New("strict live scenario did not record skill retrieval evidence")
 	}
 	return nil
