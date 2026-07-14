@@ -550,7 +550,7 @@ func (agentKernel *AgentKernel) applyConfirmationGate(responseContext context.Co
 		agentKernel.AppendTaskEvent(taskRun.TaskRunID, "agent.goal.waiting_user_input", marshalEventBody(waitingGoal))
 		agentKernel.AppendTaskEvent(taskRun.TaskRunID, "confirmation.clarification_requested", reply)
 		agentKernel.AppendTaskEvent(taskRun.TaskRunID, "ask.requested", marshalEventBody(map[string]string{
-			"kind":             "input",
+			"kind":             "ask_input",
 			"question":         reply,
 			"message":          reply,
 			"responseLanguage": request.ResponseLanguage,
@@ -576,7 +576,7 @@ func (agentKernel *AgentKernel) applyConfirmationGate(responseContext context.Co
 		"continuationInstruction": executionPlan.ContinuationInstruction,
 	}))
 	agentKernel.AppendTaskEvent(taskRun.TaskRunID, "ask.requested", marshalEventBody(map[string]string{
-		"kind":             "confirm",
+		"kind":             "ask_confirm",
 		"message":          reply,
 		"responseLanguage": request.ResponseLanguage,
 	}))
@@ -633,7 +633,7 @@ func (agentKernel *AgentKernel) completeIntakeOnlyRequest(responseContext contex
 	}
 	if status == task.TaskStatusWaitingUserInput && intakeDecision.Classification == IntakeClassificationNeedsConfirmation && len(intakeDecision.ClarificationOptions) >= 2 {
 		agentKernel.AppendTaskEvent(taskRun.TaskRunID, "ask.requested", marshalEventBody(map[string]any{
-			"kind":                 "choice_single",
+			"kind":                 "ask_input",
 			"question":             finishMessage,
 			"message":              finishMessage,
 			"options":              intakeDecision.ClarificationOptions,

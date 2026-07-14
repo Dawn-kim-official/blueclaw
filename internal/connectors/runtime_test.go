@@ -350,8 +350,8 @@ func TestConnectorRuntimeAmbiguousWaitDoesNotSelectNewest(t *testing.T) {
 	if olderTaskRun.Status != task.TaskStatusWaitingUserInput || newerTaskRun.Status != task.TaskStatusWaitingUserInput {
 		t.Fatalf("ambiguous reply must not continue waits, older=%s newer=%s", olderTaskRun.Status, newerTaskRun.Status)
 	}
-	if !connectorTaskEventsContain(connectorRuntime, result.TaskRunID, "ask.requested", `"choice_single"`) {
-		t.Fatalf("expected disambiguation ask.choice, taskRunID=%s", result.TaskRunID)
+	if !connectorTaskEventsContain(connectorRuntime, result.TaskRunID, "ask.requested", `"ask_input"`) {
+		t.Fatalf("expected disambiguation ask.input, taskRunID=%s", result.TaskRunID)
 	}
 }
 
@@ -383,6 +383,49 @@ func TestConnectorRuntimeSingleOpenWaitFallbackContinuesTask(t *testing.T) {
 	waitingTaskRun, _ = connectorRuntime.agentKernel.FindTaskRun(waitingTaskRun.TaskRunID)
 	if waitingTaskRun.Status != task.TaskStatusCompleted {
 		t.Fatalf("expected waiting task completed, got %+v", waitingTaskRun)
+	}
+}
+
+func TestConnectorRuntimePreservesNaturalLanguageOptionReply(t *testing.T) {
+	const replyText = "발표자료로 만들어 주세요"
+	languageModel := agenttest.NewScriptedLanguageModel(agenttest.ScriptedLanguageModelOptions{
+		StructuredResponsesBySchema: map[string][]string{
+			"blueclaw_turn_router": {
+				`{"route":"continue_task","classification":"bounded_task","taskShape":"maintenance_task","level":"low","requestedOutputFormats":null,"responseLanguage":"ko","reason":"natural-language reply selects the slides option","userFacingReply":"","choices":["B"]}`,
+			},
+		},
+		ActionResponses: []string{connectorFinishMessage("발표자료로 진행했습니다.")},
+	})
+	connectorRuntime, adapter, taskRunService, taskWaitRepository := newWaitRoutingTestConnectorRuntime(t, languageModel)
+	waitingTaskRun := createWaitingInputTaskRunWithOptions(t, taskRunService, "어떤 형식으로 만들까요?", "input-options")
+	if errorValue := taskWaitRepository.InsertTaskWaitToken(waitRoutingTaskWaitToken(waitingTaskRun, "input-dispatch", "input-options")); errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	event := testInboundEvent("message-option")
+	event.Prompt = replyText
+	event.ReplyTargetID = "input-dispatch"
+
+	result, errorValue := connectorRuntime.HandleInboundEvent(context.Background(), adapter, event)
+	if errorValue != nil {
+		t.Fatalf("expected option reply to process: %v", errorValue)
+	}
+	if result.TaskRunID != waitingTaskRun.TaskRunID {
+		t.Fatalf("expected waiting task continuation, got %+v", result)
+	}
+	requests := languageModel.Requests()
+	routerIndex := connectorSchemaIndexAfter(requests, "blueclaw_turn_router", -1)
+	if routerIndex < 0 || !structuredMessagesContain(requests[routerIndex].Messages, replyText) {
+		t.Fatalf("expected exact natural-language option reply in router request, got %+v", requests)
+	}
+	actionIndex := connectorSchemaIndexAfter(requests, "blueclaw_agent_turn_action", routerIndex)
+	if actionIndex < 0 || !structuredMessagesContain(requests[actionIndex].Messages, replyText) {
+		t.Fatalf("expected exact natural-language reply in resumed agent request, got %+v", requests)
+	}
+	if !connectorTaskEventsContain(connectorRuntime, waitingTaskRun.TaskRunID, "ask.resolved", `"choices":["B"]`) {
+		t.Fatalf("expected selected option key in ask resolution, taskRunID=%s", waitingTaskRun.TaskRunID)
+	}
+	if structuredMessagesContain(requests[actionIndex].Messages, "User selected:") {
+		t.Fatalf("expected no synthetic choice prompt, got %+v", requests[actionIndex].Messages)
 	}
 }
 
@@ -1419,6 +1462,20 @@ func TestLatestAskInteractionSkipsResolvedInteraction(t *testing.T) {
 
 	if isFound {
 		t.Fatalf("expected resolved ask interaction to be hidden, got %+v", interaction)
+	}
+}
+
+func TestLatestAskInteractionPreservesLegacyMultipleSelectionMode(t *testing.T) {
+	taskEvents := []task.TaskEvent{{
+		TaskEventID: "ask-1",
+		Name:        "ask.requested",
+		Body:        `{"kind":"choice_multiple","question":"필요한 형식을 선택해 주세요.","choices":["PDF","PPTX"]}`,
+	}}
+
+	interaction, isFound := latestAskInteraction("task-1", taskEvents)
+
+	if !isFound || interaction.Kind != "ask_input" || interaction.SelectionMode != "multiple" || len(interaction.Options) != 2 {
+		t.Fatalf("expected canonical multiple input interaction, got found=%v interaction=%+v", isFound, interaction)
 	}
 }
 
@@ -2500,6 +2557,56 @@ func TestConnectorRuntimeClassifiesConfirmationReplyBeforeResumingPendingTask(t 
 	}
 }
 
+func TestConnectorRuntimeClassifiesNaturalLanguageConfirmationRejection(t *testing.T) {
+	languageModel := agenttest.NewScriptedLanguageModel(agenttest.ScriptedLanguageModelOptions{
+		StructuredResponsesBySchema: map[string][]string{
+			"blueclaw_turn_router": {
+				`{"classification":"bounded_task","taskShape":"approval_gated_task","level":"low","requestedOutputFormats":null,"responseLanguage":"ko","reason":"calendar delete needs approval first","userFacingReply":""}`,
+				`{"route":"consume","classification":"quick_reply","taskShape":"immediate_reply","level":"xlow","requestedOutputFormats":null,"responseLanguage":"ko","reason":"user rejected the pending action","userFacingReply":"","approval":"reject"}`,
+			},
+			"blueclaw_execution_plan": {
+				`{"originalInstruction":"내일 휴가 일정을 캘린더에서 삭제해줘","summary":"내일 휴가 일정을 삭제합니다.","targets":["calendar event"],"schedule":"","startAt":"","endAt":"","cadence":"","externalSend":false,"thirdPartyExternalSend":false,"repeated":false,"highFrequency":false,"destructive":true,"permissionChange":false,"publicDeploy":false,"paidAction":false,"missingInformation":[],"continuationInstruction":"내일 휴가 일정을 캘린더에서 삭제합니다."}`,
+			},
+			"blueclaw_confirmation_message": {
+				`{"reply":"내일 휴가 일정을 삭제할까요?"}`,
+			},
+			"blueclaw_reply": {
+				`{"reply":"알겠습니다. 이번에는 삭제하지 않겠습니다."}`,
+			},
+		},
+	})
+	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
+	connectorRuntime.agentKernel.UseIntakeLanguageModelProvider(languageModel)
+	connectorRuntime.agentKernel.UseIntakeOptions(agent.IntakeOptions{IsEnabled: true})
+	useTestConnectorSkill(connectorRuntime, connectorCalendarSkill())
+	connectorRuntime.UseAllowedToolNames([]string{"conversation.history", "memory.search", "ask.confirm", "calendar.delete"})
+
+	firstEvent := testInboundEvent("message-1")
+	firstEvent.Prompt = "내일 휴가 일정을 캘린더에서 삭제해줘"
+	firstResult, errorValue := connectorRuntime.HandleInboundEvent(context.Background(), adapter, firstEvent)
+	if errorValue != nil {
+		t.Fatalf("expected confirmation request: %v", errorValue)
+	}
+
+	secondEvent := testInboundEvent("message-2")
+	secondEvent.Prompt = "아니, 이번에는 하지 마"
+	secondResult, errorValue := connectorRuntime.HandleInboundEvent(context.Background(), adapter, secondEvent)
+	if errorValue != nil {
+		t.Fatalf("expected natural-language rejection: %v", errorValue)
+	}
+	if secondResult.TaskRunID != firstResult.TaskRunID || secondResult.Reason != "confirmation_rejected" {
+		t.Fatalf("expected pending confirmation rejection, got %+v", secondResult)
+	}
+	if connectorContainsSchemaName(languageModel.Requests(), "blueclaw_agent_turn_action") {
+		t.Fatalf("expected rejection not to execute an agent action, got %+v", connectorRequestSchemaNames(languageModel.Requests()))
+	}
+	requests := languageModel.Requests()
+	routerIndex := connectorSchemaIndexAfter(requests, "blueclaw_turn_router", 1)
+	if routerIndex < 0 || !structuredMessagesContain(requests[routerIndex].Messages, "아니, 이번에는 하지 마") {
+		t.Fatalf("expected exact rejection text in router request, got %+v", requests)
+	}
+}
+
 func TestConnectorRuntimeRoutesShortConfirmationReplyThroughRouter(t *testing.T) {
 	invokedTools := []string{}
 	languageModel := agenttest.NewScriptedLanguageModel(agenttest.ScriptedLanguageModelOptions{
@@ -2676,9 +2783,9 @@ func TestConnectorRuntimeRoutesPendingConfirmationRevisionAsNewTask(t *testing.T
 	}
 }
 
-func TestAskReplyConsumesChoiceRevision(t *testing.T) {
+func TestAskReplyConsumesInputRevision(t *testing.T) {
 	interaction := AskInteraction{
-		Kind: "ask_choice_single",
+		Kind: "ask_input",
 		Options: []AskChoiceOption{
 			{Key: "one", Label: "선택지 1"},
 			{Key: "two", Label: "선택지 2"},
@@ -3951,6 +4058,29 @@ func createWaitingInputTaskRun(t *testing.T, taskRunService *task.TaskRunService
 		"kind":             "input",
 		"question":         prompt,
 		"message":          prompt,
+		"responseLanguage": "ko",
+	}))
+	return waitingTaskRun
+}
+
+func createWaitingInputTaskRunWithOptions(t *testing.T, taskRunService *task.TaskRunService, prompt string, interactionID string) task.TaskRun {
+	t.Helper()
+
+	taskRun := taskRunService.CreateTaskRunWithOrigin("person-1", task.TaskRunOrigin{ConversationID: "direct-1", ReplyTargetID: "origin-reply-target"}, prompt)
+	waitingTaskRun, errorValue := taskRunService.PauseTaskRun(taskRun.TaskRunID, task.TaskStatusWaitingUserInput, prompt)
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	taskRunService.AppendTaskEvent(taskRun.TaskRunID, "ask.requested", marshalConnectorEventBody(map[string]any{
+		"interactionID": interactionID,
+		"kind":          "ask_input",
+		"question":      prompt,
+		"message":       prompt,
+		"selectionMode": "single",
+		"options": []AskChoiceOption{
+			{Key: "A", Label: "웹사이트", Value: "website"},
+			{Key: "B", Label: "발표자료", Value: "slides"},
+		},
 		"responseLanguage": "ko",
 	}))
 	return waitingTaskRun

@@ -558,7 +558,7 @@ func TestTurnRouterNormalizesChoiceNumberToOptionKey(t *testing.T) {
 		ResponseLanguage:       "ko",
 		Choices:                []string{"2"},
 	}, router.deterministicDecision(AgentRequest{}), AgentRequest{
-		PendingChoice: PendingChoiceContext{
+		PendingInput: PendingInputContext{
 			TaskRunID:     "task-2",
 			SelectionMode: "single",
 			Options: []ChoiceReplyOption{
@@ -1181,8 +1181,8 @@ func TestAgentKernelCreatesChoiceAskForClarificationOptions(t *testing.T) {
 		t.Fatalf("expected waiting user input, got %s", result.TaskRun.Status)
 	}
 	events := services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID)
-	if !taskEventsContain(events, "ask.requested", `"kind":"choice_single"`) {
-		t.Fatalf("expected choice ask event, got %+v", events)
+	if !taskEventsContain(events, "ask.requested", `"kind":"ask_input"`) {
+		t.Fatalf("expected option-bearing ask.input event, got %+v", events)
 	}
 	if !taskEventsContain(events, "ask.requested", `"recommendedOptionKey":"A"`) {
 		t.Fatalf("expected first option to be recommended, got %+v", events)
