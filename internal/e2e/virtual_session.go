@@ -40,6 +40,14 @@ type VirtualSessionScenario struct {
 	ProfileName               string
 	ArtifactDirectoryPath     string
 	LanguageModel             llm.LanguageModelProvider
+	IntakeLanguageModel       llm.LanguageModelProvider
+	LowLanguageModel          llm.LanguageModelProvider
+	XLowLanguageModel         llm.LanguageModelProvider
+	MediumLanguageModel       llm.LanguageModelProvider
+	HighLanguageModel         llm.LanguageModelProvider
+	XHighLanguageModel        llm.LanguageModelProvider
+	MaxLanguageModel          llm.LanguageModelProvider
+	CodingLanguageModel       llm.LanguageModelProvider
 	DisableScriptedModel      bool
 	UseLooseAssertions        bool
 	SkillDirectoryPaths       []string
@@ -498,17 +506,26 @@ func NewVirtualSessionHarness(scenario VirtualSessionScenario) (*VirtualSessionH
 		return nil, errors.New("virtual session requires a live language model or explicit scripted model responses")
 	}
 	languageModel := newVirtualObservedLanguageModel(baseLanguageModel)
+	lowLanguageModel := observedVirtualLanguageModelOrDefault(scenario.LowLanguageModel, languageModel)
+	xLowLanguageModel := observedVirtualLanguageModelOrDefault(scenario.XLowLanguageModel, languageModel)
+	mediumLanguageModel := observedVirtualLanguageModelOrDefault(scenario.MediumLanguageModel, languageModel)
+	highLanguageModel := observedVirtualLanguageModelOrDefault(scenario.HighLanguageModel, languageModel)
+	xHighLanguageModel := observedVirtualLanguageModelOrDefault(scenario.XHighLanguageModel, languageModel)
+	maxLanguageModel := observedVirtualLanguageModelOrDefault(scenario.MaxLanguageModel, languageModel)
+	codingLanguageModel := observedVirtualLanguageModelOrDefault(scenario.CodingLanguageModel, languageModel)
+	intakeLanguageModel := observedVirtualLanguageModelOrDefault(scenario.IntakeLanguageModel, languageModel)
 	agentKernel := agent.NewAgentKernel(taskRunService, taskStepService)
 	agentKernel.UseTaskArtifactService(taskArtifactService)
-	agentKernel.UseLanguageModelProvider(languageModel)
-	if scenario.CodingTierVisionFallback {
+	agentKernel.UseLanguageModelProvider(lowLanguageModel)
+	agentKernel.UseTaskTierLanguageModels(maxLanguageModel, xHighLanguageModel, highLanguageModel, mediumLanguageModel, xLowLanguageModel, codingLanguageModel)
+	if scenario.CodingTierVisionFallback && scenario.CodingLanguageModel == nil {
 		codingTaskLanguageModel := llm.VisionFallbackProvider{
 			TextOnlyModel: imageRejectingLanguageModel{delegate: languageModel},
 			VisionModel:   languageModel,
 		}
 		agentKernel.UseTaskTierLanguageModels(languageModel, languageModel, languageModel, languageModel, languageModel, codingTaskLanguageModel)
 	}
-	agentKernel.UseIntakeLanguageModelProvider(languageModel)
+	agentKernel.UseIntakeLanguageModelProvider(intakeLanguageModel)
 	agentKernel.UseIntakeOptions(agent.IntakeOptions{IsEnabled: true, DefaultTaskLevel: agent.TaskLevelLow})
 	agentKernel.UseTurnOptions(virtualTurnOptions(scenario.TurnOptions))
 	instructionBundleLoader := virtualInstructionBundleLoader(skillInstructions, workspacePath)
@@ -576,6 +593,13 @@ func NewVirtualSessionHarness(scenario VirtualSessionScenario) (*VirtualSessionH
 		adapter:          adapter,
 		cleanup:          cleanup,
 	}, nil
+}
+
+func observedVirtualLanguageModelOrDefault(provider llm.LanguageModelProvider, defaultProvider llm.LanguageModelProvider) llm.LanguageModelProvider {
+	if provider == nil {
+		return defaultProvider
+	}
+	return newVirtualObservedLanguageModel(provider)
 }
 
 func virtualTurnOptions(scenarioOptions agent.TurnOptions) agent.TurnOptions {
@@ -1001,6 +1025,11 @@ func virtualCapabilityResponse(toolName string, requestBody []byte) string {
 			return `{"provider":"virtual","toolName":"site.delete","status":"denied","content":"requires approval","message":"requires approval","errorCode":"approval_required","failureStage":"authorization","result":{"errorCode":"approval_required","failureStage":"authorization","message":"requires approval"}}`
 		}
 		return `{"provider":"virtual","toolName":"site.delete","status":"ok","content":"deleted virtual site","result":{"siteID":"site-1","slug":"demo","status":"deleted"}}`
+	case "task.delete", "calendar.delete":
+		if virtualCapabilityRequestNeedsApproval(requestBody) {
+			return `{"provider":"virtual","toolName":` + quote(toolName) + `,"status":"denied","content":"requires approval","message":"requires approval","errorCode":"approval_required","failureStage":"authorization","result":{"errorCode":"approval_required","failureStage":"authorization","message":"requires approval"}}`
+		}
+		return `{"provider":"virtual","toolName":` + quote(toolName) + `,"status":"ok","content":"deleted virtual resource","result":{"status":"deleted"}}`
 	case "image.read":
 		return `{"provider":"virtual","toolName":"image.read","status":"ok","content":"image loaded","result":{"attachments":[{"devicePath":"/workspace/circles/staff/inbox/virtual/virtual-conversation-1/virtual-message-001/mascot.png","filename":"mascot.png","contentType":"image/png","sizeBytes":13,"contentBase64":"dmlydHVhbC1pbWFnZQ=="}]}}`
 	case "web.search":
@@ -1740,8 +1769,8 @@ func allowedToolsOrDefault(allowedTools []string) []string {
 
 func terminalConfiguration(workspacePath string) config.TerminalConfiguration {
 	return config.TerminalConfiguration{
-		Mode:                  "firecrackerGuest",
-		WorkspaceRootPath:     workspacePath,
+		Mode:              "firecrackerGuest",
+		WorkspaceRootPath: workspacePath,
 
 		DeniedPathPrefixes:    []string{"/etc", "/private/etc", "/System", "/Library"},
 		TimeoutSecond:         120,
