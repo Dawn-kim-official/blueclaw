@@ -54,6 +54,29 @@ func TestAdapterNormalizesHTTPAndWebSocketPostedEvents(t *testing.T) {
 	}
 }
 
+func TestAdapterParsesWebSocketPostedEventFromHTTP(t *testing.T) {
+	adapter := NewAdapter(testMattermostIdentityClient{}, &testMattermostConversationClient{})
+	request := httptestRequest([]byte(`{
+		"event":"posted",
+		"data":{
+			"channel_type":"D",
+			"channel_name":"circle-hr-compensation",
+			"post":"{\"id\":\"post-1\",\"user_id\":\"user-1\",\"channel_id\":\"direct-1\",\"message\":\"hello\"}"
+		}
+	}`))
+
+	parseResult, errorValue := adapter.ParseHTTPEvent(context.Background(), request)
+	if errorValue != nil {
+		t.Fatalf("expected websocket envelope parse: %v", errorValue)
+	}
+	if !parseResult.HasEvent {
+		t.Fatal("expected websocket envelope to produce an HTTP event")
+	}
+	if parseResult.Event.MessageID != "post-1" || parseResult.Event.Prompt != "hello" {
+		t.Fatalf("expected normalized websocket event, got %+v", parseResult.Event)
+	}
+}
+
 func TestAdapterSendsMattermostDirectAndThreadReplies(t *testing.T) {
 	conversationClient := &testMattermostConversationClient{}
 	adapter := NewAdapter(testMattermostIdentityClient{}, conversationClient)
