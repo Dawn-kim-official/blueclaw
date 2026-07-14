@@ -89,7 +89,7 @@ func recoveryAttemptContext(responseContext context.Context) (context.Context, c
 	if requestContext != (RequestContext{}) {
 		baseContext = ContextWithRequestContext(baseContext, requestContext)
 	}
-	return context.WithTimeout(baseContext, 8*time.Second)
+	return context.WithCancel(baseContext)
 }
 
 const llmTransientRetryCount = 4

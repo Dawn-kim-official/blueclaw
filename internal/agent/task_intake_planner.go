@@ -242,6 +242,8 @@ type TurnRouter struct {
 	options       IntakeOptions
 }
 
+const turnRouterMaxTokens = 1600
+
 func NewTaskIntakePlanner(languageModel llm.LanguageModelProvider, options IntakeOptions) TaskIntakePlanner {
 	return TaskIntakePlanner{
 		languageModel: languageModel,
@@ -284,8 +286,10 @@ func (turnRouter TurnRouter) Plan(ctx context.Context, request AgentRequest) Tur
 }
 
 func (turnRouter TurnRouter) planWithLanguageModel(ctx context.Context, request AgentRequest) (TurnDecision, error) {
+	maxTokens := turnRouterMaxTokens
 	structuredResponse, errorValue := turnRouter.languageModel.GenerateStructuredResponse(ctx, llm.StructuredResponseRequest{
-		Messages: turnRouter.buildMessages(request),
+		Messages:          turnRouter.buildMessages(request),
+		GenerationOptions: llm.GenerationOptions{MaxTokens: &maxTokens},
 		StructuredOutputSchema: llm.StructuredOutputSchema{
 			Name:               "blueclaw_turn_router",
 			Document:           turnRouterSchema(request),
@@ -314,8 +318,10 @@ func (turnRouter TurnRouter) ReaskRequiredEvidence(ctx context.Context, request 
 		Role:    "system",
 		Content: requiredEvidenceReaskInstruction,
 	})
+	maxTokens := turnRouterMaxTokens
 	structuredResponse, errorValue := turnRouter.languageModel.GenerateStructuredResponse(ctx, llm.StructuredResponseRequest{
-		Messages: messages,
+		Messages:          messages,
+		GenerationOptions: llm.GenerationOptions{MaxTokens: &maxTokens},
 		StructuredOutputSchema: llm.StructuredOutputSchema{
 			Name:               "blueclaw_turn_router",
 			Document:           turnRouterSchema(request),
@@ -597,22 +603,22 @@ func turnRouterSchema(request AgentRequest) string {
 			map[string]any{"type": "array", "maxItems": 7, "items": map[string]any{"type": "string", "enum": []string{"html", "pptx", "pdf", "txt", "docx", "xlsx", "csv"}}},
 			map[string]any{"type": "null"},
 		}},
-		"requestedOutputEvidence": map[string]any{"type": "string"},
+		"requestedOutputEvidence": map[string]any{"type": "string", "maxLength": 256},
 		"expectedResults":         expectedResultsSchema(),
 		"requiredEvidence":        boundedNamedStringArraySchema(registeredEvidenceNames),
 		"siteRequestEvidence": map[string]any{
-			"type": "string",
+			"type": "string", "maxLength": 256,
 		},
 		"responseLanguage": map[string]any{"type": "string", "enum": []string{"ko", "en", "same_as_conversation"}},
-		"reason":           map[string]any{"type": "string"},
-		"userFacingReply":  map[string]any{"type": "string"},
+		"reason":           map[string]any{"type": "string", "maxLength": 512},
+		"userFacingReply":  map[string]any{"type": "string", "maxLength": 512},
 		"initialToolNames": boundedNamedStringArraySchema(callableToolNames),
 		"priorTaskReference": map[string]any{"type": "string", "enum": []string{
 			string(PriorTaskReferenceNone),
 			string(PriorTaskReferenceOutcomeRecovery),
 		}},
 		"clarificationQuestion": map[string]any{
-			"type": "string",
+			"type": "string", "maxLength": 256,
 		},
 		"clarificationOptions": clarificationOptionsSchema(),
 		"reactionEmojiName": map[string]any{"anyOf": []any{
@@ -639,7 +645,7 @@ func turnRouterSchema(request AgentRequest) string {
 			string(BusyRouteNewTask),
 			string(BusyRouteUnrelated),
 		}}
-		properties["busyInstruction"] = map[string]any{"type": "string"}
+		properties["busyInstruction"] = map[string]any{"type": "string", "maxLength": 512}
 		requiredProperties = append(requiredProperties, "busyRoute", "busyInstruction")
 	}
 	document, errorValue := json.Marshal(map[string]any{
@@ -659,21 +665,25 @@ func boundedNamedStringArraySchema(values []string) map[string]any {
 	if len(values) > 0 {
 		itemSchema["enum"] = values
 	}
-	return map[string]any{"type": "array", "maxItems": len(values), "items": itemSchema}
+	maximumItems := len(values)
+	if maximumItems > 16 {
+		maximumItems = 16
+	}
+	return map[string]any{"type": "array", "maxItems": maximumItems, "items": itemSchema}
 }
 
 func expectedResultsSchema() map[string]any {
 	return map[string]any{
 		"type":     "array",
-		"maxItems": 16,
+		"maxItems": 8,
 		"items": map[string]any{
 			"type": "object",
 			"properties": map[string]any{
-				"id":              map[string]any{"type": "string"},
+				"id":              map[string]any{"type": "string", "maxLength": 128},
 				"type":            map[string]any{"type": "string", "enum": []string{ExpectedResultTypeMessage, ExpectedResultTypeFile, ExpectedResultTypeLink}},
-				"description":     map[string]any{"type": "string"},
+				"description":     map[string]any{"type": "string", "maxLength": 256},
 				"required":        map[string]any{"type": "boolean"},
-				"acceptanceHints": map[string]any{"type": "array", "maxItems": 16, "items": map[string]any{"type": "string"}},
+				"acceptanceHints": map[string]any{"type": "array", "maxItems": 4, "items": map[string]any{"type": "string", "maxLength": 128}},
 			},
 			"required":             []string{"description", "required"},
 			"additionalProperties": false,
@@ -738,9 +748,9 @@ func clarificationOptionsSchema() map[string]any {
 		"items": map[string]any{
 			"type": "object",
 			"properties": map[string]any{
-				"key":   map[string]any{"type": "string"},
-				"label": map[string]any{"type": "string"},
-				"value": map[string]any{"type": "string"},
+				"key":   map[string]any{"type": "string", "maxLength": 64},
+				"label": map[string]any{"type": "string", "maxLength": 128},
+				"value": map[string]any{"type": "string", "maxLength": 256},
 			},
 			"required":             []string{"key", "label"},
 			"additionalProperties": false,

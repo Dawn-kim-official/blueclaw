@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"strings"
-	"time"
 
 	"blueclaw/internal/llm"
 )
@@ -52,7 +51,7 @@ func (agentTurnRunner *AgentTurnRunner) appendUnavailableReplyEvents(taskRunID s
 }
 
 func (agentTurnRunner *AgentTurnRunner) generateRecoveryDecision(request AgentTurnRequest, failureReason string, observations []turnObservation, attachments []FileAttachment, executionState ExecutionState, phase string) (recoveryDecision, error) {
-	recoveryContext, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	recoveryContext, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	messages := []llm.Message{{
 		Role: "system",
@@ -396,7 +395,7 @@ func (agentTurnRunner *AgentTurnRunner) generateLimitReachedReply(request AgentT
 }
 
 func (agentTurnRunner *AgentTurnRunner) generateRecoveryText(prompt string) (string, error) {
-	finalizationContext, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	finalizationContext, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	recoveryProvider, isRecoveryProvider := agentTurnRunner.recoveryLanguageModel.(llm.RecoveryResponder)
 	if isRecoveryProvider {
@@ -416,7 +415,7 @@ func (agentTurnRunner *AgentTurnRunner) generateLocalRecoveryText(prompt string)
 	if !isLocalRecoveryProvider {
 		return "", errors.New("local recovery provider unavailable")
 	}
-	finalizationContext, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	finalizationContext, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	reply, errorValue := localRecoveryProvider.GenerateLocalRecoveryResponse(finalizationContext, prompt)
 	return strings.TrimSpace(reply), errorValue

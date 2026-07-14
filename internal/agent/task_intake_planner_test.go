@@ -45,6 +45,9 @@ func TestTaskIntakePlannerUsesStructuredModelDecision(t *testing.T) {
 	if languageModel.requests[0].StructuredOutputSchema.Name != "blueclaw_turn_router" {
 		t.Fatalf("expected turn router schema, got %q", languageModel.requests[0].StructuredOutputSchema.Name)
 	}
+	if languageModel.requests[0].GenerationOptions.MaxTokens == nil || *languageModel.requests[0].GenerationOptions.MaxTokens != turnRouterMaxTokens {
+		t.Fatalf("expected bounded turn router output, got %+v", languageModel.requests[0].GenerationOptions)
+	}
 	if !strings.Contains(languageModel.requests[0].StructuredOutputSchema.Document, `"taskShape"`) {
 		t.Fatalf("expected task shape in intake schema, got %s", languageModel.requests[0].StructuredOutputSchema.Document)
 	}
