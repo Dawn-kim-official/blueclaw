@@ -1,0 +1,23 @@
+{
+  "name": "@blueclaw/protocol",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "build": "bun run typecheck && bun run check:generated",
+    "generate": "bun run scripts/generate.ts",
+    "check:generated": "bun run scripts/check-generated.ts",
+    "test": "bun test",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "zod": "4.4.3"
+  },
+  "devDependencies": {
+    "@types/bun": "1.3.10",
+    "typescript": "5.9.3"
+  }
+}

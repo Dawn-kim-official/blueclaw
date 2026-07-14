@@ -1,0 +1,8 @@
+{
+  "taskAttemptID": "attempt-1",
+  "taskRunID": "task-1",
+  "runnerID": "runner-1",
+  "status": "running",
+  "startedAt": "2026-07-14T00:00:00Z",
+  "finishedAt": null
+}

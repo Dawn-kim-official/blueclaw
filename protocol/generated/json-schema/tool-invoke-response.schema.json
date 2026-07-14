@@ -1,0 +1,83 @@
+{
+  "$defs": {
+    "__schema0": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        },
+        {
+          "items": {
+            "$ref": "#/$defs/__schema0"
+          },
+          "type": "array"
+        },
+        {
+          "additionalProperties": {
+            "$ref": "#/$defs/__schema0"
+          },
+          "propertyNames": {
+            "type": "string"
+          },
+          "type": "object"
+        }
+      ]
+    }
+  },
+  "$id": "https://schemas.blueclaw.dev/0.1.0/tool-invoke-response.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": {},
+  "properties": {
+    "content": {
+      "type": "string"
+    },
+    "errorCode": {
+      "type": "string"
+    },
+    "failureStage": {
+      "type": "string"
+    },
+    "isError": {
+      "type": "boolean"
+    },
+    "message": {
+      "type": "string"
+    },
+    "provider": {
+      "type": "string"
+    },
+    "result": {
+      "$ref": "#/$defs/__schema0"
+    },
+    "retryable": {
+      "type": "boolean"
+    },
+    "safeRetry": {
+      "type": "boolean"
+    },
+    "selectedBackend": {
+      "type": "string"
+    },
+    "status": {
+      "type": "string"
+    },
+    "toolName": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "provider",
+    "selectedBackend",
+    "toolName",
+    "result"
+  ],
+  "type": "object"
+}
