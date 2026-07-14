@@ -21,14 +21,14 @@ import (
 
 func TestValidateStrictEmbeddingRetrievalRequiresReadyEmbeddingMode(t *testing.T) {
 	validResult := e2e.VirtualSessionResult{TurnResults: []e2e.VirtualTurnResult{{Events: []task.TaskEvent{{
-		Name: "agent.system_instruction",
+		Name: "agent.instructions_loaded",
 		Body: `{"retrievalMode":"embedding","indexStatus":"ready"}`,
 	}}}}}
 	if errorValue := validateStrictEmbeddingRetrieval(validResult); errorValue != nil {
 		t.Fatalf("expected ready embedding retrieval, got %v", errorValue)
 	}
 	fallbackResult := e2e.VirtualSessionResult{TurnResults: []e2e.VirtualTurnResult{{Events: []task.TaskEvent{{
-		Name: "agent.system_instruction",
+		Name: "agent.instructions_loaded",
 		Body: `{"retrievalMode":"bm25","indexStatus":"query_failed"}`,
 	}}}}}
 	if errorValue := validateStrictEmbeddingRetrieval(fallbackResult); errorValue == nil {
