@@ -5,16 +5,14 @@ import type { StructuredResponse, StructuredResponseRequest } from '@blueclaw/pr
 import {
   generateText,
   jsonSchema,
-  JSONParseError,
-  NoObjectGeneratedError,
   Output,
-  TypeValidationError,
   type LanguageModel,
   type ModelMessage,
 } from 'ai';
 import Ajv from 'ajv';
 
 import type { SDKDConfiguration } from './configuration.ts';
+import { classifySDKDError, isRetryableProviderError, SDKDError } from './errors.ts';
 
 type ProviderRoute = {
   constraintMode: 'llama_json_schema' | 'openai_json_schema';
@@ -46,8 +44,8 @@ export function createStructuredResponseGenerator(
         if (!isRetryableProviderError(errorValue)) break;
       }
     }
-    if (lastError instanceof Error) throw lastError;
-    throw new Error('no configured language model route accepted the request');
+    if (lastError !== undefined) throw classifySDKDError(lastError);
+    throw new SDKDError('configuration_invalid', 503, false, 'no configured language model route accepted the request');
   };
 }
 
@@ -58,20 +56,27 @@ function resolveProviderRoutes(
 ): ProviderRoute[] {
   if (request.executionMode === 'device') return [createLlamaRoute(configuration, languageModelFactory)];
   if (request.executionMode === 'remote') {
+    if (configuration.localOnly) {
+      throw new SDKDError('policy_remote_disabled', 403, false, 'remote routing is disabled by local-only mode');
+    }
     return [createOpenRouterRoute(request, configuration, languageModelFactory)];
   }
   if (request.executionMode === 'companion') throw new Error('companion language model routing is provided by InternKim');
-  const routes = configuration.autoRoute === 'local-first'
-    ? [
-        optionalLlamaRoute(configuration, languageModelFactory),
-        optionalOpenRouterRoute(request, configuration, languageModelFactory),
-      ]
-    : [
-        optionalOpenRouterRoute(request, configuration, languageModelFactory),
-        optionalLlamaRoute(configuration, languageModelFactory),
-      ];
+  const routes = configuration.localOnly
+    ? [optionalLlamaRoute(configuration, languageModelFactory)]
+    : configuration.autoRoute === 'local-first'
+      ? [
+          optionalLlamaRoute(configuration, languageModelFactory),
+          optionalOpenRouterRoute(request, configuration, languageModelFactory),
+        ]
+      : [
+          optionalOpenRouterRoute(request, configuration, languageModelFactory),
+          optionalLlamaRoute(configuration, languageModelFactory),
+        ];
   const configuredRoutes = routes.filter(route => route !== undefined);
-  if (configuredRoutes.length === 0) throw new Error('auto routing requires an OpenRouter or llama.cpp configuration');
+  if (configuredRoutes.length === 0) {
+    throw new SDKDError('configuration_invalid', 503, false, 'auto routing requires an OpenRouter or llama.cpp configuration');
+  }
   return configuredRoutes;
 }
 
@@ -99,10 +104,10 @@ function createLlamaRoute(
   languageModelFactory: ProviderLanguageModelFactory,
 ): ProviderRoute {
   if (!configuration.llamaBaseURL || !configuration.llamaModel) {
-    throw new Error('device routing requires BLUECLAW_SDKD_LLAMA_BASE_URL and BLUECLAW_SDKD_LLAMA_MODEL');
+    throw new SDKDError('configuration_invalid', 503, false, 'device routing requires BLUECLAW_SDKD_LLAMA_BASE_URL and BLUECLAW_SDKD_LLAMA_MODEL');
   }
   if (!configuration.llamaStructuredOutputsEnabled) {
-    throw new Error('device structured output routing requires explicit conformance enablement');
+    throw new SDKDError('configuration_invalid', 503, false, 'device structured output routing requires explicit conformance enablement');
   }
   return {
     constraintMode: 'llama_json_schema',
@@ -122,9 +127,11 @@ function createOpenRouterRoute(
   configuration: SDKDConfiguration,
   languageModelFactory: ProviderLanguageModelFactory,
 ): ProviderRoute {
-  if (!configuration.openRouterAPIKey) throw new Error('remote routing requires OPENROUTER_API_KEY');
+  if (!configuration.openRouterAPIKey) {
+    throw new SDKDError('configuration_invalid', 503, false, 'remote routing requires OPENROUTER_API_KEY');
+  }
   const modelName = request.model?.trim();
-  if (!modelName) throw new Error('remote routing requires a model');
+  if (!modelName) throw new SDKDError('request_invalid', 400, false, 'remote routing requires a model');
   return {
     constraintMode: 'openai_json_schema',
     languageModel: languageModelFactory.createOpenRouterLanguageModel(
@@ -173,10 +180,14 @@ async function generateForRoute(
       schema: outputSchema,
     }),
     maxOutputTokens: request.generationOptions?.maxTokens,
+    maxRetries: 0,
     seed: request.generationOptions?.seed,
     temperature: request.generationOptions?.temperature,
     timeout: timeoutMillisecond,
   });
+  if (result.finishReason !== 'stop') {
+    throw new SDKDError('structured_output_invalid', 422, false, `structured output generation finished with ${result.finishReason}`);
+  }
   return {
     provider: route.providerName,
     model: result.response.modelId || route.modelName,
@@ -196,9 +207,16 @@ async function generateForRoute(
 }
 
 function createValidatedOutputSchema(document: unknown) {
-  if (!isJSONSchema(document)) throw new Error('structured output schema must be a JSON object');
+  if (!isJSONSchema(document)) {
+    throw new SDKDError('request_invalid', 400, false, 'structured output schema must be a JSON object');
+  }
   const ajv = new Ajv({ allErrors: true, strict: false });
-  const validator = ajv.compile(document);
+  let validator;
+  try {
+    validator = ajv.compile(document);
+  } catch (errorValue) {
+    throw new SDKDError('request_invalid', 400, false, errorValue instanceof Error ? errorValue.message : 'structured output schema is invalid');
+  }
   return jsonSchema(document, {
     validate(value) {
       if (validator(value)) return { success: true, value };
@@ -254,11 +272,4 @@ function normalizeTokenCount(value: number | undefined): number {
 function optionalTokenCount(value: number | undefined): number | undefined {
   if (value === undefined) return undefined;
   return normalizeTokenCount(value);
-}
-
-function isRetryableProviderError(errorValue: unknown): boolean {
-  if (NoObjectGeneratedError.isInstance(errorValue)) return false;
-  if (TypeValidationError.isInstance(errorValue)) return false;
-  if (JSONParseError.isInstance(errorValue)) return false;
-  return true;
 }

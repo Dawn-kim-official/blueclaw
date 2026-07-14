@@ -11,6 +11,7 @@ const environmentSchema = z.object({
   BLUECLAW_SDKD_LLAMA_BASE_URL: z.string().url().optional(),
   BLUECLAW_SDKD_LLAMA_MODEL: z.string().min(1).optional(),
   BLUECLAW_SDKD_LLAMA_STRUCTURED_OUTPUTS_ENABLED: z.enum(['0', '1', 'false', 'true']).default('false'),
+  BLUECLAW_SDKD_LOCAL_ONLY: z.enum(['0', '1', 'false', 'true']).default('false'),
   BLUECLAW_SDKD_OPENROUTER_BASE_URL: z.string().url().default('https://openrouter.ai/api/v1'),
   BLUECLAW_SDKD_REQUEST_TIMEOUT_MILLISECOND: z.coerce.number().int().positive().default(60000),
   BLUECLAW_SDKD_SOCKET_PATH: z.string().min(1).default('/run/blueclaw-sdkd/sdkd.sock'),
@@ -26,6 +27,7 @@ export type SDKDConfiguration = {
   llamaBaseURL?: string;
   llamaModel?: string;
   llamaStructuredOutputsEnabled: boolean;
+  localOnly: boolean;
   openRouterAPIKey?: string;
   openRouterBaseURL: string;
   requestTimeoutMillisecond: number;
@@ -48,6 +50,7 @@ export function loadSDKDConfiguration(environment: Record<string, string | undef
     llamaStructuredOutputsEnabled: ['1', 'true'].includes(
       parsedEnvironment.BLUECLAW_SDKD_LLAMA_STRUCTURED_OUTPUTS_ENABLED,
     ),
+    localOnly: ['1', 'true'].includes(parsedEnvironment.BLUECLAW_SDKD_LOCAL_ONLY),
     openRouterAPIKey: loadOptionalCredential(
       parsedEnvironment.OPENROUTER_API_KEY,
       parsedEnvironment.OPENROUTER_API_KEY_PATH,
@@ -79,9 +82,18 @@ function loadOptionalCredential(
 ): string | undefined {
   const directCredential = normalizeCredential(directValue, credentialName);
   if (directCredential) return directCredential;
-  const credentialPath = explicitPath ?? (credentialsDirectory ? join(credentialsDirectory, credentialName) : undefined);
+  const credentialPath = credentialsDirectory ? join(credentialsDirectory, credentialName) : explicitPath;
   if (!credentialPath) return undefined;
-  return normalizeCredential(readFileSync(credentialPath, 'utf8'), credentialName);
+  try {
+    return normalizeCredential(readFileSync(credentialPath, 'utf8'), credentialName);
+  } catch (errorValue) {
+    if (isFileNotFoundError(errorValue)) return undefined;
+    throw errorValue;
+  }
+}
+
+function isFileNotFoundError(errorValue: unknown): boolean {
+  return errorValue instanceof Error && 'code' in errorValue && errorValue.code === 'ENOENT';
 }
 
 function normalizeCredential(value: string | undefined, credentialName: string): string | undefined {

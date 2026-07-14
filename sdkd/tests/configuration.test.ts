@@ -18,6 +18,7 @@ describe('sdkd configuration', () => {
     expect(configuration.autoRoute).toBe('remote-first');
     expect(configuration.llamaModel).toBe('local-model');
     expect(configuration.openRouterBaseURL).toBe('https://openrouter.ai/api/v1');
+    expect(configuration.localOnly).toBe(false);
   });
 
   test('requires an installation auth key', () => {
@@ -34,6 +35,59 @@ describe('sdkd configuration', () => {
 
       expect(configuration.authKey).toBe('installation-key');
       expect(configuration.openRouterAPIKey).toBe('remote-key');
+    } finally {
+      rmSync(credentialsDirectory, { force: true, recursive: true });
+    }
+  });
+
+  test('prefers the systemd credential directory over explicit credential paths', () => {
+    const credentialsDirectory = mkdtempSync(join(tmpdir(), 'blueclaw-sdkd-credentials-'));
+    try {
+      writeFileSync(join(credentialsDirectory, 'sdkd-auth-key'), 'systemd-installation-key\n', { mode: 0o600 });
+      writeFileSync(join(credentialsDirectory, 'openrouter-api-key'), 'systemd-remote-key\n', { mode: 0o600 });
+
+      const configuration = loadSDKDConfiguration({
+        BLUECLAW_SDKD_AUTH_KEY_PATH: '/run/credentials/blueclaw-sdkd.service/sdkd-auth-key',
+        CREDENTIALS_DIRECTORY: credentialsDirectory,
+        OPENROUTER_API_KEY_PATH: '/run/credentials/blueclaw-sdkd.service/openrouter-api-key',
+      });
+
+      expect(configuration.authKey).toBe('systemd-installation-key');
+      expect(configuration.openRouterAPIKey).toBe('systemd-remote-key');
+    } finally {
+      rmSync(credentialsDirectory, { force: true, recursive: true });
+    }
+  });
+
+  test('keeps explicit credential paths for standalone execution', () => {
+    const credentialsDirectory = mkdtempSync(join(tmpdir(), 'blueclaw-sdkd-credentials-'));
+    try {
+      const authKeyPath = join(credentialsDirectory, 'standalone-auth-key');
+      const openRouterAPIKeyPath = join(credentialsDirectory, 'standalone-openrouter-key');
+      writeFileSync(authKeyPath, 'standalone-installation-key\n', { mode: 0o600 });
+      writeFileSync(openRouterAPIKeyPath, 'OPENROUTER_API_KEY=standalone-remote-key\n', { mode: 0o600 });
+
+      const configuration = loadSDKDConfiguration({
+        BLUECLAW_SDKD_AUTH_KEY_PATH: authKeyPath,
+        OPENROUTER_API_KEY_PATH: openRouterAPIKeyPath,
+      });
+
+      expect(configuration.authKey).toBe('standalone-installation-key');
+      expect(configuration.openRouterAPIKey).toBe('standalone-remote-key');
+    } finally {
+      rmSync(credentialsDirectory, { force: true, recursive: true });
+    }
+  });
+
+  test('allows an omitted optional credential in the systemd directory', () => {
+    const credentialsDirectory = mkdtempSync(join(tmpdir(), 'blueclaw-sdkd-credentials-'));
+    try {
+      writeFileSync(join(credentialsDirectory, 'sdkd-auth-key'), 'installation-key\n', { mode: 0o600 });
+
+      const configuration = loadSDKDConfiguration({ CREDENTIALS_DIRECTORY: credentialsDirectory });
+
+      expect(configuration.authKey).toBe('installation-key');
+      expect(configuration.openRouterAPIKey).toBeUndefined();
     } finally {
       rmSync(credentialsDirectory, { force: true, recursive: true });
     }
