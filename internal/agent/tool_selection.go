@@ -12,22 +12,14 @@ type requestToolsArguments struct {
 }
 
 type toolRequestResult struct {
-	PinnedToolNames           []string                   `json:"pinnedToolNames,omitempty"`
-	PinnedSkillNames          []string                   `json:"pinnedSkillNames,omitempty"`
-	UnknownToolNames          []string                   `json:"unknownToolNames,omitempty"`
-	UnavailableToolNames      []string                   `json:"unavailableToolNames,omitempty"`
-	ToolCandidates            map[string][]toolCandidate `json:"toolCandidates,omitempty"`
-	UnknownSkillNames         []string                   `json:"unknownSkillNames,omitempty"`
-	ReclassifiedSkillsAsTools []string                   `json:"reclassifiedSkillsAsTools,omitempty"`
-	SkillsMissingAllowedTools map[string][]string        `json:"skillsMissingAllowedTools,omitempty"`
-	EmptyRequirement          bool                       `json:"emptyRequirement,omitempty"`
-}
-
-type toolCandidate struct {
-	Name         string           `json:"name"`
-	Description  string           `json:"description,omitempty"`
-	Availability ToolAvailability `json:"availability"`
-	MatchReason  string           `json:"matchReason,omitempty"`
+	PinnedToolNames           []string            `json:"pinnedToolNames,omitempty"`
+	PinnedSkillNames          []string            `json:"pinnedSkillNames,omitempty"`
+	UnknownToolNames          []string            `json:"unknownToolNames,omitempty"`
+	UnavailableToolNames      []string            `json:"unavailableToolNames,omitempty"`
+	UnknownSkillNames         []string            `json:"unknownSkillNames,omitempty"`
+	ReclassifiedSkillsAsTools []string            `json:"reclassifiedSkillsAsTools,omitempty"`
+	SkillsMissingAllowedTools map[string][]string `json:"skillsMissingAllowedTools,omitempty"`
+	EmptyRequirement          bool                `json:"emptyRequirement,omitempty"`
 }
 
 func applyToolRequest(request AgentTurnRequest, requestArguments requestToolsArguments) (AgentTurnRequest, toolRequestResult) {
@@ -41,9 +33,6 @@ func applyToolRequest(request AgentTurnRequest, requestArguments requestToolsArg
 	request, result = reclassifySkillNamesThatAreTools(request, result)
 	if len(result.SkillsMissingAllowedTools) == 0 {
 		result.SkillsMissingAllowedTools = nil
-	}
-	if len(result.ToolCandidates) == 0 {
-		result.ToolCandidates = nil
 	}
 	return request, result
 }
@@ -111,7 +100,6 @@ func pinRequestedTools(request AgentTurnRequest, toolNames []string, result tool
 		}
 		if request.ToolSet == nil || !request.ToolSet.IsRegistered(trimmedToolName) {
 			result.UnknownToolNames = appendUniqueStrings(result.UnknownToolNames, trimmedToolName)
-			result.ToolCandidates = addToolCandidates(result.ToolCandidates, trimmedToolName, request.ToolSet)
 			continue
 		}
 		if !request.ToolSet.CanExpose(trimmedToolName) {
@@ -147,108 +135,6 @@ func reclassifySkillNamesThatAreTools(request AgentTurnRequest, result toolReque
 	result.UnknownSkillNames = remainingUnknownSkillNames
 	request.ToolSet = request.ToolSet.WithAdditionalAllowedToolNames(request.PinnedToolNames)
 	return request, result
-}
-
-func addToolCandidates(candidates map[string][]toolCandidate, requestedToolName string, toolSet *ToolSet) map[string][]toolCandidate {
-	matches := matchingToolCandidates(requestedToolName, toolSet, 3)
-	if len(matches) == 0 {
-		return candidates
-	}
-	if candidates == nil {
-		candidates = map[string][]toolCandidate{}
-	}
-	candidates[strings.TrimSpace(requestedToolName)] = matches
-	return candidates
-}
-
-func matchingToolCandidates(requestedToolName string, toolSet *ToolSet, limit int) []toolCandidate {
-	if toolSet == nil || strings.TrimSpace(requestedToolName) == "" {
-		return nil
-	}
-	candidates := []toolCandidate{}
-	for _, toolDefinition := range toolSet.ListRegisteredToolDefinitions() {
-		candidate, isMatch := toolCandidateForRequest(requestedToolName, toolDefinition, toolSet)
-		if !isMatch {
-			continue
-		}
-		candidates = append(candidates, candidate)
-		if len(candidates) >= limit {
-			return candidates
-		}
-	}
-	return candidates
-}
-
-func toolCandidateForRequest(requestedToolName string, toolDefinition ToolDefinition, toolSet *ToolSet) (toolCandidate, bool) {
-	toolName := strings.TrimSpace(toolDefinition.Name)
-	if toolName == "" {
-		return toolCandidate{}, false
-	}
-	matchReason := toolCandidateMatchReason(requestedToolName, toolDefinition)
-	if matchReason == "" {
-		return toolCandidate{}, false
-	}
-	availability, _ := toolSet.ToolAvailability(toolName)
-	if strings.TrimSpace(availability.Status) == ToolAvailabilityDenied {
-		return toolCandidate{}, false
-	}
-	return toolCandidate{
-		Name:         toolName,
-		Description:  firstNonEmptyString(strings.TrimSpace(toolDefinition.Description), specificToolDescription(toolName)),
-		Availability: availability,
-		MatchReason:  matchReason,
-	}, true
-}
-
-func toolCandidateMatchReason(requestedToolName string, toolDefinition ToolDefinition) string {
-	requestedText := strings.ToLower(strings.TrimSpace(requestedToolName))
-	toolName := strings.ToLower(strings.TrimSpace(toolDefinition.Name))
-	if requestedText == "" || toolName == "" {
-		return ""
-	}
-	if strings.EqualFold(requestedText, toolName) {
-		return "exact"
-	}
-	if toolNameContainsSharedSegment(toolName, requestedText) {
-		return "name_segment"
-	}
-	searchText := strings.ToLower(strings.Join([]string{
-		toolDefinition.Name,
-		toolDefinition.Description,
-		toolDefinition.RecoveryCard.Does,
-		toolDefinition.RecoveryCard.Produces,
-		toolDefinition.RecoveryCard.UseWhen,
-	}, " "))
-	for _, token := range searchTokens(requestedText) {
-		if strings.Contains(searchText, token) {
-			return "query_token:" + token
-		}
-	}
-	return ""
-}
-
-func toolNameContainsSharedSegment(toolName string, requestedText string) bool {
-	for _, token := range searchTokens(requestedText) {
-		for _, segment := range strings.FieldsFunc(toolName, func(value rune) bool { return value == '.' || value == '_' || value == '-' }) {
-			if strings.TrimSpace(segment) == token {
-				return true
-			}
-		}
-	}
-	return false
-}
-
-func searchTokens(value string) []string {
-	tokens := []string{}
-	for _, token := range strings.FieldsFunc(strings.ToLower(value), func(value rune) bool {
-		return value == '.' || value == '_' || value == '-' || value == ' ' || value == '/'
-	}) {
-		trimmedToken := strings.TrimSpace(token)
-		if len([]rune(trimmedToken)) >= 3 {
-			tokens = appendUniqueStrings(tokens, trimmedToken)
-		}
-	}
-	return tokens
 }
 
 func pinRequestedSkills(request AgentTurnRequest, skillNames []string, result toolRequestResult) (AgentTurnRequest, toolRequestResult) {

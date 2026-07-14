@@ -296,6 +296,8 @@ func advanceAgentTask(state agentTaskState) agentTransition {
 		}
 	case completionActionBlockedInvalidArtifact:
 		observation := newFailureObservation(nextObservationID(len(state.Observations)+1), "policy", "", invalidCompletionArtifactObservationContent(completionState), FailureInvalidInput, FailureCodes.InvalidInput, "completion_state")
+		observation.PolicyCode = evidenceKindAttachmentValid
+		observation.RelatedPaths = appendUniqueStrings(completionValidityPaths(completionState))
 		state.Observations = append(state.Observations, observation)
 		return agentTransition{State: state, Effect: agentEffect{Kind: agentEffectNone}}
 	default:

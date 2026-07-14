@@ -12,24 +12,6 @@ import (
 	"blueclaw/internal/task"
 )
 
-func TestCompletionGateRejectsFutureWorkPromiseWithoutScheduleEvidence(t *testing.T) {
-	goalSatisfied := true
-	result := validateCompletionGate(nil, nil, nil, turnActionDocument{
-		Action:             "finish",
-		Message:            "지금부터 고치겠습니다. 완료 후 공유하겠습니다.",
-		GoalStatus:         "satisfied",
-		GoalSatisfied:      &goalSatisfied,
-		CompletionEvidence: []completionEvidenceReference{},
-		QualityReview:      []qualityReviewItem{},
-	})
-	if result.IsSatisfied {
-		t.Fatal("expected completion gate to reject future work promise")
-	}
-	if !strings.Contains(result.Message, "schedule.create") {
-		t.Fatalf("expected schedule evidence guidance, got %q", result.Message)
-	}
-}
-
 func TestCompletionGateRejectsSatisfiedFinishWithUnresolvedFailureDebt(t *testing.T) {
 	goalSatisfied := true
 	result := validateCompletionGate(
@@ -44,6 +26,7 @@ func TestCompletionGateRejectsSatisfiedFinishWithUnresolvedFailureDebt(t *testin
 			FailureResolution:  failureResolutionNoToolFallback,
 			GoalStatus:         "satisfied",
 			GoalSatisfied:      &goalSatisfied,
+			HasRemainingWork:   true,
 			CompletionEvidence: []completionEvidenceReference{},
 			QualityReview:      []qualityReviewItem{},
 			RemainingWork:      "권한 확인 후 재시도 필요",
@@ -52,7 +35,7 @@ func TestCompletionGateRejectsSatisfiedFinishWithUnresolvedFailureDebt(t *testin
 	if result.IsSatisfied {
 		t.Fatal("expected completion gate to reject unresolved failure debt")
 	}
-	if !strings.Contains(result.Message, "remainingWork") {
+	if !strings.Contains(result.Message, "hasRemainingWork") {
 		t.Fatalf("expected remaining work guidance, got %q", result.Message)
 	}
 }
@@ -64,6 +47,7 @@ func TestCompletionGateAcceptsZeroRemainingWork(t *testing.T) {
 		Message:            "작업을 완료했습니다.",
 		GoalStatus:         "satisfied",
 		GoalSatisfied:      &goalSatisfied,
+		HasRemainingWork:   false,
 		CompletionEvidence: []completionEvidenceReference{},
 		QualityReview:      []qualityReviewItem{},
 		RemainingWork:      "0",
@@ -101,7 +85,7 @@ func TestCompletionGateRejectsExternalSendFinishWithoutSendEvidence(t *testing.T
 	if len(result.SuggestedNextTools) != 1 || result.SuggestedNextTools[0] != "mail.message.send" {
 		t.Fatalf("expected suggested send tool, got %+v", result.SuggestedNextTools)
 	}
-	observation := withCompletionGateRecoveryPacket(completionGateObservation(1, result.Message), result)
+	observation := withCompletionGateRecoveryPacket(completionGateObservation(1, result), result)
 	if observation.RecoveryPacket == nil {
 		t.Fatal("expected recovery packet")
 	}

@@ -233,6 +233,16 @@ func runVirtualSession(ctx context.Context, arguments virtualSessionArguments) e
 		}
 		languageModel := languageModelFactory(firstNonEmptyString(arguments.LanguageModelName, "xiaomi/mimo-v2.5"))
 		scenario.LanguageModel = languageModel
+		scenario.EmbeddingProvider = llm.CapabilityEmbeddingClient{
+			CapabilityClient: capability.NewClient(capability.Configuration{
+				Endpoint:       endpointForVirtualSession(arguments),
+				UnixSocketPath: arguments.LanguageModelSocket,
+				Timeout:        30 * time.Second,
+			}),
+			ModelName:     llm.DefaultEmbeddingModelName,
+			ExecutionMode: arguments.ExecutionMode,
+		}
+		scenario.EmbeddingModel = llm.DefaultEmbeddingModelName
 		if arguments.RealModelTiers || arguments.MaximumModelTier != "" {
 			configureVirtualScenarioModelTiers(&scenario, arguments.MaximumModelTier, languageModelFactory)
 		}

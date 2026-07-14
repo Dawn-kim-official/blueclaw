@@ -381,7 +381,7 @@ func TestAgentTurnRunnerSelectToolsPinsHiddenTool(t *testing.T) {
 	}
 }
 
-func TestAgentTurnRunnerSelectToolsSuggestsCandidateForUnknownTool(t *testing.T) {
+func TestAgentTurnRunnerSelectToolsRequiresExactRegisteredName(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		`{"action":"tool.request","toolNames":["image.analyze"],"skillNames":[],"reason":"need image analysis"}`,
 		`{"action":"tool.request","toolNames":["image.read"],"skillNames":[],"reason":"use the matching registered image tool"}`,
@@ -417,8 +417,8 @@ func TestAgentTurnRunnerSelectToolsSuggestsCandidateForUnknownTool(t *testing.T)
 		t.Fatalf("expected image.read to be invoked once, got %d", imageReadCallCount)
 	}
 	events := services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID)
-	if !taskEventsContain(events, "agent.tool_palette.failed", "image.analyze") || !taskEventsContain(events, "agent.tool_palette.failed", "image.read") {
-		t.Fatal("expected failed palette request to include image.read candidate")
+	if !taskEventsContain(events, "agent.tool_palette.failed", "image.analyze") {
+		t.Fatal("expected unknown tool request to fail without semantic substitution")
 	}
 	if !taskEventsContain(events, "agent.tool_palette.applied", "image.read") {
 		t.Fatal("expected exact image.read request to apply")
@@ -1304,10 +1304,11 @@ func TestAgentTurnRunnerApprovalRequiredPausesAndExecutesHeldCall(t *testing.T) 
 			return ToolResult{
 				Output: ToolOutput{Content: "requires approval"},
 				Failure: &ToolFailure{
-					Kind:            FailureExternalService,
-					Code:            "approval_required",
-					Stage:           "authorization",
-					UserSafeSummary: "requires approval",
+					Kind:             FailureExternalService,
+					Code:             FailureCodes.OperationFailed.String(),
+					Stage:            "authorization",
+					UserSafeSummary:  "requires approval",
+					RequiresApproval: true,
 				},
 			}, nil
 		}

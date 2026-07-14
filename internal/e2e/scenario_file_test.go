@@ -21,7 +21,7 @@ func TestLoadScenarioFileReadsSequentialStepsAndResolvesSkills(t *testing.T) {
   "capabilityToolNames": ["task.add", "task.delete"],
   "capabilityToolDescriptors": [{"name":"task.delete","requiresApproval":true}],
   "steps": [
-    {"prompt":"업무 추가","expectedToolCalls":["task.add"]},
+    {"prompt":"업무 추가","expectedResponse":"background_action","expectedToolCalls":["task.add"]},
     {"prompt":"삭제 승인","expectedEvents":["approval.executed"]}
   ]
 }`
@@ -43,12 +43,16 @@ func TestLoadScenarioFileReadsSequentialStepsAndResolvesSkills(t *testing.T) {
 	if scenario.Turns[0].ExpectedToolCalls[0] != "task.add" || scenario.Turns[1].ExpectedEvents[0] != "approval.executed" {
 		t.Fatalf("unexpected sequential steps: %+v", scenario.Turns)
 	}
+	if scenario.Turns[0].ExpectedResponse != VirtualResponseBackgroundAction {
+		t.Fatalf("expected background action response, got %q", scenario.Turns[0].ExpectedResponse)
+	}
 }
 
 func TestLoadScenarioFileRejectsUnknownFieldsAndEmptySteps(t *testing.T) {
 	for testName, document := range map[string]string{
-		"unknown": `{"name":"bad","steps":[{"prompt":"hi"}],"unexpected":true}`,
-		"empty":   `{"name":"bad","steps":[]}`,
+		"unknown":          `{"name":"bad","steps":[{"prompt":"hi"}],"unexpected":true}`,
+		"empty":            `{"name":"bad","steps":[]}`,
+		"invalid response": `{"name":"bad","steps":[{"prompt":"hi","expectedResponse":"maybe"}]}`,
 	} {
 		t.Run(testName, func(t *testing.T) {
 			scenarioPath := filepath.Join(t.TempDir(), "scenario.json")
@@ -56,7 +60,7 @@ func TestLoadScenarioFileRejectsUnknownFieldsAndEmptySteps(t *testing.T) {
 				t.Fatal(errorValue)
 			}
 			_, errorValue := LoadScenarioFile(scenarioPath, t.TempDir())
-			if errorValue == nil || (!strings.Contains(errorValue.Error(), "unknown field") && !strings.Contains(errorValue.Error(), "sequential step")) {
+			if errorValue == nil || (!strings.Contains(errorValue.Error(), "unknown field") && !strings.Contains(errorValue.Error(), "sequential step") && !strings.Contains(errorValue.Error(), "expectedResponse")) {
 				t.Fatalf("expected scenario validation error, got %v", errorValue)
 			}
 		})

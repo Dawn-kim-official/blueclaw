@@ -298,7 +298,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerBuiltInTools(toolRegistry 
 	toolCatalogBuilder.registerMathTool(toolRegistry)
 	toolCatalogBuilder.registerTerminalTools(toolRegistry, handlerContext)
 	toolCatalogBuilder.registerBrowserHandoffTool(toolRegistry, handlerContext)
-	toolCatalogBuilder.registerAskTools(toolRegistry, handlerContext)
+	toolCatalogBuilder.registerAskInputTool(toolRegistry)
 	toolCatalogBuilder.registerFileTools(toolRegistry, handlerContext)
 	toolCatalogBuilder.registerScheduleTools(toolRegistry, handlerContext)
 	toolCatalogBuilder.registerSkillManagementTools(toolRegistry)

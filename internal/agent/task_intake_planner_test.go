@@ -145,7 +145,7 @@ func TestTaskIntakePlannerPassesPriorTaskContext(t *testing.T) {
 	}
 }
 
-func TestTaskIntakePlannerFallbackRecoversPriorDocxDelivery(t *testing.T) {
+func TestTaskIntakePlannerFallbackDoesNotInferPriorTaskIntent(t *testing.T) {
 	planner := NewTaskIntakePlanner(nil, IntakeOptions{})
 	toolRegistry := newTestToolSet([]string{"conversation.history", "file.read", "file.write", "terminal.run", "file.promote", "file.deliver"})
 
@@ -164,14 +164,14 @@ func TestTaskIntakePlannerFallbackRecoversPriorDocxDelivery(t *testing.T) {
 		},
 	})
 
-	if decision.PriorTaskReference != PriorTaskReferenceOutcomeRecovery {
-		t.Fatalf("expected deterministic fallback to recover prior outcome, got %+v", decision)
+	if decision.PriorTaskReference != PriorTaskReferenceNone {
+		t.Fatalf("expected deterministic fallback not to infer semantic intent, got %+v", decision)
 	}
-	if strings.Join(decision.RequestedOutputFormats, ",") != "docx" {
-		t.Fatalf("expected docx output format, got %+v", decision.RequestedOutputFormats)
+	if len(decision.RequestedOutputFormats) != 0 {
+		t.Fatalf("expected no inferred output format, got %+v", decision.RequestedOutputFormats)
 	}
-	if !slices.Contains(decision.InitialToolNames, "file.deliver") {
-		t.Fatalf("expected file.deliver to be prepared, got %+v", decision.InitialToolNames)
+	if slices.Contains(decision.InitialToolNames, "file.deliver") {
+		t.Fatalf("expected no inferred delivery tool, got %+v", decision.InitialToolNames)
 	}
 }
 
@@ -771,7 +771,7 @@ func TestAgentKernelPromotesSelectedScheduledSkillOverIntakeRefusal(t *testing.T
 		finishMessageWithEvidence("1분 간격으로 10번 보내도록 예약했습니다.", "obs-001", "schedule.create", 0),
 	}}
 	services := newKernelIntakeTestServices(replyLanguageModel, intakeLanguageModel)
-	services.kernel.UseSkillRetriever(NewEmbeddingSkillRetriever(keywordEmbeddingProvider{}, ""))
+	services.kernel.UseSkillRetriever(staticSkillRetriever{result: SkillRetrievalResult{SelectedCandidates: []SkillCandidate{{Name: "scheduled-task", Score: 1, Reason: "test"}}}})
 	services.kernel.UseInstructionBundleLoader(func() InstructionBundle {
 		return InstructionBundle{Skills: []SkillInstruction{{
 			Name:         "scheduled-task",
@@ -814,7 +814,7 @@ func TestAgentKernelPromotesSelectedArtifactSkillOverIntakeRefusal(t *testing.T)
 		finishMessageWithEvidence("deck.pptx 파일을 첨부했습니다.", "obs-001", "file.deliver", 0),
 	}}
 	services := newKernelIntakeTestServices(replyLanguageModel, intakeLanguageModel)
-	services.kernel.UseSkillRetriever(NewEmbeddingSkillRetriever(keywordEmbeddingProvider{}, ""))
+	services.kernel.UseSkillRetriever(NewEmbeddingSkillRetriever(nil, ""))
 	services.kernel.UseInstructionBundleLoader(func() InstructionBundle {
 		return InstructionBundle{Skills: []SkillInstruction{{
 			Name:         "presentation",
@@ -1088,26 +1088,6 @@ func TestTaskIntakePlannerKeepsDestructiveArtifactWorkApprovalGated(t *testing.T
 
 	if decision.Classification != IntakeClassificationNeedsConfirmation {
 		t.Fatalf("expected destructive request to stay approval gated, got %+v", decision)
-	}
-}
-
-func TestTaskIntakePlannerKeepsSyntheticConnectorVerificationQuick(t *testing.T) {
-	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"classification":"bounded_task","taskShape":"research_task","level":"medium","requestedOutputFormats":null,"responseLanguage":"en","reason":"contains verify","userFacingReply":""}`,
-	}}
-	planner := NewTaskIntakePlanner(languageModel, IntakeOptions{IsEnabled: true})
-	toolRegistry := newTestToolSet([]string{"web.search", "mail.message.search"})
-
-	decision := planner.Plan(context.Background(), AgentRequest{
-		Prompt:  "verify invited 1778564495",
-		ToolSet: toolRegistry,
-	})
-
-	if decision.Classification != IntakeClassificationQuickReply {
-		t.Fatalf("expected quick connector probe, got %+v", decision)
-	}
-	if decision.TaskLevel != TaskLevelXLow {
-		t.Fatalf("expected xlow task level, got %+v", decision)
 	}
 }
 
@@ -1432,7 +1412,7 @@ func TestAgentKernelPromotedQuickReplyRejectsUnverifiedFinishAndCompletesOnRealE
 		`{"action":"continue","message":"deck attached: deck.pptx","toolName":"file.deliver","toolInput":{"path":"deck.pptx"}}`,
 	}}
 	services := newKernelIntakeTestServices(replyLanguageModel, intakeLanguageModel)
-	services.kernel.UseSkillRetriever(NewEmbeddingSkillRetriever(keywordEmbeddingProvider{}, ""))
+	services.kernel.UseSkillRetriever(staticSkillRetriever{result: SkillRetrievalResult{SelectedCandidates: []SkillCandidate{{Name: "presentation", Score: 1, Reason: "test"}}}})
 	services.kernel.UseInstructionBundleLoader(func() InstructionBundle {
 		return InstructionBundle{
 			Skills: []SkillInstruction{{
@@ -1501,7 +1481,7 @@ func TestAgentKernelUsesStructuredOutputFormatsForAttachmentRequirements(t *test
 		finishMessageWithEvidence("HTML 파일을 첨부했습니다: deck.html", "obs-001", "file.deliver", 0),
 	}}
 	services := newKernelIntakeTestServices(replyLanguageModel, intakeLanguageModel)
-	services.kernel.UseSkillRetriever(NewEmbeddingSkillRetriever(keywordEmbeddingProvider{}, ""))
+	services.kernel.UseSkillRetriever(NewEmbeddingSkillRetriever(nil, ""))
 	services.kernel.UseInstructionBundleLoader(func() InstructionBundle {
 		return InstructionBundle{Skills: []SkillInstruction{{
 			Name:         "html-attachment",
@@ -1545,94 +1525,6 @@ func TestAgentKernelUsesStructuredOutputFormatsForAttachmentRequirements(t *test
 	}
 	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.intake", `"requestedOutputFormats":["html"]`) {
 		t.Fatal("expected intake event to preserve structured output format")
-	}
-}
-
-func TestAgentKernelUsesStructuredArtifactEnumForPDFAttachmentSkill(t *testing.T) {
-	intakeLanguageModel := &sequenceLanguageModel{contents: []string{
-		`{"route":"start_task","classification":"unsupported","taskShape":"immediate_reply","level":"medium","requestedOutputFormats":["pdf"],"siteRequestEvidence":"","responseLanguage":"ko","reason":"mistaken unsupported file artifact","userFacingReply":"PDF 생성은 지원하지 않습니다.","initialToolNames":["site.status"],"priorTaskReference":"none"}`,
-	}}
-	replyLanguageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"continue","toolName":"file.deliver","toolInput":{"path":"artifacts/brief/quality-brief.pdf"}}`,
-		finishMessageWithEvidence("PDF 파일을 첨부했습니다: quality-brief.pdf", "obs-001", "file.deliver", 0),
-	}}
-	services := newKernelIntakeTestServices(replyLanguageModel, intakeLanguageModel)
-	services.kernel.UseSkillRetriever(staticSkillRetriever{result: SkillRetrievalResult{
-		RetrievalMode: "embedding",
-		IndexStatus:   "ready",
-		SelectedCandidates: []SkillCandidate{
-			{Name: "site-prototype", Score: 30, Reason: "embedding_similarity"},
-			{Name: "pdf", Score: 8, Reason: "embedding_similarity"},
-		},
-	}})
-	services.kernel.UseInstructionBundleLoader(func() InstructionBundle {
-		return InstructionBundle{Skills: []SkillInstruction{
-			{
-				Name:         "site-prototype",
-				Description:  "Create websites.",
-				Prompt:       "Follow site prototype workflow.",
-				AllowedTools: []string{"site.create", "site.publish"},
-				Source:       InstructionSource{Path: "skills/site-prototype/SKILL.md", SkillName: "site-prototype"},
-			},
-			{
-				Name:         "pdf",
-				Description:  "Create, verify, and attach PDF documents.",
-				WhenToUse:    "Use for PDF deliverables, reports, briefs, and .pdf file artifacts.",
-				Prompt:       "Follow pdf workflow.",
-				AllowedTools: []string{"terminal.run", "file.write", "file.deliver"},
-				Source:       InstructionSource{Path: "skills/pdf/SKILL.md", SkillName: "pdf"},
-			},
-		}}
-	})
-	toolRegistry := newTestToolSet([]string{
-		"terminal.run",
-		"file.write",
-		"file.deliver",
-		"site.create",
-		"site.publish",
-	})
-	toolRegistry.RegisterTool(ToolDefinition{Name: "file.deliver"}, func(context.Context, ToolInvocation) (ToolResult, error) {
-		return ToolResult{
-			Output: ToolOutput{Content: "file attached"},
-			Attachments: []FileAttachment{{
-				DevicePath: "artifacts/brief/quality-brief.pdf",
-				Filename:   "quality-brief.pdf",
-				SizeBytes:  42,
-			}},
-		}, nil
-	})
-
-	result, errorValue := services.kernel.RunAgentRequest(context.Background(), AgentRequest{
-		RequesterPersonID: "person-1",
-		ConversationID:    "conversation-1",
-		Prompt:            "제공한 데이터만 기반으로 브리프를 pdf 파일로 만들어서 첨부해줘",
-		ToolSet:           toolRegistry,
-	})
-	if errorValue != nil {
-		t.Fatalf("expected structured pdf artifact task to complete: %v", errorValue)
-	}
-	if result.TaskRun.Status != task.TaskStatusCompleted {
-		t.Fatalf("expected completed task, got %s", result.TaskRun.Status)
-	}
-	if len(result.Attachments) != 1 || result.Attachments[0].Filename != "quality-brief.pdf" {
-		t.Fatalf("expected pdf attachment, got %+v", result.Attachments)
-	}
-	turnPrompt := joinedMessageContent(replyLanguageModel.requests[0].Messages)
-	if !strings.Contains(turnPrompt, "Follow pdf workflow.") {
-		t.Fatalf("expected pdf skill instructions in turn prompt, got %s", turnPrompt)
-	}
-	if strings.Contains(turnPrompt, "Follow site prototype workflow.") {
-		t.Fatalf("expected site skill to stay out of pdf attachment turn prompt, got %s", turnPrompt)
-	}
-	taskEvents := services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID)
-	if !taskEventsContain(taskEvents, "agent.intake", `"classification":"bounded_task"`) {
-		t.Fatal("expected pdf artifact request to be promoted to bounded file work")
-	}
-	if !taskEventsContain(taskEvents, "agent.intake", `"requestedOutputFormats":["pdf"]`) {
-		t.Fatal("expected intake event to preserve pdf output format")
-	}
-	if !taskEventsContain(taskEvents, "agent.intake", `"siteRequestEvidence":""`) {
-		t.Fatal("expected unverified site signal to stay out of pdf output intake")
 	}
 }
 

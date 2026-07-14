@@ -24,24 +24,7 @@ type approvalExecutedCall struct {
 }
 
 func isApprovalRequiredObservation(observation turnObservation) bool {
-	if !observation.Failed() {
-		return false
-	}
-	normalizedText := approvalObservationText(observation)
-	if strings.Contains(normalizedText, "approval_required") {
-		return true
-	}
-	return strings.EqualFold(observation.FailureStage(), "authorization") && strings.Contains(normalizedText, "requires approval")
-}
-
-func approvalObservationText(observation turnObservation) string {
-	return strings.ToLower(strings.Join([]string{
-		observation.FailureCode(),
-		observation.FailureStage(),
-		observation.FailureSummary(),
-		observation.ContentText(),
-		string(observation.Output.Data),
-	}, " "))
+	return observation.Failed() && observation.Failure.RequiresApproval
 }
 
 func (agentTurnRunner *AgentTurnRunner) requestHeldCallApproval(ctx context.Context, taskRunID string, stepID string, request AgentTurnRequest, state *agentTaskState, actionDocument turnActionDocument) toolCallActionOutcome {
@@ -194,19 +177,22 @@ func approvalHeldCallExecutedAfter(taskEvents []task.TaskEvent, toolName string)
 	return false
 }
 
-// Scoped to native kernel tools only (e.g. file.delete). Capability-routed
-// operations are approval-gated server-side by capabilityd, which returns
-// approval_required in the tool result; turn_runner intercepts that after
-// the attempted invocation (isApprovalRequiredObservation), so pre-gating
-// capability.invoke here would duplicate and bypass that single source of
-// truth (see commit 8f418da).
-func nativeToolRequiresRuntimeApproval(toolSet *ToolSet, toolName string) bool {
-	trimmedToolName := strings.TrimSpace(toolName)
+func toolCallRequiresRuntimeApproval(toolSet *ToolSet, actionDocument turnActionDocument) bool {
+	trimmedToolName := strings.TrimSpace(actionDocument.ToolName)
 	if trimmedToolName == "" || trimmedToolName == CapabilityInvokeToolName {
 		return false
 	}
 	definition, isFound := toolSet.ToolDefinition(trimmedToolName)
-	return isFound && definition.RequiresApproval
+	if isFound && definition.RequiresApproval {
+		return true
+	}
+	if trimmedToolName != TerminalRunToolName {
+		return false
+	}
+	var input struct {
+		ApprovalRequired bool `json:"approvalRequired"`
+	}
+	return json.Unmarshal(actionDocument.ToolInput, &input) == nil && input.ApprovalRequired
 }
 
 type approvalQuestionContextDocument struct {
@@ -222,23 +208,24 @@ type approvalQuestionResponseDocument struct {
 }
 
 type approvalQuestionActionInput struct {
-	TargetType  string   `json:"targetType"`
-	PersonHint  string   `json:"personHint"`
-	ChannelName string   `json:"channelName"`
-	Message     string   `json:"message"`
-	Body        string   `json:"body"`
-	Subject     string   `json:"subject"`
-	Title       string   `json:"title"`
-	Summary     string   `json:"summary"`
-	Reason      string   `json:"reason"`
-	Path        string   `json:"path"`
-	DevicePath  string   `json:"devicePath"`
-	TargetPath  string   `json:"targetPath"`
-	Slug        string   `json:"slug"`
-	SiteID      string   `json:"siteID"`
-	EventID     string   `json:"eventID"`
-	To          []string `json:"to"`
-	People      []string `json:"people"`
+	TargetType     string   `json:"targetType"`
+	PersonHint     string   `json:"personHint"`
+	ChannelName    string   `json:"channelName"`
+	Message        string   `json:"message"`
+	Body           string   `json:"body"`
+	Subject        string   `json:"subject"`
+	Title          string   `json:"title"`
+	Summary        string   `json:"summary"`
+	Reason         string   `json:"reason"`
+	ApprovalReason string   `json:"approvalReason"`
+	Path           string   `json:"path"`
+	DevicePath     string   `json:"devicePath"`
+	TargetPath     string   `json:"targetPath"`
+	Slug           string   `json:"slug"`
+	SiteID         string   `json:"siteID"`
+	EventID        string   `json:"eventID"`
+	To             []string `json:"to"`
+	People         []string `json:"people"`
 }
 
 func (agentTurnRunner *AgentTurnRunner) heldCallConfirmationWording(ctx context.Context, request AgentTurnRequest, actionDocument turnActionDocument) (string, error) {
@@ -310,13 +297,14 @@ func approvalQuestionActionDetails(input json.RawMessage) map[string]string {
 	details := map[string]string{}
 	approvalQuestionSetDetail(details, "target", firstNonEmptyString(document.PersonHint, document.ChannelName, strings.Join(trimNonEmptyConfirmationStrings(document.To), ", "), strings.Join(trimNonEmptyConfirmationStrings(document.People), ", ")))
 	approvalQuestionSetDetail(details, "deliveryTargetType", document.TargetType)
-	approvalQuestionSetDetail(details, "content", firstNonEmptyString(document.Message, document.Subject, document.Body, document.Title, document.Summary, document.Reason))
+	approvalQuestionSetDetail(details, "content", firstNonEmptyString(document.Message, document.Subject, document.Body, document.Title, document.Summary, document.ApprovalReason, document.Reason))
 	approvalQuestionSetDetail(details, "message", document.Message)
 	approvalQuestionSetDetail(details, "subject", document.Subject)
 	approvalQuestionSetDetail(details, "body", document.Body)
 	approvalQuestionSetDetail(details, "title", document.Title)
 	approvalQuestionSetDetail(details, "summary", document.Summary)
 	approvalQuestionSetDetail(details, "reason", document.Reason)
+	approvalQuestionSetDetail(details, "approvalReason", document.ApprovalReason)
 	approvalQuestionSetDetail(details, "slug", document.Slug)
 	approvalQuestionSetDetail(details, "siteID", document.SiteID)
 	approvalQuestionSetDetail(details, "eventID", document.EventID)
