@@ -69,7 +69,7 @@ func (agentTurnRunner *AgentTurnRunner) requestHeldCallApproval(ctx context.Cont
 		"responseLanguage":  request.ResponseLanguage,
 	}))
 	agentTurnRunner.appendEvent(taskRunID, "ask.requested", marshalEventBody(map[string]any{
-		"kind":             "confirm",
+		"kind":             "ask_confirm",
 		"message":          confirmation,
 		"reasonCode":       "external_send",
 		"reasonDetail":     "runtime approval gate for " + heldCall.ToolName,

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -1177,42 +1178,8 @@ func (connectorRuntime *ConnectorRuntime) resolveAskReply(ctx context.Context, p
 	if action, isFound := event.LegacyFields["askAction"].(string); isFound {
 		return resolveAskInteractiveReply(event, pendingInteraction, action), askInteractiveTurnDecision(event, pendingInteraction, action), true
 	}
-	if pendingInteraction.Kind == "ask_input" {
-		decision := connectorRuntime.agentKernel.RouteTurn(ctx, agent.AgentRequest{
-			RequesterPersonID: personID,
-			ConversationID:    event.ConversationID,
-			Prompt:            event.Prompt,
-			ResponseLanguage:  responseLanguageForEvent(event),
-			VisibleContext:    event.Context.ToAgentVisibleContext(),
-			PendingInput: agent.PendingInputContext{
-				TaskRunID: pendingInteraction.TaskRunID,
-				Question:  pendingInteraction.Question,
-			},
-			TurnStartedAt: time.Now(),
-		})
-		return event, decision, true
-	}
-	if pendingInteraction.Kind != "ask_choice_single" && pendingInteraction.Kind != "ask_choice_multiple" {
+	if pendingInteraction.Kind != "ask_input" {
 		return event, agent.TurnDecision{}, false
-	}
-	if choices, isFound := deterministicChoiceSelections(event.Prompt, pendingInteraction); isFound {
-		decision := agent.TurnDecision{
-			Route:            agent.TurnRouteContinueTask,
-			Classification:   agent.IntakeClassificationBoundedTask,
-			TaskShape:        agent.TaskShapeMaintenanceTask,
-			TaskLevel:      agent.TaskLevelLow,
-			ResponseLanguage: responseLanguageForEvent(event),
-			Reason:           "deterministic_choice_selection",
-			Choices:          choices,
-		}
-		connectorRuntime.agentKernel.AppendTaskEvent(pendingInteraction.TaskRunID, "ask.reply_classified", marshalConnectorEventBody(map[string]any{
-			"messageID": event.MessageID,
-			"choices":   decision.Choices,
-			"route":     decision.Route,
-			"reason":    decision.Reason,
-		}))
-		event.Prompt = resolvedChoicePrompt(pendingInteraction, decision.Choices)
-		return event, decision, true
 	}
 	decision := connectorRuntime.agentKernel.RouteTurn(ctx, agent.AgentRequest{
 		RequesterPersonID: personID,
@@ -1220,7 +1187,7 @@ func (connectorRuntime *ConnectorRuntime) resolveAskReply(ctx context.Context, p
 		Prompt:            event.Prompt,
 		ResponseLanguage:  responseLanguageForEvent(event),
 		VisibleContext:    event.Context.ToAgentVisibleContext(),
-		PendingChoice: agent.PendingChoiceContext{
+		PendingInput: agent.PendingInputContext{
 			TaskRunID:     pendingInteraction.TaskRunID,
 			Question:      pendingInteraction.Question,
 			SelectionMode: pendingInteraction.SelectionMode,
@@ -1234,10 +1201,6 @@ func (connectorRuntime *ConnectorRuntime) resolveAskReply(ctx context.Context, p
 		"route":     decision.Route,
 		"reason":    decision.Reason,
 	}))
-	if len(decision.Choices) == 0 {
-		return event, decision, true
-	}
-	event.Prompt = resolvedChoicePrompt(pendingInteraction, decision.Choices)
 	return event, decision, true
 }
 
@@ -1411,11 +1374,6 @@ func askReplyConsumesInteraction(interaction AskInteraction, previousPrompt stri
 		return true
 	}
 	switch strings.TrimSpace(interaction.Kind) {
-	case "ask_choice_single", "ask_choice_multiple":
-		if len(decision.Choices) > 0 && strings.TrimSpace(event.Prompt) != strings.TrimSpace(previousPrompt) {
-			return true
-		}
-		return len(decision.Choices) == 0 && (decision.Route == agent.TurnRouteStartTask || decision.Route == agent.TurnRouteReviseTask)
 	case "ask_input":
 		return decision.Route == agent.TurnRouteContinueTask || decision.Route == agent.TurnRouteReviseTask || decision.Route == agent.TurnRouteStartTask
 	default:
@@ -1675,7 +1633,7 @@ func ambiguousTaskWaitTurnDecision(taskWaitTokens []task.TaskWaitToken, response
 		Route:                  agent.TurnRouteClarify,
 		Classification:         agent.IntakeClassificationNeedsConfirmation,
 		TaskShape:              agent.TaskShapeApprovalGatedTask,
-		TaskLevel:            agent.TaskLevelLow,
+		TaskLevel:              agent.TaskLevelLow,
 		ResponseLanguage:       responseLanguage,
 		Reason:                 "ambiguous_wait_resolution",
 		ClarificationOptions:   taskWaitClarificationOptions(taskWaitTokens),
@@ -2251,16 +2209,26 @@ func latestAskInteraction(taskRunID string, taskEvents []task.TaskEvent) (AskInt
 		if taskEvent.Name != "ask.requested" {
 			continue
 		}
-		var interaction AskInteraction
+		var interaction struct {
+			AskInteraction
+			Choices []string `json:"choices,omitempty"`
+		}
 		if errorValue := json.Unmarshal([]byte(taskEvent.Body), &interaction); errorValue != nil {
 			continue
 		}
-		interaction.TaskRunID = firstNonEmptyString(interaction.TaskRunID, taskRunID)
-		interaction.InteractionID = firstNonEmptyString(interaction.InteractionID, taskEvent.TaskEventID)
+		interaction.AskInteraction.TaskRunID = firstNonEmptyString(interaction.TaskRunID, taskRunID)
+		interaction.AskInteraction.InteractionID = firstNonEmptyString(interaction.InteractionID, taskEvent.TaskEventID)
 		if resolvedInteractionIDs[strings.TrimSpace(interaction.InteractionID)] {
 			continue
 		}
-		interaction.Kind = normalizedAskInteractionKind(interaction.Kind)
+		legacyKind := strings.TrimSpace(interaction.Kind)
+		interaction.AskInteraction.Kind = normalizedAskInteractionKind(legacyKind)
+		if len(interaction.Options) == 0 && len(interaction.Choices) > 0 {
+			interaction.AskInteraction.Options = askOptionsFromLegacyChoices(interaction.Choices)
+		}
+		if interaction.Kind == "ask_input" && strings.TrimSpace(interaction.SelectionMode) == "" && len(interaction.Options) > 0 {
+			interaction.AskInteraction.SelectionMode = askInputSelectionMode(legacyKind)
+		}
 		if strings.TrimSpace(interaction.Question) == "" {
 			interaction.Question = strings.TrimSpace(interaction.Message)
 		}
@@ -2268,7 +2236,7 @@ func latestAskInteraction(taskRunID string, taskEvents []task.TaskEvent) (AskInt
 			interaction.Message = strings.TrimSpace(interaction.Question)
 		}
 		if strings.TrimSpace(interaction.Kind) != "" {
-			return interaction, true
+			return interaction.AskInteraction, true
 		}
 	}
 	return AskInteraction{}, false
@@ -2324,14 +2292,37 @@ func legacyBool(fields map[string]interface{}, key string) bool {
 	return value
 }
 
+func askOptionsFromLegacyChoices(choices []string) []AskChoiceOption {
+	options := []AskChoiceOption{}
+	for index, choice := range choices {
+		trimmedChoice := strings.TrimSpace(choice)
+		if trimmedChoice == "" {
+			continue
+		}
+		options = append(options, AskChoiceOption{
+			Key:   strconv.Itoa(index + 1),
+			Label: trimmedChoice,
+			Value: trimmedChoice,
+		})
+	}
+	return options
+}
+
+func askInputSelectionMode(legacyKind string) string {
+	if strings.TrimSpace(legacyKind) == "choice_multiple" {
+		return "multiple"
+	}
+	return "single"
+}
+
 func normalizedAskInteractionKind(kind string) string {
 	switch strings.TrimSpace(kind) {
 	case "confirm":
 		return "ask_confirm"
 	case "choice_single":
-		return "ask_choice_single"
+		return "ask_input"
 	case "choice_multiple":
-		return "ask_choice_multiple"
+		return "ask_input"
 	case "input", "input_choice":
 		return "ask_input"
 	default:
@@ -2460,8 +2451,6 @@ func taskWaitKind(reply OutboundReply, taskRun task.TaskRun) string {
 	switch normalizedAskInteractionKind(reply.Interaction.Kind) {
 	case "ask_confirm":
 		return "approval"
-	case "ask_choice_single", "ask_choice_multiple":
-		return "choice"
 	case "ask_input":
 		return "input"
 	default:
