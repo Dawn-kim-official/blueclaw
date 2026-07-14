@@ -124,26 +124,26 @@ func failureObservationDoesNotCreateDebt(observation turnObservation) bool {
 	if observation.FailureCode() != FailureCodes.NotFound.String() {
 		return false
 	}
-	return optionalSiteControlFileToolInputKey(observation.ToolInputKey) || optionalSiteControlFileContent(observation.ContentText())
+	return optionalSiteControlFileToolInputKey(observation.ToolInputKey)
 }
 
 func optionalSiteControlFileToolInputKey(toolInputKey string) bool {
-	return optionalSiteControlFileText(toolInputKey)
-}
-
-func optionalSiteControlFileContent(content string) bool {
-	return optionalSiteControlFileText(content)
-}
-
-func optionalSiteControlFileText(value string) bool {
-	normalizedText := strings.ToLower(filepath.ToSlash(strings.TrimSpace(value)))
+	_, inputDocument, isFound := strings.Cut(toolInputKey, "\x00")
+	if !isFound {
+		return false
+	}
+	input := map[string]any{}
+	if json.Unmarshal([]byte(inputDocument), &input) != nil {
+		return false
+	}
+	normalizedPath := strings.ToLower(filepath.ToSlash(strings.TrimSpace(stringValue(input["path"]))))
 	for _, suffix := range []string{
 		".internkim/site.json",
 		".internkim/idea.md",
 		".internkim/artifact-brief.md",
 		".internkim/review-log.json",
 	} {
-		if strings.Contains(normalizedText, suffix) {
+		if normalizedPath == suffix || strings.HasSuffix(normalizedPath, "/"+suffix) {
 			return true
 		}
 	}
@@ -312,6 +312,7 @@ func recoveryBudgetExhaustedObservation(index int, failedObservation turnObserva
 	observation.Summary = observation.ContentText()
 	observation.RecoveryStep = strings.TrimSpace(recoveryStep)
 	observation.RecoveryAttemptSpent = true
+	observation.PolicyCode = "recovery_budget_exhausted"
 	return observation
 }
 
@@ -484,8 +485,7 @@ func recoveryToolBudgetExhaustedForRequest(observations []turnObservation, toolS
 }
 
 func failureRecoveryIsTerminal(observation turnObservation) bool {
-	combinedText := strings.ToLower(strings.TrimSpace(observation.FailureCode() + " " + observation.FailureStage() + " " + observation.FailureSummary() + " " + observation.ContentText()))
-	return strings.Contains(combinedText, "blocked_by_captcha")
+	return observation.Failure != nil && observation.Failure.Kind == FailureInteractionRequired
 }
 
 func alternateRouteToolIsAvailable(toolSet *ToolSet, failedToolName string) bool {

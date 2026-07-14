@@ -98,16 +98,17 @@ type AgentTurnRequest struct {
 }
 
 type AgentTurnResult struct {
-	TaskRun           task.TaskRun
-	TurnRoute         TurnRoute
-	ReactionEmojiName string
-	FinishMessage     string
-	UserNotice        string
-	FailureNotice     FailureNotice
-	ReplySuppressed   bool
-	Attachments       []FileAttachment
-	RecoveryActions   []RecoveryAction
-	ToolNames         []string
+	TaskRun                task.TaskRun
+	TurnRoute              TurnRoute
+	ReactionEmojiName      string
+	FinishMessage          string
+	UserNotice             string
+	FailureNotice          FailureNotice
+	ReplySuppressed        bool
+	ReplySuppressionReason string
+	Attachments            []FileAttachment
+	RecoveryActions        []RecoveryAction
+	ToolNames              []string
 }
 
 type AgentCheckpointSender func(context.Context, AgentCheckpoint) error
@@ -135,6 +136,7 @@ type turnActionDocument struct {
 	FailureResolution     string                        `json:"failureResolution"`
 	GoalStatus            string                        `json:"goalStatus"`
 	GoalSatisfied         *bool                         `json:"goalSatisfied"`
+	HasRemainingWork      bool                          `json:"hasRemainingWork"`
 	CompletionEvidenceIDs []string                      `json:"completionEvidenceIDs"`
 	CompletionEvidence    []completionEvidenceReference `json:"completionEvidence"`
 	QualityCriteria       []string                      `json:"qualityCriteria"`
@@ -157,6 +159,9 @@ type turnObservation struct {
 	RecoveryAttemptKey   string               `json:"recoveryAttemptKey,omitempty"`
 	RecoveryStep         string               `json:"recoveryStep,omitempty"`
 	RecoveryAttemptSpent bool                 `json:"recoveryAttemptSpent,omitempty"`
+	PolicyCode           string               `json:"policyCode,omitempty"`
+	RelatedResultIDs     []string             `json:"relatedResultIDs,omitempty"`
+	RelatedPaths         []string             `json:"relatedPaths,omitempty"`
 	RecoveryPacket       *RecoveryPacket      `json:"recoveryPacket,omitempty"`
 	Attachments          []FileAttachment     `json:"attachments,omitempty"`
 	RecoveryActions      []RecoveryAction     `json:"recoveryActions,omitempty"`
@@ -550,7 +555,7 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 			completionGateResult := agentTurnRunner.validateCompletionGateForRequestWithExpectedResults(taskContext, taskRun.TaskRunID, request, toolUseRequirements, state.Observations, state.Attachments, state.QualityCriteria, actionDocument)
 			agentTurnRunner.appendValidityReview(taskRun.TaskRunID, "finish", completionGateResult.ValidityState)
 			if !completionGateResult.IsSatisfied {
-				observation := completionGateObservation(len(state.Observations)+1, completionGateResult.Message)
+				observation := completionGateObservation(len(state.Observations)+1, completionGateResult)
 				observation = withCompletionGateRecoveryPacket(observation, completionGateResult)
 				state.Observations = append(state.Observations, observation)
 				agentTurnRunner.appendEvent(taskRun.TaskRunID, completionGateEventName(observation), marshalEventBody(observation))
@@ -589,7 +594,7 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 			}
 		case "fail":
 			if recoverableResult, shouldContinue := recoverableWorkflowFailResult(request, state.Observations); shouldContinue {
-				observation := completionGateObservation(len(state.Observations)+1, recoverableResult.Message)
+				observation := completionGateObservation(len(state.Observations)+1, recoverableResult)
 				observation = withCompletionGateRecoveryPacket(observation, recoverableResult)
 				state.Observations = append(state.Observations, observation)
 				agentTurnRunner.appendEvent(taskRun.TaskRunID, "agent.recoverable_fail_rejected", marshalEventBody(observation))
@@ -604,7 +609,7 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 				facts := buildFailureReportFacts(state.Observations, agentTurnRunner.options.RecoveryBudget)
 				failureReportResult := validateFailureReportAction(actionDocument, facts)
 				if !failureReportResult.IsSatisfied {
-					observation := completionGateObservation(len(state.Observations)+1, failureReportResult.Message)
+					observation := completionGateObservation(len(state.Observations)+1, failureReportResult)
 					state.Observations = append(state.Observations, observation)
 					agentTurnRunner.appendEvent(taskRun.TaskRunID, "agent.failure_report_rejected", marshalEventBody(observation))
 					agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusCompleted, "failure_report_rejected", observation.ContentText())
@@ -671,10 +676,7 @@ func (agentTurnRunner *AgentTurnRunner) handleToolCallAction(ctx context.Context
 	if outcome := agentTurnRunner.rejectUnavailableToolCall(taskRunID, stepID, request, state, actionDocument, stopForNoProgress); outcome.WasHandled {
 		return outcome
 	}
-	if outcome := agentTurnRunner.rejectUnrelatedAskAction(taskRunID, stepID, request, state, actionDocument, stopForNoProgress); outcome.WasHandled {
-		return outcome
-	}
-	if !request.IsApprovalContinuation && nativeToolRequiresRuntimeApproval(request.ToolSet, actionDocument.ToolName) {
+	if !request.IsApprovalContinuation && toolCallRequiresRuntimeApproval(request.ToolSet, actionDocument) {
 		return agentTurnRunner.requestHeldCallApproval(ctx, taskRunID, stepID, request, state, actionDocument)
 	}
 	state.ToolCallCount++
@@ -1254,27 +1256,17 @@ func stalledExitDirectiveObservation(observationID string, observations []turnOb
 	return observation
 }
 
-const missingRequiredEvidenceObservationMarker = "requires successful observation for "
-
 func latestMissingRequiredEvidenceOperationName(observations []turnObservation) string {
 	for index := len(observations) - 1; index >= 0; index-- {
 		observation := observations[index]
-		if observation.Action != "evidence_missing" {
+		if observation.Action != "evidence_missing" || observation.RecoveryPacket == nil {
 			continue
 		}
-		if operationName := missingRequiredEvidenceOperationNameFromMessage(observation.Summary); operationName != "" {
-			return operationName
+		if len(observation.RecoveryPacket.AllowedTools) > 0 {
+			return strings.TrimSpace(observation.RecoveryPacket.AllowedTools[0])
 		}
 	}
 	return ""
-}
-
-func missingRequiredEvidenceOperationNameFromMessage(message string) string {
-	markerIndex := strings.Index(message, missingRequiredEvidenceObservationMarker)
-	if markerIndex < 0 {
-		return ""
-	}
-	return strings.TrimSpace(message[markerIndex+len(missingRequiredEvidenceObservationMarker):])
 }
 
 func stalledOnRedundantInspection(observations []turnObservation) bool {
@@ -1282,7 +1274,14 @@ func stalledOnRedundantInspection(observations []turnObservation) bool {
 		return false
 	}
 	lastObservation := observations[len(observations)-1]
-	return strings.HasPrefix(strings.TrimSpace(lastObservation.Summary), "file.read cache hit")
+	if lastObservation.Action != "policy" || lastObservation.Tool != "file.read" {
+		return false
+	}
+	document := map[string]any{}
+	if json.Unmarshal(lastObservation.Output.Data, &document) != nil {
+		return false
+	}
+	return stringValue(document["cacheStatus"]) == "hit"
 }
 
 func stalledRecoveryDirectiveObservation(observationID string, failureDebt FailureDebt) turnObservation {
@@ -1487,7 +1486,7 @@ func limitPressureMessage(level string, usedToolCallCount int, maxToolCallCount 
 		budgetLine += fmt.Sprintf(" Time: %s/%s elapsed.", roundedSeconds(elapsed), roundedSeconds(maxElapsed))
 	}
 	if level == "finalize" {
-		return budgetLine + " The run is very close to its limit. Use only the shortest delivery path: build/render if still needed, then publish or deliver files, then final. Do not inspect more unless delivery is impossible without it. If a quality gate has not passed but a usable build exists, deliver the best build now with an honest note about its state instead of failing with nothing; offer a further improvement round (for example via ask.confirm) only when your recent attempts were still improving and you can name the concrete next fix, and otherwise say plainly that you have reached your limit with the current approach. If there is no deliverable to build, register or finish with whatever concrete result you already have now (for example task.add for clearly identified items, or finish) instead of continuing to search."
+		return budgetLine + " The run is very close to its limit. Use only the shortest delivery path: build/render if still needed, then publish or deliver files, then final. Do not inspect more unless delivery is impossible without it. If a quality gate has not passed but a usable build exists, deliver the best build now with an honest note about its state instead of failing with nothing; offer a further improvement round in the final reply only when your recent attempts were still improving and you can name the concrete next fix, and otherwise say plainly that you have reached your limit with the current approach. If there is no deliverable to build, register or finish with whatever concrete result you already have now (for example task.add for clearly identified items, or finish) instead of continuing to search."
 	}
 	if level == "consolidate" {
 		return budgetLine + " Consolidate completed work, reuse existing observations, and prefer direct edit/build/publish or file delivery over additional inspection."
@@ -1787,7 +1786,7 @@ func failureNoticeFromTerminalAction(request AgentTurnRequest, taskRunID string,
 }
 
 func (agentTurnRunner *AgentTurnRunner) recordTerminalNoToolsRejection(taskRunID string, stepID string, state *agentTaskState, reason string) {
-	observation := completionGateObservation(len(state.Observations)+1, strings.TrimSpace(reason))
+	observation := completionGateObservation(len(state.Observations)+1, completionGateResult{Message: strings.TrimSpace(reason)})
 	state.Observations = append(state.Observations, observation)
 	agentTurnRunner.appendEvent(taskRunID, "agent.terminal_no_tools_rejected", marshalEventBody(observation))
 	agentTurnRunner.saveStep(taskRunID, stepID, task.TaskStatusCompleted, "terminal_no_tools_rejected", observation.ContentText())

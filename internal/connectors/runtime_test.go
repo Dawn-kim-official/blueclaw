@@ -3686,7 +3686,7 @@ func (languageModel *addressingTestLanguageModel) GenerateStructuredResponse(_ c
 		if languageModel.addressingError != nil {
 			return llm.StructuredResponse{}, languageModel.addressingError
 		}
-		return llm.StructuredResponse{Content: `{"target":` + strconv.Quote(languageModel.addressingTarget) + `,"shouldRespond":` + strconv.FormatBool(languageModel.addressingTarget == string(agent.AddressingTargetBot) || languageModel.dutyMatch) + `,"reactionEmoji":` + strconv.Quote(languageModel.reactionEmoji) + `,"dutyMatch":` + strconv.FormatBool(languageModel.dutyMatch) + `,"dutyName":` + strconv.Quote(languageModel.dutyName) + `,"dutyConfidence":` + strconv.FormatFloat(languageModel.dutyConfidence, 'f', -1, 64) + `}`}, nil
+		return llm.StructuredResponse{Content: `{"target":` + strconv.Quote(languageModel.addressingTarget) + `,"shouldRespond":` + strconv.FormatBool(languageModel.addressingTarget == string(agent.AddressingTargetBot)) + `,"reactionEmoji":` + strconv.Quote(languageModel.reactionEmoji) + `,"dutyMatch":` + strconv.FormatBool(languageModel.dutyMatch) + `,"dutyName":` + strconv.Quote(languageModel.dutyName) + `,"dutyConfidence":` + strconv.FormatFloat(languageModel.dutyConfidence, 'f', -1, 64) + `}`}, nil
 	}
 	return llm.StructuredResponse{Content: connectorFinishMessage(languageModel.reply)}, nil
 }
@@ -4108,30 +4108,10 @@ func (repository *testTaskRunRepository) DeleteTaskRunsBefore(time.Time, []strin
 }
 
 func useTestConnectorSkill(connectorRuntime *ConnectorRuntime, skillInstruction agent.SkillInstruction) {
-	connectorRuntime.agentKernel.UseSkillRetriever(agent.NewEmbeddingSkillRetriever(connectorSkillEmbeddingProvider{}, ""))
+	connectorRuntime.agentKernel.UseSkillRetriever(agent.NewEmbeddingSkillRetriever(nil, ""))
 	connectorRuntime.agentKernel.UseInstructionBundleLoader(func() agent.InstructionBundle {
 		return agent.InstructionBundle{Skills: []agent.SkillInstruction{skillInstruction}}
 	})
-}
-
-type connectorSkillEmbeddingProvider struct{}
-
-func (provider connectorSkillEmbeddingProvider) GenerateEmbedding(_ context.Context, input string) ([]float32, error) {
-	normalizedInput := strings.ToLower(input)
-	return []float32{
-		connectorSkillEmbeddingValue(normalizedInput, []string{"schedule", "scheduled", "cron", "remind", "reminder", "매일", "예약", "알림", "마다"}),
-		connectorSkillEmbeddingValue(normalizedInput, []string{"calendar", "event", "일정", "달력", "캘린더", "휴가"}),
-		connectorSkillEmbeddingValue(normalizedInput, []string{"browser", "observe", "snapshot", "screenshot", "브라우저", "화면"}),
-	}, nil
-}
-
-func connectorSkillEmbeddingValue(input string, keywords []string) float32 {
-	for _, keyword := range keywords {
-		if strings.Contains(input, keyword) {
-			return 1
-		}
-	}
-	return 0
 }
 
 func connectorScheduledTaskSkill() agent.SkillInstruction {

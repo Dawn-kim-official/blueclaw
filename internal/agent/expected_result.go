@@ -398,48 +398,17 @@ func satisfiedFinalMessageResult(item ResultVerificationItem) ResultVerification
 
 func observedLinkResultsForExpectedResult(expectedResult ExpectedResult, observedResults []ObservedResult) []ObservedResult {
 	linkResults := observedResultsByType(observedResults, ExpectedResultTypeLink)
-	if len(linkResults) == 0 {
-		return nil
-	}
-	if !expectedResultNeedsSitePublicURL(expectedResult) || !observedResultsContainSiteAppTool(observedResults) {
+	if strings.TrimSpace(expectedResult.ID) != "site-public-link" {
 		return linkResults
 	}
 	siteLinkResults := []ObservedResult{}
 	for _, observedResult := range linkResults {
-		if siteToolCanSatisfyLinkResult(observedResult.ToolName) {
+		switch strings.TrimSpace(observedResult.ToolName) {
+		case "site.publish", "site.status":
 			siteLinkResults = append(siteLinkResults, observedResult)
 		}
 	}
 	return siteLinkResults
-}
-
-func expectedResultNeedsSitePublicURL(expectedResult ExpectedResult) bool {
-	values := append([]string{expectedResult.Description}, expectedResult.AcceptanceHints...)
-	text := strings.ToLower(strings.Join(values, " "))
-	if strings.Contains(text, "site.app") {
-		return true
-	}
-	hasSiteReference := strings.Contains(text, "site") || strings.Contains(text, "website") || strings.Contains(text, "웹사이트")
-	hasPublicReference := strings.Contains(text, "public") || strings.Contains(text, "published") || strings.Contains(text, "공개")
-	return hasSiteReference && hasPublicReference
-}
-
-func observedResultsContainSiteAppTool(observedResults []ObservedResult) bool {
-	for _, observedResult := range observedResults {
-		if strings.HasPrefix(strings.TrimSpace(observedResult.ToolName), "site.") {
-			return true
-		}
-	}
-	return false
-}
-
-func siteToolCanSatisfyLinkResult(toolName string) bool {
-	switch strings.TrimSpace(toolName) {
-	case "site.publish", "site.status":
-		return true
-	default:
-		return false
-	}
 }
 
 func missingObservedLinkReason(linkResults []ObservedResult) string {
@@ -587,10 +556,10 @@ func expectedResultWasPreviouslyFlagged(resultID string, observations []turnObse
 		return false
 	}
 	for _, observation := range observations {
-		if observation.Action != "evidence_missing" && observation.Action != "expected_result_missing" {
+		if observation.PolicyCode != evidenceKindExpectedResult {
 			continue
 		}
-		if strings.Contains(observation.ContentText(), trimmedResultID) {
+		if stringSliceContains(observation.RelatedResultIDs, trimmedResultID) {
 			return true
 		}
 	}

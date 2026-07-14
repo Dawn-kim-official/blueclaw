@@ -126,7 +126,8 @@ func filterGroupTools(toolSet *ToolSet, group toolExposureGroup) toolExposureGro
 }
 
 func toolIsModelCallable(toolID string) bool {
-	return strings.TrimSpace(toolID) != ""
+	trimmedToolID := strings.TrimSpace(toolID)
+	return trimmedToolID != "" && trimmedToolID != AskConfirmToolName
 }
 
 func recoveryPinnedToolNames(instructionBundle InstructionBundle, request AgentRequest, observations []turnObservation) []string {
@@ -195,7 +196,7 @@ func observationLooksLikeFileReadRepeat(observation turnObservation) bool {
 func observationLooksLikeRecoveryBudgetExhausted(observation turnObservation) bool {
 	return strings.TrimSpace(observation.Action) == "policy" &&
 		strings.TrimSpace(observation.RecoveryStep) != "" &&
-		strings.Contains(strings.ToLower(observation.ContentText()), "recovery budget")
+		strings.TrimSpace(observation.PolicyCode) == "recovery_budget_exhausted"
 }
 
 func toolSelectionRecentProgress(observations []turnObservation) string {

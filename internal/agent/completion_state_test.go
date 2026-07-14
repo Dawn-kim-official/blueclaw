@@ -120,10 +120,12 @@ func TestCompletionStateDoesNotRepeatFailedAttachment(t *testing.T) {
 	}
 	writeValidPPTXTestFile(t, filepath.Join(artifactDirectoryPath, "deck.pptx"))
 
+	failedAttachment := newFailureObservation("obs-001", "continue", "file.deliver", filepath.Join(artifactDirectoryPath, "deck.pptx"), FailureUnknown, FailureCodes.OperationFailed, "file_attach")
+	failedAttachment.RelatedPaths = []string{filepath.Join(artifactDirectoryPath, "deck.pptx")}
 	state := buildCompletionState(
 		AgentTurnRequest{WorkspaceRootPath: workspaceRootPath, ToolSet: newTestToolSet([]string{"file.deliver"})},
 		[]toolUseRequirement{{ToolName: "file.deliver", RequiresAttachment: true, AttachmentSuffixes: []string{".pptx"}}},
-		[]turnObservation{newFailureObservation("obs-001", "continue", "file.deliver", filepath.Join(artifactDirectoryPath, "deck.pptx"), FailureUnknown, FailureCodes.OperationFailed, "file_attach")},
+		[]turnObservation{failedAttachment},
 	)
 
 	if state.RecommendedAction != completionActionContinueWork {

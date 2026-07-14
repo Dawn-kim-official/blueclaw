@@ -286,7 +286,7 @@ func TestScheduleCreateToolStoresExpiresAtForBoundedRepeat(t *testing.T) {
 	}
 }
 
-func TestScheduledToolSetKeepsKernelAskToolsAvailable(t *testing.T) {
+func TestScheduledToolSetKeepsOnlyAskInputAvailable(t *testing.T) {
 	toolCatalogBuilder := NewToolCatalogBuilder()
 	toolCatalogBuilder.UseCapabilityToolDescriptors(capability.Client{}, []CapabilityToolDescriptor{{
 		Name:        "user.confirm",
@@ -296,10 +296,11 @@ func TestScheduledToolSetKeepsKernelAskToolsAvailable(t *testing.T) {
 
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default", IsScheduledRun: true})
 
-	for _, toolName := range []string{"ask.input", "ask.confirm"} {
-		if !toolRegistry.IsRegistered(toolName) || !toolRegistry.IsAllowed(toolName) {
-			t.Fatalf("expected scheduled run to keep kernel ask tool %s, got %+v", toolName, toolRegistry.ListToolNames())
-		}
+	if !toolRegistry.IsRegistered("ask.input") || !toolRegistry.IsAllowed("ask.input") {
+		t.Fatalf("expected scheduled run to keep ask.input, got %+v", toolRegistry.ListToolNames())
+	}
+	if toolRegistry.IsRegistered("ask.confirm") || toolRegistry.IsAllowed("ask.confirm") {
+		t.Fatalf("expected runtime-owned confirmation to stay hidden, got %+v", toolRegistry.ListToolNames())
 	}
 	if toolRegistry.IsRegistered("user.confirm") || toolRegistry.IsAllowed("user.confirm") {
 		t.Fatalf("expected legacy user.confirm to stay hidden, got %+v", toolRegistry.ListToolNames())

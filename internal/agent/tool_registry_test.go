@@ -90,7 +90,7 @@ func TestToolSetDescriptionsAndActionSchemaOnlyShowExposedKernelTools(t *testing
 	}
 }
 
-func TestToolSetExposesAskConfirmAsAFixedKernelTool(t *testing.T) {
+func TestToolSetNeverExposesAskConfirmToTheModel(t *testing.T) {
 	toolSet := NewToolSet([]string{AskConfirmToolName})
 	toolSet.RegisterTool(ToolDefinition{Name: AskConfirmToolName, Description: "Confirm"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		return ToolSuccess("ok"), nil
@@ -99,11 +99,14 @@ func TestToolSetExposesAskConfirmAsAFixedKernelTool(t *testing.T) {
 	descriptions := toolSet.Descriptions()
 	actionSchema := toolSet.ActionSchema(false, nil, false)
 
-	if !toolSet.IsAllowed(AskConfirmToolName) || !toolSet.CanExpose(AskConfirmToolName) {
-		t.Fatalf("expected ask.confirm to be model-callable as a fixed kernel tool, names=%+v", toolSet.ListToolNames())
+	if !toolSet.IsRegistered(AskConfirmToolName) {
+		t.Fatal("expected runtime registration to remain observable")
 	}
-	if !strings.Contains(descriptions, AskConfirmToolName) || !strings.Contains(actionSchema, AskConfirmToolName) {
-		t.Fatalf("expected ask.confirm in both prompt surfaces, prompt=%s schema=%s", descriptions, actionSchema)
+	if toolSet.IsAllowed(AskConfirmToolName) || toolSet.CanExpose(AskConfirmToolName) {
+		t.Fatalf("expected ask.confirm to be unavailable to the model, names=%+v", toolSet.ListToolNames())
+	}
+	if strings.Contains(descriptions, AskConfirmToolName) || strings.Contains(actionSchema, AskConfirmToolName) {
+		t.Fatalf("expected ask.confirm to be absent from model surfaces, prompt=%s schema=%s", descriptions, actionSchema)
 	}
 }
 

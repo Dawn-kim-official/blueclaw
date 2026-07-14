@@ -739,30 +739,40 @@ func capabilityToolResult(content string, data json.RawMessage, isFailed bool, m
 	if !isFailed {
 		return result
 	}
+	resolvedErrorCode := firstNonEmptyString(errorCode, capabilityResultString(data, "errorCode"), agent.FailureCodes.OperationFailed.String())
+	canonicalErrorCode := agent.CanonicalFailureCode(agent.FailureCode(resolvedErrorCode))
 	result.Failure = &agent.ToolFailure{
-		Kind:            capabilityFailureKind(errorCode, failureStage),
-		Code:            agent.CanonicalFailureCode(agent.FailureCode(firstNonEmptyString(errorCode, capabilityResultString(data, "errorCode"), agent.FailureCodes.OperationFailed.String()))),
-		Stage:           firstNonEmptyString(failureStage, capabilityResultString(data, "failureStage"), "capability_invoke"),
-		UserSafeSummary: firstNonEmptyString(message, capabilityResultString(data, "message"), content),
-		Retryable:       retryable || capabilityResultBoolean(data, "retryable"),
-		SafeRetry:       safeRetry || capabilityResultBoolean(data, "safeRetry"),
-		RecoveryHints:   capabilityRecoveryHints(data),
+		Kind:             capabilityFailureKind(canonicalErrorCode),
+		Code:             canonicalErrorCode,
+		Stage:            firstNonEmptyString(failureStage, capabilityResultString(data, "failureStage"), "capability_invoke"),
+		UserSafeSummary:  firstNonEmptyString(message, capabilityResultString(data, "message"), content),
+		RequiresApproval: strings.TrimSpace(resolvedErrorCode) == "approval_required",
+		Retryable:        retryable || capabilityResultBoolean(data, "retryable"),
+		SafeRetry:        safeRetry || capabilityResultBoolean(data, "safeRetry"),
+		RecoveryHints:    capabilityRecoveryHints(data),
 	}
 	return result
 }
 
-func capabilityFailureKind(errorCode string, failureStage string) agent.FailureKind {
-	normalizedText := strings.ToLower(strings.TrimSpace(errorCode + " " + failureStage))
-	if strings.Contains(normalizedText, "denied") || strings.Contains(normalizedText, "permission") || strings.Contains(normalizedText, "unauthorized") {
+func capabilityFailureKind(errorCode string) agent.FailureKind {
+	switch strings.TrimSpace(errorCode) {
+	case agent.FailureCodes.AccessDenied.String():
 		return agent.FailurePermissionDenied
-	}
-	if strings.Contains(normalizedText, "invalid") || strings.Contains(normalizedText, "schema") || strings.Contains(normalizedText, "input") {
+	case agent.FailureCodes.InvalidInput.String():
 		return agent.FailureInvalidInput
-	}
-	if strings.Contains(normalizedText, "rate") || strings.Contains(normalizedText, "quota") {
+	case agent.FailureCodes.RateLimited.String():
 		return agent.FailureRateLimited
+	case agent.FailureCodes.NotFound.String():
+		return agent.FailureNotFound
+	case agent.FailureCodes.Unavailable.String():
+		return agent.FailureDependencyUnavailable
+	case agent.FailureCodes.PolicyBlocked.String():
+		return agent.FailurePolicyBlocked
+	case agent.FailureCodes.InteractionRequired.String():
+		return agent.FailureInteractionRequired
+	default:
+		return agent.FailureExternalService
 	}
-	return agent.FailureExternalService
 }
 
 func isApprovalExemptCapabilityTool(toolName string, request ToolCatalogRequest) bool {

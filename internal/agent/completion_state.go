@@ -333,13 +333,10 @@ func completionValidityPaths(state CompletionState) []string {
 
 func hasInvalidArtifactObservationForPaths(observations []turnObservation, paths []string) bool {
 	for _, observation := range observations {
-		if !observation.Failed() || observation.Action != "policy" {
+		if !observation.Failed() || observation.Action != "policy" || observation.PolicyCode != evidenceKindAttachmentValid {
 			continue
 		}
-		if !strings.Contains(observation.ContentText(), "artifact validity check failed") {
-			continue
-		}
-		if observationContentContainsAllPaths(observation.ContentText(), paths) {
+		if stringSliceContainsAll(observation.RelatedPaths, paths) {
 			return true
 		}
 	}
@@ -363,19 +360,19 @@ func hasFailedArtifactDeliveryForPaths(observations []turnObservation, paths []s
 		if !observation.Failed() || !IsArtifactDeliveryTool(observation.Tool) {
 			continue
 		}
-		if observationContentContainsAllPaths(observation.ContentText(), paths) {
+		if stringSliceContainsAll(observation.RelatedPaths, paths) {
 			return true
 		}
 	}
 	return false
 }
 
-func observationContentContainsAllPaths(content string, paths []string) bool {
-	if len(paths) == 0 {
+func stringSliceContainsAll(values []string, expectedValues []string) bool {
+	if len(expectedValues) == 0 {
 		return false
 	}
-	for _, path := range paths {
-		if !strings.Contains(content, path) {
+	for _, expectedValue := range expectedValues {
+		if !stringSliceContains(values, expectedValue) {
 			return false
 		}
 	}

@@ -13,6 +13,7 @@ const (
 	failureClassUserInput     = "user_input"
 	failureClassNetwork       = "network"
 	failureClassProviderLimit = "provider_limit"
+	failureClassInteraction   = "interaction_required"
 	failureClassSchema        = "schema"
 	failureClassUnknown       = "unknown"
 
@@ -55,22 +56,20 @@ func failureClassForObservation(observation turnObservation) string {
 	if observation.Failure != nil && strings.TrimSpace(observation.Failure.FailureClass) != "" {
 		return strings.TrimSpace(observation.Failure.FailureClass)
 	}
-	combinedText := strings.ToLower(strings.TrimSpace(observation.FailureCode() + " " + observation.FailureStage() + " " + observation.FailureSummary() + " " + observation.ContentText()))
-	switch {
-	case strings.Contains(combinedText, "quality") || strings.Contains(combinedText, "build-quality") || strings.Contains(combinedText, "visual") || strings.Contains(combinedText, "overflow"):
-		return failureClassQuality
-	case strings.Contains(combinedText, "workspace") || strings.Contains(combinedText, "directory") || strings.Contains(combinedText, "cwd") || strings.Contains(combinedText, "getcwd"):
-		return failureClassWorkspace
-	case strings.Contains(combinedText, "modulenotfound") || strings.Contains(combinedText, "module not found") || strings.Contains(combinedText, "dependency") || strings.Contains(combinedText, "package"):
+	if observation.Failure == nil {
+		return failureClassUnknown
+	}
+	switch observation.Failure.Kind {
+	case FailureDependencyUnavailable:
 		return failureClassDependency
-	case strings.Contains(combinedText, "permission") || strings.Contains(combinedText, "access_denied") || strings.Contains(combinedText, "denied"):
+	case FailurePermissionDenied, FailurePolicyBlocked:
 		return failureClassPermission
-	case strings.Contains(combinedText, "schema") || strings.Contains(combinedText, "json") || strings.Contains(combinedText, "invalid_input"):
+	case FailureInvalidInput:
 		return failureClassSchema
-	case strings.Contains(combinedText, "rate_limited") || strings.Contains(combinedText, "too_many"):
+	case FailureRateLimited:
 		return failureClassProviderLimit
-	case strings.Contains(combinedText, "network") || strings.Contains(combinedText, "timeout") || strings.Contains(combinedText, "connection"):
-		return failureClassNetwork
+	case FailureInteractionRequired:
+		return failureClassInteraction
 	default:
 		return failureClassUnknown
 	}
@@ -218,7 +217,7 @@ func recoveryPreconditionSatisfied(precondition string, failedObservation turnOb
 				return true
 			}
 		case "dependency_changed":
-			if observation.Tool == "terminal.run" && terminalInputLooksLikeDependencyChange(observation.ToolInputKey) {
+			if observation.Tool == "terminal.run" && observation.ToolInputKey != failedObservation.ToolInputKey {
 				return true
 			}
 		case siteBuiltRecoveryPrecondition:
@@ -243,16 +242,6 @@ func observationsAfterFailure(failedObservation turnObservation, observations []
 		}
 	}
 	return nil
-}
-
-func terminalInputLooksLikeDependencyChange(toolInputKey string) bool {
-	normalizedInput := strings.ToLower(toolInputKey)
-	for _, fragment := range []string{" install", " bun install", "npm install", "pip install", "uv pip", "pnpm install", "yarn install"} {
-		if strings.Contains(normalizedInput, fragment) {
-			return true
-		}
-	}
-	return false
 }
 
 func recoveryPacketContent(packet RecoveryPacket) string {

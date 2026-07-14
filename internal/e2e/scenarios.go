@@ -200,7 +200,6 @@ func AttachmentMaterialReadScenario(artifactDirectoryPath string) VirtualSession
 			},
 			ExpectedModelContexts: []string{
 				"materialID=mattermost:file-1",
-				"Use the listed materialID or path",
 				"mascot.png",
 			},
 			ForbiddenModelContexts: []string{
@@ -553,13 +552,14 @@ func AmbientDutyCalendarAcceptanceScenario(artifactDirectoryPath string) Virtual
 		Name:                   "ambient_duty_calendar_acceptance",
 		ArtifactDirectoryPath:  artifactDirectoryPath,
 		RouterRequiredEvidence: []string{"calendar.add"},
-		AddressingResponse:     `{"target":"anyone","shouldRespond":true,"dutyMatch":true,"dutyName":"calendar_upkeep","dutyConfidence":0.93}`,
+		AddressingResponse:     `{"target":"human","shouldRespond":false,"dutyMatch":true,"dutyName":"calendar_upkeep","dutyConfidence":0.93}`,
 		Skills:                 []agent.SkillInstruction{calendarSkill()},
 		AllowedTools:           []string{"conversation.history", "memory.search", agent.CapabilityInvokeToolName},
 		CapabilityToolNames:    []string{"calendar.add"},
 		InitialToolNames:       []string{agent.CapabilityInvokeToolName},
 		Turns: []VirtualTurn{{
-			Prompt:           "오늘 오후 5시 정기회의 추가 참석자 이찬희, 이동하",
+			Prompt:           "@박세은 님 오늘 오후 5시 정기회의에 이찬희, 이동하 님도 참석자로 추가해주세요",
+			ExpectedResponse: VirtualResponseBackgroundAction,
 			ConversationType: "channel",
 			ChannelID:        "town-square",
 			ChannelName:      "town-square",
@@ -580,9 +580,8 @@ func AmbientDutyCalendarAcceptanceScenario(artifactDirectoryPath string) Virtual
 			ExpectedModelContexts: []string{
 				"Ambient duty context",
 				"not addressed to you",
-				"Reply only in the source message thread",
+				"Never send a text reply",
 			},
-			ExpectedReplyTargetID: "virtual-message-001",
 		}},
 	}
 }
@@ -614,7 +613,8 @@ func AmbientTaskCaptureAcceptanceScenario(artifactDirectoryPath string) VirtualS
 		CapabilityToolNames:   []string{"task.add", "task.list", "task.update"},
 		InitialToolNames:      []string{agent.CapabilityInvokeToolName},
 		Turns: []VirtualTurn{{
-			Prompt:                 "세은 님 신규 가입 플로우 점검 월요일까지 부탁해요",
+			Prompt:                 "@박세은 님 월요일까지 신규 가입 플로우 점검 작업 해주세요",
+			ExpectedResponse:       VirtualResponseBackgroundAction,
 			RouterRequiredEvidence: []string{"task.add"},
 			ConversationType:       "channel",
 			ChannelID:              "town-square",
@@ -637,12 +637,12 @@ func AmbientTaskCaptureAcceptanceScenario(artifactDirectoryPath string) VirtualS
 			ExpectedModelContexts: []string{
 				"Ambient duty context",
 				"not addressed to you",
-				"Reply only in the source message thread",
+				"Never send a text reply",
 			},
-			ForbiddenEvents:       []string{"tool.terminal.run.requested"},
-			ExpectedReplyTargetID: "virtual-message-010",
+			ForbiddenEvents: []string{"tool.terminal.run.requested"},
 		}, {
-			Prompt:                 "세은 님 그거 마감 수요일로 변경해주세요",
+			Prompt:                 "@박세은 님 그 작업 마감은 수요일로 변경해주세요",
+			ExpectedResponse:       VirtualResponseBackgroundAction,
 			RouterRequiredEvidence: []string{"task.update"},
 			ConversationType:       "channel",
 			ChannelID:              "town-square",
@@ -659,7 +659,6 @@ func AmbientTaskCaptureAcceptanceScenario(artifactDirectoryPath string) VirtualS
 				"task.add":    0,
 				"task.update": 1,
 			},
-			ExpectedReplyTargetID: "virtual-message-011",
 		}},
 	}
 }
@@ -1279,21 +1278,26 @@ func DirectMessageSendConfirmAcceptanceScenario(artifactDirectoryPath string) Vi
 		Name:                   "dm_send_confirm_acceptance",
 		ArtifactDirectoryPath:  artifactDirectoryPath,
 		RouterRequiredEvidence: []string{"message.send"},
-		AllowedTools:           []string{"conversation.history", "memory.search", agent.CapabilityInvokeToolName},
-		InitialToolNames:       []string{agent.CapabilityInvokeToolName},
+		ScriptedExecutionPlan: &agent.ExecutionPlan{
+			OriginalInstruction:     "우경이한테 DM으로 오늘 오후 3시에 확인하자고 보내줘",
+			Summary:                 "우경이에게 오늘 오후 3시 확인 요청을 DM으로 보낸다",
+			Targets:                 []string{"우경"},
+			ExternalSend:            true,
+			ThirdPartyExternalSend:  true,
+			MissingInformation:      []string{},
+			ContinuationInstruction: "우경이에게 오늘 오후 3시에 확인하자는 DM을 보낸다",
+		},
+		ScriptedConfirmationReply: "우경이에게 ‘오늘 오후 3시에 확인하자’고 DM을 보낼까요?",
+		AllowedTools:              []string{"conversation.history", "memory.search", agent.CapabilityInvokeToolName},
+		InitialToolNames:          []string{agent.CapabilityInvokeToolName},
 		CapabilityToolDescriptors: []agentruntime.CapabilityToolDescriptor{{
 			Name:             "message.send",
 			RequiresApproval: true,
 		}},
 		Turns: []VirtualTurn{{
 			Prompt: "우경이한테 DM으로 오늘 오후 3시에 확인하자고 보내줘",
-			ActionResponses: []string{
-				actionInvokeCapabilityTool("message.send", `{"targetType":"directMessage","personHint":"우경","message":"오늘 오후 3시에 확인하자"}`),
-			},
 			ExpectedEventCounts: []VirtualEventCount{
-				{Name: "tool.capability.invoke.requested", BodyFragment: `"targetType":"directMessage"`, Count: 1},
-				{Name: "tool.capability.invoke.result", BodyFragment: "approval_required", Count: 1},
-				{Name: "approval.pending_call", BodyFragment: `"message.send"`, Count: 1},
+				{Name: "tool.capability.invoke.requested", BodyFragment: `"targetType":"directMessage"`, Count: 0},
 				{Name: "agent.failure_debt_created", BodyFragment: "", Count: 0},
 			},
 			ExpectedEvents:         []string{"confirmation.requested"},
@@ -1303,13 +1307,13 @@ func DirectMessageSendConfirmAcceptanceScenario(artifactDirectoryPath string) Vi
 			Prompt:         "확인",
 			RouterApproval: "approve",
 			ActionResponses: []string{
-				actionFinishMessage("우경이에게 DM을 보냈습니다.", "obs-002:message.send:0"),
+				actionInvokeCapabilityTool("message.send", `{"targetType":"directMessage","personHint":"우경","message":"오늘 오후 3시에 확인하자"}`),
+				actionFinishMessage("우경이에게 DM을 보냈습니다.", "obs-001:message.send:0"),
 			},
 			ExpectedToolCalls: []string{"message.send"},
 			ExpectedEventCounts: []VirtualEventCount{
-				{Name: "tool.capability.invoke.requested", BodyFragment: `"targetType":"directMessage"`, Count: 2},
+				{Name: "tool.capability.invoke.requested", BodyFragment: `"targetType":"directMessage"`, Count: 1},
 				{Name: "tool.capability.invoke.result", BodyFragment: "virtual-platform-message-001", Count: 1},
-				{Name: "approval.executed", BodyFragment: `"message.send"`, Count: 1},
 			},
 			ExpectedEvents:         []string{"confirmation.reply_classified"},
 			ExpectedModelContexts:  []string{"virtual-platform-message-001"},
@@ -1323,10 +1327,26 @@ func ChannelPostAcceptanceScenario(artifactDirectoryPath string) VirtualSessionS
 		Name:                   "channel_post_acceptance",
 		ArtifactDirectoryPath:  artifactDirectoryPath,
 		RouterRequiredEvidence: []string{"message.send"},
-		AllowedTools:           []string{"conversation.history", "memory.search", agent.CapabilityInvokeToolName},
-		CapabilityToolNames:    []string{"message.send"},
+		ScriptedExecutionPlan: &agent.ExecutionPlan{
+			OriginalInstruction:     "announcements 채널에 오늘 5시에 전체 공지 회의 있다고 올려줘",
+			Summary:                 "announcements 채널에 오늘 5시 전체 공지 회의를 게시한다",
+			Targets:                 []string{"announcements"},
+			ExternalSend:            true,
+			ThirdPartyExternalSend:  true,
+			MissingInformation:      []string{},
+			ContinuationInstruction: "announcements 채널에 오늘 5시 전체 공지 회의를 게시한다",
+		},
+		ScriptedConfirmationReply: "announcements 채널에 오늘 5시 전체 공지 회의를 게시할까요?",
+		AllowedTools:              []string{"conversation.history", "memory.search", agent.CapabilityInvokeToolName},
+		CapabilityToolNames:       []string{"message.send"},
 		Turns: []VirtualTurn{{
-			Prompt: "announcements 채널에 오늘 5시에 전체 공지 회의 있다고 올려줘",
+			Prompt:                 "announcements 채널에 오늘 5시에 전체 공지 회의 있다고 올려줘",
+			ExpectedEvents:         []string{"confirmation.requested"},
+			ExpectedReplyFragments: []string{"announcements", "게시"},
+			ExpectedTaskStatus:     task.TaskStatusWaitingApproval,
+		}, {
+			Prompt:         "확인",
+			RouterApproval: "approve",
 			ActionResponses: []string{
 				actionInvokeCapabilityTool("message.send", `{"targetType":"channel","channelName":"announcements","message":"오늘 5시에 전체 공지 회의가 있습니다."}`),
 				actionFinishMessage("announcements 채널에 공지를 올렸습니다.", "obs-001:message.send:0"),

@@ -222,6 +222,31 @@ func TestAmbientTaskCaptureAcceptance(t *testing.T) {
 	if countRequestedToolCalls(reviseResult.Events, "task.add") > 0 {
 		t.Fatalf("same-thread revision must update, not add a duplicate task; events: %s", summarizeEvents(reviseResult.Events))
 	}
+	if turnResult.DidReply || reviseResult.DidReply {
+		t.Fatalf("ambient task capture must stay silent, got first=%q second=%q", turnResult.FinishMessage, reviseResult.FinishMessage)
+	}
+}
+
+func TestVirtualSessionAcceptsReactionOnlyTurn(t *testing.T) {
+	scenario := VirtualSessionScenario{
+		Name:                  "reaction-only",
+		ArtifactDirectoryPath: t.TempDir(),
+		AddressingResponse:    `{"target":"anyone","shouldRespond":false,"reactionEmoji":"eyes","dutyMatch":false,"dutyName":"","dutyConfidence":0}`,
+		Turns: []VirtualTurn{{
+			Prompt:           "참고로 공유합니다.",
+			ExpectedResponse: VirtualResponseReact,
+			ConversationType: "channel",
+			ActionResponses:  []string{actionFinishMessage("unused")},
+		}},
+	}
+
+	result, errorValue := RunVirtualSession(context.Background(), scenario)
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if len(result.TurnResults[0].Reactions) != 1 || result.TurnResults[0].Reactions[0].EmojiName != "eyes" {
+		t.Fatalf("expected eyes reaction, got %+v", result.TurnResults[0].Reactions)
+	}
 }
 
 func TestGWSDisabled(t *testing.T) {
@@ -320,8 +345,8 @@ func TestAmbientDutyCalendarAcceptance(t *testing.T) {
 	if !eventsContain(turnResult.Events, "agent.ambient_duty_launch", `"dutyName":"calendar_upkeep"`) {
 		t.Fatalf("expected ambient duty launch event; events: %s", summarizeEvents(turnResult.Events))
 	}
-	if turnResult.ReplyTargetID != "virtual-message-001" {
-		t.Fatalf("expected thread reply target, got %q", turnResult.ReplyTargetID)
+	if turnResult.DidReply {
+		t.Fatalf("expected ambient calendar duty to stay silent, got %q", turnResult.FinishMessage)
 	}
 }
 
@@ -604,20 +629,11 @@ func TestDirectMessageSendConfirmAcceptance(t *testing.T) {
 	if !eventsContain(firstTurnResult.Events, "confirmation.requested", "external_send") {
 		t.Fatalf("expected confirmation request before send; events: %s", summarizeEvents(firstTurnResult.Events))
 	}
-	if countRequestedToolCalls(firstTurnResult.Events, "message.send") != 1 {
-		t.Fatalf("expected the send attempt to be gated for approval before delivery; events: %s", summarizeEvents(firstTurnResult.Events))
+	if countRequestedToolCalls(firstTurnResult.Events, "message.send") != 0 {
+		t.Fatalf("expected confirmation before any send attempt; events: %s", summarizeEvents(firstTurnResult.Events))
 	}
-	if !eventsContain(firstTurnResult.Events, "tool.capability.invoke.result", "approval_required") {
-		t.Fatalf("expected the pre-approval send attempt to be denied with approval_required; events: %s", summarizeEvents(firstTurnResult.Events))
-	}
-	if !eventsContain(firstTurnResult.Events, "approval.pending_call", "message.send") {
-		t.Fatalf("expected held approval call; events: %s", summarizeEvents(firstTurnResult.Events))
-	}
-	if countRequestedToolCalls(secondTurnResult.Events, "message.send") != 2 {
-		t.Fatalf("expected the gated attempt plus one approved send request; events: %s", summarizeEvents(secondTurnResult.Events))
-	}
-	if !eventsContain(secondTurnResult.Events, "approval.executed", "message.send") {
-		t.Fatalf("expected approval executed event; events: %s", summarizeEvents(secondTurnResult.Events))
+	if countRequestedToolCalls(secondTurnResult.Events, "message.send") != 1 {
+		t.Fatalf("expected exactly one approved send request; events: %s", summarizeEvents(secondTurnResult.Events))
 	}
 	if !eventsContain(secondTurnResult.Events, "tool.capability.invoke.result", "virtual-platform-message-001") {
 		t.Fatalf("expected send result message id observation; events: %s", summarizeEvents(secondTurnResult.Events))
@@ -632,10 +648,13 @@ func TestChannelPostAcceptance(t *testing.T) {
 	if errorValue != nil {
 		t.Fatalf("expected channel post acceptance scenario to pass: %v", errorValue)
 	}
-	if len(result.TurnResults) != 1 {
-		t.Fatalf("expected one turn, got %+v", result)
+	if len(result.TurnResults) != 2 {
+		t.Fatalf("expected confirmation and execution turns, got %+v", result)
 	}
-	turnResult := result.TurnResults[0]
+	if countRequestedToolCalls(result.TurnResults[0].Events, "message.send") != 0 {
+		t.Fatalf("expected confirmation before channel send; events: %s", summarizeEvents(result.TurnResults[0].Events))
+	}
+	turnResult := result.TurnResults[1]
 	if countRequestedToolCalls(turnResult.Events, "message.send") != 1 {
 		t.Fatalf("expected one send request, got events: %s", summarizeEvents(turnResult.Events))
 	}

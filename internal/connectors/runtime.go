@@ -1027,6 +1027,9 @@ func (connectorRuntime *ConnectorRuntime) processInboundEventWithReplySender(ctx
 		return ConnectorRuntimeResult{}, errorValue
 	}
 	turnResult := launchResult.TurnResult
+	if addressingLaunch.SuppressReply {
+		turnResult.ReplySuppressionReason = "ambient_duty_no_reply"
+	}
 	taskRunID := turnResult.TaskRun.TaskRunID
 	taskDuration := time.Since(taskStartedAt)
 	connectorRuntime.logger.Info("connector."+platform+".agent.completed", slog.String("messageID", event.MessageID), slog.String("taskRunID", taskRunID), slog.Int64("duration_ms", taskDuration.Milliseconds()))
@@ -1782,7 +1785,7 @@ func (connectorRuntime *ConnectorRuntime) pendingApprovalForTaskRun(selectedTask
 	activeGoal := latestActiveGoal(taskEvents)
 	return pendingApproval{
 		TaskRun:                 selectedTaskRun,
-		IntentPrompt:            pendingApprovalIntentPrompt(selectedTaskRun.Prompt, approvalQuestion),
+		IntentPrompt:            strings.TrimSpace(selectedTaskRun.Prompt),
 		ApprovalQuestion:        approvalQuestion,
 		ResponseLanguage:        responseLanguage,
 		ContinuationInstruction: continuationInstruction,
@@ -2159,42 +2162,6 @@ func connectorResponseLanguageInstruction(responseLanguage string) string {
 		return "Write in English."
 	}
 	return "Write in Korean."
-}
-
-func pendingApprovalIntentPrompt(taskPrompt string, approvalQuestion string) string {
-	taskPrompt = strings.TrimSpace(taskPrompt)
-	if shouldUseApprovalQuestionAsIntent(taskPrompt, approvalQuestion) {
-		return approvalQuestion
-	}
-	return firstNonEmptyString(taskPrompt, approvalQuestion)
-}
-
-func shouldUseApprovalQuestionAsIntent(taskPrompt string, approvalQuestion string) bool {
-	if strings.TrimSpace(approvalQuestion) == "" {
-		return false
-	}
-	normalizedPrompt := strings.TrimSpace(strings.ToLower(taskPrompt))
-	if normalizedPrompt == "" {
-		return true
-	}
-	approvalReplies := map[string]bool{
-		"ㅇ":        true,
-		"응":        true,
-		"네":        true,
-		"예":        true,
-		"그래":       true,
-		"좋아":       true,
-		"진행해":      true,
-		"진행해줘":     true,
-		"해":        true,
-		"해줘":       true,
-		"yes":      true,
-		"y":        true,
-		"ok":       true,
-		"okay":     true,
-		"go ahead": true,
-	}
-	return approvalReplies[normalizedPrompt]
 }
 
 func latestApprovalQuestion(taskEvents []task.TaskEvent) string {
