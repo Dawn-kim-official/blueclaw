@@ -431,6 +431,9 @@ func (agentTurnRunner *AgentTurnRunner) verifyCompletionContract(ctx context.Con
 	if !OutcomeContractHasRequirements(request.OutcomeContract) {
 		return result
 	}
+	if expectedResultsAndExactEvidenceSatisfyContract(request.OutcomeContract, observations) {
+		return result
+	}
 	verification, errorValue := verifyContractSatisfaction(ctx, agentTurnRunner.languageModel, request, observations, attachments, actionDocument)
 	if errorValue != nil {
 		result.IsSatisfied = false
@@ -448,6 +451,29 @@ func (agentTurnRunner *AgentTurnRunner) verifyCompletionContract(ctx context.Con
 	result.SuggestedNextTools = verification.SuggestedNextTools
 	result.Attachments = nil
 	return result
+}
+
+func expectedResultsAndExactEvidenceSatisfyContract(contract OutcomeContract, observations []turnObservation) bool {
+	contract = normalizeOutcomeContract(contract)
+	if len(contract.ExpectedResults) == 0 || contractRequiresSemanticVerification(contract) {
+		return false
+	}
+	for _, toolName := range contract.RequiredEvidenceTools {
+		if !hasSuccessfulToolObservationForTurn(observations, toolName) {
+			return false
+		}
+	}
+	return true
+}
+
+func contractRequiresSemanticVerification(contract OutcomeContract) bool {
+	artifactRequirement := strings.TrimSpace(contract.ArtifactRequirement)
+	return len(contract.RequiredEvidenceAnyOf) > 0 ||
+		len(contract.RequiredAttachmentSuffixes) > 0 ||
+		len(contract.RequiredEffects) > 0 ||
+		len(contract.SelectedEvidenceHints) > 0 ||
+		strings.TrimSpace(contract.SiteEvidenceQuote) != "" ||
+		(artifactRequirement != "" && artifactRequirement != ArtifactRequirementNone)
 }
 
 func contractVerificationGateMessage(verification ContractSatisfactionVerification) string {
