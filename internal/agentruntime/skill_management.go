@@ -48,32 +48,19 @@ var builtInSkillNames = map[string]bool{
 	"real-estate-search":                true,
 	"scheduled-task":                    true,
 	"rhwp-edit":                         true,
-	"presentation":                     true,
+	"presentation":                      true,
 	"site-prototype":                    true,
 	"skill-management":                  true,
 	"zipcode-search":                    true,
 }
 
 var standardSkillFrontmatterKeys = map[string]bool{
-	"agent":                    true,
-	"allowed-tools":            true,
-	"argument-hint":            true,
-	"arguments":                true,
-	"context":                  true,
-	"completion":               true,
-	"description":              true,
-	"disable-model-invocation": true,
-	"effort":                   true,
-	"hooks":                    true,
-	"hiddenFromCircles":        true,
-	"model":                    true,
-	"license":                  true,
-	"metadata":                 true,
-	"name":                     true,
-	"paths":                    true,
-	"shell":                    true,
-	"user-invocable":           true,
-	"when_to_use":              true,
+	"allowed-tools": true,
+	"compatibility": true,
+	"description":   true,
+	"license":       true,
+	"metadata":      true,
+	"name":          true,
 }
 
 type skillAddInput struct {
@@ -355,9 +342,6 @@ func (toolCatalogBuilder *ToolCatalogBuilder) writeSkillResources(skillDirectory
 
 func skillQualityWarnings(skillBundle skill.SkillBundle) []string {
 	warnings := []string{}
-	if strings.TrimSpace(skillBundle.WhenToUse) == "" {
-		warnings = append(warnings, "when_to_use is recommended so retrieval has explicit trigger context")
-	}
 	if utf8.RuneCountInString(strings.TrimSpace(skillBundle.Description)) < weakDescriptionRuneCount {
 		warnings = append(warnings, "description is short; include what the skill does and when to use it")
 	}
