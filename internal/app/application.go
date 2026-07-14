@@ -320,11 +320,12 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 			IdentityService:  identityService,
 		},
 		TaskRunHandler: adminapi.TaskRunHandler{
-			TaskLauncher:    taskLauncher,
-			IdentityService: identityService,
-			WorkspaceID:     runtimeConfiguration.Memory.WorkspaceID,
-			TaskRunService:  taskRunService,
-			TaskIntakeGate:  taskIntakeController,
+			TaskLauncher:            taskLauncher,
+			IdentityService:         identityService,
+			WorkspaceID:             runtimeConfiguration.Memory.WorkspaceID,
+			TaskRunService:          taskRunService,
+			TaskIntakeGate:          taskIntakeController,
+			AllowTaskDecisionPreset: runtimeConfiguration.Agent.AllowAdminTaskDiagnostic,
 		},
 		QuiesceHandler: adminapi.QuiesceHandler{
 			Controller:     taskIntakeController,

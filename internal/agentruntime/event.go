@@ -33,6 +33,7 @@ type taskLaunchEvent struct {
 	LiveHasOldMattermostPostDelete    bool                       `json:"liveHasOldMattermostPostDelete"`
 	LiveHasOldPlatformDMInspect       bool                       `json:"liveHasOldPlatformDMInspect"`
 	MemoryFactCount                   int                        `json:"memoryFactCount"`
+	IsIntakePrecomputed               bool                       `json:"isIntakePrecomputed,omitempty"`
 	ScheduledRun                      *agent.ScheduledRunContext `json:"scheduledRun,omitempty"`
 }
 
@@ -64,6 +65,7 @@ func marshalTaskLaunchEvent(request TaskLaunchRequest, profileName string, toolN
 		LiveHasOldMattermostPostDelete:    registryAudit.LiveHasOldMattermostPostDelete,
 		LiveHasOldPlatformDMInspect:       registryAudit.LiveHasOldPlatformDMInspect,
 		MemoryFactCount:                   memoryFactCount,
+		IsIntakePrecomputed:               request.PrecomputedTurnDecision != nil,
 		ScheduledRun:                      taskLaunchScheduledRunEvent(request),
 	})
 	if errorValue != nil {

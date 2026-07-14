@@ -87,6 +87,8 @@ type AgentTurnRequest struct {
 	ToolExposure               ToolExposureEvent
 	QualityAcceptanceGuidance  []string
 	PrecomputedTurnDecision    *TurnDecision
+	IsPrecomputedDecisionExact bool
+	SkipSkillSelection         bool
 	AmbientDuty                AmbientDutyContext
 	TaskShape                  TaskShape
 	TaskLevel                  TaskLevel
@@ -1463,7 +1465,7 @@ func (agentTurnRunner *AgentTurnRunner) nextLimitPressureWarning(usedIterationCo
 		Observation: newContentObservation(nextObservationID(observationIndex), "limit_pressure", "", message),
 		EventBody: map[string]any{
 			"level":              level,
-			"taskLevel":         agentTurnRunner.options.TaskLevel,
+			"taskLevel":          agentTurnRunner.options.TaskLevel,
 			"usedIterationCount": usedIterationCount,
 			"usedToolCallCount":  usedToolCallCount,
 			"maxIterationCount":  agentTurnRunner.options.MaxIterationCount,
@@ -1820,7 +1822,7 @@ func (agentTurnRunner *AgentTurnRunner) recordTerminalNoToolsRejection(taskRunID
 
 func (agentTurnRunner *AgentTurnRunner) stopForLimit(taskRunID string, request AgentTurnRequest, reason string, observations []turnObservation, attachments []FileAttachment, executionState ExecutionState, usedIterationCount int, usedToolCallCount int) (AgentTurnResult, error) {
 	body := map[string]any{
-		"taskLevel":         agentTurnRunner.options.TaskLevel,
+		"taskLevel":          agentTurnRunner.options.TaskLevel,
 		"maxIterationCount":  agentTurnRunner.options.MaxIterationCount,
 		"maxElapsedSecond":   agentTurnRunner.options.MaxElapsedSecond,
 		"maxToolCallCount":   agentTurnRunner.options.MaxToolCallCount,
