@@ -1,0 +1,32 @@
+{
+  "model": "openrouter/auto",
+  "executionMode": "auto",
+  "context": {
+    "requesterPersonID": "person-1",
+    "conversationID": "conversation-1",
+    "platform": "web"
+  },
+  "messages": [
+    {
+      "role": "user",
+      "content": "List my tasks"
+    }
+  ],
+  "structuredOutputSchema": {
+    "name": "task_list",
+    "document": {
+      "type": "object",
+      "properties": {
+        "items": {
+          "type": "array"
+        }
+      },
+      "required": ["items"]
+    },
+    "isStrictlyEnforced": true
+  },
+  "generationOptions": {
+    "temperature": 0,
+    "maxTokens": 1024
+  }
+}

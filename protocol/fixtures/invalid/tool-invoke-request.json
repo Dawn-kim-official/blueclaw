@@ -1,0 +1,9 @@
+{
+  "toolName": "calendar.event.create",
+  "input": {},
+  "executionMode": "auto",
+  "requiresUserPresence": false,
+  "privacyClass": "organization",
+  "sessionID": "session-1",
+  "timeoutSecond": -1
+}

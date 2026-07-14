@@ -1,0 +1,192 @@
+{
+  "$defs": {
+    "__schema0": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        },
+        {
+          "items": {
+            "$ref": "#/$defs/__schema0"
+          },
+          "type": "array"
+        },
+        {
+          "additionalProperties": {
+            "$ref": "#/$defs/__schema0"
+          },
+          "propertyNames": {
+            "type": "string"
+          },
+          "type": "object"
+        }
+      ]
+    }
+  },
+  "$id": "https://schemas.blueclaw.dev/0.1.0/structured-response-request.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": {},
+  "properties": {
+    "context": {
+      "additionalProperties": {},
+      "properties": {
+        "conversationID": {
+          "type": "string"
+        },
+        "platform": {
+          "type": "string"
+        },
+        "requesterEmail": {
+          "type": "string"
+        },
+        "requesterName": {
+          "type": "string"
+        },
+        "requesterPersonID": {
+          "type": "string"
+        },
+        "requesterPlatformUserID": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "executionMode": {
+      "enum": [
+        "device",
+        "companion",
+        "remote",
+        "auto"
+      ],
+      "type": "string"
+    },
+    "generationOptions": {
+      "additionalProperties": {},
+      "properties": {
+        "maxTokens": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "seed": {
+          "maximum": 9007199254740991,
+          "minimum": -9007199254740991,
+          "type": "integer"
+        },
+        "temperature": {
+          "type": "number"
+        }
+      },
+      "type": "object"
+    },
+    "messages": {
+      "items": {
+        "additionalProperties": {},
+        "properties": {
+          "content": {
+            "type": "string"
+          },
+          "parts": {
+            "items": {
+              "oneOf": [
+                {
+                  "additionalProperties": {},
+                  "properties": {
+                    "text": {
+                      "type": "string"
+                    },
+                    "type": {
+                      "const": "text",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "text"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "additionalProperties": {},
+                  "properties": {
+                    "dataBase64": {
+                      "type": "string"
+                    },
+                    "mimeType": {
+                      "type": "string"
+                    },
+                    "text": {
+                      "type": "string"
+                    },
+                    "type": {
+                      "const": "image",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "mimeType",
+                    "dataBase64"
+                  ],
+                  "type": "object"
+                }
+              ]
+            },
+            "type": "array"
+          },
+          "role": {
+            "enum": [
+              "system",
+              "user",
+              "assistant"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "role"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "model": {
+      "type": "string"
+    },
+    "structuredOutputSchema": {
+      "additionalProperties": {},
+      "properties": {
+        "document": {
+          "$ref": "#/$defs/__schema0"
+        },
+        "isStrictlyEnforced": {
+          "type": "boolean"
+        },
+        "name": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "document",
+        "isStrictlyEnforced"
+      ],
+      "type": "object"
+    }
+  },
+  "required": [
+    "executionMode",
+    "messages",
+    "structuredOutputSchema"
+  ],
+  "type": "object"
+}
