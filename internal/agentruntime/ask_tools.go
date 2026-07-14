@@ -3,6 +3,7 @@ package agentruntime
 import (
 	"context"
 	"encoding/json"
+	"strconv"
 	"strings"
 
 	"blueclaw/internal/agent"
@@ -54,18 +55,30 @@ func (toolCatalogBuilder *ToolCatalogBuilder) askInputTool(toolContext context.C
 		return agent.ToolFailureResult(agent.FailureExternalService, agent.FailureCodes.OperationFailed, "ask_input", errorValue.Error()), nil
 	}
 	choices := trimNonEmptyStrings(input.Choices)
-	kind := "input"
-	if len(choices) > 0 {
-		kind = "input_choice"
+	options := make([]map[string]string, 0, len(choices))
+	for index, choice := range choices {
+		options = append(options, map[string]string{
+			"key":   strconv.Itoa(index + 1),
+			"label": choice,
+			"value": choice,
+		})
 	}
 	toolCatalogBuilder.taskRunService.AppendTaskEvent(taskRunID, "ask.requested", marshalToolResult(map[string]any{
-		"kind":             kind,
+		"kind":             "ask_input",
 		"question":         question,
 		"message":          question,
-		"choices":          choices,
+		"options":          options,
+		"selectionMode":    selectionModeForOptions(options),
 		"responseLanguage": agent.ResponseLanguageFromContext(toolContext),
 	}))
-	return agent.ToolSuccess(marshalToolResult(map[string]any{"taskRunID": taskRunID, "status": string(task.TaskStatusWaitingUserInput), "question": question, "kind": kind, "choices": choices})), nil
+	return agent.ToolSuccess(marshalToolResult(map[string]any{"taskRunID": taskRunID, "status": string(task.TaskStatusWaitingUserInput), "question": question, "kind": "ask_input", "options": options})), nil
+}
+
+func selectionModeForOptions(options []map[string]string) string {
+	if len(options) == 0 {
+		return ""
+	}
+	return "single"
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) askConfirmTool(toolContext context.Context, input askConfirmToolInput) (agent.ToolResult, error) {
@@ -82,7 +95,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) askConfirmTool(toolContext context
 		return agent.ToolFailureResult(agent.FailureExternalService, agent.FailureCodes.OperationFailed, "ask_confirm", errorValue.Error()), nil
 	}
 	confirmationRequest := map[string]string{
-		"kind":             "confirm",
+		"kind":             "ask_confirm",
 		"question":         question,
 		"message":          question,
 		"reasonCode":       strings.TrimSpace(input.ReasonCode),
@@ -90,5 +103,5 @@ func (toolCatalogBuilder *ToolCatalogBuilder) askConfirmTool(toolContext context
 	}
 	toolCatalogBuilder.taskRunService.AppendTaskEvent(taskRunID, "ask.requested", marshalToolResult(confirmationRequest))
 	toolCatalogBuilder.taskRunService.AppendTaskEvent(taskRunID, "confirmation.requested", marshalToolResult(confirmationRequest))
-	return agent.ToolSuccess(marshalToolResult(map[string]string{"taskRunID": taskRunID, "status": string(task.TaskStatusWaitingApproval), "question": question, "kind": "confirm"})), nil
+	return agent.ToolSuccess(marshalToolResult(map[string]string{"taskRunID": taskRunID, "status": string(task.TaskStatusWaitingApproval), "question": question, "kind": "ask_confirm"})), nil
 }

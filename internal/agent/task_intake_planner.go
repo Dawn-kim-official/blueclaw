@@ -150,8 +150,10 @@ type PendingChoiceContext struct {
 }
 
 type PendingInputContext struct {
-	TaskRunID string
-	Question  string
+	TaskRunID     string
+	Question      string
+	SelectionMode string
+	Options       []ChoiceReplyOption
 }
 
 type IntakeDecision struct {
@@ -447,7 +449,7 @@ func (turnRouter TurnRouter) normalizeDecision(decision TurnDecision, defaultDec
 	if hasPendingConfirmation && decision.Approval != nil && *decision.Approval == ApprovalSignalApprove {
 		decision.Route = TurnRouteContinueTask
 	}
-	decision.Choices = normalizeChoiceSelections(decision.Choices, request.PendingChoice)
+	decision.Choices = normalizeChoiceSelections(decision.Choices, pendingChoiceContext(request))
 	decision.BusyRoute = normalizeBusyRoute(decision.BusyRoute, decision.Route, request)
 	decision.BusyInstruction = strings.TrimSpace(decision.BusyInstruction)
 	decision.ClarificationQuestion = strings.TrimSpace(decision.ClarificationQuestion)
@@ -589,8 +591,8 @@ func turnRouterSchema(request AgentRequest) string {
 		properties["approval"] = map[string]any{"type": "string", "enum": []string{string(ApprovalSignalApprove), string(ApprovalSignalReject), string(ApprovalSignalUnclear)}}
 		requiredProperties = append(requiredProperties, "approval")
 	}
-	if strings.TrimSpace(request.PendingChoice.TaskRunID) != "" {
-		properties["choices"] = map[string]any{"type": "array", "items": map[string]any{"type": "string", "enum": pendingChoiceKeys(request.PendingChoice)}, "uniqueItems": true}
+	if pendingChoice := pendingChoiceContext(request); strings.TrimSpace(pendingChoice.TaskRunID) != "" {
+		properties["choices"] = map[string]any{"type": "array", "items": map[string]any{"type": "string", "enum": pendingChoiceKeys(pendingChoice)}, "uniqueItems": true}
 		requiredProperties = append(requiredProperties, "choices")
 	}
 	if strings.TrimSpace(request.ActiveTask.TaskRunID) != "" {
@@ -666,6 +668,21 @@ func normalizeBusyRoute(busyRoute BusyRoute, turnRoute TurnRoute, request AgentR
 	}
 }
 
+func pendingChoiceContext(request AgentRequest) PendingChoiceContext {
+	if strings.TrimSpace(request.PendingChoice.TaskRunID) != "" {
+		return request.PendingChoice
+	}
+	if strings.TrimSpace(request.PendingInput.TaskRunID) == "" || len(request.PendingInput.Options) == 0 {
+		return PendingChoiceContext{}
+	}
+	return PendingChoiceContext{
+		TaskRunID:     request.PendingInput.TaskRunID,
+		Question:      request.PendingInput.Question,
+		SelectionMode: request.PendingInput.SelectionMode,
+		Options:       request.PendingInput.Options,
+	}
+}
+
 func pendingChoiceKeys(pendingChoice PendingChoiceContext) []string {
 	keys := []string{}
 	seenKeys := map[string]bool{}
@@ -714,18 +731,18 @@ func turnRoutingContextDescription(request AgentRequest) string {
 			"- If the latest user message changes the target, scope, conditions, or asks for a different action, use revise_task or start_task with approval=unclear.",
 		)
 	}
-	if strings.TrimSpace(request.PendingChoice.TaskRunID) != "" {
+	if pendingChoice := pendingChoiceContext(request); strings.TrimSpace(pendingChoice.TaskRunID) != "" {
 		optionLines := []string{}
-		for index, option := range request.PendingChoice.Options {
+		for index, option := range pendingChoice.Options {
 			optionLines = append(optionLines, strconv.Itoa(index+1)+". "+strings.TrimSpace(option.Label)+" / key "+strings.TrimSpace(option.Key))
 		}
 		lines = append(lines,
-			"Pending choice:",
-			"- Question: "+strings.TrimSpace(request.PendingChoice.Question),
-			"- Selection mode: "+strings.TrimSpace(request.PendingChoice.SelectionMode),
+			"Pending input options:",
+			"- Question: "+strings.TrimSpace(pendingChoice.Question),
+			"- Selection mode: "+strings.TrimSpace(pendingChoice.SelectionMode),
 			"- Options: "+strings.Join(optionLines, "; "),
-			"- Return choices as option keys only. Return an empty array when the latest message does not select valid options.",
-			"- If the latest user message changes the task instead of selecting an option, use revise_task or start_task with an empty choices array.",
+			"- Return choices as option keys when the latest natural-language answer matches options. Return an empty array for a valid custom answer.",
+			"- Preserve the latest user message as the task input; choices classify it but do not replace its wording.",
 		)
 	}
 	if strings.TrimSpace(request.PendingInput.TaskRunID) != "" {
