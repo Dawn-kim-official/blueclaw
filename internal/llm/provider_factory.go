@@ -2,6 +2,8 @@ package llm
 
 import (
 	"errors"
+	"log/slog"
+	"os"
 	"strings"
 	"time"
 
@@ -10,25 +12,87 @@ import (
 )
 
 func NewConfiguredLanguageModelProvider(runtimeConfiguration config.RuntimeConfiguration) (LanguageModelProvider, error) {
-	defaultProvider, errorValue := providerByName(runtimeConfiguration.LanguageModel.DefaultProvider, runtimeConfiguration)
+	return NewConfiguredLanguageModelProviderForModel(runtimeConfiguration, capabilityModelName(runtimeConfiguration))
+}
+
+func NewConfiguredLanguageModelProviderForModel(runtimeConfiguration config.RuntimeConfiguration, modelName string) (LanguageModelProvider, error) {
+	defaultProvider, errorValue := providerByName(runtimeConfiguration.LanguageModel.DefaultProvider, runtimeConfiguration, modelName)
 	if errorValue != nil {
 		return nil, errorValue
 	}
 
 	if strings.TrimSpace(runtimeConfiguration.LanguageModel.FallbackProvider) == "" {
-		return defaultProvider, nil
+		return withConfiguredSDKDShadow(defaultProvider, runtimeConfiguration, modelName)
 	}
 
 	return nil, errors.New("language model fallback is owned by InternKim capability runtime")
 }
 
-func providerByName(providerName string, runtimeConfiguration config.RuntimeConfiguration) (LanguageModelProvider, error) {
+func providerByName(providerName string, runtimeConfiguration config.RuntimeConfiguration, modelName string) (LanguageModelProvider, error) {
 	switch strings.TrimSpace(providerName) {
 	case "capabilityLLM", "capability", "":
-		return newCapabilityLLMClient(runtimeConfiguration), nil
+		return NewCapabilityLLMClientForModel(runtimeConfiguration, modelName), nil
+	case "sdkd":
+		return newSDKDClient(runtimeConfiguration, modelName)
 	default:
 		return nil, errors.New("language model provider is not supported")
 	}
+}
+
+func withConfiguredSDKDShadow(primaryProvider LanguageModelProvider, runtimeConfiguration config.RuntimeConfiguration, modelName string) (LanguageModelProvider, error) {
+	if !runtimeConfiguration.LanguageModel.SDKD.ShadowEnabled || strings.TrimSpace(runtimeConfiguration.LanguageModel.DefaultProvider) == "sdkd" {
+		return primaryProvider, nil
+	}
+	shadowProvider, errorValue := newSDKDClient(runtimeConfiguration, modelName)
+	if errorValue != nil {
+		return nil, errorValue
+	}
+	return ShadowLanguageModelProvider{
+		PrimaryProvider:       primaryProvider,
+		ShadowProvider:        shadowProvider,
+		Logger:                slog.Default(),
+		StructuredSchemaNames: configuredSDKDSchemaNames(runtimeConfiguration),
+	}, nil
+}
+
+func newSDKDClient(runtimeConfiguration config.RuntimeConfiguration, modelName string) (SDKDClient, error) {
+	sdkdConfiguration := runtimeConfiguration.LanguageModel.SDKD
+	authKeyPath := strings.TrimSpace(sdkdConfiguration.AuthKeyPath)
+	if authKeyPath == "" {
+		return SDKDClient{}, errors.New("sdkd auth key path is not configured")
+	}
+	authKeyDocument, errorValue := os.ReadFile(authKeyPath)
+	if errorValue != nil {
+		return SDKDClient{}, errorValue
+	}
+	authKey := strings.TrimSpace(string(authKeyDocument))
+	if authKey == "" {
+		return SDKDClient{}, errors.New("sdkd auth key is empty")
+	}
+	timeout := time.Duration(sdkdConfiguration.TimeoutSecond) * time.Second
+	if timeout <= 0 {
+		timeout = 60 * time.Second
+	}
+	capabilityProvider := NewCapabilityLLMClientForModel(runtimeConfiguration, modelName)
+	return NewSDKDClient(SDKDClientConfiguration{
+		Endpoint:                   sdkdConfiguration.Endpoint,
+		UnixSocketPath:             sdkdConfiguration.UnixSocketPath,
+		AuthKey:                    authKey,
+		Timeout:                    timeout,
+		ModelName:                  modelName,
+		ExecutionMode:              firstNonEmptyModelName(sdkdConfiguration.ExecutionMode, runtimeConfiguration.LanguageModel.Capability.ExecutionMode),
+		TextProvider:               capabilityProvider,
+		StructuredFallbackProvider: capabilityProvider,
+		StructuredSchemaNames:      configuredSDKDSchemaNames(runtimeConfiguration),
+	}), nil
+}
+
+func configuredSDKDSchemaNames(runtimeConfiguration config.RuntimeConfiguration) []string {
+	configuredSchemaNames := runtimeConfiguration.LanguageModel.SDKD.StructuredSchemaNames
+	if len(configuredSchemaNames) == 0 {
+		return []string{"blueclaw_agent_turn_action"}
+	}
+	return append([]string{}, configuredSchemaNames...)
 }
 
 func newCapabilityLLMClient(runtimeConfiguration config.RuntimeConfiguration) CapabilityLLMClient {
@@ -60,7 +124,7 @@ const (
 	defaultHighModelName   = "google/gemini-3-flash-preview"
 	defaultMediumModelName = "google/gemini-3.1-flash-lite"
 	defaultLowModelName    = "xiaomi/mimo-v2.5"
-	defaultXLowModelName   = "google/gemma-3-12b-it"
+	defaultXLowModelName   = "deepseek/deepseek-v4-flash"
 	defaultCodingModelName = "z-ai/glm-5.2"
 )
 

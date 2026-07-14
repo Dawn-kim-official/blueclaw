@@ -55,6 +55,8 @@ type capabilityStructuredResponseDocument struct {
 	ModelName       string `json:"model"`
 	Content         string `json:"content"`
 	SelectedBackend string `json:"selectedBackend"`
+	FinishReason    string `json:"finishReason,omitempty"`
+	ConstraintMode  string `json:"constraintMode,omitempty"`
 	Usage           Usage  `json:"usage"`
 }
 
@@ -178,10 +180,13 @@ func (capabilityLLMClient CapabilityLLMClient) GenerateStructuredResponse(respon
 	}
 
 	return StructuredResponse{
-		ProviderName: providerName,
-		ModelName:    modelName,
-		Content:      responseDocument.Content,
-		Usage:        responseDocument.Usage,
+		ProviderName:    providerName,
+		ModelName:       modelName,
+		Content:         responseDocument.Content,
+		SelectedBackend: responseDocument.SelectedBackend,
+		FinishReason:    responseDocument.FinishReason,
+		ConstraintMode:  responseDocument.ConstraintMode,
+		Usage:           responseDocument.Usage,
 	}, nil
 }
 

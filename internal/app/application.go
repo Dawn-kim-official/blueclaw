@@ -861,13 +861,27 @@ func resolveTaskTierLanguageModelProviders(runtimeConfiguration config.RuntimeCo
 			"xlow", tierNames.XLow,
 			"coding", tierNames.Coding)
 	}
-	lowModel := llm.NewCapabilityLLMClientForModel(languageModelConfiguration, tierNames.Low)
-	xLowModel := llm.NewCapabilityLLMClientForModel(languageModelConfiguration, tierNames.XLow)
-	mediumModel := llm.NewCapabilityLLMClientForModel(languageModelConfiguration, tierNames.Medium)
-	highModel := llm.NewCapabilityLLMClientForModel(languageModelConfiguration, tierNames.High)
-	xHighModel := llm.NewCapabilityLLMClientForModel(languageModelConfiguration, tierNames.XHigh)
-	maxModel := llm.NewCapabilityLLMClientForModel(languageModelConfiguration, tierNames.Max)
-	codingModel := llm.NewCapabilityLLMClientForModel(languageModelConfiguration, tierNames.Coding)
+	hasConfigurationError := false
+	configuredProvider := func(modelName string) llm.LanguageModelProvider {
+		provider, errorValue := llm.NewConfiguredLanguageModelProviderForModel(languageModelConfiguration, modelName)
+		if errorValue != nil {
+			hasConfigurationError = true
+			if logger != nil {
+				logger.Error("language model provider configuration failed", "model", modelName, "error", errorValue.Error())
+			}
+		}
+		return provider
+	}
+	lowModel := configuredProvider(tierNames.Low)
+	xLowModel := configuredProvider(tierNames.XLow)
+	mediumModel := configuredProvider(tierNames.Medium)
+	highModel := configuredProvider(tierNames.High)
+	xHighModel := configuredProvider(tierNames.XHigh)
+	maxModel := configuredProvider(tierNames.Max)
+	codingModel := configuredProvider(tierNames.Coding)
+	if hasConfigurationError {
+		return taskTierLanguageModelProviders{}
+	}
 
 	lowWithFallback := llm.LanguageModelProvider(lowModel)
 	if tierNames.Medium != tierNames.Low {
@@ -963,7 +977,9 @@ func resolveIntakeLanguageModelProvider(runtimeConfiguration config.RuntimeConfi
 }
 
 func deriveLanguageModelRuntimeConfiguration(runtimeConfiguration config.RuntimeConfiguration) config.RuntimeConfiguration {
-	runtimeConfiguration.LanguageModel.DefaultProvider = "capabilityLLM"
+	if strings.TrimSpace(runtimeConfiguration.LanguageModel.DefaultProvider) == "" {
+		runtimeConfiguration.LanguageModel.DefaultProvider = "capabilityLLM"
+	}
 	runtimeConfiguration.LanguageModel.FallbackProvider = ""
 	return runtimeConfiguration
 }

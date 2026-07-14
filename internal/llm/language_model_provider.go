@@ -65,11 +65,14 @@ type Usage struct {
 }
 
 type StructuredResponse struct {
-	ProviderName string
-	ModelName    string
-	Content      string
-	UsedFallback bool
-	Usage        Usage
+	ProviderName    string
+	ModelName       string
+	Content         string
+	SelectedBackend string
+	FinishReason    string
+	ConstraintMode  string
+	UsedFallback    bool
+	Usage           Usage
 }
 
 type LanguageModelProvider interface {
