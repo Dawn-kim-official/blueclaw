@@ -111,6 +111,7 @@ type LanguageModelConfiguration struct {
 
 type LanguageModelCapabilityConfiguration struct {
 	Model               string `json:"model"`
+	MaximumModelTier    string `json:"maximumModelTier,omitempty"`
 	MaxModel            string `json:"maxModel"`
 	XHighModel          string `json:"xhighModel"`
 	HighModel           string `json:"highModel"`
@@ -204,16 +205,16 @@ type LoggingConfiguration struct {
 }
 
 type TerminalConfiguration struct {
-	Mode                   string   `json:"mode"`
-	SandboxProvider        string   `json:"sandboxProvider"`
-	WorkspaceRootPath      string   `json:"workspaceRootPath"`
-	POSIXHelperPath        string   `json:"posixHelperPath"`
-	DeniedPathPrefixes     []string `json:"deniedPathPrefixes"`
-	TimeoutSecond          int      `json:"timeoutSecond"`
-	OutputMaxBytes         int      `json:"outputMaxBytes"`
-	SessionMaxCount        int      `json:"sessionMaxCount"`
-	AllowNetwork           bool     `json:"allowNetwork"`
-	AllowInteractiveShell  bool     `json:"allowInteractiveShell"`
+	Mode                  string   `json:"mode"`
+	SandboxProvider       string   `json:"sandboxProvider"`
+	WorkspaceRootPath     string   `json:"workspaceRootPath"`
+	POSIXHelperPath       string   `json:"posixHelperPath"`
+	DeniedPathPrefixes    []string `json:"deniedPathPrefixes"`
+	TimeoutSecond         int      `json:"timeoutSecond"`
+	OutputMaxBytes        int      `json:"outputMaxBytes"`
+	SessionMaxCount       int      `json:"sessionMaxCount"`
+	AllowNetwork          bool     `json:"allowNetwork"`
+	AllowInteractiveShell bool     `json:"allowInteractiveShell"`
 }
 
 type SchedulerConfiguration struct {
