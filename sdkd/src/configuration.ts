@@ -1,0 +1,94 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+
+import { z } from 'zod';
+
+const environmentSchema = z.object({
+  BLUECLAW_SDKD_AUTH_KEY: z.string().min(1).optional(),
+  BLUECLAW_SDKD_AUTH_KEY_PATH: z.string().min(1).optional(),
+  BLUECLAW_SDKD_AUTO_ROUTE: z.enum(['local-first', 'remote-first']).default('remote-first'),
+  BLUECLAW_SDKD_LLAMA_API_KEY: z.string().default('local'),
+  BLUECLAW_SDKD_LLAMA_BASE_URL: z.string().url().optional(),
+  BLUECLAW_SDKD_LLAMA_MODEL: z.string().min(1).optional(),
+  BLUECLAW_SDKD_LLAMA_STRUCTURED_OUTPUTS_ENABLED: z.enum(['0', '1', 'false', 'true']).default('false'),
+  BLUECLAW_SDKD_OPENROUTER_BASE_URL: z.string().url().default('https://openrouter.ai/api/v1'),
+  BLUECLAW_SDKD_REQUEST_TIMEOUT_MILLISECOND: z.coerce.number().int().positive().default(60000),
+  BLUECLAW_SDKD_SOCKET_PATH: z.string().min(1).default('/run/blueclaw-sdkd/sdkd.sock'),
+  CREDENTIALS_DIRECTORY: z.string().min(1).optional(),
+  OPENROUTER_API_KEY: z.string().min(1).optional(),
+  OPENROUTER_API_KEY_PATH: z.string().min(1).optional(),
+});
+
+export type SDKDConfiguration = {
+  authKey: string;
+  autoRoute: 'local-first' | 'remote-first';
+  llamaAPIKey: string;
+  llamaBaseURL?: string;
+  llamaModel?: string;
+  llamaStructuredOutputsEnabled: boolean;
+  openRouterAPIKey?: string;
+  openRouterBaseURL: string;
+  requestTimeoutMillisecond: number;
+  socketPath: string;
+};
+
+export function loadSDKDConfiguration(environment: Record<string, string | undefined>): SDKDConfiguration {
+  const parsedEnvironment = environmentSchema.parse(environment);
+  return {
+    authKey: loadRequiredCredential(
+      parsedEnvironment.BLUECLAW_SDKD_AUTH_KEY,
+      parsedEnvironment.BLUECLAW_SDKD_AUTH_KEY_PATH,
+      parsedEnvironment.CREDENTIALS_DIRECTORY,
+      'sdkd-auth-key',
+    ),
+    autoRoute: parsedEnvironment.BLUECLAW_SDKD_AUTO_ROUTE,
+    llamaAPIKey: parsedEnvironment.BLUECLAW_SDKD_LLAMA_API_KEY,
+    llamaBaseURL: parsedEnvironment.BLUECLAW_SDKD_LLAMA_BASE_URL,
+    llamaModel: parsedEnvironment.BLUECLAW_SDKD_LLAMA_MODEL,
+    llamaStructuredOutputsEnabled: ['1', 'true'].includes(
+      parsedEnvironment.BLUECLAW_SDKD_LLAMA_STRUCTURED_OUTPUTS_ENABLED,
+    ),
+    openRouterAPIKey: loadOptionalCredential(
+      parsedEnvironment.OPENROUTER_API_KEY,
+      parsedEnvironment.OPENROUTER_API_KEY_PATH,
+      parsedEnvironment.CREDENTIALS_DIRECTORY,
+      'openrouter-api-key',
+    ),
+    openRouterBaseURL: parsedEnvironment.BLUECLAW_SDKD_OPENROUTER_BASE_URL,
+    requestTimeoutMillisecond: parsedEnvironment.BLUECLAW_SDKD_REQUEST_TIMEOUT_MILLISECOND,
+    socketPath: parsedEnvironment.BLUECLAW_SDKD_SOCKET_PATH,
+  };
+}
+
+function loadRequiredCredential(
+  directValue: string | undefined,
+  explicitPath: string | undefined,
+  credentialsDirectory: string | undefined,
+  credentialName: string,
+): string {
+  const value = loadOptionalCredential(directValue, explicitPath, credentialsDirectory, credentialName);
+  if (!value) throw new Error(`${credentialName} is required`);
+  return value;
+}
+
+function loadOptionalCredential(
+  directValue: string | undefined,
+  explicitPath: string | undefined,
+  credentialsDirectory: string | undefined,
+  credentialName: string,
+): string | undefined {
+  const directCredential = normalizeCredential(directValue, credentialName);
+  if (directCredential) return directCredential;
+  const credentialPath = explicitPath ?? (credentialsDirectory ? join(credentialsDirectory, credentialName) : undefined);
+  if (!credentialPath) return undefined;
+  return normalizeCredential(readFileSync(credentialPath, 'utf8'), credentialName);
+}
+
+function normalizeCredential(value: string | undefined, credentialName: string): string | undefined {
+  const normalizedValue = value?.trim();
+  if (!normalizedValue) return undefined;
+  if (credentialName === 'openrouter-api-key') {
+    return normalizedValue.replace(/^OPENROUTER_API_KEY=/, '').trim() || undefined;
+  }
+  return normalizedValue;
+}

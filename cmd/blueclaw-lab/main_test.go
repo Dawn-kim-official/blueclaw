@@ -11,6 +11,8 @@ import (
 	"strings"
 	"sync"
 	"testing"
+
+	"blueclaw/internal/llm"
 )
 
 type fakeOpenRouterServer struct {
@@ -144,6 +146,37 @@ func TestRunVirtualSessionLiveLanguageModelUsesOpenRouterKeyFileAndFakeServer(t 
 	}
 	if strings.Contains(output, "요청 처리 중 오류") {
 		t.Fatalf("expected live reply instead of fallback, got %s", output)
+	}
+}
+
+func TestCreateLiveLanguageModelSupportsSDKDWithoutOpenRouterCredentials(t *testing.T) {
+	t.Setenv("BLUECLAW_E2E_LLM_AUTH_KEY", "installation-key")
+	t.Setenv("OPENROUTER_API_KEY", "")
+	seed := int64(17)
+	temperature := 0.1
+	languageModel, errorValue := createLiveLanguageModel(virtualSessionArguments{
+		LanguageModelProvider: "sdkd",
+		LanguageModelEndpoint: "http://sdkd",
+		LanguageModelName:     "deepseek/deepseek-v4-flash",
+		ExecutionMode:         "remote",
+		Seed:                  &seed,
+		Temperature:           &temperature,
+	})
+	if errorValue != nil {
+		t.Fatalf("expected sdkd live model: %v", errorValue)
+	}
+	sdkdClient, isSDKDClient := languageModel.(llm.SDKDClient)
+	if !isSDKDClient {
+		t.Fatalf("expected sdkd client, got %T", languageModel)
+	}
+	if sdkdClient.AuthKey != "installation-key" || sdkdClient.ModelName != "deepseek/deepseek-v4-flash" {
+		t.Fatalf("unexpected sdkd live model configuration: %+v", sdkdClient)
+	}
+	if sdkdClient.GenerationOptions.Seed == nil || *sdkdClient.GenerationOptions.Seed != seed {
+		t.Fatalf("expected sdkd generation seed, got %+v", sdkdClient.GenerationOptions)
+	}
+	if len(sdkdClient.StructuredSchemaNames) != 1 || sdkdClient.StructuredSchemaNames[0] != "blueclaw_agent_turn_action" {
+		t.Fatalf("expected action-only sdkd migration scope, got %#v", sdkdClient.StructuredSchemaNames)
 	}
 }
 

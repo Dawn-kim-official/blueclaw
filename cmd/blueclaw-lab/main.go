@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"blueclaw/internal/capability"
+	"blueclaw/internal/config"
 	"blueclaw/internal/e2e"
 	"blueclaw/internal/lab"
 	"blueclaw/internal/llm"
@@ -105,18 +106,20 @@ func main() {
 }
 
 type virtualSessionArguments struct {
-	ScenarioName          string
-	ArtifactDirectoryPath string
-	LanguageModelEndpoint string
-	LanguageModelSocket   string
-	LanguageModelName     string
-	ExecutionMode         string
-	SkillDirectoryPath    string
-	Seed                  *int64
-	Temperature           *float64
-	LiveLanguageModel     bool
-	RecordCassettePath    string
-	CassettePath          string
+	ScenarioName             string
+	ArtifactDirectoryPath    string
+	LanguageModelEndpoint    string
+	LanguageModelSocket      string
+	LanguageModelProvider    string
+	LanguageModelAuthKeyPath string
+	LanguageModelName        string
+	ExecutionMode            string
+	SkillDirectoryPath       string
+	Seed                     *int64
+	Temperature              *float64
+	LiveLanguageModel        bool
+	RecordCassettePath       string
+	CassettePath             string
 }
 
 type languageModelCallEvent struct {
@@ -132,7 +135,9 @@ func parseVirtualSessionArguments(arguments []string, defaultScenarioName string
 	artifactDirectoryPath := flagSet.String("artifact-dir", defaultArtifactDirectoryPath, "virtual session artifact directory")
 	languageModelEndpoint := flagSet.String("llm-endpoint", firstNonEmptyString(os.Getenv("BLUECLAW_E2E_LLM_ENDPOINT"), capability.DefaultEndpoint), "live LLM capability endpoint")
 	languageModelSocket := flagSet.String("llm-unix-socket", os.Getenv("BLUECLAW_E2E_LLM_UNIX_SOCKET"), "live LLM capability unix socket path")
-	languageModelName := flagSet.String("llm-model", firstNonEmptyString(os.Getenv("INTERNKIM_E2E_MODEL"), os.Getenv("BLUECLAW_E2E_LLM_MODEL"), "xiaomi/mimo-v2.5"), "live LLM model name")
+	languageModelProvider := flagSet.String("llm-provider", firstNonEmptyString(os.Getenv("BLUECLAW_E2E_LLM_PROVIDER"), "openrouter"), "live LLM provider: openrouter, capability, or sdkd")
+	languageModelAuthKeyPath := flagSet.String("llm-auth-key-path", os.Getenv("BLUECLAW_E2E_LLM_AUTH_KEY_PATH"), "sdkd installation auth key path")
+	languageModelName := flagSet.String("llm-model", firstNonEmptyString(os.Getenv("INTERNKIM_E2E_MODEL"), os.Getenv("BLUECLAW_E2E_LLM_MODEL")), "live LLM model override")
 	executionMode := flagSet.String("llm-execution-mode", firstNonEmptyString(os.Getenv("BLUECLAW_E2E_LLM_EXECUTION_MODE"), "auto"), "live LLM execution mode")
 	seed := flagSet.Int64("seed", 0, "generation seed for live LLM calls")
 	temperature := flagSet.Float64("temperature", 0, "generation temperature for live LLM calls")
@@ -153,18 +158,20 @@ func parseVirtualSessionArguments(arguments []string, defaultScenarioName string
 		return virtualSessionArguments{}, errors.New("--record-cassette requires --live-llm")
 	}
 	return virtualSessionArguments{
-		ScenarioName:          *scenarioName,
-		ArtifactDirectoryPath: *artifactDirectoryPath,
-		LanguageModelEndpoint: *languageModelEndpoint,
-		LanguageModelSocket:   *languageModelSocket,
-		LanguageModelName:     *languageModelName,
-		ExecutionMode:         *executionMode,
-		SkillDirectoryPath:    *skillDirectoryPath,
-		Seed:                  virtualSessionInt64FlagPointer(arguments, "seed", *seed),
-		Temperature:           virtualSessionFloat64FlagPointer(arguments, "temperature", *temperature),
-		LiveLanguageModel:     *liveLanguageModel,
-		RecordCassettePath:    *recordCassettePath,
-		CassettePath:          *cassettePath,
+		ScenarioName:             *scenarioName,
+		ArtifactDirectoryPath:    *artifactDirectoryPath,
+		LanguageModelEndpoint:    *languageModelEndpoint,
+		LanguageModelSocket:      *languageModelSocket,
+		LanguageModelProvider:    *languageModelProvider,
+		LanguageModelAuthKeyPath: *languageModelAuthKeyPath,
+		LanguageModelName:        *languageModelName,
+		ExecutionMode:            *executionMode,
+		SkillDirectoryPath:       *skillDirectoryPath,
+		Seed:                     virtualSessionInt64FlagPointer(arguments, "seed", *seed),
+		Temperature:              virtualSessionFloat64FlagPointer(arguments, "temperature", *temperature),
+		LiveLanguageModel:        *liveLanguageModel,
+		RecordCassettePath:       *recordCassettePath,
+		CassettePath:             *cassettePath,
 	}, nil
 }
 
@@ -183,20 +190,9 @@ func runVirtualSession(ctx context.Context, arguments virtualSessionArguments) e
 		scenario.DisableScriptedModel = true
 		scenario.UseLooseAssertions = true
 	} else if arguments.LiveLanguageModel {
-		openRouterAPIKey, errorValue := resolveOpenRouterAPIKey()
+		languageModel, errorValue := createLiveLanguageModel(arguments)
 		if errorValue != nil {
 			return errorValue
-		}
-		languageModel := llm.OpenRouterClient{
-			APIKey:         openRouterAPIKey,
-			BaseURL:        firstNonEmptyString(os.Getenv("OPENROUTER_BASE_URL"), llm.DefaultOpenRouterChatCompletionsURL),
-			ModelName:      firstNonEmptyString(arguments.LanguageModelName, "xiaomi/mimo-v2.5"),
-			AttemptCount:   3,
-			InitialBackoff: 750 * time.Millisecond,
-			GenerationOptions: llm.GenerationOptions{
-				Seed:        arguments.Seed,
-				Temperature: arguments.Temperature,
-			},
 		}
 		scenario.LanguageModel = languageModel
 		if strings.TrimSpace(arguments.RecordCassettePath) != "" {
@@ -240,6 +236,89 @@ func runVirtualSession(ctx context.Context, arguments virtualSessionArguments) e
 		}
 	}
 	return nil
+}
+
+func createLiveLanguageModel(arguments virtualSessionArguments) (llm.LanguageModelProvider, error) {
+	generationOptions := llm.GenerationOptions{Seed: arguments.Seed, Temperature: arguments.Temperature}
+	modelName := liveLanguageModelName(arguments.LanguageModelName)
+	switch strings.TrimSpace(arguments.LanguageModelProvider) {
+	case "openrouter", "":
+		openRouterAPIKey, errorValue := resolveOpenRouterAPIKey()
+		if errorValue != nil {
+			return nil, errorValue
+		}
+		return llm.OpenRouterClient{
+			APIKey:            openRouterAPIKey,
+			BaseURL:           firstNonEmptyString(os.Getenv("OPENROUTER_BASE_URL"), llm.DefaultOpenRouterChatCompletionsURL),
+			ModelName:         modelName,
+			AttemptCount:      3,
+			InitialBackoff:    750 * time.Millisecond,
+			GenerationOptions: generationOptions,
+		}, nil
+	case "capability":
+		return llm.CapabilityLLMClient{
+			CapabilityClient: capability.NewClient(capability.Configuration{
+				Endpoint:       arguments.LanguageModelEndpoint,
+				UnixSocketPath: arguments.LanguageModelSocket,
+				Timeout:        60 * time.Second,
+			}),
+			ModelName:     modelName,
+			ExecutionMode: arguments.ExecutionMode,
+		}, nil
+	case "sdkd":
+		authKey, errorValue := resolveSDKDAuthKey(arguments.LanguageModelAuthKeyPath)
+		if errorValue != nil {
+			return nil, errorValue
+		}
+		structuredFallbackProvider := optionalLiveOpenRouterLanguageModel(arguments)
+		return llm.NewSDKDClient(llm.SDKDClientConfiguration{
+			Endpoint:                   arguments.LanguageModelEndpoint,
+			UnixSocketPath:             arguments.LanguageModelSocket,
+			AuthKey:                    authKey,
+			Timeout:                    60 * time.Second,
+			ModelName:                  modelName,
+			ExecutionMode:              arguments.ExecutionMode,
+			GenerationOptions:          generationOptions,
+			TextProvider:               structuredFallbackProvider,
+			StructuredFallbackProvider: structuredFallbackProvider,
+			StructuredSchemaNames:      []string{"blueclaw_agent_turn_action"},
+		}), nil
+	default:
+		return nil, errors.New("live LLM provider must be openrouter, capability, or sdkd")
+	}
+}
+
+func optionalLiveOpenRouterLanguageModel(arguments virtualSessionArguments) llm.LanguageModelProvider {
+	openRouterAPIKey, errorValue := resolveOpenRouterAPIKey()
+	if errorValue != nil {
+		return nil
+	}
+	return llm.OpenRouterClient{
+		APIKey:            openRouterAPIKey,
+		BaseURL:           firstNonEmptyString(os.Getenv("OPENROUTER_BASE_URL"), llm.DefaultOpenRouterChatCompletionsURL),
+		ModelName:         liveLanguageModelName(arguments.LanguageModelName),
+		AttemptCount:      3,
+		InitialBackoff:    750 * time.Millisecond,
+		GenerationOptions: llm.GenerationOptions{Seed: arguments.Seed, Temperature: arguments.Temperature},
+	}
+}
+
+func resolveSDKDAuthKey(authKeyPath string) (string, error) {
+	if authKey := strings.TrimSpace(os.Getenv("BLUECLAW_E2E_LLM_AUTH_KEY")); authKey != "" {
+		return authKey, nil
+	}
+	if strings.TrimSpace(authKeyPath) == "" {
+		return "", errors.New("sdkd live LLM provider requires BLUECLAW_E2E_LLM_AUTH_KEY or --llm-auth-key-path")
+	}
+	document, errorValue := os.ReadFile(authKeyPath)
+	if errorValue != nil {
+		return "", errorValue
+	}
+	authKey := strings.TrimSpace(string(document))
+	if authKey == "" {
+		return "", errors.New("sdkd live LLM auth key is empty")
+	}
+	return authKey, nil
 }
 
 func languageModelCallFailureSummaries(turnResult e2e.VirtualTurnResult) []string {
@@ -364,6 +443,13 @@ func defaultSkillDirectoryPath(scenarioName string) string {
 		return candidatePath
 	}
 	return ""
+}
+
+func liveLanguageModelName(modelOverride string) string {
+	if modelName := strings.TrimSpace(modelOverride); modelName != "" {
+		return modelName
+	}
+	return llm.ResolveModelTierNames(config.RuntimeConfiguration{}).XLow
 }
 
 func firstNonEmptyString(values ...string) string {

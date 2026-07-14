@@ -90,6 +90,14 @@
     "defaultProvider": "capabilityLLM",
     "capability": {
       "executionMode": "auto"
+    },
+    "sdkd": {
+      "unixSocketPath": "/run/blueclaw-sdkd/sdkd.sock",
+      "authKeyPath": "/run/credentials/sdkd-auth-key",
+      "executionMode": "auto",
+      "timeoutSecond": 60,
+      "shadowEnabled": false,
+      "structuredSchemaNames": ["blueclaw_agent_turn_action"]
     }
   },
   "firecracker": {

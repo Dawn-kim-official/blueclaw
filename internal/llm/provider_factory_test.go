@@ -1,6 +1,8 @@
 package llm
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"blueclaw/internal/config"
@@ -59,6 +61,9 @@ func TestResolveModelTierNamesUsesBuiltInDefaults(t *testing.T) {
 	if tierNames.Low != defaultLowModelName {
 		t.Fatalf("expected low default, got %q", tierNames.Low)
 	}
+	if tierNames.XLow != defaultXLowModelName {
+		t.Fatalf("expected xlow default, got %q", tierNames.XLow)
+	}
 }
 
 func TestResolveModelTierNamesIgnoresUntieredModelForTiers(t *testing.T) {
@@ -108,5 +113,48 @@ func TestConfiguredProviderRejectsProductFallback(t *testing.T) {
 	_, errorValue := NewConfiguredLanguageModelProvider(runtimeConfiguration)
 	if errorValue == nil {
 		t.Fatal("expected product fallback provider to be unsupported")
+	}
+}
+
+func TestConfiguredProviderCreatesSDKDOnlyWhenSelected(t *testing.T) {
+	authKeyPath := filepath.Join(t.TempDir(), "sdkd.key")
+	if errorValue := os.WriteFile(authKeyPath, []byte("installation-key\n"), 0o600); errorValue != nil {
+		t.Fatalf("expected auth key fixture: %v", errorValue)
+	}
+	runtimeConfiguration := config.RuntimeConfiguration{}
+	runtimeConfiguration.LanguageModel.DefaultProvider = "sdkd"
+	runtimeConfiguration.LanguageModel.Capability.Model = "deepseek/deepseek-v4-flash"
+	runtimeConfiguration.LanguageModel.SDKD.AuthKeyPath = authKeyPath
+	runtimeConfiguration.LanguageModel.SDKD.UnixSocketPath = "/run/blueclaw/sdkd.sock"
+
+	languageModelProvider, errorValue := NewConfiguredLanguageModelProvider(runtimeConfiguration)
+	if errorValue != nil {
+		t.Fatalf("expected sdkd provider: %v", errorValue)
+	}
+	sdkdClient, isSDKDClient := languageModelProvider.(SDKDClient)
+	if !isSDKDClient {
+		t.Fatalf("expected sdkd provider, got %T", languageModelProvider)
+	}
+	if sdkdClient.AuthKey != "installation-key" || sdkdClient.ModelName != "deepseek/deepseek-v4-flash" {
+		t.Fatalf("unexpected sdkd client configuration: %+v", sdkdClient)
+	}
+}
+
+func TestConfiguredProviderWrapsCapabilityWithOptionalSDKDShadow(t *testing.T) {
+	authKeyPath := filepath.Join(t.TempDir(), "sdkd.key")
+	if errorValue := os.WriteFile(authKeyPath, []byte("installation-key"), 0o600); errorValue != nil {
+		t.Fatalf("expected auth key fixture: %v", errorValue)
+	}
+	runtimeConfiguration := config.RuntimeConfiguration{}
+	runtimeConfiguration.LanguageModel.DefaultProvider = "capabilityLLM"
+	runtimeConfiguration.LanguageModel.SDKD.AuthKeyPath = authKeyPath
+	runtimeConfiguration.LanguageModel.SDKD.ShadowEnabled = true
+
+	languageModelProvider, errorValue := NewConfiguredLanguageModelProvider(runtimeConfiguration)
+	if errorValue != nil {
+		t.Fatalf("expected shadow provider: %v", errorValue)
+	}
+	if _, isShadowProvider := languageModelProvider.(ShadowLanguageModelProvider); !isShadowProvider {
+		t.Fatalf("expected optional sdkd shadow provider, got %T", languageModelProvider)
 	}
 }
