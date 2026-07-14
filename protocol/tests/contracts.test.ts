@@ -1,6 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { readdir, readFile } from 'node:fs/promises';
-import { basename, join } from 'node:path';
+import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 
 import {
@@ -69,36 +68,25 @@ describe('closed protocol values', () => {
 
 describe('protocol fixtures', () => {
   test('accepts every valid fixture', async () => {
-    const fixturePaths = await listFixturePaths('valid');
-    expect(fixturePaths.map(fixtureName).sort(compareCodeUnits)).toEqual(Object.keys(fixtureSchemaNames).sort(compareCodeUnits));
-    for (const fixturePath of fixturePaths) {
-      const schema = schemaForFixture(fixturePath);
-      expect(schema.safeParse(await readFixture(fixturePath)).success).toBe(true);
+    const fixtures = await readFixtureBundle('valid');
+    expect(Object.keys(fixtures).sort(compareCodeUnits)).toEqual(Object.keys(fixtureSchemaNames).sort(compareCodeUnits));
+    for (const [fixtureName, documents] of Object.entries(fixtures)) {
+      const schema = schemaForFixture(fixtureName);
+      for (const document of documents) expect(schema.safeParse(document).success).toBe(true);
     }
   });
 
   test('rejects every invalid fixture', async () => {
-    for (const fixturePath of await listFixturePaths('invalid')) {
-      const schema = schemaForFixture(fixturePath);
-      expect(schema.safeParse(await readFixture(fixturePath)).success).toBe(false);
+    const fixtures = await readFixtureBundle('invalid');
+    for (const [fixtureName, documents] of Object.entries(fixtures)) {
+      const schema = schemaForFixture(fixtureName);
+      for (const document of documents) expect(schema.safeParse(document).success).toBe(false);
     }
   });
 });
 
-async function listFixturePaths(kind: 'valid' | 'invalid'): Promise<string[]> {
-  const directory = join(fixturesDirectory, kind);
-  return (await readdir(directory))
-    .filter(fileName => fileName.endsWith('.json'))
-    .sort(compareCodeUnits)
-    .map(fileName => join(directory, fileName));
-}
-
-function fixtureName(fixturePath: string): string {
-  return basename(fixturePath, '.json');
-}
-
-async function readFixture(fixturePath: string): Promise<unknown> {
-  return JSON.parse(await readFile(fixturePath, 'utf8'));
+async function readFixtureBundle(kind: 'valid' | 'invalid'): Promise<Record<string, unknown[]>> {
+  return JSON.parse(await readFile(`${fixturesDirectory}/${kind}.json`, 'utf8'));
 }
 
 function compareCodeUnits(left: string, right: string): number {
@@ -107,8 +95,7 @@ function compareCodeUnits(left: string, right: string): number {
   return 0;
 }
 
-function schemaForFixture(fixturePath: string) {
-  const fixtureName = basename(fixturePath, '.json');
+function schemaForFixture(fixtureName: string) {
   const schemaName = fixtureSchemaNames[fixtureName as keyof typeof fixtureSchemaNames];
   if (!schemaName) throw new Error(`Fixture does not name a protocol schema: ${fixtureName}`);
   return protocolSchemas[schemaName];

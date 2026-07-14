@@ -7,12 +7,8 @@ import (
 )
 
 func TestProtocolPlatformEventFixtureMatchesPlatformInboundEvent(t *testing.T) {
-	documentBytes, errorValue := os.ReadFile("../../protocol/fixtures/valid/platform-inbound-event.json")
-	if errorValue != nil {
-		t.Fatal(errorValue)
-	}
 	var event PlatformInboundEvent
-	if errorValue := json.Unmarshal(documentBytes, &event); errorValue != nil {
+	if errorValue := json.Unmarshal(protocolConnectorFixture(t, "platform-inbound-event"), &event); errorValue != nil {
 		t.Fatal(errorValue)
 	}
 	if event.ConversationID != "channel-1" || event.MessageID != "message-1" {
@@ -24,4 +20,20 @@ func TestProtocolPlatformEventFixtureMatchesPlatformInboundEvent(t *testing.T) {
 	if event.Context.Messages[0].SentAt.IsZero() {
 		t.Fatalf("platform event fixture lost sent timestamp: %#v", event.Context.Messages[0])
 	}
+}
+
+func protocolConnectorFixture(t *testing.T, fixtureName string) json.RawMessage {
+	t.Helper()
+	documentBytes, errorValue := os.ReadFile("../../protocol/fixtures/valid.json")
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	var fixtures map[string][]json.RawMessage
+	if errorValue := json.Unmarshal(documentBytes, &fixtures); errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if len(fixtures[fixtureName]) != 1 {
+		t.Fatalf("expected one %s fixture", fixtureName)
+	}
+	return fixtures[fixtureName][0]
 }

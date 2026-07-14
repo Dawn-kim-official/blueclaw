@@ -7,12 +7,8 @@ import (
 )
 
 func TestProtocolAgentActionFixtureMatchesTurnActionDocument(t *testing.T) {
-	documentBytes, errorValue := os.ReadFile("../../protocol/fixtures/valid/agent-action.json")
-	if errorValue != nil {
-		t.Fatal(errorValue)
-	}
 	var document turnActionDocument
-	if errorValue := json.Unmarshal(documentBytes, &document); errorValue != nil {
+	if errorValue := json.Unmarshal(protocolAgentFixture(t, "agent-action"), &document); errorValue != nil {
 		t.Fatal(errorValue)
 	}
 	if document.Action != "continue" || document.ToolName != "file.read" {
@@ -24,12 +20,8 @@ func TestProtocolAgentActionFixtureMatchesTurnActionDocument(t *testing.T) {
 }
 
 func TestProtocolAgentMessageFixtureMatchesAgentMessage(t *testing.T) {
-	documentBytes, errorValue := os.ReadFile("../../protocol/fixtures/valid/agent-message.json")
-	if errorValue != nil {
-		t.Fatal(errorValue)
-	}
 	var message AgentMessage
-	if errorValue := json.Unmarshal(documentBytes, &message); errorValue != nil {
+	if errorValue := json.Unmarshal(protocolAgentFixture(t, "agent-message"), &message); errorValue != nil {
 		t.Fatal(errorValue)
 	}
 	if len(message.Parts) != 2 || message.Parts[1].File == nil {
@@ -38,4 +30,20 @@ func TestProtocolAgentMessageFixtureMatchesAgentMessage(t *testing.T) {
 	if message.Parts[1].Source.MessageID != "message-1" {
 		t.Fatalf("agent message fixture lost source identity: %#v", message.Parts[1].Source)
 	}
+}
+
+func protocolAgentFixture(t *testing.T, fixtureName string) json.RawMessage {
+	t.Helper()
+	documentBytes, errorValue := os.ReadFile("../../protocol/fixtures/valid.json")
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	var fixtures map[string][]json.RawMessage
+	if errorValue := json.Unmarshal(documentBytes, &fixtures); errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if len(fixtures[fixtureName]) != 1 {
+		t.Fatalf("expected one %s fixture", fixtureName)
+	}
+	return fixtures[fixtureName][0]
 }
