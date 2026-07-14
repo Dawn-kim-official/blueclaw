@@ -84,6 +84,28 @@ func TestSkillTaskLevelFloorDisabledWhenUnset(t *testing.T) {
 	}
 }
 
+func TestBM25FallbackSkillDoesNotPromoteQuickReply(t *testing.T) {
+	bundle := namedSkillBundle("direct-message")
+	bundle.SkillDecisions[0].Reason = "bm25_fallback"
+	decision := IntakeDecision{
+		Classification: IntakeClassificationQuickReply,
+		TaskShape:      TaskShapeImmediateReply,
+		TaskLevel:      TaskLevelXLow,
+	}
+
+	result := promoteIntakeDecisionForSelectedSkills(decision, bundle, IntakeOptions{
+		DefaultTaskLevel:    TaskLevelHigh,
+		SkillTaskLevelFloor: TaskLevelHigh,
+	})
+
+	if result.Classification != IntakeClassificationQuickReply || result.TaskShape != TaskShapeImmediateReply || result.TaskLevel != TaskLevelXLow {
+		t.Fatalf("expected BM25 fallback skill to preserve quick reply, got %+v", result)
+	}
+	if len(result.RequiredEvidenceTools) != 0 {
+		t.Fatalf("expected no promoted evidence tools, got %v", result.RequiredEvidenceTools)
+	}
+}
+
 // Presentation and website work floors at xhigh whatever the output format
 // (PPTX, PDF, HTML), driven by which skill was selected rather than an output
 // suffix — even when the generic skill floor is lower or unset.
