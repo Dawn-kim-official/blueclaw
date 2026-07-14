@@ -63,6 +63,9 @@ func (adapter Adapter) ParseHTTPEvent(_ context.Context, request *http.Request) 
 	if eventEnvelope.Event.Type != "message" && eventEnvelope.Event.Type != "app_mention" {
 		return connectors.HTTPParseResult{}, nil
 	}
+	if eventEnvelope.Event.IsBotMessage() {
+		return connectors.HTTPParseResult{}, nil
+	}
 
 	return connectors.HTTPParseResult{
 		Event:    adapter.convertEvent(eventEnvelope),
