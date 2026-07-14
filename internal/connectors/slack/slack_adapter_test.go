@@ -26,6 +26,24 @@ func TestAdapterRespondsToURLVerificationChallenge(t *testing.T) {
 	}
 }
 
+func TestAdapterIgnoresSlackBotMessages(t *testing.T) {
+	for _, payload := range []string{
+		`{"type":"event_callback","event":{"type":"message","subtype":"bot_message","user":"bot-1","channel":"D123","ts":"111.222","text":"hello"}}`,
+		`{"type":"event_callback","event":{"type":"message","bot_id":"bot-1","channel":"D123","ts":"111.222","text":"hello"}}`,
+	} {
+		adapter := NewAdapter(fakeSlackIdentityClient{}, fakeSlackConversationClient{})
+		request := newSlackRequest([]byte(payload))
+
+		parseResult, errorValue := adapter.ParseHTTPEvent(context.Background(), request)
+		if errorValue != nil {
+			t.Fatalf("expected bot event parse: %v", errorValue)
+		}
+		if parseResult.HasEvent {
+			t.Fatalf("expected bot event to be ignored, got %+v", parseResult.Event)
+		}
+	}
+}
+
 func TestAdapterNormalizesSlackEventCallback(t *testing.T) {
 	adapter := NewAdapter(fakeSlackIdentityClient{}, fakeSlackConversationClient{})
 	request := newSlackRequest([]byte(`{

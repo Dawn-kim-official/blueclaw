@@ -56,15 +56,18 @@ func (adapter Adapter) ParseHTTPEvent(_ context.Context, request *http.Request) 
 	}
 
 	event, errorValue := adapter.parser().ParseEvent(payload)
-	if errorValue == nil {
+	if errorValue == nil && strings.TrimSpace(event.PostID) != "" {
 		return connectors.HTTPParseResult{
 			Event:    adapter.convertEvent(event, "http"),
-			HasEvent: strings.TrimSpace(event.PostID) != "",
+			HasEvent: true,
 		}, nil
 	}
 
 	event, hasEvent, realtimeError := adapter.parser().ParseWebSocketMessage(payload)
-	if realtimeError != nil || !hasEvent {
+	if realtimeError != nil {
+		return connectors.HTTPParseResult{}, realtimeError
+	}
+	if !hasEvent {
 		return connectors.HTTPParseResult{}, errorValue
 	}
 	return connectors.HTTPParseResult{
