@@ -70,13 +70,14 @@ type MCPToolConfiguration struct {
 }
 
 type AgentConfiguration struct {
-	Intake               AgentIntakeConfiguration `json:"intake"`
-	DefaultTaskLevel     string                   `json:"defaultTaskLevel"`
-	SkillTaskLevelFloor  string                   `json:"skillTaskLevelFloor,omitempty"`
-	ToolResultMaxBytes   int                      `json:"toolResultMaxBytes"`
-	FailureRecovery      AgentFailureRecovery     `json:"failureRecovery"`
-	GenerationOptions    AgentGenerationOptions   `json:"generationOptions,omitempty"`
-	AdminTaskLinkBaseURL string                   `json:"adminTaskLinkBaseURL,omitempty"`
+	Intake                   AgentIntakeConfiguration `json:"intake"`
+	DefaultTaskLevel         string                   `json:"defaultTaskLevel"`
+	SkillTaskLevelFloor      string                   `json:"skillTaskLevelFloor,omitempty"`
+	ToolResultMaxBytes       int                      `json:"toolResultMaxBytes"`
+	FailureRecovery          AgentFailureRecovery     `json:"failureRecovery"`
+	GenerationOptions        AgentGenerationOptions   `json:"generationOptions,omitempty"`
+	AdminTaskLinkBaseURL     string                   `json:"adminTaskLinkBaseURL,omitempty"`
+	AllowAdminTaskDiagnostic bool                     `json:"allowAdminTaskDiagnostic"`
 }
 
 type AgentIntakeConfiguration struct {
@@ -115,6 +116,7 @@ type LanguageModelSDKDConfiguration struct {
 	UnixSocketPath        string   `json:"unixSocketPath"`
 	AuthKeyPath           string   `json:"authKeyPath"`
 	ExecutionMode         string   `json:"executionMode"`
+	LocalOnly             bool     `json:"localOnly"`
 	TimeoutSecond         int      `json:"timeoutSecond"`
 	ShadowEnabled         bool     `json:"shadowEnabled"`
 	StructuredSchemaNames []string `json:"structuredSchemaNames"`

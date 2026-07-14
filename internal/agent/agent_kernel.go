@@ -154,37 +154,39 @@ func (agentKernel *AgentKernel) InterruptInactiveTaskRun(taskRunID string, reaso
 
 func (agentKernel *AgentKernel) RunTurn(responseContext context.Context, request AgentTurnRequest) (AgentTurnResult, error) {
 	return agentKernel.RunAgentRequest(responseContext, AgentRequest{
-		RequesterPersonID:       request.RequesterPersonID,
-		RequesterName:           request.RequesterName,
-		RequesterCallingName:    request.RequesterCallingName,
-		RequesterHandle:         request.RequesterHandle,
-		RequesterCircles:        append([]string{}, request.RequesterCircles...),
-		SourceReference:         request.SourceReference,
-		IsApprovalContinuation:  request.IsApprovalContinuation,
-		IsRuntimeRestartResume:  request.IsRuntimeRestartResume,
-		ExistingTaskRunID:       request.ExistingTaskRunID,
-		OriginReplyTargetID:     request.OriginReplyTargetID,
-		OriginIsThread:          request.OriginIsThread,
-		ProfileName:             request.ProfileName,
-		ConversationID:          request.ConversationID,
-		Prompt:                  request.Prompt,
-		InputParts:              append([]AgentPart{}, request.InputParts...),
-		ResponseLanguage:        request.ResponseLanguage,
-		VisibleContext:          request.VisibleContext,
-		MemoryFacts:             request.MemoryFacts,
-		ToolSet:                 request.ToolSet,
-		PinnedToolNames:         append([]string{}, request.PinnedToolNames...),
-		PinnedSkillNames:        append([]string{}, request.PinnedSkillNames...),
-		WorkspaceRootPath:       request.WorkspaceRootPath,
-		ActivePaths:             request.ActivePaths,
-		ActiveGoal:              request.ActiveGoal,
-		PriorTask:               request.PriorTask,
-		ScheduledRun:            request.ScheduledRun,
-		PrecomputedTurnDecision: request.PrecomputedTurnDecision,
-		AmbientDuty:             request.AmbientDuty,
-		TaskLevel:               request.TaskLevel,
-		TurnStartedAt:           request.TurnStartedAt,
-		CheckpointSender:        request.CheckpointSender,
+		RequesterPersonID:          request.RequesterPersonID,
+		RequesterName:              request.RequesterName,
+		RequesterCallingName:       request.RequesterCallingName,
+		RequesterHandle:            request.RequesterHandle,
+		RequesterCircles:           append([]string{}, request.RequesterCircles...),
+		SourceReference:            request.SourceReference,
+		IsApprovalContinuation:     request.IsApprovalContinuation,
+		IsRuntimeRestartResume:     request.IsRuntimeRestartResume,
+		ExistingTaskRunID:          request.ExistingTaskRunID,
+		OriginReplyTargetID:        request.OriginReplyTargetID,
+		OriginIsThread:             request.OriginIsThread,
+		ProfileName:                request.ProfileName,
+		ConversationID:             request.ConversationID,
+		Prompt:                     request.Prompt,
+		InputParts:                 append([]AgentPart{}, request.InputParts...),
+		ResponseLanguage:           request.ResponseLanguage,
+		VisibleContext:             request.VisibleContext,
+		MemoryFacts:                request.MemoryFacts,
+		ToolSet:                    request.ToolSet,
+		PinnedToolNames:            append([]string{}, request.PinnedToolNames...),
+		PinnedSkillNames:           append([]string{}, request.PinnedSkillNames...),
+		WorkspaceRootPath:          request.WorkspaceRootPath,
+		ActivePaths:                request.ActivePaths,
+		ActiveGoal:                 request.ActiveGoal,
+		PriorTask:                  request.PriorTask,
+		ScheduledRun:               request.ScheduledRun,
+		PrecomputedTurnDecision:    request.PrecomputedTurnDecision,
+		IsPrecomputedDecisionExact: request.IsPrecomputedDecisionExact,
+		SkipSkillSelection:         request.SkipSkillSelection,
+		AmbientDuty:                request.AmbientDuty,
+		TaskLevel:                  request.TaskLevel,
+		TurnStartedAt:              request.TurnStartedAt,
+		CheckpointSender:           request.CheckpointSender,
 	})
 }
 
@@ -245,14 +247,16 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 	siteNormalizationReports = appendSiteRequirementNormalizationReport(siteNormalizationReports, activeGoalSiteReport)
 	baseInstructionBundle := agentKernel.currentInstructionBundle()
 	instructionBundle := baseInstructionBundle
-	instructionBundle = selectInstructionBundleForRequestWithRetrieverAndRouter(
-		responseContext,
-		instructionBundle,
-		request,
-		agentKernel.skillRetriever,
-		NewSkillSearchQueryRouter(agentKernel.classificationLanguageModel()),
-	)
-	instructionBundle = instructionBundleWithPinnedSkills(instructionBundle, request)
+	if !request.SkipSkillSelection {
+		instructionBundle = selectInstructionBundleForRequestWithRetrieverAndRouter(
+			responseContext,
+			instructionBundle,
+			request,
+			agentKernel.skillRetriever,
+			NewSkillSearchQueryRouter(agentKernel.classificationLanguageModel()),
+		)
+		instructionBundle = instructionBundleWithPinnedSkills(instructionBundle, request)
+	}
 	turnToolSet := request.ToolSet
 	intakeRequest := request
 	intakeRequest.ToolSet = turnToolSet
@@ -261,7 +265,7 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 	intakeDecision := turnDecision.IntakeDecision()
 	intakeDecision = promoteIntakeDecisionForSelectedSkills(intakeDecision, instructionBundle, agentKernel.intakeOptions)
 	intakeDecision = (TaskRecoveryPlanner{}).Plan(intakeRequest, intakeDecision)
-	intakeDecision = promoteArtifactTaskLevel(intakeRequest, intakeDecision)
+	intakeDecision = promoteArtifactTaskLevelForRequest(intakeRequest, intakeDecision)
 	siteNormalizationReports = appendSiteRequirementNormalizationReport(siteNormalizationReports, intakeDecision.siteNormalizationReport)
 	request.ResponseLanguage = ResolveResponseLanguage(intakeDecision.ResponseLanguage, request.ResponseLanguage)
 	if turnDecision.Route == TurnRouteStartTask && !request.IsApprovalContinuation {
@@ -280,8 +284,10 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 	}
 	request.PinnedToolNames = appendUniqueStrings(append([]string{}, request.PinnedToolNames...), intakeDecision.InitialToolNames...)
 	intakeRequest.PinnedToolNames = request.PinnedToolNames
-	instructionBundle, intakeDecision = agentKernel.selectInstructionBundleForResolvedRequest(responseContext, baseInstructionBundle, request, intakeDecision)
-	intakeDecision = promoteIntakeDecisionForSelectedSkills(intakeDecision, instructionBundle, agentKernel.intakeOptions)
+	if !request.SkipSkillSelection {
+		instructionBundle, intakeDecision = agentKernel.selectInstructionBundleForResolvedRequest(responseContext, baseInstructionBundle, request, intakeDecision)
+		intakeDecision = promoteIntakeDecisionForSelectedSkills(intakeDecision, instructionBundle, agentKernel.intakeOptions)
+	}
 	if turnDecision.Route == TurnRouteConsume && intakeDecision.Classification == IntakeClassificationBoundedTask {
 		turnDecision.Route = TurnRouteStartTask
 	}
@@ -722,6 +728,13 @@ func artifactTaskLevelFloor(request AgentRequest, intakeDecision IntakeDecision)
 func promoteArtifactTaskLevel(request AgentRequest, intakeDecision IntakeDecision) IntakeDecision {
 	intakeDecision.TaskLevel = LargerTaskLevel(intakeDecision.TaskLevel, artifactTaskLevelFloor(request, intakeDecision))
 	return intakeDecision
+}
+
+func promoteArtifactTaskLevelForRequest(request AgentRequest, intakeDecision IntakeDecision) IntakeDecision {
+	if request.IsPrecomputedDecisionExact {
+		return intakeDecision
+	}
+	return promoteArtifactTaskLevel(request, intakeDecision)
 }
 
 func (agentKernel *AgentKernel) taskLanguageModelForLevel(taskLevel TaskLevel) llm.LanguageModelProvider {

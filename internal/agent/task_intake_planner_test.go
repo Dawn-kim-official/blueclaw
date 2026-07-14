@@ -1111,6 +1111,33 @@ func TestTaskIntakePlannerKeepsSyntheticConnectorVerificationQuick(t *testing.T)
 	}
 }
 
+func TestTurnRouterPreservesExactPrecomputedDecision(t *testing.T) {
+	precomputedDecision := TurnDecision{
+		Route:              TurnRouteStartTask,
+		Classification:     IntakeClassificationQuickReply,
+		TaskShape:          TaskShapeImmediateReply,
+		TaskLevel:          TaskLevelLow,
+		EstimatedMinutes:   1,
+		PriorTaskReference: PriorTaskReferenceNone,
+		Reason:             "SDKD topology diagnostic",
+	}
+	decision := NewTurnRouter(nil, IntakeOptions{DefaultTaskLevel: TaskLevelHigh}).Plan(context.Background(), AgentRequest{
+		Prompt:                     "Create and publish a PDF website",
+		PrecomputedTurnDecision:    &precomputedDecision,
+		IsPrecomputedDecisionExact: true,
+	})
+
+	if decision.Route != TurnRouteStartTask || decision.Classification != IntakeClassificationQuickReply {
+		t.Fatalf("expected exact precomputed route and classification, got %+v", decision)
+	}
+	if decision.TaskShape != TaskShapeImmediateReply || decision.TaskLevel != TaskLevelLow {
+		t.Fatalf("expected exact precomputed shape and level, got %+v", decision)
+	}
+	if len(decision.RequestedOutputFormats) != 0 || len(decision.RequiredEvidenceTools) != 0 || len(decision.InitialToolNames) != 0 {
+		t.Fatalf("expected exact empty diagnostic requirements, got %+v", decision)
+	}
+}
+
 func TestTaskLevelProfileMapping(t *testing.T) {
 	profile := TaskLevelProfileForLevel(TaskLevelMedium)
 

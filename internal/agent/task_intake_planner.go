@@ -89,44 +89,46 @@ type IntakeOptions struct {
 }
 
 type AgentRequest struct {
-	RequesterPersonID       string
-	RequesterName           string
-	RequesterCallingName    string
-	RequesterHandle         string
-	RequesterCircles        []string
-	SourceReference         string
-	IsApprovalContinuation  bool
-	IsRuntimeRestartResume  bool
-	ExistingTaskRunID       string
-	OriginReplyTargetID     string
-	OriginIsThread          bool
-	ProfileName             string
-	ConversationID          string
-	Prompt                  string
-	InputParts              []AgentPart
-	ResponseLanguage        string
-	VisibleContext          VisibleContext
-	MemoryFacts             []memory.MemoryFact
-	ToolSet                 *ToolSet
-	PinnedToolNames         []string
-	PinnedSkillNames        []string
-	WorkspaceRootPath       string
-	ActivePaths             []string
-	InstructionPrompt       string
-	ActiveGoal              ActiveGoal
-	PriorTask               PriorTaskContext
-	ScheduledRun            ScheduledRunContext
-	ActiveTask              ActiveTaskContext
-	PendingConfirmation     PendingConfirmationContext
-	PendingChoice           PendingChoiceContext
-	PendingInput            PendingInputContext
-	AllowGiveUp             bool
-	AllowGiveUpReason       string
-	PrecomputedTurnDecision *TurnDecision
-	AmbientDuty             AmbientDutyContext
-	TaskLevel               TaskLevel
-	TurnStartedAt           time.Time
-	CheckpointSender        AgentCheckpointSender
+	RequesterPersonID          string
+	RequesterName              string
+	RequesterCallingName       string
+	RequesterHandle            string
+	RequesterCircles           []string
+	SourceReference            string
+	IsApprovalContinuation     bool
+	IsRuntimeRestartResume     bool
+	ExistingTaskRunID          string
+	OriginReplyTargetID        string
+	OriginIsThread             bool
+	ProfileName                string
+	ConversationID             string
+	Prompt                     string
+	InputParts                 []AgentPart
+	ResponseLanguage           string
+	VisibleContext             VisibleContext
+	MemoryFacts                []memory.MemoryFact
+	ToolSet                    *ToolSet
+	PinnedToolNames            []string
+	PinnedSkillNames           []string
+	WorkspaceRootPath          string
+	ActivePaths                []string
+	InstructionPrompt          string
+	ActiveGoal                 ActiveGoal
+	PriorTask                  PriorTaskContext
+	ScheduledRun               ScheduledRunContext
+	ActiveTask                 ActiveTaskContext
+	PendingConfirmation        PendingConfirmationContext
+	PendingChoice              PendingChoiceContext
+	PendingInput               PendingInputContext
+	AllowGiveUp                bool
+	AllowGiveUpReason          string
+	PrecomputedTurnDecision    *TurnDecision
+	IsPrecomputedDecisionExact bool
+	SkipSkillSelection         bool
+	AmbientDuty                AmbientDutyContext
+	TaskLevel                  TaskLevel
+	TurnStartedAt              time.Time
+	CheckpointSender           AgentCheckpointSender
 }
 
 type PendingConfirmationContext struct {
@@ -271,6 +273,9 @@ func (taskIntakePlanner TaskIntakePlanner) Plan(ctx context.Context, request Age
 
 func (turnRouter TurnRouter) Plan(ctx context.Context, request AgentRequest) TurnDecision {
 	if request.PrecomputedTurnDecision != nil {
+		if request.IsPrecomputedDecisionExact {
+			return *request.PrecomputedTurnDecision
+		}
 		return turnRouter.normalizeDecision(*request.PrecomputedTurnDecision, turnRouter.deterministicDecision(request), request)
 	}
 	defaultDecision := turnRouter.deterministicDecision(request)

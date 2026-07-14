@@ -512,6 +512,45 @@ func TestSitePrototypeIntakePromotesToXHighLimits(t *testing.T) {
 	}
 }
 
+func TestExactPrecomputedDecisionSkipsArtifactTaskLevelPromotion(t *testing.T) {
+	intakeDecision := promoteArtifactTaskLevelForRequest(AgentRequest{
+		Prompt:                     "Create and publish a PDF website",
+		IsPrecomputedDecisionExact: true,
+	}, IntakeDecision{TaskLevel: TaskLevelLow})
+
+	if intakeDecision.TaskLevel != TaskLevelLow {
+		t.Fatalf("expected exact precomputed task level, got %q", intakeDecision.TaskLevel)
+	}
+}
+
+func TestAgentKernelPreservesExactPrecomputedTaskLevel(t *testing.T) {
+	agentKernel, taskRunService := newKernelTestServices()
+	agentKernel.UseLanguageModelProvider(&sequenceLanguageModel{contents: []string{finishMessageDocument("diagnostic done")}})
+	agentKernel.UseTaskTierLanguageModels(nil, failingLanguageModel{}, nil, nil, nil, nil)
+	precomputedDecision := TurnDecision{
+		Route:              TurnRouteStartTask,
+		Classification:     IntakeClassificationQuickReply,
+		TaskShape:          TaskShapeImmediateReply,
+		TaskLevel:          TaskLevelLow,
+		EstimatedMinutes:   1,
+		PriorTaskReference: PriorTaskReferenceNone,
+		Reason:             "SDKD topology diagnostic",
+	}
+	request := kernelTestRequest("Create and publish a PDF website")
+	request.PrecomputedTurnDecision = &precomputedDecision
+	request.IsPrecomputedDecisionExact = true
+	request.SkipSkillSelection = true
+	request.ToolSet = newTestToolSet(nil)
+
+	result, errorValue := agentKernel.RunAgentRequest(context.Background(), request)
+	if errorValue != nil {
+		t.Fatalf("expected exact low-tier diagnostic run: %v", errorValue)
+	}
+	if !taskEventsContain(taskRunService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.intake", `"level":"low"`) {
+		t.Fatal("expected persisted exact low task level")
+	}
+}
+
 func TestAgentKernelCompleteLaunchFailureRedactsRawError(t *testing.T) {
 	agentKernel, _ := newKernelTestServices()
 	agentKernel.UseLanguageModelProvider(failingLanguageModel{})
