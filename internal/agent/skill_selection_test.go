@@ -1669,6 +1669,26 @@ func TestSkillIndexRefreshesWhenSearchDocumentVersionChanges(t *testing.T) {
 	}
 }
 
+func TestSkillIndexIncludesConfiguredEmbeddingModel(t *testing.T) {
+	indexPath := filepath.Join(t.TempDir(), "skill-index.json")
+	retriever := NewEmbeddingSkillRetriever(keywordEmbeddingProvider{}, indexPath)
+	retriever.EmbeddingModel = "baai/bge-m3"
+
+	retriever.Refresh(context.Background(), []SkillInstruction{{
+		Name:        "presentation",
+		Description: "Create presentation slides.",
+		Source:      InstructionSource{Path: "skills/presentation/SKILL.md", SHA256: "one", SkillName: "presentation"},
+	}})
+
+	document, errorValue := os.ReadFile(indexPath)
+	if errorValue != nil {
+		t.Fatalf("expected materialized skill index: %v", errorValue)
+	}
+	if !strings.Contains(string(document), `"embeddingModel": "baai/bge-m3:`+skillSearchDocumentVersion+`"`) {
+		t.Fatalf("expected configured embedding model in index, got %s", string(document))
+	}
+}
+
 type keywordEmbeddingProvider struct{}
 
 func (provider keywordEmbeddingProvider) GenerateEmbedding(_ context.Context, input string) ([]float32, error) {
