@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 
 import { z } from 'zod';
 
-import { protocolSchemas, protocolVersion } from '../src/registry.ts';
+import { protocolSchemas, protocolVersion } from './registry.ts';
 
 type SchemaArtifact = {
   fileName: string;

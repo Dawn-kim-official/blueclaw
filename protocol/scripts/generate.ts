@@ -2,9 +2,9 @@ import { mkdir, mkdtemp, rename, rm, writeFile } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { buildProtocolArtifacts, serializeArtifact } from './artifacts.ts';
+import { buildProtocolArtifacts, serializeArtifact } from '../src/artifacts.ts';
 
-const generatedDirectory = fileURLToPath(new URL('../generated/', import.meta.url));
+const generatedDirectory = fileURLToPath(new URL('../dist/', import.meta.url));
 
 export async function generateProtocolArtifacts(targetDirectory = generatedDirectory): Promise<void> {
   await replaceGeneratedDirectory(targetDirectory, writeProtocolArtifacts);

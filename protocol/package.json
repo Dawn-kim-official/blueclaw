@@ -4,12 +4,12 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./artifacts": "./src/artifacts.ts"
   },
   "scripts": {
-    "build": "bun run typecheck && bun run check:generated",
+    "build": "bun run typecheck",
     "generate": "bun run scripts/generate.ts",
-    "check:generated": "bun run scripts/check-generated.ts",
     "test": "bun test",
     "typecheck": "tsc --noEmit"
   },
