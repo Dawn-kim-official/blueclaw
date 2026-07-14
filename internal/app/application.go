@@ -163,13 +163,16 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 	}
 	capabilityClient := newCapabilityClient(runtimeConfiguration)
 	logger.Info("application.initializing", "stage", "skill_retriever")
+	embeddingClient := llm.CapabilityEmbeddingClient{
+		CapabilityClient: capabilityClient,
+		ModelName:        llm.DefaultEmbeddingModelName,
+		ExecutionMode:    firstNonEmptyString(runtimeConfiguration.LanguageModel.Capability.ExecutionMode, "auto"),
+	}
 	skillRetriever := agent.NewEmbeddingSkillRetriever(
-		llm.CapabilityEmbeddingClient{
-			CapabilityClient: capabilityClient,
-			ExecutionMode:    firstNonEmptyString(runtimeConfiguration.LanguageModel.Capability.ExecutionMode, "auto"),
-		},
+		embeddingClient,
 		skillIndexPath(runtimeConfiguration),
 	)
+	skillRetriever.EmbeddingModel = embeddingClient.ModelName
 	agentKernel.UseSkillRetriever(skillRetriever)
 	agentKernel.UseCompanyProvider(func() agent.CompanyContext {
 		company := policyWatcher.CurrentPolicyDocument().Company
