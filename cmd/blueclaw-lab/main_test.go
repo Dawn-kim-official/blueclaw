@@ -20,19 +20,27 @@ import (
 )
 
 func TestValidateStrictEmbeddingRetrievalRequiresReadyEmbeddingMode(t *testing.T) {
-	validResult := e2e.VirtualSessionResult{TurnResults: []e2e.VirtualTurnResult{{Events: []task.TaskEvent{{
-		Name: "agent.instructions_loaded",
-		Body: `{"retrievalMode":"embedding","indexStatus":"ready"}`,
-	}}}}}
+	validResult := e2e.VirtualSessionResult{TurnResults: []e2e.VirtualTurnResult{{Events: []task.TaskEvent{
+		{Name: "agent.instructions_loaded", Body: `{"retrievalMode":"embedding","indexStatus":"ready"}`},
+		{Name: "agent.instructions_loaded", Body: `{"retrievalMode":"direct","indexStatus":"bypassed"}`},
+		{Name: "agent.instructions_loaded", Body: `{"retrievalMode":"structured_query","indexStatus":"empty_query"}`},
+	}}}}
 	if errorValue := validateStrictEmbeddingRetrieval(validResult); errorValue != nil {
 		t.Fatalf("expected ready embedding retrieval, got %v", errorValue)
 	}
 	fallbackResult := e2e.VirtualSessionResult{TurnResults: []e2e.VirtualTurnResult{{Events: []task.TaskEvent{{
 		Name: "agent.instructions_loaded",
-		Body: `{"retrievalMode":"bm25","indexStatus":"query_failed"}`,
+		Body: `{"retrievalMode":"bm25_fallback","indexStatus":"query_failed"}`,
 	}}}}}
 	if errorValue := validateStrictEmbeddingRetrieval(fallbackResult); errorValue == nil {
 		t.Fatal("expected BM25 fallback to fail strict live embedding verification")
+	}
+	directOnlyResult := e2e.VirtualSessionResult{TurnResults: []e2e.VirtualTurnResult{{Events: []task.TaskEvent{{
+		Name: "agent.instructions_loaded",
+		Body: `{"retrievalMode":"direct","indexStatus":"bypassed"}`,
+	}}}}}
+	if errorValue := validateStrictEmbeddingRetrieval(directOnlyResult); errorValue == nil {
+		t.Fatal("expected direct-only retrieval to fail strict live embedding verification")
 	}
 }
 
