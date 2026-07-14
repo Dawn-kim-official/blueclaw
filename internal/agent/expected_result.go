@@ -362,6 +362,10 @@ func enforceObservedResultRequirements(expectedResults []ExpectedResult, observe
 		if !expectedResult.Required {
 			continue
 		}
+		if canonicalFinalMessageIsReady(expectedResult, finishMessage) {
+			verification.Results[index] = satisfiedFinalMessageResult(item)
+			continue
+		}
 		linkResults := observedLinkResultsForExpectedResult(expectedResult, observedResults)
 		if expectedResult.Type == ExpectedResultTypeLink && len(linkResults) == 0 {
 			verification.Results[index] = missingObservedResultItem(item, "No link result was observed.")
@@ -373,8 +377,23 @@ func enforceObservedResultRequirements(expectedResults []ExpectedResult, observe
 			verification.Results[index] = missingObservedResultItem(item, "No file result was observed.")
 		}
 	}
-	verification.OverallStatus = normalizeResultVerificationOverallStatus(verification.OverallStatus, verification.Results)
+	verification.OverallStatus = normalizeResultVerificationOverallStatus("satisfied", verification.Results)
 	return verification
+}
+
+func canonicalFinalMessageIsReady(expectedResult ExpectedResult, finishMessage string) bool {
+	return expectedResult.ID == "final-message" &&
+		expectedResult.Type == ExpectedResultTypeMessage &&
+		strings.TrimSpace(finishMessage) != ""
+}
+
+func satisfiedFinalMessageResult(item ResultVerificationItem) ResultVerificationItem {
+	item.Status = "satisfied"
+	item.Reason = "A non-empty final message is ready for delivery."
+	item.CitedObservationIDs = nil
+	item.MissingDescription = ""
+	item.SuggestedNextTools = nil
+	return item
 }
 
 func observedLinkResultsForExpectedResult(expectedResult ExpectedResult, observedResults []ObservedResult) []ObservedResult {
