@@ -1,7 +1,0 @@
-{
-  "provider": "openrouter",
-  "model": "google/gemini-3.1-flash-lite",
-  "content": "{\"items\":[]}",
-  "selectedBackend": "remote",
-  "constraintMode": "openai_json_schema"
-}
