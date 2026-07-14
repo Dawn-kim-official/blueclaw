@@ -1,0 +1,479 @@
+{
+  "$id": "https://schemas.blueclaw.dev/0.1.0/platform-inbound-event.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": {},
+  "properties": {
+    "context": {
+      "additionalProperties": {},
+      "properties": {
+        "addressing": {
+          "additionalProperties": {},
+          "properties": {
+            "botMentioned": {
+              "type": "boolean"
+            },
+            "otherPersonMentioned": {
+              "type": "boolean"
+            }
+          },
+          "type": "object"
+        },
+        "attachmentsOnly": {
+          "type": "boolean"
+        },
+        "channelID": {
+          "type": "string"
+        },
+        "channelName": {
+          "type": "string"
+        },
+        "conversationType": {
+          "type": "string"
+        },
+        "hasMoreBefore": {
+          "type": "boolean"
+        },
+        "historyCursor": {
+          "type": "string"
+        },
+        "inputAttachments": {
+          "items": {
+            "additionalProperties": {},
+            "properties": {
+              "contentType": {
+                "type": "string"
+              },
+              "errorCode": {
+                "type": "string"
+              },
+              "fileID": {
+                "type": "string"
+              },
+              "filename": {
+                "type": "string"
+              },
+              "isAvailable": {
+                "type": "boolean"
+              },
+              "message": {
+                "type": "string"
+              },
+              "messageID": {
+                "type": "string"
+              },
+              "path": {
+                "type": "string"
+              },
+              "platform": {
+                "type": "string"
+              },
+              "sizeBytes": {
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "materials": {
+          "items": {
+            "additionalProperties": {},
+            "properties": {
+              "contentType": {
+                "type": "string"
+              },
+              "errorCode": {
+                "type": "string"
+              },
+              "fileID": {
+                "type": "string"
+              },
+              "filename": {
+                "type": "string"
+              },
+              "isAvailable": {
+                "type": "boolean"
+              },
+              "message": {
+                "type": "string"
+              },
+              "messageID": {
+                "type": "string"
+              },
+              "path": {
+                "type": "string"
+              },
+              "platform": {
+                "type": "string"
+              },
+              "sizeBytes": {
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "messages": {
+          "anyOf": [
+            {
+              "items": {
+                "additionalProperties": {},
+                "properties": {
+                  "inputAttachments": {
+                    "items": {
+                      "additionalProperties": {},
+                      "properties": {
+                        "contentType": {
+                          "type": "string"
+                        },
+                        "errorCode": {
+                          "type": "string"
+                        },
+                        "fileID": {
+                          "type": "string"
+                        },
+                        "filename": {
+                          "type": "string"
+                        },
+                        "isAvailable": {
+                          "type": "boolean"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "messageID": {
+                          "type": "string"
+                        },
+                        "path": {
+                          "type": "string"
+                        },
+                        "platform": {
+                          "type": "string"
+                        },
+                        "sizeBytes": {
+                          "maximum": 9007199254740991,
+                          "minimum": 0,
+                          "type": "integer"
+                        }
+                      },
+                      "type": "object"
+                    },
+                    "type": "array"
+                  },
+                  "sentAt": {
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
+                    "type": "string"
+                  },
+                  "speaker": {
+                    "type": "string"
+                  },
+                  "speakerCallingName": {
+                    "type": "string"
+                  },
+                  "speakerHandle": {
+                    "type": "string"
+                  },
+                  "text": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "speaker",
+                  "text"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "responseLanguage": {
+          "type": "string"
+        },
+        "sender": {
+          "additionalProperties": {},
+          "properties": {
+            "callingName": {
+              "type": "string"
+            },
+            "email": {
+              "type": "string"
+            },
+            "handle": {
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            },
+            "platform": {
+              "type": "string"
+            },
+            "senderID": {
+              "type": "string"
+            }
+          },
+          "type": "object"
+        }
+      },
+      "required": [
+        "messages",
+        "hasMoreBefore",
+        "historyCursor"
+      ],
+      "type": "object"
+    },
+    "conversationID": {
+      "type": "string"
+    },
+    "inputParts": {
+      "items": {
+        "oneOf": [
+          {
+            "additionalProperties": {},
+            "properties": {
+              "source": {
+                "additionalProperties": {},
+                "properties": {
+                  "fileID": {
+                    "type": "string"
+                  },
+                  "messageID": {
+                    "type": "string"
+                  },
+                  "observationID": {
+                    "type": "string"
+                  },
+                  "platform": {
+                    "type": "string"
+                  },
+                  "toolName": {
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              },
+              "text": {
+                "type": "string"
+              },
+              "type": {
+                "const": "text",
+                "type": "string"
+              },
+              "visibility": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "type",
+              "text"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": {},
+            "properties": {
+              "file": {
+                "additionalProperties": {},
+                "properties": {
+                  "contentType": {
+                    "type": "string"
+                  },
+                  "conversionMessage": {
+                    "type": "string"
+                  },
+                  "conversionStatus": {
+                    "type": "string"
+                  },
+                  "filename": {
+                    "type": "string"
+                  },
+                  "markdownPreview": {
+                    "type": "string"
+                  },
+                  "path": {
+                    "type": "string"
+                  },
+                  "sizeBytes": {
+                    "maximum": 9007199254740991,
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "type": "object"
+              },
+              "image": {
+                "additionalProperties": {},
+                "properties": {
+                  "dataBase64": {
+                    "type": "string"
+                  },
+                  "filename": {
+                    "type": "string"
+                  },
+                  "height": {
+                    "maximum": 9007199254740991,
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "mimeType": {
+                    "type": "string"
+                  },
+                  "path": {
+                    "type": "string"
+                  },
+                  "width": {
+                    "maximum": 9007199254740991,
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "type": "object"
+              },
+              "source": {
+                "additionalProperties": {},
+                "properties": {
+                  "fileID": {
+                    "type": "string"
+                  },
+                  "messageID": {
+                    "type": "string"
+                  },
+                  "observationID": {
+                    "type": "string"
+                  },
+                  "platform": {
+                    "type": "string"
+                  },
+                  "toolName": {
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              },
+              "type": {
+                "const": "image",
+                "type": "string"
+              },
+              "visibility": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "type",
+              "image"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": {},
+            "properties": {
+              "file": {
+                "additionalProperties": {},
+                "properties": {
+                  "contentType": {
+                    "type": "string"
+                  },
+                  "conversionMessage": {
+                    "type": "string"
+                  },
+                  "conversionStatus": {
+                    "type": "string"
+                  },
+                  "filename": {
+                    "type": "string"
+                  },
+                  "markdownPreview": {
+                    "type": "string"
+                  },
+                  "path": {
+                    "type": "string"
+                  },
+                  "sizeBytes": {
+                    "maximum": 9007199254740991,
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "type": "object"
+              },
+              "source": {
+                "additionalProperties": {},
+                "properties": {
+                  "fileID": {
+                    "type": "string"
+                  },
+                  "messageID": {
+                    "type": "string"
+                  },
+                  "observationID": {
+                    "type": "string"
+                  },
+                  "platform": {
+                    "type": "string"
+                  },
+                  "toolName": {
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              },
+              "type": {
+                "const": "file",
+                "type": "string"
+              },
+              "visibility": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "type",
+              "file"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "type": "array"
+    },
+    "legacyFields": {
+      "additionalProperties": {},
+      "propertyNames": {
+        "type": "string"
+      },
+      "type": "object"
+    },
+    "messageID": {
+      "type": "string"
+    },
+    "prompt": {
+      "type": "string"
+    },
+    "replyTargetID": {
+      "type": "string"
+    },
+    "responseLanguage": {
+      "type": "string"
+    },
+    "senderID": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "conversationID",
+    "messageID",
+    "senderID",
+    "replyTargetID",
+    "prompt",
+    "context"
+  ],
+  "type": "object"
+}

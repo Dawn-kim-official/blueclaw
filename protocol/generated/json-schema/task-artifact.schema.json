@@ -1,0 +1,26 @@
+{
+  "$id": "https://schemas.blueclaw.dev/0.1.0/task-artifact.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": {},
+  "properties": {
+    "body": {
+      "type": "string"
+    },
+    "name": {
+      "type": "string"
+    },
+    "taskArtifactID": {
+      "type": "string"
+    },
+    "taskRunID": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "taskArtifactID",
+    "taskRunID",
+    "name",
+    "body"
+  ],
+  "type": "object"
+}

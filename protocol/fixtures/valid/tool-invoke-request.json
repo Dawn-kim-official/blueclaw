@@ -1,0 +1,31 @@
+{
+  "toolName": "calendar.add",
+  "input": {
+    "title": "Weekly sync",
+    "startISO": "2026-07-15T09:00:00+09:00",
+    "endISO": "2026-07-15T10:00:00+09:00"
+  },
+  "idempotencyKey": "task-1:turn-2:call-1",
+  "context": {
+    "requesterPersonID": "person-1",
+    "requesterEmail": "lee@example.com",
+    "conversationID": "conversation-1",
+    "platform": "web"
+  },
+  "actor": {
+    "personID": "person-1",
+    "email": "lee@example.com",
+    "source": "task",
+    "scopes": ["calendar.write"],
+    "isAdmin": false
+  },
+  "executionMode": "auto",
+  "requiresUserPresence": false,
+  "privacyClass": "organization",
+  "sessionID": "session-1",
+  "resourceScope": {
+    "kind": "calendar",
+    "value": "person-1"
+  },
+  "timeoutSecond": 30
+}

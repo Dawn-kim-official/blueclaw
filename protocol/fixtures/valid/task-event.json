@@ -1,0 +1,7 @@
+{
+  "taskEventID": "event-1",
+  "taskRunID": "task-1",
+  "name": "agent.llm_call",
+  "body": "{\"model\":\"mock\"}",
+  "createdAt": "2026-07-14T00:00:00Z"
+}

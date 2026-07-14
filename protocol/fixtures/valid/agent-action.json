@@ -1,0 +1,14 @@
+{
+  "action": "continue",
+  "toolName": "file.read",
+  "toolInput": {
+    "path": "home/project/README.md"
+  },
+  "goalSatisfied": false,
+  "executionStateUpdate": {
+    "goal": "Inspect the project",
+    "workspace": "home/project",
+    "knownFacts": ["README exists"],
+    "nextPlan": "Read the file"
+  }
+}

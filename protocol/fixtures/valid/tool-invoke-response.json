@@ -1,0 +1,11 @@
+{
+  "provider": "internkim",
+  "selectedBackend": "device",
+  "toolName": "calendar.add",
+  "status": "success",
+  "content": "{\"eventID\":\"event-1\"}",
+  "isError": false,
+  "result": {
+    "eventID": "event-1"
+  }
+}

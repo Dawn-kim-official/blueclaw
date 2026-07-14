@@ -227,6 +227,18 @@ Blueclaw uses a single secretless LLM provider named `capabilityLLM`. OpenRouter
 - user-facing replies, approval wording, recovery direction, and failure reports are generated through the LLM path
 - if remote failure wording cannot be generated, Blueclaw tries local LLM wording and then falls back to a compact raw error summary for real task failures; full suppression is reserved for intentionally ignored runtime cases such as duplicates, cancellations, and self/bot messages
 
+## Protocol Contracts
+
+Cross-process agent, LLM, capability, task, and connector contracts are being consolidated under `protocol/`. Zod schemas are the source for deterministic JSON Schema artifacts, and shared fixtures verify that existing Go wire DTOs retain their behavior during the migration. The package is contract-only in the first phase; it does not alter provider routing, task execution, capability authorization, or connector delivery.
+
+```bash
+cd protocol
+bun install
+bun run generate
+bun run build
+bun test
+```
+
 ## Virtual Session E2E
 
 Fast virtual session tests are included in the normal Go suite:

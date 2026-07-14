@@ -1,0 +1,26 @@
+{
+  "name": "calendar.add",
+  "description": "Create a new calendar event",
+  "version": "1",
+  "privacyClass": "workspace_calendar",
+  "estimatedLatency": "medium",
+  "requiresUserPresence": false,
+  "worksOffline": false,
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "title": { "type": "string" },
+      "startISO": { "type": "string" },
+      "endISO": { "type": "string" }
+    },
+    "required": ["title", "startISO", "endISO"]
+  },
+  "policyResource": "tool:calendar.add",
+  "sideEffectClass": "workspace_write",
+  "requiresApproval": false,
+  "completionEvidence": {
+    "mode": "success",
+    "action": "write_calendar",
+    "targetKind": "calendar"
+  }
+}
