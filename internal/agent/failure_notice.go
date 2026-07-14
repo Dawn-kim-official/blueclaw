@@ -7,7 +7,6 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
-	"time"
 
 	"blueclaw/internal/llm"
 )
@@ -104,10 +103,6 @@ func buildFailureReport(request AgentTurnRequest, taskRunID string, phase string
 
 func (generator FailureNoticeGenerator) Generate(ctx context.Context, report FailureReport) (FailureNotice, FailureNoticeGenerationStatus) {
 	report = normalizeFailureReport(report)
-	// No local deadline on the failure-explanation model: an arbitrary cap only
-	// dropped the user to a generic "temporary error" when a reasoning-tier model
-	// ran slow. The provider's own network timeout bounds a genuinely dead model,
-	// and the raw-error notice still backstops it.
 	generationContext := ctx
 	status := FailureNoticeGenerationStatus{}
 	if generator.LanguageModel == nil {
@@ -168,7 +163,7 @@ func (generator FailureNoticeGenerator) GenerateIntakeNotice(ctx context.Context
 	if generator.LanguageModel == nil {
 		return buildRawErrorFailureNotice(failureReport)
 	}
-	generationContext, cancel := context.WithTimeout(ctx, 8*time.Second)
+	generationContext, cancel := context.WithCancel(ctx)
 	defer cancel()
 	prompt := buildIntakeNoticePrompt(report.Classification, failureReport)
 	reply, errorValue := generator.generateRecoveryText(generationContext, prompt)

@@ -99,11 +99,13 @@ type VirtualTurn struct {
 	RouterApproval            string
 	ExpectedSelectedSkills    []string
 	ExpectedToolCalls         []string
+	ExpectedAnyToolCalls      []string
 	ExpectedEvents            []string
 	ExpectedToolCallCounts    map[string]int
 	ExpectedEventCounts       []VirtualEventCount
 	ExpectedAttachments       []string
 	ExpectedWorkspaceFiles    []VirtualWorkspaceFileExpectation
+	ForbiddenWorkspaceFiles   []string
 	ExpectedModelContexts     []string
 	ForbiddenModelContexts    []string
 	ExpectedReplyTargetID     string
@@ -126,6 +128,7 @@ type VirtualWorkspaceFileExpectation struct {
 	PathGlob           string
 	ContainsFragments  []string
 	ForbiddenFragments []string
+	FragmentCounts     map[string]int
 }
 
 type VirtualSessionResult struct {
@@ -582,7 +585,7 @@ func NewVirtualSessionHarness(scenario VirtualSessionScenario) (*VirtualSessionH
 	capabilityToolNames := virtualCapabilityToolNames(scenario)
 	if len(capabilityToolNames) > 0 {
 		var capabilityCleanup func()
-		capabilityClient, capabilityCleanup = startVirtualCapabilityServer(capabilityToolNames)
+		capabilityClient, capabilityCleanup = startVirtualCapabilityServer(capabilityToolNames, workspacePath)
 		runtime.UseCapabilityTools(capabilityClient, scenario.CapabilityToolNames)
 		runtime.UseCapabilityToolDescriptors(capabilityClient, scenario.CapabilityToolDescriptors)
 		cleanup = capabilityCleanup
@@ -957,11 +960,14 @@ type virtualCapabilityRecord struct {
 type virtualCapabilityService struct {
 	mutex          sync.Mutex
 	toolNameByName map[string]bool
+	workspacePath  string
 	tasks          []virtualCapabilityRecord
 	events         []virtualCapabilityRecord
+	site           *virtualCapabilityRecord
+	sitePublished  bool
 }
 
-func startVirtualCapabilityServer(toolNames []string) (capability.Client, func()) {
+func startVirtualCapabilityServer(toolNames []string, workspacePath string) (capability.Client, func()) {
 	toolNameByName := map[string]bool{}
 	for _, toolName := range toolNames {
 		trimmedToolName := strings.TrimSpace(toolName)
@@ -969,7 +975,7 @@ func startVirtualCapabilityServer(toolNames []string) (capability.Client, func()
 			toolNameByName[trimmedToolName] = true
 		}
 	}
-	service := &virtualCapabilityService{toolNameByName: toolNameByName}
+	service := &virtualCapabilityService{toolNameByName: toolNameByName, workspacePath: workspacePath}
 	server := httptest.NewServer(http.HandlerFunc(service.handleRequest))
 	return capability.Client{
 		Endpoint:   server.URL,
@@ -1018,23 +1024,53 @@ func (service *virtualCapabilityService) response(toolName string, requestBody [
 	case "calendar.add", "calendar.list", "calendar.update", "calendar.delete":
 		return service.calendarResponse(toolName, requestBody)
 	case "site.create":
-		return `{"provider":"virtual","toolName":"site.create","status":"ok","result":{"siteID":"site-1","slug":"demo","workspacePath":"/workspace/circles/staff/sites/demo","sourceWorkspacePath":"/workspace/circles/staff/sites/demo/draft","appWorkspacePath":"/workspace/circles/staff/sites/demo/draft/app","sourceFiles":` + virtualSiteCreateSourceFiles(requestBody) + `}}`
+		if service.site != nil {
+			return virtualCapabilityJSON(map[string]any{"provider": "virtual", "toolName": toolName, "status": "error", "message": "virtual site already exists"})
+		}
+		input := virtualCapabilityInput(requestBody)
+		if strings.TrimSpace(stringValue(input["title"])) == "" {
+			return virtualCapabilityJSON(map[string]any{"provider": "virtual", "toolName": toolName, "status": "error", "message": "title is required"})
+		}
+		service.site = &virtualCapabilityRecord{ID: "site-1", Values: input}
+		_ = os.MkdirAll(filepath.Join(service.workspacePath, "circles", "staff", "sites", "demo", "draft", "app", "public"), 0o770)
+		return `{"provider":"virtual","toolName":"site.create","status":"ok","result":{"siteID":"site-1","slug":"demo","title":` + quote(stringValue(input["title"])) + `,"workspacePath":"/workspace/circles/staff/sites/demo","sourceWorkspacePath":"/workspace/circles/staff/sites/demo/draft","appWorkspacePath":"/workspace/circles/staff/sites/demo/draft/app","sourceFiles":` + virtualSiteCreateSourceFiles(requestBody) + `}}`
 	case "site.publish":
+		if !service.ensureVirtualSite(requestBody) {
+			return virtualCapabilityNotFound(toolName, "site")
+		}
+		service.sitePublished = true
 		return `{"provider":"virtual","toolName":"site.publish","status":"ok","result":{"siteID":"site-1","status":"published","publishedURL":"https://demo.device.intern.kim"}}`
 	case "site.status":
-		return `{"provider":"virtual","toolName":"site.status","status":"ok","result":{"siteID":"site-1","slug":"demo","status":"draft","workspacePath":"/workspace/circles/staff/sites/demo","sourceWorkspacePath":"/workspace/circles/staff/sites/demo/draft","appWorkspacePath":"/workspace/circles/staff/sites/demo/draft/app"}}`
+		if !service.ensureVirtualSite(requestBody) {
+			return virtualCapabilityNotFound(toolName, "site")
+		}
+		status := "draft"
+		if service.sitePublished {
+			status = "published"
+		}
+		return `{"provider":"virtual","toolName":"site.status","status":"ok","result":{"siteID":"site-1","slug":"demo","status":` + quote(status) + `,"workspacePath":"/workspace/circles/staff/sites/demo","sourceWorkspacePath":"/workspace/circles/staff/sites/demo/draft","appWorkspacePath":"/workspace/circles/staff/sites/demo/draft/app"}}`
 	case "site.logs":
 		return `{"provider":"virtual","toolName":"site.logs","status":"ok","result":{"logs":[]}}`
 	case "site.delete":
 		if virtualCapabilityRequestNeedsApproval(requestBody) {
 			return `{"provider":"virtual","toolName":"site.delete","status":"denied","content":"requires approval","message":"requires approval","errorCode":"approval_required","failureStage":"authorization","result":{"errorCode":"approval_required","failureStage":"authorization","message":"requires approval"}}`
 		}
+		if !service.ensureVirtualSite(requestBody) {
+			return virtualCapabilityNotFound(toolName, "site")
+		}
+		service.site = nil
+		service.sitePublished = false
+		_ = os.RemoveAll(filepath.Join(service.workspacePath, "circles", "staff", "sites", "demo"))
 		return `{"provider":"virtual","toolName":"site.delete","status":"ok","content":"deleted virtual site","result":{"siteID":"site-1","slug":"demo","status":"deleted"}}`
 	case "image.read":
 		return `{"provider":"virtual","toolName":"image.read","status":"ok","content":"image loaded","result":{"attachments":[{"devicePath":"/workspace/circles/staff/inbox/virtual/virtual-conversation-1/virtual-message-001/mascot.png","filename":"mascot.png","contentType":"image/png","sizeBytes":13,"contentBase64":"dmlydHVhbC1pbWFnZQ=="}]}}`
 	case "web.search":
 		return `{"provider":"virtual","toolName":"web.search","status":"ok","content":"BlueclawSearchStubToken virtual search result","result":{"query":"current external information acceptance test","results":[{"title":"BlueclawSearchStubToken result","url":"https://example.test/blueclaw-search-stub","snippet":"Deterministic virtual search result for BlueclawSearchStubToken."}]}}`
 	case "message.send":
+		messageInput := virtualCapabilityInput(requestBody)
+		if errorValue := validateVirtualMessageSendInput(messageInput); errorValue != nil {
+			return virtualCapabilityJSON(map[string]any{"provider": "virtual", "toolName": toolName, "status": "error", "message": errorValue.Error()})
+		}
 		if virtualPlatformMessageSendRequiresApproval(requestBody) {
 			return `{"provider":"virtual","toolName":"message.send","status":"denied","content":"requires approval","message":"requires approval","errorCode":"approval_required","failureStage":"authorization","result":{"errorCode":"approval_required","failureStage":"authorization","message":"requires approval"}}`
 		}
@@ -1042,6 +1078,39 @@ func (service *virtualCapabilityService) response(toolName string, requestBody [
 	default:
 		return `{"provider":"virtual","toolName":` + quote(toolName) + `,"status":"ok","result":{"toolName":` + quote(toolName) + `,"ok":true,"request":` + jsonObjectOrEmpty(requestBody) + `}}`
 	}
+}
+
+func (service *virtualCapabilityService) ensureVirtualSite(requestBody []byte) bool {
+	if service.site != nil {
+		return true
+	}
+	input := virtualCapabilityInput(requestBody)
+	if strings.TrimSpace(stringValue(input["siteID"])) == "" && strings.TrimSpace(stringValue(input["slug"])) == "" && strings.TrimSpace(stringValue(input["title"])) == "" {
+		return false
+	}
+	service.site = &virtualCapabilityRecord{ID: "site-1", Values: input}
+	return true
+}
+
+func validateVirtualMessageSendInput(input map[string]any) error {
+	if strings.TrimSpace(stringValue(input["message"])) == "" {
+		return errors.New("message is required")
+	}
+	switch stringValue(input["targetType"]) {
+	case "directMessage":
+		personHints, _ := input["personHints"].([]any)
+		if strings.TrimSpace(stringValue(input["personHint"])) == "" && len(personHints) == 0 {
+			return errors.New("personHint or personHints is required for directMessage")
+		}
+	case "channel":
+		if strings.TrimSpace(stringValue(input["channelName"])) == "" && strings.TrimSpace(stringValue(input["channelID"])) == "" {
+			return errors.New("channelName or channelID is required for channel")
+		}
+	case "currentThread", "currentChannel":
+	default:
+		return errors.New("targetType is required")
+	}
+	return nil
 }
 
 func virtualCapabilityInputSchema(toolName string) string {
@@ -1055,13 +1124,19 @@ func virtualCapabilityInputSchema(toolName string) string {
 	case "task.delete":
 		return `{"type":"object","properties":{"taskID":{"type":"string"},"query":{"type":"string"},"weekCode":{"type":"string"},"targetPersonHint":{"type":"string"}},"additionalProperties":false}`
 	case "calendar.add":
-		return `{"type":"object","properties":{"title":{"type":"string"},"startISO":{"type":"string"},"endISO":{"type":"string"},"description":{"type":"string"},"location":{"type":"string"},"timeZone":{"type":"string"}},"required":["title","startISO","endISO"],"additionalProperties":false}`
+		return `{"type":"object","properties":{"title":{"type":"string"},"startISO":{"type":"string"},"endISO":{"type":"string"},"description":{"type":"string"},"location":{"type":"string"},"timeZone":{"type":"string"},"people":{"type":"array","items":{"type":"string"}},"includeRequester":{"type":"boolean"}},"required":["title","startISO","endISO"],"additionalProperties":false}`
 	case "calendar.list":
 		return `{"type":"object","properties":{"startISO":{"type":"string"},"endISO":{"type":"string"},"query":{"type":"string"},"limit":{"type":"integer"}},"additionalProperties":false}`
 	case "calendar.update":
-		return `{"type":"object","properties":{"eventID":{"type":"string"},"query":{"type":"string"},"title":{"type":"string"},"startISO":{"type":"string"},"endISO":{"type":"string"},"description":{"type":"string"},"location":{"type":"string"},"timeZone":{"type":"string"}},"required":["title","startISO","endISO"],"additionalProperties":false}`
+		return `{"type":"object","properties":{"eventID":{"type":"string"},"query":{"type":"string"},"title":{"type":"string"},"startISO":{"type":"string"},"endISO":{"type":"string"},"description":{"type":"string"},"location":{"type":"string"},"timeZone":{"type":"string"},"people":{"type":"array","items":{"type":"string"}},"includeRequester":{"type":"boolean"}},"required":["title","startISO","endISO"],"additionalProperties":false}`
 	case "calendar.delete":
 		return `{"type":"object","properties":{"eventID":{"type":"string"},"query":{"type":"string"}},"additionalProperties":false}`
+	case "site.create":
+		return `{"type":"object","properties":{"slug":{"type":"string"},"title":{"type":"string"},"description":{"type":"string"},"idea":{"type":"string"},"purpose":{"type":"string"},"audience":{"type":"string"},"archetype":{"type":"string"},"domainKeywords":{"type":"array","items":{"type":"string"}}},"required":["slug","title"],"additionalProperties":false}`
+	case "site.status", "site.publish", "site.delete":
+		return `{"type":"object","properties":{"siteID":{"type":"string"},"slug":{"type":"string"},"title":{"type":"string"},"message":{"type":"string"}},"additionalProperties":false}`
+	case "message.send":
+		return `{"type":"object","properties":{"targetType":{"type":"string","enum":["directMessage","currentThread","currentChannel","channel"]},"personHint":{"type":"string"},"personHints":{"type":"array","items":{"type":"string"}},"channelName":{"type":"string"},"channelID":{"type":"string"},"message":{"type":"string"}},"required":["targetType","message"],"additionalProperties":false}`
 	default:
 		return `{"type":"object"}`
 	}
@@ -1160,9 +1235,6 @@ func virtualCapabilityRecordIndex(records []virtualCapabilityRecord, input map[s
 		if query != "" && virtualCapabilityRecordContains(record, query) {
 			return index
 		}
-	}
-	if requestedID == "" && query == "" && len(records) == 1 {
-		return 0
 	}
 	return -1
 }
@@ -1639,6 +1711,20 @@ func informationalAssertionResults(virtualTurn VirtualTurn, turnResult VirtualTu
 			Detail:    toolName,
 		})
 	}
+	if len(virtualTurn.ExpectedAnyToolCalls) > 0 {
+		foundToolCall := ""
+		for _, toolName := range virtualTurn.ExpectedAnyToolCalls {
+			if requestedToolCallPresent(turnResult.Events, toolName) {
+				foundToolCall = toolName
+				break
+			}
+		}
+		results = append(results, VirtualInformationalAssertion{
+			Name:      "expected any tool call",
+			Satisfied: foundToolCall != "",
+			Detail:    foundToolCall,
+		})
+	}
 	for _, fragment := range virtualTurn.ExpectedReplyFragments {
 		results = append(results, VirtualInformationalAssertion{
 			Name:      "expected reply fragment",
@@ -1661,6 +1747,18 @@ func assertTurnResult(workspacePath string, virtualTurn VirtualTurn, turnResult 
 	for _, toolName := range virtualTurn.ExpectedToolCalls {
 		if !requestedToolCallPresent(turnResult.Events, toolName) {
 			return fmt.Errorf("expected requested tool %q; events: %s", toolName, summarizeEvents(turnResult.Events))
+		}
+	}
+	if len(virtualTurn.ExpectedAnyToolCalls) > 0 {
+		foundToolCall := false
+		for _, toolName := range virtualTurn.ExpectedAnyToolCalls {
+			if requestedToolCallPresent(turnResult.Events, toolName) {
+				foundToolCall = true
+				break
+			}
+		}
+		if !foundToolCall {
+			return fmt.Errorf("expected at least one requested tool call from %v; events: %s", virtualTurn.ExpectedAnyToolCalls, summarizeEvents(turnResult.Events))
 		}
 	}
 	for _, eventName := range virtualTurn.ExpectedEvents {
@@ -1691,6 +1789,11 @@ func assertTurnResult(workspacePath string, virtualTurn VirtualTurn, turnResult 
 	}
 	for _, expectedWorkspaceFile := range virtualTurn.ExpectedWorkspaceFiles {
 		if errorValue := validateExpectedWorkspaceFile(workspacePath, expectedWorkspaceFile); errorValue != nil {
+			return errorValue
+		}
+	}
+	for _, forbiddenWorkspaceFile := range virtualTurn.ForbiddenWorkspaceFiles {
+		if errorValue := validateForbiddenWorkspaceFile(workspacePath, forbiddenWorkspaceFile); errorValue != nil {
 			return errorValue
 		}
 	}
@@ -1855,6 +1958,22 @@ func validateExpectedWorkspaceFile(workspacePath string, expectation VirtualWork
 		if strings.Contains(document, fragment) {
 			return fmt.Errorf("expected %s not to contain %q", matches[len(matches)-1], fragment)
 		}
+	}
+	for fragment, expectedCount := range expectation.FragmentCounts {
+		if actualCount := strings.Count(document, fragment); actualCount != expectedCount {
+			return fmt.Errorf("expected %s to contain %q %d times, got %d", matches[len(matches)-1], fragment, expectedCount, actualCount)
+		}
+	}
+	return nil
+}
+
+func validateForbiddenWorkspaceFile(workspacePath string, pathGlob string) error {
+	matches, errorValue := filepath.Glob(filepath.Join(workspacePath, pathGlob))
+	if errorValue != nil {
+		return errorValue
+	}
+	if len(matches) > 0 {
+		return fmt.Errorf("forbidden workspace file matching %q remains: %s", pathGlob, matches[0])
 	}
 	return nil
 }

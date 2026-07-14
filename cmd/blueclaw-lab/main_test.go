@@ -16,7 +16,25 @@ import (
 
 	"blueclaw/internal/e2e"
 	"blueclaw/internal/llm"
+	"blueclaw/internal/task"
 )
+
+func TestValidateStrictEmbeddingRetrievalRequiresReadyEmbeddingMode(t *testing.T) {
+	validResult := e2e.VirtualSessionResult{TurnResults: []e2e.VirtualTurnResult{{Events: []task.TaskEvent{{
+		Name: "agent.system_instruction",
+		Body: `{"retrievalMode":"embedding","indexStatus":"ready"}`,
+	}}}}}
+	if errorValue := validateStrictEmbeddingRetrieval(validResult); errorValue != nil {
+		t.Fatalf("expected ready embedding retrieval, got %v", errorValue)
+	}
+	fallbackResult := e2e.VirtualSessionResult{TurnResults: []e2e.VirtualTurnResult{{Events: []task.TaskEvent{{
+		Name: "agent.system_instruction",
+		Body: `{"retrievalMode":"bm25","indexStatus":"query_failed"}`,
+	}}}}}
+	if errorValue := validateStrictEmbeddingRetrieval(fallbackResult); errorValue == nil {
+		t.Fatal("expected BM25 fallback to fail strict live embedding verification")
+	}
+}
 
 type fakeOpenRouterServer struct {
 	server               *httptest.Server

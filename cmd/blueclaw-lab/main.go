@@ -10,9 +10,11 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"blueclaw/internal/capability"
+	"blueclaw/internal/config"
 	"blueclaw/internal/e2e"
 	"blueclaw/internal/lab"
 	"blueclaw/internal/llm"
@@ -111,6 +113,7 @@ type virtualSessionArguments struct {
 	LanguageModelEndpoint string
 	LanguageModelSocket   string
 	LanguageModelName     string
+	EmbeddingEndpoint     string
 	ExecutionMode         string
 	SkillDirectoryPath    string
 	Seed                  *int64
@@ -139,6 +142,7 @@ func parseVirtualSessionArguments(arguments []string, defaultScenarioName string
 	languageModelEndpoint := flagSet.String("llm-endpoint", firstNonEmptyString(os.Getenv("BLUECLAW_E2E_LLM_ENDPOINT"), capability.DefaultEndpoint), "live LLM capability endpoint")
 	languageModelSocket := flagSet.String("llm-unix-socket", os.Getenv("BLUECLAW_E2E_LLM_UNIX_SOCKET"), "live LLM capability unix socket path")
 	languageModelName := flagSet.String("llm-model", firstNonEmptyString(os.Getenv("INTERNKIM_E2E_MODEL"), os.Getenv("BLUECLAW_E2E_LLM_MODEL"), "xiaomi/mimo-v2.5"), "live LLM model name")
+	embeddingEndpoint := flagSet.String("embedding-endpoint", os.Getenv("BLUECLAW_E2E_EMBEDDING_ENDPOINT"), "local OpenAI-compatible embedding endpoint")
 	executionMode := flagSet.String("llm-execution-mode", firstNonEmptyString(os.Getenv("BLUECLAW_E2E_LLM_EXECUTION_MODE"), "auto"), "live LLM execution mode")
 	seed := flagSet.Int64("seed", 0, "generation seed for live LLM calls")
 	temperature := flagSet.Float64("temperature", 0, "generation temperature for live LLM calls")
@@ -182,6 +186,7 @@ func parseVirtualSessionArguments(arguments []string, defaultScenarioName string
 		LanguageModelEndpoint: *languageModelEndpoint,
 		LanguageModelSocket:   *languageModelSocket,
 		LanguageModelName:     *languageModelName,
+		EmbeddingEndpoint:     strings.TrimSpace(*embeddingEndpoint),
 		ExecutionMode:         *executionMode,
 		SkillDirectoryPath:    *skillDirectoryPath,
 		Seed:                  virtualSessionInt64FlagPointer(arguments, "seed", *seed),
@@ -205,6 +210,7 @@ func runVirtualSession(ctx context.Context, arguments virtualSessionArguments) e
 		return nil
 	}
 	var cassetteRecorder *e2e.RecordingLanguageModel
+	var embeddingObserver *observedEmbeddingProvider
 	if strings.TrimSpace(arguments.CassettePath) != "" {
 		cassette, errorValue := e2e.LoadLanguageModelCassette(arguments.CassettePath)
 		if errorValue != nil {
@@ -233,15 +239,9 @@ func runVirtualSession(ctx context.Context, arguments virtualSessionArguments) e
 		}
 		languageModel := languageModelFactory(firstNonEmptyString(arguments.LanguageModelName, "xiaomi/mimo-v2.5"))
 		scenario.LanguageModel = languageModel
-		scenario.EmbeddingProvider = llm.CapabilityEmbeddingClient{
-			CapabilityClient: capability.NewClient(capability.Configuration{
-				Endpoint:       endpointForVirtualSession(arguments),
-				UnixSocketPath: arguments.LanguageModelSocket,
-				Timeout:        30 * time.Second,
-			}),
-			ModelName:     llm.DefaultEmbeddingModelName,
-			ExecutionMode: arguments.ExecutionMode,
-		}
+		embeddingProvider := liveEmbeddingProvider(arguments)
+		embeddingObserver = &observedEmbeddingProvider{provider: embeddingProvider}
+		scenario.EmbeddingProvider = embeddingObserver
 		scenario.EmbeddingModel = llm.DefaultEmbeddingModelName
 		if arguments.RealModelTiers || arguments.MaximumModelTier != "" {
 			configureVirtualScenarioModelTiers(&scenario, arguments.MaximumModelTier, languageModelFactory)
@@ -270,10 +270,74 @@ func runVirtualSession(ctx context.Context, arguments virtualSessionArguments) e
 	if errorValue != nil {
 		return errorValue
 	}
+	if arguments.LiveLanguageModel && arguments.StrictAssertions && len(scenario.SkillDirectoryPaths) > 0 && embeddingObserver.successfulCallCount.Load() == 0 {
+		return errors.New("strict live scenario did not complete a local BGE-M3 embedding call")
+	}
+	if arguments.LiveLanguageModel && arguments.StrictAssertions && len(scenario.SkillDirectoryPaths) > 0 {
+		if errorValue := validateStrictEmbeddingRetrieval(result); errorValue != nil {
+			return errorValue
+		}
+	}
 	if recordError != nil {
 		return recordError
 	}
 	return nil
+}
+
+func validateStrictEmbeddingRetrieval(result e2e.VirtualSessionResult) error {
+	foundInstructionEvent := false
+	for _, turnResult := range result.TurnResults {
+		for _, event := range turnResult.Events {
+			if event.Name != "agent.system_instruction" {
+				continue
+			}
+			foundInstructionEvent = true
+			var retrieval struct {
+				Mode        string `json:"retrievalMode"`
+				IndexStatus string `json:"indexStatus"`
+			}
+			if errorValue := json.Unmarshal([]byte(event.Body), &retrieval); errorValue != nil {
+				return errors.New("strict live scenario could not verify skill retrieval mode")
+			}
+			if retrieval.Mode != "embedding" || retrieval.IndexStatus != "ready" {
+				return fmt.Errorf("strict live scenario used %s skill retrieval with index status %s", firstNonEmptyString(retrieval.Mode, "unknown"), firstNonEmptyString(retrieval.IndexStatus, "unknown"))
+			}
+		}
+	}
+	if !foundInstructionEvent {
+		return errors.New("strict live scenario did not record skill retrieval evidence")
+	}
+	return nil
+}
+
+type observedEmbeddingProvider struct {
+	provider            llm.EmbeddingProvider
+	successfulCallCount atomic.Int64
+}
+
+func (provider *observedEmbeddingProvider) GenerateEmbedding(ctx context.Context, input string) ([]float32, error) {
+	embedding, errorValue := provider.provider.GenerateEmbedding(ctx, input)
+	if errorValue == nil && len(embedding) > 0 {
+		provider.successfulCallCount.Add(1)
+	}
+	return embedding, errorValue
+}
+
+func liveEmbeddingProvider(arguments virtualSessionArguments) llm.EmbeddingProvider {
+	if strings.TrimSpace(arguments.EmbeddingEndpoint) != "" {
+		return llm.OpenAIEmbeddingClient{
+			Endpoint:  arguments.EmbeddingEndpoint,
+			ModelName: llm.DefaultEmbeddingModelName,
+		}
+	}
+	return llm.CapabilityEmbeddingClient{
+		CapabilityClient: capability.NewClient(capability.Configuration{
+			Endpoint:       endpointForVirtualSession(arguments),
+			UnixSocketPath: arguments.LanguageModelSocket,
+		}),
+		ModelName:     llm.DefaultEmbeddingModelName,
+		ExecutionMode: arguments.ExecutionMode,
+	}
 }
 
 func printVirtualSessionResult(result e2e.VirtualSessionResult) {
@@ -453,9 +517,10 @@ func virtualModelTierRank(modelTier string) int {
 }
 
 func defaultVirtualModelTierNames() virtualModelTierNames {
+	tierNames := llm.ResolveModelTierNames(config.RuntimeConfiguration{})
 	return virtualModelTierNames{
-		xLow: "google/gemma-3-12b-it", low: "xiaomi/mimo-v2.5", medium: "google/gemini-3.1-flash-lite",
-		high: "google/gemini-3-flash-preview", xHigh: "openai/gpt-5.6-luna", max: "google/gemini-3.5-flash", coding: "z-ai/glm-5.2",
+		xLow: tierNames.XLow, low: tierNames.Low, medium: tierNames.Medium,
+		high: tierNames.High, xHigh: tierNames.XHigh, max: tierNames.Max, coding: tierNames.Coding,
 	}
 }
 
