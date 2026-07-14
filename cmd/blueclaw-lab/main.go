@@ -252,6 +252,7 @@ func runVirtualSession(ctx context.Context, arguments virtualSessionArguments) e
 		}
 		scenario.DisableScriptedModel = true
 		scenario.UseLooseAssertions = !arguments.StrictAssertions
+		scenario.FailOnLanguageModelError = arguments.StrictAssertions
 		scenario.ProgressWriter = os.Stderr
 		delayLiveVirtualSession()
 	} else if isLiveVirtualScenario(scenario) {
@@ -265,16 +266,29 @@ func runVirtualSession(ctx context.Context, arguments virtualSessionArguments) e
 	}
 	result, errorValue := e2e.RunVirtualSession(ctx, scenario)
 	recordError := saveVirtualSessionCassette(arguments.RecordCassettePath, cassetteRecorder)
+	printVirtualSessionResult(result)
 	if errorValue != nil {
 		return errorValue
 	}
 	if recordError != nil {
 		return recordError
 	}
+	return nil
+}
+
+func printVirtualSessionResult(result e2e.VirtualSessionResult) {
+	if strings.TrimSpace(result.ScenarioName) == "" {
+		return
+	}
 	fmt.Println("scenario:", result.ScenarioName)
 	fmt.Println("artifactDirectoryPath:", result.ArtifactDirectoryPath)
 	for index, turnResult := range result.TurnResults {
 		fmt.Printf("turn %d taskRunID: %s\n", index+1, turnResult.TaskRunID)
+		fmt.Printf("turn %d taskStatus: %s\n", index+1, turnResult.TaskStatus)
+		if strings.TrimSpace(turnResult.FailureReason) != "" {
+			fmt.Printf("turn %d failure: %s\n", index+1, turnResult.FailureReason)
+			printVirtualTurnFailureEvents(index+1, turnResult)
+		}
 		fmt.Printf("turn %d reply: %s\n", index+1, turnResult.FinishMessage)
 		for _, summary := range languageModelCallFailureSummaries(turnResult) {
 			fmt.Printf("turn %d llm.call error: %s\n", index+1, summary)
@@ -286,7 +300,30 @@ func runVirtualSession(ctx context.Context, arguments virtualSessionArguments) e
 			fmt.Printf("turn %d attachment: %s\n", index+1, attachment.DevicePath)
 		}
 	}
-	return nil
+}
+
+func printVirtualTurnFailureEvents(turnNumber int, turnResult e2e.VirtualTurnResult) {
+	for _, event := range turnResult.Events {
+		if !isVirtualFailureDiagnosticEvent(event.Name) {
+			continue
+		}
+		body := event.Body
+		if len(body) > 800 {
+			body = body[:800] + "..."
+		}
+		fmt.Printf("turn %d event %s: %s\n", turnNumber, event.Name, body)
+	}
+}
+
+func isVirtualFailureDiagnosticEvent(eventName string) bool {
+	return strings.HasPrefix(eventName, "tool.") ||
+		eventName == "agent.action" ||
+		strings.Contains(eventName, "tool_palette") ||
+		strings.Contains(eventName, "step_working_set") ||
+		strings.Contains(eventName, "completion") ||
+		strings.Contains(eventName, "finalizer") ||
+		strings.Contains(eventName, "stall") ||
+		strings.Contains(eventName, "no_progress")
 }
 
 type virtualModelTierProviders struct {

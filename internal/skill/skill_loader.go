@@ -3,7 +3,6 @@ package skill
 import (
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 )
 
@@ -25,48 +24,18 @@ func (skillLoader SkillLoader) LoadSkillBundle(directoryPath string) (SkillBundl
 	}
 
 	return SkillBundle{
-		Name:                   metadata.Name,
-		Description:            metadata.Description,
-		WhenToUse:              metadata.WhenToUse,
-		Category:               metadata.Category,
-		Tags:                   metadata.Tags,
-		Activation:             metadata.Activation,
-		Completion:             metadata.Completion,
-		Quality:                metadata.Quality,
-		RecommendedMinutes:     metadata.RecommendedMinutes,
-		AllowedTools:           metadata.AllowedTools,
-		AllowedProfiles:        metadata.AllowedProfiles,
-		HiddenFromCircles:      metadata.HiddenFromCircles,
-		TriggerHints:           metadata.TriggerHints,
-		DisableModelInvocation: metadata.DisableModelInvocation,
-		Paths:                  metadata.Paths,
-		References:             metadata.References,
-		Scripts:                metadata.Scripts,
-		Assets:                 metadata.Assets,
-		Instruction:            strings.TrimSpace(instruction),
-		DirectoryPath:          directoryPath,
+		Name:          metadata.Name,
+		Description:   metadata.Description,
+		AllowedTools:  metadata.AllowedTools,
+		Instruction:   strings.TrimSpace(instruction),
+		DirectoryPath: directoryPath,
 	}, nil
 }
 
 type skillMetadata struct {
-	Name                   string
-	Description            string
-	WhenToUse              string
-	Category               string
-	Tags                   []string
-	Activation             SkillActivation
-	Completion             SkillCompletion
-	Quality                SkillQuality
-	RecommendedMinutes     int
-	AllowedTools           []string
-	AllowedProfiles        []string
-	HiddenFromCircles      []string
-	TriggerHints           []string
-	DisableModelInvocation bool
-	Paths                  []string
-	References             []string
-	Scripts                []string
-	Assets                 []string
+	Name         string
+	Description  string
+	AllowedTools []string
 }
 
 func parseSkillDocument(document string) (skillMetadata, string) {
@@ -85,51 +54,34 @@ func parseSkillDocument(document string) (skillMetadata, string) {
 func parseSkillFrontmatter(frontmatter string) skillMetadata {
 	metadata := skillMetadata{}
 	section := ""
-	listKey := ""
 	for _, line := range strings.Split(frontmatter, "\n") {
-		isIndentedLine := strings.HasPrefix(line, " ") || strings.HasPrefix(line, "\t")
 		trimmedLine := strings.TrimSpace(line)
 		if trimmedLine == "" {
 			continue
 		}
 		if strings.HasPrefix(trimmedLine, "- ") {
-			metadata = appendSkillFrontmatterListValue(metadata, section, listKey, strings.TrimSpace(strings.TrimPrefix(trimmedLine, "- ")))
+			if section == "allowed-tools" {
+				metadata.AllowedTools = append(metadata.AllowedTools, cleanSkillScalar(strings.TrimPrefix(trimmedLine, "- ")))
+			}
 			continue
 		}
 		key, value, hasKey := strings.Cut(trimmedLine, ":")
 		if !hasKey {
-			metadata = appendSkillFrontmatterScalarContinuation(metadata, section, trimmedLine)
+			if section == "description" {
+				metadata.Description = joinSkillDescription(metadata.Description, cleanSkillScalar(trimmedLine))
+			}
 			continue
 		}
 		key = strings.TrimSpace(key)
 		value = strings.TrimSpace(value)
 		if value == "" {
-			if (section == "activation" || section == "completion" || section == "quality") && isIndentedLine {
-				listKey = key
-				continue
-			}
 			section = key
-			listKey = key
-			continue
-		}
-		if section == "activation" && isIndentedLine {
-			metadata = setSkillActivationValue(metadata, key, value)
-			listKey = key
-			continue
-		}
-		if section == "completion" && isIndentedLine {
-			metadata = setSkillCompletionValue(metadata, key, value)
-			listKey = key
-			continue
-		}
-		if section == "quality" && isIndentedLine {
-			metadata = setSkillQualityValue(metadata, key, value)
-			listKey = key
 			continue
 		}
 		metadata = setSkillMetadataValue(metadata, key, value)
-		listKey = key
+		section = key
 	}
+	metadata.AllowedTools = trimmedSkillValues(metadata.AllowedTools)
 	return metadata
 }
 
@@ -139,110 +91,8 @@ func setSkillMetadataValue(metadata skillMetadata, key string, value string) ski
 		metadata.Name = cleanSkillScalar(value)
 	case "description":
 		metadata.Description = joinSkillDescription(metadata.Description, cleanSkillScalar(value))
-	case "when_to_use":
-		metadata.WhenToUse = joinSkillDescription(metadata.WhenToUse, cleanSkillScalar(value))
-	case "category":
-		metadata.Category = cleanSkillScalar(value)
-	case "recommendedMinutes":
-		metadata.RecommendedMinutes = cleanSkillPositiveInteger(value)
-	case "tags":
-		metadata.Tags = append(metadata.Tags, parseSkillList(value)...)
 	case "allowed-tools":
 		metadata.AllowedTools = append(metadata.AllowedTools, parseSkillSpaceSeparatedList(value)...)
-	case "allowedProfiles":
-		metadata.AllowedProfiles = append(metadata.AllowedProfiles, parseSkillList(value)...)
-	case "hiddenFromCircles":
-		metadata.HiddenFromCircles = append(metadata.HiddenFromCircles, parseSkillList(value)...)
-	case "triggerHints":
-		metadata.TriggerHints = append(metadata.TriggerHints, parseSkillList(value)...)
-	case "disable-model-invocation":
-		metadata.DisableModelInvocation = cleanSkillBoolean(value)
-	case "paths":
-		metadata.Paths = append(metadata.Paths, parseSkillList(value)...)
-	case "references":
-		metadata.References = append(metadata.References, parseSkillList(value)...)
-	case "scripts":
-		metadata.Scripts = append(metadata.Scripts, parseSkillList(value)...)
-	case "assets":
-		metadata.Assets = append(metadata.Assets, parseSkillList(value)...)
-	}
-	return metadata
-}
-
-func setSkillActivationValue(metadata skillMetadata, key string, value string) skillMetadata {
-	values := parseSkillList(value)
-	switch key {
-	case "keywords":
-		metadata.Activation.Keywords = append(metadata.Activation.Keywords, values...)
-	case "toolNames":
-		metadata.Activation.ToolNames = append(metadata.Activation.ToolNames, values...)
-	case "toolPrefixes":
-		metadata.Activation.ToolPrefixes = append(metadata.Activation.ToolPrefixes, values...)
-	}
-	return metadata
-}
-
-func setSkillCompletionValue(metadata skillMetadata, key string, value string) skillMetadata {
-	values := parseSkillList(value)
-	switch key {
-	case "requiredEvidenceTools":
-		metadata.Completion.RequiredEvidenceTools = append(metadata.Completion.RequiredEvidenceTools, values...)
-	case "requiredAttachmentSuffixes":
-		metadata.Completion.RequiredAttachmentSuffixes = append(metadata.Completion.RequiredAttachmentSuffixes, values...)
-	}
-	return metadata
-}
-
-func setSkillQualityValue(metadata skillMetadata, key string, value string) skillMetadata {
-	values := parseSkillList(value)
-	switch key {
-	case "acceptanceGuidance":
-		metadata.Quality.AcceptanceGuidance = append(metadata.Quality.AcceptanceGuidance, values...)
-	case "rubric":
-		metadata.Quality.Rubric = append(metadata.Quality.Rubric, values...)
-	case "recommendedChecks":
-		metadata.Quality.RecommendedChecks = append(metadata.Quality.RecommendedChecks, values...)
-		metadata.Quality.AcceptanceGuidance = append(metadata.Quality.AcceptanceGuidance, values...)
-	}
-	return metadata
-}
-
-func appendSkillFrontmatterListValue(metadata skillMetadata, section string, listKey string, value string) skillMetadata {
-	values := parseSkillList(value)
-	if section == "activation" {
-		return setSkillActivationValue(metadata, listKey, strings.Join(values, ","))
-	}
-	if section == "completion" {
-		return setSkillCompletionValue(metadata, listKey, strings.Join(values, ","))
-	}
-	if section == "quality" {
-		return setSkillQualityValue(metadata, listKey, strings.Join(values, ","))
-	}
-	return appendSkillMetadataListValue(metadata, listKey, value)
-}
-
-func appendSkillMetadataListValue(metadata skillMetadata, key string, value string) skillMetadata {
-	cleanedValue := cleanSkillScalar(value)
-	if cleanedValue == "" {
-		return metadata
-	}
-	switch key {
-	case "allowed-tools":
-		metadata.AllowedTools = append(metadata.AllowedTools, cleanedValue)
-	case "paths":
-		metadata.Paths = append(metadata.Paths, cleanedValue)
-	default:
-		return setSkillMetadataValue(metadata, key, value)
-	}
-	return metadata
-}
-
-func appendSkillFrontmatterScalarContinuation(metadata skillMetadata, section string, value string) skillMetadata {
-	if section == "description" {
-		metadata.Description = joinSkillDescription(metadata.Description, cleanSkillScalar(value))
-	}
-	if section == "when_to_use" {
-		metadata.WhenToUse = joinSkillDescription(metadata.WhenToUse, cleanSkillScalar(value))
 	}
 	return metadata
 }
@@ -280,16 +130,14 @@ func cleanSkillScalar(value string) string {
 	return strings.Trim(strings.TrimSpace(value), `"'`)
 }
 
-func cleanSkillPositiveInteger(value string) int {
-	parsedValue, errorValue := strconv.Atoi(cleanSkillScalar(value))
-	if errorValue != nil || parsedValue <= 0 {
-		return 0
+func trimmedSkillValues(values []string) []string {
+	trimmedValues := []string{}
+	for _, value := range values {
+		if trimmedValue := strings.TrimSpace(value); trimmedValue != "" {
+			trimmedValues = append(trimmedValues, trimmedValue)
+		}
 	}
-	return parsedValue
-}
-
-func cleanSkillBoolean(value string) bool {
-	return strings.EqualFold(cleanSkillScalar(value), "true")
+	return trimmedValues
 }
 
 func firstMarkdownParagraph(document string) string {

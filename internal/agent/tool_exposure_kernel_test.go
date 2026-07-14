@@ -37,6 +37,63 @@ func TestToolExposureUsesFixedKernelOnly(t *testing.T) {
 	}
 }
 
+func TestToolExposureAddsAskInputOnlyForTypedInteraction(t *testing.T) {
+	toolSet := testToolSet(append(KernelToolNames(), AskInputToolName))
+	outcomeContract := OutcomeContract{ExpectedResults: []ExpectedResult{{
+		ID:              "interactive-choice",
+		Type:            ExpectedResultTypeMessage,
+		Description:     "The user can choose one of the presented options.",
+		Required:        true,
+		AcceptanceHints: []string{AskInputToolName},
+	}}}
+
+	filteredToolSet, _ := toolSetForAgentTurnWithExposure(
+		toolSet,
+		InstructionBundle{},
+		AgentRequest{},
+		ExecutionPlan{},
+		false,
+		outcomeContract,
+		ToolExposureEvent{},
+	)
+
+	if !filteredToolSet.IsAllowed(AskInputToolName) {
+		t.Fatalf("expected typed interactive outcome to expose ask.input, got %+v", filteredToolSet.ListToolNames())
+	}
+}
+
+func TestToolExposureRequiresExplicitSkillSearchForImmediateReply(t *testing.T) {
+	toolSet := testToolSet(KernelToolNames())
+	request := AgentRequest{TaskShape: TaskShapeImmediateReply}
+
+	filteredToolSet, _ := toolSetForAgentTurnWithExposure(
+		toolSet,
+		InstructionBundle{},
+		request,
+		ExecutionPlan{},
+		false,
+		OutcomeContract{},
+		ToolExposureEvent{},
+	)
+	if filteredToolSet.IsAllowed(SkillSearchToolName) {
+		t.Fatalf("expected immediate reply to hide unrequested skill.search, got %+v", filteredToolSet.ListToolNames())
+	}
+
+	request.PinnedToolNames = []string{SkillSearchToolName}
+	filteredToolSet, _ = toolSetForAgentTurnWithExposure(
+		toolSet,
+		InstructionBundle{},
+		request,
+		ExecutionPlan{},
+		false,
+		OutcomeContract{},
+		ToolExposureEvent{},
+	)
+	if !filteredToolSet.IsAllowed(SkillSearchToolName) {
+		t.Fatalf("expected typed initial tool to expose skill.search, got %+v", filteredToolSet.ListToolNames())
+	}
+}
+
 func sameStringSet(leftValues []string, rightValues []string) bool {
 	if len(leftValues) != len(rightValues) {
 		return false

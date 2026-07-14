@@ -365,7 +365,8 @@ func TestAgentKernelRecordsSiteRequirementNormalizationEvent(t *testing.T) {
 }
 
 func TestTurnRouterSchemaUsesContextDependentPendingFields(t *testing.T) {
-	noPendingSchema := turnRouterSchema(AgentRequest{})
+	toolSet := newTestCapabilityToolSet([]string{"task.add", "task.update"})
+	noPendingSchema := turnRouterSchema(AgentRequest{ToolSet: toolSet})
 	if strings.Contains(noPendingSchema, `"approval"`) {
 		t.Fatalf("expected no approval field without pending confirmation, got %s", noPendingSchema)
 	}
@@ -378,6 +379,17 @@ func TestTurnRouterSchemaUsesContextDependentPendingFields(t *testing.T) {
 	for _, expectedEmojiName := range []string{`"reactionEmojiName"`, `"white_check_mark"`, `"thumbsup"`, `"tada"`, `"rocket"`, `"ok_hand"`, `"hourglass_flowing_sand"`, `"sparkles"`, `"wave"`} {
 		if !strings.Contains(noPendingSchema, expectedEmojiName) {
 			t.Fatalf("expected reaction emoji enum value %s in schema, got %s", expectedEmojiName, noPendingSchema)
+		}
+	}
+	if strings.Contains(noPendingSchema, `"uniqueItems"`) {
+		t.Fatalf("expected provider-portable array schemas, got %s", noPendingSchema)
+	}
+	if strings.Count(noPendingSchema, `"maxItems"`) < 4 {
+		t.Fatalf("expected bounded router arrays, got %s", noPendingSchema)
+	}
+	for _, toolName := range []string{`"task.add"`, `"task.update"`, `"capability.invoke"`} {
+		if !strings.Contains(noPendingSchema, toolName) {
+			t.Fatalf("expected registered tool enum value %s in schema, got %s", toolName, noPendingSchema)
 		}
 	}
 
@@ -393,6 +405,9 @@ func TestTurnRouterSchemaUsesContextDependentPendingFields(t *testing.T) {
 		if !strings.Contains(pendingSchema, expected) {
 			t.Fatalf("expected %s in pending schema, got %s", expected, pendingSchema)
 		}
+	}
+	if strings.Contains(pendingSchema, `"uniqueItems"`) {
+		t.Fatalf("expected provider-portable pending schemas, got %s", pendingSchema)
 	}
 }
 
@@ -1172,7 +1187,7 @@ func TestAgentKernelCreatesChoiceAskForClarificationOptions(t *testing.T) {
 	}
 }
 
-func TestAgentKernelQuickReplyExposesToolsButAllowsToolFreeReply(t *testing.T) {
+func TestAgentKernelQuickReplyAllowsToolFreeReplyWithoutAskInput(t *testing.T) {
 	intakeLanguageModel := &sequenceLanguageModel{contents: []string{
 		`{"classification":"quick_reply","taskShape":"immediate_reply","level":"xlow","requestedOutputFormats":null,"reason":"direct answer","userFacingReply":""}`,
 	}}
@@ -1200,9 +1215,9 @@ func TestAgentKernelQuickReplyExposesToolsButAllowsToolFreeReply(t *testing.T) {
 	if len(replyLanguageModel.requests) != 1 {
 		t.Fatalf("expected one direct reply request, got %d", len(replyLanguageModel.requests))
 	}
-	requestContent := joinedMessageContent(replyLanguageModel.requests[0].Messages)
-	if !strings.Contains(requestContent, "Available tool catalog") {
-		t.Fatal("expected quick reply to expose tools")
+	actionSchema := string(replyLanguageModel.requests[0].StructuredOutputSchema.Document)
+	if strings.Contains(actionSchema, AskInputToolName) {
+		t.Fatalf("expected quick reply schema to hide ask.input without typed interaction, got %s", actionSchema)
 	}
 	if !strings.Contains(strings.Join(result.ToolNames, ","), "expensive") {
 		t.Fatalf("expected quick reply result to preserve tools, got %+v", result.ToolNames)

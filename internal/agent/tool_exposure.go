@@ -45,10 +45,19 @@ func toolSetForAgentTurnWithExposure(toolSet *ToolSet, instructionBundle Instruc
 	if len(observations) > 0 {
 		recentObservations = observations[0]
 	}
-	kernelGroup := filterGroupTools(toolSet, toolExposureGroup{Name: "fixed kernel", ToolIDs: KernelToolNames()})
+	kernelGroup := filterGroupTools(toolSet, toolExposureGroup{Name: "fixed kernel", ToolIDs: kernelToolNamesForRequest(request)})
+	interactionGroup := filterGroupTools(toolSet, toolExposureGroup{Name: "required interaction", ToolIDs: requiredInteractionToolNames(outcomeContract, recentObservations)})
+	recoveryToolNames := appendUniqueStrings(activeRecoveryToolNames(recentObservations), activeRecoveryPreconditionToolNames(toolSet, recentObservations)...)
+	recoveryGroup := filterGroupTools(toolSet, toolExposureGroup{Name: "recovery tools", ToolIDs: recoveryToolNames})
 	promotedGroup := filterGroupTools(toolSet, toolExposureGroup{Name: "promoted operations", ToolIDs: promotedCapabilityOperationNames(toolSet, recentObservations)})
+	if len(promotedGroup.ToolIDs) > 0 {
+		kernelGroup.ToolIDs = nil
+	}
 	pinnedGroup := filterGroupTools(toolSet, toolExposureGroup{Name: "requested tools", ToolIDs: request.PinnedToolNames})
-	exposedToolIDs := stableUniqueToolIDs(append(append(append([]string{}, kernelGroup.ToolIDs...), promotedGroup.ToolIDs...), pinnedGroup.ToolIDs...))
+	if len(promotedGroup.ToolIDs) > 0 {
+		pinnedGroup.ToolIDs = nil
+	}
+	exposedToolIDs := stableUniqueToolIDs(append(append(append(append(append([]string{}, kernelGroup.ToolIDs...), interactionGroup.ToolIDs...), recoveryGroup.ToolIDs...), promotedGroup.ToolIDs...), pinnedGroup.ToolIDs...))
 	selectionEvent.SelectionSource = firstNonEmptyString(selectionEvent.SelectionSource, "fixed_kernel")
 	selectionEvent.SelectionReason = firstNonEmptyString(selectionEvent.SelectionReason, "Blueclaw exposes the same compact kernel tools on every turn")
 	selectionEvent.ValidSelectedToolIDs = nil
@@ -58,6 +67,26 @@ func toolSetForAgentTurnWithExposure(toolSet *ToolSet, instructionBundle Instruc
 	selectionEvent.DroppedGroups = nil
 	selectionEvent.UsedFallbackGroups = false
 	return toolSet.WithAllowedToolNames(exposedToolIDsForFiltering(exposedToolIDs)), selectionEvent
+}
+
+func kernelToolNamesForRequest(request AgentRequest) []string {
+	toolNames := KernelToolNames()
+	if request.TaskShape != TaskShapeImmediateReply {
+		return toolNames
+	}
+	return removeToolName(toolNames, SkillSearchToolName)
+}
+
+func requiredInteractionToolNames(outcomeContract OutcomeContract, observations []turnObservation) []string {
+	if expectedResultRequiresTool(outcomeContract, AskInputToolName) {
+		return []string{AskInputToolName}
+	}
+	for _, toolName := range activeRecoveryToolNames(observations) {
+		if toolName == AskInputToolName {
+			return []string{AskInputToolName}
+		}
+	}
+	return nil
 }
 
 // maxPromotedCapabilityOperationCount bounds the exposed tool count when a
@@ -149,6 +178,20 @@ func activeRecoveryToolNames(observations []turnObservation) []string {
 	}
 	if failureDebt.LatestFailure.RecoveryPacket != nil {
 		toolNames = appendUniqueStrings(toolNames, failureDebt.LatestFailure.RecoveryPacket.AllowedTools...)
+	}
+	return filterExhaustedRecoveryToolNames(toolNames, observations)
+}
+
+func activeRecoveryPreconditionToolNames(toolSet *ToolSet, observations []turnObservation) []string {
+	failureDebt, hasFailureDebt := activeFailureDebt(observations)
+	if !hasFailureDebt || toolSet == nil {
+		return nil
+	}
+	toolNames := []string{}
+	for _, toolName := range toolSet.ListToolNames() {
+		if toolCanSatisfyRecoveryPrecondition(failureDebt.LatestFailure, toolName) {
+			toolNames = append(toolNames, toolName)
+		}
 	}
 	return filterExhaustedRecoveryToolNames(toolNames, observations)
 }

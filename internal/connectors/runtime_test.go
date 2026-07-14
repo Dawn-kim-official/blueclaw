@@ -435,7 +435,7 @@ func TestConnectorRuntimeWritesResolvesAndExpiresTaskWaitRecord(t *testing.T) {
 	languageModel := agenttest.NewScriptedLanguageModel(agenttest.ScriptedLanguageModelOptions{
 		StructuredResponsesBySchema: map[string][]string{
 			"blueclaw_turn_router": {
-				`{"route":"start_task","classification":"bounded_task","taskShape":"maintenance_task","level":"low","requestedOutputFormats":null,"siteRequestEvidence":"","responseLanguage":"ko","reason":"input needed","userFacingReply":""}`,
+			`{"route":"start_task","classification":"bounded_task","taskShape":"maintenance_task","level":"low","requestedOutputFormats":null,"siteRequestEvidence":"","responseLanguage":"ko","reason":"input needed","userFacingReply":"","initialToolNames":["ask.input"]}`,
 			},
 		},
 		ActionResponses: []string{
@@ -800,7 +800,7 @@ func TestConnectorRuntimeBusyCancelStopsActiveTaskWithoutNewTask(t *testing.T) {
 	}
 }
 
-func TestConnectorRuntimeFinishedTaskFollowUpDoesNotCreateNewTask(t *testing.T) {
+func TestConnectorRuntimeFollowUpReceivedBeforeTaskFinishedDoesNotCreateNewTask(t *testing.T) {
 	languageModel := agenttest.NewScriptedLanguageModel(agenttest.ScriptedLanguageModelOptions{
 		DefaultResponsesBySchema: map[string]string{
 			"blueclaw_active_task_followup": `{"relatesToActiveTask":true}`,
@@ -826,6 +826,7 @@ func TestConnectorRuntimeFinishedTaskFollowUpDoesNotCreateNewTask(t *testing.T) 
 
 	event := testInboundEvent("message-after-finish")
 	event.Prompt = "아니야 하지마"
+	event.RawReceivedAt = finishedTaskRun.UpdatedAt.Add(-time.Millisecond)
 
 	result, errorValue := connectorRuntime.HandleInboundEvent(context.Background(), adapter, event)
 

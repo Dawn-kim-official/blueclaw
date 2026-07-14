@@ -17,7 +17,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerAskInputTool(toolRegistry 
 	agent.RegisterToolFunction(toolRegistry, agent.ToolFunction[askInputToolInput, agent.ToolResult]{
 		Definition: agent.ToolDefinition{
 			Name:        "ask.input",
-			Description: "Pause the current task and ask the user for input needed to continue. Put the question shown to the user in the action message field. Use choices=[] for free-form input, or provide choices to let the user pick one of them or type a different answer.",
+			Description: "Pause the current task only when the typed outcome contract or a structured tool failure says user input is required. Put the question shown to the user in the action message field. Use choices=[] for free-form input, or provide choices to let the user pick one of them or type a different answer.",
 			InputSchema: json.RawMessage(`{"type":"object","properties":{"question":{"type":"string"},"choices":{"type":"array","items":{"type":"string"},"description":"Empty for free-form input; non-empty to show selectable choices while allowing a custom answer."}}}`),
 		},
 		Handler: toolCatalogBuilder.askInputTool,

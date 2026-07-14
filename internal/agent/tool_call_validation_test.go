@@ -463,6 +463,27 @@ func TestAgentTurnRunnerDoesNotChargeMalformedInputToToolEffort(t *testing.T) {
 	}
 }
 
+func TestRepeatedSuccessfulCompletionCandidateUsesPersistedObservation(t *testing.T) {
+	toolInput := json.RawMessage(`{"weekFrom":0,"weekTo":0}`)
+	toolInputKey := canonicalToolCallKey("task.list", toolInput)
+	state := &agentTaskState{Observations: []turnObservation{{
+		ObservationID: "obs-001",
+		Action:        "continue",
+		Tool:          "task.list",
+		ToolInputKey:  toolInputKey,
+		Output:        ToolOutput{Content: `{"tasks":[]}`},
+	}}}
+
+	observation, isFound := repeatedSuccessfulCompletionCandidate(state, turnActionDocument{
+		ToolName:  "task.list",
+		ToolInput: toolInput,
+	}, map[string]turnObservation{})
+
+	if !isFound || observation.ObservationID != "obs-001" {
+		t.Fatalf("expected persisted successful observation, got %+v found=%v", observation, isFound)
+	}
+}
+
 func TestAgentTurnRunnerRejectsRepeatedSuccessfulToolCall(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		`{"action":"continue","toolName":"terminal.run","toolInput":{"command":"marp --version"}}`,

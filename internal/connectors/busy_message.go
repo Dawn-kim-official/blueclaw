@@ -259,6 +259,9 @@ func (connectorRuntime *ConnectorRuntime) handlePossibleFinishedTaskFollowUp(
 	if !isFound {
 		return busyMessageResult{}, nil
 	}
+	if event.RawReceivedAt.IsZero() || !event.RawReceivedAt.Before(finishedTaskRun.UpdatedAt) {
+		return busyMessageResult{}, nil
+	}
 	isRelated, errorValue := connectorRuntime.agentKernel.ClassifyActiveTaskFollowUp(ctx, agent.ActiveTaskFollowUpClassificationRequest{
 		ActiveTaskPrompt: finishedTaskRun.Prompt,
 		ActiveTaskStatus: string(finishedTaskRun.Status),

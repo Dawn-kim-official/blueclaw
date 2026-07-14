@@ -82,7 +82,7 @@ func (agentTurnRunner *AgentTurnRunner) rejectRepeatedToolCall(taskRunID string,
 		result, shouldStop := stopForNoProgress(stepID)
 		return toolCallActionOutcome{Result: result, ShouldReturn: shouldStop, WasHandled: true}
 	}
-	if duplicateObservation, isDuplicate := successfulToolCalls[canonicalToolCallKey(actionDocument.ToolName, actionDocument.ToolInput)]; isDuplicate && handlesDuplicateSuccessfulToolCall(actionDocument.ToolName, actionDocument.ToolInput) && !terminalRerunAfterWorkspaceMutation(actionDocument, state.Observations, duplicateObservation) {
+	if duplicateObservation, isDuplicate := repeatedSuccessfulToolObservation(state, actionDocument, successfulToolCalls); isDuplicate {
 		observation := turnObservation{
 			ObservationID: nextObservationID(len(state.Observations) + 1),
 			Action:        "policy",
@@ -113,6 +113,56 @@ func (agentTurnRunner *AgentTurnRunner) rejectRepeatedToolCall(taskRunID string,
 		return toolCallActionOutcome{Result: result, ShouldReturn: shouldStop, WasHandled: true}
 	}
 	return toolCallActionOutcome{}
+}
+
+func repeatedSuccessfulToolObservation(state *agentTaskState, actionDocument turnActionDocument, successfulToolCalls map[string]turnObservation) (turnObservation, bool) {
+	observation, isDuplicate := repeatedSuccessfulCompletionCandidate(state, actionDocument, successfulToolCalls)
+	if !isDuplicate || !handlesDuplicateSuccessfulToolCall(actionDocument.ToolName, actionDocument.ToolInput) {
+		return turnObservation{}, false
+	}
+	return observation, true
+}
+
+func repeatedSuccessfulCompletionCandidate(state *agentTaskState, actionDocument turnActionDocument, successfulToolCalls map[string]turnObservation) (turnObservation, bool) {
+	toolInputKey := canonicalToolCallKey(actionDocument.ToolName, actionDocument.ToolInput)
+	observation, isDuplicate := successfulToolCalls[toolInputKey]
+	if !isDuplicate {
+		observation, isDuplicate = previousSuccessfulToolInputObservation(state.Observations, toolInputKey)
+	}
+	if !isDuplicate || terminalRerunAfterWorkspaceMutation(actionDocument, state.Observations, observation) {
+		return turnObservation{}, false
+	}
+	return observation, true
+}
+
+func previousSuccessfulToolInputObservation(observations []turnObservation, toolInputKey string) (turnObservation, bool) {
+	for index := len(observations) - 1; index >= 0; index-- {
+		observation := observations[index]
+		if observation.Action == "continue" && !observation.Failed() && strings.TrimSpace(observation.ToolInputKey) == toolInputKey {
+			return observation, true
+		}
+	}
+	return turnObservation{}, false
+}
+
+func duplicateSuccessFinalizationRequirements(toolSet *ToolSet, requirements []toolUseRequirement, observations []turnObservation, actionDocument turnActionDocument) ([]toolUseRequirement, bool) {
+	if completionRequirementsHaveEvidence(requirements, observations) {
+		return requirements, true
+	}
+	strictRequirements := []toolUseRequirement{}
+	for _, requirement := range requirements {
+		if !requirement.RequiresAttachment && !requirement.RequiresSideEffectEvidence {
+			continue
+		}
+		isSatisfied, _ := completionRequirementStatus(requirement, observations)
+		if !isSatisfied {
+			return nil, false
+		}
+		strictRequirements = append(strictRequirements, requirement)
+	}
+	effectiveToolName, _ := effectiveActionToolNameAndInput(actionDocument.ToolName, actionDocument.ToolInput)
+	_, isFound := toolSet.ToolDefinition(effectiveToolName)
+	return strictRequirements, isFound
 }
 
 func repeatedFileReadObservation(observations []turnObservation, actionDocument turnActionDocument, observationID string) (turnObservation, bool) {

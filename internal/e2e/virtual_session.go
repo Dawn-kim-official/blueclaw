@@ -52,6 +52,7 @@ type VirtualSessionScenario struct {
 	CodingLanguageModel       llm.LanguageModelProvider
 	DisableScriptedModel      bool
 	UseLooseAssertions        bool
+	FailOnLanguageModelError  bool
 	SkillDirectoryPaths       []string
 	Skills                    []agent.SkillInstruction
 	AllowedTools              []string
@@ -205,6 +206,10 @@ type virtualLanguageModelCallRecorder interface {
 
 type virtualObservedLanguageModel struct {
 	provider llm.LanguageModelProvider
+	store    *virtualLanguageModelObservationStore
+}
+
+type virtualLanguageModelObservationStore struct {
 	mutex    sync.Mutex
 	requests []llm.StructuredResponseRequest
 	calls    []VirtualLanguageModelCallEvent
@@ -223,7 +228,11 @@ type virtualObservedLocalRecoveryLanguageModel struct {
 }
 
 func newVirtualObservedLanguageModel(provider llm.LanguageModelProvider) llm.LanguageModelProvider {
-	base := &virtualObservedLanguageModel{provider: provider}
+	return newVirtualObservedLanguageModelWithStore(provider, &virtualLanguageModelObservationStore{})
+}
+
+func newVirtualObservedLanguageModelWithStore(provider llm.LanguageModelProvider, store *virtualLanguageModelObservationStore) llm.LanguageModelProvider {
+	base := &virtualObservedLanguageModel{provider: provider, store: store}
 	_, hasRecovery := provider.(llm.RecoveryResponder)
 	_, hasLocalRecovery := provider.(llm.LocalRecoveryResponder)
 	switch {
@@ -292,45 +301,45 @@ func (languageModel *virtualObservedLanguageModel) localRecoveryResponse(ctx con
 }
 
 func (languageModel *virtualObservedLanguageModel) RequestCount() int {
-	languageModel.mutex.Lock()
-	defer languageModel.mutex.Unlock()
-	return len(languageModel.requests)
+	languageModel.store.mutex.Lock()
+	defer languageModel.store.mutex.Unlock()
+	return len(languageModel.store.requests)
 }
 
 func (languageModel *virtualObservedLanguageModel) RequestsSince(startIndex int) []llm.StructuredResponseRequest {
-	languageModel.mutex.Lock()
-	defer languageModel.mutex.Unlock()
-	if startIndex < 0 || startIndex > len(languageModel.requests) {
+	languageModel.store.mutex.Lock()
+	defer languageModel.store.mutex.Unlock()
+	if startIndex < 0 || startIndex > len(languageModel.store.requests) {
 		startIndex = 0
 	}
-	return append([]llm.StructuredResponseRequest{}, languageModel.requests[startIndex:]...)
+	return append([]llm.StructuredResponseRequest{}, languageModel.store.requests[startIndex:]...)
 }
 
 func (languageModel *virtualObservedLanguageModel) CallCount() int {
-	languageModel.mutex.Lock()
-	defer languageModel.mutex.Unlock()
-	return len(languageModel.calls)
+	languageModel.store.mutex.Lock()
+	defer languageModel.store.mutex.Unlock()
+	return len(languageModel.store.calls)
 }
 
 func (languageModel *virtualObservedLanguageModel) CallsSince(startIndex int) []VirtualLanguageModelCallEvent {
-	languageModel.mutex.Lock()
-	defer languageModel.mutex.Unlock()
-	if startIndex < 0 || startIndex > len(languageModel.calls) {
+	languageModel.store.mutex.Lock()
+	defer languageModel.store.mutex.Unlock()
+	if startIndex < 0 || startIndex > len(languageModel.store.calls) {
 		startIndex = 0
 	}
-	return append([]VirtualLanguageModelCallEvent{}, languageModel.calls[startIndex:]...)
+	return append([]VirtualLanguageModelCallEvent{}, languageModel.store.calls[startIndex:]...)
 }
 
 func (languageModel *virtualObservedLanguageModel) appendRequest(request llm.StructuredResponseRequest) {
-	languageModel.mutex.Lock()
-	defer languageModel.mutex.Unlock()
-	languageModel.requests = append(languageModel.requests, request)
+	languageModel.store.mutex.Lock()
+	defer languageModel.store.mutex.Unlock()
+	languageModel.store.requests = append(languageModel.store.requests, request)
 }
 
 func (languageModel *virtualObservedLanguageModel) appendCall(callEvent VirtualLanguageModelCallEvent) {
-	languageModel.mutex.Lock()
-	defer languageModel.mutex.Unlock()
-	languageModel.calls = append(languageModel.calls, callEvent)
+	languageModel.store.mutex.Lock()
+	defer languageModel.store.mutex.Unlock()
+	languageModel.store.calls = append(languageModel.store.calls, callEvent)
 }
 
 type imageRejectingLanguageModel struct {
@@ -525,15 +534,16 @@ func NewVirtualSessionHarness(scenario VirtualSessionScenario) (*VirtualSessionH
 	if baseLanguageModel == nil {
 		return nil, errors.New("virtual session requires a live language model or explicit scripted model responses")
 	}
-	languageModel := newVirtualObservedLanguageModel(baseLanguageModel)
-	lowLanguageModel := observedVirtualLanguageModelOrDefault(scenario.LowLanguageModel, languageModel)
-	xLowLanguageModel := observedVirtualLanguageModelOrDefault(scenario.XLowLanguageModel, languageModel)
-	mediumLanguageModel := observedVirtualLanguageModelOrDefault(scenario.MediumLanguageModel, languageModel)
-	highLanguageModel := observedVirtualLanguageModelOrDefault(scenario.HighLanguageModel, languageModel)
-	xHighLanguageModel := observedVirtualLanguageModelOrDefault(scenario.XHighLanguageModel, languageModel)
-	maxLanguageModel := observedVirtualLanguageModelOrDefault(scenario.MaxLanguageModel, languageModel)
-	codingLanguageModel := observedVirtualLanguageModelOrDefault(scenario.CodingLanguageModel, languageModel)
-	intakeLanguageModel := observedVirtualLanguageModelOrDefault(scenario.IntakeLanguageModel, languageModel)
+	observationStore := &virtualLanguageModelObservationStore{}
+	languageModel := newVirtualObservedLanguageModelWithStore(baseLanguageModel, observationStore)
+	lowLanguageModel := observedVirtualLanguageModelOrDefault(scenario.LowLanguageModel, languageModel, observationStore)
+	xLowLanguageModel := observedVirtualLanguageModelOrDefault(scenario.XLowLanguageModel, languageModel, observationStore)
+	mediumLanguageModel := observedVirtualLanguageModelOrDefault(scenario.MediumLanguageModel, languageModel, observationStore)
+	highLanguageModel := observedVirtualLanguageModelOrDefault(scenario.HighLanguageModel, languageModel, observationStore)
+	xHighLanguageModel := observedVirtualLanguageModelOrDefault(scenario.XHighLanguageModel, languageModel, observationStore)
+	maxLanguageModel := observedVirtualLanguageModelOrDefault(scenario.MaxLanguageModel, languageModel, observationStore)
+	codingLanguageModel := observedVirtualLanguageModelOrDefault(scenario.CodingLanguageModel, languageModel, observationStore)
+	intakeLanguageModel := observedVirtualLanguageModelOrDefault(scenario.IntakeLanguageModel, languageModel, observationStore)
 	agentKernel := agent.NewAgentKernel(taskRunService, taskStepService)
 	agentKernel.UseTaskArtifactService(taskArtifactService)
 	agentKernel.UseLanguageModelProvider(lowLanguageModel)
@@ -616,11 +626,11 @@ func NewVirtualSessionHarness(scenario VirtualSessionScenario) (*VirtualSessionH
 	}, nil
 }
 
-func observedVirtualLanguageModelOrDefault(provider llm.LanguageModelProvider, defaultProvider llm.LanguageModelProvider) llm.LanguageModelProvider {
+func observedVirtualLanguageModelOrDefault(provider llm.LanguageModelProvider, defaultProvider llm.LanguageModelProvider, store *virtualLanguageModelObservationStore) llm.LanguageModelProvider {
 	if provider == nil {
 		return defaultProvider
 	}
-	return newVirtualObservedLanguageModel(provider)
+	return newVirtualObservedLanguageModelWithStore(provider, store)
 }
 
 func virtualTurnOptions(scenarioOptions agent.TurnOptions) agent.TurnOptions {
@@ -939,8 +949,16 @@ if __name__ == "__main__":
     main()
 `
 
-type virtualCapabilityHTTPClient struct {
+type virtualCapabilityRecord struct {
+	ID     string
+	Values map[string]any
+}
+
+type virtualCapabilityService struct {
+	mutex          sync.Mutex
 	toolNameByName map[string]bool
+	tasks          []virtualCapabilityRecord
+	events         []virtualCapabilityRecord
 }
 
 func startVirtualCapabilityServer(toolNames []string) (capability.Client, func()) {
@@ -951,33 +969,31 @@ func startVirtualCapabilityServer(toolNames []string) (capability.Client, func()
 			toolNameByName[trimmedToolName] = true
 		}
 	}
-	server := httptest.NewServer(http.HandlerFunc(virtualCapabilityHandler(toolNameByName)))
+	service := &virtualCapabilityService{toolNameByName: toolNameByName}
+	server := httptest.NewServer(http.HandlerFunc(service.handleRequest))
 	return capability.Client{
 		Endpoint:   server.URL,
 		HTTPClient: server.Client(),
 	}, server.Close
 }
 
-func virtualCapabilityHandler(toolNameByName map[string]bool) http.HandlerFunc {
-	return func(responseWriter http.ResponseWriter, request *http.Request) {
-		responseWriter.Header().Set("Content-Type", "application/json")
-		if request.Method == http.MethodGet && request.URL.Path == "/v1/capabilities" {
-			_, _ = responseWriter.Write([]byte(virtualCapabilityCatalogResponse(toolNameByName)))
-			return
-		}
-		if request.Method != http.MethodPost || !strings.HasPrefix(request.URL.Path, "/v1/tools/") || !strings.HasSuffix(request.URL.Path, "/invoke") {
-			http.Error(responseWriter, "unsupported virtual capability endpoint", http.StatusNotFound)
-			return
-		}
-		toolName := strings.TrimPrefix(request.URL.Path, "/v1/tools/")
-		toolName = strings.TrimSuffix(toolName, "/invoke")
-		if !toolNameByName[toolName] {
-			http.Error(responseWriter, "unknown virtual capability tool", http.StatusNotFound)
-			return
-		}
-		requestBody, _ := io.ReadAll(request.Body)
-		_, _ = responseWriter.Write([]byte(virtualCapabilityResponse(toolName, requestBody)))
+func (service *virtualCapabilityService) handleRequest(responseWriter http.ResponseWriter, request *http.Request) {
+	responseWriter.Header().Set("Content-Type", "application/json")
+	if request.Method == http.MethodGet && request.URL.Path == "/v1/capabilities" {
+		_, _ = responseWriter.Write([]byte(virtualCapabilityCatalogResponse(service.toolNameByName)))
+		return
 	}
+	if request.Method != http.MethodPost || !strings.HasPrefix(request.URL.Path, "/v1/tools/") || !strings.HasSuffix(request.URL.Path, "/invoke") {
+		http.Error(responseWriter, "unsupported virtual capability endpoint", http.StatusNotFound)
+		return
+	}
+	toolName := strings.TrimSuffix(strings.TrimPrefix(request.URL.Path, "/v1/tools/"), "/invoke")
+	if !service.toolNameByName[toolName] {
+		http.Error(responseWriter, "unknown virtual capability tool", http.StatusNotFound)
+		return
+	}
+	requestBody, _ := io.ReadAll(request.Body)
+	_, _ = responseWriter.Write([]byte(service.response(toolName, requestBody)))
 }
 
 func virtualCapabilityCatalogResponse(toolNameByName map[string]bool) string {
@@ -988,31 +1004,19 @@ func virtualCapabilityCatalogResponse(toolNameByName map[string]bool) string {
 	sort.Strings(toolNames)
 	descriptors := []string{}
 	for _, toolName := range toolNames {
-		descriptors = append(descriptors, `{"name":`+quote(toolName)+`,"description":"Virtual capability `+toolName+`","inputSchema":{"type":"object"}}`)
+		descriptors = append(descriptors, `{"name":`+quote(toolName)+`,"description":"Virtual capability `+toolName+`","inputSchema":`+virtualCapabilityInputSchema(toolName)+`}`)
 	}
 	return `{"capabilities":[` + strings.Join(descriptors, ",") + `]}`
 }
 
-func (client virtualCapabilityHTTPClient) Do(request *http.Request) (*http.Response, error) {
-	toolName := strings.TrimPrefix(request.URL.Path, "/v1/tools/")
-	toolName = strings.TrimSuffix(toolName, "/invoke")
-	if !client.toolNameByName[toolName] {
-		return virtualCapabilityHTTPResponse(http.StatusNotFound, "unknown virtual capability tool"), nil
-	}
-	requestBody, _ := io.ReadAll(request.Body)
-	return virtualCapabilityHTTPResponse(http.StatusOK, virtualCapabilityResponse(toolName, requestBody)), nil
-}
-
-func virtualCapabilityHTTPResponse(statusCode int, body string) *http.Response {
-	return &http.Response{
-		StatusCode: statusCode,
-		Header:     http.Header{"Content-Type": []string{"application/json"}},
-		Body:       io.NopCloser(strings.NewReader(body)),
-	}
-}
-
-func virtualCapabilityResponse(toolName string, requestBody []byte) string {
+func (service *virtualCapabilityService) response(toolName string, requestBody []byte) string {
+	service.mutex.Lock()
+	defer service.mutex.Unlock()
 	switch toolName {
+	case "task.add", "task.list", "task.update", "task.delete":
+		return service.taskResponse(toolName, requestBody)
+	case "calendar.add", "calendar.list", "calendar.update", "calendar.delete":
+		return service.calendarResponse(toolName, requestBody)
 	case "site.create":
 		return `{"provider":"virtual","toolName":"site.create","status":"ok","result":{"siteID":"site-1","slug":"demo","workspacePath":"/workspace/circles/staff/sites/demo","sourceWorkspacePath":"/workspace/circles/staff/sites/demo/draft","appWorkspacePath":"/workspace/circles/staff/sites/demo/draft/app","sourceFiles":` + virtualSiteCreateSourceFiles(requestBody) + `}}`
 	case "site.publish":
@@ -1026,11 +1030,6 @@ func virtualCapabilityResponse(toolName string, requestBody []byte) string {
 			return `{"provider":"virtual","toolName":"site.delete","status":"denied","content":"requires approval","message":"requires approval","errorCode":"approval_required","failureStage":"authorization","result":{"errorCode":"approval_required","failureStage":"authorization","message":"requires approval"}}`
 		}
 		return `{"provider":"virtual","toolName":"site.delete","status":"ok","content":"deleted virtual site","result":{"siteID":"site-1","slug":"demo","status":"deleted"}}`
-	case "task.delete", "calendar.delete":
-		if virtualCapabilityRequestNeedsApproval(requestBody) {
-			return `{"provider":"virtual","toolName":` + quote(toolName) + `,"status":"denied","content":"requires approval","message":"requires approval","errorCode":"approval_required","failureStage":"authorization","result":{"errorCode":"approval_required","failureStage":"authorization","message":"requires approval"}}`
-		}
-		return `{"provider":"virtual","toolName":` + quote(toolName) + `,"status":"ok","content":"deleted virtual resource","result":{"status":"deleted"}}`
 	case "image.read":
 		return `{"provider":"virtual","toolName":"image.read","status":"ok","content":"image loaded","result":{"attachments":[{"devicePath":"/workspace/circles/staff/inbox/virtual/virtual-conversation-1/virtual-message-001/mascot.png","filename":"mascot.png","contentType":"image/png","sizeBytes":13,"contentBase64":"dmlydHVhbC1pbWFnZQ=="}]}}`
 	case "web.search":
@@ -1043,6 +1042,184 @@ func virtualCapabilityResponse(toolName string, requestBody []byte) string {
 	default:
 		return `{"provider":"virtual","toolName":` + quote(toolName) + `,"status":"ok","result":{"toolName":` + quote(toolName) + `,"ok":true,"request":` + jsonObjectOrEmpty(requestBody) + `}}`
 	}
+}
+
+func virtualCapabilityInputSchema(toolName string) string {
+	switch toolName {
+	case "task.add":
+		return `{"type":"object","properties":{"prompt":{"type":"string"},"targetPersonHint":{"type":"string"},"weekCode":{"type":"string"},"allowDuplicate":{"type":"boolean"}},"required":["prompt"],"additionalProperties":false}`
+	case "task.list":
+		return `{"type":"object","properties":{"query":{"type":"string"},"targetPersonHint":{"type":"string"},"weekFrom":{"type":"integer"},"weekTo":{"type":"integer"},"status":{"type":"string"},"limit":{"type":"integer"}},"additionalProperties":false}`
+	case "task.update":
+		return `{"type":"object","properties":{"taskID":{"type":"string"},"query":{"type":"string"},"targetPersonHint":{"type":"string"},"weekCode":{"type":"string"},"content":{"type":"string"},"goal":{"type":"string"},"status":{"type":"string"},"size":{"type":"string"},"category":{"type":"string"},"type":{"type":"string"},"startDate":{"type":"string"},"endDate":{"type":"string"},"flag":{"type":"integer"},"requestReason":{"type":"string"},"decisionReason":{"type":"string"}},"additionalProperties":false}`
+	case "task.delete":
+		return `{"type":"object","properties":{"taskID":{"type":"string"},"query":{"type":"string"},"weekCode":{"type":"string"},"targetPersonHint":{"type":"string"}},"additionalProperties":false}`
+	case "calendar.add":
+		return `{"type":"object","properties":{"title":{"type":"string"},"startISO":{"type":"string"},"endISO":{"type":"string"},"description":{"type":"string"},"location":{"type":"string"},"timeZone":{"type":"string"}},"required":["title","startISO","endISO"],"additionalProperties":false}`
+	case "calendar.list":
+		return `{"type":"object","properties":{"startISO":{"type":"string"},"endISO":{"type":"string"},"query":{"type":"string"},"limit":{"type":"integer"}},"additionalProperties":false}`
+	case "calendar.update":
+		return `{"type":"object","properties":{"eventID":{"type":"string"},"query":{"type":"string"},"title":{"type":"string"},"startISO":{"type":"string"},"endISO":{"type":"string"},"description":{"type":"string"},"location":{"type":"string"},"timeZone":{"type":"string"}},"required":["title","startISO","endISO"],"additionalProperties":false}`
+	case "calendar.delete":
+		return `{"type":"object","properties":{"eventID":{"type":"string"},"query":{"type":"string"}},"additionalProperties":false}`
+	default:
+		return `{"type":"object"}`
+	}
+}
+
+func (service *virtualCapabilityService) taskResponse(toolName string, requestBody []byte) string {
+	input := virtualCapabilityInput(requestBody)
+	switch toolName {
+	case "task.add":
+		values := copyVirtualCapabilityValues(input)
+		values["content"] = values["prompt"]
+		delete(values, "prompt")
+		record := virtualCapabilityRecord{ID: fmt.Sprintf("task-%d", len(service.tasks)+1), Values: values}
+		record.Values["taskID"] = record.ID
+		service.tasks = append(service.tasks, record)
+		return virtualCapabilitySuccess(toolName, "created virtual task", map[string]any{"task": record.Values})
+	case "task.list":
+		return virtualCapabilitySuccess(toolName, "listed virtual tasks", map[string]any{"tasks": virtualCapabilityRecordValues(service.tasks)})
+	case "task.update":
+		index := virtualCapabilityRecordIndex(service.tasks, input, "taskID")
+		if index < 0 {
+			return virtualCapabilityNotFound(toolName, "task")
+		}
+		mergeVirtualCapabilityRecord(service.tasks[index].Values, input, "taskID", "query")
+		return virtualCapabilitySuccess(toolName, "updated virtual task", map[string]any{"task": service.tasks[index].Values})
+	default:
+		if virtualCapabilityRequestNeedsApproval(requestBody) {
+			return virtualCapabilityApprovalRequired(toolName)
+		}
+		index := virtualCapabilityRecordIndex(service.tasks, input, "taskID")
+		if index < 0 {
+			return virtualCapabilityNotFound(toolName, "task")
+		}
+		deletedRecord := service.tasks[index]
+		service.tasks = append(service.tasks[:index], service.tasks[index+1:]...)
+		return virtualCapabilitySuccess(toolName, "deleted virtual task", map[string]any{"task": deletedRecord.Values, "status": "deleted"})
+	}
+}
+
+func (service *virtualCapabilityService) calendarResponse(toolName string, requestBody []byte) string {
+	input := virtualCapabilityInput(requestBody)
+	switch toolName {
+	case "calendar.add":
+		record := virtualCapabilityRecord{ID: fmt.Sprintf("event-%d", len(service.events)+1), Values: input}
+		record.Values["eventID"] = record.ID
+		service.events = append(service.events, record)
+		return virtualCapabilitySuccess(toolName, "created virtual calendar event", map[string]any{"event": record.Values})
+	case "calendar.list":
+		return virtualCapabilitySuccess(toolName, "listed virtual calendar events", map[string]any{"events": virtualCapabilityRecordValues(service.events)})
+	case "calendar.update":
+		index := virtualCapabilityRecordIndex(service.events, input, "eventID")
+		if index < 0 {
+			return virtualCapabilityNotFound(toolName, "calendar event")
+		}
+		mergeVirtualCapabilityRecord(service.events[index].Values, input, "eventID", "query")
+		return virtualCapabilitySuccess(toolName, "updated virtual calendar event", map[string]any{"event": service.events[index].Values})
+	default:
+		if virtualCapabilityRequestNeedsApproval(requestBody) {
+			return virtualCapabilityApprovalRequired(toolName)
+		}
+		index := virtualCapabilityRecordIndex(service.events, input, "eventID")
+		if index < 0 {
+			return virtualCapabilityNotFound(toolName, "calendar event")
+		}
+		deletedRecord := service.events[index]
+		service.events = append(service.events[:index], service.events[index+1:]...)
+		return virtualCapabilitySuccess(toolName, "deleted virtual calendar event", map[string]any{"event": deletedRecord.Values, "status": "deleted"})
+	}
+}
+
+func copyVirtualCapabilityValues(values map[string]any) map[string]any {
+	copiedValues := make(map[string]any, len(values)+1)
+	for fieldName, value := range values {
+		copiedValues[fieldName] = value
+	}
+	return copiedValues
+}
+
+func virtualCapabilityInput(requestBody []byte) map[string]any {
+	var requestDocument struct {
+		Input map[string]any `json:"input"`
+	}
+	if json.Unmarshal(requestBody, &requestDocument) != nil || requestDocument.Input == nil {
+		return map[string]any{}
+	}
+	return requestDocument.Input
+}
+
+func virtualCapabilityRecordIndex(records []virtualCapabilityRecord, input map[string]any, idFieldName string) int {
+	requestedID := strings.TrimSpace(stringValue(input[idFieldName]))
+	query := strings.ToLower(strings.TrimSpace(stringValue(input["query"])))
+	for index, record := range records {
+		if requestedID != "" && record.ID == requestedID {
+			return index
+		}
+		if query != "" && virtualCapabilityRecordContains(record, query) {
+			return index
+		}
+	}
+	if requestedID == "" && query == "" && len(records) == 1 {
+		return 0
+	}
+	return -1
+}
+
+func virtualCapabilityRecordContains(record virtualCapabilityRecord, query string) bool {
+	document, errorValue := json.Marshal(record.Values)
+	return errorValue == nil && strings.Contains(strings.ToLower(string(document)), query)
+}
+
+func mergeVirtualCapabilityRecord(record map[string]any, input map[string]any, excludedFieldNames ...string) {
+	excludedFields := map[string]bool{}
+	for _, fieldName := range excludedFieldNames {
+		excludedFields[fieldName] = true
+	}
+	for fieldName, value := range input {
+		if !excludedFields[fieldName] {
+			record[fieldName] = value
+		}
+	}
+}
+
+func virtualCapabilityRecordValues(records []virtualCapabilityRecord) []map[string]any {
+	values := make([]map[string]any, 0, len(records))
+	for _, record := range records {
+		values = append(values, record.Values)
+	}
+	return values
+}
+
+func virtualCapabilitySuccess(toolName string, content string, result any) string {
+	return virtualCapabilityJSON(map[string]any{"provider": "virtual", "toolName": toolName, "status": "ok", "content": content, "result": result})
+}
+
+func virtualCapabilityApprovalRequired(toolName string) string {
+	result := map[string]any{"errorCode": "approval_required", "failureStage": "authorization", "message": "requires approval"}
+	return virtualCapabilityJSON(map[string]any{"provider": "virtual", "toolName": toolName, "status": "denied", "content": "requires approval", "message": "requires approval", "errorCode": "approval_required", "failureStage": "authorization", "result": result})
+}
+
+func virtualCapabilityNotFound(toolName string, resourceName string) string {
+	message := "virtual " + resourceName + " not found"
+	return virtualCapabilityJSON(map[string]any{"provider": "virtual", "toolName": toolName, "status": "error", "content": message, "message": message, "errorCode": "not_found", "failureStage": "lookup", "result": map[string]any{"message": message}})
+}
+
+func virtualCapabilityJSON(document any) string {
+	encodedDocument, errorValue := json.Marshal(document)
+	if errorValue != nil {
+		return `{"provider":"virtual","status":"error","message":"virtual response encoding failed"}`
+	}
+	return string(encodedDocument)
+}
+
+func stringValue(value any) string {
+	text, isString := value.(string)
+	if !isString {
+		return ""
+	}
+	return text
 }
 
 func virtualSiteCreateSourceFiles(requestBody []byte) string {
@@ -1127,7 +1304,7 @@ func (harness *VirtualSessionHarness) Run(ctx context.Context) (VirtualSessionRe
 		if harness.scriptedModel != nil {
 			if strings.TrimSpace(virtualTurn.RouterApproval) != "" {
 				harness.scriptedModel.EnqueueStructuredResponses("blueclaw_turn_router", scenarioApprovalRouterResponse(virtualTurn.RouterApproval))
-			} else if len(virtualTurn.RouterRequiredEvidence) > 0 || strings.TrimSpace(virtualTurn.RouterSiteEvidence) != "" || virtualTurnExpectsEvent(virtualTurn, "ask.resolved") {
+			} else if len(virtualTurn.RouterRequiredEvidence) > 0 || strings.TrimSpace(virtualTurn.RouterSiteEvidence) != "" || virtualTurnExpectsEvent(virtualTurn, "ask.requested") || virtualTurnExpectsEvent(virtualTurn, "ask.resolved") {
 				harness.scriptedModel.EnqueueStructuredResponses("blueclaw_turn_router", scenarioTurnRouterResponse(harness.scenario, virtualTurn))
 			}
 			harness.scriptedModel.SetActionResponses(virtualTurn.ActionResponses...)
@@ -1137,10 +1314,10 @@ func (harness *VirtualSessionHarness) Run(ctx context.Context) (VirtualSessionRe
 			return result, errorValue
 		}
 		turnResult.InformationalAssertions = informationalAssertionResults(virtualTurn, turnResult)
+		result.TurnResults = append(result.TurnResults, turnResult)
 		if errorValue := harness.assertTurnResult(virtualTurn, turnResult); errorValue != nil {
 			return result, fmt.Errorf("%s turn %d: %w", harness.scenario.Name, index+1, errorValue)
 		}
-		result.TurnResults = append(result.TurnResults, turnResult)
 		harness.rememberTurn(virtualTurn, turnResult)
 	}
 	result.TaskSchedules = harness.scheduleStore.TaskSchedules()
@@ -1429,6 +1606,11 @@ func (harness *VirtualSessionHarness) modelCallsSince(startIndex int) []VirtualL
 }
 
 func (harness *VirtualSessionHarness) assertTurnResult(virtualTurn VirtualTurn, turnResult VirtualTurnResult) error {
+	if harness.scenario.FailOnLanguageModelError {
+		if errorValue := assertLanguageModelCallsSucceeded(turnResult.LanguageModelCallEvents); errorValue != nil {
+			return errorValue
+		}
+	}
 	if harness.scenario.UseLooseAssertions {
 		return assertLooseTurnResult(virtualTurn, turnResult)
 	}
@@ -1539,6 +1721,15 @@ func assertTurnResult(workspacePath string, virtualTurn VirtualTurn, turnResult 
 		return fmt.Errorf("expected reply length >= %d, got %d: %q", virtualTurn.MinimumReplyLength, len([]rune(turnResult.FinishMessage)), turnResult.FinishMessage)
 	}
 	return assertStructuralTurnExpectations(virtualTurn, turnResult)
+}
+
+func assertLanguageModelCallsSucceeded(events []VirtualLanguageModelCallEvent) error {
+	for _, event := range events {
+		if event.IsError {
+			return fmt.Errorf("language model call failed: %s", strings.TrimSpace(strings.Join([]string{event.Kind, event.SchemaName, event.Error}, " ")))
+		}
+	}
+	return nil
 }
 
 func assertResponseExpectation(virtualTurn VirtualTurn, turnResult VirtualTurnResult) error {

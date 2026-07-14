@@ -7,7 +7,6 @@ import (
 	"reflect"
 	"strings"
 	"testing"
-	"time"
 
 	"blueclaw/internal/agenttest"
 	"blueclaw/internal/capability"
@@ -22,6 +21,19 @@ func TestPresentationScenarioDoesNotScriptToolCalls(t *testing.T) {
 	}
 	if len(scenario.Turns[0].ActionResponses) != 0 {
 		t.Fatal("slides scenario must not script model tool calls or artifact creation")
+	}
+}
+
+func TestLanguageModelCallAssertionRejectsError(t *testing.T) {
+	errorValue := assertLanguageModelCallsSucceeded([]VirtualLanguageModelCallEvent{{
+		Kind:       "structured",
+		SchemaName: "blueclaw_turn_router",
+		IsError:    true,
+		Error:      "truncated",
+	}})
+
+	if errorValue == nil || !strings.Contains(errorValue.Error(), "blueclaw_turn_router") {
+		t.Fatalf("expected strict assertion to reject the model error, got %v", errorValue)
 	}
 }
 
@@ -43,7 +55,6 @@ func TestPresentationLocalMultiturnSuccessLive(t *testing.T) {
 		CapabilityClient: capability.NewClient(capability.Configuration{
 			Endpoint:       endpoint,
 			UnixSocketPath: socketPath,
-			Timeout:        90 * time.Second,
 		}),
 		ModelName:     os.Getenv("BLUECLAW_E2E_LLM_MODEL"),
 		ExecutionMode: firstNonEmptyTestString(os.Getenv("BLUECLAW_E2E_LLM_EXECUTION_MODE"), "auto"),
@@ -104,6 +115,62 @@ func TestPlainQuestionAcceptance(t *testing.T) {
 	}
 	if failureEventCount(turnResult.Events) != 0 {
 		t.Fatalf("expected no failure events, got events: %s", summarizeEvents(turnResult.Events))
+	}
+}
+
+func TestFailedAssertionReturnsObservedTurnResult(t *testing.T) {
+	scenario := PlainQuestionAcceptanceScenario(t.TempDir())
+	scenario.Turns[0].ExpectedTaskStatus = task.TaskStatusFailed
+
+	result, errorValue := RunVirtualSession(context.Background(), scenario)
+
+	if errorValue == nil {
+		t.Fatal("expected task status assertion to fail")
+	}
+	if len(result.TurnResults) != 1 {
+		t.Fatalf("expected failing turn result to remain observable, got %d", len(result.TurnResults))
+	}
+	if result.TurnResults[0].TaskStatus != task.TaskStatusCompleted {
+		t.Fatalf("expected observed completed status, got %q", result.TurnResults[0].TaskStatus)
+	}
+}
+
+func TestVirtualTaskCapabilityPreservesLifecycleState(t *testing.T) {
+	service := virtualCapabilityService{}
+	addResponse := service.response("task.add", []byte(`{"input":{"prompt":"비용 테스트 회귀 확인"},"context":{}}`))
+	updateResponse := service.response("task.update", []byte(`{"input":{"query":"비용 테스트 회귀 확인","content":"비용 테스트 회귀 확인 완료 준비"},"context":{}}`))
+	listResponse := service.response("task.list", []byte(`{"input":{},"context":{}}`))
+	approvalResponse := service.response("task.delete", []byte(`{"input":{"query":"비용 테스트 회귀 확인 완료 준비"},"context":{}}`))
+	deleteResponse := service.response("task.delete", []byte(`{"input":{"query":"비용 테스트 회귀 확인 완료 준비"},"context":{"isApprovalContinuation":true}}`))
+	emptyListResponse := service.response("task.list", []byte(`{"input":{},"context":{}}`))
+
+	if !strings.Contains(addResponse, `"taskID":"task-1"`) {
+		t.Fatalf("expected created task identity, got %s", addResponse)
+	}
+	if !strings.Contains(updateResponse, `"content":"비용 테스트 회귀 확인 완료 준비"`) {
+		t.Fatalf("expected updated title, got %s", updateResponse)
+	}
+	if !strings.Contains(listResponse, `"content":"비용 테스트 회귀 확인 완료 준비"`) {
+		t.Fatalf("expected list to return updated task, got %s", listResponse)
+	}
+	if !strings.Contains(approvalResponse, `"errorCode":"approval_required"`) {
+		t.Fatalf("expected delete approval gate, got %s", approvalResponse)
+	}
+	if !strings.Contains(deleteResponse, `"status":"deleted"`) {
+		t.Fatalf("expected approved delete, got %s", deleteResponse)
+	}
+	if strings.Contains(emptyListResponse, `"taskID":"task-1"`) {
+		t.Fatalf("expected deleted task to be absent, got %s", emptyListResponse)
+	}
+}
+
+func TestVirtualCapabilityCatalogUsesOperationSchemas(t *testing.T) {
+	catalog := virtualCapabilityCatalogResponse(map[string]bool{"task.add": true, "calendar.update": true})
+
+	for _, expectedText := range []string{`"prompt"`, `"eventID"`, `"startISO"`, `"endISO"`} {
+		if !strings.Contains(catalog, expectedText) {
+			t.Fatalf("expected catalog schema field %s, got %s", expectedText, catalog)
+		}
 	}
 }
 
@@ -551,7 +618,7 @@ func TestSiteCustomStructureAcceptance(t *testing.T) {
 	if countEvents(turnResult.Events, "tool.terminal.run.requested") != 1 {
 		t.Fatalf("expected exactly one terminal.run build after the app/src change; events: %s", summarizeEvents(turnResult.Events))
 	}
-	if countEventsWithFragment(turnResult.Events, "tool.capability.invoke.requested", "site.publish") != 1 {
+	if countEvents(turnResult.Events, "tool.site.publish.requested") != 1 {
 		t.Fatalf("expected site.publish to succeed only after the rebuild; events: %s", summarizeEvents(turnResult.Events))
 	}
 	if !strings.Contains(turnResult.FinishMessage, "https://") {

@@ -18,6 +18,12 @@ func (roundTripper openRouterRoundTripFunc) RoundTrip(request *http.Request) (*h
 	return roundTripper(request)
 }
 
+func TestOpenRouterClientUsesCallerContextForRequestLifetime(t *testing.T) {
+	if timeout := (OpenRouterClient{}).httpClient().Timeout; timeout != 0 {
+		t.Fatalf("expected no provider-specific request timeout, got %s", timeout)
+	}
+}
+
 func TestOpenRouterClientRetriesRateLimit(t *testing.T) {
 	requestCount := 0
 	client := OpenRouterClient{
@@ -318,6 +324,26 @@ func TestOpenRouterClientReportsHTTPStatusAndBody(t *testing.T) {
 	errorText := errorValue.Error()
 	if !strings.Contains(errorText, "code=422") || !strings.Contains(errorText, "unsupported parameter seed") {
 		t.Fatalf("expected status and body in error, got %q", errorText)
+	}
+}
+
+func TestOpenRouterClientReportsSuccessfulErrorEnvelope(t *testing.T) {
+	client := OpenRouterClient{
+		APIKey:    "sk-test",
+		BaseURL:   "https://openrouter.test/api/v1/chat/completions",
+		ModelName: "test-model",
+		HTTPClient: &http.Client{Transport: openRouterRoundTripFunc(func(request *http.Request) (*http.Response, error) {
+			return openRouterTestResponse(http.StatusOK, `{"error":{"message":"structured output is unsupported"}}`), nil
+		})},
+	}
+
+	_, errorValue := client.GenerateStructuredResponse(context.Background(), buildOpenRouterStructuredResponseTestRequest())
+
+	if errorValue == nil {
+		t.Fatal("expected successful error envelope to fail")
+	}
+	if !strings.Contains(errorValue.Error(), "code=200") || !strings.Contains(errorValue.Error(), "structured output is unsupported") {
+		t.Fatalf("expected status and provider error body, got %q", errorValue.Error())
 	}
 }
 
