@@ -286,6 +286,7 @@ func runVirtualSession(ctx context.Context, arguments virtualSessionArguments) e
 
 func validateStrictEmbeddingRetrieval(result e2e.VirtualSessionResult) error {
 	foundRetrievalEvidence := false
+	foundReadyEmbedding := false
 	for _, turnResult := range result.TurnResults {
 		for _, event := range turnResult.Events {
 			if event.Name != "agent.instructions_loaded" {
@@ -299,13 +300,30 @@ func validateStrictEmbeddingRetrieval(result e2e.VirtualSessionResult) error {
 			if errorValue := json.Unmarshal([]byte(event.Body), &retrieval); errorValue != nil {
 				return errors.New("strict live scenario could not verify skill retrieval mode")
 			}
-			if retrieval.Mode != "embedding" || retrieval.IndexStatus != "ready" {
+			switch retrieval.Mode {
+			case "embedding":
+				if retrieval.IndexStatus != "ready" {
+					return fmt.Errorf("strict live scenario used embedding skill retrieval with index status %s", firstNonEmptyString(retrieval.IndexStatus, "unknown"))
+				}
+				foundReadyEmbedding = true
+			case "direct":
+				if retrieval.IndexStatus != "bypassed" {
+					return fmt.Errorf("strict live scenario used direct skill retrieval with index status %s", firstNonEmptyString(retrieval.IndexStatus, "unknown"))
+				}
+			case "structured_query":
+				if retrieval.IndexStatus != "empty_query" {
+					return fmt.Errorf("strict live scenario used structured skill retrieval with index status %s", firstNonEmptyString(retrieval.IndexStatus, "unknown"))
+				}
+			default:
 				return fmt.Errorf("strict live scenario used %s skill retrieval with index status %s", firstNonEmptyString(retrieval.Mode, "unknown"), firstNonEmptyString(retrieval.IndexStatus, "unknown"))
 			}
 		}
 	}
 	if !foundRetrievalEvidence {
 		return errors.New("strict live scenario did not record skill retrieval evidence")
+	}
+	if !foundReadyEmbedding {
+		return errors.New("strict live scenario did not record ready embedding retrieval evidence")
 	}
 	return nil
 }

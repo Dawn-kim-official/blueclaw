@@ -1012,7 +1012,7 @@ func virtualCapabilityCatalogResponse(toolNameByName map[string]bool) string {
 	for _, toolName := range toolNames {
 		descriptors = append(descriptors, `{"name":`+quote(toolName)+`,"description":"Virtual capability `+toolName+`","inputSchema":`+virtualCapabilityInputSchema(toolName)+`}`)
 	}
-	return `{"capabilities":[` + strings.Join(descriptors, ",") + `]}`
+	return `{"deviceCapabilities":[` + strings.Join(descriptors, ",") + `]}`
 }
 
 func (service *virtualCapabilityService) response(toolName string, requestBody []byte) string {
@@ -1132,7 +1132,7 @@ func virtualCapabilityInputSchema(toolName string) string {
 	case "calendar.delete":
 		return `{"type":"object","properties":{"eventID":{"type":"string"},"query":{"type":"string"}},"additionalProperties":false}`
 	case "site.create":
-		return `{"type":"object","properties":{"slug":{"type":"string"},"title":{"type":"string"},"description":{"type":"string"},"idea":{"type":"string"},"purpose":{"type":"string"},"audience":{"type":"string"},"archetype":{"type":"string"},"domainKeywords":{"type":"array","items":{"type":"string"}}},"required":["slug","title"],"additionalProperties":false}`
+		return `{"type":"object","properties":{"slug":{"type":"string"},"title":{"type":"string"},"prompt":{"type":"string"},"designBrief":{"type":"string"},"prototypeScope":{"type":"string"},"description":{"type":"string"},"idea":{"type":"string"},"purpose":{"type":"string"},"audience":{"type":"string"},"archetype":{"type":"string"},"domainKeywords":{"type":"array","items":{"type":"string"}},"content":{"type":"object"}},"required":["slug"],"additionalProperties":false}`
 	case "site.status", "site.publish", "site.delete":
 		return `{"type":"object","properties":{"siteID":{"type":"string"},"slug":{"type":"string"},"title":{"type":"string"},"message":{"type":"string"}},"additionalProperties":false}`
 	case "message.send":

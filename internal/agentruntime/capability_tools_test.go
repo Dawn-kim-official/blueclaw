@@ -262,6 +262,37 @@ func TestCapabilityInvokeMissingRequiredFieldsIncludesDescriptorRecoveryHint(t *
 	}
 }
 
+func TestCapabilityInvokeRejectsUnexpectedFieldsBeforeCapabilityCall(t *testing.T) {
+	httpClient := &recordingHTTPClient{responseBody: `{"content":"unexpected","status":"ok"}`}
+	toolCatalogBuilder := NewToolCatalogBuilder()
+	toolCatalogBuilder.UseCapabilityToolDescriptors(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, []CapabilityToolDescriptor{{
+		Name:        "calendar.delete",
+		InputSchema: json.RawMessage(`{"type":"object","properties":{"eventID":{"type":"string"},"query":{"type":"string"}},"additionalProperties":false}`),
+	}})
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
+
+	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+		ToolName: agent.CapabilityInvokeToolName,
+		Input:    json.RawMessage(`{"operation":"calendar.delete","input":"{\"path\":\"/calendar/events/비용 테스트 일정\"}"}`),
+	})
+
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if !result.Failed() || !strings.Contains(result.ContentText(), "does not accept these input fields: path") {
+		t.Fatalf("expected unexpected input failure, got %s", result.ContentText())
+	}
+	if !strings.Contains(result.ContentText(), "eventID, query") {
+		t.Fatalf("expected allowed fields in failure, got %s", result.ContentText())
+	}
+	if httpClient.requestPath != "" {
+		t.Fatalf("unexpected input must fail before capabilityd call, got path %s", httpClient.requestPath)
+	}
+	if result.Failure == nil || !result.Failure.Retryable || result.Failure.RetryPolicy != "different_input" {
+		t.Fatalf("expected retryable schema failure, got %+v", result.Failure)
+	}
+}
+
 func TestCapabilityInvokeMissingInputIncludesInputSkeleton(t *testing.T) {
 	httpClient := &recordingHTTPClient{responseBody: `{"content":"unexpected","status":"ok"}`}
 	toolCatalogBuilder := NewToolCatalogBuilder()
