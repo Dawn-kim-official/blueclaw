@@ -1224,6 +1224,50 @@ func TestCompletionContractVerifierSkipsEmptyContract(t *testing.T) {
 	}
 }
 
+func TestCompletionContractVerifierSkipsRedundantCheckForVerifiedToolOutcome(t *testing.T) {
+	languageModel := &sequenceLanguageModel{
+		resultVerifications: []string{
+			`{"overallStatus":"missing","summary":"final reply not delivered","results":[{"id":"task-status-update","status":"satisfied","reason":"task.update changed the status","citedObservationIDs":["obs-001"],"missingDescription":"","suggestedNextTools":[]},{"id":"final-message","status":"missing","reason":"the final reply is not delivered yet","citedObservationIDs":[],"missingDescription":"a final reply is missing","suggestedNextTools":["finish"]}]}`,
+		},
+	}
+	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
+	goalSatisfied := true
+	observations := []turnObservation{
+		newContentObservation("obs-001", "continue", "task.update", `{"id":"task-1","status":"진행"}`),
+	}
+	contract := OutcomeContract{
+		RequiredEvidenceTools: []string{"task.update"},
+		ExpectedResults: []ExpectedResult{
+			{ID: "task-status-update", Type: ExpectedResultTypeMessage, Description: "task status is updated", Required: true},
+			{ID: "final-message", Type: ExpectedResultTypeMessage, Description: "final reply to the user", Required: true},
+		},
+	}
+	if !expectedResultsAndExactEvidenceSatisfyContract(contract, observations) {
+		t.Fatalf("expected exact task.update evidence to satisfy simple contract: %+v", normalizeOutcomeContract(contract))
+	}
+
+	result := services.runner.validateCompletionGateForRequestWithExpectedResults(context.Background(), "task-1", AgentTurnRequest{
+		ToolSet:         newTestToolSet([]string{"task.update"}),
+		OutcomeContract: contract,
+	}, nil, observations, nil, nil, turnActionDocument{
+		Action:        "finish",
+		Message:       "업무 상태를 진행으로 변경했습니다.",
+		GoalStatus:    "satisfied",
+		GoalSatisfied: &goalSatisfied,
+		CompletionEvidence: []completionEvidenceReference{{
+			ObservationID: "obs-001",
+			ToolName:      "task.update",
+		}},
+	})
+
+	if !result.IsSatisfied {
+		t.Fatalf("expected verified task update and ready final message to complete, got %+v", result)
+	}
+	if len(languageModel.contractRequests) != 0 {
+		t.Fatalf("expected redundant semantic contract verification to be skipped, got %d calls", len(languageModel.contractRequests))
+	}
+}
+
 func TestCompletionContractVerifierRejectsMissingAttachmentEvidence(t *testing.T) {
 	languageModel := &sequenceLanguageModel{
 		contractVerifications: []string{
