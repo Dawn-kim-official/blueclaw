@@ -59,6 +59,29 @@ func TestBuildAgentActionRequestPreservesNativeToolCallingWireShape(t *testing.T
 	if request.GenerationOptions.Temperature == nil || *request.GenerationOptions.Temperature != temperature {
 		t.Fatalf("expected temperature to be preserved, got %+v", request.GenerationOptions)
 	}
+	var schemaDocument struct {
+		OneOf []map[string]any `json:"oneOf"`
+	}
+	if errorValue := json.Unmarshal([]byte(request.StructuredOutputSchema.Document), &schemaDocument); errorValue != nil {
+		t.Fatalf("expected action schema JSON: %v", errorValue)
+	}
+	if len(schemaDocument.OneOf) == 0 {
+		t.Fatal("expected action schema oneOf variants")
+	}
+	for _, variant := range schemaDocument.OneOf {
+		properties := mapFromAny(variant["properties"])
+		actionValues := stringSliceFromAny(mapFromAny(properties["action"])["enum"])
+		if len(actionValues) != 1 {
+			t.Fatalf("expected one action discriminator per variant, got %+v", actionValues)
+		}
+		if actionValues[0] != "continue" {
+			continue
+		}
+		toolNameValues := stringSliceFromAny(mapFromAny(properties["toolName"])["enum"])
+		if len(toolNameValues) != 1 {
+			t.Fatalf("expected one toolName discriminator per continue variant, got %+v", toolNameValues)
+		}
+	}
 	if !strings.Contains(request.StructuredOutputSchema.Document, `"action":{"enum":["continue"]`) {
 		t.Fatalf("expected continue action variant, got %s", request.StructuredOutputSchema.Document)
 	}

@@ -107,6 +107,17 @@ type LanguageModelConfiguration struct {
 	DefaultProvider  string                               `json:"defaultProvider"`
 	FallbackProvider string                               `json:"fallbackProvider"`
 	Capability       LanguageModelCapabilityConfiguration `json:"capability"`
+	SDKD             LanguageModelSDKDConfiguration       `json:"sdkd"`
+}
+
+type LanguageModelSDKDConfiguration struct {
+	Endpoint              string   `json:"endpoint"`
+	UnixSocketPath        string   `json:"unixSocketPath"`
+	AuthKeyPath           string   `json:"authKeyPath"`
+	ExecutionMode         string   `json:"executionMode"`
+	TimeoutSecond         int      `json:"timeoutSecond"`
+	ShadowEnabled         bool     `json:"shadowEnabled"`
+	StructuredSchemaNames []string `json:"structuredSchemaNames"`
 }
 
 type LanguageModelCapabilityConfiguration struct {
@@ -204,16 +215,16 @@ type LoggingConfiguration struct {
 }
 
 type TerminalConfiguration struct {
-	Mode                   string   `json:"mode"`
-	SandboxProvider        string   `json:"sandboxProvider"`
-	WorkspaceRootPath      string   `json:"workspaceRootPath"`
-	POSIXHelperPath        string   `json:"posixHelperPath"`
-	DeniedPathPrefixes     []string `json:"deniedPathPrefixes"`
-	TimeoutSecond          int      `json:"timeoutSecond"`
-	OutputMaxBytes         int      `json:"outputMaxBytes"`
-	SessionMaxCount        int      `json:"sessionMaxCount"`
-	AllowNetwork           bool     `json:"allowNetwork"`
-	AllowInteractiveShell  bool     `json:"allowInteractiveShell"`
+	Mode                  string   `json:"mode"`
+	SandboxProvider       string   `json:"sandboxProvider"`
+	WorkspaceRootPath     string   `json:"workspaceRootPath"`
+	POSIXHelperPath       string   `json:"posixHelperPath"`
+	DeniedPathPrefixes    []string `json:"deniedPathPrefixes"`
+	TimeoutSecond         int      `json:"timeoutSecond"`
+	OutputMaxBytes        int      `json:"outputMaxBytes"`
+	SessionMaxCount       int      `json:"sessionMaxCount"`
+	AllowNetwork          bool     `json:"allowNetwork"`
+	AllowInteractiveShell bool     `json:"allowInteractiveShell"`
 }
 
 type SchedulerConfiguration struct {

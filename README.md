@@ -219,6 +219,26 @@ Blueclaw uses a single secretless LLM provider named `capabilityLLM`. OpenRouter
 }
 ```
 
+An experimental AI SDK runtime is available under `sdkd/`. It is disabled by default. Selecting `sdkd` or enabling its shadow observer requires a private Unix socket and an installation auth key file. The default migration scope is only `blueclaw_agent_turn_action`; other structured schemas, text generation, recovery wording, and any failed SDKD action request continue through `capabilityLLM`.
+
+```json
+{
+  "languageModel": {
+    "defaultProvider": "capabilityLLM",
+    "sdkd": {
+      "unixSocketPath": "/run/blueclaw-sdkd/sdkd.sock",
+      "authKeyPath": "/run/credentials/sdkd-auth-key",
+      "executionMode": "auto",
+      "timeoutSecond": 60,
+      "shadowEnabled": false,
+      "structuredSchemaNames": ["blueclaw_agent_turn_action"]
+    }
+  }
+}
+```
+
+The direct socket configuration is for native development and tests. Appliance packaging must keep provider credentials in a host service and proxy guest requests through the capability boundary; it is not enabled by this phase.
+
 - Blueclaw sends `model`, `executionMode`, `messages`, and `structuredOutputSchema` to `POST /v1/llm/structured`; product configs set `model` to `google/gemini-3.1-flash-lite`, `highModel` to `google/gemini-3-flash-preview`, and `contextWindowTokens` to `1048576`
 - Blueclaw routes per task complexity across three optional model tiers. High = `highModel` or `model` or `google/gemini-3-flash-preview`; medium = `mediumModel` or `x-ai/grok-4.3`; low = `lowModel` or `google/gemini-3.1-flash-lite`. Quick effort and simple/normal tasks use low, complex tasks use medium, deep/extended effort uses high; intake routing and failure/recovery wording always use low
 - Blueclaw never adds an `Authorization` header for LLM capability calls
