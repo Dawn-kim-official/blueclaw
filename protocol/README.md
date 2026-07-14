@@ -9,7 +9,7 @@ bun run build
 bun test
 ```
 
-`src/` is the contract source. `generated/` and `bun.lock` are checked in so Go services and packaged runtimes can consume the same protocol without installing TypeScript dependencies.
+`src/` is the contract source and `bun.lock` pins generation. Manifests and hashes are computed from Zod through the `@blueclaw/protocol/artifacts` export. `bun run generate` writes optional JSON Schema release artifacts to ignored `dist/`; generated schemas are not committed.
 
 Changes must preserve the shared fixtures under `fixtures/` until a versioned migration is available. Provider calls, capability execution, task state, and platform delivery do not depend on this package at runtime yet.
 
