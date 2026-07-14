@@ -59,6 +59,9 @@ func applySkillTaskLevelFloor(decision IntakeDecision, instructionBundle Instruc
 		if !selectedSkillRequiresCompletionEvidence(skillInstruction) {
 			continue
 		}
+		if decision.Classification == IntakeClassificationQuickReply && !selectedSkillCanPromoteQuickReply(instructionBundle, skillInstruction.Name) {
+			continue
+		}
 		floor := defaultSkillFloor
 		if override, hasOverride := taskLevelFloorBySelectedSkillName[strings.ToLower(strings.TrimSpace(skillInstruction.Name))]; hasOverride {
 			floor = LargerTaskLevel(floor, override)
@@ -103,7 +106,7 @@ func taskShapeForSelectedSkills(instructionBundle InstructionBundle) TaskShape {
 func selectedSkillsNeedBoundedExecution(instructionBundle InstructionBundle, classification IntakeClassification) bool {
 	for _, skillInstruction := range selectedSkillInstructionList(instructionBundle) {
 		if classification == IntakeClassificationQuickReply {
-			if selectedSkillRequiresCompletionEvidence(skillInstruction) {
+			if selectedSkillRequiresCompletionEvidence(skillInstruction) && selectedSkillCanPromoteQuickReply(instructionBundle, skillInstruction.Name) {
 				return true
 			}
 			continue
@@ -114,6 +117,16 @@ func selectedSkillsNeedBoundedExecution(instructionBundle InstructionBundle, cla
 		if artifactSkillCanRecoverIntakeRefusal(classification, SkillToolNames(skillInstruction)) {
 			return true
 		}
+	}
+	return false
+}
+
+func selectedSkillCanPromoteQuickReply(instructionBundle InstructionBundle, skillName string) bool {
+	for _, skillDecision := range instructionBundle.SkillDecisions {
+		if skillDecision.Name != skillName || skillDecision.Status != "selected" {
+			continue
+		}
+		return skillDecision.Reason != "bm25_fallback"
 	}
 	return false
 }
