@@ -1,6 +1,0 @@
-{
-  "taskArtifactID": "artifact-1",
-  "taskRunID": "task-1",
-  "name": "report.pdf",
-  "body": "{\"path\":\"artifacts/report.pdf\"}"
-}
