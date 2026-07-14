@@ -47,6 +47,7 @@ func withConfiguredSDKDShadow(primaryProvider LanguageModelProvider, runtimeConf
 	if errorValue != nil {
 		return nil, errorValue
 	}
+	shadowProvider.StructuredFallbackProvider = nil
 	return ShadowLanguageModelProvider{
 		PrimaryProvider:       primaryProvider,
 		ShadowProvider:        shadowProvider,
@@ -57,17 +58,20 @@ func withConfiguredSDKDShadow(primaryProvider LanguageModelProvider, runtimeConf
 
 func newSDKDClient(runtimeConfiguration config.RuntimeConfiguration, modelName string) (SDKDClient, error) {
 	sdkdConfiguration := runtimeConfiguration.LanguageModel.SDKD
+	authKey := ""
 	authKeyPath := strings.TrimSpace(sdkdConfiguration.AuthKeyPath)
-	if authKeyPath == "" {
+	if authKeyPath == "" && strings.TrimRight(strings.TrimSpace(sdkdConfiguration.Endpoint), "/") != sdkdLoopbackBridgeEndpoint {
 		return SDKDClient{}, errors.New("sdkd auth key path is not configured")
 	}
-	authKeyDocument, errorValue := os.ReadFile(authKeyPath)
-	if errorValue != nil {
-		return SDKDClient{}, errorValue
-	}
-	authKey := strings.TrimSpace(string(authKeyDocument))
-	if authKey == "" {
-		return SDKDClient{}, errors.New("sdkd auth key is empty")
+	if authKeyPath != "" {
+		authKeyDocument, errorValue := os.ReadFile(authKeyPath)
+		if errorValue != nil {
+			return SDKDClient{}, errorValue
+		}
+		authKey = strings.TrimSpace(string(authKeyDocument))
+		if authKey == "" {
+			return SDKDClient{}, errors.New("sdkd auth key is empty")
+		}
 	}
 	timeout := time.Duration(sdkdConfiguration.TimeoutSecond) * time.Second
 	if timeout <= 0 {
@@ -81,6 +85,7 @@ func newSDKDClient(runtimeConfiguration config.RuntimeConfiguration, modelName s
 		Timeout:                    timeout,
 		ModelName:                  modelName,
 		ExecutionMode:              firstNonEmptyModelName(sdkdConfiguration.ExecutionMode, runtimeConfiguration.LanguageModel.Capability.ExecutionMode),
+		LocalOnly:                  sdkdConfiguration.LocalOnly,
 		TextProvider:               capabilityProvider,
 		StructuredFallbackProvider: capabilityProvider,
 		StructuredSchemaNames:      configuredSDKDSchemaNames(runtimeConfiguration),

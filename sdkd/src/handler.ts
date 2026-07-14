@@ -8,6 +8,7 @@ import {
 import { buildProtocolArtifacts } from '@blueclaw/protocol/artifacts';
 
 import type { SDKDConfiguration } from './configuration.ts';
+import { classifySDKDError } from './errors.ts';
 import type { StructuredResponseGenerator } from './provider.ts';
 
 const protocolManifest = buildProtocolArtifacts().manifest;
@@ -41,10 +42,13 @@ export function createSDKDHandler(dependencies: HandlerDependencies) {
     try {
       const response = await dependencies.generateStructuredResponse(parsedRequest.data);
       const parsedResponse = structuredResponseSchema.safeParse(response);
-      if (!parsedResponse.success) return errorResponse(502, 'invalid_provider_response');
+      if (!parsedResponse.success) {
+        return errorResponse(502, 'provider_response_invalid', false);
+      }
       return Response.json(parsedResponse.data);
     } catch (errorValue) {
-      return errorResponse(502, providerErrorCode(errorValue));
+      const sdkdError = classifySDKDError(errorValue);
+      return errorResponse(sdkdError.status, sdkdError.code, sdkdError.allowLegacyFallback);
     }
   };
 }
@@ -68,12 +72,6 @@ async function parseJSONBody(request: Request): Promise<
   }
 }
 
-function providerErrorCode(errorValue: unknown): string {
-  if (!(errorValue instanceof Error)) return 'provider_request_failed';
-  const normalizedName = errorValue.name.trim().toLowerCase().replaceAll(/[^a-z0-9]+/g, '_');
-  return normalizedName ? `provider_${normalizedName}` : 'provider_request_failed';
-}
-
-function errorResponse(status: number, code: string): Response {
-  return Response.json({ error: { code } }, { status });
+function errorResponse(status: number, code: string, allowLegacyFallback = false): Response {
+  return Response.json({ error: { code, allowLegacyFallback } }, { status });
 }

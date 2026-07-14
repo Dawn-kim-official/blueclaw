@@ -13,6 +13,30 @@ import (
 )
 
 const defaultSDKDEndpoint = "http://blueclaw-sdkd"
+const sdkdLoopbackBridgeEndpoint = "http://127.0.0.1:18081/_internkim/sdkd"
+
+type sdkdHTTPError struct {
+	StatusCode          int
+	Code                string
+	Message             string
+	AllowLegacyFallback bool
+}
+
+func (errorValue sdkdHTTPError) Error() string {
+	return errorValue.Message
+}
+
+type sdkdTransportError struct {
+	Cause error
+}
+
+func (errorValue sdkdTransportError) Error() string {
+	return errorValue.Cause.Error()
+}
+
+func (errorValue sdkdTransportError) Unwrap() error {
+	return errorValue.Cause
+}
 
 type SDKDClientConfiguration struct {
 	Endpoint                   string
@@ -21,6 +45,7 @@ type SDKDClientConfiguration struct {
 	Timeout                    time.Duration
 	ModelName                  string
 	ExecutionMode              string
+	LocalOnly                  bool
 	TextProvider               LanguageModelProvider
 	GenerationOptions          GenerationOptions
 	StructuredFallbackProvider LanguageModelProvider
@@ -35,6 +60,7 @@ type SDKDClient struct {
 	AuthKey                    string
 	ModelName                  string
 	ExecutionMode              string
+	LocalOnly                  bool
 	TextProvider               LanguageModelProvider
 	GenerationOptions          GenerationOptions
 	StructuredFallbackProvider LanguageModelProvider
@@ -60,6 +86,7 @@ func NewSDKDClient(configuration SDKDClientConfiguration) SDKDClient {
 		AuthKey:                    strings.TrimSpace(configuration.AuthKey),
 		ModelName:                  strings.TrimSpace(configuration.ModelName),
 		ExecutionMode:              strings.TrimSpace(configuration.ExecutionMode),
+		LocalOnly:                  configuration.LocalOnly,
 		TextProvider:               configuration.TextProvider,
 		GenerationOptions:          configuration.GenerationOptions,
 		StructuredFallbackProvider: configuration.StructuredFallbackProvider,
@@ -92,13 +119,13 @@ func (client SDKDClient) GenerateLocalRecoveryResponse(responseContext context.C
 
 func (client SDKDClient) GenerateStructuredResponse(responseContext context.Context, request StructuredResponseRequest) (StructuredResponse, error) {
 	if !client.usesSDKDForSchema(request.StructuredOutputSchema.Name) {
-		if client.StructuredFallbackProvider == nil {
+		if client.LocalOnly || client.StructuredFallbackProvider == nil {
 			return StructuredResponse{}, errors.New("sdkd structured schema is not enabled")
 		}
 		return client.StructuredFallbackProvider.GenerateStructuredResponse(responseContext, request)
 	}
 	response, errorValue := client.generateSDKDStructuredResponse(responseContext, request)
-	if errorValue == nil || client.StructuredFallbackProvider == nil {
+	if errorValue == nil || client.LocalOnly || client.StructuredFallbackProvider == nil || !isRetryableSDKDError(errorValue) {
 		return response, errorValue
 	}
 	fallbackResponse, fallbackError := client.StructuredFallbackProvider.GenerateStructuredResponse(responseContext, request)
@@ -113,7 +140,7 @@ func (client SDKDClient) generateSDKDStructuredResponse(responseContext context.
 	if client.HTTPClient == nil {
 		return StructuredResponse{}, errors.New("sdkd http client is not configured")
 	}
-	if client.AuthKey == "" {
+	if client.AuthKey == "" && client.Endpoint != sdkdLoopbackBridgeEndpoint {
 		return StructuredResponse{}, errors.New("sdkd auth key is not configured")
 	}
 	requestDocument, errorValue := client.buildStructuredRequestDocument(responseContext, request)
@@ -122,6 +149,9 @@ func (client SDKDClient) generateSDKDStructuredResponse(responseContext context.
 	}
 	var responseDocument capabilityStructuredResponseDocument
 	if errorValue = client.postJSON(responseContext, "/v1/llm/structured", requestDocument, &responseDocument); errorValue != nil {
+		return StructuredResponse{}, errorValue
+	}
+	if errorValue = validateSDKDStructuredResponse(responseDocument, client.LocalOnly); errorValue != nil {
 		return StructuredResponse{}, errorValue
 	}
 	return StructuredResponse{
@@ -133,6 +163,25 @@ func (client SDKDClient) generateSDKDStructuredResponse(responseContext context.
 		ConstraintMode:  responseDocument.ConstraintMode,
 		Usage:           responseDocument.Usage,
 	}, nil
+}
+
+func validateSDKDStructuredResponse(response capabilityStructuredResponseDocument, isLocalOnly bool) error {
+	if strings.TrimSpace(response.ProviderName) == "" || strings.TrimSpace(response.ModelName) == "" {
+		return errors.New("sdkd response provider and model are required")
+	}
+	if strings.TrimSpace(response.Content) == "" {
+		return errors.New("sdkd response content is required")
+	}
+	if response.SelectedBackend != "device" && response.SelectedBackend != "remote" {
+		return errors.New("sdkd response selected backend is invalid")
+	}
+	if isLocalOnly && response.SelectedBackend == "remote" {
+		return errors.New("sdkd remote response is forbidden in local-only mode")
+	}
+	if response.FinishReason != "stop" {
+		return errors.New("sdkd response did not finish successfully")
+	}
+	return nil
 }
 
 func (client SDKDClient) usesSDKDForSchema(schemaName string) bool {
@@ -190,21 +239,62 @@ func (client SDKDClient) postJSON(responseContext context.Context, path string, 
 	if errorValue != nil {
 		return errorValue
 	}
-	httpRequest.Header.Set("Authorization", "Bearer "+client.AuthKey)
+	if client.AuthKey != "" {
+		httpRequest.Header.Set("Authorization", "Bearer "+client.AuthKey)
+	}
 	httpRequest.Header.Set("Content-Type", "application/json")
 	httpResponse, errorValue := client.HTTPClient.Do(httpRequest)
 	if errorValue != nil {
-		return errorValue
+		return sdkdTransportError{Cause: errorValue}
 	}
 	defer httpResponse.Body.Close()
-	responseBody, errorValue := io.ReadAll(httpResponse.Body)
+	responseBody, errorValue := io.ReadAll(io.LimitReader(httpResponse.Body, 8*1024*1024+1))
 	if errorValue != nil {
-		return errorValue
+		return sdkdTransportError{Cause: errorValue}
 	}
-	if httpResponse.StatusCode >= http.StatusBadRequest {
-		return errors.New(strings.TrimSpace(string(responseBody)))
+	if len(responseBody) > 8*1024*1024 {
+		return errors.New("sdkd response exceeds 8 MiB")
+	}
+	if httpResponse.StatusCode < http.StatusOK || httpResponse.StatusCode >= http.StatusMultipleChoices {
+		var errorDocument struct {
+			Error struct {
+				Code                string `json:"code"`
+				AllowLegacyFallback bool   `json:"allowLegacyFallback"`
+			} `json:"error"`
+		}
+		_ = json.Unmarshal(responseBody, &errorDocument)
+		return sdkdHTTPError{
+			StatusCode:          httpResponse.StatusCode,
+			Code:                strings.TrimSpace(errorDocument.Error.Code),
+			Message:             strings.TrimSpace(string(responseBody)),
+			AllowLegacyFallback: errorDocument.Error.AllowLegacyFallback,
+		}
 	}
 	return json.Unmarshal(responseBody, responseDocument)
+}
+
+func isRetryableSDKDError(errorValue error) bool {
+	var transportError sdkdTransportError
+	if errors.As(errorValue, &transportError) {
+		return true
+	}
+	var httpError sdkdHTTPError
+	if !errors.As(errorValue, &httpError) {
+		return false
+	}
+	if !httpError.AllowLegacyFallback {
+		return false
+	}
+	switch httpError.Code {
+	case "provider_rate_limited":
+		return httpError.StatusCode == http.StatusTooManyRequests
+	case "provider_unavailable":
+		return httpError.StatusCode >= http.StatusInternalServerError
+	case "sdkd_bridge_unavailable":
+		return httpError.StatusCode == http.StatusServiceUnavailable
+	default:
+		return false
+	}
 }
 
 func (client SDKDClient) executionMode() string {

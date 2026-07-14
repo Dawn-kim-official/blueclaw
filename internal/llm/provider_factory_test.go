@@ -140,6 +140,22 @@ func TestConfiguredProviderCreatesSDKDOnlyWhenSelected(t *testing.T) {
 	}
 }
 
+func TestConfiguredProviderCreatesSDKDBridgeWithoutGuestCredential(t *testing.T) {
+	runtimeConfiguration := config.RuntimeConfiguration{}
+	runtimeConfiguration.LanguageModel.DefaultProvider = "sdkd"
+	runtimeConfiguration.LanguageModel.Capability.Model = "deepseek/deepseek-v4-flash"
+	runtimeConfiguration.LanguageModel.SDKD.Endpoint = sdkdLoopbackBridgeEndpoint
+
+	languageModelProvider, errorValue := NewConfiguredLanguageModelProvider(runtimeConfiguration)
+	if errorValue != nil {
+		t.Fatalf("expected SDKD bridge provider: %v", errorValue)
+	}
+	sdkdClient, isSDKDClient := languageModelProvider.(SDKDClient)
+	if !isSDKDClient || sdkdClient.AuthKey != "" || sdkdClient.Endpoint != runtimeConfiguration.LanguageModel.SDKD.Endpoint {
+		t.Fatalf("unexpected SDKD bridge client: %+v", languageModelProvider)
+	}
+}
+
 func TestConfiguredProviderWrapsCapabilityWithOptionalSDKDShadow(t *testing.T) {
 	authKeyPath := filepath.Join(t.TempDir(), "sdkd.key")
 	if errorValue := os.WriteFile(authKeyPath, []byte("installation-key"), 0o600); errorValue != nil {
@@ -154,7 +170,12 @@ func TestConfiguredProviderWrapsCapabilityWithOptionalSDKDShadow(t *testing.T) {
 	if errorValue != nil {
 		t.Fatalf("expected shadow provider: %v", errorValue)
 	}
-	if _, isShadowProvider := languageModelProvider.(ShadowLanguageModelProvider); !isShadowProvider {
+	shadowProvider, isShadowProvider := languageModelProvider.(ShadowLanguageModelProvider)
+	if !isShadowProvider {
 		t.Fatalf("expected optional sdkd shadow provider, got %T", languageModelProvider)
+	}
+	sdkdClient, isSDKDClient := shadowProvider.ShadowProvider.(SDKDClient)
+	if !isSDKDClient || sdkdClient.StructuredFallbackProvider != nil {
+		t.Fatalf("expected shadow SDKD without legacy fallback, got %+v", shadowProvider.ShadowProvider)
 	}
 }
