@@ -3,7 +3,6 @@ package llm
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -159,11 +158,14 @@ func TestOpenRouterClientReturnsErrorWhenStructuredRetryIsProse(t *testing.T) {
 	}
 }
 
-func TestOpenRouterClientReturnsTruncationErrorWithoutGrowingRetry(t *testing.T) {
-	requestCount := 0
+func TestOpenRouterClientRetriesTruncatedStructuredOutputWithoutIncludingIt(t *testing.T) {
+	requestDocuments := []openRouterRequest{}
 	server := httptest.NewServer(http.HandlerFunc(func(responseWriter http.ResponseWriter, request *http.Request) {
-		requestCount++
-		_ = decodeOpenRouterTestRequest(t, request)
+		requestDocuments = append(requestDocuments, decodeOpenRouterTestRequest(t, request))
+		if len(requestDocuments) == 2 {
+			writeOpenRouterTestContent(t, responseWriter, `{"reply":"ok"}`, 5, 7)
+			return
+		}
 		responseWriter.Header().Set("Content-Type", "application/json")
 		responseDocument := map[string]any{
 			"choices": []map[string]any{
@@ -183,20 +185,23 @@ func TestOpenRouterClientReturnsTruncationErrorWithoutGrowingRetry(t *testing.T)
 		ModelName: "test-model",
 	}
 
-	_, errorValue := client.GenerateStructuredResponse(context.Background(), buildOpenRouterStructuredResponseTestRequest())
+	response, errorValue := client.GenerateStructuredResponse(context.Background(), buildOpenRouterStructuredResponseTestRequest())
 
-	if errorValue == nil {
-		t.Fatal("expected truncated structured output to error")
+	if errorValue != nil {
+		t.Fatalf("expected clean retry to succeed: %v", errorValue)
 	}
-	var truncatedError StructuredOutputTruncatedError
-	if !errors.As(errorValue, &truncatedError) {
-		t.Fatalf("expected StructuredOutputTruncatedError, got %v", errorValue)
+	if response.Content != `{"reply":"ok"}` {
+		t.Fatalf("expected retry content, got %q", response.Content)
 	}
-	if requestCount != 1 {
-		t.Fatalf("expected no prompt-growing retry on truncation, got %d requests", requestCount)
+	if len(requestDocuments) != 2 {
+		t.Fatalf("expected one clean retry, got %d requests", len(requestDocuments))
 	}
-	if !strings.Contains(errorValue.Error(), "truncated") || !strings.Contains(errorValue.Error(), "compact context") {
-		t.Fatalf("expected clear truncation message, got %q", errorValue.Error())
+	retryMessages := requestDocuments[1].Messages
+	if openRouterTestMessagesContainText(retryMessages, `{"reply":"this got cut o`) {
+		t.Fatalf("expected truncated output not to be copied into retry, got %+v", retryMessages)
+	}
+	if !openRouterTestMessagesContainText(retryMessages, openRouterStructuredTruncationRetryInstruction) {
+		t.Fatalf("expected compact retry instruction, got %+v", retryMessages)
 	}
 }
 

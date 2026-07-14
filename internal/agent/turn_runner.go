@@ -92,6 +92,7 @@ type AgentTurnRequest struct {
 	TaskLevel                  TaskLevel
 	EstimatedMinutes           int
 	TurnStartedAt              time.Time
+	EffortStartedAt            time.Time
 	CheckpointSender           AgentCheckpointSender
 	StepBudgetContext          string
 	ArtifactManifest           []ArtifactManifestEntry
@@ -320,6 +321,9 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 	if request.TurnStartedAt.IsZero() {
 		request.TurnStartedAt = time.Now().Add(-2 * time.Second)
 	}
+	if request.EffortStartedAt.IsZero() {
+		request.EffortStartedAt = time.Now()
+	}
 	request.ResponseLanguage = ResolveResponseLanguage(request.ResponseLanguage)
 	request, _ = applyToolRequest(request, requestToolsArguments{
 		ToolNames:  request.PinnedToolNames,
@@ -430,7 +434,7 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 		if cancelledResult, isCancelled := agentTurnRunner.cancelledTaskResult(taskRun.TaskRunID, state.Attachments); isCancelled {
 			return cancelledResult, nil
 		}
-		if agentTurnRunner.currentEffortElapsed(request.TurnStartedAt) {
+		if agentTurnRunner.currentEffortElapsed(request.EffortStartedAt) {
 			result, shouldContinue, errorValue := agentTurnRunner.finalizeEscalateOrStopForLimit(taskContext, taskRun.TaskRunID, request, "max_elapsed", toolUseRequirements, state.Observations, state.Attachments, state.QualityCriteria, state.ExecutionState, iteration-1, state.ToolCallCount)
 			if errorValue != nil || !shouldContinue {
 				return result, errorValue
@@ -438,7 +442,7 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 		}
 		state.Observations = agentTurnRunner.applyPendingSteeringEvents(taskRun.TaskRunID, state.Observations, appliedSteerEventIDs)
 		state.IterationCount = iteration - 1
-		if warning := agentTurnRunner.nextLimitPressureWarning(iteration-1, state.ToolCallCount, agentTurnRunner.turnElapsed(request.TurnStartedAt), len(state.Observations)+1, limitPressureWarnings); warning != nil {
+		if warning := agentTurnRunner.nextLimitPressureWarning(iteration-1, state.ToolCallCount, agentTurnRunner.turnElapsed(request.EffortStartedAt), len(state.Observations)+1, limitPressureWarnings); warning != nil {
 			state.Observations = append(state.Observations, warning.Observation)
 			agentTurnRunner.appendEvent(taskRun.TaskRunID, "agent.limit_pressure", marshalEventBody(warning.EventBody))
 			limitPressureWarnings[warning.Level] = true

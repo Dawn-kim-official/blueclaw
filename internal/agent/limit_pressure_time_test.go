@@ -50,6 +50,17 @@ func TestLimitPressureLevelUsesMaxOfStepAndTime(t *testing.T) {
 	}
 }
 
+func TestExecutionEffortClockDoesNotIncludePreflightTime(t *testing.T) {
+	runner := &AgentTurnRunner{options: TurnOptions{MaxElapsedSecond: 30}}
+
+	if runner.currentEffortElapsed(time.Now()) {
+		t.Fatal("expected a fresh execution effort budget after preflight")
+	}
+	if !runner.currentEffortElapsed(time.Now().Add(-31 * time.Second)) {
+		t.Fatal("expected execution effort budget to expire from its own start time")
+	}
+}
+
 func TestLimitPressureMessageIncludesElapsedWhenBounded(t *testing.T) {
 	message := limitPressureMessage("budget", 2, 30, 1, 72, 20*time.Minute, 40*time.Minute)
 	if !strings.Contains(message, "Time: 20m0s/40m0s elapsed.") {

@@ -15,6 +15,7 @@ import (
 const DefaultOpenRouterChatCompletionsURL = "https://openrouter.ai/api/v1/chat/completions"
 const openRouterErrorBodyMaximumCharacters = 600
 const openRouterStructuredResponseRetryInstruction = "respond with ONLY a single valid JSON object matching the schema, no prose, no markdown"
+const openRouterStructuredTruncationRetryInstruction = "Your previous response was truncated. Start over and respond with one compact valid JSON object matching the schema. Do not repeat fields, array items, prose, or markdown."
 const openRouterStructuredSchemaInstructionPrefix = "Respond with ONLY a single JSON object that validates against this JSON Schema (no prose, no markdown): "
 
 type OpenRouterClient struct {
@@ -76,7 +77,7 @@ type StructuredOutputTruncatedError struct {
 }
 
 func (errorValue StructuredOutputTruncatedError) Error() string {
-	return "structured output truncated before valid json (finish_reason=" + errorValue.FinishReason + ", " + strconv.Itoa(errorValue.ContentBytes) + " bytes); prompt too large, compact context and retry"
+	return "structured output truncated before valid json (finish_reason=" + errorValue.FinishReason + ", " + strconv.Itoa(errorValue.ContentBytes) + " bytes); model output exceeded its budget after a compact retry"
 }
 
 func openRouterResponseWasTruncated(response openRouterResponse) bool {
@@ -140,7 +141,7 @@ func (client OpenRouterClient) GenerateStructuredResponse(responseContext contex
 		return openRouterStructuredResponse(modelName, response, content), nil
 	}
 	if openRouterResponseWasTruncated(response) {
-		return StructuredResponse{}, StructuredOutputTruncatedError{FinishReason: response.Choices[0].FinishReason, ContentBytes: len(content)}
+		return client.retryTruncatedStructuredResponse(responseContext, openRouterStructuredRequest, modelName)
 	}
 	retryRequest := openRouterStructuredRetryRequest(openRouterStructuredRequest, openRouterResponseContent(response), modelName, schemaDocument)
 	retryResponse, errorValue := client.send(responseContext, retryRequest)
@@ -154,6 +155,26 @@ func (client OpenRouterClient) GenerateStructuredResponse(responseContext contex
 			return StructuredResponse{}, StructuredOutputTruncatedError{FinishReason: retryResponse.Choices[0].FinishReason, ContentBytes: len(retryContent)}
 		}
 		return StructuredResponse{}, errors.New("openrouter structured response was not valid json after retry: first " + openRouterStructuredResponseErrorSummary(response, content, firstContentError) + "; retry " + openRouterStructuredResponseErrorSummary(retryResponse, retryContent, retryContentError))
+	}
+	return openRouterStructuredResponse(modelName, retryResponse, retryContent), nil
+}
+
+func (client OpenRouterClient) retryTruncatedStructuredResponse(responseContext context.Context, request openRouterRequest, modelName string) (StructuredResponse, error) {
+	retryRequest := request
+	retryRequest.Messages = appendMergedOpenRouterMessage(append([]openRouterMessage{}, request.Messages...), openRouterMessage{
+		Role:    openRouterMessageRole(modelName, "user"),
+		Content: openRouterStructuredTruncationRetryInstruction,
+	})
+	retryResponse, errorValue := client.send(responseContext, retryRequest)
+	if errorValue != nil {
+		return StructuredResponse{}, errors.New("openrouter truncated structured response retry failed: " + errorValue.Error())
+	}
+	retryContent := openRouterStructuredResponseContent(retryResponse)
+	if retryContentError := validateOpenRouterStructuredResponseContent(retryContent); retryContentError != nil {
+		if openRouterResponseWasTruncated(retryResponse) {
+			return StructuredResponse{}, StructuredOutputTruncatedError{FinishReason: retryResponse.Choices[0].FinishReason, ContentBytes: len(retryContent)}
+		}
+		return StructuredResponse{}, errors.New("openrouter truncated structured response retry was not valid json: " + openRouterStructuredResponseErrorSummary(retryResponse, retryContent, retryContentError))
 	}
 	return openRouterStructuredResponse(modelName, retryResponse, retryContent), nil
 }
