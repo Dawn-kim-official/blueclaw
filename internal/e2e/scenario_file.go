@@ -39,6 +39,7 @@ func LoadScenarioFile(path string, artifactDirectoryPath string) (VirtualSession
 	if errorValue := validateScenarioFile(scenarioFile); errorValue != nil {
 		return VirtualSessionScenario{}, fmt.Errorf("invalid expensive scenario %s: %w", path, errorValue)
 	}
+	applyScenarioFileDefaults(&scenarioFile)
 	return VirtualSessionScenario{
 		Name:                      strings.TrimSpace(scenarioFile.Name),
 		ProfileName:               strings.TrimSpace(scenarioFile.ProfileName),
@@ -51,6 +52,15 @@ func LoadScenarioFile(path string, artifactDirectoryPath string) (VirtualSession
 		TurnOptions:               scenarioFile.TurnOptions,
 		Turns:                     scenarioFile.Steps,
 	}, nil
+}
+
+func applyScenarioFileDefaults(scenarioFile *virtualSessionScenarioFile) {
+	for stepIndex := range scenarioFile.Steps {
+		step := &scenarioFile.Steps[stepIndex]
+		if normalizedResponseExpectation(step.ExpectedResponse) == VirtualResponseReply && step.MinimumReplyLength == 0 {
+			step.MinimumReplyLength = 1
+		}
+	}
 }
 
 func validateScenarioFile(scenarioFile virtualSessionScenarioFile) error {
