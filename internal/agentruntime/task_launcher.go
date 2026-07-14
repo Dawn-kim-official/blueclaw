@@ -65,6 +65,9 @@ type TaskLaunchRequest struct {
 	PriorTask                  agent.PriorTaskContext
 	ScheduledRun               agent.ScheduledRunContext
 	PrecomputedTurnDecision    *agent.TurnDecision
+	IsPrecomputedDecisionExact bool
+	SkipSkillSelection         bool
+	UseEmptyToolCatalog        bool
 	AmbientDuty                agent.AmbientDutyContext
 	PinnedToolNames            []string
 	PinnedSkillNames           []string
@@ -250,6 +253,9 @@ func (buildToolSetLaunchStep) Name() string {
 }
 
 func (buildToolSetLaunchStep) Run(_ context.Context, execution *taskLaunchExecution) (*agent.ToolSet, error) {
+	if execution.Request.UseEmptyToolCatalog {
+		return agent.NewToolSet(nil), nil
+	}
 	toolSet := execution.Launcher.toolCatalogBuilder.BuildToolSet(
 		execution.Launcher.toolCatalogRequestForLaunch(execution.Request, execution.NormalizedProfileName),
 	)
@@ -373,38 +379,40 @@ func (taskLauncher *TaskLauncher) completeLaunchFailure(ctx context.Context, req
 
 func (taskLauncher *TaskLauncher) agentTurnRequestForLaunch(request TaskLaunchRequest, profileName string, memoryFacts []memory.MemoryFact, toolSet *agent.ToolSet, conversationScope ConversationResourceScope) agent.AgentTurnRequest {
 	return agent.AgentTurnRequest{
-		RequesterPersonID:       request.RequesterPersonID,
-		RequesterEmail:          request.RequesterEmail,
-		RequesterName:           request.RequesterName,
-		RequesterPlatformUserID: request.RequesterPlatformUserID,
-		SourceReference:         request.SourceReference,
-		IsApprovalContinuation:  request.IsApprovalContinuation,
-		IsRuntimeRestartResume:  request.IsRuntimeRestartResume,
-		ExistingTaskRunID:       request.ExistingTaskRunID,
-		OriginReplyTargetID:     request.OriginReplyTargetID,
-		OriginIsThread:          request.OriginIsThread,
-		Platform:                request.Platform,
-		RequesterCallingName:    request.RequesterCallingName,
-		RequesterHandle:         request.RequesterHandle,
-		RequesterCircles:        append([]string{}, request.PersonAccess.Circles...),
-		ProfileName:             profileName,
-		ConversationID:          request.ConversationID,
-		Prompt:                  request.Prompt,
-		InputParts:              append([]agent.AgentPart{}, request.InputParts...),
-		ResponseLanguage:        request.ResponseLanguage,
-		VisibleContext:          request.VisibleContext,
-		ActiveGoal:              request.ActiveGoal,
-		PriorTask:               request.PriorTask,
-		ScheduledRun:            request.ScheduledRun,
-		PrecomputedTurnDecision: request.PrecomputedTurnDecision,
-		AmbientDuty:             request.AmbientDuty,
-		MemoryFacts:             memoryFacts,
-		ToolSet:                 toolSet,
-		PinnedToolNames:         append([]string{}, request.PinnedToolNames...),
-		PinnedSkillNames:        append([]string{}, request.PinnedSkillNames...),
-		WorkspaceRootPath:       taskLauncher.toolCatalogBuilder.WorkspaceRootPath(),
-		WorkspaceDefaultPath:    conversationScope.DefaultDirectoryPath,
-		CheckpointSender:        request.CheckpointSender,
+		RequesterPersonID:          request.RequesterPersonID,
+		RequesterEmail:             request.RequesterEmail,
+		RequesterName:              request.RequesterName,
+		RequesterPlatformUserID:    request.RequesterPlatformUserID,
+		SourceReference:            request.SourceReference,
+		IsApprovalContinuation:     request.IsApprovalContinuation,
+		IsRuntimeRestartResume:     request.IsRuntimeRestartResume,
+		ExistingTaskRunID:          request.ExistingTaskRunID,
+		OriginReplyTargetID:        request.OriginReplyTargetID,
+		OriginIsThread:             request.OriginIsThread,
+		Platform:                   request.Platform,
+		RequesterCallingName:       request.RequesterCallingName,
+		RequesterHandle:            request.RequesterHandle,
+		RequesterCircles:           append([]string{}, request.PersonAccess.Circles...),
+		ProfileName:                profileName,
+		ConversationID:             request.ConversationID,
+		Prompt:                     request.Prompt,
+		InputParts:                 append([]agent.AgentPart{}, request.InputParts...),
+		ResponseLanguage:           request.ResponseLanguage,
+		VisibleContext:             request.VisibleContext,
+		ActiveGoal:                 request.ActiveGoal,
+		PriorTask:                  request.PriorTask,
+		ScheduledRun:               request.ScheduledRun,
+		PrecomputedTurnDecision:    request.PrecomputedTurnDecision,
+		IsPrecomputedDecisionExact: request.IsPrecomputedDecisionExact,
+		SkipSkillSelection:         request.SkipSkillSelection,
+		AmbientDuty:                request.AmbientDuty,
+		MemoryFacts:                memoryFacts,
+		ToolSet:                    toolSet,
+		PinnedToolNames:            append([]string{}, request.PinnedToolNames...),
+		PinnedSkillNames:           append([]string{}, request.PinnedSkillNames...),
+		WorkspaceRootPath:          taskLauncher.toolCatalogBuilder.WorkspaceRootPath(),
+		WorkspaceDefaultPath:       conversationScope.DefaultDirectoryPath,
+		CheckpointSender:           request.CheckpointSender,
 	}
 }
 
