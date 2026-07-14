@@ -64,8 +64,20 @@ func validateScenarioFile(scenarioFile virtualSessionScenarioFile) error {
 		if strings.TrimSpace(step.Prompt) == "" {
 			return fmt.Errorf("step %d prompt is required", stepIndex+1)
 		}
+		if !isValidResponseExpectation(step.ExpectedResponse) {
+			return fmt.Errorf("step %d expectedResponse %q is invalid", stepIndex+1, step.ExpectedResponse)
+		}
 	}
 	return nil
+}
+
+func isValidResponseExpectation(expectation VirtualResponseExpectation) bool {
+	switch normalizedResponseExpectation(expectation) {
+	case VirtualResponseReply, VirtualResponseIgnore, VirtualResponseIgnoreOrReact, VirtualResponseReact, VirtualResponseBackgroundAction:
+		return true
+	default:
+		return false
+	}
 }
 
 func resolveScenarioSkillPaths(scenarioPath string, skillDirectoryPaths []string) []string {

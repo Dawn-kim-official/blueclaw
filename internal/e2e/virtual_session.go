@@ -40,6 +40,8 @@ type VirtualSessionScenario struct {
 	ProfileName               string
 	ArtifactDirectoryPath     string
 	LanguageModel             llm.LanguageModelProvider
+	EmbeddingProvider         llm.EmbeddingProvider
+	EmbeddingModel            string
 	IntakeLanguageModel       llm.LanguageModelProvider
 	LowLanguageModel          llm.LanguageModelProvider
 	XLowLanguageModel         llm.LanguageModelProvider
@@ -62,13 +64,26 @@ type VirtualSessionScenario struct {
 	CodingTierVisionFallback  bool
 	AddressingResponse        string
 	RouterSiteEvidence        string
+	ScriptedExecutionPlan     *agent.ExecutionPlan
+	ScriptedConfirmationReply string
 	TurnOptions               agent.TurnOptions
 	ProgressWriter            io.Writer
 	Turns                     []VirtualTurn
 }
 
+type VirtualResponseExpectation string
+
+const (
+	VirtualResponseReply            VirtualResponseExpectation = "reply"
+	VirtualResponseIgnore           VirtualResponseExpectation = "ignore"
+	VirtualResponseIgnoreOrReact    VirtualResponseExpectation = "ignore_or_react"
+	VirtualResponseReact            VirtualResponseExpectation = "react"
+	VirtualResponseBackgroundAction VirtualResponseExpectation = "background_action"
+)
+
 type VirtualTurn struct {
 	Prompt                    string
+	ExpectedResponse          VirtualResponseExpectation
 	ConversationType          string
 	ChannelID                 string
 	ChannelName               string
@@ -120,6 +135,11 @@ type VirtualSessionResult struct {
 }
 
 type VirtualTurnResult struct {
+	Handled                 bool
+	Ignored                 bool
+	Reason                  string
+	DidReply                bool
+	Reactions               []connectors.ReactionTarget
 	TaskRunID               string
 	TaskStatus              task.TaskStatus
 	FailureReason           string
@@ -529,7 +549,8 @@ func NewVirtualSessionHarness(scenario VirtualSessionScenario) (*VirtualSessionH
 	agentKernel.UseIntakeOptions(agent.IntakeOptions{IsEnabled: true, DefaultTaskLevel: agent.TaskLevelLow})
 	agentKernel.UseTurnOptions(virtualTurnOptions(scenario.TurnOptions))
 	instructionBundleLoader := virtualInstructionBundleLoader(skillInstructions, workspacePath)
-	skillRetriever := agent.NewEmbeddingSkillRetriever(virtualSkillEmbeddingProvider{}, "")
+	skillRetriever := agent.NewEmbeddingSkillRetriever(scenario.EmbeddingProvider, "")
+	skillRetriever.EmbeddingModel = scenario.EmbeddingModel
 	agentKernel.UseInstructionBundleLoader(instructionBundleLoader)
 	agentKernel.UseSkillRetriever(skillRetriever)
 
@@ -702,26 +723,6 @@ func virtualCapabilityToolNames(scenario VirtualSessionScenario) []string {
 		addToolName(toolDescriptor.Name)
 	}
 	return toolNames
-}
-
-type virtualSkillEmbeddingProvider struct{}
-
-func (provider virtualSkillEmbeddingProvider) GenerateEmbedding(_ context.Context, input string) ([]float32, error) {
-	normalizedInput := strings.ToLower(input)
-	return []float32{
-		virtualSkillEmbeddingValue(normalizedInput, []string{"피피티", "pptx", "slides", "presentation", "파워포인트", "발표자료"}),
-		virtualSkillEmbeddingValue(normalizedInput, []string{"schedule", "scheduled", "cron", "remind", "reminder", "repeat", "예약", "알림", "리마인드", "마다", "분마다", "한 번씩", "10번"}),
-		virtualSkillEmbeddingValue(normalizedInput, []string{"website", "web app", "site", "prototype", "deploy", "웹사이트", "사이트", "프로토타입", "배포"}),
-	}, nil
-}
-
-func virtualSkillEmbeddingValue(input string, keywords []string) float32 {
-	for _, keyword := range keywords {
-		if strings.Contains(input, keyword) {
-			return 1
-		}
-	}
-	return 0
 }
 
 func loadVirtualSkillInstructions(scenario VirtualSessionScenario, workspacePath string) ([]agent.SkillInstruction, error) {
@@ -1168,11 +1169,34 @@ func scenarioDefaultResponses(scenario VirtualSessionScenario) map[string]string
 	if strings.TrimSpace(scenario.AddressingResponse) != "" {
 		defaultResponses["blueclaw_addressing_classification"] = strings.TrimSpace(scenario.AddressingResponse)
 	}
+	if virtualEvidenceRequiresExternalSend(scenario.RouterRequiredEvidence) {
+		defaultResponses["blueclaw_execution_plan"] = `{"originalInstruction":"scripted external send","summary":"scripted external send","targets":[],"schedule":"","startAt":"","endAt":"","cadence":"","externalSend":true,"thirdPartyExternalSend":true,"repeated":false,"highFrequency":false,"destructive":false,"permissionChange":false,"publicDeploy":false,"paidAction":false,"missingInformation":[],"continuationInstruction":"scripted external send"}`
+	}
+	if scenario.ScriptedExecutionPlan != nil {
+		if document, errorValue := json.Marshal(scenario.ScriptedExecutionPlan); errorValue == nil {
+			defaultResponses["blueclaw_execution_plan"] = string(document)
+		}
+	}
+	if reply := strings.TrimSpace(scenario.ScriptedConfirmationReply); reply != "" {
+		if document, errorValue := json.Marshal(map[string]string{"reply": reply}); errorValue == nil {
+			defaultResponses["blueclaw_confirmation_message"] = string(document)
+		}
+	}
 	if len(scenario.InitialToolNames) == 0 && len(scenario.RouterRequiredEvidence) == 0 {
 		return defaultResponses
 	}
 	defaultResponses["blueclaw_turn_router"] = scenarioTurnRouterResponse(scenario, VirtualTurn{})
 	return defaultResponses
+}
+
+func virtualEvidenceRequiresExternalSend(requiredEvidence []string) bool {
+	for _, toolName := range requiredEvidence {
+		switch strings.TrimSpace(toolName) {
+		case "message.send", "mail.message.send", "google.gmail.send", "slack.message.send":
+			return true
+		}
+	}
+	return false
 }
 
 func scenarioApprovalRouterResponse(approval string) string {
@@ -1245,6 +1269,7 @@ func virtualTurnExpectsEvent(virtualTurn VirtualTurn, eventName string) bool {
 }
 
 func (harness *VirtualSessionHarness) runTurn(ctx context.Context, index int, virtualTurn VirtualTurn) (VirtualTurnResult, error) {
+	reactionStartIndex := harness.adapter.ReactionCount()
 	modelRequestStartIndex := 0
 	if harness.requestRecorder != nil {
 		modelRequestStartIndex = harness.requestRecorder.RequestCount()
@@ -1290,31 +1315,38 @@ func (harness *VirtualSessionHarness) runTurn(ctx context.Context, index int, vi
 	if errorValue != nil {
 		return VirtualTurnResult{}, errorValue
 	}
-	if strings.TrimSpace(runtimeResult.TaskRunID) == "" {
-		return VirtualTurnResult{}, errors.New("virtual turn did not create a task run")
-	}
-	outboundReply, outboundReplyTarget, isFound := harness.adapter.FindReply(runtimeResult.ReplyDispatchID)
-	if !isFound {
-		events := harness.taskEventService.ListTaskEvent(runtimeResult.TaskRunID)
-		return VirtualTurnResult{}, fmt.Errorf("virtual turn did not dispatch a reply; events: %s", summarizeEvents(events))
-	}
-	taskRun, isFound := harness.taskRunService.FindTaskRun(runtimeResult.TaskRunID)
-	if !isFound {
-		return VirtualTurnResult{}, errors.New("virtual turn task run not found")
-	}
-	return VirtualTurnResult{
+	turnResult := VirtualTurnResult{
+		Handled:                 runtimeResult.Handled,
+		Ignored:                 runtimeResult.Ignored,
+		Reason:                  runtimeResult.Reason,
+		Reactions:               harness.adapter.ReactionsSince(reactionStartIndex),
 		TaskRunID:               runtimeResult.TaskRunID,
-		TaskStatus:              taskRun.Status,
-		FailureReason:           taskRun.FailureReason,
-		FinishMessage:           outboundReply.Message,
-		ReplyTargetID:           outboundReplyTarget.ReplyTargetID,
-		Attachments:             outboundReply.Attachments,
-		Events:                  harness.taskEventService.ListTaskEvent(runtimeResult.TaskRunID),
 		LanguageModelCallEvents: harness.modelCallsSince(modelCallStartIndex),
 		ModelContext:            harness.modelContextSince(modelRequestStartIndex),
 		ModelImagePartCount:     harness.modelImagePartCountSince(modelRequestStartIndex),
 		UserModelImagePartCount: harness.userModelImagePartCountSince(modelRequestStartIndex),
-	}, nil
+	}
+	if strings.TrimSpace(runtimeResult.TaskRunID) != "" {
+		taskRun, isFound := harness.taskRunService.FindTaskRun(runtimeResult.TaskRunID)
+		if !isFound {
+			return VirtualTurnResult{}, errors.New("virtual turn task run not found")
+		}
+		turnResult.TaskStatus = taskRun.Status
+		turnResult.FailureReason = taskRun.FailureReason
+		turnResult.Events = harness.taskEventService.ListTaskEvent(runtimeResult.TaskRunID)
+	}
+	if strings.TrimSpace(runtimeResult.ReplyDispatchID) == "" {
+		return turnResult, nil
+	}
+	outboundReply, outboundReplyTarget, isFound := harness.adapter.FindReply(runtimeResult.ReplyDispatchID)
+	if !isFound {
+		return VirtualTurnResult{}, fmt.Errorf("virtual turn reply dispatch %q was not recorded", runtimeResult.ReplyDispatchID)
+	}
+	turnResult.DidReply = true
+	turnResult.FinishMessage = outboundReply.Message
+	turnResult.ReplyTargetID = outboundReplyTarget.ReplyTargetID
+	turnResult.Attachments = outboundReply.Attachments
+	return turnResult, nil
 }
 
 func virtualReplyTargetID(index int, virtualTurn VirtualTurn) string {
@@ -1373,10 +1405,10 @@ func (harness *VirtualSessionHarness) modelImagePartCountByRoleSince(startIndex 
 }
 
 func (harness *VirtualSessionHarness) rememberTurn(virtualTurn VirtualTurn, turnResult VirtualTurnResult) {
-	harness.history = append(harness.history,
-		connectors.VisibleContextMessage{Speaker: "user", SpeakerCallingName: "샘플 님", SpeakerHandle: "dongha", Text: virtualTurn.Prompt},
-		connectors.VisibleContextMessage{Speaker: "assistant", SpeakerCallingName: "김인턴", SpeakerHandle: "internkim", Text: turnResult.FinishMessage},
-	)
+	harness.history = append(harness.history, connectors.VisibleContextMessage{Speaker: "user", SpeakerCallingName: "샘플 님", SpeakerHandle: "dongha", Text: virtualTurn.Prompt})
+	if turnResult.DidReply {
+		harness.history = append(harness.history, connectors.VisibleContextMessage{Speaker: "assistant", SpeakerCallingName: "김인턴", SpeakerHandle: "internkim", Text: turnResult.FinishMessage})
+	}
 }
 
 func virtualRequestRecorder(languageModel llm.LanguageModelProvider) virtualLanguageModelRequestRecorder {
@@ -1404,12 +1436,14 @@ func (harness *VirtualSessionHarness) assertTurnResult(virtualTurn VirtualTurn, 
 }
 
 func assertLooseTurnResult(virtualTurn VirtualTurn, turnResult VirtualTurnResult) error {
-	if strings.TrimSpace(turnResult.FinishMessage) == "" {
-		return errors.New("expected non-empty final reply")
+	if errorValue := assertResponseExpectation(virtualTurn, turnResult); errorValue != nil {
+		return errorValue
 	}
-	switch turnResult.TaskStatus {
-	case task.TaskStatusPlanned, task.TaskStatusRunning, task.TaskStatusInterrupted:
-		return fmt.Errorf("expected terminal or waiting task status, got %s", turnResult.TaskStatus)
+	if turnResult.TaskRunID != "" {
+		switch turnResult.TaskStatus {
+		case task.TaskStatusPlanned, task.TaskStatusRunning, task.TaskStatusInterrupted:
+			return fmt.Errorf("expected terminal or waiting task status, got %s", turnResult.TaskStatus)
+		}
 	}
 	return assertStructuralTurnExpectations(virtualTurn, turnResult)
 }
@@ -1434,6 +1468,9 @@ func informationalAssertionResults(virtualTurn VirtualTurn, turnResult VirtualTu
 }
 
 func assertTurnResult(workspacePath string, virtualTurn VirtualTurn, turnResult VirtualTurnResult) error {
+	if errorValue := assertResponseExpectation(virtualTurn, turnResult); errorValue != nil {
+		return errorValue
+	}
 	for _, skillName := range virtualTurn.ExpectedSelectedSkills {
 		if !eventsContain(turnResult.Events, "agent.instructions_loaded", skillName) {
 			return fmt.Errorf("expected selected skill %q; events: %s", skillName, summarizeEvents(turnResult.Events))
@@ -1502,6 +1539,46 @@ func assertTurnResult(workspacePath string, virtualTurn VirtualTurn, turnResult 
 		return fmt.Errorf("expected reply length >= %d, got %d: %q", virtualTurn.MinimumReplyLength, len([]rune(turnResult.FinishMessage)), turnResult.FinishMessage)
 	}
 	return assertStructuralTurnExpectations(virtualTurn, turnResult)
+}
+
+func assertResponseExpectation(virtualTurn VirtualTurn, turnResult VirtualTurnResult) error {
+	expectation := normalizedResponseExpectation(virtualTurn.ExpectedResponse)
+	switch expectation {
+	case VirtualResponseReply:
+		if !virtualTurnResultDidReply(turnResult) {
+			return fmt.Errorf("expected a text reply, got taskRunID=%q ignored=%v reason=%q", turnResult.TaskRunID, turnResult.Ignored, turnResult.Reason)
+		}
+	case VirtualResponseIgnore:
+		if turnResult.TaskRunID != "" || turnResult.DidReply || len(turnResult.Reactions) > 0 {
+			return fmt.Errorf("expected silent ignore, got taskRunID=%q reply=%v reactions=%v", turnResult.TaskRunID, turnResult.DidReply, turnResult.Reactions)
+		}
+	case VirtualResponseIgnoreOrReact:
+		if turnResult.TaskRunID != "" || turnResult.DidReply {
+			return fmt.Errorf("expected ignore or reaction only, got taskRunID=%q reply=%v", turnResult.TaskRunID, turnResult.DidReply)
+		}
+	case VirtualResponseReact:
+		if turnResult.TaskRunID != "" || turnResult.DidReply || len(turnResult.Reactions) == 0 {
+			return fmt.Errorf("expected reaction only, got taskRunID=%q reply=%v reactions=%v", turnResult.TaskRunID, turnResult.DidReply, turnResult.Reactions)
+		}
+	case VirtualResponseBackgroundAction:
+		if turnResult.TaskRunID == "" || turnResult.DidReply {
+			return fmt.Errorf("expected background action without reply, got taskRunID=%q reply=%v", turnResult.TaskRunID, turnResult.DidReply)
+		}
+	default:
+		return fmt.Errorf("unknown expected response %q", expectation)
+	}
+	return nil
+}
+
+func virtualTurnResultDidReply(turnResult VirtualTurnResult) bool {
+	return turnResult.DidReply || strings.TrimSpace(turnResult.FinishMessage) != ""
+}
+
+func normalizedResponseExpectation(expectation VirtualResponseExpectation) VirtualResponseExpectation {
+	if strings.TrimSpace(string(expectation)) == "" {
+		return VirtualResponseReply
+	}
+	return VirtualResponseExpectation(strings.TrimSpace(string(expectation)))
 }
 
 func assertStructuralTurnExpectations(virtualTurn VirtualTurn, turnResult VirtualTurnResult) error {
@@ -1815,6 +1892,7 @@ type virtualAdapter struct {
 	mutex         sync.Mutex
 	workspacePath string
 	replies       map[string]virtualReply
+	reactions     []connectors.ReactionTarget
 }
 
 type virtualReply struct {
@@ -1865,6 +1943,28 @@ func (adapter *virtualAdapter) FindReply(dispatchID string) (connectors.Outbound
 	defer adapter.mutex.Unlock()
 	reply, isFound := adapter.replies[dispatchID]
 	return reply.reply, reply.target, isFound
+}
+
+func (adapter *virtualAdapter) AddReaction(_ context.Context, target connectors.ReactionTarget) error {
+	adapter.mutex.Lock()
+	defer adapter.mutex.Unlock()
+	adapter.reactions = append(adapter.reactions, target)
+	return nil
+}
+
+func (adapter *virtualAdapter) ReactionCount() int {
+	adapter.mutex.Lock()
+	defer adapter.mutex.Unlock()
+	return len(adapter.reactions)
+}
+
+func (adapter *virtualAdapter) ReactionsSince(startIndex int) []connectors.ReactionTarget {
+	adapter.mutex.Lock()
+	defer adapter.mutex.Unlock()
+	if startIndex < 0 || startIndex > len(adapter.reactions) {
+		startIndex = 0
+	}
+	return append([]connectors.ReactionTarget{}, adapter.reactions[startIndex:]...)
 }
 
 func (adapter *virtualAdapter) FetchHistory(context.Context, string, int) (connectors.VisibleContext, error) {

@@ -337,8 +337,9 @@ func TestMessageResultBlocksOnceThenDelivers(t *testing.T) {
 	}
 
 	priorFlag := []turnObservation{{
-		Action: "evidence_missing",
-		Output: ToolOutput{Content: "missing required expected result: result-1"},
+		Action:           "evidence_missing",
+		PolicyCode:       evidenceKindExpectedResult,
+		RelatedResultIDs: []string{"result-1"},
 	}}
 	secondPass := blockingExpectedResultItems(contract, verification, priorFlag)
 	if len(secondPass) != 0 {

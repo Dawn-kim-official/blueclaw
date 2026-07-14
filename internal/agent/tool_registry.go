@@ -91,6 +91,7 @@ const (
 	FailureNotFound              FailureKind = "not_found"
 	FailureRateLimited           FailureKind = "rate_limited"
 	FailureExternalService       FailureKind = "external_service"
+	FailureInteractionRequired   FailureKind = "interaction_required"
 	FailurePolicyBlocked         FailureKind = "policy_blocked"
 	FailureUnknown               FailureKind = "unknown"
 )
@@ -98,25 +99,27 @@ const (
 type FailureCode string
 
 var FailureCodes = struct {
-	Unavailable     FailureCode
-	InvalidInput    FailureCode
-	AccessDenied    FailureCode
-	Conflict        FailureCode
-	NotFound        FailureCode
-	OperationFailed FailureCode
-	PolicyBlocked   FailureCode
-	RateLimited     FailureCode
-	ToolNameInShell FailureCode
+	Unavailable         FailureCode
+	InvalidInput        FailureCode
+	AccessDenied        FailureCode
+	Conflict            FailureCode
+	NotFound            FailureCode
+	OperationFailed     FailureCode
+	PolicyBlocked       FailureCode
+	RateLimited         FailureCode
+	InteractionRequired FailureCode
+	ToolNameInShell     FailureCode
 }{
-	Unavailable:     "unavailable",
-	InvalidInput:    "invalid_input",
-	AccessDenied:    "access_denied",
-	Conflict:        "conflict",
-	NotFound:        "not_found",
-	OperationFailed: "operation_failed",
-	PolicyBlocked:   "policy_blocked",
-	RateLimited:     "rate_limited",
-	ToolNameInShell: "tool_name_in_terminal",
+	Unavailable:         "unavailable",
+	InvalidInput:        "invalid_input",
+	AccessDenied:        "access_denied",
+	Conflict:            "conflict",
+	NotFound:            "not_found",
+	OperationFailed:     "operation_failed",
+	PolicyBlocked:       "policy_blocked",
+	RateLimited:         "rate_limited",
+	InteractionRequired: "interaction_required",
+	ToolNameInShell:     "tool_name_in_terminal",
 }
 
 func (failureCode FailureCode) String() string {
@@ -126,7 +129,7 @@ func (failureCode FailureCode) String() string {
 func CanonicalFailureCode(code FailureCode) string {
 	trimmedCode := code.String()
 	switch trimmedCode {
-	case "unavailable", "memory_search_unavailable", "memory.search.unavailable", "tool.unavailable", "memory_queue_unavailable", "terminal_service_unavailable", "companion_bridge_unavailable", "schedule_repository_unavailable":
+	case "unavailable", "memory_search_unavailable", "memory.search.unavailable", "tool.unavailable", "memory_queue_unavailable", "terminal_service_unavailable", "companion_bridge_unavailable", "schedule_repository_unavailable", "mattermost_unavailable":
 		return FailureCodes.Unavailable.String()
 	case "tool.input.invalid", "invalid_input", "approval_message_required":
 		return FailureCodes.InvalidInput.String()
@@ -138,7 +141,7 @@ func CanonicalFailureCode(code FailureCode) string {
 		return FailureCodes.AccessDenied.String()
 	case "conflict":
 		return FailureCodes.Conflict.String()
-	case "tool.not_registered", "not_found":
+	case "tool.not_registered", "not_found", "recipient_not_found":
 		return FailureCodes.NotFound.String()
 	case "tool.failed", "tool_failed", "operation_failed":
 		return FailureCodes.OperationFailed.String()
@@ -146,40 +149,20 @@ func CanonicalFailureCode(code FailureCode) string {
 		return FailureCodes.PolicyBlocked.String()
 	case "rate_limited", "too_many_requests":
 		return FailureCodes.RateLimited.String()
+	case "blocked_by_captcha", "interaction_required":
+		return FailureCodes.InteractionRequired.String()
 	case "":
 		return FailureCodes.OperationFailed.String()
 	default:
-		return classifyFailureCodeText(trimmedCode)
+		return FailureCodes.OperationFailed.String()
 	}
-}
-
-func classifyFailureCodeText(code string) string {
-	normalizedCode := strings.ToLower(strings.TrimSpace(code))
-	if strings.Contains(normalizedCode, "unavailable") {
-		return FailureCodes.Unavailable.String()
-	}
-	if strings.Contains(normalizedCode, "not_found") || strings.Contains(normalizedCode, "not.found") {
-		return FailureCodes.NotFound.String()
-	}
-	if strings.Contains(normalizedCode, "denied") || strings.Contains(normalizedCode, "permission") || strings.Contains(normalizedCode, "unauthorized") {
-		return FailureCodes.AccessDenied.String()
-	}
-	if strings.Contains(normalizedCode, "invalid") {
-		return FailureCodes.InvalidInput.String()
-	}
-	if strings.Contains(normalizedCode, "conflict") || strings.Contains(normalizedCode, "duplicate") {
-		return FailureCodes.Conflict.String()
-	}
-	if strings.Contains(normalizedCode, "rate_limited") || strings.Contains(normalizedCode, "too_many") {
-		return FailureCodes.RateLimited.String()
-	}
-	return FailureCodes.OperationFailed.String()
 }
 
 type ToolFailure struct {
 	Kind                  FailureKind          `json:"kind"`
 	Code                  string               `json:"code"`
 	Stage                 string               `json:"stage,omitempty"`
+	RequiresApproval      bool                 `json:"requiresApproval,omitempty"`
 	UserSafeSummary       string               `json:"userSafeSummary,omitempty"`
 	Retryable             bool                 `json:"retryable,omitempty"`
 	SafeRetry             bool                 `json:"safeRetry,omitempty"`

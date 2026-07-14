@@ -88,6 +88,7 @@ func TestRecoveryWorkingSetDropsExhaustedTool(t *testing.T) {
 		Tool:          "file.edit",
 		Output:        ToolOutput{Content: "The recovery budget for corrected_retry is exhausted."},
 		RecoveryStep:  recoveryStepCorrectedRetry,
+		PolicyCode:    "recovery_budget_exhausted",
 		Summary:       "The recovery budget for corrected_retry is exhausted.",
 	}}
 
