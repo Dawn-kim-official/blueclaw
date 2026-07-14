@@ -2,6 +2,7 @@ package e2e
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -410,6 +411,31 @@ func TestVirtualCalendarUpdateUsesUnchangedTitleAsTarget(t *testing.T) {
 	renameResponse := service.calendarResponse("calendar.update", []byte(`{"input":{"title":"새 일정 이름","startISO":"2026-07-16T16:00:00+09:00","endISO":"2026-07-16T17:00:00+09:00"}}`))
 	if !strings.Contains(renameResponse, `"status":"error"`) || !strings.Contains(renameResponse, `not found`) {
 		t.Fatalf("expected rename without an old target to fail, got %s", renameResponse)
+	}
+}
+
+func TestVirtualCapabilityCatalogUsesRuntimeRegistryContract(t *testing.T) {
+	var catalog struct {
+		DeviceCapabilities []struct {
+			Name        string          `json:"name"`
+			InputSchema json.RawMessage `json:"inputSchema"`
+		} `json:"deviceCapabilities"`
+	}
+	document := virtualCapabilityCatalogResponse(map[string]bool{"calendar.delete": true})
+	if errorValue := json.Unmarshal([]byte(document), &catalog); errorValue != nil {
+		t.Fatalf("expected valid capability catalog, got %v: %s", errorValue, document)
+	}
+	if len(catalog.DeviceCapabilities) != 1 || catalog.DeviceCapabilities[0].Name != "calendar.delete" {
+		t.Fatalf("expected runtime device capability descriptor, got %+v", catalog.DeviceCapabilities)
+	}
+	var schema struct {
+		AdditionalProperties *bool `json:"additionalProperties"`
+	}
+	if errorValue := json.Unmarshal(catalog.DeviceCapabilities[0].InputSchema, &schema); errorValue != nil {
+		t.Fatalf("expected calendar delete schema, got %v", errorValue)
+	}
+	if schema.AdditionalProperties == nil || *schema.AdditionalProperties {
+		t.Fatalf("expected closed calendar delete schema, got %s", catalog.DeviceCapabilities[0].InputSchema)
 	}
 }
 

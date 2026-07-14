@@ -1171,7 +1171,7 @@ func SiteLifecycleAcceptanceScenario(artifactDirectoryPath string) VirtualSessio
 				},
 				ActionResponses: []string{
 					actionInvokeCapabilityTool("site.status", `{"siteID":"site-1"}`),
-					actionCallToolWithMessage("capability.invoke", "Local Fleet Studio 테스트 웹사이트를 삭제합니다.", `{"operation":"site.delete","input":{"siteID":"site-1","confirm":"DELETE","userConfirmed":true,"reason":"acceptance test cleanup"}}`),
+					actionCallToolWithMessage("capability.invoke", "Local Fleet Studio 테스트 웹사이트를 삭제합니다.", `{"operation":"site.delete","input":{"siteID":"site-1"}}`),
 				},
 				ExpectedEventCounts: []VirtualEventCount{
 					{Name: "tool.capability.invoke.requested", BodyFragment: "site.status", Count: 1},

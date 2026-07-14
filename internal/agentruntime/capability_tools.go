@@ -108,6 +108,9 @@ func (toolCatalogBuilder *ToolCatalogBuilder) invokeCapabilityOperation(toolCont
 	if !access.CanAccess(access.Request{PersonAccess: request.PersonAccess, Action: access.ActionExecute, Resource: policyResource}) {
 		return agent.ToolFailureResult(agent.FailurePermissionDenied, agent.FailureCodes.AccessDenied, "capability_access", "current account cannot execute this tool"), nil
 	}
+	if unexpected := unexpectedCapabilityInputFields(toolDescriptor.InputSchema, rawInput); len(unexpected) > 0 {
+		return capabilityUnexpectedInputFailure(operation, toolDescriptor, unexpected), nil
+	}
 	toolInput, toolFailure, errorValue := toolCatalogBuilder.prepareCapabilityToolInput(toolContext, operation, request, rawInput)
 	if toolFailure != nil {
 		return *toolFailure, nil
@@ -358,6 +361,28 @@ func missingRequiredCapabilityInputFields(inputSchema json.RawMessage, toolInput
 	return missing
 }
 
+func unexpectedCapabilityInputFields(inputSchema json.RawMessage, toolInput json.RawMessage) []string {
+	var schema struct {
+		Properties           map[string]json.RawMessage `json:"properties"`
+		AdditionalProperties *bool                      `json:"additionalProperties"`
+	}
+	if json.Unmarshal(inputSchema, &schema) != nil || schema.AdditionalProperties == nil || *schema.AdditionalProperties {
+		return nil
+	}
+	input := map[string]json.RawMessage{}
+	if json.Unmarshal(toolInput, &input) != nil {
+		return nil
+	}
+	unexpected := []string{}
+	for fieldName := range input {
+		if _, isAllowed := schema.Properties[fieldName]; !isAllowed {
+			unexpected = append(unexpected, fieldName)
+		}
+	}
+	sort.Strings(unexpected)
+	return unexpected
+}
+
 func isEmptyCapabilityInputValue(value json.RawMessage) bool {
 	trimmed := strings.TrimSpace(string(value))
 	return trimmed == "" || trimmed == "null" || trimmed == `""` || trimmed == "{}" || trimmed == "[]"
@@ -379,6 +404,40 @@ func capabilityMissingInputFailure(operation string, toolDescriptor CapabilityTo
 		Reason:    "Input schema for " + operation + ": " + capabilityCatalogParameters(toolDescriptor.InputSchema) + ". Wrapper shape: " + capabilityInvokeWrapperExample(operation, toolDescriptor.InputSchema, missing) + ". Never send an empty input.",
 	}}
 	return result
+}
+
+func capabilityUnexpectedInputFailure(operation string, toolDescriptor CapabilityToolDescriptor, unexpected []string) agent.ToolResult {
+	allowedFields := capabilityInputFieldNames(toolDescriptor.InputSchema)
+	message := operation + " does not accept these input fields: " + strings.Join(unexpected, ", ") + ". Call capability.invoke again using only these fields: " + strings.Join(allowedFields, ", ") + "."
+	result := agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "capability_input", message)
+	if result.Failure == nil {
+		return result
+	}
+	result.Failure.Retryable = true
+	result.Failure.SafeRetry = true
+	result.Failure.FailureClass = "schema"
+	result.Failure.RetryPolicy = "different_input"
+	result.Failure.RecoveryHints = []agent.RecoveryHint{{
+		Action:    "Retry capability.invoke with operation=" + operation + " using only the operation's declared input fields.",
+		ToolNames: []string{agent.CapabilityInvokeToolName},
+		Reason:    "Input schema for " + operation + ": " + capabilityCatalogParameters(toolDescriptor.InputSchema) + ".",
+	}}
+	return result
+}
+
+func capabilityInputFieldNames(inputSchema json.RawMessage) []string {
+	var schema struct {
+		Properties map[string]json.RawMessage `json:"properties"`
+	}
+	if json.Unmarshal(inputSchema, &schema) != nil {
+		return nil
+	}
+	fieldNames := make([]string, 0, len(schema.Properties))
+	for fieldName := range schema.Properties {
+		fieldNames = append(fieldNames, fieldName)
+	}
+	sort.Strings(fieldNames)
+	return fieldNames
 }
 
 func capabilityInputNotObjectFailure(operation string, toolDescriptor CapabilityToolDescriptor) agent.ToolResult {
