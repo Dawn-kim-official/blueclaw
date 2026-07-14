@@ -175,6 +175,40 @@ func TestTaskIntakePlannerFallbackDoesNotInferPriorTaskIntent(t *testing.T) {
 	}
 }
 
+func TestTaskIntakePlannerDropsFileContractWithoutRequestedOutputFormat(t *testing.T) {
+	languageModel := &sequenceLanguageModel{contents: []string{
+		`{"route":"start_task","classification":"bounded_task","taskShape":"maintenance_task","level":"low","requestedOutputFormats":["html"],"requestedOutputEvidence":"HTML 파일","expectedResults":[{"id":"attached-file","type":"file","description":"attach a file","required":true}],"requiredEvidence":["calendar.update","file.deliver"],"siteRequestEvidence":"","responseLanguage":"ko","reason":"calendar update","userFacingReply":"","initialToolNames":["capability.invoke","file.deliver"],"priorTaskReference":"none"}`,
+	}}
+	planner := NewTaskIntakePlanner(languageModel, IntakeOptions{IsEnabled: true})
+	toolRegistry := newTestCapabilityToolSet([]string{"calendar.update", "file.deliver"})
+
+	decision := planner.Plan(context.Background(), AgentRequest{Prompt: "일정을 오후 2시로 수정해줘", ToolSet: toolRegistry})
+
+	if expectedResultIncludesType(OutcomeContract{ExpectedResults: decision.ExpectedResults}, ExpectedResultTypeFile) {
+		t.Fatalf("expected untyped file result to be removed, got %+v", decision.ExpectedResults)
+	}
+	if containsString(decision.RequiredEvidenceTools, FileDeliverToolName) || containsString(decision.InitialToolNames, FileDeliverToolName) {
+		t.Fatalf("expected untyped file delivery tools to be removed, got required=%+v initial=%+v", decision.RequiredEvidenceTools, decision.InitialToolNames)
+	}
+	if !containsString(decision.RequiredEvidenceTools, "calendar.update") {
+		t.Fatalf("expected calendar evidence to remain, got %+v", decision.RequiredEvidenceTools)
+	}
+}
+
+func TestTaskIntakePlannerKeepsGroundedRequestedOutputFormat(t *testing.T) {
+	languageModel := &sequenceLanguageModel{contents: []string{
+		`{"route":"start_task","classification":"bounded_task","taskShape":"research_task","level":"medium","requestedOutputFormats":["html"],"requestedOutputEvidence":"HTML 발표자료","expectedResults":[{"id":"attached-file","type":"file","description":"attach HTML","required":true}],"requiredEvidence":["file.deliver"],"siteRequestEvidence":"","responseLanguage":"ko","reason":"presentation","userFacingReply":"","initialToolNames":["file.deliver"],"priorTaskReference":"none"}`,
+	}}
+	planner := NewTaskIntakePlanner(languageModel, IntakeOptions{IsEnabled: true})
+	toolRegistry := newTestToolSet([]string{FileDeliverToolName})
+
+	decision := planner.Plan(context.Background(), AgentRequest{Prompt: "HTML 발표자료를 만들어줘", ToolSet: toolRegistry})
+
+	if strings.Join(decision.RequestedOutputFormats, ",") != "html" || !expectedResultIncludesType(OutcomeContract{ExpectedResults: decision.ExpectedResults}, ExpectedResultTypeFile) {
+		t.Fatalf("expected grounded HTML contract to remain, got %+v", decision)
+	}
+}
+
 func TestTaskIntakePlannerFallbackDoesNotTreatInputAttachmentExtensionAsOutput(t *testing.T) {
 	planner := NewTaskIntakePlanner(nil, IntakeOptions{})
 

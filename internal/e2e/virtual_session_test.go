@@ -167,7 +167,7 @@ func TestVirtualTaskCapabilityPreservesLifecycleState(t *testing.T) {
 func TestVirtualCapabilityCatalogUsesOperationSchemas(t *testing.T) {
 	catalog := virtualCapabilityCatalogResponse(map[string]bool{"task.add": true, "calendar.update": true})
 
-	for _, expectedText := range []string{`"prompt"`, `"eventID"`, `"startISO"`, `"endISO"`} {
+	for _, expectedText := range []string{`"prompt"`, `"eventID"`, `"query"`, `"startISO"`, `"endISO"`} {
 		if !strings.Contains(catalog, expectedText) {
 			t.Fatalf("expected catalog schema field %s, got %s", expectedText, catalog)
 		}
