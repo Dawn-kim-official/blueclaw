@@ -44,7 +44,15 @@ describe('closed protocol values', () => {
       model: 'model',
       content: '{}',
       selectedBackend: 'remote',
+      finishReason: 'stop',
       constraintMode: 'unknown',
+    }).success).toBe(false);
+    expect(structuredResponseSchema.safeParse({
+      provider: '',
+      model: '',
+      content: '',
+      selectedBackend: '',
+      finishReason: 'length',
     }).success).toBe(false);
     expect(askInteractionSchema.safeParse({ interactionID: 'ask-1', taskRunID: 'task-1', kind: 'choice' }).success).toBe(false);
     expect(askInteractionSchema.safeParse({ interactionID: 'ask-1', taskRunID: 'task-1', kind: 'ask_choice_single' }).success).toBe(false);

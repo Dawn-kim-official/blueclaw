@@ -53,6 +53,7 @@ function testConfiguration(socketPath: string): SDKDConfiguration {
     autoRoute: 'remote-first',
     llamaAPIKey: 'local',
     llamaStructuredOutputsEnabled: false,
+    localOnly: false,
     openRouterBaseURL: 'https://openrouter.ai/api/v1',
     requestTimeoutMillisecond: 60000,
     socketPath,

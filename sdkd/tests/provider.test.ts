@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import type { LanguageModelV3GenerateResult, LanguageModelV3Usage } from '@ai-sdk/provider';
+import { APICallError, RetryError } from 'ai';
 import type { StructuredResponseRequest } from '@blueclaw/protocol';
 import { MockLanguageModelV3 } from 'ai/test';
 
@@ -67,9 +68,9 @@ describe('sdkd provider adapter', () => {
     expect(llamaModel.doGenerateCalls[0]?.temperature).toBe(0);
   });
 
-  test('honors auto route order and falls back after a provider failure', async () => {
+  test('honors auto route order and falls back after a retryable provider failure', async () => {
     const routeAttempts: string[] = [];
-    const llamaModel = failingLanguageModel('llama.cpp', 'device unavailable', routeAttempts);
+    const llamaModel = apiFailingLanguageModel('llama.cpp', true, routeAttempts);
     const remoteModel = successfulLanguageModel('served-remote-model', { ok: true }, undefined, () => {
       routeAttempts.push('openrouter');
     });
@@ -84,6 +85,91 @@ describe('sdkd provider adapter', () => {
     expect(response.provider).toBe('openrouter');
     expect(response.selectedBackend).toBe('remote');
     expect(response.constraintMode).toBe('openai_json_schema');
+  });
+
+  test('falls back only after retryable provider failures', async () => {
+    const routeAttempts: string[] = [];
+    const llamaModel = apiFailingLanguageModel('llama.cpp', true, routeAttempts);
+    const remoteModel = successfulLanguageModel('served-remote-model', { ok: true }, undefined, () => {
+      routeAttempts.push('openrouter');
+    });
+    const generateStructuredResponse = createStructuredResponseGenerator(
+      completeConfiguration('local-first'),
+      languageModelFactory(llamaModel, remoteModel),
+    );
+
+    const response = await generateStructuredResponse(structuredRequest);
+
+    expect(routeAttempts).toEqual(['llama.cpp', 'openrouter']);
+    expect(response.provider).toBe('openrouter');
+  });
+
+  test('falls back when RetryError wraps a retryable provider failure', async () => {
+    const routeAttempts: string[] = [];
+    const llamaModel = retryFailingLanguageModel('llama.cpp', true, routeAttempts);
+    const remoteModel = successfulLanguageModel('served-remote-model', { ok: true }, undefined, () => {
+      routeAttempts.push('openrouter');
+    });
+    const generateStructuredResponse = createStructuredResponseGenerator(
+      completeConfiguration('local-first'),
+      languageModelFactory(llamaModel, remoteModel),
+    );
+
+    const response = await generateStructuredResponse(structuredRequest);
+
+    expect(routeAttempts).toEqual(['llama.cpp', 'openrouter']);
+    expect(response.provider).toBe('openrouter');
+  });
+
+  test('does not fall back when RetryError wraps a non-retryable provider failure', async () => {
+    const routeAttempts: string[] = [];
+    const llamaModel = retryFailingLanguageModel('llama.cpp', false, routeAttempts);
+    const remoteModel = successfulLanguageModel('unused-remote-model', { ok: true });
+    const generateStructuredResponse = createStructuredResponseGenerator(
+      completeConfiguration('local-first'),
+      languageModelFactory(llamaModel, remoteModel),
+    );
+
+    await expect(generateStructuredResponse(structuredRequest)).rejects.toThrow('provider request failed');
+    expect(routeAttempts).toEqual(['llama.cpp']);
+    expect(remoteModel.doGenerateCalls).toHaveLength(0);
+  });
+
+  test('does not fall back after non-retryable provider failures', async () => {
+    const routeAttempts: string[] = [];
+    const llamaModel = apiFailingLanguageModel('llama.cpp', false, routeAttempts);
+    const remoteModel = successfulLanguageModel('unused-remote-model', { ok: true });
+    const generateStructuredResponse = createStructuredResponseGenerator(
+      completeConfiguration('local-first'),
+      languageModelFactory(llamaModel, remoteModel),
+    );
+
+    await expect(generateStructuredResponse(structuredRequest)).rejects.toThrow('provider request failed');
+    expect(routeAttempts).toEqual(['llama.cpp']);
+    expect(remoteModel.doGenerateCalls).toHaveLength(0);
+  });
+
+  test('does not route or allow legacy fallback for a non-retryable 500 response', async () => {
+    const routeAttempts: string[] = [];
+    const llamaModel = apiFailingLanguageModel('llama.cpp', false, routeAttempts, 500);
+    const remoteModel = successfulLanguageModel('unused-remote-model', { ok: true });
+    const generateStructuredResponse = createStructuredResponseGenerator(
+      completeConfiguration('local-first'),
+      languageModelFactory(llamaModel, remoteModel),
+    );
+
+    try {
+      await generateStructuredResponse(structuredRequest);
+      throw new Error('expected provider failure');
+    } catch (errorValue) {
+      expect(errorValue).toMatchObject({
+        code: 'provider_response_invalid',
+        status: 502,
+        allowLegacyFallback: false,
+      });
+    }
+    expect(routeAttempts).toEqual(['llama.cpp']);
+    expect(remoteModel.doGenerateCalls).toHaveLength(0);
   });
 
   test('stops after the first successful auto route', async () => {
@@ -101,6 +187,24 @@ describe('sdkd provider adapter', () => {
     expect(llamaModel.doGenerateCalls).toHaveLength(0);
   });
 
+  test('keeps auto and remote routing local in local-only mode', async () => {
+    const llamaModel = successfulLanguageModel('local-model', { ok: true });
+    const remoteModel = successfulLanguageModel('remote-model', { ok: true });
+    const configuration = { ...completeConfiguration('remote-first'), localOnly: true };
+    const generateStructuredResponse = createStructuredResponseGenerator(
+      configuration,
+      languageModelFactory(llamaModel, remoteModel),
+    );
+
+    const response = await generateStructuredResponse(structuredRequest);
+
+    expect(response.selectedBackend).toBe('device');
+    expect(remoteModel.doGenerateCalls).toHaveLength(0);
+    await expect(generateStructuredResponse({ ...structuredRequest, executionMode: 'remote' })).rejects.toThrow(
+      'remote routing is disabled by local-only mode',
+    );
+  });
+
   test('rejects provider output that violates the requested schema', async () => {
     const invalidModel = successfulLanguageModel('invalid-model', { ok: 'not-a-boolean' });
     const fallbackModel = successfulLanguageModel('fallback-model', { ok: true });
@@ -115,14 +219,14 @@ describe('sdkd provider adapter', () => {
 
   test('returns the last provider failure after exhausting fallback routes', async () => {
     const routeAttempts: string[] = [];
-    const llamaModel = failingLanguageModel('llama.cpp', 'device unavailable', routeAttempts);
-    const remoteModel = failingLanguageModel('openrouter', 'remote unavailable', routeAttempts);
+    const llamaModel = apiFailingLanguageModel('llama.cpp', true, routeAttempts);
+    const remoteModel = apiFailingLanguageModel('openrouter', true, routeAttempts);
     const generateStructuredResponse = createStructuredResponseGenerator(
       completeConfiguration('local-first'),
       languageModelFactory(llamaModel, remoteModel),
     );
 
-    await expect(generateStructuredResponse(structuredRequest)).rejects.toThrow('remote unavailable');
+    await expect(generateStructuredResponse(structuredRequest)).rejects.toThrow('provider request failed');
     expect(routeAttempts).toEqual(['llama.cpp', 'openrouter']);
   });
 
@@ -154,6 +258,7 @@ function completeConfiguration(autoRoute: SDKDConfiguration['autoRoute']): SDKDC
     llamaBaseURL: 'http://127.0.0.1:8080/v1',
     llamaModel: 'local-model',
     llamaStructuredOutputsEnabled: true,
+    localOnly: false,
     openRouterAPIKey: 'remote-key',
     openRouterBaseURL: 'https://openrouter.invalid/api/v1',
     requestTimeoutMillisecond: 1000,
@@ -186,16 +291,45 @@ function successfulLanguageModel(
   });
 }
 
-function failingLanguageModel(
+function retryFailingLanguageModel(
   routeName: string,
-  message: string,
+  isRetryable: boolean,
   routeAttempts: string[],
+): MockLanguageModelV3 {
+  const apiCallError = providerAPICallError(isRetryable);
+  return new MockLanguageModelV3({
+    doGenerate: async () => {
+      routeAttempts.push(routeName);
+      throw new RetryError({
+        message: 'provider retries failed',
+        reason: isRetryable ? 'maxRetriesExceeded' : 'errorNotRetryable',
+        errors: [apiCallError],
+      });
+    },
+  });
+}
+
+function apiFailingLanguageModel(
+  routeName: string,
+  isRetryable: boolean,
+  routeAttempts: string[],
+  statusCode?: number,
 ): MockLanguageModelV3 {
   return new MockLanguageModelV3({
     doGenerate: async () => {
       routeAttempts.push(routeName);
-      throw new Error(message);
+      throw providerAPICallError(isRetryable, statusCode);
     },
+  });
+}
+
+function providerAPICallError(isRetryable: boolean, statusCode?: number): APICallError {
+  return new APICallError({
+    message: 'provider request failed',
+    url: 'https://provider.invalid',
+    requestBodyValues: {},
+    isRetryable,
+    statusCode,
   });
 }
 

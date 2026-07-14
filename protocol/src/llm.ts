@@ -63,11 +63,11 @@ export const languageModelUsageSchema = z.looseObject({
 });
 
 export const structuredResponseSchema = z.looseObject({
-  provider: z.string(),
-  model: z.string(),
-  content: z.string(),
-  selectedBackend: z.string(),
-  finishReason: z.string().optional(),
+  provider: z.string().trim().min(1),
+  model: z.string().trim().min(1),
+  content: z.string().min(1),
+  selectedBackend: z.enum(['device', 'remote']),
+  finishReason: z.literal('stop'),
   constraintMode: z.enum([
     'openai_json_schema',
     'llama_json_schema',
