@@ -242,8 +242,7 @@ func TestLoadAgentInstructionBundleDiscoversAddedUserSkill(t *testing.T) {
 	}
 	skillDocument := `---
 name: research-helper
-description: Help with research tasks.
-when_to_use: Use for source lookup requests.
+description: Help with research tasks and source lookup requests.
 ---
 Research helper body.
 `
@@ -258,7 +257,7 @@ Research helper body.
 	if len(instructionBundle.Skills) != 1 || instructionBundle.Skills[0].Name != "research-helper" {
 		t.Fatalf("expected added user skill to be discovered, got %+v", instructionBundle.Skills)
 	}
-	if instructionBundle.Skills[0].WhenToUse != "Use for source lookup requests." {
+	if instructionBundle.Skills[0].Description != "Help with research tasks and source lookup requests." || instructionBundle.Skills[0].WhenToUse != "" {
 		t.Fatalf("expected standard skill fields, got %+v", instructionBundle.Skills[0])
 	}
 }
@@ -276,13 +275,16 @@ func TestDeriveAllowedToolNamesByProfileKeepsDomainCapabilitiesOutOfBaseline(t *
 	if containsString(defaultProfileToolNames, "site.create") {
 		t.Fatalf("expected domain capability to stay out of profile baseline, got %+v", defaultProfileToolNames)
 	}
-	for _, expectedToolName := range []string{"terminal.run", "ask.input", "file.deliver", "skill.search", "file.read", "file.write", "file.edit", "file.preview", "image.read"} {
+	for _, expectedToolName := range []string{"terminal.run", "file.deliver", "skill.search", "file.read", "file.write", "file.edit", "file.preview", "image.read"} {
 		if !containsString(defaultProfileToolNames, expectedToolName) {
 			t.Fatalf("expected baseline tool %q, got %+v", expectedToolName, defaultProfileToolNames)
 		}
 	}
 	if containsString(defaultProfileToolNames, "ask.confirm") {
 		t.Fatalf("expected runtime-owned confirmation to stay out of model tools, got %+v", defaultProfileToolNames)
+	}
+	if containsString(defaultProfileToolNames, "ask.input") {
+		t.Fatalf("expected typed user input to stay out of the baseline tools, got %+v", defaultProfileToolNames)
 	}
 }
 

@@ -220,7 +220,7 @@ func (client OpenRouterClient) sendOnce(ctx context.Context, request openRouterR
 	}
 	response.HTTPStatusCode = httpResponse.StatusCode
 	if len(response.Choices) == 0 {
-		return openRouterResponse{}, errors.New("openrouter response did not include choices")
+		return openRouterResponse{}, errors.New("openrouter response did not include choices: " + openRouterHTTPErrorMessage(httpResponse.StatusCode, responseDocument))
 	}
 	if strings.TrimSpace(response.Choices[0].Message.Content) == "" {
 		return openRouterResponse{}, errors.New("openrouter response content was empty")
@@ -259,7 +259,7 @@ func (client OpenRouterClient) httpClient() *http.Client {
 	if client.HTTPClient != nil {
 		return client.HTTPClient
 	}
-	return &http.Client{Timeout: 90 * time.Second}
+	return &http.Client{}
 }
 
 func (client OpenRouterClient) baseURL() string {

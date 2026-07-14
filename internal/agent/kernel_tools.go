@@ -28,7 +28,6 @@ const (
 func KernelToolNames() []string {
 	return []string{
 		TerminalRunToolName,
-		AskInputToolName,
 		FileDeliverToolName,
 		SkillSearchToolName,
 		CapabilityInvokeToolName,

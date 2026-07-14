@@ -263,10 +263,13 @@ func TestAgentKernelActionSchemaExposesOnlyKernelToolsRegardlessOfIntakeInitialT
 		t.Fatal("expected action request")
 	}
 	actionSchema := replyLanguageModel.requests[0].StructuredOutputSchema.Document
-	for _, kernelToolName := range []string{CapabilityInvokeToolName, AskInputToolName} {
+	for _, kernelToolName := range []string{CapabilityInvokeToolName} {
 		if !strings.Contains(actionSchema, kernelToolName) {
 			t.Fatalf("expected kernel tool %s in action schema regardless of intake initial tools, got %s", kernelToolName, actionSchema)
 		}
+	}
+	if strings.Contains(actionSchema, AskInputToolName) {
+		t.Fatalf("expected ask.input to stay hidden without a typed interaction requirement, got %s", actionSchema)
 	}
 	for _, domainToolName := range []string{"schedule.create", "mail.message.search", "math.calculate"} {
 		if strings.Contains(actionSchema, `"toolName":{"enum":["`+domainToolName+`"`) {

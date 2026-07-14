@@ -688,7 +688,7 @@ func SkillLifecycleAcceptanceScenario(artifactDirectoryPath string) VirtualSessi
 				},
 				ExpectedWorkspaceFiles: []VirtualWorkspaceFileExpectation{{
 					PathGlob:          ".agents/skills/memo-helper/SKILL.md",
-					ContainsFragments: []string{"name: memo-helper", "Memo helper organizes short notes"},
+					ContainsFragments: []string{"name: memo-helper", "Organize short notes into concise memos"},
 				}},
 				ExpectedReplyFragments: []string{"memo-helper", "등록"},
 			},
@@ -928,8 +928,7 @@ func skillAddToolInput(skillName string, skillContent string) string {
 func userManagedSkillDocument(skillName string) string {
 	return `---
 name: ` + skillName + `
-description: Memo helper organizes short notes and extracts action items from source text.
-when_to_use: Use when the user wants notes organized into concise memos.
+description: Organize short notes into concise memos and extract action items when the user asks for memo help.
 ---
 Organize notes into concise memos with action items and owners.`
 }
@@ -1087,7 +1086,7 @@ func SiteCustomStructureAcceptanceScenario(artifactDirectoryPath string) Virtual
 				actionCallTool("file.write", `{"path":"/workspace/circles/staff/sites/demo/draft/app/src/App.tsx","content":"export default function App() {\n  return <main className=\"custom-layout\"><section className=\"column\">Local Fleet Studio</section><section className=\"column\">Two-column custom layout</section></main>;\n}\n"}`),
 				actionInvokeCapabilityTool("site.publish", `{"siteID":"site-1","message":"Publish custom two-column layout"}`),
 				actionCallTool("terminal.run", `{"command":"mkdir -p dist && printf '<!doctype html><html><body><main class=\"custom-layout\"><section>Local Fleet Studio</section><section>Two-column custom layout</section></main></body></html>' > dist/index.html","workingDirectoryPath":"/workspace/circles/staff/sites/demo/draft/app","timeoutSecond":120}`),
-				actionInvokeCapabilityTool("site.publish", `{"siteID":"site-1","message":"Publish custom two-column layout"}`),
+				actionCallTool("site.publish", `{"siteID":"site-1","message":"Publish custom two-column layout"}`),
 				actionFinishMessage("커스텀 레이아웃을 빌드하고 다시 배포했습니다: https://demo.device.example.test", "obs-004:site.publish:0"),
 			},
 			ExpectedToolCallCounts: map[string]int{"terminal.run": 1, "file.write": 1, "site.publish": 1},
@@ -1095,7 +1094,7 @@ func SiteCustomStructureAcceptanceScenario(artifactDirectoryPath string) Virtual
 				{Name: "agent.site_publish_prerequisite_rejected", BodyFragment: "", Count: 1},
 				{Name: "tool.file.write.requested", BodyFragment: "custom-layout", Count: 1},
 				{Name: "tool.terminal.run.requested", BodyFragment: "dist/index.html", Count: 1},
-				{Name: "tool.capability.invoke.result", BodyFragment: "device.example.test", Count: 1},
+				{Name: "tool.site.publish.result", BodyFragment: "device.example.test", Count: 1},
 			},
 			ExpectedEvents:         []string{"agent.site_publish_prerequisite_rejected"},
 			ExpectedModelContexts:  []string{"site.publish requires a fresh build", "app/src", "app/public/site-content.json"},
@@ -1253,6 +1252,7 @@ func AskChoiceReplyAcceptanceScenario(artifactDirectoryPath string) VirtualSessi
 		Name:                  "ask_choice_reply_acceptance",
 		ArtifactDirectoryPath: artifactDirectoryPath,
 		AllowedTools:          []string{"conversation.history", "memory.search", "ask.input"},
+		InitialToolNames:      []string{agent.AskInputToolName},
 		Turns: []VirtualTurn{{
 			Prompt: "둘 중 하나 고르게 해줘",
 			ActionResponses: []string{

@@ -456,7 +456,6 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 			agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusCompleted, "completion_state "+string(transition.Action), "")
 			continue
 		}
-
 		iterationRequest := agentTurnRunner.requestForStep(taskContext, request, state)
 		agentTurnRunner.appendEvent(taskRun.TaskRunID, "agent.step_working_set", marshalEventBody(map[string]any{
 			"step":     iteration,
@@ -665,6 +664,14 @@ func (agentTurnRunner *AgentTurnRunner) failLaunchStep(ctx context.Context, task
 func (agentTurnRunner *AgentTurnRunner) handleToolCallAction(ctx context.Context, taskRunID string, stepID string, iteration int, request AgentTurnRequest, requirements []toolUseRequirement, state *agentTaskState, actionDocument turnActionDocument, successfulToolCalls map[string]turnObservation, stopForNoProgress func(string) (AgentTurnResult, bool)) toolCallActionOutcome {
 	if outcome := agentTurnRunner.rejectMalformedToolCall(taskRunID, stepID, request, state, actionDocument, stopForNoProgress); outcome.WasHandled {
 		return outcome
+	}
+	if duplicateObservation, isDuplicate := repeatedSuccessfulCompletionCandidate(state, actionDocument, successfulToolCalls); isDuplicate {
+		finalizationRequirements, canFinalize := duplicateSuccessFinalizationRequirements(request.ToolSet, requirements, state.Observations, actionDocument)
+		if canFinalize {
+			if result, isFinalized := agentTurnRunner.finalizeSatisfiedTurn(ctx, taskRunID, request, finalizationRequirements, state.Observations, state.QualityCriteria, state.ExecutionState, duplicateObservation.Tool); isFinalized {
+				return toolCallActionOutcome{Result: result, ShouldReturn: true, WasHandled: true}
+			}
+		}
 	}
 	if outcome := agentTurnRunner.rejectRepeatedToolCall(taskRunID, stepID, state, actionDocument, successfulToolCalls, stopForNoProgress); outcome.WasHandled {
 		return outcome
@@ -1119,6 +1126,7 @@ func agentRequestFromTurnRequest(request AgentTurnRequest) AgentRequest {
 		ActivePaths:            append([]string{}, request.ActivePaths...),
 		InstructionPrompt:      request.InstructionPrompt,
 		ActiveGoal:             request.ActiveGoal,
+		TaskShape:              request.TaskShape,
 		TurnStartedAt:          request.TurnStartedAt,
 		CheckpointSender:       request.CheckpointSender,
 	}
@@ -1524,7 +1532,7 @@ func (agentTurnRunner *AgentTurnRunner) finalizeLimitIfPossible(ctx context.Cont
 			attachments = transition.Attachments
 		}
 		if completionRequirementsHaveEvidence(requirements, observations) {
-			if result, isFinalized := agentTurnRunner.finalizeSatisfiedTurn(ctx, taskRunID, request, requirements, observations, criteria, executionState); isFinalized {
+			if result, isFinalized := agentTurnRunner.finalizeSatisfiedTurn(ctx, taskRunID, request, requirements, observations, criteria, executionState, ""); isFinalized {
 				return limitFinalizationResult{Result: result, IsCompleted: true, Observations: observations, Attachments: attachments}
 			}
 		}
@@ -1607,7 +1615,7 @@ func (agentTurnRunner *AgentTurnRunner) turnElapsed(turnStartedAt time.Time) tim
 	return time.Since(turnStartedAt)
 }
 
-func (agentTurnRunner *AgentTurnRunner) finalizeSatisfiedTurn(ctx context.Context, taskRunID string, request AgentTurnRequest, requirements []toolUseRequirement, observations []turnObservation, criteria []qualityCriterion, executionState ExecutionState) (AgentTurnResult, bool) {
+func (agentTurnRunner *AgentTurnRunner) finalizeSatisfiedTurn(ctx context.Context, taskRunID string, request AgentTurnRequest, requirements []toolUseRequirement, observations []turnObservation, criteria []qualityCriterion, executionState ExecutionState, requiredToolName string) (AgentTurnResult, bool) {
 	actionDocument, errorValue := agentTurnRunner.finalizerAction(ctx, request, observations, executionState)
 	if errorValue != nil {
 		agentTurnRunner.appendEvent(taskRunID, "agent.finalizer_failed", marshalEventBody(map[string]string{"error": errorValue.Error()}))
@@ -1616,6 +1624,10 @@ func (agentTurnRunner *AgentTurnRunner) finalizeSatisfiedTurn(ctx context.Contex
 	agentTurnRunner.appendEvent(taskRunID, "agent.finalizer_action", marshalEventBody(actionDocument))
 	if strings.TrimSpace(actionDocument.Action) != "finish" {
 		agentTurnRunner.appendEvent(taskRunID, "agent.finalizer_rejected", marshalEventBody(map[string]string{"reason": "finalizer did not return finish"}))
+		return AgentTurnResult{}, false
+	}
+	if !completionEvidenceIncludesSuccessfulTool(observations, actionDocument.CompletionEvidence, requiredToolName) {
+		agentTurnRunner.appendEvent(taskRunID, "agent.finalizer_rejected", marshalEventBody(map[string]string{"reason": "finalizer omitted successful evidence for the repeated tool"}))
 		return AgentTurnResult{}, false
 	}
 	completionGateResult := agentTurnRunner.validateCompletionGateForRequestWithExpectedResults(ctx, taskRunID, request, requirements, observations, nil, criteria, actionDocument)
@@ -1635,11 +1647,25 @@ func (agentTurnRunner *AgentTurnRunner) finalizeSatisfiedTurn(ctx context.Contex
 	return AgentTurnResult{TaskRun: completedTaskRun, FinishMessage: reply, Attachments: completionGateResult.Attachments, RecoveryActions: recoveryActionsFromObservations(observations)}, true
 }
 
+func completionEvidenceIncludesSuccessfulTool(observations []turnObservation, references []completionEvidenceReference, requiredToolName string) bool {
+	trimmedToolName := strings.TrimSpace(requiredToolName)
+	if trimmedToolName == "" {
+		return true
+	}
+	for _, reference := range references {
+		observation, isFound := findSuccessfulObservation(observations, reference)
+		if isFound && ToolNamesMatch(observation.Tool, trimmedToolName) {
+			return true
+		}
+	}
+	return false
+}
+
 func (agentTurnRunner *AgentTurnRunner) finalizerAction(ctx context.Context, request AgentTurnRequest, observations []turnObservation, executionState ExecutionState) (turnActionDocument, error) {
 	messages := agentTurnRunner.buildTurnMessages(request, observations, executionState)
 	messages = append(messages, llm.Message{
 		Role:    "system",
-		Content: "The current run is near its limit. Do not call tools. If a useful result or attachment already exists, use finish with goalSatisfied=true and cite successful completionEvidence. If the goal is not satisfied, return a concise fail reply that accurately says what stopped and what evidence exists.",
+		Content: "The required evidence is already available. Do not call tools. Use finish with goalSatisfied=true and cite successful completionEvidence. If the evidence does not actually satisfy the user's request, return a concise fail reply that accurately says what is missing.",
 	})
 	structuredResponse, errorValue := agentTurnRunner.languageModel.GenerateStructuredResponse(ctx, llm.StructuredResponseRequest{
 		Messages: messages,

@@ -12,20 +12,26 @@ func (agentTurnRunner *AgentTurnRunner) buildActionSchema(toolRegistry *ToolSet,
 	return buildActionSchemaFromToolDefinitions(nil, allowQualityCriteria, blockedToolNames, hasFailureDebt)
 }
 
-func (toolSet *ToolSet) ActionSchema(allowQualityCriteria bool, blockedToolNames map[string]bool, hasFailureDebt bool, allowFailValues ...bool) string {
+func (toolSet *ToolSet) ActionSchema(allowQualityCriteria bool, blockedToolNames map[string]bool, hasFailureDebt bool, terminalActionValues ...bool) string {
 	if toolSet == nil {
-		return buildActionSchemaFromToolDefinitions(nil, allowQualityCriteria, blockedToolNames, hasFailureDebt, allowFailValues...)
+		return buildActionSchemaFromToolDefinitions(nil, allowQualityCriteria, blockedToolNames, hasFailureDebt, terminalActionValues...)
 	}
-	return buildActionSchemaFromToolDefinitions(toolSet.ListToolDefinitions(), allowQualityCriteria, blockedToolNames, hasFailureDebt, allowFailValues...)
+	return buildActionSchemaFromToolDefinitions(toolSet.ListToolDefinitions(), allowQualityCriteria, blockedToolNames, hasFailureDebt, terminalActionValues...)
 }
 
-func buildActionSchemaFromToolDefinitions(toolDefinitions []ToolDefinition, allowQualityCriteria bool, blockedToolNames map[string]bool, hasFailureDebt bool, allowFailValues ...bool) string {
+func buildActionSchemaFromToolDefinitions(toolDefinitions []ToolDefinition, allowQualityCriteria bool, blockedToolNames map[string]bool, hasFailureDebt bool, terminalActionValues ...bool) string {
 	allowFail := true
-	if len(allowFailValues) > 0 {
-		allowFail = allowFailValues[0]
+	allowFinish := true
+	if len(terminalActionValues) > 0 {
+		allowFail = terminalActionValues[0]
+	}
+	if len(terminalActionValues) > 1 {
+		allowFinish = terminalActionValues[1]
 	}
 	var variants []any
-	variants = append(variants, finishActionSchema(hasFailureDebt))
+	if allowFinish {
+		variants = append(variants, finishActionSchema(hasFailureDebt))
+	}
 	if allowFail {
 		variants = append(variants, failActionSchema(hasFailureDebt))
 	}
