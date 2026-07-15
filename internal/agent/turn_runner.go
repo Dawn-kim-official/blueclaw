@@ -472,14 +472,20 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 			"step":     iteration,
 			"exposure": iterationRequest.ToolExposure,
 		}))
-		actionDocument, actionError := agentTurnRunner.nextAction(taskContext, taskRun.TaskRunID, iterationRequest, toolUseRequirements, state.Observations, state.ExecutionState, state.ContextSummary, len(state.QualityCriteria) == 0)
+		actionContext, cancelAction := agentTurnRunner.currentEffortContext(taskContext, request.EffortStartedAt)
+		actionDocument, actionError := agentTurnRunner.nextAction(actionContext, taskRun.TaskRunID, iterationRequest, toolUseRequirements, state.Observations, state.ExecutionState, state.ContextSummary, len(state.QualityCriteria) == 0)
+		didEffortExpire := errors.Is(actionContext.Err(), context.DeadlineExceeded)
+		cancelAction()
 		if actionError != nil {
 			agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusFailed, "agent turn iteration", actionError.Error())
 			if errors.Is(actionError, context.Canceled) {
 				return agentTurnRunner.cancelledTaskResultOrCurrent(taskRun.TaskRunID, state.Attachments), nil
 			}
 			if errors.Is(actionError, context.DeadlineExceeded) {
-				finalization := agentTurnRunner.finalizeLimitIfPossible(taskContext, taskRun.TaskRunID, request, toolUseRequirements, state.Observations, state.Attachments, state.QualityCriteria, state.ExecutionState)
+				finalization := limitFinalizationResult{Observations: state.Observations, Attachments: state.Attachments}
+				if !didEffortExpire {
+					finalization = agentTurnRunner.finalizeLimitIfPossible(taskContext, taskRun.TaskRunID, request, toolUseRequirements, state.Observations, state.Attachments, state.QualityCriteria, state.ExecutionState)
+				}
 				if finalization.IsCompleted {
 					return finalization.Result, nil
 				}
@@ -1614,6 +1620,14 @@ func (agentTurnRunner *AgentTurnRunner) currentEffortElapsed(turnStartedAt time.
 		return false
 	}
 	return time.Since(turnStartedAt) >= time.Duration(agentTurnRunner.options.MaxElapsedSecond)*time.Second
+}
+
+func (agentTurnRunner *AgentTurnRunner) currentEffortContext(parentContext context.Context, effortStartedAt time.Time) (context.Context, context.CancelFunc) {
+	if effortStartedAt.IsZero() || agentTurnRunner.options.MaxElapsedSecond <= 0 {
+		return context.WithCancel(parentContext)
+	}
+	deadline := effortStartedAt.Add(time.Duration(agentTurnRunner.options.MaxElapsedSecond) * time.Second)
+	return context.WithDeadline(parentContext, deadline)
 }
 
 func (agentTurnRunner *AgentTurnRunner) turnElapsed(turnStartedAt time.Time) time.Duration {

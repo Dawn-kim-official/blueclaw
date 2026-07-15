@@ -1,9 +1,13 @@
 package agent
 
 import (
+	"context"
 	"strings"
 	"testing"
 	"time"
+
+	"blueclaw/internal/llm"
+	"blueclaw/internal/task"
 )
 
 func newTimePressureRunner() *AgentTurnRunner {
@@ -59,6 +63,57 @@ func TestExecutionEffortClockDoesNotIncludePreflightTime(t *testing.T) {
 	if !runner.currentEffortElapsed(time.Now().Add(-31 * time.Second)) {
 		t.Fatal("expected execution effort budget to expire from its own start time")
 	}
+}
+
+func TestAgentTurnRunnerCancelsModelCallAtExecutionEffortDeadline(t *testing.T) {
+	primaryLanguageModel := deadlineBlockingLanguageModel{}
+	recoveryLanguageModel := &sequenceLanguageModel{
+		contents:      []string{recoveryDecisionDocument("model call exceeded the task budget", "no result", "retry", "report the timeout")},
+		textResponses: []string{"작업 시간 제한에 도달해 중지했습니다. 다시 시도해 주세요."},
+	}
+	taskEventService := task.NewTaskEventService()
+	taskRunService := task.NewTaskRunService(taskEventService)
+	runner := NewAgentTurnRunnerWithRecoveryModel(
+		taskRunService,
+		task.NewTaskStepService(),
+		task.NewTaskArtifactService(),
+		primaryLanguageModel,
+		recoveryLanguageModel,
+		TurnOptions{MaxElapsedSecond: 1},
+	)
+
+	runContext, cancelRun := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancelRun()
+	startedAt := time.Now()
+	result, errorValue := runner.RunTurn(runContext, AgentTurnRequest{
+		RequesterPersonID: "person-1",
+		ConversationID:    "conversation-1",
+		Prompt:            "run a bounded task",
+		ToolSet:           newTestToolSet(nil),
+		EffortStartedAt:   time.Now().Add(-500 * time.Millisecond),
+	})
+
+	if errorValue != nil {
+		t.Fatalf("expected bounded limit result, got %v", errorValue)
+	}
+	if result.TaskRun.Status != task.TaskStatusBlocked || result.TaskRun.FailureReason != "max_elapsed" {
+		t.Fatalf("expected max_elapsed block, got %+v", result.TaskRun)
+	}
+	if elapsed := time.Since(startedAt); elapsed >= 1500*time.Millisecond {
+		t.Fatalf("expected model call to respect remaining effort budget, took %s", elapsed)
+	}
+}
+
+type deadlineBlockingLanguageModel struct{}
+
+func (deadlineBlockingLanguageModel) GenerateResponse(responseContext context.Context, _ string) (string, error) {
+	<-responseContext.Done()
+	return "", responseContext.Err()
+}
+
+func (deadlineBlockingLanguageModel) GenerateStructuredResponse(responseContext context.Context, _ llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
+	<-responseContext.Done()
+	return llm.StructuredResponse{}, responseContext.Err()
 }
 
 func TestLimitPressureMessageIncludesElapsedWhenBounded(t *testing.T) {
