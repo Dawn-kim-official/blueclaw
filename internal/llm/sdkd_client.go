@@ -152,6 +152,9 @@ func (client SDKDClient) generateSDKDRecoveryChatAttempt(responseContext context
 	attemptContext, cancelAttempt := recoveryAttemptContext(responseContext)
 	response, errorValue := client.generateChatCompletion(attemptContext, request, executionMode, false)
 	cancelAttempt()
+	if response.Transport == "" {
+		response.Transport = "sdkd"
+	}
 	if errorValue != nil {
 		return response, errorValue
 	}
@@ -172,6 +175,9 @@ func (client SDKDClient) GenerateStructuredResponse(responseContext context.Cont
 		return response, errorValue
 	}
 	response, errorValue := client.generateSDKDStructuredResponse(responseContext, request)
+	if response.Transport == "" {
+		response.Transport = "sdkd"
+	}
 	if errorValue == nil || client.LocalOnly || client.StructuredFallbackProvider == nil || !isRetryableSDKDError(errorValue) {
 		return response, errorValue
 	}
@@ -185,7 +191,11 @@ func (client SDKDClient) GenerateStructuredResponse(responseContext context.Cont
 }
 
 func (client SDKDClient) GenerateChatCompletion(responseContext context.Context, request ChatCompletionRequest) (ChatCompletionResponse, error) {
-	return client.generateChatCompletion(responseContext, request, client.executionMode(), true)
+	response, errorValue := client.generateChatCompletion(responseContext, request, client.executionMode(), true)
+	if response.Transport == "" {
+		response.Transport = "sdkd"
+	}
+	return response, errorValue
 }
 
 func (client SDKDClient) generateChatCompletion(responseContext context.Context, request ChatCompletionRequest, executionMode string, allowFallback bool) (ChatCompletionResponse, error) {
