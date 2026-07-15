@@ -3,7 +3,7 @@ import { mkdtemp, rm, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
-import type { SDKDConfiguration } from '../src/configuration.ts';
+import { SDKDAutoRoute, type SDKDConfiguration } from '../src/configuration.ts';
 import { startSDKDServer, stopSDKDServer } from '../src/server.ts';
 
 const temporaryDirectories: string[] = [];
@@ -50,7 +50,7 @@ describe('sdkd server', () => {
 function testConfiguration(socketPath: string): SDKDConfiguration {
   return {
     authKey: 'installation-key',
-    autoRoute: 'remote-first',
+    autoRoute: SDKDAutoRoute.RemoteFirst,
     llamaAPIKey: 'local',
     llamaStructuredOutputsEnabled: false,
     localOnly: false,
