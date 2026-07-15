@@ -21,12 +21,41 @@ func TestPromptAssemblerIncludesTemporalContext(t *testing.T) {
 		"Current weekday: Tuesday",
 		"Current time: 2026-05-12T17:32:27+09:00",
 		"Time zone: Asia/Seoul",
+		"Current week: Monday=2026-05-11, Tuesday=2026-05-12, Wednesday=2026-05-13, Thursday=2026-05-14, Friday=2026-05-15, Saturday=2026-05-16, Sunday=2026-05-17",
 		"Resolve relative dates",
 		"내일",
 	} {
 		if !strings.Contains(body, expected) {
 			t.Fatalf("expected temporal context %q, got %s", expected, body)
 		}
+	}
+}
+
+func TestBuildTemporalContextDescriptionAnchorsWeeksAcrossCalendarBoundaries(t *testing.T) {
+	testCases := []struct {
+		name      string
+		startedAt time.Time
+		expected  string
+	}{
+		{
+			name:      "month boundary",
+			startedAt: time.Date(2026, 7, 30, 12, 0, 0, 0, defaultTurnLocation()),
+			expected:  "Current week: Monday=2026-07-27, Tuesday=2026-07-28, Wednesday=2026-07-29, Thursday=2026-07-30, Friday=2026-07-31, Saturday=2026-08-01, Sunday=2026-08-02",
+		},
+		{
+			name:      "year boundary",
+			startedAt: time.Date(2026, 1, 1, 12, 0, 0, 0, defaultTurnLocation()),
+			expected:  "Current week: Monday=2025-12-29, Tuesday=2025-12-30, Wednesday=2025-12-31, Thursday=2026-01-01, Friday=2026-01-02, Saturday=2026-01-03, Sunday=2026-01-04",
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			description := buildTemporalContextDescription(testCase.startedAt)
+			if !strings.Contains(description, testCase.expected) {
+				t.Fatalf("expected week anchors %q, got %s", testCase.expected, description)
+			}
+		})
 	}
 }
 
