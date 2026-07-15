@@ -20,6 +20,9 @@ func (fallbackLanguageModelProvider FallbackLanguageModelProvider) GenerateRespo
 	}
 
 	response, errorValue := fallbackLanguageModelProvider.PrimaryProvider.GenerateResponse(responseContext, prompt)
+	if contextError := contextFailure(responseContext, errorValue); contextError != nil {
+		return response, contextError
+	}
 	if errorValue == nil || fallbackLanguageModelProvider.FallbackProvider == nil {
 		return response, errorValue
 	}
@@ -34,6 +37,9 @@ func (fallbackLanguageModelProvider FallbackLanguageModelProvider) GenerateStruc
 	}
 
 	structuredResponse, errorValue := fallbackLanguageModelProvider.PrimaryProvider.GenerateStructuredResponse(responseContext, structuredResponseRequest)
+	if contextError := contextFailure(responseContext, errorValue); contextError != nil {
+		return structuredResponse, contextError
+	}
 	if errorValue == nil || fallbackLanguageModelProvider.FallbackProvider == nil {
 		return structuredResponse, errorValue
 	}
@@ -46,6 +52,22 @@ func (fallbackLanguageModelProvider FallbackLanguageModelProvider) GenerateStruc
 
 	structuredResponse.UsedFallback = true
 	return structuredResponse, nil
+}
+
+func contextFailure(responseContext context.Context, primaryError error) error {
+	if primaryError == nil {
+		return nil
+	}
+	if contextError := responseContext.Err(); contextError != nil {
+		return contextError
+	}
+	if errors.Is(primaryError, context.Canceled) {
+		return context.Canceled
+	}
+	if errors.Is(primaryError, context.DeadlineExceeded) {
+		return context.DeadlineExceeded
+	}
+	return nil
 }
 
 func (fallbackLanguageModelProvider FallbackLanguageModelProvider) logFallback(callKind string, primaryError error) {
