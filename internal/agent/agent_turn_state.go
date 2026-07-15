@@ -16,21 +16,22 @@ import (
 type agentAction = turnActionDocument
 
 type agentTaskState struct {
-	TaskRunID        string
-	Status           task.TaskStatus
-	Request          AgentTurnRequest
-	Options          TurnOptions
-	Observations     []turnObservation
-	QualityCriteria  []qualityCriterion
-	Attachments      []FileAttachment
-	ExecutionState   ExecutionState
-	ContextSummary   TaskContextSummary
-	IterationCount   int
-	ToolCallCount    int
-	TurnStartedAt    time.Time
-	PendingWait      *agentPendingWait
-	Requirements     []toolUseRequirement
-	LastModelMessage string
+	TaskRunID                string
+	Status                   task.TaskStatus
+	Request                  AgentTurnRequest
+	Options                  TurnOptions
+	Observations             []turnObservation
+	QualityCriteria          []qualityCriterion
+	Attachments              []FileAttachment
+	ExecutionState           ExecutionState
+	ContextSummary           TaskContextSummary
+	IterationCount           int
+	ToolCallCount            int
+	TurnStartedAt            time.Time
+	PendingWait              *agentPendingWait
+	Requirements             []toolUseRequirement
+	LastModelMessage         string
+	CompletionIntentToolName string
 }
 
 type agentPendingWait struct {

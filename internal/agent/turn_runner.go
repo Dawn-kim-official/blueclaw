@@ -441,7 +441,8 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 			return agentTurnRunner.cancelledTaskResultOrCurrent(taskRun.TaskRunID, state.Attachments), nil
 		}
 		if agentTurnRunner.currentEffortElapsed(request.EffortStartedAt) {
-			result, shouldContinue, errorValue := agentTurnRunner.finalizeEscalateOrStopForLimit(taskContext, taskRun.TaskRunID, request, "max_elapsed", toolUseRequirements, state.Observations, state.Attachments, state.QualityCriteria, state.ExecutionState, iteration-1, state.ToolCallCount)
+			completionRequirements := elapsedCompletionRequirements(toolUseRequirements, state.Observations, state.CompletionIntentToolName)
+			result, shouldContinue, errorValue := agentTurnRunner.finalizeEscalateOrStopForLimit(taskContext, taskRun.TaskRunID, request, "max_elapsed", completionRequirements, state.Observations, state.Attachments, state.QualityCriteria, state.ExecutionState, iteration-1, state.ToolCallCount)
 			if errorValue != nil || !shouldContinue {
 				return result, errorValue
 			}
@@ -490,8 +491,9 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 				if !agentTurnRunner.currentEffortElapsed(request.EffortStartedAt) {
 					return agentTurnRunner.finalizeIfSatisfiedOrFail(taskContext, taskRun.TaskRunID, request, "llm action failed: "+actionError.Error(), toolUseRequirements, state.Observations, state.Attachments, state.QualityCriteria, state.ExecutionState)
 				}
-				finalization := agentTurnRunner.finalizeLimitIfPossible(taskContext, taskRun.TaskRunID, request, toolUseRequirements, state.Observations, state.Attachments, state.QualityCriteria, state.ExecutionState)
-				finalization = agentTurnRunner.finalizeElapsedLimitWithEvidence(taskContext, taskRun.TaskRunID, request, "max_elapsed", toolUseRequirements, state.QualityCriteria, finalization)
+				completionRequirements := elapsedCompletionRequirements(toolUseRequirements, state.Observations, state.CompletionIntentToolName)
+				finalization := agentTurnRunner.finalizeLimitIfPossible(taskContext, taskRun.TaskRunID, request, completionRequirements, state.Observations, state.Attachments, state.QualityCriteria, state.ExecutionState)
+				finalization = agentTurnRunner.finalizeElapsedLimitWithEvidence(taskContext, taskRun.TaskRunID, request, "max_elapsed", completionRequirements, state.QualityCriteria, finalization)
 				if finalization.IsCompleted {
 					return finalization.Result, nil
 				}
@@ -726,6 +728,7 @@ func (agentTurnRunner *AgentTurnRunner) handleToolCallAction(ctx context.Context
 		return agentTurnRunner.requestHeldCallApproval(ctx, taskRunID, stepID, request, state, actionDocument)
 	}
 	agentTurnRunner.recordToolObservation(taskRunID, state, actionDocument, successfulToolCalls, observation, recoveryStep)
+	updateCompletionIntent(state, actionDocument, observation)
 	if pausedResult, isPaused := agentTurnRunner.pausedTaskResult(taskRunID, observation, state.Attachments); isPaused {
 		agentTurnRunner.saveStep(taskRunID, stepID, pausedResult.TaskRun.Status, "continue "+actionDocument.ToolName, observation.ContentText())
 		return toolCallActionOutcome{Result: pausedResult, ShouldReturn: true, WasHandled: true}
@@ -736,6 +739,14 @@ func (agentTurnRunner *AgentTurnRunner) handleToolCallAction(ctx context.Context
 		return toolCallActionOutcome{Result: result, ShouldReturn: shouldStop, WasHandled: true}
 	}
 	return toolCallActionOutcome{WasHandled: true}
+}
+
+func updateCompletionIntent(state *agentTaskState, actionDocument turnActionDocument, observation turnObservation) {
+	state.CompletionIntentToolName = ""
+	if observation.Failed() || actionDocument.GoalSatisfied == nil || !*actionDocument.GoalSatisfied || actionDocument.HasRemainingWork {
+		return
+	}
+	state.CompletionIntentToolName = observation.Tool
 }
 
 func (agentTurnRunner *AgentTurnRunner) applyPendingSteeringEvents(taskRunID string, observations []turnObservation, appliedEventIDs map[string]bool) []turnObservation {
@@ -1602,7 +1613,8 @@ func (agentTurnRunner *AgentTurnRunner) finalizeElapsedLimitWithEvidence(ctx con
 	if ctx.Err() != nil || finalizationContext.Err() != nil {
 		return finalization
 	}
-	transition := agentTurnRunner.applyCompletionState(finalizationContext, taskRunID, taskRunID+":completion", request, requirements, finalization.Observations, finalization.Attachments, criteria, reply)
+	completionState := buildCompletionState(request, requirements, finalization.Observations)
+	transition := agentTurnRunner.finalizeCompletionState(finalizationContext, taskRunID, taskRunID+":completion", request, requirements, finalization.Observations, finalization.Attachments, criteria, completionState, reply)
 	if !transition.IsCompleted {
 		return finalization
 	}
@@ -1610,9 +1622,24 @@ func (agentTurnRunner *AgentTurnRunner) finalizeElapsedLimitWithEvidence(ctx con
 	return limitFinalizationResult{Result: transition.Result, IsCompleted: true, Observations: transition.Observations, Attachments: transition.Attachments}
 }
 
+func elapsedCompletionRequirements(requirements []toolUseRequirement, observations []turnObservation, completionIntentToolName string) []toolUseRequirement {
+	if len(requirements) > 0 {
+		return requirements
+	}
+	toolName := strings.TrimSpace(completionIntentToolName)
+	if toolName == "" || DefaultToolSideEffectClass(toolName) != ToolSideEffectRead {
+		return nil
+	}
+	completionRequirement := toolUseRequirement{ToolName: toolName}
+	if len(matchingCompletionObservations(completionRequirement, observations)) == 0 {
+		return nil
+	}
+	return []toolUseRequirement{completionRequirement}
+}
+
 func buildElapsedCompletionPrompt(request AgentTurnRequest, requirements []toolUseRequirement, observations []turnObservation) string {
 	return strings.Join([]string{
-		"Write the final user-facing reply for a request whose required side effect completed successfully just before the execution limit.",
+		"Write the final user-facing reply for a request whose required result was obtained successfully just before the execution limit.",
 		responseLanguageInstruction(request.ResponseLanguage),
 		"Use one concise sentence. State only what the successful evidence proves. Do not mention limits, timing, internal tools, or runtime details.",
 		"Original request:\n" + strings.TrimSpace(request.Prompt),
