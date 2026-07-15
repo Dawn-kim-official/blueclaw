@@ -400,6 +400,51 @@ describe('sdkd provider adapter', () => {
     expect(fallbackModel.doGenerateCalls).toHaveLength(0);
   });
 
+  test('rejects undeclared quality review evidence fields', async () => {
+    const qualityReviewRequest: StructuredResponseRequest = {
+      ...structuredRequest,
+      structuredOutputSchema: {
+        ...structuredRequest.structuredOutputSchema,
+        document: {
+          type: 'object',
+          properties: {
+            qualityReview: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: { evidenceIDs: { type: 'array', items: { type: 'string' } } },
+                additionalProperties: false,
+              },
+            },
+          },
+          required: ['qualityReview'],
+          additionalProperties: false,
+        },
+      },
+    };
+    const invalidModel = successfulLanguageModel('invalid-model', {
+      qualityReview: [{ evidence: 'obs-1' }],
+    });
+    const fallbackModel = successfulLanguageModel('fallback-model', {
+      qualityReview: [{ evidenceIDs: ['obs-1'] }],
+    });
+    const generateStructuredResponse = createStructuredResponseGenerator(
+      completeConfiguration(SDKDAutoRoute.LocalFirst),
+      languageModelFactory(invalidModel, fallbackModel),
+    );
+
+    await expect(generateStructuredResponse(qualityReviewRequest)).rejects.toThrow();
+    expect(fallbackModel.doGenerateCalls).toHaveLength(0);
+
+    const generateValidStructuredResponse = createStructuredResponseGenerator(
+      completeConfiguration(SDKDAutoRoute.LocalFirst),
+      languageModelFactory(fallbackModel, invalidModel),
+    );
+    const response = await generateValidStructuredResponse(qualityReviewRequest);
+
+    expect(response.content).toBe('{"qualityReview":[{"evidenceIDs":["obs-1"]}]}');
+  });
+
   test('returns the last provider failure after exhausting fallback routes', async () => {
     const routeAttempts: string[] = [];
     const llamaModel = apiFailingLanguageModel('llama.cpp', true, routeAttempts);
