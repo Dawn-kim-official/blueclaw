@@ -491,6 +491,7 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 					return agentTurnRunner.finalizeIfSatisfiedOrFail(taskContext, taskRun.TaskRunID, request, "llm action failed: "+actionError.Error(), toolUseRequirements, state.Observations, state.Attachments, state.QualityCriteria, state.ExecutionState)
 				}
 				finalization := agentTurnRunner.finalizeLimitIfPossible(taskContext, taskRun.TaskRunID, request, toolUseRequirements, state.Observations, state.Attachments, state.QualityCriteria, state.ExecutionState)
+				finalization = agentTurnRunner.finalizeElapsedLimitWithEvidence(taskContext, taskRun.TaskRunID, request, "max_elapsed", toolUseRequirements, state.QualityCriteria, finalization)
 				if finalization.IsCompleted {
 					return finalization.Result, nil
 				}
@@ -1532,6 +1533,7 @@ type limitFinalizationResult struct {
 
 func (agentTurnRunner *AgentTurnRunner) finalizeOrStopForLimit(ctx context.Context, taskRunID string, request AgentTurnRequest, reason string, requirements []toolUseRequirement, observations []turnObservation, attachments []FileAttachment, criteria []qualityCriterion, executionState ExecutionState, usedIterationCount int, usedToolCallCount int) (AgentTurnResult, error) {
 	finalization := agentTurnRunner.finalizeLimitIfPossible(ctx, taskRunID, request, requirements, observations, attachments, criteria, executionState)
+	finalization = agentTurnRunner.finalizeElapsedLimitWithEvidence(ctx, taskRunID, request, reason, requirements, criteria, finalization)
 	if finalization.IsCompleted {
 		return finalization.Result, nil
 	}
@@ -1563,6 +1565,7 @@ func (agentTurnRunner *AgentTurnRunner) finalizeLimitIfPossible(ctx context.Cont
 
 func (agentTurnRunner *AgentTurnRunner) finalizeEscalateOrStopForLimit(ctx context.Context, taskRunID string, request AgentTurnRequest, reason string, requirements []toolUseRequirement, observations []turnObservation, attachments []FileAttachment, criteria []qualityCriterion, executionState ExecutionState, usedIterationCount int, usedToolCallCount int) (AgentTurnResult, bool, error) {
 	finalization := agentTurnRunner.finalizeLimitIfPossible(ctx, taskRunID, request, requirements, observations, attachments, criteria, executionState)
+	finalization = agentTurnRunner.finalizeElapsedLimitWithEvidence(ctx, taskRunID, request, reason, requirements, criteria, finalization)
 	if finalization.IsCompleted {
 		return finalization.Result, false, nil
 	}
@@ -1580,6 +1583,53 @@ func (agentTurnRunner *AgentTurnRunner) finalizeEscalateOrStopForLimit(ctx conte
 	}
 	agentTurnRunner.escalateBudgetTier(taskRunID, qualifyingEvents, usedIterationCount, usedToolCallCount)
 	return AgentTurnResult{}, true, nil
+}
+
+func (agentTurnRunner *AgentTurnRunner) finalizeElapsedLimitWithEvidence(ctx context.Context, taskRunID string, request AgentTurnRequest, reason string, requirements []toolUseRequirement, criteria []qualityCriterion, finalization limitFinalizationResult) limitFinalizationResult {
+	if finalization.IsCompleted || reason != "max_elapsed" {
+		return finalization
+	}
+	if !completionRequirementsHaveEvidence(requirements, finalization.Observations) {
+		return finalization
+	}
+	finalizationContext, cancelFinalization := recoveryFinalizationContextWithParent(ctx, request)
+	defer cancelFinalization()
+	reply, errorValue := agentTurnRunner.generateRecoveryText(finalizationContext, buildElapsedCompletionPrompt(request, requirements, finalization.Observations))
+	if errorValue != nil || ValidateUserNoticeDelivery(reply) != nil {
+		agentTurnRunner.appendEvent(taskRunID, "agent.limit_completion_reply_failed", marshalEventBody(map[string]string{"error": firstNonEmptyString(errorString(errorValue), "invalid completion reply")}))
+		return finalization
+	}
+	transition := agentTurnRunner.applyCompletionState(finalizationContext, taskRunID, taskRunID+":completion", request, requirements, finalization.Observations, finalization.Attachments, criteria, reply)
+	if !transition.IsCompleted {
+		return finalization
+	}
+	agentTurnRunner.appendEvent(taskRunID, "agent.limit_completed_from_evidence", marshalEventBody(map[string]string{"reason": reason, "source": "recovery_model"}))
+	return limitFinalizationResult{Result: transition.Result, IsCompleted: true, Observations: transition.Observations, Attachments: transition.Attachments}
+}
+
+func buildElapsedCompletionPrompt(request AgentTurnRequest, requirements []toolUseRequirement, observations []turnObservation) string {
+	return strings.Join([]string{
+		"Write the final user-facing reply for a request whose required side effect completed successfully just before the execution limit.",
+		responseLanguageInstruction(request.ResponseLanguage),
+		"Use one concise sentence. State only what the successful evidence proves. Do not mention limits, timing, internal tools, or runtime details.",
+		"Original request:\n" + strings.TrimSpace(request.Prompt),
+		"Successful evidence:\n" + buildLimitObservationSummary(completionPromptObservations(requirements, observations)),
+	}, "\n\n")
+}
+
+func completionPromptObservations(requirements []toolUseRequirement, observations []turnObservation) []turnObservation {
+	matchingObservations := []turnObservation{}
+	seenObservationIDs := map[string]bool{}
+	for _, requirement := range requirements {
+		for _, observation := range matchingCompletionObservations(requirement, observations) {
+			if seenObservationIDs[observation.ObservationID] {
+				continue
+			}
+			seenObservationIDs[observation.ObservationID] = true
+			matchingObservations = append(matchingObservations, observation)
+		}
+	}
+	return matchingObservations
 }
 
 const maxBudgetEscalationCount = 2
