@@ -186,7 +186,7 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 		}
 	})
 	go agentKernel.RefreshSkillIndex(context.Background(), instructionBundleLoader())
-	intakeLanguageModelProvider := resolveIntakeLanguageModelProvider(runtimeConfiguration, capabilityClient, logger)
+	intakeLanguageModelProvider := resolveIntakeLanguageModelProvider(runtimeConfiguration, logger)
 	if intakeLanguageModelProvider != nil {
 		agentKernel.UseIntakeLanguageModelProvider(intakeLanguageModelProvider)
 	}
@@ -959,7 +959,7 @@ func resolveTaskTierLanguageModelProviders(runtimeConfiguration config.RuntimeCo
 	}
 }
 
-func resolveIntakeLanguageModelProvider(runtimeConfiguration config.RuntimeConfiguration, capabilityClient capability.Client, logger *slog.Logger) llm.LanguageModelProvider {
+func resolveIntakeLanguageModelProvider(runtimeConfiguration config.RuntimeConfiguration, logger *slog.Logger) llm.LanguageModelProvider {
 	if !runtimeConfiguration.Agent.Intake.Enabled {
 		return nil
 	}
@@ -967,29 +967,42 @@ func resolveIntakeLanguageModelProvider(runtimeConfiguration config.RuntimeConfi
 	if executionMode == "" {
 		executionMode = "auto"
 	}
-	tierNames := llm.ResolveModelTierNames(deriveLanguageModelRuntimeConfiguration(runtimeConfiguration))
-	maximumModelTier := normalizeMaximumModelTier(runtimeConfiguration.LanguageModel.Capability.MaximumModelTier)
-	if maximumModelTier != "" {
-		providerFactory := func(modelName string) llm.LanguageModelProvider {
-			return llm.CapabilityLLMClient{CapabilityClient: capabilityClient, ModelName: modelName, ExecutionMode: executionMode}
+	languageModelConfiguration := deriveLanguageModelRuntimeConfiguration(runtimeConfiguration)
+	languageModelConfiguration.LanguageModel.Capability.ExecutionMode = executionMode
+	languageModelConfiguration.LanguageModel.SDKD.ExecutionMode = executionMode
+	tierNames := llm.ResolveModelTierNames(languageModelConfiguration)
+	maximumModelTier := normalizeMaximumModelTier(languageModelConfiguration.LanguageModel.Capability.MaximumModelTier)
+	hasConfigurationError := false
+	configuredProvider := func(modelName string) llm.LanguageModelProvider {
+		provider, errorValue := llm.NewConfiguredLanguageModelProviderForModel(languageModelConfiguration, modelName)
+		if errorValue == nil {
+			return provider
 		}
-		return buildCappedModelTierProviders(tierNames, providerFactory, logger).providerForTier(maximumModelTier)
+		hasConfigurationError = true
+		if logger != nil {
+			logger.Error("language model provider configuration failed", "model", modelName, "error", errorValue.Error())
+		}
+		return nil
+	}
+	if maximumModelTier != "" {
+		providers := buildCappedModelTierProviders(tierNames, configuredProvider, logger)
+		if hasConfigurationError {
+			return nil
+		}
+		return providers.providerForTier(maximumModelTier)
 	}
 	primaryModelName := firstNonEmptyString(runtimeConfiguration.Agent.Intake.Model, tierNames.Medium)
+	primaryProvider := configuredProvider(primaryModelName)
+	fallbackProvider := configuredProvider(tierNames.High)
+	if hasConfigurationError {
+		return nil
+	}
 	return llm.FallbackLanguageModelProvider{
-		PrimaryProvider: llm.CapabilityLLMClient{
-			CapabilityClient: capabilityClient,
-			ModelName:        primaryModelName,
-			ExecutionMode:    executionMode,
-		},
-		FallbackProvider: llm.CapabilityLLMClient{
-			CapabilityClient: capabilityClient,
-			ModelName:        tierNames.High,
-			ExecutionMode:    executionMode,
-		},
-		PrimaryLabel:  "intake",
-		FallbackLabel: "high",
-		Logger:        logger,
+		PrimaryProvider:  primaryProvider,
+		FallbackProvider: fallbackProvider,
+		PrimaryLabel:     "intake",
+		FallbackLabel:    "high",
+		Logger:           logger,
 	}
 }
 
