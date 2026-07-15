@@ -432,6 +432,79 @@ func TestCapabilityLLMClientLocalRecoveryResponseUsesDeviceExecutionMode(t *test
 	}
 }
 
+func TestCapabilityLLMClientRecoveryChatUsesAutoThenDeviceExecutionModes(t *testing.T) {
+	receivedExecutionModes := []string{}
+	requestContext := RequestContext{RequesterPersonID: "person-1", ConversationID: "conversation-1"}
+	httpClient := fakeCapabilityHTTPClient{handler: func(request *http.Request) (*http.Response, error) {
+		var receivedDocument capabilityChatCompletionRequestDocument
+		if errorValue := json.NewDecoder(request.Body).Decode(&receivedDocument); errorValue != nil {
+			t.Fatalf("expected chat request document to decode: %v", errorValue)
+		}
+		receivedExecutionModes = append(receivedExecutionModes, receivedDocument.ExecutionMode)
+		if receivedDocument.Context == nil || *receivedDocument.Context != requestContext {
+			t.Fatalf("expected requester context %+v, got %+v", requestContext, receivedDocument.Context)
+		}
+		if receivedDocument.ExecutionMode == "auto" {
+			return jsonCapabilityResponse(http.StatusBadGateway, "remote unavailable"), nil
+		}
+		return jsonCapabilityResponse(http.StatusOK, `{"finishReason":"stop","provider":"capabilityLLM","model":"gemma","message":{"role":"assistant","content":"device recovery chat"},"selectedBackend":"device"}`), nil
+	}}
+
+	client := CapabilityLLMClient{
+		CapabilityClient: capability.Client{Endpoint: "http://internkim-capability", HTTPClient: httpClient},
+		ModelName:        "gemma",
+		ExecutionMode:    "remote",
+	}
+	responseContext := ContextWithRequestContext(context.Background(), requestContext)
+	response, errorValue := client.GenerateRecoveryChatCompletion(responseContext, ChatCompletionRequest{
+		Messages: []ChatCompletionMessage{{Role: "user", Content: "hello"}},
+	})
+	if errorValue != nil || response.Message.Content != "device recovery chat" {
+		t.Fatalf("expected device recovery chat, got %+v, %v", response, errorValue)
+	}
+	if strings.Join(receivedExecutionModes, ",") != "auto,device" {
+		t.Fatalf("expected auto then device execution modes, got %+v", receivedExecutionModes)
+	}
+}
+
+func TestCapabilityLLMClientLocalRecoveryChatUsesDeviceExecutionMode(t *testing.T) {
+	var receivedDocument capabilityChatCompletionRequestDocument
+	httpClient := fakeCapabilityHTTPClient{handler: func(request *http.Request) (*http.Response, error) {
+		if errorValue := json.NewDecoder(request.Body).Decode(&receivedDocument); errorValue != nil {
+			t.Fatalf("expected chat request document to decode: %v", errorValue)
+		}
+		return jsonCapabilityResponse(http.StatusOK, `{"finishReason":"stop","provider":"capabilityLLM","model":"gemma","message":{"role":"assistant","content":"local recovery chat"},"selectedBackend":"device"}`), nil
+	}}
+	client := CapabilityLLMClient{
+		CapabilityClient: capability.Client{Endpoint: "http://internkim-capability", HTTPClient: httpClient},
+		ModelName:        "gemma",
+		ExecutionMode:    "remote",
+	}
+	response, errorValue := client.GenerateLocalRecoveryChatCompletion(context.Background(), ChatCompletionRequest{})
+	if errorValue != nil || response.Message.Content != "local recovery chat" {
+		t.Fatalf("expected local recovery chat, got %+v, %v", response, errorValue)
+	}
+	if receivedDocument.ExecutionMode != "device" {
+		t.Fatalf("expected device execution mode, got %q", receivedDocument.ExecutionMode)
+	}
+}
+
+func TestCapabilityLLMClientLocalRecoveryChatRejectsRemoteBackend(t *testing.T) {
+	httpClient := fakeCapabilityHTTPClient{handler: func(request *http.Request) (*http.Response, error) {
+		return jsonCapabilityResponse(http.StatusOK, `{"finishReason":"stop","provider":"openrouter","model":"remote-model","message":{"role":"assistant","content":"remote recovery chat"},"selectedBackend":"remote"}`), nil
+	}}
+	client := CapabilityLLMClient{
+		CapabilityClient: capability.Client{Endpoint: "http://internkim-capability", HTTPClient: httpClient},
+		ModelName:        "gemma",
+		ExecutionMode:    "remote",
+	}
+
+	_, errorValue := client.GenerateLocalRecoveryChatCompletion(context.Background(), ChatCompletionRequest{})
+	if errorValue == nil || errorValue.Error() != "device recovery chat returned a non-device backend" {
+		t.Fatalf("expected remote backend rejection, got %v", errorValue)
+	}
+}
+
 func TestRecoveryAttemptContextPreservesDeadlineAndRequester(t *testing.T) {
 	expectedDeadline := time.Now().Add(time.Minute)
 	requestContext := RequestContext{RequesterPersonID: "person-1", ConversationID: "conversation-1"}

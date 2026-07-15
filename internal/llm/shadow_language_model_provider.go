@@ -38,6 +38,60 @@ func (provider ShadowLanguageModelProvider) GenerateLocalRecoveryResponse(respon
 	return localRecoveryProvider.GenerateLocalRecoveryResponse(responseContext, prompt)
 }
 
+type shadowRecoveryChatCapability struct{ provider ShadowLanguageModelProvider }
+type shadowLocalRecoveryChatCapability struct{ provider ShadowLanguageModelProvider }
+
+type shadowRecoveryChatProvider struct {
+	ShadowLanguageModelProvider
+	shadowRecoveryChatCapability
+}
+
+type shadowLocalRecoveryChatProvider struct {
+	ShadowLanguageModelProvider
+	shadowLocalRecoveryChatCapability
+}
+
+type shadowAllRecoveryChatProvider struct {
+	ShadowLanguageModelProvider
+	shadowRecoveryChatCapability
+	shadowLocalRecoveryChatCapability
+}
+
+func withShadowRecoveryChatCapabilities(provider ShadowLanguageModelProvider) LanguageModelProvider {
+	_, hasRecoveryChat := provider.PrimaryProvider.(RecoveryChatCompleter)
+	_, hasLocalRecoveryChat := provider.PrimaryProvider.(LocalRecoveryChatCompleter)
+	switch {
+	case hasRecoveryChat && hasLocalRecoveryChat:
+		return shadowAllRecoveryChatProvider{
+			provider,
+			shadowRecoveryChatCapability{provider},
+			shadowLocalRecoveryChatCapability{provider},
+		}
+	case hasRecoveryChat:
+		return shadowRecoveryChatProvider{provider, shadowRecoveryChatCapability{provider}}
+	case hasLocalRecoveryChat:
+		return shadowLocalRecoveryChatProvider{provider, shadowLocalRecoveryChatCapability{provider}}
+	default:
+		return provider
+	}
+}
+
+func (capability shadowRecoveryChatCapability) GenerateRecoveryChatCompletion(responseContext context.Context, request ChatCompletionRequest) (ChatCompletionResponse, error) {
+	return capability.provider.PrimaryProvider.(RecoveryChatCompleter).GenerateRecoveryChatCompletion(responseContext, request)
+}
+
+func (capability shadowLocalRecoveryChatCapability) GenerateLocalRecoveryChatCompletion(responseContext context.Context, request ChatCompletionRequest) (ChatCompletionResponse, error) {
+	return capability.provider.PrimaryProvider.(LocalRecoveryChatCompleter).GenerateLocalRecoveryChatCompletion(responseContext, request)
+}
+
+func (provider ShadowLanguageModelProvider) primaryLanguageModelProvider() LanguageModelProvider {
+	return provider.PrimaryProvider
+}
+
+func (provider ShadowLanguageModelProvider) shadowLanguageModelProvider() ShadowLanguageModelProvider {
+	return provider
+}
+
 func (provider ShadowLanguageModelProvider) GenerateStructuredResponse(responseContext context.Context, request StructuredResponseRequest) (StructuredResponse, error) {
 	if provider.PrimaryProvider == nil {
 		return StructuredResponse{}, errors.New("primary provider is not configured")
