@@ -544,6 +544,7 @@ func normalizeParsedAction(actionDocument turnActionDocument) turnActionDocument
 	switch action {
 	case "continue":
 		actionDocument.Action = "continue"
+		actionDocument.ToolName = normalizedActionToolName(actionDocument.ToolName, actionDocument.ToolInput)
 	case "finish":
 		actionDocument.Action = "finish"
 		actionDocument.ReplyParts = normalizeFinishReplyParts(actionDocument.ReplyParts)
@@ -551,6 +552,31 @@ func normalizeParsedAction(actionDocument turnActionDocument) turnActionDocument
 		actionDocument.Action = action
 	}
 	return actionDocument
+}
+
+func normalizedActionToolName(toolName string, toolInput json.RawMessage) string {
+	trimmedToolName := strings.TrimSpace(toolName)
+	if trimmedToolName == CapabilityInvokeToolName || !isCapabilityInvokeWrapper(toolInput) {
+		return trimmedToolName
+	}
+	return CapabilityInvokeToolName
+}
+
+func isCapabilityInvokeWrapper(toolInput json.RawMessage) bool {
+	var fields map[string]json.RawMessage
+	if json.Unmarshal(toolInput, &fields) != nil || len(fields) != 2 {
+		return false
+	}
+	var operation string
+	if json.Unmarshal(fields["operation"], &operation) != nil || strings.TrimSpace(operation) == "" {
+		return false
+	}
+	input, hasInput := fields["input"]
+	if !hasInput {
+		return false
+	}
+	var inputObject map[string]json.RawMessage
+	return json.Unmarshal(unwrapStringifiedOperationInput(input), &inputObject) == nil && inputObject != nil
 }
 
 func normalizeFinishReplyParts(parts []AgentPart) []AgentPart {
