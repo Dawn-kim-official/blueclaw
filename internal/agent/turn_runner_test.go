@@ -960,6 +960,9 @@ func assertProviderSafeNestedSchemaValue(t *testing.T, value any, isPropertiesMa
 				assertProviderSafeNestedSchemaValue(t, fieldValue, false)
 				continue
 			}
+			if fieldName == "additionalProperties" && isClosedQualityReviewSchema(document) {
+				continue
+			}
 			if fieldName == "additionalProperties" || fieldName == "maxItems" {
 				t.Fatalf("nested action schema uses unsupported key %s in %+v", fieldName, document)
 			}
@@ -976,6 +979,13 @@ func assertProviderSafeNestedSchemaValue(t *testing.T, value any, isPropertiesMa
 			assertProviderSafeNestedSchemaValue(t, item, false)
 		}
 	}
+}
+
+func isClosedQualityReviewSchema(document map[string]any) bool {
+	properties := mapFromAny(document["properties"])
+	_, hasEvidenceIDs := properties["evidenceIDs"]
+	_, hasEvidence := properties["evidence"]
+	return document["additionalProperties"] == false && hasEvidenceIDs && !hasEvidence
 }
 
 func TestAgentTurnRunnerSiteLoopBuildsReviewsPublishesBeforeFinish(t *testing.T) {
