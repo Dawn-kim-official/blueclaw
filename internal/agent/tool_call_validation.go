@@ -336,11 +336,11 @@ func specificToolDescription(toolName string) string {
 	case "browser.wait":
 		return `Wait for time or target. Input: {"milliseconds":1000} or {"target":"@e1"}.`
 	case "task.add":
-		return `Add a new Flow work item for the requester, or request new work for another person. Do not use this for editing, changing, completing, or updating an existing work item. Input: {"prompt":"기획안 전달","targetPersonHint":"lee"}.`
+		return `Add a new Flow work item for the requester, or request new work for another person. Preserve an explicitly requested title and due date with title and endDate. Do not use this for editing, changing, completing, or updating an existing work item. Input: {"prompt":"금요일까지 기획안 전달","title":"기획안 전달","endDate":"2026-07-17","targetPersonHint":"lee"}.`
 	case "task.list":
 		return `List work items. Leave targetPersonHint EMPTY to list EVERYONE's tasks; set it to one person's name to list only that person. For "my tasks / what do I have", set targetPersonHint to the requester's own name. Weeks are relative integer offsets: weekFrom/weekTo where 0=this week (default), -1=last week; omit both for this week, set weekFrom for a range ending this week. Use before completing work when the matching task is uncertain. Input: {"targetPersonHint":"이샘플","weekFrom":-1}.`
 	case "task.update":
-		return `Update or complete an existing Flow work item. Use this for edits, status changes, "수정", "변경", and "완료". Input: {"query":"10분 회의","content":"15분 회의"} or {"query":"10분 회의"} to mark it complete. Optional status values include "예정", "진행", "완료", "일시정지", "기각", and "중단".`
+		return `Update or complete an existing Flow work item. Use this for edits, status changes, "수정", "변경", and "완료". Input: {"query":"10분 회의","title":"15분 회의"} or {"query":"10분 회의"} to mark it complete. Optional status values include "예정", "진행", "완료", "일시정지", "기각", and "중단".`
 	default:
 		return ""
 	}

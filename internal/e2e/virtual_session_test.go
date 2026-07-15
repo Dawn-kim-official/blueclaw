@@ -397,7 +397,7 @@ func TestFailedAssertionReturnsObservedTurnResult(t *testing.T) {
 func TestVirtualTaskCapabilityPreservesLifecycleState(t *testing.T) {
 	service := virtualCapabilityService{}
 	addResponse := service.response("task.add", []byte(`{"input":{"prompt":"비용 테스트 회귀 확인"},"context":{}}`))
-	updateResponse := service.response("task.update", []byte(`{"input":{"query":"비용 테스트 회귀 확인","content":"비용 테스트 회귀 확인 완료 준비"},"context":{}}`))
+	updateResponse := service.response("task.update", []byte(`{"input":{"query":"비용 테스트 회귀 확인","title":"비용 테스트 회귀 확인 완료 준비"},"context":{}}`))
 	listResponse := service.response("task.list", []byte(`{"input":{},"context":{}}`))
 	approvalResponse := service.response("task.delete", []byte(`{"input":{"query":"비용 테스트 회귀 확인 완료 준비"},"context":{}}`))
 	deleteResponse := service.response("task.delete", []byte(`{"input":{"query":"비용 테스트 회귀 확인 완료 준비"},"context":{"isApprovalContinuation":true}}`))
