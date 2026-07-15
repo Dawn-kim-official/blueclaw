@@ -220,14 +220,7 @@ func (supervisorService *SupervisorService) buildBootSpecification() (BootSpecif
 		return BootSpecification{}, errorValue
 	}
 
-	workspaceVolumeMetadata, errorValue := supervisorService.WorkspaceVolumeService.EnsureWorkspaceImage(supervisorService.FirecrackerConfiguration.WorkspaceImagePath)
-	if errorValue != nil {
-		return BootSpecification{}, errorValue
-	}
-	errorValue = supervisorService.WorkspaceVolumeService.SyncWorkspaceDirectoryPreservingGuestConfig(
-		workspaceVolumeMetadata.HostImagePath,
-		supervisorService.FirecrackerConfiguration.HostWorkspacePath,
-	)
+	workspaceVolumeMetadata, errorValue := supervisorService.WorkspaceVolumeService.RequireWorkspaceImage(supervisorService.FirecrackerConfiguration.WorkspaceImagePath)
 	if errorValue != nil {
 		return BootSpecification{}, errorValue
 	}

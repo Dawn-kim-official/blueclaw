@@ -59,6 +59,7 @@ type AgentTurnRequest struct {
 	Company                    CompanyContext
 	ProfileName                string
 	ConversationID             string
+	ConversationType           string
 	Prompt                     string
 	InputParts                 []AgentPart
 	ResponseLanguage           string
@@ -1121,6 +1122,7 @@ func agentRequestFromTurnRequest(request AgentTurnRequest) AgentRequest {
 		ExistingTaskRunID:      request.ExistingTaskRunID,
 		ProfileName:            request.ProfileName,
 		ConversationID:         request.ConversationID,
+		ConversationType:       request.ConversationType,
 		Prompt:                 request.Prompt,
 		ResponseLanguage:       request.ResponseLanguage,
 		VisibleContext:         request.VisibleContext,

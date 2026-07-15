@@ -539,6 +539,35 @@ func TestTurnRouterNormalizesReactionEmojiNameToEnum(t *testing.T) {
 	}
 }
 
+func TestTurnRouterRequiresDirectMessageConsumeFallback(t *testing.T) {
+	router := NewTurnRouter(nil, IntakeOptions{IsEnabled: false})
+	request := AgentRequest{ConversationType: "D"}
+	missingFallback := router.normalizeDecision(TurnDecision{
+		Route:            TurnRouteConsume,
+		Classification:   IntakeClassificationQuickReply,
+		TaskShape:        TaskShapeImmediateReply,
+		TaskLevel:        TaskLevelXLow,
+		ResponseLanguage: "ko",
+		Reason:           "ack",
+	}, router.deterministicDecision(request), request)
+	withFallback := router.normalizeDecision(TurnDecision{
+		Route:            TurnRouteConsume,
+		Classification:   IntakeClassificationQuickReply,
+		TaskShape:        TaskShapeImmediateReply,
+		TaskLevel:        TaskLevelXLow,
+		ResponseLanguage: "ko",
+		Reason:           "ack",
+		UserFacingReply:  "알겠습니다.",
+	}, router.deterministicDecision(request), request)
+
+	if missingFallback.Route != TurnRouteStartTask {
+		t.Fatalf("expected direct consume without fallback to enter reply loop, got %+v", missingFallback)
+	}
+	if withFallback.Route != TurnRouteConsume || withFallback.UserFacingReply != "알겠습니다." {
+		t.Fatalf("expected direct consume with fallback to remain consume, got %+v", withFallback)
+	}
+}
+
 func TestTurnRouterPromotesTaskfulConsumeToTaskRoute(t *testing.T) {
 	router := NewTurnRouter(nil, IntakeOptions{IsEnabled: false})
 	toolSet := newTestToolSet([]string{"task.add", "task.list", "task.update"})
