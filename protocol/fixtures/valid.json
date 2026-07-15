@@ -161,7 +161,12 @@
           "name": "weather_lookup"
         }
       },
-      "parallelToolCalls": false
+      "parallelToolCalls": false,
+      "generationOptions": {
+        "seed": 41,
+        "temperature": 0,
+        "maxTokens": 256
+      }
     }
   ],
   "chat-completion-response": [

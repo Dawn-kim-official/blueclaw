@@ -12,6 +12,7 @@ type ChatCompletionRequest struct {
 	Tools             []ChatCompletionTool    `json:"tools,omitempty"`
 	ToolChoice        json.RawMessage         `json:"toolChoice,omitempty"`
 	ParallelToolCalls bool                    `json:"parallelToolCalls"`
+	GenerationOptions GenerationOptions       `json:"generationOptions,omitempty"`
 }
 
 type ChatCompletionResponse struct {
@@ -52,6 +53,26 @@ type ChatCompletionToolCall struct {
 type ChatCompletionToolCallFunction struct {
 	Name      string `json:"name"`
 	Arguments string `json:"arguments"`
+}
+
+func ForcedFunctionToolName(request ChatCompletionRequest) string {
+	if len(request.Tools) != 1 || request.Tools[0].Type != "function" {
+		return ""
+	}
+	var toolChoice struct {
+		Type     string `json:"type"`
+		Function struct {
+			Name string `json:"name"`
+		} `json:"function"`
+	}
+	if json.Unmarshal(request.ToolChoice, &toolChoice) != nil {
+		return ""
+	}
+	toolName := request.Tools[0].Function.Name
+	if toolChoice.Type != "function" || toolChoice.Function.Name != toolName {
+		return ""
+	}
+	return toolName
 }
 
 type ChatCompleter interface {

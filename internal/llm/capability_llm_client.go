@@ -42,6 +42,7 @@ type capabilityChatCompletionRequestDocument struct {
 	Tools             []ChatCompletionTool    `json:"tools,omitempty"`
 	ToolChoice        json.RawMessage         `json:"toolChoice,omitempty"`
 	ParallelToolCalls bool                    `json:"parallelToolCalls"`
+	GenerationOptions *GenerationOptions      `json:"generationOptions,omitempty"`
 }
 
 type capabilityStructuredOutputSchema struct {
@@ -242,6 +243,7 @@ func (capabilityLLMClient CapabilityLLMClient) generateChatCompletion(responseCo
 		Tools:             append([]ChatCompletionTool{}, request.Tools...),
 		ToolChoice:        append(json.RawMessage{}, request.ToolChoice...),
 		ParallelToolCalls: request.ParallelToolCalls,
+		GenerationOptions: generationOptionsPointer(request.GenerationOptions),
 	}
 
 	var response ChatCompletionResponse

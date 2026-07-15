@@ -117,7 +117,6 @@ type LanguageModelSDKDConfiguration struct {
 	AuthKeyPath           string   `json:"authKeyPath"`
 	ExecutionMode         string   `json:"executionMode"`
 	LocalOnly             bool     `json:"localOnly"`
-	TimeoutSecond         int      `json:"timeoutSecond"`
 	ShadowEnabled         bool     `json:"shadowEnabled"`
 	StructuredSchemaNames []string `json:"structuredSchemaNames"`
 }

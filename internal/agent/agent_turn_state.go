@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"strings"
 	"time"
@@ -598,11 +599,86 @@ func evidenceReferencesFromIDs(values []string) []completionEvidenceReference {
 }
 
 func DecideAgentAction(ctx context.Context, languageModel llm.LanguageModelProvider, state agentTaskState) (agentAction, error) {
-	structuredResponse, errorValue := languageModel.GenerateStructuredResponse(ctx, BuildAgentActionRequest(state))
+	structuredRequest := BuildAgentActionRequest(state)
+	if chatCompleter, isAvailable := llm.ResolveTextChatCompleter(languageModel); isAvailable {
+		if chatRequest, isRepresentable := buildAgentActionChatCompletionRequest(structuredRequest); isRepresentable {
+			return decideAgentActionWithChat(ctx, chatCompleter, chatRequest)
+		}
+	}
+	structuredResponse, errorValue := languageModel.GenerateStructuredResponse(ctx, structuredRequest)
 	if errorValue != nil {
 		return turnActionDocument{}, errorValue
 	}
 	return ParseAgentActionResponse(structuredResponse)
+}
+
+const nativeAgentActionToolName = "blueclaw_agent_turn_action"
+
+func decideAgentActionWithChat(ctx context.Context, chatCompleter llm.ChatCompleter, request llm.ChatCompletionRequest) (agentAction, error) {
+	response, errorValue := chatCompleter.GenerateChatCompletion(ctx, request)
+	if errorValue != nil {
+		return turnActionDocument{}, errorValue
+	}
+	return parseNativeAgentActionResponse(response)
+}
+
+func buildAgentActionChatCompletionRequest(structuredRequest llm.StructuredResponseRequest) (llm.ChatCompletionRequest, bool) {
+	messages := make([]llm.ChatCompletionMessage, 0, len(structuredRequest.Messages))
+	for _, message := range structuredRequest.Messages {
+		if len(message.Parts) > 0 {
+			return llm.ChatCompletionRequest{}, false
+		}
+		messages = append(messages, llm.ChatCompletionMessage{Role: message.Role, Content: message.Content})
+	}
+	return llm.ChatCompletionRequest{
+		Messages: messages,
+		Tools: []llm.ChatCompletionTool{{
+			Type: "function",
+			Function: llm.ChatCompletionFunction{
+				Name:       nativeAgentActionToolName,
+				Parameters: json.RawMessage(structuredRequest.StructuredOutputSchema.Document),
+			},
+		}},
+		ToolChoice:        json.RawMessage(`{"type":"function","function":{"name":"blueclaw_agent_turn_action"}}`),
+		ParallelToolCalls: false,
+		GenerationOptions: structuredRequest.GenerationOptions,
+	}, true
+}
+
+func parseNativeAgentActionResponse(response llm.ChatCompletionResponse) (agentAction, error) {
+	if response.FinishReason != "tool_calls" {
+		return turnActionDocument{}, fmt.Errorf("native agent action chat finish reason is %q", response.FinishReason)
+	}
+	if response.Message.Role != "assistant" {
+		return turnActionDocument{}, errors.New("native agent action chat message must be assistant")
+	}
+	if len(response.Message.ToolCalls) != 1 {
+		return turnActionDocument{}, fmt.Errorf("native agent action chat expected one tool call, got %d", len(response.Message.ToolCalls))
+	}
+	toolCall := response.Message.ToolCalls[0]
+	if strings.TrimSpace(toolCall.ID) == "" {
+		return turnActionDocument{}, errors.New("native agent action chat tool call ID is empty")
+	}
+	if toolCall.Type != "function" || toolCall.Function.Name != nativeAgentActionToolName {
+		return turnActionDocument{}, fmt.Errorf("native agent action chat returned unknown tool %q", toolCall.Function.Name)
+	}
+	action, errorValue := ParseAgentActionResponse(llm.StructuredResponse{Content: toolCall.Function.Arguments})
+	if errorValue != nil {
+		return turnActionDocument{}, errorValue
+	}
+	if !isNativeAgentAction(action.Action) {
+		return turnActionDocument{}, fmt.Errorf("native agent action chat returned unsupported action %q", action.Action)
+	}
+	return action, nil
+}
+
+func isNativeAgentAction(action string) bool {
+	switch strings.TrimSpace(action) {
+	case "continue", "finish", "fail", "set_quality_criteria":
+		return true
+	default:
+		return false
+	}
 }
 
 func applyAgentAction(state agentTaskState, action agentAction) (agentTaskState, error) {

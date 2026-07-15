@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -12,6 +13,262 @@ import (
 	"blueclaw/internal/llm"
 	"blueclaw/internal/task"
 )
+
+func TestDecideAgentActionUsesNativeChatForFinishAndContinue(t *testing.T) {
+	testCases := []struct {
+		name         string
+		arguments    string
+		expectedType string
+		check        func(*testing.T, agentAction)
+	}{
+		{
+			name:         "finish",
+			arguments:    `{"action":"finish","message":"done","goalStatus":"satisfied","goalSatisfied":true,"hasRemainingWork":false,"completionEvidenceIDs":["obs-1"],"qualityReview":[],"executionStateUpdate":{"goal":"done"}}`,
+			expectedType: "finish",
+			check: func(t *testing.T, action agentAction) {
+				if action.Message != "done" || len(action.CompletionEvidenceIDs) != 1 || action.ExecutionStateUpdate.Goal != "done" {
+					t.Fatalf("expected finish fields to survive native action parsing, got %+v", action)
+				}
+			},
+		},
+		{
+			name:         "continue",
+			arguments:    `{"action":"continue","toolName":"terminal.run","toolInput":{"command":"pwd"},"message":"checking","executionStateUpdate":{"goal":"inspect"}}`,
+			expectedType: "continue",
+			check: func(t *testing.T, action agentAction) {
+				if action.ToolName != "terminal.run" || string(action.ToolInput) != `{"command":"pwd"}` || action.Message != "checking" || action.ExecutionStateUpdate.Goal != "inspect" {
+					t.Fatalf("expected continue tool fields to survive native action parsing, got %+v", action)
+				}
+			},
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			provider := nativeAgentActionLanguageModel{chatResponse: nativeAgentActionChatResponse(testCase.arguments)}
+			action, errorValue := DecideAgentAction(context.Background(), &provider, nativeAgentActionTestState())
+			if errorValue != nil {
+				t.Fatalf("expected native action: %v", errorValue)
+			}
+			if action.Action != testCase.expectedType {
+				t.Fatalf("expected %q action, got %+v", testCase.expectedType, action)
+			}
+			testCase.check(t, action)
+			if provider.chatCalls != 1 || provider.structuredCalls != 0 {
+				t.Fatalf("expected only one native chat call, got chat=%d structured=%d", provider.chatCalls, provider.structuredCalls)
+			}
+		})
+	}
+}
+
+func TestBuildAgentActionChatRequestPreservesSchemaAndToolChoice(t *testing.T) {
+	state := nativeAgentActionTestState()
+	seed := int64(77)
+	temperature := 0.4
+	maxTokens := 321
+	state.Options.GenerationOptions = llm.GenerationOptions{
+		Seed:        &seed,
+		Temperature: &temperature,
+		MaxTokens:   &maxTokens,
+	}
+	structuredRequest := BuildAgentActionRequest(state)
+	chatRequest, isRepresentable := buildAgentActionChatCompletionRequest(structuredRequest)
+	if !isRepresentable {
+		t.Fatal("expected text action request to be representable as chat")
+	}
+	if len(chatRequest.Tools) != 1 {
+		t.Fatalf("expected exactly one native action tool, got %+v", chatRequest.Tools)
+	}
+	tool := chatRequest.Tools[0]
+	if tool.Type != "function" || tool.Function.Name != nativeAgentActionToolName {
+		t.Fatalf("expected reserved function tool, got %+v", tool)
+	}
+	if string(tool.Function.Parameters) != structuredRequest.StructuredOutputSchema.Document {
+		t.Fatalf("expected native parameters to reuse action schema\nexpected=%s\nactual=%s", structuredRequest.StructuredOutputSchema.Document, tool.Function.Parameters)
+	}
+	if string(chatRequest.ToolChoice) != `{"type":"function","function":{"name":"blueclaw_agent_turn_action"}}` {
+		t.Fatalf("expected forced reserved tool choice, got %s", chatRequest.ToolChoice)
+	}
+	if chatRequest.ParallelToolCalls {
+		t.Fatal("expected parallel native tool calls to be disabled")
+	}
+	if chatRequest.GenerationOptions != structuredRequest.GenerationOptions {
+		t.Fatalf("expected native chat generation options to reuse structured request options, got %+v and %+v", chatRequest.GenerationOptions, structuredRequest.GenerationOptions)
+	}
+	if chatRequest.GenerationOptions.Seed == nil || *chatRequest.GenerationOptions.Seed != seed {
+		t.Fatalf("expected native chat seed to be preserved, got %+v", chatRequest.GenerationOptions)
+	}
+	if chatRequest.GenerationOptions.Temperature == nil || *chatRequest.GenerationOptions.Temperature != temperature {
+		t.Fatalf("expected native chat temperature to be preserved, got %+v", chatRequest.GenerationOptions)
+	}
+	if chatRequest.GenerationOptions.MaxTokens == nil || *chatRequest.GenerationOptions.MaxTokens != maxTokens {
+		t.Fatalf("expected native chat max tokens to be preserved, got %+v", chatRequest.GenerationOptions)
+	}
+}
+
+func TestDecideAgentActionNativeChatRejectsInvalidCallsWithoutStructuredFallback(t *testing.T) {
+	blankToolCallIDResponse := nativeAgentActionChatResponse(`{"action":"finish"}`)
+	blankToolCallIDResponse.Message.ToolCalls[0].ID = " "
+	testCases := []struct {
+		name     string
+		response llm.ChatCompletionResponse
+	}{
+		{name: "empty calls", response: llm.ChatCompletionResponse{FinishReason: "tool_calls", Message: llm.ChatCompletionMessage{Role: "assistant"}}},
+		{name: "multiple calls", response: llm.ChatCompletionResponse{FinishReason: "tool_calls", Message: llm.ChatCompletionMessage{Role: "assistant", ToolCalls: []llm.ChatCompletionToolCall{nativeAgentActionToolCall(`{"action":"finish"}`), nativeAgentActionToolCall(`{"action":"finish"}`)}}}},
+		{name: "unknown tool", response: llm.ChatCompletionResponse{FinishReason: "tool_calls", Message: llm.ChatCompletionMessage{Role: "assistant", ToolCalls: []llm.ChatCompletionToolCall{{Type: "function", Function: llm.ChatCompletionToolCallFunction{Name: "terminal.run", Arguments: `{"action":"continue"}`}}}}}},
+		{name: "malformed arguments", response: nativeAgentActionChatResponse("{invalid")},
+		{name: "non-object arguments", response: nativeAgentActionChatResponse(`[]`)},
+		{name: "empty arguments", response: nativeAgentActionChatResponse("")},
+		{name: "blank tool call ID", response: blankToolCallIDResponse},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			provider := nativeAgentActionLanguageModel{chatResponse: testCase.response}
+			_, errorValue := DecideAgentAction(context.Background(), &provider, nativeAgentActionTestState())
+			if errorValue == nil {
+				t.Fatal("expected native action error")
+			}
+			if provider.chatCalls != 1 || provider.structuredCalls != 0 {
+				t.Fatalf("expected direct native failure without structured fallback, got chat=%d structured=%d", provider.chatCalls, provider.structuredCalls)
+			}
+		})
+	}
+}
+
+func TestDecideAgentActionUsesStructuredProviderForMessageParts(t *testing.T) {
+	provider := nativeAgentActionLanguageModel{chatResponse: nativeAgentActionChatResponse(`{"action":"finish"}`)}
+	state := nativeAgentActionTestState()
+	state.Request.InputParts = []AgentPart{{
+		Type:  AgentPartTypeImage,
+		Image: &AgentImagePart{MimeType: "image/png", DataBase64: "aGVsbG8="},
+	}}
+
+	action, errorValue := DecideAgentAction(context.Background(), &provider, state)
+	if errorValue != nil || action.Action != "finish" {
+		t.Fatalf("expected structured action for message parts, got %+v, %v", action, errorValue)
+	}
+	if provider.chatCalls != 0 || provider.structuredCalls != 1 {
+		t.Fatalf("expected only one structured call for message parts, got chat=%d structured=%d", provider.chatCalls, provider.structuredCalls)
+	}
+}
+
+func TestDecideAgentActionNativeChatPropagatesProviderErrorAndCancellation(t *testing.T) {
+	testCases := []struct {
+		name      string
+		context   context.Context
+		chatError error
+	}{
+		{name: "provider error", context: context.Background(), chatError: errors.New("native provider failed")},
+		{name: "cancellation", context: cancelledContext(), chatError: context.Canceled},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			provider := nativeAgentActionLanguageModel{chatError: testCase.chatError}
+			_, errorValue := DecideAgentAction(testCase.context, &provider, nativeAgentActionTestState())
+			if !errors.Is(errorValue, testCase.chatError) {
+				t.Fatalf("expected direct provider error %v, got %v", testCase.chatError, errorValue)
+			}
+			if provider.chatCalls != 1 || provider.structuredCalls != 0 {
+				t.Fatalf("expected no structured fallback, got chat=%d structured=%d", provider.chatCalls, provider.structuredCalls)
+			}
+		})
+	}
+}
+
+func TestDecideAgentActionUsesStructuredProviderWithoutChatCapability(t *testing.T) {
+	provider := structuredOnlyAgentActionLanguageModel{
+		response: llm.StructuredResponse{Content: `{"action":"finish","message":"done"}`},
+	}
+	action, errorValue := DecideAgentAction(context.Background(), &provider, agentTaskState{})
+	if errorValue != nil || action.Action != "finish" {
+		t.Fatalf("expected structured action fallback for provider without chat, got %+v, %v", action, errorValue)
+	}
+	if provider.structuredCalls != 1 {
+		t.Fatalf("expected one structured call, got %d", provider.structuredCalls)
+	}
+}
+
+func nativeAgentActionTestState() agentTaskState {
+	toolSet := NewToolSet([]string{TerminalRunToolName})
+	toolSet.RegisterTool(ToolDefinition{
+		Name:        TerminalRunToolName,
+		Description: "Run a command.",
+		InputSchema: json.RawMessage(`{"type":"object","properties":{"command":{"type":"string"}},"required":["command"],"additionalProperties":false}`),
+	}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return ToolSuccess("ran"), nil
+	})
+	return agentTaskState{Request: AgentTurnRequest{Prompt: "run command", ToolSet: toolSet}}
+}
+
+func nativeAgentActionChatResponse(arguments string) llm.ChatCompletionResponse {
+	return llm.ChatCompletionResponse{
+		FinishReason: "tool_calls",
+		Message: llm.ChatCompletionMessage{
+			Role:      "assistant",
+			ToolCalls: []llm.ChatCompletionToolCall{nativeAgentActionToolCall(arguments)},
+		},
+	}
+}
+
+func nativeAgentActionToolCall(arguments string) llm.ChatCompletionToolCall {
+	return llm.ChatCompletionToolCall{
+		ID:   "call-1",
+		Type: "function",
+		Function: llm.ChatCompletionToolCallFunction{
+			Name:      nativeAgentActionToolName,
+			Arguments: arguments,
+		},
+	}
+}
+
+func cancelledContext() context.Context {
+	contextValue, cancel := context.WithCancel(context.Background())
+	cancel()
+	return contextValue
+}
+
+type nativeAgentActionLanguageModel struct {
+	chatResponse    llm.ChatCompletionResponse
+	chatError       error
+	chatCalls       int
+	structuredCalls int
+	lastRequest     llm.ChatCompletionRequest
+}
+
+func (provider *nativeAgentActionLanguageModel) GenerateResponse(context.Context, string) (string, error) {
+	return "", nil
+}
+
+func (provider *nativeAgentActionLanguageModel) GenerateStructuredResponse(context.Context, llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
+	provider.structuredCalls++
+	return provider.chatResponseAsStructured(), nil
+}
+
+func (provider *nativeAgentActionLanguageModel) GenerateChatCompletion(_ context.Context, request llm.ChatCompletionRequest) (llm.ChatCompletionResponse, error) {
+	provider.chatCalls++
+	provider.lastRequest = request
+	return provider.chatResponse, provider.chatError
+}
+
+func (provider *nativeAgentActionLanguageModel) chatResponseAsStructured() llm.StructuredResponse {
+	return llm.StructuredResponse{Content: `{"action":"finish","message":"done"}`}
+}
+
+type structuredOnlyAgentActionLanguageModel struct {
+	response        llm.StructuredResponse
+	structuredCalls int
+}
+
+func (provider *structuredOnlyAgentActionLanguageModel) GenerateResponse(context.Context, string) (string, error) {
+	return "", nil
+}
+
+func (provider *structuredOnlyAgentActionLanguageModel) GenerateStructuredResponse(context.Context, llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
+	provider.structuredCalls++
+	return provider.response, nil
+}
 
 func TestBuildAgentActionRequestPreservesNativeToolCallingWireShape(t *testing.T) {
 	seed := int64(77)

@@ -259,8 +259,8 @@ func (generator FailureNoticeGenerator) generateLocalRecoveryText(ctx context.Co
 }
 
 func generateRecoveryChatText(ctx context.Context, provider llm.LanguageModelProvider, prompt string) (string, error, bool) {
-	recoveryProvider, isRecoveryProvider := provider.(llm.RecoveryChatCompleter)
-	if !isRecoveryProvider {
+	recoveryProvider, isAvailable := llm.ResolveRecoveryChatCompleter(provider)
+	if !isAvailable {
 		return "", nil, false
 	}
 	response, errorValue := recoveryProvider.GenerateRecoveryChatCompletion(ctx, recoveryChatCompletionRequest(prompt))
@@ -272,8 +272,8 @@ func generateRecoveryChatText(ctx context.Context, provider llm.LanguageModelPro
 }
 
 func generateLocalRecoveryChatText(ctx context.Context, provider llm.LanguageModelProvider, prompt string) (string, error, bool) {
-	localRecoveryProvider, isLocalRecoveryProvider := provider.(llm.LocalRecoveryChatCompleter)
-	if !isLocalRecoveryProvider {
+	localRecoveryProvider, isAvailable := llm.ResolveLocalRecoveryChatCompleter(provider)
+	if !isAvailable {
 		return "", nil, false
 	}
 	response, errorValue := localRecoveryProvider.GenerateLocalRecoveryChatCompletion(ctx, recoveryChatCompletionRequest(prompt))

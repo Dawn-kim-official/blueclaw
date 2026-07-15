@@ -3,11 +3,13 @@ package e2e
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"blueclaw/internal/agenttest"
 	"blueclaw/internal/capability"
@@ -36,6 +38,236 @@ func TestLanguageModelCallAssertionRejectsError(t *testing.T) {
 	if errorValue == nil || !strings.Contains(errorValue.Error(), "blueclaw_turn_router") {
 		t.Fatalf("expected strict assertion to reject the model error, got %v", errorValue)
 	}
+}
+
+func TestVirtualObservedLanguageModelPreservesChatCapabilityAndMetadata(t *testing.T) {
+	observed := newVirtualObservedLanguageModel(virtualChatTestProvider{})
+	if _, isDirectChat := observed.(llm.ChatCompleter); isDirectChat {
+		t.Fatal("expected virtual observer to expose ChatCompleter only through the optional accessor")
+	}
+	chatCompleter, isAvailable := llm.ResolveTextChatCompleter(observed)
+	if !isAvailable {
+		t.Fatal("expected virtual observer chat capability")
+	}
+	response, errorValue := chatCompleter.GenerateChatCompletion(context.Background(), llm.ChatCompletionRequest{
+		Messages: []llm.ChatCompletionMessage{{Role: "user", Content: "reply"}},
+	})
+	if errorValue != nil || response.Message.Content != "virtual reply" {
+		t.Fatalf("expected virtual chat response, got %+v %v", response, errorValue)
+	}
+	recorder, isRecorder := observed.(virtualLanguageModelCallRecorder)
+	if !isRecorder {
+		t.Fatal("expected virtual observer call recorder")
+	}
+	calls := recorder.CallsSince(0)
+	if len(calls) != 1 || calls[0].Kind != "chat" || calls[0].Provider != "virtual-provider" || calls[0].Model != "virtual-model" || calls[0].SelectedBackend != "device" || calls[0].FinishReason != "stop" || !calls[0].UsedFallback {
+		t.Fatalf("expected exact virtual chat metadata, got %+v", calls)
+	}
+}
+
+func TestVirtualChatCallEventDerivesActionSchemaForForcedChatOnly(t *testing.T) {
+	actionEvent := virtualChatCallEvent("chat", virtualActionChatRequest(), llm.ChatCompletionResponse{
+		ProviderName:    "sdkd",
+		ModelName:       "low-model",
+		SelectedBackend: "device",
+		FinishReason:    "tool_calls",
+		UsedFallback:    true,
+	}, time.Now(), nil)
+	plainEvent := virtualChatCallEvent("chat", llm.ChatCompletionRequest{}, llm.ChatCompletionResponse{
+		ProviderName:    "sdkd",
+		ModelName:       "low-model",
+		SelectedBackend: "device",
+		FinishReason:    "stop",
+	}, time.Now(), nil)
+	if actionEvent.SchemaName != "blueclaw_agent_turn_action" || plainEvent.SchemaName != "" {
+		t.Fatalf("expected only forced action chat to carry schema, got %+v %+v", actionEvent, plainEvent)
+	}
+}
+
+func virtualActionChatRequest() llm.ChatCompletionRequest {
+	return llm.ChatCompletionRequest{
+		Tools: []llm.ChatCompletionTool{{
+			Type:     "function",
+			Function: llm.ChatCompletionFunction{Name: "blueclaw_agent_turn_action"},
+		}},
+		ToolChoice: json.RawMessage(`{"type":"function","function":{"name":"blueclaw_agent_turn_action"}}`),
+	}
+}
+
+func TestVirtualObservedLanguageModelResolvesNestedChatAccessors(t *testing.T) {
+	inner := newVirtualObservedLanguageModel(virtualChatTestProvider{})
+	outer := newVirtualObservedLanguageModel(inner)
+	if _, isDirectChat := outer.(llm.ChatCompleter); isDirectChat {
+		t.Fatal("expected nested virtual observer to expose ChatCompleter only through the optional accessor")
+	}
+	chatCompleter, isAvailable := llm.ResolveTextChatCompleter(outer)
+	if !isAvailable {
+		t.Fatal("expected nested virtual observer chat capability")
+	}
+	response, errorValue := chatCompleter.GenerateChatCompletion(context.Background(), llm.ChatCompletionRequest{})
+	if errorValue != nil || response.Message.Content != "virtual reply" {
+		t.Fatalf("expected nested virtual chat response, got %+v %v", response, errorValue)
+	}
+	for name, provider := range map[string]llm.LanguageModelProvider{"outer": outer, "inner": inner} {
+		recorder, isRecorder := provider.(virtualLanguageModelCallRecorder)
+		if !isRecorder {
+			t.Fatalf("expected %s virtual observer call recorder", name)
+		}
+		calls := recorder.CallsSince(0)
+		if len(calls) != 1 || calls[0].Kind != "chat" || calls[0].Provider != "virtual-provider" || calls[0].Model != "virtual-model" || calls[0].SelectedBackend != "device" || calls[0].FinishReason != "stop" || !calls[0].UsedFallback {
+			t.Fatalf("expected exact %s nested virtual chat metadata, got %+v", name, calls)
+		}
+	}
+}
+
+func TestVirtualObservedLanguageModelDoesNotInventChatCapability(t *testing.T) {
+	observed := newVirtualObservedLanguageModel(virtualPlainTestProvider{})
+	if _, isAvailable := llm.ResolveTextChatCompleter(observed); isAvailable {
+		t.Fatal("expected virtual observer without ChatCompleter to remain unavailable")
+	}
+	if _, isAvailable := llm.ResolveRecoveryChatCompleter(observed); isAvailable {
+		t.Fatal("expected virtual observer without RecoveryChatCompleter to remain unavailable")
+	}
+	if _, isAvailable := llm.ResolveLocalRecoveryChatCompleter(observed); isAvailable {
+		t.Fatal("expected virtual observer without LocalRecoveryChatCompleter to remain unavailable")
+	}
+}
+
+func TestVirtualObservedLanguageModelPreservesNestedRecoveryChatCapabilities(t *testing.T) {
+	inner := newVirtualObservedLanguageModel(virtualChatTestProvider{})
+	outer := newVirtualObservedLanguageModel(inner)
+
+	recoveryProvider, hasRecoveryChat := llm.ResolveRecoveryChatCompleter(outer)
+	if !hasRecoveryChat {
+		t.Fatal("expected nested virtual recovery chat capability")
+	}
+	localRecoveryProvider, hasLocalRecoveryChat := llm.ResolveLocalRecoveryChatCompleter(outer)
+	if !hasLocalRecoveryChat {
+		t.Fatal("expected nested virtual local recovery chat capability")
+	}
+	request := llm.ChatCompletionRequest{Messages: []llm.ChatCompletionMessage{{Role: "user", Content: "failure"}}}
+	response, errorValue := recoveryProvider.GenerateRecoveryChatCompletion(context.Background(), request)
+	if errorValue != nil || response.Message.Content != "virtual recovery reply" {
+		t.Fatalf("expected nested virtual recovery response, got %+v %v", response, errorValue)
+	}
+	response, errorValue = localRecoveryProvider.GenerateLocalRecoveryChatCompletion(context.Background(), request)
+	if errorValue != nil || response.Message.Content != "virtual local recovery reply" {
+		t.Fatalf("expected nested virtual local recovery response, got %+v %v", response, errorValue)
+	}
+	assertVirtualRecoveryChatCall(t, inner, "inner")
+	assertVirtualRecoveryChatCall(t, outer, "outer")
+}
+
+func assertVirtualRecoveryChatCall(t *testing.T, provider llm.LanguageModelProvider, label string) {
+	t.Helper()
+	recorder, isRecorder := provider.(virtualLanguageModelCallRecorder)
+	if !isRecorder {
+		t.Fatalf("expected %s virtual observer call recorder", label)
+	}
+	calls := recorder.CallsSince(0)
+	if len(calls) != 2 {
+		t.Fatalf("expected two %s recovery calls, got %+v", label, calls)
+	}
+	for index, call := range calls {
+		expectedKind := []string{"recovery_chat", "local_recovery_chat"}[index]
+		if call.Kind != expectedKind {
+			t.Fatalf("expected %s recovery kind %q, got %+v", label, expectedKind, call)
+		}
+		if call.Provider != "virtual-recovery-provider" || call.Model != "virtual-recovery-model" || call.SelectedBackend != "remote" || call.FinishReason != "stop" || call.UsedFallback {
+			t.Fatalf("expected %s recovery routing metadata, got %+v", label, call)
+		}
+	}
+}
+
+func TestVirtualObservedLanguageModelRecordsChatErrors(t *testing.T) {
+	observed := newVirtualObservedLanguageModel(virtualChatErrorTestProvider{})
+	chatCompleter, isAvailable := llm.ResolveTextChatCompleter(observed)
+	if !isAvailable {
+		t.Fatal("expected virtual observer chat capability")
+	}
+	_, errorValue := chatCompleter.GenerateChatCompletion(context.Background(), llm.ChatCompletionRequest{})
+	if errorValue == nil {
+		t.Fatal("expected virtual chat error")
+	}
+	recorder, isRecorder := observed.(virtualLanguageModelCallRecorder)
+	if !isRecorder {
+		t.Fatal("expected virtual observer call recorder")
+	}
+	calls := recorder.CallsSince(0)
+	if len(calls) != 1 || !calls[0].IsError || calls[0].Error != "virtual chat failed" || calls[0].Provider != "virtual-provider" || calls[0].Model != "virtual-model" || calls[0].SelectedBackend != "remote" || calls[0].FinishReason != "error" || !calls[0].UsedFallback {
+		t.Fatalf("expected exact virtual chat error metadata, got %+v", calls)
+	}
+}
+
+type virtualPlainTestProvider struct{}
+
+func (virtualPlainTestProvider) GenerateResponse(context.Context, string) (string, error) {
+	return "", nil
+}
+
+func (virtualPlainTestProvider) GenerateStructuredResponse(context.Context, llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
+	return llm.StructuredResponse{}, nil
+}
+
+type virtualChatTestProvider struct{}
+
+func (virtualChatTestProvider) GenerateResponse(context.Context, string) (string, error) {
+	return "", nil
+}
+
+func (virtualChatTestProvider) GenerateStructuredResponse(context.Context, llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
+	return llm.StructuredResponse{}, nil
+}
+
+func (virtualChatTestProvider) GenerateChatCompletion(context.Context, llm.ChatCompletionRequest) (llm.ChatCompletionResponse, error) {
+	return llm.ChatCompletionResponse{
+		FinishReason:    "stop",
+		ProviderName:    "virtual-provider",
+		ModelName:       "virtual-model",
+		SelectedBackend: "device",
+		UsedFallback:    true,
+		Message:         llm.ChatCompletionMessage{Role: "assistant", Content: "virtual reply"},
+	}, nil
+}
+
+func (virtualChatTestProvider) GenerateRecoveryChatCompletion(context.Context, llm.ChatCompletionRequest) (llm.ChatCompletionResponse, error) {
+	return llm.ChatCompletionResponse{
+		FinishReason:    "stop",
+		ProviderName:    "virtual-recovery-provider",
+		ModelName:       "virtual-recovery-model",
+		SelectedBackend: "remote",
+		Message:         llm.ChatCompletionMessage{Role: "assistant", Content: "virtual recovery reply"},
+	}, nil
+}
+
+func (virtualChatTestProvider) GenerateLocalRecoveryChatCompletion(context.Context, llm.ChatCompletionRequest) (llm.ChatCompletionResponse, error) {
+	return llm.ChatCompletionResponse{
+		FinishReason:    "stop",
+		ProviderName:    "virtual-recovery-provider",
+		ModelName:       "virtual-recovery-model",
+		SelectedBackend: "remote",
+		Message:         llm.ChatCompletionMessage{Role: "assistant", Content: "virtual local recovery reply"},
+	}, nil
+}
+
+type virtualChatErrorTestProvider struct{}
+
+func (virtualChatErrorTestProvider) GenerateResponse(context.Context, string) (string, error) {
+	return "", nil
+}
+
+func (virtualChatErrorTestProvider) GenerateStructuredResponse(context.Context, llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
+	return llm.StructuredResponse{}, nil
+}
+
+func (virtualChatErrorTestProvider) GenerateChatCompletion(context.Context, llm.ChatCompletionRequest) (llm.ChatCompletionResponse, error) {
+	return llm.ChatCompletionResponse{
+		FinishReason:    "error",
+		ProviderName:    "virtual-provider",
+		ModelName:       "virtual-model",
+		SelectedBackend: "remote",
+		UsedFallback:    true,
+	}, errors.New("virtual chat failed")
 }
 
 func TestPresentationLocalMultiturnSuccessLive(t *testing.T) {

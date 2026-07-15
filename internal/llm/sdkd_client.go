@@ -9,7 +9,6 @@ import (
 	"net"
 	"net/http"
 	"strings"
-	"time"
 )
 
 const defaultSDKDEndpoint = "http://blueclaw-sdkd"
@@ -43,7 +42,6 @@ type SDKDClientConfiguration struct {
 	Endpoint                   string
 	UnixSocketPath             string
 	AuthKey                    string
-	Timeout                    time.Duration
 	ModelName                  string
 	ExecutionMode              string
 	LocalOnly                  bool
@@ -76,6 +74,7 @@ type sdkdChatCompletionRequestDocument struct {
 	Tools             []ChatCompletionTool    `json:"tools,omitempty"`
 	ToolChoice        json.RawMessage         `json:"toolChoice,omitempty"`
 	ParallelToolCalls bool                    `json:"parallelToolCalls"`
+	GenerationOptions *GenerationOptions      `json:"generationOptions,omitempty"`
 }
 
 func NewSDKDClient(configuration SDKDClientConfiguration) SDKDClient {
@@ -83,7 +82,7 @@ func NewSDKDClient(configuration SDKDClientConfiguration) SDKDClient {
 	if endpoint == "" {
 		endpoint = defaultSDKDEndpoint
 	}
-	httpClient := &http.Client{Timeout: configuration.Timeout}
+	httpClient := &http.Client{}
 	if unixSocketPath := strings.TrimSpace(configuration.UnixSocketPath); unixSocketPath != "" {
 		httpClient.Transport = &http.Transport{
 			DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
@@ -224,6 +223,7 @@ func (client SDKDClient) generateSDKDChatCompletion(responseContext context.Cont
 		Tools:             append([]ChatCompletionTool{}, request.Tools...),
 		ToolChoice:        append(json.RawMessage{}, request.ToolChoice...),
 		ParallelToolCalls: request.ParallelToolCalls,
+		GenerationOptions: generationOptionsPointer(mergeGenerationOptions(client.GenerationOptions, request.GenerationOptions)),
 	}
 	var response ChatCompletionResponse
 	if errorValue := client.postJSON(responseContext, "/v1/llm/chat", requestDocument, &response); errorValue != nil {
@@ -362,16 +362,7 @@ func (client SDKDClient) buildStructuredRequestDocument(responseContext context.
 	if errorValue != nil {
 		return capabilityStructuredResponseRequestDocument{}, errorValue
 	}
-	generationOptions := request.GenerationOptions
-	if generationOptions.Seed == nil {
-		generationOptions.Seed = client.GenerationOptions.Seed
-	}
-	if generationOptions.Temperature == nil {
-		generationOptions.Temperature = client.GenerationOptions.Temperature
-	}
-	if generationOptions.MaxTokens == nil {
-		generationOptions.MaxTokens = client.GenerationOptions.MaxTokens
-	}
+	generationOptions := mergeGenerationOptions(client.GenerationOptions, request.GenerationOptions)
 	return capabilityStructuredResponseRequestDocument{
 		Model:             client.ModelName,
 		ExecutionMode:     client.executionMode(),
