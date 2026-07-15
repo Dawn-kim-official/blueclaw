@@ -19,6 +19,26 @@ type recoveryChatNoticeProvider struct {
 	legacyCalls      int
 }
 
+type recoveryChatNoticeAccessor struct {
+	provider llm.LanguageModelProvider
+}
+
+func (accessor recoveryChatNoticeAccessor) GenerateResponse(ctx context.Context, prompt string) (string, error) {
+	return accessor.provider.GenerateResponse(ctx, prompt)
+}
+
+func (accessor recoveryChatNoticeAccessor) GenerateStructuredResponse(ctx context.Context, request llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
+	return accessor.provider.GenerateStructuredResponse(ctx, request)
+}
+
+func (accessor recoveryChatNoticeAccessor) RecoveryChatCompleter() (llm.RecoveryChatCompleter, bool) {
+	return llm.ResolveRecoveryChatCompleter(accessor.provider)
+}
+
+func (accessor recoveryChatNoticeAccessor) LocalRecoveryChatCompleter() (llm.LocalRecoveryChatCompleter, bool) {
+	return llm.ResolveLocalRecoveryChatCompleter(accessor.provider)
+}
+
 func (provider *recoveryChatNoticeProvider) GenerateResponse(context.Context, string) (string, error) {
 	provider.legacyCalls++
 	return provider.legacyReply, provider.legacyError
@@ -74,6 +94,19 @@ func TestFailureNoticeGeneratorUsesRecoveryChatBeforeLegacyText(t *testing.T) {
 	}
 	if provider.chatCalls != 1 || provider.legacyCalls != 0 {
 		t.Fatalf("expected chat-first generation, got chat=%d legacy=%d", provider.chatCalls, provider.legacyCalls)
+	}
+}
+
+func TestFailureNoticeGeneratorResolvesNestedRecoveryChatAccessor(t *testing.T) {
+	provider := &recoveryChatNoticeProvider{chatReply: "nested chat recovery reply", legacyReply: "legacy recovery reply"}
+	wrappedProvider := recoveryChatNoticeAccessor{provider: recoveryChatNoticeAccessor{provider: provider}}
+
+	notice, status := (FailureNoticeGenerator{LanguageModel: wrappedProvider}).Generate(context.Background(), FailureReport{Phase: "failure", StopReason: "tool failed", ResponseLanguage: "en"})
+	if status.Source != "generated" || notice.SendableMessage() != "nested chat recovery reply" {
+		t.Fatalf("expected nested chat recovery notice, got notice=%+v status=%+v", notice, status)
+	}
+	if provider.chatCalls != 1 || provider.legacyCalls != 0 {
+		t.Fatalf("expected nested chat-first generation, got chat=%d legacy=%d", provider.chatCalls, provider.legacyCalls)
 	}
 }
 

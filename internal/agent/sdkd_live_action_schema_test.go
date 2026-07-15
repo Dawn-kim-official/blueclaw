@@ -6,7 +6,6 @@ import (
 	"os"
 	"strings"
 	"testing"
-	"time"
 
 	"blueclaw/internal/config"
 	"blueclaw/internal/llm"
@@ -33,14 +32,10 @@ func TestSDKDLiveXLowCurrentAgentActionSchemaFromEnv(t *testing.T) {
 	client := llm.NewSDKDClient(llm.SDKDClientConfiguration{
 		UnixSocketPath: socketPath,
 		AuthKey:        authKey,
-		Timeout:        60 * time.Second,
 		ModelName:      llm.ResolveModelTierNames(config.RuntimeConfiguration{}).XLow,
 		ExecutionMode:  "remote",
 	})
-	responseContext, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-	defer cancel()
-
-	response, errorValue := client.GenerateStructuredResponse(responseContext, request)
+	response, errorValue := client.GenerateStructuredResponse(context.Background(), request)
 	if errorValue != nil {
 		t.Fatalf("expected sdkd xlow response for current action schema: %v", errorValue)
 	}

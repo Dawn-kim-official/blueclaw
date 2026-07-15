@@ -61,7 +61,7 @@ export function createStructuredResponseGenerator(
     let lastError: unknown;
     for (const route of routes) {
       try {
-        return await generateForRoute(request, route, configuration.requestTimeoutMillisecond);
+        return await generateForRoute(request, route);
       } catch (errorValue) {
         lastError = errorValue;
         if (!isRetryableProviderError(errorValue)) break;
@@ -83,7 +83,7 @@ export function createChatCompletionGenerator(
     for (const route of routes) {
       throwIfAborted(abortSignal);
       try {
-        return await generateChatForRoute(request, route, configuration.requestTimeoutMillisecond, abortSignal);
+        return await generateChatForRoute(request, route, abortSignal);
       } catch (errorValue) {
         lastError = errorValue;
         if (abortSignal?.aborted) throw errorValue;
@@ -230,7 +230,6 @@ const defaultLanguageModelFactory: ProviderLanguageModelFactory = {
 async function generateForRoute(
   request: StructuredResponseRequest,
   route: ProviderRoute,
-  timeoutMillisecond: number,
 ): Promise<StructuredResponse> {
   const outputSchema = createValidatedOutputSchema(request.structuredOutputSchema.document);
   const result = await generateText({
@@ -245,7 +244,6 @@ async function generateForRoute(
     maxRetries: 0,
     seed: request.generationOptions?.seed,
     temperature: request.generationOptions?.temperature,
-    timeout: timeoutMillisecond,
   });
   if (result.finishReason !== 'stop') {
     throw new SDKDError('structured_output_invalid', 422, false, `structured output generation finished with ${result.finishReason}`);
@@ -271,7 +269,6 @@ async function generateForRoute(
 async function generateChatForRoute(
   request: ChatCompletionRequest,
   route: ProviderRoute,
-  timeoutMillisecond: number,
   abortSignal?: AbortSignal,
 ): Promise<ChatCompletionResponse> {
   const tools = createChatTools(request);
@@ -281,9 +278,11 @@ async function generateChatForRoute(
     messages: convertChatMessages(request),
     tools: Object.keys(tools).length > 0 ? tools : undefined,
     toolChoice: convertToolChoice(request.toolChoice, Object.keys(tools)),
+    maxOutputTokens: request.generationOptions?.maxTokens,
     maxRetries: 0,
     abortSignal,
-    timeout: timeoutMillisecond,
+    seed: request.generationOptions?.seed,
+    temperature: request.generationOptions?.temperature,
   });
   return {
     provider: route.providerName,

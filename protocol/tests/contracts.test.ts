@@ -58,6 +58,18 @@ describe('closed protocol values', () => {
       messages: [],
       parallelToolCalls: false,
     }).success).toBe(false);
+    expect(chatCompletionRequestSchema.safeParse({
+      executionMode: 'auto',
+      messages: [],
+      parallelToolCalls: false,
+      generationOptions: { seed: 41, temperature: 0.2, maxTokens: 256 },
+    }).success).toBe(true);
+    expect(chatCompletionRequestSchema.safeParse({
+      executionMode: 'auto',
+      messages: [],
+      parallelToolCalls: false,
+      generationOptions: { maxTokens: -1 },
+    }).success).toBe(false);
     expect(chatCompletionResponseSchema.safeParse({
       finishReason: 'paused',
       provider: 'provider',

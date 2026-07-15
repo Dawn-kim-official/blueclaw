@@ -65,6 +65,7 @@ const chatRequest: ChatCompletionRequest = {
   }],
   toolChoice: { type: 'function', function: { name: 'lookup' } },
   parallelToolCalls: false,
+  generationOptions: { maxTokens: 128, seed: 7, temperature: 0 },
 };
 
 describe('sdkd provider adapter', () => {
@@ -99,6 +100,9 @@ describe('sdkd provider adapter', () => {
     expect(call?.tools?.map(tool => tool.name)).toEqual(['lookup']);
     expect(call?.toolChoice).toEqual({ type: 'tool', toolName: 'lookup' });
     expect(call?.providerOptions).toBeUndefined();
+    expect(call?.maxOutputTokens).toBe(128);
+    expect(call?.seed).toBe(7);
+    expect(call?.temperature).toBe(0);
     expect(JSON.stringify(call?.prompt)).toContain('call-1');
     expect(JSON.stringify(call?.prompt)).toContain('answer');
     expect(llamaModel.doGenerateCalls).toHaveLength(0);
@@ -489,7 +493,6 @@ function completeConfiguration(autoRoute: SDKDAutoRoute): SDKDConfiguration {
     localOnly: false,
     openRouterAPIKey: 'remote-key',
     openRouterBaseURL: 'https://openrouter.invalid/api/v1',
-    requestTimeoutMillisecond: 1000,
     socketPath: '/tmp/blueclaw-sdkd-provider-test.sock',
   };
 }

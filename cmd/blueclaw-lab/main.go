@@ -129,11 +129,16 @@ type virtualSessionArguments struct {
 	RealModelTiers           bool
 }
 
-type languageModelCallEvent struct {
-	Kind       string `json:"kind"`
-	SchemaName string `json:"schemaName"`
-	IsError    bool   `json:"isError"`
-	Error      string `json:"error"`
+type virtualSessionEvidence struct {
+	Scenario              string                              `json:"scenario"`
+	Status                string                              `json:"status"`
+	RequestedProvider     string                              `json:"requestedProvider"`
+	RequestedModel        string                              `json:"requestedModel,omitempty"`
+	ExecutionMode         string                              `json:"executionMode,omitempty"`
+	MaximumModelTier      string                              `json:"maximumModelTier,omitempty"`
+	RealModelTiers        bool                                `json:"realModelTiers,omitempty"`
+	StructuredSchemaNames []string                            `json:"structuredSchemaNames,omitempty"`
+	Calls                 []e2e.VirtualLanguageModelCallEvent `json:"calls"`
 }
 
 func parseVirtualSessionArguments(arguments []string, defaultScenarioName string, defaultArtifactDirectoryPath string) (virtualSessionArguments, error) {
@@ -141,7 +146,7 @@ func parseVirtualSessionArguments(arguments []string, defaultScenarioName string
 	scenarioName := flagSet.String("scenario", defaultScenarioName, "virtual session scenario name")
 	scenarioFilePath := flagSet.String("scenario-file", "", "file-backed sequential virtual session scenario")
 	artifactDirectoryPath := flagSet.String("artifact-dir", defaultArtifactDirectoryPath, "virtual session artifact directory")
-	languageModelEndpoint := flagSet.String("llm-endpoint", firstNonEmptyString(os.Getenv("BLUECLAW_E2E_LLM_ENDPOINT"), capability.DefaultEndpoint), "live LLM capability endpoint")
+	languageModelEndpoint := flagSet.String("llm-endpoint", os.Getenv("BLUECLAW_E2E_LLM_ENDPOINT"), "live LLM capability or SDKD endpoint")
 	languageModelSocket := flagSet.String("llm-unix-socket", os.Getenv("BLUECLAW_E2E_LLM_UNIX_SOCKET"), "live LLM capability unix socket path")
 	languageModelProvider := flagSet.String("llm-provider", firstNonEmptyString(os.Getenv("BLUECLAW_E2E_LLM_PROVIDER"), "openrouter"), "live LLM provider: openrouter, capability, or sdkd")
 	languageModelAuthKeyPath := flagSet.String("llm-auth-key-path", os.Getenv("BLUECLAW_E2E_LLM_AUTH_KEY_PATH"), "sdkd installation auth key path")
@@ -267,9 +272,13 @@ func runVirtualSession(ctx context.Context, arguments virtualSessionArguments) e
 	}
 	result, errorValue := e2e.RunVirtualSession(ctx, scenario)
 	recordError := saveVirtualSessionCassette(arguments.RecordCassettePath, cassetteRecorder)
+	evidenceError := saveVirtualSessionEvidence(arguments, result, errorValue)
 	printVirtualSessionResult(result)
 	if errorValue != nil {
 		return errorValue
+	}
+	if evidenceError != nil {
+		return evidenceError
 	}
 	if arguments.LiveLanguageModel && arguments.StrictAssertions && len(scenario.SkillDirectoryPaths) > 0 && embeddingObserver.successfulCallCount.Load() == 0 {
 		return errors.New("strict live scenario did not complete a local BGE-M3 embedding call")
@@ -383,6 +392,48 @@ func printVirtualSessionResult(result e2e.VirtualSessionResult) {
 			fmt.Printf("turn %d attachment: %s\n", index+1, attachment.DevicePath)
 		}
 	}
+}
+
+func saveVirtualSessionEvidence(arguments virtualSessionArguments, result e2e.VirtualSessionResult, runError error) error {
+	if strings.TrimSpace(result.ArtifactDirectoryPath) == "" {
+		return errors.New("virtual session artifact directory is required for LLM evidence")
+	}
+	status := "succeeded"
+	if runError != nil {
+		status = "failed"
+	}
+	evidence := virtualSessionEvidence{
+		Scenario:              result.ScenarioName,
+		Status:                status,
+		RequestedProvider:     strings.TrimSpace(arguments.LanguageModelProvider),
+		RequestedModel:        strings.TrimSpace(arguments.LanguageModelName),
+		ExecutionMode:         strings.TrimSpace(arguments.ExecutionMode),
+		MaximumModelTier:      strings.TrimSpace(arguments.MaximumModelTier),
+		RealModelTiers:        arguments.RealModelTiers,
+		StructuredSchemaNames: sdkdStructuredSchemaNames(arguments.LanguageModelProvider),
+		Calls:                 virtualSessionLanguageModelCalls(result),
+	}
+	evidencePath := filepath.Join(result.ArtifactDirectoryPath, "llm-routing-evidence.json")
+	document, errorValue := json.MarshalIndent(evidence, "", "  ")
+	if errorValue != nil {
+		return errorValue
+	}
+	return os.WriteFile(evidencePath, append(document, '\n'), 0600)
+}
+
+func virtualSessionLanguageModelCalls(result e2e.VirtualSessionResult) []e2e.VirtualLanguageModelCallEvent {
+	calls := []e2e.VirtualLanguageModelCallEvent{}
+	for _, turnResult := range result.TurnResults {
+		calls = append(calls, turnResult.LanguageModelCallEvents...)
+	}
+	return calls
+}
+
+func sdkdStructuredSchemaNames(provider string) []string {
+	if strings.TrimSpace(strings.ToLower(provider)) != "sdkd" {
+		return nil
+	}
+	return []string{"blueclaw_agent_turn_action", "blueclaw_turn_router"}
 }
 
 func printVirtualTurnFailureEvents(turnNumber int, turnResult e2e.VirtualTurnResult) {
@@ -572,7 +623,6 @@ func createLiveLanguageModel(arguments virtualSessionArguments) (llm.LanguageMod
 			CapabilityClient: capability.NewClient(capability.Configuration{
 				Endpoint:       arguments.LanguageModelEndpoint,
 				UnixSocketPath: arguments.LanguageModelSocket,
-				Timeout:        60 * time.Second,
 			}),
 			ModelName:     modelName,
 			ExecutionMode: arguments.ExecutionMode,
@@ -587,13 +637,12 @@ func createLiveLanguageModel(arguments virtualSessionArguments) (llm.LanguageMod
 			Endpoint:                   arguments.LanguageModelEndpoint,
 			UnixSocketPath:             arguments.LanguageModelSocket,
 			AuthKey:                    authKey,
-			Timeout:                    60 * time.Second,
 			ModelName:                  modelName,
 			ExecutionMode:              arguments.ExecutionMode,
 			GenerationOptions:          generationOptions,
 			TextProvider:               structuredFallbackProvider,
 			StructuredFallbackProvider: structuredFallbackProvider,
-			StructuredSchemaNames:      []string{"blueclaw_agent_turn_action"},
+			StructuredSchemaNames:      sdkdStructuredSchemaNames("sdkd"),
 		}), nil
 	default:
 		return nil, errors.New("live LLM provider must be openrouter, capability, or sdkd")
@@ -640,19 +689,6 @@ func languageModelCallFailureSummaries(turnResult e2e.VirtualTurnResult) []strin
 			continue
 		}
 		summaries = append(summaries, strings.TrimSpace(strings.Join([]string{event.Kind, event.SchemaName, event.Error}, " ")))
-	}
-	for _, event := range turnResult.Events {
-		if event.Name != "llm.call" {
-			continue
-		}
-		var callEvent languageModelCallEvent
-		if errorValue := json.Unmarshal([]byte(event.Body), &callEvent); errorValue != nil {
-			continue
-		}
-		if !callEvent.IsError {
-			continue
-		}
-		summaries = append(summaries, strings.TrimSpace(strings.Join([]string{callEvent.Kind, callEvent.SchemaName, callEvent.Error}, " ")))
 	}
 	return summaries
 }
@@ -728,12 +764,6 @@ func truthyEnvironmentValue(value string) bool {
 }
 
 func endpointForVirtualSession(arguments virtualSessionArguments) string {
-	if strings.TrimSpace(arguments.LanguageModelSocket) == "" {
-		return strings.TrimSpace(arguments.LanguageModelEndpoint)
-	}
-	if strings.TrimSpace(arguments.LanguageModelEndpoint) == capability.DefaultEndpoint {
-		return ""
-	}
 	return strings.TrimSpace(arguments.LanguageModelEndpoint)
 }
 

@@ -73,16 +73,11 @@ func newSDKDClient(runtimeConfiguration config.RuntimeConfiguration, modelName s
 			return SDKDClient{}, errors.New("sdkd auth key is empty")
 		}
 	}
-	timeout := time.Duration(sdkdConfiguration.TimeoutSecond) * time.Second
-	if timeout <= 0 {
-		timeout = 60 * time.Second
-	}
 	capabilityProvider := NewCapabilityLLMClientForModel(runtimeConfiguration, modelName)
 	return NewSDKDClient(SDKDClientConfiguration{
 		Endpoint:                   sdkdConfiguration.Endpoint,
 		UnixSocketPath:             sdkdConfiguration.UnixSocketPath,
 		AuthKey:                    authKey,
-		Timeout:                    timeout,
 		ModelName:                  modelName,
 		ExecutionMode:              firstNonEmptyModelName(sdkdConfiguration.ExecutionMode, runtimeConfiguration.LanguageModel.Capability.ExecutionMode),
 		LocalOnly:                  sdkdConfiguration.LocalOnly,
