@@ -293,6 +293,46 @@ func TestAgentKernelSideEffectWithoutRequiredEvidenceProceeds(t *testing.T) {
 	}
 }
 
+type routerLedgerLanguageModel struct {
+	decision   TurnDecision
+	response   llm.StructuredResponse
+	errorValue error
+}
+
+func (model *routerLedgerLanguageModel) GenerateResponse(context.Context, string) (string, error) {
+	return "", errors.New("router model only serves structured routing")
+}
+
+func (model *routerLedgerLanguageModel) GenerateStructuredResponse(_ context.Context, request llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
+	if request.StructuredOutputSchema.Name != turnRouterSchemaName {
+		return llm.StructuredResponse{Content: "{}"}, nil
+	}
+	if model.errorValue != nil {
+		return model.response, model.errorValue
+	}
+	document, errorValue := json.Marshal(model.decision)
+	if errorValue != nil {
+		return llm.StructuredResponse{}, errorValue
+	}
+	response := model.response
+	response.Content = string(document)
+	return response, nil
+}
+
+func persistedTurnRouterCallRecords(taskEvents []task.TaskEvent) []llmCallRecord {
+	records := []llmCallRecord{}
+	for _, taskEvent := range taskEvents {
+		if taskEvent.Name != "llm.call" {
+			continue
+		}
+		var record llmCallRecord
+		if errorValue := json.Unmarshal([]byte(taskEvent.Body), &record); errorValue == nil && record.SchemaName == turnRouterSchemaName {
+			records = append(records, record)
+		}
+	}
+	return records
+}
+
 type turnRouterDecisionLanguageModel struct {
 	initialDecision TurnDecision
 	reaskDecision   TurnDecision
@@ -488,6 +528,69 @@ func TestAgentKernelRunsBoundedTaskThroughTurnRunner(t *testing.T) {
 	}
 	if !strings.Contains(result.TaskRun.Result, "수요일") {
 		t.Fatalf("expected finish message in result, got %q", result.TaskRun.Result)
+	}
+}
+
+func TestAgentKernelPersistsTurnRouterLLMCall(t *testing.T) {
+	agentKernel, taskRunService := newKernelTestServices()
+	agentKernel.UseIntakeLanguageModelProvider(&routerLedgerLanguageModel{
+		decision: TurnDecision{
+			Route:            TurnRouteStartTask,
+			Classification:   IntakeClassificationQuickReply,
+			TaskShape:        TaskShapeImmediateReply,
+			TaskLevel:        TaskLevelXLow,
+			ResponseLanguage: "ko",
+			Reason:           "direct answer",
+		},
+		response: llm.StructuredResponse{
+			ProviderName: "sdkd",
+			ModelName:    "router-model",
+			Usage: llm.Usage{
+				PromptTokens:     11,
+				CompletionTokens: 7,
+				TotalTokens:      18,
+			},
+		},
+	})
+	agentKernel.UseLanguageModelProvider(&sequenceLanguageModel{contents: []string{finishMessageDocument("완료했습니다.")}})
+
+	result, errorValue := agentKernel.RunAgentRequest(context.Background(), kernelTestRequest("오늘 무슨 요일이야?"))
+	if errorValue != nil {
+		t.Fatalf("expected bounded run to complete: %v", errorValue)
+	}
+	records := persistedTurnRouterCallRecords(taskRunService.ListTaskEvent(result.TaskRun.TaskRunID))
+	if len(records) != 1 {
+		t.Fatalf("expected one persisted router call, got %+v", records)
+	}
+	if records[0].Provider != "sdkd" || records[0].Model != "router-model" || records[0].UsedFallback {
+		t.Fatalf("expected SDKD router metadata without fallback, got %+v", records[0])
+	}
+	if records[0].PromptTokens != 11 || records[0].CompletionTokens != 7 || records[0].TotalTokens != 18 {
+		t.Fatalf("expected router token metadata, got %+v", records[0])
+	}
+}
+
+func TestAgentKernelPersistsTurnRouterLLMCallErrorBeforeDeterministicFallback(t *testing.T) {
+	agentKernel, taskRunService := newKernelTestServices()
+	agentKernel.UseIntakeLanguageModelProvider(&routerLedgerLanguageModel{
+		response: llm.StructuredResponse{
+			ProviderName: "sdkd",
+			ModelName:    "router-model",
+		},
+		errorValue: errors.New("router unavailable"),
+	})
+	agentKernel.UseLanguageModelProvider(&sequenceLanguageModel{contents: []string{finishMessageDocument("완료했습니다.")}})
+
+	result, errorValue := agentKernel.RunAgentRequest(context.Background(), kernelTestRequest("오늘 무슨 요일이야?"))
+	if errorValue != nil {
+		t.Fatalf("expected deterministic fallback to complete: %v", errorValue)
+	}
+	records := persistedTurnRouterCallRecords(taskRunService.ListTaskEvent(result.TaskRun.TaskRunID))
+	if len(records) != 1 || !records[0].IsError || records[0].Error != "router unavailable" {
+		t.Fatalf("expected persisted router error record, got %+v", records)
+	}
+	if !taskEventsContain(taskRunService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.intake", `"usedDeterministicFallback":true`) {
+		t.Fatal("expected deterministic intake fallback evidence")
 	}
 }
 

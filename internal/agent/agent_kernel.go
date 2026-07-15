@@ -237,6 +237,7 @@ func (agentKernel *AgentKernel) RouteTurn(responseContext context.Context, reque
 }
 
 func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context, request AgentRequest) (AgentTurnResult, error) {
+	routerCallLedger := &turnRouterCallLedger{}
 	if request.TurnStartedAt.IsZero() {
 		request.TurnStartedAt = time.Now().Add(-2 * time.Second)
 	}
@@ -260,7 +261,8 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 	turnToolSet := request.ToolSet
 	intakeRequest := request
 	intakeRequest.ToolSet = turnToolSet
-	turnRouter := NewTurnRouter(agentKernel.classificationLanguageModel(), agentKernel.intakeOptions)
+	routerLanguageModel := routerCallLedger.languageModel(agentKernel.classificationLanguageModel())
+	turnRouter := NewTurnRouter(routerLanguageModel, agentKernel.intakeOptions)
 	turnDecision := turnRouter.Plan(responseContext, intakeRequest)
 	intakeDecision := turnDecision.IntakeDecision()
 	intakeDecision = promoteIntakeDecisionForSelectedSkills(intakeDecision, instructionBundle, agentKernel.intakeOptions)
@@ -292,12 +294,12 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 		turnDecision.Route = TurnRouteStartTask
 	}
 	if turnDecision.Route == TurnRouteConsume {
-		result, errorValue := agentKernel.completeConsumedRequest(intakeRequest, turnDecision)
+		result, errorValue := agentKernel.completeConsumedRequest(intakeRequest, turnDecision, routerCallLedger.records)
 		agentKernel.appendSiteRequirementNormalizationReports(result.TaskRun.TaskRunID, siteNormalizationReports)
 		return result, errorValue
 	}
 	if intakeDecision.Classification == IntakeClassificationNeedsConfirmation && len(intakeDecision.ClarificationOptions) >= 2 {
-		result, errorValue := agentKernel.completeIntakeOnlyRequest(responseContext, intakeRequest, intakeDecision, task.TaskStatusWaitingUserInput)
+		result, errorValue := agentKernel.completeIntakeOnlyRequest(responseContext, intakeRequest, intakeDecision, task.TaskStatusWaitingUserInput, routerCallLedger.records)
 		result.TurnRoute = turnDecision.Route
 		agentKernel.appendSiteRequirementNormalizationReports(result.TaskRun.TaskRunID, siteNormalizationReports)
 		return result, errorValue
@@ -309,7 +311,7 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 		}
 	}
 	if intakeDecision.Classification == IntakeClassificationUnsupported {
-		result, errorValue := agentKernel.completeIntakeOnlyRequest(responseContext, intakeRequest, intakeDecision, task.TaskStatusBlocked)
+		result, errorValue := agentKernel.completeIntakeOnlyRequest(responseContext, intakeRequest, intakeDecision, task.TaskStatusBlocked, routerCallLedger.records)
 		result.TurnRoute = turnDecision.Route
 		agentKernel.appendSiteRequirementNormalizationReports(result.TaskRun.TaskRunID, siteNormalizationReports)
 		return result, errorValue
@@ -334,7 +336,7 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 	}
 	var requiredEvidenceReask requiredEvidenceReaskReport
 	if missingEvidenceReport := missingRequiredEvidenceReport(intakeDecision, outcomeContract, turnToolSet); !isDeterministicResume && strings.TrimSpace(missingEvidenceReport.Reason) != "" {
-		intakeDecision, outcomeContract, requiredEvidenceReask = agentKernel.reaskMissingRequiredEvidenceOnce(responseContext, request, intakeRequest, intakeDecision, outcomeContract, instructionBundle, executionPlan, hasExecutionPlan, requiredAttachmentSuffixes, turnToolSet)
+		intakeDecision, outcomeContract, requiredEvidenceReask = agentKernel.reaskMissingRequiredEvidenceOnce(responseContext, request, intakeRequest, intakeDecision, outcomeContract, instructionBundle, executionPlan, hasExecutionPlan, requiredAttachmentSuffixes, turnToolSet, routerLanguageModel)
 	}
 	requiredEvidenceTools := outcomeContract.RequiredEvidenceTools
 	requiredAttachmentSuffixes = outcomeContract.RequiredAttachmentSuffixes
@@ -400,6 +402,7 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 	result.TurnRoute = turnDecision.Route
 	result.ToolNames = toolNamesForEvent(turnRequest.ToolSet)
 	if result.TaskRun.TaskRunID != "" {
+		agentKernel.appendTurnRouterCallRecords(result.TaskRun.TaskRunID, routerCallLedger.records)
 		agentKernel.AppendTaskEvent(result.TaskRun.TaskRunID, "agent.intake", marshalEventBody(intakeDecision))
 		if prunedEvidenceReport.HasInvalidEvidence() {
 			agentKernel.AppendTaskEvent(result.TaskRun.TaskRunID, requiredEvidenceInvalidEventName, marshalEventBody(prunedEvidenceReport))
@@ -413,8 +416,8 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 	return result, errorValue
 }
 
-func (agentKernel *AgentKernel) reaskMissingRequiredEvidenceOnce(responseContext context.Context, request AgentRequest, intakeRequest AgentRequest, intakeDecision IntakeDecision, outcomeContract OutcomeContract, instructionBundle InstructionBundle, executionPlan ExecutionPlan, hasExecutionPlan bool, requiredAttachmentSuffixes []string, turnToolSet *ToolSet) (IntakeDecision, OutcomeContract, requiredEvidenceReaskReport) {
-	turnRouter := NewTurnRouter(agentKernel.classificationLanguageModel(), agentKernel.intakeOptions)
+func (agentKernel *AgentKernel) reaskMissingRequiredEvidenceOnce(responseContext context.Context, request AgentRequest, intakeRequest AgentRequest, intakeDecision IntakeDecision, outcomeContract OutcomeContract, instructionBundle InstructionBundle, executionPlan ExecutionPlan, hasExecutionPlan bool, requiredAttachmentSuffixes []string, turnToolSet *ToolSet, routerLanguageModel llm.LanguageModelProvider) (IntakeDecision, OutcomeContract, requiredEvidenceReaskReport) {
+	turnRouter := NewTurnRouter(routerLanguageModel, agentKernel.intakeOptions)
 	reaskDecision, errorValue := turnRouter.ReaskRequiredEvidence(responseContext, intakeRequest)
 	if errorValue != nil {
 		return intakeDecision, outcomeContract, requiredEvidenceReaskReport{WasAttempted: true, Reason: errorValue.Error()}
@@ -452,9 +455,10 @@ func (agentKernel *AgentKernel) selectInstructionBundleForResolvedRequest(ctx co
 	return instructionBundleWithPinnedSkills(instructionBundle, selectionRequest), intakeDecision
 }
 
-func (agentKernel *AgentKernel) completeConsumedRequest(request AgentRequest, decision TurnDecision) (AgentTurnResult, error) {
+func (agentKernel *AgentKernel) completeConsumedRequest(request AgentRequest, decision TurnDecision, routerCallRecords []llmCallRecord) (AgentTurnResult, error) {
 	taskRun := agentKernel.createTaskRunForRequest(request)
 	reactionEmojiName := NormalizeReactionEmojiName(decision.ReactionEmojiName)
+	agentKernel.appendTurnRouterCallRecords(taskRun.TaskRunID, routerCallRecords)
 	agentKernel.AppendTaskEvent(taskRun.TaskRunID, "agent.intake", marshalEventBody(decision.IntakeDecision()))
 	agentKernel.AppendTaskEvent(taskRun.TaskRunID, "agent.consumed", marshalEventBody(map[string]string{
 		"route":             string(decision.Route),
@@ -563,8 +567,9 @@ func (agentKernel *AgentKernel) ResumeTask(taskRunID string) (task.TaskRun, erro
 	return agentKernel.taskRunService.ResumeTaskRun(taskRunID)
 }
 
-func (agentKernel *AgentKernel) completeIntakeOnlyRequest(responseContext context.Context, request AgentRequest, intakeDecision IntakeDecision, status task.TaskStatus) (AgentTurnResult, error) {
+func (agentKernel *AgentKernel) completeIntakeOnlyRequest(responseContext context.Context, request AgentRequest, intakeDecision IntakeDecision, status task.TaskStatus, routerCallRecords []llmCallRecord) (AgentTurnResult, error) {
 	taskRun := agentKernel.createTaskRunForRequest(request)
+	agentKernel.appendTurnRouterCallRecords(taskRun.TaskRunID, routerCallRecords)
 	agentKernel.AppendTaskEvent(taskRun.TaskRunID, "agent.intake", marshalEventBody(intakeDecision))
 	finishMessage := strings.TrimSpace(intakeDecision.UserFacingReply)
 	if finishMessage == "" {
@@ -605,6 +610,12 @@ func (agentKernel *AgentKernel) createTaskRunForRequest(request AgentRequest) ta
 		ReplyTargetID:  request.OriginReplyTargetID,
 		IsThread:       request.OriginIsThread,
 	}, request.Prompt)
+}
+
+func (agentKernel *AgentKernel) appendTurnRouterCallRecords(taskRunID string, records []llmCallRecord) {
+	for _, record := range records {
+		agentKernel.AppendTaskEvent(taskRunID, "llm.call", marshalEventBody(record))
+	}
 }
 
 func (agentKernel *AgentKernel) appendGoalLifecycleEvent(taskRun task.TaskRun, activeGoal ActiveGoal) {
