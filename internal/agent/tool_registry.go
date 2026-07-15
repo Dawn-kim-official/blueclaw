@@ -1,9 +1,11 @@
 package agent
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"sort"
 	"strings"
 )
@@ -282,9 +284,10 @@ type BoundTool struct {
 }
 
 type ToolFunction[Input any, Output any] struct {
-	Definition ToolDefinition
-	Handler    func(context.Context, Input) (Output, error)
-	Result     func(Output) ToolResult
+	Definition               ToolDefinition
+	RejectUnknownInputFields bool
+	Handler                  func(context.Context, Input) (Output, error)
+	Result                   func(Output) ToolResult
 }
 
 type ToolSet struct {
@@ -324,7 +327,7 @@ func RegisterToolFunction[Input any, Output any](toolSet *ToolSet, toolFunction 
 	}
 	toolSet.RegisterTool(toolFunction.Definition, func(toolContext context.Context, toolInvocation ToolInvocation) (ToolResult, error) {
 		var input Input
-		if errorValue := UnmarshalToolInput(toolInvocation.Input, &input); errorValue != nil {
+		if errorValue := unmarshalToolInput(toolInvocation.Input, &input, toolFunction.RejectUnknownInputFields); errorValue != nil {
 			return ToolInputFailure(errorValue.Error()), nil
 		}
 		output, errorValue := toolFunction.Handler(toolContext, input)
@@ -662,12 +665,23 @@ func MarshalToolInput(value any) json.RawMessage {
 }
 
 func UnmarshalToolInput(input json.RawMessage, value any) error {
+	return unmarshalToolInput(input, value, false)
+}
+
+func unmarshalToolInput(input json.RawMessage, value any, rejectUnknownFields bool) error {
 	if len(input) == 0 {
 		return nil
 	}
-	errorValue := json.Unmarshal(input, value)
+	decoder := json.NewDecoder(bytes.NewReader(input))
+	if rejectUnknownFields {
+		decoder.DisallowUnknownFields()
+	}
+	errorValue := decoder.Decode(value)
 	if errorValue != nil {
 		return errors.New("tool input is not valid json: " + errorValue.Error())
+	}
+	if decoder.Decode(&struct{}{}) != io.EOF {
+		return errors.New("tool input is not valid json: multiple json values")
 	}
 	return nil
 }
