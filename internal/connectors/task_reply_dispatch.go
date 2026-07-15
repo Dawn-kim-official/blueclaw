@@ -61,6 +61,13 @@ func (connectorRuntime *ConnectorRuntime) dispatchTaskReply(
 	switch decision.Kind {
 	case taskReplyDecisionConsume:
 		reason := connectorRuntime.addConsumeReaction(ctx, platform, adapter, event, taskRunID, turnResult.ReactionEmojiName)
+		if reason != "consume_reacted" && !isMultiPersonConversation(event) && strings.TrimSpace(turnResult.FinishMessage) != "" {
+			result, errorValue := connectorRuntime.sendCompletedTaskReply(ctx, platform, event, taskRunID, replyTarget, turnResult, sendReply)
+			if result.ReplyDispatchID != "" {
+				result.Reason = "consume_fallback_sent"
+			}
+			return result, errorValue
+		}
 		return ConnectorRuntimeResult{Handled: true, Platform: platform, TaskRunID: taskRunID, Reason: reason}, nil
 	case taskReplyDecisionSuppressCancelled:
 		connectorRuntime.agentKernel.AppendTaskEvent(taskRunID, "task.stop.outbox_suppressed", marshalConnectorEventBody(map[string]string{

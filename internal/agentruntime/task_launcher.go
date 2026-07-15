@@ -397,6 +397,7 @@ func (taskLauncher *TaskLauncher) agentTurnRequestForLaunch(request TaskLaunchRe
 		RequesterCircles:           append([]string{}, request.PersonAccess.Circles...),
 		ProfileName:                profileName,
 		ConversationID:             request.ConversationID,
+		ConversationType:           request.ConversationType,
 		Prompt:                     request.Prompt,
 		InputParts:                 append([]agent.AgentPart{}, request.InputParts...),
 		ResponseLanguage:           request.ResponseLanguage,
