@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"encoding/xml"
 	"errors"
 	"fmt"
 	"io"
@@ -177,9 +178,9 @@ type VirtualLanguageModelCallEvent struct {
 }
 
 type VirtualInformationalAssertion struct {
-	Name      string
-	Satisfied bool
-	Detail    string
+	Name      string `json:"name"`
+	Satisfied bool   `json:"satisfied"`
+	Detail    string `json:"detail"`
 }
 
 type VirtualSessionHarness struct {
@@ -1050,9 +1051,12 @@ if __name__ == "__main__":
 `
 
 type virtualCapabilityRecord struct {
-	ID     string
-	Values map[string]any
+	ID                  string
+	Values              map[string]any
+	SourceWorkspacePath string
 }
+
+const virtualDefaultSiteSourceWorkspacePath = "/workspace/circles/staff/sites/demo/draft"
 
 type virtualCapabilityService struct {
 	mutex          sync.Mutex
@@ -1128,15 +1132,53 @@ func (service *virtualCapabilityService) response(toolName string, requestBody [
 		if strings.TrimSpace(stringValue(input["title"])) == "" {
 			return virtualCapabilityJSON(map[string]any{"provider": "virtual", "toolName": toolName, "status": "error", "message": "title is required"})
 		}
-		service.site = &virtualCapabilityRecord{ID: "site-1", Values: input}
-		_ = os.MkdirAll(filepath.Join(service.workspacePath, "circles", "staff", "sites", "demo", "draft", "app", "public"), 0o770)
-		return `{"provider":"virtual","toolName":"site.create","status":"ok","result":{"siteID":"site-1","slug":"demo","title":` + quote(stringValue(input["title"])) + `,"workspacePath":"/workspace/circles/staff/sites/demo","sourceWorkspacePath":"/workspace/circles/staff/sites/demo/draft","appWorkspacePath":"/workspace/circles/staff/sites/demo/draft/app","sourceFiles":` + virtualSiteCreateSourceFiles(requestBody) + `}}`
+		sourceWorkspacePath, errorValue := virtualSiteSourcePathForSlug(stringValue(input["slug"]))
+		if errorValue != nil {
+			return virtualCapabilityJSON(map[string]any{"provider": "virtual", "toolName": toolName, "status": "error", "message": errorValue.Error()})
+		}
+		service.site = &virtualCapabilityRecord{ID: "site-1", Values: input, SourceWorkspacePath: sourceWorkspacePath}
+		if errorValue := os.MkdirAll(filepath.Join(service.workspacePath, strings.TrimPrefix(sourceWorkspacePath, "/workspace/"), "app", "public"), 0o770); errorValue != nil {
+			return virtualCapabilityJSON(map[string]any{"provider": "virtual", "toolName": toolName, "status": "error", "message": "virtual site workspace creation failed"})
+		}
+		workspacePath := virtualSiteWorkspacePath(sourceWorkspacePath)
+		return virtualCapabilityJSON(map[string]any{
+			"provider": "virtual",
+			"toolName": toolName,
+			"status":   "ok",
+			"result": map[string]any{
+				"siteID":              "site-1",
+				"slug":                stringValue(input["slug"]),
+				"title":               stringValue(input["title"]),
+				"workspacePath":       workspacePath,
+				"sourceWorkspacePath": sourceWorkspacePath,
+				"appWorkspacePath":    filepath.ToSlash(filepath.Join(sourceWorkspacePath, "app")),
+				"sourceFiles":         json.RawMessage(virtualSiteCreateSourceFiles(requestBody)),
+			},
+		})
 	case "site.publish":
 		if !service.ensureVirtualSite(requestBody) {
 			return virtualCapabilityNotFound(toolName, "site")
 		}
+		sourceMetadata, errorValue := service.virtualSiteSourceMetadata()
+		if errorValue != nil {
+			return virtualCapabilityJSON(map[string]any{
+				"provider":  "virtual",
+				"toolName":  toolName,
+				"status":    "error",
+				"message":   errorValue.Error(),
+				"errorCode": "invalid_input",
+			})
+		}
 		service.sitePublished = true
-		return `{"provider":"virtual","toolName":"site.publish","status":"ok","result":{"siteID":"site-1","status":"published","publishedURL":"https://demo.device.example.test"}}`
+		publishedResult := map[string]any{
+			"siteID":          service.site.ID,
+			"status":          "published",
+			"publishedURL":    "https://demo.device.example.test",
+			"sourcePath":      sourceMetadata.VirtualPath,
+			"sourceSHA256":    sourceMetadata.SHA256,
+			"sourceSizeBytes": sourceMetadata.SizeBytes,
+		}
+		return virtualCapabilitySuccess(toolName, virtualCapabilityJSON(publishedResult), publishedResult)
 	case "site.status":
 		if !service.ensureVirtualSite(requestBody) {
 			return virtualCapabilityNotFound(toolName, "site")
@@ -1145,7 +1187,21 @@ func (service *virtualCapabilityService) response(toolName string, requestBody [
 		if service.sitePublished {
 			status = "published"
 		}
-		return `{"provider":"virtual","toolName":"site.status","status":"ok","result":{"siteID":"site-1","slug":"demo","status":` + quote(status) + `,"workspacePath":"/workspace/circles/staff/sites/demo","sourceWorkspacePath":"/workspace/circles/staff/sites/demo/draft","appWorkspacePath":"/workspace/circles/staff/sites/demo/draft/app"}}`
+		sourceWorkspacePath := service.site.SourceWorkspacePath
+		workspacePath := virtualSiteWorkspacePath(sourceWorkspacePath)
+		return virtualCapabilityJSON(map[string]any{
+			"provider": "virtual",
+			"toolName": toolName,
+			"status":   "ok",
+			"result": map[string]any{
+				"siteID":              service.site.ID,
+				"slug":                stringValue(service.site.Values["slug"]),
+				"status":              status,
+				"workspacePath":       workspacePath,
+				"sourceWorkspacePath": sourceWorkspacePath,
+				"appWorkspacePath":    filepath.ToSlash(filepath.Join(sourceWorkspacePath, "app")),
+			},
+		})
 	case "site.logs":
 		return `{"provider":"virtual","toolName":"site.logs","status":"ok","result":{"logs":[]}}`
 	case "site.delete":
@@ -1155,9 +1211,12 @@ func (service *virtualCapabilityService) response(toolName string, requestBody [
 		if !service.ensureVirtualSite(requestBody) {
 			return virtualCapabilityNotFound(toolName, "site")
 		}
+		sourceWorkspacePath := service.site.SourceWorkspacePath
 		service.site = nil
 		service.sitePublished = false
-		_ = os.RemoveAll(filepath.Join(service.workspacePath, "circles", "staff", "sites", "demo"))
+		if localPath, errorValue := virtualWorkspacePathToLocalPath(service.workspacePath, sourceWorkspacePath); errorValue == nil {
+			_ = os.RemoveAll(filepath.Dir(localPath))
+		}
 		return `{"provider":"virtual","toolName":"site.delete","status":"ok","content":"deleted virtual site","result":{"siteID":"site-1","slug":"demo","status":"deleted"}}`
 	case "image.read":
 		return `{"provider":"virtual","toolName":"image.read","status":"ok","content":"image loaded","result":{"attachments":[{"devicePath":"/workspace/circles/staff/inbox/virtual/virtual-conversation-1/virtual-message-001/mascot.png","filename":"mascot.png","contentType":"image/png","sizeBytes":13,"contentBase64":"dmlydHVhbC1pbWFnZQ=="}]}}`
@@ -1185,8 +1244,113 @@ func (service *virtualCapabilityService) ensureVirtualSite(requestBody []byte) b
 	if strings.TrimSpace(stringValue(input["siteID"])) == "" && strings.TrimSpace(stringValue(input["slug"])) == "" && strings.TrimSpace(stringValue(input["title"])) == "" {
 		return false
 	}
-	service.site = &virtualCapabilityRecord{ID: "site-1", Values: input}
+	sourceWorkspacePath, _ := virtualSiteSourcePathForSlug(stringValue(input["slug"]))
+	if sourceWorkspacePath == "" {
+		sourceWorkspacePath = discoverVirtualSiteSourceWorkspacePath(service.workspacePath)
+	}
+	if sourceWorkspacePath == "" {
+		sourceWorkspacePath = virtualDefaultSiteSourceWorkspacePath
+	}
+	service.site = &virtualCapabilityRecord{ID: "site-1", Values: input, SourceWorkspacePath: sourceWorkspacePath}
 	return true
+}
+
+func virtualSiteSourcePathForSlug(slug string) (string, error) {
+	trimmedSlug := strings.TrimSpace(slug)
+	if trimmedSlug == "" {
+		return "", errors.New("site slug is required for source workspace")
+	}
+	cleanSlug := filepath.Clean(trimmedSlug)
+	if cleanSlug != trimmedSlug || cleanSlug == "." || cleanSlug == ".." || strings.Contains(cleanSlug, string(os.PathSeparator)) {
+		return "", errors.New("site slug cannot contain path separators")
+	}
+	return filepath.ToSlash(filepath.Join("/workspace/circles/staff/sites", cleanSlug, "draft")), nil
+}
+
+func virtualSiteWorkspacePath(sourceWorkspacePath string) string {
+	return filepath.ToSlash(filepath.Dir(sourceWorkspacePath))
+}
+
+func discoverVirtualSiteSourceWorkspacePath(workspacePath string) string {
+	pattern := filepath.Join(workspacePath, "circles", "staff", "sites", "*", "draft")
+	matches, errorValue := filepath.Glob(pattern)
+	if errorValue != nil || len(matches) != 1 {
+		return ""
+	}
+	relativePath, errorValue := filepath.Rel(workspacePath, matches[0])
+	if errorValue != nil {
+		return ""
+	}
+	return filepath.ToSlash(filepath.Join("/workspace", relativePath))
+}
+
+type virtualSiteSourceMetadata struct {
+	VirtualPath string
+	SHA256      string
+	SizeBytes   int
+}
+
+func (service *virtualCapabilityService) virtualSiteSourceMetadata() (virtualSiteSourceMetadata, error) {
+	virtualSourceWorkspacePath := strings.TrimSpace(service.site.SourceWorkspacePath)
+	if virtualSourceWorkspacePath == "" {
+		return virtualSiteSourceMetadata{}, errors.New("site publish requires a stored source workspace")
+	}
+	_, errorValue := virtualWorkspacePathToLocalPath(service.workspacePath, virtualSourceWorkspacePath)
+	if errorValue != nil {
+		return virtualSiteSourceMetadata{}, errorValue
+	}
+	candidates := []struct {
+		virtualPath string
+		validate    func([]byte) bool
+	}{
+		{virtualPath: filepath.ToSlash(filepath.Join(virtualSourceWorkspacePath, "app", "dist", "index.html")), validate: isVirtualHTMLDocument},
+		{virtualPath: filepath.ToSlash(filepath.Join(virtualSourceWorkspacePath, "app", "public", "site-content.json")), validate: isVirtualSiteContentDocument},
+	}
+	for _, candidate := range candidates {
+		localPath, errorValue := virtualWorkspacePathToLocalPath(service.workspacePath, candidate.virtualPath)
+		if errorValue != nil {
+			return virtualSiteSourceMetadata{}, errorValue
+		}
+		content, errorValue := os.ReadFile(localPath)
+		if errors.Is(errorValue, os.ErrNotExist) {
+			continue
+		}
+		if errorValue != nil {
+			return virtualSiteSourceMetadata{}, fmt.Errorf("read site source: %w", errorValue)
+		}
+		if len(content) == 0 || !candidate.validate(content) {
+			continue
+		}
+		digest := sha256.Sum256(content)
+		return virtualSiteSourceMetadata{
+			VirtualPath: candidate.virtualPath,
+			SHA256:      hex.EncodeToString(digest[:]),
+			SizeBytes:   len(content),
+		}, nil
+	}
+	return virtualSiteSourceMetadata{}, fmt.Errorf("site publish requires nonempty valid source under %s", filepath.ToSlash(filepath.Join(virtualSourceWorkspacePath, "app")))
+}
+
+func virtualWorkspacePathToLocalPath(workspacePath string, virtualPath string) (string, error) {
+	trimmedVirtualPath := strings.TrimSpace(virtualPath)
+	if !strings.HasPrefix(trimmedVirtualPath, "/workspace/") {
+		return "", errors.New("site source path must be rooted at /workspace")
+	}
+	relativePath := filepath.Clean(strings.TrimPrefix(trimmedVirtualPath, "/workspace/"))
+	if relativePath == "." || relativePath == ".." || strings.HasPrefix(relativePath, ".."+string(os.PathSeparator)) {
+		return "", errors.New("site source path escapes the workspace")
+	}
+	return filepath.Join(workspacePath, relativePath), nil
+}
+
+func isVirtualHTMLDocument(content []byte) bool {
+	normalizedContent := strings.ToLower(string(content))
+	return strings.Contains(normalizedContent, "<html") && strings.Contains(normalizedContent, "</html>")
+}
+
+func isVirtualSiteContentDocument(content []byte) bool {
+	var document map[string]any
+	return json.Unmarshal(content, &document) == nil && len(document) > 0
 }
 
 func validateVirtualMessageSendInput(input map[string]any) error {
@@ -1825,11 +1989,27 @@ func informationalAssertionResults(virtualTurn VirtualTurn, turnResult VirtualTu
 			Detail:    foundToolCall,
 		})
 	}
+	for toolName, expectedCount := range virtualTurn.ExpectedToolCallCounts {
+		actualCount := countRequestedToolCalls(turnResult.Events, toolName)
+		results = append(results, VirtualInformationalAssertion{
+			Name:      "expected tool call count " + toolName,
+			Satisfied: actualCount == expectedCount,
+			Detail:    fmt.Sprintf("expected=%d actual=%d", expectedCount, actualCount),
+		})
+	}
 	for _, fragment := range virtualTurn.ExpectedReplyFragments {
 		results = append(results, VirtualInformationalAssertion{
 			Name:      "expected reply fragment",
 			Satisfied: strings.Contains(turnResult.FinishMessage, fragment),
 			Detail:    fragment,
+		})
+	}
+	for _, expectedEventCount := range virtualTurn.ExpectedEventCounts {
+		actualCount := countEventsWithFragment(turnResult.Events, expectedEventCount.Name, expectedEventCount.BodyFragment)
+		results = append(results, VirtualInformationalAssertion{
+			Name:      "expected event count " + expectedEventCount.Name,
+			Satisfied: actualCount == expectedEventCount.Count,
+			Detail:    fmt.Sprintf("expected=%d actual=%d fragment=%q", expectedEventCount.Count, actualCount, expectedEventCount.BodyFragment),
 		})
 	}
 	return results
@@ -1868,14 +2048,20 @@ func assertTurnResult(workspacePath string, virtualTurn VirtualTurn, turnResult 
 	}
 	for toolName, expectedCount := range virtualTurn.ExpectedToolCallCounts {
 		actualCount := countRequestedToolCalls(turnResult.Events, toolName)
-		if actualCount != expectedCount {
-			return fmt.Errorf("expected %d requested %s calls, got %d; events: %s", expectedCount, toolName, actualCount, summarizeEvents(turnResult.Events))
+		if expectedCount == 0 && actualCount != 0 {
+			return fmt.Errorf("expected no requested %s calls, got %d; events: %s", toolName, actualCount, summarizeEvents(turnResult.Events))
+		}
+		if expectedCount > 0 && actualCount == 0 {
+			return fmt.Errorf("expected a requested %s call; events: %s", toolName, summarizeEvents(turnResult.Events))
 		}
 	}
 	for _, expectedEventCount := range virtualTurn.ExpectedEventCounts {
 		actualCount := countEventsWithFragment(turnResult.Events, expectedEventCount.Name, expectedEventCount.BodyFragment)
-		if actualCount != expectedEventCount.Count {
-			return fmt.Errorf("expected %d events %s containing %q, got %d; events: %s", expectedEventCount.Count, expectedEventCount.Name, expectedEventCount.BodyFragment, actualCount, summarizeEvents(turnResult.Events))
+		if expectedEventCount.Count == 0 && actualCount != 0 {
+			return fmt.Errorf("expected no events %s containing %q, got %d; events: %s", expectedEventCount.Name, expectedEventCount.BodyFragment, actualCount, summarizeEvents(turnResult.Events))
+		}
+		if expectedEventCount.Count > 0 && actualCount == 0 {
+			return fmt.Errorf("expected an event %s containing %q; events: %s", expectedEventCount.Name, expectedEventCount.BodyFragment, summarizeEvents(turnResult.Events))
 		}
 	}
 	for _, suffix := range virtualTurn.ExpectedAttachments {
@@ -2152,6 +2338,8 @@ func findAttachmentWithSuffix(attachments []agent.FileAttachment, suffix string)
 func validateAttachmentContent(workspacePath string, attachment agent.FileAttachment, suffix string) error {
 	path := localAttachmentPath(workspacePath, attachment)
 	switch suffix {
+	case ".docx":
+		return validateDOCXAttachment(path, attachment)
 	case ".pptx":
 		return validatePPTXAttachment(path, attachment)
 	case ".pdf":
@@ -2197,6 +2385,86 @@ func validatePPTXAttachment(path string, attachment agent.FileAttachment) error 
 		if !isFound {
 			return fmt.Errorf("attachment %s is missing pptx entry %s", attachment.DevicePath, name)
 		}
+	}
+	return nil
+}
+
+func validateDOCXAttachment(path string, attachment agent.FileAttachment) error {
+	reader, errorValue := zip.OpenReader(path)
+	if errorValue != nil {
+		return fmt.Errorf("attachment %s is not a valid docx zip: %w", attachment.DevicePath, errorValue)
+	}
+	defer reader.Close()
+	requiredEntries := []struct {
+		name             string
+		root             string
+		requiredChildren []string
+	}{
+		{name: "[Content_Types].xml", root: "Types", requiredChildren: []string{"Override"}},
+		{name: "word/document.xml", root: "document", requiredChildren: []string{"body"}},
+		{name: "word/_rels/document.xml.rels", root: "Relationships", requiredChildren: []string{"Relationship"}},
+	}
+	for _, requiredEntry := range requiredEntries {
+		content, errorValue := readDOCXEntry(reader, requiredEntry.name)
+		if errorValue != nil {
+			return fmt.Errorf("attachment %s is missing docx entry %s", attachment.DevicePath, requiredEntry.name)
+		}
+		if errorValue := validateDOCXXML(content, requiredEntry.root, requiredEntry.requiredChildren); errorValue != nil {
+			return fmt.Errorf("attachment %s has invalid docx entry %s: %w", attachment.DevicePath, requiredEntry.name, errorValue)
+		}
+	}
+	return nil
+}
+
+func readDOCXEntry(reader *zip.ReadCloser, name string) ([]byte, error) {
+	for _, file := range reader.File {
+		if file.Name != name {
+			continue
+		}
+		handle, errorValue := file.Open()
+		if errorValue != nil {
+			return nil, errorValue
+		}
+		content, readError := io.ReadAll(handle)
+		closeError := handle.Close()
+		if readError != nil {
+			return nil, readError
+		}
+		return content, closeError
+	}
+	return nil, os.ErrNotExist
+}
+
+type docxXMLDocument struct {
+	XMLName  xml.Name
+	Children []docxXMLChild `xml:",any"`
+}
+
+type docxXMLChild struct {
+	XMLName xml.Name
+}
+
+func validateDOCXXML(content []byte, expectedRoot string, requiredChildren []string) error {
+	document := docxXMLDocument{}
+	if errorValue := xml.Unmarshal(content, &document); errorValue != nil {
+		return errorValue
+	}
+	if document.XMLName.Local != expectedRoot {
+		return fmt.Errorf("expected XML root %s, got %s", expectedRoot, document.XMLName.Local)
+	}
+	childrenSeen := map[string]bool{}
+	for _, child := range document.Children {
+		for _, requiredChild := range requiredChildren {
+			if child.XMLName.Local == requiredChild {
+				childrenSeen[requiredChild] = true
+			}
+		}
+	}
+	for _, requiredChild := range requiredChildren {
+		if childrenSeen[requiredChild] {
+			continue
+		}
+		return fmt.Errorf("XML root %s has no %s child", expectedRoot, requiredChild)
 	}
 	return nil
 }

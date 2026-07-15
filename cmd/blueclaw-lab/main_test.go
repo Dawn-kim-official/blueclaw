@@ -45,6 +45,37 @@ func TestValidateStrictEmbeddingRetrievalRequiresReadyEmbeddingMode(t *testing.T
 	}
 }
 
+func TestBuildVirtualTurnMetricsRecordsEfficiencyWithoutThresholds(t *testing.T) {
+	turnResult := e2e.VirtualTurnResult{
+		TaskRunID: "task-1",
+		Events: []task.TaskEvent{
+			{Name: "agent.action"},
+			{Name: "agent.action"},
+			{Name: "tool.capability.invoke.requested"},
+			{Name: "blueclaw.task.execution_duration", Body: `{"durationMs":4200}`},
+		},
+		LanguageModelCallEvents: []e2e.VirtualLanguageModelCallEvent{
+			{LatencyMS: 1200},
+			{LatencyMS: 800},
+		},
+		InformationalAssertions: []e2e.VirtualInformationalAssertion{{
+			Name:      "expected event count tool.result",
+			Satisfied: false,
+			Detail:    "expected=1 actual=2",
+		}},
+	}
+	metrics := buildVirtualTurnMetrics(3, turnResult)
+	if metrics.TurnNumber != 3 || metrics.TaskRunID != "task-1" || metrics.AgentStepCount != 2 || metrics.ToolCallCount != 1 {
+		t.Fatalf("unexpected step metrics: %+v", metrics)
+	}
+	if metrics.LanguageModelCallCount != 2 || metrics.LanguageModelLatencyMS != 2000 || metrics.TaskDurationMS != 4200 {
+		t.Fatalf("unexpected duration metrics: %+v", metrics)
+	}
+	if len(metrics.InformationalAssertions) != 1 || metrics.InformationalAssertions[0].Satisfied {
+		t.Fatalf("expected efficiency mismatch to remain informational: %+v", metrics.InformationalAssertions)
+	}
+}
+
 type fakeOpenRouterServer struct {
 	server               *httptest.Server
 	mutex                sync.Mutex

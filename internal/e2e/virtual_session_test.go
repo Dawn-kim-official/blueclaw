@@ -1,6 +1,7 @@
 package e2e
 
 import (
+	"archive/zip"
 	"context"
 	"encoding/json"
 	"errors"
@@ -11,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"blueclaw/internal/agent"
 	"blueclaw/internal/agenttest"
 	"blueclaw/internal/capability"
 	"blueclaw/internal/llm"
@@ -24,6 +26,30 @@ func TestPresentationScenarioDoesNotScriptToolCalls(t *testing.T) {
 	}
 	if len(scenario.Turns[0].ActionResponses) != 0 {
 		t.Fatal("slides scenario must not script model tool calls or artifact creation")
+	}
+}
+
+func TestExpectedEventCountAllowsRepeatedReadResults(t *testing.T) {
+	virtualTurn := VirtualTurn{
+		ExpectedEventCounts: []VirtualEventCount{{
+			Name:         "tool.capability.invoke.result",
+			BodyFragment: "customer task",
+			Count:        1,
+		}},
+	}
+	turnResult := VirtualTurnResult{
+		FinishMessage: "found",
+		Events: []task.TaskEvent{
+			{Name: "tool.capability.invoke.result", Body: `{"title":"customer task"}`},
+			{Name: "tool.capability.invoke.result", Body: `{"title":"customer task"}`},
+		},
+	}
+	if errorValue := assertTurnResult(t.TempDir(), virtualTurn, turnResult); errorValue != nil {
+		t.Fatalf("expected repeated matching events to satisfy the result assertion: %v", errorValue)
+	}
+	assertions := informationalAssertionResults(virtualTurn, turnResult)
+	if len(assertions) != 1 || assertions[0].Satisfied {
+		t.Fatalf("expected the duplicate read to remain an informational efficiency mismatch: %+v", assertions)
 	}
 }
 
@@ -394,6 +420,114 @@ func TestVirtualTaskCapabilityPreservesLifecycleState(t *testing.T) {
 	}
 	if strings.Contains(emptyListResponse, `"taskID":"task-1"`) {
 		t.Fatalf("expected deleted task to be absent, got %s", emptyListResponse)
+	}
+}
+
+func TestDOCXAttachmentValidationRejectsTextAndAcceptsCanonicalPackage(t *testing.T) {
+	invalidPath := filepath.Join(t.TempDir(), "document.docx")
+	if errorValue := os.WriteFile(invalidPath, []byte("plain text renamed as docx"), 0600); errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if errorValue := validateDOCXAttachment(invalidPath, agent.FileAttachment{DevicePath: invalidPath}); errorValue == nil {
+		t.Fatal("expected renamed text file to fail docx validation")
+	}
+
+	placeholderPath := filepath.Join(t.TempDir(), "placeholder.docx")
+	writeDOCX(t, placeholderPath, map[string]string{
+		"[Content_Types].xml":          "<xml/>",
+		"word/document.xml":            "<xml/>",
+		"word/_rels/document.xml.rels": "<xml/>",
+	})
+	if errorValue := validateDOCXAttachment(placeholderPath, agent.FileAttachment{DevicePath: placeholderPath}); errorValue == nil {
+		t.Fatal("expected placeholder XML to fail docx validation")
+	}
+
+	validPath := filepath.Join(t.TempDir(), "document.docx")
+	writeCanonicalDOCX(t, validPath)
+	if errorValue := validateDOCXAttachment(validPath, agent.FileAttachment{DevicePath: validPath}); errorValue != nil {
+		t.Fatalf("expected canonical docx package to pass validation: %v", errorValue)
+	}
+}
+
+func TestVirtualSitePublishRequiresValidSourceContent(t *testing.T) {
+	workspacePath := t.TempDir()
+	service := virtualCapabilityService{
+		workspacePath: workspacePath,
+		site: &virtualCapabilityRecord{
+			ID:                  "site-1",
+			Values:              map[string]any{"slug": "demo"},
+			SourceWorkspacePath: "/workspace/circles/staff/sites/demo/draft",
+		},
+	}
+	requestBody := []byte(`{"input":{"siteID":"site-1"}}`)
+
+	response := service.response("site.publish", requestBody)
+	if !strings.Contains(response, `"status":"error"`) || service.sitePublished {
+		t.Fatalf("expected publish without source to fail closed, got %s", response)
+	}
+
+	sourcePath := filepath.Join(workspacePath, "circles", "staff", "sites", "demo", "draft", "app", "public")
+	if errorValue := os.MkdirAll(sourcePath, 0700); errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	contentPath := filepath.Join(sourcePath, "site-content.json")
+	if errorValue := os.WriteFile(contentPath, []byte("not json"), 0600); errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	response = service.response("site.publish", requestBody)
+	if !strings.Contains(response, `"status":"error"`) || service.sitePublished {
+		t.Fatalf("expected invalid source content to fail closed, got %s", response)
+	}
+
+	if errorValue := os.WriteFile(contentPath, []byte(`{"siteName":"Virtual Site"}`), 0600); errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	response = service.response("site.publish", requestBody)
+	if !strings.Contains(response, `"status":"ok"`) || !strings.Contains(response, `"sourceSHA256"`) {
+		t.Fatalf("expected valid source content to publish with metadata, got %s", response)
+	}
+	if strings.Contains(response, workspacePath) || !strings.Contains(response, "/workspace/circles/staff/sites/demo/draft/app/public/site-content.json") {
+		t.Fatalf("expected virtual source metadata without host path, got %s", response)
+	}
+
+	statusResponse := service.response("site.status", requestBody)
+	if !strings.Contains(statusResponse, `"workspacePath":"/workspace/circles/staff/sites/demo"`) {
+		t.Fatalf("expected site status workspace root, got %s", statusResponse)
+	}
+}
+
+func writeCanonicalDOCX(t *testing.T, path string) {
+	writeDOCX(t, path, map[string]string{
+		"[Content_Types].xml":          `<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>`,
+		"word/document.xml":            `<?xml version="1.0" encoding="UTF-8"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:t>Test</w:t></w:r></w:p></w:body></w:document>`,
+		"word/_rels/document.xml.rels": `<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="document.xml"/></Relationships>`,
+	})
+}
+
+func writeDOCX(t *testing.T, path string, entries map[string]string) {
+	t.Helper()
+	file, errorValue := os.Create(path)
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	archive := zip.NewWriter(file)
+	for name, content := range entries {
+		entry, entryError := archive.Create(name)
+		if entryError != nil {
+			_ = file.Close()
+			t.Fatal(entryError)
+		}
+		if _, entryError = entry.Write([]byte(content)); entryError != nil {
+			_ = file.Close()
+			t.Fatal(entryError)
+		}
+	}
+	if errorValue := archive.Close(); errorValue != nil {
+		_ = file.Close()
+		t.Fatal(errorValue)
+	}
+	if errorValue := file.Close(); errorValue != nil {
+		t.Fatal(errorValue)
 	}
 }
 

@@ -139,6 +139,18 @@ type virtualSessionEvidence struct {
 	RealModelTiers        bool                                `json:"realModelTiers,omitempty"`
 	StructuredSchemaNames []string                            `json:"structuredSchemaNames,omitempty"`
 	Calls                 []e2e.VirtualLanguageModelCallEvent `json:"calls"`
+	TurnMetrics           []virtualTurnMetrics                `json:"turnMetrics"`
+}
+
+type virtualTurnMetrics struct {
+	TurnNumber              int                                 `json:"turnNumber"`
+	TaskRunID               string                              `json:"taskRunID,omitempty"`
+	AgentStepCount          int                                 `json:"agentStepCount"`
+	ToolCallCount           int                                 `json:"toolCallCount"`
+	LanguageModelCallCount  int                                 `json:"languageModelCallCount"`
+	LanguageModelLatencyMS  int64                               `json:"languageModelLatencyMs"`
+	TaskDurationMS          int64                               `json:"taskDurationMs,omitempty"`
+	InformationalAssertions []e2e.VirtualInformationalAssertion `json:"informationalAssertions,omitempty"`
 }
 
 func parseVirtualSessionArguments(arguments []string, defaultScenarioName string, defaultArtifactDirectoryPath string) (virtualSessionArguments, error) {
@@ -412,6 +424,7 @@ func saveVirtualSessionEvidence(arguments virtualSessionArguments, result e2e.Vi
 		RealModelTiers:        arguments.RealModelTiers,
 		StructuredSchemaNames: sdkdStructuredSchemaNames(arguments.LanguageModelProvider),
 		Calls:                 virtualSessionLanguageModelCalls(result),
+		TurnMetrics:           virtualSessionTurnMetrics(result),
 	}
 	evidencePath := filepath.Join(result.ArtifactDirectoryPath, "llm-routing-evidence.json")
 	document, errorValue := json.MarshalIndent(evidence, "", "  ")
@@ -419,6 +432,48 @@ func saveVirtualSessionEvidence(arguments virtualSessionArguments, result e2e.Vi
 		return errorValue
 	}
 	return os.WriteFile(evidencePath, append(document, '\n'), 0600)
+}
+
+func virtualSessionTurnMetrics(result e2e.VirtualSessionResult) []virtualTurnMetrics {
+	metrics := make([]virtualTurnMetrics, 0, len(result.TurnResults))
+	for turnIndex, turnResult := range result.TurnResults {
+		metrics = append(metrics, buildVirtualTurnMetrics(turnIndex+1, turnResult))
+	}
+	return metrics
+}
+
+func buildVirtualTurnMetrics(turnNumber int, turnResult e2e.VirtualTurnResult) virtualTurnMetrics {
+	metrics := virtualTurnMetrics{
+		TurnNumber:              turnNumber,
+		TaskRunID:               turnResult.TaskRunID,
+		LanguageModelCallCount:  len(turnResult.LanguageModelCallEvents),
+		InformationalAssertions: turnResult.InformationalAssertions,
+	}
+	for _, call := range turnResult.LanguageModelCallEvents {
+		metrics.LanguageModelLatencyMS += call.LatencyMS
+	}
+	for _, event := range turnResult.Events {
+		if event.Name == "agent.action" {
+			metrics.AgentStepCount++
+		}
+		if strings.HasPrefix(event.Name, "tool.") && strings.HasSuffix(event.Name, ".requested") {
+			metrics.ToolCallCount++
+		}
+		if event.Name == "blueclaw.task.execution_duration" {
+			metrics.TaskDurationMS = taskDurationMilliseconds(event.Body)
+		}
+	}
+	return metrics
+}
+
+func taskDurationMilliseconds(body string) int64 {
+	var document struct {
+		DurationMS int64 `json:"durationMs"`
+	}
+	if json.Unmarshal([]byte(body), &document) != nil {
+		return 0
+	}
+	return document.DurationMS
 }
 
 func virtualSessionLanguageModelCalls(result e2e.VirtualSessionResult) []e2e.VirtualLanguageModelCallEvent {
