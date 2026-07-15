@@ -55,7 +55,7 @@ func TestResolveIntakeLanguageModelProviderUsesReliableTaskTierModel(t *testing.
 	runtimeConfiguration.Agent.Intake.Enabled = true
 	runtimeConfiguration.Agent.Intake.ExecutionMode = "auto"
 
-	languageModelProvider := resolveIntakeLanguageModelProvider(runtimeConfiguration, newCapabilityClient(runtimeConfiguration), nil)
+	languageModelProvider := resolveIntakeLanguageModelProvider(runtimeConfiguration, nil)
 	fallbackLanguageModelProvider, isFallbackProvider := languageModelProvider.(llm.FallbackLanguageModelProvider)
 	if !isFallbackProvider {
 		t.Fatalf("expected fallback intake provider, got %T", languageModelProvider)
@@ -85,7 +85,7 @@ func TestResolveIntakeLanguageModelProviderUsesExplicitModel(t *testing.T) {
 	runtimeConfiguration.Agent.Intake.Enabled = true
 	runtimeConfiguration.Agent.Intake.Model = "x-ai/grok-4.3"
 
-	languageModelProvider := resolveIntakeLanguageModelProvider(runtimeConfiguration, newCapabilityClient(runtimeConfiguration), nil)
+	languageModelProvider := resolveIntakeLanguageModelProvider(runtimeConfiguration, nil)
 	fallbackLanguageModelProvider, isFallbackProvider := languageModelProvider.(llm.FallbackLanguageModelProvider)
 	if !isFallbackProvider {
 		t.Fatalf("expected fallback intake provider, got %T", languageModelProvider)
@@ -117,11 +117,76 @@ func TestMaximumXLowTierCapsTaskModelsAndUsesLowForImages(t *testing.T) {
 func TestMaximumLowTierCapsIntakeFallbacks(t *testing.T) {
 	runtimeConfiguration := configuredModelTierRuntime("low")
 	runtimeConfiguration.Agent.Intake.Enabled = true
-	provider := resolveIntakeLanguageModelProvider(runtimeConfiguration, newCapabilityClient(runtimeConfiguration), nil)
+	provider := resolveIntakeLanguageModelProvider(runtimeConfiguration, nil)
 
 	modelNames := languageModelProviderNames(provider)
 	if !reflect.DeepEqual(modelNames, []string{"vendor/low", "vendor/xlow"}) {
 		t.Fatalf("expected intake to stay at or below low, got %v", modelNames)
+	}
+}
+
+func TestResolveIntakeLanguageModelProviderUsesSDKDWhenSelected(t *testing.T) {
+	authKeyPath := filepath.Join(t.TempDir(), "sdkd.key")
+	if errorValue := os.WriteFile(authKeyPath, []byte("installation-key"), 0o600); errorValue != nil {
+		t.Fatalf("expected auth key fixture: %v", errorValue)
+	}
+	runtimeConfiguration := configuredModelTierRuntime("")
+	runtimeConfiguration.Agent.Intake.Enabled = true
+	runtimeConfiguration.Agent.Intake.Model = "vendor/intake"
+	runtimeConfiguration.Agent.Intake.ExecutionMode = "companion"
+	runtimeConfiguration.LanguageModel.DefaultProvider = "sdkd"
+	runtimeConfiguration.LanguageModel.SDKD.AuthKeyPath = authKeyPath
+
+	provider := resolveIntakeLanguageModelProvider(runtimeConfiguration, nil)
+	fallbackProvider, isFallbackProvider := provider.(llm.FallbackLanguageModelProvider)
+	if !isFallbackProvider {
+		t.Fatalf("expected fallback intake provider, got %T", provider)
+	}
+	primaryProvider, isSDKDPrimary := fallbackProvider.PrimaryProvider.(llm.SDKDClient)
+	if !isSDKDPrimary {
+		t.Fatalf("expected SDKD intake primary provider, got %T", fallbackProvider.PrimaryProvider)
+	}
+	if primaryProvider.ModelName != "vendor/intake" || primaryProvider.ExecutionMode != "companion" {
+		t.Fatalf("expected intake SDKD model and execution mode, got %q and %q", primaryProvider.ModelName, primaryProvider.ExecutionMode)
+	}
+	fallbackSDKDProvider, isSDKDFallback := fallbackProvider.FallbackProvider.(llm.SDKDClient)
+	if !isSDKDFallback {
+		t.Fatalf("expected SDKD intake fallback provider, got %T", fallbackProvider.FallbackProvider)
+	}
+	if fallbackSDKDProvider.ModelName != "vendor/high" || fallbackSDKDProvider.ExecutionMode != "companion" {
+		t.Fatalf("expected high SDKD fallback model and execution mode, got %q and %q", fallbackSDKDProvider.ModelName, fallbackSDKDProvider.ExecutionMode)
+	}
+}
+
+func TestMaximumLowTierCapsIntakeUsesSDKDWhenSelected(t *testing.T) {
+	authKeyPath := filepath.Join(t.TempDir(), "sdkd.key")
+	if errorValue := os.WriteFile(authKeyPath, []byte("installation-key"), 0o600); errorValue != nil {
+		t.Fatalf("expected auth key fixture: %v", errorValue)
+	}
+	runtimeConfiguration := configuredModelTierRuntime("low")
+	runtimeConfiguration.Agent.Intake.Enabled = true
+	runtimeConfiguration.Agent.Intake.ExecutionMode = "device"
+	runtimeConfiguration.LanguageModel.DefaultProvider = "sdkd"
+	runtimeConfiguration.LanguageModel.SDKD.AuthKeyPath = authKeyPath
+
+	provider := resolveIntakeLanguageModelProvider(runtimeConfiguration, nil)
+	fallbackProvider, isFallbackProvider := provider.(llm.FallbackLanguageModelProvider)
+	if !isFallbackProvider {
+		t.Fatalf("expected capped fallback intake provider, got %T", provider)
+	}
+	primaryProvider, isSDKDPrimary := fallbackProvider.PrimaryProvider.(llm.SDKDClient)
+	if !isSDKDPrimary {
+		t.Fatalf("expected capped SDKD intake primary provider, got %T", fallbackProvider.PrimaryProvider)
+	}
+	if primaryProvider.ModelName != "vendor/low" || primaryProvider.ExecutionMode != "device" {
+		t.Fatalf("expected capped low SDKD model and execution mode, got %q and %q", primaryProvider.ModelName, primaryProvider.ExecutionMode)
+	}
+	fallbackSDKDProvider, isSDKDFallback := fallbackProvider.FallbackProvider.(llm.SDKDClient)
+	if !isSDKDFallback {
+		t.Fatalf("expected capped SDKD intake fallback provider, got %T", fallbackProvider.FallbackProvider)
+	}
+	if fallbackSDKDProvider.ModelName != "vendor/xlow" || fallbackSDKDProvider.ExecutionMode != "device" {
+		t.Fatalf("expected capped xlow SDKD fallback model and execution mode, got %q and %q", fallbackSDKDProvider.ModelName, fallbackSDKDProvider.ExecutionMode)
 	}
 }
 
