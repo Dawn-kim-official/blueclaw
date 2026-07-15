@@ -12,6 +12,7 @@ const ambientDutyLaunchConfidenceThreshold = 0.7
 
 type inboundEngagementDecision struct {
 	ShouldLaunch  bool
+	SuppressReply bool
 	ReactionEmoji string
 	IgnoreReason  string
 	AmbientDuty   agent.AmbientDutyContext
@@ -52,6 +53,7 @@ func (connectorRuntime *ConnectorRuntime) resolveInboundEngagement(ctx context.C
 	}
 	return inboundEngagementDecision{
 		ShouldLaunch:  shouldLaunch,
+		SuppressReply: ambientDuty.IsMatch && !addressingDecision.ShouldRespond,
 		ReactionEmoji: addressingDecision.ReactionEmoji,
 		AmbientDuty:   ambientDuty,
 	}

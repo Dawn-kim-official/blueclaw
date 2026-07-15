@@ -145,3 +145,14 @@ func TestConfirmationMessageIncludesTemporalContextAndAvoidsInventedTiming(t *te
 		t.Fatalf("expected confirmation timing guard, got %s", body)
 	}
 }
+
+func TestMultipleChoiceReplySchemaUsesPortableArrayKeywords(t *testing.T) {
+	schema := choiceReplySchema(ChoiceReplyRequest{
+		SelectionMode: "multiple",
+		Options:       []ChoiceReplyOption{{Key: "a", Label: "A"}, {Key: "b", Label: "B"}},
+	})
+
+	if strings.Contains(schema, `"uniqueItems"`) {
+		t.Fatalf("expected provider-portable choice schema, got %s", schema)
+	}
+}

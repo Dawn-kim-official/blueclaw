@@ -296,6 +296,8 @@ func advanceAgentTask(state agentTaskState) agentTransition {
 		}
 	case completionActionBlockedInvalidArtifact:
 		observation := newFailureObservation(nextObservationID(len(state.Observations)+1), "policy", "", invalidCompletionArtifactObservationContent(completionState), FailureInvalidInput, FailureCodes.InvalidInput, "completion_state")
+		observation.PolicyCode = evidenceKindAttachmentValid
+		observation.RelatedPaths = appendUniqueStrings(completionValidityPaths(completionState))
 		state.Observations = append(state.Observations, observation)
 		return agentTransition{State: state, Effect: agentEffect{Kind: agentEffectNone}}
 	default:
@@ -347,6 +349,7 @@ func BuildAgentActionRequest(state agentTaskState) llm.StructuredResponseRequest
 	failureFacts := buildFailureReportFacts(state.Observations, state.Options.RecoveryBudget)
 	hasFailureDebt := len(failureFacts.Attempts) > 0
 	allowFail := shouldExposeFailAction(state)
+	allowFinish := shouldExposeFinishAction(state, requirements)
 	messages := (PromptAssembler{}).BuildTurnMessages(
 		state.Request,
 		state.Observations,
@@ -364,7 +367,7 @@ func BuildAgentActionRequest(state agentTaskState) llm.StructuredResponseRequest
 		Messages: messages,
 		StructuredOutputSchema: llm.StructuredOutputSchema{
 			Name:               "blueclaw_agent_turn_action",
-			Document:           actionSchemaForToolSet(modelToolSet, allowQualityCriteria, blockedToolNames, hasFailureDebt, allowFail),
+			Document:           actionSchemaForToolSet(modelToolSet, allowQualityCriteria, blockedToolNames, hasFailureDebt, allowFail, allowFinish),
 			IsStrictlyEnforced: true,
 		},
 		GenerationOptions: state.Options.GenerationOptions,
@@ -372,18 +375,27 @@ func BuildAgentActionRequest(state agentTaskState) llm.StructuredResponseRequest
 }
 
 func modelCallableToolSet(toolSet *ToolSet) *ToolSet {
-	if toolSet == nil {
-		return nil
-	}
-	return toolSet.WithAllowedToolNames(KernelToolNames())
+	return toolSet
 }
 
-// The fail action is always available so the agent can exit the loop the moment
-// it judges no further progress is possible, rather than being forced to keep
-// spending recovery attempts. Giving up is the model's call; the fail schema
-// still requires an honest failure report when a tool actually failed.
 func shouldExposeFailAction(state agentTaskState) bool {
+	if _, hasFailureDebt := activeFailureDebt(state.Observations); hasFailureDebt {
+		return !evaluateRecoveryAllowance(state.Observations, state.Options.RecoveryBudget).CanRecover
+	}
+	if _, shouldContinue := recoverableWorkflowFailResult(state.Request, state.Observations); shouldContinue {
+		return false
+	}
 	return true
+}
+
+func shouldExposeFinishAction(state agentTaskState, requirements []toolUseRequirement) bool {
+	if _, hasFailureDebt := activeFailureDebt(state.Observations); !hasFailureDebt {
+		return true
+	}
+	if !evaluateRecoveryAllowance(state.Observations, state.Options.RecoveryBudget).CanRecover {
+		return true
+	}
+	return len(requirements) == 0 || completionRequirementsHaveEvidence(requirements, state.Observations)
 }
 
 func actionSchemaForToolSet(toolSet *ToolSet, allowQualityCriteria bool, blockedToolNames map[string]bool, hasFailureDebt bool, allowFailValues ...bool) string {

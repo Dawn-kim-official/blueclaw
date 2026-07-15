@@ -64,7 +64,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) openBrowserHandoffTool(toolContext
 	}
 	if isError {
 		result.Failure = &agent.ToolFailure{
-			Kind:            capabilityFailureKind("", "browser_handoff"),
+			Kind:            capabilityFailureKind(agent.FailureCodes.OperationFailed.String()),
 			Code:            agent.FailureCodes.OperationFailed.String(),
 			Stage:           "browser_handoff",
 			UserSafeSummary: content,

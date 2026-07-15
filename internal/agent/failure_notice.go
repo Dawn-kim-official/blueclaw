@@ -7,7 +7,6 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
-	"time"
 
 	"blueclaw/internal/llm"
 )
@@ -104,10 +103,6 @@ func buildFailureReport(request AgentTurnRequest, taskRunID string, phase string
 
 func (generator FailureNoticeGenerator) Generate(ctx context.Context, report FailureReport) (FailureNotice, FailureNoticeGenerationStatus) {
 	report = normalizeFailureReport(report)
-	// No local deadline on the failure-explanation model: an arbitrary cap only
-	// dropped the user to a generic "temporary error" when a reasoning-tier model
-	// ran slow. The provider's own network timeout bounds a genuinely dead model,
-	// and the raw-error notice still backstops it.
 	generationContext := ctx
 	status := FailureNoticeGenerationStatus{}
 	if generator.LanguageModel == nil {
@@ -157,20 +152,6 @@ func (generator FailureNoticeGenerator) Generate(ctx context.Context, report Fai
 	return buildRawErrorFailureNotice(report), status
 }
 
-func failureNoticeMessagePassesSafety(message string, report FailureReport) bool {
-	trimmedMessage := strings.TrimSpace(message)
-	if trimmedMessage == "" || len([]rune(trimmedMessage)) > failureNoticeMaximumCharacters {
-		return false
-	}
-	if containsInternalDiagnosticLeak(trimmedMessage) {
-		return false
-	}
-	if finishMessageNonDeliverableArtifactLocator(trimmedMessage) != "" {
-		return false
-	}
-	return true
-}
-
 func (generator FailureNoticeGenerator) GenerateIntakeNotice(ctx context.Context, report IntakeReport) FailureNotice {
 	failureReport := normalizeFailureReport(FailureReport{
 		Phase:             "task_intake",
@@ -182,7 +163,7 @@ func (generator FailureNoticeGenerator) GenerateIntakeNotice(ctx context.Context
 	if generator.LanguageModel == nil {
 		return buildRawErrorFailureNotice(failureReport)
 	}
-	generationContext, cancel := context.WithTimeout(ctx, 8*time.Second)
+	generationContext, cancel := context.WithCancel(ctx)
 	defer cancel()
 	prompt := buildIntakeNoticePrompt(report.Classification, failureReport)
 	reply, errorValue := generator.generateRecoveryText(generationContext, prompt)
@@ -291,22 +272,19 @@ func (generator FailureNoticeGenerator) generateLocalFailureNotice(ctx context.C
 }
 
 func prepareFailureNoticeWithGenerator(generator FailureNoticeGenerator, ctx context.Context, reply string, source string, report FailureReport) (FailureNotice, string, bool) {
-	if !failureNoticeRequiresStructuredReview(report) {
-		notice := buildFailureNotice(reply, source, report)
-		if notice.IsSendable {
-			return notice, source, true
-		}
-		if !textExceedsCharacterBudget(reply, failureNoticeMaximumCharacters) {
-			return FailureNotice{}, "", false
-		}
+	candidate := strings.TrimSpace(reply)
+	if textExceedsCharacterBudget(candidate, failureNoticeMaximumCharacters) {
 		compressedReply, errorValue := generator.generateRecoveryText(ctx, buildFailureNoticeCompressionPrompt(report, reply, failureNoticeMaximumCharacters))
 		if errorValue != nil || strings.TrimSpace(compressedReply) == "" {
 			return FailureNotice{}, "", false
 		}
-		compressedNotice := buildFailureNotice(compressedReply, source, report)
-		return compressedNotice, compressedNotice.Source, compressedNotice.IsSendable
+		candidate = strings.TrimSpace(compressedReply)
 	}
-	reviewedReply, reviewedSource, hasReviewedReply := generator.reviewFailureNotice(ctx, report, reply, source)
+	if !failureNoticeRequiresStructuredReview(report) {
+		notice := buildFailureNotice(candidate, source, report)
+		return notice, notice.Source, notice.IsSendable
+	}
+	reviewedReply, reviewedSource, hasReviewedReply := generator.reviewFailureNotice(ctx, report, candidate, source)
 	if !hasReviewedReply {
 		return FailureNotice{}, "", false
 	}
@@ -559,14 +537,8 @@ func buildFailureNotice(message string, source string, report FailureReport) Fai
 	}
 }
 
-func failureNoticeMessageIsSendableForReport(message string, report FailureReport) bool {
-	if !failureNoticeMessageIsSendable(message) {
-		return false
-	}
-	if report.ArtifactRequired && offersChatTextAsArtifactSubstitute(message) {
-		return false
-	}
-	return true
+func failureNoticeMessageIsSendableForReport(message string, _ FailureReport) bool {
+	return failureNoticeMessageIsSendable(message)
 }
 
 func failureNoticeMessageIsSendable(message string) bool {
@@ -580,66 +552,7 @@ func failureNoticeMessageIsSendable(message string) bool {
 	if ValidateUserNoticeDelivery(trimmedMessage) != nil {
 		return false
 	}
-	return !containsInternalDiagnosticLeak(trimmedMessage)
-}
-
-func offersChatTextAsArtifactSubstitute(message string) bool {
-	normalizedMessage := strings.ToLower(strings.TrimSpace(message))
-	for _, fragment := range []string{"텍스트로", "글로 정리", "채팅으로", "이곳에 바로", "here in chat", "as text"} {
-		if strings.Contains(normalizedMessage, fragment) {
-			return true
-		}
-	}
-	return false
-}
-
-func containsInternalDiagnosticLeak(message string) bool {
-	normalizedMessage := strings.ToLower(strings.TrimSpace(message))
-	if normalizedMessage == "" {
-		return false
-	}
-	for _, fragment := range internalDiagnosticLeakFragments() {
-		if strings.Contains(normalizedMessage, fragment) {
-			return true
-		}
-	}
-	return containsInternalFilesystemPath(normalizedMessage)
-}
-
-func internalDiagnosticLeakFragments() []string {
-	return []string{
-		"replystatus",
-		"reply_status",
-		"reply_reason",
-		"what_failed",
-		"textrecoveryerror",
-		"text_recovery_error",
-		"structuredrecoveryerror",
-		"structured_recovery_error",
-		"source=suppressed",
-		"context deadline exceeded",
-		"/v1/llm/text",
-		"internkim-capability",
-		"blueclaw-runtime",
-		"traceback",
-		"stack trace",
-		"goroutine ",
-		"panic:",
-		"authorization:",
-		"bearer ",
-		"api_key",
-		"apikey",
-		"token=",
-	}
-}
-
-func containsInternalFilesystemPath(message string) bool {
-	for _, fragment := range []string{"/workspace/.blueclaw", "/root/", "/home/", "/var/folders/", "/private/var/", "/tmp/"} {
-		if strings.Contains(message, fragment) {
-			return true
-		}
-	}
-	return false
+	return true
 }
 
 func textExceedsCharacterBudget(value string, maximumCharacters int) bool {

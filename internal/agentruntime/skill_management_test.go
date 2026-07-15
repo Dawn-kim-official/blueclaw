@@ -126,8 +126,7 @@ func TestSkillAddWritesAllowedResources(t *testing.T) {
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
 	content := `---
 name: report-helper
-description: Help create reports from source material.
-when_to_use: Use for report writing requests.
+description: Help create reports from source material when the user asks for report writing.
 ---
 Use references/reporting.md and scripts/build_report.sh when needed.
 `
@@ -252,6 +251,11 @@ func TestSkillAddRejectsMalformedOrCustomFrontmatter(t *testing.T) {
 		"---\nname: custom\ntriggerHints: [one]\n---\nBody.",
 		"---\nname: custom\ncustomToolDependency: [terminal.run]\n---\nBody.",
 		"---\nname: custom\nallowedProfiles: [default]\n---\nBody.",
+		"---\nname: custom\nwhen_to_use: Use for custom work.\n---\nBody.",
+		"---\nname: custom\nactivation: {}\n---\nBody.",
+		"---\nname: custom\ncompletion: {}\n---\nBody.",
+		"---\nname: custom\nrecommendedMinutes: 10\n---\nBody.",
+		"---\nname: custom\nartifacts: {}\n---\nBody.",
 	} {
 		result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
 			ToolName: "skill.add",
@@ -360,7 +364,6 @@ Use references/missing.md.
 	}
 	resultDocument := decodeSkillAddResult(t, result.ContentText())
 	for _, expectedWarning := range []string{
-		"when_to_use is recommended so retrieval has explicit trigger context",
 		"description is short; include what the skill does and when to use it",
 		"SKILL.md mentions references/ but no reference resources were supplied",
 		"resource assets/unmentioned.txt is not mentioned from SKILL.md",
@@ -377,8 +380,7 @@ func TestSkillAddReturnsLongBodyAndMissingScriptWarnings(t *testing.T) {
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
 	content := `---
 name: long-helper
-description: Help with long deterministic workflows.
-when_to_use: Use for long workflow requests.
+description: Help with long deterministic workflows when the user asks for a repeatable workflow.
 ---
 Use scripts/missing.sh when needed.
 ` + strings.Repeat("step\n", longSkillBodyLineCount+1)

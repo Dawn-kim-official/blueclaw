@@ -290,7 +290,7 @@ func siteSourceBundlePaths(t *testing.T, bundleBase64 string) []string {
 func userSkillDocument(skillName string) string {
 	return `---
 name: ` + skillName + `
-when_to_use: Use for research and source lookup requests.
+description: Research source material and organize source lookups when the user asks for research help.
 allowed-tools:
   - memory.search
 ---

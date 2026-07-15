@@ -10,7 +10,8 @@ import (
 )
 
 func TestStalledOnRedundantInspectionDetectsCacheHit(t *testing.T) {
-	if !stalledOnRedundantInspection([]turnObservation{{Summary: "file.read cache hit for app.tsx"}}) {
+	cacheHit := cachedFileReadObservation("obs-001", newContentObservation("obs-000", "continue", "file.read", `{"path":"app.tsx"}`), "cached")
+	if !stalledOnRedundantInspection([]turnObservation{cacheHit}) {
 		t.Fatal("expected a trailing file.read cache hit to signal a redundant inspection stall")
 	}
 	if stalledOnRedundantInspection([]turnObservation{{Summary: "wrote App.tsx"}}) {
@@ -43,12 +44,11 @@ func TestContinueStalledRecoveryNudgesReadLoopThenBounds(t *testing.T) {
 	allowance := recoveryAllowance{CanRecover: true}
 
 	appendCacheHitRead := func() {
-		state.Observations = append(state.Observations, turnObservation{
-			ObservationID: nextObservationID(len(state.Observations) + 1),
-			Action:        "policy",
-			Tool:          "file.read",
-			Summary:       "file.read cache hit for app.tsx",
-		})
+		state.Observations = append(state.Observations, cachedFileReadObservation(
+			nextObservationID(len(state.Observations)+1),
+			newContentObservation("obs-source", "continue", "file.read", `{"path":"app.tsx"}`),
+			"cached",
+		))
 	}
 
 	for attempt := 1; attempt <= maxStallRecoveryDirectivesPerEpisode; attempt++ {
@@ -181,7 +181,7 @@ func TestObservedSuggestedNextToolReadsNestedHealth(t *testing.T) {
 }
 
 func TestObservedSuggestedNextToolReadsRecoveryPacketAllowedTools(t *testing.T) {
-	observation := completionGateObservation(1, "finish is not backed by observed results")
+	observation := completionGateObservation(1, completionGateResult{Message: "finish is not backed by observed results", EvidenceKind: evidenceKindExpectedResult})
 	observation.RecoveryPacket = &RecoveryPacket{
 		AllowedTools: []string{"file.write", "site.build"},
 	}

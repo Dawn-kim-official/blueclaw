@@ -108,6 +108,9 @@ func (toolCatalogBuilder *ToolCatalogBuilder) invokeCapabilityOperation(toolCont
 	if !access.CanAccess(access.Request{PersonAccess: request.PersonAccess, Action: access.ActionExecute, Resource: policyResource}) {
 		return agent.ToolFailureResult(agent.FailurePermissionDenied, agent.FailureCodes.AccessDenied, "capability_access", "current account cannot execute this tool"), nil
 	}
+	if unexpected := unexpectedCapabilityInputFields(toolDescriptor.InputSchema, rawInput); len(unexpected) > 0 {
+		return capabilityUnexpectedInputFailure(operation, toolDescriptor, unexpected), nil
+	}
 	toolInput, toolFailure, errorValue := toolCatalogBuilder.prepareCapabilityToolInput(toolContext, operation, request, rawInput)
 	if toolFailure != nil {
 		return *toolFailure, nil
@@ -358,6 +361,28 @@ func missingRequiredCapabilityInputFields(inputSchema json.RawMessage, toolInput
 	return missing
 }
 
+func unexpectedCapabilityInputFields(inputSchema json.RawMessage, toolInput json.RawMessage) []string {
+	var schema struct {
+		Properties           map[string]json.RawMessage `json:"properties"`
+		AdditionalProperties *bool                      `json:"additionalProperties"`
+	}
+	if json.Unmarshal(inputSchema, &schema) != nil || schema.AdditionalProperties == nil || *schema.AdditionalProperties {
+		return nil
+	}
+	input := map[string]json.RawMessage{}
+	if json.Unmarshal(toolInput, &input) != nil {
+		return nil
+	}
+	unexpected := []string{}
+	for fieldName := range input {
+		if _, isAllowed := schema.Properties[fieldName]; !isAllowed {
+			unexpected = append(unexpected, fieldName)
+		}
+	}
+	sort.Strings(unexpected)
+	return unexpected
+}
+
 func isEmptyCapabilityInputValue(value json.RawMessage) bool {
 	trimmed := strings.TrimSpace(string(value))
 	return trimmed == "" || trimmed == "null" || trimmed == `""` || trimmed == "{}" || trimmed == "[]"
@@ -379,6 +404,40 @@ func capabilityMissingInputFailure(operation string, toolDescriptor CapabilityTo
 		Reason:    "Input schema for " + operation + ": " + capabilityCatalogParameters(toolDescriptor.InputSchema) + ". Wrapper shape: " + capabilityInvokeWrapperExample(operation, toolDescriptor.InputSchema, missing) + ". Never send an empty input.",
 	}}
 	return result
+}
+
+func capabilityUnexpectedInputFailure(operation string, toolDescriptor CapabilityToolDescriptor, unexpected []string) agent.ToolResult {
+	allowedFields := capabilityInputFieldNames(toolDescriptor.InputSchema)
+	message := operation + " does not accept these input fields: " + strings.Join(unexpected, ", ") + ". Call capability.invoke again using only these fields: " + strings.Join(allowedFields, ", ") + "."
+	result := agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "capability_input", message)
+	if result.Failure == nil {
+		return result
+	}
+	result.Failure.Retryable = true
+	result.Failure.SafeRetry = true
+	result.Failure.FailureClass = "schema"
+	result.Failure.RetryPolicy = "different_input"
+	result.Failure.RecoveryHints = []agent.RecoveryHint{{
+		Action:    "Retry capability.invoke with operation=" + operation + " using only the operation's declared input fields.",
+		ToolNames: []string{agent.CapabilityInvokeToolName},
+		Reason:    "Input schema for " + operation + ": " + capabilityCatalogParameters(toolDescriptor.InputSchema) + ".",
+	}}
+	return result
+}
+
+func capabilityInputFieldNames(inputSchema json.RawMessage) []string {
+	var schema struct {
+		Properties map[string]json.RawMessage `json:"properties"`
+	}
+	if json.Unmarshal(inputSchema, &schema) != nil {
+		return nil
+	}
+	fieldNames := make([]string, 0, len(schema.Properties))
+	for fieldName := range schema.Properties {
+		fieldNames = append(fieldNames, fieldName)
+	}
+	sort.Strings(fieldNames)
+	return fieldNames
 }
 
 func capabilityInputNotObjectFailure(operation string, toolDescriptor CapabilityToolDescriptor) agent.ToolResult {
@@ -739,30 +798,40 @@ func capabilityToolResult(content string, data json.RawMessage, isFailed bool, m
 	if !isFailed {
 		return result
 	}
+	resolvedErrorCode := firstNonEmptyString(errorCode, capabilityResultString(data, "errorCode"), agent.FailureCodes.OperationFailed.String())
+	canonicalErrorCode := agent.CanonicalFailureCode(agent.FailureCode(resolvedErrorCode))
 	result.Failure = &agent.ToolFailure{
-		Kind:            capabilityFailureKind(errorCode, failureStage),
-		Code:            agent.CanonicalFailureCode(agent.FailureCode(firstNonEmptyString(errorCode, capabilityResultString(data, "errorCode"), agent.FailureCodes.OperationFailed.String()))),
-		Stage:           firstNonEmptyString(failureStage, capabilityResultString(data, "failureStage"), "capability_invoke"),
-		UserSafeSummary: firstNonEmptyString(message, capabilityResultString(data, "message"), content),
-		Retryable:       retryable || capabilityResultBoolean(data, "retryable"),
-		SafeRetry:       safeRetry || capabilityResultBoolean(data, "safeRetry"),
-		RecoveryHints:   capabilityRecoveryHints(data),
+		Kind:             capabilityFailureKind(canonicalErrorCode),
+		Code:             canonicalErrorCode,
+		Stage:            firstNonEmptyString(failureStage, capabilityResultString(data, "failureStage"), "capability_invoke"),
+		UserSafeSummary:  firstNonEmptyString(message, capabilityResultString(data, "message"), content),
+		RequiresApproval: strings.TrimSpace(resolvedErrorCode) == "approval_required",
+		Retryable:        retryable || capabilityResultBoolean(data, "retryable"),
+		SafeRetry:        safeRetry || capabilityResultBoolean(data, "safeRetry"),
+		RecoveryHints:    capabilityRecoveryHints(data),
 	}
 	return result
 }
 
-func capabilityFailureKind(errorCode string, failureStage string) agent.FailureKind {
-	normalizedText := strings.ToLower(strings.TrimSpace(errorCode + " " + failureStage))
-	if strings.Contains(normalizedText, "denied") || strings.Contains(normalizedText, "permission") || strings.Contains(normalizedText, "unauthorized") {
+func capabilityFailureKind(errorCode string) agent.FailureKind {
+	switch strings.TrimSpace(errorCode) {
+	case agent.FailureCodes.AccessDenied.String():
 		return agent.FailurePermissionDenied
-	}
-	if strings.Contains(normalizedText, "invalid") || strings.Contains(normalizedText, "schema") || strings.Contains(normalizedText, "input") {
+	case agent.FailureCodes.InvalidInput.String():
 		return agent.FailureInvalidInput
-	}
-	if strings.Contains(normalizedText, "rate") || strings.Contains(normalizedText, "quota") {
+	case agent.FailureCodes.RateLimited.String():
 		return agent.FailureRateLimited
+	case agent.FailureCodes.NotFound.String():
+		return agent.FailureNotFound
+	case agent.FailureCodes.Unavailable.String():
+		return agent.FailureDependencyUnavailable
+	case agent.FailureCodes.PolicyBlocked.String():
+		return agent.FailurePolicyBlocked
+	case agent.FailureCodes.InteractionRequired.String():
+		return agent.FailureInteractionRequired
+	default:
+		return agent.FailureExternalService
 	}
-	return agent.FailureExternalService
 }
 
 func isApprovalExemptCapabilityTool(toolName string, request ToolCatalogRequest) bool {

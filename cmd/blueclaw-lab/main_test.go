@@ -8,12 +8,41 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
+	"sort"
 	"strings"
 	"sync"
 	"testing"
 
+	"blueclaw/internal/e2e"
 	"blueclaw/internal/llm"
+	"blueclaw/internal/task"
 )
+
+func TestValidateStrictEmbeddingRetrievalRequiresReadyEmbeddingMode(t *testing.T) {
+	validResult := e2e.VirtualSessionResult{TurnResults: []e2e.VirtualTurnResult{{Events: []task.TaskEvent{
+		{Name: "agent.instructions_loaded", Body: `{"retrievalMode":"embedding","indexStatus":"ready"}`},
+		{Name: "agent.instructions_loaded", Body: `{"retrievalMode":"direct","indexStatus":"bypassed"}`},
+		{Name: "agent.instructions_loaded", Body: `{"retrievalMode":"structured_query","indexStatus":"empty_query"}`},
+	}}}}
+	if errorValue := validateStrictEmbeddingRetrieval(validResult); errorValue != nil {
+		t.Fatalf("expected ready embedding retrieval, got %v", errorValue)
+	}
+	fallbackResult := e2e.VirtualSessionResult{TurnResults: []e2e.VirtualTurnResult{{Events: []task.TaskEvent{{
+		Name: "agent.instructions_loaded",
+		Body: `{"retrievalMode":"bm25_fallback","indexStatus":"query_failed"}`,
+	}}}}}
+	if errorValue := validateStrictEmbeddingRetrieval(fallbackResult); errorValue == nil {
+		t.Fatal("expected BM25 fallback to fail strict live embedding verification")
+	}
+	directOnlyResult := e2e.VirtualSessionResult{TurnResults: []e2e.VirtualTurnResult{{Events: []task.TaskEvent{{
+		Name: "agent.instructions_loaded",
+		Body: `{"retrievalMode":"direct","indexStatus":"bypassed"}`,
+	}}}}}
+	if errorValue := validateStrictEmbeddingRetrieval(directOnlyResult); errorValue == nil {
+		t.Fatal("expected direct-only retrieval to fail strict live embedding verification")
+	}
+}
 
 type fakeOpenRouterServer struct {
 	server               *httptest.Server
@@ -236,6 +265,70 @@ func parseLiveVirtualSessionTestArguments(t *testing.T, baseURL string) virtualS
 		t.Fatal("expected --live-llm to enable live language model")
 	}
 	return arguments
+}
+
+func TestParseVirtualSessionArgumentsAcceptsStrictScenarioFile(t *testing.T) {
+	arguments, errorValue := parseVirtualSessionArguments([]string{
+		"--scenario-file", "/repo/tests/expensive/task.json",
+		"--strict-assertions",
+		"--validate-only",
+		"--maximum-model-tier", "xlow",
+	}, "presentation", t.TempDir())
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if arguments.ScenarioFilePath != "/repo/tests/expensive/task.json" || !arguments.StrictAssertions || !arguments.ValidateOnly || arguments.MaximumModelTier != "xlow" {
+		t.Fatalf("unexpected scenario file arguments: %+v", arguments)
+	}
+}
+
+func TestConfigureVirtualScenarioCodingUsesCeilingOnlyWhenConfigured(t *testing.T) {
+	providerFactory := func(modelName string) llm.LanguageModelProvider {
+		return llm.OpenRouterClient{ModelName: modelName}
+	}
+
+	uncappedScenario := e2e.VirtualSessionScenario{}
+	configureVirtualScenarioModelTiers(&uncappedScenario, "", providerFactory)
+	uncappedModelNames := virtualProviderModelNames(uncappedScenario.CodingLanguageModel)
+	if !slices.Contains(uncappedModelNames, "z-ai/glm-5.2") {
+		t.Fatalf("expected uncapped coding provider to use coding model, got %v", uncappedModelNames)
+	}
+
+	cappedScenario := e2e.VirtualSessionScenario{}
+	configureVirtualScenarioModelTiers(&cappedScenario, "high", providerFactory)
+	cappedModelNames := virtualProviderModelNames(cappedScenario.CodingLanguageModel)
+	if !slices.Contains(cappedModelNames, "google/gemini-3-flash-preview") {
+		t.Fatalf("expected coding provider to use high ceiling, got %v", cappedModelNames)
+	}
+	for _, forbiddenModelName := range []string{"z-ai/glm-5.2", "openai/gpt-5.6-luna", "google/gemini-3.5-flash"} {
+		if slices.Contains(cappedModelNames, forbiddenModelName) {
+			t.Fatalf("expected coding provider to stay at or below high, got %v", cappedModelNames)
+		}
+	}
+}
+
+func virtualProviderModelNames(provider llm.LanguageModelProvider) []string {
+	modelNames := map[string]bool{}
+	var collect func(llm.LanguageModelProvider)
+	collect = func(currentProvider llm.LanguageModelProvider) {
+		switch typedProvider := currentProvider.(type) {
+		case llm.OpenRouterClient:
+			modelNames[typedProvider.ModelName] = true
+		case llm.FallbackLanguageModelProvider:
+			collect(typedProvider.PrimaryProvider)
+			collect(typedProvider.FallbackProvider)
+		case llm.VisionFallbackProvider:
+			collect(typedProvider.TextOnlyModel)
+			collect(typedProvider.VisionModel)
+		}
+	}
+	collect(provider)
+	result := make([]string, 0, len(modelNames))
+	for modelName := range modelNames {
+		result = append(result, modelName)
+	}
+	sort.Strings(result)
+	return result
 }
 
 func allOpenRouterRequestsUseGenerationOptions(requestDocuments []map[string]any, seed int64, temperature float64) bool {

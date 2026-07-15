@@ -12,20 +12,26 @@ func (agentTurnRunner *AgentTurnRunner) buildActionSchema(toolRegistry *ToolSet,
 	return buildActionSchemaFromToolDefinitions(nil, allowQualityCriteria, blockedToolNames, hasFailureDebt)
 }
 
-func (toolSet *ToolSet) ActionSchema(allowQualityCriteria bool, blockedToolNames map[string]bool, hasFailureDebt bool, allowFailValues ...bool) string {
+func (toolSet *ToolSet) ActionSchema(allowQualityCriteria bool, blockedToolNames map[string]bool, hasFailureDebt bool, terminalActionValues ...bool) string {
 	if toolSet == nil {
-		return buildActionSchemaFromToolDefinitions(nil, allowQualityCriteria, blockedToolNames, hasFailureDebt, allowFailValues...)
+		return buildActionSchemaFromToolDefinitions(nil, allowQualityCriteria, blockedToolNames, hasFailureDebt, terminalActionValues...)
 	}
-	return buildActionSchemaFromToolDefinitions(toolSet.ListToolDefinitions(), allowQualityCriteria, blockedToolNames, hasFailureDebt, allowFailValues...)
+	return buildActionSchemaFromToolDefinitions(toolSet.ListToolDefinitions(), allowQualityCriteria, blockedToolNames, hasFailureDebt, terminalActionValues...)
 }
 
-func buildActionSchemaFromToolDefinitions(toolDefinitions []ToolDefinition, allowQualityCriteria bool, blockedToolNames map[string]bool, hasFailureDebt bool, allowFailValues ...bool) string {
+func buildActionSchemaFromToolDefinitions(toolDefinitions []ToolDefinition, allowQualityCriteria bool, blockedToolNames map[string]bool, hasFailureDebt bool, terminalActionValues ...bool) string {
 	allowFail := true
-	if len(allowFailValues) > 0 {
-		allowFail = allowFailValues[0]
+	allowFinish := true
+	if len(terminalActionValues) > 0 {
+		allowFail = terminalActionValues[0]
+	}
+	if len(terminalActionValues) > 1 {
+		allowFinish = terminalActionValues[1]
 	}
 	var variants []any
-	variants = append(variants, finishActionSchema(hasFailureDebt))
+	if allowFinish {
+		variants = append(variants, finishActionSchema(hasFailureDebt))
+	}
 	if allowFail {
 		variants = append(variants, failActionSchema(hasFailureDebt))
 	}
@@ -48,7 +54,7 @@ func buildActionSchemaFromToolDefinitions(toolDefinitions []ToolDefinition, allo
 
 func finishActionSchema(hasFailureDebt bool) map[string]any {
 	failureResolutionValues := []string{"none", "recovered_with_success", "no_tool_fallback"}
-	requiredFields := []string{"action", "message", "goalStatus", "goalSatisfied", "completionEvidenceIDs", "qualityReview", "executionStateUpdate"}
+	requiredFields := []string{"action", "message", "goalStatus", "goalSatisfied", "hasRemainingWork", "completionEvidenceIDs", "qualityReview", "executionStateUpdate"}
 	if hasFailureDebt {
 		failureResolutionValues = []string{"recovered_with_success", "no_tool_fallback"}
 		requiredFields = append(requiredFields, "failureResolution")
@@ -63,6 +69,7 @@ func finishActionSchema(hasFailureDebt bool) map[string]any {
 			"failureResolution":     enumValuesStringSchema(failureResolutionValues),
 			"goalStatus":            enumValuesStringSchema([]string{"satisfied"}),
 			"goalSatisfied":         booleanSchema(),
+			"hasRemainingWork":      booleanSchema(),
 			"completionEvidenceIDs": stringArraySchema(0),
 			"qualityReview":         qualityReviewSchema(),
 			"remainingWork":         stringSchema(),
@@ -316,7 +323,7 @@ func failureReportFactsSchema() map[string]any {
 }
 
 func fallbackActionSchema() string {
-	return `{"oneOf":[{"type":"object","properties":{"action":{"type":"string","enum":["finish"]},"message":{"type":"string"},"failureResolution":{"type":"string","enum":["none","recovered_with_success","no_tool_fallback"]},"goalStatus":{"type":"string","enum":["satisfied"]},"goalSatisfied":{"type":"boolean"},"completionEvidenceIDs":{"type":"array","items":{"type":"string"}},"qualityReview":{"type":"array"},"remainingWork":{"type":"string"}},"required":["action","message","goalStatus","goalSatisfied","completionEvidenceIDs","qualityReview"]},{"type":"object","properties":{"action":{"type":"string","enum":["fail"]},"reason":{"type":"string"},"goalStatus":{"type":"string","enum":["blocked"]},"goalSatisfied":{"type":"boolean"},"remainingWork":{"type":"string"}},"required":["action","reason","goalStatus","goalSatisfied"]}]}`
+	return `{"oneOf":[{"type":"object","properties":{"action":{"type":"string","enum":["finish"]},"message":{"type":"string"},"failureResolution":{"type":"string","enum":["none","recovered_with_success","no_tool_fallback"]},"goalStatus":{"type":"string","enum":["satisfied"]},"goalSatisfied":{"type":"boolean"},"hasRemainingWork":{"type":"boolean"},"completionEvidenceIDs":{"type":"array","items":{"type":"string"}},"qualityReview":{"type":"array"},"remainingWork":{"type":"string"}},"required":["action","message","goalStatus","goalSatisfied","hasRemainingWork","completionEvidenceIDs","qualityReview"]},{"type":"object","properties":{"action":{"type":"string","enum":["fail"]},"reason":{"type":"string"},"goalStatus":{"type":"string","enum":["blocked"]},"goalSatisfied":{"type":"boolean"},"remainingWork":{"type":"string"}},"required":["action","reason","goalStatus","goalSatisfied"]}]}`
 }
 
 func finalizerActionSchema() string {

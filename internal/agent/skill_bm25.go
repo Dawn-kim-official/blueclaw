@@ -153,9 +153,32 @@ func skillSearchTokens(value string) []string {
 	for _, token := range strings.Fields(normalizeSkillSearchText(value)) {
 		if shouldKeepSkillSearchToken(token) {
 			tokens = append(tokens, token)
+			tokens = append(tokens, nonASCIICharacterBigrams(token)...)
 		}
 	}
 	return tokens
+}
+
+func nonASCIICharacterBigrams(token string) []string {
+	characters := []rune(token)
+	if len(characters) < 3 {
+		return nil
+	}
+	hasNonASCII := false
+	for _, character := range characters {
+		if character > unicode.MaxASCII {
+			hasNonASCII = true
+			break
+		}
+	}
+	if !hasNonASCII {
+		return nil
+	}
+	bigrams := make([]string, 0, len(characters)-1)
+	for index := 0; index < len(characters)-1; index++ {
+		bigrams = append(bigrams, string(characters[index:index+2]))
+	}
+	return bigrams
 }
 
 func uniqueSkillSearchTokens(value string) []string {
@@ -196,16 +219,14 @@ func shouldKeepSkillSearchToken(token string) bool {
 }
 
 func exactSkillNameMatchBoost(skillName string, prompt string) float64 {
-	normalizedPrompt := normalizeSkillSelectionText(prompt)
 	normalizedSkillName := normalizeSkillSelectionText(skillName)
 	if normalizedSkillName == "" {
 		return 0
 	}
-	if strings.Contains(normalizedPrompt, "/"+normalizedSkillName) {
-		return 1000
-	}
-	if strings.Contains(normalizedPrompt, normalizedSkillName) {
-		return 25
+	for _, token := range strings.Fields(normalizeSkillSelectionText(prompt)) {
+		if strings.Trim(token, "\t\n\r.,:;!?()[]{}<>") == "/"+normalizedSkillName {
+			return 1000
+		}
 	}
 	return 0
 }

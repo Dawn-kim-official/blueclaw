@@ -29,6 +29,10 @@ type ConversationTurn struct {
 
 func (connectorRuntime *ConnectorRuntime) buildTaskLaunchRequest(turn ConversationTurn) agentruntime.TaskLaunchRequest {
 	event := turn.Event
+	checkpointSender := turn.CheckpointSender
+	if turn.AmbientDuty.IsMatch {
+		checkpointSender = nil
+	}
 	attachmentMaterialResolver := connectorAttachmentMaterialResolver{
 		adapter:  turn.Adapter,
 		personID: turn.RequesterPersonID,
@@ -68,7 +72,7 @@ func (connectorRuntime *ConnectorRuntime) buildTaskLaunchRequest(turn Conversati
 		PersonAccess:               turn.PersonAccess,
 		MemoryNamespaces:           connectorRuntime.accessibleNamespaces(turn.RequesterPersonID, turn.PersonAccess, event),
 		AccessibleConversationIDs:  turn.AccessibleConversationIDs,
-		CheckpointSender:           turn.CheckpointSender,
+		CheckpointSender:           checkpointSender,
 	}
 }
 

@@ -40,8 +40,19 @@ type VirtualSessionScenario struct {
 	ProfileName               string
 	ArtifactDirectoryPath     string
 	LanguageModel             llm.LanguageModelProvider
+	EmbeddingProvider         llm.EmbeddingProvider
+	EmbeddingModel            string
+	IntakeLanguageModel       llm.LanguageModelProvider
+	LowLanguageModel          llm.LanguageModelProvider
+	XLowLanguageModel         llm.LanguageModelProvider
+	MediumLanguageModel       llm.LanguageModelProvider
+	HighLanguageModel         llm.LanguageModelProvider
+	XHighLanguageModel        llm.LanguageModelProvider
+	MaxLanguageModel          llm.LanguageModelProvider
+	CodingLanguageModel       llm.LanguageModelProvider
 	DisableScriptedModel      bool
 	UseLooseAssertions        bool
+	FailOnLanguageModelError  bool
 	SkillDirectoryPaths       []string
 	Skills                    []agent.SkillInstruction
 	AllowedTools              []string
@@ -54,13 +65,26 @@ type VirtualSessionScenario struct {
 	CodingTierVisionFallback  bool
 	AddressingResponse        string
 	RouterSiteEvidence        string
+	ScriptedExecutionPlan     *agent.ExecutionPlan
+	ScriptedConfirmationReply string
 	TurnOptions               agent.TurnOptions
 	ProgressWriter            io.Writer
 	Turns                     []VirtualTurn
 }
 
+type VirtualResponseExpectation string
+
+const (
+	VirtualResponseReply            VirtualResponseExpectation = "reply"
+	VirtualResponseIgnore           VirtualResponseExpectation = "ignore"
+	VirtualResponseIgnoreOrReact    VirtualResponseExpectation = "ignore_or_react"
+	VirtualResponseReact            VirtualResponseExpectation = "react"
+	VirtualResponseBackgroundAction VirtualResponseExpectation = "background_action"
+)
+
 type VirtualTurn struct {
 	Prompt                    string
+	ExpectedResponse          VirtualResponseExpectation
 	ConversationType          string
 	ChannelID                 string
 	ChannelName               string
@@ -75,11 +99,13 @@ type VirtualTurn struct {
 	RouterApproval            string
 	ExpectedSelectedSkills    []string
 	ExpectedToolCalls         []string
+	ExpectedAnyToolCalls      []string
 	ExpectedEvents            []string
 	ExpectedToolCallCounts    map[string]int
 	ExpectedEventCounts       []VirtualEventCount
 	ExpectedAttachments       []string
 	ExpectedWorkspaceFiles    []VirtualWorkspaceFileExpectation
+	ForbiddenWorkspaceFiles   []string
 	ExpectedModelContexts     []string
 	ForbiddenModelContexts    []string
 	ExpectedReplyTargetID     string
@@ -102,6 +128,7 @@ type VirtualWorkspaceFileExpectation struct {
 	PathGlob           string
 	ContainsFragments  []string
 	ForbiddenFragments []string
+	FragmentCounts     map[string]int
 }
 
 type VirtualSessionResult struct {
@@ -112,6 +139,11 @@ type VirtualSessionResult struct {
 }
 
 type VirtualTurnResult struct {
+	Handled                 bool
+	Ignored                 bool
+	Reason                  string
+	DidReply                bool
+	Reactions               []connectors.ReactionTarget
 	TaskRunID               string
 	TaskStatus              task.TaskStatus
 	FailureReason           string
@@ -177,6 +209,10 @@ type virtualLanguageModelCallRecorder interface {
 
 type virtualObservedLanguageModel struct {
 	provider llm.LanguageModelProvider
+	store    *virtualLanguageModelObservationStore
+}
+
+type virtualLanguageModelObservationStore struct {
 	mutex    sync.Mutex
 	requests []llm.StructuredResponseRequest
 	calls    []VirtualLanguageModelCallEvent
@@ -195,7 +231,11 @@ type virtualObservedLocalRecoveryLanguageModel struct {
 }
 
 func newVirtualObservedLanguageModel(provider llm.LanguageModelProvider) llm.LanguageModelProvider {
-	base := &virtualObservedLanguageModel{provider: provider}
+	return newVirtualObservedLanguageModelWithStore(provider, &virtualLanguageModelObservationStore{})
+}
+
+func newVirtualObservedLanguageModelWithStore(provider llm.LanguageModelProvider, store *virtualLanguageModelObservationStore) llm.LanguageModelProvider {
+	base := &virtualObservedLanguageModel{provider: provider, store: store}
 	_, hasRecovery := provider.(llm.RecoveryResponder)
 	_, hasLocalRecovery := provider.(llm.LocalRecoveryResponder)
 	switch {
@@ -264,45 +304,45 @@ func (languageModel *virtualObservedLanguageModel) localRecoveryResponse(ctx con
 }
 
 func (languageModel *virtualObservedLanguageModel) RequestCount() int {
-	languageModel.mutex.Lock()
-	defer languageModel.mutex.Unlock()
-	return len(languageModel.requests)
+	languageModel.store.mutex.Lock()
+	defer languageModel.store.mutex.Unlock()
+	return len(languageModel.store.requests)
 }
 
 func (languageModel *virtualObservedLanguageModel) RequestsSince(startIndex int) []llm.StructuredResponseRequest {
-	languageModel.mutex.Lock()
-	defer languageModel.mutex.Unlock()
-	if startIndex < 0 || startIndex > len(languageModel.requests) {
+	languageModel.store.mutex.Lock()
+	defer languageModel.store.mutex.Unlock()
+	if startIndex < 0 || startIndex > len(languageModel.store.requests) {
 		startIndex = 0
 	}
-	return append([]llm.StructuredResponseRequest{}, languageModel.requests[startIndex:]...)
+	return append([]llm.StructuredResponseRequest{}, languageModel.store.requests[startIndex:]...)
 }
 
 func (languageModel *virtualObservedLanguageModel) CallCount() int {
-	languageModel.mutex.Lock()
-	defer languageModel.mutex.Unlock()
-	return len(languageModel.calls)
+	languageModel.store.mutex.Lock()
+	defer languageModel.store.mutex.Unlock()
+	return len(languageModel.store.calls)
 }
 
 func (languageModel *virtualObservedLanguageModel) CallsSince(startIndex int) []VirtualLanguageModelCallEvent {
-	languageModel.mutex.Lock()
-	defer languageModel.mutex.Unlock()
-	if startIndex < 0 || startIndex > len(languageModel.calls) {
+	languageModel.store.mutex.Lock()
+	defer languageModel.store.mutex.Unlock()
+	if startIndex < 0 || startIndex > len(languageModel.store.calls) {
 		startIndex = 0
 	}
-	return append([]VirtualLanguageModelCallEvent{}, languageModel.calls[startIndex:]...)
+	return append([]VirtualLanguageModelCallEvent{}, languageModel.store.calls[startIndex:]...)
 }
 
 func (languageModel *virtualObservedLanguageModel) appendRequest(request llm.StructuredResponseRequest) {
-	languageModel.mutex.Lock()
-	defer languageModel.mutex.Unlock()
-	languageModel.requests = append(languageModel.requests, request)
+	languageModel.store.mutex.Lock()
+	defer languageModel.store.mutex.Unlock()
+	languageModel.store.requests = append(languageModel.store.requests, request)
 }
 
 func (languageModel *virtualObservedLanguageModel) appendCall(callEvent VirtualLanguageModelCallEvent) {
-	languageModel.mutex.Lock()
-	defer languageModel.mutex.Unlock()
-	languageModel.calls = append(languageModel.calls, callEvent)
+	languageModel.store.mutex.Lock()
+	defer languageModel.store.mutex.Unlock()
+	languageModel.store.calls = append(languageModel.store.calls, callEvent)
 }
 
 type imageRejectingLanguageModel struct {
@@ -497,22 +537,33 @@ func NewVirtualSessionHarness(scenario VirtualSessionScenario) (*VirtualSessionH
 	if baseLanguageModel == nil {
 		return nil, errors.New("virtual session requires a live language model or explicit scripted model responses")
 	}
-	languageModel := newVirtualObservedLanguageModel(baseLanguageModel)
+	observationStore := &virtualLanguageModelObservationStore{}
+	languageModel := newVirtualObservedLanguageModelWithStore(baseLanguageModel, observationStore)
+	lowLanguageModel := observedVirtualLanguageModelOrDefault(scenario.LowLanguageModel, languageModel, observationStore)
+	xLowLanguageModel := observedVirtualLanguageModelOrDefault(scenario.XLowLanguageModel, languageModel, observationStore)
+	mediumLanguageModel := observedVirtualLanguageModelOrDefault(scenario.MediumLanguageModel, languageModel, observationStore)
+	highLanguageModel := observedVirtualLanguageModelOrDefault(scenario.HighLanguageModel, languageModel, observationStore)
+	xHighLanguageModel := observedVirtualLanguageModelOrDefault(scenario.XHighLanguageModel, languageModel, observationStore)
+	maxLanguageModel := observedVirtualLanguageModelOrDefault(scenario.MaxLanguageModel, languageModel, observationStore)
+	codingLanguageModel := observedVirtualLanguageModelOrDefault(scenario.CodingLanguageModel, languageModel, observationStore)
+	intakeLanguageModel := observedVirtualLanguageModelOrDefault(scenario.IntakeLanguageModel, languageModel, observationStore)
 	agentKernel := agent.NewAgentKernel(taskRunService, taskStepService)
 	agentKernel.UseTaskArtifactService(taskArtifactService)
-	agentKernel.UseLanguageModelProvider(languageModel)
-	if scenario.CodingTierVisionFallback {
+	agentKernel.UseLanguageModelProvider(lowLanguageModel)
+	agentKernel.UseTaskTierLanguageModels(maxLanguageModel, xHighLanguageModel, highLanguageModel, mediumLanguageModel, xLowLanguageModel, codingLanguageModel)
+	if scenario.CodingTierVisionFallback && scenario.CodingLanguageModel == nil {
 		codingTaskLanguageModel := llm.VisionFallbackProvider{
 			TextOnlyModel: imageRejectingLanguageModel{delegate: languageModel},
 			VisionModel:   languageModel,
 		}
 		agentKernel.UseTaskTierLanguageModels(languageModel, languageModel, languageModel, languageModel, languageModel, codingTaskLanguageModel)
 	}
-	agentKernel.UseIntakeLanguageModelProvider(languageModel)
+	agentKernel.UseIntakeLanguageModelProvider(intakeLanguageModel)
 	agentKernel.UseIntakeOptions(agent.IntakeOptions{IsEnabled: true, DefaultTaskLevel: agent.TaskLevelLow})
 	agentKernel.UseTurnOptions(virtualTurnOptions(scenario.TurnOptions))
 	instructionBundleLoader := virtualInstructionBundleLoader(skillInstructions, workspacePath)
-	skillRetriever := agent.NewEmbeddingSkillRetriever(virtualSkillEmbeddingProvider{}, "")
+	skillRetriever := agent.NewEmbeddingSkillRetriever(scenario.EmbeddingProvider, "")
+	skillRetriever.EmbeddingModel = scenario.EmbeddingModel
 	agentKernel.UseInstructionBundleLoader(instructionBundleLoader)
 	agentKernel.UseSkillRetriever(skillRetriever)
 
@@ -534,7 +585,7 @@ func NewVirtualSessionHarness(scenario VirtualSessionScenario) (*VirtualSessionH
 	capabilityToolNames := virtualCapabilityToolNames(scenario)
 	if len(capabilityToolNames) > 0 {
 		var capabilityCleanup func()
-		capabilityClient, capabilityCleanup = startVirtualCapabilityServer(capabilityToolNames)
+		capabilityClient, capabilityCleanup = startVirtualCapabilityServer(capabilityToolNames, workspacePath)
 		runtime.UseCapabilityTools(capabilityClient, scenario.CapabilityToolNames)
 		runtime.UseCapabilityToolDescriptors(capabilityClient, scenario.CapabilityToolDescriptors)
 		cleanup = capabilityCleanup
@@ -576,6 +627,13 @@ func NewVirtualSessionHarness(scenario VirtualSessionScenario) (*VirtualSessionH
 		adapter:          adapter,
 		cleanup:          cleanup,
 	}, nil
+}
+
+func observedVirtualLanguageModelOrDefault(provider llm.LanguageModelProvider, defaultProvider llm.LanguageModelProvider, store *virtualLanguageModelObservationStore) llm.LanguageModelProvider {
+	if provider == nil {
+		return defaultProvider
+	}
+	return newVirtualObservedLanguageModelWithStore(provider, store)
 }
 
 func virtualTurnOptions(scenarioOptions agent.TurnOptions) agent.TurnOptions {
@@ -678,26 +736,6 @@ func virtualCapabilityToolNames(scenario VirtualSessionScenario) []string {
 		addToolName(toolDescriptor.Name)
 	}
 	return toolNames
-}
-
-type virtualSkillEmbeddingProvider struct{}
-
-func (provider virtualSkillEmbeddingProvider) GenerateEmbedding(_ context.Context, input string) ([]float32, error) {
-	normalizedInput := strings.ToLower(input)
-	return []float32{
-		virtualSkillEmbeddingValue(normalizedInput, []string{"피피티", "pptx", "slides", "presentation", "파워포인트", "발표자료"}),
-		virtualSkillEmbeddingValue(normalizedInput, []string{"schedule", "scheduled", "cron", "remind", "reminder", "repeat", "예약", "알림", "리마인드", "마다", "분마다", "한 번씩", "10번"}),
-		virtualSkillEmbeddingValue(normalizedInput, []string{"website", "web app", "site", "prototype", "deploy", "웹사이트", "사이트", "프로토타입", "배포"}),
-	}, nil
-}
-
-func virtualSkillEmbeddingValue(input string, keywords []string) float32 {
-	for _, keyword := range keywords {
-		if strings.Contains(input, keyword) {
-			return 1
-		}
-	}
-	return 0
 }
 
 func loadVirtualSkillInstructions(scenario VirtualSessionScenario, workspacePath string) ([]agent.SkillInstruction, error) {
@@ -914,11 +952,22 @@ if __name__ == "__main__":
     main()
 `
 
-type virtualCapabilityHTTPClient struct {
-	toolNameByName map[string]bool
+type virtualCapabilityRecord struct {
+	ID     string
+	Values map[string]any
 }
 
-func startVirtualCapabilityServer(toolNames []string) (capability.Client, func()) {
+type virtualCapabilityService struct {
+	mutex          sync.Mutex
+	toolNameByName map[string]bool
+	workspacePath  string
+	tasks          []virtualCapabilityRecord
+	events         []virtualCapabilityRecord
+	site           *virtualCapabilityRecord
+	sitePublished  bool
+}
+
+func startVirtualCapabilityServer(toolNames []string, workspacePath string) (capability.Client, func()) {
 	toolNameByName := map[string]bool{}
 	for _, toolName := range toolNames {
 		trimmedToolName := strings.TrimSpace(toolName)
@@ -926,33 +975,31 @@ func startVirtualCapabilityServer(toolNames []string) (capability.Client, func()
 			toolNameByName[trimmedToolName] = true
 		}
 	}
-	server := httptest.NewServer(http.HandlerFunc(virtualCapabilityHandler(toolNameByName)))
+	service := &virtualCapabilityService{toolNameByName: toolNameByName, workspacePath: workspacePath}
+	server := httptest.NewServer(http.HandlerFunc(service.handleRequest))
 	return capability.Client{
 		Endpoint:   server.URL,
 		HTTPClient: server.Client(),
 	}, server.Close
 }
 
-func virtualCapabilityHandler(toolNameByName map[string]bool) http.HandlerFunc {
-	return func(responseWriter http.ResponseWriter, request *http.Request) {
-		responseWriter.Header().Set("Content-Type", "application/json")
-		if request.Method == http.MethodGet && request.URL.Path == "/v1/capabilities" {
-			_, _ = responseWriter.Write([]byte(virtualCapabilityCatalogResponse(toolNameByName)))
-			return
-		}
-		if request.Method != http.MethodPost || !strings.HasPrefix(request.URL.Path, "/v1/tools/") || !strings.HasSuffix(request.URL.Path, "/invoke") {
-			http.Error(responseWriter, "unsupported virtual capability endpoint", http.StatusNotFound)
-			return
-		}
-		toolName := strings.TrimPrefix(request.URL.Path, "/v1/tools/")
-		toolName = strings.TrimSuffix(toolName, "/invoke")
-		if !toolNameByName[toolName] {
-			http.Error(responseWriter, "unknown virtual capability tool", http.StatusNotFound)
-			return
-		}
-		requestBody, _ := io.ReadAll(request.Body)
-		_, _ = responseWriter.Write([]byte(virtualCapabilityResponse(toolName, requestBody)))
+func (service *virtualCapabilityService) handleRequest(responseWriter http.ResponseWriter, request *http.Request) {
+	responseWriter.Header().Set("Content-Type", "application/json")
+	if request.Method == http.MethodGet && request.URL.Path == "/v1/capabilities" {
+		_, _ = responseWriter.Write([]byte(virtualCapabilityCatalogResponse(service.toolNameByName)))
+		return
 	}
+	if request.Method != http.MethodPost || !strings.HasPrefix(request.URL.Path, "/v1/tools/") || !strings.HasSuffix(request.URL.Path, "/invoke") {
+		http.Error(responseWriter, "unsupported virtual capability endpoint", http.StatusNotFound)
+		return
+	}
+	toolName := strings.TrimSuffix(strings.TrimPrefix(request.URL.Path, "/v1/tools/"), "/invoke")
+	if !service.toolNameByName[toolName] {
+		http.Error(responseWriter, "unknown virtual capability tool", http.StatusNotFound)
+		return
+	}
+	requestBody, _ := io.ReadAll(request.Body)
+	_, _ = responseWriter.Write([]byte(service.response(toolName, requestBody)))
 }
 
 func virtualCapabilityCatalogResponse(toolNameByName map[string]bool) string {
@@ -963,49 +1010,67 @@ func virtualCapabilityCatalogResponse(toolNameByName map[string]bool) string {
 	sort.Strings(toolNames)
 	descriptors := []string{}
 	for _, toolName := range toolNames {
-		descriptors = append(descriptors, `{"name":`+quote(toolName)+`,"description":"Virtual capability `+toolName+`","inputSchema":{"type":"object"}}`)
+		descriptors = append(descriptors, `{"name":`+quote(toolName)+`,"description":"Virtual capability `+toolName+`","inputSchema":`+virtualCapabilityInputSchema(toolName)+`}`)
 	}
-	return `{"capabilities":[` + strings.Join(descriptors, ",") + `]}`
+	return `{"deviceCapabilities":[` + strings.Join(descriptors, ",") + `]}`
 }
 
-func (client virtualCapabilityHTTPClient) Do(request *http.Request) (*http.Response, error) {
-	toolName := strings.TrimPrefix(request.URL.Path, "/v1/tools/")
-	toolName = strings.TrimSuffix(toolName, "/invoke")
-	if !client.toolNameByName[toolName] {
-		return virtualCapabilityHTTPResponse(http.StatusNotFound, "unknown virtual capability tool"), nil
-	}
-	requestBody, _ := io.ReadAll(request.Body)
-	return virtualCapabilityHTTPResponse(http.StatusOK, virtualCapabilityResponse(toolName, requestBody)), nil
-}
-
-func virtualCapabilityHTTPResponse(statusCode int, body string) *http.Response {
-	return &http.Response{
-		StatusCode: statusCode,
-		Header:     http.Header{"Content-Type": []string{"application/json"}},
-		Body:       io.NopCloser(strings.NewReader(body)),
-	}
-}
-
-func virtualCapabilityResponse(toolName string, requestBody []byte) string {
+func (service *virtualCapabilityService) response(toolName string, requestBody []byte) string {
+	service.mutex.Lock()
+	defer service.mutex.Unlock()
 	switch toolName {
+	case "task.add", "task.list", "task.update", "task.delete":
+		return service.taskResponse(toolName, requestBody)
+	case "calendar.add", "calendar.list", "calendar.update", "calendar.delete":
+		return service.calendarResponse(toolName, requestBody)
 	case "site.create":
-		return `{"provider":"virtual","toolName":"site.create","status":"ok","result":{"siteID":"site-1","slug":"demo","workspacePath":"/workspace/circles/staff/sites/demo","sourceWorkspacePath":"/workspace/circles/staff/sites/demo/draft","appWorkspacePath":"/workspace/circles/staff/sites/demo/draft/app","sourceFiles":` + virtualSiteCreateSourceFiles(requestBody) + `}}`
+		if service.site != nil {
+			return virtualCapabilityJSON(map[string]any{"provider": "virtual", "toolName": toolName, "status": "error", "message": "virtual site already exists"})
+		}
+		input := virtualCapabilityInput(requestBody)
+		if strings.TrimSpace(stringValue(input["title"])) == "" {
+			return virtualCapabilityJSON(map[string]any{"provider": "virtual", "toolName": toolName, "status": "error", "message": "title is required"})
+		}
+		service.site = &virtualCapabilityRecord{ID: "site-1", Values: input}
+		_ = os.MkdirAll(filepath.Join(service.workspacePath, "circles", "staff", "sites", "demo", "draft", "app", "public"), 0o770)
+		return `{"provider":"virtual","toolName":"site.create","status":"ok","result":{"siteID":"site-1","slug":"demo","title":` + quote(stringValue(input["title"])) + `,"workspacePath":"/workspace/circles/staff/sites/demo","sourceWorkspacePath":"/workspace/circles/staff/sites/demo/draft","appWorkspacePath":"/workspace/circles/staff/sites/demo/draft/app","sourceFiles":` + virtualSiteCreateSourceFiles(requestBody) + `}}`
 	case "site.publish":
+		if !service.ensureVirtualSite(requestBody) {
+			return virtualCapabilityNotFound(toolName, "site")
+		}
+		service.sitePublished = true
 		return `{"provider":"virtual","toolName":"site.publish","status":"ok","result":{"siteID":"site-1","status":"published","publishedURL":"https://demo.device.intern.kim"}}`
 	case "site.status":
-		return `{"provider":"virtual","toolName":"site.status","status":"ok","result":{"siteID":"site-1","slug":"demo","status":"draft","workspacePath":"/workspace/circles/staff/sites/demo","sourceWorkspacePath":"/workspace/circles/staff/sites/demo/draft","appWorkspacePath":"/workspace/circles/staff/sites/demo/draft/app"}}`
+		if !service.ensureVirtualSite(requestBody) {
+			return virtualCapabilityNotFound(toolName, "site")
+		}
+		status := "draft"
+		if service.sitePublished {
+			status = "published"
+		}
+		return `{"provider":"virtual","toolName":"site.status","status":"ok","result":{"siteID":"site-1","slug":"demo","status":` + quote(status) + `,"workspacePath":"/workspace/circles/staff/sites/demo","sourceWorkspacePath":"/workspace/circles/staff/sites/demo/draft","appWorkspacePath":"/workspace/circles/staff/sites/demo/draft/app"}}`
 	case "site.logs":
 		return `{"provider":"virtual","toolName":"site.logs","status":"ok","result":{"logs":[]}}`
 	case "site.delete":
 		if virtualCapabilityRequestNeedsApproval(requestBody) {
 			return `{"provider":"virtual","toolName":"site.delete","status":"denied","content":"requires approval","message":"requires approval","errorCode":"approval_required","failureStage":"authorization","result":{"errorCode":"approval_required","failureStage":"authorization","message":"requires approval"}}`
 		}
+		if !service.ensureVirtualSite(requestBody) {
+			return virtualCapabilityNotFound(toolName, "site")
+		}
+		service.site = nil
+		service.sitePublished = false
+		_ = os.RemoveAll(filepath.Join(service.workspacePath, "circles", "staff", "sites", "demo"))
 		return `{"provider":"virtual","toolName":"site.delete","status":"ok","content":"deleted virtual site","result":{"siteID":"site-1","slug":"demo","status":"deleted"}}`
 	case "image.read":
 		return `{"provider":"virtual","toolName":"image.read","status":"ok","content":"image loaded","result":{"attachments":[{"devicePath":"/workspace/circles/staff/inbox/virtual/virtual-conversation-1/virtual-message-001/mascot.png","filename":"mascot.png","contentType":"image/png","sizeBytes":13,"contentBase64":"dmlydHVhbC1pbWFnZQ=="}]}}`
 	case "web.search":
 		return `{"provider":"virtual","toolName":"web.search","status":"ok","content":"BlueclawSearchStubToken virtual search result","result":{"query":"current external information acceptance test","results":[{"title":"BlueclawSearchStubToken result","url":"https://example.test/blueclaw-search-stub","snippet":"Deterministic virtual search result for BlueclawSearchStubToken."}]}}`
 	case "message.send":
+		messageInput := virtualCapabilityInput(requestBody)
+		if errorValue := validateVirtualMessageSendInput(messageInput); errorValue != nil {
+			return virtualCapabilityJSON(map[string]any{"provider": "virtual", "toolName": toolName, "status": "error", "message": errorValue.Error()})
+		}
 		if virtualPlatformMessageSendRequiresApproval(requestBody) {
 			return `{"provider":"virtual","toolName":"message.send","status":"denied","content":"requires approval","message":"requires approval","errorCode":"approval_required","failureStage":"authorization","result":{"errorCode":"approval_required","failureStage":"authorization","message":"requires approval"}}`
 		}
@@ -1013,6 +1078,223 @@ func virtualCapabilityResponse(toolName string, requestBody []byte) string {
 	default:
 		return `{"provider":"virtual","toolName":` + quote(toolName) + `,"status":"ok","result":{"toolName":` + quote(toolName) + `,"ok":true,"request":` + jsonObjectOrEmpty(requestBody) + `}}`
 	}
+}
+
+func (service *virtualCapabilityService) ensureVirtualSite(requestBody []byte) bool {
+	if service.site != nil {
+		return true
+	}
+	input := virtualCapabilityInput(requestBody)
+	if strings.TrimSpace(stringValue(input["siteID"])) == "" && strings.TrimSpace(stringValue(input["slug"])) == "" && strings.TrimSpace(stringValue(input["title"])) == "" {
+		return false
+	}
+	service.site = &virtualCapabilityRecord{ID: "site-1", Values: input}
+	return true
+}
+
+func validateVirtualMessageSendInput(input map[string]any) error {
+	if strings.TrimSpace(stringValue(input["message"])) == "" {
+		return errors.New("message is required")
+	}
+	switch stringValue(input["targetType"]) {
+	case "directMessage":
+		personHints, _ := input["personHints"].([]any)
+		if strings.TrimSpace(stringValue(input["personHint"])) == "" && len(personHints) == 0 {
+			return errors.New("personHint or personHints is required for directMessage")
+		}
+	case "channel":
+		if strings.TrimSpace(stringValue(input["channelName"])) == "" && strings.TrimSpace(stringValue(input["channelID"])) == "" {
+			return errors.New("channelName or channelID is required for channel")
+		}
+	case "currentThread", "currentChannel":
+	default:
+		return errors.New("targetType is required")
+	}
+	return nil
+}
+
+func virtualCapabilityInputSchema(toolName string) string {
+	switch toolName {
+	case "task.add":
+		return `{"type":"object","properties":{"prompt":{"type":"string"},"targetPersonHint":{"type":"string"},"weekCode":{"type":"string"},"allowDuplicate":{"type":"boolean"}},"required":["prompt"],"additionalProperties":false}`
+	case "task.list":
+		return `{"type":"object","properties":{"query":{"type":"string"},"targetPersonHint":{"type":"string"},"weekFrom":{"type":"integer"},"weekTo":{"type":"integer"},"status":{"type":"string"},"limit":{"type":"integer"}},"additionalProperties":false}`
+	case "task.update":
+		return `{"type":"object","properties":{"taskID":{"type":"string"},"query":{"type":"string"},"targetPersonHint":{"type":"string"},"weekCode":{"type":"string"},"content":{"type":"string"},"goal":{"type":"string"},"status":{"type":"string"},"size":{"type":"string"},"category":{"type":"string"},"type":{"type":"string"},"startDate":{"type":"string"},"endDate":{"type":"string"},"flag":{"type":"integer"},"requestReason":{"type":"string"},"decisionReason":{"type":"string"}},"additionalProperties":false}`
+	case "task.delete":
+		return `{"type":"object","properties":{"taskID":{"type":"string"},"query":{"type":"string"},"weekCode":{"type":"string"},"targetPersonHint":{"type":"string"}},"additionalProperties":false}`
+	case "calendar.add":
+		return `{"type":"object","properties":{"title":{"type":"string"},"startISO":{"type":"string"},"endISO":{"type":"string"},"description":{"type":"string"},"location":{"type":"string"},"timeZone":{"type":"string"},"people":{"type":"array","items":{"type":"string"}},"includeRequester":{"type":"boolean"}},"required":["title","startISO","endISO"],"additionalProperties":false}`
+	case "calendar.list":
+		return `{"type":"object","properties":{"startISO":{"type":"string"},"endISO":{"type":"string"},"query":{"type":"string"},"limit":{"type":"integer"}},"additionalProperties":false}`
+	case "calendar.update":
+		return `{"type":"object","properties":{"eventID":{"type":"string"},"query":{"type":"string"},"title":{"type":"string"},"startISO":{"type":"string"},"endISO":{"type":"string"},"description":{"type":"string"},"location":{"type":"string"},"timeZone":{"type":"string"},"people":{"type":"array","items":{"type":"string"}},"includeRequester":{"type":"boolean"}},"required":["title","startISO","endISO"],"additionalProperties":false}`
+	case "calendar.delete":
+		return `{"type":"object","properties":{"eventID":{"type":"string"},"query":{"type":"string"}},"additionalProperties":false}`
+	case "site.create":
+		return `{"type":"object","properties":{"slug":{"type":"string"},"title":{"type":"string"},"prompt":{"type":"string"},"designBrief":{"type":"string"},"prototypeScope":{"type":"string"},"description":{"type":"string"},"idea":{"type":"string"},"purpose":{"type":"string"},"audience":{"type":"string"},"archetype":{"type":"string"},"domainKeywords":{"type":"array","items":{"type":"string"}},"content":{"type":"object"}},"required":["slug"],"additionalProperties":false}`
+	case "site.status", "site.publish", "site.delete":
+		return `{"type":"object","properties":{"siteID":{"type":"string"},"slug":{"type":"string"},"title":{"type":"string"},"message":{"type":"string"}},"additionalProperties":false}`
+	case "message.send":
+		return `{"type":"object","properties":{"targetType":{"type":"string","enum":["directMessage","currentThread","currentChannel","channel"]},"personHint":{"type":"string"},"personHints":{"type":"array","items":{"type":"string"}},"channelName":{"type":"string"},"channelID":{"type":"string"},"message":{"type":"string"}},"required":["targetType","message"],"additionalProperties":false}`
+	default:
+		return `{"type":"object"}`
+	}
+}
+
+func (service *virtualCapabilityService) taskResponse(toolName string, requestBody []byte) string {
+	input := virtualCapabilityInput(requestBody)
+	switch toolName {
+	case "task.add":
+		values := copyVirtualCapabilityValues(input)
+		values["content"] = values["prompt"]
+		delete(values, "prompt")
+		record := virtualCapabilityRecord{ID: fmt.Sprintf("task-%d", len(service.tasks)+1), Values: values}
+		record.Values["taskID"] = record.ID
+		service.tasks = append(service.tasks, record)
+		return virtualCapabilitySuccess(toolName, "created virtual task", map[string]any{"task": record.Values})
+	case "task.list":
+		return virtualCapabilitySuccess(toolName, "listed virtual tasks", map[string]any{"tasks": virtualCapabilityRecordValues(service.tasks)})
+	case "task.update":
+		index := virtualCapabilityRecordIndex(service.tasks, input, "taskID")
+		if index < 0 {
+			return virtualCapabilityNotFound(toolName, "task")
+		}
+		mergeVirtualCapabilityRecord(service.tasks[index].Values, input, "taskID", "query")
+		return virtualCapabilitySuccess(toolName, "updated virtual task", map[string]any{"task": service.tasks[index].Values})
+	default:
+		if virtualCapabilityRequestNeedsApproval(requestBody) {
+			return virtualCapabilityApprovalRequired(toolName)
+		}
+		index := virtualCapabilityRecordIndex(service.tasks, input, "taskID")
+		if index < 0 {
+			return virtualCapabilityNotFound(toolName, "task")
+		}
+		deletedRecord := service.tasks[index]
+		service.tasks = append(service.tasks[:index], service.tasks[index+1:]...)
+		return virtualCapabilitySuccess(toolName, "deleted virtual task", map[string]any{"task": deletedRecord.Values, "status": "deleted"})
+	}
+}
+
+func (service *virtualCapabilityService) calendarResponse(toolName string, requestBody []byte) string {
+	input := virtualCapabilityInput(requestBody)
+	switch toolName {
+	case "calendar.add":
+		record := virtualCapabilityRecord{ID: fmt.Sprintf("event-%d", len(service.events)+1), Values: input}
+		record.Values["eventID"] = record.ID
+		service.events = append(service.events, record)
+		return virtualCapabilitySuccess(toolName, "created virtual calendar event", map[string]any{"event": record.Values})
+	case "calendar.list":
+		return virtualCapabilitySuccess(toolName, "listed virtual calendar events", map[string]any{"events": virtualCapabilityRecordValues(service.events)})
+	case "calendar.update":
+		if strings.TrimSpace(stringValue(input["query"])) == "" {
+			input["query"] = strings.TrimSpace(stringValue(input["title"]))
+		}
+		index := virtualCapabilityRecordIndex(service.events, input, "eventID")
+		if index < 0 {
+			return virtualCapabilityNotFound(toolName, "calendar event")
+		}
+		mergeVirtualCapabilityRecord(service.events[index].Values, input, "eventID", "query")
+		return virtualCapabilitySuccess(toolName, "updated virtual calendar event", map[string]any{"event": service.events[index].Values})
+	default:
+		if virtualCapabilityRequestNeedsApproval(requestBody) {
+			return virtualCapabilityApprovalRequired(toolName)
+		}
+		index := virtualCapabilityRecordIndex(service.events, input, "eventID")
+		if index < 0 {
+			return virtualCapabilityNotFound(toolName, "calendar event")
+		}
+		deletedRecord := service.events[index]
+		service.events = append(service.events[:index], service.events[index+1:]...)
+		return virtualCapabilitySuccess(toolName, "deleted virtual calendar event", map[string]any{"event": deletedRecord.Values, "status": "deleted"})
+	}
+}
+
+func copyVirtualCapabilityValues(values map[string]any) map[string]any {
+	copiedValues := make(map[string]any, len(values)+1)
+	for fieldName, value := range values {
+		copiedValues[fieldName] = value
+	}
+	return copiedValues
+}
+
+func virtualCapabilityInput(requestBody []byte) map[string]any {
+	var requestDocument struct {
+		Input map[string]any `json:"input"`
+	}
+	if json.Unmarshal(requestBody, &requestDocument) != nil || requestDocument.Input == nil {
+		return map[string]any{}
+	}
+	return requestDocument.Input
+}
+
+func virtualCapabilityRecordIndex(records []virtualCapabilityRecord, input map[string]any, idFieldName string) int {
+	requestedID := strings.TrimSpace(stringValue(input[idFieldName]))
+	query := strings.ToLower(strings.TrimSpace(stringValue(input["query"])))
+	for index, record := range records {
+		if requestedID != "" && record.ID == requestedID {
+			return index
+		}
+		if query != "" && virtualCapabilityRecordContains(record, query) {
+			return index
+		}
+	}
+	return -1
+}
+
+func virtualCapabilityRecordContains(record virtualCapabilityRecord, query string) bool {
+	document, errorValue := json.Marshal(record.Values)
+	return errorValue == nil && strings.Contains(strings.ToLower(string(document)), query)
+}
+
+func mergeVirtualCapabilityRecord(record map[string]any, input map[string]any, excludedFieldNames ...string) {
+	excludedFields := map[string]bool{}
+	for _, fieldName := range excludedFieldNames {
+		excludedFields[fieldName] = true
+	}
+	for fieldName, value := range input {
+		if !excludedFields[fieldName] {
+			record[fieldName] = value
+		}
+	}
+}
+
+func virtualCapabilityRecordValues(records []virtualCapabilityRecord) []map[string]any {
+	values := make([]map[string]any, 0, len(records))
+	for _, record := range records {
+		values = append(values, record.Values)
+	}
+	return values
+}
+
+func virtualCapabilitySuccess(toolName string, content string, result any) string {
+	return virtualCapabilityJSON(map[string]any{"provider": "virtual", "toolName": toolName, "status": "ok", "content": content, "result": result})
+}
+
+func virtualCapabilityApprovalRequired(toolName string) string {
+	result := map[string]any{"errorCode": "approval_required", "failureStage": "authorization", "message": "requires approval"}
+	return virtualCapabilityJSON(map[string]any{"provider": "virtual", "toolName": toolName, "status": "denied", "content": "requires approval", "message": "requires approval", "errorCode": "approval_required", "failureStage": "authorization", "result": result})
+}
+
+func virtualCapabilityNotFound(toolName string, resourceName string) string {
+	message := "virtual " + resourceName + " not found"
+	return virtualCapabilityJSON(map[string]any{"provider": "virtual", "toolName": toolName, "status": "error", "content": message, "message": message, "errorCode": "not_found", "failureStage": "lookup", "result": map[string]any{"message": message}})
+}
+
+func virtualCapabilityJSON(document any) string {
+	encodedDocument, errorValue := json.Marshal(document)
+	if errorValue != nil {
+		return `{"provider":"virtual","status":"error","message":"virtual response encoding failed"}`
+	}
+	return string(encodedDocument)
+}
+
+func stringValue(value any) string {
+	text, isString := value.(string)
+	if !isString {
+		return ""
+	}
+	return text
 }
 
 func virtualSiteCreateSourceFiles(requestBody []byte) string {
@@ -1097,7 +1379,7 @@ func (harness *VirtualSessionHarness) Run(ctx context.Context) (VirtualSessionRe
 		if harness.scriptedModel != nil {
 			if strings.TrimSpace(virtualTurn.RouterApproval) != "" {
 				harness.scriptedModel.EnqueueStructuredResponses("blueclaw_turn_router", scenarioApprovalRouterResponse(virtualTurn.RouterApproval))
-			} else if len(virtualTurn.RouterRequiredEvidence) > 0 || strings.TrimSpace(virtualTurn.RouterSiteEvidence) != "" || virtualTurnExpectsEvent(virtualTurn, "ask.resolved") {
+			} else if len(virtualTurn.RouterRequiredEvidence) > 0 || strings.TrimSpace(virtualTurn.RouterSiteEvidence) != "" || virtualTurnExpectsEvent(virtualTurn, "ask.requested") || virtualTurnExpectsEvent(virtualTurn, "ask.resolved") {
 				harness.scriptedModel.EnqueueStructuredResponses("blueclaw_turn_router", scenarioTurnRouterResponse(harness.scenario, virtualTurn))
 			}
 			harness.scriptedModel.SetActionResponses(virtualTurn.ActionResponses...)
@@ -1107,10 +1389,10 @@ func (harness *VirtualSessionHarness) Run(ctx context.Context) (VirtualSessionRe
 			return result, errorValue
 		}
 		turnResult.InformationalAssertions = informationalAssertionResults(virtualTurn, turnResult)
+		result.TurnResults = append(result.TurnResults, turnResult)
 		if errorValue := harness.assertTurnResult(virtualTurn, turnResult); errorValue != nil {
 			return result, fmt.Errorf("%s turn %d: %w", harness.scenario.Name, index+1, errorValue)
 		}
-		result.TurnResults = append(result.TurnResults, turnResult)
 		harness.rememberTurn(virtualTurn, turnResult)
 	}
 	result.TaskSchedules = harness.scheduleStore.TaskSchedules()
@@ -1139,11 +1421,34 @@ func scenarioDefaultResponses(scenario VirtualSessionScenario) map[string]string
 	if strings.TrimSpace(scenario.AddressingResponse) != "" {
 		defaultResponses["blueclaw_addressing_classification"] = strings.TrimSpace(scenario.AddressingResponse)
 	}
+	if virtualEvidenceRequiresExternalSend(scenario.RouterRequiredEvidence) {
+		defaultResponses["blueclaw_execution_plan"] = `{"originalInstruction":"scripted external send","summary":"scripted external send","targets":[],"schedule":"","startAt":"","endAt":"","cadence":"","externalSend":true,"thirdPartyExternalSend":true,"repeated":false,"highFrequency":false,"destructive":false,"permissionChange":false,"publicDeploy":false,"paidAction":false,"missingInformation":[],"continuationInstruction":"scripted external send"}`
+	}
+	if scenario.ScriptedExecutionPlan != nil {
+		if document, errorValue := json.Marshal(scenario.ScriptedExecutionPlan); errorValue == nil {
+			defaultResponses["blueclaw_execution_plan"] = string(document)
+		}
+	}
+	if reply := strings.TrimSpace(scenario.ScriptedConfirmationReply); reply != "" {
+		if document, errorValue := json.Marshal(map[string]string{"reply": reply}); errorValue == nil {
+			defaultResponses["blueclaw_confirmation_message"] = string(document)
+		}
+	}
 	if len(scenario.InitialToolNames) == 0 && len(scenario.RouterRequiredEvidence) == 0 {
 		return defaultResponses
 	}
 	defaultResponses["blueclaw_turn_router"] = scenarioTurnRouterResponse(scenario, VirtualTurn{})
 	return defaultResponses
+}
+
+func virtualEvidenceRequiresExternalSend(requiredEvidence []string) bool {
+	for _, toolName := range requiredEvidence {
+		switch strings.TrimSpace(toolName) {
+		case "message.send", "mail.message.send", "google.gmail.send", "slack.message.send":
+			return true
+		}
+	}
+	return false
 }
 
 func scenarioApprovalRouterResponse(approval string) string {
@@ -1216,6 +1521,7 @@ func virtualTurnExpectsEvent(virtualTurn VirtualTurn, eventName string) bool {
 }
 
 func (harness *VirtualSessionHarness) runTurn(ctx context.Context, index int, virtualTurn VirtualTurn) (VirtualTurnResult, error) {
+	reactionStartIndex := harness.adapter.ReactionCount()
 	modelRequestStartIndex := 0
 	if harness.requestRecorder != nil {
 		modelRequestStartIndex = harness.requestRecorder.RequestCount()
@@ -1261,31 +1567,38 @@ func (harness *VirtualSessionHarness) runTurn(ctx context.Context, index int, vi
 	if errorValue != nil {
 		return VirtualTurnResult{}, errorValue
 	}
-	if strings.TrimSpace(runtimeResult.TaskRunID) == "" {
-		return VirtualTurnResult{}, errors.New("virtual turn did not create a task run")
-	}
-	outboundReply, outboundReplyTarget, isFound := harness.adapter.FindReply(runtimeResult.ReplyDispatchID)
-	if !isFound {
-		events := harness.taskEventService.ListTaskEvent(runtimeResult.TaskRunID)
-		return VirtualTurnResult{}, fmt.Errorf("virtual turn did not dispatch a reply; events: %s", summarizeEvents(events))
-	}
-	taskRun, isFound := harness.taskRunService.FindTaskRun(runtimeResult.TaskRunID)
-	if !isFound {
-		return VirtualTurnResult{}, errors.New("virtual turn task run not found")
-	}
-	return VirtualTurnResult{
+	turnResult := VirtualTurnResult{
+		Handled:                 runtimeResult.Handled,
+		Ignored:                 runtimeResult.Ignored,
+		Reason:                  runtimeResult.Reason,
+		Reactions:               harness.adapter.ReactionsSince(reactionStartIndex),
 		TaskRunID:               runtimeResult.TaskRunID,
-		TaskStatus:              taskRun.Status,
-		FailureReason:           taskRun.FailureReason,
-		FinishMessage:           outboundReply.Message,
-		ReplyTargetID:           outboundReplyTarget.ReplyTargetID,
-		Attachments:             outboundReply.Attachments,
-		Events:                  harness.taskEventService.ListTaskEvent(runtimeResult.TaskRunID),
 		LanguageModelCallEvents: harness.modelCallsSince(modelCallStartIndex),
 		ModelContext:            harness.modelContextSince(modelRequestStartIndex),
 		ModelImagePartCount:     harness.modelImagePartCountSince(modelRequestStartIndex),
 		UserModelImagePartCount: harness.userModelImagePartCountSince(modelRequestStartIndex),
-	}, nil
+	}
+	if strings.TrimSpace(runtimeResult.TaskRunID) != "" {
+		taskRun, isFound := harness.taskRunService.FindTaskRun(runtimeResult.TaskRunID)
+		if !isFound {
+			return VirtualTurnResult{}, errors.New("virtual turn task run not found")
+		}
+		turnResult.TaskStatus = taskRun.Status
+		turnResult.FailureReason = taskRun.FailureReason
+		turnResult.Events = harness.taskEventService.ListTaskEvent(runtimeResult.TaskRunID)
+	}
+	if strings.TrimSpace(runtimeResult.ReplyDispatchID) == "" {
+		return turnResult, nil
+	}
+	outboundReply, outboundReplyTarget, isFound := harness.adapter.FindReply(runtimeResult.ReplyDispatchID)
+	if !isFound {
+		return VirtualTurnResult{}, fmt.Errorf("virtual turn reply dispatch %q was not recorded", runtimeResult.ReplyDispatchID)
+	}
+	turnResult.DidReply = true
+	turnResult.FinishMessage = outboundReply.Message
+	turnResult.ReplyTargetID = outboundReplyTarget.ReplyTargetID
+	turnResult.Attachments = outboundReply.Attachments
+	return turnResult, nil
 }
 
 func virtualReplyTargetID(index int, virtualTurn VirtualTurn) string {
@@ -1344,10 +1657,10 @@ func (harness *VirtualSessionHarness) modelImagePartCountByRoleSince(startIndex 
 }
 
 func (harness *VirtualSessionHarness) rememberTurn(virtualTurn VirtualTurn, turnResult VirtualTurnResult) {
-	harness.history = append(harness.history,
-		connectors.VisibleContextMessage{Speaker: "user", SpeakerCallingName: "동하 님", SpeakerHandle: "dongha", Text: virtualTurn.Prompt},
-		connectors.VisibleContextMessage{Speaker: "assistant", SpeakerCallingName: "김인턴", SpeakerHandle: "internkim", Text: turnResult.FinishMessage},
-	)
+	harness.history = append(harness.history, connectors.VisibleContextMessage{Speaker: "user", SpeakerCallingName: "동하 님", SpeakerHandle: "dongha", Text: virtualTurn.Prompt})
+	if turnResult.DidReply {
+		harness.history = append(harness.history, connectors.VisibleContextMessage{Speaker: "assistant", SpeakerCallingName: "김인턴", SpeakerHandle: "internkim", Text: turnResult.FinishMessage})
+	}
 }
 
 func virtualRequestRecorder(languageModel llm.LanguageModelProvider) virtualLanguageModelRequestRecorder {
@@ -1368,6 +1681,11 @@ func (harness *VirtualSessionHarness) modelCallsSince(startIndex int) []VirtualL
 }
 
 func (harness *VirtualSessionHarness) assertTurnResult(virtualTurn VirtualTurn, turnResult VirtualTurnResult) error {
+	if harness.scenario.FailOnLanguageModelError {
+		if errorValue := assertLanguageModelCallsSucceeded(turnResult.LanguageModelCallEvents); errorValue != nil {
+			return errorValue
+		}
+	}
 	if harness.scenario.UseLooseAssertions {
 		return assertLooseTurnResult(virtualTurn, turnResult)
 	}
@@ -1375,12 +1693,14 @@ func (harness *VirtualSessionHarness) assertTurnResult(virtualTurn VirtualTurn, 
 }
 
 func assertLooseTurnResult(virtualTurn VirtualTurn, turnResult VirtualTurnResult) error {
-	if strings.TrimSpace(turnResult.FinishMessage) == "" {
-		return errors.New("expected non-empty final reply")
+	if errorValue := assertResponseExpectation(virtualTurn, turnResult); errorValue != nil {
+		return errorValue
 	}
-	switch turnResult.TaskStatus {
-	case task.TaskStatusPlanned, task.TaskStatusRunning, task.TaskStatusInterrupted:
-		return fmt.Errorf("expected terminal or waiting task status, got %s", turnResult.TaskStatus)
+	if turnResult.TaskRunID != "" {
+		switch turnResult.TaskStatus {
+		case task.TaskStatusPlanned, task.TaskStatusRunning, task.TaskStatusInterrupted:
+			return fmt.Errorf("expected terminal or waiting task status, got %s", turnResult.TaskStatus)
+		}
 	}
 	return assertStructuralTurnExpectations(virtualTurn, turnResult)
 }
@@ -1394,6 +1714,20 @@ func informationalAssertionResults(virtualTurn VirtualTurn, turnResult VirtualTu
 			Detail:    toolName,
 		})
 	}
+	if len(virtualTurn.ExpectedAnyToolCalls) > 0 {
+		foundToolCall := ""
+		for _, toolName := range virtualTurn.ExpectedAnyToolCalls {
+			if requestedToolCallPresent(turnResult.Events, toolName) {
+				foundToolCall = toolName
+				break
+			}
+		}
+		results = append(results, VirtualInformationalAssertion{
+			Name:      "expected any tool call",
+			Satisfied: foundToolCall != "",
+			Detail:    foundToolCall,
+		})
+	}
 	for _, fragment := range virtualTurn.ExpectedReplyFragments {
 		results = append(results, VirtualInformationalAssertion{
 			Name:      "expected reply fragment",
@@ -1405,6 +1739,9 @@ func informationalAssertionResults(virtualTurn VirtualTurn, turnResult VirtualTu
 }
 
 func assertTurnResult(workspacePath string, virtualTurn VirtualTurn, turnResult VirtualTurnResult) error {
+	if errorValue := assertResponseExpectation(virtualTurn, turnResult); errorValue != nil {
+		return errorValue
+	}
 	for _, skillName := range virtualTurn.ExpectedSelectedSkills {
 		if !eventsContain(turnResult.Events, "agent.instructions_loaded", skillName) {
 			return fmt.Errorf("expected selected skill %q; events: %s", skillName, summarizeEvents(turnResult.Events))
@@ -1413,6 +1750,18 @@ func assertTurnResult(workspacePath string, virtualTurn VirtualTurn, turnResult 
 	for _, toolName := range virtualTurn.ExpectedToolCalls {
 		if !requestedToolCallPresent(turnResult.Events, toolName) {
 			return fmt.Errorf("expected requested tool %q; events: %s", toolName, summarizeEvents(turnResult.Events))
+		}
+	}
+	if len(virtualTurn.ExpectedAnyToolCalls) > 0 {
+		foundToolCall := false
+		for _, toolName := range virtualTurn.ExpectedAnyToolCalls {
+			if requestedToolCallPresent(turnResult.Events, toolName) {
+				foundToolCall = true
+				break
+			}
+		}
+		if !foundToolCall {
+			return fmt.Errorf("expected at least one requested tool call from %v; events: %s", virtualTurn.ExpectedAnyToolCalls, summarizeEvents(turnResult.Events))
 		}
 	}
 	for _, eventName := range virtualTurn.ExpectedEvents {
@@ -1446,6 +1795,11 @@ func assertTurnResult(workspacePath string, virtualTurn VirtualTurn, turnResult 
 			return errorValue
 		}
 	}
+	for _, forbiddenWorkspaceFile := range virtualTurn.ForbiddenWorkspaceFiles {
+		if errorValue := validateForbiddenWorkspaceFile(workspacePath, forbiddenWorkspaceFile); errorValue != nil {
+			return errorValue
+		}
+	}
 	for _, fragment := range virtualTurn.ExpectedModelContexts {
 		if !strings.Contains(turnResult.ModelContext, fragment) {
 			return fmt.Errorf("expected model context fragment %q", fragment)
@@ -1473,6 +1827,55 @@ func assertTurnResult(workspacePath string, virtualTurn VirtualTurn, turnResult 
 		return fmt.Errorf("expected reply length >= %d, got %d: %q", virtualTurn.MinimumReplyLength, len([]rune(turnResult.FinishMessage)), turnResult.FinishMessage)
 	}
 	return assertStructuralTurnExpectations(virtualTurn, turnResult)
+}
+
+func assertLanguageModelCallsSucceeded(events []VirtualLanguageModelCallEvent) error {
+	for _, event := range events {
+		if event.IsError {
+			return fmt.Errorf("language model call failed: %s", strings.TrimSpace(strings.Join([]string{event.Kind, event.SchemaName, event.Error}, " ")))
+		}
+	}
+	return nil
+}
+
+func assertResponseExpectation(virtualTurn VirtualTurn, turnResult VirtualTurnResult) error {
+	expectation := normalizedResponseExpectation(virtualTurn.ExpectedResponse)
+	switch expectation {
+	case VirtualResponseReply:
+		if !virtualTurnResultDidReply(turnResult) {
+			return fmt.Errorf("expected a text reply, got taskRunID=%q ignored=%v reason=%q", turnResult.TaskRunID, turnResult.Ignored, turnResult.Reason)
+		}
+	case VirtualResponseIgnore:
+		if turnResult.TaskRunID != "" || turnResult.DidReply || len(turnResult.Reactions) > 0 {
+			return fmt.Errorf("expected silent ignore, got taskRunID=%q reply=%v reactions=%v", turnResult.TaskRunID, turnResult.DidReply, turnResult.Reactions)
+		}
+	case VirtualResponseIgnoreOrReact:
+		if turnResult.TaskRunID != "" || turnResult.DidReply {
+			return fmt.Errorf("expected ignore or reaction only, got taskRunID=%q reply=%v", turnResult.TaskRunID, turnResult.DidReply)
+		}
+	case VirtualResponseReact:
+		if turnResult.TaskRunID != "" || turnResult.DidReply || len(turnResult.Reactions) == 0 {
+			return fmt.Errorf("expected reaction only, got taskRunID=%q reply=%v reactions=%v", turnResult.TaskRunID, turnResult.DidReply, turnResult.Reactions)
+		}
+	case VirtualResponseBackgroundAction:
+		if turnResult.TaskRunID == "" || turnResult.DidReply {
+			return fmt.Errorf("expected background action without reply, got taskRunID=%q reply=%v", turnResult.TaskRunID, turnResult.DidReply)
+		}
+	default:
+		return fmt.Errorf("unknown expected response %q", expectation)
+	}
+	return nil
+}
+
+func virtualTurnResultDidReply(turnResult VirtualTurnResult) bool {
+	return turnResult.DidReply || strings.TrimSpace(turnResult.FinishMessage) != ""
+}
+
+func normalizedResponseExpectation(expectation VirtualResponseExpectation) VirtualResponseExpectation {
+	if strings.TrimSpace(string(expectation)) == "" {
+		return VirtualResponseReply
+	}
+	return VirtualResponseExpectation(strings.TrimSpace(string(expectation)))
 }
 
 func assertStructuralTurnExpectations(virtualTurn VirtualTurn, turnResult VirtualTurnResult) error {
@@ -1558,6 +1961,22 @@ func validateExpectedWorkspaceFile(workspacePath string, expectation VirtualWork
 		if strings.Contains(document, fragment) {
 			return fmt.Errorf("expected %s not to contain %q", matches[len(matches)-1], fragment)
 		}
+	}
+	for fragment, expectedCount := range expectation.FragmentCounts {
+		if actualCount := strings.Count(document, fragment); actualCount != expectedCount {
+			return fmt.Errorf("expected %s to contain %q %d times, got %d", matches[len(matches)-1], fragment, expectedCount, actualCount)
+		}
+	}
+	return nil
+}
+
+func validateForbiddenWorkspaceFile(workspacePath string, pathGlob string) error {
+	matches, errorValue := filepath.Glob(filepath.Join(workspacePath, pathGlob))
+	if errorValue != nil {
+		return errorValue
+	}
+	if len(matches) > 0 {
+		return fmt.Errorf("forbidden workspace file matching %q remains: %s", pathGlob, matches[0])
 	}
 	return nil
 }
@@ -1740,8 +2159,8 @@ func allowedToolsOrDefault(allowedTools []string) []string {
 
 func terminalConfiguration(workspacePath string) config.TerminalConfiguration {
 	return config.TerminalConfiguration{
-		Mode:                  "firecrackerGuest",
-		WorkspaceRootPath:     workspacePath,
+		Mode:              "firecrackerGuest",
+		WorkspaceRootPath: workspacePath,
 
 		DeniedPathPrefixes:    []string{"/etc", "/private/etc", "/System", "/Library"},
 		TimeoutSecond:         120,
@@ -1786,6 +2205,7 @@ type virtualAdapter struct {
 	mutex         sync.Mutex
 	workspacePath string
 	replies       map[string]virtualReply
+	reactions     []connectors.ReactionTarget
 }
 
 type virtualReply struct {
@@ -1836,6 +2256,28 @@ func (adapter *virtualAdapter) FindReply(dispatchID string) (connectors.Outbound
 	defer adapter.mutex.Unlock()
 	reply, isFound := adapter.replies[dispatchID]
 	return reply.reply, reply.target, isFound
+}
+
+func (adapter *virtualAdapter) AddReaction(_ context.Context, target connectors.ReactionTarget) error {
+	adapter.mutex.Lock()
+	defer adapter.mutex.Unlock()
+	adapter.reactions = append(adapter.reactions, target)
+	return nil
+}
+
+func (adapter *virtualAdapter) ReactionCount() int {
+	adapter.mutex.Lock()
+	defer adapter.mutex.Unlock()
+	return len(adapter.reactions)
+}
+
+func (adapter *virtualAdapter) ReactionsSince(startIndex int) []connectors.ReactionTarget {
+	adapter.mutex.Lock()
+	defer adapter.mutex.Unlock()
+	if startIndex < 0 || startIndex > len(adapter.reactions) {
+		startIndex = 0
+	}
+	return append([]connectors.ReactionTarget{}, adapter.reactions[startIndex:]...)
 }
 
 func (adapter *virtualAdapter) FetchHistory(context.Context, string, int) (connectors.VisibleContext, error) {

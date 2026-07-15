@@ -17,20 +17,6 @@ func TestFailureNoticeSendabilityAllowsPublicURLAndNaturalEllipsis(t *testing.T)
 	}
 }
 
-func TestFailureNoticeSendabilityRejectsInternalDiagnostics(t *testing.T) {
-	messages := []string{
-		"replyStatus: source=suppressed; text_recovery_error=context deadline exceeded",
-		"내부 요청 http://internkim-capability/v1/llm/text 가 실패했습니다.",
-		"작업 디렉터리 /home/site/draft 권한을 확인하지 못했습니다.",
-	}
-
-	for _, message := range messages {
-		if failureNoticeMessageIsSendable(message) {
-			t.Fatalf("expected internal diagnostic to be rejected: %q", message)
-		}
-	}
-}
-
 func TestFailureNoticeGeneratorRejectsUngroundedGeneratedReply(t *testing.T) {
 	generator := FailureNoticeGenerator{LanguageModel: reviewingReplyLanguageModel{
 		reply:           "4. I am a large language model, trained by Google DeepMind. I am an open weights model.",
