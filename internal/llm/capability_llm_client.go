@@ -216,6 +216,7 @@ func (capabilityLLMClient CapabilityLLMClient) GenerateStructuredResponse(respon
 	}
 
 	return StructuredResponse{
+		Transport:       "capability",
 		ProviderName:    providerName,
 		ModelName:       modelName,
 		Content:         responseDocument.Content,
@@ -260,6 +261,7 @@ func (capabilityLLMClient CapabilityLLMClient) generateChatCompletion(responseCo
 	if response.Message.ToolCalls == nil {
 		response.Message.ToolCalls = []ChatCompletionToolCall{}
 	}
+	response.Transport = "capability"
 	return response, nil
 }
 

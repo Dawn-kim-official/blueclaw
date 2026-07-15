@@ -16,6 +16,7 @@ type ChatCompletionRequest struct {
 }
 
 type ChatCompletionResponse struct {
+	Transport        string                `json:"-"`
 	FinishReason     string                `json:"finishReason"`
 	ProviderName     string                `json:"provider"`
 	ModelName        string                `json:"model"`

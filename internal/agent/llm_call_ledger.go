@@ -14,6 +14,7 @@ const agentActionSchemaName = "blueclaw_agent_turn_action"
 
 type llmCallRecord struct {
 	Kind                  string  `json:"kind"`
+	Transport             string  `json:"transport,omitempty"`
 	SchemaName            string  `json:"schemaName,omitempty"`
 	Provider              string  `json:"provider,omitempty"`
 	Model                 string  `json:"model,omitempty"`
@@ -140,6 +141,7 @@ func (model observedLanguageModel) GenerateStructuredResponse(ctx context.Contex
 	response, errorValue := model.provider.GenerateStructuredResponse(ctx, request)
 	record := llmCallRecord{
 		Kind:                  "structured",
+		Transport:             response.Transport,
 		SchemaName:            strings.TrimSpace(request.StructuredOutputSchema.Name),
 		Provider:              response.ProviderName,
 		Model:                 response.ModelName,
@@ -244,6 +246,7 @@ func textCallRecord(kind string, prompt string, reply string, startedAt time.Tim
 func chatCallRecord(kind string, request llm.ChatCompletionRequest, response llm.ChatCompletionResponse, startedAt time.Time, errorValue error) llmCallRecord {
 	record := llmCallRecord{
 		Kind:                  kind,
+		Transport:             response.Transport,
 		SchemaName:            chatRequestSchemaName(request),
 		Provider:              response.ProviderName,
 		Model:                 response.ModelName,

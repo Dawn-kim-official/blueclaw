@@ -65,6 +65,7 @@ type Usage struct {
 }
 
 type StructuredResponse struct {
+	Transport       string
 	ProviderName    string
 	ModelName       string
 	Content         string
