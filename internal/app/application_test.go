@@ -619,3 +619,22 @@ func TestResolveTaskTierLanguageModelProvidersUsesSDKDWhenSelected(t *testing.T)
 		t.Fatalf("expected sdkd low tier primary provider, got %T", lowProvider.PrimaryProvider)
 	}
 }
+
+func TestResolveCappedTaskTierLanguageModelProvidersUsesSDKDWhenSelected(t *testing.T) {
+	authKeyPath := filepath.Join(t.TempDir(), "sdkd.key")
+	if errorValue := os.WriteFile(authKeyPath, []byte("installation-key"), 0o600); errorValue != nil {
+		t.Fatalf("expected auth key fixture: %v", errorValue)
+	}
+	runtimeConfiguration := configuredModelTierRuntime("low")
+	runtimeConfiguration.LanguageModel.DefaultProvider = "sdkd"
+	runtimeConfiguration.LanguageModel.SDKD.AuthKeyPath = authKeyPath
+	providers := resolveTaskTierLanguageModelProviders(runtimeConfiguration, slog.New(slog.DiscardHandler))
+
+	lowProvider, isFallbackProvider := providers.Low.(llm.FallbackLanguageModelProvider)
+	if !isFallbackProvider {
+		t.Fatalf("expected capped low tier fallback provider, got %T", providers.Low)
+	}
+	if _, isSDKDClient := lowProvider.PrimaryProvider.(llm.SDKDClient); !isSDKDClient {
+		t.Fatalf("expected capped sdkd low tier primary provider, got %T", lowProvider.PrimaryProvider)
+	}
+}

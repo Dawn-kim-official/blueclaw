@@ -1003,10 +1003,22 @@ type cappedModelTierProviders struct {
 }
 
 func resolveCappedTaskTierLanguageModelProviders(runtimeConfiguration config.RuntimeConfiguration, tierNames llm.ModelTierNames, maximumModelTier string, logger *slog.Logger) taskTierLanguageModelProviders {
+	hasConfigurationError := false
 	providerFactory := func(modelName string) llm.LanguageModelProvider {
-		return llm.NewCapabilityLLMClientForModel(runtimeConfiguration, modelName)
+		provider, errorValue := llm.NewConfiguredLanguageModelProviderForModel(runtimeConfiguration, modelName)
+		if errorValue == nil {
+			return provider
+		}
+		hasConfigurationError = true
+		if logger != nil {
+			logger.Error("language model provider configuration failed", "model", modelName, "error", errorValue.Error())
+		}
+		return nil
 	}
 	providers := buildCappedModelTierProviders(tierNames, providerFactory, logger)
+	if hasConfigurationError {
+		return taskTierLanguageModelProviders{}
+	}
 	if logger != nil {
 		logger.Info("resolved capped task model tiers", "maximumModelTier", maximumModelTier, "xlow", tierNames.XLow, "lowVision", tierNames.Low)
 	}
