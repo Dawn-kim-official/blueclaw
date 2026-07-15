@@ -16,7 +16,6 @@ import type {
 import {
   generateText,
   jsonSchema,
-  Output,
   type ToolChoice,
   type LanguageModel,
   type ModelMessage,
@@ -27,7 +26,7 @@ import { SDKDAutoRoute, type SDKDConfiguration } from './configuration.ts';
 import { classifySDKDError, isRetryableProviderError, SDKDError } from './errors.ts';
 
 type ProviderRoute = {
-  constraintMode?: StructuredOutputConstraintMode.LlamaJSONSchema | StructuredOutputConstraintMode.OpenAIJSONSchema;
+  constraintMode?: StructuredOutputConstraintMode.NativeToolCall;
   languageModel: LanguageModel;
   modelName: string;
   providerName: 'llama.cpp' | 'openrouter';
@@ -39,7 +38,7 @@ export type ProviderLanguageModelFactory = {
   createOpenRouterLanguageModel(modelName: string, baseURL: string, apiKey: string, parallelToolCalls?: boolean): LanguageModel;
 };
 
-export type StructuredResponseGenerator = (request: StructuredResponseRequest) => Promise<StructuredResponse>;
+export type StructuredResponseGenerator = (request: StructuredResponseRequest, abortSignal?: AbortSignal) => Promise<StructuredResponse>;
 export type ChatCompletionGenerator = (request: ChatCompletionRequest, abortSignal?: AbortSignal) => Promise<ChatCompletionResponse>;
 
 type ProviderRequest = StructuredResponseRequest | ChatCompletionRequest;
@@ -56,14 +55,17 @@ export function createStructuredResponseGenerator(
   configuration: SDKDConfiguration,
   languageModelFactory: ProviderLanguageModelFactory = defaultLanguageModelFactory,
 ): StructuredResponseGenerator {
-  return async request => {
+  return async (request, abortSignal) => {
+    throwIfAborted(abortSignal);
     const routes = resolveProviderRoutes(request, configuration, languageModelFactory);
     let lastError: unknown;
     for (const route of routes) {
+      throwIfAborted(abortSignal);
       try {
-        return await generateForRoute(request, route);
+        return await generateForRoute(request, route, abortSignal);
       } catch (errorValue) {
         lastError = errorValue;
+        if (abortSignal?.aborted) throw errorValue;
         if (!isRetryableProviderError(errorValue)) break;
       }
     }
@@ -166,7 +168,7 @@ function createLlamaRoute(
     throw new SDKDError('configuration_invalid', 503, false, 'device structured output routing requires explicit conformance enablement');
   }
   return {
-    constraintMode: StructuredOutputConstraintMode.LlamaJSONSchema,
+    constraintMode: StructuredOutputConstraintMode.NativeToolCall,
     languageModel: languageModelFactory.createLlamaLanguageModel(
       configuration.llamaModel,
       configuration.llamaBaseURL,
@@ -191,7 +193,7 @@ function createOpenRouterRoute(
   const modelName = request.model?.trim();
   if (!modelName) throw new SDKDError('request_invalid', 400, false, 'remote routing requires a model');
   return {
-    constraintMode: StructuredOutputConstraintMode.OpenAIJSONSchema,
+    constraintMode: StructuredOutputConstraintMode.NativeToolCall,
     languageModel: languageModelFactory.createOpenRouterLanguageModel(
       modelName,
       configuration.openRouterBaseURL,
@@ -230,30 +232,31 @@ const defaultLanguageModelFactory: ProviderLanguageModelFactory = {
 async function generateForRoute(
   request: StructuredResponseRequest,
   route: ProviderRoute,
+  abortSignal?: AbortSignal,
 ): Promise<StructuredResponse> {
   const outputSchema = createValidatedOutputSchema(request.structuredOutputSchema.document);
+  const outputToolName = request.structuredOutputSchema.name;
   const result = await generateText({
     model: route.languageModel,
     system: systemContent(request),
     messages: convertConversationMessages(request),
-    output: Output.object({
-      name: request.structuredOutputSchema.name,
-      schema: outputSchema,
-    }),
+    tools: { [outputToolName]: { inputSchema: outputSchema } },
+    toolChoice: { type: 'tool', toolName: outputToolName },
     maxOutputTokens: request.generationOptions?.maxTokens,
     maxRetries: 0,
+    abortSignal,
     seed: request.generationOptions?.seed,
     temperature: request.generationOptions?.temperature,
   });
-  if (result.finishReason !== 'stop') {
-    throw new SDKDError('structured_output_invalid', 422, false, `structured output generation finished with ${result.finishReason}`);
-  }
+  const toolCall = requireStructuredOutputToolCall(result, outputToolName);
+  const content = JSON.stringify(toolCall.input);
+  if (content === undefined) throw new SDKDError('structured_output_invalid', 422, false, 'structured output tool arguments are not serializable');
   return {
     provider: route.providerName,
     model: result.response.modelId || route.modelName,
-    content: JSON.stringify(result.output),
+    content,
     selectedBackend: route.selectedBackend,
-    finishReason: result.finishReason,
+    finishReason: 'stop',
     constraintMode: route.constraintMode,
     usage: {
       promptTokens: normalizeTokenCount(result.totalUsage.inputTokens),
@@ -265,6 +268,28 @@ async function generateForRoute(
     },
   };
 }
+
+function requireStructuredOutputToolCall(
+  result: StructuredOutputToolResult,
+  toolName: string,
+) {
+  if (result.finishReason !== 'tool-calls') {
+    throw new SDKDError('structured_output_invalid', 422, false, `structured output generation finished with ${result.finishReason}`);
+  }
+  if (result.toolCalls.length !== 1) {
+    throw new SDKDError('structured_output_invalid', 422, false, 'structured output generation must return exactly one tool call');
+  }
+  const toolCall = result.toolCalls[0];
+  if (toolCall === undefined || toolCall.toolName !== toolName || toolCall.invalid) {
+    throw new SDKDError('structured_output_invalid', 422, false, 'structured output generation returned an invalid tool call');
+  }
+  return toolCall;
+}
+
+type StructuredOutputToolResult = {
+  finishReason: string;
+  toolCalls: Array<{ toolName: string; input: unknown; invalid?: boolean }>;
+};
 
 async function generateChatForRoute(
   request: ChatCompletionRequest,
