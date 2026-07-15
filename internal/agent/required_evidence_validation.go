@@ -119,14 +119,18 @@ func missingRequiredEvidenceReport(intakeDecision IntakeDecision, outcomeContrac
 		return requiredEvidenceValidationReport{}
 	}
 	return requiredEvidenceValidationReport{
-		Reason: "side-effect task has no required evidence",
+		Reason: "side-effect task has no side-effect evidence",
 	}
 }
 
 func requiredEvidenceMissingForSideEffect(intakeDecision IntakeDecision, outcomeContract OutcomeContract, toolSet *ToolSet) bool {
-	if len(outcomeContract.RequiredEvidenceTools) > 0 {
+	if !intakeDecisionRequiresSideEffectEvidence(intakeDecision, toolSet) {
 		return false
 	}
+	return !requiredEvidenceIncludesSideEffect(toolSet, outcomeContract.RequiredEvidenceTools)
+}
+
+func intakeDecisionRequiresSideEffectEvidence(intakeDecision IntakeDecision, toolSet *ToolSet) bool {
 	if intakeDecision.Classification != IntakeClassificationBoundedTask {
 		return false
 	}
@@ -135,6 +139,15 @@ func requiredEvidenceMissingForSideEffect(intakeDecision IntakeDecision, outcome
 		hasArtifactOutputFormat(intakeDecision.RequestedOutputFormats) ||
 		intakeDecisionRequiresSiteEvidence(intakeDecision) ||
 		requiredEvidenceInitialToolsNeedEvidence(toolSet, intakeDecision.InitialToolNames)
+}
+
+func requiredEvidenceIncludesSideEffect(toolSet *ToolSet, toolNames []string) bool {
+	for _, toolName := range toolNames {
+		if requiredEvidenceToolNeedsSuccessfulSideEffect(toolSet, toolName) {
+			return true
+		}
+	}
+	return false
 }
 
 func requiredEvidenceInitialToolsNeedEvidence(toolSet *ToolSet, toolNames []string) bool {
