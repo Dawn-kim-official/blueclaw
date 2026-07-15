@@ -14,6 +14,7 @@ import (
 
 const defaultSDKDEndpoint = "http://blueclaw-sdkd"
 const sdkdLoopbackBridgeEndpoint = "http://127.0.0.1:18081/_internkim/sdkd"
+const sdkdMaximumBodySize = 8 * 1024 * 1024
 
 type sdkdHTTPError struct {
 	StatusCode          int
@@ -65,6 +66,16 @@ type SDKDClient struct {
 	GenerationOptions          GenerationOptions
 	StructuredFallbackProvider LanguageModelProvider
 	StructuredSchemaNames      []string
+}
+
+type sdkdChatCompletionRequestDocument struct {
+	Model             string                  `json:"model,omitempty"`
+	ExecutionMode     string                  `json:"executionMode"`
+	Context           *RequestContext         `json:"context,omitempty"`
+	Messages          []ChatCompletionMessage `json:"messages"`
+	Tools             []ChatCompletionTool    `json:"tools,omitempty"`
+	ToolChoice        json.RawMessage         `json:"toolChoice,omitempty"`
+	ParallelToolCalls bool                    `json:"parallelToolCalls"`
 }
 
 func NewSDKDClient(configuration SDKDClientConfiguration) SDKDClient {
@@ -134,6 +145,117 @@ func (client SDKDClient) GenerateStructuredResponse(responseContext context.Cont
 	}
 	fallbackResponse.UsedFallback = true
 	return fallbackResponse, nil
+}
+
+func (client SDKDClient) GenerateChatCompletion(responseContext context.Context, request ChatCompletionRequest) (ChatCompletionResponse, error) {
+	response, errorValue := client.generateSDKDChatCompletion(responseContext, request)
+	if errorValue == nil || client.LocalOnly || !isRetryableSDKDError(errorValue) {
+		return response, errorValue
+	}
+	if responseContext.Err() != nil {
+		return ChatCompletionResponse{}, responseContext.Err()
+	}
+	fallbackCompleter, isFallbackCompleter := client.TextProvider.(ChatCompleter)
+	if !isFallbackCompleter {
+		return response, errorValue
+	}
+	fallbackResponse, fallbackError := fallbackCompleter.GenerateChatCompletion(responseContext, request)
+	if fallbackError != nil {
+		return ChatCompletionResponse{}, fallbackError
+	}
+	if fallbackResponse.Message.ToolCalls == nil {
+		fallbackResponse.Message.ToolCalls = []ChatCompletionToolCall{}
+	}
+	fallbackResponse.UsedFallback = true
+	return fallbackResponse, nil
+}
+
+func (client SDKDClient) generateSDKDChatCompletion(responseContext context.Context, request ChatCompletionRequest) (ChatCompletionResponse, error) {
+	if client.HTTPClient == nil {
+		return ChatCompletionResponse{}, errors.New("sdkd http client is not configured")
+	}
+	if client.AuthKey == "" && client.Endpoint != sdkdLoopbackBridgeEndpoint {
+		return ChatCompletionResponse{}, errors.New("sdkd auth key is not configured")
+	}
+	requestDocument := sdkdChatCompletionRequestDocument{
+		Model:             client.ModelName,
+		ExecutionMode:     client.executionMode(),
+		Context:           requestContextPointer(responseContext),
+		Messages:          append([]ChatCompletionMessage{}, request.Messages...),
+		Tools:             append([]ChatCompletionTool{}, request.Tools...),
+		ToolChoice:        append(json.RawMessage{}, request.ToolChoice...),
+		ParallelToolCalls: request.ParallelToolCalls,
+	}
+	var response ChatCompletionResponse
+	if errorValue := client.postJSON(responseContext, "/v1/llm/chat", requestDocument, &response); errorValue != nil {
+		return ChatCompletionResponse{}, errorValue
+	}
+	if errorValue := validateSDKDChatCompletionResponse(response, client.LocalOnly); errorValue != nil {
+		return ChatCompletionResponse{}, errorValue
+	}
+	if response.Message.ToolCalls == nil {
+		response.Message.ToolCalls = []ChatCompletionToolCall{}
+	}
+	return response, nil
+}
+
+func validateSDKDChatCompletionResponse(response ChatCompletionResponse, isLocalOnly bool) error {
+	if strings.TrimSpace(response.ProviderName) == "" || strings.TrimSpace(response.ModelName) == "" {
+		return errors.New("sdkd chat response provider and model are required")
+	}
+	if response.Message.Role != "assistant" {
+		return errors.New("sdkd chat response message role must be assistant")
+	}
+	if response.SelectedBackend != "device" && response.SelectedBackend != "remote" {
+		return errors.New("sdkd chat response selected backend is invalid")
+	}
+	if isLocalOnly && response.SelectedBackend == "remote" {
+		return errors.New("sdkd remote chat response is forbidden in local-only mode")
+	}
+	if !isSDKDChatCompletionFinishReason(response.FinishReason) {
+		return errors.New("sdkd chat response finish reason is invalid")
+	}
+	if response.FinishReason == "tool_calls" && len(response.Message.ToolCalls) == 0 {
+		return errors.New("sdkd chat response tool_calls finish reason requires tool calls")
+	}
+	seenToolCallIDs := make(map[string]struct{}, len(response.Message.ToolCalls))
+	for _, toolCall := range response.Message.ToolCalls {
+		normalizedToolCallID := strings.TrimSpace(toolCall.ID)
+		if normalizedToolCallID == "" {
+			return errors.New("sdkd chat response tool call id is required")
+		}
+		if _, isDuplicate := seenToolCallIDs[normalizedToolCallID]; isDuplicate {
+			return errors.New("sdkd chat response tool call id must be unique")
+		}
+		seenToolCallIDs[normalizedToolCallID] = struct{}{}
+		if toolCall.Type != "function" {
+			return errors.New("sdkd chat response tool call type is invalid")
+		}
+		if strings.TrimSpace(toolCall.Function.Name) == "" {
+			return errors.New("sdkd chat response tool call name is required")
+		}
+		if !isJSONDocumentObject(toolCall.Function.Arguments) {
+			return errors.New("sdkd chat response tool call arguments must be a JSON object")
+		}
+	}
+	return nil
+}
+
+func isSDKDChatCompletionFinishReason(finishReason string) bool {
+	switch finishReason {
+	case "stop", "length", "tool_calls", "content_filter", "error", "other", "unknown":
+		return true
+	default:
+		return false
+	}
+}
+
+func isJSONDocumentObject(document string) bool {
+	var parsedDocument map[string]any
+	if errorValue := json.Unmarshal([]byte(document), &parsedDocument); errorValue != nil {
+		return false
+	}
+	return parsedDocument != nil
 }
 
 func (client SDKDClient) generateSDKDStructuredResponse(responseContext context.Context, request StructuredResponseRequest) (StructuredResponse, error) {
@@ -230,6 +352,9 @@ func (client SDKDClient) postJSON(responseContext context.Context, path string, 
 	if errorValue != nil {
 		return errorValue
 	}
+	if len(requestBody) > sdkdMaximumBodySize {
+		return errors.New("sdkd request exceeds 8 MiB")
+	}
 	httpRequest, errorValue := http.NewRequestWithContext(
 		responseContext,
 		http.MethodPost,
@@ -248,11 +373,11 @@ func (client SDKDClient) postJSON(responseContext context.Context, path string, 
 		return sdkdTransportError{Cause: errorValue}
 	}
 	defer httpResponse.Body.Close()
-	responseBody, errorValue := io.ReadAll(io.LimitReader(httpResponse.Body, 8*1024*1024+1))
+	responseBody, errorValue := io.ReadAll(io.LimitReader(httpResponse.Body, sdkdMaximumBodySize+1))
 	if errorValue != nil {
 		return sdkdTransportError{Cause: errorValue}
 	}
-	if len(responseBody) > 8*1024*1024 {
+	if len(responseBody) > sdkdMaximumBodySize {
 		return errors.New("sdkd response exceeds 8 MiB")
 	}
 	if httpResponse.StatusCode < http.StatusOK || httpResponse.StatusCode >= http.StatusMultipleChoices {
@@ -274,6 +399,9 @@ func (client SDKDClient) postJSON(responseContext context.Context, path string, 
 }
 
 func isRetryableSDKDError(errorValue error) bool {
+	if errors.Is(errorValue, context.Canceled) || errors.Is(errorValue, context.DeadlineExceeded) {
+		return false
+	}
 	var transportError sdkdTransportError
 	if errors.As(errorValue, &transportError) {
 		return true

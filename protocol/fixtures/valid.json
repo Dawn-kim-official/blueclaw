@@ -98,6 +98,103 @@
       ]
     }
   ],
+  "chat-completion-request": [
+    {
+      "model": "openrouter/auto",
+      "executionMode": "auto",
+      "context": {
+        "requesterPersonID": "person-1",
+        "conversationID": "conversation-1",
+        "platform": "web"
+      },
+      "messages": [
+        {
+          "role": "system",
+          "content": "Use the available tools when needed."
+        },
+        {
+          "role": "user",
+          "content": "What is the weather?"
+        },
+        {
+          "role": "assistant",
+          "toolCalls": [
+            {
+              "id": "call-1",
+              "type": "function",
+              "function": {
+                "name": "weather_lookup",
+                "arguments": "{\"city\":\"Seoul\"}"
+              }
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "content": "Sunny, 24C",
+          "toolCallId": "call-1"
+        }
+      ],
+      "tools": [
+        {
+          "type": "function",
+          "function": {
+            "name": "weather_lookup",
+            "description": "Look up current weather for a city",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "city": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "city"
+              ]
+            }
+          }
+        }
+      ],
+      "toolChoice": {
+        "type": "function",
+        "function": {
+          "name": "weather_lookup"
+        }
+      },
+      "parallelToolCalls": false
+    }
+  ],
+  "chat-completion-response": [
+    {
+      "finishReason": "tool_calls",
+      "provider": "openrouter",
+      "model": "google/gemini-3.1-flash-lite",
+      "message": {
+        "role": "assistant",
+        "content": "",
+        "toolCalls": [
+          {
+            "id": "call-1",
+            "type": "function",
+            "function": {
+              "name": "weather_lookup",
+              "arguments": "{\"city\":\"Seoul\"}"
+            }
+          }
+        ]
+      },
+      "selectedBackend": "remote",
+      "usage": {
+        "promptTokens": 42,
+        "completionTokens": 8,
+        "totalTokens": 50
+      },
+      "providerMetadata": {
+        "requestID": "request-1",
+        "rawFinishReason": "tool_calls"
+      }
+    }
+  ],
   "connector-runtime-result": [
     {
       "handled": true,

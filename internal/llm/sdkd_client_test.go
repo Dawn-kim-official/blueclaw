@@ -56,6 +56,276 @@ func TestSDKDClientSendsAuthenticatedStructuredRequest(t *testing.T) {
 	}
 }
 
+func TestSDKDClientGenerateChatCompletionSendsAuthenticatedRequestContext(t *testing.T) {
+	requestContext := RequestContext{
+		RequesterPersonID: "person-1",
+		ConversationID:    "conversation-1",
+		Platform:          "mattermost",
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(responseWriter http.ResponseWriter, request *http.Request) {
+		if request.URL.Path != "/v1/llm/chat" {
+			t.Fatalf("expected chat path, got %q", request.URL.Path)
+		}
+		if request.Header.Get("Authorization") != "Bearer installation-key" {
+			t.Fatalf("expected installation key authorization, got %q", request.Header.Get("Authorization"))
+		}
+		var requestDocument sdkdChatCompletionRequestDocument
+		if errorValue := json.NewDecoder(request.Body).Decode(&requestDocument); errorValue != nil {
+			t.Fatalf("expected valid request document: %v", errorValue)
+		}
+		if requestDocument.Model != "gemma" || requestDocument.ExecutionMode != "device" {
+			t.Fatalf("unexpected model routing: %+v", requestDocument)
+		}
+		if requestDocument.Context == nil || *requestDocument.Context != requestContext {
+			t.Fatalf("expected request context, got %+v", requestDocument.Context)
+		}
+		if len(requestDocument.Messages) != 1 || requestDocument.Messages[0].Content != "check" {
+			t.Fatalf("expected chat messages, got %+v", requestDocument.Messages)
+		}
+		if len(requestDocument.Tools) != 1 || requestDocument.Tools[0].Function.Name != "lookup" {
+			t.Fatalf("expected chat tools, got %+v", requestDocument.Tools)
+		}
+		if string(requestDocument.ToolChoice) != `"auto"` || !requestDocument.ParallelToolCalls {
+			t.Fatalf("expected tool settings, got %+v", requestDocument)
+		}
+		_, _ = responseWriter.Write([]byte(`{"finishReason":"stop","provider":"llama.cpp","model":"gemma","selectedBackend":"device","providerMetadata":{"route":"local"},"message":{"role":"assistant","content":"done"}}`))
+	}))
+	defer server.Close()
+
+	client := NewSDKDClient(SDKDClientConfiguration{
+		Endpoint:      server.URL,
+		AuthKey:       "installation-key",
+		ModelName:     "gemma",
+		ExecutionMode: "device",
+	})
+	response, errorValue := client.GenerateChatCompletion(
+		ContextWithRequestContext(context.Background(), requestContext),
+		ChatCompletionRequest{
+			Messages: []ChatCompletionMessage{{Role: "user", Content: "check"}},
+			Tools: []ChatCompletionTool{{
+				Type: "function",
+				Function: ChatCompletionFunction{
+					Name:       "lookup",
+					Parameters: json.RawMessage(`{"type":"object"}`),
+				},
+			}},
+			ToolChoice:        json.RawMessage(`"auto"`),
+			ParallelToolCalls: true,
+		},
+	)
+	if errorValue != nil {
+		t.Fatalf("expected chat completion response: %v", errorValue)
+	}
+	if response.ProviderName != "llama.cpp" || response.ModelName != "gemma" || response.SelectedBackend != "device" {
+		t.Fatalf("unexpected response metadata: %+v", response)
+	}
+	if string(response.ProviderMetadata) != `{"route":"local"}` || response.Message.Content != "done" {
+		t.Fatalf("unexpected response: %+v", response)
+	}
+	if response.Message.ToolCalls == nil {
+		t.Fatal("expected nil tool calls to normalize to an empty slice")
+	}
+}
+
+func TestSDKDClientGenerateChatCompletionReturnsNativeToolCalls(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(responseWriter http.ResponseWriter, request *http.Request) {
+		_, _ = responseWriter.Write([]byte(`{"finishReason":"tool_calls","provider":"llama.cpp","model":"gemma","selectedBackend":"device","message":{"role":"assistant","toolCalls":[{"id":"call-1","type":"function","function":{"name":"lookup","arguments":"{\"query\":\"status\"}"}}]}}`))
+	}))
+	defer server.Close()
+
+	client := NewSDKDClient(SDKDClientConfiguration{Endpoint: server.URL, AuthKey: "installation-key"})
+	response, errorValue := client.GenerateChatCompletion(context.Background(), ChatCompletionRequest{
+		Messages: []ChatCompletionMessage{{Role: "user", Content: "check"}},
+	})
+	if errorValue != nil {
+		t.Fatalf("expected native tool call response: %v", errorValue)
+	}
+	if response.FinishReason != "tool_calls" || len(response.Message.ToolCalls) != 1 {
+		t.Fatalf("expected one native tool call, got %+v", response)
+	}
+	toolCall := response.Message.ToolCalls[0]
+	if toolCall.ID != "call-1" || toolCall.Function.Name != "lookup" || toolCall.Function.Arguments != `{"query":"status"}` {
+		t.Fatalf("unexpected native tool call: %+v", toolCall)
+	}
+}
+
+func TestSDKDClientValidatesChatCompletionResponseContract(t *testing.T) {
+	toolCall := ChatCompletionToolCall{
+		ID:   "call-1",
+		Type: "function",
+		Function: ChatCompletionToolCallFunction{
+			Name:      "lookup",
+			Arguments: `{"city":"Seoul"}`,
+		},
+	}
+	testCases := []struct {
+		name         string
+		finishReason string
+		message      ChatCompletionMessage
+		isValid      bool
+	}{
+		{name: "stop", finishReason: "stop", message: ChatCompletionMessage{Role: "assistant", Content: "done"}, isValid: true},
+		{name: "length", finishReason: "length", message: ChatCompletionMessage{Role: "assistant", Content: "partial"}, isValid: true},
+		{name: "tool calls", finishReason: "tool_calls", message: ChatCompletionMessage{Role: "assistant", ToolCalls: []ChatCompletionToolCall{toolCall}}, isValid: true},
+		{name: "content filter", finishReason: "content_filter", message: ChatCompletionMessage{Role: "assistant", Content: "filtered"}, isValid: true},
+		{name: "error", finishReason: "error", message: ChatCompletionMessage{Role: "assistant", Content: "failed"}, isValid: true},
+		{name: "other", finishReason: "other", message: ChatCompletionMessage{Role: "assistant", Content: "other"}, isValid: true},
+		{name: "unknown", finishReason: "unknown", message: ChatCompletionMessage{Role: "assistant", Content: "unknown"}, isValid: true},
+		{name: "unrecognized finish reason", finishReason: "paused", message: ChatCompletionMessage{Role: "assistant", Content: "paused"}},
+		{name: "non assistant message", finishReason: "stop", message: ChatCompletionMessage{Role: "tool", Content: "done"}},
+		{name: "tool calls without calls", finishReason: "tool_calls", message: ChatCompletionMessage{Role: "assistant"}},
+		{name: "empty tool call id", finishReason: "tool_calls", message: ChatCompletionMessage{Role: "assistant", ToolCalls: []ChatCompletionToolCall{{ID: " ", Type: "function", Function: toolCall.Function}}}},
+		{name: "duplicate tool call id", finishReason: "tool_calls", message: ChatCompletionMessage{Role: "assistant", ToolCalls: []ChatCompletionToolCall{toolCall, toolCall}}},
+		{name: "empty tool call name", finishReason: "tool_calls", message: ChatCompletionMessage{Role: "assistant", ToolCalls: []ChatCompletionToolCall{{ID: toolCall.ID, Type: "function", Function: ChatCompletionToolCallFunction{Arguments: toolCall.Function.Arguments}}}}},
+		{name: "array tool call arguments", finishReason: "tool_calls", message: ChatCompletionMessage{Role: "assistant", ToolCalls: []ChatCompletionToolCall{{ID: toolCall.ID, Type: "function", Function: ChatCompletionToolCallFunction{Name: toolCall.Function.Name, Arguments: "[]"}}}}},
+		{name: "invalid tool call arguments", finishReason: "tool_calls", message: ChatCompletionMessage{Role: "assistant", ToolCalls: []ChatCompletionToolCall{{ID: toolCall.ID, Type: "function", Function: ChatCompletionToolCallFunction{Name: toolCall.Function.Name, Arguments: "{invalid"}}}}},
+	}
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			responseBody, errorValue := json.Marshal(ChatCompletionResponse{
+				FinishReason:    testCase.finishReason,
+				ProviderName:    "provider",
+				ModelName:       "model",
+				Message:         testCase.message,
+				SelectedBackend: "device",
+			})
+			if errorValue != nil {
+				t.Fatalf("expected response body to marshal: %v", errorValue)
+			}
+			server := httptest.NewServer(http.HandlerFunc(func(responseWriter http.ResponseWriter, request *http.Request) {
+				_, _ = responseWriter.Write(responseBody)
+			}))
+			defer server.Close()
+			client := NewSDKDClient(SDKDClientConfiguration{Endpoint: server.URL, AuthKey: "installation-key"})
+			_, errorValue = client.GenerateChatCompletion(context.Background(), ChatCompletionRequest{})
+			if testCase.isValid && errorValue != nil {
+				t.Fatalf("expected valid chat response: %v", errorValue)
+			}
+			if !testCase.isValid && errorValue == nil {
+				t.Fatal("expected invalid chat response to be rejected")
+			}
+		})
+	}
+}
+
+func TestSDKDClientGenerateChatCompletionPropagatesCancellationWithoutFallback(t *testing.T) {
+	requestStarted := make(chan struct{})
+	httpClient := sdkdTestHTTPClient(func(request *http.Request) (*http.Response, error) {
+		close(requestStarted)
+		<-request.Context().Done()
+		return nil, request.Context().Err()
+	})
+
+	fallbackProvider := &sdkdTestLanguageModel{chatResponse: ChatCompletionResponse{ProviderName: "legacy"}}
+	client := NewSDKDClient(SDKDClientConfiguration{
+		Endpoint:     "http://blueclaw-sdkd",
+		AuthKey:      "installation-key",
+		TextProvider: fallbackProvider,
+	})
+	client.HTTPClient = httpClient
+	responseContext, cancel := context.WithCancel(context.Background())
+	result := make(chan error, 1)
+	go func() {
+		_, errorValue := client.GenerateChatCompletion(responseContext, ChatCompletionRequest{})
+		result <- errorValue
+	}()
+	<-requestStarted
+	cancel()
+	if errorValue := <-result; !errors.Is(errorValue, context.Canceled) {
+		t.Fatalf("expected context cancellation, got %v", errorValue)
+	}
+	if fallbackProvider.chatCallCount != 0 {
+		t.Fatalf("expected no fallback after cancellation, got %d calls", fallbackProvider.chatCallCount)
+	}
+}
+
+func TestSDKDClientGenerateChatCompletionUsesLoopbackBridgeWithoutGuestCredential(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(responseWriter http.ResponseWriter, request *http.Request) {
+		if request.Header.Get("Authorization") != "" {
+			t.Fatalf("expected no guest authorization header, got %q", request.Header.Get("Authorization"))
+		}
+		if request.URL.Path != "/_internkim/sdkd/v1/llm/chat" {
+			t.Fatalf("unexpected SDKD bridge path %q", request.URL.Path)
+		}
+		_, _ = responseWriter.Write([]byte(`{"finishReason":"stop","provider":"openrouter","model":"remote-model","selectedBackend":"remote","message":{"role":"assistant","content":"done"}}`))
+	}))
+	defer server.Close()
+
+	client := NewSDKDClient(SDKDClientConfiguration{Endpoint: sdkdLoopbackBridgeEndpoint, ModelName: "remote-model"})
+	client.HTTPClient = sdkdTestHTTPClient(func(request *http.Request) (*http.Response, error) {
+		request.URL.Scheme = "http"
+		request.URL.Host = strings.TrimPrefix(server.URL, "http://")
+		return http.DefaultClient.Do(request)
+	})
+	response, errorValue := client.GenerateChatCompletion(context.Background(), ChatCompletionRequest{})
+	if errorValue != nil || response.Message.Content != "done" {
+		t.Fatalf("expected bridge chat response, got %+v, %v", response, errorValue)
+	}
+}
+
+func TestSDKDClientGenerateChatCompletionRejectsRemoteResultInLocalOnlyMode(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(responseWriter http.ResponseWriter, request *http.Request) {
+		_, _ = responseWriter.Write([]byte(`{"finishReason":"stop","provider":"openrouter","model":"remote-model","selectedBackend":"remote","message":{"role":"assistant","content":"done"}}`))
+	}))
+	defer server.Close()
+
+	fallbackProvider := &sdkdTestLanguageModel{chatResponse: ChatCompletionResponse{ProviderName: "legacy"}}
+	client := NewSDKDClient(SDKDClientConfiguration{
+		Endpoint:     server.URL,
+		AuthKey:      "installation-key",
+		LocalOnly:    true,
+		TextProvider: fallbackProvider,
+	})
+	_, errorValue := client.GenerateChatCompletion(context.Background(), ChatCompletionRequest{})
+	if errorValue == nil || errorValue.Error() != "sdkd remote chat response is forbidden in local-only mode" {
+		t.Fatalf("expected local-only remote rejection, got %v", errorValue)
+	}
+	if fallbackProvider.chatCallCount != 0 {
+		t.Fatalf("expected no local-only fallback, got %d calls", fallbackProvider.chatCallCount)
+	}
+}
+
+func TestSDKDClientGenerateChatCompletionUsesTrustedTransientFallback(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(responseWriter http.ResponseWriter, request *http.Request) {
+		responseWriter.WriteHeader(http.StatusServiceUnavailable)
+		_, _ = responseWriter.Write([]byte(`{"error":{"code":"provider_unavailable","allowLegacyFallback":true}}`))
+	}))
+	defer server.Close()
+
+	fallbackProvider := &sdkdTestLanguageModel{chatResponse: ChatCompletionResponse{ProviderName: "legacy", Message: ChatCompletionMessage{Role: "assistant", Content: "done"}}}
+	client := NewSDKDClient(SDKDClientConfiguration{
+		Endpoint:     server.URL,
+		AuthKey:      "installation-key",
+		TextProvider: fallbackProvider,
+	})
+	response, errorValue := client.GenerateChatCompletion(context.Background(), ChatCompletionRequest{})
+	if errorValue != nil || response.ProviderName != "legacy" || !response.UsedFallback {
+		t.Fatalf("expected trusted chat fallback, got %+v, %v", response, errorValue)
+	}
+	if fallbackProvider.chatCallCount != 1 {
+		t.Fatalf("expected one trusted fallback call, got %d", fallbackProvider.chatCallCount)
+	}
+}
+
+func TestSDKDClientGenerateChatCompletionDoesNotFallbackOnNonretryableError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(responseWriter http.ResponseWriter, request *http.Request) {
+		responseWriter.WriteHeader(http.StatusUnprocessableEntity)
+		_, _ = responseWriter.Write([]byte(`{"error":{"code":"request_invalid","allowLegacyFallback":true}}`))
+	}))
+	defer server.Close()
+
+	fallbackProvider := &sdkdTestLanguageModel{chatResponse: ChatCompletionResponse{ProviderName: "legacy"}}
+	client := NewSDKDClient(SDKDClientConfiguration{
+		Endpoint:     server.URL,
+		AuthKey:      "installation-key",
+		TextProvider: fallbackProvider,
+	})
+	_, errorValue := client.GenerateChatCompletion(context.Background(), ChatCompletionRequest{})
+	if errorValue == nil || fallbackProvider.chatCallCount != 0 {
+		t.Fatalf("expected nonretryable SDKD error without fallback, got %v and %d calls", errorValue, fallbackProvider.chatCallCount)
+	}
+}
+
 func TestSDKDClientRejectsInvalidSuccessfulResponse(t *testing.T) {
 	testCases := []struct {
 		name string
@@ -350,8 +620,11 @@ type sdkdTestLanguageModel struct {
 	textResponse        string
 	structuredResponse  StructuredResponse
 	structuredError     error
+	chatResponse        ChatCompletionResponse
+	chatError           error
 	textCallCount       int
 	structuredCallCount int
+	chatCallCount       int
 	structuredCalled    chan struct{}
 }
 
@@ -366,4 +639,9 @@ func (languageModel *sdkdTestLanguageModel) GenerateStructuredResponse(context.C
 		languageModel.structuredCalled <- struct{}{}
 	}
 	return languageModel.structuredResponse, languageModel.structuredError
+}
+
+func (languageModel *sdkdTestLanguageModel) GenerateChatCompletion(context.Context, ChatCompletionRequest) (ChatCompletionResponse, error) {
+	languageModel.chatCallCount++
+	return languageModel.chatResponse, languageModel.chatError
 }

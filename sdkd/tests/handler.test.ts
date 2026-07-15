@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import type { StructuredResponse, StructuredResponseRequest } from '@blueclaw/protocol';
+import type { ChatCompletionRequest, ChatCompletionResponse, StructuredResponse, StructuredResponseRequest } from '@blueclaw/protocol';
 
 import type { SDKDConfiguration } from '../src/configuration.ts';
 import { SDKDError } from '../src/errors.ts';
@@ -30,6 +30,25 @@ const requestDocument: StructuredResponseRequest = {
     },
     isStrictlyEnforced: true,
   },
+};
+
+const chatRequestDocument: ChatCompletionRequest = {
+  executionMode: 'remote',
+  model: 'deepseek/deepseek-v4-flash',
+  messages: [
+    { role: 'system', content: 'You are concise.' },
+    { role: 'user', content: 'Look up the answer.' },
+  ],
+  tools: [{
+    type: 'function',
+    function: {
+      name: 'lookup',
+      description: 'Look up a value.',
+      parameters: { type: 'object', properties: { key: { type: 'string' } } },
+    },
+  }],
+  toolChoice: { type: 'function', function: { name: 'lookup' } },
+  parallelToolCalls: false,
 };
 
 describe('sdkd handler', () => {
@@ -139,6 +158,126 @@ describe('sdkd handler', () => {
     expect(response.status).toBe(400);
     expect(callCount).toBe(0);
   });
+
+  test('validates chat ingress and egress contracts', async () => {
+    let observedRequest: ChatCompletionRequest | undefined;
+    const handler = createSDKDHandler({
+      configuration,
+      generateStructuredResponse: async () => responseDocument(),
+      generateChatCompletion: async request => {
+        observedRequest = request;
+        return chatResponseDocument();
+      },
+    });
+    const response = await handler(chatRequest('installation-key'));
+
+    expect(response.status).toBe(200);
+    expect(observedRequest).toEqual(chatRequestDocument);
+    expect(await response.json()).toEqual(chatResponseDocument());
+  });
+
+  test('passes the chat request abort signal to the generator', async () => {
+    const abortController = new AbortController();
+    let observedAbortSignal: AbortSignal | undefined;
+    const handler = createSDKDHandler({
+      configuration,
+      generateStructuredResponse: async () => responseDocument(),
+      generateChatCompletion: async (_request, abortSignal) => {
+        observedAbortSignal = abortSignal;
+        return chatResponseDocument();
+      },
+    });
+
+    const response = await handler(chatRequest('installation-key', abortController.signal));
+
+    expect(response.status).toBe(200);
+    expect(observedAbortSignal).toBe(abortController.signal);
+  });
+
+  test('rejects malformed chat requests before provider execution', async () => {
+    let callCount = 0;
+    const handler = createSDKDHandler({
+      configuration,
+      generateStructuredResponse: async () => responseDocument(),
+      generateChatCompletion: async () => {
+        callCount += 1;
+        return chatResponseDocument();
+      },
+    });
+    const response = await handler(new Request('http://sdkd/v1/llm/chat', {
+      method: 'POST',
+      headers: { authorization: 'Bearer installation-key', 'content-type': 'application/json' },
+      body: JSON.stringify({ executionMode: 'remote', messages: [] }),
+    }));
+
+    expect(response.status).toBe(400);
+    expect(callCount).toBe(0);
+  });
+
+  test('rejects chat identity collisions before provider execution', async () => {
+    let callCount = 0;
+    const handler = createSDKDHandler({
+      configuration,
+      generateStructuredResponse: async () => responseDocument(),
+      generateChatCompletion: async () => {
+        callCount += 1;
+        return chatResponseDocument();
+      },
+    });
+    const duplicateToolNameRequest = {
+      ...chatRequestDocument,
+      tools: [
+        {
+          type: 'function' as const,
+          function: { name: 'lookup', parameters: { type: 'object' } },
+        },
+        {
+          type: 'function' as const,
+          function: { name: ' lookup ', parameters: { type: 'object' } },
+        },
+      ],
+    };
+    const duplicateToolCallIDRequest = {
+      ...chatRequestDocument,
+      messages: [
+        { role: 'assistant' as const, toolCalls: [{ id: 'call-1', type: 'function' as const, function: { name: 'lookup', arguments: '{}' } }] },
+        { role: 'assistant' as const, toolCalls: [{ id: 'call-1', type: 'function' as const, function: { name: 'other', arguments: '{}' } }] },
+      ],
+    };
+
+    for (const requestDocument of [duplicateToolNameRequest, duplicateToolCallIDRequest]) {
+      const response = await handler(new Request('http://sdkd/v1/llm/chat', {
+        method: 'POST',
+        headers: { authorization: 'Bearer installation-key', 'content-type': 'application/json' },
+        body: JSON.stringify(requestDocument),
+      }));
+      expect(response.status).toBe(400);
+    }
+    expect(callCount).toBe(0);
+  });
+
+  test('rejects duplicate response tool call IDs at the egress boundary', async () => {
+    const handler = createSDKDHandler({
+      configuration,
+      generateStructuredResponse: async () => responseDocument(),
+      generateChatCompletion: async () => ({
+        ...chatResponseDocument(),
+        finishReason: 'tool_calls' as const,
+        message: {
+          role: 'assistant' as const,
+          content: '',
+          toolCalls: [
+            { id: 'call-1', type: 'function' as const, function: { name: 'lookup', arguments: '{}' } },
+            { id: 'call-1', type: 'function' as const, function: { name: 'other', arguments: '{}' } },
+          ],
+        },
+      }),
+    });
+
+    const response = await handler(chatRequest('installation-key'));
+
+    expect(response.status).toBe(502);
+  });
 });
 
 function structuredRequest(authKey?: string): Request {
@@ -151,6 +290,17 @@ function structuredRequest(authKey?: string): Request {
   });
 }
 
+function chatRequest(authKey?: string, signal?: AbortSignal): Request {
+  const headers: Record<string, string> = { 'content-type': 'application/json' };
+  if (authKey) headers.authorization = `Bearer ${authKey}`;
+  return new Request('http://sdkd/v1/llm/chat', {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(chatRequestDocument),
+    signal,
+  });
+}
+
 function responseDocument(): StructuredResponse {
   return {
     provider: 'openrouter',
@@ -160,5 +310,17 @@ function responseDocument(): StructuredResponse {
     finishReason: 'stop',
     constraintMode: 'openai_json_schema',
     usage: { promptTokens: 10, completionTokens: 5, totalTokens: 15 },
+  };
+}
+
+function chatResponseDocument(): ChatCompletionResponse {
+  return {
+    provider: 'openrouter',
+    model: 'deepseek/deepseek-v4-flash',
+    message: { role: 'assistant', content: 'The answer is ready.', toolCalls: [] },
+    selectedBackend: 'remote',
+    finishReason: 'stop',
+    usage: { promptTokens: 10, completionTokens: 5, totalTokens: 15 },
+    providerMetadata: { route: 'remote' },
   };
 }

@@ -2,6 +2,8 @@ import { timingSafeEqual } from 'node:crypto';
 
 import {
   protocolVersion,
+  chatCompletionRequestSchema,
+  chatCompletionResponseSchema,
   structuredResponseRequestSchema,
   structuredResponseSchema,
 } from '@blueclaw/protocol';
@@ -9,13 +11,14 @@ import { buildProtocolArtifacts } from '@blueclaw/protocol/artifacts';
 
 import type { SDKDConfiguration } from './configuration.ts';
 import { classifySDKDError } from './errors.ts';
-import type { StructuredResponseGenerator } from './provider.ts';
+import type { ChatCompletionGenerator, StructuredResponseGenerator } from './provider.ts';
 
 const protocolManifest = buildProtocolArtifacts().manifest;
 
 type HandlerDependencies = {
   configuration: SDKDConfiguration;
   generateStructuredResponse: StructuredResponseGenerator;
+  generateChatCompletion?: ChatCompletionGenerator;
 };
 
 export function createSDKDHandler(dependencies: HandlerDependencies) {
@@ -28,7 +31,7 @@ export function createSDKDHandler(dependencies: HandlerDependencies) {
         status: 'ok',
       });
     }
-    if (url.pathname !== '/v1/llm/structured') return errorResponse(404, 'route_not_found');
+    if (url.pathname !== '/v1/llm/structured' && url.pathname !== '/v1/llm/chat') return errorResponse(404, 'route_not_found');
     if (request.method !== 'POST') return errorResponse(405, 'method_not_allowed');
     if (!hasValidAuthorization(request, dependencies.configuration.authKey)) {
       return errorResponse(401, 'unauthorized');
@@ -36,6 +39,9 @@ export function createSDKDHandler(dependencies: HandlerDependencies) {
 
     const requestDocument = await parseJSONBody(request);
     if (!requestDocument.success) return errorResponse(400, requestDocument.error);
+    if (url.pathname === '/v1/llm/chat') {
+      return handleChatRequest(requestDocument.value, request.signal, dependencies);
+    }
     const parsedRequest = structuredResponseRequestSchema.safeParse(requestDocument.value);
     if (!parsedRequest.success) return errorResponse(400, 'invalid_structured_response_request');
 
@@ -51,6 +57,21 @@ export function createSDKDHandler(dependencies: HandlerDependencies) {
       return errorResponse(sdkdError.status, sdkdError.code, sdkdError.allowLegacyFallback);
     }
   };
+}
+
+async function handleChatRequest(value: unknown, abortSignal: AbortSignal, dependencies: HandlerDependencies): Promise<Response> {
+  if (!dependencies.generateChatCompletion) return errorResponse(503, 'configuration_invalid');
+  const parsedRequest = chatCompletionRequestSchema.safeParse(value);
+  if (!parsedRequest.success) return errorResponse(400, 'invalid_chat_completion_request');
+  try {
+    const response = await dependencies.generateChatCompletion(parsedRequest.data, abortSignal);
+    const parsedResponse = chatCompletionResponseSchema.safeParse(response);
+    if (!parsedResponse.success) return errorResponse(502, 'provider_response_invalid', false);
+    return Response.json(parsedResponse.data);
+  } catch (errorValue) {
+    const sdkdError = classifySDKDError(errorValue);
+    return errorResponse(sdkdError.status, sdkdError.code, sdkdError.allowLegacyFallback);
+  }
 }
 
 function hasValidAuthorization(request: Request, expectedKey: string): boolean {
