@@ -424,10 +424,11 @@ func (agentKernel *AgentKernel) reaskMissingRequiredEvidenceOnce(responseContext
 	}
 	reaskIntakeDecision := reaskDecision.IntakeDecision()
 	evidenceValidationReport := validateRequiredEvidenceTools(turnToolSet, reaskIntakeDecision.RequiredEvidenceTools)
-	if len(reaskIntakeDecision.RequiredEvidenceTools) == 0 || evidenceValidationReport.HasInvalidEvidence() {
+	reaskOutcomeContract := OutcomeContract{RequiredEvidenceTools: reaskIntakeDecision.RequiredEvidenceTools}
+	if len(reaskIntakeDecision.RequiredEvidenceTools) == 0 || evidenceValidationReport.HasInvalidEvidence() || requiredEvidenceMissingForSideEffect(intakeDecision, reaskOutcomeContract, turnToolSet) {
 		return intakeDecision, outcomeContract, requiredEvidenceReaskReport{WasAttempted: true, Reason: "re-ask still returned no valid required evidence"}
 	}
-	intakeDecision.RequiredEvidenceTools = appendUniqueStrings(intakeDecision.RequiredEvidenceTools, reaskIntakeDecision.RequiredEvidenceTools...)
+	intakeDecision.RequiredEvidenceTools = appendUniqueStrings(nil, reaskIntakeDecision.RequiredEvidenceTools...)
 	rebuiltOutcomeContract := outcomeContractForRequest(request, intakeDecision, instructionBundle, executionPlan, hasExecutionPlan, requiredAttachmentSuffixes)
 	return intakeDecision, rebuiltOutcomeContract, requiredEvidenceReaskReport{
 		WasAttempted:       true,

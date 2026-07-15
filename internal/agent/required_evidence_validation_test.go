@@ -118,3 +118,82 @@ func TestRequiredEvidenceNotMissingForReadOnlyResearchTask(t *testing.T) {
 		t.Fatal("expected read-only research task not to require side-effect evidence")
 	}
 }
+
+func TestRequiredEvidenceMissingWhenMaintenanceEvidenceIsReadOnly(t *testing.T) {
+	intakeDecision := IntakeDecision{
+		Classification: IntakeClassificationBoundedTask,
+		TaskShape:      TaskShapeMaintenanceTask,
+	}
+	toolSet := newTestCapabilityToolSet([]string{"task.history", "task.update"})
+	outcomeContract := OutcomeContract{RequiredEvidenceTools: []string{"task.history"}}
+
+	isMissing := requiredEvidenceMissingForSideEffect(intakeDecision, outcomeContract, toolSet)
+
+	if !isMissing {
+		t.Fatal("expected read-only task.history evidence to be insufficient for maintenance work")
+	}
+}
+
+func TestRequiredEvidenceAcceptsMaintenanceSideEffect(t *testing.T) {
+	intakeDecision := IntakeDecision{
+		Classification: IntakeClassificationBoundedTask,
+		TaskShape:      TaskShapeMaintenanceTask,
+	}
+	toolSet := newTestCapabilityToolSet([]string{"task.history", "task.update"})
+	outcomeContract := OutcomeContract{RequiredEvidenceTools: []string{"task.update"}}
+
+	isMissing := requiredEvidenceMissingForSideEffect(intakeDecision, outcomeContract, toolSet)
+
+	if isMissing {
+		t.Fatal("expected task.update evidence to satisfy maintenance side-effect selection")
+	}
+}
+
+func TestRequiredEvidencePreservesReadOnlyResearchEvidence(t *testing.T) {
+	intakeDecision := IntakeDecision{
+		Classification: IntakeClassificationBoundedTask,
+		TaskShape:      TaskShapeResearchTask,
+	}
+	toolSet := newTestCapabilityToolSet([]string{"task.history"})
+	outcomeContract := OutcomeContract{RequiredEvidenceTools: []string{"task.history"}}
+
+	isMissing := requiredEvidenceMissingForSideEffect(intakeDecision, outcomeContract, toolSet)
+
+	if isMissing {
+		t.Fatal("expected task.history to remain valid evidence for read-only research")
+	}
+}
+
+func TestRequiredEvidenceRequiresSiteSideEffectAlongsideStatus(t *testing.T) {
+	intakeDecision := IntakeDecision{
+		Classification:        IntakeClassificationBoundedTask,
+		TaskShape:             TaskShapeMaintenanceTask,
+		RequiredEvidenceTools: []string{"site.status"},
+	}
+	toolSet := newTestCapabilityToolSet([]string{"site.status", "site.publish"})
+
+	if !requiredEvidenceMissingForSideEffect(intakeDecision, OutcomeContract{RequiredEvidenceTools: []string{"site.status"}}, toolSet) {
+		t.Fatal("expected site.status alone not to prove a site side effect")
+	}
+	if requiredEvidenceMissingForSideEffect(intakeDecision, OutcomeContract{RequiredEvidenceTools: []string{"site.publish", "site.status"}}, toolSet) {
+		t.Fatal("expected site.publish and site.status evidence to preserve the publish contract")
+	}
+}
+
+func TestRequiredEvidencePreservesDeliveryAndSendSideEffects(t *testing.T) {
+	intakeDecision := IntakeDecision{
+		Classification: IntakeClassificationBoundedTask,
+		TaskShape:      TaskShapeMaintenanceTask,
+	}
+	toolSet := newTestCapabilityToolSet([]string{FileDeliverToolName, "message.send"})
+	toolSet.RegisterTool(ToolDefinition{Name: FileDeliverToolName, SideEffectClass: ToolSideEffectExternalWrite}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return ToolSuccess("ok"), nil
+	})
+
+	for _, toolName := range []string{FileDeliverToolName, "message.send"} {
+		outcomeContract := OutcomeContract{RequiredEvidenceTools: []string{toolName}}
+		if requiredEvidenceMissingForSideEffect(intakeDecision, outcomeContract, toolSet) {
+			t.Fatalf("expected %s to remain valid side-effect evidence", toolName)
+		}
+	}
+}
