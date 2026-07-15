@@ -459,7 +459,7 @@ func (agentKernel *AgentKernel) completeConsumedRequest(request AgentRequest, de
 	if errorValue != nil {
 		return AgentTurnResult{}, errorValue
 	}
-	return AgentTurnResult{TaskRun: completedTaskRun, TurnRoute: TurnRouteConsume, ReactionEmojiName: reactionEmojiName, ReplySuppressed: true, ToolNames: toolNamesForEvent(request.ToolSet)}, nil
+	return AgentTurnResult{TaskRun: completedTaskRun, TurnRoute: TurnRouteConsume, ReactionEmojiName: reactionEmojiName, FinishMessage: strings.TrimSpace(decision.UserFacingReply), ReplySuppressed: true, ToolNames: toolNamesForEvent(request.ToolSet)}, nil
 }
 
 func (agentKernel *AgentKernel) applyConfirmationGate(responseContext context.Context, request AgentRequest, intakeDecision IntakeDecision, evidenceHints []string) (AgentTurnResult, bool, ExecutionPlan, bool, error) {

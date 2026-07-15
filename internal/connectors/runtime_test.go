@@ -435,7 +435,7 @@ func TestConnectorRuntimeWritesResolvesAndExpiresTaskWaitRecord(t *testing.T) {
 	languageModel := agenttest.NewScriptedLanguageModel(agenttest.ScriptedLanguageModelOptions{
 		StructuredResponsesBySchema: map[string][]string{
 			"blueclaw_turn_router": {
-			`{"route":"start_task","classification":"bounded_task","taskShape":"maintenance_task","level":"low","requestedOutputFormats":null,"siteRequestEvidence":"","responseLanguage":"ko","reason":"input needed","userFacingReply":"","initialToolNames":["ask.input"]}`,
+				`{"route":"start_task","classification":"bounded_task","taskShape":"maintenance_task","level":"low","requestedOutputFormats":null,"siteRequestEvidence":"","responseLanguage":"ko","reason":"input needed","userFacingReply":"","initialToolNames":["ask.input"]}`,
 			},
 		},
 		ActionResponses: []string{
@@ -1318,6 +1318,61 @@ func TestConnectorRuntimeReactsToConsumedAddressedMessageWithoutReply(t *testing
 	}
 	if !connectorTaskEventsContain(connectorRuntime, result.TaskRunID, "connector.reaction.sent", "tada") {
 		t.Fatal("expected reaction event")
+	}
+}
+
+func TestConnectorRuntimeDirectConsumeFallsBackToReplyWhenReactionFails(t *testing.T) {
+	languageModel := agenttest.NewScriptedLanguageModel(agenttest.ScriptedLanguageModelOptions{
+		StructuredResponsesBySchema: map[string][]string{
+			"blueclaw_turn_router": {
+				`{"route":"consume","classification":"quick_reply","taskShape":"immediate_reply","level":"xlow","requestedOutputFormats":null,"responseLanguage":"ko","reason":"acknowledgement","userFacingReply":"알겠습니다.","reactionEmojiName":"tada"}`,
+			},
+		},
+	})
+	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
+	connectorRuntime.agentKernel.UseIntakeLanguageModelProvider(languageModel)
+	connectorRuntime.agentKernel.UseIntakeOptions(agent.IntakeOptions{IsEnabled: true})
+	adapter.reactionError = errors.New("reaction failed")
+	event := testInboundEvent("message-direct-consume")
+	event.Context.ConversationType = "D"
+
+	result, errorValue := connectorRuntime.HandleInboundEvent(context.Background(), adapter, event)
+	if errorValue != nil {
+		t.Fatalf("expected direct consume fallback to process: %v", errorValue)
+	}
+
+	if result.Reason != "consume_fallback_sent" || result.ReplyDispatchID == "" {
+		t.Fatalf("expected direct consume fallback reply, got %+v", result)
+	}
+	if len(adapter.sentReplies) != 1 || adapter.sentReplies[0].message != "알겠습니다." {
+		t.Fatalf("expected model-authored fallback reply, got %+v", adapter.sentReplies)
+	}
+	if !connectorTaskEventsContain(connectorRuntime, result.TaskRunID, "connector.reaction.failed", "reaction failed") {
+		t.Fatal("expected reaction failure event before fallback")
+	}
+}
+
+func TestConnectorRuntimeDirectConsumeFallsBackWithoutReactionAdapter(t *testing.T) {
+	languageModel := agenttest.NewScriptedLanguageModel(agenttest.ScriptedLanguageModelOptions{
+		StructuredResponsesBySchema: map[string][]string{
+			"blueclaw_turn_router": {
+				`{"route":"consume","classification":"quick_reply","taskShape":"immediate_reply","level":"xlow","requestedOutputFormats":null,"responseLanguage":"ko","reason":"acknowledgement","userFacingReply":"확인했습니다.","reactionEmojiName":"white_check_mark"}`,
+			},
+		},
+	})
+	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
+	connectorRuntime.agentKernel.UseIntakeLanguageModelProvider(languageModel)
+	connectorRuntime.agentKernel.UseIntakeOptions(agent.IntakeOptions{IsEnabled: true})
+	event := testInboundEvent("message-direct-consume")
+	event.Context.ConversationType = "D"
+
+	result, errorValue := connectorRuntime.HandleInboundEvent(context.Background(), testAdapterWithoutReaction{adapter: adapter}, event)
+	if errorValue != nil {
+		t.Fatalf("expected direct consume fallback to process: %v", errorValue)
+	}
+
+	if result.Reason != "consume_fallback_sent" || len(adapter.sentReplies) != 1 {
+		t.Fatalf("expected fallback reply without reaction adapter, result=%+v replies=%+v", result, adapter.sentReplies)
 	}
 }
 
