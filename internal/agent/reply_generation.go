@@ -32,11 +32,15 @@ func (agentKernel *AgentKernel) GenerateReplyWithContext(responseContext context
 		return "", errors.New("language model provider is not configured")
 	}
 	instructionBundle := agentKernel.currentInstructionBundle()
+	messages := buildReplyMessagesWithInstructions(prompt, visibleContext, memoryFacts, instructionBundle.Prompt)
+	if chatCompleter, isAvailable := llm.ResolveTextChatCompleter(agentKernel.languageModel); isAvailable {
+		return generateChatReply(responseContext, chatCompleter, messages)
+	}
 
 	structuredResponse, errorValue := agentKernel.languageModel.GenerateStructuredResponse(
 		responseContext,
 		llm.StructuredResponseRequest{
-			Messages: buildReplyMessagesWithInstructions(prompt, visibleContext, memoryFacts, instructionBundle.Prompt),
+			Messages: messages,
 			StructuredOutputSchema: llm.StructuredOutputSchema{
 				Name:               "blueclaw_reply",
 				Document:           `{"type":"object","properties":{"reply":{"type":"string"}},"required":["reply"],"additionalProperties":false}`,
@@ -62,6 +66,32 @@ func (agentKernel *AgentKernel) GenerateReplyWithContext(responseContext context
 	}
 
 	return reply, nil
+}
+
+func generateChatReply(responseContext context.Context, chatCompleter llm.ChatCompleter, messages []llm.Message) (string, error) {
+	response, errorValue := chatCompleter.GenerateChatCompletion(responseContext, llm.ChatCompletionRequest{
+		Messages: chatMessages(messages),
+	})
+	if errorValue != nil {
+		return "", errorValue
+	}
+
+	reply := strings.TrimSpace(response.Message.Content)
+	if reply == "" {
+		return "", errors.New("language model reply is empty")
+	}
+	return reply, nil
+}
+
+func chatMessages(messages []llm.Message) []llm.ChatCompletionMessage {
+	chatMessages := make([]llm.ChatCompletionMessage, 0, len(messages))
+	for _, message := range messages {
+		chatMessages = append(chatMessages, llm.ChatCompletionMessage{
+			Role:    message.Role,
+			Content: message.Content,
+		})
+	}
+	return chatMessages
 }
 
 type VisibleContext struct {
