@@ -612,6 +612,47 @@ func TestParseAgentActionResponseNormalizesContinueToolCall(t *testing.T) {
 	}
 }
 
+func TestParseAgentActionResponseNormalizesCapabilityWrapperToolName(t *testing.T) {
+	action, errorValue := ParseAgentActionResponse(llm.StructuredResponse{Content: `{"action":"continue","toolName":"task.history","toolInput":{"operation":"task.add","input":"{\"title\":\"분기 결산\"}"}}`})
+	if errorValue != nil {
+		t.Fatalf("expected parsed action: %v", errorValue)
+	}
+	if action.ToolName != CapabilityInvokeToolName {
+		t.Fatalf("expected capability wrapper to normalize to %s, got %+v", CapabilityInvokeToolName, action)
+	}
+	if string(action.ToolInput) != `{"operation":"task.add","input":"{\"title\":\"분기 결산\"}"}` {
+		t.Fatalf("expected capability input to be preserved, got %s", action.ToolInput)
+	}
+}
+
+func TestParseAgentActionResponsePreservesTaskHistoryInput(t *testing.T) {
+	action, errorValue := ParseAgentActionResponse(llm.StructuredResponse{Content: `{"action":"continue","toolName":"task.history","toolInput":{"limit":5,"status":"completed"}}`})
+	if errorValue != nil {
+		t.Fatalf("expected parsed action: %v", errorValue)
+	}
+	if action.ToolName != TaskHistoryToolName {
+		t.Fatalf("expected genuine task history call to be preserved, got %+v", action)
+	}
+}
+
+func TestParseAgentActionResponsePreservesAmbiguousOperationInput(t *testing.T) {
+	testCases := []string{
+		`{"operation":"task.add"}`,
+		`{"operation":"task.add","input":null}`,
+		`{"operation":"task.add","input":"not json"}`,
+		`{"operation":"task.add","input":{},"extra":true}`,
+	}
+	for _, toolInput := range testCases {
+		action, errorValue := ParseAgentActionResponse(llm.StructuredResponse{Content: `{"action":"continue","toolName":"task.history","toolInput":` + toolInput + `}`})
+		if errorValue != nil {
+			t.Fatalf("expected parsed action: %v", errorValue)
+		}
+		if action.ToolName != TaskHistoryToolName {
+			t.Fatalf("expected ambiguous input %s to preserve task history, got %+v", toolInput, action)
+		}
+	}
+}
+
 func TestParseAgentActionResponseRejectsMalformedJSON(t *testing.T) {
 	_, errorValue := ParseAgentActionResponse(llm.StructuredResponse{Content: `{"action":`})
 	if errorValue == nil {
