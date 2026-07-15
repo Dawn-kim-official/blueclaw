@@ -14,6 +14,7 @@ import (
 	"sync"
 	"testing"
 
+	"blueclaw/internal/capability"
 	"blueclaw/internal/e2e"
 	"blueclaw/internal/llm"
 	"blueclaw/internal/task"
@@ -204,8 +205,198 @@ func TestCreateLiveLanguageModelSupportsSDKDWithoutOpenRouterCredentials(t *test
 	if sdkdClient.GenerationOptions.Seed == nil || *sdkdClient.GenerationOptions.Seed != seed {
 		t.Fatalf("expected sdkd generation seed, got %+v", sdkdClient.GenerationOptions)
 	}
-	if len(sdkdClient.StructuredSchemaNames) != 1 || sdkdClient.StructuredSchemaNames[0] != "blueclaw_agent_turn_action" {
-		t.Fatalf("expected action-only sdkd migration scope, got %#v", sdkdClient.StructuredSchemaNames)
+	if len(sdkdClient.StructuredSchemaNames) != 2 || sdkdClient.StructuredSchemaNames[0] != "blueclaw_agent_turn_action" || sdkdClient.StructuredSchemaNames[1] != "blueclaw_turn_router" {
+		t.Fatalf("expected action and router sdkd schemas, got %#v", sdkdClient.StructuredSchemaNames)
+	}
+}
+
+func TestParseVirtualSessionArgumentsLeavesEndpointOmitted(t *testing.T) {
+	t.Setenv("BLUECLAW_E2E_LLM_ENDPOINT", "")
+	arguments, errorValue := parseVirtualSessionArguments([]string{"--llm-provider", "sdkd"}, "task-lifecycle", t.TempDir())
+	if errorValue != nil {
+		t.Fatalf("expected arguments to parse: %v", errorValue)
+	}
+	if arguments.LanguageModelEndpoint != "" {
+		t.Fatalf("expected omitted endpoint to remain empty, got %q", arguments.LanguageModelEndpoint)
+	}
+}
+
+func TestCreateLiveLanguageModelUsesProviderConstructorDefaults(t *testing.T) {
+	t.Setenv("BLUECLAW_E2E_LLM_AUTH_KEY", "installation-key")
+	t.Setenv("OPENROUTER_API_KEY", "")
+
+	capabilityModel, errorValue := createLiveLanguageModel(virtualSessionArguments{LanguageModelProvider: "capability"})
+	if errorValue != nil {
+		t.Fatalf("expected capability model: %v", errorValue)
+	}
+	capabilityClient, isCapabilityClient := capabilityModel.(llm.CapabilityLLMClient)
+	if !isCapabilityClient || capabilityClient.CapabilityClient.Endpoint != capability.DefaultEndpoint {
+		t.Fatalf("expected capability constructor default endpoint, got %#v", capabilityModel)
+	}
+
+	sdkdModel, errorValue := createLiveLanguageModel(virtualSessionArguments{LanguageModelProvider: "sdkd"})
+	if errorValue != nil {
+		t.Fatalf("expected sdkd model: %v", errorValue)
+	}
+	sdkdClient, isSDKDClient := sdkdModel.(llm.SDKDClient)
+	if !isSDKDClient || sdkdClient.Endpoint != "http://blueclaw-sdkd" {
+		t.Fatalf("expected sdkd constructor default endpoint, got %#v", sdkdModel)
+	}
+}
+
+func TestCreateLiveLanguageModelPreservesUnixSocketTransportWithOmittedEndpoint(t *testing.T) {
+	t.Setenv("BLUECLAW_E2E_LLM_AUTH_KEY", "installation-key")
+	t.Setenv("OPENROUTER_API_KEY", "")
+	arguments := virtualSessionArguments{LanguageModelSocket: "/tmp/blueclaw-llm.sock"}
+
+	capabilityModel, errorValue := createLiveLanguageModel(virtualSessionArguments{
+		LanguageModelProvider: "capability",
+		LanguageModelSocket:   arguments.LanguageModelSocket,
+	})
+	if errorValue != nil {
+		t.Fatalf("expected capability socket model: %v", errorValue)
+	}
+	capabilityClient := capabilityModel.(llm.CapabilityLLMClient).CapabilityClient
+	if capabilityClient.Endpoint != "http://internkim-capability" {
+		t.Fatalf("expected capability socket endpoint, got %q", capabilityClient.Endpoint)
+	}
+	if httpClient, isHTTPClient := capabilityClient.HTTPClient.(*http.Client); !isHTTPClient || httpClient.Transport == nil {
+		t.Fatal("expected capability unix socket transport")
+	} else if httpClient.Timeout != 0 {
+		t.Fatalf("expected capability live client without timeout, got %s", httpClient.Timeout)
+	}
+
+	sdkdModel, errorValue := createLiveLanguageModel(virtualSessionArguments{
+		LanguageModelProvider: "sdkd",
+		LanguageModelSocket:   arguments.LanguageModelSocket,
+	})
+	if errorValue != nil {
+		t.Fatalf("expected sdkd socket model: %v", errorValue)
+	}
+	sdkdClient := sdkdModel.(llm.SDKDClient)
+	if sdkdClient.Endpoint != "http://blueclaw-sdkd" || sdkdClient.HTTPClient == nil {
+		t.Fatalf("expected sdkd socket transport and default endpoint, got %#v", sdkdClient)
+	}
+	if httpClient, isHTTPClient := sdkdClient.HTTPClient.(*http.Client); !isHTTPClient || httpClient.Timeout != 0 {
+		t.Fatalf("expected SDKD live client without timeout, got %#v", sdkdClient.HTTPClient)
+	}
+}
+
+func TestCreateLiveLanguageModelPreservesExplicitEndpointOverrides(t *testing.T) {
+	t.Setenv("BLUECLAW_E2E_LLM_AUTH_KEY", "installation-key")
+	t.Setenv("OPENROUTER_API_KEY", "")
+	for _, provider := range []string{"capability", "sdkd"} {
+		languageModel, errorValue := createLiveLanguageModel(virtualSessionArguments{
+			LanguageModelProvider: provider,
+			LanguageModelEndpoint: "https://explicit-llm.example",
+			LanguageModelSocket:   "/tmp/blueclaw-llm.sock",
+		})
+		if errorValue != nil {
+			t.Fatalf("expected %s model: %v", provider, errorValue)
+		}
+		var endpoint string
+		switch client := languageModel.(type) {
+		case llm.CapabilityLLMClient:
+			endpoint = client.CapabilityClient.Endpoint
+		case llm.SDKDClient:
+			endpoint = client.Endpoint
+		default:
+			t.Fatalf("unexpected %s model type %T", provider, languageModel)
+		}
+		if endpoint != "https://explicit-llm.example" {
+			t.Fatalf("expected explicit endpoint for %s, got %q", provider, endpoint)
+		}
+	}
+}
+
+func TestSaveVirtualSessionEvidenceRecordsRoutingMetadataWithoutSecrets(t *testing.T) {
+	artifactDirectoryPath := t.TempDir()
+	result := e2e.VirtualSessionResult{
+		ScenarioName:          "task-lifecycle",
+		ArtifactDirectoryPath: artifactDirectoryPath,
+		TurnResults: []e2e.VirtualTurnResult{{LanguageModelCallEvents: []e2e.VirtualLanguageModelCallEvent{{
+			Kind:            "recovery_chat",
+			Provider:        "llama.cpp",
+			Model:           "gemma",
+			SelectedBackend: "device",
+			UsedFallback:    false,
+			FinishReason:    "stop",
+		}}}},
+	}
+	arguments := virtualSessionArguments{
+		LanguageModelProvider:    "sdkd",
+		LanguageModelAuthKeyPath: "/tmp/secret-auth-key",
+		ExecutionMode:            "auto",
+	}
+	if errorValue := saveVirtualSessionEvidence(arguments, result, nil); errorValue != nil {
+		t.Fatalf("expected evidence to save: %v", errorValue)
+	}
+	document, errorValue := os.ReadFile(filepath.Join(artifactDirectoryPath, "llm-routing-evidence.json"))
+	if errorValue != nil {
+		t.Fatalf("expected evidence file: %v", errorValue)
+	}
+	content := string(document)
+	for _, expectedText := range []string{"task-lifecycle", "sdkd", "recovery_chat", "llama.cpp", "gemma", "device", "blueclaw_agent_turn_action", "blueclaw_turn_router"} {
+		if !strings.Contains(content, expectedText) {
+			t.Fatalf("evidence missing %q: %s", expectedText, content)
+		}
+	}
+	if strings.Contains(content, "secret-auth-key") {
+		t.Fatalf("evidence leaked authentication path: %s", content)
+	}
+}
+
+func TestSaveVirtualSessionEvidenceUsesOrderedVirtualCallRecorderWithoutDuplicates(t *testing.T) {
+	artifactDirectoryPath := t.TempDir()
+	result := e2e.VirtualSessionResult{
+		ScenarioName:          "task-lifecycle",
+		ArtifactDirectoryPath: artifactDirectoryPath,
+		TurnResults: []e2e.VirtualTurnResult{{
+			LanguageModelCallEvents: []e2e.VirtualLanguageModelCallEvent{
+				{
+					Kind:            "chat",
+					SchemaName:      "blueclaw_agent_turn_action",
+					Provider:        "sdkd",
+					Model:           "low-model",
+					SelectedBackend: "device",
+					FinishReason:    "tool_calls",
+				},
+				{
+					Kind:            "chat",
+					Provider:        "sdkd",
+					Model:           "low-model",
+					SelectedBackend: "device",
+					FinishReason:    "stop",
+				},
+			},
+			Events: []task.TaskEvent{{
+				Name: "llm.call",
+				Body: `{"kind":"chat","schemaName":"duplicate-should-not-appear"}`,
+			}},
+		}},
+	}
+	if errorValue := saveVirtualSessionEvidence(virtualSessionArguments{LanguageModelProvider: "sdkd"}, result, nil); errorValue != nil {
+		t.Fatalf("expected evidence to save: %v", errorValue)
+	}
+	document, errorValue := os.ReadFile(filepath.Join(artifactDirectoryPath, "llm-routing-evidence.json"))
+	if errorValue != nil {
+		t.Fatalf("expected evidence file: %v", errorValue)
+	}
+	var evidence virtualSessionEvidence
+	if errorValue := json.Unmarshal(document, &evidence); errorValue != nil {
+		t.Fatalf("expected evidence JSON: %v", errorValue)
+	}
+	if len(evidence.Calls) != 2 {
+		t.Fatalf("expected two ordered virtual calls without duplicates, got %+v", evidence.Calls)
+	}
+	if evidence.Calls[0].SchemaName != "blueclaw_agent_turn_action" || evidence.Calls[0].FinishReason != "tool_calls" {
+		t.Fatalf("expected action call first with metadata, got %+v", evidence.Calls)
+	}
+	if evidence.Calls[1].SchemaName != "" || evidence.Calls[1].FinishReason != "stop" {
+		t.Fatalf("expected plain chat second without schema, got %+v", evidence.Calls)
+	}
+	if strings.Contains(string(document), "duplicate-should-not-appear") {
+		t.Fatalf("persisted task event was incorrectly duplicated: %s", document)
 	}
 }
 

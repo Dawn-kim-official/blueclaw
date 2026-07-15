@@ -143,6 +143,7 @@ export const chatCompletionRequestSchema = z.looseObject({
   tools: z.array(chatCompletionToolSchema).optional(),
   toolChoice: jsonValueSchema.optional(),
   parallelToolCalls: z.boolean(),
+  generationOptions: generationOptionsSchema.optional(),
 }).superRefine((request, context) => {
   const toolNames = new Set<string>();
   for (const [toolIndex, tool] of (request.tools ?? []).entries()) {

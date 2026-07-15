@@ -3,11 +3,9 @@ package agent
 import (
 	"context"
 	"encoding/json"
-	"net/http"
 	"os"
 	"strings"
 	"testing"
-	"time"
 
 	"blueclaw/internal/config"
 	"blueclaw/internal/llm"
@@ -39,13 +37,9 @@ func TestOpenRouterLiveLowTierCurrentAgentActionSchemaFromEnv(t *testing.T) {
 		APIKey:       apiKey,
 		BaseURL:      llm.DefaultOpenRouterChatCompletionsURL,
 		ModelName:    modelName,
-		HTTPClient:   &http.Client{Timeout: 60 * time.Second},
 		AttemptCount: 1,
 	}
-	responseContext, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-	defer cancel()
-
-	response, errorValue := client.GenerateStructuredResponse(responseContext, request)
+	response, errorValue := client.GenerateStructuredResponse(context.Background(), request)
 	if errorValue != nil {
 		t.Fatalf("expected low-tier response for current action schema: %v", errorValue)
 	}

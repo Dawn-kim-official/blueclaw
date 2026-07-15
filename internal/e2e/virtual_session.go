@@ -163,6 +163,8 @@ type VirtualLanguageModelCallEvent struct {
 	SchemaName       string `json:"schemaName,omitempty"`
 	Provider         string `json:"provider,omitempty"`
 	Model            string `json:"model,omitempty"`
+	SelectedBackend  string `json:"selectedBackend,omitempty"`
+	FinishReason     string `json:"finishReason,omitempty"`
 	LatencyMS        int64  `json:"latencyMs"`
 	PromptBytes      int    `json:"promptBytes"`
 	ContentBytes     int    `json:"contentBytes"`
@@ -262,6 +264,66 @@ func (languageModel *virtualObservedLanguageModel) GenerateStructuredResponse(ct
 	startedAt := time.Now()
 	response, errorValue := languageModel.provider.GenerateStructuredResponse(ctx, request)
 	languageModel.appendCall(virtualStructuredCallEvent(request, response, startedAt, errorValue))
+	return response, errorValue
+}
+
+func (languageModel *virtualObservedLanguageModel) TextChatCompleter() (llm.ChatCompleter, bool) {
+	completer, isAvailable := llm.ResolveTextChatCompleter(languageModel.provider)
+	if !isAvailable {
+		return nil, false
+	}
+	return virtualObservedChatCompleter{languageModel: languageModel, delegate: completer}, true
+}
+
+func (languageModel *virtualObservedLanguageModel) RecoveryChatCompleter() (llm.RecoveryChatCompleter, bool) {
+	completer, isAvailable := llm.ResolveRecoveryChatCompleter(languageModel.provider)
+	if !isAvailable {
+		return nil, false
+	}
+	return virtualObservedRecoveryChatCompleter{languageModel: languageModel, delegate: completer}, true
+}
+
+func (languageModel *virtualObservedLanguageModel) LocalRecoveryChatCompleter() (llm.LocalRecoveryChatCompleter, bool) {
+	completer, isAvailable := llm.ResolveLocalRecoveryChatCompleter(languageModel.provider)
+	if !isAvailable {
+		return nil, false
+	}
+	return virtualObservedLocalRecoveryChatCompleter{languageModel: languageModel, delegate: completer}, true
+}
+
+type virtualObservedChatCompleter struct {
+	languageModel *virtualObservedLanguageModel
+	delegate      llm.ChatCompleter
+}
+
+type virtualObservedRecoveryChatCompleter struct {
+	languageModel *virtualObservedLanguageModel
+	delegate      llm.RecoveryChatCompleter
+}
+
+type virtualObservedLocalRecoveryChatCompleter struct {
+	languageModel *virtualObservedLanguageModel
+	delegate      llm.LocalRecoveryChatCompleter
+}
+
+func (completer virtualObservedChatCompleter) GenerateChatCompletion(ctx context.Context, request llm.ChatCompletionRequest) (llm.ChatCompletionResponse, error) {
+	startedAt := time.Now()
+	response, errorValue := completer.delegate.GenerateChatCompletion(ctx, request)
+	completer.languageModel.appendCall(virtualChatCallEvent("chat", request, response, startedAt, errorValue))
+	return response, errorValue
+}
+
+func (completer virtualObservedRecoveryChatCompleter) GenerateRecoveryChatCompletion(ctx context.Context, request llm.ChatCompletionRequest) (llm.ChatCompletionResponse, error) {
+	startedAt := time.Now()
+	response, errorValue := completer.delegate.GenerateRecoveryChatCompletion(ctx, request)
+	completer.languageModel.appendCall(virtualChatCallEvent("recovery_chat", request, response, startedAt, errorValue))
+	return response, errorValue
+}
+
+func (completer virtualObservedLocalRecoveryChatCompleter) GenerateLocalRecoveryChatCompletion(ctx context.Context, request llm.ChatCompletionRequest) (llm.ChatCompletionResponse, error) {
+	startedAt := time.Now()
+	response, errorValue := completer.delegate.GenerateLocalRecoveryChatCompletion(ctx, request)
+	completer.languageModel.appendCall(virtualChatCallEvent("local_recovery_chat", request, response, startedAt, errorValue))
 	return response, errorValue
 }
 
@@ -385,6 +447,33 @@ func virtualStructuredCallEvent(request llm.StructuredResponseRequest, response 
 	return callEvent
 }
 
+func virtualChatCallEvent(kind string, request llm.ChatCompletionRequest, response llm.ChatCompletionResponse, startedAt time.Time, errorValue error) VirtualLanguageModelCallEvent {
+	callEvent := VirtualLanguageModelCallEvent{
+		Kind:            kind,
+		SchemaName:      virtualChatRequestSchemaName(request),
+		Provider:        response.ProviderName,
+		Model:           response.ModelName,
+		SelectedBackend: response.SelectedBackend,
+		FinishReason:    response.FinishReason,
+		LatencyMS:       time.Since(startedAt).Milliseconds(),
+		PromptBytes:     virtualChatRequestByteCount(request),
+		ContentBytes:    len(response.Message.Content),
+		UsedFallback:    response.UsedFallback,
+	}
+	if errorValue != nil {
+		callEvent.IsError = true
+		callEvent.Error = virtualTruncatedCallError(errorValue)
+	}
+	return callEvent
+}
+
+func virtualChatRequestSchemaName(request llm.ChatCompletionRequest) string {
+	if llm.ForcedFunctionToolName(request) == "blueclaw_agent_turn_action" {
+		return "blueclaw_agent_turn_action"
+	}
+	return ""
+}
+
 func virtualTextCallEvent(kind string, prompt string, reply string, startedAt time.Time, errorValue error) VirtualLanguageModelCallEvent {
 	callEvent := VirtualLanguageModelCallEvent{
 		Kind:         kind,
@@ -406,6 +495,14 @@ func virtualStructuredRequestByteCount(request llm.StructuredResponseRequest) in
 		for _, part := range message.Parts {
 			byteCount += len(part.Text) + len(part.DataBase64)
 		}
+	}
+	return byteCount
+}
+
+func virtualChatRequestByteCount(request llm.ChatCompletionRequest) int {
+	byteCount := 0
+	for _, message := range request.Messages {
+		byteCount += len(message.Content)
 	}
 	return byteCount
 }

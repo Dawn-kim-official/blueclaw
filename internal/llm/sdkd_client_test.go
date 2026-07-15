@@ -11,6 +11,17 @@ import (
 	"testing"
 )
 
+func TestNewSDKDClientDoesNotSetHTTPTimeout(t *testing.T) {
+	client := NewSDKDClient(SDKDClientConfiguration{})
+	httpClient, isHTTPClient := client.HTTPClient.(*http.Client)
+	if !isHTTPClient {
+		t.Fatalf("expected net/http client, got %T", client.HTTPClient)
+	}
+	if httpClient.Timeout != 0 {
+		t.Fatalf("expected no SDKD client timeout, got %s", httpClient.Timeout)
+	}
+}
+
 func TestSDKDClientSendsAuthenticatedStructuredRequest(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(responseWriter http.ResponseWriter, request *http.Request) {
 		if request.Header.Get("Authorization") != "Bearer installation-key" {
@@ -124,6 +135,56 @@ func TestSDKDClientGenerateChatCompletionSendsAuthenticatedRequestContext(t *tes
 	}
 	if response.Message.ToolCalls == nil {
 		t.Fatal("expected nil tool calls to normalize to an empty slice")
+	}
+}
+
+func TestSDKDClientGenerateChatCompletionMergesGenerationOptions(t *testing.T) {
+	defaultSeed := int64(11)
+	defaultTemperature := 0.4
+	defaultMaxTokens := 64
+	requestSeed := int64(22)
+	requestMaxTokens := 128
+	server := httptest.NewServer(http.HandlerFunc(func(responseWriter http.ResponseWriter, request *http.Request) {
+		var requestDocument sdkdChatCompletionRequestDocument
+		if errorValue := json.NewDecoder(request.Body).Decode(&requestDocument); errorValue != nil {
+			t.Fatalf("expected valid request document: %v", errorValue)
+		}
+		if requestDocument.GenerationOptions == nil {
+			t.Fatal("expected generation options")
+		}
+		options := requestDocument.GenerationOptions
+		if options.Seed == nil || *options.Seed != requestSeed {
+			t.Fatalf("expected request seed to override default, got %+v", options)
+		}
+		if options.Temperature == nil || *options.Temperature != defaultTemperature {
+			t.Fatalf("expected default temperature, got %+v", options)
+		}
+		if options.MaxTokens == nil || *options.MaxTokens != requestMaxTokens {
+			t.Fatalf("expected request max tokens to override default, got %+v", options)
+		}
+		_, _ = responseWriter.Write([]byte(`{"finishReason":"stop","provider":"llama.cpp","model":"gemma","selectedBackend":"device","message":{"role":"assistant","content":"done"}}`))
+	}))
+	defer server.Close()
+
+	client := NewSDKDClient(SDKDClientConfiguration{
+		Endpoint:      server.URL,
+		AuthKey:       "installation-key",
+		ModelName:     "gemma",
+		ExecutionMode: "device",
+		GenerationOptions: GenerationOptions{
+			Seed:        &defaultSeed,
+			Temperature: &defaultTemperature,
+			MaxTokens:   &defaultMaxTokens,
+		},
+	})
+	response, errorValue := client.GenerateChatCompletion(context.Background(), ChatCompletionRequest{
+		GenerationOptions: GenerationOptions{Seed: &requestSeed, MaxTokens: &requestMaxTokens},
+	})
+	if errorValue != nil {
+		t.Fatalf("expected chat completion response: %v", errorValue)
+	}
+	if response.Message.Content != "done" {
+		t.Fatalf("expected chat response, got %+v", response)
 	}
 }
 

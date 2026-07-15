@@ -189,6 +189,9 @@ func TestCapabilityLLMClientGenerateResponseUsesTextEndpoint(t *testing.T) {
 }
 
 func TestCapabilityLLMClientGenerateChatCompletionSendsNativeToolRequest(t *testing.T) {
+	seed := int64(42)
+	temperature := 0.2
+	maxTokens := 192
 	var receivedDocument map[string]any
 	httpClient := fakeCapabilityHTTPClient{handler: func(request *http.Request) (*http.Response, error) {
 		if request.URL.Path != "/v1/llm/chat" {
@@ -224,6 +227,7 @@ func TestCapabilityLLMClientGenerateChatCompletionSendsNativeToolRequest(t *test
 		}},
 		ToolChoice:        json.RawMessage(`{"type":"function","function":{"name":"lookup"}}`),
 		ParallelToolCalls: true,
+		GenerationOptions: GenerationOptions{Seed: &seed, Temperature: &temperature, MaxTokens: &maxTokens},
 	})
 
 	if errorValue != nil {
@@ -245,6 +249,10 @@ func TestCapabilityLLMClientGenerateChatCompletionSendsNativeToolRequest(t *test
 	}
 	if receivedDocument["parallelToolCalls"] != true {
 		t.Fatalf("expected parallel tool calls to be forwarded, got %+v", receivedDocument)
+	}
+	generationOptions := receivedDocument["generationOptions"].(map[string]any)
+	if generationOptions["seed"] != float64(seed) || generationOptions["temperature"] != temperature || generationOptions["maxTokens"] != float64(maxTokens) {
+		t.Fatalf("expected generation options to be forwarded, got %+v", generationOptions)
 	}
 	if response.FinishReason != "tool_calls" {
 		t.Fatalf("expected tool_calls finish reason, got %q", response.FinishReason)

@@ -25,7 +25,6 @@ const environmentSchema = z.object({
   BLUECLAW_SDKD_LLAMA_STRUCTURED_OUTPUTS_ENABLED: z.enum(SDKDBooleanEnvironmentValue).default(SDKDBooleanEnvironmentValue.False),
   BLUECLAW_SDKD_LOCAL_ONLY: z.enum(SDKDBooleanEnvironmentValue).default(SDKDBooleanEnvironmentValue.False),
   BLUECLAW_SDKD_OPENROUTER_BASE_URL: z.string().url().default('https://openrouter.ai/api/v1'),
-  BLUECLAW_SDKD_REQUEST_TIMEOUT_MILLISECOND: z.coerce.number().int().positive().default(60000),
   BLUECLAW_SDKD_SOCKET_PATH: z.string().min(1).default('/run/blueclaw-sdkd/sdkd.sock'),
   CREDENTIALS_DIRECTORY: z.string().min(1).optional(),
   OPENROUTER_API_KEY: z.string().min(1).optional(),
@@ -42,7 +41,6 @@ export type SDKDConfiguration = {
   localOnly: boolean;
   openRouterAPIKey?: string;
   openRouterBaseURL: string;
-  requestTimeoutMillisecond: number;
   socketPath: string;
 };
 
@@ -68,7 +66,6 @@ export function loadSDKDConfiguration(environment: Record<string, string | undef
       'openrouter-api-key',
     ),
     openRouterBaseURL: parsedEnvironment.BLUECLAW_SDKD_OPENROUTER_BASE_URL,
-    requestTimeoutMillisecond: parsedEnvironment.BLUECLAW_SDKD_REQUEST_TIMEOUT_MILLISECOND,
     socketPath: parsedEnvironment.BLUECLAW_SDKD_SOCKET_PATH,
   };
 }
