@@ -51,6 +51,8 @@ type FailureNoticeGenerationStatus struct {
 	OriginalWasInvalid bool   `json:"originalWasInvalid,omitempty"`
 }
 
+const elapsedLimitRawErrorSummary = "Execution limit reached; completed progress was saved for continuation."
+
 type failureNoticeReview struct {
 	Decision string `json:"decision"`
 	Message  string `json:"message"`
@@ -92,6 +94,9 @@ func buildFailureReport(request AgentTurnRequest, taskRunID string, phase string
 		AttachmentFilenames: failureReportAttachmentFilenames(attachments),
 		DiagnosticEventID:   diagnosticEventID(request, taskRunID, phase),
 	}
+	if report.Phase == "limit" && report.StopReason == "max_elapsed" {
+		report.RawError = elapsedLimitRawErrorSummary
+	}
 	if report.NextAction == "" {
 		report.NextAction = strings.TrimSpace(decision.UserReplyIntent)
 	}
@@ -99,6 +104,32 @@ func buildFailureReport(request AgentTurnRequest, taskRunID string, phase string
 		report.NextAction = strings.TrimSpace(executionState.NextPlan)
 	}
 	return report
+}
+
+func recoveryFinalizationContextWithParent(parentContext context.Context, request AgentTurnRequest) (context.Context, context.CancelFunc) {
+	if parentContext == nil {
+		parentContext = context.Background()
+	}
+	recoveryContext := llm.ContextWithRequestContext(parentContext, llm.RequestContext{
+		RequesterPersonID:       request.RequesterPersonID,
+		RequesterEmail:          request.RequesterEmail,
+		RequesterName:           request.RequesterName,
+		RequesterPlatformUserID: request.RequesterPlatformUserID,
+		ConversationID:          request.ConversationID,
+		Platform:                request.Platform,
+	})
+	return context.WithTimeout(recoveryContext, recoveryFinalizationTimeout)
+}
+
+func buildElapsedLimitRawErrorFailureNotice(request AgentTurnRequest) FailureNotice {
+	report := FailureReport{
+		Phase:            "limit",
+		StopReason:       "max_elapsed",
+		RawError:         elapsedLimitRawErrorSummary,
+		ResponseLanguage: request.ResponseLanguage,
+		OriginalRequest:  request.Prompt,
+	}
+	return buildRawErrorFailureNotice(report)
 }
 
 func (generator FailureNoticeGenerator) Generate(ctx context.Context, report FailureReport) (FailureNotice, FailureNoticeGenerationStatus) {

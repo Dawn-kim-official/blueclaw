@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -172,6 +173,101 @@ func TestAgentTurnRunnerPreservesCallerCancellationBeforeEffortDeadline(t *testi
 	}
 }
 
+func TestAgentTurnRunnerPreservesCallerDeadlineBeforeEffortDeadline(t *testing.T) {
+	services := newTurnRunnerTestServices(deadlineBlockingLanguageModel{}, TurnOptions{MaxElapsedSecond: 30})
+	runContext, cancelRun := context.WithTimeout(context.Background(), 25*time.Millisecond)
+	defer cancelRun()
+
+	result, errorValue := services.runner.RunTurn(runContext, AgentTurnRequest{
+		RequesterPersonID: "person-1",
+		ConversationID:    "conversation-1",
+		Prompt:            "시간 제한 전에 취소할 작업",
+		ToolSet:           newTestToolSet(nil),
+	})
+
+	if errorValue != nil {
+		t.Fatalf("expected caller deadline result, got %v", errorValue)
+	}
+	if !result.ReplySuppressed {
+		t.Fatal("expected caller deadline to suppress the reply")
+	}
+	if result.TaskRun.FailureReason == "max_elapsed" {
+		t.Fatalf("expected caller deadline to remain distinct from max_elapsed, got %+v", result.TaskRun)
+	}
+	if taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.limit_stop", "max_elapsed") {
+		t.Fatal("expected no max_elapsed stop event for caller deadline")
+	}
+}
+
+func TestAgentTurnRunnerBoundsToolCallAtExecutionEffortDeadline(t *testing.T) {
+	primaryLanguageModel := &elapsedFinalizationLanguageModel{
+		firstAction: `{"action":"continue","toolName":"slow.tool","toolInput":{}}`,
+	}
+	recoveryLanguageModel := &sequenceLanguageModel{
+		contents:      []string{recoveryDecisionDocument("tool call exceeded the task budget", "no result", "retry", "report the timeout")},
+		textResponses: []string{"작업 시간 제한에 도달해 중지했습니다."},
+	}
+	services := newTurnRunnerTestServicesWithRecoveryModel(primaryLanguageModel, recoveryLanguageModel, TurnOptions{MaxElapsedSecond: 1})
+	toolRegistry := newTestToolSet([]string{"slow.tool"})
+	toolCancelled := make(chan struct{})
+	toolRegistry.RegisterTool(ToolDefinition{Name: "slow.tool"}, func(toolContext context.Context, _ ToolInvocation) (ToolResult, error) {
+		<-toolContext.Done()
+		close(toolCancelled)
+		return ToolFailureResult(FailureExternalService, FailureCodes.OperationFailed, "slow.tool", toolContext.Err().Error()), nil
+	})
+
+	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
+		RequesterPersonID: "person-1",
+		ConversationID:    "conversation-1",
+		Prompt:            "bounded tool call",
+		ToolSet:           toolRegistry,
+		PinnedToolNames:   toolRegistry.ListToolNames(),
+		EffortStartedAt:   time.Now(),
+	})
+
+	if errorValue != nil {
+		t.Fatalf("expected bounded limit result, got %v", errorValue)
+	}
+	if result.TaskRun.Status != task.TaskStatusBlocked || result.TaskRun.FailureReason != "max_elapsed" {
+		t.Fatalf("expected max_elapsed block, got %+v", result.TaskRun)
+	}
+	select {
+	case <-toolCancelled:
+	default:
+		t.Fatal("expected tool call to receive the execution effort deadline")
+	}
+}
+
+func TestAgentTurnRunnerUsesRawLimitFallbackWhenRecoveryFails(t *testing.T) {
+	primaryLanguageModel := deadlineBlockingLanguageModel{}
+	recoveryLanguageModel := failingRecoveryLanguageModel{errorValue: errors.New("recovery unavailable")}
+	services := newTurnRunnerTestServicesWithRecoveryModel(primaryLanguageModel, recoveryLanguageModel, TurnOptions{MaxElapsedSecond: 1})
+
+	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
+		RequesterPersonID: "person-1",
+		ConversationID:    "conversation-1",
+		Prompt:            "raw fallback",
+		ToolSet:           newTestToolSet(nil),
+		EffortStartedAt:   time.Now().Add(-500 * time.Millisecond),
+	})
+
+	if errorValue != nil {
+		t.Fatalf("expected bounded limit result, got %v", errorValue)
+	}
+	if result.TaskRun.FailureReason != "max_elapsed" {
+		t.Fatalf("expected max_elapsed failure, got %+v", result.TaskRun)
+	}
+	if result.FailureNotice.Source != "raw_error" {
+		t.Fatalf("expected raw error fallback, got %+v", result.FailureNotice)
+	}
+	if result.UserNotice != "Execution limit reached; completed progress was saved for continuation." {
+		t.Fatalf("expected compact raw error summary, got %q", result.UserNotice)
+	}
+	if strings.Contains(result.UserNotice, "max_elapsed") {
+		t.Fatalf("raw fallback exposed internal runtime jargon: %q", result.UserNotice)
+	}
+}
+
 func TestRecoveryFinalizationContextIsBoundedAndCarriesRequester(t *testing.T) {
 	request := AgentTurnRequest{
 		RequesterPersonID: "person-1",
@@ -192,7 +288,36 @@ func TestRecoveryFinalizationContextIsBoundedAndCarriesRequester(t *testing.T) {
 	}
 }
 
+func TestRecoveryFinalizationContextHonorsParentDeadline(t *testing.T) {
+	parentContext, cancelParent := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancelParent()
+	request := AgentTurnRequest{RequesterPersonID: "person-1", ConversationID: "conversation-1"}
+	finalizationContext, cancelFinalization := recoveryFinalizationContextWithParent(parentContext, request)
+	defer cancelFinalization()
+
+	parentDeadline, parentHasDeadline := parentContext.Deadline()
+	finalizationDeadline, finalizationHasDeadline := finalizationContext.Deadline()
+	if !parentHasDeadline || !finalizationHasDeadline || finalizationDeadline.After(parentDeadline) {
+		t.Fatalf("expected finalization to honor parent deadline, got %v after %v", finalizationDeadline, parentDeadline)
+	}
+	<-finalizationContext.Done()
+}
+
 type deadlineBlockingLanguageModel struct{}
+
+func newTurnRunnerTestServicesWithRecoveryModel(primaryLanguageModel llm.LanguageModelProvider, recoveryLanguageModel llm.LanguageModelProvider, options TurnOptions) turnRunnerTestServices {
+	taskEventService := task.NewTaskEventService()
+	taskStepService := task.NewTaskStepService()
+	taskArtifactService := task.NewTaskArtifactService()
+	taskRunService := task.NewTaskRunService(taskEventService)
+	return turnRunnerTestServices{
+		runner:              NewAgentTurnRunnerWithRecoveryModel(taskRunService, taskStepService, taskArtifactService, primaryLanguageModel, recoveryLanguageModel, options),
+		taskRunService:      taskRunService,
+		taskEventService:    taskEventService,
+		taskStepService:     taskStepService,
+		taskArtifactService: taskArtifactService,
+	}
+}
 
 func (deadlineBlockingLanguageModel) GenerateResponse(responseContext context.Context, _ string) (string, error) {
 	<-responseContext.Done()
