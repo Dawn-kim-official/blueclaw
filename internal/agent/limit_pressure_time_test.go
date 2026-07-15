@@ -104,6 +104,26 @@ func TestAgentTurnRunnerCancelsModelCallAtExecutionEffortDeadline(t *testing.T) 
 	}
 }
 
+func TestRecoveryFinalizationContextIsBoundedAndCarriesRequester(t *testing.T) {
+	request := AgentTurnRequest{
+		RequesterPersonID: "person-1",
+		RequesterEmail:    "person@example.com",
+		ConversationID:    "conversation-1",
+		Platform:          "mattermost",
+	}
+	recoveryContext, cancelRecovery := recoveryFinalizationContext(request)
+	defer cancelRecovery()
+
+	deadline, hasDeadline := recoveryContext.Deadline()
+	if !hasDeadline || time.Until(deadline) <= 0 || time.Until(deadline) > recoveryFinalizationTimeout {
+		t.Fatalf("expected bounded recovery deadline, got %v", deadline)
+	}
+	requestContext := llm.RequestContextFromContext(recoveryContext)
+	if requestContext.RequesterPersonID != request.RequesterPersonID || requestContext.ConversationID != request.ConversationID {
+		t.Fatalf("expected requester context to survive recovery detachment, got %+v", requestContext)
+	}
+}
+
 type deadlineBlockingLanguageModel struct{}
 
 func (deadlineBlockingLanguageModel) GenerateResponse(responseContext context.Context, _ string) (string, error) {
