@@ -62,7 +62,7 @@ func TestSDKDClientSendsAuthenticatedStructuredRequest(t *testing.T) {
 	if response.Usage.TotalTokens != 10 || response.Content != `{"ok":true}` {
 		t.Fatalf("unexpected sdkd response: %+v", response)
 	}
-	if response.SelectedBackend != "remote" || response.FinishReason != "stop" {
+	if response.Transport != "sdkd" || response.SelectedBackend != "remote" || response.FinishReason != "stop" {
 		t.Fatalf("expected sdkd execution metadata, got %+v", response)
 	}
 }
@@ -127,7 +127,7 @@ func TestSDKDClientGenerateChatCompletionSendsAuthenticatedRequestContext(t *tes
 	if errorValue != nil {
 		t.Fatalf("expected chat completion response: %v", errorValue)
 	}
-	if response.ProviderName != "llama.cpp" || response.ModelName != "gemma" || response.SelectedBackend != "device" {
+	if response.Transport != "sdkd" || response.ProviderName != "llama.cpp" || response.ModelName != "gemma" || response.SelectedBackend != "device" {
 		t.Fatalf("unexpected response metadata: %+v", response)
 	}
 	if string(response.ProviderMetadata) != `{"route":"local"}` || response.Message.Content != "done" {
@@ -469,7 +469,7 @@ func TestSDKDClientGenerateChatCompletionUsesTrustedTransientFallback(t *testing
 		TextProvider: fallbackProvider,
 	})
 	response, errorValue := client.GenerateChatCompletion(context.Background(), ChatCompletionRequest{})
-	if errorValue != nil || response.ProviderName != "legacy" || !response.UsedFallback {
+	if errorValue != nil || response.Transport != "capability" || response.ProviderName != "legacy" || !response.UsedFallback {
 		t.Fatalf("expected trusted chat fallback, got %+v, %v", response, errorValue)
 	}
 	if fallbackProvider.chatCallCount != 1 {
@@ -674,7 +674,7 @@ func TestSDKDClientFallsBackWhenResponseBodyReadFails(t *testing.T) {
 	response, errorValue := client.GenerateStructuredResponse(context.Background(), StructuredResponseRequest{
 		StructuredOutputSchema: StructuredOutputSchema{Name: "test", Document: `{"type":"object"}`},
 	})
-	if errorValue != nil || response.ProviderName != "capabilityLLM" || !response.UsedFallback {
+	if errorValue != nil || response.Transport != "capability" || response.ProviderName != "capabilityLLM" || !response.UsedFallback {
 		t.Fatalf("expected response read failure fallback, got %+v, %v", response, errorValue)
 	}
 }
