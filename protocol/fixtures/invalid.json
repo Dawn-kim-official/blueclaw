@@ -18,6 +18,207 @@
       ]
     }
   ],
+  "chat-completion-request": [
+    {
+      "executionMode": "server",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Hello"
+        }
+      ],
+      "parallelToolCalls": false
+    },
+    {
+      "executionMode": "auto",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Use a tool."
+        }
+      ],
+      "tools": [
+        {
+          "type": "function",
+          "function": {
+            "name": "lookup",
+            "parameters": {
+              "type": "object"
+            }
+          }
+        },
+        {
+          "type": "function",
+          "function": {
+            "name": " lookup ",
+            "parameters": {
+              "type": "object"
+            }
+          }
+        }
+      ],
+      "parallelToolCalls": false
+    },
+    {
+      "executionMode": "auto",
+      "messages": [
+        {
+          "role": "assistant",
+          "toolCalls": [
+            {
+              "id": "call-1",
+              "type": "function",
+              "function": {
+                "name": "lookup",
+                "arguments": "{}"
+              }
+            }
+          ]
+        },
+        {
+          "role": "assistant",
+          "toolCalls": [
+            {
+              "id": "call-1",
+              "type": "function",
+              "function": {
+                "name": "other",
+                "arguments": "{}"
+              }
+            }
+          ]
+        }
+      ],
+      "parallelToolCalls": false
+    },
+    {
+      "executionMode": "auto",
+      "messages": [
+        {
+          "role": "tool",
+          "toolCallId": " ",
+          "content": "result"
+        }
+      ],
+      "parallelToolCalls": false
+    }
+  ],
+  "chat-completion-response": [
+    {
+      "finishReason": "stop",
+      "provider": "",
+      "model": "model",
+      "message": {
+        "role": "assistant",
+        "content": "Hello"
+      },
+      "selectedBackend": "remote"
+    },
+    {
+      "finishReason": "stop",
+      "provider": "provider",
+      "model": "model",
+      "message": {
+        "role": "tool",
+        "content": "done"
+      },
+      "selectedBackend": "remote"
+    },
+    {
+      "finishReason": "tool_calls",
+      "provider": "provider",
+      "model": "model",
+      "message": {
+        "role": "assistant",
+        "content": ""
+      },
+      "selectedBackend": "remote"
+    },
+    {
+      "finishReason": "tool_calls",
+      "provider": "provider",
+      "model": "model",
+      "message": {
+        "role": "assistant",
+        "toolCalls": [
+          {
+            "id": " ",
+            "type": "function",
+            "function": {
+              "name": "lookup",
+              "arguments": "{}"
+            }
+          }
+        ]
+      },
+      "selectedBackend": "remote"
+    },
+    {
+      "finishReason": "tool_calls",
+      "provider": "provider",
+      "model": "model",
+      "message": {
+        "role": "assistant",
+        "toolCalls": [
+          {
+            "id": "call-1",
+            "type": "function",
+            "function": {
+              "name": "",
+              "arguments": "{}"
+            }
+          }
+        ]
+      },
+      "selectedBackend": "remote"
+    },
+    {
+      "finishReason": "tool_calls",
+      "provider": "provider",
+      "model": "model",
+      "message": {
+        "role": "assistant",
+        "toolCalls": [
+          {
+            "id": "call-1",
+            "type": "function",
+            "function": {
+              "name": "lookup",
+              "arguments": "[]"
+            }
+          }
+        ]
+      },
+      "selectedBackend": "remote"
+    },
+    {
+      "finishReason": "tool_calls",
+      "provider": "provider",
+      "model": "model",
+      "message": {
+        "role": "assistant",
+        "toolCalls": [
+          {
+            "id": "call-1",
+            "type": "function",
+            "function": {
+              "name": "lookup",
+              "arguments": "{}"
+            }
+          },
+          {
+            "id": "call-1",
+            "type": "function",
+            "function": {
+              "name": "other",
+              "arguments": "{}"
+            }
+          }
+        ]
+      },
+      "selectedBackend": "remote"
+    }
+  ],
   "task-run": [
     {
       "taskRunID": "task-1",

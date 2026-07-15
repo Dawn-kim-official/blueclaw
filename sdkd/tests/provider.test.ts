@@ -1,11 +1,14 @@
 import { describe, expect, test } from 'bun:test';
+import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
 import type { LanguageModelV3GenerateResult, LanguageModelV3Usage } from '@ai-sdk/provider';
 import { APICallError, RetryError } from 'ai';
-import type { StructuredResponseRequest } from '@blueclaw/protocol';
+import { createOpenRouter } from '@openrouter/ai-sdk-provider';
+import type { ChatCompletionRequest, StructuredResponseRequest } from '@blueclaw/protocol';
 import { MockLanguageModelV3 } from 'ai/test';
 
 import type { SDKDConfiguration } from '../src/configuration.ts';
 import {
+  createChatCompletionGenerator,
   createStructuredResponseGenerator,
   type ProviderLanguageModelFactory,
 } from '../src/provider.ts';
@@ -31,7 +34,178 @@ const structuredRequest: StructuredResponseRequest = {
   },
 };
 
+const chatRequest: ChatCompletionRequest = {
+  executionMode: 'auto',
+  model: 'remote-model',
+  messages: [
+    { role: 'system', content: 'You are concise.' },
+    { role: 'user', content: 'Look up the answer.' },
+    {
+      role: 'assistant',
+      toolCalls: [{ id: 'call-1', type: 'function', function: { name: 'lookup', arguments: '{"key":"value"}' } }],
+    },
+    { role: 'tool', toolCallId: 'call-1', content: '{"answer":42}' },
+  ],
+  tools: [{
+    type: 'function',
+    function: {
+      name: 'lookup',
+      description: 'Look up a value.',
+      parameters: { type: 'object', properties: { key: { type: 'string' } } },
+    },
+  }],
+  toolChoice: { type: 'function', function: { name: 'lookup' } },
+  parallelToolCalls: false,
+};
+
 describe('sdkd provider adapter', () => {
+  test('generates chat completions with native tools and provider metadata', async () => {
+    const llamaModel = successfulLanguageModel('unused-local-model', { ok: true });
+    const remoteModel = chatLanguageModel('served-remote-model');
+    const generateChatCompletion = createChatCompletionGenerator(
+      completeConfiguration('remote-first'),
+      languageModelFactory(llamaModel, remoteModel),
+    );
+
+    const response = await generateChatCompletion(chatRequest);
+    const call = remoteModel.doGenerateCalls[0];
+
+    expect(response).toEqual({
+      provider: 'openrouter',
+      model: 'served-remote-model',
+      message: {
+        role: 'assistant',
+        content: '',
+        toolCalls: [{
+          id: 'call-2',
+          type: 'function',
+          function: { name: 'lookup', arguments: '{"key":"result"}' },
+        }],
+      },
+      selectedBackend: 'remote',
+      finishReason: 'tool_calls',
+      usage: { promptTokens: 10, completionTokens: 5, totalTokens: 15 },
+      providerMetadata: { openrouter: { trace: 'test' } },
+    });
+    expect(call?.tools?.map(tool => tool.name)).toEqual(['lookup']);
+    expect(call?.toolChoice).toEqual({ type: 'tool', toolName: 'lookup' });
+    expect(call?.providerOptions).toBeUndefined();
+    expect(JSON.stringify(call?.prompt)).toContain('call-1');
+    expect(JSON.stringify(call?.prompt)).toContain('answer');
+    expect(llamaModel.doGenerateCalls).toHaveLength(0);
+  });
+
+  test('allows chat device routing without structured-output enablement', async () => {
+    const llamaModel = chatLanguageModel('served-local-model');
+    const remoteModel = successfulLanguageModel('unused-remote-model', { ok: true });
+    const generateChatCompletion = createChatCompletionGenerator(
+      { ...completeConfiguration('remote-first'), llamaStructuredOutputsEnabled: false },
+      languageModelFactory(llamaModel, remoteModel),
+    );
+
+    const response = await generateChatCompletion({ ...chatRequest, executionMode: 'device' });
+
+    expect(response.selectedBackend).toBe('device');
+    expect(llamaModel.doGenerateCalls).toHaveLength(1);
+    expect(remoteModel.doGenerateCalls).toHaveLength(0);
+  });
+
+  test('falls back for chat after a retryable provider failure', async () => {
+    const routeAttempts: string[] = [];
+    const llamaModel = apiFailingLanguageModel('llama.cpp', true, routeAttempts);
+    const remoteModel = chatLanguageModel('served-remote-model');
+    const generateChatCompletion = createChatCompletionGenerator(
+      completeConfiguration('local-first'),
+      languageModelFactory(llamaModel, remoteModel),
+    );
+
+    const response = await generateChatCompletion({ ...chatRequest, executionMode: 'auto' });
+
+    expect(routeAttempts).toEqual(['llama.cpp']);
+    expect(response.selectedBackend).toBe('remote');
+    expect(remoteModel.doGenerateCalls).toHaveLength(1);
+  });
+
+  test('keeps automatic chat routing local in local-only mode', async () => {
+    const llamaModel = chatLanguageModel('served-local-model');
+    const remoteModel = chatLanguageModel('unused-remote-model');
+    const generateChatCompletion = createChatCompletionGenerator(
+      { ...completeConfiguration('remote-first'), localOnly: true },
+      languageModelFactory(llamaModel, remoteModel),
+    );
+
+    const response = await generateChatCompletion({ ...chatRequest, executionMode: 'auto' });
+
+    expect(response.selectedBackend).toBe('device');
+    expect(llamaModel.doGenerateCalls).toHaveLength(1);
+    expect(remoteModel.doGenerateCalls).toHaveLength(0);
+    await expect(generateChatCompletion({ ...chatRequest, executionMode: 'remote' })).rejects.toThrow(
+      'remote routing is disabled by local-only mode',
+    );
+  });
+
+  test('writes parallel tool calls using the provider wire field', async () => {
+    const requestBodies: Array<Record<string, unknown>> = [];
+    const generateChatCompletion = createChatCompletionGenerator(
+      completeConfiguration('remote-first'),
+      wireLanguageModelFactory(requestBodies),
+    );
+
+    await generateChatCompletion({ ...chatRequest, executionMode: 'remote', parallelToolCalls: false });
+    await generateChatCompletion({ ...chatRequest, executionMode: 'device', parallelToolCalls: true });
+    const localOnlyGenerator = createChatCompletionGenerator(
+      { ...completeConfiguration('remote-first'), localOnly: true },
+      wireLanguageModelFactory(requestBodies),
+    );
+    await localOnlyGenerator({ ...chatRequest, executionMode: 'auto', parallelToolCalls: false });
+
+    expect(requestBodies).toHaveLength(3);
+    expect(requestBodies[0]?.parallel_tool_calls).toBe(false);
+    expect(requestBodies[0]?.parallelToolCalls).toBeUndefined();
+    expect(requestBodies[1]?.parallel_tool_calls).toBe(true);
+    expect(requestBodies[1]?.parallelToolCalls).toBeUndefined();
+    expect(requestBodies[2]?.parallel_tool_calls).toBe(false);
+    expect(requestBodies[2]?.parallelToolCalls).toBeUndefined();
+  });
+
+  test('passes cancellation to the model and does not fall back after abort', async () => {
+    const abortController = new AbortController();
+    const routeAttempts: string[] = [];
+    let resolveStarted: (() => void) | undefined;
+    const started = new Promise<void>(resolve => {
+      resolveStarted = resolve;
+    });
+    const llamaModel = new MockLanguageModelV3({
+      doGenerate: async options => {
+        routeAttempts.push('llama.cpp');
+        expect(options.abortSignal).toBeDefined();
+        resolveStarted?.();
+        return new Promise((_, reject) => {
+          if (options.abortSignal?.aborted) {
+            reject(new DOMException('The operation was aborted', 'AbortError'));
+            return;
+          }
+          options.abortSignal?.addEventListener('abort', () => {
+            reject(new DOMException('The operation was aborted', 'AbortError'));
+          }, { once: true });
+        });
+      },
+    });
+    const remoteModel = successfulLanguageModel('unused-remote-model', { ok: true });
+    const generateChatCompletion = createChatCompletionGenerator(
+      completeConfiguration('local-first'),
+      languageModelFactory(llamaModel, remoteModel),
+    );
+
+    const responsePromise = generateChatCompletion({ ...chatRequest, executionMode: 'auto' }, abortController.signal);
+    await started;
+    abortController.abort();
+
+    await expect(responsePromise).rejects.toThrow('aborted');
+    expect(routeAttempts).toEqual(['llama.cpp']);
+    expect(remoteModel.doGenerateCalls).toHaveLength(0);
+  });
+
   test('selects the requested device route and normalizes structured output and usage', async () => {
     const llamaModel = successfulLanguageModel('served-local-model', { ok: true }, {
       inputTokens: { total: 12.9, noCache: 8, cacheRead: 4.8, cacheWrite: -2 },
@@ -276,6 +450,43 @@ function languageModelFactory(
   };
 }
 
+function wireLanguageModelFactory(requestBodies: Array<Record<string, unknown>>): ProviderLanguageModelFactory {
+  const fetch = Object.assign(
+    async (_input: string | URL | Request, init?: BunFetchRequestInit) => {
+      const body = init?.body;
+      if (typeof body !== 'string') throw new Error('wire test request body must be a string');
+      const parsedBody: unknown = JSON.parse(body);
+      if (!isRecord(parsedBody)) throw new Error('wire test request body must be an object');
+      requestBodies.push(parsedBody);
+      return new Response(JSON.stringify({
+        id: 'wire-test',
+        choices: [{ index: 0, message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' }],
+        usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+      }), { headers: { 'content-type': 'application/json' } });
+    },
+    { preconnect: globalThis.fetch.preconnect },
+  );
+  return {
+    createLlamaLanguageModel(modelName, baseURL, apiKey, parallelToolCalls) {
+      const provider = createOpenAICompatible({
+        apiKey,
+        baseURL,
+        name: 'llama-wire-test',
+        supportsStructuredOutputs: true,
+        fetch,
+        transformRequestBody: parallelToolCalls === undefined
+          ? undefined
+          : requestBody => ({ ...requestBody, parallel_tool_calls: parallelToolCalls }),
+      });
+      return provider.chatModel(modelName);
+    },
+    createOpenRouterLanguageModel(modelName, baseURL, apiKey, parallelToolCalls) {
+      const provider = createOpenRouter({ apiKey, baseURL, compatibility: 'strict', fetch });
+      return provider.chat(modelName, parallelToolCalls === undefined ? undefined : { parallelToolCalls });
+    },
+  };
+}
+
 function successfulLanguageModel(
   modelID: string,
   output: unknown,
@@ -288,6 +499,25 @@ function successfulLanguageModel(
       onGenerate();
       return successfulGeneration(modelID, output, usage);
     },
+  });
+}
+
+function chatLanguageModel(modelID: string): MockLanguageModelV3 {
+  return new MockLanguageModelV3({
+    modelId: modelID,
+    doGenerate: async () => ({
+      content: [{
+        type: 'tool-call',
+        toolCallId: 'call-2',
+        toolName: 'lookup',
+        input: '{"key":"result"}',
+      }],
+      finishReason: { unified: 'tool-calls', raw: 'tool_calls' },
+      usage: defaultUsage(),
+      response: { modelId: modelID, headers: { 'x-test': 'ok' } },
+      providerMetadata: { openrouter: { trace: 'test' } },
+      warnings: [],
+    }),
   });
 }
 
@@ -352,4 +582,8 @@ function defaultUsage(): LanguageModelV3Usage {
     inputTokens: { total: 10, noCache: 10, cacheRead: undefined, cacheWrite: undefined },
     outputTokens: { total: 5, text: 5, reasoning: undefined },
   };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
