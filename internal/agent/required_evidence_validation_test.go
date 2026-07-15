@@ -91,3 +91,30 @@ func TestValidateRequiredEvidenceAcceptsCanonicalDeliveryAlias(t *testing.T) {
 		t.Fatalf("expected file.attach alias to match registered file.deliver evidence, got %+v", report)
 	}
 }
+
+func TestRequiredEvidenceMissingForBoundedMaintenanceTask(t *testing.T) {
+	intakeDecision := IntakeDecision{
+		Classification: IntakeClassificationBoundedTask,
+		TaskShape:      TaskShapeMaintenanceTask,
+	}
+
+	isMissing := requiredEvidenceMissingForSideEffect(intakeDecision, OutcomeContract{}, newTestToolSet([]string{"task.add"}))
+
+	if !isMissing {
+		t.Fatal("expected bounded maintenance task without evidence to require recovery")
+	}
+}
+
+func TestRequiredEvidenceNotMissingForReadOnlyResearchTask(t *testing.T) {
+	intakeDecision := IntakeDecision{
+		Classification:   IntakeClassificationBoundedTask,
+		TaskShape:        TaskShapeResearchTask,
+		InitialToolNames: []string{"web.search"},
+	}
+
+	isMissing := requiredEvidenceMissingForSideEffect(intakeDecision, OutcomeContract{}, newTestToolSet([]string{"web.search"}))
+
+	if isMissing {
+		t.Fatal("expected read-only research task not to require side-effect evidence")
+	}
+}
