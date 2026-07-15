@@ -188,7 +188,8 @@ func TestToolSetInvokeRejectsHiddenTool(t *testing.T) {
 func TestToolFunctionValidatesInputAndMarshalsOutput(t *testing.T) {
 	toolSet := NewToolSet([]string{"echo.tool"})
 	RegisterToolFunction(toolSet, ToolFunction[echoToolInput, echoToolOutput]{
-		Definition: ToolDefinition{Name: "echo.tool"},
+		Definition:               ToolDefinition{Name: "echo.tool"},
+		RejectUnknownInputFields: true,
 		Handler: func(_ context.Context, input echoToolInput) (echoToolOutput, error) {
 			return echoToolOutput{Message: input.Message}, nil
 		},
@@ -200,6 +201,14 @@ func TestToolFunctionValidatesInputAndMarshalsOutput(t *testing.T) {
 	}
 	if !malformedResult.Failed() || !strings.Contains(malformedResult.ContentText(), "tool input is not valid json") {
 		t.Fatalf("expected malformed input error, got %+v", malformedResult)
+	}
+
+	unknownFieldResult, errorValue := toolSet.Invoke(context.Background(), ToolInvocation{ToolName: "echo.tool", Input: []byte(`{"message":"hello","operation":"task.add"}`)})
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if !unknownFieldResult.Failed() || !strings.Contains(unknownFieldResult.ContentText(), "unknown field") {
+		t.Fatalf("expected unknown input field error, got %+v", unknownFieldResult)
 	}
 
 	result, errorValue := toolSet.Invoke(context.Background(), ToolInvocation{ToolName: "echo.tool", Input: MarshalToolInput(echoToolInput{Message: "hello"})})

@@ -3,6 +3,7 @@ package agentruntime
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"blueclaw/internal/agent"
@@ -90,6 +91,20 @@ func TestTaskHistoryToolFiltersByStatusAndLimit(t *testing.T) {
 	limitedOutput := invokeTaskHistory(t, toolRegistry, map[string]any{"limit": 2})
 	if len(limitedOutput.Tasks) != 2 {
 		t.Fatalf("limited tasks = %+v", limitedOutput.Tasks)
+	}
+}
+
+func TestTaskHistoryToolRejectsCapabilityOperationInput(t *testing.T) {
+	toolRegistry, _ := newTaskHistoryTestRegistry(t, "person-1")
+	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+		ToolName: "task.history",
+		Input:    json.RawMessage(`{"operation":"task.add","input":{"prompt":"분기 결산 자료 확인"}}`),
+	})
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if !result.Failed() || !strings.Contains(result.ContentText(), "unknown field") {
+		t.Fatalf("expected task.history to reject task.add input, got %s", result.ContentText())
 	}
 }
 
