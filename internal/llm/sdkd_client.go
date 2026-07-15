@@ -138,7 +138,7 @@ func (client SDKDClient) GenerateRecoveryChatCompletion(responseContext context.
 	if contextError := responseContext.Err(); contextError != nil {
 		return response, contextError
 	}
-	if !isRetryableSDKDError(errorValue) {
+	if !shouldRetrySDKDRecovery(errorValue) {
 		return response, errorValue
 	}
 	return client.generateSDKDRecoveryChatAttempt(responseContext, request, "device")
@@ -178,7 +178,7 @@ func (client SDKDClient) GenerateStructuredResponse(responseContext context.Cont
 	if response.Transport == "" {
 		response.Transport = "sdkd"
 	}
-	if errorValue == nil || client.LocalOnly || client.StructuredFallbackProvider == nil || !isRetryableSDKDError(errorValue) {
+	if errorValue == nil || client.LocalOnly || client.StructuredFallbackProvider == nil || !canUseLegacySDKDFallback(errorValue) {
 		return response, errorValue
 	}
 	fallbackResponse, fallbackError := client.StructuredFallbackProvider.GenerateStructuredResponse(responseContext, request)
@@ -200,7 +200,7 @@ func (client SDKDClient) GenerateChatCompletion(responseContext context.Context,
 
 func (client SDKDClient) generateChatCompletion(responseContext context.Context, request ChatCompletionRequest, executionMode string, allowFallback bool) (ChatCompletionResponse, error) {
 	response, errorValue := client.generateSDKDChatCompletion(responseContext, request, executionMode)
-	if errorValue == nil || !allowFallback || client.LocalOnly || !isRetryableSDKDError(errorValue) {
+	if errorValue == nil || !allowFallback || client.LocalOnly || !canUseLegacySDKDFallback(errorValue) {
 		return response, errorValue
 	}
 	if responseContext.Err() != nil {
@@ -444,19 +444,23 @@ func (client SDKDClient) postJSON(responseContext context.Context, path string, 
 	return json.Unmarshal(responseBody, responseDocument)
 }
 
-func isRetryableSDKDError(errorValue error) bool {
-	if errors.Is(errorValue, context.Canceled) || errors.Is(errorValue, context.DeadlineExceeded) {
-		return false
-	}
-	var transportError sdkdTransportError
-	if errors.As(errorValue, &transportError) {
+func canUseLegacySDKDFallback(errorValue error) bool {
+	if isSDKDTransportError(errorValue) {
 		return true
 	}
-	var httpError sdkdHTTPError
-	if !errors.As(errorValue, &httpError) {
-		return false
+	httpError, isHTTPError := asSDKDHTTPError(errorValue)
+	return isHTTPError &&
+		httpError.AllowLegacyFallback &&
+		httpError.Code == "sdkd_bridge_unavailable" &&
+		httpError.StatusCode == http.StatusServiceUnavailable
+}
+
+func shouldRetrySDKDRecovery(errorValue error) bool {
+	if isSDKDTransportError(errorValue) {
+		return true
 	}
-	if !httpError.AllowLegacyFallback {
+	httpError, isHTTPError := asSDKDHTTPError(errorValue)
+	if !isHTTPError || !httpError.AllowLegacyFallback {
 		return false
 	}
 	switch httpError.Code {
@@ -469,6 +473,20 @@ func isRetryableSDKDError(errorValue error) bool {
 	default:
 		return false
 	}
+}
+
+func isSDKDTransportError(errorValue error) bool {
+	if errors.Is(errorValue, context.Canceled) || errors.Is(errorValue, context.DeadlineExceeded) {
+		return false
+	}
+	var transportError sdkdTransportError
+	return errors.As(errorValue, &transportError)
+}
+
+func asSDKDHTTPError(errorValue error) (sdkdHTTPError, bool) {
+	var httpError sdkdHTTPError
+	isHTTPError := errors.As(errorValue, &httpError)
+	return httpError, isHTTPError
 }
 
 func (client SDKDClient) executionMode() string {
