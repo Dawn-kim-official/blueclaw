@@ -193,6 +193,97 @@ func TestAgentTurnRunnerCompletesSuccessfulSideEffectWhenElapsedFinalizerFails(t
 	}
 }
 
+func TestAgentTurnRunnerCompletesSuccessfulReadAtExecutionEffortDeadline(t *testing.T) {
+	primaryLanguageModel := &elapsedFinalizationLanguageModel{
+		firstAction: `{"action":"continue","toolName":"task.list","toolInput":{"query":"고객지원 분기 결산"},"goalSatisfied":true,"hasRemainingWork":false}`,
+	}
+	recoveryLanguageModel := &sequenceLanguageModel{textResponses: []string{"고객지원 분기 결산 검토 완료 업무가 남아 있습니다."}}
+	services := newTurnRunnerTestServicesWithRecoveryModel(primaryLanguageModel, recoveryLanguageModel, TurnOptions{MaxElapsedSecond: 1})
+	toolRegistry := newTestToolSet([]string{"task.list"})
+	toolCallCount := 0
+	toolRegistry.RegisterTool(ToolDefinition{Name: "task.list"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		toolCallCount++
+		return ToolSuccess(`{"count":1,"tasks":[{"title":"고객지원 분기 결산 검토 완료"}]}`), nil
+	})
+
+	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
+		RequesterPersonID: "person-1",
+		ConversationID:    "conversation-1",
+		Prompt:            "내 업무를 조회해서 고객지원 분기 결산 업무가 남아 있는지 알려줘",
+		ResponseLanguage:  ResponseLanguageKorean,
+		ToolSet:           toolRegistry,
+		PinnedToolNames:   toolRegistry.ListToolNames(),
+	})
+
+	if errorValue != nil {
+		t.Fatalf("expected elapsed read completion, got %v", errorValue)
+	}
+	if result.TaskRun.Status != task.TaskStatusCompleted {
+		t.Fatalf("expected completed task, got %+v", result.TaskRun)
+	}
+	if result.FinishMessage != recoveryLanguageModel.textResponses[0] {
+		t.Fatalf("expected model-authored read result, got %q", result.FinishMessage)
+	}
+	if toolCallCount != 1 {
+		t.Fatalf("expected one successful read before the deadline, got %d", toolCallCount)
+	}
+	if len(recoveryLanguageModel.textPrompts) != 1 || !strings.Contains(recoveryLanguageModel.textPrompts[0], "- task.list:") {
+		t.Fatalf("expected task.list evidence in completion prompt, got %+v", recoveryLanguageModel.textPrompts)
+	}
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.limit_completed_from_evidence", "max_elapsed") {
+		t.Fatal("expected elapsed read completion event")
+	}
+}
+
+func TestAgentTurnRunnerDoesNotCompleteReadWithoutModelCompletionIntent(t *testing.T) {
+	primaryLanguageModel := &elapsedFinalizationLanguageModel{
+		firstAction: `{"action":"continue","toolName":"task.list","toolInput":{"query":"고객지원 분기 결산"},"goalSatisfied":false,"hasRemainingWork":true}`,
+	}
+	recoveryLanguageModel := &sequenceLanguageModel{
+		contents:      []string{recoveryDecisionDocument("execution time elapsed", "task list was read", "retry", "report incomplete work")},
+		textResponses: []string{"업무 조회는 완료했지만 요청한 작업은 아직 끝나지 않았습니다."},
+	}
+	services := newTurnRunnerTestServicesWithRecoveryModel(primaryLanguageModel, recoveryLanguageModel, TurnOptions{MaxElapsedSecond: 1})
+	toolRegistry := newTestToolSet([]string{"task.list"})
+	toolRegistry.RegisterTool(ToolDefinition{Name: "task.list"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return ToolSuccess(`{"count":1,"tasks":[{"title":"고객지원 분기 결산 검토 완료"}]}`), nil
+	})
+
+	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
+		RequesterPersonID: "person-1",
+		ConversationID:    "conversation-1",
+		Prompt:            "업무를 찾아서 제목을 바꿔줘",
+		ResponseLanguage:  ResponseLanguageKorean,
+		ToolSet:           toolRegistry,
+		PinnedToolNames:   toolRegistry.ListToolNames(),
+	})
+
+	if errorValue != nil {
+		t.Fatalf("expected bounded incomplete result, got %v", errorValue)
+	}
+	if result.TaskRun.Status != task.TaskStatusBlocked || result.TaskRun.FailureReason != "max_elapsed" {
+		t.Fatalf("expected max_elapsed block without completion intent, got %+v", result.TaskRun)
+	}
+	if taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.limit_completed_from_evidence", "max_elapsed") {
+		t.Fatal("expected no elapsed completion from an intermediate read")
+	}
+}
+
+func TestCompletionIntentDoesNotSurviveLaterIncompleteToolAction(t *testing.T) {
+	goalSatisfied := true
+	state := agentTaskState{}
+	updateCompletionIntent(&state, turnActionDocument{GoalSatisfied: &goalSatisfied}, newContentObservation("obs-001", "continue", "task.list", `{"count":1}`))
+	if state.CompletionIntentToolName != "task.list" {
+		t.Fatalf("expected explicit completion intent, got %q", state.CompletionIntentToolName)
+	}
+
+	goalSatisfied = false
+	updateCompletionIntent(&state, turnActionDocument{GoalSatisfied: &goalSatisfied, HasRemainingWork: true}, newContentObservation("obs-002", "continue", "task.list", `{"count":1}`))
+	if state.CompletionIntentToolName != "" {
+		t.Fatalf("expected later incomplete action to clear stale intent, got %q", state.CompletionIntentToolName)
+	}
+}
+
 func TestElapsedCompletionRecoveryHonorsCallerCancellation(t *testing.T) {
 	recoveryLanguageModel := &cancellationRecoveryLanguageModel{started: make(chan struct{})}
 	services := newTurnRunnerTestServicesWithRecoveryModel(deadlineBlockingLanguageModel{}, recoveryLanguageModel, TurnOptions{MaxElapsedSecond: 1})
