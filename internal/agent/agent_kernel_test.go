@@ -530,13 +530,23 @@ func TestAgentKernelReplacesReadOnlyEvidenceForMaintenanceTask(t *testing.T) {
 func TestAgentKernelRejectsReadOnlyEvidenceFromMaintenanceReask(t *testing.T) {
 	agentKernel, taskRunService := newKernelTestServices()
 	intakeLanguageModel := &turnRouterDecisionLanguageModel{
-		initialDecision: sideEffectMissingEvidenceDecision(),
-		reaskDecision:   TurnDecision{RequiredEvidenceTools: []string{"task.history"}},
+		initialDecision: TurnDecision{
+			Route:                 TurnRouteStartTask,
+			Classification:        IntakeClassificationBoundedTask,
+			TaskShape:             TaskShapeMaintenanceTask,
+			TaskLevel:             TaskLevelLow,
+			RequiredEvidenceTools: []string{"task.history"},
+			ResponseLanguage:      "ko",
+			Reason:                "deployment requested",
+		},
+		reaskDecision: TurnDecision{RequiredEvidenceTools: []string{"task.history"}},
 	}
 	agentKernel.UseIntakeLanguageModelProvider(intakeLanguageModel)
 
+	toolCallCount := 0
 	toolSet := newTestToolSet([]string{TerminalRunToolName, "task.history"})
 	toolSet.RegisterTool(ToolDefinition{Name: TerminalRunToolName}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		toolCallCount++
 		return ToolSuccess(`{"exitCode":0,"stdout":"done","stderr":"","timedOut":false}`), nil
 	})
 	agentKernel.UseLanguageModelProvider(&sequenceLanguageModel{contents: []string{
@@ -549,7 +559,13 @@ func TestAgentKernelRejectsReadOnlyEvidenceFromMaintenanceReask(t *testing.T) {
 	result, errorValue := agentKernel.RunAgentRequest(context.Background(), request)
 
 	if errorValue != nil {
-		t.Fatalf("expected task to proceed after rejecting read-only recovery: %v", errorValue)
+		t.Fatalf("expected task to stop safely after rejecting read-only recovery: %v", errorValue)
+	}
+	if result.TaskRun.Status != task.TaskStatusBlocked {
+		t.Fatalf("expected invalid recovery to block before execution, got %q", result.TaskRun.Status)
+	}
+	if toolCallCount != 0 {
+		t.Fatalf("expected no side effect with an incorrect evidence contract, got %d calls", toolCallCount)
 	}
 	if intakeLanguageModel.reaskCallCount != 1 {
 		t.Fatalf("expected exactly one re-ask attempt, got %d", intakeLanguageModel.reaskCallCount)
@@ -563,9 +579,7 @@ func TestAgentKernelRejectsReadOnlyEvidenceFromMaintenanceReask(t *testing.T) {
 	}
 }
 
-// Even when the one re-ask fails to recover evidence, the task must proceed
-// rather than hard-block; the re-ask is a soft recovery, not a gate.
-func TestAgentKernelProceedsWhenReaskStillReturnsNoEvidence(t *testing.T) {
+func TestAgentKernelContinuesWhenEmptyReaskHasNoWrongContract(t *testing.T) {
 	agentKernel, taskRunService := newKernelTestServices()
 	intakeLanguageModel := &turnRouterDecisionLanguageModel{
 		initialDecision: sideEffectMissingEvidenceDecision(),
@@ -588,16 +602,16 @@ func TestAgentKernelProceedsWhenReaskStillReturnsNoEvidence(t *testing.T) {
 
 	result, errorValue := agentKernel.RunAgentRequest(context.Background(), request)
 	if errorValue != nil {
-		t.Fatalf("expected task to proceed after a failed re-ask: %v", errorValue)
+		t.Fatalf("expected task to proceed without an incorrect contract: %v", errorValue)
 	}
 	if result.TaskRun.Status == task.TaskStatusBlocked {
-		t.Fatalf("a failed re-ask must not hard-block; task should proceed, got %q", result.TaskRun.Status)
+		t.Fatalf("expected empty evidence recovery to remain a soft fallback, got %q", result.TaskRun.Status)
 	}
 	if intakeLanguageModel.reaskCallCount != 1 {
 		t.Fatalf("expected exactly one re-ask attempt, got %d", intakeLanguageModel.reaskCallCount)
 	}
 	if toolCallCount != 1 {
-		t.Fatalf("expected the side-effect tool to run once, got %d", toolCallCount)
+		t.Fatalf("expected the side-effect tool to run once, got %d calls", toolCallCount)
 	}
 	taskEvents := taskRunService.ListTaskEvent(result.TaskRun.TaskRunID)
 	if !taskEventsContain(taskEvents, requiredEvidenceReaskEventName, `"wasAttempted":true`) {

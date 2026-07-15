@@ -143,7 +143,7 @@ func intakeDecisionRequiresSideEffectEvidence(intakeDecision IntakeDecision, too
 
 func requiredEvidenceIncludesSideEffect(toolSet *ToolSet, toolNames []string) bool {
 	for _, toolName := range toolNames {
-		if requiredEvidenceToolNeedsSuccessfulSideEffect(toolSet, toolName) {
+		if IsArtifactDeliveryTool(toolName) || requiredEvidenceToolNeedsSuccessfulSideEffect(toolSet, toolName) {
 			return true
 		}
 	}
