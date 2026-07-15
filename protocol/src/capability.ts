@@ -1,6 +1,13 @@
 import { z } from 'zod';
 
-import { jsonValueSchema, nonNegativeIntegerSchema, resourceScopeSchema } from './common.ts';
+import { ExecutionMode, jsonValueSchema, nonNegativeIntegerSchema, resourceScopeSchema } from './common.ts';
+
+export enum CapabilityEstimatedLatency {
+  Low = 'low',
+  Medium = 'medium',
+  High = 'high',
+  Interactive = 'interactive',
+}
 
 export const completionEvidenceDescriptorSchema = z.looseObject({
   mode: z.string().optional(),
@@ -13,7 +20,7 @@ export const capabilityDescriptorSchema = z.looseObject({
   description: z.string().optional(),
   version: z.string(),
   privacyClass: z.string(),
-  estimatedLatency: z.enum(['low', 'medium', 'high', 'interactive']),
+  estimatedLatency: z.enum(CapabilityEstimatedLatency),
   requiresUserPresence: z.boolean(),
   worksOffline: z.boolean(),
   inputSchema: jsonValueSchema.optional(),
@@ -64,7 +71,7 @@ export const toolInvokeRequestSchema = z.looseObject({
   idempotencyKey: z.string().optional(),
   context: toolInvokeContextSchema.optional(),
   actor: actorContextSchema.optional(),
-  executionMode: z.enum(['device', 'companion', 'remote', 'auto']).optional(),
+  executionMode: z.enum(ExecutionMode).optional(),
   requiresUserPresence: z.boolean().optional(),
   privacyClass: z.string().optional(),
   sessionID: z.string().optional(),

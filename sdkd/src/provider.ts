@@ -1,6 +1,12 @@
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
 import type { JSONSchema7, JSONValue } from '@ai-sdk/provider';
 import { createOpenRouter } from '@openrouter/ai-sdk-provider';
+import {
+  ChatCompletionFinishReason,
+  ExecutionMode,
+  LanguageModelBackend,
+  StructuredOutputConstraintMode,
+} from '@blueclaw/protocol';
 import type {
   ChatCompletionRequest,
   ChatCompletionResponse,
@@ -17,15 +23,15 @@ import {
 } from 'ai';
 import Ajv from 'ajv';
 
-import type { SDKDConfiguration } from './configuration.ts';
+import { SDKDAutoRoute, type SDKDConfiguration } from './configuration.ts';
 import { classifySDKDError, isRetryableProviderError, SDKDError } from './errors.ts';
 
 type ProviderRoute = {
-  constraintMode?: 'llama_json_schema' | 'openai_json_schema';
+  constraintMode?: StructuredOutputConstraintMode.LlamaJSONSchema | StructuredOutputConstraintMode.OpenAIJSONSchema;
   languageModel: LanguageModel;
   modelName: string;
   providerName: 'llama.cpp' | 'openrouter';
-  selectedBackend: 'device' | 'remote';
+  selectedBackend: LanguageModelBackend;
 };
 
 export type ProviderLanguageModelFactory = {
@@ -98,17 +104,17 @@ function resolveProviderRoutes(
   const parallelToolCalls = 'parallelToolCalls' in request && typeof request.parallelToolCalls === 'boolean'
     ? request.parallelToolCalls
     : undefined;
-  if (request.executionMode === 'device') return [createLlamaRoute(configuration, languageModelFactory, requireStructuredOutputs, parallelToolCalls)];
-  if (request.executionMode === 'remote') {
+  if (request.executionMode === ExecutionMode.Device) return [createLlamaRoute(configuration, languageModelFactory, requireStructuredOutputs, parallelToolCalls)];
+  if (request.executionMode === ExecutionMode.Remote) {
     if (configuration.localOnly) {
       throw new SDKDError('policy_remote_disabled', 403, false, 'remote routing is disabled by local-only mode');
     }
     return [createOpenRouterRoute(request, configuration, languageModelFactory, parallelToolCalls)];
   }
-  if (request.executionMode === 'companion') throw new Error('companion language model routing is provided by InternKim');
+  if (request.executionMode === ExecutionMode.Companion) throw new Error('companion language model routing is provided by InternKim');
   const routes = configuration.localOnly
     ? [optionalLlamaRoute(configuration, languageModelFactory, requireStructuredOutputs, parallelToolCalls)]
-    : configuration.autoRoute === 'local-first'
+    : configuration.autoRoute === SDKDAutoRoute.LocalFirst
       ? [
           optionalLlamaRoute(configuration, languageModelFactory, requireStructuredOutputs, parallelToolCalls),
           optionalOpenRouterRoute(request, configuration, languageModelFactory, parallelToolCalls),
@@ -160,7 +166,7 @@ function createLlamaRoute(
     throw new SDKDError('configuration_invalid', 503, false, 'device structured output routing requires explicit conformance enablement');
   }
   return {
-    constraintMode: 'llama_json_schema',
+    constraintMode: StructuredOutputConstraintMode.LlamaJSONSchema,
     languageModel: languageModelFactory.createLlamaLanguageModel(
       configuration.llamaModel,
       configuration.llamaBaseURL,
@@ -169,7 +175,7 @@ function createLlamaRoute(
     ),
     modelName: configuration.llamaModel,
     providerName: 'llama.cpp',
-    selectedBackend: 'device',
+    selectedBackend: LanguageModelBackend.Device,
   };
 }
 
@@ -185,7 +191,7 @@ function createOpenRouterRoute(
   const modelName = request.model?.trim();
   if (!modelName) throw new SDKDError('request_invalid', 400, false, 'remote routing requires a model');
   return {
-    constraintMode: 'openai_json_schema',
+    constraintMode: StructuredOutputConstraintMode.OpenAIJSONSchema,
     languageModel: languageModelFactory.createOpenRouterLanguageModel(
       modelName,
       configuration.openRouterBaseURL,
@@ -194,7 +200,7 @@ function createOpenRouterRoute(
     ),
     modelName,
     providerName: 'openrouter',
-    selectedBackend: 'remote',
+    selectedBackend: LanguageModelBackend.Remote,
   };
 }
 
@@ -398,12 +404,18 @@ function parseJSONValue(value: string): unknown {
   }
 }
 
-function normalizeChatFinishReason(finishReason: string): 'stop' | 'length' | 'tool_calls' | 'content_filter' | 'error' | 'other' | 'unknown' {
+function normalizeChatFinishReason(finishReason: string): ChatCompletionFinishReason {
   const normalizedFinishReason = finishReason.replaceAll('-', '_');
-  if (normalizedFinishReason === 'stop' || normalizedFinishReason === 'length' || normalizedFinishReason === 'tool_calls' || normalizedFinishReason === 'content_filter' || normalizedFinishReason === 'error' || normalizedFinishReason === 'other' || normalizedFinishReason === 'unknown') {
-    return normalizedFinishReason;
-  }
-  return 'unknown';
+  const finishReasonByValue: Record<string, ChatCompletionFinishReason> = {
+    stop: ChatCompletionFinishReason.Stop,
+    length: ChatCompletionFinishReason.Length,
+    tool_calls: ChatCompletionFinishReason.ToolCalls,
+    content_filter: ChatCompletionFinishReason.ContentFilter,
+    error: ChatCompletionFinishReason.Error,
+    other: ChatCompletionFinishReason.Other,
+    unknown: ChatCompletionFinishReason.Unknown,
+  };
+  return finishReasonByValue[normalizedFinishReason] ?? ChatCompletionFinishReason.Unknown;
 }
 
 type UsageDocument = {

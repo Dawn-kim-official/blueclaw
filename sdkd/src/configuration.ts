@@ -3,15 +3,27 @@ import { join } from 'node:path';
 
 import { z } from 'zod';
 
+export enum SDKDAutoRoute {
+  LocalFirst = 'local-first',
+  RemoteFirst = 'remote-first',
+}
+
+export enum SDKDBooleanEnvironmentValue {
+  Zero = '0',
+  One = '1',
+  False = 'false',
+  True = 'true',
+}
+
 const environmentSchema = z.object({
   BLUECLAW_SDKD_AUTH_KEY: z.string().min(1).optional(),
   BLUECLAW_SDKD_AUTH_KEY_PATH: z.string().min(1).optional(),
-  BLUECLAW_SDKD_AUTO_ROUTE: z.enum(['local-first', 'remote-first']).default('remote-first'),
+  BLUECLAW_SDKD_AUTO_ROUTE: z.enum(SDKDAutoRoute).default(SDKDAutoRoute.RemoteFirst),
   BLUECLAW_SDKD_LLAMA_API_KEY: z.string().default('local'),
   BLUECLAW_SDKD_LLAMA_BASE_URL: z.string().url().optional(),
   BLUECLAW_SDKD_LLAMA_MODEL: z.string().min(1).optional(),
-  BLUECLAW_SDKD_LLAMA_STRUCTURED_OUTPUTS_ENABLED: z.enum(['0', '1', 'false', 'true']).default('false'),
-  BLUECLAW_SDKD_LOCAL_ONLY: z.enum(['0', '1', 'false', 'true']).default('false'),
+  BLUECLAW_SDKD_LLAMA_STRUCTURED_OUTPUTS_ENABLED: z.enum(SDKDBooleanEnvironmentValue).default(SDKDBooleanEnvironmentValue.False),
+  BLUECLAW_SDKD_LOCAL_ONLY: z.enum(SDKDBooleanEnvironmentValue).default(SDKDBooleanEnvironmentValue.False),
   BLUECLAW_SDKD_OPENROUTER_BASE_URL: z.string().url().default('https://openrouter.ai/api/v1'),
   BLUECLAW_SDKD_REQUEST_TIMEOUT_MILLISECOND: z.coerce.number().int().positive().default(60000),
   BLUECLAW_SDKD_SOCKET_PATH: z.string().min(1).default('/run/blueclaw-sdkd/sdkd.sock'),
@@ -22,7 +34,7 @@ const environmentSchema = z.object({
 
 export type SDKDConfiguration = {
   authKey: string;
-  autoRoute: 'local-first' | 'remote-first';
+  autoRoute: SDKDAutoRoute;
   llamaAPIKey: string;
   llamaBaseURL?: string;
   llamaModel?: string;
@@ -47,10 +59,8 @@ export function loadSDKDConfiguration(environment: Record<string, string | undef
     llamaAPIKey: parsedEnvironment.BLUECLAW_SDKD_LLAMA_API_KEY,
     llamaBaseURL: parsedEnvironment.BLUECLAW_SDKD_LLAMA_BASE_URL,
     llamaModel: parsedEnvironment.BLUECLAW_SDKD_LLAMA_MODEL,
-    llamaStructuredOutputsEnabled: ['1', 'true'].includes(
-      parsedEnvironment.BLUECLAW_SDKD_LLAMA_STRUCTURED_OUTPUTS_ENABLED,
-    ),
-    localOnly: ['1', 'true'].includes(parsedEnvironment.BLUECLAW_SDKD_LOCAL_ONLY),
+    llamaStructuredOutputsEnabled: isEnabledEnvironmentValue(parsedEnvironment.BLUECLAW_SDKD_LLAMA_STRUCTURED_OUTPUTS_ENABLED),
+    localOnly: isEnabledEnvironmentValue(parsedEnvironment.BLUECLAW_SDKD_LOCAL_ONLY),
     openRouterAPIKey: loadOptionalCredential(
       parsedEnvironment.OPENROUTER_API_KEY,
       parsedEnvironment.OPENROUTER_API_KEY_PATH,
@@ -61,6 +71,10 @@ export function loadSDKDConfiguration(environment: Record<string, string | undef
     requestTimeoutMillisecond: parsedEnvironment.BLUECLAW_SDKD_REQUEST_TIMEOUT_MILLISECOND,
     socketPath: parsedEnvironment.BLUECLAW_SDKD_SOCKET_PATH,
   };
+}
+
+function isEnabledEnvironmentValue(value: SDKDBooleanEnvironmentValue): boolean {
+  return value === SDKDBooleanEnvironmentValue.One || value === SDKDBooleanEnvironmentValue.True;
 }
 
 function loadRequiredCredential(

@@ -3,6 +3,16 @@ import { z } from 'zod';
 import { agentPartSchema } from './agent.ts';
 import { nonNegativeIntegerSchema } from './common.ts';
 
+export enum AskInteractionKind {
+  Confirm = 'ask_confirm',
+  Input = 'ask_input',
+}
+
+export enum AskSelectionMode {
+  Single = 'single',
+  Multiple = 'multiple',
+}
+
 export const inputAttachmentSchema = z.looseObject({
   platform: z.string().optional(),
   fileID: z.string().optional(),
@@ -74,12 +84,12 @@ export const askChoiceOptionSchema = z.looseObject({
 export const askInteractionSchema = z.looseObject({
   interactionID: z.string(),
   taskRunID: z.string(),
-  kind: z.enum(['ask_confirm', 'ask_input']),
+  kind: z.enum(AskInteractionKind),
   message: z.string().optional(),
   question: z.string().optional(),
   options: z.array(askChoiceOptionSchema).optional(),
   recommendedOptionKey: z.string().optional(),
-  selectionMode: z.enum(['single', 'multiple']).optional(),
+  selectionMode: z.enum(AskSelectionMode).optional(),
   responseLanguage: z.string().optional(),
   targetPlatformUserID: z.string().optional(),
 });

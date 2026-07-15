@@ -1,13 +1,24 @@
 import { describe, expect, test } from 'bun:test';
-import type { ChatCompletionRequest, ChatCompletionResponse, StructuredResponse, StructuredResponseRequest } from '@blueclaw/protocol';
+import {
+  ChatCompletionFinishReason,
+  ChatCompletionMessageRole,
+  ExecutionMode,
+  LanguageModelBackend,
+  LanguageModelMessageRole,
+  StructuredOutputConstraintMode,
+  type ChatCompletionRequest,
+  type ChatCompletionResponse,
+  type StructuredResponse,
+  type StructuredResponseRequest,
+} from '@blueclaw/protocol';
 
-import type { SDKDConfiguration } from '../src/configuration.ts';
+import { SDKDAutoRoute, type SDKDConfiguration } from '../src/configuration.ts';
 import { SDKDError } from '../src/errors.ts';
 import { createSDKDHandler } from '../src/handler.ts';
 
 const configuration: SDKDConfiguration = {
   authKey: 'installation-key',
-  autoRoute: 'remote-first',
+  autoRoute: SDKDAutoRoute.RemoteFirst,
   llamaAPIKey: 'local',
   llamaStructuredOutputsEnabled: false,
   localOnly: false,
@@ -17,9 +28,9 @@ const configuration: SDKDConfiguration = {
 };
 
 const requestDocument: StructuredResponseRequest = {
-  executionMode: 'remote',
+  executionMode: ExecutionMode.Remote,
   model: 'deepseek/deepseek-v4-flash',
-  messages: [{ role: 'user', content: 'Return ok.' }],
+  messages: [{ role: LanguageModelMessageRole.User, content: 'Return ok.' }],
   structuredOutputSchema: {
     name: 'test_output',
     document: {
@@ -33,11 +44,11 @@ const requestDocument: StructuredResponseRequest = {
 };
 
 const chatRequestDocument: ChatCompletionRequest = {
-  executionMode: 'remote',
+  executionMode: ExecutionMode.Remote,
   model: 'deepseek/deepseek-v4-flash',
   messages: [
-    { role: 'system', content: 'You are concise.' },
-    { role: 'user', content: 'Look up the answer.' },
+    { role: ChatCompletionMessageRole.System, content: 'You are concise.' },
+    { role: ChatCompletionMessageRole.User, content: 'Look up the answer.' },
   ],
   tools: [{
     type: 'function',
@@ -279,7 +290,7 @@ describe('sdkd handler', () => {
       generateStructuredResponse: async () => responseDocument(),
       generateChatCompletion: async () => ({
         ...chatResponseDocument(),
-        finishReason: 'tool_calls' as const,
+        finishReason: ChatCompletionFinishReason.ToolCalls,
         message: {
           role: 'assistant' as const,
           content: '',
@@ -323,9 +334,9 @@ function responseDocument(): StructuredResponse {
     provider: 'openrouter',
     model: 'deepseek/deepseek-v4-flash',
     content: '{"ok":true}',
-    selectedBackend: 'remote',
+    selectedBackend: LanguageModelBackend.Remote,
     finishReason: 'stop',
-    constraintMode: 'openai_json_schema',
+    constraintMode: StructuredOutputConstraintMode.OpenAIJSONSchema,
     usage: { promptTokens: 10, completionTokens: 5, totalTokens: 15 },
   };
 }
@@ -335,8 +346,8 @@ function chatResponseDocument(): ChatCompletionResponse {
     provider: 'openrouter',
     model: 'deepseek/deepseek-v4-flash',
     message: { role: 'assistant', content: 'The answer is ready.', toolCalls: [] },
-    selectedBackend: 'remote',
-    finishReason: 'stop',
+    selectedBackend: LanguageModelBackend.Remote,
+    finishReason: ChatCompletionFinishReason.Stop,
     usage: { promptTokens: 10, completionTokens: 5, totalTokens: 15 },
     providerMetadata: { route: 'remote' },
   };
