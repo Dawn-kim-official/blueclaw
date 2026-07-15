@@ -85,6 +85,13 @@ func TestTaskRunHandlerLaunchIgnoresClientCancellation(t *testing.T) {
 
 func TestTaskRunHandlerUsesSDKDTopologyPresetWithoutIntakeCall(t *testing.T) {
 	handler, taskRunService, taskEventService, languageModel := newPresetTaskRunHandler(true)
+	presetDecision, _, errorValue := handler.resolveTaskDecisionPreset(sdkdTopologyTaskDecisionPreset)
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if presetDecision.TaskLevel != agent.TaskLevelXLow {
+		t.Fatalf("expected xlow diagnostic task level, got %s", presetDecision.TaskLevel)
+	}
 	request := httptest.NewRequest(http.MethodPost, "/admin/api/task/run", strings.NewReader(`{"requesterPersonID":"person-1","prompt":"reply exactly","taskDecisionPreset":"sdkd_topology"}`))
 	responseRecorder := httptest.NewRecorder()
 
