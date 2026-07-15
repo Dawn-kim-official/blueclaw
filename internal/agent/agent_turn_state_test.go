@@ -110,6 +110,18 @@ func TestBuildAgentActionRequestPreservesNativeToolCallingWireShape(t *testing.T
 			t.Fatalf("expected finish schema to require %s, got %+v", fieldName, requiredFields)
 		}
 	}
+	finishProperties := mapFromAny(finishVariant["properties"])
+	qualityReviewItems := mapFromAny(mapFromAny(finishProperties["qualityReview"])["items"])
+	if qualityReviewItems["additionalProperties"] != false {
+		t.Fatalf("expected quality review items to reject undeclared fields, got %+v", qualityReviewItems)
+	}
+	qualityReviewProperties := mapFromAny(qualityReviewItems["properties"])
+	if _, isPresent := qualityReviewProperties["evidenceIDs"]; !isPresent {
+		t.Fatalf("expected quality review items to expose evidenceIDs, got %+v", qualityReviewProperties)
+	}
+	if _, isPresent := qualityReviewProperties["evidence"]; isPresent {
+		t.Fatalf("expected quality review items to omit legacy evidence, got %+v", qualityReviewProperties)
+	}
 	if strings.Contains(request.StructuredOutputSchema.Document, `"finishMessage"`) {
 		t.Fatalf("expected model-facing schema to omit legacy finishMessage, got %s", request.StructuredOutputSchema.Document)
 	}
