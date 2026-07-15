@@ -167,7 +167,9 @@ func (client SDKDClient) GenerateStructuredResponse(responseContext context.Cont
 		if client.LocalOnly || client.StructuredFallbackProvider == nil {
 			return StructuredResponse{}, errors.New("sdkd structured schema is not enabled")
 		}
-		return client.StructuredFallbackProvider.GenerateStructuredResponse(responseContext, request)
+		response, errorValue := client.StructuredFallbackProvider.GenerateStructuredResponse(responseContext, request)
+		response.Transport = "capability"
+		return response, errorValue
 	}
 	response, errorValue := client.generateSDKDStructuredResponse(responseContext, request)
 	if errorValue == nil || client.LocalOnly || client.StructuredFallbackProvider == nil || !isRetryableSDKDError(errorValue) {
@@ -178,6 +180,7 @@ func (client SDKDClient) GenerateStructuredResponse(responseContext context.Cont
 		return StructuredResponse{}, fallbackError
 	}
 	fallbackResponse.UsedFallback = true
+	fallbackResponse.Transport = "capability"
 	return fallbackResponse, nil
 }
 
@@ -205,6 +208,7 @@ func (client SDKDClient) generateChatCompletion(responseContext context.Context,
 		fallbackResponse.Message.ToolCalls = []ChatCompletionToolCall{}
 	}
 	fallbackResponse.UsedFallback = true
+	fallbackResponse.Transport = "capability"
 	return fallbackResponse, nil
 }
 
@@ -235,6 +239,7 @@ func (client SDKDClient) generateSDKDChatCompletion(responseContext context.Cont
 	if response.Message.ToolCalls == nil {
 		response.Message.ToolCalls = []ChatCompletionToolCall{}
 	}
+	response.Transport = "sdkd"
 	return response, nil
 }
 
@@ -316,6 +321,7 @@ func (client SDKDClient) generateSDKDStructuredResponse(responseContext context.
 		return StructuredResponse{}, errorValue
 	}
 	return StructuredResponse{
+		Transport:       "sdkd",
 		ProviderName:    strings.TrimSpace(responseDocument.ProviderName),
 		ModelName:       strings.TrimSpace(responseDocument.ModelName),
 		Content:         responseDocument.Content,
