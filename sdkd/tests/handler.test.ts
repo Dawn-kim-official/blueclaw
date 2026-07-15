@@ -194,6 +194,23 @@ describe('sdkd handler', () => {
     expect(observedAbortSignal).toBe(abortController.signal);
   });
 
+  test('classifies aborted chat generation without allowing fallback', async () => {
+    const handler = createSDKDHandler({
+      configuration,
+      generateStructuredResponse: async () => responseDocument(),
+      generateChatCompletion: async () => {
+        throw new DOMException('The operation was aborted', 'AbortError');
+      },
+    });
+
+    const response = await handler(chatRequest('installation-key'));
+
+    expect(response.status).toBe(499);
+    expect(await response.json()).toEqual({
+      error: { code: 'request_aborted', allowLegacyFallback: false },
+    });
+  });
+
   test('rejects malformed chat requests before provider execution', async () => {
     let callCount = 0;
     const handler = createSDKDHandler({

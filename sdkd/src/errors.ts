@@ -6,6 +6,7 @@ export type SDKDErrorCode =
   | 'provider_rate_limited'
   | 'provider_response_invalid'
   | 'provider_unavailable'
+  | 'request_aborted'
   | 'request_invalid'
   | 'structured_output_invalid';
 
@@ -23,6 +24,9 @@ export class SDKDError extends Error {
 
 export function classifySDKDError(errorValue: unknown): SDKDError {
   if (errorValue instanceof SDKDError) return errorValue;
+  if (errorValue instanceof DOMException && errorValue.name === 'AbortError') {
+    return new SDKDError('request_aborted', 499, false, errorValue.message);
+  }
   if (RetryError.isInstance(errorValue)) return classifySDKDError(errorValue.lastError);
   if (NoObjectGeneratedError.isInstance(errorValue) || TypeValidationError.isInstance(errorValue) || JSONParseError.isInstance(errorValue)) {
     return new SDKDError('structured_output_invalid', 422, false, errorMessage(errorValue));
