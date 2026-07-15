@@ -1377,11 +1377,11 @@ func validateVirtualMessageSendInput(input map[string]any) error {
 func virtualCapabilityInputSchema(toolName string) string {
 	switch toolName {
 	case "task.add":
-		return `{"type":"object","properties":{"prompt":{"type":"string"},"targetPersonHint":{"type":"string"},"weekCode":{"type":"string"},"allowDuplicate":{"type":"boolean"}},"required":["prompt"],"additionalProperties":false}`
+		return `{"type":"object","properties":{"prompt":{"type":"string"},"title":{"type":"string"},"endDate":{"type":"string"},"targetPersonHint":{"type":"string"},"weekCode":{"type":"string"},"allowDuplicate":{"type":"boolean"}},"required":["prompt"],"additionalProperties":false}`
 	case "task.list":
 		return `{"type":"object","properties":{"query":{"type":"string"},"targetPersonHint":{"type":"string"},"weekFrom":{"type":"integer"},"weekTo":{"type":"integer"},"status":{"type":"string"},"limit":{"type":"integer"}},"additionalProperties":false}`
 	case "task.update":
-		return `{"type":"object","properties":{"taskID":{"type":"string"},"query":{"type":"string"},"targetPersonHint":{"type":"string"},"weekCode":{"type":"string"},"content":{"type":"string"},"goal":{"type":"string"},"status":{"type":"string"},"size":{"type":"string"},"category":{"type":"string"},"type":{"type":"string"},"startDate":{"type":"string"},"endDate":{"type":"string"},"flag":{"type":"integer"},"requestReason":{"type":"string"},"decisionReason":{"type":"string"}},"additionalProperties":false}`
+		return `{"type":"object","properties":{"taskID":{"type":"string"},"query":{"type":"string"},"targetPersonHint":{"type":"string"},"weekCode":{"type":"string"},"title":{"type":"string"},"goal":{"type":"string"},"status":{"type":"string"},"size":{"type":"string"},"category":{"type":"string"},"type":{"type":"string"},"startDate":{"type":"string"},"endDate":{"type":"string"},"flag":{"type":"integer"},"requestReason":{"type":"string"},"decisionReason":{"type":"string"}},"additionalProperties":false}`
 	case "task.delete":
 		return `{"type":"object","properties":{"taskID":{"type":"string"},"query":{"type":"string"},"weekCode":{"type":"string"},"targetPersonHint":{"type":"string"}},"additionalProperties":false}`
 	case "calendar.add":
@@ -1408,8 +1408,13 @@ func (service *virtualCapabilityService) taskResponse(toolName string, requestBo
 	switch toolName {
 	case "task.add":
 		values := copyVirtualCapabilityValues(input)
-		values["content"] = values["prompt"]
+		content := strings.TrimSpace(stringValue(values["title"]))
+		if content == "" {
+			content = stringValue(values["prompt"])
+		}
+		values["content"] = content
 		delete(values, "prompt")
+		delete(values, "title")
 		record := virtualCapabilityRecord{ID: fmt.Sprintf("task-%d", len(service.tasks)+1), Values: values}
 		record.Values["taskID"] = record.ID
 		service.tasks = append(service.tasks, record)
@@ -1421,7 +1426,12 @@ func (service *virtualCapabilityService) taskResponse(toolName string, requestBo
 		if index < 0 {
 			return virtualCapabilityNotFound(toolName, "task")
 		}
-		mergeVirtualCapabilityRecord(service.tasks[index].Values, input, "taskID", "query")
+		values := copyVirtualCapabilityValues(input)
+		if title := strings.TrimSpace(stringValue(values["title"])); title != "" {
+			values["content"] = title
+		}
+		delete(values, "title")
+		mergeVirtualCapabilityRecord(service.tasks[index].Values, values, "taskID", "query")
 		return virtualCapabilitySuccess(toolName, "updated virtual task", map[string]any{"task": service.tasks[index].Values})
 	default:
 		if virtualCapabilityRequestNeedsApproval(requestBody) {
