@@ -1,11 +1,12 @@
 import { loadSDKDConfiguration } from './configuration.ts';
 import { createSDKDHandler } from './handler.ts';
-import { createStructuredResponseGenerator } from './provider.ts';
+import { createChatCompletionGenerator, createStructuredResponseGenerator } from './provider.ts';
 import { startSDKDServer, stopSDKDServer } from './server.ts';
 
 const configuration = loadSDKDConfiguration(process.env);
 const generateStructuredResponse = createStructuredResponseGenerator(configuration);
-const server = await startSDKDServer(configuration, createSDKDHandler({ configuration, generateStructuredResponse }));
+const generateChatCompletion = createChatCompletionGenerator(configuration);
+const server = await startSDKDServer(configuration, createSDKDHandler({ configuration, generateStructuredResponse, generateChatCompletion }));
 
 async function shutdown() {
   await stopSDKDServer(server, configuration.socketPath);

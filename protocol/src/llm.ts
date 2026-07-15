@@ -21,6 +21,53 @@ export const languageModelMessageSchema = z.looseObject({
   parts: z.array(languageModelMessagePartSchema).optional(),
 });
 
+export const chatCompletionFunctionSchema = z.looseObject({
+  name: z.string().trim().min(1),
+  description: z.string().optional(),
+  parameters: jsonValueSchema,
+});
+
+export const chatCompletionToolSchema = z.looseObject({
+  type: z.literal('function'),
+  function: chatCompletionFunctionSchema,
+});
+
+export const chatCompletionToolCallFunctionSchema = z.looseObject({
+  name: z.string().trim().min(1),
+  arguments: z.string().refine(isJSONDocumentObject, 'arguments must be a JSON object'),
+});
+
+export const chatCompletionToolCallSchema = z.looseObject({
+  id: z.string().trim().min(1),
+  type: z.literal('function'),
+  function: chatCompletionToolCallFunctionSchema,
+});
+
+export const chatCompletionMessageSchema = z.looseObject({
+  role: z.enum(['system', 'user', 'assistant', 'tool']),
+  content: z.string().optional(),
+  toolCallId: z.string().trim().min(1).optional(),
+  toolCalls: z.array(chatCompletionToolCallSchema).optional(),
+});
+
+const chatCompletionResponseMessageSchema = z.looseObject({
+  role: z.literal('assistant'),
+  content: z.string().optional(),
+  toolCalls: z.array(chatCompletionToolCallSchema).optional(),
+}).superRefine((message, context) => {
+  const toolCallIDs = new Set<string>();
+  for (const [toolCallIndex, toolCall] of (message.toolCalls ?? []).entries()) {
+    if (toolCallIDs.has(toolCall.id)) {
+      context.addIssue({
+        code: 'custom',
+        path: ['toolCalls', toolCallIndex, 'id'],
+        message: 'tool call IDs must be unique within a response',
+      });
+    }
+    toolCallIDs.add(toolCall.id);
+  }
+});
+
 export const structuredOutputSchemaSchema = z.looseObject({
   name: z.string(),
   document: jsonValueSchema,
@@ -51,6 +98,43 @@ export const structuredResponseRequestSchema = z.looseObject({
   generationOptions: generationOptionsSchema.optional(),
 });
 
+export const chatCompletionRequestSchema = z.looseObject({
+  model: z.string().optional(),
+  executionMode: z.enum(['device', 'companion', 'remote', 'auto']),
+  context: requestContextSchema.optional(),
+  messages: z.array(chatCompletionMessageSchema),
+  tools: z.array(chatCompletionToolSchema).optional(),
+  toolChoice: jsonValueSchema.optional(),
+  parallelToolCalls: z.boolean(),
+}).superRefine((request, context) => {
+  const toolNames = new Set<string>();
+  for (const [toolIndex, tool] of (request.tools ?? []).entries()) {
+    const toolName = tool.function.name;
+    if (toolNames.has(toolName)) {
+      context.addIssue({
+        code: 'custom',
+        path: ['tools', toolIndex, 'function', 'name'],
+        message: 'tool function names must be unique within a request',
+      });
+    }
+    toolNames.add(toolName);
+  }
+
+  const toolCallIDs = new Set<string>();
+  for (const [messageIndex, message] of request.messages.entries()) {
+    for (const [toolCallIndex, toolCall] of (message.toolCalls ?? []).entries()) {
+      if (toolCallIDs.has(toolCall.id)) {
+        context.addIssue({
+          code: 'custom',
+          path: ['messages', messageIndex, 'toolCalls', toolCallIndex, 'id'],
+          message: 'historical tool call IDs must be unique across a request',
+        });
+      }
+      toolCallIDs.add(toolCall.id);
+    }
+  }
+});
+
 export const languageModelUsageSchema = z.looseObject({
   promptTokens: nonNegativeIntegerSchema,
   completionTokens: nonNegativeIntegerSchema,
@@ -79,5 +163,39 @@ export const structuredResponseSchema = z.looseObject({
   usage: languageModelUsageSchema.optional(),
 });
 
+export const chatCompletionResponseSchema = z.looseObject({
+  finishReason: z.enum(['stop', 'length', 'tool_calls', 'content_filter', 'error', 'other', 'unknown']),
+  provider: z.string().trim().min(1),
+  model: z.string().trim().min(1),
+  message: chatCompletionResponseMessageSchema,
+  selectedBackend: z.enum(['device', 'remote']),
+  usage: languageModelUsageSchema.optional(),
+  providerMetadata: jsonValueSchema.optional(),
+}).superRefine((response, context) => {
+  if (response.finishReason === 'tool_calls' && (response.message.toolCalls === undefined || response.message.toolCalls.length === 0)) {
+    context.addIssue({
+      code: 'custom',
+      path: ['message', 'toolCalls'],
+      message: 'tool_calls finish reason requires at least one tool call',
+    });
+  }
+});
+
 export type StructuredResponseRequest = z.infer<typeof structuredResponseRequestSchema>;
 export type StructuredResponse = z.infer<typeof structuredResponseSchema>;
+export type ChatCompletionFunction = z.infer<typeof chatCompletionFunctionSchema>;
+export type ChatCompletionTool = z.infer<typeof chatCompletionToolSchema>;
+export type ChatCompletionToolCallFunction = z.infer<typeof chatCompletionToolCallFunctionSchema>;
+export type ChatCompletionToolCall = z.infer<typeof chatCompletionToolCallSchema>;
+export type ChatCompletionMessage = z.infer<typeof chatCompletionMessageSchema>;
+export type ChatCompletionRequest = z.infer<typeof chatCompletionRequestSchema>;
+export type ChatCompletionResponse = z.infer<typeof chatCompletionResponseSchema>;
+
+function isJSONDocumentObject(value: string): boolean {
+  try {
+    const parsedValue: unknown = JSON.parse(value);
+    return Boolean(parsedValue) && typeof parsedValue === 'object' && !Array.isArray(parsedValue);
+  } catch {
+    return false;
+  }
+}

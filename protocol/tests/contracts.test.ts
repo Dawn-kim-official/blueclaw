@@ -4,6 +4,9 @@ import { fileURLToPath } from 'node:url';
 
 import {
   askInteractionSchema,
+  chatCompletionMessageSchema,
+  chatCompletionRequestSchema,
+  chatCompletionResponseSchema,
   capabilityDescriptorSchema,
   languageModelMessagePartSchema,
   languageModelMessageSchema,
@@ -19,6 +22,8 @@ const fixtureSchemaNames = {
   'agent-message': 'agent-message',
   'capability-descriptor': 'capability-descriptor',
   'capability-registry-response': 'capability-registry-response',
+  'chat-completion-request': 'chat-completion-request',
+  'chat-completion-response': 'chat-completion-response',
   'connector-runtime-result': 'connector-runtime-result',
   'platform-auto-resume-event': 'platform-inbound-event',
   'platform-inbound-event': 'platform-inbound-event',
@@ -39,6 +44,41 @@ describe('closed protocol values', () => {
   test('rejects values outside canonical enums', () => {
     expect(languageModelMessageSchema.safeParse({ role: 'developer' }).success).toBe(false);
     expect(languageModelMessagePartSchema.safeParse({ type: 'audio' }).success).toBe(false);
+    expect(chatCompletionMessageSchema.safeParse({ role: 'developer' }).success).toBe(false);
+    expect(chatCompletionMessageSchema.safeParse({
+      role: 'assistant',
+      toolCalls: [{
+        id: 'call-1',
+        type: 'custom',
+        function: { name: 'lookup', arguments: '{}' },
+      }],
+    }).success).toBe(false);
+    expect(chatCompletionRequestSchema.safeParse({
+      executionMode: 'invalid',
+      messages: [],
+      parallelToolCalls: false,
+    }).success).toBe(false);
+    expect(chatCompletionResponseSchema.safeParse({
+      finishReason: 'paused',
+      provider: 'provider',
+      model: 'model',
+      message: { role: 'assistant', content: 'done' },
+      selectedBackend: 'remote',
+    }).success).toBe(false);
+    expect(chatCompletionResponseSchema.safeParse({
+      finishReason: 'stop',
+      provider: '',
+      model: 'model',
+      message: { role: 'assistant', content: 'done' },
+      selectedBackend: 'remote',
+    }).success).toBe(false);
+    expect(chatCompletionResponseSchema.safeParse({
+      finishReason: 'stop',
+      provider: 'provider',
+      model: 'model',
+      message: { role: 'assistant', content: 'done' },
+      selectedBackend: 'companion',
+    }).success).toBe(false);
     expect(structuredResponseSchema.safeParse({
       provider: 'openrouter',
       model: 'model',
@@ -70,6 +110,110 @@ describe('closed protocol values', () => {
       estimatedLatency: 'instant',
       requiresUserPresence: false,
       worksOffline: false,
+    }).success).toBe(false);
+  });
+
+  test('enforces chat completion response semantics', () => {
+    const toolCall = {
+      id: 'call-1',
+      type: 'function',
+      function: { name: 'lookup', arguments: '{"city":"Seoul"}' },
+    };
+    const responseDocument = {
+      provider: 'openrouter',
+      model: 'model',
+      message: { role: 'assistant', content: 'done' },
+      selectedBackend: 'remote',
+    };
+    for (const finishReason of ['stop', 'length', 'content_filter', 'error', 'other', 'unknown']) {
+      expect(chatCompletionResponseSchema.safeParse({ ...responseDocument, finishReason }).success).toBe(true);
+    }
+    expect(chatCompletionResponseSchema.safeParse({
+      ...responseDocument,
+      finishReason: 'tool_calls',
+      message: { ...responseDocument.message, content: '', toolCalls: [toolCall] },
+    }).success).toBe(true);
+    expect(chatCompletionResponseSchema.safeParse({
+      ...responseDocument,
+      message: { ...responseDocument.message, role: 'tool' },
+    }).success).toBe(false);
+    expect(chatCompletionResponseSchema.safeParse({
+      ...responseDocument,
+      finishReason: 'tool_calls',
+    }).success).toBe(false);
+    expect(chatCompletionResponseSchema.safeParse({
+      ...responseDocument,
+      message: {
+        ...responseDocument.message,
+        toolCalls: [{ ...toolCall, id: ' ' }],
+      },
+    }).success).toBe(false);
+    expect(chatCompletionResponseSchema.safeParse({
+      ...responseDocument,
+      message: {
+        ...responseDocument.message,
+        toolCalls: [{ ...toolCall, function: { ...toolCall.function, name: '' } }],
+      },
+    }).success).toBe(false);
+    expect(chatCompletionResponseSchema.safeParse({
+      ...responseDocument,
+      message: {
+        ...responseDocument.message,
+        toolCalls: [{ ...toolCall, function: { ...toolCall.function, arguments: '[]' } }],
+      },
+    }).success).toBe(false);
+    expect(chatCompletionResponseSchema.safeParse({
+      ...responseDocument,
+      message: {
+        ...responseDocument.message,
+        toolCalls: [{ ...toolCall, function: { ...toolCall.function, arguments: '{invalid' } }],
+      },
+    }).success).toBe(false);
+    expect(chatCompletionResponseSchema.safeParse({ ...responseDocument, finishReason: 'paused' }).success).toBe(false);
+  });
+
+  test('rejects chat identity collisions at the protocol boundary', () => {
+    const requestDocument = {
+      executionMode: 'auto',
+      messages: [{ role: 'user', content: 'Use a tool.' }],
+      parallelToolCalls: false,
+    };
+    const tool = {
+      type: 'function',
+      function: { name: 'lookup', parameters: { type: 'object' } },
+    };
+    expect(chatCompletionRequestSchema.safeParse({
+      ...requestDocument,
+      tools: [tool, { ...tool, function: { ...tool.function, name: ' lookup ' } }],
+    }).success).toBe(false);
+    expect(chatCompletionRequestSchema.safeParse({
+      ...requestDocument,
+      tools: [{ ...tool, function: { ...tool.function, name: ' ' } }],
+    }).success).toBe(false);
+    expect(chatCompletionRequestSchema.safeParse({
+      ...requestDocument,
+      messages: [
+        { role: 'assistant', toolCalls: [{ id: 'call-1', type: 'function', function: { name: 'lookup', arguments: '{}' } }] },
+        { role: 'assistant', toolCalls: [{ id: 'call-1', type: 'function', function: { name: 'other', arguments: '{}' } }] },
+      ],
+    }).success).toBe(false);
+    expect(chatCompletionRequestSchema.safeParse({
+      ...requestDocument,
+      messages: [{ role: 'tool', toolCallId: ' ', content: 'result' }],
+    }).success).toBe(false);
+
+    expect(chatCompletionResponseSchema.safeParse({
+      finishReason: 'tool_calls',
+      provider: 'provider',
+      model: 'model',
+      message: {
+        role: 'assistant',
+        toolCalls: [
+          { id: 'call-1', type: 'function', function: { name: 'lookup', arguments: '{}' } },
+          { id: 'call-1', type: 'function', function: { name: 'other', arguments: '{}' } },
+        ],
+      },
+      selectedBackend: 'remote',
     }).success).toBe(false);
   });
 });

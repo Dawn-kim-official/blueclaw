@@ -13,11 +13,14 @@ type ChatCompletionRequest struct {
 }
 
 type ChatCompletionResponse struct {
-	FinishReason string                `json:"finishReason"`
-	ProviderName string                `json:"provider"`
-	ModelName    string                `json:"model"`
-	Message      ChatCompletionMessage `json:"message"`
-	Usage        Usage                 `json:"usage"`
+	FinishReason     string                `json:"finishReason"`
+	ProviderName     string                `json:"provider"`
+	ModelName        string                `json:"model"`
+	SelectedBackend  string                `json:"selectedBackend"`
+	ProviderMetadata json.RawMessage       `json:"providerMetadata,omitempty"`
+	Message          ChatCompletionMessage `json:"message"`
+	Usage            Usage                 `json:"usage"`
+	UsedFallback     bool                  `json:"-"`
 }
 
 type ChatCompletionMessage struct {

@@ -8,7 +8,12 @@ import {
   toolInvokeResponseSchema,
 } from './capability.ts';
 import { connectorRuntimeResultSchema, platformInboundEventSchema } from './chat.ts';
-import { structuredResponseRequestSchema, structuredResponseSchema } from './llm.ts';
+import {
+  chatCompletionRequestSchema,
+  chatCompletionResponseSchema,
+  structuredResponseRequestSchema,
+  structuredResponseSchema,
+} from './llm.ts';
 import { taskArtifactSchema, taskAttemptSchema, taskEventSchema, taskRunSchema, taskScheduleSchema } from './task.ts';
 
 export const protocolVersion = '0.1.0';
@@ -18,6 +23,8 @@ export const protocolSchemas = {
   'agent-message': agentMessageSchema,
   'capability-descriptor': capabilityDescriptorSchema,
   'capability-registry-response': capabilityRegistryResponseSchema,
+  'chat-completion-request': chatCompletionRequestSchema,
+  'chat-completion-response': chatCompletionResponseSchema,
   'connector-runtime-result': connectorRuntimeResultSchema,
   'platform-inbound-event': platformInboundEventSchema,
   'structured-response': structuredResponseSchema,
