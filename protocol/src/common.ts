@@ -1,5 +1,12 @@
 import { z } from 'zod';
 
+export enum ExecutionMode {
+  Device = 'device',
+  Companion = 'companion',
+  Remote = 'remote',
+  Auto = 'auto',
+}
+
 export const jsonValueSchema = z.json();
 
 export const nonNegativeIntegerSchema = z.number().int().nonnegative();

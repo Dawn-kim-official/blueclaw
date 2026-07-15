@@ -3,10 +3,19 @@ import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
 import type { LanguageModelV3GenerateResult, LanguageModelV3Usage } from '@ai-sdk/provider';
 import { APICallError, RetryError } from 'ai';
 import { createOpenRouter } from '@openrouter/ai-sdk-provider';
-import type { ChatCompletionRequest, StructuredResponseRequest } from '@blueclaw/protocol';
+import {
+  ChatCompletionFinishReason,
+  ChatCompletionMessageRole,
+  ExecutionMode,
+  LanguageModelBackend,
+  LanguageModelMessageRole,
+  StructuredOutputConstraintMode,
+  type ChatCompletionRequest,
+  type StructuredResponseRequest,
+} from '@blueclaw/protocol';
 import { MockLanguageModelV3 } from 'ai/test';
 
-import type { SDKDConfiguration } from '../src/configuration.ts';
+import { SDKDAutoRoute, type SDKDConfiguration } from '../src/configuration.ts';
 import {
   createChatCompletionGenerator,
   createStructuredResponseGenerator,
@@ -14,9 +23,9 @@ import {
 } from '../src/provider.ts';
 
 const structuredRequest: StructuredResponseRequest = {
-  executionMode: 'auto',
+  executionMode: ExecutionMode.Auto,
   model: 'remote-model',
-  messages: [{ role: 'user', content: 'Return ok.' }],
+  messages: [{ role: LanguageModelMessageRole.User, content: 'Return ok.' }],
   structuredOutputSchema: {
     name: 'provider_test_output',
     document: {
@@ -35,16 +44,16 @@ const structuredRequest: StructuredResponseRequest = {
 };
 
 const chatRequest: ChatCompletionRequest = {
-  executionMode: 'auto',
+  executionMode: ExecutionMode.Auto,
   model: 'remote-model',
   messages: [
-    { role: 'system', content: 'You are concise.' },
-    { role: 'user', content: 'Look up the answer.' },
+    { role: ChatCompletionMessageRole.System, content: 'You are concise.' },
+    { role: ChatCompletionMessageRole.User, content: 'Look up the answer.' },
     {
-      role: 'assistant',
+      role: ChatCompletionMessageRole.Assistant,
       toolCalls: [{ id: 'call-1', type: 'function', function: { name: 'lookup', arguments: '{"key":"value"}' } }],
     },
-    { role: 'tool', toolCallId: 'call-1', content: '{"answer":42}' },
+    { role: ChatCompletionMessageRole.Tool, toolCallId: 'call-1', content: '{"answer":42}' },
   ],
   tools: [{
     type: 'function',
@@ -63,7 +72,7 @@ describe('sdkd provider adapter', () => {
     const llamaModel = successfulLanguageModel('unused-local-model', { ok: true });
     const remoteModel = chatLanguageModel('served-remote-model');
     const generateChatCompletion = createChatCompletionGenerator(
-      completeConfiguration('remote-first'),
+      completeConfiguration(SDKDAutoRoute.RemoteFirst),
       languageModelFactory(llamaModel, remoteModel),
     );
 
@@ -74,7 +83,7 @@ describe('sdkd provider adapter', () => {
       provider: 'openrouter',
       model: 'served-remote-model',
       message: {
-        role: 'assistant',
+        role: ChatCompletionMessageRole.Assistant,
         content: '',
         toolCalls: [{
           id: 'call-2',
@@ -82,8 +91,8 @@ describe('sdkd provider adapter', () => {
           function: { name: 'lookup', arguments: '{"key":"result"}' },
         }],
       },
-      selectedBackend: 'remote',
-      finishReason: 'tool_calls',
+      selectedBackend: LanguageModelBackend.Remote,
+      finishReason: ChatCompletionFinishReason.ToolCalls,
       usage: { promptTokens: 10, completionTokens: 5, totalTokens: 15 },
       providerMetadata: { openrouter: { trace: 'test' } },
     });
@@ -99,13 +108,13 @@ describe('sdkd provider adapter', () => {
     const llamaModel = chatLanguageModel('served-local-model');
     const remoteModel = successfulLanguageModel('unused-remote-model', { ok: true });
     const generateChatCompletion = createChatCompletionGenerator(
-      { ...completeConfiguration('remote-first'), llamaStructuredOutputsEnabled: false },
+      { ...completeConfiguration(SDKDAutoRoute.RemoteFirst), llamaStructuredOutputsEnabled: false },
       languageModelFactory(llamaModel, remoteModel),
     );
 
-    const response = await generateChatCompletion({ ...chatRequest, executionMode: 'device' });
+    const response = await generateChatCompletion({ ...chatRequest, executionMode: ExecutionMode.Device });
 
-    expect(response.selectedBackend).toBe('device');
+    expect(response.selectedBackend).toBe(LanguageModelBackend.Device);
     expect(llamaModel.doGenerateCalls).toHaveLength(1);
     expect(remoteModel.doGenerateCalls).toHaveLength(0);
   });
@@ -115,14 +124,14 @@ describe('sdkd provider adapter', () => {
     const llamaModel = apiFailingLanguageModel('llama.cpp', true, routeAttempts);
     const remoteModel = chatLanguageModel('served-remote-model');
     const generateChatCompletion = createChatCompletionGenerator(
-      completeConfiguration('local-first'),
+      completeConfiguration(SDKDAutoRoute.LocalFirst),
       languageModelFactory(llamaModel, remoteModel),
     );
 
-    const response = await generateChatCompletion({ ...chatRequest, executionMode: 'auto' });
+    const response = await generateChatCompletion({ ...chatRequest, executionMode: ExecutionMode.Auto });
 
     expect(routeAttempts).toEqual(['llama.cpp']);
-    expect(response.selectedBackend).toBe('remote');
+    expect(response.selectedBackend).toBe(LanguageModelBackend.Remote);
     expect(remoteModel.doGenerateCalls).toHaveLength(1);
   });
 
@@ -130,16 +139,16 @@ describe('sdkd provider adapter', () => {
     const llamaModel = chatLanguageModel('served-local-model');
     const remoteModel = chatLanguageModel('unused-remote-model');
     const generateChatCompletion = createChatCompletionGenerator(
-      { ...completeConfiguration('remote-first'), localOnly: true },
+      { ...completeConfiguration(SDKDAutoRoute.RemoteFirst), localOnly: true },
       languageModelFactory(llamaModel, remoteModel),
     );
 
-    const response = await generateChatCompletion({ ...chatRequest, executionMode: 'auto' });
+    const response = await generateChatCompletion({ ...chatRequest, executionMode: ExecutionMode.Auto });
 
-    expect(response.selectedBackend).toBe('device');
+    expect(response.selectedBackend).toBe(LanguageModelBackend.Device);
     expect(llamaModel.doGenerateCalls).toHaveLength(1);
     expect(remoteModel.doGenerateCalls).toHaveLength(0);
-    await expect(generateChatCompletion({ ...chatRequest, executionMode: 'remote' })).rejects.toThrow(
+    await expect(generateChatCompletion({ ...chatRequest, executionMode: ExecutionMode.Remote })).rejects.toThrow(
       'remote routing is disabled by local-only mode',
     );
   });
@@ -147,17 +156,17 @@ describe('sdkd provider adapter', () => {
   test('writes parallel tool calls using the provider wire field', async () => {
     const requestBodies: Array<Record<string, unknown>> = [];
     const generateChatCompletion = createChatCompletionGenerator(
-      completeConfiguration('remote-first'),
+      completeConfiguration(SDKDAutoRoute.RemoteFirst),
       wireLanguageModelFactory(requestBodies),
     );
 
-    await generateChatCompletion({ ...chatRequest, executionMode: 'remote', parallelToolCalls: false });
-    await generateChatCompletion({ ...chatRequest, executionMode: 'device', parallelToolCalls: true });
+    await generateChatCompletion({ ...chatRequest, executionMode: ExecutionMode.Remote, parallelToolCalls: false });
+    await generateChatCompletion({ ...chatRequest, executionMode: ExecutionMode.Device, parallelToolCalls: true });
     const localOnlyGenerator = createChatCompletionGenerator(
-      { ...completeConfiguration('remote-first'), localOnly: true },
+      { ...completeConfiguration(SDKDAutoRoute.RemoteFirst), localOnly: true },
       wireLanguageModelFactory(requestBodies),
     );
-    await localOnlyGenerator({ ...chatRequest, executionMode: 'auto', parallelToolCalls: false });
+    await localOnlyGenerator({ ...chatRequest, executionMode: ExecutionMode.Auto, parallelToolCalls: false });
 
     expect(requestBodies).toHaveLength(3);
     expect(requestBodies[0]?.parallel_tool_calls).toBe(false);
@@ -193,11 +202,11 @@ describe('sdkd provider adapter', () => {
     });
     const remoteModel = successfulLanguageModel('unused-remote-model', { ok: true });
     const generateChatCompletion = createChatCompletionGenerator(
-      completeConfiguration('local-first'),
+      completeConfiguration(SDKDAutoRoute.LocalFirst),
       languageModelFactory(llamaModel, remoteModel),
     );
 
-    const responsePromise = generateChatCompletion({ ...chatRequest, executionMode: 'auto' }, abortController.signal);
+    const responsePromise = generateChatCompletion({ ...chatRequest, executionMode: ExecutionMode.Auto }, abortController.signal);
     await started;
     abortController.abort();
 
@@ -213,19 +222,19 @@ describe('sdkd provider adapter', () => {
     });
     const remoteModel = successfulLanguageModel('unused-remote-model', { ok: false });
     const generateStructuredResponse = createStructuredResponseGenerator(
-      completeConfiguration('remote-first'),
+      completeConfiguration(SDKDAutoRoute.RemoteFirst),
       languageModelFactory(llamaModel, remoteModel),
     );
 
-    const response = await generateStructuredResponse({ ...structuredRequest, executionMode: 'device' });
+    const response = await generateStructuredResponse({ ...structuredRequest, executionMode: ExecutionMode.Device });
 
     expect(response).toEqual({
       provider: 'llama.cpp',
       model: 'served-local-model',
       content: '{"ok":true}',
-      selectedBackend: 'device',
+      selectedBackend: LanguageModelBackend.Device,
       finishReason: 'stop',
-      constraintMode: 'llama_json_schema',
+      constraintMode: StructuredOutputConstraintMode.LlamaJSONSchema,
       usage: {
         promptTokens: 12,
         completionTokens: 5,
@@ -249,7 +258,7 @@ describe('sdkd provider adapter', () => {
       routeAttempts.push('openrouter');
     });
     const generateStructuredResponse = createStructuredResponseGenerator(
-      completeConfiguration('local-first'),
+      completeConfiguration(SDKDAutoRoute.LocalFirst),
       languageModelFactory(llamaModel, remoteModel),
     );
 
@@ -257,8 +266,8 @@ describe('sdkd provider adapter', () => {
 
     expect(routeAttempts).toEqual(['llama.cpp', 'openrouter']);
     expect(response.provider).toBe('openrouter');
-    expect(response.selectedBackend).toBe('remote');
-    expect(response.constraintMode).toBe('openai_json_schema');
+    expect(response.selectedBackend).toBe(LanguageModelBackend.Remote);
+    expect(response.constraintMode).toBe(StructuredOutputConstraintMode.OpenAIJSONSchema);
   });
 
   test('falls back only after retryable provider failures', async () => {
@@ -268,7 +277,7 @@ describe('sdkd provider adapter', () => {
       routeAttempts.push('openrouter');
     });
     const generateStructuredResponse = createStructuredResponseGenerator(
-      completeConfiguration('local-first'),
+      completeConfiguration(SDKDAutoRoute.LocalFirst),
       languageModelFactory(llamaModel, remoteModel),
     );
 
@@ -285,7 +294,7 @@ describe('sdkd provider adapter', () => {
       routeAttempts.push('openrouter');
     });
     const generateStructuredResponse = createStructuredResponseGenerator(
-      completeConfiguration('local-first'),
+      completeConfiguration(SDKDAutoRoute.LocalFirst),
       languageModelFactory(llamaModel, remoteModel),
     );
 
@@ -300,7 +309,7 @@ describe('sdkd provider adapter', () => {
     const llamaModel = retryFailingLanguageModel('llama.cpp', false, routeAttempts);
     const remoteModel = successfulLanguageModel('unused-remote-model', { ok: true });
     const generateStructuredResponse = createStructuredResponseGenerator(
-      completeConfiguration('local-first'),
+      completeConfiguration(SDKDAutoRoute.LocalFirst),
       languageModelFactory(llamaModel, remoteModel),
     );
 
@@ -314,7 +323,7 @@ describe('sdkd provider adapter', () => {
     const llamaModel = apiFailingLanguageModel('llama.cpp', false, routeAttempts);
     const remoteModel = successfulLanguageModel('unused-remote-model', { ok: true });
     const generateStructuredResponse = createStructuredResponseGenerator(
-      completeConfiguration('local-first'),
+      completeConfiguration(SDKDAutoRoute.LocalFirst),
       languageModelFactory(llamaModel, remoteModel),
     );
 
@@ -328,7 +337,7 @@ describe('sdkd provider adapter', () => {
     const llamaModel = apiFailingLanguageModel('llama.cpp', false, routeAttempts, 500);
     const remoteModel = successfulLanguageModel('unused-remote-model', { ok: true });
     const generateStructuredResponse = createStructuredResponseGenerator(
-      completeConfiguration('local-first'),
+      completeConfiguration(SDKDAutoRoute.LocalFirst),
       languageModelFactory(llamaModel, remoteModel),
     );
 
@@ -350,7 +359,7 @@ describe('sdkd provider adapter', () => {
     const llamaModel = successfulLanguageModel('unused-local-model', { ok: false });
     const remoteModel = successfulLanguageModel('served-remote-model', { ok: true });
     const generateStructuredResponse = createStructuredResponseGenerator(
-      completeConfiguration('remote-first'),
+      completeConfiguration(SDKDAutoRoute.RemoteFirst),
       languageModelFactory(llamaModel, remoteModel),
     );
 
@@ -364,7 +373,7 @@ describe('sdkd provider adapter', () => {
   test('keeps auto and remote routing local in local-only mode', async () => {
     const llamaModel = successfulLanguageModel('local-model', { ok: true });
     const remoteModel = successfulLanguageModel('remote-model', { ok: true });
-    const configuration = { ...completeConfiguration('remote-first'), localOnly: true };
+    const configuration = { ...completeConfiguration(SDKDAutoRoute.RemoteFirst), localOnly: true };
     const generateStructuredResponse = createStructuredResponseGenerator(
       configuration,
       languageModelFactory(llamaModel, remoteModel),
@@ -372,9 +381,9 @@ describe('sdkd provider adapter', () => {
 
     const response = await generateStructuredResponse(structuredRequest);
 
-    expect(response.selectedBackend).toBe('device');
+    expect(response.selectedBackend).toBe(LanguageModelBackend.Device);
     expect(remoteModel.doGenerateCalls).toHaveLength(0);
-    await expect(generateStructuredResponse({ ...structuredRequest, executionMode: 'remote' })).rejects.toThrow(
+    await expect(generateStructuredResponse({ ...structuredRequest, executionMode: ExecutionMode.Remote })).rejects.toThrow(
       'remote routing is disabled by local-only mode',
     );
   });
@@ -383,7 +392,7 @@ describe('sdkd provider adapter', () => {
     const invalidModel = successfulLanguageModel('invalid-model', { ok: 'not-a-boolean' });
     const fallbackModel = successfulLanguageModel('fallback-model', { ok: true });
     const generateStructuredResponse = createStructuredResponseGenerator(
-      completeConfiguration('local-first'),
+      completeConfiguration(SDKDAutoRoute.LocalFirst),
       languageModelFactory(invalidModel, fallbackModel),
     );
 
@@ -396,7 +405,7 @@ describe('sdkd provider adapter', () => {
     const llamaModel = apiFailingLanguageModel('llama.cpp', true, routeAttempts);
     const remoteModel = apiFailingLanguageModel('openrouter', true, routeAttempts);
     const generateStructuredResponse = createStructuredResponseGenerator(
-      completeConfiguration('local-first'),
+      completeConfiguration(SDKDAutoRoute.LocalFirst),
       languageModelFactory(llamaModel, remoteModel),
     );
 
@@ -407,24 +416,24 @@ describe('sdkd provider adapter', () => {
   test('fails before provider execution when the requested route is unavailable', async () => {
     const model = successfulLanguageModel('unused-model', { ok: true });
     const modelFactory = languageModelFactory(model, model);
-    const configuration = completeConfiguration('remote-first');
+    const configuration = completeConfiguration(SDKDAutoRoute.RemoteFirst);
     const noRouteConfiguration = { ...configuration, llamaBaseURL: undefined, llamaModel: undefined, openRouterAPIKey: undefined };
     const generateStructuredResponse = createStructuredResponseGenerator(noRouteConfiguration, modelFactory);
 
     await expect(generateStructuredResponse(structuredRequest)).rejects.toThrow(
       'auto routing requires an OpenRouter or llama.cpp configuration',
     );
-    await expect(generateStructuredResponse({ ...structuredRequest, executionMode: 'companion' })).rejects.toThrow(
+    await expect(generateStructuredResponse({ ...structuredRequest, executionMode: ExecutionMode.Companion })).rejects.toThrow(
       'companion language model routing is provided by InternKim',
     );
-    await expect(generateStructuredResponse({ ...structuredRequest, executionMode: 'remote' })).rejects.toThrow(
+    await expect(generateStructuredResponse({ ...structuredRequest, executionMode: ExecutionMode.Remote })).rejects.toThrow(
       'remote routing requires OPENROUTER_API_KEY',
     );
     expect(model.doGenerateCalls).toHaveLength(0);
   });
 });
 
-function completeConfiguration(autoRoute: SDKDConfiguration['autoRoute']): SDKDConfiguration {
+function completeConfiguration(autoRoute: SDKDAutoRoute): SDKDConfiguration {
   return {
     authKey: 'installation-key',
     autoRoute,

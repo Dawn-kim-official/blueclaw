@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { loadSDKDConfiguration } from '../src/configuration.ts';
+import { SDKDAutoRoute, loadSDKDConfiguration } from '../src/configuration.ts';
 
 describe('sdkd configuration', () => {
   test('loads secure defaults and explicit routes', () => {
@@ -15,7 +15,7 @@ describe('sdkd configuration', () => {
     });
 
     expect(configuration.socketPath).toBe('/run/blueclaw-sdkd/sdkd.sock');
-    expect(configuration.autoRoute).toBe('remote-first');
+    expect(configuration.autoRoute).toBe(SDKDAutoRoute.RemoteFirst);
     expect(configuration.llamaModel).toBe('local-model');
     expect(configuration.openRouterBaseURL).toBe('https://openrouter.ai/api/v1');
     expect(configuration.localOnly).toBe(false);

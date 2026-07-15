@@ -2,26 +2,35 @@ import { z } from 'zod';
 
 import { nonNegativeIntegerSchema } from './common.ts';
 
-export const taskStatusSchema = z.enum([
-  'planned',
-  'running',
-  'waiting_user_input',
-  'waiting_approval',
-  'blocked',
-  'interrupted',
-  'completed',
-  'failed',
-  'cancelled',
-]);
+export enum TaskStatus {
+  Planned = 'planned',
+  Running = 'running',
+  WaitingUserInput = 'waiting_user_input',
+  WaitingApproval = 'waiting_approval',
+  Blocked = 'blocked',
+  Interrupted = 'interrupted',
+  Completed = 'completed',
+  Failed = 'failed',
+  Cancelled = 'cancelled',
+}
 
-export const taskAttemptStatusSchema = z.enum([
-  'starting',
-  'running',
-  'completed',
-  'failed',
-  'cancelled',
-  'interrupted',
-]);
+export const taskStatusSchema = z.enum(TaskStatus);
+
+export enum TaskAttemptStatus {
+  Starting = 'starting',
+  Running = 'running',
+  Completed = 'completed',
+  Failed = 'failed',
+  Cancelled = 'cancelled',
+  Interrupted = 'interrupted',
+}
+
+export const taskAttemptStatusSchema = z.enum(TaskAttemptStatus);
+
+export enum TaskScheduleExecutionMode {
+  Agent = 'agent',
+  Message = 'message',
+}
 
 export const taskRunSchema = z.looseObject({
   taskRunID: z.string(),
@@ -69,7 +78,7 @@ const taskScheduleCommonSchema = z.looseObject({
   creatorPersonID: z.string(),
   name: z.string(),
   prompt: z.string(),
-  executionMode: z.enum(['agent', 'message']),
+  executionMode: z.enum(TaskScheduleExecutionMode),
   agentProfileName: z.string(),
   platform: z.string(),
   conversationID: z.string(),

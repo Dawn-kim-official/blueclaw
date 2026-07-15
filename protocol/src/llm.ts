@@ -1,6 +1,43 @@
 import { z } from 'zod';
 
-import { jsonValueSchema, nonNegativeIntegerSchema } from './common.ts';
+import { ExecutionMode, jsonValueSchema, nonNegativeIntegerSchema } from './common.ts';
+
+export enum LanguageModelMessageRole {
+  System = 'system',
+  User = 'user',
+  Assistant = 'assistant',
+}
+
+export enum ChatCompletionMessageRole {
+  System = 'system',
+  User = 'user',
+  Assistant = 'assistant',
+  Tool = 'tool',
+}
+
+export enum LanguageModelBackend {
+  Device = 'device',
+  Remote = 'remote',
+}
+
+export enum StructuredOutputConstraintMode {
+  OpenAIJSONSchema = 'openai_json_schema',
+  LlamaJSONSchema = 'llama_json_schema',
+  LlamaGBNF = 'llama_gbnf',
+  LiteRTLLGuidanceJSONSchema = 'litert_llguidance_json_schema',
+  NativeToolCall = 'native_tool_call',
+  PromptedJSON = 'prompted_json',
+}
+
+export enum ChatCompletionFinishReason {
+  Stop = 'stop',
+  Length = 'length',
+  ToolCalls = 'tool_calls',
+  ContentFilter = 'content_filter',
+  Error = 'error',
+  Other = 'other',
+  Unknown = 'unknown',
+}
 
 export const languageModelMessagePartSchema = z.discriminatedUnion('type', [
   z.looseObject({
@@ -16,7 +53,7 @@ export const languageModelMessagePartSchema = z.discriminatedUnion('type', [
 ]);
 
 export const languageModelMessageSchema = z.looseObject({
-  role: z.enum(['system', 'user', 'assistant']),
+  role: z.enum(LanguageModelMessageRole),
   content: z.string().optional(),
   parts: z.array(languageModelMessagePartSchema).optional(),
 });
@@ -44,7 +81,7 @@ export const chatCompletionToolCallSchema = z.looseObject({
 });
 
 export const chatCompletionMessageSchema = z.looseObject({
-  role: z.enum(['system', 'user', 'assistant', 'tool']),
+  role: z.enum(ChatCompletionMessageRole),
   content: z.string().optional(),
   toolCallId: z.string().trim().min(1).optional(),
   toolCalls: z.array(chatCompletionToolCallSchema).optional(),
@@ -91,7 +128,7 @@ export const requestContextSchema = z.looseObject({
 
 export const structuredResponseRequestSchema = z.looseObject({
   model: z.string().optional(),
-  executionMode: z.enum(['device', 'companion', 'remote', 'auto']),
+  executionMode: z.enum(ExecutionMode),
   context: requestContextSchema.optional(),
   messages: z.array(languageModelMessageSchema),
   structuredOutputSchema: structuredOutputSchemaSchema,
@@ -100,7 +137,7 @@ export const structuredResponseRequestSchema = z.looseObject({
 
 export const chatCompletionRequestSchema = z.looseObject({
   model: z.string().optional(),
-  executionMode: z.enum(['device', 'companion', 'remote', 'auto']),
+  executionMode: z.enum(ExecutionMode),
   context: requestContextSchema.optional(),
   messages: z.array(chatCompletionMessageSchema),
   tools: z.array(chatCompletionToolSchema).optional(),
@@ -150,29 +187,22 @@ export const structuredResponseSchema = z.looseObject({
   provider: z.string().trim().min(1),
   model: z.string().trim().min(1),
   content: z.string().min(1),
-  selectedBackend: z.enum(['device', 'remote']),
+  selectedBackend: z.enum(LanguageModelBackend),
   finishReason: z.literal('stop'),
-  constraintMode: z.enum([
-    'openai_json_schema',
-    'llama_json_schema',
-    'llama_gbnf',
-    'litert_llguidance_json_schema',
-    'native_tool_call',
-    'prompted_json',
-  ]).optional(),
+  constraintMode: z.enum(StructuredOutputConstraintMode).optional(),
   usage: languageModelUsageSchema.optional(),
 });
 
 export const chatCompletionResponseSchema = z.looseObject({
-  finishReason: z.enum(['stop', 'length', 'tool_calls', 'content_filter', 'error', 'other', 'unknown']),
+  finishReason: z.enum(ChatCompletionFinishReason),
   provider: z.string().trim().min(1),
   model: z.string().trim().min(1),
   message: chatCompletionResponseMessageSchema,
-  selectedBackend: z.enum(['device', 'remote']),
+  selectedBackend: z.enum(LanguageModelBackend),
   usage: languageModelUsageSchema.optional(),
   providerMetadata: jsonValueSchema.optional(),
 }).superRefine((response, context) => {
-  if (response.finishReason === 'tool_calls' && (response.message.toolCalls === undefined || response.message.toolCalls.length === 0)) {
+  if (response.finishReason === ChatCompletionFinishReason.ToolCalls && (response.message.toolCalls === undefined || response.message.toolCalls.length === 0)) {
     context.addIssue({
       code: 'custom',
       path: ['message', 'toolCalls'],
