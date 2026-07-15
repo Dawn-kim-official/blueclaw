@@ -472,6 +472,97 @@ func TestAgentKernelRecoversMaintenanceEvidenceWithoutInitialTool(t *testing.T) 
 	}
 }
 
+func TestAgentKernelReplacesReadOnlyEvidenceForMaintenanceTask(t *testing.T) {
+	agentKernel, taskRunService := newKernelTestServices()
+	intakeLanguageModel := &turnRouterDecisionLanguageModel{
+		initialDecision: TurnDecision{
+			Route:                 TurnRouteStartTask,
+			Classification:        IntakeClassificationBoundedTask,
+			TaskShape:             TaskShapeMaintenanceTask,
+			TaskLevel:             TaskLevelLow,
+			RequiredEvidenceTools: []string{"task.history"},
+			ResponseLanguage:      "ko",
+			Reason:                "update requested work",
+		},
+		reaskDecision: TurnDecision{RequiredEvidenceTools: []string{"task.update"}},
+	}
+	agentKernel.UseIntakeLanguageModelProvider(intakeLanguageModel)
+
+	toolCallCount := 0
+	toolSet := newTestCapabilityToolSet([]string{"task.history", "task.update"})
+	toolSet.RegisterTool(ToolDefinition{Name: "task.update"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		toolCallCount++
+		return ToolSuccess(`{"taskID":"task-1","content":"고객지원 분기 결산 검토 완료","endDate":"2026-07-17"}`), nil
+	})
+	agentKernel.UseLanguageModelProvider(&sequenceLanguageModel{contents: []string{
+		`{"action":"continue","toolName":"capability.invoke","toolInput":{"operation":"task.update","input":{"taskID":"task-1","content":"고객지원 분기 결산 검토 완료","endDate":"2026-07-17"}}}`,
+		finishMessageWithEvidence("업무를 수정했습니다.", "obs-001", "task.update", 0),
+	}})
+
+	request := kernelTestRequest("고객지원 분기 결산 업무를 검토 완료로 바꾸고 마감일은 7월 17일로 유지해줘")
+	request.ToolSet = toolSet
+	result, errorValue := agentKernel.RunAgentRequest(context.Background(), request)
+
+	if errorValue != nil {
+		t.Fatalf("expected corrected task.update evidence to complete: %v", errorValue)
+	}
+	if result.TaskRun.Status != task.TaskStatusCompleted {
+		t.Fatalf("expected corrected task to complete, got %q", result.TaskRun.Status)
+	}
+	if intakeLanguageModel.reaskCallCount != 1 {
+		t.Fatalf("expected exactly one evidence re-ask, got %d", intakeLanguageModel.reaskCallCount)
+	}
+	if toolCallCount != 1 {
+		t.Fatalf("expected task.update to run once, got %d", toolCallCount)
+	}
+	taskEvents := taskRunService.ListTaskEvent(result.TaskRun.TaskRunID)
+	if !taskEventsContain(taskEvents, requiredEvidenceReaskEventName, `"recoveredEvidence":["task.update"]`) {
+		t.Fatal("expected reask event to record corrected task.update evidence")
+	}
+	if taskEventsContain(taskEvents, "agent.intake", "task.history") {
+		t.Fatal("expected corrected evidence to replace task.history")
+	}
+	if !taskEventsContain(taskEvents, "agent.intake", "task.update") {
+		t.Fatal("expected rebuilt intake decision to require task.update")
+	}
+}
+
+func TestAgentKernelRejectsReadOnlyEvidenceFromMaintenanceReask(t *testing.T) {
+	agentKernel, taskRunService := newKernelTestServices()
+	intakeLanguageModel := &turnRouterDecisionLanguageModel{
+		initialDecision: sideEffectMissingEvidenceDecision(),
+		reaskDecision:   TurnDecision{RequiredEvidenceTools: []string{"task.history"}},
+	}
+	agentKernel.UseIntakeLanguageModelProvider(intakeLanguageModel)
+
+	toolSet := newTestToolSet([]string{TerminalRunToolName, "task.history"})
+	toolSet.RegisterTool(ToolDefinition{Name: TerminalRunToolName}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return ToolSuccess(`{"exitCode":0,"stdout":"done","stderr":"","timedOut":false}`), nil
+	})
+	agentKernel.UseLanguageModelProvider(&sequenceLanguageModel{contents: []string{
+		`{"action":"continue","toolName":"terminal.run","toolInput":{"command":"do the side effect"}}`,
+		finishMessageWithEvidence("완료했습니다.", "obs-001", TerminalRunToolName, 0),
+	}})
+
+	request := kernelTestRequest("서버에 배포 스크립트 실행해줘")
+	request.ToolSet = toolSet
+	result, errorValue := agentKernel.RunAgentRequest(context.Background(), request)
+
+	if errorValue != nil {
+		t.Fatalf("expected task to proceed after rejecting read-only recovery: %v", errorValue)
+	}
+	if intakeLanguageModel.reaskCallCount != 1 {
+		t.Fatalf("expected exactly one re-ask attempt, got %d", intakeLanguageModel.reaskCallCount)
+	}
+	taskEvents := taskRunService.ListTaskEvent(result.TaskRun.TaskRunID)
+	if taskEventsContain(taskEvents, requiredEvidenceReaskEventName, `"didRecoverEvidence":true`) {
+		t.Fatal("expected read-only task.history not to recover side-effect evidence")
+	}
+	if !taskEventsContain(taskEvents, requiredEvidenceReaskEventName, "no valid required evidence") {
+		t.Fatal("expected rejected read-only evidence reason")
+	}
+}
+
 // Even when the one re-ask fails to recover evidence, the task must proceed
 // rather than hard-block; the re-ask is a soft recovery, not a gate.
 func TestAgentKernelProceedsWhenReaskStillReturnsNoEvidence(t *testing.T) {

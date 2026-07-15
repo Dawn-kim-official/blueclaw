@@ -218,6 +218,32 @@ func TestElapsedCompletionRecoveryHonorsCallerCancellation(t *testing.T) {
 	}
 }
 
+func TestElapsedCompletionDoesNotSubstituteDifferentSideEffectEvidence(t *testing.T) {
+	recoveryLanguageModel := &sequenceLanguageModel{textResponses: []string{"업무를 수정했습니다."}}
+	services := newTurnRunnerTestServicesWithRecoveryModel(deadlineBlockingLanguageModel{}, recoveryLanguageModel, TurnOptions{MaxElapsedSecond: 1})
+	request := AgentTurnRequest{
+		RequesterPersonID: "person-1",
+		ConversationID:    "conversation-1",
+		Prompt:            "고객지원 분기 결산 업무를 수정해줘",
+	}
+	requirements := []toolUseRequirement{{ToolName: "task.history"}}
+	finalization := limitFinalizationResult{
+		Observations: []turnObservation{newContentObservation("obs-001", "continue", "task.update", `{"taskID":"task-1"}`)},
+	}
+
+	result := services.runner.finalizeElapsedLimitWithEvidence(context.Background(), "task-1", request, "max_elapsed", requirements, nil, finalization)
+
+	if result.IsCompleted {
+		t.Fatal("expected task.update not to satisfy a different task.history requirement")
+	}
+	if len(recoveryLanguageModel.textPrompts) != 0 {
+		t.Fatal("expected no completion wording without matching required evidence")
+	}
+	if taskEventsContain(services.taskEventService.ListTaskEvent("task-1"), "agent.limit_completed_from_evidence", "max_elapsed") {
+		t.Fatal("expected no max_elapsed completion event for mismatched evidence")
+	}
+}
+
 func TestAgentTurnRunnerPreservesCallerCancellationBeforeEffortDeadline(t *testing.T) {
 	services := newTurnRunnerTestServices(deadlineBlockingLanguageModel{}, TurnOptions{MaxElapsedSecond: 30})
 	runContext, cancelRun := context.WithCancel(context.Background())
