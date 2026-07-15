@@ -7,6 +7,11 @@ func ResolveTextChatCompleter(provider LanguageModelProvider) (ChatCompleter, bo
 	if completer, isAvailable := provider.(ChatCompleter); isAvailable {
 		return completer, true
 	}
+	if wrappedProvider, isWrapped := provider.(interface {
+		primaryLanguageModelProvider() LanguageModelProvider
+	}); isWrapped {
+		return ResolveTextChatCompleter(wrappedProvider.primaryLanguageModelProvider())
+	}
 
 	switch provider := provider.(type) {
 	case FallbackLanguageModelProvider:

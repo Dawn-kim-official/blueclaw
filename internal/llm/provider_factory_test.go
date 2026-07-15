@@ -170,9 +170,21 @@ func TestConfiguredProviderWrapsCapabilityWithOptionalSDKDShadow(t *testing.T) {
 	if errorValue != nil {
 		t.Fatalf("expected shadow provider: %v", errorValue)
 	}
-	shadowProvider, isShadowProvider := languageModelProvider.(ShadowLanguageModelProvider)
+	shadowWrapper, isShadowProvider := languageModelProvider.(interface {
+		shadowLanguageModelProvider() ShadowLanguageModelProvider
+	})
 	if !isShadowProvider {
 		t.Fatalf("expected optional sdkd shadow provider, got %T", languageModelProvider)
+	}
+	shadowProvider := shadowWrapper.shadowLanguageModelProvider()
+	if _, hasRecoveryChat := languageModelProvider.(RecoveryChatCompleter); !hasRecoveryChat {
+		t.Fatal("expected configured shadow provider to preserve recovery chat")
+	}
+	if _, hasLocalRecoveryChat := languageModelProvider.(LocalRecoveryChatCompleter); !hasLocalRecoveryChat {
+		t.Fatal("expected configured shadow provider to preserve local recovery chat")
+	}
+	if _, hasTextChat := ResolveTextChatCompleter(languageModelProvider); !hasTextChat {
+		t.Fatal("expected configured shadow provider to preserve text chat")
 	}
 	sdkdClient, isSDKDClient := shadowProvider.ShadowProvider.(SDKDClient)
 	if !isSDKDClient || sdkdClient.StructuredFallbackProvider != nil {

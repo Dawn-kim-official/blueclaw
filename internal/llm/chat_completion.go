@@ -3,6 +3,8 @@ package llm
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"strings"
 )
 
 type ChatCompletionRequest struct {
@@ -54,4 +56,29 @@ type ChatCompletionToolCallFunction struct {
 
 type ChatCompleter interface {
 	GenerateChatCompletion(context.Context, ChatCompletionRequest) (ChatCompletionResponse, error)
+}
+
+type RecoveryChatCompleter interface {
+	GenerateRecoveryChatCompletion(context.Context, ChatCompletionRequest) (ChatCompletionResponse, error)
+}
+
+type LocalRecoveryChatCompleter interface {
+	GenerateLocalRecoveryChatCompletion(context.Context, ChatCompletionRequest) (ChatCompletionResponse, error)
+}
+
+func RecoveryChatCompletionText(response ChatCompletionResponse) (string, error) {
+	if response.FinishReason != "stop" {
+		return "", errors.New("recovery chat completion did not stop normally")
+	}
+	if response.Message.Role != "assistant" {
+		return "", errors.New("recovery chat completion message must be assistant")
+	}
+	if len(response.Message.ToolCalls) > 0 {
+		return "", errors.New("recovery chat completion must not call tools")
+	}
+	reply := strings.TrimSpace(response.Message.Content)
+	if reply == "" {
+		return "", errors.New("recovery chat completion is empty")
+	}
+	return reply, nil
 }

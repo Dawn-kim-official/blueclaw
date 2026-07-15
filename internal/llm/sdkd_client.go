@@ -128,6 +128,41 @@ func (client SDKDClient) GenerateLocalRecoveryResponse(responseContext context.C
 	return localRecoveryProvider.GenerateLocalRecoveryResponse(responseContext, prompt)
 }
 
+func (client SDKDClient) GenerateRecoveryChatCompletion(responseContext context.Context, request ChatCompletionRequest) (ChatCompletionResponse, error) {
+	if client.LocalOnly || client.executionMode() == "device" {
+		return client.generateSDKDRecoveryChatAttempt(responseContext, request, "device")
+	}
+	response, errorValue := client.generateSDKDRecoveryChatAttempt(responseContext, request, "auto")
+	if errorValue == nil {
+		return response, nil
+	}
+	if contextError := responseContext.Err(); contextError != nil {
+		return response, contextError
+	}
+	if !isRetryableSDKDError(errorValue) {
+		return response, errorValue
+	}
+	return client.generateSDKDRecoveryChatAttempt(responseContext, request, "device")
+}
+
+func (client SDKDClient) GenerateLocalRecoveryChatCompletion(responseContext context.Context, request ChatCompletionRequest) (ChatCompletionResponse, error) {
+	return client.generateSDKDRecoveryChatAttempt(responseContext, request, "device")
+}
+
+func (client SDKDClient) generateSDKDRecoveryChatAttempt(responseContext context.Context, request ChatCompletionRequest, executionMode string) (ChatCompletionResponse, error) {
+	attemptContext, cancelAttempt := recoveryAttemptContext(responseContext)
+	response, errorValue := client.generateChatCompletion(attemptContext, request, executionMode, false)
+	cancelAttempt()
+	if errorValue != nil {
+		return response, errorValue
+	}
+	if executionMode == "device" && response.SelectedBackend != "device" {
+		return response, errors.New("device recovery chat returned a non-device backend")
+	}
+	_, errorValue = RecoveryChatCompletionText(response)
+	return response, errorValue
+}
+
 func (client SDKDClient) GenerateStructuredResponse(responseContext context.Context, request StructuredResponseRequest) (StructuredResponse, error) {
 	if !client.usesSDKDForSchema(request.StructuredOutputSchema.Name) {
 		if client.LocalOnly || client.StructuredFallbackProvider == nil {
@@ -148,8 +183,12 @@ func (client SDKDClient) GenerateStructuredResponse(responseContext context.Cont
 }
 
 func (client SDKDClient) GenerateChatCompletion(responseContext context.Context, request ChatCompletionRequest) (ChatCompletionResponse, error) {
-	response, errorValue := client.generateSDKDChatCompletion(responseContext, request)
-	if errorValue == nil || client.LocalOnly || !isRetryableSDKDError(errorValue) {
+	return client.generateChatCompletion(responseContext, request, client.executionMode(), true)
+}
+
+func (client SDKDClient) generateChatCompletion(responseContext context.Context, request ChatCompletionRequest, executionMode string, allowFallback bool) (ChatCompletionResponse, error) {
+	response, errorValue := client.generateSDKDChatCompletion(responseContext, request, executionMode)
+	if errorValue == nil || !allowFallback || client.LocalOnly || !isRetryableSDKDError(errorValue) {
 		return response, errorValue
 	}
 	if responseContext.Err() != nil {
@@ -170,7 +209,7 @@ func (client SDKDClient) GenerateChatCompletion(responseContext context.Context,
 	return fallbackResponse, nil
 }
 
-func (client SDKDClient) generateSDKDChatCompletion(responseContext context.Context, request ChatCompletionRequest) (ChatCompletionResponse, error) {
+func (client SDKDClient) generateSDKDChatCompletion(responseContext context.Context, request ChatCompletionRequest, executionMode string) (ChatCompletionResponse, error) {
 	if client.HTTPClient == nil {
 		return ChatCompletionResponse{}, errors.New("sdkd http client is not configured")
 	}
@@ -179,7 +218,7 @@ func (client SDKDClient) generateSDKDChatCompletion(responseContext context.Cont
 	}
 	requestDocument := sdkdChatCompletionRequestDocument{
 		Model:             client.ModelName,
-		ExecutionMode:     client.executionMode(),
+		ExecutionMode:     executionMode,
 		Context:           requestContextPointer(responseContext),
 		Messages:          append([]ChatCompletionMessage{}, request.Messages...),
 		Tools:             append([]ChatCompletionTool{}, request.Tools...),

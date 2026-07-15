@@ -85,6 +85,38 @@ func (capabilityLLMClient CapabilityLLMClient) GenerateLocalRecoveryResponse(res
 	return capabilityLLMClient.generateResponse(deviceContext, prompt, "device")
 }
 
+func (capabilityLLMClient CapabilityLLMClient) GenerateRecoveryChatCompletion(responseContext context.Context, request ChatCompletionRequest) (ChatCompletionResponse, error) {
+	if capabilityLLMClient.executionMode() == "device" {
+		return capabilityLLMClient.generateRecoveryChatAttempt(responseContext, request, "device")
+	}
+	response, errorValue := capabilityLLMClient.generateRecoveryChatAttempt(responseContext, request, "auto")
+	if errorValue == nil {
+		return response, nil
+	}
+	if contextError := responseContext.Err(); contextError != nil {
+		return response, contextError
+	}
+	return capabilityLLMClient.generateRecoveryChatAttempt(responseContext, request, "device")
+}
+
+func (capabilityLLMClient CapabilityLLMClient) generateRecoveryChatAttempt(responseContext context.Context, request ChatCompletionRequest, executionMode string) (ChatCompletionResponse, error) {
+	autoContext, cancelAuto := recoveryAttemptContext(responseContext)
+	response, errorValue := capabilityLLMClient.generateChatCompletion(autoContext, request, executionMode)
+	cancelAuto()
+	if errorValue != nil {
+		return response, errorValue
+	}
+	if executionMode == "device" && response.SelectedBackend != "device" {
+		return response, errors.New("device recovery chat returned a non-device backend")
+	}
+	_, errorValue = RecoveryChatCompletionText(response)
+	return response, errorValue
+}
+
+func (capabilityLLMClient CapabilityLLMClient) GenerateLocalRecoveryChatCompletion(responseContext context.Context, request ChatCompletionRequest) (ChatCompletionResponse, error) {
+	return capabilityLLMClient.generateRecoveryChatAttempt(responseContext, request, "device")
+}
+
 func recoveryAttemptContext(responseContext context.Context) (context.Context, context.CancelFunc) {
 	baseContext := context.Background()
 	requestContext := RequestContextFromContext(responseContext)
@@ -194,13 +226,17 @@ func (capabilityLLMClient CapabilityLLMClient) GenerateStructuredResponse(respon
 }
 
 func (capabilityLLMClient CapabilityLLMClient) GenerateChatCompletion(responseContext context.Context, request ChatCompletionRequest) (ChatCompletionResponse, error) {
+	return capabilityLLMClient.generateChatCompletion(responseContext, request, capabilityLLMClient.executionMode())
+}
+
+func (capabilityLLMClient CapabilityLLMClient) generateChatCompletion(responseContext context.Context, request ChatCompletionRequest, executionMode string) (ChatCompletionResponse, error) {
 	if capabilityLLMClient.CapabilityClient.HTTPClient == nil {
 		return ChatCompletionResponse{}, errors.New("capability llm http client is not configured")
 	}
 
 	requestDocument := capabilityChatCompletionRequestDocument{
 		Model:             capabilityLLMClient.ModelName,
-		ExecutionMode:     capabilityLLMClient.executionMode(),
+		ExecutionMode:     executionMode,
 		Context:           requestContextPointer(responseContext),
 		Messages:          append([]ChatCompletionMessage{}, request.Messages...),
 		Tools:             append([]ChatCompletionTool{}, request.Tools...),

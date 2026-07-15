@@ -239,6 +239,115 @@ func TestSDKDClientGenerateChatCompletionPropagatesCancellationWithoutFallback(t
 	}
 }
 
+func TestSDKDClientRecoveryChatUsesAutoThenDeviceExecutionModes(t *testing.T) {
+	receivedExecutionModes := []string{}
+	server := httptest.NewServer(http.HandlerFunc(func(responseWriter http.ResponseWriter, request *http.Request) {
+		var receivedDocument sdkdChatCompletionRequestDocument
+		if errorValue := json.NewDecoder(request.Body).Decode(&receivedDocument); errorValue != nil {
+			t.Fatalf("expected chat request document to decode: %v", errorValue)
+		}
+		receivedExecutionModes = append(receivedExecutionModes, receivedDocument.ExecutionMode)
+		if receivedDocument.ExecutionMode == "auto" {
+			responseWriter.WriteHeader(http.StatusServiceUnavailable)
+			_, _ = responseWriter.Write([]byte(`{"error":{"code":"provider_unavailable","message":"remote unavailable","allowLegacyFallback":true}}`))
+			return
+		}
+		_, _ = responseWriter.Write([]byte(`{"finishReason":"stop","provider":"sdkd","model":"gemma","selectedBackend":"device","message":{"role":"assistant","content":"device recovery chat"}}`))
+	}))
+	defer server.Close()
+
+	client := NewSDKDClient(SDKDClientConfiguration{Endpoint: server.URL, AuthKey: "installation-key", ExecutionMode: "remote", ModelName: "gemma"})
+	response, errorValue := client.GenerateRecoveryChatCompletion(context.Background(), ChatCompletionRequest{})
+	if errorValue != nil || response.Message.Content != "device recovery chat" {
+		t.Fatalf("expected device recovery chat, got %+v, %v", response, errorValue)
+	}
+	if strings.Join(receivedExecutionModes, ",") != "auto,device" {
+		t.Fatalf("expected auto then device execution modes, got %+v", receivedExecutionModes)
+	}
+}
+
+func TestSDKDClientLocalOnlyRecoveryChatUsesDeviceExecutionMode(t *testing.T) {
+	receivedExecutionMode := ""
+	server := httptest.NewServer(http.HandlerFunc(func(responseWriter http.ResponseWriter, request *http.Request) {
+		var receivedDocument sdkdChatCompletionRequestDocument
+		if errorValue := json.NewDecoder(request.Body).Decode(&receivedDocument); errorValue != nil {
+			t.Fatalf("expected chat request document to decode: %v", errorValue)
+		}
+		receivedExecutionMode = receivedDocument.ExecutionMode
+		_, _ = responseWriter.Write([]byte(`{"finishReason":"stop","provider":"sdkd","model":"gemma","selectedBackend":"device","message":{"role":"assistant","content":"local recovery chat"}}`))
+	}))
+	defer server.Close()
+
+	client := NewSDKDClient(SDKDClientConfiguration{Endpoint: server.URL, AuthKey: "installation-key", LocalOnly: true, ExecutionMode: "auto", ModelName: "gemma"})
+	response, errorValue := client.GenerateRecoveryChatCompletion(context.Background(), ChatCompletionRequest{})
+	if errorValue != nil || response.Message.Content != "local recovery chat" {
+		t.Fatalf("expected local recovery chat, got %+v, %v", response, errorValue)
+	}
+	if receivedExecutionMode != "device" {
+		t.Fatalf("expected device execution mode, got %q", receivedExecutionMode)
+	}
+}
+
+func TestSDKDClientLocalRecoveryChatDoesNotUseTextProviderFallback(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(responseWriter http.ResponseWriter, request *http.Request) {
+		responseWriter.WriteHeader(http.StatusServiceUnavailable)
+		_, _ = responseWriter.Write([]byte(`{"error":{"code":"provider_unavailable","allowLegacyFallback":true}}`))
+	}))
+	defer server.Close()
+
+	fallbackProvider := &sdkdTestLanguageModel{chatResponse: ChatCompletionResponse{
+		FinishReason: "stop",
+		Message:      ChatCompletionMessage{Role: "assistant", Content: "remote fallback"},
+	}}
+	client := NewSDKDClient(SDKDClientConfiguration{
+		Endpoint:     server.URL,
+		AuthKey:      "installation-key",
+		TextProvider: fallbackProvider,
+	})
+
+	_, errorValue := client.GenerateLocalRecoveryChatCompletion(context.Background(), ChatCompletionRequest{})
+	if errorValue == nil {
+		t.Fatal("expected local recovery chat failure")
+	}
+	if fallbackProvider.chatCallCount != 0 {
+		t.Fatalf("expected no text provider fallback, got %d calls", fallbackProvider.chatCallCount)
+	}
+}
+
+func TestSDKDClientDeviceRecoveryChatDoesNotUseTextProviderFallback(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(responseWriter http.ResponseWriter, request *http.Request) {
+		var receivedDocument sdkdChatCompletionRequestDocument
+		if errorValue := json.NewDecoder(request.Body).Decode(&receivedDocument); errorValue != nil {
+			t.Fatalf("expected chat request document to decode: %v", errorValue)
+		}
+		if receivedDocument.ExecutionMode != "device" {
+			t.Fatalf("expected device execution mode, got %q", receivedDocument.ExecutionMode)
+		}
+		responseWriter.WriteHeader(http.StatusServiceUnavailable)
+		_, _ = responseWriter.Write([]byte(`{"error":{"code":"provider_unavailable","allowLegacyFallback":true}}`))
+	}))
+	defer server.Close()
+
+	fallbackProvider := &sdkdTestLanguageModel{chatResponse: ChatCompletionResponse{
+		FinishReason: "stop",
+		Message:      ChatCompletionMessage{Role: "assistant", Content: "remote fallback"},
+	}}
+	client := NewSDKDClient(SDKDClientConfiguration{
+		Endpoint:      server.URL,
+		AuthKey:       "installation-key",
+		ExecutionMode: "device",
+		TextProvider:  fallbackProvider,
+	})
+
+	_, errorValue := client.GenerateRecoveryChatCompletion(context.Background(), ChatCompletionRequest{})
+	if errorValue == nil {
+		t.Fatal("expected device recovery chat failure")
+	}
+	if fallbackProvider.chatCallCount != 0 {
+		t.Fatalf("expected no text provider fallback, got %d calls", fallbackProvider.chatCallCount)
+	}
+}
+
 func TestSDKDClientGenerateChatCompletionUsesLoopbackBridgeWithoutGuestCredential(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(responseWriter http.ResponseWriter, request *http.Request) {
 		if request.Header.Get("Authorization") != "" {

@@ -96,6 +96,39 @@ func TestObserveLanguageModelPreservesMissingRecoveryCapability(t *testing.T) {
 	if _, hasLocalRecovery := observed.(llm.LocalRecoveryResponder); hasLocalRecovery {
 		t.Fatal("expected wrapper without local recovery capability for plain provider")
 	}
+	if _, hasRecoveryChat := observed.(llm.RecoveryChatCompleter); hasRecoveryChat {
+		t.Fatal("expected wrapper without recovery chat capability for plain provider")
+	}
+	if _, hasLocalRecoveryChat := observed.(llm.LocalRecoveryChatCompleter); hasLocalRecoveryChat {
+		t.Fatal("expected wrapper without local recovery chat capability for plain provider")
+	}
+}
+
+type legacyRecoveryTestModel struct{ staticReplyProvider }
+
+func (legacyRecoveryTestModel) GenerateRecoveryResponse(context.Context, string) (string, error) {
+	return "recovered", nil
+}
+
+func (legacyRecoveryTestModel) GenerateLocalRecoveryResponse(context.Context, string) (string, error) {
+	return "locally recovered", nil
+}
+
+func TestObserveLanguageModelDoesNotInventChatCapability(t *testing.T) {
+	observed := observeLanguageModel(legacyRecoveryTestModel{}, func(llmCallRecord) {})
+
+	if _, hasRecovery := observed.(llm.RecoveryResponder); !hasRecovery {
+		t.Fatal("expected recovery capability to be preserved")
+	}
+	if _, hasLocalRecovery := observed.(llm.LocalRecoveryResponder); !hasLocalRecovery {
+		t.Fatal("expected local recovery capability to be preserved")
+	}
+	if _, hasRecoveryChat := observed.(llm.RecoveryChatCompleter); hasRecoveryChat {
+		t.Fatal("expected wrapper not to invent recovery chat capability")
+	}
+	if _, hasLocalRecoveryChat := observed.(llm.LocalRecoveryChatCompleter); hasLocalRecoveryChat {
+		t.Fatal("expected wrapper not to invent local recovery chat capability")
+	}
 }
 
 type recoveryCapableTestModel struct {
@@ -108,6 +141,27 @@ func (recoveryCapableTestModel) GenerateRecoveryResponse(context.Context, string
 
 func (recoveryCapableTestModel) GenerateLocalRecoveryResponse(context.Context, string) (string, error) {
 	return "", errors.New("local recovery unavailable")
+}
+
+func (recoveryCapableTestModel) GenerateRecoveryChatCompletion(context.Context, llm.ChatCompletionRequest) (llm.ChatCompletionResponse, error) {
+	return llm.ChatCompletionResponse{
+		FinishReason:    "stop",
+		ProviderName:    "chat-provider",
+		ModelName:       "chat-model",
+		SelectedBackend: "remote",
+		Message:         llm.ChatCompletionMessage{Role: "assistant", Content: "chat recovered"},
+		Usage:           llm.Usage{PromptTokens: 2, CompletionTokens: 3, TotalTokens: 5},
+	}, nil
+}
+
+func (recoveryCapableTestModel) GenerateLocalRecoveryChatCompletion(context.Context, llm.ChatCompletionRequest) (llm.ChatCompletionResponse, error) {
+	return llm.ChatCompletionResponse{
+		FinishReason:    "stop",
+		ProviderName:    "local-chat-provider",
+		ModelName:       "local-chat-model",
+		SelectedBackend: "device",
+		Message:         llm.ChatCompletionMessage{Role: "assistant", Content: "local chat recovered"},
+	}, nil
 }
 
 func TestObserveLanguageModelKeepsRecoveryCapabilityAndRecords(t *testing.T) {
@@ -135,5 +189,29 @@ func TestObserveLanguageModelKeepsRecoveryCapabilityAndRecords(t *testing.T) {
 	}
 	if len(records) != 2 {
 		t.Fatalf("expected original observer to keep recording, got %d records", len(records))
+	}
+}
+
+func TestObserveLanguageModelKeepsRecoveryChatCapabilityAndRecords(t *testing.T) {
+	records := []llmCallRecord{}
+	observed := observeLanguageModel(recoveryCapableTestModel{}, func(record llmCallRecord) {
+		records = append(records, record)
+	})
+
+	recoveryProvider, hasRecoveryChat := observed.(llm.RecoveryChatCompleter)
+	if !hasRecoveryChat {
+		t.Fatal("expected recovery chat capability to be preserved")
+	}
+	response, errorValue := recoveryProvider.GenerateRecoveryChatCompletion(context.Background(), llm.ChatCompletionRequest{
+		Messages: []llm.ChatCompletionMessage{{Role: "user", Content: "prompt"}},
+	})
+	if errorValue != nil || response.Message.Content != "chat recovered" {
+		t.Fatalf("expected recovery chat passthrough, got %+v %v", response, errorValue)
+	}
+	if len(records) != 1 || records[0].Kind != "recovery_chat" || records[0].Provider != "chat-provider" || records[0].PromptBytes != len("prompt") {
+		t.Fatalf("expected recovery chat call record, got %+v", records)
+	}
+	if records[0].SelectedBackend != "remote" || records[0].FinishReason != "stop" {
+		t.Fatalf("expected recovery routing metadata, got %+v", records[0])
 	}
 }

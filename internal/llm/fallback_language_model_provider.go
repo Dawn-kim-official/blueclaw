@@ -54,6 +54,98 @@ func (fallbackLanguageModelProvider FallbackLanguageModelProvider) GenerateStruc
 	return structuredResponse, nil
 }
 
+func (fallbackLanguageModelProvider FallbackLanguageModelProvider) GenerateRecoveryChatCompletion(responseContext context.Context, request ChatCompletionRequest) (ChatCompletionResponse, error) {
+	primaryProvider, isPrimaryProvider := fallbackLanguageModelProvider.PrimaryProvider.(RecoveryChatCompleter)
+	if !isPrimaryProvider {
+		fallbackProvider, isFallbackProvider := fallbackLanguageModelProvider.FallbackProvider.(RecoveryChatCompleter)
+		if isFallbackProvider {
+			fallbackResponse, fallbackError := fallbackProvider.GenerateRecoveryChatCompletion(responseContext, request)
+			if fallbackError != nil {
+				return fallbackResponse, fallbackError
+			}
+			if _, fallbackError = RecoveryChatCompletionText(fallbackResponse); fallbackError != nil {
+				return fallbackResponse, fallbackError
+			}
+			fallbackResponse.UsedFallback = true
+			return fallbackResponse, nil
+		}
+		return ChatCompletionResponse{}, errors.New("primary recovery chat provider is not configured")
+	}
+	response, errorValue := primaryProvider.GenerateRecoveryChatCompletion(responseContext, request)
+	if contextError := contextFailure(responseContext, errorValue); contextError != nil {
+		return response, contextError
+	}
+	if errorValue == nil {
+		_, errorValue = RecoveryChatCompletionText(response)
+	}
+	if errorValue == nil {
+		return response, nil
+	}
+	if fallbackLanguageModelProvider.FallbackProvider == nil {
+		return response, errorValue
+	}
+	fallbackProvider, isFallbackProvider := fallbackLanguageModelProvider.FallbackProvider.(RecoveryChatCompleter)
+	if !isFallbackProvider {
+		return response, errorValue
+	}
+	fallbackLanguageModelProvider.logFallback("recovery_chat", errorValue)
+	fallbackResponse, fallbackError := fallbackProvider.GenerateRecoveryChatCompletion(responseContext, request)
+	if fallbackError != nil {
+		return ChatCompletionResponse{}, fallbackError
+	}
+	if _, fallbackError = RecoveryChatCompletionText(fallbackResponse); fallbackError != nil {
+		return fallbackResponse, fallbackError
+	}
+	fallbackResponse.UsedFallback = true
+	return fallbackResponse, nil
+}
+
+func (fallbackLanguageModelProvider FallbackLanguageModelProvider) GenerateLocalRecoveryChatCompletion(responseContext context.Context, request ChatCompletionRequest) (ChatCompletionResponse, error) {
+	primaryProvider, isPrimaryProvider := fallbackLanguageModelProvider.PrimaryProvider.(LocalRecoveryChatCompleter)
+	if !isPrimaryProvider {
+		fallbackProvider, isFallbackProvider := fallbackLanguageModelProvider.FallbackProvider.(LocalRecoveryChatCompleter)
+		if isFallbackProvider {
+			fallbackResponse, fallbackError := fallbackProvider.GenerateLocalRecoveryChatCompletion(responseContext, request)
+			if fallbackError != nil {
+				return fallbackResponse, fallbackError
+			}
+			if _, fallbackError = RecoveryChatCompletionText(fallbackResponse); fallbackError != nil {
+				return fallbackResponse, fallbackError
+			}
+			fallbackResponse.UsedFallback = true
+			return fallbackResponse, nil
+		}
+		return ChatCompletionResponse{}, errors.New("primary local recovery chat provider is not configured")
+	}
+	response, errorValue := primaryProvider.GenerateLocalRecoveryChatCompletion(responseContext, request)
+	if contextError := contextFailure(responseContext, errorValue); contextError != nil {
+		return response, contextError
+	}
+	if errorValue == nil {
+		_, errorValue = RecoveryChatCompletionText(response)
+	}
+	if errorValue == nil {
+		return response, nil
+	}
+	if fallbackLanguageModelProvider.FallbackProvider == nil {
+		return response, errorValue
+	}
+	fallbackProvider, isFallbackProvider := fallbackLanguageModelProvider.FallbackProvider.(LocalRecoveryChatCompleter)
+	if !isFallbackProvider {
+		return response, errorValue
+	}
+	fallbackLanguageModelProvider.logFallback("local_recovery_chat", errorValue)
+	fallbackResponse, fallbackError := fallbackProvider.GenerateLocalRecoveryChatCompletion(responseContext, request)
+	if fallbackError != nil {
+		return ChatCompletionResponse{}, fallbackError
+	}
+	if _, fallbackError = RecoveryChatCompletionText(fallbackResponse); fallbackError != nil {
+		return fallbackResponse, fallbackError
+	}
+	fallbackResponse.UsedFallback = true
+	return fallbackResponse, nil
+}
+
 func contextFailure(responseContext context.Context, primaryError error) error {
 	if primaryError == nil {
 		return nil
@@ -74,11 +166,15 @@ func (fallbackLanguageModelProvider FallbackLanguageModelProvider) logFallback(c
 	if fallbackLanguageModelProvider.Logger == nil {
 		return
 	}
+	errorMessage := "unknown error"
+	if primaryError != nil {
+		errorMessage = primaryError.Error()
+	}
 	fallbackLanguageModelProvider.Logger.Warn(
 		"language model call failed; falling back to alternate tier",
 		"callKind", callKind,
 		"failedTier", fallbackLanguageModelProvider.PrimaryLabel,
 		"fallbackTier", fallbackLanguageModelProvider.FallbackLabel,
-		"error", primaryError.Error(),
+		"error", errorMessage,
 	)
 }
