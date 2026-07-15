@@ -3348,6 +3348,9 @@ func TestConnectorRuntimeSendsCheckpointReplyKind(t *testing.T) {
 	if reply.replyKind != connectorReplyKindCheckpoint || reply.taskRunID != "task-1" || reply.message != "작업 중입니다." {
 		t.Fatalf("expected checkpoint reply kind and task run id, got %+v", reply)
 	}
+	if reply.ephemeralUserID != "" {
+		t.Fatalf("expected checkpoint to be a normal reply, got %+v", reply)
+	}
 	if !connectorTaskEventsContain(connectorRuntime, "task-1", "connector.reply.sent", connectorReplyKindCheckpoint) {
 		t.Fatal("expected checkpoint sent event")
 	}
@@ -3526,6 +3529,7 @@ type testReply struct {
 	message         string
 	taskRunID       string
 	replyKind       string
+	ephemeralUserID string
 	attachments     []agent.FileAttachment
 	recoveryActions []agent.RecoveryAction
 	failureNotice   agent.FailureNotice
@@ -3719,7 +3723,7 @@ func (adapter *testAdapter) SendReply(_ context.Context, target ReplyTarget, rep
 	if adapter.sendReplyError != nil {
 		return "", adapter.sendReplyError
 	}
-	adapter.sentReplies = append(adapter.sentReplies, testReply{target: target, message: reply.Message, taskRunID: reply.TaskRunID, replyKind: reply.ReplyKind, attachments: reply.Attachments, recoveryActions: reply.RecoveryActions, failureNotice: reply.FailureNotice})
+	adapter.sentReplies = append(adapter.sentReplies, testReply{target: target, message: reply.Message, taskRunID: reply.TaskRunID, replyKind: reply.ReplyKind, ephemeralUserID: reply.EphemeralUserID, attachments: reply.Attachments, recoveryActions: reply.RecoveryActions, failureNotice: reply.FailureNotice})
 	return "dispatch-" + strconv.Itoa(len(adapter.sentReplies)), nil
 }
 
