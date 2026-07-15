@@ -98,6 +98,39 @@ describe('sdkd handler', () => {
     expect(await response.json()).toEqual(responseDocument());
   });
 
+  test('passes the structured request abort signal to the generator', async () => {
+    const abortController = new AbortController();
+    let observedAbortSignal: AbortSignal | undefined;
+    const handler = createSDKDHandler({
+      configuration,
+      generateStructuredResponse: async (_request, abortSignal) => {
+        observedAbortSignal = abortSignal;
+        return responseDocument();
+      },
+    });
+
+    const response = await handler(structuredRequest('installation-key', abortController.signal));
+
+    expect(response.status).toBe(200);
+    expect(observedAbortSignal).toBe(abortController.signal);
+  });
+
+  test('classifies aborted structured generation without allowing fallback', async () => {
+    const handler = createSDKDHandler({
+      configuration,
+      generateStructuredResponse: async () => {
+        throw new DOMException('The operation was aborted', 'AbortError');
+      },
+    });
+
+    const response = await handler(structuredRequest('installation-key'));
+
+    expect(response.status).toBe(499);
+    expect(await response.json()).toEqual({
+      error: { code: 'request_aborted', allowLegacyFallback: false },
+    });
+  });
+
   test('preserves fallback policy in provider errors', async () => {
     const retryableHandler = createSDKDHandler({
       configuration,
@@ -307,13 +340,14 @@ describe('sdkd handler', () => {
   });
 });
 
-function structuredRequest(authKey?: string): Request {
+function structuredRequest(authKey?: string, signal?: AbortSignal): Request {
   const headers: Record<string, string> = { 'content-type': 'application/json' };
   if (authKey) headers.authorization = `Bearer ${authKey}`;
   return new Request('http://sdkd/v1/llm/structured', {
     method: 'POST',
     headers,
     body: JSON.stringify(requestDocument),
+    signal,
   });
 }
 

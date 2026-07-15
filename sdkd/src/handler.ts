@@ -46,7 +46,7 @@ export function createSDKDHandler(dependencies: HandlerDependencies) {
     if (!parsedRequest.success) return errorResponse(400, 'invalid_structured_response_request');
 
     try {
-      const response = await dependencies.generateStructuredResponse(parsedRequest.data);
+      const response = await dependencies.generateStructuredResponse(parsedRequest.data, request.signal);
       const parsedResponse = structuredResponseSchema.safeParse(response);
       if (!parsedResponse.success) {
         return errorResponse(502, 'provider_response_invalid', false);
