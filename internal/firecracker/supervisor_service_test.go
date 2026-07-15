@@ -47,13 +47,14 @@ func TestBuildBootSpecificationIncludesWorkspaceAndVSock(t *testing.T) {
 	if errorValue := os.WriteFile(rootfsImagePath, []byte("rootfs"), 0o600); errorValue != nil {
 		t.Fatalf("expected rootfs fixture: %v", errorValue)
 	}
+	workspaceImagePath := writeFakeExt4WorkspaceImage(t, workspacePath)
 	supervisorService := NewSupervisorService(
 		config.FirecrackerConfiguration{
 			FirecrackerPath:        "/usr/bin/firecracker",
 			JailerPath:             "/usr/bin/jailer",
 			KernelImagePath:        kernelImagePath,
 			RootfsImagePath:        rootfsImagePath,
-			WorkspaceImagePath:     filepath.Join(workspacePath, "workspace.ext4"),
+			WorkspaceImagePath:     workspaceImagePath,
 			VCPUCount:              4,
 			MemoryMiB:              8192,
 			VSockCID:               52,
@@ -62,7 +63,7 @@ func TestBuildBootSpecificationIncludesWorkspaceAndVSock(t *testing.T) {
 			HostHTTPListenAddress:  "127.0.0.1:8080",
 			LogDirectoryPath:       filepath.Join(workspacePath, "log"),
 		},
-		WorkspaceVolumeService{ImageSizeByte: 1024 * 1024, FormatterPath: writeFakeExt4Formatter(t, workspacePath)},
+		WorkspaceVolumeService{},
 		readyGuestHealthClient{},
 	)
 
@@ -104,6 +105,12 @@ func TestBuildBootSpecificationIncludesWorkspaceAndVSock(t *testing.T) {
 	if bootSpecification.WorkspaceVolumeMetadata.GuestMountPath != "/workspace" {
 		t.Fatalf("expected workspace mount path to match, got %q", bootSpecification.WorkspaceVolumeMetadata.GuestMountPath)
 	}
+	if errorValue := os.Remove(workspaceImagePath); errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if _, errorValue := supervisorService.buildBootSpecification(); !os.IsNotExist(errorValue) {
+		t.Fatalf("missing workspace image must fail without creation, got %v", errorValue)
+	}
 }
 
 func TestBuildBootSpecificationIncludesOutboundNetworkWhenEnabled(t *testing.T) {
@@ -116,6 +123,7 @@ func TestBuildBootSpecificationIncludesOutboundNetworkWhenEnabled(t *testing.T) 
 	if errorValue := os.WriteFile(rootfsImagePath, []byte("rootfs"), 0o600); errorValue != nil {
 		t.Fatalf("expected rootfs fixture: %v", errorValue)
 	}
+	workspaceImagePath := writeFakeExt4WorkspaceImage(t, workspacePath)
 	outboundNetworkService := &recordingOutboundNetworkService{}
 	supervisorService := NewSupervisorService(
 		config.FirecrackerConfiguration{
@@ -123,7 +131,7 @@ func TestBuildBootSpecificationIncludesOutboundNetworkWhenEnabled(t *testing.T) 
 			JailerPath:             "/usr/bin/jailer",
 			KernelImagePath:        kernelImagePath,
 			RootfsImagePath:        rootfsImagePath,
-			WorkspaceImagePath:     filepath.Join(workspacePath, "workspace.ext4"),
+			WorkspaceImagePath:     workspaceImagePath,
 			VCPUCount:              4,
 			MemoryMiB:              8192,
 			VSockCID:               52,
@@ -135,7 +143,7 @@ func TestBuildBootSpecificationIncludesOutboundNetworkWhenEnabled(t *testing.T) 
 				Enabled: true,
 			},
 		},
-		WorkspaceVolumeService{ImageSizeByte: 1024 * 1024, FormatterPath: writeFakeExt4Formatter(t, workspacePath)},
+		WorkspaceVolumeService{},
 		readyGuestHealthClient{},
 	)
 	supervisorService.OutboundNetworkService = outboundNetworkService
