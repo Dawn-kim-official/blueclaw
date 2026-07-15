@@ -455,10 +455,10 @@ func TestSDKDClientGenerateChatCompletionRejectsRemoteResultInLocalOnlyMode(t *t
 	}
 }
 
-func TestSDKDClientGenerateChatCompletionUsesTrustedTransientFallback(t *testing.T) {
+func TestSDKDClientGenerateChatCompletionUsesBridgeFallback(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(responseWriter http.ResponseWriter, request *http.Request) {
 		responseWriter.WriteHeader(http.StatusServiceUnavailable)
-		_, _ = responseWriter.Write([]byte(`{"error":{"code":"provider_unavailable","allowLegacyFallback":true}}`))
+		_, _ = responseWriter.Write([]byte(`{"error":{"code":"sdkd_bridge_unavailable","allowLegacyFallback":true}}`))
 	}))
 	defer server.Close()
 
@@ -470,10 +470,65 @@ func TestSDKDClientGenerateChatCompletionUsesTrustedTransientFallback(t *testing
 	})
 	response, errorValue := client.GenerateChatCompletion(context.Background(), ChatCompletionRequest{})
 	if errorValue != nil || response.Transport != "capability" || response.ProviderName != "legacy" || !response.UsedFallback {
-		t.Fatalf("expected trusted chat fallback, got %+v, %v", response, errorValue)
+		t.Fatalf("expected bridge chat fallback, got %+v, %v", response, errorValue)
 	}
 	if fallbackProvider.chatCallCount != 1 {
-		t.Fatalf("expected one trusted fallback call, got %d", fallbackProvider.chatCallCount)
+		t.Fatalf("expected one bridge fallback call, got %d", fallbackProvider.chatCallCount)
+	}
+}
+
+func TestSDKDClientGenerateChatCompletionUsesTransportFallback(t *testing.T) {
+	fallbackProvider := &sdkdTestLanguageModel{chatResponse: ChatCompletionResponse{
+		ProviderName: "legacy",
+		Message:      ChatCompletionMessage{Role: "assistant", Content: "done"},
+	}}
+	client := NewSDKDClient(SDKDClientConfiguration{
+		Endpoint:     "http://blueclaw-sdkd",
+		AuthKey:      "installation-key",
+		TextProvider: fallbackProvider,
+	})
+	client.HTTPClient = sdkdTestHTTPClient(func(request *http.Request) (*http.Response, error) {
+		return nil, errors.New("sdkd connection failed")
+	})
+
+	response, errorValue := client.GenerateChatCompletion(context.Background(), ChatCompletionRequest{})
+	if errorValue != nil || response.ProviderName != "legacy" || !response.UsedFallback {
+		t.Fatalf("expected transport chat fallback, got %+v, %v", response, errorValue)
+	}
+	if fallbackProvider.chatCallCount != 1 {
+		t.Fatalf("expected one transport fallback call, got %d", fallbackProvider.chatCallCount)
+	}
+}
+
+func TestSDKDClientGenerateChatCompletionDoesNotFallbackOnProviderFailure(t *testing.T) {
+	testCases := []struct {
+		name       string
+		statusCode int
+		code       string
+	}{
+		{name: "rate limited", statusCode: http.StatusTooManyRequests, code: "provider_rate_limited"},
+		{name: "unavailable", statusCode: http.StatusServiceUnavailable, code: "provider_unavailable"},
+	}
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(responseWriter http.ResponseWriter, request *http.Request) {
+				responseWriter.WriteHeader(testCase.statusCode)
+				_, _ = responseWriter.Write([]byte(`{"error":{"code":"` + testCase.code + `","allowLegacyFallback":true}}`))
+			}))
+			defer server.Close()
+
+			fallbackProvider := &sdkdTestLanguageModel{chatResponse: ChatCompletionResponse{ProviderName: "legacy"}}
+			client := NewSDKDClient(SDKDClientConfiguration{
+				Endpoint:     server.URL,
+				AuthKey:      "installation-key",
+				TextProvider: fallbackProvider,
+			})
+
+			_, errorValue := client.GenerateChatCompletion(context.Background(), ChatCompletionRequest{})
+			if errorValue == nil || fallbackProvider.chatCallCount != 0 {
+				t.Fatalf("expected provider failure without fallback, got %v and %d calls", errorValue, fallbackProvider.chatCallCount)
+			}
+		})
 	}
 }
 
@@ -742,7 +797,7 @@ func TestSDKDClientUsesLegacyProviderOutsideEnabledSchemas(t *testing.T) {
 	}
 }
 
-func TestSDKDClientFallsBackOnRecognizedTransientFailures(t *testing.T) {
+func TestSDKDClientDoesNotFallbackOnProviderFailures(t *testing.T) {
 	testCases := []struct {
 		name       string
 		statusCode int
@@ -753,7 +808,6 @@ func TestSDKDClientFallsBackOnRecognizedTransientFailures(t *testing.T) {
 		{name: "provider bad gateway", statusCode: http.StatusBadGateway, code: "provider_unavailable"},
 		{name: "provider unavailable", statusCode: http.StatusServiceUnavailable, code: "provider_unavailable"},
 		{name: "provider timeout", statusCode: http.StatusGatewayTimeout, code: "provider_unavailable"},
-		{name: "bridge unavailable", statusCode: http.StatusServiceUnavailable, code: "sdkd_bridge_unavailable"},
 	}
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
@@ -770,13 +824,39 @@ func TestSDKDClientFallsBackOnRecognizedTransientFailures(t *testing.T) {
 				StructuredSchemaNames:      []string{"blueclaw_agent_turn_action"},
 			})
 
-			response, errorValue := client.GenerateStructuredResponse(context.Background(), StructuredResponseRequest{
+			_, errorValue := client.GenerateStructuredResponse(context.Background(), StructuredResponseRequest{
 				StructuredOutputSchema: StructuredOutputSchema{Name: "blueclaw_agent_turn_action", Document: `{"type":"object"}`},
 			})
-			if errorValue != nil || response.ProviderName != "capabilityLLM" || !response.UsedFallback {
-				t.Fatalf("expected marked legacy fallback response, got %+v, %v", response, errorValue)
+			if errorValue == nil || fallbackProvider.structuredCallCount != 0 {
+				t.Fatalf("expected provider failure without fallback, got %v and %d calls", errorValue, fallbackProvider.structuredCallCount)
 			}
 		})
+	}
+}
+
+func TestSDKDClientFallsBackWhenBridgeIsUnavailable(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(responseWriter http.ResponseWriter, request *http.Request) {
+		responseWriter.WriteHeader(http.StatusServiceUnavailable)
+		_, _ = responseWriter.Write([]byte(`{"error":{"code":"sdkd_bridge_unavailable","allowLegacyFallback":true}}`))
+	}))
+	defer server.Close()
+
+	fallbackProvider := &sdkdTestLanguageModel{structuredResponse: StructuredResponse{ProviderName: "capabilityLLM"}}
+	client := NewSDKDClient(SDKDClientConfiguration{
+		Endpoint:                   server.URL,
+		AuthKey:                    "installation-key",
+		StructuredFallbackProvider: fallbackProvider,
+		StructuredSchemaNames:      []string{"blueclaw_agent_turn_action"},
+	})
+
+	response, errorValue := client.GenerateStructuredResponse(context.Background(), StructuredResponseRequest{
+		StructuredOutputSchema: StructuredOutputSchema{Name: "blueclaw_agent_turn_action", Document: `{"type":"object"}`},
+	})
+	if errorValue != nil || response.ProviderName != "capabilityLLM" || !response.UsedFallback {
+		t.Fatalf("expected bridge fallback response, got %+v, %v", response, errorValue)
+	}
+	if fallbackProvider.structuredCallCount != 1 {
+		t.Fatalf("expected one bridge fallback call, got %d", fallbackProvider.structuredCallCount)
 	}
 }
 
