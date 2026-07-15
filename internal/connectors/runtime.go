@@ -85,7 +85,6 @@ type OutboundReply struct {
 	ReplyKind       string                 `json:"replyKind,omitempty"`
 	RawEventID      string                 `json:"rawEventID,omitempty"`
 	OutboxID        string                 `json:"outboxID,omitempty"`
-	EphemeralUserID string                 `json:"ephemeralUserID,omitempty"`
 	Attachments     []agent.FileAttachment `json:"attachments,omitempty"`
 	RecoveryActions []agent.RecoveryAction `json:"recoveryActions,omitempty"`
 	FailureNotice   agent.FailureNotice    `json:"failureNotice,omitempty"`
@@ -98,7 +97,6 @@ type outboundReplyDocument struct {
 	ReplyKind       string                    `json:"replyKind,omitempty"`
 	RawEventID      string                    `json:"rawEventID,omitempty"`
 	OutboxID        string                    `json:"outboxID,omitempty"`
-	EphemeralUserID string                    `json:"ephemeralUserID,omitempty"`
 	Attachments     []outboundReplyAttachment `json:"attachments,omitempty"`
 	RecoveryActions []agent.RecoveryAction    `json:"recoveryActions,omitempty"`
 	FailureNotice   agent.FailureNotice       `json:"failureNotice,omitempty"`
@@ -141,7 +139,6 @@ func (reply OutboundReply) MarshalJSON() ([]byte, error) {
 		ReplyKind:       reply.ReplyKind,
 		RawEventID:      reply.RawEventID,
 		OutboxID:        reply.OutboxID,
-		EphemeralUserID: reply.EphemeralUserID,
 		Attachments:     outboundReplyAttachments(reply.Attachments),
 		RecoveryActions: reply.RecoveryActions,
 		FailureNotice:   reply.FailureNotice,
@@ -160,7 +157,6 @@ func (reply *OutboundReply) UnmarshalJSON(documentBytes []byte) error {
 	reply.ReplyKind = document.ReplyKind
 	reply.RawEventID = document.RawEventID
 	reply.OutboxID = document.OutboxID
-	reply.EphemeralUserID = document.EphemeralUserID
 	reply.Attachments = fileAttachmentsFromOutboundReplyAttachments(document.Attachments)
 	reply.RecoveryActions = append([]agent.RecoveryAction{}, document.RecoveryActions...)
 	reply.FailureNotice = document.FailureNotice
@@ -1466,9 +1462,6 @@ func trimNonEmptyConnectorStrings(values []string) []string {
 }
 
 func (connectorRuntime *ConnectorRuntime) resolveAskInteractionMessage(ctx context.Context, adapter PlatformAdapter, event PlatformInboundEvent, taskRunID string, interaction AskInteraction) {
-	if strings.TrimSpace(interaction.TargetPlatformUserID) != "" {
-		return
-	}
 	if legacyBool(event.LegacyFields, "ephemeralAsk") {
 		return
 	}

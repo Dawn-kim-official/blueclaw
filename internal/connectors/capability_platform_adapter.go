@@ -42,7 +42,6 @@ type capabilityReplyRequest struct {
 	ReplyKind       string                      `json:"replyKind,omitempty"`
 	RawEventID      string                      `json:"rawEventID,omitempty"`
 	OutboxID        string                      `json:"outboxID,omitempty"`
-	EphemeralUserID string                      `json:"ephemeralUserID,omitempty"`
 	Attachments     []capabilityReplyAttachment `json:"attachments,omitempty"`
 	RecoveryActions []agent.RecoveryAction      `json:"recoveryActions,omitempty"`
 	FailureNotice   agent.FailureNotice         `json:"failureNotice,omitempty"`
@@ -139,7 +138,6 @@ func (adapter CapabilityPlatformAdapter) SendReply(ctx context.Context, replyTar
 		ReplyKind:       reply.ReplyKind,
 		RawEventID:      reply.RawEventID,
 		OutboxID:        reply.OutboxID,
-		EphemeralUserID: reply.EphemeralUserID,
 		Attachments:     buildCapabilityReplyAttachments(reply.Attachments),
 		RecoveryActions: reply.RecoveryActions,
 		FailureNotice:   reply.FailureNotice,
