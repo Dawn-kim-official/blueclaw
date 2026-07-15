@@ -425,6 +425,53 @@ func TestAgentKernelReasksAndRecoversRequiredEvidence(t *testing.T) {
 	}
 }
 
+func TestAgentKernelRecoversMaintenanceEvidenceWithoutInitialTool(t *testing.T) {
+	agentKernel, taskRunService := newKernelTestServices()
+	intakeLanguageModel := &turnRouterDecisionLanguageModel{
+		initialDecision: TurnDecision{
+			Route:            TurnRouteStartTask,
+			Classification:   IntakeClassificationBoundedTask,
+			TaskShape:        TaskShapeMaintenanceTask,
+			TaskLevel:        TaskLevelLow,
+			ResponseLanguage: "ko",
+			Reason:           "register requested work",
+		},
+		reaskDecision: TurnDecision{RequiredEvidenceTools: []string{"task.add"}},
+	}
+	agentKernel.UseIntakeLanguageModelProvider(intakeLanguageModel)
+
+	toolCallCount := 0
+	toolSet := newTestCapabilityToolSet([]string{"task.add"})
+	toolSet.RegisterTool(ToolDefinition{Name: "task.add"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		toolCallCount++
+		return ToolSuccess(`{"taskID":"task-1","content":"신규 입사자 온보딩 문서 검토"}`), nil
+	})
+	agentKernel.UseLanguageModelProvider(&sequenceLanguageModel{contents: []string{
+		`{"action":"continue","toolName":"capability.invoke","toolInput":{"operation":"task.add","input":{"prompt":"신규 입사자 온보딩 문서 검토"}}}`,
+		finishMessageWithEvidence("업무를 등록했습니다.", "obs-001", "task.add", 0),
+	}})
+
+	request := kernelTestRequest("신규 입사자 온보딩 문서 검토하는 업무 하나 등록해줘")
+	request.ToolSet = toolSet
+	result, errorValue := agentKernel.RunAgentRequest(context.Background(), request)
+
+	if errorValue != nil {
+		t.Fatalf("expected maintenance evidence recovery to run the task: %v", errorValue)
+	}
+	if result.TaskRun.Status != task.TaskStatusCompleted {
+		t.Fatalf("expected recovered task to complete, got %q", result.TaskRun.Status)
+	}
+	if intakeLanguageModel.reaskCallCount != 1 {
+		t.Fatalf("expected exactly one evidence re-ask, got %d", intakeLanguageModel.reaskCallCount)
+	}
+	if toolCallCount != 1 {
+		t.Fatalf("expected task.add to run once through capability.invoke, got %d", toolCallCount)
+	}
+	if !taskEventsContain(taskRunService.ListTaskEvent(result.TaskRun.TaskRunID), requiredEvidenceReaskEventName, `"recoveredEvidence":["task.add"]`) {
+		t.Fatal("expected reask event to record recovered task.add evidence")
+	}
+}
+
 // Even when the one re-ask fails to recover evidence, the task must proceed
 // rather than hard-block; the re-ask is a soft recovery, not a gate.
 func TestAgentKernelProceedsWhenReaskStillReturnsNoEvidence(t *testing.T) {
