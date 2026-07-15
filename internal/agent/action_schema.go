@@ -170,10 +170,11 @@ func continueActionSchema(toolDefinition ToolDefinition) map[string]any {
 			"reason":               stringSchema(),
 			"goalStatus":           enumValuesStringSchema([]string{"in_progress"}),
 			"goalSatisfied":        booleanSchema(),
+			"hasRemainingWork":     booleanSchema(),
 			"remainingWork":        stringSchema(),
 			"executionStateUpdate": executionStateSchema(),
 		},
-		"required": []string{"action", "toolName", "toolInput", "executionStateUpdate"},
+		"required": []string{"action", "toolName", "toolInput", "goalSatisfied", "hasRemainingWork", "executionStateUpdate"},
 	}
 	if description := strings.TrimSpace(toolDefinition.Description); description != "" {
 		schema["description"] = description

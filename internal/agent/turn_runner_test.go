@@ -668,6 +668,18 @@ func TestActionSchemaRequiresFailureResolutionWhenRecoveryIsExhausted(t *testing
 	}
 }
 
+func TestContinueActionSchemaRequiresCompletionIntent(t *testing.T) {
+	toolRegistry := newTestToolSet([]string{"task.list"})
+	request := BuildAgentActionRequest(agentTaskState{Request: AgentTurnRequest{ToolSet: toolRegistry}})
+	continueVariant := actionSchemaVariant(t, request.StructuredOutputSchema.Document, "continue")
+	continueRequired := stringSliceFromAny(continueVariant["required"])
+	for _, fieldName := range []string{"goalSatisfied", "hasRemainingWork"} {
+		if !containsString(continueRequired, fieldName) {
+			t.Fatalf("expected continue schema to require %s, got %+v", fieldName, continueRequired)
+		}
+	}
+}
+
 func TestActionSchemaHidesFailWhileRecoveryBudgetRemains(t *testing.T) {
 	toolRegistry := newTestToolSet([]string{"site.publish", "file.write"})
 	request := BuildAgentActionRequest(agentTaskState{
