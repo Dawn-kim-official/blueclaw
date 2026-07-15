@@ -19,22 +19,6 @@ func (agentTurnRunner *AgentTurnRunner) rejectUnavailableToolCall(taskRunID stri
 		result, shouldStop := stopForNoProgress(stepID)
 		return toolCallActionOutcome{Result: result, ShouldReturn: shouldStop, WasHandled: true}
 	}
-	if shouldRejectUnnecessarySiteApprovalRequest(request, actionDocument.ToolName, actionDocument.ToolInput) {
-		observation := newFailureObservation(nextObservationID(len(state.Observations)+1), "policy", actionDocument.ToolName, unnecessarySiteApprovalMessage(), FailurePolicyBlocked, FailureCodes.PolicyBlocked, "policy")
-		state.Observations = append(state.Observations, observation)
-		agentTurnRunner.appendEvent(taskRunID, "agent.approval_request_rejected", marshalEventBody(observation))
-		agentTurnRunner.saveStep(taskRunID, stepID, task.TaskStatusCompleted, "approval_request_rejected", observation.ContentText())
-		result, shouldStop := stopForNoProgress(stepID)
-		return toolCallActionOutcome{Result: result, ShouldReturn: shouldStop, WasHandled: true}
-	}
-	if shouldRejectUnnecessaryAcknowledgementApproval(actionDocument.ToolName, actionDocument.ToolInput) {
-		observation := newFailureObservation(nextObservationID(len(state.Observations)+1), "policy", actionDocument.ToolName, unnecessaryAcknowledgementApprovalMessage(), FailurePolicyBlocked, FailureCodes.PolicyBlocked, "policy")
-		state.Observations = append(state.Observations, observation)
-		agentTurnRunner.appendEvent(taskRunID, "agent.approval_request_rejected", marshalEventBody(observation))
-		agentTurnRunner.saveStep(taskRunID, stepID, task.TaskStatusCompleted, "approval_request_rejected", observation.ContentText())
-		result, shouldStop := stopForNoProgress(stepID)
-		return toolCallActionOutcome{Result: result, ShouldReturn: shouldStop, WasHandled: true}
-	}
 	if observation, isRejected := unrequestedPlatformMessageSendObservation(request, actionDocument, nextObservationID(len(state.Observations)+1)); isRejected {
 		state.Observations = append(state.Observations, observation)
 		agentTurnRunner.appendEvent(taskRunID, "agent.external_send_intent_rejected", marshalEventBody(observation))
@@ -98,7 +82,7 @@ func (agentTurnRunner *AgentTurnRunner) rejectRepeatedToolCall(taskRunID string,
 		result, shouldStop := stopForNoProgress(stepID)
 		return toolCallActionOutcome{Result: result, ShouldReturn: shouldStop, WasHandled: true}
 	}
-	if duplicateObservation, isDuplicate := successfulToolCalls[canonicalToolCallKey(actionDocument.ToolName, actionDocument.ToolInput)]; isDuplicate && handlesDuplicateSuccessfulToolCall(actionDocument.ToolName, actionDocument.ToolInput) && !terminalRerunAfterWorkspaceMutation(actionDocument, state.Observations, duplicateObservation) {
+	if duplicateObservation, isDuplicate := repeatedSuccessfulToolObservation(state, actionDocument, successfulToolCalls); isDuplicate {
 		observation := turnObservation{
 			ObservationID: nextObservationID(len(state.Observations) + 1),
 			Action:        "policy",
@@ -129,6 +113,56 @@ func (agentTurnRunner *AgentTurnRunner) rejectRepeatedToolCall(taskRunID string,
 		return toolCallActionOutcome{Result: result, ShouldReturn: shouldStop, WasHandled: true}
 	}
 	return toolCallActionOutcome{}
+}
+
+func repeatedSuccessfulToolObservation(state *agentTaskState, actionDocument turnActionDocument, successfulToolCalls map[string]turnObservation) (turnObservation, bool) {
+	observation, isDuplicate := repeatedSuccessfulCompletionCandidate(state, actionDocument, successfulToolCalls)
+	if !isDuplicate || !handlesDuplicateSuccessfulToolCall(actionDocument.ToolName, actionDocument.ToolInput) {
+		return turnObservation{}, false
+	}
+	return observation, true
+}
+
+func repeatedSuccessfulCompletionCandidate(state *agentTaskState, actionDocument turnActionDocument, successfulToolCalls map[string]turnObservation) (turnObservation, bool) {
+	toolInputKey := canonicalToolCallKey(actionDocument.ToolName, actionDocument.ToolInput)
+	observation, isDuplicate := successfulToolCalls[toolInputKey]
+	if !isDuplicate {
+		observation, isDuplicate = previousSuccessfulToolInputObservation(state.Observations, toolInputKey)
+	}
+	if !isDuplicate || terminalRerunAfterWorkspaceMutation(actionDocument, state.Observations, observation) {
+		return turnObservation{}, false
+	}
+	return observation, true
+}
+
+func previousSuccessfulToolInputObservation(observations []turnObservation, toolInputKey string) (turnObservation, bool) {
+	for index := len(observations) - 1; index >= 0; index-- {
+		observation := observations[index]
+		if observation.Action == "continue" && !observation.Failed() && strings.TrimSpace(observation.ToolInputKey) == toolInputKey {
+			return observation, true
+		}
+	}
+	return turnObservation{}, false
+}
+
+func duplicateSuccessFinalizationRequirements(toolSet *ToolSet, requirements []toolUseRequirement, observations []turnObservation, actionDocument turnActionDocument) ([]toolUseRequirement, bool) {
+	if completionRequirementsHaveEvidence(requirements, observations) {
+		return requirements, true
+	}
+	strictRequirements := []toolUseRequirement{}
+	for _, requirement := range requirements {
+		if !requirement.RequiresAttachment && !requirement.RequiresSideEffectEvidence {
+			continue
+		}
+		isSatisfied, _ := completionRequirementStatus(requirement, observations)
+		if !isSatisfied {
+			return nil, false
+		}
+		strictRequirements = append(strictRequirements, requirement)
+	}
+	effectiveToolName, _ := effectiveActionToolNameAndInput(actionDocument.ToolName, actionDocument.ToolInput)
+	_, isFound := toolSet.ToolDefinition(effectiveToolName)
+	return strictRequirements, isFound
 }
 
 func repeatedFileReadObservation(observations []turnObservation, actionDocument turnActionDocument, observationID string) (turnObservation, bool) {
@@ -215,6 +249,7 @@ func cachedFileReadObservation(observationID string, previousObservation turnObs
 	payload["message"] = strings.TrimSpace(message)
 	content := marshalEventBody(payload)
 	observation := newContentObservation(observationID, "policy", "file.read", content)
+	observation.Output.Data = json.RawMessage(content)
 	observation.Summary = "file.read cache hit for " + firstNonEmptyString(stringField(payload, "path"), "previous range")
 	return observation
 }
@@ -598,46 +633,6 @@ func isUnsafeRepeatSensitiveTool(toolName string) bool {
 	}
 }
 
-func shouldRejectUnnecessarySiteApprovalRequest(request AgentTurnRequest, toolName string, toolInput json.RawMessage) bool {
-	if strings.TrimSpace(toolName) != "ask.confirm" {
-		return false
-	}
-	if !sitePublishTaskToolsAreAvailable(request.ToolSet) {
-		return false
-	}
-	if !requestHasSelectedSiteArtifactSkill(request) {
-		return false
-	}
-	approvalText := strings.ToLower(strings.TrimSpace(string(toolInput)))
-	if containsAny(approvalText, []string{"rollback", "roll back", "unpublish", "delete", "remove", "take down", "삭제", "되돌", "내려", "중단"}) {
-		return false
-	}
-	if requiredEvidenceContains(request.RequiredEvidenceTools, "site.publish") {
-		return true
-	}
-	return containsAny(approvalText, []string{"deploy", "publish", "external", "website", "site", "배포", "웹사이트", "외부"})
-}
-
-func requestHasSelectedSiteArtifactSkill(request AgentTurnRequest) bool {
-	selectedSkillNames := selectedSkillNameSet(request.SkillDecisions)
-	for _, skillInstruction := range request.AvailableSkills {
-		if selectedSkillNames[skillInstruction.Name] && skillSupportsSiteArtifact(skillInstruction) {
-			return true
-		}
-	}
-	return false
-}
-
-// site.create and site.publish are domain operations reached only through
-// capability.invoke now, so availability means registration, not action-schema
-// allow-listing; terminal.run stays a directly-allowed kernel tool either way.
-func sitePublishTaskToolsAreAvailable(toolSet *ToolSet) bool {
-	if toolSet == nil {
-		return false
-	}
-	return toolSet.IsRegistered("site.create") && toolSet.IsRegistered("site.publish") && toolSet.IsRegistered("terminal.run")
-}
-
 func requiredEvidenceContains(requiredEvidenceTools []string, expectedToolName string) bool {
 	for _, toolName := range requiredEvidenceTools {
 		if ToolNamesMatch(toolName, expectedToolName) {
@@ -656,58 +651,12 @@ func requiredEvidenceHasPrefix(requiredEvidenceTools []string, prefix string) bo
 	return false
 }
 
-func unnecessarySiteApprovalMessage() string {
-	return "Approval is not required for website create, build, or publish capability operations. Continue with the website capability operations directly. Ask approval only before rollback, unpublish, or delete."
-}
-
-func shouldRejectUnnecessaryAcknowledgementApproval(toolName string, toolInput json.RawMessage) bool {
-	if strings.TrimSpace(toolName) != "ask.confirm" {
-		return false
-	}
-	var inputFields struct {
-		UserFacingMessage string `json:"userFacingMessage"`
-		ReasonDetail      string `json:"reasonDetail"`
-	}
-	if errorValue := json.Unmarshal(toolInput, &inputFields); errorValue != nil {
-		return false
-	}
-	combinedText := strings.ToLower(strings.TrimSpace(inputFields.UserFacingMessage) + " " + strings.TrimSpace(inputFields.ReasonDetail))
-	sensitivemarkers := []string{
-		"send", "전송", "보내", "dm",
-		"delete", "삭제", "지우", "remove", "제거",
-		"deploy", "배포", "publish", "게시",
-		"external", "외부",
-		"payment", "결제", "구매", "charge",
-		"credential", "api key", "apikey", "토큰", "token", "secret", "비밀", "password",
-		"grant", "권한", "unlock", "install", "설치",
-		"schedule", "예약",
-	}
-	if containsAny(combinedText, sensitivemarkers) {
-		return false
-	}
-	acknowledgementMarkers := []string{
-		"기억", "remember", "memor",
-		"맞나요", "맞아요", "맞죠",
-		"이해했", "알겠", "확인차",
-		"저장할까", "저장하면", "기록할까",
-		"note this", "just confirming", "let me know if",
-	}
-	return containsAny(combinedText, acknowledgementMarkers)
-}
-
-func unnecessaryAcknowledgementApprovalMessage() string {
-	return "Do not use ask.confirm to acknowledge information, confirm understanding, or before a non-destructive write. Perform the action directly through the relevant kernel tool or capability.invoke operation, then finish."
-}
-
 func unrequestedPlatformMessageSendObservation(request AgentTurnRequest, actionDocument turnActionDocument, observationID string) (turnObservation, bool) {
 	toolName, toolInput := effectiveActionToolNameAndInput(actionDocument.ToolName, actionDocument.ToolInput)
 	if strings.TrimSpace(toolName) != "message.send" {
 		return turnObservation{}, false
 	}
 	if requestRequiresPlatformMessageSend(request) {
-		return turnObservation{}, false
-	}
-	if promptLooksLikePlatformMessageSendRequest(request.Prompt) || promptLooksLikePlatformMessageSendRequest(request.ActiveGoal.OriginalInstruction) {
 		return turnObservation{}, false
 	}
 	deliveryType := platformMessageSendDeliveryType(toolInput)
@@ -733,17 +682,6 @@ func requestRequiresPlatformMessageSend(request AgentTurnRequest) bool {
 		}
 	}
 	return false
-}
-
-func promptLooksLikePlatformMessageSendRequest(prompt string) bool {
-	normalizedPrompt := strings.ToLower(strings.TrimSpace(prompt))
-	if normalizedPrompt == "" {
-		return false
-	}
-	return containsAny(normalizedPrompt, []string{
-		"dm", "direct message", "send", "notify", "post", "forward",
-		"보내", "전송", "디엠", "dm해", "전달", "공지", "올려",
-	})
 }
 
 func platformMessageSendDeliveryType(toolInput json.RawMessage) string {

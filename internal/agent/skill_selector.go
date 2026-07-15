@@ -119,17 +119,6 @@ func normalizeSkillSelectionText(value string) string {
 	return strings.ToLower(strings.TrimSpace(value))
 }
 
-func promptMentionsAnySkillSelectionText(prompt string, candidates []string) bool {
-	normalizedPrompt := normalizeSkillSelectionText(prompt)
-	for _, candidate := range candidates {
-		normalizedCandidate := normalizeSkillSelectionText(candidate)
-		if normalizedCandidate != "" && strings.Contains(normalizedPrompt, normalizedCandidate) {
-			return true
-		}
-	}
-	return false
-}
-
 func selectedSkillDecision(skillInstruction SkillInstruction, profileName string, reason string) SkillSelectionDecision {
 	return SkillSelectionDecision{
 		Name:        skillInstruction.Name,

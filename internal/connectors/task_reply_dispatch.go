@@ -14,6 +14,7 @@ const (
 	taskReplyDecisionConsume                 taskReplyDecisionKind = "consume"
 	taskReplyDecisionSuppressCancelled       taskReplyDecisionKind = "suppress_cancelled"
 	taskReplyDecisionSuppressSuperseded      taskReplyDecisionKind = "suppress_superseded"
+	taskReplyDecisionSuppressRequested       taskReplyDecisionKind = "suppress_requested"
 	taskReplyDecisionSendUserNotice          taskReplyDecisionKind = "send_user_notice"
 	taskReplyDecisionSuppressArtifactLocator taskReplyDecisionKind = "suppress_artifact_locator"
 	taskReplyDecisionSendFinal               taskReplyDecisionKind = "send_final"
@@ -27,6 +28,9 @@ type taskReplyDecision struct {
 func decideTaskReply(turnResult agent.AgentTurnResult, isCancelledBeforeSend bool) taskReplyDecision {
 	if turnResult.TurnRoute == agent.TurnRouteConsume {
 		return taskReplyDecision{Kind: taskReplyDecisionConsume}
+	}
+	if strings.TrimSpace(turnResult.ReplySuppressionReason) != "" {
+		return taskReplyDecision{Kind: taskReplyDecisionSuppressRequested, Reason: strings.TrimSpace(turnResult.ReplySuppressionReason)}
 	}
 	if turnResult.TaskRun.Status == task.TaskStatusCancelled || isCancelledBeforeSend {
 		return taskReplyDecision{Kind: taskReplyDecisionSuppressCancelled, Reason: "task_cancelled"}
@@ -64,7 +68,7 @@ func (connectorRuntime *ConnectorRuntime) dispatchTaskReply(
 			"reason":    "task was cancelled before final reply send",
 		}))
 		return ConnectorRuntimeResult{Handled: true, Platform: platform, TaskRunID: taskRunID, Reason: decision.Reason}, nil
-	case taskReplyDecisionSuppressSuperseded:
+	case taskReplyDecisionSuppressSuperseded, taskReplyDecisionSuppressRequested:
 		connectorRuntime.agentKernel.AppendTaskEvent(taskRunID, "connector.reply.suppressed", marshalConnectorEventBody(map[string]string{
 			"messageID": event.MessageID,
 			"reason":    decision.Reason,

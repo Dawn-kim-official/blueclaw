@@ -42,6 +42,7 @@ type ToolCatalogBuilder struct {
 	terminalService                *security.TerminalSessionService
 	workspaceActorFactory          security.WorkspaceActorFactory
 	taskRunService                 *task.TaskRunService
+	taskArtifactService            *task.TaskArtifactService
 	taskScheduleRepository         task.TaskScheduleRepository
 	taskWaitTokenRepository        task.TaskWaitTokenRepository
 	workspaceRootPath              string
@@ -193,6 +194,10 @@ func (toolCatalogBuilder *ToolCatalogBuilder) UseTaskRunService(taskRunService *
 	toolCatalogBuilder.taskRunService = taskRunService
 }
 
+func (toolCatalogBuilder *ToolCatalogBuilder) UseTaskArtifactService(taskArtifactService *task.TaskArtifactService) {
+	toolCatalogBuilder.taskArtifactService = taskArtifactService
+}
+
 func (toolCatalogBuilder *ToolCatalogBuilder) UseTaskScheduleRepository(taskScheduleRepository task.TaskScheduleRepository) {
 	toolCatalogBuilder.taskScheduleRepository = taskScheduleRepository
 }
@@ -250,7 +255,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) allowedToolNames(profileName strin
 }
 
 func DefaultAllowedToolNames() []string {
-	return agent.KernelToolNames()
+	return append(agent.KernelToolNames(), agent.AskInputToolName)
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) registerHistoryTool(toolRegistry *agent.ToolSet, request ToolCatalogRequest) {
@@ -293,7 +298,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerBuiltInTools(toolRegistry 
 	toolCatalogBuilder.registerMathTool(toolRegistry)
 	toolCatalogBuilder.registerTerminalTools(toolRegistry, handlerContext)
 	toolCatalogBuilder.registerBrowserHandoffTool(toolRegistry, handlerContext)
-	toolCatalogBuilder.registerAskTools(toolRegistry, handlerContext)
+	toolCatalogBuilder.registerAskInputTool(toolRegistry)
 	toolCatalogBuilder.registerFileTools(toolRegistry, handlerContext)
 	toolCatalogBuilder.registerScheduleTools(toolRegistry, handlerContext)
 	toolCatalogBuilder.registerSkillManagementTools(toolRegistry)

@@ -381,7 +381,7 @@ func TestAgentTurnRunnerSelectToolsPinsHiddenTool(t *testing.T) {
 	}
 }
 
-func TestAgentTurnRunnerSelectToolsSuggestsCandidateForUnknownTool(t *testing.T) {
+func TestAgentTurnRunnerSelectToolsRequiresExactRegisteredName(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		`{"action":"tool.request","toolNames":["image.analyze"],"skillNames":[],"reason":"need image analysis"}`,
 		`{"action":"tool.request","toolNames":["image.read"],"skillNames":[],"reason":"use the matching registered image tool"}`,
@@ -417,8 +417,8 @@ func TestAgentTurnRunnerSelectToolsSuggestsCandidateForUnknownTool(t *testing.T)
 		t.Fatalf("expected image.read to be invoked once, got %d", imageReadCallCount)
 	}
 	events := services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID)
-	if !taskEventsContain(events, "agent.tool_palette.failed", "image.analyze") || !taskEventsContain(events, "agent.tool_palette.failed", "image.read") {
-		t.Fatal("expected failed palette request to include image.read candidate")
+	if !taskEventsContain(events, "agent.tool_palette.failed", "image.analyze") {
+		t.Fatal("expected unknown tool request to fail without semantic substitution")
 	}
 	if !taskEventsContain(events, "agent.tool_palette.applied", "image.read") {
 		t.Fatal("expected exact image.read request to apply")
@@ -608,10 +608,10 @@ func TestAgentTurnRunnerAuditsSelectedSkillDecisions(t *testing.T) {
 	}
 }
 
-func TestActionSchemaRequiresFailureResolutionWhenFailureDebtActive(t *testing.T) {
+func TestActionSchemaRequiresFailureResolutionWhenRecoveryIsExhausted(t *testing.T) {
 	request := BuildAgentActionRequest(agentTaskState{
 		Request: AgentTurnRequest{ToolSet: newTestToolSet(nil)},
-		Options: TurnOptions{RecoveryBudget: defaultRecoveryBudget()},
+		Options: TurnOptions{RecoveryBudget: RecoveryBudget{}},
 		Observations: []turnObservation{{
 			ObservationID:      "obs-001",
 			Action:             "continue",
@@ -668,10 +668,10 @@ func TestActionSchemaRequiresFailureResolutionWhenFailureDebtActive(t *testing.T
 	}
 }
 
-func TestActionSchemaExposesFailWhileRecoveryBudgetRemains(t *testing.T) {
+func TestActionSchemaHidesFailWhileRecoveryBudgetRemains(t *testing.T) {
 	toolRegistry := newTestToolSet([]string{"site.publish", "file.write"})
 	request := BuildAgentActionRequest(agentTaskState{
-		Request: AgentTurnRequest{ToolSet: toolRegistry},
+		Request: AgentTurnRequest{ToolSet: toolRegistry, RequiredEvidenceTools: []string{"site.publish"}},
 		Options: TurnOptions{RecoveryBudget: defaultRecoveryBudget()},
 		Observations: []turnObservation{{
 			ObservationID:      "obs-001",
@@ -684,11 +684,11 @@ func TestActionSchemaExposesFailWhileRecoveryBudgetRemains(t *testing.T) {
 		}},
 	})
 	schemaDocument := request.StructuredOutputSchema.Document
-	if !actionSchemaHasVariant(t, schemaDocument, "fail") {
-		t.Fatalf("expected fail action to stay available so the agent can give up on its own judgment, got %s", schemaDocument)
+	if actionSchemaHasVariant(t, schemaDocument, "fail") {
+		t.Fatalf("expected fail action to remain hidden while typed recovery is available, got %s", schemaDocument)
 	}
-	if !actionSchemaHasVariant(t, schemaDocument, "finish") {
-		t.Fatalf("expected finish fallback to remain available, got %s", schemaDocument)
+	if actionSchemaHasVariant(t, schemaDocument, "finish") {
+		t.Fatalf("expected finish action to remain hidden while required recovery evidence is missing, got %s", schemaDocument)
 	}
 	if !actionSchemaHasVariant(t, schemaDocument, "continue") {
 		t.Fatalf("expected recovery tool actions to remain available, got %s", schemaDocument)
@@ -1304,10 +1304,11 @@ func TestAgentTurnRunnerApprovalRequiredPausesAndExecutesHeldCall(t *testing.T) 
 			return ToolResult{
 				Output: ToolOutput{Content: "requires approval"},
 				Failure: &ToolFailure{
-					Kind:            FailureExternalService,
-					Code:            "approval_required",
-					Stage:           "authorization",
-					UserSafeSummary: "requires approval",
+					Kind:             FailureExternalService,
+					Code:             FailureCodes.OperationFailed.String(),
+					Stage:            "authorization",
+					UserSafeSummary:  "requires approval",
+					RequiresApproval: true,
 				},
 			}, nil
 		}
@@ -1362,6 +1363,15 @@ func TestAgentTurnRunnerApprovalRequiredPausesAndExecutesHeldCall(t *testing.T) 
 	}
 	if secondResult.TaskRun.Status != task.TaskStatusCompleted {
 		t.Fatalf("expected completed task, got %s events=%+v", secondResult.TaskRun.Status, services.taskEventService.ListTaskEvent(firstResult.TaskRun.TaskRunID))
+	}
+	if secondResult.FinishMessage != "테스트이에게 DM을 보냈습니다." {
+		t.Fatalf("expected approval continuation final reply, got %q", secondResult.FinishMessage)
+	}
+	if secondResult.TaskRun.Result != secondResult.FinishMessage {
+		t.Fatalf("expected persisted approval continuation reply, got %q", secondResult.TaskRun.Result)
+	}
+	if len(languageModel.requests) != 3 {
+		t.Fatalf("expected confirmation and post-approval final model calls, got %d", len(languageModel.requests))
 	}
 	if len(invokedInputs) != 2 {
 		t.Fatalf("expected original attempt and deterministic retry, got %d", len(invokedInputs))
@@ -1463,6 +1473,146 @@ func TestAgentTurnRunnerFinalizesSatisfiedGoalAtIterationEffort(t *testing.T) {
 	}
 	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.finalizer_action", "obs-003") {
 		t.Fatal("expected finalizer action with completion evidence")
+	}
+}
+
+func TestAgentTurnRunnerFinalizesRepeatedSuccessfulSideEffectWithoutPlannedEvidence(t *testing.T) {
+	languageModel := &sequenceLanguageModel{contents: []string{
+		capabilityInvokeAction("continue", "", "task.add", `{"prompt":"보고서 작성"}`),
+		capabilityInvokeAction("continue", "", "task.add", `{"prompt":"보고서 작성"}`),
+		finishMessageWithEvidence("업무를 등록했습니다.", "obs-001", "task.add", 0),
+	}}
+	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 3})
+	toolRegistry := newTestCapabilityToolSet([]string{"task.add"})
+	toolCallCount := 0
+	toolRegistry.RegisterTool(ToolDefinition{Name: "task.add"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		toolCallCount++
+		return ToolSuccess(`{"taskID":"task-1"}`), nil
+	})
+
+	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
+		RequesterPersonID: "person-1",
+		ConversationID:    "conversation-1",
+		Prompt:            "보고서 작성 업무를 등록해줘",
+		ToolSet:           toolRegistry,
+		PinnedToolNames:   toolRegistry.ListToolNames(),
+	})
+	if errorValue != nil {
+		t.Fatalf("expected completed turn, got error: %v", errorValue)
+	}
+	if result.TaskRun.Status != task.TaskStatusCompleted {
+		t.Fatalf("expected completed task, got %s", result.TaskRun.Status)
+	}
+	if toolCallCount != 1 {
+		t.Fatalf("expected the side effect to run once, got %d", toolCallCount)
+	}
+	if result.FinishMessage != "업무를 등록했습니다." {
+		t.Fatalf("expected finalizer reply, got %q", result.FinishMessage)
+	}
+}
+
+func TestAgentTurnRunnerFinalizesRepeatedSuccessfulReadWithoutExecutingAgain(t *testing.T) {
+	languageModel := &sequenceLanguageModel{contents: []string{
+		`{"action":"continue","toolName":"task.list","toolInput":{"weekFrom":0,"weekTo":0}}`,
+		`{"action":"continue","toolName":"task.list","toolInput":{"weekFrom":0,"weekTo":0}}`,
+		finishMessageWithEvidence("업무가 있습니다.", "obs-001", "task.list", 0),
+	}}
+	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 3})
+	toolRegistry := newTestToolSet([]string{"task.list"})
+	toolCallCount := 0
+	toolRegistry.RegisterTool(ToolDefinition{Name: "task.list"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		toolCallCount++
+		return ToolSuccess(`{"tasks":[{"taskID":"task-1"}]}`), nil
+	})
+
+	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
+		RequesterPersonID: "person-1",
+		ConversationID:    "conversation-1",
+		Prompt:            "업무를 조회해줘",
+		ToolSet:           toolRegistry,
+		PinnedToolNames:   toolRegistry.ListToolNames(),
+	})
+	if errorValue != nil {
+		t.Fatalf("expected completed turn, got error: %v", errorValue)
+	}
+	if result.TaskRun.Status != task.TaskStatusCompleted {
+		t.Fatalf("expected completed task, got %s", result.TaskRun.Status)
+	}
+	if toolCallCount != 1 {
+		t.Fatalf("expected one read before finalization, got %d", toolCallCount)
+	}
+	if result.FinishMessage != "업무가 있습니다." {
+		t.Fatalf("expected finalizer reply, got %q", result.FinishMessage)
+	}
+}
+
+func TestAgentTurnRunnerFinalizesReadAfterCorrectedInputRecovery(t *testing.T) {
+	languageModel := &sequenceLanguageModel{contents: []string{
+		`{"action":"continue","toolName":"task.list","toolInput":{"query":"invalid"}}`,
+		`{"action":"continue","toolName":"task.list","toolInput":{"weekFrom":0,"weekTo":0}}`,
+		`{"action":"continue","toolName":"task.list","toolInput":{"weekFrom":0,"weekTo":0}}`,
+		finishMessageWithEvidence("업무가 있습니다.", "obs-003", "task.list", 0),
+	}}
+	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 4})
+	toolRegistry := newTestToolSet([]string{"task.list"})
+	toolCallCount := 0
+	toolRegistry.RegisterTool(ToolDefinition{Name: "task.list"}, func(_ context.Context, invocation ToolInvocation) (ToolResult, error) {
+		toolCallCount++
+		if strings.Contains(string(invocation.Input), `"query"`) {
+			return ToolInputFailure("input must be an object"), nil
+		}
+		return ToolSuccess(`{"tasks":[{"taskID":"task-1"}]}`), nil
+	})
+
+	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
+		RequesterPersonID:     "person-1",
+		ConversationID:        "conversation-1",
+		Prompt:                "업무를 조회해줘",
+		ToolSet:               toolRegistry,
+		PinnedToolNames:       toolRegistry.ListToolNames(),
+		RequiredEvidenceTools: []string{"task.list"},
+	})
+	if errorValue != nil {
+		t.Fatalf("expected completed turn, got error: %v", errorValue)
+	}
+	if result.TaskRun.Status != task.TaskStatusCompleted {
+		t.Fatalf("expected completed task, got %s", result.TaskRun.Status)
+	}
+	if toolCallCount != 2 {
+		t.Fatalf("expected failed input and one corrected read, got %d calls", toolCallCount)
+	}
+}
+
+func TestAgentTurnRunnerFinalizesSuccessfulReadDespiteUnsatisfiedReadHint(t *testing.T) {
+	languageModel := &sequenceLanguageModel{contents: []string{
+		`{"action":"continue","toolName":"task.list","toolInput":{"weekFrom":0,"weekTo":0}}`,
+		`{"action":"continue","toolName":"task.list","toolInput":{"weekFrom":0,"weekTo":0}}`,
+		finishMessageWithEvidence("업무가 있습니다.", "obs-001", "task.list", 0),
+	}}
+	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 3})
+	toolRegistry := newTestToolSet([]string{"task.list", "memory.search"})
+	toolCallCount := 0
+	toolRegistry.RegisterTool(ToolDefinition{Name: "task.list"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		toolCallCount++
+		return ToolSuccess(`{"tasks":[{"taskID":"task-1"}]}`), nil
+	})
+
+	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
+		RequesterPersonID:     "person-1",
+		ConversationID:        "conversation-1",
+		Prompt:                "업무를 조회해줘",
+		ToolSet:               toolRegistry,
+		PinnedToolNames:       toolRegistry.ListToolNames(),
+		RequiredEvidenceTools: []string{"memory.search"},
+	})
+	if errorValue != nil {
+		t.Fatalf("expected completed turn, got error: %v", errorValue)
+	}
+	if result.TaskRun.Status != task.TaskStatusCompleted {
+		t.Fatalf("expected completed task, got %s", result.TaskRun.Status)
+	}
+	if toolCallCount != 1 {
+		t.Fatalf("expected one read before finalization, got %d", toolCallCount)
 	}
 }
 

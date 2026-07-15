@@ -228,15 +228,12 @@ func siteWorkspaceModifiedFacts(observation turnObservation) []ObservedFact {
 }
 
 func siteStatusIsPublished(statusText string) bool {
-	normalizedStatus := strings.ToLower(strings.TrimSpace(statusText))
-	if normalizedStatus == "" || strings.Contains(normalizedStatus, "unpublish") {
+	switch strings.ToLower(strings.TrimSpace(statusText)) {
+	case "published", "public", "live":
+		return true
+	default:
 		return false
 	}
-	return normalizedStatus == "published" ||
-		normalizedStatus == "public" ||
-		normalizedStatus == "live" ||
-		strings.Contains(normalizedStatus, "status:published") ||
-		strings.Contains(normalizedStatus, "status=published")
 }
 
 func appendObservedAttachmentFacts(facts []ObservedFact, attachments []FileAttachment) []ObservedFact {

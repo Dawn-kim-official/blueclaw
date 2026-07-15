@@ -28,6 +28,8 @@ type terminalSessionToolInput struct {
 
 type terminalRunToolInput struct {
 	Mode                 string            `json:"mode"`
+	ApprovalRequired     bool              `json:"approvalRequired"`
+	ApprovalReason       string            `json:"approvalReason"`
 	Command              string            `json:"command"`
 	ExecutableName       string            `json:"executableName"`
 	Arguments            []string          `json:"arguments"`
@@ -99,7 +101,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerTerminalTools(toolRegistry
 	agent.RegisterToolFunction(toolRegistry, agent.ToolFunction[terminalRunToolInput, agent.ToolResult]{
 		Definition: agent.ToolDefinition{
 			Name:        "terminal.run",
-			Description: "Run a guarded command or manage a PTY session inside the Blueclaw workspace. mode defaults to command; use session_start, session_write, session_status, or session_close for long-running interactive work.",
+			Description: "Run a guarded command or manage a PTY session inside the Blueclaw workspace. mode defaults to command; use session_start, session_write, session_status, or session_close for long-running interactive work. Set approvalRequired=true and explain approvalReason when your judgment is that the exact command needs the user's confirmation before execution.",
 			RecoveryCard: agent.ToolRecoveryCard{
 				Does:       "Runs workspace commands, build scripts, render checks, tests, or PTY session operations.",
 				Produces:   "Command stdout, stderr, exit status, and runtime diagnostics.",
@@ -107,7 +109,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerTerminalTools(toolRegistry
 				UseWhen:    "You need to execute a toolchain command, build, render, test, list files, or inspect environment state.",
 				AvoidWhen:  "A dedicated bundled skill script or capability.invoke can perform the action more safely.",
 			},
-			InputSchema: json.RawMessage(`{"type":"object","properties":{"mode":{"type":"string","enum":["command","session_start","session_write","session_status","session_close"]},"command":{"type":"string"},"executableName":{"type":"string"},"arguments":{"type":"array","items":{"type":"string"}},"stdin":{"type":"string"},"workingDirectoryPath":{"type":"string"},"environmentVariables":{"type":"object","additionalProperties":{"type":"string"}},"timeoutSecond":{"type":"number"},"sessionID":{"type":"string"},"input":{"type":"string"}}}`),
+			InputSchema: json.RawMessage(`{"type":"object","properties":{"mode":{"type":"string","enum":["command","session_start","session_write","session_status","session_close"]},"approvalRequired":{"type":"boolean"},"approvalReason":{"type":"string"},"command":{"type":"string"},"executableName":{"type":"string"},"arguments":{"type":"array","items":{"type":"string"}},"stdin":{"type":"string"},"workingDirectoryPath":{"type":"string"},"environmentVariables":{"type":"object","additionalProperties":{"type":"string"}},"timeoutSecond":{"type":"number"},"sessionID":{"type":"string"},"input":{"type":"string"}}}`),
 		},
 		Handler: func(toolContext context.Context, input terminalRunToolInput) (agent.ToolResult, error) {
 			return toolCatalogBuilder.runTerminalRunTool(toolContext, input, handlerContext)

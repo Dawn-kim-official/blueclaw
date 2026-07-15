@@ -88,6 +88,7 @@ func TestRecoveryWorkingSetDropsExhaustedTool(t *testing.T) {
 		Tool:          "file.edit",
 		Output:        ToolOutput{Content: "The recovery budget for corrected_retry is exhausted."},
 		RecoveryStep:  recoveryStepCorrectedRetry,
+		PolicyCode:    "recovery_budget_exhausted",
 		Summary:       "The recovery budget for corrected_retry is exhausted.",
 	}}
 
@@ -184,9 +185,41 @@ func TestPromotedOperationExposedWithFlatSchemaAfterInvalidInputFailure(t *testi
 	if !stringSliceContains(event.PromotedOperationToolIDs, "site.create") {
 		t.Fatalf("expected exposure event to record the promoted operation, got %+v", event)
 	}
+	if filteredToolSet.IsAllowed(CapabilityInvokeToolName) {
+		t.Fatalf("expected the generic capability verb to hide while a flat recovery operation is promoted, got %+v", filteredToolSet.ListToolNames())
+	}
 	for _, kernelToolName := range KernelToolNames() {
-		if !filteredToolSet.IsAllowed(kernelToolName) {
-			t.Fatalf("expected kernel tool %s to remain exposed, got %+v", kernelToolName, filteredToolSet.ListToolNames())
+		if filteredToolSet.IsAllowed(kernelToolName) {
+			t.Fatalf("expected unrelated kernel tool %s to hide during flat recovery, got %+v", kernelToolName, filteredToolSet.ListToolNames())
+		}
+	}
+}
+
+func TestPromotedOperationKeepsTypedPreconditionTool(t *testing.T) {
+	toolSet := newExposureTestToolSet(map[string]json.RawMessage{
+		"site.publish": json.RawMessage(`{"type":"object","properties":{"siteID":{"type":"string"}},"required":["siteID"]}`),
+	})
+	failure := invalidInputCapabilityObservation("obs-001", "site.publish")
+	failure.ToolInputKey = "capability.invoke\x00{\"operation\":\"site.publish\"}"
+	failure.Failure.RequiredPreconditions = []string{siteBuiltRecoveryPrecondition}
+
+	filteredToolSet, _ := toolSetForAgentTurnWithExposure(
+		toolSet,
+		InstructionBundle{},
+		AgentRequest{Prompt: "publish the site"},
+		ExecutionPlan{},
+		false,
+		OutcomeContract{},
+		ToolExposureEvent{},
+		[]turnObservation{failure},
+	)
+
+	if !filteredToolSet.IsAllowed("site.publish") || !filteredToolSet.IsAllowed("terminal.run") {
+		t.Fatalf("expected failed operation and typed precondition tool, got %+v", filteredToolSet.ListToolNames())
+	}
+	for _, unrelatedToolName := range []string{CapabilityInvokeToolName, "file.read", "file.write", "file.edit", "skill.search"} {
+		if filteredToolSet.IsAllowed(unrelatedToolName) {
+			t.Fatalf("expected unrelated tool %s to remain hidden, got %+v", unrelatedToolName, filteredToolSet.ListToolNames())
 		}
 	}
 }

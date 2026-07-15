@@ -17,6 +17,19 @@ func namedSkillBundle(skillName string) InstructionBundle {
 	}
 }
 
+func TestSelectedSkillRecommendedMinutesRaisesEstimate(t *testing.T) {
+	bundle := namedSkillBundle("presentation")
+	bundle.Skills[0].RecommendedMinutes = 60
+	promoted := promoteIntakeDecisionForSelectedSkills(
+		IntakeDecision{Classification: IntakeClassificationBoundedTask, TaskLevel: TaskLevelLow, EstimatedMinutes: 2},
+		bundle,
+		IntakeOptions{},
+	)
+	if promoted.EstimatedMinutes != 60 {
+		t.Fatalf("expected selected skill estimate floor, got %d", promoted.EstimatedMinutes)
+	}
+}
+
 func TestSkillTaskLevelFloorRaisesBoundedTaskLevel(t *testing.T) {
 	decision := IntakeDecision{
 		Classification: IntakeClassificationBoundedTask,
@@ -68,6 +81,28 @@ func TestSkillTaskLevelFloorDisabledWhenUnset(t *testing.T) {
 	promoted := promoteIntakeDecisionForSelectedSkills(decision, namedSkillBundle("spreadsheet"), IntakeOptions{})
 	if promoted.TaskLevel != TaskLevelLow {
 		t.Fatalf("expected low task level without a floor, got %q", promoted.TaskLevel)
+	}
+}
+
+func TestBM25FallbackSkillDoesNotPromoteQuickReply(t *testing.T) {
+	bundle := namedSkillBundle("direct-message")
+	bundle.SkillDecisions[0].Reason = "bm25_fallback"
+	decision := IntakeDecision{
+		Classification: IntakeClassificationQuickReply,
+		TaskShape:      TaskShapeImmediateReply,
+		TaskLevel:      TaskLevelXLow,
+	}
+
+	result := promoteIntakeDecisionForSelectedSkills(decision, bundle, IntakeOptions{
+		DefaultTaskLevel:    TaskLevelHigh,
+		SkillTaskLevelFloor: TaskLevelHigh,
+	})
+
+	if result.Classification != IntakeClassificationQuickReply || result.TaskShape != TaskShapeImmediateReply || result.TaskLevel != TaskLevelXLow {
+		t.Fatalf("expected BM25 fallback skill to preserve quick reply, got %+v", result)
+	}
+	if len(result.RequiredEvidenceTools) != 0 {
+		t.Fatalf("expected no promoted evidence tools, got %v", result.RequiredEvidenceTools)
 	}
 }
 

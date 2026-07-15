@@ -177,6 +177,56 @@ func TestRequiredGenericLinkVerificationAcceptsGenericURLWithoutSiteTool(t *test
 	}
 }
 
+func TestCanonicalFinalMessageUsesNonEmptyFinishDraftAsDeliveryEvidence(t *testing.T) {
+	expectedResults := []ExpectedResult{{
+		ID:          "final-message",
+		Type:        ExpectedResultTypeMessage,
+		Description: "final reply to the user",
+		Required:    true,
+	}}
+	verification := ResultVerification{
+		OverallStatus: "missing",
+		Results: []ResultVerificationItem{{
+			ID:                 "final-message",
+			Status:             "missing",
+			Reason:             "The reply has not been delivered yet.",
+			MissingDescription: "A final reply is missing.",
+			SuggestedNextTools: []string{"finish"},
+		}},
+	}
+
+	verification = enforceObservedResultRequirements(expectedResults, nil, "업무 상태를 진행으로 변경했습니다.", verification)
+
+	if verification.OverallStatus != "satisfied" {
+		t.Fatalf("expected ready final message to satisfy verification, got %+v", verification)
+	}
+	result := verification.Results[0]
+	if result.Status != "satisfied" || result.MissingDescription != "" || len(result.SuggestedNextTools) != 0 {
+		t.Fatalf("expected final message result to be satisfied without recovery, got %+v", result)
+	}
+}
+
+func TestCanonicalFinalMessageStillRequiresNonEmptyFinishDraft(t *testing.T) {
+	expectedResults := []ExpectedResult{{
+		ID:       "final-message",
+		Type:     ExpectedResultTypeMessage,
+		Required: true,
+	}}
+	verification := ResultVerification{
+		OverallStatus: "missing",
+		Results: []ResultVerificationItem{{
+			ID:     "final-message",
+			Status: "missing",
+		}},
+	}
+
+	verification = enforceObservedResultRequirements(expectedResults, nil, "  ", verification)
+
+	if verification.Results[0].Status != "missing" {
+		t.Fatalf("expected empty final message to remain missing, got %+v", verification.Results[0])
+	}
+}
+
 func TestRequiredLinkVerificationRequiresFinalMessageToUseObservedURL(t *testing.T) {
 	expectedResults := []ExpectedResult{{
 		ID:          "site-public-link",
@@ -287,8 +337,9 @@ func TestMessageResultBlocksOnceThenDelivers(t *testing.T) {
 	}
 
 	priorFlag := []turnObservation{{
-		Action: "evidence_missing",
-		Output: ToolOutput{Content: "missing required expected result: result-1"},
+		Action:           "evidence_missing",
+		PolicyCode:       evidenceKindExpectedResult,
+		RelatedResultIDs: []string{"result-1"},
 	}}
 	secondPass := blockingExpectedResultItems(contract, verification, priorFlag)
 	if len(secondPass) != 0 {

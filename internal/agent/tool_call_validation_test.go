@@ -463,6 +463,27 @@ func TestAgentTurnRunnerDoesNotChargeMalformedInputToToolEffort(t *testing.T) {
 	}
 }
 
+func TestRepeatedSuccessfulCompletionCandidateUsesPersistedObservation(t *testing.T) {
+	toolInput := json.RawMessage(`{"weekFrom":0,"weekTo":0}`)
+	toolInputKey := canonicalToolCallKey("task.list", toolInput)
+	state := &agentTaskState{Observations: []turnObservation{{
+		ObservationID: "obs-001",
+		Action:        "continue",
+		Tool:          "task.list",
+		ToolInputKey:  toolInputKey,
+		Output:        ToolOutput{Content: `{"tasks":[]}`},
+	}}}
+
+	observation, isFound := repeatedSuccessfulCompletionCandidate(state, turnActionDocument{
+		ToolName:  "task.list",
+		ToolInput: toolInput,
+	}, map[string]turnObservation{})
+
+	if !isFound || observation.ObservationID != "obs-001" {
+		t.Fatalf("expected persisted successful observation, got %+v found=%v", observation, isFound)
+	}
+}
+
 func TestAgentTurnRunnerRejectsRepeatedSuccessfulToolCall(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		`{"action":"continue","toolName":"terminal.run","toolInput":{"command":"marp --version"}}`,
@@ -576,46 +597,6 @@ func TestRepeatedFileReadObservationIgnoresCacheAfterFileWrite(t *testing.T) {
 
 	if isRepeated {
 		t.Fatal("expected file.read cache to be ignored after a newer file.write")
-	}
-}
-
-func TestShouldRejectUnnecessaryAcknowledgementApprovalReturnsTrueForMemoryConfirm(t *testing.T) {
-	toolInput := json.RawMessage(`{"userFacingMessage":"안젤라 바보라는 내용을 기억하고 있습니다. 맞나요?","reasonCode":"destructive_action"}`)
-
-	result := shouldRejectUnnecessaryAcknowledgementApproval("ask.confirm", toolInput)
-
-	if !result {
-		t.Fatal("expected acknowledgement confirm wrapping a memory note to be rejected")
-	}
-}
-
-func TestShouldRejectUnnecessaryAcknowledgementApprovalReturnsFalseForExternalSend(t *testing.T) {
-	toolInput := json.RawMessage(`{"userFacingMessage":"이 메시지를 외부로 전송할까요?","reasonCode":"external_send"}`)
-
-	result := shouldRejectUnnecessaryAcknowledgementApproval("ask.confirm", toolInput)
-
-	if result {
-		t.Fatal("expected external send confirm not to be rejected")
-	}
-}
-
-func TestShouldRejectUnnecessaryAcknowledgementApprovalReturnsFalseForNonAskConfirmTool(t *testing.T) {
-	toolInput := json.RawMessage(`{"userFacingMessage":"기억하고 있습니다. 맞나요?","reasonCode":"destructive_action"}`)
-
-	result := shouldRejectUnnecessaryAcknowledgementApproval("memory.remember", toolInput)
-
-	if result {
-		t.Fatal("expected non-ask.confirm tool not to be rejected")
-	}
-}
-
-func TestShouldRejectUnnecessaryAcknowledgementApprovalReturnsFalseForUnrelatedConfirm(t *testing.T) {
-	toolInput := json.RawMessage(`{"userFacingMessage":"계속 진행할까요?","reasonCode":"paid_action"}`)
-
-	result := shouldRejectUnnecessaryAcknowledgementApproval("ask.confirm", toolInput)
-
-	if result {
-		t.Fatal("expected unrelated paid action confirm not to be rejected")
 	}
 }
 

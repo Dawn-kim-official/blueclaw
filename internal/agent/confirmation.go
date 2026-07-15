@@ -248,7 +248,7 @@ func choiceReplySchema(request ChoiceReplyRequest) string {
 			"type": "object",
 			"properties": map[string]any{
 				"status":  statusSchema,
-				"choices": map[string]any{"type": "array", "items": choiceSchema, "uniqueItems": true},
+				"choices": map[string]any{"type": "array", "items": choiceSchema},
 			},
 			"required":             []string{"status"},
 			"additionalProperties": false,

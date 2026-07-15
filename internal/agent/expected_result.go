@@ -362,6 +362,10 @@ func enforceObservedResultRequirements(expectedResults []ExpectedResult, observe
 		if !expectedResult.Required {
 			continue
 		}
+		if canonicalFinalMessageIsReady(expectedResult, finishMessage) {
+			verification.Results[index] = satisfiedFinalMessageResult(item)
+			continue
+		}
 		linkResults := observedLinkResultsForExpectedResult(expectedResult, observedResults)
 		if expectedResult.Type == ExpectedResultTypeLink && len(linkResults) == 0 {
 			verification.Results[index] = missingObservedResultItem(item, "No link result was observed.")
@@ -373,54 +377,38 @@ func enforceObservedResultRequirements(expectedResults []ExpectedResult, observe
 			verification.Results[index] = missingObservedResultItem(item, "No file result was observed.")
 		}
 	}
-	verification.OverallStatus = normalizeResultVerificationOverallStatus(verification.OverallStatus, verification.Results)
+	verification.OverallStatus = normalizeResultVerificationOverallStatus("satisfied", verification.Results)
 	return verification
+}
+
+func canonicalFinalMessageIsReady(expectedResult ExpectedResult, finishMessage string) bool {
+	return expectedResult.ID == "final-message" &&
+		expectedResult.Type == ExpectedResultTypeMessage &&
+		strings.TrimSpace(finishMessage) != ""
+}
+
+func satisfiedFinalMessageResult(item ResultVerificationItem) ResultVerificationItem {
+	item.Status = "satisfied"
+	item.Reason = "A non-empty final message is ready for delivery."
+	item.CitedObservationIDs = nil
+	item.MissingDescription = ""
+	item.SuggestedNextTools = nil
+	return item
 }
 
 func observedLinkResultsForExpectedResult(expectedResult ExpectedResult, observedResults []ObservedResult) []ObservedResult {
 	linkResults := observedResultsByType(observedResults, ExpectedResultTypeLink)
-	if len(linkResults) == 0 {
-		return nil
-	}
-	if !expectedResultNeedsSitePublicURL(expectedResult) || !observedResultsContainSiteAppTool(observedResults) {
+	if strings.TrimSpace(expectedResult.ID) != "site-public-link" {
 		return linkResults
 	}
 	siteLinkResults := []ObservedResult{}
 	for _, observedResult := range linkResults {
-		if siteToolCanSatisfyLinkResult(observedResult.ToolName) {
+		switch strings.TrimSpace(observedResult.ToolName) {
+		case "site.publish", "site.status":
 			siteLinkResults = append(siteLinkResults, observedResult)
 		}
 	}
 	return siteLinkResults
-}
-
-func expectedResultNeedsSitePublicURL(expectedResult ExpectedResult) bool {
-	values := append([]string{expectedResult.Description}, expectedResult.AcceptanceHints...)
-	text := strings.ToLower(strings.Join(values, " "))
-	if strings.Contains(text, "site.app") {
-		return true
-	}
-	hasSiteReference := strings.Contains(text, "site") || strings.Contains(text, "website") || strings.Contains(text, "웹사이트")
-	hasPublicReference := strings.Contains(text, "public") || strings.Contains(text, "published") || strings.Contains(text, "공개")
-	return hasSiteReference && hasPublicReference
-}
-
-func observedResultsContainSiteAppTool(observedResults []ObservedResult) bool {
-	for _, observedResult := range observedResults {
-		if strings.HasPrefix(strings.TrimSpace(observedResult.ToolName), "site.") {
-			return true
-		}
-	}
-	return false
-}
-
-func siteToolCanSatisfyLinkResult(toolName string) bool {
-	switch strings.TrimSpace(toolName) {
-	case "site.publish", "site.status":
-		return true
-	default:
-		return false
-	}
 }
 
 func missingObservedLinkReason(linkResults []ObservedResult) string {
@@ -568,10 +556,10 @@ func expectedResultWasPreviouslyFlagged(resultID string, observations []turnObse
 		return false
 	}
 	for _, observation := range observations {
-		if observation.Action != "evidence_missing" && observation.Action != "expected_result_missing" {
+		if observation.PolicyCode != evidenceKindExpectedResult {
 			continue
 		}
-		if strings.Contains(observation.ContentText(), trimmedResultID) {
+		if stringSliceContains(observation.RelatedResultIDs, trimmedResultID) {
 			return true
 		}
 	}

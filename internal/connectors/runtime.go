@@ -1028,6 +1028,9 @@ func (connectorRuntime *ConnectorRuntime) processInboundEventWithReplySender(ctx
 		return ConnectorRuntimeResult{}, errorValue
 	}
 	turnResult := launchResult.TurnResult
+	if addressingLaunch.SuppressReply {
+		turnResult.ReplySuppressionReason = "ambient_duty_no_reply"
+	}
 	taskRunID := turnResult.TaskRun.TaskRunID
 	taskDuration := time.Since(taskStartedAt)
 	connectorRuntime.logger.Info("connector."+platform+".agent.completed", slog.String("messageID", event.MessageID), slog.String("taskRunID", taskRunID), slog.Int64("duration_ms", taskDuration.Milliseconds()))
@@ -1178,8 +1181,44 @@ func (connectorRuntime *ConnectorRuntime) resolveAskReply(ctx context.Context, p
 	if action, isFound := event.LegacyFields["askAction"].(string); isFound {
 		return resolveAskInteractiveReply(event, pendingInteraction, action), askInteractiveTurnDecision(event, pendingInteraction, action), true
 	}
-	if pendingInteraction.Kind != "ask_input" {
+	if pendingInteraction.Kind == "ask_input" {
+		decision := connectorRuntime.agentKernel.RouteTurn(ctx, agent.AgentRequest{
+			RequesterPersonID: personID,
+			ConversationID:    event.ConversationID,
+			Prompt:            event.Prompt,
+			ResponseLanguage:  responseLanguageForEvent(event),
+			VisibleContext:    event.Context.ToAgentVisibleContext(),
+			PendingInput: agent.PendingInputContext{
+				TaskRunID:     pendingInteraction.TaskRunID,
+				Question:      pendingInteraction.Question,
+				SelectionMode: pendingInteraction.SelectionMode,
+				Options:       choiceReplyOptions(pendingInteraction.Options),
+			},
+			TurnStartedAt: time.Now(),
+		})
+		return event, decision, true
+	}
+	if pendingInteraction.Kind != "ask_choice_single" && pendingInteraction.Kind != "ask_choice_multiple" {
 		return event, agent.TurnDecision{}, false
+	}
+	if choices, isFound := deterministicChoiceSelections(event.Prompt, pendingInteraction); isFound {
+		decision := agent.TurnDecision{
+			Route:            agent.TurnRouteContinueTask,
+			Classification:   agent.IntakeClassificationBoundedTask,
+			TaskShape:        agent.TaskShapeMaintenanceTask,
+			TaskLevel:        agent.TaskLevelLow,
+			ResponseLanguage: responseLanguageForEvent(event),
+			Reason:           "deterministic_choice_selection",
+			Choices:          choices,
+		}
+		connectorRuntime.agentKernel.AppendTaskEvent(pendingInteraction.TaskRunID, "ask.reply_classified", marshalConnectorEventBody(map[string]any{
+			"messageID": event.MessageID,
+			"choices":   decision.Choices,
+			"route":     decision.Route,
+			"reason":    decision.Reason,
+		}))
+		event.Prompt = resolvedChoicePrompt(pendingInteraction, decision.Choices)
+		return event, decision, true
 	}
 	decision := connectorRuntime.agentKernel.RouteTurn(ctx, agent.AgentRequest{
 		RequesterPersonID: personID,
@@ -1187,7 +1226,7 @@ func (connectorRuntime *ConnectorRuntime) resolveAskReply(ctx context.Context, p
 		Prompt:            event.Prompt,
 		ResponseLanguage:  responseLanguageForEvent(event),
 		VisibleContext:    event.Context.ToAgentVisibleContext(),
-		PendingInput: agent.PendingInputContext{
+		PendingChoice: agent.PendingChoiceContext{
 			TaskRunID:     pendingInteraction.TaskRunID,
 			Question:      pendingInteraction.Question,
 			SelectionMode: pendingInteraction.SelectionMode,
@@ -1201,6 +1240,10 @@ func (connectorRuntime *ConnectorRuntime) resolveAskReply(ctx context.Context, p
 		"route":     decision.Route,
 		"reason":    decision.Reason,
 	}))
+	if len(decision.Choices) == 0 {
+		return event, decision, true
+	}
+	event.Prompt = resolvedChoicePrompt(pendingInteraction, decision.Choices)
 	return event, decision, true
 }
 
@@ -1740,7 +1783,7 @@ func (connectorRuntime *ConnectorRuntime) pendingApprovalForTaskRun(selectedTask
 	activeGoal := latestActiveGoal(taskEvents)
 	return pendingApproval{
 		TaskRun:                 selectedTaskRun,
-		IntentPrompt:            pendingApprovalIntentPrompt(selectedTaskRun.Prompt, approvalQuestion),
+		IntentPrompt:            strings.TrimSpace(selectedTaskRun.Prompt),
 		ApprovalQuestion:        approvalQuestion,
 		ResponseLanguage:        responseLanguage,
 		ContinuationInstruction: continuationInstruction,
@@ -2117,42 +2160,6 @@ func connectorResponseLanguageInstruction(responseLanguage string) string {
 		return "Write in English."
 	}
 	return "Write in Korean."
-}
-
-func pendingApprovalIntentPrompt(taskPrompt string, approvalQuestion string) string {
-	taskPrompt = strings.TrimSpace(taskPrompt)
-	if shouldUseApprovalQuestionAsIntent(taskPrompt, approvalQuestion) {
-		return approvalQuestion
-	}
-	return firstNonEmptyString(taskPrompt, approvalQuestion)
-}
-
-func shouldUseApprovalQuestionAsIntent(taskPrompt string, approvalQuestion string) bool {
-	if strings.TrimSpace(approvalQuestion) == "" {
-		return false
-	}
-	normalizedPrompt := strings.TrimSpace(strings.ToLower(taskPrompt))
-	if normalizedPrompt == "" {
-		return true
-	}
-	approvalReplies := map[string]bool{
-		"ㅇ":        true,
-		"응":        true,
-		"네":        true,
-		"예":        true,
-		"그래":       true,
-		"좋아":       true,
-		"진행해":      true,
-		"진행해줘":     true,
-		"해":        true,
-		"해줘":       true,
-		"yes":      true,
-		"y":        true,
-		"ok":       true,
-		"okay":     true,
-		"go ahead": true,
-	}
-	return approvalReplies[normalizedPrompt]
 }
 
 func latestApprovalQuestion(taskEvents []task.TaskEvent) string {
@@ -3577,6 +3584,7 @@ func agentVisibleContextMaterials(attachments []InputAttachment) []agent.Visible
 			continue
 		}
 		materials = append(materials, agent.VisibleContextMaterial{
+			FileHint:    attachmentFileHint(attachment),
 			MaterialID:  attachmentMaterialID(attachment),
 			Platform:    attachment.Platform,
 			MessageID:   attachment.MessageID,
@@ -3590,6 +3598,10 @@ func agentVisibleContextMaterials(attachments []InputAttachment) []agent.Visible
 		})
 	}
 	return materials
+}
+
+func attachmentFileHint(attachment InputAttachment) string {
+	return "attachment:" + attachmentMaterialID(attachment)
 }
 
 func attachmentMaterialID(attachment InputAttachment) string {

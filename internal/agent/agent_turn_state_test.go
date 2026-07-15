@@ -91,8 +91,8 @@ func TestBuildAgentActionRequestPreservesNativeToolCallingWireShape(t *testing.T
 	if !strings.Contains(request.StructuredOutputSchema.Document, `"toolName":{"enum":["terminal.run"]`) {
 		t.Fatalf("expected kernel toolName enum to be preserved, got %s", request.StructuredOutputSchema.Document)
 	}
-	if strings.Contains(request.StructuredOutputSchema.Document, "site.publish") {
-		t.Fatalf("expected domain operation to stay out of model-facing schema, got %s", request.StructuredOutputSchema.Document)
+	if !strings.Contains(request.StructuredOutputSchema.Document, `"toolName":{"enum":["site.publish"]`) {
+		t.Fatalf("expected selected domain operation to remain in the model-facing schema, got %s", request.StructuredOutputSchema.Document)
 	}
 	if !strings.Contains(request.StructuredOutputSchema.Document, `"toolInput"`) {
 		t.Fatalf("expected toolInput to be preserved, got %s", request.StructuredOutputSchema.Document)
@@ -121,6 +121,22 @@ func TestBuildAgentActionRequestPreservesNativeToolCallingWireShape(t *testing.T
 	}
 	if !messagesContain(request.Messages, "Recent visible conversation context") {
 		t.Fatalf("expected visible context in model messages, got %+v", request.Messages)
+	}
+}
+
+func TestBuildAgentActionRequestPreservesTypedInteractionTool(t *testing.T) {
+	toolSet := NewToolSet([]string{AskInputToolName})
+	toolSet.RegisterTool(ToolDefinition{
+		Name:        AskInputToolName,
+		InputSchema: json.RawMessage(`{"type":"object","properties":{"question":{"type":"string"}},"required":["question"]}`),
+	}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return ToolSuccess("waiting"), nil
+	})
+
+	request := BuildAgentActionRequest(agentTaskState{Request: AgentTurnRequest{ToolSet: toolSet}})
+
+	if !strings.Contains(request.StructuredOutputSchema.Document, `"toolName":{"enum":["ask.input"]`) {
+		t.Fatalf("expected typed ask.input exposure to remain in the action schema, got %s", request.StructuredOutputSchema.Document)
 	}
 }
 
