@@ -119,10 +119,13 @@ func TestFallbackActionSchemaDoesNotAllowToolCalls(t *testing.T) {
 
 func TestFlowTaskUpdateActionSchemaAndCompletionEvidence(t *testing.T) {
 	actionSchema := buildActionSchemaFromToolDefinitions([]ToolDefinition{{Name: "task.update"}}, false, nil, false)
-	for _, fragment := range []string{"task.update", "taskID", "query", "content", "status", "endDate"} {
+	for _, fragment := range []string{"task.update", "taskID", "query", "title", "status", "endDate"} {
 		if !strings.Contains(actionSchema, fragment) {
 			t.Fatalf("expected action schema to include %q, got %s", fragment, actionSchema)
 		}
+	}
+	if strings.Contains(actionSchema, `"content"`) {
+		t.Fatalf("expected action schema to omit removed content field, got %s", actionSchema)
 	}
 	if !isOneShotCompletionEvidenceTool("task.update") {
 		t.Fatal("expected task.update to count as one-shot completion evidence")
