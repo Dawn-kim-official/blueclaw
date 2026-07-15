@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"blueclaw/internal/capability"
 )
@@ -428,6 +429,25 @@ func TestCapabilityLLMClientLocalRecoveryResponseUsesDeviceExecutionMode(t *test
 	}
 	if receivedDocument.ExecutionMode != "device" {
 		t.Fatalf("expected device execution mode, got %q", receivedDocument.ExecutionMode)
+	}
+}
+
+func TestRecoveryAttemptContextPreservesDeadlineAndRequester(t *testing.T) {
+	expectedDeadline := time.Now().Add(time.Minute)
+	requestContext := RequestContext{RequesterPersonID: "person-1", ConversationID: "conversation-1"}
+	responseContext := ContextWithRequestContext(context.Background(), requestContext)
+	responseContext, cancelResponse := context.WithDeadline(responseContext, expectedDeadline)
+	defer cancelResponse()
+
+	recoveryContext, cancelRecovery := recoveryAttemptContext(responseContext)
+	defer cancelRecovery()
+
+	actualDeadline, hasDeadline := recoveryContext.Deadline()
+	if !hasDeadline || !actualDeadline.Equal(expectedDeadline) {
+		t.Fatalf("expected recovery deadline %v, got %v", expectedDeadline, actualDeadline)
+	}
+	if actualRequestContext := RequestContextFromContext(recoveryContext); actualRequestContext != requestContext {
+		t.Fatalf("expected requester context %+v, got %+v", requestContext, actualRequestContext)
 	}
 }
 
