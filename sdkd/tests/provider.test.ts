@@ -219,6 +219,60 @@ describe('sdkd provider adapter', () => {
     expect(remoteModel.doGenerateCalls).toHaveLength(0);
   });
 
+  test('passes structured cancellation to the model and does not fall back after abort', async () => {
+    const abortController = new AbortController();
+    const routeAttempts: string[] = [];
+    let resolveStarted: (() => void) | undefined;
+    const started = new Promise<void>(resolve => {
+      resolveStarted = resolve;
+    });
+    const llamaModel = new MockLanguageModelV3({
+      doGenerate: async options => {
+        routeAttempts.push('llama.cpp');
+        expect(options.abortSignal).toBeDefined();
+        resolveStarted?.();
+        return new Promise((_, reject) => {
+          if (options.abortSignal?.aborted) {
+            reject(new DOMException('The operation was aborted', 'AbortError'));
+            return;
+          }
+          options.abortSignal?.addEventListener('abort', () => {
+            reject(new DOMException('The operation was aborted', 'AbortError'));
+          }, { once: true });
+        });
+      },
+    });
+    const remoteModel = successfulLanguageModel('unused-remote-model', { ok: true });
+    const generateStructuredResponse = createStructuredResponseGenerator(
+      completeConfiguration(SDKDAutoRoute.LocalFirst),
+      languageModelFactory(llamaModel, remoteModel),
+    );
+
+    const responsePromise = generateStructuredResponse(
+      { ...structuredRequest, executionMode: ExecutionMode.Auto },
+      abortController.signal,
+    );
+    await started;
+    abortController.abort();
+
+    await expect(responsePromise).rejects.toThrow('aborted');
+    expect(routeAttempts).toEqual(['llama.cpp']);
+    expect(remoteModel.doGenerateCalls).toHaveLength(0);
+  });
+
+  test('rejects pre-aborted structured requests before route resolution', async () => {
+    const abortController = new AbortController();
+    abortController.abort();
+    const model = successfulLanguageModel('unused-model', { ok: true });
+    const generateStructuredResponse = createStructuredResponseGenerator(
+      { ...completeConfiguration(SDKDAutoRoute.RemoteFirst), llamaBaseURL: undefined, llamaModel: undefined, openRouterAPIKey: undefined },
+      languageModelFactory(model, model),
+    );
+
+    await expect(generateStructuredResponse(structuredRequest, abortController.signal)).rejects.toThrow('aborted');
+    expect(model.doGenerateCalls).toHaveLength(0);
+  });
+
   test('selects the requested device route and normalizes structured output and usage', async () => {
     const llamaModel = successfulLanguageModel('served-local-model', { ok: true }, {
       inputTokens: { total: 12.9, noCache: 8, cacheRead: 4.8, cacheWrite: -2 },
@@ -238,7 +292,7 @@ describe('sdkd provider adapter', () => {
       content: '{"ok":true}',
       selectedBackend: LanguageModelBackend.Device,
       finishReason: 'stop',
-      constraintMode: StructuredOutputConstraintMode.LlamaJSONSchema,
+      constraintMode: StructuredOutputConstraintMode.NativeToolCall,
       usage: {
         promptTokens: 12,
         completionTokens: 5,
@@ -250,6 +304,8 @@ describe('sdkd provider adapter', () => {
     });
     expect(llamaModel.doGenerateCalls).toHaveLength(1);
     expect(remoteModel.doGenerateCalls).toHaveLength(0);
+    expect(llamaModel.doGenerateCalls[0]?.tools?.map(tool => tool.name)).toEqual(['provider_test_output']);
+    expect(llamaModel.doGenerateCalls[0]?.toolChoice).toEqual({ type: 'tool', toolName: 'provider_test_output' });
     expect(llamaModel.doGenerateCalls[0]?.maxOutputTokens).toBe(128);
     expect(llamaModel.doGenerateCalls[0]?.seed).toBe(7);
     expect(llamaModel.doGenerateCalls[0]?.temperature).toBe(0);
@@ -271,7 +327,7 @@ describe('sdkd provider adapter', () => {
     expect(routeAttempts).toEqual(['llama.cpp', 'openrouter']);
     expect(response.provider).toBe('openrouter');
     expect(response.selectedBackend).toBe(LanguageModelBackend.Remote);
-    expect(response.constraintMode).toBe(StructuredOutputConstraintMode.OpenAIJSONSchema);
+    expect(response.constraintMode).toBe(StructuredOutputConstraintMode.NativeToolCall);
   });
 
   test('falls back only after retryable provider failures', async () => {
@@ -400,8 +456,27 @@ describe('sdkd provider adapter', () => {
       languageModelFactory(invalidModel, fallbackModel),
     );
 
-    await expect(generateStructuredResponse(structuredRequest)).rejects.toThrow();
+    await expect(generateStructuredResponse(structuredRequest)).rejects.toMatchObject({ code: 'structured_output_invalid' });
     expect(fallbackModel.doGenerateCalls).toHaveLength(0);
+  });
+
+  test('rejects structured output without exactly one matching tool call', async () => {
+    for (const toolCalls of [
+      [],
+      [{ toolName: 'other_output', input: '{}' }],
+      [
+        { toolName: 'provider_test_output', input: '{"ok":true}' },
+        { toolName: 'provider_test_output', input: '{"ok":true}' },
+      ],
+    ]) {
+      const model = toolCallLanguageModel('invalid-model', toolCalls);
+      const generateStructuredResponse = createStructuredResponseGenerator(
+        completeConfiguration(SDKDAutoRoute.LocalFirst),
+        languageModelFactory(model, successfulLanguageModel('unused-model', { ok: true })),
+      );
+
+      await expect(generateStructuredResponse(structuredRequest)).rejects.toMatchObject({ code: 'structured_output_invalid' });
+    }
   });
 
   test('rejects undeclared quality review evidence fields', async () => {
@@ -559,6 +634,27 @@ function successfulLanguageModel(
   });
 }
 
+function toolCallLanguageModel(
+  modelID: string,
+  toolCalls: Array<{ toolName: string; input: string }>,
+): MockLanguageModelV3 {
+  return new MockLanguageModelV3({
+    modelId: modelID,
+    doGenerate: async () => ({
+      content: toolCalls.map((toolCall, index) => ({
+        type: 'tool-call' as const,
+        toolCallId: `call-${index}`,
+        toolName: toolCall.toolName,
+        input: toolCall.input,
+      })),
+      finishReason: { unified: 'tool-calls', raw: 'tool_calls' },
+      usage: defaultUsage(),
+      response: { modelId: modelID },
+      warnings: [],
+    }),
+  });
+}
+
 function chatLanguageModel(modelID: string): MockLanguageModelV3 {
   return new MockLanguageModelV3({
     modelId: modelID,
@@ -626,8 +722,13 @@ function successfulGeneration(
   usage: LanguageModelV3Usage,
 ): LanguageModelV3GenerateResult {
   return {
-    content: [{ type: 'text', text: JSON.stringify(output) }],
-    finishReason: { unified: 'stop', raw: 'stop' },
+    content: [{
+      type: 'tool-call',
+      toolCallId: 'structured-output-call',
+      toolName: 'provider_test_output',
+      input: JSON.stringify(output),
+    }],
+    finishReason: { unified: 'tool-calls', raw: 'tool_calls' },
     usage,
     response: { modelId: modelID },
     warnings: [],
