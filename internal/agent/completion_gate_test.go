@@ -14,7 +14,7 @@ import (
 
 func TestCompletionStateWaitsForModelWordingBeforeCompleting(t *testing.T) {
 	services := newTurnRunnerTestServices(&sequenceLanguageModel{}, TurnOptions{})
-	transition := services.runner.finalizeCompletionState("", "", AgentTurnRequest{IsApprovalContinuation: true}, nil, nil, nil, nil, CompletionState{}, "")
+	transition := services.runner.finalizeCompletionState("", "", AgentTurnRequest{}, nil, nil, nil, nil, CompletionState{}, "")
 	if transition.IsCompleted || transition.DidTransition {
 		t.Fatalf("expected empty model wording to defer completion, got %+v", transition)
 	}
@@ -613,7 +613,9 @@ func TestAgentTurnRunnerAutoAttachesRequiredWorkspaceArtifacts(t *testing.T) {
 	writeValidPPTXTestFile(t, filepath.Join(artifactDirectoryPath, "deck.pptx"))
 	writeValidPDFTestFile(t, filepath.Join(artifactDirectoryPath, "deck.pdf"))
 
-	languageModel := &sequenceLanguageModel{contents: []string{finishMessageDocument("unused")}}
+	languageModel := &sequenceLanguageModel{contents: []string{
+		`{"action":"finish","message":"자료를 첨부했습니다.","completionSummary":"자료를 첨부했습니다.","replyParts":[{"type":"text","text":"자료를 첨부했습니다."}],"goalStatus":"satisfied","goalSatisfied":true,"completionEvidence":[{"observationID":"obs-001","toolName":"file.deliver","attachmentIndex":0},{"observationID":"obs-002","toolName":"file.deliver","attachmentIndex":0}],"qualityReview":[]}`,
+	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
 	toolRegistry := newTestToolSet([]string{"file.deliver"})
 	toolRegistry.RegisterTool(ToolDefinition{Name: "file.deliver"}, func(_ context.Context, invocation ToolInvocation) (ToolResult, error) {
@@ -660,8 +662,8 @@ func TestAgentTurnRunnerAutoAttachesRequiredWorkspaceArtifacts(t *testing.T) {
 	if !taskEventsContain(taskEvents, "tool.file.deliver.requested", "deck.pptx") {
 		t.Fatal("expected automatic file.deliver request")
 	}
-	if len(languageModel.requests) != 0 {
-		t.Fatalf("expected completion state to avoid model calls, got %d", len(languageModel.requests))
+	if len(languageModel.requests) != 1 {
+		t.Fatalf("expected one model call for the final reply, got %d", len(languageModel.requests))
 	}
 }
 
@@ -669,7 +671,7 @@ func TestAgentTurnRunnerCompletesAfterRequiredArtifactsExist(t *testing.T) {
 	workspaceRootPath := t.TempDir()
 	artifactDirectoryPath := filepath.Join(workspaceRootPath, "private", "people", "person-1", "artifacts", "deck")
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"continue","toolName":"terminal.run","toolInput":{"command":"build deck"}}`,
+		`{"action":"continue","message":"자료를 완성했습니다.","toolName":"terminal.run","toolInput":{"command":"build deck"}}`,
 		`{"action":"continue","toolName":"terminal.run","toolInput":{"command":"build another deck"}}`,
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
@@ -768,7 +770,7 @@ func TestAgentTurnRunnerAttachesReadableImperfectArtifactCandidate(t *testing.T)
 	writeAgentTestFile(t, filepath.Join(artifactDirectoryPath, "deck.pptx"), "not a valid pptx")
 
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"fail","reason":"artifact invalid"}`,
+		finishMessageWithEvidence("자료를 첨부했습니다.", "obs-001", "file.deliver", 0),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 4})
 	toolRegistry := newTestToolSet([]string{"file.deliver"})
@@ -1465,7 +1467,7 @@ func TestAgentTurnRunnerRejectsQualityGateRetryUntilSourceChanges(t *testing.T) 
 func TestAgentTurnRunnerFinalizesOneShotEvidenceToolAfterSuccess(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		`{"action":"continue","toolName":"capability.invoke","toolInput":{"operation":"calendar.add","input":{"title":"휴가","startISO":"2026-05-10T00:00:00+09:00","endISO":"2026-05-13T00:00:00+09:00","timeZone":"Asia/Seoul","isAllDay":true}}}`,
-		`{"action":"continue","toolName":"capability.invoke","toolInput":{"operation":"calendar.add","input":{"title":"휴가","startISO":"2026-05-11T00:00:00+09:00","endISO":"2026-05-14T00:00:00+09:00","timeZone":"Asia/Seoul","isAllDay":true}}}`,
+		finishMessageWithEvidence("휴가 일정을 등록했습니다.", "obs-001", "calendar.add", 0),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 4, MaxToolCallCount: 4})
 	toolCallCount := 0
@@ -1492,18 +1494,21 @@ func TestAgentTurnRunnerFinalizesOneShotEvidenceToolAfterSuccess(t *testing.T) {
 	if toolCallCount != 1 {
 		t.Fatalf("expected one calendar write, got %d", toolCallCount)
 	}
-	if len(languageModel.requests) != 1 {
-		t.Fatalf("expected no second model action after evidence success, got %d requests", len(languageModel.requests))
+	if len(languageModel.requests) != 2 {
+		t.Fatalf("expected a final model reply after evidence success, got %d requests", len(languageModel.requests))
 	}
-	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.completion_state_finalized", "calendar.add") {
-		t.Fatal("expected completion state finalization with calendar evidence")
+	if result.FinishMessage != "휴가 일정을 등록했습니다." {
+		t.Fatalf("expected model-authored finish reply, got %q", result.FinishMessage)
+	}
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.action", "finish") {
+		t.Fatal("expected model finish action after calendar evidence")
 	}
 }
 
 func TestAgentTurnRunnerFinalizesScheduleCreateAfterSuccess(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		`{"action":"continue","toolName":"capability.invoke","toolInput":{"operation":"schedule.create","input":{"taskInstruction":"현재 대화에 \"죄송합니다\"라고 보낸다.","kind":"interval","intervalSecond":60,"maxRunCount":10,"repeatPolicy":"finite","timeZone":"Asia/Seoul"}}}`,
-		`{"action":"continue","toolName":"capability.invoke","toolInput":{"operation":"schedule.create","input":{"taskInstruction":"현재 대화에 \"죄송합니다\"라고 보낸다.","kind":"interval","intervalSecond":60,"maxRunCount":10,"repeatPolicy":"finite","timeZone":"Asia/Seoul"}}}`,
+		finishMessageWithEvidence("반복 일정을 만들었습니다.", "obs-001", "schedule.create", 0),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 4, MaxToolCallCount: 4})
 	toolCallCount := 0
@@ -1530,11 +1535,14 @@ func TestAgentTurnRunnerFinalizesScheduleCreateAfterSuccess(t *testing.T) {
 	if toolCallCount != 1 {
 		t.Fatalf("expected one schedule create, got %d", toolCallCount)
 	}
-	if len(languageModel.requests) != 1 {
-		t.Fatalf("expected no second model action after schedule success, got %d requests", len(languageModel.requests))
+	if len(languageModel.requests) != 2 {
+		t.Fatalf("expected a final model reply after schedule success, got %d requests", len(languageModel.requests))
 	}
-	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.completion_state_finalized", "schedule.create") {
-		t.Fatal("expected completion state finalization with schedule evidence")
+	if result.FinishMessage != "반복 일정을 만들었습니다." {
+		t.Fatalf("expected model-authored finish reply, got %q", result.FinishMessage)
+	}
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.action", "finish") {
+		t.Fatal("expected model finish action after schedule evidence")
 	}
 }
 
