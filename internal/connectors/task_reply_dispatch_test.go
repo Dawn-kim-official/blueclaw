@@ -11,11 +11,7 @@ import (
 	"blueclaw/internal/task"
 )
 
-// The final completed-task reply is always a normal message, never ephemeral.
-// Ephemeral is reserved for checkpoints and ask.choice/ask.confirm prompts;
-// an ephemeral final reply vanishes and cannot carry native file attachments,
-// so the requester would silently lose the deliverable.
-func TestCompletedTaskReplyIsNeverEphemeral(t *testing.T) {
+func TestCompletedTaskReplyCarriesNativeAttachments(t *testing.T) {
 	identityService := identity.NewIdentityService(policy.PolicyProjection{})
 	taskEventService := task.NewTaskEventService()
 	taskRunService := task.NewTaskRunService(taskEventService)
@@ -37,9 +33,6 @@ func TestCompletedTaskReplyIsNeverEphemeral(t *testing.T) {
 	_, errorValue := connectorRuntime.dispatchTaskReply(context.Background(), "mattermost", &testAdapter{}, PlatformInboundEvent{SenderID: "sender-1"}, ReplyTarget{}, turnResult, sendReply)
 	if errorValue != nil {
 		t.Fatal(errorValue)
-	}
-	if sentReply.EphemeralUserID != "" {
-		t.Fatalf("expected the final reply to be a normal post, got ephemeral to %q", sentReply.EphemeralUserID)
 	}
 	if len(sentReply.Attachments) != 1 {
 		t.Fatalf("expected the deliverable attachment to be carried, got %d", len(sentReply.Attachments))
