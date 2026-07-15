@@ -1364,6 +1364,15 @@ func TestAgentTurnRunnerApprovalRequiredPausesAndExecutesHeldCall(t *testing.T) 
 	if secondResult.TaskRun.Status != task.TaskStatusCompleted {
 		t.Fatalf("expected completed task, got %s events=%+v", secondResult.TaskRun.Status, services.taskEventService.ListTaskEvent(firstResult.TaskRun.TaskRunID))
 	}
+	if secondResult.FinishMessage != "우경이에게 DM을 보냈습니다." {
+		t.Fatalf("expected approval continuation final reply, got %q", secondResult.FinishMessage)
+	}
+	if secondResult.TaskRun.Result != secondResult.FinishMessage {
+		t.Fatalf("expected persisted approval continuation reply, got %q", secondResult.TaskRun.Result)
+	}
+	if len(languageModel.requests) != 3 {
+		t.Fatalf("expected confirmation and post-approval final model calls, got %d", len(languageModel.requests))
+	}
 	if len(invokedInputs) != 2 {
 		t.Fatalf("expected original attempt and deterministic retry, got %d", len(invokedInputs))
 	}
