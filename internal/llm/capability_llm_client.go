@@ -91,6 +91,9 @@ func recoveryAttemptContext(responseContext context.Context) (context.Context, c
 	if requestContext != (RequestContext{}) {
 		baseContext = ContextWithRequestContext(baseContext, requestContext)
 	}
+	if deadline, hasDeadline := responseContext.Deadline(); hasDeadline {
+		return context.WithDeadline(baseContext, deadline)
+	}
 	return context.WithCancel(baseContext)
 }
 
