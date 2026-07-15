@@ -8,6 +8,8 @@ import (
 	"blueclaw/internal/capability"
 )
 
+const DefaultEmbeddingModelName = "baai/bge-m3"
+
 type CapabilityEmbeddingClient struct {
 	CapabilityClient capability.Client
 	ModelName        string

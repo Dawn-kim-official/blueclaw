@@ -7,6 +7,7 @@ import (
 
 func promoteIntakeDecisionForSelectedSkills(decision IntakeDecision, instructionBundle InstructionBundle, options IntakeOptions) IntakeDecision {
 	decision = applySkillTaskLevelFloor(decision, instructionBundle, options.SkillTaskLevelFloor)
+	decision.EstimatedMinutes = selectedSkillRecommendedMinutesFloor(decision.EstimatedMinutes, instructionBundle)
 	defaultTaskLevel := options.DefaultTaskLevel
 	if !canPromoteIntakeDecisionForSelectedSkills(decision) || !selectedSkillsNeedBoundedExecution(instructionBundle, decision.Classification) {
 		return decision
@@ -43,9 +44,22 @@ var taskLevelFloorBySelectedSkillName = map[string]TaskLevel{
 	"website":      TaskLevelXHigh,
 }
 
+func selectedSkillRecommendedMinutesFloor(estimatedMinutes int, instructionBundle InstructionBundle) int {
+	result := estimatedMinutes
+	for _, skillInstruction := range selectedSkillInstructionList(instructionBundle) {
+		if skillInstruction.RecommendedMinutes > result {
+			result = skillInstruction.RecommendedMinutes
+		}
+	}
+	return result
+}
+
 func applySkillTaskLevelFloor(decision IntakeDecision, instructionBundle InstructionBundle, defaultSkillFloor TaskLevel) IntakeDecision {
 	for _, skillInstruction := range selectedSkillInstructionList(instructionBundle) {
 		if !selectedSkillRequiresCompletionEvidence(skillInstruction) {
+			continue
+		}
+		if decision.Classification == IntakeClassificationQuickReply && !selectedSkillCanPromoteQuickReply(instructionBundle, skillInstruction.Name) {
 			continue
 		}
 		floor := defaultSkillFloor
@@ -59,7 +73,6 @@ func applySkillTaskLevelFloor(decision IntakeDecision, instructionBundle Instruc
 	}
 	return decision
 }
-
 
 func attachmentSuffixFormats(suffixes []string) []string {
 	formats := []string{}
@@ -93,7 +106,7 @@ func taskShapeForSelectedSkills(instructionBundle InstructionBundle) TaskShape {
 func selectedSkillsNeedBoundedExecution(instructionBundle InstructionBundle, classification IntakeClassification) bool {
 	for _, skillInstruction := range selectedSkillInstructionList(instructionBundle) {
 		if classification == IntakeClassificationQuickReply {
-			if selectedSkillRequiresCompletionEvidence(skillInstruction) {
+			if selectedSkillRequiresCompletionEvidence(skillInstruction) && selectedSkillCanPromoteQuickReply(instructionBundle, skillInstruction.Name) {
 				return true
 			}
 			continue
@@ -104,6 +117,16 @@ func selectedSkillsNeedBoundedExecution(instructionBundle InstructionBundle, cla
 		if artifactSkillCanRecoverIntakeRefusal(classification, SkillToolNames(skillInstruction)) {
 			return true
 		}
+	}
+	return false
+}
+
+func selectedSkillCanPromoteQuickReply(instructionBundle InstructionBundle, skillName string) bool {
+	for _, skillDecision := range instructionBundle.SkillDecisions {
+		if skillDecision.Name != skillName || skillDecision.Status != "selected" {
+			continue
+		}
+		return skillDecision.Reason != "bm25_fallback"
 	}
 	return false
 }
@@ -165,7 +188,6 @@ func selectInstructionBundleForRequestWithRetrieverAndRouter(ctx context.Context
 	retrievalResult := retrieveSkillCandidates(ctx, request, instructionBundle.Skills, skillRetriever, querySet, hasStructuredQueries)
 	candidateByName := skillCandidateByName(retrievalResult.SelectedCandidates)
 	candidateInstructions := visibleCandidateSkillInstructions(candidateSkillInstructions(instructionBundle.Skills, retrievalResult.SelectedCandidates), candidateByName, request.RequesterCircles)
-	dominantSkill := dominantArtifactSkill(request, candidateInstructions, candidateByName)
 	contractArbitration, hasContractArbitration := skillSearchQueryRouter.ArbitrateContractSkills(ctx, request, candidateInstructions, candidateByName)
 	contractSelectedSkillNames := stringSet(contractArbitration.SelectedSkillNames)
 	for _, skillInstruction := range candidateInstructions {
@@ -184,16 +206,8 @@ func selectInstructionBundleForRequestWithRetrieverAndRouter(ctx context.Context
 				skillDecision.Score = skillCandidate.Score
 			}
 		}
-		if !hasContractArbitration && skillDecision.Status == "selected" && shouldSkipDominatedArtifactSkill(skillInstruction, skillCandidate, dominantSkill, request) {
-			skillDecision = skippedSkillDecision(skillInstruction, normalizedAgentProfileName(request.ProfileName), "dominated_by_"+dominantSkill.Name, nil)
-			skillDecision.Score = skillCandidate.Score
-		}
 		if !hasContractArbitration && skillDecision.Status == "selected" && shouldSkipArtifactSkillForNonArtifactRequest(skillInstruction, skillCandidate, request) {
 			skillDecision = skippedSkillDecision(skillInstruction, normalizedAgentProfileName(request.ProfileName), "outside_artifact_request", nil)
-			skillDecision.Score = skillCandidate.Score
-		}
-		if !hasContractArbitration && skillDecision.Status == "selected" && shouldSkipArtifactSkillOutsideContract(skillInstruction, skillCandidate, request) {
-			skillDecision = skippedSkillDecision(skillInstruction, normalizedAgentProfileName(request.ProfileName), "outside_artifact_contract", nil)
 			skillDecision.Score = skillCandidate.Score
 		}
 		if skillDecision.Status == "selected" && len(selectedSkillInstructions) >= maxSelectedSkillInstructionCount {
@@ -204,11 +218,6 @@ func selectInstructionBundleForRequestWithRetrieverAndRouter(ctx context.Context
 		if skillDecision.Status != "selected" {
 			continue
 		}
-		selectedSkillInstructions = append(selectedSkillInstructions, skillInstruction)
-		sources = append(sources, skillInstruction.Source)
-	}
-	for _, skillInstruction := range alwaysSelectedSkillInstructions(instructionBundle.Skills, request, normalizedAgentProfileName(request.ProfileName), skillDecisions) {
-		skillDecisions = append(skillDecisions, selectedSkillDecision(skillInstruction, normalizedAgentProfileName(request.ProfileName), "always_selected"))
 		selectedSkillInstructions = append(selectedSkillInstructions, skillInstruction)
 		sources = append(sources, skillInstruction.Source)
 	}
@@ -253,116 +262,14 @@ func instructionBundleWithPinnedSkills(instructionBundle InstructionBundle, requ
 	return instructionBundle
 }
 
-func dominantArtifactSkill(request AgentRequest, skillInstructions []SkillInstruction, candidateByName map[string]SkillCandidate) SkillInstruction {
-	contracts := artifactContractRequirementsForRequest(request)
-	if len(contracts) == 0 {
-		return SkillInstruction{}
-	}
-	dominantSkill := SkillInstruction{}
-	dominantCandidate := SkillCandidate{}
-	for _, skillInstruction := range skillInstructions {
-		skillCandidate := candidateByName[skillInstruction.Name]
-		if !artifactSkillCandidateQualifies(skillCandidate) || !skillMatchesAnyArtifactContract(skillInstruction, contracts) {
-			continue
-		}
-		if dominantSkill.Name == "" || skillCandidate.Score > dominantCandidate.Score {
-			dominantSkill = skillInstruction
-			dominantCandidate = skillCandidate
-		}
-	}
-	return dominantSkill
-}
-
-func requestLooksLikeArtifactSkillRequest(request AgentRequest) bool {
-	if len(artifactContractRequirementsForRequest(request)) > 0 {
-		return true
-	}
-	if expectedResultIncludesType(request.ActiveGoal.OutcomeContract, ExpectedResultTypeFile) || expectedResultIncludesType(request.ActiveGoal.OutcomeContract, ExpectedResultTypeLink) {
-		return true
-	}
-	if activeGoalRequiresToolPrefix(request.ActiveGoal, "site.") || activeGoalRequiresTool(request.ActiveGoal, FileDeliverToolName) {
-		return true
-	}
-	text := strings.ToLower(strings.Join(nonEmptyStrings([]string{
-		skillSelectionPrompt(request),
-		request.ActiveGoal.OriginalInstruction,
-		request.ActiveGoal.CurrentObjective,
-	}), "\n"))
-	return containsAny(text, []string{
-		"피피티", "발표자료", "프레젠테이션", "슬라이드", "ppt", "pptx", "deck", "slides",
-		"웹사이트", "웹 앱", "웹앱", "홈페이지", "사이트", "프로토타입", "website", "web app", "webpage",
-		"파일", "첨부", "문서", "보고서", "pdf", "docx", "xlsx", "csv", "html",
-	})
-}
-
-func artifactSkillCandidateQualifies(skillCandidate SkillCandidate) bool {
-	return skillCandidate.Name != "" && skillCandidate.Score >= minimumSelectionScoreForCandidate(skillCandidate)
-}
-
-func shouldSkipDominatedArtifactSkill(skillInstruction SkillInstruction, skillCandidate SkillCandidate, dominantSkill SkillInstruction, request AgentRequest) bool {
-	if dominantSkill.Name == "" || skillInstruction.Name == dominantSkill.Name {
-		return false
-	}
-	if !artifactSkillsOverlapContract(skillInstruction, dominantSkill, artifactContractRequirementsForRequest(request)) {
-		return false
-	}
-	return skillCandidate.Reason != "direct_skill_name"
-}
-
-func artifactSkillsOverlapContract(leftSkill SkillInstruction, rightSkill SkillInstruction, contracts []artifactContractRequirement) bool {
-	for _, contract := range contracts {
-		if skillMatchesArtifactContract(leftSkill, contract) && skillMatchesArtifactContract(rightSkill, contract) {
-			return true
-		}
-	}
-	return false
-}
-
-func shouldSkipArtifactSkillOutsideContract(skillInstruction SkillInstruction, skillCandidate SkillCandidate, request AgentRequest) bool {
-	if skillCandidate.Reason == "direct_skill_name" || strings.TrimSpace(skillCandidate.Name) == "" {
-		return false
-	}
-	contracts := artifactContractRequirementsForRequest(request)
-	if len(contracts) == 0 {
-		return false
-	}
-	return !skillMatchesAnyArtifactContract(skillInstruction, contracts)
-}
-
 func shouldSkipArtifactSkillForNonArtifactRequest(skillInstruction SkillInstruction, skillCandidate SkillCandidate, request AgentRequest) bool {
 	if skillCandidate.Reason == "direct_skill_name" || strings.TrimSpace(skillCandidate.Name) == "" {
 		return false
 	}
-	if requestLooksLikeArtifactSkillRequest(request) {
+	if strings.TrimSpace(request.ActiveGoal.OutcomeContract.ArtifactRequirement) != ArtifactRequirementNone {
 		return false
 	}
 	return skillSupportsSiteArtifact(skillInstruction) || skillSupportsFileDelivery(skillInstruction)
-}
-
-func alwaysSelectedSkillInstructions(skillInstructions []SkillInstruction, request AgentRequest, profileName string, existingSkillDecisions []SkillSelectionDecision) []SkillInstruction {
-	existingDecisionByName := map[string]bool{}
-	for _, skillDecision := range existingSkillDecisions {
-		existingDecisionByName[skillDecision.Name] = true
-	}
-	alwaysSelectedSkills := []SkillInstruction{}
-	for _, skillInstruction := range skillInstructions {
-		if !isAlwaysSelectedSupportSkill(skillInstruction) || existingDecisionByName[skillInstruction.Name] {
-			continue
-		}
-		if skillAvailabilityDecision(skillInstruction, request, profileName).Status == "selected" {
-			alwaysSelectedSkills = append(alwaysSelectedSkills, skillInstruction)
-		}
-	}
-	return alwaysSelectedSkills
-}
-
-func isAlwaysSelectedSupportSkill(skillInstruction SkillInstruction) bool {
-	if !skillSupportsToolPrefix(skillInstruction, "ask.") {
-		return false
-	}
-	text := skillContractSearchText(skillInstruction)
-	return strings.Contains(text, "always available") ||
-		skillTextContainsAny(text, []string{"confirmation", "confirm", "bounded choice", "free-form input", "ask the user", "사용자", "확인", "선택", "입력"})
 }
 
 func appendSkillInstructions(left []SkillInstruction, right ...SkillInstruction) []SkillInstruction {
@@ -457,14 +364,14 @@ func retrieveSkillCandidates(ctx context.Context, request AgentRequest, skillIns
 		} else {
 			retrievalResult = skillRetriever.Retrieve(ctx, request, skillInstructions, maxSkillIndexCandidateCount)
 		}
-		return augmentSkillRetrievalResultForArtifactContract(request, skillInstructions, retrievalResult, maxSkillIndexCandidateCount)
+		return retrievalResult
 	}
 	if hasStructuredQueries {
 		retrievalResult = retrieveSkillsWithBM25(request, skillInstructions, skillSearchQueryText(querySet), maxSkillIndexCandidateCount, "embedding_unconfigured")
-		return augmentSkillRetrievalResultForArtifactContract(request, skillInstructions, retrievalResult, maxSkillIndexCandidateCount)
+		return retrievalResult
 	}
 	retrievalResult = retrieveSkillsWithBM25(request, skillInstructions, skillSelectionPrompt(request), maxSkillIndexCandidateCount, "embedding_unconfigured")
-	return augmentSkillRetrievalResultForArtifactContract(request, skillInstructions, retrievalResult, maxSkillIndexCandidateCount)
+	return retrievalResult
 }
 
 func candidateSkillInstructions(skillInstructions []SkillInstruction, skillCandidates []SkillCandidate) []SkillInstruction {

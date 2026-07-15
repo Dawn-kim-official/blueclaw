@@ -223,7 +223,7 @@ func TestAgentKernelActionSchemaExposesOnlyKernelToolsRegardlessOfIntakeInitialT
 		finishMessageDocument("done"),
 	}}
 	services := newKernelIntakeTestServices(replyLanguageModel, intakeLanguageModel)
-	services.kernel.UseSkillRetriever(NewEmbeddingSkillRetriever(keywordEmbeddingProvider{}, ""))
+	services.kernel.UseSkillRetriever(NewEmbeddingSkillRetriever(nil, ""))
 	services.kernel.UseInstructionBundleLoader(func() InstructionBundle {
 		return InstructionBundle{Skills: []SkillInstruction{
 			{
@@ -263,10 +263,13 @@ func TestAgentKernelActionSchemaExposesOnlyKernelToolsRegardlessOfIntakeInitialT
 		t.Fatal("expected action request")
 	}
 	actionSchema := replyLanguageModel.requests[0].StructuredOutputSchema.Document
-	for _, kernelToolName := range []string{CapabilityInvokeToolName, AskInputToolName} {
+	for _, kernelToolName := range []string{CapabilityInvokeToolName} {
 		if !strings.Contains(actionSchema, kernelToolName) {
 			t.Fatalf("expected kernel tool %s in action schema regardless of intake initial tools, got %s", kernelToolName, actionSchema)
 		}
+	}
+	if strings.Contains(actionSchema, AskInputToolName) {
+		t.Fatalf("expected ask.input to stay hidden without a typed interaction requirement, got %s", actionSchema)
 	}
 	for _, domainToolName := range []string{"schedule.create", "mail.message.search", "math.calculate"} {
 		if strings.Contains(actionSchema, `"toolName":{"enum":["`+domainToolName+`"`) {
@@ -454,7 +457,7 @@ func TestSelectInstructionBundleKeepsUnselectedFullSkillBodyOutOfPrompt(t *testi
 	}
 }
 
-func TestEmbeddingRetrieverSelectsStandardSkill(t *testing.T) {
+func TestBM25RetrieverSelectsStandardSkill(t *testing.T) {
 	instructionBundle := InstructionBundle{
 		Skills: []SkillInstruction{
 			{
@@ -472,14 +475,14 @@ func TestEmbeddingRetrieverSelectsStandardSkill(t *testing.T) {
 			},
 		},
 	}
-	retriever := NewEmbeddingSkillRetriever(keywordEmbeddingProvider{}, "")
+	retriever := NewEmbeddingSkillRetriever(nil, "")
 
 	selectedBundle := selectInstructionBundleForRequestWithRetriever(context.Background(), instructionBundle, AgentRequest{
 		Prompt: "피피티 만들어줘",
 	}, retriever)
 
-	if selectedBundle.RetrievalMode != "embedding" || selectedBundle.IndexStatus != "ready" {
-		t.Fatalf("expected embedding retrieval, got mode=%q status=%q", selectedBundle.RetrievalMode, selectedBundle.IndexStatus)
+	if selectedBundle.RetrievalMode != "bm25_fallback" || selectedBundle.IndexStatus != "embedding_unavailable" {
+		t.Fatalf("expected BM25 retrieval, got mode=%q status=%q", selectedBundle.RetrievalMode, selectedBundle.IndexStatus)
 	}
 	if len(selectedBundle.SkillDecisions) != 1 || selectedBundle.SkillDecisions[0].Name != "presentation" || selectedBundle.SkillDecisions[0].Status != "selected" {
 		t.Fatalf("expected presentation selected, got %+v", selectedBundle.SkillDecisions)
@@ -555,362 +558,6 @@ func TestSiteArtifactRequestAllowsContentDomainSkillsButGuidesPromptToTheActualT
 	}
 }
 
-func TestSlidesArtifactRequestDoesNotSelectContentDomainSkills(t *testing.T) {
-	instructionBundle := InstructionBundle{
-		Skills: []SkillInstruction{
-			{
-				Name:        "presentation",
-				Description: "Generate clean presentation slides with Marp and attach the requested files.",
-				WhenToUse:   "Use for slides, slide decks, presentations, PPTX, PowerPoint, 발표자료, 파워포인트, 피피티.",
-				Prompt:      "Follow slides workflow.",
-				Source:      InstructionSource{Path: "skills/presentation/SKILL.md", SkillName: "presentation"},
-			},
-			{
-				Name:        "mail",
-				Description: "Search, read, and send mail messages.",
-				WhenToUse:   "Use when the user wants to operate on real email.",
-				Prompt:      "Follow mail workflow.",
-				Source:      InstructionSource{Path: "skills/mail/SKILL.md", SkillName: "mail"},
-			},
-			{
-				Name:        "calendar",
-				Description: "Create, list, and update calendar events and schedules.",
-				WhenToUse:   "Use when the user wants to operate on real calendar data.",
-				Prompt:      "Follow calendar workflow.",
-				Source:      InstructionSource{Path: "skills/calendar/SKILL.md", SkillName: "calendar"},
-			},
-			{
-				Name:        "browser",
-				Description: "Control the browser and inspect web pages.",
-				WhenToUse:   "Use when the user wants interactive browser control.",
-				Prompt:      "Follow browser workflow.",
-				Source:      InstructionSource{Path: "skills/browser/SKILL.md", SkillName: "browser"},
-			},
-		},
-	}
-
-	retriever := staticSkillRetriever{result: SkillRetrievalResult{
-		SelectedCandidates: []SkillCandidate{
-			{Name: "mail", Score: 30, Reason: "bm25_fallback"},
-			{Name: "calendar", Score: 29, Reason: "bm25_fallback"},
-			{Name: "browser", Score: 28, Reason: "bm25_fallback"},
-			{Name: "presentation", Score: 8, Reason: "bm25_fallback"},
-		},
-		RetrievalMode: "bm25_fallback",
-		IndexStatus:   "ready",
-	}}
-	selectedBundle := selectInstructionBundleForRequestWithRetriever(context.Background(), instructionBundle, AgentRequest{
-		Prompt: "메일, 일정, 브라우저 제어 능력을 소개하는 5장짜리 발표자료를 PPTX로 첨부해줘",
-		ActiveGoal: ActiveGoal{OutcomeContract: OutcomeContract{
-			RequiredEvidenceTools:      []string{"file.deliver"},
-			RequiredAttachmentSuffixes: []string{".pptx"},
-			ArtifactRequirement:        ArtifactRequirementRequired,
-		}},
-	}, retriever)
-
-	if !skillDecisionHasStatus(selectedBundle.SkillDecisions, "presentation", "selected") {
-		t.Fatalf("expected presentation selected, got %+v", selectedBundle.SkillDecisions)
-	}
-	for _, skillName := range []string{"mail", "calendar", "browser"} {
-		if skillDecisionHasStatus(selectedBundle.SkillDecisions, skillName, "selected") {
-			t.Fatalf("expected %s not to be selected for slides content mentions, got %+v", skillName, selectedBundle.SkillDecisions)
-		}
-	}
-	if strings.Contains(selectedBundle.Prompt, "Follow mail workflow.") || strings.Contains(selectedBundle.Prompt, "Follow calendar workflow.") || strings.Contains(selectedBundle.Prompt, "Follow browser workflow.") {
-		t.Fatalf("expected content-domain skill bodies to be omitted, got %q", selectedBundle.Prompt)
-	}
-}
-
-func TestDocxArtifactRequestIsNotDominatedBySitePrototype(t *testing.T) {
-	instructionBundle := InstructionBundle{
-		Skills: []SkillInstruction{
-			{
-				Name:        "site-prototype",
-				Description: "Create, publish, and update website prototypes, homepages, web apps, landing pages, and deployed sites.",
-				WhenToUse:   "Use for website, homepage, web app, site, publish, deploy, link, URL, 홈페이지, 웹사이트, 사이트, and 배포 requests.",
-				Prompt:      "Follow site prototype workflow.",
-				Source:      InstructionSource{Path: "skills/site-prototype/SKILL.md", SkillName: "site-prototype"},
-			},
-			{
-				Name:        "docx",
-				Description: "Create, edit, and attach Word document files.",
-				WhenToUse:   "Use for Word, docx, 워드 파일, 문서, and report deliverables.",
-				Prompt:      "Follow docx workflow.",
-				Source:      InstructionSource{Path: "skills/docx/SKILL.md", SkillName: "docx"},
-			},
-		},
-	}
-	retriever := staticSkillRetriever{result: SkillRetrievalResult{
-		SelectedCandidates: []SkillCandidate{
-			{Name: "site-prototype", Score: 30, Reason: "bm25_fallback"},
-			{Name: "docx", Score: 8, Reason: "bm25_fallback"},
-		},
-		RetrievalMode: "bm25_fallback",
-		IndexStatus:   "ready",
-	}}
-
-	selectedBundle := selectInstructionBundleForRequestWithRetriever(context.Background(), instructionBundle, AgentRequest{
-		Prompt: "링크로 전달된 적 없어. 첨부파일로 줘야지 그리고.",
-		ActiveGoal: ActiveGoal{OutcomeContract: OutcomeContract{
-			RequiredEvidenceTools:      []string{"file.deliver"},
-			RequiredAttachmentSuffixes: []string{".docx"},
-			ArtifactRequirement:        ArtifactRequirementRequired,
-		}},
-		VisibleContext: VisibleContext{Messages: []VisibleContextMessage{{
-			Speaker: "이샘플",
-			Text:    "기업 문서 가이드를 워드 파일로 만들어줘",
-		}}},
-	}, retriever)
-
-	if !skillDecisionHasStatus(selectedBundle.SkillDecisions, "docx", "selected") {
-		t.Fatalf("expected docx selected, got %+v", selectedBundle.SkillDecisions)
-	}
-	if skillDecisionHasStatus(selectedBundle.SkillDecisions, "site-prototype", "selected") {
-		t.Fatalf("expected site-prototype skipped for docx delivery, got %+v", selectedBundle.SkillDecisions)
-	}
-	if strings.Contains(selectedBundle.Prompt, "Follow site prototype workflow.") {
-		t.Fatalf("expected site skill body to be omitted, got %q", selectedBundle.Prompt)
-	}
-}
-
-func TestFlowTaskRequestSkipsArtifactSkillInstructions(t *testing.T) {
-	instructionBundle := InstructionBundle{
-		Skills: []SkillInstruction{
-			{
-				Name:        "site-prototype",
-				Description: "Create, publish, update, and delete website prototypes.",
-				WhenToUse:   "Use for website, site, homepage, prototype, publish, deploy, update, and delete requests.",
-				Prompt:      "Follow site prototype workflow.",
-				Source:      InstructionSource{Path: "skills/site-prototype/SKILL.md", SkillName: "site-prototype"},
-			},
-			{
-				Name:        "internkim-flow",
-				Description: "Add, find, update, or complete weekly work items and todos.",
-				WhenToUse:   "Use for 업무, 태스크, task, todo, add, update, delete, complete, and list requests.",
-				Prompt:      "Follow flow task workflow.",
-				Source:      InstructionSource{Path: "skills/internkim-flow/SKILL.md", SkillName: "internkim-flow"},
-			},
-		},
-	}
-	retriever := staticSkillRetriever{result: SkillRetrievalResult{
-		SelectedCandidates: []SkillCandidate{
-			{Name: "site-prototype", Score: 30, Reason: "bm25_fallback"},
-			{Name: "internkim-flow", Score: 8, Reason: "bm25_fallback"},
-		},
-		RetrievalMode: "bm25_fallback",
-		IndexStatus:   "ready",
-	}}
-
-	selectedBundle := selectInstructionBundleForRequestWithRetriever(context.Background(), instructionBundle, AgentRequest{
-		Prompt: "테스트 태스크를 생성하고 수정한 다음 삭제해줘",
-		ActiveGoal: ActiveGoal{OutcomeContract: OutcomeContract{
-			ArtifactRequirement: ArtifactRequirementNone,
-		}},
-	}, retriever)
-
-	if !skillDecisionHasStatus(selectedBundle.SkillDecisions, "internkim-flow", "selected") {
-		t.Fatalf("expected internkim-flow selected, got %+v", selectedBundle.SkillDecisions)
-	}
-	if skillDecisionHasStatus(selectedBundle.SkillDecisions, "site-prototype", "selected") {
-		t.Fatalf("expected site-prototype skipped for flow task request, got %+v", selectedBundle.SkillDecisions)
-	}
-	if strings.Contains(selectedBundle.Prompt, "Follow site prototype workflow.") {
-		t.Fatalf("expected site skill body to be omitted, got %q", selectedBundle.Prompt)
-	}
-}
-
-func TestSiteArtifactContractSelectsSitePrototypeOverUnrelatedArtifactSkill(t *testing.T) {
-	instructionBundle := InstructionBundle{
-		Skills: []SkillInstruction{
-			{
-				Name:         "site-prototype",
-				Description:  "Create, publish, and update website prototypes.",
-				WhenToUse:    "Use for website, site, publish, and deploy requests.",
-				Prompt:       "Follow site prototype workflow.",
-				AllowedTools: []string{"site.status", "file.write", "site.build", "site.publish"},
-				Source:       InstructionSource{Path: "skills/site-prototype/SKILL.md", SkillName: "site-prototype"},
-			},
-			{
-				Name:         "presentation",
-				Description:  "Create slide decks and presentation artifacts.",
-				WhenToUse:    "Use for slides and PPTX requests.",
-				Prompt:       "Follow slides workflow.",
-				AllowedTools: []string{"terminal.run", "file.write", "file.deliver"},
-				Source:       InstructionSource{Path: "skills/presentation/SKILL.md", SkillName: "presentation"},
-			},
-		},
-	}
-	retriever := staticSkillRetriever{result: SkillRetrievalResult{
-		SelectedCandidates: []SkillCandidate{
-			{Name: "presentation", Score: 0.9, Reason: "embedding_similarity"},
-			{Name: "site-prototype", Score: 0.1, Reason: "embedding_similarity"},
-		},
-		RetrievalMode: "embedding",
-		IndexStatus:   "ready",
-	}}
-
-	selectedBundle := selectInstructionBundleForRequestWithRetriever(context.Background(), instructionBundle, AgentRequest{
-		Prompt: "더 좋게 해달라구. 웹사이트 퀄리티가 너무 낮잖아.",
-		ToolSet: testToolSet([]string{
-			"site.status",
-			"file.write",
-			"site.build",
-			"site.publish",
-			"terminal.run",
-			"file.deliver",
-		}),
-		ActiveGoal: ActiveGoal{OutcomeContract: OutcomeContract{
-			RequiredEvidenceTools: []string{"site.publish"},
-			SelectedEvidenceHints: []string{"site.status", "file.write", "site.build", "site.publish"},
-			ExpectedResults: []ExpectedResult{{
-				ID:          "site-public-link",
-				Type:        ExpectedResultTypeLink,
-				Description: "public URL",
-				Required:    true,
-			}},
-			SiteEvidenceQuote: "웹사이트",
-		}},
-	}, retriever)
-
-	if !skillDecisionHasStatus(selectedBundle.SkillDecisions, "site-prototype", "selected") {
-		t.Fatalf("expected site-prototype selected, got %+v", selectedBundle.SkillDecisions)
-	}
-	if skillDecisionHasStatus(selectedBundle.SkillDecisions, "presentation", "selected") {
-		t.Fatalf("expected unrelated slides skill outside the site artifact contract to be skipped, got %+v", selectedBundle.SkillDecisions)
-	}
-	if !strings.Contains(selectedBundle.Prompt, "Follow site prototype workflow.") || strings.Contains(selectedBundle.Prompt, "Follow slides workflow.") {
-		t.Fatalf("expected only site instructions, got %q", selectedBundle.Prompt)
-	}
-}
-
-func TestRequiredAttachmentFormatsSelectMatchingArtifactSkillFamilies(t *testing.T) {
-	testCases := []struct {
-		suffix            string
-		expectedSkillName string
-	}{
-		{suffix: ".docx", expectedSkillName: "docx"},
-		{suffix: ".pptx", expectedSkillName: "presentation"},
-		{suffix: ".xlsx", expectedSkillName: "xlsx"},
-		{suffix: ".pdf", expectedSkillName: "pdf"},
-	}
-	for _, testCase := range testCases {
-		t.Run(testCase.suffix, func(t *testing.T) {
-			instructionBundle := InstructionBundle{
-				Skills: []SkillInstruction{
-					{Name: "docx", Description: "Create Word documents.", Prompt: "Follow docx workflow.", AllowedTools: []string{"terminal.run", "file.write", "file.deliver"}, Source: InstructionSource{Path: "skills/docx/SKILL.md", SkillName: "docx"}},
-					{Name: "presentation", Description: "Create slide decks.", Prompt: "Follow slides workflow.", AllowedTools: []string{"terminal.run", "file.write", "file.deliver"}, Source: InstructionSource{Path: "skills/presentation/SKILL.md", SkillName: "presentation"}},
-					{Name: "xlsx", Description: "Create spreadsheets.", Prompt: "Follow xlsx workflow.", AllowedTools: []string{"terminal.run", "file.write", "file.deliver"}, Source: InstructionSource{Path: "skills/xlsx/SKILL.md", SkillName: "xlsx"}},
-					{Name: "pdf", Description: "Create PDFs.", Prompt: "Follow pdf workflow.", AllowedTools: []string{"terminal.run", "file.write", "file.deliver"}, Source: InstructionSource{Path: "skills/pdf/SKILL.md", SkillName: "pdf"}},
-					{Name: "site-prototype", Description: "Create websites.", Prompt: "Follow site prototype workflow.", AllowedTools: []string{"site.create", "site.publish"}, Source: InstructionSource{Path: "skills/site-prototype/SKILL.md", SkillName: "site-prototype"}},
-				},
-			}
-
-			selectedBundle := selectInstructionBundleForRequestWithRetriever(context.Background(), instructionBundle, AgentRequest{
-				Prompt: "첨부파일로 줘",
-				ToolSet: testToolSet([]string{
-					"terminal.run",
-					"file.write",
-					"file.deliver",
-					"site.create",
-					"site.publish",
-				}),
-				ActiveGoal: ActiveGoal{OutcomeContract: OutcomeContract{
-					RequiredEvidenceTools:      []string{"file.deliver"},
-					RequiredAttachmentSuffixes: []string{testCase.suffix},
-				}},
-			}, staticSkillRetriever{result: SkillRetrievalResult{RetrievalMode: "embedding", IndexStatus: "ready"}})
-
-			if !skillDecisionHasStatus(selectedBundle.SkillDecisions, testCase.expectedSkillName, "selected") {
-				t.Fatalf("expected %s selected for %s, got %+v", testCase.expectedSkillName, testCase.suffix, selectedBundle.SkillDecisions)
-			}
-			if skillDecisionHasStatus(selectedBundle.SkillDecisions, "site-prototype", "selected") {
-				t.Fatalf("expected unrelated site skill skipped for file attachment contract, got %+v", selectedBundle.SkillDecisions)
-			}
-		})
-	}
-}
-
-func TestArtifactContractSelectionUsesSkillMetadataNotBuiltinNames(t *testing.T) {
-	instructionBundle := InstructionBundle{
-		Skills: []SkillInstruction{
-			{
-				Name:         "enterprise-document-maker",
-				Description:  "Create, edit, promote, and attach Word documents in .docx format for business reports.",
-				WhenToUse:    "Use for Word, docx, 워드, 보고서, and document deliverables.",
-				Prompt:       "Follow document artifact workflow.",
-				AllowedTools: []string{"terminal.run", "file.write", "file.promote", "file.deliver"},
-				Completion: SkillCompletion{
-					RequiredEvidenceTools: []string{"file.promote", "file.deliver"},
-				},
-				Source: InstructionSource{Path: "skills/enterprise-document-maker/SKILL.md", SkillName: "enterprise-document-maker"},
-			},
-			{
-				Name:         "public-web-builder",
-				Description:  "Create, update, build, and publish website prototypes with a public URL.",
-				WhenToUse:    "Use for website, homepage, landing page, web app, deploy, and publish requests.",
-				Prompt:       "Follow web artifact workflow.",
-				AllowedTools: []string{"file.write", "terminal.run", "site.create", "site.build", "site.publish"},
-				Source:       InstructionSource{Path: "skills/public-web-builder/SKILL.md", SkillName: "public-web-builder"},
-			},
-		},
-	}
-
-	fileBundle := selectInstructionBundleForRequestWithRetriever(context.Background(), instructionBundle, AgentRequest{
-		Prompt: "첨부파일로 줘",
-		ToolSet: testToolSet([]string{
-			"terminal.run",
-			"file.write",
-			"file.promote",
-			"file.deliver",
-			"site.create",
-			"site.build",
-			"site.publish",
-		}),
-		ActiveGoal: ActiveGoal{OutcomeContract: OutcomeContract{
-			RequiredEvidenceTools:      []string{"file.deliver"},
-			RequiredAttachmentSuffixes: []string{".docx"},
-		}},
-	}, staticSkillRetriever{result: SkillRetrievalResult{RetrievalMode: "embedding", IndexStatus: "ready"}})
-
-	if !skillDecisionHasStatus(fileBundle.SkillDecisions, "enterprise-document-maker", "selected") {
-		t.Fatalf("expected metadata-declared document skill selected, got %+v", fileBundle.SkillDecisions)
-	}
-	if skillDecisionHasStatus(fileBundle.SkillDecisions, "public-web-builder", "selected") {
-		t.Fatalf("expected website skill skipped for docx attachment contract, got %+v", fileBundle.SkillDecisions)
-	}
-
-	siteBundle := selectInstructionBundleForRequestWithRetriever(context.Background(), instructionBundle, AgentRequest{
-		Prompt: "더 예쁜 웹사이트로 고쳐서 다시 배포해줘",
-		ToolSet: testToolSet([]string{
-			"terminal.run",
-			"file.write",
-			"file.promote",
-			"file.deliver",
-			"site.create",
-			"site.build",
-			"site.publish",
-		}),
-		ActiveGoal: ActiveGoal{OutcomeContract: OutcomeContract{
-			RequiredEvidenceTools: []string{"site.publish"},
-			SelectedEvidenceHints: []string{"site.create", "site.build", "site.publish"},
-			ExpectedResults: []ExpectedResult{{
-				ID:          "site-public-link",
-				Type:        ExpectedResultTypeLink,
-				Description: "public URL",
-				Required:    true,
-			}},
-			SiteEvidenceQuote: "웹사이트",
-		}},
-	}, staticSkillRetriever{result: SkillRetrievalResult{RetrievalMode: "embedding", IndexStatus: "ready"}})
-
-	if !skillDecisionHasStatus(siteBundle.SkillDecisions, "public-web-builder", "selected") {
-		t.Fatalf("expected metadata-declared website skill selected, got %+v", siteBundle.SkillDecisions)
-	}
-	if skillDecisionHasStatus(siteBundle.SkillDecisions, "enterprise-document-maker", "selected") {
-		t.Fatalf("expected document skill skipped for website artifact contract, got %+v", siteBundle.SkillDecisions)
-	}
-}
-
 func TestNonArtifactFlowTaskRequestIsNotDominatedByPresentation(t *testing.T) {
 	instructionBundle := InstructionBundle{
 		Skills: []SkillInstruction{
@@ -964,7 +611,7 @@ func TestNonArtifactFlowTaskRequestIsNotDominatedByPresentation(t *testing.T) {
 	}
 }
 
-func TestEmbeddingRetrieverSelectsSkillManagement(t *testing.T) {
+func TestBM25RetrieverSelectsSkillManagement(t *testing.T) {
 	instructionBundle := InstructionBundle{
 		Skills: []SkillInstruction{
 			{
@@ -982,14 +629,14 @@ func TestEmbeddingRetrieverSelectsSkillManagement(t *testing.T) {
 			},
 		},
 	}
-	retriever := NewEmbeddingSkillRetriever(keywordEmbeddingProvider{}, "")
+	retriever := NewEmbeddingSkillRetriever(nil, "")
 
 	selectedBundle := selectInstructionBundleForRequestWithRetriever(context.Background(), instructionBundle, AgentRequest{
 		Prompt: "새 스킬 만들어서 추가해줘",
 	}, retriever)
 
-	if selectedBundle.RetrievalMode != "embedding" {
-		t.Fatalf("expected embedding retrieval, got %q", selectedBundle.RetrievalMode)
+	if selectedBundle.RetrievalMode != "bm25_fallback" {
+		t.Fatalf("expected BM25 retrieval, got %q", selectedBundle.RetrievalMode)
 	}
 	if len(selectedBundle.SkillDecisions) != 1 || selectedBundle.SkillDecisions[0].Name != "skill-management" || selectedBundle.SkillDecisions[0].Status != "selected" {
 		t.Fatalf("expected skill-management selected, got %+v", selectedBundle.SkillDecisions)
@@ -1002,7 +649,7 @@ func TestEmbeddingRetrieverSelectsSkillManagement(t *testing.T) {
 	}
 }
 
-func TestEmbeddingRetrieverSelectsScheduledTaskForFiniteRepeat(t *testing.T) {
+func TestBM25RetrieverSelectsScheduledTaskForFiniteRepeat(t *testing.T) {
 	instructionBundle := InstructionBundle{
 		Skills: []SkillInstruction{
 			{
@@ -1021,15 +668,15 @@ func TestEmbeddingRetrieverSelectsScheduledTaskForFiniteRepeat(t *testing.T) {
 			},
 		},
 	}
-	retriever := NewEmbeddingSkillRetriever(keywordEmbeddingProvider{}, "")
+	retriever := NewEmbeddingSkillRetriever(nil, "")
 
 	selectedBundle := selectInstructionBundleForRequestWithRetriever(context.Background(), instructionBundle, AgentRequest{
 		Prompt:  `1분에 한 번씩 나한테 "죄송합니다" 10번 해봐`,
 		ToolSet: testToolSet([]string{"schedule.create"}),
 	}, retriever)
 
-	if selectedBundle.RetrievalMode != "embedding" || selectedBundle.IndexStatus != "ready" {
-		t.Fatalf("expected embedding retrieval, got mode=%q status=%q", selectedBundle.RetrievalMode, selectedBundle.IndexStatus)
+	if selectedBundle.RetrievalMode != "bm25_fallback" || selectedBundle.IndexStatus != "embedding_unavailable" {
+		t.Fatalf("expected BM25 retrieval, got mode=%q status=%q", selectedBundle.RetrievalMode, selectedBundle.IndexStatus)
 	}
 	if len(selectedBundle.SkillDecisions) != 1 || selectedBundle.SkillDecisions[0].Name != "scheduled-task" || selectedBundle.SkillDecisions[0].Status != "selected" {
 		t.Fatalf("expected scheduled-task selected, got %+v", selectedBundle.SkillDecisions)
@@ -1048,7 +695,7 @@ func TestStructuredSkillQueryCanSkipSkillSearch(t *testing.T) {
 			Prompt:      "Follow mail workflow.",
 		}},
 	}
-	retriever := NewEmbeddingSkillRetriever(keywordEmbeddingProvider{}, "")
+	retriever := NewEmbeddingSkillRetriever(nil, "")
 	router := NewSkillSearchQueryRouter(staticStructuredLanguageModel{content: `{"queries":[]}`})
 
 	selectedBundle := selectInstructionBundleForRequestWithRetrieverAndRouter(context.Background(), instructionBundle, AgentRequest{
@@ -1081,7 +728,7 @@ func TestStructuredSkillQuerySelectsMailSkill(t *testing.T) {
 			},
 		},
 	}
-	retriever := NewEmbeddingSkillRetriever(keywordEmbeddingProvider{}, "")
+	retriever := NewEmbeddingSkillRetriever(nil, "")
 	router := NewSkillSearchQueryRouter(staticStructuredLanguageModel{content: `{"queries":[{"description":"Search and read recent email messages from GitHub."}]}`})
 
 	selectedBundle := selectInstructionBundleForRequestWithRetrieverAndRouter(context.Background(), instructionBundle, AgentRequest{
@@ -1193,7 +840,7 @@ func TestContractSkillArbitrationDoesNotRunWithoutOutcomeContract(t *testing.T) 
 	_ = selectInstructionBundleForRequestWithRetrieverAndRouter(context.Background(), instructionBundle, AgentRequest{
 		Prompt:  "메일 확인해줘",
 		ToolSet: testToolSet([]string{"mail.message.search"}),
-	}, NewEmbeddingSkillRetriever(keywordEmbeddingProvider{}, ""), NewSkillSearchQueryRouter(languageModel))
+	}, NewEmbeddingSkillRetriever(nil, ""), NewSkillSearchQueryRouter(languageModel))
 
 	if structuredRequestHasSchema(languageModel.requests, "blueclaw_contract_skill_arbitration") {
 		t.Fatalf("expected no contract arbitration without an outcome contract, got %+v", structuredRequestSchemaNames(languageModel.requests))
@@ -1241,7 +888,7 @@ func TestStructuredSkillQueryRecordsLatestRequestWebsiteQueryWithStaleContext(t 
 			Source:       InstructionSource{Path: "skills/site-prototype/SKILL.md", SkillName: "site-prototype"},
 		}},
 	}
-	retriever := NewEmbeddingSkillRetriever(keywordEmbeddingProvider{}, "")
+	retriever := NewEmbeddingSkillRetriever(nil, "")
 	router := NewSkillSearchQueryRouter(staticStructuredLanguageModel{content: `{"queries":[{"description":"Create a website introducing InternKim's structure."}]}`})
 
 	selectedBundle := selectInstructionBundleForRequestWithRetrieverAndRouter(context.Background(), instructionBundle, AgentRequest{
@@ -1285,7 +932,7 @@ func TestDisableModelInvocationBlocksAutomaticRetrieval(t *testing.T) {
 			Source:                 InstructionSource{Path: "skills/manual-only/SKILL.md", SHA256: "one", SkillName: "manual-only"},
 		}},
 	}
-	retriever := NewEmbeddingSkillRetriever(keywordEmbeddingProvider{}, "")
+	retriever := NewEmbeddingSkillRetriever(nil, "")
 
 	selectedBundle := selectInstructionBundleForRequestWithRetriever(context.Background(), instructionBundle, AgentRequest{
 		Prompt: "create slides",
@@ -1306,7 +953,7 @@ func TestDirectSkillNameBypassesDisableModelInvocation(t *testing.T) {
 			Source:                 InstructionSource{Path: "skills/manual-only/SKILL.md", SHA256: "one", SkillName: "manual-only"},
 		}},
 	}
-	retriever := NewEmbeddingSkillRetriever(keywordEmbeddingProvider{}, "")
+	retriever := NewEmbeddingSkillRetriever(nil, "")
 
 	selectedBundle := selectInstructionBundleForRequestWithRetriever(context.Background(), instructionBundle, AgentRequest{
 		Prompt: "/manual-only create slides",
@@ -1350,7 +997,7 @@ func TestDirectSkillNameBypassesHiddenFromCirclesHint(t *testing.T) {
 			HiddenFromCircles: []string{"staff"},
 		}},
 	}
-	retriever := NewEmbeddingSkillRetriever(keywordEmbeddingProvider{}, "")
+	retriever := NewEmbeddingSkillRetriever(nil, "")
 
 	selectedBundle := selectInstructionBundleForRequestWithRetriever(context.Background(), instructionBundle, AgentRequest{
 		Prompt:           "/finance-helper 공개 자료로 보고서 만들어줘",
@@ -1376,7 +1023,7 @@ func TestPathsPreventAutomaticRetrievalOutsideMatchingFiles(t *testing.T) {
 			Source:      InstructionSource{Path: "skills/swiftui-pro/SKILL.md", SHA256: "one", SkillName: "swiftui-pro"},
 		}},
 	}
-	retriever := NewEmbeddingSkillRetriever(keywordEmbeddingProvider{}, "")
+	retriever := NewEmbeddingSkillRetriever(nil, "")
 
 	selectedBundle := selectInstructionBundleForRequestWithRetriever(context.Background(), instructionBundle, AgentRequest{
 		Prompt:      "review SwiftUI code",
@@ -1398,7 +1045,7 @@ func TestDirectSkillNameBypassesPathFilter(t *testing.T) {
 			Source:      InstructionSource{Path: "skills/swiftui-pro/SKILL.md", SHA256: "one", SkillName: "swiftui-pro"},
 		}},
 	}
-	retriever := NewEmbeddingSkillRetriever(keywordEmbeddingProvider{}, "")
+	retriever := NewEmbeddingSkillRetriever(nil, "")
 
 	selectedBundle := selectInstructionBundleForRequestWithRetriever(context.Background(), instructionBundle, AgentRequest{
 		Prompt:      "/swiftui-pro review",
@@ -1425,7 +1072,7 @@ func TestDirectSkillNameRequiresExactSlashToken(t *testing.T) {
 			},
 		},
 	}
-	retriever := NewEmbeddingSkillRetriever(keywordEmbeddingProvider{}, "")
+	retriever := NewEmbeddingSkillRetriever(nil, "")
 
 	selectedBundle := selectInstructionBundleForRequestWithRetriever(context.Background(), instructionBundle, AgentRequest{
 		Prompt: "/git-review please",
@@ -1451,7 +1098,11 @@ func TestSelectedFullSkillBodiesAreLimited(t *testing.T) {
 		})
 	}
 	instructionBundle := InstructionBundle{Skills: skills}
-	retriever := NewEmbeddingSkillRetriever(keywordEmbeddingProvider{}, "")
+	candidates := []SkillCandidate{}
+	for _, skillInstruction := range skills {
+		candidates = append(candidates, SkillCandidate{Name: skillInstruction.Name, Score: 1, Reason: "test"})
+	}
+	retriever := staticSkillRetriever{result: SkillRetrievalResult{SelectedCandidates: candidates}}
 
 	selectedBundle := selectInstructionBundleForRequestWithRetriever(context.Background(), instructionBundle, AgentRequest{
 		Prompt: "피피티",
@@ -1560,7 +1211,7 @@ func TestSkillIndexPromptStaysBoundedForManySkills(t *testing.T) {
 		})
 	}
 	instructionBundle := InstructionBundle{Skills: skills}
-	retriever := NewEmbeddingSkillRetriever(keywordEmbeddingProvider{}, "")
+	retriever := NewEmbeddingSkillRetriever(nil, "")
 
 	selectedBundle := selectInstructionBundleForRequestWithRetriever(context.Background(), instructionBundle, AgentRequest{
 		Prompt: "피피티",
@@ -1619,7 +1270,7 @@ func TestBM25FallbackIsObservableWhenEmbeddingDimensionMismatches(t *testing.T) 
 
 func TestSkillIndexRefreshesWhenSourceHashChanges(t *testing.T) {
 	indexPath := filepath.Join(t.TempDir(), "skill-index.json")
-	retriever := NewEmbeddingSkillRetriever(keywordEmbeddingProvider{}, indexPath)
+	retriever := NewEmbeddingSkillRetriever(constantEmbeddingProvider{}, indexPath)
 	firstBundle := []SkillInstruction{{
 		Name:        "presentation",
 		Description: "Create presentation slides and 피피티.",
@@ -1649,7 +1300,7 @@ func TestSkillIndexRefreshesWhenSearchDocumentVersionChanges(t *testing.T) {
 	if errorValue := os.WriteFile(indexPath, []byte(legacyDocument), 0o644); errorValue != nil {
 		t.Fatal(errorValue)
 	}
-	retriever := NewEmbeddingSkillRetriever(keywordEmbeddingProvider{}, indexPath)
+	retriever := NewEmbeddingSkillRetriever(constantEmbeddingProvider{}, indexPath)
 
 	retriever.Refresh(context.Background(), []SkillInstruction{{
 		Name:        "presentation",
@@ -1669,41 +1320,42 @@ func TestSkillIndexRefreshesWhenSearchDocumentVersionChanges(t *testing.T) {
 	}
 }
 
-type keywordEmbeddingProvider struct{}
+func TestSkillIndexIncludesConfiguredEmbeddingModel(t *testing.T) {
+	indexPath := filepath.Join(t.TempDir(), "skill-index.json")
+	retriever := NewEmbeddingSkillRetriever(constantEmbeddingProvider{}, indexPath)
+	retriever.EmbeddingModel = "baai/bge-m3"
 
-func (provider keywordEmbeddingProvider) GenerateEmbedding(_ context.Context, input string) ([]float32, error) {
-	normalizedInput := normalizeSkillSearchText(input)
-	return []float32{
-		keywordEmbeddingValue(normalizedInput, []string{"피피티", "pptx", "slides", "presentation"}),
-		keywordEmbeddingValue(normalizedInput, []string{"calendar", "event", "일정", "캘린더"}),
-		keywordEmbeddingValue(normalizedInput, []string{"archive", "unrelated"}),
-		keywordEmbeddingValue(normalizedInput, []string{"skill", "skills", "스킬", "skill.md"}),
-		keywordEmbeddingValue(normalizedInput, []string{"schedule", "scheduled", "reminder", "repeat", "finite", "repeated", "1분에", "한", "번씩", "10번"}),
-		keywordEmbeddingValue(normalizedInput, []string{"html"}),
-		keywordEmbeddingValue(normalizedInput, []string{"mail", "email", "inbox", "message", "messages", "github"}),
-	}, nil
+	retriever.Refresh(context.Background(), []SkillInstruction{{
+		Name:        "presentation",
+		Description: "Create presentation slides.",
+		Source:      InstructionSource{Path: "skills/presentation/SKILL.md", SHA256: "one", SkillName: "presentation"},
+	}})
+
+	document, errorValue := os.ReadFile(indexPath)
+	if errorValue != nil {
+		t.Fatalf("expected materialized skill index: %v", errorValue)
+	}
+	if !strings.Contains(string(document), `"embeddingModel": "baai/bge-m3:`+skillSearchDocumentVersion+`"`) {
+		t.Fatalf("expected configured embedding model in index, got %s", string(document))
+	}
+}
+
+type constantEmbeddingProvider struct{}
+
+func (provider constantEmbeddingProvider) GenerateEmbedding(context.Context, string) ([]float32, error) {
+	return []float32{1, 0}, nil
 }
 
 type dimensionChangingEmbeddingProvider struct {
 	callCount int
 }
 
-func (provider *dimensionChangingEmbeddingProvider) GenerateEmbedding(_ context.Context, input string) ([]float32, error) {
+func (provider *dimensionChangingEmbeddingProvider) GenerateEmbedding(context.Context, string) ([]float32, error) {
 	provider.callCount++
-	normalizedInput := normalizeSkillSearchText(input)
 	if provider.callCount == 1 {
-		return []float32{keywordEmbeddingValue(normalizedInput, []string{"피피티", "slides", "presentation"})}, nil
+		return []float32{1}, nil
 	}
-	return []float32{keywordEmbeddingValue(normalizedInput, []string{"피피티", "slides", "presentation"}), 0}, nil
-}
-
-func keywordEmbeddingValue(input string, keywords []string) float32 {
-	for _, keyword := range keywords {
-		if strings.Contains(input, keyword) {
-			return 1
-		}
-	}
-	return 0
+	return []float32{1, 0}, nil
 }
 
 type staticStructuredLanguageModel struct {

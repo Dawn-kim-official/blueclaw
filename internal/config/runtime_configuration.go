@@ -124,6 +124,7 @@ type LanguageModelSDKDConfiguration struct {
 
 type LanguageModelCapabilityConfiguration struct {
 	Model               string `json:"model"`
+	MaximumModelTier    string `json:"maximumModelTier,omitempty"`
 	MaxModel            string `json:"maxModel"`
 	XHighModel          string `json:"xhighModel"`
 	HighModel           string `json:"highModel"`

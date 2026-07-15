@@ -123,16 +123,7 @@ func expectedResultsIncludeSiteRequirement(results []ExpectedResult) bool {
 }
 
 func expectedResultIsSiteRequirement(result ExpectedResult) bool {
-	if strings.TrimSpace(result.Type) == ExpectedResultTypeLink {
-		return true
-	}
-	text := strings.ToLower(strings.Join(append([]string{result.ID, result.Description}, result.AcceptanceHints...), " "))
-	for _, fragment := range []string{"site", "website", "web app", "webpage", "public url", "웹사이트", "홈페이지", "웹 앱", "웹앱"} {
-		if strings.Contains(text, fragment) {
-			return true
-		}
-	}
-	return false
+	return strings.TrimSpace(result.ID) == "site-public-link"
 }
 
 func removeToolNamePrefix(toolNames []string, prefix string) ([]string, []string) {
@@ -362,7 +353,7 @@ func selectedEvidenceHintTools(instructionBundle InstructionBundle) []string {
 }
 
 func confirmationEvidenceHintsForRequest(request AgentRequest, intakeDecision IntakeDecision, evidenceHints []string) []string {
-	toolNames := []string{}
+	toolNames := appendUniqueStrings(nil, intakeDecision.RequiredEvidenceTools...)
 	for _, toolName := range evidenceHints {
 		if evidenceHintMatchesOutcome(toolName, request, intakeDecision, ExecutionPlan{}, false, nil) {
 			toolNames = appendUniqueStrings(toolNames, toolName)
@@ -418,8 +409,7 @@ func selectedEvidenceToolsForRequestContinuation(request AgentRequest, contract 
 
 func outcomeContractForRequest(request AgentRequest, intakeDecision IntakeDecision, instructionBundle InstructionBundle, executionPlan ExecutionPlan, hasExecutionPlan bool, requiredAttachmentSuffixes []string) OutcomeContract {
 	request.ActiveGoal, _ = normalizeActiveGoalSiteRequirement(request.ActiveGoal, request.Prompt, request.IsApprovalContinuation || request.IsRuntimeRestartResume)
-	requestExplicitlyAsksForFileBeyondSite := requestMentionsFileBeyondSiteEvidence(request, intakeDecision)
-	requiredAttachmentSuffixes = attachmentSuffixesForOutcomeContract(request, executionPlan, hasExecutionPlan, requiredAttachmentSuffixes, requestExplicitlyAsksForFileBeyondSite)
+	requiredAttachmentSuffixes = attachmentSuffixesForOutcomeContract(requiredAttachmentSuffixes)
 	if OutcomeContractHasRequirements(request.ActiveGoal.OutcomeContract) {
 		contract := request.ActiveGoal.OutcomeContract
 		selectedEvidenceHints := selectedEvidenceHintTools(instructionBundle)
@@ -488,32 +478,8 @@ func filterStaleOutcomeHints(request AgentRequest, executionPlan ExecutionPlan, 
 	return filteredToolNames
 }
 
-func attachmentSuffixesForOutcomeContract(request AgentRequest, executionPlan ExecutionPlan, hasExecutionPlan bool, requiredAttachmentSuffixes []string, requestExplicitlyAsksForFileBeyondSite bool) []string {
-	if len(requiredAttachmentSuffixes) == 0 {
-		return nil
-	}
-	if !requestExpectsSiteLinkResult(request, executionPlan, hasExecutionPlan) {
-		return append([]string{}, requiredAttachmentSuffixes...)
-	}
-	if activeGoalRequiresTool(request.ActiveGoal, FileDeliverToolName) ||
-		expectedResultIncludesType(request.ActiveGoal.OutcomeContract, ExpectedResultTypeFile) ||
-		requestExplicitlyAsksForFileBeyondSite {
-		return append([]string{}, requiredAttachmentSuffixes...)
-	}
-	return nil
-}
-
-// requestMentionsFileBeyondSiteEvidence reports whether the user's message has content
-// beyond the quoted site request itself, meaning the requested output format (e.g. "html")
-// most likely names a separate file attachment the user explicitly asked for rather than
-// just describing the site's own tech format.
-func requestMentionsFileBeyondSiteEvidence(request AgentRequest, intakeDecision IntakeDecision) bool {
-	normalizedQuote := trimSiteEvidencePunctuation(normalizeSiteEvidenceText(intakeDecision.SiteRequestEvidence))
-	if normalizedQuote == "" {
-		return false
-	}
-	normalizedPrompt := trimSiteEvidencePunctuation(normalizeSiteEvidenceText(request.Prompt))
-	return normalizedPrompt != normalizedQuote
+func attachmentSuffixesForOutcomeContract(requiredAttachmentSuffixes []string) []string {
+	return append([]string{}, requiredAttachmentSuffixes...)
 }
 
 func requestExpectsSiteLinkResult(request AgentRequest, executionPlan ExecutionPlan, hasExecutionPlan bool) bool {
@@ -532,7 +498,18 @@ func sanitizeOutcomeContractForRequest(request AgentRequest, executionPlan Execu
 	if outcomeContractRequiresPlatformMessageMaintenance(contract) {
 		contract = removePlatformMessageSendContract(contract)
 	}
+	if !requestExpectsExternalSend(request, executionPlan, hasExecutionPlan) {
+		contract = removeExternalSendContract(contract)
+	}
 	return normalizeOutcomeContract(contract)
+}
+
+func requestExpectsExternalSend(request AgentRequest, executionPlan ExecutionPlan, hasExecutionPlan bool) bool {
+	_ = request
+	if !hasExecutionPlan {
+		return true
+	}
+	return executionPlan.ExternalSend || executionPlan.ThirdPartyExternalSend
 }
 
 func normalizeOutcomeContractSiteRequirementForRequest(request AgentRequest, contract OutcomeContract) OutcomeContract {
@@ -573,6 +550,17 @@ func removePlatformMessageSendContract(contract OutcomeContract) OutcomeContract
 	contract.RequiredEvidenceTools = removeToolName(contract.RequiredEvidenceTools, "message.send")
 	contract.SelectedEvidenceHints = removeToolName(contract.SelectedEvidenceHints, "message.send")
 	contract.RequiredEvidenceAnyOf = removeToolNameGroups(contract.RequiredEvidenceAnyOf, "message.send")
+	return contract
+}
+
+func removeExternalSendContract(contract OutcomeContract) OutcomeContract {
+	for _, toolName := range outcomeContractToolNames(contract) {
+		if !isSendEvidenceTool(toolName) {
+			continue
+		}
+		contract.RequiredEvidenceTools = removeToolName(contract.RequiredEvidenceTools, toolName)
+		contract.RequiredEvidenceAnyOf = removeToolNameGroups(contract.RequiredEvidenceAnyOf, toolName)
+	}
 	return contract
 }
 

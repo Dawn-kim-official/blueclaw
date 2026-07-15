@@ -2,7 +2,6 @@ package agent
 
 import "strings"
 
-const artifactContractCandidateScore = 1.05
 const artifactContractKindFile = "file"
 const artifactContractKindSite = "site"
 const artifactContractKindSlides = "slides"
@@ -18,42 +17,6 @@ func augmentSkillSearchQuerySetForArtifactContract(querySet SkillSearchQuerySet,
 		queries = append(queries, SkillSearchQuery{Description: description})
 	}
 	return normalizeSkillSearchQuerySet(SkillSearchQuerySet{Queries: queries})
-}
-
-func augmentSkillRetrievalResultForArtifactContract(request AgentRequest, skillInstructions []SkillInstruction, result SkillRetrievalResult, limit int) SkillRetrievalResult {
-	contracts := artifactContractRequirementsForRequest(request)
-	if len(contracts) == 0 {
-		return result
-	}
-	skillInstructionByName := skillInstructionByName(skillInstructions)
-	candidateByName := skillCandidateByName(result.SelectedCandidates)
-	candidates := append([]SkillCandidate{}, result.SelectedCandidates...)
-	queryText := skillSearchQueryText(SkillSearchQuerySet{Queries: artifactSkillSearchQueriesForRequest(request)})
-	for _, score := range rankSkillInstructionsByBM25(skillInstructions, nil, queryText) {
-		if _, isFound := candidateByName[score.Name]; isFound {
-			continue
-		}
-		skillInstruction, isFound := skillInstructionByName[score.Name]
-		if !isFound || !isSkillAllowedForAutomaticRetrieval(skillInstruction, request) {
-			continue
-		}
-		if !skillMatchesAnyArtifactContract(skillInstruction, contracts) {
-			continue
-		}
-		candidate := SkillCandidate{
-			Name:   skillInstruction.Name,
-			Score:  score.Score + artifactContractCandidateScore,
-			Reason: "artifact_contract",
-			Source: skillInstruction.Source,
-		}
-		candidateByName[skillInstruction.Name] = candidate
-		candidates = append(candidates, candidate)
-	}
-	sortSkillCandidates(candidates)
-	result.SelectedCandidates = limitSkillCandidates(candidates, limit)
-	result.CandidateCount = len(result.SelectedCandidates)
-	result.QueryDescriptions = appendUniqueStrings(result.QueryDescriptions, skillSearchQueryDescriptions(SkillSearchQuerySet{Queries: artifactSkillSearchQueriesForRequest(request)})...)
-	return result
 }
 
 func artifactSkillSearchQueriesForRequest(request AgentRequest) []SkillSearchQuery {
@@ -143,43 +106,8 @@ func outcomeContractHasSiteEffect(contract OutcomeContract) bool {
 	return false
 }
 
-func skillMatchesAnyArtifactContract(skillInstruction SkillInstruction, contracts []artifactContractRequirement) bool {
-	for _, contract := range contracts {
-		if skillMatchesArtifactContract(skillInstruction, contract) {
-			return true
-		}
-	}
-	return false
-}
-
-func skillMatchesArtifactContract(skillInstruction SkillInstruction, contract artifactContractRequirement) bool {
-	switch contract.Kind {
-	case artifactContractKindSite:
-		return skillSupportsSiteArtifact(skillInstruction)
-	case artifactContractKindFile:
-		return skillSupportsFileDelivery(skillInstruction) && skillMentionsArtifactFormat(skillInstruction, contract.Format)
-	case artifactContractKindSlides:
-		return skillSupportsFileDelivery(skillInstruction) && skillTextContainsAny(skillContractSearchText(skillInstruction), []string{
-			"slide", "slides", "deck", "presentation", "presentations", "ppt", "pptx", "powerpoint",
-			"슬라이드", "발표", "발표자료", "프레젠테이션", "프리젠테이션", "피피티", "파워포인트",
-		})
-	default:
-		return false
-	}
-}
-
 func skillSupportsSiteArtifact(skillInstruction SkillInstruction) bool {
-	if skillSupportsToolPrefix(skillInstruction, "site.") {
-		return true
-	}
-	text := skillContractSearchText(skillInstruction)
-	return skillTextContainsAny(text, []string{
-		"website", "web app", "webpage", "homepage", "landing page", "site", "prototype", "public url",
-		"웹사이트", "웹 앱", "웹앱", "홈페이지", "사이트", "프로토타입",
-	}) && skillTextContainsAny(text, []string{
-		"create", "build", "publish", "deploy", "update", "fix", "restore", "delete", "make",
-		"생성", "제작", "배포", "게시", "수정", "개선", "삭제", "복구",
-	})
+	return skillSupportsToolPrefix(skillInstruction, "site.")
 }
 
 func skillSupportsFileDelivery(skillInstruction SkillInstruction) bool {
@@ -189,8 +117,7 @@ func skillSupportsFileDelivery(skillInstruction SkillInstruction) bool {
 		skillHasEvidenceTool(skillInstruction, FileDeliverToolName) ||
 		skillHasEvidenceTool(skillInstruction, ArtifactDeliverToolName) ||
 		skillHasEvidenceTool(skillInstruction, FileAttachToolName) ||
-		len(skillInstruction.Completion.RequiredAttachmentSuffixes) > 0 ||
-		skillTextContainsAny(skillContractSearchText(skillInstruction), []string{"attach", "attachment", "deliverable", "file artifact", "첨부", "파일"})
+		len(skillInstruction.Completion.RequiredAttachmentSuffixes) > 0
 }
 
 func skillSupportsToolPrefix(skillInstruction SkillInstruction, prefix string) bool {
@@ -219,68 +146,6 @@ func skillHasToolName(skillInstruction SkillInstruction, toolName string) bool {
 func skillHasEvidenceTool(skillInstruction SkillInstruction, toolName string) bool {
 	for _, candidate := range skillInstruction.Completion.RequiredEvidenceTools {
 		if strings.TrimSpace(candidate) == toolName {
-			return true
-		}
-	}
-	return false
-}
-
-func skillMentionsArtifactFormat(skillInstruction SkillInstruction, format string) bool {
-	format = strings.TrimPrefix(strings.ToLower(strings.TrimSpace(format)), ".")
-	if format == "" {
-		return false
-	}
-	for _, suffix := range skillInstruction.Completion.RequiredAttachmentSuffixes {
-		if strings.TrimPrefix(strings.ToLower(strings.TrimSpace(suffix)), ".") == format {
-			return true
-		}
-	}
-	text := skillContractSearchText(skillInstruction)
-	for _, token := range artifactFormatTokens(format) {
-		if strings.Contains(text, token) {
-			return true
-		}
-	}
-	return false
-}
-
-func artifactFormatTokens(format string) []string {
-	switch strings.TrimPrefix(strings.ToLower(strings.TrimSpace(format)), ".") {
-	case "docx":
-		return []string{"docx", ".docx", "word", "워드"}
-	case "pptx":
-		return []string{"pptx", ".pptx", "ppt", "powerpoint", "slides", "slide deck", "피피티", "파워포인트", "발표자료"}
-	case "xlsx":
-		return []string{"xlsx", ".xlsx", "xlsm", "excel", "spreadsheet", "엑셀", "스프레드시트"}
-	case "csv":
-		return []string{"csv", ".csv", "spreadsheet", "table", "표"}
-	case "pdf":
-		return []string{"pdf", ".pdf"}
-	case "html":
-		return []string{"html", ".html", "web page", "webpage"}
-	default:
-		return []string{strings.TrimPrefix(strings.ToLower(strings.TrimSpace(format)), ".")}
-	}
-}
-
-func skillContractSearchText(skillInstruction SkillInstruction) string {
-	return strings.ToLower(strings.Join([]string{
-		skillInstruction.Name,
-		skillInstruction.Description,
-		skillInstruction.WhenToUse,
-		skillInstruction.Category,
-		strings.Join(skillInstruction.Tags, " "),
-		strings.Join(skillInstruction.TriggerHints, " "),
-		strings.Join(skillInstruction.Activation.Keywords, " "),
-		strings.Join(skillInstruction.Completion.RequiredAttachmentSuffixes, " "),
-		strings.Join(skillInstruction.Completion.RequiredEvidenceTools, " "),
-		strings.Join(skillInstruction.AllowedTools, " "),
-	}, " "))
-}
-
-func skillTextContainsAny(text string, values []string) bool {
-	for _, value := range values {
-		if strings.Contains(text, strings.ToLower(strings.TrimSpace(value))) {
 			return true
 		}
 	}

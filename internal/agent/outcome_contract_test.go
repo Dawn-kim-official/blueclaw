@@ -175,36 +175,6 @@ func TestOutcomeContractCreatesExpectedResultsForRequestedFile(t *testing.T) {
 	}
 }
 
-func TestOutcomeContractTreatsWebsiteHTMLFormatAsPublicLink(t *testing.T) {
-	contract := outcomeContractForRequest(
-		AgentRequest{Prompt: "개인 홈페이지를 만들어서 배포해줘"},
-		IntakeDecision{Classification: IntakeClassificationBoundedTask, RequestedOutputFormats: []string{"html"}, SiteRequestEvidence: "개인 홈페이지를 만들어서 배포해줘"},
-		InstructionBundle{},
-		ExecutionPlan{PublicDeploy: true},
-		true,
-		[]string{".html"},
-	)
-
-	if len(contract.RequiredAttachmentSuffixes) != 0 {
-		t.Fatalf("expected no html attachment requirement for site publish, got %+v", contract.RequiredAttachmentSuffixes)
-	}
-	if stringSliceContains(contract.RequiredEvidenceTools, "file.deliver") {
-		t.Fatalf("expected no file.deliver requirement for site publish, got %+v", contract.RequiredEvidenceTools)
-	}
-	if !expectedResultsContain(contract.ExpectedResults, ExpectedResultTypeLink, "public URL") {
-		t.Fatalf("expected site publish to require a public link, got %+v", contract.ExpectedResults)
-	}
-	if expectedResultsContain(contract.ExpectedResults, ExpectedResultTypeFile, "파일") {
-		t.Fatalf("expected site publish not to require an attached file, got %+v", contract.ExpectedResults)
-	}
-	if contract.ArtifactRequirement == ArtifactRequirementRequired {
-		t.Fatalf("expected no required artifact contract for site publish, got %+v", contract)
-	}
-	if contract.ArtifactRequirement != ArtifactRequirementNone {
-		t.Fatalf("expected no artifact workflow preference for site publish, got %+v", contract.ArtifactRequirement)
-	}
-}
-
 func TestOutcomeContractKeepsRequestedFileWhenSiteSkillOnlySelected(t *testing.T) {
 	instructionBundle := InstructionBundle{
 		Skills: []SkillInstruction{{
@@ -241,30 +211,6 @@ func TestOutcomeContractKeepsRequestedFileWhenSiteSkillOnlySelected(t *testing.T
 	}
 	if expectedResultsContain(contract.ExpectedResults, ExpectedResultTypeLink, "public URL") {
 		t.Fatalf("expected selected site skill not to require public link, got %+v", contract.ExpectedResults)
-	}
-}
-
-func TestOutcomeContractKeepsExplicitWebsiteHTMLFileRequest(t *testing.T) {
-	contract := outcomeContractForRequest(
-		AgentRequest{Prompt: "개인 홈페이지를 만들어서 배포하고 HTML 파일도 첨부해줘"},
-		IntakeDecision{Classification: IntakeClassificationBoundedTask, RequestedOutputFormats: []string{"html"}, SiteRequestEvidence: "개인 홈페이지를 만들어서 배포"},
-		InstructionBundle{},
-		ExecutionPlan{PublicDeploy: true},
-		true,
-		[]string{".html"},
-	)
-
-	if len(contract.RequiredAttachmentSuffixes) != 1 || contract.RequiredAttachmentSuffixes[0] != ".html" {
-		t.Fatalf("expected explicit html file request to keep suffix, got %+v", contract.RequiredAttachmentSuffixes)
-	}
-	if !stringSliceContains(contract.RequiredEvidenceTools, "file.deliver") {
-		t.Fatalf("expected explicit html file request to require file.deliver, got %+v", contract.RequiredEvidenceTools)
-	}
-	if !expectedResultsContain(contract.ExpectedResults, ExpectedResultTypeLink, "public URL") {
-		t.Fatalf("expected explicit site file request to still require public link, got %+v", contract.ExpectedResults)
-	}
-	if !expectedResultsContain(contract.ExpectedResults, ExpectedResultTypeFile, "파일") {
-		t.Fatalf("expected explicit site file request to require attached file, got %+v", contract.ExpectedResults)
 	}
 }
 
@@ -487,6 +433,51 @@ func TestOutcomeContractUsesIntakeSendEvidenceForExternalSend(t *testing.T) {
 
 	if len(contract.RequiredEvidenceTools) != 1 || contract.RequiredEvidenceTools[0] != "message.send" {
 		t.Fatalf("expected intake required evidence to require message.send, got %+v", contract.RequiredEvidenceTools)
+	}
+}
+
+func TestOutcomeContractIgnoresIntakeSendEvidenceForCurrentConversationReply(t *testing.T) {
+	contract := outcomeContractForRequest(
+		AgentRequest{
+			Prompt:  "안녕. 짧게 인사로 답해줘.",
+			ToolSet: testToolSet([]string{"message.send"}),
+		},
+		IntakeDecision{
+			Classification:        IntakeClassificationBoundedTask,
+			TaskShape:             TaskShapeMaintenanceTask,
+			RequiredEvidenceTools: []string{"message.send"},
+		},
+		InstructionBundle{},
+		ExecutionPlan{},
+		true,
+		nil,
+	)
+
+	if stringSliceContains(contract.RequiredEvidenceTools, "message.send") {
+		t.Fatalf("expected current-conversation reply not to require message.send, got %+v", contract.RequiredEvidenceTools)
+	}
+}
+
+func TestOutcomeContractKeepsSendEvidenceForExternalSendContinuation(t *testing.T) {
+	contract := outcomeContractForRequest(
+		AgentRequest{
+			Prompt: "해",
+			ActiveGoal: ActiveGoal{
+				OriginalInstruction: "샘플에게 테스트라고 DM 보내줘",
+				OutcomeContract: OutcomeContract{
+					RequiredEvidenceTools: []string{"message.send"},
+				},
+			},
+		},
+		IntakeDecision{Classification: IntakeClassificationBoundedTask},
+		InstructionBundle{},
+		ExecutionPlan{},
+		false,
+		nil,
+	)
+
+	if !stringSliceContains(contract.RequiredEvidenceTools, "message.send") {
+		t.Fatalf("expected external send continuation to keep message.send, got %+v", contract.RequiredEvidenceTools)
 	}
 }
 
@@ -887,11 +878,11 @@ func TestOutcomeContractRequiresSendEvidenceForActiveSendContinuation(t *testing
 }
 
 func TestAgentTurnToolSetExposesSendToolForActiveSendContinuation(t *testing.T) {
-	toolSet := testToolSet([]string{"ask.confirm", "message.send", "file.write"})
+	toolSet := testToolSet([]string{"message.send", "file.write"})
 	instructionBundle := InstructionBundle{
 		Skills: []SkillInstruction{{
 			Name:         "direct-message",
-			AllowedTools: []string{"ask.confirm", "message.send"},
+			AllowedTools: []string{"message.send"},
 		}},
 		SkillDecisions: []SkillSelectionDecision{{Name: "direct-message", Status: "selected"}},
 	}
@@ -910,20 +901,17 @@ func TestAgentTurnToolSetExposesSendToolForActiveSendContinuation(t *testing.T) 
 
 	filteredToolSet := toolSetForAgentTurn(toolSet, instructionBundle, request, ExecutionPlan{}, false, contract)
 
-	// An active send continuation keeps message.send exposed because it is still pinned.
-	for _, toolName := range []string{"ask.confirm", "message.send"} {
-		if !filteredToolSet.IsAllowed(toolName) {
-			t.Fatalf("expected pinned tool %s to remain available for continuation, got %+v", toolName, filteredToolSet.ListToolNames())
-		}
+	if !filteredToolSet.IsAllowed("message.send") {
+		t.Fatalf("expected pinned send tool to remain available for continuation, got %+v", filteredToolSet.ListToolNames())
 	}
 }
 
 func TestAgentTurnToolSetHidesUnrequestedSendToolForAttachmentFollowUp(t *testing.T) {
-	toolSet := testToolSet([]string{"ask.confirm", "message.send", "file.preview", "file.read"})
+	toolSet := testToolSet([]string{"message.send", "file.preview", "file.read"})
 	instructionBundle := InstructionBundle{
 		Skills: []SkillInstruction{{
 			Name:         "direct-message",
-			AllowedTools: []string{"ask.confirm", "message.send"},
+			AllowedTools: []string{"message.send"},
 		}},
 		SkillDecisions: []SkillSelectionDecision{{Name: "direct-message", Status: "selected"}},
 	}

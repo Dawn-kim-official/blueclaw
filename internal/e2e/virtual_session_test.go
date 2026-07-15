@@ -2,12 +2,12 @@ package e2e
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
-	"time"
 
 	"blueclaw/internal/agenttest"
 	"blueclaw/internal/capability"
@@ -22,6 +22,19 @@ func TestPresentationScenarioDoesNotScriptToolCalls(t *testing.T) {
 	}
 	if len(scenario.Turns[0].ActionResponses) != 0 {
 		t.Fatal("slides scenario must not script model tool calls or artifact creation")
+	}
+}
+
+func TestLanguageModelCallAssertionRejectsError(t *testing.T) {
+	errorValue := assertLanguageModelCallsSucceeded([]VirtualLanguageModelCallEvent{{
+		Kind:       "structured",
+		SchemaName: "blueclaw_turn_router",
+		IsError:    true,
+		Error:      "truncated",
+	}})
+
+	if errorValue == nil || !strings.Contains(errorValue.Error(), "blueclaw_turn_router") {
+		t.Fatalf("expected strict assertion to reject the model error, got %v", errorValue)
 	}
 }
 
@@ -43,7 +56,6 @@ func TestPresentationLocalMultiturnSuccessLive(t *testing.T) {
 		CapabilityClient: capability.NewClient(capability.Configuration{
 			Endpoint:       endpoint,
 			UnixSocketPath: socketPath,
-			Timeout:        90 * time.Second,
 		}),
 		ModelName:     os.Getenv("BLUECLAW_E2E_LLM_MODEL"),
 		ExecutionMode: firstNonEmptyTestString(os.Getenv("BLUECLAW_E2E_LLM_EXECUTION_MODE"), "auto"),
@@ -104,6 +116,62 @@ func TestPlainQuestionAcceptance(t *testing.T) {
 	}
 	if failureEventCount(turnResult.Events) != 0 {
 		t.Fatalf("expected no failure events, got events: %s", summarizeEvents(turnResult.Events))
+	}
+}
+
+func TestFailedAssertionReturnsObservedTurnResult(t *testing.T) {
+	scenario := PlainQuestionAcceptanceScenario(t.TempDir())
+	scenario.Turns[0].ExpectedTaskStatus = task.TaskStatusFailed
+
+	result, errorValue := RunVirtualSession(context.Background(), scenario)
+
+	if errorValue == nil {
+		t.Fatal("expected task status assertion to fail")
+	}
+	if len(result.TurnResults) != 1 {
+		t.Fatalf("expected failing turn result to remain observable, got %d", len(result.TurnResults))
+	}
+	if result.TurnResults[0].TaskStatus != task.TaskStatusCompleted {
+		t.Fatalf("expected observed completed status, got %q", result.TurnResults[0].TaskStatus)
+	}
+}
+
+func TestVirtualTaskCapabilityPreservesLifecycleState(t *testing.T) {
+	service := virtualCapabilityService{}
+	addResponse := service.response("task.add", []byte(`{"input":{"prompt":"비용 테스트 회귀 확인"},"context":{}}`))
+	updateResponse := service.response("task.update", []byte(`{"input":{"query":"비용 테스트 회귀 확인","content":"비용 테스트 회귀 확인 완료 준비"},"context":{}}`))
+	listResponse := service.response("task.list", []byte(`{"input":{},"context":{}}`))
+	approvalResponse := service.response("task.delete", []byte(`{"input":{"query":"비용 테스트 회귀 확인 완료 준비"},"context":{}}`))
+	deleteResponse := service.response("task.delete", []byte(`{"input":{"query":"비용 테스트 회귀 확인 완료 준비"},"context":{"isApprovalContinuation":true}}`))
+	emptyListResponse := service.response("task.list", []byte(`{"input":{},"context":{}}`))
+
+	if !strings.Contains(addResponse, `"taskID":"task-1"`) {
+		t.Fatalf("expected created task identity, got %s", addResponse)
+	}
+	if !strings.Contains(updateResponse, `"content":"비용 테스트 회귀 확인 완료 준비"`) {
+		t.Fatalf("expected updated title, got %s", updateResponse)
+	}
+	if !strings.Contains(listResponse, `"content":"비용 테스트 회귀 확인 완료 준비"`) {
+		t.Fatalf("expected list to return updated task, got %s", listResponse)
+	}
+	if !strings.Contains(approvalResponse, `"errorCode":"approval_required"`) {
+		t.Fatalf("expected delete approval gate, got %s", approvalResponse)
+	}
+	if !strings.Contains(deleteResponse, `"status":"deleted"`) {
+		t.Fatalf("expected approved delete, got %s", deleteResponse)
+	}
+	if strings.Contains(emptyListResponse, `"taskID":"task-1"`) {
+		t.Fatalf("expected deleted task to be absent, got %s", emptyListResponse)
+	}
+}
+
+func TestVirtualCapabilityCatalogUsesOperationSchemas(t *testing.T) {
+	catalog := virtualCapabilityCatalogResponse(map[string]bool{"task.add": true, "calendar.update": true})
+
+	for _, expectedText := range []string{`"prompt"`, `"eventID"`, `"query"`, `"startISO"`, `"endISO"`} {
+		if !strings.Contains(catalog, expectedText) {
+			t.Fatalf("expected catalog schema field %s, got %s", expectedText, catalog)
+		}
 	}
 }
 
@@ -222,6 +290,31 @@ func TestAmbientTaskCaptureAcceptance(t *testing.T) {
 	if countRequestedToolCalls(reviseResult.Events, "task.add") > 0 {
 		t.Fatalf("same-thread revision must update, not add a duplicate task; events: %s", summarizeEvents(reviseResult.Events))
 	}
+	if turnResult.DidReply || reviseResult.DidReply {
+		t.Fatalf("ambient task capture must stay silent, got first=%q second=%q", turnResult.FinishMessage, reviseResult.FinishMessage)
+	}
+}
+
+func TestVirtualSessionAcceptsReactionOnlyTurn(t *testing.T) {
+	scenario := VirtualSessionScenario{
+		Name:                  "reaction-only",
+		ArtifactDirectoryPath: t.TempDir(),
+		AddressingResponse:    `{"target":"anyone","shouldRespond":false,"reactionEmoji":"eyes","dutyMatch":false,"dutyName":"","dutyConfidence":0}`,
+		Turns: []VirtualTurn{{
+			Prompt:           "참고로 공유합니다.",
+			ExpectedResponse: VirtualResponseReact,
+			ConversationType: "channel",
+			ActionResponses:  []string{actionFinishMessage("unused")},
+		}},
+	}
+
+	result, errorValue := RunVirtualSession(context.Background(), scenario)
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if len(result.TurnResults[0].Reactions) != 1 || result.TurnResults[0].Reactions[0].EmojiName != "eyes" {
+		t.Fatalf("expected eyes reaction, got %+v", result.TurnResults[0].Reactions)
+	}
 }
 
 func TestGWSDisabled(t *testing.T) {
@@ -305,6 +398,47 @@ func TestCalendarEventLifecycleAcceptance(t *testing.T) {
 	}
 }
 
+func TestVirtualCalendarUpdateUsesUnchangedTitleAsTarget(t *testing.T) {
+	service := virtualCapabilityService{}
+	addResponse := service.calendarResponse("calendar.add", []byte(`{"input":{"title":"비용 테스트 일정","startISO":"2026-07-16T10:00:00+09:00","endISO":"2026-07-16T11:00:00+09:00"}}`))
+	if !strings.Contains(addResponse, `"eventID":"event-1"`) {
+		t.Fatalf("expected created event, got %s", addResponse)
+	}
+	updateResponse := service.calendarResponse("calendar.update", []byte(`{"input":{"title":"비용 테스트 일정","startISO":"2026-07-16T14:00:00+09:00","endISO":"2026-07-16T15:00:00+09:00"}}`))
+	if !strings.Contains(updateResponse, `"status":"ok"`) || !strings.Contains(updateResponse, `T14:00:00+09:00`) {
+		t.Fatalf("expected title-targeted update, got %s", updateResponse)
+	}
+	renameResponse := service.calendarResponse("calendar.update", []byte(`{"input":{"title":"새 일정 이름","startISO":"2026-07-16T16:00:00+09:00","endISO":"2026-07-16T17:00:00+09:00"}}`))
+	if !strings.Contains(renameResponse, `"status":"error"`) || !strings.Contains(renameResponse, `not found`) {
+		t.Fatalf("expected rename without an old target to fail, got %s", renameResponse)
+	}
+}
+
+func TestVirtualCapabilityCatalogUsesRuntimeRegistryContract(t *testing.T) {
+	var catalog struct {
+		DeviceCapabilities []struct {
+			Name        string          `json:"name"`
+			InputSchema json.RawMessage `json:"inputSchema"`
+		} `json:"deviceCapabilities"`
+	}
+	document := virtualCapabilityCatalogResponse(map[string]bool{"calendar.delete": true})
+	if errorValue := json.Unmarshal([]byte(document), &catalog); errorValue != nil {
+		t.Fatalf("expected valid capability catalog, got %v: %s", errorValue, document)
+	}
+	if len(catalog.DeviceCapabilities) != 1 || catalog.DeviceCapabilities[0].Name != "calendar.delete" {
+		t.Fatalf("expected runtime device capability descriptor, got %+v", catalog.DeviceCapabilities)
+	}
+	var schema struct {
+		AdditionalProperties *bool `json:"additionalProperties"`
+	}
+	if errorValue := json.Unmarshal(catalog.DeviceCapabilities[0].InputSchema, &schema); errorValue != nil {
+		t.Fatalf("expected calendar delete schema, got %v", errorValue)
+	}
+	if schema.AdditionalProperties == nil || *schema.AdditionalProperties {
+		t.Fatalf("expected closed calendar delete schema, got %s", catalog.DeviceCapabilities[0].InputSchema)
+	}
+}
+
 func TestAmbientDutyCalendarAcceptance(t *testing.T) {
 	result, errorValue := RunVirtualSession(context.Background(), AmbientDutyCalendarAcceptanceScenario(t.TempDir()))
 	if errorValue != nil {
@@ -320,8 +454,8 @@ func TestAmbientDutyCalendarAcceptance(t *testing.T) {
 	if !eventsContain(turnResult.Events, "agent.ambient_duty_launch", `"dutyName":"calendar_upkeep"`) {
 		t.Fatalf("expected ambient duty launch event; events: %s", summarizeEvents(turnResult.Events))
 	}
-	if turnResult.ReplyTargetID != "virtual-message-001" {
-		t.Fatalf("expected thread reply target, got %q", turnResult.ReplyTargetID)
+	if turnResult.DidReply {
+		t.Fatalf("expected ambient calendar duty to stay silent, got %q", turnResult.FinishMessage)
 	}
 }
 
@@ -526,7 +660,7 @@ func TestSiteCustomStructureAcceptance(t *testing.T) {
 	if countEvents(turnResult.Events, "tool.terminal.run.requested") != 1 {
 		t.Fatalf("expected exactly one terminal.run build after the app/src change; events: %s", summarizeEvents(turnResult.Events))
 	}
-	if countEventsWithFragment(turnResult.Events, "tool.capability.invoke.requested", "site.publish") != 1 {
+	if countEvents(turnResult.Events, "tool.site.publish.requested") != 1 {
 		t.Fatalf("expected site.publish to succeed only after the rebuild; events: %s", summarizeEvents(turnResult.Events))
 	}
 	if !strings.Contains(turnResult.FinishMessage, "https://") {
@@ -604,20 +738,11 @@ func TestDirectMessageSendConfirmAcceptance(t *testing.T) {
 	if !eventsContain(firstTurnResult.Events, "confirmation.requested", "external_send") {
 		t.Fatalf("expected confirmation request before send; events: %s", summarizeEvents(firstTurnResult.Events))
 	}
-	if countRequestedToolCalls(firstTurnResult.Events, "message.send") != 1 {
-		t.Fatalf("expected the send attempt to be gated for approval before delivery; events: %s", summarizeEvents(firstTurnResult.Events))
+	if countRequestedToolCalls(firstTurnResult.Events, "message.send") != 0 {
+		t.Fatalf("expected confirmation before any send attempt; events: %s", summarizeEvents(firstTurnResult.Events))
 	}
-	if !eventsContain(firstTurnResult.Events, "tool.capability.invoke.result", "approval_required") {
-		t.Fatalf("expected the pre-approval send attempt to be denied with approval_required; events: %s", summarizeEvents(firstTurnResult.Events))
-	}
-	if !eventsContain(firstTurnResult.Events, "approval.pending_call", "message.send") {
-		t.Fatalf("expected held approval call; events: %s", summarizeEvents(firstTurnResult.Events))
-	}
-	if countRequestedToolCalls(secondTurnResult.Events, "message.send") != 2 {
-		t.Fatalf("expected the gated attempt plus one approved send request; events: %s", summarizeEvents(secondTurnResult.Events))
-	}
-	if !eventsContain(secondTurnResult.Events, "approval.executed", "message.send") {
-		t.Fatalf("expected approval executed event; events: %s", summarizeEvents(secondTurnResult.Events))
+	if countRequestedToolCalls(secondTurnResult.Events, "message.send") != 1 {
+		t.Fatalf("expected exactly one approved send request; events: %s", summarizeEvents(secondTurnResult.Events))
 	}
 	if !eventsContain(secondTurnResult.Events, "tool.capability.invoke.result", "virtual-platform-message-001") {
 		t.Fatalf("expected send result message id observation; events: %s", summarizeEvents(secondTurnResult.Events))
@@ -632,10 +757,13 @@ func TestChannelPostAcceptance(t *testing.T) {
 	if errorValue != nil {
 		t.Fatalf("expected channel post acceptance scenario to pass: %v", errorValue)
 	}
-	if len(result.TurnResults) != 1 {
-		t.Fatalf("expected one turn, got %+v", result)
+	if len(result.TurnResults) != 2 {
+		t.Fatalf("expected confirmation and execution turns, got %+v", result)
 	}
-	turnResult := result.TurnResults[0]
+	if countRequestedToolCalls(result.TurnResults[0].Events, "message.send") != 0 {
+		t.Fatalf("expected confirmation before channel send; events: %s", summarizeEvents(result.TurnResults[0].Events))
+	}
+	turnResult := result.TurnResults[1]
 	if countRequestedToolCalls(turnResult.Events, "message.send") != 1 {
 		t.Fatalf("expected one send request, got events: %s", summarizeEvents(turnResult.Events))
 	}

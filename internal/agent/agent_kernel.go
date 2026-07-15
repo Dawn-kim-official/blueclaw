@@ -382,8 +382,8 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 		TaskShape:                  intakeDecision.TaskShape,
 		TaskLevel:                  intakeDecision.TaskLevel,
 		EstimatedMinutes:           intakeDecision.EstimatedMinutes,
-		LaunchNotice:               intakeDecision.LaunchNotice,
 		TurnStartedAt:              request.TurnStartedAt,
+		EffortStartedAt:            time.Now(),
 		CheckpointSender:           request.CheckpointSender,
 	}
 	turnOptions := agentKernel.turnOptionsForIntakeDecision(intakeDecision)
@@ -442,14 +442,6 @@ func (agentKernel *AgentKernel) selectInstructionBundleForResolvedRequest(ctx co
 	if len(selectionRequest.ActiveGoal.OutcomeContract.RequiredAttachmentSuffixes) > 0 {
 		selectionRequest.ActiveGoal.OutcomeContract.RequiredEvidenceTools = appendUniqueStrings(selectionRequest.ActiveGoal.OutcomeContract.RequiredEvidenceTools, FileDeliverToolName)
 	}
-	requiredCapabilityEvidence := appendUniqueStrings(
-		intakeDecision.RequiredEvidenceTools,
-		selectionRequest.ActiveGoal.OutcomeContract.RequiredEvidenceTools...,
-	)
-	coveringSkillNames, undocumentedOperationNames := capabilityEvidenceSkillCoverage(request.ToolSet, baseInstructionBundle.Skills, requiredCapabilityEvidence)
-	selectionRequest.PinnedSkillNames = appendUniqueStrings(selectionRequest.PinnedSkillNames, coveringSkillNames...)
-	intakeDecision.RequiredEvidenceTools = requiredEvidenceToolsWithout(intakeDecision.RequiredEvidenceTools, undocumentedOperationNames)
-	selectionRequest.ActiveGoal.OutcomeContract.RequiredEvidenceTools = requiredEvidenceToolsWithout(selectionRequest.ActiveGoal.OutcomeContract.RequiredEvidenceTools, undocumentedOperationNames)
 	instructionBundle := selectInstructionBundleForRequestWithRetrieverAndRouter(
 		ctx,
 		baseInstructionBundle,
@@ -458,52 +450,6 @@ func (agentKernel *AgentKernel) selectInstructionBundleForResolvedRequest(ctx co
 		NewSkillSearchQueryRouter(agentKernel.classificationLanguageModel()),
 	)
 	return instructionBundleWithPinnedSkills(instructionBundle, selectionRequest), intakeDecision
-}
-
-// capabilityEvidenceSkillCoverage finds, for each required evidence tool that is a
-// structurally valid capability.invoke-gated operation (e.g. "web.search") rather than a
-// literal kernel tool, which skills in the library actually document that operation. An
-// operation with no documenting skill is structurally unreachable for the model this turn
-// regardless of how the evidence gate validates the tool name, so it is reported as
-// undocumented for pruning. Evidence tool names that are not even valid/reachable through
-// the toolset are left untouched here; the existing invalid-required-evidence gate already
-// blocks those.
-func capabilityEvidenceSkillCoverage(toolSet *ToolSet, skillInstructions []SkillInstruction, requiredEvidenceTools []string) ([]string, []string) {
-	coveringSkillNames := []string{}
-	undocumentedOperationNames := []string{}
-	for _, toolName := range requiredEvidenceTools {
-		trimmedToolName := strings.TrimSpace(toolName)
-		if trimmedToolName == "" {
-			continue
-		}
-		toolKind, isValid := requiredEvidenceToolKind(toolSet, trimmedToolName)
-		if !isValid || toolKind != requiredEvidenceToolKindCapabilityOperation {
-			continue
-		}
-		skillNames := skillNamesDocumentingCapabilityOperation(skillInstructions, trimmedToolName)
-		if len(skillNames) == 0 {
-			undocumentedOperationNames = append(undocumentedOperationNames, trimmedToolName)
-			continue
-		}
-		coveringSkillNames = appendUniqueStrings(coveringSkillNames, skillNames...)
-	}
-	return coveringSkillNames, undocumentedOperationNames
-}
-
-func skillNamesDocumentingCapabilityOperation(skillInstructions []SkillInstruction, operationName string) []string {
-	skillNames := []string{}
-	for _, skillInstruction := range skillInstructions {
-		if skillDocumentsCapabilityOperation(skillInstruction, operationName) {
-			skillNames = appendUniqueStrings(skillNames, skillInstruction.Name)
-		}
-	}
-	return skillNames
-}
-
-func skillDocumentsCapabilityOperation(skillInstruction SkillInstruction, operationName string) bool {
-	return skillHasToolName(skillInstruction, operationName) ||
-		skillHasEvidenceTool(skillInstruction, operationName) ||
-		strings.Contains(skillInstruction.Prompt, operationName)
 }
 
 func (agentKernel *AgentKernel) completeConsumedRequest(request AgentRequest, decision TurnDecision) (AgentTurnResult, error) {
@@ -699,10 +645,6 @@ func (agentKernel *AgentKernel) turnOptionsForIntakeDecision(intakeDecision Inta
 	return baseOptions
 }
 
-// timeBudgetSecondsForIntake uses the shorter of the tier's ceiling and 1.5x the
-// intake's own minute estimate, so a task the model expects to finish quickly
-// gets a tight budget (and earlier budget pressure) even on a high tier, while
-// the tier still caps how long anything can run.
 func timeBudgetSecondsForIntake(taskLevelProfile TaskLevelProfile, estimatedMinutes int) int {
 	tierSeconds := int(taskLevelProfile.Duration.Seconds())
 	if estimatedMinutes <= 0 {

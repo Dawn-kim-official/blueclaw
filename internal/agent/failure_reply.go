@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"strings"
-	"time"
 
 	"blueclaw/internal/llm"
 )
@@ -52,7 +51,7 @@ func (agentTurnRunner *AgentTurnRunner) appendUnavailableReplyEvents(taskRunID s
 }
 
 func (agentTurnRunner *AgentTurnRunner) generateRecoveryDecision(request AgentTurnRequest, failureReason string, observations []turnObservation, attachments []FileAttachment, executionState ExecutionState, phase string) (recoveryDecision, error) {
-	recoveryContext, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	recoveryContext, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	messages := []llm.Message{{
 		Role: "system",
@@ -234,9 +233,6 @@ func (agentTurnRunner *AgentTurnRunner) prepareFinishMessageForPlatform(request 
 	if textExceedsCharacterBudget(compressedReply, finishMessageMaximumCharacters) {
 		return trimmedReply
 	}
-	if containsInternalDiagnosticLeak(compressedReply) {
-		return trimmedReply
-	}
 	requiresAttachmentEvidence := len(attachments) > 0
 	if ValidateFinishMessageDelivery(compressedReply, attachments, requiresAttachmentEvidence) != nil {
 		return trimmedReply
@@ -399,7 +395,7 @@ func (agentTurnRunner *AgentTurnRunner) generateLimitReachedReply(request AgentT
 }
 
 func (agentTurnRunner *AgentTurnRunner) generateRecoveryText(prompt string) (string, error) {
-	finalizationContext, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	finalizationContext, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	recoveryProvider, isRecoveryProvider := agentTurnRunner.recoveryLanguageModel.(llm.RecoveryResponder)
 	if isRecoveryProvider {
@@ -419,7 +415,7 @@ func (agentTurnRunner *AgentTurnRunner) generateLocalRecoveryText(prompt string)
 	if !isLocalRecoveryProvider {
 		return "", errors.New("local recovery provider unavailable")
 	}
-	finalizationContext, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	finalizationContext, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	reply, errorValue := localRecoveryProvider.GenerateLocalRecoveryResponse(finalizationContext, prompt)
 	return strings.TrimSpace(reply), errorValue
@@ -509,76 +505,12 @@ func buildFailureReplyRepairPrompt(originalPrompt string, rejectedReply string, 
 	return strings.Join(sections, "\n\n")
 }
 
-func latestStructuredFailureObservation(observations []turnObservation) (turnObservation, bool) {
-	for index := len(observations) - 1; index >= 0; index-- {
-		observation := observations[index]
-		if !observation.Failed() {
-			continue
-		}
-		if strings.TrimSpace(observation.FailureCode()) == "" && strings.TrimSpace(observation.FailureStage()) == "" {
-			continue
-		}
-		return observation, true
-	}
-	return turnObservation{}, false
+func failureReplyIsInvalid(reply string, _ []FileAttachment) bool {
+	return ValidateUserNoticeDelivery(reply) != nil
 }
 
-func recoverySituationFor(reason string, observations []turnObservation, attachments []FileAttachment, fallbackKind string) string {
-	combinedText := strings.ToLower(strings.Join([]string{reason, buildFailureObservationSummary(observations)}, "\n"))
-	if strings.Contains(combinedText, "blocked_by_captcha") || strings.Contains(combinedText, "bot-detection") || strings.Contains(combinedText, "captcha") {
-		return "browser_blocked"
-	}
-	if strings.Contains(combinedText, "attachment") || strings.Contains(combinedText, "file.deliver") || strings.Contains(combinedText, "첨부") {
-		return "attachment_unavailable"
-	}
-	if fallbackKind == "limit" || strings.Contains(combinedText, "max_") || strings.Contains(combinedText, "limit") {
-		return "limit"
-	}
-	if strings.Contains(combinedText, "llm") || strings.Contains(combinedText, "language model") || strings.Contains(combinedText, "model") {
-		return "model_unavailable"
-	}
-	if len(attachments) == 0 && strings.Contains(combinedText, "file") {
-		return "attachment_unavailable"
-	}
-	return "general"
-}
-
-func failureReplyIsInvalid(reply string, attachments []FileAttachment) bool {
-	if strings.Contains(reply, "I am having trouble reaching the language model") {
-		return true
-	}
-	if strings.Contains(reply, "model configuration") {
-		return true
-	}
-	if strings.Contains(reply, "configuration can be fixed") {
-		return true
-	}
-	if strings.Contains(reply, "예상치 못한 중단") {
-		return true
-	}
-	if strings.Contains(reply, "정보를 정리하여 답변") {
-		return true
-	}
-	if strings.Contains(reply, "창을 새로고침") {
-		return true
-	}
-	if ValidateUserNoticeDelivery(reply) != nil {
-		return true
-	}
-	return false
-}
-
-func failureReplyIsInvalidForRequest(reply string, request AgentTurnRequest, failureReason string, observations []turnObservation, attachments []FileAttachment) bool {
-	if failureReplyIsInvalid(reply, attachments) {
-		return true
-	}
-	if requiredArtifactWithoutAttachment(request, attachments) && requiredArtifactFailureReplyIsInvalid(reply) {
-		return true
-	}
-	if requiredArtifactWithoutAttachment(request, attachments) {
-		return false
-	}
-	return structuredFailureDetailsAreMissing(reply, failureReason, observations, attachments)
+func failureReplyIsInvalidForRequest(reply string, _ AgentTurnRequest, _ string, _ []turnObservation, attachments []FileAttachment) bool {
+	return failureReplyIsInvalid(reply, attachments)
 }
 
 func requiredArtifactWithoutAttachment(request AgentTurnRequest, attachments []FileAttachment) bool {
@@ -596,80 +528,6 @@ func requestRequiresFileAttachment(request AgentTurnRequest) bool {
 		return true
 	}
 	return evidenceAnyOfContainsTool(request.OutcomeContract.RequiredEvidenceAnyOf, FileDeliverToolName)
-}
-
-func requiredArtifactFailureReplyIsInvalid(reply string) bool {
-	normalizedReply := strings.ToLower(strings.TrimSpace(reply))
-	if normalizedReply == "" {
-		return true
-	}
-	for _, fragment := range requiredArtifactFailureForbiddenFragments() {
-		if strings.Contains(normalizedReply, fragment) {
-			return true
-		}
-	}
-	return false
-}
-
-func requiredArtifactFailureForbiddenFragments() []string {
-	return []string{
-		"errorcode",
-		"failurestage",
-		"budgetstate",
-		"operation_failed",
-		"externally-managed-environment",
-		"modulenotfounderror",
-		"browser connection problem",
-		"system environment error",
-		"technical limitation",
-		"additional engineering",
-		"브라우저 연결 문제",
-		"시스템 환경 오류",
-		"시스템 환경의 오류",
-		"시스템 환경상",
-		"기술적인 제약",
-		"기술적으로 불가능",
-		"추가적인 엔지니어링",
-		"엔지니어링 확인",
-		"텍스트로",
-		"텍스트 형태",
-		"정리해 드릴까요",
-		"정리해드릴까요",
-		"다른 방식으로 도움",
-		"도움이 필요",
-		"말씀해 주세요",
-		"말씀해주세요",
-		"gamma",
-		"tome",
-		"canva",
-		"복사하여",
-		"복사해서",
-		"붙여넣",
-		"온라인 도구",
-		"외부 도구",
-		"대신 드",
-		"대신 제공",
-	}
-}
-
-func structuredFailureDetailsAreMissing(reply string, failureReason string, observations []turnObservation, attachments []FileAttachment) bool {
-	situation := recoverySituationFor(failureReason, observations, attachments, "failure")
-	if situation == "browser_blocked" || situation == "attachment_unavailable" || situation == "limit" || situation == "model_unavailable" {
-		return false
-	}
-	failure, isFound := latestStructuredFailureObservation(observations)
-	if !isFound {
-		return false
-	}
-	return !containsFailureDetail(reply, failure.FailureStage()) || !containsFailureDetail(reply, failure.FailureCode())
-}
-
-func containsFailureDetail(reply string, value string) bool {
-	trimmedValue := strings.TrimSpace(value)
-	if trimmedValue == "" {
-		return true
-	}
-	return strings.Contains(strings.ToLower(reply), strings.ToLower(trimmedValue))
 }
 
 func (agentTurnRunner *AgentTurnRunner) GenerateLimitReachedReply(request AgentTurnRequest, stopReason string, observations []turnObservation, attachments []FileAttachment) string {
@@ -740,16 +598,7 @@ func buildLimitReachedRepairPrompt(originalPrompt string, rejectedReply string, 
 }
 
 func limitReachedReplyIsInvalid(reply string, request AgentTurnRequest, attachments []FileAttachment) bool {
-	if containsForbiddenLimitReplyFragment(reply) {
-		return true
-	}
-	if requiredArtifactWithoutAttachment(request, attachments) && requiredArtifactFailureReplyIsInvalid(reply) {
-		return true
-	}
-	if ValidateUserNoticeDelivery(reply) != nil {
-		return true
-	}
-	return false
+	return ValidateUserNoticeDelivery(reply) != nil
 }
 
 func buildLimitObservationSummary(observations []turnObservation) string {
@@ -830,16 +679,6 @@ func buildLimitRequirementSummary(request AgentTurnRequest, observations []turnO
 		return ""
 	}
 	return strings.Join(lines, "\n")
-}
-
-func containsForbiddenLimitReplyFragment(reply string) bool {
-	normalizedReply := strings.ToLower(reply)
-	for _, fragment := range []string{"budget", "예산", "%", "percent", "percentage", "iteration", "tool call", "tool-call", "counter", "minute", "minutes", "second", "seconds", "분 ", "초 "} {
-		if strings.Contains(normalizedReply, fragment) {
-			return true
-		}
-	}
-	return false
 }
 
 func errorString(errorValue error) string {
