@@ -1175,8 +1175,7 @@ func TestOutboundReplyJSONPreservesInlineAttachmentPayload(t *testing.T) {
 
 func TestOutboundReplyJSONPreservesAskInteraction(t *testing.T) {
 	reply := OutboundReply{
-		Message:         "확인해 주세요.",
-		EphemeralUserID: "requester-1",
+		Message: "확인해 주세요.",
 		Interaction: &AskInteraction{
 			InteractionID:        "interaction-1",
 			TaskRunID:            "task-1",
@@ -1197,9 +1196,6 @@ func TestOutboundReplyJSONPreservesAskInteraction(t *testing.T) {
 
 	if decodedReply.Interaction == nil || decodedReply.Interaction.Kind != "ask_confirm" || decodedReply.Interaction.Message != "진행할까요?" || decodedReply.Interaction.TargetPlatformUserID != "user-1" {
 		t.Fatalf("expected ask interaction to survive outbox json, got %+v", decodedReply.Interaction)
-	}
-	if decodedReply.EphemeralUserID != "requester-1" {
-		t.Fatalf("expected ephemeral target to survive outbox json, got %+v", decodedReply)
 	}
 }
 
@@ -1732,7 +1728,7 @@ func TestConnectorRuntimeDoesNotFilterUserNoticeAttachmentClaimText(t *testing.T
 	}
 }
 
-func TestConnectorRuntimeSendsAskUserNoticeWithoutEphemeralTarget(t *testing.T) {
+func TestConnectorRuntimeSendsAskUserNoticeForTargetUser(t *testing.T) {
 	connectorRuntime, _ := newTestConnectorRuntime(t, testLanguageModel{reply: "unused"})
 	connectorRuntime.agentKernel.AppendTaskEvent("task-1", "ask.requested", `{"kind":"input","question":"제목은 어떻게 할까요?"}`)
 	sentReplies := []OutboundReply{}
@@ -1757,9 +1753,6 @@ func TestConnectorRuntimeSendsAskUserNoticeWithoutEphemeralTarget(t *testing.T) 
 	}
 	if len(sentReplies) != 1 || sentReplies[0].Interaction == nil {
 		t.Fatalf("expected ask interaction reply, got %+v", sentReplies)
-	}
-	if sentReplies[0].EphemeralUserID != "" {
-		t.Fatalf("expected ask reply without ephemeral target, got %+v", sentReplies[0])
 	}
 	if sentReplies[0].Interaction.TargetPlatformUserID != "requester-1" {
 		t.Fatalf("expected interaction target to remain requester-scoped, got %+v", sentReplies[0].Interaction)
@@ -2861,6 +2854,33 @@ func TestAskReplyConsumesInputRevision(t *testing.T) {
 	}
 }
 
+func TestTargetedInlineAskResolvesPublicPost(t *testing.T) {
+	connectorRuntime, adapter := newTestConnectorRuntime(t, testLanguageModel{reply: "unused"})
+	event := testInboundEvent("message-2")
+	event.LegacyFields = map[string]interface{}{"postID": "ask-post-1"}
+
+	connectorRuntime.resolveAskInteractionMessage(context.Background(), adapter, event, "task-1", AskInteraction{
+		InteractionID:        "interaction-1",
+		TargetPlatformUserID: "requester-1",
+	})
+
+	if len(adapter.resolutions) != 1 || adapter.resolutions[0].DispatchID != "ask-post-1" {
+		t.Fatalf("expected targeted inline ask to resolve, got %+v", adapter.resolutions)
+	}
+}
+
+func TestLegacyEphemeralAskDoesNotPatchPublicPost(t *testing.T) {
+	connectorRuntime, adapter := newTestConnectorRuntime(t, testLanguageModel{reply: "unused"})
+	event := testInboundEvent("message-2")
+	event.LegacyFields = map[string]interface{}{"postID": "ask-post-1", "ephemeralAsk": true}
+
+	connectorRuntime.resolveAskInteractionMessage(context.Background(), adapter, event, "task-1", AskInteraction{InteractionID: "interaction-1"})
+
+	if len(adapter.resolutions) != 0 {
+		t.Fatalf("expected legacy ephemeral ask to remain unpatched, got %+v", adapter.resolutions)
+	}
+}
+
 func TestConnectorRuntimeConsumesInteractiveConfirmationCancel(t *testing.T) {
 	languageModel := agenttest.NewScriptedLanguageModel(agenttest.ScriptedLanguageModelOptions{
 		StructuredResponsesBySchema: map[string][]string{
@@ -3348,9 +3368,6 @@ func TestConnectorRuntimeSendsCheckpointReplyKind(t *testing.T) {
 	if reply.replyKind != connectorReplyKindCheckpoint || reply.taskRunID != "task-1" || reply.message != "작업 중입니다." {
 		t.Fatalf("expected checkpoint reply kind and task run id, got %+v", reply)
 	}
-	if reply.ephemeralUserID != "" {
-		t.Fatalf("expected checkpoint to be a normal reply, got %+v", reply)
-	}
 	if !connectorTaskEventsContain(connectorRuntime, "task-1", "connector.reply.sent", connectorReplyKindCheckpoint) {
 		t.Fatal("expected checkpoint sent event")
 	}
@@ -3529,7 +3546,6 @@ type testReply struct {
 	message         string
 	taskRunID       string
 	replyKind       string
-	ephemeralUserID string
 	attachments     []agent.FileAttachment
 	recoveryActions []agent.RecoveryAction
 	failureNotice   agent.FailureNotice
@@ -3723,7 +3739,7 @@ func (adapter *testAdapter) SendReply(_ context.Context, target ReplyTarget, rep
 	if adapter.sendReplyError != nil {
 		return "", adapter.sendReplyError
 	}
-	adapter.sentReplies = append(adapter.sentReplies, testReply{target: target, message: reply.Message, taskRunID: reply.TaskRunID, replyKind: reply.ReplyKind, ephemeralUserID: reply.EphemeralUserID, attachments: reply.Attachments, recoveryActions: reply.RecoveryActions, failureNotice: reply.FailureNotice})
+	adapter.sentReplies = append(adapter.sentReplies, testReply{target: target, message: reply.Message, taskRunID: reply.TaskRunID, replyKind: reply.ReplyKind, attachments: reply.Attachments, recoveryActions: reply.RecoveryActions, failureNotice: reply.FailureNotice})
 	return "dispatch-" + strconv.Itoa(len(adapter.sentReplies)), nil
 }
 
