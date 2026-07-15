@@ -173,7 +173,11 @@ func completionAttachmentFailureContent(content string, paths []string) string {
 }
 
 func (agentTurnRunner *AgentTurnRunner) finalizeCompletionState(taskRunID string, taskStepID string, request AgentTurnRequest, requirements []toolUseRequirement, observations []turnObservation, attachments []FileAttachment, criteria []qualityCriterion, state CompletionState, lastModelMessage string) completionTransition {
-	actionDocument := completionStateFinishDocument(state, deliverableModelWording(lastModelMessage))
+	modelWording := deliverableModelWording(lastModelMessage)
+	if request.IsApprovalContinuation && modelWording == "" {
+		return completionTransition{Observations: observations, Attachments: attachments}
+	}
+	actionDocument := completionStateFinishDocument(state, modelWording)
 	completionGateResult := agentTurnRunner.validateCompletionGateForRequestWithExpectedResults(context.Background(), taskRunID, request, requirements, observations, attachments, criteria, actionDocument)
 	agentTurnRunner.appendValidityReview(taskRunID, "completion_state", completionGateResult.ValidityState)
 	if !completionGateResult.IsSatisfied {

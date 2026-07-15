@@ -12,6 +12,14 @@ import (
 	"blueclaw/internal/task"
 )
 
+func TestCompletionStateWaitsForModelWordingBeforeCompleting(t *testing.T) {
+	services := newTurnRunnerTestServices(&sequenceLanguageModel{}, TurnOptions{})
+	transition := services.runner.finalizeCompletionState("", "", AgentTurnRequest{IsApprovalContinuation: true}, nil, nil, nil, nil, CompletionState{}, "")
+	if transition.IsCompleted || transition.DidTransition {
+		t.Fatalf("expected empty model wording to defer completion, got %+v", transition)
+	}
+}
+
 func TestCompletionGateRejectsSatisfiedFinishWithUnresolvedFailureDebt(t *testing.T) {
 	goalSatisfied := true
 	result := validateCompletionGate(
