@@ -146,7 +146,7 @@ func (taskRunHandler TaskRunHandler) resolveTaskDecisionPreset(preset string) (*
 		Route:              agent.TurnRouteStartTask,
 		Classification:     agent.IntakeClassificationQuickReply,
 		TaskShape:          agent.TaskShapeImmediateReply,
-		TaskLevel:          agent.TaskLevelLow,
+		TaskLevel:          agent.TaskLevelXLow,
 		EstimatedMinutes:   1,
 		PriorTaskReference: agent.PriorTaskReferenceNone,
 		Reason:             "sdkd topology diagnostic",
