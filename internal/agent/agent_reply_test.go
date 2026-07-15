@@ -2,6 +2,8 @@ package agent
 
 import (
 	"context"
+	"errors"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -24,6 +26,113 @@ func TestAgentKernelGeneratesStructuredReply(t *testing.T) {
 	}
 	if reply != "hello from model" {
 		t.Fatalf("expected model reply, got %q", reply)
+	}
+}
+
+func TestAgentKernelGeneratesChatReplyWithoutTools(t *testing.T) {
+	taskEventService := task.NewTaskEventService()
+	taskRunService := task.NewTaskRunService(taskEventService)
+	taskStepService := task.NewTaskStepService()
+	agentKernel := NewAgentKernel(taskRunService, taskStepService)
+	replyProvider := &chatReplyProvider{
+		response: llm.ChatCompletionResponse{Message: llm.ChatCompletionMessage{Role: "assistant", Content: "  hello from chat  "}},
+	}
+	agentKernel.UseLanguageModelProvider(replyProvider)
+
+	reply, errorValue := agentKernel.GenerateReply(context.Background(), "hello")
+	if errorValue != nil {
+		t.Fatalf("expected chat reply generation: %v", errorValue)
+	}
+	if reply != "hello from chat" {
+		t.Fatalf("expected trimmed chat reply, got %q", reply)
+	}
+	if len(replyProvider.request.Tools) != 0 {
+		t.Fatalf("expected no chat tools, got %+v", replyProvider.request.Tools)
+	}
+	expectedMessages := chatMessages(buildReplyMessagesWithInstructions("hello", VisibleContext{}, nil, ""))
+	if !reflect.DeepEqual(replyProvider.request.Messages, expectedMessages) {
+		t.Fatalf("expected existing reply messages to be preserved, got %+v", replyProvider.request.Messages)
+	}
+	if replyProvider.structuredCallCount != 0 {
+		t.Fatalf("expected chat reply not to call structured generation, got %d calls", replyProvider.structuredCallCount)
+	}
+}
+
+func TestAgentKernelResolvesChatReplyThroughFallbackProvider(t *testing.T) {
+	taskEventService := task.NewTaskEventService()
+	taskRunService := task.NewTaskRunService(taskEventService)
+	taskStepService := task.NewTaskStepService()
+	agentKernel := NewAgentKernel(taskRunService, taskStepService)
+	replyProvider := &chatReplyProvider{
+		response: llm.ChatCompletionResponse{Message: llm.ChatCompletionMessage{Content: "fallback chat"}},
+	}
+	agentKernel.UseLanguageModelProvider(llm.FallbackLanguageModelProvider{
+		PrimaryProvider:  staticReplyProvider{content: `{"reply":"structured"}`},
+		FallbackProvider: replyProvider,
+	})
+
+	reply, errorValue := agentKernel.GenerateReply(context.Background(), "hello")
+	if errorValue != nil {
+		t.Fatalf("expected fallback chat reply generation: %v", errorValue)
+	}
+	if reply != "fallback chat" {
+		t.Fatalf("expected fallback chat reply, got %q", reply)
+	}
+}
+
+func TestAgentKernelRejectsEmptyChatReply(t *testing.T) {
+	taskEventService := task.NewTaskEventService()
+	taskRunService := task.NewTaskRunService(taskEventService)
+	taskStepService := task.NewTaskStepService()
+	agentKernel := NewAgentKernel(taskRunService, taskStepService)
+	replyProvider := &chatReplyProvider{
+		response: llm.ChatCompletionResponse{Message: llm.ChatCompletionMessage{Content: "  "}},
+	}
+	agentKernel.UseLanguageModelProvider(replyProvider)
+
+	_, errorValue := agentKernel.GenerateReply(context.Background(), "hello")
+	if errorValue == nil || errorValue.Error() != "language model reply is empty" {
+		t.Fatalf("expected empty chat reply error, got %v", errorValue)
+	}
+	if replyProvider.structuredCallCount != 0 {
+		t.Fatalf("expected empty chat reply not to use structured fallback, got %d calls", replyProvider.structuredCallCount)
+	}
+}
+
+func TestAgentKernelPropagatesChatErrorWithoutStructuredRetry(t *testing.T) {
+	taskEventService := task.NewTaskEventService()
+	taskRunService := task.NewTaskRunService(taskEventService)
+	taskStepService := task.NewTaskStepService()
+	agentKernel := NewAgentKernel(taskRunService, taskStepService)
+	chatError := errors.New("chat contract rejected")
+	replyProvider := &chatReplyProvider{chatError: chatError}
+	agentKernel.UseLanguageModelProvider(replyProvider)
+
+	_, errorValue := agentKernel.GenerateReply(context.Background(), "hello")
+	if !errors.Is(errorValue, chatError) {
+		t.Fatalf("expected chat error to propagate, got %v", errorValue)
+	}
+	if replyProvider.structuredCallCount != 0 {
+		t.Fatalf("expected chat contract error not to trigger structured retry, got %d calls", replyProvider.structuredCallCount)
+	}
+}
+
+func TestAgentKernelPreservesChatCancellationContext(t *testing.T) {
+	taskEventService := task.NewTaskEventService()
+	taskRunService := task.NewTaskRunService(taskEventService)
+	taskStepService := task.NewTaskStepService()
+	agentKernel := NewAgentKernel(taskRunService, taskStepService)
+	replyProvider := &chatReplyProvider{chatError: context.Canceled}
+	agentKernel.UseLanguageModelProvider(replyProvider)
+	responseContext, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, errorValue := agentKernel.GenerateReply(responseContext, "hello")
+	if !errors.Is(errorValue, context.Canceled) {
+		t.Fatalf("expected cancellation to propagate, got %v", errorValue)
+	}
+	if replyProvider.responseContext.Err() != context.Canceled {
+		t.Fatalf("expected canceled context to reach chat completer, got %v", replyProvider.responseContext.Err())
 	}
 }
 
@@ -159,6 +268,33 @@ func (replyProvider staticReplyProvider) GenerateStructuredResponse(responseCont
 type capturingReplyProvider struct {
 	content string
 	request llm.StructuredResponseRequest
+}
+
+type chatReplyProvider struct {
+	response            llm.ChatCompletionResponse
+	chatError           error
+	request             llm.ChatCompletionRequest
+	responseContext     context.Context
+	structuredCallCount int
+}
+
+func (replyProvider *chatReplyProvider) GenerateResponse(responseContext context.Context, prompt string) (string, error) {
+	_ = responseContext
+	_ = prompt
+	return "", nil
+}
+
+func (replyProvider *chatReplyProvider) GenerateStructuredResponse(responseContext context.Context, structuredResponseRequest llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
+	_ = responseContext
+	_ = structuredResponseRequest
+	replyProvider.structuredCallCount++
+	return llm.StructuredResponse{}, nil
+}
+
+func (replyProvider *chatReplyProvider) GenerateChatCompletion(responseContext context.Context, request llm.ChatCompletionRequest) (llm.ChatCompletionResponse, error) {
+	replyProvider.responseContext = responseContext
+	replyProvider.request = request
+	return replyProvider.response, replyProvider.chatError
 }
 
 func (replyProvider *capturingReplyProvider) GenerateResponse(responseContext context.Context, prompt string) (string, error) {
