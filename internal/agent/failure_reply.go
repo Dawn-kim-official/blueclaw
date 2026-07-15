@@ -420,6 +420,14 @@ func (agentTurnRunner *AgentTurnRunner) generateLimitReachedReply(request AgentT
 }
 
 func (agentTurnRunner *AgentTurnRunner) generateRecoveryText(recoveryContext context.Context, prompt string) (string, error) {
+	if reply, errorValue, isSupported := generateRecoveryChatText(recoveryContext, agentTurnRunner.recoveryLanguageModel, prompt); isSupported {
+		if errorValue == nil && reply != "" {
+			return reply, nil
+		}
+		if contextError := recoveryContextError(recoveryContext, errorValue); contextError != nil {
+			return reply, contextError
+		}
+	}
 	recoveryProvider, isRecoveryProvider := agentTurnRunner.recoveryLanguageModel.(llm.RecoveryResponder)
 	if isRecoveryProvider {
 		recoveryReply, recoveryError := recoveryProvider.GenerateRecoveryResponse(recoveryContext, prompt)
@@ -434,6 +442,14 @@ func (agentTurnRunner *AgentTurnRunner) generateRecoveryText(recoveryContext con
 }
 
 func (agentTurnRunner *AgentTurnRunner) generateLocalRecoveryText(recoveryContext context.Context, prompt string) (string, error) {
+	if reply, errorValue, isSupported := generateLocalRecoveryChatText(recoveryContext, agentTurnRunner.recoveryLanguageModel, prompt); isSupported {
+		if errorValue == nil && reply != "" {
+			return reply, nil
+		}
+		if contextError := recoveryContextError(recoveryContext, errorValue); contextError != nil {
+			return reply, contextError
+		}
+	}
 	localRecoveryProvider, isLocalRecoveryProvider := agentTurnRunner.recoveryLanguageModel.(llm.LocalRecoveryResponder)
 	if !isLocalRecoveryProvider {
 		return "", errors.New("local recovery provider unavailable")

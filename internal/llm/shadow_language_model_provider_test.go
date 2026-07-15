@@ -83,3 +83,50 @@ func TestShadowProviderObservesOnlyConfiguredSchemas(t *testing.T) {
 		t.Fatalf("expected non-authoritative schema not to be shadowed, got %d calls", shadowProvider.structuredCallCount)
 	}
 }
+
+type shadowRecoveryChatTestProvider struct {
+	recoveryResponse ChatCompletionResponse
+}
+
+func (provider shadowRecoveryChatTestProvider) GenerateResponse(context.Context, string) (string, error) {
+	return "", nil
+}
+
+func (provider shadowRecoveryChatTestProvider) GenerateStructuredResponse(context.Context, StructuredResponseRequest) (StructuredResponse, error) {
+	return StructuredResponse{}, nil
+}
+
+func (provider shadowRecoveryChatTestProvider) GenerateRecoveryChatCompletion(context.Context, ChatCompletionRequest) (ChatCompletionResponse, error) {
+	return provider.recoveryResponse, nil
+}
+
+func TestShadowRecoveryChatCapabilitiesMatchPrimaryProvider(t *testing.T) {
+	recoveryResponse := ChatCompletionResponse{
+		FinishReason: "stop",
+		Message:      ChatCompletionMessage{Role: "assistant", Content: "recovered"},
+	}
+	withRecovery := withShadowRecoveryChatCapabilities(ShadowLanguageModelProvider{
+		PrimaryProvider: shadowRecoveryChatTestProvider{recoveryResponse: recoveryResponse},
+	})
+	withoutRecovery := withShadowRecoveryChatCapabilities(ShadowLanguageModelProvider{
+		PrimaryProvider: resolverLanguageModelProviderWithoutChat{},
+	})
+
+	recoveryProvider, hasRecovery := withRecovery.(RecoveryChatCompleter)
+	if !hasRecovery {
+		t.Fatal("expected recovery chat capability to be preserved")
+	}
+	response, errorValue := recoveryProvider.GenerateRecoveryChatCompletion(context.Background(), ChatCompletionRequest{})
+	if errorValue != nil || response.Message.Content != "recovered" {
+		t.Fatalf("expected delegated recovery chat, got %+v, %v", response, errorValue)
+	}
+	if _, hasLocalRecovery := withRecovery.(LocalRecoveryChatCompleter); hasLocalRecovery {
+		t.Fatal("expected local recovery chat capability to remain absent")
+	}
+	if _, hasRecovery := withoutRecovery.(RecoveryChatCompleter); hasRecovery {
+		t.Fatal("expected recovery chat capability to remain absent")
+	}
+	if _, hasLocalRecovery := withoutRecovery.(LocalRecoveryChatCompleter); hasLocalRecovery {
+		t.Fatal("expected local recovery chat capability to remain absent")
+	}
+}

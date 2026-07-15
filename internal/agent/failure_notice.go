@@ -224,6 +224,14 @@ func normalizeFailureReport(report FailureReport) FailureReport {
 }
 
 func (generator FailureNoticeGenerator) generateRecoveryText(ctx context.Context, prompt string) (string, error) {
+	if reply, errorValue, isSupported := generateRecoveryChatText(ctx, generator.LanguageModel, prompt); isSupported {
+		if errorValue == nil && reply != "" {
+			return reply, nil
+		}
+		if contextError := recoveryContextError(ctx, errorValue); contextError != nil {
+			return reply, contextError
+		}
+	}
 	recoveryProvider, isRecoveryProvider := generator.LanguageModel.(llm.RecoveryResponder)
 	if isRecoveryProvider {
 		reply, errorValue := recoveryProvider.GenerateRecoveryResponse(ctx, prompt)
@@ -234,12 +242,66 @@ func (generator FailureNoticeGenerator) generateRecoveryText(ctx context.Context
 }
 
 func (generator FailureNoticeGenerator) generateLocalRecoveryText(ctx context.Context, prompt string) (string, error) {
+	if reply, errorValue, isSupported := generateLocalRecoveryChatText(ctx, generator.LanguageModel, prompt); isSupported {
+		if errorValue == nil && reply != "" {
+			return reply, nil
+		}
+		if contextError := recoveryContextError(ctx, errorValue); contextError != nil {
+			return reply, contextError
+		}
+	}
 	localRecoveryProvider, isLocalRecoveryProvider := generator.LanguageModel.(llm.LocalRecoveryResponder)
 	if !isLocalRecoveryProvider {
 		return "", errors.New("local recovery provider unavailable")
 	}
 	reply, errorValue := localRecoveryProvider.GenerateLocalRecoveryResponse(ctx, prompt)
 	return strings.TrimSpace(reply), errorValue
+}
+
+func generateRecoveryChatText(ctx context.Context, provider llm.LanguageModelProvider, prompt string) (string, error, bool) {
+	recoveryProvider, isRecoveryProvider := provider.(llm.RecoveryChatCompleter)
+	if !isRecoveryProvider {
+		return "", nil, false
+	}
+	response, errorValue := recoveryProvider.GenerateRecoveryChatCompletion(ctx, recoveryChatCompletionRequest(prompt))
+	if errorValue != nil {
+		return "", errorValue, true
+	}
+	reply, errorValue := llm.RecoveryChatCompletionText(response)
+	return reply, errorValue, true
+}
+
+func generateLocalRecoveryChatText(ctx context.Context, provider llm.LanguageModelProvider, prompt string) (string, error, bool) {
+	localRecoveryProvider, isLocalRecoveryProvider := provider.(llm.LocalRecoveryChatCompleter)
+	if !isLocalRecoveryProvider {
+		return "", nil, false
+	}
+	response, errorValue := localRecoveryProvider.GenerateLocalRecoveryChatCompletion(ctx, recoveryChatCompletionRequest(prompt))
+	if errorValue != nil {
+		return "", errorValue, true
+	}
+	reply, errorValue := llm.RecoveryChatCompletionText(response)
+	return reply, errorValue, true
+}
+
+func recoveryChatCompletionRequest(prompt string) llm.ChatCompletionRequest {
+	return llm.ChatCompletionRequest{Messages: []llm.ChatCompletionMessage{{
+		Role:    "user",
+		Content: prompt,
+	}}}
+}
+
+func recoveryContextError(ctx context.Context, errorValue error) error {
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+	if errors.Is(errorValue, context.Canceled) {
+		return context.Canceled
+	}
+	if errors.Is(errorValue, context.DeadlineExceeded) {
+		return context.DeadlineExceeded
+	}
+	return nil
 }
 
 func (generator FailureNoticeGenerator) generateLocalFailureNotice(ctx context.Context, report FailureReport, rejectedReply string) (FailureNotice, string, bool) {

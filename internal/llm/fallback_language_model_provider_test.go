@@ -16,6 +16,37 @@ type staticLanguageModelProvider struct {
 	structuredResponseCalls *int
 }
 
+type recoveryChatLanguageModelProvider struct {
+	response   ChatCompletionResponse
+	error      error
+	chatCalls  *int
+	localCalls *int
+	localReply ChatCompletionResponse
+	localError error
+}
+
+func (provider recoveryChatLanguageModelProvider) GenerateResponse(context.Context, string) (string, error) {
+	return "", provider.error
+}
+
+func (provider recoveryChatLanguageModelProvider) GenerateStructuredResponse(context.Context, StructuredResponseRequest) (StructuredResponse, error) {
+	return StructuredResponse{}, provider.error
+}
+
+func (provider recoveryChatLanguageModelProvider) GenerateRecoveryChatCompletion(context.Context, ChatCompletionRequest) (ChatCompletionResponse, error) {
+	if provider.chatCalls != nil {
+		(*provider.chatCalls)++
+	}
+	return provider.response, provider.error
+}
+
+func (provider recoveryChatLanguageModelProvider) GenerateLocalRecoveryChatCompletion(context.Context, ChatCompletionRequest) (ChatCompletionResponse, error) {
+	if provider.localCalls != nil {
+		(*provider.localCalls)++
+	}
+	return provider.localReply, provider.localError
+}
+
 func (staticLanguageModelProvider staticLanguageModelProvider) GenerateResponse(responseContext context.Context, prompt string) (string, error) {
 	_ = responseContext
 	_ = prompt
@@ -80,6 +111,105 @@ func TestFallbackLanguageModelProviderUsesFallbackAfterPrimaryFailure(t *testing
 	}
 	if structuredResponse.ProviderName != "litert-lm" {
 		t.Fatalf("expected fallback provider name, got %q", structuredResponse.ProviderName)
+	}
+}
+
+func TestFallbackLanguageModelProviderUsesRecoveryChatFallbackAfterPrimaryFailure(t *testing.T) {
+	primaryCalls := 0
+	fallbackCalls := 0
+	provider := FallbackLanguageModelProvider{
+		PrimaryProvider: recoveryChatLanguageModelProvider{
+			error:     errors.New("primary chat failed"),
+			chatCalls: &primaryCalls,
+		},
+		FallbackProvider: recoveryChatLanguageModelProvider{
+			response: ChatCompletionResponse{
+				FinishReason: "stop",
+				Message:      ChatCompletionMessage{Role: "assistant", Content: "fallback recovery chat"},
+			},
+			chatCalls: &fallbackCalls,
+		},
+	}
+
+	response, errorValue := provider.GenerateRecoveryChatCompletion(context.Background(), ChatCompletionRequest{})
+	if errorValue != nil || response.Message.Content != "fallback recovery chat" {
+		t.Fatalf("expected recovery chat fallback, got %+v, %v", response, errorValue)
+	}
+	if !response.UsedFallback || primaryCalls != 1 || fallbackCalls != 1 {
+		t.Fatalf("expected one primary and fallback call with fallback marker, got response=%+v primary=%d fallback=%d", response, primaryCalls, fallbackCalls)
+	}
+}
+
+func TestFallbackLanguageModelProviderUsesRecoveryChatFallbackAfterBlankPrimarySuccess(t *testing.T) {
+	var logBuffer bytes.Buffer
+	primaryCalls := 0
+	fallbackCalls := 0
+	provider := FallbackLanguageModelProvider{
+		PrimaryProvider: recoveryChatLanguageModelProvider{
+			response: ChatCompletionResponse{
+				FinishReason: "stop",
+				Message:      ChatCompletionMessage{Role: "assistant"},
+			},
+			chatCalls: &primaryCalls,
+		},
+		FallbackProvider: recoveryChatLanguageModelProvider{
+			response: ChatCompletionResponse{
+				FinishReason: "stop",
+				Message:      ChatCompletionMessage{Role: "assistant", Content: "fallback recovery chat"},
+			},
+			chatCalls: &fallbackCalls,
+		},
+		Logger: slog.New(slog.NewTextHandler(&logBuffer, nil)),
+	}
+
+	response, errorValue := provider.GenerateRecoveryChatCompletion(context.Background(), ChatCompletionRequest{})
+	if errorValue != nil || response.Message.Content != "fallback recovery chat" {
+		t.Fatalf("expected blank primary success to use fallback, got %+v, %v", response, errorValue)
+	}
+	if !response.UsedFallback || primaryCalls != 1 || fallbackCalls != 1 {
+		t.Fatalf("expected one primary and fallback call, got response=%+v primary=%d fallback=%d", response, primaryCalls, fallbackCalls)
+	}
+	if !strings.Contains(logBuffer.String(), "recovery chat completion is empty") {
+		t.Fatalf("expected semantic failure log, got %q", logBuffer.String())
+	}
+}
+
+func TestFallbackLanguageModelProviderLogsNilErrorSafely(t *testing.T) {
+	var logBuffer bytes.Buffer
+	provider := FallbackLanguageModelProvider{Logger: slog.New(slog.NewTextHandler(&logBuffer, nil))}
+
+	provider.logFallback("recovery_chat", nil)
+
+	if !strings.Contains(logBuffer.String(), `error="unknown error"`) {
+		t.Fatalf("expected nil error to be logged safely, got %q", logBuffer.String())
+	}
+}
+
+func TestFallbackLanguageModelProviderDoesNotUseRecoveryChatFallbackAfterCancellation(t *testing.T) {
+	responseContext, cancel := context.WithCancel(context.Background())
+	cancel()
+	primaryCalls := 0
+	fallbackCalls := 0
+	provider := FallbackLanguageModelProvider{
+		PrimaryProvider: recoveryChatLanguageModelProvider{
+			error:     context.Canceled,
+			chatCalls: &primaryCalls,
+		},
+		FallbackProvider: recoveryChatLanguageModelProvider{
+			response: ChatCompletionResponse{
+				FinishReason: "stop",
+				Message:      ChatCompletionMessage{Role: "assistant", Content: "fallback recovery chat"},
+			},
+			chatCalls: &fallbackCalls,
+		},
+	}
+
+	response, errorValue := provider.GenerateRecoveryChatCompletion(responseContext, ChatCompletionRequest{})
+	if response.Message.Content != "" || !errors.Is(errorValue, context.Canceled) {
+		t.Fatalf("expected canceled recovery chat without fallback, got %+v and %v", response, errorValue)
+	}
+	if primaryCalls != 1 || fallbackCalls != 0 {
+		t.Fatalf("expected only primary recovery chat call, got primary=%d fallback=%d", primaryCalls, fallbackCalls)
 	}
 }
 

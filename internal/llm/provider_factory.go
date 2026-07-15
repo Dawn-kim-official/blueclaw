@@ -48,12 +48,12 @@ func withConfiguredSDKDShadow(primaryProvider LanguageModelProvider, runtimeConf
 		return nil, errorValue
 	}
 	shadowProvider.StructuredFallbackProvider = nil
-	return ShadowLanguageModelProvider{
+	return withShadowRecoveryChatCapabilities(ShadowLanguageModelProvider{
 		PrimaryProvider:       primaryProvider,
 		ShadowProvider:        shadowProvider,
 		Logger:                slog.Default(),
 		StructuredSchemaNames: configuredSDKDSchemaNames(runtimeConfiguration),
-	}, nil
+	}), nil
 }
 
 func newSDKDClient(runtimeConfiguration config.RuntimeConfiguration, modelName string) (SDKDClient, error) {
