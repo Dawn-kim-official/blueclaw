@@ -14,7 +14,7 @@ import (
 
 func TestCompletionStateWaitsForModelWordingBeforeCompleting(t *testing.T) {
 	services := newTurnRunnerTestServices(&sequenceLanguageModel{}, TurnOptions{})
-	transition := services.runner.finalizeCompletionState("", "", AgentTurnRequest{}, nil, nil, nil, nil, CompletionState{}, "")
+	transition := services.runner.finalizeCompletionState(context.Background(), "", "", AgentTurnRequest{}, nil, nil, nil, nil, CompletionState{}, "")
 	if transition.IsCompleted || transition.DidTransition {
 		t.Fatalf("expected empty model wording to defer completion, got %+v", transition)
 	}

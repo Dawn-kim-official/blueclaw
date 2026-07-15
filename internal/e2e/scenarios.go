@@ -102,6 +102,7 @@ func WebSearchAcceptanceScenario(artifactDirectoryPath string) VirtualSessionSce
 		ArtifactDirectoryPath: artifactDirectoryPath,
 		AllowedTools:          []string{"conversation.history", "memory.search", "web.search"},
 		CapabilityToolNames:   []string{"web.search"},
+		RouterTaskShape:       agent.TaskShapeResearchTask,
 		Turns: []VirtualTurn{{
 			Prompt:                 "오늘 기준으로 외부 검색이 필요한 정보를 찾아서 핵심만 알려줘",
 			RouterRequiredEvidence: []string{"web.search"},

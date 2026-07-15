@@ -316,7 +316,7 @@ func (turnRouter TurnRouter) planWithLanguageModel(ctx context.Context, request 
 	return turnDecision, nil
 }
 
-const requiredEvidenceReaskInstruction = "This request was already classified as side-effect work but requiredEvidence came back empty, which is not allowed. This task performs a side effect and its completion must be observable. Set requiredEvidence to one or more exact names copied from Registered requiredEvidence names above whose successful observation proves this side effect happened; never use capability.invoke. requiredEvidence must not be empty for this decision."
+const requiredEvidenceReaskInstruction = "This request was already classified as side-effect work but requiredEvidence does not contain a side-effect operation. This task changes state and its completion must be observable. Replace requiredEvidence with one or more exact names copied from Registered requiredEvidence names above whose successful observation proves the requested change happened. Read-only operations such as list, history, search, status, context, preview, snapshot, and screenshot do not prove a change. Never use capability.invoke."
 
 func (turnRouter TurnRouter) ReaskRequiredEvidence(ctx context.Context, request AgentRequest) (TurnDecision, error) {
 	if turnRouter.languageModel == nil {
