@@ -147,6 +147,77 @@ func TestAgentTurnRunnerFinalizesSuccessfulSideEffectAtExecutionEffortDeadline(t
 	}
 }
 
+func TestAgentTurnRunnerCompletesSuccessfulSideEffectWhenElapsedFinalizerFails(t *testing.T) {
+	languageModel := &elapsedFinalizationLanguageModel{
+		firstAction:    `{"action":"continue","toolName":"capability.invoke","toolInput":{"operation":"task.add","input":{"prompt":"분기 결산 운영 검토"}}}`,
+		finalizerError: context.DeadlineExceeded,
+	}
+	recoveryLanguageModel := &sequenceLanguageModel{textResponses: []string{"분기 결산 운영 검토 업무를 등록했습니다."}}
+	services := newTurnRunnerTestServicesWithRecoveryModel(languageModel, recoveryLanguageModel, TurnOptions{MaxElapsedSecond: 1})
+	toolRegistry := newTestCapabilityToolSet([]string{"task.add"})
+	toolRegistry.RegisterTool(ToolDefinition{Name: "task.add"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return ToolSuccess(`{"taskID":"task-1"}`), nil
+	})
+
+	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
+		RequesterPersonID:     "person-1",
+		ConversationID:        "conversation-1",
+		Prompt:                "분기 결산 운영 검토 업무를 등록해줘",
+		ResponseLanguage:      ResponseLanguageKorean,
+		ToolSet:               toolRegistry,
+		PinnedToolNames:       toolRegistry.ListToolNames(),
+		RequiredEvidenceTools: []string{"task.add"},
+		EffortStartedAt:       time.Now().Add(-750 * time.Millisecond),
+	})
+
+	if errorValue != nil {
+		t.Fatalf("expected elapsed evidence completion, got %v", errorValue)
+	}
+	if result.TaskRun.Status != task.TaskStatusCompleted {
+		t.Fatalf("expected completed task, got %+v", result.TaskRun)
+	}
+	if result.FinishMessage != recoveryLanguageModel.textResponses[0] {
+		t.Fatalf("expected model-authored completion reply, got %q", result.FinishMessage)
+	}
+	if languageModel.finalizerCalls != 1 {
+		t.Fatalf("expected one failed finalizer attempt, got %d", languageModel.finalizerCalls)
+	}
+	if len(recoveryLanguageModel.textPrompts) != 1 || !strings.Contains(recoveryLanguageModel.textPrompts[0], "- task.add:") || strings.Contains(recoveryLanguageModel.textPrompts[0], "- capability.invoke:") {
+		t.Fatalf("expected normalized task.add evidence in completion prompt, got %+v", recoveryLanguageModel.textPrompts)
+	}
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.completion_state_finalized", "task.add") {
+		t.Fatal("expected completion to preserve successful evidence")
+	}
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.limit_completed_from_evidence", "max_elapsed") {
+		t.Fatal("expected elapsed evidence completion event")
+	}
+}
+
+func TestElapsedCompletionRecoveryHonorsCallerCancellation(t *testing.T) {
+	recoveryLanguageModel := &cancellationRecoveryLanguageModel{started: make(chan struct{})}
+	services := newTurnRunnerTestServicesWithRecoveryModel(deadlineBlockingLanguageModel{}, recoveryLanguageModel, TurnOptions{MaxElapsedSecond: 1})
+	request := AgentTurnRequest{RequesterPersonID: "person-1", ConversationID: "conversation-1", Prompt: "업무를 등록해줘"}
+	requirements := []toolUseRequirement{{ToolName: "task.add"}}
+	finalization := limitFinalizationResult{Observations: []turnObservation{newContentObservation("obs-001", "continue", "task.add", `{"taskID":"task-1"}`)}}
+	callerContext, cancelCaller := context.WithCancel(context.Background())
+	resultChannel := make(chan limitFinalizationResult, 1)
+
+	go func() {
+		resultChannel <- services.runner.finalizeElapsedLimitWithEvidence(callerContext, "task-1", request, "max_elapsed", requirements, nil, finalization)
+	}()
+	<-recoveryLanguageModel.started
+	cancelCaller()
+
+	select {
+	case result := <-resultChannel:
+		if result.IsCompleted {
+			t.Fatal("expected cancellation to stop recovery completion")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("expected recovery completion to honor caller cancellation")
+	}
+}
+
 func TestAgentTurnRunnerPreservesCallerCancellationBeforeEffortDeadline(t *testing.T) {
 	services := newTurnRunnerTestServices(deadlineBlockingLanguageModel{}, TurnOptions{MaxElapsedSecond: 30})
 	runContext, cancelRun := context.WithCancel(context.Background())
@@ -305,6 +376,20 @@ func TestRecoveryFinalizationContextHonorsParentDeadline(t *testing.T) {
 
 type deadlineBlockingLanguageModel struct{}
 
+type cancellationRecoveryLanguageModel struct {
+	started chan struct{}
+}
+
+func (languageModel *cancellationRecoveryLanguageModel) GenerateResponse(responseContext context.Context, _ string) (string, error) {
+	close(languageModel.started)
+	<-responseContext.Done()
+	return "", responseContext.Err()
+}
+
+func (languageModel *cancellationRecoveryLanguageModel) GenerateStructuredResponse(context.Context, llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
+	return llm.StructuredResponse{}, errors.New("structured recovery is unavailable")
+}
+
 func newTurnRunnerTestServicesWithRecoveryModel(primaryLanguageModel llm.LanguageModelProvider, recoveryLanguageModel llm.LanguageModelProvider, options TurnOptions) turnRunnerTestServices {
 	taskEventService := task.NewTaskEventService()
 	taskStepService := task.NewTaskStepService()
@@ -330,9 +415,11 @@ func (deadlineBlockingLanguageModel) GenerateStructuredResponse(responseContext 
 }
 
 type elapsedFinalizationLanguageModel struct {
-	firstAction string
-	finalAction string
-	actionCount int
+	firstAction    string
+	finalAction    string
+	finalizerError error
+	finalizerCalls int
+	actionCount    int
 }
 
 func (languageModel *elapsedFinalizationLanguageModel) GenerateResponse(context.Context, string) (string, error) {
@@ -341,6 +428,10 @@ func (languageModel *elapsedFinalizationLanguageModel) GenerateResponse(context.
 
 func (languageModel *elapsedFinalizationLanguageModel) GenerateStructuredResponse(responseContext context.Context, request llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
 	if request.StructuredOutputSchema.Name == "blueclaw_agent_turn_finalizer" {
+		languageModel.finalizerCalls++
+		if languageModel.finalizerError != nil {
+			return llm.StructuredResponse{}, languageModel.finalizerError
+		}
 		return llm.StructuredResponse{Content: languageModel.finalAction}, nil
 	}
 	languageModel.actionCount++
