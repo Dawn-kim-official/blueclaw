@@ -881,8 +881,8 @@ func TestAgentKernelPromotesSelectedScheduledSkillOverIntakeRefusal(t *testing.T
 	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.intake", "bounded_task") {
 		t.Fatal("expected selected scheduled skill to promote intake")
 	}
-	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.completion_state_finalized", "schedule.create") {
-		t.Fatal("expected schedule evidence to finalize completion")
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.action", "finish") {
+		t.Fatal("expected model finish action after schedule evidence")
 	}
 }
 
