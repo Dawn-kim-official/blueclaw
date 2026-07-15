@@ -76,7 +76,7 @@ func (agentTurnRunner *AgentTurnRunner) applyCompletionState(ctx context.Context
 			return agentTurnRunner.attachCompletionArtifactsFromEffect(ctx, taskRunID, request, observations, attachments, state, *transition.Effect.ToolCall)
 		}
 	case agentEffectFinish:
-		return agentTurnRunner.finalizeCompletionState(taskRunID, taskStepID, request, requirements, observations, attachments, criteria, state, lastModelMessage)
+		return agentTurnRunner.finalizeCompletionState(ctx, taskRunID, taskStepID, request, requirements, observations, attachments, criteria, state, lastModelMessage)
 	case agentEffectNone:
 		if len(transition.State.Observations) > len(observations) {
 			return agentTurnRunner.blockInvalidCompletionArtifactsFromTransition(taskRunID, observations, attachments, state, transition)
@@ -172,13 +172,19 @@ func completionAttachmentFailureContent(content string, paths []string) string {
 	return trimmedContent + "\nrequested paths: " + strings.Join(paths, "\n")
 }
 
-func (agentTurnRunner *AgentTurnRunner) finalizeCompletionState(taskRunID string, taskStepID string, request AgentTurnRequest, requirements []toolUseRequirement, observations []turnObservation, attachments []FileAttachment, criteria []qualityCriterion, state CompletionState, lastModelMessage string) completionTransition {
+func (agentTurnRunner *AgentTurnRunner) finalizeCompletionState(ctx context.Context, taskRunID string, taskStepID string, request AgentTurnRequest, requirements []toolUseRequirement, observations []turnObservation, attachments []FileAttachment, criteria []qualityCriterion, state CompletionState, lastModelMessage string) completionTransition {
+	if ctx.Err() != nil {
+		return completionTransition{Observations: observations, Attachments: attachments}
+	}
 	modelWording := deliverableModelWording(lastModelMessage)
 	if modelWording == "" {
 		return completionTransition{Observations: observations, Attachments: attachments}
 	}
 	actionDocument := completionStateFinishDocument(state, modelWording)
-	completionGateResult := agentTurnRunner.validateCompletionGateForRequestWithExpectedResults(context.Background(), taskRunID, request, requirements, observations, attachments, criteria, actionDocument)
+	completionGateResult := agentTurnRunner.validateCompletionGateForRequestWithExpectedResults(ctx, taskRunID, request, requirements, observations, attachments, criteria, actionDocument)
+	if ctx.Err() != nil {
+		return completionTransition{Observations: observations, Attachments: attachments}
+	}
 	agentTurnRunner.appendValidityReview(taskRunID, "completion_state", completionGateResult.ValidityState)
 	if !completionGateResult.IsSatisfied {
 		agentTurnRunner.appendEvent(taskRunID, "agent.completion_state_rejected", marshalEventBody(map[string]string{"reason": completionGateResult.Message}))

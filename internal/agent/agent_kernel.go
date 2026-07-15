@@ -334,9 +334,19 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 		prunedEvidenceReport = evidenceValidationReport
 		prunedEvidenceReport.Reason = "invalid required evidence pruned; the task keeps executing and real permission is enforced at execution"
 	}
+	hadReadOnlyRequiredEvidence := len(outcomeContract.RequiredEvidenceTools) > 0 && requiredEvidenceMissingForSideEffect(intakeDecision, outcomeContract, turnToolSet)
 	var requiredEvidenceReask requiredEvidenceReaskReport
 	if missingEvidenceReport := missingRequiredEvidenceReport(intakeDecision, outcomeContract, turnToolSet); !isDeterministicResume && strings.TrimSpace(missingEvidenceReport.Reason) != "" {
 		intakeDecision, outcomeContract, requiredEvidenceReask = agentKernel.reaskMissingRequiredEvidenceOnce(responseContext, request, intakeRequest, intakeDecision, outcomeContract, instructionBundle, executionPlan, hasExecutionPlan, requiredAttachmentSuffixes, turnToolSet, routerLanguageModel)
+	}
+	if hadReadOnlyRequiredEvidence && requiredEvidenceReask.WasAttempted && !requiredEvidenceReask.DidRecoverEvidence {
+		intakeDecision.Reason = "required side-effect evidence could not be selected"
+		intakeDecision.UserFacingReply = ""
+		result, blockError := agentKernel.completeIntakeOnlyRequest(responseContext, intakeRequest, intakeDecision, task.TaskStatusBlocked, routerCallLedger.records)
+		result.TurnRoute = turnDecision.Route
+		agentKernel.AppendTaskEvent(result.TaskRun.TaskRunID, requiredEvidenceReaskEventName, marshalEventBody(requiredEvidenceReask))
+		agentKernel.appendSiteRequirementNormalizationReports(result.TaskRun.TaskRunID, siteNormalizationReports)
+		return result, blockError
 	}
 	requiredEvidenceTools := outcomeContract.RequiredEvidenceTools
 	requiredAttachmentSuffixes = outcomeContract.RequiredAttachmentSuffixes

@@ -1599,6 +1599,9 @@ func (agentTurnRunner *AgentTurnRunner) finalizeElapsedLimitWithEvidence(ctx con
 		agentTurnRunner.appendEvent(taskRunID, "agent.limit_completion_reply_failed", marshalEventBody(map[string]string{"error": firstNonEmptyString(errorString(errorValue), "invalid completion reply")}))
 		return finalization
 	}
+	if ctx.Err() != nil || finalizationContext.Err() != nil {
+		return finalization
+	}
 	transition := agentTurnRunner.applyCompletionState(finalizationContext, taskRunID, taskRunID+":completion", request, requirements, finalization.Observations, finalization.Attachments, criteria, reply)
 	if !transition.IsCompleted {
 		return finalization

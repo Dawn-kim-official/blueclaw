@@ -62,6 +62,7 @@ type VirtualSessionScenario struct {
 	InitialToolNames          []string
 	InitialMemory             []memory.MemoryFact
 	RouterRequiredEvidence    []string
+	RouterTaskShape           agent.TaskShape
 	RouterTaskLevel           string
 	CodingTierVisionFallback  bool
 	AddressingResponse        string
@@ -96,6 +97,7 @@ type VirtualTurn struct {
 	ContextMaterials          []connectors.InputAttachment
 	ActionResponses           []string
 	RouterRequiredEvidence    []string
+	RouterTaskShape           agent.TaskShape
 	RouterSiteEvidence        string
 	RouterApproval            string
 	ExpectedSelectedSkills    []string
@@ -1749,6 +1751,13 @@ func scenarioTurnRouterResponse(scenario VirtualSessionScenario, virtualTurn Vir
 	if len(virtualTurn.RouterRequiredEvidence) > 0 {
 		requiredEvidence = virtualTurn.RouterRequiredEvidence
 	}
+	taskShape := scenario.RouterTaskShape
+	if virtualTurn.RouterTaskShape != "" {
+		taskShape = virtualTurn.RouterTaskShape
+	}
+	if taskShape == "" {
+		taskShape = agent.TaskShapeMaintenanceTask
+	}
 	siteEvidence := scenario.RouterSiteEvidence
 	if strings.TrimSpace(virtualTurn.RouterSiteEvidence) != "" {
 		siteEvidence = virtualTurn.RouterSiteEvidence
@@ -1760,7 +1769,7 @@ func scenarioTurnRouterResponse(scenario VirtualSessionScenario, virtualTurn Vir
 	routerDocument := map[string]any{
 		"route":                  route,
 		"classification":         "bounded_task",
-		"taskShape":              "maintenance_task",
+		"taskShape":              taskShape,
 		"level":                  string(taskLevel),
 		"requestedOutputFormats": nil,
 		"expectedResults":        []any{},

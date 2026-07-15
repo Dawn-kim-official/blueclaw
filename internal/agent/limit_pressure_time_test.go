@@ -218,6 +218,24 @@ func TestElapsedCompletionRecoveryHonorsCallerCancellation(t *testing.T) {
 	}
 }
 
+func TestElapsedCompletionDoesNotCommitAfterRecoveryReplyCancellation(t *testing.T) {
+	callerContext, cancelCaller := context.WithCancel(context.Background())
+	recoveryLanguageModel := cancelAfterReplyLanguageModel{cancel: cancelCaller}
+	services := newTurnRunnerTestServicesWithRecoveryModel(deadlineBlockingLanguageModel{}, recoveryLanguageModel, TurnOptions{MaxElapsedSecond: 1})
+	request := AgentTurnRequest{RequesterPersonID: "person-1", ConversationID: "conversation-1", Prompt: "업무를 등록해줘"}
+	requirements := []toolUseRequirement{{ToolName: "task.add"}}
+	finalization := limitFinalizationResult{Observations: []turnObservation{newContentObservation("obs-001", "continue", "task.add", `{"taskID":"task-1"}`)}}
+
+	result := services.runner.finalizeElapsedLimitWithEvidence(callerContext, "task-1", request, "max_elapsed", requirements, nil, finalization)
+
+	if result.IsCompleted {
+		t.Fatal("expected cancellation after recovery wording to prevent completion")
+	}
+	if taskEventsContain(services.taskEventService.ListTaskEvent("task-1"), "agent.limit_completed_from_evidence", "max_elapsed") {
+		t.Fatal("expected no completion event after caller cancellation")
+	}
+}
+
 func TestElapsedCompletionDoesNotSubstituteDifferentSideEffectEvidence(t *testing.T) {
 	recoveryLanguageModel := &sequenceLanguageModel{textResponses: []string{"업무를 수정했습니다."}}
 	services := newTurnRunnerTestServicesWithRecoveryModel(deadlineBlockingLanguageModel{}, recoveryLanguageModel, TurnOptions{MaxElapsedSecond: 1})
@@ -404,6 +422,19 @@ type deadlineBlockingLanguageModel struct{}
 
 type cancellationRecoveryLanguageModel struct {
 	started chan struct{}
+}
+
+type cancelAfterReplyLanguageModel struct {
+	cancel context.CancelFunc
+}
+
+func (languageModel cancelAfterReplyLanguageModel) GenerateResponse(context.Context, string) (string, error) {
+	languageModel.cancel()
+	return "업무를 등록했습니다.", nil
+}
+
+func (cancelAfterReplyLanguageModel) GenerateStructuredResponse(context.Context, llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
+	return llm.StructuredResponse{}, errors.New("structured recovery is unavailable")
 }
 
 func (languageModel *cancellationRecoveryLanguageModel) GenerateResponse(responseContext context.Context, _ string) (string, error) {
