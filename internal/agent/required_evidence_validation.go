@@ -130,7 +130,8 @@ func requiredEvidenceMissingForSideEffect(intakeDecision IntakeDecision, outcome
 	if intakeDecision.Classification != IntakeClassificationBoundedTask {
 		return false
 	}
-	return intakeDecision.TaskShape == TaskShapeScheduledTask ||
+	return intakeDecision.TaskShape == TaskShapeMaintenanceTask ||
+		intakeDecision.TaskShape == TaskShapeScheduledTask ||
 		hasArtifactOutputFormat(intakeDecision.RequestedOutputFormats) ||
 		intakeDecisionRequiresSiteEvidence(intakeDecision) ||
 		requiredEvidenceInitialToolsNeedEvidence(toolSet, intakeDecision.InitialToolNames)
