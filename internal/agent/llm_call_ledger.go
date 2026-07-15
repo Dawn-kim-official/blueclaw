@@ -9,6 +9,7 @@ import (
 )
 
 const llmCallErrorMaximumCharacters = 300
+const turnRouterSchemaName = "blueclaw_turn_router"
 
 type llmCallRecord struct {
 	Kind                  string  `json:"kind"`
@@ -33,6 +34,21 @@ type llmCallRecord struct {
 }
 
 type llmCallObserver func(record llmCallRecord)
+
+type turnRouterCallLedger struct {
+	records []llmCallRecord
+}
+
+func (ledger *turnRouterCallLedger) observe(record llmCallRecord) {
+	if record.SchemaName != turnRouterSchemaName {
+		return
+	}
+	ledger.records = append(ledger.records, record)
+}
+
+func (ledger *turnRouterCallLedger) languageModel(provider llm.LanguageModelProvider) llm.LanguageModelProvider {
+	return observeLanguageModel(provider, ledger.observe)
+}
 
 type observedLanguageModel struct {
 	provider llm.LanguageModelProvider
