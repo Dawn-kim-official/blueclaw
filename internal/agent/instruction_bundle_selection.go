@@ -9,7 +9,13 @@ func applySelectedSkillCompletionRequirements(decision IntakeDecision, instructi
 	if decision.Classification != IntakeClassificationBoundedTask {
 		return decision
 	}
-	for _, skillInstruction := range selectedSkillInstructionList(instructionBundle) {
+	selectedSkills := selectedSkillInstructionList(instructionBundle)
+	if len(selectedSkills) > 0 && instructionBundle.HasContractSkillArbitration {
+		decision.RequiredEvidenceTools = appendUniqueStrings(instructionBundle.RequiredEvidenceTools)
+	} else {
+		decision.RequiredEvidenceTools = evidenceToolsOwnedBySelectedSkills(decision.RequiredEvidenceTools, selectedSkills)
+	}
+	for _, skillInstruction := range selectedSkills {
 		if !selectedSkillRequiresCompletionEvidence(skillInstruction) {
 			continue
 		}
@@ -17,6 +23,25 @@ func applySelectedSkillCompletionRequirements(decision IntakeDecision, instructi
 		decision.RequestedOutputFormats = appendUniqueStrings(decision.RequestedOutputFormats, attachmentSuffixFormats(skillInstruction.Completion.RequiredAttachmentSuffixes)...)
 	}
 	return decision
+}
+
+func evidenceToolsOwnedBySelectedSkills(toolNames []string, selectedSkills []SkillInstruction) []string {
+	if len(selectedSkills) == 0 {
+		return appendUniqueStrings(toolNames)
+	}
+	ownedToolNames := map[string]bool{}
+	for _, skillInstruction := range selectedSkills {
+		for _, toolName := range appendUniqueStrings(SkillToolNames(skillInstruction), skillInstruction.Completion.RequiredEvidenceTools...) {
+			ownedToolNames[toolName] = true
+		}
+	}
+	filteredToolNames := []string{}
+	for _, toolName := range appendUniqueStrings(toolNames) {
+		if ownedToolNames[toolName] {
+			filteredToolNames = append(filteredToolNames, toolName)
+		}
+	}
+	return filteredToolNames
 }
 
 func attachmentSuffixFormats(suffixes []string) []string {
@@ -105,19 +130,46 @@ func selectInstructionBundleForRequestWithRetrieverAndRouter(ctx context.Context
 		sources = append(sources, skillInstruction.Source)
 	}
 	skillDecisions = append(skillDecisions, blockedSkillSelectionDecisions(instructionBundle.Skills, skillDecisions, request, normalizedAgentProfileName(request.ProfileName))...)
+	requiredEvidenceTools := validatedContractEvidenceTools(contractArbitration, selectedSkillInstructions, request)
 	prompts = append(prompts, buildCompactSkillIndexPrompt(candidateInstructions))
 	prompts = append(prompts, buildSelectedSkillInstructionPrompt(defaultSkillInstructions))
 	prompts = append(prompts, buildSelectedSkillInstructionPrompt(selectedSkillInstructions))
 	return InstructionBundle{
-		Prompt:         strings.Join(nonEmptyStrings(prompts), "\n\n"),
-		Sources:        sources,
-		Skills:         appendSkillInstructions(instructionBundle.Skills, defaultSkillInstructions...),
-		SkillDecisions: skillDecisions,
-		RetrievalMode:  retrievalResult.RetrievalMode,
-		IndexStatus:    retrievalResult.IndexStatus,
-		CandidateCount: len(candidateInstructions),
-		SkillQueries:   append([]string{}, retrievalResult.QueryDescriptions...),
+		Prompt:                      strings.Join(nonEmptyStrings(prompts), "\n\n"),
+		Sources:                     sources,
+		Skills:                      appendSkillInstructions(instructionBundle.Skills, defaultSkillInstructions...),
+		SkillDecisions:              skillDecisions,
+		RequiredEvidenceTools:       requiredEvidenceTools,
+		HasContractSkillArbitration: hasContractArbitration,
+		RetrievalMode:               retrievalResult.RetrievalMode,
+		IndexStatus:                 retrievalResult.IndexStatus,
+		CandidateCount:              len(candidateInstructions),
+		SkillQueries:                append([]string{}, retrievalResult.QueryDescriptions...),
 	}
+}
+
+func validatedContractEvidenceTools(arbitration contractSkillArbitration, selectedSkills []SkillInstruction, request AgentRequest) []string {
+	ownedToolNames := map[string]bool{}
+	for _, skillInstruction := range selectedSkills {
+		for _, toolName := range appendUniqueStrings(SkillToolNames(skillInstruction), skillInstruction.Completion.RequiredEvidenceTools...) {
+			ownedToolNames[toolName] = true
+		}
+	}
+	validatedToolNames := validateOwnedToolNames(arbitration.ExpectedEvidence, ownedToolNames, request)
+	if len(validatedToolNames) > 0 {
+		return validatedToolNames
+	}
+	return validateOwnedToolNames(arbitration.RequiredNextTools, ownedToolNames, request)
+}
+
+func validateOwnedToolNames(toolNames []string, ownedToolNames map[string]bool, request AgentRequest) []string {
+	validatedToolNames := []string{}
+	for _, toolName := range appendUniqueStrings(toolNames) {
+		if ownedToolNames[toolName] && requestHasToolName(request, toolName) {
+			validatedToolNames = append(validatedToolNames, toolName)
+		}
+	}
+	return validatedToolNames
 }
 
 func instructionBundleWithPinnedSkills(instructionBundle InstructionBundle, request AgentRequest) InstructionBundle {

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -858,6 +859,9 @@ func TestContractSkillArbitrationSelectsUsefulCandidateFromTopK(t *testing.T) {
 	}
 	if !strings.Contains(selectedBundle.Prompt, "Create the document") || strings.Contains(selectedBundle.Prompt, "Use website build") {
 		t.Fatalf("expected only arbitrated document instructions, got %q", selectedBundle.Prompt)
+	}
+	if !selectedBundle.HasContractSkillArbitration || !reflect.DeepEqual(selectedBundle.RequiredEvidenceTools, []string{"file.deliver"}) {
+		t.Fatalf("expected exact arbitrated evidence, got %+v", selectedBundle.RequiredEvidenceTools)
 	}
 }
 

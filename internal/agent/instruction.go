@@ -9,14 +9,16 @@ type InstructionSource struct {
 }
 
 type InstructionBundle struct {
-	Prompt         string                   `json:"prompt"`
-	Sources        []InstructionSource      `json:"sources"`
-	Skills         []SkillInstruction       `json:"skills,omitempty"`
-	SkillDecisions []SkillSelectionDecision `json:"skillDecisions,omitempty"`
-	RetrievalMode  string                   `json:"retrievalMode,omitempty"`
-	IndexStatus    string                   `json:"indexStatus,omitempty"`
-	CandidateCount int                      `json:"candidateCount,omitempty"`
-	SkillQueries   []string                 `json:"skillQueries,omitempty"`
+	Prompt                      string                   `json:"prompt"`
+	Sources                     []InstructionSource      `json:"sources"`
+	Skills                      []SkillInstruction       `json:"skills,omitempty"`
+	SkillDecisions              []SkillSelectionDecision `json:"skillDecisions,omitempty"`
+	RequiredEvidenceTools       []string                 `json:"requiredEvidenceTools,omitempty"`
+	HasContractSkillArbitration bool                     `json:"hasContractSkillArbitration,omitempty"`
+	RetrievalMode               string                   `json:"retrievalMode,omitempty"`
+	IndexStatus                 string                   `json:"indexStatus,omitempty"`
+	CandidateCount              int                      `json:"candidateCount,omitempty"`
+	SkillQueries                []string                 `json:"skillQueries,omitempty"`
 }
 
 type SkillInstruction struct {
