@@ -345,24 +345,6 @@ func TestLimitReachedPromptPreservesFailureReportFacts(t *testing.T) {
 	}
 }
 
-func TestRequiredArtifactFailureReplyAcceptsConcreteNaturalSummary(t *testing.T) {
-	request := AgentTurnRequest{
-		Prompt:                     "https://example.com 보고 사업계획서 발표자료 ppt로 만들어줘",
-		RequiredEvidenceTools:      []string{"file.deliver"},
-		RequiredAttachmentSuffixes: []string{".pptx"},
-		OutcomeContract:            OutcomeContract{ArtifactRequirement: ArtifactRequirementRequired},
-	}
-	observations := []turnObservation{
-		newFailureObservation("obs-001", "continue", "browser_handoff.openURL", "Companion이 연결되어 있지 않아 브라우저를 열 수 없습니다.", FailureExternalService, FailureCodes.OperationFailed, "browser_handoff"),
-		newFailureObservation("obs-002", "continue", "terminal.run", `[ ERROR ] Failed converting Markdown. (EACCES: permission denied, open '/workspace/tmp-457-sVDK32cv3ara-.html')`, FailureExternalService, FailureCodes.OperationFailed, "terminal_run"),
-	}
-	reply := "PPTX는 첨부되지 않았습니다. 브라우저 열기는 Companion 미연결로 실패했고, 슬라이드 빌드는 Marp 임시 HTML 생성 권한 문제로 중단되어 presentation 임시 디렉터리 설정 확인이 필요합니다."
-
-	if failureReplyIsInvalidForRequest(reply, request, "no artifact attached", observations, nil) {
-		t.Fatal("expected required artifact failure reply with concrete natural facts to be accepted")
-	}
-}
-
 func TestRequiredArtifactPromptsForbidTextSubstitute(t *testing.T) {
 	request := AgentTurnRequest{
 		Prompt:                     "사업계획서 발표 자료 pptx 만들어줘",
@@ -373,9 +355,8 @@ func TestRequiredArtifactPromptsForbidTextSubstitute(t *testing.T) {
 
 	failurePrompt := buildFailureReplyPrompt(request, "terminal.run failed", nil, nil, ExecutionState{}, recoveryDecision{})
 	limitPrompt := buildLimitReachedPrompt(request, "max_iterations", nil, nil, ExecutionState{}, recoveryDecision{})
-	repairPrompt := buildLimitReachedRepairPrompt(limitPrompt, "텍스트로 정리해 드릴까요?", request, nil, 1)
 
-	for _, prompt := range []string{failurePrompt, limitPrompt, repairPrompt} {
+	for _, prompt := range []string{failurePrompt, limitPrompt} {
 		if !strings.Contains(prompt, "Do not offer chat text as a substitute") {
 			t.Fatalf("expected required artifact prompt to forbid chat text substitute, got %s", prompt)
 		}
@@ -467,14 +448,13 @@ func TestAgentTurnRunnerLimitReplyPromptHidesUndeliveredAttachments(t *testing.T
 	}
 }
 
-func TestAgentTurnRunnerRegeneratesLimitReplyWhenItMentionsNonDeliverableLocator(t *testing.T) {
+func TestAgentTurnRunnerDoesNotRegenerateLimitReplyFromStringPatterns(t *testing.T) {
 	languageModel := &sequenceLanguageModel{
 		contents: []string{
 			`{"action":"continue","toolName":"loop","toolInput":{}}`,
 		},
 		textResponses: []string{
 			"작업 결과는 sandbox:/mnt/data/Hermes_Agent_Slide_Part1.html에 있습니다.",
-			"작업은 시작했지만 HTML 파일을 완성하기 전에 중단되었습니다. 다시 시도할 수 있게 상태를 저장했습니다.",
 		},
 	}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 1})
@@ -493,10 +473,10 @@ func TestAgentTurnRunnerRegeneratesLimitReplyWhenItMentionsNonDeliverableLocator
 	if errorValue != nil {
 		t.Fatalf("expected limit result, got error: %v", errorValue)
 	}
-	if strings.Contains(result.UserNotice, "Hermes_Agent_Slide_Part1.html") {
-		t.Fatalf("expected generated reply without non-deliverable locator, got %q", result.UserNotice)
+	if !strings.Contains(result.UserNotice, "Hermes_Agent_Slide_Part1.html") {
+		t.Fatalf("expected model wording to pass through unchanged, got %q", result.UserNotice)
 	}
-	if len(languageModel.textPrompts) != 2 {
-		t.Fatalf("expected repair generation prompt, got %d prompts", len(languageModel.textPrompts))
+	if len(languageModel.textPrompts) != 1 {
+		t.Fatalf("expected one model wording call without deterministic repair, got %d prompts", len(languageModel.textPrompts))
 	}
 }

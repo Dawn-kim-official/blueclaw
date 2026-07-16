@@ -11,13 +11,12 @@ import (
 type taskReplyDecisionKind string
 
 const (
-	taskReplyDecisionConsume                 taskReplyDecisionKind = "consume"
-	taskReplyDecisionSuppressCancelled       taskReplyDecisionKind = "suppress_cancelled"
-	taskReplyDecisionSuppressSuperseded      taskReplyDecisionKind = "suppress_superseded"
-	taskReplyDecisionSuppressRequested       taskReplyDecisionKind = "suppress_requested"
-	taskReplyDecisionSendUserNotice          taskReplyDecisionKind = "send_user_notice"
-	taskReplyDecisionSuppressArtifactLocator taskReplyDecisionKind = "suppress_artifact_locator"
-	taskReplyDecisionSendFinal               taskReplyDecisionKind = "send_final"
+	taskReplyDecisionConsume            taskReplyDecisionKind = "consume"
+	taskReplyDecisionSuppressCancelled  taskReplyDecisionKind = "suppress_cancelled"
+	taskReplyDecisionSuppressSuperseded taskReplyDecisionKind = "suppress_superseded"
+	taskReplyDecisionSuppressRequested  taskReplyDecisionKind = "suppress_requested"
+	taskReplyDecisionSendUserNotice     taskReplyDecisionKind = "send_user_notice"
+	taskReplyDecisionSendFinal          taskReplyDecisionKind = "send_final"
 )
 
 type taskReplyDecision struct {
@@ -40,9 +39,6 @@ func decideTaskReply(turnResult agent.AgentTurnResult, isCancelledBeforeSend boo
 	}
 	if turnResult.TaskRun.Status != task.TaskStatusCompleted {
 		return taskReplyDecision{Kind: taskReplyDecisionSendUserNotice, Reason: "task_not_completed"}
-	}
-	if agent.FinishMessageContainsNonDeliverableArtifactLocator(turnResult.FinishMessage) {
-		return taskReplyDecision{Kind: taskReplyDecisionSuppressArtifactLocator, Reason: "non_deliverable_artifact_locator"}
 	}
 	return taskReplyDecision{Kind: taskReplyDecisionSendFinal}
 }
@@ -86,10 +82,6 @@ func (connectorRuntime *ConnectorRuntime) dispatchTaskReply(
 		if isSent {
 			return ConnectorRuntimeResult{Handled: true, Platform: platform, TaskRunID: taskRunID, Reason: decision.Reason, ReplyDispatchID: dispatchID}, nil
 		}
-		return ConnectorRuntimeResult{Handled: true, Platform: platform, TaskRunID: taskRunID, Reason: decision.Reason}, nil
-	case taskReplyDecisionSuppressArtifactLocator:
-		connectorRuntime.appendConnectorReplyEvent(taskRunID, "connector.reply.suppressed", connectorReplyEventBody(event, OutboundReply{TaskRunID: taskRunID, ReplyKind: connectorReplyKindSuccess}, "", "", decision.Reason))
-		connectorRuntime.logger.Warn("connector."+platform+".outbound.blocked", "messageID", event.MessageID, "taskRunID", taskRunID, "reason", decision.Reason)
 		return ConnectorRuntimeResult{Handled: true, Platform: platform, TaskRunID: taskRunID, Reason: decision.Reason}, nil
 	default:
 		return connectorRuntime.sendCompletedTaskReply(ctx, platform, event, taskRunID, replyTarget, turnResult, sendReply)

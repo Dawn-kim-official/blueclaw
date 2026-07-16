@@ -239,7 +239,7 @@ func (agentTurnRunner *AgentTurnRunner) prepareFailureNotice(recoveryContext con
 	return compressedNotice, compressedNotice.Source, compressedNotice.IsSendable
 }
 
-func (agentTurnRunner *AgentTurnRunner) prepareFinishMessageForPlatform(request AgentTurnRequest, reply string, attachments []FileAttachment) string {
+func (agentTurnRunner *AgentTurnRunner) prepareFinishMessageForPlatform(request AgentTurnRequest, reply string) string {
 	trimmedReply := strings.TrimSpace(reply)
 	if !textExceedsCharacterBudget(trimmedReply, finishMessageMaximumCharacters) {
 		return trimmedReply
@@ -252,10 +252,6 @@ func (agentTurnRunner *AgentTurnRunner) prepareFinishMessageForPlatform(request 
 		return trimmedReply
 	}
 	if textExceedsCharacterBudget(compressedReply, finishMessageMaximumCharacters) {
-		return trimmedReply
-	}
-	requiresAttachmentEvidence := len(attachments) > 0
-	if ValidateFinishMessageDelivery(compressedReply, attachments, requiresAttachmentEvidence) != nil {
 		return trimmedReply
 	}
 	return compressedReply
@@ -272,55 +268,14 @@ func (agentTurnRunner *AgentTurnRunner) generateFailureReply(request AgentTurnRe
 	}
 	prompt := buildFailureReplyPrompt(request, failureReason, observations, attachments, executionState, decision)
 	reply, errorValue := agentTurnRunner.generateRecoveryText(recoveryContext, prompt)
-	if errorValue == nil && reply != "" && !failureReplyIsInvalidForRequest(reply, request, failureReason, observations, attachments) {
+	if errorValue == nil && strings.TrimSpace(reply) != "" {
 		status.Source = "generated"
 		return reply, status, true
 	}
-	if errorValue == nil && reply != "" {
-		for repairCount := 1; repairCount <= 2; repairCount++ {
-			repairedReply, repairError := agentTurnRunner.generateRecoveryText(recoveryContext, buildFailureReplyRepairPrompt(prompt, reply, request, failureReason, observations, attachments, executionState, repairCount))
-			if repairError != nil || repairedReply == "" {
-				if degradedFailureReplyCanBeDelivered(reply, request, attachments) {
-					status.Source = "generated_degraded"
-					status.FirstInvalid = true
-					status.RepairCount = repairCount
-					status.Reason = "repair_failed_delivered_last_safe_reply"
-					status.TextRecoveryError = firstNonEmptyString(errorString(repairError), "empty_repair")
-					return reply, status, true
-				}
-				status.Source = "suppressed"
-				status.FirstInvalid = true
-				status.RepairCount = repairCount
-				status.Reason = "repair_failed"
-				status.TextRecoveryError = firstNonEmptyString(errorString(repairError), "empty_repair")
-				return "", status, false
-			}
-			if !failureReplyIsInvalidForRequest(repairedReply, request, failureReason, observations, attachments) {
-				status.Source = "generated_repair"
-				status.FirstInvalid = true
-				status.RepairCount = repairCount
-				return repairedReply, status, true
-			}
-			reply = repairedReply
-		}
-		status.FirstInvalid = true
-		status.RepairCount = 2
-	}
-	if degradedFailureReplyCanBeDelivered(reply, request, attachments) {
-		status.Source = "generated_degraded"
-		status.FirstInvalid = true
-		status.RepairCount = 2
-		status.Reason = "strict_failure_detail_missing"
-		return reply, status, true
-	}
 	status.Source = "suppressed"
-	status.Reason = firstNonEmptyString(status.Reason, "text_recovery_failed")
-	status.TextRecoveryError = firstNonEmptyString(errorString(errorValue), "invalid_generated_reply")
+	status.Reason = "text_recovery_failed"
+	status.TextRecoveryError = firstNonEmptyString(errorString(errorValue), "empty_reply")
 	return "", status, false
-}
-
-func degradedFailureReplyCanBeDelivered(reply string, request AgentTurnRequest, attachments []FileAttachment) bool {
-	return strings.TrimSpace(reply) != "" && !failureReplyIsInvalid(reply, attachments)
 }
 
 func failureNoticeStatusFacts(replyStatus any) []string {
@@ -388,31 +343,6 @@ func (agentTurnRunner *AgentTurnRunner) generateLimitReachedReply(request AgentT
 		status.Source = "suppressed"
 		status.Reason = "text_recovery_failed"
 		status.TextRecoveryError = firstNonEmptyString(errorString(errorValue), "empty_reply")
-		return "", status, false
-	}
-	if limitReachedReplyIsInvalid(reply, request, attachments) {
-		for repairCount := 1; repairCount <= 2; repairCount++ {
-			repairedReply, repairError := agentTurnRunner.generateRecoveryText(recoveryContext, buildLimitReachedRepairPrompt(finalizationPrompt, reply, request, attachments, repairCount))
-			if repairError != nil || repairedReply == "" {
-				status.Source = "suppressed"
-				status.FirstInvalid = true
-				status.RepairCount = repairCount
-				status.Reason = "repair_failed"
-				status.TextRecoveryError = firstNonEmptyString(errorString(repairError), "empty_repair")
-				return "", status, false
-			}
-			if !limitReachedReplyIsInvalid(repairedReply, request, attachments) {
-				status.Source = "generated_repair"
-				status.FirstInvalid = true
-				status.RepairCount = repairCount
-				return repairedReply, status, true
-			}
-			reply = repairedReply
-		}
-		status.Source = "suppressed"
-		status.FirstInvalid = true
-		status.RepairCount = 2
-		status.Reason = "invalid_repair"
 		return "", status, false
 	}
 	status.Source = "generated"
@@ -519,37 +449,6 @@ func buildFailureReplyPrompt(request AgentTurnRequest, failureReason string, obs
 	}), "\n\n")
 }
 
-func buildFailureReplyRepairPrompt(originalPrompt string, rejectedReply string, request AgentTurnRequest, failureReason string, observations []turnObservation, attachments []FileAttachment, executionState ExecutionState, repairCount int) string {
-	sections := []string{
-		originalPrompt,
-		"Previous draft was rejected because it was too vague, offered an invalid substitute, exposed raw diagnostics, or missed concrete failure facts.",
-		"Rewrite the final reply in natural user-facing language. Preserve the concrete safe failure facts from FailureReportFacts instead of summarizing them as a system or browser problem.",
-	}
-	if requiredArtifactWithoutAttachment(request, attachments) {
-		sections = append(sections, "This was a required artifact request. Do not offer chat text as a substitute, do not ask an open-ended follow-up, do not recommend external slide or document tools, and do not expose raw identifiers such as errorCode or operation_failed. Say the artifact was not attached, name each failed tool or stage in natural language, include each safe failure reason, and identify the next engineering check.")
-	}
-	if failureFacts := buildFailureReportFacts(observations, defaultRecoveryBudget()); len(failureFacts.Attempts) > 0 {
-		sections = append(sections, "FailureReportFacts that must be reflected accurately:\n"+marshalEventBody(failureFacts))
-	}
-	sections = append(sections, failurePromptContext(request, observations, attachments, executionState))
-	if reason := strings.TrimSpace(failureReason); reason != "" {
-		sections = append(sections, "Private failure reason:\n"+reason)
-	}
-	if repairCount > 1 {
-		sections = append(sections, "Use one or two Korean sentences. Be specific about the failed operation and the safe reason, but do not include internal paths or raw field names.")
-	}
-	sections = append(sections, "Rejected draft:\n"+strings.TrimSpace(rejectedReply))
-	return strings.Join(sections, "\n\n")
-}
-
-func failureReplyIsInvalid(reply string, _ []FileAttachment) bool {
-	return ValidateUserNoticeDelivery(reply) != nil
-}
-
-func failureReplyIsInvalidForRequest(reply string, _ AgentTurnRequest, _ string, _ []turnObservation, attachments []FileAttachment) bool {
-	return failureReplyIsInvalid(reply, attachments)
-}
-
 func requiredArtifactWithoutAttachment(request AgentTurnRequest, attachments []FileAttachment) bool {
 	return requestRequiresFileAttachment(request) && len(attachments) == 0
 }
@@ -613,29 +512,6 @@ func observationsWithoutAttachments(observations []turnObservation) []turnObserv
 		sanitizedObservations = append(sanitizedObservations, observation)
 	}
 	return sanitizedObservations
-}
-
-func buildLimitReachedRepairPrompt(originalPrompt string, rejectedReply string, request AgentTurnRequest, attachments []FileAttachment, repairCount int) string {
-	sections := []string{
-		originalPrompt,
-		"Previous draft was rejected because it either exposed internal runtime details or claimed an attachment/tool result that is not available.",
-		"Rewrite the final reply in natural user-facing language. Do not mention budgets, counters, exact limits, tool-call counts, iterations, seconds, or minutes. Do not use the exact canned sentence from any previous fallback.",
-	}
-	if requiredArtifactWithoutAttachment(request, attachments) {
-		sections = append(sections, "This was a required artifact request. Do not offer chat text as a substitute, do not ask an open-ended follow-up, do not recommend external slide or document tools, and do not expose raw identifiers such as errorCode or operation_failed. Say the artifact was not attached, name the failing tool or stage in natural language, and identify the next engineering check.")
-	}
-	if len(attachments) == 0 {
-		sections = append(sections, "No attachments are available. You may say the requested file or HTML was not completed or not attached. Do not say that a file, HTML, PPTX, PDF, deck, slide, or notes were attached, sent, delivered, completed, or created successfully.")
-	}
-	if repairCount > 1 {
-		sections = append(sections, "Use one or two Korean sentences. Apologize briefly, say the run stopped before completion, and say the user can retry. Avoid all attachment-success wording.")
-	}
-	sections = append(sections, "Rejected draft:\n"+strings.TrimSpace(rejectedReply))
-	return strings.Join(sections, "\n\n")
-}
-
-func limitReachedReplyIsInvalid(reply string, request AgentTurnRequest, attachments []FileAttachment) bool {
-	return ValidateUserNoticeDelivery(reply) != nil
 }
 
 func buildLimitObservationSummary(observations []turnObservation) string {

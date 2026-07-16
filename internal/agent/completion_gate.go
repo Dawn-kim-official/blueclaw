@@ -200,7 +200,7 @@ func (agentTurnRunner *AgentTurnRunner) finalizeCompletionState(ctx context.Cont
 		"evidenceCount":   len(state.EvidenceReferences),
 		"evidence":        state.EvidenceReferences,
 	}))
-	reply := agentTurnRunner.prepareFinishMessageForPlatform(request, finishActionMessage(actionDocument), completionGateResult.Attachments)
+	reply := agentTurnRunner.prepareFinishMessageForPlatform(request, finishActionMessage(actionDocument))
 	agentTurnRunner.saveStep(taskRunID, taskStepID, task.TaskStatusCompleted, "completion_state "+string(completionActionFinalizeWithEvidence), reply)
 	completedTaskRun, _ := agentTurnRunner.taskRunService.CompleteTaskRun(taskRunID, reply)
 	return completionTransition{
@@ -226,16 +226,8 @@ func completionStateFinishDocument(state CompletionState, message string) turnAc
 	}
 }
 
-// Runtime-composed finish and approval wording is the model's own most-recent
-// message (LLM-first), reused from the turn that already produced it so no extra
-// model call is spent. When the model left no deliverable message the wording is
-// empty rather than a deterministic template.
 func deliverableModelWording(message string) string {
-	message = strings.TrimSpace(message)
-	if message == "" || ValidateUserNoticeDelivery(message) != nil {
-		return ""
-	}
-	return message
+	return strings.TrimSpace(message)
 }
 
 func appendObservationAttachments(attachments []FileAttachment, observation turnObservation) []FileAttachment {
@@ -314,11 +306,6 @@ func validateCompletionGate(requirements []toolUseRequirement, observations []tu
 			EvidenceKind:       evidenceKindRequiredTool,
 			SuggestedNextTools: requiredSendToolNames,
 		}
-	}
-	finishMessage := finishActionMessage(actionDocument)
-	requiresAttachmentEvidence := len(attachments) > 0
-	if errorValue := ValidateFinishMessageDelivery(finishMessage, attachments, requiresAttachmentEvidence); errorValue != nil {
-		return completionGateResult{Message: errorValue.Error(), EvidenceKind: evidenceKindReference}
 	}
 	return completionGateResult{IsSatisfied: true, Attachments: attachments}
 }
@@ -465,11 +452,6 @@ func validateExpectedResultCompletionGate(request AgentTurnRequest, observations
 			EvidenceKind:       evidenceKindRequiredTool,
 			SuggestedNextTools: []string{AskInputToolName},
 		}
-	}
-	finishMessage := finishActionMessage(actionDocument)
-	requiresAttachmentEvidence := len(attachments) > 0
-	if errorValue := ValidateFinishMessageDelivery(finishMessage, attachments, requiresAttachmentEvidence); errorValue != nil {
-		return completionGateResult{Message: errorValue.Error(), EvidenceKind: evidenceKindReference}
 	}
 	if projectionResult := validateObservedResultProjection(request, observations, attachments, actionDocument); !projectionResult.IsSatisfied {
 		return projectionResult

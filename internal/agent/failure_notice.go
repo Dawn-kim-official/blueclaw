@@ -642,9 +642,6 @@ func failureNoticeMessageIsSendable(message string) bool {
 	if len([]rune(trimmedMessage)) > failureNoticeMaximumCharacters {
 		return false
 	}
-	if ValidateUserNoticeDelivery(trimmedMessage) != nil {
-		return false
-	}
 	return true
 }
 
