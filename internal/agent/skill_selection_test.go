@@ -161,6 +161,36 @@ func TestToolSetForAgentTurnExposesSelectedSkillToolsAlongsideKernel(t *testing.
 	}
 }
 
+func TestSelectedFlowSkillExposesRegisteredDirectToolsFromKernelPalette(t *testing.T) {
+	toolSet := NewToolSet(KernelToolNames())
+	for _, toolName := range append(KernelToolNames(), "task.add", "task.list", "task.update", "task.delete") {
+		toolSet.RegisterTool(ToolDefinition{Name: toolName}, func(context.Context, ToolInvocation) (ToolResult, error) {
+			return ToolSuccess("ok"), nil
+		})
+	}
+	flowSkill := SkillInstruction{
+		Name:         "internkim-flow",
+		AllowedTools: []string{"task.add", "task.list", "task.update", "task.delete"},
+	}
+	request := AgentRequest{ToolSet: toolSet}
+
+	availability := skillAvailabilityDecision(flowSkill, request, "default")
+	if availability.Reason == "missing_allowed_tools" {
+		t.Fatalf("expected registered direct tools to make internkim-flow reachable, got %+v", availability)
+	}
+
+	instructionBundle := InstructionBundle{
+		Skills:         []SkillInstruction{flowSkill},
+		SkillDecisions: []SkillSelectionDecision{{Name: flowSkill.Name, Status: "selected"}},
+	}
+	filteredToolSet := toolSetForAgentTurn(toolSet, instructionBundle, request, ExecutionPlan{}, false, OutcomeContract{})
+	for _, toolName := range flowSkill.AllowedTools {
+		if !filteredToolSet.IsAllowed(toolName) {
+			t.Fatalf("expected selected flow tool %s to be directly exposed, got %+v", toolName, filteredToolSet.ListToolNames())
+		}
+	}
+}
+
 func TestToolSetForAgentTurnExposesOnlyPinnedNonKernelTools(t *testing.T) {
 	fullToolSet := testToolSet([]string{
 		"conversation.history",
@@ -355,10 +385,16 @@ func TestSelectInstructionBundleKeepsSkillWhenDirectToolsAreAvailable(t *testing
 
 func TestSelectInstructionBundleSkipsSkillWhenDirectToolIsUnavailable(t *testing.T) {
 	toolSet := NewToolSet([]string{"terminal.run"})
-	for _, toolName := range []string{"terminal.run", "site.create", "site.publish"} {
-		currentToolName := toolName
-		toolSet.RegisterTool(ToolDefinition{Name: currentToolName}, func(context.Context, ToolInvocation) (ToolResult, error) {
-			return ToolSuccess("ok"), nil
+	toolSet.RegisterTool(ToolDefinition{Name: "terminal.run"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return ToolSuccess("ok"), nil
+	})
+	for _, toolName := range []string{"site.create", "site.publish"} {
+		toolSet.RegisterBoundTool(BoundTool{
+			Definition:   ToolDefinition{Name: toolName},
+			Availability: ToolAvailability{Status: ToolAvailabilityUnavailable},
+			Handler: func(context.Context, ToolInvocation) (ToolResult, error) {
+				return ToolSuccess("ok"), nil
+			},
 		})
 	}
 	instructionBundle := InstructionBundle{Skills: []SkillInstruction{{
