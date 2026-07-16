@@ -368,6 +368,10 @@ func (turnRouter TurnRouter) buildMessages(request AgentRequest) []llm.Message {
 		},
 		{
 			Role:    "system",
+			Content: "bounded_task must use a task shape other than immediate_reply. immediate_reply is only for quick_reply and unsupported decisions.",
+		},
+		{
+			Role:    "system",
 			Content: buildTemporalContextDescription(request.TurnStartedAt),
 		},
 		{
@@ -504,6 +508,9 @@ func validateTurnDecisionConsistency(decision TurnDecision) error {
 			return errors.New("turn router returned inconsistent unsupported decision")
 		}
 	case IntakeClassificationBoundedTask:
+		if decision.TaskShape == TaskShapeImmediateReply {
+			return errors.New("turn router returned bounded_task with immediate_reply task shape")
+		}
 		if decision.Route == TurnRouteConsume || decision.Route == TurnRouteClarify || decision.Route == TurnRouteGiveUp {
 			return errors.New("turn router returned bounded_task with a terminal route")
 		}

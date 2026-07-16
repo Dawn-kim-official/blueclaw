@@ -284,7 +284,7 @@ func TestCompletionIntentDoesNotSurviveLaterIncompleteToolAction(t *testing.T) {
 	}
 }
 
-func TestElapsedCompletionRecoveryHonorsCallerCancellation(t *testing.T) {
+func TestElapsedCompletionHonorsCallerCancellation(t *testing.T) {
 	recoveryLanguageModel := &cancellationRecoveryLanguageModel{started: make(chan struct{})}
 	services := newTurnRunnerTestServicesWithRecoveryModel(deadlineBlockingLanguageModel{}, recoveryLanguageModel, TurnOptions{MaxElapsedSecond: 1})
 	request := AgentTurnRequest{RequesterPersonID: "person-1", ConversationID: "conversation-1", Prompt: "업무를 등록해줘"}
@@ -302,28 +302,26 @@ func TestElapsedCompletionRecoveryHonorsCallerCancellation(t *testing.T) {
 	select {
 	case result := <-resultChannel:
 		if result.IsCompleted {
-			t.Fatal("expected cancellation to stop recovery completion")
+			t.Fatal("expected caller cancellation to stop finalization")
 		}
 	case <-time.After(time.Second):
-		t.Fatal("expected recovery completion to honor caller cancellation")
+		t.Fatal("expected finalization to honor caller cancellation")
 	}
 }
 
-func TestElapsedCompletionDoesNotCommitAfterRecoveryReplyCancellation(t *testing.T) {
-	callerContext, cancelCaller := context.WithCancel(context.Background())
-	recoveryLanguageModel := cancelAfterReplyLanguageModel{cancel: cancelCaller}
+func TestElapsedCompletionDoesNotReuseEffortContext(t *testing.T) {
+	recoveryLanguageModel := &contextInspectingLanguageModel{textResponse: "업무를 등록했습니다."}
 	services := newTurnRunnerTestServicesWithRecoveryModel(deadlineBlockingLanguageModel{}, recoveryLanguageModel, TurnOptions{MaxElapsedSecond: 1})
 	request := AgentTurnRequest{RequesterPersonID: "person-1", ConversationID: "conversation-1", Prompt: "업무를 등록해줘"}
 	requirements := []toolUseRequirement{{ToolName: "task.add"}}
 	finalization := limitFinalizationResult{Observations: []turnObservation{newContentObservation("obs-001", "continue", "task.add", `{"taskID":"task-1"}`)}}
+	result := services.runner.finalizeElapsedLimitWithEvidence(context.Background(), "task-1", request, "max_elapsed", requirements, nil, finalization)
 
-	result := services.runner.finalizeElapsedLimitWithEvidence(callerContext, "task-1", request, "max_elapsed", requirements, nil, finalization)
-
-	if result.IsCompleted {
-		t.Fatal("expected cancellation after recovery wording to prevent completion")
+	if !result.IsCompleted {
+		t.Fatal("expected detached finalization context to complete")
 	}
-	if taskEventsContain(services.taskEventService.ListTaskEvent("task-1"), "agent.limit_completed_from_evidence", "max_elapsed") {
-		t.Fatal("expected no completion event after caller cancellation")
+	if recoveryLanguageModel.contextError != nil {
+		t.Fatalf("expected live finalization context, got %v", recoveryLanguageModel.contextError)
 	}
 }
 
@@ -474,7 +472,7 @@ func TestAgentTurnRunnerUsesRawLimitFallbackWhenRecoveryFails(t *testing.T) {
 	}
 }
 
-func TestRecoveryFinalizationContextIsBoundedAndCarriesRequester(t *testing.T) {
+func TestRecoveryFinalizationContextCarriesRequesterWithoutDeadline(t *testing.T) {
 	request := AgentTurnRequest{
 		RequesterPersonID: "person-1",
 		RequesterEmail:    "person@example.com",
@@ -484,29 +482,13 @@ func TestRecoveryFinalizationContextIsBoundedAndCarriesRequester(t *testing.T) {
 	recoveryContext, cancelRecovery := recoveryFinalizationContext(request)
 	defer cancelRecovery()
 
-	deadline, hasDeadline := recoveryContext.Deadline()
-	if !hasDeadline || time.Until(deadline) <= 0 || time.Until(deadline) > recoveryFinalizationTimeout {
-		t.Fatalf("expected bounded recovery deadline, got %v", deadline)
+	if _, hasDeadline := recoveryContext.Deadline(); hasDeadline {
+		t.Fatal("expected recovery finalization without an arbitrary deadline")
 	}
 	requestContext := llm.RequestContextFromContext(recoveryContext)
 	if requestContext.RequesterPersonID != request.RequesterPersonID || requestContext.ConversationID != request.ConversationID {
 		t.Fatalf("expected requester context to survive recovery detachment, got %+v", requestContext)
 	}
-}
-
-func TestRecoveryFinalizationContextHonorsParentDeadline(t *testing.T) {
-	parentContext, cancelParent := context.WithTimeout(context.Background(), 20*time.Millisecond)
-	defer cancelParent()
-	request := AgentTurnRequest{RequesterPersonID: "person-1", ConversationID: "conversation-1"}
-	finalizationContext, cancelFinalization := recoveryFinalizationContextWithParent(parentContext, request)
-	defer cancelFinalization()
-
-	parentDeadline, parentHasDeadline := parentContext.Deadline()
-	finalizationDeadline, finalizationHasDeadline := finalizationContext.Deadline()
-	if !parentHasDeadline || !finalizationHasDeadline || finalizationDeadline.After(parentDeadline) {
-		t.Fatalf("expected finalization to honor parent deadline, got %v after %v", finalizationDeadline, parentDeadline)
-	}
-	<-finalizationContext.Done()
 }
 
 type deadlineBlockingLanguageModel struct{}
@@ -515,16 +497,17 @@ type cancellationRecoveryLanguageModel struct {
 	started chan struct{}
 }
 
-type cancelAfterReplyLanguageModel struct {
-	cancel context.CancelFunc
+type contextInspectingLanguageModel struct {
+	textResponse string
+	contextError error
 }
 
-func (languageModel cancelAfterReplyLanguageModel) GenerateResponse(context.Context, string) (string, error) {
-	languageModel.cancel()
-	return "업무를 등록했습니다.", nil
+func (languageModel *contextInspectingLanguageModel) GenerateResponse(responseContext context.Context, _ string) (string, error) {
+	languageModel.contextError = responseContext.Err()
+	return languageModel.textResponse, nil
 }
 
-func (cancelAfterReplyLanguageModel) GenerateStructuredResponse(context.Context, llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
+func (*contextInspectingLanguageModel) GenerateStructuredResponse(context.Context, llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
 	return llm.StructuredResponse{}, errors.New("structured recovery is unavailable")
 }
 
@@ -534,7 +517,7 @@ func (languageModel *cancellationRecoveryLanguageModel) GenerateResponse(respons
 	return "", responseContext.Err()
 }
 
-func (languageModel *cancellationRecoveryLanguageModel) GenerateStructuredResponse(context.Context, llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
+func (*cancellationRecoveryLanguageModel) GenerateStructuredResponse(context.Context, llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
 	return llm.StructuredResponse{}, errors.New("structured recovery is unavailable")
 }
 

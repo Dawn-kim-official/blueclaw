@@ -102,6 +102,9 @@ func TestTurnRouterRejectsInconsistentDecisionFields(t *testing.T) {
 		{name: "bounded terminal route", mutate: func(decision *TurnDecision) {
 			decision.Route = TurnRouteConsume
 		}, expected: "bounded_task with a terminal route"},
+		{name: "bounded immediate reply shape", mutate: func(decision *TurnDecision) {
+			decision.TaskShape = TaskShapeImmediateReply
+		}, expected: "bounded_task with immediate_reply task shape"},
 	}
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
