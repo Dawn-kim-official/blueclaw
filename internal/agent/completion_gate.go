@@ -199,7 +199,7 @@ func (agentTurnRunner *AgentTurnRunner) finalizeCompletionState(ctx context.Cont
 		"evidenceCount":   len(state.EvidenceReferences),
 		"evidence":        state.EvidenceReferences,
 	}))
-	reply := agentTurnRunner.prepareFinishMessageForPlatform(request, finishActionMessage(actionDocument))
+	reply := agentTurnRunner.prepareFinishMessageForPlatform(ctx, request, finishActionMessage(actionDocument))
 	agentTurnRunner.saveStep(taskRunID, taskStepID, task.TaskStatusCompleted, "completion_state "+string(completionActionFinalizeWithEvidence), reply)
 	completedTaskRun, _ := agentTurnRunner.taskRunService.CompleteTaskRun(taskRunID, reply)
 	return completionTransition{

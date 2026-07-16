@@ -113,7 +113,7 @@ func TestAgentTurnRunnerFinalizesSuccessfulSideEffectAtExecutionEffortDeadline(t
 		firstAction: `{"action":"continue","toolName":"task.add","toolInput":{"prompt":"분기 결산 운영 검토"}}`,
 		finalAction: finishMessageWithEvidence("분기 결산 운영 검토 업무를 등록했습니다.", "obs-001", "task.add", 0),
 	}
-	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxElapsedSecond: 1})
+	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxElapsedSecond: 1, LimitFinalizationGrace: 500 * time.Millisecond})
 	toolRegistry := newTestToolSet([]string{"task.add"})
 	toolCallCount := 0
 	toolRegistry.RegisterTool(ToolDefinition{Name: "task.add"}, func(context.Context, ToolInvocation) (ToolResult, error) {
@@ -198,7 +198,7 @@ func TestAgentTurnRunnerCompletesSuccessfulReadAtExecutionEffortDeadline(t *test
 		firstAction: `{"action":"continue","toolName":"task.list","toolInput":{"query":"고객지원 분기 결산"},"goalSatisfied":true,"hasRemainingWork":false}`,
 	}
 	recoveryLanguageModel := &sequenceLanguageModel{textResponses: []string{"고객지원 분기 결산 검토 완료 업무가 남아 있습니다."}}
-	services := newTurnRunnerTestServicesWithRecoveryModel(primaryLanguageModel, recoveryLanguageModel, TurnOptions{MaxElapsedSecond: 1})
+	services := newTurnRunnerTestServicesWithRecoveryModel(primaryLanguageModel, recoveryLanguageModel, TurnOptions{MaxElapsedSecond: 1, LimitFinalizationGrace: 500 * time.Millisecond})
 	toolRegistry := newTestToolSet([]string{"task.list"})
 	toolCallCount := 0
 	toolRegistry.RegisterTool(ToolDefinition{Name: "task.list"}, func(context.Context, ToolInvocation) (ToolResult, error) {
@@ -472,6 +472,114 @@ func TestAgentTurnRunnerUsesRawLimitFallbackWhenRecoveryFails(t *testing.T) {
 	}
 }
 
+func TestAgentTurnRunnerBlocksBeforeLimitWordingAndBoundsGrace(t *testing.T) {
+	recoveryLanguageModel := &blockingLimitWordingLanguageModel{started: make(chan struct{})}
+	services := newTurnRunnerTestServicesWithRecoveryModel(
+		deadlineBlockingLanguageModel{},
+		recoveryLanguageModel,
+		TurnOptions{MaxElapsedSecond: 1, LimitFinalizationGrace: 40 * time.Millisecond},
+	)
+	resultChannel := make(chan AgentTurnResult, 1)
+	startedAt := time.Now()
+
+	go func() {
+		result, _ := services.runner.RunTurn(context.Background(), AgentTurnRequest{
+			RequesterPersonID: "person-1",
+			ConversationID:    "conversation-1",
+			Prompt:            "bounded task",
+			ResponseLanguage:  ResponseLanguageEnglish,
+			ToolSet:           newTestToolSet(nil),
+			EffortStartedAt:   time.Now().Add(-950 * time.Millisecond),
+		})
+		resultChannel <- result
+	}()
+
+	<-recoveryLanguageModel.started
+	taskRuns := services.taskRunService.ListTaskRunByPersonID("person-1")
+	if len(taskRuns) != 1 || taskRuns[0].Status != task.TaskStatusBlocked {
+		t.Fatalf("expected max_elapsed to block before wording, got %+v", taskRuns)
+	}
+	select {
+	case result := <-resultChannel:
+		if result.TaskRun.Status != task.TaskStatusBlocked || result.FailureNotice.Source != "raw_error" {
+			t.Fatalf("expected bounded raw fallback, got %+v", result)
+		}
+		if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.limit_stop", "max_elapsed") {
+			t.Fatal("expected limit stop before fallback")
+		}
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("expected total finalization grace to bound the turn")
+	}
+	if elapsed := time.Since(startedAt); elapsed >= 500*time.Millisecond {
+		t.Fatalf("expected bounded post-limit return, took %s", elapsed)
+	}
+	if recoveryLanguageModel.calls != 1 {
+		t.Fatalf("expected one user wording attempt, got %d", recoveryLanguageModel.calls)
+	}
+}
+
+func TestAgentTurnRunnerSharesLimitGraceAcrossFinalizerAndFallback(t *testing.T) {
+	primaryLanguageModel := &elapsedFinalizationLanguageModel{
+		firstAction:      `{"action":"continue","toolName":"task.add","toolInput":{"prompt":"분기 결산"}}`,
+		finalizerStarted: make(chan struct{}),
+	}
+	recoveryLanguageModel := &countingLimitWordingLanguageModel{}
+	services := newTurnRunnerTestServicesWithRecoveryModel(
+		primaryLanguageModel,
+		recoveryLanguageModel,
+		TurnOptions{MaxElapsedSecond: 1, LimitFinalizationGrace: 40 * time.Millisecond},
+	)
+	toolRegistry := newTestToolSet([]string{"task.add"})
+	toolRegistry.RegisterTool(ToolDefinition{Name: "task.add"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		time.Sleep(30 * time.Millisecond)
+		return ToolSuccess(`{"taskID":"task-1"}`), nil
+	})
+	startedAt := time.Now()
+
+	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
+		RequesterPersonID:     "person-1",
+		ConversationID:        "conversation-1",
+		Prompt:                "분기 결산 업무를 등록해줘",
+		ResponseLanguage:      ResponseLanguageKorean,
+		ToolSet:               toolRegistry,
+		PinnedToolNames:       toolRegistry.ListToolNames(),
+		RequiredEvidenceTools: []string{"task.add"},
+		EffortStartedAt:       time.Now().Add(-990 * time.Millisecond),
+	})
+
+	if errorValue != nil {
+		t.Fatalf("expected bounded finalization fallback, got %v", errorValue)
+	}
+	if result.TaskRun.Status != task.TaskStatusBlocked || result.FailureNotice.Source != "raw_error" {
+		t.Fatalf("expected blocked raw fallback, got %+v", result)
+	}
+	if primaryLanguageModel.finalizerCalls != 1 {
+		t.Fatalf("expected one evidence finalizer call, got %d", primaryLanguageModel.finalizerCalls)
+	}
+	if recoveryLanguageModel.calls != 0 {
+		t.Fatalf("expected exhausted shared grace not to start another wording call, got %d", recoveryLanguageModel.calls)
+	}
+	if elapsed := time.Since(startedAt); elapsed >= 500*time.Millisecond {
+		t.Fatalf("expected one total grace deadline, took %s", elapsed)
+	}
+}
+
+func TestLimitFinalizationContextCarriesRequesterAndDeadline(t *testing.T) {
+	runner := &AgentTurnRunner{options: TurnOptions{LimitFinalizationGrace: 40 * time.Millisecond}}
+	request := AgentTurnRequest{RequesterPersonID: "person-1", ConversationID: "conversation-1", Platform: "mattermost"}
+	finalizationContext, cancelFinalization := runner.limitFinalizationContext(context.Background(), request)
+	defer cancelFinalization()
+
+	deadline, hasDeadline := finalizationContext.Deadline()
+	if !hasDeadline || time.Until(deadline) > 50*time.Millisecond {
+		t.Fatalf("expected explicit short finalization deadline, got %v %v", deadline, hasDeadline)
+	}
+	requestContext := llm.RequestContextFromContext(finalizationContext)
+	if requestContext.RequesterPersonID != request.RequesterPersonID || requestContext.ConversationID != request.ConversationID {
+		t.Fatalf("expected requester context in finalization grace, got %+v", requestContext)
+	}
+}
+
 func TestRecoveryFinalizationContextCarriesRequesterWithoutDeadline(t *testing.T) {
 	request := AgentTurnRequest{
 		RequesterPersonID: "person-1",
@@ -500,6 +608,35 @@ type cancellationRecoveryLanguageModel struct {
 type contextInspectingLanguageModel struct {
 	textResponse string
 	contextError error
+}
+
+type blockingLimitWordingLanguageModel struct {
+	started chan struct{}
+	calls   int
+}
+
+type countingLimitWordingLanguageModel struct {
+	calls int
+}
+
+func (languageModel *blockingLimitWordingLanguageModel) GenerateResponse(responseContext context.Context, _ string) (string, error) {
+	languageModel.calls++
+	close(languageModel.started)
+	<-responseContext.Done()
+	return "", responseContext.Err()
+}
+
+func (*blockingLimitWordingLanguageModel) GenerateStructuredResponse(context.Context, llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
+	return llm.StructuredResponse{}, errors.New("unexpected structured recovery call")
+}
+
+func (languageModel *countingLimitWordingLanguageModel) GenerateResponse(context.Context, string) (string, error) {
+	languageModel.calls++
+	return "unexpected recovery reply", nil
+}
+
+func (*countingLimitWordingLanguageModel) GenerateStructuredResponse(context.Context, llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
+	return llm.StructuredResponse{}, errors.New("unexpected structured recovery call")
 }
 
 func (languageModel *contextInspectingLanguageModel) GenerateResponse(responseContext context.Context, _ string) (string, error) {
@@ -546,11 +683,12 @@ func (deadlineBlockingLanguageModel) GenerateStructuredResponse(responseContext 
 }
 
 type elapsedFinalizationLanguageModel struct {
-	firstAction    string
-	finalAction    string
-	finalizerError error
-	finalizerCalls int
-	actionCount    int
+	firstAction      string
+	finalAction      string
+	finalizerError   error
+	finalizerStarted chan struct{}
+	finalizerCalls   int
+	actionCount      int
 }
 
 func (languageModel *elapsedFinalizationLanguageModel) GenerateResponse(context.Context, string) (string, error) {
@@ -560,6 +698,11 @@ func (languageModel *elapsedFinalizationLanguageModel) GenerateResponse(context.
 func (languageModel *elapsedFinalizationLanguageModel) GenerateStructuredResponse(responseContext context.Context, request llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
 	if request.StructuredOutputSchema.Name == "blueclaw_agent_turn_finalizer" {
 		languageModel.finalizerCalls++
+		if languageModel.finalizerStarted != nil {
+			close(languageModel.finalizerStarted)
+			<-responseContext.Done()
+			return llm.StructuredResponse{}, responseContext.Err()
+		}
 		if languageModel.finalizerError != nil {
 			return llm.StructuredResponse{}, languageModel.finalizerError
 		}
