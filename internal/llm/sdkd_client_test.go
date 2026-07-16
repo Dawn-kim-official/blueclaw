@@ -455,7 +455,7 @@ func TestSDKDClientGenerateChatCompletionRejectsRemoteResultInLocalOnlyMode(t *t
 	}
 }
 
-func TestSDKDClientGenerateChatCompletionUsesBridgeFallback(t *testing.T) {
+func TestSDKDClientGenerateChatCompletionDoesNotFallbackOnBridgeFailure(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(responseWriter http.ResponseWriter, request *http.Request) {
 		responseWriter.WriteHeader(http.StatusServiceUnavailable)
 		_, _ = responseWriter.Write([]byte(`{"error":{"code":"sdkd_bridge_unavailable","allowLegacyFallback":true}}`))
@@ -469,15 +469,15 @@ func TestSDKDClientGenerateChatCompletionUsesBridgeFallback(t *testing.T) {
 		TextProvider: fallbackProvider,
 	})
 	response, errorValue := client.GenerateChatCompletion(context.Background(), ChatCompletionRequest{})
-	if errorValue != nil || response.Transport != "capability" || response.ProviderName != "legacy" || !response.UsedFallback {
-		t.Fatalf("expected bridge chat fallback, got %+v, %v", response, errorValue)
+	if errorValue == nil || response.Transport != "sdkd" {
+		t.Fatalf("expected SDKD bridge failure, got %+v, %v", response, errorValue)
 	}
-	if fallbackProvider.chatCallCount != 1 {
-		t.Fatalf("expected one bridge fallback call, got %d", fallbackProvider.chatCallCount)
+	if fallbackProvider.chatCallCount != 0 {
+		t.Fatalf("expected no bridge fallback call, got %d", fallbackProvider.chatCallCount)
 	}
 }
 
-func TestSDKDClientGenerateChatCompletionUsesTransportFallback(t *testing.T) {
+func TestSDKDClientGenerateChatCompletionDoesNotFallbackOnTransportFailure(t *testing.T) {
 	fallbackProvider := &sdkdTestLanguageModel{chatResponse: ChatCompletionResponse{
 		ProviderName: "legacy",
 		Message:      ChatCompletionMessage{Role: "assistant", Content: "done"},
@@ -492,11 +492,11 @@ func TestSDKDClientGenerateChatCompletionUsesTransportFallback(t *testing.T) {
 	})
 
 	response, errorValue := client.GenerateChatCompletion(context.Background(), ChatCompletionRequest{})
-	if errorValue != nil || response.ProviderName != "legacy" || !response.UsedFallback {
-		t.Fatalf("expected transport chat fallback, got %+v, %v", response, errorValue)
+	if errorValue == nil || response.Transport != "sdkd" {
+		t.Fatalf("expected SDKD transport failure, got %+v, %v", response, errorValue)
 	}
-	if fallbackProvider.chatCallCount != 1 {
-		t.Fatalf("expected one transport fallback call, got %d", fallbackProvider.chatCallCount)
+	if fallbackProvider.chatCallCount != 0 {
+		t.Fatalf("expected no transport fallback call, got %d", fallbackProvider.chatCallCount)
 	}
 }
 
