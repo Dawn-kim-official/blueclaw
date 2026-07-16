@@ -442,7 +442,7 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 		}
 		if agentTurnRunner.currentEffortElapsed(request.EffortStartedAt) {
 			completionRequirements := elapsedCompletionRequirements(toolUseRequirements, state.Observations, state.CompletionIntentToolName)
-			result, shouldContinue, errorValue := agentTurnRunner.finalizeEscalateOrStopForLimit(taskContext, taskRun.TaskRunID, request, "max_elapsed", completionRequirements, state.Observations, state.Attachments, state.QualityCriteria, state.ExecutionState, iteration-1, state.ToolCallCount)
+			result, shouldContinue, errorValue := agentTurnRunner.finalizeEscalateOrStopForLimit(ctx, taskRun.TaskRunID, request, "max_elapsed", completionRequirements, state.Observations, state.Attachments, state.QualityCriteria, state.ExecutionState, iteration-1, state.ToolCallCount)
 			if errorValue != nil || !shouldContinue {
 				return result, errorValue
 			}
@@ -493,8 +493,8 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 					return agentTurnRunner.finalizeIfSatisfiedOrFail(taskContext, taskRun.TaskRunID, request, "llm action failed: "+actionError.Error(), toolUseRequirements, state.Observations, state.Attachments, state.QualityCriteria, state.ExecutionState)
 				}
 				completionRequirements := elapsedCompletionRequirements(toolUseRequirements, state.Observations, state.CompletionIntentToolName)
-				finalization := agentTurnRunner.finalizeLimitIfPossible(taskContext, taskRun.TaskRunID, request, completionRequirements, state.Observations, state.Attachments, state.QualityCriteria, state.ExecutionState)
-				finalization = agentTurnRunner.finalizeElapsedLimitWithEvidence(taskContext, taskRun.TaskRunID, request, "max_elapsed", completionRequirements, state.QualityCriteria, finalization)
+				finalization := agentTurnRunner.finalizeLimitIfPossible(ctx, taskRun.TaskRunID, request, completionRequirements, state.Observations, state.Attachments, state.QualityCriteria, state.ExecutionState)
+				finalization = agentTurnRunner.finalizeElapsedLimitWithEvidence(ctx, taskRun.TaskRunID, request, "max_elapsed", completionRequirements, state.QualityCriteria, finalization)
 				if finalization.IsCompleted {
 					return finalization.Result, nil
 				}

@@ -107,9 +107,6 @@ func buildFailureReport(request AgentTurnRequest, taskRunID string, phase string
 }
 
 func recoveryFinalizationContextWithParent(parentContext context.Context, request AgentTurnRequest) (context.Context, context.CancelFunc) {
-	if parentContext == nil {
-		parentContext = context.Background()
-	}
 	recoveryContext := llm.ContextWithRequestContext(parentContext, llm.RequestContext{
 		RequesterPersonID:       request.RequesterPersonID,
 		RequesterEmail:          request.RequesterEmail,
@@ -118,7 +115,7 @@ func recoveryFinalizationContextWithParent(parentContext context.Context, reques
 		ConversationID:          request.ConversationID,
 		Platform:                request.Platform,
 	})
-	return context.WithTimeout(recoveryContext, recoveryFinalizationTimeout)
+	return context.WithCancel(recoveryContext)
 }
 
 func buildElapsedLimitRawErrorFailureNotice(request AgentTurnRequest) FailureNotice {
