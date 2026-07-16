@@ -43,9 +43,10 @@ func toolSetForAgentTurnWithExposure(toolSet *ToolSet, instructionBundle Instruc
 	interactionGroup := filterGroupTools(toolSet, toolExposureGroup{Name: "required interaction", ToolIDs: requiredInteractionToolNames(outcomeContract, recentObservations)})
 	recoveryToolNames := appendUniqueStrings(activeRecoveryToolNames(recentObservations), activeRecoveryPreconditionToolNames(toolSet, recentObservations)...)
 	recoveryGroup := filterGroupTools(toolSet, toolExposureGroup{Name: "recovery tools", ToolIDs: recoveryToolNames})
+	requiredEvidenceGroup, evidenceAlternativesGroup := outcomeContractEvidenceGroups(toolSet, outcomeContract)
 	selectedSkillGroup := filterGroupTools(toolSet, toolExposureGroup{Name: "selected skills", ToolIDs: selectedSkillToolNames(instructionBundle)})
 	pinnedGroup := filterGroupTools(toolSet, toolExposureGroup{Name: "pinned tools", ToolIDs: request.PinnedToolNames})
-	groups := []toolExposureGroup{interactionGroup, recoveryGroup, pinnedGroup, selectedSkillGroup, kernelGroup}
+	groups := []toolExposureGroup{interactionGroup, recoveryGroup, requiredEvidenceGroup, pinnedGroup, selectedSkillGroup, evidenceAlternativesGroup, kernelGroup}
 	exposedToolIDs, droppedGroups := selectToolGroups(groups, maxSchemaCallableToolCount)
 	selectionEvent.SelectionSource = firstNonEmptyString(selectionEvent.SelectionSource, toolSelectionSource(selectedSkillGroup))
 	selectionEvent.SelectionReason = firstNonEmptyString(selectionEvent.SelectionReason, toolSelectionReason(selectedSkillGroup))
@@ -56,6 +57,21 @@ func toolSetForAgentTurnWithExposure(toolSet *ToolSet, instructionBundle Instruc
 	selectionEvent.DroppedGroups = droppedGroups
 	selectionEvent.UsedFallbackGroups = false
 	return toolSet.WithAllowedToolNames(exposedToolIDsForFiltering(exposedToolIDs)), selectionEvent
+}
+
+func outcomeContractEvidenceGroups(toolSet *ToolSet, outcomeContract OutcomeContract) (toolExposureGroup, toolExposureGroup) {
+	requiredToolNames := appendUniqueStrings(outcomeContract.RequiredEvidenceTools)
+	alternativeToolNames := []string{}
+	for _, toolNameGroup := range outcomeContract.RequiredEvidenceAnyOf {
+		availableGroup := filterGroupTools(toolSet, toolExposureGroup{ToolIDs: toolNameGroup})
+		if len(availableGroup.ToolIDs) == 0 {
+			continue
+		}
+		requiredToolNames = appendUniqueStrings(requiredToolNames, availableGroup.ToolIDs[0])
+		alternativeToolNames = appendUniqueStrings(alternativeToolNames, availableGroup.ToolIDs[1:]...)
+	}
+	return filterGroupTools(toolSet, toolExposureGroup{Name: "required evidence", ToolIDs: requiredToolNames}),
+		filterGroupTools(toolSet, toolExposureGroup{Name: "evidence alternatives", ToolIDs: alternativeToolNames})
 }
 
 func exposedGroupToolIDs(group toolExposureGroup, exposedToolIDs []string) []string {

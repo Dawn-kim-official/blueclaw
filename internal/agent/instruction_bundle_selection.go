@@ -10,7 +10,8 @@ func applySelectedSkillCompletionRequirements(decision IntakeDecision, instructi
 		return decision
 	}
 	selectedSkills := selectedSkillInstructionList(instructionBundle)
-	if len(selectedSkills) > 0 && instructionBundle.HasContractSkillArbitration && len(instructionBundle.RequiredEvidenceTools) > 0 {
+	hasArbitratedEvidence := len(selectedSkills) > 0 && instructionBundle.HasContractSkillArbitration && len(instructionBundle.RequiredEvidenceTools) > 0
+	if hasArbitratedEvidence {
 		decision.RequiredEvidenceTools = appendUniqueStrings(instructionBundle.RequiredEvidenceTools)
 	} else {
 		decision.RequiredEvidenceTools = appendUniqueStrings(decision.RequiredEvidenceTools)
@@ -19,7 +20,9 @@ func applySelectedSkillCompletionRequirements(decision IntakeDecision, instructi
 		if !selectedSkillRequiresCompletionEvidence(skillInstruction) {
 			continue
 		}
-		decision.RequiredEvidenceTools = appendUniqueStrings(decision.RequiredEvidenceTools, skillInstruction.Completion.RequiredEvidenceTools...)
+		if !hasArbitratedEvidence {
+			decision.RequiredEvidenceTools = appendUniqueStrings(decision.RequiredEvidenceTools, skillInstruction.Completion.RequiredEvidenceTools...)
+		}
 		decision.RequestedOutputFormats = appendUniqueStrings(decision.RequestedOutputFormats, attachmentSuffixFormats(skillInstruction.Completion.RequiredAttachmentSuffixes)...)
 	}
 	return decision

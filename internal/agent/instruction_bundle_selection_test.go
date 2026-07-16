@@ -39,6 +39,7 @@ func TestSelectedSkillRequirementsUseArbitratedEvidence(t *testing.T) {
 		Skills: []SkillInstruction{{
 			Name:         "internkim-flow",
 			AllowedTools: []string{"task.add", "task.list", "task.update", "task.delete"},
+			Completion:   SkillCompletion{RequiredEvidenceTools: []string{"file.deliver"}},
 		}},
 		SkillDecisions:              []SkillSelectionDecision{{Name: "internkim-flow", Status: "selected"}},
 		RequiredEvidenceTools:       []string{"task.update"},
