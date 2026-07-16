@@ -363,4 +363,4 @@ Still open:
 - `Firecracker` runs inside that Linux virtual machine
 - `Blueclaw` runs only inside the `Firecracker` guest
 - `Mattermost` stays outside the guest and inside the Linux virtual machine
-- the Linux/runtime gate runs through `./internkim dev replay --target container` and the Local Fleet (`./internkim dev fleet ...`); `Docker` is not part of this lab topology
+- deterministic runtime checks run through `./internkim dev simulate`; Linux/runtime checks run through `./internkim dev fleet run`; `Docker` is not part of this lab topology
