@@ -1094,7 +1094,7 @@ func TestAgentTurnRunnerRemovesQualityCriteriaActionAfterCriteriaAreSet(t *testi
 		ToolSet:                   toolRegistry,
 		PinnedToolNames:           toolRegistry.ListToolNames(),
 		QualityAcceptanceGuidance: []string{"declare criteria first"},
-		OutcomeContract:           OutcomeContract{ArtifactRequirement: ArtifactRequirementRequired},
+		OutcomeContract:           OutcomeContract{ArtifactRequirement: ArtifactRequirementPreferred},
 	})
 	if errorValue != nil {
 		t.Fatalf("expected turn to succeed: %v", errorValue)
@@ -1203,7 +1203,7 @@ func TestAgentTurnRunnerExpectedResultVerifierBlocksEarlyFinish(t *testing.T) {
 	}
 }
 
-func TestCompletionContractVerifierSkipsEmptyContract(t *testing.T) {
+func TestCompletionGateSkipsResultVerifierForEmptyContract(t *testing.T) {
 	languageModel := &sequenceLanguageModel{}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
 	goalSatisfied := true
@@ -1219,12 +1219,12 @@ func TestCompletionContractVerifierSkipsEmptyContract(t *testing.T) {
 	if !result.IsSatisfied {
 		t.Fatalf("expected empty contract to stay on fast path, got %+v", result)
 	}
-	if len(languageModel.contractRequests) != 0 {
-		t.Fatalf("expected no contract verifier call for empty contract, got %d", len(languageModel.contractRequests))
+	if len(languageModel.verificationRequests) != 0 {
+		t.Fatalf("expected no result verifier call for empty contract, got %d", len(languageModel.verificationRequests))
 	}
 }
 
-func TestCompletionContractVerifierSkipsRedundantCheckForVerifiedToolOutcome(t *testing.T) {
+func TestCompletionGateUsesOneResultVerifierForExpectedResults(t *testing.T) {
 	languageModel := &sequenceLanguageModel{
 		resultVerifications: []string{
 			`{"overallStatus":"missing","summary":"final reply not delivered","results":[{"id":"task-status-update","status":"satisfied","reason":"task.update changed the status","citedObservationIDs":["obs-001"],"missingDescription":"","suggestedNextTools":[]},{"id":"final-message","status":"missing","reason":"the final reply is not delivered yet","citedObservationIDs":[],"missingDescription":"a final reply is missing","suggestedNextTools":["finish"]}]}`,
@@ -1242,10 +1242,6 @@ func TestCompletionContractVerifierSkipsRedundantCheckForVerifiedToolOutcome(t *
 			{ID: "final-message", Type: ExpectedResultTypeMessage, Description: "final reply to the user", Required: true},
 		},
 	}
-	if !expectedResultsAndExactEvidenceSatisfyContract(contract, observations) {
-		t.Fatalf("expected exact task.update evidence to satisfy simple contract: %+v", normalizeOutcomeContract(contract))
-	}
-
 	result := services.runner.validateCompletionGateForRequestWithExpectedResults(context.Background(), "task-1", AgentTurnRequest{
 		ToolSet:         newTestToolSet([]string{"task.update"}),
 		OutcomeContract: contract,
@@ -1263,12 +1259,12 @@ func TestCompletionContractVerifierSkipsRedundantCheckForVerifiedToolOutcome(t *
 	if !result.IsSatisfied {
 		t.Fatalf("expected verified task update and ready final message to complete, got %+v", result)
 	}
-	if len(languageModel.contractRequests) != 0 {
-		t.Fatalf("expected redundant semantic contract verification to be skipped, got %d calls", len(languageModel.contractRequests))
+	if len(languageModel.verificationRequests) != 1 {
+		t.Fatalf("expected exactly one result verifier call, got %d", len(languageModel.verificationRequests))
 	}
 }
 
-func TestCompletionContractVerifierSkipsExactToolOnlyContract(t *testing.T) {
+func TestCompletionGateUsesNoVerifierForExactToolOnlyContract(t *testing.T) {
 	languageModel := &sequenceLanguageModel{}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
 	goalSatisfied := true
@@ -1294,17 +1290,13 @@ func TestCompletionContractVerifierSkipsExactToolOnlyContract(t *testing.T) {
 	if !result.IsSatisfied {
 		t.Fatalf("expected exact task.add evidence and post-evidence finish judgment to complete, got %+v", result)
 	}
-	if len(languageModel.contractRequests) != 0 {
-		t.Fatalf("expected no duplicate contract judgment, got %d calls", len(languageModel.contractRequests))
+	if len(languageModel.verificationRequests) != 0 {
+		t.Fatalf("expected no semantic verifier call, got %d", len(languageModel.verificationRequests))
 	}
 }
 
-func TestCompletionContractVerifierRejectsMissingAttachmentEvidence(t *testing.T) {
-	languageModel := &sequenceLanguageModel{
-		contractVerifications: []string{
-			`{"satisfied":false,"reason":"The user requested an attached file, but no file attachment evidence exists.","missingDescription":"Attach the generated file before finishing.","suggestedNextTools":["file.deliver"]}`,
-		},
-	}
+func TestCompletionGateDoesNotRequirePreferredArtifact(t *testing.T) {
+	languageModel := &sequenceLanguageModel{}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
 	goalSatisfied := true
 
@@ -1321,21 +1313,32 @@ func TestCompletionContractVerifierRejectsMissingAttachmentEvidence(t *testing.T
 		CompletionEvidence: nil,
 	})
 
-	if result.IsSatisfied {
-		t.Fatalf("expected contract verifier to reject missing attachment evidence")
+	if !result.IsSatisfied {
+		t.Fatalf("expected preferred artifact to remain optional, got %+v", result)
 	}
-	if !strings.Contains(result.Message, "Attach the generated file before finishing.") {
-		t.Fatalf("expected verifier missing description in gate message, got %q", result.Message)
-	}
-	if len(result.SuggestedNextTools) != 1 || result.SuggestedNextTools[0] != "file.deliver" {
-		t.Fatalf("expected verifier to suggest file.deliver, got %+v", result.SuggestedNextTools)
-	}
-	if len(languageModel.contractRequests) != 1 {
-		t.Fatalf("expected one contract verifier call, got %d", len(languageModel.contractRequests))
+	if len(languageModel.verificationRequests) != 0 {
+		t.Fatalf("expected no semantic verifier call, got %d", len(languageModel.verificationRequests))
 	}
 }
 
-func TestAgentTurnRunnerExpectedResultsDoNotRequireLegacyToolEvidenceFirst(t *testing.T) {
+func TestCompletionGateRequiresOneSuccessfulToolFromEachEvidenceGroup(t *testing.T) {
+	goalSatisfied := true
+	contract := OutcomeContract{RequiredEvidenceAnyOf: [][]string{{"task.add", "task.update"}, {"task.history"}}}
+	observations := []turnObservation{newContentObservation("obs-001", "continue", "task.update", `{"id":"task-1"}`)}
+
+	result := (&AgentTurnRunner{}).validateCompletionGateForRequestWithExpectedResults(context.Background(), "task-1", AgentTurnRequest{OutcomeContract: contract}, nil, observations, nil, nil, turnActionDocument{
+		Action: "finish", Message: "완료했습니다.", GoalStatus: "satisfied", GoalSatisfied: &goalSatisfied,
+	})
+
+	if result.IsSatisfied {
+		t.Fatal("expected the unsatisfied task.history evidence group to block completion")
+	}
+	if strings.Join(result.SuggestedNextTools, ",") != "task.history" {
+		t.Fatalf("expected missing group tools, got %+v", result.SuggestedNextTools)
+	}
+}
+
+func TestAgentTurnRunnerExpectedResultsRequireTheirTypedToolEvidence(t *testing.T) {
 	languageModel := &sequenceLanguageModel{
 		resultVerifications: []string{
 			`{"overallStatus":"satisfied","summary":"public URL exists","results":[{"id":"site-public-link","status":"satisfied","reason":"Publish returned a public URL.","citedObservationIDs":["obs-001"],"missingDescription":"","suggestedNextTools":[]}]}`,
@@ -1361,9 +1364,9 @@ func TestAgentTurnRunnerExpectedResultsDoNotRequireLegacyToolEvidenceFirst(t *te
 		Prompt:                "개인 홈페이지 배포해줘",
 		ToolSet:               toolRegistry,
 		PinnedToolNames:       toolRegistry.ListToolNames(),
-		RequiredEvidenceTools: []string{"file.deliver"},
+		RequiredEvidenceTools: []string{"site.publish"},
 		OutcomeContract: OutcomeContract{
-			RequiredEvidenceTools: []string{"file.deliver"},
+			RequiredEvidenceTools: []string{"site.publish"},
 			ExpectedResults: []ExpectedResult{{
 				ID:          "site-public-link",
 				Type:        ExpectedResultTypeLink,
