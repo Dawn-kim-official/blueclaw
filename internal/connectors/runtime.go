@@ -893,9 +893,6 @@ func (connectorRuntime *ConnectorRuntime) processInboundEventWithReplySender(ctx
 	if result, isHandled := connectorRuntime.handleTaskControlIfRequested(ctx, platform, adapter, event, replyTarget, personID, sendReply); isHandled {
 		return result, nil
 	}
-	if result, isHandled := connectorRuntime.handleDebugControlIfRequested(ctx, platform, event, replyTarget, personID, sendReply); isHandled {
-		return result, nil
-	}
 	stopProgress := func() {}
 	isProgressStarted := false
 	defer func() {
