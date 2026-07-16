@@ -58,7 +58,7 @@ func TestResolveModelTierNamesUsesBuiltInDefaults(t *testing.T) {
 	if tierNames.Medium != defaultMediumModelName {
 		t.Fatalf("expected medium default, got %q", tierNames.Medium)
 	}
-	if tierNames.Low != "google/gemini-3.1-flash-lite" {
+	if tierNames.Low != defaultLowModelName {
 		t.Fatalf("expected low default, got %q", tierNames.Low)
 	}
 	if tierNames.XLow != defaultXLowModelName {
