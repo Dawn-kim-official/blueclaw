@@ -10,7 +10,7 @@ func applySelectedSkillCompletionRequirements(decision IntakeDecision, instructi
 		return decision
 	}
 	selectedSkills := selectedSkillInstructionList(instructionBundle)
-	if len(selectedSkills) > 0 && instructionBundle.HasContractSkillArbitration {
+	if len(selectedSkills) > 0 && instructionBundle.HasContractSkillArbitration && len(instructionBundle.RequiredEvidenceTools) > 0 {
 		decision.RequiredEvidenceTools = appendUniqueStrings(instructionBundle.RequiredEvidenceTools)
 	} else {
 		decision.RequiredEvidenceTools = appendUniqueStrings(decision.RequiredEvidenceTools)
