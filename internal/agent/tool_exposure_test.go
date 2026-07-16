@@ -127,3 +127,57 @@ func TestPinnedDirectToolWinsSelectedSkillBudget(t *testing.T) {
 		}
 	}
 }
+
+func TestRequiredEvidenceWinsToolBudget(t *testing.T) {
+	selectedToolNames := []string{
+		"site.create", "site.preview", "artifact.review", "site.publish",
+		"site.status", "site.history", "site.diff", "site.logs",
+		"site.rollback", "site.unpublish", "site.restore", "site.delete",
+		"file.read", "file.write", "file.edit", "terminal.run",
+	}
+	toolSet := testToolSet(append(append(KernelToolNames(), selectedToolNames...), "task.update"))
+	instructionBundle := InstructionBundle{
+		Skills:         []SkillInstruction{{Name: "website", AllowedTools: selectedToolNames}},
+		SkillDecisions: []SkillSelectionDecision{{Name: "website", Status: "selected"}},
+	}
+
+	filteredToolSet, _ := toolSetForAgentTurnWithExposure(
+		toolSet,
+		instructionBundle,
+		AgentRequest{},
+		ExecutionPlan{},
+		false,
+		OutcomeContract{RequiredEvidenceTools: []string{"task.update"}},
+		ToolExposureEvent{},
+	)
+
+	if !filteredToolSet.IsAllowed("task.update") {
+		t.Fatalf("expected required evidence inside budget, got %+v", filteredToolSet.ListToolNames())
+	}
+}
+
+func TestEachRequiredEvidenceAlternativeGroupKeepsOneTool(t *testing.T) {
+	firstGroup := []string{
+		"tool.01", "tool.02", "tool.03", "tool.04", "tool.05",
+		"tool.06", "tool.07", "tool.08", "tool.09", "tool.10",
+		"tool.11", "tool.12", "tool.13", "tool.14", "tool.15",
+	}
+	secondGroup := []string{"task.update"}
+	toolSet := testToolSet(append(append(KernelToolNames(), firstGroup...), secondGroup...))
+
+	filteredToolSet, _ := toolSetForAgentTurnWithExposure(
+		toolSet,
+		InstructionBundle{},
+		AgentRequest{},
+		ExecutionPlan{},
+		false,
+		OutcomeContract{RequiredEvidenceAnyOf: [][]string{firstGroup, secondGroup}},
+		ToolExposureEvent{},
+	)
+
+	for _, toolName := range []string{firstGroup[0], secondGroup[0]} {
+		if !filteredToolSet.IsAllowed(toolName) {
+			t.Fatalf("expected one tool from every evidence group, got %+v", filteredToolSet.ListToolNames())
+		}
+	}
+}
