@@ -180,6 +180,7 @@ describe('sdkd provider adapter', () => {
     expect(repairPrompt).toContain('Malformed arguments');
     expect(repairPrompt).toContain('unexpected');
     expect(repairPrompt).toContain('Validation category: schema_validation');
+    expect(repairPrompt).toContain('\\"additionalProperties\\":false');
     expect((repairPrompt.match(/additionalProperties/g) ?? []).length).toBeGreaterThanOrEqual(3);
   });
 
@@ -216,7 +217,7 @@ describe('sdkd provider adapter', () => {
       languageModelFactory(llamaModel, remoteModel),
     );
 
-    await generateChatCompletion(request);
+    const response = await generateChatCompletion(request);
 
     const providerTool = remoteModel.doGenerateCalls[0]?.tools?.[0];
     const providerSchema = providerTool?.type === 'function' ? providerTool.inputSchema : undefined;
@@ -229,6 +230,12 @@ describe('sdkd provider adapter', () => {
     expect(repairPrompt).toContain('true');
     expect(repairPrompt).toContain('string');
     expect(repairPrompt).toContain('false');
+    expect(repairPrompt).toContain('\\"additionalProperties\\":true');
+    expect(repairPrompt).toContain('\\"additionalProperties\\":{\\"type\\":\\"string\\"}');
+    expect(repairPrompt).toContain('\\"additionalProperties\\":false');
+    expect(response.message.toolCalls?.[0]?.function.arguments).toBe(
+      '{"metadata":{"source":"model","extra":true},"labels":{"team":"blueclaw","owner":"sdkd"}}',
+    );
   });
 
   test('rejects permanently invalid native tool arguments without an alternate route', async () => {
@@ -748,6 +755,7 @@ describe('sdkd provider adapter', () => {
     expect(repairPrompt).toContain('Malformed arguments');
     expect(repairPrompt).toContain('Closed JSON schema');
     expect(repairPrompt).toContain('Validation category: schema_validation');
+    expect(repairPrompt).toContain('\\"additionalProperties\\":false');
     expect((repairPrompt.match(/additionalProperties/g) ?? []).length).toBeGreaterThanOrEqual(2);
     expect(fallbackModel.doGenerateCalls).toHaveLength(0);
   });
