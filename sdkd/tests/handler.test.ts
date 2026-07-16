@@ -281,6 +281,33 @@ describe('sdkd handler', () => {
     });
   });
 
+  test('returns safe diagnostics for schema-invalid chat tool arguments', async () => {
+    const handler = createSDKDHandler({
+      configuration,
+      generateStructuredResponse: async () => responseDocument(),
+      generateChatCompletion: async () => {
+        throw new SDKDError(
+          'provider_response_invalid',
+          502,
+          false,
+          'provider returned schema-invalid tool arguments',
+          { category: StructuredOutputDiagnosticCategory.JSONParse },
+        );
+      },
+    });
+
+    const response = await handler(chatRequest('installation-key'));
+
+    expect(response.status).toBe(502);
+    expect(await response.json()).toEqual({
+      error: {
+        code: 'provider_response_invalid',
+        allowLegacyFallback: false,
+        diagnostic: { category: StructuredOutputDiagnosticCategory.JSONParse },
+      },
+    });
+  });
+
   test('rejects malformed chat requests before provider execution', async () => {
     let callCount = 0;
     const handler = createSDKDHandler({
