@@ -20,10 +20,46 @@ type sdkdHTTPError struct {
 	Code                string
 	Message             string
 	AllowLegacyFallback bool
+	Diagnostic          StructuredOutputDiagnostic
 }
 
 func (errorValue sdkdHTTPError) Error() string {
 	return errorValue.Message
+}
+
+type StructuredOutputDiagnosticCategory string
+
+type StructuredOutputFinishReason string
+
+const (
+	StructuredOutputDiagnosticJSONParse        StructuredOutputDiagnosticCategory = "json_parse"
+	StructuredOutputDiagnosticSchemaValidation StructuredOutputDiagnosticCategory = "schema_validation"
+	StructuredOutputDiagnosticFinishReason     StructuredOutputDiagnosticCategory = "finish_reason"
+	StructuredOutputDiagnosticToolCallContract StructuredOutputDiagnosticCategory = "tool_call_contract"
+	StructuredOutputDiagnosticSerialization    StructuredOutputDiagnosticCategory = "serialization"
+)
+
+const (
+	StructuredOutputDiagnosticFinishStop          StructuredOutputFinishReason = "stop"
+	StructuredOutputDiagnosticFinishLength        StructuredOutputFinishReason = "length"
+	StructuredOutputDiagnosticFinishToolCalls     StructuredOutputFinishReason = "tool_calls"
+	StructuredOutputDiagnosticFinishContentFilter StructuredOutputFinishReason = "content_filter"
+	StructuredOutputDiagnosticFinishError         StructuredOutputFinishReason = "error"
+	StructuredOutputDiagnosticFinishOther         StructuredOutputFinishReason = "other"
+	StructuredOutputDiagnosticFinishUnknown       StructuredOutputFinishReason = "unknown"
+)
+
+type StructuredOutputDiagnostic struct {
+	Category     StructuredOutputDiagnosticCategory
+	FinishReason StructuredOutputFinishReason
+}
+
+func StructuredOutputDiagnosticFromError(errorValue error) (StructuredOutputDiagnostic, bool) {
+	httpError, isHTTPError := asSDKDHTTPError(errorValue)
+	if !isHTTPError || httpError.Diagnostic.Category == "" {
+		return StructuredOutputDiagnostic{}, false
+	}
+	return httpError.Diagnostic, true
 }
 
 type sdkdTransportError struct {
@@ -405,8 +441,9 @@ func (client SDKDClient) postJSON(responseContext context.Context, path string, 
 	if httpResponse.StatusCode < http.StatusOK || httpResponse.StatusCode >= http.StatusMultipleChoices {
 		var errorDocument struct {
 			Error struct {
-				Code                string `json:"code"`
-				AllowLegacyFallback bool   `json:"allowLegacyFallback"`
+				Code                string          `json:"code"`
+				AllowLegacyFallback bool            `json:"allowLegacyFallback"`
+				Diagnostic          json.RawMessage `json:"diagnostic"`
 			} `json:"error"`
 		}
 		_ = json.Unmarshal(responseBody, &errorDocument)
@@ -415,9 +452,50 @@ func (client SDKDClient) postJSON(responseContext context.Context, path string, 
 			Code:                strings.TrimSpace(errorDocument.Error.Code),
 			Message:             strings.TrimSpace(string(responseBody)),
 			AllowLegacyFallback: errorDocument.Error.AllowLegacyFallback,
+			Diagnostic:          parseStructuredOutputDiagnostic(errorDocument.Error.Diagnostic),
 		}
 	}
 	return json.Unmarshal(responseBody, responseDocument)
+}
+
+func parseStructuredOutputDiagnostic(document json.RawMessage) StructuredOutputDiagnostic {
+	var diagnosticDocument struct {
+		Category     string `json:"category"`
+		FinishReason string `json:"finishReason"`
+	}
+	decoder := json.NewDecoder(bytes.NewReader(document))
+	decoder.DisallowUnknownFields()
+	if errorValue := decoder.Decode(&diagnosticDocument); errorValue != nil {
+		return StructuredOutputDiagnostic{}
+	}
+	if errorValue := decoder.Decode(&struct{}{}); errorValue != io.EOF {
+		return StructuredOutputDiagnostic{}
+	}
+	normalizedCategory := StructuredOutputDiagnosticCategory(strings.TrimSpace(diagnosticDocument.Category))
+	normalizedFinishReason := StructuredOutputFinishReason(strings.TrimSpace(diagnosticDocument.FinishReason))
+	if !isStructuredOutputDiagnosticCategory(normalizedCategory) {
+		return StructuredOutputDiagnostic{}
+	}
+	if normalizedCategory != StructuredOutputDiagnosticFinishReason && normalizedFinishReason != "" {
+		return StructuredOutputDiagnostic{}
+	}
+	if normalizedFinishReason != "" && !isSDKDChatCompletionFinishReason(string(normalizedFinishReason)) {
+		return StructuredOutputDiagnostic{}
+	}
+	return StructuredOutputDiagnostic{Category: normalizedCategory, FinishReason: normalizedFinishReason}
+}
+
+func isStructuredOutputDiagnosticCategory(category StructuredOutputDiagnosticCategory) bool {
+	switch category {
+	case StructuredOutputDiagnosticJSONParse,
+		StructuredOutputDiagnosticSchemaValidation,
+		StructuredOutputDiagnosticFinishReason,
+		StructuredOutputDiagnosticToolCallContract,
+		StructuredOutputDiagnosticSerialization:
+		return true
+	default:
+		return false
+	}
 }
 
 func canUseLegacySDKDFallback(errorValue error) bool {
