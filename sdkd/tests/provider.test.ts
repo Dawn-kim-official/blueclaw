@@ -182,6 +182,44 @@ describe('sdkd provider adapter', () => {
     expect(requestBodies[2]?.parallelToolCalls).toBeUndefined();
   });
 
+  test('disables parallel tool calls for structured routes and preserves chat values', async () => {
+    const structuredCalls: ProviderFactoryCall[] = [];
+    const generateStructuredResponse = createStructuredResponseGenerator(
+      completeConfiguration(SDKDAutoRoute.RemoteFirst),
+      recordingLanguageModelFactory(
+        successfulLanguageModel('device-model', { ok: true }),
+        successfulLanguageModel('remote-model', { ok: true }),
+        structuredCalls,
+      ),
+    );
+
+    await generateStructuredResponse({ ...structuredRequest, executionMode: ExecutionMode.Remote });
+    await generateStructuredResponse({ ...structuredRequest, executionMode: ExecutionMode.Device });
+
+    expect(structuredCalls).toEqual([
+      { provider: 'openrouter', parallelToolCalls: false },
+      { provider: 'llama.cpp', parallelToolCalls: false },
+    ]);
+
+    const chatCalls: ProviderFactoryCall[] = [];
+    const generateChatCompletion = createChatCompletionGenerator(
+      completeConfiguration(SDKDAutoRoute.RemoteFirst),
+      recordingLanguageModelFactory(
+        chatLanguageModel('device-model'),
+        chatLanguageModel('remote-model'),
+        chatCalls,
+      ),
+    );
+
+    await generateChatCompletion({ ...chatRequest, executionMode: ExecutionMode.Remote, parallelToolCalls: true });
+    await generateChatCompletion({ ...chatRequest, executionMode: ExecutionMode.Device, parallelToolCalls: false });
+
+    expect(chatCalls).toEqual([
+      { provider: 'openrouter', parallelToolCalls: true },
+      { provider: 'llama.cpp', parallelToolCalls: false },
+    ]);
+  });
+
   test('passes cancellation to the model and does not fall back after abort', async () => {
     const abortController = new AbortController();
     const routeAttempts: string[] = [];
@@ -602,6 +640,28 @@ function languageModelFactory(
   return {
     createLlamaLanguageModel: () => llamaModel,
     createOpenRouterLanguageModel: () => openRouterModel,
+  };
+}
+
+type ProviderFactoryCall = {
+  provider: 'llama.cpp' | 'openrouter';
+  parallelToolCalls: boolean | undefined;
+};
+
+function recordingLanguageModelFactory(
+  llamaModel: MockLanguageModelV3,
+  openRouterModel: MockLanguageModelV3,
+  calls: ProviderFactoryCall[],
+): ProviderLanguageModelFactory {
+  return {
+    createLlamaLanguageModel(_modelName, _baseURL, _apiKey, parallelToolCalls) {
+      calls.push({ provider: 'llama.cpp', parallelToolCalls });
+      return llamaModel;
+    },
+    createOpenRouterLanguageModel(_modelName, _baseURL, _apiKey, parallelToolCalls) {
+      calls.push({ provider: 'openrouter', parallelToolCalls });
+      return openRouterModel;
+    },
   };
 }
 

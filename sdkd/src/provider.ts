@@ -108,9 +108,7 @@ function resolveProviderRoutes(
   languageModelFactory: ProviderLanguageModelFactory,
   requireStructuredOutputs = true,
 ): ProviderRoute[] {
-  const parallelToolCalls = 'parallelToolCalls' in request && typeof request.parallelToolCalls === 'boolean'
-    ? request.parallelToolCalls
-    : undefined;
+  const parallelToolCalls = parallelToolCallsForRoute(request, requireStructuredOutputs);
   if (request.executionMode === ExecutionMode.Device) return [createLlamaRoute(configuration, languageModelFactory, requireStructuredOutputs, parallelToolCalls)];
   if (request.executionMode === ExecutionMode.Remote) {
     if (configuration.localOnly) {
@@ -135,6 +133,12 @@ function resolveProviderRoutes(
     throw new SDKDError('configuration_invalid', 503, false, 'auto routing requires an OpenRouter or llama.cpp configuration');
   }
   return configuredRoutes;
+}
+
+function parallelToolCallsForRoute(request: ProviderRequest, requireStructuredOutputs: boolean): boolean | undefined {
+  if (requireStructuredOutputs) return false;
+  if ('parallelToolCalls' in request && typeof request.parallelToolCalls === 'boolean') return request.parallelToolCalls;
+  return undefined;
 }
 
 function optionalLlamaRoute(
