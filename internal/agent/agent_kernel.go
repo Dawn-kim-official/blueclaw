@@ -458,6 +458,10 @@ func (agentKernel *AgentKernel) selectInstructionBundleForResolvedRequest(ctx co
 		selectionContract.ArtifactRequirement = ArtifactRequirementRequired
 	}
 	selectionRequest.ActiveGoal.OutcomeContract = normalizeOutcomeContract(selectionContract)
+	if requestHasExactToolContract(selectionRequest, intakeDecision) {
+		instructionBundle := instructionBundleForExactToolContract(baseInstructionBundle)
+		return instructionBundleWithPinnedSkills(instructionBundle, selectionRequest), intakeDecision
+	}
 	instructionBundle := selectInstructionBundleForRequestWithRetrieverAndRouter(
 		ctx,
 		baseInstructionBundle,

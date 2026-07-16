@@ -1049,6 +1049,44 @@ func TestAgentKernelSelectsArtifactSkillOnceAfterRouting(t *testing.T) {
 	}
 }
 
+func TestAgentKernelSkipsSkillRetrievalForExactToolContract(t *testing.T) {
+	intakeLanguageModel := &sequenceLanguageModel{contents: []string{`{"queries":[{"description":"Create a task."}]}`}}
+	services := newKernelIntakeTestServices(&sequenceLanguageModel{}, intakeLanguageModel)
+	skillRetriever := &countingSkillRetriever{result: SkillRetrievalResult{
+		SelectedCandidates: []SkillCandidate{{Name: "internkim-flow", Score: 1}},
+	}}
+	services.kernel.UseSkillRetriever(skillRetriever)
+	toolSet := newTestCapabilityToolSet([]string{"task.add"})
+	request := AgentRequest{
+		Prompt:  "업무를 추가해줘",
+		ToolSet: toolSet,
+		ActiveGoal: ActiveGoal{OutcomeContract: OutcomeContract{
+			ArtifactRequirement:   ArtifactRequirementNone,
+			RequiredEvidenceTools: []string{"task.add"},
+		}},
+	}
+	bundle, _ := services.kernel.selectInstructionBundleForResolvedRequest(context.Background(), InstructionBundle{Skills: []SkillInstruction{{
+		Name:        "internkim-flow",
+		Description: "Manage tasks.",
+		Prompt:      "Use task.add.",
+	}}}, request, IntakeDecision{
+		Classification:        IntakeClassificationBoundedTask,
+		TaskLevel:             TaskLevelLow,
+		EstimatedMinutes:      2,
+		RequiredEvidenceTools: []string{"task.add"},
+	})
+
+	if bundle.RetrievalMode != "tool_contract" || bundle.IndexStatus != "bypassed" {
+		t.Fatalf("expected exact tool contract to bypass skill retrieval, got %+v", bundle)
+	}
+	if skillRetriever.searchCount != 0 || len(intakeLanguageModel.requests) != 0 {
+		t.Fatal("expected no model or embedding skill retrieval")
+	}
+	if strings.Contains(bundle.Prompt, "Use task.add.") {
+		t.Fatal("expected unselected skill body to remain unloaded")
+	}
+}
+
 func TestAgentKernelPreservesUnsupportedArtifactWithoutSelectedSkill(t *testing.T) {
 	intakeLanguageModel := &sequenceLanguageModel{contents: []string{
 		`{"route":"give_up","classification":"unsupported","taskShape":"immediate_reply","level":"low","estimatedMinutes":1,"requestedOutputFormats":["pptx"],"initialToolNames":["file.deliver"],"responseLanguage":"ko","reason":"previous permission failure","userFacingReply":"PPTX 파일 생성은 불가능합니다."}`,

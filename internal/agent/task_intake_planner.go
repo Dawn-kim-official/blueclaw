@@ -372,6 +372,10 @@ func (turnRouter TurnRouter) buildMessages(request AgentRequest) []llm.Message {
 		},
 		{
 			Role:    "system",
+			Content: "For reads from private or external systems, requiredEvidence should name the exact read operation that proves the requested lookup completed.",
+		},
+		{
+			Role:    "system",
 			Content: buildTemporalContextDescription(request.TurnStartedAt),
 		},
 		{
