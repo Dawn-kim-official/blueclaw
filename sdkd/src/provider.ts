@@ -448,6 +448,16 @@ async function generateChatForRoute(
     seed: request.generationOptions?.seed,
     temperature: request.generationOptions?.temperature,
   });
+  for (const toolCall of result.toolCalls) {
+    if (!toolCall.invalid) continue;
+    throw new SDKDError(
+      'provider_response_invalid',
+      502,
+      false,
+      'provider returned schema-invalid tool arguments',
+      diagnoseInvalidToolCall(toolCall.error),
+    );
+  }
   return {
     provider: route.providerName,
     model: result.response.modelId || route.modelName,

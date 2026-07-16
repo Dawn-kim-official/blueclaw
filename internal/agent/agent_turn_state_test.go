@@ -64,6 +64,21 @@ func TestDecideAgentActionUsesNativeChatForFinishAndContinue(t *testing.T) {
 	}
 }
 
+func TestDecideAgentActionNativeChatOmitsTextToolCatalog(t *testing.T) {
+	provider := nativeAgentActionLanguageModel{chatResponse: nativeAgentActionChatResponse("finish", `{}`)}
+
+	_, errorValue := DecideAgentAction(context.Background(), &provider, nativeAgentActionTestState())
+	if errorValue != nil {
+		t.Fatalf("expected native action: %v", errorValue)
+	}
+	if strings.Contains(chatMessageContent(provider.lastRequest.Messages), "Available tool catalog") {
+		t.Fatalf("expected native chat messages to omit textual tool catalog, got %s", chatMessageContent(provider.lastRequest.Messages))
+	}
+	if nativeChatTool(t, provider.lastRequest.Tools, TerminalRunToolName).Function.Name != TerminalRunToolName {
+		t.Fatalf("expected native chat to preserve direct typed tool, got %+v", provider.lastRequest.Tools)
+	}
+}
+
 func TestBuildAgentActionChatRequestExposesDirectToolsAndTerminalControls(t *testing.T) {
 	state := nativeAgentActionTestState()
 	seed := int64(77)
@@ -110,6 +125,13 @@ func TestBuildAgentActionChatRequestExposesDirectToolsAndTerminalControls(t *tes
 	}
 	if chatRequest.GenerationOptions.MaxTokens == nil || *chatRequest.GenerationOptions.MaxTokens != maxTokens {
 		t.Fatalf("expected native chat max tokens to be preserved, got %+v", chatRequest.GenerationOptions)
+	}
+}
+
+func TestBuildAgentActionRequestKeepsTextToolCatalogForStructuredFallback(t *testing.T) {
+	request := BuildAgentActionRequest(nativeAgentActionTestState())
+	if !strings.Contains(joinMessageContent(request.Messages), "Available tool catalog") {
+		t.Fatalf("expected structured request to retain textual tool catalog, got %s", joinMessageContent(request.Messages))
 	}
 }
 
@@ -325,6 +347,14 @@ func (provider *nativeAgentActionLanguageModel) GenerateChatCompletion(_ context
 
 func (provider *nativeAgentActionLanguageModel) chatResponseAsStructured() llm.StructuredResponse {
 	return llm.StructuredResponse{Content: `{"action":"finish","message":"done"}`}
+}
+
+func chatMessageContent(messages []llm.ChatCompletionMessage) string {
+	contents := make([]string, 0, len(messages))
+	for _, message := range messages {
+		contents = append(contents, message.Content)
+	}
+	return strings.Join(contents, "\n")
 }
 
 type structuredOnlyAgentActionLanguageModel struct {
