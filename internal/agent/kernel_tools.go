@@ -30,7 +30,6 @@ func KernelToolNames() []string {
 		TerminalRunToolName,
 		FileDeliverToolName,
 		SkillSearchToolName,
-		CapabilityInvokeToolName,
 		FileReadToolName,
 		FileWriteToolName,
 		FileDeleteToolName,
@@ -38,7 +37,6 @@ func KernelToolNames() []string {
 		FilePreviewToolName,
 		ImageReadToolName,
 		ConversationHistoryToolName,
-		TaskHistoryToolName,
 	}
 }
 

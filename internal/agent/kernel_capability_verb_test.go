@@ -5,15 +5,11 @@ import (
 	"testing"
 )
 
-func TestKernelToolNamesIncludeCapabilityInvoke(t *testing.T) {
-	found := false
-	for _, name := range KernelToolNames() {
-		if name == CapabilityInvokeToolName {
-			found = true
+func TestKernelToolNamesExcludeInternalDispatchTools(t *testing.T) {
+	for _, toolName := range []string{CapabilityInvokeToolName, TaskHistoryToolName} {
+		if stringSliceContains(KernelToolNames(), toolName) {
+			t.Fatalf("expected internal tool %s outside model kernel, got %v", toolName, KernelToolNames())
 		}
-	}
-	if !found {
-		t.Fatalf("expected capability.invoke in kernel palette, got %v", KernelToolNames())
 	}
 }
 
@@ -34,33 +30,18 @@ func TestCanonicalEvidenceToolNameLeavesNeutralOperationsUntouched(t *testing.T)
 	}
 }
 
-func TestEffectiveObservationToolNameReturnsCapabilityInvokeOperationVerbatim(t *testing.T) {
-	resolved := effectiveObservationToolName(CapabilityInvokeToolName, json.RawMessage(`{"operation":"site.publish","input":{"siteID":"s1"}}`))
-	if resolved != "site.publish" {
-		t.Fatalf("expected neutral operation site.publish, got %q", resolved)
+func TestEffectiveObservationToolNamePreservesDirectToolNames(t *testing.T) {
+	if got := effectiveObservationToolName("site.publish", json.RawMessage(`{"siteID":"s1"}`)); got != "site.publish" {
+		t.Fatalf("expected direct tool name unchanged, got %q", got)
 	}
 	if got := effectiveObservationToolName(TerminalRunToolName, json.RawMessage(`{"command":"ls"}`)); got != TerminalRunToolName {
-		t.Fatalf("expected non-verb tool name unchanged, got %q", got)
-	}
-	if got := effectiveObservationToolName(CapabilityInvokeToolName, json.RawMessage(`{}`)); got != CapabilityInvokeToolName {
-		t.Fatalf("expected verb name kept when operation missing, got %q", got)
+		t.Fatalf("expected terminal tool name unchanged, got %q", got)
 	}
 }
 
-func TestEffectiveActionToolNameAndInputUnwrapsStringifiedInput(t *testing.T) {
-	toolName, toolInput := effectiveActionToolNameAndInput(CapabilityInvokeToolName, json.RawMessage(`{"operation":"site.create","input":"{\"slug\":\"team-dashboard\"}"}`))
-	if toolName != "site.create" {
-		t.Fatalf("expected operation site.create, got %q", toolName)
-	}
-	if string(toolInput) != `{"slug":"team-dashboard"}` {
-		t.Fatalf("expected unwrapped object input, got %s", toolInput)
-	}
-	toolName, toolInput = effectiveActionToolNameAndInput(CapabilityInvokeToolName, json.RawMessage(`{"operation":"site.create","input":{"slug":"team-dashboard"}}`))
+func TestEffectiveActionToolNameAndInputPreservesDirectInput(t *testing.T) {
+	toolName, toolInput := effectiveActionToolNameAndInput("site.create", json.RawMessage(`{"slug":"team-dashboard"}`))
 	if toolName != "site.create" || string(toolInput) != `{"slug":"team-dashboard"}` {
-		t.Fatalf("expected object input passthrough, got %q %s", toolName, toolInput)
-	}
-	toolName, toolInput = effectiveActionToolNameAndInput(CapabilityInvokeToolName, json.RawMessage(`{"operation":"site.create","input":"not json"}`))
-	if toolName != "site.create" || string(toolInput) != `"not json"` {
-		t.Fatalf("expected non-JSON string input passthrough, got %q %s", toolName, toolInput)
+		t.Fatalf("expected direct tool input passthrough, got %q %s", toolName, toolInput)
 	}
 }

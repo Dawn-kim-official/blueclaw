@@ -68,6 +68,7 @@ type StructuredResponse struct {
 	Transport       string
 	ProviderName    string
 	ModelName       string
+	ModelTier       string `json:"-"`
 	Content         string
 	SelectedBackend string
 	FinishReason    string

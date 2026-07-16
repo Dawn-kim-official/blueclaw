@@ -97,7 +97,7 @@ func TestTaskLevelProfileForLevelMapsLimits(t *testing.T) {
 }
 
 func TestArtifactTaskLevelFloorRaisesSiteAndSlidesToXHigh(t *testing.T) {
-	siteFloor := artifactTaskLevelFloor(AgentRequest{}, IntakeDecision{SiteRequestEvidence: "웹사이트 만들어서 배포"})
+	siteFloor := artifactTaskLevelFloor(AgentRequest{}, IntakeDecision{RequiredEvidenceTools: []string{"site.publish"}})
 	if siteFloor != TaskLevelXHigh {
 		t.Fatalf("expected site request to floor at xhigh, got %q", siteFloor)
 	}

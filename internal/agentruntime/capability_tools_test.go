@@ -234,7 +234,7 @@ func TestCapabilityInvokeMissingRequiredFieldsIncludesDescriptorRecoveryHint(t *
 	}})
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
 
-	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+	result, errorValue := toolRegistry.InvokeRegistered(context.Background(), agent.ToolInvocation{
 		ToolName: agent.CapabilityInvokeToolName,
 		Input:    json.RawMessage(`{"operation":"calendar.add","input":{}}`),
 	})
@@ -271,7 +271,7 @@ func TestCapabilityInvokeRejectsUnexpectedFieldsBeforeCapabilityCall(t *testing.
 	}})
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
 
-	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+	result, errorValue := toolRegistry.InvokeRegistered(context.Background(), agent.ToolInvocation{
 		ToolName: agent.CapabilityInvokeToolName,
 		Input:    json.RawMessage(`{"operation":"calendar.delete","input":"{\"path\":\"/calendar/events/비용 테스트 일정\"}"}`),
 	})
@@ -302,7 +302,7 @@ func TestCapabilityInvokeMissingInputIncludesInputSkeleton(t *testing.T) {
 	}})
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
 
-	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+	result, errorValue := toolRegistry.InvokeRegistered(context.Background(), agent.ToolInvocation{
 		ToolName: agent.CapabilityInvokeToolName,
 		Input:    json.RawMessage(`{"operation":"site.create","input":{}}`),
 	})
@@ -342,7 +342,7 @@ func TestCapabilityInvokeRejectsMissingInputObject(t *testing.T) {
 	}})
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
 
-	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+	result, errorValue := toolRegistry.InvokeRegistered(context.Background(), agent.ToolInvocation{
 		ToolName: agent.CapabilityInvokeToolName,
 		Input:    json.RawMessage(`{"operation":"calendar.add"}`),
 	})
@@ -386,7 +386,7 @@ func TestCapabilityInvokeAcceptsStringifiedJSONObjectInput(t *testing.T) {
 	}})
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
 
-	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+	result, errorValue := toolRegistry.InvokeRegistered(context.Background(), agent.ToolInvocation{
 		ToolName: agent.CapabilityInvokeToolName,
 		Input:    json.RawMessage(`{"operation":"calendar.add","input":"{\"title\":\"party\"}"}`),
 	})
@@ -411,7 +411,7 @@ func TestCapabilityInvokeRejectsNonObjectInputWithHardenedFailure(t *testing.T) 
 	}})
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
 
-	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+	result, errorValue := toolRegistry.InvokeRegistered(context.Background(), agent.ToolInvocation{
 		ToolName: agent.CapabilityInvokeToolName,
 		Input:    json.RawMessage(`{"operation":"calendar.add","input":42}`),
 	})
@@ -445,7 +445,7 @@ func TestCapabilityInvokeUnknownOperationTakesPriorityOverInputShape(t *testing.
 	}})
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
 
-	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+	result, errorValue := toolRegistry.InvokeRegistered(context.Background(), agent.ToolInvocation{
 		ToolName: agent.CapabilityInvokeToolName,
 		Input:    json.RawMessage(`{"operation":"calendar.remove","input":42}`),
 	})

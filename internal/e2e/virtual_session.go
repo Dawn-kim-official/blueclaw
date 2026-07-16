@@ -60,6 +60,7 @@ type VirtualSessionScenario struct {
 	CapabilityToolNames       []string
 	CapabilityToolDescriptors []agentruntime.CapabilityToolDescriptor
 	InitialToolNames          []string
+	InitialTaskRuns           []VirtualTaskRunFixture
 	InitialMemory             []memory.MemoryFact
 	RouterRequiredEvidence    []string
 	RouterTaskShape           agent.TaskShape
@@ -72,6 +73,13 @@ type VirtualSessionScenario struct {
 	TurnOptions               agent.TurnOptions
 	ProgressWriter            io.Writer
 	Turns                     []VirtualTurn
+}
+
+type VirtualTaskRunFixture struct {
+	Prompt        string
+	Result        string
+	FailureReason string
+	Status        task.TaskStatus
 }
 
 type VirtualResponseExpectation string
@@ -627,6 +635,7 @@ func NewVirtualSessionHarness(scenario VirtualSessionScenario) (*VirtualSessionH
 
 	taskEventService := task.NewTaskEventService()
 	taskRunService := task.NewTaskRunService(taskEventService)
+	seedVirtualTaskRuns(taskRunService, scenario.InitialTaskRuns)
 	taskStepService := task.NewTaskStepService()
 	taskArtifactService := task.NewTaskArtifactService()
 	scriptedModel := actionScriptedLanguageModelForScenario(scenario)
@@ -685,7 +694,7 @@ func NewVirtualSessionHarness(scenario VirtualSessionScenario) (*VirtualSessionH
 	capabilityToolNames := virtualCapabilityToolNames(scenario)
 	if len(capabilityToolNames) > 0 {
 		var capabilityCleanup func()
-		capabilityClient, capabilityCleanup = startVirtualCapabilityServer(capabilityToolNames, workspacePath)
+		capabilityClient, capabilityCleanup = startVirtualCapabilityServer(capabilityToolNames, workspacePath, taskRunService)
 		runtime.UseCapabilityTools(capabilityClient, scenario.CapabilityToolNames)
 		runtime.UseCapabilityToolDescriptors(capabilityClient, scenario.CapabilityToolDescriptors)
 		cleanup = capabilityCleanup
@@ -1064,13 +1073,14 @@ type virtualCapabilityService struct {
 	mutex          sync.Mutex
 	toolNameByName map[string]bool
 	workspacePath  string
+	taskRunService *task.TaskRunService
 	tasks          []virtualCapabilityRecord
 	events         []virtualCapabilityRecord
 	site           *virtualCapabilityRecord
 	sitePublished  bool
 }
 
-func startVirtualCapabilityServer(toolNames []string, workspacePath string) (capability.Client, func()) {
+func startVirtualCapabilityServer(toolNames []string, workspacePath string, taskRunService *task.TaskRunService) (capability.Client, func()) {
 	toolNameByName := map[string]bool{}
 	for _, toolName := range toolNames {
 		trimmedToolName := strings.TrimSpace(toolName)
@@ -1078,12 +1088,24 @@ func startVirtualCapabilityServer(toolNames []string, workspacePath string) (cap
 			toolNameByName[trimmedToolName] = true
 		}
 	}
-	service := &virtualCapabilityService{toolNameByName: toolNameByName, workspacePath: workspacePath}
+	service := &virtualCapabilityService{toolNameByName: toolNameByName, workspacePath: workspacePath, taskRunService: taskRunService}
 	server := httptest.NewServer(http.HandlerFunc(service.handleRequest))
 	return capability.Client{
 		Endpoint:   server.URL,
 		HTTPClient: server.Client(),
 	}, server.Close
+}
+
+func seedVirtualTaskRuns(taskRunService *task.TaskRunService, fixtures []VirtualTaskRunFixture) {
+	for _, fixture := range fixtures {
+		taskRun := taskRunService.CreateTaskRun("person-1", "virtual-history", fixture.Prompt)
+		switch fixture.Status {
+		case task.TaskStatusFailed:
+			_, _ = taskRunService.FailTaskRun(taskRun.TaskRunID, fixture.FailureReason)
+		case task.TaskStatusCompleted:
+			_, _ = taskRunService.CompleteTaskRun(taskRun.TaskRunID, fixture.Result)
+		}
+	}
 }
 
 func (service *virtualCapabilityService) handleRequest(responseWriter http.ResponseWriter, request *http.Request) {
@@ -1422,7 +1444,7 @@ func (service *virtualCapabilityService) taskResponse(toolName string, requestBo
 		service.tasks = append(service.tasks, record)
 		return virtualCapabilitySuccess(toolName, "created virtual task", map[string]any{"task": record.Values})
 	case "task.list":
-		return virtualCapabilitySuccess(toolName, "listed virtual tasks", map[string]any{"tasks": virtualCapabilityRecordValues(service.tasks)})
+		return virtualCapabilitySuccess(toolName, "listed virtual tasks", map[string]any{"tasks": service.taskRunValues()})
 	case "task.update":
 		index := virtualCapabilityRecordIndex(service.tasks, input, "taskID")
 		if index < 0 {
@@ -1447,6 +1469,25 @@ func (service *virtualCapabilityService) taskResponse(toolName string, requestBo
 		service.tasks = append(service.tasks[:index], service.tasks[index+1:]...)
 		return virtualCapabilitySuccess(toolName, "deleted virtual task", map[string]any{"task": deletedRecord.Values, "status": "deleted"})
 	}
+}
+
+func (service *virtualCapabilityService) taskRunValues() []map[string]any {
+	if service.taskRunService == nil {
+		return virtualCapabilityRecordValues(service.tasks)
+	}
+	values := make([]map[string]any, 0, len(service.taskRunService.ListTaskRun()))
+	for _, taskRun := range service.taskRunService.ListTaskRun() {
+		values = append(values, map[string]any{
+			"taskRunID":     taskRun.TaskRunID,
+			"status":        string(taskRun.Status),
+			"prompt":        taskRun.Prompt,
+			"result":        taskRun.Result,
+			"failureReason": taskRun.FailureReason,
+			"createdAt":     taskRun.CreatedAt.UTC().Format(time.RFC3339),
+			"updatedAt":     taskRun.UpdatedAt.UTC().Format(time.RFC3339),
+		})
+	}
+	return values
 }
 
 func (service *virtualCapabilityService) calendarResponse(toolName string, requestBody []byte) string {
@@ -2317,20 +2358,11 @@ func countEvents(events []task.TaskEvent, name string) int {
 }
 
 func requestedToolCallPresent(events []task.TaskEvent, toolName string) bool {
-	if eventsContain(events, "tool."+toolName+".requested", toolName) {
-		return true
-	}
-	return eventsContain(events, "tool.capability.invoke.requested", capabilityOperationFragment(toolName))
+	return eventsContain(events, "tool."+toolName+".requested", toolName)
 }
 
 func countRequestedToolCalls(events []task.TaskEvent, toolName string) int {
-	directCount := countEvents(events, "tool."+toolName+".requested")
-	verbCount := countEventsWithFragment(events, "tool.capability.invoke.requested", capabilityOperationFragment(toolName))
-	return directCount + verbCount
-}
-
-func capabilityOperationFragment(toolName string) string {
-	return `"operation":"` + toolName + `"`
+	return countEvents(events, "tool."+toolName+".requested")
 }
 
 func countEventsWithFragment(events []task.TaskEvent, name string, bodyFragment string) int {
@@ -2969,14 +3001,6 @@ func actionNoToolFallbackFinishMessage(reply string) string {
 
 func actionFailMessage(reason string) string {
 	return `{"action":"fail","reason":` + quote(reason) + `,"goalStatus":"blocked","goalSatisfied":false,"remainingWork":"The requested task could not complete.","failureResolution":"failure_report","usedFailureFacts":{"attempts":[{"toolName":"terminal.run","inputSummary":"printf 'permission denied blocked_by_captcha' >&2; exit 126","errorCode":"operation_failed","failureStage":"terminal_run","message":"errorCode=operation_failed; failureStage=terminal_run; exitCode=126; stderrTail=permission denied blocked_by_captcha"}],"budgetState":"failure_report_required"},"executionStateUpdate":{}}`
-}
-
-func actionSelectTools(toolNames ...string) string {
-	encodedToolNames := []string{}
-	for _, toolName := range toolNames {
-		encodedToolNames = append(encodedToolNames, quote(toolName))
-	}
-	return `{"action":"tool.request","toolNames":[` + strings.Join(encodedToolNames, ",") + `],"skillNames":[],"reason":"required for the requested task"}`
 }
 
 func actionCallTool(toolName string, input string) string {

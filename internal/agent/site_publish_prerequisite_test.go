@@ -163,10 +163,7 @@ func TestSiteBuiltRecoveryPreconditionRequiresSiteBuildCommand(t *testing.T) {
 }
 
 func sitePublishActionDocument() turnActionDocument {
-	return turnActionDocument{
-		ToolName:  CapabilityInvokeToolName,
-		ToolInput: json.RawMessage(`{"operation":"site.publish","input":{"siteID":"site-1"}}`),
-	}
+	return turnActionDocument{ToolName: "site.publish", ToolInput: json.RawMessage(`{"siteID":"site-1"}`)}
 }
 
 func siteBuildObservation(observationID string, workingDirectoryPath string, command string) turnObservation {

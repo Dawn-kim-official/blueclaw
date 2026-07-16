@@ -44,7 +44,7 @@ func TestTerminalRunModelApprovalPausesBeforeExecution(t *testing.T) {
 		ConversationID:         "conversation-1",
 		Prompt:                 "승인",
 		ResponseLanguage:       ResponseLanguageKorean,
-		ToolSet:                toolSet,
+		ToolSet:                toolSet.WithAllowedToolNames(nil),
 		WorkspaceRootPath:      t.TempDir(),
 	})
 	if errorValue != nil {

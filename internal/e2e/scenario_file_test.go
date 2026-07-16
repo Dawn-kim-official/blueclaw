@@ -17,7 +17,7 @@ func TestLoadScenarioFileReadsSequentialStepsAndResolvesSkills(t *testing.T) {
 	document := `{
   "name": "task-lifecycle",
   "skillDirectoryPaths": ["../../skills/flow"],
-  "allowedTools": ["capability.invoke"],
+  "allowedTools": ["task.add", "task.delete"],
   "capabilityToolNames": ["task.add", "task.delete"],
   "capabilityToolDescriptors": [{"name":"task.delete","requiresApproval":true}],
   "steps": [
@@ -56,6 +56,7 @@ func TestLoadScenarioFileRejectsUnknownFieldsAndEmptySteps(t *testing.T) {
 		"unknown":          `{"name":"bad","steps":[{"prompt":"hi"}],"unexpected":true}`,
 		"empty":            `{"name":"bad","steps":[]}`,
 		"invalid response": `{"name":"bad","steps":[{"prompt":"hi","expectedResponse":"maybe"}]}`,
+		"scripted actions": `{"name":"bad","steps":[{"prompt":"hi","actionResponses":["finish"]}]}`,
 	} {
 		t.Run(testName, func(t *testing.T) {
 			scenarioPath := filepath.Join(t.TempDir(), "scenario.json")
@@ -63,7 +64,7 @@ func TestLoadScenarioFileRejectsUnknownFieldsAndEmptySteps(t *testing.T) {
 				t.Fatal(errorValue)
 			}
 			_, errorValue := LoadScenarioFile(scenarioPath, t.TempDir())
-			if errorValue == nil || (!strings.Contains(errorValue.Error(), "unknown field") && !strings.Contains(errorValue.Error(), "sequential step") && !strings.Contains(errorValue.Error(), "expectedResponse")) {
+			if errorValue == nil || (!strings.Contains(errorValue.Error(), "unknown field") && !strings.Contains(errorValue.Error(), "sequential step") && !strings.Contains(errorValue.Error(), "expectedResponse") && !strings.Contains(errorValue.Error(), "actionResponses")) {
 				t.Fatalf("expected scenario validation error, got %v", errorValue)
 			}
 		})

@@ -62,9 +62,40 @@ func TestLowTierEscalatesToMediumThroughRealCapabilityTransport(t *testing.T) {
 	if !response.UsedFallback {
 		t.Fatalf("expected UsedFallback to be marked, got %+v (models requested: %v)", response, requestedModels)
 	}
+	if response.ModelTier != "medium" {
+		t.Fatalf("expected the successful fallback response to report medium tier, got %+v", response)
+	}
 	requestedModelsLock.Lock()
 	defer requestedModelsLock.Unlock()
 	if len(requestedModels) < 2 || requestedModels[len(requestedModels)-1] != "vendor/medium" {
 		t.Fatalf("expected a final vendor/medium request after vendor/low failures, got %v", requestedModels)
+	}
+}
+
+func TestCappedHighTierReportsLowModelTier(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(responseWriter http.ResponseWriter, request *http.Request) {
+		if !strings.HasSuffix(request.URL.Path, "/llm/structured") {
+			http.Error(responseWriter, "unexpected path "+request.URL.Path, http.StatusNotFound)
+			return
+		}
+		json.NewEncoder(responseWriter).Encode(map[string]any{
+			"provider": "openrouter",
+			"model":    "vendor/low",
+			"content":  `{"action":"finish"}`,
+		})
+	}))
+	defer server.Close()
+
+	runtimeConfiguration := configuredModelTierRuntime("low")
+	runtimeConfiguration.Capabilities.Endpoint = server.URL
+	providers := resolveTaskTierLanguageModelProviders(runtimeConfiguration, slog.New(slog.DiscardHandler))
+	response, errorValue := providers.High.GenerateStructuredResponse(context.Background(), llm.StructuredResponseRequest{
+		StructuredOutputSchema: llm.StructuredOutputSchema{Name: "blueclaw_agent_turn_action", Document: `{"type":"object"}`},
+	})
+	if errorValue != nil {
+		t.Fatalf("expected capped high provider to succeed: %v", errorValue)
+	}
+	if response.ModelTier != "low" {
+		t.Fatalf("expected capped high provider to report low tier, got %+v", response)
 	}
 }

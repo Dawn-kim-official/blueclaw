@@ -31,7 +31,6 @@ func TestEvaluateRecoveryAllowanceStopsRepeatedStructuralFailure(t2 *testing.T) 
 	}
 }
 
-
 func TestProgressEventsCapsFailureProgressWithoutSuccess(t *testing.T) {
 	fingerprints := []string{"fp-a", "fp-b", "fp-c", "fp-d", "fp-e", "fp-f"}
 	observations := []turnObservation{}
@@ -104,52 +103,6 @@ func TestActionProgressTrackerResetsWhenProgressAppears(t *testing.T) {
 	}
 	if afterProgress.ConsecutiveNoProgressActionCount != 1 || afterProgress.shouldStop() {
 		t.Fatalf("expected no-progress count reset after progress, got %+v", afterProgress)
-	}
-}
-
-func TestSelectToolsWithoutToolCallDoesNotCountAsProgress(t *testing.T) {
-	tracker := newActionProgressTracker(nil)
-	observations := []turnObservation{{
-		ObservationID: "obs-001",
-		Action:        "tool.request",
-		Output:        ToolOutput{Content: "selected"},
-	}}
-
-	first := tracker.evaluate(observations)
-	second := tracker.evaluate(append(observations, turnObservation{
-		ObservationID: "obs-002",
-		Action:        "tool.request",
-		Output:        ToolOutput{Content: "selected again"},
-	}))
-	third := tracker.evaluate(append(observations, turnObservation{
-		ObservationID: "obs-002",
-		Action:        "tool.request",
-		Output:        ToolOutput{Content: "selected again"},
-	}, turnObservation{
-		ObservationID: "obs-003",
-		Action:        "tool.request",
-		Output:        ToolOutput{Content: "selected a third time"},
-	}))
-
-	if first.HasProgress || second.HasProgress || !third.shouldStop() {
-		t.Fatalf("expected bare request_tools loop to stop without progress, got first=%+v second=%+v third=%+v", first, second, third)
-	}
-}
-
-func TestSelectToolsCountsAsProgressAfterSuccessfulToolCall(t *testing.T) {
-	observations := []turnObservation{{
-		ObservationID: "obs-001",
-		Action:        "tool.request",
-		Output:        ToolOutput{Content: "selected"},
-	}, {
-		ObservationID: "obs-002",
-		Action:        "continue",
-		Tool:          "site.create",
-		Output:        ToolOutput{Content: "created"},
-	}}
-
-	if progressEventCount(observations) != 2 {
-		t.Fatalf("expected request_tools and successful tool call to count, got %+v", progressEvents(observations))
 	}
 }
 

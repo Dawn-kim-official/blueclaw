@@ -60,11 +60,11 @@ func TestResolveIntakeLanguageModelProviderUsesReliableTaskTierModel(t *testing.
 	if !isFallbackProvider {
 		t.Fatalf("expected fallback intake provider, got %T", languageModelProvider)
 	}
-	primaryClient, isPrimaryCapabilityClient := fallbackLanguageModelProvider.PrimaryProvider.(llm.CapabilityLLMClient)
+	primaryClient, isPrimaryCapabilityClient := unwrapModelTier(fallbackLanguageModelProvider.PrimaryProvider).(llm.CapabilityLLMClient)
 	if !isPrimaryCapabilityClient {
 		t.Fatalf("expected primary capability intake provider, got %T", fallbackLanguageModelProvider.PrimaryProvider)
 	}
-	fallbackClient, isFallbackCapabilityClient := fallbackLanguageModelProvider.FallbackProvider.(llm.CapabilityLLMClient)
+	fallbackClient, isFallbackCapabilityClient := unwrapModelTier(fallbackLanguageModelProvider.FallbackProvider).(llm.CapabilityLLMClient)
 	if !isFallbackCapabilityClient {
 		t.Fatalf("expected fallback capability intake provider, got %T", fallbackLanguageModelProvider.FallbackProvider)
 	}
@@ -90,7 +90,7 @@ func TestResolveIntakeLanguageModelProviderUsesExplicitModel(t *testing.T) {
 	if !isFallbackProvider {
 		t.Fatalf("expected fallback intake provider, got %T", languageModelProvider)
 	}
-	primaryClient, isPrimaryCapabilityClient := fallbackLanguageModelProvider.PrimaryProvider.(llm.CapabilityLLMClient)
+	primaryClient, isPrimaryCapabilityClient := unwrapModelTier(fallbackLanguageModelProvider.PrimaryProvider).(llm.CapabilityLLMClient)
 	if !isPrimaryCapabilityClient {
 		t.Fatalf("expected primary capability intake provider, got %T", fallbackLanguageModelProvider.PrimaryProvider)
 	}
@@ -142,14 +142,14 @@ func TestResolveIntakeLanguageModelProviderUsesSDKDWhenSelected(t *testing.T) {
 	if !isFallbackProvider {
 		t.Fatalf("expected fallback intake provider, got %T", provider)
 	}
-	primaryProvider, isSDKDPrimary := fallbackProvider.PrimaryProvider.(llm.SDKDClient)
+	primaryProvider, isSDKDPrimary := unwrapModelTier(fallbackProvider.PrimaryProvider).(llm.SDKDClient)
 	if !isSDKDPrimary {
 		t.Fatalf("expected SDKD intake primary provider, got %T", fallbackProvider.PrimaryProvider)
 	}
 	if primaryProvider.ModelName != "vendor/intake" || primaryProvider.ExecutionMode != "companion" {
 		t.Fatalf("expected intake SDKD model and execution mode, got %q and %q", primaryProvider.ModelName, primaryProvider.ExecutionMode)
 	}
-	fallbackSDKDProvider, isSDKDFallback := fallbackProvider.FallbackProvider.(llm.SDKDClient)
+	fallbackSDKDProvider, isSDKDFallback := unwrapModelTier(fallbackProvider.FallbackProvider).(llm.SDKDClient)
 	if !isSDKDFallback {
 		t.Fatalf("expected SDKD intake fallback provider, got %T", fallbackProvider.FallbackProvider)
 	}
@@ -174,14 +174,14 @@ func TestMaximumLowTierCapsIntakeUsesSDKDWhenSelected(t *testing.T) {
 	if !isFallbackProvider {
 		t.Fatalf("expected capped fallback intake provider, got %T", provider)
 	}
-	primaryProvider, isSDKDPrimary := fallbackProvider.PrimaryProvider.(llm.SDKDClient)
+	primaryProvider, isSDKDPrimary := unwrapModelTier(fallbackProvider.PrimaryProvider).(llm.SDKDClient)
 	if !isSDKDPrimary {
 		t.Fatalf("expected capped SDKD intake primary provider, got %T", fallbackProvider.PrimaryProvider)
 	}
 	if primaryProvider.ModelName != "vendor/low" || primaryProvider.ExecutionMode != "device" {
 		t.Fatalf("expected capped low SDKD model and execution mode, got %q and %q", primaryProvider.ModelName, primaryProvider.ExecutionMode)
 	}
-	fallbackSDKDProvider, isSDKDFallback := fallbackProvider.FallbackProvider.(llm.SDKDClient)
+	fallbackSDKDProvider, isSDKDFallback := unwrapModelTier(fallbackProvider.FallbackProvider).(llm.SDKDClient)
 	if !isSDKDFallback {
 		t.Fatalf("expected capped SDKD intake fallback provider, got %T", fallbackProvider.FallbackProvider)
 	}
@@ -231,6 +231,12 @@ func languageModelProviderNames(provider llm.LanguageModelProvider) []string {
 }
 
 func collectLanguageModelProviderNames(provider llm.LanguageModelProvider, modelNames map[string]bool) {
+	if tieredProvider, isTieredProvider := provider.(interface {
+		UnderlyingProvider() llm.LanguageModelProvider
+	}); isTieredProvider {
+		collectLanguageModelProviderNames(tieredProvider.UnderlyingProvider(), modelNames)
+		return
+	}
 	switch typedProvider := provider.(type) {
 	case llm.CapabilityLLMClient:
 		modelNames[typedProvider.ModelName] = true
@@ -241,6 +247,15 @@ func collectLanguageModelProviderNames(provider llm.LanguageModelProvider, model
 		collectLanguageModelProviderNames(typedProvider.TextOnlyModel, modelNames)
 		collectLanguageModelProviderNames(typedProvider.VisionModel, modelNames)
 	}
+}
+
+func unwrapModelTier(provider llm.LanguageModelProvider) llm.LanguageModelProvider {
+	if tieredProvider, isTieredProvider := provider.(interface {
+		UnderlyingProvider() llm.LanguageModelProvider
+	}); isTieredProvider {
+		return tieredProvider.UnderlyingProvider()
+	}
+	return provider
 }
 
 func TestDeriveAgentTurnOptionsWiresContextWindowTokens(t *testing.T) {
@@ -680,7 +695,7 @@ func TestResolveTaskTierLanguageModelProvidersUsesSDKDWhenSelected(t *testing.T)
 	if !isFallbackProvider {
 		t.Fatalf("expected low tier fallback provider, got %T", providers.Low)
 	}
-	if _, isSDKDClient := lowProvider.PrimaryProvider.(llm.SDKDClient); !isSDKDClient {
+	if _, isSDKDClient := unwrapModelTier(lowProvider.PrimaryProvider).(llm.SDKDClient); !isSDKDClient {
 		t.Fatalf("expected sdkd low tier primary provider, got %T", lowProvider.PrimaryProvider)
 	}
 }
@@ -699,7 +714,7 @@ func TestResolveCappedTaskTierLanguageModelProvidersUsesSDKDWhenSelected(t *test
 	if !isFallbackProvider {
 		t.Fatalf("expected capped low tier fallback provider, got %T", providers.Low)
 	}
-	if _, isSDKDClient := lowProvider.PrimaryProvider.(llm.SDKDClient); !isSDKDClient {
+	if _, isSDKDClient := unwrapModelTier(lowProvider.PrimaryProvider).(llm.SDKDClient); !isSDKDClient {
 		t.Fatalf("expected capped sdkd low tier primary provider, got %T", lowProvider.PrimaryProvider)
 	}
 }

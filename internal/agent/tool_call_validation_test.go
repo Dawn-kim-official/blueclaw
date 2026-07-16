@@ -54,8 +54,8 @@ func TestValidateTerminalToolInputRejectsRegisteredToolNameAsCommand(t *testing.
 
 func TestAgentTurnRunnerRejectsSecondDMSendAfterSuccess(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"continue","toolName":"capability.invoke","toolInput":{"operation":"message.send","input":{"targetType":"directMessage","personHint":"샘플","message":"첫 번째"}}}`,
-		`{"action":"continue","toolName":"capability.invoke","toolInput":{"operation":"message.send","input":{"targetType":"directMessage","personHint":"샘플","message":"두 번째"}}}`,
+		`{"action":"continue","toolName":"message.send","toolInput":{"targetType":"directMessage","personHint":"샘플","message":"첫 번째"}}`,
+		`{"action":"continue","toolName":"message.send","toolInput":{"targetType":"directMessage","personHint":"샘플","message":"두 번째"}}`,
 		finishMessageWithEvidence("첫 번째 메시지를 보냈습니다.", "obs-001", "message.send", 0),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 5})
@@ -92,8 +92,8 @@ func TestAgentTurnRunnerRejectsSecondDMSendAfterSuccess(t *testing.T) {
 
 func TestAgentTurnRunnerAllowsSendToDifferentRecipients(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"continue","toolName":"capability.invoke","toolInput":{"operation":"message.send","input":{"targetType":"directMessage","personHint":"샘플","message":"확인 부탁해"}}}`,
-		`{"action":"continue","toolName":"capability.invoke","toolInput":{"operation":"message.send","input":{"targetType":"directMessage","personHint":"정국","message":"확인 부탁해"}}}`,
+		`{"action":"continue","toolName":"message.send","toolInput":{"targetType":"directMessage","personHint":"샘플","message":"확인 부탁해"}}`,
+		`{"action":"continue","toolName":"message.send","toolInput":{"targetType":"directMessage","personHint":"정국","message":"확인 부탁해"}}`,
 		finishMessageWithEvidence("샘플와 정국에게 DM을 보냈습니다.", "obs-001", "message.send", 0),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 5})
@@ -127,7 +127,7 @@ func TestAgentTurnRunnerAllowsSendToDifferentRecipients(t *testing.T) {
 
 func TestAgentTurnRunnerRejectsMessageSendWithoutExternalSendIntent(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"continue","toolName":"capability.invoke","toolInput":{"operation":"message.send","input":{"targetType":"directMessage","personHint":"샘플","message":"휴게소 가도 돼요."}}}`,
+		`{"action":"continue","toolName":"message.send","toolInput":{"targetType":"directMessage","personHint":"샘플","message":"휴게소 가도 돼요."}}`,
 		noToolFallbackFinishMessageDocument("휴게소 들러도 괜찮습니다."),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 3})
@@ -157,11 +157,11 @@ func TestAgentTurnRunnerRejectsMessageSendWithoutExternalSendIntent(t *testing.T
 
 func TestAgentTurnRunnerRejectsRepeatedFailedFingerprint(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"continue","toolName":"capability.invoke","toolInput":{"operation":"message.send","input":{"targetType":"directMessage","personHint":"샘플","message":"확인 부탁해"}}}`,
-		`{"action":"continue","toolName":"capability.invoke","toolInput":{"operation":"message.send","input":{"targetType":"directMessage","personHint":"샘플","message":"확인 부탁해"}}}`,
-		`{"action":"continue","toolName":"capability.invoke","toolInput":{"operation":"message.context","input":{}}}`,
-		`{"action":"continue","toolName":"capability.invoke","toolInput":{"operation":"message.context","input":{}}}`,
-		`{"action":"continue","toolName":"capability.invoke","toolInput":{"operation":"message.send","input":{"targetType":"directMessage","personHint":"정국","message":"확인 부탁해"}}}`,
+		`{"action":"continue","toolName":"message.send","toolInput":{"targetType":"directMessage","personHint":"샘플","message":"확인 부탁해"}}`,
+		`{"action":"continue","toolName":"message.send","toolInput":{"targetType":"directMessage","personHint":"샘플","message":"확인 부탁해"}}`,
+		`{"action":"continue","toolName":"message.context","toolInput":{}}`,
+		`{"action":"continue","toolName":"message.context","toolInput":{}}`,
+		`{"action":"continue","toolName":"message.send","toolInput":{"targetType":"directMessage","personHint":"정국","message":"확인 부탁해"}}`,
 		failureReportDocument("mattermost still unavailable", "message.send", "정국", FailureCodes.Unavailable.String(), "mattermost_lookup", "temporary user lookup timeout"),
 		recoveryDecisionDocument("Mattermost lookup failed after retry", "mattermost_lookup/unavailable was returned twice", "check Mattermost availability before retrying", "report the failed stage and code"),
 	}, textResponses: []string{
@@ -206,8 +206,8 @@ func TestAgentTurnRunnerRejectsRepeatedFailedFingerprint(t *testing.T) {
 
 func TestAgentTurnRunnerRejectsUnsafeRepeatedExternalSend(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"continue","toolName":"capability.invoke","toolInput":{"operation":"message.send","input":{"targetType":"directMessage","personHint":"샘플","message":"확인 부탁해"}}}`,
-		`{"action":"continue","toolName":"capability.invoke","toolInput":{"operation":"message.send","input":{"targetType":"directMessage","personHint":"샘플","message":"확인 부탁해"}}}`,
+		`{"action":"continue","toolName":"message.send","toolInput":{"targetType":"directMessage","personHint":"샘플","message":"확인 부탁해"}}`,
+		`{"action":"continue","toolName":"message.send","toolInput":{"targetType":"directMessage","personHint":"샘플","message":"확인 부탁해"}}`,
 		failureReportDocument("send failed", "message.send", "샘플", FailureCodes.OperationFailed.String(), "message_send", "Mattermost returned 503 after post create"),
 		recoveryDecisionDocument("message send failed", "message_send/operation_failed was returned", "inspect delivery state before retrying", "report the failed stage and avoid duplicate send claims"),
 	}, textResponses: []string{
@@ -280,8 +280,8 @@ func TestAgentTurnRunnerRejectsUnavailableToolBeforeInvoke(t *testing.T) {
 
 func TestAgentTurnRunnerRejectsEmptyBrowserPressAfterFill(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"continue","toolName":"capability.invoke","toolInput":{"operation":"browser.fill","input":{"target":"@e5","text":"hello world"}}}`,
-		`{"action":"continue","toolName":"capability.invoke","toolInput":{"operation":"browser.press","input":{}}}`,
+		`{"action":"continue","toolName":"browser.fill","toolInput":{"target":"@e5","text":"hello world"}}`,
+		`{"action":"continue","toolName":"browser.press","toolInput":{}}`,
 		finishMessageWithEvidence("searched", "obs-001", "browser.fill", 0),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
@@ -318,8 +318,8 @@ func TestAgentTurnRunnerRejectsEmptyBrowserPressAfterFill(t *testing.T) {
 
 func TestAgentTurnRunnerRejectsBrowserFillWithoutRequiredInput(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"continue","toolName":"capability.invoke","toolInput":{"operation":"browser.snapshot","input":{}}}`,
-		`{"action":"continue","toolName":"capability.invoke","toolInput":{"operation":"browser.fill","input":{}}}`,
+		`{"action":"continue","toolName":"browser.snapshot","toolInput":{}}`,
+		`{"action":"continue","toolName":"browser.fill","toolInput":{}}`,
 		finishMessageWithEvidence("filled", "obs-001", "browser.snapshot", 0),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
@@ -356,8 +356,8 @@ func TestAgentTurnRunnerRejectsBrowserFillWithoutRequiredInput(t *testing.T) {
 
 func TestAgentTurnRunnerRejectsEmptyGoogleNavigate(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"continue","toolName":"capability.invoke","toolInput":{"operation":"browser.open","input":{}}}`,
-		`{"action":"continue","toolName":"capability.invoke","toolInput":{"operation":"browser.open","input":{"url":"https://www.google.com"}}}`,
+		`{"action":"continue","toolName":"browser.open","toolInput":{}}`,
+		`{"action":"continue","toolName":"browser.open","toolInput":{"url":"https://www.google.com"}}`,
 		finishMessageWithEvidence("opened", "obs-002", "browser.open", 0),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
@@ -602,8 +602,8 @@ func TestRepeatedFileReadObservationIgnoresCacheAfterFileWrite(t *testing.T) {
 
 func TestAgentTurnRunnerRejectsRepeatedScheduleCreateWithoutExecutingAgain(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"continue","toolName":"capability.invoke","toolInput":{"operation":"schedule.create","input":{"taskInstruction":"현재 대화에 \"죄송합니다\"라고 보낸다.","kind":"interval","intervalSecond":60,"maxRunCount":10,"repeatPolicy":"finite","timeZone":"Asia/Seoul"}}}`,
-		`{"action":"continue","toolName":"capability.invoke","toolInput":{"operation":"schedule.create","input":{"timeZone":"Asia/Seoul","maxRunCount":10,"repeatPolicy":"finite","intervalSecond":60,"kind":"interval","taskInstruction":"현재 대화에 \"죄송합니다\"라고 보낸다."}}}`,
+		`{"action":"continue","toolName":"schedule.create","toolInput":{"taskInstruction":"현재 대화에 \"죄송합니다\"라고 보낸다.","kind":"interval","intervalSecond":60,"maxRunCount":10,"repeatPolicy":"finite","timeZone":"Asia/Seoul"}}`,
+		`{"action":"continue","toolName":"schedule.create","toolInput":{"timeZone":"Asia/Seoul","maxRunCount":10,"repeatPolicy":"finite","intervalSecond":60,"kind":"interval","taskInstruction":"현재 대화에 \"죄송합니다\"라고 보낸다."}}`,
 		finishMessageDocument("예약을 만들었습니다."),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 4, MaxToolCallCount: 4})

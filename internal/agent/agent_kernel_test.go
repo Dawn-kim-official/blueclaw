@@ -46,6 +46,26 @@ func kernelTestRequest(prompt string) AgentRequest {
 	}
 }
 
+func TestApprovalContinuationRestoresSelectedToolDecision(t *testing.T) {
+	request := AgentRequest{
+		PinnedToolNames:  []string{"file.read"},
+		PinnedSkillNames: []string{"calendar"},
+		ActiveGoal: ActiveGoal{
+			SelectedToolNames:  []string{"message.send"},
+			SelectedSkillNames: []string{"direct-message"},
+		},
+	}
+
+	restoredRequest := restorePersistedToolSelection(request)
+
+	if !sameStringSet(restoredRequest.PinnedToolNames, []string{"file.read", "message.send"}) {
+		t.Fatalf("expected selected tool decision to be restored, got %+v", restoredRequest.PinnedToolNames)
+	}
+	if !sameStringSet(restoredRequest.PinnedSkillNames, []string{"calendar", "direct-message"}) {
+		t.Fatalf("expected selected skill decision to be restored, got %+v", restoredRequest.PinnedSkillNames)
+	}
+}
+
 func TestAgentKernelConsumeRouteSuppressesReply(t *testing.T) {
 	agentKernel, _ := newKernelTestServices()
 	agentKernel.UseIntakeLanguageModelProvider(intakeDecisionLanguageModel{decision: TurnDecision{
@@ -84,7 +104,7 @@ func TestAgentKernelRejectsExecutableConsumeContradiction(t *testing.T) {
 		ResponseLanguage:      "ko",
 		Reason:                "사용자가 명시적으로 업무 등록을 요청함",
 		RequiredEvidenceTools: []string{"task.add"},
-		InitialToolNames:      []string{CapabilityInvokeToolName},
+		InitialToolNames:      []string{"task.add"},
 	}})
 
 	toolCallCount := 0
@@ -94,7 +114,7 @@ func TestAgentKernelRejectsExecutableConsumeContradiction(t *testing.T) {
 		return ToolSuccess(`{"taskID":"task-1","content":"메일 페이지 앱 비밀번호 개선"}`), nil
 	})
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"continue","toolName":"capability.invoke","toolInput":{"operation":"task.add","input":{"prompt":"메일 페이지 앱 비밀번호 개선"}}}`,
+		`{"action":"continue","toolName":"task.add","toolInput":{"prompt":"메일 페이지 앱 비밀번호 개선"}}`,
 		finishMessageWithEvidence("업무를 등록했습니다.", "obs-001", "task.add", 0),
 	}}
 	agentKernel.UseLanguageModelProvider(languageModel)
@@ -179,15 +199,16 @@ func TestAgentKernelPrunesInvalidRequiredEvidenceAndProceeds(t *testing.T) {
 		TaskLevel:             TaskLevelLow,
 		EstimatedMinutes:      1,
 		RequiredEvidenceTools: []string{"calendar.create"},
+		InitialToolNames:      []string{"calendar.add"},
 		ResponseLanguage:      "ko",
 		Reason:                "calendar event creation",
 	}})
-	toolSet := newTestToolSet([]string{"calendar.add", CapabilityInvokeToolName})
-	toolSet.RegisterTool(ToolDefinition{Name: CapabilityInvokeToolName}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	toolSet := newTestToolSet([]string{"calendar.add"})
+	toolSet.RegisterTool(ToolDefinition{Name: "calendar.add"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		return ToolSuccess(`{"created":true}`), nil
 	})
 	agentKernel.UseLanguageModelProvider(&sequenceLanguageModel{contents: []string{
-		`{"action":"continue","toolName":"capability.invoke","toolInput":{"operation":"calendar.add","input":{}}}`,
+		`{"action":"continue","toolName":"calendar.add","toolInput":{}}`,
 		finishMessageWithEvidence("일정을 추가했습니다.", "obs-001", "calendar.add", 0),
 	}})
 	request := kernelTestRequest("7월 6일 오후 1시 스타트업월드컵 일정 추가")
@@ -214,18 +235,19 @@ func TestAgentKernelPrunesInvalidEvidenceOnApprovalContinuation(t *testing.T) {
 		TaskLevel:             TaskLevelLow,
 		EstimatedMinutes:      1,
 		RequiredEvidenceTools: []string{"delete_website_artifact"},
+		InitialToolNames:      []string{"site.delete"},
 		ResponseLanguage:      "ko",
 		Reason:                "approval reply classified with hallucinated evidence",
 	}})
 
 	toolCallCount := 0
-	toolSet := newTestToolSet([]string{CapabilityInvokeToolName})
-	toolSet.RegisterTool(ToolDefinition{Name: CapabilityInvokeToolName}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	toolSet := newTestToolSet([]string{"site.delete"})
+	toolSet.RegisterTool(ToolDefinition{Name: "site.delete"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		toolCallCount++
 		return ToolSuccess(`{"deleted":true}`), nil
 	})
 	agentKernel.UseLanguageModelProvider(&sequenceLanguageModel{contents: []string{
-		`{"action":"continue","toolName":"capability.invoke","toolInput":{"operation":"site.delete","input":{"siteID":"site-1"}}}`,
+		`{"action":"continue","toolName":"site.delete","toolInput":{"siteID":"site-1"}}`,
 		finishMessageWithEvidence("웹사이트를 삭제했습니다.", "obs-001", "site.delete", 0),
 	}})
 
@@ -455,7 +477,7 @@ func TestAgentKernelDoesNotReaskMaintenanceEvidenceWithoutInitialTool(t *testing
 		return ToolSuccess(`{"taskID":"task-1","content":"신규 입사자 온보딩 문서 검토"}`), nil
 	})
 	agentKernel.UseLanguageModelProvider(&sequenceLanguageModel{contents: []string{
-		`{"action":"continue","toolName":"capability.invoke","toolInput":{"operation":"task.add","input":{"prompt":"신규 입사자 온보딩 문서 검토"}}}`,
+		`{"action":"continue","toolName":"task.add","toolInput":{"prompt":"신규 입사자 온보딩 문서 검토"}}`,
 		finishMessageWithEvidence("업무를 등록했습니다.", "obs-001", "task.add", 0),
 	}})
 
@@ -464,16 +486,16 @@ func TestAgentKernelDoesNotReaskMaintenanceEvidenceWithoutInitialTool(t *testing
 	result, errorValue := agentKernel.RunAgentRequest(context.Background(), request)
 
 	if errorValue != nil {
-		t.Fatalf("expected maintenance task to run without evidence re-ask: %v", errorValue)
+		t.Fatalf("expected maintenance task to return a blocked result: %v", errorValue)
 	}
-	if result.TaskRun.Status != task.TaskStatusCompleted {
-		t.Fatalf("expected maintenance task to complete, got %q", result.TaskRun.Status)
+	if result.TaskRun.Status != task.TaskStatusBlocked {
+		t.Fatalf("expected maintenance task without an initial direct tool to block, got %q", result.TaskRun.Status)
 	}
 	if intakeLanguageModel.reaskCallCount != 0 {
 		t.Fatalf("expected no evidence re-ask without a typed side-effect signal, got %d", intakeLanguageModel.reaskCallCount)
 	}
-	if toolCallCount != 1 {
-		t.Fatalf("expected task.add to run once through capability.invoke, got %d", toolCallCount)
+	if toolCallCount != 0 {
+		t.Fatalf("expected task.add to remain unavailable without an initial direct tool, got %d", toolCallCount)
 	}
 	if countTaskEvents(taskRunService.ListTaskEvent(result.TaskRun.TaskRunID), requiredEvidenceReaskEventName) != 0 {
 		t.Fatal("did not expect a required-evidence reask event")
@@ -489,7 +511,8 @@ func TestAgentKernelReplacesReadOnlyEvidenceForScheduledTask(t *testing.T) {
 			TaskShape:             TaskShapeScheduledTask,
 			TaskLevel:             TaskLevelLow,
 			EstimatedMinutes:      1,
-			RequiredEvidenceTools: []string{"task.history"},
+			RequiredEvidenceTools: []string{"task.list"},
+			InitialToolNames:      []string{"task.update"},
 			ResponseLanguage:      "ko",
 			Reason:                "update requested work",
 		},
@@ -498,13 +521,13 @@ func TestAgentKernelReplacesReadOnlyEvidenceForScheduledTask(t *testing.T) {
 	agentKernel.UseIntakeLanguageModelProvider(intakeLanguageModel)
 
 	toolCallCount := 0
-	toolSet := newTestCapabilityToolSet([]string{"task.history", "task.update"})
+	toolSet := newTestToolSet([]string{"task.history", "task.update"})
 	toolSet.RegisterTool(ToolDefinition{Name: "task.update"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		toolCallCount++
 		return ToolSuccess(`{"taskID":"task-1","content":"고객지원 분기 결산 검토 완료","endDate":"2026-07-17"}`), nil
 	})
 	agentKernel.UseLanguageModelProvider(&sequenceLanguageModel{contents: []string{
-		`{"action":"continue","toolName":"capability.invoke","toolInput":{"operation":"task.update","input":{"taskID":"task-1","content":"고객지원 분기 결산 검토 완료","endDate":"2026-07-17"}}}`,
+		`{"action":"continue","toolName":"task.update","toolInput":{"taskID":"task-1","content":"고객지원 분기 결산 검토 완료","endDate":"2026-07-17"}}`,
 		finishMessageWithEvidence("업무를 수정했습니다.", "obs-001", "task.update", 0),
 	}})
 
@@ -536,7 +559,7 @@ func TestAgentKernelReplacesReadOnlyEvidenceForScheduledTask(t *testing.T) {
 	}
 }
 
-func TestAgentKernelRejectsReadOnlyEvidenceFromScheduledReask(t *testing.T) {
+func TestAgentKernelDoesNotLetInvalidEvidenceChooseExecution(t *testing.T) {
 	agentKernel, taskRunService := newKernelTestServices()
 	intakeLanguageModel := &turnRouterDecisionLanguageModel{
 		initialDecision: TurnDecision{
@@ -549,12 +572,12 @@ func TestAgentKernelRejectsReadOnlyEvidenceFromScheduledReask(t *testing.T) {
 			ResponseLanguage:      "ko",
 			Reason:                "deployment requested",
 		},
-		reaskDecision: TurnDecision{RequiredEvidenceTools: []string{"task.history"}},
+		reaskDecision: TurnDecision{RequiredEvidenceTools: []string{"task.list"}},
 	}
 	agentKernel.UseIntakeLanguageModelProvider(intakeLanguageModel)
 
 	toolCallCount := 0
-	toolSet := newTestToolSet([]string{TerminalRunToolName, "task.history"})
+	toolSet := newTestToolSet([]string{TerminalRunToolName, "task.list"})
 	toolSet.RegisterTool(ToolDefinition{Name: TerminalRunToolName}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		toolCallCount++
 		return ToolSuccess(`{"exitCode":0,"stdout":"done","stderr":"","timedOut":false}`), nil
@@ -571,18 +594,18 @@ func TestAgentKernelRejectsReadOnlyEvidenceFromScheduledReask(t *testing.T) {
 	if errorValue != nil {
 		t.Fatalf("expected task to stop safely after rejecting read-only recovery: %v", errorValue)
 	}
-	if result.TaskRun.Status != task.TaskStatusBlocked {
-		t.Fatalf("expected invalid recovery to block before execution, got %q", result.TaskRun.Status)
+	if result.TaskRun.Status != task.TaskStatusCompleted {
+		t.Fatalf("expected direct execution to complete with its own evidence, got %q", result.TaskRun.Status)
 	}
-	if toolCallCount != 0 {
-		t.Fatalf("expected no side effect with an incorrect evidence contract, got %d calls", toolCallCount)
+	if toolCallCount != 1 {
+		t.Fatalf("expected direct terminal tool to run once, got %d calls", toolCallCount)
 	}
 	if intakeLanguageModel.reaskCallCount != 1 {
 		t.Fatalf("expected exactly one re-ask attempt, got %d", intakeLanguageModel.reaskCallCount)
 	}
 	taskEvents := taskRunService.ListTaskEvent(result.TaskRun.TaskRunID)
 	if taskEventsContain(taskEvents, requiredEvidenceReaskEventName, `"didRecoverEvidence":true`) {
-		t.Fatal("expected read-only task.history not to recover side-effect evidence")
+		t.Fatal("expected read-only task.list not to recover side-effect evidence")
 	}
 	if !taskEventsContain(taskEvents, requiredEvidenceReaskEventName, "no valid required evidence") {
 		t.Fatal("expected rejected read-only evidence reason")
@@ -713,6 +736,7 @@ func TestAgentKernelPersistsTurnRouterLLMCall(t *testing.T) {
 		response: llm.StructuredResponse{
 			ProviderName: "sdkd",
 			ModelName:    "router-model",
+			ModelTier:    "xlow",
 			Usage: llm.Usage{
 				PromptTokens:     11,
 				CompletionTokens: 7,
@@ -730,7 +754,7 @@ func TestAgentKernelPersistsTurnRouterLLMCall(t *testing.T) {
 	if len(records) != 1 {
 		t.Fatalf("expected one persisted router call, got %+v", records)
 	}
-	if records[0].Provider != "sdkd" || records[0].Model != "router-model" || records[0].UsedFallback {
+	if records[0].Provider != "sdkd" || records[0].Model != "router-model" || records[0].ModelTier != "xlow" || records[0].UsedFallback {
 		t.Fatalf("expected SDKD router metadata without fallback, got %+v", records[0])
 	}
 	if records[0].PromptTokens != 11 || records[0].CompletionTokens != 7 || records[0].TotalTokens != 18 {
@@ -771,9 +795,9 @@ func TestAgentKernelPersistsTurnRouterFailureWithoutFallbackRoute(t *testing.T) 
 func TestSitePrototypeIntakePromotesToXHighLimits(t *testing.T) {
 	agentKernel, _ := newKernelTestServices()
 	intakeDecision := promoteArtifactTaskLevel(AgentRequest{}, IntakeDecision{
-		TaskLevel:           TaskLevelLow,
-		EstimatedMinutes:    1,
-		SiteRequestEvidence: "웹사이트",
+		TaskLevel:             TaskLevelLow,
+		EstimatedMinutes:      1,
+		RequiredEvidenceTools: []string{"site.publish"},
 	})
 
 	turnOptions := agentKernel.turnOptionsForIntakeDecision(intakeDecision)

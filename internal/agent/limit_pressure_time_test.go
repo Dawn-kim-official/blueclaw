@@ -149,7 +149,7 @@ func TestAgentTurnRunnerFinalizesSuccessfulSideEffectAtExecutionEffortDeadline(t
 
 func TestAgentTurnRunnerCompletesSuccessfulSideEffectWhenElapsedFinalizerFails(t *testing.T) {
 	languageModel := &elapsedFinalizationLanguageModel{
-		firstAction:    `{"action":"continue","toolName":"capability.invoke","toolInput":{"operation":"task.add","input":{"prompt":"분기 결산 운영 검토"}}}`,
+		firstAction:    `{"action":"continue","toolName":"task.add","toolInput":{"prompt":"분기 결산 운영 검토"}}`,
 		finalizerError: context.DeadlineExceeded,
 	}
 	recoveryLanguageModel := &sequenceLanguageModel{textResponses: []string{"분기 결산 운영 검토 업무를 등록했습니다."}}

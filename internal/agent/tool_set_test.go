@@ -2,7 +2,6 @@ package agent
 
 import (
 	"context"
-	"encoding/json"
 	"strings"
 )
 
@@ -25,17 +24,7 @@ func newTestToolSet(allowedToolNames []string) *ToolSet {
 }
 
 func newTestCapabilityToolSet(operationNames []string) *ToolSet {
-	toolSet := NewToolSet([]string{CapabilityInvokeToolName})
-	toolSet.RegisterTool(ToolDefinition{Name: CapabilityInvokeToolName}, func(ctx context.Context, toolInvocation ToolInvocation) (ToolResult, error) {
-		var document struct {
-			Operation string          `json:"operation"`
-			Input     json.RawMessage `json:"input"`
-		}
-		if errorValue := json.Unmarshal(toolInvocation.Input, &document); errorValue != nil {
-			return ToolInputFailure(errorValue.Error()), nil
-		}
-		return toolSet.InvokeRegistered(ctx, ToolInvocation{ToolName: document.Operation, Input: document.Input})
-	})
+	toolSet := NewToolSet(operationNames)
 	for _, operationName := range operationNames {
 		trimmedOperationName := strings.TrimSpace(operationName)
 		if trimmedOperationName == "" {

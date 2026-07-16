@@ -170,7 +170,7 @@ func openRouterContentForSchema(schemaName string) string {
 	case "blueclaw_skill_search_queries":
 		return `{"queries":[]}`
 	case "blueclaw_turn_router":
-		return `{"route":"start_task","classification":"bounded_task","taskShape":"maintenance_task","level":"low","requestedOutputFormats":null,"siteRequestEvidence":"","responseLanguage":"ko","reason":"fake live router","userFacingReply":""}`
+		return `{"route":"start_task","classification":"bounded_task","taskShape":"maintenance_task","level":"low","estimatedMinutes":1,"requestedOutputFormats":null,"requiredEvidence":[],"initialToolNames":[],"responseLanguage":"ko","reason":"fake live router","userFacingReply":"","priorTaskReference":"none"}`
 	case "blueclaw_agent_turn_action":
 		return `{"action":"finish","message":"fake live reply from OpenRouter","completionSummary":"fake live reply from OpenRouter","replyParts":[{"type":"text","text":"fake live reply from OpenRouter"}],"goalStatus":"satisfied","goalSatisfied":true,"completionEvidenceIDs":[],"qualityReview":[],"executionStateUpdate":{}}`
 	default:
@@ -529,10 +529,43 @@ func TestConfigureVirtualScenarioCodingUsesCeilingOnlyWhenConfigured(t *testing.
 	}
 }
 
+type virtualTierTestProvider struct {
+	modelName string
+}
+
+func (provider virtualTierTestProvider) GenerateResponse(context.Context, string) (string, error) {
+	return "reply", nil
+}
+
+func (provider virtualTierTestProvider) GenerateStructuredResponse(context.Context, llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
+	return llm.StructuredResponse{ModelName: provider.modelName, Content: `{"action":"finish"}`}, nil
+}
+
+func TestConfigureVirtualScenarioCappedProviderReportsCeilingTier(t *testing.T) {
+	providerFactory := func(modelName string) llm.LanguageModelProvider {
+		return virtualTierTestProvider{modelName: modelName}
+	}
+	scenario := e2e.VirtualSessionScenario{}
+	configureVirtualScenarioModelTiers(&scenario, "low", providerFactory)
+	response, errorValue := scenario.HighLanguageModel.GenerateStructuredResponse(context.Background(), llm.StructuredResponseRequest{})
+	if errorValue != nil {
+		t.Fatalf("expected capped high provider to succeed: %v", errorValue)
+	}
+	if response.ModelTier != "low" {
+		t.Fatalf("expected capped high provider to report low tier, got %+v", response)
+	}
+}
+
 func virtualProviderModelNames(provider llm.LanguageModelProvider) []string {
 	modelNames := map[string]bool{}
 	var collect func(llm.LanguageModelProvider)
 	collect = func(currentProvider llm.LanguageModelProvider) {
+		if tieredProvider, isTieredProvider := currentProvider.(interface {
+			UnderlyingProvider() llm.LanguageModelProvider
+		}); isTieredProvider {
+			collect(tieredProvider.UnderlyingProvider())
+			return
+		}
 		switch typedProvider := currentProvider.(type) {
 		case llm.OpenRouterClient:
 			modelNames[typedProvider.ModelName] = true

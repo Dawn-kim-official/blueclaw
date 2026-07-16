@@ -7,8 +7,8 @@ import (
 
 func TestAgentTurnRunnerAllowsCorrectedRetryAfterSafeFailure(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"continue","toolName":"capability.invoke","toolInput":{"operation":"message.send","input":{"targetType":"directMessage","personHint":"샘플","message":"확인 부탁해"}}}`,
-		`{"action":"continue","toolName":"capability.invoke","toolInput":{"operation":"message.send","input":{"targetType":"directMessage","personHint":"이샘플","message":"확인 부탁해"}}}`,
+		`{"action":"continue","toolName":"message.send","toolInput":{"targetType":"directMessage","personHint":"샘플","message":"확인 부탁해"}}`,
+		`{"action":"continue","toolName":"message.send","toolInput":{"targetType":"directMessage","personHint":"이샘플","message":"확인 부탁해"}}`,
 		finishMessageWithEvidence("sent", "obs-003", "message.send", 0),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{RecoveryAttemptLimit: 3})
@@ -65,7 +65,7 @@ func TestRecoveryAttemptCountOnlyIncludesSpentInterventions(t *testing.T) {
 
 func TestAgentTurnRunnerAllowsInspectionAfterAdjacentRecoveryBudgetExhausted(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"continue","toolName":"capability.invoke","toolInput":{"operation":"site.build","input":{"siteID":"site-1"}}}`,
+		`{"action":"continue","toolName":"site.build","toolInput":{"siteID":"site-1"}}`,
 		`{"action":"continue","toolName":"file.read","toolInput":{"path":"home/sites/site-1/draft/app/src/App.tsx"}}`,
 		`{"action":"continue","toolName":"file.edit","toolInput":{"path":"home/sites/site-1/draft/app/src/App.tsx","oldText":"broken","newText":"fixed"}}`,
 		finishMessageDocument("확인했습니다."),

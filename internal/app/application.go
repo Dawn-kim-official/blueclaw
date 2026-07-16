@@ -882,13 +882,13 @@ func resolveTaskTierLanguageModelProviders(runtimeConfiguration config.RuntimeCo
 		}
 		return provider
 	}
-	lowModel := configuredProvider(tierNames.Low)
-	xLowModel := configuredProvider(tierNames.XLow)
-	mediumModel := configuredProvider(tierNames.Medium)
-	highModel := configuredProvider(tierNames.High)
-	xHighModel := configuredProvider(tierNames.XHigh)
-	maxModel := configuredProvider(tierNames.Max)
-	codingModel := configuredProvider(tierNames.Coding)
+	lowModel := llm.WithModelTier(configuredProvider(tierNames.Low), "low")
+	xLowModel := llm.WithModelTier(configuredProvider(tierNames.XLow), "xlow")
+	mediumModel := llm.WithModelTier(configuredProvider(tierNames.Medium), "medium")
+	highModel := llm.WithModelTier(configuredProvider(tierNames.High), "high")
+	xHighModel := llm.WithModelTier(configuredProvider(tierNames.XHigh), "xhigh")
+	maxModel := llm.WithModelTier(configuredProvider(tierNames.Max), "max")
+	codingModel := llm.WithModelTier(configuredProvider(tierNames.Coding), "coding")
 	if hasConfigurationError {
 		return taskTierLanguageModelProviders{}
 	}
@@ -993,7 +993,10 @@ func resolveIntakeLanguageModelProvider(runtimeConfiguration config.RuntimeConfi
 	}
 	primaryModelName := firstNonEmptyString(runtimeConfiguration.Agent.Intake.Model, tierNames.Medium)
 	primaryProvider := configuredProvider(primaryModelName)
-	fallbackProvider := configuredProvider(tierNames.High)
+	if strings.TrimSpace(runtimeConfiguration.Agent.Intake.Model) == "" {
+		primaryProvider = llm.WithModelTier(primaryProvider, "medium")
+	}
+	fallbackProvider := llm.WithModelTier(configuredProvider(tierNames.High), "high")
 	if hasConfigurationError {
 		return nil
 	}
@@ -1047,14 +1050,14 @@ func resolveCappedTaskTierLanguageModelProviders(runtimeConfiguration config.Run
 }
 
 func buildCappedModelTierProviders(tierNames llm.ModelTierNames, providerFactory func(string) llm.LanguageModelProvider, logger *slog.Logger) cappedModelTierProviders {
-	xLowModel := providerFactory(tierNames.XLow)
-	lowModel := providerFactory(tierNames.Low)
+	xLowModel := llm.WithModelTier(providerFactory(tierNames.XLow), "xlow")
+	lowModel := llm.WithModelTier(providerFactory(tierNames.Low), "low")
 	lowProvider := descendingFallbackProvider(lowModel, xLowModel, "low", "xlow", logger)
 	xLowProvider := llm.VisionFallbackProvider{TextOnlyModel: xLowModel, VisionModel: lowProvider}
-	mediumProvider := descendingFallbackProvider(providerFactory(tierNames.Medium), lowProvider, "medium", "low", logger)
-	highProvider := descendingFallbackProvider(providerFactory(tierNames.High), mediumProvider, "high", "medium", logger)
-	xHighProvider := descendingFallbackProvider(providerFactory(tierNames.XHigh), highProvider, "xhigh", "high", logger)
-	maxProvider := descendingFallbackProvider(providerFactory(tierNames.Max), xHighProvider, "max", "xhigh", logger)
+	mediumProvider := descendingFallbackProvider(llm.WithModelTier(providerFactory(tierNames.Medium), "medium"), lowProvider, "medium", "low", logger)
+	highProvider := descendingFallbackProvider(llm.WithModelTier(providerFactory(tierNames.High), "high"), mediumProvider, "high", "medium", logger)
+	xHighProvider := descendingFallbackProvider(llm.WithModelTier(providerFactory(tierNames.XHigh), "xhigh"), highProvider, "xhigh", "high", logger)
+	maxProvider := descendingFallbackProvider(llm.WithModelTier(providerFactory(tierNames.Max), "max"), xHighProvider, "max", "xhigh", logger)
 	return cappedModelTierProviders{xLow: xLowProvider, low: lowProvider, medium: mediumProvider, high: highProvider, xHigh: xHighProvider, max: maxProvider}
 }
 

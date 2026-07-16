@@ -6,6 +6,17 @@
         "path": "home/project/README.md"
       },
       "executionStateUpdate": {}
+    },
+    {
+      "action": "continue",
+      "toolName": "file.read",
+      "toolInput": {
+        "path": "home/project/README.md"
+      },
+      "requestTools": [
+        "file.read"
+      ],
+      "executionStateUpdate": {}
     }
   ],
   "agent-message": [

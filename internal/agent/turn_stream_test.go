@@ -8,7 +8,7 @@ import (
 )
 
 func continueWithMessageDocument(operationName string, message string) string {
-	return `{"action":"continue","toolName":"capability.invoke","toolInput":{"operation":"` + operationName + `","input":{}},"message":"` + message + `"}`
+	return `{"action":"continue","toolName":"` + operationName + `","toolInput":{},"message":"` + message + `"}`
 }
 
 func collectTurnEvents(events <-chan TurnEvent) []TurnEvent {

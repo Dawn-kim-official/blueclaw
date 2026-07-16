@@ -90,7 +90,7 @@ func contractSkillArbitrationMessages(request AgentRequest, candidates []SkillIn
 		Content: "Available tools: " + strings.Join(skillSearchAvailableToolNames(request), ", "),
 	}, {
 		Role:    "system",
-		Content: "Outcome contract: " + outcomeContractSummary(request.ActiveGoal.OutcomeContract),
+		Content: "Outcome contract: " + outcomeContractJSON(request.ActiveGoal.OutcomeContract),
 	}}
 	if goalDescription := activeGoalDescription(request.ActiveGoal); goalDescription != "" {
 		messages = append(messages, llm.Message{Role: "system", Content: goalDescription})

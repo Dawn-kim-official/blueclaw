@@ -121,8 +121,6 @@ type virtualSessionArguments struct {
 	Seed                     *int64
 	Temperature              *float64
 	LiveLanguageModel        bool
-	RecordCassettePath       string
-	CassettePath             string
 	StrictAssertions         bool
 	ValidateOnly             bool
 	MaximumModelTier         string
@@ -169,23 +167,12 @@ func parseVirtualSessionArguments(arguments []string, defaultScenarioName string
 	temperature := flagSet.Float64("temperature", 0, "generation temperature for live LLM calls")
 	skillDirectoryPath := flagSet.String("skill-dir", "", "skill directory to load into the virtual workspace")
 	liveLanguageModel := flagSet.Bool("live-llm", truthyEnvironmentValue(os.Getenv("BLUECLAW_E2E_LIVE")), "explicitly allow costed live LLM calls for unscripted scenarios")
-	recordCassettePath := flagSet.String("record-cassette", "", "record live LLM responses to a cassette JSON file")
-	cassettePath := flagSet.String("cassette", "", "replay LLM responses from a cassette JSON file")
 	strictAssertions := flagSet.Bool("strict-assertions", false, "fail when any declared step expectation is not satisfied")
 	validateOnly := flagSet.Bool("validate-only", false, "validate the scenario file without running it")
 	maximumModelTier := flagSet.String("maximum-model-tier", "", "maximum live model tier: xlow, low, medium, high, xhigh, or max")
 	realModelTiers := flagSet.Bool("real-model-tiers", false, "use the production model tier configuration without a ceiling")
 	if errorValue := flagSet.Parse(arguments); errorValue != nil {
 		return virtualSessionArguments{}, errorValue
-	}
-	if strings.TrimSpace(*cassettePath) != "" && strings.TrimSpace(*recordCassettePath) != "" {
-		return virtualSessionArguments{}, errors.New("--cassette and --record-cassette cannot be used together")
-	}
-	if strings.TrimSpace(*cassettePath) != "" && hasVirtualSessionFlag(arguments, "live-llm") {
-		return virtualSessionArguments{}, errors.New("--cassette cannot be combined with --live-llm")
-	}
-	if strings.TrimSpace(*recordCassettePath) != "" && !*liveLanguageModel {
-		return virtualSessionArguments{}, errors.New("--record-cassette requires --live-llm")
 	}
 	normalizedMaximumModelTier, errorValue := normalizeVirtualMaximumModelTier(*maximumModelTier)
 	if errorValue != nil {
@@ -196,9 +183,6 @@ func parseVirtualSessionArguments(arguments []string, defaultScenarioName string
 	}
 	if (*realModelTiers || normalizedMaximumModelTier != "") && hasVirtualSessionFlag(arguments, "llm-model") {
 		return virtualSessionArguments{}, errors.New("tiered model execution cannot be combined with --llm-model")
-	}
-	if (*realModelTiers || normalizedMaximumModelTier != "") && strings.TrimSpace(*recordCassettePath) != "" {
-		return virtualSessionArguments{}, errors.New("tiered model execution cannot record a single-model cassette")
 	}
 	return virtualSessionArguments{
 		ScenarioName:             *scenarioName,
@@ -215,8 +199,6 @@ func parseVirtualSessionArguments(arguments []string, defaultScenarioName string
 		Seed:                     virtualSessionInt64FlagPointer(arguments, "seed", *seed),
 		Temperature:              virtualSessionFloat64FlagPointer(arguments, "temperature", *temperature),
 		LiveLanguageModel:        *liveLanguageModel,
-		RecordCassettePath:       *recordCassettePath,
-		CassettePath:             *cassettePath,
 		StrictAssertions:         *strictAssertions,
 		ValidateOnly:             *validateOnly,
 		MaximumModelTier:         normalizedMaximumModelTier,
@@ -232,27 +214,20 @@ func runVirtualSession(ctx context.Context, arguments virtualSessionArguments) e
 	if arguments.ValidateOnly {
 		return nil
 	}
-	var cassetteRecorder *e2e.RecordingLanguageModel
 	var embeddingObserver *observedEmbeddingProvider
-	if strings.TrimSpace(arguments.CassettePath) != "" {
-		cassette, errorValue := e2e.LoadLanguageModelCassette(arguments.CassettePath)
-		if errorValue != nil {
-			return errorValue
-		}
-		scenario.LanguageModel = e2e.NewReplayingLanguageModel(cassette)
-		scenario.DisableScriptedModel = true
-		scenario.UseLooseAssertions = !arguments.StrictAssertions
-	} else if arguments.LiveLanguageModel {
+	if arguments.LiveLanguageModel {
 		languageModel, errorValue := createLiveLanguageModel(arguments)
 		if errorValue != nil {
 			return errorValue
 		}
+		var languageModelFactoryError error
 		languageModelFactory := func(modelName string) llm.LanguageModelProvider {
 			modelArguments := arguments
 			modelArguments.LanguageModelName = modelName
 			modelProvider, factoryError := createLiveLanguageModel(modelArguments)
 			if factoryError != nil {
-				return languageModel
+				languageModelFactoryError = errors.Join(languageModelFactoryError, factoryError)
+				return nil
 			}
 			return modelProvider
 		}
@@ -263,10 +238,9 @@ func runVirtualSession(ctx context.Context, arguments virtualSessionArguments) e
 		scenario.EmbeddingModel = llm.DefaultEmbeddingModelName
 		if arguments.RealModelTiers || arguments.MaximumModelTier != "" {
 			configureVirtualScenarioModelTiers(&scenario, arguments.MaximumModelTier, languageModelFactory)
-		}
-		if strings.TrimSpace(arguments.RecordCassettePath) != "" {
-			cassetteRecorder = e2e.NewRecordingLanguageModel(languageModel)
-			scenario.LanguageModel = cassetteRecorder
+			if languageModelFactoryError != nil {
+				return languageModelFactoryError
+			}
 		}
 		scenario.DisableScriptedModel = true
 		scenario.UseLooseAssertions = !arguments.StrictAssertions
@@ -276,14 +250,13 @@ func runVirtualSession(ctx context.Context, arguments virtualSessionArguments) e
 	} else if isLiveVirtualScenario(scenario) {
 		return errors.New("virtual-session scenario needs live LLM calls; pass --live-llm or set BLUECLAW_E2E_LIVE=1")
 	}
-	if arguments.LiveLanguageModel || strings.TrimSpace(arguments.CassettePath) != "" {
+	if arguments.LiveLanguageModel {
 		if skillDirectoryPath := firstNonEmptyString(arguments.SkillDirectoryPath, defaultSkillDirectoryPath(scenario.Name)); skillDirectoryPath != "" {
 			scenario.Skills = nil
 			scenario.SkillDirectoryPaths = []string{skillDirectoryPath}
 		}
 	}
 	result, errorValue := e2e.RunVirtualSession(ctx, scenario)
-	recordError := saveVirtualSessionCassette(arguments.RecordCassettePath, cassetteRecorder)
 	evidenceError := saveVirtualSessionEvidence(arguments, result, errorValue)
 	printVirtualSessionResult(result)
 	if errorValue != nil {
@@ -299,9 +272,6 @@ func runVirtualSession(ctx context.Context, arguments virtualSessionArguments) e
 		if errorValue := validateStrictEmbeddingRetrieval(result); errorValue != nil {
 			return errorValue
 		}
-	}
-	if recordError != nil {
-		return recordError
 	}
 	return nil
 }
@@ -539,7 +509,11 @@ func configureVirtualScenarioModelTiers(scenario *e2e.VirtualSessionScenario, ma
 	tierNames := defaultVirtualModelTierNames()
 	if maximumModelTier == "" {
 		providers := buildUncappedVirtualModelTierProviders(tierNames, providerFactory)
-		applyVirtualModelTierProviders(scenario, providers, fallbackVirtualModelProvider(providerFactory(tierNames.medium), providerFactory(tierNames.high), "intake", "high"))
+		applyVirtualModelTierProviders(scenario, providers, fallbackVirtualModelProvider(
+			llm.WithModelTier(providerFactory(tierNames.medium), "medium"),
+			llm.WithModelTier(providerFactory(tierNames.high), "high"),
+			"intake", "high",
+		))
 		return
 	}
 	providers := buildCappedVirtualModelTierProviders(tierNames, providerFactory)
@@ -564,30 +538,30 @@ func applyVirtualModelTierProviders(scenario *e2e.VirtualSessionScenario, provid
 }
 
 func buildUncappedVirtualModelTierProviders(tierNames virtualModelTierNames, providerFactory func(string) llm.LanguageModelProvider) virtualModelTierProviders {
-	xLowModel := providerFactory(tierNames.xLow)
-	lowModel := providerFactory(tierNames.low)
-	mediumModel := providerFactory(tierNames.medium)
-	highModel := providerFactory(tierNames.high)
-	xHighModel := providerFactory(tierNames.xHigh)
-	maxModel := providerFactory(tierNames.max)
+	xLowModel := llm.WithModelTier(providerFactory(tierNames.xLow), "xlow")
+	lowModel := llm.WithModelTier(providerFactory(tierNames.low), "low")
+	mediumModel := llm.WithModelTier(providerFactory(tierNames.medium), "medium")
+	highModel := llm.WithModelTier(providerFactory(tierNames.high), "high")
+	xHighModel := llm.WithModelTier(providerFactory(tierNames.xHigh), "xhigh")
+	maxModel := llm.WithModelTier(providerFactory(tierNames.max), "max")
 	lowProvider := fallbackVirtualModelProvider(lowModel, mediumModel, "low", "medium")
 	xLowProvider := fallbackVirtualModelProvider(xLowModel, lowProvider, "xlow", "low")
 	mediumProvider := fallbackVirtualModelProvider(mediumModel, lowModel, "medium", "low")
 	highProvider := fallbackVirtualModelProvider(highModel, mediumProvider, "high", "medium")
 	xHighProvider := fallbackVirtualModelProvider(xHighModel, highProvider, "xhigh", "high")
 	maxProvider := fallbackVirtualModelProvider(maxModel, xHighProvider, "max", "xhigh")
-	codingProvider := fallbackVirtualModelProvider(llm.VisionFallbackProvider{TextOnlyModel: providerFactory(tierNames.coding), VisionModel: highProvider}, mediumProvider, "coding", "medium")
+	codingProvider := fallbackVirtualModelProvider(llm.VisionFallbackProvider{TextOnlyModel: llm.WithModelTier(providerFactory(tierNames.coding), "coding"), VisionModel: highProvider}, mediumProvider, "coding", "medium")
 	return virtualModelTierProviders{xLow: xLowProvider, low: lowProvider, medium: mediumProvider, high: highProvider, xHigh: xHighProvider, max: maxProvider, coding: codingProvider}
 }
 
 func buildCappedVirtualModelTierProviders(tierNames virtualModelTierNames, providerFactory func(string) llm.LanguageModelProvider) virtualModelTierProviders {
-	xLowModel := providerFactory(tierNames.xLow)
-	lowProvider := fallbackVirtualModelProvider(providerFactory(tierNames.low), xLowModel, "low", "xlow")
+	xLowModel := llm.WithModelTier(providerFactory(tierNames.xLow), "xlow")
+	lowProvider := fallbackVirtualModelProvider(llm.WithModelTier(providerFactory(tierNames.low), "low"), xLowModel, "low", "xlow")
 	xLowProvider := llm.VisionFallbackProvider{TextOnlyModel: xLowModel, VisionModel: lowProvider}
-	mediumProvider := fallbackVirtualModelProvider(providerFactory(tierNames.medium), lowProvider, "medium", "low")
-	highProvider := fallbackVirtualModelProvider(providerFactory(tierNames.high), mediumProvider, "high", "medium")
-	xHighProvider := fallbackVirtualModelProvider(providerFactory(tierNames.xHigh), highProvider, "xhigh", "high")
-	maxProvider := fallbackVirtualModelProvider(providerFactory(tierNames.max), xHighProvider, "max", "xhigh")
+	mediumProvider := fallbackVirtualModelProvider(llm.WithModelTier(providerFactory(tierNames.medium), "medium"), lowProvider, "medium", "low")
+	highProvider := fallbackVirtualModelProvider(llm.WithModelTier(providerFactory(tierNames.high), "high"), mediumProvider, "high", "medium")
+	xHighProvider := fallbackVirtualModelProvider(llm.WithModelTier(providerFactory(tierNames.xHigh), "xhigh"), highProvider, "xhigh", "high")
+	maxProvider := fallbackVirtualModelProvider(llm.WithModelTier(providerFactory(tierNames.max), "max"), xHighProvider, "max", "xhigh")
 	return virtualModelTierProviders{xLow: xLowProvider, low: lowProvider, medium: mediumProvider, high: highProvider, xHigh: xHighProvider, max: maxProvider}
 }
 
@@ -796,13 +770,6 @@ func resolveOpenRouterAPIKey() (string, error) {
 		return "", errors.New("OpenRouter API key file is empty")
 	}
 	return openRouterAPIKey, nil
-}
-
-func saveVirtualSessionCassette(path string, cassetteRecorder *e2e.RecordingLanguageModel) error {
-	if strings.TrimSpace(path) == "" || cassetteRecorder == nil {
-		return nil
-	}
-	return e2e.SaveLanguageModelCassette(path, cassetteRecorder.Cassette())
 }
 
 var delayLiveVirtualSession = func() {
