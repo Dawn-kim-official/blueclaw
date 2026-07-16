@@ -432,7 +432,7 @@ func TestAgentKernelReasksAndRecoversRequiredEvidence(t *testing.T) {
 	}
 }
 
-func TestAgentKernelRecoversMaintenanceEvidenceWithoutInitialTool(t *testing.T) {
+func TestAgentKernelDoesNotReaskMaintenanceEvidenceWithoutInitialTool(t *testing.T) {
 	agentKernel, taskRunService := newKernelTestServices()
 	intakeLanguageModel := &turnRouterDecisionLanguageModel{
 		initialDecision: TurnDecision{
@@ -464,29 +464,29 @@ func TestAgentKernelRecoversMaintenanceEvidenceWithoutInitialTool(t *testing.T) 
 	result, errorValue := agentKernel.RunAgentRequest(context.Background(), request)
 
 	if errorValue != nil {
-		t.Fatalf("expected maintenance evidence recovery to run the task: %v", errorValue)
+		t.Fatalf("expected maintenance task to run without evidence re-ask: %v", errorValue)
 	}
 	if result.TaskRun.Status != task.TaskStatusCompleted {
-		t.Fatalf("expected recovered task to complete, got %q", result.TaskRun.Status)
+		t.Fatalf("expected maintenance task to complete, got %q", result.TaskRun.Status)
 	}
-	if intakeLanguageModel.reaskCallCount != 1 {
-		t.Fatalf("expected exactly one evidence re-ask, got %d", intakeLanguageModel.reaskCallCount)
+	if intakeLanguageModel.reaskCallCount != 0 {
+		t.Fatalf("expected no evidence re-ask without a typed side-effect signal, got %d", intakeLanguageModel.reaskCallCount)
 	}
 	if toolCallCount != 1 {
 		t.Fatalf("expected task.add to run once through capability.invoke, got %d", toolCallCount)
 	}
-	if !taskEventsContain(taskRunService.ListTaskEvent(result.TaskRun.TaskRunID), requiredEvidenceReaskEventName, `"recoveredEvidence":["task.add"]`) {
-		t.Fatal("expected reask event to record recovered task.add evidence")
+	if countTaskEvents(taskRunService.ListTaskEvent(result.TaskRun.TaskRunID), requiredEvidenceReaskEventName) != 0 {
+		t.Fatal("did not expect a required-evidence reask event")
 	}
 }
 
-func TestAgentKernelReplacesReadOnlyEvidenceForMaintenanceTask(t *testing.T) {
+func TestAgentKernelReplacesReadOnlyEvidenceForScheduledTask(t *testing.T) {
 	agentKernel, taskRunService := newKernelTestServices()
 	intakeLanguageModel := &turnRouterDecisionLanguageModel{
 		initialDecision: TurnDecision{
 			Route:                 TurnRouteStartTask,
 			Classification:        IntakeClassificationBoundedTask,
-			TaskShape:             TaskShapeMaintenanceTask,
+			TaskShape:             TaskShapeScheduledTask,
 			TaskLevel:             TaskLevelLow,
 			EstimatedMinutes:      1,
 			RequiredEvidenceTools: []string{"task.history"},
@@ -536,13 +536,13 @@ func TestAgentKernelReplacesReadOnlyEvidenceForMaintenanceTask(t *testing.T) {
 	}
 }
 
-func TestAgentKernelRejectsReadOnlyEvidenceFromMaintenanceReask(t *testing.T) {
+func TestAgentKernelRejectsReadOnlyEvidenceFromScheduledReask(t *testing.T) {
 	agentKernel, taskRunService := newKernelTestServices()
 	intakeLanguageModel := &turnRouterDecisionLanguageModel{
 		initialDecision: TurnDecision{
 			Route:                 TurnRouteStartTask,
 			Classification:        IntakeClassificationBoundedTask,
-			TaskShape:             TaskShapeMaintenanceTask,
+			TaskShape:             TaskShapeScheduledTask,
 			TaskLevel:             TaskLevelLow,
 			EstimatedMinutes:      1,
 			RequiredEvidenceTools: []string{"task.history"},
