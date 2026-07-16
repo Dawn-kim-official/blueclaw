@@ -184,9 +184,6 @@ func (toolCatalogBuilder *ToolCatalogBuilder) runTerminalTool(toolContext contex
 	slog.Info("terminal.run command completed", "durationMs", time.Since(runStartedAt).Milliseconds(), "exitCode", commandResult.ExitCode, "timedOut", commandResult.TimedOut)
 	content := marshalToolResult(commandResult)
 	if errorValue != nil {
-		if security.IsCommandPathGuardrailError(errorValue) {
-			return terminalPathGuardrailFailure(commandResult, content), nil
-		}
 		if runtimePathFailure := terminalRuntimePathFailure(input, commandResult, content); runtimePathFailure != nil {
 			return *runtimePathFailure, nil
 		}
@@ -239,17 +236,6 @@ func terminalWorkspaceAccessFailure(workingDirectoryPath string) agent.ToolResul
 		"message":           message,
 	}))
 	result := agent.ToolFailureWithOutput(agent.FailurePermissionDenied, agent.FailureCodes.AccessDenied, "workspace_permission", message, document)
-	result.Failure.Retryable = true
-	result.Failure.SafeRetry = true
-	return result
-}
-
-func terminalPathGuardrailFailure(commandResult security.CommandResult, content string) agent.ToolResult {
-	message := strings.TrimSpace(commandResult.Stderr)
-	if message == "" {
-		message = content
-	}
-	result := agent.ToolFailureWithOutput(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "terminal_path_guardrail", message, json.RawMessage(content))
 	result.Failure.Retryable = true
 	result.Failure.SafeRetry = true
 	return result

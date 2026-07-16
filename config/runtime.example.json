@@ -254,20 +254,6 @@
       "nft",
       "sysctl"
     ],
-    "deniedPathPrefixes": [
-      "/etc",
-      "/root",
-      "/boot",
-      "/sys",
-      "/proc",
-      "/dev",
-      "/run",
-      "/var/lib",
-      "/var/run",
-      "/usr",
-      "/opt",
-      "/srv"
-    ],
     "timeoutSecond": 120,
     "outputMaxBytes": 32768,
     "sessionMaxCount": 4,
