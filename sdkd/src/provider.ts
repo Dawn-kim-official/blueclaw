@@ -667,10 +667,12 @@ function createValidatedJSONSchema(document: unknown) {
   if (!isJSONSchema(document)) {
     throw new SDKDError('request_invalid', 400, false, 'JSON schema must be an object');
   }
+  const validationDocument = structuredClone(document);
+  closeObjectSchemas(validationDocument);
   const ajv = new Ajv({ allErrors: true, strict: false });
   let validator;
   try {
-    validator = ajv.compile(document);
+    validator = ajv.compile(validationDocument);
   } catch (errorValue) {
     throw new SDKDError('request_invalid', 400, false, errorValue instanceof Error ? errorValue.message : 'JSON schema is invalid');
   }
@@ -680,6 +682,18 @@ function createValidatedJSONSchema(document: unknown) {
       return { success: false, error: new Error(ajv.errorsText(validator.errors)) };
     },
   });
+}
+
+function closeObjectSchemas(value: unknown): void {
+  if (Array.isArray(value)) {
+    for (const item of value) closeObjectSchemas(item);
+    return;
+  }
+  if (!isRecord(value)) return;
+  const schemaType = value.type;
+  const isObjectType = schemaType === 'object' || (Array.isArray(schemaType) && schemaType.includes('object'));
+  if (isObjectType && value.additionalProperties === undefined) value.additionalProperties = false;
+  for (const nestedValue of Object.values(value)) closeObjectSchemas(nestedValue);
 }
 
 function isJSONSchema(value: unknown): value is JSONSchema7 {

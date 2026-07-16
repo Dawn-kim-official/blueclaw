@@ -150,6 +150,52 @@ describe('sdkd provider adapter', () => {
     expect(llamaModel.doGenerateCalls).toHaveLength(0);
   });
 
+  test('repairs unknown native tool arguments once without changing the provider schema', async () => {
+    const request = openTaskChatRequest();
+    const llamaModel = successfulLanguageModel('unused-local-model', { ok: true });
+    const remoteModel = sequencedToolCallLanguageModel('served-remote-model', [
+      '{"task":{"title":"ship","unexpected":{"malformed":true}},"items":[{"name":"first","unknown":["bad"]}],"optionalNote":"keep"}',
+      '{"task":{"title":"ship","priority":2},"items":[{"name":"first","label":"primary"}],"optionalNote":"keep"}',
+    ]);
+    const generateChatCompletion = createChatCompletionGenerator(
+      completeConfiguration(SDKDAutoRoute.RemoteFirst),
+      languageModelFactory(llamaModel, remoteModel),
+    );
+
+    const response = await generateChatCompletion(request);
+    const providerTool = remoteModel.doGenerateCalls[0]?.tools?.[0];
+    const providerSchema = providerTool?.type === 'function' ? providerTool.inputSchema : undefined;
+
+    expect(response.message.toolCalls?.[0]?.function.arguments).toBe(
+      '{"task":{"title":"ship","priority":2},"items":[{"name":"first","label":"primary"}],"optionalNote":"keep"}',
+    );
+    expect(remoteModel.doGenerateCalls).toHaveLength(2);
+    expect(llamaModel.doGenerateCalls).toHaveLength(0);
+    expect(JSON.stringify(providerSchema)).toBe(JSON.stringify(request.tools?.[0]?.function.parameters));
+    expect(providerSchema).not.toHaveProperty('additionalProperties');
+  });
+
+  test('fails closed for permanent unknown native tool arguments without an alternate route', async () => {
+    const request = openTaskChatRequest();
+    const llamaModel = successfulLanguageModel('unused-local-model', { ok: true });
+    const remoteModel = sequencedToolCallLanguageModel('served-remote-model', [
+      '{"task":{"title":"ship","unexpected":{"malformed":true}},"items":[{"name":"first"}]}',
+      '{"task":{"title":"ship","unexpected":{"stillMalformed":true}},"items":[{"name":"first"}]}',
+    ]);
+    const generateChatCompletion = createChatCompletionGenerator(
+      completeConfiguration(SDKDAutoRoute.RemoteFirst),
+      languageModelFactory(llamaModel, remoteModel),
+    );
+
+    await expect(generateChatCompletion(request)).rejects.toMatchObject({
+      code: 'provider_response_invalid',
+      allowLegacyFallback: false,
+      diagnostic: { category: StructuredOutputDiagnosticCategory.SchemaValidation },
+    });
+    expect(remoteModel.doGenerateCalls).toHaveLength(2);
+    expect(llamaModel.doGenerateCalls).toHaveLength(0);
+  });
+
   test('rejects permanently invalid native tool arguments without an alternate route', async () => {
     const request = nestedChatRequest();
     const llamaModel = successfulLanguageModel('unused-local-model', { ok: true });
@@ -977,6 +1023,45 @@ function nestedChatRequest(): ChatCompletionRequest {
           },
           required: ['details'],
           additionalProperties: false,
+        },
+      },
+    }],
+  };
+}
+
+function openTaskChatRequest(): ChatCompletionRequest {
+  return {
+    ...chatRequest,
+    tools: [{
+      type: 'function',
+      function: {
+        name: 'lookup',
+        description: 'Look up a task.',
+        parameters: {
+          type: 'object',
+          properties: {
+            task: {
+              type: 'object',
+              properties: {
+                title: { type: 'string' },
+                priority: { type: 'number' },
+              },
+              required: ['title'],
+            },
+            items: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  name: { type: 'string' },
+                  label: { type: 'string' },
+                },
+                required: ['name'],
+              },
+            },
+            optionalNote: { type: 'string' },
+          },
+          required: ['task', 'items'],
         },
       },
     }],
