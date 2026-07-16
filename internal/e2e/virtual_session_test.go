@@ -709,6 +709,9 @@ func TestCalendarEventLifecycleAcceptance(t *testing.T) {
 	if !eventsContain(secondTurnResult.Events, "tool.calendar.update.requested", "2026-06-13T14:00:00+09:00") {
 		t.Fatalf("expected updated time in calendar update input; events: %s", summarizeEvents(secondTurnResult.Events))
 	}
+	if !eventsContain(secondTurnResult.Events, "tool.calendar.update.result", "updated virtual calendar event") {
+		t.Fatalf("expected successful calendar update result; events: %s", summarizeEvents(secondTurnResult.Events))
+	}
 	if countEventsWithFragment(thirdTurnResult.Events, "tool.calendar.delete.requested", "calendar.delete") != 1 {
 		t.Fatalf("expected one calendar delete request; events: %s", summarizeEvents(thirdTurnResult.Events))
 	}

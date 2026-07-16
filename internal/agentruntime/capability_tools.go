@@ -389,7 +389,7 @@ func isEmptyCapabilityInputValue(value json.RawMessage) bool {
 }
 
 func capabilityMissingInputFailure(operation string, toolDescriptor CapabilityToolDescriptor, missing []string) agent.ToolResult {
-	message := operation + " needs these input fields: " + strings.Join(missing, ", ") + ". Call capability.invoke again with operation=" + operation + " and input set to a JSON object (written inside a string) that contains them. See inputSkeleton in this failure's data for a fillable template."
+	message := operation + " needs these input fields: " + strings.Join(missing, ", ") + ". Call " + operation + " with a JSON object containing them. See inputSkeleton in this failure's data for a fillable template."
 	result := agent.ToolFailureData(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "capability_input", message, capabilityInputSkeletonData(toolDescriptor.InputSchema, missing))
 	if result.Failure == nil {
 		return result
@@ -399,16 +399,16 @@ func capabilityMissingInputFailure(operation string, toolDescriptor CapabilityTo
 	result.Failure.FailureClass = "schema"
 	result.Failure.RetryPolicy = "different_input"
 	result.Failure.RecoveryHints = []agent.RecoveryHint{{
-		Action:    "Retry capability.invoke with operation=" + operation + " and input as a string-wrapped JSON object containing real values for required fields: " + capabilityRequiredInputDescription(toolDescriptor.InputSchema, missing) + ".",
-		ToolNames: []string{agent.CapabilityInvokeToolName},
-		Reason:    "Input schema for " + operation + ": " + capabilityCatalogParameters(toolDescriptor.InputSchema) + ". Wrapper shape: " + capabilityInvokeWrapperExample(operation, toolDescriptor.InputSchema, missing) + ". Never send an empty input.",
+		Action:    "Retry " + operation + " with real values for required fields: " + capabilityRequiredInputDescription(toolDescriptor.InputSchema, missing) + ".",
+		ToolNames: []string{operation},
+		Reason:    "Input schema for " + operation + ": " + capabilityCatalogParameters(toolDescriptor.InputSchema) + ". Never send an empty input.",
 	}}
 	return result
 }
 
 func capabilityUnexpectedInputFailure(operation string, toolDescriptor CapabilityToolDescriptor, unexpected []string) agent.ToolResult {
 	allowedFields := capabilityInputFieldNames(toolDescriptor.InputSchema)
-	message := operation + " does not accept these input fields: " + strings.Join(unexpected, ", ") + ". Call capability.invoke again using only these fields: " + strings.Join(allowedFields, ", ") + "."
+	message := operation + " does not accept these input fields: " + strings.Join(unexpected, ", ") + ". Call " + operation + " using only these fields: " + strings.Join(allowedFields, ", ") + "."
 	result := agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "capability_input", message)
 	if result.Failure == nil {
 		return result
@@ -418,8 +418,8 @@ func capabilityUnexpectedInputFailure(operation string, toolDescriptor Capabilit
 	result.Failure.FailureClass = "schema"
 	result.Failure.RetryPolicy = "different_input"
 	result.Failure.RecoveryHints = []agent.RecoveryHint{{
-		Action:    "Retry capability.invoke with operation=" + operation + " using only the operation's declared input fields.",
-		ToolNames: []string{agent.CapabilityInvokeToolName},
+		Action:    "Retry " + operation + " using only the operation's declared input fields.",
+		ToolNames: []string{operation},
 		Reason:    "Input schema for " + operation + ": " + capabilityCatalogParameters(toolDescriptor.InputSchema) + ".",
 	}}
 	return result
@@ -442,7 +442,7 @@ func capabilityInputFieldNames(inputSchema json.RawMessage) []string {
 
 func capabilityInputNotObjectFailure(operation string, toolDescriptor CapabilityToolDescriptor) agent.ToolResult {
 	requiredFields := requiredFieldsFromSchema(toolDescriptor.InputSchema)
-	message := "capability.invoke requires input to be an object for operation " + operation + ". Call capability.invoke again with operation=" + operation + " and input set to one JSON object, written directly or inside a string, not null and not prose. See inputSkeleton in this failure's data for a fillable template."
+	message := operation + " requires input to be an object. Call " + operation + " with one JSON object, written directly or inside a string, not null and not prose. See inputSkeleton in this failure's data for a fillable template."
 	result := agent.ToolFailureData(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "capability_input", message, capabilityInputSkeletonData(toolDescriptor.InputSchema, requiredFields))
 	if result.Failure == nil {
 		return result
@@ -452,9 +452,9 @@ func capabilityInputNotObjectFailure(operation string, toolDescriptor Capability
 	result.Failure.FailureClass = "schema"
 	result.Failure.RetryPolicy = "different_input"
 	result.Failure.RecoveryHints = []agent.RecoveryHint{{
-		Action:    "Retry capability.invoke with operation=" + operation + " and input as one JSON object, written directly or inside a string, holding that operation's fields.",
-		ToolNames: []string{agent.CapabilityInvokeToolName},
-		Reason:    "Input schema for " + operation + ": " + capabilityCatalogParameters(toolDescriptor.InputSchema) + ". Wrapper shape: " + capabilityInvokeWrapperExample(operation, toolDescriptor.InputSchema, requiredFields) + ".",
+		Action:    "Retry " + operation + " with one JSON object, written directly or inside a string, holding that operation's fields.",
+		ToolNames: []string{operation},
+		Reason:    "Input schema for " + operation + ": " + capabilityCatalogParameters(toolDescriptor.InputSchema) + ".",
 	}}
 	return result
 }
