@@ -150,7 +150,7 @@ func (client SDKDClient) GenerateLocalRecoveryChatCompletion(responseContext con
 
 func (client SDKDClient) generateSDKDRecoveryChatAttempt(responseContext context.Context, request ChatCompletionRequest, executionMode string) (ChatCompletionResponse, error) {
 	attemptContext, cancelAttempt := recoveryAttemptContext(responseContext)
-	response, errorValue := client.generateChatCompletion(attemptContext, request, executionMode, false)
+	response, errorValue := client.generateSDKDChatCompletion(attemptContext, request, executionMode)
 	cancelAttempt()
 	if response.Transport == "" {
 		response.Transport = "sdkd"
@@ -191,35 +191,11 @@ func (client SDKDClient) GenerateStructuredResponse(responseContext context.Cont
 }
 
 func (client SDKDClient) GenerateChatCompletion(responseContext context.Context, request ChatCompletionRequest) (ChatCompletionResponse, error) {
-	response, errorValue := client.generateChatCompletion(responseContext, request, client.executionMode(), true)
+	response, errorValue := client.generateSDKDChatCompletion(responseContext, request, client.executionMode())
 	if response.Transport == "" {
 		response.Transport = "sdkd"
 	}
 	return response, errorValue
-}
-
-func (client SDKDClient) generateChatCompletion(responseContext context.Context, request ChatCompletionRequest, executionMode string, allowFallback bool) (ChatCompletionResponse, error) {
-	response, errorValue := client.generateSDKDChatCompletion(responseContext, request, executionMode)
-	if errorValue == nil || !allowFallback || client.LocalOnly || !canUseLegacySDKDFallback(errorValue) {
-		return response, errorValue
-	}
-	if responseContext.Err() != nil {
-		return ChatCompletionResponse{}, responseContext.Err()
-	}
-	fallbackCompleter, isFallbackCompleter := client.TextProvider.(ChatCompleter)
-	if !isFallbackCompleter {
-		return response, errorValue
-	}
-	fallbackResponse, fallbackError := fallbackCompleter.GenerateChatCompletion(responseContext, request)
-	if fallbackError != nil {
-		return ChatCompletionResponse{}, fallbackError
-	}
-	if fallbackResponse.Message.ToolCalls == nil {
-		fallbackResponse.Message.ToolCalls = []ChatCompletionToolCall{}
-	}
-	fallbackResponse.UsedFallback = true
-	fallbackResponse.Transport = "capability"
-	return fallbackResponse, nil
 }
 
 func (client SDKDClient) generateSDKDChatCompletion(responseContext context.Context, request ChatCompletionRequest, executionMode string) (ChatCompletionResponse, error) {
