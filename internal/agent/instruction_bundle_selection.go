@@ -53,12 +53,17 @@ func attachmentSuffixFormats(suffixes []string) []string {
 }
 
 func selectedSkillInstructionList(instructionBundle InstructionBundle) []SkillInstruction {
-	selectedSkillNames := selectedSkillNameSet(instructionBundle.SkillDecisions)
+	skillInstructionsByName := skillInstructionByName(instructionBundle.Skills)
 	skillInstructions := []SkillInstruction{}
-	for _, skillInstruction := range instructionBundle.Skills {
-		if selectedSkillNames[skillInstruction.Name] {
-			skillInstructions = append(skillInstructions, skillInstruction)
+	for _, skillDecision := range instructionBundle.SkillDecisions {
+		if skillDecision.Status != "selected" {
+			continue
 		}
+		skillInstruction, isFound := skillInstructionsByName[skillDecision.Name]
+		if !isFound {
+			continue
+		}
+		skillInstructions = append(skillInstructions, skillInstruction)
 	}
 	return skillInstructions
 }

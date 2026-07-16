@@ -60,6 +60,35 @@ func TestSelectedSkillExposesDirectTools(t *testing.T) {
 	}
 }
 
+func TestSelectedSkillRankingControlsToolBudget(t *testing.T) {
+	secondaryToolNames := []string{
+		"calendar.add", "calendar.list", "calendar.update", "calendar.delete",
+		"company.info.get", "company.info.set", "company.metric.list", "company.metric.record",
+		"company.record.list", "company.record.add", "company.record.update", "company.record.delete",
+		"company.document.list", "company.document.search", "company.document.register",
+	}
+	flowToolNames := []string{"task.add", "task.list", "task.update", "task.delete"}
+	toolSet := testToolSet(append(append(KernelToolNames(), secondaryToolNames...), flowToolNames...))
+	instructionBundle := InstructionBundle{
+		Skills: []SkillInstruction{
+			{Name: "secondary", AllowedTools: secondaryToolNames},
+			{Name: "internkim-flow", AllowedTools: flowToolNames},
+		},
+		SkillDecisions: []SkillSelectionDecision{
+			{Name: "internkim-flow", Status: "selected"},
+			{Name: "secondary", Status: "selected"},
+		},
+	}
+
+	filteredToolSet, _ := toolSetForAgentTurnWithExposure(toolSet, instructionBundle, AgentRequest{}, ExecutionPlan{}, false, OutcomeContract{}, ToolExposureEvent{})
+
+	for _, toolName := range flowToolNames {
+		if !filteredToolSet.IsAllowed(toolName) {
+			t.Fatalf("expected first-ranked skill tool %s, got %+v", toolName, filteredToolSet.ListToolNames())
+		}
+	}
+}
+
 func TestPinnedDirectToolWinsSelectedSkillBudget(t *testing.T) {
 	selectedToolNames := []string{
 		"site.create", "site.preview", "artifact.review", "site.publish",
