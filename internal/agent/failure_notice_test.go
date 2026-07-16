@@ -9,6 +9,15 @@ import (
 	"blueclaw/internal/llm"
 )
 
+func TestFailureNoticeSendabilityDoesNotParseModelWording(t *testing.T) {
+	message := "작업 결과는 sandbox:/mnt/data/report.pdf에 있습니다."
+	notice := buildFailureNotice(message, "generated", FailureReport{})
+
+	if notice.SendableMessage() != message {
+		t.Fatalf("expected non-empty model wording to remain sendable, got %+v", notice)
+	}
+}
+
 type recoveryChatNoticeProvider struct {
 	chatReply        string
 	chatFinishReason string

@@ -82,12 +82,3 @@ func TestFailureNoticeReviewRewritesFalseDeliveryClaim(t *testing.T) {
 		t.Fatalf("expected reviewed failure notice, got %q", notice.SendableMessage())
 	}
 }
-
-func TestValidateUserNoticeDoesNotClassifyAttachmentWording(t *testing.T) {
-	if ValidateUserNoticeDelivery("slides.html을 완성하지 못했어요.") != nil {
-		t.Fatal("expected naming an unbuilt artifact to be allowed")
-	}
-	if errorValue := ValidateUserNoticeDelivery("slides.html을 첨부했습니다."); errorValue != nil {
-		t.Fatalf("expected delivery wording not to be classified by transport validation: %v", errorValue)
-	}
-}

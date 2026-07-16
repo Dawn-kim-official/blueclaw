@@ -1094,6 +1094,7 @@ func TestAgentTurnRunnerRemovesQualityCriteriaActionAfterCriteriaAreSet(t *testi
 		ToolSet:                   toolRegistry,
 		PinnedToolNames:           toolRegistry.ListToolNames(),
 		QualityAcceptanceGuidance: []string{"declare criteria first"},
+		OutcomeContract:           OutcomeContract{ArtifactRequirement: ArtifactRequirementRequired},
 	})
 	if errorValue != nil {
 		t.Fatalf("expected turn to succeed: %v", errorValue)

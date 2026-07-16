@@ -8,7 +8,6 @@ import (
 	"strings"
 	"time"
 
-	"blueclaw/internal/agent"
 	"blueclaw/internal/agentruntime"
 	"blueclaw/internal/connectors"
 	"blueclaw/internal/policy"
@@ -313,9 +312,6 @@ func scheduledTaskReply(result agentruntime.TaskScheduleRunResult) (connectors.O
 	}
 	if reply == "" {
 		return connectors.OutboundReply{}, taskScheduleTerminalError{message: "scheduled task completed without a reply"}
-	}
-	if agent.FinishMessageContainsNonDeliverableArtifactLocator(reply) {
-		return connectors.OutboundReply{}, taskScheduleTerminalError{message: "scheduled task reply exposes non-deliverable artifact locator"}
 	}
 	return connectors.OutboundReply{Message: reply, TaskRunID: turnResult.TaskRun.TaskRunID, ReplyKind: "success", Attachments: turnResult.Attachments}, nil
 }
