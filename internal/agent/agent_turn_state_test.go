@@ -17,13 +17,15 @@ import (
 func TestDecideAgentActionUsesNativeChatForFinishAndContinue(t *testing.T) {
 	testCases := []struct {
 		name         string
+		toolName     string
 		arguments    string
 		expectedType string
 		check        func(*testing.T, agentAction)
 	}{
 		{
 			name:         "finish",
-			arguments:    `{"action":"finish","message":"done","goalStatus":"satisfied","goalSatisfied":true,"hasRemainingWork":false,"completionEvidenceIDs":["obs-1"],"qualityReview":[],"executionStateUpdate":{"goal":"done"}}`,
+			toolName:     "finish",
+			arguments:    `{"message":"done","goalStatus":"satisfied","goalSatisfied":true,"hasRemainingWork":false,"completionEvidenceIDs":["obs-1"],"qualityReview":[],"executionStateUpdate":{"goal":"done"}}`,
 			expectedType: "finish",
 			check: func(t *testing.T, action agentAction) {
 				if action.Message != "done" || len(action.CompletionEvidenceIDs) != 1 || action.ExecutionStateUpdate.Goal != "done" {
@@ -33,10 +35,11 @@ func TestDecideAgentActionUsesNativeChatForFinishAndContinue(t *testing.T) {
 		},
 		{
 			name:         "continue",
-			arguments:    `{"action":"continue","toolName":"terminal.run","toolInput":{"command":"pwd"},"message":"checking","executionStateUpdate":{"goal":"inspect"}}`,
+			toolName:     "terminal.run",
+			arguments:    `{"command":"pwd"}`,
 			expectedType: "continue",
 			check: func(t *testing.T, action agentAction) {
-				if action.ToolName != "terminal.run" || string(action.ToolInput) != `{"command":"pwd"}` || action.Message != "checking" || action.ExecutionStateUpdate.Goal != "inspect" {
+				if action.ToolName != "terminal.run" || string(action.ToolInput) != `{"command":"pwd"}` {
 					t.Fatalf("expected continue tool fields to survive native action parsing, got %+v", action)
 				}
 			},
@@ -45,7 +48,7 @@ func TestDecideAgentActionUsesNativeChatForFinishAndContinue(t *testing.T) {
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			provider := nativeAgentActionLanguageModel{chatResponse: nativeAgentActionChatResponse(testCase.arguments)}
+			provider := nativeAgentActionLanguageModel{chatResponse: nativeAgentActionChatResponse(testCase.toolName, testCase.arguments)}
 			action, errorValue := DecideAgentAction(context.Background(), &provider, nativeAgentActionTestState())
 			if errorValue != nil {
 				t.Fatalf("expected native action: %v", errorValue)
@@ -61,7 +64,7 @@ func TestDecideAgentActionUsesNativeChatForFinishAndContinue(t *testing.T) {
 	}
 }
 
-func TestBuildAgentActionChatRequestPreservesSchemaAndToolChoice(t *testing.T) {
+func TestBuildAgentActionChatRequestExposesDirectToolsAndTerminalControls(t *testing.T) {
 	state := nativeAgentActionTestState()
 	seed := int64(77)
 	temperature := 0.4
@@ -76,18 +79,22 @@ func TestBuildAgentActionChatRequestPreservesSchemaAndToolChoice(t *testing.T) {
 	if !isRepresentable {
 		t.Fatal("expected text action request to be representable as chat")
 	}
-	if len(chatRequest.Tools) != 1 {
-		t.Fatalf("expected exactly one native action tool, got %+v", chatRequest.Tools)
+	if len(chatRequest.Tools) != 4 {
+		t.Fatalf("expected one callable tool and three terminal controls, got %+v", chatRequest.Tools)
 	}
-	tool := chatRequest.Tools[0]
-	if tool.Type != "function" || tool.Function.Name != nativeAgentActionToolName {
-		t.Fatalf("expected reserved function tool, got %+v", tool)
+	tool := nativeChatTool(t, chatRequest.Tools, TerminalRunToolName)
+	if tool.Type != "function" {
+		t.Fatalf("expected function tool, got %+v", tool)
 	}
-	if string(tool.Function.Parameters) != structuredRequest.StructuredOutputSchema.Document {
-		t.Fatalf("expected native parameters to reuse action schema\nexpected=%s\nactual=%s", structuredRequest.StructuredOutputSchema.Document, tool.Function.Parameters)
+	if string(tool.Function.Parameters) != `{"additionalProperties":false,"properties":{"command":{"type":"string"}},"required":["command"],"type":"object"}` {
+		t.Fatalf("expected direct tool parameters to preserve the callable input schema, got %s", tool.Function.Parameters)
 	}
-	if string(chatRequest.ToolChoice) != `{"type":"function","function":{"name":"blueclaw_agent_turn_action"}}` {
-		t.Fatalf("expected forced reserved tool choice, got %s", chatRequest.ToolChoice)
+	finishTool := nativeChatTool(t, chatRequest.Tools, "finish")
+	if strings.Contains(string(finishTool.Function.Parameters), `"action"`) {
+		t.Fatalf("expected terminal control schema without redundant action discriminator, got %s", finishTool.Function.Parameters)
+	}
+	if string(chatRequest.ToolChoice) != `"required"` {
+		t.Fatalf("expected required native tool choice, got %s", chatRequest.ToolChoice)
 	}
 	if chatRequest.ParallelToolCalls {
 		t.Fatal("expected parallel native tool calls to be disabled")
@@ -107,18 +114,18 @@ func TestBuildAgentActionChatRequestPreservesSchemaAndToolChoice(t *testing.T) {
 }
 
 func TestDecideAgentActionNativeChatRejectsInvalidCallsWithoutStructuredFallback(t *testing.T) {
-	blankToolCallIDResponse := nativeAgentActionChatResponse(`{"action":"finish"}`)
+	blankToolCallIDResponse := nativeAgentActionChatResponse("finish", `{}`)
 	blankToolCallIDResponse.Message.ToolCalls[0].ID = " "
 	testCases := []struct {
 		name     string
 		response llm.ChatCompletionResponse
 	}{
 		{name: "empty calls", response: llm.ChatCompletionResponse{FinishReason: "tool_calls", Message: llm.ChatCompletionMessage{Role: "assistant"}}},
-		{name: "multiple calls", response: llm.ChatCompletionResponse{FinishReason: "tool_calls", Message: llm.ChatCompletionMessage{Role: "assistant", ToolCalls: []llm.ChatCompletionToolCall{nativeAgentActionToolCall(`{"action":"finish"}`), nativeAgentActionToolCall(`{"action":"finish"}`)}}}},
-		{name: "unknown tool", response: llm.ChatCompletionResponse{FinishReason: "tool_calls", Message: llm.ChatCompletionMessage{Role: "assistant", ToolCalls: []llm.ChatCompletionToolCall{{Type: "function", Function: llm.ChatCompletionToolCallFunction{Name: "terminal.run", Arguments: `{"action":"continue"}`}}}}}},
-		{name: "malformed arguments", response: nativeAgentActionChatResponse("{invalid")},
-		{name: "non-object arguments", response: nativeAgentActionChatResponse(`[]`)},
-		{name: "empty arguments", response: nativeAgentActionChatResponse("")},
+		{name: "multiple calls", response: llm.ChatCompletionResponse{FinishReason: "tool_calls", Message: llm.ChatCompletionMessage{Role: "assistant", ToolCalls: []llm.ChatCompletionToolCall{nativeAgentActionToolCall("finish", `{}`), nativeAgentActionToolCall("finish", `{}`)}}}},
+		{name: "unknown tool", response: nativeAgentActionChatResponse("unknown", `{}`)},
+		{name: "malformed arguments", response: nativeAgentActionChatResponse(TerminalRunToolName, "{invalid")},
+		{name: "non-object arguments", response: nativeAgentActionChatResponse(TerminalRunToolName, `[]`)},
+		{name: "empty arguments", response: nativeAgentActionChatResponse(TerminalRunToolName, "")},
 		{name: "blank tool call ID", response: blankToolCallIDResponse},
 	}
 
@@ -137,7 +144,7 @@ func TestDecideAgentActionNativeChatRejectsInvalidCallsWithoutStructuredFallback
 }
 
 func TestDecideAgentActionUsesStructuredProviderForMessageParts(t *testing.T) {
-	provider := nativeAgentActionLanguageModel{chatResponse: nativeAgentActionChatResponse(`{"action":"finish"}`)}
+	provider := nativeAgentActionLanguageModel{chatResponse: nativeAgentActionChatResponse("finish", `{}`)}
 	state := nativeAgentActionTestState()
 	state.Request.InputParts = []AgentPart{{
 		Type:  AgentPartTypeImage,
@@ -202,25 +209,36 @@ func nativeAgentActionTestState() agentTaskState {
 	return agentTaskState{Request: AgentTurnRequest{Prompt: "run command", ToolSet: toolSet}}
 }
 
-func nativeAgentActionChatResponse(arguments string) llm.ChatCompletionResponse {
+func nativeAgentActionChatResponse(toolName string, arguments string) llm.ChatCompletionResponse {
 	return llm.ChatCompletionResponse{
 		FinishReason: "tool_calls",
 		Message: llm.ChatCompletionMessage{
 			Role:      "assistant",
-			ToolCalls: []llm.ChatCompletionToolCall{nativeAgentActionToolCall(arguments)},
+			ToolCalls: []llm.ChatCompletionToolCall{nativeAgentActionToolCall(toolName, arguments)},
 		},
 	}
 }
 
-func nativeAgentActionToolCall(arguments string) llm.ChatCompletionToolCall {
+func nativeAgentActionToolCall(toolName string, arguments string) llm.ChatCompletionToolCall {
 	return llm.ChatCompletionToolCall{
 		ID:   "call-1",
 		Type: "function",
 		Function: llm.ChatCompletionToolCallFunction{
-			Name:      nativeAgentActionToolName,
+			Name:      toolName,
 			Arguments: arguments,
 		},
 	}
+}
+
+func nativeChatTool(t *testing.T, tools []llm.ChatCompletionTool, toolName string) llm.ChatCompletionTool {
+	t.Helper()
+	for _, tool := range tools {
+		if tool.Function.Name == toolName {
+			return tool
+		}
+	}
+	t.Fatalf("expected native tool %q in %+v", toolName, tools)
+	return llm.ChatCompletionTool{}
 }
 
 func cancelledContext() context.Context {
