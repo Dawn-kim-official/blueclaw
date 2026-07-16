@@ -1517,6 +1517,7 @@ func TestAgentKernelPromotedQuickReplyRejectsUnverifiedFinishAndCompletesOnRealE
 	replyLanguageModel := &sequenceLanguageModel{contents: []string{
 		finishMessageDocument("deck created too early"),
 		`{"action":"continue","message":"deck attached: deck.pptx","toolName":"file.deliver","toolInput":{"path":"deck.pptx"}}`,
+		finishMessageWithEvidence("deck attached: deck.pptx", "obs-003", "file.deliver", 0),
 	}}
 	services := newKernelIntakeTestServices(replyLanguageModel, intakeLanguageModel)
 	services.kernel.UseSkillRetriever(staticSkillRetriever{result: SkillRetrievalResult{SelectedCandidates: []SkillCandidate{{Name: "presentation", Score: 1, Reason: "test"}}}})
