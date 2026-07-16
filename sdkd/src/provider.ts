@@ -261,10 +261,10 @@ async function generateForRoute(
       maxOutputTokens: request.generationOptions?.maxTokens,
       maxRetries: 0,
       abortSignal,
-      experimental_repairToolCall: async ({ toolCall, error }) => {
+      experimental_repairToolCall: async ({ toolCall, error, inputSchema }) => {
         if (abortSignal?.aborted || repairAttempted || !InvalidToolInputError.isInstance(error) || toolCall.toolName !== outputToolName) return null;
         repairAttempted = true;
-        return repairToolCall({
+        return repairInvalidToolCall({
           route,
           tools,
           toolName: outputToolName,
@@ -273,6 +273,8 @@ async function generateForRoute(
           system,
           generationOptions: request.generationOptions,
           abortSignal,
+          inputSchema,
+          error,
         });
       },
       seed: request.generationOptions?.seed,
@@ -311,8 +313,29 @@ type ToolRepairRequest = {
   messages: ModelMessage[];
   system: string | undefined;
   generationOptions: GenerationOptions | undefined;
+  inputSchema: JSONSchema7;
+  validationCategory: StructuredOutputDiagnosticCategory;
   abortSignal?: AbortSignal;
 };
+
+type ToolRepairCallbackRequest = Omit<ToolRepairRequest, 'inputSchema' | 'validationCategory'> & {
+  error: unknown;
+  inputSchema: ({ toolName }: { toolName: string }) => PromiseLike<JSONSchema7>;
+};
+
+async function repairInvalidToolCall({ inputSchema, error, ...repairRequest }: ToolRepairCallbackRequest): Promise<LanguageModelV3ToolCall | null> {
+  try {
+    const schemaDocument = await inputSchema({ toolName: repairRequest.toolName });
+    return repairToolCall({
+      ...repairRequest,
+      inputSchema: createClosedJSONSchema(schemaDocument),
+      validationCategory: diagnoseInvalidToolCall(error).category,
+    });
+  } catch {
+    throwIfAborted(repairRequest.abortSignal);
+    return null;
+  }
+}
 
 async function repairToolCall(repairRequest: ToolRepairRequest): Promise<LanguageModelV3ToolCall | null> {
   throwIfAborted(repairRequest.abortSignal);
@@ -324,7 +347,12 @@ async function repairToolCall(repairRequest: ToolRepairRequest): Promise<Languag
         ...repairRequest.messages,
         {
           role: 'user',
-          content: `Repair these arguments using the tool schema and return exactly one forced tool call: ${repairRequest.toolCall.input}`,
+          content: [
+            `Malformed arguments: ${repairRequest.toolCall.input}`,
+            `Closed JSON schema: ${JSON.stringify(repairRequest.inputSchema)}`,
+            `Validation category: ${repairRequest.validationCategory}`,
+            'Return exactly one forced tool call using the original tool name.',
+          ].join('\n'),
         },
       ],
       tools: repairRequest.tools,
@@ -345,7 +373,7 @@ async function repairToolCall(repairRequest: ToolRepairRequest): Promise<Languag
 }
 
 function repairSystem(system: string | undefined): string {
-  const instruction = 'Repair the previous tool call using the same schema and return exactly one forced tool call.';
+  const instruction = 'Repair the previous tool call using the closed JSON schema in the repair prompt and return exactly one forced tool call.';
   return system ? `${system}\n\n${instruction}` : instruction;
 }
 
@@ -452,10 +480,10 @@ async function generateChatForRoute(
     maxOutputTokens: request.generationOptions?.maxTokens,
     maxRetries: 0,
     abortSignal,
-    experimental_repairToolCall: async ({ toolCall, error }) => {
+    experimental_repairToolCall: async ({ toolCall, error, inputSchema }) => {
       if (repairAttempted || !InvalidToolInputError.isInstance(error) || tools[toolCall.toolName] === undefined) return null;
       repairAttempted = true;
-      return repairToolCall({
+      return repairInvalidToolCall({
         route,
         tools,
         toolName: toolCall.toolName,
@@ -464,6 +492,8 @@ async function generateChatForRoute(
         system,
         generationOptions: request.generationOptions,
         abortSignal,
+        inputSchema,
+        error,
       });
     },
     seed: request.generationOptions?.seed,
@@ -667,8 +697,7 @@ function createValidatedJSONSchema(document: unknown) {
   if (!isJSONSchema(document)) {
     throw new SDKDError('request_invalid', 400, false, 'JSON schema must be an object');
   }
-  const validationDocument = structuredClone(document);
-  closeObjectSchemas(validationDocument);
+  const validationDocument = createClosedJSONSchema(document);
   const ajv = new Ajv({ allErrors: true, strict: false });
   let validator;
   try {
@@ -682,6 +711,12 @@ function createValidatedJSONSchema(document: unknown) {
       return { success: false, error: new Error(ajv.errorsText(validator.errors)) };
     },
   });
+}
+
+function createClosedJSONSchema(document: JSONSchema7): JSONSchema7 {
+  const closedDocument = structuredClone(document);
+  closeObjectSchemas(closedDocument);
+  return closedDocument;
 }
 
 function closeObjectSchemas(value: unknown): void {

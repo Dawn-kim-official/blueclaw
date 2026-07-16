@@ -172,7 +172,15 @@ describe('sdkd provider adapter', () => {
     expect(remoteModel.doGenerateCalls).toHaveLength(2);
     expect(llamaModel.doGenerateCalls).toHaveLength(0);
     expect(JSON.stringify(providerSchema)).toBe(JSON.stringify(request.tools?.[0]?.function.parameters));
+    const repairProviderTool = remoteModel.doGenerateCalls[1]?.tools?.[0];
+    const repairProviderSchema = repairProviderTool?.type === 'function' ? repairProviderTool.inputSchema : undefined;
+    expect(JSON.stringify(repairProviderSchema)).toBe(JSON.stringify(request.tools?.[0]?.function.parameters));
     expect(providerSchema).not.toHaveProperty('additionalProperties');
+    const repairPrompt = JSON.stringify(remoteModel.doGenerateCalls[1]?.prompt);
+    expect(repairPrompt).toContain('Malformed arguments');
+    expect(repairPrompt).toContain('unexpected');
+    expect(repairPrompt).toContain('Validation category: schema_validation');
+    expect((repairPrompt.match(/additionalProperties/g) ?? []).length).toBeGreaterThanOrEqual(3);
   });
 
   test('fails closed for permanent unknown native tool arguments without an alternate route', async () => {
@@ -194,6 +202,33 @@ describe('sdkd provider adapter', () => {
     });
     expect(remoteModel.doGenerateCalls).toHaveLength(2);
     expect(llamaModel.doGenerateCalls).toHaveLength(0);
+  });
+
+  test('preserves explicit open object properties while closing only omitted properties for repair', async () => {
+    const request = explicitOpenChatRequest();
+    const llamaModel = successfulLanguageModel('unused-local-model', { ok: true });
+    const remoteModel = sequencedToolCallLanguageModel('served-remote-model', [
+      '{"metadata":{"source":"model"},"labels":{"team":"blueclaw"},"unexpected":true}',
+      '{"metadata":{"source":"model","extra":true},"labels":{"team":"blueclaw","owner":"sdkd"}}',
+    ]);
+    const generateChatCompletion = createChatCompletionGenerator(
+      completeConfiguration(SDKDAutoRoute.RemoteFirst),
+      languageModelFactory(llamaModel, remoteModel),
+    );
+
+    await generateChatCompletion(request);
+
+    const providerTool = remoteModel.doGenerateCalls[0]?.tools?.[0];
+    const providerSchema = providerTool?.type === 'function' ? providerTool.inputSchema : undefined;
+    const repairProviderTool = remoteModel.doGenerateCalls[1]?.tools?.[0];
+    const repairProviderSchema = repairProviderTool?.type === 'function' ? repairProviderTool.inputSchema : undefined;
+    const repairPrompt = JSON.stringify(remoteModel.doGenerateCalls[1]?.prompt);
+    expect(JSON.stringify(providerSchema)).toBe(JSON.stringify(request.tools?.[0]?.function.parameters));
+    expect(JSON.stringify(repairProviderSchema)).toBe(JSON.stringify(request.tools?.[0]?.function.parameters));
+    expect(repairPrompt).toContain('additionalProperties');
+    expect(repairPrompt).toContain('true');
+    expect(repairPrompt).toContain('string');
+    expect(repairPrompt).toContain('false');
   });
 
   test('rejects permanently invalid native tool arguments without an alternate route', async () => {
@@ -686,6 +721,56 @@ describe('sdkd provider adapter', () => {
     expect(fallbackModel.doGenerateCalls).toHaveLength(0);
   });
 
+  test('repairs structured output with the closed schema and validation category', async () => {
+    const request = nestedStructuredRequest();
+    const model = sequencedStructuredToolCallLanguageModel('repaired-model', [
+      '{"details":{"count":"wrong"}}',
+      '{"details":{"count":2}}',
+    ]);
+    const fallbackModel = successfulLanguageModel('unused-model', { ok: false });
+    const generateStructuredResponse = createStructuredResponseGenerator(
+      completeConfiguration(SDKDAutoRoute.LocalFirst),
+      languageModelFactory(model, fallbackModel),
+    );
+
+    const response = await generateStructuredResponse({ ...request, executionMode: ExecutionMode.Device });
+
+    expect(response.content).toBe('{"details":{"count":2}}');
+    expect(model.doGenerateCalls).toHaveLength(2);
+    expect(model.doGenerateCalls[1]?.toolChoice).toEqual({ type: 'tool', toolName: 'provider_test_output' });
+    const providerTool = model.doGenerateCalls[0]?.tools?.[0];
+    const providerSchema = providerTool?.type === 'function' ? providerTool.inputSchema : undefined;
+    const repairProviderTool = model.doGenerateCalls[1]?.tools?.[0];
+    const repairProviderSchema = repairProviderTool?.type === 'function' ? repairProviderTool.inputSchema : undefined;
+    const repairPrompt = JSON.stringify(model.doGenerateCalls[1]?.prompt);
+    expect(JSON.stringify(providerSchema)).toBe(JSON.stringify(request.structuredOutputSchema.document));
+    expect(JSON.stringify(repairProviderSchema)).toBe(JSON.stringify(request.structuredOutputSchema.document));
+    expect(repairPrompt).toContain('Malformed arguments');
+    expect(repairPrompt).toContain('Closed JSON schema');
+    expect(repairPrompt).toContain('Validation category: schema_validation');
+    expect((repairPrompt.match(/additionalProperties/g) ?? []).length).toBeGreaterThanOrEqual(2);
+    expect(fallbackModel.doGenerateCalls).toHaveLength(0);
+  });
+
+  test('fails closed for permanently invalid structured output without an alternate route', async () => {
+    const model = sequencedStructuredToolCallLanguageModel('invalid-model', [
+      '{"details":{"count":"wrong"}}',
+      '{"details":{"count":"still-wrong"}}',
+    ]);
+    const fallbackModel = successfulLanguageModel('unused-model', { ok: true });
+    const generateStructuredResponse = createStructuredResponseGenerator(
+      completeConfiguration(SDKDAutoRoute.LocalFirst),
+      languageModelFactory(model, fallbackModel),
+    );
+
+    await expect(generateStructuredResponse({ ...nestedStructuredRequest(), executionMode: ExecutionMode.Device })).rejects.toMatchObject({
+      code: 'structured_output_invalid',
+      diagnostic: { category: StructuredOutputDiagnosticCategory.SchemaValidation },
+    });
+    expect(model.doGenerateCalls).toHaveLength(2);
+    expect(fallbackModel.doGenerateCalls).toHaveLength(0);
+  });
+
   test('rejects structured output without exactly one matching tool call', async () => {
     for (const toolCalls of [
       [],
@@ -962,6 +1047,18 @@ function sequencedToolCallLanguageModel(modelID: string, inputs: string[]): Mock
   });
 }
 
+function sequencedStructuredToolCallLanguageModel(modelID: string, inputs: string[]): MockLanguageModelV3 {
+  let generationCount = 0;
+  return new MockLanguageModelV3({
+    modelId: modelID,
+    doGenerate: async () => {
+      const input = inputs[Math.min(generationCount, inputs.length - 1)];
+      generationCount += 1;
+      return toolCallGeneration(modelID, 'provider_test_output', input ?? '{}');
+    },
+  });
+}
+
 function malformedThenValidLanguageModel(modelID: string, output: unknown): MockLanguageModelV3 {
   let generationCount = 0;
   return new MockLanguageModelV3({
@@ -1065,6 +1162,47 @@ function openTaskChatRequest(): ChatCompletionRequest {
         },
       },
     }],
+  };
+}
+
+function explicitOpenChatRequest(): ChatCompletionRequest {
+  return {
+    ...chatRequest,
+    tools: [{
+      type: 'function',
+      function: {
+        name: 'lookup',
+        description: 'Look up a task.',
+        parameters: {
+          type: 'object',
+          properties: {
+            metadata: { type: 'object', additionalProperties: true },
+            labels: { type: 'object', additionalProperties: { type: 'string' } },
+          },
+          required: ['metadata', 'labels'],
+        },
+      },
+    }],
+  };
+}
+
+function nestedStructuredRequest(): StructuredResponseRequest {
+  return {
+    ...structuredRequest,
+    structuredOutputSchema: {
+      ...structuredRequest.structuredOutputSchema,
+      document: {
+        type: 'object',
+        properties: {
+          details: {
+            type: 'object',
+            properties: { count: { type: 'number' } },
+            required: ['count'],
+          },
+        },
+        required: ['details'],
+      },
+    },
   };
 }
 
