@@ -6,6 +6,8 @@ import {
   chatCompletionResponseSchema,
   structuredResponseRequestSchema,
   structuredResponseSchema,
+  structuredOutputDiagnosticSchema,
+  type StructuredOutputDiagnostic,
 } from '@blueclaw/protocol';
 import { buildProtocolArtifacts } from '@blueclaw/protocol/artifacts';
 
@@ -54,7 +56,7 @@ export function createSDKDHandler(dependencies: HandlerDependencies) {
       return Response.json(parsedResponse.data);
     } catch (errorValue) {
       const sdkdError = classifySDKDError(errorValue);
-      return errorResponse(sdkdError.status, sdkdError.code, sdkdError.allowLegacyFallback);
+      return errorResponse(sdkdError.status, sdkdError.code, sdkdError.allowLegacyFallback, sdkdError.diagnostic);
     }
   };
 }
@@ -70,7 +72,7 @@ async function handleChatRequest(value: unknown, abortSignal: AbortSignal, depen
     return Response.json(parsedResponse.data);
   } catch (errorValue) {
     const sdkdError = classifySDKDError(errorValue);
-    return errorResponse(sdkdError.status, sdkdError.code, sdkdError.allowLegacyFallback);
+    return errorResponse(sdkdError.status, sdkdError.code, sdkdError.allowLegacyFallback, sdkdError.diagnostic);
   }
 }
 
@@ -93,6 +95,15 @@ async function parseJSONBody(request: Request): Promise<
   }
 }
 
-function errorResponse(status: number, code: string, allowLegacyFallback = false): Response {
-  return Response.json({ error: { code, allowLegacyFallback } }, { status });
+function errorResponse(
+  status: number,
+  code: string,
+  allowLegacyFallback = false,
+  diagnostic?: StructuredOutputDiagnostic,
+): Response {
+  const parsedDiagnostic = structuredOutputDiagnosticSchema.safeParse(diagnostic);
+  const error = parsedDiagnostic.success
+    ? { code, allowLegacyFallback, diagnostic: parsedDiagnostic.data }
+    : { code, allowLegacyFallback };
+  return Response.json({ error }, { status });
 }

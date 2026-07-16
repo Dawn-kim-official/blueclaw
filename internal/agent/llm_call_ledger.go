@@ -13,28 +13,31 @@ const turnRouterSchemaName = "blueclaw_turn_router"
 const agentActionSchemaName = "blueclaw_agent_turn_action"
 
 type llmCallRecord struct {
-	Kind                  string  `json:"kind"`
-	Transport             string  `json:"transport,omitempty"`
-	SchemaName            string  `json:"schemaName,omitempty"`
-	Provider              string  `json:"provider,omitempty"`
-	Model                 string  `json:"model,omitempty"`
-	ModelTier             string  `json:"modelTier,omitempty"`
-	SelectedBackend       string  `json:"selectedBackend,omitempty"`
-	FinishReason          string  `json:"finishReason,omitempty"`
-	LatencyMS             int64   `json:"latencyMs"`
-	PromptBytes           int     `json:"promptBytes"`
-	ContentBytes          int     `json:"contentBytes"`
-	UsedFallback          bool    `json:"usedFallback,omitempty"`
-	PromptTokens          int64   `json:"promptTokens,omitempty"`
-	CompletionTokens      int64   `json:"completionTokens,omitempty"`
-	TotalTokens           int64   `json:"totalTokens,omitempty"`
-	CachedPromptTokens    int64   `json:"cachedPromptTokens,omitempty"`
-	CacheWriteTokens      int64   `json:"cacheWriteTokens,omitempty"`
-	ReasoningTokens       int64   `json:"reasoningTokens,omitempty"`
-	CostUSD               float64 `json:"costUSD,omitempty"`
-	UpstreamInferenceCost float64 `json:"upstreamInferenceCostUSD,omitempty"`
-	IsError               bool    `json:"isError,omitempty"`
-	Error                 string  `json:"error,omitempty"`
+	Kind                   string                                 `json:"kind"`
+	Transport              string                                 `json:"transport,omitempty"`
+	SchemaName             string                                 `json:"schemaName,omitempty"`
+	Provider               string                                 `json:"provider,omitempty"`
+	Model                  string                                 `json:"model,omitempty"`
+	ModelTier              string                                 `json:"modelTier,omitempty"`
+	SelectedBackend        string                                 `json:"selectedBackend,omitempty"`
+	FinishReason           string                                 `json:"finishReason,omitempty"`
+	LatencyMS              int64                                  `json:"latencyMs"`
+	PromptBytes            int                                    `json:"promptBytes"`
+	SchemaBytes            int                                    `json:"schemaBytes,omitempty"`
+	ContentBytes           int                                    `json:"contentBytes"`
+	UsedFallback           bool                                   `json:"usedFallback,omitempty"`
+	PromptTokens           int64                                  `json:"promptTokens,omitempty"`
+	CompletionTokens       int64                                  `json:"completionTokens,omitempty"`
+	TotalTokens            int64                                  `json:"totalTokens,omitempty"`
+	CachedPromptTokens     int64                                  `json:"cachedPromptTokens,omitempty"`
+	CacheWriteTokens       int64                                  `json:"cacheWriteTokens,omitempty"`
+	ReasoningTokens        int64                                  `json:"reasoningTokens,omitempty"`
+	CostUSD                float64                                `json:"costUSD,omitempty"`
+	UpstreamInferenceCost  float64                                `json:"upstreamInferenceCostUSD,omitempty"`
+	IsError                bool                                   `json:"isError,omitempty"`
+	Error                  string                                 `json:"error,omitempty"`
+	DiagnosticCategory     llm.StructuredOutputDiagnosticCategory `json:"diagnosticCategory,omitempty"`
+	DiagnosticFinishReason llm.StructuredOutputFinishReason       `json:"diagnosticFinishReason,omitempty"`
 }
 
 type llmCallObserver func(record llmCallRecord)
@@ -139,6 +142,8 @@ func (model observedLanguageModel) GenerateResponse(ctx context.Context, prompt 
 func (model observedLanguageModel) GenerateStructuredResponse(ctx context.Context, request llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
 	startedAt := time.Now()
 	response, errorValue := model.provider.GenerateStructuredResponse(ctx, request)
+	promptBytes := structuredRequestByteCount(request)
+	schemaBytes := len(request.StructuredOutputSchema.Document)
 	record := llmCallRecord{
 		Kind:                  "structured",
 		Transport:             response.Transport,
@@ -148,7 +153,8 @@ func (model observedLanguageModel) GenerateStructuredResponse(ctx context.Contex
 		SelectedBackend:       response.SelectedBackend,
 		FinishReason:          response.FinishReason,
 		LatencyMS:             time.Since(startedAt).Milliseconds(),
-		PromptBytes:           structuredRequestByteCount(request),
+		PromptBytes:           promptBytes,
+		SchemaBytes:           schemaBytes,
 		ContentBytes:          len(response.Content),
 		UsedFallback:          response.UsedFallback,
 		PromptTokens:          response.Usage.PromptTokens,
@@ -162,7 +168,13 @@ func (model observedLanguageModel) GenerateStructuredResponse(ctx context.Contex
 	}
 	if errorValue != nil {
 		record.IsError = true
-		record.Error = truncateText(compactWhitespace(errorValue.Error()), llmCallErrorMaximumCharacters)
+		diagnostic, hasDiagnostic := llm.StructuredOutputDiagnosticFromError(errorValue)
+		if hasDiagnostic {
+			record.DiagnosticCategory = diagnostic.Category
+			record.DiagnosticFinishReason = diagnostic.FinishReason
+		} else {
+			record.Error = truncateText(compactWhitespace(errorValue.Error()), llmCallErrorMaximumCharacters)
+		}
 	}
 	model.observe(record)
 	return response, errorValue

@@ -39,6 +39,26 @@ export enum ChatCompletionFinishReason {
   Unknown = 'unknown',
 }
 
+export enum StructuredOutputDiagnosticCategory {
+  JSONParse = 'json_parse',
+  SchemaValidation = 'schema_validation',
+  FinishReason = 'finish_reason',
+  ToolCallContract = 'tool_call_contract',
+  Serialization = 'serialization',
+}
+
+export const structuredOutputDiagnosticSchema = z.strictObject({
+  category: z.enum(StructuredOutputDiagnosticCategory),
+  finishReason: z.enum(ChatCompletionFinishReason).optional(),
+}).superRefine((diagnostic, context) => {
+  if (diagnostic.finishReason === undefined || diagnostic.category === StructuredOutputDiagnosticCategory.FinishReason) return;
+  context.addIssue({
+    code: 'custom',
+    path: ['finishReason'],
+    message: 'finishReason is only valid for finish_reason diagnostics',
+  });
+});
+
 export const languageModelMessagePartSchema = z.discriminatedUnion('type', [
   z.looseObject({
     type: z.literal('text'),
@@ -221,6 +241,7 @@ export type ChatCompletionToolCall = z.infer<typeof chatCompletionToolCallSchema
 export type ChatCompletionMessage = z.infer<typeof chatCompletionMessageSchema>;
 export type ChatCompletionRequest = z.infer<typeof chatCompletionRequestSchema>;
 export type ChatCompletionResponse = z.infer<typeof chatCompletionResponseSchema>;
+export type StructuredOutputDiagnostic = z.infer<typeof structuredOutputDiagnosticSchema>;
 
 function isJSONDocumentObject(value: string): boolean {
   try {

@@ -618,6 +618,50 @@ func TestSDKDClientDoesNotFallbackOnContractFailure(t *testing.T) {
 	}
 }
 
+func TestSDKDClientParsesClosedStructuredOutputDiagnostics(t *testing.T) {
+	testCases := []struct {
+		name                 string
+		diagnosticDocument   string
+		expectedCategory     StructuredOutputDiagnosticCategory
+		expectedFinishReason StructuredOutputFinishReason
+	}{
+		{name: "json parse", diagnosticDocument: `{"category":"json_parse"}`, expectedCategory: StructuredOutputDiagnosticJSONParse},
+		{name: "finish reason", diagnosticDocument: `{"category":"finish_reason","finishReason":"length"}`, expectedCategory: StructuredOutputDiagnosticFinishReason, expectedFinishReason: StructuredOutputDiagnosticFinishLength},
+		{name: "unknown category", diagnosticDocument: `{"category":"generated_content"}`},
+		{name: "unknown finish reason", diagnosticDocument: `{"category":"finish_reason","finishReason":"unfinished"}`},
+		{name: "misplaced finish reason", diagnosticDocument: `{"category":"schema_validation","finishReason":"length"}`},
+		{name: "unknown field", diagnosticDocument: `{"category":"json_parse","generatedContent":"private"}`},
+		{name: "invalid shape", diagnosticDocument: `[]`},
+	}
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(responseWriter http.ResponseWriter, request *http.Request) {
+				responseWriter.WriteHeader(http.StatusUnprocessableEntity)
+				_, _ = responseWriter.Write([]byte(`{"error":{"code":"structured_output_invalid","allowLegacyFallback":false,"diagnostic":` + testCase.diagnosticDocument + `}}`))
+			}))
+			defer server.Close()
+			client := NewSDKDClient(SDKDClientConfiguration{Endpoint: server.URL, AuthKey: "installation-key"})
+
+			_, errorValue := client.GenerateStructuredResponse(context.Background(), StructuredResponseRequest{
+				StructuredOutputSchema: StructuredOutputSchema{Name: "test", Document: `{"type":"object"}`},
+			})
+			if errorValue == nil {
+				t.Fatal("expected SDKD contract error")
+			}
+			diagnostic, hasDiagnostic := StructuredOutputDiagnosticFromError(errorValue)
+			if testCase.expectedCategory == "" {
+				if hasDiagnostic {
+					t.Fatalf("expected malformed diagnostic to be ignored, got %+v", diagnostic)
+				}
+				return
+			}
+			if !hasDiagnostic || diagnostic.Category != testCase.expectedCategory || diagnostic.FinishReason != testCase.expectedFinishReason {
+				t.Fatalf("unexpected diagnostic: %+v, available=%t", diagnostic, hasDiagnostic)
+			}
+		})
+	}
+}
+
 func TestSDKDClientDoesNotFallbackOnUntrustedErrorEnvelope(t *testing.T) {
 	testCases := []struct {
 		name       string
@@ -837,7 +881,7 @@ func TestSDKDClientDoesNotFallbackOnProviderFailures(t *testing.T) {
 func TestSDKDClientFallsBackWhenBridgeIsUnavailable(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(responseWriter http.ResponseWriter, request *http.Request) {
 		responseWriter.WriteHeader(http.StatusServiceUnavailable)
-		_, _ = responseWriter.Write([]byte(`{"error":{"code":"sdkd_bridge_unavailable","allowLegacyFallback":true}}`))
+		_, _ = responseWriter.Write([]byte(`{"error":{"code":"sdkd_bridge_unavailable","allowLegacyFallback":true,"diagnostic":[]}}`))
 	}))
 	defer server.Close()
 

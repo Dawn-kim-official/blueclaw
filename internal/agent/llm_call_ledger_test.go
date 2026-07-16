@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
@@ -31,6 +33,38 @@ func TestObserveLanguageModelRecordsStructuredCalls(t *testing.T) {
 	}
 	if records[0].PromptBytes != len("hello") || records[0].ContentBytes == 0 {
 		t.Fatalf("expected byte counts, got %+v", records[0])
+	}
+}
+
+func TestObserveLanguageModelRecordsSafeSDKDDiagnosticsAndRequestSizes(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(responseWriter http.ResponseWriter, request *http.Request) {
+		responseWriter.WriteHeader(http.StatusUnprocessableEntity)
+		_, _ = responseWriter.Write([]byte(`{"error":{"code":"structured_output_invalid","allowLegacyFallback":false,"message":"PRIVATE_GENERATED_CONTENT","diagnostic":{"category":"finish_reason","finishReason":"length"}}}`))
+	}))
+	defer server.Close()
+	records := []llmCallRecord{}
+	client := llm.NewSDKDClient(llm.SDKDClientConfiguration{Endpoint: server.URL, AuthKey: "installation-key"})
+	observed := observeLanguageModel(client, func(record llmCallRecord) {
+		records = append(records, record)
+	})
+	request := llm.StructuredResponseRequest{
+		Messages:               []llm.Message{{Role: "user", Content: "hello"}},
+		StructuredOutputSchema: llm.StructuredOutputSchema{Name: "test", Document: `{"type":"object"}`},
+	}
+
+	_, errorValue := observed.GenerateStructuredResponse(context.Background(), request)
+	if errorValue == nil {
+		t.Fatal("expected SDKD structured error")
+	}
+	if len(records) != 1 {
+		t.Fatalf("expected one call record, got %+v", records)
+	}
+	record := records[0]
+	if record.DiagnosticCategory != "finish_reason" || record.DiagnosticFinishReason != "length" || record.Error != "" {
+		t.Fatalf("expected content-free diagnostic fields, got %+v", record)
+	}
+	if record.PromptBytes != len("hello") || record.SchemaBytes != len(request.StructuredOutputSchema.Document) {
+		t.Fatalf("expected prompt and schema sizes, got %+v", record)
 	}
 }
 
