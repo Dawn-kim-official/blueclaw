@@ -3,6 +3,7 @@ package agentruntime
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"os"
@@ -26,7 +27,7 @@ import (
 func TestTaskLauncherCreatesAuditedAgentRun(t *testing.T) {
 	taskEventService := task.NewTaskEventService()
 	agentKernel := agent.NewAgentKernel(task.NewTaskRunService(taskEventService), task.NewTaskStepService())
-	agentKernel.UseLanguageModelProvider(staticRuntimeLanguageModel{content: runtimeFinishMessage("done")})
+	useRuntimeTestLanguageModel(agentKernel, runtimeFinishMessage("done"))
 	pinnedMemoryStore := memory.NewMarkdownStore(t.TempDir(), 1200)
 	if _, errorValue := pinnedMemoryStore.MergePersonMemory(context.Background(), "person-1", "사용자는 발표자료 생성을 자주 요청한다."); errorValue != nil {
 		t.Fatalf("expected pinned memory setup to succeed: %v", errorValue)
@@ -75,10 +76,39 @@ func TestTaskLauncherCreatesAuditedAgentRun(t *testing.T) {
 	}
 }
 
+func TestTaskLauncherPersistsAuthoritativeRouterFailure(t *testing.T) {
+	taskEventService := task.NewTaskEventService()
+	agentKernel := agent.NewAgentKernel(task.NewTaskRunService(taskEventService), task.NewTaskStepService())
+	agentKernel.UseLanguageModelProvider(authoredRuntimeFailureLanguageModel{reply: "요청을 분류하지 못해 작업을 시작하지 못했습니다. 다시 요청해 주세요."})
+	agentKernel.UseIntakeLanguageModelProvider(failingRuntimeRouterLanguageModel{errorValue: errors.New("router unavailable")})
+	agentKernel.UseIntakeOptions(agent.IntakeOptions{IsEnabled: true})
+
+	launchResult, errorValue := NewTaskLauncher(agentKernel, NewToolCatalogBuilder()).Launch(context.Background(), TaskLaunchRequest{
+		Source:            TaskLaunchSourceAdmin,
+		RequesterPersonID: "person-1",
+		ConversationID:    "admin:person-1",
+		Prompt:            "run admin task",
+		PersonAccess:      policy.PersonAccess{PersonID: "person-1", SecurityLevelRank: 100},
+	})
+	if errorValue != nil {
+		t.Fatalf("expected persisted router failure: %v", errorValue)
+	}
+	if launchResult.TurnResult.TaskRun.Status != task.TaskStatusFailed || launchResult.TurnResult.FailureNotice.Source != "generated" {
+		t.Fatalf("expected LLM-authored failed task, got %+v", launchResult.TurnResult)
+	}
+	taskEvents := taskEventService.ListTaskEvent(launchResult.TurnResult.TaskRun.TaskRunID)
+	if llmCallEvent := findTaskEvent(taskEvents, "llm.call"); !strings.Contains(llmCallEvent.Body, `"isError":true`) {
+		t.Fatalf("expected persisted router call error, got %+v", taskEvents)
+	}
+	if !containsTaskEvent(taskEvents, "agent.task_launched") {
+		t.Fatalf("expected launch audit for failed task, got %+v", taskEvents)
+	}
+}
+
 func TestTaskLauncherAuditsPlatformMessageRegistryFingerprint(t *testing.T) {
 	taskEventService := task.NewTaskEventService()
 	agentKernel := agent.NewAgentKernel(task.NewTaskRunService(taskEventService), task.NewTaskStepService())
-	agentKernel.UseLanguageModelProvider(staticRuntimeLanguageModel{content: runtimeFinishMessage("done")})
+	useRuntimeTestLanguageModel(agentKernel, runtimeFinishMessage("done"))
 	toolCatalogBuilder := NewToolCatalogBuilder()
 	toolCatalogBuilder.UseCapabilityToolDescriptors(capability.Client{
 		Endpoint:   "http://capability.local",
@@ -127,7 +157,7 @@ func TestTaskLauncherAuditsPlatformMessageRegistryFingerprint(t *testing.T) {
 func TestTaskLauncherAuditsPlatformMessageSchemaSkewWithoutBlocking(t *testing.T) {
 	taskEventService := task.NewTaskEventService()
 	agentKernel := agent.NewAgentKernel(task.NewTaskRunService(taskEventService), task.NewTaskStepService())
-	agentKernel.UseLanguageModelProvider(staticRuntimeLanguageModel{content: runtimeFinishMessage("done")})
+	useRuntimeTestLanguageModel(agentKernel, runtimeFinishMessage("done"))
 	toolCatalogBuilder := NewToolCatalogBuilder()
 	toolCatalogBuilder.UseCapabilityToolDescriptors(capability.Client{
 		Endpoint:   "http://capability.local",
@@ -163,7 +193,7 @@ func TestTaskLauncherAuditsPlatformMessageSchemaSkewWithoutBlocking(t *testing.T
 func TestTaskLauncherRejectsStaleMessageToolRegistryBeforeModelCall(t *testing.T) {
 	taskEventService := task.NewTaskEventService()
 	agentKernel := agent.NewAgentKernel(task.NewTaskRunService(taskEventService), task.NewTaskStepService())
-	agentKernel.UseLanguageModelProvider(staticRuntimeLanguageModel{content: runtimeFinishMessage("should not run")})
+	useRuntimeTestLanguageModel(agentKernel, runtimeFinishMessage("should not run"))
 	toolCatalogBuilder := NewToolCatalogBuilder()
 	toolCatalogBuilder.UseCapabilityToolDescriptors(capability.Client{
 		Endpoint: "http://capability.local",
@@ -222,7 +252,7 @@ func TestTaskLauncherAddsStaffToRequesterAccess(t *testing.T) {
 func TestTaskLauncherProvisionsRequesterWorkspaceBeforeToolSet(t *testing.T) {
 	taskEventService := task.NewTaskEventService()
 	agentKernel := agent.NewAgentKernel(task.NewTaskRunService(taskEventService), task.NewTaskStepService())
-	agentKernel.UseLanguageModelProvider(staticRuntimeLanguageModel{content: runtimeFinishMessage("done")})
+	useRuntimeTestLanguageModel(agentKernel, runtimeFinishMessage("done"))
 	workspacePath := t.TempDir()
 	requesterHomePath := filepath.Join(workspacePath, "private", "people", "person-1")
 	provisioner := &recordingRequesterWorkspaceProvisioner{
@@ -292,7 +322,7 @@ func TestTaskLauncherProvisionsRequesterWorkspaceBeforeToolSet(t *testing.T) {
 func TestTaskLauncherAuditsPinnedMemoryFailureAndRunsWithoutMemory(t *testing.T) {
 	taskEventService := task.NewTaskEventService()
 	agentKernel := agent.NewAgentKernel(task.NewTaskRunService(taskEventService), task.NewTaskStepService())
-	agentKernel.UseLanguageModelProvider(staticRuntimeLanguageModel{content: runtimeFinishMessage("done")})
+	useRuntimeTestLanguageModel(agentKernel, runtimeFinishMessage("done"))
 	rootPath := t.TempDir()
 	if errorValue := os.WriteFile(filepath.Join(rootPath, "people"), []byte("not a directory"), 0600); errorValue != nil {
 		t.Fatalf("expected pinned memory failure setup to succeed: %v", errorValue)
@@ -914,6 +944,30 @@ type staticRuntimeLanguageModel struct {
 	content string
 }
 
+type authoredRuntimeFailureLanguageModel struct {
+	reply string
+}
+
+func (languageModel authoredRuntimeFailureLanguageModel) GenerateResponse(context.Context, string) (string, error) {
+	return languageModel.reply, nil
+}
+
+func (languageModel authoredRuntimeFailureLanguageModel) GenerateStructuredResponse(context.Context, llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
+	return llm.StructuredResponse{}, errors.New("structured response is not expected")
+}
+
+type failingRuntimeRouterLanguageModel struct {
+	errorValue error
+}
+
+func (languageModel failingRuntimeRouterLanguageModel) GenerateResponse(context.Context, string) (string, error) {
+	return "", languageModel.errorValue
+}
+
+func (languageModel failingRuntimeRouterLanguageModel) GenerateStructuredResponse(context.Context, llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
+	return llm.StructuredResponse{}, languageModel.errorValue
+}
+
 func testPlatformMessageCapabilityDescriptors() []CapabilityToolDescriptor {
 	return []CapabilityToolDescriptor{
 		{Name: "message.context", PolicyResource: "tool:message.context", InputSchema: platformMessageEmptySchema()},
@@ -957,8 +1011,22 @@ func (languageModel staticRuntimeLanguageModel) GenerateResponse(context.Context
 	return "", nil
 }
 
-func (languageModel staticRuntimeLanguageModel) GenerateStructuredResponse(context.Context, llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
+func (languageModel staticRuntimeLanguageModel) GenerateStructuredResponse(_ context.Context, request llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
+	if request.StructuredOutputSchema.Name == "blueclaw_turn_router" {
+		return llm.StructuredResponse{Content: runtimeTestTurnRouterResponse()}, nil
+	}
 	return llm.StructuredResponse{Content: languageModel.content}, nil
+}
+
+func useRuntimeTestLanguageModel(agentKernel *agent.AgentKernel, content string) {
+	languageModel := staticRuntimeLanguageModel{content: content}
+	agentKernel.UseLanguageModelProvider(languageModel)
+	agentKernel.UseIntakeLanguageModelProvider(languageModel)
+	agentKernel.UseIntakeOptions(agent.IntakeOptions{IsEnabled: true})
+}
+
+func runtimeTestTurnRouterResponse() string {
+	return `{"route":"answer_question","classification":"quick_reply","taskShape":"immediate_reply","level":"xlow","estimatedMinutes":1,"requestedOutputFormats":null,"responseLanguage":"ko","reason":"task launcher test default","userFacingReply":""}`
 }
 
 type staticHistoryProvider struct{}
