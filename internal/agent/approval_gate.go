@@ -83,7 +83,8 @@ func (agentTurnRunner *AgentTurnRunner) executeApprovedHeldCall(ctx context.Cont
 	agentTurnRunner.saveStep(taskRunID, stepID, task.TaskStatusRunning, "approval "+heldCall.ToolName, heldCall.Confirmation)
 	state.ToolCallCount++
 	observationID := nextApprovalExecutionObservationID(taskEvents)
-	observation := agentTurnRunner.invokeTool(ctx, request.ToolSet, taskRunID, observationID, heldCall.ToolName, heldCall.ToolInput, request.WorkspaceRootPath, request.TurnStartedAt, request.ResponseLanguage, "")
+	executionToolSet := toolSetWithApprovedHeldCall(request.ToolSet, heldCall.ToolName)
+	observation := agentTurnRunner.invokeTool(ctx, executionToolSet, taskRunID, observationID, heldCall.ToolName, heldCall.ToolInput, request.WorkspaceRootPath, request.TurnStartedAt, request.ResponseLanguage, "")
 	agentTurnRunner.recordToolObservation(taskRunID, state, actionDocument, successfulToolCalls, observation, "")
 	agentTurnRunner.appendEvent(taskRunID, "approval.executed", marshalEventBody(approvalExecutedCall{ToolName: heldCall.ToolName, ToolInput: copyJSONRawMessage(heldCall.ToolInput)}))
 	if pausedResult, isPaused := agentTurnRunner.pausedTaskResult(taskRunID, observation, state.Attachments); isPaused {
@@ -92,6 +93,15 @@ func (agentTurnRunner *AgentTurnRunner) executeApprovedHeldCall(ctx context.Cont
 	}
 	agentTurnRunner.saveStep(taskRunID, stepID, task.TaskStatusCompleted, "approval "+heldCall.ToolName, observation.ContentText())
 	return request, AgentTurnResult{}, false
+}
+
+func toolSetWithApprovedHeldCall(toolSet *ToolSet, toolName string) *ToolSet {
+	trimmedToolName := strings.TrimSpace(toolName)
+	if toolSet == nil || !toolSet.IsRegistered(trimmedToolName) {
+		return toolSet
+	}
+	allowedToolNames := append(toolSet.ListToolNames(), trimmedToolName)
+	return toolSet.WithAllowedToolNames(appendUniqueStrings(allowedToolNames))
 }
 
 func nextApprovalExecutionObservationID(taskEvents []task.TaskEvent) string {

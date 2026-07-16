@@ -54,7 +54,7 @@ func TestMemoryInstructionsDescribeWebSearchRecoveryBoundary(t *testing.T) {
 	}
 	prompt := instructions[0].Prompt
 	for _, expectedText := range []string{
-		"capability.invoke for public web information",
+		"selected public web tool",
 		"public, current, or external",
 		"Do not use public web lookup to replace private person memory",
 	} {
@@ -86,8 +86,8 @@ func TestMemoryInstructionsRequireRememberForDurableUpdates(t *testing.T) {
 func TestSystemInstructionAllowsWebSearchAfterMemorySearchUnavailable(t *testing.T) {
 	instruction := buildAgentSystemInstruction(AgentTurnRequest{})
 	for _, expectedText := range []string{
-		"capability.invoke tool to run the operation",
-		"capability.invoke runs every domain operation",
+		"selected direct tool",
+		"action schema contains the exact tools callable",
 	} {
 		if !strings.Contains(instruction, expectedText) {
 			t.Fatalf("expected system instruction to contain %q, got %q", expectedText, instruction)

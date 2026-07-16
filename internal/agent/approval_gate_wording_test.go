@@ -15,7 +15,7 @@ func TestHeldCallConfirmationWordingRewritesQuestionDraftThroughModel(t *testing
 	request := AgentTurnRequest{ResponseLanguage: "ko"}
 	actionDocument := turnActionDocument{
 		Message:  "테스트 웹사이트를 삭제할까요?",
-		ToolName: CapabilityInvokeToolName,
+		ToolName: "site.delete",
 	}
 
 	confirmation, errorValue := agentTurnRunner.heldCallConfirmationWording(context.Background(), request, actionDocument)
@@ -45,8 +45,8 @@ func TestHeldCallConfirmationWordingAsksModelForDeclarativeDraft(t *testing.T) {
 	}
 	actionDocument := turnActionDocument{
 		Message:   "'Local Fleet Studio' 테스트 웹사이트 삭제를 시작합니다.",
-		ToolName:  CapabilityInvokeToolName,
-		ToolInput: json.RawMessage(`{"operation":"site.delete","input":{"siteID":"site-1","slug":"local-fleet-studio"}}`),
+		ToolName:  "site.delete",
+		ToolInput: json.RawMessage(`{"siteID":"site-1","slug":"local-fleet-studio"}`),
 	}
 
 	confirmation, errorValue := agentTurnRunner.heldCallConfirmationWording(context.Background(), request, actionDocument)
@@ -75,8 +75,8 @@ func TestHeldCallConfirmationWordingUsesActionFactsAsModelInput(t *testing.T) {
 		ResponseLanguage: ResponseLanguageKorean,
 	}
 	actionDocument := turnActionDocument{
-		ToolName:  CapabilityInvokeToolName,
-		ToolInput: json.RawMessage(`{"operation":"message.send","input":{"targetType":"directMessage","personHint":"테스트","message":"오늘 오후 3시에 확인하자"}}`),
+		ToolName:  "message.send",
+		ToolInput: json.RawMessage(`{"targetType":"directMessage","personHint":"테스트","message":"오늘 오후 3시에 확인하자"}`),
 	}
 
 	confirmation, errorValue := agentTurnRunner.heldCallConfirmationWording(context.Background(), request, actionDocument)
@@ -102,8 +102,8 @@ func TestHeldCallConfirmationWordingRejectsEmptyModelQuestion(t *testing.T) {
 	agentTurnRunner := &AgentTurnRunner{languageModel: languageModel}
 	request := AgentTurnRequest{ResponseLanguage: ResponseLanguageKorean}
 	actionDocument := turnActionDocument{
-		ToolName:  CapabilityInvokeToolName,
-		ToolInput: json.RawMessage(`{"operation":"site.delete","input":{"siteID":"site-1"}}`),
+		ToolName:  "site.delete",
+		ToolInput: json.RawMessage(`{"siteID":"site-1"}`),
 	}
 
 	confirmation, errorValue := agentTurnRunner.heldCallConfirmationWording(context.Background(), request, actionDocument)

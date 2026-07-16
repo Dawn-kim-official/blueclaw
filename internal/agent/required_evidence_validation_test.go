@@ -21,29 +21,23 @@ func TestValidateRequiredEvidencePreservesInvalidEvidence(t *testing.T) {
 	}
 }
 
-func TestValidateRequiredEvidenceAcceptsHiddenCapabilityOperationThroughInvoke(t *testing.T) {
-	toolSet := NewToolSet([]string{CapabilityInvokeToolName})
-	for _, toolName := range []string{CapabilityInvokeToolName, "calendar.add"} {
-		currentToolName := toolName
-		toolSet.RegisterTool(ToolDefinition{Name: currentToolName}, func(context.Context, ToolInvocation) (ToolResult, error) {
-			return ToolSuccess("ok"), nil
-		})
-	}
+func TestValidateRequiredEvidenceAcceptsDirectTool(t *testing.T) {
+	toolSet := newTestToolSet([]string{"calendar.add"})
 
 	report := validateRequiredEvidenceTools(toolSet, []string{"calendar.add"})
 
 	if report.HasInvalidEvidence() {
-		t.Fatalf("expected hidden calendar.add to be valid capability evidence, got %+v", report)
+		t.Fatalf("expected direct calendar.add to be valid evidence, got %+v", report)
 	}
-	if report.EvidenceKinds["calendar.add"] != requiredEvidenceToolKindCapabilityOperation {
-		t.Fatalf("expected capability evidence kind, got %+v", report.EvidenceKinds)
+	if report.EvidenceKinds["calendar.add"] != requiredEvidenceToolKindNativeTool {
+		t.Fatalf("expected native evidence kind, got %+v", report.EvidenceKinds)
 	}
-	if toolSet.IsAllowed("calendar.add") {
-		t.Fatal("expected calendar.add to remain hidden from direct model calls")
+	if !toolSet.IsAllowed("calendar.add") {
+		t.Fatal("expected calendar.add to remain directly callable")
 	}
 }
 
-func TestValidateRequiredEvidenceRejectsHiddenOperationWithoutCapabilityInvoke(t *testing.T) {
+func TestValidateRequiredEvidenceRejectsUnselectedDirectTool(t *testing.T) {
 	toolSet := NewToolSet([]string{TerminalRunToolName})
 	for _, toolName := range []string{TerminalRunToolName, "calendar.add"} {
 		currentToolName := toolName
@@ -55,7 +49,7 @@ func TestValidateRequiredEvidenceRejectsHiddenOperationWithoutCapabilityInvoke(t
 	report := validateRequiredEvidenceTools(toolSet, []string{"calendar.add"})
 
 	if !report.HasInvalidEvidence() {
-		t.Fatal("expected hidden calendar.add to be invalid without capability.invoke")
+		t.Fatal("expected unselected calendar.add to be invalid")
 	}
 }
 
@@ -73,12 +67,12 @@ func TestValidateRequiredEvidenceClassifiesNativeTool(t *testing.T) {
 }
 
 func TestValidateRequiredEvidenceRejectsCapabilityInvokeAsEvidence(t *testing.T) {
-	toolSet := newTestToolSet([]string{CapabilityInvokeToolName, "calendar.add"})
+	toolSet := newTestToolSet([]string{"calendar.add"})
 
 	report := validateRequiredEvidenceTools(toolSet, []string{CapabilityInvokeToolName})
 
 	if !report.HasInvalidEvidence() {
-		t.Fatal("expected capability.invoke evidence to be invalid")
+		t.Fatal("expected internal dispatch evidence to be invalid")
 	}
 }
 

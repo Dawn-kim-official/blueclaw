@@ -242,10 +242,6 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 		request.TurnStartedAt = time.Now().Add(-2 * time.Second)
 	}
 	request.ResponseLanguage = ResolveResponseLanguage(request.ResponseLanguage, request.VisibleContext.ResponseLanguage)
-	siteNormalizationReports := []siteRequirementNormalizationReport{}
-	var activeGoalSiteReport siteRequirementNormalizationReport
-	request.ActiveGoal, activeGoalSiteReport = normalizeActiveGoalSiteRequirement(request.ActiveGoal, request.Prompt, request.IsApprovalContinuation || request.IsRuntimeRestartResume)
-	siteNormalizationReports = appendSiteRequirementNormalizationReport(siteNormalizationReports, activeGoalSiteReport)
 	baseInstructionBundle := agentKernel.currentInstructionBundle()
 	instructionBundle := baseInstructionBundle
 	turnToolSet := request.ToolSet
@@ -256,13 +252,13 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 	turnDecision, errorValue := turnRouter.Plan(responseContext, intakeRequest)
 	if errorValue != nil {
 		result := agentKernel.completeTurnRouterFailure(responseContext, intakeRequest, errorValue, routerCallLedger.records)
-		agentKernel.appendSiteRequirementNormalizationReports(result.TaskRun.TaskRunID, siteNormalizationReports)
 		return result, nil
 	}
 	intakeDecision := turnDecision.IntakeDecision()
 	intakeDecision = promoteArtifactTaskLevelForRequest(intakeRequest, intakeDecision)
-	siteNormalizationReports = appendSiteRequirementNormalizationReport(siteNormalizationReports, intakeDecision.siteNormalizationReport)
 	request.ResponseLanguage = ResolveResponseLanguage(intakeDecision.ResponseLanguage, request.ResponseLanguage)
+	request = restorePersistedToolSelection(request)
+	intakeRequest = request
 	if turnDecision.Route == TurnRouteStartTask && !request.IsApprovalContinuation {
 		if strings.TrimSpace(request.ExistingTaskRunID) == strings.TrimSpace(request.ActiveGoal.TaskRunID) {
 			request.ExistingTaskRunID = ""
@@ -283,28 +279,27 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 		instructionBundle, intakeDecision = agentKernel.selectInstructionBundleForResolvedRequest(responseContext, baseInstructionBundle, request, intakeDecision)
 		intakeDecision = applySelectedSkillCompletionRequirements(intakeDecision, instructionBundle)
 	}
+	request.PinnedSkillNames = appendUniqueStrings(request.PinnedSkillNames, selectedSkillNameList(instructionBundle.SkillDecisions)...)
+	intakeRequest.PinnedSkillNames = request.PinnedSkillNames
 	if turnDecision.Route == TurnRouteConsume {
 		result, errorValue := agentKernel.completeConsumedRequest(intakeRequest, turnDecision, routerCallLedger.records)
-		agentKernel.appendSiteRequirementNormalizationReports(result.TaskRun.TaskRunID, siteNormalizationReports)
 		return result, errorValue
 	}
 	if intakeDecision.Classification == IntakeClassificationNeedsConfirmation {
 		result, errorValue := agentKernel.completeIntakeOnlyRequest(responseContext, intakeRequest, intakeDecision, task.TaskStatusWaitingUserInput, routerCallLedger.records)
 		result.TurnRoute = turnDecision.Route
-		agentKernel.appendSiteRequirementNormalizationReports(result.TaskRun.TaskRunID, siteNormalizationReports)
 		return result, errorValue
 	}
 	if intakeDecision.Classification == IntakeClassificationUnsupported {
 		result, errorValue := agentKernel.completeIntakeOnlyRequest(responseContext, intakeRequest, intakeDecision, task.TaskStatusBlocked, routerCallLedger.records)
 		result.TurnRoute = turnDecision.Route
-		agentKernel.appendSiteRequirementNormalizationReports(result.TaskRun.TaskRunID, siteNormalizationReports)
 		return result, errorValue
 	}
 
 	requiredAttachmentSuffixes := attachmentSuffixesForRequestedOutputFormats(intakeDecision.RequestedOutputFormats)
 	evidenceHints := selectedEvidenceHintTools(instructionBundle)
 	confirmationEvidenceHints := confirmationEvidenceHintsForRequest(request, intakeDecision, evidenceHints)
-	confirmationResult, isBlocked, executionPlan, hasExecutionPlan, errorValue := agentKernel.applyConfirmationGate(responseContext, request, intakeDecision, confirmationEvidenceHints)
+	confirmationResult, isBlocked, executionPlan, hasExecutionPlan, errorValue := agentKernel.applyConfirmationGate(responseContext, request, intakeDecision, confirmationEvidenceHints, selectedSkillNameList(instructionBundle.SkillDecisions))
 	if isBlocked || errorValue != nil {
 		confirmationResult.TurnRoute = turnDecision.Route
 		return confirmationResult, errorValue
@@ -329,7 +324,6 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 		result, blockError := agentKernel.completeIntakeOnlyRequest(responseContext, intakeRequest, intakeDecision, task.TaskStatusBlocked, routerCallLedger.records)
 		result.TurnRoute = turnDecision.Route
 		agentKernel.AppendTaskEvent(result.TaskRun.TaskRunID, requiredEvidenceReaskEventName, marshalEventBody(requiredEvidenceReask))
-		agentKernel.appendSiteRequirementNormalizationReports(result.TaskRun.TaskRunID, siteNormalizationReports)
 		return result, blockError
 	}
 	requiredEvidenceTools := outcomeContract.RequiredEvidenceTools
@@ -404,7 +398,6 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 		if requiredEvidenceReask.WasAttempted {
 			agentKernel.AppendTaskEvent(result.TaskRun.TaskRunID, requiredEvidenceReaskEventName, marshalEventBody(requiredEvidenceReask))
 		}
-		agentKernel.appendSiteRequirementNormalizationReports(result.TaskRun.TaskRunID, siteNormalizationReports)
 		agentKernel.appendGoalLifecycleEvent(result.TaskRun, turnRequest.ActiveGoal)
 	}
 	return result, errorValue
@@ -458,10 +451,6 @@ func (agentKernel *AgentKernel) selectInstructionBundleForResolvedRequest(ctx co
 		selectionContract.ArtifactRequirement = ArtifactRequirementRequired
 	}
 	selectionRequest.ActiveGoal.OutcomeContract = normalizeOutcomeContract(selectionContract)
-	if requestHasExactToolContract(selectionRequest, intakeDecision) {
-		instructionBundle := instructionBundleForExactToolContract(baseInstructionBundle)
-		return instructionBundleWithPinnedSkills(instructionBundle, selectionRequest), intakeDecision
-	}
 	instructionBundle := selectInstructionBundleForRequestWithRetrieverAndRouter(
 		ctx,
 		baseInstructionBundle,
@@ -489,7 +478,7 @@ func (agentKernel *AgentKernel) completeConsumedRequest(request AgentRequest, de
 	return AgentTurnResult{TaskRun: completedTaskRun, TurnRoute: TurnRouteConsume, ReactionEmojiName: reactionEmojiName, FinishMessage: strings.TrimSpace(decision.UserFacingReply), ReplySuppressed: true, ToolNames: toolNamesForEvent(request.ToolSet)}, nil
 }
 
-func (agentKernel *AgentKernel) applyConfirmationGate(responseContext context.Context, request AgentRequest, intakeDecision IntakeDecision, evidenceHints []string) (AgentTurnResult, bool, ExecutionPlan, bool, error) {
+func (agentKernel *AgentKernel) applyConfirmationGate(responseContext context.Context, request AgentRequest, intakeDecision IntakeDecision, evidenceHints []string, selectedSkills []string) (AgentTurnResult, bool, ExecutionPlan, bool, error) {
 	if request.IsApprovalContinuation || strings.TrimSpace(request.ExistingTaskRunID) != "" {
 		return AgentTurnResult{}, false, ExecutionPlan{}, false, nil
 	}
@@ -519,6 +508,8 @@ func (agentKernel *AgentKernel) applyConfirmationGate(responseContext context.Co
 			return AgentTurnResult{}, false, ExecutionPlan{}, false, errorValue
 		}
 		waitingGoal := activeGoalFromExecutionPlan(taskRun.TaskRunID, executionPlan, ActiveGoalStatusWaitingUserInput, evidenceHints, nil)
+		waitingGoal.SelectedToolNames = appendUniqueStrings(nil, request.PinnedToolNames...)
+		waitingGoal.SelectedSkillNames = appendUniqueStrings(nil, selectedSkills...)
 		agentKernel.AppendTaskEvent(taskRun.TaskRunID, "agent.goal.created", marshalEventBody(waitingGoal))
 		agentKernel.AppendTaskEvent(taskRun.TaskRunID, "agent.goal.waiting_user_input", marshalEventBody(waitingGoal))
 		agentKernel.AppendTaskEvent(taskRun.TaskRunID, "confirmation.clarification_requested", reply)
@@ -540,6 +531,8 @@ func (agentKernel *AgentKernel) applyConfirmationGate(responseContext context.Co
 		return AgentTurnResult{}, false, ExecutionPlan{}, false, errorValue
 	}
 	approvalGoal := activeGoalFromExecutionPlan(taskRun.TaskRunID, executionPlan, ActiveGoalStatusWaitingApproval, evidenceHints, nil)
+	approvalGoal.SelectedToolNames = appendUniqueStrings(nil, request.PinnedToolNames...)
+	approvalGoal.SelectedSkillNames = appendUniqueStrings(nil, selectedSkills...)
 	agentKernel.AppendTaskEvent(taskRun.TaskRunID, "agent.goal.created", marshalEventBody(approvalGoal))
 	agentKernel.AppendTaskEvent(taskRun.TaskRunID, "agent.goal.waiting_approval", marshalEventBody(approvalGoal))
 	agentKernel.AppendTaskEvent(taskRun.TaskRunID, "confirmation.requested", marshalEventBody(map[string]string{
@@ -645,24 +638,6 @@ func (agentKernel *AgentKernel) appendGoalLifecycleEvent(taskRun task.TaskRun, a
 	agentKernel.AppendTaskEvent(taskRun.TaskRunID, activeGoalEventNameForTaskStatus(taskRun.Status), marshalEventBody(activeGoal))
 }
 
-func appendSiteRequirementNormalizationReport(reports []siteRequirementNormalizationReport, report siteRequirementNormalizationReport) []siteRequirementNormalizationReport {
-	if !report.HasDrops() {
-		return reports
-	}
-	return append(reports, report)
-}
-
-func (agentKernel *AgentKernel) appendSiteRequirementNormalizationReports(taskRunID string, reports []siteRequirementNormalizationReport) {
-	if strings.TrimSpace(taskRunID) == "" {
-		return
-	}
-	for _, report := range reports {
-		if report.HasDrops() {
-			agentKernel.AppendTaskEvent(taskRunID, siteRequirementNormalizationEventName, marshalEventBody(report))
-		}
-	}
-}
-
 func (agentKernel *AgentKernel) turnOptionsForIntakeDecision(intakeDecision IntakeDecision) TurnOptions {
 	baseOptions := normalizeTurnOptions(agentKernel.turnOptions)
 	taskLevelProfile := TaskLevelProfileForLevel(intakeDecision.TaskLevel)
@@ -756,10 +731,13 @@ func (agentKernel *AgentKernel) restoreEscalatedTaskLevelForContinuation(request
 	return intakeDecision
 }
 
+func restorePersistedToolSelection(request AgentRequest) AgentRequest {
+	request.PinnedToolNames = appendUniqueStrings(request.PinnedToolNames, request.ActiveGoal.SelectedToolNames...)
+	request.PinnedSkillNames = appendUniqueStrings(request.PinnedSkillNames, request.ActiveGoal.SelectedSkillNames...)
+	return request
+}
+
 func intakeDecisionHasSitePrototypeEvidence(request AgentRequest, intakeDecision IntakeDecision) bool {
-	if strings.TrimSpace(intakeDecision.SiteRequestEvidence) != "" {
-		return true
-	}
 	if requiredEvidenceHasPrefix(intakeDecision.RequiredEvidenceTools, "site.") {
 		return true
 	}

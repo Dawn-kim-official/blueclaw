@@ -297,7 +297,7 @@ func advanceAgentTask(state agentTaskState) agentTransition {
 			},
 		}
 	case completionActionBlockedInvalidArtifact:
-		observation := newFailureObservation(nextObservationID(len(state.Observations)+1), "policy", "", invalidCompletionArtifactObservationContent(completionState), FailureInvalidInput, FailureCodes.InvalidInput, "completion_state")
+		observation := newFailureObservation(nextObservationIDForObservations(state.Observations), "policy", "", invalidCompletionArtifactObservationContent(completionState), FailureInvalidInput, FailureCodes.InvalidInput, "completion_state")
 		observation.PolicyCode = evidenceKindAttachmentValid
 		observation.RelatedPaths = appendUniqueStrings(completionValidityPaths(completionState))
 		state.Observations = append(state.Observations, observation)
@@ -443,7 +443,7 @@ func normalizeAgentActionResponseContent(content []byte) ([]byte, error) {
 }
 
 func agentActionResponseCandidate(document map[string]json.RawMessage) (string, int) {
-	actionNames := []string{"finish", "continue", "fail", "tool.request", "set_quality_criteria"}
+	actionNames := []string{"finish", "continue", "fail", "set_quality_criteria"}
 	candidateAction := ""
 	candidateCount := 0
 	for _, actionName := range actionNames {
@@ -484,7 +484,7 @@ func normalizeAgentActionResponseScalarContent(content []byte) ([]byte, error) {
 		return nil, errorValue
 	}
 	didChange := normalizeJSONStringBooleanField(document, "goalSatisfied")
-	for _, fieldName := range []string{"completionEvidenceIDs", "qualityCriteria", "toolNames", "skillNames", "requestTools", "requestSkills"} {
+	for _, fieldName := range []string{"completionEvidenceIDs", "qualityCriteria"} {
 		if normalizeJSONStringToArrayField(document, fieldName) {
 			didChange = true
 		}
@@ -545,7 +545,7 @@ func normalizeParsedAction(actionDocument turnActionDocument) turnActionDocument
 	switch action {
 	case "continue":
 		actionDocument.Action = "continue"
-		actionDocument.ToolName = normalizedActionToolName(actionDocument.ToolName, actionDocument.ToolInput)
+		actionDocument.ToolName = strings.TrimSpace(actionDocument.ToolName)
 	case "finish":
 		actionDocument.Action = "finish"
 		actionDocument.ReplyParts = normalizeFinishReplyParts(actionDocument.ReplyParts)
@@ -553,31 +553,6 @@ func normalizeParsedAction(actionDocument turnActionDocument) turnActionDocument
 		actionDocument.Action = action
 	}
 	return actionDocument
-}
-
-func normalizedActionToolName(toolName string, toolInput json.RawMessage) string {
-	trimmedToolName := strings.TrimSpace(toolName)
-	if trimmedToolName == CapabilityInvokeToolName || !isCapabilityInvokeWrapper(toolInput) {
-		return trimmedToolName
-	}
-	return CapabilityInvokeToolName
-}
-
-func isCapabilityInvokeWrapper(toolInput json.RawMessage) bool {
-	var fields map[string]json.RawMessage
-	if json.Unmarshal(toolInput, &fields) != nil || len(fields) != 2 {
-		return false
-	}
-	var operation string
-	if json.Unmarshal(fields["operation"], &operation) != nil || strings.TrimSpace(operation) == "" {
-		return false
-	}
-	input, hasInput := fields["input"]
-	if !hasInput {
-		return false
-	}
-	var inputObject map[string]json.RawMessage
-	return json.Unmarshal(unwrapStringifiedOperationInput(input), &inputObject) == nil && inputObject != nil
 }
 
 func normalizeFinishReplyParts(parts []AgentPart) []AgentPart {
@@ -726,7 +701,7 @@ func applyToolResult(state agentTaskState, invocation ToolInvocation, result Too
 	result = normalizeToolFailureResult(invocation.ToolName, result)
 	toolInputKey := canonicalToolCallKey(invocation.ToolName, invocation.Input)
 	observation := turnObservation{
-		ObservationID:   nextObservationID(len(state.Observations) + 1),
+		ObservationID:   nextObservationIDForObservations(state.Observations),
 		Action:          "continue",
 		Tool:            strings.TrimSpace(invocation.ToolName),
 		Output:          result.Output,

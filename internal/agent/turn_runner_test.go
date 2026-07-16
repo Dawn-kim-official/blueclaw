@@ -44,12 +44,12 @@ func TestFinishActionMessagePrefersReplyPartBody(t *testing.T) {
 }
 
 func TestAgentTurnRunnerCallsToolsUntilFinishMessage(t *testing.T) {
-	languageModel := &sequenceLanguageModel{contents: []string{
+	languageModel := &sequenceLanguageModel{modelTier: "low", contents: []string{
 		`{"action":"continue","toolName":"alpha","toolInput":{"value":"one"}}`,
 		`{"action":"continue","toolName":"beta","toolInput":{"value":"two"}}`,
 		finishMessageDocument("done"),
 	}}
-	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 5})
+	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 5, TaskLevel: TaskLevelHigh})
 	toolRegistry := newTestToolSet([]string{"alpha", "beta"})
 	toolRegistry.RegisterTool(ToolDefinition{Name: "alpha"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		return ToolSuccess("alpha result"), nil
@@ -88,6 +88,18 @@ func TestAgentTurnRunnerCallsToolsUntilFinishMessage(t *testing.T) {
 	}
 	if llmCallEventCount != 3 {
 		t.Fatalf("expected three llm.call ledger events, got %d", llmCallEventCount)
+	}
+	for _, taskEvent := range services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID) {
+		if taskEvent.Name != "llm.call" {
+			continue
+		}
+		var record llmCallRecord
+		if errorValue := json.Unmarshal([]byte(taskEvent.Body), &record); errorValue != nil {
+			t.Fatalf("expected llm.call ledger body: %v", errorValue)
+		}
+		if record.ModelTier != "low" {
+			t.Fatalf("expected response tier to remain low instead of requested high, got %+v", record)
+		}
 	}
 	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "llm.call", "blueclaw_agent_turn_action") {
 		t.Fatal("expected llm.call event with action schema name")
@@ -164,7 +176,7 @@ func TestAgentTurnRunnerFailsWhenAttemptStartFails(t *testing.T) {
 
 func TestAgentTurnRunnerSendsCheckpointAndStillRunsTool(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"continue","message":"작업 중입니다.","toolName":"capability.invoke","toolInput":{"operation":"alpha","input":{"value":"one"}}}`,
+		`{"action":"continue","message":"작업 중입니다.","toolName":"alpha","toolInput":{"value":"one"}}`,
 		finishMessageDocument("done"),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 4})
@@ -196,17 +208,17 @@ func TestAgentTurnRunnerSendsCheckpointAndStillRunsTool(t *testing.T) {
 	if result.FinishMessage != "done" {
 		t.Fatalf("expected final reply, got %q", result.FinishMessage)
 	}
-	if len(checkpoints) != 1 || checkpoints[0].Message != "작업 중입니다." || checkpoints[0].ToolName != CapabilityInvokeToolName {
+	if len(checkpoints) != 1 || checkpoints[0].Message != "작업 중입니다." || checkpoints[0].ToolName != "alpha" {
 		t.Fatalf("expected checkpoint before tool, got %+v", checkpoints)
 	}
-	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.checkpoint.sent", CapabilityInvokeToolName) {
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.checkpoint.sent", "alpha") {
 		t.Fatal("expected checkpoint sent event")
 	}
 }
 
 func TestAgentTurnRunnerUsesPostEvidenceWordingAfterCheckpoint(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		capabilityInvokeAction("continue", "추가할게요.", "task.add", `{"title":"고객지원 분기 결산","dueDate":"2026-07-17"}`),
+		directToolAction("continue", "추가할게요.", "task.add", `{"title":"고객지원 분기 결산","dueDate":"2026-07-17"}`),
 		`{"action":"finish","message":"고객지원 분기 결산 업무를 7월 17일 마감으로 등록했습니다.","completionSummary":"고객지원 분기 결산 업무 등록 완료","replyParts":[{"type":"text","text":"고객지원 분기 결산 업무를 7월 17일 마감으로 등록했습니다."}],"goalStatus":"satisfied","goalSatisfied":true,"completionEvidence":[{"observationID":"obs-002","toolName":"task.add"}],"qualityReview":[]}`,
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 4})
@@ -248,7 +260,7 @@ func TestAgentTurnRunnerUsesPostEvidenceWordingAfterCheckpoint(t *testing.T) {
 
 func TestAgentTurnRunnerSuppressesCheckpointForSimpleTask(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"continue","message":"일정을 확인하겠습니다.","toolName":"capability.invoke","toolInput":{"operation":"alpha","input":{"value":"one"}}}`,
+		`{"action":"continue","message":"일정을 확인하겠습니다.","toolName":"alpha","toolInput":{"value":"one"}}`,
 		finishMessageDocument("등록했습니다."),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 4})
@@ -292,7 +304,7 @@ func TestAgentTurnRunnerSuppressesCheckpointForSimpleTask(t *testing.T) {
 
 func TestAgentTurnRunnerRunsToolWhenCheckpointFails(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"continue","message":"작업 중입니다.","toolName":"capability.invoke","toolInput":{"operation":"alpha","input":{"value":"one"}}}`,
+		`{"action":"continue","message":"작업 중입니다.","toolName":"alpha","toolInput":{"value":"one"}}`,
 		finishMessageDocument("done"),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 4})
@@ -326,8 +338,8 @@ func TestAgentTurnRunnerRunsToolWhenCheckpointFails(t *testing.T) {
 
 func TestAgentTurnRunnerDoesNotSendCheckpointForRejectedToolCall(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"continue","message":"첫 작업입니다.","toolName":"capability.invoke","toolInput":{"operation":"schedule.create","input":{"value":"one"}}}`,
-		`{"action":"continue","message":"다시 실행합니다.","toolName":"capability.invoke","toolInput":{"operation":"schedule.create","input":{"value":"one"}}}`,
+		`{"action":"continue","message":"첫 작업입니다.","toolName":"schedule.create","toolInput":{"value":"one"}}`,
+		`{"action":"continue","message":"다시 실행합니다.","toolName":"schedule.create","toolInput":{"value":"one"}}`,
 		finishMessageDocument("done"),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 5})
@@ -357,7 +369,7 @@ func TestAgentTurnRunnerDoesNotSendCheckpointForRejectedToolCall(t *testing.T) {
 	if len(checkpoints) != 1 || checkpoints[0].Message != "첫 작업입니다." {
 		t.Fatalf("expected only accepted tool call checkpoint, got %+v", checkpoints)
 	}
-	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.duplicate_tool_call_rejected", CapabilityInvokeToolName) {
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.duplicate_tool_call_rejected", "schedule.create") {
 		t.Fatal("expected duplicate rejection event")
 	}
 }
@@ -379,220 +391,6 @@ func TestAgentTurnRunnerInjectsInstructionPrompt(t *testing.T) {
 	}
 	if !messagesContain(languageModel.requests[0].Messages, "Use agent-browser for web automation.") {
 		t.Fatal("expected instruction prompt to be injected")
-	}
-}
-
-func TestAgentTurnRunnerSelectToolsPinsHiddenTool(t *testing.T) {
-	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"tool.request","toolNames":["site.create"],"skillNames":[],"reason":"need site creation"}`,
-		capabilityInvokeAction("continue", "", "site.create", `{"slug":"demo"}`),
-		finishMessageWithEvidence("created", "obs-002", "site.create", 0),
-	}}
-	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
-	toolRegistry := NewToolSet([]string{"skill.search"})
-	toolRegistry.RegisterTool(ToolDefinition{Name: "skill.search"}, func(context.Context, ToolInvocation) (ToolResult, error) {
-		return ToolSuccess(`{"skills":[]}`), nil
-	})
-	siteCreateCallCount := 0
-	toolRegistry.RegisterTool(ToolDefinition{
-		Name:        "site.create",
-		InputSchema: json.RawMessage(`{"type":"object","properties":{"slug":{"type":"string"}},"required":["slug"],"additionalProperties":false}`),
-	}, func(context.Context, ToolInvocation) (ToolResult, error) {
-		siteCreateCallCount++
-		return ToolResult{Output: ToolOutput{Content: `{"siteID":"site-1"}`}, Attachments: []FileAttachment{{DevicePath: "site://site-1", Filename: "site.json"}}}, nil
-	})
-	registerCapabilityInvokeVerb(toolRegistry)
-
-	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
-		RequesterPersonID: "person-1",
-		ConversationID:    "conversation-1",
-		Prompt:            "create website",
-		ToolSet:           toolRegistry,
-		PinnedToolNames:   toolRegistry.ListToolNames(),
-	})
-	if errorValue != nil {
-		t.Fatalf("expected turn to succeed: %v", errorValue)
-	}
-	if siteCreateCallCount != 1 {
-		t.Fatalf("expected site.create to be invoked once, got %d", siteCreateCallCount)
-	}
-	if result.FinishMessage != "created" {
-		t.Fatalf("expected final reply, got %q", result.FinishMessage)
-	}
-	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.tool_palette.applied", "site.create") {
-		t.Fatal("expected tool palette apply event")
-	}
-}
-
-func TestAgentTurnRunnerSelectToolsRequiresExactRegisteredName(t *testing.T) {
-	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"tool.request","toolNames":["image.analyze"],"skillNames":[],"reason":"need image analysis"}`,
-		`{"action":"tool.request","toolNames":["image.read"],"skillNames":[],"reason":"use the matching registered image tool"}`,
-		`{"action":"continue","toolName":"image.read","toolInput":{"materialID":"mattermost:file-1"}}`,
-		finishMessageWithEvidence("image described", "obs-003", "image.read", 0),
-	}}
-	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 6})
-	toolRegistry := NewToolSet([]string{"skill.search"})
-	toolRegistry.RegisterTool(ToolDefinition{Name: "skill.search"}, func(context.Context, ToolInvocation) (ToolResult, error) {
-		return ToolSuccess(`{"skills":[]}`), nil
-	})
-	imageReadCallCount := 0
-	toolRegistry.RegisterTool(ToolDefinition{
-		Name:        "image.read",
-		Description: "Read and analyze an image attachment by materialID.",
-		InputSchema: json.RawMessage(`{"type":"object","properties":{"materialID":{"type":"string"}},"required":["materialID"]}`),
-	}, func(context.Context, ToolInvocation) (ToolResult, error) {
-		imageReadCallCount++
-		return ToolSuccess(`{"description":"mascot image"}`), nil
-	})
-
-	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
-		RequesterPersonID: "person-1",
-		ConversationID:    "conversation-1",
-		Prompt:            "다시 이미지 봐봐",
-		ToolSet:           toolRegistry,
-		PinnedToolNames:   toolRegistry.ListToolNames(),
-	})
-	if errorValue != nil {
-		t.Fatalf("expected turn to succeed: %v", errorValue)
-	}
-	if imageReadCallCount != 1 {
-		t.Fatalf("expected image.read to be invoked once, got %d", imageReadCallCount)
-	}
-	events := services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID)
-	if !taskEventsContain(events, "agent.tool_palette.failed", "image.analyze") {
-		t.Fatal("expected unknown tool request to fail without semantic substitution")
-	}
-	if !taskEventsContain(events, "agent.tool_palette.applied", "image.read") {
-		t.Fatal("expected exact image.read request to apply")
-	}
-}
-
-func TestAgentTurnRunnerSelectToolsPinsSkillInstructionsAndExplicitTools(t *testing.T) {
-	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"tool.request","toolNames":["site.create"],"skillNames":["site-prototype"],"reason":"need site workflow"}`,
-		capabilityInvokeAction("continue", "", "site.create", `{"slug":"demo"}`),
-		finishMessageWithEvidence("created", "obs-002", "site.create", 0),
-	}}
-	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
-	toolRegistry := NewToolSet([]string{"skill.search"})
-	toolRegistry.RegisterTool(ToolDefinition{Name: "skill.search"}, func(context.Context, ToolInvocation) (ToolResult, error) {
-		return ToolSuccess(`{"skills":[]}`), nil
-	})
-	toolRegistry.RegisterTool(ToolDefinition{Name: "site.create"}, func(context.Context, ToolInvocation) (ToolResult, error) {
-		return ToolResult{Output: ToolOutput{Content: `{"siteID":"site-1"}`}, Attachments: []FileAttachment{{DevicePath: "site://site-1", Filename: "site.json"}}}, nil
-	})
-	registerCapabilityInvokeVerb(toolRegistry)
-
-	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
-		RequesterPersonID: "person-1",
-		ConversationID:    "conversation-1",
-		Prompt:            "make site",
-		ToolSet:           toolRegistry,
-		PinnedToolNames:   toolRegistry.ListToolNames(),
-		AvailableSkills: []SkillInstruction{{
-			Name:         "site-prototype",
-			Prompt:       "SITE WORKFLOW BODY",
-			AllowedTools: []string{"site.create"},
-		}},
-	})
-	if errorValue != nil {
-		t.Fatalf("expected turn to succeed: %v", errorValue)
-	}
-	if result.FinishMessage != "created" {
-		t.Fatalf("expected final reply, got %q events=%+v userNotice=%q status=%s", result.FinishMessage, services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), result.UserNotice, result.TaskRun.Status)
-	}
-	if len(languageModel.requests) < 2 || !strings.Contains(joinMessageContent(languageModel.requests[1].Messages), "SITE WORKFLOW BODY") {
-		t.Fatalf("expected pinned skill instructions in next model request")
-	}
-}
-
-func TestAgentTurnRunnerSteersRepeatedSelectToolsTowardConcreteToolUse(t *testing.T) {
-	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"tool.request","toolNames":["site.create"],"skillNames":[],"reason":"need site creation"}`,
-		`{"action":"tool.request","toolNames":["site.create"],"skillNames":[],"reason":"still need site creation"}`,
-		`{"action":"tool.request","toolNames":["site.create"],"skillNames":[],"reason":"still selecting"}`,
-		capabilityInvokeAction("continue", "", "site.create", `{"slug":"demo"}`),
-		finishMessageWithEvidence("created", "obs-005", "site.create", 0),
-	}}
-	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 10})
-	toolRegistry := NewToolSet([]string{"skill.search"})
-	toolRegistry.RegisterTool(ToolDefinition{Name: "skill.search"}, func(context.Context, ToolInvocation) (ToolResult, error) {
-		return ToolSuccess(`{"skills":[]}`), nil
-	})
-	toolRegistry.RegisterTool(ToolDefinition{Name: "site.create"}, func(context.Context, ToolInvocation) (ToolResult, error) {
-		return ToolSuccess(`{"siteID":"site-1"}`), nil
-	})
-	registerCapabilityInvokeVerb(toolRegistry)
-
-	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
-		RequesterPersonID: "person-1",
-		ConversationID:    "conversation-1",
-		Prompt:            "create website",
-		ToolSet:           toolRegistry,
-		PinnedToolNames:   toolRegistry.ListToolNames(),
-	})
-	if errorValue != nil {
-		t.Fatalf("expected turn to recover cleanly: %v", errorValue)
-	}
-	if result.TaskRun.Status != task.TaskStatusCompleted {
-		t.Fatalf("expected completed task, got %s", result.TaskRun.Status)
-	}
-	if countStructuredRequestsByName(languageModel.requests, "blueclaw_agent_turn_action") != 5 {
-		t.Fatalf("expected request_tools loop to receive one steering turn, got %+v", structuredRequestNames(languageModel.requests))
-	}
-	taskEvents := services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID)
-	if !taskEventsContain(taskEvents, "agent.stall_exit_directive", "Take one of two exits now") {
-		t.Fatalf("expected stall exit directive before concrete tool use, got %+v", taskEvents)
-	}
-	if taskEventsContain(taskEvents, "agent.no_progress_loop_stopped", "") {
-		t.Fatalf("expected no no-progress block after concrete tool use, got %+v", taskEvents)
-	}
-	if taskEventsContain(taskEvents, "max_iterations", "") {
-		t.Fatal("expected request_tools loop breaker before max_iterations")
-	}
-}
-
-func TestAgentTurnRunnerSelectToolsWithExhaustedFailureDebtRunsTerminalNoTools(t *testing.T) {
-	languageModel := &sequenceLanguageModel{contents: []string{
-		capabilityInvokeAction("continue", "", "math.calculate", `{"expression":"1+2/4"}`),
-		`{"action":"tool.request","toolNames":["site.create"],"skillNames":[],"reason":"try another tool"}`,
-		`{"action":"tool.request","toolNames":["site.create"],"skillNames":[],"reason":"still trying"}`,
-		`{"action":"tool.request","toolNames":["site.create"],"skillNames":[],"reason":"still selecting"}`,
-		`{"action":"tool.request","toolNames":["site.create"],"skillNames":[],"reason":"terminal fallback should run after this"}`,
-		noToolFallbackFinishMessageDocument("I can answer from the failure context."),
-	}}
-	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 10, RecoveryBudget: terminalNoToolRecoveryBudgetForTest()})
-	toolRegistry := NewToolSet([]string{"math.calculate", "skill.search"})
-	toolRegistry.RegisterTool(ToolDefinition{Name: "skill.search"}, func(context.Context, ToolInvocation) (ToolResult, error) {
-		return ToolSuccess(`{"skills":[]}`), nil
-	})
-	toolRegistry.RegisterTool(ToolDefinition{Name: "site.create"}, func(context.Context, ToolInvocation) (ToolResult, error) {
-		return ToolSuccess(`{"siteID":"site-1"}`), nil
-	})
-	toolRegistry.RegisterTool(ToolDefinition{Name: "math.calculate"}, func(context.Context, ToolInvocation) (ToolResult, error) {
-		return structuredFailureToolResult("exec: \"bc\": executable file not found in $PATH", "bc: command not found", "calculator_failed", "bc_execution", false, false), nil
-	})
-	registerCapabilityInvokeVerb(toolRegistry)
-
-	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
-		RequesterPersonID: "person-1",
-		ConversationID:    "conversation-1",
-		Prompt:            "calculate it",
-		ToolSet:           toolRegistry,
-		PinnedToolNames:   toolRegistry.ListToolNames(),
-	})
-	if errorValue != nil {
-		t.Fatalf("expected terminal no-tools result: %v", errorValue)
-	}
-	if result.FinishMessage != "I can answer from the failure context." {
-		t.Fatalf("expected terminal no-tools finish, got %q", result.FinishMessage)
-	}
-	if countStructuredRequestsByName(languageModel.requests, "blueclaw_agent_terminal_no_tools_action") != 1 {
-		t.Fatalf("expected one terminal no-tools request, got %+v", structuredRequestNames(languageModel.requests))
-	}
-	if taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "max_iterations", "") {
-		t.Fatal("expected terminal no-tools route before max_iterations")
 	}
 }
 
@@ -752,8 +550,8 @@ func TestActionSchemaHidesFailWhileRecoveryBudgetRemains(t *testing.T) {
 
 func TestAgentTurnRunnerBudgetExhaustedContinueTriggersSingleTerminalNoToolsCall(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		capabilityInvokeAction("continue", "", "math.calculate", `{"expression":"1+2/4"}`),
-		capabilityInvokeAction("continue", "", "math.calculate", `{"expression":"2+2"}`),
+		directToolAction("continue", "", "math.calculate", `{"expression":"1+2/4"}`),
+		directToolAction("continue", "", "math.calculate", `{"expression":"2+2"}`),
 		noToolFallbackFinishMessageDocument("I can still answer from the available context."),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 6, RecoveryBudget: terminalNoToolRecoveryBudgetForTest()})
@@ -822,8 +620,8 @@ func TestAgentTurnRunnerTerminalNoToolsAcceptsNoToolFallbackFinish(t *testing.T)
 
 func TestAgentTurnRunnerTerminalNoToolsAcceptsFailureReportFail(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		capabilityInvokeAction("continue", "", "math.calculate", `{"expression":"1+2/4"}`),
-		capabilityInvokeAction("continue", "", "math.calculate", `{"expression":"2+2"}`),
+		directToolAction("continue", "", "math.calculate", `{"expression":"1+2/4"}`),
+		directToolAction("continue", "", "math.calculate", `{"expression":"2+2"}`),
 		failureReportDocument("Calculator execution is blocked because bc_execution returned operation_failed.", "math.calculate", "1+2/4", FailureCodes.OperationFailed.String(), "bc_execution", "bc: command not found"),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 6, RecoveryBudget: terminalNoToolRecoveryBudgetForTest()})
@@ -856,9 +654,9 @@ func TestAgentTurnRunnerTerminalNoToolsAcceptsFailureReportFail(t *testing.T) {
 
 func TestAgentTurnRunnerTerminalNoToolsRepairsInvalidOutputWithoutReopeningTools(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		capabilityInvokeAction("continue", "", "math.calculate", `{"expression":"1+2/4"}`),
-		capabilityInvokeAction("continue", "", "math.calculate", `{"expression":"2+2"}`),
-		capabilityInvokeAction("continue", "", "math.calculate", `{"expression":"3+3"}`),
+		directToolAction("continue", "", "math.calculate", `{"expression":"1+2/4"}`),
+		directToolAction("continue", "", "math.calculate", `{"expression":"2+2"}`),
+		directToolAction("continue", "", "math.calculate", `{"expression":"3+3"}`),
 		noToolFallbackFinishMessageDocument("I repaired the terminal answer without another tool."),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 6, RecoveryBudget: terminalNoToolRecoveryBudgetForTest()})
@@ -896,7 +694,7 @@ func TestAgentTurnRunnerTerminalNoToolsRepairsInvalidOutputWithoutReopeningTools
 
 func TestAgentTurnRunnerCompletesBrowserOpenWithPostEvidenceReply(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		capabilityInvokeAction("continue", "브라우저를 열었습니다. 완료했습니다.", "browser.open", `{"url":"https://www.google.com"}`),
+		directToolAction("continue", "브라우저를 열었습니다. 완료했습니다.", "browser.open", `{"url":"https://www.google.com"}`),
 		`{"action":"finish","message":"구글 홈페이지를 브라우저에서 열었습니다.","completionSummary":"구글 홈페이지 열기 완료","replyParts":[{"type":"text","text":"구글 홈페이지를 브라우저에서 열었습니다."}],"goalStatus":"satisfied","goalSatisfied":true,"completionEvidence":[{"observationID":"obs-001","toolName":"browser.open"}],"qualityReview":[]}`,
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
@@ -929,7 +727,7 @@ func TestAgentTurnRunnerCompletesBrowserOpenWithPostEvidenceReply(t *testing.T) 
 func TestAgentTurnRunnerRejectsBrowserFollowUpReplyWithoutToolEvidence(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		finishMessageDocument("말로만 답변"),
-		capabilityInvokeAction("continue", "", "browser.open", `{"url":"https://console.cloud.google.com/"}`),
+		directToolAction("continue", "", "browser.open", `{"url":"https://console.cloud.google.com/"}`),
 		finishMessageWithEvidence("열었습니다", "obs-002", "browser.open", 0),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
@@ -1044,11 +842,11 @@ func isClosedQualityReviewSchema(document map[string]any) bool {
 
 func TestAgentTurnRunnerSiteLoopBuildsReviewsPublishesBeforeFinish(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"continue","toolName":"capability.invoke","toolInput":{"operation":"site.create","input":{"slug":"portfolio","title":"Portfolio"}},"nextStepPlan":{"objective":"build the created site","expectedTools":["site.build","artifact.review"],"doneCriteria":["site build succeeds"],"risk":"draft may be incomplete","workingSetReason":"creation must lead into build and review"}}`,
-		`{"action":"continue","toolName":"capability.invoke","toolInput":{"operation":"site.build","input":{"siteID":"site-1"}},"nextStepPlan":{"objective":"review the built artifact","expectedTools":["artifact.review","site.publish"],"doneCriteria":["review passes"],"risk":"visual issues may block publish","workingSetReason":"build output needs review before publish"}}`,
-		`{"action":"continue","toolName":"capability.invoke","toolInput":{"operation":"artifact.review","input":{"path":"home/sites/site-1/app/dist/index.html"}},"nextStepPlan":{"objective":"publish reviewed site","expectedTools":["site.publish","site.status"],"doneCriteria":["publish succeeds"],"risk":"publish may reject stale build","workingSetReason":"review evidence allows publish"}}`,
-		`{"action":"continue","toolName":"capability.invoke","toolInput":{"operation":"site.publish","input":{"siteID":"site-1","message":"Publish portfolio"}},"nextStepPlan":{"objective":"confirm final status","expectedTools":["site.status"],"doneCriteria":["status shows published URL"],"risk":"status may not reflect latest version","workingSetReason":"final status is required evidence"}}`,
-		`{"action":"continue","toolName":"capability.invoke","toolInput":{"operation":"site.status","input":{"siteID":"site-1"}},"nextStepPlan":{"objective":"finish with status evidence","expectedTools":[],"doneCriteria":["finish with published URL"],"risk":"none","workingSetReason":"all required evidence has been collected"}}`,
+		`{"action":"continue","toolName":"site.create","toolInput":{"slug":"portfolio","title":"Portfolio"},"nextStepPlan":{"objective":"build the created site","expectedTools":["site.build","artifact.review"],"doneCriteria":["site build succeeds"],"risk":"draft may be incomplete","workingSetReason":"creation must lead into build and review"}}`,
+		`{"action":"continue","toolName":"site.build","toolInput":{"siteID":"site-1"},"nextStepPlan":{"objective":"review the built artifact","expectedTools":["artifact.review","site.publish"],"doneCriteria":["review passes"],"risk":"visual issues may block publish","workingSetReason":"build output needs review before publish"}}`,
+		`{"action":"continue","toolName":"artifact.review","toolInput":{"path":"home/sites/site-1/app/dist/index.html"},"nextStepPlan":{"objective":"publish reviewed site","expectedTools":["site.publish","site.status"],"doneCriteria":["publish succeeds"],"risk":"publish may reject stale build","workingSetReason":"review evidence allows publish"}}`,
+		`{"action":"continue","toolName":"site.publish","toolInput":{"siteID":"site-1","message":"Publish portfolio"},"nextStepPlan":{"objective":"confirm final status","expectedTools":["site.status"],"doneCriteria":["status shows published URL"],"risk":"status may not reflect latest version","workingSetReason":"final status is required evidence"}}`,
+		`{"action":"continue","toolName":"site.status","toolInput":{"siteID":"site-1"},"nextStepPlan":{"objective":"finish with status evidence","expectedTools":[],"doneCriteria":["finish with published URL"],"risk":"none","workingSetReason":"all required evidence has been collected"}}`,
 		`{"action":"finish","message":"같은 URL에 배포했습니다: https://portfolio.example","replyParts":[{"type":"text","text":"같은 URL에 배포했습니다: https://portfolio.example"}],"goalStatus":"satisfied","goalSatisfied":true,"completionEvidence":[{"observationID":"obs-002","toolName":"site.build"},{"observationID":"obs-003","toolName":"artifact.review"},{"observationID":"obs-004","toolName":"site.publish"},{"observationID":"obs-005","toolName":"site.status"}]}`,
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 8, MaxToolCallCount: 8})
@@ -1160,9 +958,9 @@ func TestAgentTurnRunnerSiteWorkingSetKeepsCreationRouteWithRequiredEvidence(t *
 func TestAgentTurnRunnerReselectsToolsAfterRejectedSiteFinish(t *testing.T) {
 	languageModel := &sequenceLanguageModel{
 		contents: []string{
-			`{"action":"continue","toolName":"capability.invoke","toolInput":{"operation":"site.create","input":{"slug":"portfolio","title":"Portfolio"}},"nextStepPlan":{"objective":"build the draft before finishing","expectedTools":["site.build"],"doneCriteria":["build evidence exists"],"risk":"draft creation alone is not completion","workingSetReason":"site.build is required evidence"}}`,
+			`{"action":"continue","toolName":"site.create","toolInput":{"slug":"portfolio","title":"Portfolio"},"nextStepPlan":{"objective":"build the draft before finishing","expectedTools":["site.build"],"doneCriteria":["build evidence exists"],"risk":"draft creation alone is not completion","workingSetReason":"site.build is required evidence"}}`,
 			`{"action":"finish","message":"초안이 만들어졌습니다.","replyParts":[{"type":"text","text":"초안이 만들어졌습니다."}],"goalStatus":"satisfied","goalSatisfied":true,"completionEvidence":[{"observationID":"obs-001","toolName":"site.create"}]}`,
-			`{"action":"continue","toolName":"capability.invoke","toolInput":{"operation":"site.build","input":{"siteID":"site-1"}},"nextStepPlan":{"objective":"finish after build evidence","expectedTools":[],"doneCriteria":["build observation exists"],"risk":"none","workingSetReason":"required evidence has been collected"}}`,
+			`{"action":"continue","toolName":"site.build","toolInput":{"siteID":"site-1"},"nextStepPlan":{"objective":"finish after build evidence","expectedTools":[],"doneCriteria":["build observation exists"],"risk":"none","workingSetReason":"required evidence has been collected"}}`,
 			finishMessageWithEvidence("빌드까지 완료했습니다.", "obs-003", "site.build", 0),
 		},
 	}
@@ -1204,8 +1002,8 @@ func TestAgentTurnRunnerReselectsToolsAfterRejectedSiteFinish(t *testing.T) {
 	if !taskEventsContain(events, "agent.completion_required", "site.build") {
 		t.Fatal("expected early finish to be rejected by completion gate")
 	}
-	if !taskEventsContain(events, "agent.tool_palette.built", "deterministic") {
-		t.Fatal("expected deterministic per-iteration tool exposure without selector LLM calls")
+	if !taskEventsContain(events, "agent.step_working_set", "selected_skills") {
+		t.Fatal("expected selected direct tools in the per-iteration working set")
 	}
 }
 
@@ -1219,7 +1017,7 @@ func TestAgentTurnRunnerRejectsFailAfterSiteSourceWriteBeforeBuildPublish(t *tes
 			`{"action":"continue","toolName":"file.write","toolInput":{"path":"/workspace/sites/site-1/draft/app/src/App.tsx","content":"export default function App(){return <main>Pretty</main>}"}}`,
 			`{"action":"fail","reason":"cannot continue","goalStatus":"blocked","goalSatisfied":false,"remainingWork":"build and publish still needed"}`,
 			`{"action":"continue","toolName":"terminal.run","toolInput":{"command":"npm run build","workingDirectoryPath":"/workspace/sites/site-1/draft/app"}}`,
-			capabilityInvokeAction("continue", "", "site.publish", `{"siteID":"site-1"}`),
+			directToolAction("continue", "", "site.publish", `{"siteID":"site-1"}`),
 			finishMessageWithEvidence("배포했습니다: https://pretty.example", "obs-004", "site.publish", 0),
 		},
 	}
@@ -1300,17 +1098,11 @@ func TestSlidesRequestWithCalendarContentDoesNotPinCalendarTools(t *testing.T) {
 	}
 }
 
-// capability.invoke-wrapped operations (calendar.delete here) are gated by
-// capabilityd's own approval_required response (the B-post path exercised by
-// TestAgentTurnRunnerApprovalRequiredPausesAndExecutesHeldCall), not by this
-// runtime's native pre-invoke gate — see commit 8f418da ("single source of
-// truth — capabilityd enforces, blueclaw B-post handles") and 588c74b, which
-// scoped nativeToolRequiresRuntimeApproval to native/kernel tools only
-// (e.g. file.delete) specifically to avoid double-gating capability ops.
-func TestAgentTurnRunnerDoesNotPauseBeforeRequiresApprovalToolInvoke(t *testing.T) {
+func TestAgentTurnRunnerPausesBeforeRequiresApprovalDirectTool(t *testing.T) {
 	heldInput := `{"eventID":"event-1"}`
 	languageModel := &sequenceLanguageModel{contents: []string{
-		capabilityInvokeAction("continue", "", "calendar.delete", heldInput),
+		directToolAction("continue", "", "calendar.delete", heldInput),
+		`{"question":"이 일정을 삭제할까요?"}`,
 		`{"action":"finish","message":"일정을 삭제했습니다.","replyParts":[{"type":"text","text":"일정을 삭제했습니다."}],"goalStatus":"satisfied","goalSatisfied":true,"completionEvidence":[{"observationID":"obs-001","toolName":"calendar.delete"}],"qualityReview":[]}`,
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 4})
@@ -1333,28 +1125,22 @@ func TestAgentTurnRunnerDoesNotPauseBeforeRequiresApprovalToolInvoke(t *testing.
 	if errorValue != nil {
 		t.Fatalf("expected turn to complete: %v", errorValue)
 	}
-	if result.TaskRun.Status != task.TaskStatusCompleted {
-		t.Fatalf("expected completed task, got %s events=%+v", result.TaskRun.Status, services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID))
+	if result.TaskRun.Status != task.TaskStatusWaitingApproval {
+		t.Fatalf("expected waiting approval task, got %s events=%+v", result.TaskRun.Status, services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID))
 	}
-	if len(invokedInputs) != 1 || invokedInputs[0] != heldInput {
-		t.Fatalf("expected tool to be invoked once with original input, got %+v", invokedInputs)
+	if len(invokedInputs) != 0 {
+		t.Fatalf("expected direct tool execution to wait for approval, got %+v", invokedInputs)
 	}
 	events := services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID)
-	if taskEventsContain(events, "approval.pending_call", "") {
-		t.Fatalf("capability.invoke operations should not create a native pre-approval hold, events=%+v", events)
-	}
-	if !taskEventsContain(events, "tool."+CapabilityInvokeToolName+".requested", heldInput) {
-		t.Fatalf("expected tool request event, events=%+v", events)
-	}
-	if !taskEventsContain(events, "tool."+CapabilityInvokeToolName+".result", "deleted") {
-		t.Fatalf("expected tool result event, events=%+v", events)
+	if !taskEventsContain(events, "approval.pending_call", heldInput) {
+		t.Fatalf("expected direct tool approval hold, events=%+v", events)
 	}
 }
 
 func TestAgentTurnRunnerApprovalRequiredPausesAndExecutesHeldCall(t *testing.T) {
 	heldInput := `{"targetType":"directMessage","personHint":"테스트","message":"오늘 오후 3시에 확인하자"}`
 	languageModel := &sequenceLanguageModel{contents: []string{
-		capabilityInvokeAction("continue", "", "message.send", heldInput),
+		directToolAction("continue", "", "message.send", heldInput),
 		`{"question":"테스트에게 다음 내용을 보낼까요?\n\n오늘 오후 3시에 확인하자"}`,
 		`{"action":"finish","message":"테스트이에게 DM을 보냈습니다.","replyParts":[{"type":"text","text":"테스트이에게 DM을 보냈습니다."}],"goalStatus":"satisfied","goalSatisfied":true,"completionEvidence":[{"observationID":"obs-002","toolName":"message.send"}],"qualityReview":[]}`,
 	}}
@@ -1450,7 +1236,7 @@ func TestAgentTurnRunnerApprovalRequiredPausesAndExecutesHeldCall(t *testing.T) 
 	if !taskEventsContain(secondTurnEvents, "approval.executed", "message.send") {
 		t.Fatalf("expected approval executed event, events=%+v", secondTurnEvents)
 	}
-	if !taskEventsContain(secondTurnEvents, "tool."+CapabilityInvokeToolName+".result", "message-1") {
+	if !taskEventsContain(secondTurnEvents, "tool.message.send.result", "message-1") {
 		t.Fatalf("expected deterministic send result, events=%+v", secondTurnEvents)
 	}
 }
@@ -1459,7 +1245,7 @@ func TestNextApprovalExecutionObservationIDUsesHighestExistingObservationID(t *t
 	taskEvents := []task.TaskEvent{
 		{Name: "tool.site.status.result", Body: `{"observationID":"obs-001"}`},
 		{Name: "agent.checkpoint.sent", Body: `{"observationID":"obs-002"}`},
-		{Name: "tool.capability.invoke.result", Body: `{"observationID":"obs-003"}`},
+		{Name: "tool.message.send.result", Body: `{"observationID":"obs-003"}`},
 	}
 
 	observationID := nextApprovalExecutionObservationID(taskEvents)
@@ -1494,8 +1280,8 @@ func TestAgentTurnRunnerSteersStalledTurnBeforeStopping(t *testing.T) {
 
 func TestAgentTurnRunnerFinalizesSatisfiedGoalAtIterationEffort(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		capabilityInvokeAction("continue", "", "browser.screenshot", `{}`),
-		capabilityInvokeAction("continue", "", "browser.screenshot", `{}`),
+		directToolAction("continue", "", "browser.screenshot", `{}`),
+		directToolAction("continue", "", "browser.screenshot", `{}`),
 		finishMessageWithEvidence("캡처했습니다.", "obs-003", "browser.screenshot", 0),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 2})
@@ -1542,8 +1328,8 @@ func TestAgentTurnRunnerFinalizesSatisfiedGoalAtIterationEffort(t *testing.T) {
 
 func TestAgentTurnRunnerFinalizesRepeatedSuccessfulSideEffectWithoutPlannedEvidence(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		capabilityInvokeAction("continue", "", "task.add", `{"prompt":"보고서 작성"}`),
-		capabilityInvokeAction("continue", "", "task.add", `{"prompt":"보고서 작성"}`),
+		directToolAction("continue", "", "task.add", `{"prompt":"보고서 작성"}`),
+		directToolAction("continue", "", "task.add", `{"prompt":"보고서 작성"}`),
 		finishMessageWithEvidence("업무를 등록했습니다.", "obs-001", "task.add", 0),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 3})
@@ -1682,7 +1468,7 @@ func TestAgentTurnRunnerFinalizesSuccessfulReadDespiteUnsatisfiedReadHint(t *tes
 
 func TestAgentTurnRunnerDoesNotDeliverAttachmentsWhenFinalizerFails(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		capabilityInvokeAction("continue", "", "browser.screenshot", `{}`),
+		directToolAction("continue", "", "browser.screenshot", `{}`),
 		`{"action":"fail","reason":"not complete"}`,
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 1})
@@ -1971,8 +1757,8 @@ func TestAgentTurnRunnerCheckpointsAtMaxIterationCeiling(t *testing.T) {
 func TestAgentTurnRunnerStopsWhenToolEffortIsExceeded(t *testing.T) {
 	languageModel := &sequenceLanguageModel{
 		contents: []string{
-			capabilityInvokeAction("continue", "", "loop", `{}`),
-			capabilityInvokeAction("continue", "", "loop", `{}`),
+			directToolAction("continue", "", "loop", `{}`),
+			directToolAction("continue", "", "loop", `{}`),
 		},
 		textResponses: []string{"도구 호출이 더 진행되기 전에 멈췄습니다. 확인된 내용까지만 바탕으로 다시 이어갈 수 있어요."},
 	}
@@ -2062,25 +1848,12 @@ func (repository failingAttemptStartRepository) DeleteTaskRunsBefore(time.Time, 
 	return nil, nil
 }
 
-func registerCapabilityInvokeVerb(toolSet *ToolSet) {
-	toolSet.RegisterTool(ToolDefinition{Name: CapabilityInvokeToolName}, func(ctx context.Context, toolInvocation ToolInvocation) (ToolResult, error) {
-		var document struct {
-			Operation string          `json:"operation"`
-			Input     json.RawMessage `json:"input"`
-		}
-		if errorValue := json.Unmarshal(toolInvocation.Input, &document); errorValue != nil {
-			return ToolInputFailure(errorValue.Error()), nil
-		}
-		return toolSet.InvokeRegistered(ctx, ToolInvocation{ToolName: document.Operation, Input: document.Input})
-	})
-}
-
-func capabilityInvokeAction(action string, message string, operation string, input string) string {
+func directToolAction(action string, message string, toolName string, input string) string {
 	document := `{"action":"` + action + `"`
 	if message != "" {
 		document += `,"message":"` + message + `"`
 	}
-	document += `,"toolName":"` + CapabilityInvokeToolName + `","toolInput":{"operation":"` + operation + `","input":` + input + `}}`
+	document += `,"toolName":"` + toolName + `","toolInput":` + input + `}`
 	return document
 }
 
@@ -2099,6 +1872,7 @@ func newTurnRunnerTestServices(languageModel llm.LanguageModelProvider, options 
 }
 
 type sequenceLanguageModel struct {
+	modelTier            string
 	contents             []string
 	resultVerifications  []string
 	textResponses        []string
@@ -2143,7 +1917,7 @@ func (languageModel *sequenceLanguageModel) GenerateStructuredResponse(_ context
 	if index >= len(languageModel.contents) {
 		index = len(languageModel.contents) - 1
 	}
-	return llm.StructuredResponse{Content: languageModel.contents[index]}, nil
+	return llm.StructuredResponse{ModelTier: languageModel.modelTier, Content: languageModel.contents[index]}, nil
 }
 
 func defaultResultVerificationResponse(request llm.StructuredResponseRequest) string {

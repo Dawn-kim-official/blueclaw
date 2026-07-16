@@ -2,7 +2,7 @@ package agent
 
 import "testing"
 
-func TestToolExposureUsesFixedKernelOnly(t *testing.T) {
+func TestToolExposureUsesKernelWithoutSelectedSkills(t *testing.T) {
 	toolSet := testToolSet(append(KernelToolNames(),
 		"site.create",
 		"site.publish",
