@@ -151,6 +151,21 @@ func TestRequiredEvidencePreservesReadOnlyMaintenanceEvidence(t *testing.T) {
 	}
 }
 
+func TestRequiredEvidenceIgnoresSpeculativeInitialSideEffect(t *testing.T) {
+	intakeDecision := IntakeDecision{
+		Classification:        IntakeClassificationBoundedTask,
+		TaskShape:             TaskShapeMaintenanceTask,
+		InitialToolNames:      []string{TerminalRunToolName},
+		RequiredEvidenceTools: []string{"task.list"},
+	}
+	toolSet := newTestCapabilityToolSet([]string{TerminalRunToolName, "task.list"})
+	outcomeContract := OutcomeContract{RequiredEvidenceTools: []string{"task.list"}}
+
+	if requiredEvidenceMissingForSideEffect(intakeDecision, outcomeContract, toolSet) {
+		t.Fatal("expected typed task.list evidence to remain authoritative")
+	}
+}
+
 func TestRequiredEvidenceRequiresExplicitInitialSideEffectTool(t *testing.T) {
 	intakeDecision := IntakeDecision{
 		Classification:   IntakeClassificationBoundedTask,
