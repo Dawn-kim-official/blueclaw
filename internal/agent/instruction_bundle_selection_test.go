@@ -69,6 +69,24 @@ func TestSelectedSkillRequirementsPreserveRouterEvidenceWithoutArbitration(t *te
 	}
 }
 
+func TestSelectedSkillRequirementsPreserveRouterEvidenceWhenArbitrationHasNoEvidence(t *testing.T) {
+	decision := IntakeDecision{
+		Classification:        IntakeClassificationBoundedTask,
+		RequiredEvidenceTools: []string{"task.add"},
+	}
+	instructionBundle := InstructionBundle{
+		Skills:                      []SkillInstruction{{Name: "internkim-flow", AllowedTools: []string{"task.add"}}},
+		SkillDecisions:              []SkillSelectionDecision{{Name: "internkim-flow", Status: "selected"}},
+		HasContractSkillArbitration: true,
+	}
+
+	result := applySelectedSkillCompletionRequirements(decision, instructionBundle)
+
+	if !reflect.DeepEqual(result.RequiredEvidenceTools, []string{"task.add"}) {
+		t.Fatalf("expected explicit router evidence to survive empty arbitration, got %v", result.RequiredEvidenceTools)
+	}
+}
+
 func TestContractEvidenceUsesOnlySelectedRegisteredTools(t *testing.T) {
 	selectedSkills := []SkillInstruction{{
 		Name:         "internkim-flow",
