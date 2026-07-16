@@ -704,14 +704,15 @@ func TestAgentTurnRunnerCompletesBrowserOpenWithPostEvidenceReply(t *testing.T) 
 	})
 
 	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
-		RequesterPersonID: "person-1",
-		ConversationID:    "conversation-1",
-		Prompt:            "브라우저 열어줘.",
-		TaskLevel:         TaskLevelXLow,
-		EstimatedMinutes:  1,
-		TaskShape:         TaskShapeBrowserHandoffTask,
-		ToolSet:           toolRegistry,
-		PinnedToolNames:   toolRegistry.ListToolNames(),
+		RequesterPersonID:     "person-1",
+		ConversationID:        "conversation-1",
+		Prompt:                "브라우저 열어줘.",
+		TaskLevel:             TaskLevelXLow,
+		EstimatedMinutes:      1,
+		TaskShape:             TaskShapeBrowserHandoffTask,
+		ToolSet:               toolRegistry,
+		PinnedToolNames:       toolRegistry.ListToolNames(),
+		RequiredEvidenceTools: []string{"browser.open"},
 	})
 	if errorValue != nil {
 		t.Fatalf("expected turn to succeed: %v", errorValue)
@@ -745,8 +746,9 @@ func TestAgentTurnRunnerRejectsBrowserFollowUpReplyWithoutToolEvidence(t *testin
 			{Speaker: "사용자", Text: "구글 클라우드 콘솔에서 credential.json 받는 거 도와줘"},
 			{Speaker: "김인턴", Text: "Companion 브라우저 연결이 필요합니다."},
 		}},
-		ToolSet:         toolRegistry,
-		PinnedToolNames: toolRegistry.ListToolNames(),
+		ToolSet:               toolRegistry,
+		PinnedToolNames:       toolRegistry.ListToolNames(),
+		RequiredEvidenceTools: []string{"browser.open"},
 	})
 	if errorValue != nil {
 		t.Fatalf("expected turn to succeed: %v", errorValue)
@@ -1486,12 +1488,13 @@ func TestAgentTurnRunnerDoesNotDeliverAttachmentsWhenFinalizerFails(t *testing.T
 	})
 
 	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
-		RequesterPersonID: "person-1",
-		ConversationID:    "conversation-1",
-		Prompt:            "스크린샷 줘",
-		TaskShape:         TaskShapeBrowserHandoffTask,
-		ToolSet:           toolRegistry,
-		PinnedToolNames:   toolRegistry.ListToolNames(),
+		RequesterPersonID:     "person-1",
+		ConversationID:        "conversation-1",
+		Prompt:                "스크린샷 줘",
+		TaskShape:             TaskShapeBrowserHandoffTask,
+		ToolSet:               toolRegistry,
+		PinnedToolNames:       toolRegistry.ListToolNames(),
+		RequiredEvidenceTools: []string{"browser.screenshot"},
 	})
 	if errorValue != nil {
 		t.Fatalf("expected effort result, got error: %v", errorValue)
