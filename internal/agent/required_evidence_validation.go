@@ -122,6 +122,9 @@ func missingRequiredEvidenceReport(intakeDecision IntakeDecision, outcomeContrac
 }
 
 func requiredEvidenceMissingForSideEffect(intakeDecision IntakeDecision, outcomeContract OutcomeContract, toolSet *ToolSet) bool {
+	if len(outcomeContract.RequiredEvidenceTools) > 0 && !intakeDecisionHasRequiredSideEffect(intakeDecision) {
+		return false
+	}
 	if !intakeDecisionRequiresSideEffectEvidence(intakeDecision, toolSet) {
 		return false
 	}
@@ -132,10 +135,14 @@ func intakeDecisionRequiresSideEffectEvidence(intakeDecision IntakeDecision, too
 	if intakeDecision.Classification != IntakeClassificationBoundedTask {
 		return false
 	}
+	return intakeDecisionHasRequiredSideEffect(intakeDecision) ||
+		requiredEvidenceInitialToolsNeedEvidence(toolSet, intakeDecision.InitialToolNames)
+}
+
+func intakeDecisionHasRequiredSideEffect(intakeDecision IntakeDecision) bool {
 	return intakeDecision.TaskShape == TaskShapeScheduledTask ||
 		hasArtifactOutputFormat(intakeDecision.RequestedOutputFormats) ||
-		intakeDecisionRequiresSiteEvidence(intakeDecision) ||
-		requiredEvidenceInitialToolsNeedEvidence(toolSet, intakeDecision.InitialToolNames)
+		intakeDecisionRequiresSiteEvidence(intakeDecision)
 }
 
 func requiredEvidenceIncludesSideEffect(toolSet *ToolSet, toolNames []string) bool {
