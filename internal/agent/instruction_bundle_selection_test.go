@@ -107,14 +107,31 @@ func TestContractEvidenceUsesOnlySelectedRegisteredTools(t *testing.T) {
 func TestContractEvidenceDoesNotPromoteRequiredNextTools(t *testing.T) {
 	selectedSkills := []SkillInstruction{{Name: "internkim-flow", AllowedTools: []string{"task.update"}}}
 	request := AgentRequest{ToolSet: newTestToolSet([]string{"task.update"})}
-
-	result := validatedContractEvidenceTools(contractSkillArbitration{
+	arbitration := contractSkillArbitration{
 		ExpectedEvidence:  []string{"unknown.operation"},
 		RequiredNextTools: []string{"task.update"},
-	}, selectedSkills, request)
+	}
+
+	result := validatedContractEvidenceTools(arbitration, selectedSkills, request)
 
 	if len(result) != 0 {
 		t.Fatalf("expected next tools to remain execution hints, got evidence %v", result)
+	}
+	candidates := unresolvedContractEvidenceCandidates(arbitration, selectedSkills, request, result)
+	if !reflect.DeepEqual(candidates, []string{"task.update"}) {
+		t.Fatalf("expected typed side-effect candidate for evidence re-ask, got %v", candidates)
+	}
+}
+
+func TestContractEvidenceDoesNotReaskForReadOnlyNextTool(t *testing.T) {
+	selectedSkills := []SkillInstruction{{Name: "internkim-flow", AllowedTools: []string{"task.list"}}}
+	request := AgentRequest{ToolSet: newTestToolSet([]string{"task.list"})}
+	arbitration := contractSkillArbitration{RequiredNextTools: []string{"task.list"}}
+
+	candidates := unresolvedContractEvidenceCandidates(arbitration, selectedSkills, request, nil)
+
+	if len(candidates) != 0 {
+		t.Fatalf("expected read-only next tool not to trigger evidence re-ask, got %v", candidates)
 	}
 }
 
@@ -133,6 +150,22 @@ func TestContractEvidenceRejectsReadForSideEffectContract(t *testing.T) {
 
 	if len(result) != 0 {
 		t.Fatalf("expected read evidence to be rejected for a side-effect contract, got %v", result)
+	}
+}
+
+func TestContractEvidenceRejectsReadWhenNextToolChangesState(t *testing.T) {
+	selectedSkills := []SkillInstruction{{Name: "internkim-flow", AllowedTools: []string{"task.list", "task.update"}}}
+	request := AgentRequest{ToolSet: newTestToolSet([]string{"task.list", "task.update"})}
+	arbitration := contractSkillArbitration{
+		ExpectedEvidence:  []string{"task.list"},
+		RequiredNextTools: []string{"task.update"},
+	}
+
+	result := validatedContractEvidenceTools(arbitration, selectedSkills, request)
+	candidates := unresolvedContractEvidenceCandidates(arbitration, selectedSkills, request, result)
+
+	if len(result) != 0 || !reflect.DeepEqual(candidates, []string{"task.update"}) {
+		t.Fatalf("expected state-changing next tool to force exact evidence re-ask, got evidence=%v candidates=%v", result, candidates)
 	}
 }
 

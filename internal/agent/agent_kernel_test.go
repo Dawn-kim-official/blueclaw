@@ -650,6 +650,18 @@ func TestAgentKernelContinuesWhenEmptyReaskHasNoWrongContract(t *testing.T) {
 	}
 }
 
+func TestRequiredEvidenceMatchesSelectedCandidates(t *testing.T) {
+	if !requiredEvidenceMatchesCandidates([]string{"task.update"}, []string{"task.update"}) {
+		t.Fatal("expected exact selected evidence candidate to match")
+	}
+	if requiredEvidenceMatchesCandidates([]string{"task.list"}, []string{"task.update"}) {
+		t.Fatal("expected evidence outside selected candidates to be rejected")
+	}
+	if requiredEvidenceMatchesCandidates(nil, nil) {
+		t.Fatal("expected empty evidence to be rejected")
+	}
+}
+
 func TestAgentKernelGeneratesIntakeNoticeWhenRouterReplyMissing(t *testing.T) {
 	agentKernel, _ := newKernelTestServices()
 	agentKernel.UseIntakeLanguageModelProvider(intakeDecisionLanguageModel{decision: TurnDecision{
