@@ -296,14 +296,47 @@ func retrieveSkillCandidates(ctx context.Context, request AgentRequest, skillIns
 		} else {
 			retrievalResult = skillRetriever.Retrieve(ctx, request, skillInstructions, maxSkillIndexCandidateCount)
 		}
-		return retrievalResult
-	}
-	if hasStructuredQueries {
+	} else if hasStructuredQueries {
 		retrievalResult = retrieveSkillsWithBM25QuerySet(request, skillInstructions, querySet, maxSkillIndexCandidateCount, "embedding_unconfigured")
-		return retrievalResult
+	} else {
+		retrievalResult = retrieveSkillsWithBM25(request, skillInstructions, skillSelectionPrompt(request), maxSkillIndexCandidateCount, "embedding_unconfigured")
 	}
-	retrievalResult = retrieveSkillsWithBM25(request, skillInstructions, skillSelectionPrompt(request), maxSkillIndexCandidateCount, "embedding_unconfigured")
-	return retrievalResult
+	return addRequiredEvidenceSkillCandidates(retrievalResult, request, skillInstructions, maxSkillIndexCandidateCount)
+}
+
+func addRequiredEvidenceSkillCandidates(result SkillRetrievalResult, request AgentRequest, skillInstructions []SkillInstruction, limit int) SkillRetrievalResult {
+	requiredToolNames := stringSet(outcomeContractRequiredToolNames(request.ActiveGoal.OutcomeContract))
+	existingCandidateNames := map[string]bool{}
+	for _, candidate := range result.SelectedCandidates {
+		existingCandidateNames[candidate.Name] = true
+	}
+	requiredCandidates := []SkillCandidate{}
+	for _, skillInstruction := range skillInstructions {
+		if existingCandidateNames[skillInstruction.Name] || !isSkillAllowedForAutomaticRetrieval(skillInstruction, request) {
+			continue
+		}
+		if !skillOwnsAnyTool(skillInstruction, requiredToolNames) {
+			continue
+		}
+		requiredCandidates = append(requiredCandidates, SkillCandidate{
+			Name:   skillInstruction.Name,
+			Score:  1,
+			Reason: "required_evidence_tool",
+			Source: skillInstruction.Source,
+		})
+	}
+	result.SelectedCandidates = limitSkillCandidates(append(requiredCandidates, result.SelectedCandidates...), limit)
+	result.CandidateCount = len(result.SelectedCandidates)
+	return result
+}
+
+func skillOwnsAnyTool(skillInstruction SkillInstruction, toolNames map[string]bool) bool {
+	for _, toolName := range appendUniqueStrings(SkillToolNames(skillInstruction), skillInstruction.Completion.RequiredEvidenceTools...) {
+		if toolNames[toolName] {
+			return true
+		}
+	}
+	return false
 }
 
 func skillRetrievalQuerySet(request AgentRequest, supplementalQueries SkillSearchQuerySet) SkillSearchQuerySet {

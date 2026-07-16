@@ -890,6 +890,25 @@ func TestContractSkillArbitrationDoesNotRunWithoutOutcomeContract(t *testing.T) 
 	}
 }
 
+func TestRequiredEvidenceAddsOwningSkillCandidate(t *testing.T) {
+	skillInstructions := []SkillInstruction{{
+		Name:         "internkim-flow",
+		AllowedTools: []string{"task.add", "task.list", "task.update", "task.delete"},
+	}}
+	request := AgentRequest{
+		ToolSet: newTestToolSet([]string{"task.add", "task.list", "task.update", "task.delete"}),
+		ActiveGoal: ActiveGoal{OutcomeContract: OutcomeContract{
+			RequiredEvidenceTools: []string{"task.add"},
+		}},
+	}
+
+	result := retrieveSkillCandidates(context.Background(), request, skillInstructions, staticSkillRetriever{}, SkillSearchQuerySet{}, false)
+
+	if len(result.SelectedCandidates) != 1 || result.SelectedCandidates[0].Name != "internkim-flow" || result.SelectedCandidates[0].Reason != "required_evidence_tool" {
+		t.Fatalf("expected exact tool ownership candidate, got %+v", result.SelectedCandidates)
+	}
+}
+
 func TestSkillQueryRouterMessagesPrioritizeLatestRequest(t *testing.T) {
 	router := NewSkillSearchQueryRouter(staticStructuredLanguageModel{content: `{"queries":[]}`})
 
