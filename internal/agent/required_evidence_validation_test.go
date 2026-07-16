@@ -37,7 +37,7 @@ func TestValidateRequiredEvidenceAcceptsDirectTool(t *testing.T) {
 	}
 }
 
-func TestValidateRequiredEvidenceRejectsUnselectedDirectTool(t *testing.T) {
+func TestValidateRequiredEvidenceAcceptsRegisteredDirectTool(t *testing.T) {
 	toolSet := NewToolSet([]string{TerminalRunToolName})
 	for _, toolName := range []string{TerminalRunToolName, "calendar.add"} {
 		currentToolName := toolName
@@ -48,8 +48,31 @@ func TestValidateRequiredEvidenceRejectsUnselectedDirectTool(t *testing.T) {
 
 	report := validateRequiredEvidenceTools(toolSet, []string{"calendar.add"})
 
+	if report.HasInvalidEvidence() {
+		t.Fatalf("expected registered calendar.add to be valid evidence, got %+v", report)
+	}
+	if report.EvidenceKinds["calendar.add"] != requiredEvidenceToolKindCapabilityOperation {
+		t.Fatalf("expected direct capability operation evidence, got %+v", report.EvidenceKinds)
+	}
+	if toolSet.IsAllowed("calendar.add") {
+		t.Fatal("expected calendar.add to remain hidden until selected")
+	}
+}
+
+func TestValidateRequiredEvidenceRejectsUnavailableDirectTool(t *testing.T) {
+	toolSet := NewToolSet([]string{TerminalRunToolName})
+	toolSet.RegisterBoundTool(BoundTool{
+		Definition:   ToolDefinition{Name: "calendar.add"},
+		Availability: ToolAvailability{Status: ToolAvailabilityDenied},
+		Handler: func(context.Context, ToolInvocation) (ToolResult, error) {
+			return ToolSuccess("ok"), nil
+		},
+	})
+
+	report := validateRequiredEvidenceTools(toolSet, []string{"calendar.add"})
+
 	if !report.HasInvalidEvidence() {
-		t.Fatal("expected unselected calendar.add to be invalid")
+		t.Fatal("expected unavailable calendar.add to be invalid")
 	}
 }
 
