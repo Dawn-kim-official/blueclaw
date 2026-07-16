@@ -247,6 +247,8 @@ type TurnRouter struct {
 
 const turnRouterMaxTokens = 1600
 
+const taskRecordRoutingInstruction = "Treat requests to add, update, list, or delete a task or reminder as management of the task record, not execution of the future work described in its title or notes. A task title, description, and any explicitly requested due date are sufficient to add the record. Do not ask for files, credentials, or other inputs that would only be needed when performing that future task. Use the matching registered task operation as requiredEvidence."
+
 var ErrTurnRouterDisabled = errors.New("turn router disabled")
 var ErrTurnRouterLanguageModelUnavailable = errors.New("turn router language model unavailable")
 
@@ -373,6 +375,10 @@ func (turnRouter TurnRouter) buildMessages(request AgentRequest) []llm.Message {
 		{
 			Role:    "system",
 			Content: "For reads from private or external systems, requiredEvidence should name the exact read operation that proves the requested lookup completed.",
+		},
+		{
+			Role:    "system",
+			Content: taskRecordRoutingInstruction,
 		},
 		{
 			Role:    "system",
