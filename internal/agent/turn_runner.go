@@ -477,7 +477,8 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 			"exposure": iterationRequest.ToolExposure,
 		}))
 		actionContext, cancelAction := agentTurnRunner.currentEffortContext(taskContext, request.EffortStartedAt)
-		actionDocument, actionError := agentTurnRunner.nextAction(actionContext, taskRun.TaskRunID, iterationRequest, toolUseRequirements, state.Observations, state.ExecutionState, state.ContextSummary, len(state.QualityCriteria) == 0)
+		allowQualityCriteria := len(state.QualityCriteria) == 0 && outcomeContractNeedsQualityCriteria(iterationRequest.OutcomeContract)
+		actionDocument, actionError := agentTurnRunner.nextAction(actionContext, taskRun.TaskRunID, iterationRequest, toolUseRequirements, state.Observations, state.ExecutionState, state.ContextSummary, allowQualityCriteria)
 		cancelAction()
 		if actionError != nil {
 			agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusFailed, "agent turn iteration", actionError.Error())
@@ -594,7 +595,7 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 				agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusFailed, "finish", "empty finish message")
 				return agentTurnRunner.finalizeIfSatisfiedOrFail(taskContext, taskRun.TaskRunID, request, "empty finish message", toolUseRequirements, state.Observations, state.Attachments, state.QualityCriteria, state.ExecutionState)
 			}
-			reply = agentTurnRunner.prepareFinishMessageForPlatform(request, reply, completionGateResult.Attachments)
+			reply = agentTurnRunner.prepareFinishMessageForPlatform(request, reply)
 			if cancelledResult, isCancelled := agentTurnRunner.cancelledTaskResult(taskRun.TaskRunID, state.Attachments); isCancelled {
 				return cancelledResult, nil
 			}
@@ -1009,6 +1010,18 @@ func (agentTurnRunner *AgentTurnRunner) nextAction(ctx context.Context, taskRunI
 		return turnActionDocument{}, errorValue
 	}
 	return actionDocument, nil
+}
+
+func outcomeContractNeedsQualityCriteria(contract OutcomeContract) bool {
+	artifactRequirement := strings.TrimSpace(contract.ArtifactRequirement)
+	if artifactRequirement != "" && artifactRequirement != ArtifactRequirementNone {
+		return true
+	}
+	if len(contract.RequiredAttachmentSuffixes) > 0 || contractRequiresToolPrefix(contract, "site.") {
+		return true
+	}
+	return expectedResultIncludesType(contract, ExpectedResultTypeFile) ||
+		expectedResultIncludesType(contract, ExpectedResultTypeLink)
 }
 
 func (agentTurnRunner *AgentTurnRunner) requestForStep(_ context.Context, request AgentTurnRequest, state agentTaskState) AgentTurnRequest {
@@ -1607,8 +1620,8 @@ func (agentTurnRunner *AgentTurnRunner) finalizeElapsedLimitWithEvidence(ctx con
 	finalizationContext, cancelFinalization := recoveryFinalizationContextWithParent(ctx, request)
 	defer cancelFinalization()
 	reply, errorValue := agentTurnRunner.generateRecoveryText(finalizationContext, buildElapsedCompletionPrompt(request, requirements, finalization.Observations))
-	if errorValue != nil || ValidateUserNoticeDelivery(reply) != nil {
-		agentTurnRunner.appendEvent(taskRunID, "agent.limit_completion_reply_failed", marshalEventBody(map[string]string{"error": firstNonEmptyString(errorString(errorValue), "invalid completion reply")}))
+	if errorValue != nil || strings.TrimSpace(reply) == "" {
+		agentTurnRunner.appendEvent(taskRunID, "agent.limit_completion_reply_failed", marshalEventBody(map[string]string{"error": firstNonEmptyString(errorString(errorValue), "empty completion reply")}))
 		return finalization
 	}
 	if ctx.Err() != nil || finalizationContext.Err() != nil {
@@ -1757,7 +1770,7 @@ func (agentTurnRunner *AgentTurnRunner) finalizeSatisfiedTurn(ctx context.Contex
 		agentTurnRunner.appendEvent(taskRunID, "agent.finalizer_rejected", marshalEventBody(map[string]string{"reason": "empty finish message"}))
 		return AgentTurnResult{}, false
 	}
-	reply = agentTurnRunner.prepareFinishMessageForPlatform(request, reply, completionGateResult.Attachments)
+	reply = agentTurnRunner.prepareFinishMessageForPlatform(request, reply)
 	completedTaskRun, _ := agentTurnRunner.taskRunService.CompleteTaskRun(taskRunID, reply)
 	return AgentTurnResult{TaskRun: completedTaskRun, FinishMessage: reply, Attachments: completionGateResult.Attachments, RecoveryActions: recoveryActionsFromObservations(observations)}, true
 }
@@ -1881,7 +1894,7 @@ func (agentTurnRunner *AgentTurnRunner) completeTerminalNoToolsFinish(ctx contex
 	if strings.TrimSpace(reply) == "" {
 		return AgentTurnResult{}, false, "finish message is empty"
 	}
-	reply = agentTurnRunner.prepareFinishMessageForPlatform(request, reply, completionGateResult.Attachments)
+	reply = agentTurnRunner.prepareFinishMessageForPlatform(request, reply)
 	agentTurnRunner.saveStep(taskRunID, stepID, task.TaskStatusCompleted, "terminal_no_tools_finish", reply)
 	completedTaskRun, errorValue := agentTurnRunner.taskRunService.CompleteTaskRun(taskRunID, reply)
 	if errorValue != nil {

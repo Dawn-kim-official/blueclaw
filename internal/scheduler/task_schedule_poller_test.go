@@ -17,6 +17,25 @@ import (
 	"blueclaw/internal/task"
 )
 
+func TestScheduledTaskReplyPreservesModelWording(t *testing.T) {
+	turnResult := agent.AgentTurnResult{
+		TaskRun:       task.TaskRun{TaskRunID: "task-1", Status: task.TaskStatusCompleted},
+		FinishMessage: "완료했습니다: sandbox:/mnt/data/report.pdf",
+		Attachments:   []agent.FileAttachment{{Filename: "report.pdf", DevicePath: "/workspace/private/people/p1/artifacts/report.pdf"}},
+	}
+
+	reply, errorValue := scheduledTaskReply(agentruntime.TaskScheduleRunResult{
+		LaunchResult: agentruntime.TaskLaunchResult{TurnResult: turnResult},
+	})
+
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if reply.Message != turnResult.FinishMessage || len(reply.Attachments) != 1 {
+		t.Fatalf("expected model wording and typed attachments to pass through, got %+v", reply)
+	}
+}
+
 func TestTaskSchedulePollerRunsDueScheduleAndEnqueuesReply(t *testing.T) {
 	runAt := time.Date(2026, 5, 6, 7, 0, 0, 0, time.UTC)
 	nextRunAt := runAt
@@ -669,7 +688,10 @@ func testTaskScheduleRunnerWithResponseCount(content string, generatedResponseCo
 	taskEventService := task.NewTaskEventService()
 	taskRunService := task.NewTaskRunService(taskEventService)
 	agentKernel := agent.NewAgentKernel(taskRunService, task.NewTaskStepService())
-	agentKernel.UseLanguageModelProvider(staticPollerLanguageModel{content: content, generatedResponseCount: generatedResponseCount})
+	languageModel := staticPollerLanguageModel{content: content, generatedResponseCount: generatedResponseCount}
+	agentKernel.UseLanguageModelProvider(languageModel)
+	agentKernel.UseIntakeLanguageModelProvider(languageModel)
+	agentKernel.UseIntakeOptions(agent.IntakeOptions{IsEnabled: true})
 	toolCatalogBuilder := agentruntime.NewToolCatalogBuilder()
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"ask.confirm"})
 	toolCatalogBuilder.UseTaskRunService(taskRunService)
@@ -701,9 +723,12 @@ func (languageModel staticPollerLanguageModel) GenerateResponse(context.Context,
 	return "", nil
 }
 
-func (languageModel staticPollerLanguageModel) GenerateStructuredResponse(context.Context, llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
+func (languageModel staticPollerLanguageModel) GenerateStructuredResponse(_ context.Context, request llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
 	if languageModel.generatedResponseCount != nil {
 		*languageModel.generatedResponseCount++
+	}
+	if request.StructuredOutputSchema.Name == "blueclaw_turn_router" {
+		return llm.StructuredResponse{Content: `{"route":"start_task","classification":"bounded_task","taskShape":"research_task","level":"medium","estimatedMinutes":10,"requestedOutputFormats":null,"expectedResults":[],"requiredEvidence":[],"siteRequestEvidence":"","responseLanguage":"ko","reason":"scheduled objective","userFacingReply":"","initialToolNames":[],"priorTaskReference":"none"}`}, nil
 	}
 	if strings.HasPrefix(languageModel.content, "{") {
 		return llm.StructuredResponse{Content: languageModel.content}, nil
