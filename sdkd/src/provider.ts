@@ -1,5 +1,5 @@
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
-import type { JSONSchema7, JSONValue } from '@ai-sdk/provider';
+import type { JSONSchema7, JSONValue, LanguageModelV3ToolCall } from '@ai-sdk/provider';
 import { createOpenRouter } from '@openrouter/ai-sdk-provider';
 import {
   ChatCompletionFinishReason,
@@ -245,18 +245,43 @@ async function generateForRoute(
 ): Promise<StructuredResponse> {
   const outputSchema = createValidatedOutputSchema(request.structuredOutputSchema.document);
   const outputToolName = request.structuredOutputSchema.name;
-  const result = await generateText({
-    model: route.languageModel,
-    system: systemContent(request),
-    messages: convertConversationMessages(request),
-    tools: { [outputToolName]: { inputSchema: outputSchema } },
-    toolChoice: { type: 'tool', toolName: outputToolName },
-    maxOutputTokens: request.generationOptions?.maxTokens,
-    maxRetries: 0,
-    abortSignal,
-    seed: request.generationOptions?.seed,
-    temperature: request.generationOptions?.temperature,
-  });
+  const tools = { [outputToolName]: { inputSchema: outputSchema } };
+  const messages = convertConversationMessages(request);
+  const system = systemContent(request);
+  let repairAttempted = false;
+  let result;
+  try {
+    result = await generateText({
+      model: route.languageModel,
+      system,
+      messages,
+      tools,
+      toolChoice: { type: 'tool', toolName: outputToolName },
+      maxOutputTokens: request.generationOptions?.maxTokens,
+      maxRetries: 0,
+      abortSignal,
+      experimental_repairToolCall: async ({ toolCall, error }) => {
+        if (abortSignal?.aborted || repairAttempted || !InvalidToolInputError.isInstance(error) || toolCall.toolName !== outputToolName) return null;
+        repairAttempted = true;
+        return repairStructuredToolCall(
+          route,
+          request,
+          tools,
+          outputToolName,
+          toolCall,
+          messages,
+          system,
+          abortSignal,
+        );
+      },
+      seed: request.generationOptions?.seed,
+      temperature: request.generationOptions?.temperature,
+    });
+  } catch (errorValue) {
+    if (abortSignal?.aborted) throwIfAborted(abortSignal);
+    throw errorValue;
+  }
+  throwIfAborted(abortSignal);
   const toolCall = requireStructuredOutputToolCall(result, outputToolName);
   const content = serializeStructuredOutput(toolCall.input);
   return {
@@ -275,6 +300,49 @@ async function generateForRoute(
       reasoningTokens: optionalTokenCount(result.totalUsage.outputTokenDetails.reasoningTokens),
     },
   };
+}
+
+async function repairStructuredToolCall(
+  route: ProviderRoute,
+  request: StructuredResponseRequest,
+  tools: DynamicToolSet,
+  outputToolName: string,
+  toolCall: LanguageModelV3ToolCall,
+  messages: ModelMessage[],
+  system: string | undefined,
+  abortSignal?: AbortSignal,
+): Promise<LanguageModelV3ToolCall | null> {
+  if (abortSignal?.aborted) return null;
+  try {
+    const result = await generateText({
+      model: route.languageModel,
+      system: repairSystem(system),
+      messages: [
+        ...messages,
+        {
+          role: 'user',
+          content: `Repair these arguments for the forced structured output tool using its schema and return exactly one tool call: ${toolCall.input}`,
+        },
+      ],
+      tools,
+      toolChoice: { type: 'tool', toolName: outputToolName },
+      maxOutputTokens: request.generationOptions?.maxTokens,
+      maxRetries: 0,
+      abortSignal,
+      seed: request.generationOptions?.seed,
+      temperature: request.generationOptions?.temperature,
+    });
+    if (abortSignal?.aborted) return null;
+    const repairedToolCall = requireStructuredOutputToolCall(result, outputToolName);
+    return { ...toolCall, input: serializeStructuredOutput(repairedToolCall.input) };
+  } catch {
+    return null;
+  }
+}
+
+function repairSystem(system: string | undefined): string {
+  const instruction = 'Repair the previous structured output tool call using the same schema and return exactly one forced tool call.';
+  return system ? `${system}\n\n${instruction}` : instruction;
 }
 
 function serializeStructuredOutput(value: unknown): string {
