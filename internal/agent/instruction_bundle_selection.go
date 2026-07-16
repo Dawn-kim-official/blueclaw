@@ -13,7 +13,7 @@ func applySelectedSkillCompletionRequirements(decision IntakeDecision, instructi
 	if len(selectedSkills) > 0 && instructionBundle.HasContractSkillArbitration {
 		decision.RequiredEvidenceTools = appendUniqueStrings(instructionBundle.RequiredEvidenceTools)
 	} else {
-		decision.RequiredEvidenceTools = evidenceToolsOwnedBySelectedSkills(decision.RequiredEvidenceTools, selectedSkills)
+		decision.RequiredEvidenceTools = appendUniqueStrings(decision.RequiredEvidenceTools)
 	}
 	for _, skillInstruction := range selectedSkills {
 		if !selectedSkillRequiresCompletionEvidence(skillInstruction) {
@@ -23,25 +23,6 @@ func applySelectedSkillCompletionRequirements(decision IntakeDecision, instructi
 		decision.RequestedOutputFormats = appendUniqueStrings(decision.RequestedOutputFormats, attachmentSuffixFormats(skillInstruction.Completion.RequiredAttachmentSuffixes)...)
 	}
 	return decision
-}
-
-func evidenceToolsOwnedBySelectedSkills(toolNames []string, selectedSkills []SkillInstruction) []string {
-	if len(selectedSkills) == 0 {
-		return appendUniqueStrings(toolNames)
-	}
-	ownedToolNames := map[string]bool{}
-	for _, skillInstruction := range selectedSkills {
-		for _, toolName := range appendUniqueStrings(SkillToolNames(skillInstruction), skillInstruction.Completion.RequiredEvidenceTools...) {
-			ownedToolNames[toolName] = true
-		}
-	}
-	filteredToolNames := []string{}
-	for _, toolName := range appendUniqueStrings(toolNames) {
-		if ownedToolNames[toolName] {
-			filteredToolNames = append(filteredToolNames, toolName)
-		}
-	}
-	return filteredToolNames
 }
 
 func attachmentSuffixFormats(suffixes []string) []string {
@@ -154,25 +135,26 @@ func selectInstructionBundleForRequestWithRetrieverAndRouter(ctx context.Context
 }
 
 func validatedContractEvidenceTools(arbitration contractSkillArbitration, selectedSkills []SkillInstruction, request AgentRequest) []string {
-	ownedToolNames := map[string]bool{}
+	selectedToolNames := map[string]bool{}
 	for _, skillInstruction := range selectedSkills {
 		for _, toolName := range appendUniqueStrings(SkillToolNames(skillInstruction), skillInstruction.Completion.RequiredEvidenceTools...) {
-			ownedToolNames[toolName] = true
+			selectedToolNames[toolName] = true
 		}
 	}
-	validatedToolNames := validateOwnedToolNames(arbitration.ExpectedEvidence, ownedToolNames, request)
-	if len(validatedToolNames) > 0 {
-		return validatedToolNames
-	}
-	return validateOwnedToolNames(arbitration.RequiredNextTools, ownedToolNames, request)
+	return validateArbitratedEvidenceTools(arbitration.ExpectedEvidence, selectedToolNames, request)
 }
 
-func validateOwnedToolNames(toolNames []string, ownedToolNames map[string]bool, request AgentRequest) []string {
+func validateArbitratedEvidenceTools(toolNames []string, selectedToolNames map[string]bool, request AgentRequest) []string {
 	validatedToolNames := []string{}
+	requiresSideEffect := requiredEvidenceIncludesSideEffect(request.ToolSet, request.ActiveGoal.OutcomeContract.RequiredEvidenceTools)
 	for _, toolName := range appendUniqueStrings(toolNames) {
-		if ownedToolNames[toolName] && requestHasToolName(request, toolName) {
-			validatedToolNames = append(validatedToolNames, toolName)
+		if !selectedToolNames[toolName] || !requestHasToolName(request, toolName) {
+			continue
 		}
+		if requiresSideEffect && !IsArtifactDeliveryTool(toolName) && !requiredEvidenceToolNeedsSuccessfulSideEffect(request.ToolSet, toolName) {
+			continue
+		}
+		validatedToolNames = append(validatedToolNames, toolName)
 	}
 	return validatedToolNames
 }

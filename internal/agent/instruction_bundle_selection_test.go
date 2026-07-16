@@ -30,7 +30,7 @@ func TestSelectedSkillRequirementsEnrichBoundedTask(t *testing.T) {
 	}
 }
 
-func TestSelectedSkillRequirementsKeepOnlyOwnedRouterEvidence(t *testing.T) {
+func TestSelectedSkillRequirementsUseArbitratedEvidence(t *testing.T) {
 	decision := IntakeDecision{
 		Classification:        IntakeClassificationBoundedTask,
 		RequiredEvidenceTools: []string{"file.edit", "task.update"},
@@ -48,7 +48,24 @@ func TestSelectedSkillRequirementsKeepOnlyOwnedRouterEvidence(t *testing.T) {
 	result := applySelectedSkillCompletionRequirements(decision, instructionBundle)
 
 	if !reflect.DeepEqual(result.RequiredEvidenceTools, []string{"task.update"}) {
-		t.Fatalf("expected selected skill to own completion evidence, got %v", result.RequiredEvidenceTools)
+		t.Fatalf("expected arbitration evidence to replace router evidence, got %v", result.RequiredEvidenceTools)
+	}
+}
+
+func TestSelectedSkillRequirementsPreserveRouterEvidenceWithoutArbitration(t *testing.T) {
+	decision := IntakeDecision{
+		Classification:        IntakeClassificationBoundedTask,
+		RequiredEvidenceTools: []string{"file.edit"},
+	}
+	instructionBundle := InstructionBundle{
+		Skills:         []SkillInstruction{{Name: "internkim-flow", AllowedTools: []string{"task.update"}}},
+		SkillDecisions: []SkillSelectionDecision{{Name: "internkim-flow", Status: "selected"}},
+	}
+
+	result := applySelectedSkillCompletionRequirements(decision, instructionBundle)
+
+	if !reflect.DeepEqual(result.RequiredEvidenceTools, []string{"file.edit"}) {
+		t.Fatalf("expected explicit router evidence to remain exact, got %v", result.RequiredEvidenceTools)
 	}
 }
 
@@ -66,6 +83,38 @@ func TestContractEvidenceUsesOnlySelectedRegisteredTools(t *testing.T) {
 
 	if !reflect.DeepEqual(result, []string{"task.update"}) {
 		t.Fatalf("expected selected registered evidence only, got %v", result)
+	}
+}
+
+func TestContractEvidenceDoesNotPromoteRequiredNextTools(t *testing.T) {
+	selectedSkills := []SkillInstruction{{Name: "internkim-flow", AllowedTools: []string{"task.update"}}}
+	request := AgentRequest{ToolSet: newTestToolSet([]string{"task.update"})}
+
+	result := validatedContractEvidenceTools(contractSkillArbitration{
+		ExpectedEvidence:  []string{"unknown.operation"},
+		RequiredNextTools: []string{"task.update"},
+	}, selectedSkills, request)
+
+	if len(result) != 0 {
+		t.Fatalf("expected next tools to remain execution hints, got evidence %v", result)
+	}
+}
+
+func TestContractEvidenceRejectsReadForSideEffectContract(t *testing.T) {
+	selectedSkills := []SkillInstruction{{Name: "internkim-flow", AllowedTools: []string{"task.list", "task.update"}}}
+	request := AgentRequest{
+		ToolSet: newTestToolSet([]string{"file.edit", "task.list", "task.update"}),
+		ActiveGoal: ActiveGoal{OutcomeContract: OutcomeContract{
+			RequiredEvidenceTools: []string{"file.edit"},
+		}},
+	}
+
+	result := validatedContractEvidenceTools(contractSkillArbitration{
+		ExpectedEvidence: []string{"task.list"},
+	}, selectedSkills, request)
+
+	if len(result) != 0 {
+		t.Fatalf("expected read evidence to be rejected for a side-effect contract, got %v", result)
 	}
 }
 
