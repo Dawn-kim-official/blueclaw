@@ -518,6 +518,26 @@ describe('sdkd provider adapter', () => {
     });
   });
 
+  test('repairs malformed structured output with one same-route generation', async () => {
+    const model = malformedThenValidLanguageModel('repaired-model', { ok: true });
+    const fallbackModel = successfulLanguageModel('unused-model', { ok: false });
+    const generateStructuredResponse = createStructuredResponseGenerator(
+      completeConfiguration(SDKDAutoRoute.LocalFirst),
+      languageModelFactory(model, fallbackModel),
+    );
+
+    const response = await generateStructuredResponse({ ...structuredRequest, executionMode: ExecutionMode.Device });
+
+    expect(response.content).toBe('{"ok":true}');
+    expect(model.doGenerateCalls).toHaveLength(2);
+    expect(model.doGenerateCalls[0]?.toolChoice).toEqual({ type: 'tool', toolName: 'provider_test_output' });
+    expect(model.doGenerateCalls[1]?.toolChoice).toEqual({ type: 'tool', toolName: 'provider_test_output' });
+    expect(model.doGenerateCalls[1]?.maxOutputTokens).toBe(128);
+    expect(model.doGenerateCalls[1]?.seed).toBe(7);
+    expect(model.doGenerateCalls[1]?.temperature).toBe(0);
+    expect(fallbackModel.doGenerateCalls).toHaveLength(0);
+  });
+
   test('rejects structured output without exactly one matching tool call', async () => {
     for (const toolCalls of [
       [],
@@ -537,7 +557,51 @@ describe('sdkd provider adapter', () => {
         code: 'structured_output_invalid',
         diagnostic: { category: StructuredOutputDiagnosticCategory.ToolCallContract },
       });
+      expect(model.doGenerateCalls).toHaveLength(1);
     }
+  });
+
+  test('cancels structured repair without using a fallback route', async () => {
+    const abortController = new AbortController();
+    let generationCount = 0;
+    let resolveRepairStarted: (() => void) | undefined;
+    const repairStarted = new Promise<void>(resolve => {
+      resolveRepairStarted = resolve;
+    });
+    const model = new MockLanguageModelV3({
+      modelId: 'repairing-model',
+      doGenerate: async options => {
+        generationCount += 1;
+        if (generationCount === 1) return toolCallGeneration('repairing-model', 'provider_test_output', '{');
+        expect(options.abortSignal).toBeDefined();
+        resolveRepairStarted?.();
+        return new Promise((_, reject) => {
+          if (options.abortSignal?.aborted) {
+            reject(new DOMException('The operation was aborted', 'AbortError'));
+            return;
+          }
+          options.abortSignal?.addEventListener('abort', () => {
+            reject(new DOMException('The operation was aborted', 'AbortError'));
+          }, { once: true });
+        });
+      },
+    });
+    const fallbackModel = successfulLanguageModel('unused-model', { ok: true });
+    const generateStructuredResponse = createStructuredResponseGenerator(
+      completeConfiguration(SDKDAutoRoute.LocalFirst),
+      languageModelFactory(model, fallbackModel),
+    );
+
+    const responsePromise = generateStructuredResponse(
+      { ...structuredRequest, executionMode: ExecutionMode.Auto },
+      abortController.signal,
+    );
+    await repairStarted;
+    abortController.abort();
+
+    await expect(responsePromise).rejects.toThrow('aborted');
+    expect(generationCount).toBe(2);
+    expect(fallbackModel.doGenerateCalls).toHaveLength(0);
   });
 
   test('rejects undeclared quality review evidence fields', async () => {
@@ -736,6 +800,28 @@ function toolCallLanguageModel(
       warnings: [],
     }),
   });
+}
+
+function malformedThenValidLanguageModel(modelID: string, output: unknown): MockLanguageModelV3 {
+  let generationCount = 0;
+  return new MockLanguageModelV3({
+    modelId: modelID,
+    doGenerate: async () => {
+      generationCount += 1;
+      if (generationCount === 1) return toolCallGeneration(modelID, 'provider_test_output', '{');
+      return successfulGeneration(modelID, output, defaultUsage());
+    },
+  });
+}
+
+function toolCallGeneration(modelID: string, toolName: string, input: string): LanguageModelV3GenerateResult {
+  return {
+    content: [{ type: 'tool-call', toolCallId: 'structured-output-call', toolName, input }],
+    finishReason: { unified: 'tool-calls', raw: 'tool_calls' },
+    usage: defaultUsage(),
+    response: { modelId: modelID },
+    warnings: [],
+  };
 }
 
 function chatLanguageModel(modelID: string): MockLanguageModelV3 {
