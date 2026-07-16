@@ -233,7 +233,7 @@ func (agentKernel *AgentKernel) taskRunForLaunchFailure(request AgentTurnRequest
 }
 
 func (agentKernel *AgentKernel) RouteTurn(responseContext context.Context, request AgentRequest) (TurnDecision, error) {
-	return NewTurnRouter(agentKernel.classificationLanguageModel(), agentKernel.intakeOptions).Plan(responseContext, request)
+	return NewTurnRouter(agentKernel.turnRouterLanguageModel(), agentKernel.intakeOptions).Plan(responseContext, request)
 }
 
 func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context, request AgentRequest) (AgentTurnResult, error) {
@@ -247,7 +247,7 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 	turnToolSet := request.ToolSet
 	intakeRequest := request
 	intakeRequest.ToolSet = turnToolSet
-	routerLanguageModel := routerCallLedger.languageModel(agentKernel.classificationLanguageModel())
+	routerLanguageModel := routerCallLedger.languageModel(agentKernel.turnRouterLanguageModel())
 	turnRouter := NewTurnRouter(routerLanguageModel, agentKernel.intakeOptions)
 	turnDecision, errorValue := turnRouter.Plan(responseContext, intakeRequest)
 	if errorValue != nil {
@@ -716,6 +716,13 @@ func (agentKernel *AgentKernel) classificationLanguageModel() llm.LanguageModelP
 		return agentKernel.intakeLanguageModel
 	}
 	return agentKernel.languageModel
+}
+
+func (agentKernel *AgentKernel) turnRouterLanguageModel() llm.LanguageModelProvider {
+	if agentKernel.intakeLanguageModel != nil {
+		return agentKernel.intakeLanguageModel
+	}
+	return agentKernel.classificationLanguageModel()
 }
 
 func (agentKernel *AgentKernel) restoreEscalatedTaskLevelForContinuation(request AgentRequest, intakeDecision IntakeDecision) IntakeDecision {
