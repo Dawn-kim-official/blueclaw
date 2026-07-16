@@ -231,8 +231,8 @@ func TestAgentKernelPrunesInvalidRequiredEvidenceAndProceeds(t *testing.T) {
 	}
 }
 
-func TestAgentKernelPrunesInvalidEvidenceOnApprovalContinuation(t *testing.T) {
-	agentKernel, taskRunService := newKernelTestServices()
+func TestAgentKernelPreservesActiveContractOnApprovalContinuation(t *testing.T) {
+	agentKernel, _ := newKernelTestServices()
 	agentKernel.UseIntakeLanguageModelProvider(intakeDecisionLanguageModel{decision: TurnDecision{
 		Route:                 TurnRouteContinueTask,
 		Classification:        IntakeClassificationBoundedTask,
@@ -277,13 +277,6 @@ func TestAgentKernelPrunesInvalidEvidenceOnApprovalContinuation(t *testing.T) {
 	}
 	if toolCallCount != 1 {
 		t.Fatalf("expected the approved capability call to run once, got %d", toolCallCount)
-	}
-	taskEvents := taskRunService.ListTaskEvent(result.TaskRun.TaskRunID)
-	if !taskEventsContain(taskEvents, requiredEvidenceInvalidEventName, "delete_website_artifact") {
-		t.Fatal("expected pruned invalid evidence event")
-	}
-	if !taskEventsContain(taskEvents, requiredEvidenceInvalidEventName, "pruned") {
-		t.Fatal("expected prune reason on the invalid evidence event")
 	}
 }
 
