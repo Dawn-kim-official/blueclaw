@@ -204,6 +204,48 @@ func TestAgentTurnRunnerSendsCheckpointAndStillRunsTool(t *testing.T) {
 	}
 }
 
+func TestAgentTurnRunnerUsesPostEvidenceWordingAfterCheckpoint(t *testing.T) {
+	languageModel := &sequenceLanguageModel{contents: []string{
+		capabilityInvokeAction("continue", "추가할게요.", "task.add", `{"title":"고객지원 분기 결산","dueDate":"2026-07-17"}`),
+		`{"action":"finish","message":"고객지원 분기 결산 업무를 7월 17일 마감으로 등록했습니다.","completionSummary":"고객지원 분기 결산 업무 등록 완료","replyParts":[{"type":"text","text":"고객지원 분기 결산 업무를 7월 17일 마감으로 등록했습니다."}],"goalStatus":"satisfied","goalSatisfied":true,"completionEvidence":[{"observationID":"obs-002","toolName":"task.add"}],"qualityReview":[]}`,
+	}}
+	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 4})
+	toolRegistry := newTestCapabilityToolSet([]string{"task.add"})
+	toolRegistry.RegisterTool(ToolDefinition{Name: "task.add"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return ToolSuccess(`{"taskID":"task-1","title":"고객지원 분기 결산","dueDate":"2026-07-17"}`), nil
+	})
+	checkpoints := []AgentCheckpoint{}
+
+	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
+		RequesterPersonID:     "person-1",
+		ConversationID:        "conversation-1",
+		Prompt:                "고객지원 분기 결산 업무를 이번 주 금요일까지로 추가해줘",
+		ResponseLanguage:      ResponseLanguageKorean,
+		ToolSet:               toolRegistry,
+		PinnedToolNames:       toolRegistry.ListToolNames(),
+		RequiredEvidenceTools: []string{"task.add"},
+		CheckpointSender: func(_ context.Context, checkpoint AgentCheckpoint) error {
+			checkpoints = append(checkpoints, checkpoint)
+			return nil
+		},
+	})
+	if errorValue != nil {
+		t.Fatalf("expected task creation to succeed: %v", errorValue)
+	}
+	if len(checkpoints) != 1 || checkpoints[0].Message != "추가할게요." {
+		t.Fatalf("expected the pre-tool checkpoint to be sent, got %+v", checkpoints)
+	}
+	if result.FinishMessage != "고객지원 분기 결산 업무를 7월 17일 마감으로 등록했습니다." {
+		t.Fatalf("expected post-evidence wording, got %q", result.FinishMessage)
+	}
+	if len(languageModel.requests) != 2 {
+		t.Fatalf("expected a post-evidence model call, got %d requests", len(languageModel.requests))
+	}
+	if languageModel.requests[1].StructuredOutputSchema.Name != "blueclaw_agent_turn_action" {
+		t.Fatalf("expected a post-evidence action, got %q", languageModel.requests[1].StructuredOutputSchema.Name)
+	}
+}
+
 func TestAgentTurnRunnerSuppressesCheckpointForSimpleTask(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		`{"action":"continue","message":"일정을 확인하겠습니다.","toolName":"capability.invoke","toolInput":{"operation":"alpha","input":{"value":"one"}}}`,
@@ -851,9 +893,10 @@ func TestAgentTurnRunnerTerminalNoToolsRepairsInvalidOutputWithoutReopeningTools
 	assertTerminalNoToolsSchemasExcludeToolActions(t, languageModel.requests)
 }
 
-func TestAgentTurnRunnerAutoCompletesSimpleBrowserOpen(t *testing.T) {
+func TestAgentTurnRunnerCompletesBrowserOpenWithPostEvidenceReply(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		capabilityInvokeAction("continue", "브라우저를 열었습니다. 완료했습니다.", "browser.open", `{"url":"https://www.google.com"}`),
+		`{"action":"finish","message":"구글 홈페이지를 브라우저에서 열었습니다.","completionSummary":"구글 홈페이지 열기 완료","replyParts":[{"type":"text","text":"구글 홈페이지를 브라우저에서 열었습니다."}],"goalStatus":"satisfied","goalSatisfied":true,"completionEvidence":[{"observationID":"obs-001","toolName":"browser.open"}],"qualityReview":[]}`,
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
 	toolRegistry := newTestCapabilityToolSet([]string{"browser.open"})
@@ -873,14 +916,11 @@ func TestAgentTurnRunnerAutoCompletesSimpleBrowserOpen(t *testing.T) {
 	if errorValue != nil {
 		t.Fatalf("expected turn to succeed: %v", errorValue)
 	}
-	if !strings.Contains(result.FinishMessage, "완료") && !strings.Contains(result.FinishMessage, "열") {
-		t.Fatalf("expected browser-open completion reply, got %q", result.FinishMessage)
+	if result.FinishMessage != "구글 홈페이지를 브라우저에서 열었습니다." {
+		t.Fatalf("expected post-evidence browser-open reply, got %q", result.FinishMessage)
 	}
-	if len(languageModel.requests) != 1 {
-		t.Fatalf("expected no extra model calls after browser.open, got %d", len(languageModel.requests))
-	}
-	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.completion_state_finalized", "evidenceCount") {
-		t.Fatal("expected completion state finalization event")
+	if len(languageModel.requests) != 2 {
+		t.Fatalf("expected a post-evidence model call, got %d", len(languageModel.requests))
 	}
 }
 

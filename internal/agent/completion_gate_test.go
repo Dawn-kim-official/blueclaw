@@ -429,6 +429,7 @@ func TestAgentTurnRunnerRequiresSelectedSkillEvidenceBeforeFinishMessage(t *test
 	languageModel := &sequenceLanguageModel{contents: []string{
 		finishMessageDocument("PPT 못 만들어요"),
 		`{"action":"continue","message":"PPTX를 첨부했습니다: deck.pptx","toolName":"file.deliver","toolInput":{"path":"deck.pptx"}}`,
+		finishMessageWithEvidence("PPTX를 첨부했습니다: deck.pptx", "obs-003", "file.deliver", 0),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
 	toolRegistry := newTestToolSet([]string{"file.deliver"})
@@ -513,6 +514,7 @@ func TestAgentTurnRunnerRequiresAttachmentSuffixEvidence(t *testing.T) {
 		`{"action":"continue","toolName":"file.deliver","toolInput":{"path":"DESIGN.md"}}`,
 		finishMessageWithEvidence("첨부했습니다.", "obs-001", "file.deliver", 0),
 		`{"action":"continue","message":"PPTX를 첨부했습니다: deck.pptx","toolName":"file.deliver","toolInput":{"path":"deck.pptx"}}`,
+		finishMessageWithEvidence("PPTX를 첨부했습니다: deck.pptx", "obs-004", "file.deliver", 0),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 5})
 	toolRegistry := newTestToolSet([]string{"file.deliver"})
@@ -672,7 +674,7 @@ func TestAgentTurnRunnerCompletesAfterRequiredArtifactsExist(t *testing.T) {
 	artifactDirectoryPath := filepath.Join(workspaceRootPath, "private", "people", "person-1", "artifacts", "deck")
 	languageModel := &sequenceLanguageModel{contents: []string{
 		`{"action":"continue","message":"자료를 완성했습니다.","toolName":"terminal.run","toolInput":{"command":"build deck"}}`,
-		`{"action":"continue","toolName":"terminal.run","toolInput":{"command":"build another deck"}}`,
+		`{"action":"finish","message":"완성한 발표 자료를 첨부했습니다.","completionSummary":"발표 자료 완성 및 첨부","replyParts":[{"type":"text","text":"완성한 발표 자료를 첨부했습니다."}],"goalStatus":"satisfied","goalSatisfied":true,"completionEvidence":[{"observationID":"obs-003","toolName":"file.deliver","attachmentIndex":0},{"observationID":"obs-004","toolName":"file.deliver","attachmentIndex":0}],"qualityReview":[]}`,
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
 	toolRegistry := newTestToolSet([]string{"terminal.run", "file.deliver"})
@@ -716,8 +718,11 @@ func TestAgentTurnRunnerCompletesAfterRequiredArtifactsExist(t *testing.T) {
 	if len(result.Attachments) != 2 {
 		t.Fatalf("expected two attachments, got %+v", result.Attachments)
 	}
-	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.completion_state_finalized", "attachmentCount") {
-		t.Fatal("expected completion state finalization event")
+	if result.FinishMessage != "완성한 발표 자료를 첨부했습니다." {
+		t.Fatalf("expected post-evidence completion wording, got %q", result.FinishMessage)
+	}
+	if len(languageModel.requests) != 2 {
+		t.Fatalf("expected a post-evidence model call, got %d", len(languageModel.requests))
 	}
 }
 
