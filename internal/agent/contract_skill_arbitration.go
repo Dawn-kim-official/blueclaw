@@ -83,6 +83,7 @@ func contractSkillArbitrationMessages(request AgentRequest, candidates []SkillIn
 			"Select only skill names from the candidate list. Do not invent skills or tools.",
 			"The latest user request is authoritative. Use prior conversation only to understand the current requested outcome.",
 			"Choose capabilities needed to create, verify, deliver, or update the required result. Do not select skills merely because the requested content mentions their domain.",
+			"expectedEvidence must name the exact successful operations that prove the requested outcome. Include each state-changing requiredNextTool in expectedEvidence; requiredNextToolNames only describes execution order.",
 			"If no candidate is useful for the contract, return an empty selectedSkillNames array and reject the unsuitable candidates.",
 		}, " "),
 	}, {

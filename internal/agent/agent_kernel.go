@@ -314,11 +314,13 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 		prunedEvidenceReport.Reason = "invalid required evidence pruned; the task keeps executing and real permission is enforced at execution"
 	}
 	hadReadOnlyRequiredEvidence := len(outcomeContract.RequiredEvidenceTools) > 0 && requiredEvidenceMissingForSideEffect(intakeDecision, outcomeContract, turnToolSet)
+	hasUnresolvedContractEvidence := len(instructionBundle.RequiredEvidenceCandidates) > 0
 	var requiredEvidenceReask requiredEvidenceReaskReport
-	if missingEvidenceReport := missingRequiredEvidenceReport(intakeDecision, outcomeContract, turnToolSet); !isDeterministicResume && strings.TrimSpace(missingEvidenceReport.Reason) != "" {
-		intakeDecision, outcomeContract, requiredEvidenceReask = agentKernel.reaskMissingRequiredEvidenceOnce(responseContext, request, intakeRequest, intakeDecision, outcomeContract, instructionBundle, executionPlan, hasExecutionPlan, requiredAttachmentSuffixes, turnToolSet, routerLanguageModel)
+	missingEvidenceReport := missingRequiredEvidenceReport(intakeDecision, outcomeContract, turnToolSet)
+	if !isDeterministicResume && (strings.TrimSpace(missingEvidenceReport.Reason) != "" || hasUnresolvedContractEvidence) {
+		intakeDecision, outcomeContract, requiredEvidenceReask = agentKernel.reaskMissingRequiredEvidenceOnce(responseContext, request, intakeRequest, intakeDecision, outcomeContract, instructionBundle, executionPlan, hasExecutionPlan, requiredAttachmentSuffixes, turnToolSet, routerLanguageModel, instructionBundle.RequiredEvidenceCandidates)
 	}
-	if hadReadOnlyRequiredEvidence && requiredEvidenceReask.WasAttempted && !requiredEvidenceReask.DidRecoverEvidence {
+	if (hadReadOnlyRequiredEvidence || hasUnresolvedContractEvidence) && requiredEvidenceReask.WasAttempted && !requiredEvidenceReask.DidRecoverEvidence {
 		intakeDecision.Reason = "required side-effect evidence could not be selected"
 		intakeDecision.UserFacingReply = ""
 		result, blockError := agentKernel.completeIntakeOnlyRequest(responseContext, intakeRequest, intakeDecision, task.TaskStatusBlocked, routerCallLedger.records)
@@ -419,16 +421,16 @@ func (agentKernel *AgentKernel) completeTurnRouterFailure(responseContext contex
 	return result
 }
 
-func (agentKernel *AgentKernel) reaskMissingRequiredEvidenceOnce(responseContext context.Context, request AgentRequest, intakeRequest AgentRequest, intakeDecision IntakeDecision, outcomeContract OutcomeContract, instructionBundle InstructionBundle, executionPlan ExecutionPlan, hasExecutionPlan bool, requiredAttachmentSuffixes []string, turnToolSet *ToolSet, routerLanguageModel llm.LanguageModelProvider) (IntakeDecision, OutcomeContract, requiredEvidenceReaskReport) {
+func (agentKernel *AgentKernel) reaskMissingRequiredEvidenceOnce(responseContext context.Context, request AgentRequest, intakeRequest AgentRequest, intakeDecision IntakeDecision, outcomeContract OutcomeContract, instructionBundle InstructionBundle, executionPlan ExecutionPlan, hasExecutionPlan bool, requiredAttachmentSuffixes []string, turnToolSet *ToolSet, routerLanguageModel llm.LanguageModelProvider, requiredEvidenceCandidates []string) (IntakeDecision, OutcomeContract, requiredEvidenceReaskReport) {
 	turnRouter := NewTurnRouter(routerLanguageModel, agentKernel.intakeOptions)
-	reaskDecision, errorValue := turnRouter.ReaskRequiredEvidence(responseContext, intakeRequest)
+	reaskDecision, errorValue := turnRouter.ReaskRequiredEvidence(responseContext, intakeRequest, requiredEvidenceCandidates)
 	if errorValue != nil {
 		return intakeDecision, outcomeContract, requiredEvidenceReaskReport{WasAttempted: true, Reason: errorValue.Error()}
 	}
 	reaskIntakeDecision := reaskDecision.IntakeDecision()
 	evidenceValidationReport := validateRequiredEvidenceTools(turnToolSet, reaskIntakeDecision.RequiredEvidenceTools)
 	reaskOutcomeContract := OutcomeContract{RequiredEvidenceTools: reaskIntakeDecision.RequiredEvidenceTools}
-	if len(reaskIntakeDecision.RequiredEvidenceTools) == 0 || evidenceValidationReport.HasInvalidEvidence() || requiredEvidenceMissingForSideEffect(intakeDecision, reaskOutcomeContract, turnToolSet) {
+	if !requiredEvidenceMatchesCandidates(reaskIntakeDecision.RequiredEvidenceTools, requiredEvidenceCandidates) || evidenceValidationReport.HasInvalidEvidence() || requiredEvidenceMissingForSideEffect(intakeDecision, reaskOutcomeContract, turnToolSet) {
 		return intakeDecision, outcomeContract, requiredEvidenceReaskReport{WasAttempted: true, Reason: "re-ask still returned no valid required evidence"}
 	}
 	intakeDecision.RequiredEvidenceTools = appendUniqueStrings(nil, reaskIntakeDecision.RequiredEvidenceTools...)
@@ -438,6 +440,22 @@ func (agentKernel *AgentKernel) reaskMissingRequiredEvidenceOnce(responseContext
 		DidRecoverEvidence: true,
 		RecoveredEvidence:  reaskIntakeDecision.RequiredEvidenceTools,
 	}
+}
+
+func requiredEvidenceMatchesCandidates(requiredEvidenceTools []string, candidates []string) bool {
+	if len(requiredEvidenceTools) == 0 {
+		return false
+	}
+	if len(candidates) == 0 {
+		return true
+	}
+	allowedToolNames := stringSet(candidates)
+	for _, toolName := range requiredEvidenceTools {
+		if !allowedToolNames[toolName] {
+			return false
+		}
+	}
+	return true
 }
 
 func (agentKernel *AgentKernel) selectInstructionBundleForResolvedRequest(ctx context.Context, baseInstructionBundle InstructionBundle, request AgentRequest, intakeDecision IntakeDecision) (InstructionBundle, IntakeDecision) {

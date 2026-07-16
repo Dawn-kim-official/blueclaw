@@ -315,7 +315,7 @@ func (turnRouter TurnRouter) planWithLanguageModel(ctx context.Context, request 
 
 const requiredEvidenceReaskInstruction = "This request was already classified as side-effect work but requiredEvidence does not contain a side-effect operation. This task changes state and its completion must be observable. Replace requiredEvidence with one or more exact names copied from Registered requiredEvidence names above whose successful observation proves the requested change happened. Read-only operations such as list, history, search, status, context, preview, snapshot, and screenshot do not prove a change. Never use capability.invoke."
 
-func (turnRouter TurnRouter) ReaskRequiredEvidence(ctx context.Context, request AgentRequest) (TurnDecision, error) {
+func (turnRouter TurnRouter) ReaskRequiredEvidence(ctx context.Context, request AgentRequest, requiredEvidenceCandidates []string) (TurnDecision, error) {
 	if turnRouter.languageModel == nil {
 		return TurnDecision{}, errors.New("intake language model unavailable for required evidence re-ask")
 	}
@@ -323,6 +323,12 @@ func (turnRouter TurnRouter) ReaskRequiredEvidence(ctx context.Context, request 
 		Role:    "system",
 		Content: requiredEvidenceReaskInstruction,
 	})
+	if len(requiredEvidenceCandidates) > 0 {
+		messages = append(messages, llm.Message{
+			Role:    "system",
+			Content: "Selected-skill requiredEvidence candidates: " + strings.Join(appendUniqueStrings(requiredEvidenceCandidates), ", ") + ". Choose only from this list.",
+		})
+	}
 	maxTokens := turnRouterMaxTokens
 	structuredResponse, errorValue := turnRouter.languageModel.GenerateStructuredResponse(ctx, llm.StructuredResponseRequest{
 		Messages:          messages,

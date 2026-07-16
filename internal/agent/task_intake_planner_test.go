@@ -53,6 +53,23 @@ func TestTurnRouterPropagatesLanguageModelError(t *testing.T) {
 	}
 }
 
+func TestTurnRouterReasksWithinSelectedEvidenceCandidates(t *testing.T) {
+	languageModel := &sequenceLanguageModel{contents: []string{`{"requiredEvidence":["task.update"]}`}}
+	router := NewTurnRouter(languageModel, IntakeOptions{IsEnabled: true})
+
+	decision, errorValue := router.ReaskRequiredEvidence(context.Background(), AgentRequest{Prompt: "업무 제목을 바꿔줘"}, []string{"task.update"})
+
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if !slices.Equal(decision.RequiredEvidenceTools, []string{"task.update"}) {
+		t.Fatalf("expected selected evidence candidate, got %v", decision.RequiredEvidenceTools)
+	}
+	if len(languageModel.requests) != 1 || !strings.Contains(joinedMessageContent(languageModel.requests[0].Messages), "Selected-skill requiredEvidence candidates: task.update") {
+		t.Fatal("expected evidence re-ask to contain the selected-skill candidate")
+	}
+}
+
 func TestTurnRouterPreservesUnsupportedArtifactDecision(t *testing.T) {
 	decision := mustNormalizeTurn(t, NewTurnRouter(nil, IntakeOptions{}), TurnDecision{
 		Route:                  TurnRouteGiveUp,
