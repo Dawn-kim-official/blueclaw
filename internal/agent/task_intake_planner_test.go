@@ -81,35 +81,39 @@ func TestTurnRouterRejectsInconsistentDecisionFields(t *testing.T) {
 		ResponseLanguage:   "ko",
 		PriorTaskReference: PriorTaskReferenceNone,
 	}
+	validDecision.Route = TurnRouteConsume
+	_, errorValue := NewTurnRouter(nil, IntakeOptions{}).normalizeDecision(validDecision, AgentRequest{AllowGiveUp: true})
+	if errorValue == nil || !strings.Contains(errorValue.Error(), "bounded_task with a terminal route") {
+		t.Fatalf("expected bounded terminal route error, got %v", errorValue)
+	}
+}
+
+func TestTurnRouterCanonicalizesClassificationControlFields(t *testing.T) {
 	testCases := []struct {
-		name     string
-		mutate   func(*TurnDecision)
-		expected string
+		classification IntakeClassification
+		expectedRoute  TurnRoute
+		expectedShape  TaskShape
 	}{
-		{name: "quick reply shape", mutate: func(decision *TurnDecision) {
-			decision.Classification = IntakeClassificationQuickReply
-		}, expected: "quick_reply without immediate_reply"},
-		{name: "confirmation route", mutate: func(decision *TurnDecision) {
-			decision.Classification = IntakeClassificationNeedsConfirmation
-			decision.TaskShape = TaskShapeApprovalGatedTask
-		}, expected: "inconsistent needs_confirmation"},
-		{name: "unsupported route", mutate: func(decision *TurnDecision) {
-			decision.Classification = IntakeClassificationUnsupported
-			decision.TaskShape = TaskShapeImmediateReply
-		}, expected: "inconsistent unsupported"},
-		{name: "bounded terminal route", mutate: func(decision *TurnDecision) {
-			decision.Route = TurnRouteConsume
-		}, expected: "bounded_task with a terminal route"},
+		{classification: IntakeClassificationQuickReply, expectedRoute: TurnRouteConsume, expectedShape: TaskShapeImmediateReply},
+		{classification: IntakeClassificationNeedsConfirmation, expectedRoute: TurnRouteClarify, expectedShape: TaskShapeApprovalGatedTask},
+		{classification: IntakeClassificationUnsupported, expectedRoute: TurnRouteGiveUp, expectedShape: TaskShapeImmediateReply},
 	}
 	for _, testCase := range testCases {
-		t.Run(testCase.name, func(t *testing.T) {
-			decision := validDecision
-			testCase.mutate(&decision)
-			_, errorValue := NewTurnRouter(nil, IntakeOptions{}).normalizeDecision(decision, AgentRequest{AllowGiveUp: true})
-			if errorValue == nil || !strings.Contains(errorValue.Error(), testCase.expected) {
-				t.Fatalf("expected %q error, got %v", testCase.expected, errorValue)
-			}
-		})
+		decision, errorValue := NewTurnRouter(nil, IntakeOptions{}).normalizeDecision(TurnDecision{
+			Route:              TurnRouteConsume,
+			Classification:     testCase.classification,
+			TaskShape:          TaskShapeMaintenanceTask,
+			TaskLevel:          TaskLevelLow,
+			EstimatedMinutes:   1,
+			ResponseLanguage:   "ko",
+			PriorTaskReference: PriorTaskReferenceNone,
+		}, AgentRequest{AllowGiveUp: true})
+		if errorValue != nil {
+			t.Fatalf("expected canonical decision for %s: %v", testCase.classification, errorValue)
+		}
+		if decision.Route != testCase.expectedRoute || decision.TaskShape != testCase.expectedShape {
+			t.Fatalf("unexpected canonical decision for %s: %+v", testCase.classification, decision)
+		}
 	}
 }
 
