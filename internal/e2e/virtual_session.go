@@ -2543,10 +2543,8 @@ func allowedToolsOrDefault(allowedTools []string) []string {
 
 func terminalConfiguration(workspacePath string) config.TerminalConfiguration {
 	return config.TerminalConfiguration{
-		Mode:              "firecrackerGuest",
-		WorkspaceRootPath: workspacePath,
-
-		DeniedPathPrefixes:    []string{"/etc", "/private/etc", "/System", "/Library"},
+		Mode:                  "firecrackerGuest",
+		WorkspaceRootPath:     workspacePath,
 		TimeoutSecond:         120,
 		OutputMaxBytes:        32768,
 		SessionMaxCount:       2,

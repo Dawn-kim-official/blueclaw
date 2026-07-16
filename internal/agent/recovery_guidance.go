@@ -92,7 +92,7 @@ func recoveryGuidanceContent(observation turnObservation, originalInstruction st
 	if observation.RecoveryAttemptKey != "" {
 		parts = append(parts, "A safe automatic retry has already been attempted for this tool input.")
 	}
-	if terminalRecoveryGuidance := terminalPathRecoveryGuidance(observation); terminalRecoveryGuidance != "" {
+	if terminalRecoveryGuidance := terminalWorkingDirectoryRecoveryGuidance(observation); terminalRecoveryGuidance != "" {
 		parts = append(parts, terminalRecoveryGuidance)
 	}
 	if browserGuidance := browserPublicFetchRecoveryGuidance(observation); browserGuidance != "" {
@@ -126,18 +126,14 @@ func sitePublishPrerequisiteRecoveryGuidance(observation turnObservation) string
 	}
 }
 
-func terminalPathRecoveryGuidance(observation turnObservation) string {
+func terminalWorkingDirectoryRecoveryGuidance(observation turnObservation) string {
 	if strings.TrimSpace(observation.Tool) != "terminal.run" {
 		return ""
 	}
-	switch strings.TrimSpace(observation.FailureStage()) {
-	case "terminal_path_guardrail":
-		return "Recovery route: retry terminal.run in ~/documents/ for document work, saving finished documents as ~/documents/<name>.<ext>. Do not call /opt/blueclaw, /tmp, or runtime-internal paths directly. For built-in artifact skills, execute /workspace/skills/<skill>/scripts/skill_runtime.py and let the wrapper choose dependencies."
-	case "terminal_working_directory_access":
+	if strings.TrimSpace(observation.FailureStage()) == "terminal_working_directory_access" {
 		return "Recovery route: retry terminal.run with workingDirectoryPath set to ~/documents or another ~ path, use relative paths inside the command, then deliver accepted output with file.deliver."
-	default:
-		return ""
 	}
+	return ""
 }
 
 type RecoveryRoute struct {

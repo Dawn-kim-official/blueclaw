@@ -14,37 +14,6 @@ type CommandGuardrailService struct {
 	terminalConfiguration config.TerminalConfiguration
 }
 
-type CommandGuardrailError struct {
-	Reason               string
-	Token                string
-	ResolvedPath         string
-	WorkspaceRootPath    string
-	WorkingDirectoryPath string
-	RecoveryHint         string
-}
-
-func (commandGuardrailError CommandGuardrailError) Error() string {
-	parts := []string{strings.TrimSpace(commandGuardrailError.Reason)}
-	if strings.TrimSpace(commandGuardrailError.Token) != "" {
-		parts = append(parts, `token "`+strings.TrimSpace(commandGuardrailError.Token)+`"`)
-	}
-	if strings.TrimSpace(commandGuardrailError.ResolvedPath) != "" {
-		parts = append(parts, `resolves to "`+strings.TrimSpace(commandGuardrailError.ResolvedPath)+`"`)
-	}
-	if strings.TrimSpace(commandGuardrailError.WorkspaceRootPath) != "" {
-		parts = append(parts, `workspace root "`+strings.TrimSpace(commandGuardrailError.WorkspaceRootPath)+`"`)
-	}
-	if strings.TrimSpace(commandGuardrailError.RecoveryHint) != "" {
-		parts = append(parts, "recovery: "+strings.TrimSpace(commandGuardrailError.RecoveryHint))
-	}
-	return strings.Join(parts, "; ")
-}
-
-func IsCommandPathGuardrailError(errorValue error) bool {
-	var commandGuardrailError CommandGuardrailError
-	return errors.As(errorValue, &commandGuardrailError)
-}
-
 func NewCommandGuardrailService(terminalConfiguration config.TerminalConfiguration) CommandGuardrailService {
 	return CommandGuardrailService{
 		terminalConfiguration: terminalConfiguration,
@@ -75,18 +44,8 @@ func (commandGuardrailService CommandGuardrailService) BuildCommandPlan(commandR
 		return CommandPlan{}, errorValue
 	}
 
-	errorValue = commandGuardrailService.validateExecutable(resolvedExecutablePath)
-	if errorValue != nil {
-		return CommandPlan{}, errorValue
-	}
-
 	if commandRequest.IsInteractive && !commandGuardrailService.terminalConfiguration.AllowInteractiveShell {
 		return CommandPlan{}, errors.New("interactive shell is disabled")
-	}
-
-	errorValue = commandGuardrailService.validateArgumentPaths(commandRequest.Arguments, workingDirectoryPath, workspaceRootPath)
-	if errorValue != nil {
-		return CommandPlan{}, errorValue
 	}
 
 	commandPlan := CommandPlan{
@@ -116,17 +75,9 @@ func (commandGuardrailService CommandGuardrailService) buildBashCommandPlan(comm
 	if commandRequest.IsInteractive && !commandGuardrailService.terminalConfiguration.AllowInteractiveShell {
 		return CommandPlan{}, errors.New("interactive shell is disabled")
 	}
-	if errorValue := commandGuardrailService.validateCommandString(commandRequest.Command, workingDirectoryPath, workspaceRootPath); errorValue != nil {
-		return CommandPlan{}, errorValue
-	}
 	resolvedExecutablePath, errorValue := commandGuardrailService.resolveExecutablePath("bash")
 	if errorValue != nil {
 		return CommandPlan{}, errorValue
-	}
-	if commandGuardrailService.terminalConfiguration.Mode != "firecrackerGuest" {
-		if errorValue := commandGuardrailService.validateExecutable(resolvedExecutablePath); errorValue != nil {
-			return CommandPlan{}, errorValue
-		}
 	}
 	arguments := []string{"--noprofile", "--norc", "-s"}
 	if commandRequest.IsPTY {
@@ -222,167 +173,6 @@ func (commandGuardrailService CommandGuardrailService) resolveExecutablePath(exe
 	return "", errors.New("executable was not found in canonical runtime PATH")
 }
 
-// validateExecutable applies no name-based allow or deny list. The execution
-// boundary is the requester's POSIX user, group, and file permissions: the task
-// runs as an unprivileged actor, so a system-modification command (a package
-// manager, mount, reboot) simply fails at execution for lack of rights. A
-// basename denylist added nothing POSIX did not already enforce and was
-// trivially bypassed by renaming, while blocking legitimate executables.
-func (commandGuardrailService CommandGuardrailService) validateExecutable(resolvedExecutablePath string) error {
-	return nil
-}
-
-func (commandGuardrailService CommandGuardrailService) validateArgumentPaths(arguments []string, workingDirectoryPath string, workspaceRootPath string) error {
-	for _, argument := range arguments {
-		if !looksLikePath(argument) {
-			continue
-		}
-
-		resolvedPath, errorValue := resolvePathArgument(argument, workingDirectoryPath)
-		if errorValue != nil {
-			return errorValue
-		}
-
-		if isAllowedStandardDevicePath(resolvedPath) {
-			continue
-		}
-
-		for _, deniedPathPrefix := range commandGuardrailService.terminalConfiguration.DeniedPathPrefixes {
-			if strings.HasPrefix(resolvedPath, deniedPathPrefix) {
-				return newCommandGuardrailError("path argument targets a denied system path", argument, resolvedPath, workspaceRootPath, workingDirectoryPath)
-			}
-		}
-	}
-
-	return nil
-}
-
-func (commandGuardrailService CommandGuardrailService) validateCommandString(command string, workingDirectoryPath string, workspaceRootPath string) error {
-	for _, token := range commandTokens(command) {
-		if !looksLikePath(token) {
-			continue
-		}
-		resolvedPath, errorValue := resolvePathArgument(token, workingDirectoryPath)
-		if errorValue != nil {
-			return errorValue
-		}
-		if isAllowedStandardDevicePath(resolvedPath) {
-			continue
-		}
-		for _, deniedPathPrefix := range commandGuardrailService.terminalConfiguration.DeniedPathPrefixes {
-			if strings.HasPrefix(resolvedPath, deniedPathPrefix) {
-				return newCommandGuardrailError("command path targets a denied system path", token, resolvedPath, workspaceRootPath, workingDirectoryPath)
-			}
-		}
-	}
-	return nil
-}
-
-func newCommandGuardrailError(reason string, token string, resolvedPath string, workspaceRootPath string, workingDirectoryPath string) CommandGuardrailError {
-	return CommandGuardrailError{
-		Reason:               strings.TrimSpace(reason),
-		Token:                strings.TrimSpace(token),
-		ResolvedPath:         strings.TrimSpace(resolvedPath),
-		WorkspaceRootPath:    strings.TrimSpace(workspaceRootPath),
-		WorkingDirectoryPath: strings.TrimSpace(workingDirectoryPath),
-		RecoveryHint:         "use ~ paths in tool fields: do document work in ~/documents/ and save finished documents as ~/documents/<name>.<ext>",
-	}
-}
-
-func commandTokens(command string) []string {
-	command = commandWithoutHereDocumentBodies(command)
-	replacer := strings.NewReplacer(
-		"\n", " ",
-		";", " ",
-		"&&", " ",
-		"||", " ",
-		"|", " ",
-		"(", " ",
-		")", " ",
-		"=", " ",
-		"<", " ",
-		">", " ",
-	)
-	fields := strings.Fields(replacer.Replace(command))
-	tokens := []string{}
-	for _, field := range fields {
-		token := strings.Trim(field, `"'`)
-		if token != "" {
-			tokens = append(tokens, token)
-		}
-	}
-	return tokens
-}
-
-func commandWithoutHereDocumentBodies(command string) string {
-	lines := strings.Split(command, "\n")
-	keptLines := []string{}
-	pendingDelimiters := []string{}
-	for _, line := range lines {
-		if len(pendingDelimiters) > 0 {
-			if strings.TrimSpace(line) == pendingDelimiters[0] {
-				pendingDelimiters = pendingDelimiters[1:]
-			}
-			continue
-		}
-		keptLines = append(keptLines, line)
-		pendingDelimiters = append(pendingDelimiters, hereDocumentDelimiters(line)...)
-	}
-	return strings.Join(keptLines, "\n")
-}
-
-func hereDocumentDelimiters(line string) []string {
-	delimiters := []string{}
-	for index := 0; index+1 < len(line); index++ {
-		if line[index] != '<' || line[index+1] != '<' {
-			continue
-		}
-		readIndex := index + 2
-		if readIndex < len(line) && line[readIndex] == '<' {
-			index = readIndex
-			continue
-		}
-		if readIndex < len(line) && line[readIndex] == '-' {
-			readIndex++
-		}
-		for readIndex < len(line) && (line[readIndex] == ' ' || line[readIndex] == '\t') {
-			readIndex++
-		}
-		delimiter, nextIndex := readHereDocumentDelimiter(line, readIndex)
-		if delimiter != "" {
-			delimiters = append(delimiters, delimiter)
-		}
-		index = nextIndex
-	}
-	return delimiters
-}
-
-func readHereDocumentDelimiter(line string, startIndex int) (string, int) {
-	if startIndex >= len(line) {
-		return "", startIndex
-	}
-	if line[startIndex] == '\'' || line[startIndex] == '"' {
-		quote := line[startIndex]
-		endIndex := startIndex + 1
-		for endIndex < len(line) && line[endIndex] != quote {
-			endIndex++
-		}
-		if endIndex >= len(line) {
-			return "", endIndex
-		}
-		return line[startIndex+1 : endIndex], endIndex
-	}
-	endIndex := startIndex
-	for endIndex < len(line) && !isShellDelimiterByte(line[endIndex]) {
-		endIndex++
-	}
-	return line[startIndex:endIndex], endIndex
-}
-
-func isShellDelimiterByte(value byte) bool {
-	return value == ' ' || value == '\t' || value == ';' || value == '&' || value == '|' || value == '<' || value == '>' || value == '(' || value == ')'
-}
-
 func joinCommandInput(command string, stdin string) string {
 	if strings.TrimSpace(command) == "" {
 		return stdin
@@ -419,38 +209,12 @@ func resolvePathArgument(pathArgument string, basePath string) (string, error) {
 	return filepath.Abs(filepath.Join(basePath, pathArgument))
 }
 
-func looksLikePath(argument string) bool {
-	if argument == "" {
-		return false
-	}
-	if strings.Contains(argument, "://") {
-		return false
-	}
-	return strings.HasPrefix(argument, "/") || strings.HasPrefix(argument, ".") || strings.Contains(argument, "/")
-}
-
 func isWithinRootPath(rootPath string, targetPath string) bool {
 	relativePath, errorValue := filepath.Rel(rootPath, targetPath)
 	if errorValue != nil {
 		return false
 	}
 	return relativePath == "." || (!strings.HasPrefix(relativePath, "..") && relativePath != "..")
-}
-
-var allowedStandardDevicePaths = map[string]bool{
-	"/dev/null":    true,
-	"/dev/zero":    true,
-	"/dev/full":    true,
-	"/dev/random":  true,
-	"/dev/urandom": true,
-	"/dev/stdin":   true,
-	"/dev/stdout":  true,
-	"/dev/stderr":  true,
-	"/dev/tty":     true,
-}
-
-func isAllowedStandardDevicePath(resolvedPath string) bool {
-	return allowedStandardDevicePaths[resolvedPath]
 }
 
 func sanitizeEnvironmentVariables(environmentVariables map[string]string, workspaceRootPath string) map[string]string {

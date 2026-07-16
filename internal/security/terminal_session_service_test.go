@@ -161,24 +161,6 @@ func TestRTKHookSkipsInteractiveCommand(t *testing.T) {
 	}
 }
 
-func TestRunCommandValidatesRewrittenCommandWithGuardrails(t *testing.T) {
-	terminalSessionService := newTerminalSessionService(
-		testTerminalConfiguration(t),
-		fakeRewriteExecutable(t, "printf original", "cat /etc/passwd"),
-	)
-
-	commandResult, errorValue := terminalSessionService.RunCommand(context.Background(), CommandRequest{
-		Command: "printf original",
-	})
-
-	if errorValue == nil || !strings.Contains(errorValue.Error(), "targets a denied system path") {
-		t.Fatalf("expected rewritten command guardrail denial, got %v", errorValue)
-	}
-	if !strings.Contains(commandResult.Stderr, "targets a denied system path") {
-		t.Fatalf("expected command result to include guardrail error, got %+v", commandResult)
-	}
-}
-
 func TestRunCommandRequiresPreparedWorkspaceWorkingDirectoryInFirecrackerGuestMode(t *testing.T) {
 	terminalConfiguration := testTerminalConfiguration(t)
 	terminalSessionService := NewTerminalSessionService(terminalConfiguration)
@@ -194,33 +176,6 @@ func TestRunCommandRequiresPreparedWorkspaceWorkingDirectoryInFirecrackerGuestMo
 	}
 	if !strings.Contains(commandResult.Stderr, "no such file or directory") {
 		t.Fatalf("expected missing directory detail, got %+v", commandResult)
-	}
-}
-
-func TestRunCommandDeniesDeniedSystemPath(t *testing.T) {
-	terminalSessionService := NewTerminalSessionService(testTerminalConfiguration(t))
-
-	commandResult, errorValue := terminalSessionService.RunCommand(context.Background(), CommandRequest{
-		Command: "cat /etc/passwd",
-	})
-
-	if errorValue == nil || !strings.Contains(errorValue.Error(), "targets a denied system path") {
-		t.Fatalf("expected denied system path denial, got %v", errorValue)
-	}
-	if !strings.Contains(commandResult.Stderr, "targets a denied system path") {
-		t.Fatalf("expected command result to include guardrail error, got %+v", commandResult)
-	}
-}
-
-func TestRunCommandAllowsNonDeniedPathOutsideWorkspace(t *testing.T) {
-	terminalSessionService := NewTerminalSessionService(testTerminalConfiguration(t))
-
-	_, errorValue := terminalSessionService.RunCommand(context.Background(), CommandRequest{
-		Command: "ls -d /tmp",
-	})
-
-	if errorValue != nil && IsCommandPathGuardrailError(errorValue) {
-		t.Fatalf("expected non-denied path outside workspace to pass the path guardrail, got %v", errorValue)
 	}
 }
 
@@ -484,7 +439,6 @@ func testTerminalConfiguration(t *testing.T) config.TerminalConfiguration {
 	return config.TerminalConfiguration{
 		Mode:                  "firecrackerGuest",
 		WorkspaceRootPath:     workspaceRootPath,
-		DeniedPathPrefixes:    []string{"/etc", "/root", "/var/run/docker.sock"},
 		AllowNetwork:          true,
 		AllowInteractiveShell: true,
 		TimeoutSecond:         3,

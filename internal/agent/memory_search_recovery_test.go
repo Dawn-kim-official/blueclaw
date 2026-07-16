@@ -47,22 +47,6 @@ func TestNonMemoryUnavailableFailureDoesNotIncludeWebSearchRoute(t *testing.T) {
 	}
 }
 
-func TestTerminalPathGuardrailRecoveryGuidanceIncludesCorrectedWorkspaceRetry(t *testing.T) {
-	observation := newFailureObservation("obs-001", "continue", "terminal.run", "command path escapes workspace root", FailureInvalidInput, FailureCodes.InvalidInput, "terminal_path_guardrail")
-	guidance := recoveryGuidanceContent(observation, "")
-
-	for _, expectedText := range []string{
-		"retry terminal.run",
-		"~/documents",
-		"/workspace/skills/<skill>/scripts/skill_runtime.py",
-		"Do not call /opt/blueclaw",
-	} {
-		if !strings.Contains(guidance, expectedText) {
-			t.Fatalf("expected recovery guidance to contain %q, got %q", expectedText, guidance)
-		}
-	}
-}
-
 func TestMemoryInstructionsDescribeWebSearchRecoveryBoundary(t *testing.T) {
 	instructions := DefaultSkillInstructions()
 	if len(instructions) == 0 {
