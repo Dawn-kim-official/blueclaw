@@ -398,7 +398,7 @@ func (agentTurnRunner *AgentTurnRunner) verifyCompletionContract(ctx context.Con
 
 func expectedResultsAndExactEvidenceSatisfyContract(contract OutcomeContract, observations []turnObservation) bool {
 	contract = normalizeOutcomeContract(contract)
-	if len(contract.ExpectedResults) == 0 || contractRequiresSemanticVerification(contract) {
+	if len(contract.RequiredEvidenceTools) == 0 || contractRequiresSemanticVerification(contract) {
 		return false
 	}
 	for _, toolName := range contract.RequiredEvidenceTools {

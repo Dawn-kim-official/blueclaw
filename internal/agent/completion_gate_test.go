@@ -1267,6 +1267,37 @@ func TestCompletionContractVerifierSkipsRedundantCheckForVerifiedToolOutcome(t *
 	}
 }
 
+func TestCompletionContractVerifierSkipsExactToolOnlyContract(t *testing.T) {
+	languageModel := &sequenceLanguageModel{}
+	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
+	goalSatisfied := true
+	observations := []turnObservation{
+		newContentObservation("obs-001", "continue", "task.add", `{"id":"task-1","title":"고객지원 분기 결산","endDate":"2026-07-17"}`),
+	}
+	contract := OutcomeContract{RequiredEvidenceTools: []string{"task.add"}}
+
+	result := services.runner.validateCompletionGateForRequestWithExpectedResults(context.Background(), "task-1", AgentTurnRequest{
+		ToolSet:         newTestToolSet([]string{"task.add"}),
+		OutcomeContract: contract,
+	}, []toolUseRequirement{{ToolName: "task.add"}}, observations, nil, nil, turnActionDocument{
+		Action:        "finish",
+		Message:       "고객지원 분기 결산 업무를 7월 17일 마감으로 등록했습니다.",
+		GoalStatus:    "satisfied",
+		GoalSatisfied: &goalSatisfied,
+		CompletionEvidence: []completionEvidenceReference{{
+			ObservationID: "obs-001",
+			ToolName:      "task.add",
+		}},
+	})
+
+	if !result.IsSatisfied {
+		t.Fatalf("expected exact task.add evidence and post-evidence finish judgment to complete, got %+v", result)
+	}
+	if len(languageModel.contractRequests) != 0 {
+		t.Fatalf("expected no duplicate contract judgment, got %d calls", len(languageModel.contractRequests))
+	}
+}
+
 func TestCompletionContractVerifierRejectsMissingAttachmentEvidence(t *testing.T) {
 	languageModel := &sequenceLanguageModel{
 		contractVerifications: []string{
