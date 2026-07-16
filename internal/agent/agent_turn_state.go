@@ -341,6 +341,10 @@ func nextCompletionAttachmentPaths(state CompletionState) []string {
 }
 
 func BuildAgentActionRequest(state agentTaskState) llm.StructuredResponseRequest {
+	return buildAgentActionRequest(state, true)
+}
+
+func buildAgentActionRequest(state agentTaskState, includeToolDescription bool) llm.StructuredResponseRequest {
 	allowQualityCriteria := len(state.QualityCriteria) == 0
 	requirements := state.Requirements
 	if requirements == nil {
@@ -352,11 +356,15 @@ func BuildAgentActionRequest(state agentTaskState) llm.StructuredResponseRequest
 	hasFailureDebt := len(failureFacts.Attempts) > 0
 	allowFail := shouldExposeFailAction(state)
 	allowFinish := shouldExposeFinishAction(state, requirements)
+	toolDescription := ""
+	if includeToolDescription {
+		toolDescription = buildAgentToolDescription(modelToolSet)
+	}
 	messages := (PromptAssembler{}).BuildTurnMessages(
 		state.Request,
 		state.Observations,
 		buildAgentSystemInstruction(state.Request),
-		buildAgentToolDescription(modelToolSet),
+		toolDescription,
 		state.ExecutionState,
 	)
 	if hasFailureDebt {
@@ -601,12 +609,13 @@ func evidenceReferencesFromIDs(values []string) []completionEvidenceReference {
 }
 
 func DecideAgentAction(ctx context.Context, languageModel llm.LanguageModelProvider, state agentTaskState) (agentAction, error) {
-	structuredRequest := BuildAgentActionRequest(state)
 	if chatCompleter, isAvailable := llm.ResolveTextChatCompleter(languageModel); isAvailable {
-		if chatRequest, isRepresentable := buildAgentActionChatCompletionRequest(structuredRequest); isRepresentable {
+		chatRequestSource := buildAgentActionRequest(state, false)
+		if chatRequest, isRepresentable := buildAgentActionChatCompletionRequest(chatRequestSource); isRepresentable {
 			return decideAgentActionWithChat(ctx, chatCompleter, chatRequest)
 		}
 	}
+	structuredRequest := BuildAgentActionRequest(state)
 	structuredResponse, errorValue := languageModel.GenerateStructuredResponse(ctx, structuredRequest)
 	if errorValue != nil {
 		return turnActionDocument{}, errorValue

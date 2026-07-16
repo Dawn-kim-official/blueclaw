@@ -109,6 +109,27 @@ describe('sdkd provider adapter', () => {
     expect(llamaModel.doGenerateCalls).toHaveLength(0);
   });
 
+  test('rejects schema-invalid native tool arguments without fallback', async () => {
+    const llamaModel = successfulLanguageModel('unused-local-model', { ok: true });
+    const remoteModel = toolCallLanguageModel('served-remote-model', [{ toolName: 'lookup', input: '{' }]);
+    const generateChatCompletion = createChatCompletionGenerator(
+      completeConfiguration(SDKDAutoRoute.RemoteFirst),
+      languageModelFactory(llamaModel, remoteModel),
+    );
+
+    try {
+      await generateChatCompletion(chatRequest);
+      throw new Error('expected invalid tool arguments');
+    } catch (errorValue) {
+      expect(errorValue).toMatchObject({
+        code: 'provider_response_invalid',
+        allowLegacyFallback: false,
+        diagnostic: { category: StructuredOutputDiagnosticCategory.JSONParse },
+      });
+    }
+    expect(llamaModel.doGenerateCalls).toHaveLength(0);
+  });
+
   test('allows chat device routing without structured-output enablement', async () => {
     const llamaModel = chatLanguageModel('served-local-model');
     const remoteModel = successfulLanguageModel('unused-remote-model', { ok: true });

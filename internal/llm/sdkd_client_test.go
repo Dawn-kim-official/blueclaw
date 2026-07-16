@@ -534,8 +534,8 @@ func TestSDKDClientGenerateChatCompletionDoesNotFallbackOnProviderFailure(t *tes
 
 func TestSDKDClientGenerateChatCompletionDoesNotFallbackOnNonretryableError(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(responseWriter http.ResponseWriter, request *http.Request) {
-		responseWriter.WriteHeader(http.StatusUnprocessableEntity)
-		_, _ = responseWriter.Write([]byte(`{"error":{"code":"request_invalid","allowLegacyFallback":true}}`))
+		responseWriter.WriteHeader(http.StatusBadGateway)
+		_, _ = responseWriter.Write([]byte(`{"error":{"code":"provider_response_invalid","allowLegacyFallback":false,"diagnostic":{"category":"json_parse"}}}`))
 	}))
 	defer server.Close()
 
@@ -548,6 +548,10 @@ func TestSDKDClientGenerateChatCompletionDoesNotFallbackOnNonretryableError(t *t
 	_, errorValue := client.GenerateChatCompletion(context.Background(), ChatCompletionRequest{})
 	if errorValue == nil || fallbackProvider.chatCallCount != 0 {
 		t.Fatalf("expected nonretryable SDKD error without fallback, got %v and %d calls", errorValue, fallbackProvider.chatCallCount)
+	}
+	diagnostic, hasDiagnostic := StructuredOutputDiagnosticFromError(errorValue)
+	if !hasDiagnostic || diagnostic.Category != StructuredOutputDiagnosticJSONParse {
+		t.Fatalf("expected safe chat diagnostic, got %+v, available=%t", diagnostic, hasDiagnostic)
 	}
 }
 
