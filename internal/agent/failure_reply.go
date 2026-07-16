@@ -9,6 +9,8 @@ import (
 	"blueclaw/internal/llm"
 )
 
+const recoveryDecisionMaxTokens = 1600
+
 type limitReplyStatus struct {
 	Source                  string             `json:"source"`
 	FirstInvalid            bool               `json:"firstInvalid"`
@@ -63,6 +65,7 @@ func recoveryFinalizationContext(request AgentTurnRequest) (context.Context, con
 }
 
 func (agentTurnRunner *AgentTurnRunner) generateRecoveryDecision(recoveryContext context.Context, request AgentTurnRequest, failureReason string, observations []turnObservation, attachments []FileAttachment, executionState ExecutionState, phase string) (recoveryDecision, error) {
+	maxTokens := recoveryDecisionMaxTokens
 	messages := []llm.Message{{
 		Role: "system",
 		Content: strings.Join([]string{
@@ -83,6 +86,7 @@ func (agentTurnRunner *AgentTurnRunner) generateRecoveryDecision(recoveryContext
 			Document:           recoveryDecisionSchema(),
 			IsStrictlyEnforced: true,
 		},
+		GenerationOptions: llm.GenerationOptions{MaxTokens: &maxTokens},
 	})
 	if errorValue != nil {
 		return recoveryDecision{}, errorValue
