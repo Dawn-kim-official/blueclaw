@@ -213,3 +213,24 @@ func TestClassificationLanguageModelFallsBackToIntakeThenBase(t *testing.T) {
 		t.Fatalf("expected base classification fallback, got %q", response)
 	}
 }
+
+func TestTurnRouterLanguageModelPrefersIntake(t *testing.T) {
+	kernel := &AgentKernel{
+		languageModel:         labeledLanguageModel{label: "low"},
+		intakeLanguageModel:   labeledLanguageModel{label: "intake"},
+		xLowTaskLanguageModel: labeledLanguageModel{label: "xlow"},
+	}
+
+	selected := kernel.turnRouterLanguageModel()
+	response, _ := selected.GenerateResponse(context.Background(), "")
+	if response != "intake" {
+		t.Fatalf("expected intake turn router model, got %q", response)
+	}
+
+	kernel.intakeLanguageModel = nil
+	selected = kernel.turnRouterLanguageModel()
+	response, _ = selected.GenerateResponse(context.Background(), "")
+	if response != "xlow" {
+		t.Fatalf("expected classification fallback, got %q", response)
+	}
+}
