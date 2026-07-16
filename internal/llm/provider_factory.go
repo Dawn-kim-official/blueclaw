@@ -123,7 +123,7 @@ const (
 	defaultXHighModelName  = "openai/gpt-5.6-luna"
 	defaultHighModelName   = "google/gemini-3-flash-preview"
 	defaultMediumModelName = "google/gemini-3.1-flash-lite"
-	defaultLowModelName    = "xiaomi/mimo-v2.5"
+	defaultLowModelName    = "google/gemini-3.1-flash-lite"
 	defaultXLowModelName   = "deepseek/deepseek-v4-flash"
 	defaultCodingModelName = "z-ai/glm-5.2"
 )
