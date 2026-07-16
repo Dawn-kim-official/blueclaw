@@ -21,17 +21,33 @@ func TestGoogleSearchStillRequiresBrowserEvidence(t *testing.T) {
 	toolRegistry := newTestToolSet([]string{"browser.open", "browser.snapshot"})
 
 	requirements := deriveToolUseRequirements(AgentTurnRequest{
-		Prompt:    "구글에서 회사 정보를 검색해줘",
-		ToolSet:   toolRegistry,
-		TaskShape: TaskShapeBrowserHandoffTask,
+		Prompt:                "구글에서 회사 정보를 검색해줘",
+		ToolSet:               toolRegistry,
+		TaskShape:             TaskShapeBrowserHandoffTask,
+		RequiredEvidenceTools: []string{"browser.snapshot"},
 	})
 
-	if len(requirements) != 1 || requirements[0].ToolPrefix != "browser." {
+	if len(requirements) != 1 || requirements[0].ToolName != "browser.snapshot" {
 		t.Fatalf("expected browser requirement, got %+v", requirements)
 	}
 }
 
-func TestDirectMessageEvidenceSuppressesImplicitBrowserRequirement(t *testing.T) {
+func TestExplicitTaskEvidenceIgnoresNoisyBrowserTaskShape(t *testing.T) {
+	toolRegistry := newTestToolSet([]string{"browser.open", "task.update"})
+
+	requirements := deriveToolUseRequirements(AgentTurnRequest{
+		TaskShape:             TaskShapeBrowserHandoffTask,
+		ToolSet:               toolRegistry,
+		RequiredEvidenceTools: []string{"task.update"},
+		OutcomeContract:       OutcomeContract{RequiredEvidenceTools: []string{"task.update"}},
+	})
+
+	if len(requirements) != 1 || requirements[0].ToolName != "task.update" {
+		t.Fatalf("expected only explicit task evidence, got %+v", requirements)
+	}
+}
+
+func TestDirectMessageUsesOnlyExplicitEvidence(t *testing.T) {
 	toolRegistry := newTestToolSet([]string{"browser.open", "browser.snapshot", "message.send"})
 
 	requirements := deriveToolUseRequirements(AgentTurnRequest{
@@ -64,16 +80,17 @@ func TestBrowserRetryWithVisibleContextRequiresBrowserEvidence(t *testing.T) {
 	toolRegistry := newTestToolSet([]string{"browser.open", "browser.snapshot"})
 
 	requirements := deriveToolUseRequirements(AgentTurnRequest{
-		Prompt:    "다시 열어봐",
-		ToolSet:   toolRegistry,
-		TaskShape: TaskShapeBrowserHandoffTask,
+		Prompt:                "다시 열어봐",
+		ToolSet:               toolRegistry,
+		TaskShape:             TaskShapeBrowserHandoffTask,
+		RequiredEvidenceTools: []string{"browser.open"},
 		VisibleContext: VisibleContext{Messages: []VisibleContextMessage{
 			{Speaker: "사용자", Text: "구글 클라우드 콘솔에서 credential.json 받는 거 도와줘"},
 			{Speaker: "김인턴", Text: "Companion 브라우저 연결이 필요합니다."},
 		}},
 	})
 
-	if len(requirements) != 1 || requirements[0].ToolPrefix != "browser." {
+	if len(requirements) != 1 || requirements[0].ToolName != "browser.open" {
 		t.Fatalf("expected browser follow-up requirement, got %+v", requirements)
 	}
 }

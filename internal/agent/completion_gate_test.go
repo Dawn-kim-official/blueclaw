@@ -398,12 +398,13 @@ func TestAgentTurnRunnerRequiresToolEvidenceBeforeFinishMessage(t *testing.T) {
 	})
 
 	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
-		RequesterPersonID: "person-1",
-		ConversationID:    "conversation-1",
-		Prompt:            "구글 서치바에 hello world라고 치고 스크린샷",
-		TaskShape:         TaskShapeBrowserHandoffTask,
-		ToolSet:           toolRegistry,
-		PinnedToolNames:   toolRegistry.ListToolNames(),
+		RequesterPersonID:     "person-1",
+		ConversationID:        "conversation-1",
+		Prompt:                "구글 서치바에 hello world라고 치고 스크린샷",
+		TaskShape:             TaskShapeBrowserHandoffTask,
+		ToolSet:               toolRegistry,
+		PinnedToolNames:       toolRegistry.ListToolNames(),
+		RequiredEvidenceTools: []string{"browser.screenshot"},
 	})
 	if errorValue != nil {
 		t.Fatalf("expected browser tool requirement to recover: %v", errorValue)
