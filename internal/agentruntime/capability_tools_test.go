@@ -252,13 +252,13 @@ func TestCapabilityInvokeMissingRequiredFieldsIncludesDescriptorRecoveryHint(t *
 		t.Fatalf("expected recovery hint, got %+v", result.Failure)
 	}
 	recoveryHint := result.Failure.RecoveryHints[0]
-	for _, expected := range []string{"capability.invoke", "operation=calendar.add", "title string", "startISO string", "endISO string"} {
+	for _, expected := range []string{"calendar.add", "title string", "startISO string", "endISO string"} {
 		if !strings.Contains(recoveryHint.Action+" "+recoveryHint.Reason, expected) {
 			t.Fatalf("expected recovery hint to contain %q, got %+v", expected, recoveryHint)
 		}
 	}
-	if !containsTestString(recoveryHint.ToolNames, agent.CapabilityInvokeToolName) {
-		t.Fatalf("expected capability.invoke recovery tool, got %+v", recoveryHint.ToolNames)
+	if !containsTestString(recoveryHint.ToolNames, "calendar.add") || containsTestString(recoveryHint.ToolNames, agent.CapabilityInvokeToolName) {
+		t.Fatalf("expected direct calendar.add recovery tool, got %+v", recoveryHint.ToolNames)
 	}
 }
 
@@ -290,6 +290,9 @@ func TestCapabilityInvokeRejectsUnexpectedFieldsBeforeCapabilityCall(t *testing.
 	}
 	if result.Failure == nil || !result.Failure.Retryable || result.Failure.RetryPolicy != "different_input" {
 		t.Fatalf("expected retryable schema failure, got %+v", result.Failure)
+	}
+	if len(result.Failure.RecoveryHints) != 1 || containsTestString(result.Failure.RecoveryHints[0].ToolNames, agent.CapabilityInvokeToolName) || !containsTestString(result.Failure.RecoveryHints[0].ToolNames, "calendar.delete") {
+		t.Fatalf("expected direct calendar.delete recovery tool, got %+v", result.Failure.RecoveryHints)
 	}
 }
 
@@ -350,7 +353,7 @@ func TestCapabilityInvokeRejectsMissingInputObject(t *testing.T) {
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
-	if !result.Failed() || !strings.Contains(result.ContentText(), "requires input to be an object") {
+	if !result.Failed() || !strings.Contains(result.ContentText(), "calendar.add requires input to be an object") || strings.Contains(result.ContentText(), "Call capability.invoke") {
 		t.Fatalf("expected missing input object failure, got %s", result.ContentText())
 	}
 	if httpClient.requestPath != "" {
@@ -432,7 +435,7 @@ func TestCapabilityInvokeRejectsNonObjectInputWithHardenedFailure(t *testing.T) 
 		t.Fatalf("expected recovery hints, got %+v", result.Failure)
 	}
 	recoveryHint := result.Failure.RecoveryHints[0]
-	if !strings.Contains(recoveryHint.Action+" "+recoveryHint.Reason, "calendar.add") {
+	if !strings.Contains(recoveryHint.Action+" "+recoveryHint.Reason, "calendar.add") || containsTestString(recoveryHint.ToolNames, agent.CapabilityInvokeToolName) {
 		t.Fatalf("expected recovery hint to mention operation, got %+v", recoveryHint)
 	}
 }
