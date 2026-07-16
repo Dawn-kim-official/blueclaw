@@ -330,6 +330,46 @@ func TestTaskIntakePlannerExplainsTaskRecordSemantics(t *testing.T) {
 	}
 }
 
+func TestTaskIntakePlannerReviewsExecutableTaskClarification(t *testing.T) {
+	languageModel := &sequenceLanguageModel{contents: []string{
+		`{"route":"clarify","classification":"needs_confirmation","taskShape":"approval_gated_task","level":"low","estimatedMinutes":10,"requestedOutputFormats":[],"expectedResults":[{"id":"result-1","type":"message","description":"작업 추가 완료 메시지","required":true}],"requiredEvidence":["task.add"],"responseLanguage":"ko","reason":"작업 목록을 먼저 확인해야 합니다.","userFacingReply":"혹시 이미 작업 목록에 있는 작업인가요?","initialToolNames":["file.write"],"priorTaskReference":"none","clarificationQuestion":"이미 등록된 작업인가요?"}`,
+		`{"route":"start_task","classification":"bounded_task","taskShape":"maintenance_task","level":"low","estimatedMinutes":10,"requestedOutputFormats":[],"expectedResults":[{"id":"result-1","type":"message","description":"작업 추가 완료 메시지","required":true}],"requiredEvidence":["task.add"],"responseLanguage":"ko","reason":"업무 기록을 바로 추가할 수 있습니다.","userFacingReply":"","initialToolNames":["task.add"],"priorTaskReference":"none"}`,
+	}}
+	planner := NewTaskIntakePlanner(languageModel, IntakeOptions{IsEnabled: true})
+
+	decision := mustPlanIntake(t, planner, AgentRequest{
+		Prompt:  "이번 주 금요일까지 고객지원 분기 결산 누락 항목 확인 업무를 추가해줘",
+		ToolSet: newTestCapabilityToolSet([]string{"task.add", "task.list", "file.write"}),
+	})
+
+	if decision.Classification != IntakeClassificationBoundedTask {
+		t.Fatalf("expected reviewed task to be executable, got %+v", decision)
+	}
+	if len(decision.RequiredEvidenceTools) != 1 || decision.RequiredEvidenceTools[0] != "task.add" {
+		t.Fatalf("expected exact task.add evidence, got %+v", decision.RequiredEvidenceTools)
+	}
+	if len(languageModel.requests) != 2 || !strings.Contains(joinMessageContent(languageModel.requests[1].Messages), clarificationReviewInstruction) {
+		t.Fatalf("expected one LLM clarification review, got %d calls", len(languageModel.requests))
+	}
+}
+
+func TestTaskIntakePlannerPreservesClarificationWhenReviewFails(t *testing.T) {
+	languageModel := &clarificationReviewFailureLanguageModel{content: `{"route":"clarify","classification":"needs_confirmation","taskShape":"approval_gated_task","level":"low","estimatedMinutes":2,"requestedOutputFormats":[],"expectedResults":[],"requiredEvidence":["task.update"],"responseLanguage":"ko","reason":"수정할 업무가 여러 개일 수 있습니다.","userFacingReply":"어떤 업무를 수정할까요?","initialToolNames":[],"priorTaskReference":"none","clarificationQuestion":"어떤 업무를 수정할까요?"}`}
+	planner := NewTaskIntakePlanner(languageModel, IntakeOptions{IsEnabled: true})
+
+	decision := mustPlanIntake(t, planner, AgentRequest{
+		Prompt:  "업무를 수정해줘",
+		ToolSet: newTestCapabilityToolSet([]string{"task.update"}),
+	})
+
+	if decision.Classification != IntakeClassificationNeedsConfirmation || decision.ClarificationQuestion != "어떤 업무를 수정할까요?" {
+		t.Fatalf("expected valid clarification fallback, got %+v", decision)
+	}
+	if languageModel.callCount != 2 {
+		t.Fatalf("expected one failed review, got %d calls", languageModel.callCount)
+	}
+}
+
 func TestTaskIntakePlannerPassesPriorTaskContext(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		`{"route":"start_task","classification":"bounded_task","taskShape":"research_task","level":"low","estimatedMinutes":1,"requestedOutputFormats":["docx"],"reason":"deliver prior file","userFacingReply":"","priorTaskReference":"outcome_recovery"}`,
@@ -888,6 +928,7 @@ func TestTaskIntakePlannerRespectsModelDecisionForShortFollowUp(t *testing.T) {
 func TestTaskIntakePlannerTreatsLocalArtifactConfirmationAsBoundedTask(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		`{"route":"clarify","classification":"needs_confirmation","taskShape":"approval_gated_task","level":"medium","estimatedMinutes":1,"requestedOutputFormats":["pdf"],"reason":"asks for generated files","userFacingReply":"승인하시겠습니까?"}`,
+		`{"route":"start_task","classification":"bounded_task","taskShape":"maintenance_task","level":"medium","estimatedMinutes":10,"requestedOutputFormats":["pdf"],"requiredEvidence":["file.deliver"],"responseLanguage":"ko","reason":"request is executable","userFacingReply":"","initialToolNames":["file.write"]}`,
 	}}
 	toolRegistry := newTestToolSet([]string{"terminal.run", "file.write", "file.promote", "file.deliver"})
 	planner := NewTaskIntakePlanner(languageModel, IntakeOptions{IsEnabled: true})
@@ -897,14 +938,14 @@ func TestTaskIntakePlannerTreatsLocalArtifactConfirmationAsBoundedTask(t *testin
 		ToolSet: toolRegistry,
 	})
 
-	if decision.Classification != IntakeClassificationNeedsConfirmation {
-		t.Fatalf("expected router confirmation classification to remain authoritative, got %+v", decision)
+	if decision.Classification != IntakeClassificationBoundedTask {
+		t.Fatalf("expected executable artifact work, got %+v", decision)
 	}
-	if decision.TaskShape != TaskShapeApprovalGatedTask {
-		t.Fatalf("expected router task shape to remain authoritative, got %+v", decision)
+	if decision.TaskShape != TaskShapeMaintenanceTask {
+		t.Fatalf("expected executable task shape, got %+v", decision)
 	}
-	if decision.UserFacingReply != "승인하시겠습니까?" {
-		t.Fatalf("expected router reply to remain unchanged, got %q", decision.UserFacingReply)
+	if len(languageModel.requests) != 2 || !strings.Contains(joinMessageContent(languageModel.requests[1].Messages), clarificationReviewInstruction) {
+		t.Fatalf("expected one clarification review, got %d calls", len(languageModel.requests))
 	}
 }
 
@@ -1253,6 +1294,7 @@ func TestAgentKernelRecoversLegacyPriorAttachmentContractFromIntakeOutput(t *tes
 func TestTaskIntakePlannerTreatsSupportedSitePrototypeConfirmationAsBoundedTask(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		`{"route":"clarify","classification":"needs_confirmation","taskShape":"approval_gated_task","level":"medium","estimatedMinutes":1,"requestedOutputFormats":null,"requiredEvidence":["site.create","site.publish"],"reason":"publishing needs approval","userFacingReply":"승인해주시겠어요?"}`,
+		`{"route":"start_task","classification":"bounded_task","taskShape":"maintenance_task","level":"medium","estimatedMinutes":15,"requestedOutputFormats":null,"requiredEvidence":["site.create","site.publish"],"responseLanguage":"ko","reason":"request is executable","userFacingReply":"","initialToolNames":["site.create"]}`,
 	}}
 	toolRegistry := newTestToolSet([]string{"site.create", "site.publish"})
 	for _, toolName := range toolRegistry.ListToolNames() {
@@ -1271,14 +1313,11 @@ func TestTaskIntakePlannerTreatsSupportedSitePrototypeConfirmationAsBoundedTask(
 		ToolSet: toolRegistry,
 	})
 
-	if decision.Classification != IntakeClassificationNeedsConfirmation {
-		t.Fatalf("expected confirmation classification to remain authoritative, got %+v", decision)
+	if decision.Classification != IntakeClassificationBoundedTask {
+		t.Fatalf("expected executable site task, got %+v", decision)
 	}
-	if decision.TaskShape != TaskShapeApprovalGatedTask {
-		t.Fatalf("expected approval-gated task shape, got %+v", decision)
-	}
-	if decision.UserFacingReply != "승인해주시겠어요?" {
-		t.Fatalf("expected router reply to remain unchanged, got %q", decision.UserFacingReply)
+	if len(languageModel.requests) != 2 {
+		t.Fatalf("expected one clarification review, got %d calls", len(languageModel.requests))
 	}
 }
 
@@ -1303,9 +1342,10 @@ func TestTaskIntakePlannerIncludesTemporalContext(t *testing.T) {
 	}
 }
 
-func TestTaskIntakePlannerKeepsDestructiveArtifactWorkApprovalGated(t *testing.T) {
+func TestTaskIntakePlannerRoutesDestructiveArtifactWorkBeforeApprovalGate(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		`{"route":"clarify","classification":"needs_confirmation","taskShape":"approval_gated_task","level":"medium","estimatedMinutes":1,"requestedOutputFormats":null,"reason":"destructive","userFacingReply":"승인하시겠습니까?"}`,
+		`{"route":"start_task","classification":"bounded_task","taskShape":"maintenance_task","level":"medium","estimatedMinutes":10,"requestedOutputFormats":null,"requiredEvidence":["file.write"],"responseLanguage":"ko","reason":"confirmation is handled after routing","userFacingReply":"","initialToolNames":["file.write"]}`,
 	}}
 	toolRegistry := newTestToolSet([]string{"terminal.run", "file.write", "file.deliver"})
 	planner := NewTaskIntakePlanner(languageModel, IntakeOptions{IsEnabled: true})
@@ -1315,8 +1355,8 @@ func TestTaskIntakePlannerKeepsDestructiveArtifactWorkApprovalGated(t *testing.T
 		ToolSet: toolRegistry,
 	})
 
-	if decision.Classification != IntakeClassificationNeedsConfirmation {
-		t.Fatalf("expected destructive request to stay approval gated, got %+v", decision)
+	if decision.Classification != IntakeClassificationBoundedTask {
+		t.Fatalf("expected destructive work to reach the confirmation gate, got %+v", decision)
 	}
 }
 
@@ -1817,6 +1857,23 @@ func (retriever *countingSkillRetriever) Search(_ context.Context, request Agent
 func (retriever *countingSkillRetriever) Refresh(context.Context, []SkillInstruction) {}
 
 type failingLanguageModel struct{}
+
+type clarificationReviewFailureLanguageModel struct {
+	content   string
+	callCount int
+}
+
+func (languageModel *clarificationReviewFailureLanguageModel) GenerateResponse(context.Context, string) (string, error) {
+	return "", errors.New("model failed")
+}
+
+func (languageModel *clarificationReviewFailureLanguageModel) GenerateStructuredResponse(context.Context, llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
+	languageModel.callCount++
+	if languageModel.callCount == 1 {
+		return llm.StructuredResponse{Content: languageModel.content}, nil
+	}
+	return llm.StructuredResponse{}, errors.New("model failed")
+}
 
 func (failingLanguageModel) GenerateResponse(context.Context, string) (string, error) {
 	return "", errors.New("model failed")
