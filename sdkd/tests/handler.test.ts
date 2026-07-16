@@ -5,6 +5,7 @@ import {
   ExecutionMode,
   LanguageModelBackend,
   LanguageModelMessageRole,
+  StructuredOutputDiagnosticCategory,
   StructuredOutputConstraintMode,
   type ChatCompletionRequest,
   type ChatCompletionResponse,
@@ -156,6 +157,32 @@ describe('sdkd handler', () => {
     expect(contractResponse.status).toBe(422);
     expect(await contractResponse.json()).toEqual({
       error: { code: 'structured_output_invalid', allowLegacyFallback: false },
+    });
+  });
+
+  test('returns only closed structured output diagnostics', async () => {
+    const handler = createSDKDHandler({
+      configuration,
+      generateStructuredResponse: async () => {
+        throw new SDKDError(
+          'structured_output_invalid',
+          422,
+          false,
+          'generated content and provider details',
+          { category: StructuredOutputDiagnosticCategory.FinishReason, finishReason: ChatCompletionFinishReason.Length },
+        );
+      },
+    });
+
+    const response = await handler(structuredRequest('installation-key'));
+
+    expect(response.status).toBe(422);
+    expect(await response.json()).toEqual({
+      error: {
+        code: 'structured_output_invalid',
+        allowLegacyFallback: false,
+        diagnostic: { category: 'finish_reason', finishReason: 'length' },
+      },
     });
   });
 

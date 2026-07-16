@@ -10,6 +10,7 @@ import {
   LanguageModelBackend,
   LanguageModelMessageRole,
   StructuredOutputConstraintMode,
+  StructuredOutputDiagnosticCategory,
   type ChatCompletionRequest,
   type StructuredResponseRequest,
 } from '@blueclaw/protocol';
@@ -456,8 +457,27 @@ describe('sdkd provider adapter', () => {
       languageModelFactory(invalidModel, fallbackModel),
     );
 
-    await expect(generateStructuredResponse(structuredRequest)).rejects.toMatchObject({ code: 'structured_output_invalid' });
+    await expect(generateStructuredResponse(structuredRequest)).rejects.toMatchObject({
+      code: 'structured_output_invalid',
+      diagnostic: { category: StructuredOutputDiagnosticCategory.SchemaValidation },
+    });
     expect(fallbackModel.doGenerateCalls).toHaveLength(0);
+  });
+
+  test('distinguishes malformed JSON from schema validation failures', async () => {
+    const model = toolCallLanguageModel('invalid-model', [{
+      toolName: 'provider_test_output',
+      input: '{',
+    }]);
+    const generateStructuredResponse = createStructuredResponseGenerator(
+      completeConfiguration(SDKDAutoRoute.LocalFirst),
+      languageModelFactory(model, successfulLanguageModel('unused-model', { ok: true })),
+    );
+
+    await expect(generateStructuredResponse(structuredRequest)).rejects.toMatchObject({
+      code: 'structured_output_invalid',
+      diagnostic: { category: StructuredOutputDiagnosticCategory.JSONParse },
+    });
   });
 
   test('rejects structured output without exactly one matching tool call', async () => {
@@ -475,7 +495,10 @@ describe('sdkd provider adapter', () => {
         languageModelFactory(model, successfulLanguageModel('unused-model', { ok: true })),
       );
 
-      await expect(generateStructuredResponse(structuredRequest)).rejects.toMatchObject({ code: 'structured_output_invalid' });
+      await expect(generateStructuredResponse(structuredRequest)).rejects.toMatchObject({
+        code: 'structured_output_invalid',
+        diagnostic: { category: StructuredOutputDiagnosticCategory.ToolCallContract },
+      });
     }
   });
 

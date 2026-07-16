@@ -5,6 +5,7 @@ import {
   ChatCompletionFinishReason,
   ExecutionMode,
   LanguageModelBackend,
+  StructuredOutputDiagnosticCategory,
   StructuredOutputConstraintMode,
 } from '@blueclaw/protocol';
 import type {
@@ -12,13 +13,17 @@ import type {
   ChatCompletionResponse,
   StructuredResponse,
   StructuredResponseRequest,
+  StructuredOutputDiagnostic,
 } from '@blueclaw/protocol';
 import {
   generateText,
+  InvalidToolInputError,
   jsonSchema,
+  JSONParseError,
   type ToolChoice,
   type LanguageModel,
   type ModelMessage,
+  TypeValidationError,
 } from 'ai';
 import Ajv from 'ajv';
 
@@ -249,8 +254,7 @@ async function generateForRoute(
     temperature: request.generationOptions?.temperature,
   });
   const toolCall = requireStructuredOutputToolCall(result, outputToolName);
-  const content = JSON.stringify(toolCall.input);
-  if (content === undefined) throw new SDKDError('structured_output_invalid', 422, false, 'structured output tool arguments are not serializable');
+  const content = serializeStructuredOutput(toolCall.input);
   return {
     provider: route.providerName,
     model: result.response.modelId || route.modelName,
@@ -269,26 +273,89 @@ async function generateForRoute(
   };
 }
 
+function serializeStructuredOutput(value: unknown): string {
+  try {
+    const content = JSON.stringify(value);
+    if (content !== undefined) return content;
+  } catch {
+    throw structuredOutputSerializationError();
+  }
+  throw structuredOutputSerializationError();
+}
+
+function structuredOutputSerializationError(): SDKDError {
+  return new SDKDError(
+    'structured_output_invalid',
+    422,
+    false,
+    'structured output tool arguments are not serializable',
+    { category: StructuredOutputDiagnosticCategory.Serialization },
+  );
+}
+
 function requireStructuredOutputToolCall(
   result: StructuredOutputToolResult,
   toolName: string,
 ) {
   if (result.finishReason !== 'tool-calls') {
-    throw new SDKDError('structured_output_invalid', 422, false, `structured output generation finished with ${result.finishReason}`);
+    throw new SDKDError(
+      'structured_output_invalid',
+      422,
+      false,
+      `structured output generation finished with ${result.finishReason}`,
+      {
+        category: StructuredOutputDiagnosticCategory.FinishReason,
+        finishReason: normalizeChatFinishReason(result.finishReason),
+      },
+    );
   }
   if (result.toolCalls.length !== 1) {
-    throw new SDKDError('structured_output_invalid', 422, false, 'structured output generation must return exactly one tool call');
+    throw new SDKDError(
+      'structured_output_invalid',
+      422,
+      false,
+      'structured output generation must return exactly one tool call',
+      { category: StructuredOutputDiagnosticCategory.ToolCallContract },
+    );
   }
   const toolCall = result.toolCalls[0];
-  if (toolCall === undefined || toolCall.toolName !== toolName || toolCall.invalid) {
-    throw new SDKDError('structured_output_invalid', 422, false, 'structured output generation returned an invalid tool call');
+  if (toolCall === undefined || toolCall.toolName !== toolName) {
+    throw new SDKDError(
+      'structured_output_invalid',
+      422,
+      false,
+      'structured output generation returned an invalid tool call',
+      { category: StructuredOutputDiagnosticCategory.ToolCallContract },
+    );
+  }
+  if (toolCall.invalid) {
+    throw new SDKDError(
+      'structured_output_invalid',
+      422,
+      false,
+      'structured output generation returned schema-invalid arguments',
+      diagnoseInvalidToolCall(toolCall.error),
+    );
   }
   return toolCall;
 }
 
+function diagnoseInvalidToolCall(errorValue: unknown): StructuredOutputDiagnostic {
+  if (!InvalidToolInputError.isInstance(errorValue)) {
+    return { category: StructuredOutputDiagnosticCategory.SchemaValidation };
+  }
+  if (JSONParseError.isInstance(errorValue.cause)) {
+    return { category: StructuredOutputDiagnosticCategory.JSONParse };
+  }
+  if (TypeValidationError.isInstance(errorValue.cause)) {
+    return { category: StructuredOutputDiagnosticCategory.SchemaValidation };
+  }
+  return { category: StructuredOutputDiagnosticCategory.SchemaValidation };
+}
+
 type StructuredOutputToolResult = {
   finishReason: string;
-  toolCalls: Array<{ toolName: string; input: unknown; invalid?: boolean }>;
+  toolCalls: Array<{ toolName: string; input: unknown; invalid?: boolean; error?: unknown }>;
 };
 
 async function generateChatForRoute(
