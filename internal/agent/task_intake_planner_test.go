@@ -282,8 +282,8 @@ func TestIntakeToolDescriptionsKeepRegisteredEvidenceCompact(t *testing.T) {
 	if !strings.Contains(descriptions, "Available tools:\n- file.deliver: Deliver a file to the requester.") {
 		t.Fatalf("expected descriptions only for directly callable tools, got %q", descriptions)
 	}
-	if !strings.Contains(descriptions, "Registered requiredEvidence names: file.deliver") {
-		t.Fatalf("expected directly callable evidence names, got %q", descriptions)
+	if !strings.Contains(descriptions, "Registered requiredEvidence names: calendar.add, file.deliver") {
+		t.Fatalf("expected registered evidence names, got %q", descriptions)
 	}
 	if strings.Contains(descriptions, "long operation description") || strings.Contains(descriptions, "Dispatch a registered capability operation") {
 		t.Fatalf("expected registered evidence descriptions to be omitted, got %q", descriptions)

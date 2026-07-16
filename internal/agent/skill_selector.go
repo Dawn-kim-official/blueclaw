@@ -104,15 +104,10 @@ func requestHasToolPrefix(request AgentRequest, toolPrefix string) bool {
 }
 
 func requestToolSetCanReachTool(toolSet *ToolSet, toolName string) bool {
-	trimmedToolName := strings.TrimSpace(toolName)
-	if trimmedToolName == "" || toolSet == nil || !toolSet.IsRegistered(trimmedToolName) {
+	if toolSet == nil {
 		return false
 	}
-	if toolSet.IsAllowed(trimmedToolName) {
-		return true
-	}
-	_, isValidEvidence := requiredEvidenceToolKind(toolSet, trimmedToolName)
-	return isValidEvidence
+	return toolSet.IsAllowed(toolName) || toolSet.CanExpose(toolName)
 }
 
 func normalizeSkillSelectionText(value string) string {
