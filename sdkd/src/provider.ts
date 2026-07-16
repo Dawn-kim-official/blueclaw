@@ -47,6 +47,7 @@ export type StructuredResponseGenerator = (request: StructuredResponseRequest, a
 export type ChatCompletionGenerator = (request: ChatCompletionRequest, abortSignal?: AbortSignal) => Promise<ChatCompletionResponse>;
 
 type ProviderRequest = StructuredResponseRequest | ChatCompletionRequest;
+type GenerationOptions = NonNullable<ProviderRequest['generationOptions']>;
 
 type DynamicTool = {
   description?: string;
@@ -243,7 +244,7 @@ async function generateForRoute(
   route: ProviderRoute,
   abortSignal?: AbortSignal,
 ): Promise<StructuredResponse> {
-  const outputSchema = createValidatedOutputSchema(request.structuredOutputSchema.document);
+  const outputSchema = createValidatedJSONSchema(request.structuredOutputSchema.document);
   const outputToolName = request.structuredOutputSchema.name;
   const tools = { [outputToolName]: { inputSchema: outputSchema } };
   const messages = convertConversationMessages(request);
@@ -263,16 +264,16 @@ async function generateForRoute(
       experimental_repairToolCall: async ({ toolCall, error }) => {
         if (abortSignal?.aborted || repairAttempted || !InvalidToolInputError.isInstance(error) || toolCall.toolName !== outputToolName) return null;
         repairAttempted = true;
-        return repairStructuredToolCall(
+        return repairToolCall({
           route,
-          request,
           tools,
-          outputToolName,
+          toolName: outputToolName,
           toolCall,
           messages,
           system,
+          generationOptions: request.generationOptions,
           abortSignal,
-        );
+        });
       },
       seed: request.generationOptions?.seed,
       temperature: request.generationOptions?.temperature,
@@ -302,46 +303,49 @@ async function generateForRoute(
   };
 }
 
-async function repairStructuredToolCall(
-  route: ProviderRoute,
-  request: StructuredResponseRequest,
-  tools: DynamicToolSet,
-  outputToolName: string,
-  toolCall: LanguageModelV3ToolCall,
-  messages: ModelMessage[],
-  system: string | undefined,
-  abortSignal?: AbortSignal,
-): Promise<LanguageModelV3ToolCall | null> {
-  if (abortSignal?.aborted) return null;
+type ToolRepairRequest = {
+  route: ProviderRoute;
+  tools: DynamicToolSet;
+  toolName: string;
+  toolCall: LanguageModelV3ToolCall;
+  messages: ModelMessage[];
+  system: string | undefined;
+  generationOptions: GenerationOptions | undefined;
+  abortSignal?: AbortSignal;
+};
+
+async function repairToolCall(repairRequest: ToolRepairRequest): Promise<LanguageModelV3ToolCall | null> {
+  throwIfAborted(repairRequest.abortSignal);
   try {
     const result = await generateText({
-      model: route.languageModel,
-      system: repairSystem(system),
+      model: repairRequest.route.languageModel,
+      system: repairSystem(repairRequest.system),
       messages: [
-        ...messages,
+        ...repairRequest.messages,
         {
           role: 'user',
-          content: `Repair these arguments for the forced structured output tool using its schema and return exactly one tool call: ${toolCall.input}`,
+          content: `Repair these arguments using the tool schema and return exactly one forced tool call: ${repairRequest.toolCall.input}`,
         },
       ],
-      tools,
-      toolChoice: { type: 'tool', toolName: outputToolName },
-      maxOutputTokens: request.generationOptions?.maxTokens,
+      tools: repairRequest.tools,
+      toolChoice: { type: 'tool', toolName: repairRequest.toolName },
+      maxOutputTokens: repairRequest.generationOptions?.maxTokens,
       maxRetries: 0,
-      abortSignal,
-      seed: request.generationOptions?.seed,
-      temperature: request.generationOptions?.temperature,
+      abortSignal: repairRequest.abortSignal,
+      seed: repairRequest.generationOptions?.seed,
+      temperature: repairRequest.generationOptions?.temperature,
     });
-    if (abortSignal?.aborted) return null;
-    const repairedToolCall = requireStructuredOutputToolCall(result, outputToolName);
-    return { ...toolCall, input: serializeStructuredOutput(repairedToolCall.input) };
+    throwIfAborted(repairRequest.abortSignal);
+    const repairedToolCall = requireStructuredOutputToolCall(result, repairRequest.toolName);
+    return { ...repairRequest.toolCall, input: serializeStructuredOutput(repairedToolCall.input) };
   } catch {
+    throwIfAborted(repairRequest.abortSignal);
     return null;
   }
 }
 
 function repairSystem(system: string | undefined): string {
-  const instruction = 'Repair the previous structured output tool call using the same schema and return exactly one forced tool call.';
+  const instruction = 'Repair the previous tool call using the same schema and return exactly one forced tool call.';
   return system ? `${system}\n\n${instruction}` : instruction;
 }
 
@@ -436,18 +440,36 @@ async function generateChatForRoute(
   abortSignal?: AbortSignal,
 ): Promise<ChatCompletionResponse> {
   const tools = createChatTools(request);
+  const messages = convertChatMessages(request);
+  const system = systemContent(request);
+  let repairAttempted = false;
   const result = await generateText({
     model: route.languageModel,
-    system: systemContent(request),
-    messages: convertChatMessages(request),
+    system,
+    messages,
     tools: Object.keys(tools).length > 0 ? tools : undefined,
     toolChoice: convertToolChoice(request.toolChoice, Object.keys(tools)),
     maxOutputTokens: request.generationOptions?.maxTokens,
     maxRetries: 0,
     abortSignal,
+    experimental_repairToolCall: async ({ toolCall, error }) => {
+      if (repairAttempted || !InvalidToolInputError.isInstance(error) || tools[toolCall.toolName] === undefined) return null;
+      repairAttempted = true;
+      return repairToolCall({
+        route,
+        tools,
+        toolName: toolCall.toolName,
+        toolCall,
+        messages,
+        system,
+        generationOptions: request.generationOptions,
+        abortSignal,
+      });
+    },
     seed: request.generationOptions?.seed,
     temperature: request.generationOptions?.temperature,
   });
+  throwIfAborted(abortSignal);
   for (const toolCall of result.toolCalls) {
     if (!toolCall.invalid) continue;
     throw new SDKDError(
@@ -489,7 +511,7 @@ function createChatTools(request: ChatCompletionRequest): DynamicToolSet {
     }
     tools[tool.function.name] = {
       description: tool.function.description,
-      inputSchema: jsonSchema(parameters),
+      inputSchema: createValidatedJSONSchema(parameters),
     };
   }
   return tools;
@@ -641,16 +663,16 @@ function isChatProviderMetadata(value: unknown): value is ChatProviderMetadata {
   return Object.values(value).every(isChatProviderMetadata);
 }
 
-function createValidatedOutputSchema(document: unknown) {
+function createValidatedJSONSchema(document: unknown) {
   if (!isJSONSchema(document)) {
-    throw new SDKDError('request_invalid', 400, false, 'structured output schema must be a JSON object');
+    throw new SDKDError('request_invalid', 400, false, 'JSON schema must be an object');
   }
   const ajv = new Ajv({ allErrors: true, strict: false });
   let validator;
   try {
     validator = ajv.compile(document);
   } catch (errorValue) {
-    throw new SDKDError('request_invalid', 400, false, errorValue instanceof Error ? errorValue.message : 'structured output schema is invalid');
+    throw new SDKDError('request_invalid', 400, false, errorValue instanceof Error ? errorValue.message : 'JSON schema is invalid');
   }
   return jsonSchema(document, {
     validate(value) {

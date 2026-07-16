@@ -130,6 +130,47 @@ describe('sdkd provider adapter', () => {
     expect(llamaModel.doGenerateCalls).toHaveLength(0);
   });
 
+  test('repairs nested invalid native tool arguments once on the same route', async () => {
+    const request = nestedChatRequest();
+    const llamaModel = successfulLanguageModel('unused-local-model', { ok: true });
+    const remoteModel = sequencedToolCallLanguageModel('served-remote-model', [
+      '{"details":{"count":"wrong"}}',
+      '{"details":{"count":2}}',
+    ]);
+    const generateChatCompletion = createChatCompletionGenerator(
+      completeConfiguration(SDKDAutoRoute.RemoteFirst),
+      languageModelFactory(llamaModel, remoteModel),
+    );
+
+    const response = await generateChatCompletion(request);
+
+    expect(response.message.toolCalls?.[0]?.function.arguments).toBe('{"details":{"count":2}}');
+    expect(remoteModel.doGenerateCalls).toHaveLength(2);
+    expect(remoteModel.doGenerateCalls[1]?.toolChoice).toEqual({ type: 'tool', toolName: 'lookup' });
+    expect(llamaModel.doGenerateCalls).toHaveLength(0);
+  });
+
+  test('rejects permanently invalid native tool arguments without an alternate route', async () => {
+    const request = nestedChatRequest();
+    const llamaModel = successfulLanguageModel('unused-local-model', { ok: true });
+    const remoteModel = sequencedToolCallLanguageModel('served-remote-model', [
+      '{"details":{"count":"wrong"}}',
+      '{"details":{"count":"still-wrong"}}',
+    ]);
+    const generateChatCompletion = createChatCompletionGenerator(
+      completeConfiguration(SDKDAutoRoute.RemoteFirst),
+      languageModelFactory(llamaModel, remoteModel),
+    );
+
+    await expect(generateChatCompletion(request)).rejects.toMatchObject({
+      code: 'provider_response_invalid',
+      allowLegacyFallback: false,
+      diagnostic: { category: StructuredOutputDiagnosticCategory.SchemaValidation },
+    });
+    expect(remoteModel.doGenerateCalls).toHaveLength(2);
+    expect(llamaModel.doGenerateCalls).toHaveLength(0);
+  });
+
   test('allows chat device routing without structured-output enablement', async () => {
     const llamaModel = chatLanguageModel('served-local-model');
     const remoteModel = successfulLanguageModel('unused-remote-model', { ok: true });
@@ -277,6 +318,46 @@ describe('sdkd provider adapter', () => {
     await expect(responsePromise).rejects.toThrow('aborted');
     expect(routeAttempts).toEqual(['llama.cpp']);
     expect(remoteModel.doGenerateCalls).toHaveLength(0);
+  });
+
+  test('cancels chat repair without using a fallback route', async () => {
+    const abortController = new AbortController();
+    let generationCount = 0;
+    let resolveRepairStarted: (() => void) | undefined;
+    const repairStarted = new Promise<void>(resolve => {
+      resolveRepairStarted = resolve;
+    });
+    const model = new MockLanguageModelV3({
+      modelId: 'repairing-model',
+      doGenerate: async options => {
+        generationCount += 1;
+        if (generationCount === 1) return toolCallGeneration('repairing-model', 'lookup', '{"details":{"count":"wrong"}}');
+        expect(options.abortSignal).toBeDefined();
+        resolveRepairStarted?.();
+        return new Promise((_, reject) => {
+          if (options.abortSignal?.aborted) {
+            reject(new DOMException('The operation was aborted', 'AbortError'));
+            return;
+          }
+          options.abortSignal?.addEventListener('abort', () => {
+            reject(new DOMException('The operation was aborted', 'AbortError'));
+          }, { once: true });
+        });
+      },
+    });
+    const fallbackModel = successfulLanguageModel('unused-model', { ok: true });
+    const generateChatCompletion = createChatCompletionGenerator(
+      completeConfiguration(SDKDAutoRoute.LocalFirst),
+      languageModelFactory(model, fallbackModel),
+    );
+
+    const responsePromise = generateChatCompletion(nestedChatRequest(), abortController.signal);
+    await repairStarted;
+    abortController.abort();
+
+    await expect(responsePromise).rejects.toThrow('aborted');
+    expect(generationCount).toBe(2);
+    expect(fallbackModel.doGenerateCalls).toHaveLength(0);
   });
 
   test('passes structured cancellation to the model and does not fall back after abort', async () => {
@@ -823,6 +904,18 @@ function toolCallLanguageModel(
   });
 }
 
+function sequencedToolCallLanguageModel(modelID: string, inputs: string[]): MockLanguageModelV3 {
+  let generationCount = 0;
+  return new MockLanguageModelV3({
+    modelId: modelID,
+    doGenerate: async () => {
+      const input = inputs[Math.min(generationCount, inputs.length - 1)];
+      generationCount += 1;
+      return toolCallGeneration(modelID, 'lookup', input ?? '{}');
+    },
+  });
+}
+
 function malformedThenValidLanguageModel(modelID: string, output: unknown): MockLanguageModelV3 {
   let generationCount = 0;
   return new MockLanguageModelV3({
@@ -862,6 +955,32 @@ function chatLanguageModel(modelID: string): MockLanguageModelV3 {
       warnings: [],
     }),
   });
+}
+
+function nestedChatRequest(): ChatCompletionRequest {
+  return {
+    ...chatRequest,
+    tools: [{
+      type: 'function',
+      function: {
+        name: 'lookup',
+        description: 'Look up a value.',
+        parameters: {
+          type: 'object',
+          properties: {
+            details: {
+              type: 'object',
+              properties: { count: { type: 'number' } },
+              required: ['count'],
+              additionalProperties: false,
+            },
+          },
+          required: ['details'],
+          additionalProperties: false,
+        },
+      },
+    }],
+  };
 }
 
 function retryFailingLanguageModel(
