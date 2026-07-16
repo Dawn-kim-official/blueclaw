@@ -614,14 +614,12 @@ func DecideAgentAction(ctx context.Context, languageModel llm.LanguageModelProvi
 	return ParseAgentActionResponse(structuredResponse)
 }
 
-const nativeAgentActionToolName = "blueclaw_agent_turn_action"
-
 func decideAgentActionWithChat(ctx context.Context, chatCompleter llm.ChatCompleter, request llm.ChatCompletionRequest) (agentAction, error) {
 	response, errorValue := chatCompleter.GenerateChatCompletion(ctx, request)
 	if errorValue != nil {
 		return turnActionDocument{}, errorValue
 	}
-	return parseNativeAgentActionResponse(response)
+	return parseNativeAgentActionResponse(response, request.Tools)
 }
 
 func buildAgentActionChatCompletionRequest(structuredRequest llm.StructuredResponseRequest) (llm.ChatCompletionRequest, bool) {
@@ -632,22 +630,117 @@ func buildAgentActionChatCompletionRequest(structuredRequest llm.StructuredRespo
 		}
 		messages = append(messages, llm.ChatCompletionMessage{Role: message.Role, Content: message.Content})
 	}
+	tools, errorValue := nativeAgentActionTools(structuredRequest.StructuredOutputSchema.Document)
+	if errorValue != nil || len(tools) == 0 {
+		return llm.ChatCompletionRequest{}, false
+	}
 	return llm.ChatCompletionRequest{
-		Messages: messages,
-		Tools: []llm.ChatCompletionTool{{
-			Type: "function",
-			Function: llm.ChatCompletionFunction{
-				Name:       nativeAgentActionToolName,
-				Parameters: json.RawMessage(structuredRequest.StructuredOutputSchema.Document),
-			},
-		}},
-		ToolChoice:        json.RawMessage(`{"type":"function","function":{"name":"blueclaw_agent_turn_action"}}`),
+		Messages:          messages,
+		Tools:             tools,
+		ToolChoice:        json.RawMessage(`"required"`),
 		ParallelToolCalls: false,
 		GenerationOptions: structuredRequest.GenerationOptions,
 	}, true
 }
 
-func parseNativeAgentActionResponse(response llm.ChatCompletionResponse) (agentAction, error) {
+func nativeAgentActionTools(schemaDocument string) ([]llm.ChatCompletionTool, error) {
+	var schema struct {
+		OneOf []json.RawMessage `json:"oneOf"`
+	}
+	if errorValue := json.Unmarshal([]byte(schemaDocument), &schema); errorValue != nil {
+		return nil, errorValue
+	}
+	tools := make([]llm.ChatCompletionTool, 0, len(schema.OneOf))
+	toolNames := map[string]bool{}
+	for _, variant := range schema.OneOf {
+		tool, errorValue := nativeAgentActionTool(variant)
+		if errorValue != nil {
+			return nil, errorValue
+		}
+		if toolNames[tool.Function.Name] {
+			return nil, fmt.Errorf("native agent action tool %q is duplicated", tool.Function.Name)
+		}
+		toolNames[tool.Function.Name] = true
+		tools = append(tools, tool)
+	}
+	return tools, nil
+}
+
+func nativeAgentActionTool(variant json.RawMessage) (llm.ChatCompletionTool, error) {
+	var document map[string]json.RawMessage
+	if errorValue := json.Unmarshal(variant, &document); errorValue != nil {
+		return llm.ChatCompletionTool{}, errorValue
+	}
+	var properties map[string]json.RawMessage
+	if errorValue := json.Unmarshal(document["properties"], &properties); errorValue != nil {
+		return llm.ChatCompletionTool{}, errors.New("native agent action variant has no properties")
+	}
+	actionName, errorValue := singleSchemaEnumValue(properties["action"])
+	if errorValue != nil {
+		return llm.ChatCompletionTool{}, errorValue
+	}
+	toolName := actionName
+	parameters := variant
+	switch {
+	case actionName == "continue":
+		toolName, errorValue = singleSchemaEnumValue(properties["toolName"])
+		parameters = properties["toolInput"]
+	case isNativeTerminalAction(actionName):
+		parameters, errorValue = nativeTerminalActionParameters(document)
+	default:
+		return llm.ChatCompletionTool{}, fmt.Errorf("native agent action %q is unsupported", actionName)
+	}
+	if errorValue != nil {
+		return llm.ChatCompletionTool{}, errorValue
+	}
+	if len(parameters) == 0 {
+		return llm.ChatCompletionTool{}, errors.New("native agent action parameters are empty")
+	}
+	var description string
+	_ = json.Unmarshal(document["description"], &description)
+	return llm.ChatCompletionTool{Type: "function", Function: llm.ChatCompletionFunction{
+		Name: toolName, Description: description, Parameters: parameters,
+	}}, nil
+}
+
+func singleSchemaEnumValue(document json.RawMessage) (string, error) {
+	var schema struct {
+		Enum []string `json:"enum"`
+	}
+	if json.Unmarshal(document, &schema) != nil || len(schema.Enum) != 1 || strings.TrimSpace(schema.Enum[0]) == "" {
+		return "", errors.New("native agent action discriminator must contain one value")
+	}
+	return schema.Enum[0], nil
+}
+
+func nativeTerminalActionParameters(document map[string]json.RawMessage) (json.RawMessage, error) {
+	var properties map[string]json.RawMessage
+	if errorValue := json.Unmarshal(document["properties"], &properties); errorValue != nil {
+		return nil, errorValue
+	}
+	delete(properties, "action")
+	propertiesDocument, errorValue := json.Marshal(properties)
+	if errorValue != nil {
+		return nil, errorValue
+	}
+	document["properties"] = propertiesDocument
+	var requiredFields []string
+	_ = json.Unmarshal(document["required"], &requiredFields)
+	retainedFields := make([]string, 0, len(requiredFields))
+	for _, fieldName := range requiredFields {
+		if fieldName != "action" {
+			retainedFields = append(retainedFields, fieldName)
+		}
+	}
+	requiredDocument, errorValue := json.Marshal(retainedFields)
+	if errorValue != nil {
+		return nil, errorValue
+	}
+	document["required"] = requiredDocument
+	return json.Marshal(document)
+}
+
+func parseNativeAgentActionResponse(response llm.ChatCompletionResponse, tools []llm.ChatCompletionTool) (agentAction, error) {
 	if response.FinishReason != "tool_calls" {
 		return turnActionDocument{}, fmt.Errorf("native agent action chat finish reason is %q", response.FinishReason)
 	}
@@ -661,22 +754,37 @@ func parseNativeAgentActionResponse(response llm.ChatCompletionResponse) (agentA
 	if strings.TrimSpace(toolCall.ID) == "" {
 		return turnActionDocument{}, errors.New("native agent action chat tool call ID is empty")
 	}
-	if toolCall.Type != "function" || toolCall.Function.Name != nativeAgentActionToolName {
+	if toolCall.Type != "function" || !containsNativeAgentTool(tools, toolCall.Function.Name) {
 		return turnActionDocument{}, fmt.Errorf("native agent action chat returned unknown tool %q", toolCall.Function.Name)
 	}
-	action, errorValue := ParseAgentActionResponse(llm.StructuredResponse{Content: toolCall.Function.Arguments})
+	input := json.RawMessage(toolCall.Function.Arguments)
+	var inputDocument map[string]json.RawMessage
+	if json.Unmarshal(input, &inputDocument) != nil || inputDocument == nil {
+		return turnActionDocument{}, fmt.Errorf("native agent action tool %q arguments must be an object", toolCall.Function.Name)
+	}
+	if !isNativeTerminalAction(toolCall.Function.Name) {
+		return turnActionDocument{Action: "continue", ToolName: toolCall.Function.Name, ToolInput: input}, nil
+	}
+	inputDocument["action"], _ = json.Marshal(toolCall.Function.Name)
+	normalizedInput, errorValue := json.Marshal(inputDocument)
 	if errorValue != nil {
 		return turnActionDocument{}, errorValue
 	}
-	if !isNativeAgentAction(action.Action) {
-		return turnActionDocument{}, fmt.Errorf("native agent action chat returned unsupported action %q", action.Action)
-	}
-	return action, nil
+	return ParseAgentActionResponse(llm.StructuredResponse{Content: string(normalizedInput)})
 }
 
-func isNativeAgentAction(action string) bool {
+func containsNativeAgentTool(tools []llm.ChatCompletionTool, toolName string) bool {
+	for _, tool := range tools {
+		if tool.Function.Name == toolName {
+			return true
+		}
+	}
+	return false
+}
+
+func isNativeTerminalAction(action string) bool {
 	switch strings.TrimSpace(action) {
-	case "continue", "finish", "fail", "set_quality_criteria":
+	case "finish", "fail", "set_quality_criteria":
 		return true
 	default:
 		return false
