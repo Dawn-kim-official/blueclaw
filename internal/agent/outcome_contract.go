@@ -261,7 +261,6 @@ func outcomeContractForRequest(request AgentRequest, intakeDecision IntakeDecisi
 	if OutcomeContractHasRequirements(request.ActiveGoal.OutcomeContract) {
 		contract := request.ActiveGoal.OutcomeContract
 		selectedEvidenceHints := selectedEvidenceHintTools(instructionBundle)
-		contract.RequiredEvidenceTools = appendUniqueStrings(contract.RequiredEvidenceTools, intakeDecision.RequiredEvidenceTools...)
 		contract.SelectedEvidenceHints = appendUniqueStrings(contract.SelectedEvidenceHints, selectedEvidenceHints...)
 		contract.SelectedEvidenceHints = filterStaleOutcomeHints(request, executionPlan, hasExecutionPlan, contract, contract.SelectedEvidenceHints)
 		contract.RequiredEvidenceTools = appendUniqueStrings(contract.RequiredEvidenceTools, selectedEvidenceToolsForRequestContinuation(request, contract, selectedEvidenceHints)...)

@@ -74,6 +74,26 @@ func TestOutcomeContractUsesIntakeRequiredEvidenceWithoutToolFallback(t *testing
 	}
 }
 
+func TestOutcomeContractPreservesActiveGoalEvidence(t *testing.T) {
+	contract := outcomeContractForRequest(
+		AgentRequest{ActiveGoal: ActiveGoal{OutcomeContract: OutcomeContract{
+			RequiredEvidenceTools: []string{"site.delete"},
+		}}},
+		IntakeDecision{
+			Classification:        IntakeClassificationBoundedTask,
+			RequiredEvidenceTools: []string{"file.delete"},
+		},
+		InstructionBundle{},
+		ExecutionPlan{},
+		false,
+		nil,
+	)
+
+	if !stringSliceContains(contract.RequiredEvidenceTools, "site.delete") || stringSliceContains(contract.RequiredEvidenceTools, "file.delete") {
+		t.Fatalf("expected active goal evidence to remain authoritative, got %+v", contract.RequiredEvidenceTools)
+	}
+}
+
 func TestOutcomeContractDoesNotFallbackToScheduleCreateForScheduledTaskShape(t *testing.T) {
 	contract := outcomeContractForRequest(
 		AgentRequest{
