@@ -14,21 +14,7 @@ type toolUseRequirement struct {
 }
 
 func deriveToolUseRequirements(request AgentTurnRequest) []toolUseRequirement {
-	requirements := evidenceToolRequirements(request)
-	if directMessageEvidenceRequired(request) {
-		return requirements
-	}
-	if requestRequiresBrowserEvidence(request) {
-		requirements = append(requirements, toolUseRequirement{
-			ToolPrefix: "browser.",
-			Reason:     "the request asks for browser state or browser control",
-		})
-	}
-	return requirements
-}
-
-func directMessageEvidenceRequired(request AgentTurnRequest) bool {
-	return requiredEvidenceContains(request.RequiredEvidenceTools, "message.send")
+	return evidenceToolRequirements(request)
 }
 
 func evidenceToolRequirements(request AgentTurnRequest) []toolUseRequirement {
@@ -78,10 +64,7 @@ func attachmentSuffixesForEvidenceTool(toolName string, suffixes []string) []str
 }
 
 func requestRequiresBrowserEvidence(request AgentTurnRequest) bool {
-	if !hasToolPrefix(request.ToolSet, "browser.") {
-		return false
-	}
-	return request.TaskShape == TaskShapeBrowserHandoffTask || requiredEvidenceHasPrefix(request.RequiredEvidenceTools, "browser.")
+	return requiredEvidenceHasPrefix(request.RequiredEvidenceTools, "browser.")
 }
 
 func requestOnlyOpensBrowser(request AgentTurnRequest) bool {
