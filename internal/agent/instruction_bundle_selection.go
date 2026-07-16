@@ -43,6 +43,37 @@ func selectedSkillRequiresCompletionEvidence(skillInstruction SkillInstruction) 
 		len(skillInstruction.Completion.RequiredAttachmentSuffixes) > 0
 }
 
+func requestHasExactToolContract(request AgentRequest, decision IntakeDecision) bool {
+	if decision.Classification != IntakeClassificationBoundedTask || decision.TaskLevel != TaskLevelLow || decision.EstimatedMinutes > 5 {
+		return false
+	}
+	contract := request.ActiveGoal.OutcomeContract
+	if contract.ArtifactRequirement != ArtifactRequirementNone || len(contract.RequiredAttachmentSuffixes) > 0 {
+		return false
+	}
+	for _, expectedResult := range contract.ExpectedResults {
+		if expectedResult.Type != ExpectedResultTypeMessage {
+			return false
+		}
+	}
+	if len(contract.RequiredEvidenceTools) == 0 {
+		return false
+	}
+	return !validateRequiredEvidenceTools(request.ToolSet, contract.RequiredEvidenceTools).HasInvalidEvidence()
+}
+
+func instructionBundleForExactToolContract(instructionBundle InstructionBundle) InstructionBundle {
+	defaultSkillInstructions := DefaultSkillInstructions()
+	instructionBundle.Prompt = strings.Join(nonEmptyStrings([]string{
+		strings.TrimSpace(instructionBundle.Prompt),
+		buildSelectedSkillInstructionPrompt(defaultSkillInstructions),
+	}), "\n\n")
+	instructionBundle.Skills = appendSkillInstructions(instructionBundle.Skills, defaultSkillInstructions...)
+	instructionBundle.RetrievalMode = "tool_contract"
+	instructionBundle.IndexStatus = "bypassed"
+	return instructionBundle
+}
+
 func (agentKernel *AgentKernel) currentInstructionBundle() InstructionBundle {
 	if agentKernel.instructionLoader != nil {
 		return agentKernel.instructionLoader()
