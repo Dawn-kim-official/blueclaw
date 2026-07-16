@@ -315,10 +315,11 @@ type ToolRepairRequest = {
   generationOptions: GenerationOptions | undefined;
   inputSchema: JSONSchema7;
   validationCategory: StructuredOutputDiagnosticCategory;
+  validationFailure: string;
   abortSignal?: AbortSignal;
 };
 
-type ToolRepairCallbackRequest = Omit<ToolRepairRequest, 'inputSchema' | 'validationCategory'> & {
+type ToolRepairCallbackRequest = Omit<ToolRepairRequest, 'inputSchema' | 'validationCategory' | 'validationFailure'> & {
   error: unknown;
   inputSchema: ({ toolName }: { toolName: string }) => PromiseLike<JSONSchema7>;
 };
@@ -330,6 +331,7 @@ async function repairInvalidToolCall({ inputSchema, error, ...repairRequest }: T
       ...repairRequest,
       inputSchema: createClosedJSONSchema(schemaDocument),
       validationCategory: diagnoseInvalidToolCall(error).category,
+      validationFailure: validationFailureMessage(error),
     });
   } catch {
     throwIfAborted(repairRequest.abortSignal);
@@ -351,6 +353,7 @@ async function repairToolCall(repairRequest: ToolRepairRequest): Promise<Languag
             `Malformed arguments: ${repairRequest.toolCall.input}`,
             `Closed JSON schema: ${JSON.stringify(repairRequest.inputSchema)}`,
             `Validation category: ${repairRequest.validationCategory}`,
+            `Validation failure: ${repairRequest.validationFailure}`,
             'Return exactly one forced tool call using the original tool name.',
           ].join('\n'),
         },
@@ -370,6 +373,15 @@ async function repairToolCall(repairRequest: ToolRepairRequest): Promise<Languag
     throwIfAborted(repairRequest.abortSignal);
     return null;
   }
+}
+
+function validationFailureMessage(errorValue: unknown): string {
+  if (!InvalidToolInputError.isInstance(errorValue)) return 'tool arguments do not match the schema';
+  if (JSONParseError.isInstance(errorValue.cause)) return 'tool arguments are not valid JSON';
+  if (!TypeValidationError.isInstance(errorValue.cause)) return 'tool arguments do not match the schema';
+  const validationCause = errorValue.cause.cause;
+  if (!(validationCause instanceof Error)) return 'tool arguments do not match the schema';
+  return validationCause.message.trim() || 'tool arguments do not match the schema';
 }
 
 function repairSystem(system: string | undefined): string {
