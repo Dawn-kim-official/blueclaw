@@ -131,6 +131,18 @@ func TestFlowTaskUpdateActionSchemaAndCompletionEvidence(t *testing.T) {
 	}
 }
 
+func TestFlowTaskListActionSchemaDefaultsToRequester(t *testing.T) {
+	actionSchema := buildActionSchemaFromToolDefinitions([]ToolDefinition{{Name: "task.list"}}, false, nil, false)
+	for _, fragment := range []string{`"scope"`, `"self"`, `"all"`, `"targetPersonHint"`} {
+		if !strings.Contains(actionSchema, fragment) {
+			t.Fatalf("expected task.list schema to include %s, got %s", fragment, actionSchema)
+		}
+	}
+	if strings.Contains(actionSchema, "everyone's tasks") {
+		t.Fatalf("expected task.list schema not to default to everyone, got %s", actionSchema)
+	}
+}
+
 func TestDefaultToolSideEffectClass(t *testing.T) {
 	tests := []struct {
 		toolName           string
