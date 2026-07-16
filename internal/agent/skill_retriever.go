@@ -103,27 +103,20 @@ func (skillRetriever *EmbeddingSkillRetriever) Search(ctx context.Context, reque
 			SelectedCandidates: []SkillCandidate{directCandidate},
 		}
 	}
-	querySet = normalizeSkillSearchQuerySet(augmentSkillSearchQuerySetForArtifactContract(querySet, request))
-	queryText := skillSearchQueryText(querySet)
-	if len(querySet.Queries) == 0 {
-		return SkillRetrievalResult{
-			RetrievalMode: "structured_query",
-			IndexStatus:   "empty_query",
-		}
-	}
+	querySet = normalizeSkillSearchQuerySet(querySet)
 	if skillRetriever == nil || skillRetriever.EmbeddingProvider == nil {
-		return retrieveSkillsWithBM25(request, skillInstructions, queryText, limit, "embedding_unavailable")
+		return retrieveSkillsWithBM25QuerySet(request, skillInstructions, querySet, limit, "embedding_unavailable")
 	}
 	if errorValue := skillRetriever.refresh(ctx, skillInstructions); errorValue != nil {
-		return retrieveSkillsWithBM25(request, skillInstructions, queryText, limit, "embedding_index_unavailable")
+		return retrieveSkillsWithBM25QuerySet(request, skillInstructions, querySet, limit, "embedding_index_unavailable")
 	}
 	queryEmbeddings := skillRetriever.queryEmbeddings(ctx, querySet)
 	if len(queryEmbeddings) == 0 {
-		return retrieveSkillsWithBM25(request, skillInstructions, queryText, limit, "embedding_query_failed")
+		return retrieveSkillsWithBM25QuerySet(request, skillInstructions, querySet, limit, "embedding_query_failed")
 	}
 	candidates, indexStatus := skillRetriever.embeddingCandidates(request, skillInstructions, queryEmbeddings, limit)
 	if indexStatus != "ready" {
-		return retrieveSkillsWithBM25(request, skillInstructions, queryText, limit, indexStatus)
+		return retrieveSkillsWithBM25QuerySet(request, skillInstructions, querySet, limit, indexStatus)
 	}
 	return SkillRetrievalResult{
 		RetrievalMode:      "embedding",
@@ -132,6 +125,12 @@ func (skillRetriever *EmbeddingSkillRetriever) Search(ctx context.Context, reque
 		QueryDescriptions:  skillSearchQueryDescriptions(querySet),
 		SelectedCandidates: candidates,
 	}
+}
+
+func retrieveSkillsWithBM25QuerySet(request AgentRequest, skillInstructions []SkillInstruction, querySet SkillSearchQuerySet, limit int, indexStatus string) SkillRetrievalResult {
+	result := retrieveSkillsWithBM25(request, skillInstructions, skillSearchQueryText(querySet), limit, indexStatus)
+	result.QueryDescriptions = skillSearchQueryDescriptions(querySet)
+	return result
 }
 
 func (skillRetriever *EmbeddingSkillRetriever) Refresh(ctx context.Context, skillInstructions []SkillInstruction) {

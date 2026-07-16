@@ -498,12 +498,16 @@ func TestSkillSearchToolNameLookupHiddenSkillReturnsNotFound(t *testing.T) {
 	toolCatalogBuilder := NewToolCatalogBuilder()
 	toolCatalogBuilder.UseSkillSearch(skillSearchTestRetriever{}, func() agent.InstructionBundle {
 		return agent.InstructionBundle{Skills: []agent.SkillInstruction{{
-			Name:        "visible-skill",
-			Description: "Visible skill.",
-			Prompt:      "Visible instructions.",
+			Name:              "hidden-skill",
+			Description:       "Hidden skill.",
+			Prompt:            "Confidential instructions.",
+			HiddenFromCircles: []string{"staff"},
 		}}}
 	})
-	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
+		ProfileName:  "default",
+		PersonAccess: policy.PersonAccess{Circles: []string{"staff"}},
+	})
 
 	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
 		ToolName: "skill.search",

@@ -55,7 +55,7 @@ func TestSelectInstructionBundleIncludesPresentationForKoreanPPTRequest(t *testi
 	}
 }
 
-func TestSelectInstructionBundleUsesVisibleContextForFollowUpArtifactRequest(t *testing.T) {
+func TestSelectInstructionBundleDoesNotUseStaleVisibleContextForRetrieval(t *testing.T) {
 	instructionBundle := InstructionBundle{
 		Prompt: "base",
 		Skills: []SkillInstruction{
@@ -79,11 +79,11 @@ func TestSelectInstructionBundleUsesVisibleContextForFollowUpArtifactRequest(t *
 		ToolSet: testToolSet([]string{"terminal.run", "file.write", "file.deliver"}),
 	})
 
-	if len(selectedBundle.SkillDecisions) != 1 || selectedBundle.SkillDecisions[0].Status != "selected" {
-		t.Fatalf("expected follow-up context to select presentation, got %+v", selectedBundle.SkillDecisions)
+	if len(selectedBundle.SkillDecisions) != 0 {
+		t.Fatalf("expected raw request retrieval not to inherit stale context, got %+v", selectedBundle.SkillDecisions)
 	}
-	if !strings.Contains(selectedBundle.Prompt, "Generate PPTX with Marp.") {
-		t.Fatalf("expected selected skill body, got %q", selectedBundle.Prompt)
+	if strings.Contains(selectedBundle.Prompt, "Generate PPTX with Marp.") {
+		t.Fatalf("expected stale-context skill body to stay unloaded, got %q", selectedBundle.Prompt)
 	}
 }
 
@@ -725,7 +725,7 @@ func TestBM25RetrieverSelectsScheduledTaskForFiniteRepeat(t *testing.T) {
 	}
 }
 
-func TestStructuredSkillQueryCanSkipSkillSearch(t *testing.T) {
+func TestEmptyStructuredSkillQueryStillSearchesRawRequest(t *testing.T) {
 	instructionBundle := InstructionBundle{
 		Prompt: "base",
 		Skills: []SkillInstruction{{
@@ -738,14 +738,14 @@ func TestStructuredSkillQueryCanSkipSkillSearch(t *testing.T) {
 	router := NewSkillSearchQueryRouter(staticStructuredLanguageModel{content: `{"queries":[]}`})
 
 	selectedBundle := selectInstructionBundleForRequestWithRetrieverAndRouter(context.Background(), instructionBundle, AgentRequest{
-		Prompt: "고마워",
+		Prompt: "Read and summarize recent email messages.",
 	}, retriever, router)
 
-	if selectedBundle.RetrievalMode != "structured_query" || selectedBundle.IndexStatus != "empty_query" {
-		t.Fatalf("expected empty structured query, got mode=%q status=%q", selectedBundle.RetrievalMode, selectedBundle.IndexStatus)
+	if selectedBundle.RetrievalMode != "bm25_fallback" || selectedBundle.IndexStatus != "embedding_unavailable" {
+		t.Fatalf("expected raw request retrieval, got mode=%q status=%q", selectedBundle.RetrievalMode, selectedBundle.IndexStatus)
 	}
-	if len(selectedBundle.SkillDecisions) != 0 || strings.Contains(selectedBundle.Prompt, "Follow mail workflow.") {
-		t.Fatalf("expected no selected skills, got decisions=%+v prompt=%q", selectedBundle.SkillDecisions, selectedBundle.Prompt)
+	if len(selectedBundle.SkillDecisions) != 1 || selectedBundle.SkillDecisions[0].Name != "mail" || selectedBundle.SkillDecisions[0].Status != "selected" {
+		t.Fatalf("expected raw request to select mail skill, got decisions=%+v prompt=%q", selectedBundle.SkillDecisions, selectedBundle.Prompt)
 	}
 }
 
@@ -778,8 +778,8 @@ func TestStructuredSkillQuerySelectsMailSkill(t *testing.T) {
 	if len(selectedBundle.SkillDecisions) != 1 || selectedBundle.SkillDecisions[0].Name != "mail" || selectedBundle.SkillDecisions[0].Status != "selected" {
 		t.Fatalf("expected mail selected, got %+v", selectedBundle.SkillDecisions)
 	}
-	if len(selectedBundle.SkillQueries) != 1 || !strings.Contains(selectedBundle.SkillQueries[0], "email messages") {
-		t.Fatalf("expected structured skill query to be recorded, got %+v", selectedBundle.SkillQueries)
+	if len(selectedBundle.SkillQueries) != 2 || selectedBundle.SkillQueries[0] != "나 최근 github한테 온 메일 있어?" || !strings.Contains(selectedBundle.SkillQueries[1], "email messages") {
+		t.Fatalf("expected raw request and supplemental query to be recorded, got %+v", selectedBundle.SkillQueries)
 	}
 	if !strings.Contains(selectedBundle.Prompt, "mail.message.search") {
 		t.Fatalf("expected selected mail instructions, got %q", selectedBundle.Prompt)
@@ -938,11 +938,47 @@ func TestStructuredSkillQueryRecordsLatestRequestWebsiteQueryWithStaleContext(t 
 		ToolSet: testToolSet([]string{"site.create", "site.publish"}),
 	}, retriever, router)
 
-	if len(selectedBundle.SkillQueries) != 1 || !strings.Contains(selectedBundle.SkillQueries[0], "InternKim") {
-		t.Fatalf("expected latest-request website query to be recorded, got %+v", selectedBundle.SkillQueries)
+	if len(selectedBundle.SkillQueries) != 2 || selectedBundle.SkillQueries[0] != "김인턴의 구조에 대해 웹사이트 하나 소개 형식으로 만들어줘." || !strings.Contains(selectedBundle.SkillQueries[1], "InternKim") {
+		t.Fatalf("expected raw request first and router query second, got %+v", selectedBundle.SkillQueries)
 	}
 	if strings.Contains(strings.Join(selectedBundle.SkillQueries, "\n"), "dawn.kim") || strings.Contains(strings.ToLower(strings.Join(selectedBundle.SkillQueries, "\n")), "ppt") {
 		t.Fatalf("expected stale visible context to stay out of structured query, got %+v", selectedBundle.SkillQueries)
+	}
+}
+
+func TestSkillRetrievalUsesRawRequestBeforeSupplementalQueries(t *testing.T) {
+	retriever := &recordingSkillRetriever{result: SkillRetrievalResult{RetrievalMode: "recording", IndexStatus: "ready"}}
+	router := NewSkillSearchQueryRouter(staticStructuredLanguageModel{content: `{"queries":[{"description":"Supplemental task description."}]}`})
+
+	_ = selectInstructionBundleForRequestWithRetrieverAndRouter(context.Background(), InstructionBundle{}, AgentRequest{
+		Prompt: "  실제 사용자 요청  ",
+	}, retriever, router)
+
+	if len(retriever.querySets) != 1 {
+		t.Fatalf("expected one retrieval, got %d", len(retriever.querySets))
+	}
+	descriptions := skillSearchQueryDescriptions(retriever.querySets[0])
+	if len(descriptions) != 2 || descriptions[0] != "실제 사용자 요청" || descriptions[1] != "Supplemental task description." {
+		t.Fatalf("expected raw request before supplemental query, got %+v", descriptions)
+	}
+}
+
+func TestSkillRetrievalDoesNotSynthesizeArtifactContractQueries(t *testing.T) {
+	retriever := &recordingSkillRetriever{result: SkillRetrievalResult{RetrievalMode: "recording", IndexStatus: "ready"}}
+	router := NewSkillSearchQueryRouter(staticStructuredLanguageModel{content: `{"queries":[]}`})
+
+	_ = selectInstructionBundleForRequestWithRetrieverAndRouter(context.Background(), InstructionBundle{}, AgentRequest{
+		Prompt: "이어서 수정해줘",
+		ActiveGoal: ActiveGoal{OutcomeContract: OutcomeContract{
+			ArtifactRequirement:        ArtifactRequirementRequired,
+			RequiredEvidenceTools:      []string{"file.deliver"},
+			RequiredAttachmentSuffixes: []string{".docx"},
+		}},
+	}, retriever, router)
+
+	descriptions := skillSearchQueryDescriptions(retriever.querySets[0])
+	if len(descriptions) != 1 || descriptions[0] != "이어서 수정해줘" {
+		t.Fatalf("expected only the raw request, got %+v", descriptions)
 	}
 }
 
@@ -1440,6 +1476,22 @@ func (retriever staticSkillRetriever) Search(context.Context, AgentRequest, []Sk
 }
 
 func (retriever staticSkillRetriever) Refresh(context.Context, []SkillInstruction) {}
+
+type recordingSkillRetriever struct {
+	result    SkillRetrievalResult
+	querySets []SkillSearchQuerySet
+}
+
+func (retriever *recordingSkillRetriever) Retrieve(context.Context, AgentRequest, []SkillInstruction, int) SkillRetrievalResult {
+	return retriever.result
+}
+
+func (retriever *recordingSkillRetriever) Search(_ context.Context, _ AgentRequest, _ []SkillInstruction, querySet SkillSearchQuerySet, _ int) SkillRetrievalResult {
+	retriever.querySets = append(retriever.querySets, querySet)
+	return retriever.result
+}
+
+func (retriever *recordingSkillRetriever) Refresh(context.Context, []SkillInstruction) {}
 
 func skillDecisionHasStatus(skillDecisions []SkillSelectionDecision, skillName string, status string) bool {
 	for _, skillDecision := range skillDecisions {
