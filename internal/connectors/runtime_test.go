@@ -198,6 +198,8 @@ func TestExactStopCommandsAndActiveTaskFollowUpsBypassConversationLock(t *testin
 	koreanStopEvent.Prompt = "/중단"
 	stopUnderscoreEvent := testInboundEvent("message-stop-underscore")
 	stopUnderscoreEvent.Prompt = "/stop_all"
+	debugEvent := testInboundEvent("message-debug")
+	debugEvent.Prompt = "/debug"
 	askEvent := testInboundEvent("message-ask")
 	askEvent.LegacyFields = map[string]interface{}{"askAction": "confirm"}
 	askEvent.Prompt = "approved"
@@ -210,6 +212,9 @@ func TestExactStopCommandsAndActiveTaskFollowUpsBypassConversationLock(t *testin
 	}
 	if connectorRuntime.shouldProcessBeforeConversationLock(ctx, adapter, stopUnderscoreEvent) {
 		t.Fatal("underscore stop alias without an active task should not bypass conversation lock")
+	}
+	if connectorRuntime.shouldProcessBeforeConversationLock(ctx, adapter, debugEvent) {
+		t.Fatal("debug message should keep conversation lock ordering")
 	}
 	if connectorRuntime.shouldProcessBeforeConversationLock(ctx, adapter, askEvent) {
 		t.Fatal("ask interaction without an active task should keep conversation lock ordering")

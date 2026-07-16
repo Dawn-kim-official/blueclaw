@@ -156,14 +156,8 @@ func (connectorRuntime *ConnectorRuntime) taskRunWasCancelled(taskRunID string) 
 	return isFound && taskRun.Status == task.TaskStatusCancelled
 }
 
-// shouldProcessBeforeConversationLock decides whether an inbound message should skip
-// waiting behind the per-conversation lock. Exact task-control/debug commands always
-// bypass; beyond that, a message gets the same treatment only when it looks like it
-// continues, corrects, cancels, or asks about a task the sender already has running here
-// -- otherwise the current task's execution could finish before the message is even
-// classified, silently turning a correction into a duplicate task.
 func (connectorRuntime *ConnectorRuntime) shouldProcessBeforeConversationLock(ctx context.Context, adapter PlatformAdapter, event PlatformInboundEvent) bool {
-	if exactTaskControlIntent(event.Prompt) != agent.TaskControlIntentNone || exactDebugControlRequested(event.Prompt) {
+	if exactTaskControlIntent(event.Prompt) != agent.TaskControlIntentNone {
 		return true
 	}
 	return connectorRuntime.looksLikeActiveTaskFollowUp(ctx, adapter, event)
