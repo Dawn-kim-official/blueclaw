@@ -160,7 +160,7 @@ func TestConnectorRuntimeAllowsWaitingTaskContinuationWhenQuiesced(t *testing.T)
 	languageModel := agenttest.NewScriptedLanguageModel(agenttest.ScriptedLanguageModelOptions{
 		StructuredResponsesBySchema: map[string][]string{
 			"blueclaw_turn_router": {
-				`{"route":"continue_task","classification":"bounded_task","taskShape":"maintenance_task","level":"low","requestedOutputFormats":null,"responseLanguage":"ko","reason":"input reply","userFacingReply":""}`,
+				`{"route":"continue_task","classification":"bounded_task","taskShape":"maintenance_task","level":"low","estimatedMinutes":1,"requestedOutputFormats":null,"responseLanguage":"ko","reason":"input reply","userFacingReply":""}`,
 			},
 		},
 		ActionResponses: []string{connectorFinishMessage("continued while quiesced")},
@@ -275,7 +275,7 @@ func TestConnectorRuntimeReplyTargetWaitResolvesOlderWaitingTask(t *testing.T) {
 	languageModel := agenttest.NewScriptedLanguageModel(agenttest.ScriptedLanguageModelOptions{
 		StructuredResponsesBySchema: map[string][]string{
 			"blueclaw_turn_router": {
-				`{"route":"continue_task","classification":"bounded_task","taskShape":"maintenance_task","level":"low","requestedOutputFormats":null,"responseLanguage":"ko","reason":"input reply","userFacingReply":""}`,
+				`{"route":"continue_task","classification":"bounded_task","taskShape":"maintenance_task","level":"low","estimatedMinutes":1,"requestedOutputFormats":null,"responseLanguage":"ko","reason":"input reply","userFacingReply":""}`,
 			},
 		},
 		ActionResponses: []string{connectorFinishMessage("older continued")},
@@ -359,7 +359,7 @@ func TestConnectorRuntimeSingleOpenWaitFallbackContinuesTask(t *testing.T) {
 	languageModel := agenttest.NewScriptedLanguageModel(agenttest.ScriptedLanguageModelOptions{
 		StructuredResponsesBySchema: map[string][]string{
 			"blueclaw_turn_router": {
-				`{"route":"continue_task","classification":"bounded_task","taskShape":"maintenance_task","level":"low","requestedOutputFormats":null,"responseLanguage":"ko","reason":"input reply","userFacingReply":""}`,
+				`{"route":"continue_task","classification":"bounded_task","taskShape":"maintenance_task","level":"low","estimatedMinutes":1,"requestedOutputFormats":null,"responseLanguage":"ko","reason":"input reply","userFacingReply":""}`,
 			},
 		},
 		ActionResponses: []string{connectorFinishMessage("single continued")},
@@ -391,7 +391,7 @@ func TestConnectorRuntimePreservesNaturalLanguageOptionReply(t *testing.T) {
 	languageModel := agenttest.NewScriptedLanguageModel(agenttest.ScriptedLanguageModelOptions{
 		StructuredResponsesBySchema: map[string][]string{
 			"blueclaw_turn_router": {
-				`{"route":"continue_task","classification":"bounded_task","taskShape":"maintenance_task","level":"low","requestedOutputFormats":null,"responseLanguage":"ko","reason":"natural-language reply selects the slides option","userFacingReply":"","choices":["B"]}`,
+				`{"route":"continue_task","classification":"bounded_task","taskShape":"maintenance_task","level":"low","estimatedMinutes":1,"requestedOutputFormats":null,"responseLanguage":"ko","reason":"natural-language reply selects the slides option","userFacingReply":"","choices":["B"]}`,
 			},
 		},
 		ActionResponses: []string{connectorFinishMessage("발표자료로 진행했습니다.")},
@@ -433,7 +433,7 @@ func TestConnectorRuntimePendingInputStartTaskSupersedesWaitingTask(t *testing.T
 	languageModel := agenttest.NewScriptedLanguageModel(agenttest.ScriptedLanguageModelOptions{
 		StructuredResponsesBySchema: map[string][]string{
 			"blueclaw_turn_router": {
-				`{"route":"start_task","classification":"quick_reply","taskShape":"immediate_reply","level":"xlow","requestedOutputFormats":null,"responseLanguage":"ko","reason":"latest message is an independent question","userFacingReply":""}`,
+				`{"route":"start_task","classification":"quick_reply","taskShape":"immediate_reply","level":"xlow","estimatedMinutes":1,"requestedOutputFormats":null,"responseLanguage":"ko","reason":"latest message is an independent question","userFacingReply":""}`,
 			},
 		},
 		ActionResponses: []string{connectorFinishMessage("휴게소 들러도 괜찮습니다.")},
@@ -478,7 +478,7 @@ func TestConnectorRuntimeWritesResolvesAndExpiresTaskWaitRecord(t *testing.T) {
 	languageModel := agenttest.NewScriptedLanguageModel(agenttest.ScriptedLanguageModelOptions{
 		StructuredResponsesBySchema: map[string][]string{
 			"blueclaw_turn_router": {
-				`{"route":"start_task","classification":"bounded_task","taskShape":"maintenance_task","level":"low","requestedOutputFormats":null,"siteRequestEvidence":"","responseLanguage":"ko","reason":"input needed","userFacingReply":"","initialToolNames":["ask.input"]}`,
+				`{"route":"start_task","classification":"bounded_task","taskShape":"maintenance_task","level":"low","estimatedMinutes":1,"requestedOutputFormats":null,"siteRequestEvidence":"","responseLanguage":"ko","reason":"input needed","userFacingReply":"","initialToolNames":["ask.input"]}`,
 			},
 		},
 		ActionResponses: []string{
@@ -667,7 +667,7 @@ func TestConnectorRuntimeBusyStatusDoesNotCreateNewTask(t *testing.T) {
 	languageModel := agenttest.NewScriptedLanguageModel(agenttest.ScriptedLanguageModelOptions{
 		StructuredResponsesBySchema: map[string][]string{
 			"blueclaw_turn_router": {
-				`{"route":"answer_question","classification":"quick_reply","taskShape":"immediate_reply","level":"xlow","requestedOutputFormats":null,"responseLanguage":"ko","reason":"user asked for progress","userFacingReply":"","busyRoute":"status","busyInstruction":""}`,
+				`{"route":"answer_question","classification":"quick_reply","taskShape":"immediate_reply","level":"xlow","estimatedMinutes":1,"requestedOutputFormats":null,"responseLanguage":"ko","reason":"user asked for progress","userFacingReply":"","busyRoute":"status","busyInstruction":""}`,
 			},
 			"blueclaw_reply": {
 				`{"reply":"지금 처리 중입니다."}`,
@@ -760,7 +760,7 @@ func TestConnectorRuntimeBusySteerAppendsInstructionWithoutNewTask(t *testing.T)
 	languageModel := agenttest.NewScriptedLanguageModel(agenttest.ScriptedLanguageModelOptions{
 		StructuredResponsesBySchema: map[string][]string{
 			"blueclaw_turn_router": {
-				`{"route":"revise_task","classification":"bounded_task","taskShape":"maintenance_task","level":"low","requestedOutputFormats":null,"responseLanguage":"ko","reason":"user corrected active task","userFacingReply":"","busyRoute":"steer","busyInstruction":"PDF 대신 HTML로 작성한다."}`,
+				`{"route":"revise_task","classification":"bounded_task","taskShape":"maintenance_task","level":"low","estimatedMinutes":1,"requestedOutputFormats":null,"responseLanguage":"ko","reason":"user corrected active task","userFacingReply":"","busyRoute":"steer","busyInstruction":"PDF 대신 HTML로 작성한다."}`,
 			},
 			"blueclaw_reply": {
 				`{"reply":"방향 수정 내용을 현재 작업에 반영하겠습니다."}`,
@@ -803,7 +803,7 @@ func TestConnectorRuntimeBusyCancelStopsActiveTaskWithoutNewTask(t *testing.T) {
 	languageModel := agenttest.NewScriptedLanguageModel(agenttest.ScriptedLanguageModelOptions{
 		StructuredResponsesBySchema: map[string][]string{
 			"blueclaw_turn_router": {
-				`{"route":"consume","classification":"quick_reply","taskShape":"immediate_reply","level":"xlow","requestedOutputFormats":null,"responseLanguage":"ko","reason":"user asked to cancel active task","userFacingReply":"","busyRoute":"cancel","busyInstruction":""}`,
+				`{"route":"consume","classification":"quick_reply","taskShape":"immediate_reply","level":"xlow","estimatedMinutes":1,"requestedOutputFormats":null,"responseLanguage":"ko","reason":"user asked to cancel active task","userFacingReply":"","busyRoute":"cancel","busyInstruction":""}`,
 			},
 			"blueclaw_reply": {
 				`{"reply":"진행 중인 작업을 중단했습니다."}`,
@@ -923,8 +923,8 @@ func TestConnectorRuntimeBusyReplaceCancelsActiveTaskAndStartsNewTask(t *testing
 	languageModel := agenttest.NewScriptedLanguageModel(agenttest.ScriptedLanguageModelOptions{
 		StructuredResponsesBySchema: map[string][]string{
 			"blueclaw_turn_router": {
-				`{"route":"start_task","classification":"bounded_task","taskShape":"maintenance_task","level":"low","requestedOutputFormats":null,"responseLanguage":"ko","reason":"user replaced active task","userFacingReply":"","busyRoute":"replace","busyInstruction":"새 지시로 교체한다."}`,
-				`{"route":"start_task","classification":"quick_reply","taskShape":"immediate_reply","level":"xlow","requestedOutputFormats":null,"responseLanguage":"ko","reason":"replacement task","userFacingReply":""}`,
+				`{"route":"start_task","classification":"bounded_task","taskShape":"maintenance_task","level":"low","estimatedMinutes":1,"requestedOutputFormats":null,"responseLanguage":"ko","reason":"user replaced active task","userFacingReply":"","busyRoute":"replace","busyInstruction":"새 지시로 교체한다."}`,
+				`{"route":"start_task","classification":"quick_reply","taskShape":"immediate_reply","level":"xlow","estimatedMinutes":1,"requestedOutputFormats":null,"responseLanguage":"ko","reason":"replacement task","userFacingReply":""}`,
 			},
 		},
 		ActionResponses: []string{
@@ -965,8 +965,8 @@ func TestConnectorRuntimeBusyNewTaskSupersedesActiveTaskAndStartsNewTask(t *test
 	languageModel := agenttest.NewScriptedLanguageModel(agenttest.ScriptedLanguageModelOptions{
 		StructuredResponsesBySchema: map[string][]string{
 			"blueclaw_turn_router": {
-				`{"route":"start_task","classification":"quick_reply","taskShape":"immediate_reply","level":"xlow","requestedOutputFormats":null,"responseLanguage":"ko","reason":"latest message is independent","userFacingReply":"","busyRoute":"new_task","busyInstruction":""}`,
-				`{"route":"answer_question","classification":"quick_reply","taskShape":"immediate_reply","level":"xlow","requestedOutputFormats":null,"responseLanguage":"ko","reason":"answer latest question","userFacingReply":""}`,
+				`{"route":"start_task","classification":"quick_reply","taskShape":"immediate_reply","level":"xlow","estimatedMinutes":1,"requestedOutputFormats":null,"responseLanguage":"ko","reason":"latest message is independent","userFacingReply":"","busyRoute":"new_task","busyInstruction":""}`,
+				`{"route":"answer_question","classification":"quick_reply","taskShape":"immediate_reply","level":"xlow","estimatedMinutes":1,"requestedOutputFormats":null,"responseLanguage":"ko","reason":"answer latest question","userFacingReply":""}`,
 			},
 		},
 		ActionResponses: []string{connectorFinishMessage("휴게소 들러도 괜찮습니다.")},
@@ -1328,7 +1328,7 @@ func TestConnectorRuntimeReactsToConsumedAddressedMessageWithoutReply(t *testing
 	languageModel := agenttest.NewScriptedLanguageModel(agenttest.ScriptedLanguageModelOptions{
 		StructuredResponsesBySchema: map[string][]string{
 			"blueclaw_turn_router": {
-				`{"route":"consume","classification":"quick_reply","taskShape":"immediate_reply","level":"xlow","requestedOutputFormats":null,"responseLanguage":"ko","reason":"acknowledgement","userFacingReply":"","reactionEmojiName":"tada"}`,
+				`{"route":"consume","classification":"quick_reply","taskShape":"immediate_reply","level":"xlow","estimatedMinutes":1,"requestedOutputFormats":null,"responseLanguage":"ko","reason":"acknowledgement","userFacingReply":"","reactionEmojiName":"tada"}`,
 			},
 		},
 	})
@@ -1364,7 +1364,7 @@ func TestConnectorRuntimeDirectConsumeFallsBackToReplyWhenReactionFails(t *testi
 	languageModel := agenttest.NewScriptedLanguageModel(agenttest.ScriptedLanguageModelOptions{
 		StructuredResponsesBySchema: map[string][]string{
 			"blueclaw_turn_router": {
-				`{"route":"consume","classification":"quick_reply","taskShape":"immediate_reply","level":"xlow","requestedOutputFormats":null,"responseLanguage":"ko","reason":"acknowledgement","userFacingReply":"알겠습니다.","reactionEmojiName":"tada"}`,
+				`{"route":"consume","classification":"quick_reply","taskShape":"immediate_reply","level":"xlow","estimatedMinutes":1,"requestedOutputFormats":null,"responseLanguage":"ko","reason":"acknowledgement","userFacingReply":"알겠습니다.","reactionEmojiName":"tada"}`,
 			},
 		},
 	})
@@ -1395,7 +1395,7 @@ func TestConnectorRuntimeDirectConsumeFallsBackWithoutReactionAdapter(t *testing
 	languageModel := agenttest.NewScriptedLanguageModel(agenttest.ScriptedLanguageModelOptions{
 		StructuredResponsesBySchema: map[string][]string{
 			"blueclaw_turn_router": {
-				`{"route":"consume","classification":"quick_reply","taskShape":"immediate_reply","level":"xlow","requestedOutputFormats":null,"responseLanguage":"ko","reason":"acknowledgement","userFacingReply":"확인했습니다.","reactionEmojiName":"white_check_mark"}`,
+				`{"route":"consume","classification":"quick_reply","taskShape":"immediate_reply","level":"xlow","estimatedMinutes":1,"requestedOutputFormats":null,"responseLanguage":"ko","reason":"acknowledgement","userFacingReply":"확인했습니다.","reactionEmojiName":"white_check_mark"}`,
 			},
 		},
 	})
@@ -1419,7 +1419,7 @@ func TestConnectorRuntimeConsumeWithoutReactionAdapterDoesNotReply(t *testing.T)
 	languageModel := agenttest.NewScriptedLanguageModel(agenttest.ScriptedLanguageModelOptions{
 		StructuredResponsesBySchema: map[string][]string{
 			"blueclaw_turn_router": {
-				`{"route":"consume","classification":"quick_reply","taskShape":"immediate_reply","level":"xlow","requestedOutputFormats":null,"responseLanguage":"ko","reason":"acknowledgement","userFacingReply":""}`,
+				`{"route":"consume","classification":"quick_reply","taskShape":"immediate_reply","level":"xlow","estimatedMinutes":1,"requestedOutputFormats":null,"responseLanguage":"ko","reason":"acknowledgement","userFacingReply":""}`,
 			},
 		},
 	})
@@ -1445,7 +1445,7 @@ func TestConnectorRuntimeReactionFailureDoesNotSendFallbackReply(t *testing.T) {
 	languageModel := agenttest.NewScriptedLanguageModel(agenttest.ScriptedLanguageModelOptions{
 		StructuredResponsesBySchema: map[string][]string{
 			"blueclaw_turn_router": {
-				`{"route":"consume","classification":"quick_reply","taskShape":"immediate_reply","level":"xlow","requestedOutputFormats":null,"responseLanguage":"ko","reason":"acknowledgement","userFacingReply":""}`,
+				`{"route":"consume","classification":"quick_reply","taskShape":"immediate_reply","level":"xlow","estimatedMinutes":1,"requestedOutputFormats":null,"responseLanguage":"ko","reason":"acknowledgement","userFacingReply":""}`,
 			},
 		},
 	})
@@ -1759,7 +1759,7 @@ func TestConnectorRuntimeSendsAskUserNoticeForTargetUser(t *testing.T) {
 	}
 }
 
-func TestConnectorRuntimeSkipsUnsafeUserNoticeNonDeliverableLocator(t *testing.T) {
+func TestConnectorRuntimePassesThroughUserNoticeWithoutContentFiltering(t *testing.T) {
 	connectorRuntime, _ := newTestConnectorRuntime(t, testLanguageModel{reply: "unused"})
 	sentReplies := []OutboundReply{}
 	event := testInboundEvent("message-1")
@@ -1777,11 +1777,11 @@ func TestConnectorRuntimeSkipsUnsafeUserNoticeNonDeliverableLocator(t *testing.T
 		},
 	)
 
-	if isSent || dispatchID != "" {
-		t.Fatalf("expected skipped incomplete reply, got dispatchID=%q sent=%v", dispatchID, isSent)
+	if !isSent || dispatchID != "dispatch-1" {
+		t.Fatalf("expected user notice passthrough, got dispatchID=%q sent=%v", dispatchID, isSent)
 	}
-	if len(sentReplies) != 0 {
-		t.Fatalf("expected no recovered reply, got %+v", sentReplies)
+	if len(sentReplies) != 1 || sentReplies[0].Message != "작업 결과는 sandbox:/mnt/data/Hermes_Agent_Slide_Part1.html에 있습니다." {
+		t.Fatalf("expected exact model wording, got %+v", sentReplies)
 	}
 }
 
@@ -2010,7 +2010,8 @@ func TestConnectorRuntimeAddsSenderToRecoveryActions(t *testing.T) {
 }
 
 func TestConnectorRuntimeSendsFailureNoticeWhenTurnReturnsError(t *testing.T) {
-	connectorRuntime, adapter := newTestConnectorRuntime(t, testLanguageModel{errorValue: errors.New("provider unavailable")})
+	connectorRuntime, adapter := newTestConnectorRuntime(t, testLanguageModel{reply: "요청을 분류하지 못해 작업을 시작하지 못했습니다. 다시 요청해 주세요."})
+	connectorRuntime.agentKernel.UseIntakeLanguageModelProvider(testLanguageModel{errorValue: errors.New("provider unavailable")})
 
 	result, errorValue := connectorRuntime.HandleInboundEvent(context.Background(), adapter, testInboundEvent("message-1"))
 	if errorValue != nil {
@@ -2020,8 +2021,14 @@ func TestConnectorRuntimeSendsFailureNoticeWhenTurnReturnsError(t *testing.T) {
 	if result.Reason != "task_not_completed" || result.TaskRunID == "" {
 		t.Fatalf("expected task failure result, got %+v", result)
 	}
-	if len(adapter.sentReplies) != 1 || !strings.Contains(adapter.sentReplies[0].message, "provider unavailable") {
+	if len(adapter.sentReplies) != 1 || !strings.Contains(adapter.sentReplies[0].message, "분류하지 못해") {
 		t.Fatalf("expected task failure notice, got %+v", adapter.sentReplies)
+	}
+	if adapter.sentReplies[0].failureNotice.Source != "generated" {
+		t.Fatalf("expected LLM-authored failure notice, got %+v", adapter.sentReplies[0].failureNotice)
+	}
+	if !connectorTaskEventsContain(connectorRuntime, result.TaskRunID, "llm.call", `"isError":true`) {
+		t.Fatal("expected persisted router call error")
 	}
 }
 
@@ -2036,7 +2043,7 @@ func TestConnectorRuntimeSendsNoticeWhenLaunchReturnsNoTask(t *testing.T) {
 	if result.Reason != "task_not_completed" || result.TaskRunID == "" {
 		t.Fatalf("expected launch failure result, got %+v", result)
 	}
-	if len(adapter.sentReplies) != 1 || !strings.Contains(adapter.sentReplies[0].message, "language model provider is not configured") {
+	if len(adapter.sentReplies) != 1 || !strings.Contains(adapter.sentReplies[0].message, "turn router language model unavailable") {
 		t.Fatalf("expected launch failure notice, got %+v", adapter.sentReplies)
 	}
 }
@@ -2527,8 +2534,8 @@ func TestConnectorRuntimeClassifiesConfirmationReplyBeforeResumingPendingTask(t 
 	languageModel := agenttest.NewScriptedLanguageModel(agenttest.ScriptedLanguageModelOptions{
 		StructuredResponsesBySchema: map[string][]string{
 			"blueclaw_turn_router": {
-				`{"classification":"bounded_task","taskShape":"approval_gated_task","level":"low","requestedOutputFormats":null,"responseLanguage":"ko","reason":"calendar delete needs approval first","userFacingReply":""}`,
-				`{"classification":"bounded_task","taskShape":"maintenance_task","level":"low","requestedOutputFormats":null,"responseLanguage":"ko","reason":"approved calendar tool work","userFacingReply":"","approval":"approve"}`,
+				`{"route":"start_task","classification":"bounded_task","taskShape":"approval_gated_task","level":"low","estimatedMinutes":1,"requestedOutputFormats":null,"responseLanguage":"ko","reason":"calendar delete needs approval first","userFacingReply":""}`,
+				`{"route":"continue_task","classification":"bounded_task","taskShape":"maintenance_task","level":"low","estimatedMinutes":1,"requestedOutputFormats":null,"responseLanguage":"ko","reason":"approved calendar tool work","userFacingReply":"","approval":"approve"}`,
 			},
 			"blueclaw_execution_plan": {
 				`{"originalInstruction":"내일 휴가 일정을 캘린더에서 삭제해줘","summary":"내일 휴가 일정을 삭제합니다.","targets":["calendar event"],"schedule":"","startAt":"","endAt":"","cadence":"","externalSend":false,"thirdPartyExternalSend":false,"repeated":false,"highFrequency":false,"destructive":true,"permissionChange":false,"publicDeploy":false,"paidAction":false,"missingInformation":[],"continuationInstruction":"내일 휴가 일정을 캘린더에서 삭제합니다. 이미 사용자가 확인했습니다."}`,
@@ -2610,8 +2617,8 @@ func TestConnectorRuntimeClassifiesNaturalLanguageConfirmationRejection(t *testi
 	languageModel := agenttest.NewScriptedLanguageModel(agenttest.ScriptedLanguageModelOptions{
 		StructuredResponsesBySchema: map[string][]string{
 			"blueclaw_turn_router": {
-				`{"classification":"bounded_task","taskShape":"approval_gated_task","level":"low","requestedOutputFormats":null,"responseLanguage":"ko","reason":"calendar delete needs approval first","userFacingReply":""}`,
-				`{"route":"consume","classification":"quick_reply","taskShape":"immediate_reply","level":"xlow","requestedOutputFormats":null,"responseLanguage":"ko","reason":"user rejected the pending action","userFacingReply":"","approval":"reject"}`,
+				`{"route":"start_task","classification":"bounded_task","taskShape":"approval_gated_task","level":"low","estimatedMinutes":1,"requestedOutputFormats":null,"responseLanguage":"ko","reason":"calendar delete needs approval first","userFacingReply":""}`,
+				`{"route":"consume","classification":"quick_reply","taskShape":"immediate_reply","level":"xlow","estimatedMinutes":1,"requestedOutputFormats":null,"responseLanguage":"ko","reason":"user rejected the pending action","userFacingReply":"","approval":"reject"}`,
 			},
 			"blueclaw_execution_plan": {
 				`{"originalInstruction":"내일 휴가 일정을 캘린더에서 삭제해줘","summary":"내일 휴가 일정을 삭제합니다.","targets":["calendar event"],"schedule":"","startAt":"","endAt":"","cadence":"","externalSend":false,"thirdPartyExternalSend":false,"repeated":false,"highFrequency":false,"destructive":true,"permissionChange":false,"publicDeploy":false,"paidAction":false,"missingInformation":[],"continuationInstruction":"내일 휴가 일정을 캘린더에서 삭제합니다."}`,
@@ -2661,8 +2668,8 @@ func TestConnectorRuntimeRoutesShortConfirmationReplyThroughRouter(t *testing.T)
 	languageModel := agenttest.NewScriptedLanguageModel(agenttest.ScriptedLanguageModelOptions{
 		StructuredResponsesBySchema: map[string][]string{
 			"blueclaw_turn_router": {
-				`{"classification":"bounded_task","taskShape":"approval_gated_task","level":"low","requestedOutputFormats":null,"responseLanguage":"ko","reason":"calendar delete needs approval first","userFacingReply":""}`,
-				`{"classification":"bounded_task","taskShape":"maintenance_task","level":"low","requestedOutputFormats":null,"responseLanguage":"ko","reason":"approved calendar tool work","userFacingReply":"","approval":"approve"}`,
+				`{"route":"start_task","classification":"bounded_task","taskShape":"approval_gated_task","level":"low","estimatedMinutes":1,"requestedOutputFormats":null,"responseLanguage":"ko","reason":"calendar delete needs approval first","userFacingReply":""}`,
+				`{"route":"continue_task","classification":"bounded_task","taskShape":"maintenance_task","level":"low","estimatedMinutes":1,"requestedOutputFormats":null,"responseLanguage":"ko","reason":"approved calendar tool work","userFacingReply":"","approval":"approve"}`,
 			},
 			"blueclaw_execution_plan": {
 				`{"originalInstruction":"내일 휴가 일정을 캘린더에서 삭제해줘","summary":"내일 휴가 일정을 삭제합니다.","targets":["calendar event"],"schedule":"","startAt":"","endAt":"","cadence":"","externalSend":false,"thirdPartyExternalSend":false,"repeated":false,"highFrequency":false,"destructive":true,"permissionChange":false,"publicDeploy":false,"paidAction":false,"missingInformation":[],"continuationInstruction":"내일 휴가 일정을 캘린더에서 삭제합니다. 이미 사용자가 확인했습니다."}`,
@@ -2729,8 +2736,8 @@ func TestConnectorRuntimeAnswersPendingConfirmationQuestionWithoutLaunching(t *t
 	languageModel := agenttest.NewScriptedLanguageModel(agenttest.ScriptedLanguageModelOptions{
 		StructuredResponsesBySchema: map[string][]string{
 			"blueclaw_turn_router": {
-				`{"classification":"bounded_task","taskShape":"approval_gated_task","level":"low","requestedOutputFormats":null,"responseLanguage":"ko","reason":"calendar delete needs approval first","userFacingReply":""}`,
-				`{"route":"answer_question","classification":"bounded_task","taskShape":"maintenance_task","level":"low","requestedOutputFormats":null,"responseLanguage":"ko","reason":"user asked a follow-up instead of approving","userFacingReply":""}`,
+				`{"route":"start_task","classification":"bounded_task","taskShape":"approval_gated_task","level":"low","estimatedMinutes":1,"requestedOutputFormats":null,"responseLanguage":"ko","reason":"calendar delete needs approval first","userFacingReply":""}`,
+				`{"route":"answer_question","classification":"bounded_task","taskShape":"maintenance_task","level":"low","estimatedMinutes":1,"requestedOutputFormats":null,"responseLanguage":"ko","reason":"user asked a follow-up instead of approving","userFacingReply":""}`,
 			},
 			"blueclaw_execution_plan": {
 				`{"originalInstruction":"내일 휴가 일정을 캘린더에서 삭제해줘","summary":"내일 휴가 일정을 삭제합니다.","targets":["calendar event"],"schedule":"","startAt":"","endAt":"","cadence":"","externalSend":false,"thirdPartyExternalSend":false,"repeated":false,"highFrequency":false,"destructive":true,"permissionChange":false,"publicDeploy":false,"paidAction":false,"missingInformation":[],"continuationInstruction":"내일 휴가 일정을 캘린더에서 삭제합니다."}`,
@@ -2780,9 +2787,9 @@ func TestConnectorRuntimeRoutesPendingConfirmationRevisionAsNewTask(t *testing.T
 	languageModel := agenttest.NewScriptedLanguageModel(agenttest.ScriptedLanguageModelOptions{
 		StructuredResponsesBySchema: map[string][]string{
 			"blueclaw_turn_router": {
-				`{"route":"start_task","classification":"bounded_task","taskShape":"approval_gated_task","level":"low","requestedOutputFormats":null,"responseLanguage":"ko","reason":"calendar delete needs approval first","userFacingReply":""}`,
-				`{"route":"start_task","classification":"bounded_task","taskShape":"maintenance_task","level":"low","requestedOutputFormats":null,"expectedResults":[{"id":"final-message","type":"message","description":"삭제 대상 정정 요청 처리 결과","required":true}],"responseLanguage":"ko","reason":"user replaced the pending confirmation with a different message deletion target","userFacingReply":"","approval":"unclear"}`,
-				`{"route":"start_task","classification":"bounded_task","taskShape":"maintenance_task","level":"low","requestedOutputFormats":null,"responseLanguage":"ko","reason":"corrected deletion target runs as new bounded work","userFacingReply":""}`,
+				`{"route":"start_task","classification":"bounded_task","taskShape":"approval_gated_task","level":"low","estimatedMinutes":1,"requestedOutputFormats":null,"responseLanguage":"ko","reason":"calendar delete needs approval first","userFacingReply":""}`,
+				`{"route":"start_task","classification":"bounded_task","taskShape":"maintenance_task","level":"low","estimatedMinutes":1,"requestedOutputFormats":null,"expectedResults":[{"id":"final-message","type":"message","description":"삭제 대상 정정 요청 처리 결과","required":true}],"responseLanguage":"ko","reason":"user replaced the pending confirmation with a different message deletion target","userFacingReply":"","approval":"unclear"}`,
+				`{"route":"start_task","classification":"bounded_task","taskShape":"maintenance_task","level":"low","estimatedMinutes":1,"requestedOutputFormats":null,"responseLanguage":"ko","reason":"corrected deletion target runs as new bounded work","userFacingReply":""}`,
 			},
 			"blueclaw_execution_plan": {
 				`{"originalInstruction":"내일 휴가 일정을 캘린더에서 삭제해줘","summary":"내일 휴가 일정을 삭제합니다.","targets":["calendar event"],"schedule":"","startAt":"","endAt":"","cadence":"","externalSend":false,"thirdPartyExternalSend":false,"repeated":false,"highFrequency":false,"destructive":true,"permissionChange":false,"publicDeploy":false,"paidAction":false,"missingInformation":[],"continuationInstruction":"내일 휴가 일정을 캘린더에서 삭제합니다."}`,
@@ -2885,7 +2892,7 @@ func TestConnectorRuntimeConsumesInteractiveConfirmationCancel(t *testing.T) {
 	languageModel := agenttest.NewScriptedLanguageModel(agenttest.ScriptedLanguageModelOptions{
 		StructuredResponsesBySchema: map[string][]string{
 			"blueclaw_turn_router": {
-				`{"classification":"bounded_task","taskShape":"approval_gated_task","level":"low","requestedOutputFormats":null,"responseLanguage":"ko","reason":"calendar delete needs approval first","userFacingReply":""}`,
+				`{"route":"start_task","classification":"bounded_task","taskShape":"approval_gated_task","level":"low","estimatedMinutes":1,"requestedOutputFormats":null,"responseLanguage":"ko","reason":"calendar delete needs approval first","userFacingReply":""}`,
 			},
 			"blueclaw_execution_plan": {
 				`{"originalInstruction":"내일 휴가 일정을 캘린더에서 삭제해줘","summary":"내일 휴가 일정을 삭제합니다.","targets":["calendar event"],"schedule":"","startAt":"","endAt":"","cadence":"","externalSend":false,"thirdPartyExternalSend":false,"repeated":false,"highFrequency":false,"destructive":true,"permissionChange":false,"publicDeploy":false,"paidAction":false,"missingInformation":[],"continuationInstruction":"내일 휴가 일정을 캘린더에서 삭제합니다."}`,
@@ -2933,7 +2940,7 @@ func TestConnectorRuntimeConsumesBareConfirmationReplyWithoutPendingTask(t *test
 	languageModel := agenttest.NewScriptedLanguageModel(agenttest.ScriptedLanguageModelOptions{
 		StructuredResponsesBySchema: map[string][]string{
 			"blueclaw_turn_router": {
-				`{"route":"consume","classification":"quick_reply","taskShape":"immediate_reply","level":"xlow","requestedOutputFormats":null,"responseLanguage":"ko","reason":"orphan approval acknowledgement","userFacingReply":"","reactionEmojiName":"ok_hand"}`,
+				`{"route":"consume","classification":"quick_reply","taskShape":"immediate_reply","level":"xlow","estimatedMinutes":1,"requestedOutputFormats":null,"responseLanguage":"ko","reason":"orphan approval acknowledgement","userFacingReply":"","reactionEmojiName":"ok_hand"}`,
 			},
 		},
 	})
@@ -2965,8 +2972,8 @@ func TestConnectorRuntimeContinuesWaitingUserInputGoal(t *testing.T) {
 	languageModel := agenttest.NewScriptedLanguageModel(agenttest.ScriptedLanguageModelOptions{
 		StructuredResponsesBySchema: map[string][]string{
 			"blueclaw_turn_router": {
-				`{"classification":"bounded_task","taskShape":"approval_gated_task","level":"low","requestedOutputFormats":null,"responseLanguage":"ko","reason":"business plan needs enough detail","userFacingReply":""}`,
-				`{"classification":"bounded_task","taskShape":"research_task","level":"low","requestedOutputFormats":null,"responseLanguage":"ko","reason":"continue active goal","userFacingReply":""}`,
+				`{"route":"start_task","classification":"bounded_task","taskShape":"approval_gated_task","level":"low","estimatedMinutes":1,"requestedOutputFormats":null,"responseLanguage":"ko","reason":"business plan needs enough detail","userFacingReply":""}`,
+				`{"route":"continue_task","classification":"bounded_task","taskShape":"research_task","level":"low","estimatedMinutes":1,"requestedOutputFormats":null,"responseLanguage":"ko","reason":"continue active goal","userFacingReply":""}`,
 			},
 			"blueclaw_execution_plan": {
 				`{"originalInstruction":"샘플에게 DM 보내줘","summary":"샘플에게 DM을 보냅니다.","targets":["샘플"],"schedule":"","startAt":"","endAt":"","cadence":"","externalSend":true,"thirdPartyExternalSend":true,"repeated":false,"highFrequency":false,"destructive":false,"permissionChange":false,"publicDeploy":false,"paidAction":false,"missingInformation":["보낼 메시지"],"continuationInstruction":"샘플에게 DM을 보냅니다."}`,
@@ -3040,8 +3047,8 @@ func TestConnectorRuntimeStartsNewTaskForClearNewRequest(t *testing.T) {
 	languageModel := agenttest.NewScriptedLanguageModel(agenttest.ScriptedLanguageModelOptions{
 		StructuredResponsesBySchema: map[string][]string{
 			"blueclaw_turn_router": {
-				`{"classification":"bounded_task","taskShape":"approval_gated_task","level":"low","requestedOutputFormats":null,"responseLanguage":"ko","reason":"dm needs message","userFacingReply":""}`,
-				`{"classification":"bounded_task","taskShape":"maintenance_task","level":"low","requestedOutputFormats":null,"responseLanguage":"ko","route":"start_task","reason":"new request","userFacingReply":""}`,
+				`{"route":"start_task","classification":"bounded_task","taskShape":"approval_gated_task","level":"low","estimatedMinutes":1,"requestedOutputFormats":null,"responseLanguage":"ko","reason":"dm needs message","userFacingReply":""}`,
+				`{"classification":"bounded_task","taskShape":"maintenance_task","level":"low","estimatedMinutes":1,"requestedOutputFormats":null,"responseLanguage":"ko","route":"start_task","reason":"new request","userFacingReply":""}`,
 			},
 			"blueclaw_execution_plan": {
 				`{"originalInstruction":"샘플에게 DM 보내줘","summary":"샘플에게 DM을 보냅니다.","targets":["샘플"],"schedule":"","startAt":"","endAt":"","cadence":"","externalSend":true,"thirdPartyExternalSend":true,"repeated":false,"highFrequency":false,"destructive":false,"permissionChange":false,"publicDeploy":false,"paidAction":false,"missingInformation":["보낼 메시지"],"continuationInstruction":"샘플에게 DM을 보냅니다."}`,
@@ -3093,7 +3100,7 @@ func TestConnectorRuntimeAddsCalendarEventWithoutApproval(t *testing.T) {
 	invokedTools := []string{}
 	languageModel := agenttest.NewScriptedLanguageModel(agenttest.ScriptedLanguageModelOptions{
 		StructuredResponsesBySchema: map[string][]string{"blueclaw_turn_router": {
-			`{"classification":"bounded_task","taskShape":"maintenance_task","level":"low","requestedOutputFormats":null,"responseLanguage":"ko","reason":"calendar add is non-destructive tool work","userFacingReply":""}`,
+			`{"route":"start_task","classification":"bounded_task","taskShape":"maintenance_task","level":"low","estimatedMinutes":1,"requestedOutputFormats":null,"responseLanguage":"ko","reason":"calendar add is non-destructive tool work","userFacingReply":""}`,
 		}},
 		ActionResponses: []string{
 			`{"action":"continue","toolName":"capability.invoke","toolInput":{"operation":"calendar.add","input":{"title":"휴가","startISO":"2026-05-09","endISO":"2026-05-10","isAllDay":true}}}`,
@@ -3439,7 +3446,7 @@ func TestConnectorRuntimeDoesNotAutomaticallyIngestMemoryWhenReplySendFails(t *t
 	}
 }
 
-func TestConnectorRuntimeDoesNotAutomaticallyIngestMemoryWhenReplyIsBlocked(t *testing.T) {
+func TestConnectorRuntimeDoesNotAutomaticallyIngestMemoryForPathBearingReply(t *testing.T) {
 	connectorRuntime, adapter := newTestConnectorRuntime(t, testLanguageModel{reply: "saved at /workspace/result.md"})
 	graphStore := &fakeGraphMemoryStore{}
 	memoryService := &memory.MemoryService{}
@@ -3453,8 +3460,11 @@ func TestConnectorRuntimeDoesNotAutomaticallyIngestMemoryWhenReplyIsBlocked(t *t
 	if errorValue != nil {
 		t.Fatalf("expected event to process: %v", errorValue)
 	}
-	if result.Reason != "task_not_completed" && result.Reason != "non_deliverable_artifact_locator" {
-		t.Fatalf("expected blocked result, got %+v", result)
+	if result.Reason != "" || result.ReplyDispatchID == "" {
+		t.Fatalf("expected unfiltered reply delivery, got %+v", result)
+	}
+	if len(adapter.sentReplies) != 1 || adapter.sentReplies[0].message != "saved at /workspace/result.md" {
+		t.Fatalf("expected exact model wording, got %+v", adapter.sentReplies)
 	}
 	if len(graphStore.episodes) != 0 {
 		t.Fatalf("expected no automatic memory ingestion before connector blocking, got %d", len(graphStore.episodes))
@@ -3816,9 +3826,12 @@ func (languageModel testLanguageModel) GenerateResponse(context.Context, string)
 	return languageModel.reply, languageModel.errorValue
 }
 
-func (languageModel testLanguageModel) GenerateStructuredResponse(context.Context, llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
+func (languageModel testLanguageModel) GenerateStructuredResponse(_ context.Context, request llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
 	if languageModel.errorValue != nil {
 		return llm.StructuredResponse{}, languageModel.errorValue
+	}
+	if request.StructuredOutputSchema.Name == "blueclaw_turn_router" {
+		return llm.StructuredResponse{Content: connectorDefaultTurnRouterResponse()}, nil
 	}
 	return llm.StructuredResponse{Content: connectorFinishMessage(languageModel.reply)}, nil
 }
@@ -3834,7 +3847,9 @@ func (languageModel *blockingTestLanguageModel) GenerateResponse(context.Context
 }
 
 func (languageModel *blockingTestLanguageModel) GenerateStructuredResponse(ctx context.Context, request llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
-	_ = request
+	if request.StructuredOutputSchema.Name == "blueclaw_turn_router" {
+		return llm.StructuredResponse{Content: connectorDefaultTurnRouterResponse()}, nil
+	}
 	select {
 	case <-languageModel.started:
 	default:
@@ -3871,6 +3886,9 @@ func (languageModel *addressingTestLanguageModel) GenerateStructuredResponse(_ c
 		}
 		return llm.StructuredResponse{Content: `{"target":` + strconv.Quote(languageModel.addressingTarget) + `,"shouldRespond":` + strconv.FormatBool(languageModel.addressingTarget == string(agent.AddressingTargetBot)) + `,"reactionEmoji":` + strconv.Quote(languageModel.reactionEmoji) + `,"dutyMatch":` + strconv.FormatBool(languageModel.dutyMatch) + `,"dutyName":` + strconv.Quote(languageModel.dutyName) + `,"dutyConfidence":` + strconv.FormatFloat(languageModel.dutyConfidence, 'f', -1, 64) + `}`}, nil
 	}
+	if request.StructuredOutputSchema.Name == "blueclaw_turn_router" {
+		return llm.StructuredResponse{Content: connectorDefaultTurnRouterResponse()}, nil
+	}
 	return llm.StructuredResponse{Content: connectorFinishMessage(languageModel.reply)}, nil
 }
 
@@ -3884,6 +3902,9 @@ func (languageModel *recordingLanguageModel) GenerateResponse(context.Context, s
 }
 
 func (languageModel *recordingLanguageModel) GenerateStructuredResponse(_ context.Context, structuredResponseRequest llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
+	if structuredResponseRequest.StructuredOutputSchema.Name == "blueclaw_turn_router" {
+		return llm.StructuredResponse{Content: connectorDefaultTurnRouterResponse()}, nil
+	}
 	languageModel.request = structuredResponseRequest
 	return llm.StructuredResponse{Content: connectorFinishMessage(languageModel.reply)}, nil
 }
@@ -3899,6 +3920,9 @@ func (languageModel staticScopeLanguageModel) GenerateResponse(context.Context, 
 func (languageModel staticScopeLanguageModel) GenerateStructuredResponse(_ context.Context, structuredResponseRequest llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
 	if structuredResponseRequest.StructuredOutputSchema.Name == "blueclaw_graphiti_ingestion_route" {
 		return llm.StructuredResponse{Content: languageModel.content}, nil
+	}
+	if structuredResponseRequest.StructuredOutputSchema.Name == "blueclaw_turn_router" {
+		return llm.StructuredResponse{Content: connectorDefaultTurnRouterResponse()}, nil
 	}
 	return llm.StructuredResponse{Content: connectorFinishMessage("ok")}, nil
 }
@@ -4061,6 +4085,10 @@ func connectorFinishMessage(reply string) string {
 	return `{"action":"finish","message":` + strconv.Quote(reply) + `,"completionSummary":` + strconv.Quote(reply) + `,"replyParts":[{"type":"text","text":` + strconv.Quote(reply) + `}],"goalStatus":"satisfied","goalSatisfied":true,"completionEvidence":[]}`
 }
 
+func connectorDefaultTurnRouterResponse() string {
+	return `{"route":"answer_question","classification":"quick_reply","taskShape":"immediate_reply","level":"xlow","estimatedMinutes":1,"requestedOutputFormats":null,"responseLanguage":"ko","reason":"connector test default","userFacingReply":""}`
+}
+
 func connectorFinishMessageWithEvidence(reply string, observationID string, toolName string, attachmentIndex int) string {
 	return `{"action":"finish","message":` + strconv.Quote(reply) + `,"completionSummary":` + strconv.Quote(reply) + `,"replyParts":[{"type":"text","text":` + strconv.Quote(reply) + `}],"goalStatus":"satisfied","goalSatisfied":true,"completionEvidence":[{"observationID":` + strconv.Quote(observationID) + `,"toolName":` + strconv.Quote(toolName) + `,"attachmentIndex":` + strconv.Itoa(attachmentIndex) + `}]}`
 }
@@ -4088,6 +4116,8 @@ func newTestConnectorRuntime(t *testing.T, languageModel llm.LanguageModelProvid
 	taskRunService := task.NewTaskRunService(taskEventService)
 	agentKernel := agent.NewAgentKernel(taskRunService, task.NewTaskStepService())
 	agentKernel.UseLanguageModelProvider(languageModel)
+	agentKernel.UseIntakeLanguageModelProvider(languageModel)
+	agentKernel.UseIntakeOptions(agent.IntakeOptions{IsEnabled: true})
 
 	connectorRuntime := NewConnectorRuntime(identityService, agentKernel, nil)
 	connectorRuntime.UseTaskRunService(taskRunService)
@@ -4195,6 +4225,8 @@ func newRepositoryBackedTestConnectorRuntime(t *testing.T, languageModel llm.Lan
 	taskRunService.UseRepository(taskRunRepository)
 	agentKernel := agent.NewAgentKernel(taskRunService, task.NewTaskStepService())
 	agentKernel.UseLanguageModelProvider(languageModel)
+	agentKernel.UseIntakeLanguageModelProvider(languageModel)
+	agentKernel.UseIntakeOptions(agent.IntakeOptions{IsEnabled: true})
 
 	connectorRuntime := NewConnectorRuntime(identityService, agentKernel, nil)
 	connectorRuntime.UseTaskRunService(taskRunService)

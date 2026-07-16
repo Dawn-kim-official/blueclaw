@@ -5,25 +5,10 @@ import (
 	"strings"
 )
 
-func promoteIntakeDecisionForSelectedSkills(decision IntakeDecision, instructionBundle InstructionBundle, options IntakeOptions) IntakeDecision {
-	decision = applySkillTaskLevelFloor(decision, instructionBundle, options.SkillTaskLevelFloor)
-	decision.EstimatedMinutes = selectedSkillRecommendedMinutesFloor(decision.EstimatedMinutes, instructionBundle)
-	defaultTaskLevel := options.DefaultTaskLevel
-	if !canPromoteIntakeDecisionForSelectedSkills(decision) || !selectedSkillsNeedBoundedExecution(instructionBundle, decision.Classification) {
+func applySelectedSkillCompletionRequirements(decision IntakeDecision, instructionBundle InstructionBundle) IntakeDecision {
+	if decision.Classification != IntakeClassificationBoundedTask {
 		return decision
 	}
-	decision.Classification = IntakeClassificationBoundedTask
-	if decision.TaskShape == "" || decision.TaskShape == TaskShapeImmediateReply || decision.TaskShape == TaskShapeApprovalGatedTask || decision.UsedDeterministicFallback {
-		decision.TaskShape = taskShapeForSelectedSkills(instructionBundle)
-	}
-	decision.TaskLevel = LargerTaskLevel(decision.TaskLevel, defaultTaskLevel)
-	decision.Reason = "selected skill requires bounded completion evidence"
-	decision.UserFacingReply = ""
-	// The promotion itself came from a selected skill's completion contract, not from the
-	// intake model's own judgment, so that contract's evidence requirements have to become
-	// hard requirements here directly. Leaving them as advisory hints would let the finish
-	// gate accept a completion with no independent corroborating signal (e.g. a requested
-	// attachment suffix) to promote the hint on its own, defeating the whole promotion.
 	for _, skillInstruction := range selectedSkillInstructionList(instructionBundle) {
 		if !selectedSkillRequiresCompletionEvidence(skillInstruction) {
 			continue
@@ -34,101 +19,12 @@ func promoteIntakeDecisionForSelectedSkills(decision IntakeDecision, instruction
 	return decision
 }
 
-// Some skills always warrant a stronger model than the generic skill floor,
-// regardless of the delivered output format. Presentation and website work is
-// visual deliverable work whose quality depends on the strongest tier, whether
-// it ships as PPTX, PDF, or HTML, so InternKim floors those skills at xhigh
-// here rather than inferring it from an output-file suffix downstream.
-var taskLevelFloorBySelectedSkillName = map[string]TaskLevel{
-	"presentation": TaskLevelXHigh,
-	"website":      TaskLevelXHigh,
-}
-
-func selectedSkillRecommendedMinutesFloor(estimatedMinutes int, instructionBundle InstructionBundle) int {
-	result := estimatedMinutes
-	for _, skillInstruction := range selectedSkillInstructionList(instructionBundle) {
-		if skillInstruction.RecommendedMinutes > result {
-			result = skillInstruction.RecommendedMinutes
-		}
-	}
-	return result
-}
-
-func applySkillTaskLevelFloor(decision IntakeDecision, instructionBundle InstructionBundle, defaultSkillFloor TaskLevel) IntakeDecision {
-	for _, skillInstruction := range selectedSkillInstructionList(instructionBundle) {
-		if !selectedSkillRequiresCompletionEvidence(skillInstruction) {
-			continue
-		}
-		if decision.Classification == IntakeClassificationQuickReply && !selectedSkillCanPromoteQuickReply(instructionBundle, skillInstruction.Name) {
-			continue
-		}
-		floor := defaultSkillFloor
-		if override, hasOverride := taskLevelFloorBySelectedSkillName[strings.ToLower(strings.TrimSpace(skillInstruction.Name))]; hasOverride {
-			floor = LargerTaskLevel(floor, override)
-		}
-		if floor == "" {
-			continue
-		}
-		decision.TaskLevel = LargerTaskLevel(decision.TaskLevel, floor)
-	}
-	return decision
-}
-
 func attachmentSuffixFormats(suffixes []string) []string {
 	formats := []string{}
 	for _, suffix := range suffixes {
 		formats = append(formats, strings.TrimPrefix(strings.ToLower(strings.TrimSpace(suffix)), "."))
 	}
 	return normalizeRequestedOutputFormats(formats)
-}
-
-func canPromoteIntakeDecisionForSelectedSkills(decision IntakeDecision) bool {
-	if decision.UsedDeterministicFallback {
-		return true
-	}
-	switch decision.Classification {
-	case IntakeClassificationQuickReply, IntakeClassificationNeedsConfirmation, IntakeClassificationUnsupported:
-		return true
-	default:
-		return false
-	}
-}
-
-func taskShapeForSelectedSkills(instructionBundle InstructionBundle) TaskShape {
-	for _, skillInstruction := range selectedSkillInstructionList(instructionBundle) {
-		if skillSupportsToolPrefix(skillInstruction, "schedule.") {
-			return TaskShapeScheduledTask
-		}
-	}
-	return TaskShapeResearchTask
-}
-
-func selectedSkillsNeedBoundedExecution(instructionBundle InstructionBundle, classification IntakeClassification) bool {
-	for _, skillInstruction := range selectedSkillInstructionList(instructionBundle) {
-		if classification == IntakeClassificationQuickReply {
-			if selectedSkillRequiresCompletionEvidence(skillInstruction) && selectedSkillCanPromoteQuickReply(instructionBundle, skillInstruction.Name) {
-				return true
-			}
-			continue
-		}
-		if selectedSkillRequiresCompletionEvidence(skillInstruction) {
-			return true
-		}
-		if artifactSkillCanRecoverIntakeRefusal(classification, SkillToolNames(skillInstruction)) {
-			return true
-		}
-	}
-	return false
-}
-
-func selectedSkillCanPromoteQuickReply(instructionBundle InstructionBundle, skillName string) bool {
-	for _, skillDecision := range instructionBundle.SkillDecisions {
-		if skillDecision.Name != skillName || skillDecision.Status != "selected" {
-			continue
-		}
-		return skillDecision.Reason != "bm25_fallback"
-	}
-	return false
 }
 
 func selectedSkillInstructionList(instructionBundle InstructionBundle) []SkillInstruction {
@@ -145,19 +41,6 @@ func selectedSkillInstructionList(instructionBundle InstructionBundle) []SkillIn
 func selectedSkillRequiresCompletionEvidence(skillInstruction SkillInstruction) bool {
 	return len(skillInstruction.Completion.RequiredEvidenceTools) > 0 ||
 		len(skillInstruction.Completion.RequiredAttachmentSuffixes) > 0
-}
-
-func artifactSkillCanRecoverIntakeRefusal(classification IntakeClassification, allowedTools []string) bool {
-	if classification != IntakeClassificationUnsupported && classification != IntakeClassificationNeedsConfirmation {
-		return false
-	}
-	for _, toolName := range allowedTools {
-		switch strings.TrimSpace(toolName) {
-		case "terminal.run", "file.write", "file.edit", FileDeliverToolName:
-			return true
-		}
-	}
-	return false
 }
 
 func (agentKernel *AgentKernel) currentInstructionBundle() InstructionBundle {

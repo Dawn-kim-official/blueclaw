@@ -913,7 +913,10 @@ func (connectorRuntime *ConnectorRuntime) processInboundEventWithReplySender(ctx
 	if taskWaitResolution.IsAmbiguous {
 		return connectorRuntime.handleAmbiguousTaskWait(ctx, platform, adapter, event, replyTarget, personID, requesterEmail, personAccess, taskWaitResolution, sendReply)
 	}
-	pendingApproval, turnDecision, hasPendingConfirmation := connectorRuntime.resolveConfirmationReply(ctx, platform, personID, event, taskWaitResolution)
+	pendingApproval, turnDecision, hasPendingConfirmation, errorValue := connectorRuntime.resolveConfirmationReply(ctx, platform, personID, event, taskWaitResolution)
+	if errorValue != nil {
+		return ConnectorRuntimeResult{}, errorValue
+	}
 	isApprovalContinuation := hasPendingConfirmation && turnDecision.Approval != nil && *turnDecision.Approval == agent.ApprovalSignalApprove
 	if hasPendingConfirmation {
 		connectorRuntime.resolveAskInteractionMessage(ctx, adapter, event, pendingApproval.TaskRun.TaskRunID, AskInteraction{InteractionID: latestAskInteractionID(connectorRuntime.agentKernel.ListTaskEvent(pendingApproval.TaskRun.TaskRunID))})
@@ -936,7 +939,10 @@ func (connectorRuntime *ConnectorRuntime) processInboundEventWithReplySender(ctx
 	}
 	pendingAskInteraction, hasPendingAskInteraction := connectorRuntime.findPendingAskInteraction(personID, platform, event, taskWaitResolution)
 	previousPrompt := event.Prompt
-	event, askTurnDecision, hasAskTurnDecision := connectorRuntime.resolveAskReply(ctx, platform, personID, event, taskWaitResolution)
+	event, askTurnDecision, hasAskTurnDecision, errorValue := connectorRuntime.resolveAskReply(ctx, platform, personID, event, taskWaitResolution)
+	if errorValue != nil {
+		return ConnectorRuntimeResult{}, errorValue
+	}
 	didSupersedePendingAsk := false
 	if hasPendingAskInteraction && askReplySupersedesInteraction(askTurnDecision, hasAskTurnDecision) {
 		connectorRuntime.supersedePendingAskInteraction(event, pendingAskInteraction, askTurnDecision)
@@ -1128,22 +1134,22 @@ func (connectorRuntime *ConnectorRuntime) shouldIgnoreOrphanAskAction(personID s
 	}
 }
 
-func (connectorRuntime *ConnectorRuntime) resolveConfirmationReply(ctx context.Context, platform string, personID string, event PlatformInboundEvent, taskWaitResolution inboundTaskWaitResolution) (pendingApproval, agent.TurnDecision, bool) {
+func (connectorRuntime *ConnectorRuntime) resolveConfirmationReply(ctx context.Context, platform string, personID string, event PlatformInboundEvent, taskWaitResolution inboundTaskWaitResolution) (pendingApproval, agent.TurnDecision, bool, error) {
 	approval, isFound := connectorRuntime.findPendingApproval(personID, platform, event, taskWaitResolution)
 	if !isFound {
-		return pendingApproval{}, agent.TurnDecision{}, false
+		return pendingApproval{}, agent.TurnDecision{}, false, nil
 	}
 	if action, isFound := event.LegacyFields["askAction"].(string); isFound {
 		switch strings.TrimSpace(action) {
 		case "confirm":
 			approvalSignal := agent.ApprovalSignalApprove
-			return approval, agent.TurnDecision{Route: agent.TurnRouteContinueTask, Approval: &approvalSignal, Classification: agent.IntakeClassificationBoundedTask, TaskShape: agent.TaskShapeMaintenanceTask, TaskLevel: agent.TaskLevelLow, ResponseLanguage: responseLanguageForEvent(event), Reason: "interactive_confirm"}, true
+			return approval, agent.TurnDecision{Route: agent.TurnRouteContinueTask, Approval: &approvalSignal, Classification: agent.IntakeClassificationBoundedTask, TaskShape: agent.TaskShapeMaintenanceTask, TaskLevel: agent.TaskLevelLow, ResponseLanguage: responseLanguageForEvent(event), Reason: "interactive_confirm"}, true, nil
 		case "cancel":
 			approvalSignal := agent.ApprovalSignalReject
-			return approval, agent.TurnDecision{Route: agent.TurnRouteConsume, Approval: &approvalSignal, Classification: agent.IntakeClassificationQuickReply, TaskShape: agent.TaskShapeImmediateReply, TaskLevel: agent.TaskLevelXLow, ResponseLanguage: responseLanguageForEvent(event), Reason: "interactive_cancel"}, true
+			return approval, agent.TurnDecision{Route: agent.TurnRouteConsume, Approval: &approvalSignal, Classification: agent.IntakeClassificationQuickReply, TaskShape: agent.TaskShapeImmediateReply, TaskLevel: agent.TaskLevelXLow, ResponseLanguage: responseLanguageForEvent(event), Reason: "interactive_cancel"}, true, nil
 		}
 	}
-	decision := connectorRuntime.agentKernel.RouteTurn(ctx, agent.AgentRequest{
+	decision, errorValue := connectorRuntime.agentKernel.RouteTurn(ctx, agent.AgentRequest{
 		RequesterPersonID: personID,
 		ConversationID:    event.ConversationID,
 		Prompt:            event.Prompt,
@@ -1156,6 +1162,9 @@ func (connectorRuntime *ConnectorRuntime) resolveConfirmationReply(ctx context.C
 		},
 		TurnStartedAt: time.Now(),
 	})
+	if errorValue != nil {
+		return pendingApproval{}, agent.TurnDecision{}, false, errorValue
+	}
 	connectorRuntime.agentKernel.AppendTaskEvent(approval.TaskRun.TaskRunID, "confirmation.reply_classified", marshalConnectorEventBody(map[string]any{
 		"messageID":   event.MessageID,
 		"route":       decision.Route,
@@ -1166,19 +1175,19 @@ func (connectorRuntime *ConnectorRuntime) resolveConfirmationReply(ctx context.C
 	if decision.Approval != nil && *decision.Approval == agent.ApprovalSignalApprove {
 		connectorRuntime.logger.Info("connector."+platform+".confirmation.accepted", slog.String("messageID", event.MessageID), slog.String("taskRunID", approval.TaskRun.TaskRunID))
 	}
-	return approval, decision, true
+	return approval, decision, true, nil
 }
 
-func (connectorRuntime *ConnectorRuntime) resolveAskReply(ctx context.Context, platform string, personID string, event PlatformInboundEvent, taskWaitResolution inboundTaskWaitResolution) (PlatformInboundEvent, agent.TurnDecision, bool) {
+func (connectorRuntime *ConnectorRuntime) resolveAskReply(ctx context.Context, platform string, personID string, event PlatformInboundEvent, taskWaitResolution inboundTaskWaitResolution) (PlatformInboundEvent, agent.TurnDecision, bool, error) {
 	pendingInteraction, isFound := connectorRuntime.findPendingAskInteraction(personID, platform, event, taskWaitResolution)
 	if !isFound {
-		return event, agent.TurnDecision{}, false
+		return event, agent.TurnDecision{}, false, nil
 	}
 	if action, isFound := event.LegacyFields["askAction"].(string); isFound {
-		return resolveAskInteractiveReply(event, pendingInteraction, action), askInteractiveTurnDecision(event, pendingInteraction, action), true
+		return resolveAskInteractiveReply(event, pendingInteraction, action), askInteractiveTurnDecision(event, pendingInteraction, action), true, nil
 	}
 	if pendingInteraction.Kind == "ask_input" {
-		decision := connectorRuntime.agentKernel.RouteTurn(ctx, agent.AgentRequest{
+		decision, errorValue := connectorRuntime.agentKernel.RouteTurn(ctx, agent.AgentRequest{
 			RequesterPersonID: personID,
 			ConversationID:    event.ConversationID,
 			Prompt:            event.Prompt,
@@ -1192,10 +1201,10 @@ func (connectorRuntime *ConnectorRuntime) resolveAskReply(ctx context.Context, p
 			},
 			TurnStartedAt: time.Now(),
 		})
-		return event, decision, true
+		return event, decision, true, errorValue
 	}
 	if pendingInteraction.Kind != "ask_choice_single" && pendingInteraction.Kind != "ask_choice_multiple" {
-		return event, agent.TurnDecision{}, false
+		return event, agent.TurnDecision{}, false, nil
 	}
 	if choices, isFound := deterministicChoiceSelections(event.Prompt, pendingInteraction); isFound {
 		decision := agent.TurnDecision{
@@ -1214,9 +1223,9 @@ func (connectorRuntime *ConnectorRuntime) resolveAskReply(ctx context.Context, p
 			"reason":    decision.Reason,
 		}))
 		event.Prompt = resolvedChoicePrompt(pendingInteraction, decision.Choices)
-		return event, decision, true
+		return event, decision, true, nil
 	}
-	decision := connectorRuntime.agentKernel.RouteTurn(ctx, agent.AgentRequest{
+	decision, errorValue := connectorRuntime.agentKernel.RouteTurn(ctx, agent.AgentRequest{
 		RequesterPersonID: personID,
 		ConversationID:    event.ConversationID,
 		Prompt:            event.Prompt,
@@ -1230,6 +1239,9 @@ func (connectorRuntime *ConnectorRuntime) resolveAskReply(ctx context.Context, p
 		},
 		TurnStartedAt: time.Now(),
 	})
+	if errorValue != nil {
+		return event, agent.TurnDecision{}, false, errorValue
+	}
 	connectorRuntime.agentKernel.AppendTaskEvent(pendingInteraction.TaskRunID, "ask.reply_classified", marshalConnectorEventBody(map[string]any{
 		"messageID": event.MessageID,
 		"choices":   decision.Choices,
@@ -1237,10 +1249,10 @@ func (connectorRuntime *ConnectorRuntime) resolveAskReply(ctx context.Context, p
 		"reason":    decision.Reason,
 	}))
 	if len(decision.Choices) == 0 {
-		return event, decision, true
+		return event, decision, true, nil
 	}
 	event.Prompt = resolvedChoicePrompt(pendingInteraction, decision.Choices)
-	return event, decision, true
+	return event, decision, true, nil
 }
 
 func deterministicChoiceSelections(reply string, interaction AskInteraction) ([]string, bool) {
@@ -1670,6 +1682,7 @@ func ambiguousTaskWaitTurnDecision(taskWaitTokens []task.TaskWaitToken, response
 		Classification:         agent.IntakeClassificationNeedsConfirmation,
 		TaskShape:              agent.TaskShapeApprovalGatedTask,
 		TaskLevel:              agent.TaskLevelLow,
+		EstimatedMinutes:       1,
 		ResponseLanguage:       responseLanguage,
 		Reason:                 "ambiguous_wait_resolution",
 		ClarificationOptions:   taskWaitClarificationOptions(taskWaitTokens),
@@ -2477,10 +2490,6 @@ func (connectorRuntime *ConnectorRuntime) sendCheckpointReply(ctx context.Contex
 		connectorRuntime.appendConnectorReplyEvent(taskRunID, "connector.reply.suppressed", connectorReplyEventBody(event, reply, "", "", "missing_checkpoint_message"))
 		return errors.New("missing checkpoint message")
 	}
-	if errorValue := agent.ValidateUserNoticeDelivery(message); errorValue != nil {
-		connectorRuntime.appendConnectorReplyEvent(taskRunID, "connector.reply.suppressed", connectorReplyEventBody(event, reply, "", "", "invalid_checkpoint_message"))
-		return errorValue
-	}
 	dispatchID, errorValue := sendReply(ctx, replyTarget, reply)
 	if errorValue != nil {
 		connectorRuntime.appendConnectorReplyEvent(taskRunID, "connector.reply.failed", connectorReplyEventBody(event, reply, "", "", errorValue.Error()))
@@ -2499,11 +2508,6 @@ func (connectorRuntime *ConnectorRuntime) sendUserNoticeReply(ctx context.Contex
 	if missingReason != "" {
 		connectorRuntime.appendConnectorReplyEvent(taskRunID, "connector.reply.suppressed", connectorReplyEventBody(event, OutboundReply{TaskRunID: taskRunID, ReplyKind: connectorReplyKindUserNotice}, "", "", missingReason))
 		connectorRuntime.logger.Info("connector."+platform+".outbound.skipped", slog.String("messageID", event.MessageID), slog.String("taskRunID", taskRunID), slog.String("reason", missingReason))
-		return "", false
-	}
-	if errorValue := agent.ValidateUserNoticeDelivery(notice); errorValue != nil {
-		connectorRuntime.appendConnectorReplyEvent(taskRunID, "connector.reply.suppressed", connectorReplyEventBody(event, OutboundReply{TaskRunID: taskRunID, ReplyKind: connectorReplyKindUserNotice}, "", "", "invalid_user_notice"))
-		connectorRuntime.logger.Info("connector."+platform+".outbound.skipped", slog.String("messageID", event.MessageID), slog.String("taskRunID", taskRunID), slog.String("reason", "invalid_user_notice"), slog.String("error", errorValue.Error()))
 		return "", false
 	}
 	if taskStatusRequiresFailureNotice(turnResult.TaskRun.Status) {
@@ -2555,7 +2559,7 @@ func userNoticeReplyMessage(turnResult agent.AgentTurnResult) (string, agent.Fai
 		if message != "" {
 			return message, turnResult.FailureNotice, ""
 		}
-		if fallbackMessage := safeFailureUserNotice(turnResult.UserNotice); fallbackMessage != "" {
+		if fallbackMessage := strings.TrimSpace(turnResult.UserNotice); fallbackMessage != "" {
 			return fallbackMessage, turnResult.FailureNotice, ""
 		}
 		return "", turnResult.FailureNotice, "missing_failure_notice"
@@ -2565,17 +2569,6 @@ func userNoticeReplyMessage(turnResult agent.AgentTurnResult) (string, agent.Fai
 		return "", agent.FailureNotice{}, "missing_user_notice"
 	}
 	return message, agent.FailureNotice{}, ""
-}
-
-func safeFailureUserNotice(message string) string {
-	message = strings.TrimSpace(message)
-	if message == "" {
-		return ""
-	}
-	if agent.ValidateUserNoticeDelivery(message) != nil {
-		return ""
-	}
-	return message
 }
 
 func taskStatusRequiresFailureNotice(status task.TaskStatus) bool {

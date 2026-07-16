@@ -53,6 +53,7 @@ func TestAgentKernelConsumeRouteSuppressesReply(t *testing.T) {
 		Classification:   IntakeClassificationQuickReply,
 		TaskShape:        TaskShapeImmediateReply,
 		TaskLevel:        TaskLevelXLow,
+		EstimatedMinutes: 1,
 		ResponseLanguage: "ko",
 		Reason:           "lightweight acknowledgement",
 	}})
@@ -72,13 +73,14 @@ func TestAgentKernelConsumeRouteSuppressesReply(t *testing.T) {
 	}
 }
 
-func TestAgentKernelDoesNotConsumeExecutableFlowTask(t *testing.T) {
+func TestAgentKernelRejectsExecutableConsumeContradiction(t *testing.T) {
 	agentKernel, _ := newKernelTestServices()
 	agentKernel.UseIntakeLanguageModelProvider(intakeDecisionLanguageModel{decision: TurnDecision{
 		Route:                 TurnRouteConsume,
 		Classification:        IntakeClassificationBoundedTask,
 		TaskShape:             TaskShapeResearchTask,
 		TaskLevel:             TaskLevelLow,
+		EstimatedMinutes:      1,
 		ResponseLanguage:      "ko",
 		Reason:                "사용자가 명시적으로 업무 등록을 요청함",
 		RequiredEvidenceTools: []string{"task.add"},
@@ -101,25 +103,24 @@ func TestAgentKernelDoesNotConsumeExecutableFlowTask(t *testing.T) {
 	request.ToolSet = toolSet
 	result, errorValue := agentKernel.RunAgentRequest(context.Background(), request)
 	if errorValue != nil {
-		t.Fatalf("expected executable consume to run through task loop: %v", errorValue)
+		t.Fatalf("expected router failure result: %v", errorValue)
 	}
-	if result.TurnRoute == TurnRouteConsume || result.ReplySuppressed {
-		t.Fatalf("expected task loop instead of consume, got route=%q suppressed=%v", result.TurnRoute, result.ReplySuppressed)
+	if result.TaskRun.Status != task.TaskStatusFailed {
+		t.Fatalf("expected failed task for contradictory decision, got %q", result.TaskRun.Status)
 	}
-	if toolCallCount != 1 {
-		t.Fatalf("expected task.add to run once, got %d", toolCallCount)
-	}
-	if result.TaskRun.Result == "consumed" {
-		t.Fatalf("expected task result, got consumed")
+	if toolCallCount != 0 {
+		t.Fatalf("expected no tool call after contradictory decision, got %d", toolCallCount)
 	}
 }
 
 func TestAgentKernelPausesNeedsConfirmationDisambiguation(t *testing.T) {
 	agentKernel, _ := newKernelTestServices()
 	agentKernel.UseIntakeLanguageModelProvider(intakeDecisionLanguageModel{decision: TurnDecision{
-		Route:                 TurnRouteStartTask,
+		Route:                 TurnRouteClarify,
 		Classification:        IntakeClassificationNeedsConfirmation,
+		TaskShape:             TaskShapeApprovalGatedTask,
 		TaskLevel:             TaskLevelLow,
+		EstimatedMinutes:      1,
 		ResponseLanguage:      "ko",
 		Reason:                "multiple matching items",
 		ClarificationQuestion: "어느 보고서를 말하는 건가요?",
@@ -144,9 +145,11 @@ func TestAgentKernelPausesNeedsConfirmationDisambiguation(t *testing.T) {
 func TestAgentKernelBlocksUnsupportedIntake(t *testing.T) {
 	agentKernel, _ := newKernelTestServices()
 	agentKernel.UseIntakeLanguageModelProvider(intakeDecisionLanguageModel{decision: TurnDecision{
-		Route:            TurnRouteStartTask,
+		Route:            TurnRouteGiveUp,
 		Classification:   IntakeClassificationUnsupported,
+		TaskShape:        TaskShapeImmediateReply,
 		TaskLevel:        TaskLevelLow,
+		EstimatedMinutes: 1,
 		ResponseLanguage: "ko",
 		Reason:           "request is outside the available execution boundary",
 		UserFacingReply:  "이 요청은 현재 권한 범위 밖이라 진행할 수 없어요.",
@@ -174,6 +177,7 @@ func TestAgentKernelPrunesInvalidRequiredEvidenceAndProceeds(t *testing.T) {
 		Classification:        IntakeClassificationBoundedTask,
 		TaskShape:             TaskShapeMaintenanceTask,
 		TaskLevel:             TaskLevelLow,
+		EstimatedMinutes:      1,
 		RequiredEvidenceTools: []string{"calendar.create"},
 		ResponseLanguage:      "ko",
 		Reason:                "calendar event creation",
@@ -208,6 +212,7 @@ func TestAgentKernelPrunesInvalidEvidenceOnApprovalContinuation(t *testing.T) {
 		Classification:        IntakeClassificationBoundedTask,
 		TaskShape:             TaskShapeMaintenanceTask,
 		TaskLevel:             TaskLevelLow,
+		EstimatedMinutes:      1,
 		RequiredEvidenceTools: []string{"delete_website_artifact"},
 		ResponseLanguage:      "ko",
 		Reason:                "approval reply classified with hallucinated evidence",
@@ -264,6 +269,7 @@ func TestAgentKernelSideEffectWithoutRequiredEvidenceProceeds(t *testing.T) {
 		Classification:   IntakeClassificationBoundedTask,
 		TaskShape:        TaskShapeMaintenanceTask,
 		TaskLevel:        TaskLevelLow,
+		EstimatedMinutes: 1,
 		InitialToolNames: []string{TerminalRunToolName},
 		ResponseLanguage: "ko",
 		Reason:           "side effect tool planned without evidence",
@@ -374,6 +380,7 @@ func sideEffectMissingEvidenceDecision() TurnDecision {
 		Classification:   IntakeClassificationBoundedTask,
 		TaskShape:        TaskShapeMaintenanceTask,
 		TaskLevel:        TaskLevelLow,
+		EstimatedMinutes: 1,
 		InitialToolNames: []string{TerminalRunToolName},
 		ResponseLanguage: "ko",
 		Reason:           "side effect tool planned without evidence",
@@ -433,6 +440,7 @@ func TestAgentKernelRecoversMaintenanceEvidenceWithoutInitialTool(t *testing.T) 
 			Classification:   IntakeClassificationBoundedTask,
 			TaskShape:        TaskShapeMaintenanceTask,
 			TaskLevel:        TaskLevelLow,
+			EstimatedMinutes: 1,
 			ResponseLanguage: "ko",
 			Reason:           "register requested work",
 		},
@@ -480,6 +488,7 @@ func TestAgentKernelReplacesReadOnlyEvidenceForMaintenanceTask(t *testing.T) {
 			Classification:        IntakeClassificationBoundedTask,
 			TaskShape:             TaskShapeMaintenanceTask,
 			TaskLevel:             TaskLevelLow,
+			EstimatedMinutes:      1,
 			RequiredEvidenceTools: []string{"task.history"},
 			ResponseLanguage:      "ko",
 			Reason:                "update requested work",
@@ -535,6 +544,7 @@ func TestAgentKernelRejectsReadOnlyEvidenceFromMaintenanceReask(t *testing.T) {
 			Classification:        IntakeClassificationBoundedTask,
 			TaskShape:             TaskShapeMaintenanceTask,
 			TaskLevel:             TaskLevelLow,
+			EstimatedMinutes:      1,
 			RequiredEvidenceTools: []string{"task.history"},
 			ResponseLanguage:      "ko",
 			Reason:                "deployment requested",
@@ -622,9 +632,11 @@ func TestAgentKernelContinuesWhenEmptyReaskHasNoWrongContract(t *testing.T) {
 func TestAgentKernelGeneratesIntakeNoticeWhenRouterReplyMissing(t *testing.T) {
 	agentKernel, _ := newKernelTestServices()
 	agentKernel.UseIntakeLanguageModelProvider(intakeDecisionLanguageModel{decision: TurnDecision{
-		Route:            TurnRouteStartTask,
+		Route:            TurnRouteGiveUp,
 		Classification:   IntakeClassificationUnsupported,
+		TaskShape:        TaskShapeImmediateReply,
 		TaskLevel:        TaskLevelLow,
+		EstimatedMinutes: 1,
 		ResponseLanguage: "ko",
 		Reason:           "request is outside the available execution boundary",
 	}})
@@ -642,9 +654,11 @@ func TestAgentKernelGeneratesIntakeNoticeWhenRouterReplyMissing(t *testing.T) {
 func TestAgentKernelFallsBackToReasonWhenIntakeNoticeModelsFail(t *testing.T) {
 	agentKernel, _ := newKernelTestServices()
 	agentKernel.UseIntakeLanguageModelProvider(intakeDecisionLanguageModel{decision: TurnDecision{
-		Route:            TurnRouteStartTask,
+		Route:            TurnRouteGiveUp,
 		Classification:   IntakeClassificationUnsupported,
+		TaskShape:        TaskShapeImmediateReply,
 		TaskLevel:        TaskLevelLow,
+		EstimatedMinutes: 1,
 		ResponseLanguage: "ko",
 		Reason:           "request is outside the available execution boundary",
 	}})
@@ -666,6 +680,7 @@ func TestAgentKernelRunsBoundedTaskThroughTurnRunner(t *testing.T) {
 		Classification:   IntakeClassificationQuickReply,
 		TaskShape:        TaskShapeImmediateReply,
 		TaskLevel:        TaskLevelXLow,
+		EstimatedMinutes: 1,
 		ResponseLanguage: "ko",
 		Reason:           "direct answer",
 	}})
@@ -691,6 +706,7 @@ func TestAgentKernelPersistsTurnRouterLLMCall(t *testing.T) {
 			Classification:   IntakeClassificationQuickReply,
 			TaskShape:        TaskShapeImmediateReply,
 			TaskLevel:        TaskLevelXLow,
+			EstimatedMinutes: 1,
 			ResponseLanguage: "ko",
 			Reason:           "direct answer",
 		},
@@ -722,7 +738,7 @@ func TestAgentKernelPersistsTurnRouterLLMCall(t *testing.T) {
 	}
 }
 
-func TestAgentKernelPersistsTurnRouterLLMCallErrorBeforeDeterministicFallback(t *testing.T) {
+func TestAgentKernelPersistsTurnRouterFailureWithoutFallbackRoute(t *testing.T) {
 	agentKernel, taskRunService := newKernelTestServices()
 	agentKernel.UseIntakeLanguageModelProvider(&routerLedgerLanguageModel{
 		response: llm.StructuredResponse{
@@ -731,18 +747,24 @@ func TestAgentKernelPersistsTurnRouterLLMCallErrorBeforeDeterministicFallback(t 
 		},
 		errorValue: errors.New("router unavailable"),
 	})
-	agentKernel.UseLanguageModelProvider(&sequenceLanguageModel{contents: []string{finishMessageDocument("완료했습니다.")}})
+	agentKernel.UseLanguageModelProvider(fixedReplyLanguageModel{reply: "요청을 분류하지 못해 이번 작업을 시작하지 못했습니다. 다시 요청해 주세요."})
 
 	result, errorValue := agentKernel.RunAgentRequest(context.Background(), kernelTestRequest("오늘 무슨 요일이야?"))
 	if errorValue != nil {
-		t.Fatalf("expected deterministic fallback to complete: %v", errorValue)
+		t.Fatalf("expected persisted router failure result: %v", errorValue)
+	}
+	if result.TaskRun.Status != task.TaskStatusFailed || result.FailureNotice.Source != "generated" {
+		t.Fatalf("expected LLM-authored failed task, got %+v", result)
+	}
+	if !strings.Contains(result.FailureNotice.SendableMessage(), "분류하지 못해") {
+		t.Fatalf("expected authored failure notice, got %+v", result.FailureNotice)
 	}
 	records := persistedTurnRouterCallRecords(taskRunService.ListTaskEvent(result.TaskRun.TaskRunID))
-	if len(records) != 1 || !records[0].IsError || records[0].Error != "router unavailable" {
-		t.Fatalf("expected persisted router error record, got %+v", records)
+	if len(records) != 1 || !records[0].IsError || !strings.Contains(records[0].Error, "router unavailable") {
+		t.Fatalf("expected persisted router error call, got %+v", records)
 	}
-	if !taskEventsContain(taskRunService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.intake", `"usedDeterministicFallback":true`) {
-		t.Fatal("expected deterministic intake fallback evidence")
+	if taskEventsContain(taskRunService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.intake", "") {
+		t.Fatal("router failure must not invent an intake decision")
 	}
 }
 
@@ -750,6 +772,7 @@ func TestSitePrototypeIntakePromotesToXHighLimits(t *testing.T) {
 	agentKernel, _ := newKernelTestServices()
 	intakeDecision := promoteArtifactTaskLevel(AgentRequest{}, IntakeDecision{
 		TaskLevel:           TaskLevelLow,
+		EstimatedMinutes:    1,
 		SiteRequestEvidence: "웹사이트",
 	})
 

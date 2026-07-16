@@ -12,9 +12,150 @@ import (
 	"blueclaw/internal/task"
 )
 
+func mustNormalizeTurn(t *testing.T, router TurnRouter, decision TurnDecision, request AgentRequest) TurnDecision {
+	t.Helper()
+	normalizedDecision, errorValue := router.normalizeDecision(decision, request)
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	return normalizedDecision
+}
+
+func mustPlanIntake(t *testing.T, planner TaskIntakePlanner, request AgentRequest) IntakeDecision {
+	t.Helper()
+	decision, errorValue := planner.Plan(context.Background(), request)
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	return decision
+}
+
+func mustPlanTurn(t *testing.T, router TurnRouter, request AgentRequest) TurnDecision {
+	t.Helper()
+	decision, errorValue := router.Plan(context.Background(), request)
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	return decision
+}
+
+func TestTurnRouterReturnsDisabledError(t *testing.T) {
+	_, errorValue := NewTurnRouter(nil, IntakeOptions{}).Plan(context.Background(), AgentRequest{Prompt: "hello"})
+	if !errors.Is(errorValue, ErrTurnRouterDisabled) {
+		t.Fatalf("expected disabled error, got %v", errorValue)
+	}
+}
+
+func TestTurnRouterPropagatesLanguageModelError(t *testing.T) {
+	_, errorValue := NewTurnRouter(failingLanguageModel{}, IntakeOptions{IsEnabled: true}).Plan(context.Background(), AgentRequest{Prompt: "hello"})
+	if errorValue == nil || !strings.Contains(errorValue.Error(), "model failed") {
+		t.Fatalf("expected typed router failure, got %v", errorValue)
+	}
+}
+
+func TestTurnRouterPreservesUnsupportedArtifactDecision(t *testing.T) {
+	outputEvidence := "PDF"
+	decision := mustNormalizeTurn(t, NewTurnRouter(nil, IntakeOptions{}), TurnDecision{
+		Route:                   TurnRouteGiveUp,
+		Classification:          IntakeClassificationUnsupported,
+		TaskShape:               TaskShapeImmediateReply,
+		TaskLevel:               TaskLevelLow,
+		EstimatedMinutes:        1,
+		RequestedOutputFormats:  []string{"pdf"},
+		RequestedOutputEvidence: &outputEvidence,
+		Reason:                  "unsupported",
+		UserFacingReply:         "지원하지 않습니다.",
+		PriorTaskReference:      PriorTaskReferenceNone,
+	}, AgentRequest{Prompt: "PDF 만들어줘", AllowGiveUp: true, ToolSet: newTestToolSet([]string{"terminal.run", "file.deliver"})})
+
+	if decision.Classification != IntakeClassificationUnsupported || decision.Route != TurnRouteGiveUp {
+		t.Fatalf("expected router decision to remain authoritative, got %+v", decision)
+	}
+}
+
+func TestTurnRouterRejectsInconsistentDecisionFields(t *testing.T) {
+	validDecision := TurnDecision{
+		Route:              TurnRouteStartTask,
+		Classification:     IntakeClassificationBoundedTask,
+		TaskShape:          TaskShapeMaintenanceTask,
+		TaskLevel:          TaskLevelLow,
+		EstimatedMinutes:   1,
+		ResponseLanguage:   "ko",
+		PriorTaskReference: PriorTaskReferenceNone,
+	}
+	testCases := []struct {
+		name     string
+		mutate   func(*TurnDecision)
+		expected string
+	}{
+		{name: "quick reply shape", mutate: func(decision *TurnDecision) {
+			decision.Classification = IntakeClassificationQuickReply
+		}, expected: "quick_reply without immediate_reply"},
+		{name: "confirmation route", mutate: func(decision *TurnDecision) {
+			decision.Classification = IntakeClassificationNeedsConfirmation
+			decision.TaskShape = TaskShapeApprovalGatedTask
+		}, expected: "inconsistent needs_confirmation"},
+		{name: "unsupported route", mutate: func(decision *TurnDecision) {
+			decision.Classification = IntakeClassificationUnsupported
+			decision.TaskShape = TaskShapeImmediateReply
+		}, expected: "inconsistent unsupported"},
+		{name: "bounded terminal route", mutate: func(decision *TurnDecision) {
+			decision.Route = TurnRouteConsume
+		}, expected: "bounded_task with a terminal route"},
+	}
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			decision := validDecision
+			testCase.mutate(&decision)
+			_, errorValue := NewTurnRouter(nil, IntakeOptions{}).normalizeDecision(decision, AgentRequest{AllowGiveUp: true})
+			if errorValue == nil || !strings.Contains(errorValue.Error(), testCase.expected) {
+				t.Fatalf("expected %q error, got %v", testCase.expected, errorValue)
+			}
+		})
+	}
+}
+
+func TestTurnRouterAcceptsCanonicalDecisionFields(t *testing.T) {
+	testCases := []TurnDecision{
+		{Route: TurnRouteStartTask, Classification: IntakeClassificationQuickReply, TaskShape: TaskShapeImmediateReply},
+		{Route: TurnRouteConsume, Classification: IntakeClassificationQuickReply, TaskShape: TaskShapeImmediateReply},
+		{Route: TurnRouteStartTask, Classification: IntakeClassificationBoundedTask, TaskShape: TaskShapeMaintenanceTask},
+		{Route: TurnRouteClarify, Classification: IntakeClassificationNeedsConfirmation, TaskShape: TaskShapeApprovalGatedTask},
+		{Route: TurnRouteGiveUp, Classification: IntakeClassificationUnsupported, TaskShape: TaskShapeImmediateReply},
+	}
+	for _, decision := range testCases {
+		decision.TaskLevel = TaskLevelLow
+		decision.EstimatedMinutes = 1
+		decision.ResponseLanguage = "ko"
+		decision.PriorTaskReference = PriorTaskReferenceNone
+		if _, errorValue := NewTurnRouter(nil, IntakeOptions{}).normalizeDecision(decision, AgentRequest{}); errorValue != nil {
+			t.Fatalf("expected canonical decision %+v to pass: %v", decision, errorValue)
+		}
+	}
+}
+
+func TestTurnRouterRejectsInvalidEstimatedMinutes(t *testing.T) {
+	decision := TurnDecision{
+		Route:              TurnRouteStartTask,
+		Classification:     IntakeClassificationBoundedTask,
+		TaskShape:          TaskShapeMaintenanceTask,
+		TaskLevel:          TaskLevelLow,
+		EstimatedMinutes:   1,
+		ResponseLanguage:   "ko",
+		PriorTaskReference: PriorTaskReferenceNone,
+	}
+	for _, estimatedMinutes := range []int{-1, 0} {
+		decision.EstimatedMinutes = estimatedMinutes
+		_, errorValue := NewTurnRouter(nil, IntakeOptions{}).normalizeDecision(decision, AgentRequest{})
+		if errorValue == nil || !strings.Contains(errorValue.Error(), "invalid estimated minutes") {
+			t.Fatalf("expected invalid estimate error for %d, got %v", estimatedMinutes, errorValue)
+		}
+	}
+}
+
 func TestTaskIntakePlannerUsesStructuredModelDecision(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"classification":"bounded_task","taskShape":"research_task","level":"low","requestedOutputFormats":null,"reason":"bounded tool work","userFacingReply":""}`,
+		`{"route":"start_task","classification":"bounded_task","taskShape":"research_task","level":"low","estimatedMinutes":1,"requestedOutputFormats":null,"reason":"bounded tool work","userFacingReply":""}`,
 	}}
 	toolRegistry := newTestToolSet([]string{"memory.search"})
 	toolRegistry.RegisterTool(ToolDefinition{Name: "memory.search"}, func(context.Context, ToolInvocation) (ToolResult, error) {
@@ -25,7 +166,7 @@ func TestTaskIntakePlannerUsesStructuredModelDecision(t *testing.T) {
 		DefaultTaskLevel: TaskLevelLow,
 	})
 
-	decision := planner.Plan(context.Background(), AgentRequest{
+	decision := mustPlanIntake(t, planner, AgentRequest{
 		Prompt:  "search memory",
 		ToolSet: toolRegistry,
 	})
@@ -92,7 +233,7 @@ func TestTaskIntakePlannerUsesStructuredModelDecision(t *testing.T) {
 
 func TestTaskIntakePlannerMapsRequiredEvidenceField(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"route":"start_task","classification":"bounded_task","taskShape":"maintenance_task","level":"low","requestedOutputFormats":null,"expectedResults":[],"requiredEvidence":["calendar.add"],"siteRequestEvidence":"","responseLanguage":"ko","reason":"calendar add","userFacingReply":"","initialToolNames":["calendar.add"],"priorTaskReference":"none"}`,
+		`{"route":"start_task","classification":"bounded_task","taskShape":"maintenance_task","level":"low","estimatedMinutes":1,"requestedOutputFormats":null,"expectedResults":[],"requiredEvidence":["calendar.add"],"siteRequestEvidence":"","responseLanguage":"ko","reason":"calendar add","userFacingReply":"","initialToolNames":["calendar.add"],"priorTaskReference":"none"}`,
 	}}
 	planner := NewTaskIntakePlanner(languageModel, IntakeOptions{IsEnabled: true})
 	toolRegistry := NewToolSet([]string{CapabilityInvokeToolName})
@@ -103,7 +244,7 @@ func TestTaskIntakePlannerMapsRequiredEvidenceField(t *testing.T) {
 		})
 	}
 
-	decision := planner.Plan(context.Background(), AgentRequest{
+	decision := mustPlanIntake(t, planner, AgentRequest{
 		Prompt:  "7월 6일 오후 1시 스타트업월드컵 일정 추가",
 		ToolSet: toolRegistry,
 	})
@@ -118,11 +259,11 @@ func TestTaskIntakePlannerMapsRequiredEvidenceField(t *testing.T) {
 
 func TestTaskIntakePlannerPassesPriorTaskContext(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"route":"start_task","classification":"bounded_task","taskShape":"research_task","level":"low","requestedOutputFormats":["docx"],"reason":"deliver prior file","userFacingReply":"","priorTaskReference":"outcome_recovery"}`,
+		`{"route":"start_task","classification":"bounded_task","taskShape":"research_task","level":"low","estimatedMinutes":1,"requestedOutputFormats":["docx"],"reason":"deliver prior file","userFacingReply":"","priorTaskReference":"outcome_recovery"}`,
 	}}
 	planner := NewTaskIntakePlanner(languageModel, IntakeOptions{IsEnabled: true})
 
-	decision := planner.Plan(context.Background(), AgentRequest{
+	decision := mustPlanIntake(t, planner, AgentRequest{
 		Prompt: "전달해줘야지 그럼",
 		PriorTask: PriorTaskContext{
 			TaskRunID:              "88894f",
@@ -150,42 +291,20 @@ func TestTaskIntakePlannerPassesPriorTaskContext(t *testing.T) {
 
 func TestTaskIntakePlannerFallbackDoesNotInferPriorTaskIntent(t *testing.T) {
 	planner := NewTaskIntakePlanner(nil, IntakeOptions{})
-	toolRegistry := newTestToolSet([]string{"conversation.history", "file.read", "file.write", "terminal.run", "file.promote", "file.deliver"})
-
-	decision := planner.Plan(context.Background(), AgentRequest{
-		Prompt:  "링크로 전달된 적 없어. 첨부파일로 줘야지 그리고.",
-		ToolSet: toolRegistry,
-		PriorTask: PriorTaskContext{
-			TaskRunID:              "88894f",
-			Status:                 string(task.TaskStatusCompleted),
-			Prompt:                 "기업 문서 가이드를 워드 파일로 만들어줘",
-			Result:                 "요청하신 작업이 이미 성공적으로 완료되었습니다.",
-			RequestedOutputFormats: []string{"docx"},
-			OutcomeContract: OutcomeContract{
-				RequiredAttachmentSuffixes: []string{".docx"},
-			},
-		},
-	})
-
-	if decision.PriorTaskReference != PriorTaskReferenceNone {
-		t.Fatalf("expected deterministic fallback not to infer semantic intent, got %+v", decision)
-	}
-	if len(decision.RequestedOutputFormats) != 0 {
-		t.Fatalf("expected no inferred output format, got %+v", decision.RequestedOutputFormats)
-	}
-	if slices.Contains(decision.InitialToolNames, "file.deliver") {
-		t.Fatalf("expected no inferred delivery tool, got %+v", decision.InitialToolNames)
+	_, errorValue := planner.Plan(context.Background(), AgentRequest{Prompt: "링크로 전달된 적 없어. 첨부파일로 줘야지 그리고."})
+	if !errors.Is(errorValue, ErrTurnRouterDisabled) {
+		t.Fatalf("expected disabled router error, got %v", errorValue)
 	}
 }
 
 func TestTaskIntakePlannerDropsFileContractWithoutRequestedOutputFormat(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"route":"start_task","classification":"bounded_task","taskShape":"maintenance_task","level":"low","requestedOutputFormats":["html"],"requestedOutputEvidence":"HTML 파일","expectedResults":[{"id":"attached-file","type":"file","description":"attach a file","required":true}],"requiredEvidence":["calendar.update","file.deliver"],"siteRequestEvidence":"","responseLanguage":"ko","reason":"calendar update","userFacingReply":"","initialToolNames":["capability.invoke","file.deliver"],"priorTaskReference":"none"}`,
+		`{"route":"start_task","classification":"bounded_task","taskShape":"maintenance_task","level":"low","estimatedMinutes":1,"requestedOutputFormats":["html"],"requestedOutputEvidence":"HTML 파일","expectedResults":[{"id":"attached-file","type":"file","description":"attach a file","required":true}],"requiredEvidence":["calendar.update","file.deliver"],"siteRequestEvidence":"","responseLanguage":"ko","reason":"calendar update","userFacingReply":"","initialToolNames":["capability.invoke","file.deliver"],"priorTaskReference":"none"}`,
 	}}
 	planner := NewTaskIntakePlanner(languageModel, IntakeOptions{IsEnabled: true})
 	toolRegistry := newTestCapabilityToolSet([]string{"calendar.update", "file.deliver"})
 
-	decision := planner.Plan(context.Background(), AgentRequest{Prompt: "일정을 오후 2시로 수정해줘", ToolSet: toolRegistry})
+	decision := mustPlanIntake(t, planner, AgentRequest{Prompt: "일정을 오후 2시로 수정해줘", ToolSet: toolRegistry})
 
 	if expectedResultIncludesType(OutcomeContract{ExpectedResults: decision.ExpectedResults}, ExpectedResultTypeFile) {
 		t.Fatalf("expected untyped file result to be removed, got %+v", decision.ExpectedResults)
@@ -200,12 +319,12 @@ func TestTaskIntakePlannerDropsFileContractWithoutRequestedOutputFormat(t *testi
 
 func TestTaskIntakePlannerKeepsGroundedRequestedOutputFormat(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"route":"start_task","classification":"bounded_task","taskShape":"research_task","level":"medium","requestedOutputFormats":["html"],"requestedOutputEvidence":"HTML 발표자료","expectedResults":[{"id":"attached-file","type":"file","description":"attach HTML","required":true}],"requiredEvidence":["file.deliver"],"siteRequestEvidence":"","responseLanguage":"ko","reason":"presentation","userFacingReply":"","initialToolNames":["file.deliver"],"priorTaskReference":"none"}`,
+		`{"route":"start_task","classification":"bounded_task","taskShape":"research_task","level":"medium","estimatedMinutes":1,"requestedOutputFormats":["html"],"requestedOutputEvidence":"HTML 발표자료","expectedResults":[{"id":"attached-file","type":"file","description":"attach HTML","required":true}],"requiredEvidence":["file.deliver"],"siteRequestEvidence":"","responseLanguage":"ko","reason":"presentation","userFacingReply":"","initialToolNames":["file.deliver"],"priorTaskReference":"none"}`,
 	}}
 	planner := NewTaskIntakePlanner(languageModel, IntakeOptions{IsEnabled: true})
 	toolRegistry := newTestToolSet([]string{FileDeliverToolName})
 
-	decision := planner.Plan(context.Background(), AgentRequest{Prompt: "HTML 발표자료를 만들어줘", ToolSet: toolRegistry})
+	decision := mustPlanIntake(t, planner, AgentRequest{Prompt: "HTML 발표자료를 만들어줘", ToolSet: toolRegistry})
 
 	if strings.Join(decision.RequestedOutputFormats, ",") != "html" || !expectedResultIncludesType(OutcomeContract{ExpectedResults: decision.ExpectedResults}, ExpectedResultTypeFile) {
 		t.Fatalf("expected grounded HTML contract to remain, got %+v", decision)
@@ -214,38 +333,28 @@ func TestTaskIntakePlannerKeepsGroundedRequestedOutputFormat(t *testing.T) {
 
 func TestTaskIntakePlannerFallbackDoesNotTreatInputAttachmentExtensionAsOutput(t *testing.T) {
 	planner := NewTaskIntakePlanner(nil, IntakeOptions{})
-
-	decision := planner.Plan(context.Background(), AgentRequest{
-		Prompt: "첨부한 report.pdf 요약 작성해줘",
-	})
-
-	if len(decision.RequestedOutputFormats) != 0 {
-		t.Fatalf("expected no output format for input attachment work, got %+v", decision.RequestedOutputFormats)
+	_, errorValue := planner.Plan(context.Background(), AgentRequest{Prompt: "첨부한 report.pdf 요약 작성해줘"})
+	if !errors.Is(errorValue, ErrTurnRouterDisabled) {
+		t.Fatalf("expected disabled router error, got %v", errorValue)
 	}
 }
 
 func TestTaskIntakePlannerFallbackDoesNotInferDomainEvidence(t *testing.T) {
 	planner := NewTaskIntakePlanner(nil, IntakeOptions{})
-	toolRegistry := newTestToolSet([]string{"task.add", "task.list", "task.update"})
-
-	decision := planner.Plan(context.Background(), AgentRequest{
-		Prompt:  "업무 등록해줘\n- 메일 페이지 앱 비밀번호, 다양한 사이트 관련 링크로 이동으로 개선하기",
-		ToolSet: toolRegistry,
-	})
-
-	if len(decision.InitialToolNames) != 0 {
-		t.Fatalf("expected fallback not to pin flow tools, got %+v", decision.InitialToolNames)
+	_, errorValue := planner.Plan(context.Background(), AgentRequest{Prompt: "업무 등록해줘"})
+	if !errors.Is(errorValue, ErrTurnRouterDisabled) {
+		t.Fatalf("expected disabled router error, got %v", errorValue)
 	}
 }
 
 func TestTaskIntakePlannerMapsModelRequiredEvidenceToCapabilityInvoke(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"route":"start_task","classification":"bounded_task","taskShape":"maintenance_task","level":"low","requestedOutputFormats":null,"expectedResults":[],"requiredEvidence":["task.add"],"siteRequestEvidence":"","responseLanguage":"ko","reason":"task request","userFacingReply":"","initialToolNames":[],"priorTaskReference":"none"}`,
+		`{"route":"start_task","classification":"bounded_task","taskShape":"maintenance_task","level":"low","estimatedMinutes":1,"requestedOutputFormats":null,"expectedResults":[],"requiredEvidence":["task.add"],"siteRequestEvidence":"","responseLanguage":"ko","reason":"task request","userFacingReply":"","initialToolNames":[],"priorTaskReference":"none"}`,
 	}}
 	planner := NewTaskIntakePlanner(languageModel, IntakeOptions{IsEnabled: true})
 	toolRegistry := newTestCapabilityToolSet([]string{"task.add", "task.list", "task.update"})
 
-	decision := planner.Plan(context.Background(), AgentRequest{
+	decision := mustPlanIntake(t, planner, AgentRequest{
 		Prompt:  "업무 등록해줘\n- 메일 페이지 앱 비밀번호, 다양한 사이트 관련 링크로 이동으로 개선하기",
 		ToolSet: toolRegistry,
 	})
@@ -256,19 +365,19 @@ func TestTaskIntakePlannerMapsModelRequiredEvidenceToCapabilityInvoke(t *testing
 	if containsString(decision.InitialToolNames, "task.add") {
 		t.Fatalf("expected hidden capability operation to stay out of initial tools, got %+v", decision.InitialToolNames)
 	}
-	if !containsString(decision.InitialToolNames, CapabilityInvokeToolName) {
-		t.Fatalf("expected capability.invoke initial tool for required evidence, got %+v", decision.InitialToolNames)
+	if len(decision.InitialToolNames) != 0 {
+		t.Fatalf("expected router initial tools to remain authoritative, got %+v", decision.InitialToolNames)
 	}
 }
 
 func TestTaskIntakePlannerKeepsStructuredOutputFormats(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"classification":"bounded_task","taskShape":"research_task","level":"low","requestedOutputFormats":["html"],"reason":"explicit html output","userFacingReply":""}`,
+		`{"route":"start_task","classification":"bounded_task","taskShape":"research_task","level":"low","estimatedMinutes":1,"requestedOutputFormats":["html"],"reason":"explicit html output","userFacingReply":""}`,
 	}}
 	toolRegistry := newTestToolSet([]string{"terminal.run", "file.deliver"})
 	planner := NewTaskIntakePlanner(languageModel, IntakeOptions{IsEnabled: true})
 
-	decision := planner.Plan(context.Background(), AgentRequest{
+	decision := mustPlanIntake(t, planner, AgentRequest{
 		Prompt:  "html만 주면 돼",
 		ToolSet: toolRegistry,
 	})
@@ -283,18 +392,18 @@ func TestTaskIntakePlannerKeepsStructuredOutputFormats(t *testing.T) {
 
 func TestTaskIntakePlannerUsesStructuredArtifactEnumForFileDelivery(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"route":"start_task","classification":"unsupported","taskShape":"immediate_reply","level":"medium","requestedOutputFormats":["pdf"],"siteRequestEvidence":"","responseLanguage":"ko","reason":"mistaken unsupported file artifact","userFacingReply":"PDF 생성은 지원하지 않습니다.","priorTaskReference":"none"}`,
+		`{"route":"give_up","classification":"unsupported","taskShape":"immediate_reply","level":"medium","estimatedMinutes":1,"requestedOutputFormats":["pdf"],"siteRequestEvidence":"","responseLanguage":"ko","reason":"mistaken unsupported file artifact","userFacingReply":"PDF 생성은 지원하지 않습니다.","priorTaskReference":"none"}`,
 	}}
 	toolRegistry := newTestToolSet([]string{"conversation.history", "file.read", "file.write", "terminal.run", "file.promote", "file.deliver"})
 	planner := NewTaskIntakePlanner(languageModel, IntakeOptions{IsEnabled: true})
 
-	decision := planner.Plan(context.Background(), AgentRequest{
+	decision := mustPlanIntake(t, planner, AgentRequest{
 		Prompt:  "제안서를 PDF 파일로 만들어줘",
 		ToolSet: toolRegistry,
 	})
 
-	if decision.Classification != IntakeClassificationBoundedTask {
-		t.Fatalf("expected structured file artifact enum to recover bounded task, got %+v", decision)
+	if decision.Classification != IntakeClassificationUnsupported {
+		t.Fatalf("expected unsupported router classification to remain authoritative, got %+v", decision)
 	}
 	if !hasArtifactOutputFormat(decision.RequestedOutputFormats) {
 		t.Fatalf("expected file artifact work, got %+v", decision)
@@ -302,22 +411,22 @@ func TestTaskIntakePlannerUsesStructuredArtifactEnumForFileDelivery(t *testing.T
 	if strings.Join(decision.RequestedOutputFormats, ",") != "pdf" {
 		t.Fatalf("expected pdf output format, got %+v", decision.RequestedOutputFormats)
 	}
-	if !slices.Contains(decision.InitialToolNames, "file.deliver") {
-		t.Fatalf("expected file delivery tools from enum result, got %+v", decision.InitialToolNames)
+	if len(decision.InitialToolNames) != 0 {
+		t.Fatalf("expected no inferred file delivery tools, got %+v", decision.InitialToolNames)
 	}
-	if decision.UserFacingReply != "" {
-		t.Fatalf("expected unsupported reply to be cleared, got %q", decision.UserFacingReply)
+	if decision.UserFacingReply != "PDF 생성은 지원하지 않습니다." {
+		t.Fatalf("expected router reply to remain unchanged, got %q", decision.UserFacingReply)
 	}
 }
 
 func TestTaskIntakePlannerUsesRequestedOutputFormatsToResolveArtifactKindConflict(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"route":"start_task","classification":"bounded_task","taskShape":"research_task","level":"medium","requestedOutputFormats":["pdf"],"expectedResults":[{"id":"result-1","type":"file","description":"PDF document","required":true},{"id":"site-public-link","type":"link","description":"public URL","required":true}],"siteRequestEvidence":"","responseLanguage":"ko","reason":"conflicted artifact kind","userFacingReply":"","initialToolNames":["site.status"],"priorTaskReference":"none"}`,
+		`{"route":"start_task","classification":"bounded_task","taskShape":"research_task","level":"medium","estimatedMinutes":1,"requestedOutputFormats":["pdf"],"expectedResults":[{"id":"result-1","type":"file","description":"PDF document","required":true},{"id":"site-public-link","type":"link","description":"public URL","required":true}],"siteRequestEvidence":"","responseLanguage":"ko","reason":"conflicted artifact kind","userFacingReply":"","initialToolNames":["site.status"],"priorTaskReference":"none"}`,
 	}}
 	toolRegistry := newTestToolSet([]string{"conversation.history", "file.read", "file.write", "terminal.run", "file.promote", "file.deliver", "site.status"})
 	planner := NewTaskIntakePlanner(languageModel, IntakeOptions{IsEnabled: true})
 
-	decision := planner.Plan(context.Background(), AgentRequest{
+	decision := mustPlanIntake(t, planner, AgentRequest{
 		Prompt:  "제공한 데이터만 기반으로 제안서를 PDF 파일로 만들어서 첨부해줘",
 		ToolSet: toolRegistry,
 	})
@@ -335,11 +444,11 @@ func TestTaskIntakePlannerUsesRequestedOutputFormatsToResolveArtifactKindConflic
 
 func TestTaskIntakePlannerDropsQuoteLessHallucinatedSiteRequirement(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"route":"start_task","classification":"bounded_task","taskShape":"scheduled_task","level":"low","requestedOutputFormats":null,"expectedResults":[{"id":"site-public-link","type":"link","description":"public URL","required":true}],"siteRequestEvidence":"","responseLanguage":"ko","reason":"calendar work","userFacingReply":""}`,
+		`{"route":"start_task","classification":"bounded_task","taskShape":"scheduled_task","level":"low","estimatedMinutes":1,"requestedOutputFormats":null,"expectedResults":[{"id":"site-public-link","type":"link","description":"public URL","required":true}],"siteRequestEvidence":"","responseLanguage":"ko","reason":"calendar work","userFacingReply":""}`,
 	}}
 	planner := NewTaskIntakePlanner(languageModel, IntakeOptions{IsEnabled: true})
 
-	decision := planner.Plan(context.Background(), AgentRequest{Prompt: "19일 오후 6시 어반브랜딩 미팅 추가 위치는 코엑스"})
+	decision := mustPlanIntake(t, planner, AgentRequest{Prompt: "19일 오후 6시 어반브랜딩 미팅 추가 위치는 코엑스"})
 
 	if expectedResultsContain(decision.ExpectedResults, ExpectedResultTypeLink, "public URL") {
 		t.Fatalf("expected hallucinated link result to be dropped, got %+v", decision.ExpectedResults)
@@ -354,11 +463,11 @@ func TestTaskIntakePlannerDropsQuoteLessHallucinatedSiteRequirement(t *testing.T
 
 func TestTaskIntakePlannerAcceptsVerbatimSiteEvidence(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"route":"start_task","classification":"bounded_task","taskShape":"maintenance_task","level":"medium","requestedOutputFormats":null,"expectedResults":[{"id":"site-public-link","type":"link","description":"public URL","required":true}],"siteRequestEvidence":"웹사이트 만들어서 배포","responseLanguage":"ko","reason":"site work","userFacingReply":""}`,
+		`{"route":"start_task","classification":"bounded_task","taskShape":"maintenance_task","level":"medium","estimatedMinutes":1,"requestedOutputFormats":null,"expectedResults":[{"id":"site-public-link","type":"link","description":"public URL","required":true}],"siteRequestEvidence":"웹사이트 만들어서 배포","responseLanguage":"ko","reason":"site work","userFacingReply":""}`,
 	}}
 	planner := NewTaskIntakePlanner(languageModel, IntakeOptions{IsEnabled: true})
 
-	decision := planner.Plan(context.Background(), AgentRequest{Prompt: "포트폴리오 웹사이트 만들어서 배포해줘"})
+	decision := mustPlanIntake(t, planner, AgentRequest{Prompt: "포트폴리오 웹사이트 만들어서 배포해줘"})
 
 	if !expectedResultsContain(decision.ExpectedResults, ExpectedResultTypeLink, "public URL") {
 		t.Fatalf("expected verified link result to remain, got %+v", decision.ExpectedResults)
@@ -373,7 +482,7 @@ func TestTaskIntakePlannerAcceptsVerbatimSiteEvidence(t *testing.T) {
 
 func TestAgentKernelRecordsSiteRequirementNormalizationEvent(t *testing.T) {
 	intakeLanguageModel := &sequenceLanguageModel{contents: []string{
-		`{"route":"start_task","classification":"bounded_task","taskShape":"scheduled_task","level":"low","requestedOutputFormats":null,"expectedResults":[{"id":"site-public-link","type":"link","description":"public URL","required":true}],"requiredEvidence":["calendar.add"],"siteRequestEvidence":"","responseLanguage":"ko","reason":"calendar work","userFacingReply":""}`,
+		`{"route":"start_task","classification":"bounded_task","taskShape":"scheduled_task","level":"low","estimatedMinutes":1,"requestedOutputFormats":null,"expectedResults":[{"id":"site-public-link","type":"link","description":"public URL","required":true}],"requiredEvidence":["calendar.add"],"siteRequestEvidence":"","responseLanguage":"ko","reason":"calendar work","userFacingReply":""}`,
 	}}
 	replyLanguageModel := &sequenceLanguageModel{contents: []string{
 		`{"action":"continue","toolName":"capability.invoke","toolInput":{"operation":"calendar.add","input":{"title":"어반브랜딩 미팅","location":"코엑스"}}}`,
@@ -466,11 +575,12 @@ func TestTurnRoutingContextTreatsDelegatedPendingInputAsAnswer(t *testing.T) {
 
 func TestTurnRouterNormalizesClarificationFields(t *testing.T) {
 	router := NewTurnRouter(nil, IntakeOptions{IsEnabled: false})
-	decision := router.normalizeDecision(TurnDecision{
+	decision := mustNormalizeTurn(t, router, TurnDecision{
 		Route:                 TurnRouteClarify,
-		Classification:        IntakeClassificationQuickReply,
-		TaskShape:             TaskShapeImmediateReply,
+		Classification:        IntakeClassificationNeedsConfirmation,
+		TaskShape:             TaskShapeApprovalGatedTask,
 		TaskLevel:             TaskLevelXLow,
+		EstimatedMinutes:      1,
 		ResponseLanguage:      "ko",
 		Reason:                "needs finite choice",
 		ClarificationQuestion: " 어느 방식으로 진행할까요? ",
@@ -480,13 +590,13 @@ func TestTurnRouterNormalizesClarificationFields(t *testing.T) {
 			{Label: "B안", Value: "second"},
 			{Key: "C", Label: ""},
 		},
-	}, router.deterministicDecision(AgentRequest{}), AgentRequest{})
+	}, AgentRequest{})
 
 	if decision.Classification != IntakeClassificationNeedsConfirmation {
-		t.Fatalf("expected clarify route to require confirmation, got %+v", decision)
+		t.Fatalf("expected router classification to remain unchanged, got %+v", decision)
 	}
-	if decision.UserFacingReply != "어느 방식으로 진행할까요?" {
-		t.Fatalf("expected clarification question as reply, got %q", decision.UserFacingReply)
+	if decision.UserFacingReply != "" {
+		t.Fatalf("expected router reply to remain unchanged, got %q", decision.UserFacingReply)
 	}
 	if len(decision.ClarificationOptions) != 2 {
 		t.Fatalf("expected two valid unique options, got %+v", decision.ClarificationOptions)
@@ -498,32 +608,35 @@ func TestTurnRouterNormalizesClarificationFields(t *testing.T) {
 
 func TestTurnRouterNormalizesReactionEmojiNameToEnum(t *testing.T) {
 	router := NewTurnRouter(nil, IntakeOptions{IsEnabled: false})
-	nullDecision := router.normalizeDecision(TurnDecision{
+	nullDecision := mustNormalizeTurn(t, router, TurnDecision{
 		Route:            TurnRouteConsume,
 		Classification:   IntakeClassificationQuickReply,
 		TaskShape:        TaskShapeImmediateReply,
 		TaskLevel:        TaskLevelXLow,
+		EstimatedMinutes: 1,
 		ResponseLanguage: "ko",
 		Reason:           "ack",
-	}, router.deterministicDecision(AgentRequest{}), AgentRequest{})
-	validDecision := router.normalizeDecision(TurnDecision{
+	}, AgentRequest{})
+	validDecision := mustNormalizeTurn(t, router, TurnDecision{
 		Route:             TurnRouteConsume,
 		Classification:    IntakeClassificationQuickReply,
 		TaskShape:         TaskShapeImmediateReply,
 		TaskLevel:         TaskLevelXLow,
+		EstimatedMinutes:  1,
 		ResponseLanguage:  "ko",
 		Reason:            "ack",
 		ReactionEmojiName: ":TADA:",
-	}, router.deterministicDecision(AgentRequest{}), AgentRequest{})
-	invalidDecision := router.normalizeDecision(TurnDecision{
+	}, AgentRequest{})
+	invalidDecision := mustNormalizeTurn(t, router, TurnDecision{
 		Route:             TurnRouteConsume,
 		Classification:    IntakeClassificationQuickReply,
 		TaskShape:         TaskShapeImmediateReply,
 		TaskLevel:         TaskLevelXLow,
+		EstimatedMinutes:  1,
 		ResponseLanguage:  "ko",
 		Reason:            "ack",
 		ReactionEmojiName: "unknown_custom_emoji",
-	}, router.deterministicDecision(AgentRequest{}), AgentRequest{})
+	}, AgentRequest{})
 
 	if nullDecision.ReactionEmojiName != DefaultReactionEmojiName {
 		t.Fatalf("expected missing emoji to default, got %q", nullDecision.ReactionEmojiName)
@@ -542,71 +655,69 @@ func TestTurnRouterNormalizesReactionEmojiNameToEnum(t *testing.T) {
 func TestTurnRouterRequiresDirectMessageConsumeFallback(t *testing.T) {
 	router := NewTurnRouter(nil, IntakeOptions{IsEnabled: false})
 	request := AgentRequest{ConversationType: "D"}
-	missingFallback := router.normalizeDecision(TurnDecision{
+	missingFallback := mustNormalizeTurn(t, router, TurnDecision{
 		Route:            TurnRouteConsume,
 		Classification:   IntakeClassificationQuickReply,
 		TaskShape:        TaskShapeImmediateReply,
 		TaskLevel:        TaskLevelXLow,
+		EstimatedMinutes: 1,
 		ResponseLanguage: "ko",
 		Reason:           "ack",
-	}, router.deterministicDecision(request), request)
-	withFallback := router.normalizeDecision(TurnDecision{
+	}, request)
+	withFallback := mustNormalizeTurn(t, router, TurnDecision{
 		Route:            TurnRouteConsume,
 		Classification:   IntakeClassificationQuickReply,
 		TaskShape:        TaskShapeImmediateReply,
 		TaskLevel:        TaskLevelXLow,
+		EstimatedMinutes: 1,
 		ResponseLanguage: "ko",
 		Reason:           "ack",
 		UserFacingReply:  "알겠습니다.",
-	}, router.deterministicDecision(request), request)
+	}, request)
 
-	if missingFallback.Route != TurnRouteStartTask {
-		t.Fatalf("expected direct consume without fallback to enter reply loop, got %+v", missingFallback)
+	if missingFallback.Route != TurnRouteConsume {
+		t.Fatalf("expected router consume route to remain unchanged, got %+v", missingFallback)
 	}
 	if withFallback.Route != TurnRouteConsume || withFallback.UserFacingReply != "알겠습니다." {
 		t.Fatalf("expected direct consume with fallback to remain consume, got %+v", withFallback)
 	}
 }
 
-func TestTurnRouterPromotesTaskfulConsumeToTaskRoute(t *testing.T) {
+func TestTurnRouterRejectsTaskfulConsumeRoute(t *testing.T) {
 	router := NewTurnRouter(nil, IntakeOptions{IsEnabled: false})
 	toolSet := newTestToolSet([]string{"task.add", "task.list", "task.update"})
-	decision := router.normalizeDecision(TurnDecision{
+	_, errorValue := router.normalizeDecision(TurnDecision{
 		Route:                 TurnRouteConsume,
 		Classification:        IntakeClassificationBoundedTask,
 		TaskShape:             TaskShapeResearchTask,
 		TaskLevel:             TaskLevelLow,
+		EstimatedMinutes:      1,
 		ResponseLanguage:      "ko",
 		Reason:                "사용자가 명시적으로 업무 등록을 요청함",
 		RequiredEvidenceTools: []string{"task.add"},
 		InitialToolNames:      []string{"task.add", "task.list", "task.update"},
-	}, router.deterministicDecision(AgentRequest{ToolSet: toolSet}), AgentRequest{
+	}, AgentRequest{
 		Prompt:  "업무 등록해줘.\n\n- 메일 페이지 앱 비밀번호 개선",
 		ToolSet: toolSet,
 	})
 
-	if decision.Route != TurnRouteStartTask {
-		t.Fatalf("expected taskful consume to become start_task, got %+v", decision)
-	}
-	if !containsString(decision.RequiredEvidenceTools, "task.add") {
-		t.Fatalf("expected task.add required evidence to remain, got %+v", decision.RequiredEvidenceTools)
-	}
-	if !containsString(decision.InitialToolNames, "task.add") {
-		t.Fatalf("expected initial flow task tool to remain, got %+v", decision.InitialToolNames)
+	if errorValue == nil || !strings.Contains(errorValue.Error(), "bounded_task with a terminal route") {
+		t.Fatalf("expected contradictory consume error, got %v", errorValue)
 	}
 }
 
-func TestTurnRouterNormalizesConditionalFields(t *testing.T) {
+func TestTurnRouterRejectsBoundedGiveUp(t *testing.T) {
 	router := NewTurnRouter(nil, IntakeOptions{IsEnabled: false})
-	decision := router.normalizeDecision(TurnDecision{
+	_, errorValue := router.normalizeDecision(TurnDecision{
 		Route:                  TurnRouteGiveUp,
 		Classification:         IntakeClassificationBoundedTask,
 		TaskShape:              TaskShapeMaintenanceTask,
 		TaskLevel:              TaskLevelLow,
+		EstimatedMinutes:       1,
 		RequestedOutputFormats: []string{"pptx"},
 		ResponseLanguage:       "ko",
 		Choices:                []string{"B", "A", "A"},
-	}, router.deterministicDecision(AgentRequest{}), AgentRequest{
+	}, AgentRequest{
 		PendingConfirmation: PendingConfirmationContext{TaskRunID: "task-1"},
 		PendingChoice: PendingChoiceContext{
 			TaskRunID:     "task-2",
@@ -617,28 +728,23 @@ func TestTurnRouterNormalizesConditionalFields(t *testing.T) {
 		},
 	})
 
-	if decision.Approval == nil || *decision.Approval != ApprovalSignalUnclear {
-		t.Fatalf("expected missing pending approval to normalize to unclear, got %+v", decision.Approval)
-	}
-	if decision.Route != TurnRouteAnswerMeta {
-		t.Fatalf("expected disallowed give_up to normalize to answer_meta, got %+v", decision.Route)
-	}
-	if strings.Join(decision.Choices, ",") != "A" {
-		t.Fatalf("expected choices to be whitelisted and deduplicated, got %+v", decision.Choices)
+	if errorValue == nil || !strings.Contains(errorValue.Error(), "bounded_task with a terminal route") {
+		t.Fatalf("expected bounded give_up error, got %v", errorValue)
 	}
 }
 
 func TestTurnRouterNormalizesChoiceNumberToOptionKey(t *testing.T) {
 	router := NewTurnRouter(nil, IntakeOptions{IsEnabled: false})
-	decision := router.normalizeDecision(TurnDecision{
+	decision := mustNormalizeTurn(t, router, TurnDecision{
 		Route:                  TurnRouteContinueTask,
 		Classification:         IntakeClassificationBoundedTask,
 		TaskShape:              TaskShapeMaintenanceTask,
 		TaskLevel:              TaskLevelLow,
+		EstimatedMinutes:       1,
 		RequestedOutputFormats: nil,
 		ResponseLanguage:       "ko",
 		Choices:                []string{"2"},
-	}, router.deterministicDecision(AgentRequest{}), AgentRequest{
+	}, AgentRequest{
 		PendingInput: PendingInputContext{
 			TaskRunID:     "task-2",
 			SelectionMode: "single",
@@ -657,15 +763,16 @@ func TestTurnRouterNormalizesChoiceNumberToOptionKey(t *testing.T) {
 func TestTurnRouterApproveForcesContinuation(t *testing.T) {
 	approval := ApprovalSignalApprove
 	router := NewTurnRouter(nil, IntakeOptions{IsEnabled: false})
-	decision := router.normalizeDecision(TurnDecision{
+	decision := mustNormalizeTurn(t, router, TurnDecision{
 		Route:            TurnRouteStartTask,
 		Classification:   IntakeClassificationBoundedTask,
 		TaskShape:        TaskShapeMaintenanceTask,
 		TaskLevel:        TaskLevelLow,
+		EstimatedMinutes: 1,
 		ResponseLanguage: "ko",
 		Reason:           "approval",
 		Approval:         &approval,
-	}, router.deterministicDecision(AgentRequest{}), AgentRequest{
+	}, AgentRequest{
 		PendingConfirmation: PendingConfirmationContext{TaskRunID: "task-1"},
 	})
 
@@ -674,110 +781,89 @@ func TestTurnRouterApproveForcesContinuation(t *testing.T) {
 	}
 }
 
-func TestTaskRecoveryPlannerPromotesArtifactRetryDespitePriorFailureRefusal(t *testing.T) {
-	toolRegistry := newTestToolSet([]string{"terminal.run", "file.write", "file.promote", "file.deliver"})
-	decision := (TaskRecoveryPlanner{}).Plan(AgentRequest{
-		Prompt:  "다시 해봐 이제 될 거야",
-		ToolSet: toolRegistry,
-	}, IntakeDecision{
+func TestSelectedToolsDoNotOverrideUnsupportedDecision(t *testing.T) {
+	decision := applySelectedSkillCompletionRequirements(IntakeDecision{
 		Classification:         IntakeClassificationUnsupported,
 		TaskShape:              TaskShapeImmediateReply,
 		TaskLevel:              TaskLevelLow,
+		EstimatedMinutes:       1,
 		RequestedOutputFormats: []string{"pptx"},
 		ResponseLanguage:       "ko",
 		Reason:                 "previous permission failure",
 		UserFacingReply:        "PPTX 파일 생성은 불가능합니다.",
-	})
+	}, namedSkillBundle("presentation"))
 
-	if decision.Classification != IntakeClassificationBoundedTask {
-		t.Fatalf("expected artifact retry to become bounded, got %+v", decision)
+	if decision.Classification != IntakeClassificationUnsupported {
+		t.Fatalf("expected router classification to remain unsupported, got %+v", decision)
 	}
-	if decision.UserFacingReply != "" {
-		t.Fatalf("expected intake refusal reply to be cleared, got %q", decision.UserFacingReply)
+	if decision.UserFacingReply != "PPTX 파일 생성은 불가능합니다." {
+		t.Fatalf("expected router reply to remain unchanged, got %q", decision.UserFacingReply)
 	}
 	if strings.Join(decision.RequestedOutputFormats, ",") != "pptx" {
 		t.Fatalf("expected pptx format to be preserved, got %+v", decision.RequestedOutputFormats)
 	}
 }
 
-func TestTaskIntakePlannerFallsBackDeterministically(t *testing.T) {
+func TestTaskIntakePlannerReturnsLanguageModelError(t *testing.T) {
 	planner := NewTaskIntakePlanner(failingLanguageModel{}, IntakeOptions{IsEnabled: true})
-
-	decision := planner.Plan(context.Background(), AgentRequest{Prompt: "please analyze the whole repo"})
-
-	if decision.Classification != IntakeClassificationBoundedTask {
-		t.Fatalf("expected uniform bounded fallback, got %q", decision.Classification)
-	}
-	if decision.TaskShape != TaskShapeResearchTask {
-		t.Fatalf("expected research fallback shape, got %+v", decision)
-	}
-	if !decision.UsedDeterministicFallback {
-		t.Fatal("expected deterministic fallback marker")
+	_, errorValue := planner.Plan(context.Background(), AgentRequest{Prompt: "please analyze the whole repo"})
+	if errorValue == nil || !strings.Contains(errorValue.Error(), "model failed") {
+		t.Fatalf("expected language model error, got %v", errorValue)
 	}
 }
 
-func TestTaskIntakePlannerFallsBackToSteerWhenActiveTaskKnown(t *testing.T) {
+func TestTaskIntakePlannerReturnsLanguageModelErrorWithActiveTask(t *testing.T) {
 	router := NewTurnRouter(failingLanguageModel{}, IntakeOptions{IsEnabled: true})
-
-	decision := router.Plan(context.Background(), AgentRequest{
+	_, errorValue := router.Plan(context.Background(), AgentRequest{
 		Prompt:     "아니야 하지마",
 		ActiveTask: ActiveTaskContext{TaskRunID: "task-1", Prompt: "report 만들어줘"},
 	})
-
-	if decision.BusyRoute != BusyRouteSteer {
-		t.Fatalf("expected classification failure to fall back to steer when a task is active, got %q", decision.BusyRoute)
+	if errorValue == nil || !strings.Contains(errorValue.Error(), "model failed") {
+		t.Fatalf("expected language model error, got %v", errorValue)
 	}
 }
 
-func TestTaskIntakePlannerDoesNotSetBusyRouteWithoutActiveTask(t *testing.T) {
+func TestTaskIntakePlannerReturnsLanguageModelErrorWithoutActiveTask(t *testing.T) {
 	router := NewTurnRouter(failingLanguageModel{}, IntakeOptions{IsEnabled: true})
-
-	decision := router.Plan(context.Background(), AgentRequest{Prompt: "please analyze the whole repo"})
-
-	if decision.BusyRoute != "" {
-		t.Fatalf("expected no busyRoute without an active task, got %q", decision.BusyRoute)
+	_, errorValue := router.Plan(context.Background(), AgentRequest{Prompt: "please analyze the whole repo"})
+	if errorValue == nil || !strings.Contains(errorValue.Error(), "model failed") {
+		t.Fatalf("expected language model error, got %v", errorValue)
 	}
 }
 
-func TestTaskIntakePlannerFallbackDefaultsUncertainWorkToStandard(t *testing.T) {
+func TestTaskIntakePlannerDoesNotInferTaskLevelAfterLanguageModelError(t *testing.T) {
 	planner := NewTaskIntakePlanner(failingLanguageModel{}, IntakeOptions{IsEnabled: true})
-	toolRegistry := newTestToolSet([]string{"memory.search"})
-
-	decision := planner.Plan(context.Background(), AgentRequest{
-		Prompt:  "please search memory",
-		ToolSet: toolRegistry,
-	})
-
-	if decision.TaskLevel != TaskLevelLow {
-		t.Fatalf("expected low task level fallback, got %+v", decision)
+	decision, errorValue := planner.Plan(context.Background(), AgentRequest{Prompt: "please search memory"})
+	if errorValue == nil || decision.TaskLevel != "" {
+		t.Fatalf("expected error without inferred task level, got decision=%+v error=%v", decision, errorValue)
 	}
 }
 
 func TestTaskIntakePlannerClampsBrowserControlEffort(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"classification":"bounded_task","taskShape":"browser_handoff_task","level":"xlow","requestedOutputFormats":null,"reason":"browser control","userFacingReply":""}`,
+		`{"route":"start_task","classification":"bounded_task","taskShape":"browser_handoff_task","level":"xlow","estimatedMinutes":1,"requestedOutputFormats":null,"reason":"browser control","userFacingReply":""}`,
 	}}
 	toolRegistry := newTestToolSet([]string{"browser.open", "browser.screenshot"})
 	planner := NewTaskIntakePlanner(languageModel, IntakeOptions{IsEnabled: true})
 
-	decision := planner.Plan(context.Background(), AgentRequest{
+	decision := mustPlanIntake(t, planner, AgentRequest{
 		Prompt:  "open google and take a screenshot",
 		ToolSet: toolRegistry,
 	})
 
-	if decision.TaskLevel != TaskLevelMedium {
-		t.Fatalf("expected browser control task level clamp, got %+v", decision)
+	if decision.TaskLevel != TaskLevelXLow {
+		t.Fatalf("expected router task level to remain unchanged, got %+v", decision)
 	}
 }
 
 func TestTaskIntakePlannerRespectsModelDecisionForShortFollowUp(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"classification":"bounded_task","taskShape":"browser_handoff_task","level":"low","requestedOutputFormats":null,"reason":"continues visible browser work","userFacingReply":""}`,
+		`{"route":"start_task","classification":"bounded_task","taskShape":"browser_handoff_task","level":"low","estimatedMinutes":1,"requestedOutputFormats":null,"reason":"continues visible browser work","userFacingReply":""}`,
 	}}
 	toolRegistry := newTestToolSet([]string{"browser.open", "browser.snapshot"})
 	planner := NewTaskIntakePlanner(languageModel, IntakeOptions{IsEnabled: true})
 
-	decision := planner.Plan(context.Background(), AgentRequest{
+	decision := mustPlanIntake(t, planner, AgentRequest{
 		Prompt:  "다시 열어봐",
 		ToolSet: toolRegistry,
 		VisibleContext: VisibleContext{Messages: []VisibleContextMessage{
@@ -796,30 +882,30 @@ func TestTaskIntakePlannerRespectsModelDecisionForShortFollowUp(t *testing.T) {
 
 func TestTaskIntakePlannerTreatsLocalArtifactConfirmationAsBoundedTask(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"classification":"needs_confirmation","taskShape":"approval_gated_task","level":"medium","requestedOutputFormats":["pdf"],"reason":"asks for generated files","userFacingReply":"승인하시겠습니까?"}`,
+		`{"route":"clarify","classification":"needs_confirmation","taskShape":"approval_gated_task","level":"medium","estimatedMinutes":1,"requestedOutputFormats":["pdf"],"reason":"asks for generated files","userFacingReply":"승인하시겠습니까?"}`,
 	}}
 	toolRegistry := newTestToolSet([]string{"terminal.run", "file.write", "file.promote", "file.deliver"})
 	planner := NewTaskIntakePlanner(languageModel, IntakeOptions{IsEnabled: true})
 
-	decision := planner.Plan(context.Background(), AgentRequest{
+	decision := mustPlanIntake(t, planner, AgentRequest{
 		Prompt:  "너 뭐 할 수 있는지 피피티 만들어서 pdf로 보내줘",
 		ToolSet: toolRegistry,
 	})
 
-	if decision.Classification != IntakeClassificationBoundedTask {
-		t.Fatalf("expected local artifact request to be bounded, got %+v", decision)
+	if decision.Classification != IntakeClassificationNeedsConfirmation {
+		t.Fatalf("expected router confirmation classification to remain authoritative, got %+v", decision)
 	}
-	if decision.TaskShape == TaskShapeApprovalGatedTask {
-		t.Fatalf("expected non-approval task shape, got %+v", decision)
+	if decision.TaskShape != TaskShapeApprovalGatedTask {
+		t.Fatalf("expected router task shape to remain authoritative, got %+v", decision)
 	}
-	if decision.UserFacingReply != "" {
-		t.Fatalf("expected confirmation reply to be cleared, got %q", decision.UserFacingReply)
+	if decision.UserFacingReply != "승인하시겠습니까?" {
+		t.Fatalf("expected router reply to remain unchanged, got %q", decision.UserFacingReply)
 	}
 }
 
 func TestTaskIntakePlannerDoesNotOverrideScheduleRefusalWithoutSelectedSkill(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"classification":"unsupported","taskShape":"scheduled_task","level":"medium","requestedOutputFormats":null,"reason":"background loops are unsupported","userFacingReply":"지원하지 않습니다."}`,
+		`{"route":"give_up","classification":"unsupported","taskShape":"immediate_reply","level":"medium","estimatedMinutes":1,"requestedOutputFormats":null,"reason":"background loops are unsupported","userFacingReply":"지원하지 않습니다."}`,
 	}}
 	toolRegistry := newTestToolSet([]string{"schedule.create"})
 	toolRegistry.RegisterTool(ToolDefinition{Name: "schedule.create"}, func(context.Context, ToolInvocation) (ToolResult, error) {
@@ -830,12 +916,12 @@ func TestTaskIntakePlannerDoesNotOverrideScheduleRefusalWithoutSelectedSkill(t *
 		DefaultTaskLevel: TaskLevelLow,
 	})
 
-	decision := planner.Plan(context.Background(), AgentRequest{
+	decision := mustPlanIntake(t, planner, AgentRequest{
 		Prompt:  "1분마다 \"1분 지났습니다\"라고 보내줘",
 		ToolSet: toolRegistry,
 	})
 
-	if decision.Classification != IntakeClassificationUnsupported || decision.TaskShape != TaskShapeScheduledTask {
+	if decision.Classification != IntakeClassificationUnsupported || decision.TaskShape != TaskShapeImmediateReply {
 		t.Fatalf("expected raw intake refusal to remain unsupported without selected skill, got %+v", decision)
 	}
 	if decision.UserFacingReply == "" {
@@ -843,9 +929,9 @@ func TestTaskIntakePlannerDoesNotOverrideScheduleRefusalWithoutSelectedSkill(t *
 	}
 }
 
-func TestAgentKernelPromotesSelectedScheduledSkillOverIntakeRefusal(t *testing.T) {
+func TestAgentKernelPreservesScheduledIntakeRefusalAfterSkillSelection(t *testing.T) {
 	intakeLanguageModel := &sequenceLanguageModel{contents: []string{
-		`{"classification":"unsupported","taskShape":"scheduled_task","level":"medium","requestedOutputFormats":null,"reason":"background loops are unsupported","userFacingReply":"지원하지 않습니다."}`,
+		`{"route":"give_up","classification":"unsupported","taskShape":"immediate_reply","level":"medium","estimatedMinutes":1,"requestedOutputFormats":null,"reason":"background loops are unsupported","userFacingReply":"지원하지 않습니다."}`,
 	}}
 	replyLanguageModel := &sequenceLanguageModel{contents: []string{
 		`{"action":"continue","toolName":"capability.invoke","toolInput":{"operation":"schedule.create","input":{"taskInstruction":"현재 대화에 \"죄송합니다\"라고 보낸다.","kind":"interval","intervalSecond":60,"maxRunCount":10,"repeatPolicy":"finite","timeZone":"Asia/Seoul"}}}`,
@@ -873,29 +959,32 @@ func TestAgentKernelPromotesSelectedScheduledSkillOverIntakeRefusal(t *testing.T
 		ToolSet:           toolRegistry,
 	})
 	if errorValue != nil {
-		t.Fatalf("expected promoted scheduled task: %v", errorValue)
+		t.Fatalf("expected unsupported intake to complete: %v", errorValue)
 	}
-	if result.TaskRun.Status != task.TaskStatusCompleted {
-		t.Fatalf("expected completed scheduled task, got %s", result.TaskRun.Status)
+	if result.TaskRun.Status != task.TaskStatusBlocked {
+		t.Fatalf("expected blocked scheduled task, got %s", result.TaskRun.Status)
 	}
-	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.intake", "bounded_task") {
-		t.Fatal("expected selected scheduled skill to promote intake")
-	}
-	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.action", "finish") {
-		t.Fatal("expected model finish action after schedule evidence")
+	if taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.action", "continue") {
+		t.Fatal("expected no task execution after unsupported router decision")
 	}
 }
 
-func TestAgentKernelPromotesSelectedArtifactSkillOverIntakeRefusal(t *testing.T) {
+func TestAgentKernelSelectsArtifactSkillOnceAfterRouting(t *testing.T) {
 	intakeLanguageModel := &sequenceLanguageModel{contents: []string{
-		`{"classification":"unsupported","taskShape":"immediate_reply","level":"medium","requestedOutputFormats":["pptx"],"initialToolNames":["file.deliver"],"reason":"previous permission failure","userFacingReply":"Gamma나 Canva를 사용하세요."}`,
+		`{"route":"start_task","classification":"bounded_task","taskShape":"maintenance_task","level":"medium","estimatedMinutes":1,"requestedOutputFormats":["pptx"],"initialToolNames":["file.deliver"],"reason":"create and deliver the requested presentation","userFacingReply":""}`,
 	}}
 	replyLanguageModel := &sequenceLanguageModel{contents: []string{
 		`{"action":"continue","toolName":"file.deliver","toolInput":{"path":"artifacts/deck/deck.pptx"}}`,
 		finishMessageWithEvidence("deck.pptx 파일을 첨부했습니다.", "obs-001", "file.deliver", 0),
 	}}
 	services := newKernelIntakeTestServices(replyLanguageModel, intakeLanguageModel)
-	services.kernel.UseSkillRetriever(NewEmbeddingSkillRetriever(nil, ""))
+	skillRetriever := &countingSkillRetriever{result: SkillRetrievalResult{
+		RetrievalMode:      "embedding",
+		IndexStatus:        "ready",
+		CandidateCount:     1,
+		SelectedCandidates: []SkillCandidate{{Name: "presentation", Score: 1, Reason: "embedding_similarity"}},
+	}}
+	services.kernel.UseSkillRetriever(skillRetriever)
 	services.kernel.UseInstructionBundleLoader(func() InstructionBundle {
 		return InstructionBundle{Skills: []SkillInstruction{{
 			Name:         "presentation",
@@ -925,7 +1014,7 @@ func TestAgentKernelPromotesSelectedArtifactSkillOverIntakeRefusal(t *testing.T)
 		ToolSet:           toolRegistry,
 	})
 	if errorValue != nil {
-		t.Fatalf("expected selected artifact skill to run despite intake refusal: %v", errorValue)
+		t.Fatalf("expected routed artifact task to run: %v", errorValue)
 	}
 	if result.TaskRun.Status != task.TaskStatusCompleted {
 		t.Fatalf("expected completed task, got %s events=%+v", result.TaskRun.Status, services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID))
@@ -934,13 +1023,32 @@ func TestAgentKernelPromotesSelectedArtifactSkillOverIntakeRefusal(t *testing.T)
 		t.Fatalf("expected pptx attachment, got %+v", result.Attachments)
 	}
 	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.intake", `"classification":"bounded_task"`) {
-		t.Fatal("expected intake refusal to be promoted to bounded artifact work")
+		t.Fatal("expected bounded artifact intake")
+	}
+	if skillRetriever.searchCount != 1 {
+		t.Fatalf("expected one routed skill retrieval, got %d", skillRetriever.searchCount)
+	}
+	if len(skillRetriever.requests) != 1 {
+		t.Fatalf("expected one routed skill request, got %d", len(skillRetriever.requests))
+	}
+	selectionContract := skillRetriever.requests[0].ActiveGoal.OutcomeContract
+	if !stringSliceContains(selectionContract.RequiredEvidenceTools, FileDeliverToolName) || !stringSliceContains(selectionContract.RequiredAttachmentSuffixes, ".pptx") || selectionContract.ArtifactRequirement != ArtifactRequirementRequired {
+		t.Fatalf("expected routed artifact contract during skill selection, got %+v", selectionContract)
+	}
+	skillQueryCount := 0
+	for _, request := range intakeLanguageModel.requests {
+		if request.StructuredOutputSchema.Name == "blueclaw_skill_search_queries" {
+			skillQueryCount++
+		}
+	}
+	if skillQueryCount != 1 {
+		t.Fatalf("expected one routed skill query, got %d", skillQueryCount)
 	}
 }
 
-func TestAgentKernelRetriesArtifactFromOutputFormatWithoutSelectedSkill(t *testing.T) {
+func TestAgentKernelPreservesUnsupportedArtifactWithoutSelectedSkill(t *testing.T) {
 	intakeLanguageModel := &sequenceLanguageModel{contents: []string{
-		`{"classification":"unsupported","taskShape":"immediate_reply","level":"low","requestedOutputFormats":["pptx"],"initialToolNames":["file.deliver"],"responseLanguage":"ko","reason":"previous permission failure","userFacingReply":"PPTX 파일 생성은 불가능합니다."}`,
+		`{"route":"give_up","classification":"unsupported","taskShape":"immediate_reply","level":"low","estimatedMinutes":1,"requestedOutputFormats":["pptx"],"initialToolNames":["file.deliver"],"responseLanguage":"ko","reason":"previous permission failure","userFacingReply":"PPTX 파일 생성은 불가능합니다."}`,
 	}}
 	replyLanguageModel := &sequenceLanguageModel{contents: []string{
 		`{"action":"continue","toolName":"file.deliver","toolInput":{"path":"artifacts/deck/deck.pptx"}}`,
@@ -965,23 +1073,22 @@ func TestAgentKernelRetriesArtifactFromOutputFormatWithoutSelectedSkill(t *testi
 		ToolSet:           toolRegistry,
 	})
 	if errorValue != nil {
-		t.Fatalf("expected artifact retry to run despite intake refusal: %v", errorValue)
+		t.Fatalf("expected unsupported intake to complete: %v", errorValue)
 	}
-	if result.TaskRun.Status != task.TaskStatusCompleted {
-		events := services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID)
-		t.Fatalf("expected completed task, got %s events=%+v", result.TaskRun.Status, events)
+	if result.TaskRun.Status != task.TaskStatusBlocked {
+		t.Fatalf("expected blocked task, got %s", result.TaskRun.Status)
 	}
-	if len(result.Attachments) != 1 || result.Attachments[0].Filename != "deck.pptx" {
-		t.Fatalf("expected pptx attachment, got %+v", result.Attachments)
+	if len(result.Attachments) != 0 {
+		t.Fatalf("expected no attachment after unsupported decision, got %+v", result.Attachments)
 	}
-	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.intake", `"classification":"bounded_task"`) {
-		t.Fatal("expected intake retry promotion to bounded artifact work")
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.intake", `"classification":"unsupported"`) {
+		t.Fatal("expected unsupported router classification to remain authoritative")
 	}
 }
 
 func TestAgentKernelRecoversPriorTaskAttachmentContract(t *testing.T) {
 	intakeLanguageModel := &sequenceLanguageModel{contents: []string{
-		`{"route":"start_task","classification":"bounded_task","taskShape":"research_task","level":"low","requestedOutputFormats":null,"responseLanguage":"ko","reason":"latest message asks to deliver prior file outcome","userFacingReply":"","initialToolNames":[],"priorTaskReference":"outcome_recovery"}`,
+		`{"route":"start_task","classification":"bounded_task","taskShape":"research_task","level":"low","estimatedMinutes":1,"requestedOutputFormats":null,"responseLanguage":"ko","reason":"latest message asks to deliver prior file outcome","userFacingReply":"","initialToolNames":[],"priorTaskReference":"outcome_recovery"}`,
 	}}
 	replyLanguageModel := &sequenceLanguageModel{contents: []string{
 		finishMessageDocument("기존 작업이 이미 완료되어 파일이 준비되었습니다."),
@@ -1048,7 +1155,7 @@ func TestAgentKernelRecoversPriorTaskAttachmentContract(t *testing.T) {
 
 func TestAgentKernelRecoversLegacyPriorAttachmentContractFromIntakeOutput(t *testing.T) {
 	intakeLanguageModel := &sequenceLanguageModel{contents: []string{
-		`{"route":"start_task","classification":"bounded_task","taskShape":"research_task","level":"low","requestedOutputFormats":["docx"],"responseLanguage":"ko","reason":"latest message asks for the prior Word file as an attachment","userFacingReply":"","initialToolNames":["file.deliver"],"priorTaskReference":"outcome_recovery"}`,
+		`{"route":"start_task","classification":"bounded_task","taskShape":"research_task","level":"low","estimatedMinutes":1,"requestedOutputFormats":["docx"],"responseLanguage":"ko","reason":"latest message asks for the prior Word file as an attachment","userFacingReply":"","initialToolNames":["file.deliver"],"priorTaskReference":"outcome_recovery"}`,
 	}}
 	replyLanguageModel := &sequenceLanguageModel{contents: []string{
 		finishMessageDocument("기존 작업이 이미 완료되어 파일이 준비되었습니다."),
@@ -1097,14 +1204,11 @@ func TestAgentKernelRecoversLegacyPriorAttachmentContractFromIntakeOutput(t *tes
 	if !taskEventsContain(events, "agent.intake", `"requestedOutputFormats":["docx"]`) {
 		t.Fatal("expected intake event to record structured output format")
 	}
-	if taskEventsContain(events, "agent.intake", `"usedDeterministicFallback":true`) {
-		t.Fatal("expected normal intake path, not deterministic fallback")
-	}
 }
 
 func TestTaskIntakePlannerTreatsSupportedSitePrototypeConfirmationAsBoundedTask(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"classification":"needs_confirmation","taskShape":"approval_gated_task","level":"medium","requestedOutputFormats":null,"requiredEvidence":["site.create","site.publish"],"siteRequestEvidence":"웹사이트 하나 만들어서 배포","reason":"publishing needs approval","userFacingReply":"승인해주시겠어요?"}`,
+		`{"route":"clarify","classification":"needs_confirmation","taskShape":"approval_gated_task","level":"medium","estimatedMinutes":1,"requestedOutputFormats":null,"requiredEvidence":["site.create","site.publish"],"siteRequestEvidence":"웹사이트 하나 만들어서 배포","reason":"publishing needs approval","userFacingReply":"승인해주시겠어요?"}`,
 	}}
 	toolRegistry := newTestToolSet([]string{"site.create", "site.publish"})
 	for _, toolName := range toolRegistry.ListToolNames() {
@@ -1118,29 +1222,29 @@ func TestTaskIntakePlannerTreatsSupportedSitePrototypeConfirmationAsBoundedTask(
 		DefaultTaskLevel: TaskLevelLow,
 	})
 
-	decision := planner.Plan(context.Background(), AgentRequest{
+	decision := mustPlanIntake(t, planner, AgentRequest{
 		Prompt:  "웹사이트 하나 만들어서 배포해봐",
 		ToolSet: toolRegistry,
 	})
 
-	if decision.Classification != IntakeClassificationBoundedTask {
-		t.Fatalf("expected supported site prototype request to be bounded, got %+v", decision)
+	if decision.Classification != IntakeClassificationNeedsConfirmation {
+		t.Fatalf("expected confirmation classification to remain authoritative, got %+v", decision)
 	}
-	if decision.TaskShape == TaskShapeApprovalGatedTask {
-		t.Fatalf("expected non-approval task shape, got %+v", decision)
+	if decision.TaskShape != TaskShapeApprovalGatedTask {
+		t.Fatalf("expected approval-gated task shape, got %+v", decision)
 	}
-	if decision.UserFacingReply != "" {
-		t.Fatalf("expected confirmation reply to be cleared, got %q", decision.UserFacingReply)
+	if decision.UserFacingReply != "승인해주시겠어요?" {
+		t.Fatalf("expected router reply to remain unchanged, got %q", decision.UserFacingReply)
 	}
 }
 
 func TestTaskIntakePlannerIncludesTemporalContext(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"classification":"bounded_task","taskShape":"research_task","level":"low","requestedOutputFormats":null,"responseLanguage":"ko","reason":"website request","userFacingReply":""}`,
+		`{"route":"start_task","classification":"bounded_task","taskShape":"research_task","level":"low","estimatedMinutes":1,"requestedOutputFormats":null,"responseLanguage":"ko","reason":"website request","userFacingReply":""}`,
 	}}
 	planner := NewTaskIntakePlanner(languageModel, IntakeOptions{IsEnabled: true})
 
-	_ = planner.Plan(context.Background(), AgentRequest{
+	_ = mustPlanIntake(t, planner, AgentRequest{
 		Prompt:        "김인턴 구조 웹사이트 만들어줘",
 		TurnStartedAt: time.Date(2026, time.May, 17, 1, 2, 3, 0, time.UTC),
 		ToolSet:       newTestToolSet([]string{"site.create", "site.publish"}),
@@ -1157,12 +1261,12 @@ func TestTaskIntakePlannerIncludesTemporalContext(t *testing.T) {
 
 func TestTaskIntakePlannerKeepsDestructiveArtifactWorkApprovalGated(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"classification":"needs_confirmation","taskShape":"approval_gated_task","level":"medium","requestedOutputFormats":null,"reason":"destructive","userFacingReply":"승인하시겠습니까?"}`,
+		`{"route":"clarify","classification":"needs_confirmation","taskShape":"approval_gated_task","level":"medium","estimatedMinutes":1,"requestedOutputFormats":null,"reason":"destructive","userFacingReply":"승인하시겠습니까?"}`,
 	}}
 	toolRegistry := newTestToolSet([]string{"terminal.run", "file.write", "file.deliver"})
 	planner := NewTaskIntakePlanner(languageModel, IntakeOptions{IsEnabled: true})
 
-	decision := planner.Plan(context.Background(), AgentRequest{
+	decision := mustPlanIntake(t, planner, AgentRequest{
 		Prompt:  "전체 자료를 삭제하고 새 피피티 만들어줘",
 		ToolSet: toolRegistry,
 	})
@@ -1182,7 +1286,7 @@ func TestTurnRouterPreservesExactPrecomputedDecision(t *testing.T) {
 		PriorTaskReference: PriorTaskReferenceNone,
 		Reason:             "SDKD topology diagnostic",
 	}
-	decision := NewTurnRouter(nil, IntakeOptions{DefaultTaskLevel: TaskLevelHigh}).Plan(context.Background(), AgentRequest{
+	decision := mustPlanTurn(t, NewTurnRouter(nil, IntakeOptions{DefaultTaskLevel: TaskLevelHigh}), AgentRequest{
 		Prompt:                     "Create and publish a PDF website",
 		PrecomputedTurnDecision:    &precomputedDecision,
 		IsPrecomputedDecisionExact: true,
@@ -1208,7 +1312,7 @@ func TestTaskLevelProfileMapping(t *testing.T) {
 
 func TestAgentKernelUsesIntakeBeforeRunningTools(t *testing.T) {
 	intakeLanguageModel := &sequenceLanguageModel{contents: []string{
-		`{"classification":"needs_confirmation","taskShape":"approval_gated_task","level":"medium","requestedOutputFormats":null,"reason":"ambiguous target","clarificationQuestion":"Which one do you mean?","clarificationOptions":[{"key":"A","label":"First","value":"First"},{"key":"B","label":"Second","value":"Second"}],"userFacingReply":"Which one do you mean?"}`,
+		`{"route":"clarify","classification":"needs_confirmation","taskShape":"approval_gated_task","level":"medium","estimatedMinutes":1,"requestedOutputFormats":null,"reason":"ambiguous target","clarificationQuestion":"Which one do you mean?","clarificationOptions":[{"key":"A","label":"First","value":"First"},{"key":"B","label":"Second","value":"Second"}],"userFacingReply":"Which one do you mean?"}`,
 	}}
 	replyLanguageModel := &sequenceLanguageModel{contents: []string{
 		finishMessageDocument("should not run"),
@@ -1244,7 +1348,7 @@ func TestAgentKernelUsesIntakeBeforeRunningTools(t *testing.T) {
 
 func TestAgentKernelCreatesChoiceAskForClarificationOptions(t *testing.T) {
 	intakeLanguageModel := &sequenceLanguageModel{contents: []string{
-		`{"route":"clarify","classification":"needs_confirmation","taskShape":"approval_gated_task","level":"low","requestedOutputFormats":null,"responseLanguage":"ko","reason":"needs output choice","userFacingReply":"","clarificationQuestion":"어떤 형식으로 만들까요?","clarificationOptions":[{"key":"A","label":"웹사이트","value":"website"},{"key":"B","label":"발표자료","value":"slides"}]}`,
+		`{"route":"clarify","classification":"needs_confirmation","taskShape":"approval_gated_task","level":"low","estimatedMinutes":1,"requestedOutputFormats":null,"responseLanguage":"ko","reason":"needs output choice","userFacingReply":"","clarificationQuestion":"어떤 형식으로 만들까요?","clarificationOptions":[{"key":"A","label":"웹사이트","value":"website"},{"key":"B","label":"발표자료","value":"slides"}]}`,
 	}}
 	replyLanguageModel := &sequenceLanguageModel{contents: []string{
 		finishMessageDocument("should not run"),
@@ -1281,7 +1385,7 @@ func TestAgentKernelCreatesChoiceAskForClarificationOptions(t *testing.T) {
 
 func TestAgentKernelQuickReplyAllowsToolFreeReplyWithoutAskInput(t *testing.T) {
 	intakeLanguageModel := &sequenceLanguageModel{contents: []string{
-		`{"classification":"quick_reply","taskShape":"immediate_reply","level":"xlow","requestedOutputFormats":null,"reason":"direct answer","userFacingReply":""}`,
+		`{"route":"start_task","classification":"quick_reply","taskShape":"immediate_reply","level":"xlow","estimatedMinutes":1,"requestedOutputFormats":null,"reason":"direct answer","userFacingReply":""}`,
 	}}
 	replyLanguageModel := &sequenceLanguageModel{contents: []string{
 		finishMessageDocument("hello"),
@@ -1318,7 +1422,7 @@ func TestAgentKernelQuickReplyAllowsToolFreeReplyWithoutAskInput(t *testing.T) {
 
 func TestAgentKernelRunTurnPreservesCheckpointSender(t *testing.T) {
 	intakeLanguageModel := &sequenceLanguageModel{contents: []string{
-		`{"classification":"bounded_task","taskShape":"tool_task","level":"low","requestedOutputFormats":null,"reason":"needs tool","userFacingReply":""}`,
+		`{"route":"start_task","classification":"bounded_task","taskShape":"maintenance_task","level":"low","estimatedMinutes":1,"requestedOutputFormats":null,"reason":"needs tool","userFacingReply":""}`,
 	}}
 	replyLanguageModel := &sequenceLanguageModel{contents: []string{
 		`{"action":"continue","message":"확인 중입니다.","toolName":"capability.invoke","toolInput":{"operation":"alpha","input":{"value":"one"}}}`,
@@ -1357,7 +1461,7 @@ func TestAgentKernelRunTurnPreservesCheckpointSender(t *testing.T) {
 
 func TestAgentKernelQuickReplyPromotesToolFailureToRecovery(t *testing.T) {
 	intakeLanguageModel := &sequenceLanguageModel{contents: []string{
-		`{"classification":"quick_reply","taskShape":"immediate_reply","level":"xlow","requestedOutputFormats":null,"initialToolNames":["primary.lookup","backup.lookup"],"reason":"quick with useful tool","userFacingReply":""}`,
+		`{"route":"start_task","classification":"quick_reply","taskShape":"immediate_reply","level":"xlow","estimatedMinutes":1,"requestedOutputFormats":null,"initialToolNames":["primary.lookup","backup.lookup"],"reason":"quick with useful tool","userFacingReply":""}`,
 	}}
 	replyLanguageModel := &sequenceLanguageModel{contents: []string{
 		`{"action":"continue","toolName":"capability.invoke","toolInput":{"operation":"primary.lookup","input":{"query":"hello"}}}`,
@@ -1399,7 +1503,7 @@ func TestAgentKernelQuickReplyPromotesToolFailureToRecovery(t *testing.T) {
 
 func TestAgentKernelQuickReplyFailureDoesNotInventToolFailure(t *testing.T) {
 	intakeLanguageModel := &sequenceLanguageModel{contents: []string{
-		`{"classification":"quick_reply","taskShape":"immediate_reply","level":"xlow","requestedOutputFormats":null,"reason":"direct answer","userFacingReply":""}`,
+		`{"route":"start_task","classification":"quick_reply","taskShape":"immediate_reply","level":"xlow","estimatedMinutes":1,"requestedOutputFormats":null,"reason":"direct answer","userFacingReply":""}`,
 	}}
 	services := newKernelIntakeTestServices(failingLanguageModel{}, intakeLanguageModel)
 
@@ -1424,7 +1528,7 @@ func TestAgentKernelQuickReplyFailureDoesNotInventToolFailure(t *testing.T) {
 
 func TestAgentKernelQuickReplyCanUseCalculatorTool(t *testing.T) {
 	intakeLanguageModel := &sequenceLanguageModel{contents: []string{
-		`{"classification":"quick_reply","taskShape":"immediate_reply","level":"xlow","requestedOutputFormats":null,"initialToolNames":["math.calculate"],"responseLanguage":"ko","reason":"calculation","userFacingReply":""}`,
+		`{"route":"start_task","classification":"quick_reply","taskShape":"immediate_reply","level":"xlow","estimatedMinutes":1,"requestedOutputFormats":null,"initialToolNames":["math.calculate"],"responseLanguage":"ko","reason":"calculation","userFacingReply":""}`,
 	}}
 	replyLanguageModel := &sequenceLanguageModel{contents: []string{
 		`{"action":"continue","toolName":"capability.invoke","toolInput":{"operation":"math.calculate","input":{"expression":"1+1"}}}`,
@@ -1455,7 +1559,7 @@ func TestAgentKernelQuickReplyCanUseCalculatorTool(t *testing.T) {
 
 func TestAgentKernelQuickReplyUsesAskChoiceForExplicitChoiceRequest(t *testing.T) {
 	intakeLanguageModel := &sequenceLanguageModel{contents: []string{
-		`{"classification":"quick_reply","taskShape":"immediate_reply","level":"xlow","requestedOutputFormats":null,"expectedResults":[{"id":"interactive-choice","type":"message","description":"사용자가 직접 고를 수 있는 선택지 UI가 표시됨","required":true,"acceptanceHints":["ask.choice"]}],"responseLanguage":"ko","reason":"choice probe","userFacingReply":""}`,
+		`{"route":"start_task","classification":"quick_reply","taskShape":"immediate_reply","level":"xlow","estimatedMinutes":1,"requestedOutputFormats":null,"expectedResults":[{"id":"interactive-choice","type":"message","description":"사용자가 직접 고를 수 있는 선택지 UI가 표시됨","required":true,"acceptanceHints":["ask.choice"]}],"responseLanguage":"ko","reason":"choice probe","userFacingReply":""}`,
 	}}
 	replyLanguageModel := &sequenceLanguageModel{contents: []string{
 		finishMessageDocument("아래 세 가지 중 하나를 선택해 주세요.\n\n1. 선택지 1\n2. 선택지 2\n3. 선택지 3"),
@@ -1500,19 +1604,9 @@ func TestAgentKernelQuickReplyUsesAskChoiceForExplicitChoiceRequest(t *testing.T
 	}
 }
 
-// promoteIntakeDecisionForSelectedSkills upgrades an intake model's "quick_reply" guess to
-// a bounded task whenever the selected skill's own completion contract requires evidence
-// (e.g. an actual file.deliver call), and carries that requirement into the outcome
-// contract directly rather than leaving it an advisory hint — otherwise a same-turn "finish"
-// claiming the deliverable was produced would be accepted with no corroborating evidence at
-// all. Confirms the fix for the gap cb2f10f ("gate completion on required evidence") left
-// open: promoting the classification alone did not stop the turn from short-circuiting on
-// an unverified same-turn finish, because (a) the turn route was still fixed to "consume"
-// from before the promotion happened, and (b) the skill's required evidence tool stayed a
-// hint with no independent signal (e.g. a requested attachment suffix) to promote it.
-func TestAgentKernelPromotedQuickReplyRejectsUnverifiedFinishAndCompletesOnRealEvidence(t *testing.T) {
+func TestAgentKernelPreservesQuickReplyAfterSkillSelection(t *testing.T) {
 	intakeLanguageModel := &sequenceLanguageModel{contents: []string{
-		`{"classification":"quick_reply","taskShape":"immediate_reply","level":"xlow","requestedOutputFormats":null,"reason":"direct answer","userFacingReply":""}`,
+		`{"route":"start_task","classification":"quick_reply","taskShape":"immediate_reply","level":"xlow","estimatedMinutes":1,"requestedOutputFormats":null,"reason":"direct answer","userFacingReply":""}`,
 	}}
 	replyLanguageModel := &sequenceLanguageModel{contents: []string{
 		finishMessageDocument("deck created too early"),
@@ -1561,28 +1655,22 @@ func TestAgentKernelPromotedQuickReplyRejectsUnverifiedFinishAndCompletesOnRealE
 		ToolSet:           toolRegistry,
 	})
 	if errorValue != nil {
-		t.Fatalf("expected recovered completion: %v", errorValue)
+		t.Fatalf("expected quick reply: %v", errorValue)
 	}
-	if result.FinishMessage == "deck created too early" {
-		t.Fatal("expected the unverified same-turn finish to be rejected, not accepted")
+	if result.FinishMessage != "deck created too early" {
+		t.Fatalf("expected router quick reply to remain authoritative, got %q", result.FinishMessage)
 	}
-	if !strings.Contains(result.FinishMessage, "deck.pptx") {
-		t.Fatalf("expected artifact-aware reply after real file.deliver evidence, got %q", result.FinishMessage)
+	if len(result.Attachments) != 0 {
+		t.Fatalf("expected no inferred artifact delivery, got %+v", result.Attachments)
 	}
-	if len(result.Attachments) != 1 || result.Attachments[0].Filename != "deck.pptx" {
-		t.Fatalf("expected pptx attachment, got %+v", result.Attachments)
-	}
-	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.intake", "bounded_task") {
-		t.Fatal("expected the selected skill's evidence requirement to promote the intake classification to bounded_task")
-	}
-	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.evidence_missing", "evidence_missing") {
-		t.Fatal("expected the premature finish to be rejected as missing evidence")
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.intake", "quick_reply") {
+		t.Fatal("expected router quick reply classification to remain authoritative")
 	}
 }
 
 func TestAgentKernelUsesStructuredOutputFormatsForAttachmentRequirements(t *testing.T) {
 	intakeLanguageModel := &sequenceLanguageModel{contents: []string{
-		`{"classification":"bounded_task","taskShape":"research_task","level":"low","requestedOutputFormats":["html"],"initialToolNames":["file.deliver"],"reason":"explicit html output","userFacingReply":""}`,
+		`{"route":"start_task","classification":"bounded_task","taskShape":"research_task","level":"low","estimatedMinutes":1,"requestedOutputFormats":["html"],"initialToolNames":["file.deliver"],"reason":"explicit html output","userFacingReply":""}`,
 	}}
 	replyLanguageModel := &sequenceLanguageModel{contents: []string{
 		`{"action":"continue","toolName":"file.deliver","toolInput":{"path":"deck.html"}}`,
@@ -1663,6 +1751,26 @@ func newKernelIntakeTestServices(replyLanguageModel llm.LanguageModelProvider, i
 	})
 	return kernelIntakeTestServices{kernel: kernel, taskRunService: taskRunService, taskEventService: taskEventService}
 }
+
+type countingSkillRetriever struct {
+	result      SkillRetrievalResult
+	searchCount int
+	requests    []AgentRequest
+}
+
+func (retriever *countingSkillRetriever) Retrieve(_ context.Context, request AgentRequest, _ []SkillInstruction, _ int) SkillRetrievalResult {
+	retriever.searchCount++
+	retriever.requests = append(retriever.requests, request)
+	return retriever.result
+}
+
+func (retriever *countingSkillRetriever) Search(_ context.Context, request AgentRequest, _ []SkillInstruction, _ SkillSearchQuerySet, _ int) SkillRetrievalResult {
+	retriever.searchCount++
+	retriever.requests = append(retriever.requests, request)
+	return retriever.result
+}
+
+func (retriever *countingSkillRetriever) Refresh(context.Context, []SkillInstruction) {}
 
 type failingLanguageModel struct{}
 

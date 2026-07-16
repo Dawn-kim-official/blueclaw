@@ -19,7 +19,8 @@ import (
 func TestTaskRunHandlerLaunchesAdminTask(t *testing.T) {
 	taskEventService := task.NewTaskEventService()
 	agentKernel := agent.NewAgentKernel(task.NewTaskRunService(taskEventService), task.NewTaskStepService())
-	agentKernel.UseLanguageModelProvider(staticAdminLanguageModel{content: `{"action":"finish","goalStatus":"satisfied","goalSatisfied":true,"completionEvidence":[],"message":"admin done"}`})
+	languageModel := staticAdminLanguageModel{content: `{"action":"finish","goalStatus":"satisfied","goalSatisfied":true,"completionEvidence":[],"message":"admin done"}`}
+	useAdminTaskLanguageModel(agentKernel, languageModel)
 	toolCatalogBuilder := agentruntime.NewToolCatalogBuilder()
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(map[string][]string{
 		"admin": {"memory.search"},
@@ -51,7 +52,8 @@ func TestTaskRunHandlerLaunchesAdminTask(t *testing.T) {
 func TestTaskRunHandlerLaunchIgnoresClientCancellation(t *testing.T) {
 	taskEventService := task.NewTaskEventService()
 	agentKernel := agent.NewAgentKernel(task.NewTaskRunService(taskEventService), task.NewTaskStepService())
-	agentKernel.UseLanguageModelProvider(contextAwareAdminLanguageModel{content: `{"action":"finish","goalStatus":"satisfied","goalSatisfied":true,"completionEvidence":[],"message":"admin done"}`})
+	languageModel := contextAwareAdminLanguageModel{content: `{"action":"finish","goalStatus":"satisfied","goalSatisfied":true,"completionEvidence":[],"message":"admin done"}`}
+	useAdminTaskLanguageModel(agentKernel, languageModel)
 	toolCatalogBuilder := agentruntime.NewToolCatalogBuilder()
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(map[string][]string{
 		"admin": {"memory.search"},
@@ -292,8 +294,21 @@ func (languageModel staticAdminLanguageModel) GenerateResponse(context.Context, 
 	return "", nil
 }
 
-func (languageModel staticAdminLanguageModel) GenerateStructuredResponse(context.Context, llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
+func (languageModel staticAdminLanguageModel) GenerateStructuredResponse(_ context.Context, request llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
+	if request.StructuredOutputSchema.Name == "blueclaw_turn_router" {
+		return llm.StructuredResponse{Content: adminTaskTurnRouterResponse()}, nil
+	}
 	return llm.StructuredResponse{Content: languageModel.content}, nil
+}
+
+func useAdminTaskLanguageModel(agentKernel *agent.AgentKernel, languageModel llm.LanguageModelProvider) {
+	agentKernel.UseLanguageModelProvider(languageModel)
+	agentKernel.UseIntakeLanguageModelProvider(languageModel)
+	agentKernel.UseIntakeOptions(agent.IntakeOptions{IsEnabled: true})
+}
+
+func adminTaskTurnRouterResponse() string {
+	return `{"route":"answer_question","classification":"quick_reply","taskShape":"immediate_reply","level":"xlow","estimatedMinutes":1,"requestedOutputFormats":null,"responseLanguage":"ko","reason":"admin task test","userFacingReply":""}`
 }
 
 type contextAwareAdminLanguageModel struct {
