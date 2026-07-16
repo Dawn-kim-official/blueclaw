@@ -134,8 +134,7 @@ func intakeDecisionRequiresSideEffectEvidence(intakeDecision IntakeDecision, too
 	if intakeDecision.Classification != IntakeClassificationBoundedTask {
 		return false
 	}
-	return intakeDecision.TaskShape == TaskShapeMaintenanceTask ||
-		intakeDecision.TaskShape == TaskShapeScheduledTask ||
+	return intakeDecision.TaskShape == TaskShapeScheduledTask ||
 		hasArtifactOutputFormat(intakeDecision.RequestedOutputFormats) ||
 		intakeDecisionRequiresSiteEvidence(intakeDecision) ||
 		requiredEvidenceInitialToolsNeedEvidence(toolSet, intakeDecision.InitialToolNames)

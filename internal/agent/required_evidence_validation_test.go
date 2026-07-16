@@ -92,7 +92,7 @@ func TestValidateRequiredEvidenceAcceptsCanonicalDeliveryAlias(t *testing.T) {
 	}
 }
 
-func TestRequiredEvidenceMissingForBoundedMaintenanceTask(t *testing.T) {
+func TestRequiredEvidenceDoesNotAssumeSideEffectForMaintenanceTask(t *testing.T) {
 	intakeDecision := IntakeDecision{
 		Classification: IntakeClassificationBoundedTask,
 		TaskShape:      TaskShapeMaintenanceTask,
@@ -100,8 +100,8 @@ func TestRequiredEvidenceMissingForBoundedMaintenanceTask(t *testing.T) {
 
 	isMissing := requiredEvidenceMissingForSideEffect(intakeDecision, OutcomeContract{}, newTestToolSet([]string{"task.add"}))
 
-	if !isMissing {
-		t.Fatal("expected bounded maintenance task without evidence to require recovery")
+	if isMissing {
+		t.Fatal("expected maintenance task without a typed side-effect signal not to require recovery")
 	}
 }
 
@@ -119,7 +119,7 @@ func TestRequiredEvidenceNotMissingForReadOnlyResearchTask(t *testing.T) {
 	}
 }
 
-func TestRequiredEvidenceMissingWhenMaintenanceEvidenceIsReadOnly(t *testing.T) {
+func TestRequiredEvidencePreservesReadOnlyMaintenanceEvidence(t *testing.T) {
 	intakeDecision := IntakeDecision{
 		Classification: IntakeClassificationBoundedTask,
 		TaskShape:      TaskShapeMaintenanceTask,
@@ -129,23 +129,23 @@ func TestRequiredEvidenceMissingWhenMaintenanceEvidenceIsReadOnly(t *testing.T) 
 
 	isMissing := requiredEvidenceMissingForSideEffect(intakeDecision, outcomeContract, toolSet)
 
-	if !isMissing {
-		t.Fatal("expected read-only task.history evidence to be insufficient for maintenance work")
+	if isMissing {
+		t.Fatal("expected read-only task.history evidence to remain valid for maintenance lookup")
 	}
 }
 
-func TestRequiredEvidenceAcceptsMaintenanceSideEffect(t *testing.T) {
+func TestRequiredEvidenceRequiresExplicitInitialSideEffectTool(t *testing.T) {
 	intakeDecision := IntakeDecision{
-		Classification: IntakeClassificationBoundedTask,
-		TaskShape:      TaskShapeMaintenanceTask,
+		Classification:   IntakeClassificationBoundedTask,
+		TaskShape:        TaskShapeResearchTask,
+		InitialToolNames: []string{"task.update"},
 	}
 	toolSet := newTestCapabilityToolSet([]string{"task.history", "task.update"})
-	outcomeContract := OutcomeContract{RequiredEvidenceTools: []string{"task.update"}}
 
-	isMissing := requiredEvidenceMissingForSideEffect(intakeDecision, outcomeContract, toolSet)
+	isMissing := requiredEvidenceMissingForSideEffect(intakeDecision, OutcomeContract{}, toolSet)
 
-	if isMissing {
-		t.Fatal("expected task.update evidence to satisfy maintenance side-effect selection")
+	if !isMissing {
+		t.Fatal("expected an explicitly selected task.update tool to require side-effect evidence")
 	}
 }
 
