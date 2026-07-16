@@ -117,6 +117,7 @@ func selectInstructionBundleForRequestWithRetrieverAndRouter(ctx context.Context
 	}
 	skillDecisions = append(skillDecisions, blockedSkillSelectionDecisions(instructionBundle.Skills, skillDecisions, request, normalizedAgentProfileName(request.ProfileName))...)
 	requiredEvidenceTools := validatedContractEvidenceTools(contractArbitration, selectedSkillInstructions, request)
+	requiredEvidenceCandidates := unresolvedContractEvidenceCandidates(contractArbitration, selectedSkillInstructions, request, requiredEvidenceTools)
 	prompts = append(prompts, buildCompactSkillIndexPrompt(candidateInstructions))
 	prompts = append(prompts, buildSelectedSkillInstructionPrompt(defaultSkillInstructions))
 	prompts = append(prompts, buildSelectedSkillInstructionPrompt(selectedSkillInstructions))
@@ -126,6 +127,7 @@ func selectInstructionBundleForRequestWithRetrieverAndRouter(ctx context.Context
 		Skills:                      appendSkillInstructions(instructionBundle.Skills, defaultSkillInstructions...),
 		SkillDecisions:              skillDecisions,
 		RequiredEvidenceTools:       requiredEvidenceTools,
+		RequiredEvidenceCandidates:  requiredEvidenceCandidates,
 		HasContractSkillArbitration: hasContractArbitration,
 		RetrievalMode:               retrievalResult.RetrievalMode,
 		IndexStatus:                 retrievalResult.IndexStatus,
@@ -134,19 +136,49 @@ func selectInstructionBundleForRequestWithRetrieverAndRouter(ctx context.Context
 	}
 }
 
+func unresolvedContractEvidenceCandidates(arbitration contractSkillArbitration, selectedSkills []SkillInstruction, request AgentRequest, requiredEvidenceTools []string) []string {
+	if len(requiredEvidenceTools) > 0 {
+		return nil
+	}
+	selectedToolNames := selectedSkillToolNameSet(selectedSkills)
+	candidates := validateArbitratedToolNames(arbitration.RequiredNextTools, selectedToolNames, request, false)
+	result := []string{}
+	for _, toolName := range candidates {
+		if IsArtifactDeliveryTool(toolName) || requiredEvidenceToolNeedsSuccessfulSideEffect(request.ToolSet, toolName) {
+			result = append(result, toolName)
+		}
+	}
+	return result
+}
+
 func validatedContractEvidenceTools(arbitration contractSkillArbitration, selectedSkills []SkillInstruction, request AgentRequest) []string {
+	selectedToolNames := selectedSkillToolNameSet(selectedSkills)
+	requiresSideEffect := requiredEvidenceIncludesSideEffect(request.ToolSet, request.ActiveGoal.OutcomeContract.RequiredEvidenceTools) ||
+		arbitrationHasSelectedSideEffect(arbitration.RequiredNextTools, selectedToolNames, request)
+	return validateArbitratedToolNames(arbitration.ExpectedEvidence, selectedToolNames, request, requiresSideEffect)
+}
+
+func selectedSkillToolNameSet(selectedSkills []SkillInstruction) map[string]bool {
 	selectedToolNames := map[string]bool{}
 	for _, skillInstruction := range selectedSkills {
 		for _, toolName := range appendUniqueStrings(SkillToolNames(skillInstruction), skillInstruction.Completion.RequiredEvidenceTools...) {
 			selectedToolNames[toolName] = true
 		}
 	}
-	return validateArbitratedEvidenceTools(arbitration.ExpectedEvidence, selectedToolNames, request)
+	return selectedToolNames
 }
 
-func validateArbitratedEvidenceTools(toolNames []string, selectedToolNames map[string]bool, request AgentRequest) []string {
+func arbitrationHasSelectedSideEffect(toolNames []string, selectedToolNames map[string]bool, request AgentRequest) bool {
+	for _, toolName := range appendUniqueStrings(toolNames) {
+		if selectedToolNames[toolName] && requestHasToolName(request, toolName) && (IsArtifactDeliveryTool(toolName) || requiredEvidenceToolNeedsSuccessfulSideEffect(request.ToolSet, toolName)) {
+			return true
+		}
+	}
+	return false
+}
+
+func validateArbitratedToolNames(toolNames []string, selectedToolNames map[string]bool, request AgentRequest, requiresSideEffect bool) []string {
 	validatedToolNames := []string{}
-	requiresSideEffect := requiredEvidenceIncludesSideEffect(request.ToolSet, request.ActiveGoal.OutcomeContract.RequiredEvidenceTools)
 	for _, toolName := range appendUniqueStrings(toolNames) {
 		if !selectedToolNames[toolName] || !requestHasToolName(request, toolName) {
 			continue
