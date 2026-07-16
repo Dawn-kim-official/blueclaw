@@ -484,6 +484,7 @@ func (turnRouter TurnRouter) normalizeDecision(decision TurnDecision, request Ag
 	if decision.Classification == IntakeClassificationBoundedTask && decision.TaskShape == TaskShapeImmediateReply {
 		decision.TaskShape = TaskShapeMaintenanceTask
 	}
+	decision = canonicalizeTurnDecision(decision)
 	normalizedTaskLevel := NormalizeTaskLevel(string(decision.TaskLevel))
 	if normalizedTaskLevel == "" {
 		return TurnDecision{}, errors.New("turn router returned an invalid task level")
@@ -506,20 +507,22 @@ func (turnRouter TurnRouter) normalizeDecision(decision TurnDecision, request Ag
 	return decision, nil
 }
 
-func validateTurnDecisionConsistency(decision TurnDecision) error {
+func canonicalizeTurnDecision(decision TurnDecision) TurnDecision {
 	switch decision.Classification {
 	case IntakeClassificationQuickReply:
-		if decision.TaskShape != TaskShapeImmediateReply {
-			return errors.New("turn router returned quick_reply without immediate_reply task shape")
-		}
+		decision.TaskShape = TaskShapeImmediateReply
 	case IntakeClassificationNeedsConfirmation:
-		if decision.Route != TurnRouteClarify || decision.TaskShape != TaskShapeApprovalGatedTask {
-			return errors.New("turn router returned inconsistent needs_confirmation decision")
-		}
+		decision.Route = TurnRouteClarify
+		decision.TaskShape = TaskShapeApprovalGatedTask
 	case IntakeClassificationUnsupported:
-		if decision.Route != TurnRouteGiveUp || decision.TaskShape != TaskShapeImmediateReply {
-			return errors.New("turn router returned inconsistent unsupported decision")
-		}
+		decision.Route = TurnRouteGiveUp
+		decision.TaskShape = TaskShapeImmediateReply
+	}
+	return decision
+}
+
+func validateTurnDecisionConsistency(decision TurnDecision) error {
+	switch decision.Classification {
 	case IntakeClassificationBoundedTask:
 		if decision.Route == TurnRouteConsume || decision.Route == TurnRouteClarify || decision.Route == TurnRouteGiveUp {
 			return errors.New("turn router returned bounded_task with a terminal route")
