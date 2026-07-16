@@ -75,15 +75,16 @@ func newSDKDClient(runtimeConfiguration config.RuntimeConfiguration, modelName s
 	}
 	capabilityProvider := NewCapabilityLLMClientForModel(runtimeConfiguration, modelName)
 	return NewSDKDClient(SDKDClientConfiguration{
-		Endpoint:                   sdkdConfiguration.Endpoint,
-		UnixSocketPath:             sdkdConfiguration.UnixSocketPath,
-		AuthKey:                    authKey,
-		ModelName:                  modelName,
-		ExecutionMode:              firstNonEmptyModelName(sdkdConfiguration.ExecutionMode, runtimeConfiguration.LanguageModel.Capability.ExecutionMode),
-		LocalOnly:                  sdkdConfiguration.LocalOnly,
-		TextProvider:               capabilityProvider,
-		StructuredFallbackProvider: capabilityProvider,
-		StructuredSchemaNames:      configuredSDKDSchemaNames(runtimeConfiguration),
+		Endpoint:                        sdkdConfiguration.Endpoint,
+		UnixSocketPath:                  sdkdConfiguration.UnixSocketPath,
+		AuthKey:                         authKey,
+		ModelName:                       modelName,
+		ExecutionMode:                   firstNonEmptyModelName(sdkdConfiguration.ExecutionMode, runtimeConfiguration.LanguageModel.Capability.ExecutionMode),
+		LocalOnly:                       sdkdConfiguration.LocalOnly,
+		TextProvider:                    capabilityProvider,
+		StructuredFallbackProvider:      capabilityProvider,
+		StructuredSchemaNames:           configuredSDKDSchemaNames(runtimeConfiguration),
+		IsStructuredOutputAuthoritative: strings.TrimSpace(runtimeConfiguration.LanguageModel.DefaultProvider) == "sdkd",
 	}), nil
 }
 
