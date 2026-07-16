@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"blueclaw/internal/llm"
 	"blueclaw/internal/task"
 )
 
@@ -75,6 +76,21 @@ func TestAgentTurnRunnerRepairsInvalidFailureReply(t *testing.T) {
 	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.failure_reply", "generated") {
 		t.Fatal("expected generated failure reply event")
 	}
+	assertRecoveryDecisionTokenBudget(t, languageModel.requests)
+}
+
+func assertRecoveryDecisionTokenBudget(t *testing.T, requests []llm.StructuredResponseRequest) {
+	t.Helper()
+	for _, request := range requests {
+		if request.StructuredOutputSchema.Name != "blueclaw_recovery_decision" {
+			continue
+		}
+		if request.GenerationOptions.MaxTokens == nil || *request.GenerationOptions.MaxTokens != recoveryDecisionMaxTokens {
+			t.Fatalf("expected recovery decision max tokens %d, got %+v", recoveryDecisionMaxTokens, request.GenerationOptions)
+		}
+		return
+	}
+	t.Fatal("expected recovery decision request")
 }
 
 func TestAgentTurnRunnerReportsRawErrorWhenAllModelCallsFail(t *testing.T) {

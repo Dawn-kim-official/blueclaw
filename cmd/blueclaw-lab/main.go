@@ -458,7 +458,7 @@ func sdkdStructuredSchemaNames(provider string) []string {
 	if strings.TrimSpace(strings.ToLower(provider)) != "sdkd" {
 		return nil
 	}
-	return []string{"blueclaw_agent_turn_action", "blueclaw_turn_router"}
+	return []string{"blueclaw_agent_turn_action", "blueclaw_turn_router", "blueclaw_recovery_decision"}
 }
 
 func printVirtualTurnFailureEvents(turnNumber int, turnResult e2e.VirtualTurnResult) {
