@@ -619,6 +619,16 @@ func decideAgentActionWithChat(ctx context.Context, chatCompleter llm.ChatComple
 	if errorValue != nil {
 		return turnActionDocument{}, errorValue
 	}
+	if len(response.Message.ToolCalls) > 1 {
+		request.Messages = append(append([]llm.ChatCompletionMessage{}, request.Messages...), llm.ChatCompletionMessage{
+			Role:    "system",
+			Content: "Return exactly one function call. Do not call more than one function in this response.",
+		})
+		response, errorValue = chatCompleter.GenerateChatCompletion(ctx, request)
+		if errorValue != nil {
+			return turnActionDocument{}, errorValue
+		}
+	}
 	return parseNativeAgentActionResponse(response, request.Tools)
 }
 
