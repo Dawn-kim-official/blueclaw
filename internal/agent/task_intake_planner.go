@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strconv"
 	"strings"
 	"time"
@@ -161,24 +162,23 @@ type PendingInputContext struct {
 }
 
 type IntakeDecision struct {
-	Classification            IntakeClassification  `json:"classification"`
-	TaskShape                 TaskShape             `json:"taskShape"`
-	TaskLevel                 TaskLevel             `json:"level"`
-	EstimatedMinutes          int                   `json:"estimatedMinutes"`
-	RequestedOutputFormats    []string              `json:"requestedOutputFormats"`
-	RequestedOutputEvidence   *string               `json:"requestedOutputEvidence,omitempty"`
-	ExpectedResults           []ExpectedResult      `json:"expectedResults,omitempty"`
-	RequiredEvidenceTools     []string              `json:"requiredEvidence,omitempty"`
-	SiteRequestEvidence       string                `json:"siteRequestEvidence"`
-	ResponseLanguage          string                `json:"responseLanguage"`
-	Reason                    string                `json:"reason"`
-	UserFacingReply           string                `json:"userFacingReply"`
-	InitialToolNames          []string              `json:"initialToolNames,omitempty"`
-	PriorTaskReference        PriorTaskReference    `json:"priorTaskReference,omitempty"`
-	ClarificationQuestion     string                `json:"clarificationQuestion,omitempty"`
-	ClarificationOptions      []ClarificationOption `json:"clarificationOptions,omitempty"`
-	UsedDeterministicFallback bool                  `json:"usedDeterministicFallback"`
-	siteNormalizationReport   siteRequirementNormalizationReport
+	Classification          IntakeClassification  `json:"classification"`
+	TaskShape               TaskShape             `json:"taskShape"`
+	TaskLevel               TaskLevel             `json:"level"`
+	EstimatedMinutes        int                   `json:"estimatedMinutes"`
+	RequestedOutputFormats  []string              `json:"requestedOutputFormats"`
+	RequestedOutputEvidence *string               `json:"requestedOutputEvidence,omitempty"`
+	ExpectedResults         []ExpectedResult      `json:"expectedResults,omitempty"`
+	RequiredEvidenceTools   []string              `json:"requiredEvidence,omitempty"`
+	SiteRequestEvidence     string                `json:"siteRequestEvidence"`
+	ResponseLanguage        string                `json:"responseLanguage"`
+	Reason                  string                `json:"reason"`
+	UserFacingReply         string                `json:"userFacingReply"`
+	InitialToolNames        []string              `json:"initialToolNames,omitempty"`
+	PriorTaskReference      PriorTaskReference    `json:"priorTaskReference,omitempty"`
+	ClarificationQuestion   string                `json:"clarificationQuestion,omitempty"`
+	ClarificationOptions    []ClarificationOption `json:"clarificationOptions,omitempty"`
+	siteNormalizationReport siteRequirementNormalizationReport
 }
 
 type ClarificationOption struct {
@@ -188,52 +188,50 @@ type ClarificationOption struct {
 }
 
 type TurnDecision struct {
-	Route                     TurnRoute             `json:"route"`
-	Classification            IntakeClassification  `json:"classification"`
-	TaskShape                 TaskShape             `json:"taskShape"`
-	TaskLevel                 TaskLevel             `json:"level"`
-	EstimatedMinutes          int                   `json:"estimatedMinutes"`
-	RequestedOutputFormats    []string              `json:"requestedOutputFormats"`
-	RequestedOutputEvidence   *string               `json:"requestedOutputEvidence,omitempty"`
-	ExpectedResults           []ExpectedResult      `json:"expectedResults,omitempty"`
-	RequiredEvidenceTools     []string              `json:"requiredEvidence,omitempty"`
-	SiteRequestEvidence       string                `json:"siteRequestEvidence"`
-	ResponseLanguage          string                `json:"responseLanguage"`
-	Reason                    string                `json:"reason"`
-	UserFacingReply           string                `json:"userFacingReply"`
-	InitialToolNames          []string              `json:"initialToolNames,omitempty"`
-	PriorTaskReference        PriorTaskReference    `json:"priorTaskReference,omitempty"`
-	Approval                  *ApprovalSignal       `json:"approval,omitempty"`
-	Choices                   []string              `json:"choices,omitempty"`
-	ClarificationQuestion     string                `json:"clarificationQuestion,omitempty"`
-	ClarificationOptions      []ClarificationOption `json:"clarificationOptions,omitempty"`
-	ReactionEmojiName         string                `json:"reactionEmojiName,omitempty"`
-	BusyRoute                 BusyRoute             `json:"busyRoute,omitempty"`
-	BusyInstruction           string                `json:"busyInstruction,omitempty"`
-	UsedDeterministicFallback bool                  `json:"usedDeterministicFallback"`
-	siteNormalizationReport   siteRequirementNormalizationReport
+	Route                   TurnRoute             `json:"route"`
+	Classification          IntakeClassification  `json:"classification"`
+	TaskShape               TaskShape             `json:"taskShape"`
+	TaskLevel               TaskLevel             `json:"level"`
+	EstimatedMinutes        int                   `json:"estimatedMinutes"`
+	RequestedOutputFormats  []string              `json:"requestedOutputFormats"`
+	RequestedOutputEvidence *string               `json:"requestedOutputEvidence,omitempty"`
+	ExpectedResults         []ExpectedResult      `json:"expectedResults,omitempty"`
+	RequiredEvidenceTools   []string              `json:"requiredEvidence,omitempty"`
+	SiteRequestEvidence     string                `json:"siteRequestEvidence"`
+	ResponseLanguage        string                `json:"responseLanguage"`
+	Reason                  string                `json:"reason"`
+	UserFacingReply         string                `json:"userFacingReply"`
+	InitialToolNames        []string              `json:"initialToolNames,omitempty"`
+	PriorTaskReference      PriorTaskReference    `json:"priorTaskReference,omitempty"`
+	Approval                *ApprovalSignal       `json:"approval,omitempty"`
+	Choices                 []string              `json:"choices,omitempty"`
+	ClarificationQuestion   string                `json:"clarificationQuestion,omitempty"`
+	ClarificationOptions    []ClarificationOption `json:"clarificationOptions,omitempty"`
+	ReactionEmojiName       string                `json:"reactionEmojiName,omitempty"`
+	BusyRoute               BusyRoute             `json:"busyRoute,omitempty"`
+	BusyInstruction         string                `json:"busyInstruction,omitempty"`
+	siteNormalizationReport siteRequirementNormalizationReport
 }
 
 func (turnDecision TurnDecision) IntakeDecision() IntakeDecision {
 	return IntakeDecision{
-		Classification:            turnDecision.Classification,
-		TaskShape:                 turnDecision.TaskShape,
-		TaskLevel:                 NormalizeTaskLevel(string(turnDecision.TaskLevel)),
-		EstimatedMinutes:          turnDecision.EstimatedMinutes,
-		RequestedOutputFormats:    append([]string{}, turnDecision.RequestedOutputFormats...),
-		RequestedOutputEvidence:   turnDecision.RequestedOutputEvidence,
-		ExpectedResults:           normalizeExpectedResults(turnDecision.ExpectedResults),
-		RequiredEvidenceTools:     appendUniqueStrings(turnDecision.RequiredEvidenceTools),
-		SiteRequestEvidence:       strings.TrimSpace(turnDecision.SiteRequestEvidence),
-		ResponseLanguage:          turnDecision.ResponseLanguage,
-		Reason:                    turnDecision.Reason,
-		UserFacingReply:           turnDecision.UserFacingReply,
-		InitialToolNames:          append([]string{}, turnDecision.InitialToolNames...),
-		PriorTaskReference:        normalizePriorTaskReference(turnDecision.PriorTaskReference),
-		ClarificationQuestion:     turnDecision.ClarificationQuestion,
-		ClarificationOptions:      append([]ClarificationOption{}, turnDecision.ClarificationOptions...),
-		UsedDeterministicFallback: turnDecision.UsedDeterministicFallback,
-		siteNormalizationReport:   turnDecision.siteNormalizationReport,
+		Classification:          turnDecision.Classification,
+		TaskShape:               turnDecision.TaskShape,
+		TaskLevel:               NormalizeTaskLevel(string(turnDecision.TaskLevel)),
+		EstimatedMinutes:        turnDecision.EstimatedMinutes,
+		RequestedOutputFormats:  append([]string{}, turnDecision.RequestedOutputFormats...),
+		RequestedOutputEvidence: turnDecision.RequestedOutputEvidence,
+		ExpectedResults:         normalizeExpectedResults(turnDecision.ExpectedResults),
+		RequiredEvidenceTools:   appendUniqueStrings(turnDecision.RequiredEvidenceTools),
+		SiteRequestEvidence:     strings.TrimSpace(turnDecision.SiteRequestEvidence),
+		ResponseLanguage:        turnDecision.ResponseLanguage,
+		Reason:                  turnDecision.Reason,
+		UserFacingReply:         turnDecision.UserFacingReply,
+		InitialToolNames:        append([]string{}, turnDecision.InitialToolNames...),
+		PriorTaskReference:      normalizePriorTaskReference(turnDecision.PriorTaskReference),
+		ClarificationQuestion:   turnDecision.ClarificationQuestion,
+		ClarificationOptions:    append([]ClarificationOption{}, turnDecision.ClarificationOptions...),
+		siteNormalizationReport: turnDecision.siteNormalizationReport,
 	}
 }
 
@@ -248,6 +246,9 @@ type TurnRouter struct {
 }
 
 const turnRouterMaxTokens = 1600
+
+var ErrTurnRouterDisabled = errors.New("turn router disabled")
+var ErrTurnRouterLanguageModelUnavailable = errors.New("turn router language model unavailable")
 
 func NewTaskIntakePlanner(languageModel llm.LanguageModelProvider, options IntakeOptions) TaskIntakePlanner {
 	return TaskIntakePlanner{
@@ -271,26 +272,29 @@ func normalizeIntakeOptions(options IntakeOptions) IntakeOptions {
 	return options
 }
 
-func (taskIntakePlanner TaskIntakePlanner) Plan(ctx context.Context, request AgentRequest) IntakeDecision {
-	return NewTurnRouter(taskIntakePlanner.languageModel, taskIntakePlanner.options).Plan(ctx, request).IntakeDecision()
+func (taskIntakePlanner TaskIntakePlanner) Plan(ctx context.Context, request AgentRequest) (IntakeDecision, error) {
+	turnDecision, errorValue := NewTurnRouter(taskIntakePlanner.languageModel, taskIntakePlanner.options).Plan(ctx, request)
+	return turnDecision.IntakeDecision(), errorValue
 }
 
-func (turnRouter TurnRouter) Plan(ctx context.Context, request AgentRequest) TurnDecision {
+func (turnRouter TurnRouter) Plan(ctx context.Context, request AgentRequest) (TurnDecision, error) {
 	if request.PrecomputedTurnDecision != nil {
 		if request.IsPrecomputedDecisionExact {
-			return *request.PrecomputedTurnDecision
+			return *request.PrecomputedTurnDecision, nil
 		}
-		return turnRouter.normalizeDecision(*request.PrecomputedTurnDecision, turnRouter.deterministicDecision(request), request)
+		return turnRouter.normalizeDecision(*request.PrecomputedTurnDecision, request)
 	}
-	defaultDecision := turnRouter.deterministicDecision(request)
-	if !turnRouter.options.IsEnabled || turnRouter.languageModel == nil {
-		return busyRouteSteerOnActiveTask(defaultDecision, request)
+	if !turnRouter.options.IsEnabled {
+		return TurnDecision{}, ErrTurnRouterDisabled
+	}
+	if turnRouter.languageModel == nil {
+		return TurnDecision{}, ErrTurnRouterLanguageModelUnavailable
 	}
 	turnDecision, errorValue := turnRouter.planWithLanguageModel(ctx, request)
 	if errorValue != nil {
-		return busyRouteSteerOnActiveTask(defaultDecision, request)
+		return TurnDecision{}, fmt.Errorf("turn router: %w", errorValue)
 	}
-	return turnRouter.normalizeDecision(turnDecision, defaultDecision, request)
+	return turnRouter.normalizeDecision(turnDecision, request)
 }
 
 func (turnRouter TurnRouter) planWithLanguageModel(ctx context.Context, request AgentRequest) (TurnDecision, error) {
@@ -356,7 +360,7 @@ func (turnRouter TurnRouter) buildMessages(request AgentRequest) []llm.Message {
 	messages := []llm.Message{
 		{
 			Role:    "system",
-			Content: "You are Blueclaw's channel-agnostic turn router and task intake planner. Choose the route for the latest user message and classify the task shape. The latest user message is authoritative. Prior conversation may be used only when it helps interpret whether the latest message continues, revises, asks about, cancels, replaces an active task, or is a bare assistant mention requesting a response to recent context. Do not carry stale subjects, tools, or artifact formats into a self-contained new request. Use quick_reply for direct answers that may answer directly or use a small useful read-only or computation tool once, including greetings, jokes, playful office banter, capability questions, arithmetic, short synthetic verification probes, opinions, casual recommendations, brainstorming, and answers available from common knowledge or visible conversation context. research_task requires actual information acquisition from an external or private source, or synthesis across source material. If the assistant can choose a useful answer from its own judgment, common knowledge, or visible context, use immediate_reply even when the user calls it a recommendation. Do not require a preference merely to improve an answer when a reasonable answer can be given now. Do not ignore jokes or casual addressed remarks; answer like a concise coworker. Use bounded_task for one-request tool work, needs_confirmation for large, risky, destructive, or externally visible work, and unsupported ONLY for requests that are pointless to even attempt — physically impossible or nonsensical (for example fetching a physical object), or plainly improper on their face such as revealing another person's password or private national ID number. unsupported is NOT a security or permission gate: the operating system enforces real permission at execution, so an action the requester lacks rights for simply fails there — never pre-refuse over permissions, just attempt it. Answer ordinary work needs such as a coworker's contact details, schedules, or documents rather than refusing. Use common sense; whenever the work could plausibly be done with terminal commands, skills, file tools, or capability operations, prefer bounded_task and attempt it. Set level to the single difficulty tier that sizes both the model and the work budget: low for ordinary bounded work with a clear short outcome that normally produces one final user reply even if it needs a few tools; medium for multi-step work, research, or artifact generation where progress updates are useful; high for long, wide, deployment, or verification-heavy work. Do not choose above high; the runtime raises the tier on its own for website and presentation deliverables and for tasks that stall. Set estimatedMinutes to how many wall-clock minutes a careful human professional would realistically spend doing this specific task well end to end, including drafting, building, and reviewing and iterating on the result — not a rushed minimum. Do not lowball: a quick lookup is about 1, a normal bounded task a few, and design, document, deck, or site work that involves building and visual review is typically many minutes and often 15 or more, scaled up further for breadth and polish. This estimate is internal planning metadata only: never mention it, a duration, an ETA, or a completion time in any user-facing reply or progress message. Use clarify when the latest request cannot be routed safely without a user choice. Do not use clarify for a message that only mentions the assistant when recent visible context gives a clear topic. When route is clarify, provide clarificationQuestion and 2-5 clarificationOptions whenever finite choices are natural. Use consume for addressed messages that need no text reply; consume is delivered as an emoji reaction, not a text reply. Prefer consume with reactionEmojiName for lightweight acknowledgement. For consume, put a concise natural fallback acknowledgement in userFacingReply; the runtime sends it only when a direct-message reaction cannot be delivered. For non-consume routes, set reactionEmojiName to null or omit it. PriorTaskContext, when present, is a candidate previous task in the same conversation or reply target, not an active task. Set priorTaskReference=outcome_recovery only when the latest message asks to deliver, retry, continue, or revise that prior task's outcome. Set priorTaskReference=none for unrelated or self-contained requests. Set requestedOutputFormats to the explicit deliverable file formats when the latest request asks to create, edit, convert, generate, or deliver a file artifact; leave it null for reading, summarizing, searching, or analyzing an input attachment, unless priorTaskReference=outcome_recovery and the prior task prompt, result, known contract, or latest message identifies the deliverable format. requestedOutputFormats should contain only explicit deliverable formats such as html, pptx, pdf, txt, docx, xlsx, or csv. When requestedOutputFormats is nonempty, requestedOutputEvidence must be a verbatim substring copied from the latest user message that names the requested format or file deliverable; otherwise set requestedOutputEvidence to an empty string. Set requiredEvidence to the exact registered native tool or capability operation names whose successful observations are required before the task can be considered complete; requiredEvidence is an AND array. Use only names from Registered requiredEvidence names when they match the requested outcome. Do not use capability.invoke as requiredEvidence; it is only a dispatcher for capability operations. Use [] for direct answers, summaries, analysis, or tool-free replies that do not require a side effect or delivered file. For side-effect work, externally visible work, scheduled work, and deliverable files, name the registered tool or capability operation whose success will prove completion; if you are unsure of the exact name, name the closest registered one rather than an empty array. When the latest request asks for a website, page, or web app deliverable, or a link-type expected result represents one, set siteRequestEvidence to a verbatim substring copied from the latest user message that requested it; otherwise leave siteRequestEvidence empty. Set initialToolNames to exact callable tool names copied from Available tools that this request will most likely call first; include only confident picks and leave it empty when unsure or when no tool is needed. Use values like html, pptx, pdf, txt, docx, xlsx, or csv when explicit. Treat words like presentation, slides, deck, ppt, 피피티, and 발표자료 as the kind of artifact, not as a .pptx file format unless the user explicitly requests a PowerPoint/PPTX file or asks for all common slide formats. If the user asks for a presentation as HTML, requestedOutputFormats should be [\"html\"], not [\"html\",\"pptx\"]. Set responseLanguage to the language the assistant should use for user-facing replies; use same_as_conversation only when an explicit runtime preference already defines it.",
+			Content: "You are Blueclaw's channel-agnostic turn router and task intake planner. Choose the route for the latest user message and classify the task shape. Keep terminal decisions consistent: needs_confirmation uses route=clarify and taskShape=approval_gated_task; unsupported uses route=give_up and taskShape=immediate_reply; consume uses classification=quick_reply and taskShape=immediate_reply. The latest user message is authoritative. Prior conversation may be used only when it helps interpret whether the latest message continues, revises, asks about, cancels, replaces an active task, or is a bare assistant mention requesting a response to recent context. Do not carry stale subjects, tools, or artifact formats into a self-contained new request. Use quick_reply for direct answers that may answer directly or use a small useful read-only or computation tool once, including greetings, jokes, playful office banter, capability questions, arithmetic, short synthetic verification probes, opinions, casual recommendations, brainstorming, and answers available from common knowledge or visible conversation context. research_task requires actual information acquisition from an external or private source, or synthesis across source material. If the assistant can choose a useful answer from its own judgment, common knowledge, or visible context, use immediate_reply even when the user calls it a recommendation. Do not require a preference merely to improve an answer when a reasonable answer can be given now. Do not ignore jokes or casual addressed remarks; answer like a concise coworker. Use bounded_task for one-request tool work, needs_confirmation for large, risky, destructive, or externally visible work, and unsupported ONLY for requests that are pointless to even attempt — physically impossible or nonsensical (for example fetching a physical object), or plainly improper on their face such as revealing another person's password or private national ID number. unsupported is NOT a security or permission gate: the operating system enforces real permission at execution, so an action the requester lacks rights for simply fails there — never pre-refuse over permissions, just attempt it. Answer ordinary work needs such as a coworker's contact details, schedules, or documents rather than refusing. Use common sense; whenever the work could plausibly be done with terminal commands, skills, file tools, or capability operations, prefer bounded_task and attempt it. Set level to the single difficulty tier that sizes both the model and the work budget: low for ordinary bounded work with a clear short outcome that normally produces one final user reply even if it needs a few tools; medium for multi-step work, research, or artifact generation where progress updates are useful; high for long, wide, deployment, or verification-heavy work. Do not choose above high; the runtime raises the tier on its own for website and presentation deliverables and for tasks that stall. Set estimatedMinutes to how many wall-clock minutes a careful human professional would realistically spend doing this specific task well end to end, including drafting, building, and reviewing and iterating on the result — not a rushed minimum. Do not lowball: a quick lookup is about 1, a normal bounded task a few, and design, document, deck, or site work that involves building and visual review is typically many minutes and often 15 or more, scaled up further for breadth and polish. This estimate is internal planning metadata only: never mention it, a duration, an ETA, or a completion time in any user-facing reply or progress message. Use clarify when the latest request cannot be routed safely without a user choice. Do not use clarify for a message that only mentions the assistant when recent visible context gives a clear topic. When route is clarify, provide clarificationQuestion and 2-5 clarificationOptions whenever finite choices are natural. Use consume for addressed messages that need no text reply; consume is delivered as an emoji reaction, not a text reply. Prefer consume with reactionEmojiName for lightweight acknowledgement. For consume, put a concise natural fallback acknowledgement in userFacingReply; the runtime sends it only when a direct-message reaction cannot be delivered. For non-consume routes, set reactionEmojiName to null or omit it. PriorTaskContext, when present, is a candidate previous task in the same conversation or reply target, not an active task. Set priorTaskReference=outcome_recovery only when the latest message asks to deliver, retry, continue, or revise that prior task's outcome. Set priorTaskReference=none for unrelated or self-contained requests. Set requestedOutputFormats to the explicit deliverable file formats when the latest request asks to create, edit, convert, generate, or deliver a file artifact; leave it null for reading, summarizing, searching, or analyzing an input attachment, unless priorTaskReference=outcome_recovery and the prior task prompt, result, known contract, or latest message identifies the deliverable format. requestedOutputFormats should contain only explicit deliverable formats such as html, pptx, pdf, txt, docx, xlsx, or csv. When requestedOutputFormats is nonempty, requestedOutputEvidence must be a verbatim substring copied from the latest user message that names the requested format or file deliverable; otherwise set requestedOutputEvidence to an empty string. Set requiredEvidence to the exact registered native tool or capability operation names whose successful observations are required before the task can be considered complete; requiredEvidence is an AND array. Use only names from Registered requiredEvidence names when they match the requested outcome. Do not use capability.invoke as requiredEvidence; it is only a dispatcher for capability operations. Use [] for direct answers, summaries, analysis, or tool-free replies that do not require a side effect or delivered file. For side-effect work, externally visible work, scheduled work, and deliverable files, name the registered tool or capability operation whose success will prove completion; if you are unsure of the exact name, name the closest registered one rather than an empty array. When the latest request asks for a website, page, or web app deliverable, or a link-type expected result represents one, set siteRequestEvidence to a verbatim substring copied from the latest user message that requested it; otherwise leave siteRequestEvidence empty. Set initialToolNames to exact callable tool names copied from Available tools that this request will most likely call first; include only confident picks and leave it empty when unsure or when no tool is needed. Use values like html, pptx, pdf, txt, docx, xlsx, or csv when explicit. Treat words like presentation, slides, deck, ppt, 피피티, and 발표자료 as the kind of artifact, not as a .pptx file format unless the user explicitly requests a PowerPoint/PPTX file or asks for all common slide formats. If the user asks for a presentation as HTML, requestedOutputFormats should be [\"html\"], not [\"html\",\"pptx\"]. Set responseLanguage to the language the assistant should use for user-facing replies; use same_as_conversation only when an explicit runtime preference already defines it.",
 		},
 		{
 			Role:    "system",
@@ -429,33 +433,10 @@ func evidenceDescriptionLine(toolName string, toolDefinition ToolDefinition) str
 	return "- " + toolName + ": " + description
 }
 
-func (turnRouter TurnRouter) deterministicDecision(request AgentRequest) TurnDecision {
-	responseLanguage := ResolveResponseLanguage(request.ResponseLanguage, request.VisibleContext.ResponseLanguage)
-	requestedOutputFormats := []string{}
-	priorTaskReference := PriorTaskReferenceNone
-	if priorTaskReference == PriorTaskReferenceOutcomeRecovery {
-		priorTask := normalizePriorTaskContext(request.PriorTask)
-		requestedOutputFormats = appendUniqueStrings(requestedOutputFormats, priorTask.RequestedOutputFormats...)
-		requestedOutputFormats = appendUniqueStrings(requestedOutputFormats, artifactFormatsForAttachmentSuffixes(priorTask.OutcomeContract.RequiredAttachmentSuffixes)...)
-	}
-	return TurnDecision{
-		Route:                     deterministicTurnRoute(request),
-		Classification:            IntakeClassificationBoundedTask,
-		TaskShape:                 deterministicTaskShape(request, IntakeClassificationBoundedTask),
-		TaskLevel:                 LargerTaskLevel(turnRouter.options.DefaultTaskLevel, minimumTaskLevelForRequest(request)),
-		RequestedOutputFormats:    requestedOutputFormats,
-		Reason:                    "intake language model unavailable; treating request as bounded work",
-		ResponseLanguage:          responseLanguage,
-		InitialToolNames:          deterministicInitialToolNamesForRequest(request, requestedOutputFormats),
-		PriorTaskReference:        priorTaskReference,
-		UsedDeterministicFallback: true,
-	}
-}
-
-func (turnRouter TurnRouter) normalizeDecision(decision TurnDecision, defaultDecision TurnDecision, request AgentRequest) TurnDecision {
-	decision.Route = normalizeTurnRoute(decision.Route, request)
+func (turnRouter TurnRouter) normalizeDecision(decision TurnDecision, request AgentRequest) (TurnDecision, error) {
+	decision.Route = normalizeTurnRoute(decision.Route)
 	if decision.Route == "" {
-		decision.Route = defaultDecision.Route
+		return TurnDecision{}, errors.New("turn router returned an invalid route")
 	}
 	hasPendingConfirmation := strings.TrimSpace(request.PendingConfirmation.TaskRunID) != ""
 	decision.Approval = normalizeApprovalSignal(decision.Approval, hasPendingConfirmation)
@@ -463,85 +444,85 @@ func (turnRouter TurnRouter) normalizeDecision(decision TurnDecision, defaultDec
 		decision.Route = TurnRouteContinueTask
 	}
 	decision.Choices = normalizeChoiceSelections(decision.Choices, pendingChoiceContext(request))
-	decision.BusyRoute = normalizeBusyRoute(decision.BusyRoute, decision.Route, request)
+	if strings.TrimSpace(request.ActiveTask.TaskRunID) != "" && !isValidBusyRoute(decision.BusyRoute) {
+		return TurnDecision{}, errors.New("turn router returned an invalid busy route")
+	}
+	if strings.TrimSpace(request.ActiveTask.TaskRunID) == "" {
+		decision.BusyRoute = ""
+	}
 	decision.BusyInstruction = strings.TrimSpace(decision.BusyInstruction)
 	decision.ClarificationQuestion = strings.TrimSpace(decision.ClarificationQuestion)
 	decision.ClarificationOptions = normalizeClarificationOptions(decision.ClarificationOptions)
 	decision.ReactionEmojiName = NormalizeReactionEmojiName(decision.ReactionEmojiName)
-	decision = applyRouteToIntakeDecision(decision)
-	decision = requireDirectMessageConsumeFallback(decision, request)
 	normalizedClassification := normalizeClassification(decision.Classification)
 	if normalizedClassification == "" {
-		return defaultDecision
+		return TurnDecision{}, errors.New("turn router returned an invalid classification")
 	}
 	decision.Classification = normalizedClassification
-	wasReclassifiedAwayFromConfirmation := false
-	if shouldTreatConfirmationAsBoundedLocalArtifact(request, decision.IntakeDecision()) {
-		decision.Classification = IntakeClassificationBoundedTask
-		decision.Reason = firstNonEmptyString(decision.Reason, "local workspace artifact generation can run as bounded tool work")
-		decision.UserFacingReply = ""
-		wasReclassifiedAwayFromConfirmation = true
+	normalizedTaskShape := normalizeTaskShape(decision.TaskShape)
+	if normalizedTaskShape == "" {
+		return TurnDecision{}, errors.New("turn router returned an invalid task shape")
+	}
+	decision.TaskShape = normalizedTaskShape
+	normalizedTaskLevel := NormalizeTaskLevel(string(decision.TaskLevel))
+	if normalizedTaskLevel == "" {
+		return TurnDecision{}, errors.New("turn router returned an invalid task level")
+	}
+	decision.TaskLevel = normalizedTaskLevel
+	if decision.EstimatedMinutes < 1 {
+		return TurnDecision{}, errors.New("turn router returned invalid estimated minutes")
+	}
+	if errorValue := validateTurnDecisionConsistency(decision); errorValue != nil {
+		return TurnDecision{}, errorValue
 	}
 	decision.RequestedOutputFormats = normalizeRequestedOutputFormats(decision.RequestedOutputFormats)
 	decision = normalizeTurnDecisionOutputEvidence(decision, request.Prompt)
 	decision.ExpectedResults = normalizeExpectedResults(decision.ExpectedResults)
 	decision.RequiredEvidenceTools = appendUniqueStrings(decision.RequiredEvidenceTools)
 	decision = normalizeTurnDecisionFileRequirement(decision)
-	decision.PriorTaskReference = normalizePriorTaskReference(decision.PriorTaskReference)
-	decision = promoteFileArtifactClassification(decision, request)
-	decision.InitialToolNames = registeredToolNamesOnly(request.ToolSet, appendUniqueStrings(decision.InitialToolNames, deterministicInitialToolNamesForDecision(request, decision)...))
+	decision.InitialToolNames = registeredToolNamesOnly(request.ToolSet, appendUniqueStrings(decision.InitialToolNames))
 	decision.SiteRequestEvidence = strings.TrimSpace(decision.SiteRequestEvidence)
 	decision, decision.siteNormalizationReport = normalizeTurnDecisionSiteRequirement(request, decision)
-	if shouldTreatAsBoundedSitePrototype(request, decision.IntakeDecision()) {
-		decision.Classification = IntakeClassificationBoundedTask
-		decision.Reason = "available site.app capability operations can create and publish the requested prototype"
-		decision.UserFacingReply = ""
-		wasReclassifiedAwayFromConfirmation = true
-	}
-	normalizedTaskShape := normalizeTaskShape(decision.TaskShape)
-	if normalizedTaskShape == "" {
-		normalizedTaskShape = deterministicTaskShape(request, decision.Classification)
-	}
-	if wasReclassifiedAwayFromConfirmation && normalizedTaskShape == TaskShapeApprovalGatedTask {
-		normalizedTaskShape = deterministicTaskShape(request, decision.Classification)
-	}
-	decision.TaskShape = normalizedTaskShape
-	normalizedTaskLevel := NormalizeTaskLevel(string(decision.TaskLevel))
-	if normalizedTaskLevel == "" {
-		normalizedTaskLevel = defaultDecision.TaskLevel
-	}
-	decision.TaskLevel = LargerTaskLevel(normalizedTaskLevel, minimumTaskLevelForRequest(request))
-	decision.RequestedOutputFormats = normalizeRequestedOutputFormats(decision.RequestedOutputFormats)
-	decision = normalizeTurnDecisionOutputEvidence(decision, request.Prompt)
-	decision.ExpectedResults = normalizeExpectedResults(decision.ExpectedResults)
-	decision = normalizeTurnDecisionFileRequirement(decision)
 	decision.ResponseLanguage = resolveDecisionResponseLanguage(decision.ResponseLanguage, request.ResponseLanguage)
-	if strings.TrimSpace(decision.Reason) == "" {
-		decision.Reason = defaultDecision.Reason
-	}
+	decision.Reason = strings.TrimSpace(decision.Reason)
 	decision.PriorTaskReference = normalizePriorTaskReference(decision.PriorTaskReference)
-	decision = promoteFileArtifactClassification(decision, request)
-	decision = normalizeTaskfulConsumeRoute(decision, request)
-	return decision
+	return decision, nil
 }
 
-func requireDirectMessageConsumeFallback(decision TurnDecision, request AgentRequest) TurnDecision {
-	if decision.Route != TurnRouteConsume || !isDirectConversationType(request.ConversationType) {
-		return decision
+func validateTurnDecisionConsistency(decision TurnDecision) error {
+	switch decision.Classification {
+	case IntakeClassificationQuickReply:
+		if decision.TaskShape != TaskShapeImmediateReply {
+			return errors.New("turn router returned quick_reply without immediate_reply task shape")
+		}
+	case IntakeClassificationNeedsConfirmation:
+		if decision.Route != TurnRouteClarify || decision.TaskShape != TaskShapeApprovalGatedTask {
+			return errors.New("turn router returned inconsistent needs_confirmation decision")
+		}
+	case IntakeClassificationUnsupported:
+		if decision.Route != TurnRouteGiveUp || decision.TaskShape != TaskShapeImmediateReply {
+			return errors.New("turn router returned inconsistent unsupported decision")
+		}
+	case IntakeClassificationBoundedTask:
+		if decision.Route == TurnRouteConsume || decision.Route == TurnRouteClarify || decision.Route == TurnRouteGiveUp {
+			return errors.New("turn router returned bounded_task with a terminal route")
+		}
 	}
-	if strings.TrimSpace(decision.UserFacingReply) != "" {
-		return decision
+	if decision.Route == TurnRouteConsume && decision.Classification != IntakeClassificationQuickReply {
+		return errors.New("turn router returned consume without quick_reply classification")
 	}
-	decision.Route = deterministicTurnRoute(request)
-	if decision.Route == "" || decision.Route == TurnRouteConsume {
-		decision.Route = TurnRouteStartTask
+	if decision.Route == TurnRouteClarify && decision.Classification != IntakeClassificationNeedsConfirmation {
+		return errors.New("turn router returned clarify without needs_confirmation classification")
 	}
-	return decision
+	if decision.Route == TurnRouteGiveUp && decision.Classification != IntakeClassificationUnsupported {
+		return errors.New("turn router returned give_up without unsupported classification")
+	}
+	return nil
 }
 
-func isDirectConversationType(conversationType string) bool {
-	switch strings.ToLower(strings.TrimSpace(conversationType)) {
-	case "d", "dm", "im", "direct":
+func isValidBusyRoute(busyRoute BusyRoute) bool {
+	switch busyRoute {
+	case BusyRouteStatus, BusyRouteSteer, BusyRouteReplace, BusyRouteCancel, BusyRouteNewTask, BusyRouteUnrelated:
 		return true
 	default:
 		return false
@@ -605,9 +586,7 @@ func turnRouterSchema(request AgentRequest) string {
 		string(TurnRouteAnswerMeta),
 		string(TurnRouteClarify),
 		string(TurnRouteConsume),
-	}
-	if request.AllowGiveUp {
-		routeValues = append(routeValues, string(TurnRouteGiveUp))
+		string(TurnRouteGiveUp),
 	}
 	properties := map[string]any{
 		"route": map[string]any{"type": "string", "enum": routeValues},
@@ -720,37 +699,6 @@ func expectedResultsSchema() map[string]any {
 			"required":             []string{"description", "required"},
 			"additionalProperties": false,
 		},
-	}
-}
-
-// busyRouteSteerOnActiveTask marks a deterministic fallback decision as steer whenever a task
-// is already active, so an intake-planner outage never falls back to launching a duplicate task.
-func busyRouteSteerOnActiveTask(decision TurnDecision, request AgentRequest) TurnDecision {
-	if strings.TrimSpace(request.ActiveTask.TaskRunID) != "" {
-		decision.BusyRoute = BusyRouteSteer
-	}
-	return decision
-}
-
-func normalizeBusyRoute(busyRoute BusyRoute, turnRoute TurnRoute, request AgentRequest) BusyRoute {
-	if strings.TrimSpace(request.ActiveTask.TaskRunID) == "" {
-		return ""
-	}
-	switch busyRoute {
-	case BusyRouteStatus, BusyRouteSteer, BusyRouteReplace, BusyRouteCancel, BusyRouteNewTask, BusyRouteUnrelated:
-		return busyRoute
-	}
-	switch turnRoute {
-	case TurnRouteAnswerQuestion, TurnRouteAnswerMeta:
-		return BusyRouteStatus
-	case TurnRouteContinueTask, TurnRouteReviseTask:
-		return BusyRouteSteer
-	case TurnRouteStartTask:
-		return BusyRouteNewTask
-	case TurnRouteConsume, TurnRouteGiveUp:
-		return BusyRouteUnrelated
-	default:
-		return BusyRouteNewTask
 	}
 }
 
@@ -892,48 +840,14 @@ func normalizeRequestedOutputFormats(formats []string) []string {
 	return normalizedFormats
 }
 
-func promoteFileArtifactClassification(decision TurnDecision, request AgentRequest) TurnDecision {
-	if hasArtifactOutputFormat(decision.RequestedOutputFormats) && canRunFileArtifactWork(request) && decision.Classification == IntakeClassificationUnsupported {
-		decision.Classification = IntakeClassificationBoundedTask
-		decision.TaskShape = deterministicTaskShape(request, decision.Classification)
-		decision.Reason = firstNonEmptyString(decision.Reason, "requested file format can run as bounded local artifact work")
-		decision.UserFacingReply = ""
+func hasArtifactOutputFormat(formats []string) bool {
+	for _, format := range normalizeRequestedOutputFormats(formats) {
+		switch format {
+		case "html", "pptx", "pdf", "txt", "docx", "xlsx", "csv":
+			return true
+		}
 	}
-	return decision
-}
-
-func canRunFileArtifactWork(request AgentRequest) bool {
-	if request.ToolSet == nil {
-		return false
-	}
-	return request.ToolSet.IsAllowed(TerminalRunToolName) &&
-		request.ToolSet.IsAllowed(FileDeliverToolName)
-}
-
-func deterministicTaskShape(request AgentRequest, classification IntakeClassification) TaskShape {
-	if classification == IntakeClassificationQuickReply {
-		return TaskShapeImmediateReply
-	}
-	if classification == IntakeClassificationNeedsConfirmation {
-		return TaskShapeApprovalGatedTask
-	}
-	return TaskShapeResearchTask
-}
-
-func deterministicInitialToolNamesForRequest(request AgentRequest, requestedOutputFormats []string) []string {
-	toolNames := []string{}
-	if len(requestedOutputFormats) > 0 {
-		toolNames = appendUniqueStrings(toolNames, TerminalRunToolName, FileDeliverToolName, SkillSearchToolName)
-	}
-	return registeredToolNamesOnly(request.ToolSet, toolNames)
-}
-
-func deterministicInitialToolNamesForDecision(request AgentRequest, decision TurnDecision) []string {
-	toolNames := deterministicInitialToolNamesForRequest(request, decision.RequestedOutputFormats)
-	for _, toolName := range decision.RequiredEvidenceTools {
-		toolNames = appendUniqueStrings(toolNames, callableToolNameForRequiredEvidence(request.ToolSet, toolName))
-	}
-	return registeredToolNamesOnly(request.ToolSet, toolNames)
+	return false
 }
 
 func callableToolNameForRequiredEvidence(toolSet *ToolSet, toolName string) string {
@@ -968,91 +882,13 @@ func normalizeClassification(classification IntakeClassification) IntakeClassifi
 	}
 }
 
-func normalizeTurnRoute(route TurnRoute, request AgentRequest) TurnRoute {
+func normalizeTurnRoute(route TurnRoute) TurnRoute {
 	switch route {
-	case TurnRouteContinueTask, TurnRouteReviseTask, TurnRouteAnswerQuestion, TurnRouteStartTask, TurnRouteAnswerMeta, TurnRouteClarify, TurnRouteConsume:
+	case TurnRouteContinueTask, TurnRouteReviseTask, TurnRouteAnswerQuestion, TurnRouteStartTask, TurnRouteAnswerMeta, TurnRouteClarify, TurnRouteConsume, TurnRouteGiveUp:
 		return route
-	case TurnRouteGiveUp:
-		if request.AllowGiveUp {
-			return route
-		}
-		if hasPendingOrActiveTaskContext(request) {
-			return TurnRouteAnswerMeta
-		}
-		return TurnRouteClarify
 	default:
 		return ""
 	}
-}
-
-func deterministicTurnRoute(request AgentRequest) TurnRoute {
-	if strings.TrimSpace(request.PendingConfirmation.TaskRunID) != "" {
-		return TurnRouteContinueTask
-	}
-	if strings.TrimSpace(request.PendingChoice.TaskRunID) != "" {
-		return TurnRouteContinueTask
-	}
-	if strings.TrimSpace(request.PendingInput.TaskRunID) != "" {
-		return TurnRouteContinueTask
-	}
-	if strings.TrimSpace(request.ActiveGoal.TaskRunID) != "" {
-		return TurnRouteContinueTask
-	}
-	return TurnRouteStartTask
-}
-
-func applyRouteToIntakeDecision(decision TurnDecision) TurnDecision {
-	switch decision.Route {
-	case TurnRouteClarify:
-		decision.Classification = IntakeClassificationNeedsConfirmation
-		decision.TaskShape = TaskShapeApprovalGatedTask
-		if decision.UserFacingReply == "" {
-			decision.UserFacingReply = decision.ClarificationQuestion
-		}
-		if decision.UserFacingReply == "" {
-			decision.UserFacingReply = decision.Reason
-		}
-	case TurnRouteGiveUp:
-		decision.Classification = IntakeClassificationUnsupported
-		if decision.UserFacingReply == "" {
-			decision.UserFacingReply = decision.Reason
-		}
-	}
-	return decision
-}
-
-func normalizeTaskfulConsumeRoute(decision TurnDecision, request AgentRequest) TurnDecision {
-	if decision.Route != TurnRouteConsume || !turnDecisionRequiresTaskLoop(decision) {
-		return decision
-	}
-	decision.Route = deterministicTurnRoute(request)
-	if decision.Route == "" || decision.Route == TurnRouteConsume {
-		decision.Route = TurnRouteStartTask
-	}
-	return decision
-}
-
-func turnDecisionRequiresTaskLoop(decision TurnDecision) bool {
-	if decision.Classification == IntakeClassificationBoundedTask {
-		return true
-	}
-	if len(decision.RequiredEvidenceTools) > 0 || len(decision.InitialToolNames) > 0 || len(decision.ExpectedResults) > 0 || len(decision.RequestedOutputFormats) > 0 {
-		return true
-	}
-	switch decision.TaskShape {
-	case TaskShapeResearchTask, TaskShapeMaintenanceTask, TaskShapeScheduledTask, TaskShapeBrowserHandoffTask, TaskShapeApprovalGatedTask:
-		return true
-	default:
-		return false
-	}
-}
-
-func hasPendingOrActiveTaskContext(request AgentRequest) bool {
-	return strings.TrimSpace(request.PendingConfirmation.TaskRunID) != "" ||
-		strings.TrimSpace(request.PendingChoice.TaskRunID) != "" ||
-		strings.TrimSpace(request.PendingInput.TaskRunID) != "" ||
-		strings.TrimSpace(request.ActiveGoal.TaskRunID) != "" ||
-		strings.TrimSpace(request.ActiveTask.TaskRunID) != ""
 }
 
 func normalizeApprovalSignal(signal *ApprovalSignal, hasPendingConfirmation bool) *ApprovalSignal {
@@ -1157,36 +993,6 @@ func NormalizeReactionEmojiName(emojiName string) string {
 	return DefaultReactionEmojiName
 }
 
-func deterministicTaskShapeForAttachmentContinuation(classification IntakeClassification) TaskShape {
-	if classification == IntakeClassificationQuickReply {
-		return TaskShapeImmediateReply
-	}
-	if classification == IntakeClassificationNeedsConfirmation {
-		return TaskShapeApprovalGatedTask
-	}
-	return TaskShapeResearchTask
-}
-
-func shouldTreatConfirmationAsBoundedLocalArtifact(request AgentRequest, decision IntakeDecision) bool {
-	if decision.Classification != IntakeClassificationNeedsConfirmation {
-		return false
-	}
-	if !hasAllTools(request.ToolSet, []string{TerminalRunToolName, FileDeliverToolName}) {
-		return false
-	}
-	return hasArtifactOutputFormat(decision.RequestedOutputFormats)
-}
-
-func shouldTreatAsBoundedSitePrototype(request AgentRequest, decision IntakeDecision) bool {
-	if decision.Classification != IntakeClassificationUnsupported && decision.Classification != IntakeClassificationNeedsConfirmation {
-		return false
-	}
-	if !hasAllTools(request.ToolSet, []string{"site.create", "site.publish"}) {
-		return false
-	}
-	return requiredEvidenceHasPrefix(decision.RequiredEvidenceTools, "site.")
-}
-
 func hasAllTools(toolRegistry *ToolSet, toolNames []string) bool {
 	if toolRegistry == nil {
 		return false
@@ -1227,16 +1033,6 @@ func registeredToolNamesOnly(toolRegistry *ToolSet, toolNames []string) []string
 		}
 	}
 	return registeredToolNames
-}
-
-func minimumTaskLevelForRequest(request AgentRequest) TaskLevel {
-	if hasToolPrefix(request.ToolSet, "browser.") && !hasToolPrefix(request.ToolSet, "web.") {
-		return TaskLevelMedium
-	}
-	if hasToolPrefix(request.ToolSet, "file.") || hasToolPrefix(request.ToolSet, "user.") {
-		return TaskLevelLow
-	}
-	return TaskLevelXLow
 }
 
 // Domain tools (browser.*, web.*, user.*, ...) are registered but never

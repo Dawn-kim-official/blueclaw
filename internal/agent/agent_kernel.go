@@ -232,7 +232,7 @@ func (agentKernel *AgentKernel) taskRunForLaunchFailure(request AgentTurnRequest
 	}, request.Prompt)
 }
 
-func (agentKernel *AgentKernel) RouteTurn(responseContext context.Context, request AgentRequest) TurnDecision {
+func (agentKernel *AgentKernel) RouteTurn(responseContext context.Context, request AgentRequest) (TurnDecision, error) {
 	return NewTurnRouter(agentKernel.classificationLanguageModel(), agentKernel.intakeOptions).Plan(responseContext, request)
 }
 
@@ -248,25 +248,18 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 	siteNormalizationReports = appendSiteRequirementNormalizationReport(siteNormalizationReports, activeGoalSiteReport)
 	baseInstructionBundle := agentKernel.currentInstructionBundle()
 	instructionBundle := baseInstructionBundle
-	if !request.SkipSkillSelection {
-		instructionBundle = selectInstructionBundleForRequestWithRetrieverAndRouter(
-			responseContext,
-			instructionBundle,
-			request,
-			agentKernel.skillRetriever,
-			NewSkillSearchQueryRouter(agentKernel.classificationLanguageModel()),
-		)
-		instructionBundle = instructionBundleWithPinnedSkills(instructionBundle, request)
-	}
 	turnToolSet := request.ToolSet
 	intakeRequest := request
 	intakeRequest.ToolSet = turnToolSet
 	routerLanguageModel := routerCallLedger.languageModel(agentKernel.classificationLanguageModel())
 	turnRouter := NewTurnRouter(routerLanguageModel, agentKernel.intakeOptions)
-	turnDecision := turnRouter.Plan(responseContext, intakeRequest)
+	turnDecision, errorValue := turnRouter.Plan(responseContext, intakeRequest)
+	if errorValue != nil {
+		result := agentKernel.completeTurnRouterFailure(responseContext, intakeRequest, errorValue, routerCallLedger.records)
+		agentKernel.appendSiteRequirementNormalizationReports(result.TaskRun.TaskRunID, siteNormalizationReports)
+		return result, nil
+	}
 	intakeDecision := turnDecision.IntakeDecision()
-	intakeDecision = promoteIntakeDecisionForSelectedSkills(intakeDecision, instructionBundle, agentKernel.intakeOptions)
-	intakeDecision = (TaskRecoveryPlanner{}).Plan(intakeRequest, intakeDecision)
 	intakeDecision = promoteArtifactTaskLevelForRequest(intakeRequest, intakeDecision)
 	siteNormalizationReports = appendSiteRequirementNormalizationReport(siteNormalizationReports, intakeDecision.siteNormalizationReport)
 	request.ResponseLanguage = ResolveResponseLanguage(intakeDecision.ResponseLanguage, request.ResponseLanguage)
@@ -288,27 +281,18 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 	intakeRequest.PinnedToolNames = request.PinnedToolNames
 	if !request.SkipSkillSelection {
 		instructionBundle, intakeDecision = agentKernel.selectInstructionBundleForResolvedRequest(responseContext, baseInstructionBundle, request, intakeDecision)
-		intakeDecision = promoteIntakeDecisionForSelectedSkills(intakeDecision, instructionBundle, agentKernel.intakeOptions)
-	}
-	if turnDecision.Route == TurnRouteConsume && intakeDecision.Classification == IntakeClassificationBoundedTask {
-		turnDecision.Route = TurnRouteStartTask
+		intakeDecision = applySelectedSkillCompletionRequirements(intakeDecision, instructionBundle)
 	}
 	if turnDecision.Route == TurnRouteConsume {
 		result, errorValue := agentKernel.completeConsumedRequest(intakeRequest, turnDecision, routerCallLedger.records)
 		agentKernel.appendSiteRequirementNormalizationReports(result.TaskRun.TaskRunID, siteNormalizationReports)
 		return result, errorValue
 	}
-	if intakeDecision.Classification == IntakeClassificationNeedsConfirmation && len(intakeDecision.ClarificationOptions) >= 2 {
+	if intakeDecision.Classification == IntakeClassificationNeedsConfirmation {
 		result, errorValue := agentKernel.completeIntakeOnlyRequest(responseContext, intakeRequest, intakeDecision, task.TaskStatusWaitingUserInput, routerCallLedger.records)
 		result.TurnRoute = turnDecision.Route
 		agentKernel.appendSiteRequirementNormalizationReports(result.TaskRun.TaskRunID, siteNormalizationReports)
 		return result, errorValue
-	}
-	if intakeDecision.Classification == IntakeClassificationNeedsConfirmation {
-		intakeDecision.Classification = IntakeClassificationBoundedTask
-		if intakeDecision.TaskShape == "" || intakeDecision.TaskShape == TaskShapeImmediateReply || intakeDecision.TaskShape == TaskShapeApprovalGatedTask {
-			intakeDecision.TaskShape = TaskShapeMaintenanceTask
-		}
 	}
 	if intakeDecision.Classification == IntakeClassificationUnsupported {
 		result, errorValue := agentKernel.completeIntakeOnlyRequest(responseContext, intakeRequest, intakeDecision, task.TaskStatusBlocked, routerCallLedger.records)
@@ -426,6 +410,22 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 	return result, errorValue
 }
 
+func (agentKernel *AgentKernel) completeTurnRouterFailure(responseContext context.Context, request AgentRequest, errorValue error, routerCallRecords []llmCallRecord) AgentTurnResult {
+	result := agentKernel.CompleteLaunchFailure(responseContext, AgentTurnRequest{
+		RequesterPersonID:   request.RequesterPersonID,
+		SourceReference:     request.SourceReference,
+		ExistingTaskRunID:   request.ExistingTaskRunID,
+		OriginReplyTargetID: request.OriginReplyTargetID,
+		OriginIsThread:      request.OriginIsThread,
+		ConversationID:      request.ConversationID,
+		Prompt:              request.Prompt,
+		ResponseLanguage:    request.ResponseLanguage,
+		ToolSet:             request.ToolSet,
+	}, "routing", "turn_router", errorValue)
+	agentKernel.appendTurnRouterCallRecords(result.TaskRun.TaskRunID, routerCallRecords)
+	return result
+}
+
 func (agentKernel *AgentKernel) reaskMissingRequiredEvidenceOnce(responseContext context.Context, request AgentRequest, intakeRequest AgentRequest, intakeDecision IntakeDecision, outcomeContract OutcomeContract, instructionBundle InstructionBundle, executionPlan ExecutionPlan, hasExecutionPlan bool, requiredAttachmentSuffixes []string, turnToolSet *ToolSet, routerLanguageModel llm.LanguageModelProvider) (IntakeDecision, OutcomeContract, requiredEvidenceReaskReport) {
 	turnRouter := NewTurnRouter(routerLanguageModel, agentKernel.intakeOptions)
 	reaskDecision, errorValue := turnRouter.ReaskRequiredEvidence(responseContext, intakeRequest)
@@ -449,13 +449,15 @@ func (agentKernel *AgentKernel) reaskMissingRequiredEvidenceOnce(responseContext
 
 func (agentKernel *AgentKernel) selectInstructionBundleForResolvedRequest(ctx context.Context, baseInstructionBundle InstructionBundle, request AgentRequest, intakeDecision IntakeDecision) (InstructionBundle, IntakeDecision) {
 	selectionRequest := request
-	selectionRequest.ActiveGoal.OutcomeContract.RequiredAttachmentSuffixes = appendUniqueStrings(
-		selectionRequest.ActiveGoal.OutcomeContract.RequiredAttachmentSuffixes,
-		attachmentSuffixesForRequestedOutputFormats(intakeDecision.RequestedOutputFormats)...,
-	)
-	if len(selectionRequest.ActiveGoal.OutcomeContract.RequiredAttachmentSuffixes) > 0 {
-		selectionRequest.ActiveGoal.OutcomeContract.RequiredEvidenceTools = appendUniqueStrings(selectionRequest.ActiveGoal.OutcomeContract.RequiredEvidenceTools, FileDeliverToolName)
+	selectionContract := selectionRequest.ActiveGoal.OutcomeContract
+	selectionContract.RequiredEvidenceTools = appendUniqueStrings(selectionContract.RequiredEvidenceTools, intakeDecision.RequiredEvidenceTools...)
+	selectionContract.RequiredAttachmentSuffixes = appendUniqueStrings(selectionContract.RequiredAttachmentSuffixes, attachmentSuffixesForRequestedOutputFormats(intakeDecision.RequestedOutputFormats)...)
+	selectionContract.ExpectedResults = appendExpectedResults(selectionContract.ExpectedResults, intakeDecision.ExpectedResults...)
+	if len(selectionContract.RequiredAttachmentSuffixes) > 0 {
+		selectionContract.RequiredEvidenceTools = appendUniqueStrings(selectionContract.RequiredEvidenceTools, FileDeliverToolName)
+		selectionContract.ArtifactRequirement = ArtifactRequirementRequired
 	}
+	selectionRequest.ActiveGoal.OutcomeContract = normalizeOutcomeContract(selectionContract)
 	instructionBundle := selectInstructionBundleForRequestWithRetrieverAndRouter(
 		ctx,
 		baseInstructionBundle,
