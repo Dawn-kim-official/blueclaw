@@ -260,6 +260,32 @@ func TestTaskIntakePlannerMapsRequiredEvidenceField(t *testing.T) {
 	}
 }
 
+func TestIntakeToolDescriptionsKeepRegisteredEvidenceCompact(t *testing.T) {
+	toolRegistry := NewToolSet([]string{CapabilityInvokeToolName, "file.deliver"})
+	for _, toolDefinition := range []ToolDefinition{
+		{Name: CapabilityInvokeToolName, Description: "Dispatch a registered capability operation."},
+		{Name: "calendar.add", Description: "Create a calendar event with a long operation description."},
+		{Name: "file.deliver", Description: "Deliver a file to the requester."},
+	} {
+		definition := toolDefinition
+		toolRegistry.RegisterTool(definition, func(context.Context, ToolInvocation) (ToolResult, error) {
+			return ToolSuccess("ok"), nil
+		})
+	}
+
+	descriptions := intakeToolDescriptions(toolRegistry)
+
+	if !strings.Contains(descriptions, "Available tools:\n- capability.invoke\n- file.deliver: Deliver a file to the requester.") {
+		t.Fatalf("expected descriptions only for directly callable tools, got %q", descriptions)
+	}
+	if !strings.Contains(descriptions, "Registered requiredEvidence names: calendar.add, file.deliver") {
+		t.Fatalf("expected compact registered evidence names, got %q", descriptions)
+	}
+	if strings.Contains(descriptions, "long operation description") || strings.Contains(descriptions, "Dispatch a registered capability operation") {
+		t.Fatalf("expected registered evidence descriptions to be omitted, got %q", descriptions)
+	}
+}
+
 func TestTaskIntakePlannerPassesPriorTaskContext(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		`{"route":"start_task","classification":"bounded_task","taskShape":"research_task","level":"low","estimatedMinutes":1,"requestedOutputFormats":["docx"],"reason":"deliver prior file","userFacingReply":"","priorTaskReference":"outcome_recovery"}`,
