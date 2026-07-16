@@ -286,6 +286,25 @@ func TestIntakeToolDescriptionsKeepRegisteredEvidenceCompact(t *testing.T) {
 	}
 }
 
+func TestTaskIntakePlannerExplainsTaskRecordSemantics(t *testing.T) {
+	languageModel := &sequenceLanguageModel{contents: []string{
+		`{"route":"start_task","classification":"bounded_task","taskShape":"maintenance_task","level":"low","estimatedMinutes":1,"requestedOutputFormats":null,"expectedResults":[],"requiredEvidence":["task.add"],"siteRequestEvidence":"","responseLanguage":"ko","reason":"add the requested task record","userFacingReply":"","initialToolNames":[],"priorTaskReference":"none"}`,
+	}}
+	planner := NewTaskIntakePlanner(languageModel, IntakeOptions{IsEnabled: true})
+
+	decision := mustPlanIntake(t, planner, AgentRequest{
+		Prompt:  "금요일까지 결산 자료 누락 항목 확인 업무를 추가해줘",
+		ToolSet: newTestCapabilityToolSet([]string{"task.add"}),
+	})
+
+	if len(decision.RequiredEvidenceTools) != 1 || decision.RequiredEvidenceTools[0] != "task.add" {
+		t.Fatalf("expected task.add evidence, got %+v", decision.RequiredEvidenceTools)
+	}
+	if !strings.Contains(joinedMessageContent(languageModel.requests[0].Messages), taskRecordRoutingInstruction) {
+		t.Fatal("expected task record routing instruction")
+	}
+}
+
 func TestTaskIntakePlannerPassesPriorTaskContext(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		`{"route":"start_task","classification":"bounded_task","taskShape":"research_task","level":"low","estimatedMinutes":1,"requestedOutputFormats":["docx"],"reason":"deliver prior file","userFacingReply":"","priorTaskReference":"outcome_recovery"}`,
