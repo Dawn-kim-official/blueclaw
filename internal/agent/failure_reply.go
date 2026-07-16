@@ -5,12 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"strings"
-	"time"
 
 	"blueclaw/internal/llm"
 )
-
-const recoveryFinalizationTimeout = 30 * time.Second
 
 type limitReplyStatus struct {
 	Source                  string             `json:"source"`
@@ -62,7 +59,7 @@ func recoveryFinalizationContext(request AgentTurnRequest) (context.Context, con
 		ConversationID:          request.ConversationID,
 		Platform:                request.Platform,
 	})
-	return context.WithTimeout(recoveryContext, recoveryFinalizationTimeout)
+	return context.WithCancel(recoveryContext)
 }
 
 func (agentTurnRunner *AgentTurnRunner) generateRecoveryDecision(recoveryContext context.Context, request AgentTurnRequest, failureReason string, observations []turnObservation, attachments []FileAttachment, executionState ExecutionState, phase string) (recoveryDecision, error) {

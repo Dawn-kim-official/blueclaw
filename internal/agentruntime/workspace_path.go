@@ -98,9 +98,6 @@ func (resolver WorkspacePathResolver) Resolve(value string, scope WorkspaceScope
 	if strings.HasPrefix(trimmedPath, "~") {
 		return resolver.resolveHome(trimmedPath, scope)
 	}
-	if isDeniedAbsoluteWorkspacePath(trimmedPath) {
-		return ResolvedWorkspacePath{}, errors.New("path is outside the supported workspace artifact contract")
-	}
 	if filepath.IsAbs(trimmedPath) {
 		return resolver.resolveAbsolute(trimmedPath, scope)
 	}
@@ -223,16 +220,6 @@ func (resolver WorkspacePathResolver) resolveAgentWorkspacePath(value string) st
 		return filepath.Join(resolver.WorkspaceRootPath, strings.TrimPrefix(trimmedPath, "/workspace/"))
 	}
 	return trimmedPath
-}
-
-func isDeniedAbsoluteWorkspacePath(path string) bool {
-	cleanPath := filepath.Clean(path)
-	return cleanPath == "/tmp" ||
-		strings.HasPrefix(cleanPath, "/tmp/") ||
-		cleanPath == "/opt" ||
-		strings.HasPrefix(cleanPath, "/opt/") ||
-		cleanPath == "/usr" ||
-		strings.HasPrefix(cleanPath, "/usr/")
 }
 
 func (scope WorkspaceScope) EnvironmentVariables() map[string]string {
