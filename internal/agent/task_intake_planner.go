@@ -403,14 +403,14 @@ func (turnRouter TurnRouter) buildMessages(request AgentRequest) []llm.Message {
 }
 
 func intakeToolDescriptions(toolSet *ToolSet) string {
-	callableToolNames := toolSet.ListToolNames()
-	registeredEvidenceDescriptions := registeredEvidenceDescriptionsForIntake(toolSet)
+	callableToolDescriptions := callableToolDescriptionsForIntake(toolSet)
+	registeredEvidenceNames := registeredEvidenceNamesForIntake(toolSet)
 	lines := []string{}
-	if len(callableToolNames) > 0 {
-		lines = append(lines, "Available tools: "+strings.Join(callableToolNames, ", "))
+	if len(callableToolDescriptions) > 0 {
+		lines = append(lines, "Available tools:\n"+strings.Join(callableToolDescriptions, "\n"))
 	}
-	if len(registeredEvidenceDescriptions) > 0 {
-		lines = append(lines, "Registered requiredEvidence names:\n"+strings.Join(registeredEvidenceDescriptions, "\n"))
+	if len(registeredEvidenceNames) > 0 {
+		lines = append(lines, "Registered requiredEvidence names: "+strings.Join(registeredEvidenceNames, ", "))
 	}
 	if len(lines) == 0 {
 		return "No tools are available."
@@ -418,27 +418,36 @@ func intakeToolDescriptions(toolSet *ToolSet) string {
 	return strings.Join(lines, "\n")
 }
 
-func registeredEvidenceDescriptionsForIntake(toolSet *ToolSet) []string {
+func callableToolDescriptionsForIntake(toolSet *ToolSet) []string {
 	descriptions := []string{}
 	if toolSet == nil {
 		return descriptions
+	}
+	for _, toolDefinition := range toolSet.ListToolDefinitions() {
+		toolName := strings.TrimSpace(toolDefinition.Name)
+		description := strings.TrimSpace(toolDefinition.Description)
+		if toolName == CapabilityInvokeToolName || description == "" {
+			descriptions = append(descriptions, "- "+toolName)
+			continue
+		}
+		descriptions = append(descriptions, "- "+toolName+": "+description)
+	}
+	return descriptions
+}
+
+func registeredEvidenceNamesForIntake(toolSet *ToolSet) []string {
+	toolNames := []string{}
+	if toolSet == nil {
+		return toolNames
 	}
 	for _, toolDefinition := range toolSet.ListRegisteredToolDefinitions() {
 		trimmedToolName := strings.TrimSpace(toolDefinition.Name)
 		if trimmedToolName == "" || !requiredEvidenceToolCanBeSatisfied(toolSet, trimmedToolName) {
 			continue
 		}
-		descriptions = appendUniqueStrings(descriptions, evidenceDescriptionLine(trimmedToolName, toolDefinition))
+		toolNames = appendUniqueStrings(toolNames, trimmedToolName)
 	}
-	return descriptions
-}
-
-func evidenceDescriptionLine(toolName string, toolDefinition ToolDefinition) string {
-	description := strings.TrimSpace(toolDefinition.Description)
-	if description == "" {
-		return "- " + toolName
-	}
-	return "- " + toolName + ": " + description
+	return toolNames
 }
 
 func (turnRouter TurnRouter) normalizeDecision(decision TurnDecision, request AgentRequest) (TurnDecision, error) {
