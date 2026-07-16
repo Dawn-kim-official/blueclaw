@@ -427,10 +427,10 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerSkillSearchTool(toolRegist
 
 func (toolCatalogBuilder *ToolCatalogBuilder) searchSkills(toolContext context.Context, input skillSearchToolInput, handlerContext toolHandlerContext, availableToolSet *agent.ToolSet) (agent.ToolResult, error) {
 	instructionBundle := toolCatalogBuilder.instructionBundleLoader()
-	if strings.TrimSpace(input.Name) != "" {
-		return skillSearchNameLookupResult(instructionBundle.Skills, input.Name), nil
-	}
 	visibleSkillInstructions := agent.VisibleSkillInstructionsForRequester(instructionBundle.Skills, handlerContext.request.PersonAccess.Circles)
+	if strings.TrimSpace(input.Name) != "" {
+		return skillSearchNameLookupResult(visibleSkillInstructions, input.Name), nil
+	}
 	if !hasSkillSearchQuery(input.Queries) {
 		result := listAllSkills(visibleSkillInstructions)
 		return agent.ToolSuccess(marshalToolResult(result)), nil

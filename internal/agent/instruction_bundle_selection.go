@@ -235,10 +235,7 @@ func blockedSkillSelectionDecisions(skillInstructions []SkillInstruction, existi
 
 func retrieveSkillCandidates(ctx context.Context, request AgentRequest, skillInstructions []SkillInstruction, skillRetriever SkillRetriever, querySet SkillSearchQuerySet, hasStructuredQueries bool) SkillRetrievalResult {
 	if hasStructuredQueries {
-		querySet = normalizeSkillSearchQuerySet(augmentSkillSearchQuerySetForArtifactContract(querySet, request))
-		if len(querySet.Queries) == 0 {
-			return SkillRetrievalResult{RetrievalMode: "structured_query", IndexStatus: "empty_query"}
-		}
+		querySet = skillRetrievalQuerySet(request, querySet)
 	}
 	var retrievalResult SkillRetrievalResult
 	if skillRetriever != nil {
@@ -250,11 +247,17 @@ func retrieveSkillCandidates(ctx context.Context, request AgentRequest, skillIns
 		return retrievalResult
 	}
 	if hasStructuredQueries {
-		retrievalResult = retrieveSkillsWithBM25(request, skillInstructions, skillSearchQueryText(querySet), maxSkillIndexCandidateCount, "embedding_unconfigured")
+		retrievalResult = retrieveSkillsWithBM25QuerySet(request, skillInstructions, querySet, maxSkillIndexCandidateCount, "embedding_unconfigured")
 		return retrievalResult
 	}
 	retrievalResult = retrieveSkillsWithBM25(request, skillInstructions, skillSelectionPrompt(request), maxSkillIndexCandidateCount, "embedding_unconfigured")
 	return retrievalResult
+}
+
+func skillRetrievalQuerySet(request AgentRequest, supplementalQueries SkillSearchQuerySet) SkillSearchQuerySet {
+	queries := []SkillSearchQuery{{Description: strings.TrimSpace(request.Prompt)}}
+	queries = append(queries, supplementalQueries.Queries...)
+	return normalizeSkillSearchQuerySet(SkillSearchQuerySet{Queries: queries})
 }
 
 func candidateSkillInstructions(skillInstructions []SkillInstruction, skillCandidates []SkillCandidate) []SkillInstruction {
@@ -315,31 +318,8 @@ func minimumSelectionScoreForCandidate(skillCandidate SkillCandidate) float64 {
 	return 0
 }
 
-func requestForSkillSelection(request AgentRequest) AgentRequest {
-	request.Prompt = skillSelectionPrompt(request)
-	return request
-}
-
 func skillSelectionPrompt(request AgentRequest) string {
-	prompt := strings.TrimSpace(request.Prompt)
-	if !shouldUseVisibleContextForSkillSelection(prompt) {
-		return prompt
-	}
-	contextLines := []string{}
-	for _, message := range request.VisibleContext.Messages {
-		text := strings.TrimSpace(message.Text)
-		if text != "" {
-			contextLines = append(contextLines, text)
-		}
-	}
-	if len(contextLines) == 0 {
-		return prompt
-	}
-	return strings.Join(nonEmptyStrings([]string{strings.Join(contextLines, "\n"), prompt}), "\n")
-}
-
-func shouldUseVisibleContextForSkillSelection(prompt string) bool {
-	return len([]rune(strings.TrimSpace(prompt))) <= 20
+	return strings.TrimSpace(request.Prompt)
 }
 
 func normalizedAgentProfileName(profileName string) string {

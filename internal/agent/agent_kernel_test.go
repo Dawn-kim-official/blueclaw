@@ -68,6 +68,8 @@ func TestApprovalContinuationRestoresSelectedToolDecision(t *testing.T) {
 
 func TestAgentKernelConsumeRouteSuppressesReply(t *testing.T) {
 	agentKernel, _ := newKernelTestServices()
+	skillRetriever := &countingSkillRetriever{}
+	agentKernel.UseSkillRetriever(skillRetriever)
 	agentKernel.UseIntakeLanguageModelProvider(intakeDecisionLanguageModel{decision: TurnDecision{
 		Route:            TurnRouteConsume,
 		Classification:   IntakeClassificationQuickReply,
@@ -90,6 +92,9 @@ func TestAgentKernelConsumeRouteSuppressesReply(t *testing.T) {
 	}
 	if result.TaskRun.Status != task.TaskStatusCompleted {
 		t.Fatalf("expected completed task run, got %q", result.TaskRun.Status)
+	}
+	if skillRetriever.searchCount != 0 {
+		t.Fatalf("expected consume route to skip skill retrieval, got %d calls", skillRetriever.searchCount)
 	}
 }
 

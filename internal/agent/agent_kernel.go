@@ -275,16 +275,16 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 	}
 	request.PinnedToolNames = appendUniqueStrings(append([]string{}, request.PinnedToolNames...), intakeDecision.InitialToolNames...)
 	intakeRequest.PinnedToolNames = request.PinnedToolNames
+	if turnDecision.Route == TurnRouteConsume {
+		result, errorValue := agentKernel.completeConsumedRequest(intakeRequest, turnDecision, routerCallLedger.records)
+		return result, errorValue
+	}
 	if !request.SkipSkillSelection {
 		instructionBundle, intakeDecision = agentKernel.selectInstructionBundleForResolvedRequest(responseContext, baseInstructionBundle, request, intakeDecision)
 		intakeDecision = applySelectedSkillCompletionRequirements(intakeDecision, instructionBundle)
 	}
 	request.PinnedSkillNames = appendUniqueStrings(request.PinnedSkillNames, selectedSkillNameList(instructionBundle.SkillDecisions)...)
 	intakeRequest.PinnedSkillNames = request.PinnedSkillNames
-	if turnDecision.Route == TurnRouteConsume {
-		result, errorValue := agentKernel.completeConsumedRequest(intakeRequest, turnDecision, routerCallLedger.records)
-		return result, errorValue
-	}
 	if intakeDecision.Classification == IntakeClassificationNeedsConfirmation {
 		result, errorValue := agentKernel.completeIntakeOnlyRequest(responseContext, intakeRequest, intakeDecision, task.TaskStatusWaitingUserInput, routerCallLedger.records)
 		result.TurnRoute = turnDecision.Route
