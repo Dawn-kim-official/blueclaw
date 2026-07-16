@@ -118,7 +118,7 @@ func TestSelectInstructionBundleDoesNotUseTriggerHintOutsideRetrievalCandidates(
 	}
 }
 
-func TestToolSetForAgentTurnExposesKernelToolsRegardlessOfSkillSelection(t *testing.T) {
+func TestToolSetForAgentTurnExposesSelectedSkillToolsAlongsideKernel(t *testing.T) {
 	fullToolSet := testToolSet([]string{
 		"conversation.history",
 		"memory.search",
@@ -149,9 +149,14 @@ func TestToolSetForAgentTurnExposesKernelToolsRegardlessOfSkillSelection(t *test
 			t.Fatalf("expected kernel tool %s to remain available, got %+v", toolName, filteredToolSet.ListToolNames())
 		}
 	}
-	for _, toolName := range []string{"memory.search", "site.create", "site.publish", "schedule.create"} {
+	for _, toolName := range []string{"memory.search", "schedule.create"} {
 		if filteredToolSet.IsAllowed(toolName) {
-			t.Fatalf("expected non-kernel tool %s to stay hidden, got %+v", toolName, filteredToolSet.ListToolNames())
+			t.Fatalf("expected unselected tool %s to stay hidden, got %+v", toolName, filteredToolSet.ListToolNames())
+		}
+	}
+	for _, toolName := range []string{"site.create", "site.publish"} {
+		if !filteredToolSet.IsAllowed(toolName) {
+			t.Fatalf("expected selected skill tool %s to be directly callable, got %+v", toolName, filteredToolSet.ListToolNames())
 		}
 	}
 }
@@ -179,14 +184,11 @@ func TestToolSetForAgentTurnExposesOnlyPinnedNonKernelTools(t *testing.T) {
 		PinnedToolNames: []string{"schedule.create"},
 	}, ExecutionPlan{}, false, OutcomeContract{})
 
-	// schedule.create is pinned by a prior tool.request, so it joins the kernel tools in the schema.
-	// conversation.history is always available as a kernel tool, pinning or not.
 	for _, toolName := range []string{"terminal.run", "file.write", "schedule.create", "conversation.history"} {
 		if !filteredToolSet.IsAllowed(toolName) {
 			t.Fatalf("expected tool %s to remain available, got %+v", toolName, filteredToolSet.ListToolNames())
 		}
 	}
-	// Skill selection alone (without pinning) still does not expose a non-kernel tool.
 	for _, toolName := range []string{"memory.search", "math.calculate", "mail.message.search"} {
 		if filteredToolSet.IsAllowed(toolName) {
 			t.Fatalf("expected unpinned non-kernel tool %s to be hidden, got %+v", toolName, filteredToolSet.ListToolNames())
@@ -207,15 +209,15 @@ func TestToolSetForAgentTurnHidesSendToolButKeepsKernelToolForNonSendOutcome(t *
 
 	filteredToolSet := toolSetForAgentTurn(fullToolSet, instructionBundle, AgentRequest{Prompt: "사업계획서 작성해줘"}, ExecutionPlan{}, false, contract)
 
-	if filteredToolSet.IsAllowed("message.send") {
-		t.Fatalf("expected send tool to stay hidden outside capability.invoke, got %+v", filteredToolSet.ListToolNames())
+	if !filteredToolSet.IsAllowed("message.send") {
+		t.Fatalf("expected selected send tool to be directly callable, got %+v", filteredToolSet.ListToolNames())
 	}
 	if !filteredToolSet.IsAllowed("file.write") {
 		t.Fatalf("expected kernel tool file.write to remain available, got %+v", filteredToolSet.ListToolNames())
 	}
 }
 
-func TestAgentKernelActionSchemaExposesOnlyKernelToolsRegardlessOfIntakeInitialTools(t *testing.T) {
+func TestAgentKernelActionSchemaExposesTypedInitialTools(t *testing.T) {
 	intakeLanguageModel := &sequenceLanguageModel{contents: []string{
 		`{"route":"start_task","classification":"bounded_task","taskShape":"maintenance_task","level":"low","estimatedMinutes":1,"requestedOutputFormats":null,"initialToolNames":["schedule.create"],"reason":"schedule request","userFacingReply":""}`,
 	}}
@@ -244,7 +246,7 @@ func TestAgentKernelActionSchemaExposesOnlyKernelToolsRegardlessOfIntakeInitialT
 			},
 		}}
 	})
-	// schedule.create, mail.message.search, and math.calculate are non-kernel operations only reachable via capability.invoke.
+	// The initial tool list contains direct typed tools; skill selection can add more direct tools later.
 	toolRegistry := newTestCapabilityToolSet([]string{"schedule.create", "mail.message.search", "math.calculate"})
 	toolRegistry.RegisterTool(ToolDefinition{Name: AskInputToolName}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		return ToolResult{}, nil
@@ -263,17 +265,18 @@ func TestAgentKernelActionSchemaExposesOnlyKernelToolsRegardlessOfIntakeInitialT
 		t.Fatal("expected action request")
 	}
 	actionSchema := replyLanguageModel.requests[0].StructuredOutputSchema.Document
-	for _, kernelToolName := range []string{CapabilityInvokeToolName} {
-		if !strings.Contains(actionSchema, kernelToolName) {
-			t.Fatalf("expected kernel tool %s in action schema regardless of intake initial tools, got %s", kernelToolName, actionSchema)
-		}
+	if strings.Contains(actionSchema, CapabilityInvokeToolName) {
+		t.Fatalf("expected internal capability.invoke to stay out of action schema, got %s", actionSchema)
+	}
+	if !strings.Contains(actionSchema, `"toolName":{"enum":["schedule.create"]`) {
+		t.Fatalf("expected direct initial schedule.create in action schema, got %s", actionSchema)
 	}
 	if strings.Contains(actionSchema, AskInputToolName) {
 		t.Fatalf("expected ask.input to stay hidden without a typed interaction requirement, got %s", actionSchema)
 	}
-	for _, domainToolName := range []string{"schedule.create", "mail.message.search", "math.calculate"} {
+	for _, domainToolName := range []string{"mail.message.search", "math.calculate"} {
 		if strings.Contains(actionSchema, `"toolName":{"enum":["`+domainToolName+`"`) {
-			t.Fatalf("expected %s not to be directly callable outside capability.invoke, got %s", domainToolName, actionSchema)
+			t.Fatalf("expected unselected tool %s not to be directly callable, got %s", domainToolName, actionSchema)
 		}
 	}
 }
@@ -313,9 +316,9 @@ func TestSkillSelectorSkipsSkillWhenAllowedToolIsMissing(t *testing.T) {
 	}
 }
 
-func TestSelectInstructionBundleKeepsSkillWhenCapabilityOperationIsRegisteredButHidden(t *testing.T) {
-	toolSet := NewToolSet([]string{"terminal.run", CapabilityInvokeToolName})
-	for _, toolName := range []string{"terminal.run", CapabilityInvokeToolName, "site.create", "site.publish"} {
+func TestSelectInstructionBundleKeepsSkillWhenDirectToolsAreAvailable(t *testing.T) {
+	toolSet := NewToolSet([]string{"terminal.run", "site.create", "site.publish"})
+	for _, toolName := range []string{"terminal.run", "site.create", "site.publish"} {
 		currentToolName := toolName
 		toolSet.RegisterTool(ToolDefinition{Name: currentToolName}, func(context.Context, ToolInvocation) (ToolResult, error) {
 			return ToolSuccess("ok"), nil
@@ -342,15 +345,15 @@ func TestSelectInstructionBundleKeepsSkillWhenCapabilityOperationIsRegisteredBut
 	}, retriever)
 
 	if len(selectedBundle.SkillDecisions) != 1 || selectedBundle.SkillDecisions[0].Status != "selected" {
-		t.Fatalf("expected hidden registered site skill to be selected, got %+v", selectedBundle.SkillDecisions)
+		t.Fatalf("expected directly callable site skill to be selected, got %+v", selectedBundle.SkillDecisions)
 	}
 	filteredToolSet := toolSetForAgentTurn(toolSet, selectedBundle, AgentRequest{Prompt: "김인턴 소개 웹사이트 만들어줘"}, ExecutionPlan{}, false, OutcomeContract{})
-	if filteredToolSet.IsAllowed("site.create") || filteredToolSet.IsAllowed("site.publish") {
-		t.Fatalf("expected selected hidden registered skill tools to stay hidden until requested, got %+v", filteredToolSet.ListToolNames())
+	if !filteredToolSet.IsAllowed("site.create") || !filteredToolSet.IsAllowed("site.publish") {
+		t.Fatalf("expected selected skill tools to be directly callable, got %+v", filteredToolSet.ListToolNames())
 	}
 }
 
-func TestSelectInstructionBundleSkipsHiddenOperationWithoutCapabilityInvoke(t *testing.T) {
+func TestSelectInstructionBundleSkipsSkillWhenDirectToolIsUnavailable(t *testing.T) {
 	toolSet := NewToolSet([]string{"terminal.run"})
 	for _, toolName := range []string{"terminal.run", "site.create", "site.publish"} {
 		currentToolName := toolName
@@ -379,7 +382,7 @@ func TestSelectInstructionBundleSkipsHiddenOperationWithoutCapabilityInvoke(t *t
 	}, retriever)
 
 	if len(selectedBundle.SkillDecisions) != 1 || selectedBundle.SkillDecisions[0].Status == "selected" {
-		t.Fatalf("expected hidden operation skill to be skipped without capability.invoke, got %+v", selectedBundle.SkillDecisions)
+		t.Fatalf("expected skill to be skipped without directly callable tools, got %+v", selectedBundle.SkillDecisions)
 	}
 }
 

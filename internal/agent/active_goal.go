@@ -23,6 +23,8 @@ type ActiveGoal struct {
 	CurrentObjective    string           `json:"currentObjective,omitempty"`
 	KnownContext        []string         `json:"knownContext,omitempty"`
 	MissingInformation  []string         `json:"missingInformation,omitempty"`
+	SelectedToolNames   []string         `json:"selectedToolNames,omitempty"`
+	SelectedSkillNames  []string         `json:"selectedSkillNames,omitempty"`
 	OutcomeContract     OutcomeContract  `json:"outcomeContract,omitempty"`
 	Status              ActiveGoalStatus `json:"status,omitempty"`
 }
@@ -35,7 +37,6 @@ type OutcomeContract struct {
 	ExpectedResults            []ExpectedResult `json:"expectedResults,omitempty"`
 	ArtifactRequirement        string           `json:"artifactRequirement,omitempty"`
 	SelectedEvidenceHints      []string         `json:"selectedEvidenceHints,omitempty"`
-	SiteEvidenceQuote          string           `json:"siteEvidenceQuote,omitempty"`
 	Source                     string           `json:"source,omitempty"`
 }
 
@@ -96,7 +97,6 @@ func normalizeOutcomeContract(contract OutcomeContract) OutcomeContract {
 	contract.RequiredEffects = normalizeOutcomeEffects(contract.RequiredEffects)
 	contract.ExpectedResults = normalizeExpectedResults(contract.ExpectedResults)
 	contract.ArtifactRequirement = normalizeArtifactRequirement(contract.ArtifactRequirement)
-	contract.SiteEvidenceQuote = strings.TrimSpace(contract.SiteEvidenceQuote)
 	contract.Source = strings.TrimSpace(contract.Source)
 	return contract
 }

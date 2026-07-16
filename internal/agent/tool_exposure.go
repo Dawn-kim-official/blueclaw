@@ -19,22 +19,16 @@ type droppedToolGroup struct {
 }
 
 type ToolExposureEvent struct {
-	SelectedToolIDs          []string           `json:"selectedToolIDs,omitempty"`
-	ValidSelectedToolIDs     []string           `json:"validSelectedToolIDs,omitempty"`
-	SelectionReason          string             `json:"selectionReason,omitempty"`
-	SelectionSource          string             `json:"selectionSource,omitempty"`
-	SelectionFailureReason   string             `json:"selectionFailureReason,omitempty"`
-	UsedFallbackGroups       bool               `json:"usedFallbackGroups"`
-	ExposedToolIDs           []string           `json:"exposedToolIDs"`
-	PromotedOperationToolIDs []string           `json:"promotedOperationToolIDs,omitempty"`
-	PinnedGroupToolIDs       []string           `json:"pinnedGroupToolIDs,omitempty"`
-	DroppedGroups            []droppedToolGroup `json:"droppedGroups,omitempty"`
-}
-
-func collectCoreGroups(toolSet *ToolSet) []toolExposureGroup {
-	return []toolExposureGroup{
-		filterGroupTools(toolSet, toolExposureGroup{Name: "fixed kernel", ToolIDs: KernelToolNames()}),
-	}
+	SelectedToolIDs        []string           `json:"selectedToolIDs,omitempty"`
+	ValidSelectedToolIDs   []string           `json:"validSelectedToolIDs,omitempty"`
+	SelectionReason        string             `json:"selectionReason,omitempty"`
+	SelectionSource        string             `json:"selectionSource,omitempty"`
+	SelectionFailureReason string             `json:"selectionFailureReason,omitempty"`
+	UsedFallbackGroups     bool               `json:"usedFallbackGroups"`
+	ExposedToolIDs         []string           `json:"exposedToolIDs"`
+	SelectedSkillToolIDs   []string           `json:"selectedSkillToolIDs,omitempty"`
+	PinnedGroupToolIDs     []string           `json:"pinnedGroupToolIDs,omitempty"`
+	DroppedGroups          []droppedToolGroup `json:"droppedGroups,omitempty"`
 }
 
 func toolSetForAgentTurnWithExposure(toolSet *ToolSet, instructionBundle InstructionBundle, request AgentRequest, executionPlan ExecutionPlan, hasExecutionPlan bool, outcomeContract OutcomeContract, selectionEvent ToolExposureEvent, observations ...[]turnObservation) (*ToolSet, ToolExposureEvent) {
@@ -49,24 +43,76 @@ func toolSetForAgentTurnWithExposure(toolSet *ToolSet, instructionBundle Instruc
 	interactionGroup := filterGroupTools(toolSet, toolExposureGroup{Name: "required interaction", ToolIDs: requiredInteractionToolNames(outcomeContract, recentObservations)})
 	recoveryToolNames := appendUniqueStrings(activeRecoveryToolNames(recentObservations), activeRecoveryPreconditionToolNames(toolSet, recentObservations)...)
 	recoveryGroup := filterGroupTools(toolSet, toolExposureGroup{Name: "recovery tools", ToolIDs: recoveryToolNames})
-	promotedGroup := filterGroupTools(toolSet, toolExposureGroup{Name: "promoted operations", ToolIDs: promotedCapabilityOperationNames(toolSet, recentObservations)})
-	if len(promotedGroup.ToolIDs) > 0 {
-		kernelGroup.ToolIDs = nil
-	}
-	pinnedGroup := filterGroupTools(toolSet, toolExposureGroup{Name: "requested tools", ToolIDs: request.PinnedToolNames})
-	if len(promotedGroup.ToolIDs) > 0 {
-		pinnedGroup.ToolIDs = nil
-	}
-	exposedToolIDs := stableUniqueToolIDs(append(append(append(append(append([]string{}, kernelGroup.ToolIDs...), interactionGroup.ToolIDs...), recoveryGroup.ToolIDs...), promotedGroup.ToolIDs...), pinnedGroup.ToolIDs...))
-	selectionEvent.SelectionSource = firstNonEmptyString(selectionEvent.SelectionSource, "fixed_kernel")
-	selectionEvent.SelectionReason = firstNonEmptyString(selectionEvent.SelectionReason, "Blueclaw exposes the same compact kernel tools on every turn")
+	selectedSkillGroup := filterGroupTools(toolSet, toolExposureGroup{Name: "selected skills", ToolIDs: selectedSkillToolNames(instructionBundle)})
+	pinnedGroup := filterGroupTools(toolSet, toolExposureGroup{Name: "pinned tools", ToolIDs: request.PinnedToolNames})
+	groups := []toolExposureGroup{interactionGroup, recoveryGroup, pinnedGroup, selectedSkillGroup, kernelGroup}
+	exposedToolIDs, droppedGroups := selectToolGroups(groups, maxSchemaCallableToolCount)
+	selectionEvent.SelectionSource = firstNonEmptyString(selectionEvent.SelectionSource, toolSelectionSource(selectedSkillGroup))
+	selectionEvent.SelectionReason = firstNonEmptyString(selectionEvent.SelectionReason, toolSelectionReason(selectedSkillGroup))
 	selectionEvent.ValidSelectedToolIDs = nil
 	selectionEvent.ExposedToolIDs = append([]string{}, exposedToolIDs...)
-	selectionEvent.PromotedOperationToolIDs = append([]string{}, promotedGroup.ToolIDs...)
+	selectionEvent.SelectedSkillToolIDs = exposedGroupToolIDs(selectedSkillGroup, exposedToolIDs)
 	selectionEvent.PinnedGroupToolIDs = append([]string{}, pinnedGroup.ToolIDs...)
-	selectionEvent.DroppedGroups = nil
+	selectionEvent.DroppedGroups = droppedGroups
 	selectionEvent.UsedFallbackGroups = false
 	return toolSet.WithAllowedToolNames(exposedToolIDsForFiltering(exposedToolIDs)), selectionEvent
+}
+
+func exposedGroupToolIDs(group toolExposureGroup, exposedToolIDs []string) []string {
+	toolIDs := []string{}
+	for _, toolID := range group.ToolIDs {
+		if stringSliceContains(exposedToolIDs, toolID) {
+			toolIDs = append(toolIDs, toolID)
+		}
+	}
+	return toolIDs
+}
+
+func selectedSkillToolNames(instructionBundle InstructionBundle) []string {
+	toolNames := []string{}
+	for _, skillInstruction := range selectedSkillInstructionList(instructionBundle) {
+		toolNames = appendUniqueStrings(toolNames, SkillToolNames(skillInstruction)...)
+	}
+	return toolNames
+}
+
+func selectToolGroups(groups []toolExposureGroup, limit int) ([]string, []droppedToolGroup) {
+	toolIDs := []string{}
+	droppedGroups := []droppedToolGroup{}
+	for _, group := range groups {
+		droppedToolIDs := []string{}
+		hasSelectedTool := false
+		for _, toolID := range group.ToolIDs {
+			if stringSliceContains(toolIDs, toolID) {
+				hasSelectedTool = true
+				continue
+			}
+			if len(toolIDs) >= limit {
+				droppedToolIDs = append(droppedToolIDs, toolID)
+				continue
+			}
+			toolIDs = append(toolIDs, toolID)
+			hasSelectedTool = true
+		}
+		if len(droppedToolIDs) > 0 {
+			droppedGroups = append(droppedGroups, droppedToolGroup{Name: group.Name, ToolIDs: droppedToolIDs, IsPartial: hasSelectedTool})
+		}
+	}
+	return toolIDs, droppedGroups
+}
+
+func toolSelectionSource(selectedSkillGroup toolExposureGroup) string {
+	if len(selectedSkillGroup.ToolIDs) > 0 {
+		return "selected_skills"
+	}
+	return "fixed_kernel"
+}
+
+func toolSelectionReason(selectedSkillGroup toolExposureGroup) string {
+	if len(selectedSkillGroup.ToolIDs) > 0 {
+		return "Blueclaw exposes direct tools declared by the selected skills"
+	}
+	return "Blueclaw exposes the compact kernel tools"
 }
 
 func kernelToolNamesForRequest(request AgentRequest) []string {
@@ -87,48 +133,6 @@ func requiredInteractionToolNames(outcomeContract OutcomeContract, observations 
 		}
 	}
 	return nil
-}
-
-// maxPromotedCapabilityOperationCount bounds the exposed tool count when a
-// task racks up several distinct invalid_input failures.
-const maxPromotedCapabilityOperationCount = 2
-
-// promotedCapabilityOperationNames recomputes promotion from observation
-// history every step (no new persistent state): an operation that failed
-// capability.invoke input validation gets its own flat-schema tool for the
-// rest of the task, since a lite model that cannot fill the nested
-// {operation, input:{...}} shape can still fill a flat one. Most recent
-// distinct failures win when more than maxPromotedCapabilityOperationCount
-// operations have failed.
-func promotedCapabilityOperationNames(toolSet *ToolSet, observations []turnObservation) []string {
-	promotedOperationNames := []string{}
-	for index := len(observations) - 1; index >= 0 && len(promotedOperationNames) < maxPromotedCapabilityOperationCount; index-- {
-		operationName := promotableCapabilityOperationName(toolSet, observations[index])
-		if operationName == "" || stringSliceContains(promotedOperationNames, operationName) {
-			continue
-		}
-		promotedOperationNames = append(promotedOperationNames, operationName)
-	}
-	return promotedOperationNames
-}
-
-// promotableCapabilityOperationName returns the operation name when the
-// observation is an invalid_input failure on a registered capability
-// operation. effectiveObservationToolName already unwraps capability.invoke
-// observations down to the attempted operation name, so this only filters
-// for registered, non-kernel, non-capability.invoke names.
-func promotableCapabilityOperationName(toolSet *ToolSet, observation turnObservation) string {
-	if observation.Failure == nil || observation.FailureCode() != FailureCodes.InvalidInput.String() {
-		return ""
-	}
-	operationName := strings.TrimSpace(observation.Tool)
-	if operationName == "" || operationName == CapabilityInvokeToolName || IsKernelToolName(operationName) {
-		return ""
-	}
-	if toolSet == nil || !toolSet.IsRegistered(operationName) {
-		return ""
-	}
-	return operationName
 }
 
 func exposedToolIDsForFiltering(exposedToolIDs []string) []string {
@@ -156,13 +160,10 @@ func filterGroupTools(toolSet *ToolSet, group toolExposureGroup) toolExposureGro
 
 func toolIsModelCallable(toolID string) bool {
 	trimmedToolID := strings.TrimSpace(toolID)
-	return trimmedToolID != "" && trimmedToolID != AskConfirmToolName
-}
-
-func recoveryPinnedToolNames(instructionBundle InstructionBundle, request AgentRequest, observations []turnObservation) []string {
-	toolNames := filterExhaustedRecoveryToolNames(request.PinnedToolNames, observations)
-	toolNames = appendUniqueStrings(toolNames, activeRecoveryToolNames(observations)...)
-	return toolNames
+	return trimmedToolID != "" &&
+		trimmedToolID != AskConfirmToolName &&
+		trimmedToolID != CapabilityInvokeToolName &&
+		trimmedToolID != TaskHistoryToolName
 }
 
 func activeRecoveryToolNames(observations []turnObservation) []string {
@@ -242,79 +243,7 @@ func observationLooksLikeRecoveryBudgetExhausted(observation turnObservation) bo
 		strings.TrimSpace(observation.PolicyCode) == "recovery_budget_exhausted"
 }
 
-func toolSelectionRecentProgress(observations []turnObservation) string {
-	recentObservations := recentProgressObservations(observations)
-	if len(recentObservations) == 0 {
-		return ""
-	}
-	document, errorValue := json.Marshal(recentObservations)
-	if errorValue != nil {
-		return ""
-	}
-	return "Recent observation progress: " + string(document)
-}
-
-func renderCoreGroupSummary(groups []toolExposureGroup) string {
-	lines := []string{"Core groups are normally available in the action schema unless the provider function budget is reached:"}
-	for _, group := range groups {
-		if len(group.ToolIDs) == 0 {
-			continue
-		}
-		lines = append(lines, group.Name+": "+strings.Join(group.ToolIDs, ", "))
-	}
-	return strings.Join(lines, "\n")
-}
-
-func renderCompactToolCards(toolSet *ToolSet, groups []toolExposureGroup) string {
-	lines := []string{}
-	for _, group := range groups {
-		for _, toolID := range group.ToolIDs {
-			toolDefinition, isFound := toolSet.ToolDefinition(toolID)
-			if !isFound {
-				continue
-			}
-			lines = append(lines, compactToolCard(toolID, toolDefinition))
-		}
-	}
-	if len(lines) == 0 {
-		return "(none)"
-	}
-	return strings.Join(lines, "\n")
-}
-
-func compactToolCard(toolID string, toolDefinition ToolDefinition) string {
-	card := recoveryCardForTool(toolDefinition)
-	return "- " + toolID + ": " +
-		"sideEffect=" + compactToolCardText(card.SideEffect) + "; " +
-		"does=" + compactToolCardText(card.Does) + "; " +
-		"produces=" + compactToolCardText(card.Produces) + "; " +
-		"useWhen=" + compactToolCardText(card.UseWhen) + "; " +
-		"avoidWhen=" + compactToolCardText(card.AvoidWhen) + "."
-}
-
-func recoveryCardForTool(toolDefinition ToolDefinition) ToolRecoveryCard {
-	card := toolDefinition.RecoveryCard
-	card.SideEffect = firstNonEmptyString(strings.TrimSpace(card.SideEffect), strings.TrimSpace(toolDefinition.SideEffectClass), "read")
-	card.Does = firstNonEmptyString(strings.TrimSpace(card.Does), strings.TrimSpace(toolDefinition.Description), "Run this tool.")
-	card.Produces = firstNonEmptyString(strings.TrimSpace(card.Produces), "A tool observation.")
-	card.UseWhen = firstNonEmptyString(strings.TrimSpace(card.UseWhen), "The expected result, step plan, or recovery context calls for this capability.")
-	card.AvoidWhen = firstNonEmptyString(strings.TrimSpace(card.AvoidWhen), "Required inputs are unknown or the task contract points to a different deliverable.")
-	return card
-}
-
-func compactToolCardText(value string) string {
-	words := strings.Fields(value)
-	if len(words) == 0 {
-		return ""
-	}
-	text := strings.Join(words, " ")
-	if len(text) <= 180 {
-		return text
-	}
-	return strings.TrimSpace(text[:180])
-}
-
-func outcomeContractSummary(contract OutcomeContract) string {
+func outcomeContractJSON(contract OutcomeContract) string {
 	if !OutcomeContractHasRequirements(contract) {
 		return ""
 	}
@@ -322,35 +251,7 @@ func outcomeContractSummary(contract OutcomeContract) string {
 	if errorValue != nil {
 		return ""
 	}
-	return "Outcome contract: " + string(document)
-}
-
-func stableUniqueToolIDs(toolIDs []string) []string {
-	result := []string{}
-	return appendUniqueStrings(result, toolIDs...)
-}
-
-func visibleContextMaterialReadToolNames(visibleContext VisibleContext) []string {
-	toolNames := []string{}
-	for _, material := range allVisibleContextMaterials(visibleContext) {
-		if visibleContextMaterialLooksLikeImage(material) {
-			toolNames = appendUniqueStrings(toolNames, "image.read")
-			continue
-		}
-		if visibleContextMaterialLooksReadableDocument(material) {
-			toolNames = appendUniqueStrings(toolNames, "file.preview")
-		}
-	}
-	return toolNames
-}
-
-func allVisibleContextMaterials(visibleContext VisibleContext) []VisibleContextMaterial {
-	materials := append([]VisibleContextMaterial{}, visibleContext.CurrentMaterials...)
-	materials = append(materials, visibleContext.Materials...)
-	for _, message := range visibleContext.Messages {
-		materials = append(materials, message.Materials...)
-	}
-	return materials
+	return string(document)
 }
 
 func visibleContextMaterialLooksLikeImage(material VisibleContextMaterial) bool {
@@ -364,14 +265,4 @@ func visibleContextMaterialLooksLikeImage(material VisibleContextMaterial) bool 
 		strings.HasSuffix(filename, ".jpeg") ||
 		strings.HasSuffix(filename, ".gif") ||
 		strings.HasSuffix(filename, ".webp")
-}
-
-func visibleContextMaterialLooksReadableDocument(material VisibleContextMaterial) bool {
-	if visibleContextMaterialLooksLikeImage(material) {
-		return false
-	}
-	return strings.TrimSpace(material.Filename) != "" ||
-		strings.TrimSpace(material.ContentType) != "" ||
-		strings.TrimSpace(material.Path) != "" ||
-		strings.TrimSpace(material.MaterialID) != ""
 }

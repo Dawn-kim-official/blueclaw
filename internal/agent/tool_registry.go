@@ -628,7 +628,7 @@ func (toolSet *ToolSet) Descriptions() string {
 	if len(toolDefinitions) == 0 {
 		return ""
 	}
-	lines := []string{"Available tool catalog. These fixed kernel tools can be called now. Use capability.invoke for domain capabilities; its description lists the available operations. Tool availability does not make tool use mandatory:"}
+	lines := []string{"Available tool catalog. Call the direct tool whose typed contract matches the task. Tool availability does not make tool use mandatory:"}
 	for _, toolDefinition := range toolDefinitions {
 		toolName := strings.TrimSpace(toolDefinition.Name)
 		if !toolSet.IsAllowed(toolName) {

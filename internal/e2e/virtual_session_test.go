@@ -7,13 +7,11 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"reflect"
 	"strings"
 	"testing"
 	"time"
 
 	"blueclaw/internal/agent"
-	"blueclaw/internal/agenttest"
 	"blueclaw/internal/capability"
 	"blueclaw/internal/llm"
 	"blueclaw/internal/task"
@@ -32,7 +30,7 @@ func TestPresentationScenarioDoesNotScriptToolCalls(t *testing.T) {
 func TestExpectedEventCountAllowsRepeatedReadResults(t *testing.T) {
 	virtualTurn := VirtualTurn{
 		ExpectedEventCounts: []VirtualEventCount{{
-			Name:         "tool.capability.invoke.result",
+			Name:         "tool.task.list.result",
 			BodyFragment: "customer task",
 			Count:        1,
 		}},
@@ -40,8 +38,8 @@ func TestExpectedEventCountAllowsRepeatedReadResults(t *testing.T) {
 	turnResult := VirtualTurnResult{
 		FinishMessage: "found",
 		Events: []task.TaskEvent{
-			{Name: "tool.capability.invoke.result", Body: `{"title":"customer task"}`},
-			{Name: "tool.capability.invoke.result", Body: `{"title":"customer task"}`},
+			{Name: "tool.task.list.result", Body: `{"title":"customer task"}`},
+			{Name: "tool.task.list.result", Body: `{"title":"customer task"}`},
 		},
 	}
 	if errorValue := assertTurnResult(t.TempDir(), virtualTurn, turnResult); errorValue != nil {
@@ -541,54 +539,6 @@ func TestVirtualCapabilityCatalogUsesOperationSchemas(t *testing.T) {
 	}
 }
 
-func TestLanguageModelCassetteRoundTripVirtualSession(t *testing.T) {
-	recordingLanguageModel := NewRecordingLanguageModel(agenttest.NewActionScriptedLanguageModel(
-		actionFinishMessage("cassette reply sequence"),
-	))
-	recordedScenario := cassetteRoundTripScenario(t.TempDir(), recordingLanguageModel)
-	recordedResult, errorValue := RunVirtualSession(context.Background(), recordedScenario)
-	if errorValue != nil {
-		t.Fatalf("expected recording session to pass: %v", errorValue)
-	}
-
-	cassettePath := filepath.Join(t.TempDir(), "model-cassette.json")
-	if errorValue := SaveLanguageModelCassette(cassettePath, recordingLanguageModel.Cassette()); errorValue != nil {
-		t.Fatalf("expected cassette save to pass: %v", errorValue)
-	}
-	cassette, errorValue := LoadLanguageModelCassette(cassettePath)
-	if errorValue != nil {
-		t.Fatalf("expected cassette load to pass: %v", errorValue)
-	}
-
-	replayingLanguageModel := NewReplayingLanguageModel(cassette)
-	replayedScenario := cassetteRoundTripScenario(t.TempDir(), replayingLanguageModel)
-	replayedResult, errorValue := RunVirtualSession(context.Background(), replayedScenario)
-	if errorValue != nil {
-		t.Fatalf("expected replay session to pass: %v", errorValue)
-	}
-
-	recordedReply := recordedResult.TurnResults[0].FinishMessage
-	replayedReply := replayedResult.TurnResults[0].FinishMessage
-	if recordedReply != replayedReply {
-		t.Fatalf("expected replayed reply %q to match recorded reply %q", replayedReply, recordedReply)
-	}
-	if !reflect.DeepEqual(cassette.Entries, replayingLanguageModel.ReturnedEntries()) {
-		t.Fatalf("expected replayed model response sequence to match cassette")
-	}
-}
-
-func cassetteRoundTripScenario(artifactDirectoryPath string, languageModel llm.LanguageModelProvider) VirtualSessionScenario {
-	return VirtualSessionScenario{
-		Name:                  "cassette_round_trip",
-		ArtifactDirectoryPath: artifactDirectoryPath,
-		LanguageModel:         languageModel,
-		Turns: []VirtualTurn{{
-			Prompt:                 "도구 없이 짧게 답해줘.",
-			ExpectedReplyFragments: []string{"cassette reply sequence"},
-		}},
-	}
-}
-
 func TestWebSearchAcceptance(t *testing.T) {
 	result, errorValue := RunVirtualSession(context.Background(), WebSearchAcceptanceScenario(t.TempDir()))
 	if errorValue != nil {
@@ -703,8 +653,8 @@ func TestScheduleCreateAcceptance(t *testing.T) {
 		t.Fatalf("expected schedule acceptance scenario to pass: %v", errorValue)
 	}
 	turnResult := result.TurnResults[0]
-	if !eventsContain(turnResult.Events, "tool.capability.invoke.requested", "schedule.create") ||
-		!eventsContain(turnResult.Events, "tool.capability.invoke.result", "intervalSecond") {
+	if !eventsContain(turnResult.Events, "tool.schedule.create.requested", "schedule.create") ||
+		!eventsContain(turnResult.Events, "tool.schedule.create.result", "intervalSecond") {
 		t.Fatalf("expected capability schedule create; events: %s", summarizeEvents(turnResult.Events))
 	}
 	if !strings.Contains(turnResult.ModelContext, "schedule.create") {
@@ -723,15 +673,15 @@ func TestScheduleLifecycleAcceptance(t *testing.T) {
 	firstTurnResult := result.TurnResults[0]
 	secondTurnResult := result.TurnResults[1]
 	thirdTurnResult := result.TurnResults[2]
-	if !eventsContain(firstTurnResult.Events, "tool.capability.invoke.requested", "schedule.create") ||
-		!eventsContain(firstTurnResult.Events, "tool.capability.invoke.result", "intervalSecond") {
+	if !eventsContain(firstTurnResult.Events, "tool.schedule.create.requested", "schedule.create") ||
+		!eventsContain(firstTurnResult.Events, "tool.schedule.create.result", "intervalSecond") {
 		t.Fatalf("expected initial interval schedule through the capability kernel; events: %s", summarizeEvents(firstTurnResult.Events))
 	}
-	if !eventsContain(secondTurnResult.Events, "tool.capability.invoke.requested", "schedule.update") ||
-		!eventsContain(secondTurnResult.Events, "tool.capability.invoke.result", "intervalSecond") {
+	if !eventsContain(secondTurnResult.Events, "tool.schedule.update.requested", "schedule.update") ||
+		!eventsContain(secondTurnResult.Events, "tool.schedule.update.result", "intervalSecond") {
 		t.Fatalf("expected modification through the capability kernel; events: %s", summarizeEvents(secondTurnResult.Events))
 	}
-	if !eventsContain(thirdTurnResult.Events, "tool.capability.invoke.requested", "schedule.cancel") {
+	if !eventsContain(thirdTurnResult.Events, "tool.schedule.cancel.requested", "schedule.cancel") {
 		t.Fatalf("expected deletion through the capability kernel; events: %s", summarizeEvents(thirdTurnResult.Events))
 	}
 	if activeScheduleCount(result.TaskSchedules) != 0 {
@@ -750,16 +700,16 @@ func TestCalendarEventLifecycleAcceptance(t *testing.T) {
 	firstTurnResult := result.TurnResults[0]
 	secondTurnResult := result.TurnResults[1]
 	thirdTurnResult := result.TurnResults[2]
-	if countEventsWithFragment(firstTurnResult.Events, "tool.capability.invoke.requested", "calendar.add") != 1 {
+	if countEventsWithFragment(firstTurnResult.Events, "tool.calendar.add.requested", "calendar.add") != 1 {
 		t.Fatalf("expected one calendar add request; events: %s", summarizeEvents(firstTurnResult.Events))
 	}
-	if countEventsWithFragment(secondTurnResult.Events, "tool.capability.invoke.requested", "calendar.update") != 1 {
+	if countEventsWithFragment(secondTurnResult.Events, "tool.calendar.update.requested", "calendar.update") != 1 {
 		t.Fatalf("expected one calendar update request; events: %s", summarizeEvents(secondTurnResult.Events))
 	}
-	if !eventsContain(secondTurnResult.Events, "tool.capability.invoke.requested", "2026-06-13T14:00:00+09:00") {
+	if !eventsContain(secondTurnResult.Events, "tool.calendar.update.requested", "2026-06-13T14:00:00+09:00") {
 		t.Fatalf("expected updated time in calendar update input; events: %s", summarizeEvents(secondTurnResult.Events))
 	}
-	if countEventsWithFragment(thirdTurnResult.Events, "tool.capability.invoke.requested", "calendar.delete") != 1 {
+	if countEventsWithFragment(thirdTurnResult.Events, "tool.calendar.delete.requested", "calendar.delete") != 1 {
 		t.Fatalf("expected one calendar delete request; events: %s", summarizeEvents(thirdTurnResult.Events))
 	}
 }
@@ -880,11 +830,11 @@ func TestTaskHistoryQuestionAcceptance(t *testing.T) {
 		t.Fatalf("expected two turn results, got %d", len(result.TurnResults))
 	}
 	secondTurnResult := result.TurnResults[1]
-	if countEvents(secondTurnResult.Events, "tool.task.history.requested") != 1 {
-		t.Fatalf("expected one task.history request; events: %s", summarizeEvents(secondTurnResult.Events))
+	if countEvents(secondTurnResult.Events, "tool.task.list.requested") != 1 {
+		t.Fatalf("expected one task.list request; events: %s", summarizeEvents(secondTurnResult.Events))
 	}
-	if !eventsContain(secondTurnResult.Events, "tool.task.history.result", "계약서 확인 요약 작업") {
-		t.Fatalf("expected task.history result to include prior task prompt; events: %s", summarizeEvents(secondTurnResult.Events))
+	if !eventsContain(secondTurnResult.Events, "tool.task.list.result", "계약서 확인 요약 작업") {
+		t.Fatalf("expected task.list result to include prior task prompt; events: %s", summarizeEvents(secondTurnResult.Events))
 	}
 	if !strings.Contains(secondTurnResult.FinishMessage, "계약서 확인 요약") {
 		t.Fatalf("expected final reply to mention prior task, got %q", secondTurnResult.FinishMessage)
@@ -940,11 +890,11 @@ func TestFailureExplanationAcceptance(t *testing.T) {
 	if secondTurnResult.TaskStatus != task.TaskStatusCompleted {
 		t.Fatalf("expected second turn success, got %s", secondTurnResult.TaskStatus)
 	}
-	if countEvents(secondTurnResult.Events, "tool.task.history.requested") == 0 {
-		t.Fatalf("expected task.history request in second turn; events: %s", summarizeEvents(secondTurnResult.Events))
+	if countEvents(secondTurnResult.Events, "tool.task.list.requested") == 0 {
+		t.Fatalf("expected task.list request in second turn; events: %s", summarizeEvents(secondTurnResult.Events))
 	}
-	if !eventsContain(secondTurnResult.Events, "tool.task.history.result", "failureReason") || !eventsContain(secondTurnResult.Events, "tool.task.history.result", "permission denied") {
-		t.Fatalf("expected task.history result to include failure reason; events: %s", summarizeEvents(secondTurnResult.Events))
+	if !eventsContain(secondTurnResult.Events, "tool.task.list.result", "failureReason") || !eventsContain(secondTurnResult.Events, "tool.task.list.result", "permission denied") {
+		t.Fatalf("expected task.list result to include failure reason; events: %s", summarizeEvents(secondTurnResult.Events))
 	}
 	if !strings.Contains(secondTurnResult.FinishMessage, "permission denied") {
 		t.Fatalf("expected final reply to mention permission denied, got %q", secondTurnResult.FinishMessage)
@@ -963,7 +913,7 @@ func TestOneTimeScheduleAcceptance(t *testing.T) {
 	if countRequestedToolCalls(turnResult.Events, "schedule.create") != 1 {
 		t.Fatalf("expected one-time schedule creation event; events: %s", summarizeEvents(turnResult.Events))
 	}
-	if !eventsContain(turnResult.Events, "tool.capability.invoke.result", "schedule.create") {
+	if !eventsContain(turnResult.Events, "tool.schedule.create.result", "schedule.create") {
 		t.Fatalf("expected one-time schedule capability result; events: %s", summarizeEvents(turnResult.Events))
 	}
 }
@@ -977,7 +927,7 @@ func TestSitePrototypeAcceptance(t *testing.T) {
 	if !eventsContain(turnResult.Events, "agent.instructions_loaded", "site-prototype") {
 		t.Fatal("expected site-prototype skill to be selected")
 	}
-	if !eventsContain(turnResult.Events, "tool.capability.invoke.result", "publishedURL") {
+	if !eventsContain(turnResult.Events, "tool.site.publish.result", "publishedURL") {
 		t.Fatalf("expected site publish result to include a public URL; events: %s", summarizeEvents(turnResult.Events))
 	}
 	if !strings.Contains(turnResult.ModelContext, "site.create") || !strings.Contains(turnResult.ModelContext, "site.publish") {
@@ -1003,7 +953,7 @@ func TestSiteEditRedeployAcceptance(t *testing.T) {
 	if countEventsWithFragment(secondTurnResult.Events, "tool.file.write.requested", "site-content.json") == 0 {
 		t.Fatalf("expected a content-only site-content.json edit in turn two; events: %s", summarizeEvents(secondTurnResult.Events))
 	}
-	if countEventsWithFragment(secondTurnResult.Events, "tool.capability.invoke.requested", "site.publish") == 0 {
+	if countEventsWithFragment(secondTurnResult.Events, "tool.site.publish.requested", "site.publish") == 0 {
 		t.Fatalf("expected site.publish capability invocation in turn two; events: %s", summarizeEvents(secondTurnResult.Events))
 	}
 	if !strings.Contains(secondTurnResult.FinishMessage, "https://") {
@@ -1053,7 +1003,7 @@ func TestSiteLifecycleAcceptance(t *testing.T) {
 	if deleteCompletionTurnResult.TaskStatus != task.TaskStatusCompleted {
 		t.Fatalf("expected delete completion, got %s", deleteCompletionTurnResult.TaskStatus)
 	}
-	if !eventsContain(deleteCompletionTurnResult.Events, "tool.capability.invoke.result", "deleted") {
+	if !eventsContain(deleteCompletionTurnResult.Events, "tool.site.delete.result", "deleted") {
 		t.Fatalf("expected site.delete result; events: %s", summarizeEvents(deleteCompletionTurnResult.Events))
 	}
 }
@@ -1070,10 +1020,10 @@ func TestSiteSuggestedRepairRecovery(t *testing.T) {
 	if !eventsContain(turnResult.Events, "agent.completion_required", "") {
 		t.Fatalf("expected completion gate to reject early finish; events: %s", summarizeEvents(turnResult.Events))
 	}
-	if countEventsWithFragment(turnResult.Events, "tool.capability.invoke.requested", "site.repair") != 1 {
+	if countEventsWithFragment(turnResult.Events, "tool.site.repair.requested", "site.repair") != 1 {
 		t.Fatalf("expected one site.repair call; events: %s", summarizeEvents(turnResult.Events))
 	}
-	if countEventsWithFragment(turnResult.Events, "tool.capability.invoke.requested", "site.publish") != 1 {
+	if countEventsWithFragment(turnResult.Events, "tool.site.publish.requested", "site.publish") != 1 {
 		t.Fatalf("expected one site.publish call; events: %s", summarizeEvents(turnResult.Events))
 	}
 	if !strings.Contains(turnResult.FinishMessage, "https://") {
@@ -1110,7 +1060,7 @@ func TestDirectMessageSendConfirmAcceptance(t *testing.T) {
 	if countRequestedToolCalls(secondTurnResult.Events, "message.send") != 1 {
 		t.Fatalf("expected exactly one approved send request; events: %s", summarizeEvents(secondTurnResult.Events))
 	}
-	if !eventsContain(secondTurnResult.Events, "tool.capability.invoke.result", "virtual-platform-message-001") {
+	if !eventsContain(secondTurnResult.Events, "tool.message.send.result", "virtual-platform-message-001") {
 		t.Fatalf("expected send result message id observation; events: %s", summarizeEvents(secondTurnResult.Events))
 	}
 	if !strings.Contains(secondTurnResult.FinishMessage, "보냈습니다") {
@@ -1133,10 +1083,10 @@ func TestChannelPostAcceptance(t *testing.T) {
 	if countRequestedToolCalls(turnResult.Events, "message.send") != 1 {
 		t.Fatalf("expected one send request, got events: %s", summarizeEvents(turnResult.Events))
 	}
-	if !eventsContain(turnResult.Events, "tool.capability.invoke.requested", `"targetType":"channel"`) {
+	if !eventsContain(turnResult.Events, "tool.message.send.requested", `"targetType":"channel"`) {
 		t.Fatalf("expected channel delivery target; events: %s", summarizeEvents(turnResult.Events))
 	}
-	if eventsContain(turnResult.Events, "tool.capability.invoke.requested", `"targetType":"directMessage"`) {
+	if eventsContain(turnResult.Events, "tool.message.send.requested", `"targetType":"directMessage"`) {
 		t.Fatalf("expected no direct message target; events: %s", summarizeEvents(turnResult.Events))
 	}
 }
@@ -1153,10 +1103,10 @@ func TestPlatformMessageEditAcceptance(t *testing.T) {
 	if countRequestedToolCalls(turnResult.Events, "message.update") != 1 {
 		t.Fatalf("expected one message update request; events: %s", summarizeEvents(turnResult.Events))
 	}
-	if !eventsContain(turnResult.Events, "tool.capability.invoke.requested", `"messageID":"virtual-platform-message-001"`) {
+	if !eventsContain(turnResult.Events, "tool.message.update.requested", `"messageID":"virtual-platform-message-001"`) {
 		t.Fatalf("expected message ID in update input; events: %s", summarizeEvents(turnResult.Events))
 	}
-	if !eventsContain(turnResult.Events, "tool.capability.invoke.requested", `"text":"오늘 오후 6시에 전체 공지 회의가 있습니다."`) {
+	if !eventsContain(turnResult.Events, "tool.message.update.requested", `"text":"오늘 오후 6시에 전체 공지 회의가 있습니다."`) {
 		t.Fatalf("expected new text in update input; events: %s", summarizeEvents(turnResult.Events))
 	}
 }

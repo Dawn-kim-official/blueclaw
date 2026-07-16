@@ -2467,9 +2467,8 @@ func TestConnectorRuntimeFetchesInitialVisibleContextFromHistoryCursor(t *testin
 
 func TestConnectorRuntimeRunsAgentHistoryToolAndSendsOneFinishMessage(t *testing.T) {
 	languageModel := agenttest.NewActionScriptedLanguageModel(
-		`{"action":"tool.request","toolNames":["conversation.history"],"skillNames":[],"reason":"required for the requested task"}`,
 		`{"action":"continue","toolName":"conversation.history","toolInput":{"limit":20}}`,
-		connectorFinishMessageWithEvidence("이전 대화를 확인했습니다", "obs-002", "conversation.history", 0),
+		connectorFinishMessageWithEvidence("이전 대화를 확인했습니다", "obs-001", "conversation.history", 0),
 	)
 	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
 	event := testInboundEvent("message-1")
@@ -2497,11 +2496,11 @@ func TestConnectorRuntimeRunsAgentHistoryToolAndSendsOneFinishMessage(t *testing
 
 func TestConnectorRuntimeCreatesScheduledTaskFromNaturalLanguagePrompt(t *testing.T) {
 	languageModel := agenttest.NewActionScriptedLanguageModel(
-		`{"action":"tool.request","toolNames":["schedule.create"],"skillNames":["scheduled-task"],"executionStateUpdate":{}}`,
 		`{"action":"continue","toolName":"schedule.create","toolInput":{"name":"daily research brief","taskInstruction":"업계 뉴스를 조사해서 핵심만 보고해줘.","kind":"cron","cronExpression":"0 7 * * *","repeatPolicy":"unbounded","timeZone":"Asia/Seoul","platform":"spoofed","conversationID":"spoofed","replyTargetID":"spoofed"},"executionStateUpdate":{},"nextStepPlan":{"objective":"confirm schedule creation","expectedTools":[],"doneCriteria":["schedule is created"],"risk":"","workingSetReason":"schedule.create returns the created schedule"}}`,
 		connectorFinishMessage("매일 아침 7시에 조사해서 알려드릴게요."),
 	)
 	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
+	connectorRuntime.UseAllowedToolNames([]string{"conversation.history", "schedule.create"})
 	useTestConnectorSkill(connectorRuntime, connectorScheduledTaskSkill())
 	repository := &connectorTaskScheduleRepository{}
 	connectorRuntime.UseTaskScheduleRepository(repository)
@@ -2550,9 +2549,8 @@ func TestConnectorRuntimeClassifiesConfirmationReplyBeforeResumingPendingTask(t 
 			},
 		},
 		ActionResponses: []string{
-			`{"action":"tool.request","toolNames":["calendar.delete"],"skillNames":[],"reason":"required for the approved calendar deletion"}`,
 			`{"action":"continue","toolName":"calendar.delete","toolInput":{"eventID":"event-1","userConfirmed":true}}`,
-			connectorFinishMessageWithEvidence("내일 휴가 일정을 캘린더에서 삭제했습니다.", "obs-002", "calendar.delete", 0),
+			connectorFinishMessageWithEvidence("내일 휴가 일정을 캘린더에서 삭제했습니다.", "obs-001", "calendar.delete", 0),
 		},
 	})
 	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
@@ -2684,9 +2682,8 @@ func TestConnectorRuntimeRoutesShortConfirmationReplyThroughRouter(t *testing.T)
 			},
 		},
 		ActionResponses: []string{
-			`{"action":"tool.request","toolNames":["calendar.delete"],"skillNames":[],"reason":"required for the approved calendar deletion"}`,
 			`{"action":"continue","toolName":"calendar.delete","toolInput":{"eventID":"event-1","userConfirmed":true}}`,
-			connectorFinishMessageWithEvidence("내일 휴가 일정을 캘린더에서 삭제했습니다.", "obs-002", "calendar.delete", 0),
+			connectorFinishMessageWithEvidence("내일 휴가 일정을 캘린더에서 삭제했습니다.", "obs-001", "calendar.delete", 0),
 		},
 	})
 	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
@@ -3108,7 +3105,7 @@ func TestConnectorRuntimeAddsCalendarEventWithoutApproval(t *testing.T) {
 			`{"route":"start_task","classification":"bounded_task","taskShape":"maintenance_task","level":"low","estimatedMinutes":1,"requestedOutputFormats":null,"responseLanguage":"ko","reason":"calendar add is non-destructive tool work","userFacingReply":""}`,
 		}},
 		ActionResponses: []string{
-			`{"action":"continue","toolName":"capability.invoke","toolInput":{"operation":"calendar.add","input":{"title":"휴가","startISO":"2026-05-09","endISO":"2026-05-10","isAllDay":true}}}`,
+			`{"action":"continue","toolName":"calendar.add","toolInput":{"title":"휴가","startISO":"2026-05-09","endISO":"2026-05-10","isAllDay":true}}`,
 			connectorFinishMessageWithEvidence("내일 휴가 일정을 캘린더에 추가했습니다.", "obs-001", "calendar.add", 0),
 		},
 	})
@@ -3155,9 +3152,8 @@ func TestConnectorRuntimeAddsCalendarEventWithoutApproval(t *testing.T) {
 
 func TestConnectorRuntimeReadsTypedCapabilityToolResponse(t *testing.T) {
 	languageModel := agenttest.NewActionScriptedLanguageModel(
-		`{"action":"tool.request","toolNames":["browser.snapshot"],"skillNames":["browser-snapshot"],"executionStateUpdate":{"goal":"open browser and observe","workspace":"","knownFacts":[],"triedAndFailed":[],"currentBlocker":"","nextPlan":"observe the current browser"}}`,
 		`{"action":"continue","toolName":"browser.snapshot","toolInput":{},"nextStepPlan":{"objective":"observe the current browser","expectedTools":[],"expectedNextResults":["browser snapshot is available"],"doneCriteria":["snapshot result is available"],"risk":"browser may be unavailable","workingSetReason":"browser.snapshot was explicitly required"}}`,
-		connectorFinishMessageWithEvidence("브라우저를 확인했습니다", "obs-002", "browser.snapshot", 0),
+		connectorFinishMessageWithEvidence("브라우저를 확인했습니다", "obs-001", "browser.snapshot", 0),
 	)
 	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
 	useTestConnectorSkill(connectorRuntime, connectorBrowserSnapshotSkill())

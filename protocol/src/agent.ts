@@ -92,7 +92,7 @@ export const failureReportFactsSchema = z.looseObject({
   budgetState: z.string().optional(),
 });
 
-const actionStateSchema = z.looseObject({
+const actionStateSchema = z.strictObject({
   message: z.string().optional(),
   reason: z.string().optional(),
   goalStatus: z.string().optional(),
@@ -105,10 +105,6 @@ export const continueActionSchema = actionStateSchema.extend({
   action: z.literal('continue'),
   toolName: z.string(),
   toolInput: jsonValueSchema,
-  toolNames: z.array(z.string()).optional(),
-  skillNames: z.array(z.string()).optional(),
-  requestTools: z.array(z.string()).optional(),
-  requestSkills: z.array(z.string()).optional(),
 });
 
 export const setQualityCriteriaActionSchema = actionStateSchema.extend({

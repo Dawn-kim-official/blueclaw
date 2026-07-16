@@ -20,6 +20,7 @@ type ChatCompletionResponse struct {
 	FinishReason     string                `json:"finishReason"`
 	ProviderName     string                `json:"provider"`
 	ModelName        string                `json:"model"`
+	ModelTier        string                `json:"-"`
 	SelectedBackend  string                `json:"selectedBackend"`
 	ProviderMetadata json.RawMessage       `json:"providerMetadata,omitempty"`
 	Message          ChatCompletionMessage `json:"message"`

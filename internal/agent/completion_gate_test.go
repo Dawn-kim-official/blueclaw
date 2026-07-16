@@ -377,9 +377,9 @@ func TestValidateCompletionEvidenceDoesNotDeliverImageReadAttachment(t *testing.
 func TestAgentTurnRunnerRequiresToolEvidenceBeforeFinishMessage(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		finishMessageDocument("browser tool is unavailable"),
-		`{"action":"continue","toolName":"capability.invoke","toolInput":{"operation":"memory.search","input":{}}}`,
+		`{"action":"continue","toolName":"memory.search","toolInput":{}}`,
 		finishMessageDocument("still no screenshot"),
-		`{"action":"continue","toolName":"capability.invoke","toolInput":{"operation":"browser.screenshot","input":{}}}`,
+		`{"action":"continue","toolName":"browser.screenshot","toolInput":{}}`,
 		finishMessageWithEvidence("observed", "obs-004", "browser.screenshot", 0),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
@@ -414,13 +414,13 @@ func TestAgentTurnRunnerRequiresToolEvidenceBeforeFinishMessage(t *testing.T) {
 	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.completion_required", "browser.") {
 		t.Fatal("expected completion requirement event")
 	}
-	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "tool.capability.invoke.result", "[]") {
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "tool.memory.search.result", "[]") {
 		t.Fatal("expected memory search observation before screenshot")
 	}
 	if len(result.Attachments) != 1 || result.Attachments[0].DevicePath != "/tmp/internkim-companion-files/screenshot.png" {
 		t.Fatalf("expected screenshot attachment, got %+v", result.Attachments)
 	}
-	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "tool.capability.invoke.result", "/tmp/internkim-companion-files/screenshot.png") {
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "tool.browser.screenshot.result", "/tmp/internkim-companion-files/screenshot.png") {
 		t.Fatal("expected browser screenshot observation")
 	}
 }
@@ -893,7 +893,7 @@ func TestAgentTurnRunnerRejectsUnsatisfiedFinishMessage(t *testing.T) {
 
 func TestAgentTurnRunnerRejectsCompletionEvidenceFromErrorObservation(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"continue","toolName":"capability.invoke","toolInput":{"operation":"unstable","input":{}}}`,
+		`{"action":"continue","toolName":"unstable","toolInput":{}}`,
 		finishMessageWithEvidence("done", "obs-001", "unstable", 0),
 		failureReportDocument("tool failed", "unstable", "{}", FailureCodes.OperationFailed.String(), "unstable", "failed"),
 	}}
@@ -923,7 +923,7 @@ func TestAgentTurnRunnerRejectsCompletionEvidenceFromErrorObservation(t *testing
 
 func TestAgentTurnRunnerNoToolFallbackWaivesFailedRequiredEvidence(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"continue","toolName":"capability.invoke","toolInput":{"operation":"math.calculate","input":{"expression":"1+2/4"}}}`,
+		`{"action":"continue","toolName":"math.calculate","toolInput":{"expression":"1+2/4"}}`,
 		noToolFallbackFinishMessageDocument("1 + 2/4 = 1.5"),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
@@ -946,7 +946,7 @@ func TestAgentTurnRunnerNoToolFallbackWaivesFailedRequiredEvidence(t *testing.T)
 	if result.FinishMessage != "1 + 2/4 = 1.5" {
 		t.Fatalf("expected direct fallback answer, got %q", result.FinishMessage)
 	}
-	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "tool.capability.invoke.result", FailureCodes.OperationFailed.String()) {
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "tool.math.calculate.result", FailureCodes.OperationFailed.String()) {
 		t.Fatal("expected internal tool failure event to remain recorded")
 	}
 }
@@ -1078,7 +1078,7 @@ func TestCompletionGateRequiresFileDeliverEvidenceEvenWhenFileExists(t *testing.
 func TestAgentTurnRunnerRemovesQualityCriteriaActionAfterCriteriaAreSet(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		`{"action":"set_quality_criteria","qualityCriteria":["done once: criteria are declared"],"goalStatus":"in_progress","goalSatisfied":false}`,
-		`{"action":"continue","toolName":"capability.invoke","toolInput":{"operation":"alpha","input":{}}}`,
+		`{"action":"continue","toolName":"alpha","toolInput":{}}`,
 		`{"action":"finish","message":"done","replyParts":[{"type":"text","text":"done"}],"goalStatus":"satisfied","goalSatisfied":true,"completionEvidenceIDs":["obs-002"],"qualityReview":[{"id":"done-once-criteria-are-declared","passed":true,"evidenceIDs":["obs-002"]}]}`,
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 4})
@@ -1116,7 +1116,7 @@ func TestAgentTurnRunnerRemovesQualityCriteriaActionAfterCriteriaAreSet(t *testi
 func TestAgentTurnRunnerDoesNotBlockFinishedExpectedResultForMissingQualityReview(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		`{"action":"set_quality_criteria","qualityCriteria":["visual review: review the artifact"],"goalStatus":"in_progress","goalSatisfied":false}`,
-		`{"action":"continue","toolName":"capability.invoke","toolInput":{"operation":"site.publish","input":{"siteID":"site-1"}},"nextStepPlan":{"objective":"finish with the public URL","expectedTools":[],"expectedNextResults":["public URL"],"doneCriteria":["public URL is available"],"risk":"none","workingSetReason":"publish satisfies the link expected result"}}`,
+		`{"action":"continue","toolName":"site.publish","toolInput":{"siteID":"site-1"},"nextStepPlan":{"objective":"finish with the public URL","expectedTools":[],"expectedNextResults":["public URL"],"doneCriteria":["public URL is available"],"risk":"none","workingSetReason":"publish satisfies the link expected result"}}`,
 		`{"action":"finish","message":"배포했습니다: https://portfolio.example","replyParts":[{"type":"text","text":"배포했습니다: https://portfolio.example"}],"goalStatus":"satisfied","goalSatisfied":true,"completionEvidenceIDs":["obs-002"]}`,
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 5})
@@ -1156,9 +1156,9 @@ func TestAgentTurnRunnerExpectedResultVerifierBlocksEarlyFinish(t *testing.T) {
 			`{"overallStatus":"satisfied","summary":"public URL exists","results":[{"id":"site-public-link","status":"satisfied","reason":"Publish returned a public URL.","citedObservationIDs":["obs-003"],"missingDescription":"","suggestedNextTools":[]}]}`,
 		},
 		contents: []string{
-			`{"action":"continue","toolName":"capability.invoke","toolInput":{"operation":"site.create","input":{"slug":"portfolio","title":"Portfolio"}},"nextStepPlan":{"objective":"create draft","expectedTools":[],"expectedNextResults":["draft site project exists"],"doneCriteria":["draft exists"],"risk":"none","workingSetReason":"create prepares the project"}}`,
+			`{"action":"continue","toolName":"site.create","toolInput":{"slug":"portfolio","title":"Portfolio"},"nextStepPlan":{"objective":"create draft","expectedTools":[],"expectedNextResults":["draft site project exists"],"doneCriteria":["draft exists"],"risk":"none","workingSetReason":"create prepares the project"}}`,
 			`{"action":"finish","message":"초안을 만들었습니다.","replyParts":[{"type":"text","text":"초안을 만들었습니다."}],"goalStatus":"satisfied","goalSatisfied":true,"completionEvidence":[{"observationID":"obs-001","toolName":"site.create"}]}`,
-			`{"action":"continue","toolName":"capability.invoke","toolInput":{"operation":"site.publish","input":{"siteID":"site-1","message":"Publish"}},"nextStepPlan":{"objective":"finish after public URL","expectedTools":[],"expectedNextResults":["public URL exists"],"doneCriteria":["public URL exists"],"risk":"none","workingSetReason":"publish should satisfy the expected result"}}`,
+			`{"action":"continue","toolName":"site.publish","toolInput":{"siteID":"site-1","message":"Publish"},"nextStepPlan":{"objective":"finish after public URL","expectedTools":[],"expectedNextResults":["public URL exists"],"doneCriteria":["public URL exists"],"risk":"none","workingSetReason":"publish should satisfy the expected result"}}`,
 			`{"action":"finish","message":"배포했습니다: https://portfolio.example","replyParts":[{"type":"text","text":"배포했습니다: https://portfolio.example"}],"goalStatus":"satisfied","goalSatisfied":true,"completionEvidence":[{"observationID":"obs-003","toolName":"site.publish"}]}`,
 		},
 	}
@@ -1344,7 +1344,7 @@ func TestAgentTurnRunnerExpectedResultsRequireTheirTypedToolEvidence(t *testing.
 			`{"overallStatus":"satisfied","summary":"public URL exists","results":[{"id":"site-public-link","status":"satisfied","reason":"Publish returned a public URL.","citedObservationIDs":["obs-001"],"missingDescription":"","suggestedNextTools":[]}]}`,
 		},
 		contents: []string{
-			`{"action":"continue","toolName":"capability.invoke","toolInput":{"operation":"site.publish","input":{"siteID":"site-1","message":"Publish"}},"nextStepPlan":{"objective":"finish with public URL","expectedTools":[],"expectedNextResults":["public URL exists"],"doneCriteria":["public URL exists"],"risk":"none","workingSetReason":"publish should satisfy the expected result"}}`,
+			`{"action":"continue","toolName":"site.publish","toolInput":{"siteID":"site-1","message":"Publish"},"nextStepPlan":{"objective":"finish with public URL","expectedTools":[],"expectedNextResults":["public URL exists"],"doneCriteria":["public URL exists"],"risk":"none","workingSetReason":"publish should satisfy the expected result"}}`,
 			`{"action":"finish","message":"배포했습니다: https://portfolio.example","replyParts":[{"type":"text","text":"배포했습니다: https://portfolio.example"}],"goalStatus":"satisfied","goalSatisfied":true,"completionEvidence":[{"observationID":"obs-001","toolName":"site.publish"}]}`,
 		},
 	}
@@ -1392,7 +1392,7 @@ func TestAgentTurnRunnerFileExpectedResultRequiresAttachment(t *testing.T) {
 			`{"overallStatus":"satisfied","summary":"PPTX attached","results":[{"id":"attached-file","status":"satisfied","reason":"file.deliver returned an attachment.","citedObservationIDs":["obs-003"],"missingDescription":"","suggestedNextTools":[]}]}`,
 		},
 		contents: []string{
-			`{"action":"continue","toolName":"capability.invoke","toolInput":{"operation":"file.promote","input":{"path":"tmp/deck/build/deck.pptx","destinationDirectoryPath":"artifacts/deck","overwrite":true}},"nextStepPlan":{"objective":"attach promoted file","expectedTools":["file.deliver"],"expectedNextResults":["attached pptx"],"doneCriteria":["file attached"],"risk":"none","workingSetReason":"file deliverable requires attachment"}}`,
+			`{"action":"continue","toolName":"file.promote","toolInput":{"path":"tmp/deck/build/deck.pptx","destinationDirectoryPath":"artifacts/deck","overwrite":true},"nextStepPlan":{"objective":"attach promoted file","expectedTools":["file.deliver"],"expectedNextResults":["attached pptx"],"doneCriteria":["file attached"],"risk":"none","workingSetReason":"file deliverable requires attachment"}}`,
 			`{"action":"finish","message":"PPTX를 첨부했습니다.","replyParts":[{"type":"text","text":"PPTX를 첨부했습니다."}],"goalStatus":"satisfied","goalSatisfied":true,"completionEvidence":[{"observationID":"obs-001","toolName":"file.promote"}]}`,
 			`{"action":"continue","toolName":"file.deliver","toolInput":{"path":"artifacts/deck/deck.pptx"},"nextStepPlan":{"objective":"finish","expectedTools":[],"expectedNextResults":["final message"],"doneCriteria":["attached file delivered"],"risk":"none","workingSetReason":"attachment now exists"}}`,
 			finishMessageWithEvidence("PPTX를 첨부했습니다.", "obs-003", "file.deliver", 0),
@@ -1447,10 +1447,10 @@ func TestAgentTurnRunnerFileExpectedResultRequiresAttachment(t *testing.T) {
 
 func TestAgentTurnRunnerRejectsQualityGateRetryUntilSourceChanges(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"continue","toolName":"capability.invoke","toolInput":{"operation":"site.build","input":{"siteID":"site-1"}}}`,
-		`{"action":"continue","toolName":"capability.invoke","toolInput":{"operation":"site.build","input":{"siteID":"site-1"}}}`,
+		`{"action":"continue","toolName":"site.build","toolInput":{"siteID":"site-1"}}`,
+		`{"action":"continue","toolName":"site.build","toolInput":{"siteID":"site-1"}}`,
 		`{"action":"continue","toolName":"file.write","toolInput":{"path":"/workspace/sites/site-1/app/src/App.tsx","content":"export default function App(){return <main>Portfolio</main>}"}}`,
-		`{"action":"continue","toolName":"capability.invoke","toolInput":{"operation":"site.build","input":{"siteID":"site-1"}}}`,
+		`{"action":"continue","toolName":"site.build","toolInput":{"siteID":"site-1"}}`,
 		finishMessageWithEvidence("수정 후 빌드했습니다.", "obs-004", "site.build", 0),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 8, MaxToolCallCount: 6})
@@ -1506,7 +1506,7 @@ func TestAgentTurnRunnerRejectsQualityGateRetryUntilSourceChanges(t *testing.T) 
 
 func TestAgentTurnRunnerFinalizesOneShotEvidenceToolAfterSuccess(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"continue","toolName":"capability.invoke","toolInput":{"operation":"calendar.add","input":{"title":"휴가","startISO":"2026-05-10T00:00:00+09:00","endISO":"2026-05-13T00:00:00+09:00","timeZone":"Asia/Seoul","isAllDay":true}}}`,
+		`{"action":"continue","toolName":"calendar.add","toolInput":{"title":"휴가","startISO":"2026-05-10T00:00:00+09:00","endISO":"2026-05-13T00:00:00+09:00","timeZone":"Asia/Seoul","isAllDay":true}}`,
 		finishMessageWithEvidence("휴가 일정을 등록했습니다.", "obs-001", "calendar.add", 0),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 4, MaxToolCallCount: 4})
@@ -1547,7 +1547,7 @@ func TestAgentTurnRunnerFinalizesOneShotEvidenceToolAfterSuccess(t *testing.T) {
 
 func TestAgentTurnRunnerFinalizesScheduleCreateAfterSuccess(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"continue","toolName":"capability.invoke","toolInput":{"operation":"schedule.create","input":{"taskInstruction":"현재 대화에 \"죄송합니다\"라고 보낸다.","kind":"interval","intervalSecond":60,"maxRunCount":10,"repeatPolicy":"finite","timeZone":"Asia/Seoul"}}}`,
+		`{"action":"continue","toolName":"schedule.create","toolInput":{"taskInstruction":"현재 대화에 \"죄송합니다\"라고 보낸다.","kind":"interval","intervalSecond":60,"maxRunCount":10,"repeatPolicy":"finite","timeZone":"Asia/Seoul"}}`,
 		finishMessageWithEvidence("반복 일정을 만들었습니다.", "obs-001", "schedule.create", 0),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 4, MaxToolCallCount: 4})

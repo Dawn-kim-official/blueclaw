@@ -1,14 +1,10 @@
 package agent
 
-import (
-	"encoding/json"
-	"strings"
-)
+import "strings"
 
 type requestToolsArguments struct {
 	ToolNames  []string `json:"toolNames"`
 	SkillNames []string `json:"skillNames"`
-	Reason     string   `json:"reason,omitempty"`
 }
 
 type toolRequestResult struct {
@@ -171,89 +167,10 @@ func appendPinnedSkillPrompt(instructionPrompt string, skillInstructions []Skill
 	return strings.Join(nonEmptyStrings([]string{instructionPrompt, pinnedPrompt}), "\n\n")
 }
 
-func toolRequestObservation(index int, requestArguments requestToolsArguments, result toolRequestResult) turnObservation {
-	content := marshalToolSelectionResult(requestArguments, result)
-	observation := newContentObservation(nextObservationID(index), "tool.request", "", content)
-	if toolRequestResultFailed(result) {
-		observation.Failure = &ToolFailure{
-			Kind:            FailureInvalidInput,
-			Code:            FailureCodes.InvalidInput.String(),
-			Stage:           "tool.request",
-			UserSafeSummary: toolRequestFailureSummary(result),
-		}
-	}
-	return observation
-}
-
-func toolRequestAddedNothing(before AgentTurnRequest, after AgentTurnRequest, result toolRequestResult) bool {
-	if toolRequestResultFailed(result) {
-		return false
-	}
-	return len(after.PinnedToolNames) == len(before.PinnedToolNames) &&
-		len(after.PinnedSkillNames) == len(before.PinnedSkillNames)
-}
-
-func redundantToolSelectionObservation(index int, requestArguments requestToolsArguments, result toolRequestResult) turnObservation {
-	requested := appendUniqueStrings(append(append([]string{}, requestArguments.ToolNames...), requestArguments.SkillNames...))
-	directive := "These kernel tools, skills, or capability operations are already available in your palette: " + strings.Join(requested, ", ") + ". Do not request them again; use one now to make progress, or finish."
-	content := marshalEventBody(map[string]any{
-		"request":   requestArguments,
-		"result":    result,
-		"redundant": true,
-		"directive": directive,
-	})
-	observation := newContentObservation(nextObservationID(index), "tool.request", "", content)
-	observation.Summary = directive
-	return observation
-}
-
-func ambientFixedPaletteObservation(index int, requestArguments requestToolsArguments) turnObservation {
-	directive := "This ambient capture has a fixed palette: use only the already-available task and calendar capability operations, then finish. Do not request other capabilities."
-	content := marshalEventBody(map[string]any{
-		"request":      requestArguments,
-		"fixedPalette": true,
-		"directive":    directive,
-	})
-	observation := newContentObservation(nextObservationID(index), "tool.request", "", content)
-	observation.Summary = directive
-	return observation
-}
-
 func toolRequestResultFailed(result toolRequestResult) bool {
 	return len(result.UnknownToolNames) > 0 ||
 		len(result.UnavailableToolNames) > 0 ||
 		len(result.UnknownSkillNames) > 0 ||
 		len(result.SkillsMissingAllowedTools) > 0 ||
 		result.EmptyRequirement
-}
-
-func toolRequestFailureSummary(result toolRequestResult) string {
-	parts := []string{}
-	if len(result.UnknownToolNames) > 0 {
-		parts = append(parts, "unknown_tool="+strings.Join(result.UnknownToolNames, ","))
-	}
-	if len(result.UnavailableToolNames) > 0 {
-		parts = append(parts, "tool_unavailable="+strings.Join(result.UnavailableToolNames, ","))
-	}
-	if len(result.UnknownSkillNames) > 0 {
-		parts = append(parts, "unknown_skill="+strings.Join(result.UnknownSkillNames, ","))
-	}
-	if len(result.SkillsMissingAllowedTools) > 0 {
-		parts = append(parts, "skill_missing_allowed_tools")
-	}
-	if result.EmptyRequirement {
-		parts = append(parts, "empty_requirement")
-	}
-	return strings.Join(parts, "; ")
-}
-
-func marshalToolSelectionResult(requestArguments requestToolsArguments, result toolRequestResult) string {
-	document, errorValue := json.Marshal(map[string]any{
-		"request": requestArguments,
-		"result":  result,
-	})
-	if errorValue != nil {
-		return "{}"
-	}
-	return string(document)
 }

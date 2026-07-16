@@ -36,6 +36,15 @@ func TestObserveLanguageModelRecordsStructuredCalls(t *testing.T) {
 	}
 }
 
+func TestTurnRouterCallLedgerPreservesMissingModelTier(t *testing.T) {
+	ledger := &turnRouterCallLedger{}
+	ledger.observe(llmCallRecord{SchemaName: turnRouterSchemaName})
+
+	if len(ledger.records) != 1 || ledger.records[0].IsError || ledger.records[0].ModelTier != "" {
+		t.Fatalf("expected missing router tier to remain observational, got %+v", ledger.records)
+	}
+}
+
 func TestObserveLanguageModelRecordsSafeSDKDDiagnosticsAndRequestSizes(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(responseWriter http.ResponseWriter, request *http.Request) {
 		responseWriter.WriteHeader(http.StatusUnprocessableEntity)
@@ -105,11 +114,12 @@ func TestChatCallRecordPreservesActionRoutingMetadata(t *testing.T) {
 	record := chatCallRecord("chat", nativeActionChatRequest(), llm.ChatCompletionResponse{
 		ProviderName:    "sdkd",
 		ModelName:       "low-model",
+		ModelTier:       "low",
 		SelectedBackend: "device",
 		FinishReason:    "tool_calls",
 		UsedFallback:    true,
 	}, time.Now(), nil)
-	if record.SchemaName != "blueclaw_agent_turn_action" || record.Provider != "sdkd" || record.Model != "low-model" || record.SelectedBackend != "device" || record.FinishReason != "tool_calls" || !record.UsedFallback {
+	if record.SchemaName != "blueclaw_agent_turn_action" || record.Provider != "sdkd" || record.Model != "low-model" || record.ModelTier != "low" || record.SelectedBackend != "device" || record.FinishReason != "tool_calls" || !record.UsedFallback {
 		t.Fatalf("expected action routing metadata, got %+v", record)
 	}
 }

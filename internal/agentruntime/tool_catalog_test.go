@@ -247,7 +247,6 @@ func internalTestToolNames() []string {
 		"skill.add",
 		"skill.remove",
 		"skill.search",
-		"task.history",
 		"terminal.run",
 	}
 }

@@ -2,20 +2,6 @@ package agent
 
 import "testing"
 
-func TestWorkflowToolNamesForTurnRequestUsesCapabilityInvokeForCapabilityEvidence(t *testing.T) {
-	toolSet := newTestCapabilityToolSet([]string{"task.add"})
-	request := AgentTurnRequest{
-		ToolSet:               toolSet,
-		RequiredEvidenceTools: []string{"task.add"},
-	}
-
-	toolNames := workflowToolNamesForTurnRequest(request)
-
-	if len(toolNames) != 1 || toolNames[0] != CapabilityInvokeToolName {
-		t.Fatalf("expected capability.invoke for capability evidence, got %+v", toolNames)
-	}
-}
-
 func TestWorkflowContractDoesNotDeriveEffectsFromPrompt(t *testing.T) {
 	requirements := requiredWorkflowEffectRequirementsForRequest(AgentRequest{
 		Prompt:  "예쁜 귤 웹사이트 퀄리티가 너무 낮잖아. 더 예쁘게 해줘.",

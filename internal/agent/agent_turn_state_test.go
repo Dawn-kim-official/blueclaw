@@ -409,23 +409,18 @@ func TestBuildAgentActionRequestPreservesTypedInteractionTool(t *testing.T) {
 	}
 }
 
-func TestCapabilityInvokeActionSchemaPreservesWrapperRequiredFields(t *testing.T) {
+func TestDirectActionSchemaPreservesToolRequiredFields(t *testing.T) {
 	schemaDocument := buildActionSchemaFromToolDefinitions([]ToolDefinition{{
-		Name:        CapabilityInvokeToolName,
-		InputSchema: json.RawMessage(`{"type":"object","properties":{"operation":{"type":"string","enum":["calendar.add"]},"input":{"type":"object"}},"required":["operation","input"]}`),
+		Name:        "calendar.add",
+		InputSchema: json.RawMessage(`{"type":"object","properties":{"title":{"type":"string"}},"required":["title"]}`),
 	}}, false, nil, false, false)
 
 	continueVariant := actionSchemaVariant(t, schemaDocument, "continue")
 	properties := mapFromAny(continueVariant["properties"])
 	toolInput := mapFromAny(properties["toolInput"])
 	requiredFields := stringSliceFromAny(toolInput["required"])
-	if !containsString(requiredFields, "operation") || !containsString(requiredFields, "input") {
-		t.Fatalf("expected capability.invoke wrapper fields to stay required, got %+v in %s", requiredFields, schemaDocument)
-	}
-	toolInputProperties := mapFromAny(toolInput["properties"])
-	operationProperty := mapFromAny(toolInputProperties["operation"])
-	if !containsString(stringSliceFromAny(operationProperty["enum"]), "calendar.add") {
-		t.Fatalf("expected operation enum to be preserved, got %+v", operationProperty)
+	if !containsString(requiredFields, "title") {
+		t.Fatalf("expected direct tool input fields to stay required, got %+v in %s", requiredFields, schemaDocument)
 	}
 }
 
@@ -612,16 +607,16 @@ func TestParseAgentActionResponseNormalizesContinueToolCall(t *testing.T) {
 	}
 }
 
-func TestParseAgentActionResponseNormalizesCapabilityWrapperToolName(t *testing.T) {
-	action, errorValue := ParseAgentActionResponse(llm.StructuredResponse{Content: `{"action":"continue","toolName":"task.history","toolInput":{"operation":"task.add","input":"{\"title\":\"분기 결산\"}"}}`})
+func TestParseAgentActionResponsePreservesDirectToolName(t *testing.T) {
+	action, errorValue := ParseAgentActionResponse(llm.StructuredResponse{Content: `{"action":"continue","toolName":"task.add","toolInput":{"title":"분기 결산"}}`})
 	if errorValue != nil {
 		t.Fatalf("expected parsed action: %v", errorValue)
 	}
-	if action.ToolName != CapabilityInvokeToolName {
-		t.Fatalf("expected capability wrapper to normalize to %s, got %+v", CapabilityInvokeToolName, action)
+	if action.ToolName != "task.add" {
+		t.Fatalf("expected direct tool name to stay task.add, got %+v", action)
 	}
-	if string(action.ToolInput) != `{"operation":"task.add","input":"{\"title\":\"분기 결산\"}"}` {
-		t.Fatalf("expected capability input to be preserved, got %s", action.ToolInput)
+	if string(action.ToolInput) != `{"title":"분기 결산"}` {
+		t.Fatalf("expected direct tool input to be preserved, got %s", action.ToolInput)
 	}
 }
 
@@ -632,24 +627,6 @@ func TestParseAgentActionResponsePreservesTaskHistoryInput(t *testing.T) {
 	}
 	if action.ToolName != TaskHistoryToolName {
 		t.Fatalf("expected genuine task history call to be preserved, got %+v", action)
-	}
-}
-
-func TestParseAgentActionResponsePreservesAmbiguousOperationInput(t *testing.T) {
-	testCases := []string{
-		`{"operation":"task.add"}`,
-		`{"operation":"task.add","input":null}`,
-		`{"operation":"task.add","input":"not json"}`,
-		`{"operation":"task.add","input":{},"extra":true}`,
-	}
-	for _, toolInput := range testCases {
-		action, errorValue := ParseAgentActionResponse(llm.StructuredResponse{Content: `{"action":"continue","toolName":"task.history","toolInput":` + toolInput + `}`})
-		if errorValue != nil {
-			t.Fatalf("expected parsed action: %v", errorValue)
-		}
-		if action.ToolName != TaskHistoryToolName {
-			t.Fatalf("expected ambiguous input %s to preserve task history, got %+v", toolInput, action)
-		}
 	}
 }
 
@@ -796,6 +773,7 @@ func TestBlockedResumeRestoresPriorObservations(t *testing.T) {
 		t.Fatal(errorValue)
 	}
 	taskRunService.AppendTaskEvent(runningTaskRun.TaskRunID, "tool.file.write.result", `{"observationID":"obs-001","action":"continue","tool":"file.write","content":"wrote app","isError":false}`)
+	taskRunService.AppendTaskEvent(runningTaskRun.TaskRunID, "tool.file.read.result", `{"observationID":"obs-003","action":"continue","tool":"file.read","content":"read app","isError":false}`)
 	blockedTaskRun, errorValue := taskRunService.PauseTaskRun(runningTaskRun.TaskRunID, task.TaskStatusBlocked, "max_iterations")
 	if errorValue != nil {
 		t.Fatal(errorValue)
@@ -814,11 +792,15 @@ func TestBlockedResumeRestoresPriorObservations(t *testing.T) {
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
-	if len(state.Observations) != 1 || state.Observations[0].Tool != "file.write" {
-		t.Fatalf("expected prior file.write observation to be restored, got %+v", state.Observations)
+	if len(state.Observations) != 2 || state.Observations[0].Tool != "file.write" || state.Observations[1].Tool != "file.read" {
+		t.Fatalf("expected prior observations to be restored, got %+v", state.Observations)
 	}
-	if state.ToolCallCount != 1 {
+	if state.ToolCallCount != 2 {
 		t.Fatalf("expected restored tool call count, got %d", state.ToolCallCount)
+	}
+	state = applyToolResult(state, ToolInvocation{ToolName: "file.write", Input: json.RawMessage(`{"path":"app.txt","content":"next"}`)}, ToolSuccess("wrote next"))
+	if state.Observations[2].ObservationID != "obs-004" {
+		t.Fatalf("expected observation IDs to continue after the highest restored ID, got %+v", state.Observations)
 	}
 }
 

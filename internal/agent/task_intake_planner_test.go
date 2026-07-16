@@ -54,18 +54,16 @@ func TestTurnRouterPropagatesLanguageModelError(t *testing.T) {
 }
 
 func TestTurnRouterPreservesUnsupportedArtifactDecision(t *testing.T) {
-	outputEvidence := "PDF"
 	decision := mustNormalizeTurn(t, NewTurnRouter(nil, IntakeOptions{}), TurnDecision{
-		Route:                   TurnRouteGiveUp,
-		Classification:          IntakeClassificationUnsupported,
-		TaskShape:               TaskShapeImmediateReply,
-		TaskLevel:               TaskLevelLow,
-		EstimatedMinutes:        1,
-		RequestedOutputFormats:  []string{"pdf"},
-		RequestedOutputEvidence: &outputEvidence,
-		Reason:                  "unsupported",
-		UserFacingReply:         "지원하지 않습니다.",
-		PriorTaskReference:      PriorTaskReferenceNone,
+		Route:                  TurnRouteGiveUp,
+		Classification:         IntakeClassificationUnsupported,
+		TaskShape:              TaskShapeImmediateReply,
+		TaskLevel:              TaskLevelLow,
+		EstimatedMinutes:       1,
+		RequestedOutputFormats: []string{"pdf"},
+		Reason:                 "unsupported",
+		UserFacingReply:        "지원하지 않습니다.",
+		PriorTaskReference:     PriorTaskReferenceNone,
 	}, AgentRequest{Prompt: "PDF 만들어줘", AllowGiveUp: true, ToolSet: newTestToolSet([]string{"terminal.run", "file.deliver"})})
 
 	if decision.Classification != IntakeClassificationUnsupported || decision.Route != TurnRouteGiveUp {
@@ -236,18 +234,18 @@ func TestTaskIntakePlannerUsesStructuredModelDecision(t *testing.T) {
 	if !strings.Contains(joinedMessageContent(languageModel.requests[0].Messages), "leave it null for reading, summarizing, searching, or analyzing an input attachment") {
 		t.Fatal("expected intake prompt to separate input attachments from file deliverables")
 	}
-	if !strings.Contains(joinedMessageContent(languageModel.requests[0].Messages), "Do not use capability.invoke as requiredEvidence") {
-		t.Fatal("expected intake prompt to require effective operation evidence")
+	if !strings.Contains(joinedMessageContent(languageModel.requests[0].Messages), "requiredEvidence") {
+		t.Fatal("expected intake prompt to describe required evidence")
 	}
 }
 
 func TestTaskIntakePlannerMapsRequiredEvidenceField(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"route":"start_task","classification":"bounded_task","taskShape":"maintenance_task","level":"low","estimatedMinutes":1,"requestedOutputFormats":null,"expectedResults":[],"requiredEvidence":["calendar.add"],"siteRequestEvidence":"","responseLanguage":"ko","reason":"calendar add","userFacingReply":"","initialToolNames":["calendar.add"],"priorTaskReference":"none"}`,
+		`{"route":"start_task","classification":"bounded_task","taskShape":"maintenance_task","level":"low","estimatedMinutes":1,"requestedOutputFormats":null,"expectedResults":[],"requiredEvidence":["calendar.add"],"responseLanguage":"ko","reason":"calendar add","userFacingReply":"","initialToolNames":["calendar.add"],"priorTaskReference":"none"}`,
 	}}
 	planner := NewTaskIntakePlanner(languageModel, IntakeOptions{IsEnabled: true})
-	toolRegistry := NewToolSet([]string{CapabilityInvokeToolName})
-	for _, toolName := range []string{CapabilityInvokeToolName, "calendar.add"} {
+	toolRegistry := NewToolSet([]string{"calendar.add"})
+	for _, toolName := range []string{"calendar.add"} {
 		currentToolName := toolName
 		toolRegistry.RegisterTool(ToolDefinition{Name: currentToolName}, func(context.Context, ToolInvocation) (ToolResult, error) {
 			return ToolSuccess("ok"), nil
@@ -262,15 +260,14 @@ func TestTaskIntakePlannerMapsRequiredEvidenceField(t *testing.T) {
 	if len(decision.RequiredEvidenceTools) != 1 || decision.RequiredEvidenceTools[0] != "calendar.add" {
 		t.Fatalf("expected calendar.add required evidence, got %+v", decision.RequiredEvidenceTools)
 	}
-	if containsString(decision.InitialToolNames, "calendar.add") {
-		t.Fatalf("expected hidden capability operation to stay out of initial tools, got %+v", decision.InitialToolNames)
+	if !containsString(decision.InitialToolNames, "calendar.add") {
+		t.Fatalf("expected direct calendar.add to remain in initial tools, got %+v", decision.InitialToolNames)
 	}
 }
 
 func TestIntakeToolDescriptionsKeepRegisteredEvidenceCompact(t *testing.T) {
-	toolRegistry := NewToolSet([]string{CapabilityInvokeToolName, "file.deliver"})
+	toolRegistry := NewToolSet([]string{"file.deliver"})
 	for _, toolDefinition := range []ToolDefinition{
-		{Name: CapabilityInvokeToolName, Description: "Dispatch a registered capability operation."},
 		{Name: "calendar.add", Description: "Create a calendar event with a long operation description."},
 		{Name: "file.deliver", Description: "Deliver a file to the requester."},
 	} {
@@ -282,11 +279,11 @@ func TestIntakeToolDescriptionsKeepRegisteredEvidenceCompact(t *testing.T) {
 
 	descriptions := intakeToolDescriptions(toolRegistry)
 
-	if !strings.Contains(descriptions, "Available tools:\n- capability.invoke\n- file.deliver: Deliver a file to the requester.") {
+	if !strings.Contains(descriptions, "Available tools:\n- file.deliver: Deliver a file to the requester.") {
 		t.Fatalf("expected descriptions only for directly callable tools, got %q", descriptions)
 	}
-	if !strings.Contains(descriptions, "Registered requiredEvidence names: calendar.add, file.deliver") {
-		t.Fatalf("expected compact registered evidence names, got %q", descriptions)
+	if !strings.Contains(descriptions, "Registered requiredEvidence names: file.deliver") {
+		t.Fatalf("expected directly callable evidence names, got %q", descriptions)
 	}
 	if strings.Contains(descriptions, "long operation description") || strings.Contains(descriptions, "Dispatch a registered capability operation") {
 		t.Fatalf("expected registered evidence descriptions to be omitted, got %q", descriptions)
@@ -295,7 +292,7 @@ func TestIntakeToolDescriptionsKeepRegisteredEvidenceCompact(t *testing.T) {
 
 func TestTaskIntakePlannerExplainsTaskRecordSemantics(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"route":"start_task","classification":"bounded_task","taskShape":"maintenance_task","level":"low","estimatedMinutes":1,"requestedOutputFormats":null,"expectedResults":[],"requiredEvidence":["task.add"],"siteRequestEvidence":"","responseLanguage":"ko","reason":"add the requested task record","userFacingReply":"","initialToolNames":[],"priorTaskReference":"none"}`,
+		`{"route":"start_task","classification":"bounded_task","taskShape":"maintenance_task","level":"low","estimatedMinutes":1,"requestedOutputFormats":null,"expectedResults":[],"requiredEvidence":["task.add"],"responseLanguage":"ko","reason":"add the requested task record","userFacingReply":"","initialToolNames":[],"priorTaskReference":"none"}`,
 	}}
 	planner := NewTaskIntakePlanner(languageModel, IntakeOptions{IsEnabled: true})
 
@@ -352,20 +349,20 @@ func TestTaskIntakePlannerFallbackDoesNotInferPriorTaskIntent(t *testing.T) {
 	}
 }
 
-func TestTaskIntakePlannerDropsFileContractWithoutRequestedOutputFormat(t *testing.T) {
+func TestTaskIntakePlannerKeepsTypedFileContract(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"route":"start_task","classification":"bounded_task","taskShape":"maintenance_task","level":"low","estimatedMinutes":1,"requestedOutputFormats":["html"],"requestedOutputEvidence":"HTML 파일","expectedResults":[{"id":"attached-file","type":"file","description":"attach a file","required":true}],"requiredEvidence":["calendar.update","file.deliver"],"siteRequestEvidence":"","responseLanguage":"ko","reason":"calendar update","userFacingReply":"","initialToolNames":["capability.invoke","file.deliver"],"priorTaskReference":"none"}`,
+		`{"route":"start_task","classification":"bounded_task","taskShape":"maintenance_task","level":"low","estimatedMinutes":1,"requestedOutputFormats":["html"],"expectedResults":[{"id":"attached-file","type":"file","description":"attach a file","required":true}],"requiredEvidence":["calendar.update","file.deliver"],"responseLanguage":"ko","reason":"calendar update","userFacingReply":"","initialToolNames":["calendar.update","file.deliver"],"priorTaskReference":"none"}`,
 	}}
 	planner := NewTaskIntakePlanner(languageModel, IntakeOptions{IsEnabled: true})
 	toolRegistry := newTestCapabilityToolSet([]string{"calendar.update", "file.deliver"})
 
 	decision := mustPlanIntake(t, planner, AgentRequest{Prompt: "일정을 오후 2시로 수정해줘", ToolSet: toolRegistry})
 
-	if expectedResultIncludesType(OutcomeContract{ExpectedResults: decision.ExpectedResults}, ExpectedResultTypeFile) {
-		t.Fatalf("expected untyped file result to be removed, got %+v", decision.ExpectedResults)
+	if !expectedResultIncludesType(OutcomeContract{ExpectedResults: decision.ExpectedResults}, ExpectedResultTypeFile) {
+		t.Fatalf("expected typed file result to remain, got %+v", decision.ExpectedResults)
 	}
-	if containsString(decision.RequiredEvidenceTools, FileDeliverToolName) || containsString(decision.InitialToolNames, FileDeliverToolName) {
-		t.Fatalf("expected untyped file delivery tools to be removed, got required=%+v initial=%+v", decision.RequiredEvidenceTools, decision.InitialToolNames)
+	if !containsString(decision.RequiredEvidenceTools, FileDeliverToolName) || !containsString(decision.InitialToolNames, FileDeliverToolName) {
+		t.Fatalf("expected typed file delivery tools to remain, got required=%+v initial=%+v", decision.RequiredEvidenceTools, decision.InitialToolNames)
 	}
 	if !containsString(decision.RequiredEvidenceTools, "calendar.update") {
 		t.Fatalf("expected calendar evidence to remain, got %+v", decision.RequiredEvidenceTools)
@@ -374,7 +371,7 @@ func TestTaskIntakePlannerDropsFileContractWithoutRequestedOutputFormat(t *testi
 
 func TestTaskIntakePlannerKeepsGroundedRequestedOutputFormat(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"route":"start_task","classification":"bounded_task","taskShape":"research_task","level":"medium","estimatedMinutes":1,"requestedOutputFormats":["html"],"requestedOutputEvidence":"HTML 발표자료","expectedResults":[{"id":"attached-file","type":"file","description":"attach HTML","required":true}],"requiredEvidence":["file.deliver"],"siteRequestEvidence":"","responseLanguage":"ko","reason":"presentation","userFacingReply":"","initialToolNames":["file.deliver"],"priorTaskReference":"none"}`,
+		`{"route":"start_task","classification":"bounded_task","taskShape":"research_task","level":"medium","estimatedMinutes":1,"requestedOutputFormats":["html"],"expectedResults":[{"id":"attached-file","type":"file","description":"attach HTML","required":true}],"requiredEvidence":["file.deliver"],"responseLanguage":"ko","reason":"presentation","userFacingReply":"","initialToolNames":["file.deliver"],"priorTaskReference":"none"}`,
 	}}
 	planner := NewTaskIntakePlanner(languageModel, IntakeOptions{IsEnabled: true})
 	toolRegistry := newTestToolSet([]string{FileDeliverToolName})
@@ -404,7 +401,7 @@ func TestTaskIntakePlannerFallbackDoesNotInferDomainEvidence(t *testing.T) {
 
 func TestTaskIntakePlannerMapsModelRequiredEvidenceToCapabilityInvoke(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"route":"start_task","classification":"bounded_task","taskShape":"maintenance_task","level":"low","estimatedMinutes":1,"requestedOutputFormats":null,"expectedResults":[],"requiredEvidence":["task.add"],"siteRequestEvidence":"","responseLanguage":"ko","reason":"task request","userFacingReply":"","initialToolNames":[],"priorTaskReference":"none"}`,
+		`{"route":"start_task","classification":"bounded_task","taskShape":"maintenance_task","level":"low","estimatedMinutes":1,"requestedOutputFormats":null,"expectedResults":[],"requiredEvidence":["task.add"],"responseLanguage":"ko","reason":"task request","userFacingReply":"","initialToolNames":[],"priorTaskReference":"none"}`,
 	}}
 	planner := NewTaskIntakePlanner(languageModel, IntakeOptions{IsEnabled: true})
 	toolRegistry := newTestCapabilityToolSet([]string{"task.add", "task.list", "task.update"})
@@ -447,7 +444,7 @@ func TestTaskIntakePlannerKeepsStructuredOutputFormats(t *testing.T) {
 
 func TestTaskIntakePlannerUsesStructuredArtifactEnumForFileDelivery(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"route":"give_up","classification":"unsupported","taskShape":"immediate_reply","level":"medium","estimatedMinutes":1,"requestedOutputFormats":["pdf"],"siteRequestEvidence":"","responseLanguage":"ko","reason":"mistaken unsupported file artifact","userFacingReply":"PDF 생성은 지원하지 않습니다.","priorTaskReference":"none"}`,
+		`{"route":"give_up","classification":"unsupported","taskShape":"immediate_reply","level":"medium","estimatedMinutes":1,"requestedOutputFormats":["pdf"],"responseLanguage":"ko","reason":"mistaken unsupported file artifact","userFacingReply":"PDF 생성은 지원하지 않습니다.","priorTaskReference":"none"}`,
 	}}
 	toolRegistry := newTestToolSet([]string{"conversation.history", "file.read", "file.write", "terminal.run", "file.promote", "file.deliver"})
 	planner := NewTaskIntakePlanner(languageModel, IntakeOptions{IsEnabled: true})
@@ -474,9 +471,9 @@ func TestTaskIntakePlannerUsesStructuredArtifactEnumForFileDelivery(t *testing.T
 	}
 }
 
-func TestTaskIntakePlannerUsesRequestedOutputFormatsToResolveArtifactKindConflict(t *testing.T) {
+func TestTaskIntakePlannerPreservesTypedOutputFormatsAndExpectedResults(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"route":"start_task","classification":"bounded_task","taskShape":"research_task","level":"medium","estimatedMinutes":1,"requestedOutputFormats":["pdf"],"expectedResults":[{"id":"result-1","type":"file","description":"PDF document","required":true},{"id":"site-public-link","type":"link","description":"public URL","required":true}],"siteRequestEvidence":"","responseLanguage":"ko","reason":"conflicted artifact kind","userFacingReply":"","initialToolNames":["site.status"],"priorTaskReference":"none"}`,
+		`{"route":"start_task","classification":"bounded_task","taskShape":"research_task","level":"medium","estimatedMinutes":1,"requestedOutputFormats":["pdf"],"expectedResults":[{"id":"result-1","type":"file","description":"PDF document","required":true},{"id":"site-public-link","type":"link","description":"public URL","required":true}],"responseLanguage":"ko","reason":"conflicted artifact kind","userFacingReply":"","initialToolNames":["site.status"],"priorTaskReference":"none"}`,
 	}}
 	toolRegistry := newTestToolSet([]string{"conversation.history", "file.read", "file.write", "terminal.run", "file.promote", "file.deliver", "site.status"})
 	planner := NewTaskIntakePlanner(languageModel, IntakeOptions{IsEnabled: true})
@@ -489,79 +486,11 @@ func TestTaskIntakePlannerUsesRequestedOutputFormatsToResolveArtifactKindConflic
 	if !hasArtifactOutputFormat(decision.RequestedOutputFormats) {
 		t.Fatalf("expected requested output formats to imply file artifact work, got %+v", decision.RequestedOutputFormats)
 	}
-	if len(decision.ExpectedResults) != 1 || decision.ExpectedResults[0].ID != "result-1" {
-		t.Fatalf("expected quote-less site result to be removed, got %+v", decision.ExpectedResults)
+	if len(decision.ExpectedResults) != 2 || !expectedResultsContain(decision.ExpectedResults, ExpectedResultTypeFile, "PDF document") || !expectedResultsContain(decision.ExpectedResults, ExpectedResultTypeLink, "public URL") {
+		t.Fatalf("expected typed expected results to remain, got %+v", decision.ExpectedResults)
 	}
-	if slices.Contains(decision.InitialToolNames, "site.status") {
-		t.Fatalf("expected site tool to be removed from initial tools, got %+v", decision.InitialToolNames)
-	}
-}
-
-func TestTaskIntakePlannerDropsQuoteLessHallucinatedSiteRequirement(t *testing.T) {
-	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"route":"start_task","classification":"bounded_task","taskShape":"scheduled_task","level":"low","estimatedMinutes":1,"requestedOutputFormats":null,"expectedResults":[{"id":"site-public-link","type":"link","description":"public URL","required":true}],"siteRequestEvidence":"","responseLanguage":"ko","reason":"calendar work","userFacingReply":""}`,
-	}}
-	planner := NewTaskIntakePlanner(languageModel, IntakeOptions{IsEnabled: true})
-
-	decision := mustPlanIntake(t, planner, AgentRequest{Prompt: "19일 오후 6시 어반브랜딩 미팅 추가 위치는 코엑스"})
-
-	if expectedResultsContain(decision.ExpectedResults, ExpectedResultTypeLink, "public URL") {
-		t.Fatalf("expected hallucinated link result to be dropped, got %+v", decision.ExpectedResults)
-	}
-	if strings.TrimSpace(decision.SiteRequestEvidence) != "" {
-		t.Fatalf("expected empty site evidence after drop, got %q", decision.SiteRequestEvidence)
-	}
-	if !decision.siteNormalizationReport.HasDrops() {
-		t.Fatalf("expected diagnostic normalization report, got %+v", decision.siteNormalizationReport)
-	}
-}
-
-func TestTaskIntakePlannerAcceptsVerbatimSiteEvidence(t *testing.T) {
-	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"route":"start_task","classification":"bounded_task","taskShape":"maintenance_task","level":"medium","estimatedMinutes":1,"requestedOutputFormats":null,"expectedResults":[{"id":"site-public-link","type":"link","description":"public URL","required":true}],"siteRequestEvidence":"웹사이트 만들어서 배포","responseLanguage":"ko","reason":"site work","userFacingReply":""}`,
-	}}
-	planner := NewTaskIntakePlanner(languageModel, IntakeOptions{IsEnabled: true})
-
-	decision := mustPlanIntake(t, planner, AgentRequest{Prompt: "포트폴리오 웹사이트 만들어서 배포해줘"})
-
-	if !expectedResultsContain(decision.ExpectedResults, ExpectedResultTypeLink, "public URL") {
-		t.Fatalf("expected verified link result to remain, got %+v", decision.ExpectedResults)
-	}
-	if decision.SiteRequestEvidence != "웹사이트 만들어서 배포" {
-		t.Fatalf("expected verbatim evidence to remain, got %q", decision.SiteRequestEvidence)
-	}
-	if decision.siteNormalizationReport.HasDrops() {
-		t.Fatalf("expected no normalization drops, got %+v", decision.siteNormalizationReport)
-	}
-}
-
-func TestAgentKernelRecordsSiteRequirementNormalizationEvent(t *testing.T) {
-	intakeLanguageModel := &sequenceLanguageModel{contents: []string{
-		`{"route":"start_task","classification":"bounded_task","taskShape":"scheduled_task","level":"low","estimatedMinutes":1,"requestedOutputFormats":null,"expectedResults":[{"id":"site-public-link","type":"link","description":"public URL","required":true}],"requiredEvidence":["calendar.add"],"siteRequestEvidence":"","responseLanguage":"ko","reason":"calendar work","userFacingReply":""}`,
-	}}
-	replyLanguageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"continue","toolName":"capability.invoke","toolInput":{"operation":"calendar.add","input":{"title":"어반브랜딩 미팅","location":"코엑스"}}}`,
-		finishMessageWithEvidence("일정을 추가했습니다.", "obs-001", "calendar.add", 0),
-	}}
-	services := newKernelIntakeTestServices(replyLanguageModel, intakeLanguageModel)
-
-	toolSet := newTestCapabilityToolSet([]string{"calendar.add"})
-	result, errorValue := services.kernel.RunAgentRequest(context.Background(), AgentRequest{
-		RequesterPersonID: "person-1",
-		ConversationID:    "conversation-1",
-		Prompt:            "19일 오후 6시 어반브랜딩 미팅 추가 위치는 코엑스",
-		ToolSet:           toolSet,
-	})
-	if errorValue != nil {
-		t.Fatalf("expected normalized intake to run: %v", errorValue)
-	}
-
-	taskEvents := services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID)
-	if !taskEventsContain(taskEvents, siteRequirementNormalizationEventName, "site evidence quote") {
-		t.Fatalf("expected site normalization event, got %+v", taskEvents)
-	}
-	if taskEventsContain(taskEvents, "agent.intake", `"site-public-link"`) {
-		t.Fatalf("expected agent intake event not to include unverified site result, got %+v", taskEvents)
+	if !slices.Contains(decision.InitialToolNames, "site.status") {
+		t.Fatalf("expected typed initial site tool to remain, got %+v", decision.InitialToolNames)
 	}
 }
 
@@ -588,7 +517,7 @@ func TestTurnRouterSchemaUsesContextDependentPendingFields(t *testing.T) {
 	if strings.Count(noPendingSchema, `"maxItems"`) < 4 {
 		t.Fatalf("expected bounded router arrays, got %s", noPendingSchema)
 	}
-	for _, toolName := range []string{`"task.add"`, `"task.update"`, `"capability.invoke"`} {
+	for _, toolName := range []string{`"task.add"`, `"task.update"`} {
 		if !strings.Contains(noPendingSchema, toolName) {
 			t.Fatalf("expected registered tool enum value %s in schema, got %s", toolName, noPendingSchema)
 		}
@@ -989,7 +918,7 @@ func TestAgentKernelPreservesScheduledIntakeRefusalAfterSkillSelection(t *testin
 		`{"route":"give_up","classification":"unsupported","taskShape":"immediate_reply","level":"medium","estimatedMinutes":1,"requestedOutputFormats":null,"reason":"background loops are unsupported","userFacingReply":"지원하지 않습니다."}`,
 	}}
 	replyLanguageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"continue","toolName":"capability.invoke","toolInput":{"operation":"schedule.create","input":{"taskInstruction":"현재 대화에 \"죄송합니다\"라고 보낸다.","kind":"interval","intervalSecond":60,"maxRunCount":10,"repeatPolicy":"finite","timeZone":"Asia/Seoul"}}}`,
+		`{"action":"continue","toolName":"schedule.create","toolInput":{"taskInstruction":"현재 대화에 \"죄송합니다\"라고 보낸다.","kind":"interval","intervalSecond":60,"maxRunCount":10,"repeatPolicy":"finite","timeZone":"Asia/Seoul"}}`,
 		finishMessageWithEvidence("1분 간격으로 10번 보내도록 예약했습니다.", "obs-001", "schedule.create", 0),
 	}}
 	services := newKernelIntakeTestServices(replyLanguageModel, intakeLanguageModel)
@@ -1101,7 +1030,7 @@ func TestAgentKernelSelectsArtifactSkillOnceAfterRouting(t *testing.T) {
 	}
 }
 
-func TestAgentKernelSkipsSkillRetrievalForExactToolContract(t *testing.T) {
+func TestAgentKernelSelectsSkillForTypedToolContract(t *testing.T) {
 	intakeLanguageModel := &sequenceLanguageModel{contents: []string{`{"queries":[{"description":"Create a task."}]}`}}
 	services := newKernelIntakeTestServices(&sequenceLanguageModel{}, intakeLanguageModel)
 	skillRetriever := &countingSkillRetriever{result: SkillRetrievalResult{
@@ -1118,9 +1047,10 @@ func TestAgentKernelSkipsSkillRetrievalForExactToolContract(t *testing.T) {
 		}},
 	}
 	bundle, _ := services.kernel.selectInstructionBundleForResolvedRequest(context.Background(), InstructionBundle{Skills: []SkillInstruction{{
-		Name:        "internkim-flow",
-		Description: "Manage tasks.",
-		Prompt:      "Use task.add.",
+		Name:         "internkim-flow",
+		Description:  "Manage tasks.",
+		Prompt:       "Use task.add.",
+		AllowedTools: []string{"task.add"},
 	}}}, request, IntakeDecision{
 		Classification:        IntakeClassificationBoundedTask,
 		TaskLevel:             TaskLevelLow,
@@ -1128,14 +1058,14 @@ func TestAgentKernelSkipsSkillRetrievalForExactToolContract(t *testing.T) {
 		RequiredEvidenceTools: []string{"task.add"},
 	})
 
-	if bundle.RetrievalMode != "tool_contract" || bundle.IndexStatus != "bypassed" {
-		t.Fatalf("expected exact tool contract to bypass skill retrieval, got %+v", bundle)
+	if bundle.RetrievalMode == "tool_contract" || bundle.IndexStatus == "bypassed" {
+		t.Fatalf("expected normal skill selection for typed tool contract, got %+v", bundle)
 	}
-	if skillRetriever.searchCount != 0 || len(intakeLanguageModel.requests) != 0 {
-		t.Fatal("expected no model or embedding skill retrieval")
+	if skillRetriever.searchCount != 1 || len(intakeLanguageModel.requests) == 0 {
+		t.Fatal("expected model-guided skill retrieval")
 	}
-	if strings.Contains(bundle.Prompt, "Use task.add.") {
-		t.Fatal("expected unselected skill body to remain unloaded")
+	if !strings.Contains(bundle.Prompt, "Use task.add.") {
+		t.Fatal("expected selected skill body to be loaded")
 	}
 }
 
@@ -1301,7 +1231,7 @@ func TestAgentKernelRecoversLegacyPriorAttachmentContractFromIntakeOutput(t *tes
 
 func TestTaskIntakePlannerTreatsSupportedSitePrototypeConfirmationAsBoundedTask(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"route":"clarify","classification":"needs_confirmation","taskShape":"approval_gated_task","level":"medium","estimatedMinutes":1,"requestedOutputFormats":null,"requiredEvidence":["site.create","site.publish"],"siteRequestEvidence":"웹사이트 하나 만들어서 배포","reason":"publishing needs approval","userFacingReply":"승인해주시겠어요?"}`,
+		`{"route":"clarify","classification":"needs_confirmation","taskShape":"approval_gated_task","level":"medium","estimatedMinutes":1,"requestedOutputFormats":null,"requiredEvidence":["site.create","site.publish"],"reason":"publishing needs approval","userFacingReply":"승인해주시겠어요?"}`,
 	}}
 	toolRegistry := newTestToolSet([]string{"site.create", "site.publish"})
 	for _, toolName := range toolRegistry.ListToolNames() {
@@ -1515,10 +1445,10 @@ func TestAgentKernelQuickReplyAllowsToolFreeReplyWithoutAskInput(t *testing.T) {
 
 func TestAgentKernelRunTurnPreservesCheckpointSender(t *testing.T) {
 	intakeLanguageModel := &sequenceLanguageModel{contents: []string{
-		`{"route":"start_task","classification":"bounded_task","taskShape":"maintenance_task","level":"low","estimatedMinutes":1,"requestedOutputFormats":null,"reason":"needs tool","userFacingReply":""}`,
+		`{"route":"start_task","classification":"bounded_task","taskShape":"maintenance_task","level":"low","estimatedMinutes":1,"requestedOutputFormats":null,"initialToolNames":["alpha"],"reason":"needs tool","userFacingReply":""}`,
 	}}
 	replyLanguageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"continue","message":"확인 중입니다.","toolName":"capability.invoke","toolInput":{"operation":"alpha","input":{"value":"one"}}}`,
+		`{"action":"continue","message":"확인 중입니다.","toolName":"alpha","toolInput":{"value":"one"}}`,
 		finishMessageWithEvidence("done", "obs-002", "alpha", 0),
 	}}
 	services := newKernelIntakeTestServices(replyLanguageModel, intakeLanguageModel)
@@ -1547,7 +1477,7 @@ func TestAgentKernelRunTurnPreservesCheckpointSender(t *testing.T) {
 	if len(checkpoints) != 1 || checkpoints[0].Message != "확인 중입니다." {
 		t.Fatalf("expected checkpoint sender to be preserved, got %+v", checkpoints)
 	}
-	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.checkpoint.sent", "capability.invoke") {
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.checkpoint.sent", "alpha") {
 		t.Fatal("expected checkpoint sent event")
 	}
 }
@@ -1557,8 +1487,8 @@ func TestAgentKernelQuickReplyPromotesToolFailureToRecovery(t *testing.T) {
 		`{"route":"start_task","classification":"quick_reply","taskShape":"immediate_reply","level":"xlow","estimatedMinutes":1,"requestedOutputFormats":null,"initialToolNames":["primary.lookup","backup.lookup"],"reason":"quick with useful tool","userFacingReply":""}`,
 	}}
 	replyLanguageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"continue","toolName":"capability.invoke","toolInput":{"operation":"primary.lookup","input":{"query":"hello"}}}`,
-		`{"action":"continue","toolName":"capability.invoke","toolInput":{"operation":"backup.lookup","input":{"query":"hello"}}}`,
+		`{"action":"continue","toolName":"primary.lookup","toolInput":{"query":"hello"}}`,
+		`{"action":"continue","toolName":"backup.lookup","toolInput":{"query":"hello"}}`,
 		finishMessageWithEvidence("backup answer", "obs-003", "backup.lookup", 0),
 	}}
 	services := newKernelIntakeTestServices(replyLanguageModel, intakeLanguageModel)
@@ -1624,7 +1554,7 @@ func TestAgentKernelQuickReplyCanUseCalculatorTool(t *testing.T) {
 		`{"route":"start_task","classification":"quick_reply","taskShape":"immediate_reply","level":"xlow","estimatedMinutes":1,"requestedOutputFormats":null,"initialToolNames":["math.calculate"],"responseLanguage":"ko","reason":"calculation","userFacingReply":""}`,
 	}}
 	replyLanguageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"continue","toolName":"capability.invoke","toolInput":{"operation":"math.calculate","input":{"expression":"1+1"}}}`,
+		`{"action":"continue","toolName":"math.calculate","toolInput":{"expression":"1+1"}}`,
 		finishMessageWithEvidence("2", "obs-001", "math.calculate", 0),
 	}}
 	services := newKernelIntakeTestServices(replyLanguageModel, intakeLanguageModel)
@@ -1645,7 +1575,7 @@ func TestAgentKernelQuickReplyCanUseCalculatorTool(t *testing.T) {
 	if result.FinishMessage != "2" {
 		t.Fatalf("expected calculator final reply, got %q", result.FinishMessage)
 	}
-	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "tool.capability.invoke.result", "math.calculate") {
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "tool.math.calculate.result", "math.calculate") {
 		t.Fatal("expected calculator tool event")
 	}
 }

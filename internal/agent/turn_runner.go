@@ -131,10 +131,6 @@ type turnActionDocument struct {
 	CompletionSummary     string                        `json:"completionSummary,omitempty"`
 	ToolName              string                        `json:"toolName"`
 	ToolInput             json.RawMessage               `json:"toolInput"`
-	ToolNames             []string                      `json:"toolNames"`
-	SkillNames            []string                      `json:"skillNames"`
-	RequestTools          []string                      `json:"requestTools"`
-	RequestSkills         []string                      `json:"requestSkills"`
 	Reason                string                        `json:"reason"`
 	Reply                 string                        `json:"reply"`
 	FailureResolution     string                        `json:"failureResolution"`
@@ -336,7 +332,6 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 	taskRun := agentTurnRunner.taskRunForRequest(request)
 	agentTurnRunner.appendTaskSourceEvent(taskRun.TaskRunID, request.SourceReference)
 	observeRecord := func(record llmCallRecord) {
-		record.ModelTier = string(agentTurnRunner.options.TaskLevel)
 		agentTurnRunner.appendEvent(taskRun.TaskRunID, "llm.call", marshalEventBody(record))
 	}
 	agentTurnRunner.languageModel = observeLanguageModel(agentTurnRunner.languageModel, observeRecord)
@@ -400,29 +395,6 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 			if result, isPaused := agentTurnRunner.pauseTurnForStall(taskRun.TaskRunID, stepID, request, reason, progressEvaluation, recoveryAllowance, state); isPaused {
 				return result, true
 			}
-		}
-		result, isBlocked := agentTurnRunner.blockTurnForStall(taskRun.TaskRunID, stepID, request, reason, progressEvaluation, recoveryAllowance, state)
-		return result, isBlocked
-	}
-	stopForRequestToolsNoProgress := func(stepID string) (AgentTurnResult, bool) {
-		progressEvaluation, shouldStop := noProgressStopEvaluation()
-		if !shouldStop {
-			return AgentTurnResult{}, false
-		}
-		recoveryAllowance := evaluateRecoveryAllowance(state.Observations, agentTurnRunner.options.RecoveryBudget)
-		reason := "stopped after 3 consecutive model actions without workspace, tool, artifact, attachment, or new failure progress"
-		if _, hasFailureDebt := activeFailureDebt(state.Observations); hasFailureDebt && !recoveryAllowance.CanRecover {
-			result := agentTurnRunner.runTerminalNoToolsStep(taskContext, taskRun.TaskRunID, stepID, request, &state, "recovery_tool_budget_exhausted")
-			return result, true
-		}
-		if agentTurnRunner.continueStalledRecoveryIfAllowed(taskRun.TaskRunID, &state, &progressTracker, recoveryAllowance) {
-			return AgentTurnResult{}, false
-		}
-		if agentTurnRunner.steerStalledTurnTowardNextTool(taskRun.TaskRunID, &state, &progressTracker) {
-			return AgentTurnResult{}, false
-		}
-		if agentTurnRunner.steerStalledTurnTowardExit(taskRun.TaskRunID, &state, &progressTracker) {
-			return AgentTurnResult{}, false
 		}
 		result, isBlocked := agentTurnRunner.blockTurnForStall(taskRun.TaskRunID, stepID, request, reason, progressEvaluation, recoveryAllowance, state)
 		return result, isBlocked
@@ -511,58 +483,12 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 			state.ExecutionState = normalizeExecutionState(actionDocument.ExecutionStateUpdate)
 			agentTurnRunner.appendEvent(taskRun.TaskRunID, "agent.execution_state", marshalEventBody(state.ExecutionState))
 		}
-		if strings.TrimSpace(actionDocument.Action) == "continue" {
-			request = agentTurnRunner.applyInlineToolRequest(taskRun.TaskRunID, request, &state, actionDocument)
-		}
 		agentTurnRunner.appendEvent(taskRun.TaskRunID, "agent.action", marshalEventBody(actionDocument))
 		switch strings.TrimSpace(actionDocument.Action) {
-		case "tool.request":
-			requestArguments := requestToolsArguments{
-				ToolNames:  append([]string{}, actionDocument.ToolNames...),
-				SkillNames: append([]string{}, actionDocument.SkillNames...),
-				Reason:     actionDocument.Reason,
-			}
-			if request.AmbientDuty.IsMatch {
-				observation := ambientFixedPaletteObservation(len(state.Observations)+1, requestArguments)
-				state.Observations = append(state.Observations, observation)
-				agentTurnRunner.appendEvent(taskRun.TaskRunID, "agent.tool_palette.fixed", marshalEventBody(map[string]any{
-					"request": requestArguments,
-					"source":  "ambient_capture",
-				}))
-				agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusCompleted, "tool.request", observation.ContentText())
-				continue
-			}
-			nextRequest, selectionResult := applyToolRequest(request, requestArguments)
-			addedNothing := toolRequestAddedNothing(request, nextRequest, selectionResult)
-			request = nextRequest
-			state.Request = nextRequest
-			var observation turnObservation
-			if addedNothing {
-				observation = redundantToolSelectionObservation(len(state.Observations)+1, requestArguments, selectionResult)
-			} else {
-				observation = toolRequestObservation(len(state.Observations)+1, requestArguments, selectionResult)
-			}
-			state.Observations = append(state.Observations, observation)
-			eventName := "agent.tool_palette.applied"
-			if addedNothing {
-				eventName = "agent.tool_palette.redundant"
-			} else if toolRequestResultFailed(selectionResult) {
-				eventName = "agent.tool_palette.failed"
-			}
-			agentTurnRunner.appendEvent(taskRun.TaskRunID, eventName, marshalEventBody(map[string]any{
-				"request": requestArguments,
-				"result":  selectionResult,
-				"source":  "model_action",
-			}))
-			agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusCompleted, "tool.request", observation.ContentText())
-			if result, shouldStop := stopForRequestToolsNoProgress(stepID); shouldStop {
-				return result, nil
-			}
-			continue
 		case "set_quality_criteria":
 			state.QualityCriteria = normalizeQualityCriteria(actionDocument.QualityCriteria)
 			observation := turnObservation{
-				ObservationID: nextObservationID(len(state.Observations) + 1),
+				ObservationID: nextObservationIDForObservations(state.Observations),
 				Action:        "set_quality_criteria",
 				Output:        ToolOutput{Content: marshalEventBody(map[string]any{"criteria": state.QualityCriteria})},
 			}
@@ -645,7 +571,7 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 			agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusFailed, "fail", reason)
 			return agentTurnRunner.finalizeIfSatisfiedOrFail(taskContext, taskRun.TaskRunID, request, reason, toolUseRequirements, state.Observations, state.Attachments, state.QualityCriteria, state.ExecutionState)
 		default:
-			observation := newFailureObservation(nextObservationID(len(state.Observations)+1), "invalid_action", "", "unknown action: "+actionDocument.Action, FailureInvalidInput, FailureCodes.InvalidInput, "action_parse")
+			observation := newFailureObservation(nextObservationIDForObservations(state.Observations), "invalid_action", "", "unknown action: "+actionDocument.Action, FailureInvalidInput, FailureCodes.InvalidInput, "action_parse")
 			state.Observations = append(state.Observations, observation)
 			agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusCompleted, "invalid_action", observation.ContentText())
 			if result, shouldStop := stopForNoProgress(stepID); shouldStop {
@@ -720,7 +646,7 @@ func (agentTurnRunner *AgentTurnRunner) handleToolCallAction(ctx context.Context
 	}
 	state.Observations = agentTurnRunner.sendCheckpointMessage(effortContext, taskRunID, request, actionDocument, state.Observations)
 	state.LastModelMessage = ""
-	observationID := nextObservationID(len(state.Observations) + 1)
+	observationID := nextObservationIDForObservations(state.Observations)
 	observation := agentTurnRunner.invokeTool(effortContext, request.ToolSet, taskRunID, observationID, actionDocument.ToolName, actionDocument.ToolInput, request.WorkspaceRootPath, request.TurnStartedAt, request.ResponseLanguage, actionDocument.Message)
 	observation = agentTurnRunner.resolveCalendarDuplicate(effortContext, taskRunID, observationID, request, actionDocument, observation)
 	if cancelledResult, isCancelled := agentTurnRunner.cancelledTaskResult(taskRunID, state.Attachments); isCancelled {
@@ -768,7 +694,7 @@ func (agentTurnRunner *AgentTurnRunner) applyPendingSteeringEvents(taskRunID str
 		if instruction == "" {
 			continue
 		}
-		observation := newContentObservation(nextObservationID(len(observations)+1), "steer", "", marshalEventBody(map[string]string{
+		observation := newContentObservation(nextObservationIDForObservations(observations), "steer", "", marshalEventBody(map[string]string{
 			"instruction": instruction,
 			"reason":      strings.TrimSpace(document.Reason),
 			"messageID":   strings.TrimSpace(document.MessageID),
@@ -876,7 +802,7 @@ func (agentTurnRunner *AgentTurnRunner) sendCheckpointMessage(ctx context.Contex
 		}))
 		return observations
 	}
-	observation := newContentObservation(nextObservationID(len(observations)+1), "checkpoint", "", marshalEventBody(map[string]any{
+	observation := newContentObservation(nextObservationIDForObservations(observations), "checkpoint", "", marshalEventBody(map[string]any{
 		"message":  message,
 		"toolName": actionDocument.ToolName,
 	}))
@@ -1033,7 +959,7 @@ func (agentTurnRunner *AgentTurnRunner) requestForStep(_ context.Context, reques
 		ExecutionPlan{},
 		false,
 		plannedRequest.OutcomeContract,
-		ToolExposureEvent{SelectionSource: "deterministic_palette"},
+		ToolExposureEvent{},
 		state.Observations,
 	)
 	iterationRequest := plannedRequest
@@ -1065,27 +991,8 @@ func (agentTurnRunner *AgentTurnRunner) stepBudgetContext(state agentTaskState) 
 
 func requestWithStepWorkingSetTools(request AgentTurnRequest, observations []turnObservation) AgentTurnRequest {
 	request.PinnedToolNames = appendUniqueStrings(request.PinnedToolNames, pendingFileDeliveryToolNames(request, observations)...)
-	request.PinnedToolNames = appendUniqueStrings(request.PinnedToolNames, workflowToolNamesForTurnRequest(request)...)
 	request.PinnedToolNames = appendUniqueStrings(request.PinnedToolNames, observedSuggestedNextToolNames(observations)...)
 	return request
-}
-
-func (agentTurnRunner *AgentTurnRunner) applyInlineToolRequest(taskRunID string, request AgentTurnRequest, state *agentTaskState, actionDocument turnActionDocument) AgentTurnRequest {
-	requestArguments := requestToolsArguments{
-		ToolNames:  append([]string{}, actionDocument.RequestTools...),
-		SkillNames: append([]string{}, actionDocument.RequestSkills...),
-	}
-	if len(appendUniqueStrings(requestArguments.ToolNames)) == 0 && len(appendUniqueStrings(requestArguments.SkillNames)) == 0 {
-		return request
-	}
-	nextRequest, selectionResult := applyToolRequest(request, requestArguments)
-	state.Request = nextRequest
-	agentTurnRunner.appendEvent(taskRunID, "agent.tool_palette.applied", marshalEventBody(map[string]any{
-		"request": requestArguments,
-		"result":  selectionResult,
-		"source":  "continue_inline",
-	}))
-	return nextRequest
 }
 
 func pendingFileDeliveryToolNames(request AgentTurnRequest, observations []turnObservation) []string {
@@ -1244,7 +1151,7 @@ func (agentTurnRunner *AgentTurnRunner) continueStalledRecoveryIfAllowed(taskRun
 	if tracker.stallRecoveryDirectiveCount >= maxStallRecoveryDirectivesPerEpisode {
 		return false
 	}
-	directive := stalledRecoveryDirectiveObservation(nextObservationID(len(state.Observations)+1), failureDebt)
+	directive := stalledRecoveryDirectiveObservation(nextObservationIDForObservations(state.Observations), failureDebt)
 	state.Observations = append(state.Observations, directive)
 	agentTurnRunner.appendEvent(taskRunID, "agent.stall_recovery_directive", marshalEventBody(directive))
 	tracker.noteStallRecoveryDirective(state.Observations)
@@ -1262,7 +1169,7 @@ func (agentTurnRunner *AgentTurnRunner) steerStalledTurnTowardNextTool(taskRunID
 	if state.Request.ToolSet != nil && !state.Request.ToolSet.IsAllowed(suggestion.ToolName) {
 		return false
 	}
-	directive := suggestedNextToolDirectiveObservation(nextObservationID(len(state.Observations)+1), suggestion)
+	directive := suggestedNextToolDirectiveObservation(nextObservationIDForObservations(state.Observations), suggestion)
 	state.Observations = append(state.Observations, directive)
 	agentTurnRunner.appendEvent(taskRunID, "agent.suggested_next_tool_directive", marshalEventBody(directive))
 	tracker.noteStallRecoveryDirective(state.Observations)
@@ -1273,7 +1180,7 @@ func (agentTurnRunner *AgentTurnRunner) steerStalledTurnTowardExit(taskRunID str
 	if tracker.stallRecoveryDirectiveCount >= maxStallRecoveryDirectivesPerEpisode {
 		return false
 	}
-	directive := stalledExitDirectiveObservation(nextObservationID(len(state.Observations)+1), state.Observations)
+	directive := stalledExitDirectiveObservation(nextObservationIDForObservations(state.Observations), state.Observations)
 	state.Observations = append(state.Observations, directive)
 	agentTurnRunner.appendEvent(taskRunID, "agent.stall_exit_directive", marshalEventBody(directive))
 	tracker.noteStallRecoveryDirective(state.Observations)
@@ -1300,7 +1207,7 @@ func stalledExitDirectiveObservation(observationID string, observations []turnOb
 	message := "You are repeating actions without making progress. Stop retrying the same thing and stop re-emitting a finish that keeps getting rejected. Take one of two exits now: either take a genuinely different action that changes workspace, tool, or evidence state; or, if you cannot obtain what you need because a tool keeps failing or the required evidence is unavailable, end immediately with fail and failureResolution=failure_report, giving the user a short honest explanation of what you could not do. Do not loop and do not ask the user how to proceed."
 	missingOperationName := latestMissingRequiredEvidenceOperationName(observations)
 	if missingOperationName != "" {
-		message = "You have not yet called capability.invoke with operation=\"" + missingOperationName + "\". Call it now with the appropriate input before attempting to finish again. If it is genuinely not needed for this request, end with fail and failureResolution=failure_report, explaining why in the user reply. Do not re-emit finish again without this evidence."
+		message = "You have not yet called " + missingOperationName + ". Call that direct tool with the appropriate input before attempting to finish again. If it is genuinely not needed for this request, end with fail and failureResolution=failure_report, explaining why in the user reply. Do not re-emit finish again without this evidence."
 	}
 	observation := newContentObservation(observationID, "policy", "", marshalEventBody(map[string]string{
 		"directive":                message,
@@ -1991,6 +1898,21 @@ func persistTaskRunResult(taskRunService *task.TaskRunService, taskRun task.Task
 
 func nextObservationID(index int) string {
 	return fmt.Sprintf("obs-%03d", index)
+}
+
+func nextObservationIDForObservations(observations []turnObservation) string {
+	return nextObservationID(nextObservationIndex(observations))
+}
+
+func nextObservationIndex(observations []turnObservation) int {
+	highestObservationIndex := 0
+	for _, observation := range observations {
+		observationIndex, isValid := observationIndexFromID(observation.ObservationID)
+		if isValid && observationIndex > highestObservationIndex {
+			highestObservationIndex = observationIndex
+		}
+	}
+	return highestObservationIndex + 1
 }
 
 func marshalEventBody(value any) string {

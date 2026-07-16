@@ -107,7 +107,7 @@ func TestAgentTurnRunnerEscalatesToolCallLimitAfterDurableProgress(t *testing.T)
 		contents: []string{
 			`{"action":"continue","toolName":"file.write","toolInput":{"path":"tmp/app/index.html","content":"one"}}`,
 			`{"action":"continue","toolName":"file.write","toolInput":{"path":"tmp/app/index.html","content":"two"}}`,
-			`{"action":"continue","toolName":"capability.invoke","toolInput":{"operation":"site.build","input":{"siteID":"site-1"}}}`,
+			`{"action":"continue","toolName":"site.build","toolInput":{"siteID":"site-1"}}`,
 			finishMessageDocument("continued after tool-call escalation"),
 		},
 	}
@@ -149,18 +149,13 @@ func TestRedundantToolSelectionIsDetectedWithUseNowDirective(t *testing.T) {
 	base := AgentTurnRequest{ToolSet: toolSet}
 
 	afterFirst, firstResult := applyToolRequest(base, requestToolsArguments{ToolNames: []string{"site.create", "site.status"}})
-	if toolRequestAddedNothing(base, afterFirst, firstResult) {
+	if toolRequestResultFailed(firstResult) || len(afterFirst.PinnedToolNames) != 2 {
 		t.Fatal("first selection of new tools should add tools")
 	}
 
 	afterSecond, secondResult := applyToolRequest(afterFirst, requestToolsArguments{ToolNames: []string{"site.create", "site.status"}})
-	if !toolRequestAddedNothing(afterFirst, afterSecond, secondResult) {
+	if toolRequestResultFailed(secondResult) || len(afterSecond.PinnedToolNames) != len(afterFirst.PinnedToolNames) {
 		t.Fatal("re-selecting already-available tools should add nothing")
-	}
-
-	observation := redundantToolSelectionObservation(1, requestToolsArguments{ToolNames: []string{"site.create"}}, secondResult)
-	if !strings.Contains(observation.Summary, "already available") || !strings.Contains(observation.Summary, "use one now to make progress") {
-		t.Fatalf("expected a use-them-now directive, got %q", observation.Summary)
 	}
 }
 

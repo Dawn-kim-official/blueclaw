@@ -77,8 +77,7 @@ func TestToolSetDescriptionsAndActionSchemaOnlyShowExposedKernelTools(t *testing
 	if !strings.Contains(descriptions, "visible.tool") || !strings.Contains(actionSchema, "visible.tool") {
 		t.Fatalf("expected visible tool in prompt and schema, got prompt=%s schema=%s", descriptions, actionSchema)
 	}
-	// hidden.tool is registered but not allowed; domain operations reach the model
-	// only through capability.invoke now, so the catalog no longer lists them.
+	// hidden.tool is registered but not allowed, so the catalog no longer lists it.
 	if strings.Contains(descriptions, "hidden.tool") || strings.Contains(actionSchema, "hidden.tool") {
 		t.Fatalf("expected registered-but-not-allowed tool to stay out of both surfaces, got prompt=%s schema=%s", descriptions, actionSchema)
 	}

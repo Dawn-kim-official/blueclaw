@@ -6,113 +6,6 @@ import (
 	"blueclaw/internal/task"
 )
 
-const siteRequirementNormalizationEventName = "agent.site_requirement_normalized"
-
-type siteRequirementNormalizationReport struct {
-	Source                       string     `json:"source,omitempty"`
-	Reason                       string     `json:"reason,omitempty"`
-	SiteEvidenceQuote            string     `json:"siteEvidenceQuote,omitempty"`
-	DroppedExpectedResultIDs     []string   `json:"droppedExpectedResultIDs,omitempty"`
-	DroppedRequiredEvidenceTools []string   `json:"droppedRequiredEvidenceTools,omitempty"`
-	DroppedRequiredEvidenceAnyOf [][]string `json:"droppedRequiredEvidenceAnyOf,omitempty"`
-	DroppedSelectedEvidenceHints []string   `json:"droppedSelectedEvidenceHints,omitempty"`
-}
-
-func (report siteRequirementNormalizationReport) HasDrops() bool {
-	return len(report.DroppedExpectedResultIDs) > 0 ||
-		len(report.DroppedRequiredEvidenceTools) > 0 ||
-		len(report.DroppedRequiredEvidenceAnyOf) > 0 ||
-		len(report.DroppedSelectedEvidenceHints) > 0
-}
-
-func normalizeTurnDecisionSiteRequirement(request AgentRequest, decision TurnDecision) (TurnDecision, siteRequirementNormalizationReport) {
-	intakeDecision := decision.IntakeDecision()
-	intakeDecision, report := normalizeIntakeDecisionSiteRequirement(request.Prompt, intakeDecision, "intake")
-	decision.ExpectedResults = intakeDecision.ExpectedResults
-	decision.SiteRequestEvidence = intakeDecision.SiteRequestEvidence
-	if report.HasDrops() {
-		decision.InitialToolNames, _ = removeToolNamePrefix(decision.InitialToolNames, "site.")
-	}
-	return decision, report
-}
-
-func normalizeIntakeDecisionSiteRequirement(currentUserMessage string, decision IntakeDecision, source string) (IntakeDecision, siteRequirementNormalizationReport) {
-	decision.SiteRequestEvidence = strings.TrimSpace(decision.SiteRequestEvidence)
-	if !intakeDecisionRequiresSiteEvidence(decision) {
-		decision.SiteRequestEvidence = ""
-		return decision, siteRequirementNormalizationReport{}
-	}
-	if siteEvidenceQuoteMatchesMessage(decision.SiteRequestEvidence, currentUserMessage) {
-		return decision, siteRequirementNormalizationReport{}
-	}
-	report := siteRequirementNormalizationReport{
-		Source:            source,
-		Reason:            "site evidence quote does not verify against current user message",
-		SiteEvidenceQuote: decision.SiteRequestEvidence,
-	}
-	decision.ExpectedResults, report.DroppedExpectedResultIDs = removeSiteExpectedResults(decision.ExpectedResults)
-	decision.SiteRequestEvidence = ""
-	return decision, report
-}
-
-func intakeDecisionRequiresSiteEvidence(decision IntakeDecision) bool {
-	return strings.TrimSpace(decision.SiteRequestEvidence) != "" ||
-		requiredEvidenceHasPrefix(decision.RequiredEvidenceTools, "site.") ||
-		expectedResultsIncludeSiteRequirement(decision.ExpectedResults)
-}
-
-func normalizeActiveGoalSiteRequirement(activeGoal ActiveGoal, currentUserMessage string, isContinuation bool) (ActiveGoal, siteRequirementNormalizationReport) {
-	if !activeGoalRequiresSiteEvidence(activeGoal) {
-		return activeGoal, siteRequirementNormalizationReport{}
-	}
-	if isContinuation {
-		return activeGoal, siteRequirementNormalizationReport{}
-	}
-	if siteEvidenceQuoteMatchesMessage(activeGoal.OutcomeContract.SiteEvidenceQuote, activeGoal.OriginalInstruction) {
-		return activeGoal, siteRequirementNormalizationReport{}
-	}
-	if siteEvidenceQuoteMatchesMessage(activeGoal.OutcomeContract.SiteEvidenceQuote, currentUserMessage) {
-		return activeGoal, siteRequirementNormalizationReport{}
-	}
-	report := siteRequirementNormalizationReport{
-		Source:            "active_goal",
-		Reason:            "stored site evidence quote does not verify against original instruction or current user message",
-		SiteEvidenceQuote: activeGoal.OutcomeContract.SiteEvidenceQuote,
-	}
-	activeGoal.OutcomeContract, report = stripOutcomeContractSiteRequirements(activeGoal.OutcomeContract, report)
-	return activeGoal, report
-}
-
-func activeGoalRequiresSiteEvidence(activeGoal ActiveGoal) bool {
-	return outcomeContractHasSiteRequirement(activeGoal.OutcomeContract)
-}
-
-func outcomeContractHasSiteRequirement(contract OutcomeContract) bool {
-	return contractMentionsToolPrefix(contract, "site.") || expectedResultsIncludeSiteRequirement(contract.ExpectedResults)
-}
-
-func stripOutcomeContractSiteRequirements(contract OutcomeContract, report siteRequirementNormalizationReport) (OutcomeContract, siteRequirementNormalizationReport) {
-	contract.RequiredEvidenceTools, report.DroppedRequiredEvidenceTools = removeToolNamePrefix(contract.RequiredEvidenceTools, "site.")
-	contract.RequiredEvidenceAnyOf, report.DroppedRequiredEvidenceAnyOf = removeToolNamePrefixGroups(contract.RequiredEvidenceAnyOf, "site.")
-	contract.SelectedEvidenceHints, report.DroppedSelectedEvidenceHints = removeToolNamePrefix(contract.SelectedEvidenceHints, "site.")
-	contract.ExpectedResults, report.DroppedExpectedResultIDs = removeSiteExpectedResults(contract.ExpectedResults)
-	contract.SiteEvidenceQuote = ""
-	return normalizeOutcomeContract(contract), report
-}
-
-func removeSiteExpectedResults(results []ExpectedResult) ([]ExpectedResult, []string) {
-	filteredResults := []ExpectedResult{}
-	droppedResultIDs := []string{}
-	for _, result := range results {
-		if expectedResultIsSiteRequirement(result) {
-			droppedResultIDs = appendUniqueStrings(droppedResultIDs, firstNonEmptyString(result.ID, result.Description))
-			continue
-		}
-		filteredResults = append(filteredResults, result)
-	}
-	return normalizeExpectedResults(filteredResults), droppedResultIDs
-}
-
 func expectedResultsIncludeSiteRequirement(results []ExpectedResult) bool {
 	for _, result := range results {
 		if expectedResultIsSiteRequirement(result) {
@@ -122,57 +15,13 @@ func expectedResultsIncludeSiteRequirement(results []ExpectedResult) bool {
 	return false
 }
 
+func intakeDecisionRequiresSiteEvidence(decision IntakeDecision) bool {
+	return requiredEvidenceHasPrefix(decision.RequiredEvidenceTools, "site.") ||
+		expectedResultsIncludeSiteRequirement(decision.ExpectedResults)
+}
+
 func expectedResultIsSiteRequirement(result ExpectedResult) bool {
 	return strings.TrimSpace(result.ID) == "site-public-link"
-}
-
-func removeToolNamePrefix(toolNames []string, prefix string) ([]string, []string) {
-	filteredToolNames := []string{}
-	droppedToolNames := []string{}
-	for _, toolName := range toolNames {
-		trimmedToolName := strings.TrimSpace(toolName)
-		if strings.HasPrefix(trimmedToolName, prefix) {
-			droppedToolNames = appendUniqueStrings(droppedToolNames, trimmedToolName)
-			continue
-		}
-		filteredToolNames = appendUniqueStrings(filteredToolNames, trimmedToolName)
-	}
-	return filteredToolNames, droppedToolNames
-}
-
-func removeToolNamePrefixGroups(groups [][]string, prefix string) ([][]string, [][]string) {
-	filteredGroups := [][]string{}
-	droppedGroups := [][]string{}
-	for _, group := range groups {
-		filteredGroup, droppedGroup := removeToolNamePrefix(group, prefix)
-		if len(droppedGroup) > 0 {
-			droppedGroups = append(droppedGroups, droppedGroup)
-		}
-		if len(filteredGroup) > 0 {
-			filteredGroups = append(filteredGroups, filteredGroup)
-		}
-	}
-	return filteredGroups, droppedGroups
-}
-
-func siteEvidenceQuoteMatchesMessage(siteEvidenceQuote string, userMessage string) bool {
-	normalizedQuote := trimSiteEvidencePunctuation(normalizeSiteEvidenceText(siteEvidenceQuote))
-	normalizedMessage := normalizeSiteEvidenceText(userMessage)
-	if normalizedQuote == "" || normalizedMessage == "" {
-		return false
-	}
-	if strings.Contains(normalizedMessage, normalizedQuote) {
-		return true
-	}
-	return strings.Contains(trimSiteEvidencePunctuation(normalizedMessage), normalizedQuote)
-}
-
-func normalizeSiteEvidenceText(value string) string {
-	return strings.Join(strings.Fields(strings.TrimSpace(value)), " ")
-}
-
-func trimSiteEvidencePunctuation(value string) string {
-	return strings.Trim(value, " \t\n\r\"'`.,!?;:()[]{}<>“”‘’…。！？、，")
 }
 
 func shouldBuildExecutionPlanForConfirmation(request AgentRequest, intakeDecision IntakeDecision, requiredEvidenceTools []string) bool {
@@ -408,7 +257,6 @@ func selectedEvidenceToolsForRequestContinuation(request AgentRequest, contract 
 }
 
 func outcomeContractForRequest(request AgentRequest, intakeDecision IntakeDecision, instructionBundle InstructionBundle, executionPlan ExecutionPlan, hasExecutionPlan bool, requiredAttachmentSuffixes []string) OutcomeContract {
-	request.ActiveGoal, _ = normalizeActiveGoalSiteRequirement(request.ActiveGoal, request.Prompt, request.IsApprovalContinuation || request.IsRuntimeRestartResume)
 	requiredAttachmentSuffixes = attachmentSuffixesForOutcomeContract(requiredAttachmentSuffixes)
 	if OutcomeContractHasRequirements(request.ActiveGoal.OutcomeContract) {
 		contract := request.ActiveGoal.OutcomeContract
@@ -444,20 +292,8 @@ func outcomeContractForRequest(request AgentRequest, intakeDecision IntakeDecisi
 	}
 	contract.ExpectedResults = expectedResultsForRequest(request, intakeDecision, executionPlan, hasExecutionPlan, contract.RequiredEvidenceTools, requiredAttachmentSuffixes)
 	contract.ArtifactRequirement = artifactRequirementForOutcomeContract(intakeDecision, contract)
-	contract.SiteEvidenceQuote = siteEvidenceQuoteForOutcomeContract(request, intakeDecision, executionPlan, hasExecutionPlan, contract)
 	contract.Source = outcomeContractSource(hasExecutionPlan, requiredAttachmentSuffixes)
 	return sanitizeOutcomeContractForRequest(request, executionPlan, hasExecutionPlan, contract)
-}
-
-func siteEvidenceQuoteForOutcomeContract(request AgentRequest, intakeDecision IntakeDecision, executionPlan ExecutionPlan, hasExecutionPlan bool, contract OutcomeContract) string {
-	if !requestExpectsPublicSiteResult(request, executionPlan, hasExecutionPlan, outcomeContractRequiredToolNames(contract)) {
-		return ""
-	}
-	siteEvidenceQuote := strings.TrimSpace(intakeDecision.SiteRequestEvidence)
-	if siteEvidenceQuoteMatchesMessage(siteEvidenceQuote, request.Prompt) {
-		return siteEvidenceQuote
-	}
-	return ""
 }
 
 func filterStaleOutcomeHints(request AgentRequest, executionPlan ExecutionPlan, hasExecutionPlan bool, contract OutcomeContract, toolNames []string) []string {
@@ -488,7 +324,6 @@ func requestExpectsSiteLinkResult(request AgentRequest, executionPlan ExecutionP
 
 func sanitizeOutcomeContractForRequest(request AgentRequest, executionPlan ExecutionPlan, hasExecutionPlan bool, contract OutcomeContract) OutcomeContract {
 	contract = normalizeOutcomeContract(contract)
-	contract = normalizeOutcomeContractSiteRequirementForRequest(request, contract)
 	if requestExpectsSiteLinkResult(request, executionPlan, hasExecutionPlan) && !outcomeContractExpectsFileResult(contract) {
 		contract = removeImplicitSiteFileContract(contract)
 	}
@@ -510,24 +345,6 @@ func requestExpectsExternalSend(request AgentRequest, executionPlan ExecutionPla
 		return true
 	}
 	return executionPlan.ExternalSend || executionPlan.ThirdPartyExternalSend
-}
-
-func normalizeOutcomeContractSiteRequirementForRequest(request AgentRequest, contract OutcomeContract) OutcomeContract {
-	if !outcomeContractHasSiteRequirement(contract) {
-		return contract
-	}
-	if requiredEvidenceContains(outcomeContractRequiredToolNames(contract), "site.delete") {
-		return contract
-	}
-	activeGoal := ActiveGoal{
-		OriginalInstruction: request.ActiveGoal.OriginalInstruction,
-		OutcomeContract:     contract,
-	}
-	if strings.TrimSpace(activeGoal.OriginalInstruction) == "" {
-		activeGoal.OriginalInstruction = request.Prompt
-	}
-	activeGoal, _ = normalizeActiveGoalSiteRequirement(activeGoal, request.Prompt, request.IsApprovalContinuation || request.IsRuntimeRestartResume)
-	return activeGoal.OutcomeContract
 }
 
 func outcomeContractExpectsFileResult(contract OutcomeContract) bool {
@@ -957,6 +774,8 @@ func outcomeContractSource(hasExecutionPlan bool, requiredAttachmentSuffixes []s
 
 func activeGoalForTurn(request AgentRequest, outcomeContract OutcomeContract, executionPlan ExecutionPlan, hasExecutionPlan bool) ActiveGoal {
 	activeGoal := request.ActiveGoal
+	activeGoal.SelectedToolNames = appendUniqueStrings(activeGoal.SelectedToolNames, request.PinnedToolNames...)
+	activeGoal.SelectedSkillNames = appendUniqueStrings(activeGoal.SelectedSkillNames, request.PinnedSkillNames...)
 	activeGoal.OutcomeContract = normalizeOutcomeContract(outcomeContract)
 	if strings.TrimSpace(activeGoal.OriginalInstruction) == "" {
 		activeGoal.OriginalInstruction = strings.TrimSpace(request.Prompt)
@@ -970,6 +789,16 @@ func activeGoalForTurn(request AgentRequest, outcomeContract OutcomeContract, ex
 		activeGoal.Status = ActiveGoalStatusActive
 	}
 	return activeGoal
+}
+
+func selectedSkillNameList(skillDecisions []SkillSelectionDecision) []string {
+	selectedNames := []string{}
+	for _, skillDecision := range skillDecisions {
+		if skillDecision.Status == "selected" {
+			selectedNames = appendUniqueStrings(selectedNames, skillDecision.Name)
+		}
+	}
+	return selectedNames
 }
 
 func activeGoalFromExecutionPlan(taskRunID string, executionPlan ExecutionPlan, status ActiveGoalStatus, evidenceHints []string, requiredAttachmentSuffixes []string) ActiveGoal {

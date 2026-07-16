@@ -25,7 +25,7 @@ func TestCapabilityInvokeUnknownOperationGivesRetryableSuggestion(t *testing.T) 
 		PersonAccess: policy.PersonAccess{PersonID: "person-1", Circles: []string{"staff"}},
 	})
 
-	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+	result, errorValue := toolRegistry.InvokeRegistered(context.Background(), agent.ToolInvocation{
 		ToolName: agent.CapabilityInvokeToolName,
 		Input:    json.RawMessage(`{"operation":"flow.task.add","input":{"prompt":"add a task"}}`),
 	})
@@ -66,7 +66,7 @@ func TestCapabilityInvokeUnknownOperationMatchingSkillNamesTheSkill(t *testing.T
 		PersonAccess: policy.PersonAccess{PersonID: "person-1", Circles: []string{"staff"}},
 	})
 
-	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+	result, errorValue := toolRegistry.InvokeRegistered(context.Background(), agent.ToolInvocation{
 		ToolName: agent.CapabilityInvokeToolName,
 		Input:    json.RawMessage(`{"operation":"presentation.build","input":{}}`),
 	})
@@ -115,7 +115,7 @@ func TestCapabilityInvokeUnknownOperationWithNoMatchingSkillKeepsPlainShape(t *t
 		PersonAccess: policy.PersonAccess{PersonID: "person-1", Circles: []string{"staff"}},
 	})
 
-	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+	result, errorValue := toolRegistry.InvokeRegistered(context.Background(), agent.ToolInvocation{
 		ToolName: agent.CapabilityInvokeToolName,
 		Input:    json.RawMessage(`{"operation":"spreadsheet.transmogrify","input":{}}`),
 	})
@@ -146,7 +146,7 @@ func TestCapabilityInvokeKnownOperationStillForwards(t *testing.T) {
 		PersonAccess: policy.PersonAccess{PersonID: "person-1", Circles: []string{"staff"}},
 	})
 
-	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+	result, errorValue := toolRegistry.InvokeRegistered(context.Background(), agent.ToolInvocation{
 		ToolName: agent.CapabilityInvokeToolName,
 		Input:    json.RawMessage(`{"operation":"task.add","input":{"prompt":"add a task"}}`),
 	})

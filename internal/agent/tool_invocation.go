@@ -22,7 +22,7 @@ func (agentTurnRunner *AgentTurnRunner) recordToolObservation(taskRunID string, 
 		agentTurnRunner.appendEvent(taskRunID, "agent.failure_debt_created", marshalEventBody(activeFailureDebtEventBody(state.Observations, agentTurnRunner.options.RecoveryBudget)))
 		if recoveryAttemptCount(state.Observations) < agentTurnRunner.options.RecoveryAttemptLimit {
 			originalInstruction := firstNonEmptyString(state.Request.ActiveGoal.OriginalInstruction, state.Request.Prompt)
-			recoveryObservation := recoveryGuidanceObservation(len(state.Observations)+1, observation, originalInstruction)
+			recoveryObservation := recoveryGuidanceObservation(nextObservationIndex(state.Observations), observation, originalInstruction)
 			state.Observations = append(state.Observations, recoveryObservation)
 			agentTurnRunner.appendEvent(taskRunID, "agent.recovery_guidance", marshalEventBody(recoveryObservation))
 		}
