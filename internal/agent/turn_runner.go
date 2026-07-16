@@ -14,16 +14,19 @@ import (
 )
 
 type TurnOptions struct {
-	MaxIterationCount    int
-	MaxToolCallCount     int
-	MaxElapsedSecond     int
-	ContextWindowTokens  int
-	RecoveryAttemptLimit int
-	RecoveryBudget       RecoveryBudget
-	TaskLevel            TaskLevel
-	ToolResultMaxBytes   int
-	GenerationOptions    llm.GenerationOptions
+	MaxIterationCount      int
+	MaxToolCallCount       int
+	MaxElapsedSecond       int
+	LimitFinalizationGrace time.Duration
+	ContextWindowTokens    int
+	RecoveryAttemptLimit   int
+	RecoveryBudget         RecoveryBudget
+	TaskLevel              TaskLevel
+	ToolResultMaxBytes     int
+	GenerationOptions      llm.GenerationOptions
 }
+
+const defaultLimitFinalizationGrace = 90 * time.Second
 
 type RecoveryBudget struct {
 	CorrectedRetry int
@@ -287,6 +290,9 @@ func normalizeTurnOptions(options TurnOptions) TurnOptions {
 	if options.MaxElapsedSecond <= 0 {
 		options.MaxElapsedSecond = int(taskLevelProfile.Duration.Seconds())
 	}
+	if options.LimitFinalizationGrace <= 0 {
+		options.LimitFinalizationGrace = defaultLimitFinalizationGrace
+	}
 	if options.ToolResultMaxBytes <= 0 {
 		options.ToolResultMaxBytes = 32768
 	}
@@ -414,10 +420,7 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 		}
 		if agentTurnRunner.currentEffortElapsed(request.EffortStartedAt) {
 			completionRequirements := elapsedCompletionRequirements(toolUseRequirements, state.Observations, state.CompletionIntentToolName)
-			result, shouldContinue, errorValue := agentTurnRunner.finalizeEscalateOrStopForLimit(ctx, taskRun.TaskRunID, request, "max_elapsed", completionRequirements, state.Observations, state.Attachments, state.QualityCriteria, state.ExecutionState, iteration-1, state.ToolCallCount)
-			if errorValue != nil || !shouldContinue {
-				return result, errorValue
-			}
+			return agentTurnRunner.stopForElapsedLimit(ctx, taskRun.TaskRunID, request, completionRequirements, state.Observations, state.Attachments, state.QualityCriteria, state.ExecutionState, iteration-1, state.ToolCallCount)
 		}
 		state.Observations = agentTurnRunner.applyPendingSteeringEvents(taskRun.TaskRunID, state.Observations, appliedSteerEventIDs)
 		state.IterationCount = iteration - 1
@@ -465,12 +468,7 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 					return agentTurnRunner.finalizeIfSatisfiedOrFail(taskContext, taskRun.TaskRunID, request, "llm action failed: "+actionError.Error(), toolUseRequirements, state.Observations, state.Attachments, state.QualityCriteria, state.ExecutionState)
 				}
 				completionRequirements := elapsedCompletionRequirements(toolUseRequirements, state.Observations, state.CompletionIntentToolName)
-				finalization := agentTurnRunner.finalizeLimitIfPossible(ctx, taskRun.TaskRunID, request, completionRequirements, state.Observations, state.Attachments, state.QualityCriteria, state.ExecutionState)
-				finalization = agentTurnRunner.finalizeElapsedLimitWithEvidence(ctx, taskRun.TaskRunID, request, "max_elapsed", completionRequirements, state.QualityCriteria, finalization)
-				if finalization.IsCompleted {
-					return finalization.Result, nil
-				}
-				return agentTurnRunner.stopForLimit(taskRun.TaskRunID, request, "max_elapsed", finalization.Observations, finalization.Attachments, state.ExecutionState, iteration-1, state.ToolCallCount)
+				return agentTurnRunner.stopForElapsedLimit(ctx, taskRun.TaskRunID, request, completionRequirements, state.Observations, state.Attachments, state.QualityCriteria, state.ExecutionState, iteration-1, state.ToolCallCount)
 			}
 			return agentTurnRunner.finalizeIfSatisfiedOrFail(taskContext, taskRun.TaskRunID, request, "llm action failed: "+actionError.Error(), toolUseRequirements, state.Observations, state.Attachments, state.QualityCriteria, state.ExecutionState)
 		}
@@ -521,7 +519,7 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 				agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusFailed, "finish", "empty finish message")
 				return agentTurnRunner.finalizeIfSatisfiedOrFail(taskContext, taskRun.TaskRunID, request, "empty finish message", toolUseRequirements, state.Observations, state.Attachments, state.QualityCriteria, state.ExecutionState)
 			}
-			reply = agentTurnRunner.prepareFinishMessageForPlatform(request, reply)
+			reply = agentTurnRunner.prepareFinishMessageForPlatform(taskContext, request, reply)
 			if cancelledResult, isCancelled := agentTurnRunner.cancelledTaskResult(taskRun.TaskRunID, state.Attachments); isCancelled {
 				return cancelledResult, nil
 			}
@@ -1457,10 +1455,11 @@ func limitPressureMessage(level string, usedToolCallCount int, maxToolCallCount 
 }
 
 type limitFinalizationResult struct {
-	Result       AgentTurnResult
-	IsCompleted  bool
-	Observations []turnObservation
-	Attachments  []FileAttachment
+	Result                AgentTurnResult
+	IsCompleted           bool
+	DidAttemptUserWording bool
+	Observations          []turnObservation
+	Attachments           []FileAttachment
 }
 
 func (agentTurnRunner *AgentTurnRunner) finalizeOrStopForLimit(ctx context.Context, taskRunID string, request AgentTurnRequest, reason string, requirements []toolUseRequirement, observations []turnObservation, attachments []FileAttachment, criteria []qualityCriterion, executionState ExecutionState, usedIterationCount int, usedToolCallCount int) (AgentTurnResult, error) {
@@ -1526,7 +1525,11 @@ func (agentTurnRunner *AgentTurnRunner) finalizeElapsedLimitWithEvidence(ctx con
 	}
 	finalizationContext, cancelFinalization := recoveryFinalizationContextWithParent(ctx, request)
 	defer cancelFinalization()
-	reply, errorValue := agentTurnRunner.generateRecoveryText(finalizationContext, buildElapsedCompletionPrompt(request, requirements, finalization.Observations))
+	if finalizationContext.Err() != nil {
+		return finalization
+	}
+	reply, errorValue := agentTurnRunner.generateRecoveryTextOnce(finalizationContext, buildElapsedCompletionPrompt(request, requirements, finalization.Observations))
+	finalization.DidAttemptUserWording = true
 	if errorValue != nil || strings.TrimSpace(reply) == "" {
 		agentTurnRunner.appendEvent(taskRunID, "agent.limit_completion_reply_failed", marshalEventBody(map[string]string{"error": firstNonEmptyString(errorString(errorValue), "empty completion reply")}))
 		return finalization
@@ -1677,7 +1680,7 @@ func (agentTurnRunner *AgentTurnRunner) finalizeSatisfiedTurn(ctx context.Contex
 		agentTurnRunner.appendEvent(taskRunID, "agent.finalizer_rejected", marshalEventBody(map[string]string{"reason": "empty finish message"}))
 		return AgentTurnResult{}, false
 	}
-	reply = agentTurnRunner.prepareFinishMessageForPlatform(request, reply)
+	reply = agentTurnRunner.prepareFinishMessageForPlatform(finalizationContext, request, reply)
 	completedTaskRun, _ := agentTurnRunner.taskRunService.CompleteTaskRun(taskRunID, reply)
 	return AgentTurnResult{TaskRun: completedTaskRun, FinishMessage: reply, Attachments: completionGateResult.Attachments, RecoveryActions: recoveryActionsFromObservations(observations)}, true
 }
@@ -1801,7 +1804,7 @@ func (agentTurnRunner *AgentTurnRunner) completeTerminalNoToolsFinish(ctx contex
 	if strings.TrimSpace(reply) == "" {
 		return AgentTurnResult{}, false, "finish message is empty"
 	}
-	reply = agentTurnRunner.prepareFinishMessageForPlatform(request, reply)
+	reply = agentTurnRunner.prepareFinishMessageForPlatform(ctx, request, reply)
 	agentTurnRunner.saveStep(taskRunID, stepID, task.TaskStatusCompleted, "terminal_no_tools_finish", reply)
 	completedTaskRun, errorValue := agentTurnRunner.taskRunService.CompleteTaskRun(taskRunID, reply)
 	if errorValue != nil {
@@ -1853,8 +1856,53 @@ func (agentTurnRunner *AgentTurnRunner) recordTerminalNoToolsRejection(taskRunID
 	agentTurnRunner.saveStep(taskRunID, stepID, task.TaskStatusCompleted, "terminal_no_tools_rejected", observation.ContentText())
 }
 
-func (agentTurnRunner *AgentTurnRunner) stopForLimit(taskRunID string, request AgentTurnRequest, reason string, observations []turnObservation, attachments []FileAttachment, executionState ExecutionState, usedIterationCount int, usedToolCallCount int) (AgentTurnResult, error) {
-	body := map[string]any{
+func (agentTurnRunner *AgentTurnRunner) stopForElapsedLimit(ctx context.Context, taskRunID string, request AgentTurnRequest, requirements []toolUseRequirement, observations []turnObservation, attachments []FileAttachment, criteria []qualityCriterion, executionState ExecutionState, usedIterationCount int, usedToolCallCount int) (AgentTurnResult, error) {
+	blockedTaskRun := agentTurnRunner.pauseForLimit(taskRunID, "max_elapsed", observations, attachments, usedIterationCount, usedToolCallCount)
+	finalizationContext, cancelFinalization := agentTurnRunner.limitFinalizationContext(ctx, request)
+	defer cancelFinalization()
+
+	finalization := agentTurnRunner.finalizeLimitIfPossible(finalizationContext, taskRunID, request, requirements, observations, attachments, criteria, executionState)
+	finalization = agentTurnRunner.finalizeElapsedLimitWithEvidence(finalizationContext, taskRunID, request, "max_elapsed", requirements, criteria, finalization)
+	if finalization.IsCompleted {
+		return finalization.Result, nil
+	}
+
+	failureNotice := buildElapsedLimitRawErrorFailureNotice(request)
+	replyStatus := limitReplyStatus{Source: failureNotice.Source, Reason: "finalization_grace_exhausted"}
+	if !finalization.DidAttemptUserWording && finalizationContext.Err() == nil {
+		generatedNotice, generatedStatus, hasGeneratedNotice := agentTurnRunner.generateElapsedLimitNoticeOnce(finalizationContext, taskRunID, request, finalization.Observations, finalization.Attachments, executionState)
+		failureNotice = generatedNotice
+		replyStatus = generatedStatus
+		if !hasGeneratedNotice {
+			failureNotice = buildElapsedLimitRawErrorFailureNotice(request)
+		}
+	}
+	agentTurnRunner.appendEvent(taskRunID, "agent.limit_reply", marshalEventBody(replyStatus))
+	if failureNotice.Source == "raw_error" {
+		agentTurnRunner.appendUnavailableReplyEvents(taskRunID, "limit", "max_elapsed", replyStatus)
+	}
+	reply := failureNotice.SendableMessage()
+	blockedTaskRun = persistTaskRunResult(agentTurnRunner.taskRunService, blockedTaskRun, reply)
+	return AgentTurnResult{TaskRun: blockedTaskRun, UserNotice: reply, FailureNotice: failureNotice, RecoveryActions: recoveryActionsFromObservations(finalization.Observations)}, nil
+}
+
+func (agentTurnRunner *AgentTurnRunner) limitFinalizationContext(parentContext context.Context, request AgentTurnRequest) (context.Context, context.CancelFunc) {
+	requestContext, cancelRequestContext := recoveryFinalizationContextWithParent(parentContext, request)
+	finalizationContext, cancelFinalization := context.WithTimeout(requestContext, agentTurnRunner.options.LimitFinalizationGrace)
+	return finalizationContext, func() {
+		cancelFinalization()
+		cancelRequestContext()
+	}
+}
+
+func (agentTurnRunner *AgentTurnRunner) pauseForLimit(taskRunID string, reason string, observations []turnObservation, attachments []FileAttachment, usedIterationCount int, usedToolCallCount int) task.TaskRun {
+	agentTurnRunner.appendEvent(taskRunID, "agent.limit_stop", marshalEventBody(agentTurnRunner.limitStopEventBody(reason, observations, attachments, usedIterationCount, usedToolCallCount)))
+	blockedTaskRun, _ := agentTurnRunner.taskRunService.PauseTaskRun(taskRunID, task.TaskStatusBlocked, reason)
+	return blockedTaskRun
+}
+
+func (agentTurnRunner *AgentTurnRunner) limitStopEventBody(reason string, observations []turnObservation, attachments []FileAttachment, usedIterationCount int, usedToolCallCount int) map[string]any {
+	return map[string]any{
 		"taskLevel":          agentTurnRunner.options.TaskLevel,
 		"maxIterationCount":  agentTurnRunner.options.MaxIterationCount,
 		"maxElapsedSecond":   agentTurnRunner.options.MaxElapsedSecond,
@@ -1868,8 +1916,10 @@ func (agentTurnRunner *AgentTurnRunner) stopForLimit(taskRunID string, request A
 		"toolCounts":         observationToolCounts(observations),
 		"recentObservations": recentProgressObservations(observations),
 	}
-	agentTurnRunner.appendEvent(taskRunID, "agent.limit_stop", marshalEventBody(body))
-	blockedTaskRun, _ := agentTurnRunner.taskRunService.PauseTaskRun(taskRunID, task.TaskStatusBlocked, reason)
+}
+
+func (agentTurnRunner *AgentTurnRunner) stopForLimit(taskRunID string, request AgentTurnRequest, reason string, observations []turnObservation, attachments []FileAttachment, executionState ExecutionState, usedIterationCount int, usedToolCallCount int) (AgentTurnResult, error) {
+	blockedTaskRun := agentTurnRunner.pauseForLimit(taskRunID, reason, observations, attachments, usedIterationCount, usedToolCallCount)
 	failureNotice, replyStatus, hasReply := agentTurnRunner.generateLimitReachedNotice(taskRunID, request, reason, observations, nil, executionState)
 	agentTurnRunner.appendEvent(taskRunID, "agent.limit_reply", marshalEventBody(replyStatus))
 	if !hasReply {
