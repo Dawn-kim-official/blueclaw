@@ -147,6 +147,9 @@ describe('sdkd provider adapter', () => {
     expect(response.message.toolCalls?.[0]?.function.arguments).toBe('{"details":{"count":2}}');
     expect(remoteModel.doGenerateCalls).toHaveLength(2);
     expect(remoteModel.doGenerateCalls[1]?.toolChoice).toEqual({ type: 'tool', toolName: 'lookup' });
+    expect(JSON.stringify(remoteModel.doGenerateCalls[1]?.prompt)).toContain(
+      'Validation failure: data/details/count must be number',
+    );
     expect(llamaModel.doGenerateCalls).toHaveLength(0);
   });
 
@@ -180,6 +183,7 @@ describe('sdkd provider adapter', () => {
     expect(repairPrompt).toContain('Malformed arguments');
     expect(repairPrompt).toContain('unexpected');
     expect(repairPrompt).toContain('Validation category: schema_validation');
+    expect(repairPrompt).toContain('Validation failure: data/task must NOT have additional properties');
     expect(repairPrompt).toContain('\\"additionalProperties\\":false');
     expect((repairPrompt.match(/additionalProperties/g) ?? []).length).toBeGreaterThanOrEqual(3);
   });
