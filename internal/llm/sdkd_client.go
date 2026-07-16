@@ -75,16 +75,17 @@ func (errorValue sdkdTransportError) Unwrap() error {
 }
 
 type SDKDClientConfiguration struct {
-	Endpoint                   string
-	UnixSocketPath             string
-	AuthKey                    string
-	ModelName                  string
-	ExecutionMode              string
-	LocalOnly                  bool
-	TextProvider               LanguageModelProvider
-	GenerationOptions          GenerationOptions
-	StructuredFallbackProvider LanguageModelProvider
-	StructuredSchemaNames      []string
+	Endpoint                        string
+	UnixSocketPath                  string
+	AuthKey                         string
+	ModelName                       string
+	ExecutionMode                   string
+	LocalOnly                       bool
+	TextProvider                    LanguageModelProvider
+	GenerationOptions               GenerationOptions
+	StructuredFallbackProvider      LanguageModelProvider
+	StructuredSchemaNames           []string
+	IsStructuredOutputAuthoritative bool
 }
 
 type SDKDClient struct {
@@ -92,14 +93,15 @@ type SDKDClient struct {
 	HTTPClient interface {
 		Do(*http.Request) (*http.Response, error)
 	}
-	AuthKey                    string
-	ModelName                  string
-	ExecutionMode              string
-	LocalOnly                  bool
-	TextProvider               LanguageModelProvider
-	GenerationOptions          GenerationOptions
-	StructuredFallbackProvider LanguageModelProvider
-	StructuredSchemaNames      []string
+	AuthKey                         string
+	ModelName                       string
+	ExecutionMode                   string
+	LocalOnly                       bool
+	TextProvider                    LanguageModelProvider
+	GenerationOptions               GenerationOptions
+	StructuredFallbackProvider      LanguageModelProvider
+	StructuredSchemaNames           []string
+	IsStructuredOutputAuthoritative bool
 }
 
 type sdkdChatCompletionRequestDocument struct {
@@ -127,16 +129,17 @@ func NewSDKDClient(configuration SDKDClientConfiguration) SDKDClient {
 		}
 	}
 	return SDKDClient{
-		Endpoint:                   endpoint,
-		HTTPClient:                 httpClient,
-		AuthKey:                    strings.TrimSpace(configuration.AuthKey),
-		ModelName:                  strings.TrimSpace(configuration.ModelName),
-		ExecutionMode:              strings.TrimSpace(configuration.ExecutionMode),
-		LocalOnly:                  configuration.LocalOnly,
-		TextProvider:               configuration.TextProvider,
-		GenerationOptions:          configuration.GenerationOptions,
-		StructuredFallbackProvider: configuration.StructuredFallbackProvider,
-		StructuredSchemaNames:      append([]string{}, configuration.StructuredSchemaNames...),
+		Endpoint:                        endpoint,
+		HTTPClient:                      httpClient,
+		AuthKey:                         strings.TrimSpace(configuration.AuthKey),
+		ModelName:                       strings.TrimSpace(configuration.ModelName),
+		ExecutionMode:                   strings.TrimSpace(configuration.ExecutionMode),
+		LocalOnly:                       configuration.LocalOnly,
+		TextProvider:                    configuration.TextProvider,
+		GenerationOptions:               configuration.GenerationOptions,
+		StructuredFallbackProvider:      configuration.StructuredFallbackProvider,
+		StructuredSchemaNames:           append([]string{}, configuration.StructuredSchemaNames...),
+		IsStructuredOutputAuthoritative: configuration.IsStructuredOutputAuthoritative,
 	}
 }
 
@@ -214,7 +217,7 @@ func (client SDKDClient) GenerateStructuredResponse(responseContext context.Cont
 	if response.Transport == "" {
 		response.Transport = "sdkd"
 	}
-	if errorValue == nil || client.LocalOnly || client.StructuredFallbackProvider == nil || !canUseLegacySDKDFallback(errorValue) {
+	if errorValue == nil || !client.canUseStructuredFallback(errorValue) {
 		return response, errorValue
 	}
 	fallbackResponse, fallbackError := client.StructuredFallbackProvider.GenerateStructuredResponse(responseContext, request)
@@ -224,6 +227,13 @@ func (client SDKDClient) GenerateStructuredResponse(responseContext context.Cont
 	fallbackResponse.UsedFallback = true
 	fallbackResponse.Transport = "capability"
 	return fallbackResponse, nil
+}
+
+func (client SDKDClient) canUseStructuredFallback(errorValue error) bool {
+	return !client.LocalOnly &&
+		!client.IsStructuredOutputAuthoritative &&
+		client.StructuredFallbackProvider != nil &&
+		canUseLegacySDKDFallback(errorValue)
 }
 
 func (client SDKDClient) GenerateChatCompletion(responseContext context.Context, request ChatCompletionRequest) (ChatCompletionResponse, error) {

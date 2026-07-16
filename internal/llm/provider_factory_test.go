@@ -126,6 +126,7 @@ func TestConfiguredProviderCreatesSDKDOnlyWhenSelected(t *testing.T) {
 	runtimeConfiguration.LanguageModel.Capability.Model = "deepseek/deepseek-v4-flash"
 	runtimeConfiguration.LanguageModel.SDKD.AuthKeyPath = authKeyPath
 	runtimeConfiguration.LanguageModel.SDKD.UnixSocketPath = "/run/blueclaw/sdkd.sock"
+	runtimeConfiguration.LanguageModel.SDKD.StructuredSchemaNames = []string{"blueclaw_turn_router", "blueclaw_agent_turn_action"}
 
 	languageModelProvider, errorValue := NewConfiguredLanguageModelProvider(runtimeConfiguration)
 	if errorValue != nil {
@@ -137,6 +138,12 @@ func TestConfiguredProviderCreatesSDKDOnlyWhenSelected(t *testing.T) {
 	}
 	if sdkdClient.AuthKey != "installation-key" || sdkdClient.ModelName != "deepseek/deepseek-v4-flash" {
 		t.Fatalf("unexpected sdkd client configuration: %+v", sdkdClient)
+	}
+	if !sdkdClient.IsStructuredOutputAuthoritative {
+		t.Fatal("expected sdkd default provider to make structured fallback authoritative")
+	}
+	if len(sdkdClient.StructuredSchemaNames) != 2 || sdkdClient.StructuredSchemaNames[0] != "blueclaw_turn_router" || sdkdClient.StructuredSchemaNames[1] != "blueclaw_agent_turn_action" {
+		t.Fatalf("expected configured SDKD schemas, got %v", sdkdClient.StructuredSchemaNames)
 	}
 }
 
@@ -187,7 +194,7 @@ func TestConfiguredProviderWrapsCapabilityWithOptionalSDKDShadow(t *testing.T) {
 		t.Fatal("expected configured shadow provider to preserve text chat")
 	}
 	sdkdClient, isSDKDClient := shadowProvider.ShadowProvider.(SDKDClient)
-	if !isSDKDClient || sdkdClient.StructuredFallbackProvider != nil {
+	if !isSDKDClient || sdkdClient.StructuredFallbackProvider != nil || sdkdClient.IsStructuredOutputAuthoritative {
 		t.Fatalf("expected shadow SDKD without legacy fallback, got %+v", shadowProvider.ShadowProvider)
 	}
 }

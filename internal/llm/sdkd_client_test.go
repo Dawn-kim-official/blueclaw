@@ -904,6 +904,64 @@ func TestSDKDClientFallsBackWhenBridgeIsUnavailable(t *testing.T) {
 	}
 }
 
+func TestSDKDClientAuthoritativeStructuredResponseReturnsBridgeErrorWithoutFallback(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(responseWriter http.ResponseWriter, request *http.Request) {
+		responseWriter.WriteHeader(http.StatusServiceUnavailable)
+		_, _ = responseWriter.Write([]byte(`{"error":{"code":"sdkd_bridge_unavailable","allowLegacyFallback":true}}`))
+	}))
+	defer server.Close()
+
+	fallbackProvider := &sdkdTestLanguageModel{structuredResponse: StructuredResponse{ProviderName: "capabilityLLM"}}
+	client := NewSDKDClient(SDKDClientConfiguration{
+		Endpoint:                        server.URL,
+		AuthKey:                         "installation-key",
+		StructuredFallbackProvider:      fallbackProvider,
+		StructuredSchemaNames:           []string{"blueclaw_agent_turn_action"},
+		IsStructuredOutputAuthoritative: true,
+	})
+
+	response, errorValue := client.GenerateStructuredResponse(context.Background(), StructuredResponseRequest{
+		StructuredOutputSchema: StructuredOutputSchema{Name: "blueclaw_agent_turn_action", Document: `{"type":"object"}`},
+	})
+	httpError, isHTTPError := asSDKDHTTPError(errorValue)
+	if !isHTTPError || httpError.StatusCode != http.StatusServiceUnavailable || httpError.Code != "sdkd_bridge_unavailable" {
+		t.Fatalf("expected original SDKD bridge error, got %+v, %v", response, errorValue)
+	}
+	if response.Transport != "sdkd" {
+		t.Fatalf("expected SDKD transport, got %+v", response)
+	}
+	if fallbackProvider.structuredCallCount != 0 {
+		t.Fatalf("expected no authoritative bridge fallback call, got %d", fallbackProvider.structuredCallCount)
+	}
+}
+
+func TestSDKDClientUsesMigrationFallbackForDisabledSchema(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(responseWriter http.ResponseWriter, request *http.Request) {
+		responseWriter.WriteHeader(http.StatusServiceUnavailable)
+		_, _ = responseWriter.Write([]byte(`{"error":{"code":"sdkd_bridge_unavailable","allowLegacyFallback":true}}`))
+	}))
+	defer server.Close()
+
+	fallbackProvider := &sdkdTestLanguageModel{structuredResponse: StructuredResponse{ProviderName: "capabilityLLM"}}
+	client := NewSDKDClient(SDKDClientConfiguration{
+		Endpoint:                        server.URL,
+		AuthKey:                         "installation-key",
+		StructuredFallbackProvider:      fallbackProvider,
+		StructuredSchemaNames:           []string{"blueclaw_agent_turn_action"},
+		IsStructuredOutputAuthoritative: true,
+	})
+
+	response, errorValue := client.GenerateStructuredResponse(context.Background(), StructuredResponseRequest{
+		StructuredOutputSchema: StructuredOutputSchema{Name: "blueclaw_turn_router", Document: `{"type":"object"}`},
+	})
+	if errorValue != nil || response.ProviderName != "capabilityLLM" || response.Transport != "capability" {
+		t.Fatalf("expected disabled-schema migration fallback, got %+v, %v", response, errorValue)
+	}
+	if fallbackProvider.structuredCallCount != 1 {
+		t.Fatalf("expected one disabled-schema fallback call, got %d", fallbackProvider.structuredCallCount)
+	}
+}
+
 type sdkdTestHTTPClient func(*http.Request) (*http.Response, error)
 
 func (client sdkdTestHTTPClient) Do(request *http.Request) (*http.Response, error) {
