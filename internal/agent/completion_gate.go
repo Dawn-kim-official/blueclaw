@@ -29,14 +29,13 @@ type qualityReviewItem struct {
 }
 
 type completionGateResult struct {
-	IsSatisfied          bool
-	Message              string
-	EvidenceKind         string
-	Attachments          []FileAttachment
-	ValidityState        ValidityState
-	ResultVerification   ResultVerification
-	ContractVerification ContractSatisfactionVerification
-	SuggestedNextTools   []string
+	IsSatisfied        bool
+	Message            string
+	EvidenceKind       string
+	Attachments        []FileAttachment
+	ValidityState      ValidityState
+	ResultVerification ResultVerification
+	SuggestedNextTools []string
 }
 
 const (
@@ -323,15 +322,19 @@ func validateCompletionGateForRequest(request AgentTurnRequest, requirements []t
 }
 
 func (agentTurnRunner *AgentTurnRunner) validateCompletionGateForRequestWithExpectedResults(ctx context.Context, taskRunID string, request AgentTurnRequest, requirements []toolUseRequirement, observations []turnObservation, attachments []FileAttachment, criteria []qualityCriterion, actionDocument turnActionDocument) completionGateResult {
+	var result completionGateResult
 	if len(request.OutcomeContract.ExpectedResults) == 0 {
-		result := validateCompletionGateForRequestWithRecoveryBudget(request, requirements, observations, criteria, actionDocument, agentTurnRunner.options.RecoveryBudget)
-		if !result.IsSatisfied {
-			return result
-		}
-		return agentTurnRunner.verifyCompletionContract(ctx, taskRunID, request, observations, result.Attachments, actionDocument, result)
+		result = validateCompletionGateForRequestWithRecoveryBudget(request, requirements, observations, criteria, actionDocument, agentTurnRunner.options.RecoveryBudget)
+	} else {
+		result = validateExpectedResultCompletionGate(request, observations, criteria, actionDocument, agentTurnRunner.options.RecoveryBudget)
 	}
-	result := validateExpectedResultCompletionGate(request, observations, criteria, actionDocument, agentTurnRunner.options.RecoveryBudget)
 	if !result.IsSatisfied {
+		return result
+	}
+	if contractResult := validateOutcomeContractRequirements(request.OutcomeContract, observations, result.Attachments); !contractResult.IsSatisfied {
+		return contractResult
+	}
+	if len(request.OutcomeContract.ExpectedResults) == 0 {
 		return result
 	}
 	verification, errorValue := verifyExpectedResults(ctx, agentTurnRunner.languageModel, request, observations, attachments, actionDocument)
@@ -346,7 +349,7 @@ func (agentTurnRunner *AgentTurnRunner) validateCompletionGateForRequestWithExpe
 	agentTurnRunner.appendEvent(taskRunID, "agent.expected_result_verification", marshalEventBody(verification))
 	missingResults := blockingExpectedResultItems(request.OutcomeContract, verification, observations)
 	if len(missingResults) == 0 {
-		return agentTurnRunner.verifyCompletionContract(ctx, taskRunID, request, observations, result.Attachments, actionDocument, result)
+		return result
 	}
 	result.IsSatisfied = false
 	result.Message = expectedResultGateMessage(missingResults)
@@ -355,60 +358,59 @@ func (agentTurnRunner *AgentTurnRunner) validateCompletionGateForRequestWithExpe
 	return result
 }
 
-func (agentTurnRunner *AgentTurnRunner) verifyCompletionContract(ctx context.Context, taskRunID string, request AgentTurnRequest, observations []turnObservation, attachments []FileAttachment, actionDocument turnActionDocument, result completionGateResult) completionGateResult {
-	if !OutcomeContractHasRequirements(request.OutcomeContract) {
-		return result
-	}
-	if expectedResultsAndExactEvidenceSatisfyContract(request.OutcomeContract, observations) {
-		return result
-	}
-	verification, errorValue := verifyContractSatisfaction(ctx, agentTurnRunner.languageModel, request, observations, attachments, actionDocument)
-	if errorValue != nil {
-		result.IsSatisfied = false
-		result.Message = "contract verification unavailable: " + errorValue.Error()
-		result.EvidenceKind = evidenceKindExpectedResult
-		agentTurnRunner.appendEvent(taskRunID, "agent.contract_verification_unavailable", marshalEventBody(map[string]string{"error": errorValue.Error()}))
-		return result
-	}
-	result.ContractVerification = verification
-	agentTurnRunner.appendEvent(taskRunID, "agent.contract_satisfaction_verification", marshalEventBody(verification))
-	if verification.Satisfied {
-		return result
-	}
-	result.IsSatisfied = false
-	result.Message = contractVerificationGateMessage(verification)
-	result.EvidenceKind = evidenceKindExpectedResult
-	result.SuggestedNextTools = verification.SuggestedNextTools
-	result.Attachments = nil
-	return result
-}
-
-func expectedResultsAndExactEvidenceSatisfyContract(contract OutcomeContract, observations []turnObservation) bool {
+func validateOutcomeContractRequirements(contract OutcomeContract, observations []turnObservation, attachments []FileAttachment) completionGateResult {
 	contract = normalizeOutcomeContract(contract)
-	if len(contract.RequiredEvidenceTools) == 0 || contractRequiresSemanticVerification(contract) {
-		return false
-	}
 	for _, toolName := range contract.RequiredEvidenceTools {
-		if !hasSuccessfulToolObservationForTurn(observations, toolName) {
-			return false
+		if !hasSuccessfulEvidenceToolObservation(observations, toolName) {
+			return missingContractToolResult([]string{toolName})
 		}
 	}
-	return true
+	for _, toolNames := range contract.RequiredEvidenceAnyOf {
+		if !hasAnySuccessfulEvidenceToolObservation(observations, toolNames) {
+			return missingContractToolResult(toolNames)
+		}
+	}
+	if contractRequiresAttachment(contract) && len(attachments) == 0 {
+		return completionGateResult{Message: "finish requires a delivered file attachment", EvidenceKind: evidenceKindAttachment, SuggestedNextTools: []string{FileDeliverToolName}}
+	}
+	if missingSuffix := missingRequiredAttachmentSuffix(attachments, contract.RequiredAttachmentSuffixes); missingSuffix != "" {
+		return completionGateResult{Message: "required file attachment must include suffix " + missingSuffix, EvidenceKind: evidenceKindAttachmentValid, SuggestedNextTools: []string{FileDeliverToolName}}
+	}
+	return completionGateResult{IsSatisfied: true, Attachments: attachments}
 }
 
-func contractRequiresSemanticVerification(contract OutcomeContract) bool {
-	artifactRequirement := strings.TrimSpace(contract.ArtifactRequirement)
-	return len(contract.RequiredEvidenceAnyOf) > 0 ||
-		len(contract.RequiredAttachmentSuffixes) > 0 ||
-		len(contract.RequiredEffects) > 0 ||
-		len(contract.SelectedEvidenceHints) > 0 ||
-		strings.TrimSpace(contract.SiteEvidenceQuote) != "" ||
-		(artifactRequirement != "" && artifactRequirement != ArtifactRequirementNone)
+func hasAnySuccessfulEvidenceToolObservation(observations []turnObservation, toolNames []string) bool {
+	for _, toolName := range toolNames {
+		if hasSuccessfulEvidenceToolObservation(observations, toolName) {
+			return true
+		}
+	}
+	return false
 }
 
-func contractVerificationGateMessage(verification ContractSatisfactionVerification) string {
-	description := firstNonEmptyString(verification.MissingDescription, verification.Reason, "requested outcome is not backed by observed evidence")
-	return "finish does not satisfy task contract: " + strings.TrimSpace(description)
+func hasSuccessfulEvidenceToolObservation(observations []turnObservation, toolName string) bool {
+	if hasSuccessfulToolObservationForTurn(observations, toolName) {
+		return true
+	}
+	for _, observation := range observations {
+		invokedToolName, _, isFound := terminalCapabilityResponse(observation)
+		if isFound && !observation.Failed() && ToolNamesMatch(invokedToolName, toolName) {
+			return true
+		}
+	}
+	return false
+}
+
+func missingContractToolResult(toolNames []string) completionGateResult {
+	return completionGateResult{
+		Message:            "finish requires successful evidence from one of these tools: " + strings.Join(toolNames, ", "),
+		EvidenceKind:       evidenceKindRequiredTool,
+		SuggestedNextTools: appendUniqueStrings(nil, toolNames...),
+	}
+}
+
+func contractRequiresAttachment(contract OutcomeContract) bool {
+	return strings.TrimSpace(contract.ArtifactRequirement) == ArtifactRequirementRequired || len(contract.RequiredAttachmentSuffixes) > 0
 }
 
 func validateExpectedResultCompletionGate(request AgentTurnRequest, observations []turnObservation, criteria []qualityCriterion, actionDocument turnActionDocument, recoveryBudget RecoveryBudget) completionGateResult {
