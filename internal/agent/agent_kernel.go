@@ -257,7 +257,9 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 	intakeDecision := turnDecision.IntakeDecision()
 	intakeDecision = promoteArtifactTaskLevelForRequest(intakeRequest, intakeDecision)
 	request.ResponseLanguage = ResolveResponseLanguage(intakeDecision.ResponseLanguage, request.ResponseLanguage)
+	manualPinnedToolNames := append([]string{}, request.PinnedToolNames...)
 	request = restorePersistedToolSelection(request)
+	persistedPinnedToolNames := append([]string{}, request.PinnedToolNames...)
 	intakeRequest = request
 	if turnDecision.Route == TurnRouteStartTask && !request.IsApprovalContinuation {
 		if strings.TrimSpace(request.ExistingTaskRunID) == strings.TrimSpace(request.ActiveGoal.TaskRunID) {
@@ -273,6 +275,7 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 		intakeRequest.ActiveGoal = request.ActiveGoal
 		intakeDecision = agentKernel.restoreEscalatedTaskLevelForContinuation(intakeRequest, intakeDecision)
 	}
+	isFreshTask := requestStartsFreshTask(turnDecision, request)
 	request.PinnedToolNames = appendUniqueStrings(append([]string{}, request.PinnedToolNames...), intakeDecision.InitialToolNames...)
 	intakeRequest.PinnedToolNames = request.PinnedToolNames
 	if turnDecision.Route == TurnRouteConsume {
@@ -283,6 +286,14 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 		instructionBundle, intakeDecision = agentKernel.selectInstructionBundleForResolvedRequest(responseContext, baseInstructionBundle, request, intakeDecision)
 		intakeDecision = applySelectedSkillCompletionRequirements(intakeDecision, instructionBundle)
 	}
+	request.PinnedToolNames = pinnedToolNamesForResolvedRequest(
+		manualPinnedToolNames,
+		persistedPinnedToolNames,
+		intakeDecision.InitialToolNames,
+		instructionBundle,
+		isFreshTask,
+	)
+	intakeRequest.PinnedToolNames = request.PinnedToolNames
 	request.PinnedSkillNames = appendUniqueStrings(request.PinnedSkillNames, selectedSkillNameList(instructionBundle.SkillDecisions)...)
 	intakeRequest.PinnedSkillNames = request.PinnedSkillNames
 	if intakeDecision.Classification == IntakeClassificationNeedsConfirmation {
@@ -403,6 +414,31 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 		agentKernel.appendGoalLifecycleEvent(result.TaskRun, turnRequest.ActiveGoal)
 	}
 	return result, errorValue
+}
+
+func requestStartsFreshTask(turnDecision TurnDecision, request AgentRequest) bool {
+	return turnDecision.Route == TurnRouteStartTask &&
+		!request.IsApprovalContinuation &&
+		!request.IsRuntimeRestartResume &&
+		strings.TrimSpace(request.ExistingTaskRunID) == ""
+}
+
+func pinnedToolNamesForResolvedRequest(
+	manualToolNames []string,
+	persistedToolNames []string,
+	routerToolNames []string,
+	instructionBundle InstructionBundle,
+	isFreshTask bool,
+) []string {
+	preservedToolNames := persistedToolNames
+	selectedToolNames := routerToolNames
+	if isFreshTask {
+		preservedToolNames = manualToolNames
+		if instructionBundle.HasContractSkillArbitration && len(instructionBundle.RequiredEvidenceTools) > 0 {
+			selectedToolNames = instructionBundle.RequiredEvidenceTools
+		}
+	}
+	return appendUniqueStrings(append([]string{}, preservedToolNames...), selectedToolNames...)
 }
 
 func (agentKernel *AgentKernel) completeTurnRouterFailure(responseContext context.Context, request AgentRequest, errorValue error, routerCallRecords []llmCallRecord) AgentTurnResult {
