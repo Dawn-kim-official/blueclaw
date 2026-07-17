@@ -624,7 +624,7 @@ func AmbientTaskCaptureAcceptanceScenario(artifactDirectoryPath string) VirtualS
 			ReplyTargetID:          "virtual-message-010",
 			Addressing:             connectors.AddressingMetadata{OtherPersonMentioned: true},
 			ActionResponses: []string{
-				actionInvokeCapabilityTool("task.add", `{"prompt":"세은 님 신규 가입 플로우 점검 월요일까지","targetPersonHint":"세은"}`),
+				actionInvokeCapabilityTool("task.add", `{"title":"신규 가입 플로우 점검","targetPersonHint":"세은"}`),
 				actionFinishMessage("세은 님 업무로 추가했습니다.", "obs-001:task.add:0"),
 			},
 			ExpectedToolCalls: []string{"task.add"},
