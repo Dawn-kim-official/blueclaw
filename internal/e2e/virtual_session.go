@@ -541,8 +541,8 @@ func BuiltinScenario(name string, artifactDirectoryPath string) (VirtualSessionS
 		return WebSearchAcceptanceScenario(artifactDirectoryPath), nil
 	case "tool_permission_hides_skill":
 		return ToolPermissionHidesSkillScenario(artifactDirectoryPath), nil
-	case "file_write_legacy_mode_acceptance":
-		return FileWriteLegacyModeAcceptanceScenario(artifactDirectoryPath), nil
+	case "file_write_acceptance":
+		return FileWriteAcceptanceScenario(artifactDirectoryPath), nil
 	case "gws_disabled":
 		return GWSDisabledScenario(artifactDirectoryPath), nil
 	case "schedule_create_acceptance":
@@ -695,8 +695,7 @@ func NewVirtualSessionHarness(scenario VirtualSessionScenario) (*VirtualSessionH
 	if len(capabilityToolNames) > 0 {
 		var capabilityCleanup func()
 		capabilityClient, capabilityCleanup = startVirtualCapabilityServer(capabilityToolNames, workspacePath, taskRunService)
-		runtime.UseCapabilityTools(capabilityClient, scenario.CapabilityToolNames)
-		runtime.UseCapabilityToolDescriptors(capabilityClient, scenario.CapabilityToolDescriptors)
+		runtime.UseCapabilityToolDescriptors(capabilityClient, virtualCapabilityToolDescriptors(scenario))
 		cleanup = capabilityCleanup
 	}
 
@@ -818,11 +817,8 @@ func virtualToolCatalogBuilder(
 	toolCatalogBuilder.UseSkillChangeHandler(func(contextValue context.Context) {
 		agentKernel.RefreshSkillIndex(contextValue, instructionBundleLoader())
 	})
-	if len(scenario.CapabilityToolNames) > 0 {
-		toolCatalogBuilder.UseCapabilityTools(capabilityClient, scenario.CapabilityToolNames)
-	}
-	if len(scenario.CapabilityToolDescriptors) > 0 {
-		toolCatalogBuilder.UseCapabilityToolDescriptors(capabilityClient, scenario.CapabilityToolDescriptors)
+	if len(scenario.CapabilityToolNames) > 0 || len(scenario.CapabilityToolDescriptors) > 0 {
+		toolCatalogBuilder.UseCapabilityToolDescriptors(capabilityClient, virtualCapabilityToolDescriptors(scenario))
 	}
 	return toolCatalogBuilder
 }
@@ -847,6 +843,105 @@ func virtualCapabilityToolNames(scenario VirtualSessionScenario) []string {
 	return toolNames
 }
 
+func virtualCapabilityToolDescriptors(scenario VirtualSessionScenario) []agentruntime.CapabilityToolDescriptor {
+	descriptorByName := map[string]agentruntime.CapabilityToolDescriptor{}
+	for _, descriptor := range scenario.CapabilityToolDescriptors {
+		descriptorByName[strings.TrimSpace(descriptor.Name)] = descriptor
+	}
+	descriptors := []agentruntime.CapabilityToolDescriptor{}
+	for _, toolName := range virtualCapabilityToolNames(scenario) {
+		descriptor := virtualCapabilityToolDescriptor(toolName)
+		if configuredDescriptor, isFound := descriptorByName[toolName]; isFound {
+			descriptor = mergeVirtualCapabilityToolDescriptor(descriptor, configuredDescriptor)
+		}
+		descriptors = append(descriptors, descriptor)
+	}
+	return descriptors
+}
+
+func virtualCapabilityToolDescriptor(toolName string) agentruntime.CapabilityToolDescriptor {
+	sideEffectClass := virtualCapabilitySideEffectClass(toolName)
+	descriptor := agentruntime.CapabilityToolDescriptor{
+		Name:            toolName,
+		CanonicalName:   toolName,
+		Namespace:       virtualCapabilityNamespace(toolName),
+		ModelName:       toolName,
+		ModelVisibility: agent.ToolVisibilityModel,
+		Description:     "Virtual capability " + toolName,
+		PrivacyClass:    "test",
+		InputSchema:     json.RawMessage(virtualCapabilityInputSchema(toolName)),
+		OutputSchema:    json.RawMessage(`{"type":"object","properties":{},"additionalProperties":false}`),
+		PolicyResource:  "tool:" + toolName,
+		SideEffectClass: sideEffectClass,
+		Availability:    agentruntime.CapabilityAvailability{State: "ok"},
+		Idempotency:     agentruntime.CapabilityIdempotency{Scope: "operation"},
+	}
+	if sideEffectClass != agent.ToolSideEffectRead {
+		descriptor.CompletionEvidence = &agentruntime.CapabilityCompletionEvidence{Mode: "success", Action: toolName, TargetKind: virtualCapabilityNamespace(toolName)}
+	}
+	return descriptor
+}
+
+func mergeVirtualCapabilityToolDescriptor(base agentruntime.CapabilityToolDescriptor, override agentruntime.CapabilityToolDescriptor) agentruntime.CapabilityToolDescriptor {
+	override.Name = base.Name
+	override.CanonicalName = firstVirtualString(override.CanonicalName, base.CanonicalName)
+	override.Namespace = firstVirtualString(override.Namespace, base.Namespace)
+	override.ModelName = firstVirtualString(override.ModelName, base.ModelName)
+	override.ModelVisibility = firstVirtualString(override.ModelVisibility, base.ModelVisibility)
+	override.Description = firstVirtualString(override.Description, base.Description)
+	override.PrivacyClass = firstVirtualString(override.PrivacyClass, base.PrivacyClass)
+	override.InputSchema = firstVirtualSchema(override.InputSchema, base.InputSchema)
+	override.OutputSchema = firstVirtualSchema(override.OutputSchema, base.OutputSchema)
+	override.PolicyResource = firstVirtualString(override.PolicyResource, base.PolicyResource)
+	override.SideEffectClass = firstVirtualString(override.SideEffectClass, base.SideEffectClass)
+	override.Availability.State = firstVirtualString(override.Availability.State, base.Availability.State)
+	override.Idempotency.Scope = firstVirtualString(override.Idempotency.Scope, base.Idempotency.Scope)
+	if override.CompletionEvidence == nil {
+		override.CompletionEvidence = base.CompletionEvidence
+	}
+	return override
+}
+
+func virtualCapabilitySideEffectClass(toolName string) string {
+	switch toolName {
+	case "web.search", "image.read", "document.read", "task.list", "calendar.list", "site.status":
+		return agent.ToolSideEffectRead
+	case "task.delete", "calendar.delete", "schedule.cancel", "site.delete", "message.delete":
+		return agent.ToolSideEffectDestructive
+	case "message.send":
+		return agent.ToolSideEffectExternalSend
+	case "site.publish":
+		return agent.ToolSideEffectSitePublish
+	default:
+		return agent.ToolSideEffectWorkspaceWrite
+	}
+}
+
+func virtualCapabilityNamespace(toolName string) string {
+	if separator := strings.IndexByte(toolName, '.'); separator > 0 {
+		return toolName[:separator]
+	}
+	return toolName
+}
+
+func firstVirtualString(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
+}
+
+func firstVirtualSchema(values ...json.RawMessage) json.RawMessage {
+	for _, value := range values {
+		if len(value) > 0 {
+			return value
+		}
+	}
+	return nil
+}
+
 func loadVirtualSkillInstructions(scenario VirtualSessionScenario, workspacePath string) ([]agent.SkillInstruction, error) {
 	skillInstructions := append([]agent.SkillInstruction{}, scenario.Skills...)
 	for _, sourceDirectoryPath := range scenario.SkillDirectoryPaths {
@@ -869,20 +964,10 @@ func loadVirtualSkillInstructions(scenario VirtualSessionScenario, workspacePath
 
 func skillInstructionFromBundle(skillBundle skill.SkillBundle) agent.SkillInstruction {
 	return agent.SkillInstruction{
-		Name:            skillBundle.Name,
-		Description:     skillBundle.Description,
-		Category:        skillBundle.Category,
-		Tags:            append([]string{}, skillBundle.Tags...),
-		Prompt:          skillBundle.Instruction,
-		Activation:      agent.SkillActivation(skillBundle.Activation),
-		Completion:      agent.SkillCompletion(skillBundle.Completion),
-		Quality:         agent.SkillQuality(skillBundle.Quality),
-		AllowedTools:    append([]string{}, skillBundle.AllowedTools...),
-		AllowedProfiles: append([]string{}, skillBundle.AllowedProfiles...),
-		TriggerHints:    append([]string{}, skillBundle.TriggerHints...),
-		References:      append([]string{}, skillBundle.References...),
-		Scripts:         append([]string{}, skillBundle.Scripts...),
-		Assets:          append([]string{}, skillBundle.Assets...),
+		Name:           skillBundle.Name,
+		Description:    skillBundle.Description,
+		Prompt:         skillBundle.Instruction,
+		ToolReferences: skillBundle.ReferencedToolNames(),
 		Source: agent.InstructionSource{
 			Path:      filepath.Join(skillBundle.DirectoryPath, "SKILL.md"),
 			SkillName: skillBundle.Name,

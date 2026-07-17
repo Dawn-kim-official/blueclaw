@@ -51,7 +51,7 @@ func TestBuildVirtualTurnMetricsRecordsEfficiencyWithoutThresholds(t *testing.T)
 		Events: []task.TaskEvent{
 			{Name: "agent.action"},
 			{Name: "agent.action"},
-			{Name: "tool.capability.invoke.requested"},
+			{Name: "tool.task.add.requested"},
 			{Name: "blueclaw.task.execution_duration", Body: `{"durationMs":4200}`},
 		},
 		LanguageModelCallEvents: []e2e.VirtualLanguageModelCallEvent{

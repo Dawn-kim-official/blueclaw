@@ -68,9 +68,6 @@ func decodeTurnEvent(rawTurnEvent task.RawTurnEvent) (TurnEvent, bool) {
 	return TurnEvent{}, false
 }
 
-// toolResultEventToolName reads the effective operation name from a tool
-// result observation body, so a capability.invoke call reports the wrapped
-// operation (e.g. "site.publish") instead of the neutral kernel verb name.
 func toolResultEventToolName(body string) string {
 	var document struct {
 		Tool string `json:"tool"`

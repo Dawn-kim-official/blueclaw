@@ -43,9 +43,6 @@ func buildAgentSystemInstruction(request AgentTurnRequest) string {
 	if request.IsApprovalContinuation {
 		instruction += " The user just approved the pending sensitive action in their latest message. The runtime has already performed that approved action before this model step. Review the resulting observation and finish; do not call the approved tool again and do not call ask.confirm again for the same action."
 	}
-	if len(request.QualityAcceptanceGuidance) > 0 {
-		instruction += " Quality guidance: " + strings.Join(request.QualityAcceptanceGuidance, " ")
-	}
 	if len(request.RequiredAttachmentSuffixes) > 0 {
 		instruction += " This task requires attached artifacts with these filename suffixes before finish: " + strings.Join(request.RequiredAttachmentSuffixes, ", ") + "."
 	}
@@ -80,7 +77,7 @@ func capabilityDomainPhrase(skills []SkillInstruction) string {
 	seenLabels := map[string]bool{}
 	labels := []string{}
 	for _, skill := range skills {
-		for _, toolName := range skill.AllowedTools {
+		for _, toolName := range skill.ToolReferences {
 			domain := strings.ToLower(strings.TrimSpace(toolName))
 			if separatorIndex := strings.Index(domain, "."); separatorIndex > 0 {
 				domain = domain[:separatorIndex]
@@ -124,25 +121,25 @@ func buildAgentToolDescription(toolRegistry *ToolSet) string {
 
 func (agentTurnRunner *AgentTurnRunner) appendInstructionEvent(taskRunID string, request AgentTurnRequest) {
 	body := map[string]any{
-		"profileName":               normalizedAgentProfileName(request.ProfileName),
-		"toolNames":                 toolNamesForEvent(request.ToolSet),
-		"registeredToolCount":       registeredToolCountForEvent(request.ToolSet),
-		"describedToolNames":        describedToolNamesForEvent(request.ToolSet),
-		"exposedToolNames":          toolNamesForEvent(request.ToolSet),
-		"hiddenDescribedToolNames":  hiddenDescribedToolNamesForEvent(request.ToolSet),
-		"selectedSkillAllowedTools": selectedSkillAllowedToolsForEvent(request),
-		"pinnedSkillAllowedTools":   pinnedSkillAllowedToolsForEvent(request),
-		"sourceCount":               len(request.InstructionSources),
-		"sources":                   request.InstructionSources,
-		"skillNames":                instructionSkillNames(request.InstructionSources),
-		"skillDecisions":            request.SkillDecisions,
-		"retrievalMode":             request.SkillRetrievalMode,
-		"indexStatus":               request.SkillIndexStatus,
-		"candidateCount":            request.SkillCandidateCount,
-		"skillQueries":              request.SkillQueries,
-		"activeGoal":                request.ActiveGoal,
-		"outcomeContract":           request.OutcomeContract,
-		"toolExposure":              request.ToolExposure,
+		"profileName":                 normalizedAgentProfileName(request.ProfileName),
+		"toolNames":                   toolNamesForEvent(request.ToolSet),
+		"registeredToolCount":         registeredToolCountForEvent(request.ToolSet),
+		"describedToolNames":          describedToolNamesForEvent(request.ToolSet),
+		"exposedToolNames":            toolNamesForEvent(request.ToolSet),
+		"hiddenDescribedToolNames":    hiddenDescribedToolNamesForEvent(request.ToolSet),
+		"selectedSkillToolReferences": selectedSkillToolReferencesForEvent(request),
+		"pinnedSkillToolReferences":   pinnedSkillToolReferencesForEvent(request),
+		"sourceCount":                 len(request.InstructionSources),
+		"sources":                     request.InstructionSources,
+		"skillNames":                  instructionSkillNames(request.InstructionSources),
+		"skillDecisions":              request.SkillDecisions,
+		"retrievalMode":               request.SkillRetrievalMode,
+		"indexStatus":                 request.SkillIndexStatus,
+		"candidateCount":              request.SkillCandidateCount,
+		"skillQueries":                request.SkillQueries,
+		"activeGoal":                  request.ActiveGoal,
+		"outcomeContract":             request.OutcomeContract,
+		"toolExposure":                request.ToolExposure,
 	}
 	if strings.TrimSpace(request.InstructionPrompt) == "" {
 		body["status"] = "empty"
@@ -180,16 +177,16 @@ func hiddenDescribedToolNamesForEvent(toolSet *ToolSet) []string {
 	return toolSet.ListHiddenDescribedToolNames()
 }
 
-func selectedSkillAllowedToolsForEvent(request AgentTurnRequest) map[string][]string {
+func selectedSkillToolReferencesForEvent(request AgentTurnRequest) map[string][]string {
 	selectedSkillNames := selectedSkillNames(request.SkillDecisions)
-	return allowedToolsBySkillNameForEvent(request.AvailableSkills, selectedSkillNames)
+	return toolReferencesBySkillNameForEvent(request.AvailableSkills, selectedSkillNames)
 }
 
-func pinnedSkillAllowedToolsForEvent(request AgentTurnRequest) map[string][]string {
-	return allowedToolsBySkillNameForEvent(request.AvailableSkills, stringSet(request.PinnedSkillNames))
+func pinnedSkillToolReferencesForEvent(request AgentTurnRequest) map[string][]string {
+	return toolReferencesBySkillNameForEvent(request.AvailableSkills, stringSet(request.PinnedSkillNames))
 }
 
-func allowedToolsBySkillNameForEvent(skillInstructions []SkillInstruction, skillNameByName map[string]bool) map[string][]string {
+func toolReferencesBySkillNameForEvent(skillInstructions []SkillInstruction, skillNameByName map[string]bool) map[string][]string {
 	result := map[string][]string{}
 	for _, skillInstruction := range skillInstructions {
 		if !skillNameByName[skillInstruction.Name] {

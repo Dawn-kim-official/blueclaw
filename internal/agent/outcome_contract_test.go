@@ -7,12 +7,7 @@ import (
 
 func TestSelectedRequiredAttachmentSuffixesStayAdvisoryForSlides(t *testing.T) {
 	instructionBundle := InstructionBundle{
-		Skills: []SkillInstruction{{
-			Name: "presentation",
-			Completion: SkillCompletion{
-				RequiredAttachmentSuffixes: []string{".pptx", ".pdf", ".html", "-notes.txt"},
-			},
-		}},
+		Skills:         []SkillInstruction{{Name: "presentation"}},
 		SkillDecisions: []SkillSelectionDecision{{Name: "presentation", Status: "selected"}},
 	}
 
@@ -25,21 +20,9 @@ func TestSelectedRequiredAttachmentSuffixesStayAdvisoryForSlides(t *testing.T) {
 
 func TestSelectedEvidenceHintsComeFromSelectedSkills(t *testing.T) {
 	instructionBundle := InstructionBundle{
-		Skills: []SkillInstruction{
-			{
-				Name: "site-prototype",
-				Completion: SkillCompletion{
-					RequiredEvidenceTools: []string{"site.create", "terminal.run", "site.publish"},
-				},
-			},
-			{
-				Name: "calendar",
-				Completion: SkillCompletion{
-					RequiredEvidenceTools: []string{"calendar.add"},
-				},
-			},
-		},
-		SkillDecisions: []SkillSelectionDecision{{Name: "site-prototype", Status: "selected"}},
+		Skills:                []SkillInstruction{{Name: "site-prototype"}, {Name: "calendar"}},
+		SkillDecisions:        []SkillSelectionDecision{{Name: "site-prototype", Status: "selected"}},
+		RequiredEvidenceTools: []string{"site.create", "terminal.run", "site.publish"},
 	}
 
 	toolNames := selectedEvidenceHintTools(instructionBundle)
@@ -196,16 +179,18 @@ func TestOutcomeContractCreatesExpectedResultsForRequestedFile(t *testing.T) {
 
 func TestOutcomeContractKeepsRequestedFileWhenSiteSkillOnlySelected(t *testing.T) {
 	instructionBundle := InstructionBundle{
-		Skills: []SkillInstruction{{
-			Name: "site-prototype",
-			Completion: SkillCompletion{
-				RequiredEvidenceTools: []string{"site.status", "site.publish"},
-			},
-		}},
-		SkillDecisions: []SkillSelectionDecision{{Name: "site-prototype", Status: "selected"}},
+		Skills:                []SkillInstruction{{Name: "site-prototype"}},
+		SkillDecisions:        []SkillSelectionDecision{{Name: "site-prototype", Status: "selected"}},
+		RequiredEvidenceTools: []string{"site.status", "site.publish"},
 	}
 	contract := outcomeContractForRequest(
-		AgentRequest{Prompt: "기업 문서 가이드를 docx로 만들어줘"},
+		AgentRequest{
+			Prompt: "기업 문서 가이드를 docx로 만들어줘",
+			ToolSet: newTestToolSetWithDefinitions([]ToolDefinition{
+				{Name: "site.status", Namespace: "site", SideEffectClass: ToolSideEffectRead},
+				{Name: "site.publish", Namespace: "site", SideEffectClass: ToolSideEffectExternalPublish},
+			}),
+		},
 		IntakeDecision{Classification: IntakeClassificationBoundedTask, RequestedOutputFormats: []string{".docx"}},
 		instructionBundle,
 		ExecutionPlan{},
@@ -235,24 +220,12 @@ func TestOutcomeContractKeepsRequestedFileWhenSiteSkillOnlySelected(t *testing.T
 
 func TestOutcomeContractDoesNotTreatReplyInstructionAsExternalSend(t *testing.T) {
 	instructionBundle := InstructionBundle{
-		Skills: []SkillInstruction{
-			{
-				Name: "direct-message",
-				Completion: SkillCompletion{
-					RequiredEvidenceTools: []string{"message.send"},
-				},
-			},
-			{
-				Name: "site-prototype",
-				Completion: SkillCompletion{
-					RequiredEvidenceTools: []string{"site.status", "site.publish"},
-				},
-			},
-		},
+		Skills: []SkillInstruction{{Name: "direct-message"}, {Name: "site-prototype"}},
 		SkillDecisions: []SkillSelectionDecision{
 			{Name: "direct-message", Status: "selected"},
 			{Name: "site-prototype", Status: "selected"},
 		},
+		RequiredEvidenceTools: []string{"message.send", "site.status", "site.publish"},
 	}
 
 	contract := outcomeContractForRequest(
@@ -283,13 +256,9 @@ func expectedResultsContain(results []ExpectedResult, resultType string, descrip
 
 func TestOutcomeContractIgnoresSelectedDirectMessageForNonSendGoal(t *testing.T) {
 	instructionBundle := InstructionBundle{
-		Skills: []SkillInstruction{{
-			Name: "direct-message",
-			Completion: SkillCompletion{
-				RequiredEvidenceTools: []string{"message.send"},
-			},
-		}},
-		SkillDecisions: []SkillSelectionDecision{{Name: "direct-message", Status: "selected"}},
+		Skills:                []SkillInstruction{{Name: "direct-message"}},
+		SkillDecisions:        []SkillSelectionDecision{{Name: "direct-message", Status: "selected"}},
+		RequiredEvidenceTools: []string{"message.send"},
 	}
 	intakeDecision := IntakeDecision{Classification: IntakeClassificationBoundedTask, TaskShape: TaskShapeResearchTask}
 
@@ -305,13 +274,9 @@ func TestOutcomeContractIgnoresSelectedDirectMessageForNonSendGoal(t *testing.T)
 
 func TestOutcomeContractDoesNotPromoteDirectMessageHintForAttachmentFollowUp(t *testing.T) {
 	instructionBundle := InstructionBundle{
-		Skills: []SkillInstruction{{
-			Name: "direct-message",
-			Completion: SkillCompletion{
-				RequiredEvidenceTools: []string{"message.send"},
-			},
-		}},
-		SkillDecisions: []SkillSelectionDecision{{Name: "direct-message", Status: "selected"}},
+		Skills:                []SkillInstruction{{Name: "direct-message"}},
+		SkillDecisions:        []SkillSelectionDecision{{Name: "direct-message", Status: "selected"}},
+		RequiredEvidenceTools: []string{"message.send"},
 	}
 	request := AgentRequest{
 		Prompt: "다시 시도해보자",
@@ -336,13 +301,9 @@ func TestOutcomeContractDoesNotPromoteDirectMessageHintForAttachmentFollowUp(t *
 
 func TestOutcomeContractIgnoresMailKeywordForArtifactAttachmentGoal(t *testing.T) {
 	instructionBundle := InstructionBundle{
-		Skills: []SkillInstruction{{
-			Name: "direct-message",
-			Completion: SkillCompletion{
-				RequiredEvidenceTools: []string{"message.send"},
-			},
-		}},
-		SkillDecisions: []SkillSelectionDecision{{Name: "direct-message", Status: "selected"}},
+		Skills:                []SkillInstruction{{Name: "direct-message"}},
+		SkillDecisions:        []SkillSelectionDecision{{Name: "direct-message", Status: "selected"}},
+		RequiredEvidenceTools: []string{"message.send"},
 	}
 	intakeDecision := IntakeDecision{Classification: IntakeClassificationBoundedTask, TaskShape: TaskShapeResearchTask}
 
@@ -365,17 +326,18 @@ func TestOutcomeContractIgnoresMailKeywordForArtifactAttachmentGoal(t *testing.T
 
 func TestOutcomeContractRequiresSendEvidenceForExternalSendPlan(t *testing.T) {
 	instructionBundle := InstructionBundle{
-		Skills: []SkillInstruction{{
-			Name: "direct-message",
-			Completion: SkillCompletion{
-				RequiredEvidenceTools: []string{"message.send"},
-			},
-		}},
-		SkillDecisions: []SkillSelectionDecision{{Name: "direct-message", Status: "selected"}},
+		Skills:                []SkillInstruction{{Name: "direct-message"}},
+		SkillDecisions:        []SkillSelectionDecision{{Name: "direct-message", Status: "selected"}},
+		RequiredEvidenceTools: []string{"message.send"},
 	}
 	intakeDecision := IntakeDecision{Classification: IntakeClassificationBoundedTask, TaskShape: TaskShapeMaintenanceTask}
 
-	contract := outcomeContractForRequest(AgentRequest{Prompt: "동하에게 테스트라고 DM 보내줘"}, intakeDecision, instructionBundle, ExecutionPlan{ExternalSend: true, ThirdPartyExternalSend: true}, true, nil)
+	toolSet := newTestToolSetWithDefinitions([]ToolDefinition{{
+		Name:            "message.send",
+		Namespace:       "message",
+		SideEffectClass: ToolSideEffectExternalSend,
+	}})
+	contract := outcomeContractForRequest(AgentRequest{Prompt: "동하에게 테스트라고 DM 보내줘", ToolSet: toolSet}, intakeDecision, instructionBundle, ExecutionPlan{ExternalSend: true, ThirdPartyExternalSend: true}, true, nil)
 
 	if len(contract.RequiredEvidenceTools) != 1 || contract.RequiredEvidenceTools[0] != "message.send" {
 		t.Fatalf("expected send hard gate for external send goal, got %+v", contract.RequiredEvidenceTools)
@@ -405,10 +367,15 @@ func TestOutcomeContractUsesIntakeSendEvidenceForExternalSend(t *testing.T) {
 }
 
 func TestOutcomeContractIgnoresIntakeSendEvidenceForCurrentConversationReply(t *testing.T) {
+	toolSet := newTestToolSetWithDefinitions([]ToolDefinition{{
+		Name:            "message.send",
+		Namespace:       "message",
+		SideEffectClass: ToolSideEffectExternalSend,
+	}})
 	contract := outcomeContractForRequest(
 		AgentRequest{
 			Prompt:  "안녕. 짧게 인사로 답해줘.",
-			ToolSet: testToolSet([]string{"message.send"}),
+			ToolSet: toolSet,
 		},
 		IntakeDecision{
 			Classification:        IntakeClassificationBoundedTask,
@@ -509,13 +476,9 @@ func TestOutcomeContractDoesNotDeriveEvidenceFromPromptAndAvailableTools(t *test
 
 func TestOutcomeContractSelectsOneFlowTaskEvidenceHintForCurrentOperation(t *testing.T) {
 	instructionBundle := InstructionBundle{
-		Skills: []SkillInstruction{{
-			Name: "internkim-flow",
-			Completion: SkillCompletion{
-				RequiredEvidenceTools: []string{"task.add", "task.list", "task.update"},
-			},
-		}},
-		SkillDecisions: []SkillSelectionDecision{{Name: "internkim-flow", Status: "selected"}},
+		Skills:                []SkillInstruction{{Name: "internkim-flow"}},
+		SkillDecisions:        []SkillSelectionDecision{{Name: "internkim-flow", Status: "selected"}},
+		RequiredEvidenceTools: []string{"task.add", "task.list", "task.update"},
 	}
 	contract := outcomeContractForRequest(
 		AgentRequest{
@@ -535,7 +498,15 @@ func TestOutcomeContractSelectsOneFlowTaskEvidenceHintForCurrentOperation(t *tes
 }
 
 func TestOutcomeReferenceToolSetHidesSendAndSiteToolsForDocumentGoal(t *testing.T) {
-	toolSet := testToolSet([]string{"web.fetch", "file.write", "file.deliver", "site.create", "site.publish", "message.send", "mail.message.send"})
+	toolSet := newTestToolSetWithDefinitions([]ToolDefinition{
+		{Name: "web.fetch", Namespace: "web", SideEffectClass: ToolSideEffectRead},
+		{Name: "file.write", Namespace: "file", SideEffectClass: ToolSideEffectWorkspaceWrite},
+		{Name: "file.deliver", Namespace: "file", SideEffectClass: ToolSideEffectExternalWrite},
+		{Name: "site.create", Namespace: "site", SideEffectClass: ToolSideEffectExternalWrite},
+		{Name: "site.publish", Namespace: "site", SideEffectClass: ToolSideEffectExternalPublish},
+		{Name: "message.send", Namespace: "message", SideEffectClass: ToolSideEffectExternalSend},
+		{Name: "mail.message.send", Namespace: "mail", SideEffectClass: ToolSideEffectExternalSend},
+	})
 	contract := OutcomeContract{
 		SelectedEvidenceHints: []string{"site.create", "site.publish", "message.send", "mail.message.send"},
 	}
@@ -557,7 +528,7 @@ func TestOutcomeReferenceToolSetHidesSendAndSiteToolsForDocumentGoal(t *testing.
 func TestAgentTurnToolSetExposesPinnedNonKernelTools(t *testing.T) {
 	toolSet := testToolSet([]string{"web.search", "web.fetch", "terminal.run", "file.write"})
 	instructionBundle := InstructionBundle{
-		Skills:         []SkillInstruction{{Name: "presentation", AllowedTools: []string{"terminal.run", "file.write"}}},
+		Skills:         []SkillInstruction{{Name: "presentation", ToolReferences: []string{"terminal.run", "file.write"}}},
 		SkillDecisions: []SkillSelectionDecision{{Name: "presentation", Status: "selected"}},
 	}
 
@@ -609,8 +580,8 @@ func TestAgentTurnToolSetHidesSiteToolsForActiveGoalContinuation(t *testing.T) {
 	toolSet := testToolSet([]string{"web.fetch", "terminal.run", "site.create", "site.publish"})
 	instructionBundle := InstructionBundle{
 		Skills: []SkillInstruction{{
-			Name:         "site-prototype",
-			AllowedTools: []string{"terminal.run", "site.create", "site.publish"},
+			Name:           "site-prototype",
+			ToolReferences: []string{"terminal.run", "site.create", "site.publish"},
 		}},
 		SkillDecisions: []SkillSelectionDecision{{Name: "site-prototype", Status: "selected"}},
 	}
@@ -637,11 +608,8 @@ func TestAgentTurnToolSetHidesSelectedSiteSkillToolsWhenActiveGoalWasAttachmentF
 	toolSet := testToolSet([]string{"web.fetch", "terminal.run", "file.deliver", "site.create", "site.publish"})
 	instructionBundle := InstructionBundle{
 		Skills: []SkillInstruction{{
-			Name:         "site-prototype",
-			AllowedTools: []string{"terminal.run", "site.create", "site.publish"},
-			Completion: SkillCompletion{
-				RequiredEvidenceTools: []string{"site.create", "terminal.run", "site.publish"},
-			},
+			Name:           "site-prototype",
+			ToolReferences: []string{"terminal.run", "site.create", "site.publish"},
 		}},
 		SkillDecisions: []SkillSelectionDecision{{Name: "site-prototype", Status: "selected"}},
 	}
@@ -669,13 +637,9 @@ func TestAgentTurnToolSetHidesSelectedSiteSkillToolsWhenActiveGoalWasAttachmentF
 
 func TestOutcomeContractRequiresActiveGoalRequiredEvidenceForContinuation(t *testing.T) {
 	instructionBundle := InstructionBundle{
-		Skills: []SkillInstruction{{
-			Name: "site-prototype",
-			Completion: SkillCompletion{
-				RequiredEvidenceTools: []string{"site.create", "terminal.run", "site.publish"},
-			},
-		}},
-		SkillDecisions: []SkillSelectionDecision{{Name: "site-prototype", Status: "selected"}},
+		Skills:                []SkillInstruction{{Name: "site-prototype"}},
+		SkillDecisions:        []SkillSelectionDecision{{Name: "site-prototype", Status: "selected"}},
+		RequiredEvidenceTools: []string{"site.create", "terminal.run", "site.publish"},
 	}
 	request := AgentRequest{
 		Prompt: "다시 해봐 그럼 될 거야",
@@ -715,8 +679,8 @@ func TestAgentTurnToolSetExposesSendToolForActiveSendContinuation(t *testing.T) 
 	toolSet := testToolSet([]string{"message.send", "file.write"})
 	instructionBundle := InstructionBundle{
 		Skills: []SkillInstruction{{
-			Name:         "direct-message",
-			AllowedTools: []string{"message.send"},
+			Name:           "direct-message",
+			ToolReferences: []string{"message.send"},
 		}},
 		SkillDecisions: []SkillSelectionDecision{{Name: "direct-message", Status: "selected"}},
 	}
@@ -744,8 +708,8 @@ func TestAgentTurnToolSetHidesUnrequestedSendToolForAttachmentFollowUp(t *testin
 	toolSet := testToolSet([]string{"message.send", "file.preview", "file.read"})
 	instructionBundle := InstructionBundle{
 		Skills: []SkillInstruction{{
-			Name:         "direct-message",
-			AllowedTools: []string{"message.send"},
+			Name:           "direct-message",
+			ToolReferences: []string{"message.send"},
 		}},
 		SkillDecisions: []SkillSelectionDecision{{Name: "direct-message", Status: "selected"}},
 	}

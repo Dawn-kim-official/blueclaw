@@ -8,18 +8,18 @@ type requestToolsArguments struct {
 }
 
 type toolRequestResult struct {
-	PinnedToolNames           []string            `json:"pinnedToolNames,omitempty"`
-	PinnedSkillNames          []string            `json:"pinnedSkillNames,omitempty"`
-	UnknownToolNames          []string            `json:"unknownToolNames,omitempty"`
-	UnavailableToolNames      []string            `json:"unavailableToolNames,omitempty"`
-	UnknownSkillNames         []string            `json:"unknownSkillNames,omitempty"`
-	ReclassifiedSkillsAsTools []string            `json:"reclassifiedSkillsAsTools,omitempty"`
-	SkillsMissingAllowedTools map[string][]string `json:"skillsMissingAllowedTools,omitempty"`
-	EmptyRequirement          bool                `json:"emptyRequirement,omitempty"`
+	PinnedToolNames             []string            `json:"pinnedToolNames,omitempty"`
+	PinnedSkillNames            []string            `json:"pinnedSkillNames,omitempty"`
+	UnknownToolNames            []string            `json:"unknownToolNames,omitempty"`
+	UnavailableToolNames        []string            `json:"unavailableToolNames,omitempty"`
+	UnknownSkillNames           []string            `json:"unknownSkillNames,omitempty"`
+	ReclassifiedSkillsAsTools   []string            `json:"reclassifiedSkillsAsTools,omitempty"`
+	SkillsMissingToolReferences map[string][]string `json:"skillsMissingToolReferences,omitempty"`
+	EmptyRequirement            bool                `json:"emptyRequirement,omitempty"`
 }
 
 func applyToolRequest(request AgentTurnRequest, requestArguments requestToolsArguments) (AgentTurnRequest, toolRequestResult) {
-	result := toolRequestResult{SkillsMissingAllowedTools: map[string][]string{}}
+	result := toolRequestResult{SkillsMissingToolReferences: map[string][]string{}}
 	requestArguments.ToolNames = normalizeRequestedToolNames(requestArguments.ToolNames, request.ToolSet)
 	if len(appendUniqueStrings(requestArguments.ToolNames)) == 0 && len(appendUniqueStrings(requestArguments.SkillNames)) == 0 {
 		result.EmptyRequirement = true
@@ -27,8 +27,8 @@ func applyToolRequest(request AgentTurnRequest, requestArguments requestToolsArg
 	request, result = pinRequestedTools(request, requestArguments.ToolNames, result)
 	request, result = pinRequestedSkills(request, requestArguments.SkillNames, result)
 	request, result = reclassifySkillNamesThatAreTools(request, result)
-	if len(result.SkillsMissingAllowedTools) == 0 {
-		result.SkillsMissingAllowedTools = nil
+	if len(result.SkillsMissingToolReferences) == 0 {
+		result.SkillsMissingToolReferences = nil
 	}
 	return request, result
 }
@@ -147,7 +147,6 @@ func pinRequestedSkills(request AgentTurnRequest, skillNames []string, result to
 		result.PinnedSkillNames = appendUniqueStrings(result.PinnedSkillNames, trimmedSkillName)
 		request.PinnedSkillNames = appendUniqueStrings(request.PinnedSkillNames, trimmedSkillName)
 		request.InstructionPrompt = appendPinnedSkillPrompt(request.InstructionPrompt, []SkillInstruction{skillInstruction})
-		request.ActiveGoal.OutcomeContract.SelectedEvidenceHints = appendUniqueStrings(request.ActiveGoal.OutcomeContract.SelectedEvidenceHints, skillInstruction.Completion.RequiredEvidenceTools...)
 	}
 	return request, result
 }
@@ -171,6 +170,6 @@ func toolRequestResultFailed(result toolRequestResult) bool {
 	return len(result.UnknownToolNames) > 0 ||
 		len(result.UnavailableToolNames) > 0 ||
 		len(result.UnknownSkillNames) > 0 ||
-		len(result.SkillsMissingAllowedTools) > 0 ||
+		len(result.SkillsMissingToolReferences) > 0 ||
 		result.EmptyRequirement
 }

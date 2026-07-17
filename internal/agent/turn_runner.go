@@ -95,7 +95,6 @@ type AgentTurnRequest struct {
 	PriorTask                  PriorTaskContext
 	ScheduledRun               ScheduledRunContext
 	ToolExposure               ToolExposureEvent
-	QualityAcceptanceGuidance  []string
 	PrecomputedTurnDecision    *TurnDecision
 	IsPrecomputedDecisionExact bool
 	SkipSkillSelection         bool
@@ -425,7 +424,7 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 			return agentTurnRunner.cancelledTaskResultOrCurrent(taskRun.TaskRunID, state.Attachments), nil
 		}
 		if agentTurnRunner.currentEffortElapsed(request.EffortStartedAt) {
-			completionRequirements := elapsedCompletionRequirements(toolUseRequirements, state.Observations, state.CompletionIntentToolName)
+			completionRequirements := elapsedCompletionRequirements(toolUseRequirements, state.Observations, state.CompletionIntentToolName, request.ToolSet)
 			return agentTurnRunner.stopForElapsedLimit(ctx, taskRun.TaskRunID, request, completionRequirements, state.Observations, state.Attachments, state.QualityCriteria, state.ExecutionState, iteration-1, state.ToolCallCount)
 		}
 		state.Observations = agentTurnRunner.applyPendingSteeringEvents(taskRun.TaskRunID, state.Observations, appliedSteerEventIDs)
@@ -458,7 +457,7 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 			"exposure": iterationRequest.ToolExposure,
 		}))
 		actionContext, cancelAction := agentTurnRunner.currentEffortContext(taskContext, request.EffortStartedAt)
-		allowQualityCriteria := len(state.QualityCriteria) == 0 && outcomeContractNeedsQualityCriteria(iterationRequest.OutcomeContract)
+		allowQualityCriteria := len(state.QualityCriteria) == 0 && outcomeContractNeedsQualityCriteria(iterationRequest.ToolSet, iterationRequest.OutcomeContract)
 		actionDocument, actionError := agentTurnRunner.nextAction(actionContext, taskRun.TaskRunID, iterationRequest, toolUseRequirements, state.Observations, state.ExecutionState, state.ContextSummary, allowQualityCriteria)
 		cancelAction()
 		if actionError != nil {
@@ -473,7 +472,7 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 				if !agentTurnRunner.currentEffortElapsed(request.EffortStartedAt) {
 					return agentTurnRunner.finalizeIfSatisfiedOrFail(taskContext, taskRun.TaskRunID, request, "llm action failed: "+actionError.Error(), toolUseRequirements, state.Observations, state.Attachments, state.QualityCriteria, state.ExecutionState)
 				}
-				completionRequirements := elapsedCompletionRequirements(toolUseRequirements, state.Observations, state.CompletionIntentToolName)
+				completionRequirements := elapsedCompletionRequirements(toolUseRequirements, state.Observations, state.CompletionIntentToolName, request.ToolSet)
 				return agentTurnRunner.stopForElapsedLimit(ctx, taskRun.TaskRunID, request, completionRequirements, state.Observations, state.Attachments, state.QualityCriteria, state.ExecutionState, iteration-1, state.ToolCallCount)
 			}
 			return agentTurnRunner.finalizeIfSatisfiedOrFail(taskContext, taskRun.TaskRunID, request, "llm action failed: "+actionError.Error(), toolUseRequirements, state.Observations, state.Attachments, state.QualityCriteria, state.ExecutionState)
@@ -942,12 +941,12 @@ func (agentTurnRunner *AgentTurnRunner) nextAction(ctx context.Context, taskRunI
 	return actionDocument, nil
 }
 
-func outcomeContractNeedsQualityCriteria(contract OutcomeContract) bool {
+func outcomeContractNeedsQualityCriteria(toolSet *ToolSet, contract OutcomeContract) bool {
 	artifactRequirement := strings.TrimSpace(contract.ArtifactRequirement)
 	if artifactRequirement != "" && artifactRequirement != ArtifactRequirementNone {
 		return true
 	}
-	if len(contract.RequiredAttachmentSuffixes) > 0 || contractRequiresToolPrefix(contract, "site.") {
+	if len(contract.RequiredAttachmentSuffixes) > 0 || contractRequiresToolNamespace(toolSet, contract, "site") {
 		return true
 	}
 	return expectedResultIncludesType(contract, ExpectedResultTypeFile) ||
@@ -1034,7 +1033,6 @@ func selectedSkillFileDeliveryToolNames(request AgentTurnRequest) []string {
 			continue
 		}
 		toolNames = appendUniqueStrings(toolNames, SkillToolNames(skillInstruction)...)
-		toolNames = appendUniqueStrings(toolNames, skillInstruction.Completion.RequiredEvidenceTools...)
 	}
 	return toolNames
 }
@@ -1566,12 +1564,13 @@ func (agentTurnRunner *AgentTurnRunner) finalizeElapsedLimitWithEvidence(ctx con
 	return limitFinalizationResult{Result: transition.Result, IsCompleted: true, Observations: transition.Observations, Attachments: transition.Attachments}
 }
 
-func elapsedCompletionRequirements(requirements []toolUseRequirement, observations []turnObservation, completionIntentToolName string) []toolUseRequirement {
+func elapsedCompletionRequirements(requirements []toolUseRequirement, observations []turnObservation, completionIntentToolName string, toolSet *ToolSet) []toolUseRequirement {
 	if len(requirements) > 0 {
 		return requirements
 	}
 	toolName := strings.TrimSpace(completionIntentToolName)
-	if toolName == "" || DefaultToolSideEffectClass(toolName) != ToolSideEffectRead {
+	toolDefinition, isFound := toolSet.ToolDefinition(toolName)
+	if toolName == "" || !isFound || ToolDefinitionSideEffectClass(toolDefinition) != ToolSideEffectRead {
 		return nil
 	}
 	completionRequirement := toolUseRequirement{ToolName: toolName}

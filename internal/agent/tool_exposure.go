@@ -5,7 +5,10 @@ import (
 	"strings"
 )
 
-const maxSchemaCallableToolCount = 15
+const (
+	maxSchemaCallableToolCount    = 20
+	maxExtensionCallableToolCount = 10
+)
 
 type toolExposureGroup struct {
 	Name    string
@@ -39,7 +42,6 @@ func toolSetForAgentTurnWithExposure(toolSet *ToolSet, instructionBundle Instruc
 	if len(observations) > 0 {
 		recentObservations = observations[0]
 	}
-	kernelGroup := filterGroupTools(toolSet, toolExposureGroup{Name: "fixed kernel", ToolIDs: kernelToolNamesForRequest(request)})
 	interactionGroup := filterGroupTools(toolSet, toolExposureGroup{Name: "required interaction", ToolIDs: requiredInteractionToolNames(outcomeContract, recentObservations)})
 	recoveryToolNames := appendUniqueStrings(activeRecoveryToolNames(recentObservations), activeRecoveryPreconditionToolNames(toolSet, recentObservations)...)
 	recoveryGroup := filterGroupTools(toolSet, toolExposureGroup{Name: "recovery tools", ToolIDs: recoveryToolNames})
@@ -50,11 +52,16 @@ func toolSetForAgentTurnWithExposure(toolSet *ToolSet, instructionBundle Instruc
 	hasAuthoritativeWorkingSet := instructionBundle.HasContractSkillArbitration &&
 		len(selectedSkillInstructionList(instructionBundle)) > 0 &&
 		(len(instructionBundle.RequiredNextTools) > 0 || len(instructionBundle.RequiredEvidenceTools) > 0)
-	groups := []toolExposureGroup{interactionGroup, recoveryGroup, requiredEvidenceGroup, pinnedGroup, selectedSkillGroup, evidenceAlternativesGroup, kernelGroup}
+	groups := []toolExposureGroup{interactionGroup, recoveryGroup, requiredEvidenceGroup, pinnedGroup, selectedSkillGroup, evidenceAlternativesGroup}
 	if hasAuthoritativeWorkingSet {
 		groups = []toolExposureGroup{interactionGroup, recoveryGroup, requiredEvidenceGroup, pinnedGroup, requiredNextGroup, selectedSkillGroup, evidenceAlternativesGroup}
 	}
-	exposedToolIDs, droppedGroups := selectToolGroups(groups, maxSchemaCallableToolCount)
+	extensionToolIDs, droppedGroups := selectToolGroups(extensionToolGroups(groups), maxExtensionCallableToolCount)
+	kernelToolIDs := []string{}
+	if requestNeedsToolAccess(request, groups) {
+		kernelToolIDs = filterGroupTools(toolSet, toolExposureGroup{ToolIDs: KernelToolNames()}).ToolIDs
+	}
+	exposedToolIDs := appendUniqueStrings(kernelToolIDs, extensionToolIDs...)
 	selectionEvent.SelectionSource = firstNonEmptyString(selectionEvent.SelectionSource, toolSelectionSource(selectedSkillGroup, hasAuthoritativeWorkingSet))
 	selectionEvent.SelectionReason = firstNonEmptyString(selectionEvent.SelectionReason, toolSelectionReason(selectedSkillGroup, hasAuthoritativeWorkingSet))
 	selectionEvent.ValidSelectedToolIDs = nil
@@ -144,12 +151,30 @@ func toolSelectionReason(selectedSkillGroup toolExposureGroup, hasAuthoritativeW
 	return "Blueclaw exposes the compact kernel tools"
 }
 
-func kernelToolNamesForRequest(request AgentRequest) []string {
-	toolNames := KernelToolNames()
-	if request.TaskShape != TaskShapeImmediateReply {
-		return toolNames
+func extensionToolGroups(groups []toolExposureGroup) []toolExposureGroup {
+	extensionGroups := make([]toolExposureGroup, 0, len(groups))
+	for _, group := range groups {
+		toolIDs := []string{}
+		for _, toolID := range group.ToolIDs {
+			if !IsKernelToolName(toolID) {
+				toolIDs = appendUniqueStrings(toolIDs, toolID)
+			}
+		}
+		extensionGroups = append(extensionGroups, toolExposureGroup{Name: group.Name, ToolIDs: toolIDs})
 	}
-	return removeToolName(toolNames, SkillSearchToolName)
+	return extensionGroups
+}
+
+func requestNeedsToolAccess(request AgentRequest, groups []toolExposureGroup) bool {
+	if request.TaskShape != TaskShapeImmediateReply {
+		return true
+	}
+	for _, group := range groups {
+		if len(group.ToolIDs) > 0 {
+			return true
+		}
+	}
+	return false
 }
 
 func requiredInteractionToolNames(outcomeContract OutcomeContract, observations []turnObservation) []string {
@@ -188,11 +213,7 @@ func filterGroupTools(toolSet *ToolSet, group toolExposureGroup) toolExposureGro
 }
 
 func toolIsModelCallable(toolID string) bool {
-	trimmedToolID := strings.TrimSpace(toolID)
-	return trimmedToolID != "" &&
-		trimmedToolID != AskConfirmToolName &&
-		trimmedToolID != CapabilityInvokeToolName &&
-		trimmedToolID != TaskHistoryToolName
+	return strings.TrimSpace(toolID) != ""
 }
 
 func activeRecoveryToolNames(observations []turnObservation) []string {

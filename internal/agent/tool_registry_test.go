@@ -30,6 +30,28 @@ func TestToolSetExcludesUnregisteredAllowedToolNames(t *testing.T) {
 	}
 }
 
+func TestToolSetRejectsDuplicateToolNamesWithoutReplacingTheFirstHandler(t *testing.T) {
+	toolSet := NewToolSet([]string{"registered.tool"})
+	if errorValue := toolSet.RegisterTool(ToolDefinition{Name: "registered.tool"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return ToolSuccess("first"), nil
+	}); errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	errorValue := toolSet.RegisterTool(ToolDefinition{Name: "registered.tool"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return ToolSuccess("second"), nil
+	})
+	if errorValue == nil {
+		t.Fatal("expected duplicate registration to fail")
+	}
+	result, invocationError := toolSet.Invoke(context.Background(), ToolInvocation{ToolName: "registered.tool"})
+	if invocationError != nil {
+		t.Fatal(invocationError)
+	}
+	if result.ContentText() != "first" {
+		t.Fatalf("expected the original handler to remain registered, got %+v", result)
+	}
+}
+
 func TestFailureCodeIsGenericOpaqueCode(t *testing.T) {
 	failureCode := FailureCodes.Unavailable
 
@@ -56,7 +78,7 @@ func TestFailureCodeCollapsesUnknownCodesToOperationFailed(t *testing.T) {
 
 func TestToolSetDescriptionsAndActionSchemaOnlyShowExposedKernelTools(t *testing.T) {
 	toolSet := NewToolSet([]string{"visible.tool", "denied.tool"})
-	toolSet.RegisterTool(ToolDefinition{Name: "visible.tool", Description: "Visible"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	toolSet.RegisterTool(ToolDefinition{Name: "visible.tool", Description: "Visible", InputSchema: json.RawMessage(`{"type":"object","properties":{}}`)}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		return ToolSuccess("ok"), nil
 	})
 	toolSet.RegisterTool(ToolDefinition{Name: "hidden.tool", Description: "Hidden"}, func(context.Context, ToolInvocation) (ToolResult, error) {
@@ -90,9 +112,31 @@ func TestToolSetDescriptionsAndActionSchemaOnlyShowExposedKernelTools(t *testing
 	}
 }
 
-func TestToolSetNeverExposesAskConfirmToTheModel(t *testing.T) {
+func TestToolSetDescriptionsUseDescriptorDescription(t *testing.T) {
+	toolSet := NewToolSet([]string{"task.update"})
+	toolSet.RegisterTool(ToolDefinition{
+		Name:        "task.update",
+		Description: "Update the task identified by exact taskID.",
+		InputSchema: json.RawMessage(`{"type":"object","properties":{"taskID":{"type":"string"}}}`),
+	}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return ToolSuccess("ok"), nil
+	})
+
+	descriptions := toolSet.Descriptions()
+	if !strings.Contains(descriptions, "exact taskID") || strings.Contains(descriptions, `"query"`) {
+		t.Fatalf("expected the descriptor to be the only description source, got %s", descriptions)
+	}
+}
+
+func TestToolSetDoesNotExposeControlToolsToTheModel(t *testing.T) {
 	toolSet := NewToolSet([]string{AskConfirmToolName})
-	toolSet.RegisterTool(ToolDefinition{Name: AskConfirmToolName, Description: "Confirm"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	toolSet.RegisterTool(ToolDefinition{
+		Name:         AskConfirmToolName,
+		Description:  "Confirm",
+		Visibility:   ToolVisibilityControl,
+		InputSchema:  json.RawMessage(`{"type":"object","properties":{}}`),
+		OutputSchema: json.RawMessage(`{"type":"object"}`),
+	}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		return ToolSuccess("ok"), nil
 	})
 
@@ -128,7 +172,16 @@ func TestActionSchemaUsesRegisteredTaskUpdateSchema(t *testing.T) {
 	if strings.Contains(actionSchema, `"content"`) {
 		t.Fatalf("expected action schema to omit removed content field, got %s", actionSchema)
 	}
-	if !isOneShotCompletionEvidenceTool("task.update") {
+	toolSet := NewToolSet([]string{"task.update"})
+	toolSet.RegisterTool(ToolDefinition{
+		Name:            "task.update",
+		InputSchema:     inputSchema,
+		SideEffectClass: ToolSideEffectExternalWrite,
+		Completion:      ToolCompletion{Mode: ToolCompletionObservation},
+	}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return ToolResult{}, nil
+	})
+	if !isOneShotCompletionEvidenceTool(toolSet, "task.update") {
 		t.Fatal("expected task.update to count as one-shot completion evidence")
 	}
 }
@@ -154,20 +207,22 @@ func TestActionSchemaDoesNotInferInputSchemaFromToolName(t *testing.T) {
 	}
 }
 
-func TestDefaultToolSideEffectClass(t *testing.T) {
+func TestToolSideEffectClassUsesOnlyDescriptorMetadata(t *testing.T) {
 	tests := []struct {
 		toolName           string
+		sideEffectClass    string
 		expectedSideEffect string
 		requiresCompletion bool
 	}{
-		{toolName: "task.add", expectedSideEffect: ToolSideEffectStateChange, requiresCompletion: true},
-		{toolName: "task.list", expectedSideEffect: ToolSideEffectRead, requiresCompletion: false},
-		{toolName: "message.send", expectedSideEffect: ToolSideEffectExternalWrite, requiresCompletion: true},
-		{toolName: "math.calculate", expectedSideEffect: ToolSideEffectComputation, requiresCompletion: false},
+		{toolName: "task.add", sideEffectClass: ToolSideEffectStateChange, expectedSideEffect: ToolSideEffectStateChange, requiresCompletion: true},
+		{toolName: "task.list", sideEffectClass: ToolSideEffectRead, expectedSideEffect: ToolSideEffectRead, requiresCompletion: false},
+		{toolName: "message.send", sideEffectClass: ToolSideEffectExternalWrite, expectedSideEffect: ToolSideEffectExternalWrite, requiresCompletion: true},
+		{toolName: "math.calculate", sideEffectClass: ToolSideEffectComputation, expectedSideEffect: ToolSideEffectComputation, requiresCompletion: false},
+		{toolName: "looks.like.write", expectedSideEffect: "", requiresCompletion: false},
 	}
 
 	for _, test := range tests {
-		toolDefinition := ToolDefinition{Name: test.toolName}
+		toolDefinition := ToolDefinition{Name: test.toolName, SideEffectClass: test.sideEffectClass}
 		if actualSideEffect := ToolDefinitionSideEffectClass(toolDefinition); actualSideEffect != test.expectedSideEffect {
 			t.Fatalf("expected %s side effect for %s, got %s", test.expectedSideEffect, test.toolName, actualSideEffect)
 		}
@@ -213,8 +268,7 @@ func TestToolSetInvokeRejectsHiddenTool(t *testing.T) {
 func TestToolFunctionValidatesInputAndMarshalsOutput(t *testing.T) {
 	toolSet := NewToolSet([]string{"echo.tool"})
 	RegisterToolFunction(toolSet, ToolFunction[echoToolInput, echoToolOutput]{
-		Definition:               ToolDefinition{Name: "echo.tool"},
-		RejectUnknownInputFields: true,
+		Definition: ToolDefinition{Name: "echo.tool"},
 		Handler: func(_ context.Context, input echoToolInput) (echoToolOutput, error) {
 			return echoToolOutput{Message: input.Message}, nil
 		},

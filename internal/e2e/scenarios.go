@@ -136,9 +136,9 @@ func ToolPermissionHidesSkillScenario(artifactDirectoryPath string) VirtualSessi
 	}
 }
 
-func FileWriteLegacyModeAcceptanceScenario(artifactDirectoryPath string) VirtualSessionScenario {
+func FileWriteAcceptanceScenario(artifactDirectoryPath string) VirtualSessionScenario {
 	return VirtualSessionScenario{
-		Name:                  "file_write_legacy_mode_acceptance",
+		Name:                  "file_write_acceptance",
 		ArtifactDirectoryPath: artifactDirectoryPath,
 		AllowedTools:          []string{"file.write", "terminal.run"},
 		InitialToolNames:      []string{"file.write", "terminal.run"},
@@ -146,7 +146,7 @@ func FileWriteLegacyModeAcceptanceScenario(artifactDirectoryPath string) Virtual
 			Prompt:                 "중간 JSON 파일을 만들고 터미널에서 읽히는지 확인해줘.",
 			RouterRequiredEvidence: []string{"file.write"},
 			ActionResponses: []string{
-				actionCallTool("file.write", `{"path":"tmp/docx-guide/document.json","content":"{\"title\":\"readable\"}\n","mode":644}`),
+				actionCallTool("file.write", `{"path":"tmp/docx-guide/document.json","content":"{\"title\":\"readable\"}\n"}`),
 				actionCallTool("terminal.run", `{"workingDirectoryPath":"tmp/docx-guide","command":"cat document.json","timeoutSecond":30}`),
 				actionFinishMessage("파일을 생성하고 터미널에서 읽히는 것을 확인했습니다.", "obs-002:terminal.run:0"),
 			},
@@ -393,7 +393,6 @@ func ScheduleCreateAcceptanceScenario(artifactDirectoryPath string) VirtualSessi
 		ArtifactDirectoryPath:  artifactDirectoryPath,
 		Skills:                 []agent.SkillInstruction{scheduledTaskSkill()},
 		AllowedTools:           append(agent.KernelToolNames(), "schedule.create", "schedule.cancel"),
-		CapabilityToolNames:    []string{"schedule.create", "schedule.cancel"},
 		InitialToolNames:       []string{"schedule.create", "schedule.cancel"},
 		RouterRequiredEvidence: []string{"schedule.create"},
 		Turns: []VirtualTurn{{
@@ -424,7 +423,6 @@ func ScheduleLifecycleAcceptanceScenario(artifactDirectoryPath string) VirtualSe
 		ArtifactDirectoryPath: artifactDirectoryPath,
 		Skills:                []agent.SkillInstruction{scheduledTaskSkill()},
 		AllowedTools:          append(agent.KernelToolNames(), "schedule.create", "schedule.update", "schedule.cancel"),
-		CapabilityToolNames:   []string{"schedule.create", "schedule.update", "schedule.cancel"},
 		InitialToolNames:      []string{"schedule.create", "schedule.update", "schedule.cancel"},
 		Turns: []VirtualTurn{
 			{
@@ -590,14 +588,10 @@ func AmbientDutyCalendarAcceptanceScenario(artifactDirectoryPath string) Virtual
 
 func flowTaskSkill() agent.SkillInstruction {
 	return agent.SkillInstruction{
-		Name:         "flow",
-		Description:  "Add, update, and complete team work tasks.",
-		WhenToUse:    "Use for task assignment, 업무, 할 일, status changes, and deadlines tracked in team flow.",
-		Prompt:       "Use task.add to add a task for a person, task.list to find an existing task, and task.update to change status, details, or mark it complete.",
-		Category:     "flow",
-		Tags:         []string{"flow", "task"},
-		AllowedTools: []string{"task.add", "task.list", "task.update"},
-		TriggerHints: []string{"task", "업무", "할 일", "마감", "deadline"},
+		Name:           "flow",
+		Description:    "Add, update, and complete team work tasks, 업무, 할 일, status changes, and deadlines.",
+		Prompt:         "Use task.add to add a task for a person, task.list to find an existing task, and task.update to change status, details, or mark it complete.",
+		ToolReferences: []string{"task.add", "task.list", "task.update"},
 		Source: agent.InstructionSource{
 			Path:      "skills/flow/SKILL.md",
 			SkillName: "flow",
@@ -915,7 +909,6 @@ func OneTimeScheduleAcceptanceScenario(artifactDirectoryPath string) VirtualSess
 		ArtifactDirectoryPath: artifactDirectoryPath,
 		Skills:                []agent.SkillInstruction{scheduledTaskSkill()},
 		AllowedTools:          []string{"conversation.history", "memory.search", "schedule.create", "schedule.cancel"},
-		CapabilityToolNames:   []string{"schedule.create", "schedule.cancel"},
 		InitialToolNames:      []string{"schedule.create", "schedule.cancel"},
 		Turns: []VirtualTurn{{
 			Prompt: "2027년 1월 15일 오전 9시에 계약서 확인 알림을 한 번만 예약해줘",
@@ -945,14 +938,10 @@ Organize notes into concise memos with action items and owners.`
 
 func calendarSkill() agent.SkillInstruction {
 	return agent.SkillInstruction{
-		Name:         "calendar",
-		Description:  "Create, update, and delete calendar events.",
-		WhenToUse:    "Use for calendar event creation, updates, deletion, 일정, 달력, 캘린더, and meeting time changes.",
-		Prompt:       "Use calendar.add to create calendar events, calendar.update to edit event time or details, and calendar.delete to delete events.",
-		Category:     "calendar",
-		Tags:         []string{"calendar", "event"},
-		AllowedTools: []string{"calendar.add", "calendar.update", "calendar.delete"},
-		TriggerHints: []string{"calendar", "event", "일정", "달력", "캘린더", "meeting"},
+		Name:           "calendar",
+		Description:    "Create, update, and delete calendar events, 일정, 달력, 캘린더, and meeting time changes.",
+		Prompt:         "Use calendar.add to create calendar events, calendar.update to edit event time or details, and calendar.delete to delete events.",
+		ToolReferences: []string{"calendar.add", "calendar.update", "calendar.delete"},
 		Source: agent.InstructionSource{
 			Path:      "skills/calendar/SKILL.md",
 			SkillName: "calendar",
@@ -964,20 +953,10 @@ func calendarSkill() agent.SkillInstruction {
 
 func scheduledTaskSkill() agent.SkillInstruction {
 	return agent.SkillInstruction{
-		Name:        "scheduled-task",
-		Description: "Create or cancel scheduled, recurring, and finite repeated reminders, messages, reports, and follow-up tasks with schedule capability operations.",
-		WhenToUse:   "Use when the user asks to schedule, remind, repeat, cancel schedules, stop reminders, send something every minute/hour/day/week/month, repeat N times, send a finite repeated message, or says 예약, 알림, 리마인드, 취소, 중지, 마다, 분마다, 시간마다, 한 번씩, 1분에 한 번씩, 10번, 매일, 매주, or 매월.",
-		Category:    "automation",
-		Tags:        []string{"schedule", "reminder", "cron"},
-		Prompt:      "Use schedule.create to create schedules and schedule.update to revise active schedules. Put only the run-time work in taskInstruction. Put cadence and stop conditions in structured fields such as runAt, intervalSecond, cronExpression, expiresAt, and maxRunCount. Set repeatPolicy finite with expiresAt or maxRunCount for finite repeats; set repeatPolicy unbounded only when the user explicitly asks for no end. Do not claim background loops are unsupported when schedule.create is available.",
-		Activation: agent.SkillActivation{
-			Keywords: []string{"schedule", "scheduled", "cron", "remind", "reminder", "예약", "알림", "리마인드", "마다", "분마다", "시간마다", "매일", "매주", "매월"},
-		},
-		Completion: agent.SkillCompletion{
-			RequiredEvidenceTools: []string{"schedule.create"},
-		},
-		AllowedTools: []string{"schedule.create", "schedule.update", "schedule.cancel"},
-		TriggerHints: []string{"schedule", "scheduled", "cron", "remind", "reminder", "예약", "알림", "리마인드", "마다", "분마다", "시간마다", "매일", "매주", "매월"},
+		Name:           "scheduled-task",
+		Description:    "Create or cancel scheduled, recurring, and finite repeated reminders, messages, reports, and follow-up tasks such as 예약, 알림, 리마인드, 분마다, 매일, 매주, or 매월.",
+		Prompt:         "Use schedule.create to create schedules and schedule.update to revise active schedules. Put only the run-time work in taskInstruction. Put cadence and stop conditions in structured fields such as runAt, intervalSecond, cronExpression, expiresAt, and maxRunCount. Set repeatPolicy finite with expiresAt or maxRunCount for finite repeats; set repeatPolicy unbounded only when the user explicitly asks for no end. Do not claim background loops are unsupported when schedule.create is available.",
+		ToolReferences: []string{"schedule.create", "schedule.update", "schedule.cancel"},
 		Source: agent.InstructionSource{
 			Path:      "skills/scheduled-task/SKILL.md",
 			SkillName: "scheduled-task",
@@ -1402,16 +1381,10 @@ func PlatformMessageEditAcceptanceScenario(artifactDirectoryPath string) Virtual
 
 func presentationSkill() agent.SkillInstruction {
 	return agent.SkillInstruction{
-		Name:        "presentation",
-		Description: "Create local presentation decks with PPTX, PDF, HTML, and notes attachments.",
-		Category:    "document-generation",
-		Tags:        []string{"slides", "pptx", "presentation"},
-		Prompt:      "Write Stitch-compatible DESIGN.md and Marp presentation.md directly under tmp/<deck-slug> from the user request. Treat presentation.md as the deck source of truth and iterate on it when needed. Use Paperlogy/Freesentation/Pretendard/Noto Sans KR font guidance, choose layouts from the content intent, include design-source: DESIGN.md, run NAME=<deck-slug> /workspace/skills/presentation/scripts/build.sh with workingDirectoryPath tmp/<deck-slug> for a full deck or FORMATS=html NAME=<deck-slug> /workspace/skills/presentation/scripts/build.sh for html-only requests, promote build outputs with file.promote, then file.attach only promoted generated files. Do not use Google Workspace unless a google tool is explicitly available.",
-		Activation: agent.SkillActivation{
-			Keywords: []string{"피피티", "파워포인트", "발표자료", "pptx", "google slides", "구글 슬라이드"},
-		},
-		AllowedTools: []string{"file.write", "terminal.run", "file.promote", "file.attach"},
-		TriggerHints: []string{"피피티", "파워포인트", "발표자료", "pptx", "google slides", "구글 슬라이드"},
+		Name:           "presentation",
+		Description:    "Create local presentation decks, 피피티, 파워포인트, 발표자료, PPTX, PDF, HTML, and notes attachments.",
+		Prompt:         "Write Stitch-compatible DESIGN.md and Marp presentation.md directly under tmp/<deck-slug> from the user request. Treat presentation.md as the deck source of truth and iterate on it when needed. Use Paperlogy/Freesentation/Pretendard/Noto Sans KR font guidance, choose layouts from the content intent, include design-source: DESIGN.md, run NAME=<deck-slug> /workspace/skills/presentation/scripts/build.sh with workingDirectoryPath tmp/<deck-slug> for a full deck or FORMATS=html NAME=<deck-slug> /workspace/skills/presentation/scripts/build.sh for html-only requests, promote build outputs with file.promote, then file.attach only promoted generated files. Do not use Google Workspace unless a google tool is explicitly available.",
+		ToolReferences: []string{"file.write", "terminal.run", "file.promote", "file.attach"},
 		Source: agent.InstructionSource{
 			Path:      "skills/presentation/SKILL.md",
 			SkillName: "presentation",
@@ -1423,16 +1396,10 @@ func presentationSkill() agent.SkillInstruction {
 
 func sitePrototypeSkill() agent.SkillInstruction {
 	return agent.SkillInstruction{
-		Name:        "site-prototype",
-		Description: "Create, publish, update, take down, restore, or delete free React and PocketBase website prototypes through InternKim site capability operations.",
-		Category:    "site-prototype",
-		Tags:        []string{"website", "prototype", "deploy"},
-		Prompt:      "Create and publish website prototypes. For a new prototype, call site.create with a DNS-safe slug and title, write or edit source inside the returned site workspace, call terminal.run to build the app with bun, then call site.publish with the siteID and a concise message. Never claim deployment succeeded until site.publish succeeds.",
-		Activation: agent.SkillActivation{
-			Keywords: []string{"웹사이트", "배포", "사이트", "web app", "website", "prototype"},
-		},
-		AllowedTools: sitePrototypeToolNames(),
-		TriggerHints: []string{"웹사이트", "배포", "사이트", "web app", "website", "prototype"},
+		Name:           "site-prototype",
+		Description:    "Create, publish, update, take down, restore, or delete React and PocketBase 웹사이트, 사이트, web app, and website prototypes.",
+		Prompt:         "Create and publish website prototypes. For a new prototype, call site.create with a DNS-safe slug and title, write or edit source inside the returned site workspace, call terminal.run to build the app with bun, then call site.publish with the siteID and a concise message. Never claim deployment succeeded until site.publish succeeds.",
+		ToolReferences: sitePrototypeToolNames(),
 		Source: agent.InstructionSource{
 			Path:      "skills/site-prototype/SKILL.md",
 			SkillName: "site-prototype",

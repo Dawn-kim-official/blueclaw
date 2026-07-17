@@ -77,14 +77,14 @@ func requiredEvidenceToolCanBeSatisfied(toolSet *ToolSet, toolName string) bool 
 
 func requiredEvidenceToolKind(toolSet *ToolSet, toolName string) (string, bool) {
 	trimmedToolName := strings.TrimSpace(toolName)
-	if trimmedToolName == "" || trimmedToolName == CapabilityInvokeToolName {
+	if trimmedToolName == "" {
 		return "", false
 	}
 	if toolSet == nil {
 		return "", false
 	}
 	registeredToolName, isRegistered := requiredEvidenceRegisteredToolName(toolSet, trimmedToolName)
-	if !isRegistered || registeredToolName == CapabilityInvokeToolName {
+	if !isRegistered {
 		return "", false
 	}
 	if toolSet.IsAllowed(registeredToolName) {
@@ -122,7 +122,7 @@ func missingRequiredEvidenceReport(intakeDecision IntakeDecision, outcomeContrac
 }
 
 func requiredEvidenceMissingForSideEffect(intakeDecision IntakeDecision, outcomeContract OutcomeContract, toolSet *ToolSet) bool {
-	if len(outcomeContract.RequiredEvidenceTools) > 0 && !intakeDecisionHasRequiredSideEffect(intakeDecision) {
+	if len(outcomeContract.RequiredEvidenceTools) > 0 && !intakeDecisionHasRequiredSideEffect(intakeDecision, toolSet) {
 		return false
 	}
 	if !intakeDecisionRequiresSideEffectEvidence(intakeDecision, toolSet) {
@@ -135,14 +135,23 @@ func intakeDecisionRequiresSideEffectEvidence(intakeDecision IntakeDecision, too
 	if intakeDecision.Classification != IntakeClassificationBoundedTask {
 		return false
 	}
-	return intakeDecisionHasRequiredSideEffect(intakeDecision) ||
+	return intakeDecisionHasRequiredSideEffect(intakeDecision, toolSet) ||
 		requiredEvidenceInitialToolsNeedEvidence(toolSet, intakeDecision.InitialToolNames)
 }
 
-func intakeDecisionHasRequiredSideEffect(intakeDecision IntakeDecision) bool {
+func intakeDecisionHasRequiredSideEffect(intakeDecision IntakeDecision, toolSet *ToolSet) bool {
 	return intakeDecision.TaskShape == TaskShapeScheduledTask ||
 		hasArtifactOutputFormat(intakeDecision.RequestedOutputFormats) ||
-		intakeDecisionRequiresSiteEvidence(intakeDecision)
+		intakeDecisionRequiresSiteEvidence(intakeDecision, toolSet)
+}
+
+func requiredEvidenceIncludesNamespace(toolSet *ToolSet, toolNames []string, namespace string) bool {
+	for _, toolName := range toolNames {
+		if toolIsInNamespace(toolSet, toolName, namespace) {
+			return true
+		}
+	}
+	return false
 }
 
 func requiredEvidenceIncludesSideEffect(toolSet *ToolSet, toolNames []string) bool {

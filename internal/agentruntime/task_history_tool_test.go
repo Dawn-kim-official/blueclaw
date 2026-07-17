@@ -24,7 +24,7 @@ func newTaskHistoryTestRegistry(t *testing.T, requesterPersonID string) (*agent.
 
 func invokeTaskHistory(t *testing.T, toolRegistry *agent.ToolSet, input map[string]any) taskHistoryToolOutput {
 	t.Helper()
-	result, errorValue := toolRegistry.InvokeRegistered(context.Background(), agent.ToolInvocation{
+	result, errorValue := toolRegistry.InvokeInternal(context.Background(), agent.ToolInvocation{
 		ToolName: "task.history",
 		Input:    agent.MarshalToolInput(input),
 	})
@@ -95,7 +95,7 @@ func TestTaskHistoryToolFiltersByStatusAndLimit(t *testing.T) {
 
 func TestTaskHistoryToolRejectsCapabilityOperationInput(t *testing.T) {
 	toolRegistry, _ := newTaskHistoryTestRegistry(t, "person-1")
-	result, errorValue := toolRegistry.InvokeRegistered(context.Background(), agent.ToolInvocation{
+	result, errorValue := toolRegistry.InvokeInternal(context.Background(), agent.ToolInvocation{
 		ToolName: "task.history",
 		Input:    json.RawMessage(`{"operation":"task.add","input":{"prompt":"분기 결산 자료 확인"}}`),
 	})
@@ -109,7 +109,7 @@ func TestTaskHistoryToolRejectsCapabilityOperationInput(t *testing.T) {
 
 func TestTaskHistoryToolRequiresRequesterPersonID(t *testing.T) {
 	toolRegistry, _ := newTaskHistoryTestRegistry(t, "")
-	result, errorValue := toolRegistry.InvokeRegistered(context.Background(), agent.ToolInvocation{
+	result, errorValue := toolRegistry.InvokeInternal(context.Background(), agent.ToolInvocation{
 		ToolName: "task.history",
 		Input:    agent.MarshalToolInput(map[string]any{}),
 	})

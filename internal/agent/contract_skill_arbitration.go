@@ -20,16 +20,13 @@ type contractSkillArbitration struct {
 }
 
 type contractSkillCandidateCard struct {
-	Name                       string   `json:"name"`
-	Description                string   `json:"description,omitempty"`
-	WhenToUse                  string   `json:"whenToUse,omitempty"`
-	AllowedTools               []string `json:"allowedTools,omitempty"`
-	RequiredEvidenceTools      []string `json:"requiredEvidenceTools,omitempty"`
-	RequiredAttachmentSuffixes []string `json:"requiredAttachmentSuffixes,omitempty"`
-	Score                      float64  `json:"score,omitempty"`
-	RetrievalReason            string   `json:"retrievalReason,omitempty"`
-	SourcePath                 string   `json:"sourcePath,omitempty"`
-	PromptExcerpt              string   `json:"promptExcerpt,omitempty"`
+	Name            string   `json:"name"`
+	Description     string   `json:"description,omitempty"`
+	ToolReferences  []string `json:"toolReferences,omitempty"`
+	Score           float64  `json:"score,omitempty"`
+	RetrievalReason string   `json:"retrievalReason,omitempty"`
+	SourcePath      string   `json:"sourcePath,omitempty"`
+	PromptExcerpt   string   `json:"promptExcerpt,omitempty"`
 }
 
 func (skillSearchQueryRouter SkillSearchQueryRouter) ArbitrateContractSkills(ctx context.Context, request AgentRequest, candidates []SkillInstruction, candidateByName map[string]SkillCandidate) (contractSkillArbitration, bool) {
@@ -112,16 +109,13 @@ func contractSkillCandidateCardsJSON(candidates []SkillInstruction, candidateByN
 	for _, candidate := range candidates {
 		skillCandidate := candidateByName[candidate.Name]
 		cards = append(cards, contractSkillCandidateCard{
-			Name:                       candidate.Name,
-			Description:                strings.TrimSpace(candidate.Description),
-			WhenToUse:                  strings.TrimSpace(candidate.WhenToUse),
-			AllowedTools:               appendUniqueStrings(candidate.AllowedTools),
-			RequiredEvidenceTools:      appendUniqueStrings(candidate.Completion.RequiredEvidenceTools),
-			RequiredAttachmentSuffixes: appendUniqueStrings(candidate.Completion.RequiredAttachmentSuffixes),
-			Score:                      skillCandidate.Score,
-			RetrievalReason:            skillCandidate.Reason,
-			SourcePath:                 strings.TrimSpace(candidate.Source.Path),
-			PromptExcerpt:              trimTextForSkillArbitration(candidate.Prompt, 1800),
+			Name:            candidate.Name,
+			Description:     strings.TrimSpace(candidate.Description),
+			ToolReferences:  appendUniqueStrings(candidate.ToolReferences),
+			Score:           skillCandidate.Score,
+			RetrievalReason: skillCandidate.Reason,
+			SourcePath:      strings.TrimSpace(candidate.Source.Path),
+			PromptExcerpt:   trimTextForSkillArbitration(candidate.Prompt, 1800),
 		})
 	}
 	document, errorValue := json.Marshal(cards)

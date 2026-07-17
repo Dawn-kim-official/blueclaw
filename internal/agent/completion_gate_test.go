@@ -24,6 +24,7 @@ func TestCompletionGateRejectsSatisfiedFinishWithUnresolvedFailureDebt(t *testin
 	goalSatisfied := true
 	result := validateCompletionGate(
 		nil,
+		nil,
 		[]turnObservation{
 			newFailureObservation("obs-001", "continue", "file.read", "permission denied", FailurePermissionDenied, FailureCodes.AccessDenied, "file_read"),
 		},
@@ -50,7 +51,7 @@ func TestCompletionGateRejectsSatisfiedFinishWithUnresolvedFailureDebt(t *testin
 
 func TestCompletionGateAcceptsZeroRemainingWork(t *testing.T) {
 	goalSatisfied := true
-	result := validateCompletionGate(nil, nil, nil, turnActionDocument{
+	result := validateCompletionGate(nil, nil, nil, nil, turnActionDocument{
 		Action:             "finish",
 		Message:            "작업을 완료했습니다.",
 		GoalStatus:         "satisfied",
@@ -70,6 +71,7 @@ func TestCompletionGateRejectsExternalSendFinishWithoutSendEvidence(t *testing.T
 	result := validateCompletionGateForRequestWithRecoveryBudget(
 		AgentTurnRequest{
 			RequiredEvidenceTools: []string{"mail.message.send"},
+			ToolSet:               externalSendCompletionTestToolSet(t, "mail.message.send"),
 		},
 		nil,
 		nil,
@@ -104,7 +106,9 @@ func TestCompletionGateRejectsExternalSendFinishWithoutSendEvidence(t *testing.T
 
 func TestCompletionGateRejectsRequiredSendToolFinishWithSuggestedNextTools(t *testing.T) {
 	goalSatisfied := true
+	toolSet := externalSendCompletionTestToolSet(t, "slack.message.send")
 	result := validateCompletionGate(
+		toolSet,
 		[]toolUseRequirement{{ToolName: "slack.message.send"}},
 		[]turnObservation{newContentObservation("obs-001", "continue", "slack.message.send", "sent")},
 		nil,
@@ -126,6 +130,23 @@ func TestCompletionGateRejectsRequiredSendToolFinishWithSuggestedNextTools(t *te
 	if len(result.SuggestedNextTools) != 1 || result.SuggestedNextTools[0] != "slack.message.send" {
 		t.Fatalf("expected suggested send tool, got %+v", result.SuggestedNextTools)
 	}
+}
+
+func externalSendCompletionTestToolSet(t *testing.T, toolName string) *ToolSet {
+	t.Helper()
+	toolSet := NewToolSet([]string{toolName})
+	if errorValue := toolSet.RegisterTool(ToolDefinition{
+		Name:            toolName,
+		Description:     "Send a message.",
+		InputSchema:     json.RawMessage(`{"type":"object","properties":{},"additionalProperties":false}`),
+		OutputSchema:    json.RawMessage(`{"type":"object","properties":{},"additionalProperties":false}`),
+		SideEffectClass: ToolSideEffectExternalSend,
+	}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return ToolSuccess("sent"), nil
+	}); errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	return toolSet
 }
 
 func TestCompletionGateAcceptsExternalSendFinishWithSendEvidence(t *testing.T) {
@@ -1089,13 +1110,12 @@ func TestAgentTurnRunnerRemovesQualityCriteriaActionAfterCriteriaAreSet(t *testi
 	})
 
 	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
-		RequesterPersonID:         "person-1",
-		ConversationID:            "conversation-1",
-		Prompt:                    "make an artifact",
-		ToolSet:                   toolRegistry,
-		PinnedToolNames:           toolRegistry.ListToolNames(),
-		QualityAcceptanceGuidance: []string{"declare criteria first"},
-		OutcomeContract:           OutcomeContract{ArtifactRequirement: ArtifactRequirementPreferred},
+		RequesterPersonID: "person-1",
+		ConversationID:    "conversation-1",
+		Prompt:            "make an artifact",
+		ToolSet:           toolRegistry,
+		PinnedToolNames:   toolRegistry.ListToolNames(),
+		OutcomeContract:   OutcomeContract{ArtifactRequirement: ArtifactRequirementPreferred},
 	})
 	if errorValue != nil {
 		t.Fatalf("expected turn to succeed: %v", errorValue)

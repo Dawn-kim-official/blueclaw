@@ -288,9 +288,10 @@ func TestScheduleCreateToolStoresExpiresAtForBoundedRepeat(t *testing.T) {
 
 func TestScheduledToolSetKeepsOnlyAskInputAvailable(t *testing.T) {
 	toolCatalogBuilder := NewToolCatalogBuilder()
-	toolCatalogBuilder.UseCapabilityToolDescriptors(capability.Client{}, []CapabilityToolDescriptor{{
-		Name:        "user.confirm",
-		Description: "Ask the user to confirm",
+	toolCatalogBuilder.UseTestCapabilityToolDescriptors(capability.Client{}, []CapabilityToolDescriptor{{
+		Name:            "user.confirm",
+		Description:     "Ask the user to confirm",
+		ModelVisibility: agent.ToolVisibilityInternal,
 	}})
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"ask.input", "ask.confirm", "user.confirm", "schedule.create"})
 

@@ -2132,20 +2132,18 @@ func TestConnectorRuntimeInjectsVisibleContextBeforeMemory(t *testing.T) {
 		t.Fatalf("expected event to process: %v", errorValue)
 	}
 
-	toolContextIndex := messageIndex(languageModel.request.Messages, "Available tool catalog")
 	visibleContextIndex := messageIndex(languageModel.request.Messages, "admin: 이전 메시지")
 	memoryIndex := messageIndex(languageModel.request.Messages, "간결한 설계")
 	promptIndex := userMessageIndex(languageModel.request.Messages, event.Prompt)
-	if toolContextIndex < 0 || visibleContextIndex < 0 || memoryIndex < 0 || promptIndex < 0 {
+	if visibleContextIndex < 0 || memoryIndex < 0 || promptIndex < 0 {
 		t.Fatalf("expected visible context, memory, and prompt messages, got %+v", languageModel.request.Messages)
 	}
 	contextBody := joinConnectorMessageContent(languageModel.request.Messages)
-	toolContextTextIndex := strings.Index(contextBody, "Available tool catalog")
 	visibleContextTextIndex := strings.Index(contextBody, "admin: 이전 메시지")
 	memoryTextIndex := strings.Index(contextBody, "간결한 설계")
 	promptTextIndex := strings.LastIndex(contextBody, event.Prompt)
-	if !(toolContextTextIndex < visibleContextTextIndex && visibleContextTextIndex < memoryTextIndex && memoryTextIndex < promptTextIndex) {
-		t.Fatalf("expected tool context before visible context before memory before prompt, got %q", contextBody)
+	if !(visibleContextTextIndex < memoryTextIndex && memoryTextIndex < promptTextIndex) {
+		t.Fatalf("expected visible context before memory before prompt, got %q", contextBody)
 	}
 }
 
@@ -2496,7 +2494,7 @@ func TestConnectorRuntimeRunsAgentHistoryToolAndSendsOneFinishMessage(t *testing
 
 func TestConnectorRuntimeCreatesScheduledTaskFromNaturalLanguagePrompt(t *testing.T) {
 	languageModel := agenttest.NewActionScriptedLanguageModel(
-		`{"action":"continue","toolName":"schedule.create","toolInput":{"name":"daily research brief","taskInstruction":"업계 뉴스를 조사해서 핵심만 보고해줘.","kind":"cron","cronExpression":"0 7 * * *","repeatPolicy":"unbounded","timeZone":"Asia/Seoul","platform":"spoofed","conversationID":"spoofed","replyTargetID":"spoofed"},"executionStateUpdate":{},"nextStepPlan":{"objective":"confirm schedule creation","expectedTools":[],"doneCriteria":["schedule is created"],"risk":"","workingSetReason":"schedule.create returns the created schedule"}}`,
+		`{"action":"continue","toolName":"schedule.create","toolInput":{"name":"daily research brief","taskInstruction":"업계 뉴스를 조사해서 핵심만 보고해줘.","kind":"cron","cronExpression":"0 7 * * *","repeatPolicy":"unbounded","timeZone":"Asia/Seoul"},"executionStateUpdate":{},"nextStepPlan":{"objective":"confirm schedule creation","expectedTools":[],"doneCriteria":["schedule is created"],"risk":"","workingSetReason":"schedule.create returns the created schedule"}}`,
 		connectorFinishMessage("매일 아침 7시에 조사해서 알려드릴게요."),
 	)
 	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
@@ -2558,7 +2556,7 @@ func TestConnectorRuntimeClassifiesConfirmationReplyBeforeResumingPendingTask(t 
 	connectorRuntime.agentKernel.UseIntakeOptions(agent.IntakeOptions{IsEnabled: true})
 	useTestConnectorSkill(connectorRuntime, connectorCalendarSkill())
 	connectorRuntime.UseAllowedToolNames([]string{"conversation.history", "memory.search", "ask.confirm", "calendar.add", "calendar.delete"})
-	connectorRuntime.UseCapabilityTools(capability.Client{
+	connectorRuntime.UseTestCapabilityTools(capability.Client{
 		Endpoint: "http://capability.test",
 		HTTPClient: testHTTPDoer(func(request *http.Request) (*http.Response, error) {
 			if request.URL.Path == "/v1/capabilities" {
@@ -2691,7 +2689,7 @@ func TestConnectorRuntimeRoutesShortConfirmationReplyThroughRouter(t *testing.T)
 	connectorRuntime.agentKernel.UseIntakeOptions(agent.IntakeOptions{IsEnabled: true})
 	useTestConnectorSkill(connectorRuntime, connectorCalendarSkill())
 	connectorRuntime.UseAllowedToolNames([]string{"conversation.history", "memory.search", "ask.confirm", "calendar.add", "calendar.delete"})
-	connectorRuntime.UseCapabilityTools(capability.Client{
+	connectorRuntime.UseTestCapabilityTools(capability.Client{
 		Endpoint: "http://capability.test",
 		HTTPClient: testHTTPDoer(func(request *http.Request) (*http.Response, error) {
 			if request.URL.Path == "/v1/capabilities" {
@@ -2993,17 +2991,14 @@ func TestConnectorRuntimeContinuesWaitingUserInputGoal(t *testing.T) {
 	connectorRuntime.agentKernel.UseIntakeLanguageModelProvider(languageModel)
 	connectorRuntime.agentKernel.UseIntakeOptions(agent.IntakeOptions{IsEnabled: true})
 	useTestConnectorSkill(connectorRuntime, agent.SkillInstruction{
-		Name:        "direct-message",
-		Description: "사업계획서 작성과 메시지 전송 후보.",
-		Prompt:      "Use message.send only for explicit DM delivery.",
-		Completion: agent.SkillCompletion{
-			RequiredEvidenceTools: []string{"message.send"},
-		},
-		AllowedTools: []string{"message.send"},
-		Source:       agent.InstructionSource{Path: "skills/direct-message/SKILL.md", SkillName: "direct-message"},
+		Name:           "direct-message",
+		Description:    "사업계획서 작성과 메시지 전송 후보.",
+		Prompt:         "Use message.send only for explicit DM delivery.",
+		ToolReferences: []string{"message.send"},
+		Source:         agent.InstructionSource{Path: "skills/direct-message/SKILL.md", SkillName: "direct-message"},
 	})
 	connectorRuntime.UseAllowedToolNames([]string{"conversation.history", "memory.search", "ask.confirm", "message.send"})
-	connectorRuntime.UseCapabilityTools(capability.Client{
+	connectorRuntime.UseTestCapabilityTools(capability.Client{
 		Endpoint: "http://capability.test",
 		HTTPClient: testHTTPDoer(func(request *http.Request) (*http.Response, error) {
 			return &http.Response{
@@ -3067,10 +3062,9 @@ func TestConnectorRuntimeStartsNewTaskForClearNewRequest(t *testing.T) {
 	connectorRuntime.agentKernel.UseIntakeLanguageModelProvider(languageModel)
 	connectorRuntime.agentKernel.UseIntakeOptions(agent.IntakeOptions{IsEnabled: true})
 	useTestConnectorSkill(connectorRuntime, agent.SkillInstruction{
-		Name:         "direct-message",
-		Description:  "DM 후보.",
-		Completion:   agent.SkillCompletion{RequiredEvidenceTools: []string{"message.send"}},
-		AllowedTools: []string{"message.send"},
+		Name:           "direct-message",
+		Description:    "DM 후보.",
+		ToolReferences: []string{"message.send"},
 	})
 
 	firstEvent := testInboundEvent("message-1")
@@ -3114,7 +3108,7 @@ func TestConnectorRuntimeAddsCalendarEventWithoutApproval(t *testing.T) {
 	connectorRuntime.agentKernel.UseIntakeOptions(agent.IntakeOptions{IsEnabled: true})
 	useTestConnectorSkill(connectorRuntime, connectorCalendarSkill())
 	connectorRuntime.UseAllowedToolNames([]string{"conversation.history", "memory.search", "ask.confirm", "calendar.add", "calendar.delete"})
-	connectorRuntime.UseCapabilityTools(capability.Client{
+	connectorRuntime.UseTestCapabilityTools(capability.Client{
 		Endpoint: "http://capability.test",
 		HTTPClient: testHTTPDoer(func(request *http.Request) (*http.Response, error) {
 			if request.URL.Path == "/v1/capabilities" {
@@ -3158,7 +3152,7 @@ func TestConnectorRuntimeReadsTypedCapabilityToolResponse(t *testing.T) {
 	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
 	useTestConnectorSkill(connectorRuntime, connectorBrowserSnapshotSkill())
 	connectorRuntime.UseAllowedToolNames([]string{"conversation.history", "memory.search", "browser.snapshot"})
-	connectorRuntime.UseCapabilityTools(capability.Client{
+	connectorRuntime.UseTestCapabilityTools(capability.Client{
 		Endpoint: "http://capability.test",
 		HTTPClient: testHTTPDoer(func(request *http.Request) (*http.Response, error) {
 			if request.URL.Path == "/v1/capabilities" {
@@ -3203,12 +3197,12 @@ func structuredRequestsContainMessage(requests []llm.StructuredResponseRequest, 
 	return false
 }
 
-func TestConnectorRuntimeExposesAllowedMcpSchemaCatalog(t *testing.T) {
+func TestConnectorRuntimeQuarantinesSchemaOnlyMCPConfiguration(t *testing.T) {
 	connectorRuntime, adapter := newTestConnectorRuntime(t, testLanguageModel{reply: "ok"})
 	connectorRuntime.UseAllowedToolNames([]string{"allowed.tool"})
 	mcpRegistry := mcp.NewMcpRegistry()
 	inputSchema := json.RawMessage(`{"type":"object","properties":{"query":{"type":"string"}},"required":["query"],"additionalProperties":false}`)
-	mcpRegistry.LoadServerDefinition([]config.MCPServerConfiguration{
+	loadReport := mcpRegistry.LoadServerDefinition([]config.MCPServerConfiguration{
 		{
 			Name: "workspace-mcp",
 			Tools: []config.MCPToolConfiguration{
@@ -3217,29 +3211,22 @@ func TestConnectorRuntimeExposesAllowedMcpSchemaCatalog(t *testing.T) {
 			},
 		},
 	})
+	if len(loadReport.Quarantined) != 1 {
+		t.Fatalf("expected schema-only MCP server to be quarantined, got %+v", loadReport)
+	}
 	connectorRuntime.UseMCPRegistry(mcpRegistry)
 
 	toolRegistry := connectorRuntime.buildTurnToolSet(adapter, testInboundEvent("message-1"), "person-1", policy.PersonAccess{})
-	allowedToolDefinition, isFound := findAgentToolDefinition(toolRegistry.ListToolDefinitions(), "allowed.tool")
-	if !isFound {
-		t.Fatalf("expected allowed MCP tool definition, got %+v", toolRegistry.ListToolDefinitions())
-	}
-	if allowedToolDefinition.Description != "Allowed MCP tool" {
-		t.Fatalf("expected MCP description, got %q", allowedToolDefinition.Description)
-	}
-	if string(allowedToolDefinition.InputSchema) != string(inputSchema) {
-		t.Fatalf("expected MCP input schema, got %s", string(allowedToolDefinition.InputSchema))
-	}
-	if _, isFound := findAgentToolDefinition(toolRegistry.ListToolDefinitions(), "blocked.tool"); isFound {
-		t.Fatalf("expected blocked MCP tool to be hidden, got %+v", toolRegistry.ListToolDefinitions())
+	if _, isFound := findAgentToolDefinition(toolRegistry.ListToolDefinitions(), "allowed.tool"); isFound {
+		t.Fatalf("expected quarantined MCP tools to stay hidden, got %+v", toolRegistry.ListToolDefinitions())
 	}
 
-	toolResult, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{ToolName: "blocked.tool", Input: json.RawMessage(`{}`)})
+	toolResult, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{ToolName: "allowed.tool", Input: json.RawMessage(`{}`)})
 	if errorValue != nil {
 		t.Fatalf("expected policy denial as tool result: %v", errorValue)
 	}
 	if !toolResult.Failed() || toolResult.ContentText() != "tool is not allowed" {
-		t.Fatalf("expected blocked MCP invocation to be denied, got %+v", toolResult)
+		t.Fatalf("expected quarantined MCP invocation to be denied, got %+v", toolResult)
 	}
 }
 
@@ -4355,40 +4342,31 @@ func useTestConnectorSkill(connectorRuntime *ConnectorRuntime, skillInstruction 
 
 func connectorScheduledTaskSkill() agent.SkillInstruction {
 	return agent.SkillInstruction{
-		Name:         "scheduled-task",
-		Description:  "Create scheduled tasks.",
-		WhenToUse:    "Use for schedule, remind, 매일, 예약, 알림, and 마다 requests.",
-		Prompt:       "Use schedule.create with taskInstruction for only the work to perform at run time. Put cadence and stop conditions in structured fields such as runAt, intervalSecond, cronExpression, expiresAt, and maxRunCount.",
-		TriggerHints: []string{"schedule", "remind", "매일", "예약", "알림", "마다"},
-		Completion: agent.SkillCompletion{
-			RequiredEvidenceTools: []string{"schedule.create"},
-		},
-		AllowedTools: []string{"schedule.create"},
-		Source:       agent.InstructionSource{Path: "skills/scheduled-task/SKILL.md", SkillName: "scheduled-task"},
+		Name:           "scheduled-task",
+		Description:    "Create scheduled tasks, reminders, 매일, 예약, 알림, and recurring work.",
+		Prompt:         "Use schedule.create with taskInstruction for only the work to perform at run time. Put cadence and stop conditions in structured fields such as runAt, intervalSecond, cronExpression, expiresAt, and maxRunCount.",
+		ToolReferences: []string{"schedule.create"},
+		Source:         agent.InstructionSource{Path: "skills/scheduled-task/SKILL.md", SkillName: "scheduled-task"},
 	}
 }
 
 func connectorCalendarSkill() agent.SkillInstruction {
 	return agent.SkillInstruction{
-		Name:         "calendar",
-		Description:  "Create or list calendar events.",
-		WhenToUse:    "Use for calendar, event, 일정, 달력, 캘린더, and 휴가 requests.",
-		Prompt:       "Use calendar.add to create calendar events without approval. Use calendar.delete only after approval.",
-		TriggerHints: []string{"calendar", "event", "일정", "달력", "캘린더", "휴가"},
-		AllowedTools: []string{"calendar.add", "calendar.delete"},
-		Source:       agent.InstructionSource{Path: "skills/calendar/SKILL.md", SkillName: "calendar"},
+		Name:           "calendar",
+		Description:    "Create or list calendar events, 일정, 달력, 캘린더, and 휴가.",
+		Prompt:         "Use calendar.add to create calendar events without approval. Use calendar.delete only after approval.",
+		ToolReferences: []string{"calendar.add", "calendar.delete"},
+		Source:         agent.InstructionSource{Path: "skills/calendar/SKILL.md", SkillName: "calendar"},
 	}
 }
 
 func connectorBrowserSnapshotSkill() agent.SkillInstruction {
 	return agent.SkillInstruction{
-		Name:         "browser-snapshot",
-		Description:  "Observe browser pages.",
-		WhenToUse:    "Use for browser observe, snapshot, screenshot, 브라우저, and 화면 확인 requests.",
-		Prompt:       "Use browser.snapshot to observe the current browser state.",
-		TriggerHints: []string{"browser", "observe", "snapshot", "브라우저", "화면"},
-		AllowedTools: []string{"browser.snapshot"},
-		Source:       agent.InstructionSource{Path: "skills/browser-snapshot/SKILL.md", SkillName: "browser-snapshot"},
+		Name:           "browser-snapshot",
+		Description:    "Observe browser pages, snapshots, screenshots, 브라우저, and 화면 확인.",
+		Prompt:         "Use browser.snapshot to observe the current browser state.",
+		ToolReferences: []string{"browser.snapshot"},
+		Source:         agent.InstructionSource{Path: "skills/browser-snapshot/SKILL.md", SkillName: "browser-snapshot"},
 	}
 }
 

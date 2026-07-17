@@ -216,7 +216,6 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 	logger.Info("application.initializing", "stage", "tool_catalog")
 	toolCatalogBuilder := agentruntime.NewToolCatalogBuilder()
 	toolCatalogBuilder.UseMCPRegistry(mcpRegistry)
-	toolCatalogBuilder.UseCapabilityTools(capabilityClient, runtimeConfiguration.Capabilities.ToolNames)
 	toolCatalogBuilder.UseCapabilityToolDescriptors(capabilityClient, capabilityToolDescriptors(runtimeConfiguration.Capabilities.ToolDescriptors))
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(deriveAllowedToolNamesByProfile(runtimeConfiguration), deriveAllowedToolNames(runtimeConfiguration))
 	toolCatalogBuilder.UseSkillSearch(skillRetriever, instructionBundleLoader)
@@ -561,26 +560,11 @@ func readSkillInstructions(rootPath string) []agent.SkillInstruction {
 				document, readError := os.ReadFile(filepath.Join(skillBundle.DirectoryPath, "SKILL.md"))
 				if readError == nil {
 					skillInstructions = append(skillInstructions, agent.SkillInstruction{
-						Name:                   skillBundle.Name,
-						Description:            skillBundle.Description,
-						WhenToUse:              skillBundle.WhenToUse,
-						Category:               skillBundle.Category,
-						Tags:                   append([]string{}, skillBundle.Tags...),
-						Prompt:                 strings.TrimSpace((skill.SkillPromptBuilder{}).BuildSkillPrompt([]skill.SkillBundle{skillBundle})),
-						Activation:             agent.SkillActivation(skillBundle.Activation),
-						Completion:             agent.SkillCompletion(skillBundle.Completion),
-						Quality:                agent.SkillQuality(skillBundle.Quality),
-						RecommendedMinutes:     skillBundle.RecommendedMinutes,
-						AllowedTools:           append([]string{}, skillBundle.AllowedTools...),
-						AllowedProfiles:        append([]string{}, skillBundle.AllowedProfiles...),
-						HiddenFromCircles:      append([]string{}, skillBundle.HiddenFromCircles...),
-						TriggerHints:           append([]string{}, skillBundle.TriggerHints...),
-						DisableModelInvocation: skillBundle.DisableModelInvocation,
-						Paths:                  append([]string{}, skillBundle.Paths...),
-						References:             append([]string{}, skillBundle.References...),
-						Scripts:                append([]string{}, skillBundle.Scripts...),
-						Assets:                 append([]string{}, skillBundle.Assets...),
-						Source:                 instructionSource(filepath.Join(skillBundle.DirectoryPath, "SKILL.md"), skillBundle.Name, document),
+						Name:           skillBundle.Name,
+						Description:    skillBundle.Description,
+						Prompt:         strings.TrimSpace((skill.SkillPromptBuilder{}).BuildSkillPrompt([]skill.SkillBundle{skillBundle})),
+						ToolReferences: skillBundle.ReferencedToolNames(),
+						Source:         instructionSource(filepath.Join(skillBundle.DirectoryPath, "SKILL.md"), skillBundle.Name, document),
 					})
 				}
 			}
@@ -685,33 +669,44 @@ func capabilityToolDescriptors(toolDescriptors []config.CapabilityToolDescriptor
 			continue
 		}
 		catalogToolDescriptors = append(catalogToolDescriptors, agentruntime.CapabilityToolDescriptor{
-			Name:             trimmedName,
-			Description:      capabilityToolDescription(toolDescriptor),
-			InputSchema:      toolDescriptor.InputSchema,
-			OutputSchema:     toolDescriptor.OutputSchema,
-			PolicyResource:   toolDescriptor.PolicyResource,
-			SideEffectClass:  toolDescriptor.SideEffectClass,
-			RequiresApproval: toolDescriptor.RequiresApproval,
+			Name:                 trimmedName,
+			CanonicalName:        toolDescriptor.CanonicalName,
+			Namespace:            toolDescriptor.Namespace,
+			ModelName:            toolDescriptor.ModelName,
+			ModelVisibility:      toolDescriptor.ModelVisibility,
+			Description:          strings.TrimSpace(toolDescriptor.Description),
+			PrivacyClass:         toolDescriptor.PrivacyClass,
+			RequiresUserPresence: toolDescriptor.RequiresUserPresence,
+			WorksOffline:         toolDescriptor.WorksOffline,
+			InputSchema:          toolDescriptor.InputSchema,
+			OutputSchema:         toolDescriptor.OutputSchema,
+			PolicyResource:       toolDescriptor.PolicyResource,
+			SideEffectClass:      toolDescriptor.SideEffectClass,
+			RequiresApproval:     toolDescriptor.RequiresApproval,
+			CompletionEvidence:   capabilityCompletionEvidence(toolDescriptor.CompletionEvidence),
+			Availability: agentruntime.CapabilityAvailability{
+				State:  toolDescriptor.Availability.State,
+				Reason: toolDescriptor.Availability.Reason,
+			},
+			Idempotency: agentruntime.CapabilityIdempotency{
+				Supported: toolDescriptor.Idempotency.Supported,
+				Required:  toolDescriptor.Idempotency.Required,
+				Scope:     toolDescriptor.Idempotency.Scope,
+			},
 		})
 	}
 	return catalogToolDescriptors
 }
 
-func capabilityToolDescription(toolDescriptor config.CapabilityToolDescriptor) string {
-	if strings.TrimSpace(toolDescriptor.Description) != "" {
-		return strings.TrimSpace(toolDescriptor.Description)
+func capabilityCompletionEvidence(completionEvidence *config.CapabilityCompletionEvidence) *agentruntime.CapabilityCompletionEvidence {
+	if completionEvidence == nil {
+		return nil
 	}
-	if strings.TrimSpace(toolDescriptor.PrivacyClass) == "" && strings.TrimSpace(toolDescriptor.EstimatedLatency) == "" {
-		return ""
+	return &agentruntime.CapabilityCompletionEvidence{
+		Mode:       completionEvidence.Mode,
+		Action:     completionEvidence.Action,
+		TargetKind: completionEvidence.TargetKind,
 	}
-	descriptionParts := []string{"Workspace capability tool"}
-	if strings.TrimSpace(toolDescriptor.PrivacyClass) != "" {
-		descriptionParts = append(descriptionParts, "privacy="+strings.TrimSpace(toolDescriptor.PrivacyClass))
-	}
-	if strings.TrimSpace(toolDescriptor.EstimatedLatency) != "" {
-		descriptionParts = append(descriptionParts, "latency="+strings.TrimSpace(toolDescriptor.EstimatedLatency))
-	}
-	return strings.Join(descriptionParts, ", ")
 }
 
 func deriveAllowedToolNamesByProfile(runtimeConfiguration config.RuntimeConfiguration) map[string][]string {

@@ -12,18 +12,10 @@ import (
 
 	"blueclaw/internal/access"
 	"blueclaw/internal/agent"
-	"blueclaw/internal/mcp"
 )
 
-var idempotentCapabilityToolNames = map[string]bool{
-	"message.send":       true,
-	"mail.message.send":  true,
-	"google.gmail.send":  true,
-	"slack.message.send": true,
-}
-
-func capabilityToolIdempotencyKey(toolContext context.Context, toolName string) string {
-	if !idempotentCapabilityToolNames[strings.TrimSpace(toolName)] {
+func capabilityToolIdempotencyKey(toolContext context.Context, descriptor CapabilityToolDescriptor) string {
+	if !descriptor.Idempotency.Supported {
 		return ""
 	}
 	taskRunID := strings.TrimSpace(agent.TaskRunIDFromContext(toolContext))
@@ -31,65 +23,25 @@ func capabilityToolIdempotencyKey(toolContext context.Context, toolName string) 
 	if taskRunID == "" || observationID == "" {
 		return ""
 	}
-	digest := sha256.Sum256([]byte(taskRunID + ":" + observationID + ":" + strings.TrimSpace(toolName)))
+	digest := sha256.Sum256([]byte(taskRunID + ":" + observationID + ":" + strings.TrimSpace(descriptor.CanonicalName)))
 	return hex.EncodeToString(digest[:])
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) registerMCPTools(toolRegistry *agent.ToolSet) {
-	if toolCatalogBuilder.mcpRegistry == nil {
-		return
-	}
-	for _, toolDefinition := range toolCatalogBuilder.mcpRegistry.ListTool() {
-		mcpToolDefinition := toolDefinition
-		toolRegistry.RegisterTool(agent.ToolDefinition{
-			Name:        mcpToolDefinition.Name,
-			Description: mcpToolDescription(mcpToolDefinition),
-			InputSchema: mcpToolDefinition.InputSchema,
-		}, func(toolContext context.Context, toolInvocation agent.ToolInvocation) (agent.ToolResult, error) {
-			output, errorValue := toolCatalogBuilder.mcpRegistry.InvokeTool(toolContext, mcp.Invocation{
-				ServerName: mcpToolDefinition.ServerName,
-				ToolName:   mcpToolDefinition.Name,
-				Input:      string(toolInvocation.Input),
-			})
-			if errorValue != nil {
-				return agent.ToolResult{}, errorValue
-			}
-			return agent.ToolSuccess(output), nil
-		})
+	if _, errorValue := toolRegistry.RegisterProviders(context.Background(), mcpToolProviders(toolCatalogBuilder.mcpRegistry)); errorValue != nil {
+		panic(errorValue)
 	}
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) registerCapabilityTools(toolRegistry *agent.ToolSet, request ToolCatalogRequest) {
-	for _, capabilityToolDescriptor := range toolCatalogBuilder.capabilityToolDefinitions() {
-		toolDescriptor := capabilityToolDescriptor
-		toolName := toolDescriptor.Name
-		if toolName == "file.read" {
-			continue
-		}
-		if toolName == "ask.confirm" {
-			continue
-		}
-		if request.IsScheduledRun && isInteractiveCapabilityTool(toolName) {
-			continue
-		}
-		toolDescription := firstNonEmptyString(toolDescriptor.Description, defaultCapabilityToolDescription(toolName))
-		toolRegistry.RegisterBoundTool(agent.BoundTool{
-			Definition: agent.ToolDefinition{
-				Name:             toolName,
-				Description:      toolDescription,
-				InputSchema:      toolDescriptor.InputSchema,
-				OutputSchema:     toolDescriptor.OutputSchema,
-				PolicyResource:   toolDescriptor.PolicyResource,
-				SideEffectClass:  toolDescriptor.SideEffectClass,
-				RequiresApproval: toolDescriptor.RequiresApproval,
-			},
-			Availability: capabilityToolAvailability(toolDescriptor, request),
-			Handler: func(toolContext context.Context, toolInvocation agent.ToolInvocation) (agent.ToolResult, error) {
-				return toolCatalogBuilder.invokeCapabilityOperation(toolContext, toolName, toolDescriptor, request, json.RawMessage(toolInvocation.Input))
-			},
-		})
+	provider := capabilityToolProvider{
+		toolCatalogBuilder: toolCatalogBuilder,
+		request:            request,
+		descriptors:        toolCatalogBuilder.capabilityToolDefinitions(),
 	}
-	toolCatalogBuilder.registerGenericCapabilityTool(toolRegistry, request)
+	if errorValue := toolRegistry.RegisterProvider(context.Background(), provider); errorValue != nil {
+		panic(errorValue)
+	}
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) invokeCapabilityOperation(toolContext context.Context, operation string, toolDescriptor CapabilityToolDescriptor, request ToolCatalogRequest, rawInput json.RawMessage) (agent.ToolResult, error) {
@@ -104,8 +56,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) invokeCapabilityOperation(toolCont
 		SafeRetry    bool            `json:"safeRetry"`
 		Result       json.RawMessage `json:"result"`
 	}
-	policyResource := firstNonEmptyString(toolDescriptor.PolicyResource, "tool:"+operation)
-	if !access.CanAccess(access.Request{PersonAccess: request.PersonAccess, Action: access.ActionExecute, Resource: policyResource}) {
+	if !access.CanAccess(access.Request{PersonAccess: request.PersonAccess, Action: access.ActionExecute, Resource: toolDescriptor.PolicyResource}) {
 		return agent.ToolFailureResult(agent.FailurePermissionDenied, agent.FailureCodes.AccessDenied, "capability_access", "current account cannot execute this tool"), nil
 	}
 	if unexpected := unexpectedCapabilityInputFields(toolDescriptor.InputSchema, rawInput); len(unexpected) > 0 {
@@ -122,9 +73,13 @@ func (toolCatalogBuilder *ToolCatalogBuilder) invokeCapabilityOperation(toolCont
 		return capabilityMissingInputFailure(operation, toolDescriptor, missing), nil
 	}
 	if errorValue := toolCatalogBuilder.validateCapabilityToolInputAccess(operation, request, toolInput); errorValue != nil {
-		return agent.ToolFailureResult(agent.FailurePermissionDenied, agent.FailureCodes.AccessDenied, "file_read_access", errorValue.Error()), nil
+		failureStage := "file_read_access"
+		if strings.TrimSpace(operation) == "image.generate" {
+			failureStage = "file_write_access"
+		}
+		return agent.ToolFailureResult(agent.FailurePermissionDenied, agent.FailureCodes.AccessDenied, failureStage, errorValue.Error()), nil
 	}
-	errorValue = toolCatalogBuilder.capabilityClient.PostJSON(toolContext, "/v1/tools/"+url.PathEscape(operation)+"/invoke", capabilityToolRequest(toolContext, operation, request, toolInput), &response)
+	errorValue = toolCatalogBuilder.capabilityClient.PostJSON(toolContext, "/v1/tools/"+url.PathEscape(operation)+"/invoke", capabilityToolRequest(toolContext, toolDescriptor, request, toolInput), &response)
 	if errorValue != nil {
 		return agent.ToolResult{}, errorValue
 	}
@@ -143,106 +98,6 @@ func (toolCatalogBuilder *ToolCatalogBuilder) invokeCapabilityOperation(toolCont
 	}
 	isError := response.IsError || response.Status == "error" || response.Status == "denied"
 	return capabilityToolResult(content, response.Result, isError, response.Message, response.ErrorCode, response.FailureStage, response.Retryable, response.SafeRetry), nil
-}
-
-func (toolCatalogBuilder *ToolCatalogBuilder) registerGenericCapabilityTool(toolRegistry *agent.ToolSet, request ToolCatalogRequest) {
-	if toolCatalogBuilder.capabilityClient.HTTPClient == nil && strings.TrimSpace(toolCatalogBuilder.capabilityClient.Endpoint) == "" {
-		return
-	}
-	toolRegistry.RegisterBoundTool(agent.BoundTool{
-		Definition: agent.ToolDefinition{
-			Name:        agent.CapabilityInvokeToolName,
-			Description: toolCatalogBuilder.genericCapabilityToolDescription(),
-			InputSchema: genericCapabilityInvokeInputSchema(toolCatalogBuilder.genericCapabilityOperationNames(request)),
-		},
-		Availability: agent.ToolAvailability{Status: agent.ToolAvailabilityAvailable},
-		Handler: func(toolContext context.Context, toolInvocation agent.ToolInvocation) (agent.ToolResult, error) {
-			var call struct {
-				Operation string          `json:"operation"`
-				Input     json.RawMessage `json:"input"`
-			}
-			if errorValue := json.Unmarshal(toolInvocation.Input, &call); errorValue != nil {
-				return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "capability_input", "capability.invoke requires an operation name and an input object"), nil
-			}
-			operation := strings.TrimSpace(call.Operation)
-			if operation == "" {
-				return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "capability_input", "capability.invoke requires an operation name"), nil
-			}
-			if !toolRegistry.IsRegistered(operation) {
-				return toolCatalogBuilder.unknownCapabilityOperationResult(operation, request.PersonAccess.Circles), nil
-			}
-			call.Input = normalizeCapabilityInvokeInput(call.Input)
-			if !isJSONInputObject(call.Input) {
-				toolDescriptor, _ := toolCatalogBuilder.capabilityToolDescriptorByName(operation)
-				return capabilityInputNotObjectFailure(operation, toolDescriptor), nil
-			}
-			return toolRegistry.InvokeRegistered(toolContext, agent.ToolInvocation{ToolName: operation, Input: call.Input})
-		},
-	})
-}
-
-var genericCapabilityCatalogExcluded = map[string]bool{
-	"llm.text":         true,
-	"llm.structured":   true,
-	"embedding.create": true,
-	"platform.reply":   true,
-	"file.read":        true,
-	"image.read":       true,
-	"document.read":    true,
-	"ask.confirm":      true,
-	"ask.input":        true,
-}
-
-func (toolCatalogBuilder *ToolCatalogBuilder) genericCapabilityToolDescription() string {
-	lines := []string{
-		`Invoke a workspace capability operation by name. Set operation to one of the operations below and set input to that operation's fields as one JSON object written inside a string, for example input: "{\"slug\":\"team-dashboard\"}". Each operation lists its input fields as { name type (required), ... } — you MUST include every (required) field with a real value; an empty or partial input is rejected, so never call with input:"{}". Identity, approval, and delivery are handled by the runtime — never pass requester identity in input.`,
-		"",
-		"Available operations:",
-	}
-	for _, entry := range toolCatalogBuilder.capabilityCatalogEntries() {
-		lines = append(lines, "- "+entry)
-	}
-	return strings.Join(lines, "\n")
-}
-
-func (toolCatalogBuilder *ToolCatalogBuilder) capabilityCatalogEntries() []string {
-	entries := []string{}
-	seenName := map[string]bool{}
-	for _, toolDescriptor := range toolCatalogBuilder.capabilityToolDefinitions() {
-		name := strings.TrimSpace(toolDescriptor.Name)
-		if name == "" || genericCapabilityCatalogExcluded[name] || seenName[name] {
-			continue
-		}
-		seenName[name] = true
-		entry := name + ": " + capabilityCatalogSummary(toolDescriptor.Description)
-		if parameters := capabilityCatalogParameters(toolDescriptor.InputSchema); parameters != "" {
-			entry += " — input: " + parameters
-		}
-		if toolDescriptor.RequiresApproval {
-			entry += " — needs the user's approval before it runs; put a one-line confirmation of exactly what you will do in continue.message so the user sees what they are approving."
-		}
-		entries = append(entries, entry)
-	}
-	sort.Strings(entries)
-	return entries
-}
-
-func (toolCatalogBuilder *ToolCatalogBuilder) genericCapabilityOperationNames(request ToolCatalogRequest) []string {
-	operationNames := []string{}
-	seenName := map[string]bool{}
-	for _, toolDescriptor := range toolCatalogBuilder.capabilityToolDefinitions() {
-		name := strings.TrimSpace(toolDescriptor.Name)
-		if name == "" || genericCapabilityCatalogExcluded[name] || seenName[name] {
-			continue
-		}
-		if capabilityToolAvailability(toolDescriptor, request).Status == agent.ToolAvailabilityDenied {
-			continue
-		}
-		seenName[name] = true
-		operationNames = append(operationNames, name)
-	}
-	sort.Strings(operationNames)
-	return operationNames
 }
 
 const capabilityCatalogMaxDepth = 4
@@ -478,6 +333,14 @@ func (toolCatalogBuilder *ToolCatalogBuilder) capabilityToolDescriptorByName(ope
 	return CapabilityToolDescriptor{}, false
 }
 
+func (toolCatalogBuilder *ToolCatalogBuilder) capabilityRequestForOperation(toolContext context.Context, operation string, request ToolCatalogRequest, input json.RawMessage) (map[string]any, error) {
+	descriptor, isFound := toolCatalogBuilder.capabilityToolDescriptorByName(operation)
+	if !isFound {
+		return nil, errors.New("capability descriptor is not registered: " + operation)
+	}
+	return capabilityToolRequest(toolContext, descriptor, request, input), nil
+}
+
 func capabilityRequiredInputDescription(inputSchema json.RawMessage, requiredFields []string) string {
 	var schema struct {
 		Properties map[string]json.RawMessage `json:"properties"`
@@ -488,39 +351,6 @@ func capabilityRequiredInputDescription(inputSchema json.RawMessage, requiredFie
 		descriptions = append(descriptions, field+" "+capabilityCatalogBaseType(schema.Properties[field]))
 	}
 	return strings.Join(descriptions, ", ")
-}
-
-func capabilityInvokeWrapperExample(operation string, inputSchema json.RawMessage, requiredFields []string) string {
-	input := map[string]any{}
-	for _, field := range requiredFields {
-		input[field] = capabilityPlaceholderValue(inputSchema, field)
-	}
-	encodedInput, _ := json.Marshal(input)
-	document := map[string]any{
-		"operation": operation,
-		"input":     string(encodedInput),
-	}
-	encoded, _ := json.Marshal(document)
-	return string(encoded)
-}
-
-func capabilityPlaceholderValue(inputSchema json.RawMessage, field string) any {
-	var schema struct {
-		Properties map[string]json.RawMessage `json:"properties"`
-	}
-	json.Unmarshal(inputSchema, &schema)
-	switch capabilityCatalogBaseType(schema.Properties[field]) {
-	case "number", "integer":
-		return 1
-	case "boolean":
-		return true
-	case "array":
-		return []string{"<real " + field + ">"}
-	case "object":
-		return map[string]string{"value": "<real " + field + ">"}
-	default:
-		return "<real " + field + ">"
-	}
 }
 
 func capabilityInputSkeletonData(inputSchema json.RawMessage, requiredFields []string) json.RawMessage {
@@ -556,189 +386,6 @@ func capabilityInputSkeleton(inputSchema json.RawMessage, requiredFields []strin
 	return skeleton
 }
 
-func normalizeCapabilityInvokeInput(input json.RawMessage) json.RawMessage {
-	if isJSONInputObject(input) {
-		return input
-	}
-	var stringifiedInput string
-	if json.Unmarshal(input, &stringifiedInput) != nil {
-		return input
-	}
-	innerInput := json.RawMessage(stringifiedInput)
-	if !isJSONInputObject(innerInput) {
-		return input
-	}
-	return innerInput
-}
-
-func isJSONInputObject(input json.RawMessage) bool {
-	trimmedInput := strings.TrimSpace(string(input))
-	if trimmedInput == "" || trimmedInput == "null" {
-		return false
-	}
-	var document map[string]json.RawMessage
-	return json.Unmarshal(input, &document) == nil
-}
-
-func capabilityCatalogSummary(description string) string {
-	trimmed := strings.TrimSpace(description)
-	if trimmed == "" {
-		return "Workspace capability operation."
-	}
-	if index := strings.IndexByte(trimmed, '.'); index > 0 {
-		return strings.TrimSpace(trimmed[:index+1])
-	}
-	if len(trimmed) > 140 {
-		return strings.TrimSpace(trimmed[:140])
-	}
-	return trimmed
-}
-
-func genericCapabilityInvokeInputSchema(operationNames []string) json.RawMessage {
-	document := map[string]any{
-		"type": "object",
-		"properties": map[string]any{
-			"operation": map[string]any{
-				"type":        "string",
-				"description": "The capability operation name from the available operations list in this tool's description.",
-			},
-			"input": map[string]any{
-				"type":        "string",
-				"description": `The parameters for the chosen operation as one JSON object written inside this string, for example "{\"slug\":\"team-dashboard\",\"title\":\"Team Dashboard\"}". Use the operation's field names from this tool's available operations list and give every required field a real value.`,
-			},
-		},
-		"required": []string{"operation", "input"},
-	}
-	if len(operationNames) > 0 {
-		document["properties"].(map[string]any)["operation"].(map[string]any)["enum"] = operationNames
-	}
-	encoded, _ := json.Marshal(document)
-	return encoded
-}
-
-func (toolCatalogBuilder *ToolCatalogBuilder) unknownCapabilityOperationResult(operation string, requesterCircles []string) agent.ToolResult {
-	message := "operation \"" + operation + "\" is not a valid capability operation."
-	if suggestions := toolCatalogBuilder.suggestCapabilityOperations(operation); len(suggestions) > 0 {
-		message += " Did you mean: " + strings.Join(suggestions, ", ") + "?"
-	}
-	message += " Use an exact operation name from this tool's available operations list."
-	matchingSkill, hasMatchingSkill := toolCatalogBuilder.matchingSkillForUnknownOperation(operation, requesterCircles)
-	if !hasMatchingSkill {
-		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "capability.invoke", message)
-	}
-	skillName := strings.TrimSpace(matchingSkill.Name)
-	message += " \"" + skillName + "\" is a skill, not a capability operation; use the skill workflow instead."
-	data := marshalToolResult(map[string]string{
-		"code":              "unknown_operation",
-		"operation":         operation,
-		"matchingSkillName": skillName,
-		"skillDescription":  strings.TrimSpace(matchingSkill.Description),
-	})
-	return agent.ToolFailureData(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "capability.invoke", message, json.RawMessage(data))
-}
-
-func (toolCatalogBuilder *ToolCatalogBuilder) matchingSkillForUnknownOperation(operation string, requesterCircles []string) (agent.SkillInstruction, bool) {
-	if toolCatalogBuilder.instructionBundleLoader == nil {
-		return agent.SkillInstruction{}, false
-	}
-	instructionBundle := toolCatalogBuilder.instructionBundleLoader()
-	visibleSkillInstructions := agent.VisibleSkillInstructionsForRequester(instructionBundle.Skills, requesterCircles)
-	domainSegments, finalSegment := capabilityOperationSegments(operation)
-	firstSegment := strings.SplitN(operation, ".", 2)[0]
-	fallbackMatch := agent.SkillInstruction{}
-	hasFallbackMatch := false
-	for _, skillInstruction := range visibleSkillInstructions {
-		skillName := strings.TrimSpace(skillInstruction.Name)
-		if skillName == "" {
-			continue
-		}
-		if skillName == firstSegment {
-			return skillInstruction, true
-		}
-		if !hasFallbackMatch && (domainSegments[skillName] || skillName == finalSegment) {
-			fallbackMatch = skillInstruction
-			hasFallbackMatch = true
-		}
-	}
-	return fallbackMatch, hasFallbackMatch
-}
-
-func (toolCatalogBuilder *ToolCatalogBuilder) suggestCapabilityOperations(operation string) []string {
-	domainSegments, finalSegment := capabilityOperationSegments(operation)
-	type scoredOperation struct {
-		name        string
-		score       int
-		matchDomain bool
-	}
-	scoredOperations := []scoredOperation{}
-	for _, entry := range toolCatalogBuilder.capabilityCatalogEntries() {
-		name := strings.TrimSpace(strings.SplitN(entry, ":", 2)[0])
-		candidateDomainSegments, candidateFinalSegment := capabilityOperationSegments(name)
-		score := 0
-		matchDomain := false
-		for segment := range candidateDomainSegments {
-			if domainSegments[segment] {
-				score += 2
-				matchDomain = true
-			}
-		}
-		if finalSegment != "" && candidateFinalSegment == finalSegment {
-			score++
-		}
-		if score > 0 {
-			scoredOperations = append(scoredOperations, scoredOperation{name: name, score: score, matchDomain: matchDomain})
-		}
-	}
-	hasDomainMatch := false
-	for _, scoredOperation := range scoredOperations {
-		if scoredOperation.matchDomain {
-			hasDomainMatch = true
-			break
-		}
-	}
-	sort.SliceStable(scoredOperations, func(leftIndex int, rightIndex int) bool {
-		return scoredOperations[leftIndex].score > scoredOperations[rightIndex].score
-	})
-	suggestions := []string{}
-	for _, scoredOperation := range scoredOperations {
-		if hasDomainMatch && !scoredOperation.matchDomain {
-			continue
-		}
-		suggestions = append(suggestions, scoredOperation.name)
-		if len(suggestions) >= 6 {
-			break
-		}
-	}
-	return suggestions
-}
-
-func capabilityOperationSegments(operation string) (map[string]bool, string) {
-	segments := strings.Split(operation, ".")
-	domainSegments := map[string]bool{}
-	finalSegment := ""
-	for index, segment := range segments {
-		trimmedSegment := strings.TrimSpace(segment)
-		if trimmedSegment == "" {
-			continue
-		}
-		if index == len(segments)-1 {
-			finalSegment = trimmedSegment
-			continue
-		}
-		domainSegments[trimmedSegment] = true
-	}
-	return domainSegments, finalSegment
-}
-
-func isInteractiveCapabilityTool(toolName string) bool {
-	switch strings.TrimSpace(toolName) {
-	case "user.confirm", "user.input", "ask.confirm", "ask.input":
-		return true
-	default:
-		return false
-	}
-}
-
 func defaultCapabilityToolDescription(toolName string) string {
 	switch strings.TrimSpace(toolName) {
 	case "document.read":
@@ -761,30 +408,21 @@ func defaultCapabilityToolDescription(toolName string) string {
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) capabilityToolDefinitions() []CapabilityToolDescriptor {
-	toolDescriptors := copyCapabilityToolDescriptors(toolCatalogBuilder.capabilityToolDescriptors)
-	toolNameByName := map[string]bool{}
-	for _, toolDescriptor := range toolDescriptors {
-		toolNameByName[strings.TrimSpace(toolDescriptor.Name)] = true
-	}
-	for _, toolName := range toolCatalogBuilder.capabilityToolNames {
-		if !toolNameByName[toolName] {
-			toolDescriptors = append(toolDescriptors, CapabilityToolDescriptor{Name: toolName})
-		}
-	}
-	toolCatalogBuilder.overlayLiveCapabilityInputSchemas(toolDescriptors)
-	return toolDescriptors
+	return copyCapabilityToolDescriptors(toolCatalogBuilder.capabilityToolDescriptors)
 }
 
 func capabilityToolAvailability(toolDescriptor CapabilityToolDescriptor, request ToolCatalogRequest) agent.ToolAvailability {
-	policyResource := firstNonEmptyString(toolDescriptor.PolicyResource, "tool:"+toolDescriptor.Name)
-	if !access.CanAccess(access.Request{PersonAccess: request.PersonAccess, Action: access.ActionExecute, Resource: policyResource}) {
-		return agent.ToolAvailability{Status: agent.ToolAvailabilityDenied, Reason: "access denied"}
+	switch strings.TrimSpace(toolDescriptor.Availability.State) {
+	case "not_allowed":
+		return agent.ToolAvailability{Status: agent.ToolAvailabilityDenied, Reason: toolDescriptor.Availability.Reason}
+	case "not_connected", "not_ready":
+		return agent.ToolAvailability{Status: agent.ToolAvailabilityUnavailable, Reason: toolDescriptor.Availability.Reason}
+	case "ok":
+	default:
+		return agent.ToolAvailability{}
 	}
-	if toolDescriptor.RequiresApproval {
-		if isApprovalExemptCapabilityTool(toolDescriptor.Name, request) {
-			return agent.ToolAvailability{Status: agent.ToolAvailabilityAvailable}
-		}
-		return agent.ToolAvailability{Status: agent.ToolAvailabilityAvailable}
+	if !access.CanAccess(access.Request{PersonAccess: request.PersonAccess, Action: access.ActionExecute, Resource: toolDescriptor.PolicyResource}) {
+		return agent.ToolAvailability{Status: agent.ToolAvailabilityDenied, Reason: "access denied"}
 	}
 	return agent.ToolAvailability{Status: agent.ToolAvailabilityAvailable}
 }
@@ -841,7 +479,7 @@ func isApprovalExemptCapabilityTool(toolName string, request ToolCatalogRequest)
 	return request.IsScheduledRun || request.IsApprovalContinuation
 }
 
-func capabilityToolRequest(toolContext context.Context, toolName string, request ToolCatalogRequest, toolInput json.RawMessage) map[string]any {
+func capabilityToolRequest(toolContext context.Context, descriptor CapabilityToolDescriptor, request ToolCatalogRequest, toolInput json.RawMessage) map[string]any {
 	contextDocument := map[string]any{
 		"requesterPersonID":       request.RequesterPersonID,
 		"requesterEmail":          request.RequesterEmail,
@@ -861,15 +499,19 @@ func capabilityToolRequest(toolContext context.Context, toolName string, request
 		contextDocument["scheduledRun"] = request.ScheduledRun
 	}
 	requestDocument := map[string]any{
-		"toolName":       toolName,
+		"toolName":       descriptor.CanonicalName,
 		"input":          toolInput,
-		"idempotencyKey": capabilityToolIdempotencyKey(toolContext, toolName),
+		"idempotencyKey": capabilityToolIdempotencyKey(toolContext, descriptor),
 		"context":        contextDocument,
 	}
-	if shouldRequireCompanionBrowser(toolContext, toolName, toolInput) {
-		requestDocument["executionMode"] = "companion"
+	if descriptor.PrivacyClass != "" {
+		requestDocument["privacyClass"] = descriptor.PrivacyClass
+	}
+	if descriptor.RequiresUserPresence {
 		requestDocument["requiresUserPresence"] = true
-		requestDocument["privacyClass"] = "user_browser"
+	}
+	if descriptor.PrivacyClass == "user_browser" {
+		requestDocument["executionMode"] = "companion"
 	}
 	return requestDocument
 }
@@ -887,11 +529,18 @@ func (toolCatalogBuilder *ToolCatalogBuilder) prepareCapabilityToolInput(toolCon
 
 func capabilityToolNeedsWorkspacePath(toolName string) bool {
 	switch strings.TrimSpace(toolName) {
-	case "document.read", "image.read":
+	case "document.read", "image.read", "image.generate":
 		return true
 	default:
 		return false
 	}
+}
+
+func capabilityToolWorkspacePathAction(toolName string) string {
+	if strings.TrimSpace(toolName) == "image.generate" {
+		return access.ActionWrite
+	}
+	return access.ActionRead
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) resolveCapabilityWorkspacePathInput(toolContext context.Context, toolName string, request ToolCatalogRequest, toolInput json.RawMessage) (json.RawMessage, error) {
@@ -913,23 +562,19 @@ func (toolCatalogBuilder *ToolCatalogBuilder) resolveCapabilityWorkspacePathInpu
 		path = material.Path
 		delete(inputDocument, "materialID")
 	}
-	resolvedPath, errorValue := toolCatalogBuilder.resolveReadableCapabilityPath(request, path)
+	resolvedPath, errorValue := toolCatalogBuilder.resolveCapabilityWorkspacePath(request, path)
 	if errorValue != nil {
 		return nil, errorValue
+	}
+	if strings.TrimSpace(toolName) != "image.generate" && !toolCatalogBuilder.canAccessWorkspacePath(request.PersonAccess, access.ActionRead, resolvedPath.ConcretePath) {
+		return nil, errors.New("current account cannot read this file")
 	}
 	inputDocument["path"] = toolCatalogBuilder.agentWorkspacePath(resolvedPath.ConcretePath)
 	return json.Marshal(inputDocument)
 }
 
-func (toolCatalogBuilder *ToolCatalogBuilder) resolveReadableCapabilityPath(request ToolCatalogRequest, path string) (ResolvedWorkspacePath, error) {
-	resolvedPath, errorValue := NewWorkspacePathResolver(toolCatalogBuilder.workspaceRootPath).Resolve(path, WorkspaceScopeForRequest(toolCatalogBuilder.workspaceRootPath, request, ""))
-	if errorValue != nil {
-		return ResolvedWorkspacePath{}, errorValue
-	}
-	if !toolCatalogBuilder.canAccessWorkspacePath(request.PersonAccess, access.ActionRead, resolvedPath.ConcretePath) {
-		return ResolvedWorkspacePath{}, errors.New("current account cannot read this file")
-	}
-	return resolvedPath, nil
+func (toolCatalogBuilder *ToolCatalogBuilder) resolveCapabilityWorkspacePath(request ToolCatalogRequest, path string) (ResolvedWorkspacePath, error) {
+	return NewWorkspacePathResolver(toolCatalogBuilder.workspaceRootPath).Resolve(path, WorkspaceScopeForRequest(toolCatalogBuilder.workspaceRootPath, request, ""))
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) handleCapabilityToolSuccess(toolContext context.Context, toolName string, request ToolCatalogRequest, result *json.RawMessage) (*agent.ToolResult, error) {
@@ -942,13 +587,22 @@ func (toolCatalogBuilder *ToolCatalogBuilder) handleCapabilityToolSuccess(toolCo
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) validateCapabilityToolInputAccess(toolName string, request ToolCatalogRequest, toolInput json.RawMessage) error {
+	if strings.TrimSpace(toolName) != "image.generate" {
+		return nil
+	}
+	inputDocument := map[string]any{}
+	if errorValue := json.Unmarshal(toolInput, &inputDocument); errorValue != nil {
+		return errorValue
+	}
+	path, _ := inputDocument["path"].(string)
+	resolvedPath, errorValue := toolCatalogBuilder.resolveCapabilityWorkspacePath(request, path)
+	if errorValue != nil {
+		return errorValue
+	}
+	if !toolCatalogBuilder.canAccessWorkspacePath(request.PersonAccess, capabilityToolWorkspacePathAction(toolName), resolvedPath.ConcretePath) {
+		return errors.New("current account cannot write this file")
+	}
 	return nil
-}
-
-// No working direct/on-device browser backend exists today, so every
-// browser.* call must route through companion regardless of context.
-func shouldRequireCompanionBrowser(toolContext context.Context, toolName string, toolInput json.RawMessage) bool {
-	return strings.HasPrefix(strings.TrimSpace(toolName), "browser.")
 }
 
 func capabilityAttachments(result json.RawMessage) []agent.FileAttachment {
@@ -1048,11 +702,4 @@ func capabilityResultBoolean(result json.RawMessage, fieldName string) bool {
 	}
 	value, isBoolean := document[fieldName].(bool)
 	return isBoolean && value
-}
-
-func mcpToolDescription(toolDefinition mcp.ToolDefinition) string {
-	if strings.TrimSpace(toolDefinition.Description) != "" {
-		return strings.TrimSpace(toolDefinition.Description)
-	}
-	return "MCP tool from " + toolDefinition.ServerName
 }

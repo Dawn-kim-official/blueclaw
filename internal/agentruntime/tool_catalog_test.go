@@ -289,8 +289,7 @@ func userSkillDocument(skillName string) string {
 	return `---
 name: ` + skillName + `
 description: Research source material and organize source lookups when the user asks for research help.
-allowed-tools:
-  - memory.search
+tool-references: memory.search
 ---
 Research helper handles source lookups.
 `

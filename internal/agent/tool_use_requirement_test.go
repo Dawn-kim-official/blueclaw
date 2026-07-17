@@ -11,7 +11,7 @@ func TestGoogleWorkspaceAvoidanceDoesNotRequireBrowserEvidence(t *testing.T) {
 	})
 
 	for _, requirement := range requirements {
-		if requirement.ToolPrefix == "browser." || requirement.ToolName == "browser.screenshot" {
+		if requirement.ToolName == "browser.screenshot" {
 			t.Fatalf("expected no browser requirement, got %+v", requirements)
 		}
 	}

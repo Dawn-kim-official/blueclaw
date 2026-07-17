@@ -6,10 +6,8 @@ import (
 )
 
 func TestKernelToolNamesExcludeInternalDispatchTools(t *testing.T) {
-	for _, toolName := range []string{CapabilityInvokeToolName, TaskHistoryToolName} {
-		if stringSliceContains(KernelToolNames(), toolName) {
-			t.Fatalf("expected internal tool %s outside model kernel, got %v", toolName, KernelToolNames())
-		}
+	if stringSliceContains(KernelToolNames(), TaskHistoryToolName) {
+		t.Fatalf("expected internal tool %s outside model kernel, got %v", TaskHistoryToolName, KernelToolNames())
 	}
 }
 
@@ -36,12 +34,5 @@ func TestEffectiveObservationToolNamePreservesDirectToolNames(t *testing.T) {
 	}
 	if got := effectiveObservationToolName(TerminalRunToolName, json.RawMessage(`{"command":"ls"}`)); got != TerminalRunToolName {
 		t.Fatalf("expected terminal tool name unchanged, got %q", got)
-	}
-}
-
-func TestEffectiveActionToolNameAndInputPreservesDirectInput(t *testing.T) {
-	toolName, toolInput := effectiveActionToolNameAndInput("site.create", json.RawMessage(`{"slug":"team-dashboard"}`))
-	if toolName != "site.create" || string(toolInput) != `{"slug":"team-dashboard"}` {
-		t.Fatalf("expected direct tool input passthrough, got %q %s", toolName, toolInput)
 	}
 }

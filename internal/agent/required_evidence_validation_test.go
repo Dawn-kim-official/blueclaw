@@ -89,16 +89,6 @@ func TestValidateRequiredEvidenceClassifiesNativeTool(t *testing.T) {
 	}
 }
 
-func TestValidateRequiredEvidenceRejectsCapabilityInvokeAsEvidence(t *testing.T) {
-	toolSet := newTestToolSet([]string{"calendar.add"})
-
-	report := validateRequiredEvidenceTools(toolSet, []string{CapabilityInvokeToolName})
-
-	if !report.HasInvalidEvidence() {
-		t.Fatal("expected internal dispatch evidence to be invalid")
-	}
-}
-
 func TestValidateRequiredEvidenceAcceptsCanonicalDeliveryAlias(t *testing.T) {
 	toolSet := newTestToolSet([]string{FileDeliverToolName})
 
@@ -202,7 +192,10 @@ func TestRequiredEvidenceRequiresSiteSideEffectAlongsideStatus(t *testing.T) {
 		TaskShape:             TaskShapeMaintenanceTask,
 		RequiredEvidenceTools: []string{"site.status"},
 	}
-	toolSet := newTestCapabilityToolSet([]string{"site.status", "site.publish"})
+	toolSet := newTestToolSetWithDefinitions([]ToolDefinition{
+		{Name: "site.status", Namespace: "site", SideEffectClass: ToolSideEffectRead},
+		{Name: "site.publish", Namespace: "site", SideEffectClass: ToolSideEffectExternalPublish},
+	})
 
 	if !requiredEvidenceMissingForSideEffect(intakeDecision, OutcomeContract{RequiredEvidenceTools: []string{"site.status"}}, toolSet) {
 		t.Fatal("expected site.status alone not to prove a site side effect")

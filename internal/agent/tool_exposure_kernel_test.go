@@ -119,8 +119,8 @@ func TestReconstructedEvidenceOnlyArbitrationPreservesSelectedDomain(t *testing.
 	request := AgentTurnRequest{
 		ToolSet: toolSet,
 		AvailableSkills: []SkillInstruction{{
-			Name:         "internkim-flow",
-			AllowedTools: flowToolNames,
+			Name:           "internkim-flow",
+			ToolReferences: flowToolNames,
 		}},
 		SkillDecisions: []SkillSelectionDecision{{Name: "internkim-flow", Status: "selected"}},
 		ContractToolWorkingSet: ContractToolWorkingSet{
@@ -139,7 +139,8 @@ func TestReconstructedEvidenceOnlyArbitrationPreservesSelectedDomain(t *testing.
 		ToolExposureEvent{},
 	)
 
-	if !sameStringSet(filteredToolSet.ListToolNames(), flowToolNames) {
+	expectedToolNames := append(append([]string{}, KernelToolNames()...), flowToolNames...)
+	if !sameStringSet(filteredToolSet.ListToolNames(), expectedToolNames) {
 		t.Fatalf("expected reconstructed selected domain, got %+v", filteredToolSet.ListToolNames())
 	}
 }

@@ -483,10 +483,6 @@ func (connectorRuntime *ConnectorRuntime) UseMCPRegistry(mcpRegistry *mcp.McpReg
 	connectorRuntime.toolCatalogBuilder.UseMCPRegistry(mcpRegistry)
 }
 
-func (connectorRuntime *ConnectorRuntime) UseCapabilityTools(capabilityClient capability.Client, toolNames []string) {
-	connectorRuntime.toolCatalogBuilder.UseCapabilityTools(capabilityClient, toolNames)
-}
-
 func (connectorRuntime *ConnectorRuntime) UseCapabilityToolDescriptors(capabilityClient capability.Client, toolDescriptors []agentruntime.CapabilityToolDescriptor) {
 	connectorRuntime.toolCatalogBuilder.UseCapabilityToolDescriptors(capabilityClient, toolDescriptors)
 }
@@ -503,8 +499,8 @@ func connectorRuntimeDefaultAllowedToolNames() []string {
 	return append([]string{"conversation.history"}, agentruntime.DefaultAllowedToolNames()...)
 }
 
-func (connectorRuntime *ConnectorRuntime) UseAllowedToolNamesByProfile(allowedToolNamesByProfile map[string][]string, fallbackAllowedToolNames []string) {
-	connectorRuntime.toolCatalogBuilder.UseAllowedToolNamesByProfile(allowedToolNamesByProfile, fallbackAllowedToolNames)
+func (connectorRuntime *ConnectorRuntime) UseAllowedToolNamesByProfile(allowedToolNamesByProfile map[string][]string, defaultAllowedToolNames []string) {
+	connectorRuntime.toolCatalogBuilder.UseAllowedToolNamesByProfile(allowedToolNamesByProfile, defaultAllowedToolNames)
 }
 
 func (connectorRuntime *ConnectorRuntime) UseTaskLauncher(taskLauncher *agentruntime.TaskLauncher) {

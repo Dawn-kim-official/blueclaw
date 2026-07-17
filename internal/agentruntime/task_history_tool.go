@@ -40,7 +40,6 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerTaskHistoryTool(toolRegist
 			Description: "List the requester's recent task runs with status, result, and failure reason, newest first. Use it to answer what you worked on earlier or why a past task failed.",
 			InputSchema: json.RawMessage(`{"type":"object","properties":{"limit":{"type":"number"},"status":{"type":"string","description":"Optional status filter: planned, running, waiting_user_input, waiting_approval, blocked, completed, failed, cancelled"}},"additionalProperties":false}`),
 		},
-		RejectUnknownInputFields: true,
 		Handler: func(toolContext context.Context, input taskHistoryToolInput) (taskHistoryToolOutput, error) {
 			return toolCatalogBuilder.listTaskHistory(input, request), nil
 		},

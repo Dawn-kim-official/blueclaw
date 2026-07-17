@@ -29,9 +29,6 @@ func recoverableWorkflowNextTools(request AgentTurnRequest, observations []turnO
 		return nil
 	}
 	publishIndex := latestSuccessfulToolIndexAfter(observations, []string{"site.publish"}, sourceChangeIndex)
-	// site.publish is a domain operation reached only through capability.invoke
-	// now, so its recovery availability means registration, not direct
-	// action-schema allow-listing (toolAvailableForAction).
 	if publishIndex < 0 && request.ToolSet != nil && request.ToolSet.IsRegistered("site.publish") {
 		return []string{"site.publish"}
 	}
@@ -52,15 +49,14 @@ func recoverableFileDeliveryNextTools(request AgentTurnRequest, observations []t
 }
 
 func turnRequestLooksLikeSitePrototypeWork(request AgentTurnRequest) bool {
-	return activeGoalRequiresToolPrefix(request.ActiveGoal, "site.") ||
-		contractRequiresToolPrefix(request.OutcomeContract, "site.") ||
-		requiredEvidenceContains(request.RequiredEvidenceTools, "site.publish")
+	return contractRequiresToolNamespace(request.ToolSet, request.ActiveGoal.OutcomeContract, "site") ||
+		contractRequiresToolNamespace(request.ToolSet, request.OutcomeContract, "site") ||
+		requiredEvidenceIncludesNamespace(request.ToolSet, request.RequiredEvidenceTools, "site")
 }
 
 func sitePublishIsRequired(request AgentTurnRequest) bool {
-	return requiredEvidenceContains(request.RequiredEvidenceTools, "site.publish") ||
-		requiredEvidenceContains(request.OutcomeContract.RequiredEvidenceTools, "site.publish") ||
-		contractRequiresToolPrefix(request.OutcomeContract, "site.") ||
+	return requiredEvidenceIncludesAnySideEffectClass(request.ToolSet, request.RequiredEvidenceTools, ToolSideEffectExternalPublish, ToolSideEffectSitePublish) ||
+		requiredEvidenceIncludesAnySideEffectClass(request.ToolSet, request.OutcomeContract.RequiredEvidenceTools, ToolSideEffectExternalPublish, ToolSideEffectSitePublish) ||
 		expectedResultsIncludeSiteRequirement(request.OutcomeContract.ExpectedResults)
 }
 
