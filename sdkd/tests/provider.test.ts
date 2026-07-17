@@ -153,6 +153,77 @@ describe('sdkd provider adapter', () => {
     expect(llamaModel.doGenerateCalls).toHaveLength(0);
   });
 
+  test('ignores invalid later tool calls when parallel tool calls are disabled', async () => {
+    const llamaModel = successfulLanguageModel('unused-local-model', { ok: true });
+    const remoteModel = sequencedToolCallSetsLanguageModel('served-remote-model', [[
+      { toolName: 'lookup', input: '{"key":"first"}' },
+      { toolName: 'lookup', input: '{' },
+    ]]);
+    const generateChatCompletion = createChatCompletionGenerator(
+      completeConfiguration(SDKDAutoRoute.RemoteFirst),
+      languageModelFactory(llamaModel, remoteModel),
+    );
+
+    const response = await generateChatCompletion(chatRequest);
+
+    expect(response.message.toolCalls).toEqual([{
+      id: 'call-0',
+      type: 'function',
+      function: { name: 'lookup', arguments: '{"key":"first"}' },
+    }]);
+    expect(remoteModel.doGenerateCalls).toHaveLength(1);
+    expect(llamaModel.doGenerateCalls).toHaveLength(0);
+  });
+
+  test('repairs only the invalid first tool call when parallel tool calls are disabled', async () => {
+    const llamaModel = successfulLanguageModel('unused-local-model', { ok: true });
+    const remoteModel = sequencedToolCallSetsLanguageModel('served-remote-model', [
+      [
+        { toolName: 'lookup', input: '{' },
+        { toolName: 'lookup', input: '{"key":"later"}' },
+      ],
+      [
+        { toolName: 'lookup', input: '{"key":"repaired"}' },
+        { toolName: 'lookup', input: '{' },
+      ],
+    ]);
+    const generateChatCompletion = createChatCompletionGenerator(
+      completeConfiguration(SDKDAutoRoute.RemoteFirst),
+      languageModelFactory(llamaModel, remoteModel),
+    );
+
+    const response = await generateChatCompletion(chatRequest);
+
+    expect(response.message.toolCalls).toEqual([{
+      id: 'call-0',
+      type: 'function',
+      function: { name: 'lookup', arguments: '{"key":"repaired"}' },
+    }]);
+    expect(remoteModel.doGenerateCalls).toHaveLength(2);
+    expect(llamaModel.doGenerateCalls).toHaveLength(0);
+  });
+
+  test('preserves all valid tool calls when parallel tool calls are enabled', async () => {
+    const llamaModel = successfulLanguageModel('unused-local-model', { ok: true });
+    const remoteModel = sequencedToolCallSetsLanguageModel('served-remote-model', [[
+      { toolName: 'lookup', input: '{"key":"first"}' },
+      { toolName: 'lookup', input: '{"key":"second"}' },
+    ]]);
+    const generateChatCompletion = createChatCompletionGenerator(
+      completeConfiguration(SDKDAutoRoute.RemoteFirst),
+      languageModelFactory(llamaModel, remoteModel),
+    );
+
+    const response = await generateChatCompletion({ ...chatRequest, parallelToolCalls: true });
+
+    expect(response.message.toolCalls?.map(toolCall => toolCall.function.arguments)).toEqual([
+      '{"key":"first"}',
+      '{"key":"second"}',
+    ]);
+    expect(remoteModel.doGenerateCalls).toHaveLength(1);
+    expect(llamaModel.doGenerateCalls).toHaveLength(0);
+  });
+
   test('repairs unknown native tool arguments once without changing the provider schema', async () => {
     const request = openTaskChatRequest();
     const llamaModel = successfulLanguageModel('unused-local-model', { ok: true });
@@ -1117,6 +1188,21 @@ function sequencedToolCallLanguageModel(modelID: string, inputs: string[]): Mock
   });
 }
 
+function sequencedToolCallSetsLanguageModel(
+  modelID: string,
+  toolCallSets: Array<Array<{ toolName: string; input: string }>>,
+): MockLanguageModelV3 {
+  let generationCount = 0;
+  return new MockLanguageModelV3({
+    modelId: modelID,
+    doGenerate: async () => {
+      const toolCalls = toolCallSets[Math.min(generationCount, toolCallSets.length - 1)] ?? [];
+      generationCount += 1;
+      return toolCallsGeneration(modelID, toolCalls);
+    },
+  });
+}
+
 function sequencedStructuredToolCallLanguageModel(modelID: string, inputs: string[]): MockLanguageModelV3 {
   let generationCount = 0;
   return new MockLanguageModelV3({
@@ -1142,8 +1228,21 @@ function malformedThenValidLanguageModel(modelID: string, output: unknown): Mock
 }
 
 function toolCallGeneration(modelID: string, toolName: string, input: string): LanguageModelV3GenerateResult {
+  return toolCallsGeneration(modelID, [{ toolName, input }], 'structured-output-call');
+}
+
+function toolCallsGeneration(
+  modelID: string,
+  toolCalls: Array<{ toolName: string; input: string }>,
+  firstToolCallID = 'call-0',
+): LanguageModelV3GenerateResult {
   return {
-    content: [{ type: 'tool-call', toolCallId: 'structured-output-call', toolName, input }],
+    content: toolCalls.map((toolCall, index) => ({
+      type: 'tool-call',
+      toolCallId: index === 0 ? firstToolCallID : `call-${index}`,
+      toolName: toolCall.toolName,
+      input: toolCall.input,
+    })),
     finishReason: { unified: 'tool-calls', raw: 'tool_calls' },
     usage: defaultUsage(),
     response: { modelId: modelID },
