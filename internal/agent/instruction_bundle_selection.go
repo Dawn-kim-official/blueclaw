@@ -147,11 +147,26 @@ func unresolvedContractEvidenceCandidates(arbitration contractSkillArbitration, 
 	candidates := validateArbitratedToolNames(arbitration.RequiredNextTools, selectedToolNames, request, false)
 	result := []string{}
 	for _, toolName := range candidates {
+		if activeContractRequiresTool(request, toolName) {
+			continue
+		}
 		if IsArtifactDeliveryTool(toolName) || requiredEvidenceToolNeedsSuccessfulSideEffect(request.ToolSet, toolName) {
 			result = append(result, toolName)
 		}
 	}
 	return result
+}
+
+func activeContractRequiresTool(request AgentRequest, toolName string) bool {
+	if !requiredEvidenceToolCanBeSatisfied(request.ToolSet, toolName) {
+		return false
+	}
+	for _, requiredToolName := range request.ActiveGoal.OutcomeContract.RequiredEvidenceTools {
+		if strings.TrimSpace(requiredToolName) == strings.TrimSpace(toolName) {
+			return true
+		}
+	}
+	return false
 }
 
 func validatedContractEvidenceTools(arbitration contractSkillArbitration, selectedSkills []SkillInstruction, request AgentRequest) []string {
