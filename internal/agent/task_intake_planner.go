@@ -507,6 +507,11 @@ func (turnRouter TurnRouter) normalizeDecision(decision TurnDecision, request Ag
 		return TurnDecision{}, errors.New("turn router returned an invalid task shape")
 	}
 	decision.TaskShape = normalizedTaskShape
+	decision.RequestedOutputFormats = normalizeRequestedOutputFormats(decision.RequestedOutputFormats)
+	decision.ExpectedResults = normalizeExpectedResults(decision.ExpectedResults)
+	decision.RequiredEvidenceTools = appendUniqueStrings(decision.RequiredEvidenceTools)
+	decision = normalizeTurnDecisionFileRequirement(decision)
+	decision = normalizeSideEffectTurnDecision(decision, request.ToolSet)
 	if decision.Classification == IntakeClassificationBoundedTask && decision.TaskShape == TaskShapeImmediateReply {
 		decision.TaskShape = TaskShapeMaintenanceTask
 	}
@@ -522,15 +527,41 @@ func (turnRouter TurnRouter) normalizeDecision(decision TurnDecision, request Ag
 	if errorValue := validateTurnDecisionConsistency(decision); errorValue != nil {
 		return TurnDecision{}, errorValue
 	}
-	decision.RequestedOutputFormats = normalizeRequestedOutputFormats(decision.RequestedOutputFormats)
-	decision.ExpectedResults = normalizeExpectedResults(decision.ExpectedResults)
-	decision.RequiredEvidenceTools = appendUniqueStrings(decision.RequiredEvidenceTools)
-	decision = normalizeTurnDecisionFileRequirement(decision)
 	decision.InitialToolNames = registeredToolNamesOnly(request.ToolSet, appendUniqueStrings(decision.InitialToolNames))
 	decision.ResponseLanguage = resolveDecisionResponseLanguage(decision.ResponseLanguage, request.ResponseLanguage)
 	decision.Reason = strings.TrimSpace(decision.Reason)
 	decision.PriorTaskReference = normalizePriorTaskReference(decision.PriorTaskReference)
 	return decision, nil
+}
+
+func normalizeSideEffectTurnDecision(decision TurnDecision, toolSet *ToolSet) TurnDecision {
+	if decision.Classification != IntakeClassificationQuickReply || !includesRegisteredSideEffectEvidence(toolSet, decision.RequiredEvidenceTools) {
+		return decision
+	}
+	decision.Classification = IntakeClassificationBoundedTask
+	if decision.TaskShape == TaskShapeImmediateReply {
+		decision.TaskShape = TaskShapeMaintenanceTask
+	}
+	switch decision.Route {
+	case TurnRouteStartTask, TurnRouteContinueTask, TurnRouteReviseTask:
+	default:
+		decision.Route = TurnRouteStartTask
+	}
+	return decision
+}
+
+func includesRegisteredSideEffectEvidence(toolSet *ToolSet, toolNames []string) bool {
+	for _, toolName := range toolNames {
+		registeredToolName, isRegistered := requiredEvidenceRegisteredToolName(toolSet, toolName)
+		if !isRegistered || !requiredEvidenceToolCanBeSatisfied(toolSet, registeredToolName) {
+			continue
+		}
+		toolDefinition, isDefined := toolSet.ToolDefinition(registeredToolName)
+		if isDefined && ToolDefinitionRequiresSideEffectEvidence(toolDefinition) {
+			return true
+		}
+	}
+	return false
 }
 
 func canonicalizeTurnDecision(decision TurnDecision) TurnDecision {
