@@ -46,10 +46,17 @@ func toolSetForAgentTurnWithExposure(toolSet *ToolSet, instructionBundle Instruc
 	requiredEvidenceGroup, evidenceAlternativesGroup := outcomeContractEvidenceGroups(toolSet, outcomeContract)
 	selectedSkillGroup := filterGroupTools(toolSet, toolExposureGroup{Name: "selected skills", ToolIDs: selectedSkillToolNames(instructionBundle)})
 	pinnedGroup := filterGroupTools(toolSet, toolExposureGroup{Name: "pinned tools", ToolIDs: request.PinnedToolNames})
+	requiredNextGroup := filterGroupTools(toolSet, toolExposureGroup{Name: "required next tools", ToolIDs: instructionBundle.RequiredNextTools})
+	hasAuthoritativeWorkingSet := instructionBundle.HasContractSkillArbitration &&
+		len(selectedSkillInstructionList(instructionBundle)) > 0 &&
+		(len(instructionBundle.RequiredNextTools) > 0 || len(instructionBundle.RequiredEvidenceTools) > 0)
 	groups := []toolExposureGroup{interactionGroup, recoveryGroup, requiredEvidenceGroup, pinnedGroup, selectedSkillGroup, evidenceAlternativesGroup, kernelGroup}
+	if hasAuthoritativeWorkingSet {
+		groups = []toolExposureGroup{interactionGroup, recoveryGroup, requiredEvidenceGroup, pinnedGroup, requiredNextGroup, evidenceAlternativesGroup}
+	}
 	exposedToolIDs, droppedGroups := selectToolGroups(groups, maxSchemaCallableToolCount)
-	selectionEvent.SelectionSource = firstNonEmptyString(selectionEvent.SelectionSource, toolSelectionSource(selectedSkillGroup))
-	selectionEvent.SelectionReason = firstNonEmptyString(selectionEvent.SelectionReason, toolSelectionReason(selectedSkillGroup))
+	selectionEvent.SelectionSource = firstNonEmptyString(selectionEvent.SelectionSource, toolSelectionSource(selectedSkillGroup, hasAuthoritativeWorkingSet))
+	selectionEvent.SelectionReason = firstNonEmptyString(selectionEvent.SelectionReason, toolSelectionReason(selectedSkillGroup, hasAuthoritativeWorkingSet))
 	selectionEvent.ValidSelectedToolIDs = nil
 	selectionEvent.ExposedToolIDs = append([]string{}, exposedToolIDs...)
 	selectionEvent.SelectedSkillToolIDs = exposedGroupToolIDs(selectedSkillGroup, exposedToolIDs)
@@ -117,14 +124,20 @@ func selectToolGroups(groups []toolExposureGroup, limit int) ([]string, []droppe
 	return toolIDs, droppedGroups
 }
 
-func toolSelectionSource(selectedSkillGroup toolExposureGroup) string {
+func toolSelectionSource(selectedSkillGroup toolExposureGroup, hasAuthoritativeWorkingSet bool) string {
+	if hasAuthoritativeWorkingSet {
+		return "contract_arbitration"
+	}
 	if len(selectedSkillGroup.ToolIDs) > 0 {
 		return "selected_skills"
 	}
 	return "fixed_kernel"
 }
 
-func toolSelectionReason(selectedSkillGroup toolExposureGroup) string {
+func toolSelectionReason(selectedSkillGroup toolExposureGroup, hasAuthoritativeWorkingSet bool) string {
+	if hasAuthoritativeWorkingSet {
+		return "Blueclaw exposes the validated contract working set"
+	}
 	if len(selectedSkillGroup.ToolIDs) > 0 {
 		return "Blueclaw exposes direct tools declared by the selected skills"
 	}
