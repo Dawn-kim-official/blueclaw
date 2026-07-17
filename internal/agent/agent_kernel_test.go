@@ -66,6 +66,73 @@ func TestApprovalContinuationRestoresSelectedToolDecision(t *testing.T) {
 	}
 }
 
+func TestFreshTaskPinsArbitratedEvidenceInsteadOfRouterInitialTools(t *testing.T) {
+	pinnedToolNames := pinnedToolNamesForResolvedRequest(
+		[]string{"manual.tool"},
+		[]string{"manual.tool", "previous.tool"},
+		[]string{"file.read"},
+		InstructionBundle{HasContractSkillArbitration: true, RequiredEvidenceTools: []string{"task.add"}},
+		true,
+	)
+
+	if !sameStringSet(pinnedToolNames, []string{"manual.tool", "task.add"}) {
+		t.Fatalf("expected manual and arbitrated evidence tools, got %+v", pinnedToolNames)
+	}
+	activeGoal := activeGoalForTurn(AgentRequest{PinnedToolNames: pinnedToolNames}, OutcomeContract{}, ExecutionPlan{}, false)
+	if !sameStringSet(activeGoal.SelectedToolNames, []string{"manual.tool", "task.add"}) {
+		t.Fatalf("expected arbitrated evidence to persist in active goal, got %+v", activeGoal.SelectedToolNames)
+	}
+}
+
+func TestFreshTaskKeepsRouterInitialToolsWithoutValidArbitratedEvidence(t *testing.T) {
+	for _, instructionBundle := range []InstructionBundle{
+		{},
+		{HasContractSkillArbitration: true},
+		{RequiredEvidenceTools: []string{"task.add"}},
+	} {
+		pinnedToolNames := pinnedToolNamesForResolvedRequest(
+			[]string{"manual.tool"},
+			[]string{"manual.tool", "previous.tool"},
+			[]string{"file.read"},
+			instructionBundle,
+			true,
+		)
+		if !sameStringSet(pinnedToolNames, []string{"manual.tool", "file.read"}) {
+			t.Fatalf("expected router fallback without valid arbitration, got %+v", pinnedToolNames)
+		}
+	}
+}
+
+func TestContinuationKeepsPersistedToolsAuthoritative(t *testing.T) {
+	pinnedToolNames := pinnedToolNamesForResolvedRequest(
+		[]string{"manual.tool"},
+		[]string{"manual.tool", "message.send"},
+		[]string{"file.read"},
+		InstructionBundle{HasContractSkillArbitration: true, RequiredEvidenceTools: []string{"task.add"}},
+		false,
+	)
+
+	if !sameStringSet(pinnedToolNames, []string{"manual.tool", "message.send", "file.read"}) {
+		t.Fatalf("expected persisted and router continuation tools without arbitration replacement, got %+v", pinnedToolNames)
+	}
+}
+
+func TestExistingTaskRequestIsNotFresh(t *testing.T) {
+	turnDecision := TurnDecision{Route: TurnRouteStartTask}
+	for _, request := range []AgentRequest{
+		{ExistingTaskRunID: "task-run-1"},
+		{IsApprovalContinuation: true},
+		{IsRuntimeRestartResume: true},
+	} {
+		if requestStartsFreshTask(turnDecision, request) {
+			t.Fatalf("expected continuation request not to be fresh, got %+v", request)
+		}
+	}
+	if !requestStartsFreshTask(turnDecision, AgentRequest{}) {
+		t.Fatal("expected a start route without continuation state to be fresh")
+	}
+}
+
 func TestAgentKernelConsumeRouteSuppressesReply(t *testing.T) {
 	agentKernel, _ := newKernelTestServices()
 	skillRetriever := &countingSkillRetriever{}
