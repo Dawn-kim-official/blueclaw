@@ -13,6 +13,8 @@ import (
 	"blueclaw/internal/task"
 )
 
+const defaultAgentActionMaxTokens = 4096
+
 type agentAction = turnActionDocument
 
 type agentTaskState struct {
@@ -380,8 +382,17 @@ func buildAgentActionRequest(state agentTaskState, includeToolDescription bool) 
 			Document:           actionSchemaForToolSet(modelToolSet, allowQualityCriteria, blockedToolNames, hasFailureDebt, allowFail, allowFinish),
 			IsStrictlyEnforced: true,
 		},
-		GenerationOptions: state.Options.GenerationOptions,
+		GenerationOptions: agentActionGenerationOptions(state.Options.GenerationOptions),
 	}
+}
+
+func agentActionGenerationOptions(options llm.GenerationOptions) llm.GenerationOptions {
+	if options.MaxTokens != nil {
+		return options
+	}
+	maxTokens := defaultAgentActionMaxTokens
+	options.MaxTokens = &maxTokens
+	return options
 }
 
 func modelCallableToolSet(toolSet *ToolSet) *ToolSet {
