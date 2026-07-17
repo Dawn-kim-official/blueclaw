@@ -38,6 +38,9 @@ type llmCallRecord struct {
 	Error                  string                                 `json:"error,omitempty"`
 	DiagnosticCategory     llm.StructuredOutputDiagnosticCategory `json:"diagnosticCategory,omitempty"`
 	DiagnosticFinishReason llm.StructuredOutputFinishReason       `json:"diagnosticFinishReason,omitempty"`
+	DiagnosticToolName     string                                 `json:"diagnosticToolName,omitempty"`
+	DiagnosticIssues       []llm.StructuredOutputValidationIssue  `json:"diagnosticIssues,omitempty"`
+	DiagnosticRepairStatus llm.StructuredOutputRepairStatus       `json:"diagnosticRepairStatus,omitempty"`
 }
 
 type llmCallObserver func(record llmCallRecord)
@@ -168,14 +171,7 @@ func (model observedLanguageModel) GenerateStructuredResponse(ctx context.Contex
 		UpstreamInferenceCost: response.Usage.UpstreamInferenceCost,
 	}
 	if errorValue != nil {
-		record.IsError = true
-		diagnostic, hasDiagnostic := llm.StructuredOutputDiagnosticFromError(errorValue)
-		if hasDiagnostic {
-			record.DiagnosticCategory = diagnostic.Category
-			record.DiagnosticFinishReason = diagnostic.FinishReason
-		} else {
-			record.Error = truncateText(compactWhitespace(errorValue.Error()), llmCallErrorMaximumCharacters)
-		}
+		applyLLMCallError(&record, errorValue)
 	}
 	model.observe(record)
 	return response, errorValue
@@ -250,10 +246,23 @@ func textCallRecord(kind string, prompt string, reply string, startedAt time.Tim
 		ContentBytes: len(reply),
 	}
 	if errorValue != nil {
-		record.IsError = true
-		record.Error = truncateText(compactWhitespace(errorValue.Error()), llmCallErrorMaximumCharacters)
+		applyLLMCallError(&record, errorValue)
 	}
 	return record
+}
+
+func applyLLMCallError(record *llmCallRecord, errorValue error) {
+	record.IsError = true
+	diagnostic, hasDiagnostic := llm.StructuredOutputDiagnosticFromError(errorValue)
+	if !hasDiagnostic {
+		record.Error = truncateText(compactWhitespace(errorValue.Error()), llmCallErrorMaximumCharacters)
+		return
+	}
+	record.DiagnosticCategory = diagnostic.Category
+	record.DiagnosticFinishReason = diagnostic.FinishReason
+	record.DiagnosticToolName = diagnostic.ToolName
+	record.DiagnosticIssues = append([]llm.StructuredOutputValidationIssue{}, diagnostic.ValidationIssues...)
+	record.DiagnosticRepairStatus = diagnostic.RepairStatus
 }
 
 func chatCallRecord(kind string, request llm.ChatCompletionRequest, response llm.ChatCompletionResponse, startedAt time.Time, errorValue error) llmCallRecord {
@@ -280,8 +289,7 @@ func chatCallRecord(kind string, request llm.ChatCompletionRequest, response llm
 		UpstreamInferenceCost: response.Usage.UpstreamInferenceCost,
 	}
 	if errorValue != nil {
-		record.IsError = true
-		record.Error = truncateText(compactWhitespace(errorValue.Error()), llmCallErrorMaximumCharacters)
+		applyLLMCallError(&record, errorValue)
 	}
 	return record
 }

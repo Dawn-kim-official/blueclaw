@@ -12,7 +12,9 @@ import {
   ExecutionMode,
   LanguageModelBackend,
   StructuredOutputDiagnosticCategory,
+  StructuredOutputRepairStatus,
   StructuredOutputConstraintMode,
+  StructuredOutputValidationCode,
 } from '@blueclaw/protocol';
 import type {
   ChatCompletionRequest,
@@ -20,6 +22,7 @@ import type {
   StructuredResponse,
   StructuredResponseRequest,
   StructuredOutputDiagnostic,
+  StructuredOutputValidationIssue,
 } from '@blueclaw/protocol';
 import {
   generateText,
@@ -31,7 +34,7 @@ import {
   TypeValidationError,
   wrapLanguageModel,
 } from 'ai';
-import Ajv from 'ajv';
+import Ajv, { type ErrorObject } from 'ajv';
 
 import { SDKDAutoRoute, type SDKDConfiguration } from './configuration.ts';
 import { classifySDKDError, isRetryableProviderError, SDKDError } from './errors.ts';
@@ -462,17 +465,62 @@ function requireStructuredOutputToolCall(
   return toolCall;
 }
 
-function diagnoseInvalidToolCall(errorValue: unknown): StructuredOutputDiagnostic {
+function diagnoseInvalidToolCall(
+  errorValue: unknown,
+  toolName?: string,
+  repairStatus?: StructuredOutputRepairStatus,
+): StructuredOutputDiagnostic {
+  const tool = toolName === undefined ? {} : { toolName };
+  const repair = repairStatus === undefined ? {} : { repairStatus };
   if (!InvalidToolInputError.isInstance(errorValue)) {
-    return { category: StructuredOutputDiagnosticCategory.SchemaValidation };
+    return { category: StructuredOutputDiagnosticCategory.SchemaValidation, ...tool, ...repair };
   }
   if (JSONParseError.isInstance(errorValue.cause)) {
-    return { category: StructuredOutputDiagnosticCategory.JSONParse };
+    return { category: StructuredOutputDiagnosticCategory.JSONParse, ...tool, ...repair };
   }
-  if (TypeValidationError.isInstance(errorValue.cause)) {
-    return { category: StructuredOutputDiagnosticCategory.SchemaValidation };
+  return {
+    category: StructuredOutputDiagnosticCategory.SchemaValidation,
+    ...tool,
+    validationIssues: validationIssuesFromError(errorValue),
+    ...repair,
+  };
+}
+
+class JSONSchemaValidationError extends Error {
+  constructor(readonly validationIssues: StructuredOutputValidationIssue[], message: string) {
+    super(message);
+    this.name = 'JSONSchemaValidationError';
   }
-  return { category: StructuredOutputDiagnosticCategory.SchemaValidation };
+}
+
+function validationIssuesFromError(errorValue: unknown): StructuredOutputValidationIssue[] {
+  if (!InvalidToolInputError.isInstance(errorValue) || !TypeValidationError.isInstance(errorValue.cause)) return [];
+  const validationError = errorValue.cause.cause;
+  return validationError instanceof JSONSchemaValidationError ? validationError.validationIssues : [];
+}
+
+function validationIssuesFromAJV(errors: ErrorObject[] | null | undefined): StructuredOutputValidationIssue[] {
+  return (errors ?? []).slice(0, 8).map(errorValue => ({
+    fieldPath: validationFieldPath(errorValue),
+    code: validationCode(errorValue.keyword),
+  }));
+}
+
+const safeFieldPathPattern = /^\/(?:[A-Za-z0-9_.$~-]+(?:\/[A-Za-z0-9_.$~-]+)*)?$/;
+
+function validationFieldPath(errorValue: ErrorObject): string {
+  const instancePath = safeFieldPathPattern.test(errorValue.instancePath) ? errorValue.instancePath : '';
+  if (errorValue.keyword !== 'required') return instancePath || '/';
+  const missingProperty = errorValue.params.missingProperty;
+  if (typeof missingProperty !== 'string' || !safeFieldPathPattern.test(`/${missingProperty}`)) return instancePath || '/';
+  return `${instancePath}/${missingProperty}`;
+}
+
+function validationCode(keyword: string): StructuredOutputValidationCode {
+  if (keyword === 'required') return StructuredOutputValidationCode.Required;
+  if (keyword === 'additionalProperties') return StructuredOutputValidationCode.AdditionalProperty;
+  if (keyword === 'type') return StructuredOutputValidationCode.Type;
+  return StructuredOutputValidationCode.Other;
 }
 
 type StructuredOutputToolResult = {
@@ -490,6 +538,7 @@ async function generateChatForRoute(
   const system = systemContent(request);
   const chatRoute = routeForChatRequest(request, route);
   let repairAttempted = false;
+  const repairStatuses = new Map<string, StructuredOutputRepairStatus>();
   const result = await generateText({
     model: chatRoute.languageModel,
     system,
@@ -502,7 +551,7 @@ async function generateChatForRoute(
     experimental_repairToolCall: async ({ toolCall, error, inputSchema }) => {
       if (repairAttempted || !InvalidToolInputError.isInstance(error) || tools[toolCall.toolName] === undefined) return null;
       repairAttempted = true;
-      return repairInvalidToolCall({
+      const repairedToolCall = await repairInvalidToolCall({
         route: chatRoute,
         tools,
         toolName: toolCall.toolName,
@@ -514,6 +563,8 @@ async function generateChatForRoute(
         inputSchema,
         error,
       });
+      if (repairedToolCall === null) repairStatuses.set(toolCall.toolCallId, StructuredOutputRepairStatus.Failed);
+      return repairedToolCall;
     },
     seed: request.generationOptions?.seed,
     temperature: request.generationOptions?.temperature,
@@ -521,12 +572,17 @@ async function generateChatForRoute(
   throwIfAborted(abortSignal);
   for (const toolCall of result.toolCalls) {
     if (!toolCall.invalid) continue;
+    const toolName = tools[toolCall.toolName] === undefined ? undefined : toolCall.toolName;
     throw new SDKDError(
       'provider_response_invalid',
       502,
       false,
       'provider returned schema-invalid tool arguments',
-      diagnoseInvalidToolCall(toolCall.error),
+      diagnoseInvalidToolCall(
+        toolCall.error,
+        toolName,
+        repairStatuses.get(toolCall.toolCallId) ?? StructuredOutputRepairStatus.NotAttempted,
+      ),
     );
   }
   return {
@@ -752,7 +808,10 @@ function createValidatedJSONSchema(document: unknown) {
     validate(value) {
       const normalizedValue = removeOptionalNullProperties(value, validationDocument);
       if (validator(normalizedValue)) return { success: true, value: normalizedValue };
-      return { success: false, error: new Error(ajv.errorsText(validator.errors)) };
+      return {
+        success: false,
+        error: new JSONSchemaValidationError(validationIssuesFromAJV(validator.errors), ajv.errorsText(validator.errors)),
+      };
     },
   });
 }

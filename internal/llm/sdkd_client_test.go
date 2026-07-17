@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -624,17 +625,34 @@ func TestSDKDClientDoesNotFallbackOnContractFailure(t *testing.T) {
 
 func TestSDKDClientParsesClosedStructuredOutputDiagnostics(t *testing.T) {
 	testCases := []struct {
-		name                 string
-		diagnosticDocument   string
-		expectedCategory     StructuredOutputDiagnosticCategory
-		expectedFinishReason StructuredOutputFinishReason
+		name               string
+		diagnosticDocument string
+		expectedDiagnostic StructuredOutputDiagnostic
 	}{
-		{name: "json parse", diagnosticDocument: `{"category":"json_parse"}`, expectedCategory: StructuredOutputDiagnosticJSONParse},
-		{name: "finish reason", diagnosticDocument: `{"category":"finish_reason","finishReason":"length"}`, expectedCategory: StructuredOutputDiagnosticFinishReason, expectedFinishReason: StructuredOutputDiagnosticFinishLength},
+		{name: "json parse", diagnosticDocument: `{"category":"json_parse"}`, expectedDiagnostic: StructuredOutputDiagnostic{Category: StructuredOutputDiagnosticJSONParse}},
+		{name: "finish reason", diagnosticDocument: `{"category":"finish_reason","finishReason":"length"}`, expectedDiagnostic: StructuredOutputDiagnostic{Category: StructuredOutputDiagnosticFinishReason, FinishReason: StructuredOutputDiagnosticFinishLength}},
+		{
+			name:               "safe tool validation",
+			diagnosticDocument: `{"category":"schema_validation","toolName":"task.add","validationIssues":[{"fieldPath":"/prompt","code":"required"},{"fieldPath":"/","code":"additional_property"}],"repairStatus":"failed"}`,
+			expectedDiagnostic: StructuredOutputDiagnostic{
+				Category:     StructuredOutputDiagnosticSchemaValidation,
+				ToolName:     "task.add",
+				RepairStatus: StructuredOutputRepairFailed,
+				ValidationIssues: []StructuredOutputValidationIssue{
+					{FieldPath: "/prompt", Code: StructuredOutputValidationRequired},
+					{FieldPath: "/", Code: StructuredOutputValidationAdditionalProperty},
+				},
+			},
+		},
 		{name: "unknown category", diagnosticDocument: `{"category":"generated_content"}`},
 		{name: "unknown finish reason", diagnosticDocument: `{"category":"finish_reason","finishReason":"unfinished"}`},
 		{name: "misplaced finish reason", diagnosticDocument: `{"category":"schema_validation","finishReason":"length"}`},
 		{name: "unknown field", diagnosticDocument: `{"category":"json_parse","generatedContent":"private"}`},
+		{name: "content-like tool name", diagnosticDocument: `{"category":"schema_validation","toolName":"task.add with private content"}`},
+		{name: "unknown validation code", diagnosticDocument: `{"category":"schema_validation","validationIssues":[{"fieldPath":"/prompt","code":"provider_message"}]}`},
+		{name: "content-like field path", diagnosticDocument: `{"category":"schema_validation","validationIssues":[{"fieldPath":"/prompt contains private content","code":"required"}]}`},
+		{name: "misplaced validation issues", diagnosticDocument: `{"category":"json_parse","validationIssues":[{"fieldPath":"/prompt","code":"required"}]}`},
+		{name: "unknown repair status", diagnosticDocument: `{"category":"schema_validation","repairStatus":"retried_with_fallback"}`},
 		{name: "invalid shape", diagnosticDocument: `[]`},
 	}
 	for _, testCase := range testCases {
@@ -653,13 +671,13 @@ func TestSDKDClientParsesClosedStructuredOutputDiagnostics(t *testing.T) {
 				t.Fatal("expected SDKD contract error")
 			}
 			diagnostic, hasDiagnostic := StructuredOutputDiagnosticFromError(errorValue)
-			if testCase.expectedCategory == "" {
+			if testCase.expectedDiagnostic.Category == "" {
 				if hasDiagnostic {
 					t.Fatalf("expected malformed diagnostic to be ignored, got %+v", diagnostic)
 				}
 				return
 			}
-			if !hasDiagnostic || diagnostic.Category != testCase.expectedCategory || diagnostic.FinishReason != testCase.expectedFinishReason {
+			if !hasDiagnostic || !reflect.DeepEqual(diagnostic, testCase.expectedDiagnostic) {
 				t.Fatalf("unexpected diagnostic: %+v, available=%t", diagnostic, hasDiagnostic)
 			}
 		})
