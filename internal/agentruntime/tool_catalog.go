@@ -266,6 +266,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerHistoryTool(toolRegistry *
 		Definition: agent.ToolDefinition{
 			Name:        "conversation.history",
 			Description: "Fetch earlier visible messages for this conversation using the opaque history cursor.",
+			InputSchema: json.RawMessage(`{"type":"object","properties":{"historyCursor":{"type":"string"},"limit":{"type":"number"},"direction":{"type":"string"}}}`),
 		},
 		Handler: func(toolContext context.Context, input historyToolInput) (agent.ToolResult, error) {
 			return fetchHistoryTool(toolContext, input, request)
