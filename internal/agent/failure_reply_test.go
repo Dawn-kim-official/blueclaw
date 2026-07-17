@@ -157,6 +157,75 @@ func TestAgentTurnRunnerBoundsFailureDecisionAndWordingWithOneGrace(t *testing.T
 	}
 }
 
+func TestAgentTurnRunnerFinalizesFailureNoticeBeforeTerminalStatus(t *testing.T) {
+	recoveryChatStarted := make(chan struct{})
+	recoveryChatRelease := make(chan struct{})
+	languageModel := &blockingFailureWordingLanguageModel{
+		failFirstStructuredCall: true,
+		recoveryChatStarted:     recoveryChatStarted,
+		recoveryChatRelease:     recoveryChatRelease,
+		recoveryChatReply:       "업무를 추가하지 못했습니다. 같은 요청을 다시 보내주시면 재시도하겠습니다.",
+	}
+	services := newTurnRunnerTestServices(languageModel, TurnOptions{
+		MaxIterationCount:      4,
+		LimitFinalizationGrace: time.Second,
+	})
+	resultChannel := make(chan AgentTurnResult, 1)
+
+	go func() {
+		result, _ := services.runner.RunTurn(context.Background(), AgentTurnRequest{
+			RequesterPersonID: "person-1",
+			ConversationID:    "conversation-1",
+			Prompt:            "분기 결산 업무를 등록해줘",
+			ResponseLanguage:  ResponseLanguageKorean,
+		})
+		resultChannel <- result
+	}()
+
+	select {
+	case <-recoveryChatStarted:
+	case <-time.After(time.Second):
+		t.Fatal("expected failure notice generation to start")
+	}
+	taskRuns := services.taskRunService.ListTaskRunByPersonID("person-1")
+	if len(taskRuns) != 1 || taskRuns[0].Status != task.TaskStatusRunning {
+		t.Fatalf("expected task to remain running during failure notice generation, got %+v", taskRuns)
+	}
+
+	close(recoveryChatRelease)
+	select {
+	case result := <-resultChannel:
+		if result.TaskRun.Status != task.TaskStatusFailed || result.UserNotice != languageModel.recoveryChatReply {
+			t.Fatalf("expected failed task with generated notice, got %+v", result)
+		}
+		if result.TaskRun.Result != result.UserNotice || result.FailureNotice.Source != "generated" {
+			t.Fatalf("expected persisted generated failure notice, got %+v", result)
+		}
+		assertFailureNoticeEventsBeforeTerminalStatus(t, services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID))
+	case <-time.After(time.Second):
+		t.Fatal("expected failure finalization after wording completed")
+	}
+}
+
+func assertFailureNoticeEventsBeforeTerminalStatus(t *testing.T, taskEvents []task.TaskEvent) {
+	t.Helper()
+	eventIndexes := map[string]int{}
+	for eventIndex, taskEvent := range taskEvents {
+		if taskEvent.Name == "agent.failure_report" || taskEvent.Name == "agent.failure_reply" || taskEvent.Name == "task.paused" {
+			eventIndexes[taskEvent.Name] = eventIndex
+		}
+	}
+	failureReportIndex, hasFailureReport := eventIndexes["agent.failure_report"]
+	failureReplyIndex, hasFailureReply := eventIndexes["agent.failure_reply"]
+	terminalStatusIndex, hasTerminalStatus := eventIndexes["task.paused"]
+	if !hasFailureReport || !hasFailureReply || !hasTerminalStatus {
+		t.Fatalf("expected failure notice and terminal events, got %+v", eventIndexes)
+	}
+	if failureReportIndex >= terminalStatusIndex || failureReplyIndex >= terminalStatusIndex {
+		t.Fatalf("expected failure notice events before terminal status, got %+v", eventIndexes)
+	}
+}
+
 func TestAgentTurnRunnerBoundsStallDecisionAndWordingWithOneGrace(t *testing.T) {
 	languageModel := &blockingFailureWordingLanguageModel{}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{LimitFinalizationGrace: 40 * time.Millisecond})
@@ -228,6 +297,9 @@ type blockingFailureWordingLanguageModel struct {
 	requesterPersonID       string
 	decisionDeadline        time.Time
 	recoveryChatDeadline    time.Time
+	recoveryChatStarted     chan struct{}
+	recoveryChatRelease     chan struct{}
+	recoveryChatReply       string
 }
 
 func (languageModel *blockingFailureWordingLanguageModel) GenerateResponse(context.Context, string) (string, error) {
@@ -253,6 +325,21 @@ func (languageModel *blockingFailureWordingLanguageModel) GenerateStructuredResp
 func (languageModel *blockingFailureWordingLanguageModel) GenerateRecoveryChatCompletion(responseContext context.Context, _ llm.ChatCompletionRequest) (llm.ChatCompletionResponse, error) {
 	languageModel.recoveryChatCalls++
 	languageModel.recoveryChatDeadline, _ = responseContext.Deadline()
+	if languageModel.recoveryChatStarted != nil {
+		close(languageModel.recoveryChatStarted)
+	}
+	if languageModel.recoveryChatRelease != nil {
+		select {
+		case <-languageModel.recoveryChatRelease:
+			return llm.ChatCompletionResponse{
+				FinishReason:    "stop",
+				SelectedBackend: "remote",
+				Message:         llm.ChatCompletionMessage{Role: "assistant", Content: languageModel.recoveryChatReply},
+			}, nil
+		case <-responseContext.Done():
+			return llm.ChatCompletionResponse{}, responseContext.Err()
+		}
+	}
 	<-responseContext.Done()
 	return llm.ChatCompletionResponse{}, responseContext.Err()
 }

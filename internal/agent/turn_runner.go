@@ -44,6 +44,11 @@ type AgentTurnRunner struct {
 	options               TurnOptions
 }
 
+type ContractToolWorkingSet struct {
+	RequiredNextTools     []string
+	RequiredEvidenceTools []string
+}
+
 type AgentTurnRequest struct {
 	RequesterPersonID          string
 	RequesterEmail             string
@@ -82,6 +87,7 @@ type AgentTurnRequest struct {
 	SkillIndexStatus           string
 	SkillCandidateCount        int
 	SkillQueries               []string
+	ContractToolWorkingSet     ContractToolWorkingSet
 	RequiredEvidenceTools      []string
 	RequiredAttachmentSuffixes []string
 	OutcomeContract            OutcomeContract
@@ -1043,16 +1049,24 @@ func hasSuccessfulToolObservation(observations []turnObservation, toolName strin
 }
 
 func instructionBundleFromTurnRequest(request AgentTurnRequest) InstructionBundle {
+	contractToolWorkingSet := request.ContractToolWorkingSet
 	return InstructionBundle{
-		Prompt:         request.InstructionPrompt,
-		Skills:         append([]SkillInstruction{}, request.AvailableSkills...),
-		Sources:        append([]InstructionSource{}, request.InstructionSources...),
-		SkillDecisions: append([]SkillSelectionDecision{}, request.SkillDecisions...),
-		RetrievalMode:  request.SkillRetrievalMode,
-		IndexStatus:    request.SkillIndexStatus,
-		CandidateCount: request.SkillCandidateCount,
-		SkillQueries:   append([]string{}, request.SkillQueries...),
+		Prompt:                      request.InstructionPrompt,
+		Skills:                      append([]SkillInstruction{}, request.AvailableSkills...),
+		Sources:                     append([]InstructionSource{}, request.InstructionSources...),
+		SkillDecisions:              append([]SkillSelectionDecision{}, request.SkillDecisions...),
+		RequiredNextTools:           append([]string{}, contractToolWorkingSet.RequiredNextTools...),
+		RequiredEvidenceTools:       append([]string{}, contractToolWorkingSet.RequiredEvidenceTools...),
+		HasContractSkillArbitration: contractToolWorkingSet.IsAuthoritative(),
+		RetrievalMode:               request.SkillRetrievalMode,
+		IndexStatus:                 request.SkillIndexStatus,
+		CandidateCount:              request.SkillCandidateCount,
+		SkillQueries:                append([]string{}, request.SkillQueries...),
 	}
+}
+
+func (workingSet ContractToolWorkingSet) IsAuthoritative() bool {
+	return len(workingSet.RequiredNextTools) > 0 || len(workingSet.RequiredEvidenceTools) > 0
 }
 
 func agentRequestFromTurnRequest(request AgentTurnRequest) AgentRequest {
@@ -1355,18 +1369,20 @@ func (agentTurnRunner *AgentTurnRunner) failTurn(taskRunID string, request Agent
 }
 
 func (agentTurnRunner *AgentTurnRunner) failTurnWithContext(ctx context.Context, taskRunID string, request AgentTurnRequest, reason string, observations []turnObservation, attachments []FileAttachment, executionState ExecutionState) (AgentTurnResult, error) {
-	failedTaskRun, _ := agentTurnRunner.taskRunService.FailTaskRun(taskRunID, reason)
 	failureNotice, replyStatus, hasReply := agentTurnRunner.generateFailureNotice(ctx, taskRunID, request, reason, observations, attachments, executionState)
 	agentTurnRunner.appendEvent(taskRunID, "agent.failure_reply", marshalEventBody(replyStatus))
+	reply := failureNotice.SendableMessage()
 	if !hasReply {
 		agentTurnRunner.appendUnavailableReplyEvents(taskRunID, "failure", reason, replyStatus)
-		fallbackReply := deterministicFailureFallbackReply(request.ResponseLanguage)
-		failedTaskRun = persistTaskRunResult(agentTurnRunner.taskRunService, failedTaskRun, fallbackReply)
-		return AgentTurnResult{TaskRun: failedTaskRun, UserNotice: fallbackReply, RecoveryActions: recoveryActionsFromObservations(observations)}, nil
+		reply = deterministicFailureFallbackReply(request.ResponseLanguage)
 	}
-	reply := failureNotice.SendableMessage()
+	failedTaskRun, _ := agentTurnRunner.taskRunService.FailTaskRun(taskRunID, reason)
 	failedTaskRun = persistTaskRunResult(agentTurnRunner.taskRunService, failedTaskRun, reply)
-	return AgentTurnResult{TaskRun: failedTaskRun, UserNotice: reply, FailureNotice: failureNotice, RecoveryActions: recoveryActionsFromObservations(observations)}, nil
+	result := AgentTurnResult{TaskRun: failedTaskRun, UserNotice: reply, RecoveryActions: recoveryActionsFromObservations(observations)}
+	if hasReply {
+		result.FailureNotice = failureNotice
+	}
+	return result, nil
 }
 
 func deterministicFailureFallbackReply(responseLanguage string) string {
