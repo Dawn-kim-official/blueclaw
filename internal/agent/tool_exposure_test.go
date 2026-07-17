@@ -60,7 +60,7 @@ func TestSelectedSkillExposesDirectTools(t *testing.T) {
 	}
 }
 
-func TestAuthoritativeContractExposesOnlyTaskAdd(t *testing.T) {
+func TestAuthoritativeContractExposesSelectedTaskDomain(t *testing.T) {
 	flowToolNames := []string{"task.add", "task.list", "task.update", "task.delete"}
 	toolSet := testToolSet(append(KernelToolNames(), flowToolNames...))
 	instructionBundle := InstructionBundle{
@@ -81,11 +81,14 @@ func TestAuthoritativeContractExposesOnlyTaskAdd(t *testing.T) {
 		ToolExposureEvent{},
 	)
 
-	if !sameStringSet(filteredToolSet.ListToolNames(), []string{"task.add"}) {
-		t.Fatalf("expected exact task.add working set, got %+v", filteredToolSet.ListToolNames())
+	if !sameStringSet(filteredToolSet.ListToolNames(), flowToolNames) {
+		t.Fatalf("expected selected task domain, got %+v", filteredToolSet.ListToolNames())
 	}
 	if event.SelectionSource != "contract_arbitration" {
 		t.Fatalf("expected contract arbitration source, got %+v", event)
+	}
+	if !sameStringSet(event.SelectedSkillToolIDs, flowToolNames) {
+		t.Fatalf("expected selected task tools, got %+v", event)
 	}
 }
 
@@ -117,8 +120,9 @@ func TestAuthoritativeContractPreservesCompoundWorkflow(t *testing.T) {
 		ToolExposureEvent{},
 	)
 
-	if !sameStringSet(filteredToolSet.ListToolNames(), []string{"task.add", "calendar.add"}) {
-		t.Fatalf("expected exact compound working set, got %+v", filteredToolSet.ListToolNames())
+	expectedToolNames := append(append([]string{}, flowToolNames...), calendarToolNames...)
+	if !sameStringSet(filteredToolSet.ListToolNames(), expectedToolNames) {
+		t.Fatalf("expected selected domain tools, got %+v", filteredToolSet.ListToolNames())
 	}
 }
 

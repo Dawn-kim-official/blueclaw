@@ -1405,9 +1405,9 @@ func virtualCapabilityInputSchema(toolName string) string {
 	case "task.list":
 		return `{"type":"object","properties":{"query":{"type":"string"},"targetPersonHint":{"type":"string"},"weekFrom":{"type":"integer"},"weekTo":{"type":"integer"},"status":{"type":"string"},"limit":{"type":"integer"}},"additionalProperties":false}`
 	case "task.update":
-		return `{"type":"object","properties":{"taskID":{"type":"string"},"query":{"type":"string"},"targetPersonHint":{"type":"string"},"weekCode":{"type":"string"},"title":{"type":"string"},"goal":{"type":"string"},"status":{"type":"string"},"size":{"type":"string"},"category":{"type":"string"},"type":{"type":"string"},"startDate":{"type":"string"},"endDate":{"type":"string"},"flag":{"type":"integer"},"requestReason":{"type":"string"},"decisionReason":{"type":"string"}},"additionalProperties":false}`
+		return `{"type":"object","properties":{"taskID":{"type":"string"},"title":{"type":"string"},"goal":{"type":"string"},"status":{"type":"string","enum":["예정","진행","완료","요청","일시정지","기각","중단"]},"size":{"type":"string","enum":["XS","S","M","L","XL","XXL"]},"category":{"type":"string"},"type":{"type":"string"},"startDate":{"type":"string"},"endDate":{"type":"string"},"flag":{"type":"integer"},"requestReason":{"type":"string"},"decisionReason":{"type":"string"}},"required":["taskID"],"additionalProperties":false}`
 	case "task.delete":
-		return `{"type":"object","properties":{"taskID":{"type":"string"},"query":{"type":"string"},"weekCode":{"type":"string"},"targetPersonHint":{"type":"string"}},"additionalProperties":false}`
+		return `{"type":"object","properties":{"taskID":{"type":"string"}},"required":["taskID"],"additionalProperties":false}`
 	case "calendar.add":
 		return `{"type":"object","properties":{"title":{"type":"string"},"startISO":{"type":"string"},"endISO":{"type":"string"},"description":{"type":"string"},"location":{"type":"string"},"timeZone":{"type":"string"},"people":{"type":"array","items":{"type":"string"}},"includeRequester":{"type":"boolean"}},"required":["title","startISO","endISO"],"additionalProperties":false}`
 	case "calendar.list":
@@ -1441,7 +1441,7 @@ func (service *virtualCapabilityService) taskResponse(toolName string, requestBo
 	case "task.list":
 		return virtualCapabilitySuccess(toolName, "listed virtual tasks", map[string]any{"tasks": service.taskRunValues()})
 	case "task.update":
-		index := virtualCapabilityRecordIndex(service.tasks, input, "taskID")
+		index := virtualCapabilityRecordIndexByID(service.tasks, input, "taskID")
 		if index < 0 {
 			return virtualCapabilityNotFound(toolName, "task")
 		}
@@ -1450,13 +1450,13 @@ func (service *virtualCapabilityService) taskResponse(toolName string, requestBo
 			values["content"] = title
 		}
 		delete(values, "title")
-		mergeVirtualCapabilityRecord(service.tasks[index].Values, values, "taskID", "query")
+		mergeVirtualCapabilityRecord(service.tasks[index].Values, values, "taskID")
 		return virtualCapabilitySuccess(toolName, "updated virtual task", map[string]any{"task": service.tasks[index].Values})
 	default:
 		if virtualCapabilityRequestNeedsApproval(requestBody) {
 			return virtualCapabilityApprovalRequired(toolName)
 		}
-		index := virtualCapabilityRecordIndex(service.tasks, input, "taskID")
+		index := virtualCapabilityRecordIndexByID(service.tasks, input, "taskID")
 		if index < 0 {
 			return virtualCapabilityNotFound(toolName, "task")
 		}
@@ -1545,6 +1545,16 @@ func virtualCapabilityRecordIndex(records []virtualCapabilityRecord, input map[s
 			return index
 		}
 		if query != "" && virtualCapabilityRecordContains(record, query) {
+			return index
+		}
+	}
+	return -1
+}
+
+func virtualCapabilityRecordIndexByID(records []virtualCapabilityRecord, input map[string]any, idFieldName string) int {
+	requestedID := strings.TrimSpace(stringValue(input[idFieldName]))
+	for index, record := range records {
+		if record.ID == requestedID {
 			return index
 		}
 	}
