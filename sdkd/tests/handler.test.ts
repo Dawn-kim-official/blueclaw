@@ -6,7 +6,9 @@ import {
   LanguageModelBackend,
   LanguageModelMessageRole,
   StructuredOutputDiagnosticCategory,
+  StructuredOutputRepairStatus,
   StructuredOutputConstraintMode,
+  StructuredOutputValidationCode,
   type ChatCompletionRequest,
   type ChatCompletionResponse,
   type StructuredResponse,
@@ -291,7 +293,15 @@ describe('sdkd handler', () => {
           502,
           false,
           'provider returned schema-invalid tool arguments',
-          { category: StructuredOutputDiagnosticCategory.JSONParse },
+          {
+            category: StructuredOutputDiagnosticCategory.SchemaValidation,
+            toolName: 'task.add',
+            validationIssues: [
+              { fieldPath: '/prompt', code: StructuredOutputValidationCode.Required },
+              { fieldPath: '/', code: StructuredOutputValidationCode.AdditionalProperty },
+            ],
+            repairStatus: StructuredOutputRepairStatus.Failed,
+          },
         );
       },
     });
@@ -303,7 +313,15 @@ describe('sdkd handler', () => {
       error: {
         code: 'provider_response_invalid',
         allowLegacyFallback: false,
-        diagnostic: { category: StructuredOutputDiagnosticCategory.JSONParse },
+        diagnostic: {
+          category: StructuredOutputDiagnosticCategory.SchemaValidation,
+          toolName: 'task.add',
+          validationIssues: [
+            { fieldPath: '/prompt', code: StructuredOutputValidationCode.Required },
+            { fieldPath: '/', code: StructuredOutputValidationCode.AdditionalProperty },
+          ],
+          repairStatus: StructuredOutputRepairStatus.Failed,
+        },
       },
     });
   });

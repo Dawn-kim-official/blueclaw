@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -74,6 +75,43 @@ func TestObserveLanguageModelRecordsSafeSDKDDiagnosticsAndRequestSizes(t *testin
 	}
 	if record.PromptBytes != len("hello") || record.SchemaBytes != len(request.StructuredOutputSchema.Document) {
 		t.Fatalf("expected prompt and schema sizes, got %+v", record)
+	}
+}
+
+func TestObserveLanguageModelRecordsSafeChatToolDiagnostics(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(responseWriter http.ResponseWriter, request *http.Request) {
+		responseWriter.WriteHeader(http.StatusBadGateway)
+		_, _ = responseWriter.Write([]byte(`{"error":{"code":"provider_response_invalid","allowLegacyFallback":false,"message":"PRIVATE_GENERATED_CONTENT","diagnostic":{"category":"schema_validation","toolName":"task.add","validationIssues":[{"fieldPath":"/prompt","code":"required"}],"repairStatus":"failed"}}}`))
+	}))
+	defer server.Close()
+	records := []llmCallRecord{}
+	client := llm.NewSDKDClient(llm.SDKDClientConfiguration{Endpoint: server.URL, AuthKey: "installation-key"})
+	observed := observeLanguageModel(client, func(record llmCallRecord) {
+		records = append(records, record)
+	})
+	chatCompleter, isAvailable := llm.ResolveTextChatCompleter(observed)
+	if !isAvailable {
+		t.Fatal("expected observed SDKD Chat capability")
+	}
+
+	_, errorValue := chatCompleter.GenerateChatCompletion(context.Background(), nativeActionChatRequest())
+
+	if errorValue == nil || len(records) != 1 {
+		t.Fatalf("expected one failed Chat record, error=%v records=%+v", errorValue, records)
+	}
+	record := records[0]
+	if record.DiagnosticCategory != llm.StructuredOutputDiagnosticSchemaValidation ||
+		record.DiagnosticToolName != "task.add" ||
+		record.DiagnosticRepairStatus != llm.StructuredOutputRepairFailed ||
+		len(record.DiagnosticIssues) != 1 ||
+		record.DiagnosticIssues[0].FieldPath != "/prompt" ||
+		record.DiagnosticIssues[0].Code != llm.StructuredOutputValidationRequired ||
+		record.Error != "" {
+		t.Fatalf("expected content-free Chat diagnostic fields, got %+v", record)
+	}
+	document, _ := json.Marshal(record)
+	if strings.Contains(string(document), "PRIVATE_GENERATED_CONTENT") {
+		t.Fatalf("expected generated content to stay out of the ledger, got %s", document)
 	}
 }
 

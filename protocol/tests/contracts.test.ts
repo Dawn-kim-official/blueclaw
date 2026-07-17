@@ -14,6 +14,8 @@ import {
   protocolSchemas,
   structuredResponseSchema,
   StructuredOutputDiagnosticCategory,
+  StructuredOutputRepairStatus,
+  StructuredOutputValidationCode,
   structuredOutputDiagnosticSchema,
   type ProtocolSchemaName,
 } from '../src/index.ts';
@@ -46,12 +48,26 @@ const fixtureSchemaNames = {
 describe('closed protocol values', () => {
   test('keeps structured output diagnostics closed and content-free', () => {
     expect(structuredOutputDiagnosticSchema.parse({
-      category: StructuredOutputDiagnosticCategory.FinishReason,
-      finishReason: 'length',
+      category: StructuredOutputDiagnosticCategory.SchemaValidation,
+      toolName: 'task.add',
+      validationIssues: [
+        { fieldPath: '/prompt', code: StructuredOutputValidationCode.Required },
+        { fieldPath: '/', code: StructuredOutputValidationCode.AdditionalProperty },
+      ],
+      repairStatus: StructuredOutputRepairStatus.Failed,
     })).toEqual({
+      category: StructuredOutputDiagnosticCategory.SchemaValidation,
+      toolName: 'task.add',
+      validationIssues: [
+        { fieldPath: '/prompt', code: StructuredOutputValidationCode.Required },
+        { fieldPath: '/', code: StructuredOutputValidationCode.AdditionalProperty },
+      ],
+      repairStatus: StructuredOutputRepairStatus.Failed,
+    });
+    expect(structuredOutputDiagnosticSchema.safeParse({
       category: StructuredOutputDiagnosticCategory.FinishReason,
       finishReason: ChatCompletionFinishReason.Length,
-    });
+    }).success).toBe(true);
     expect(structuredOutputDiagnosticSchema.safeParse({ category: 'provider_message' }).success).toBe(false);
     expect(structuredOutputDiagnosticSchema.safeParse({
       category: StructuredOutputDiagnosticCategory.SchemaValidation,
@@ -60,6 +76,22 @@ describe('closed protocol values', () => {
     expect(structuredOutputDiagnosticSchema.safeParse({
       category: StructuredOutputDiagnosticCategory.JSONParse,
       content: 'generated text',
+    }).success).toBe(false);
+    expect(structuredOutputDiagnosticSchema.safeParse({
+      category: StructuredOutputDiagnosticCategory.SchemaValidation,
+      validationIssues: [{ fieldPath: '/prompt', code: 'raw_provider_message' }],
+    }).success).toBe(false);
+    expect(structuredOutputDiagnosticSchema.safeParse({
+      category: StructuredOutputDiagnosticCategory.SchemaValidation,
+      validationIssues: [{ fieldPath: '/prompt contains user text', code: StructuredOutputValidationCode.Required }],
+    }).success).toBe(false);
+    expect(structuredOutputDiagnosticSchema.safeParse({
+      category: StructuredOutputDiagnosticCategory.SchemaValidation,
+      toolName: 'task.add with user content',
+    }).success).toBe(false);
+    expect(structuredOutputDiagnosticSchema.safeParse({
+      category: StructuredOutputDiagnosticCategory.SchemaValidation,
+      repairStatus: 'retried_with_fallback',
     }).success).toBe(false);
   });
 

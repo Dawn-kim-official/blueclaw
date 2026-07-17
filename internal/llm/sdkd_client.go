@@ -8,6 +8,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"regexp"
 	"strings"
 )
 
@@ -31,6 +32,10 @@ type StructuredOutputDiagnosticCategory string
 
 type StructuredOutputFinishReason string
 
+type StructuredOutputValidationCode string
+
+type StructuredOutputRepairStatus string
+
 const (
 	StructuredOutputDiagnosticJSONParse        StructuredOutputDiagnosticCategory = "json_parse"
 	StructuredOutputDiagnosticSchemaValidation StructuredOutputDiagnosticCategory = "schema_validation"
@@ -49,9 +54,29 @@ const (
 	StructuredOutputDiagnosticFinishUnknown       StructuredOutputFinishReason = "unknown"
 )
 
+const (
+	StructuredOutputValidationRequired           StructuredOutputValidationCode = "required"
+	StructuredOutputValidationAdditionalProperty StructuredOutputValidationCode = "additional_property"
+	StructuredOutputValidationType               StructuredOutputValidationCode = "type"
+	StructuredOutputValidationOther              StructuredOutputValidationCode = "other"
+)
+
+const (
+	StructuredOutputRepairNotAttempted StructuredOutputRepairStatus = "not_attempted"
+	StructuredOutputRepairFailed       StructuredOutputRepairStatus = "failed"
+)
+
+type StructuredOutputValidationIssue struct {
+	FieldPath string                         `json:"fieldPath"`
+	Code      StructuredOutputValidationCode `json:"code"`
+}
+
 type StructuredOutputDiagnostic struct {
-	Category     StructuredOutputDiagnosticCategory
-	FinishReason StructuredOutputFinishReason
+	Category         StructuredOutputDiagnosticCategory
+	FinishReason     StructuredOutputFinishReason
+	ToolName         string
+	ValidationIssues []StructuredOutputValidationIssue
+	RepairStatus     StructuredOutputRepairStatus
 }
 
 func StructuredOutputDiagnosticFromError(errorValue error) (StructuredOutputDiagnostic, bool) {
@@ -470,8 +495,11 @@ func (client SDKDClient) postJSON(responseContext context.Context, path string, 
 
 func parseStructuredOutputDiagnostic(document json.RawMessage) StructuredOutputDiagnostic {
 	var diagnosticDocument struct {
-		Category     string `json:"category"`
-		FinishReason string `json:"finishReason"`
+		Category         string                            `json:"category"`
+		FinishReason     string                            `json:"finishReason"`
+		ToolName         string                            `json:"toolName"`
+		ValidationIssues []StructuredOutputValidationIssue `json:"validationIssues"`
+		RepairStatus     string                            `json:"repairStatus"`
 	}
 	decoder := json.NewDecoder(bytes.NewReader(document))
 	decoder.DisallowUnknownFields()
@@ -483,6 +511,8 @@ func parseStructuredOutputDiagnostic(document json.RawMessage) StructuredOutputD
 	}
 	normalizedCategory := StructuredOutputDiagnosticCategory(strings.TrimSpace(diagnosticDocument.Category))
 	normalizedFinishReason := StructuredOutputFinishReason(strings.TrimSpace(diagnosticDocument.FinishReason))
+	normalizedToolName := strings.TrimSpace(diagnosticDocument.ToolName)
+	normalizedRepairStatus := StructuredOutputRepairStatus(strings.TrimSpace(diagnosticDocument.RepairStatus))
 	if !isStructuredOutputDiagnosticCategory(normalizedCategory) {
 		return StructuredOutputDiagnostic{}
 	}
@@ -492,7 +522,53 @@ func parseStructuredOutputDiagnostic(document json.RawMessage) StructuredOutputD
 	if normalizedFinishReason != "" && !isSDKDChatCompletionFinishReason(string(normalizedFinishReason)) {
 		return StructuredOutputDiagnostic{}
 	}
-	return StructuredOutputDiagnostic{Category: normalizedCategory, FinishReason: normalizedFinishReason}
+	if !isStructuredOutputDiagnosticToolName(normalizedToolName) ||
+		!areStructuredOutputValidationIssuesValid(normalizedCategory, diagnosticDocument.ValidationIssues) ||
+		!isStructuredOutputRepairStatus(normalizedRepairStatus) {
+		return StructuredOutputDiagnostic{}
+	}
+	return StructuredOutputDiagnostic{
+		Category:         normalizedCategory,
+		FinishReason:     normalizedFinishReason,
+		ToolName:         normalizedToolName,
+		ValidationIssues: diagnosticDocument.ValidationIssues,
+		RepairStatus:     normalizedRepairStatus,
+	}
+}
+
+var structuredOutputDiagnosticToolNamePattern = regexp.MustCompile(`^[A-Za-z0-9_.-]+$`)
+var structuredOutputDiagnosticFieldPathPattern = regexp.MustCompile(`^/([A-Za-z0-9_.$~-]+(/[A-Za-z0-9_.$~-]+)*)?$`)
+
+func isStructuredOutputDiagnosticToolName(toolName string) bool {
+	return toolName == "" || len(toolName) <= 128 && structuredOutputDiagnosticToolNamePattern.MatchString(toolName)
+}
+
+func areStructuredOutputValidationIssuesValid(category StructuredOutputDiagnosticCategory, issues []StructuredOutputValidationIssue) bool {
+	if len(issues) > 8 || len(issues) > 0 && category != StructuredOutputDiagnosticSchemaValidation {
+		return false
+	}
+	for _, issue := range issues {
+		if len(issue.FieldPath) > 256 || !structuredOutputDiagnosticFieldPathPattern.MatchString(issue.FieldPath) || !isStructuredOutputValidationCode(issue.Code) {
+			return false
+		}
+	}
+	return true
+}
+
+func isStructuredOutputValidationCode(code StructuredOutputValidationCode) bool {
+	switch code {
+	case StructuredOutputValidationRequired,
+		StructuredOutputValidationAdditionalProperty,
+		StructuredOutputValidationType,
+		StructuredOutputValidationOther:
+		return true
+	default:
+		return false
+	}
+}
+
+func isStructuredOutputRepairStatus(status StructuredOutputRepairStatus) bool {
+	return status == "" || status == StructuredOutputRepairNotAttempted || status == StructuredOutputRepairFailed
 }
 
 func isStructuredOutputDiagnosticCategory(category StructuredOutputDiagnosticCategory) bool {
