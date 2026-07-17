@@ -47,16 +47,44 @@ export enum StructuredOutputDiagnosticCategory {
   Serialization = 'serialization',
 }
 
+export enum StructuredOutputValidationCode {
+  Required = 'required',
+  AdditionalProperty = 'additional_property',
+  Type = 'type',
+  Other = 'other',
+}
+
+export enum StructuredOutputRepairStatus {
+  NotAttempted = 'not_attempted',
+  Failed = 'failed',
+}
+
+export const structuredOutputValidationIssueSchema = z.strictObject({
+  fieldPath: z.string().max(256).regex(/^\/(?:[A-Za-z0-9_.$~-]+(?:\/[A-Za-z0-9_.$~-]+)*)?$/),
+  code: z.enum(StructuredOutputValidationCode),
+});
+
 export const structuredOutputDiagnosticSchema = z.strictObject({
   category: z.enum(StructuredOutputDiagnosticCategory),
   finishReason: z.enum(ChatCompletionFinishReason).optional(),
+  toolName: z.string().min(1).max(128).regex(/^[A-Za-z0-9_.-]+$/).optional(),
+  validationIssues: z.array(structuredOutputValidationIssueSchema).max(8).optional(),
+  repairStatus: z.enum(StructuredOutputRepairStatus).optional(),
 }).superRefine((diagnostic, context) => {
-  if (diagnostic.finishReason === undefined || diagnostic.category === StructuredOutputDiagnosticCategory.FinishReason) return;
-  context.addIssue({
-    code: 'custom',
-    path: ['finishReason'],
-    message: 'finishReason is only valid for finish_reason diagnostics',
-  });
+  if (diagnostic.finishReason !== undefined && diagnostic.category !== StructuredOutputDiagnosticCategory.FinishReason) {
+    context.addIssue({
+      code: 'custom',
+      path: ['finishReason'],
+      message: 'finishReason is only valid for finish_reason diagnostics',
+    });
+  }
+  if (diagnostic.validationIssues !== undefined && diagnostic.category !== StructuredOutputDiagnosticCategory.SchemaValidation) {
+    context.addIssue({
+      code: 'custom',
+      path: ['validationIssues'],
+      message: 'validationIssues is only valid for schema_validation diagnostics',
+    });
+  }
 });
 
 export const languageModelMessagePartSchema = z.discriminatedUnion('type', [
@@ -241,6 +269,7 @@ export type ChatCompletionToolCall = z.infer<typeof chatCompletionToolCallSchema
 export type ChatCompletionMessage = z.infer<typeof chatCompletionMessageSchema>;
 export type ChatCompletionRequest = z.infer<typeof chatCompletionRequestSchema>;
 export type ChatCompletionResponse = z.infer<typeof chatCompletionResponseSchema>;
+export type StructuredOutputValidationIssue = z.infer<typeof structuredOutputValidationIssueSchema>;
 export type StructuredOutputDiagnostic = z.infer<typeof structuredOutputDiagnosticSchema>;
 
 function isJSONDocumentObject(value: string): boolean {

@@ -11,6 +11,8 @@ import {
   LanguageModelMessageRole,
   StructuredOutputConstraintMode,
   StructuredOutputDiagnosticCategory,
+  StructuredOutputRepairStatus,
+  StructuredOutputValidationCode,
   type ChatCompletionRequest,
   type StructuredResponseRequest,
 } from '@blueclaw/protocol';
@@ -124,7 +126,11 @@ describe('sdkd provider adapter', () => {
       expect(errorValue).toMatchObject({
         code: 'provider_response_invalid',
         allowLegacyFallback: false,
-        diagnostic: { category: StructuredOutputDiagnosticCategory.JSONParse },
+        diagnostic: {
+          category: StructuredOutputDiagnosticCategory.JSONParse,
+          toolName: 'lookup',
+          repairStatus: StructuredOutputRepairStatus.Failed,
+        },
       });
     }
     expect(llamaModel.doGenerateCalls).toHaveLength(0);
@@ -305,7 +311,17 @@ describe('sdkd provider adapter', () => {
 
     await expect(generateChatCompletion(request)).rejects.toMatchObject({
       code: 'provider_response_invalid',
-      diagnostic: { category: StructuredOutputDiagnosticCategory.SchemaValidation },
+      diagnostic: {
+        category: StructuredOutputDiagnosticCategory.SchemaValidation,
+        toolName: 'lookup',
+        validationIssues: expect.arrayContaining([
+          { fieldPath: '/', code: StructuredOutputValidationCode.AdditionalProperty },
+          { fieldPath: '/requiredText', code: StructuredOutputValidationCode.Type },
+          { fieldPath: '/rows/0', code: StructuredOutputValidationCode.Type },
+          { fieldPath: '/metadata/extra', code: StructuredOutputValidationCode.Type },
+        ]),
+        repairStatus: StructuredOutputRepairStatus.Failed,
+      },
     });
 
     const repairPrompt = JSON.stringify(remoteModel.doGenerateCalls[1]?.prompt);
@@ -332,7 +348,12 @@ describe('sdkd provider adapter', () => {
     await expect(generateChatCompletion(request)).rejects.toMatchObject({
       code: 'provider_response_invalid',
       allowLegacyFallback: false,
-      diagnostic: { category: StructuredOutputDiagnosticCategory.SchemaValidation },
+      diagnostic: {
+        category: StructuredOutputDiagnosticCategory.SchemaValidation,
+        toolName: 'lookup',
+        validationIssues: [{ fieldPath: '/task', code: StructuredOutputValidationCode.AdditionalProperty }],
+        repairStatus: StructuredOutputRepairStatus.Failed,
+      },
     });
     expect(remoteModel.doGenerateCalls).toHaveLength(2);
     expect(llamaModel.doGenerateCalls).toHaveLength(0);
