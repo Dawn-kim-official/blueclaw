@@ -489,13 +489,6 @@ func validateBrowserWaitInput(toolInput json.RawMessage) error {
 	return errors.New("missing required tool input for browser.wait: target or milliseconds")
 }
 
-func toolDefinitionInputSchema(toolDefinition ToolDefinition) json.RawMessage {
-	if len(toolDefinition.InputSchema) > 0 {
-		return toolDefinition.InputSchema
-	}
-	return specificToolInputSchema(toolDefinition.Name)
-}
-
 func validInputExampleSuffix(toolName string) string {
 	switch strings.TrimSpace(toolName) {
 	case "browser.open":

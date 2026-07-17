@@ -1401,7 +1401,7 @@ func validateVirtualMessageSendInput(input map[string]any) error {
 func virtualCapabilityInputSchema(toolName string) string {
 	switch toolName {
 	case "task.add":
-		return `{"type":"object","properties":{"prompt":{"type":"string"},"title":{"type":"string"},"endDate":{"type":"string"},"targetPersonHint":{"type":"string"},"weekCode":{"type":"string"},"allowDuplicate":{"type":"boolean"}},"required":["prompt"],"additionalProperties":false}`
+		return `{"type":"object","properties":{"title":{"type":"string"},"goal":{"type":"string"},"size":{"type":"string","enum":["XS","S","M","L","XL","XXL"]},"status":{"type":"string","enum":["예정","진행","완료","일시정지","기각","중단"]},"startDate":{"type":"string"},"endDate":{"type":"string"},"targetPersonHint":{"type":"string"},"participantPersonHints":{"type":"array","items":{"type":"string"}}},"required":["title"],"additionalProperties":false}`
 	case "task.list":
 		return `{"type":"object","properties":{"query":{"type":"string"},"targetPersonHint":{"type":"string"},"weekFrom":{"type":"integer"},"weekTo":{"type":"integer"},"status":{"type":"string"},"limit":{"type":"integer"}},"additionalProperties":false}`
 	case "task.update":
@@ -1432,12 +1432,7 @@ func (service *virtualCapabilityService) taskResponse(toolName string, requestBo
 	switch toolName {
 	case "task.add":
 		values := copyVirtualCapabilityValues(input)
-		content := strings.TrimSpace(stringValue(values["title"]))
-		if content == "" {
-			content = stringValue(values["prompt"])
-		}
-		values["content"] = content
-		delete(values, "prompt")
+		values["content"] = strings.TrimSpace(stringValue(values["title"]))
 		delete(values, "title")
 		record := virtualCapabilityRecord{ID: fmt.Sprintf("task-%d", len(service.tasks)+1), Values: values}
 		record.Values["taskID"] = record.ID

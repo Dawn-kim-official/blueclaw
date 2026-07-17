@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"testing"
 )
@@ -116,8 +117,9 @@ func TestFallbackActionSchemaDoesNotAllowToolCalls(t *testing.T) {
 	}
 }
 
-func TestFlowTaskUpdateActionSchemaAndCompletionEvidence(t *testing.T) {
-	actionSchema := buildActionSchemaFromToolDefinitions([]ToolDefinition{{Name: "task.update"}}, false, nil, false)
+func TestActionSchemaUsesRegisteredTaskUpdateSchema(t *testing.T) {
+	inputSchema := json.RawMessage(`{"type":"object","properties":{"taskID":{"type":"string"},"query":{"type":"string"},"title":{"type":"string"},"status":{"type":"string"},"endDate":{"type":"string"}}}`)
+	actionSchema := buildActionSchemaFromToolDefinitions([]ToolDefinition{{Name: "task.update", InputSchema: inputSchema}}, false, nil, false)
 	for _, fragment := range []string{"task.update", "taskID", "query", "title", "status", "endDate"} {
 		if !strings.Contains(actionSchema, fragment) {
 			t.Fatalf("expected action schema to include %q, got %s", fragment, actionSchema)
@@ -131,8 +133,9 @@ func TestFlowTaskUpdateActionSchemaAndCompletionEvidence(t *testing.T) {
 	}
 }
 
-func TestFlowTaskListActionSchemaDefaultsToRequester(t *testing.T) {
-	actionSchema := buildActionSchemaFromToolDefinitions([]ToolDefinition{{Name: "task.list"}}, false, nil, false)
+func TestActionSchemaUsesRegisteredTaskListSchema(t *testing.T) {
+	inputSchema := json.RawMessage(`{"type":"object","properties":{"scope":{"type":"string","enum":["self","all"]},"targetPersonHint":{"type":"string"}}}`)
+	actionSchema := buildActionSchemaFromToolDefinitions([]ToolDefinition{{Name: "task.list", InputSchema: inputSchema}}, false, nil, false)
 	for _, fragment := range []string{`"scope"`, `"self"`, `"all"`, `"targetPersonHint"`} {
 		if !strings.Contains(actionSchema, fragment) {
 			t.Fatalf("expected task.list schema to include %s, got %s", fragment, actionSchema)
@@ -140,6 +143,14 @@ func TestFlowTaskListActionSchemaDefaultsToRequester(t *testing.T) {
 	}
 	if strings.Contains(actionSchema, "everyone's tasks") {
 		t.Fatalf("expected task.list schema not to default to everyone, got %s", actionSchema)
+	}
+}
+
+func TestActionSchemaDoesNotInferInputSchemaFromToolName(t *testing.T) {
+	actionSchema := buildActionSchemaFromToolDefinitions([]ToolDefinition{{Name: "task.add"}}, false, nil, false)
+
+	if strings.Contains(actionSchema, `"prompt"`) || strings.Contains(actionSchema, `"title"`) {
+		t.Fatalf("expected missing descriptor schema to remain empty, got %s", actionSchema)
 	}
 }
 

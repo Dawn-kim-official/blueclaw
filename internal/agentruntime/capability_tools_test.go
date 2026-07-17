@@ -38,6 +38,26 @@ func TestToolCatalogHidesPolicyDeniedCapabilityTools(t *testing.T) {
 	}
 }
 
+func TestToolCatalogKeepsCapabilityInputSchemaAuthoritative(t *testing.T) {
+	taskAddSchema := json.RawMessage(`{"type":"object","properties":{"title":{"type":"string"},"endDate":{"type":"string"}},"required":["title"]}`)
+	toolCatalogBuilder := NewToolCatalogBuilder()
+	toolCatalogBuilder.UseCapabilityToolDescriptors(capability.Client{}, []CapabilityToolDescriptor{{
+		Name:        "task.add",
+		InputSchema: taskAddSchema,
+	}})
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"task.add"})
+
+	toolSet := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
+	actionSchema := toolSet.ActionSchema(false, nil, false)
+
+	if !strings.Contains(actionSchema, `"title"`) || !strings.Contains(actionSchema, `"endDate"`) {
+		t.Fatalf("expected registered task.add schema, got %s", actionSchema)
+	}
+	if strings.Contains(actionSchema, `"prompt"`) {
+		t.Fatalf("expected no inferred legacy task.add fields, got %s", actionSchema)
+	}
+}
+
 func TestPlatformDMSendAvailabilityDependsOnTrustedContext(t *testing.T) {
 	toolCatalogBuilder := NewToolCatalogBuilder()
 	toolCatalogBuilder.UseCapabilityToolDescriptors(capability.Client{}, []CapabilityToolDescriptor{{
