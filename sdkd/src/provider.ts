@@ -719,10 +719,48 @@ function createValidatedJSONSchema(document: unknown) {
   }
   return jsonSchema(document, {
     validate(value) {
-      if (validator(value)) return { success: true, value };
+      const normalizedValue = removeOptionalNullProperties(value, validationDocument);
+      if (validator(normalizedValue)) return { success: true, value: normalizedValue };
       return { success: false, error: new Error(ajv.errorsText(validator.errors)) };
     },
   });
+}
+
+function removeOptionalNullProperties(value: unknown, schema: unknown): unknown {
+  if (Array.isArray(value)) return value.map((item, index) => removeOptionalNullProperties(item, arrayItemSchema(schema, index)));
+  if (!isRecord(value)) return value;
+  const properties = isRecord(schema) && isRecord(schema.properties) ? schema.properties : {};
+  const requiredProperties = new Set(isRecord(schema) && Array.isArray(schema.required) ? schema.required : []);
+  const normalizedValue: Record<string, unknown> = {};
+  for (const [propertyName, propertyValue] of Object.entries(value)) {
+    const propertySchema = properties[propertyName];
+    if (propertySchema === undefined) {
+      normalizedValue[propertyName] = cloneJSONValue(propertyValue);
+      continue;
+    }
+    if (propertyValue === null && !requiredProperties.has(propertyName) && !schemaAllowsNull(propertySchema)) continue;
+    normalizedValue[propertyName] = removeOptionalNullProperties(propertyValue, propertySchema);
+  }
+  return normalizedValue;
+}
+
+function arrayItemSchema(schema: unknown, index: number): unknown {
+  if (!isRecord(schema)) return undefined;
+  if (Array.isArray(schema.items)) return schema.items[index];
+  return schema.items;
+}
+
+function schemaAllowsNull(schema: unknown): boolean {
+  if (schema === true) return true;
+  if (schema === false) return false;
+  if (!isRecord(schema) || schema.type === undefined) return true;
+  return schema.type === 'null' || (Array.isArray(schema.type) && schema.type.includes('null'));
+}
+
+function cloneJSONValue(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(cloneJSONValue);
+  if (!isRecord(value)) return value;
+  return Object.fromEntries(Object.entries(value).map(([key, nestedValue]) => [key, cloneJSONValue(nestedValue)]));
 }
 
 function createClosedJSONSchema(document: JSONSchema7): JSONSchema7 {
