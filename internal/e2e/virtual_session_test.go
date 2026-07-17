@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -395,10 +396,12 @@ func TestFailedAssertionReturnsObservedTurnResult(t *testing.T) {
 func TestVirtualTaskCapabilityPreservesLifecycleState(t *testing.T) {
 	service := virtualCapabilityService{}
 	addResponse := service.response("task.add", []byte(`{"input":{"title":"비용 테스트 회귀 확인"},"context":{}}`))
-	updateResponse := service.response("task.update", []byte(`{"input":{"query":"비용 테스트 회귀 확인","title":"비용 테스트 회귀 확인 완료 준비"},"context":{}}`))
+	discoveryResponse := service.response("task.list", []byte(`{"input":{"query":"비용 테스트 회귀 확인"},"context":{}}`))
+	taskID := virtualTaskID(t, discoveryResponse)
+	updateResponse := service.response("task.update", []byte(fmt.Sprintf(`{"input":{"taskID":%q,"title":"비용 테스트 회귀 확인 완료 준비"},"context":{}}`, taskID)))
 	listResponse := service.response("task.list", []byte(`{"input":{},"context":{}}`))
-	approvalResponse := service.response("task.delete", []byte(`{"input":{"query":"비용 테스트 회귀 확인 완료 준비"},"context":{}}`))
-	deleteResponse := service.response("task.delete", []byte(`{"input":{"query":"비용 테스트 회귀 확인 완료 준비"},"context":{"isApprovalContinuation":true}}`))
+	approvalResponse := service.response("task.delete", []byte(fmt.Sprintf(`{"input":{"taskID":%q},"context":{}}`, taskID)))
+	deleteResponse := service.response("task.delete", []byte(fmt.Sprintf(`{"input":{"taskID":%q},"context":{"isApprovalContinuation":true}}`, taskID)))
 	emptyListResponse := service.response("task.list", []byte(`{"input":{},"context":{}}`))
 
 	if !strings.Contains(addResponse, `"taskID":"task-1"`) {
@@ -418,6 +421,40 @@ func TestVirtualTaskCapabilityPreservesLifecycleState(t *testing.T) {
 	}
 	if strings.Contains(emptyListResponse, `"taskID":"task-1"`) {
 		t.Fatalf("expected deleted task to be absent, got %s", emptyListResponse)
+	}
+}
+
+func virtualTaskID(t *testing.T, response string) string {
+	t.Helper()
+	var document struct {
+		Result struct {
+			Tasks []map[string]any `json:"tasks"`
+		} `json:"result"`
+	}
+	if errorValue := json.Unmarshal([]byte(response), &document); errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if len(document.Result.Tasks) != 1 {
+		t.Fatalf("expected one discovered task, got %s", response)
+	}
+	taskID := strings.TrimSpace(stringValue(document.Result.Tasks[0]["taskID"]))
+	if taskID == "" {
+		t.Fatalf("expected discovered task ID, got %s", response)
+	}
+	return taskID
+}
+
+func TestVirtualTaskMutationRejectsUnknownTaskID(t *testing.T) {
+	service := virtualCapabilityService{}
+	service.response("task.add", []byte(`{"input":{"title":"비용 테스트 회귀 확인"},"context":{}}`))
+
+	for _, response := range []string{
+		service.response("task.update", []byte(`{"input":{"taskID":"task-missing","title":"변경됨"},"context":{}}`)),
+		service.response("task.delete", []byte(`{"input":{"taskID":"task-missing"},"context":{"isApprovalContinuation":true}}`)),
+	} {
+		if !strings.Contains(response, `"errorCode":"not_found"`) {
+			t.Fatalf("expected mutation without exact task ID to fail, got %s", response)
+		}
 	}
 }
 
@@ -530,12 +567,15 @@ func writeDOCX(t *testing.T, path string, entries map[string]string) {
 }
 
 func TestVirtualCapabilityCatalogUsesOperationSchemas(t *testing.T) {
-	catalog := virtualCapabilityCatalogResponse(map[string]bool{"task.add": true, "calendar.update": true})
+	catalog := virtualCapabilityCatalogResponse(map[string]bool{"task.update": true, "task.delete": true})
 
-	for _, expectedText := range []string{`"prompt"`, `"eventID"`, `"query"`, `"startISO"`, `"endISO"`} {
+	for _, expectedText := range []string{`"taskID"`, `"required":["taskID"]`, `"title"`, `"endDate"`} {
 		if !strings.Contains(catalog, expectedText) {
 			t.Fatalf("expected catalog schema field %s, got %s", expectedText, catalog)
 		}
+	}
+	if strings.Contains(catalog, `"query"`) || strings.Contains(catalog, `"targetPersonHint"`) {
+		t.Fatalf("task mutation schemas must not expose fuzzy selectors: %s", catalog)
 	}
 }
 

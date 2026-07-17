@@ -113,7 +113,7 @@ func TestInstructionBundleFromTurnRequestPreservesContractWorkingSet(t *testing.
 	}
 }
 
-func TestReconstructedEvidenceOnlyArbitrationCompactsExposure(t *testing.T) {
+func TestReconstructedEvidenceOnlyArbitrationPreservesSelectedDomain(t *testing.T) {
 	flowToolNames := []string{"task.add", "task.list", "task.update", "task.delete"}
 	toolSet := testToolSet(append(KernelToolNames(), flowToolNames...))
 	request := AgentTurnRequest{
@@ -139,8 +139,8 @@ func TestReconstructedEvidenceOnlyArbitrationCompactsExposure(t *testing.T) {
 		ToolExposureEvent{},
 	)
 
-	if !sameStringSet(filteredToolSet.ListToolNames(), []string{"task.add"}) {
-		t.Fatalf("expected reconstructed evidence-only working set, got %+v", filteredToolSet.ListToolNames())
+	if !sameStringSet(filteredToolSet.ListToolNames(), flowToolNames) {
+		t.Fatalf("expected reconstructed selected domain, got %+v", filteredToolSet.ListToolNames())
 	}
 }
 
