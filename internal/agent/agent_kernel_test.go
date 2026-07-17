@@ -66,40 +66,34 @@ func TestApprovalContinuationRestoresSelectedToolDecision(t *testing.T) {
 	}
 }
 
-func TestFreshTaskPinsArbitratedEvidenceInsteadOfRouterInitialTools(t *testing.T) {
+func TestFreshTaskPinsRequiredEvidenceInsteadOfRouterInitialTools(t *testing.T) {
 	pinnedToolNames := pinnedToolNamesForResolvedRequest(
 		[]string{"manual.tool"},
 		[]string{"manual.tool", "previous.tool"},
 		[]string{"file.read"},
-		InstructionBundle{HasContractSkillArbitration: true, RequiredEvidenceTools: []string{"task.add"}},
+		[]string{"task.add"},
 		true,
 	)
 
 	if !sameStringSet(pinnedToolNames, []string{"manual.tool", "task.add"}) {
-		t.Fatalf("expected manual and arbitrated evidence tools, got %+v", pinnedToolNames)
+		t.Fatalf("expected manual and required evidence tools, got %+v", pinnedToolNames)
 	}
 	activeGoal := activeGoalForTurn(AgentRequest{PinnedToolNames: pinnedToolNames}, OutcomeContract{}, ExecutionPlan{}, false)
 	if !sameStringSet(activeGoal.SelectedToolNames, []string{"manual.tool", "task.add"}) {
-		t.Fatalf("expected arbitrated evidence to persist in active goal, got %+v", activeGoal.SelectedToolNames)
+		t.Fatalf("expected required evidence to persist in active goal, got %+v", activeGoal.SelectedToolNames)
 	}
 }
 
-func TestFreshTaskKeepsRouterInitialToolsWithoutValidArbitratedEvidence(t *testing.T) {
-	for _, instructionBundle := range []InstructionBundle{
-		{},
-		{HasContractSkillArbitration: true},
-		{RequiredEvidenceTools: []string{"task.add"}},
-	} {
-		pinnedToolNames := pinnedToolNamesForResolvedRequest(
-			[]string{"manual.tool"},
-			[]string{"manual.tool", "previous.tool"},
-			[]string{"file.read"},
-			instructionBundle,
-			true,
-		)
-		if !sameStringSet(pinnedToolNames, []string{"manual.tool", "file.read"}) {
-			t.Fatalf("expected router fallback without valid arbitration, got %+v", pinnedToolNames)
-		}
+func TestFreshTaskKeepsRouterInitialToolsWithoutRequiredEvidence(t *testing.T) {
+	pinnedToolNames := pinnedToolNamesForResolvedRequest(
+		[]string{"manual.tool"},
+		[]string{"manual.tool", "previous.tool"},
+		[]string{"file.read"},
+		nil,
+		true,
+	)
+	if !sameStringSet(pinnedToolNames, []string{"manual.tool", "file.read"}) {
+		t.Fatalf("expected router fallback without required evidence, got %+v", pinnedToolNames)
 	}
 }
 
@@ -108,7 +102,7 @@ func TestContinuationKeepsPersistedToolsAuthoritative(t *testing.T) {
 		[]string{"manual.tool"},
 		[]string{"manual.tool", "message.send"},
 		[]string{"file.read"},
-		InstructionBundle{HasContractSkillArbitration: true, RequiredEvidenceTools: []string{"task.add"}},
+		[]string{"task.add"},
 		false,
 	)
 
@@ -577,7 +571,7 @@ func TestAgentKernelReplacesReadOnlyEvidenceForScheduledTask(t *testing.T) {
 			TaskLevel:             TaskLevelLow,
 			EstimatedMinutes:      1,
 			RequiredEvidenceTools: []string{"task.list"},
-			InitialToolNames:      []string{"task.update"},
+			InitialToolNames:      []string{"file.read"},
 			ResponseLanguage:      "ko",
 			Reason:                "update requested work",
 		},
@@ -586,7 +580,7 @@ func TestAgentKernelReplacesReadOnlyEvidenceForScheduledTask(t *testing.T) {
 	agentKernel.UseIntakeLanguageModelProvider(intakeLanguageModel)
 
 	toolCallCount := 0
-	toolSet := newTestToolSet([]string{"task.history", "task.update"})
+	toolSet := newTestToolSet([]string{"file.read", "task.history", "task.update"})
 	toolSet.RegisterTool(ToolDefinition{Name: "task.update"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		toolCallCount++
 		return ToolSuccess(`{"taskID":"task-1","content":"고객지원 분기 결산 검토 완료","endDate":"2026-07-17"}`), nil
@@ -621,6 +615,9 @@ func TestAgentKernelReplacesReadOnlyEvidenceForScheduledTask(t *testing.T) {
 	}
 	if !taskEventsContain(taskEvents, "agent.intake", "task.update") {
 		t.Fatal("expected rebuilt intake decision to require task.update")
+	}
+	if !taskEventsContain(taskEvents, "agent.instructions_loaded", `"selectedToolNames":["task.update"]`) {
+		t.Fatal("expected recovered evidence to replace the router tool in the active goal")
 	}
 }
 
