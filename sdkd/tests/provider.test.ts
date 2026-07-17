@@ -256,13 +256,20 @@ describe('sdkd provider adapter', () => {
     const repairProviderSchema = repairProviderTool?.type === 'function' ? repairProviderTool.inputSchema : undefined;
     expect(JSON.stringify(repairProviderSchema)).toBe(JSON.stringify(request.tools?.[0]?.function.parameters));
     expect(providerSchema).not.toHaveProperty('additionalProperties');
-    const repairPrompt = JSON.stringify(remoteModel.doGenerateCalls[1]?.prompt);
-    expect(repairPrompt).toContain('Malformed arguments');
-    expect(repairPrompt).toContain('unexpected');
-    expect(repairPrompt).toContain('Validation category: schema_validation');
-    expect(repairPrompt).toContain('Validation failure: data/task must NOT have additional properties');
-    expect(repairPrompt).toContain('\\"additionalProperties\\":false');
-    expect((repairPrompt.match(/additionalProperties/g) ?? []).length).toBeGreaterThanOrEqual(3);
+    const repairPrompt = remoteModel.doGenerateCalls[1]?.prompt;
+    expect(repairPrompt?.filter(message => message.role === 'user')).toEqual(
+      remoteModel.doGenerateCalls[0]?.prompt.filter(message => message.role === 'user'),
+    );
+    expect(repairPrompt?.at(-2)?.role).toBe('assistant');
+    expect(repairPrompt?.at(-1)?.role).toBe('tool');
+    const serializedRepairPrompt = JSON.stringify(repairPrompt);
+    expect(serializedRepairPrompt).toContain('tool-call');
+    expect(serializedRepairPrompt).toContain('error-text');
+    expect(serializedRepairPrompt).toContain('unexpected');
+    expect(serializedRepairPrompt).toContain('Validation category: schema_validation');
+    expect(serializedRepairPrompt).toContain('Validation failure: data/task must NOT have additional properties');
+    expect(serializedRepairPrompt).toContain('\\"additionalProperties\\":false');
+    expect((serializedRepairPrompt.match(/additionalProperties/g) ?? []).length).toBeGreaterThanOrEqual(3);
   });
 
   test('removes optional non-nullable properties through nested objects and arrays', async () => {
@@ -903,14 +910,16 @@ describe('sdkd provider adapter', () => {
     const providerSchema = providerTool?.type === 'function' ? providerTool.inputSchema : undefined;
     const repairProviderTool = model.doGenerateCalls[1]?.tools?.[0];
     const repairProviderSchema = repairProviderTool?.type === 'function' ? repairProviderTool.inputSchema : undefined;
-    const repairPrompt = JSON.stringify(model.doGenerateCalls[1]?.prompt);
+    const repairPrompt = model.doGenerateCalls[1]?.prompt;
     expect(JSON.stringify(providerSchema)).toBe(JSON.stringify(request.structuredOutputSchema.document));
     expect(JSON.stringify(repairProviderSchema)).toBe(JSON.stringify(request.structuredOutputSchema.document));
-    expect(repairPrompt).toContain('Malformed arguments');
-    expect(repairPrompt).toContain('Closed JSON schema');
-    expect(repairPrompt).toContain('Validation category: schema_validation');
-    expect(repairPrompt).toContain('\\"additionalProperties\\":false');
-    expect((repairPrompt.match(/additionalProperties/g) ?? []).length).toBeGreaterThanOrEqual(2);
+    expect(repairPrompt?.at(-2)?.role).toBe('assistant');
+    expect(repairPrompt?.at(-1)?.role).toBe('tool');
+    const serializedRepairPrompt = JSON.stringify(repairPrompt);
+    expect(serializedRepairPrompt).toContain('Closed JSON schema');
+    expect(serializedRepairPrompt).toContain('Validation category: schema_validation');
+    expect(serializedRepairPrompt).toContain('\\"additionalProperties\\":false');
+    expect((serializedRepairPrompt.match(/additionalProperties/g) ?? []).length).toBeGreaterThanOrEqual(2);
     expect(fallbackModel.doGenerateCalls).toHaveLength(0);
   });
 

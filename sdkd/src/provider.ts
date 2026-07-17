@@ -354,19 +354,7 @@ async function repairToolCall(repairRequest: ToolRepairRequest): Promise<Languag
     const result = await generateText({
       model: repairRequest.route.languageModel,
       system: repairSystem(repairRequest.system),
-      messages: [
-        ...repairRequest.messages,
-        {
-          role: 'user',
-          content: [
-            `Malformed arguments: ${repairRequest.toolCall.input}`,
-            `Closed JSON schema: ${JSON.stringify(repairRequest.inputSchema)}`,
-            `Validation category: ${repairRequest.validationCategory}`,
-            `Validation failure: ${repairRequest.validationFailure}`,
-            'Return exactly one forced tool call using the original tool name.',
-          ].join('\n'),
-        },
-      ],
+      messages: repairMessages(repairRequest),
       tools: repairRequest.tools,
       toolChoice: { type: 'tool', toolName: repairRequest.toolName },
       maxOutputTokens: repairRequest.generationOptions?.maxTokens,
@@ -382,6 +370,37 @@ async function repairToolCall(repairRequest: ToolRepairRequest): Promise<Languag
     throwIfAborted(repairRequest.abortSignal);
     return null;
   }
+}
+
+function repairMessages(repairRequest: ToolRepairRequest): ModelMessage[] {
+  return [
+    ...repairRequest.messages,
+    {
+      role: 'assistant',
+      content: [{
+        type: 'tool-call',
+        toolCallId: repairRequest.toolCall.toolCallId,
+        toolName: repairRequest.toolName,
+        input: repairRequest.toolCall.input,
+      }],
+    },
+    {
+      role: 'tool',
+      content: [{
+        type: 'tool-result',
+        toolCallId: repairRequest.toolCall.toolCallId,
+        toolName: repairRequest.toolName,
+        output: {
+          type: 'error-text',
+          value: [
+            `Closed JSON schema: ${JSON.stringify(repairRequest.inputSchema)}`,
+            `Validation category: ${repairRequest.validationCategory}`,
+            `Validation failure: ${repairRequest.validationFailure}`,
+          ].join('\n'),
+        },
+      }],
+    },
+  ];
 }
 
 function validationFailureMessage(errorValue: unknown): string {
