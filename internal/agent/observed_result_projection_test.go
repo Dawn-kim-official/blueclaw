@@ -24,7 +24,7 @@ func TestObservedResultProjectionAcceptsCalendarClaimWithCalendarFact(t *testing
 }
 
 func TestObservedResultProjectionDoesNotTreatUnpublishedStatusAsPublished(t *testing.T) {
-	facts := factsFromObservation(newContentObservation("obs-001", "continue", "site.status", `{"siteID":"site-1","status":"unpublished"}`))
+	facts := factsFromObservation(nil, newContentObservation("obs-001", "continue", "site.status", `{"siteID":"site-1","status":"unpublished"}`))
 
 	if projectionHasObservedFact(facts, "website", "published") {
 		t.Fatalf("expected unpublished status not to satisfy published fact, got %+v", facts)

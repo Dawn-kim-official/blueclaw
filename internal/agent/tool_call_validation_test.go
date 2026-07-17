@@ -61,7 +61,7 @@ func TestAgentTurnRunnerRejectsSecondDMSendAfterSuccess(t *testing.T) {
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 5})
 	toolRegistry := newTestCapabilityToolSet([]string{"message.send"})
 	sendCallCount := 0
-	toolRegistry.RegisterTool(ToolDefinition{Name: "message.send"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	toolRegistry.RegisterTool(testExternalSendToolDefinition("message.send"), func(context.Context, ToolInvocation) (ToolResult, error) {
 		sendCallCount++
 		return ToolSuccess("sent"), nil
 	})
@@ -99,7 +99,7 @@ func TestAgentTurnRunnerAllowsSendToDifferentRecipients(t *testing.T) {
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 5})
 	toolRegistry := newTestCapabilityToolSet([]string{"message.send"})
 	sendCallCount := 0
-	toolRegistry.RegisterTool(ToolDefinition{Name: "message.send"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	toolRegistry.RegisterTool(testExternalSendToolDefinition("message.send"), func(context.Context, ToolInvocation) (ToolResult, error) {
 		sendCallCount++
 		return ToolSuccess("sent"), nil
 	})
@@ -132,7 +132,7 @@ func TestAgentTurnRunnerRejectsMessageSendWithoutExternalSendIntent(t *testing.T
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 3})
 	toolRegistry := newTestCapabilityToolSet([]string{"message.send"})
-	toolRegistry.RegisterTool(ToolDefinition{Name: "message.send"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	toolRegistry.RegisterTool(testExternalSendToolDefinition("message.send"), func(context.Context, ToolInvocation) (ToolResult, error) {
 		t.Fatal("message.send must not run without external send intent")
 		return ToolResult{}, nil
 	})
@@ -171,7 +171,7 @@ func TestAgentTurnRunnerRejectsRepeatedFailedFingerprint(t *testing.T) {
 	toolRegistry := newTestCapabilityToolSet([]string{"message.send", "message.context"})
 	callCount := 0
 	sendInputs := []string{}
-	toolRegistry.RegisterTool(ToolDefinition{Name: "message.send"}, func(_ context.Context, invocation ToolInvocation) (ToolResult, error) {
+	toolRegistry.RegisterTool(testExternalSendToolDefinition("message.send"), func(_ context.Context, invocation ToolInvocation) (ToolResult, error) {
 		callCount++
 		sendInputs = append(sendInputs, string(invocation.Input))
 		return structuredFailureToolResult("temporary user lookup timeout", "temporary user lookup timeout", "mattermost_unavailable", "mattermost_lookup", true, true), nil
@@ -216,7 +216,7 @@ func TestAgentTurnRunnerRejectsUnsafeRepeatedExternalSend(t *testing.T) {
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{RecoveryAttemptLimit: 2, RecoveryBudget: exhaustedRecoveryBudgetForTest()})
 	toolRegistry := newTestCapabilityToolSet([]string{"message.send", "message.context"})
 	callCount := 0
-	toolRegistry.RegisterTool(ToolDefinition{Name: "message.send"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	toolRegistry.RegisterTool(testExternalSendToolDefinition("message.send"), func(context.Context, ToolInvocation) (ToolResult, error) {
 		callCount++
 		return structuredFailureToolResult("Mattermost returned 503 after post create", "Mattermost returned 503 after post create", "send_failed", "message_send", true, false), nil
 	})
@@ -609,7 +609,12 @@ func TestAgentTurnRunnerRejectsRepeatedScheduleCreateWithoutExecutingAgain(t *te
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 4, MaxToolCallCount: 4})
 	toolCallCount := 0
 	toolRegistry := newTestCapabilityToolSet([]string{"schedule.create"})
-	toolRegistry.RegisterTool(ToolDefinition{Name: "schedule.create"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	toolRegistry.RegisterTool(ToolDefinition{
+		Name:            "schedule.create",
+		Namespace:       "schedule",
+		SideEffectClass: ToolSideEffectStateChange,
+		Completion:      ToolCompletion{Mode: ToolCompletionObservation, Action: "create_schedule", TargetKind: "schedule"},
+	}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		toolCallCount++
 		return ToolSuccess(`{"taskScheduleID":"schedule-1","taskInstruction":"현재 대화에 \"죄송합니다\"라고 보낸다.","kind":"interval","intervalSecond":60,"maxRunCount":10}`), nil
 	})

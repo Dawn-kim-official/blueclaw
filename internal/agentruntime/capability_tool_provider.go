@@ -1,0 +1,141 @@
+package agentruntime
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"strings"
+
+	"blueclaw/internal/agent"
+)
+
+type capabilityToolProvider struct {
+	toolCatalogBuilder *ToolCatalogBuilder
+	request            ToolCatalogRequest
+	descriptors        []CapabilityToolDescriptor
+}
+
+func (provider capabilityToolProvider) ProviderID() string {
+	return "capabilityd"
+}
+
+func (provider capabilityToolProvider) ListTools(context.Context) ([]agent.BoundTool, error) {
+	boundTools := make([]agent.BoundTool, 0, len(provider.descriptors))
+	for _, descriptor := range provider.descriptors {
+		if errorValue := validateCapabilityToolDescriptor(descriptor); errorValue != nil {
+			return nil, errorValue
+		}
+		if !capabilityDescriptorIsRegistered(descriptor, provider.request) {
+			continue
+		}
+		boundTools = append(boundTools, provider.boundTool(descriptor))
+	}
+	return boundTools, nil
+}
+
+func validateCapabilityToolDescriptor(descriptor CapabilityToolDescriptor) error {
+	requiredValues := map[string]string{
+		"name":            descriptor.Name,
+		"canonicalName":   descriptor.CanonicalName,
+		"namespace":       descriptor.Namespace,
+		"modelName":       descriptor.ModelName,
+		"modelVisibility": descriptor.ModelVisibility,
+		"description":     descriptor.Description,
+		"privacyClass":    descriptor.PrivacyClass,
+		"policyResource":  descriptor.PolicyResource,
+		"sideEffectClass": descriptor.SideEffectClass,
+		"availability":    descriptor.Availability.State,
+	}
+	for fieldName, fieldValue := range requiredValues {
+		if strings.TrimSpace(fieldValue) == "" {
+			return errors.New("capability descriptor " + fieldName + " is required")
+		}
+	}
+	if descriptor.ModelVisibility != agent.ToolVisibilityModel && descriptor.ModelVisibility != agent.ToolVisibilityInternal && descriptor.ModelVisibility != agent.ToolVisibilityControl {
+		return errors.New("capability descriptor modelVisibility is invalid")
+	}
+	if descriptor.Availability.State != "ok" && descriptor.Availability.State != "not_allowed" && descriptor.Availability.State != "not_connected" && descriptor.Availability.State != "not_ready" {
+		return errors.New("capability descriptor availability is invalid")
+	}
+	if !validCapabilityObjectSchema(descriptor.InputSchema) || !validCapabilityObjectSchema(descriptor.OutputSchema) {
+		return errors.New("capability descriptor input and output schemas must describe objects")
+	}
+	if descriptor.CompletionEvidence != nil {
+		if descriptor.CompletionEvidence.Mode != "success" {
+			return errors.New("capability descriptor completion evidence mode is invalid")
+		}
+		if strings.TrimSpace(descriptor.CompletionEvidence.Action) == "" || strings.TrimSpace(descriptor.CompletionEvidence.TargetKind) == "" {
+			return errors.New("capability descriptor completion evidence action and targetKind are required")
+		}
+	}
+	return nil
+}
+
+func validCapabilityObjectSchema(schema json.RawMessage) bool {
+	var document struct {
+		Type string `json:"type"`
+	}
+	return len(schema) > 0 && json.Unmarshal(schema, &document) == nil && document.Type == "object"
+}
+
+func (provider capabilityToolProvider) boundTool(descriptor CapabilityToolDescriptor) agent.BoundTool {
+	operation := strings.TrimSpace(descriptor.CanonicalName)
+	return agent.BoundTool{
+		Definition: agent.ToolDescriptor{
+			ID:                   "capabilityd/" + strings.TrimSpace(descriptor.CanonicalName),
+			ProviderID:           provider.ProviderID(),
+			Namespace:            strings.TrimSpace(descriptor.Namespace),
+			Name:                 strings.TrimSpace(descriptor.ModelName),
+			Description:          strings.TrimSpace(descriptor.Description),
+			PrivacyClass:         strings.TrimSpace(descriptor.PrivacyClass),
+			RequiresUserPresence: descriptor.RequiresUserPresence,
+			WorksOffline:         descriptor.WorksOffline,
+			InputSchema:          descriptor.InputSchema,
+			OutputSchema:         descriptor.OutputSchema,
+			Visibility:           strings.TrimSpace(descriptor.ModelVisibility),
+			PolicyResource:       strings.TrimSpace(descriptor.PolicyResource),
+			SideEffectClass:      strings.TrimSpace(descriptor.SideEffectClass),
+			RequiresApproval:     descriptor.RequiresApproval,
+			Completion:           capabilityToolCompletion(descriptor.CompletionEvidence),
+			Idempotency:          capabilityToolIdempotency(descriptor.Idempotency),
+		},
+		Availability: capabilityToolAvailability(descriptor, provider.request),
+		Handler: func(toolContext context.Context, invocation agent.ToolInvocation) (agent.ToolResult, error) {
+			return provider.toolCatalogBuilder.invokeCapabilityOperation(
+				toolContext,
+				operation,
+				descriptor,
+				provider.request,
+				invocation.Input,
+			)
+		},
+	}
+}
+
+func capabilityDescriptorIsRegistered(descriptor CapabilityToolDescriptor, request ToolCatalogRequest) bool {
+	if strings.TrimSpace(descriptor.ModelVisibility) != agent.ToolVisibilityModel {
+		return false
+	}
+	return !request.IsScheduledRun || !descriptor.RequiresUserPresence
+}
+
+func capabilityToolCompletion(evidence *CapabilityCompletionEvidence) agent.ToolCompletion {
+	if evidence == nil {
+		return agent.ToolCompletion{Mode: agent.ToolCompletionNone}
+	}
+	return agent.ToolCompletion{
+		Mode:       agent.ToolCompletionObservation,
+		Action:     strings.TrimSpace(evidence.Action),
+		TargetKind: strings.TrimSpace(evidence.TargetKind),
+	}
+}
+
+func capabilityToolIdempotency(idempotency CapabilityIdempotency) string {
+	if idempotency.Required {
+		return agent.ToolIdempotencyRequired
+	}
+	if idempotency.Supported {
+		return agent.ToolIdempotencySupported
+	}
+	return agent.ToolIdempotencyNone
+}

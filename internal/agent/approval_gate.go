@@ -189,7 +189,7 @@ func approvalHeldCallExecutedAfter(taskEvents []task.TaskEvent, toolName string)
 
 func toolCallRequiresRuntimeApproval(toolSet *ToolSet, actionDocument turnActionDocument) bool {
 	trimmedToolName := strings.TrimSpace(actionDocument.ToolName)
-	if trimmedToolName == "" || trimmedToolName == CapabilityInvokeToolName {
+	if trimmedToolName == "" {
 		return false
 	}
 	definition, isFound := toolSet.ToolDefinition(trimmedToolName)
@@ -286,13 +286,12 @@ func (agentTurnRunner *AgentTurnRunner) generateHeldCallConfirmationWording(ctx 
 }
 
 func approvalQuestionContext(request AgentTurnRequest, actionDocument turnActionDocument, modelDraft string) approvalQuestionContextDocument {
-	operation, input := effectiveActionToolNameAndInput(actionDocument.ToolName, actionDocument.ToolInput)
 	return approvalQuestionContextDocument{
 		ResponseLanguage: strings.TrimSpace(request.ResponseLanguage),
 		OriginalRequest:  strings.TrimSpace(request.Prompt),
 		ModelDraft:       strings.TrimSpace(modelDraft),
-		Operation:        strings.TrimSpace(operation),
-		ActionDetails:    approvalQuestionActionDetails(input),
+		Operation:        strings.TrimSpace(actionDocument.ToolName),
+		ActionDetails:    approvalQuestionActionDetails(actionDocument.ToolInput),
 	}
 }
 

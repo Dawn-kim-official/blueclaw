@@ -133,7 +133,11 @@ func (toolCatalogBuilder *ToolCatalogBuilder) resolveSitePublishSource(toolConte
 	var response struct {
 		Result json.RawMessage `json:"result"`
 	}
-	if errorValue := toolCatalogBuilder.capabilityClient.PostJSON(toolContext, "/v1/tools/site.status/invoke", capabilityToolRequest(toolContext, "site.status", request, statusRaw), &response); errorValue != nil {
+	requestDocument, errorValue := toolCatalogBuilder.capabilityRequestForOperation(toolContext, "site.status", request, statusRaw)
+	if errorValue != nil {
+		return siteSourceRecord{}, errorValue
+	}
+	if errorValue := toolCatalogBuilder.capabilityClient.PostJSON(toolContext, "/v1/tools/site.status/invoke", requestDocument, &response); errorValue != nil {
 		return siteSourceRecord{}, errorValue
 	}
 	record := siteSourceRecord{}

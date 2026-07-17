@@ -44,13 +44,13 @@ func artifactFormatsForAttachmentSuffixes(suffixes []string) []string {
 }
 
 func requestNeedsSiteArtifactContract(request AgentRequest) bool {
-	if activeGoalRequiresToolPrefix(request.ActiveGoal, "site.") {
+	if contractRequiresToolNamespace(request.ToolSet, request.ActiveGoal.OutcomeContract, "site") {
 		return true
 	}
 	if outcomeContractHasSiteEffect(request.ActiveGoal.OutcomeContract) {
 		return true
 	}
-	return expectedResultIncludesType(request.ActiveGoal.OutcomeContract, ExpectedResultTypeLink) && activeGoalMentionsToolPrefix(request.ActiveGoal, "site.")
+	return expectedResultIncludesType(request.ActiveGoal.OutcomeContract, ExpectedResultTypeLink)
 }
 
 func requestNeedsSlidesArtifactContract(request AgentRequest) bool {
@@ -67,45 +67,18 @@ func outcomeContractHasSiteEffect(contract OutcomeContract) bool {
 	return false
 }
 
-func skillSupportsSiteArtifact(skillInstruction SkillInstruction) bool {
-	return skillSupportsToolPrefix(skillInstruction, "site.")
+func skillSupportsSiteArtifact(toolSet *ToolSet, skillInstruction SkillInstruction) bool {
+	return requiredEvidenceIncludesNamespace(toolSet, SkillToolNames(skillInstruction), "site")
 }
 
 func skillSupportsFileDelivery(skillInstruction SkillInstruction) bool {
 	return skillHasToolName(skillInstruction, FileDeliverToolName) ||
 		skillHasToolName(skillInstruction, ArtifactDeliverToolName) ||
-		skillHasToolName(skillInstruction, FileAttachToolName) ||
-		skillHasEvidenceTool(skillInstruction, FileDeliverToolName) ||
-		skillHasEvidenceTool(skillInstruction, ArtifactDeliverToolName) ||
-		skillHasEvidenceTool(skillInstruction, FileAttachToolName) ||
-		len(skillInstruction.Completion.RequiredAttachmentSuffixes) > 0
-}
-
-func skillSupportsToolPrefix(skillInstruction SkillInstruction, prefix string) bool {
-	for _, toolName := range appendUniqueStrings(SkillToolNames(skillInstruction), skillInstruction.Completion.RequiredEvidenceTools...) {
-		if strings.HasPrefix(strings.TrimSpace(toolName), prefix) {
-			return true
-		}
-	}
-	for _, toolPrefix := range skillInstruction.Activation.ToolPrefixes {
-		if strings.HasPrefix(strings.TrimSpace(toolPrefix), prefix) || strings.HasPrefix(prefix, strings.TrimSpace(toolPrefix)) {
-			return true
-		}
-	}
-	return false
+		skillHasToolName(skillInstruction, FileAttachToolName)
 }
 
 func skillHasToolName(skillInstruction SkillInstruction, toolName string) bool {
 	for _, candidate := range SkillToolNames(skillInstruction) {
-		if strings.TrimSpace(candidate) == toolName {
-			return true
-		}
-	}
-	return false
-}
-
-func skillHasEvidenceTool(skillInstruction SkillInstruction, toolName string) bool {
-	for _, candidate := range skillInstruction.Completion.RequiredEvidenceTools {
 		if strings.TrimSpace(candidate) == toolName {
 			return true
 		}

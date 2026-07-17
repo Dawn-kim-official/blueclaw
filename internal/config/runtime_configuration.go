@@ -29,23 +29,46 @@ type CapabilityConfiguration struct {
 	TimeoutSecond   int                        `json:"timeoutSecond"`
 	VSockCID        uint32                     `json:"vsockCID"`
 	VSockPort       uint32                     `json:"vsockPort"`
-	ToolNames       []string                   `json:"toolNames"`
 	ToolDescriptors []CapabilityToolDescriptor `json:"toolDescriptors,omitempty"`
 }
 
 type CapabilityToolDescriptor struct {
-	Name                 string          `json:"name"`
-	Description          string          `json:"description,omitempty"`
-	Version              string          `json:"version,omitempty"`
-	PrivacyClass         string          `json:"privacyClass,omitempty"`
-	EstimatedLatency     string          `json:"estimatedLatency,omitempty"`
-	RequiresUserPresence bool            `json:"requiresUserPresence,omitempty"`
-	WorksOffline         bool            `json:"worksOffline,omitempty"`
-	InputSchema          json.RawMessage `json:"inputSchema,omitempty"`
-	OutputSchema         json.RawMessage `json:"outputSchema,omitempty"`
-	PolicyResource       string          `json:"policyResource,omitempty"`
-	SideEffectClass      string          `json:"sideEffectClass,omitempty"`
-	RequiresApproval     bool            `json:"requiresApproval,omitempty"`
+	Name                 string                        `json:"name"`
+	CanonicalName        string                        `json:"canonicalName"`
+	Namespace            string                        `json:"namespace"`
+	ModelName            string                        `json:"modelName"`
+	ModelVisibility      string                        `json:"modelVisibility"`
+	Description          string                        `json:"description,omitempty"`
+	Version              string                        `json:"version,omitempty"`
+	PrivacyClass         string                        `json:"privacyClass,omitempty"`
+	EstimatedLatency     string                        `json:"estimatedLatency,omitempty"`
+	RequiresUserPresence bool                          `json:"requiresUserPresence,omitempty"`
+	WorksOffline         bool                          `json:"worksOffline,omitempty"`
+	InputSchema          json.RawMessage               `json:"inputSchema,omitempty"`
+	OutputSchema         json.RawMessage               `json:"outputSchema,omitempty"`
+	PolicyResource       string                        `json:"policyResource,omitempty"`
+	SideEffectClass      string                        `json:"sideEffectClass,omitempty"`
+	RequiresApproval     bool                          `json:"requiresApproval,omitempty"`
+	CompletionEvidence   *CapabilityCompletionEvidence `json:"completionEvidence,omitempty"`
+	Availability         CapabilityAvailability        `json:"availability"`
+	Idempotency          CapabilityIdempotency         `json:"idempotency"`
+}
+
+type CapabilityCompletionEvidence struct {
+	Mode       string `json:"mode,omitempty"`
+	Action     string `json:"action,omitempty"`
+	TargetKind string `json:"targetKind,omitempty"`
+}
+
+type CapabilityAvailability struct {
+	State  string `json:"state"`
+	Reason string `json:"reason,omitempty"`
+}
+
+type CapabilityIdempotency struct {
+	Supported bool   `json:"supported"`
+	Required  bool   `json:"required"`
+	Scope     string `json:"scope,omitempty"`
 }
 
 type AgentProfileConfiguration struct {
@@ -59,14 +82,29 @@ type MCPServerConfiguration struct {
 	Command   string                 `json:"command"`
 	Arguments []string               `json:"arguments"`
 	Endpoint  string                 `json:"endpoint"`
-	ToolNames []string               `json:"toolNames"`
 	Tools     []MCPToolConfiguration `json:"tools,omitempty"`
 }
 
 type MCPToolConfiguration struct {
-	Name        string          `json:"name"`
-	Description string          `json:"description"`
-	InputSchema json.RawMessage `json:"inputSchema,omitempty"`
+	Name        string                 `json:"name"`
+	Namespace   string                 `json:"namespace"`
+	Description string                 `json:"description"`
+	InputSchema json.RawMessage        `json:"inputSchema"`
+	Policy      *MCPToolPolicyMetadata `json:"policy"`
+}
+
+type MCPToolPolicyMetadata struct {
+	PrivacyClass         string `json:"privacyClass"`
+	RequiresUserPresence bool   `json:"requiresUserPresence"`
+	WorksOffline         bool   `json:"worksOffline"`
+	ModelVisibility      string `json:"modelVisibility"`
+	PolicyResource       string `json:"policyResource"`
+	SideEffectClass      string `json:"sideEffectClass"`
+	RequiresApproval     bool   `json:"requiresApproval"`
+	CompletionMode       string `json:"completionMode"`
+	CompletionAction     string `json:"completionAction"`
+	CompletionTargetKind string `json:"completionTargetKind"`
+	Idempotency          string `json:"idempotency"`
 }
 
 type AgentConfiguration struct {

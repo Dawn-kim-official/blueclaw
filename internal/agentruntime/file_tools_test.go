@@ -12,7 +12,6 @@ import (
 	"unicode/utf8"
 
 	"blueclaw/internal/agent"
-	"blueclaw/internal/capability"
 	"blueclaw/internal/policy"
 )
 
@@ -904,20 +903,14 @@ func TestFileToolsDenyCirclePathForNonMember(t *testing.T) {
 	}
 }
 
-func TestFileReadCapabilityDenyCirclePathForNonMember(t *testing.T) {
+func TestFileReadDeniesCirclePathForNonMember(t *testing.T) {
 	workspacePath := t.TempDir()
 	financeDirectoryPath := filepath.Join(workspacePath, "circles", "finance")
 	if errorValue := os.MkdirAll(financeDirectoryPath, 0700); errorValue != nil {
 		t.Fatal(errorValue)
 	}
 	writeTestFile(t, filepath.Join(financeDirectoryPath, "report.pdf"), "secret")
-	httpClient := &recordingHTTPClient{}
 	toolCatalogBuilder := newFileToolTestCatalogBuilder(workspacePath)
-	toolCatalogBuilder.UseCapabilityToolDescriptors(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, []CapabilityToolDescriptor{{
-		Name:           "file.read",
-		PolicyResource: "tool:file.read",
-		InputSchema:    json.RawMessage(`{"type":"object","properties":{"path":{"type":"string"}},"required":["path"],"additionalProperties":false}`),
-	}})
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
 		ProfileName:       "default",
 		RequesterPersonID: "person-1",
@@ -939,25 +932,16 @@ func TestFileReadCapabilityDenyCirclePathForNonMember(t *testing.T) {
 	if !result.Failed() || !strings.Contains(result.ContentText(), "cannot read") {
 		t.Fatalf("expected read denial, got %+v", result)
 	}
-	if httpClient.requestPath != "" {
-		t.Fatalf("expected denied file.read not to call capability bridge, got path=%s", httpClient.requestPath)
-	}
 }
 
-func TestFileReadCapabilityAllowCirclePathForMember(t *testing.T) {
+func TestFileReadAllowsCirclePathForMember(t *testing.T) {
 	workspacePath := t.TempDir()
 	financeDirectoryPath := filepath.Join(workspacePath, "circles", "finance")
 	if errorValue := os.MkdirAll(financeDirectoryPath, 0700); errorValue != nil {
 		t.Fatal(errorValue)
 	}
 	writeTestFile(t, filepath.Join(financeDirectoryPath, "report.md"), "secret")
-	httpClient := &recordingHTTPClient{responseBody: `{"content":"# Report","status":"ok","result":{"content":"# Report"}}`}
 	toolCatalogBuilder := newFileToolTestCatalogBuilder(workspacePath)
-	toolCatalogBuilder.UseCapabilityToolDescriptors(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, []CapabilityToolDescriptor{{
-		Name:           "file.read",
-		PolicyResource: "tool:file.read",
-		InputSchema:    json.RawMessage(`{"type":"object","properties":{"path":{"type":"string"}},"required":["path"],"additionalProperties":false}`),
-	}})
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
 		ProfileName:       "default",
 		RequesterPersonID: "person-1",
@@ -978,9 +962,6 @@ func TestFileReadCapabilityAllowCirclePathForMember(t *testing.T) {
 	}
 	if result.Failed() || !strings.Contains(result.ContentText(), `"content":"secret"`) {
 		t.Fatalf("expected file.read success, got %+v", result)
-	}
-	if httpClient.requestPath != "" {
-		t.Fatalf("expected built-in file.read not to call capability bridge, got path=%s body=%s", httpClient.requestPath, httpClient.requestBody)
 	}
 }
 
@@ -1389,7 +1370,6 @@ func TestFileWriteThroughWorkspaceActorTreatsContentAsData(t *testing.T) {
 		Input: agent.MarshalToolInput(map[string]any{
 			"path":    "tmp/deck/input.txt",
 			"content": content,
-			"mode":    0600,
 		}),
 	})
 	if errorValue != nil {
@@ -1513,7 +1493,7 @@ func TestFileWriteAndTerminalRunShareRequesterWorkspaceActorView(t *testing.T) {
 	}
 }
 
-func TestFileWriteIgnoresLegacyModeAndKeepsTaskDraftReadable(t *testing.T) {
+func TestFileWriteRejectsLegacyMode(t *testing.T) {
 	workspacePath := t.TempDir()
 	toolCatalogBuilder := newTerminalToolTestCatalogBuilder(workspacePath)
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
@@ -1538,34 +1518,8 @@ func TestFileWriteIgnoresLegacyModeAndKeepsTaskDraftReadable(t *testing.T) {
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
-	if writeResult.Failed() {
-		t.Fatalf("expected file.write success, got %s", writeResult.ContentText())
-	}
-
-	runResult, errorValue := toolRegistry.Invoke(toolContext, agent.ToolInvocation{
-		ToolName: "terminal.run",
-		Input: agent.MarshalToolInput(map[string]any{
-			"workingDirectoryPath": "tmp/docx-guide",
-			"command":              "cat document.json",
-		}),
-	})
-	if errorValue != nil {
-		t.Fatal(errorValue)
-	}
-	if runResult.Failed() {
-		t.Fatalf("expected terminal.run to read file.write output, got %s", runResult.ContentText())
-	}
-	if !strings.Contains(runResult.ContentText(), "readable") {
-		t.Fatalf("expected terminal output to include written content, got %s", runResult.ContentText())
-	}
-
-	documentPath := filepath.Join(workspacePath, "private", "people", "person-1", "tmp", "docx-guide", "document.json")
-	fileInformation, errorValue := os.Stat(documentPath)
-	if errorValue != nil {
-		t.Fatal(errorValue)
-	}
-	if fileInformation.Mode().Perm() != 0600 {
-		t.Fatalf("expected runtime default private mode 0600, got %04o", fileInformation.Mode().Perm())
+	if !writeResult.Failed() || !strings.Contains(writeResult.ContentText(), `unknown field "mode"`) {
+		t.Fatalf("expected legacy mode to be rejected, got %+v", writeResult)
 	}
 }
 

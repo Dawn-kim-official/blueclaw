@@ -8,6 +8,7 @@ import (
 func newHybridKernelCapabilityToolSet(kernelToolNames []string, operationNames []string) *ToolSet {
 	toolNames := append(append([]string{}, kernelToolNames...), operationNames...)
 	toolSet := NewToolSet(toolNames)
+	toolSet.allowsTestReplacement = true
 	for _, toolName := range toolNames {
 		toolSet.RegisterTool(ToolDefinition{Name: toolName}, func(context.Context, ToolInvocation) (ToolResult, error) {
 			return ToolSuccess("ok"), nil
@@ -34,9 +35,9 @@ func TestPlannedToolsDropRepeatedFileRead(t *testing.T) {
 }
 
 func TestSelectedSkillExposesDirectTools(t *testing.T) {
-	toolSet := testToolSet(append(KernelToolNames(), CapabilityInvokeToolName, TaskHistoryToolName, "task.add", "task.list"))
+	toolSet := testToolSet(append(KernelToolNames(), TaskHistoryToolName, "task.add", "task.list"))
 	instructionBundle := InstructionBundle{
-		Skills:         []SkillInstruction{{Name: "internkim-flow", AllowedTools: []string{"task.add", "task.list"}}},
+		Skills:         []SkillInstruction{{Name: "internkim-flow", ToolReferences: []string{"task.add", "task.list"}}},
 		SkillDecisions: []SkillSelectionDecision{{Name: "internkim-flow", Status: "selected"}},
 	}
 
@@ -47,10 +48,8 @@ func TestSelectedSkillExposesDirectTools(t *testing.T) {
 			t.Fatalf("expected selected skill tool %s, got %+v", toolName, filteredToolSet.ListToolNames())
 		}
 	}
-	for _, toolName := range []string{CapabilityInvokeToolName, TaskHistoryToolName} {
-		if filteredToolSet.IsAllowed(toolName) {
-			t.Fatalf("expected internal tool %s to stay hidden, got %+v", toolName, filteredToolSet.ListToolNames())
-		}
+	if filteredToolSet.IsAllowed(TaskHistoryToolName) {
+		t.Fatalf("expected internal tool %s to stay hidden, got %+v", TaskHistoryToolName, filteredToolSet.ListToolNames())
 	}
 	if !sameStringSet(event.SelectedSkillToolIDs, []string{"task.add", "task.list"}) {
 		t.Fatalf("expected selected skill event, got %+v", event)
@@ -64,7 +63,7 @@ func TestAuthoritativeContractExposesSelectedTaskDomain(t *testing.T) {
 	flowToolNames := []string{"task.add", "task.list", "task.update", "task.delete"}
 	toolSet := testToolSet(append(KernelToolNames(), flowToolNames...))
 	instructionBundle := InstructionBundle{
-		Skills:                      []SkillInstruction{{Name: "internkim-flow", AllowedTools: flowToolNames}},
+		Skills:                      []SkillInstruction{{Name: "internkim-flow", ToolReferences: flowToolNames}},
 		SkillDecisions:              []SkillSelectionDecision{{Name: "internkim-flow", Status: "selected"}},
 		RequiredNextTools:           []string{"task.add"},
 		RequiredEvidenceTools:       []string{"task.add"},
@@ -81,7 +80,8 @@ func TestAuthoritativeContractExposesSelectedTaskDomain(t *testing.T) {
 		ToolExposureEvent{},
 	)
 
-	if !sameStringSet(filteredToolSet.ListToolNames(), flowToolNames) {
+	expectedToolNames := append(append([]string{}, KernelToolNames()...), flowToolNames...)
+	if !sameStringSet(filteredToolSet.ListToolNames(), expectedToolNames) {
 		t.Fatalf("expected selected task domain, got %+v", filteredToolSet.ListToolNames())
 	}
 	if event.SelectionSource != "contract_arbitration" {
@@ -98,8 +98,8 @@ func TestAuthoritativeContractPreservesCompoundWorkflow(t *testing.T) {
 	toolSet := testToolSet(append(append(KernelToolNames(), flowToolNames...), calendarToolNames...))
 	instructionBundle := InstructionBundle{
 		Skills: []SkillInstruction{
-			{Name: "internkim-flow", AllowedTools: flowToolNames},
-			{Name: "calendar", AllowedTools: calendarToolNames},
+			{Name: "internkim-flow", ToolReferences: flowToolNames},
+			{Name: "calendar", ToolReferences: calendarToolNames},
 		},
 		SkillDecisions: []SkillSelectionDecision{
 			{Name: "internkim-flow", Status: "selected"},
@@ -120,7 +120,7 @@ func TestAuthoritativeContractPreservesCompoundWorkflow(t *testing.T) {
 		ToolExposureEvent{},
 	)
 
-	expectedToolNames := append(append([]string{}, flowToolNames...), calendarToolNames...)
+	expectedToolNames := append(append(append([]string{}, KernelToolNames()...), flowToolNames...), calendarToolNames...)
 	if !sameStringSet(filteredToolSet.ListToolNames(), expectedToolNames) {
 		t.Fatalf("expected selected domain tools, got %+v", filteredToolSet.ListToolNames())
 	}
@@ -130,7 +130,7 @@ func TestAuthoritativeContractPreservesTypedRecoveryTool(t *testing.T) {
 	flowToolNames := []string{"task.add", "task.update"}
 	toolSet := testToolSet(append(KernelToolNames(), flowToolNames...))
 	instructionBundle := InstructionBundle{
-		Skills:                      []SkillInstruction{{Name: "internkim-flow", AllowedTools: flowToolNames}},
+		Skills:                      []SkillInstruction{{Name: "internkim-flow", ToolReferences: flowToolNames}},
 		SkillDecisions:              []SkillSelectionDecision{{Name: "internkim-flow", Status: "selected"}},
 		RequiredNextTools:           []string{"task.add"},
 		HasContractSkillArbitration: true,
@@ -150,8 +150,49 @@ func TestAuthoritativeContractPreservesTypedRecoveryTool(t *testing.T) {
 		[]turnObservation{observation},
 	)
 
-	if !sameStringSet(filteredToolSet.ListToolNames(), []string{"task.add", "task.update"}) {
+	expectedToolNames := append(append([]string{}, KernelToolNames()...), "task.add", "task.update")
+	if !sameStringSet(filteredToolSet.ListToolNames(), expectedToolNames) {
 		t.Fatalf("expected contract and recovery working set, got %+v", filteredToolSet.ListToolNames())
+	}
+}
+
+func TestImmediateReplyWithoutToolIntentExposesNoTools(t *testing.T) {
+	toolSet := testToolSet(KernelToolNames())
+
+	filteredToolSet, event := toolSetForAgentTurnWithExposure(
+		toolSet,
+		InstructionBundle{},
+		AgentRequest{TaskShape: TaskShapeImmediateReply},
+		ExecutionPlan{},
+		false,
+		OutcomeContract{},
+		ToolExposureEvent{},
+	)
+
+	if len(filteredToolSet.ListToolNames()) != 0 {
+		t.Fatalf("expected pure reply to expose no tools, got %+v", filteredToolSet.ListToolNames())
+	}
+	if len(event.ExposedToolIDs) != 0 {
+		t.Fatalf("expected pure reply event to contain no tools, got %+v", event)
+	}
+}
+
+func TestImmediateReplyWithPinnedToolExposesFullKernel(t *testing.T) {
+	toolSet := testToolSet(append(KernelToolNames(), "math.calculate"))
+
+	filteredToolSet, _ := toolSetForAgentTurnWithExposure(
+		toolSet,
+		InstructionBundle{},
+		AgentRequest{TaskShape: TaskShapeImmediateReply, PinnedToolNames: []string{"math.calculate"}},
+		ExecutionPlan{},
+		false,
+		OutcomeContract{},
+		ToolExposureEvent{},
+	)
+
+	expectedToolNames := append(append([]string{}, KernelToolNames()...), "math.calculate")
+	if !sameStringSet(filteredToolSet.ListToolNames(), expectedToolNames) {
+		t.Fatalf("expected full kernel with the pinned tool, got %+v", filteredToolSet.ListToolNames())
 	}
 }
 
@@ -192,8 +233,8 @@ func TestSelectedSkillRankingControlsToolBudget(t *testing.T) {
 	toolSet := testToolSet(append(append(KernelToolNames(), secondaryToolNames...), flowToolNames...))
 	instructionBundle := InstructionBundle{
 		Skills: []SkillInstruction{
-			{Name: "secondary", AllowedTools: secondaryToolNames},
-			{Name: "internkim-flow", AllowedTools: flowToolNames},
+			{Name: "secondary", ToolReferences: secondaryToolNames},
+			{Name: "internkim-flow", ToolReferences: flowToolNames},
 		},
 		SkillDecisions: []SkillSelectionDecision{
 			{Name: "internkim-flow", Status: "selected"},
@@ -219,7 +260,7 @@ func TestPinnedDirectToolWinsSelectedSkillBudget(t *testing.T) {
 	}
 	toolSet := testToolSet(append(KernelToolNames(), selectedToolNames...))
 	instructionBundle := InstructionBundle{
-		Skills:         []SkillInstruction{{Name: "website", AllowedTools: selectedToolNames}},
+		Skills:         []SkillInstruction{{Name: "website", ToolReferences: selectedToolNames}},
 		SkillDecisions: []SkillSelectionDecision{{Name: "website", Status: "selected"}},
 	}
 
@@ -258,7 +299,7 @@ func TestRequiredEvidenceWinsToolBudget(t *testing.T) {
 	}
 	toolSet := testToolSet(append(append(KernelToolNames(), selectedToolNames...), "task.update"))
 	instructionBundle := InstructionBundle{
-		Skills:         []SkillInstruction{{Name: "website", AllowedTools: selectedToolNames}},
+		Skills:         []SkillInstruction{{Name: "website", ToolReferences: selectedToolNames}},
 		SkillDecisions: []SkillSelectionDecision{{Name: "website", Status: "selected"}},
 	}
 

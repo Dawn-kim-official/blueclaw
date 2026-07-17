@@ -34,10 +34,10 @@ func (toolCatalogBuilder *ToolCatalogBuilder) openBrowserHandoffTool(toolContext
 	if errorValue != nil {
 		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "browser_handoff", errorValue.Error()), nil
 	}
-	requestDocument := capabilityToolRequest(toolContext, "browser.handoff", handlerContext.request, inputDocument)
-	requestDocument["executionMode"] = "companion"
-	requestDocument["requiresUserPresence"] = true
-	requestDocument["privacyClass"] = "user_browser"
+	requestDocument, errorValue := toolCatalogBuilder.capabilityRequestForOperation(toolContext, "browser.handoff", handlerContext.request, inputDocument)
+	if errorValue != nil {
+		return agent.ToolFailureResult(agent.FailureDependencyUnavailable, agent.FailureCodes.Unavailable, "browser_handoff", errorValue.Error()), nil
+	}
 	var response struct {
 		Content string          `json:"content"`
 		IsError bool            `json:"isError"`

@@ -37,13 +37,12 @@ type SkillSearchResult struct {
 }
 
 type SkillSearchResultItem struct {
-	Name        string          `json:"name"`
-	Description string          `json:"description"`
-	Prompt      string          `json:"prompt,omitempty"`
-	Score       float64         `json:"score"`
-	Tools       []string        `json:"tools"`
-	SourcePath  string          `json:"sourcePath,omitempty"`
-	Completion  SkillCompletion `json:"completion,omitempty"`
+	Name           string   `json:"name"`
+	Description    string   `json:"description"`
+	Prompt         string   `json:"prompt,omitempty"`
+	Score          float64  `json:"score"`
+	ToolReferences []string `json:"toolReferences"`
+	SourcePath     string   `json:"sourcePath,omitempty"`
 }
 
 type SkillRetrievalResult struct {
@@ -150,9 +149,6 @@ func (skillRetriever *EmbeddingSkillRetriever) refresh(ctx context.Context, skil
 	documentsByKey := skillSearchDocumentByKey(skillRetriever.documents)
 	nextDocuments := []SkillSearchDocument{}
 	for _, skillInstruction := range skillInstructions {
-		if skillInstruction.DisableModelInvocation {
-			continue
-		}
 		searchText := skillSearchText(skillInstruction)
 		if strings.TrimSpace(searchText) == "" {
 			continue
@@ -321,11 +317,11 @@ func directSkillNamesFromPrompt(prompt string) map[string]bool {
 }
 
 func isSkillAllowedForDirectRetrieval(skillInstruction SkillInstruction, request AgentRequest) bool {
-	return skillProfileAllows(skillInstruction, normalizedAgentProfileName(request.ProfileName)) && len(missingAllowedTools(skillInstruction, request)) == 0
+	return len(missingToolReferences(skillInstruction, request)) == 0
 }
 
 func isSkillAllowedForAutomaticRetrieval(skillInstruction SkillInstruction, request AgentRequest) bool {
-	return !skillInstruction.DisableModelInvocation && isSkillAllowedForDirectRetrieval(skillInstruction, request) && skillPathsAllow(skillInstruction, request)
+	return isSkillAllowedForDirectRetrieval(skillInstruction, request)
 }
 
 func skillSearchDocumentByKey(searchDocuments []SkillSearchDocument) map[string]SkillSearchDocument {

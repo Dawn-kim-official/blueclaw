@@ -42,7 +42,9 @@ func buildActionSchemaFromToolDefinitions(toolDefinitions []ToolDefinition, allo
 		if blockedToolNames[strings.TrimSpace(toolDefinition.Name)] {
 			continue
 		}
-		variants = append(variants, continueActionSchema(toolDefinition))
+		if variant, isValid := continueActionSchema(toolDefinition); isValid {
+			variants = append(variants, variant)
+		}
 	}
 
 	document, errorValue := json.Marshal(map[string]any{"oneOf": variants})
@@ -159,13 +161,17 @@ func failActionSchema(hasFailureDebt bool) map[string]any {
 	}
 }
 
-func continueActionSchema(toolDefinition ToolDefinition) map[string]any {
+func continueActionSchema(toolDefinition ToolDefinition) (map[string]any, bool) {
+	inputSchema, isValid := toolInputSchema(toolDefinition)
+	if !isValid {
+		return nil, false
+	}
 	schema := map[string]any{
 		"type": "object",
 		"properties": map[string]any{
 			"action":               enumStringSchema("continue"),
 			"toolName":             enumStringSchema(toolDefinition.Name),
-			"toolInput":            toolInputSchema(toolDefinition),
+			"toolInput":            inputSchema,
 			"message":              stringSchema(),
 			"reason":               stringSchema(),
 			"goalStatus":           enumValuesStringSchema([]string{"in_progress"}),
@@ -179,17 +185,21 @@ func continueActionSchema(toolDefinition ToolDefinition) map[string]any {
 	if description := strings.TrimSpace(toolDefinition.Description); description != "" {
 		schema["description"] = description
 	}
-	return schema
+	return schema, true
 }
 
-func toolInputSchema(toolDefinition ToolDefinition) any {
-	if len(toolDefinition.InputSchema) > 0 {
-		var schema any
-		if json.Unmarshal(toolDefinition.InputSchema, &schema) == nil {
-			return portableNestedSchema(schema)
-		}
+func toolInputSchema(toolDefinition ToolDefinition) (any, bool) {
+	if len(toolDefinition.InputSchema) == 0 {
+		return nil, false
 	}
-	return objectSchema()
+	var schema map[string]any
+	if json.Unmarshal(toolDefinition.InputSchema, &schema) != nil {
+		return nil, false
+	}
+	if schema["type"] != "object" {
+		return nil, false
+	}
+	return portableNestedSchema(schema), true
 }
 
 func portableNestedSchema(value any) any {

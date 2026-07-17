@@ -395,6 +395,9 @@ func TestBuildAgentActionRequestPreservesNativeToolCallingWireShape(t *testing.T
 	if request.StructuredOutputSchema.Name != "blueclaw_agent_turn_action" {
 		t.Fatalf("expected agent action schema name, got %q", request.StructuredOutputSchema.Name)
 	}
+	if request.StructuredOutputSchema.IsStrictlyEnforced {
+		t.Fatal("provider-portable action schema must not claim strict provider enforcement")
+	}
 	if request.GenerationOptions.Seed == nil || *request.GenerationOptions.Seed != seed {
 		t.Fatalf("expected seed to be preserved, got %+v", request.GenerationOptions)
 	}
@@ -506,6 +509,28 @@ func TestDirectActionSchemaPreservesToolRequiredFields(t *testing.T) {
 	requiredFields := stringSliceFromAny(toolInput["required"])
 	if !containsString(requiredFields, "title") {
 		t.Fatalf("expected direct tool input fields to stay required, got %+v in %s", requiredFields, schemaDocument)
+	}
+}
+
+func TestActionSchemaOmitsToolsWithoutAnObjectInputSchema(t *testing.T) {
+	schemaDocument := buildActionSchemaFromToolDefinitions([]ToolDefinition{
+		{Name: "missing.schema"},
+		{Name: "invalid.schema", InputSchema: json.RawMessage(`{"type":`)},
+		{Name: "scalar.schema", InputSchema: json.RawMessage(`{"type":"string"}`)},
+		{Name: "valid.schema", InputSchema: json.RawMessage(`{"type":"object","properties":{}}`)},
+	}, false, nil, false, false)
+
+	if strings.Contains(schemaDocument, "missing.schema") {
+		t.Fatalf("expected missing schema tool to be omitted, got %s", schemaDocument)
+	}
+	if strings.Contains(schemaDocument, "invalid.schema") {
+		t.Fatalf("expected invalid schema tool to be omitted, got %s", schemaDocument)
+	}
+	if strings.Contains(schemaDocument, "scalar.schema") {
+		t.Fatalf("expected non-object schema tool to be omitted, got %s", schemaDocument)
+	}
+	if !strings.Contains(schemaDocument, "valid.schema") {
+		t.Fatalf("expected valid object schema tool to remain, got %s", schemaDocument)
 	}
 }
 
@@ -806,10 +831,15 @@ func TestAdvanceAgentTaskReturnsAttachExistingArtifactEffect(t *testing.T) {
 func TestAdvanceAgentTaskReturnsFinishMessageEffectForSatisfiedBrowserOpen(t *testing.T) {
 	state := agentTaskState{
 		Request: AgentTurnRequest{
-			Prompt:                "open browser",
-			TaskShape:             TaskShapeBrowserHandoffTask,
-			TaskLevel:             TaskLevelXLow,
-			ToolSet:               newTestCapabilityToolSet([]string{"browser.open"}),
+			Prompt:    "open browser",
+			TaskShape: TaskShapeBrowserHandoffTask,
+			TaskLevel: TaskLevelXLow,
+			ToolSet: newTestToolSetWithDefinitions([]ToolDefinition{{
+				Name:            "browser.open",
+				Namespace:       "browser",
+				SideEffectClass: ToolSideEffectConnect,
+				Completion:      ToolCompletion{Mode: ToolCompletionObservation, Action: "open_browser", TargetKind: "browser"},
+			}}),
 			RequiredEvidenceTools: []string{"browser.open"},
 		},
 		Requirements: []toolUseRequirement{{

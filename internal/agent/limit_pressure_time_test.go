@@ -182,7 +182,7 @@ func TestAgentTurnRunnerCompletesSuccessfulSideEffectWhenElapsedFinalizerFails(t
 	if languageModel.finalizerCalls != 1 {
 		t.Fatalf("expected one failed finalizer attempt, got %d", languageModel.finalizerCalls)
 	}
-	if len(recoveryLanguageModel.textPrompts) != 1 || !strings.Contains(recoveryLanguageModel.textPrompts[0], "- task.add:") || strings.Contains(recoveryLanguageModel.textPrompts[0], "- capability.invoke:") {
+	if len(recoveryLanguageModel.textPrompts) != 1 || !strings.Contains(recoveryLanguageModel.textPrompts[0], "- task.add:") {
 		t.Fatalf("expected normalized task.add evidence in completion prompt, got %+v", recoveryLanguageModel.textPrompts)
 	}
 	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.completion_state_finalized", "task.add") {

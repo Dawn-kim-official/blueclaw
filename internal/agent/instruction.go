@@ -24,51 +24,23 @@ type InstructionBundle struct {
 }
 
 type SkillInstruction struct {
-	Name                   string          `json:"name"`
-	Description            string          `json:"description,omitempty"`
-	WhenToUse              string          `json:"whenToUse,omitempty"`
-	Category               string          `json:"category,omitempty"`
-	Tags                   []string        `json:"tags,omitempty"`
-	Prompt                 string          `json:"prompt"`
-	Activation             SkillActivation `json:"activation,omitempty"`
-	Completion             SkillCompletion `json:"completion,omitempty"`
-	Quality                SkillQuality    `json:"quality,omitempty"`
-	RecommendedMinutes     int             `json:"recommendedMinutes,omitempty"`
-	AllowedTools           []string        `json:"allowedTools,omitempty"`
-	AllowedProfiles        []string        `json:"allowedProfiles,omitempty"`
-	HiddenFromCircles      []string        `json:"hiddenFromCircles,omitempty"`
-	TriggerHints           []string        `json:"triggerHints,omitempty"`
-	DisableModelInvocation bool            `json:"disableModelInvocation,omitempty"`
-	Paths                  []string        `json:"paths,omitempty"`
-	References             []string        `json:"references,omitempty"`
-	Scripts                []string        `json:"scripts,omitempty"`
-	Assets                 []string        `json:"assets,omitempty"`
-	Source                 InstructionSource
-}
-
-type SkillActivation struct {
-	Keywords     []string `json:"keywords,omitempty"`
-	ToolNames    []string `json:"toolNames,omitempty"`
-	ToolPrefixes []string `json:"toolPrefixes,omitempty"`
-}
-
-type SkillCompletion struct {
-	RequiredEvidenceTools      []string `json:"requiredEvidenceTools,omitempty"`
-	RequiredAttachmentSuffixes []string `json:"requiredAttachmentSuffixes,omitempty"`
-}
-
-type SkillQuality struct {
-	AcceptanceGuidance []string `json:"acceptanceGuidance,omitempty"`
-	Rubric             []string `json:"rubric,omitempty"`
-	RecommendedChecks  []string `json:"recommendedChecks,omitempty"`
+	Name           string   `json:"name"`
+	Description    string   `json:"description,omitempty"`
+	WhenToUse      string   `json:"whenToUse,omitempty"`
+	Category       string   `json:"category,omitempty"`
+	Tags           []string `json:"tags,omitempty"`
+	TriggerHints   []string `json:"triggerHints,omitempty"`
+	Prompt         string   `json:"prompt"`
+	ToolReferences []string `json:"toolReferences,omitempty"`
+	Source         InstructionSource
 }
 
 type SkillSelectionDecision struct {
-	Name         string            `json:"name"`
-	Status       string            `json:"status"`
-	Reason       string            `json:"reason"`
-	ProfileName  string            `json:"profileName,omitempty"`
-	Score        float64           `json:"score,omitempty"`
-	MissingTools []string          `json:"missingTools,omitempty"`
-	Source       InstructionSource `json:"source,omitempty"`
+	Name                  string            `json:"name"`
+	Status                string            `json:"status"`
+	Reason                string            `json:"reason"`
+	ProfileName           string            `json:"profileName,omitempty"`
+	Score                 float64           `json:"score,omitempty"`
+	MissingToolReferences []string          `json:"missingToolReferences,omitempty"`
+	Source                InstructionSource `json:"source,omitempty"`
 }

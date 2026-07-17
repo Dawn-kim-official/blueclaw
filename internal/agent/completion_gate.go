@@ -280,7 +280,7 @@ func completionRequirementsHaveEvidence(requirements []toolUseRequirement, obser
 	return true
 }
 
-func validateCompletionGate(requirements []toolUseRequirement, observations []turnObservation, criteria []qualityCriterion, actionDocument turnActionDocument) completionGateResult {
+func validateCompletionGate(toolSet *ToolSet, requirements []toolUseRequirement, observations []turnObservation, criteria []qualityCriterion, actionDocument turnActionDocument) completionGateResult {
 	_ = criteria
 	if actionDocument.GoalSatisfied == nil || !*actionDocument.GoalSatisfied {
 		return completionGateResult{Message: "finish requires goalSatisfied=true"}
@@ -298,8 +298,8 @@ func validateCompletionGate(requirements []toolUseRequirement, observations []tu
 	if errorValue != nil {
 		return completionGateResult{Message: errorValue.Error(), EvidenceKind: evidenceKindReference}
 	}
-	if sendCompletionEvidenceRequiredForTools(requirements) && !hasSendCompletionEvidence(observations, actionDocument.CompletionEvidence) {
-		requiredSendToolNames := requiredSendToolNamesForRequirements(requirements)
+	if sendCompletionEvidenceRequiredForTools(toolSet, requirements) && !hasSendCompletionEvidence(toolSet, observations, actionDocument.CompletionEvidence) {
+		requiredSendToolNames := requiredSendToolNamesForRequirements(toolSet, requirements)
 		return completionGateResult{
 			Message:            sendCompletionEvidenceRequiredMessage(requiredSendToolNames),
 			EvidenceKind:       evidenceKindRequiredTool,
@@ -389,16 +389,7 @@ func hasAnySuccessfulEvidenceToolObservation(observations []turnObservation, too
 }
 
 func hasSuccessfulEvidenceToolObservation(observations []turnObservation, toolName string) bool {
-	if hasSuccessfulToolObservationForTurn(observations, toolName) {
-		return true
-	}
-	for _, observation := range observations {
-		invokedToolName, _, isFound := terminalCapabilityResponse(observation)
-		if isFound && !observation.Failed() && ToolNamesMatch(invokedToolName, toolName) {
-			return true
-		}
-	}
-	return false
+	return hasSuccessfulToolObservationForTurn(observations, toolName)
 }
 
 func missingContractToolResult(toolNames []string) completionGateResult {
@@ -428,7 +419,7 @@ func validateExpectedResultCompletionGate(request AgentTurnRequest, observations
 	if errorValue != nil {
 		return completionGateResult{Message: errorValue.Error(), EvidenceKind: evidenceKindReference}
 	}
-	if externalSendCompletionEvidenceRequired(request) && !outcomeContractRequiresPublicLinkOnly(request.OutcomeContract) && !hasSendCompletionEvidence(observations, actionDocument.CompletionEvidence) {
+	if externalSendCompletionEvidenceRequired(request) && !outcomeContractRequiresPublicLinkOnly(request.OutcomeContract) && !hasSendCompletionEvidence(request.ToolSet, observations, actionDocument.CompletionEvidence) {
 		requiredSendToolNames := requiredSendToolNamesForRequest(request)
 		return completionGateResult{
 			Message:            sendCompletionEvidenceRequiredMessage(requiredSendToolNames),
@@ -503,32 +494,32 @@ func expectedResultRequiresTool(contract OutcomeContract, toolName string) bool 
 }
 
 func externalSendCompletionEvidenceRequired(request AgentTurnRequest) bool {
-	return contractRequiresSendTool(request.OutcomeContract) ||
-		sendToolNamesContain(request.RequiredEvidenceTools)
+	return contractRequiresSendTool(request.ToolSet, request.OutcomeContract) ||
+		sendToolNamesContain(request.ToolSet, request.RequiredEvidenceTools)
 }
 
-func sendCompletionEvidenceRequiredForTools(requirements []toolUseRequirement) bool {
+func sendCompletionEvidenceRequiredForTools(toolSet *ToolSet, requirements []toolUseRequirement) bool {
 	for _, requirement := range requirements {
-		if isSendEvidenceTool(requirement.ToolName) {
+		if isSendEvidenceTool(toolSet, requirement.ToolName) {
 			return true
 		}
 	}
 	return false
 }
 
-func sendToolNamesContain(toolNames []string) bool {
+func sendToolNamesContain(toolSet *ToolSet, toolNames []string) bool {
 	for _, toolName := range toolNames {
-		if isSendEvidenceTool(toolName) {
+		if isSendEvidenceTool(toolSet, toolName) {
 			return true
 		}
 	}
 	return false
 }
 
-func requiredSendToolNamesForRequirements(requirements []toolUseRequirement) []string {
+func requiredSendToolNamesForRequirements(toolSet *ToolSet, requirements []toolUseRequirement) []string {
 	toolNames := []string{}
 	for _, requirement := range requirements {
-		if isSendEvidenceTool(requirement.ToolName) {
+		if isSendEvidenceTool(toolSet, requirement.ToolName) {
 			toolNames = appendUniqueStrings(toolNames, requirement.ToolName)
 		}
 	}
@@ -536,15 +527,15 @@ func requiredSendToolNamesForRequirements(requirements []toolUseRequirement) []s
 }
 
 func requiredSendToolNamesForRequest(request AgentTurnRequest) []string {
-	toolNames := sendEvidenceToolsFromValues(request.RequiredEvidenceTools)
+	toolNames := sendEvidenceToolsFromValues(request.ToolSet, request.RequiredEvidenceTools)
 	if len(toolNames) > 0 {
 		return toolNames
 	}
-	toolNames = sendEvidenceToolsFromValues(outcomeContractRequiredToolNames(request.OutcomeContract))
+	toolNames = sendEvidenceToolsFromValues(request.ToolSet, outcomeContractRequiredToolNames(request.OutcomeContract))
 	if len(toolNames) > 0 {
 		return toolNames
 	}
-	toolNames = sendEvidenceToolsFromValues(request.OutcomeContract.SelectedEvidenceHints)
+	toolNames = sendEvidenceToolsFromValues(request.ToolSet, request.OutcomeContract.SelectedEvidenceHints)
 	if len(toolNames) > 0 {
 		return toolNames
 	}
@@ -562,19 +553,14 @@ func sendCompletionEvidenceRequiredMessage(toolNames []string) string {
 	return "finish requires completionEvidence from a successful send tool observation; call one of these tools to perform the actual send, then cite that observation: " + strings.Join(toolNames, ", ")
 }
 
-func hasSendCompletionEvidence(observations []turnObservation, references []completionEvidenceReference) bool {
+func hasSendCompletionEvidence(toolSet *ToolSet, observations []turnObservation, references []completionEvidenceReference) bool {
 	for _, reference := range references {
 		observation, isFound := findSuccessfulObservation(observations, reference)
-		if isFound && (isSendEvidenceTool(observation.Tool) || terminalObservationInvokedSendTool(observation)) {
+		if isFound && isSendEvidenceTool(toolSet, observation.Tool) {
 			return true
 		}
 	}
 	return false
-}
-
-func terminalObservationInvokedSendTool(observation turnObservation) bool {
-	toolName, _, isFound := terminalCapabilityResponse(observation)
-	return isFound && isSendEvidenceTool(toolName)
 }
 
 func hasSuccessfulToolObservationForTurn(observations []turnObservation, toolName string) bool {
@@ -592,11 +578,11 @@ func hasSuccessfulToolObservationForTurn(observations []turnObservation, toolNam
 
 func validateCompletionGateForRequestWithRecoveryBudget(request AgentTurnRequest, requirements []toolUseRequirement, observations []turnObservation, criteria []qualityCriterion, actionDocument turnActionDocument, recoveryBudget RecoveryBudget) completionGateResult {
 	requirements = requirementsWithFailureDebtWaiver(requirements, observations, actionDocument)
-	result := validateCompletionGate(requirements, observations, criteria, actionDocument)
+	result := validateCompletionGate(request.ToolSet, requirements, observations, criteria, actionDocument)
 	if !result.IsSatisfied {
 		return result
 	}
-	if externalSendCompletionEvidenceRequired(request) && !hasSendCompletionEvidence(observations, actionDocument.CompletionEvidence) {
+	if externalSendCompletionEvidenceRequired(request) && !hasSendCompletionEvidence(request.ToolSet, observations, actionDocument.CompletionEvidence) {
 		result.IsSatisfied = false
 		result.SuggestedNextTools = requiredSendToolNamesForRequest(request)
 		result.Message = sendCompletionEvidenceRequiredMessage(result.SuggestedNextTools)
@@ -884,16 +870,10 @@ func matchingCompletionObservations(requirement toolUseRequirement, observations
 
 func requirementMatchesObservation(requirement toolUseRequirement, observation turnObservation) bool {
 	toolName := strings.TrimSpace(observation.Tool)
-	if strings.TrimSpace(requirement.ToolName) != "" {
-		if terminalObservationMatchesCapabilityTool(observation, requirement.ToolName) {
-			return true
-		}
-		return ToolNamesMatch(toolName, requirement.ToolName)
+	if strings.TrimSpace(requirement.ToolName) == "" {
+		return false
 	}
-	if strings.TrimSpace(requirement.ToolPrefix) != "" {
-		return strings.HasPrefix(toolName, strings.TrimSpace(requirement.ToolPrefix))
-	}
-	return false
+	return ToolNamesMatch(toolName, requirement.ToolName)
 }
 
 func findSuccessfulObservation(observations []turnObservation, reference completionEvidenceReference) (turnObservation, bool) {
@@ -904,7 +884,7 @@ func findSuccessfulObservation(observations []turnObservation, reference complet
 		if strings.TrimSpace(observation.ObservationID) != strings.TrimSpace(reference.ObservationID) {
 			continue
 		}
-		if strings.TrimSpace(reference.ToolName) != "" && !ToolNamesMatch(observation.Tool, reference.ToolName) && !terminalObservationMatchesCapabilityTool(observation, reference.ToolName) {
+		if strings.TrimSpace(reference.ToolName) != "" && !ToolNamesMatch(observation.Tool, reference.ToolName) {
 			continue
 		}
 		return observation, true
@@ -990,8 +970,5 @@ func appendUniqueAttachments(attachments []FileAttachment, candidates []FileAtta
 }
 
 func requirementLabel(requirement toolUseRequirement) string {
-	if strings.TrimSpace(requirement.ToolName) != "" {
-		return strings.TrimSpace(requirement.ToolName)
-	}
-	return strings.TrimSpace(requirement.ToolPrefix)
+	return strings.TrimSpace(requirement.ToolName)
 }

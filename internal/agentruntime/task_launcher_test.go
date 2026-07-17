@@ -110,7 +110,7 @@ func TestTaskLauncherAuditsPlatformMessageRegistryFingerprint(t *testing.T) {
 	agentKernel := agent.NewAgentKernel(task.NewTaskRunService(taskEventService), task.NewTaskStepService())
 	useRuntimeTestLanguageModel(agentKernel, runtimeFinishMessage("done"))
 	toolCatalogBuilder := NewToolCatalogBuilder()
-	toolCatalogBuilder.UseCapabilityToolDescriptors(capability.Client{
+	toolCatalogBuilder.UseTestCapabilityToolDescriptors(capability.Client{
 		Endpoint:   "http://capability.local",
 		HTTPClient: &recordingHTTPClient{responseBody: platformMessageLiveRegistryResponse(platformMessageDeleteCriteriaSchema())},
 	}, testPlatformMessageCapabilityDescriptors())
@@ -159,7 +159,7 @@ func TestTaskLauncherAuditsPlatformMessageSchemaSkewWithoutBlocking(t *testing.T
 	agentKernel := agent.NewAgentKernel(task.NewTaskRunService(taskEventService), task.NewTaskStepService())
 	useRuntimeTestLanguageModel(agentKernel, runtimeFinishMessage("done"))
 	toolCatalogBuilder := NewToolCatalogBuilder()
-	toolCatalogBuilder.UseCapabilityToolDescriptors(capability.Client{
+	toolCatalogBuilder.UseTestCapabilityToolDescriptors(capability.Client{
 		Endpoint:   "http://capability.local",
 		HTTPClient: &recordingHTTPClient{responseBody: platformMessageLiveRegistryResponse(platformMessageDeleteIDsOnlySchema())},
 	}, testPlatformMessageCapabilityDescriptors())
@@ -195,7 +195,7 @@ func TestTaskLauncherRejectsStaleMessageToolRegistryBeforeModelCall(t *testing.T
 	agentKernel := agent.NewAgentKernel(task.NewTaskRunService(taskEventService), task.NewTaskStepService())
 	useRuntimeTestLanguageModel(agentKernel, runtimeFinishMessage("should not run"))
 	toolCatalogBuilder := NewToolCatalogBuilder()
-	toolCatalogBuilder.UseCapabilityToolDescriptors(capability.Client{
+	toolCatalogBuilder.UseTestCapabilityToolDescriptors(capability.Client{
 		Endpoint: "http://capability.local",
 		HTTPClient: &recordingHTTPClient{responseBody: `{"deviceCapabilities":[
 			{"name":"message.context"},
@@ -355,9 +355,9 @@ func TestTaskLauncherAuditsPinnedMemoryFailureAndRunsWithoutMemory(t *testing.T)
 	}
 }
 
-func TestToolCatalogHidesHistoryWithoutProviderAndDeniedTools(t *testing.T) {
+func TestToolCatalogHidesHistoryAndQuarantinedMCPTools(t *testing.T) {
 	mcpRegistry := mcp.NewMcpRegistry()
-	mcpRegistry.LoadServerDefinition([]config.MCPServerConfiguration{
+	loadReport := mcpRegistry.LoadServerDefinition([]config.MCPServerConfiguration{
 		{
 			Name: "local-mcp",
 			Tools: []config.MCPToolConfiguration{
@@ -366,6 +366,9 @@ func TestToolCatalogHidesHistoryWithoutProviderAndDeniedTools(t *testing.T) {
 			},
 		},
 	})
+	if len(loadReport.Quarantined) != 1 {
+		t.Fatalf("expected invalid MCP server to be quarantined, got %+v", loadReport)
+	}
 	toolCatalogBuilder := NewToolCatalogBuilder()
 	toolCatalogBuilder.UseMCPRegistry(mcpRegistry)
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(map[string][]string{
@@ -377,8 +380,8 @@ func TestToolCatalogHidesHistoryWithoutProviderAndDeniedTools(t *testing.T) {
 	if containsString(toolNames, "conversation.history") {
 		t.Fatalf("expected history tool to be hidden without provider, got %+v", toolNames)
 	}
-	if !containsString(toolNames, "allowed.tool") {
-		t.Fatalf("expected allowed MCP tool, got %+v", toolNames)
+	if containsString(toolNames, "allowed.tool") {
+		t.Fatalf("expected quarantined MCP tool to stay hidden, got %+v", toolNames)
 	}
 	if containsString(toolNames, "blocked.tool") {
 		t.Fatalf("expected blocked MCP tool to be hidden, got %+v", toolNames)
@@ -418,7 +421,7 @@ func TestBrowserHandoffOpenURLUsesCapabilityBridge(t *testing.T) {
 	taskRun := taskRunService.CreateTaskRun("person-1", "conversation-1", "open browser")
 
 	toolCatalogBuilder := NewToolCatalogBuilder()
-	toolCatalogBuilder.UseCapabilityTools(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, nil)
+	toolCatalogBuilder.UseTestCapabilityTools(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, nil)
 	toolCatalogBuilder.UseTaskRunService(taskRunService)
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(map[string][]string{
 		"default": {"browser_handoff.openURL"},
@@ -480,7 +483,7 @@ func TestBrowserHandoffPausesTaskWhileWaitingForUser(t *testing.T) {
 	taskRun := taskRunService.CreateTaskRun("person-1", "conversation-1", "open browser")
 
 	toolCatalogBuilder := NewToolCatalogBuilder()
-	toolCatalogBuilder.UseCapabilityTools(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, nil)
+	toolCatalogBuilder.UseTestCapabilityTools(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, nil)
 	toolCatalogBuilder.UseTaskRunService(taskRunService)
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(map[string][]string{
 		"default": {"browser_handoff.openURL"},
@@ -518,7 +521,7 @@ func TestBrowserHandoffPausesTaskWhileWaitingForUser(t *testing.T) {
 func TestInteractiveBrowserCapabilityUsesCompanion(t *testing.T) {
 	httpClient := &recordingHTTPClient{}
 	toolCatalogBuilder := NewToolCatalogBuilder()
-	toolCatalogBuilder.UseCapabilityTools(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, []string{"browser.open"})
+	toolCatalogBuilder.UseTestCapabilityTools(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, []string{"browser.open"})
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(map[string][]string{
 		"default": {"browser.open"},
 	}, nil)
@@ -558,7 +561,7 @@ func TestInteractiveBrowserCapabilityUsesCompanion(t *testing.T) {
 func TestPublicBrowserCapabilityWithRequesterUsesCompanion(t *testing.T) {
 	httpClient := &recordingHTTPClient{}
 	toolCatalogBuilder := NewToolCatalogBuilder()
-	toolCatalogBuilder.UseCapabilityTools(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, []string{"browser.open"})
+	toolCatalogBuilder.UseTestCapabilityTools(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, []string{"browser.open"})
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(map[string][]string{
 		"default": {"browser.open"},
 	}, nil)
@@ -598,7 +601,7 @@ func TestPublicBrowserCapabilityWithRequesterUsesCompanion(t *testing.T) {
 func TestPrivateBrowserCapabilityUsesCompanion(t *testing.T) {
 	httpClient := &recordingHTTPClient{}
 	toolCatalogBuilder := NewToolCatalogBuilder()
-	toolCatalogBuilder.UseCapabilityTools(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, []string{"browser.open"})
+	toolCatalogBuilder.UseTestCapabilityTools(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, []string{"browser.open"})
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(map[string][]string{
 		"default": {"browser.open"},
 	}, nil)
@@ -631,7 +634,7 @@ func TestPrivateBrowserCapabilityUsesCompanion(t *testing.T) {
 func TestBrowserFollowUpWithSensitiveVisibleContextUsesCompanion(t *testing.T) {
 	httpClient := &recordingHTTPClient{}
 	toolCatalogBuilder := NewToolCatalogBuilder()
-	toolCatalogBuilder.UseCapabilityTools(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, []string{"browser.open"})
+	toolCatalogBuilder.UseTestCapabilityTools(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, []string{"browser.open"})
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(map[string][]string{
 		"default": {"browser.open"},
 	}, nil)
@@ -671,7 +674,7 @@ func TestBrowserFollowUpWithSensitiveVisibleContextUsesCompanion(t *testing.T) {
 func TestCapabilityDenialPreservesRecoveryAction(t *testing.T) {
 	httpClient := &recordingHTTPClient{responseBody: `{"provider":"companion","toolName":"browser.open","status":"denied","content":"Companion이 연결되어 있지 않아 브라우저를 열 수 없습니다.","isError":true,"result":{"status":"denied","code":"not_connected","toolName":"browser.open","userReason":"Companion이 연결되어 있지 않아 브라우저를 열 수 없습니다.","recovery":{"kind":"companion_connect","delivery":"dm_preferred","downloadURL":"https://example.com/companion.dmg","connectCommand":"/connect"}}}`}
 	toolCatalogBuilder := NewToolCatalogBuilder()
-	toolCatalogBuilder.UseCapabilityTools(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, []string{"browser.open"})
+	toolCatalogBuilder.UseTestCapabilityTools(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, []string{"browser.open"})
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(map[string][]string{
 		"default": {"browser.open"},
 	}, nil)
@@ -703,7 +706,7 @@ func TestCapabilityDenialPreservesRecoveryAction(t *testing.T) {
 func TestPublicBrowserCapabilityUsesCompanion(t *testing.T) {
 	httpClient := &recordingHTTPClient{}
 	toolCatalogBuilder := NewToolCatalogBuilder()
-	toolCatalogBuilder.UseCapabilityTools(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, []string{"browser.open"})
+	toolCatalogBuilder.UseTestCapabilityTools(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, []string{"browser.open"})
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(map[string][]string{
 		"default": {"browser.open"},
 	}, nil)
@@ -740,7 +743,7 @@ func TestBrowserHandoffOpenURLRecordsFailureWhenCompanionIsDisconnected(t *testi
 	taskRun := taskRunService.CreateTaskRun("person-1", "conversation-1", "open browser")
 
 	toolCatalogBuilder := NewToolCatalogBuilder()
-	toolCatalogBuilder.UseCapabilityTools(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, nil)
+	toolCatalogBuilder.UseTestCapabilityTools(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, nil)
 	toolCatalogBuilder.UseTaskRunService(taskRunService)
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(map[string][]string{
 		"default": {"browser_handoff.openURL"},
@@ -767,12 +770,12 @@ func TestBrowserHandoffOpenURLRecordsFailureWhenCompanionIsDisconnected(t *testi
 func TestCapabilityDescriptorAppearsInToolSetAndInvokesBridge(t *testing.T) {
 	httpClient := &recordingHTTPClient{}
 	toolCatalogBuilder := NewToolCatalogBuilder()
-	toolCatalogBuilder.UseCapabilityToolDescriptors(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, []CapabilityToolDescriptor{{
+	toolCatalogBuilder.UseTestCapabilityToolDescriptors(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, []CapabilityToolDescriptor{{
 		Name:             "browser.open",
 		InputSchema:      json.RawMessage(`{"type":"object","properties":{"url":{"type":"string"}},"required":["url"],"additionalProperties":false}`),
 		OutputSchema:     json.RawMessage(`{"type":"object","properties":{"status":{"type":"string"}}}`),
 		PolicyResource:   "tool:browser.open",
-		SideEffectClass:  "browser",
+		SideEffectClass:  agent.ToolSideEffectConnect,
 		RequiresApproval: true,
 	}})
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(map[string][]string{
@@ -782,8 +785,11 @@ func TestCapabilityDescriptorAppearsInToolSetAndInvokesBridge(t *testing.T) {
 
 	descriptions := toolRegistry.Descriptions()
 	actionSchema := toolRegistry.ActionSchema(false, nil, false)
-	if !strings.Contains(descriptions, `"url"`) || !strings.Contains(actionSchema, `"browser.open"`) {
-		t.Fatalf("expected descriptor schema in prompt and action schema, got prompt=%s schema=%s", descriptions, actionSchema)
+	if !strings.Contains(descriptions, "Test capability browser.open") || strings.Contains(descriptions, `"url"`) {
+		t.Fatalf("expected concise descriptor description without duplicated schema, got %s", descriptions)
+	}
+	if !strings.Contains(actionSchema, `"browser.open"`) || !strings.Contains(actionSchema, `"url"`) {
+		t.Fatalf("expected descriptor schema in the action schema, got %s", actionSchema)
 	}
 
 	toolResult, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
@@ -806,7 +812,7 @@ func TestCapabilityToolExecutionUsesResourceAccess(t *testing.T) {
 	}}
 	httpClient := &recordingHTTPClient{}
 	toolCatalogBuilder := NewToolCatalogBuilder()
-	toolCatalogBuilder.UseCapabilityTools(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, []string{"company.broadcast.send"})
+	toolCatalogBuilder.UseTestCapabilityTools(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, []string{"company.broadcast.send"})
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(map[string][]string{
 		"default": {"company.broadcast.send"},
 	}, nil)
@@ -867,7 +873,7 @@ func TestFlowTaskAddToolRequiresStaffCircle(t *testing.T) {
 	}}
 	httpClient := &recordingHTTPClient{}
 	toolCatalogBuilder := NewToolCatalogBuilder()
-	toolCatalogBuilder.UseCapabilityTools(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, []string{"task.add"})
+	toolCatalogBuilder.UseTestCapabilityTools(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, []string{"task.add"})
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(map[string][]string{
 		"default": {"task.add"},
 	}, nil)

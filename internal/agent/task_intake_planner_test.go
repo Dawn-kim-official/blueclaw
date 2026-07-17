@@ -883,7 +883,7 @@ func TestTurnRouterApproveForcesContinuation(t *testing.T) {
 }
 
 func TestSelectedToolsDoNotOverrideUnsupportedDecision(t *testing.T) {
-	decision := applySelectedSkillCompletionRequirements(IntakeDecision{
+	decision := applyInstructionBundleRequirements(IntakeDecision{
 		Classification:         IntakeClassificationUnsupported,
 		TaskShape:              TaskShapeImmediateReply,
 		TaskLevel:              TaskLevelLow,
@@ -1043,13 +1043,11 @@ func TestAgentKernelPreservesScheduledIntakeRefusalAfterSkillSelection(t *testin
 	services.kernel.UseSkillRetriever(staticSkillRetriever{result: SkillRetrievalResult{SelectedCandidates: []SkillCandidate{{Name: "scheduled-task", Score: 1, Reason: "test"}}}})
 	services.kernel.UseInstructionBundleLoader(func() InstructionBundle {
 		return InstructionBundle{Skills: []SkillInstruction{{
-			Name:         "scheduled-task",
-			Description:  "Create scheduled, recurring, and finite repeated messages.",
-			WhenToUse:    "Use for reminders, interval messages, 1분에 한 번씩, 10번, finite repeated message, and repeat N times requests.",
-			Prompt:       "Use schedule.create with taskInstruction for the run-time work, intervalSecond, repeatPolicy, and maxRunCount.",
-			AllowedTools: []string{"schedule.create"},
-			Completion:   SkillCompletion{RequiredEvidenceTools: []string{"schedule.create"}},
-			Source:       InstructionSource{Path: "skills/scheduled-task/SKILL.md", SkillName: "scheduled-task"},
+			Name:           "scheduled-task",
+			Description:    "Create scheduled, recurring, finite repeated reminders, interval messages, 1분에 한 번씩, and repeat N times.",
+			Prompt:         "Use schedule.create with taskInstruction for the run-time work, intervalSecond, repeatPolicy, and maxRunCount.",
+			ToolReferences: []string{"schedule.create"},
+			Source:         InstructionSource{Path: "skills/scheduled-task/SKILL.md", SkillName: "scheduled-task"},
 		}}}
 	})
 	toolRegistry := newTestCapabilityToolSet([]string{"schedule.create"})
@@ -1089,13 +1087,11 @@ func TestAgentKernelSelectsArtifactSkillOnceAfterRouting(t *testing.T) {
 	services.kernel.UseSkillRetriever(skillRetriever)
 	services.kernel.UseInstructionBundleLoader(func() InstructionBundle {
 		return InstructionBundle{Skills: []SkillInstruction{{
-			Name:         "presentation",
-			Description:  "Create presentation decks, 피피티, 파워포인트, 발표자료, and PPTX files.",
-			WhenToUse:    "Use for 피피티 and PPTX requests.",
-			Prompt:       "Create and attach PPTX files.",
-			TriggerHints: []string{"피피티", "pptx"},
-			AllowedTools: []string{"terminal.run", "file.write", "file.deliver"},
-			Source:       InstructionSource{Path: "skills/presentation/SKILL.md", SkillName: "presentation"},
+			Name:           "presentation",
+			Description:    "Create presentation decks, 피피티, 파워포인트, 발표자료, and PPTX files.",
+			Prompt:         "Create and attach PPTX files.",
+			ToolReferences: []string{"terminal.run", "file.write", "file.deliver"},
+			Source:         InstructionSource{Path: "skills/presentation/SKILL.md", SkillName: "presentation"},
 		}}}
 	})
 	toolRegistry := newTestToolSet([]string{"terminal.run", "file.write", "file.promote", "file.deliver"})
@@ -1165,10 +1161,10 @@ func TestAgentKernelSelectsSkillForTypedToolContract(t *testing.T) {
 		}},
 	}
 	bundle, _ := services.kernel.selectInstructionBundleForResolvedRequest(context.Background(), InstructionBundle{Skills: []SkillInstruction{{
-		Name:         "internkim-flow",
-		Description:  "Manage tasks.",
-		Prompt:       "Use task.add.",
-		AllowedTools: []string{"task.add"},
+		Name:           "internkim-flow",
+		Description:    "Manage tasks.",
+		Prompt:         "Use task.add.",
+		ToolReferences: []string{"task.add"},
 	}}}, request, IntakeDecision{
 		Classification:        IntakeClassificationBoundedTask,
 		TaskLevel:             TaskLevelLow,
@@ -1758,16 +1754,11 @@ func TestAgentKernelPreservesQuickReplyAfterSkillSelection(t *testing.T) {
 	services.kernel.UseInstructionBundleLoader(func() InstructionBundle {
 		return InstructionBundle{
 			Skills: []SkillInstruction{{
-				Name:         "presentation",
-				Description:  "Create presentation slides.",
-				WhenToUse:    "Use for 피피티 and PPTX requests.",
-				Prompt:       "Create and attach PPTX files.",
-				TriggerHints: []string{"피피티"},
-				AllowedTools: []string{"terminal.run", "file.write", "file.deliver"},
-				Completion: SkillCompletion{
-					RequiredEvidenceTools: []string{"file.deliver"},
-				},
-				Source: InstructionSource{Path: "skills/presentation/SKILL.md", SkillName: "presentation"},
+				Name:           "presentation",
+				Description:    "Create presentation slides, 피피티, and PPTX files.",
+				Prompt:         "Create and attach PPTX files.",
+				ToolReferences: []string{"terminal.run", "file.write", "file.deliver"},
+				Source:         InstructionSource{Path: "skills/presentation/SKILL.md", SkillName: "presentation"},
 			}},
 		}
 	})
@@ -1820,13 +1811,11 @@ func TestAgentKernelUsesStructuredOutputFormatsForAttachmentRequirements(t *test
 	services.kernel.UseSkillRetriever(NewEmbeddingSkillRetriever(nil, ""))
 	services.kernel.UseInstructionBundleLoader(func() InstructionBundle {
 		return InstructionBundle{Skills: []SkillInstruction{{
-			Name:         "html-attachment",
-			Description:  "Attach HTML deliverables.",
-			WhenToUse:    "Use for html output requests.",
-			Prompt:       "Use file.deliver for HTML deliverables.",
-			TriggerHints: []string{"html"},
-			AllowedTools: []string{"file.deliver"},
-			Source:       InstructionSource{Path: "skills/html-attachment/SKILL.md", SkillName: "html-attachment"},
+			Name:           "html-attachment",
+			Description:    "Attach HTML deliverables for HTML output requests.",
+			Prompt:         "Use file.deliver for HTML deliverables.",
+			ToolReferences: []string{"file.deliver"},
+			Source:         InstructionSource{Path: "skills/html-attachment/SKILL.md", SkillName: "html-attachment"},
 		}}}
 	})
 	toolRegistry := newTestToolSet([]string{"file.deliver"})

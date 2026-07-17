@@ -16,7 +16,7 @@ license: Apache-2.0
 compatibility: Requires a POSIX shell.
 metadata:
   author: InternKim
-allowed-tools:
+tool-references:
   - terminal.run
   - file.write
 ---
@@ -39,11 +39,8 @@ Build slides.
 	if skillBundle.Description != "Create presentation decks." {
 		t.Fatalf("expected description from frontmatter, got %q", skillBundle.Description)
 	}
-	if !containsString(skillBundle.AllowedTools, "terminal.run") || !containsString(skillBundle.AllowedTools, "file.write") {
-		t.Fatalf("expected allowed tools, got %+v", skillBundle.AllowedTools)
-	}
-	if skillBundle.WhenToUse != "" || skillBundle.RecommendedMinutes != 0 || len(skillBundle.TriggerHints) != 0 {
-		t.Fatalf("expected no nonstandard runtime metadata, got %+v", skillBundle)
+	if !containsToolReference(skillBundle.ToolReferences, "terminal.run") || !containsToolReference(skillBundle.ToolReferences, "file.write") {
+		t.Fatalf("expected tool references, got %+v", skillBundle.ToolReferences)
 	}
 	if skillBundle.Instruction != "# Simple Slides\n\nBuild slides." {
 		t.Fatalf("expected frontmatter to be stripped, got %q", skillBundle.Instruction)
@@ -71,18 +68,18 @@ func TestSkillLoaderFallsBackForLegacySkillDocument(t *testing.T) {
 	if skillBundle.Description != "Use this legacy skill." {
 		t.Fatalf("expected first paragraph description fallback, got %q", skillBundle.Description)
 	}
-	if len(skillBundle.TriggerHints) != 0 || len(skillBundle.AllowedTools) != 0 {
+	if len(skillBundle.ToolReferences) != 0 {
 		t.Fatalf("expected empty metadata fallback, got %+v", skillBundle)
 	}
 }
 
-func TestSkillLoaderParsesSpaceSeparatedAllowedTools(t *testing.T) {
+func TestSkillLoaderParsesSpaceSeparatedToolReferences(t *testing.T) {
 	directoryPath := t.TempDir()
 	documentPath := filepath.Join(directoryPath, "SKILL.md")
 	document := `---
 name: file-work
 description: Work with files.
-allowed-tools: file.read file.write
+tool-references: file.read file.write
 ---
 Use files.
 `
@@ -95,12 +92,12 @@ Use files.
 		t.Fatal(errorValue)
 	}
 
-	if !containsString(skillBundle.AllowedTools, "file.read") || !containsString(skillBundle.AllowedTools, "file.write") {
-		t.Fatalf("expected space separated allowed tools, got %+v", skillBundle.AllowedTools)
+	if !containsToolReference(skillBundle.ToolReferences, "file.read") || !containsToolReference(skillBundle.ToolReferences, "file.write") {
+		t.Fatalf("expected space separated tool references, got %+v", skillBundle.ToolReferences)
 	}
 }
 
-func TestSkillLoaderKeepsYamlAllowedToolItemsWhole(t *testing.T) {
+func TestSkillLoaderDoesNotExposeLegacyAllowedTools(t *testing.T) {
 	directoryPath := t.TempDir()
 	documentPath := filepath.Join(directoryPath, "SKILL.md")
 	document := `---
@@ -120,12 +117,43 @@ Use git.
 		t.Fatal(errorValue)
 	}
 
-	if !containsString(skillBundle.AllowedTools, "Bash(git *)") {
-		t.Fatalf("expected YAML allowed tool item to stay whole, got %+v", skillBundle.AllowedTools)
+	if len(skillBundle.ToolReferences) != 0 {
+		t.Fatalf("expected only tool-references to expose tools, got %+v", skillBundle.ToolReferences)
 	}
 }
 
-func containsString(values []string, target string) bool {
+func TestSkillLoaderIgnoresAllowedToolsWhenToolReferencesExist(t *testing.T) {
+	directoryPath := t.TempDir()
+	documentPath := filepath.Join(directoryPath, "SKILL.md")
+	document := `---
+name: file-work
+description: Work with files.
+tool-references: file.read file.write
+allowed-tools: terminal.run
+---
+Use files.
+`
+	if errorValue := os.WriteFile(documentPath, []byte(document), 0600); errorValue != nil {
+		t.Fatal(errorValue)
+	}
+
+	skillBundle, errorValue := (SkillLoader{}).LoadSkillBundle(directoryPath)
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+
+	expectedToolReferences := []ToolReference{"file.read", "file.write"}
+	if len(skillBundle.ToolReferences) != len(expectedToolReferences) {
+		t.Fatalf("expected unique tool references, got %+v", skillBundle.ToolReferences)
+	}
+	for index, expectedToolReference := range expectedToolReferences {
+		if skillBundle.ToolReferences[index] != expectedToolReference {
+			t.Fatalf("expected tool reference %q at %d, got %+v", expectedToolReference, index, skillBundle.ToolReferences)
+		}
+	}
+}
+
+func containsToolReference(values []ToolReference, target ToolReference) bool {
 	for _, value := range values {
 		if value == target {
 			return true

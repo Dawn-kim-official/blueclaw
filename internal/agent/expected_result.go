@@ -58,23 +58,7 @@ func observedResultsFromObservation(observation turnObservation) []ObservedResul
 	if observation.Failed() {
 		return nil
 	}
-	if results := observedResultsFromTerminalCapabilityObservation(observation); len(results) > 0 {
-		return results
-	}
 	return observedResultsFromSuccessfulObservation(observation)
-}
-
-func observedResultsFromTerminalCapabilityObservation(observation turnObservation) []ObservedResult {
-	toolName, resultDocument, isFound := terminalCapabilityResponse(observation)
-	if !isFound {
-		return nil
-	}
-	syntheticObservation := observation
-	syntheticObservation.Tool = toolName
-	if content, errorValue := json.Marshal(resultDocument); errorValue == nil {
-		syntheticObservation.Output.Content = string(content)
-	}
-	return observedResultsFromSuccessfulObservation(syntheticObservation)
 }
 
 func observedResultsFromSuccessfulObservation(observation turnObservation) []ObservedResult {

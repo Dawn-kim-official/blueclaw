@@ -58,8 +58,7 @@ func (agentTurnRunner *AgentTurnRunner) invokeTool(ctx context.Context, toolRegi
 }
 
 func effectiveObservationToolName(toolName string, toolInput json.RawMessage) string {
-	operation, _ := effectiveActionToolNameAndInput(toolName, toolInput)
-	return operation
+	return strings.TrimSpace(toolName)
 }
 
 func toolFailureObservation(observationID string, toolName string, message string) turnObservation {

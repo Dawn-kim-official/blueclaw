@@ -68,7 +68,7 @@ func (agentTurnRunner *AgentTurnRunner) rejectRepeatedToolCall(taskRunID string,
 		result, shouldStop := stopForNoProgress(stepID)
 		return toolCallActionOutcome{Result: result, ShouldReturn: shouldStop, WasHandled: true}
 	}
-	if sentObservation, wasSent := previousSuccessfulExternalSend(state.Observations, actionDocument.ToolName, actionDocument.ToolInput); wasSent {
+	if sentObservation, wasSent := previousSuccessfulExternalSend(state.Request.ToolSet, state.Observations, actionDocument.ToolName, actionDocument.ToolInput); wasSent {
 		observation := turnObservation{
 			ObservationID: nextObservationIDForObservations(state.Observations),
 			Action:        "policy",
@@ -117,7 +117,7 @@ func (agentTurnRunner *AgentTurnRunner) rejectRepeatedToolCall(taskRunID string,
 
 func repeatedSuccessfulToolObservation(state *agentTaskState, actionDocument turnActionDocument, successfulToolCalls map[string]turnObservation) (turnObservation, bool) {
 	observation, isDuplicate := repeatedSuccessfulCompletionCandidate(state, actionDocument, successfulToolCalls)
-	if !isDuplicate || !handlesDuplicateSuccessfulToolCall(actionDocument.ToolName, actionDocument.ToolInput) {
+	if !isDuplicate || !handlesDuplicateSuccessfulToolCall(state.Request.ToolSet, actionDocument.ToolName, actionDocument.ToolInput) {
 		return turnObservation{}, false
 	}
 	return observation, true
@@ -160,8 +160,7 @@ func duplicateSuccessFinalizationRequirements(toolSet *ToolSet, requirements []t
 		}
 		strictRequirements = append(strictRequirements, requirement)
 	}
-	effectiveToolName, _ := effectiveActionToolNameAndInput(actionDocument.ToolName, actionDocument.ToolInput)
-	_, isFound := toolSet.ToolDefinition(effectiveToolName)
+	_, isFound := toolSet.ToolDefinition(actionDocument.ToolName)
 	return strictRequirements, isFound
 }
 
@@ -317,37 +316,7 @@ func parseFileReadRange(value string) (fileReadRange, bool) {
 	return fileReadRange{StartLine: startLine, EndLine: endLine}, true
 }
 
-func specificToolDescription(toolName string) string {
-	switch strings.TrimSpace(toolName) {
-	case "browser.open":
-		return `Open a web URL. Input: {"url":"https://www.google.com"}.`
-	case "browser.snapshot":
-		return `Read the current page. Returns url, title, snapshotText, and interactiveRefs such as @e1. Input: {}.`
-	case "browser.screenshot":
-		return `Capture the current page screenshot. Returns a temporary devicePath, not a local path. Input: {"ttlSeconds":86400}.`
-	case "browser.click":
-		return `Click an element by observe ref or selector. Input: {"target":"@e1"} or {"selector":"button[type=submit]"}.`
-	case "browser.fill":
-		return `Fill an input by observe ref or selector. Input: {"target":"@e1","text":"hello world"}.`
-	case "browser.select":
-		return `Select an option. Input: {"target":"@e1","value":"option"}.`
-	case "browser.press":
-		return `Press a key. Input: {"key":"Enter"}.`
-	case "browser.wait":
-		return `Wait for time or target. Input: {"milliseconds":1000} or {"target":"@e1"}.`
-	case "task.add":
-		return `Add a new Flow work item for the requester, or request new work for another person. Preserve an explicitly requested title and due date with title and endDate. Do not use this for editing, changing, completing, or updating an existing work item. Input: {"prompt":"금요일까지 기획안 전달","title":"기획안 전달","endDate":"2026-07-17","targetPersonHint":"lee"}.`
-	case "task.list":
-		return `List work items. Defaults to the requester's tasks. Set targetPersonHint for one specific person, or scope to all only for an explicit workspace-wide request. Weeks are relative integer offsets: weekFrom/weekTo where 0=this week (default), -1=last week; omit both for this week, set weekFrom for a range ending this week. Use before completing work when the matching task is uncertain. Input: {"scope":"self","weekFrom":-1}.`
-	case "task.update":
-		return `Update or complete an existing Flow work item. Use this for edits, status changes, "수정", "변경", and "완료". Input: {"query":"10분 회의","title":"15분 회의"} or {"query":"10분 회의"} to mark it complete. Optional status values include "예정", "진행", "완료", "일시정지", "기각", and "중단".`
-	default:
-		return ""
-	}
-}
-
 func validateBrowserToolInput(toolName string, toolInput json.RawMessage) error {
-	toolName, toolInput = effectiveActionToolNameAndInput(toolName, toolInput)
 	switch strings.TrimSpace(toolName) {
 	case "browser.open":
 		return validateRequiredToolInputFields(toolName, toolInput, "url")
@@ -520,8 +489,7 @@ func parseToolInputDocument(toolName string, toolInput json.RawMessage) (map[str
 }
 
 func canonicalToolCallKey(toolName string, toolInput json.RawMessage) string {
-	effectiveToolName, effectiveToolInput := effectiveActionToolNameAndInput(toolName, toolInput)
-	return strings.TrimSpace(effectiveToolName) + "\x00" + canonicalToolInput(effectiveToolInput)
+	return strings.TrimSpace(toolName) + "\x00" + canonicalToolInput(toolInput)
 }
 
 func canonicalToolInput(toolInput json.RawMessage) string {
@@ -543,8 +511,7 @@ func canonicalToolInput(toolInput json.RawMessage) string {
 // from duplicate rejection once the workspace changed after the previous run —
 // a revise-then-rebuild loop legitimately repeats the same build command.
 func terminalRerunAfterWorkspaceMutation(actionDocument turnActionDocument, observations []turnObservation, duplicateObservation turnObservation) bool {
-	effectiveToolName, _ := effectiveActionToolNameAndInput(actionDocument.ToolName, actionDocument.ToolInput)
-	if strings.TrimSpace(effectiveToolName) != "terminal.run" {
+	if strings.TrimSpace(actionDocument.ToolName) != "terminal.run" {
 		return false
 	}
 	seenDuplicateObservation := false
@@ -563,17 +530,15 @@ func terminalRerunAfterWorkspaceMutation(actionDocument turnActionDocument, obse
 	return false
 }
 
-func handlesDuplicateSuccessfulToolCall(toolName string, toolInput json.RawMessage) bool {
-	effectiveToolName, _ := effectiveActionToolNameAndInput(toolName, toolInput)
-	if strings.TrimSpace(effectiveToolName) == "terminal.run" {
+func handlesDuplicateSuccessfulToolCall(toolSet *ToolSet, toolName string, toolInput json.RawMessage) bool {
+	if strings.TrimSpace(toolName) == "terminal.run" {
 		return true
 	}
-	return isOneShotCompletionEvidenceTool(effectiveToolName)
+	return isOneShotCompletionEvidenceTool(toolSet, toolName)
 }
 
-func previousSuccessfulExternalSend(observations []turnObservation, toolName string, toolInput json.RawMessage) (turnObservation, bool) {
-	toolName, toolInput = effectiveActionToolNameAndInput(toolName, toolInput)
-	if !isUnsafeRepeatSensitiveTool(toolName) {
+func previousSuccessfulExternalSend(toolSet *ToolSet, observations []turnObservation, toolName string, toolInput json.RawMessage) (turnObservation, bool) {
+	if !isSendEvidenceTool(toolSet, toolName) {
 		return turnObservation{}, false
 	}
 	currentRecipient := sendRecipientKey(toolInput)
@@ -617,15 +582,6 @@ func observationSendRecipientKey(observation turnObservation) string {
 	return sendRecipientKey(json.RawMessage(canonicalInput))
 }
 
-func isUnsafeRepeatSensitiveTool(toolName string) bool {
-	switch strings.TrimSpace(toolName) {
-	case "message.send", "mail.message.send", "google.gmail.send", "slack.message.send":
-		return true
-	default:
-		return false
-	}
-}
-
 func requiredEvidenceContains(requiredEvidenceTools []string, expectedToolName string) bool {
 	for _, toolName := range requiredEvidenceTools {
 		if ToolNamesMatch(toolName, expectedToolName) {
@@ -635,56 +591,33 @@ func requiredEvidenceContains(requiredEvidenceTools []string, expectedToolName s
 	return false
 }
 
-func requiredEvidenceHasPrefix(requiredEvidenceTools []string, prefix string) bool {
-	for _, toolName := range requiredEvidenceTools {
-		if strings.HasPrefix(strings.TrimSpace(toolName), prefix) {
-			return true
-		}
-	}
-	return false
-}
-
 func unrequestedPlatformMessageSendObservation(request AgentTurnRequest, actionDocument turnActionDocument, observationID string) (turnObservation, bool) {
-	toolName, toolInput := effectiveActionToolNameAndInput(actionDocument.ToolName, actionDocument.ToolInput)
-	if strings.TrimSpace(toolName) != "message.send" {
+	toolName := strings.TrimSpace(actionDocument.ToolName)
+	if !isSendEvidenceTool(request.ToolSet, toolName) {
 		return turnObservation{}, false
 	}
-	if requestRequiresPlatformMessageSend(request) {
+	if requestRequiresExternalSendTool(request, toolName) {
 		return turnObservation{}, false
 	}
-	deliveryType := platformMessageSendDeliveryType(toolInput)
-	message := "message.send is only for explicit platform delivery requests. The latest user message does not ask to send a separate platform message; answer in the current conversation with finish.message instead."
-	if deliveryType != "" {
-		message += " Requested targetType was " + deliveryType + "."
-	}
-	return newFailureObservation(observationID, "policy", strings.TrimSpace(toolName), message, FailurePolicyBlocked, FailureCodes.PolicyBlocked, "policy"), true
+	message := toolName + " requires an exact external-send outcome contract. Answer in the current conversation with finish.message instead."
+	return newFailureObservation(observationID, "policy", toolName, message, FailurePolicyBlocked, FailureCodes.PolicyBlocked, "policy"), true
 }
 
-func requestRequiresPlatformMessageSend(request AgentTurnRequest) bool {
-	if requiredEvidenceContains(request.RequiredEvidenceTools, "message.send") {
+func requestRequiresExternalSendTool(request AgentTurnRequest, toolName string) bool {
+	if requiredEvidenceContains(request.RequiredEvidenceTools, toolName) {
 		return true
 	}
-	for _, toolName := range outcomeContractRequiredToolNames(request.OutcomeContract) {
-		if ToolNamesMatch(toolName, "message.send") {
+	for _, requiredToolName := range outcomeContractRequiredToolNames(request.OutcomeContract) {
+		if ToolNamesMatch(requiredToolName, toolName) {
 			return true
 		}
 	}
-	for _, toolName := range outcomeContractRequiredToolNames(request.ActiveGoal.OutcomeContract) {
-		if ToolNamesMatch(toolName, "message.send") {
+	for _, requiredToolName := range outcomeContractRequiredToolNames(request.ActiveGoal.OutcomeContract) {
+		if ToolNamesMatch(requiredToolName, toolName) {
 			return true
 		}
 	}
 	return false
-}
-
-func platformMessageSendDeliveryType(toolInput json.RawMessage) string {
-	var document struct {
-		TargetType string `json:"targetType"`
-	}
-	if len(toolInput) == 0 || json.Unmarshal(toolInput, &document) != nil {
-		return ""
-	}
-	return strings.TrimSpace(document.TargetType)
 }
 
 func isTerminalExecutionTool(toolName string) bool {

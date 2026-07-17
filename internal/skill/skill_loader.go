@@ -24,18 +24,18 @@ func (skillLoader SkillLoader) LoadSkillBundle(directoryPath string) (SkillBundl
 	}
 
 	return SkillBundle{
-		Name:          metadata.Name,
-		Description:   metadata.Description,
-		AllowedTools:  metadata.AllowedTools,
-		Instruction:   strings.TrimSpace(instruction),
-		DirectoryPath: directoryPath,
+		Name:           metadata.Name,
+		Description:    metadata.Description,
+		ToolReferences: metadata.ToolReferences,
+		Instruction:    strings.TrimSpace(instruction),
+		DirectoryPath:  directoryPath,
 	}, nil
 }
 
 type skillMetadata struct {
-	Name         string
-	Description  string
-	AllowedTools []string
+	Name           string
+	Description    string
+	ToolReferences []ToolReference
 }
 
 func parseSkillDocument(document string) (skillMetadata, string) {
@@ -60,9 +60,7 @@ func parseSkillFrontmatter(frontmatter string) skillMetadata {
 			continue
 		}
 		if strings.HasPrefix(trimmedLine, "- ") {
-			if section == "allowed-tools" {
-				metadata.AllowedTools = append(metadata.AllowedTools, cleanSkillScalar(strings.TrimPrefix(trimmedLine, "- ")))
-			}
+			metadata = appendSkillToolReference(metadata, section, strings.TrimPrefix(trimmedLine, "- "))
 			continue
 		}
 		key, value, hasKey := strings.Cut(trimmedLine, ":")
@@ -81,7 +79,7 @@ func parseSkillFrontmatter(frontmatter string) skillMetadata {
 		metadata = setSkillMetadataValue(metadata, key, value)
 		section = key
 	}
-	metadata.AllowedTools = trimmedSkillValues(metadata.AllowedTools)
+	metadata.ToolReferences = uniqueTrimmedSkillValues(metadata.ToolReferences)
 	return metadata
 }
 
@@ -91,10 +89,28 @@ func setSkillMetadataValue(metadata skillMetadata, key string, value string) ski
 		metadata.Name = cleanSkillScalar(value)
 	case "description":
 		metadata.Description = joinSkillDescription(metadata.Description, cleanSkillScalar(value))
-	case "allowed-tools":
-		metadata.AllowedTools = append(metadata.AllowedTools, parseSkillSpaceSeparatedList(value)...)
+	case "tool-references":
+		metadata.ToolReferences = append(metadata.ToolReferences, parseSkillToolReferences(value)...)
 	}
 	return metadata
+}
+
+func appendSkillToolReference(metadata skillMetadata, section string, value string) skillMetadata {
+	toolReference := ToolReference(cleanSkillScalar(value))
+	switch section {
+	case "tool-references":
+		metadata.ToolReferences = append(metadata.ToolReferences, toolReference)
+	}
+	return metadata
+}
+
+func parseSkillToolReferences(value string) []ToolReference {
+	toolNames := parseSkillSpaceSeparatedList(value)
+	toolReferences := make([]ToolReference, 0, len(toolNames))
+	for _, toolName := range toolNames {
+		toolReferences = append(toolReferences, ToolReference(toolName))
+	}
+	return toolReferences
 }
 
 func parseSkillList(value string) []string {
@@ -130,12 +146,16 @@ func cleanSkillScalar(value string) string {
 	return strings.Trim(strings.TrimSpace(value), `"'`)
 }
 
-func trimmedSkillValues(values []string) []string {
-	trimmedValues := []string{}
+func uniqueTrimmedSkillValues(values []ToolReference) []ToolReference {
+	trimmedValues := []ToolReference{}
+	seenValues := map[string]bool{}
 	for _, value := range values {
-		if trimmedValue := strings.TrimSpace(value); trimmedValue != "" {
-			trimmedValues = append(trimmedValues, trimmedValue)
+		trimmedValue := strings.TrimSpace(string(value))
+		if trimmedValue == "" || seenValues[trimmedValue] {
+			continue
 		}
+		seenValues[trimmedValue] = true
+		trimmedValues = append(trimmedValues, ToolReference(trimmedValue))
 	}
 	return trimmedValues
 }

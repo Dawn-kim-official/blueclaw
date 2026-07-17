@@ -18,7 +18,11 @@ func TestOutcomeContractNeedsQualityCriteriaOnlyForArtifacts(t *testing.T) {
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			if actual := outcomeContractNeedsQualityCriteria(testCase.contract); actual != testCase.expected {
+			toolSet := newTestToolSetWithDefinitions([]ToolDefinition{
+				{Name: "task.add", Namespace: "task", SideEffectClass: ToolSideEffectWorkspaceWrite},
+				{Name: "site.publish", Namespace: "site", SideEffectClass: ToolSideEffectExternalPublish},
+			})
+			if actual := outcomeContractNeedsQualityCriteria(toolSet, testCase.contract); actual != testCase.expected {
 				t.Fatalf("expected %t, got %t", testCase.expected, actual)
 			}
 		})

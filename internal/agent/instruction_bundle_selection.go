@@ -5,35 +5,16 @@ import (
 	"strings"
 )
 
-func applySelectedSkillCompletionRequirements(decision IntakeDecision, instructionBundle InstructionBundle) IntakeDecision {
+func applyInstructionBundleRequirements(decision IntakeDecision, instructionBundle InstructionBundle) IntakeDecision {
 	if decision.Classification != IntakeClassificationBoundedTask {
 		return decision
 	}
-	selectedSkills := selectedSkillInstructionList(instructionBundle)
-	hasArbitratedEvidence := len(selectedSkills) > 0 && instructionBundle.HasContractSkillArbitration && len(instructionBundle.RequiredEvidenceTools) > 0
-	if hasArbitratedEvidence {
+	if instructionBundle.HasContractSkillArbitration && len(instructionBundle.RequiredEvidenceTools) > 0 {
 		decision.RequiredEvidenceTools = appendUniqueStrings(instructionBundle.RequiredEvidenceTools)
 	} else {
 		decision.RequiredEvidenceTools = appendUniqueStrings(decision.RequiredEvidenceTools)
 	}
-	for _, skillInstruction := range selectedSkills {
-		if !selectedSkillRequiresCompletionEvidence(skillInstruction) {
-			continue
-		}
-		if !hasArbitratedEvidence {
-			decision.RequiredEvidenceTools = appendUniqueStrings(decision.RequiredEvidenceTools, skillInstruction.Completion.RequiredEvidenceTools...)
-		}
-		decision.RequestedOutputFormats = appendUniqueStrings(decision.RequestedOutputFormats, attachmentSuffixFormats(skillInstruction.Completion.RequiredAttachmentSuffixes)...)
-	}
 	return decision
-}
-
-func attachmentSuffixFormats(suffixes []string) []string {
-	formats := []string{}
-	for _, suffix := range suffixes {
-		formats = append(formats, strings.TrimPrefix(strings.ToLower(strings.TrimSpace(suffix)), "."))
-	}
-	return normalizeRequestedOutputFormats(formats)
 }
 
 func selectedSkillInstructionList(instructionBundle InstructionBundle) []SkillInstruction {
@@ -50,11 +31,6 @@ func selectedSkillInstructionList(instructionBundle InstructionBundle) []SkillIn
 		skillInstructions = append(skillInstructions, skillInstruction)
 	}
 	return skillInstructions
-}
-
-func selectedSkillRequiresCompletionEvidence(skillInstruction SkillInstruction) bool {
-	return len(skillInstruction.Completion.RequiredEvidenceTools) > 0 ||
-		len(skillInstruction.Completion.RequiredAttachmentSuffixes) > 0
 }
 
 func (agentKernel *AgentKernel) currentInstructionBundle() InstructionBundle {
@@ -185,7 +161,7 @@ func validatedContractEvidenceTools(arbitration contractSkillArbitration, select
 func selectedSkillToolNameSet(selectedSkills []SkillInstruction) map[string]bool {
 	selectedToolNames := map[string]bool{}
 	for _, skillInstruction := range selectedSkills {
-		for _, toolName := range appendUniqueStrings(SkillToolNames(skillInstruction), skillInstruction.Completion.RequiredEvidenceTools...) {
+		for _, toolName := range SkillToolNames(skillInstruction) {
 			selectedToolNames[toolName] = true
 		}
 	}
@@ -247,7 +223,7 @@ func shouldSkipArtifactSkillForNonArtifactRequest(skillInstruction SkillInstruct
 	if strings.TrimSpace(request.ActiveGoal.OutcomeContract.ArtifactRequirement) != ArtifactRequirementNone {
 		return false
 	}
-	return skillSupportsSiteArtifact(skillInstruction) || skillSupportsFileDelivery(skillInstruction)
+	return skillSupportsSiteArtifact(request.ToolSet, skillInstruction) || skillSupportsFileDelivery(skillInstruction)
 }
 
 func appendSkillInstructions(left []SkillInstruction, right ...SkillInstruction) []SkillInstruction {
@@ -271,40 +247,11 @@ func appendSkillInstructions(left []SkillInstruction, right ...SkillInstruction)
 }
 
 func VisibleSkillInstructionsForRequester(skillInstructions []SkillInstruction, requesterCircles []string) []SkillInstruction {
-	visibleSkillInstructions := []SkillInstruction{}
-	for _, skillInstruction := range skillInstructions {
-		if skillHiddenFromRequester(skillInstruction, requesterCircles) {
-			continue
-		}
-		visibleSkillInstructions = append(visibleSkillInstructions, skillInstruction)
-	}
-	return visibleSkillInstructions
+	return append([]SkillInstruction{}, skillInstructions...)
 }
 
 func visibleCandidateSkillInstructions(skillInstructions []SkillInstruction, candidateByName map[string]SkillCandidate, requesterCircles []string) []SkillInstruction {
-	visibleSkillInstructions := []SkillInstruction{}
-	for _, skillInstruction := range skillInstructions {
-		skillCandidate, isCandidate := candidateByName[skillInstruction.Name]
-		isDirectRequest := isCandidate && skillCandidate.Reason == "direct_skill_name"
-		if skillHiddenFromRequester(skillInstruction, requesterCircles) && !isDirectRequest {
-			continue
-		}
-		visibleSkillInstructions = append(visibleSkillInstructions, skillInstruction)
-	}
-	return visibleSkillInstructions
-}
-
-func skillHiddenFromRequester(skillInstruction SkillInstruction, requesterCircles []string) bool {
-	hiddenCircleByName := map[string]bool{}
-	for _, circleID := range skillInstruction.HiddenFromCircles {
-		hiddenCircleByName[strings.ToLower(strings.TrimSpace(circleID))] = true
-	}
-	for _, circleID := range requesterCircles {
-		if hiddenCircleByName[strings.ToLower(strings.TrimSpace(circleID))] {
-			return true
-		}
-	}
-	return false
+	return append([]SkillInstruction{}, skillInstructions...)
 }
 
 func blockedSkillSelectionDecisions(skillInstructions []SkillInstruction, existingSkillDecisions []SkillSelectionDecision, request AgentRequest, profileName string) []SkillSelectionDecision {
@@ -315,9 +262,6 @@ func blockedSkillSelectionDecisions(skillInstructions []SkillInstruction, existi
 	blockedDecisions := []SkillSelectionDecision{}
 	for _, skillInstruction := range skillInstructions {
 		if existingDecisionByName[skillInstruction.Name] {
-			continue
-		}
-		if skillHiddenFromRequester(skillInstruction, request.RequesterCircles) {
 			continue
 		}
 		skillDecision := skillAvailabilityDecision(skillInstruction, request, profileName)
@@ -374,7 +318,7 @@ func addRequiredEvidenceSkillCandidates(result SkillRetrievalResult, request Age
 }
 
 func skillOwnsAnyTool(skillInstruction SkillInstruction, toolNames map[string]bool) bool {
-	for _, toolName := range appendUniqueStrings(SkillToolNames(skillInstruction), skillInstruction.Completion.RequiredEvidenceTools...) {
+	for _, toolName := range SkillToolNames(skillInstruction) {
 		if toolNames[toolName] {
 			return true
 		}

@@ -10,15 +10,32 @@ import (
 	"strings"
 )
 
-type ToolDefinition struct {
-	Name             string           `json:"name"`
-	Description      string           `json:"description"`
-	RecoveryCard     ToolRecoveryCard `json:"recoveryCard,omitempty"`
-	InputSchema      json.RawMessage  `json:"inputSchema,omitempty"`
-	OutputSchema     json.RawMessage  `json:"outputSchema,omitempty"`
-	PolicyResource   string           `json:"policyResource,omitempty"`
-	SideEffectClass  string           `json:"sideEffectClass,omitempty"`
-	RequiresApproval bool             `json:"requiresApproval,omitempty"`
+type ToolDescriptor struct {
+	ID                   string           `json:"id,omitempty"`
+	ProviderID           string           `json:"providerID,omitempty"`
+	Namespace            string           `json:"namespace,omitempty"`
+	Name                 string           `json:"name"`
+	Description          string           `json:"description"`
+	PrivacyClass         string           `json:"privacyClass,omitempty"`
+	RequiresUserPresence bool             `json:"requiresUserPresence,omitempty"`
+	WorksOffline         bool             `json:"worksOffline,omitempty"`
+	RecoveryCard         ToolRecoveryCard `json:"recoveryCard,omitempty"`
+	InputSchema          json.RawMessage  `json:"inputSchema,omitempty"`
+	OutputSchema         json.RawMessage  `json:"outputSchema,omitempty"`
+	Visibility           string           `json:"visibility,omitempty"`
+	PolicyResource       string           `json:"policyResource,omitempty"`
+	SideEffectClass      string           `json:"sideEffectClass,omitempty"`
+	RequiresApproval     bool             `json:"requiresApproval,omitempty"`
+	Completion           ToolCompletion   `json:"completion,omitempty"`
+	Idempotency          string           `json:"idempotency,omitempty"`
+}
+
+type ToolDefinition = ToolDescriptor
+
+type ToolCompletion struct {
+	Mode       string `json:"mode,omitempty"`
+	Action     string `json:"action,omitempty"`
+	TargetKind string `json:"targetKind,omitempty"`
 }
 
 type ToolRecoveryCard struct {
@@ -30,12 +47,20 @@ type ToolRecoveryCard struct {
 }
 
 const (
-	ToolSideEffectNone           = "none"
-	ToolSideEffectRead           = "read"
-	ToolSideEffectComputation    = "computation"
-	ToolSideEffectStateChange    = "state_change"
-	ToolSideEffectWorkspaceWrite = "workspace_write"
-	ToolSideEffectExternalWrite  = "external_write"
+	ToolSideEffectNone            = "none"
+	ToolSideEffectRead            = "read"
+	ToolSideEffectComputation     = "computation"
+	ToolSideEffectStateChange     = "state_change"
+	ToolSideEffectWorkspaceWrite  = "workspace_write"
+	ToolSideEffectExternalWrite   = "external_write"
+	ToolSideEffectApproval        = "approval"
+	ToolSideEffectConnect         = "connect"
+	ToolSideEffectDestructive     = "destructive"
+	ToolSideEffectExternalSend    = "external_send"
+	ToolSideEffectExternalPublish = "external_publish"
+	ToolSideEffectLocalFile       = "local_file"
+	ToolSideEffectPlatformReply   = "platform_reply"
+	ToolSideEffectSitePublish     = "site_publish"
 )
 
 type ToolInvocation struct {
@@ -284,15 +309,17 @@ type BoundTool struct {
 }
 
 type ToolFunction[Input any, Output any] struct {
-	Definition               ToolDefinition
-	RejectUnknownInputFields bool
-	Handler                  func(context.Context, Input) (Output, error)
-	Result                   func(Output) ToolResult
+	Definition ToolDefinition
+	Handler    func(context.Context, Input) (Output, error)
+	Result     func(Output) ToolResult
 }
 
 type ToolSet struct {
 	allowedToolNameByName map[string]bool
 	boundToolByName       map[string]BoundTool
+	boundToolNameByID     map[string]string
+	quarantinedProviders  []QuarantinedToolProvider
+	allowsTestReplacement bool
 }
 
 func NewToolSet(allowedToolNames []string) *ToolSet {
@@ -306,28 +333,69 @@ func NewToolSet(allowedToolNames []string) *ToolSet {
 	return &ToolSet{
 		allowedToolNameByName: allowedToolNameByName,
 		boundToolByName:       map[string]BoundTool{},
+		boundToolNameByID:     map[string]string{},
 	}
 }
 
-func (toolSet *ToolSet) RegisterTool(toolDefinition ToolDefinition, toolHandler ToolHandler) {
-	toolSet.RegisterBoundTool(BoundTool{
+func (toolSet *ToolSet) RegisterTool(toolDefinition ToolDefinition, toolHandler ToolHandler) error {
+	toolName := strings.TrimSpace(toolDefinition.Name)
+	if toolSet != nil && toolSet.allowsTestReplacement {
+		if registeredTool, isRegistered := toolSet.boundToolByName[toolName]; isRegistered {
+			registeredTool.Definition = mergeTestToolDefinition(registeredTool.Definition, toolDefinition)
+			registeredTool.Handler = toolHandler
+			toolSet.boundToolByName[toolName] = registeredTool
+			return nil
+		}
+	}
+	return toolSet.RegisterBoundTool(BoundTool{
 		Definition:   toolDefinition,
 		Availability: ToolAvailability{Status: ToolAvailabilityAvailable},
 		Handler:      toolHandler,
 	})
 }
 
-func (toolSet *ToolSet) RegisterTypedTool(toolDefinition ToolDefinition, toolHandler ToolHandler) {
-	toolSet.RegisterTool(toolDefinition, toolHandler)
+func mergeTestToolDefinition(currentDefinition ToolDefinition, replacementDefinition ToolDefinition) ToolDefinition {
+	replacementDefinition.ID = firstNonEmptyString(replacementDefinition.ID, currentDefinition.ID)
+	replacementDefinition.ProviderID = firstNonEmptyString(replacementDefinition.ProviderID, currentDefinition.ProviderID)
+	replacementDefinition.Namespace = firstNonEmptyString(replacementDefinition.Namespace, currentDefinition.Namespace)
+	replacementDefinition.Name = firstNonEmptyString(replacementDefinition.Name, currentDefinition.Name)
+	replacementDefinition.Description = firstNonEmptyString(replacementDefinition.Description, currentDefinition.Description)
+	replacementDefinition.PrivacyClass = firstNonEmptyString(replacementDefinition.PrivacyClass, currentDefinition.PrivacyClass)
+	replacementDefinition.RequiresUserPresence = replacementDefinition.RequiresUserPresence || currentDefinition.RequiresUserPresence
+	replacementDefinition.WorksOffline = replacementDefinition.WorksOffline || currentDefinition.WorksOffline
+	replacementDefinition.InputSchema = firstNonEmptySchema(replacementDefinition.InputSchema, currentDefinition.InputSchema)
+	replacementDefinition.OutputSchema = firstNonEmptySchema(replacementDefinition.OutputSchema, currentDefinition.OutputSchema)
+	replacementDefinition.Visibility = firstNonEmptyString(replacementDefinition.Visibility, currentDefinition.Visibility)
+	replacementDefinition.PolicyResource = firstNonEmptyString(replacementDefinition.PolicyResource, currentDefinition.PolicyResource)
+	replacementDefinition.SideEffectClass = firstNonEmptyString(replacementDefinition.SideEffectClass, currentDefinition.SideEffectClass)
+	replacementDefinition.RequiresApproval = replacementDefinition.RequiresApproval || currentDefinition.RequiresApproval
+	replacementDefinition.Idempotency = firstNonEmptyString(replacementDefinition.Idempotency, currentDefinition.Idempotency)
+	if replacementDefinition.Completion.Mode == "" {
+		replacementDefinition.Completion = currentDefinition.Completion
+	}
+	return replacementDefinition
+}
+
+func firstNonEmptySchema(values ...json.RawMessage) json.RawMessage {
+	for _, value := range values {
+		if len(bytes.TrimSpace(value)) > 0 {
+			return value
+		}
+	}
+	return nil
+}
+
+func (toolSet *ToolSet) RegisterTypedTool(toolDefinition ToolDefinition, toolHandler ToolHandler) error {
+	return toolSet.RegisterTool(toolDefinition, toolHandler)
 }
 
 func RegisterToolFunction[Input any, Output any](toolSet *ToolSet, toolFunction ToolFunction[Input, Output]) {
 	if toolSet == nil || toolFunction.Handler == nil {
 		return
 	}
-	toolSet.RegisterTool(toolFunction.Definition, func(toolContext context.Context, toolInvocation ToolInvocation) (ToolResult, error) {
+	errorValue := toolSet.RegisterTool(toolFunction.Definition, func(toolContext context.Context, toolInvocation ToolInvocation) (ToolResult, error) {
 		var input Input
-		if errorValue := unmarshalToolInput(toolInvocation.Input, &input, toolFunction.RejectUnknownInputFields); errorValue != nil {
+		if errorValue := unmarshalToolInput(toolInvocation.Input, &input, true); errorValue != nil {
 			return ToolInputFailure(errorValue.Error()), nil
 		}
 		output, errorValue := toolFunction.Handler(toolContext, input)
@@ -339,62 +407,50 @@ func RegisterToolFunction[Input any, Output any](toolSet *ToolSet, toolFunction 
 		}
 		return ToolSuccess(marshalTypedToolOutput(output)), nil
 	})
+	if errorValue != nil {
+		panic(errorValue)
+	}
 }
 
 func IdentityToolResult(toolResult ToolResult) ToolResult {
 	return toolResult
 }
 
-func (toolSet *ToolSet) RegisterBoundTool(boundTool BoundTool) {
+func (toolSet *ToolSet) RegisterBoundTool(boundTool BoundTool) error {
 	if toolSet == nil {
-		return
+		return errors.New("tool set is unavailable")
 	}
 	toolDefinition := boundTool.Definition
 	toolName := strings.TrimSpace(toolDefinition.Name)
-	if toolName == "" || boundTool.Handler == nil {
-		return
+	if toolName == "" {
+		return errors.New("tool name is required")
+	}
+	if boundTool.Handler == nil {
+		return errors.New("tool handler is required")
+	}
+	if _, isRegistered := toolSet.boundToolByName[toolName]; isRegistered {
+		return errors.New("tool name is already registered: " + toolName)
+	}
+	toolID := strings.TrimSpace(toolDefinition.ID)
+	if toolID == "" {
+		toolID = toolName
+	}
+	if registeredToolName, isRegistered := toolSet.boundToolNameByID[toolID]; isRegistered {
+		return errors.New("tool identifier is already registered by " + registeredToolName + ": " + toolID)
 	}
 	if strings.TrimSpace(boundTool.Availability.Status) == "" {
 		boundTool.Availability.Status = ToolAvailabilityAvailable
 	}
+	toolDefinition.ID = toolID
 	toolDefinition.Name = toolName
-	if strings.TrimSpace(toolDefinition.SideEffectClass) == "" && strings.TrimSpace(toolDefinition.RecoveryCard.SideEffect) == "" {
-		toolDefinition.SideEffectClass = DefaultToolSideEffectClass(toolName)
-	}
 	boundTool.Definition = toolDefinition
 	toolSet.boundToolByName[toolName] = boundTool
-}
-
-func DefaultToolSideEffectClass(toolName string) string {
-	normalizedToolName := strings.ToLower(strings.TrimSpace(toolName))
-	if normalizedToolName == "" {
-		return ""
-	}
-	for _, suffix := range []string{".list", ".read", ".search", ".status", ".context", ".preview", ".snapshot", ".screenshot"} {
-		if strings.HasSuffix(normalizedToolName, suffix) {
-			return ToolSideEffectRead
-		}
-	}
-	for _, suffix := range []string{".calculate", ".count", ".compare", ".classify"} {
-		if strings.HasSuffix(normalizedToolName, suffix) {
-			return ToolSideEffectComputation
-		}
-	}
-	for _, suffix := range []string{".send", ".reply", ".post", ".publish"} {
-		if strings.HasSuffix(normalizedToolName, suffix) {
-			return ToolSideEffectExternalWrite
-		}
-	}
-	for _, suffix := range []string{".add", ".create", ".update", ".delete", ".remove", ".cancel", ".write", ".edit", ".patch", ".promote", ".attach", ".run", ".fill", ".click", ".press", ".select"} {
-		if strings.HasSuffix(normalizedToolName, suffix) {
-			return ToolSideEffectStateChange
-		}
-	}
-	return ""
+	toolSet.boundToolNameByID[toolID] = toolName
+	return nil
 }
 
 func ToolDefinitionSideEffectClass(toolDefinition ToolDefinition) string {
-	return normalizeToolSideEffectClass(firstNonEmptyString(toolDefinition.SideEffectClass, toolDefinition.RecoveryCard.SideEffect, DefaultToolSideEffectClass(toolDefinition.Name)))
+	return normalizeToolSideEffectClass(firstNonEmptyString(toolDefinition.SideEffectClass, toolDefinition.RecoveryCard.SideEffect))
 }
 
 func ToolDefinitionRequiresSideEffectEvidence(toolDefinition ToolDefinition) bool {
@@ -432,6 +488,9 @@ func (toolSet *ToolSet) IsAllowed(toolName string) bool {
 	if !isRegistered {
 		return false
 	}
+	if !toolDescriptorIsModelCallable(boundTool.Definition) {
+		return false
+	}
 	if len(toolSet.allowedToolNameByName) > 0 && !toolSet.allowedToolNameByName[trimmedToolName] {
 		return false
 	}
@@ -457,7 +516,16 @@ func (toolSet *ToolSet) CanExpose(toolName string) bool {
 		return false
 	}
 	boundTool, isRegistered := toolSet.boundToolByName[strings.TrimSpace(toolName)]
-	return isRegistered && isExposedToolAvailability(boundTool.Availability)
+	return isRegistered && toolDescriptorIsModelCallable(boundTool.Definition) && isExposedToolAvailability(boundTool.Availability)
+}
+
+func toolDescriptorIsModelCallable(toolDescriptor ToolDefinition) bool {
+	switch strings.TrimSpace(toolDescriptor.Visibility) {
+	case ToolVisibilityInternal, ToolVisibilityControl:
+		return false
+	default:
+		return true
+	}
 }
 
 func (toolSet *ToolSet) ToolDefinition(toolName string) (ToolDefinition, bool) {
@@ -489,8 +557,17 @@ func (toolSet *ToolSet) WithAllowedToolNames(toolNames []string) *ToolSet {
 	filteredToolSet := NewToolSet(toolNames)
 	for toolName, boundTool := range toolSet.boundToolByName {
 		filteredToolSet.boundToolByName[toolName] = boundTool
+		filteredToolSet.boundToolNameByID[boundTool.Definition.ID] = toolName
 	}
+	filteredToolSet.quarantinedProviders = append([]QuarantinedToolProvider{}, toolSet.quarantinedProviders...)
 	return filteredToolSet
+}
+
+func (toolSet *ToolSet) QuarantinedProviders() []QuarantinedToolProvider {
+	if toolSet == nil {
+		return nil
+	}
+	return append([]QuarantinedToolProvider{}, toolSet.quarantinedProviders...)
 }
 
 func (toolSet *ToolSet) WithAdditionalAllowedToolNames(toolNames []string) *ToolSet {
@@ -513,14 +590,10 @@ func (toolSet *ToolSet) Invoke(ctx context.Context, toolInvocation ToolInvocatio
 	if !toolSet.IsAllowed(toolName) {
 		return ToolFailureResult(FailurePolicyBlocked, FailureCodes.PolicyBlocked, "tool_availability", "tool is not allowed"), nil
 	}
-	return toolSet.InvokeRegistered(ctx, toolInvocation)
+	return toolSet.invokeRegistered(ctx, toolInvocation)
 }
 
-// InvokeRegistered dispatches to a registered tool handler without the
-// model-exposure check. It is the dispatch path for the capability.invoke kernel
-// verb, which reaches registered domain operations that are intentionally hidden
-// from the model action schema. Per-handler access policy still applies.
-func (toolSet *ToolSet) InvokeRegistered(ctx context.Context, toolInvocation ToolInvocation) (ToolResult, error) {
+func (toolSet *ToolSet) invokeRegistered(ctx context.Context, toolInvocation ToolInvocation) (ToolResult, error) {
 	toolName := strings.TrimSpace(toolInvocation.ToolName)
 	boundTool, isFound := toolSet.boundToolByName[toolName]
 	if !isFound {
@@ -528,6 +601,10 @@ func (toolSet *ToolSet) InvokeRegistered(ctx context.Context, toolInvocation Too
 	}
 	toolInvocation.ToolName = toolName
 	return boundTool.Handler(ctx, toolInvocation)
+}
+
+func (toolSet *ToolSet) InvokeInternal(ctx context.Context, toolInvocation ToolInvocation) (ToolResult, error) {
+	return toolSet.invokeRegistered(ctx, toolInvocation)
 }
 
 func (toolSet *ToolSet) ListToolDefinitions() []ToolDefinition {
@@ -640,7 +717,7 @@ func (toolSet *ToolSet) Descriptions() string {
 }
 
 func toolCatalogLine(toolName string, toolDefinition ToolDefinition, toolSet *ToolSet) string {
-	description := firstNonEmptyString(specificToolDescription(toolName), strings.TrimSpace(toolDefinition.Description), "No description.")
+	description := firstNonEmptyString(strings.TrimSpace(toolDefinition.Description), "No description.")
 	visibility := "hidden"
 	if toolSet.IsAllowed(toolName) {
 		visibility = "exposed"
