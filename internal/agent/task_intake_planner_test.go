@@ -330,6 +330,62 @@ func TestTaskIntakePlannerExplainsTaskRecordSemantics(t *testing.T) {
 	}
 }
 
+func TestTurnRouterNormalizesSideEffectEvidenceIntoExecutableWork(t *testing.T) {
+	languageModel := &sequenceLanguageModel{contents: []string{
+		`{"route":"answer_question","classification":"quick_reply","taskShape":"immediate_reply","level":"low","estimatedMinutes":1,"requestedOutputFormats":[],"expectedResults":[],"requiredEvidence":["task.add"],"responseLanguage":"ko","reason":"add the task","userFacingReply":"","initialToolNames":["file.read"],"priorTaskReference":"none"}`,
+	}}
+	turnRouter := NewTurnRouter(languageModel, IntakeOptions{IsEnabled: true})
+
+	decision, errorValue := turnRouter.Plan(context.Background(), AgentRequest{
+		Prompt:  "분기 결산 확인 업무를 추가해줘",
+		ToolSet: newTestCapabilityToolSet([]string{"task.add", "file.read"}),
+	})
+
+	if errorValue != nil {
+		t.Fatalf("expected normalized executable decision: %v", errorValue)
+	}
+	if decision.Route != TurnRouteStartTask || decision.Classification != IntakeClassificationBoundedTask || decision.TaskShape != TaskShapeMaintenanceTask {
+		t.Fatalf("expected side-effect evidence to define executable work, got %+v", decision)
+	}
+	if !slices.Equal(decision.RequiredEvidenceTools, []string{"task.add"}) {
+		t.Fatalf("expected exact typed evidence to remain, got %+v", decision.RequiredEvidenceTools)
+	}
+}
+
+func TestTurnRouterKeepsReadOnlyEvidenceAsQuickReply(t *testing.T) {
+	languageModel := &sequenceLanguageModel{contents: []string{
+		`{"route":"answer_question","classification":"quick_reply","taskShape":"immediate_reply","level":"low","estimatedMinutes":1,"requestedOutputFormats":[],"expectedResults":[],"requiredEvidence":["task.list"],"responseLanguage":"ko","reason":"list tasks","userFacingReply":"","initialToolNames":["task.list"],"priorTaskReference":"none"}`,
+	}}
+	turnRouter := NewTurnRouter(languageModel, IntakeOptions{IsEnabled: true})
+
+	decision, errorValue := turnRouter.Plan(context.Background(), AgentRequest{
+		Prompt:  "내 업무 목록 보여줘",
+		ToolSet: newTestCapabilityToolSet([]string{"task.list"}),
+	})
+
+	if errorValue != nil {
+		t.Fatalf("expected read-only decision: %v", errorValue)
+	}
+	if decision.Route != TurnRouteAnswerQuestion || decision.Classification != IntakeClassificationQuickReply || decision.TaskShape != TaskShapeImmediateReply {
+		t.Fatalf("expected read-only evidence to preserve quick reply, got %+v", decision)
+	}
+}
+
+func TestTurnRouterIgnoresUnregisteredSideEffectSuffix(t *testing.T) {
+	decision := mustNormalizeTurn(t, TurnRouter{}, TurnDecision{
+		Route:                 TurnRouteAnswerQuestion,
+		Classification:        IntakeClassificationQuickReply,
+		TaskShape:             TaskShapeImmediateReply,
+		TaskLevel:             TaskLevelLow,
+		EstimatedMinutes:      1,
+		RequiredEvidenceTools: []string{"fake.delete"},
+	}, AgentRequest{ToolSet: newTestCapabilityToolSet([]string{"task.list"})})
+
+	if decision.Route != TurnRouteAnswerQuestion || decision.Classification != IntakeClassificationQuickReply {
+		t.Fatalf("expected unregistered evidence to remain non-executable, got %+v", decision)
+	}
+}
+
 func TestTaskIntakePlannerReviewsExecutableTaskClarification(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		`{"route":"clarify","classification":"needs_confirmation","taskShape":"approval_gated_task","level":"low","estimatedMinutes":10,"requestedOutputFormats":[],"expectedResults":[{"id":"result-1","type":"message","description":"작업 추가 완료 메시지","required":true}],"requiredEvidence":["task.add"],"responseLanguage":"ko","reason":"작업 목록을 먼저 확인해야 합니다.","userFacingReply":"혹시 이미 작업 목록에 있는 작업인가요?","initialToolNames":["file.write"],"priorTaskReference":"none","clarificationQuestion":"이미 등록된 작업인가요?"}`,
