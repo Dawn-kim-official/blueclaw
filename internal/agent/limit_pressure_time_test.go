@@ -564,10 +564,10 @@ func TestAgentTurnRunnerSharesLimitGraceAcrossFinalizerAndFallback(t *testing.T)
 	}
 }
 
-func TestLimitFinalizationContextCarriesRequesterAndDeadline(t *testing.T) {
+func TestReplyFinalizationContextCarriesRequesterAndDeadline(t *testing.T) {
 	runner := &AgentTurnRunner{options: TurnOptions{LimitFinalizationGrace: 40 * time.Millisecond}}
 	request := AgentTurnRequest{RequesterPersonID: "person-1", ConversationID: "conversation-1", Platform: "mattermost"}
-	finalizationContext, cancelFinalization := runner.limitFinalizationContext(context.Background(), request)
+	finalizationContext, cancelFinalization := runner.replyFinalizationContext(context.Background(), request)
 	defer cancelFinalization()
 
 	deadline, hasDeadline := finalizationContext.Deadline()

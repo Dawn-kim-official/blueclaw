@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"blueclaw/internal/llm"
 	"blueclaw/internal/task"
@@ -114,6 +115,146 @@ func TestAgentTurnRunnerReportsRawErrorWhenAllModelCallsFail(t *testing.T) {
 	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.failure_reply", "raw_error") {
 		t.Fatal("expected raw error failure reply event")
 	}
+}
+
+func TestAgentTurnRunnerBoundsFailureDecisionAndWordingWithOneGrace(t *testing.T) {
+	languageModel := &blockingFailureWordingLanguageModel{failFirstStructuredCall: true}
+	services := newTurnRunnerTestServices(languageModel, TurnOptions{
+		MaxIterationCount:      4,
+		LimitFinalizationGrace: 40 * time.Millisecond,
+	})
+	startedAt := time.Now()
+
+	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
+		RequesterPersonID: "person-1",
+		ConversationID:    "conversation-1",
+		Prompt:            "분기 결산 업무를 등록해줘",
+		ResponseLanguage:  ResponseLanguageKorean,
+	})
+
+	if errorValue != nil {
+		t.Fatalf("expected bounded failure result, got %v", errorValue)
+	}
+	if elapsed := time.Since(startedAt); elapsed >= 500*time.Millisecond {
+		t.Fatalf("expected one bounded failure grace, took %s", elapsed)
+	}
+	if result.TaskRun.Status != task.TaskStatusFailed || result.FailureNotice.Source != "raw_error" {
+		t.Fatalf("expected failed raw-error result, got %+v", result)
+	}
+	if result.UserNotice == "" || result.TaskRun.Result != result.UserNotice {
+		t.Fatalf("expected persisted user notice, got result=%q notice=%q", result.TaskRun.Result, result.UserNotice)
+	}
+	assertSharedFailureReplyDeadline(t, languageModel)
+	if languageModel.requesterPersonID != "person-1" {
+		t.Fatalf("expected requester metadata in failure finalization, got %q", languageModel.requesterPersonID)
+	}
+	taskEvents := services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID)
+	if !taskEventsContain(taskEvents, "agent.failure_report", `"source":"raw_error"`) {
+		t.Fatal("expected raw-error failure report event")
+	}
+	if !taskEventsContain(taskEvents, "agent.failure_reply", `"source":"raw_error"`) {
+		t.Fatal("expected raw-error failure reply event")
+	}
+}
+
+func TestAgentTurnRunnerBoundsStallDecisionAndWordingWithOneGrace(t *testing.T) {
+	languageModel := &blockingFailureWordingLanguageModel{}
+	services := newTurnRunnerTestServices(languageModel, TurnOptions{LimitFinalizationGrace: 40 * time.Millisecond})
+	taskRun := services.taskRunService.CreateTaskRun("person-1", "conversation-1", "분기 결산 업무를 등록해줘")
+	startedAt := time.Now()
+
+	notice, _, hasReply := services.runner.generateStallPauseNotice(context.Background(), taskRun.TaskRunID, AgentTurnRequest{
+		RequesterPersonID: "person-1",
+		ConversationID:    "conversation-1",
+		Prompt:            taskRun.Prompt,
+		ResponseLanguage:  ResponseLanguageKorean,
+	}, "repeated actions without progress", nil, nil, ExecutionState{})
+
+	if elapsed := time.Since(startedAt); elapsed >= 500*time.Millisecond {
+		t.Fatalf("expected bounded stall reply grace, took %s", elapsed)
+	}
+	if hasReply || notice.Source != "raw_error" {
+		t.Fatalf("expected unsendable raw-error stall notice, got notice=%+v hasReply=%v", notice, hasReply)
+	}
+	assertSharedFailureReplyDeadline(t, languageModel)
+}
+
+func TestAgentTurnRunnerBoundsMaxIterationsDecisionAndWordingWithOneGrace(t *testing.T) {
+	languageModel := &blockingFailureWordingLanguageModel{}
+	services := newTurnRunnerTestServices(languageModel, TurnOptions{LimitFinalizationGrace: 40 * time.Millisecond})
+	taskRun := services.taskRunService.CreateTaskRun("person-1", "conversation-1", "분기 결산 업무를 등록해줘")
+	if _, errorValue := services.taskRunService.AdvanceTaskRun(taskRun.TaskRunID, "assistant"); errorValue != nil {
+		t.Fatalf("expected running task: %v", errorValue)
+	}
+	startedAt := time.Now()
+
+	result, errorValue := services.runner.stopForLimit(context.Background(), taskRun.TaskRunID, AgentTurnRequest{
+		RequesterPersonID: "person-1",
+		ConversationID:    "conversation-1",
+		Prompt:            taskRun.Prompt,
+		ResponseLanguage:  ResponseLanguageKorean,
+	}, "max_iterations", nil, nil, ExecutionState{}, 4, 0)
+
+	if errorValue != nil {
+		t.Fatalf("expected bounded max-iterations result, got %v", errorValue)
+	}
+	if elapsed := time.Since(startedAt); elapsed >= 500*time.Millisecond {
+		t.Fatalf("expected bounded max-iterations reply grace, took %s", elapsed)
+	}
+	if result.TaskRun.Status != task.TaskStatusBlocked || result.FailureNotice.Source != "raw_error" {
+		t.Fatalf("expected blocked raw-error limit result, got %+v", result)
+	}
+	if result.UserNotice == "" || result.TaskRun.Result != result.UserNotice {
+		t.Fatalf("expected persisted limit notice, got result=%q notice=%q", result.TaskRun.Result, result.UserNotice)
+	}
+	assertSharedFailureReplyDeadline(t, languageModel)
+}
+
+func assertSharedFailureReplyDeadline(t *testing.T, languageModel *blockingFailureWordingLanguageModel) {
+	t.Helper()
+	if languageModel.recoveryChatCalls != 1 || languageModel.legacyCalls != 0 {
+		t.Fatalf("expected one bounded recovery Chat and no legacy call, got chat=%d legacy=%d", languageModel.recoveryChatCalls, languageModel.legacyCalls)
+	}
+	if languageModel.decisionDeadline.IsZero() || !languageModel.decisionDeadline.Equal(languageModel.recoveryChatDeadline) {
+		t.Fatalf("expected decision and wording to share one deadline, got %v and %v", languageModel.decisionDeadline, languageModel.recoveryChatDeadline)
+	}
+}
+
+type blockingFailureWordingLanguageModel struct {
+	failFirstStructuredCall bool
+	structuredCalls         int
+	recoveryChatCalls       int
+	legacyCalls             int
+	requesterPersonID       string
+	decisionDeadline        time.Time
+	recoveryChatDeadline    time.Time
+}
+
+func (languageModel *blockingFailureWordingLanguageModel) GenerateResponse(context.Context, string) (string, error) {
+	languageModel.legacyCalls++
+	return "", errors.New("legacy recovery should not run after cancellation")
+}
+
+func (languageModel *blockingFailureWordingLanguageModel) GenerateStructuredResponse(responseContext context.Context, _ llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
+	languageModel.structuredCalls++
+	if languageModel.failFirstStructuredCall && languageModel.structuredCalls == 1 {
+		return llm.StructuredResponse{}, errors.New("action schema validation failed")
+	}
+	languageModel.requesterPersonID = llm.RequestContextFromContext(responseContext).RequesterPersonID
+	languageModel.decisionDeadline, _ = responseContext.Deadline()
+	return llm.StructuredResponse{Content: recoveryDecisionDocument(
+		"업무 추가 판단을 완료하지 못했다",
+		"사용자가 분기 결산 업무 등록을 요청했다",
+		"같은 요청을 다시 시도한다",
+		"업무를 추가하지 못한 사실과 재시도 방법을 설명한다",
+	)}, nil
+}
+
+func (languageModel *blockingFailureWordingLanguageModel) GenerateRecoveryChatCompletion(responseContext context.Context, _ llm.ChatCompletionRequest) (llm.ChatCompletionResponse, error) {
+	languageModel.recoveryChatCalls++
+	languageModel.recoveryChatDeadline, _ = responseContext.Deadline()
+	<-responseContext.Done()
+	return llm.ChatCompletionResponse{}, responseContext.Err()
 }
 
 func TestAgentTurnRunnerUsesLocalRecoveryWhenRemoteAndRecoveryModelsFail(t *testing.T) {
