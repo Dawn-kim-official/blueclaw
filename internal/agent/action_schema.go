@@ -189,12 +189,6 @@ func toolInputSchema(toolDefinition ToolDefinition) any {
 			return portableNestedSchema(schema)
 		}
 	}
-	if schema := specificToolInputSchema(toolDefinition.Name); len(schema) > 0 {
-		var document any
-		if json.Unmarshal(schema, &document) == nil {
-			return portableNestedSchema(document)
-		}
-	}
 	return objectSchema()
 }
 
@@ -225,37 +219,6 @@ func portableNestedSchema(value any) any {
 		return clone
 	}
 	return value
-}
-
-func specificToolInputSchema(toolName string) json.RawMessage {
-	switch strings.TrimSpace(toolName) {
-	case "browser.open":
-		return json.RawMessage(`{"type":"object","properties":{"url":{"type":"string"}},"required":["url"]}`)
-	case "browser.snapshot":
-		return json.RawMessage(`{"type":"object","properties":{"interactive":{"type":"boolean"}}}`)
-	case "browser.screenshot":
-		return json.RawMessage(`{"type":"object","properties":{"ttlSeconds":{"type":"number"}}}`)
-	case "browser.click":
-		return json.RawMessage(`{"type":"object","properties":{"target":{"type":"string"},"ref":{"type":"string"},"selector":{"type":"string"}}}`)
-	case "browser.fill":
-		return json.RawMessage(`{"type":"object","properties":{"target":{"type":"string"},"ref":{"type":"string"},"selector":{"type":"string"},"text":{"type":"string"}},"required":["text"]}`)
-	case "browser.select":
-		return json.RawMessage(`{"type":"object","properties":{"target":{"type":"string"},"ref":{"type":"string"},"selector":{"type":"string"},"value":{"type":"string"}},"required":["value"]}`)
-	case "browser.press":
-		return json.RawMessage(`{"type":"object","properties":{"key":{"type":"string"}},"required":["key"]}`)
-	case "browser.wait":
-		return json.RawMessage(`{"type":"object","properties":{"target":{"type":"string"},"ref":{"type":"string"},"selector":{"type":"string"},"milliseconds":{"type":"number"}}}`)
-	case "conversation.history":
-		return json.RawMessage(`{"type":"object","properties":{"historyCursor":{"type":"string"},"limit":{"type":"number"},"direction":{"type":"string"}}}`)
-	case "task.add":
-		return json.RawMessage(`{"type":"object","properties":{"prompt":{"type":"string"},"title":{"type":"string"},"endDate":{"type":"string"},"targetPersonHint":{"type":"string"},"weekCode":{"type":"string"}},"required":["prompt"]}`)
-	case "task.list":
-		return json.RawMessage(`{"type":"object","properties":{"query":{"type":"string"},"targetPersonHint":{"type":"string","description":"Name or email of one specific person. Leave empty to use scope."},"scope":{"type":"string","enum":["self","all"],"description":"Defaults to self. Use all only for an explicit workspace-wide request."},"weekFrom":{"type":"number","description":"Relative week offset for the start of the range. 0 = this week (default), -1 = last week, -2 = two weeks ago. Omit for this week."},"weekTo":{"type":"number","description":"Relative week offset for the end of the range, default 0 (this week). For all time use a wide range such as weekFrom -520."},"status":{"type":"string"},"limit":{"type":"number"}}}`)
-	case "task.update":
-		return json.RawMessage(`{"type":"object","properties":{"taskID":{"type":"string"},"query":{"type":"string"},"targetPersonHint":{"type":"string"},"weekCode":{"type":"string"},"title":{"type":"string"},"goal":{"type":"string"},"status":{"type":"string"},"size":{"type":"string"},"category":{"type":"string"},"type":{"type":"string"},"startDate":{"type":"string"},"endDate":{"type":"string"},"flag":{"type":"number"},"requestReason":{"type":"string"},"decisionReason":{"type":"string"}}}`)
-	default:
-		return nil
-	}
 }
 
 func enumStringSchema(value string) map[string]any {
