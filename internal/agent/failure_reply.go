@@ -110,8 +110,8 @@ func normalizeRecoveryDecision(decision recoveryDecision) recoveryDecision {
 	return decision
 }
 
-func (agentTurnRunner *AgentTurnRunner) generateFailureNotice(taskRunID string, request AgentTurnRequest, failureReason string, observations []turnObservation, attachments []FileAttachment, executionState ExecutionState) (FailureNotice, failureReplyStatus, bool) {
-	recoveryContext, cancelRecovery := recoveryFinalizationContext(request)
+func (agentTurnRunner *AgentTurnRunner) generateFailureNotice(parentContext context.Context, taskRunID string, request AgentTurnRequest, failureReason string, observations []turnObservation, attachments []FileAttachment, executionState ExecutionState) (FailureNotice, failureReplyStatus, bool) {
+	recoveryContext, cancelRecovery := agentTurnRunner.replyFinalizationContext(parentContext, request)
 	defer cancelRecovery()
 	decision, decisionError := agentTurnRunner.generateRecoveryDecision(recoveryContext, request, failureReason, observations, attachments, executionState, "failure")
 	failureReportFacts := buildFailureReportFacts(observations, agentTurnRunner.options.RecoveryBudget)
@@ -139,8 +139,8 @@ func failureReportEventBody(phase string, report FailureReport, generation Failu
 	}
 }
 
-func (agentTurnRunner *AgentTurnRunner) generateStallPauseNotice(taskRunID string, request AgentTurnRequest, stallReason string, observations []turnObservation, attachments []FileAttachment, executionState ExecutionState) (FailureNotice, failureReplyStatus, bool) {
-	recoveryContext, cancelRecovery := recoveryFinalizationContext(request)
+func (agentTurnRunner *AgentTurnRunner) generateStallPauseNotice(parentContext context.Context, taskRunID string, request AgentTurnRequest, stallReason string, observations []turnObservation, attachments []FileAttachment, executionState ExecutionState) (FailureNotice, failureReplyStatus, bool) {
+	recoveryContext, cancelRecovery := agentTurnRunner.replyFinalizationContext(parentContext, request)
 	defer cancelRecovery()
 	decision, decisionError := agentTurnRunner.generateRecoveryDecision(recoveryContext, request, stallReason, observations, attachments, executionState, "stall")
 	failureReport := buildFailureReport(request, taskRunID, "stall", stallReason, observations, attachments, executionState, decision)
@@ -166,8 +166,8 @@ func stallNoticeCanReachUser(notice FailureNotice, source string) bool {
 	return notice.SendableMessage() != ""
 }
 
-func (agentTurnRunner *AgentTurnRunner) generateLimitReachedNotice(taskRunID string, request AgentTurnRequest, stopReason string, observations []turnObservation, attachments []FileAttachment, executionState ExecutionState) (FailureNotice, limitReplyStatus, bool) {
-	recoveryContext, cancelRecovery := recoveryFinalizationContext(request)
+func (agentTurnRunner *AgentTurnRunner) generateLimitReachedNotice(parentContext context.Context, taskRunID string, request AgentTurnRequest, stopReason string, observations []turnObservation, attachments []FileAttachment, executionState ExecutionState) (FailureNotice, limitReplyStatus, bool) {
+	recoveryContext, cancelRecovery := agentTurnRunner.replyFinalizationContext(parentContext, request)
 	defer cancelRecovery()
 	decision, decisionError := agentTurnRunner.generateRecoveryDecision(recoveryContext, request, stopReason, observations, attachments, executionState, "limit")
 	failureReport := buildFailureReport(request, taskRunID, "limit", stopReason, observations, attachments, executionState, decision)
