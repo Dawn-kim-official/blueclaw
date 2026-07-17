@@ -188,6 +188,64 @@ describe('sdkd provider adapter', () => {
     expect((repairPrompt.match(/additionalProperties/g) ?? []).length).toBeGreaterThanOrEqual(3);
   });
 
+  test('removes optional non-nullable properties through nested objects and arrays', async () => {
+    const request = nullNormalizationChatRequest();
+    const llamaModel = successfulLanguageModel('unused-local-model', { ok: true });
+    const remoteModel = sequencedToolCallLanguageModel('served-remote-model', [JSON.stringify({
+      optionalText: null,
+      requiredText: 'keep',
+      nullableText: null,
+      nested: { optionalCount: null, requiredCount: 2 },
+      rows: [{ optionalLabel: null, requiredLabel: 'first', nullableLabel: null }],
+    })]);
+    const generateChatCompletion = createChatCompletionGenerator(
+      completeConfiguration(SDKDAutoRoute.RemoteFirst),
+      languageModelFactory(llamaModel, remoteModel),
+    );
+
+    const response = await generateChatCompletion(request);
+
+    expect(response.message.toolCalls?.[0]?.function.arguments).toBe(JSON.stringify({
+      requiredText: 'keep',
+      nullableText: null,
+      nested: { requiredCount: 2 },
+      rows: [{ requiredLabel: 'first', nullableLabel: null }],
+    }));
+    expect(remoteModel.doGenerateCalls).toHaveLength(1);
+    expect(llamaModel.doGenerateCalls).toHaveLength(0);
+  });
+
+  test('keeps required nulls, array elements, additional property values, and unknown keys for validation', async () => {
+    const request = nullNormalizationChatRequest();
+    const invalidArguments = JSON.stringify({
+      requiredText: null,
+      nullableText: null,
+      nested: { requiredCount: 2 },
+      rows: [null],
+      metadata: { extra: null },
+      unknown: null,
+    });
+    const llamaModel = successfulLanguageModel('unused-local-model', { ok: true });
+    const remoteModel = sequencedToolCallLanguageModel('served-remote-model', [invalidArguments, invalidArguments]);
+    const generateChatCompletion = createChatCompletionGenerator(
+      completeConfiguration(SDKDAutoRoute.RemoteFirst),
+      languageModelFactory(llamaModel, remoteModel),
+    );
+
+    await expect(generateChatCompletion(request)).rejects.toMatchObject({
+      code: 'provider_response_invalid',
+      diagnostic: { category: StructuredOutputDiagnosticCategory.SchemaValidation },
+    });
+
+    const repairPrompt = JSON.stringify(remoteModel.doGenerateCalls[1]?.prompt);
+    expect(repairPrompt).toContain('data must NOT have additional properties');
+    expect(repairPrompt).toContain('data/requiredText must be string');
+    expect(repairPrompt).toContain('data/rows/0 must be object');
+    expect(repairPrompt).toContain('data/metadata/extra must be string');
+    expect(remoteModel.doGenerateCalls).toHaveLength(2);
+    expect(llamaModel.doGenerateCalls).toHaveLength(0);
+  });
+
   test('fails closed for permanent unknown native tool arguments without an alternate route', async () => {
     const request = openTaskChatRequest();
     const llamaModel = successfulLanguageModel('unused-local-model', { ok: true });
@@ -1192,6 +1250,49 @@ function explicitOpenChatRequest(): ChatCompletionRequest {
             labels: { type: 'object', additionalProperties: { type: 'string' } },
           },
           required: ['metadata', 'labels'],
+        },
+      },
+    }],
+  };
+}
+
+function nullNormalizationChatRequest(): ChatCompletionRequest {
+  return {
+    ...chatRequest,
+    tools: [{
+      type: 'function',
+      function: {
+        name: 'lookup',
+        description: 'Look up a value.',
+        parameters: {
+          type: 'object',
+          properties: {
+            optionalText: { type: 'string' },
+            requiredText: { type: 'string' },
+            nullableText: { type: ['string', 'null'] },
+            nested: {
+              type: 'object',
+              properties: {
+                optionalCount: { type: 'number' },
+                requiredCount: { type: 'number' },
+              },
+              required: ['requiredCount'],
+            },
+            rows: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  optionalLabel: { type: 'string' },
+                  requiredLabel: { type: 'string' },
+                  nullableLabel: { type: ['string', 'null'] },
+                },
+                required: ['requiredLabel'],
+              },
+            },
+            metadata: { type: 'object', additionalProperties: { type: 'string' } },
+          },
+          required: ['requiredText', 'nested', 'rows'],
         },
       },
     }],
