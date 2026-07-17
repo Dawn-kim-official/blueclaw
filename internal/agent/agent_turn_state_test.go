@@ -164,40 +164,18 @@ func TestDecideAgentActionNativeChatRejectsInvalidCallsWithoutStructuredFallback
 	}
 }
 
-func TestDecideAgentActionNativeChatRepairsMultipleCallsOnce(t *testing.T) {
-	provider := nativeAgentActionLanguageModel{chatResponses: []llm.ChatCompletionResponse{
-		nativeAgentActionMultipleCallsResponse(),
-		nativeAgentActionChatResponse(TerminalRunToolName, `{"command":"pwd"}`),
-	}}
+func TestDecideAgentActionNativeChatUsesFirstProviderOrderedCall(t *testing.T) {
+	provider := nativeAgentActionLanguageModel{chatResponse: nativeAgentActionMultipleCallsResponse()}
 
 	action, errorValue := DecideAgentAction(context.Background(), &provider, nativeAgentActionTestState())
 	if errorValue != nil {
-		t.Fatalf("expected repaired native action: %v", errorValue)
+		t.Fatalf("expected native action: %v", errorValue)
 	}
 	if action.Action != "continue" || action.ToolName != TerminalRunToolName || string(action.ToolInput) != `{"command":"pwd"}` {
-		t.Fatalf("expected repaired terminal action, got %+v", action)
+		t.Fatalf("expected first provider-ordered tool call, got %+v", action)
 	}
-	if provider.chatCalls != 2 || provider.structuredCalls != 0 {
-		t.Fatalf("expected exactly two native calls without structured fallback, got chat=%d structured=%d", provider.chatCalls, provider.structuredCalls)
-	}
-	lastMessage := provider.lastRequest.Messages[len(provider.lastRequest.Messages)-1]
-	if lastMessage.Role != "system" || lastMessage.Content != "Return exactly one function call. Do not call more than one function in this response." {
-		t.Fatalf("expected one-call repair instruction, got %+v", lastMessage)
-	}
-}
-
-func TestDecideAgentActionNativeChatFailsAfterSecondMultipleCallResponse(t *testing.T) {
-	provider := nativeAgentActionLanguageModel{chatResponses: []llm.ChatCompletionResponse{
-		nativeAgentActionMultipleCallsResponse(),
-		nativeAgentActionMultipleCallsResponse(),
-	}}
-
-	_, errorValue := DecideAgentAction(context.Background(), &provider, nativeAgentActionTestState())
-	if errorValue == nil || !strings.Contains(errorValue.Error(), "expected one tool call, got 2") {
-		t.Fatalf("expected second multiple-call response to fail closed, got %v", errorValue)
-	}
-	if provider.chatCalls != 2 || provider.structuredCalls != 0 {
-		t.Fatalf("expected one repair attempt without structured fallback, got chat=%d structured=%d", provider.chatCalls, provider.structuredCalls)
+	if provider.chatCalls != 1 || provider.structuredCalls != 0 {
+		t.Fatalf("expected one native call without retry or structured fallback, got chat=%d structured=%d", provider.chatCalls, provider.structuredCalls)
 	}
 }
 
@@ -320,7 +298,6 @@ func cancelledContext() context.Context {
 
 type nativeAgentActionLanguageModel struct {
 	chatResponse    llm.ChatCompletionResponse
-	chatResponses   []llm.ChatCompletionResponse
 	chatError       error
 	chatCalls       int
 	structuredCalls int
@@ -339,9 +316,6 @@ func (provider *nativeAgentActionLanguageModel) GenerateStructuredResponse(conte
 func (provider *nativeAgentActionLanguageModel) GenerateChatCompletion(_ context.Context, request llm.ChatCompletionRequest) (llm.ChatCompletionResponse, error) {
 	provider.chatCalls++
 	provider.lastRequest = request
-	if provider.chatCalls <= len(provider.chatResponses) {
-		return provider.chatResponses[provider.chatCalls-1], provider.chatError
-	}
 	return provider.chatResponse, provider.chatError
 }
 

@@ -628,16 +628,6 @@ func decideAgentActionWithChat(ctx context.Context, chatCompleter llm.ChatComple
 	if errorValue != nil {
 		return turnActionDocument{}, errorValue
 	}
-	if len(response.Message.ToolCalls) > 1 {
-		request.Messages = append(append([]llm.ChatCompletionMessage{}, request.Messages...), llm.ChatCompletionMessage{
-			Role:    "system",
-			Content: "Return exactly one function call. Do not call more than one function in this response.",
-		})
-		response, errorValue = chatCompleter.GenerateChatCompletion(ctx, request)
-		if errorValue != nil {
-			return turnActionDocument{}, errorValue
-		}
-	}
 	return parseNativeAgentActionResponse(response, request.Tools)
 }
 
@@ -766,8 +756,8 @@ func parseNativeAgentActionResponse(response llm.ChatCompletionResponse, tools [
 	if response.Message.Role != "assistant" {
 		return turnActionDocument{}, errors.New("native agent action chat message must be assistant")
 	}
-	if len(response.Message.ToolCalls) != 1 {
-		return turnActionDocument{}, fmt.Errorf("native agent action chat expected one tool call, got %d", len(response.Message.ToolCalls))
+	if len(response.Message.ToolCalls) == 0 {
+		return turnActionDocument{}, errors.New("native agent action chat expected at least one tool call")
 	}
 	toolCall := response.Message.ToolCalls[0]
 	if strings.TrimSpace(toolCall.ID) == "" {
