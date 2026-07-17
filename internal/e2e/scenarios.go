@@ -653,7 +653,7 @@ func AmbientTaskCaptureAcceptanceScenario(artifactDirectoryPath string) VirtualS
 			Addressing:             connectors.AddressingMetadata{OtherPersonMentioned: true},
 			ActionResponses: []string{
 				actionInvokeCapabilityTool("task.list", `{"targetPersonHint":"세은"}`),
-				actionInvokeCapabilityTool("task.update", `{"query":"신규 가입 플로우 점검","targetPersonHint":"세은","endDate":"2026-06-24"}`),
+				actionInvokeCapabilityTool("task.update", `{"taskID":"task-1","endDate":"2026-06-24"}`),
 				actionFinishMessage("세은 님 업무 마감을 수요일로 변경했습니다.", "obs-002:task.update:0"),
 			},
 			ExpectedToolCalls: []string{"task.list", "task.update"},
