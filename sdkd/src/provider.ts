@@ -1,5 +1,11 @@
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
-import type { JSONSchema7, JSONValue, LanguageModelV3ToolCall } from '@ai-sdk/provider';
+import type {
+  JSONSchema7,
+  JSONValue,
+  LanguageModelV3,
+  LanguageModelV3GenerateResult,
+  LanguageModelV3ToolCall,
+} from '@ai-sdk/provider';
 import { createOpenRouter } from '@openrouter/ai-sdk-provider';
 import {
   ChatCompletionFinishReason,
@@ -21,9 +27,9 @@ import {
   jsonSchema,
   JSONParseError,
   type ToolChoice,
-  type LanguageModel,
   type ModelMessage,
   TypeValidationError,
+  wrapLanguageModel,
 } from 'ai';
 import Ajv from 'ajv';
 
@@ -32,15 +38,15 @@ import { classifySDKDError, isRetryableProviderError, SDKDError } from './errors
 
 type ProviderRoute = {
   constraintMode?: StructuredOutputConstraintMode.NativeToolCall;
-  languageModel: LanguageModel;
+  languageModel: LanguageModelV3;
   modelName: string;
   providerName: 'llama.cpp' | 'openrouter';
   selectedBackend: LanguageModelBackend;
 };
 
 export type ProviderLanguageModelFactory = {
-  createLlamaLanguageModel(modelName: string, baseURL: string, apiKey: string, parallelToolCalls?: boolean): LanguageModel;
-  createOpenRouterLanguageModel(modelName: string, baseURL: string, apiKey: string, parallelToolCalls?: boolean): LanguageModel;
+  createLlamaLanguageModel(modelName: string, baseURL: string, apiKey: string, parallelToolCalls?: boolean): LanguageModelV3;
+  createOpenRouterLanguageModel(modelName: string, baseURL: string, apiKey: string, parallelToolCalls?: boolean): LanguageModelV3;
 };
 
 export type StructuredResponseGenerator = (request: StructuredResponseRequest, abortSignal?: AbortSignal) => Promise<StructuredResponse>;
@@ -482,9 +488,10 @@ async function generateChatForRoute(
   const tools = createChatTools(request);
   const messages = convertChatMessages(request);
   const system = systemContent(request);
+  const chatRoute = routeForChatRequest(request, route);
   let repairAttempted = false;
   const result = await generateText({
-    model: route.languageModel,
+    model: chatRoute.languageModel,
     system,
     messages,
     tools: Object.keys(tools).length > 0 ? tools : undefined,
@@ -496,7 +503,7 @@ async function generateChatForRoute(
       if (repairAttempted || !InvalidToolInputError.isInstance(error) || tools[toolCall.toolName] === undefined) return null;
       repairAttempted = true;
       return repairInvalidToolCall({
-        route,
+        route: chatRoute,
         tools,
         toolName: toolCall.toolName,
         toolCall,
@@ -541,6 +548,30 @@ async function generateChatForRoute(
     finishReason: normalizeChatFinishReason(result.finishReason),
     usage: normalizeUsage(result.totalUsage),
     providerMetadata: serializableProviderMetadata(result.providerMetadata),
+  };
+}
+
+function routeForChatRequest(request: ChatCompletionRequest, route: ProviderRoute): ProviderRoute {
+  if (request.parallelToolCalls !== false) return route;
+  return { ...route, languageModel: firstToolCallLanguageModel(route.languageModel) };
+}
+
+function firstToolCallLanguageModel(languageModel: LanguageModelV3): LanguageModelV3 {
+  return wrapLanguageModel({
+    model: languageModel,
+    middleware: {
+      specificationVersion: 'v3',
+      wrapGenerate: async ({ doGenerate }) => keepFirstToolCall(await doGenerate()),
+    },
+  });
+}
+
+function keepFirstToolCall(result: LanguageModelV3GenerateResult): LanguageModelV3GenerateResult {
+  const firstToolCallIndex = result.content.findIndex(content => content.type === 'tool-call');
+  if (firstToolCallIndex < 0) return result;
+  return {
+    ...result,
+    content: result.content.filter((content, index) => content.type !== 'tool-call' || index === firstToolCallIndex),
   };
 }
 
