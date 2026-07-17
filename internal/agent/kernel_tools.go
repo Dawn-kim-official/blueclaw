@@ -1,9 +1,6 @@
 package agent
 
-import (
-	"encoding/json"
-	"strings"
-)
+import "strings"
 
 const (
 	TerminalRunToolName         = "terminal.run"
@@ -14,7 +11,6 @@ const (
 	ArtifactDeliverToolName     = "artifact.deliver"
 	FileAttachToolName          = "file.attach"
 	SkillSearchToolName         = "skill.search"
-	CapabilityInvokeToolName    = "capability.invoke"
 	FileReadToolName            = "file.read"
 	FileWriteToolName           = "file.write"
 	FileDeleteToolName          = "file.delete"
@@ -69,43 +65,4 @@ func ToolNamesMatch(leftToolName string, rightToolName string) bool {
 
 func IsArtifactDeliveryTool(toolName string) bool {
 	return CanonicalEvidenceToolName(toolName) == FileDeliverToolName
-}
-
-// effectiveActionToolNameAndInput unwraps a capability.invoke call to the
-// underlying operation name and its nested input, so operation-specific
-// validation and dedup logic never has to special-case the neutral kernel
-// verb. Non-capability calls pass through unchanged.
-func effectiveActionToolNameAndInput(toolName string, toolInput json.RawMessage) (string, json.RawMessage) {
-	if strings.TrimSpace(toolName) != CapabilityInvokeToolName {
-		return toolName, toolInput
-	}
-	var document struct {
-		Operation string          `json:"operation"`
-		Input     json.RawMessage `json:"input"`
-	}
-	if json.Unmarshal(toolInput, &document) != nil {
-		return toolName, toolInput
-	}
-	operation := strings.TrimSpace(document.Operation)
-	if operation == "" {
-		return toolName, toolInput
-	}
-	return operation, unwrapStringifiedOperationInput(document.Input)
-}
-
-// unwrapStringifiedOperationInput accepts the capability.invoke input contract
-// where the operation parameters arrive as one JSON object encoded in a string,
-// mirroring the runtime handler's normalization so validation and dedup logic
-// see the same object either way.
-func unwrapStringifiedOperationInput(input json.RawMessage) json.RawMessage {
-	var stringifiedInput string
-	if json.Unmarshal(input, &stringifiedInput) != nil {
-		return input
-	}
-	innerInput := json.RawMessage(strings.TrimSpace(stringifiedInput))
-	var probe map[string]json.RawMessage
-	if json.Unmarshal(innerInput, &probe) != nil {
-		return input
-	}
-	return innerInput
 }

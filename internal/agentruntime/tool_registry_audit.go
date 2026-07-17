@@ -169,15 +169,11 @@ func platformMessageCapabilityDescriptors(toolDescriptors []CapabilityToolDescri
 	result := []CapabilityToolDescriptor{}
 	for _, toolDescriptor := range toolDescriptors {
 		toolName := strings.TrimSpace(toolDescriptor.Name)
-		if isPlatformMessageToolName(toolName) || registryContainsString(oldPlatformMessageToolNames, toolName) {
+		if strings.TrimSpace(toolDescriptor.Namespace) == "message" || registryContainsString(oldPlatformMessageToolNames, toolName) {
 			result = append(result, toolDescriptor)
 		}
 	}
 	return result
-}
-
-func isPlatformMessageToolName(toolName string) bool {
-	return strings.HasPrefix(strings.TrimSpace(toolName), "message.")
 }
 
 func hashCapabilityDescriptors(toolDescriptors []CapabilityToolDescriptor) string {

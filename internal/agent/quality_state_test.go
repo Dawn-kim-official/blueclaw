@@ -10,9 +10,7 @@ func TestQualityReviewGuidanceDoesNotBlockCompletion(t *testing.T) {
 		CompletionEvidence: []completionEvidenceReference{},
 		QualityReview:      []qualityReviewItem{},
 	}
-	result := validateCompletionGateForRequest(AgentTurnRequest{
-		QualityAcceptanceGuidance: []string{"declare task quality criteria"},
-	}, nil, nil, nil, actionDocument)
+	result := validateCompletionGateForRequest(AgentTurnRequest{}, nil, nil, nil, actionDocument)
 
 	if !result.IsSatisfied {
 		t.Fatalf("expected quality guidance to stay advisory, got %s", result.Message)
@@ -123,9 +121,7 @@ func TestCompletionGateUsesTypedEvidenceInsteadOfParsingFinishMessage(t *testing
 		}},
 	}}
 
-	result := validateCompletionGateForRequest(AgentTurnRequest{
-		QualityAcceptanceGuidance: []string{"deliver the requested HTML"},
-	}, []toolUseRequirement{{
+	result := validateCompletionGateForRequest(AgentTurnRequest{}, []toolUseRequirement{{
 		ToolName:           "file.deliver",
 		RequiresAttachment: true,
 		AttachmentSuffixes: []string{".html"},

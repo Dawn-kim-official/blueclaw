@@ -337,7 +337,7 @@ Research helper body.
 	if len(instructionBundle.Skills) != 1 || instructionBundle.Skills[0].Name != "research-helper" {
 		t.Fatalf("expected added user skill to be discovered, got %+v", instructionBundle.Skills)
 	}
-	if instructionBundle.Skills[0].Description != "Help with research tasks and source lookup requests." || instructionBundle.Skills[0].WhenToUse != "" {
+	if instructionBundle.Skills[0].Description != "Help with research tasks and source lookup requests." {
 		t.Fatalf("expected standard skill fields, got %+v", instructionBundle.Skills[0])
 	}
 }

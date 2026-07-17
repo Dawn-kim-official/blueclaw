@@ -607,10 +607,10 @@ func TestToolPermissionScenarioReturnsPlannedFallback(t *testing.T) {
 	}
 }
 
-func TestFileWriteLegacyModeAcceptance(t *testing.T) {
-	result, errorValue := RunVirtualSession(context.Background(), FileWriteLegacyModeAcceptanceScenario(t.TempDir()))
+func TestFileWriteAcceptance(t *testing.T) {
+	result, errorValue := RunVirtualSession(context.Background(), FileWriteAcceptanceScenario(t.TempDir()))
 	if errorValue != nil {
-		t.Fatalf("expected legacy mode scenario to pass: %v", errorValue)
+		t.Fatalf("expected file write scenario to pass: %v", errorValue)
 	}
 	turnResult := result.TurnResults[0]
 	if turnResult.TaskStatus != task.TaskStatusCompleted {

@@ -15,7 +15,6 @@ func TestLoadRuntimeConfigurationIncludesFirecrackerAndBridge(t *testing.T) {
     "endpoint": "http://127.0.0.1:7781",
     "unixSocketPath": "/run/internkim/capability.sock",
     "timeoutSecond": 15,
-    "toolNames": ["google.search"],
     "toolDescriptors": [
       {
         "name": "browser.open",
@@ -98,7 +97,20 @@ func TestLoadRuntimeConfigurationIncludesFirecrackerAndBridge(t *testing.T) {
       "name": "echo",
       "transport": "stdio",
       "command": "/bin/echo",
-      "toolNames": ["echo"]
+      "tools": [{
+        "name": "echo",
+        "namespace": "test",
+        "description": "Echo input",
+        "inputSchema": {"type": "object"},
+        "policy": {
+          "privacyClass": "test",
+          "modelVisibility": "visible",
+          "policyResource": "tool:test.echo",
+          "sideEffectClass": "read",
+          "completionMode": "none",
+          "idempotency": "supported"
+        }
+      }]
     }
   ],
   "connectors": {
@@ -164,9 +176,6 @@ func TestLoadRuntimeConfigurationIncludesFirecrackerAndBridge(t *testing.T) {
 	}
 	if runtimeConfiguration.Capabilities.TimeoutSecond != 15 {
 		t.Fatalf("expected capability timeout to match, got %d", runtimeConfiguration.Capabilities.TimeoutSecond)
-	}
-	if runtimeConfiguration.Capabilities.ToolNames[0] != "google.search" {
-		t.Fatalf("expected capability tool names to match, got %+v", runtimeConfiguration.Capabilities.ToolNames)
 	}
 	if runtimeConfiguration.Connectors.Slack.BaseURL != "https://slack.com/api" {
 		t.Fatalf("expected slack base url to match, got %q", runtimeConfiguration.Connectors.Slack.BaseURL)
@@ -234,8 +243,8 @@ func TestLoadRuntimeConfigurationIncludesFirecrackerAndBridge(t *testing.T) {
 	if len(runtimeConfiguration.AgentProfiles) != 1 || runtimeConfiguration.AgentProfiles[0].AllowedToolNames[2] != "echo" {
 		t.Fatalf("expected agent profile tool allowlist to load, got %+v", runtimeConfiguration.AgentProfiles)
 	}
-	if len(runtimeConfiguration.MCPServers) != 1 || runtimeConfiguration.MCPServers[0].ToolNames[0] != "echo" {
-		t.Fatalf("expected mcp tool names to load, got %+v", runtimeConfiguration.MCPServers)
+	if len(runtimeConfiguration.MCPServers) != 1 || len(runtimeConfiguration.MCPServers[0].Tools) != 1 || runtimeConfiguration.MCPServers[0].Tools[0].Name != "echo" {
+		t.Fatalf("expected canonical MCP tools to load, got %+v", runtimeConfiguration.MCPServers)
 	}
 	if runtimeConfiguration.Logging.RetentionDays != 7 {
 		t.Fatalf("expected log retention to match, got %d", runtimeConfiguration.Logging.RetentionDays)

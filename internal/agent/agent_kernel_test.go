@@ -66,7 +66,7 @@ func TestApprovalContinuationRestoresSelectedToolDecision(t *testing.T) {
 	}
 }
 
-func TestFreshTaskPinsRequiredEvidenceInsteadOfRouterInitialTools(t *testing.T) {
+func TestFreshTaskPinsRouterInitialAndRequiredEvidenceTools(t *testing.T) {
 	pinnedToolNames := pinnedToolNamesForResolvedRequest(
 		[]string{"manual.tool"},
 		[]string{"manual.tool", "previous.tool"},
@@ -75,12 +75,12 @@ func TestFreshTaskPinsRequiredEvidenceInsteadOfRouterInitialTools(t *testing.T) 
 		true,
 	)
 
-	if !sameStringSet(pinnedToolNames, []string{"manual.tool", "task.add"}) {
-		t.Fatalf("expected manual and required evidence tools, got %+v", pinnedToolNames)
+	if !sameStringSet(pinnedToolNames, []string{"manual.tool", "file.read", "task.add"}) {
+		t.Fatalf("expected manual, router, and required evidence tools, got %+v", pinnedToolNames)
 	}
 	activeGoal := activeGoalForTurn(AgentRequest{PinnedToolNames: pinnedToolNames}, OutcomeContract{}, ExecutionPlan{}, false)
-	if !sameStringSet(activeGoal.SelectedToolNames, []string{"manual.tool", "task.add"}) {
-		t.Fatalf("expected required evidence to persist in active goal, got %+v", activeGoal.SelectedToolNames)
+	if !sameStringSet(activeGoal.SelectedToolNames, []string{"manual.tool", "file.read", "task.add"}) {
+		t.Fatalf("expected the typed working set to persist in active goal, got %+v", activeGoal.SelectedToolNames)
 	}
 }
 
@@ -561,7 +561,7 @@ func TestAgentKernelDoesNotReaskMaintenanceEvidenceWithoutInitialTool(t *testing
 	}
 }
 
-func TestAgentKernelReplacesReadOnlyEvidenceForScheduledTask(t *testing.T) {
+func TestAgentKernelRepairsReadOnlyEvidenceWithoutDroppingRouterTools(t *testing.T) {
 	agentKernel, taskRunService := newKernelTestServices()
 	intakeLanguageModel := &turnRouterDecisionLanguageModel{
 		initialDecision: TurnDecision{
@@ -616,8 +616,8 @@ func TestAgentKernelReplacesReadOnlyEvidenceForScheduledTask(t *testing.T) {
 	if !taskEventsContain(taskEvents, "agent.intake", "task.update") {
 		t.Fatal("expected rebuilt intake decision to require task.update")
 	}
-	if !taskEventsContain(taskEvents, "agent.instructions_loaded", `"selectedToolNames":["task.update"]`) {
-		t.Fatal("expected recovered evidence to replace the router tool in the active goal")
+	if !taskEventsContain(taskEvents, "agent.instructions_loaded", `"selectedToolNames":["file.read","task.update"]`) {
+		t.Fatal("expected the router tool and recovered evidence to remain in the active goal")
 	}
 }
 
@@ -868,7 +868,12 @@ func TestAgentKernelPersistsTurnRouterFailureWithoutFallbackRoute(t *testing.T) 
 
 func TestSitePrototypeIntakePromotesToXHighLimits(t *testing.T) {
 	agentKernel, _ := newKernelTestServices()
-	intakeDecision := promoteArtifactTaskLevel(AgentRequest{}, IntakeDecision{
+	siteToolSet := newTestToolSetWithDefinitions([]ToolDefinition{{
+		Name:            "site.publish",
+		Namespace:       "site",
+		SideEffectClass: ToolSideEffectExternalPublish,
+	}})
+	intakeDecision := promoteArtifactTaskLevel(AgentRequest{ToolSet: siteToolSet}, IntakeDecision{
 		TaskLevel:             TaskLevelLow,
 		EstimatedMinutes:      1,
 		RequiredEvidenceTools: []string{"site.publish"},

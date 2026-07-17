@@ -7,10 +7,10 @@ import (
 
 func TestCapabilityDomainPhraseDerivesFriendlyLabelsFromSkillTools(t *testing.T) {
 	skills := []SkillInstruction{
-		{Name: "direct-message", AllowedTools: []string{"message.send", "message.context"}},
-		{Name: "flow", AllowedTools: []string{"task.list", "task.add"}},
-		{Name: "scheduling", AllowedTools: []string{"schedule.create"}},
-		{Name: "future", AllowedTools: []string{"hologram.project"}},
+		{Name: "direct-message", ToolReferences: []string{"message.send", "message.context"}},
+		{Name: "flow", ToolReferences: []string{"task.list", "task.add"}},
+		{Name: "scheduling", ToolReferences: []string{"schedule.create"}},
+		{Name: "future", ToolReferences: []string{"hologram.project"}},
 	}
 
 	phrase := capabilityDomainPhrase(skills)

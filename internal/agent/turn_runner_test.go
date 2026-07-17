@@ -344,7 +344,12 @@ func TestAgentTurnRunnerDoesNotSendCheckpointForRejectedToolCall(t *testing.T) {
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 5})
 	toolRegistry := newTestCapabilityToolSet([]string{"schedule.create"})
-	toolRegistry.RegisterTool(ToolDefinition{Name: "schedule.create"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	toolRegistry.RegisterTool(ToolDefinition{
+		Name:            "schedule.create",
+		Namespace:       "schedule",
+		SideEffectClass: ToolSideEffectStateChange,
+		Completion:      ToolCompletion{Mode: ToolCompletionObservation, Action: "create_schedule", TargetKind: "schedule"},
+	}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		return ToolSuccess("alpha result"), nil
 	})
 	checkpoints := []AgentCheckpoint{}
@@ -413,7 +418,7 @@ func TestAgentTurnRunnerAuditsSelectedSkillDecisions(t *testing.T) {
 		Prompt:             "피피티 만들어줘",
 		ToolSet:            toolRegistry,
 		PinnedToolNames:    toolRegistry.ListToolNames(),
-		AvailableSkills:    []SkillInstruction{{Name: "presentation", AllowedTools: []string{"terminal.run", "site.create"}}},
+		AvailableSkills:    []SkillInstruction{{Name: "presentation", ToolReferences: []string{"terminal.run", "site.create"}}},
 		InstructionPrompt:  "Available skill index.\n\nSelected skill instructions:\nGenerate PPTX with Marp.",
 		InstructionSources: []InstructionSource{{Path: "skills/presentation/SKILL.md", SkillName: "presentation", SHA256: "abc"}},
 		SkillDecisions: []SkillSelectionDecision{{
@@ -444,7 +449,7 @@ func TestAgentTurnRunnerAuditsSelectedSkillDecisions(t *testing.T) {
 		!taskEventsContain(taskEvents, "agent.instructions_loaded", "site.create") {
 		t.Fatal("expected tool visibility debug fields in instructions event")
 	}
-	if !taskEventsContain(taskEvents, "agent.instructions_loaded", "selectedSkillAllowedTools") {
+	if !taskEventsContain(taskEvents, "agent.instructions_loaded", "selectedSkillToolReferences") {
 		t.Fatal("expected selected skill allowed tools in instructions event")
 	}
 }
@@ -879,7 +884,12 @@ func TestAgentTurnRunnerSiteLoopBuildsReviewsPublishesBeforeFinish(t *testing.T)
 		toolCalls = append(toolCalls, "artifact.review")
 		return ToolSuccess(`{"status":"passed","blockingIssueCount":0}`), nil
 	})
-	toolRegistry.RegisterTool(ToolDefinition{Name: "site.publish"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	toolRegistry.RegisterTool(ToolDefinition{
+		Name:            "site.publish",
+		Namespace:       "site",
+		SideEffectClass: ToolSideEffectExternalPublish,
+		Completion:      ToolCompletion{Mode: ToolCompletionObservation, Action: "publish_site", TargetKind: "site"},
+	}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		toolCalls = append(toolCalls, "site.publish")
 		if !hasBuildQuality {
 			return ToolFailureResult(FailureInvalidInput, FailureCodes.InvalidInput, "site_publish", "missing build-quality.json"), nil
@@ -895,8 +905,8 @@ func TestAgentTurnRunnerSiteLoopBuildsReviewsPublishesBeforeFinish(t *testing.T)
 		PinnedToolNames:       toolRegistry.ListToolNames(),
 		RequiredEvidenceTools: []string{"site.status", "site.build", "artifact.review", "site.publish"},
 		AvailableSkills: []SkillInstruction{{
-			Name:         "site-prototype",
-			AllowedTools: []string{"site.status", "site.create", "site.build", "artifact.review", "site.publish"},
+			Name:           "site-prototype",
+			ToolReferences: []string{"site.status", "site.create", "site.build", "artifact.review", "site.publish"},
 		}},
 		SkillDecisions: []SkillSelectionDecision{{Name: "site-prototype", Status: "selected"}},
 	})
@@ -934,7 +944,7 @@ func TestAgentTurnRunnerSiteWorkingSetKeepsCreationRouteWithRequiredEvidence(t *
 		RequiredEvidenceTools: []string{"site.status", "site.build", "site.publish", "file.deliver"},
 		AvailableSkills: []SkillInstruction{{
 			Name: "site-prototype",
-			AllowedTools: []string{
+			ToolReferences: []string{
 				"site.status",
 				"site.create",
 				"file.write",
@@ -993,8 +1003,8 @@ func TestAgentTurnRunnerReselectsToolsAfterRejectedSiteFinish(t *testing.T) {
 		PinnedToolNames:       toolRegistry.ListToolNames(),
 		RequiredEvidenceTools: []string{"site.build"},
 		AvailableSkills: []SkillInstruction{{
-			Name:         "site-prototype",
-			AllowedTools: []string{"site.create", "site.build"},
+			Name:           "site-prototype",
+			ToolReferences: []string{"site.create", "site.build"},
 		}},
 		SkillDecisions: []SkillSelectionDecision{{Name: "site-prototype", Status: "selected"}},
 	})
@@ -1041,12 +1051,17 @@ func TestAgentTurnRunnerRejectsFailAfterSiteSourceWriteBeforeBuildPublish(t *tes
 		toolCalls = append(toolCalls, "terminal.run")
 		return ToolSuccess(`{"exitCode":0,"stdout":"built"}`), nil
 	})
-	toolRegistry.RegisterTool(ToolDefinition{Name: "site.publish"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	toolRegistry.RegisterTool(ToolDefinition{
+		Name:            "site.publish",
+		Namespace:       "site",
+		SideEffectClass: ToolSideEffectExternalPublish,
+		Completion:      ToolCompletion{Mode: ToolCompletionObservation, Action: "publish_site", TargetKind: "site"},
+	}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		toolCalls = append(toolCalls, "site.publish")
 		return ToolSuccess(`{"siteID":"site-1","publishedURL":"https://pretty.example"}`), nil
 	})
 
-	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
+	request := AgentTurnRequest{
 		RequesterPersonID:     "person-1",
 		ConversationID:        "conversation-1",
 		Prompt:                "사이트 더 예쁘게 수정하고 배포해줘",
@@ -1056,7 +1071,14 @@ func TestAgentTurnRunnerRejectsFailAfterSiteSourceWriteBeforeBuildPublish(t *tes
 		OutcomeContract: OutcomeContract{
 			RequiredEvidenceTools: []string{"site.publish"},
 		},
-	})
+	}
+	if !turnRequestLooksLikeSitePrototypeWork(request) {
+		t.Fatal("expected typed site descriptor to identify site work")
+	}
+	if !sitePublishIsRequired(request) {
+		t.Fatal("expected typed site contract to require publish")
+	}
+	result, errorValue := services.runner.RunTurn(context.Background(), request)
 	if errorValue != nil {
 		t.Fatalf("expected recoverable fail to continue: %v", errorValue)
 	}

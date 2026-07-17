@@ -54,13 +54,13 @@ var builtInSkillNames = map[string]bool{
 	"zipcode-search":                    true,
 }
 
-var standardSkillFrontmatterKeys = map[string]bool{
-	"allowed-tools": true,
-	"compatibility": true,
-	"description":   true,
-	"license":       true,
-	"metadata":      true,
-	"name":          true,
+var supportedSkillFrontmatterKeys = map[string]bool{
+	"compatibility":   true,
+	"description":     true,
+	"license":         true,
+	"metadata":        true,
+	"name":            true,
+	"tool-references": true,
 }
 
 type skillAddInput struct {
@@ -243,8 +243,8 @@ func validateSkillFrontmatter(content string) error {
 			continue
 		}
 		key, _, hasKey := strings.Cut(trimmedLine, ":")
-		if !hasKey || !standardSkillFrontmatterKeys[strings.TrimSpace(key)] {
-			return errors.New("skill frontmatter contains a non-standard field")
+		if !hasKey || !supportedSkillFrontmatterKeys[strings.TrimSpace(key)] {
+			return errors.New("skill frontmatter contains an unsupported field")
 		}
 	}
 	return nil
@@ -466,12 +466,11 @@ func listAllSkills(skillInstructions []agent.SkillInstruction) agent.SkillSearch
 	items := make([]agent.SkillSearchResultItem, 0, len(skillInstructions))
 	for _, skillInstruction := range skillInstructions {
 		items = append(items, agent.SkillSearchResultItem{
-			Name:        skillInstruction.Name,
-			Description: skillInstruction.Description,
-			Score:       1,
-			Tools:       append([]string{}, skillInstruction.AllowedTools...),
-			SourcePath:  skillInstruction.Source.Path,
-			Completion:  skillInstruction.Completion,
+			Name:           skillInstruction.Name,
+			Description:    skillInstruction.Description,
+			Score:          1,
+			ToolReferences: append([]string{}, skillInstruction.ToolReferences...),
+			SourcePath:     skillInstruction.Source.Path,
 		})
 	}
 	return agent.SkillSearchResult{Skills: items}
@@ -483,13 +482,12 @@ func skillSearchNameLookupResult(skillInstructions []agent.SkillInstruction, nam
 		return agent.ToolFailureResult(agent.FailureNotFound, agent.FailureCodes.NotFound, "skill_search", "visible skill was not found")
 	}
 	result := agent.SkillSearchResult{Skills: []agent.SkillSearchResultItem{{
-		Name:        skillInstruction.Name,
-		Description: skillInstruction.Description,
-		Prompt:      truncatedSkillSearchPrompt(skillInstruction.Prompt),
-		Score:       1,
-		Tools:       append([]string{}, skillInstruction.AllowedTools...),
-		SourcePath:  skillInstruction.Source.Path,
-		Completion:  skillInstruction.Completion,
+		Name:           skillInstruction.Name,
+		Description:    skillInstruction.Description,
+		Prompt:         truncatedSkillSearchPrompt(skillInstruction.Prompt),
+		Score:          1,
+		ToolReferences: append([]string{}, skillInstruction.ToolReferences...),
+		SourcePath:     skillInstruction.Source.Path,
 	}}}
 	return agent.ToolSuccess(marshalToolResult(result))
 }
@@ -561,12 +559,11 @@ func skillSearchResult(skillInstructions []agent.SkillInstruction, retrievalResu
 			continue
 		}
 		items = append(items, agent.SkillSearchResultItem{
-			Name:        skillInstruction.Name,
-			Description: skillInstruction.Description,
-			Score:       candidate.Score,
-			Tools:       append([]string{}, skillInstruction.AllowedTools...),
-			SourcePath:  skillInstruction.Source.Path,
-			Completion:  skillInstruction.Completion,
+			Name:           skillInstruction.Name,
+			Description:    skillInstruction.Description,
+			Score:          candidate.Score,
+			ToolReferences: append([]string{}, skillInstruction.ToolReferences...),
+			SourcePath:     skillInstruction.Source.Path,
 		})
 	}
 	return agent.SkillSearchResult{Skills: items}

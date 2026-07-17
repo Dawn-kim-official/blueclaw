@@ -33,7 +33,6 @@ type CompletionState struct {
 
 type CompletionRequirementState struct {
 	ToolName        string   `json:"toolName,omitempty"`
-	ToolPrefix      string   `json:"toolPrefix,omitempty"`
 	Reason          string   `json:"reason,omitempty"`
 	Suffixes        []string `json:"suffixes,omitempty"`
 	MissingSuffixes []string `json:"missingSuffixes,omitempty"`
@@ -93,7 +92,6 @@ func completionRequirementStates(requirements []toolUseRequirement, observations
 		isSatisfied, missingSuffixes := completionRequirementStatus(requirement, observations)
 		states = append(states, CompletionRequirementState{
 			ToolName:        strings.TrimSpace(requirement.ToolName),
-			ToolPrefix:      strings.TrimSpace(requirement.ToolPrefix),
 			Reason:          strings.TrimSpace(requirement.Reason),
 			Suffixes:        append([]string{}, requirement.AttachmentSuffixes...),
 			MissingSuffixes: missingSuffixes,
@@ -236,10 +234,7 @@ func missingCompletionRequirements(requirements []CompletionRequirementState) []
 }
 
 func completionRequirementStateLabel(requirement CompletionRequirementState) string {
-	if requirement.ToolName != "" {
-		return requirement.ToolName
-	}
-	return requirement.ToolPrefix
+	return requirement.ToolName
 }
 
 func recommendedCompletionAction(request AgentTurnRequest, requirements []toolUseRequirement, observations []turnObservation, state CompletionState) completionRecommendedAction {
@@ -247,7 +242,7 @@ func recommendedCompletionAction(request AgentTurnRequest, requirements []toolUs
 		if requestOnlyOpensBrowser(request) {
 			return completionActionFinalizeWithEvidence
 		}
-		if satisfiedOneShotEvidenceRequirementsCanFinalize(requirements) {
+		if satisfiedOneShotEvidenceRequirementsCanFinalize(request.ToolSet, requirements) {
 			return completionActionFinalizeWithEvidence
 		}
 		if !allRequirementsAreFileAttachments(requirements) {
@@ -282,28 +277,24 @@ func recommendedCompletionAction(request AgentTurnRequest, requirements []toolUs
 	return completionActionContinueWork
 }
 
-func satisfiedOneShotEvidenceRequirementsCanFinalize(requirements []toolUseRequirement) bool {
+func satisfiedOneShotEvidenceRequirementsCanFinalize(toolSet *ToolSet, requirements []toolUseRequirement) bool {
 	if len(requirements) == 0 {
 		return false
 	}
 	for _, requirement := range requirements {
-		if requirement.RequiresAttachment || strings.TrimSpace(requirement.ToolPrefix) != "" || !isOneShotCompletionEvidenceTool(requirement.ToolName) {
-			return false
-		}
-		if isSendEvidenceTool(requirement.ToolName) {
+		if requirement.RequiresAttachment || !isOneShotCompletionEvidenceTool(toolSet, requirement.ToolName) {
 			return false
 		}
 	}
 	return true
 }
 
-func isOneShotCompletionEvidenceTool(toolName string) bool {
-	switch strings.TrimSpace(toolName) {
-	case "calendar.add", "calendar.update", "calendar.delete", "task.add", "task.update", "schedule.create", "schedule.update", "schedule.cancel", "google.calendar.event", "google.gmail.send":
-		return true
-	default:
+func isOneShotCompletionEvidenceTool(toolSet *ToolSet, toolName string) bool {
+	toolDefinition, isFound := toolDefinitionForName(toolSet, toolName)
+	if !isFound || toolDefinition.Completion.Mode != ToolCompletionObservation {
 		return false
 	}
+	return ToolDefinitionRequiresSideEffectEvidence(toolDefinition)
 }
 
 func buildAttachedEvidenceValidityState(workspaceRootPath string, attachedEvidence []CompletionAttachedEvidence, minimumModifiedAt time.Time) ValidityState {

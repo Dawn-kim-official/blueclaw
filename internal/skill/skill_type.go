@@ -1,41 +1,19 @@
 package skill
 
+type ToolReference string
+
 type SkillBundle struct {
-	Name                   string          `json:"name"`
-	Description            string          `json:"description,omitempty"`
-	WhenToUse              string          `json:"whenToUse,omitempty"`
-	Category               string          `json:"category,omitempty"`
-	Tags                   []string        `json:"tags,omitempty"`
-	Activation             SkillActivation `json:"activation,omitempty"`
-	Completion             SkillCompletion `json:"completion,omitempty"`
-	Quality                SkillQuality    `json:"quality,omitempty"`
-	RecommendedMinutes     int             `json:"recommendedMinutes,omitempty"`
-	AllowedTools           []string        `json:"allowedTools,omitempty"`
-	AllowedProfiles        []string        `json:"allowedProfiles,omitempty"`
-	HiddenFromCircles      []string        `json:"hiddenFromCircles,omitempty"`
-	TriggerHints           []string        `json:"triggerHints,omitempty"`
-	DisableModelInvocation bool            `json:"disableModelInvocation,omitempty"`
-	Paths                  []string        `json:"paths,omitempty"`
-	References             []string        `json:"references,omitempty"`
-	Scripts                []string        `json:"scripts,omitempty"`
-	Assets                 []string        `json:"assets,omitempty"`
-	Instruction            string          `json:"instruction"`
-	DirectoryPath          string          `json:"directoryPath"`
+	Name           string          `json:"name"`
+	Description    string          `json:"description,omitempty"`
+	ToolReferences []ToolReference `json:"toolReferences,omitempty"`
+	Instruction    string          `json:"instruction"`
+	DirectoryPath  string          `json:"directoryPath"`
 }
 
-type SkillActivation struct {
-	Keywords     []string `json:"keywords,omitempty"`
-	ToolNames    []string `json:"toolNames,omitempty"`
-	ToolPrefixes []string `json:"toolPrefixes,omitempty"`
-}
-
-type SkillCompletion struct {
-	RequiredEvidenceTools      []string `json:"requiredEvidenceTools,omitempty"`
-	RequiredAttachmentSuffixes []string `json:"requiredAttachmentSuffixes,omitempty"`
-}
-
-type SkillQuality struct {
-	AcceptanceGuidance []string `json:"acceptanceGuidance,omitempty"`
-	Rubric             []string `json:"rubric,omitempty"`
-	RecommendedChecks  []string `json:"recommendedChecks,omitempty"`
+func (skillBundle SkillBundle) ReferencedToolNames() []string {
+	toolNames := make([]string, 0, len(skillBundle.ToolReferences))
+	for _, toolReference := range skillBundle.ToolReferences {
+		toolNames = append(toolNames, string(toolReference))
+	}
+	return toolNames
 }

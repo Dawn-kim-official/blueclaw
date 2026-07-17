@@ -8,22 +8,21 @@ import (
 func namedSkillBundle(skillName string) InstructionBundle {
 	return InstructionBundle{
 		Skills: []SkillInstruction{{
-			Name:       skillName,
-			Completion: SkillCompletion{RequiredEvidenceTools: []string{"file.deliver"}, RequiredAttachmentSuffixes: []string{".pdf"}},
+			Name:           skillName,
+			ToolReferences: []string{"file.deliver"},
 		}},
-		SkillDecisions: []SkillSelectionDecision{{Name: skillName, Status: "selected"}},
+		SkillDecisions:              []SkillSelectionDecision{{Name: skillName, Status: "selected"}},
+		RequiredEvidenceTools:       []string{"file.deliver"},
+		HasContractSkillArbitration: true,
 	}
 }
 
-func TestSelectedSkillRequirementsEnrichBoundedTask(t *testing.T) {
+func TestInstructionBundleRequirementsApplyArbitratedEvidence(t *testing.T) {
 	decision := IntakeDecision{Classification: IntakeClassificationBoundedTask, TaskLevel: TaskLevelLow}
-	result := applySelectedSkillCompletionRequirements(decision, namedSkillBundle("presentation"))
+	result := applyInstructionBundleRequirements(decision, namedSkillBundle("presentation"))
 
 	if !reflect.DeepEqual(result.RequiredEvidenceTools, []string{"file.deliver"}) {
 		t.Fatalf("expected completion evidence, got %v", result.RequiredEvidenceTools)
-	}
-	if !reflect.DeepEqual(result.RequestedOutputFormats, []string{"pdf"}) {
-		t.Fatalf("expected requested output format, got %v", result.RequestedOutputFormats)
 	}
 	if result.TaskLevel != TaskLevelLow {
 		t.Fatalf("expected router task level to remain authoritative, got %q", result.TaskLevel)
@@ -37,16 +36,15 @@ func TestSelectedSkillRequirementsUseArbitratedEvidence(t *testing.T) {
 	}
 	instructionBundle := InstructionBundle{
 		Skills: []SkillInstruction{{
-			Name:         "internkim-flow",
-			AllowedTools: []string{"task.add", "task.list", "task.update", "task.delete"},
-			Completion:   SkillCompletion{RequiredEvidenceTools: []string{"file.deliver"}},
+			Name:           "internkim-flow",
+			ToolReferences: []string{"task.add", "task.list", "task.update", "task.delete"},
 		}},
 		SkillDecisions:              []SkillSelectionDecision{{Name: "internkim-flow", Status: "selected"}},
 		RequiredEvidenceTools:       []string{"task.update"},
 		HasContractSkillArbitration: true,
 	}
 
-	result := applySelectedSkillCompletionRequirements(decision, instructionBundle)
+	result := applyInstructionBundleRequirements(decision, instructionBundle)
 
 	if !reflect.DeepEqual(result.RequiredEvidenceTools, []string{"task.update"}) {
 		t.Fatalf("expected arbitration evidence to replace router evidence, got %v", result.RequiredEvidenceTools)
@@ -59,11 +57,11 @@ func TestSelectedSkillRequirementsPreserveRouterEvidenceWithoutArbitration(t *te
 		RequiredEvidenceTools: []string{"file.edit"},
 	}
 	instructionBundle := InstructionBundle{
-		Skills:         []SkillInstruction{{Name: "internkim-flow", AllowedTools: []string{"task.update"}}},
+		Skills:         []SkillInstruction{{Name: "internkim-flow", ToolReferences: []string{"task.update"}}},
 		SkillDecisions: []SkillSelectionDecision{{Name: "internkim-flow", Status: "selected"}},
 	}
 
-	result := applySelectedSkillCompletionRequirements(decision, instructionBundle)
+	result := applyInstructionBundleRequirements(decision, instructionBundle)
 
 	if !reflect.DeepEqual(result.RequiredEvidenceTools, []string{"file.edit"}) {
 		t.Fatalf("expected explicit router evidence to remain exact, got %v", result.RequiredEvidenceTools)
@@ -76,12 +74,12 @@ func TestSelectedSkillRequirementsPreserveRouterEvidenceWhenArbitrationHasNoEvid
 		RequiredEvidenceTools: []string{"task.add"},
 	}
 	instructionBundle := InstructionBundle{
-		Skills:                      []SkillInstruction{{Name: "internkim-flow", AllowedTools: []string{"task.add"}}},
+		Skills:                      []SkillInstruction{{Name: "internkim-flow", ToolReferences: []string{"task.add"}}},
 		SkillDecisions:              []SkillSelectionDecision{{Name: "internkim-flow", Status: "selected"}},
 		HasContractSkillArbitration: true,
 	}
 
-	result := applySelectedSkillCompletionRequirements(decision, instructionBundle)
+	result := applyInstructionBundleRequirements(decision, instructionBundle)
 
 	if !reflect.DeepEqual(result.RequiredEvidenceTools, []string{"task.add"}) {
 		t.Fatalf("expected explicit router evidence to survive empty arbitration, got %v", result.RequiredEvidenceTools)
@@ -90,8 +88,8 @@ func TestSelectedSkillRequirementsPreserveRouterEvidenceWhenArbitrationHasNoEvid
 
 func TestContractEvidenceUsesOnlySelectedRegisteredTools(t *testing.T) {
 	selectedSkills := []SkillInstruction{{
-		Name:         "internkim-flow",
-		AllowedTools: []string{"task.add", "task.list", "task.update", "task.delete"},
+		Name:           "internkim-flow",
+		ToolReferences: []string{"task.add", "task.list", "task.update", "task.delete"},
 	}}
 	request := AgentRequest{ToolSet: newTestToolSet([]string{"task.update", "file.edit"})}
 
@@ -107,8 +105,8 @@ func TestContractEvidenceUsesOnlySelectedRegisteredTools(t *testing.T) {
 
 func TestContractNextToolsUseOnlySelectedRegisteredTools(t *testing.T) {
 	selectedSkills := []SkillInstruction{{
-		Name:         "internkim-flow",
-		AllowedTools: []string{"task.add", "task.list", "task.update", "task.delete"},
+		Name:           "internkim-flow",
+		ToolReferences: []string{"task.add", "task.list", "task.update", "task.delete"},
 	}}
 	request := AgentRequest{ToolSet: newTestToolSet([]string{"task.add", "task.update", "file.edit"})}
 
@@ -122,7 +120,7 @@ func TestContractNextToolsUseOnlySelectedRegisteredTools(t *testing.T) {
 }
 
 func TestContractEvidenceDoesNotPromoteRequiredNextTools(t *testing.T) {
-	selectedSkills := []SkillInstruction{{Name: "internkim-flow", AllowedTools: []string{"task.update"}}}
+	selectedSkills := []SkillInstruction{{Name: "internkim-flow", ToolReferences: []string{"task.update"}}}
 	request := AgentRequest{ToolSet: newTestToolSet([]string{"task.update"})}
 	arbitration := contractSkillArbitration{
 		ExpectedEvidence:  []string{"unknown.operation"},
@@ -141,7 +139,7 @@ func TestContractEvidenceDoesNotPromoteRequiredNextTools(t *testing.T) {
 }
 
 func TestContractEvidenceDoesNotReaskForReadOnlyNextTool(t *testing.T) {
-	selectedSkills := []SkillInstruction{{Name: "internkim-flow", AllowedTools: []string{"task.list"}}}
+	selectedSkills := []SkillInstruction{{Name: "internkim-flow", ToolReferences: []string{"task.list"}}}
 	request := AgentRequest{ToolSet: newTestToolSet([]string{"task.list"})}
 	arbitration := contractSkillArbitration{RequiredNextTools: []string{"task.list"}}
 
@@ -153,7 +151,7 @@ func TestContractEvidenceDoesNotReaskForReadOnlyNextTool(t *testing.T) {
 }
 
 func TestContractEvidenceDoesNotReaskForExactActiveEvidence(t *testing.T) {
-	selectedSkills := []SkillInstruction{{Name: "internkim-flow", AllowedTools: []string{"task.delete"}}}
+	selectedSkills := []SkillInstruction{{Name: "internkim-flow", ToolReferences: []string{"task.delete"}}}
 	request := AgentRequest{
 		ToolSet: newTestToolSet([]string{"task.delete"}),
 		ActiveGoal: ActiveGoal{OutcomeContract: OutcomeContract{
@@ -170,7 +168,7 @@ func TestContractEvidenceDoesNotReaskForExactActiveEvidence(t *testing.T) {
 }
 
 func TestContractEvidenceReasksForDifferentActiveEvidence(t *testing.T) {
-	selectedSkills := []SkillInstruction{{Name: "internkim-flow", AllowedTools: []string{"task.update"}}}
+	selectedSkills := []SkillInstruction{{Name: "internkim-flow", ToolReferences: []string{"task.update"}}}
 	for _, requiredEvidence := range []string{"task.list", "file.edit"} {
 		request := AgentRequest{
 			ToolSet: newTestToolSet([]string{"task.list", "task.update", "file.edit"}),
@@ -206,7 +204,7 @@ func TestContractEvidenceReasksForUnavailableActiveEvidence(t *testing.T) {
 }
 
 func TestContractEvidenceRejectsReadForSideEffectContract(t *testing.T) {
-	selectedSkills := []SkillInstruction{{Name: "internkim-flow", AllowedTools: []string{"task.list", "task.update"}}}
+	selectedSkills := []SkillInstruction{{Name: "internkim-flow", ToolReferences: []string{"task.list", "task.update"}}}
 	request := AgentRequest{
 		ToolSet: newTestToolSet([]string{"file.edit", "task.list", "task.update"}),
 		ActiveGoal: ActiveGoal{OutcomeContract: OutcomeContract{
@@ -224,7 +222,7 @@ func TestContractEvidenceRejectsReadForSideEffectContract(t *testing.T) {
 }
 
 func TestContractEvidenceRejectsReadWhenNextToolChangesState(t *testing.T) {
-	selectedSkills := []SkillInstruction{{Name: "internkim-flow", AllowedTools: []string{"task.list", "task.update"}}}
+	selectedSkills := []SkillInstruction{{Name: "internkim-flow", ToolReferences: []string{"task.list", "task.update"}}}
 	request := AgentRequest{ToolSet: newTestToolSet([]string{"task.list", "task.update"})}
 	arbitration := contractSkillArbitration{
 		ExpectedEvidence:  []string{"task.list"},
@@ -242,7 +240,7 @@ func TestContractEvidenceRejectsReadWhenNextToolChangesState(t *testing.T) {
 func TestSelectedSkillRequirementsPreserveNonBoundedDecision(t *testing.T) {
 	for _, classification := range []IntakeClassification{IntakeClassificationQuickReply, IntakeClassificationNeedsConfirmation, IntakeClassificationUnsupported} {
 		decision := IntakeDecision{Classification: classification, TaskShape: TaskShapeImmediateReply, TaskLevel: TaskLevelXLow}
-		result := applySelectedSkillCompletionRequirements(decision, namedSkillBundle("presentation"))
+		result := applyInstructionBundleRequirements(decision, namedSkillBundle("presentation"))
 		if !reflect.DeepEqual(result, decision) {
 			t.Fatalf("expected router decision %q to remain unchanged, got %+v", classification, result)
 		}

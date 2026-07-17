@@ -40,7 +40,7 @@ type ObservedResultProjection struct {
 }
 
 func buildObservedResultProjection(request AgentTurnRequest, observations []turnObservation, attachments []FileAttachment, actionDocument turnActionDocument) ObservedResultProjection {
-	facts := observedFactsFromObservations(observations)
+	facts := observedFactsFromObservations(request.ToolSet, observations)
 	facts = appendObservedAttachmentFacts(facts, attachments)
 	facts = deduplicateObservedFacts(facts)
 	return ObservedResultProjection{
@@ -50,23 +50,20 @@ func buildObservedResultProjection(request AgentTurnRequest, observations []turn
 	}
 }
 
-func observedFactsFromObservations(observations []turnObservation) []ObservedFact {
+func observedFactsFromObservations(toolSet *ToolSet, observations []turnObservation) []ObservedFact {
 	facts := []ObservedFact{}
 	for _, observation := range observations {
 		if observation.Failed() {
 			continue
 		}
-		facts = append(facts, factsFromObservation(observation)...)
+		facts = append(facts, factsFromObservation(toolSet, observation)...)
 	}
 	return facts
 }
 
-func factsFromObservation(observation turnObservation) []ObservedFact {
+func factsFromObservation(toolSet *ToolSet, observation turnObservation) []ObservedFact {
 	if IsArtifactDeliveryTool(observation.Tool) {
 		return fileAttachmentFacts(observation)
-	}
-	if facts := terminalCapabilityFacts(observation); len(facts) > 0 {
-		return facts
 	}
 	switch strings.TrimSpace(observation.Tool) {
 	case "file.write":
@@ -102,7 +99,7 @@ func factsFromObservation(observation turnObservation) []ObservedFact {
 	case AskInputToolName, AskChoiceToolName, AskConfirmToolName:
 		return toolObjectFact(observation, "user_input", "requested")
 	default:
-		if isSendEvidenceTool(observation.Tool) {
+		if isSendEvidenceTool(toolSet, observation.Tool) {
 			return toolObjectFact(observation, "message", "sent")
 		}
 		return nil

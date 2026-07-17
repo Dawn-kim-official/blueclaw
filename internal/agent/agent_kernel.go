@@ -284,7 +284,7 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 	}
 	if !request.SkipSkillSelection {
 		instructionBundle, intakeDecision = agentKernel.selectInstructionBundleForResolvedRequest(responseContext, baseInstructionBundle, request, intakeDecision)
-		intakeDecision = applySelectedSkillCompletionRequirements(intakeDecision, instructionBundle)
+		intakeDecision = applyInstructionBundleRequirements(intakeDecision, instructionBundle)
 	}
 	request.PinnedToolNames = pinnedToolNamesForResolvedRequest(
 		manualPinnedToolNames,
@@ -393,7 +393,6 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 		ActiveGoal:                 activeGoalForTurn(request, outcomeContract, executionPlan, hasExecutionPlan),
 		PriorTask:                  request.PriorTask,
 		ScheduledRun:               request.ScheduledRun,
-		QualityAcceptanceGuidance:  selectedQualityAcceptanceGuidance(instructionBundle),
 		AmbientDuty:                request.AmbientDuty,
 		TaskShape:                  intakeDecision.TaskShape,
 		TaskLevel:                  intakeDecision.TaskLevel,
@@ -447,9 +446,7 @@ func pinnedToolNamesForResolvedRequest(
 	selectedToolNames := routerToolNames
 	if isFreshTask {
 		preservedToolNames = manualToolNames
-		if len(requiredEvidenceTools) > 0 {
-			selectedToolNames = requiredEvidenceTools
-		}
+		selectedToolNames = appendUniqueStrings(routerToolNames, requiredEvidenceTools...)
 	}
 	return appendUniqueStrings(append([]string{}, preservedToolNames...), selectedToolNames...)
 }
@@ -574,7 +571,7 @@ func (agentKernel *AgentKernel) applyConfirmationGate(responseContext context.Co
 		if errorValue != nil {
 			return AgentTurnResult{}, false, ExecutionPlan{}, false, errorValue
 		}
-		waitingGoal := activeGoalFromExecutionPlan(taskRun.TaskRunID, executionPlan, ActiveGoalStatusWaitingUserInput, evidenceHints, nil)
+		waitingGoal := activeGoalFromExecutionPlan(taskRun.TaskRunID, executionPlan, ActiveGoalStatusWaitingUserInput, request.ToolSet, evidenceHints, nil)
 		waitingGoal.SelectedToolNames = appendUniqueStrings(nil, request.PinnedToolNames...)
 		waitingGoal.SelectedSkillNames = appendUniqueStrings(nil, selectedSkills...)
 		agentKernel.AppendTaskEvent(taskRun.TaskRunID, "agent.goal.created", marshalEventBody(waitingGoal))
@@ -597,7 +594,7 @@ func (agentKernel *AgentKernel) applyConfirmationGate(responseContext context.Co
 	if errorValue != nil {
 		return AgentTurnResult{}, false, ExecutionPlan{}, false, errorValue
 	}
-	approvalGoal := activeGoalFromExecutionPlan(taskRun.TaskRunID, executionPlan, ActiveGoalStatusWaitingApproval, evidenceHints, nil)
+	approvalGoal := activeGoalFromExecutionPlan(taskRun.TaskRunID, executionPlan, ActiveGoalStatusWaitingApproval, request.ToolSet, evidenceHints, nil)
 	approvalGoal.SelectedToolNames = appendUniqueStrings(nil, request.PinnedToolNames...)
 	approvalGoal.SelectedSkillNames = appendUniqueStrings(nil, selectedSkills...)
 	agentKernel.AppendTaskEvent(taskRun.TaskRunID, "agent.goal.created", marshalEventBody(approvalGoal))
@@ -812,10 +809,10 @@ func restorePersistedToolSelection(request AgentRequest) AgentRequest {
 }
 
 func intakeDecisionHasSitePrototypeEvidence(request AgentRequest, intakeDecision IntakeDecision) bool {
-	if requiredEvidenceHasPrefix(intakeDecision.RequiredEvidenceTools, "site.") {
+	if requiredEvidenceIncludesNamespace(request.ToolSet, intakeDecision.RequiredEvidenceTools, "site") {
 		return true
 	}
-	return activeGoalRequiresToolPrefix(request.ActiveGoal, "site.")
+	return contractRequiresToolNamespace(request.ToolSet, request.ActiveGoal.OutcomeContract, "site")
 }
 
 type budgetEscalatedEventBody struct {

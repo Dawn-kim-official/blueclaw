@@ -5,7 +5,6 @@ import (
 )
 
 type toolUseRequirement struct {
-	ToolPrefix                 string
 	ToolName                   string
 	Reason                     string
 	RequiresAttachment         bool
@@ -38,12 +37,11 @@ func evidenceToolRequirements(request AgentTurnRequest) []toolUseRequirement {
 }
 
 func requiredEvidenceToolNeedsSuccessfulSideEffect(toolSet *ToolSet, toolName string) bool {
-	if toolSet != nil {
-		if toolDefinition, isFound := toolSet.ToolDefinition(toolName); isFound {
-			return ToolDefinitionRequiresSideEffectEvidence(toolDefinition)
-		}
+	if toolSet == nil {
+		return false
 	}
-	return ToolDefinitionRequiresSideEffectEvidence(ToolDefinition{Name: toolName})
+	toolDefinition, isFound := toolSet.ToolDefinition(toolName)
+	return isFound && ToolDefinitionRequiresSideEffectEvidence(toolDefinition)
 }
 
 func attachmentSuffixesForEvidenceTool(toolName string, suffixes []string) []string {
@@ -64,7 +62,7 @@ func attachmentSuffixesForEvidenceTool(toolName string, suffixes []string) []str
 }
 
 func requestRequiresBrowserEvidence(request AgentTurnRequest) bool {
-	return requiredEvidenceHasPrefix(request.RequiredEvidenceTools, "browser.")
+	return requiredEvidenceIncludesNamespace(request.ToolSet, request.RequiredEvidenceTools, "browser")
 }
 
 func requestOnlyOpensBrowser(request AgentTurnRequest) bool {

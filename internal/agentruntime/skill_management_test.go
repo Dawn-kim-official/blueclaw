@@ -9,16 +9,15 @@ import (
 	"testing"
 
 	"blueclaw/internal/agent"
-	"blueclaw/internal/policy"
 )
 
 func TestSkillSearchToolUsesSharedRetriever(t *testing.T) {
 	toolCatalogBuilder := NewToolCatalogBuilder()
 	toolCatalogBuilder.UseSkillSearch(skillSearchTestRetriever{}, func() agent.InstructionBundle {
 		return agent.InstructionBundle{Skills: []agent.SkillInstruction{{
-			Name:         "mail",
-			Description:  "Read, search, summarize, reply to, and send email messages.",
-			AllowedTools: []string{"mail.message.search", "mail.message.read"},
+			Name:           "mail",
+			Description:    "Read, search, summarize, reply to, and send email messages.",
+			ToolReferences: []string{"mail.message.search", "mail.message.read"},
 		}}}
 	})
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
@@ -43,22 +42,19 @@ func TestSkillSearchToolUsesSharedRetriever(t *testing.T) {
 	if len(resultDocument.Skills) != 1 || resultDocument.Skills[0].Name != "mail" {
 		t.Fatalf("expected mail skill result, got %+v", resultDocument)
 	}
-	if !containsTestString(resultDocument.Skills[0].Tools, "mail.message.search") {
-		t.Fatalf("expected mail operations in result, got %+v", resultDocument.Skills[0].Tools)
+	if !containsTestString(resultDocument.Skills[0].ToolReferences, "mail.message.search") {
+		t.Fatalf("expected mail operations in result, got %+v", resultDocument.Skills[0].ToolReferences)
 	}
 }
 
-func TestSkillSearchToolExactNameIncludesCompletionMetadata(t *testing.T) {
+func TestSkillSearchToolExactNameIncludesToolReferences(t *testing.T) {
 	toolCatalogBuilder := NewToolCatalogBuilder()
 	toolCatalogBuilder.UseSkillSearch(skillSearchTestRetriever{}, func() agent.InstructionBundle {
 		return agent.InstructionBundle{Skills: []agent.SkillInstruction{{
-			Name:         "site-prototype",
-			Description:  "Create sites.",
-			AllowedTools: []string{"site.create", "site.publish"},
-			Completion: agent.SkillCompletion{
-				RequiredEvidenceTools: []string{"site.publish"},
-			},
-			Source: agent.InstructionSource{Path: "skills/site-prototype/SKILL.md"},
+			Name:           "site-prototype",
+			Description:    "Create sites.",
+			ToolReferences: []string{"site.create", "site.publish"},
+			Source:         agent.InstructionSource{Path: "skills/site-prototype/SKILL.md"},
 		}}}
 	})
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
@@ -273,7 +269,7 @@ func TestSkillAddRejectsMalformedOrCustomFrontmatter(t *testing.T) {
 	}
 }
 
-func TestSkillAddAcceptsStandardOptionalMetadata(t *testing.T) {
+func TestSkillAddAcceptsSupportedOptionalMetadataAndToolReferences(t *testing.T) {
 	workspacePath := t.TempDir()
 	toolCatalogBuilder := newFileToolTestCatalogBuilder(workspacePath)
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
@@ -284,6 +280,7 @@ license: MIT
 metadata:
   category: productivity
   locale: ko-KR
+tool-references: file.read
 ---
 Use this skill when standard skill metadata should be preserved.
 `
@@ -434,8 +431,8 @@ func TestSkillSearchToolListsAllSkillsWithoutQueries(t *testing.T) {
 	toolCatalogBuilder := NewToolCatalogBuilder()
 	toolCatalogBuilder.UseSkillSearch(skillSearchTestRetriever{}, func() agent.InstructionBundle {
 		return agent.InstructionBundle{Skills: []agent.SkillInstruction{
-			{Name: "mail", Description: "Email skill.", AllowedTools: []string{"mail.message.search"}},
-			{Name: "site-prototype", Description: "Create sites.", AllowedTools: []string{"site.create"}},
+			{Name: "mail", Description: "Email skill.", ToolReferences: []string{"mail.message.search"}},
+			{Name: "site-prototype", Description: "Create sites.", ToolReferences: []string{"site.create"}},
 		}}
 	})
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
@@ -463,11 +460,11 @@ func TestSkillSearchToolNameLookupReturnsPromptBody(t *testing.T) {
 	toolCatalogBuilder := NewToolCatalogBuilder()
 	toolCatalogBuilder.UseSkillSearch(skillSearchTestRetriever{}, func() agent.InstructionBundle {
 		return agent.InstructionBundle{Skills: []agent.SkillInstruction{{
-			Name:         "site-prototype",
-			Description:  "Create sites.",
-			Prompt:       "Build the site, verify it, and attach promoted outputs.",
-			AllowedTools: []string{"site.create"},
-			Source:       agent.InstructionSource{Path: "skills/site-prototype/SKILL.md"},
+			Name:           "site-prototype",
+			Description:    "Create sites.",
+			Prompt:         "Build the site, verify it, and attach promoted outputs.",
+			ToolReferences: []string{"site.create"},
+			Source:         agent.InstructionSource{Path: "skills/site-prototype/SKILL.md"},
 		}}}
 	})
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
@@ -491,61 +488,5 @@ func TestSkillSearchToolNameLookupReturnsPromptBody(t *testing.T) {
 	}
 	if resultDocument.Skills[0].SourcePath != "skills/site-prototype/SKILL.md" {
 		t.Fatalf("expected source path, got %+v", resultDocument.Skills[0])
-	}
-}
-
-func TestSkillSearchToolNameLookupHiddenSkillReturnsNotFound(t *testing.T) {
-	toolCatalogBuilder := NewToolCatalogBuilder()
-	toolCatalogBuilder.UseSkillSearch(skillSearchTestRetriever{}, func() agent.InstructionBundle {
-		return agent.InstructionBundle{Skills: []agent.SkillInstruction{{
-			Name:              "hidden-skill",
-			Description:       "Hidden skill.",
-			Prompt:            "Confidential instructions.",
-			HiddenFromCircles: []string{"staff"},
-		}}}
-	})
-	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
-		ProfileName:  "default",
-		PersonAccess: policy.PersonAccess{Circles: []string{"staff"}},
-	})
-
-	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
-		ToolName: "skill.search",
-		Input:    agent.MarshalToolInput(map[string]any{"name": "hidden-skill"}),
-	})
-	if errorValue != nil {
-		t.Fatal(errorValue)
-	}
-	if !result.Failed() || result.FailureCode() != agent.FailureCodes.NotFound.String() {
-		t.Fatalf("expected hidden skill to be not found, got %+v", result)
-	}
-}
-
-func TestSkillSearchToolHidesCircleHiddenSkillsFromList(t *testing.T) {
-	toolCatalogBuilder := NewToolCatalogBuilder()
-	toolCatalogBuilder.UseSkillSearch(skillSearchTestRetriever{}, func() agent.InstructionBundle {
-		return agent.InstructionBundle{Skills: []agent.SkillInstruction{
-			{Name: "mail", Description: "Email skill."},
-			{Name: "hr-review", Description: "HR review skill.", Prompt: "Confidential flow.", HiddenFromCircles: []string{"staff"}},
-		}}
-	})
-	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
-		ProfileName:  "default",
-		PersonAccess: policy.PersonAccess{Circles: []string{"staff"}},
-	})
-
-	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
-		ToolName: "skill.search",
-		Input:    agent.MarshalToolInput(map[string]any{}),
-	})
-	if errorValue != nil {
-		t.Fatal(errorValue)
-	}
-	var resultDocument agent.SkillSearchResult
-	if errorValue := json.Unmarshal([]byte(result.ContentText()), &resultDocument); errorValue != nil {
-		t.Fatal(errorValue)
-	}
-	if len(resultDocument.Skills) != 1 || resultDocument.Skills[0].Name != "mail" {
-		t.Fatalf("expected circle-hidden skill to be excluded from list, got %+v", resultDocument.Skills)
 	}
 }
