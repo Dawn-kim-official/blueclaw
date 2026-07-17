@@ -290,7 +290,7 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 		manualPinnedToolNames,
 		persistedPinnedToolNames,
 		intakeDecision.InitialToolNames,
-		instructionBundle,
+		instructionBundle.RequiredEvidenceTools,
 		isFreshTask,
 	)
 	intakeRequest.PinnedToolNames = request.PinnedToolNames
@@ -341,6 +341,14 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 	}
 	requiredEvidenceTools := outcomeContract.RequiredEvidenceTools
 	requiredAttachmentSuffixes = outcomeContract.RequiredAttachmentSuffixes
+	request.PinnedToolNames = pinnedToolNamesForResolvedRequest(
+		manualPinnedToolNames,
+		persistedPinnedToolNames,
+		intakeDecision.InitialToolNames,
+		requiredEvidenceTools,
+		isFreshTask,
+	)
+	intakeRequest.PinnedToolNames = request.PinnedToolNames
 
 	turnRequest := AgentTurnRequest{
 		RequesterPersonID:          request.RequesterPersonID,
@@ -427,15 +435,15 @@ func pinnedToolNamesForResolvedRequest(
 	manualToolNames []string,
 	persistedToolNames []string,
 	routerToolNames []string,
-	instructionBundle InstructionBundle,
+	requiredEvidenceTools []string,
 	isFreshTask bool,
 ) []string {
 	preservedToolNames := persistedToolNames
 	selectedToolNames := routerToolNames
 	if isFreshTask {
 		preservedToolNames = manualToolNames
-		if instructionBundle.HasContractSkillArbitration && len(instructionBundle.RequiredEvidenceTools) > 0 {
-			selectedToolNames = instructionBundle.RequiredEvidenceTools
+		if len(requiredEvidenceTools) > 0 {
+			selectedToolNames = requiredEvidenceTools
 		}
 	}
 	return appendUniqueStrings(append([]string{}, preservedToolNames...), selectedToolNames...)
