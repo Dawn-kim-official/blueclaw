@@ -60,6 +60,123 @@ func TestSelectedSkillExposesDirectTools(t *testing.T) {
 	}
 }
 
+func TestAuthoritativeContractExposesOnlyTaskAdd(t *testing.T) {
+	flowToolNames := []string{"task.add", "task.list", "task.update", "task.delete"}
+	toolSet := testToolSet(append(KernelToolNames(), flowToolNames...))
+	instructionBundle := InstructionBundle{
+		Skills:                      []SkillInstruction{{Name: "internkim-flow", AllowedTools: flowToolNames}},
+		SkillDecisions:              []SkillSelectionDecision{{Name: "internkim-flow", Status: "selected"}},
+		RequiredNextTools:           []string{"task.add"},
+		RequiredEvidenceTools:       []string{"task.add"},
+		HasContractSkillArbitration: true,
+	}
+
+	filteredToolSet, event := toolSetForAgentTurnWithExposure(
+		toolSet,
+		instructionBundle,
+		AgentRequest{PinnedToolNames: []string{"task.add"}},
+		ExecutionPlan{},
+		false,
+		OutcomeContract{RequiredEvidenceTools: []string{"task.add"}},
+		ToolExposureEvent{},
+	)
+
+	if !sameStringSet(filteredToolSet.ListToolNames(), []string{"task.add"}) {
+		t.Fatalf("expected exact task.add working set, got %+v", filteredToolSet.ListToolNames())
+	}
+	if event.SelectionSource != "contract_arbitration" {
+		t.Fatalf("expected contract arbitration source, got %+v", event)
+	}
+}
+
+func TestAuthoritativeContractPreservesCompoundWorkflow(t *testing.T) {
+	flowToolNames := []string{"task.add", "task.list", "task.update", "task.delete"}
+	calendarToolNames := []string{"calendar.add", "calendar.list", "calendar.update", "calendar.delete"}
+	toolSet := testToolSet(append(append(KernelToolNames(), flowToolNames...), calendarToolNames...))
+	instructionBundle := InstructionBundle{
+		Skills: []SkillInstruction{
+			{Name: "internkim-flow", AllowedTools: flowToolNames},
+			{Name: "calendar", AllowedTools: calendarToolNames},
+		},
+		SkillDecisions: []SkillSelectionDecision{
+			{Name: "internkim-flow", Status: "selected"},
+			{Name: "calendar", Status: "selected"},
+		},
+		RequiredNextTools:           []string{"task.add", "calendar.add"},
+		RequiredEvidenceTools:       []string{"task.add", "calendar.add"},
+		HasContractSkillArbitration: true,
+	}
+
+	filteredToolSet, _ := toolSetForAgentTurnWithExposure(
+		toolSet,
+		instructionBundle,
+		AgentRequest{},
+		ExecutionPlan{},
+		false,
+		OutcomeContract{RequiredEvidenceTools: []string{"task.add", "calendar.add"}},
+		ToolExposureEvent{},
+	)
+
+	if !sameStringSet(filteredToolSet.ListToolNames(), []string{"task.add", "calendar.add"}) {
+		t.Fatalf("expected exact compound working set, got %+v", filteredToolSet.ListToolNames())
+	}
+}
+
+func TestAuthoritativeContractPreservesTypedRecoveryTool(t *testing.T) {
+	flowToolNames := []string{"task.add", "task.update"}
+	toolSet := testToolSet(append(KernelToolNames(), flowToolNames...))
+	instructionBundle := InstructionBundle{
+		Skills:                      []SkillInstruction{{Name: "internkim-flow", AllowedTools: flowToolNames}},
+		SkillDecisions:              []SkillSelectionDecision{{Name: "internkim-flow", Status: "selected"}},
+		RequiredNextTools:           []string{"task.add"},
+		HasContractSkillArbitration: true,
+	}
+	observation := newFailureObservation("obs-001", "continue", "task.add", "retry with an existing task", FailureInvalidInput, FailureCodes.InvalidInput, "invoke")
+	observation.ToolInputKey = "task.add\x00{}"
+	observation.Failure.RecoveryHints = []RecoveryHint{{ToolNames: []string{"task.update"}}}
+
+	filteredToolSet, _ := toolSetForAgentTurnWithExposure(
+		toolSet,
+		instructionBundle,
+		AgentRequest{},
+		ExecutionPlan{},
+		false,
+		OutcomeContract{RequiredEvidenceTools: []string{"task.add"}},
+		ToolExposureEvent{},
+		[]turnObservation{observation},
+	)
+
+	if !sameStringSet(filteredToolSet.ListToolNames(), []string{"task.add", "task.update"}) {
+		t.Fatalf("expected contract and recovery working set, got %+v", filteredToolSet.ListToolNames())
+	}
+}
+
+func TestEmptyArbitrationWorkingSetPreservesDocumentKernel(t *testing.T) {
+	toolSet := testToolSet(KernelToolNames())
+	instructionBundle := InstructionBundle{
+		Skills:                      []SkillInstruction{{Name: "document"}},
+		SkillDecisions:              []SkillSelectionDecision{{Name: "document", Status: "selected"}},
+		HasContractSkillArbitration: true,
+	}
+
+	filteredToolSet, event := toolSetForAgentTurnWithExposure(
+		toolSet,
+		instructionBundle,
+		AgentRequest{},
+		ExecutionPlan{},
+		false,
+		OutcomeContract{RequiredEvidenceTools: []string{FileDeliverToolName}},
+		ToolExposureEvent{},
+	)
+
+	if !sameStringSet(filteredToolSet.ListToolNames(), KernelToolNames()) {
+		t.Fatalf("expected document kernel fallback, got %+v", filteredToolSet.ListToolNames())
+	}
+	if event.SelectionSource != "fixed_kernel" {
+		t.Fatalf("expected fixed kernel source, got %+v", event)
+	}
+}
+
 func TestSelectedSkillRankingControlsToolBudget(t *testing.T) {
 	secondaryToolNames := []string{
 		"calendar.add", "calendar.list", "calendar.update", "calendar.delete",

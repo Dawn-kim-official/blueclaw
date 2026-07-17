@@ -119,6 +119,7 @@ func selectInstructionBundleForRequestWithRetrieverAndRouter(ctx context.Context
 		sources = append(sources, skillInstruction.Source)
 	}
 	skillDecisions = append(skillDecisions, blockedSkillSelectionDecisions(instructionBundle.Skills, skillDecisions, request, normalizedAgentProfileName(request.ProfileName))...)
+	requiredNextTools := validatedContractNextTools(contractArbitration, selectedSkillInstructions, request)
 	requiredEvidenceTools := validatedContractEvidenceTools(contractArbitration, selectedSkillInstructions, request)
 	requiredEvidenceCandidates := unresolvedContractEvidenceCandidates(contractArbitration, selectedSkillInstructions, request, requiredEvidenceTools)
 	prompts = append(prompts, buildCompactSkillIndexPrompt(candidateInstructions))
@@ -129,6 +130,7 @@ func selectInstructionBundleForRequestWithRetrieverAndRouter(ctx context.Context
 		Sources:                     sources,
 		Skills:                      appendSkillInstructions(instructionBundle.Skills, defaultSkillInstructions...),
 		SkillDecisions:              skillDecisions,
+		RequiredNextTools:           requiredNextTools,
 		RequiredEvidenceTools:       requiredEvidenceTools,
 		RequiredEvidenceCandidates:  requiredEvidenceCandidates,
 		HasContractSkillArbitration: hasContractArbitration,
@@ -137,6 +139,10 @@ func selectInstructionBundleForRequestWithRetrieverAndRouter(ctx context.Context
 		CandidateCount:              len(candidateInstructions),
 		SkillQueries:                append([]string{}, retrievalResult.QueryDescriptions...),
 	}
+}
+
+func validatedContractNextTools(arbitration contractSkillArbitration, selectedSkills []SkillInstruction, request AgentRequest) []string {
+	return validateArbitratedToolNames(arbitration.RequiredNextTools, selectedSkillToolNameSet(selectedSkills), request, false)
 }
 
 func unresolvedContractEvidenceCandidates(arbitration contractSkillArbitration, selectedSkills []SkillInstruction, request AgentRequest, requiredEvidenceTools []string) []string {

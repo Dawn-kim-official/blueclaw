@@ -105,6 +105,22 @@ func TestContractEvidenceUsesOnlySelectedRegisteredTools(t *testing.T) {
 	}
 }
 
+func TestContractNextToolsUseOnlySelectedRegisteredTools(t *testing.T) {
+	selectedSkills := []SkillInstruction{{
+		Name:         "internkim-flow",
+		AllowedTools: []string{"task.add", "task.list", "task.update", "task.delete"},
+	}}
+	request := AgentRequest{ToolSet: newTestToolSet([]string{"task.add", "task.update", "file.edit"})}
+
+	result := validatedContractNextTools(contractSkillArbitration{
+		RequiredNextTools: []string{"file.edit", "task.add", "task.update", "task.delete", "unknown.operation"},
+	}, selectedSkills, request)
+
+	if !reflect.DeepEqual(result, []string{"task.add", "task.update"}) {
+		t.Fatalf("expected selected registered next tools only, got %v", result)
+	}
+}
+
 func TestContractEvidenceDoesNotPromoteRequiredNextTools(t *testing.T) {
 	selectedSkills := []SkillInstruction{{Name: "internkim-flow", AllowedTools: []string{"task.update"}}}
 	request := AgentRequest{ToolSet: newTestToolSet([]string{"task.update"})}

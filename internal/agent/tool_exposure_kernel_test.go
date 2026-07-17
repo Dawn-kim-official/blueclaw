@@ -94,6 +94,56 @@ func TestToolExposureRequiresExplicitSkillSearchForImmediateReply(t *testing.T) 
 	}
 }
 
+func TestInstructionBundleFromTurnRequestPreservesContractWorkingSet(t *testing.T) {
+	instructionBundle := instructionBundleFromTurnRequest(AgentTurnRequest{
+		ContractToolWorkingSet: ContractToolWorkingSet{
+			RequiredNextTools:     []string{"task.add"},
+			RequiredEvidenceTools: []string{"task.add"},
+		},
+	})
+
+	if !sameStringSet(instructionBundle.RequiredNextTools, []string{"task.add"}) {
+		t.Fatalf("expected required next tools to survive reconstruction, got %+v", instructionBundle)
+	}
+	if !instructionBundle.HasContractSkillArbitration {
+		t.Fatalf("expected arbitration authority to survive reconstruction, got %+v", instructionBundle)
+	}
+	if !sameStringSet(instructionBundle.RequiredEvidenceTools, []string{"task.add"}) {
+		t.Fatalf("expected arbitrated evidence to survive reconstruction, got %+v", instructionBundle)
+	}
+}
+
+func TestReconstructedEvidenceOnlyArbitrationCompactsExposure(t *testing.T) {
+	flowToolNames := []string{"task.add", "task.list", "task.update", "task.delete"}
+	toolSet := testToolSet(append(KernelToolNames(), flowToolNames...))
+	request := AgentTurnRequest{
+		ToolSet: toolSet,
+		AvailableSkills: []SkillInstruction{{
+			Name:         "internkim-flow",
+			AllowedTools: flowToolNames,
+		}},
+		SkillDecisions: []SkillSelectionDecision{{Name: "internkim-flow", Status: "selected"}},
+		ContractToolWorkingSet: ContractToolWorkingSet{
+			RequiredEvidenceTools: []string{"task.add"},
+		},
+		OutcomeContract: OutcomeContract{RequiredEvidenceTools: []string{"task.add"}},
+	}
+
+	filteredToolSet, _ := toolSetForAgentTurnWithExposure(
+		toolSet,
+		instructionBundleFromTurnRequest(request),
+		AgentRequest{},
+		ExecutionPlan{},
+		false,
+		request.OutcomeContract,
+		ToolExposureEvent{},
+	)
+
+	if !sameStringSet(filteredToolSet.ListToolNames(), []string{"task.add"}) {
+		t.Fatalf("expected reconstructed evidence-only working set, got %+v", filteredToolSet.ListToolNames())
+	}
+}
+
 func sameStringSet(leftValues []string, rightValues []string) bool {
 	if len(leftValues) != len(rightValues) {
 		return false

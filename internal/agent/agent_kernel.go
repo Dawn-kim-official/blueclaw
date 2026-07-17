@@ -350,6 +350,10 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 	)
 	intakeRequest.PinnedToolNames = request.PinnedToolNames
 
+	contractToolWorkingSet := ContractToolWorkingSet{
+		RequiredNextTools:     append([]string{}, instructionBundle.RequiredNextTools...),
+		RequiredEvidenceTools: append([]string{}, instructionBundle.RequiredEvidenceTools...),
+	}
 	turnRequest := AgentTurnRequest{
 		RequesterPersonID:          request.RequesterPersonID,
 		Company:                    agentKernel.companyContext(),
@@ -382,6 +386,7 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 		SkillIndexStatus:           instructionBundle.IndexStatus,
 		SkillCandidateCount:        instructionBundle.CandidateCount,
 		SkillQueries:               append([]string{}, instructionBundle.SkillQueries...),
+		ContractToolWorkingSet:     contractToolWorkingSet,
 		RequiredEvidenceTools:      requiredEvidenceTools,
 		RequiredAttachmentSuffixes: requiredAttachmentSuffixes,
 		OutcomeContract:            outcomeContract,
