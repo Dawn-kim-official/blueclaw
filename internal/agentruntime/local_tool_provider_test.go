@@ -83,20 +83,19 @@ func TestLocalToolProviderUsesTypedSkillMutationContracts(t *testing.T) {
 	}
 }
 
-func TestLocalToolProviderHidesDatabaseSQLFromModels(t *testing.T) {
+func TestDeadCompatibilityToolsAreNotRegistered(t *testing.T) {
 	toolCatalogBuilder := NewToolCatalogBuilder()
-	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"db.sql"})
+	deadToolNames := []string{"task.history", "browser_handoff.openURL", "db.sql"}
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, deadToolNames)
 	toolSet := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
 
-	if !toolSet.IsRegistered("db.sql") {
-		t.Fatal("expected db.sql to remain internally registered")
-	}
-	if toolSet.CanExpose("db.sql") || toolSet.IsAllowed("db.sql") {
-		t.Fatal("expected db.sql to remain hidden from model exposure")
-	}
-	definition, isFound := toolSet.ToolDefinition("db.sql")
-	if !isFound || definition.Visibility != agent.ToolVisibilityInternal {
-		t.Fatalf("expected internal db.sql descriptor, got found=%v definition=%+v", isFound, definition)
+	for _, toolName := range deadToolNames {
+		if toolSet.IsRegistered(toolName) || toolSet.CanExpose(toolName) || toolSet.IsAllowed(toolName) {
+			t.Fatalf("expected dead tool %s to be absent, got registered=%v exposed=%v allowed=%v", toolName, toolSet.IsRegistered(toolName), toolSet.CanExpose(toolName), toolSet.IsAllowed(toolName))
+		}
+		if _, isFound := toolSet.ToolDefinition(toolName); isFound {
+			t.Fatalf("expected dead tool %s to have no descriptor", toolName)
+		}
 	}
 }
 
@@ -203,32 +202,6 @@ func TestLocalToolProviderRejectsUnregisteredDescriptor(t *testing.T) {
 	_, errorValue := (localToolProvider{handlerToolSet: handlerToolSet}).ListTools(context.Background())
 	if errorValue == nil || !strings.Contains(errorValue.Error(), "no canonical descriptor") {
 		t.Fatalf("expected missing canonical descriptor failure, got %v", errorValue)
-	}
-}
-
-func TestTaskHistoryDescriptorIsInternal(t *testing.T) {
-	descriptor, isFound := localToolDescriptorSpecForName("task.history")
-	if !isFound {
-		t.Fatal("expected task.history descriptor")
-	}
-	if descriptor.Visibility != agent.ToolVisibilityInternal {
-		t.Fatalf("expected internal task.history visibility, got %q", descriptor.Visibility)
-	}
-}
-
-func TestLegacyBrowserHandoffIsRegisteredButHiddenFromModels(t *testing.T) {
-	toolCatalogBuilder := NewToolCatalogBuilder()
-	toolCatalogBuilder.UseAllowedToolNamesByProfile(map[string][]string{
-		"default": {"browser_handoff.openURL"},
-	}, nil)
-	toolSet := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
-
-	descriptor, isFound := toolSet.ToolDefinition("browser_handoff.openURL")
-	if !isFound || descriptor.Visibility != agent.ToolVisibilityInternal {
-		t.Fatalf("expected registered internal browser handoff descriptor, found=%v descriptor=%+v", isFound, descriptor)
-	}
-	if toolSet.CanExpose("browser_handoff.openURL") || containsString(toolSet.ListToolNames(), "browser_handoff.openURL") {
-		t.Fatalf("expected browser handoff to stay outside model exposure, got %+v", toolSet.ListToolNames())
 	}
 }
 

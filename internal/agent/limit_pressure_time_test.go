@@ -74,9 +74,9 @@ func TestElapsedClosingCompletesFromExactEvidenceBeforeReply(t *testing.T) {
 	}
 	toolSet := newTestCapabilityToolSet([]string{"task.add"})
 	toolCallCount := 0
-	toolSet.RegisterTool(ToolDefinition{Name: "task.add"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	registerTestTool(toolSet, ToolDefinition{Name: "task.add"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		toolCallCount++
-		return ToolSuccess(`{"taskID":"task-1"}`), nil
+		return testToolSuccess(`{"taskID":"task-1"}`), nil
 	})
 
 	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
@@ -157,8 +157,8 @@ func TestElapsedClosingHasNoInternalDeadlineAndHonorsParentCancellation(t *testi
 		return onlyTaskStatus(services.taskRunService, "person-1")
 	}
 	toolSet := newTestCapabilityToolSet([]string{"task.add"})
-	toolSet.RegisterTool(ToolDefinition{Name: "task.add"}, func(context.Context, ToolInvocation) (ToolResult, error) {
-		return ToolSuccess(`{"taskID":"task-1"}`), nil
+	registerTestTool(toolSet, ToolDefinition{Name: "task.add"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return testToolSuccess(`{"taskID":"task-1"}`), nil
 	})
 	parentContext, cancelParent := context.WithCancel(context.Background())
 	resultChannel := make(chan AgentTurnResult, 1)
@@ -288,7 +288,7 @@ func TestAgentTurnRunnerCancelsToolCallAtExecutionEffortDeadline(t *testing.T) {
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxElapsedSecond: 1})
 	toolSet := newTestToolSet([]string{"slow.tool"})
 	toolCancelled := make(chan struct{})
-	toolSet.RegisterTool(ToolDefinition{Name: "slow.tool"}, func(toolContext context.Context, _ ToolInvocation) (ToolResult, error) {
+	registerTestTool(toolSet, ToolDefinition{Name: "slow.tool"}, func(toolContext context.Context, _ ToolInvocation) (ToolResult, error) {
 		<-toolContext.Done()
 		close(toolCancelled)
 		return ToolFailureResult(FailureExternalService, FailureCodes.OperationFailed, "slow.tool", toolContext.Err().Error()), nil
@@ -329,8 +329,8 @@ func TestMaxIterationsClosingDefersToElapsedClosing(t *testing.T) {
 		MaxElapsedSecond:  1,
 	})
 	toolSet := newTestCapabilityToolSet([]string{"task.add"})
-	toolSet.RegisterTool(ToolDefinition{Name: "task.add"}, func(context.Context, ToolInvocation) (ToolResult, error) {
-		return ToolSuccess(`{"taskID":"task-1"}`), nil
+	registerTestTool(toolSet, ToolDefinition{Name: "task.add"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return testToolSuccess(`{"taskID":"task-1"}`), nil
 	})
 
 	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
@@ -366,10 +366,10 @@ func TestMaxToolCallsClosingDefersToElapsedClosing(t *testing.T) {
 		MaxElapsedSecond:  1,
 	})
 	toolSet := newTestCapabilityToolSet([]string{"first.tool", "second.tool"})
-	toolSet.RegisterTool(ToolDefinition{Name: "first.tool"}, func(context.Context, ToolInvocation) (ToolResult, error) {
-		return ToolSuccess(`{"status":"recorded"}`), nil
+	registerTestTool(toolSet, ToolDefinition{Name: "first.tool"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return testToolSuccess(`{"status":"recorded"}`), nil
 	})
-	toolSet.RegisterTool(ToolDefinition{Name: "second.tool"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	registerTestTool(toolSet, ToolDefinition{Name: "second.tool"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		t.Fatal("expected the tool-call limit before second tool execution")
 		return ToolResult{}, nil
 	})

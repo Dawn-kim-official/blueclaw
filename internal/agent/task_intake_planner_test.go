@@ -187,7 +187,7 @@ func TestTaskIntakePlannerUsesStructuredModelDecision(t *testing.T) {
 		`{"route":"start_task","classification":"bounded_task","taskShape":"research_task","level":"low","estimatedMinutes":1,"requestedOutputFormats":null,"reason":"bounded tool work","userFacingReply":""}`,
 	}}
 	toolRegistry := newTestToolSet([]string{"memory.search"})
-	toolRegistry.RegisterTool(ToolDefinition{Name: "memory.search"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	registerTestTool(toolRegistry, ToolDefinition{Name: "memory.search"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		return ToolResult{}, nil
 	})
 	planner := NewTaskIntakePlanner(languageModel, IntakeOptions{
@@ -268,8 +268,8 @@ func TestTaskIntakePlannerMapsRequiredEvidenceField(t *testing.T) {
 	toolRegistry := NewToolSet([]string{"calendar.add"})
 	for _, toolName := range []string{"calendar.add"} {
 		currentToolName := toolName
-		toolRegistry.RegisterTool(ToolDefinition{Name: currentToolName}, func(context.Context, ToolInvocation) (ToolResult, error) {
-			return ToolSuccess("ok"), nil
+		registerTestTool(toolRegistry, ToolDefinition{Name: currentToolName}, func(context.Context, ToolInvocation) (ToolResult, error) {
+			return testToolSuccess("ok"), nil
 		})
 	}
 
@@ -293,8 +293,8 @@ func TestIntakeToolDescriptionsKeepRegisteredEvidenceCompact(t *testing.T) {
 		{Name: "file.deliver", Description: "Deliver a file to the requester."},
 	} {
 		definition := toolDefinition
-		toolRegistry.RegisterTool(definition, func(context.Context, ToolInvocation) (ToolResult, error) {
-			return ToolSuccess("ok"), nil
+		registerTestTool(toolRegistry, definition, func(context.Context, ToolInvocation) (ToolResult, error) {
+			return testToolSuccess("ok"), nil
 		})
 	}
 
@@ -1010,8 +1010,8 @@ func TestTaskIntakePlannerDoesNotOverrideScheduleRefusalWithoutSelectedSkill(t *
 		`{"route":"give_up","classification":"unsupported","taskShape":"immediate_reply","level":"medium","estimatedMinutes":1,"requestedOutputFormats":null,"reason":"background loops are unsupported","userFacingReply":"지원하지 않습니다."}`,
 	}}
 	toolRegistry := newTestToolSet([]string{"schedule.create"})
-	toolRegistry.RegisterTool(ToolDefinition{Name: "schedule.create"}, func(context.Context, ToolInvocation) (ToolResult, error) {
-		return ToolSuccess("scheduled"), nil
+	registerTestTool(toolRegistry, ToolDefinition{Name: "schedule.create"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return testToolSuccess("scheduled"), nil
 	})
 	planner := NewTaskIntakePlanner(languageModel, IntakeOptions{
 		IsEnabled:        true,
@@ -1095,7 +1095,7 @@ func TestAgentKernelSelectsArtifactSkillOnceAfterRouting(t *testing.T) {
 		}}}
 	})
 	toolRegistry := newTestToolSet([]string{"terminal.run", "file.write", "file.promote", "file.deliver"})
-	toolRegistry.RegisterTool(ToolDefinition{Name: "file.deliver"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	registerTestTool(toolRegistry, ToolDefinition{Name: "file.deliver"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		return ToolResult{
 			Output: ToolOutput{Content: "file attached"},
 			Attachments: []FileAttachment{{
@@ -1196,7 +1196,7 @@ func TestAgentKernelPreservesUnsupportedArtifactWithoutSelectedSkill(t *testing.
 	}}
 	services := newKernelIntakeTestServices(replyLanguageModel, intakeLanguageModel)
 	toolRegistry := newTestToolSet([]string{"terminal.run", "file.write", "file.promote", "file.deliver"})
-	toolRegistry.RegisterTool(ToolDefinition{Name: "file.deliver"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	registerTestTool(toolRegistry, ToolDefinition{Name: "file.deliver"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		return ToolResult{
 			Output: ToolOutput{Content: "file attached"},
 			Attachments: []FileAttachment{{
@@ -1237,7 +1237,7 @@ func TestAgentKernelRecoversPriorTaskAttachmentContract(t *testing.T) {
 	}}
 	services := newKernelIntakeTestServices(replyLanguageModel, intakeLanguageModel)
 	toolRegistry := newTestToolSet([]string{"file.deliver"})
-	toolRegistry.RegisterTool(ToolDefinition{Name: "file.deliver"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	registerTestTool(toolRegistry, ToolDefinition{Name: "file.deliver"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		return ToolResult{
 			Output: ToolOutput{Content: "file attached"},
 			Attachments: []FileAttachment{{
@@ -1304,7 +1304,7 @@ func TestAgentKernelRecoversLegacyPriorAttachmentContractFromIntakeOutput(t *tes
 	}}
 	services := newKernelIntakeTestServices(replyLanguageModel, intakeLanguageModel)
 	toolRegistry := newTestToolSet([]string{"conversation.history", "file.read", "file.write", "terminal.run", "file.promote", "file.deliver"})
-	toolRegistry.RegisterTool(ToolDefinition{Name: "file.deliver"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	registerTestTool(toolRegistry, ToolDefinition{Name: "file.deliver"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		return ToolResult{
 			Output: ToolOutput{Content: "file attached"},
 			Attachments: []FileAttachment{{
@@ -1354,8 +1354,8 @@ func TestTaskIntakePlannerTreatsSupportedSitePrototypeConfirmationAsBoundedTask(
 	toolRegistry := newTestToolSet([]string{"site.create", "site.publish"})
 	for _, toolName := range toolRegistry.ListToolNames() {
 		currentToolName := toolName
-		toolRegistry.RegisterTool(ToolDefinition{Name: currentToolName}, func(context.Context, ToolInvocation) (ToolResult, error) {
-			return ToolSuccess("ok"), nil
+		registerTestTool(toolRegistry, ToolDefinition{Name: currentToolName}, func(context.Context, ToolInvocation) (ToolResult, error) {
+			return testToolSuccess("ok"), nil
 		})
 	}
 	planner := NewTaskIntakePlanner(languageModel, IntakeOptions{
@@ -1458,8 +1458,8 @@ func TestAgentKernelUsesIntakeBeforeRunningTools(t *testing.T) {
 	}}
 	services := newKernelIntakeTestServices(replyLanguageModel, intakeLanguageModel)
 	toolRegistry := newTestToolSet([]string{"expensive"})
-	toolRegistry.RegisterTool(ToolDefinition{Name: "expensive"}, func(context.Context, ToolInvocation) (ToolResult, error) {
-		return ToolSuccess("expensive result"), nil
+	registerTestTool(toolRegistry, ToolDefinition{Name: "expensive"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return testToolSuccess("expensive result"), nil
 	})
 
 	result, errorValue := services.kernel.RunAgentRequest(context.Background(), AgentRequest{
@@ -1531,8 +1531,8 @@ func TestAgentKernelQuickReplyAllowsToolFreeReplyWithoutAskInput(t *testing.T) {
 	}}
 	services := newKernelIntakeTestServices(replyLanguageModel, intakeLanguageModel)
 	toolRegistry := newTestToolSet([]string{"expensive", "ask.input"})
-	toolRegistry.RegisterTool(ToolDefinition{Name: "expensive"}, func(context.Context, ToolInvocation) (ToolResult, error) {
-		return ToolSuccess("expensive result"), nil
+	registerTestTool(toolRegistry, ToolDefinition{Name: "expensive"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return testToolSuccess("expensive result"), nil
 	})
 
 	result, errorValue := services.kernel.RunAgentRequest(context.Background(), AgentRequest{
@@ -1569,8 +1569,8 @@ func TestAgentKernelRunTurnPreservesCheckpointSender(t *testing.T) {
 	}}
 	services := newKernelIntakeTestServices(replyLanguageModel, intakeLanguageModel)
 	toolRegistry := newTestCapabilityToolSet([]string{"alpha"})
-	toolRegistry.RegisterTool(ToolDefinition{Name: "alpha"}, func(context.Context, ToolInvocation) (ToolResult, error) {
-		return ToolSuccess("alpha result"), nil
+	registerTestTool(toolRegistry, ToolDefinition{Name: "alpha"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return testToolSuccess("alpha result"), nil
 	})
 	checkpoints := []AgentCheckpoint{}
 
@@ -1611,13 +1611,13 @@ func TestAgentKernelQuickReplyPromotesToolFailureToRecovery(t *testing.T) {
 	toolRegistry := newTestCapabilityToolSet([]string{"primary.lookup", "backup.lookup"})
 	primaryCallCount := 0
 	backupCallCount := 0
-	toolRegistry.RegisterTool(ToolDefinition{Name: "primary.lookup"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	registerTestTool(toolRegistry, ToolDefinition{Name: "primary.lookup"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		primaryCallCount++
 		return ToolFailureResult(FailureExternalService, FailureCodes.OperationFailed, "primary_lookup", "primary lookup failed"), nil
 	})
-	toolRegistry.RegisterTool(ToolDefinition{Name: "backup.lookup"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	registerTestTool(toolRegistry, ToolDefinition{Name: "backup.lookup"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		backupCallCount++
-		return ToolSuccess("backup result"), nil
+		return testToolSuccess("backup result"), nil
 	})
 
 	result, errorValue := services.kernel.RunAgentRequest(context.Background(), AgentRequest{
@@ -1675,8 +1675,8 @@ func TestAgentKernelQuickReplyCanUseCalculatorTool(t *testing.T) {
 	}}
 	services := newKernelIntakeTestServices(replyLanguageModel, intakeLanguageModel)
 	toolRegistry := newTestCapabilityToolSet([]string{"math.calculate"})
-	toolRegistry.RegisterTool(ToolDefinition{Name: "math.calculate"}, func(context.Context, ToolInvocation) (ToolResult, error) {
-		return ToolSuccess(`{"expression":"1+1","result":"2"}`), nil
+	registerTestTool(toolRegistry, ToolDefinition{Name: "math.calculate"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return testToolSuccess(`{"expression":"1+1","result":"2"}`), nil
 	})
 
 	result, errorValue := services.kernel.RunAgentRequest(context.Background(), AgentRequest{
@@ -1706,7 +1706,7 @@ func TestAgentKernelQuickReplyUsesAskChoiceForExplicitChoiceRequest(t *testing.T
 	}}
 	services := newKernelIntakeTestServices(replyLanguageModel, intakeLanguageModel)
 	toolRegistry := newTestToolSet([]string{"ask.input"})
-	toolRegistry.RegisterTool(ToolDefinition{Name: "ask.input"}, func(toolContext context.Context, invocation ToolInvocation) (ToolResult, error) {
+	registerTestTool(toolRegistry, ToolDefinition{Name: "ask.input"}, func(toolContext context.Context, invocation ToolInvocation) (ToolResult, error) {
 		taskRunID := TaskRunIDFromContext(toolContext)
 		if taskRunID == "" {
 			return ToolFailureResult(FailureInvalidInput, FailureCodes.InvalidInput, "ask_choice", "missing task run"), nil
@@ -1716,7 +1716,7 @@ func TestAgentKernelQuickReplyUsesAskChoiceForExplicitChoiceRequest(t *testing.T
 			return ToolFailureResult(FailureExternalService, FailureCodes.OperationFailed, "ask_choice", errorValue.Error()), nil
 		}
 		services.taskRunService.AppendTaskEvent(taskRunID, "ask.requested", string(invocation.Input))
-		return ToolSuccess(`{"kind":"choice_single","question":"아래 세 가지 중 하나를 선택해 주세요."}`), nil
+		return testToolSuccess(`{"kind":"choice_single","question":"아래 세 가지 중 하나를 선택해 주세요."}`), nil
 	})
 
 	result, errorValue := services.kernel.RunAgentRequest(context.Background(), AgentRequest{
@@ -1768,7 +1768,7 @@ func TestAgentKernelPreservesQuickReplyAfterSkillSelection(t *testing.T) {
 	toolRegistry := newTestToolSet([]string{"terminal.run", "file.write", "file.deliver"})
 	for _, toolName := range toolRegistry.ListToolNames() {
 		currentToolName := toolName
-		toolRegistry.RegisterTool(ToolDefinition{Name: currentToolName}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		registerTestTool(toolRegistry, ToolDefinition{Name: currentToolName}, func(context.Context, ToolInvocation) (ToolResult, error) {
 			if currentToolName == "file.deliver" {
 				return ToolResult{
 					Output: ToolOutput{Content: "attached"},
@@ -1778,7 +1778,7 @@ func TestAgentKernelPreservesQuickReplyAfterSkillSelection(t *testing.T) {
 					}},
 				}, nil
 			}
-			return ToolSuccess("ok"), nil
+			return testToolSuccess("ok"), nil
 		})
 	}
 
@@ -1822,7 +1822,7 @@ func TestAgentKernelUsesStructuredOutputFormatsForAttachmentRequirements(t *test
 		}}}
 	})
 	toolRegistry := newTestToolSet([]string{"file.deliver"})
-	toolRegistry.RegisterTool(ToolDefinition{Name: "file.deliver"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	registerTestTool(toolRegistry, ToolDefinition{Name: "file.deliver"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		return ToolResult{
 			Output: ToolOutput{Content: "file attached"},
 			Attachments: []FileAttachment{{

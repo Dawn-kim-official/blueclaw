@@ -18,7 +18,6 @@ const (
 	FilePreviewToolName         = "file.preview"
 	ImageReadToolName           = "image.read"
 	ConversationHistoryToolName = "conversation.history"
-	TaskHistoryToolName         = "task.history"
 )
 
 func KernelToolNames() []string {

@@ -61,6 +61,43 @@ func TestRegisterProviderRejectsMissingSchemaAtomically(t *testing.T) {
 	}
 }
 
+func TestRegisterProviderRejectsModelVisibleToolWithoutResultContract(t *testing.T) {
+	providerTool := validProviderTool("capabilityd/task/task.add", "task", "task.add")
+	providerTool.Definition.ResultContract = nil
+	toolSet := NewToolSet([]string{"task.add"})
+
+	errorValue := toolSet.RegisterProvider(context.Background(), testToolProvider{
+		providerID: "capabilityd",
+		tools:      []BoundTool{providerTool},
+	})
+
+	if errorValue == nil || !strings.Contains(errorValue.Error(), "resultContract is required for model-visible tools") {
+		t.Fatalf("expected missing result contract rejection, got %v", errorValue)
+	}
+	if toolSet.IsRegistered("task.add") {
+		t.Fatal("expected rejected provider tool to remain unregistered")
+	}
+}
+
+func TestRegisterProviderAllowsHiddenToolWithoutResultContract(t *testing.T) {
+	providerTool := validProviderTool("capabilityd/internal/llm.text", "internal", "llm.text")
+	providerTool.Definition.Visibility = ToolVisibilityInternal
+	providerTool.Definition.ResultContract = nil
+	toolSet := NewToolSet([]string{"llm.text"})
+
+	errorValue := toolSet.RegisterProvider(context.Background(), testToolProvider{
+		providerID: "capabilityd",
+		tools:      []BoundTool{providerTool},
+	})
+
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if toolSet.IsAllowed("llm.text") || !toolSet.IsRegistered("llm.text") {
+		t.Fatal("expected hidden uncontracted tool to remain internal")
+	}
+}
+
 func TestRegisterProviderRejectsUnresolvableSchemasAtomically(t *testing.T) {
 	testCases := []struct {
 		name         string
@@ -426,23 +463,17 @@ func TestToolSetValidatesEveryArrayEffectIdentity(t *testing.T) {
 func TestToolSetRejectsEffectsWithoutResultContract(t *testing.T) {
 	toolSet := NewToolSet([]string{"external.tasks.create"})
 	boundTool := validProviderTool("external/tasks/create", "tasks", "external.tasks.create")
+	boundTool.Definition.ResultContract = nil
 	boundTool.Handler = func(context.Context, ToolInvocation) (ToolResult, error) {
 		return ToolResult{
 			Output:  ToolOutput{Data: json.RawMessage(`{"taskID":"task-1"}`)},
 			Effects: []ResourceEffect{{ObjectType: "task", Effect: "created", ID: "task-1"}},
 		}, nil
 	}
-	if errorValue := toolSet.RegisterProvider(context.Background(), testToolProvider{providerID: "external", tools: []BoundTool{boundTool}}); errorValue != nil {
-		t.Fatal(errorValue)
-	}
+	errorValue := toolSet.RegisterProvider(context.Background(), testToolProvider{providerID: "external", tools: []BoundTool{boundTool}})
 
-	result, errorValue := toolSet.Invoke(context.Background(), ToolInvocation{ToolName: "external.tasks.create", Input: json.RawMessage(`{}`)})
-
-	if errorValue != nil {
-		t.Fatal(errorValue)
-	}
-	if !result.Failed() || result.FailureStage() != "tool_result_contract" {
-		t.Fatalf("expected uncontracted effect rejection, got %+v", result)
+	if errorValue == nil || !strings.Contains(errorValue.Error(), "resultContract is required for model-visible tools") {
+		t.Fatalf("expected uncontracted model tool rejection, got %v", errorValue)
 	}
 }
 
@@ -639,6 +670,7 @@ func validProviderTool(toolID string, namespace string, name string) BoundTool {
 			PrivacyClass:    "workspace",
 			InputSchema:     json.RawMessage(`{"type":"object","properties":{},"additionalProperties":false}`),
 			OutputSchema:    json.RawMessage(`{"type":"object","properties":{}}`),
+			ResultContract:  &ToolResultContract{Schema: json.RawMessage(`{"type":"object","properties":{},"additionalProperties":false}`)},
 			Visibility:      ToolVisibilityModel,
 			PolicyResource:  "tool:" + name,
 			SideEffectClass: ToolSideEffectStateChange,
@@ -647,7 +679,7 @@ func validProviderTool(toolID string, namespace string, name string) BoundTool {
 		},
 		Availability: ToolAvailability{Status: ToolAvailabilityAvailable},
 		Handler: func(context.Context, ToolInvocation) (ToolResult, error) {
-			return ToolSuccess("ok"), nil
+			return testToolSuccess("ok"), nil
 		},
 	}
 }

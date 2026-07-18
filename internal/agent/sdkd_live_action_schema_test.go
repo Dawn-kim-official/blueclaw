@@ -18,12 +18,12 @@ func TestSDKDLiveXLowCurrentAgentActionSchemaFromEnv(t *testing.T) {
 		t.Skip("BLUECLAW_SDKD_LIVE_SOCKET and BLUECLAW_SDKD_LIVE_AUTH_KEY are required")
 	}
 	toolSet := NewToolSet([]string{TerminalRunToolName})
-	toolSet.RegisterTool(ToolDefinition{
+	registerTestTool(toolSet, ToolDefinition{
 		Name:        TerminalRunToolName,
 		Description: "Run a terminal command.",
 		InputSchema: json.RawMessage(`{"type":"object","properties":{"command":{"type":"string"}},"required":["command"],"additionalProperties":false}`),
 	}, func(context.Context, ToolInvocation) (ToolResult, error) {
-		return ToolSuccess("not executed"), nil
+		return testToolSuccess("not executed"), nil
 	})
 	request := BuildAgentActionRequest(agentTaskState{Request: AgentTurnRequest{
 		Prompt:  "Do not finish. Choose continue, call terminal.run, and set command to printf sdkd-schema-ok.",

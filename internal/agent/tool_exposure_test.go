@@ -10,8 +10,8 @@ func newHybridKernelCapabilityToolSet(kernelToolNames []string, operationNames [
 	toolSet := NewToolSet(toolNames)
 	toolSet.allowsTestReplacement = true
 	for _, toolName := range toolNames {
-		toolSet.RegisterTool(ToolDefinition{Name: toolName}, func(context.Context, ToolInvocation) (ToolResult, error) {
-			return ToolSuccess("ok"), nil
+		registerTestTool(toolSet, ToolDefinition{Name: toolName}, func(context.Context, ToolInvocation) (ToolResult, error) {
+			return testToolSuccess("ok"), nil
 		})
 	}
 	return toolSet
@@ -35,7 +35,7 @@ func TestPlannedToolsDropRepeatedFileRead(t *testing.T) {
 }
 
 func TestSelectedSkillExposesDirectTools(t *testing.T) {
-	toolSet := testToolSet(append(KernelToolNames(), TaskHistoryToolName, "task.add", "task.list"))
+	toolSet := testToolSet(append(KernelToolNames(), "task.add", "task.list"))
 	instructionBundle := InstructionBundle{
 		Skills:         []SkillInstruction{{Name: "internkim-flow", ToolReferences: []string{"task.add", "task.list"}}},
 		SkillDecisions: []SkillSelectionDecision{{Name: "internkim-flow", Status: "selected"}},
@@ -50,9 +50,6 @@ func TestSelectedSkillExposesDirectTools(t *testing.T) {
 	}
 	if filteredToolSet.IsAllowed(SkillSearchToolName) {
 		t.Fatalf("expected loaded skill instructions to hide skill.search, got %+v", filteredToolSet.ListToolNames())
-	}
-	if filteredToolSet.IsAllowed(TaskHistoryToolName) {
-		t.Fatalf("expected internal tool %s to stay hidden, got %+v", TaskHistoryToolName, filteredToolSet.ListToolNames())
 	}
 	if !sameStringSet(event.SelectedSkillToolIDs, []string{"task.add", "task.list"}) {
 		t.Fatalf("expected selected skill event, got %+v", event)

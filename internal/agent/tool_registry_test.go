@@ -18,8 +18,8 @@ type echoToolOutput struct {
 
 func TestToolSetExcludesUnregisteredAllowedToolNames(t *testing.T) {
 	toolSet := NewToolSet([]string{"registered.tool", "missing.tool"})
-	toolSet.RegisterTool(ToolDefinition{Name: "registered.tool"}, func(context.Context, ToolInvocation) (ToolResult, error) {
-		return ToolSuccess("ok"), nil
+	registerTestTool(toolSet, ToolDefinition{Name: "registered.tool"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return testToolSuccess("ok"), nil
 	})
 
 	toolNames := toolSet.ListToolNames()
@@ -31,15 +31,31 @@ func TestToolSetExcludesUnregisteredAllowedToolNames(t *testing.T) {
 	}
 }
 
-func TestToolSetRejectsDuplicateToolNamesWithoutReplacingTheFirstHandler(t *testing.T) {
-	toolSet := NewToolSet([]string{"registered.tool"})
-	if errorValue := toolSet.RegisterTool(ToolDefinition{Name: "registered.tool"}, func(context.Context, ToolInvocation) (ToolResult, error) {
-		return ToolSuccess("first"), nil
+func TestDirectToolRegistrationIsNotModelCallableWithoutResultContract(t *testing.T) {
+	toolSet := NewToolSet([]string{"internal.tool"})
+	if errorValue := toolSet.RegisterTool(ToolDefinition{Name: "internal.tool", Visibility: ToolVisibilityModel}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return testToolSuccess("ok"), nil
 	}); errorValue != nil {
 		t.Fatal(errorValue)
 	}
-	errorValue := toolSet.RegisterTool(ToolDefinition{Name: "registered.tool"}, func(context.Context, ToolInvocation) (ToolResult, error) {
-		return ToolSuccess("second"), nil
+
+	if !toolSet.IsRegistered("internal.tool") {
+		t.Fatal("expected direct tool registration to remain available internally")
+	}
+	if toolSet.IsAllowed("internal.tool") || toolSet.CanExpose("internal.tool") {
+		t.Fatal("expected direct tool without a result contract to stay off model surfaces")
+	}
+}
+
+func TestToolSetRejectsDuplicateToolNamesWithoutReplacingTheFirstHandler(t *testing.T) {
+	toolSet := NewToolSet([]string{"registered.tool"})
+	if errorValue := registerTestTool(toolSet, ToolDefinition{Name: "registered.tool"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return testToolSuccess("first"), nil
+	}); errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	errorValue := registerTestTool(toolSet, ToolDefinition{Name: "registered.tool"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return testToolSuccess("second"), nil
 	})
 	if errorValue == nil {
 		t.Fatal("expected duplicate registration to fail")
@@ -79,11 +95,11 @@ func TestFailureCodeCollapsesUnknownCodesToOperationFailed(t *testing.T) {
 
 func TestToolSetDescriptionsAndActionSchemaOnlyShowExposedKernelTools(t *testing.T) {
 	toolSet := NewToolSet([]string{"visible.tool", "denied.tool"})
-	toolSet.RegisterTool(ToolDefinition{Name: "visible.tool", Description: "Visible", InputSchema: json.RawMessage(`{"type":"object","properties":{}}`)}, func(context.Context, ToolInvocation) (ToolResult, error) {
-		return ToolSuccess("ok"), nil
+	registerTestTool(toolSet, ToolDefinition{Name: "visible.tool", Description: "Visible", InputSchema: json.RawMessage(`{"type":"object","properties":{}}`)}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return testToolSuccess("ok"), nil
 	})
-	toolSet.RegisterTool(ToolDefinition{Name: "hidden.tool", Description: "Hidden"}, func(context.Context, ToolInvocation) (ToolResult, error) {
-		return ToolSuccess("ok"), nil
+	registerTestTool(toolSet, ToolDefinition{Name: "hidden.tool", Description: "Hidden"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return testToolSuccess("ok"), nil
 	})
 	toolSet.RegisterBoundTool(BoundTool{
 		Definition:   ToolDefinition{Name: "denied.tool", Description: "Denied"},
@@ -115,12 +131,12 @@ func TestToolSetDescriptionsAndActionSchemaOnlyShowExposedKernelTools(t *testing
 
 func TestToolSetDescriptionsUseDescriptorDescription(t *testing.T) {
 	toolSet := NewToolSet([]string{"task.update"})
-	toolSet.RegisterTool(ToolDefinition{
+	registerTestTool(toolSet, ToolDefinition{
 		Name:        "task.update",
 		Description: "Update the task identified by exact taskID.",
 		InputSchema: json.RawMessage(`{"type":"object","properties":{"taskID":{"type":"string"}}}`),
 	}, func(context.Context, ToolInvocation) (ToolResult, error) {
-		return ToolSuccess("ok"), nil
+		return testToolSuccess("ok"), nil
 	})
 
 	descriptions := toolSet.Descriptions()
@@ -131,14 +147,14 @@ func TestToolSetDescriptionsUseDescriptorDescription(t *testing.T) {
 
 func TestToolSetDoesNotExposeControlToolsToTheModel(t *testing.T) {
 	toolSet := NewToolSet([]string{AskConfirmToolName})
-	toolSet.RegisterTool(ToolDefinition{
+	registerTestTool(toolSet, ToolDefinition{
 		Name:         AskConfirmToolName,
 		Description:  "Confirm",
 		Visibility:   ToolVisibilityControl,
 		InputSchema:  json.RawMessage(`{"type":"object","properties":{}}`),
 		OutputSchema: json.RawMessage(`{"type":"object"}`),
 	}, func(context.Context, ToolInvocation) (ToolResult, error) {
-		return ToolSuccess("ok"), nil
+		return testToolSuccess("ok"), nil
 	})
 
 	descriptions := toolSet.Descriptions()
@@ -174,7 +190,7 @@ func TestActionSchemaUsesRegisteredTaskUpdateSchema(t *testing.T) {
 		t.Fatalf("expected action schema to omit removed content field, got %s", actionSchema)
 	}
 	toolSet := NewToolSet([]string{"task.update"})
-	toolSet.RegisterTool(ToolDefinition{
+	registerTestTool(toolSet, ToolDefinition{
 		Name:            "task.update",
 		InputSchema:     inputSchema,
 		SideEffectClass: ToolSideEffectExternalWrite,
@@ -235,11 +251,11 @@ func TestToolSideEffectClassUsesOnlyDescriptorMetadata(t *testing.T) {
 
 func TestToolSetKeepsDeclaredRecoverySideEffectBeforeDefault(t *testing.T) {
 	toolSet := NewToolSet([]string{"data.write"})
-	toolSet.RegisterTool(ToolDefinition{
+	registerTestTool(toolSet, ToolDefinition{
 		Name:         "data.write",
 		RecoveryCard: ToolRecoveryCard{SideEffect: ToolSideEffectRead},
 	}, func(context.Context, ToolInvocation) (ToolResult, error) {
-		return ToolSuccess("ok"), nil
+		return testToolSuccess("ok"), nil
 	})
 
 	toolDefinition, isFound := toolSet.ToolDefinition("data.write")
@@ -253,8 +269,8 @@ func TestToolSetKeepsDeclaredRecoverySideEffectBeforeDefault(t *testing.T) {
 
 func TestToolSetInvokeRejectsHiddenTool(t *testing.T) {
 	toolSet := NewToolSet([]string{"visible.tool"})
-	toolSet.RegisterTool(ToolDefinition{Name: "hidden.tool"}, func(context.Context, ToolInvocation) (ToolResult, error) {
-		return ToolSuccess("hidden"), nil
+	registerTestTool(toolSet, ToolDefinition{Name: "hidden.tool"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return testToolSuccess("hidden"), nil
 	})
 
 	result, errorValue := toolSet.Invoke(context.Background(), ToolInvocation{ToolName: "hidden.tool"})
@@ -269,7 +285,7 @@ func TestToolSetInvokeRejectsHiddenTool(t *testing.T) {
 func TestToolSetValidatesDescriptorInputSchemaBeforeHandler(t *testing.T) {
 	toolSet := NewToolSet([]string{"site.publish"})
 	handlerCallCount := 0
-	toolSet.RegisterTool(ToolDefinition{
+	registerTestTool(toolSet, ToolDefinition{
 		Name: "site.publish",
 		InputSchema: json.RawMessage(`{
 			"type":"object",
@@ -282,7 +298,7 @@ func TestToolSetValidatesDescriptorInputSchemaBeforeHandler(t *testing.T) {
 		}`),
 	}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		handlerCallCount++
-		return ToolSuccess("published"), nil
+		return testToolSuccess("published"), nil
 	})
 
 	invalidInputs := []json.RawMessage{
@@ -351,9 +367,17 @@ func TestProjectResourceEffectsSupportsCanonicalIdentityArrays(t *testing.T) {
 func TestToolFunctionValidatesInputAndMarshalsOutput(t *testing.T) {
 	toolSet := NewToolSet([]string{"echo.tool"})
 	RegisterToolFunction(toolSet, ToolFunction[echoToolInput, echoToolOutput]{
-		Definition: ToolDefinition{Name: "echo.tool"},
+		Definition: ToolDefinition{
+			Name:           "echo.tool",
+			Visibility:     ToolVisibilityModel,
+			ResultContract: &ToolResultContract{Schema: json.RawMessage(`{"type":"object","properties":{"message":{"type":"string"}},"required":["message"],"additionalProperties":false}`)},
+		},
 		Handler: func(_ context.Context, input echoToolInput) (echoToolOutput, error) {
 			return echoToolOutput{Message: input.Message}, nil
+		},
+		Result: func(output echoToolOutput) ToolResult {
+			data := json.RawMessage(marshalTypedToolOutput(output))
+			return ToolSuccessData(string(data), data)
 		},
 	})
 

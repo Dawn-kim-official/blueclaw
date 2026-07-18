@@ -17,9 +17,9 @@ func TestTerminalRunModelApprovalPausesBeforeExecution(t *testing.T) {
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 4})
 	toolSet := newTestToolSet([]string{TerminalRunToolName})
 	invokedInputs := []string{}
-	toolSet.RegisterTool(ToolDefinition{Name: TerminalRunToolName}, func(_ context.Context, invocation ToolInvocation) (ToolResult, error) {
+	registerTestTool(toolSet, ToolDefinition{Name: TerminalRunToolName}, func(_ context.Context, invocation ToolInvocation) (ToolResult, error) {
 		invokedInputs = append(invokedInputs, string(invocation.Input))
-		return ToolSuccess(`{"status":"published"}`), nil
+		return testToolSuccess(`{"status":"published"}`), nil
 	})
 
 	firstResult, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{

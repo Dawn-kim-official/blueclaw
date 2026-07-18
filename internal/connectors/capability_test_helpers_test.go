@@ -31,6 +31,7 @@ func connectorTestCapabilityToolDescriptor(toolName string) agentruntime.Capabil
 		PrivacyClass:    "test",
 		InputSchema:     connectorTestCapabilityInputSchema,
 		OutputSchema:    json.RawMessage(`{"type":"object","properties":{},"additionalProperties":false}`),
+		ResultContract:  &agentruntime.CapabilityToolResultContract{Schema: connectorTestCapabilityInputSchema},
 		PolicyResource:  "tool:" + toolName,
 		SideEffectClass: sideEffectClass,
 		Availability:    agentruntime.CapabilityAvailability{State: "ok"},

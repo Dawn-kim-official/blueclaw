@@ -51,11 +51,11 @@ func TestAgentTurnRunnerCallsToolsUntilFinishMessage(t *testing.T) {
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 5, TaskLevel: TaskLevelHigh})
 	toolRegistry := newTestToolSet([]string{"alpha", "beta"})
-	toolRegistry.RegisterTool(ToolDefinition{Name: "alpha"}, func(context.Context, ToolInvocation) (ToolResult, error) {
-		return ToolSuccess("alpha result"), nil
+	registerTestTool(toolRegistry, ToolDefinition{Name: "alpha"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return testToolSuccess("alpha result"), nil
 	})
-	toolRegistry.RegisterTool(ToolDefinition{Name: "beta"}, func(context.Context, ToolInvocation) (ToolResult, error) {
-		return ToolSuccess("beta result"), nil
+	registerTestTool(toolRegistry, ToolDefinition{Name: "beta"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return testToolSuccess("beta result"), nil
 	})
 
 	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
@@ -182,9 +182,9 @@ func TestAgentTurnRunnerSendsCheckpointAndStillRunsTool(t *testing.T) {
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 4})
 	toolRegistry := newTestCapabilityToolSet([]string{"alpha"})
 	wasToolCalled := false
-	toolRegistry.RegisterTool(ToolDefinition{Name: "alpha"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	registerTestTool(toolRegistry, ToolDefinition{Name: "alpha"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		wasToolCalled = true
-		return ToolSuccess("alpha result"), nil
+		return testToolSuccess("alpha result"), nil
 	})
 	checkpoints := []AgentCheckpoint{}
 
@@ -223,8 +223,8 @@ func TestAgentTurnRunnerUsesPostEvidenceWordingAfterCheckpoint(t *testing.T) {
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 4})
 	toolRegistry := newTestCapabilityToolSet([]string{"task.add"})
-	toolRegistry.RegisterTool(ToolDefinition{Name: "task.add"}, func(context.Context, ToolInvocation) (ToolResult, error) {
-		return ToolSuccess(`{"taskID":"task-1","title":"고객지원 분기 결산","dueDate":"2026-07-17"}`), nil
+	registerTestTool(toolRegistry, ToolDefinition{Name: "task.add"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return testToolSuccess(`{"taskID":"task-1","title":"고객지원 분기 결산","dueDate":"2026-07-17"}`), nil
 	})
 	checkpoints := []AgentCheckpoint{}
 
@@ -266,9 +266,9 @@ func TestAgentTurnRunnerSuppressesCheckpointForSimpleTask(t *testing.T) {
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 4})
 	toolRegistry := newTestCapabilityToolSet([]string{"alpha"})
 	wasToolCalled := false
-	toolRegistry.RegisterTool(ToolDefinition{Name: "alpha"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	registerTestTool(toolRegistry, ToolDefinition{Name: "alpha"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		wasToolCalled = true
-		return ToolSuccess("alpha result"), nil
+		return testToolSuccess("alpha result"), nil
 	})
 	checkpoints := []AgentCheckpoint{}
 
@@ -310,9 +310,9 @@ func TestAgentTurnRunnerRunsToolWhenCheckpointFails(t *testing.T) {
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 4})
 	toolRegistry := newTestCapabilityToolSet([]string{"alpha"})
 	wasToolCalled := false
-	toolRegistry.RegisterTool(ToolDefinition{Name: "alpha"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	registerTestTool(toolRegistry, ToolDefinition{Name: "alpha"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		wasToolCalled = true
-		return ToolSuccess("alpha result"), nil
+		return testToolSuccess("alpha result"), nil
 	})
 
 	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
@@ -344,13 +344,13 @@ func TestAgentTurnRunnerDoesNotSendCheckpointForRejectedToolCall(t *testing.T) {
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 5})
 	toolRegistry := newTestCapabilityToolSet([]string{"schedule.create"})
-	toolRegistry.RegisterTool(ToolDefinition{
+	registerTestTool(toolRegistry, ToolDefinition{
 		Name:            "schedule.create",
 		Namespace:       "schedule",
 		SideEffectClass: ToolSideEffectStateChange,
 		Completion:      ToolCompletion{Mode: ToolCompletionObservation, Action: "create_schedule", TargetKind: "schedule"},
 	}, func(context.Context, ToolInvocation) (ToolResult, error) {
-		return ToolSuccess("alpha result"), nil
+		return testToolSuccess("alpha result"), nil
 	})
 	checkpoints := []AgentCheckpoint{}
 
@@ -407,8 +407,8 @@ func TestAgentTurnRunnerAuditsSelectedSkillDecisions(t *testing.T) {
 	toolRegistry := NewToolSet([]string{"terminal.run"})
 	for _, toolName := range []string{"terminal.run", "site.create"} {
 		currentToolName := toolName
-		toolRegistry.RegisterTool(ToolDefinition{Name: currentToolName}, func(context.Context, ToolInvocation) (ToolResult, error) {
-			return ToolSuccess("ok"), nil
+		registerTestTool(toolRegistry, ToolDefinition{Name: currentToolName}, func(context.Context, ToolInvocation) (ToolResult, error) {
+			return testToolSuccess("ok"), nil
 		})
 	}
 
@@ -562,7 +562,7 @@ func TestAgentTurnRunnerBudgetExhaustedContinueTriggersSingleTerminalNoToolsCall
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 6, RecoveryBudget: terminalNoToolRecoveryBudgetForTest()})
 	toolCallCount := 0
 	toolRegistry := newTestCapabilityToolSet([]string{"math.calculate"})
-	toolRegistry.RegisterTool(ToolDefinition{Name: "math.calculate"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	registerTestTool(toolRegistry, ToolDefinition{Name: "math.calculate"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		toolCallCount++
 		return structuredFailureToolResult("exec: \"bc\": executable file not found in $PATH", "bc: command not found", "calculator_failed", "bc_execution", false, false), nil
 	})
@@ -603,7 +603,7 @@ func TestAgentTurnRunnerTerminalNoToolsAcceptsNoToolFallbackFinish(t *testing.T)
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 6, RecoveryBudget: terminalNoToolRecoveryBudgetForTest()})
 	toolRegistry := newTestToolSet([]string{"math.calculate"})
-	toolRegistry.RegisterTool(ToolDefinition{Name: "math.calculate"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	registerTestTool(toolRegistry, ToolDefinition{Name: "math.calculate"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		return structuredFailureToolResult("exec: \"bc\": executable file not found in $PATH", "bc: command not found", "calculator_failed", "bc_execution", false, false), nil
 	})
 
@@ -631,7 +631,7 @@ func TestAgentTurnRunnerTerminalNoToolsAcceptsFailureReportFail(t *testing.T) {
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 6, RecoveryBudget: terminalNoToolRecoveryBudgetForTest()})
 	toolRegistry := newTestCapabilityToolSet([]string{"math.calculate"})
-	toolRegistry.RegisterTool(ToolDefinition{Name: "math.calculate"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	registerTestTool(toolRegistry, ToolDefinition{Name: "math.calculate"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		return structuredFailureToolResult("exec: \"bc\": executable file not found in $PATH", "bc: command not found", "calculator_failed", "bc_execution", false, false), nil
 	})
 
@@ -667,7 +667,7 @@ func TestAgentTurnRunnerTerminalNoToolsRepairsInvalidOutputWithoutReopeningTools
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 6, RecoveryBudget: terminalNoToolRecoveryBudgetForTest()})
 	toolCallCount := 0
 	toolRegistry := newTestCapabilityToolSet([]string{"math.calculate"})
-	toolRegistry.RegisterTool(ToolDefinition{Name: "math.calculate"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	registerTestTool(toolRegistry, ToolDefinition{Name: "math.calculate"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		toolCallCount++
 		return structuredFailureToolResult("exec: \"bc\": executable file not found in $PATH", "bc: command not found", "calculator_failed", "bc_execution", false, false), nil
 	})
@@ -704,8 +704,8 @@ func TestAgentTurnRunnerCompletesBrowserOpenWithPostEvidenceReply(t *testing.T) 
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
 	toolRegistry := newTestCapabilityToolSet([]string{"browser.open"})
-	toolRegistry.RegisterTool(ToolDefinition{Name: "browser.open"}, func(_ context.Context, toolInvocation ToolInvocation) (ToolResult, error) {
-		return ToolSuccess(`{"url":"https://www.google.com/"}`), nil
+	registerTestTool(toolRegistry, ToolDefinition{Name: "browser.open"}, func(_ context.Context, toolInvocation ToolInvocation) (ToolResult, error) {
+		return testToolSuccess(`{"url":"https://www.google.com/"}`), nil
 	})
 
 	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
@@ -738,8 +738,8 @@ func TestAgentTurnRunnerRejectsBrowserFollowUpReplyWithoutToolEvidence(t *testin
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
 	toolRegistry := newTestCapabilityToolSet([]string{"browser.open"})
-	toolRegistry.RegisterTool(ToolDefinition{Name: "browser.open"}, func(_ context.Context, toolInvocation ToolInvocation) (ToolResult, error) {
-		return ToolSuccess(`{"url":"https://console.cloud.google.com/"}`), nil
+	registerTestTool(toolRegistry, ToolDefinition{Name: "browser.open"}, func(_ context.Context, toolInvocation ToolInvocation) (ToolResult, error) {
+		return testToolSuccess(`{"url":"https://console.cloud.google.com/"}`), nil
 	})
 
 	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
@@ -777,7 +777,7 @@ func TestBrowserActionSchemaUsesProviderCompatibleObjectInputs(t *testing.T) {
 		"browser.wait":   json.RawMessage(`{"type":"object","properties":{"target":{"type":"string"},"ref":{"type":"string"},"selector":{"type":"string"},"milliseconds":{"type":"number"}}}`),
 	}
 	for toolName, inputSchema := range inputSchemas {
-		toolRegistry.RegisterTool(ToolDefinition{Name: toolName, InputSchema: inputSchema}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		registerTestTool(toolRegistry, ToolDefinition{Name: toolName, InputSchema: inputSchema}, func(context.Context, ToolInvocation) (ToolResult, error) {
 			return ToolResult{}, nil
 		})
 	}
@@ -867,24 +867,24 @@ func TestAgentTurnRunnerSiteLoopBuildsReviewsPublishesBeforeFinish(t *testing.T)
 	toolRegistry := newTestCapabilityToolSet([]string{"site.status", "site.create", "site.build", "artifact.review", "site.publish"})
 	toolCalls := []string{}
 	hasBuildQuality := false
-	toolRegistry.RegisterTool(ToolDefinition{Name: "site.status"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	registerTestTool(toolRegistry, ToolDefinition{Name: "site.status"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		toolCalls = append(toolCalls, "site.status")
-		return ToolSuccess(`{"siteID":"site-1","status":"published","publishedURL":"https://portfolio.example","revisionCount":1}`), nil
+		return testToolSuccess(`{"siteID":"site-1","status":"published","publishedURL":"https://portfolio.example","revisionCount":1}`), nil
 	})
-	toolRegistry.RegisterTool(ToolDefinition{Name: "site.create"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	registerTestTool(toolRegistry, ToolDefinition{Name: "site.create"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		toolCalls = append(toolCalls, "site.create")
-		return ToolSuccess(`{"siteID":"site-1","sourceWorkspacePath":"home/sites/site-1","appWorkspacePath":"home/sites/site-1/app","publishedURL":"https://portfolio.example"}`), nil
+		return testToolSuccess(`{"siteID":"site-1","sourceWorkspacePath":"home/sites/site-1","appWorkspacePath":"home/sites/site-1/app","publishedURL":"https://portfolio.example"}`), nil
 	})
-	toolRegistry.RegisterTool(ToolDefinition{Name: "site.build"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	registerTestTool(toolRegistry, ToolDefinition{Name: "site.build"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		toolCalls = append(toolCalls, "site.build")
 		hasBuildQuality = true
-		return ToolSuccess(`{"qualityPath":"home/sites/site-1/.internkim/build-quality.json","distPath":"home/sites/site-1/app/dist"}`), nil
+		return testToolSuccess(`{"qualityPath":"home/sites/site-1/.internkim/build-quality.json","distPath":"home/sites/site-1/app/dist"}`), nil
 	})
-	toolRegistry.RegisterTool(ToolDefinition{Name: "artifact.review"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	registerTestTool(toolRegistry, ToolDefinition{Name: "artifact.review"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		toolCalls = append(toolCalls, "artifact.review")
-		return ToolSuccess(`{"status":"passed","blockingIssueCount":0}`), nil
+		return testToolSuccess(`{"status":"passed","blockingIssueCount":0}`), nil
 	})
-	toolRegistry.RegisterTool(ToolDefinition{
+	registerTestTool(toolRegistry, ToolDefinition{
 		Name:            "site.publish",
 		Namespace:       "site",
 		SideEffectClass: ToolSideEffectExternalPublish,
@@ -894,7 +894,7 @@ func TestAgentTurnRunnerSiteLoopBuildsReviewsPublishesBeforeFinish(t *testing.T)
 		if !hasBuildQuality {
 			return ToolFailureResult(FailureInvalidInput, FailureCodes.InvalidInput, "site_publish", "missing build-quality.json"), nil
 		}
-		return ToolSuccess(`{"siteID":"site-1","publishedURL":"https://portfolio.example","currentVersionID":"rev-2"}`), nil
+		return testToolSuccess(`{"siteID":"site-1","publishedURL":"https://portfolio.example","currentVersionID":"rev-2"}`), nil
 	})
 
 	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
@@ -986,13 +986,13 @@ func TestAgentTurnRunnerReselectsToolsAfterRejectedSiteFinish(t *testing.T) {
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 6, MaxToolCallCount: 4})
 	toolRegistry := newTestCapabilityToolSet([]string{"site.create", "site.build"})
 	toolCalls := []string{}
-	toolRegistry.RegisterTool(ToolDefinition{Name: "site.create"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	registerTestTool(toolRegistry, ToolDefinition{Name: "site.create"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		toolCalls = append(toolCalls, "site.create")
-		return ToolSuccess(`{"siteID":"site-1","status":"draft"}`), nil
+		return testToolSuccess(`{"siteID":"site-1","status":"draft"}`), nil
 	})
-	toolRegistry.RegisterTool(ToolDefinition{Name: "site.build"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	registerTestTool(toolRegistry, ToolDefinition{Name: "site.build"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		toolCalls = append(toolCalls, "site.build")
-		return ToolSuccess(`{"siteID":"site-1","distPath":"home/sites/site-1/app/dist"}`), nil
+		return testToolSuccess(`{"siteID":"site-1","distPath":"home/sites/site-1/app/dist"}`), nil
 	})
 
 	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
@@ -1043,23 +1043,23 @@ func TestAgentTurnRunnerRejectsFailAfterSiteSourceWriteBeforeBuildPublish(t *tes
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 8, MaxToolCallCount: 8})
 	toolRegistry := newHybridKernelCapabilityToolSet([]string{"file.write", "terminal.run"}, []string{"site.publish"})
 	toolCalls := []string{}
-	toolRegistry.RegisterTool(ToolDefinition{Name: "file.write"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	registerTestTool(toolRegistry, ToolDefinition{Name: "file.write"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		toolCalls = append(toolCalls, "file.write")
-		return ToolSuccess(`{"path":"/workspace/sites/site-1/draft/app/src/App.tsx"}`), nil
+		return testToolSuccess(`{"path":"/workspace/sites/site-1/draft/app/src/App.tsx"}`), nil
 	})
-	toolRegistry.RegisterTool(ToolDefinition{Name: "terminal.run"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	registerTestTool(toolRegistry, terminalRunTestToolDefinition(), func(context.Context, ToolInvocation) (ToolResult, error) {
 		toolCalls = append(toolCalls, "terminal.run")
 		data := json.RawMessage(`{"mode":"command","completed":true,"exitCode":0,"stdout":"built","stderr":"","timedOut":false,"outputTrimmed":false}`)
 		return ToolSuccessData(string(data), data), nil
 	})
-	toolRegistry.RegisterTool(ToolDefinition{
+	registerTestTool(toolRegistry, ToolDefinition{
 		Name:            "site.publish",
 		Namespace:       "site",
 		SideEffectClass: ToolSideEffectExternalPublish,
 		Completion:      ToolCompletion{Mode: ToolCompletionObservation, Action: "publish_site", TargetKind: "site"},
 	}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		toolCalls = append(toolCalls, "site.publish")
-		return ToolSuccess(`{"siteID":"site-1","publishedURL":"https://pretty.example"}`), nil
+		return testToolSuccess(`{"siteID":"site-1","publishedURL":"https://pretty.example"}`), nil
 	})
 
 	request := AgentTurnRequest{
@@ -1140,9 +1140,9 @@ func TestAgentTurnRunnerPausesBeforeRequiresApprovalDirectTool(t *testing.T) {
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 4})
 	toolRegistry := newTestCapabilityToolSet([]string{"calendar.delete"})
 	invokedInputs := []string{}
-	toolRegistry.RegisterTool(ToolDefinition{Name: "calendar.delete", RequiresApproval: true}, func(_ context.Context, invocation ToolInvocation) (ToolResult, error) {
+	registerTestTool(toolRegistry, ToolDefinition{Name: "calendar.delete", RequiresApproval: true}, func(_ context.Context, invocation ToolInvocation) (ToolResult, error) {
 		invokedInputs = append(invokedInputs, string(invocation.Input))
-		return ToolSuccess(`{"eventID":"event-1","status":"deleted"}`), nil
+		return testToolSuccess(`{"eventID":"event-1","status":"deleted"}`), nil
 	})
 
 	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
@@ -1180,7 +1180,7 @@ func TestAgentTurnRunnerApprovalRequiredPausesAndExecutesHeldCall(t *testing.T) 
 	toolRegistry := newTestCapabilityToolSet([]string{"message.send"})
 	invokedInputs := []string{}
 	wasExecutedBeforeApprovalContinuationModel := false
-	toolRegistry.RegisterTool(ToolDefinition{Name: "message.send"}, func(_ context.Context, invocation ToolInvocation) (ToolResult, error) {
+	registerTestTool(toolRegistry, ToolDefinition{Name: "message.send"}, func(_ context.Context, invocation ToolInvocation) (ToolResult, error) {
 		invokedInputs = append(invokedInputs, string(invocation.Input))
 		if len(invokedInputs) == 1 {
 			return ToolResult{
@@ -1195,7 +1195,7 @@ func TestAgentTurnRunnerApprovalRequiredPausesAndExecutesHeldCall(t *testing.T) 
 			}, nil
 		}
 		wasExecutedBeforeApprovalContinuationModel = len(languageModel.requests) == 2
-		return ToolSuccess(`{"messageID":"message-1","deliveryStatus":"sent"}`), nil
+		return testToolSuccess(`{"messageID":"message-1","deliveryStatus":"sent"}`), nil
 	})
 
 	firstResult, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
@@ -1319,7 +1319,7 @@ func TestAgentTurnRunnerFinalizesSatisfiedGoalAtIterationEffort(t *testing.T) {
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 2})
 	toolRegistry := newTestCapabilityToolSet([]string{"browser.screenshot"})
 	screenshotIndex := 0
-	toolRegistry.RegisterTool(ToolDefinition{Name: "browser.screenshot"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	registerTestTool(toolRegistry, ToolDefinition{Name: "browser.screenshot"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		screenshotIndex++
 		filename := fmt.Sprintf("browser-screenshot-%d.png", screenshotIndex)
 		return ToolResult{
@@ -1367,9 +1367,9 @@ func TestAgentTurnRunnerFinalizesRepeatedSuccessfulSideEffectWithoutPlannedEvide
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 3})
 	toolRegistry := newTestCapabilityToolSet([]string{"task.add"})
 	toolCallCount := 0
-	toolRegistry.RegisterTool(ToolDefinition{Name: "task.add"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	registerTestTool(toolRegistry, ToolDefinition{Name: "task.add"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		toolCallCount++
-		return ToolSuccess(`{"taskID":"task-1"}`), nil
+		return testToolSuccess(`{"taskID":"task-1"}`), nil
 	})
 
 	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
@@ -1402,9 +1402,9 @@ func TestAgentTurnRunnerFinalizesRepeatedSuccessfulReadWithoutExecutingAgain(t *
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 3})
 	toolRegistry := newTestToolSet([]string{"task.list"})
 	toolCallCount := 0
-	toolRegistry.RegisterTool(ToolDefinition{Name: "task.list"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	registerTestTool(toolRegistry, ToolDefinition{Name: "task.list"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		toolCallCount++
-		return ToolSuccess(`{"tasks":[{"taskID":"task-1"}]}`), nil
+		return testToolSuccess(`{"tasks":[{"taskID":"task-1"}]}`), nil
 	})
 
 	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
@@ -1438,12 +1438,12 @@ func TestAgentTurnRunnerFinalizesReadAfterCorrectedInputRecovery(t *testing.T) {
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 4})
 	toolRegistry := newTestToolSet([]string{"task.list"})
 	toolCallCount := 0
-	toolRegistry.RegisterTool(ToolDefinition{Name: "task.list"}, func(_ context.Context, invocation ToolInvocation) (ToolResult, error) {
+	registerTestTool(toolRegistry, ToolDefinition{Name: "task.list"}, func(_ context.Context, invocation ToolInvocation) (ToolResult, error) {
 		toolCallCount++
 		if strings.Contains(string(invocation.Input), `"query"`) {
 			return ToolInputFailure("input must be an object"), nil
 		}
-		return ToolSuccess(`{"tasks":[{"taskID":"task-1"}]}`), nil
+		return testToolSuccess(`{"tasks":[{"taskID":"task-1"}]}`), nil
 	})
 
 	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
@@ -1474,9 +1474,9 @@ func TestAgentTurnRunnerFinalizesSuccessfulReadDespiteUnsatisfiedReadHint(t *tes
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 3})
 	toolRegistry := newTestToolSet([]string{"task.list", "memory.search"})
 	toolCallCount := 0
-	toolRegistry.RegisterTool(ToolDefinition{Name: "task.list"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	registerTestTool(toolRegistry, ToolDefinition{Name: "task.list"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		toolCallCount++
-		return ToolSuccess(`{"tasks":[{"taskID":"task-1"}]}`), nil
+		return testToolSuccess(`{"tasks":[{"taskID":"task-1"}]}`), nil
 	})
 
 	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
@@ -1505,7 +1505,7 @@ func TestAgentTurnRunnerDoesNotDeliverAttachmentsWhenFinalizerFails(t *testing.T
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 1})
 	toolRegistry := newTestCapabilityToolSet([]string{"browser.screenshot"})
-	toolRegistry.RegisterTool(ToolDefinition{Name: "browser.screenshot"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	registerTestTool(toolRegistry, ToolDefinition{Name: "browser.screenshot"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		return ToolResult{
 			Output: ToolOutput{Content: `{"devicePath":"/tmp/internkim-companion-files/browser-screenshot.png"}`},
 			Attachments: []FileAttachment{{
@@ -1546,7 +1546,7 @@ func TestAgentTurnRunnerDoesNotCompleteEffortStopFromUnrequestedAttachment(t *te
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 1})
 	toolRegistry := newTestToolSet([]string{"file.pick"})
-	toolRegistry.RegisterTool(ToolDefinition{Name: "file.pick"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	registerTestTool(toolRegistry, ToolDefinition{Name: "file.pick"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		return ToolResult{
 			Output: ToolOutput{Content: `{"devicePath":"/tmp/internkim-companion-files/report.txt"}`},
 			Attachments: []FileAttachment{{
@@ -1585,8 +1585,8 @@ func TestAgentTurnRunnerFailsWhenMaximumIterationsAreExceeded(t *testing.T) {
 	}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 1})
 	toolRegistry := newTestToolSet([]string{"loop"})
-	toolRegistry.RegisterTool(ToolDefinition{Name: "loop"}, func(context.Context, ToolInvocation) (ToolResult, error) {
-		return ToolSuccess("again"), nil
+	registerTestTool(toolRegistry, ToolDefinition{Name: "loop"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return testToolSuccess("again"), nil
 	})
 
 	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
@@ -1624,10 +1624,10 @@ func TestAgentTurnRunnerEscalatesIterationLimitAfterDurableProgress(t *testing.T
 		MaxToolCallCount:  10,
 	})
 	toolRegistry := newTestToolSet([]string{"file.write", "terminal.run"})
-	toolRegistry.RegisterTool(ToolDefinition{Name: "file.write"}, func(context.Context, ToolInvocation) (ToolResult, error) {
-		return ToolSuccess(`{"path":"tmp/app/index.html"}`), nil
+	registerTestTool(toolRegistry, ToolDefinition{Name: "file.write"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return testToolSuccess(`{"path":"tmp/app/index.html"}`), nil
 	})
-	toolRegistry.RegisterTool(ToolDefinition{Name: "terminal.run"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	registerTestTool(toolRegistry, terminalRunTestToolDefinition(), func(context.Context, ToolInvocation) (ToolResult, error) {
 		data := json.RawMessage(`{"mode":"command","completed":true,"exitCode":0,"stdout":"built","stderr":"","timedOut":false,"outputTrimmed":false}`)
 		return ToolSuccessData(string(data), data), nil
 	})
@@ -1669,11 +1669,11 @@ func TestAgentTurnRunnerDoesNotEscalateIterationLimitForInspectionOnlyProgress(t
 		MaxToolCallCount:  10,
 	})
 	toolRegistry := newTestToolSet([]string{"file.read", "site.status"})
-	toolRegistry.RegisterTool(ToolDefinition{Name: "file.read"}, func(context.Context, ToolInvocation) (ToolResult, error) {
-		return ToolSuccess(`{"path":"tmp/app/index.html","content":"one"}`), nil
+	registerTestTool(toolRegistry, ToolDefinition{Name: "file.read"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return testToolSuccess(`{"path":"tmp/app/index.html","content":"one"}`), nil
 	})
-	toolRegistry.RegisterTool(ToolDefinition{Name: "site.status"}, func(context.Context, ToolInvocation) (ToolResult, error) {
-		return ToolSuccess(`{"status":"draft"}`), nil
+	registerTestTool(toolRegistry, ToolDefinition{Name: "site.status"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return testToolSuccess(`{"status":"draft"}`), nil
 	})
 
 	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
@@ -1712,8 +1712,8 @@ func TestAgentTurnRunnerEscalationIsOneDirectionalAndPersisted(t *testing.T) {
 	})
 	toolRegistry := newTestToolSet([]string{"file.write", "file.edit", "site.build"})
 	for _, toolName := range []string{"file.write", "file.edit", "site.build"} {
-		toolRegistry.RegisterTool(ToolDefinition{Name: toolName}, func(context.Context, ToolInvocation) (ToolResult, error) {
-			return ToolSuccess(`{"ok":true}`), nil
+		registerTestTool(toolRegistry, ToolDefinition{Name: toolName}, func(context.Context, ToolInvocation) (ToolResult, error) {
+			return testToolSuccess(`{"ok":true}`), nil
 		})
 	}
 
@@ -1758,10 +1758,10 @@ func TestAgentTurnRunnerCheckpointsAtMaxIterationCeiling(t *testing.T) {
 		MaxToolCallCount:  10,
 	})
 	toolRegistry := newTestToolSet([]string{"file.write", "terminal.run"})
-	toolRegistry.RegisterTool(ToolDefinition{Name: "file.write"}, func(context.Context, ToolInvocation) (ToolResult, error) {
-		return ToolSuccess(`{"path":"tmp/app/a"}`), nil
+	registerTestTool(toolRegistry, ToolDefinition{Name: "file.write"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return testToolSuccess(`{"path":"tmp/app/a"}`), nil
 	})
-	toolRegistry.RegisterTool(ToolDefinition{Name: "terminal.run"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	registerTestTool(toolRegistry, terminalRunTestToolDefinition(), func(context.Context, ToolInvocation) (ToolResult, error) {
 		data := json.RawMessage(`{"mode":"command","completed":true,"exitCode":0,"stdout":"built","stderr":"","timedOut":false,"outputTrimmed":false}`)
 		return ToolSuccessData(string(data), data), nil
 	})
@@ -1789,6 +1789,28 @@ func TestAgentTurnRunnerCheckpointsAtMaxIterationCeiling(t *testing.T) {
 	}
 }
 
+func terminalRunTestToolDefinition() ToolDefinition {
+	return ToolDefinition{
+		Name: "terminal.run",
+		ResultContract: &ToolResultContract{
+			Schema: json.RawMessage(`{
+				"type":"object",
+				"properties":{
+					"mode":{"const":"command"},
+					"completed":{"const":true},
+					"exitCode":{"type":"integer"},
+					"stdout":{"type":"string"},
+					"stderr":{"type":"string"},
+					"timedOut":{"type":"boolean"},
+					"outputTrimmed":{"type":"boolean"}
+				},
+				"required":["mode","completed","exitCode","stdout","stderr","timedOut","outputTrimmed"],
+				"additionalProperties":false
+			}`),
+		},
+	}
+}
+
 func TestAgentTurnRunnerStopsWhenToolEffortIsExceeded(t *testing.T) {
 	languageModel := &sequenceLanguageModel{
 		contents: []string{
@@ -1799,8 +1821,8 @@ func TestAgentTurnRunnerStopsWhenToolEffortIsExceeded(t *testing.T) {
 	}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 3, MaxToolCallCount: 1})
 	toolRegistry := newTestCapabilityToolSet([]string{"loop"})
-	toolRegistry.RegisterTool(ToolDefinition{Name: "loop"}, func(context.Context, ToolInvocation) (ToolResult, error) {
-		return ToolSuccess("again"), nil
+	registerTestTool(toolRegistry, ToolDefinition{Name: "loop"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return testToolSuccess("again"), nil
 	})
 
 	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{

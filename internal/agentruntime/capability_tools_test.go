@@ -125,6 +125,36 @@ func TestCapabilityToolRejectsMismatchedTaskResultIdentity(t *testing.T) {
 	}
 }
 
+func TestCapabilityToolRejectsMismatchedIdentityWithoutResultContract(t *testing.T) {
+	httpClient := &recordingHTTPClient{responseBody: `{
+		"provider":"internkim",
+		"selectedBackend":"device",
+		"toolName":"task.update",
+		"outcome":"succeeded",
+		"status":"ok",
+		"result":{}
+	}`}
+	descriptor := completeTestCapabilityToolDescriptor(CapabilityToolDescriptor{Name: "task.add"})
+	descriptor.ResultContract = nil
+	toolCatalogBuilder := NewToolCatalogBuilder()
+	toolCatalogBuilder.capabilityClient = capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}
+
+	result, errorValue := toolCatalogBuilder.invokeCapabilityOperation(
+		context.Background(),
+		"task.add",
+		descriptor,
+		ToolCatalogRequest{},
+		json.RawMessage(`{}`),
+	)
+
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if !result.Failed() || result.FailureStage() != "capability_result_identity" {
+		t.Fatalf("expected identity failure without a result contract, got %+v", result)
+	}
+}
+
 func TestContractedCapabilityPreservesApprovalDenial(t *testing.T) {
 	httpClient := &recordingHTTPClient{responseBody: `{
 		"provider":"internkim",

@@ -30,6 +30,20 @@ func TestPresentationScenarioDoesNotScriptToolCalls(t *testing.T) {
 	}
 }
 
+func TestDefaultToolPaletteUsesCanonicalNames(t *testing.T) {
+	toolNames := allowedToolsOrDefault(nil)
+	for _, toolName := range []string{"terminal.run", "ask.input", "file.deliver"} {
+		if !slices.Contains(toolNames, toolName) {
+			t.Fatalf("expected canonical tool %s, got %+v", toolName, toolNames)
+		}
+	}
+	for _, toolName := range []string{"terminal.session", "browser_handoff.openURL", "ask.choice", "file.promote", "file.attach", "task.history", "db.sql"} {
+		if slices.Contains(toolNames, toolName) {
+			t.Fatalf("expected dead tool %s to be absent, got %+v", toolName, toolNames)
+		}
+	}
+}
+
 func TestExpectedEventCountAllowsRepeatedReadResults(t *testing.T) {
 	virtualTurn := VirtualTurn{
 		ExpectedEventCounts: []VirtualEventCount{{
@@ -856,11 +870,8 @@ func TestGWSDisabled(t *testing.T) {
 		t.Fatalf("expected gws disabled scenario to pass: %v", errorValue)
 	}
 	turnResult := result.TurnResults[0]
-	if !eventsContain(turnResult.Events, "tool.google.drive.import_pptx.requested", "google.drive.import_pptx") {
-		t.Fatal("expected attempted google tool request to be audited")
-	}
-	if !eventsContain(turnResult.Events, "tool.google.drive.import_pptx.result", "tool is not allowed") {
-		t.Fatal("expected google tool to be denied by catalog allowlist")
+	if eventsContain(turnResult.Events, "tool.google.drive.import_pptx.requested", "google.drive.import_pptx") {
+		t.Fatal("disabled google tool must not enter the model palette or runtime")
 	}
 }
 

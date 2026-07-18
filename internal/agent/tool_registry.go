@@ -560,12 +560,7 @@ func (toolSet *ToolSet) CanExpose(toolName string) bool {
 }
 
 func toolDescriptorIsModelCallable(toolDescriptor ToolDefinition) bool {
-	switch strings.TrimSpace(toolDescriptor.Visibility) {
-	case ToolVisibilityInternal, ToolVisibilityControl:
-		return false
-	default:
-		return true
-	}
+	return strings.TrimSpace(toolDescriptor.Visibility) == ToolVisibilityModel && toolDescriptor.ResultContract != nil
 }
 
 func (toolSet *ToolSet) ToolDefinition(toolName string) (ToolDefinition, bool) {

@@ -219,9 +219,9 @@ func TestAgentKernelRejectsExecutableConsumeContradiction(t *testing.T) {
 
 	toolCallCount := 0
 	toolSet := newTestCapabilityToolSet([]string{"task.add", "task.list", "task.update"})
-	toolSet.RegisterTool(ToolDefinition{Name: "task.add"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	registerTestTool(toolSet, ToolDefinition{Name: "task.add"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		toolCallCount++
-		return ToolSuccess(`{"taskID":"task-1","content":"메일 페이지 앱 비밀번호 개선"}`), nil
+		return testToolSuccess(`{"taskID":"task-1","content":"메일 페이지 앱 비밀번호 개선"}`), nil
 	})
 	languageModel := &sequenceLanguageModel{contents: []string{
 		`{"action":"continue","toolName":"task.add","toolInput":{"prompt":"메일 페이지 앱 비밀번호 개선"}}`,
@@ -266,7 +266,7 @@ func TestAgentKernelDoesNotInvokeToolWhenOperationContractCompilationFails(t *te
 		OutputSchema:    json.RawMessage(`{"type":"object","properties":{}}`),
 		SideEffectClass: ToolSideEffectStateChange,
 	}})
-	toolSet.RegisterTool(ToolDefinition{
+	registerTestTool(toolSet, ToolDefinition{
 		ID:              "capabilityd:task.add",
 		Name:            "task.add",
 		InputSchema:     operationContractTaskInputSchema(),
@@ -274,7 +274,7 @@ func TestAgentKernelDoesNotInvokeToolWhenOperationContractCompilationFails(t *te
 		SideEffectClass: ToolSideEffectStateChange,
 	}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		toolCallCount++
-		return ToolSuccess("ok"), nil
+		return testToolSuccess("ok"), nil
 	})
 	request := kernelTestRequest("분기 결산 누락 확인 업무를 추가해줘")
 	request.ToolSet = toolSet
@@ -366,8 +366,8 @@ func TestAgentKernelPrunesInvalidRequiredEvidenceAndProceeds(t *testing.T) {
 		Reason:                "calendar event creation",
 	}})
 	toolSet := newTestToolSet([]string{"calendar.add"})
-	toolSet.RegisterTool(ToolDefinition{Name: "calendar.add"}, func(context.Context, ToolInvocation) (ToolResult, error) {
-		return ToolSuccess(`{"created":true}`), nil
+	registerTestTool(toolSet, ToolDefinition{Name: "calendar.add"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return testToolSuccess(`{"created":true}`), nil
 	})
 	agentKernel.UseLanguageModelProvider(&sequenceLanguageModel{contents: []string{
 		`{"action":"continue","toolName":"calendar.add","toolInput":{}}`,
@@ -406,9 +406,9 @@ func TestAgentKernelPreservesActiveContractOnApprovalContinuation(t *testing.T) 
 	siteDeleteDefinition := testToolDescriptor("site.delete")
 	siteDeleteDefinition.InputSchema = json.RawMessage(`{"type":"object","properties":{"siteID":{"type":"string"}},"required":["siteID"],"additionalProperties":false}`)
 	toolSet := newTestToolSetWithDefinitions([]ToolDefinition{siteDeleteDefinition})
-	toolSet.RegisterTool(siteDeleteDefinition, func(context.Context, ToolInvocation) (ToolResult, error) {
+	registerTestTool(toolSet, siteDeleteDefinition, func(context.Context, ToolInvocation) (ToolResult, error) {
 		toolCallCount++
-		return ToolSuccess(`{"deleted":true}`), nil
+		return testToolSuccess(`{"deleted":true}`), nil
 	})
 	agentKernel.UseLanguageModelProvider(&sequenceLanguageModel{contents: []string{
 		`{"action":"continue","toolName":"site.delete","toolInput":{"siteID":"site-1"}}`,
@@ -462,9 +462,9 @@ func TestAgentKernelCompilesOperationContractBeforeApprovalPause(t *testing.T) {
 	siteDeleteDefinition := testToolDescriptor("site.delete")
 	toolSet := newTestToolSetWithDefinitions([]ToolDefinition{siteDeleteDefinition})
 	toolCallCount := 0
-	toolSet.RegisterTool(siteDeleteDefinition, func(context.Context, ToolInvocation) (ToolResult, error) {
+	registerTestTool(toolSet, siteDeleteDefinition, func(context.Context, ToolInvocation) (ToolResult, error) {
 		toolCallCount++
-		return ToolSuccess(`{"deleted":true}`), nil
+		return testToolSuccess(`{"deleted":true}`), nil
 	})
 	request := kernelTestRequest("site-1 웹사이트를 삭제해줘")
 	request.ToolSet = toolSet
@@ -495,9 +495,9 @@ func TestExistingTaskRunIDDoesNotAuthorizeConfirmationBypass(t *testing.T) {
 	siteDeleteDefinition := testToolDescriptor("site.delete")
 	toolSet := newTestToolSetWithDefinitions([]ToolDefinition{siteDeleteDefinition})
 	toolCallCount := 0
-	toolSet.RegisterTool(siteDeleteDefinition, func(context.Context, ToolInvocation) (ToolResult, error) {
+	registerTestTool(toolSet, siteDeleteDefinition, func(context.Context, ToolInvocation) (ToolResult, error) {
 		toolCallCount++
-		return ToolSuccess(`{"deleted":true}`), nil
+		return testToolSuccess(`{"deleted":true}`), nil
 	})
 	existingTaskRun := taskRunService.CreateTaskRun("person-1", "conversation-1", "site-1 웹사이트를 삭제해줘")
 	request := kernelTestRequest("site-1 웹사이트를 삭제해줘")
@@ -535,8 +535,8 @@ func TestSemanticRevisionStartsNewTaskRunAndOperationContract(t *testing.T) {
 	}})
 	taskAddDefinition := testToolDescriptor("task.add")
 	toolSet := newTestToolSetWithDefinitions([]ToolDefinition{taskAddDefinition})
-	toolSet.RegisterTool(taskAddDefinition, func(context.Context, ToolInvocation) (ToolResult, error) {
-		return ToolSuccess(`{"taskID":"new-task"}`), nil
+	registerTestTool(toolSet, taskAddDefinition, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return testToolSuccess(`{"taskID":"new-task"}`), nil
 	})
 	existingTaskRun := taskRunService.CreateTaskRun("person-1", "conversation-1", "기존 업무")
 	request := kernelTestRequest("기존 요청 대신 새 업무를 추가해줘")
@@ -579,9 +579,9 @@ func TestInvalidPersistedActiveGoalBlocksBeforeToolHandler(t *testing.T) {
 	}})
 	toolCallCount := 0
 	toolSet := newTestCapabilityToolSet([]string{"task.add"})
-	toolSet.RegisterTool(testToolDescriptor("task.add"), func(context.Context, ToolInvocation) (ToolResult, error) {
+	registerTestTool(toolSet, testToolDescriptor("task.add"), func(context.Context, ToolInvocation) (ToolResult, error) {
 		toolCallCount++
-		return ToolSuccess(`{"taskID":"unexpected"}`), nil
+		return testToolSuccess(`{"taskID":"unexpected"}`), nil
 	})
 	request := kernelTestRequest("계속해")
 	request.ToolSet = toolSet
@@ -633,9 +633,9 @@ func TestAgentKernelSideEffectWithoutRequiredEvidenceProceeds(t *testing.T) {
 	}})
 	toolCallCount := 0
 	toolSet := newTestToolSet([]string{TerminalRunToolName})
-	toolSet.RegisterTool(ToolDefinition{Name: TerminalRunToolName}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	registerTestTool(toolSet, ToolDefinition{Name: TerminalRunToolName}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		toolCallCount++
-		return ToolSuccess(`{"exitCode":0,"stdout":"done","stderr":"","timedOut":false}`), nil
+		return testToolSuccess(`{"exitCode":0,"stdout":"done","stderr":"","timedOut":false}`), nil
 	})
 	agentKernel.UseLanguageModelProvider(&sequenceLanguageModel{contents: []string{
 		`{"action":"continue","toolName":"terminal.run","toolInput":{"command":"do the side effect"}}`,
@@ -760,9 +760,9 @@ func TestAgentKernelReasksAndRecoversRequiredEvidence(t *testing.T) {
 
 	toolCallCount := 0
 	toolSet := newTestToolSet([]string{TerminalRunToolName})
-	toolSet.RegisterTool(ToolDefinition{Name: TerminalRunToolName}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	registerTestTool(toolSet, ToolDefinition{Name: TerminalRunToolName}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		toolCallCount++
-		return ToolSuccess(`{"exitCode":0,"stdout":"done","stderr":"","timedOut":false}`), nil
+		return testToolSuccess(`{"exitCode":0,"stdout":"done","stderr":"","timedOut":false}`), nil
 	})
 	languageModel := &sequenceLanguageModel{contents: []string{
 		`{"action":"continue","toolName":"terminal.run","toolInput":{"command":"do the side effect"}}`,
@@ -813,9 +813,9 @@ func TestAgentKernelDoesNotReaskMaintenanceEvidenceWithoutInitialTool(t *testing
 
 	toolCallCount := 0
 	toolSet := newTestCapabilityToolSet([]string{"task.add"})
-	toolSet.RegisterTool(ToolDefinition{Name: "task.add"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	registerTestTool(toolSet, ToolDefinition{Name: "task.add"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		toolCallCount++
-		return ToolSuccess(`{"taskID":"task-1","content":"신규 입사자 온보딩 문서 검토"}`), nil
+		return testToolSuccess(`{"taskID":"task-1","content":"신규 입사자 온보딩 문서 검토"}`), nil
 	})
 	agentKernel.UseLanguageModelProvider(&sequenceLanguageModel{contents: []string{
 		`{"action":"continue","toolName":"task.add","toolInput":{"prompt":"신규 입사자 온보딩 문서 검토"}}`,
@@ -863,9 +863,9 @@ func TestAgentKernelRepairsReadOnlyEvidenceWithoutDroppingRouterTools(t *testing
 
 	toolCallCount := 0
 	toolSet := newTestToolSet([]string{"file.read", "task.history", "task.update"})
-	toolSet.RegisterTool(ToolDefinition{Name: "task.update"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	registerTestTool(toolSet, ToolDefinition{Name: "task.update"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		toolCallCount++
-		return ToolSuccess(`{"taskID":"task-1","content":"고객지원 분기 결산 검토 완료","endDate":"2026-07-17"}`), nil
+		return testToolSuccess(`{"taskID":"task-1","content":"고객지원 분기 결산 검토 완료","endDate":"2026-07-17"}`), nil
 	})
 	agentKernel.UseLanguageModelProvider(&sequenceLanguageModel{contents: []string{
 		`{"action":"continue","toolName":"task.update","toolInput":{"taskID":"task-1","content":"고객지원 분기 결산 검토 완료","endDate":"2026-07-17"}}`,
@@ -922,9 +922,9 @@ func TestAgentKernelDoesNotLetInvalidEvidenceChooseExecution(t *testing.T) {
 
 	toolCallCount := 0
 	toolSet := newTestToolSet([]string{TerminalRunToolName, "task.list"})
-	toolSet.RegisterTool(ToolDefinition{Name: TerminalRunToolName}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	registerTestTool(toolSet, ToolDefinition{Name: TerminalRunToolName}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		toolCallCount++
-		return ToolSuccess(`{"exitCode":0,"stdout":"done","stderr":"","timedOut":false}`), nil
+		return testToolSuccess(`{"exitCode":0,"stdout":"done","stderr":"","timedOut":false}`), nil
 	})
 	agentKernel.UseLanguageModelProvider(&sequenceLanguageModel{contents: []string{
 		`{"action":"continue","toolName":"terminal.run","toolInput":{"command":"do the side effect"}}`,
@@ -965,9 +965,9 @@ func TestAgentKernelContinuesWhenEmptyReaskHasNoWrongContract(t *testing.T) {
 	agentKernel.UseIntakeLanguageModelProvider(intakeLanguageModel)
 	toolCallCount := 0
 	toolSet := newTestToolSet([]string{TerminalRunToolName})
-	toolSet.RegisterTool(ToolDefinition{Name: TerminalRunToolName}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	registerTestTool(toolSet, ToolDefinition{Name: TerminalRunToolName}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		toolCallCount++
-		return ToolSuccess(`{"exitCode":0,"stdout":"done","stderr":"","timedOut":false}`), nil
+		return testToolSuccess(`{"exitCode":0,"stdout":"done","stderr":"","timedOut":false}`), nil
 	})
 	agentKernel.UseLanguageModelProvider(&sequenceLanguageModel{contents: []string{
 		`{"action":"continue","toolName":"terminal.run","toolInput":{"command":"do the side effect"}}`,

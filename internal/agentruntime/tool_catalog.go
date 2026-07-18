@@ -290,11 +290,9 @@ func fetchHistoryTool(toolContext context.Context, input historyToolInput, reque
 
 func (toolCatalogBuilder *ToolCatalogBuilder) registerBuiltInTools(toolRegistry *agent.ToolSet, handlerContext toolHandlerContext) {
 	toolCatalogBuilder.registerMathTool(toolRegistry)
-	toolCatalogBuilder.registerBrowserHandoffTool(toolRegistry, handlerContext)
 	toolCatalogBuilder.registerAskInputTool(toolRegistry)
 	toolCatalogBuilder.registerScheduleTools(toolRegistry, handlerContext)
 	toolCatalogBuilder.registerSkillManagementTools(toolRegistry)
-	toolCatalogBuilder.registerDatabaseTools(toolRegistry, handlerContext)
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) workspaceActorForRequest(toolContext context.Context, request ToolCatalogRequest) (security.WorkspaceActor, *agent.ToolResult) {
