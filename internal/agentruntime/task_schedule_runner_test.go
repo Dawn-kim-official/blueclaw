@@ -192,23 +192,23 @@ func (languageModel *capturingScheduleRuntimeLanguageModel) GenerateStructuredRe
 }
 
 func scheduledRuntimeOperationContract(schemaDocument string) string {
-	var schema struct {
-		Properties struct {
-			Operations struct {
-				Items struct {
-					Properties struct {
-						ToolName struct {
-							Enum []string `json:"enum"`
-						} `json:"toolName"`
-					} `json:"properties"`
-				} `json:"items"`
-			} `json:"operations"`
-		} `json:"properties"`
-	}
+	var schema map[string]any
 	json.Unmarshal([]byte(schemaDocument), &schema)
-	operations := make([]map[string]string, 0, len(schema.Properties.Operations.Items.Properties.ToolName.Enum))
-	for _, toolName := range schema.Properties.Operations.Items.Properties.ToolName.Enum {
-		operations = append(operations, map[string]string{"toolName": toolName, "requiredValuesJSON": "{}"})
+	properties, _ := schema["properties"].(map[string]any)
+	operationsSchema, _ := properties["operations"].(map[string]any)
+	items, _ := operationsSchema["items"].(map[string]any)
+	itemSchemas := []any{items}
+	if oneOf, isUnion := items["oneOf"].([]any); isUnion {
+		itemSchemas = oneOf
+	}
+	operations := make([]map[string]any, 0, len(itemSchemas))
+	for _, value := range itemSchemas {
+		itemSchema, _ := value.(map[string]any)
+		itemProperties, _ := itemSchema["properties"].(map[string]any)
+		toolNameSchema, _ := itemProperties["toolName"].(map[string]any)
+		toolNames, _ := toolNameSchema["enum"].([]any)
+		toolName, _ := toolNames[0].(string)
+		operations = append(operations, map[string]any{"toolName": toolName, "requiredValues": map[string]any{}})
 	}
 	document, _ := json.Marshal(map[string]any{"operations": operations})
 	return string(document)

@@ -25,14 +25,15 @@ type operationContractDocument struct {
 }
 
 type operationRequirementDocument struct {
-	ToolName           string `json:"toolName"`
-	RequiredValuesJSON string `json:"requiredValuesJSON"`
+	ToolName       string          `json:"toolName"`
+	RequiredValues json.RawMessage `json:"requiredValues"`
 }
 
 type operationDescriptorDocument struct {
-	Name        string          `json:"name"`
-	Description string          `json:"description"`
-	InputSchema json.RawMessage `json:"inputSchema"`
+	Name               string          `json:"name"`
+	Description        string          `json:"description"`
+	InputSchema        json.RawMessage `json:"inputSchema"`
+	PartialInputSchema json.RawMessage `json:"-"`
 }
 
 type operationContractReviewDocument struct {
@@ -84,7 +85,7 @@ func compileOperationRequirements(responseContext context.Context, languageModel
 }
 
 func generateOperationRequirements(responseContext context.Context, languageModel llm.LanguageModelProvider, request AgentRequest, descriptors []operationDescriptorDocument, toolSet *ToolSet, toolNames []string, reviewReason string) ([]OperationRequirement, error) {
-	response, errorValue := languageModel.GenerateStructuredResponse(responseContext, operationContractRequest(request, descriptors, toolNames, reviewReason))
+	response, errorValue := languageModel.GenerateStructuredResponse(responseContext, operationContractRequest(request, descriptors, reviewReason))
 	if errorValue != nil {
 		correctionReason, canCorrect := operationContractStructuredCorrectionReason(errorValue)
 		if !canCorrect {
@@ -104,7 +105,7 @@ func correctOperationRequirements(responseContext context.Context, languageModel
 	if strings.TrimSpace(reviewReason) != "" {
 		correctionReason = reviewReason + "\n" + correctionReason
 	}
-	correctionRequest := operationContractRequest(request, descriptors, toolNames, correctionReason)
+	correctionRequest := operationContractRequest(request, descriptors, correctionReason)
 	correctedResponse, correctionError := languageModel.GenerateStructuredResponse(responseContext, correctionRequest)
 	if correctionError != nil {
 		return nil, fmt.Errorf("correct operation contract: %w", correctionError)
@@ -141,7 +142,7 @@ func stateChangingRequiredToolNames(toolSet *ToolSet, toolNames []string) []stri
 	return stateChangingToolNames
 }
 
-func operationContractRequest(request AgentRequest, descriptors []operationDescriptorDocument, toolNames []string, reviewReason string) llm.StructuredResponseRequest {
+func operationContractRequest(request AgentRequest, descriptors []operationDescriptorDocument, reviewReason string) llm.StructuredResponseRequest {
 	descriptorDocument, _ := json.Marshal(descriptors)
 	messages := []llm.Message{
 		{Role: "system", Content: operationContractInstruction()},
@@ -159,7 +160,7 @@ func operationContractRequest(request AgentRequest, descriptors []operationDescr
 		Messages: messages,
 		StructuredOutputSchema: llm.StructuredOutputSchema{
 			Name:               operationContractSchemaName,
-			Document:           operationContractSchema(toolNames),
+			Document:           operationContractSchema(descriptors),
 			IsStrictlyEnforced: true,
 		},
 	}
@@ -174,7 +175,7 @@ func operationContractInstruction() string {
 		"Include every input property whose value the user explicitly supplied or directly normalized; do not omit explicit values.",
 		"Return one entry for every requested operation occurrence. Repeated operations must remain separate entries.",
 		"Return every listed operation at least once.",
-		"requiredValuesJSON must be a JSON object containing only explicitly requested input properties.",
+		"requiredValues must contain only explicitly requested input properties.",
 	}, "\n")
 }
 
@@ -219,8 +220,8 @@ func operationRequirementDocuments(requirements []OperationRequirement) []operat
 	documents := make([]operationRequirementDocument, 0, len(requirements))
 	for _, requirement := range requirements {
 		documents = append(documents, operationRequirementDocument{
-			ToolName:           requirement.ToolName,
-			RequiredValuesJSON: string(requirement.RequiredInput),
+			ToolName:       requirement.ToolName,
+			RequiredValues: append(json.RawMessage{}, requirement.RequiredInput...),
 		})
 	}
 	return documents
@@ -239,16 +240,29 @@ func operationDescriptorDocuments(toolSet *ToolSet, toolNames []string) ([]opera
 		if errorValue := validateOperationInputSchema(descriptor.InputSchema); errorValue != nil {
 			return nil, fmt.Errorf("operation %s has invalid input schema: %w", toolName, errorValue)
 		}
+		partialInputSchema, errorValue := partialOperationInputSchema(descriptor.InputSchema)
+		if errorValue != nil {
+			return nil, fmt.Errorf("operation %s has invalid partial input schema: %w", toolName, errorValue)
+		}
 		descriptors = append(descriptors, operationDescriptorDocument{
-			Name:        descriptor.Name,
-			Description: descriptor.Description,
-			InputSchema: descriptor.InputSchema,
+			Name:               descriptor.Name,
+			Description:        descriptor.Description,
+			InputSchema:        descriptor.InputSchema,
+			PartialInputSchema: partialInputSchema,
 		})
 	}
 	return descriptors, nil
 }
 
-func operationContractSchema(toolNames []string) string {
+func operationContractSchema(descriptors []operationDescriptorDocument) string {
+	requirementSchemas := make([]any, 0, len(descriptors))
+	for _, descriptor := range descriptors {
+		requirementSchemas = append(requirementSchemas, operationRequirementSchema(descriptor))
+	}
+	itemSchema := requirementSchemas[0]
+	if len(requirementSchemas) > 1 {
+		itemSchema = map[string]any{"oneOf": requirementSchemas}
+	}
 	document := map[string]any{
 		"type":                 "object",
 		"additionalProperties": false,
@@ -256,22 +270,101 @@ func operationContractSchema(toolNames []string) string {
 		"properties": map[string]any{
 			"operations": map[string]any{
 				"type":     "array",
-				"minItems": len(toolNames),
+				"minItems": len(descriptors),
 				"maxItems": maximumOperationRequirementCount,
-				"items": map[string]any{
-					"type":                 "object",
-					"additionalProperties": false,
-					"required":             []string{"toolName", "requiredValuesJSON"},
-					"properties": map[string]any{
-						"toolName":           map[string]any{"type": "string", "enum": toolNames},
-						"requiredValuesJSON": map[string]any{"type": "string", "minLength": 2, "maxLength": 4096},
-					},
-				},
+				"items":    itemSchema,
 			},
 		},
 	}
 	encodedDocument, _ := json.Marshal(document)
 	return string(encodedDocument)
+}
+
+func operationRequirementSchema(descriptor operationDescriptorDocument) map[string]any {
+	return map[string]any{
+		"type":                 "object",
+		"additionalProperties": false,
+		"required":             []string{"toolName", "requiredValues"},
+		"properties": map[string]any{
+			"toolName": map[string]any{
+				"type": "string",
+				"enum": []string{descriptor.Name},
+			},
+			"requiredValues": descriptor.PartialInputSchema,
+		},
+	}
+}
+
+func partialOperationInputSchema(inputSchema json.RawMessage) (json.RawMessage, error) {
+	document, errorValue := decodeJSONValue(inputSchema)
+	if errorValue != nil {
+		return nil, fmt.Errorf("decode descriptor input schema: %w", errorValue)
+	}
+	removeOperationInputCompletenessConstraints(document)
+	partialSchema, errorValue := json.Marshal(document)
+	if errorValue != nil {
+		return nil, fmt.Errorf("encode partial descriptor input schema: %w", errorValue)
+	}
+	return partialSchema, nil
+}
+
+func removeOperationInputCompletenessConstraints(schema any) {
+	switch document := schema.(type) {
+	case map[string]any:
+		if operationInputSchemaDescribesObject(document) {
+			delete(document, "required")
+			delete(document, "minProperties")
+		}
+		if alternatives, hasOneOf := document["oneOf"].([]any); hasOneOf && operationInputAlternativesContainObjects(alternatives) {
+			document["anyOf"] = alternatives
+			delete(document, "oneOf")
+		}
+		for _, value := range document {
+			removeOperationInputCompletenessConstraints(value)
+		}
+	case []any:
+		for _, value := range document {
+			removeOperationInputCompletenessConstraints(value)
+		}
+	}
+}
+
+func operationInputSchemaDescribesObject(schema map[string]any) bool {
+	if schema["type"] == "object" {
+		return true
+	}
+	_, hasProperties := schema["properties"]
+	return hasProperties
+}
+
+func operationInputAlternativesContainObjects(alternatives []any) bool {
+	for _, alternative := range alternatives {
+		if operationInputSchemaContainsObject(alternative) {
+			return true
+		}
+	}
+	return false
+}
+
+func operationInputSchemaContainsObject(schema any) bool {
+	switch document := schema.(type) {
+	case map[string]any:
+		if operationInputSchemaDescribesObject(document) {
+			return true
+		}
+		for _, value := range document {
+			if operationInputSchemaContainsObject(value) {
+				return true
+			}
+		}
+	case []any:
+		for _, value := range document {
+			if operationInputSchemaContainsObject(value) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func parseOperationRequirements(content string, toolSet *ToolSet, expectedToolNames []string) ([]OperationRequirement, error) {
@@ -309,7 +402,7 @@ func parseOperationRequirement(index int, document operationRequirementDocument,
 	if !isRegistered || strings.TrimSpace(descriptor.ID) == "" {
 		return OperationRequirement{}, fmt.Errorf("operation %s has no canonical descriptor ID", toolName)
 	}
-	requiredInput, errorValue := validateRequiredOperationInput(document.RequiredValuesJSON, descriptor.InputSchema)
+	requiredInput, errorValue := validateRequiredOperationInput(document.RequiredValues, descriptor.InputSchema)
 	if errorValue != nil {
 		return OperationRequirement{}, fmt.Errorf("operation %s: %w", toolName, errorValue)
 	}
@@ -330,21 +423,23 @@ func operationInputMode(requiredInput json.RawMessage) OperationInputMode {
 	return OperationInputContainsExplicit
 }
 
-func validateRequiredOperationInput(document string, inputSchema json.RawMessage) (json.RawMessage, error) {
-	requiredInput, errorValue := decodeJSONObject([]byte(document))
+func validateRequiredOperationInput(document json.RawMessage, inputSchema json.RawMessage) (json.RawMessage, error) {
+	requiredInput, errorValue := decodeJSONObject(document)
 	if errorValue != nil {
 		return nil, fmt.Errorf("required values must be a JSON object: %w", errorValue)
 	}
 	var validationInput map[string]any
-	if errorValue := json.Unmarshal([]byte(document), &validationInput); errorValue != nil || validationInput == nil {
+	if errorValue := json.Unmarshal(document, &validationInput); errorValue != nil || validationInput == nil {
 		return nil, errors.New("required values must be a JSON object")
 	}
-	schema, errorValue := decodeOperationInputSchema(inputSchema)
+	partialInputSchema, errorValue := partialOperationInputSchema(inputSchema)
 	if errorValue != nil {
 		return nil, errorValue
 	}
-	schema.Required = nil
-	schema.MinProperties = nil
+	schema, errorValue := decodeOperationInputSchema(partialInputSchema)
+	if errorValue != nil {
+		return nil, errorValue
+	}
 	resolvedSchema, errorValue := schema.Resolve(nil)
 	if errorValue != nil {
 		return nil, fmt.Errorf("descriptor input schema cannot be resolved: %w", errorValue)
@@ -426,7 +521,7 @@ func validateOperationContract(contract *OperationContract, toolSet *ToolSet, ex
 		if !isRegistered || strings.TrimSpace(requirement.ToolID) != strings.TrimSpace(descriptor.ID) {
 			return fmt.Errorf("operation contract descriptor identity does not match %s", toolName)
 		}
-		if _, errorValue := validateRequiredOperationInput(string(requirement.RequiredInput), descriptor.InputSchema); errorValue != nil {
+		if _, errorValue := validateRequiredOperationInput(requirement.RequiredInput, descriptor.InputSchema); errorValue != nil {
 			return fmt.Errorf("operation contract requirement %s is invalid: %w", requirementID, errorValue)
 		}
 		if requirement.InputMode != operationInputMode(requirement.RequiredInput) {
@@ -590,18 +685,31 @@ func requiredInputMatches(inputMode OperationInputMode, requiredInput json.RawMe
 
 func jsonContains(actualValue any, requiredValue any) bool {
 	requiredObject, isRequiredObject := requiredValue.(map[string]any)
-	if !isRequiredObject {
-		return jsonschema.Equal(actualValue, requiredValue)
-	}
-	actualObject, isActualObject := actualValue.(map[string]any)
-	if !isActualObject {
-		return false
-	}
-	for propertyName, requiredPropertyValue := range requiredObject {
-		actualPropertyValue, exists := actualObject[propertyName]
-		if !exists || !jsonContains(actualPropertyValue, requiredPropertyValue) {
+	if isRequiredObject {
+		actualObject, isActualObject := actualValue.(map[string]any)
+		if !isActualObject {
 			return false
 		}
+		for propertyName, requiredPropertyValue := range requiredObject {
+			actualPropertyValue, exists := actualObject[propertyName]
+			if !exists || !jsonContains(actualPropertyValue, requiredPropertyValue) {
+				return false
+			}
+		}
+		return true
 	}
-	return true
+	requiredArray, isRequiredArray := requiredValue.([]any)
+	if isRequiredArray {
+		actualArray, isActualArray := actualValue.([]any)
+		if !isActualArray || len(actualArray) != len(requiredArray) {
+			return false
+		}
+		for index := range requiredArray {
+			if !jsonContains(actualArray[index], requiredArray[index]) {
+				return false
+			}
+		}
+		return true
+	}
+	return jsonschema.Equal(actualValue, requiredValue)
 }

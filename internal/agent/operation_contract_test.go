@@ -79,7 +79,7 @@ func TestCompileOperationRequirementsPreservesPersistedContract(t *testing.T) {
 
 func TestCompileOperationRequirementsIncludesDirectlyReferencedVisibleContext(t *testing.T) {
 	languageModel := &operationContractLanguageModel{contents: []string{
-		`{"operations":[{"toolName":"task.add","requiredValuesJSON":"{}"}]}`,
+		`{"operations":[{"toolName":"task.add","requiredValues":{}}]}`,
 		`{"isComplete":true,"reason":""}`,
 	}}
 	request := AgentRequest{
@@ -105,7 +105,7 @@ func TestCompileOperationRequirementsIncludesDirectlyReferencedVisibleContext(t 
 
 func TestCompileOperationRequirementsNormalizesTemporalValueWithoutDefaults(t *testing.T) {
 	languageModel := &operationContractLanguageModel{contents: []string{
-		`{"operations":[{"toolName":"task.add","requiredValuesJSON":"{\"title\":\"분기 결산 누락 확인\",\"endDate\":\"2026-07-24\"}"}]}`,
+		`{"operations":[{"toolName":"task.add","requiredValues":{"title":"분기 결산 누락 확인","endDate":"2026-07-24"}}]}`,
 		`{"isComplete":true,"reason":""}`,
 	}}
 	toolSet := operationContractTestToolSet()
@@ -147,7 +147,7 @@ func TestValidateRequiredOperationInputFailsClosed(t *testing.T) {
 	}
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			if _, errorValue := validateRequiredOperationInput(testCase.document, inputSchema); errorValue == nil {
+			if _, errorValue := validateRequiredOperationInput(json.RawMessage(testCase.document), inputSchema); errorValue == nil {
 				t.Fatalf("expected %s to fail", testCase.name)
 			}
 		})
@@ -155,7 +155,7 @@ func TestValidateRequiredOperationInputFailsClosed(t *testing.T) {
 }
 
 func TestValidateRequiredOperationInputAllowsExplicitPartialInput(t *testing.T) {
-	requiredInput, errorValue := validateRequiredOperationInput(`{"title":"분기 결산 누락 확인"}`, operationContractTaskInputSchema())
+	requiredInput, errorValue := validateRequiredOperationInput(json.RawMessage(`{"title":"분기 결산 누락 확인"}`), operationContractTaskInputSchema())
 
 	if errorValue != nil {
 		t.Fatalf("expected partial input to pass: %v", errorValue)
@@ -165,11 +165,93 @@ func TestValidateRequiredOperationInputAllowsExplicitPartialInput(t *testing.T) 
 	}
 }
 
-func TestOperationContractSchemaRejectsEmptyRequiredValues(t *testing.T) {
-	schemaDocument := operationContractSchema([]string{"terminal.run"})
+func TestParseOperationRequirementsRejectsJSONEncodedRequiredValues(t *testing.T) {
+	_, errorValue := parseOperationRequirements(
+		`{"operations":[{"toolName":"task.add","requiredValues":"{\"title\":\"분기 결산 누락 확인\"}"}]}`,
+		operationContractTestToolSet(),
+		[]string{"task.add"},
+	)
 
-	if !strings.Contains(schemaDocument, `"requiredValuesJSON":{"maxLength":4096,"minLength":2,"type":"string"}`) {
-		t.Fatalf("expected required values to require at least an empty JSON object, got %s", schemaDocument)
+	if errorValue == nil || !strings.Contains(errorValue.Error(), "required values must be a JSON object") {
+		t.Fatalf("expected JSON-inside-string input to fail closed, got %v", errorValue)
+	}
+}
+
+func TestOperationContractSchemaUsesPartialDescriptorInputSchema(t *testing.T) {
+	schemaDocument := operationContractSchema([]operationDescriptorDocument{
+		operationContractSchemaTestDescriptor(t, "task.add", json.RawMessage(`{
+			"type":"object",
+			"additionalProperties":false,
+			"required":["title"],
+			"minProperties":1,
+			"properties":{"title":{"type":"string"},"size":{"type":"string","enum":["S","M"]}}
+		}`)),
+	})
+
+	if strings.Contains(schemaDocument, "requiredValuesJSON") {
+		t.Fatalf("expected no JSON-inside-string field, got %s", schemaDocument)
+	}
+	if !strings.Contains(schemaDocument, `"requiredValues":{"additionalProperties":false`) ||
+		!strings.Contains(schemaDocument, `"size":`) ||
+		!strings.Contains(schemaDocument, `"enum":["S","M"]`) ||
+		!strings.Contains(schemaDocument, `"title":{"type":"string"}`) {
+		t.Fatalf("expected exact partial descriptor schema, got %s", schemaDocument)
+	}
+	if strings.Contains(schemaDocument, `"required":["title"]`) || strings.Contains(schemaDocument, `"minProperties":1`) {
+		t.Fatalf("expected root invocation completeness constraints removed, got %s", schemaDocument)
+	}
+}
+
+func TestOperationContractSchemaValidatesToolSpecificValuesAndRepeatedOperations(t *testing.T) {
+	schemaDocument := operationContractSchema([]operationDescriptorDocument{
+		operationContractSchemaTestDescriptor(t, "task.add", json.RawMessage(`{"type":"object","additionalProperties":false,"required":["title"],"properties":{"title":{"type":"string"},"size":{"type":"string","enum":["S","M"]}}}`)),
+		operationContractSchemaTestDescriptor(t, "calendar.add", json.RawMessage(`{"type":"object","additionalProperties":false,"required":["startTime"],"properties":{"startTime":{"type":"string"},"attendees":{"type":"array","items":{"type":"string"}}}}`)),
+	})
+	schema, errorValue := decodeOperationInputSchema(json.RawMessage(schemaDocument))
+	if errorValue != nil {
+		t.Fatalf("expected generated schema to decode: %v", errorValue)
+	}
+	resolvedSchema, errorValue := schema.Resolve(nil)
+	if errorValue != nil {
+		t.Fatalf("expected generated schema to resolve: %v", errorValue)
+	}
+
+	validDocument := map[string]any{"operations": []any{
+		map[string]any{"toolName": "task.add", "requiredValues": map[string]any{"title": "첫 번째 업무"}},
+		map[string]any{"toolName": "task.add", "requiredValues": map[string]any{"size": "M"}},
+		map[string]any{"toolName": "calendar.add", "requiredValues": map[string]any{"startTime": "2026-07-24T09:00:00+09:00"}},
+	}}
+	if errorValue := resolvedSchema.Validate(validDocument); errorValue != nil {
+		t.Fatalf("expected repeated typed operations to pass: %v", errorValue)
+	}
+
+	invalidDocuments := []map[string]any{
+		{"operations": []any{
+			map[string]any{"toolName": "task.add", "requiredValues": map[string]any{"startTime": "2026-07-24T09:00:00+09:00"}},
+			map[string]any{"toolName": "calendar.add", "requiredValues": map[string]any{}},
+		}},
+		{"operations": []any{
+			map[string]any{"toolName": "task.add", "requiredValues": map[string]any{"size": "XL"}},
+			map[string]any{"toolName": "calendar.add", "requiredValues": map[string]any{}},
+		}},
+	}
+	for _, document := range invalidDocuments {
+		if errorValue := resolvedSchema.Validate(document); errorValue == nil {
+			t.Fatalf("expected tool-specific schema validation to fail: %+v", document)
+		}
+	}
+}
+
+func operationContractSchemaTestDescriptor(t *testing.T, name string, inputSchema json.RawMessage) operationDescriptorDocument {
+	t.Helper()
+	partialInputSchema, errorValue := partialOperationInputSchema(inputSchema)
+	if errorValue != nil {
+		t.Fatalf("create partial input schema: %v", errorValue)
+	}
+	return operationDescriptorDocument{
+		Name:               name,
+		InputSchema:        inputSchema,
+		PartialInputSchema: partialInputSchema,
 	}
 }
 
@@ -196,11 +278,11 @@ func TestOperationContractSeparatesDescriptorValidityFromInvocationCompleteness(
 		t.Fatalf("expected descriptor schema to resolve without a fake invocation: %v", errorValue)
 	}
 	for _, requiredValues := range []string{`{}`, `{"eventID":"event-1"}`, `{"title":"변경"}`} {
-		if _, errorValue := validateRequiredOperationInput(requiredValues, inputSchema); errorValue != nil {
+		if _, errorValue := validateRequiredOperationInput(json.RawMessage(requiredValues), inputSchema); errorValue != nil {
 			t.Fatalf("expected partial explicit values %s to pass: %v", requiredValues, errorValue)
 		}
 	}
-	if _, errorValue := validateRequiredOperationInput(`{"query":"변경"}`, inputSchema); errorValue == nil {
+	if _, errorValue := validateRequiredOperationInput(json.RawMessage(`{"query":"변경"}`), inputSchema); errorValue == nil {
 		t.Fatal("expected unknown partial value to fail")
 	}
 }
@@ -220,7 +302,7 @@ func TestValidateRequiredOperationInputValidatesNestedAlternativesAndArrays(t *t
 		}
 	}`)
 	validDocument := `{"updates":{"status":"done"},"labels":["quarterly"],"owner":null}`
-	if _, errorValue := validateRequiredOperationInput(validDocument, inputSchema); errorValue != nil {
+	if _, errorValue := validateRequiredOperationInput(json.RawMessage(validDocument), inputSchema); errorValue != nil {
 		t.Fatalf("expected nested input to pass: %v", errorValue)
 	}
 	for _, invalidDocument := range []string{
@@ -229,9 +311,76 @@ func TestValidateRequiredOperationInputValidatesNestedAlternativesAndArrays(t *t
 		`{"labels":[3]}`,
 		`{"owner":false}`,
 	} {
-		if _, errorValue := validateRequiredOperationInput(invalidDocument, inputSchema); errorValue == nil {
+		if _, errorValue := validateRequiredOperationInput(json.RawMessage(invalidDocument), inputSchema); errorValue == nil {
 			t.Fatalf("expected nested input to fail: %s", invalidDocument)
 		}
+	}
+}
+
+func TestValidateRequiredOperationInputAllowsPartialNestedArrayObjects(t *testing.T) {
+	inputSchema := json.RawMessage(`{
+		"type":"object",
+		"additionalProperties":false,
+		"required":["edits"],
+		"properties":{
+			"edits":{
+				"type":"array",
+				"minItems":1,
+				"items":{
+					"type":"object",
+					"additionalProperties":false,
+					"required":["path","oldText","newText"],
+					"minProperties":3,
+					"properties":{
+						"path":{"type":"string"},
+						"oldText":{"type":"string"},
+						"newText":{"type":"string"}
+					}
+				}
+			}
+		}
+	}`)
+
+	requiredInput, errorValue := validateRequiredOperationInput(
+		json.RawMessage(`{"edits":[{"newText":"완료"}]}`),
+		inputSchema,
+	)
+
+	if errorValue != nil {
+		t.Fatalf("expected explicitly requested nested value to pass: %v", errorValue)
+	}
+	if string(requiredInput) != `{"edits":[{"newText":"완료"}]}` {
+		t.Fatalf("unexpected normalized nested input %s", requiredInput)
+	}
+	for _, invalidInput := range []json.RawMessage{
+		json.RawMessage(`{"edits":[]}`),
+		json.RawMessage(`{"edits":[{"newText":3}]}`),
+		json.RawMessage(`{"edits":[{"unknown":"완료"}]}`),
+	} {
+		if _, errorValue := validateRequiredOperationInput(invalidInput, inputSchema); errorValue == nil {
+			t.Fatalf("expected invalid nested input to fail: %s", invalidInput)
+		}
+	}
+}
+
+func TestValidateRequiredOperationInputAllowsEmptyPartialObjectAlternatives(t *testing.T) {
+	inputSchema := json.RawMessage(`{
+		"type":"object",
+		"allOf":[{
+			"oneOf":[
+				{"type":"object","additionalProperties":false,"required":["command"],"properties":{"command":{"type":"string"}}},
+				{"type":"object","additionalProperties":false,"required":["script"],"properties":{"script":{"type":"string"}}}
+			]
+		}]
+	}`)
+
+	requiredInput, errorValue := validateRequiredOperationInput(json.RawMessage(`{}`), inputSchema)
+
+	if errorValue != nil {
+		t.Fatalf("expected no-explicit-values contract to pass overlapping partial alternatives: %v", errorValue)
+	}
+	if string(requiredInput) != `{}` {
+		t.Fatalf("unexpected normalized empty input %s", requiredInput)
 	}
 }
 
@@ -314,9 +463,9 @@ func TestOperationRequirementsAcceptExactRequestedInputForNormalAndElapsedComple
 
 func TestCompileOperationRequirementsRepairsRejectedCandidateOnce(t *testing.T) {
 	languageModel := &operationContractLanguageModel{contents: []string{
-		`{"operations":[{"toolName":"task.add","requiredValuesJSON":"{}"}]}`,
+		`{"operations":[{"toolName":"task.add","requiredValues":{}}]}`,
 		`{"isComplete":false,"reason":"missing explicit title"}`,
-		`{"operations":[{"toolName":"task.add","requiredValuesJSON":"{\"title\":\"분기 결산 누락 확인\"}"}]}`,
+		`{"operations":[{"toolName":"task.add","requiredValues":{"title":"분기 결산 누락 확인"}}]}`,
 		`{"isComplete":true,"reason":""}`,
 	}}
 
@@ -344,10 +493,10 @@ func TestCompileOperationRequirementsRepairsRejectedCandidateOnce(t *testing.T) 
 
 func TestCompileOperationRequirementsCorrectsInvalidReviewedCandidate(t *testing.T) {
 	languageModel := &operationContractLanguageModel{contents: []string{
-		`{"operations":[{"toolName":"task.add","requiredValuesJSON":"{}"}]}`,
+		`{"operations":[{"toolName":"task.add","requiredValues":{}}]}`,
 		`{"isComplete":false,"reason":"missing explicit title"}`,
-		`{"operations":[{"toolName":"task.add","requiredValuesJSON":"{"}]}`,
-		`{"operations":[{"toolName":"task.add","requiredValuesJSON":"{\"title\":\"분기 결산 누락 확인\"}"}]}`,
+		`{"operations":[{"toolName":"task.add","requiredValues":{"title":3}}]}`,
+		`{"operations":[{"toolName":"task.add","requiredValues":{"title":"분기 결산 누락 확인"}}]}`,
 		`{"isComplete":true,"reason":""}`,
 	}}
 
@@ -366,7 +515,7 @@ func TestCompileOperationRequirementsCorrectsInvalidReviewedCandidate(t *testing
 		t.Fatalf("expected compile, review, invalid correction, typed correction, and review calls, got %d", languageModel.calls)
 	}
 	correctionMessages := joinedMessageContent(languageModel.requests[3].Messages)
-	if !strings.Contains(correctionMessages, "missing explicit title") || !strings.Contains(correctionMessages, "unexpected EOF") {
+	if !strings.Contains(correctionMessages, "missing explicit title") || !strings.Contains(correctionMessages, `want "string"`) {
 		t.Fatalf("expected review and validation diagnostics in correction request, got %s", correctionMessages)
 	}
 	if string(contract.OperationContract.Requirements[0].RequiredInput) != `{"title":"분기 결산 누락 확인"}` {
@@ -380,7 +529,7 @@ func TestCompileOperationRequirementsCorrectsAuthoritativeStructuredOutputError(
 		Diagnostic: llm.StructuredOutputDiagnostic{
 			Category: llm.StructuredOutputDiagnosticSchemaValidation,
 			ValidationIssues: []llm.StructuredOutputValidationIssue{{
-				FieldPath: "operations[0].requiredValuesJSON",
+				FieldPath: "operations[0].requiredValues.title",
 				Code:      llm.StructuredOutputValidationOther,
 			}},
 		},
@@ -388,7 +537,7 @@ func TestCompileOperationRequirementsCorrectsAuthoritativeStructuredOutputError(
 	languageModel := &operationContractLanguageModel{
 		contents: []string{
 			"",
-			`{"operations":[{"toolName":"task.add","requiredValuesJSON":"{\"title\":\"분기 결산 누락 확인\"}"}]}`,
+			`{"operations":[{"toolName":"task.add","requiredValues":{"title":"분기 결산 누락 확인"}}]}`,
 			`{"isComplete":true,"reason":""}`,
 		},
 		errorsByCall: map[int]error{0: correctionError},
@@ -409,7 +558,7 @@ func TestCompileOperationRequirementsCorrectsAuthoritativeStructuredOutputError(
 		t.Fatalf("expected failed generation, correction, and review calls, got %d", languageModel.calls)
 	}
 	correctionMessages := joinedMessageContent(languageModel.requests[1].Messages)
-	if !strings.Contains(correctionMessages, "schema_validation") || !strings.Contains(correctionMessages, "operations[0].requiredValuesJSON") {
+	if !strings.Contains(correctionMessages, "schema_validation") || !strings.Contains(correctionMessages, "operations[0].requiredValues.title") {
 		t.Fatalf("expected typed SDKD diagnostic in correction request, got %s", correctionMessages)
 	}
 	if string(contract.OperationContract.Requirements[0].RequiredInput) != `{"title":"분기 결산 누락 확인"}` {
@@ -419,8 +568,8 @@ func TestCompileOperationRequirementsCorrectsAuthoritativeStructuredOutputError(
 
 func TestCompileOperationRequirementsFailsClosedWhenCorrectionIsInvalid(t *testing.T) {
 	languageModel := &operationContractLanguageModel{contents: []string{
-		`{"operations":[{"toolName":"task.add","requiredValuesJSON":"{"}]}`,
-		`{"operations":[{"toolName":"task.add","requiredValuesJSON":"["}]}`,
+		`{"operations":[{"toolName":"task.add","requiredValues":{"title":3}}]}`,
+		`{"operations":[{"toolName":"task.add","requiredValues":{"title":false}}]}`,
 	}}
 
 	_, errorValue := compileOperationRequirements(
@@ -464,9 +613,9 @@ func TestCompileOperationRequirementsDoesNotRetryNonCorrectableError(t *testing.
 
 func TestCompileOperationRequirementsFailsAfterRejectedCorrection(t *testing.T) {
 	languageModel := &operationContractLanguageModel{contents: []string{
-		`{"operations":[{"toolName":"task.add","requiredValuesJSON":"{}"}]}`,
+		`{"operations":[{"toolName":"task.add","requiredValues":{}}]}`,
 		`{"isComplete":false,"reason":"missing explicit title"}`,
-		`{"operations":[{"toolName":"task.add","requiredValuesJSON":"{}"}]}`,
+		`{"operations":[{"toolName":"task.add","requiredValues":{}}]}`,
 		`{"isComplete":false,"reason":"still missing explicit title"}`,
 	}}
 
@@ -485,7 +634,7 @@ func TestCompileOperationRequirementsFailsAfterRejectedCorrection(t *testing.T) 
 
 func TestCompileOperationRequirementsPreservesRepeatedRequestedOperations(t *testing.T) {
 	languageModel := &operationContractLanguageModel{contents: []string{
-		`{"operations":[{"toolName":"task.add","requiredValuesJSON":"{\"title\":\"첫 번째 업무\"}"},{"toolName":"task.add","requiredValuesJSON":"{\"title\":\"두 번째 업무\"}"}]}`,
+		`{"operations":[{"toolName":"task.add","requiredValues":{"title":"첫 번째 업무"}},{"toolName":"task.add","requiredValues":{"title":"두 번째 업무"}}]}`,
 		`{"isComplete":true,"reason":""}`,
 	}}
 
@@ -640,6 +789,33 @@ func TestOperationRequirementsUseRecursiveSubsetAndExactLargeNumbers(t *testing.
 	observation.ToolInput = json.RawMessage(`{"details":{"owner":"Lee","team":"Support"},"sequence":9007199254740992}`)
 	if operationRequirementsSatisfied(&OperationContract{Version: operationContractVersion, Requirements: []OperationRequirement{requirement}}, []turnObservation{observation}) {
 		t.Fatal("expected a distinct large number to fail")
+	}
+}
+
+func TestOperationRequirementsMatchPartialArrayObjectsByPosition(t *testing.T) {
+	requirement := OperationRequirement{
+		RequirementID: "operation-1",
+		ToolID:        "kernel/file.edit",
+		ToolName:      "file.edit",
+		InputMode:     OperationInputContainsExplicit,
+		RequiredInput: json.RawMessage(`{"edits":[{"newText":"완료"}]}`),
+	}
+	contract := &OperationContract{Version: operationContractVersion, Requirements: []OperationRequirement{requirement}}
+	observation := successfulOperationObservation(`{"edits":[{"path":"memo/status.md","oldText":"진행 중","newText":"완료"}]}`)
+	observation.Tool = "file.edit"
+	observation.ToolID = "kernel/file.edit"
+
+	if !operationRequirementsSatisfied(contract, []turnObservation{observation}) {
+		t.Fatal("expected runtime-supplied edit mechanics to preserve the explicit replacement")
+	}
+	for _, mismatchedInput := range []json.RawMessage{
+		json.RawMessage(`{"edits":[{"path":"memo/status.md","oldText":"진행 중","newText":"보류"}]}`),
+		json.RawMessage(`{"edits":[{"path":"memo/status.md","oldText":"진행 중","newText":"완료"},{"path":"memo/other.md","oldText":"진행 중","newText":"완료"}]}`),
+	} {
+		observation.ToolInput = mismatchedInput
+		if operationRequirementsSatisfied(contract, []turnObservation{observation}) {
+			t.Fatalf("expected array value or length mismatch to fail: %s", mismatchedInput)
+		}
 	}
 }
 
