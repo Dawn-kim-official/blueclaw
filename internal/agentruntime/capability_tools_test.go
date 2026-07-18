@@ -224,36 +224,24 @@ func TestCapabilityToolRequestIncludesTrustedExecutionContext(t *testing.T) {
 	}
 }
 
-func TestImageReadResolvesAttachmentMaterialID(t *testing.T) {
+func TestImageReadUsesExactPathInput(t *testing.T) {
 	workspacePath := t.TempDir()
 	imagePath := filepath.Join(workspacePath, "circles", "staff", "inbox", "mattermost", "thread-1", "post-1", "mascot.png")
 	writeTestFile(t, imagePath, "image")
-	httpClient := &recordingHTTPClient{responseBody: `{"content":"image loaded","status":"ok","result":{"status":"ok"}}`}
+	httpClient := &recordingHTTPClient{responseBody: `{"provider":"internkim","selectedBackend":"device","toolName":"image.read","outcome":"succeeded","status":"ok","result":{"status":"ok","path":"/workspace/circles/staff/inbox/mattermost/thread-1/post-1/mascot.png","attachments":[{"devicePath":"/workspace/circles/staff/inbox/mattermost/thread-1/post-1/mascot.png","filename":"mascot.png","contentType":"image/png","sizeBytes":5,"contentBase64":"aW1hZ2U="}]}}`}
 	toolCatalogBuilder := newFileToolTestCatalogBuilder(workspacePath)
-	toolCatalogBuilder.UseTestCapabilityToolDescriptors(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, []CapabilityToolDescriptor{{
-		Name:           "image.read",
-		PolicyResource: "tool:image.read",
-		InputSchema:    json.RawMessage(`{"type":"object","properties":{"materialID":{"type":"string"},"path":{"type":"string"}}}`),
-	}})
+	toolCatalogBuilder.UseTestCapabilityToolDescriptors(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, []CapabilityToolDescriptor{canonicalReadDescriptor("image.read")})
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
 		ProfileName: "default",
 		PersonAccess: policy.PersonAccess{
 			PersonID: "person-1",
 			Circles:  []string{"staff"},
 		},
-		AttachmentMaterialResolver: staticAttachmentMaterialResolver{
-			material: agent.VisibleContextMaterial{
-				MaterialID:  "mattermost:file-1",
-				Filename:    "mascot.png",
-				ContentType: "image/png",
-				Path:        "/workspace/circles/staff/inbox/mattermost/thread-1/post-1/mascot.png",
-			},
-		},
 	})
 
 	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
 		ToolName: "image.read",
-		Input:    agent.MarshalToolInput(map[string]string{"materialID": "mattermost:file-1"}),
+		Input:    agent.MarshalToolInput(map[string]string{"path": "/workspace/circles/staff/inbox/mattermost/thread-1/post-1/mascot.png"}),
 	})
 
 	if errorValue != nil {
@@ -262,47 +250,170 @@ func TestImageReadResolvesAttachmentMaterialID(t *testing.T) {
 	if result.Failed() {
 		t.Fatalf("expected image.read success, got %s", result.ContentText())
 	}
-	if strings.Contains(httpClient.requestBody, "materialID") {
-		t.Fatalf("expected materialID to be resolved before capability call, got %s", httpClient.requestBody)
-	}
 	if !strings.Contains(httpClient.requestBody, `/workspace/circles/staff/inbox/mattermost/thread-1/post-1/mascot.png`) {
-		t.Fatalf("expected capability request to use material path, got %s", httpClient.requestBody)
+		t.Fatalf("expected capability request to use exact path, got %s", httpClient.requestBody)
 	}
 }
 
-func TestDocumentReadRejectsImageMaterialID(t *testing.T) {
+func TestCanonicalReadRejectsMaterialIDInput(t *testing.T) {
 	toolCatalogBuilder := newFileToolTestCatalogBuilder(t.TempDir())
-	toolCatalogBuilder.UseTestCapabilityToolDescriptors(capability.Client{}, []CapabilityToolDescriptor{{
-		Name:           "document.read",
-		PolicyResource: "tool:document.read",
-		InputSchema:    json.RawMessage(`{"type":"object","properties":{"materialID":{"type":"string"},"path":{"type":"string"}}}`),
-	}})
+	toolCatalogBuilder.UseTestCapabilityToolDescriptors(capability.Client{}, []CapabilityToolDescriptor{
+		canonicalReadDescriptor("document.read"),
+		canonicalReadDescriptor("image.read"),
+	})
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
 		ProfileName: "default",
 		PersonAccess: policy.PersonAccess{
 			PersonID: "person-1",
 			Circles:  []string{"staff"},
 		},
-		AttachmentMaterialResolver: staticAttachmentMaterialResolver{
-			material: agent.VisibleContextMaterial{
-				MaterialID:  "mattermost:file-1",
-				Filename:    "mascot.png",
-				ContentType: "image/png",
-				Path:        "/workspace/circles/staff/mascot.png",
-			},
-		},
 	})
 
-	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
-		ToolName: "document.read",
-		Input:    agent.MarshalToolInput(map[string]string{"materialID": "mattermost:file-1"}),
+	for _, toolName := range []string{"document.read", "image.read"} {
+		t.Run(toolName, func(t *testing.T) {
+			result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+				ToolName: toolName,
+				Input:    agent.MarshalToolInput(map[string]string{"materialID": "mattermost:file-1"}),
+			})
+			if errorValue != nil {
+				t.Fatal(errorValue)
+			}
+			if !result.Failed() || result.FailureStage() != "capability_input" {
+				t.Fatalf("expected %s materialID rejection, got %+v", toolName, result)
+			}
+		})
+	}
+}
+
+func TestCanonicalReadDescriptorsExposePathOnlyInputAndResultContract(t *testing.T) {
+	toolCatalogBuilder := NewToolCatalogBuilder()
+	toolCatalogBuilder.UseTestCapabilityToolDescriptors(capability.Client{}, []CapabilityToolDescriptor{
+		canonicalReadDescriptor("document.read"),
+		canonicalReadDescriptor("image.read"),
 	})
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"document.read", "image.read"})
+	toolSet := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
+	actionSchema := toolSet.ActionSchema(false, nil, false)
+	if strings.Contains(actionSchema, "materialID") || !strings.Contains(actionSchema, "path") {
+		t.Fatalf("expected model action schema to expose exact path-only input, got %s", actionSchema)
+	}
+
+	for _, toolName := range []string{"document.read", "image.read"} {
+		t.Run(toolName, func(t *testing.T) {
+			descriptor, isFound := toolSet.ToolDefinition(toolName)
+			if !isFound {
+				t.Fatal("expected canonical read descriptor")
+			}
+			var inputSchema struct {
+				Properties map[string]json.RawMessage `json:"properties"`
+				Required   []string                   `json:"required"`
+			}
+			if errorValue := json.Unmarshal(descriptor.InputSchema, &inputSchema); errorValue != nil {
+				t.Fatal(errorValue)
+			}
+			if _, isMaterialID := inputSchema.Properties["materialID"]; isMaterialID {
+				t.Fatal("canonical read input must not expose materialID")
+			}
+			if len(inputSchema.Required) != 1 || inputSchema.Required[0] != "path" {
+				t.Fatalf("expected path-only required input, got %+v", inputSchema.Required)
+			}
+			if descriptor.ResultContract == nil || len(descriptor.ResultContract.Effects) != 0 {
+				t.Fatalf("expected canonical read result contract without effects, got %+v", descriptor.ResultContract)
+			}
+		})
+	}
+}
+
+func TestCanonicalReadRejectsIdentityAndResultSchemaDrift(t *testing.T) {
+	tests := []struct {
+		name         string
+		responseBody string
+		failureStage string
+	}{
+		{
+			name:         "missing provider",
+			responseBody: `{"provider":"","selectedBackend":"device","toolName":"document.read","outcome":"succeeded","status":"ok","result":{"status":"ok","path":"/workspace/report.md","format":"markdown","content":"report","warnings":[],"truncated":false}}`,
+			failureStage: "capability_result_identity",
+		},
+		{
+			name:         "missing backend",
+			responseBody: `{"provider":"internkim","selectedBackend":"","toolName":"document.read","outcome":"succeeded","status":"ok","result":{"status":"ok","path":"/workspace/report.md","format":"markdown","content":"report","warnings":[],"truncated":false}}`,
+			failureStage: "capability_result_identity",
+		},
+		{
+			name:         "wrong tool",
+			responseBody: `{"provider":"internkim","selectedBackend":"device","toolName":"image.read","outcome":"succeeded","status":"ok","result":{"status":"ok","path":"/workspace/report.md","format":"markdown","content":"report","warnings":[],"truncated":false}}`,
+			failureStage: "capability_result_identity",
+		},
+		{
+			name:         "wrong outcome",
+			responseBody: `{"provider":"internkim","selectedBackend":"device","toolName":"document.read","outcome":"failed","status":"ok","result":{"status":"ok","path":"/workspace/report.md","format":"markdown","content":"report","warnings":[],"truncated":false}}`,
+			failureStage: "capability_result_identity",
+		},
+		{
+			name:         "missing result field",
+			responseBody: `{"provider":"internkim","selectedBackend":"device","toolName":"document.read","outcome":"succeeded","status":"ok","result":{"status":"ok","path":"/workspace/report.md","format":"markdown","content":"report","warnings":[]}}`,
+			failureStage: "tool_result_contract",
+		},
+	}
+
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			httpClient := &recordingHTTPClient{responseBody: testCase.responseBody}
+			toolCatalogBuilder := NewToolCatalogBuilder()
+			toolCatalogBuilder.UseTestCapabilityToolDescriptors(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, []CapabilityToolDescriptor{canonicalReadDescriptor("document.read")})
+			toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"document.read"})
+			toolSet := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
+
+			result, errorValue := toolSet.Invoke(context.Background(), agent.ToolInvocation{ToolName: "document.read", Input: json.RawMessage(`{"path":"/workspace/report.md"}`)})
+
+			if errorValue != nil {
+				t.Fatal(errorValue)
+			}
+			if !result.Failed() || result.FailureStage() != testCase.failureStage {
+				t.Fatalf("expected %s, got %+v", testCase.failureStage, result)
+			}
+		})
+	}
+}
+
+func TestCanonicalReadRejectsEffects(t *testing.T) {
+	httpClient := &recordingHTTPClient{responseBody: `{"provider":"internkim","selectedBackend":"device","toolName":"document.read","outcome":"succeeded","status":"ok","result":{"status":"ok","path":"/workspace/report.md","format":"markdown","content":"report","warnings":[],"truncated":false},"effects":[{"objectType":"file","effect":"read","path":"/workspace/report.md"}]}`}
+	toolCatalogBuilder := NewToolCatalogBuilder()
+	toolCatalogBuilder.UseTestCapabilityToolDescriptors(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, []CapabilityToolDescriptor{canonicalReadDescriptor("document.read")})
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"document.read"})
+	toolSet := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
+
+	result, errorValue := toolSet.Invoke(context.Background(), agent.ToolInvocation{ToolName: "document.read", Input: json.RawMessage(`{"path":"/workspace/report.md"}`)})
 
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
-	if !result.Failed() || !strings.Contains(result.ContentText(), "use image.read") {
-		t.Fatalf("expected document.read material type error, got %s", result.ContentText())
+	if !result.Failed() || result.FailureStage() != "tool_result_contract" {
+		t.Fatalf("expected read effects rejection, got %+v", result)
+	}
+}
+
+func canonicalReadDescriptor(toolName string) CapabilityToolDescriptor {
+	resultSchema := `{"type":"object","additionalProperties":false,"properties":{"status":{"const":"ok","type":"string"},"path":{"minLength":1,"type":"string"},"format":{"const":"markdown","type":"string"},"content":{"type":"string"},"warnings":{"type":"array","items":{"type":"string"}},"truncated":{"type":"boolean"}},"required":["status","path","format","content","warnings","truncated"]}`
+	inputSchema := `{"type":"object","additionalProperties":false,"properties":{"path":{"minLength":1,"type":"string"}},"required":["path"]}`
+	if toolName == "image.read" {
+		resultSchema = `{"type":"object","additionalProperties":false,"properties":{"status":{"const":"ok","type":"string"},"path":{"minLength":1,"type":"string"},"attachments":{"type":"array","minItems":1,"items":{"type":"object","additionalProperties":false,"properties":{"devicePath":{"minLength":1,"type":"string"},"filename":{"minLength":1,"type":"string"},"contentType":{"minLength":1,"type":"string"},"sizeBytes":{"type":"integer","minimum":0},"contentBase64":{"minLength":1,"type":"string"}},"required":["devicePath","filename","contentType","sizeBytes","contentBase64"]}}},"required":["status","path","attachments"]}`
+	}
+	return CapabilityToolDescriptor{
+		Name:            toolName,
+		CanonicalName:   toolName,
+		Namespace:       strings.SplitN(toolName, ".", 2)[0],
+		ModelName:       toolName,
+		ModelVisibility: agent.ToolVisibilityModel,
+		Description:     "Canonical read test descriptor.",
+		PrivacyClass:    "workspace_document",
+		InputSchema:     json.RawMessage(inputSchema),
+		OutputSchema:    json.RawMessage(`{"type":"object","additionalProperties":false}`),
+		ResultContract:  &CapabilityToolResultContract{Schema: json.RawMessage(resultSchema)},
+		PolicyResource:  "tool:" + toolName,
+		SideEffectClass: "read",
+		Availability:    CapabilityAvailability{State: "ok"},
 	}
 }
 

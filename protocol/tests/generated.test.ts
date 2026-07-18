@@ -17,6 +17,8 @@ describe('protocol artifacts', () => {
       'calendar.list',
       'calendar.update',
       'calendar.delete',
+      'document.read',
+      'image.read',
     ]);
     expect(manifest.schemas.map(({ name }: { name: string }) => name)).toEqual(Object.keys(protocolSchemas).sort());
     expect(manifest.schemas.map(({ name }: { name: string }) => name)).toEqual(

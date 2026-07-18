@@ -44,6 +44,29 @@ func TestCapabilityToolProviderRegistersCanonicalDescriptor(t *testing.T) {
 	}
 }
 
+func TestCapabilityToolProviderPreservesCanonicalReadResultContract(t *testing.T) {
+	provider := capabilityToolProvider{
+		toolCatalogBuilder: NewToolCatalogBuilder(),
+		request:            ToolCatalogRequest{},
+		descriptors:        []CapabilityToolDescriptor{canonicalReadDescriptor("document.read")},
+	}
+	toolSet := agent.NewToolSet([]string{"document.read"})
+
+	if errorValue := toolSet.RegisterProvider(context.Background(), provider); errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	descriptor, isFound := toolSet.ToolDefinition("document.read")
+	if !isFound || descriptor.ResultContract == nil {
+		t.Fatalf("expected canonical read result contract, found=%v descriptor=%+v", isFound, descriptor)
+	}
+	if len(descriptor.ResultContract.Effects) != 0 {
+		t.Fatalf("expected read result contract to prohibit effects, got %+v", descriptor.ResultContract.Effects)
+	}
+	if !strings.Contains(string(descriptor.ResultContract.Schema), `"format"`) || !strings.Contains(string(descriptor.ResultContract.Schema), `"truncated"`) {
+		t.Fatalf("expected document result schema to survive provider binding, got %s", descriptor.ResultContract.Schema)
+	}
+}
+
 func TestCapabilityToolProviderRejectsIncompleteDescriptor(t *testing.T) {
 	provider := capabilityToolProvider{
 		toolCatalogBuilder: NewToolCatalogBuilder(),
