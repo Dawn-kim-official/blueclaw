@@ -435,7 +435,62 @@ func TestFirstPendingOperationToolNameRequiresDistinctObservations(t *testing.T)
 	}
 }
 
-func TestDecideAgentActionNativeChatStopsAfterOneCorrectionRetry(t *testing.T) {
+func TestDecideAgentActionNativeChatSucceedsAfterTwoCorrections(t *testing.T) {
+	finishReasonError := testStructuredOutputCorrectionError{correction: llm.StructuredOutputCorrection{
+		Code: "structured_output_invalid",
+		Diagnostic: llm.StructuredOutputDiagnostic{
+			Category:     llm.StructuredOutputDiagnosticFinishReason,
+			FinishReason: llm.StructuredOutputDiagnosticFinishStop,
+		},
+	}}
+	schemaValidationError := testStructuredOutputCorrectionError{correction: llm.StructuredOutputCorrection{
+		Code: "provider_response_invalid",
+		Diagnostic: llm.StructuredOutputDiagnostic{
+			Category: llm.StructuredOutputDiagnosticSchemaValidation,
+			ToolName: "file.write",
+			ValidationIssues: []llm.StructuredOutputValidationIssue{
+				{FieldPath: "/content_type", Code: llm.StructuredOutputValidationAdditionalProperty},
+				{FieldPath: "/summary", Code: llm.StructuredOutputValidationAdditionalProperty},
+			},
+			RepairStatus: llm.StructuredOutputRepairFailed,
+		},
+	}}
+	provider := nativeAgentActionLanguageModel{
+		chatErrors: []error{finishReasonError, schemaValidationError, nil},
+		chatResponses: []llm.ChatCompletionResponse{
+			{},
+			{},
+			nativeAgentActionChatResponse("file.write", `{}`),
+		},
+	}
+
+	action, errorValue := DecideAgentAction(context.Background(), &provider, nativeAgentActionContractState())
+
+	if errorValue != nil {
+		t.Fatalf("expected corrected native action: %v", errorValue)
+	}
+	if action.Action != "continue" || action.ToolName != "file.write" {
+		t.Fatalf("expected corrected file.write action, got %+v", action)
+	}
+	if provider.chatCalls != 3 || provider.structuredCalls != 0 {
+		t.Fatalf("expected three native calls without structured fallback, got chat=%d structured=%d", provider.chatCalls, provider.structuredCalls)
+	}
+	for requestIndex := 1; requestIndex < len(provider.chatRequests); requestIndex++ {
+		request := provider.chatRequests[requestIndex]
+		if len(request.Tools) != 1 || request.Tools[0].Function.Name != "file.write" {
+			t.Fatalf("expected retry %d to stay on exact file.write, got %+v", requestIndex, request.Tools)
+		}
+		if string(request.ToolChoice) != `{"type":"function","function":{"name":"file.write"}}` {
+			t.Fatalf("expected retry %d named tool choice, got %s", requestIndex, request.ToolChoice)
+		}
+	}
+	lastMessage := provider.chatRequests[2].Messages[len(provider.chatRequests[2].Messages)-1].Content
+	if !strings.Contains(lastMessage, "/content_type (additional_property)") || !strings.Contains(lastMessage, "/summary (additional_property)") {
+		t.Fatalf("expected exact schema correction fields, got %s", lastMessage)
+	}
+}
+
+func TestDecideAgentActionNativeChatStopsAfterTwoCorrections(t *testing.T) {
 	correctionError := testStructuredOutputCorrectionError{correction: llm.StructuredOutputCorrection{
 		Code: "provider_response_invalid",
 		Diagnostic: llm.StructuredOutputDiagnostic{
@@ -443,13 +498,39 @@ func TestDecideAgentActionNativeChatStopsAfterOneCorrectionRetry(t *testing.T) {
 			ToolName: "terminal.run",
 		},
 	}}
-	provider := nativeAgentActionLanguageModel{chatErrors: []error{correctionError, correctionError}}
+	finalError := testStructuredOutputCorrectionError{correction: llm.StructuredOutputCorrection{
+		Code:       "third_invalid",
+		Diagnostic: llm.StructuredOutputDiagnostic{Category: llm.StructuredOutputDiagnosticToolCallContract, ToolName: "terminal.run"},
+	}}
+	provider := nativeAgentActionLanguageModel{chatErrors: []error{correctionError, correctionError, finalError}}
+
 	_, errorValue := DecideAgentAction(context.Background(), &provider, nativeAgentActionTestState())
-	if errorValue == nil {
-		t.Fatal("expected repeated invalid output error")
+
+	if errorValue == nil || errorValue.Error() != finalError.Error() {
+		t.Fatalf("expected third invalid response to fail closed, got %v", errorValue)
+	}
+	if provider.chatCalls != 3 || provider.structuredCalls != 0 {
+		t.Fatalf("expected exactly three native calls without structured fallback, got chat=%d structured=%d", provider.chatCalls, provider.structuredCalls)
+	}
+}
+
+func TestDecideAgentActionNativeChatStopsCorrectionLoopOnCancellation(t *testing.T) {
+	correctionError := testStructuredOutputCorrectionError{correction: llm.StructuredOutputCorrection{
+		Code: "provider_response_invalid",
+		Diagnostic: llm.StructuredOutputDiagnostic{
+			Category: llm.StructuredOutputDiagnosticToolCallContract,
+			ToolName: TerminalRunToolName,
+		},
+	}}
+	provider := nativeAgentActionLanguageModel{chatErrors: []error{correctionError, context.Canceled, nil}}
+
+	_, errorValue := DecideAgentAction(context.Background(), &provider, nativeAgentActionTestState())
+
+	if !errors.Is(errorValue, context.Canceled) {
+		t.Fatalf("expected cancellation, got %v", errorValue)
 	}
 	if provider.chatCalls != 2 || provider.structuredCalls != 0 {
-		t.Fatalf("expected exactly two native calls without structured fallback, got chat=%d structured=%d", provider.chatCalls, provider.structuredCalls)
+		t.Fatalf("expected cancellation to stop corrections immediately, got chat=%d structured=%d", provider.chatCalls, provider.structuredCalls)
 	}
 }
 

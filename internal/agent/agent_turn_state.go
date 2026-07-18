@@ -14,6 +14,7 @@ import (
 )
 
 const defaultAgentActionMaxTokens = 4096
+const maximumAgentActionCorrectionCount = 2
 
 type agentAction = turnActionDocument
 
@@ -635,26 +636,28 @@ func DecideAgentAction(ctx context.Context, languageModel llm.LanguageModelProvi
 }
 
 func decideAgentActionWithChat(ctx context.Context, chatCompleter llm.ChatCompleter, request llm.ChatCompletionRequest, state agentTaskState) (agentAction, error) {
-	response, errorValue := chatCompleter.GenerateChatCompletion(ctx, request)
-	if errorValue == nil {
-		return parseNativeAgentActionResponse(response, request.Tools)
+	currentRequest := request
+	for correctionCount := 0; ; correctionCount++ {
+		response, errorValue := chatCompleter.GenerateChatCompletion(ctx, currentRequest)
+		if errorValue == nil {
+			return parseNativeAgentActionResponse(response, currentRequest.Tools)
+		}
+		if errors.Is(errorValue, context.Canceled) || errors.Is(errorValue, context.DeadlineExceeded) || ctx.Err() != nil {
+			return turnActionDocument{}, errorValue
+		}
+		if correctionCount >= maximumAgentActionCorrectionCount {
+			return turnActionDocument{}, errorValue
+		}
+		correction, isCorrectable := llm.StructuredOutputCorrectionFromError(errorValue)
+		if !isCorrectable {
+			return turnActionDocument{}, errorValue
+		}
+		retryRequest, canRetry := retryAgentActionChatCompletionRequest(currentRequest, correction, state)
+		if !canRetry {
+			return turnActionDocument{}, errorValue
+		}
+		currentRequest = retryRequest
 	}
-	if errors.Is(errorValue, context.Canceled) || errors.Is(errorValue, context.DeadlineExceeded) || ctx.Err() != nil {
-		return turnActionDocument{}, errorValue
-	}
-	correction, isCorrectable := llm.StructuredOutputCorrectionFromError(errorValue)
-	if !isCorrectable {
-		return turnActionDocument{}, errorValue
-	}
-	retryRequest, canRetry := retryAgentActionChatCompletionRequest(request, correction, state)
-	if !canRetry {
-		return turnActionDocument{}, errorValue
-	}
-	retryResponse, retryError := chatCompleter.GenerateChatCompletion(ctx, retryRequest)
-	if retryError != nil {
-		return turnActionDocument{}, retryError
-	}
-	return parseNativeAgentActionResponse(retryResponse, retryRequest.Tools)
 }
 
 func retryAgentActionChatCompletionRequest(request llm.ChatCompletionRequest, correction llm.StructuredOutputCorrection, state agentTaskState) (llm.ChatCompletionRequest, bool) {
