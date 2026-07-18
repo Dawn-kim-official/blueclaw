@@ -92,12 +92,6 @@ func factsFromObservation(toolSet *ToolSet, observation turnObservation) []Obser
 		return toolObjectFact(observation, "task", "updated")
 	case "task.delete":
 		return toolObjectFact(observation, "task", "deleted")
-	case "schedule.create":
-		return toolObjectFact(observation, "schedule", "created")
-	case "schedule.update":
-		return toolObjectFact(observation, "schedule", "updated")
-	case "schedule.cancel":
-		return toolObjectFact(observation, "schedule", "deleted")
 	case "site.publish":
 		return siteObservationFacts(observation, "published")
 	case "site.create":

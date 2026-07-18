@@ -15,6 +15,11 @@ import (
 const mathExpressionMaximumLength = 1024
 const mathExpressionMaximumDepth = 32
 
+var (
+	mathCalculateInputSchema  = json.RawMessage(`{"type":"object","properties":{"expression":{"type":"string","minLength":1,"maxLength":1024,"pattern":"\\S"}},"required":["expression"],"additionalProperties":false}`)
+	mathCalculateResultSchema = json.RawMessage(`{"type":"object","properties":{"expression":{"type":"string","minLength":1,"pattern":"\\S"},"result":{"type":"string","minLength":1,"pattern":"\\S"}},"required":["expression","result"],"additionalProperties":false}`)
+)
+
 func (toolCatalogBuilder *ToolCatalogBuilder) calculateMathTool(toolContext context.Context, input mathCalculateToolInput) (agent.ToolResult, error) {
 	expression, errorValue := normalizeMathExpression(input.Expression)
 	if errorValue != nil {
@@ -24,10 +29,11 @@ func (toolCatalogBuilder *ToolCatalogBuilder) calculateMathTool(toolContext cont
 	if errorValue != nil {
 		return mathCalculateError(errorValue.Error(), "bc_execution"), nil
 	}
-	return agent.ToolSuccess(marshalToolResult(map[string]string{
+	resultDocument := json.RawMessage(marshalToolResult(map[string]string{
 		"expression": strings.TrimSpace(input.Expression),
 		"result":     result,
-	})), nil
+	}))
+	return agent.ToolSuccessData(string(resultDocument), resultDocument), nil
 }
 
 func normalizeMathExpression(expression string) (string, error) {
@@ -124,7 +130,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerMathTool(toolRegistry *age
 		Definition: agent.ToolDefinition{
 			Name:        "math.calculate",
 			Description: "Evaluate a safe arithmetic expression using bc. Supports numbers, parentheses, +, -, *, /, %, ^, and **.",
-			InputSchema: json.RawMessage(`{"type":"object","properties":{"expression":{"type":"string"}},"required":["expression"]}`),
+			InputSchema: mathCalculateInputSchema,
 		},
 		Handler: toolCatalogBuilder.calculateMathTool,
 		Result:  agent.IdentityToolResult,
