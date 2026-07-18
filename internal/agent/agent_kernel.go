@@ -432,7 +432,7 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 		TaskLevel:                  intakeDecision.TaskLevel,
 		EstimatedMinutes:           intakeDecision.EstimatedMinutes,
 		TurnStartedAt:              request.TurnStartedAt,
-		EffortStartedAt:            time.Now(),
+		EffortStartedAt:            request.TurnStartedAt,
 		CheckpointSender:           request.CheckpointSender,
 	}
 	turnOptions := agentKernel.turnOptionsForIntakeDecision(intakeDecision)

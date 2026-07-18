@@ -6,6 +6,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"blueclaw/internal/llm"
 	"blueclaw/internal/task"
@@ -1186,6 +1187,40 @@ func TestHumanEstimateDoesNotShrinkTaskWorkDuration(t *testing.T) {
 
 	if shortEstimate.MaxElapsedSecond != expectedSeconds || longEstimate.MaxElapsedSecond != expectedSeconds {
 		t.Fatalf("expected low work duration %d regardless of human estimate, got short=%d long=%d", expectedSeconds, shortEstimate.MaxElapsedSecond, longEstimate.MaxElapsedSecond)
+	}
+}
+
+func TestAgentKernelCountsIntakeTimeTowardTaskWorkDuration(t *testing.T) {
+	agentKernel, taskRunService := newKernelTestServices()
+	languageModel := &sequenceLanguageModel{contents: []string{finishMessageDocument("diagnostic done")}}
+	agentKernel.UseLanguageModelProvider(languageModel)
+	precomputedDecision := TurnDecision{
+		Route:              TurnRouteStartTask,
+		Classification:     IntakeClassificationQuickReply,
+		TaskShape:          TaskShapeImmediateReply,
+		TaskLevel:          TaskLevelLow,
+		PriorTaskReference: PriorTaskReferenceNone,
+	}
+	request := kernelTestRequest("진단해줘")
+	request.PrecomputedTurnDecision = &precomputedDecision
+	request.IsPrecomputedDecisionExact = true
+	request.SkipSkillSelection = true
+	request.ToolSet = newTestToolSet(nil)
+	request.TurnStartedAt = time.Now().Add(-TaskLevelProfileForLevel(TaskLevelLow).Duration - time.Second)
+
+	result, errorValue := agentKernel.RunAgentRequest(context.Background(), request)
+
+	if errorValue != nil {
+		t.Fatalf("expected elapsed task result: %v", errorValue)
+	}
+	if result.TaskRun.Status != task.TaskStatusBlocked || result.TaskRun.FailureReason != "max_elapsed" {
+		t.Fatalf("expected intake time to exhaust the task budget, got %+v", result.TaskRun)
+	}
+	if len(languageModel.requests) != 0 {
+		t.Fatalf("expected no task action after elapsed intake, got %d requests", len(languageModel.requests))
+	}
+	if !taskEventsContain(taskRunService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.limit_stop", "max_elapsed") {
+		t.Fatal("expected persisted max_elapsed event")
 	}
 }
 
