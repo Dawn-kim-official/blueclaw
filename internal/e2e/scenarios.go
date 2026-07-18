@@ -1330,8 +1330,8 @@ func presentationSkill() agent.SkillInstruction {
 	return agent.SkillInstruction{
 		Name:           "presentation",
 		Description:    "Create local presentation decks, 피피티, 파워포인트, 발표자료, PPTX, PDF, HTML, and notes attachments.",
-		Prompt:         "Write Stitch-compatible DESIGN.md and Marp presentation.md directly under tmp/<deck-slug> from the user request. Treat presentation.md as the deck source of truth and iterate on it when needed. Use Paperlogy/Freesentation/Pretendard/Noto Sans KR font guidance, choose layouts from the content intent, include design-source: DESIGN.md, run NAME=<deck-slug> /workspace/skills/presentation/scripts/build.sh with workingDirectoryPath tmp/<deck-slug> for a full deck or FORMATS=html NAME=<deck-slug> /workspace/skills/presentation/scripts/build.sh for html-only requests, promote build outputs with file.promote, then file.attach only promoted generated files. Do not use Google Workspace unless a google tool is explicitly available.",
-		ToolReferences: []string{"file.write", "terminal.run", "file.promote", "file.attach"},
+		Prompt:         "Write Stitch-compatible DESIGN.md and Marp presentation.md directly under artifacts/<deck-slug> from the user request. Treat presentation.md as the deck source of truth and iterate on it when needed. Use Paperlogy/Freesentation/Pretendard/Noto Sans KR font guidance, choose layouts from the content intent, include design-source: DESIGN.md, run NAME=<deck-slug> /workspace/skills/presentation/scripts/build.sh with workingDirectoryPath artifacts/<deck-slug> for a full deck or FORMATS=html NAME=<deck-slug> /workspace/skills/presentation/scripts/build.sh for html-only requests, then deliver generated files with file.deliver. Do not use Google Workspace unless a google tool is explicitly available.",
+		ToolReferences: []string{"file.write", "file.edit", "terminal.run", "file.deliver"},
 		Source: agent.InstructionSource{
 			Path:      "skills/presentation/SKILL.md",
 			SkillName: "presentation",

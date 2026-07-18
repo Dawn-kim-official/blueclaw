@@ -4,6 +4,10 @@ import "strings"
 
 type SkillSelector struct{}
 
+func (skillSelector SkillSelector) IsAvailable(skillInstruction SkillInstruction, request AgentRequest) bool {
+	return len(missingToolReferences(skillInstruction, request)) == 0
+}
+
 func (skillSelector SkillSelector) ShouldInclude(skillInstruction SkillInstruction, request AgentRequest) bool {
 	decision := skillSelector.Evaluate(skillInstruction, request, "default")
 	return decision.Status == "selected"

@@ -32,19 +32,6 @@ type SkillSearchQuerySet struct {
 	Queries []SkillSearchQuery `json:"queries"`
 }
 
-type SkillSearchResult struct {
-	Skills []SkillSearchResultItem `json:"skills"`
-}
-
-type SkillSearchResultItem struct {
-	Name           string   `json:"name"`
-	Description    string   `json:"description"`
-	Prompt         string   `json:"prompt,omitempty"`
-	Score          float64  `json:"score"`
-	ToolReferences []string `json:"toolReferences"`
-	SourcePath     string   `json:"sourcePath,omitempty"`
-}
-
 type SkillRetrievalResult struct {
 	RetrievalMode      string
 	IndexStatus        string
