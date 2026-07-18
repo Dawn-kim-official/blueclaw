@@ -28,6 +28,11 @@ func (errorValue sdkdHTTPError) Error() string {
 	return errorValue.Message
 }
 
+type structuredOutputCorrectionError interface {
+	error
+	StructuredOutputCorrection() (StructuredOutputCorrection, bool)
+}
+
 type StructuredOutputDiagnosticCategory string
 
 type StructuredOutputFinishReason string
@@ -77,6 +82,51 @@ type StructuredOutputDiagnostic struct {
 	ToolName         string
 	ValidationIssues []StructuredOutputValidationIssue
 	RepairStatus     StructuredOutputRepairStatus
+}
+
+type StructuredOutputCorrection struct {
+	Code       string
+	Diagnostic StructuredOutputDiagnostic
+}
+
+func (errorValue sdkdHTTPError) StructuredOutputCorrection() (StructuredOutputCorrection, bool) {
+	if errorValue.AllowLegacyFallback {
+		return StructuredOutputCorrection{}, false
+	}
+	return StructuredOutputCorrection{Code: errorValue.Code, Diagnostic: errorValue.Diagnostic}, true
+}
+
+func StructuredOutputCorrectionFromError(errorValue error) (StructuredOutputCorrection, bool) {
+	var correctionError structuredOutputCorrectionError
+	if !errors.As(errorValue, &correctionError) {
+		return StructuredOutputCorrection{}, false
+	}
+	correction, isCorrectable := correctionError.StructuredOutputCorrection()
+	if !isCorrectable || !isCorrectableStructuredOutputCode(correction.Code) || !isCorrectableStructuredOutputCategory(correction.Diagnostic.Category) {
+		return StructuredOutputCorrection{}, false
+	}
+	return correction, true
+}
+
+func isCorrectableStructuredOutputCode(code string) bool {
+	switch strings.TrimSpace(code) {
+	case "provider_response_invalid", "structured_output_invalid":
+		return true
+	default:
+		return false
+	}
+}
+
+func isCorrectableStructuredOutputCategory(category StructuredOutputDiagnosticCategory) bool {
+	switch category {
+	case StructuredOutputDiagnosticJSONParse,
+		StructuredOutputDiagnosticSchemaValidation,
+		StructuredOutputDiagnosticFinishReason,
+		StructuredOutputDiagnosticToolCallContract:
+		return true
+	default:
+		return false
+	}
 }
 
 func StructuredOutputDiagnosticFromError(errorValue error) (StructuredOutputDiagnostic, bool) {

@@ -338,6 +338,7 @@ async function repairInvalidToolCall({ inputSchema, error, ...repairRequest }: T
     const schemaDocument = await inputSchema({ toolName: repairRequest.toolName });
     return repairToolCall({
       ...repairRequest,
+      tools: repairToolSet(repairRequest.tools, repairRequest.toolName),
       inputSchema: createClosedJSONSchema(schemaDocument),
       validationCategory: diagnoseInvalidToolCall(error).category,
       validationFailure: validationFailureMessage(error),
@@ -381,7 +382,7 @@ function repairMessages(repairRequest: ToolRepairRequest): ModelMessage[] {
         type: 'tool-call',
         toolCallId: repairRequest.toolCall.toolCallId,
         toolName: repairRequest.toolName,
-        input: repairRequest.toolCall.input,
+        input: repairToolCallInput(repairRequest.toolCall.input),
       }],
     },
     {
@@ -393,6 +394,7 @@ function repairMessages(repairRequest: ToolRepairRequest): ModelMessage[] {
         output: {
           type: 'error-text',
           value: [
+            `Malformed arguments: ${repairRequest.toolCall.input}`,
             `Closed JSON schema: ${JSON.stringify(repairRequest.inputSchema)}`,
             `Validation category: ${repairRequest.validationCategory}`,
             `Validation failure: ${repairRequest.validationFailure}`,
@@ -401,6 +403,17 @@ function repairMessages(repairRequest: ToolRepairRequest): ModelMessage[] {
       }],
     },
   ];
+}
+
+function repairToolSet(tools: DynamicToolSet, toolName: string): DynamicToolSet {
+  const tool = tools[toolName];
+  if (tool === undefined) return {};
+  return { [toolName]: tool };
+}
+
+function repairToolCallInput(input: string): JSONValue {
+  const parsedInput = parseJSONValue(input);
+  return isJSONValue(parsedInput) ? parsedInput : {};
 }
 
 function validationFailureMessage(errorValue: unknown): string {
