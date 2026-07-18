@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"log/slog"
 	"net"
 	"net/http"
@@ -11,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"blueclaw/internal/adminapi"
@@ -28,6 +30,7 @@ import (
 	"blueclaw/internal/mcp"
 	"blueclaw/internal/memory"
 	"blueclaw/internal/policy"
+	"blueclaw/internal/protocolidentity"
 	runtimelogging "blueclaw/internal/runtime"
 	"blueclaw/internal/runtimecontrol"
 	"blueclaw/internal/scheduler"
@@ -65,6 +68,12 @@ type Application struct {
 	languageModelDefaultProvider  string
 	languageModelFallbackProvider string
 	languageModelConfigured       bool
+	protocolIdentityChecker       protocolidentity.Checker
+	protocolIdentityExpected      protocolidentity.Identity
+	protocolIdentityStatus        *protocolidentity.Result
+	protocolIdentityCheckOnce     sync.Once
+	protocolIdentityCheckError    error
+	refreshSkillIndex             func(context.Context)
 }
 
 type interruptedTaskResumer interface {
@@ -174,6 +183,9 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 	)
 	skillRetriever.EmbeddingModel = embeddingClient.ModelName
 	agentKernel.UseSkillRetriever(skillRetriever)
+	refreshSkillIndex := func(ctx context.Context) {
+		agentKernel.RefreshSkillIndex(ctx, instructionBundleLoader())
+	}
 	agentKernel.UseCompanyProvider(func() agent.CompanyContext {
 		company := policyWatcher.CurrentPolicyDocument().Company
 		return agent.CompanyContext{
@@ -185,7 +197,6 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 			Website:        company.Website,
 		}
 	})
-	go agentKernel.RefreshSkillIndex(context.Background(), instructionBundleLoader())
 	intakeLanguageModelProvider := resolveIntakeLanguageModelProvider(runtimeConfiguration, logger)
 	if intakeLanguageModelProvider != nil {
 		agentKernel.UseIntakeLanguageModelProvider(intakeLanguageModelProvider)
@@ -225,9 +236,7 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 	toolCatalogBuilder.UseTaskScheduleRepository(taskScheduleRepository)
 	toolCatalogBuilder.UseTaskWaitTokenRepository(taskWaitTokenRepository)
 	toolCatalogBuilder.UseWorkspaceRootPath(runtimeConfiguration.Terminal.WorkspaceRootPath)
-	toolCatalogBuilder.UseSkillChangeHandler(func(ctx context.Context) {
-		agentKernel.RefreshSkillIndex(ctx, instructionBundleLoader())
-	})
+	toolCatalogBuilder.UseSkillChangeHandler(refreshSkillIndex)
 	toolCatalogBuilder.UseMemoryService(memoryService)
 	toolCatalogBuilder.UsePinnedMemoryStore(pinnedMemoryStore)
 	toolCatalogBuilder.UseMemoryUpdateQueue(memoryUpdateQueue)
@@ -281,12 +290,27 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 	connectorEventHandler := httpserver.NewConnectorEventHandler(connectorRuntime)
 
 	logger.Info("application.initializing", "stage", "router")
+	protocolIdentityExpected := protocolidentity.Identity{
+		ProtocolVersion:       runtimeConfiguration.Capabilities.ProtocolVersion,
+		AggregateProtocolHash: runtimeConfiguration.Capabilities.AggregateProtocolHash,
+	}
+	protocolIdentityStatus := &protocolidentity.Result{Expected: protocolIdentityExpected}
+	protocolIdentityChecker := protocolidentity.NewChecker(protocolidentity.Configuration{
+		CapabilityEndpoint:   runtimeConfiguration.Capabilities.Endpoint,
+		SDKDBridgeEndpoint:   runtimeConfiguration.LanguageModel.SDKD.Endpoint,
+		Timeout:              time.Duration(runtimeConfiguration.Capabilities.TimeoutSecond) * time.Second,
+		CapabilityHTTPClient: capabilityClient.HTTPClient,
+		SDKDHTTPClient:       capabilityClient.HTTPClient,
+	})
 	router := httpserver.NewRouter(httpserver.RouterDependencies{
 		HealthHandler: httpserver.HealthHandler{
-			Database:         database,
-			ConnectorRuntime: connectorRuntime,
-			MemoryService:    memoryService,
-			MaximumBacklog:   1000,
+			Database:                 database,
+			ConnectorRuntime:         connectorRuntime,
+			MemoryService:            memoryService,
+			MaximumBacklog:           1000,
+			ProtocolIdentity:         protocolIdentityStatus,
+			ProtocolIdentityChecker:  &protocolIdentityChecker,
+			ProtocolIdentityExpected: protocolIdentityExpected,
 		},
 		WorkspaceFilesHandler: httpserver.WorkspaceFilesHandler{
 			WorkspaceRootPath: runtimeConfiguration.Terminal.WorkspaceRootPath,
@@ -401,6 +425,10 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 		languageModelDefaultProvider:  languageModelRuntimeConfiguration.LanguageModel.DefaultProvider,
 		languageModelFallbackProvider: languageModelRuntimeConfiguration.LanguageModel.FallbackProvider,
 		languageModelConfigured:       languageModelProvider != nil,
+		protocolIdentityChecker:       protocolIdentityChecker,
+		protocolIdentityExpected:      protocolIdentityExpected,
+		protocolIdentityStatus:        protocolIdentityStatus,
+		refreshSkillIndex:             refreshSkillIndex,
 	}
 }
 
@@ -1138,6 +1166,12 @@ func (application *Application) Start() error {
 	if application.startupError != nil {
 		return application.startupError
 	}
+	if errorValue := application.checkProtocolIdentity(); errorValue != nil {
+		return errorValue
+	}
+	if application.refreshSkillIndex != nil {
+		go application.refreshSkillIndex(context.Background())
+	}
 	application.runtimeLogger.Logger.Info("application.starting", "stage", "log_retention")
 	application.startLogRetentionLoop()
 	application.runtimeLogger.Logger.Info("application.starting", "stage", "memory_queue")
@@ -1172,6 +1206,17 @@ func (application *Application) Start() error {
 	)
 	application.startInterruptedTaskAutoResume()
 	return application.httpServer.Serve(listener)
+}
+
+func (application *Application) checkProtocolIdentity() error {
+	application.protocolIdentityCheckOnce.Do(func() {
+		result := application.protocolIdentityChecker.Check(context.Background(), application.protocolIdentityExpected)
+		*application.protocolIdentityStatus = result
+		if !result.Passed {
+			application.protocolIdentityCheckError = fmt.Errorf("protocol identity check failed: %s", strings.Join(result.FailureReasons, "; "))
+		}
+	})
+	return application.protocolIdentityCheckError
 }
 
 func (application *Application) Shutdown(ctx context.Context) error {

@@ -1,6 +1,12 @@
 import { z } from 'zod';
 
-import { ExecutionMode, jsonValueSchema, nonNegativeIntegerSchema, resourceScopeSchema } from './common.ts';
+import {
+  ExecutionMode,
+  jsonValueSchema,
+  nonNegativeIntegerSchema,
+  protocolIdentitySchema,
+  resourceScopeSchema,
+} from './common.ts';
 
 const nonBlankStringSchema = z.string().trim().min(1);
 const unpaddedStringSchema = z.string().min(1).refine(value => value === value.trim(), {
@@ -172,7 +178,7 @@ export const capabilityDescriptorSchema = z.strictObject({
   message: 'sideEffectClass must match sideEffect',
 });
 
-export const capabilityRegistryResponseSchema = z.strictObject({
+export const capabilityRegistryResponseSchema = protocolIdentitySchema.extend({
   localOnly: z.boolean(),
   routingCandidates: z.array(z.string()).nullable(),
   deviceCapabilities: z.array(capabilityDescriptorSchema).optional(),

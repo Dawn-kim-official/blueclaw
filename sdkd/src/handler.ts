@@ -1,4 +1,5 @@
 import { timingSafeEqual } from 'node:crypto';
+import { z } from 'zod';
 
 import {
   protocolVersion,
@@ -7,6 +8,7 @@ import {
   structuredResponseRequestSchema,
   structuredResponseSchema,
   structuredOutputDiagnosticSchema,
+  protocolIdentitySchema,
   type StructuredOutputDiagnostic,
 } from '@blueclaw/protocol';
 import { buildProtocolArtifacts } from '@blueclaw/protocol/artifacts';
@@ -16,6 +18,11 @@ import { classifySDKDError } from './errors.ts';
 import type { ChatCompletionGenerator, StructuredResponseGenerator } from './provider.ts';
 
 const protocolManifest = buildProtocolArtifacts().manifest;
+const protocolIdentity = protocolIdentitySchema.parse({
+  aggregateProtocolHash: protocolManifest.aggregateHash,
+  protocolVersion,
+});
+const healthResponseSchema = protocolIdentitySchema.extend({ status: z.literal('ok') });
 
 type HandlerDependencies = {
   configuration: SDKDConfiguration;
@@ -27,11 +34,7 @@ export function createSDKDHandler(dependencies: HandlerDependencies) {
   return async function handleRequest(request: Request): Promise<Response> {
     const url = new URL(request.url);
     if (request.method === 'GET' && url.pathname === '/health') {
-      return Response.json({
-        aggregateProtocolHash: protocolManifest.aggregateHash,
-        protocolVersion,
-        status: 'ok',
-      });
+      return Response.json(healthResponseSchema.parse({ ...protocolIdentity, status: 'ok' }));
     }
     if (url.pathname !== '/v1/llm/structured' && url.pathname !== '/v1/llm/chat') return errorResponse(404, 'route_not_found');
     if (request.method !== 'POST') return errorResponse(405, 'method_not_allowed');
