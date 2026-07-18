@@ -63,13 +63,9 @@ func compileOperationRequirements(responseContext context.Context, languageModel
 	}
 	reviewReason := ""
 	for range 2 {
-		response, generationError := languageModel.GenerateStructuredResponse(responseContext, operationContractRequest(request, descriptors, toolNames, reviewReason))
+		requirements, generationError := generateOperationRequirements(responseContext, languageModel, request, descriptors, toolSet, toolNames, reviewReason)
 		if generationError != nil {
-			return contract, fmt.Errorf("compile operation contract: %w", generationError)
-		}
-		requirements, parseError := parseOperationRequirements(response.Content, toolSet, toolNames)
-		if parseError != nil {
-			return contract, parseError
+			return contract, generationError
 		}
 		review, reviewError := reviewOperationRequirements(responseContext, languageModel, request, descriptors, requirements)
 		if reviewError != nil {
@@ -85,6 +81,54 @@ func compileOperationRequirements(responseContext context.Context, languageModel
 		reviewReason = firstNonEmptyString(strings.TrimSpace(review.Reason), "the candidate omitted or invented requested operation values")
 	}
 	return contract, fmt.Errorf("operation contract review failed: %s", reviewReason)
+}
+
+func generateOperationRequirements(responseContext context.Context, languageModel llm.LanguageModelProvider, request AgentRequest, descriptors []operationDescriptorDocument, toolSet *ToolSet, toolNames []string, reviewReason string) ([]OperationRequirement, error) {
+	response, errorValue := languageModel.GenerateStructuredResponse(responseContext, operationContractRequest(request, descriptors, toolNames, reviewReason))
+	if errorValue != nil {
+		correctionReason, canCorrect := operationContractStructuredCorrectionReason(errorValue)
+		if !canCorrect {
+			return nil, fmt.Errorf("compile operation contract: %w", errorValue)
+		}
+		return correctOperationRequirements(responseContext, languageModel, request, descriptors, toolSet, toolNames, reviewReason, correctionReason)
+	}
+	requirements, parseError := parseOperationRequirements(response.Content, toolSet, toolNames)
+	if parseError == nil {
+		return requirements, nil
+	}
+	correctionReason := "The previous candidate failed operation contract validation: " + parseError.Error()
+	return correctOperationRequirements(responseContext, languageModel, request, descriptors, toolSet, toolNames, reviewReason, correctionReason)
+}
+
+func correctOperationRequirements(responseContext context.Context, languageModel llm.LanguageModelProvider, request AgentRequest, descriptors []operationDescriptorDocument, toolSet *ToolSet, toolNames []string, reviewReason string, correctionReason string) ([]OperationRequirement, error) {
+	if strings.TrimSpace(reviewReason) != "" {
+		correctionReason = reviewReason + "\n" + correctionReason
+	}
+	correctionRequest := operationContractRequest(request, descriptors, toolNames, correctionReason)
+	correctedResponse, correctionError := languageModel.GenerateStructuredResponse(responseContext, correctionRequest)
+	if correctionError != nil {
+		return nil, fmt.Errorf("correct operation contract: %w", correctionError)
+	}
+	requirements, parseError := parseOperationRequirements(correctedResponse.Content, toolSet, toolNames)
+	if parseError != nil {
+		return nil, fmt.Errorf("correct operation contract: %w", parseError)
+	}
+	return requirements, nil
+}
+
+func operationContractStructuredCorrectionReason(errorValue error) (string, bool) {
+	correction, isCorrectable := llm.StructuredOutputCorrectionFromError(errorValue)
+	if !isCorrectable {
+		return "", false
+	}
+	messageParts := []string{
+		"The previous candidate failed structured output validation.",
+		"Diagnostic category: " + string(correction.Diagnostic.Category) + ".",
+	}
+	for _, issue := range correction.Diagnostic.ValidationIssues {
+		messageParts = append(messageParts, "Validation issue: "+issue.FieldPath+" ("+string(issue.Code)+").")
+	}
+	return strings.Join(messageParts, " "), true
 }
 
 func stateChangingRequiredToolNames(toolSet *ToolSet, toolNames []string) []string {
@@ -220,7 +264,7 @@ func operationContractSchema(toolNames []string) string {
 					"required":             []string{"toolName", "requiredValuesJSON"},
 					"properties": map[string]any{
 						"toolName":           map[string]any{"type": "string", "enum": toolNames},
-						"requiredValuesJSON": map[string]any{"type": "string", "maxLength": 4096},
+						"requiredValuesJSON": map[string]any{"type": "string", "minLength": 2, "maxLength": 4096},
 					},
 				},
 			},
