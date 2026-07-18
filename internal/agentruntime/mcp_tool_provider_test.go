@@ -7,14 +7,19 @@ import (
 
 	"blueclaw/internal/agent"
 	"blueclaw/internal/mcp"
+	"blueclaw/internal/policy"
 )
 
 type mcpToolProviderTestInvoker struct {
 	output string
 	error  error
+	calls  *int
 }
 
 func (invoker mcpToolProviderTestInvoker) InvokeTool(context.Context, mcp.Invocation) (string, error) {
+	if invoker.calls != nil {
+		*invoker.calls = *invoker.calls + 1
+	}
 	return invoker.output, invoker.error
 }
 
@@ -46,6 +51,54 @@ func TestMCPToolProviderMapsIsErrorToToolFailure(t *testing.T) {
 	}
 	if !result.Failed() || result.Failure.Code != agent.FailureCodes.OperationFailed.String() {
 		t.Fatalf("expected failed MCP result, got %+v", result)
+	}
+}
+
+func TestMCPToolProviderRejectsPolicyDeniedInvocation(t *testing.T) {
+	invocationCount := 0
+	provider := mcpToolProvider{
+		serverName: "workspace",
+		registry: mcpToolProviderTestInvoker{
+			output: `{"content":[],"isError":false}`,
+			calls:  &invocationCount,
+		},
+		definitions: []mcp.ToolDefinition{{
+			Name:        "workspace.echo",
+			Namespace:   "workspace",
+			Description: "Echo workspace text",
+			InputSchema: json.RawMessage(`{"type":"object","properties":{},"additionalProperties":false}`),
+			Policy: mcp.PolicyMetadata{
+				PrivacyClass:    "workspace",
+				ModelVisibility: agent.ToolVisibilityModel,
+				PolicyResource:  "tool:workspace.echo",
+				SideEffectClass: agent.ToolSideEffectRead,
+				CompletionMode:  agent.ToolCompletionNone,
+				Idempotency:     agent.ToolIdempotencySupported,
+			},
+		}},
+		request: ToolCatalogRequest{
+			PersonAccess: policy.PersonAccess{
+				PersonID: "person-1",
+				Circles:  []string{"staff"},
+				ResourceAccessRules: []policy.ResourceAccessPolicy{{
+					Resource: "tool:workspace.echo",
+					Actions:  []string{"execute"},
+					Circles:  []string{"admin"},
+				}},
+			},
+		},
+	}
+
+	result, errorValue := provider.boundTool(provider.definitions[0]).Handler(context.Background(), agent.ToolInvocation{Input: json.RawMessage(`{}`)})
+
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if !result.Failed() || result.Failure == nil || result.Failure.Kind != agent.FailurePermissionDenied || result.FailureCode() != agent.FailureCodes.AccessDenied.String() || result.FailureStage() != "capability_access" {
+		t.Fatalf("expected capability permission failure, got %+v", result)
+	}
+	if invocationCount != 0 {
+		t.Fatalf("expected denied MCP tool not to be invoked, got %d calls", invocationCount)
 	}
 }
 

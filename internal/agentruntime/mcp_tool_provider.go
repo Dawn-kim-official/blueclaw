@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strings"
 
+	"blueclaw/internal/access"
 	"blueclaw/internal/agent"
 	"blueclaw/internal/mcp"
 )
@@ -16,6 +17,7 @@ type mcpToolProvider struct {
 	serverName  string
 	registry    mcpToolInvoker
 	definitions []mcp.ToolDefinition
+	request     ToolCatalogRequest
 }
 
 type mcpToolInvoker interface {
@@ -60,6 +62,9 @@ func (provider mcpToolProvider) boundTool(definition mcp.ToolDefinition) agent.B
 		},
 		Availability: agent.ToolAvailability{Status: agent.ToolAvailabilityAvailable},
 		Handler: func(toolContext context.Context, toolInvocation agent.ToolInvocation) (agent.ToolResult, error) {
+			if !access.CanAccess(access.Request{PersonAccess: provider.request.PersonAccess, Action: access.ActionExecute, Resource: definition.Policy.PolicyResource}) {
+				return agent.ToolFailureResult(agent.FailurePermissionDenied, agent.FailureCodes.AccessDenied, "capability_access", "current account cannot execute this tool"), nil
+			}
 			output, errorValue := provider.registry.InvokeTool(toolContext, mcp.Invocation{
 				ServerName: provider.serverName,
 				ToolName:   definition.Name,
@@ -86,7 +91,7 @@ func (provider mcpToolProvider) boundTool(definition mcp.ToolDefinition) agent.B
 	}
 }
 
-func mcpToolProviders(registry *mcp.McpRegistry) []agent.ToolProviderRegistration {
+func mcpToolProviders(registry *mcp.McpRegistry, request ToolCatalogRequest) []agent.ToolProviderRegistration {
 	if registry == nil {
 		return nil
 	}
@@ -110,6 +115,7 @@ func mcpToolProviders(registry *mcp.McpRegistry) []agent.ToolProviderRegistratio
 				serverName:  serverName,
 				registry:    registry,
 				definitions: definitionsByServer[serverName],
+				request:     request,
 			},
 			Trust: agent.ToolProviderExternal,
 		})

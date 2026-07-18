@@ -27,8 +27,8 @@ func capabilityToolIdempotencyKey(toolContext context.Context, descriptor Capabi
 	return hex.EncodeToString(digest[:])
 }
 
-func (toolCatalogBuilder *ToolCatalogBuilder) registerMCPTools(toolRegistry *agent.ToolSet) {
-	if _, errorValue := toolRegistry.RegisterProviders(context.Background(), mcpToolProviders(toolCatalogBuilder.mcpRegistry)); errorValue != nil {
+func (toolCatalogBuilder *ToolCatalogBuilder) registerMCPTools(toolRegistry *agent.ToolSet, request ToolCatalogRequest) {
+	if _, errorValue := toolRegistry.RegisterProviders(context.Background(), mcpToolProviders(toolCatalogBuilder.mcpRegistry, request)); errorValue != nil {
 		panic(errorValue)
 	}
 }
