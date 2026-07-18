@@ -255,13 +255,29 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 	intakeRequest.ToolSet = turnToolSet
 	routerLanguageModel := routerCallLedger.languageModel(agentKernel.turnRouterLanguageModel())
 	turnRouter := NewTurnRouter(routerLanguageModel, agentKernel.intakeOptions)
-	turnDecision, errorValue := turnRouter.Plan(responseContext, intakeRequest)
+	preflightOptions := normalizeTurnOptions(agentKernel.turnOptions)
+	preflightBudget := newTurnBudgetContext(responseContext, request.TurnStartedAt, preflightOptions)
+	turnDecision, errorValue := turnRouter.Plan(preflightBudget.workContext, intakeRequest)
+	didPreflightExpire := request.PrecomputedTurnDecision == nil && preflightBudget.didWorkExpire()
+	if didPreflightExpire {
+		result := agentKernel.completeIntakeElapsed(preflightBudget.totalContext, intakeRequest, IntakeDecision{}, preflightOptions, routerCallLedger.records)
+		preflightBudget.cancel()
+		return result, nil
+	}
+	preflightBudget.cancel()
 	if errorValue != nil {
 		result := agentKernel.completeTurnRouterFailure(responseContext, intakeRequest, errorValue, routerCallLedger.records)
 		return result, nil
 	}
 	intakeDecision := turnDecision.IntakeDecision()
 	intakeDecision = promoteArtifactTaskLevelForRequest(intakeRequest, intakeDecision)
+	turnOptions := agentKernel.turnOptionsForIntakeDecision(intakeDecision)
+	taskBudget := newTurnBudgetContext(responseContext, request.TurnStartedAt, turnOptions)
+	defer taskBudget.cancel()
+	taskContext := taskBudget.workContext
+	if result, didExpire := agentKernel.completeIntakeIfElapsed(taskBudget, intakeRequest, intakeDecision, turnDecision.Route, routerCallLedger.records); didExpire {
+		return result, nil
+	}
 	request.ResponseLanguage = ResolveResponseLanguage(intakeDecision.ResponseLanguage, request.ResponseLanguage)
 	manualPinnedToolNames := append([]string{}, request.PinnedToolNames...)
 	request = restorePersistedToolSelection(request)
@@ -298,8 +314,11 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 		return result, errorValue
 	}
 	if !request.SkipSkillSelection {
-		instructionBundle, intakeDecision = agentKernel.selectInstructionBundleForResolvedRequest(responseContext, baseInstructionBundle, request, intakeDecision)
+		instructionBundle, intakeDecision = agentKernel.selectInstructionBundleForResolvedRequest(taskContext, baseInstructionBundle, request, intakeDecision)
 		intakeDecision = applyInstructionBundleRequirements(intakeDecision, instructionBundle)
+	}
+	if result, didExpire := agentKernel.completeIntakeIfElapsed(taskBudget, intakeRequest, intakeDecision, turnDecision.Route, routerCallLedger.records); didExpire {
+		return result, nil
 	}
 	request.PinnedToolNames = pinnedToolNamesForResolvedRequest(
 		manualPinnedToolNames,
@@ -312,12 +331,12 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 	request.PinnedSkillNames = appendUniqueStrings(request.PinnedSkillNames, selectedSkillNameList(instructionBundle.SkillDecisions)...)
 	intakeRequest.PinnedSkillNames = request.PinnedSkillNames
 	if intakeDecision.Classification == IntakeClassificationNeedsConfirmation {
-		result, errorValue := agentKernel.completeIntakeOnlyRequest(responseContext, intakeRequest, intakeDecision, task.TaskStatusWaitingUserInput, routerCallLedger.records)
+		result, errorValue := agentKernel.completeIntakeOnlyRequest(taskContext, intakeRequest, intakeDecision, task.TaskStatusWaitingUserInput, routerCallLedger.records)
 		result.TurnRoute = turnDecision.Route
 		return result, errorValue
 	}
 	if intakeDecision.Classification == IntakeClassificationUnsupported {
-		result, errorValue := agentKernel.completeIntakeOnlyRequest(responseContext, intakeRequest, intakeDecision, task.TaskStatusBlocked, routerCallLedger.records)
+		result, errorValue := agentKernel.completeIntakeOnlyRequest(taskContext, intakeRequest, intakeDecision, task.TaskStatusBlocked, routerCallLedger.records)
 		result.TurnRoute = turnDecision.Route
 		return result, errorValue
 	}
@@ -325,12 +344,20 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 	requiredAttachmentSuffixes := attachmentSuffixesForRequestedOutputFormats(intakeDecision.RequestedOutputFormats)
 	evidenceHints := selectedEvidenceHintTools(instructionBundle)
 	confirmationEvidenceHints := confirmationEvidenceHintsForRequest(request, intakeDecision, evidenceHints)
-	confirmationPlan, errorValue := agentKernel.planConfirmationGate(responseContext, request, intakeDecision, confirmationEvidenceHints)
+	confirmationPlan, errorValue := agentKernel.planConfirmationGate(taskContext, request, intakeDecision, confirmationEvidenceHints)
 	if errorValue != nil {
+		if result, didExpire := agentKernel.completeIntakeIfElapsed(taskBudget, intakeRequest, intakeDecision, turnDecision.Route, routerCallLedger.records); didExpire {
+			return result, nil
+		}
 		return AgentTurnResult{}, errorValue
 	}
 	if confirmationPlan.Decision.RequiresClarification {
-		confirmationResult, pauseError := agentKernel.pauseForConfirmation(responseContext, request, confirmationPlan, OutcomeContract{}, confirmationEvidenceHints, selectedSkillNameList(instructionBundle.SkillDecisions))
+		confirmationResult, pauseError := agentKernel.pauseForConfirmation(taskContext, request, confirmationPlan, OutcomeContract{}, confirmationEvidenceHints, selectedSkillNameList(instructionBundle.SkillDecisions))
+		if pauseError != nil && taskBudget.didWorkExpire() {
+			intakeRequest.ExistingTaskRunID = confirmationResult.TaskRun.TaskRunID
+			confirmationResult = agentKernel.completeIntakeElapsed(taskBudget.totalContext, intakeRequest, intakeDecision, turnOptions, routerCallLedger.records)
+			pauseError = nil
+		}
 		confirmationResult.TurnRoute = turnDecision.Route
 		return confirmationResult, pauseError
 	}
@@ -347,26 +374,37 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 		strings.TrimSpace(missingEvidenceReport.Reason) != "" ||
 		hasUnresolvedContractEvidence
 	if !isDeterministicResume && hasRequiredEvidenceIssue {
-		intakeDecision, outcomeContract, requiredEvidenceReask = agentKernel.reaskMissingRequiredEvidenceOnce(responseContext, request, intakeRequest, intakeDecision, outcomeContract, instructionBundle, executionPlan, hasExecutionPlan, requiredAttachmentSuffixes, turnToolSet, routerLanguageModel, instructionBundle.RequiredEvidenceCandidates)
+		intakeDecision, outcomeContract, requiredEvidenceReask = agentKernel.reaskMissingRequiredEvidenceOnce(taskContext, request, intakeRequest, intakeDecision, outcomeContract, instructionBundle, executionPlan, hasExecutionPlan, requiredAttachmentSuffixes, turnToolSet, routerLanguageModel, instructionBundle.RequiredEvidenceCandidates)
+	}
+	if result, didExpire := agentKernel.completeIntakeIfElapsed(taskBudget, intakeRequest, intakeDecision, turnDecision.Route, routerCallLedger.records); didExpire {
+		return result, nil
 	}
 	if hasRequiredEvidenceIssue && (isDeterministicResume || !requiredEvidenceReask.DidRecoverEvidence) {
 		intakeDecision.Reason = requiredEvidenceFailureReason(evidenceValidationReport, missingEvidenceReport, requiredEvidenceReask, hasUnresolvedContractEvidence)
 		intakeDecision.UserFacingReply = ""
-		result, blockError := agentKernel.completeIntakeOnlyRequest(responseContext, intakeRequest, intakeDecision, task.TaskStatusBlocked, routerCallLedger.records)
+		result, blockError := agentKernel.completeIntakeOnlyRequest(taskContext, intakeRequest, intakeDecision, task.TaskStatusBlocked, routerCallLedger.records)
 		result.TurnRoute = turnDecision.Route
 		agentKernel.appendRequiredEvidenceEvents(result.TaskRun.TaskRunID, evidenceValidationReport, requiredEvidenceReask)
 		return result, blockError
 	}
-	outcomeContract, errorValue = compileOperationRequirements(responseContext, routerLanguageModel, request, turnToolSet, outcomeContract)
+	outcomeContract, errorValue = compileOperationRequirements(taskContext, routerLanguageModel, request, turnToolSet, outcomeContract)
 	if errorValue != nil {
+		if result, didExpire := agentKernel.completeIntakeIfElapsed(taskBudget, intakeRequest, intakeDecision, turnDecision.Route, routerCallLedger.records); didExpire {
+			return result, nil
+		}
 		intakeDecision.Reason = errorValue.Error()
 		intakeDecision.UserFacingReply = ""
-		result, blockError := agentKernel.completeIntakeOnlyRequest(responseContext, intakeRequest, intakeDecision, task.TaskStatusBlocked, routerCallLedger.records)
+		result, blockError := agentKernel.completeIntakeOnlyRequest(taskContext, intakeRequest, intakeDecision, task.TaskStatusBlocked, routerCallLedger.records)
 		result.TurnRoute = turnDecision.Route
 		return result, blockError
 	}
 	if confirmationPlan.Decision.RequiresConfirmation {
-		confirmationResult, pauseError := agentKernel.pauseForConfirmation(responseContext, request, confirmationPlan, outcomeContract, confirmationEvidenceHints, selectedSkillNameList(instructionBundle.SkillDecisions))
+		confirmationResult, pauseError := agentKernel.pauseForConfirmation(taskContext, request, confirmationPlan, outcomeContract, confirmationEvidenceHints, selectedSkillNameList(instructionBundle.SkillDecisions))
+		if pauseError != nil && taskBudget.didWorkExpire() {
+			intakeRequest.ExistingTaskRunID = confirmationResult.TaskRun.TaskRunID
+			confirmationResult = agentKernel.completeIntakeElapsed(taskBudget.totalContext, intakeRequest, intakeDecision, turnOptions, routerCallLedger.records)
+			pauseError = nil
+		}
 		confirmationResult.TurnRoute = turnDecision.Route
 		return confirmationResult, pauseError
 	}
@@ -432,8 +470,6 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 		EffortStartedAt:            request.TurnStartedAt,
 		CheckpointSender:           request.CheckpointSender,
 	}
-	turnOptions := agentKernel.turnOptionsForIntakeDecision(intakeDecision)
-
 	agentTurnRunner := NewAgentTurnRunnerWithRecoveryModel(
 		agentKernel.taskRunService,
 		agentKernel.taskStepService,
@@ -442,7 +478,7 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 		agentKernel.languageModel,
 		turnOptions,
 	)
-	result, errorValue := agentTurnRunner.RunTurn(responseContext, turnRequest)
+	result, errorValue := agentTurnRunner.RunTurn(taskBudget.totalContext, turnRequest)
 	result.TurnRoute = turnDecision.Route
 	result.ToolNames = toolNamesForEvent(turnRequest.ToolSet)
 	if result.TaskRun.TaskRunID != "" {
@@ -669,7 +705,7 @@ func (agentKernel *AgentKernel) pauseForConfirmation(responseContext context.Con
 	if decision.RequiresClarification {
 		reply, errorValue := agentKernel.GenerateClarificationMessage(responseContext, request, executionPlan, decision)
 		if errorValue != nil {
-			return AgentTurnResult{}, errorValue
+			return AgentTurnResult{TaskRun: taskRun}, errorValue
 		}
 		waitingTaskRun, errorValue := agentKernel.taskRunService.PauseTaskRun(taskRun.TaskRunID, task.TaskStatusWaitingUserInput, reply)
 		if errorValue != nil {
@@ -693,7 +729,7 @@ func (agentKernel *AgentKernel) pauseForConfirmation(responseContext context.Con
 
 	reply, errorValue := agentKernel.GenerateConfirmationMessage(responseContext, request, executionPlan, decision)
 	if errorValue != nil {
-		return AgentTurnResult{}, errorValue
+		return AgentTurnResult{TaskRun: taskRun}, errorValue
 	}
 	waitingTaskRun, errorValue := agentKernel.taskRunService.PauseTaskRun(taskRun.TaskRunID, task.TaskStatusWaitingApproval, reply)
 	if errorValue != nil {
@@ -806,6 +842,106 @@ func (agentKernel *AgentKernel) appendGoalLifecycleEvent(taskRun task.TaskRun, a
 	activeGoal.TaskRunID = firstNonEmptyString(activeGoal.TaskRunID, taskRun.TaskRunID)
 	activeGoal.Status = activeGoalStatusForTaskStatus(taskRun.Status)
 	agentKernel.AppendTaskEvent(taskRun.TaskRunID, activeGoalEventNameForTaskStatus(taskRun.Status), marshalEventBody(activeGoal))
+}
+
+type turnBudgetContext struct {
+	parentContext context.Context
+	totalContext  context.Context
+	workContext   context.Context
+	cancelTotal   context.CancelFunc
+	cancelWork    context.CancelFunc
+	turnOptions   TurnOptions
+}
+
+func newTurnBudgetContext(parentContext context.Context, turnStartedAt time.Time, turnOptions TurnOptions) turnBudgetContext {
+	if turnStartedAt.IsZero() || turnOptions.MaxElapsedSecond <= 0 {
+		totalContext, cancelTotal := context.WithCancel(parentContext)
+		workContext, cancelWork := context.WithCancel(totalContext)
+		return turnBudgetContext{parentContext, totalContext, workContext, cancelTotal, cancelWork, turnOptions}
+	}
+	totalDuration := time.Duration(turnOptions.MaxElapsedSecond) * time.Second
+	totalContext, cancelTotal := context.WithDeadline(parentContext, turnStartedAt.Add(totalDuration))
+	workContext, cancelWork := context.WithDeadline(totalContext, turnStartedAt.Add(workDurationWithinTotal(totalDuration)))
+	return turnBudgetContext{parentContext, totalContext, workContext, cancelTotal, cancelWork, turnOptions}
+}
+
+func (turnBudget turnBudgetContext) cancel() {
+	turnBudget.cancelWork()
+	turnBudget.cancelTotal()
+}
+
+func (turnBudget turnBudgetContext) didWorkExpire() bool {
+	return turnBudget.parentContext.Err() == nil && errors.Is(turnBudget.workContext.Err(), context.DeadlineExceeded)
+}
+
+func (agentKernel *AgentKernel) completeIntakeIfElapsed(turnBudget turnBudgetContext, request AgentRequest, intakeDecision IntakeDecision, turnRoute TurnRoute, routerCallRecords []llmCallRecord) (AgentTurnResult, bool) {
+	if !turnBudget.didWorkExpire() {
+		return AgentTurnResult{}, false
+	}
+	result := agentKernel.completeIntakeElapsed(turnBudget.totalContext, request, intakeDecision, turnBudget.turnOptions, routerCallRecords)
+	result.TurnRoute = turnRoute
+	return result, true
+}
+
+func (agentKernel *AgentKernel) completeIntakeElapsed(closingContext context.Context, request AgentRequest, intakeDecision IntakeDecision, turnOptions TurnOptions, routerCallRecords []llmCallRecord) AgentTurnResult {
+	taskRun := agentKernel.taskRunForIntakeLimit(request)
+	agentKernel.appendTurnRouterCallRecords(taskRun.TaskRunID, routerCallRecords)
+	if intakeDecision.TaskLevel != "" {
+		agentKernel.AppendTaskEvent(taskRun.TaskRunID, "agent.intake", marshalEventBody(intakeDecision))
+	}
+	agentKernel.AppendTaskEvent(taskRun.TaskRunID, "agent.limit_stop", marshalEventBody(intakeLimitEventBody(turnOptions)))
+	blockedTaskRun, errorValue := agentKernel.taskRunService.PauseTaskRun(taskRun.TaskRunID, task.TaskStatusBlocked, "max_elapsed")
+	if errorValue != nil {
+		taskRun.Status = task.TaskStatusBlocked
+		taskRun.FailureReason = "max_elapsed"
+		blockedTaskRun = taskRun
+	}
+	failureNotice, noticeStatus := agentKernel.generateIntakeElapsedNotice(closingContext, request, taskRun.TaskRunID)
+	replyStatus := limitReplyStatus{Source: noticeStatus.Source, Reason: noticeStatus.Reason, TextRecoveryError: noticeStatus.TextRecoveryError}
+	agentKernel.AppendTaskEvent(taskRun.TaskRunID, "agent.limit_reply", marshalEventBody(replyStatus))
+	blockedTaskRun = persistTaskRunResult(agentKernel.taskRunService, blockedTaskRun, failureNotice.SendableMessage())
+	agentKernel.appendGoalLifecycleEvent(blockedTaskRun, activeGoalFromIntakeOnly(taskRun.TaskRunID, request, intakeDecision, task.TaskStatusBlocked))
+	return AgentTurnResult{
+		TaskRun:       blockedTaskRun,
+		UserNotice:    failureNotice.SendableMessage(),
+		FailureNotice: failureNotice,
+		ToolNames:     toolNamesForEvent(request.ToolSet),
+	}
+}
+
+func (agentKernel *AgentKernel) generateIntakeElapsedNotice(responseContext context.Context, request AgentRequest, taskRunID string) (FailureNotice, FailureNoticeGenerationStatus) {
+	report := FailureReport{
+		Phase:              "limit",
+		StopReason:         "max_elapsed",
+		SafeFailureSummary: elapsedLimitRawErrorSummary,
+		RawError:           elapsedLimitRawErrorSummary,
+		OriginalRequest:    request.Prompt,
+		ResponseLanguage:   request.ResponseLanguage,
+		DiagnosticEventID:  taskRunID + ":intake_limit",
+	}
+	return (FailureNoticeGenerator{LanguageModel: agentKernel.languageModel}).Generate(responseContext, report)
+}
+
+func (agentKernel *AgentKernel) taskRunForIntakeLimit(request AgentRequest) task.TaskRun {
+	if taskRunID := strings.TrimSpace(request.ExistingTaskRunID); taskRunID != "" {
+		if taskRun, isFound := agentKernel.taskRunService.FindTaskRun(taskRunID); isFound {
+			return taskRun
+		}
+	}
+	return agentKernel.createTaskRunForRequest(request)
+}
+
+func intakeLimitEventBody(turnOptions TurnOptions) map[string]any {
+	return map[string]any{
+		"phase":              "intake",
+		"taskLevel":          turnOptions.TaskLevel,
+		"maxIterationCount":  turnOptions.MaxIterationCount,
+		"maxElapsedSecond":   turnOptions.MaxElapsedSecond,
+		"maxToolCallCount":   turnOptions.MaxToolCallCount,
+		"usedIterationCount": 0,
+		"usedToolCallCount":  0,
+		"limitStopReason":    "max_elapsed",
+	}
 }
 
 func (agentKernel *AgentKernel) turnOptionsForIntakeDecision(intakeDecision IntakeDecision) TurnOptions {
