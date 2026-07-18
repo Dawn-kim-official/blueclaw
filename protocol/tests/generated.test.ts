@@ -4,8 +4,16 @@ import { protocolSchemas, protocolVersion } from '../src/registry.ts';
 
 describe('protocol artifacts', () => {
   test('include every registered schema with a stable hash', () => {
-    const { manifest } = buildProtocolArtifacts();
+    const { capabilityToolCatalog, manifest } = buildProtocolArtifacts();
     expect(manifest.protocolVersion).toBe(protocolVersion);
+    expect(manifest.capabilityToolCatalog.fileName).toBe('capability-tools.json');
+    expect(manifest.capabilityToolCatalog.hash).toBe(capabilityToolCatalog.hash);
+    expect(capabilityToolCatalog.catalog.tools.map(tool => tool.name)).toEqual([
+      'task.add',
+      'task.list',
+      'task.update',
+      'task.delete',
+    ]);
     expect(manifest.schemas.map(({ name }: { name: string }) => name)).toEqual(Object.keys(protocolSchemas).sort());
     expect(manifest.schemas.map(({ name }: { name: string }) => name)).toEqual(
       [...manifest.schemas.map(({ name }: { name: string }) => name)].sort(),

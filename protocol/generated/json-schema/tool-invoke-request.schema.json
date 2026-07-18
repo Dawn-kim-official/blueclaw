@@ -1,0 +1,167 @@
+{
+  "$defs": {
+    "__schema0": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        },
+        {
+          "items": {
+            "$ref": "#/$defs/__schema0"
+          },
+          "type": "array"
+        },
+        {
+          "additionalProperties": {
+            "$ref": "#/$defs/__schema0"
+          },
+          "propertyNames": {
+            "type": "string"
+          },
+          "type": "object"
+        }
+      ]
+    }
+  },
+  "$id": "https://schemas.blueclaw.dev/0.3.0/tool-invoke-request.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": {},
+  "properties": {
+    "actor": {
+      "additionalProperties": {},
+      "properties": {
+        "displayName": {
+          "type": "string"
+        },
+        "email": {
+          "type": "string"
+        },
+        "isAdmin": {
+          "type": "boolean"
+        },
+        "personID": {
+          "type": "string"
+        },
+        "scopes": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "source": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "context": {
+      "additionalProperties": {},
+      "properties": {
+        "channelID": {
+          "type": "string"
+        },
+        "channelName": {
+          "type": "string"
+        },
+        "conversationID": {
+          "type": "string"
+        },
+        "conversationType": {
+          "type": "string"
+        },
+        "isApprovalContinuation": {
+          "type": "boolean"
+        },
+        "isScheduledRun": {
+          "type": "boolean"
+        },
+        "platform": {
+          "type": "string"
+        },
+        "replyTargetID": {
+          "type": "string"
+        },
+        "requesterEmail": {
+          "type": "string"
+        },
+        "requesterName": {
+          "type": "string"
+        },
+        "requesterPersonID": {
+          "type": "string"
+        },
+        "requesterPlatformUserID": {
+          "type": "string"
+        },
+        "taskSource": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "executionMode": {
+      "enum": [
+        "device",
+        "companion",
+        "remote",
+        "auto"
+      ],
+      "type": "string"
+    },
+    "grantID": {
+      "type": "string"
+    },
+    "idempotencyKey": {
+      "type": "string"
+    },
+    "input": {
+      "$ref": "#/$defs/__schema0"
+    },
+    "parentJobID": {
+      "type": "string"
+    },
+    "privacyClass": {
+      "type": "string"
+    },
+    "requiresUserPresence": {
+      "type": "boolean"
+    },
+    "resourceScope": {
+      "additionalProperties": {},
+      "properties": {
+        "kind": {
+          "type": "string"
+        },
+        "value": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "sessionID": {
+      "type": "string"
+    },
+    "timeoutSecond": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "toolName": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "toolName",
+    "input"
+  ],
+  "type": "object"
+}
