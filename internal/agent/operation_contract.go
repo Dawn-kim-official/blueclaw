@@ -449,6 +449,11 @@ func operationRequirementsSatisfied(contract *OperationContract, observations []
 	if contract.Version != operationContractVersion || len(contract.Requirements) == 0 {
 		return false
 	}
+	_, hasPendingRequirement := firstPendingOperationRequirement(contract, observations)
+	return !hasPendingRequirement
+}
+
+func firstPendingOperationRequirement(contract *OperationContract, observations []turnObservation) (OperationRequirement, bool) {
 	matchedRequirementByObservation := make([]int, len(observations))
 	for index := range matchedRequirementByObservation {
 		matchedRequirementByObservation[index] = -1
@@ -456,10 +461,10 @@ func operationRequirementsSatisfied(contract *OperationContract, observations []
 	for requirementIndex := range contract.Requirements {
 		visitedObservations := make([]bool, len(observations))
 		if !assignOperationObservation(requirementIndex, contract.Requirements, observations, matchedRequirementByObservation, visitedObservations) {
-			return false
+			return contract.Requirements[requirementIndex], true
 		}
 	}
-	return true
+	return OperationRequirement{}, false
 }
 
 func assignOperationObservation(requirementIndex int, requirements []OperationRequirement, observations []turnObservation, matchedRequirementByObservation []int, visitedObservations []bool) bool {

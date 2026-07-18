@@ -623,7 +623,7 @@ func DecideAgentAction(ctx context.Context, languageModel llm.LanguageModelProvi
 	if chatCompleter, isAvailable := llm.ResolveTextChatCompleter(languageModel); isAvailable {
 		chatRequestSource := buildAgentActionRequest(state, false)
 		if chatRequest, isRepresentable := buildAgentActionChatCompletionRequest(chatRequestSource); isRepresentable {
-			return decideAgentActionWithChat(ctx, chatCompleter, chatRequest)
+			return decideAgentActionWithChat(ctx, chatCompleter, chatRequest, state)
 		}
 	}
 	structuredRequest := BuildAgentActionRequest(state)
@@ -634,7 +634,7 @@ func DecideAgentAction(ctx context.Context, languageModel llm.LanguageModelProvi
 	return ParseAgentActionResponse(structuredResponse)
 }
 
-func decideAgentActionWithChat(ctx context.Context, chatCompleter llm.ChatCompleter, request llm.ChatCompletionRequest) (agentAction, error) {
+func decideAgentActionWithChat(ctx context.Context, chatCompleter llm.ChatCompleter, request llm.ChatCompletionRequest, state agentTaskState) (agentAction, error) {
 	response, errorValue := chatCompleter.GenerateChatCompletion(ctx, request)
 	if errorValue == nil {
 		return parseNativeAgentActionResponse(response, request.Tools)
@@ -646,7 +646,7 @@ func decideAgentActionWithChat(ctx context.Context, chatCompleter llm.ChatComple
 	if !isCorrectable {
 		return turnActionDocument{}, errorValue
 	}
-	retryRequest, canRetry := retryAgentActionChatCompletionRequest(request, correction)
+	retryRequest, canRetry := retryAgentActionChatCompletionRequest(request, correction, state)
 	if !canRetry {
 		return turnActionDocument{}, errorValue
 	}
@@ -657,7 +657,7 @@ func decideAgentActionWithChat(ctx context.Context, chatCompleter llm.ChatComple
 	return parseNativeAgentActionResponse(retryResponse, retryRequest.Tools)
 }
 
-func retryAgentActionChatCompletionRequest(request llm.ChatCompletionRequest, correction llm.StructuredOutputCorrection) (llm.ChatCompletionRequest, bool) {
+func retryAgentActionChatCompletionRequest(request llm.ChatCompletionRequest, correction llm.StructuredOutputCorrection, state agentTaskState) (llm.ChatCompletionRequest, bool) {
 	retryRequest := request
 	retryRequest.Messages = append([]llm.ChatCompletionMessage{}, request.Messages...)
 	retryRequest.Messages = append(retryRequest.Messages, llm.ChatCompletionMessage{
@@ -666,17 +666,43 @@ func retryAgentActionChatCompletionRequest(request llm.ChatCompletionRequest, co
 	})
 	toolName := strings.TrimSpace(correction.Diagnostic.ToolName)
 	if toolName == "" {
-		return retryRequest, true
+		if correction.Diagnostic.Category != llm.StructuredOutputDiagnosticFinishReason ||
+			correction.Diagnostic.FinishReason != llm.StructuredOutputDiagnosticFinishStop {
+			return retryRequest, true
+		}
+		toolName = firstPendingOperationToolName(state)
+		if toolName == "" {
+			return retryRequest, true
+		}
 	}
+	return restrictAgentActionChatCompletionRequest(retryRequest, toolName)
+}
+
+func restrictAgentActionChatCompletionRequest(request llm.ChatCompletionRequest, toolName string) (llm.ChatCompletionRequest, bool) {
 	for _, tool := range request.Tools {
 		if tool.Function.Name != toolName {
 			continue
 		}
-		retryRequest.Tools = []llm.ChatCompletionTool{tool}
-		retryRequest.ToolChoice = namedAgentActionToolChoice(toolName)
-		return retryRequest, true
+		request.Tools = []llm.ChatCompletionTool{tool}
+		request.ToolChoice = namedAgentActionToolChoice(toolName)
+		return request, true
 	}
 	return llm.ChatCompletionRequest{}, false
+}
+
+func firstPendingOperationToolName(state agentTaskState) string {
+	if _, hasFailureDebt := activeFailureDebt(state.Observations); hasFailureDebt {
+		return ""
+	}
+	contract := state.Request.OutcomeContract.OperationContract
+	if contract == nil || contract.Version != operationContractVersion || len(contract.Requirements) == 0 {
+		return ""
+	}
+	requirement, isPending := firstPendingOperationRequirement(contract, state.Observations)
+	if !isPending {
+		return ""
+	}
+	return strings.TrimSpace(requirement.ToolName)
 }
 
 func namedAgentActionToolChoice(toolName string) json.RawMessage {
