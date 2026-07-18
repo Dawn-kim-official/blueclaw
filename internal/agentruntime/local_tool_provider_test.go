@@ -2,6 +2,7 @@ package agentruntime
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -47,6 +48,65 @@ func TestLocalToolProviderUsesCanonicalDescriptors(t *testing.T) {
 	}
 	if !inputDescriptor.RequiresUserPresence || inputDescriptor.SideEffectClass != agent.ToolSideEffectApproval {
 		t.Fatalf("unexpected ask.input metadata: %+v", inputDescriptor)
+	}
+}
+
+func TestLocalToolProviderPreservesMemorySearchContract(t *testing.T) {
+	toolCatalogBuilder := NewToolCatalogBuilder()
+	handlerToolSet := agent.NewToolSet(nil)
+	registerMemoryTools(toolCatalogBuilder, handlerToolSet, ToolCatalogRequest{})
+
+	boundTools, errorValue := (localToolProvider{handlerToolSet: handlerToolSet}).ListTools(context.Background())
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	var descriptor agent.ToolDescriptor
+	for _, boundTool := range boundTools {
+		if boundTool.Definition.Name == "memory.search" {
+			descriptor = boundTool.Definition
+		}
+	}
+	if descriptor.Name == "" || descriptor.ResultContract == nil {
+		t.Fatalf("expected memory.search result contract, got %+v", descriptor)
+	}
+	if !equalJSONSchema(descriptor.OutputSchema, memorySearchOutputSchema) || !equalJSONSchema(descriptor.ResultContract.Schema, memorySearchOutputSchema) {
+		t.Fatalf("expected canonical output schema preservation, got %+v", descriptor)
+	}
+	if len(descriptor.ResultContract.Effects) != 0 || descriptor.ResultContract.EvidenceCondition != nil {
+		t.Fatalf("expected schema-only memory.search contract, got %+v", descriptor.ResultContract)
+	}
+	if !strings.Contains(string(descriptor.InputSchema), `"required":["query"]`) || !strings.Contains(string(descriptor.InputSchema), `"pattern":"\\S"`) {
+		t.Fatalf("expected strict query schema preservation, got %s", descriptor.InputSchema)
+	}
+}
+
+func TestLocalToolProviderRejectsMalformedMemorySearchResult(t *testing.T) {
+	handlerToolSet := agent.NewToolSet(nil)
+	if errorValue := handlerToolSet.RegisterTool(agent.ToolDefinition{
+		Name:        "memory.search",
+		Description: "Return a malformed memory result.",
+		InputSchema: memorySearchInputSchema,
+	}, func(context.Context, agent.ToolInvocation) (agent.ToolResult, error) {
+		document := json.RawMessage(`{"facts":[],"searchStatus":"complete","sources":[]}`)
+		return agent.ToolSuccessData(string(document), document), nil
+	}); errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	toolSet := agent.NewToolSet([]string{"memory.search"})
+	if errorValue := toolSet.RegisterProvider(context.Background(), localToolProvider{handlerToolSet: handlerToolSet}); errorValue != nil {
+		t.Fatal(errorValue)
+	}
+
+	result, errorValue := toolSet.Invoke(context.Background(), agent.ToolInvocation{
+		ToolName: "memory.search",
+		Input:    agent.MarshalToolInput(map[string]string{"query": "release notes"}),
+	})
+
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if !result.Failed() || result.FailureStage() != "tool_result_contract" {
+		t.Fatalf("expected malformed result to fail closed, got %+v", result)
 	}
 }
 
