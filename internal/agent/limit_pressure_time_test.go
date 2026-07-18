@@ -61,8 +61,35 @@ func TestExecutionEffortClockDoesNotIncludePreflightTime(t *testing.T) {
 	if runner.currentEffortElapsed(time.Now()) {
 		t.Fatal("expected a fresh execution effort budget after preflight")
 	}
-	if !runner.currentEffortElapsed(time.Now().Add(-31 * time.Second)) {
-		t.Fatal("expected execution effort budget to expire from its own start time")
+	if runner.currentEffortElapsed(time.Now().Add(-19 * time.Second)) {
+		t.Fatal("expected work to continue before the reserved closing window")
+	}
+	if !runner.currentEffortElapsed(time.Now().Add(-21 * time.Second)) {
+		t.Fatal("expected work to stop with one third of the total budget reserved for closing")
+	}
+}
+
+func TestElapsedClosingDurationIsPartOfTheTotalBudget(t *testing.T) {
+	testCases := []struct {
+		total   time.Duration
+		closing time.Duration
+		work    time.Duration
+	}{
+		{total: -time.Second},
+		{total: 0},
+		{total: time.Nanosecond, work: time.Nanosecond},
+		{total: time.Second, closing: time.Second / 3, work: time.Second - time.Second/3},
+		{total: 3 * time.Minute, closing: time.Minute, work: 2 * time.Minute},
+		{total: 10 * time.Minute, closing: time.Minute, work: 9 * time.Minute},
+		{total: time.Hour, closing: time.Minute, work: 59 * time.Minute},
+	}
+	for _, testCase := range testCases {
+		if closing := elapsedClosingDuration(testCase.total); closing != testCase.closing {
+			t.Fatalf("total %s: expected closing %s, got %s", testCase.total, testCase.closing, closing)
+		}
+		if work := workDurationWithinTotal(testCase.total); work != testCase.work {
+			t.Fatalf("total %s: expected work %s, got %s", testCase.total, testCase.work, work)
+		}
 	}
 }
 
@@ -148,7 +175,7 @@ func TestElapsedClosingBlocksBeforeReplyWhenEvidenceIsMissing(t *testing.T) {
 	}
 }
 
-func TestElapsedClosingHasNoInternalDeadlineAndHonorsParentCancellation(t *testing.T) {
+func TestElapsedClosingUsesRemainingTotalBudget(t *testing.T) {
 	languageModel := newElapsedClosingLanguageModel("task.add", `{}`, "")
 	languageModel.closingStarted = make(chan struct{})
 	languageModel.blockClosing = true
@@ -160,11 +187,11 @@ func TestElapsedClosingHasNoInternalDeadlineAndHonorsParentCancellation(t *testi
 	registerTestTool(toolSet, ToolDefinition{Name: "task.add"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		return testToolSuccess(`{"taskID":"task-1"}`), nil
 	})
-	parentContext, cancelParent := context.WithCancel(context.Background())
 	resultChannel := make(chan AgentTurnResult, 1)
+	startedAt := time.Now()
 
 	go func() {
-		result, _ := services.runner.RunTurn(parentContext, AgentTurnRequest{
+		result, _ := services.runner.RunTurn(context.Background(), AgentTurnRequest{
 			RequesterPersonID:     "person-1",
 			ConversationID:        "conversation-1",
 			Prompt:                "분기 결산 운영 검토 업무를 등록해줘",
@@ -181,24 +208,29 @@ func TestElapsedClosingHasNoInternalDeadlineAndHonorsParentCancellation(t *testi
 	case <-time.After(2 * time.Second):
 		t.Fatal("expected elapsed closing to start")
 	}
-	if languageModel.closingHasDeadline {
-		t.Fatal("expected elapsed closing to have no internal deadline")
+	if !languageModel.closingHasDeadline {
+		t.Fatal("expected elapsed closing to use the hard total deadline")
 	}
 	if languageModel.statusAtClosing != task.TaskStatusCompleted {
 		t.Fatalf("expected completed status before closing, got %s", languageModel.statusAtClosing)
 	}
-	cancelParent()
 
 	select {
 	case result := <-resultChannel:
 		if result.TaskRun.Status != task.TaskStatusCompleted {
 			t.Fatalf("expected persisted completion to survive closing cancellation, got %+v", result.TaskRun)
 		}
-		if !result.ReplySuppressed {
-			t.Fatal("expected parent cancellation during closing to suppress the reply")
+		if result.ReplySuppressed {
+			t.Fatal("expected the hard deadline to fall back to a compact reply")
+		}
+		if result.FailureNotice.Source != "" || strings.TrimSpace(result.FinishMessage) == "" {
+			t.Fatalf("expected compact completed reply, got %+v", result)
+		}
+		if time.Since(startedAt) > time.Second {
+			t.Fatalf("expected the complete turn to stay inside the one-second total budget, took %s", time.Since(startedAt))
 		}
 	case <-time.After(time.Second):
-		t.Fatal("expected closing to honor parent cancellation")
+		t.Fatal("expected closing to stop at the hard total deadline")
 	}
 	assertSingleElapsedClosing(t, languageModel)
 }
@@ -533,5 +565,21 @@ func TestLimitPressureMessageOmitsElapsedWhenUnbounded(t *testing.T) {
 	message := limitPressureMessage("budget", 2, 30, 1, 72, 0, 0)
 	if strings.Contains(message, "Time:") {
 		t.Fatalf("expected no time line when unbounded, got %q", message)
+	}
+}
+
+func TestLimitPressureWarningUsesTheWorkBudget(t *testing.T) {
+	runner := &AgentTurnRunner{options: TurnOptions{
+		MaxIterationCount: 72,
+		MaxToolCallCount:  30,
+		MaxElapsedSecond:  int((3 * time.Minute).Seconds()),
+	}}
+	warning := runner.nextLimitPressureWarning(1, 0, time.Minute, 1, map[string]bool{})
+
+	if warning == nil || warning.Level != "budget" {
+		t.Fatalf("expected budget warning at half the work budget, got %+v", warning)
+	}
+	if !strings.Contains(warning.Observation.ContentText(), "Time: 1m0s/2m0s elapsed.") {
+		t.Fatalf("expected the warning to show the work budget, got %q", warning.Observation.ContentText())
 	}
 }

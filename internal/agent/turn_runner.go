@@ -25,6 +25,8 @@ type TurnOptions struct {
 	GenerationOptions    llm.GenerationOptions
 }
 
+const maximumElapsedClosingDuration = time.Minute
+
 type RecoveryBudget struct {
 	CorrectedRetry int
 	AlternateRoute int
@@ -1446,8 +1448,8 @@ func (agentTurnRunner *AgentTurnRunner) nextLimitPressureWarning(usedIterationCo
 		return nil
 	}
 	maxToolCallCount := maxToolCallCountWithRecovery(agentTurnRunner.options, nil)
-	maxElapsed := time.Duration(agentTurnRunner.options.MaxElapsedSecond) * time.Second
-	message := limitPressureMessage(level, usedToolCallCount, maxToolCallCount, usedIterationCount, agentTurnRunner.options.MaxIterationCount, elapsed, maxElapsed)
+	maximumWorkDuration := agentTurnRunner.maximumWorkDuration()
+	message := limitPressureMessage(level, usedToolCallCount, maxToolCallCount, usedIterationCount, agentTurnRunner.options.MaxIterationCount, elapsed, maximumWorkDuration)
 	return &limitPressureWarning{
 		Level:       level,
 		Observation: newContentObservation(nextObservationID(observationIndex), "limit_pressure", "", message),
@@ -1460,12 +1462,13 @@ func (agentTurnRunner *AgentTurnRunner) nextLimitPressureWarning(usedIterationCo
 			"maxToolCallCount":   maxToolCallCount,
 			"elapsedSeconds":     int(elapsed.Seconds()),
 			"maxElapsedSeconds":  agentTurnRunner.options.MaxElapsedSecond,
+			"maxWorkSeconds":     int(maximumWorkDuration.Seconds()),
 		},
 	}
 }
 
 func (agentTurnRunner *AgentTurnRunner) limitPressureLevel(usedIterationCount int, usedToolCallCount int, elapsed time.Duration) string {
-	maxElapsed := time.Duration(agentTurnRunner.options.MaxElapsedSecond) * time.Second
+	maxElapsed := agentTurnRunner.maximumWorkDuration()
 	if limitUsageReached(usedIterationCount, agentTurnRunner.options.MaxIterationCount, 90) || limitUsageReached(usedToolCallCount, agentTurnRunner.options.MaxToolCallCount, 90) || elapsedUsageReached(elapsed, maxElapsed, 90) {
 		return "finalize"
 	}
@@ -1654,7 +1657,7 @@ func (agentTurnRunner *AgentTurnRunner) currentEffortElapsed(turnStartedAt time.
 	if turnStartedAt.IsZero() || agentTurnRunner.options.MaxElapsedSecond <= 0 {
 		return false
 	}
-	return time.Since(turnStartedAt) >= time.Duration(agentTurnRunner.options.MaxElapsedSecond)*time.Second
+	return time.Since(turnStartedAt) >= agentTurnRunner.maximumWorkDuration()
 }
 
 func (agentTurnRunner *AgentTurnRunner) stopForElapsedLimitIfReached(ctx context.Context, taskRunID string, request AgentTurnRequest, state agentTaskState, usedIterationCount int) (AgentTurnResult, bool, error) {
@@ -1670,8 +1673,39 @@ func (agentTurnRunner *AgentTurnRunner) currentEffortContext(parentContext conte
 	if effortStartedAt.IsZero() || agentTurnRunner.options.MaxElapsedSecond <= 0 {
 		return context.WithCancel(parentContext)
 	}
-	deadline := effortStartedAt.Add(time.Duration(agentTurnRunner.options.MaxElapsedSecond) * time.Second)
+	deadline := effortStartedAt.Add(agentTurnRunner.maximumWorkDuration())
 	return context.WithDeadline(parentContext, deadline)
+}
+
+func (agentTurnRunner *AgentTurnRunner) maximumWorkDuration() time.Duration {
+	maximumElapsedDuration := time.Duration(agentTurnRunner.options.MaxElapsedSecond) * time.Second
+	return workDurationWithinTotal(maximumElapsedDuration)
+}
+
+func workDurationWithinTotal(maximumElapsedDuration time.Duration) time.Duration {
+	if maximumElapsedDuration <= 0 {
+		return 0
+	}
+	return maximumElapsedDuration - elapsedClosingDuration(maximumElapsedDuration)
+}
+
+func elapsedClosingDuration(maximumElapsedDuration time.Duration) time.Duration {
+	if maximumElapsedDuration <= 0 {
+		return 0
+	}
+	closingDuration := maximumElapsedDuration / 3
+	if closingDuration > maximumElapsedClosingDuration {
+		return maximumElapsedClosingDuration
+	}
+	return closingDuration
+}
+
+func (agentTurnRunner *AgentTurnRunner) elapsedClosingContext(parentContext context.Context, effortStartedAt time.Time) (context.Context, context.CancelFunc) {
+	if effortStartedAt.IsZero() || agentTurnRunner.options.MaxElapsedSecond <= 0 {
+		return context.WithCancel(parentContext)
+	}
+	maximumElapsedDuration := time.Duration(agentTurnRunner.options.MaxElapsedSecond) * time.Second
+	return context.WithDeadline(parentContext, effortStartedAt.Add(maximumElapsedDuration))
 }
 
 func (agentTurnRunner *AgentTurnRunner) turnElapsed(turnStartedAt time.Time) time.Duration {
@@ -1961,7 +1995,9 @@ func (agentTurnRunner *AgentTurnRunner) generateElapsedClosingReply(ctx context.
 	if !isAvailable {
 		return elapsedClosingRawReply(request, isCompleted), limitReplyStatus{Source: "raw_error", Reason: "chat_unavailable"}
 	}
-	response, errorValue := chatCompleter.GenerateChatCompletion(ctx, llm.ChatCompletionRequest{
+	closingContext, cancelClosing := agentTurnRunner.elapsedClosingContext(ctx, request.EffortStartedAt)
+	defer cancelClosing()
+	response, errorValue := chatCompleter.GenerateChatCompletion(closingContext, llm.ChatCompletionRequest{
 		SchemaName: "blueclaw_elapsed_reply",
 		Messages: []llm.ChatCompletionMessage{{
 			Role:    "user",

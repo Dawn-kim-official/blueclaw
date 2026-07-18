@@ -1232,6 +1232,158 @@ func TestHumanEstimateDoesNotShrinkTaskWorkDuration(t *testing.T) {
 	}
 }
 
+func TestAgentKernelRouterDeadlinePersistsOneBlockedTask(t *testing.T) {
+	agentKernel, taskRunService := newKernelTestServices()
+	agentKernel.UseTurnOptions(TurnOptions{MaxElapsedSecond: 1})
+	agentKernel.UseIntakeLanguageModelProvider(deadlineBlockingRouterLanguageModel{})
+	request := kernelTestRequest("고객지원 업무를 정리해줘")
+	request.TurnStartedAt = time.Now().Add(-2 * time.Second)
+
+	result, errorValue := agentKernel.RunAgentRequest(context.Background(), request)
+
+	if errorValue != nil {
+		t.Fatalf("expected persisted max elapsed result: %v", errorValue)
+	}
+	taskRuns := taskRunService.ListTaskRunByPersonID(request.RequesterPersonID)
+	if len(taskRuns) != 1 || result.TaskRun.TaskRunID != taskRuns[0].TaskRunID {
+		t.Fatalf("expected exactly one persisted task, got %+v", taskRuns)
+	}
+	if result.TaskRun.Status != task.TaskStatusBlocked || result.TaskRun.FailureReason != "max_elapsed" {
+		t.Fatalf("expected blocked max elapsed task, got %+v", result.TaskRun)
+	}
+	taskEvents := taskRunService.ListTaskEvent(result.TaskRun.TaskRunID)
+	if !taskEventsContain(taskEvents, "agent.limit_stop", `"phase":"intake"`) {
+		t.Fatal("expected observable intake max elapsed event")
+	}
+	if taskEventNameCount(taskEvents, "agent.limit_stop") != 1 || taskEventNameCount(taskEvents, "agent.goal.blocked") != 1 {
+		t.Fatalf("expected one limit and goal event, got %+v", taskEvents)
+	}
+	if taskEventsContain(taskEvents, "agent.intake", "") {
+		t.Fatal("router deadline must not invent an intake decision")
+	}
+}
+
+func TestAgentKernelSkillDeadlinePersistsOneBlockedTask(t *testing.T) {
+	agentKernel, taskRunService := newKernelTestServices()
+	languageModel := &routerThenBlockingLanguageModel{decision: TurnDecision{
+		Route:              TurnRouteStartTask,
+		Classification:     IntakeClassificationBoundedTask,
+		TaskShape:          TaskShapeMaintenanceTask,
+		TaskLevel:          TaskLevelXLow,
+		EstimatedMinutes:   1,
+		PriorTaskReference: PriorTaskReferenceNone,
+		Reason:             "업무 정리",
+	}}
+	agentKernel.UseIntakeLanguageModelProvider(languageModel)
+	agentKernel.UseLanguageModelProvider(languageModel)
+	request := kernelTestRequest("고객지원 업무를 정리해줘")
+	workDuration := workDurationWithinTotal(TaskLevelProfileForLevel(TaskLevelXLow).Duration)
+	request.TurnStartedAt = time.Now().Add(-workDuration + 100*time.Millisecond)
+
+	result, errorValue := agentKernel.RunAgentRequest(context.Background(), request)
+
+	if errorValue != nil {
+		t.Fatalf("expected persisted max elapsed result: %v", errorValue)
+	}
+	taskRuns := taskRunService.ListTaskRunByPersonID(request.RequesterPersonID)
+	if len(taskRuns) != 1 || result.TaskRun.TaskRunID != taskRuns[0].TaskRunID {
+		t.Fatalf("expected exactly one persisted task, got %+v", taskRuns)
+	}
+	if result.TaskRun.Status != task.TaskStatusBlocked || result.TaskRun.FailureReason != "max_elapsed" {
+		t.Fatalf("expected blocked max elapsed task, got %+v", result.TaskRun)
+	}
+	if languageModel.postRouterCallCount == 0 {
+		t.Fatal("expected post-router skill selection to receive the task budget")
+	}
+	taskEvents := taskRunService.ListTaskEvent(result.TaskRun.TaskRunID)
+	if taskEventNameCount(taskEvents, "agent.intake") != 1 || taskEventNameCount(taskEvents, "agent.limit_stop") != 1 || taskEventNameCount(taskEvents, "agent.goal.blocked") != 1 {
+		t.Fatalf("expected one intake, limit, and goal event, got %+v", taskEvents)
+	}
+}
+
+func TestAgentKernelConfirmationDeadlineSettlesCreatedTaskOnce(t *testing.T) {
+	agentKernel, taskRunService := newKernelTestServices()
+	agentKernel.UseIntakeLanguageModelProvider(intakeDecisionLanguageModel{decision: destructiveSiteDeleteDecision()})
+	languageModel := &confirmationBlockingLanguageModel{}
+	agentKernel.UseLanguageModelProvider(languageModel)
+	siteDeleteDefinition := testToolDescriptor("site.delete")
+	request := kernelTestRequest("site-1 웹사이트를 삭제해줘")
+	request.ToolSet = newTestToolSetWithDefinitions([]ToolDefinition{siteDeleteDefinition})
+	request.SkipSkillSelection = true
+	workDuration := workDurationWithinTotal(TaskLevelProfileForLevel(TaskLevelLow).Duration)
+	request.TurnStartedAt = time.Now().Add(-workDuration + 500*time.Millisecond)
+
+	result, errorValue := agentKernel.RunAgentRequest(context.Background(), request)
+
+	if errorValue != nil {
+		t.Fatalf("expected persisted max elapsed result: %v", errorValue)
+	}
+	taskRuns := taskRunService.ListTaskRunByPersonID(request.RequesterPersonID)
+	if len(taskRuns) != 1 || result.TaskRun.TaskRunID != taskRuns[0].TaskRunID {
+		t.Fatalf("expected confirmation task to settle in place, got %+v", taskRuns)
+	}
+	if result.TaskRun.Status != task.TaskStatusBlocked || result.TaskRun.FailureReason != "max_elapsed" {
+		t.Fatalf("expected blocked max elapsed task, got %+v", result.TaskRun)
+	}
+	if languageModel.confirmationCallCount != 1 {
+		t.Fatalf("expected one confirmation wording attempt, got %d", languageModel.confirmationCallCount)
+	}
+	taskEvents := taskRunService.ListTaskEvent(result.TaskRun.TaskRunID)
+	if taskEventNameCount(taskEvents, "agent.limit_stop") != 1 || taskEventNameCount(taskEvents, "agent.goal.blocked") != 1 {
+		t.Fatalf("expected one limit and goal event, got %+v", taskEvents)
+	}
+}
+
+func TestAgentKernelCallerCancellationIsNotMaxElapsed(t *testing.T) {
+	agentKernel, taskRunService := newKernelTestServices()
+	agentKernel.UseIntakeLanguageModelProvider(deadlineBlockingRouterLanguageModel{})
+	responseContext, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	result, errorValue := agentKernel.RunAgentRequest(responseContext, kernelTestRequest("고객지원 업무를 정리해줘"))
+
+	if errorValue != nil {
+		t.Fatalf("expected persisted cancellation result: %v", errorValue)
+	}
+	if result.TaskRun.FailureReason == "max_elapsed" {
+		t.Fatalf("expected caller cancellation to remain distinct, got %+v", result.TaskRun)
+	}
+	if taskEventsContain(taskRunService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.limit_stop", "max_elapsed") {
+		t.Fatal("caller cancellation must not emit a max elapsed event")
+	}
+}
+
+func TestAgentKernelXHighTaskKeepsHourBudgetWithLowExecutionModel(t *testing.T) {
+	agentKernel, _ := newKernelTestServices()
+	languageModel := &deadlineCapturingFinishLanguageModel{}
+	agentKernel.UseLanguageModelProvider(languageModel)
+	precomputedDecision := TurnDecision{
+		Route:          TurnRouteStartTask,
+		Classification: IntakeClassificationQuickReply,
+		TaskShape:      TaskShapeImmediateReply,
+		TaskLevel:      TaskLevelXHigh,
+	}
+	request := kernelTestRequest("웹사이트를 만들어줘")
+	request.PrecomputedTurnDecision = &precomputedDecision
+	request.IsPrecomputedDecisionExact = true
+	request.SkipSkillSelection = true
+	request.ToolSet = newTestToolSet(nil)
+	request.TurnStartedAt = time.Now().Add(-15 * time.Minute)
+
+	result, errorValue := agentKernel.RunAgentRequest(context.Background(), request)
+
+	if errorValue != nil || result.TaskRun.Status != task.TaskStatusCompleted {
+		t.Fatalf("expected xhigh task to complete with low execution model: result=%+v error=%v", result, errorValue)
+	}
+	if languageModel.deadline.IsZero() {
+		t.Fatal("expected execution deadline")
+	}
+	remainingDuration := time.Until(languageModel.deadline)
+	if remainingDuration < 43*time.Minute {
+		t.Fatalf("expected xhigh hour budget independent of execution model, got %s", remainingDuration)
+	}
+}
+
 func TestAgentKernelCountsIntakeTimeTowardTaskWorkDuration(t *testing.T) {
 	agentKernel, taskRunService := newKernelTestServices()
 	languageModel := &sequenceLanguageModel{contents: []string{finishMessageDocument("diagnostic done")}}
@@ -1328,4 +1480,77 @@ func TestAgentKernelCompleteLaunchFailureRedactsRawError(t *testing.T) {
 	if strings.Contains(result.UserNotice, "launch-secret") {
 		t.Fatalf("expected secret redaction, got %q", result.UserNotice)
 	}
+}
+
+type deadlineBlockingRouterLanguageModel struct{}
+
+func (deadlineBlockingRouterLanguageModel) GenerateResponse(context.Context, string) (string, error) {
+	return "", errors.New("router model only serves structured routing")
+}
+
+func (deadlineBlockingRouterLanguageModel) GenerateStructuredResponse(responseContext context.Context, _ llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
+	<-responseContext.Done()
+	return llm.StructuredResponse{}, responseContext.Err()
+}
+
+type routerThenBlockingLanguageModel struct {
+	decision            TurnDecision
+	postRouterCallCount int
+}
+
+func (languageModel *routerThenBlockingLanguageModel) GenerateResponse(context.Context, string) (string, error) {
+	return "", errors.New("language model only serves structured generation")
+}
+
+func (languageModel *routerThenBlockingLanguageModel) GenerateStructuredResponse(responseContext context.Context, request llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
+	if request.StructuredOutputSchema.Name == turnRouterSchemaName {
+		document, errorValue := json.Marshal(languageModel.decision)
+		return llm.StructuredResponse{Content: string(document)}, errorValue
+	}
+	languageModel.postRouterCallCount++
+	<-responseContext.Done()
+	return llm.StructuredResponse{}, responseContext.Err()
+}
+
+type deadlineCapturingFinishLanguageModel struct {
+	deadline time.Time
+}
+
+func (languageModel *deadlineCapturingFinishLanguageModel) GenerateResponse(context.Context, string) (string, error) {
+	return "", errors.New("language model only serves structured generation")
+}
+
+func (languageModel *deadlineCapturingFinishLanguageModel) GenerateStructuredResponse(responseContext context.Context, _ llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
+	languageModel.deadline, _ = responseContext.Deadline()
+	return llm.StructuredResponse{Content: finishMessageDocument("완료했습니다.")}, nil
+}
+
+type confirmationBlockingLanguageModel struct {
+	confirmationCallCount int
+}
+
+func (languageModel *confirmationBlockingLanguageModel) GenerateResponse(context.Context, string) (string, error) {
+	return "", errors.New("language model only serves structured generation")
+}
+
+func (languageModel *confirmationBlockingLanguageModel) GenerateStructuredResponse(responseContext context.Context, request llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
+	if request.StructuredOutputSchema.Name == "blueclaw_execution_plan" {
+		return llm.StructuredResponse{Content: destructiveSiteDeleteExecutionPlan()}, nil
+	}
+	if request.StructuredOutputSchema.Name == "blueclaw_confirmation_message" {
+		languageModel.confirmationCallCount++
+		<-responseContext.Done()
+		return llm.StructuredResponse{}, responseContext.Err()
+	}
+	return llm.StructuredResponse{}, errors.New("unexpected structured request")
+}
+
+func taskEventNameCount(taskEvents []task.TaskEvent, eventName string) int {
+	count := 0
+	for _, taskEvent := range taskEvents {
+		if taskEvent.Name == eventName {
+			count++
+		}
+	}
+	return count
 }
