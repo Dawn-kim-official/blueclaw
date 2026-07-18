@@ -320,6 +320,79 @@ func TestAgentTurnRunnerCancelsToolCallAtExecutionEffortDeadline(t *testing.T) {
 	assertSingleElapsedClosing(t, languageModel)
 }
 
+func TestMaxIterationsClosingDefersToElapsedClosing(t *testing.T) {
+	languageModel := newElapsedClosingLanguageModel("task.add", `{"title":"분기 결산 운영 검토"}`, "작업 시간이 끝나 진행 상황을 저장했습니다.")
+	languageModel.blockStructured = true
+	services := newTurnRunnerTestServices(languageModel, TurnOptions{
+		MaxIterationCount: 1,
+		MaxToolCallCount:  4,
+		MaxElapsedSecond:  1,
+	})
+	toolSet := newTestCapabilityToolSet([]string{"task.add"})
+	toolSet.RegisterTool(ToolDefinition{Name: "task.add"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return ToolSuccess(`{"taskID":"task-1"}`), nil
+	})
+
+	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
+		RequesterPersonID: "person-1",
+		ConversationID:    "conversation-1",
+		Prompt:            "분기 결산 운영 검토 업무를 등록해줘",
+		ResponseLanguage:  ResponseLanguageKorean,
+		ToolSet:           toolSet,
+		PinnedToolNames:   toolSet.ListToolNames(),
+		EffortStartedAt:   time.Now().Add(-500 * time.Millisecond),
+	})
+
+	if errorValue != nil {
+		t.Fatalf("expected elapsed result, got %v", errorValue)
+	}
+	if result.TaskRun.Status != task.TaskStatusBlocked || result.TaskRun.FailureReason != "max_elapsed" {
+		t.Fatalf("expected max_elapsed to own the terminal result, got %+v", result.TaskRun)
+	}
+	if languageModel.structuredCalls == 0 {
+		t.Fatal("expected max-iterations finalization to be interrupted by the effort deadline")
+	}
+	assertSingleElapsedClosing(t, languageModel)
+}
+
+func TestMaxToolCallsClosingDefersToElapsedClosing(t *testing.T) {
+	languageModel := newElapsedClosingLanguageModel("", "", "작업 시간이 끝나 진행 상황을 저장했습니다.")
+	languageModel.actionToolNames = []string{"first.tool", "second.tool"}
+	languageModel.actionToolInputs = []string{`{"value":"first"}`, `{"value":"second"}`}
+	languageModel.blockStructured = true
+	services := newTurnRunnerTestServices(languageModel, TurnOptions{
+		MaxIterationCount: 4,
+		MaxToolCallCount:  1,
+		MaxElapsedSecond:  1,
+	})
+	toolSet := newTestCapabilityToolSet([]string{"first.tool", "second.tool"})
+	toolSet.RegisterTool(ToolDefinition{Name: "first.tool"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return ToolSuccess(`{"status":"recorded"}`), nil
+	})
+	toolSet.RegisterTool(ToolDefinition{Name: "second.tool"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		t.Fatal("expected the tool-call limit before second tool execution")
+		return ToolResult{}, nil
+	})
+
+	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
+		RequesterPersonID: "person-1",
+		ConversationID:    "conversation-1",
+		Prompt:            "두 단계 업무를 처리해줘",
+		ResponseLanguage:  ResponseLanguageKorean,
+		ToolSet:           toolSet,
+		PinnedToolNames:   toolSet.ListToolNames(),
+		EffortStartedAt:   time.Now().Add(-500 * time.Millisecond),
+	})
+
+	if errorValue != nil {
+		t.Fatalf("expected elapsed result, got %v", errorValue)
+	}
+	if result.TaskRun.Status != task.TaskStatusBlocked || result.TaskRun.FailureReason != "max_elapsed" {
+		t.Fatalf("expected max_elapsed to own the terminal result, got %+v", result.TaskRun)
+	}
+	assertSingleElapsedClosing(t, languageModel)
+}
+
 func assertSingleElapsedClosing(t *testing.T, languageModel *elapsedClosingLanguageModel) {
 	t.Helper()
 	if languageModel.closingCalls != 1 {
@@ -356,10 +429,13 @@ func (deadlineBlockingLanguageModel) GenerateStructuredResponse(responseContext 
 type elapsedClosingLanguageModel struct {
 	actionToolName     string
 	actionToolInput    string
+	actionToolNames    []string
+	actionToolInputs   []string
 	closingReply       string
 	closingError       error
 	closingStarted     chan struct{}
 	blockClosing       bool
+	blockStructured    bool
 	observeTaskStatus  func() task.TaskStatus
 	statusAtClosing    task.TaskStatus
 	closingHasDeadline bool
@@ -383,8 +459,12 @@ func (languageModel *elapsedClosingLanguageModel) GenerateResponse(context.Conte
 	return "", errors.New("legacy response path is not allowed")
 }
 
-func (languageModel *elapsedClosingLanguageModel) GenerateStructuredResponse(context.Context, llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
+func (languageModel *elapsedClosingLanguageModel) GenerateStructuredResponse(responseContext context.Context, _ llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
 	languageModel.structuredCalls++
+	if languageModel.blockStructured {
+		<-responseContext.Done()
+		return llm.StructuredResponse{}, responseContext.Err()
+	}
 	return llm.StructuredResponse{}, errors.New("structured path is not allowed after elapsed cutoff")
 }
 
@@ -396,6 +476,16 @@ func (languageModel *elapsedClosingLanguageModel) GenerateChatCompletion(respons
 		return llm.ChatCompletionResponse{}, errors.New("unexpected chat schema")
 	}
 	languageModel.actionCalls++
+	actionIndex := languageModel.actionCalls - 1
+	if actionIndex < len(languageModel.actionToolNames) {
+		return llm.ChatCompletionResponse{
+			FinishReason: "tool_calls",
+			Message: llm.ChatCompletionMessage{
+				Role:      "assistant",
+				ToolCalls: []llm.ChatCompletionToolCall{nativeAgentActionToolCall(languageModel.actionToolNames[actionIndex], languageModel.actionToolInputs[actionIndex])},
+			},
+		}, nil
+	}
 	if languageModel.actionCalls == 1 && languageModel.actionToolName != "" {
 		return llm.ChatCompletionResponse{
 			FinishReason: "tool_calls",
