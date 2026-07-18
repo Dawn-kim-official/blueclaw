@@ -46,12 +46,25 @@ type CapabilityToolDescriptor struct {
 	WorksOffline         bool                          `json:"worksOffline,omitempty"`
 	InputSchema          json.RawMessage               `json:"inputSchema,omitempty"`
 	OutputSchema         json.RawMessage               `json:"outputSchema,omitempty"`
+	ResultContract       *CapabilityToolResultContract `json:"resultContract,omitempty"`
 	PolicyResource       string                        `json:"policyResource,omitempty"`
 	SideEffectClass      string                        `json:"sideEffectClass,omitempty"`
 	RequiresApproval     bool                          `json:"requiresApproval,omitempty"`
 	CompletionEvidence   *CapabilityCompletionEvidence `json:"completionEvidence,omitempty"`
 	Availability         CapabilityAvailability        `json:"availability"`
 	Idempotency          CapabilityIdempotency         `json:"idempotency"`
+}
+
+type CapabilityToolResultContract struct {
+	Schema  json.RawMessage                    `json:"schema"`
+	Effects []CapabilityResourceEffectContract `json:"effects,omitempty"`
+}
+
+type CapabilityResourceEffectContract struct {
+	ObjectType     string `json:"objectType"`
+	Effect         string `json:"effect"`
+	ResultField    string `json:"resultField"`
+	EffectIdentity string `json:"effectIdentity"`
 }
 
 type CapabilityCompletionEvidence struct {

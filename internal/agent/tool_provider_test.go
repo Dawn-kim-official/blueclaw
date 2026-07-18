@@ -119,6 +119,118 @@ func TestRegisterProviderRejectsIncompleteObservationMetadata(t *testing.T) {
 	}
 }
 
+func TestRegisterProviderRejectsUnboundResultEffectIdentity(t *testing.T) {
+	toolSet := NewToolSet([]string{"task.add"})
+	providerTool := validProviderTool("capabilityd/task/task.add", "task", "task.add")
+	providerTool.Definition.ResultContract = &ToolResultContract{
+		Schema: json.RawMessage(`{"type":"object","properties":{"taskID":{"type":"string"}},"required":["taskID"],"additionalProperties":false}`),
+		Effects: []ResourceEffectContract{{
+			ObjectType:     "task",
+			Effect:         "created",
+			ResultField:    "missingID",
+			EffectIdentity: "id",
+		}},
+	}
+
+	errorValue := toolSet.RegisterProvider(context.Background(), testToolProvider{providerID: "capabilityd", tools: []BoundTool{providerTool}})
+
+	if errorValue == nil || !strings.Contains(errorValue.Error(), "resultField must name a required string property") {
+		t.Fatalf("expected unbound result identity rejection, got %v", errorValue)
+	}
+}
+
+func TestToolSetValidatesCanonicalResultContract(t *testing.T) {
+	testCases := []struct {
+		name      string
+		result    ToolResult
+		isSuccess bool
+	}{
+		{
+			name: "valid",
+			result: ToolResult{
+				Output:  ToolOutput{Data: json.RawMessage(`{"taskID":"task-1"}`)},
+				Effects: []ResourceEffect{{ObjectType: "task", Effect: "created", ID: "task-1"}},
+			},
+			isSuccess: true,
+		},
+		{
+			name:   "invalid schema",
+			result: ToolResult{Output: ToolOutput{Data: json.RawMessage(`{"id":"task-1"}`)}, Effects: []ResourceEffect{{ObjectType: "task", Effect: "created", ID: "task-1"}}},
+		},
+		{
+			name:   "missing effect",
+			result: ToolResult{Output: ToolOutput{Data: json.RawMessage(`{"taskID":"task-1"}`)}},
+		},
+		{
+			name:   "mismatched effect identity",
+			result: ToolResult{Output: ToolOutput{Data: json.RawMessage(`{"taskID":"task-1"}`)}, Effects: []ResourceEffect{{ObjectType: "task", Effect: "created", ID: "task-2"}}},
+		},
+		{
+			name:   "undeclared extra effect",
+			result: ToolResult{Output: ToolOutput{Data: json.RawMessage(`{"taskID":"task-1"}`)}, Effects: []ResourceEffect{{ObjectType: "task", Effect: "created", ID: "task-1"}, {ObjectType: "file", Effect: "created", Path: "/workspace/report.md"}}},
+		},
+	}
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			toolSet := NewToolSet([]string{"task.add"})
+			boundTool := validProviderTool("capabilityd/task.add", "task", "task.add")
+			boundTool.Definition.ResultContract = &ToolResultContract{
+				Schema: json.RawMessage(`{"type":"object","properties":{"taskID":{"type":"string"}},"required":["taskID"],"additionalProperties":false}`),
+				Effects: []ResourceEffectContract{{
+					ObjectType:     "task",
+					Effect:         "created",
+					ResultField:    "taskID",
+					EffectIdentity: "id",
+				}},
+			}
+			boundTool.Handler = func(context.Context, ToolInvocation) (ToolResult, error) {
+				return testCase.result, nil
+			}
+			if errorValue := toolSet.RegisterProvider(context.Background(), testToolProvider{providerID: "capabilityd", tools: []BoundTool{boundTool}}); errorValue != nil {
+				t.Fatal(errorValue)
+			}
+
+			result, errorValue := toolSet.Invoke(context.Background(), ToolInvocation{ToolName: "task.add", Input: json.RawMessage(`{}`)})
+
+			if errorValue != nil {
+				t.Fatal(errorValue)
+			}
+			if testCase.isSuccess && result.Failed() {
+				t.Fatalf("expected success, got %+v", result)
+			}
+			if !testCase.isSuccess && !result.Failed() {
+				t.Fatalf("success=%v result=%+v", testCase.isSuccess, result)
+			}
+			if !testCase.isSuccess && result.FailureStage() != "tool_result_contract" {
+				t.Fatalf("expected result contract failure, got %+v", result)
+			}
+		})
+	}
+}
+
+func TestToolSetRejectsEffectsWithoutResultContract(t *testing.T) {
+	toolSet := NewToolSet([]string{"external.tasks.create"})
+	boundTool := validProviderTool("external/tasks/create", "tasks", "external.tasks.create")
+	boundTool.Handler = func(context.Context, ToolInvocation) (ToolResult, error) {
+		return ToolResult{
+			Output:  ToolOutput{Data: json.RawMessage(`{"taskID":"task-1"}`)},
+			Effects: []ResourceEffect{{ObjectType: "task", Effect: "created", ID: "task-1"}},
+		}, nil
+	}
+	if errorValue := toolSet.RegisterProvider(context.Background(), testToolProvider{providerID: "external", tools: []BoundTool{boundTool}}); errorValue != nil {
+		t.Fatal(errorValue)
+	}
+
+	result, errorValue := toolSet.Invoke(context.Background(), ToolInvocation{ToolName: "external.tasks.create", Input: json.RawMessage(`{}`)})
+
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if !result.Failed() || result.FailureStage() != "tool_result_contract" {
+		t.Fatalf("expected uncontracted effect rejection, got %+v", result)
+	}
+}
+
 func TestRegisterProviderRejectsCanonicalIdentityAndModelNameCollisions(t *testing.T) {
 	tests := []struct {
 		name  string

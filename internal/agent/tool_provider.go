@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 )
 
@@ -241,6 +242,16 @@ func normalizeProviderTool(providerID string, boundTool BoundTool) (BoundTool, e
 	}
 	toolDescriptor.InputSchema = normalizedInputSchema
 	toolDescriptor.OutputSchema = normalizedOutputSchema
+	if toolDescriptor.ResultContract != nil {
+		normalizedResultSchema, resultSchemaError := normalizeProviderToolSchema(toolDescriptor.ResultContract.Schema)
+		if resultSchemaError != nil {
+			return BoundTool{}, fmt.Errorf("invalid tool descriptor %s: resultContract.schema %w", firstNonEmptyString(toolDescriptor.ID, toolDescriptor.Name), resultSchemaError)
+		}
+		toolDescriptor.ResultContract = &ToolResultContract{
+			Schema:  normalizedResultSchema,
+			Effects: append([]ResourceEffectContract{}, toolDescriptor.ResultContract.Effects...),
+		}
+	}
 	boundTool.Definition = toolDescriptor
 	if errorValue := validateProviderTool(boundTool); errorValue != nil {
 		return BoundTool{}, fmt.Errorf("invalid tool descriptor %s: %w", firstNonEmptyString(toolDescriptor.ID, toolDescriptor.Name), errorValue)
@@ -359,7 +370,57 @@ func validateProviderTool(boundTool BoundTool) error {
 	if errorValue := validateToolSchema("inputSchema", toolDescriptor.InputSchema, true); errorValue != nil {
 		return errorValue
 	}
-	return validateToolSchema("outputSchema", toolDescriptor.OutputSchema, true)
+	if errorValue := validateToolSchema("outputSchema", toolDescriptor.OutputSchema, true); errorValue != nil {
+		return errorValue
+	}
+	return validateToolResultContract(toolDescriptor.ResultContract)
+}
+
+func validateToolResultContract(contract *ToolResultContract) error {
+	if contract == nil {
+		return nil
+	}
+	if errorValue := validateToolSchema("resultContract.schema", contract.Schema, true); errorValue != nil {
+		return errorValue
+	}
+	seenEffects := map[string]bool{}
+	for _, effectContract := range contract.Effects {
+		objectType := strings.TrimSpace(effectContract.ObjectType)
+		effect := strings.TrimSpace(effectContract.Effect)
+		resultField := strings.TrimSpace(effectContract.ResultField)
+		if objectType == "" || effect == "" || resultField == "" {
+			return errors.New("resultContract effect must include objectType, effect, and resultField")
+		}
+		if !isOneOf(strings.TrimSpace(effectContract.EffectIdentity), "id", "path", "url") {
+			return errors.New("resultContract effectIdentity is invalid")
+		}
+		if !schemaRequiresStringField(contract.Schema, resultField) {
+			return errors.New("resultContract resultField must name a required string property")
+		}
+		effectKey := objectType + "\x00" + effect
+		if seenEffects[effectKey] {
+			return errors.New("resultContract effect is duplicated")
+		}
+		seenEffects[effectKey] = true
+	}
+	return nil
+}
+
+func schemaRequiresStringField(document json.RawMessage, fieldName string) bool {
+	var schema struct {
+		Properties map[string]json.RawMessage `json:"properties"`
+		Required   []string                   `json:"required"`
+	}
+	if json.Unmarshal(document, &schema) != nil {
+		return false
+	}
+	var property struct {
+		Type string `json:"type"`
+	}
+	if json.Unmarshal(schema.Properties[fieldName], &property) != nil || property.Type != "string" {
+		return false
+	}
+	return slices.Contains(schema.Required, fieldName)
 }
 
 func validateToolSchema(fieldName string, schema json.RawMessage, requiresObject bool) error {

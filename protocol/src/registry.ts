@@ -16,7 +16,7 @@ import {
 } from './llm.ts';
 import { taskArtifactSchema, taskAttemptSchema, taskEventSchema, taskRunSchema, taskScheduleSchema } from './task.ts';
 
-export const protocolVersion = '0.1.0';
+export const protocolVersion = '0.2.0';
 
 export const protocolSchemas = {
   'agent-action': agentActionSchema,

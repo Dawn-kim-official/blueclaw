@@ -46,15 +46,20 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerCapabilityTools(toolRegist
 
 func (toolCatalogBuilder *ToolCatalogBuilder) invokeCapabilityOperation(toolContext context.Context, operation string, toolDescriptor CapabilityToolDescriptor, request ToolCatalogRequest, rawInput json.RawMessage) (agent.ToolResult, error) {
 	var response struct {
-		Content      string          `json:"content"`
-		IsError      bool            `json:"isError"`
-		Status       string          `json:"status"`
-		Message      string          `json:"message"`
-		ErrorCode    string          `json:"errorCode"`
-		FailureStage string          `json:"failureStage"`
-		Retryable    bool            `json:"retryable"`
-		SafeRetry    bool            `json:"safeRetry"`
-		Result       json.RawMessage `json:"result"`
+		Provider        string                 `json:"provider"`
+		SelectedBackend string                 `json:"selectedBackend"`
+		ToolName        string                 `json:"toolName"`
+		Outcome         string                 `json:"outcome"`
+		Effects         []agent.ResourceEffect `json:"effects"`
+		Content         string                 `json:"content"`
+		IsError         bool                   `json:"isError"`
+		Status          string                 `json:"status"`
+		Message         string                 `json:"message"`
+		ErrorCode       string                 `json:"errorCode"`
+		FailureStage    string                 `json:"failureStage"`
+		Retryable       bool                   `json:"retryable"`
+		SafeRetry       bool                   `json:"safeRetry"`
+		Result          json.RawMessage        `json:"result"`
 	}
 	if !access.CanAccess(access.Request{PersonAccess: request.PersonAccess, Action: access.ActionExecute, Resource: toolDescriptor.PolicyResource}) {
 		return agent.ToolFailureResult(agent.FailurePermissionDenied, agent.FailureCodes.AccessDenied, "capability_access", "current account cannot execute this tool"), nil
@@ -83,6 +88,12 @@ func (toolCatalogBuilder *ToolCatalogBuilder) invokeCapabilityOperation(toolCont
 	if errorValue != nil {
 		return agent.ToolResult{}, errorValue
 	}
+	isError := response.IsError || response.Status == "error" || response.Status == "denied"
+	if toolDescriptor.ResultContract != nil {
+		if errorValue := validateCapabilityResultIdentity(operation, response.Provider, response.SelectedBackend, response.ToolName, response.Outcome, isError); errorValue != nil {
+			return agent.ToolFailureResult(agent.FailureExternalService, agent.FailureCodes.OperationFailed, "capability_result_identity", errorValue.Error()), nil
+		}
+	}
 	if !response.IsError && response.Status != "error" && response.Status != "denied" {
 		toolFailure, errorValue := toolCatalogBuilder.handleCapabilityToolSuccess(toolContext, operation, request, &response.Result)
 		if toolFailure != nil {
@@ -96,8 +107,24 @@ func (toolCatalogBuilder *ToolCatalogBuilder) invokeCapabilityOperation(toolCont
 	if content == "" && len(response.Result) > 0 {
 		content = string(response.Result)
 	}
-	isError := response.IsError || response.Status == "error" || response.Status == "denied"
-	return capabilityToolResult(content, response.Result, isError, response.Message, response.ErrorCode, response.FailureStage, response.Retryable, response.SafeRetry), nil
+	return capabilityToolResult(content, response.Result, response.Effects, isError, response.Message, response.ErrorCode, response.FailureStage, response.Retryable, response.SafeRetry), nil
+}
+
+func validateCapabilityResultIdentity(operation string, provider string, selectedBackend string, toolName string, outcome string, isError bool) error {
+	if strings.TrimSpace(provider) == "" || strings.TrimSpace(selectedBackend) == "" {
+		return errors.New("capability result provider and selectedBackend are required")
+	}
+	if strings.TrimSpace(toolName) != strings.TrimSpace(operation) {
+		return errors.New("capability result toolName does not match the invoked operation")
+	}
+	expectedOutcome := "succeeded"
+	if isError {
+		expectedOutcome = "failed"
+	}
+	if strings.TrimSpace(outcome) != expectedOutcome && !(isError && strings.TrimSpace(outcome) == "denied") {
+		return errors.New("capability result outcome does not match its status")
+	}
+	return nil
 }
 
 const capabilityCatalogMaxDepth = 4
@@ -427,9 +454,10 @@ func capabilityToolAvailability(toolDescriptor CapabilityToolDescriptor, request
 	return agent.ToolAvailability{Status: agent.ToolAvailabilityAvailable}
 }
 
-func capabilityToolResult(content string, data json.RawMessage, isFailed bool, message string, errorCode string, failureStage string, retryable bool, safeRetry bool) agent.ToolResult {
+func capabilityToolResult(content string, data json.RawMessage, effects []agent.ResourceEffect, isFailed bool, message string, errorCode string, failureStage string, retryable bool, safeRetry bool) agent.ToolResult {
 	result := agent.ToolResult{
 		Output:          agent.ToolOutput{Content: content, Data: data},
+		Effects:         append([]agent.ResourceEffect{}, effects...),
 		Attachments:     capabilityAttachments(data),
 		RecoveryActions: capabilityRecoveryActions(data),
 	}

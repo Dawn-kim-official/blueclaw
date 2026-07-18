@@ -60,6 +60,9 @@ func validateCapabilityToolDescriptor(descriptor CapabilityToolDescriptor) error
 	if !validCapabilityObjectSchema(descriptor.InputSchema) || !validCapabilityObjectSchema(descriptor.OutputSchema) {
 		return errors.New("capability descriptor input and output schemas must describe objects")
 	}
+	if descriptor.ResultContract != nil && !validCapabilityObjectSchema(descriptor.ResultContract.Schema) {
+		return errors.New("capability descriptor result contract schema must describe an object")
+	}
 	if descriptor.CompletionEvidence != nil {
 		if descriptor.CompletionEvidence.Mode != "success" {
 			return errors.New("capability descriptor completion evidence mode is invalid")
@@ -92,6 +95,7 @@ func (provider capabilityToolProvider) boundTool(descriptor CapabilityToolDescri
 			WorksOffline:         descriptor.WorksOffline,
 			InputSchema:          descriptor.InputSchema,
 			OutputSchema:         descriptor.OutputSchema,
+			ResultContract:       capabilityResultContract(descriptor.ResultContract),
 			Visibility:           strings.TrimSpace(descriptor.ModelVisibility),
 			PolicyResource:       strings.TrimSpace(descriptor.PolicyResource),
 			SideEffectClass:      strings.TrimSpace(descriptor.SideEffectClass),
@@ -109,6 +113,25 @@ func (provider capabilityToolProvider) boundTool(descriptor CapabilityToolDescri
 				invocation.Input,
 			)
 		},
+	}
+}
+
+func capabilityResultContract(contract *CapabilityToolResultContract) *agent.ToolResultContract {
+	if contract == nil {
+		return nil
+	}
+	effects := make([]agent.ResourceEffectContract, 0, len(contract.Effects))
+	for _, effectContract := range contract.Effects {
+		effects = append(effects, agent.ResourceEffectContract{
+			ObjectType:     strings.TrimSpace(effectContract.ObjectType),
+			Effect:         strings.TrimSpace(effectContract.Effect),
+			ResultField:    strings.TrimSpace(effectContract.ResultField),
+			EffectIdentity: strings.TrimSpace(effectContract.EffectIdentity),
+		})
+	}
+	return &agent.ToolResultContract{
+		Schema:  contract.Schema,
+		Effects: effects,
 	}
 }
 

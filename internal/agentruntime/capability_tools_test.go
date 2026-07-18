@@ -58,6 +58,111 @@ func TestToolCatalogKeepsCapabilityInputSchemaAuthoritative(t *testing.T) {
 	}
 }
 
+func TestCapabilityToolPreservesValidatedTaskResultEffects(t *testing.T) {
+	httpClient := &recordingHTTPClient{responseBody: `{
+		"provider":"internkim",
+		"selectedBackend":"device",
+		"toolName":"task.add",
+		"outcome":"succeeded",
+		"status":"ok",
+		"result":{"taskID":"task-1"},
+		"effects":[{"objectType":"task","effect":"created","id":"task-1"}]
+	}`}
+	toolCatalogBuilder := NewToolCatalogBuilder()
+	toolCatalogBuilder.UseTestCapabilityToolDescriptors(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, []CapabilityToolDescriptor{{
+		Name: "task.add",
+		ResultContract: &CapabilityToolResultContract{
+			Schema: json.RawMessage(`{"type":"object","properties":{"taskID":{"type":"string"}},"required":["taskID"],"additionalProperties":false}`),
+			Effects: []CapabilityResourceEffectContract{{
+				ObjectType:     "task",
+				Effect:         "created",
+				ResultField:    "taskID",
+				EffectIdentity: "id",
+			}},
+		},
+	}})
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"task.add"})
+	toolSet := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
+
+	result, errorValue := toolSet.Invoke(context.Background(), agent.ToolInvocation{
+		ToolName: "task.add",
+		Input:    json.RawMessage(`{}`),
+	})
+
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if result.Failed() || len(result.Effects) != 1 || result.Effects[0].ID != "task-1" {
+		t.Fatalf("expected validated task effect, got %+v", result)
+	}
+}
+
+func TestCapabilityToolRejectsMismatchedTaskResultIdentity(t *testing.T) {
+	httpClient := &recordingHTTPClient{responseBody: `{
+		"provider":"internkim",
+		"selectedBackend":"device",
+		"toolName":"task.update",
+		"outcome":"succeeded",
+		"status":"ok",
+		"result":{"taskID":"task-1"},
+		"effects":[{"objectType":"task","effect":"created","id":"task-1"}]
+	}`}
+	toolCatalogBuilder := NewToolCatalogBuilder()
+	toolCatalogBuilder.UseTestCapabilityToolDescriptors(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, []CapabilityToolDescriptor{{
+		Name:           "task.add",
+		ResultContract: &CapabilityToolResultContract{Schema: json.RawMessage(`{"type":"object","properties":{"taskID":{"type":"string"}},"required":["taskID"],"additionalProperties":false}`)},
+	}})
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"task.add"})
+	toolSet := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
+
+	result, errorValue := toolSet.Invoke(context.Background(), agent.ToolInvocation{ToolName: "task.add", Input: json.RawMessage(`{}`)})
+
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if !result.Failed() || result.FailureStage() != "capability_result_identity" {
+		t.Fatalf("expected identity failure, got %+v", result)
+	}
+}
+
+func TestContractedCapabilityPreservesApprovalDenial(t *testing.T) {
+	httpClient := &recordingHTTPClient{responseBody: `{
+		"provider":"internkim",
+		"selectedBackend":"device",
+		"toolName":"task.delete",
+		"outcome":"denied",
+		"status":"denied",
+		"isError":true,
+		"errorCode":"approval_required",
+		"failureStage":"authorization",
+		"result":{"errorCode":"approval_required"}
+	}`}
+	toolCatalogBuilder := NewToolCatalogBuilder()
+	toolCatalogBuilder.UseTestCapabilityToolDescriptors(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, []CapabilityToolDescriptor{{
+		Name: "task.delete",
+		ResultContract: &CapabilityToolResultContract{
+			Schema: json.RawMessage(`{"type":"object","properties":{"taskID":{"type":"string"},"deleted":{"const":true}},"required":["taskID","deleted"],"additionalProperties":false}`),
+			Effects: []CapabilityResourceEffectContract{{
+				ObjectType:     "task",
+				Effect:         "deleted",
+				ResultField:    "taskID",
+				EffectIdentity: "id",
+			}},
+		},
+	}})
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"task.delete"})
+	toolSet := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
+
+	result, errorValue := toolSet.Invoke(context.Background(), agent.ToolInvocation{ToolName: "task.delete", Input: json.RawMessage(`{}`)})
+
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if !result.Failed() || result.FailureStage() != "authorization" || result.Failure == nil || !result.Failure.RequiresApproval {
+		t.Fatalf("expected approval denial, got %+v", result)
+	}
+}
+
 func TestPlatformDMSendAvailabilityDependsOnTrustedContext(t *testing.T) {
 	toolCatalogBuilder := NewToolCatalogBuilder()
 	toolCatalogBuilder.UseTestCapabilityToolDescriptors(capability.Client{}, []CapabilityToolDescriptor{{
