@@ -65,6 +65,16 @@ func factsFromObservation(toolSet *ToolSet, observation turnObservation) []Obser
 	if IsArtifactDeliveryTool(observation.Tool) {
 		return fileAttachmentFacts(observation)
 	}
+	if len(observation.Effects) > 0 {
+		if toolSet == nil {
+			return nil
+		}
+		descriptor, isRegistered := toolSet.ToolDefinition(observation.Tool)
+		if !isRegistered || descriptor.ResultContract == nil {
+			return nil
+		}
+		return observedFactsFromResourceEffects(observation)
+	}
 	switch strings.TrimSpace(observation.Tool) {
 	case "file.write":
 		return appendWorkspaceModifiedFact(filePathObservationFacts(observation, "file", "created"))
@@ -104,6 +114,27 @@ func factsFromObservation(toolSet *ToolSet, observation turnObservation) []Obser
 		}
 		return nil
 	}
+}
+
+func observedFactsFromResourceEffects(observation turnObservation) []ObservedFact {
+	facts := make([]ObservedFact, 0, len(observation.Effects))
+	for _, resourceEffect := range observation.Effects {
+		facts = append(facts, ObservedFact{
+			ObjectType:    strings.TrimSpace(resourceEffect.ObjectType),
+			Effect:        strings.TrimSpace(resourceEffect.Effect),
+			Visibility:    firstNonEmptyString(resourceEffect.Visibility, effectVisibility(resourceEffect.Effect)),
+			Durability:    firstNonEmptyString(resourceEffect.Durability, effectDurability(resourceEffect.Effect)),
+			ObservationID: observation.ObservationID,
+			ToolName:      observation.Tool,
+			ID:            strings.TrimSpace(resourceEffect.ID),
+			Path:          strings.TrimSpace(resourceEffect.Path),
+			URL:           strings.TrimSpace(resourceEffect.URL),
+			Filename:      strings.TrimSpace(resourceEffect.Filename),
+			ContentType:   strings.TrimSpace(resourceEffect.ContentType),
+			Summary:       truncateProjectionSummary(resourceEffect.Summary),
+		})
+	}
+	return facts
 }
 
 func fileAttachmentFacts(observation turnObservation) []ObservedFact {

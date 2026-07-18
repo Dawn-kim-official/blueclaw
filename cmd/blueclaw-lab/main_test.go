@@ -540,8 +540,12 @@ func (provider virtualTierTestProvider) GenerateResponse(context.Context, string
 	return "reply", nil
 }
 
-func (provider virtualTierTestProvider) GenerateStructuredResponse(context.Context, llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
-	return llm.StructuredResponse{ModelName: provider.modelName, Content: `{"action":"finish"}`}, nil
+func (provider virtualTierTestProvider) GenerateStructuredResponse(_ context.Context, request llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
+	content := openRouterContentForSchema(request.StructuredOutputSchema.Name)
+	if request.StructuredOutputSchema.Name == "blueclaw_turn_router" {
+		content = `{"route":"start_task","classification":"bounded_task","taskShape":"maintenance_task","level":"xhigh","estimatedMinutes":60,"requestedOutputFormats":null,"requiredEvidence":[],"initialToolNames":[],"responseLanguage":"ko","reason":"xhigh integration test","userFacingReply":"","priorTaskReference":"none"}`
+	}
+	return llm.StructuredResponse{ModelName: provider.modelName, Content: content}, nil
 }
 
 func TestConfigureVirtualScenarioCappedProviderReportsCeilingTier(t *testing.T) {
@@ -563,21 +567,78 @@ func TestVirtualModelCeilingDoesNotReduceTaskWorkDuration(t *testing.T) {
 	providerFactory := func(modelName string) llm.LanguageModelProvider {
 		return virtualTierTestProvider{modelName: modelName}
 	}
-	scenario := e2e.VirtualSessionScenario{}
+	scenario := e2e.VirtualSessionScenario{
+		Name:                     "xhigh_task_with_low_model_ceiling",
+		ArtifactDirectoryPath:    t.TempDir(),
+		DisableScriptedModel:     true,
+		UseLooseAssertions:       true,
+		FailOnLanguageModelError: true,
+		Turns: []e2e.VirtualTurn{{
+			Prompt:             "팀 운영 개선안을 검토하고 핵심 결론을 알려줘",
+			ExpectedTaskStatus: task.TaskStatusCompleted,
+		}},
+	}
 	configureVirtualScenarioModelTiers(&scenario, "low", providerFactory)
 
-	response, errorValue := scenario.XHighLanguageModel.GenerateStructuredResponse(context.Background(), llm.StructuredResponseRequest{})
+	result, errorValue := e2e.RunVirtualSession(context.Background(), scenario)
 	if errorValue != nil {
-		t.Fatalf("expected capped xhigh provider to succeed: %v", errorValue)
+		t.Fatalf("expected capped xhigh virtual session to succeed: %v", errorValue)
 	}
-	workDuration := agent.TaskLevelProfileForLevel(agent.TaskLevelXHigh).Duration
+	if len(result.TurnResults) != 1 {
+		t.Fatalf("expected one virtual turn, got %+v", result.TurnResults)
+	}
+	intakeTaskLevel := virtualTurnIntakeTaskLevel(t, result.TurnResults[0])
+	actionModelTier := virtualTurnActionModelTier(t, result.TurnResults[0])
+	workDuration := agent.TaskLevelProfileForLevel(intakeTaskLevel).Duration
 
-	if response.ModelTier != "low" {
-		t.Fatalf("expected xhigh model slot to use the low ceiling, got %+v", response)
+	if actionModelTier != "low" {
+		t.Fatalf("expected authoritative action call to use the low ceiling, got %q", actionModelTier)
+	}
+	if intakeTaskLevel != agent.TaskLevelXHigh {
+		t.Fatalf("expected authoritative intake task level xhigh, got %q", intakeTaskLevel)
 	}
 	if workDuration != time.Hour {
-		t.Fatalf("expected xhigh work duration to remain one hour, got %s", workDuration)
+		t.Fatalf("expected the selected xhigh task to retain a one-hour work duration, got %s", workDuration)
 	}
+}
+
+func virtualTurnIntakeTaskLevel(t *testing.T, turnResult e2e.VirtualTurnResult) agent.TaskLevel {
+	t.Helper()
+	for _, event := range turnResult.Events {
+		if event.Name != "agent.intake" {
+			continue
+		}
+		var intakeDecision struct {
+			TaskLevel agent.TaskLevel `json:"level"`
+		}
+		if errorValue := json.Unmarshal([]byte(event.Body), &intakeDecision); errorValue != nil {
+			t.Fatalf("expected valid agent.intake event: %v", errorValue)
+		}
+		return intakeDecision.TaskLevel
+	}
+	t.Fatalf("expected agent.intake event, got %+v", turnResult.Events)
+	return ""
+}
+
+func virtualTurnActionModelTier(t *testing.T, turnResult e2e.VirtualTurnResult) string {
+	t.Helper()
+	for _, event := range turnResult.Events {
+		if event.Name != "llm.call" {
+			continue
+		}
+		var languageModelCall struct {
+			SchemaName string `json:"schemaName"`
+			ModelTier  string `json:"modelTier"`
+		}
+		if errorValue := json.Unmarshal([]byte(event.Body), &languageModelCall); errorValue != nil {
+			t.Fatalf("expected valid llm.call event: %v", errorValue)
+		}
+		if languageModelCall.SchemaName == "blueclaw_agent_turn_action" {
+			return languageModelCall.ModelTier
+		}
+	}
+	t.Fatalf("expected authoritative action llm.call event, got %+v", turnResult.Events)
+	return ""
 }
 
 func virtualProviderModelNames(provider llm.LanguageModelProvider) []string {

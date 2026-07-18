@@ -93,12 +93,25 @@ type CapabilityToolDescriptor struct {
 	WorksOffline         bool
 	InputSchema          json.RawMessage
 	OutputSchema         json.RawMessage
+	ResultContract       *CapabilityToolResultContract
 	PolicyResource       string
 	SideEffectClass      string
 	RequiresApproval     bool
 	CompletionEvidence   *CapabilityCompletionEvidence
 	Availability         CapabilityAvailability
 	Idempotency          CapabilityIdempotency
+}
+
+type CapabilityToolResultContract struct {
+	Schema  json.RawMessage
+	Effects []CapabilityResourceEffectContract
+}
+
+type CapabilityResourceEffectContract struct {
+	ObjectType     string
+	Effect         string
+	ResultField    string
+	EffectIdentity string
 }
 
 type CapabilityCompletionEvidence struct {

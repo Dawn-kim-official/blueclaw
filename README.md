@@ -219,7 +219,7 @@ Blueclaw uses a single secretless LLM provider named `capabilityLLM`. OpenRouter
 }
 ```
 
-An experimental AI SDK runtime is available under `sdkd/`. It is disabled by default. Selecting `sdkd` or enabling its shadow observer requires a private Unix socket and an installation auth key file. The default migration scope is only `blueclaw_agent_turn_action`; other structured schemas, text generation, recovery wording, and any failed SDKD action request continue through `capabilityLLM`.
+The AI SDK runtime is under `sdkd/`. Selecting `sdkd` or enabling its shadow observer requires a private Unix socket and an installation auth key file. Chat generation and the six structured schemas below use SDKD. When `defaultProvider` is `sdkd`, structured output is authoritative and contract failures do not fall through to `capabilityLLM`.
 
 ```json
 {
@@ -231,7 +231,7 @@ An experimental AI SDK runtime is available under `sdkd/`. It is disabled by def
       "executionMode": "auto",
       "timeoutSecond": 60,
       "shadowEnabled": false,
-      "structuredSchemaNames": ["blueclaw_agent_turn_action"]
+      "structuredSchemaNames": ["blueclaw_agent_turn_action", "blueclaw_agent_turn_finalizer", "blueclaw_turn_router", "blueclaw_recovery_decision", "blueclaw_operation_contract", "blueclaw_operation_contract_review"]
     }
   }
 }

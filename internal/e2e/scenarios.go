@@ -736,14 +736,7 @@ func TaskHistoryQuestionAcceptanceScenario(artifactDirectoryPath string) Virtual
 	return VirtualSessionScenario{
 		Name:                  "task_history_question_acceptance",
 		ArtifactDirectoryPath: artifactDirectoryPath,
-		AllowedTools:          []string{"conversation.history", "memory.search", "task.list"},
-		CapabilityToolNames:   []string{"task.list"},
-		InitialToolNames:      []string{"task.list"},
-		InitialTaskRuns: []VirtualTaskRunFixture{{
-			Prompt: "계약서 확인 요약 작업",
-			Result: "계약서 확인 요약 작업을 완료했습니다.",
-			Status: task.TaskStatusCompleted,
-		}},
+		AllowedTools:          []string{"conversation.history", "memory.search"},
 		Turns: []VirtualTurn{
 			{
 				Prompt: "계약서 확인 요약 작업을 완료했다고 답해줘",
@@ -758,15 +751,15 @@ func TaskHistoryQuestionAcceptanceScenario(artifactDirectoryPath string) Virtual
 			{
 				Prompt: "최근에 어떤 작업을 했는지 알려줘",
 				ActionResponses: []string{
-					actionCallTool("task.list", `{}`),
-					actionFinishMessage("최근에는 계약서 확인 요약 작업을 완료했습니다.", "obs-001:task.list:0"),
+					actionCallTool("conversation.history", `{"limit":20}`),
+					actionFinishMessage("최근에는 계약서 확인 요약 작업을 완료했습니다.", "obs-001:conversation.history:0"),
 				},
-				ExpectedToolCalls: []string{"task.list"},
+				ExpectedToolCalls: []string{"conversation.history"},
 				ExpectedToolCallCounts: map[string]int{
-					"task.list": 1,
+					"conversation.history": 1,
 				},
 				ExpectedEventCounts: []VirtualEventCount{
-					{Name: "tool.task.list.result", BodyFragment: "계약서 확인 요약 작업", Count: 1},
+					{Name: "tool.conversation.history.result", BodyFragment: "계약서 확인 요약 작업", Count: 1},
 				},
 				ExpectedReplyFragments: []string{"계약서 확인 요약"},
 			},
@@ -859,14 +852,8 @@ func FailureExplanationAcceptanceScenario(artifactDirectoryPath string) VirtualS
 	return VirtualSessionScenario{
 		Name:                  "failure_explanation_acceptance",
 		ArtifactDirectoryPath: artifactDirectoryPath,
-		AllowedTools:          []string{"conversation.history", "memory.search", "terminal.run", "task.list"},
-		CapabilityToolNames:   []string{"task.list"},
-		InitialToolNames:      []string{"terminal.run", "task.list"},
-		InitialTaskRuns: []VirtualTaskRunFixture{{
-			Prompt:        "Run the analysis.",
-			FailureReason: "terminal.run: permission denied",
-			Status:        task.TaskStatusFailed,
-		}},
+		AllowedTools:          []string{"conversation.history", "memory.search", "terminal.run"},
+		InitialToolNames:      []string{"terminal.run"},
 		TurnOptions: agent.TurnOptions{
 			RecoveryBudget: agent.RecoveryBudget{
 				CorrectedRetry: -1,
@@ -890,12 +877,12 @@ func FailureExplanationAcceptanceScenario(artifactDirectoryPath string) VirtualS
 			{
 				Prompt: "왜 실패했어?",
 				ActionResponses: []string{
-					actionCallTool("task.list", `{"status":"failed"}`),
-					actionFinishMessage("terminal.run 실행이 permission denied 때문에 실패했습니다.", "obs-001:task.list:0"),
+					actionCallTool("conversation.history", `{"limit":20}`),
+					actionFinishMessage("terminal.run 실행이 permission denied 때문에 실패했습니다.", "obs-001:conversation.history:0"),
 				},
-				ExpectedToolCalls: []string{"task.list"},
+				ExpectedToolCalls: []string{"conversation.history"},
 				ExpectedEventCounts: []VirtualEventCount{
-					{Name: "tool.task.list.result", BodyFragment: "terminal.run: permission denied", Count: 1},
+					{Name: "tool.conversation.history.result", BodyFragment: "permission denied", Count: 1},
 				},
 				ExpectedReplyFragments: []string{"permission denied"},
 			},

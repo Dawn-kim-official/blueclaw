@@ -1,6 +1,9 @@
 package agent
 
-import "testing"
+import (
+	"encoding/json"
+	"testing"
+)
 
 func TestObservedResultProjectionAcceptsCalendarClaimWithCalendarFact(t *testing.T) {
 	goalSatisfied := true
@@ -20,6 +23,38 @@ func TestObservedResultProjectionAcceptsCalendarClaimWithCalendarFact(t *testing
 	}
 	if !projectionHasObservedFact(projection.ObservedFacts, "calendar_event", "scheduled") {
 		t.Fatalf("expected calendar scheduled fact, got %+v", projection.ObservedFacts)
+	}
+}
+
+func TestObservedResultProjectionUsesCanonicalEffectsWithoutToolNameInference(t *testing.T) {
+	descriptor := testToolDescriptor("external.tasks.create")
+	descriptor.ResultContract = &ToolResultContract{
+		Schema: json.RawMessage(`{"type":"object","properties":{"taskID":{"type":"string"}},"required":["taskID"],"additionalProperties":false}`),
+		Effects: []ResourceEffectContract{{
+			ObjectType:     "task",
+			Effect:         "created",
+			ResultField:    "taskID",
+			EffectIdentity: "id",
+		}},
+	}
+	observation := newContentObservation("obs-001", "continue", "external.tasks.create", `{"taskID":"task-1"}`)
+	observation.Effects = []ResourceEffect{{ObjectType: "task", Effect: "created", ID: "task-1"}}
+
+	facts := factsFromObservation(newTestToolSetWithDefinitions([]ToolDefinition{descriptor}), observation)
+
+	if len(facts) != 1 || facts[0].ObjectType != "task" || facts[0].Effect != "created" || facts[0].ID != "task-1" {
+		t.Fatalf("expected canonical resource effect, got %+v", facts)
+	}
+}
+
+func TestObservedResultProjectionRejectsEffectsWithoutContract(t *testing.T) {
+	observation := newContentObservation("obs-001", "continue", "external.tasks.create", `{"taskID":"task-1"}`)
+	observation.Effects = []ResourceEffect{{ObjectType: "task", Effect: "created", ID: "task-1"}}
+
+	facts := factsFromObservation(newTestToolSet([]string{"external.tasks.create"}), observation)
+
+	if len(facts) != 0 {
+		t.Fatalf("expected uncontracted effects to be ignored, got %+v", facts)
 	}
 }
 

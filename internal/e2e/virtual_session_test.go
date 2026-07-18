@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -417,7 +418,7 @@ func TestVirtualTaskCapabilityPreservesLifecycleState(t *testing.T) {
 	if !strings.Contains(approvalResponse, `"errorCode":"approval_required"`) {
 		t.Fatalf("expected delete approval gate, got %s", approvalResponse)
 	}
-	if !strings.Contains(deleteResponse, `"status":"deleted"`) {
+	if !strings.Contains(deleteResponse, `"deleted":true`) {
 		t.Fatalf("expected approved delete, got %s", deleteResponse)
 	}
 	if strings.Contains(emptyListResponse, `"taskID":"task-1"`) {
@@ -568,15 +569,41 @@ func writeDOCX(t *testing.T, path string, entries map[string]string) {
 }
 
 func TestVirtualCapabilityCatalogUsesOperationSchemas(t *testing.T) {
-	catalog := virtualCapabilityCatalogResponse(map[string]bool{"task.update": true, "task.delete": true})
-
-	for _, expectedText := range []string{`"taskID"`, `"required":["taskID"]`, `"title"`, `"endDate"`} {
-		if !strings.Contains(catalog, expectedText) {
-			t.Fatalf("expected catalog schema field %s, got %s", expectedText, catalog)
+	var catalog struct {
+		DeviceCapabilities []struct {
+			Name        string `json:"name"`
+			InputSchema struct {
+				Properties map[string]json.RawMessage `json:"properties"`
+				Required   []string                   `json:"required"`
+			} `json:"inputSchema"`
+		} `json:"deviceCapabilities"`
+	}
+	if errorValue := json.Unmarshal([]byte(virtualCapabilityCatalogResponse(map[string]bool{"task.update": true, "task.delete": true})), &catalog); errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if len(catalog.DeviceCapabilities) != 2 {
+		t.Fatalf("expected two descriptors, got %+v", catalog.DeviceCapabilities)
+	}
+	for _, descriptor := range catalog.DeviceCapabilities {
+		if _, hasTaskID := descriptor.InputSchema.Properties["taskID"]; !hasTaskID || !slices.Contains(descriptor.InputSchema.Required, "taskID") {
+			t.Fatalf("%s input schema must require taskID", descriptor.Name)
+		}
+		if _, hasQuery := descriptor.InputSchema.Properties["query"]; hasQuery {
+			t.Fatalf("%s input schema must not expose query", descriptor.Name)
+		}
+		if _, hasPersonHint := descriptor.InputSchema.Properties["targetPersonHint"]; hasPersonHint {
+			t.Fatalf("%s input schema must not expose targetPersonHint", descriptor.Name)
 		}
 	}
-	if strings.Contains(catalog, `"query"`) || strings.Contains(catalog, `"targetPersonHint"`) {
-		t.Fatalf("task mutation schemas must not expose fuzzy selectors: %s", catalog)
+	updateSchema := catalog.DeviceCapabilities[1].InputSchema.Properties
+	if _, hasTitle := updateSchema["title"]; !hasTitle {
+		updateSchema = catalog.DeviceCapabilities[0].InputSchema.Properties
+	}
+	if _, hasTitle := updateSchema["title"]; !hasTitle {
+		t.Fatal("task.update input schema must expose title")
+	}
+	if _, hasEndDate := updateSchema["endDate"]; !hasEndDate {
+		t.Fatal("task.update input schema must expose endDate")
 	}
 }
 
@@ -874,11 +901,11 @@ func TestTaskHistoryQuestionAcceptance(t *testing.T) {
 		t.Fatalf("expected two turn results, got %d", len(result.TurnResults))
 	}
 	secondTurnResult := result.TurnResults[1]
-	if countEvents(secondTurnResult.Events, "tool.task.list.requested") != 1 {
-		t.Fatalf("expected one task.list request; events: %s", summarizeEvents(secondTurnResult.Events))
+	if countEvents(secondTurnResult.Events, "tool.conversation.history.requested") != 1 {
+		t.Fatalf("expected one conversation.history request; events: %s", summarizeEvents(secondTurnResult.Events))
 	}
-	if !eventsContain(secondTurnResult.Events, "tool.task.list.result", "계약서 확인 요약 작업") {
-		t.Fatalf("expected task.list result to include prior task prompt; events: %s", summarizeEvents(secondTurnResult.Events))
+	if !eventsContain(secondTurnResult.Events, "tool.conversation.history.result", "계약서 확인 요약 작업") {
+		t.Fatalf("expected conversation.history result to include prior task prompt; events: %s", summarizeEvents(secondTurnResult.Events))
 	}
 	if !strings.Contains(secondTurnResult.FinishMessage, "계약서 확인 요약") {
 		t.Fatalf("expected final reply to mention prior task, got %q", secondTurnResult.FinishMessage)
@@ -934,11 +961,11 @@ func TestFailureExplanationAcceptance(t *testing.T) {
 	if secondTurnResult.TaskStatus != task.TaskStatusCompleted {
 		t.Fatalf("expected second turn success, got %s", secondTurnResult.TaskStatus)
 	}
-	if countEvents(secondTurnResult.Events, "tool.task.list.requested") == 0 {
-		t.Fatalf("expected task.list request in second turn; events: %s", summarizeEvents(secondTurnResult.Events))
+	if countEvents(secondTurnResult.Events, "tool.conversation.history.requested") != 1 {
+		t.Fatalf("expected one conversation.history request in second turn; events: %s", summarizeEvents(secondTurnResult.Events))
 	}
-	if !eventsContain(secondTurnResult.Events, "tool.task.list.result", "failureReason") || !eventsContain(secondTurnResult.Events, "tool.task.list.result", "permission denied") {
-		t.Fatalf("expected task.list result to include failure reason; events: %s", summarizeEvents(secondTurnResult.Events))
+	if !eventsContain(secondTurnResult.Events, "tool.conversation.history.result", "permission denied") {
+		t.Fatalf("expected conversation.history result to include failure reason; events: %s", summarizeEvents(secondTurnResult.Events))
 	}
 	if !strings.Contains(secondTurnResult.FinishMessage, "permission denied") {
 		t.Fatalf("expected final reply to mention permission denied, got %q", secondTurnResult.FinishMessage)
