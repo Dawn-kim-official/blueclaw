@@ -233,7 +233,7 @@ func TestDecideAgentActionNativeChatRecoversTaskAddAndInvokesItOnce(t *testing.T
 	}
 }
 
-func TestDecideAgentActionNativeChatRetryUsesExactDiagnosticTool(t *testing.T) {
+func TestDecideAgentActionNativeChatRetryRequiresExactDiagnosticTool(t *testing.T) {
 	correctionError := testStructuredOutputCorrectionError{correction: llm.StructuredOutputCorrection{
 		Code: "structured_output_invalid",
 		Diagnostic: llm.StructuredOutputDiagnostic{
@@ -265,15 +265,15 @@ func TestDecideAgentActionNativeChatRetryUsesExactDiagnosticTool(t *testing.T) {
 	if len(retryRequest.Tools) != 1 || retryRequest.Tools[0].Function.Name != "task.add" {
 		t.Fatalf("expected exact diagnostic tool retry, got %+v", retryRequest.Tools)
 	}
-	if string(retryRequest.ToolChoice) != `{"type":"function","function":{"name":"task.add"}}` {
-		t.Fatalf("expected named exact tool choice, got %s", retryRequest.ToolChoice)
+	if string(retryRequest.ToolChoice) != `"required"` || retryRequest.ParallelToolCalls {
+		t.Fatalf("expected portable single-tool requirement, got choice=%s parallel=%t", retryRequest.ToolChoice, retryRequest.ParallelToolCalls)
 	}
 	if !strings.Contains(retryRequest.Messages[len(retryRequest.Messages)-1].Content, "schema_validation") || !strings.Contains(retryRequest.Messages[len(retryRequest.Messages)-1].Content, "/title") {
 		t.Fatalf("expected typed correction context, got %+v", retryRequest.Messages)
 	}
 }
 
-func TestDecideAgentActionNativeChatRetryUsesFirstPendingContractOperation(t *testing.T) {
+func TestDecideAgentActionNativeChatRetryRequiresSinglePendingContractTool(t *testing.T) {
 	correctionError := testStructuredOutputCorrectionError{correction: llm.StructuredOutputCorrection{
 		Code: "structured_output_invalid",
 		Diagnostic: llm.StructuredOutputDiagnostic{
@@ -324,9 +324,8 @@ func TestDecideAgentActionNativeChatRetryUsesFirstPendingContractOperation(t *te
 			if len(retryRequest.Tools) != 1 || retryRequest.Tools[0].Function.Name != testCase.expectedToolName {
 				t.Fatalf("expected first pending contract operation %q, got %+v", testCase.expectedToolName, retryRequest.Tools)
 			}
-			expectedToolChoice := `{"type":"function","function":{"name":"` + testCase.expectedToolName + `"}}`
-			if string(retryRequest.ToolChoice) != expectedToolChoice {
-				t.Fatalf("expected named contract tool choice %s, got %s", expectedToolChoice, retryRequest.ToolChoice)
+			if string(retryRequest.ToolChoice) != `"required"` || retryRequest.ParallelToolCalls {
+				t.Fatalf("expected portable single-tool requirement, got choice=%s parallel=%t", retryRequest.ToolChoice, retryRequest.ParallelToolCalls)
 			}
 		})
 	}
@@ -492,8 +491,8 @@ func TestDecideAgentActionNativeChatSucceedsAfterTwoCorrections(t *testing.T) {
 		if len(request.Tools) != 1 || request.Tools[0].Function.Name != "file.write" {
 			t.Fatalf("expected retry %d to stay on exact file.write, got %+v", requestIndex, request.Tools)
 		}
-		if string(request.ToolChoice) != `{"type":"function","function":{"name":"file.write"}}` {
-			t.Fatalf("expected retry %d named tool choice, got %s", requestIndex, request.ToolChoice)
+		if string(request.ToolChoice) != `"required"` || request.ParallelToolCalls {
+			t.Fatalf("expected retry %d portable single-tool requirement, got choice=%s parallel=%t", requestIndex, request.ToolChoice, request.ParallelToolCalls)
 		}
 	}
 	lastMessage := provider.chatRequests[2].Messages[len(provider.chatRequests[2].Messages)-1].Content
