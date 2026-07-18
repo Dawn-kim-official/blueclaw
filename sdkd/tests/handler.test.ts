@@ -326,6 +326,39 @@ describe('sdkd handler', () => {
     });
   });
 
+  test('keeps chat tool choice contract failures closed', async () => {
+    const handler = createSDKDHandler({
+      configuration,
+      generateStructuredResponse: async () => responseDocument(),
+      generateChatCompletion: async () => {
+        throw new SDKDError(
+          'structured_output_invalid',
+          422,
+          false,
+          'chat generation did not satisfy required tool choice',
+          {
+            category: StructuredOutputDiagnosticCategory.FinishReason,
+            finishReason: ChatCompletionFinishReason.Stop,
+          },
+        );
+      },
+    });
+
+    const response = await handler(chatRequest('installation-key'));
+
+    expect(response.status).toBe(422);
+    expect(await response.json()).toEqual({
+      error: {
+        code: 'structured_output_invalid',
+        allowLegacyFallback: false,
+        diagnostic: {
+          category: StructuredOutputDiagnosticCategory.FinishReason,
+          finishReason: ChatCompletionFinishReason.Stop,
+        },
+      },
+    });
+  });
+
   test('rejects malformed chat requests before provider execution', async () => {
     let callCount = 0;
     const handler = createSDKDHandler({
