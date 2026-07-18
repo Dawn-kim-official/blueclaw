@@ -220,11 +220,12 @@ func newFileToolTestCatalogBuilder(workspacePath string) *ToolCatalogBuilder {
 
 func newTerminalToolTestCatalogBuilder(workspacePath string) *ToolCatalogBuilder {
 	terminalService := security.NewTerminalSessionService(config.TerminalConfiguration{
-		WorkspaceRootPath: workspacePath,
-		Mode:              "firecrackerGuest",
-		TimeoutSecond:     5,
-		OutputMaxBytes:    4096,
-		SessionMaxCount:   2,
+		WorkspaceRootPath:     workspacePath,
+		Mode:                  "firecrackerGuest",
+		TimeoutSecond:         5,
+		OutputMaxBytes:        4096,
+		SessionMaxCount:       2,
+		AllowInteractiveShell: true,
 	})
 	toolCatalogBuilder := NewToolCatalogBuilder()
 	toolCatalogBuilder.UseWorkspaceRootPath(workspacePath)

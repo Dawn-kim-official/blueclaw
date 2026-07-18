@@ -44,7 +44,7 @@ type toolInteraction struct {
 	ObservationID      string
 	ToolName           string
 	Input              terminalObservationInputDocument
-	ResultContent      string
+	ResultData         json.RawMessage
 	FailureStage       string
 	ErrorCode          string
 	AttemptFingerprint string
@@ -176,16 +176,16 @@ func compactTerminalObservationTails(observations []turnObservation, limit int) 
 
 func terminalObservationTail(observation turnObservation) (TerminalObservationTail, bool) {
 	interaction := toolInteractionFromObservation(observation)
-	if interaction.ResultContent == "" && interaction.Input.Command == "" && interaction.Input.WorkingDirectory == "" {
+	if len(interaction.ResultData) == 0 && interaction.Input.Command == "" && interaction.Input.WorkingDirectory == "" {
 		return TerminalObservationTail{}, false
 	}
 	var result struct {
-		ExitCode int    `json:"exitCode"`
+		ExitCode *int   `json:"exitCode"`
 		Stdout   string `json:"stdout"`
 		Stderr   string `json:"stderr"`
 		TimedOut bool   `json:"timedOut"`
 	}
-	hasResult := json.Unmarshal([]byte(interaction.ResultContent), &result) == nil
+	hasResult := json.Unmarshal(interaction.ResultData, &result) == nil
 	tail := TerminalObservationTail{
 		ObservationID:      interaction.ObservationID,
 		ToolName:           interaction.ToolName,
@@ -196,14 +196,12 @@ func terminalObservationTail(observation turnObservation) (TerminalObservationTa
 		AttemptFingerprint: interaction.AttemptFingerprint,
 	}
 	if hasResult {
-		exitCode := result.ExitCode
-		tail.ExitCode = &exitCode
+		tail.ExitCode = result.ExitCode
 		tail.StdoutTail, tail.StdoutTruncated = tailLines(result.Stdout, terminalObservationTailMaxLines, terminalObservationTailMaxCharacters)
 		tail.StderrTail, tail.StderrTruncated = tailLines(result.Stderr, terminalObservationTailMaxLines, terminalObservationTailMaxCharacters)
 		tail.TimedOut = result.TimedOut
 		return tail, true
 	}
-	tail.StderrTail, tail.StderrTruncated = tailLines(interaction.ResultContent, terminalObservationTailMaxLines, terminalObservationTailMaxCharacters)
 	return tail, true
 }
 
@@ -212,7 +210,7 @@ func toolInteractionFromObservation(observation turnObservation) toolInteraction
 		ObservationID:      observation.ObservationID,
 		ToolName:           strings.TrimSpace(observation.Tool),
 		Input:              terminalObservationInput(observation.ToolInputKey),
-		ResultContent:      strings.TrimSpace(observation.ContentText()),
+		ResultData:         append(json.RawMessage{}, observation.Output.Data...),
 		FailureStage:       observation.FailureStage(),
 		ErrorCode:          observation.FailureCode(),
 		AttemptFingerprint: strings.TrimSpace(observation.AttemptFingerprint),

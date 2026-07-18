@@ -1049,7 +1049,8 @@ func TestAgentTurnRunnerRejectsFailAfterSiteSourceWriteBeforeBuildPublish(t *tes
 	})
 	toolRegistry.RegisterTool(ToolDefinition{Name: "terminal.run"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		toolCalls = append(toolCalls, "terminal.run")
-		return ToolSuccess(`{"exitCode":0,"stdout":"built"}`), nil
+		data := json.RawMessage(`{"mode":"command","completed":true,"exitCode":0,"stdout":"built","stderr":"","timedOut":false,"outputTrimmed":false}`)
+		return ToolSuccessData(string(data), data), nil
 	})
 	toolRegistry.RegisterTool(ToolDefinition{
 		Name:            "site.publish",
@@ -1627,7 +1628,8 @@ func TestAgentTurnRunnerEscalatesIterationLimitAfterDurableProgress(t *testing.T
 		return ToolSuccess(`{"path":"tmp/app/index.html"}`), nil
 	})
 	toolRegistry.RegisterTool(ToolDefinition{Name: "terminal.run"}, func(context.Context, ToolInvocation) (ToolResult, error) {
-		return ToolSuccess(`{"exitCode":0,"stdout":"built"}`), nil
+		data := json.RawMessage(`{"mode":"command","completed":true,"exitCode":0,"stdout":"built","stderr":"","timedOut":false,"outputTrimmed":false}`)
+		return ToolSuccessData(string(data), data), nil
 	})
 
 	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
@@ -1760,7 +1762,8 @@ func TestAgentTurnRunnerCheckpointsAtMaxIterationCeiling(t *testing.T) {
 		return ToolSuccess(`{"path":"tmp/app/a"}`), nil
 	})
 	toolRegistry.RegisterTool(ToolDefinition{Name: "terminal.run"}, func(context.Context, ToolInvocation) (ToolResult, error) {
-		return ToolSuccess(`{"exitCode":0,"stdout":"built"}`), nil
+		data := json.RawMessage(`{"mode":"command","completed":true,"exitCode":0,"stdout":"built","stderr":"","timedOut":false,"outputTrimmed":false}`)
+		return ToolSuccessData(string(data), data), nil
 	})
 
 	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{

@@ -283,6 +283,23 @@ func TestRunCommandIncludesProcessErrorWhenStderrIsEmpty(t *testing.T) {
 	}
 }
 
+func TestRunCommandReportsTrimmedOutput(t *testing.T) {
+	terminalConfiguration := testTerminalConfiguration(t)
+	terminalConfiguration.OutputMaxBytes = 16
+	terminalSessionService := NewTerminalSessionService(terminalConfiguration)
+
+	commandResult, errorValue := terminalSessionService.RunCommand(context.Background(), CommandRequest{
+		Command: "printf 'abcdefghijklmnopqrstuvwxyz'",
+	})
+
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if !commandResult.OutputTrimmed || len(commandResult.Stdout) > terminalConfiguration.OutputMaxBytes {
+		t.Fatalf("expected explicit bounded output, got %+v", commandResult)
+	}
+}
+
 func TestTerminalSessionUsesPTYLifecycle(t *testing.T) {
 	terminalSessionService := NewTerminalSessionService(testTerminalConfiguration(t))
 	workspaceRootPath := terminalSessionService.commandGuardrailService.terminalConfiguration.WorkspaceRootPath
@@ -296,9 +313,12 @@ func TestTerminalSessionUsesPTYLifecycle(t *testing.T) {
 	}
 	defer terminalSessionService.CloseSession(sessionID)
 
-	_, errorValue = terminalSessionService.WriteSessionInput(sessionID, "printf 'hello-pty\\n'\n")
+	writeStatus, errorValue := terminalSessionService.WriteSessionInput(sessionID, "printf 'hello-pty\\n'\n")
 	if errorValue != nil {
 		t.Fatalf("expected PTY write to succeed: %v", errorValue)
+	}
+	if writeStatus.SessionID != sessionID || writeStatus.Status != "running" {
+		t.Fatalf("expected PTY write to preserve session status, got %+v", writeStatus)
 	}
 
 	var sessionStatus TerminalSessionStatus
