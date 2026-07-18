@@ -45,6 +45,14 @@ export enum CalendarToolName {
   Delete = 'calendar.delete',
 }
 
+export enum DocumentToolName {
+  Read = 'document.read',
+}
+
+export enum ImageToolName {
+  Read = 'image.read',
+}
+
 export enum ResourceMutationEffect {
   Created = 'created',
   Updated = 'updated',
@@ -268,6 +276,41 @@ export const calendarDeleteResultSchema = z.strictObject({
   deleted: z.literal(true),
 });
 
+export const documentReadInputSchema = z.strictObject({
+  path: resourceIDSchema.describe('Exact absolute /workspace path of the document to read.'),
+  maxPages: z.number().int().min(1).max(500).describe('Maximum PDF pages to extract. Omit for the runtime default.').optional(),
+  maxOutputBytes: z.number().int().min(1024).max(1000000).describe('Maximum Markdown bytes to return. Omit for the runtime default.').optional(),
+});
+
+export const documentReadResultSchema = z.strictObject({
+  status: z.literal('ok'),
+  path: resourceIDSchema,
+  format: z.literal('markdown'),
+  content: z.string(),
+  warnings: z.array(z.string()),
+  truncated: z.boolean(),
+  backend: z.string().optional(),
+  model: z.string().optional(),
+});
+
+const imageReadAttachmentSchema = z.strictObject({
+  devicePath: resourceIDSchema,
+  filename: resourceIDSchema,
+  contentType: resourceIDSchema,
+  sizeBytes: z.number().int().nonnegative(),
+  contentBase64: z.string().min(1),
+});
+
+export const imageReadInputSchema = z.strictObject({
+  path: resourceIDSchema.describe('Exact absolute /workspace path of the image to read.'),
+});
+
+export const imageReadResultSchema = z.strictObject({
+  status: z.literal('ok'),
+  path: resourceIDSchema,
+  attachments: z.array(imageReadAttachmentSchema).min(1),
+});
+
 function hasMutationField(document: object): boolean {
   return Object.keys(document).length > 1;
 }
@@ -454,7 +497,34 @@ const calendarToolDefinitions: CapabilityToolDefinition[] = [
   },
 ];
 
-const capabilityToolDefinitions = [...taskToolDefinitions, ...calendarToolDefinitions];
+const fileToolDefinitions: CapabilityToolDefinition[] = [
+  {
+    name: DocumentToolName.Read,
+    namespace: 'document',
+    privacyClass: 'workspace_document',
+    policyResource: 'tool:document.read',
+    description: 'Read a workspace document from an exact /workspace path and return Markdown content. Use image.read for image files.',
+    version: '1',
+    estimatedLatency: CapabilityEstimatedLatency.High,
+    inputSchema: documentReadInputSchema,
+    result: { schema: documentReadResultSchema, effects: [] },
+    sideEffect: CapabilitySideEffect.Read,
+  },
+  {
+    name: ImageToolName.Read,
+    namespace: 'image',
+    privacyClass: 'workspace_document',
+    policyResource: 'tool:image.read',
+    description: 'Read a workspace image from an exact /workspace path and return a base64 attachment. Use document.read for document files.',
+    version: '1',
+    estimatedLatency: CapabilityEstimatedLatency.Medium,
+    inputSchema: imageReadInputSchema,
+    result: { schema: imageReadResultSchema, effects: [] },
+    sideEffect: CapabilitySideEffect.Read,
+  },
+];
+
+const capabilityToolDefinitions = [...taskToolDefinitions, ...calendarToolDefinitions, ...fileToolDefinitions];
 
 export type CapabilityToolCatalog = {
   protocolVersion: string;
@@ -471,6 +541,10 @@ export type CalendarListInput = z.infer<typeof calendarListInputSchema>;
 export type CalendarUpdateInput = z.infer<typeof calendarUpdateInputSchema>;
 export type CalendarDeleteInput = z.infer<typeof calendarDeleteInputSchema>;
 export type CalendarEventResult = z.infer<typeof calendarEventResultSchema>;
+export type DocumentReadInput = z.infer<typeof documentReadInputSchema>;
+export type DocumentReadResult = z.infer<typeof documentReadResultSchema>;
+export type ImageReadInput = z.infer<typeof imageReadInputSchema>;
+export type ImageReadResult = z.infer<typeof imageReadResultSchema>;
 
 export function buildCapabilityToolCatalog(protocolVersion: string): CapabilityToolCatalog {
   return {

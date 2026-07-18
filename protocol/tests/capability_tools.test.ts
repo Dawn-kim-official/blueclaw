@@ -2,6 +2,8 @@ import { describe, expect, test } from 'bun:test';
 
 import {
   CalendarToolName,
+  DocumentToolName,
+  ImageToolName,
   WorkspaceTaskSize,
   WorkspaceTaskStatus,
   buildCapabilityToolCatalog,
@@ -9,6 +11,10 @@ import {
   calendarDeleteInputSchema,
   calendarListInputSchema,
   calendarUpdateInputSchema,
+  documentReadInputSchema,
+  documentReadResultSchema,
+  imageReadInputSchema,
+  imageReadResultSchema,
   taskAddInputSchema,
   taskDeleteInputSchema,
   taskListInputSchema,
@@ -18,7 +24,7 @@ import { ResourceEffectIdentity } from '../src/capability.ts';
 import { protocolVersion } from '../src/registry.ts';
 
 describe('canonical capability tools', () => {
-  test('defines the complete task tool family', () => {
+  test('defines the complete canonical tool family', () => {
     const catalog = buildCapabilityToolCatalog(protocolVersion);
 
     expect(catalog.protocolVersion).toBe(protocolVersion);
@@ -31,6 +37,8 @@ describe('canonical capability tools', () => {
       CalendarToolName.List,
       CalendarToolName.Update,
       CalendarToolName.Delete,
+      DocumentToolName.Read,
+      ImageToolName.Read,
     ]);
     expect(catalog.tools.every(tool => tool.inputSchemaStrict && tool.outputSchemaStrict)).toBe(true);
     expect(new Set(catalog.tools.map(tool => tool.name)).size).toBe(catalog.tools.length);
@@ -144,5 +152,71 @@ describe('canonical capability tools', () => {
       },
     });
     expect(calendarUpdateTool?.inputSchema).toMatchObject({ minProperties: 2 });
+  });
+
+  test('validates document and image read inputs without material aliases', () => {
+    expect(documentReadInputSchema.safeParse({
+      path: '/workspace/shared/report.pdf',
+      maxPages: 10,
+      maxOutputBytes: 200000,
+    }).success).toBe(true);
+    expect(imageReadInputSchema.safeParse({ path: '/workspace/shared/logo.png' }).success).toBe(true);
+
+    expect(documentReadInputSchema.safeParse({ materialID: 'material-1' }).success).toBe(false);
+    expect(documentReadInputSchema.safeParse({ path: '/workspace/shared/report.pdf', ocrMode: 'always' }).success).toBe(false);
+    expect(documentReadInputSchema.safeParse({ path: '/workspace/shared/report.pdf', maxPages: 0 }).success).toBe(false);
+    expect(documentReadInputSchema.safeParse({ path: '/workspace/shared/report.pdf', maxPages: 501 }).success).toBe(false);
+    expect(documentReadInputSchema.safeParse({ path: '/workspace/shared/report.pdf', maxOutputBytes: 0 }).success).toBe(false);
+    expect(documentReadInputSchema.safeParse({ path: '/workspace/shared/report.pdf', maxOutputBytes: 1 }).success).toBe(false);
+    expect(imageReadInputSchema.safeParse({ materialID: 'material-1' }).success).toBe(false);
+    expect(imageReadInputSchema.safeParse({ path: '/workspace/shared/logo.png', materialID: 'material-1' }).success).toBe(false);
+  });
+
+  test('requires exact document and image read result contracts', () => {
+    const documentResult = {
+      status: 'ok',
+      path: '/workspace/shared/report.pdf',
+      format: 'markdown',
+      content: '# Report',
+      warnings: [],
+      truncated: false,
+      backend: 'markitdown',
+      model: 'no_ocr',
+    };
+    const imageResult = {
+      status: 'ok',
+      path: '/workspace/shared/logo.png',
+      attachments: [{
+        devicePath: '/workspace/shared/logo.png',
+        filename: 'logo.png',
+        contentType: 'image/png',
+        sizeBytes: 3,
+        contentBase64: 'YWJj',
+      }],
+    };
+
+    expect(documentReadResultSchema.safeParse(documentResult).success).toBe(true);
+    expect(imageReadResultSchema.safeParse(imageResult).success).toBe(true);
+    expect(documentReadResultSchema.safeParse({ ...documentResult, warnings: undefined }).success).toBe(false);
+    expect(documentReadResultSchema.safeParse({ ...documentResult, format: 'text' }).success).toBe(false);
+    expect(documentReadResultSchema.safeParse({ ...documentResult, extra: true }).success).toBe(false);
+    expect(imageReadResultSchema.safeParse({ ...imageResult, attachments: [{ ...imageResult.attachments[0], sizeBytes: -1 }] }).success).toBe(false);
+    expect(imageReadResultSchema.safeParse({ ...imageResult, attachments: [{ ...imageResult.attachments[0], devicePath: undefined }] }).success).toBe(false);
+    expect(imageReadResultSchema.safeParse({ ...imageResult, extra: true }).success).toBe(false);
+  });
+
+  test('publishes mandatory read result contracts without effects', () => {
+    const catalog = buildCapabilityToolCatalog(protocolVersion);
+    const documentTool = catalog.tools.find(tool => tool.name === DocumentToolName.Read);
+    const imageTool = catalog.tools.find(tool => tool.name === ImageToolName.Read);
+
+    expect(documentTool?.resultContract?.effects).toEqual([]);
+    expect(imageTool?.resultContract?.effects).toEqual([]);
+    expect(documentTool?.resultContract?.schema.required).toEqual([
+      'status', 'path', 'format', 'content', 'warnings', 'truncated',
+    ]);
+    expect(imageTool?.resultContract?.schema.required).toEqual(['status', 'path', 'attachments']);
+    expect(documentTool?.inputSchema.properties).not.toHaveProperty('materialID');
+    expect(imageTool?.inputSchema.properties).not.toHaveProperty('materialID');
   });
 });
