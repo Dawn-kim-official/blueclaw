@@ -80,6 +80,36 @@ func TestLocalToolProviderPreservesMemorySearchContract(t *testing.T) {
 	}
 }
 
+func TestLocalToolProviderPreservesMemoryRememberContract(t *testing.T) {
+	toolCatalogBuilder := NewToolCatalogBuilder()
+	handlerToolSet := agent.NewToolSet(nil)
+	registerMemoryTools(toolCatalogBuilder, handlerToolSet, ToolCatalogRequest{})
+
+	boundTools, errorValue := (localToolProvider{handlerToolSet: handlerToolSet}).ListTools(context.Background())
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	var descriptor agent.ToolDescriptor
+	for _, boundTool := range boundTools {
+		if boundTool.Definition.Name == "memory.remember" {
+			descriptor = boundTool.Definition
+		}
+	}
+	if descriptor.Name == "" || descriptor.ResultContract == nil {
+		t.Fatalf("expected memory.remember result contract, got %+v", descriptor)
+	}
+	if !equalJSONSchema(descriptor.OutputSchema, memoryRememberOutputSchema) || !equalJSONSchema(descriptor.ResultContract.Schema, memoryRememberOutputSchema) {
+		t.Fatalf("expected canonical output schema preservation, got %+v", descriptor)
+	}
+	if len(descriptor.ResultContract.Effects) != 1 || descriptor.ResultContract.Effects[0].ResultField != "jobID" {
+		t.Fatalf("expected exact memory update effect, got %+v", descriptor.ResultContract)
+	}
+	condition := descriptor.ResultContract.EvidenceCondition
+	if condition == nil || condition.ResultField != "accepted" || string(condition.Equals) != "true" {
+		t.Fatalf("expected accepted memory evidence condition, got %+v", condition)
+	}
+}
+
 func TestLocalToolProviderRejectsMalformedMemorySearchResult(t *testing.T) {
 	handlerToolSet := agent.NewToolSet(nil)
 	if errorValue := handlerToolSet.RegisterTool(agent.ToolDefinition{

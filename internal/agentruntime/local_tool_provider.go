@@ -67,12 +67,25 @@ var localToolDescriptorSpecs = []localToolDescriptorSpec{
 		Availability:    localToolAvailable,
 	},
 	{
-		ID:              "local/memory.remember",
-		ProviderID:      localToolProviderID,
-		Namespace:       "memory",
-		Name:            "memory.remember",
-		PrivacyClass:    "workspace_memory",
-		OutputSchema:    localToolOutputSchema,
+		ID:           "local/memory.remember",
+		ProviderID:   localToolProviderID,
+		Namespace:    "memory",
+		Name:         "memory.remember",
+		PrivacyClass: "workspace_memory",
+		OutputSchema: memoryRememberOutputSchema,
+		ResultContract: &agent.ToolResultContract{
+			Schema: memoryRememberOutputSchema,
+			Effects: []agent.ResourceEffectContract{{
+				ObjectType:     "memory_update",
+				Effect:         "accepted",
+				ResultField:    "jobID",
+				EffectIdentity: "id",
+			}},
+			EvidenceCondition: &agent.EvidenceCondition{
+				ResultField: "accepted",
+				Equals:      json.RawMessage(`true`),
+			},
+		},
 		Visibility:      agent.ToolVisibilityModel,
 		PolicyResource:  "tool:memory.remember",
 		SideEffectClass: agent.ToolSideEffectStateChange,
@@ -283,7 +296,11 @@ func (provider localToolProvider) boundTool(spec localToolDescriptorSpec, handle
 		Availability: spec.Availability,
 		Handler: func(toolContext context.Context, invocation agent.ToolInvocation) (agent.ToolResult, error) {
 			invocation.ToolName = toolName
-			return provider.handlerToolSet.InvokeInternal(toolContext, invocation)
+			result, errorValue := provider.handlerToolSet.InvokeInternal(toolContext, invocation)
+			if errorValue == nil && !result.Failed() {
+				result.Effects = agent.ProjectResourceEffects(spec.ResultContract, result.Output.Data)
+			}
+			return result, errorValue
 		},
 	}
 }

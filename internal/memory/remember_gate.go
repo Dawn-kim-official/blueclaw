@@ -12,9 +12,6 @@ func RememberContentGateMessage(content string) string {
 	if trimmedContent == "" {
 		return "memory.remember requires content"
 	}
-	if !shouldStoreByHeuristic(trimmedContent) {
-		return "memory.remember content looks like transient chatter; store only durable facts, preferences, or relationships"
-	}
 	if len([]rune(trimmedContent)) > RememberContentRuneLimit {
 		return fmt.Sprintf("memory.remember content exceeds %d characters; store one compact standalone fact per call", RememberContentRuneLimit)
 	}
