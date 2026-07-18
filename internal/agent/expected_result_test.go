@@ -1,80 +1,96 @@
 package agent
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 )
 
-func TestObservedResultsDoNotTreatDraftSiteCreateURLAsDeliverableLink(t *testing.T) {
-	results := buildObservedResults([]turnObservation{{
+func TestObservedResultsIgnoreURLsWithoutCanonicalEffects(t *testing.T) {
+	results := buildObservedResults(newTestToolSet([]string{"external.publish"}), []turnObservation{{
 		ObservationID: "obs-001",
-		Tool:          "site.create",
+		Tool:          "external.publish",
 		Output: ToolOutput{
-			Content: `{"siteID":"site-1","status":"draft","publishedURL":"https://portfolio.example"}`,
+			Content: `{"publicURL":"https://portfolio.example"}`,
+			Data:    json.RawMessage(`{}`),
 		},
 	}}, nil, "초안을 만들었습니다: https://portfolio.example")
 
 	if observedResultsContainType(results, ExpectedResultTypeLink) {
-		t.Fatalf("draft site create URL must not count as delivered link: %+v", results)
-	}
-	if !observedResultsContainType(results, ExpectedResultTypeMessage) {
-		t.Fatalf("expected draft create to remain visible as a message result: %+v", results)
+		t.Fatalf("uncontracted URL must not count as delivered link: %+v", results)
 	}
 }
 
-func TestObservedResultsTreatPublishedSiteStatusAsDeliverableLink(t *testing.T) {
-	results := buildObservedResults([]turnObservation{{
-		ObservationID: "obs-001",
-		Tool:          "site.status",
-		Output: ToolOutput{
-			Content: `{"siteID":"site-1","status":"published","publishedURL":"https://portfolio.example"}`,
-		},
-	}}, nil, "")
+func TestObservedResultsUseCanonicalURLEffectsWithoutToolNameInference(t *testing.T) {
+	toolSet, observation := canonicalLinkObservation("external.publish", "https://portfolio.example")
+	results := buildObservedResults(toolSet, []turnObservation{observation}, nil, "")
 
 	if !observedResultsContainType(results, ExpectedResultTypeLink) {
-		t.Fatalf("published site status URL should count as delivered link: %+v", results)
+		t.Fatalf("canonical URL effect should count as delivered link: %+v", results)
+	}
+	if results[0].ToolName != "external.publish" || results[0].URL != "https://portfolio.example" {
+		t.Fatalf("expected exact canonical URL identity, got %+v", results)
 	}
 }
 
-func TestObservedResultsTreatPublishedSitePublishAsDeliverableLink(t *testing.T) {
-	results := buildObservedResults([]turnObservation{{
-		ObservationID: "obs-001",
-		Tool:          "site.publish",
-		Output: ToolOutput{
-			Content: `{"siteID":"site-1","status":"published","publishedURL":"https://portfolio.example"}`,
-		},
-	}}, nil, "")
-
-	if !observedResultsContainType(results, ExpectedResultTypeLink) {
-		t.Fatalf("published site publish URL should count as delivered link: %+v", results)
-	}
-}
-
-func TestObservedResultsDoNotTreatDraftSitePublishURLAsDeliverableLink(t *testing.T) {
-	results := buildObservedResults([]turnObservation{{
-		ObservationID: "obs-001",
-		Tool:          "site.publish",
-		Output: ToolOutput{
-			Content: `{"siteID":"site-1","status":"draft","publishedURL":"https://portfolio.example"}`,
-		},
-	}}, nil, "배포했습니다: https://portfolio.example")
+func TestObservedResultsRejectEffectsThatDriftFromTheirContract(t *testing.T) {
+	toolSet, observation := canonicalLinkObservation("external.publish", "https://portfolio.example")
+	observation.Effects[0].URL = "https://different.example"
+	results := buildObservedResults(toolSet, []turnObservation{observation}, nil, "")
 
 	if observedResultsContainType(results, ExpectedResultTypeLink) {
-		t.Fatalf("draft site publish URL must not count as delivered link: %+v", results)
+		t.Fatalf("mismatched effect identity must not count as delivered link: %+v", results)
 	}
 }
 
-func TestObservedResultsDoNotTreatFailedSiteStatusURLAsDeliverableLink(t *testing.T) {
-	results := buildObservedResults([]turnObservation{{
-		ObservationID: "obs-001",
-		Tool:          "site.status",
-		Output: ToolOutput{
-			Content: `{"siteID":"site-1","status":"failed","publishedURL":"https://portfolio.example"}`,
-		},
-	}}, nil, "배포했습니다: https://portfolio.example")
+func TestObservedResultsPreserveTypedFileAttachment(t *testing.T) {
+	results := buildObservedResults(
+		nil,
+		nil,
+		[]FileAttachment{{Filename: "quarterly.docx", ContentType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document"}},
+		"",
+	)
 
-	if observedResultsContainType(results, ExpectedResultTypeLink) {
-		t.Fatalf("failed site status URL must not count as delivered link: %+v", results)
+	if !observedResultsContainType(results, ExpectedResultTypeFile) {
+		t.Fatalf("typed attachment should count as a file result: %+v", results)
+	}
+	if results[0].Filename != "quarterly.docx" {
+		t.Fatalf("expected exact attachment filename, got %+v", results[0])
+	}
+}
+
+func canonicalLinkObservation(toolName string, publicURL string) (*ToolSet, turnObservation) {
+	descriptor := canonicalLinkToolDefinition(toolName)
+	result := canonicalLinkToolResult(publicURL)
+	observation := turnObservation{
+		ObservationID: "obs-001",
+		Tool:          toolName,
+		Output:        result.Output,
+		Effects:       result.Effects,
+	}
+	return newTestToolSetWithDefinitions([]ToolDefinition{descriptor}), observation
+}
+
+func canonicalLinkToolDefinition(toolName string) ToolDefinition {
+	descriptor := testToolDescriptor(toolName)
+	descriptor.OutputSchema = json.RawMessage(`{"type":"object","properties":{"publicURL":{"type":"string"}},"required":["publicURL"],"additionalProperties":false}`)
+	descriptor.ResultContract = &ToolResultContract{
+		Schema: json.RawMessage(`{"type":"object","properties":{"publicURL":{"type":"string"}},"required":["publicURL"],"additionalProperties":false}`),
+		Effects: []ResourceEffectContract{{
+			ObjectType:     "website",
+			Effect:         "published",
+			ResultField:    "publicURL",
+			EffectIdentity: "url",
+		}},
+	}
+	return descriptor
+}
+
+func canonicalLinkToolResult(publicURL string) ToolResult {
+	outputData := json.RawMessage(marshalEventBody(map[string]string{"publicURL": publicURL}))
+	return ToolResult{
+		Output:  ToolOutput{Content: string(outputData), Data: outputData},
+		Effects: []ResourceEffect{{ObjectType: "website", Effect: "published", URL: publicURL}},
 	}
 }
 
@@ -109,7 +125,7 @@ func TestRequiredLinkVerificationRequiresObservedLinkResult(t *testing.T) {
 	}
 }
 
-func TestRequiredSiteLinkVerificationRejectsGenericURLWhenSiteToolWasUsed(t *testing.T) {
+func TestRequiredLinkVerificationDoesNotInferProvenanceFromToolNames(t *testing.T) {
 	expectedResults := []ExpectedResult{{
 		ID:              "site-public-link",
 		Type:            ExpectedResultTypeLink,
@@ -141,8 +157,8 @@ func TestRequiredSiteLinkVerificationRejectsGenericURLWhenSiteToolWasUsed(t *tes
 
 	verification = enforceObservedResultRequirements(expectedResults, observedResults, "https://example.com/reference", verification)
 
-	if verification.OverallStatus != "missing" {
-		t.Fatalf("expected generic URL to miss site public link result, got %+v", verification)
+	if verification.OverallStatus != "satisfied" {
+		t.Fatalf("expected canonical link result to avoid tool-name provenance inference, got %+v", verification)
 	}
 }
 

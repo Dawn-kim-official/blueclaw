@@ -89,13 +89,13 @@ func TestValidateRequiredEvidenceClassifiesNativeTool(t *testing.T) {
 	}
 }
 
-func TestValidateRequiredEvidenceAcceptsCanonicalDeliveryAlias(t *testing.T) {
+func TestValidateRequiredEvidenceRejectsLegacyDeliveryAlias(t *testing.T) {
 	toolSet := newTestToolSet([]string{FileDeliverToolName})
 
-	report := validateRequiredEvidenceTools(toolSet, []string{FileAttachToolName})
+	report := validateRequiredEvidenceTools(toolSet, []string{"file.attach"})
 
-	if report.HasInvalidEvidence() {
-		t.Fatalf("expected file.attach alias to match registered file.deliver evidence, got %+v", report)
+	if !report.HasInvalidEvidence() {
+		t.Fatalf("expected file.attach alias to be invalid evidence, got %+v", report)
 	}
 }
 

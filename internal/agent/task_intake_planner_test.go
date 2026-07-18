@@ -1498,7 +1498,7 @@ func TestAgentKernelCreatesChoiceAskForClarificationOptions(t *testing.T) {
 		RequesterPersonID: "person-1",
 		ConversationID:    "conversation-1",
 		Prompt:            "소개 자료 만들어줘",
-		ToolSet:           newTestToolSet([]string{"ask.choice"}),
+		ToolSet:           newTestToolSet([]string{AskInputToolName}),
 	})
 	if errorValue != nil {
 		t.Fatalf("expected clarify result: %v", errorValue)
@@ -1696,9 +1696,9 @@ func TestAgentKernelQuickReplyCanUseCalculatorTool(t *testing.T) {
 	}
 }
 
-func TestAgentKernelQuickReplyUsesAskChoiceForExplicitChoiceRequest(t *testing.T) {
+func TestAgentKernelQuickReplyUsesAskInputForExplicitChoiceRequest(t *testing.T) {
 	intakeLanguageModel := &sequenceLanguageModel{contents: []string{
-		`{"route":"start_task","classification":"quick_reply","taskShape":"immediate_reply","level":"xlow","estimatedMinutes":1,"requestedOutputFormats":null,"expectedResults":[{"id":"interactive-choice","type":"message","description":"사용자가 직접 고를 수 있는 선택지 UI가 표시됨","required":true,"acceptanceHints":["ask.choice"]}],"responseLanguage":"ko","reason":"choice probe","userFacingReply":""}`,
+		`{"route":"start_task","classification":"quick_reply","taskShape":"immediate_reply","level":"xlow","estimatedMinutes":1,"requestedOutputFormats":null,"expectedResults":[{"id":"interactive-choice","type":"message","description":"사용자가 직접 고를 수 있는 선택지 UI가 표시됨","required":true,"acceptanceHints":["ask.input"]}],"responseLanguage":"ko","reason":"choice probe","userFacingReply":""}`,
 	}}
 	replyLanguageModel := &sequenceLanguageModel{contents: []string{
 		finishMessageDocument("아래 세 가지 중 하나를 선택해 주세요.\n\n1. 선택지 1\n2. 선택지 2\n3. 선택지 3"),
@@ -1739,7 +1739,7 @@ func TestAgentKernelQuickReplyUsesAskChoiceForExplicitChoiceRequest(t *testing.T
 		t.Fatalf("expected ask.input request event, got %+v", events)
 	}
 	if len(replyLanguageModel.requests) != 2 {
-		t.Fatalf("expected finish rejection then ask.choice action, got %d requests", len(replyLanguageModel.requests))
+		t.Fatalf("expected finish rejection then ask.input action, got %d requests", len(replyLanguageModel.requests))
 	}
 }
 

@@ -39,7 +39,7 @@ func recoverableFileDeliveryNextTools(request AgentTurnRequest, observations []t
 	if !turnRequestLooksLikeFileDeliveryWork(request) {
 		return nil
 	}
-	if latestSuccessfulToolIndex(observations, []string{FileDeliverToolName, FileAttachToolName}) >= 0 {
+	if latestSuccessfulToolIndex(observations, []string{FileDeliverToolName}) >= 0 {
 		return nil
 	}
 	if latestSuccessfulToolIndex(observations, []string{"file.write", "file.edit", "terminal.run"}) < 0 {
@@ -64,9 +64,7 @@ func turnRequestLooksLikeFileDeliveryWork(request AgentTurnRequest) bool {
 	return len(request.RequiredAttachmentSuffixes) > 0 ||
 		len(request.OutcomeContract.RequiredAttachmentSuffixes) > 0 ||
 		requiredEvidenceContains(request.RequiredEvidenceTools, FileDeliverToolName) ||
-		requiredEvidenceContains(request.OutcomeContract.RequiredEvidenceTools, FileDeliverToolName) ||
-		requiredEvidenceContains(request.RequiredEvidenceTools, FileAttachToolName) ||
-		requiredEvidenceContains(request.OutcomeContract.RequiredEvidenceTools, FileAttachToolName)
+		requiredEvidenceContains(request.OutcomeContract.RequiredEvidenceTools, FileDeliverToolName)
 }
 
 func availableWorkflowTools(toolSet *ToolSet, toolNames []string) []string {
