@@ -53,7 +53,7 @@ func TestMemoryRememberToolEnqueuesPersonMemory(t *testing.T) {
 	}
 }
 
-func TestMemoryRememberToolRejectsTransientContent(t *testing.T) {
+func TestMemoryRememberToolLeavesMeaningToTheModel(t *testing.T) {
 	queue := &recordingMemoryUpdateQueue{}
 	toolCatalogBuilder := NewToolCatalogBuilder()
 	toolCatalogBuilder.UseMemoryUpdateQueue(queue)
@@ -72,14 +72,69 @@ func TestMemoryRememberToolRejectsTransientContent(t *testing.T) {
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
-	if !result.Failed() {
-		t.Fatalf("expected transient content rejection, got %s", result.ContentText())
+	if result.Failed() {
+		t.Fatalf("expected explicit model tool call to remain authoritative, got %s", result.ContentText())
 	}
-	if result.FailureCode() != agent.FailureCodes.InvalidInput.String() {
-		t.Fatalf("expected invalid input failure, got %+v", result.Failure)
+	if len(queue.jobs) != 1 || queue.jobs[0].Content != "고마워" {
+		t.Fatalf("expected explicit content to be queued without phrase filtering, got %+v", queue.jobs)
 	}
-	if len(queue.jobs) != 0 {
-		t.Fatalf("expected no queued jobs, got %+v", queue.jobs)
+	if len(result.Effects) != 1 || result.Effects[0].ID != "job-1" {
+		t.Fatalf("expected exact memory update effect, got %+v", result.Effects)
+	}
+}
+
+func TestMemoryRememberToolRejectsInvalidBoundaryInput(t *testing.T) {
+	toolCatalogBuilder := NewToolCatalogBuilder()
+	toolCatalogBuilder.UseMemoryUpdateQueue(&recordingMemoryUpdateQueue{})
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"memory.remember"})
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
+		ProfileName:       "default",
+		RequesterPersonID: "person-1",
+		MemoryNamespaces:  []memory.MemoryNamespace{memory.UserNamespace("person-1")},
+	})
+
+	for _, input := range []json.RawMessage{
+		json.RawMessage(`{}`),
+		json.RawMessage(`{"content":"   "}`),
+		json.RawMessage(`{"content":"durable fact","reason":"model judgment"}`),
+		agent.MarshalToolInput(map[string]string{"content": strings.Repeat("가", memory.RememberContentRuneLimit+1)}),
+	} {
+		result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+			ToolName: "memory.remember",
+			Input:    input,
+		})
+		if errorValue != nil {
+			t.Fatal(errorValue)
+		}
+		if !result.Failed() || result.FailureStage() != "tool_input_schema" {
+			t.Fatalf("expected strict boundary rejection for %s, got %+v", input, result)
+		}
+	}
+}
+
+func TestMemoryRememberToolReportsQueueFailure(t *testing.T) {
+	toolCatalogBuilder := NewToolCatalogBuilder()
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"memory.remember"})
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
+		ProfileName:       "default",
+		RequesterPersonID: "person-1",
+		MemoryNamespaces:  []memory.MemoryNamespace{memory.UserNamespace("person-1")},
+	})
+
+	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+		ToolName: "memory.remember",
+		Input:    agent.MarshalToolInput(map[string]string{"content": "The requester prefers short reports."}),
+	})
+
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if !result.Failed() || result.FailureCode() != agent.FailureCodes.OperationFailed.String() {
+		t.Fatalf("expected queue failure to remain a failed observation, got %+v", result)
+	}
+	document := decodeMemoryUpdateAccepted(t, string(result.Output.Data))
+	if document.Accepted || document.Status != "failed" || document.FailureCode != "queue_unavailable" {
+		t.Fatalf("expected typed queue failure, got %+v", document)
 	}
 }
 

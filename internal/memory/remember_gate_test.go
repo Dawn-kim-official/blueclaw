@@ -17,11 +17,10 @@ func TestRememberContentGateRejectsEmptyContent(t *testing.T) {
 	}
 }
 
-func TestRememberContentGateRejectsTransientChatter(t *testing.T) {
-	for _, transientContent := range []string{"ok", "thanks", "고마워", "ㅋㅋ", "ㅇㅋ", "감사합니다", "안녕하세요"} {
-		gateMessage := RememberContentGateMessage(transientContent)
-		if !strings.Contains(gateMessage, "transient") {
-			t.Fatalf("expected transient rejection for %q, got %q", transientContent, gateMessage)
+func TestRememberContentGateLeavesMeaningToTheModel(t *testing.T) {
+	for _, content := range []string{"ok", "thanks", "고마워", "ㅋㅋ", "ㅇㅋ", "감사합니다", "안녕하세요"} {
+		if gateMessage := RememberContentGateMessage(content); gateMessage != "" {
+			t.Fatalf("expected boundary validation to accept %q, got %q", content, gateMessage)
 		}
 	}
 }
