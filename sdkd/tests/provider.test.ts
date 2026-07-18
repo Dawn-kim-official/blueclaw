@@ -416,7 +416,7 @@ describe('sdkd provider adapter', () => {
         category: StructuredOutputDiagnosticCategory.SchemaValidation,
         toolName: 'lookup',
         validationIssues: expect.arrayContaining([
-          { fieldPath: '/', code: StructuredOutputValidationCode.AdditionalProperty },
+          { fieldPath: '/unknown', code: StructuredOutputValidationCode.AdditionalProperty },
           { fieldPath: '/requiredText', code: StructuredOutputValidationCode.Type },
           { fieldPath: '/rows/0', code: StructuredOutputValidationCode.Type },
           { fieldPath: '/metadata/extra', code: StructuredOutputValidationCode.Type },
@@ -452,7 +452,7 @@ describe('sdkd provider adapter', () => {
       diagnostic: {
         category: StructuredOutputDiagnosticCategory.SchemaValidation,
         toolName: 'lookup',
-        validationIssues: [{ fieldPath: '/task', code: StructuredOutputValidationCode.AdditionalProperty }],
+        validationIssues: [{ fieldPath: '/task/unexpected', code: StructuredOutputValidationCode.AdditionalProperty }],
         repairStatus: StructuredOutputRepairStatus.Failed,
       },
     });
