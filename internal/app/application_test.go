@@ -431,7 +431,7 @@ func TestApplicationChecksProtocolIdentityOnceAndStoresResult(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(responseWriter http.ResponseWriter, request *http.Request) {
 		requestCount++
 		responseWriter.Header().Set("Content-Type", "application/json")
-		_, _ = responseWriter.Write([]byte(`{"protocolVersion":"` + protocolVersion + `","aggregateProtocolHash":"` + aggregateProtocolHash + `"}`))
+		_, _ = responseWriter.Write([]byte(`{"status":"ok","protocolVersion":"` + protocolVersion + `","aggregateProtocolHash":"` + aggregateProtocolHash + `"}`))
 	}))
 	defer server.Close()
 
