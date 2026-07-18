@@ -18,6 +18,7 @@ import (
 	"blueclaw/internal/e2e"
 	"blueclaw/internal/lab"
 	"blueclaw/internal/llm"
+	"blueclaw/internal/task"
 )
 
 type PrintingCommandRunner struct{}
@@ -382,13 +383,9 @@ func saveVirtualSessionEvidence(arguments virtualSessionArguments, result e2e.Vi
 	if strings.TrimSpace(result.ArtifactDirectoryPath) == "" {
 		return errors.New("virtual session artifact directory is required for LLM evidence")
 	}
-	status := "succeeded"
-	if runError != nil {
-		status = "failed"
-	}
 	evidence := virtualSessionEvidence{
 		Scenario:              result.ScenarioName,
-		Status:                status,
+		Status:                virtualSessionEvidenceStatus(result, runError),
 		RequestedProvider:     strings.TrimSpace(arguments.LanguageModelProvider),
 		RequestedModel:        strings.TrimSpace(arguments.LanguageModelName),
 		ExecutionMode:         strings.TrimSpace(arguments.ExecutionMode),
@@ -404,6 +401,23 @@ func saveVirtualSessionEvidence(arguments virtualSessionArguments, result e2e.Vi
 		return errorValue
 	}
 	return os.WriteFile(evidencePath, append(document, '\n'), 0600)
+}
+
+func virtualSessionEvidenceStatus(result e2e.VirtualSessionResult, runError error) string {
+	if runError != nil {
+		return "failed"
+	}
+	if len(result.TurnResults) == 0 {
+		return "succeeded"
+	}
+	switch result.TurnResults[len(result.TurnResults)-1].TaskStatus {
+	case task.TaskStatusFailed, task.TaskStatusBlocked, task.TaskStatusCancelled, task.TaskStatusInterrupted:
+		return "failed"
+	case task.TaskStatusPlanned, task.TaskStatusRunning, task.TaskStatusWaitingUserInput, task.TaskStatusWaitingApproval:
+		return "incomplete"
+	default:
+		return "succeeded"
+	}
 }
 
 func virtualSessionTurnMetrics(result e2e.VirtualSessionResult) []virtualTurnMetrics {

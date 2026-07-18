@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -374,13 +375,35 @@ func TestSaveVirtualSessionEvidenceRecordsRoutingMetadataWithoutSecrets(t *testi
 		t.Fatalf("expected evidence file: %v", errorValue)
 	}
 	content := string(document)
-	for _, expectedText := range []string{"task-lifecycle", "blocked", "operation contract was invalid", "sdkd", "recovery_chat", "llama.cpp", "gemma", "device", "blueclaw_agent_turn_action", "blueclaw_agent_turn_finalizer", "blueclaw_turn_router", "blueclaw_recovery_decision", "blueclaw_operation_contract", "blueclaw_operation_contract_review"} {
+	for _, expectedText := range []string{"task-lifecycle", "failed", "blocked", "operation contract was invalid", "sdkd", "recovery_chat", "llama.cpp", "gemma", "device", "blueclaw_agent_turn_action", "blueclaw_agent_turn_finalizer", "blueclaw_turn_router", "blueclaw_recovery_decision", "blueclaw_operation_contract", "blueclaw_operation_contract_review"} {
 		if !strings.Contains(content, expectedText) {
 			t.Fatalf("evidence missing %q: %s", expectedText, content)
 		}
 	}
 	if strings.Contains(content, "secret-auth-key") {
 		t.Fatalf("evidence leaked authentication path: %s", content)
+	}
+}
+
+func TestVirtualSessionEvidenceStatusUsesFinalTaskOutcome(t *testing.T) {
+	testCases := []struct {
+		name           string
+		taskStatus     task.TaskStatus
+		runError       error
+		expectedStatus string
+	}{
+		{name: "completed", taskStatus: task.TaskStatusCompleted, expectedStatus: "succeeded"},
+		{name: "waiting", taskStatus: task.TaskStatusWaitingUserInput, expectedStatus: "incomplete"},
+		{name: "blocked", taskStatus: task.TaskStatusBlocked, expectedStatus: "failed"},
+		{name: "run error", taskStatus: task.TaskStatusCompleted, runError: errors.New("harness failed"), expectedStatus: "failed"},
+	}
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			result := e2e.VirtualSessionResult{TurnResults: []e2e.VirtualTurnResult{{TaskStatus: testCase.taskStatus}}}
+			if status := virtualSessionEvidenceStatus(result, testCase.runError); status != testCase.expectedStatus {
+				t.Fatalf("expected %s, got %s", testCase.expectedStatus, status)
+			}
+		})
 	}
 }
 
