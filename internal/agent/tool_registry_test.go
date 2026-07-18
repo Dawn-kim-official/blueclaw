@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -262,6 +263,88 @@ func TestToolSetInvokeRejectsHiddenTool(t *testing.T) {
 	}
 	if !result.Failed() {
 		t.Fatalf("expected hidden tool invocation to fail, got %+v", result)
+	}
+}
+
+func TestToolSetValidatesDescriptorInputSchemaBeforeHandler(t *testing.T) {
+	toolSet := NewToolSet([]string{"site.publish"})
+	handlerCallCount := 0
+	toolSet.RegisterTool(ToolDefinition{
+		Name: "site.publish",
+		InputSchema: json.RawMessage(`{
+			"type":"object",
+			"properties":{
+				"siteID":{"type":"string","pattern":"^[a-z0-9-]+$"},
+				"revision":{"type":"integer","minimum":1}
+			},
+			"required":["siteID","revision"],
+			"additionalProperties":false
+		}`),
+	}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		handlerCallCount++
+		return ToolSuccess("published"), nil
+	})
+
+	invalidInputs := []json.RawMessage{
+		nil,
+		json.RawMessage(`{"siteID":"site-1"}`),
+		json.RawMessage(`{"siteID":"SITE 1","revision":1}`),
+		json.RawMessage(`{"siteID":"site-1","revision":0}`),
+		json.RawMessage(`{"siteID":"site-1","revision":"1"}`),
+		json.RawMessage(`{"siteID":"site-1","revision":1,"confirm":true}`),
+	}
+	for _, input := range invalidInputs {
+		result, errorValue := toolSet.Invoke(context.Background(), ToolInvocation{ToolName: "site.publish", Input: input})
+		if errorValue != nil {
+			t.Fatal(errorValue)
+		}
+		if !result.Failed() || result.Failure.Stage != "tool_input_schema" {
+			t.Fatalf("expected descriptor input rejection for %s, got %+v", string(input), result)
+		}
+	}
+	if handlerCallCount != 0 {
+		t.Fatalf("expected invalid inputs to stay outside the handler, got %d calls", handlerCallCount)
+	}
+
+	result, errorValue := toolSet.Invoke(context.Background(), ToolInvocation{
+		ToolName: "site.publish",
+		Input:    json.RawMessage(`{"siteID":"site-1","revision":1}`),
+	})
+	if errorValue != nil || result.Failed() {
+		t.Fatalf("expected valid descriptor input, got result=%+v error=%v", result, errorValue)
+	}
+	if handlerCallCount != 1 {
+		t.Fatalf("expected one valid handler call, got %d", handlerCallCount)
+	}
+}
+
+func TestProjectResourceEffectsSupportsCanonicalIdentityArrays(t *testing.T) {
+	contract := &ToolResultContract{
+		Schema: json.RawMessage(`{"type":"object","properties":{"paths":{"type":"array","items":{"type":"string"},"minItems":1,"uniqueItems":true}},"required":["paths"],"additionalProperties":false}`),
+		Effects: []ResourceEffectContract{{
+			ObjectType:     "file",
+			Effect:         "updated",
+			ResultField:    "paths",
+			EffectIdentity: "path",
+		}},
+	}
+	effects := ProjectResourceEffects(contract, json.RawMessage(`{"paths":[" /workspace/one.md ","/workspace/two.md"]}`))
+	expectedEffects := []ResourceEffect{
+		{ObjectType: "file", Effect: "updated", Path: "/workspace/one.md"},
+		{ObjectType: "file", Effect: "updated", Path: "/workspace/two.md"},
+	}
+	if !reflect.DeepEqual(effects, expectedEffects) {
+		t.Fatalf("expected canonical projected effects, got %+v", effects)
+	}
+	for _, result := range []json.RawMessage{
+		json.RawMessage(`{"paths":[]}`),
+		json.RawMessage(`{"paths":[""]}`),
+		json.RawMessage(`{"paths":["/workspace/one.md","/workspace/one.md"]}`),
+		json.RawMessage(`{"paths":[1]}`),
+	} {
+		if effects := ProjectResourceEffects(contract, result); effects != nil {
+			t.Fatalf("expected invalid identities to fail closed for %s, got %+v", result, effects)
+		}
 	}
 }
 

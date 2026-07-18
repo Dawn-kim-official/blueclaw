@@ -14,15 +14,22 @@ func TestCapabilityToolProviderRegistersCanonicalDescriptor(t *testing.T) {
 		toolCatalogBuilder: NewToolCatalogBuilder(),
 		request:            ToolCatalogRequest{},
 		descriptors: []CapabilityToolDescriptor{{
-			Name:               "task.add",
-			CanonicalName:      "task.add",
-			Namespace:          "task",
-			ModelName:          "task.add",
-			ModelVisibility:    agent.ToolVisibilityModel,
-			Description:        "Create a task.",
-			PrivacyClass:       "workspace_task",
-			InputSchema:        json.RawMessage(`{"type":"object","properties":{"title":{"type":"string"}},"required":["title"],"additionalProperties":false}`),
-			OutputSchema:       json.RawMessage(`{"type":"object","properties":{"result":{}},"additionalProperties":false}`),
+			Name:            "task.add",
+			CanonicalName:   "task.add",
+			Namespace:       "task",
+			ModelName:       "task.add",
+			ModelVisibility: agent.ToolVisibilityModel,
+			Description:     "Create a task.",
+			PrivacyClass:    "workspace_task",
+			InputSchema:     json.RawMessage(`{"type":"object","properties":{"title":{"type":"string"}},"required":["title"],"additionalProperties":false}`),
+			OutputSchema:    json.RawMessage(`{"type":"object","properties":{"result":{}},"additionalProperties":false}`),
+			ResultContract: &CapabilityToolResultContract{
+				Schema: json.RawMessage(`{"type":"object","properties":{"taskID":{"type":"string"}},"required":["taskID"],"additionalProperties":false}`),
+				EvidenceCondition: &CapabilityEvidenceCondition{
+					ResultField: "taskID",
+					Equals:      json.RawMessage(`"task-1"`),
+				},
+			},
 			PolicyResource:     "tool:task.add",
 			SideEffectClass:    agent.ToolSideEffectWorkspaceWrite,
 			CompletionEvidence: &CapabilityCompletionEvidence{Mode: "success", Action: "write_task", TargetKind: "task"},
@@ -39,8 +46,12 @@ func TestCapabilityToolProviderRegistersCanonicalDescriptor(t *testing.T) {
 	if !isFound {
 		t.Fatal("expected task.add")
 	}
-	if descriptor.ID != "capabilityd/task.add" || descriptor.ProviderID != "capabilityd" || descriptor.Completion.Mode != agent.ToolCompletionObservation {
+	if descriptor.ID != "capabilityd/task.add" || descriptor.ProviderID != "capabilityd" || descriptor.Completion.Mode != agent.ToolCompletionObservation || descriptor.IdempotencyScope != "operation" {
 		t.Fatalf("unexpected descriptor: %+v", descriptor)
+	}
+	if descriptor.ResultContract == nil || descriptor.ResultContract.EvidenceCondition == nil ||
+		string(descriptor.ResultContract.EvidenceCondition.Equals) != `"task-1"` {
+		t.Fatalf("expected evidence condition to survive capability binding, got %+v", descriptor.ResultContract)
 	}
 }
 
@@ -77,6 +88,39 @@ func TestCapabilityToolProviderRejectsIncompleteDescriptor(t *testing.T) {
 
 	if errorValue == nil || !strings.Contains(errorValue.Error(), "required") {
 		t.Fatalf("expected fail-closed descriptor validation, got %v", errorValue)
+	}
+}
+
+func TestCapabilityToolProviderPreservesLegacyDescriptorWithoutResultContract(t *testing.T) {
+	descriptor := completeTestCapabilityToolDescriptor(CapabilityToolDescriptor{Name: "task.add"})
+	descriptor.ResultContract = nil
+	provider := capabilityToolProvider{
+		toolCatalogBuilder: NewToolCatalogBuilder(),
+		descriptors:        []CapabilityToolDescriptor{descriptor},
+	}
+	toolSet := agent.NewToolSet([]string{"task.add"})
+
+	if errorValue := toolSet.RegisterProvider(context.Background(), provider); errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	registeredDescriptor, isFound := toolSet.ToolDefinition("task.add")
+	if !isFound || registeredDescriptor.ResultContract != nil {
+		t.Fatalf("expected legacy descriptor without synthetic result contract, got %+v", registeredDescriptor)
+	}
+}
+
+func TestCapabilityToolProviderRejectsMissingIdempotencyScope(t *testing.T) {
+	descriptor := completeTestCapabilityToolDescriptor(CapabilityToolDescriptor{Name: "task.add"})
+	descriptor.Idempotency.Scope = ""
+	provider := capabilityToolProvider{
+		toolCatalogBuilder: NewToolCatalogBuilder(),
+		descriptors:        []CapabilityToolDescriptor{descriptor},
+	}
+
+	errorValue := agent.NewToolSet(nil).RegisterProvider(context.Background(), provider)
+
+	if errorValue == nil || !strings.Contains(errorValue.Error(), "idempotency.scope is required") {
+		t.Fatalf("expected missing idempotency scope rejection, got %v", errorValue)
 	}
 }
 

@@ -159,19 +159,14 @@ func TestRedundantToolSelectionIsDetectedWithUseNowDirective(t *testing.T) {
 	}
 }
 
-func TestObservedSuggestedNextToolReadsNestedHealth(t *testing.T) {
+func TestObservedSuggestedNextToolIgnoresUntrustedResultFields(t *testing.T) {
 	observations := []turnObservation{
 		newContentObservation("obs-001", "continue", "site.status", `{"workspaceHealthDetails":{"suggestedNextTool":"site.repair"}}`),
+		newContentObservation("obs-002", "continue", "site.status", `{"suggestedNextTools":["site.delete"]}`),
 	}
 
-	suggestion, isFound := latestObservedSuggestedNextTool(observations)
-	if !isFound || suggestion.ToolName != "site.repair" || suggestion.ObservationID != "obs-001" {
-		t.Fatalf("expected nested site repair suggestion, got %+v found=%v", suggestion, isFound)
-	}
-
-	observations = append(observations, newContentObservation("obs-002", "continue", "site.repair", `{"workspaceHealth":"ready"}`))
 	if _, isFound := latestObservedSuggestedNextTool(observations); isFound {
-		t.Fatal("expected suggestion to expire after the suggested tool was used")
+		t.Fatal("expected arbitrary result fields not to select recovery tools")
 	}
 }
 
@@ -199,23 +194,22 @@ func TestTechnicalStallDoesNotPauseForUserInput(t *testing.T) {
 
 func TestRequestWorkingSetPinsObservedSuggestedNextTool(t *testing.T) {
 	request := AgentTurnRequest{}
-	observations := []turnObservation{
-		newContentObservation("obs-001", "continue", "site.status", `{"workspaceHealthDetails":{"suggestedNextTool":"site.repair"}}`),
-	}
+	observation := newContentObservation("obs-001", "continue", "site.status", `{"status":"failed"}`)
+	observation.RecoveryPacket = &RecoveryPacket{AllowedTools: []string{"file.edit"}}
 
-	updatedRequest := requestWithStepWorkingSetTools(request, observations)
-	if len(updatedRequest.PinnedToolNames) != 1 || updatedRequest.PinnedToolNames[0] != "site.repair" {
+	updatedRequest := requestWithStepWorkingSetTools(request, []turnObservation{observation})
+	if len(updatedRequest.PinnedToolNames) != 1 || updatedRequest.PinnedToolNames[0] != "file.edit" {
 		t.Fatalf("expected observed suggested tool to be pinned, got %+v", updatedRequest.PinnedToolNames)
 	}
 }
 
 func TestStalledTurnUsesSuggestedNextToolBeforeExit(t *testing.T) {
 	services := newTurnRunnerTestServices(&sequenceLanguageModel{}, TurnOptions{})
+	observation := newContentObservation("obs-001", "continue", "site.status", `{"status":"failed"}`)
+	observation.RecoveryPacket = &RecoveryPacket{AllowedTools: []string{"file.edit"}}
 	state := &agentTaskState{
-		Request: AgentTurnRequest{ToolSet: newTestToolSet([]string{"site.repair"})},
-		Observations: []turnObservation{
-			newContentObservation("obs-001", "continue", "site.status", `{"workspaceHealthDetails":{"suggestedNextTool":"site.repair"}}`),
-		},
+		Request:      AgentTurnRequest{ToolSet: newTestToolSet([]string{"file.edit"})},
+		Observations: []turnObservation{observation},
 	}
 	tracker := newActionProgressTracker(nil)
 
@@ -223,10 +217,10 @@ func TestStalledTurnUsesSuggestedNextToolBeforeExit(t *testing.T) {
 		t.Fatal("expected suggested next tool directive")
 	}
 	lastObservation := state.Observations[len(state.Observations)-1]
-	if !strings.Contains(lastObservation.Summary, "site.repair") || strings.Contains(lastObservation.Summary, "finish") && !strings.Contains(lastObservation.Summary, "before") {
+	if !strings.Contains(lastObservation.Summary, "file.edit") || strings.Contains(lastObservation.Summary, "finish") && !strings.Contains(lastObservation.Summary, "before") {
 		t.Fatalf("expected directive to require suggested tool before finish, got %q", lastObservation.Summary)
 	}
-	if !taskEventsContain(services.taskEventService.ListTaskEvent("task-suggested-next"), "agent.suggested_next_tool_directive", "site.repair") {
+	if !taskEventsContain(services.taskEventService.ListTaskEvent("task-suggested-next"), "agent.suggested_next_tool_directive", "file.edit") {
 		t.Fatal("expected suggested next tool event")
 	}
 }

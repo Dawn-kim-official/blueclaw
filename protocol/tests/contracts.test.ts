@@ -87,6 +87,32 @@ describe('closed protocol values', () => {
     }).success).toBe(false);
   });
 
+  test('keeps trusted site source transport outside model input', () => {
+    const request = {
+      toolName: 'site.publish',
+      input: { siteID: 'site-1' },
+      transport: {
+        siteSourceBundle: {
+          workspacePath: '/workspace/circles/staff/sites/site-1/draft',
+          contentBase64: 'YnVuZGxl',
+          format: 'tar.gz',
+          sha256: 'a'.repeat(64),
+        },
+      },
+    };
+
+    expect(toolInvokeRequestSchema.safeParse(request).success).toBe(true);
+    expect(toolInvokeRequestSchema.safeParse({
+      ...request,
+      transport: {
+        siteSourceBundle: {
+          ...request.transport.siteSourceBundle,
+          format: 'zip',
+        },
+      },
+    }).success).toBe(false);
+  });
+
   test('keeps structured output diagnostics closed and content-free', () => {
     expect(structuredOutputDiagnosticSchema.parse({
       category: StructuredOutputDiagnosticCategory.SchemaValidation,
@@ -274,6 +300,54 @@ describe('closed protocol values', () => {
       resultContract: {
         schema: {
           type: 'object',
+          properties: {
+            paths: {
+              type: 'array',
+              items: { type: 'string' },
+              minItems: 1,
+              uniqueItems: true,
+            },
+          },
+          required: ['paths'],
+          additionalProperties: false,
+        },
+        effects: [{
+          objectType: 'file',
+          effect: 'updated',
+          resultField: 'paths',
+          effectIdentity: 'path',
+        }],
+      },
+    }).success).toBe(true);
+    for (const identityProperty of [
+      { type: 'array', items: { type: 'string' }, uniqueItems: true },
+      { type: 'array', items: { type: 'string' }, minItems: 1 },
+      { type: 'array', items: { type: 'number' }, minItems: 1, uniqueItems: true },
+      { type: 'array', items: { type: 'string' }, minItems: '1', uniqueItems: true },
+    ]) {
+      expect(capabilityDescriptorSchema.safeParse({
+        ...descriptor,
+        resultContract: {
+          schema: {
+            type: 'object',
+            properties: { paths: identityProperty },
+            required: ['paths'],
+            additionalProperties: false,
+          },
+          effects: [{
+            objectType: 'file',
+            effect: 'updated',
+            resultField: 'paths',
+            effectIdentity: 'path',
+          }],
+        },
+      }).success).toBe(false);
+    }
+    expect(capabilityDescriptorSchema.safeParse({
+      ...descriptor,
+      resultContract: {
+        schema: {
+          type: 'object',
           properties: { taskID: { type: 'string' } },
           required: ['taskID'],
           additionalProperties: false,
@@ -284,6 +358,44 @@ describe('closed protocol values', () => {
           resultField: 'missingID',
           effectIdentity: 'id',
         }],
+      },
+    }).success).toBe(false);
+    const reviewResultContract = {
+      schema: {
+        type: 'object',
+        properties: { passed: { type: 'boolean' } },
+        required: ['passed'],
+        additionalProperties: false,
+      },
+      effects: [],
+      evidenceCondition: { resultField: 'passed', equals: true },
+    };
+    expect(capabilityDescriptorSchema.safeParse({
+      ...descriptor,
+      resultContract: reviewResultContract,
+    }).success).toBe(true);
+    expect(capabilityDescriptorSchema.safeParse({
+      ...descriptor,
+      resultContract: {
+        ...reviewResultContract,
+        evidenceCondition: { resultField: 'missing', equals: true },
+      },
+    }).success).toBe(false);
+    expect(capabilityDescriptorSchema.safeParse({
+      ...descriptor,
+      resultContract: {
+        ...reviewResultContract,
+        evidenceCondition: { resultField: 'passed', equals: 'true' },
+      },
+    }).success).toBe(false);
+    expect(capabilityDescriptorSchema.safeParse({
+      ...descriptor,
+      resultContract: {
+        ...reviewResultContract,
+        schema: {
+          ...reviewResultContract.schema,
+          required: [],
+        },
       },
     }).success).toBe(false);
   });

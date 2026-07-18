@@ -185,6 +185,13 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerFileTools(toolRegistry *ag
 	})
 }
 
+func fileToolSuccess(document map[string]any) agent.ToolResult {
+	content := marshalToolResult(document)
+	return agent.ToolResult{
+		Output: agent.ToolOutput{Content: content, Data: json.RawMessage(content)},
+	}
+}
+
 func (toolCatalogBuilder *ToolCatalogBuilder) writeFileTool(toolContext context.Context, input fileWriteToolInput, handlerContext toolHandlerContext) (agent.ToolResult, error) {
 	scope := toolCatalogBuilder.workspaceScopeForToolContext(toolContext, handlerContext.request)
 	path := strings.TrimSpace(input.Path)
@@ -220,10 +227,10 @@ func (toolCatalogBuilder *ToolCatalogBuilder) writeFileTool(toolContext context.
 	if errorValue := workspaceActor.WriteFile(toolContext, resolvedPath, []byte(input.Content), workspaceFileCreateMode(resolvedPath)); errorValue != nil {
 		return actorToolFailure("write_file", "file_write", resolvedPath.VirtualPath, errorValue), nil
 	}
-	return agent.ToolSuccess(marshalToolResult(map[string]any{
+	return fileToolSuccess(map[string]any{
 		"path":      resolvedPath.VirtualPath,
 		"sizeBytes": len(input.Content),
-	})), nil
+	}), nil
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) deleteFileTool(toolContext context.Context, input fileDeleteToolInput, handlerContext toolHandlerContext) (agent.ToolResult, error) {
@@ -265,10 +272,10 @@ func (toolCatalogBuilder *ToolCatalogBuilder) deleteFileTool(toolContext context
 	if _, errorValue := workspaceActor.Run(toolContext, commandRequest); errorValue != nil {
 		return actorToolFailure("remove_file", "file_delete", resolvedPath.VirtualPath, errorValue), nil
 	}
-	return agent.ToolSuccess(marshalToolResult(map[string]any{
+	return fileToolSuccess(map[string]any{
 		"path":    resolvedPath.VirtualPath,
 		"deleted": true,
-	})), nil
+	}), nil
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) readFileTool(toolContext context.Context, input fileReadToolInput, handlerContext toolHandlerContext) (agent.ToolResult, error) {
@@ -340,13 +347,13 @@ func (toolCatalogBuilder *ToolCatalogBuilder) readFileTool(toolContext context.C
 		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "file_read", "file.read supports UTF-8 text files; use file.preview or a specialized document tool for binary files"), nil
 	}
 	readResult := fileReadResult(string(content), input, maxOutputBytes)
-	return agent.ToolSuccess(marshalToolResult(fileReadResultMap(map[string]any{
+	return fileToolSuccess(fileReadResultMap(map[string]any{
 		"path":              resolvedPath.VirtualPath,
 		"totalLinesKnown":   !isFileTruncated,
 		"originalSizeBytes": fileInformation.SizeBytes,
 		"sizeBytes":         fileInformation.SizeBytes,
 		"isTruncated":       isFileTruncated || readResult.IsTruncated,
-	}, readResult))), nil
+	}, readResult)), nil
 }
 
 func optionalSiteControlFileMissingResult(resolvedPath ResolvedWorkspacePath, input fileReadToolInput, maxOutputBytes int) agent.ToolResult {
@@ -364,7 +371,7 @@ func optionalSiteControlFileMissingResult(resolvedPath ResolvedWorkspacePath, in
 	if recommendedPath := recommendedSiteControlWritePath(resolvedPath.VirtualPath); recommendedPath != "" {
 		result["recommendedWritePath"] = recommendedPath
 	}
-	return agent.ToolSuccess(marshalToolResult(result))
+	return fileToolSuccess(result)
 }
 
 func isOptionalSiteControlFilePath(path string) bool {
@@ -470,7 +477,7 @@ func cachedFileReadResult(parts []agent.AgentPart, path string, input fileReadTo
 func cachedFileReadResultFromPreview(preview map[string]any, input fileReadToolInput) agent.ToolResult {
 	content := stringMapValue(preview, "markdownPreview")
 	readResult := fileReadResult(content, input, defaultFileReadMaximumBytes)
-	return agent.ToolSuccess(marshalToolResult(fileReadResultMap(map[string]any{
+	return fileToolSuccess(fileReadResultMap(map[string]any{
 		"path":              stringMapValue(preview, "path"),
 		"totalLinesKnown":   true,
 		"originalSizeBytes": int64MapValue(preview, "sizeBytes"),
@@ -478,7 +485,7 @@ func cachedFileReadResultFromPreview(preview map[string]any, input fileReadToolI
 		"isTruncated":       readResult.IsTruncated,
 		"source":            "attachmentPreview",
 		"isExactFileRead":   false,
-	}, readResult)))
+	}, readResult))
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) fileReadFallbackFromAttachmentMaterial(toolContext context.Context, path string, input fileReadToolInput, handlerContext toolHandlerContext) (agent.ToolResult, error, bool) {
@@ -662,7 +669,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) previewFileTool(toolContext contex
 	input.MaterialID = materialID
 	scope := toolCatalogBuilder.workspaceScopeForToolContext(toolContext, handlerContext.request)
 	if cachedPreview, isCached := cachedFilePreviewResultForInput(handlerContext.request.InputParts, input); isCached {
-		return agent.ToolSuccess(marshalToolResult(cachedPreview)), nil
+		return fileToolSuccess(cachedPreview), nil
 	}
 	if materialPreview, isResolved := toolCatalogBuilder.filePreviewResolvedMaterial(toolContext, input, handlerContext.request); isResolved {
 		return materialPreview, nil
@@ -672,14 +679,14 @@ func (toolCatalogBuilder *ToolCatalogBuilder) previewFileTool(toolContext contex
 		return *materialFailure, nil
 	}
 	if cachedPreview, isCached := cachedFilePreviewResult(handlerContext.request.InputParts, previewPath); isCached {
-		return agent.ToolSuccess(marshalToolResult(cachedPreview)), nil
+		return fileToolSuccess(cachedPreview), nil
 	}
 	resolvedPath, failureResult, errorValue := toolCatalogBuilder.resolveReadableWorkspacePath(previewPath, scope, handlerContext.request, "file_preview")
 	if failureResult != nil || errorValue != nil {
 		return firstToolFailureResult(failureResult, errorValue, "file_preview"), nil
 	}
 	if cachedPreview, isCached := cachedFilePreviewResult(handlerContext.request.InputParts, resolvedPath.VirtualPath); isCached {
-		return agent.ToolSuccess(marshalToolResult(cachedPreview)), nil
+		return fileToolSuccess(cachedPreview), nil
 	}
 	workspaceActor, actorFailure := toolCatalogBuilder.workspaceActorForRequest(toolContext, handlerContext.request)
 	if actorFailure != nil {
@@ -699,7 +706,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) previewFileTool(toolContext contex
 	}
 	contentType := previewContentType(resolvedPath.VirtualPath)
 	if strings.HasPrefix(contentType, "image/") {
-		return agent.ToolSuccess(marshalToolResult(filePreviewResult(resolvedPath.VirtualPath, contentType, fileInformation.SizeBytes, "", "image", "use the image input part or image.read for visual inspection"))), nil
+		return fileToolSuccess(filePreviewResult(resolvedPath.VirtualPath, contentType, fileInformation.SizeBytes, "", "image", "use the image input part or image.read for visual inspection")), nil
 	}
 	if toolCatalogBuilder.capabilityClient.HTTPClient != nil {
 		if result, isConverted := toolCatalogBuilder.convertFilePreviewWithCapability(toolContext, handlerContext.request, resolvedPath.VirtualPath, contentType, fileInformation.SizeBytes); isConverted {
@@ -721,7 +728,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) filePreviewResolvedMaterial(toolCo
 		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "file_preview", "attachment material is an image; use image.read"), true
 	}
 	if result, hasPreview := filePreviewResultFromVisibleMaterial(material); hasPreview {
-		return agent.ToolSuccess(marshalToolResult(result)), true
+		return fileToolSuccess(result), true
 	}
 	return agent.ToolResult{}, false
 }
@@ -980,14 +987,14 @@ func (toolCatalogBuilder *ToolCatalogBuilder) convertFilePreviewWithCapability(t
 	if strings.TrimSpace(document.Format) != "" {
 		result["previewFormat"] = strings.TrimSpace(document.Format)
 	}
-	return agent.ToolSuccess(marshalToolResult(result)), true
+	return fileToolSuccess(result), true
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) previewTextFile(toolContext context.Context, workspaceActor security.WorkspaceActor, path workspacepath.Path, contentType string, sizeBytes int64) agent.ToolResult {
 	document, errorValue := workspaceActor.ReadFile(toolContext, path, maximumFilePreviewBytes+1)
 	if errorValue != nil {
 		if sizeBytes > maximumFilePreviewBytes {
-			return agent.ToolSuccess(marshalToolResult(filePreviewResult(path.VirtualPath, contentType, sizeBytes, "", "unsupported", "file is too large for local text preview; use document.read/MarkItDown provider when available")))
+			return fileToolSuccess(filePreviewResult(path.VirtualPath, contentType, sizeBytes, "", "unsupported", "file is too large for local text preview; use document.read/MarkItDown provider when available"))
 		}
 		return actorToolFailure("read_file", "file_preview", path.VirtualPath, errorValue)
 	}
@@ -996,14 +1003,14 @@ func (toolCatalogBuilder *ToolCatalogBuilder) previewTextFile(toolContext contex
 		document = document[:maximumFilePreviewBytes]
 	}
 	if !utf8.Valid(document) || bytes.IndexByte(document, 0) >= 0 {
-		return agent.ToolSuccess(marshalToolResult(filePreviewResult(path.VirtualPath, contentType, sizeBytes, "", "unsupported", "file is not UTF-8 text and no MarkItDown preview is available")))
+		return fileToolSuccess(filePreviewResult(path.VirtualPath, contentType, sizeBytes, "", "unsupported", "file is not UTF-8 text and no MarkItDown preview is available"))
 	}
 	content, isContentTruncated := truncateTextByBytes(string(document), maximumFilePreviewBytes)
 	conversionStatus := "converted"
 	if isTruncated || isContentTruncated {
 		conversionStatus = "truncated"
 	}
-	return agent.ToolSuccess(marshalToolResult(filePreviewResult(path.VirtualPath, contentType, sizeBytes, content, conversionStatus, "")))
+	return fileToolSuccess(filePreviewResult(path.VirtualPath, contentType, sizeBytes, content, conversionStatus, ""))
 }
 
 func filePreviewResult(path string, contentType string, sizeBytes int64, markdownPreview string, conversionStatus string, conversionMessage string) map[string]any {
@@ -1061,10 +1068,11 @@ func (toolCatalogBuilder *ToolCatalogBuilder) patchFileTool(toolContext context.
 	if result := writePatchState(toolContext, workspaceActor, patchState); result != nil {
 		return *result, nil
 	}
-	return agent.ToolSuccess(marshalToolResult(map[string]any{
-		"editedFiles": patchState.virtualPaths(),
+	editedFiles := patchState.virtualPaths()
+	return fileToolSuccess(map[string]any{
+		"editedFiles": editedFiles,
 		"editCount":   len(input.Edits),
-	})), nil
+	}), nil
 }
 
 type filePatchState struct {
@@ -1523,6 +1531,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) attachFileTool(toolContext context
 		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "file_deliver", "files must contain at least one path"), nil
 	}
 	attachments := []agent.FileAttachment{}
+	deliveredPaths := []string{}
 	for _, attachmentInput := range attachmentInputs {
 		attachment, failureResult, errorValue := toolCatalogBuilder.fileAttachment(toolContext, attachmentInput, handlerContext, scope)
 		if failureResult != nil {
@@ -1532,10 +1541,15 @@ func (toolCatalogBuilder *ToolCatalogBuilder) attachFileTool(toolContext context
 			return agent.ToolFailureResult(agent.FailureExternalService, agent.FailureCodes.OperationFailed, "file_deliver", errorValue.Error()), nil
 		}
 		attachments = append(attachments, attachment)
+		deliveredPaths = append(deliveredPaths, attachment.DevicePath)
 	}
 	_ = toolContext
+	data := json.RawMessage(marshalToolResult(map[string]any{
+		"deliveredPaths":  deliveredPaths,
+		"attachmentCount": len(attachments),
+	}))
 	return agent.ToolResult{
-		Output:      agent.ToolOutput{Content: "files delivered"},
+		Output:      agent.ToolOutput{Content: "files delivered", Data: data},
 		Attachments: attachments,
 	}, nil
 }

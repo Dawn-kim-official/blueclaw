@@ -1542,7 +1542,7 @@ func (agentTurnRunner *AgentTurnRunner) finalizeLimitIfPossible(ctx context.Cont
 			observations = transition.Observations
 			attachments = transition.Attachments
 		}
-		if completionRequirementsHaveEvidence(requirements, observations) {
+		if completionRequirementsHaveEvidence(request.ToolSet, requirements, observations) {
 			if result, isFinalized := agentTurnRunner.finalizeSatisfiedTurn(ctx, taskRunID, request, requirements, observations, criteria, executionState, ""); isFinalized {
 				return limitFinalizationResult{Result: result, IsCompleted: true, Observations: observations, Attachments: attachments}
 			}
@@ -1940,7 +1940,7 @@ func (agentTurnRunner *AgentTurnRunner) settleElapsedTaskRun(taskRunID string, r
 }
 
 func elapsedTurnCanComplete(request AgentTurnRequest, requirements []toolUseRequirement, observations []turnObservation, attachments []FileAttachment) bool {
-	if !completionRequirementsHaveEvidence(requirements, observations) {
+	if !completionRequirementsHaveEvidence(request.ToolSet, requirements, observations) {
 		return false
 	}
 	if _, hasFailureDebt := activeFailureDebt(observations); hasFailureDebt {

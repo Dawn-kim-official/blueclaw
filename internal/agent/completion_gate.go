@@ -267,12 +267,12 @@ func hasAttachmentDevicePath(attachments []FileAttachment, devicePath string) bo
 	return false
 }
 
-func completionRequirementsHaveEvidence(requirements []toolUseRequirement, observations []turnObservation) bool {
+func completionRequirementsHaveEvidence(toolSet *ToolSet, requirements []toolUseRequirement, observations []turnObservation) bool {
 	if len(requirements) == 0 {
 		return false
 	}
 	for _, requirement := range requirements {
-		isSatisfied, _ := completionRequirementStatus(requirement, observations)
+		isSatisfied, _ := completionRequirementStatus(toolSet, requirement, observations)
 		if !isSatisfied {
 			return false
 		}
@@ -291,10 +291,10 @@ func validateCompletionGate(toolSet *ToolSet, requirements []toolUseRequirement,
 	if result := validateFinishDoesNotHideUnresolvedWork(observations, actionDocument); !result.IsSatisfied {
 		return result
 	}
-	if errorValue := validateObservedToolRequirements(requirements, observations); errorValue != nil {
+	if errorValue := validateObservedToolRequirements(toolSet, requirements, observations); errorValue != nil {
 		return completionGateResult{Message: errorValue.Error(), EvidenceKind: evidenceKindRequiredTool}
 	}
-	attachments, errorValue := validateCompletionEvidence(requirements, observations, actionDocument.CompletionEvidence)
+	attachments, errorValue := validateCompletionEvidence(toolSet, requirements, observations, actionDocument.CompletionEvidence)
 	if errorValue != nil {
 		return completionGateResult{Message: errorValue.Error(), EvidenceKind: evidenceKindReference}
 	}
@@ -432,7 +432,7 @@ func validateExpectedResultCompletionGate(request AgentTurnRequest, observations
 	if result := validateFinishDoesNotHideUnresolvedWork(observations, actionDocument); !result.IsSatisfied {
 		return result
 	}
-	attachments, errorValue := validateCompletionEvidence(nil, observations, actionDocument.CompletionEvidence)
+	attachments, errorValue := validateCompletionEvidence(request.ToolSet, nil, observations, actionDocument.CompletionEvidence)
 	if errorValue != nil {
 		return completionGateResult{Message: errorValue.Error(), EvidenceKind: evidenceKindReference}
 	}
@@ -777,19 +777,20 @@ func evidenceMissingGuidance(evidenceKind string, message string) string {
 	}
 }
 
-func validateCompletionEvidence(requirements []toolUseRequirement, observations []turnObservation, references []completionEvidenceReference) ([]FileAttachment, error) {
+func validateCompletionEvidence(toolSet *ToolSet, requirements []toolUseRequirement, observations []turnObservation, references []completionEvidenceReference) ([]FileAttachment, error) {
 	if len(requirements) == 0 {
-		if errorValue := validateCompletionEvidenceReferences(observations, references); errorValue != nil {
+		if errorValue := validateCompletionEvidenceReferences(toolSet, observations, references); errorValue != nil {
 			return nil, errorValue
 		}
 		return collectReferenceDeliveryAttachments(observations, references), nil
 	}
 	attachments := collectReferenceDeliveryAttachments(observations, references)
+	eligibleReferences := completionEvidenceEligibleReferences(toolSet, observations, references)
 	for _, requirement := range requirements {
 		if !requirement.RequiresAttachment {
 			continue
 		}
-		matchingReferences := completionReferencesForRequirement(requirement, observations, references)
+		matchingReferences := completionReferencesForRequirement(requirement, observations, eligibleReferences)
 		if len(matchingReferences) == 0 {
 			return nil, errors.New("completionEvidence must cite successful observation for " + requirementLabel(requirement))
 		}
@@ -804,12 +805,23 @@ func validateCompletionEvidence(requirements []toolUseRequirement, observations 
 	return attachments, nil
 }
 
-func validateObservedToolRequirements(requirements []toolUseRequirement, observations []turnObservation) error {
+func completionEvidenceEligibleReferences(toolSet *ToolSet, observations []turnObservation, references []completionEvidenceReference) []completionEvidenceReference {
+	eligibleReferences := make([]completionEvidenceReference, 0, len(references))
+	for _, reference := range references {
+		observation, isFound := findSuccessfulObservation(observations, reference)
+		if isFound && observationSatisfiesEvidenceCondition(toolSet, observation) {
+			eligibleReferences = append(eligibleReferences, reference)
+		}
+	}
+	return eligibleReferences
+}
+
+func validateObservedToolRequirements(toolSet *ToolSet, requirements []toolUseRequirement, observations []turnObservation) error {
 	for _, requirement := range requirements {
 		if requirement.RequiresAttachment {
 			continue
 		}
-		isSatisfied, _ := completionRequirementStatus(requirement, observations)
+		isSatisfied, _ := completionRequirementStatus(toolSet, requirement, observations)
 		if !isSatisfied {
 			return errors.New("finish requires successful observation for " + requirementLabel(requirement))
 		}
@@ -848,9 +860,10 @@ func attachmentMatchesSuffix(attachment FileAttachment, suffix string) bool {
 	return strings.HasSuffix(attachment.Filename, suffix) || strings.HasSuffix(attachment.DevicePath, suffix)
 }
 
-func validateCompletionEvidenceReferences(observations []turnObservation, references []completionEvidenceReference) error {
+func validateCompletionEvidenceReferences(toolSet *ToolSet, observations []turnObservation, references []completionEvidenceReference) error {
 	for _, reference := range references {
-		if _, isFound := findSuccessfulObservation(observations, reference); !isFound {
+		observation, isFound := findSuccessfulObservation(observations, reference)
+		if !isFound || !observationSatisfiesEvidenceCondition(toolSet, observation) {
 			return errors.New("completionEvidence references an unknown or failed observation")
 		}
 	}

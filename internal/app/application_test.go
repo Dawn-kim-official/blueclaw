@@ -44,6 +44,10 @@ func TestCapabilityToolDescriptorsPreserveResultContracts(t *testing.T) {
 				ResultField:    "taskID",
 				EffectIdentity: "id",
 			}},
+			EvidenceCondition: &config.EvidenceCondition{
+				ResultField: "taskID",
+				Equals:      json.RawMessage(`"task-1"`),
+			},
 		},
 	}})
 
@@ -56,6 +60,10 @@ func TestCapabilityToolDescriptorsPreserveResultContracts(t *testing.T) {
 		descriptors[0].ResultContract.Effects[0].ResultField != "taskID" ||
 		descriptors[0].ResultContract.Effects[0].EffectIdentity != "id" {
 		t.Fatalf("expected mapped resource effect, got %+v", descriptors[0].ResultContract)
+	}
+	if descriptors[0].ResultContract.EvidenceCondition == nil ||
+		string(descriptors[0].ResultContract.EvidenceCondition.Equals) != `"task-1"` {
+		t.Fatalf("expected mapped evidence condition, got %+v", descriptors[0].ResultContract)
 	}
 }
 

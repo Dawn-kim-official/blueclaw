@@ -37,27 +37,42 @@ func (agentTurnRunner *AgentTurnRunner) rejectUnavailableToolCall(taskRunID stri
 }
 
 func (agentTurnRunner *AgentTurnRunner) rejectMalformedToolCall(taskRunID string, stepID string, request AgentTurnRequest, state *agentTaskState, actionDocument turnActionDocument, stopForNoProgress func(string) (AgentTurnResult, bool)) toolCallActionOutcome {
+	validationError, failureCode := malformedToolInputError(actionDocument, request.ToolSet)
+	if validationError == nil {
+		return toolCallActionOutcome{}
+	}
+	observation := newFailureObservation(nextObservationIDForObservations(state.Observations), "continue", actionDocument.ToolName, validationError.Error(), FailureInvalidInput, failureCode, "tool_input")
+	state.Observations = append(state.Observations, observation)
+	agentTurnRunner.appendEvent(taskRunID, "agent.tool_input_malformed", marshalEventBody(observation))
+	agentTurnRunner.saveStep(taskRunID, stepID, task.TaskStatusCompleted, "malformed_tool_input "+actionDocument.ToolName, observation.ContentText())
+	result, shouldStop := stopForNoProgress(stepID)
+	return noProgressToolCallActionOutcome(result, shouldStop)
+}
+
+func malformedToolInputError(actionDocument turnActionDocument, toolSet *ToolSet) (error, FailureCode) {
+	if validationError := validateDescriptorToolInput(toolSet, actionDocument.ToolName, actionDocument.ToolInput); validationError != nil {
+		return validationError, FailureCodes.InvalidInput
+	}
 	if validationError := validateBrowserToolInput(actionDocument.ToolName, actionDocument.ToolInput); validationError != nil {
-		observation := newFailureObservation(nextObservationIDForObservations(state.Observations), "continue", actionDocument.ToolName, validationError.Error(), FailureInvalidInput, FailureCodes.InvalidInput, "tool_input")
-		state.Observations = append(state.Observations, observation)
-		agentTurnRunner.appendEvent(taskRunID, "agent.tool_input_malformed", marshalEventBody(observation))
-		agentTurnRunner.saveStep(taskRunID, stepID, task.TaskStatusCompleted, "malformed_tool_input "+actionDocument.ToolName, observation.ContentText())
-		result, shouldStop := stopForNoProgress(stepID)
-		return noProgressToolCallActionOutcome(result, shouldStop)
+		return validationError, FailureCodes.InvalidInput
 	}
-	if validationError := validateTerminalToolInput(actionDocument.ToolName, actionDocument.ToolInput, request.ToolSet); validationError != nil {
-		failureCode := FailureCodes.InvalidInput
-		if isTerminalToolNameError(validationError) {
-			failureCode = FailureCodes.ToolNameInShell
-		}
-		observation := newFailureObservation(nextObservationIDForObservations(state.Observations), "continue", actionDocument.ToolName, validationError.Error(), FailureInvalidInput, failureCode, "tool_input")
-		state.Observations = append(state.Observations, observation)
-		agentTurnRunner.appendEvent(taskRunID, "agent.tool_input_malformed", marshalEventBody(observation))
-		agentTurnRunner.saveStep(taskRunID, stepID, task.TaskStatusCompleted, "malformed_tool_input "+actionDocument.ToolName, observation.ContentText())
-		result, shouldStop := stopForNoProgress(stepID)
-		return noProgressToolCallActionOutcome(result, shouldStop)
+	validationError := validateTerminalToolInput(actionDocument.ToolName, actionDocument.ToolInput, toolSet)
+	if validationError != nil && isTerminalToolNameError(validationError) {
+		return validationError, FailureCodes.ToolNameInShell
 	}
-	return toolCallActionOutcome{}
+	return validationError, FailureCodes.InvalidInput
+}
+
+func validateDescriptorToolInput(toolSet *ToolSet, toolName string, toolInput json.RawMessage) error {
+	if toolSet == nil {
+		return nil
+	}
+	toolDefinition, isFound := toolSet.ToolDefinition(toolName)
+	if !isFound {
+		return nil
+	}
+	_, errorValue := validateToolInput(toolDefinition.InputSchema, toolInput)
+	return errorValue
 }
 
 func (agentTurnRunner *AgentTurnRunner) rejectRepeatedToolCall(taskRunID string, stepID string, state *agentTaskState, actionDocument turnActionDocument, successfulToolCalls map[string]turnObservation, stopForNoProgress func(string) (AgentTurnResult, bool)) toolCallActionOutcome {
@@ -146,7 +161,7 @@ func previousSuccessfulToolInputObservation(observations []turnObservation, tool
 }
 
 func duplicateSuccessFinalizationRequirements(toolSet *ToolSet, requirements []toolUseRequirement, observations []turnObservation, actionDocument turnActionDocument) ([]toolUseRequirement, bool) {
-	if completionRequirementsHaveEvidence(requirements, observations) {
+	if completionRequirementsHaveEvidence(toolSet, requirements, observations) {
 		return requirements, true
 	}
 	strictRequirements := []toolUseRequirement{}
@@ -154,7 +169,7 @@ func duplicateSuccessFinalizationRequirements(toolSet *ToolSet, requirements []t
 		if !requirement.RequiresAttachment && !requirement.RequiresSideEffectEvidence {
 			continue
 		}
-		isSatisfied, _ := completionRequirementStatus(requirement, observations)
+		isSatisfied, _ := completionRequirementStatus(toolSet, requirement, observations)
 		if !isSatisfied {
 			return nil, false
 		}

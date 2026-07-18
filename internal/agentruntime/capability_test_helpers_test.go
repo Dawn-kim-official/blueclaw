@@ -50,6 +50,11 @@ func completeTestCapabilityToolDescriptor(descriptor CapabilityToolDescriptor) C
 	descriptor.PrivacyClass = firstNonEmptyString(descriptor.PrivacyClass, "test")
 	descriptor.InputSchema = firstNonEmptySchema(descriptor.InputSchema, testCapabilityInputSchema)
 	descriptor.OutputSchema = firstNonEmptySchema(descriptor.OutputSchema, json.RawMessage(`{"type":"object","properties":{},"additionalProperties":false}`))
+	if descriptor.ResultContract == nil {
+		descriptor.ResultContract = &CapabilityToolResultContract{
+			Schema: json.RawMessage(`{"type":"object","properties":{},"additionalProperties":false}`),
+		}
+	}
 	descriptor.PolicyResource = firstNonEmptyString(descriptor.PolicyResource, "tool:"+descriptor.CanonicalName)
 	descriptor.SideEffectClass = firstNonEmptyString(descriptor.SideEffectClass, "read")
 	descriptor.Availability.State = firstNonEmptyString(descriptor.Availability.State, "ok")
