@@ -45,6 +45,7 @@ type ToolCatalogBuilder struct {
 	skillChangeHandler        func(context.Context)
 	skillRetriever            agent.SkillRetriever
 	instructionBundleLoader   func() agent.InstructionBundle
+	mcpQuarantineReporter     func(agent.QuarantinedToolProvider)
 }
 
 type toolHandlerContext struct {
@@ -167,6 +168,10 @@ func (toolCatalogBuilder *ToolCatalogBuilder) UseMemoryUpdateQueue(memoryUpdateQ
 
 func (toolCatalogBuilder *ToolCatalogBuilder) UseMCPRegistry(mcpRegistry *mcp.McpRegistry) {
 	toolCatalogBuilder.mcpRegistry = mcpRegistry
+}
+
+func (toolCatalogBuilder *ToolCatalogBuilder) UseMCPQuarantineReporter(reporter func(agent.QuarantinedToolProvider)) {
+	toolCatalogBuilder.mcpQuarantineReporter = reporter
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) UseCapabilityToolDescriptors(capabilityClient capability.Client, toolDescriptors []CapabilityToolDescriptor) {
