@@ -891,6 +891,20 @@ func TestSitePrototypeIntakePromotesToXHighLimits(t *testing.T) {
 	if turnOptions.MaxToolCallCount < xHighProfile.MaxToolCallCount {
 		t.Fatalf("expected xhigh tool call limit, got %d", turnOptions.MaxToolCallCount)
 	}
+	if turnOptions.MaxElapsedSecond != int(xHighProfile.Duration.Seconds()) {
+		t.Fatalf("expected xhigh work duration, got %d seconds", turnOptions.MaxElapsedSecond)
+	}
+}
+
+func TestHumanEstimateDoesNotShrinkTaskWorkDuration(t *testing.T) {
+	agentKernel, _ := newKernelTestServices()
+	shortEstimate := agentKernel.turnOptionsForIntakeDecision(IntakeDecision{TaskLevel: TaskLevelLow, EstimatedMinutes: 1})
+	longEstimate := agentKernel.turnOptionsForIntakeDecision(IntakeDecision{TaskLevel: TaskLevelLow, EstimatedMinutes: 30})
+	expectedSeconds := int(TaskLevelProfileForLevel(TaskLevelLow).Duration.Seconds())
+
+	if shortEstimate.MaxElapsedSecond != expectedSeconds || longEstimate.MaxElapsedSecond != expectedSeconds {
+		t.Fatalf("expected low work duration %d regardless of human estimate, got short=%d long=%d", expectedSeconds, shortEstimate.MaxElapsedSecond, longEstimate.MaxElapsedSecond)
+	}
 }
 
 func TestExactPrecomputedDecisionSkipsArtifactTaskLevelPromotion(t *testing.T) {

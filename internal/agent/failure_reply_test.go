@@ -117,15 +117,16 @@ func TestAgentTurnRunnerReportsRawErrorWhenAllModelCallsFail(t *testing.T) {
 	}
 }
 
-func TestAgentTurnRunnerBoundsFailureDecisionAndWordingWithOneGrace(t *testing.T) {
+func TestAgentTurnRunnerHonorsCallerDeadlineDuringFailureReply(t *testing.T) {
 	languageModel := &blockingFailureWordingLanguageModel{failFirstStructuredCall: true}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{
-		MaxIterationCount:      4,
-		LimitFinalizationGrace: 40 * time.Millisecond,
+		MaxIterationCount: 4,
 	})
+	runContext, cancelRun := context.WithTimeout(context.Background(), 40*time.Millisecond)
+	defer cancelRun()
 	startedAt := time.Now()
 
-	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
+	result, errorValue := services.runner.RunTurn(runContext, AgentTurnRequest{
 		RequesterPersonID: "person-1",
 		ConversationID:    "conversation-1",
 		Prompt:            "분기 결산 업무를 등록해줘",
@@ -167,8 +168,7 @@ func TestAgentTurnRunnerFinalizesFailureNoticeBeforeTerminalStatus(t *testing.T)
 		recoveryChatReply:       "업무를 추가하지 못했습니다. 같은 요청을 다시 보내주시면 재시도하겠습니다.",
 	}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{
-		MaxIterationCount:      4,
-		LimitFinalizationGrace: time.Second,
+		MaxIterationCount: 4,
 	})
 	resultChannel := make(chan AgentTurnResult, 1)
 
@@ -226,13 +226,15 @@ func assertFailureNoticeEventsBeforeTerminalStatus(t *testing.T, taskEvents []ta
 	}
 }
 
-func TestAgentTurnRunnerBoundsStallDecisionAndWordingWithOneGrace(t *testing.T) {
+func TestAgentTurnRunnerHonorsCallerDeadlineDuringStallReply(t *testing.T) {
 	languageModel := &blockingFailureWordingLanguageModel{}
-	services := newTurnRunnerTestServices(languageModel, TurnOptions{LimitFinalizationGrace: 40 * time.Millisecond})
+	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
 	taskRun := services.taskRunService.CreateTaskRun("person-1", "conversation-1", "분기 결산 업무를 등록해줘")
+	replyContext, cancelReply := context.WithTimeout(context.Background(), 40*time.Millisecond)
+	defer cancelReply()
 	startedAt := time.Now()
 
-	notice, _, hasReply := services.runner.generateStallPauseNotice(context.Background(), taskRun.TaskRunID, AgentTurnRequest{
+	notice, _, hasReply := services.runner.generateStallPauseNotice(replyContext, taskRun.TaskRunID, AgentTurnRequest{
 		RequesterPersonID: "person-1",
 		ConversationID:    "conversation-1",
 		Prompt:            taskRun.Prompt,
@@ -248,16 +250,18 @@ func TestAgentTurnRunnerBoundsStallDecisionAndWordingWithOneGrace(t *testing.T) 
 	assertSharedFailureReplyDeadline(t, languageModel)
 }
 
-func TestAgentTurnRunnerBoundsMaxIterationsDecisionAndWordingWithOneGrace(t *testing.T) {
+func TestAgentTurnRunnerHonorsCallerDeadlineDuringMaxIterationsReply(t *testing.T) {
 	languageModel := &blockingFailureWordingLanguageModel{}
-	services := newTurnRunnerTestServices(languageModel, TurnOptions{LimitFinalizationGrace: 40 * time.Millisecond})
+	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
 	taskRun := services.taskRunService.CreateTaskRun("person-1", "conversation-1", "분기 결산 업무를 등록해줘")
 	if _, errorValue := services.taskRunService.AdvanceTaskRun(taskRun.TaskRunID, "assistant"); errorValue != nil {
 		t.Fatalf("expected running task: %v", errorValue)
 	}
+	replyContext, cancelReply := context.WithTimeout(context.Background(), 40*time.Millisecond)
+	defer cancelReply()
 	startedAt := time.Now()
 
-	result, errorValue := services.runner.stopForLimit(context.Background(), taskRun.TaskRunID, AgentTurnRequest{
+	result, errorValue := services.runner.stopForLimit(replyContext, taskRun.TaskRunID, AgentTurnRequest{
 		RequesterPersonID: "person-1",
 		ConversationID:    "conversation-1",
 		Prompt:            taskRun.Prompt,

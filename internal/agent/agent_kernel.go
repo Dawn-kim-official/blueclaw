@@ -708,20 +708,8 @@ func (agentKernel *AgentKernel) turnOptionsForIntakeDecision(intakeDecision Inta
 	baseOptions.TaskLevel = taskLevelProfile.TaskLevel
 	baseOptions.MaxIterationCount = taskLevelProfile.MaxIterationCount
 	baseOptions.MaxToolCallCount = taskLevelProfile.MaxToolCallCount
-	baseOptions.MaxElapsedSecond = timeBudgetSecondsForIntake(taskLevelProfile, intakeDecision.EstimatedMinutes)
+	baseOptions.MaxElapsedSecond = int(taskLevelProfile.Duration.Seconds())
 	return baseOptions
-}
-
-func timeBudgetSecondsForIntake(taskLevelProfile TaskLevelProfile, estimatedMinutes int) int {
-	tierSeconds := int(taskLevelProfile.Duration.Seconds())
-	if estimatedMinutes <= 0 {
-		return tierSeconds
-	}
-	estimateSeconds := estimatedMinutes * 90
-	if estimateSeconds < tierSeconds {
-		return estimateSeconds
-	}
-	return tierSeconds
 }
 
 func artifactTaskLevelFloor(request AgentRequest, intakeDecision IntakeDecision) TaskLevel {

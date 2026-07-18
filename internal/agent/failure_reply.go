@@ -187,26 +187,6 @@ func (agentTurnRunner *AgentTurnRunner) generateLimitReachedNotice(parentContext
 	return notice, status, notice.SendableMessage() != ""
 }
 
-func (agentTurnRunner *AgentTurnRunner) generateElapsedLimitNoticeOnce(recoveryContext context.Context, taskRunID string, request AgentTurnRequest, observations []turnObservation, attachments []FileAttachment, executionState ExecutionState) (FailureNotice, limitReplyStatus, bool) {
-	failureReport := buildFailureReport(request, taskRunID, "limit", "max_elapsed", observations, attachments, executionState, recoveryDecision{})
-	reply, errorValue := agentTurnRunner.generateRecoveryTextOnce(recoveryContext, buildFailureNoticePrompt(failureReport))
-	status := limitReplyStatus{FailureReportFacts: buildFailureReportFacts(observations, agentTurnRunner.options.RecoveryBudget)}
-	if errorValue == nil {
-		notice := buildFailureNotice(reply, "generated", failureReport)
-		if notice.IsSendable {
-			status.Source = notice.Source
-			agentTurnRunner.appendEvent(taskRunID, "agent.failure_report", marshalEventBody(failureReportEventBody("limit", failureReport, FailureNoticeGenerationStatus{Source: notice.Source})))
-			return notice, status, true
-		}
-	}
-	status.Source = "raw_error"
-	status.Reason = "text_recovery_failed"
-	status.TextRecoveryError = firstNonEmptyString(errorString(errorValue), "invalid_generated_reply")
-	noticeStatus := FailureNoticeGenerationStatus{Source: status.Source, Reason: status.Reason, TextRecoveryError: status.TextRecoveryError}
-	agentTurnRunner.appendEvent(taskRunID, "agent.failure_report", marshalEventBody(failureReportEventBody("limit", failureReport, noticeStatus)))
-	return buildRawErrorFailureNotice(failureReport), status, false
-}
-
 func limitFailureReportWithCheckpointContext(report FailureReport, stopReason string) FailureReport {
 	if strings.TrimSpace(stopReason) != "max_iterations" {
 		return report
@@ -387,18 +367,6 @@ func (agentTurnRunner *AgentTurnRunner) generateRecoveryText(recoveryContext con
 			return recoveryReply, nil
 		}
 		return recoveryReply, recoveryError
-	}
-	reply, errorValue := agentTurnRunner.recoveryLanguageModel.GenerateResponse(recoveryContext, prompt)
-	return strings.TrimSpace(reply), errorValue
-}
-
-func (agentTurnRunner *AgentTurnRunner) generateRecoveryTextOnce(recoveryContext context.Context, prompt string) (string, error) {
-	if reply, errorValue, isSupported := generateRecoveryChatText(recoveryContext, agentTurnRunner.recoveryLanguageModel, prompt); isSupported {
-		return strings.TrimSpace(reply), errorValue
-	}
-	if recoveryProvider, isRecoveryProvider := agentTurnRunner.recoveryLanguageModel.(llm.RecoveryResponder); isRecoveryProvider {
-		reply, errorValue := recoveryProvider.GenerateRecoveryResponse(recoveryContext, prompt)
-		return strings.TrimSpace(reply), errorValue
 	}
 	reply, errorValue := agentTurnRunner.recoveryLanguageModel.GenerateResponse(recoveryContext, prompt)
 	return strings.TrimSpace(reply), errorValue

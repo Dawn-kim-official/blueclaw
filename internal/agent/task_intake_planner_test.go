@@ -1441,7 +1441,7 @@ func TestTurnRouterPreservesExactPrecomputedDecision(t *testing.T) {
 func TestTaskLevelProfileMapping(t *testing.T) {
 	profile := TaskLevelProfileForLevel(TaskLevelMedium)
 
-	if profile.MaxIterationCount != 180 || profile.MaxToolCallCount != 100 || profile.Duration.Minutes() != 40 {
+	if profile.MaxIterationCount != 180 || profile.MaxToolCallCount != 100 || profile.Duration.Minutes() != 20 {
 		t.Fatalf("expected medium profile, got %+v", profile)
 	}
 }
