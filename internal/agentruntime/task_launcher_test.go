@@ -829,6 +829,14 @@ func (languageModel authoredRuntimeFailureLanguageModel) GenerateStructuredRespo
 	return llm.StructuredResponse{}, errors.New("structured response is not expected")
 }
 
+func (languageModel authoredRuntimeFailureLanguageModel) GenerateRecoveryChatCompletion(context.Context, llm.ChatCompletionRequest) (llm.ChatCompletionResponse, error) {
+	return llm.ChatCompletionResponse{
+		FinishReason:    "stop",
+		SelectedBackend: "remote",
+		Message:         llm.ChatCompletionMessage{Role: "assistant", Content: languageModel.reply},
+	}, nil
+}
+
 type failingRuntimeRouterLanguageModel struct {
 	errorValue error
 }
