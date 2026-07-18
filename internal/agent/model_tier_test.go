@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"testing"
+	"time"
 
 	"blueclaw/internal/llm"
 )
@@ -86,7 +87,7 @@ func TestNextTaskLevelWalksLadderAndStopsAtMax(t *testing.T) {
 
 func TestTaskLevelProfileForLevelMapsLimits(t *testing.T) {
 	mediumProfile := TaskLevelProfileForLevel(TaskLevelMedium)
-	if mediumProfile.MaxIterationCount != 180 || mediumProfile.MaxToolCallCount != 100 || mediumProfile.Duration.Minutes() != 40 {
+	if mediumProfile.MaxIterationCount != 180 || mediumProfile.MaxToolCallCount != 100 || mediumProfile.Duration.Minutes() != 20 {
 		t.Fatalf("expected medium profile limits, got %+v", mediumProfile)
 	}
 
@@ -133,18 +134,20 @@ func TestArtifactTaskLevelFloorRaisesVisualDeliverableFromIntakeDecisionOutputFo
 	}
 }
 
-func TestTimeBudgetSecondsForIntakeUsesShorterOfTierAndEstimate(t *testing.T) {
-	xhighProfile := TaskLevelProfileForLevel(TaskLevelXHigh)
-	tierCeiling := int(xhighProfile.Duration.Seconds())
-
-	if seconds := timeBudgetSecondsForIntake(xhighProfile, 3); seconds != 270 {
-		t.Fatalf("expected 3min estimate to give 270s (x1.5), got %d", seconds)
+func TestTaskLevelProfilesOwnWorkDuration(t *testing.T) {
+	expectedDurations := map[TaskLevel]time.Duration{
+		TaskLevelXLow:   3 * time.Minute,
+		TaskLevelLow:    10 * time.Minute,
+		TaskLevelMedium: 20 * time.Minute,
+		TaskLevelHigh:   40 * time.Minute,
+		TaskLevelXHigh:  time.Hour,
+		TaskLevelMax:    time.Hour,
 	}
-	if seconds := timeBudgetSecondsForIntake(xhighProfile, 0); seconds != tierCeiling {
-		t.Fatalf("expected tier ceiling with no estimate, got %d", seconds)
-	}
-	if seconds := timeBudgetSecondsForIntake(xhighProfile, 100000); seconds != tierCeiling {
-		t.Fatalf("expected an oversized estimate to be capped at the tier ceiling, got %d", seconds)
+	for taskLevel, expectedDuration := range expectedDurations {
+		actualDuration := TaskLevelProfileForLevel(taskLevel).Duration
+		if actualDuration != expectedDuration {
+			t.Fatalf("expected %s duration %s, got %s", taskLevel, expectedDuration, actualDuration)
+		}
 	}
 }
 

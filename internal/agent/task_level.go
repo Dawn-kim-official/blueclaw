@@ -24,12 +24,12 @@ type TaskLevelProfile struct {
 }
 
 var taskLevelProfiles = []TaskLevelProfile{
-	{TaskLevel: TaskLevelXLow, Duration: time.Minute, MaxIterationCount: 4, MaxToolCallCount: 1},
+	{TaskLevel: TaskLevelXLow, Duration: 3 * time.Minute, MaxIterationCount: 4, MaxToolCallCount: 1},
 	{TaskLevel: TaskLevelLow, Duration: 10 * time.Minute, MaxIterationCount: 40, MaxToolCallCount: 30},
-	{TaskLevel: TaskLevelMedium, Duration: 40 * time.Minute, MaxIterationCount: 180, MaxToolCallCount: 100},
-	{TaskLevel: TaskLevelHigh, Duration: 2 * time.Hour, MaxIterationCount: 400, MaxToolCallCount: 220},
-	{TaskLevel: TaskLevelXHigh, Duration: 3 * time.Hour, MaxIterationCount: 500, MaxToolCallCount: 260},
-	{TaskLevel: TaskLevelMax, Duration: 4 * time.Hour, MaxIterationCount: 700, MaxToolCallCount: 340},
+	{TaskLevel: TaskLevelMedium, Duration: 20 * time.Minute, MaxIterationCount: 180, MaxToolCallCount: 100},
+	{TaskLevel: TaskLevelHigh, Duration: 40 * time.Minute, MaxIterationCount: 400, MaxToolCallCount: 220},
+	{TaskLevel: TaskLevelXHigh, Duration: time.Hour, MaxIterationCount: 500, MaxToolCallCount: 260},
+	{TaskLevel: TaskLevelMax, Duration: time.Hour, MaxIterationCount: 700, MaxToolCallCount: 340},
 }
 
 func taskLevelRank(taskLevel TaskLevel) int {
