@@ -526,6 +526,9 @@ func capabilityToolRequest(toolContext context.Context, descriptor CapabilityToo
 	if !request.ScheduledRun.IsEmpty() {
 		contextDocument["scheduledRun"] = request.ScheduledRun
 	}
+	if conflictResolution := agent.ToolConflictResolutionFromContext(toolContext); conflictResolution != "" {
+		contextDocument["conflictResolution"] = conflictResolution
+	}
 	requestDocument := map[string]any{
 		"toolName":       descriptor.CanonicalName,
 		"input":          toolInput,

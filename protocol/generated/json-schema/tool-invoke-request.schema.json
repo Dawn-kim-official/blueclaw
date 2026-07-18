@@ -32,7 +32,7 @@
       ]
     }
   },
-  "$id": "https://schemas.blueclaw.dev/0.3.0/tool-invoke-request.schema.json",
+  "$id": "https://schemas.blueclaw.dev/0.4.0/tool-invoke-request.schema.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": {},
   "properties": {
@@ -70,6 +70,12 @@
           "type": "string"
         },
         "channelName": {
+          "type": "string"
+        },
+        "conflictResolution": {
+          "enum": [
+            "allow_duplicate"
+          ],
           "type": "string"
         },
         "conversationID": {

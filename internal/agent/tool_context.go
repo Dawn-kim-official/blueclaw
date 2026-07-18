@@ -11,6 +11,11 @@ const taskRunIDContextKey toolContextKey = "taskRunID"
 const observationIDContextKey toolContextKey = "observationID"
 const responseLanguageContextKey toolContextKey = "responseLanguage"
 const userFacingMessageContextKey toolContextKey = "userFacingMessage"
+const toolConflictResolutionContextKey toolContextKey = "toolConflictResolution"
+
+type ToolConflictResolution string
+
+const ToolConflictResolutionAllowDuplicate ToolConflictResolution = "allow_duplicate"
 
 func WithUserFacingMessage(ctx context.Context, userFacingMessage string) context.Context {
 	if strings.TrimSpace(userFacingMessage) == "" {
@@ -59,4 +64,16 @@ func WithResponseLanguage(ctx context.Context, responseLanguage string) context.
 func ResponseLanguageFromContext(ctx context.Context) string {
 	responseLanguage, _ := ctx.Value(responseLanguageContextKey).(string)
 	return ResolveResponseLanguage(responseLanguage)
+}
+
+func WithToolConflictResolution(ctx context.Context, resolution ToolConflictResolution) context.Context {
+	if resolution == "" {
+		return ctx
+	}
+	return context.WithValue(ctx, toolConflictResolutionContextKey, resolution)
+}
+
+func ToolConflictResolutionFromContext(ctx context.Context) ToolConflictResolution {
+	resolution, _ := ctx.Value(toolConflictResolutionContextKey).(ToolConflictResolution)
+	return resolution
 }

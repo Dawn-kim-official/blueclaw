@@ -1,5 +1,5 @@
 {
-  "protocolVersion": "0.3.0",
+  "protocolVersion": "0.4.0",
   "tools": [
     {
       "availability": {
@@ -315,6 +315,7 @@
               "type": "string"
             },
             "taskID": {
+              "minLength": 1,
               "type": "string"
             },
             "type": {
@@ -532,6 +533,7 @@
       "privacyClass": "workspace_task",
       "requiresUserPresence": false,
       "resultContract": {
+        "effects": [],
         "schema": {
           "$schema": "https://json-schema.org/draft/2020-12/schema",
           "additionalProperties": false,
@@ -632,6 +634,7 @@
                     "type": "string"
                   },
                   "taskID": {
+                    "minLength": 1,
                     "type": "string"
                   },
                   "type": {
@@ -692,6 +695,7 @@
       "inputSchema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "additionalProperties": false,
+        "minProperties": 2,
         "properties": {
           "category": {
             "description": "Business category label for the task. Omit to leave unchanged.",
@@ -748,6 +752,7 @@
           },
           "taskID": {
             "description": "Exact ID of the task to update, copied from a task.list result.",
+            "minLength": 1,
             "type": "string"
           },
           "title": {
@@ -1000,6 +1005,7 @@
               "type": "string"
             },
             "taskID": {
+              "minLength": 1,
               "type": "string"
             },
             "type": {
@@ -1043,6 +1049,7 @@
         "properties": {
           "taskID": {
             "description": "Exact ID of the task to delete, copied from a task.list result.",
+            "minLength": 1,
             "type": "string"
           }
         },
@@ -1215,6 +1222,7 @@
               "type": "boolean"
             },
             "taskID": {
+              "minLength": 1,
               "type": "string"
             }
           },
@@ -1228,6 +1236,1189 @@
       "sideEffect": "destructive",
       "sideEffectClass": "destructive",
       "version": "3",
+      "worksOffline": false
+    },
+    {
+      "availability": {
+        "state": "ok"
+      },
+      "canonicalName": "calendar.add",
+      "completionEvidence": {
+        "action": "write_calendar",
+        "mode": "success",
+        "targetKind": "calendar"
+      },
+      "description": "Create a calendar event with a concrete time range. Resolve natural-language dates and times before calling. Use calendar.update for an existing event.",
+      "estimatedLatency": "medium",
+      "idempotency": {
+        "required": false,
+        "scope": "operation",
+        "supported": false
+      },
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "color": {
+            "description": "Optional provider-supported color label.",
+            "type": "string"
+          },
+          "description": {
+            "description": "Optional event notes or agenda visible to attendees.",
+            "type": "string"
+          },
+          "endISO": {
+            "description": "Event end as ISO 8601 with timezone. It must be after startISO.",
+            "type": "string"
+          },
+          "includeRequester": {
+            "description": "Set false when the requester is not an attendee. Defaults to true.",
+            "type": "boolean"
+          },
+          "isAllDay": {
+            "description": "Set true for an all-day event.",
+            "type": "boolean"
+          },
+          "location": {
+            "description": "Optional physical or virtual location.",
+            "type": "string"
+          },
+          "people": {
+            "description": "Attendee hints such as names, @handles, or emails.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "reminderLeadHours": {
+            "description": "Reminder lead time in hours.",
+            "enum": [
+              1,
+              2,
+              3,
+              6,
+              12,
+              24,
+              48
+            ],
+            "type": "number"
+          },
+          "startISO": {
+            "description": "Event start as ISO 8601 with timezone. Resolve relative times before calling.",
+            "type": "string"
+          },
+          "timeZone": {
+            "description": "IANA timezone identifier. Defaults to the workspace timezone.",
+            "type": "string"
+          },
+          "title": {
+            "description": "Event title shown in the calendar.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "title",
+          "startISO",
+          "endISO"
+        ],
+        "type": "object"
+      },
+      "inputSchemaStrict": true,
+      "modelName": "calendar.add",
+      "modelVisibility": "visible",
+      "modelVisible": true,
+      "name": "calendar.add",
+      "namespace": "calendar",
+      "outputSchema": {
+        "$defs": {
+          "__schema0": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              },
+              {
+                "items": {
+                  "$ref": "#/$defs/__schema0"
+                },
+                "type": "array"
+              },
+              {
+                "additionalProperties": {
+                  "$ref": "#/$defs/__schema0"
+                },
+                "propertyNames": {
+                  "type": "string"
+                },
+                "type": "object"
+              }
+            ]
+          }
+        },
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "content": {
+            "type": "string"
+          },
+          "effects": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "contentType": {
+                  "type": "string"
+                },
+                "durability": {
+                  "type": "string"
+                },
+                "effect": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "filename": {
+                  "type": "string"
+                },
+                "id": {
+                  "type": "string"
+                },
+                "objectType": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "path": {
+                  "type": "string"
+                },
+                "summary": {
+                  "type": "string"
+                },
+                "url": {
+                  "type": "string"
+                },
+                "visibility": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "objectType",
+                "effect"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "errorCode": {
+            "type": "string"
+          },
+          "failureStage": {
+            "type": "string"
+          },
+          "isError": {
+            "type": "boolean"
+          },
+          "message": {
+            "type": "string"
+          },
+          "outcome": {
+            "enum": [
+              "succeeded",
+              "failed",
+              "denied"
+            ],
+            "type": "string"
+          },
+          "provider": {
+            "type": "string"
+          },
+          "result": {
+            "$ref": "#/$defs/__schema0"
+          },
+          "retryable": {
+            "type": "boolean"
+          },
+          "safeRetry": {
+            "type": "boolean"
+          },
+          "selectedBackend": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "toolName": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "provider",
+          "selectedBackend",
+          "toolName",
+          "result"
+        ],
+        "type": "object"
+      },
+      "outputSchemaStrict": true,
+      "policyResource": "tool:calendar.add",
+      "privacyClass": "workspace_calendar",
+      "requiresUserPresence": false,
+      "resultContract": {
+        "effects": [
+          {
+            "effect": "created",
+            "effectIdentity": "id",
+            "objectType": "calendar",
+            "resultField": "eventID"
+          }
+        ],
+        "schema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "additionalProperties": false,
+          "properties": {
+            "color": {
+              "type": "string"
+            },
+            "description": {
+              "type": "string"
+            },
+            "endISO": {
+              "type": "string"
+            },
+            "eventID": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "isAllDay": {
+              "type": "boolean"
+            },
+            "location": {
+              "type": "string"
+            },
+            "participants": {
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "email": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "personID": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "name"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "people": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "reminderLeadHours": {
+              "enum": [
+                1,
+                2,
+                3,
+                6,
+                12,
+                24,
+                48
+              ],
+              "type": "number"
+            },
+            "startISO": {
+              "type": "string"
+            },
+            "timeZone": {
+              "type": "string"
+            },
+            "title": {
+              "type": "string"
+            },
+            "updatedAt": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "eventID",
+            "title",
+            "description",
+            "location",
+            "startISO",
+            "endISO",
+            "timeZone",
+            "isAllDay",
+            "color",
+            "people",
+            "participants",
+            "reminderLeadHours",
+            "updatedAt"
+          ],
+          "type": "object"
+        }
+      },
+      "sideEffect": "workspace_write",
+      "sideEffectClass": "workspace_write",
+      "version": "2",
+      "worksOffline": false
+    },
+    {
+      "availability": {
+        "state": "ok"
+      },
+      "canonicalName": "calendar.list",
+      "description": "List calendar events in a concrete time window, optionally filtered by title, description, or location. Resolve natural-language dates to startISO and endISO before calling.",
+      "estimatedLatency": "low",
+      "idempotency": {
+        "required": false,
+        "scope": "operation",
+        "supported": false
+      },
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "endISO": {
+            "description": "Exclusive end of the time window as ISO 8601 with timezone.",
+            "type": "string"
+          },
+          "limit": {
+            "description": "Maximum number of events to return.",
+            "exclusiveMinimum": 0,
+            "type": "number"
+          },
+          "query": {
+            "description": "Optional free-text filter matched against event titles, descriptions, and locations.",
+            "type": "string"
+          },
+          "startISO": {
+            "description": "Inclusive start of the time window as ISO 8601 with timezone.",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "inputSchemaStrict": true,
+      "modelName": "calendar.list",
+      "modelVisibility": "visible",
+      "modelVisible": true,
+      "name": "calendar.list",
+      "namespace": "calendar",
+      "outputSchema": {
+        "$defs": {
+          "__schema0": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              },
+              {
+                "items": {
+                  "$ref": "#/$defs/__schema0"
+                },
+                "type": "array"
+              },
+              {
+                "additionalProperties": {
+                  "$ref": "#/$defs/__schema0"
+                },
+                "propertyNames": {
+                  "type": "string"
+                },
+                "type": "object"
+              }
+            ]
+          }
+        },
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "content": {
+            "type": "string"
+          },
+          "effects": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "contentType": {
+                  "type": "string"
+                },
+                "durability": {
+                  "type": "string"
+                },
+                "effect": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "filename": {
+                  "type": "string"
+                },
+                "id": {
+                  "type": "string"
+                },
+                "objectType": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "path": {
+                  "type": "string"
+                },
+                "summary": {
+                  "type": "string"
+                },
+                "url": {
+                  "type": "string"
+                },
+                "visibility": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "objectType",
+                "effect"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "errorCode": {
+            "type": "string"
+          },
+          "failureStage": {
+            "type": "string"
+          },
+          "isError": {
+            "type": "boolean"
+          },
+          "message": {
+            "type": "string"
+          },
+          "outcome": {
+            "enum": [
+              "succeeded",
+              "failed",
+              "denied"
+            ],
+            "type": "string"
+          },
+          "provider": {
+            "type": "string"
+          },
+          "result": {
+            "$ref": "#/$defs/__schema0"
+          },
+          "retryable": {
+            "type": "boolean"
+          },
+          "safeRetry": {
+            "type": "boolean"
+          },
+          "selectedBackend": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "toolName": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "provider",
+          "selectedBackend",
+          "toolName",
+          "result"
+        ],
+        "type": "object"
+      },
+      "outputSchemaStrict": true,
+      "policyResource": "tool:calendar.list",
+      "privacyClass": "workspace_calendar",
+      "requiresUserPresence": false,
+      "resultContract": {
+        "effects": [],
+        "schema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "additionalProperties": false,
+          "properties": {
+            "events": {
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "color": {
+                    "type": "string"
+                  },
+                  "description": {
+                    "type": "string"
+                  },
+                  "endISO": {
+                    "type": "string"
+                  },
+                  "eventID": {
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "isAllDay": {
+                    "type": "boolean"
+                  },
+                  "location": {
+                    "type": "string"
+                  },
+                  "participants": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "email": {
+                          "type": "string"
+                        },
+                        "name": {
+                          "type": "string"
+                        },
+                        "personID": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "name"
+                      ],
+                      "type": "object"
+                    },
+                    "type": "array"
+                  },
+                  "people": {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "reminderLeadHours": {
+                    "enum": [
+                      1,
+                      2,
+                      3,
+                      6,
+                      12,
+                      24,
+                      48
+                    ],
+                    "type": "number"
+                  },
+                  "startISO": {
+                    "type": "string"
+                  },
+                  "timeZone": {
+                    "type": "string"
+                  },
+                  "title": {
+                    "type": "string"
+                  },
+                  "updatedAt": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "eventID",
+                  "title",
+                  "description",
+                  "location",
+                  "startISO",
+                  "endISO",
+                  "timeZone",
+                  "isAllDay",
+                  "color",
+                  "people",
+                  "participants",
+                  "reminderLeadHours",
+                  "updatedAt"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "events"
+          ],
+          "type": "object"
+        }
+      },
+      "sideEffect": "read",
+      "sideEffectClass": "read",
+      "version": "2",
+      "worksOffline": false
+    },
+    {
+      "availability": {
+        "state": "ok"
+      },
+      "canonicalName": "calendar.update",
+      "completionEvidence": {
+        "action": "write_calendar",
+        "mode": "success",
+        "targetKind": "calendar"
+      },
+      "description": "Update explicit fields on a calendar event. eventID must be copied from a calendar.list result, and at least one mutable field is required.",
+      "estimatedLatency": "medium",
+      "idempotency": {
+        "required": false,
+        "scope": "operation",
+        "supported": false
+      },
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "minProperties": 2,
+        "properties": {
+          "color": {
+            "description": "New provider-supported color label. Omit to leave unchanged.",
+            "type": "string"
+          },
+          "description": {
+            "description": "New event notes or agenda. Use an empty string to clear them.",
+            "type": "string"
+          },
+          "endISO": {
+            "description": "New event end as ISO 8601 with timezone. Omit to leave unchanged.",
+            "type": "string"
+          },
+          "eventID": {
+            "description": "Exact event ID copied from a calendar.list result.",
+            "minLength": 1,
+            "type": "string"
+          },
+          "includeRequester": {
+            "description": "Whether the requester should be included as an attendee.",
+            "type": "boolean"
+          },
+          "isAllDay": {
+            "description": "Whether the event is all day. Omit to leave unchanged.",
+            "type": "boolean"
+          },
+          "location": {
+            "description": "New physical or virtual location. Use an empty string to clear it.",
+            "type": "string"
+          },
+          "people": {
+            "description": "Replacement attendee hints such as names, @handles, or emails.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "reminderLeadHours": {
+            "description": "Reminder lead time in hours. Omit to leave unchanged.",
+            "enum": [
+              1,
+              2,
+              3,
+              6,
+              12,
+              24,
+              48
+            ],
+            "type": "number"
+          },
+          "startISO": {
+            "description": "New event start as ISO 8601 with timezone. Omit to leave unchanged.",
+            "type": "string"
+          },
+          "timeZone": {
+            "description": "New IANA timezone identifier. Omit to leave unchanged.",
+            "type": "string"
+          },
+          "title": {
+            "description": "New event title. Omit to leave unchanged.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "eventID"
+        ],
+        "type": "object"
+      },
+      "inputSchemaStrict": true,
+      "modelName": "calendar.update",
+      "modelVisibility": "visible",
+      "modelVisible": true,
+      "name": "calendar.update",
+      "namespace": "calendar",
+      "outputSchema": {
+        "$defs": {
+          "__schema0": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              },
+              {
+                "items": {
+                  "$ref": "#/$defs/__schema0"
+                },
+                "type": "array"
+              },
+              {
+                "additionalProperties": {
+                  "$ref": "#/$defs/__schema0"
+                },
+                "propertyNames": {
+                  "type": "string"
+                },
+                "type": "object"
+              }
+            ]
+          }
+        },
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "content": {
+            "type": "string"
+          },
+          "effects": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "contentType": {
+                  "type": "string"
+                },
+                "durability": {
+                  "type": "string"
+                },
+                "effect": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "filename": {
+                  "type": "string"
+                },
+                "id": {
+                  "type": "string"
+                },
+                "objectType": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "path": {
+                  "type": "string"
+                },
+                "summary": {
+                  "type": "string"
+                },
+                "url": {
+                  "type": "string"
+                },
+                "visibility": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "objectType",
+                "effect"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "errorCode": {
+            "type": "string"
+          },
+          "failureStage": {
+            "type": "string"
+          },
+          "isError": {
+            "type": "boolean"
+          },
+          "message": {
+            "type": "string"
+          },
+          "outcome": {
+            "enum": [
+              "succeeded",
+              "failed",
+              "denied"
+            ],
+            "type": "string"
+          },
+          "provider": {
+            "type": "string"
+          },
+          "result": {
+            "$ref": "#/$defs/__schema0"
+          },
+          "retryable": {
+            "type": "boolean"
+          },
+          "safeRetry": {
+            "type": "boolean"
+          },
+          "selectedBackend": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "toolName": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "provider",
+          "selectedBackend",
+          "toolName",
+          "result"
+        ],
+        "type": "object"
+      },
+      "outputSchemaStrict": true,
+      "policyResource": "tool:calendar.update",
+      "privacyClass": "workspace_calendar",
+      "requiresUserPresence": false,
+      "resultContract": {
+        "effects": [
+          {
+            "effect": "updated",
+            "effectIdentity": "id",
+            "objectType": "calendar",
+            "resultField": "eventID"
+          }
+        ],
+        "schema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "additionalProperties": false,
+          "properties": {
+            "color": {
+              "type": "string"
+            },
+            "description": {
+              "type": "string"
+            },
+            "endISO": {
+              "type": "string"
+            },
+            "eventID": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "isAllDay": {
+              "type": "boolean"
+            },
+            "location": {
+              "type": "string"
+            },
+            "participants": {
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "email": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "personID": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "name"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "people": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "reminderLeadHours": {
+              "enum": [
+                1,
+                2,
+                3,
+                6,
+                12,
+                24,
+                48
+              ],
+              "type": "number"
+            },
+            "startISO": {
+              "type": "string"
+            },
+            "timeZone": {
+              "type": "string"
+            },
+            "title": {
+              "type": "string"
+            },
+            "updatedAt": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "eventID",
+            "title",
+            "description",
+            "location",
+            "startISO",
+            "endISO",
+            "timeZone",
+            "isAllDay",
+            "color",
+            "people",
+            "participants",
+            "reminderLeadHours",
+            "updatedAt"
+          ],
+          "type": "object"
+        }
+      },
+      "sideEffect": "workspace_write",
+      "sideEffectClass": "workspace_write",
+      "version": "3",
+      "worksOffline": false
+    },
+    {
+      "availability": {
+        "state": "ok"
+      },
+      "canonicalName": "calendar.delete",
+      "completionEvidence": {
+        "action": "write_calendar",
+        "mode": "success",
+        "targetKind": "calendar"
+      },
+      "description": "Permanently delete a calendar event by the exact eventID from a calendar.list result. Requires approval; this action is irreversible.",
+      "estimatedLatency": "medium",
+      "idempotency": {
+        "required": false,
+        "scope": "operation",
+        "supported": false
+      },
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "eventID": {
+            "description": "Exact event ID copied from a calendar.list result.",
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "eventID"
+        ],
+        "type": "object"
+      },
+      "inputSchemaStrict": true,
+      "modelName": "calendar.delete",
+      "modelVisibility": "visible",
+      "modelVisible": true,
+      "name": "calendar.delete",
+      "namespace": "calendar",
+      "outputSchema": {
+        "$defs": {
+          "__schema0": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              },
+              {
+                "items": {
+                  "$ref": "#/$defs/__schema0"
+                },
+                "type": "array"
+              },
+              {
+                "additionalProperties": {
+                  "$ref": "#/$defs/__schema0"
+                },
+                "propertyNames": {
+                  "type": "string"
+                },
+                "type": "object"
+              }
+            ]
+          }
+        },
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "content": {
+            "type": "string"
+          },
+          "effects": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "contentType": {
+                  "type": "string"
+                },
+                "durability": {
+                  "type": "string"
+                },
+                "effect": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "filename": {
+                  "type": "string"
+                },
+                "id": {
+                  "type": "string"
+                },
+                "objectType": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "path": {
+                  "type": "string"
+                },
+                "summary": {
+                  "type": "string"
+                },
+                "url": {
+                  "type": "string"
+                },
+                "visibility": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "objectType",
+                "effect"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "errorCode": {
+            "type": "string"
+          },
+          "failureStage": {
+            "type": "string"
+          },
+          "isError": {
+            "type": "boolean"
+          },
+          "message": {
+            "type": "string"
+          },
+          "outcome": {
+            "enum": [
+              "succeeded",
+              "failed",
+              "denied"
+            ],
+            "type": "string"
+          },
+          "provider": {
+            "type": "string"
+          },
+          "result": {
+            "$ref": "#/$defs/__schema0"
+          },
+          "retryable": {
+            "type": "boolean"
+          },
+          "safeRetry": {
+            "type": "boolean"
+          },
+          "selectedBackend": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "toolName": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "provider",
+          "selectedBackend",
+          "toolName",
+          "result"
+        ],
+        "type": "object"
+      },
+      "outputSchemaStrict": true,
+      "policyResource": "tool:calendar.delete",
+      "privacyClass": "workspace_calendar",
+      "requiresApproval": true,
+      "requiresUserPresence": false,
+      "resultContract": {
+        "effects": [
+          {
+            "effect": "deleted",
+            "effectIdentity": "id",
+            "objectType": "calendar",
+            "resultField": "eventID"
+          }
+        ],
+        "schema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "additionalProperties": false,
+          "properties": {
+            "deleted": {
+              "const": true,
+              "type": "boolean"
+            },
+            "eventID": {
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "eventID",
+            "deleted"
+          ],
+          "type": "object"
+        }
+      },
+      "sideEffect": "destructive",
+      "sideEffectClass": "destructive",
+      "version": "2",
       "worksOffline": false
     }
   ]

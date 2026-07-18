@@ -192,7 +192,7 @@ func operationDescriptorDocuments(toolSet *ToolSet, toolNames []string) ([]opera
 		if len(descriptor.InputSchema) == 0 {
 			return nil, fmt.Errorf("operation %s has no input schema", toolName)
 		}
-		if _, errorValue := validateRequiredOperationInput(`{}`, descriptor.InputSchema); errorValue != nil {
+		if errorValue := validateOperationInputSchema(descriptor.InputSchema); errorValue != nil {
 			return nil, fmt.Errorf("operation %s has invalid input schema: %w", toolName, errorValue)
 		}
 		descriptors = append(descriptors, operationDescriptorDocument{
@@ -295,14 +295,12 @@ func validateRequiredOperationInput(document string, inputSchema json.RawMessage
 	if errorValue := json.Unmarshal([]byte(document), &validationInput); errorValue != nil || validationInput == nil {
 		return nil, errors.New("required values must be a JSON object")
 	}
-	var schema jsonschema.Schema
-	if errorValue := json.Unmarshal(inputSchema, &schema); errorValue != nil {
-		return nil, fmt.Errorf("descriptor input schema is invalid: %w", errorValue)
-	}
-	if schema.Type != "object" && !stringSliceContains(schema.Types, "object") {
-		return nil, errors.New("descriptor input schema must describe an object")
+	schema, errorValue := decodeOperationInputSchema(inputSchema)
+	if errorValue != nil {
+		return nil, errorValue
 	}
 	schema.Required = nil
+	schema.MinProperties = nil
 	resolvedSchema, errorValue := schema.Resolve(nil)
 	if errorValue != nil {
 		return nil, fmt.Errorf("descriptor input schema cannot be resolved: %w", errorValue)
@@ -312,6 +310,28 @@ func validateRequiredOperationInput(document string, inputSchema json.RawMessage
 	}
 	normalizedInput, _ := json.Marshal(requiredInput)
 	return normalizedInput, nil
+}
+
+func validateOperationInputSchema(inputSchema json.RawMessage) error {
+	schema, errorValue := decodeOperationInputSchema(inputSchema)
+	if errorValue != nil {
+		return errorValue
+	}
+	if _, errorValue := schema.Resolve(nil); errorValue != nil {
+		return fmt.Errorf("descriptor input schema cannot be resolved: %w", errorValue)
+	}
+	return nil
+}
+
+func decodeOperationInputSchema(inputSchema json.RawMessage) (jsonschema.Schema, error) {
+	var schema jsonschema.Schema
+	if errorValue := json.Unmarshal(inputSchema, &schema); errorValue != nil {
+		return jsonschema.Schema{}, fmt.Errorf("descriptor input schema is invalid: %w", errorValue)
+	}
+	if schema.Type != "object" && !stringSliceContains(schema.Types, "object") {
+		return jsonschema.Schema{}, errors.New("descriptor input schema must describe an object")
+	}
+	return schema, nil
 }
 
 func decodeJSONObject(document []byte) (map[string]any, error) {
