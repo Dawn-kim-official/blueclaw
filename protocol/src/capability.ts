@@ -77,6 +77,10 @@ export enum ToolOutcome {
   Denied = 'denied',
 }
 
+export enum ToolConflictResolution {
+  AllowDuplicate = 'allow_duplicate',
+}
+
 export enum ResourceEffectIdentity {
   ID = 'id',
   Path = 'path',
@@ -191,6 +195,7 @@ export const toolInvokeContextSchema = z.looseObject({
   channelName: z.string().optional(),
   replyTargetID: z.string().optional(),
   platform: z.string().optional(),
+  conflictResolution: z.enum(ToolConflictResolution).optional(),
 });
 
 export const actorContextSchema = z.looseObject({

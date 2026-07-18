@@ -32,7 +32,7 @@
       ]
     }
   },
-  "$id": "https://schemas.blueclaw.dev/0.3.0/capability-registry-response.schema.json",
+  "$id": "https://schemas.blueclaw.dev/0.4.0/capability-registry-response.schema.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
   "properties": {

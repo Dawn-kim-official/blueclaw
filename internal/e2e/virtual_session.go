@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -1146,13 +1147,14 @@ type virtualCapabilityRecord struct {
 const virtualDefaultSiteSourceWorkspacePath = "/workspace/circles/staff/sites/demo/draft"
 
 type virtualCapabilityService struct {
-	mutex          sync.Mutex
-	toolNameByName map[string]bool
-	workspacePath  string
-	tasks          []virtualCapabilityRecord
-	events         []virtualCapabilityRecord
-	site           *virtualCapabilityRecord
-	sitePublished  bool
+	mutex            sync.Mutex
+	toolNameByName   map[string]bool
+	workspacePath    string
+	tasks            []virtualCapabilityRecord
+	events           []virtualCapabilityRecord
+	calendarRevision int
+	site             *virtualCapabilityRecord
+	sitePublished    bool
 }
 
 func startVirtualCapabilityServer(toolNames []string, workspacePath string) (capability.Client, func()) {
@@ -1468,17 +1470,17 @@ func virtualCapabilityInputSchema(toolName string) string {
 	case "task.list":
 		return `{"type":"object","properties":{"query":{"type":"string"},"targetPersonHint":{"type":"string"},"scope":{"type":"string","enum":["self","all"]},"weekFrom":{"type":"integer"},"weekTo":{"type":"integer"},"status":{"type":"string"},"limit":{"type":"integer"}},"additionalProperties":false}`
 	case "task.update":
-		return `{"type":"object","properties":{"taskID":{"type":"string"},"title":{"type":"string"},"goal":{"type":"string"},"status":{"type":"string","enum":["예정","진행","완료","요청","일시정지","기각","중단"]},"size":{"type":"string","enum":["XS","S","M","L","XL","XXL"]},"category":{"type":"string"},"type":{"type":"string"},"startDate":{"type":"string"},"endDate":{"type":"string"},"flag":{"type":"integer"},"requestReason":{"type":"string"},"decisionReason":{"type":"string"}},"required":["taskID"],"additionalProperties":false}`
+		return `{"type":"object","properties":{"taskID":{"type":"string","minLength":1},"title":{"type":"string"},"goal":{"type":"string"},"status":{"type":"string","enum":["예정","진행","완료","요청","일시정지","기각","중단"]},"size":{"type":"string","enum":["XS","S","M","L","XL","XXL"]},"category":{"type":"string"},"type":{"type":"string"},"startDate":{"type":"string"},"endDate":{"type":"string"},"flag":{"type":"number"},"requestReason":{"type":"string"},"decisionReason":{"type":"string"}},"required":["taskID"],"additionalProperties":false,"minProperties":2}`
 	case "task.delete":
 		return `{"type":"object","properties":{"taskID":{"type":"string"}},"required":["taskID"],"additionalProperties":false}`
 	case "calendar.add":
-		return `{"type":"object","properties":{"title":{"type":"string"},"startISO":{"type":"string"},"endISO":{"type":"string"},"description":{"type":"string"},"location":{"type":"string"},"timeZone":{"type":"string"},"people":{"type":"array","items":{"type":"string"}},"includeRequester":{"type":"boolean"}},"required":["title","startISO","endISO"],"additionalProperties":false}`
+		return `{"type":"object","properties":{"title":{"type":"string"},"description":{"type":"string"},"location":{"type":"string"},"startISO":{"type":"string"},"endISO":{"type":"string"},"timeZone":{"type":"string"},"isAllDay":{"type":"boolean"},"color":{"type":"string"},"people":{"type":"array","items":{"type":"string"}},"includeRequester":{"type":"boolean"},"reminderLeadHours":{"type":"number","enum":[1,2,3,6,12,24,48]}},"required":["title","startISO","endISO"],"additionalProperties":false}`
 	case "calendar.list":
-		return `{"type":"object","properties":{"startISO":{"type":"string"},"endISO":{"type":"string"},"query":{"type":"string"},"limit":{"type":"integer"}},"additionalProperties":false}`
+		return `{"type":"object","properties":{"startISO":{"type":"string"},"endISO":{"type":"string"},"query":{"type":"string"},"limit":{"type":"number","exclusiveMinimum":0}},"additionalProperties":false}`
 	case "calendar.update":
-		return `{"type":"object","properties":{"eventID":{"type":"string"},"query":{"type":"string"},"title":{"type":"string"},"startISO":{"type":"string"},"endISO":{"type":"string"},"description":{"type":"string"},"location":{"type":"string"},"timeZone":{"type":"string"},"people":{"type":"array","items":{"type":"string"}},"includeRequester":{"type":"boolean"}},"required":["title","startISO","endISO"],"additionalProperties":false}`
+		return `{"type":"object","properties":{"eventID":{"type":"string","minLength":1},"title":{"type":"string"},"description":{"type":"string"},"location":{"type":"string"},"startISO":{"type":"string"},"endISO":{"type":"string"},"timeZone":{"type":"string"},"isAllDay":{"type":"boolean"},"color":{"type":"string"},"people":{"type":"array","items":{"type":"string"}},"includeRequester":{"type":"boolean"},"reminderLeadHours":{"type":"number","enum":[1,2,3,6,12,24,48]}},"required":["eventID"],"additionalProperties":false,"minProperties":2}`
 	case "calendar.delete":
-		return `{"type":"object","properties":{"eventID":{"type":"string"},"query":{"type":"string"}},"additionalProperties":false}`
+		return `{"type":"object","properties":{"eventID":{"type":"string","minLength":1}},"required":["eventID"],"additionalProperties":false}`
 	case "site.create":
 		return `{"type":"object","properties":{"slug":{"type":"string"},"title":{"type":"string"},"prompt":{"type":"string"},"designBrief":{"type":"string"},"prototypeScope":{"type":"string"},"description":{"type":"string"},"idea":{"type":"string"},"purpose":{"type":"string"},"audience":{"type":"string"},"archetype":{"type":"string"},"domainKeywords":{"type":"array","items":{"type":"string"}},"content":{"type":"object"}},"required":["slug"],"additionalProperties":false}`
 	case "site.status", "site.publish", "site.delete":
@@ -1512,6 +1514,17 @@ func virtualCapabilityToolResultContract(toolName string) *agentruntime.Capabili
 			Schema:  json.RawMessage(`{"type":"object","properties":{"taskID":{"type":"string"},"deleted":{"const":true}},"required":["taskID","deleted"],"additionalProperties":false}`),
 			Effects: []agentruntime.CapabilityResourceEffectContract{virtualTaskEffectContract("deleted")},
 		}
+	case "calendar.add":
+		return virtualCalendarResultContract("created")
+	case "calendar.list":
+		return &agentruntime.CapabilityToolResultContract{Schema: json.RawMessage(`{"type":"object","properties":{"events":{"type":"array","items":` + virtualCalendarEventResultSchema() + `}},"required":["events"],"additionalProperties":false}`)}
+	case "calendar.update":
+		return virtualCalendarResultContract("updated")
+	case "calendar.delete":
+		return &agentruntime.CapabilityToolResultContract{
+			Schema:  json.RawMessage(`{"type":"object","properties":{"eventID":{"type":"string","minLength":1},"deleted":{"const":true}},"required":["eventID","deleted"],"additionalProperties":false}`),
+			Effects: []agentruntime.CapabilityResourceEffectContract{virtualCalendarEffectContract("deleted")},
+		}
 	default:
 		return nil
 	}
@@ -1532,6 +1545,21 @@ func virtualTaskResultSchema() string {
 	return `{"type":"object","properties":{"taskID":{"type":"string"},"goal":{"type":"string"},"size":{"type":"string"},"status":{"type":"string"},"startDate":{"type":"string"},"endDate":{"type":"string"},"targetPersonHint":{"type":"string"},"participantPersonHints":{"type":"array","items":{"type":"string"}},"content":{"type":"string"},"category":{"type":"string"},"type":{"type":"string"},"flag":{"type":"integer"},"requestReason":{"type":"string"},"decisionReason":{"type":"string"}},"required":["taskID"],"additionalProperties":false}`
 }
 
+func virtualCalendarResultContract(effect string) *agentruntime.CapabilityToolResultContract {
+	return &agentruntime.CapabilityToolResultContract{
+		Schema:  json.RawMessage(virtualCalendarEventResultSchema()),
+		Effects: []agentruntime.CapabilityResourceEffectContract{virtualCalendarEffectContract(effect)},
+	}
+}
+
+func virtualCalendarEffectContract(effect string) agentruntime.CapabilityResourceEffectContract {
+	return agentruntime.CapabilityResourceEffectContract{ObjectType: "calendar", Effect: effect, ResultField: "eventID", EffectIdentity: "id"}
+}
+
+func virtualCalendarEventResultSchema() string {
+	return `{"type":"object","properties":{"eventID":{"type":"string","minLength":1},"title":{"type":"string"},"description":{"type":"string"},"location":{"type":"string"},"startISO":{"type":"string"},"endISO":{"type":"string"},"timeZone":{"type":"string"},"isAllDay":{"type":"boolean"},"color":{"type":"string"},"people":{"type":"array","items":{"type":"string"}},"participants":{"type":"array","items":{"type":"object","properties":{"personID":{"type":"string"},"name":{"type":"string"},"email":{"type":"string"}},"required":["name"],"additionalProperties":false}},"reminderLeadHours":{"type":"number","enum":[1,2,3,6,12,24,48]},"updatedAt":{"type":"string"}},"required":["eventID","title","description","location","startISO","endISO","timeZone","isAllDay","color","people","participants","reminderLeadHours","updatedAt"],"additionalProperties":false}`
+}
+
 func (service *virtualCapabilityService) taskResponse(toolName string, requestBody []byte) string {
 	input := virtualCapabilityInput(requestBody)
 	switch toolName {
@@ -1547,6 +1575,9 @@ func (service *virtualCapabilityService) taskResponse(toolName string, requestBo
 		tasks := virtualCapabilityRecordValues(service.tasks)
 		return virtualCapabilitySuccess(toolName, "listed virtual tasks", map[string]any{"tasks": tasks, "count": len(tasks), "scope": "virtual"})
 	case "task.update":
+		if len(input) < 2 {
+			return virtualCapabilityInvalidInput(toolName, "at least one task field must be updated")
+		}
 		index := virtualCapabilityRecordIndexByID(service.tasks, input, "taskID")
 		if index < 0 {
 			return virtualCapabilityNotFound(toolName, "task")
@@ -1574,36 +1605,259 @@ func (service *virtualCapabilityService) taskResponse(toolName string, requestBo
 
 func (service *virtualCapabilityService) calendarResponse(toolName string, requestBody []byte) string {
 	input := virtualCapabilityInput(requestBody)
+	requester := virtualCapabilityRequesterFromRequest(requestBody)
 	switch toolName {
 	case "calendar.add":
-		record := virtualCapabilityRecord{ID: fmt.Sprintf("event-%d", len(service.events)+1), Values: input}
-		record.Values["eventID"] = record.ID
+		eventID := fmt.Sprintf("calendar-event-%03d", len(service.events)+1)
+		record := virtualCapabilityRecord{ID: eventID, Values: service.virtualCalendarEventValues(eventID, input, requester)}
 		service.events = append(service.events, record)
-		return virtualCapabilitySuccess(toolName, "created virtual calendar event", map[string]any{"event": record.Values})
+		return virtualCapabilityCalendarSuccess(toolName, "created", record.ID, "created virtual calendar event", record.Values)
 	case "calendar.list":
-		return virtualCapabilitySuccess(toolName, "listed virtual calendar events", map[string]any{"events": virtualCapabilityRecordValues(service.events)})
-	case "calendar.update":
-		if strings.TrimSpace(stringValue(input["query"])) == "" {
-			input["query"] = strings.TrimSpace(stringValue(input["title"]))
+		events, errorValue := virtualCalendarEventList(service.events, input)
+		if errorValue != nil {
+			return virtualCapabilityInvalidInput(toolName, errorValue.Error())
 		}
-		index := virtualCapabilityRecordIndex(service.events, input, "eventID")
+		return virtualCapabilitySuccess(toolName, "listed virtual calendar events", map[string]any{"events": events})
+	case "calendar.update":
+		if len(input) < 2 {
+			return virtualCapabilityInvalidInput(toolName, "at least one calendar event field must be updated")
+		}
+		index := virtualCapabilityRecordIndexByID(service.events, input, "eventID")
 		if index < 0 {
 			return virtualCapabilityNotFound(toolName, "calendar event")
 		}
-		mergeVirtualCapabilityRecord(service.events[index].Values, input, "eventID", "query")
-		return virtualCapabilitySuccess(toolName, "updated virtual calendar event", map[string]any{"event": service.events[index].Values})
+		mergeVirtualCalendarEvent(service.events[index].Values, input, requester, false)
+		service.events[index].Values["updatedAt"] = service.nextVirtualCalendarUpdatedAt()
+		return virtualCapabilityCalendarSuccess(toolName, "updated", service.events[index].ID, "updated virtual calendar event", service.events[index].Values)
 	default:
 		if virtualCapabilityRequestNeedsApproval(requestBody) {
 			return virtualCapabilityApprovalRequired(toolName)
 		}
-		index := virtualCapabilityRecordIndex(service.events, input, "eventID")
+		index := virtualCapabilityRecordIndexByID(service.events, input, "eventID")
 		if index < 0 {
 			return virtualCapabilityNotFound(toolName, "calendar event")
 		}
 		deletedRecord := service.events[index]
 		service.events = append(service.events[:index], service.events[index+1:]...)
-		return virtualCapabilitySuccess(toolName, "deleted virtual calendar event", map[string]any{"event": deletedRecord.Values, "status": "deleted"})
+		result := map[string]any{"eventID": deletedRecord.ID, "deleted": true}
+		return virtualCapabilityCalendarSuccess(toolName, "deleted", deletedRecord.ID, "deleted virtual calendar event", result)
 	}
+}
+
+func (service *virtualCapabilityService) virtualCalendarEventValues(eventID string, input map[string]any, requester virtualCapabilityRequester) map[string]any {
+	values := map[string]any{
+		"eventID":           eventID,
+		"title":             "",
+		"description":       "",
+		"location":          "",
+		"startISO":          "",
+		"endISO":            "",
+		"timeZone":          "",
+		"isAllDay":          false,
+		"color":             "",
+		"people":            []any{},
+		"participants":      []any{},
+		"reminderLeadHours": 24,
+		"updatedAt":         service.nextVirtualCalendarUpdatedAt(),
+	}
+	mergeVirtualCalendarEvent(values, input, requester, true)
+	return values
+}
+
+func (service *virtualCapabilityService) nextVirtualCalendarUpdatedAt() string {
+	service.calendarRevision++
+	return time.Date(2026, time.January, 1, 0, 0, service.calendarRevision, 0, time.UTC).Format(time.RFC3339)
+}
+
+func mergeVirtualCalendarEvent(event map[string]any, input map[string]any, requester virtualCapabilityRequester, includeRequesterDefault bool) {
+	for _, fieldName := range []string{"title", "description", "location", "startISO", "endISO", "timeZone", "isAllDay", "color", "people", "reminderLeadHours"} {
+		if value, isPresent := input[fieldName]; isPresent {
+			event[fieldName] = value
+		}
+	}
+	if _, hasPeople := input["people"]; hasPeople {
+		event["participants"] = virtualCalendarParticipants(event["people"], requester, virtualCalendarIncludesRequester(input, includeRequesterDefault))
+		return
+	}
+	if virtualCalendarIncludesRequester(input, includeRequesterDefault) {
+		event["participants"] = appendVirtualCalendarRequester(event["participants"], requester)
+	}
+}
+
+func virtualCalendarEventList(records []virtualCapabilityRecord, input map[string]any) ([]map[string]any, error) {
+	query := strings.ToLower(strings.TrimSpace(stringValue(input["query"])))
+	start, end, errorValue := virtualCalendarWindow(input)
+	if errorValue != nil {
+		return nil, errorValue
+	}
+	limit, errorValue := virtualCalendarLimit(input)
+	if errorValue != nil {
+		return nil, errorValue
+	}
+	events := make([]map[string]any, 0, len(records))
+	for _, record := range records {
+		if query != "" && !virtualCalendarEventMatches(record.Values, query) {
+			continue
+		}
+		if !virtualCalendarEventOverlapsWindow(record.Values, start, end) {
+			continue
+		}
+		events = append(events, record.Values)
+		if limit > 0 && float64(len(events)) >= limit {
+			break
+		}
+	}
+	return events, nil
+}
+
+func virtualCalendarEventMatches(event map[string]any, query string) bool {
+	searchText := strings.ToLower(strings.Join([]string{
+		stringValue(event["title"]),
+		stringValue(event["description"]),
+		stringValue(event["location"]),
+	}, "\n"))
+	return strings.Contains(searchText, query)
+}
+
+func virtualCalendarWindow(input map[string]any) (*time.Time, *time.Time, error) {
+	startValue := strings.TrimSpace(stringValue(input["startISO"]))
+	endValue := strings.TrimSpace(stringValue(input["endISO"]))
+	if startValue == "" && endValue == "" {
+		return nil, nil, nil
+	}
+	if startValue == "" || endValue == "" {
+		return nil, nil, errors.New("startISO and endISO must be provided together")
+	}
+	start, errorValue := parseVirtualCalendarTime(startValue)
+	if errorValue != nil {
+		return nil, nil, fmt.Errorf("startISO is invalid: %w", errorValue)
+	}
+	end, errorValue := parseVirtualCalendarTime(endValue)
+	if errorValue != nil {
+		return nil, nil, fmt.Errorf("endISO is invalid: %w", errorValue)
+	}
+	if !end.After(start) {
+		return nil, nil, errors.New("endISO must be after startISO")
+	}
+	return &start, &end, nil
+}
+
+func virtualCalendarLimit(input map[string]any) (float64, error) {
+	value, isPresent := input["limit"]
+	if !isPresent {
+		return 0, nil
+	}
+	number, isNumber := value.(float64)
+	if !isNumber || number <= 0 || math.Trunc(number) != number {
+		return 0, errors.New("limit must be a positive whole number")
+	}
+	return number, nil
+}
+
+func virtualCalendarEventOverlapsWindow(event map[string]any, start *time.Time, end *time.Time) bool {
+	if start == nil || end == nil {
+		return true
+	}
+	eventStart, startError := parseVirtualCalendarTime(stringValue(event["startISO"]))
+	eventEnd, endError := parseVirtualCalendarTime(stringValue(event["endISO"]))
+	if startError != nil || endError != nil {
+		return false
+	}
+	return eventStart.Before(*end) && eventEnd.After(*start)
+}
+
+func parseVirtualCalendarTime(value string) (time.Time, error) {
+	for _, layout := range []string{time.RFC3339, time.DateOnly} {
+		if parsedTime, errorValue := time.Parse(layout, strings.TrimSpace(value)); errorValue == nil {
+			return parsedTime, nil
+		}
+	}
+	return time.Time{}, errors.New("expected RFC3339 timestamp or YYYY-MM-DD date")
+}
+
+type virtualCapabilityRequester struct {
+	PersonID string
+	Name     string
+	Email    string
+}
+
+func virtualCapabilityRequesterFromRequest(requestBody []byte) virtualCapabilityRequester {
+	var requestDocument struct {
+		Context struct {
+			RequesterPersonID string `json:"requesterPersonID"`
+			RequesterName     string `json:"requesterName"`
+			RequesterEmail    string `json:"requesterEmail"`
+		} `json:"context"`
+	}
+	_ = json.Unmarshal(requestBody, &requestDocument)
+	return virtualCapabilityRequester{
+		PersonID: strings.TrimSpace(requestDocument.Context.RequesterPersonID),
+		Name:     strings.TrimSpace(requestDocument.Context.RequesterName),
+		Email:    strings.ToLower(strings.TrimSpace(requestDocument.Context.RequesterEmail)),
+	}
+}
+
+func virtualCalendarIncludesRequester(input map[string]any, defaultValue bool) bool {
+	value, isPresent := input["includeRequester"]
+	if !isPresent {
+		return defaultValue
+	}
+	includeRequester, isBoolean := value.(bool)
+	return isBoolean && includeRequester
+}
+
+func virtualCalendarParticipants(people any, requester virtualCapabilityRequester, includeRequester bool) []any {
+	participants := []any{}
+	for _, person := range stringSliceValue(people) {
+		participants = appendVirtualCalendarParticipant(participants, virtualCapabilityRequester{Name: person})
+	}
+	if includeRequester {
+		participants = appendVirtualCalendarParticipant(participants, requester)
+	}
+	return participants
+}
+
+func appendVirtualCalendarRequester(participants any, requester virtualCapabilityRequester) []any {
+	result, _ := participants.([]any)
+	return appendVirtualCalendarParticipant(result, requester)
+}
+
+func appendVirtualCalendarParticipant(participants []any, requester virtualCapabilityRequester) []any {
+	name := firstNonEmptyVirtualValue(requester.Name, requester.Email, requester.PersonID)
+	if name == "" {
+		return participants
+	}
+	for _, participant := range participants {
+		document, _ := participant.(map[string]any)
+		if strings.EqualFold(stringValue(document["name"]), name) {
+			return participants
+		}
+	}
+	return append(participants, map[string]any{
+		"personID": requester.PersonID,
+		"name":     name,
+		"email":    requester.Email,
+	})
+}
+
+func firstNonEmptyVirtualValue(values ...string) string {
+	for _, value := range values {
+		if trimmedValue := strings.TrimSpace(value); trimmedValue != "" {
+			return trimmedValue
+		}
+	}
+	return ""
+}
+
+func stringSliceValue(value any) []string {
+	values, _ := value.([]any)
+	result := make([]string, 0, len(values))
+	for _, entry := range values {
+		if normalizedValue := strings.TrimSpace(stringValue(entry)); normalizedValue != "" {
+			result = append(result, normalizedValue)
+		}
+	}
+	return result
 }
 
 func copyVirtualCapabilityValues(values map[string]any) map[string]any {
@@ -1624,20 +1878,6 @@ func virtualCapabilityInput(requestBody []byte) map[string]any {
 	return requestDocument.Input
 }
 
-func virtualCapabilityRecordIndex(records []virtualCapabilityRecord, input map[string]any, idFieldName string) int {
-	requestedID := strings.TrimSpace(stringValue(input[idFieldName]))
-	query := strings.ToLower(strings.TrimSpace(stringValue(input["query"])))
-	for index, record := range records {
-		if requestedID != "" && record.ID == requestedID {
-			return index
-		}
-		if query != "" && virtualCapabilityRecordContains(record, query) {
-			return index
-		}
-	}
-	return -1
-}
-
 func virtualCapabilityRecordIndexByID(records []virtualCapabilityRecord, input map[string]any, idFieldName string) int {
 	requestedID := strings.TrimSpace(stringValue(input[idFieldName]))
 	for index, record := range records {
@@ -1646,11 +1886,6 @@ func virtualCapabilityRecordIndexByID(records []virtualCapabilityRecord, input m
 		}
 	}
 	return -1
-}
-
-func virtualCapabilityRecordContains(record virtualCapabilityRecord, query string) bool {
-	document, errorValue := json.Marshal(record.Values)
-	return errorValue == nil && strings.Contains(strings.ToLower(string(document)), query)
 }
 
 func mergeVirtualCapabilityRecord(record map[string]any, input map[string]any, excludedFieldNames ...string) {
@@ -1690,9 +1925,37 @@ func virtualCapabilityTaskSuccess(toolName string, effect string, taskID string,
 	})
 }
 
+func virtualCapabilityCalendarSuccess(toolName string, effect string, eventID string, content string, result any) string {
+	return virtualCapabilityJSON(map[string]any{
+		"provider":        "virtual",
+		"selectedBackend": "device",
+		"toolName":        toolName,
+		"outcome":         "succeeded",
+		"status":          "ok",
+		"content":         content,
+		"result":          result,
+		"effects":         []map[string]any{{"objectType": "calendar", "effect": effect, "id": eventID}},
+	})
+}
+
 func virtualCapabilityApprovalRequired(toolName string) string {
 	result := map[string]any{"errorCode": "approval_required", "failureStage": "authorization", "message": "requires approval"}
 	return virtualCapabilityJSON(map[string]any{"provider": "virtual", "selectedBackend": "device", "toolName": toolName, "outcome": "denied", "status": "denied", "content": "requires approval", "message": "requires approval", "errorCode": "approval_required", "failureStage": "authorization", "result": result})
+}
+
+func virtualCapabilityInvalidInput(toolName string, message string) string {
+	return virtualCapabilityJSON(map[string]any{
+		"provider":        "virtual",
+		"selectedBackend": "device",
+		"toolName":        toolName,
+		"outcome":         "failed",
+		"status":          "error",
+		"content":         message,
+		"message":         message,
+		"errorCode":       "invalid_input",
+		"failureStage":    "input",
+		"result":          map[string]any{"message": message},
+	})
 }
 
 func virtualCapabilityNotFound(toolName string, resourceName string) string {

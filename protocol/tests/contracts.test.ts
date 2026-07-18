@@ -17,6 +17,8 @@ import {
   StructuredOutputRepairStatus,
   StructuredOutputValidationCode,
   structuredOutputDiagnosticSchema,
+  ToolConflictResolution,
+  toolInvokeRequestSchema,
   toolInvokeResponseSchema,
   type ProtocolSchemaName,
 } from '../src/index.ts';
@@ -47,6 +49,23 @@ const fixtureSchemaNames = {
 } satisfies Record<string, ProtocolSchemaName>;
 
 describe('closed protocol values', () => {
+  test('keeps internal conflict resolution typed and outside tool input', () => {
+    const request = {
+      toolName: 'calendar.add',
+      input: {
+        title: '고객지원 점검',
+        startISO: '2026-07-24T14:00:00+09:00',
+        endISO: '2026-07-24T15:00:00+09:00',
+      },
+      context: { conflictResolution: ToolConflictResolution.AllowDuplicate },
+    };
+    expect(toolInvokeRequestSchema.safeParse(request).success).toBe(true);
+    expect(toolInvokeRequestSchema.safeParse({
+      ...request,
+      context: { conflictResolution: 'ignore_conflict' },
+    }).success).toBe(false);
+  });
+
   test('keeps structured output diagnostics closed and content-free', () => {
     expect(structuredOutputDiagnosticSchema.parse({
       category: StructuredOutputDiagnosticCategory.SchemaValidation,
