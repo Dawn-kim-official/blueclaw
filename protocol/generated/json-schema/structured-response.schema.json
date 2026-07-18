@@ -1,0 +1,98 @@
+{
+  "$id": "https://schemas.blueclaw.dev/0.3.0/structured-response.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": {},
+  "properties": {
+    "constraintMode": {
+      "enum": [
+        "openai_json_schema",
+        "llama_json_schema",
+        "llama_gbnf",
+        "litert_llguidance_json_schema",
+        "native_tool_call",
+        "prompted_json"
+      ],
+      "type": "string"
+    },
+    "content": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "finishReason": {
+      "const": "stop",
+      "type": "string"
+    },
+    "model": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "provider": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "selectedBackend": {
+      "enum": [
+        "device",
+        "remote"
+      ],
+      "type": "string"
+    },
+    "usage": {
+      "additionalProperties": {},
+      "properties": {
+        "cacheWriteTokens": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "cachedPromptTokens": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "completionTokens": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "costUSD": {
+          "minimum": 0,
+          "type": "number"
+        },
+        "promptTokens": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "reasoningTokens": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "totalTokens": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "upstreamInferenceCostUSD": {
+          "minimum": 0,
+          "type": "number"
+        }
+      },
+      "required": [
+        "promptTokens",
+        "completionTokens",
+        "totalTokens"
+      ],
+      "type": "object"
+    }
+  },
+  "required": [
+    "provider",
+    "model",
+    "content",
+    "selectedBackend",
+    "finishReason"
+  ],
+  "type": "object"
+}

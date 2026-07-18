@@ -1,13 +1,28 @@
-import { mkdir, mkdtemp, rename, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { buildProtocolArtifacts, serializeArtifact } from '../src/artifacts.ts';
 
-const generatedDirectory = fileURLToPath(new URL('../dist/', import.meta.url));
+const generatedDirectory = fileURLToPath(new URL('../generated/', import.meta.url));
 
 export async function generateProtocolArtifacts(targetDirectory = generatedDirectory): Promise<void> {
   await replaceGeneratedDirectory(targetDirectory, writeProtocolArtifacts);
+}
+
+export async function checkProtocolArtifacts(targetDirectory = generatedDirectory): Promise<void> {
+  const expectedDocuments = buildProtocolArtifactDocuments();
+  const actualPaths = await listRelativeFilePaths(targetDirectory);
+  const expectedPaths = [...expectedDocuments.keys()].sort();
+  if (JSON.stringify(actualPaths) !== JSON.stringify(expectedPaths)) {
+    throw new Error(`generated protocol paths differ: expected ${expectedPaths.join(', ')}, got ${actualPaths.join(', ')}`);
+  }
+  for (const [relativePath, expectedDocument] of expectedDocuments) {
+    const actualDocument = await readFile(join(targetDirectory, relativePath), 'utf8');
+    if (actualDocument !== expectedDocument) {
+      throw new Error(`generated protocol artifact is stale: ${relativePath}`);
+    }
+  }
 }
 
 export async function replaceGeneratedDirectory(
@@ -41,11 +56,32 @@ export async function replaceGeneratedDirectory(
 }
 
 async function writeProtocolArtifacts(targetDirectory: string): Promise<void> {
-  const schemaDirectory = join(targetDirectory, 'json-schema');
-  const { manifest, schemas } = buildProtocolArtifacts();
-  await mkdir(schemaDirectory, { recursive: true });
-  await Promise.all(schemas.map(({ fileName, schema }) => writeFile(join(schemaDirectory, fileName), serializeArtifact(schema))));
-  await writeFile(join(targetDirectory, 'manifest.json'), serializeArtifact(manifest));
+  const documents = buildProtocolArtifactDocuments();
+  await Promise.all([...documents].map(async ([relativePath, document]) => {
+    const artifactPath = join(targetDirectory, relativePath);
+    await mkdir(dirname(artifactPath), { recursive: true });
+    await writeFile(artifactPath, document);
+  }));
+}
+
+function buildProtocolArtifactDocuments(): Map<string, string> {
+  const { capabilityToolCatalog, manifest, schemas } = buildProtocolArtifacts();
+  return new Map([
+    [capabilityToolCatalog.fileName, serializeArtifact(capabilityToolCatalog.catalog)],
+    ...schemas.map(({ fileName, schema }) => [join('json-schema', fileName), serializeArtifact(schema)] as const),
+    ['manifest.json', serializeArtifact(manifest)],
+  ]);
+}
+
+async function listRelativeFilePaths(targetDirectory: string, relativeDirectory = ''): Promise<string[]> {
+  const directoryPath = join(targetDirectory, relativeDirectory);
+  const entries = await readdir(directoryPath, { withFileTypes: true });
+  const paths = await Promise.all(entries.map(async entry => {
+    const relativePath = join(relativeDirectory, entry.name);
+    if (!entry.isDirectory()) return [relativePath];
+    return listRelativeFilePaths(targetDirectory, relativePath);
+  }));
+  return paths.flat().sort();
 }
 
 function isNotFoundError(errorValue: unknown): boolean {
@@ -53,4 +89,17 @@ function isNotFoundError(errorValue: unknown): boolean {
   return 'code' in errorValue && errorValue.code === 'ENOENT';
 }
 
-if (import.meta.main) await generateProtocolArtifacts();
+function argumentValue(name: string): string | undefined {
+  const argumentIndex = Bun.argv.indexOf(name);
+  if (argumentIndex < 0) return undefined;
+  return Bun.argv[argumentIndex + 1];
+}
+
+if (import.meta.main) {
+  const targetDirectory = argumentValue('--target') ?? generatedDirectory;
+  if (Bun.argv.includes('--check')) {
+    await checkProtocolArtifacts(targetDirectory);
+  } else {
+    await generateProtocolArtifacts(targetDirectory);
+  }
+}

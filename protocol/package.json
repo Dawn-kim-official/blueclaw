@@ -1,6 +1,6 @@
 {
   "name": "@blueclaw/protocol",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "type": "module",
   "exports": {
@@ -10,6 +10,7 @@
   "scripts": {
     "build": "bun run typecheck",
     "generate": "bun run scripts/generate.ts",
+    "generate:check": "bun run scripts/generate.ts --check",
     "test": "bun test",
     "typecheck": "tsc --noEmit"
   },

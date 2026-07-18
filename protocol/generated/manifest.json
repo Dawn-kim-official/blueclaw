@@ -1,0 +1,95 @@
+{
+  "aggregateHash": "63d1b24a7de25c6204e93fd63a24d12583822d0407d99afbd94a945f73cfa773",
+  "capabilityToolCatalog": {
+    "fileName": "capability-tools.json",
+    "hash": "015d2dc55ab3cb7d0f35afb580ef494bb9aaf821b43aa88143bb1c51afa8dc04"
+  },
+  "protocolVersion": "0.3.0",
+  "schemas": [
+    {
+      "fileName": "agent-action.schema.json",
+      "hash": "0531bad6d36397ea6eae5f0f2412f5a1a04db58cbf40c547638e267e5430d144",
+      "name": "agent-action"
+    },
+    {
+      "fileName": "agent-message.schema.json",
+      "hash": "3bee9af76b52dddb5b9f5826e457136ea2b2d131d7cba70a23ce62e2533e2816",
+      "name": "agent-message"
+    },
+    {
+      "fileName": "capability-descriptor.schema.json",
+      "hash": "c4c90c4a84cc74da6c22d27a0be166d76af3712e57a76745278ac25751b39a4d",
+      "name": "capability-descriptor"
+    },
+    {
+      "fileName": "capability-registry-response.schema.json",
+      "hash": "7e2dd7e38d630e30312a29e956437b7041bbac2838ef5c49303a14ad6d2a2ca4",
+      "name": "capability-registry-response"
+    },
+    {
+      "fileName": "chat-completion-request.schema.json",
+      "hash": "7240551ea2d12af3e91fa54f861fc92a8ff9aa0bca28e7a84e39a82955a7a34b",
+      "name": "chat-completion-request"
+    },
+    {
+      "fileName": "chat-completion-response.schema.json",
+      "hash": "a029740a4ced6bc03d033f991ab8ee63ce047c26b2e0f108424e6a4d496e31d6",
+      "name": "chat-completion-response"
+    },
+    {
+      "fileName": "connector-runtime-result.schema.json",
+      "hash": "3a0c2919999240ea156920917b935b53801610895b2c485d3720551f6dcdc906",
+      "name": "connector-runtime-result"
+    },
+    {
+      "fileName": "platform-inbound-event.schema.json",
+      "hash": "ae95d82192c4f3d9fa9b590dc379f3a53818024b09df1f48d63e2c8eedf98487",
+      "name": "platform-inbound-event"
+    },
+    {
+      "fileName": "structured-response.schema.json",
+      "hash": "bc73bdaf485923cf48c8fe10c88cb14f961556f15fc68114f83f9d99b9b3f32d",
+      "name": "structured-response"
+    },
+    {
+      "fileName": "structured-response-request.schema.json",
+      "hash": "2ecc064673b70cbf7d83dab1b18131e194e9b81c06ebf6b0c13909f227b3083c",
+      "name": "structured-response-request"
+    },
+    {
+      "fileName": "task-artifact.schema.json",
+      "hash": "f5ac3bd1829eb8edf82f70bb8c3ec327fdeba2b0b5acf68dec5528640c14d3aa",
+      "name": "task-artifact"
+    },
+    {
+      "fileName": "task-attempt.schema.json",
+      "hash": "250e1bee82d3631cf1a5392d4757102368a72864f7c86c76709f2238857cae01",
+      "name": "task-attempt"
+    },
+    {
+      "fileName": "task-event.schema.json",
+      "hash": "eeb55d12f31ed77ed3fdc260b9e5cc03d2fe446f1db48ba7715f165eda64b132",
+      "name": "task-event"
+    },
+    {
+      "fileName": "task-run.schema.json",
+      "hash": "264713e6d5f39ad70a7004cc25b041e1d37f65a29ab76b22b82af16438a3ea27",
+      "name": "task-run"
+    },
+    {
+      "fileName": "task-schedule.schema.json",
+      "hash": "18bee166dc25a5803055d2551a1c182a6a3be6790a79da1105484f2cbd154815",
+      "name": "task-schedule"
+    },
+    {
+      "fileName": "tool-invoke-request.schema.json",
+      "hash": "c28833ac530fe03e3c4559a8d38255fa1fb857e33abbe6615f172cba4fa23ac0",
+      "name": "tool-invoke-request"
+    },
+    {
+      "fileName": "tool-invoke-response.schema.json",
+      "hash": "e7e191c174282c8b0eceea943a09abd089bc3673745f657f7b878a5388f1fd81",
+      "name": "tool-invoke-response"
+    }
+  ]
+}
