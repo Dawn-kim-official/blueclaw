@@ -135,6 +135,56 @@ describe('sdkd provider adapter', () => {
     expect(fallbackModel.doGenerateCalls).toHaveLength(0);
   });
 
+  test('accepts the sole available tool when a tool call is required', async () => {
+    const fallbackModel = chatLanguageModel('unused-local-model');
+    const remoteModel = toolCallLanguageModel('served-remote-model', [{
+      toolName: 'lookup',
+      input: '{"key":"result"}',
+    }]);
+    const generateChatCompletion = createChatCompletionGenerator(
+      completeConfiguration(SDKDAutoRoute.RemoteFirst),
+      languageModelFactory(fallbackModel, remoteModel),
+    );
+
+    const response = await generateChatCompletion({
+      ...chatRequest,
+      toolChoice: 'required',
+    });
+
+    expect(response.message.toolCalls?.[0]?.function).toEqual({
+      name: 'lookup',
+      arguments: '{"key":"result"}',
+    });
+    expect(remoteModel.doGenerateCalls[0]?.toolChoice).toEqual({ type: 'required' });
+    expect(fallbackModel.doGenerateCalls).toHaveLength(0);
+  });
+
+  test('rejects a different tool when the sole available tool is required', async () => {
+    const fallbackModel = chatLanguageModel('unused-local-model');
+    const remoteModel = toolCallLanguageModel('wrong-tool-model', [{
+      toolName: 'other',
+      input: '{}',
+    }]);
+    const generateChatCompletion = createChatCompletionGenerator(
+      completeConfiguration(SDKDAutoRoute.RemoteFirst),
+      languageModelFactory(fallbackModel, remoteModel),
+    );
+
+    await expect(generateChatCompletion({
+      ...chatRequest,
+      toolChoice: 'required',
+    })).rejects.toMatchObject({
+      code: 'structured_output_invalid',
+      status: 422,
+      allowLegacyFallback: false,
+      diagnostic: {
+        category: StructuredOutputDiagnosticCategory.ToolCallContract,
+      },
+    });
+    expect(remoteModel.doGenerateCalls).toHaveLength(1);
+    expect(fallbackModel.doGenerateCalls).toHaveLength(0);
+  });
+
   test('rejects named tool choice contract violations without fallback', async () => {
     const invalidModels = [
       textLanguageModel('text-model'),

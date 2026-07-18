@@ -611,7 +611,7 @@ async function generateChatForRoute(
     temperature: request.generationOptions?.temperature,
   });
   throwIfAborted(abortSignal);
-  requireChatToolChoice(result, toolChoice);
+  requireChatToolChoice(result, toolChoice, Object.keys(tools));
   for (const toolCall of result.toolCalls) {
     if (!toolCall.invalid) continue;
     const toolName = tools[toolCall.toolName] === undefined ? undefined : toolCall.toolName;
@@ -680,11 +680,18 @@ function keepFirstToolCall(result: LanguageModelV3GenerateResult): LanguageModel
 function requireChatToolChoice(
   result: StructuredOutputToolResult,
   toolChoice: ToolChoice<DynamicToolSet> | undefined,
+  toolNames: string[],
 ): void {
   if (toolChoice === 'required') {
     requireToolCallFinishReason(result, 'required tool choice');
-    if (result.toolCalls.length > 0) return;
-    throw toolCallContractError('required tool choice did not return a tool call');
+    if (result.toolCalls.length === 0) {
+      throw toolCallContractError('required tool choice did not return a tool call');
+    }
+    const onlyToolName = toolNames.length === 1 ? toolNames[0] : undefined;
+    if (onlyToolName !== undefined && result.toolCalls.some(toolCall => toolCall.toolName !== onlyToolName)) {
+      throw toolCallContractError(`required single tool choice ${onlyToolName} returned a different tool`);
+    }
+    return;
   }
   if (!isNamedToolChoice(toolChoice)) return;
   requireToolCallFinishReason(result, `named tool choice ${toolChoice.toolName}`);

@@ -690,7 +690,8 @@ func restrictAgentActionChatCompletionRequest(request llm.ChatCompletionRequest,
 			continue
 		}
 		request.Tools = []llm.ChatCompletionTool{tool}
-		request.ToolChoice = namedAgentActionToolChoice(toolName)
+		request.ToolChoice = json.RawMessage(`"required"`)
+		request.ParallelToolCalls = false
 		return request, true
 	}
 	return llm.ChatCompletionRequest{}, false
@@ -709,18 +710,6 @@ func firstPendingOperationToolName(state agentTaskState) string {
 		return ""
 	}
 	return strings.TrimSpace(requirement.ToolName)
-}
-
-func namedAgentActionToolChoice(toolName string) json.RawMessage {
-	choice := struct {
-		Type     string `json:"type"`
-		Function struct {
-			Name string `json:"name"`
-		} `json:"function"`
-	}{Type: "function"}
-	choice.Function.Name = toolName
-	document, _ := json.Marshal(choice)
-	return document
 }
 
 func agentActionCorrectionMessage(correction llm.StructuredOutputCorrection) string {
