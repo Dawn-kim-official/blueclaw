@@ -295,10 +295,7 @@ func chatCallRecord(kind string, request llm.ChatCompletionRequest, response llm
 }
 
 func chatRequestSchemaName(request llm.ChatCompletionRequest) string {
-	if llm.ForcedFunctionToolName(request) == agentActionSchemaName {
-		return agentActionSchemaName
-	}
-	return ""
+	return strings.TrimSpace(request.SchemaName)
 }
 
 func chatRequestByteCount(request llm.ChatCompletionRequest) int {

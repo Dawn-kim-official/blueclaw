@@ -115,7 +115,7 @@ func TestObserveLanguageModelRecordsSafeChatToolDiagnostics(t *testing.T) {
 	}
 }
 
-func TestObserveLanguageModelDerivesActionSchemaForForcedChatOnly(t *testing.T) {
+func TestObserveLanguageModelRecordsExplicitChatSchemaOnly(t *testing.T) {
 	records := []llmCallRecord{}
 	observed := observeLanguageModel(recoveryCapableTestModel{}, func(record llmCallRecord) {
 		records = append(records, record)
@@ -134,12 +134,13 @@ func TestObserveLanguageModelDerivesActionSchemaForForcedChatOnly(t *testing.T) 
 		t.Fatalf("expected action and plain chat records, got %+v", records)
 	}
 	if records[0].SchemaName != "blueclaw_agent_turn_action" || records[1].SchemaName != "" {
-		t.Fatalf("expected only forced action chat to carry schema, got %+v", records)
+		t.Fatalf("expected only explicitly identified action chat to carry schema, got %+v", records)
 	}
 }
 
 func nativeActionChatRequest() llm.ChatCompletionRequest {
 	return llm.ChatCompletionRequest{
+		SchemaName: agentActionSchemaName,
 		Tools: []llm.ChatCompletionTool{{
 			Type:     "function",
 			Function: llm.ChatCompletionFunction{Name: "blueclaw_agent_turn_action"},

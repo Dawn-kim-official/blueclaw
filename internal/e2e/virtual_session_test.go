@@ -111,6 +111,7 @@ func TestVirtualChatCallEventDerivesActionSchemaForForcedChatOnly(t *testing.T) 
 
 func virtualActionChatRequest() llm.ChatCompletionRequest {
 	return llm.ChatCompletionRequest{
+		SchemaName: "blueclaw_agent_turn_action",
 		Tools: []llm.ChatCompletionTool{{
 			Type:     "function",
 			Function: llm.ChatCompletionFunction{Name: "blueclaw_agent_turn_action"},
