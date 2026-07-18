@@ -148,6 +148,18 @@ func TestBuildAgentActionRequestKeepsTextToolCatalogForStructuredFallback(t *tes
 	}
 }
 
+func TestBuildAgentActionRequestIncludesNextPendingOperationRequirement(t *testing.T) {
+	request := buildAgentActionRequest(nativeAgentActionContractState(), false)
+	messageContent := joinMessageContent(request.Messages)
+
+	if !strings.Contains(messageContent, "Pending typed operation requirements.") {
+		t.Fatalf("expected pending operation context, got %s", messageContent)
+	}
+	if !strings.Contains(messageContent, `"toolName":"file.write"`) || !strings.Contains(messageContent, `"requiredInput":{"path":"report.txt"}`) {
+		t.Fatalf("expected exact typed file.write input, got %s", messageContent)
+	}
+}
+
 func TestDecideAgentActionNativeChatRejectsInvalidCallsWithoutStructuredFallback(t *testing.T) {
 	blankToolCallIDResponse := nativeAgentActionChatResponse("finish", `{}`)
 	blankToolCallIDResponse.Message.ToolCalls[0].ID = " "

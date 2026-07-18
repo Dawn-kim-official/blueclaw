@@ -449,22 +449,100 @@ func operationRequirementsSatisfied(contract *OperationContract, observations []
 	if contract.Version != operationContractVersion || len(contract.Requirements) == 0 {
 		return false
 	}
-	_, hasPendingRequirement := firstPendingOperationRequirement(contract, observations)
-	return !hasPendingRequirement
+	return matchedOperationRequirementCount(contract, observations) == len(contract.Requirements)
 }
 
 func firstPendingOperationRequirement(contract *OperationContract, observations []turnObservation) (OperationRequirement, bool) {
+	pendingRequirements := pendingOperationRequirements(contract, observations)
+	if len(pendingRequirements) == 0 {
+		return OperationRequirement{}, false
+	}
+	return pendingRequirements[0], true
+}
+
+func pendingOperationRequirements(contract *OperationContract, observations []turnObservation) []OperationRequirement {
+	if contract == nil || contract.Version != operationContractVersion || len(contract.Requirements) == 0 {
+		return nil
+	}
+	matchedRequirementIndexes := matchedOperationRequirementIndexes(contract.Requirements, observations)
+	pendingRequirements := make([]OperationRequirement, 0, len(contract.Requirements)-len(matchedRequirementIndexes))
+	for requirementIndex, requirement := range contract.Requirements {
+		if !matchedRequirementIndexes[requirementIndex] {
+			pendingRequirements = append(pendingRequirements, requirement)
+		}
+	}
+	return pendingRequirements
+}
+
+func matchedOperationRequirementCount(contract *OperationContract, observations []turnObservation) int {
+	if contract == nil || contract.Version != operationContractVersion || len(contract.Requirements) == 0 {
+		return 0
+	}
+	return len(matchedOperationRequirementIndexes(contract.Requirements, observations))
+}
+
+func matchedOperationRequirementIndexes(requirements []OperationRequirement, observations []turnObservation) map[int]bool {
 	matchedRequirementByObservation := make([]int, len(observations))
 	for index := range matchedRequirementByObservation {
 		matchedRequirementByObservation[index] = -1
 	}
-	for requirementIndex := range contract.Requirements {
+	for requirementIndex := range requirements {
 		visitedObservations := make([]bool, len(observations))
-		if !assignOperationObservation(requirementIndex, contract.Requirements, observations, matchedRequirementByObservation, visitedObservations) {
-			return contract.Requirements[requirementIndex], true
+		assignOperationObservation(requirementIndex, requirements, observations, matchedRequirementByObservation, visitedObservations)
+	}
+	matchedRequirementIndexes := map[int]bool{}
+	for _, requirementIndex := range matchedRequirementByObservation {
+		if requirementIndex >= 0 {
+			matchedRequirementIndexes[requirementIndex] = true
 		}
 	}
-	return OperationRequirement{}, false
+	return matchedRequirementIndexes
+}
+
+func pendingOperationRequirementContext(contract *OperationContract, observations []turnObservation) string {
+	pendingRequirements := pendingOperationRequirements(contract, observations)
+	if len(pendingRequirements) == 0 {
+		return ""
+	}
+	document, errorValue := json.Marshal(pendingRequirements)
+	if errorValue != nil {
+		return ""
+	}
+	return "Pending typed operation requirements. A contracted mutation must satisfy one still-unmatched requiredInput:\n" + string(document)
+}
+
+func pendingOperationInputMismatch(toolSet *ToolSet, contract *OperationContract, observations []turnObservation, toolName string, toolInput json.RawMessage) ([]OperationRequirement, bool) {
+	toolDefinition, isFound := toolDefinitionForName(toolSet, toolName)
+	if !isFound || !operationContractIncludesTool(contract, toolName) {
+		return nil, false
+	}
+	candidateObservation := turnObservation{
+		ObservationID: "candidate",
+		Action:        "continue",
+		Tool:          toolName,
+		ToolID:        toolDefinition.ID,
+		ToolInput:     copyJSONRawMessage(toolInput),
+	}
+	matchedCount := matchedOperationRequirementCount(contract, observations)
+	candidateObservations := append([]turnObservation{}, observations...)
+	candidateObservations = append(candidateObservations, candidateObservation)
+	candidateMatchedCount := matchedOperationRequirementCount(contract, candidateObservations)
+	if candidateMatchedCount > matchedCount {
+		return nil, false
+	}
+	return pendingOperationRequirements(contract, observations), true
+}
+
+func operationContractIncludesTool(contract *OperationContract, toolName string) bool {
+	if contract == nil || contract.Version != operationContractVersion {
+		return false
+	}
+	for _, requirement := range contract.Requirements {
+		if requirement.ToolName == toolName {
+			return true
+		}
+	}
+	return false
 }
 
 func assignOperationObservation(requirementIndex int, requirements []OperationRequirement, observations []turnObservation, matchedRequirementByObservation []int, visitedObservations []bool) bool {

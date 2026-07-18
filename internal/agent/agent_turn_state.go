@@ -370,6 +370,9 @@ func buildAgentActionRequest(state agentTaskState, includeToolDescription bool) 
 		toolDescription,
 		state.ExecutionState,
 	)
+	if operationRequirementContext := pendingOperationRequirementContext(state.Request.OutcomeContract.OperationContract, state.Observations); operationRequirementContext != "" {
+		messages = append(messages, llm.Message{Role: "system", Content: operationRequirementContext})
+	}
 	if hasFailureDebt {
 		messages = append(messages, llm.Message{
 			Role:    "system",
