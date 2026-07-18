@@ -105,6 +105,11 @@ export enum ArtifactIssueCategory {
   RenderFidelity = 'renderFidelity',
 }
 
+export enum ArtifactEvidenceMimeType {
+  PNG = 'image/png',
+  JPEG = 'image/jpeg',
+}
+
 export enum SiteToolName {
   Create = 'site.create',
   Status = 'site.status',
@@ -543,7 +548,7 @@ export const artifactReviewInputSchema = z.strictObject({
   evidence: z.array(z.strictObject({
     role: resourceIDSchema,
     path: resourceIDSchema,
-    mimeType: z.enum(['image/png', 'image/jpeg']),
+    mimeType: z.enum(ArtifactEvidenceMimeType),
     label: resourceIDSchema,
   })).min(1).max(8),
   expectedText: z.array(z.strictObject({
