@@ -271,7 +271,10 @@ var kernelToolDescriptorSpecs = []kernelToolDescriptorSpec{
 		SideEffectClass: agent.ToolSideEffectRead,
 		CompletionMode:  agent.ToolCompletionNone,
 		Idempotency:     agent.ToolIdempotencyNone,
-		OutputSchema:    json.RawMessage(`{"type":"object"}`),
+		OutputSchema:    conversationHistoryResultSchema,
+		ResultContract: &agent.ToolResultContract{
+			Schema: conversationHistoryResultSchema,
+		},
 	},
 }
 

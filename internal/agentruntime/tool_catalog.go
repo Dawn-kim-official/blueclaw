@@ -140,7 +140,6 @@ type CapabilityIdempotency struct {
 type historyToolInput struct {
 	HistoryCursor string `json:"historyCursor"`
 	Limit         int    `json:"limit"`
-	Direction     string `json:"direction"`
 }
 
 func NewToolCatalogBuilder() *ToolCatalogBuilder {
@@ -259,7 +258,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerHistoryTool(toolRegistry *
 		Definition: agent.ToolDefinition{
 			Name:        "conversation.history",
 			Description: "Fetch earlier visible messages for this conversation using the opaque history cursor.",
-			InputSchema: json.RawMessage(`{"type":"object","properties":{"historyCursor":{"type":"string"},"limit":{"type":"number"},"direction":{"type":"string"}}}`),
+			InputSchema: conversationHistoryInputSchema,
 		},
 		Handler: func(toolContext context.Context, input historyToolInput) (agent.ToolResult, error) {
 			return fetchHistoryTool(toolContext, input, request)
@@ -285,7 +284,8 @@ func fetchHistoryTool(toolContext context.Context, input historyToolInput, reque
 	if errorValue != nil {
 		return agent.ToolResult{}, errorValue
 	}
-	return agent.ToolSuccess(marshalToolResult(visibleContext)), nil
+	document := json.RawMessage(marshalToolResult(projectConversationHistory(visibleContext)))
+	return agent.ToolSuccessData(string(document), document), nil
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) registerBuiltInTools(toolRegistry *agent.ToolSet, handlerContext toolHandlerContext) {

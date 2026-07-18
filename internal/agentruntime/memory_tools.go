@@ -19,19 +19,47 @@ type memoryRememberToolInput struct {
 	Content string `json:"content"`
 }
 
-type memorySearchToolOutput struct {
-	Facts        []memory.MemoryFact `json:"facts"`
-	SearchStatus string              `json:"searchStatus"`
-	Degraded     bool                `json:"degraded,omitempty"`
-	Sources      []string            `json:"sources,omitempty"`
+type memorySearchStatus string
+
+const (
+	memorySearchComplete memorySearchStatus = "complete"
+	memorySearchDegraded memorySearchStatus = "degraded"
+)
+
+type memorySearchSource string
+
+const (
+	memorySearchGraphSource  memorySearchSource = "graph_memory"
+	memorySearchPinnedSource memorySearchSource = "pinned_markdown"
+	memorySearchRecentSource memorySearchSource = "recent_memory"
+)
+
+type memorySearchFact struct {
+	FactID     string    `json:"factID"`
+	ScopeType  string    `json:"scopeType"`
+	Content    string    `json:"content"`
+	SourceKind string    `json:"sourceKind"`
+	ValidAt    time.Time `json:"validAt"`
+	Score      *float64  `json:"score,omitempty"`
 }
+
+type memorySearchToolOutput struct {
+	Facts        []memorySearchFact   `json:"facts"`
+	SearchStatus memorySearchStatus   `json:"searchStatus"`
+	Sources      []memorySearchSource `json:"sources"`
+}
+
+var (
+	memorySearchInputSchema  = json.RawMessage(`{"type":"object","properties":{"query":{"type":"string","minLength":1,"pattern":"\\S"}},"required":["query"],"additionalProperties":false}`)
+	memorySearchOutputSchema = json.RawMessage(`{"type":"object","properties":{"facts":{"type":"array","items":{"type":"object","properties":{"factID":{"type":"string"},"scopeType":{"type":"string"},"content":{"type":"string"},"sourceKind":{"type":"string"},"validAt":{"type":"string","format":"date-time"},"score":{"type":"number"}},"required":["factID","scopeType","content","sourceKind","validAt"],"additionalProperties":false}},"searchStatus":{"type":"string","enum":["complete","degraded"]},"sources":{"type":"array","items":{"type":"string","enum":["graph_memory","pinned_markdown","recent_memory"]},"uniqueItems":true}},"required":["facts","searchStatus","sources"],"additionalProperties":false,"allOf":[{"if":{"properties":{"searchStatus":{"const":"complete"}},"required":["searchStatus"]},"then":{"properties":{"sources":{"type":"array","items":{"const":"graph_memory"},"minItems":1,"maxItems":1}}}},{"if":{"properties":{"searchStatus":{"const":"degraded"}},"required":["searchStatus"]},"then":{"properties":{"sources":{"type":"array","items":{"enum":["pinned_markdown","recent_memory"]},"minItems":1,"maxItems":2}}}}]}`)
+)
 
 func registerMemoryTools(toolCatalogBuilder *ToolCatalogBuilder, toolRegistry *agent.ToolSet, request ToolCatalogRequest) {
 	agent.RegisterToolFunction(toolRegistry, agent.ToolFunction[memorySearchToolInput, agent.ToolResult]{
 		Definition: agent.ToolDefinition{
 			Name:        "memory.search",
 			Description: "Search Blueclaw graph memory allowed for this requester and conversation. Returns durable facts, preferences, and relationships by meaning, not exact rows; for exact queries, counts, or aggregates over records you stored in a table, use db.sql instead.",
-			InputSchema: json.RawMessage(`{"type":"object","properties":{"query":{"type":"string"}}}`),
+			InputSchema: memorySearchInputSchema,
 		},
 		Handler: func(toolContext context.Context, input memorySearchToolInput) (agent.ToolResult, error) {
 			return toolCatalogBuilder.searchMemoryTool(toolContext, input, request)
@@ -52,11 +80,15 @@ func registerMemoryTools(toolCatalogBuilder *ToolCatalogBuilder, toolRegistry *a
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) searchMemoryTool(toolContext context.Context, input memorySearchToolInput, request ToolCatalogRequest) (agent.ToolResult, error) {
+	query := strings.TrimSpace(input.Query)
+	if query == "" {
+		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "memory_search", "memory.search query is required"), nil
+	}
 	if request.ActiveCircleConflict {
 		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.Conflict, "memory_search", "memory.search has multiple active circle candidates"), nil
 	}
 	memoryRequest := TaskMemoryRequest{
-		Query:                     firstNonEmptyString(input.Query, request.Prompt),
+		Query:                     query,
 		RequesterPersonID:         request.RequesterPersonID,
 		ConversationID:            request.ConversationID,
 		PersonAccess:              request.PersonAccess,
@@ -70,7 +102,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) searchMemoryTool(toolContext conte
 	if errorValue != nil {
 		return toolCatalogBuilder.searchFallbackMemoryTool(toolContext, memoryRequest)
 	}
-	return agent.ToolSuccess(marshalToolResult(memorySearchToolOutput{Facts: memoryFacts, SearchStatus: "complete"})), nil
+	return memorySearchSuccess(memoryFacts, memorySearchComplete, []memorySearchSource{memorySearchGraphSource}), nil
 }
 
 func memorySearchUnavailableResult() agent.ToolResult {
@@ -93,26 +125,49 @@ func (toolCatalogBuilder *ToolCatalogBuilder) searchFallbackMemoryTool(ctx conte
 	if len(memoryFacts) == 0 {
 		return memorySearchUnavailableResult(), nil
 	}
-	return agent.ToolSuccess(marshalToolResult(memorySearchToolOutput{
-		Facts:        memoryFacts,
-		SearchStatus: "degraded",
-		Degraded:     true,
-		Sources:      sources,
-	})), nil
+	return memorySearchSuccess(memoryFacts, memorySearchDegraded, sources), nil
 }
 
-func (toolCatalogBuilder *ToolCatalogBuilder) searchFallbackMemory(ctx context.Context, request TaskMemoryRequest) ([]memory.MemoryFact, []string) {
+func memorySearchSuccess(memoryFacts []memory.MemoryFact, searchStatus memorySearchStatus, sources []memorySearchSource) agent.ToolResult {
+	output := memorySearchToolOutput{
+		Facts:        projectMemorySearchFacts(memoryFacts),
+		SearchStatus: searchStatus,
+		Sources:      append([]memorySearchSource{}, sources...),
+	}
+	document := json.RawMessage(marshalToolResult(output))
+	return agent.ToolSuccessData(string(document), document)
+}
+
+func projectMemorySearchFacts(memoryFacts []memory.MemoryFact) []memorySearchFact {
+	projectedFacts := make([]memorySearchFact, 0, len(memoryFacts))
+	for _, memoryFact := range memoryFacts {
+		projectedFact := memorySearchFact{
+			FactID:     memoryFact.FactID,
+			ScopeType:  memoryFact.ScopeType,
+			Content:    memoryFact.Content,
+			SourceKind: memoryFact.SourceKind,
+			ValidAt:    memoryFact.ValidAt,
+		}
+		if memoryFact.Score != 0 {
+			projectedFact.Score = &memoryFact.Score
+		}
+		projectedFacts = append(projectedFacts, projectedFact)
+	}
+	return projectedFacts
+}
+
+func (toolCatalogBuilder *ToolCatalogBuilder) searchFallbackMemory(ctx context.Context, request TaskMemoryRequest) ([]memory.MemoryFact, []memorySearchSource) {
 	memoryFacts := []memory.MemoryFact{}
-	sources := []string{}
+	sources := []memorySearchSource{}
 	pinnedMemoryFacts, pinnedError := toolCatalogBuilder.loadPinnedFallbackMemory(ctx, request)
 	if pinnedError == nil && len(pinnedMemoryFacts) > 0 {
 		memoryFacts = append(memoryFacts, pinnedMemoryFacts...)
-		sources = append(sources, "pinned_markdown")
+		sources = append(sources, memorySearchPinnedSource)
 	}
 	localMemoryFacts, localError := toolCatalogBuilder.SearchLocalMemory(ctx, request)
 	if localError == nil && len(localMemoryFacts) > 0 {
 		memoryFacts = appendMemoryFacts(memoryFacts, localMemoryFacts)
-		sources = append(sources, "recent_memory")
+		sources = append(sources, memorySearchRecentSource)
 	}
 	return memoryFacts, sources
 }

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"blueclaw/internal/agent"
 	"blueclaw/internal/memory"
@@ -229,6 +230,110 @@ func TestMemorySearchUsesPersonAndActiveCircleNamespaces(t *testing.T) {
 	}
 }
 
+func TestMemorySearchRequiresExplicitNonblankQuery(t *testing.T) {
+	toolCatalogBuilder := NewToolCatalogBuilder()
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"memory.search"})
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
+		ProfileName: "default",
+		Prompt:      "Use this prompt as an implicit memory query.",
+	})
+
+	for _, input := range []json.RawMessage{
+		json.RawMessage(`{}`),
+		agent.MarshalToolInput(map[string]string{"query": " \t "}),
+	} {
+		result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+			ToolName: "memory.search",
+			Input:    input,
+		})
+		if errorValue != nil {
+			t.Fatal(errorValue)
+		}
+		if !result.Failed() || result.FailureCode() != agent.FailureCodes.InvalidInput.String() {
+			t.Fatalf("expected explicit query rejection, got %+v", result)
+		}
+	}
+}
+
+func TestMemorySearchProjectsCompleteGraphResult(t *testing.T) {
+	validAt := time.Date(2026, time.July, 19, 4, 30, 0, 0, time.UTC)
+	namespace := memory.UserNamespace("person-1")
+	memoryService := &memory.MemoryService{}
+	memoryService.UseGraphStore(staticGraphMemoryStore{facts: []memory.MemoryFact{{
+		FactID:            "fact-1",
+		ScopeType:         memory.ScopeTypeUser,
+		NamespaceID:       namespace.NamespaceID,
+		Content:           "The requester prefers concise reports.",
+		Score:             0.91,
+		SourceEpisodeID:   "episode-secret",
+		SourceKind:        memory.MemorySourceKindFact,
+		ValidAt:           validAt,
+		SecurityLevelRank: 9,
+		RequiredClasses:   []string{"executive-secret"},
+	}}})
+	toolCatalogBuilder := NewToolCatalogBuilder()
+	toolCatalogBuilder.UseMemoryService(memoryService)
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"memory.search"})
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
+		ProfileName:       "default",
+		RequesterPersonID: "person-1",
+		PersonAccess:      policy.PersonAccess{PersonID: "person-1", SecurityLevelRank: 10, GrantedClasses: []string{"executive-secret"}},
+		MemoryNamespaces:  []memory.MemoryNamespace{namespace},
+	})
+
+	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+		ToolName: "memory.search",
+		Input:    agent.MarshalToolInput(map[string]string{"query": "reports"}),
+	})
+
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if result.Failed() {
+		t.Fatalf("expected complete memory search, got %+v", result)
+	}
+	document := decodeMemorySearchToolOutput(t, result.ContentText())
+	if document.SearchStatus != "complete" || len(document.Sources) != 1 || document.Sources[0] != "graph_memory" {
+		t.Fatalf("expected complete graph source, got %+v", document)
+	}
+	if len(document.Facts) != 1 || document.Facts[0].FactID != "fact-1" || document.Facts[0].Score == nil || *document.Facts[0].Score != 0.91 {
+		t.Fatalf("expected projected graph fact, got %+v", document.Facts)
+	}
+	for _, privateField := range []string{"namespaceID", "securityLevelRank", "requiredClasses", "sourceEpisodeID", namespace.NamespaceID, "episode-secret", "executive-secret"} {
+		if strings.Contains(result.ContentText(), privateField) {
+			t.Fatalf("expected model-safe result without %q, got %s", privateField, result.ContentText())
+		}
+	}
+}
+
+func TestMemorySearchNormalizesEmptyGraphResult(t *testing.T) {
+	memoryService := &memory.MemoryService{}
+	memoryService.UseGraphStore(staticGraphMemoryStore{})
+	toolCatalogBuilder := NewToolCatalogBuilder()
+	toolCatalogBuilder.UseMemoryService(memoryService)
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"memory.search"})
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
+
+	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+		ToolName: "memory.search",
+		Input:    agent.MarshalToolInput(map[string]string{"query": "missing"}),
+	})
+
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if result.Failed() {
+		t.Fatalf("expected successful empty graph result, got %+v", result)
+	}
+	document := decodeMemorySearchToolOutput(t, result.ContentText())
+	if document.Facts == nil || len(document.Facts) != 0 || document.Sources == nil {
+		t.Fatalf("expected normalized arrays, got %+v", document)
+	}
+	if document.SearchStatus != "complete" || len(document.Sources) != 1 || document.Sources[0] != "graph_memory" {
+		t.Fatalf("expected empty complete graph result, got %+v", document)
+	}
+}
+
 func TestMemorySearchReturnsRecoverableToolErrorWhenGraphitiFails(t *testing.T) {
 	memoryService := &memory.MemoryService{}
 	memoryService.UseGraphStore(failingGraphMemoryStore{errorValue: errors.New("http://127.0.0.1:7791 internal graphiti failure")})
@@ -267,6 +372,14 @@ func TestMemorySearchReturnsRecoverableToolErrorWhenGraphitiFails(t *testing.T) 
 func TestMemorySearchDegradedWithPinnedFallback(t *testing.T) {
 	memoryService := &memory.MemoryService{}
 	memoryService.UseGraphStore(failingGraphMemoryStore{errorValue: errors.New("graphiti unavailable")})
+	memoryService.StoreMemoryFact(memory.MemoryFact{
+		FactID:      "recent-1",
+		ScopeType:   memory.ScopeTypeUser,
+		NamespaceID: memory.UserNamespace("person-1").NamespaceID,
+		Content:     "The requester reviews release notes on Monday.",
+		SourceKind:  memory.MemorySourceKindFact,
+		ValidAt:     time.Date(2026, time.July, 18, 1, 0, 0, 0, time.UTC),
+	})
 	pinnedMemoryStore := memory.NewMarkdownStore(t.TempDir(), 1200)
 	if _, errorValue := pinnedMemoryStore.MergePersonMemory(context.Background(), "person-1", "The requester prefers terse release notes."); errorValue != nil {
 		t.Fatal(errorValue)
@@ -294,11 +407,17 @@ func TestMemorySearchDegradedWithPinnedFallback(t *testing.T) {
 		t.Fatalf("expected degraded memory.search success, got %s", result.ContentText())
 	}
 	document := decodeMemorySearchToolOutput(t, result.ContentText())
-	if document.SearchStatus != "degraded" || !document.Degraded {
+	if document.SearchStatus != "degraded" {
 		t.Fatalf("expected degraded search status, got %+v", document)
+	}
+	if len(document.Sources) != 2 || document.Sources[0] != "pinned_markdown" || document.Sources[1] != "recent_memory" {
+		t.Fatalf("expected exact degraded sources, got %+v", document.Sources)
 	}
 	if !containsMemoryFact(document.Facts, "# Memory\n- The requester prefers terse release notes.") {
 		t.Fatalf("expected pinned fallback fact, got %+v", document.Facts)
+	}
+	if strings.Contains(result.ContentText(), `"degraded":`) {
+		t.Fatalf("expected searchStatus to be the only degraded signal, got %s", result.ContentText())
 	}
 }
 
@@ -426,7 +545,7 @@ func decodeMemorySearchToolOutput(t *testing.T, content string) memorySearchTool
 	return document
 }
 
-func containsMemoryFact(memoryFacts []memory.MemoryFact, content string) bool {
+func containsMemoryFact(memoryFacts []memorySearchFact, content string) bool {
 	for _, memoryFact := range memoryFacts {
 		if memoryFact.Content == content {
 			return true
