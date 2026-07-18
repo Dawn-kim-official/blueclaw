@@ -13,7 +13,9 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
+	"blueclaw/internal/agent"
 	"blueclaw/internal/capability"
 	"blueclaw/internal/e2e"
 	"blueclaw/internal/llm"
@@ -554,6 +556,27 @@ func TestConfigureVirtualScenarioCappedProviderReportsCeilingTier(t *testing.T) 
 	}
 	if response.ModelTier != "low" {
 		t.Fatalf("expected capped high provider to report low tier, got %+v", response)
+	}
+}
+
+func TestVirtualModelCeilingDoesNotReduceTaskWorkDuration(t *testing.T) {
+	providerFactory := func(modelName string) llm.LanguageModelProvider {
+		return virtualTierTestProvider{modelName: modelName}
+	}
+	scenario := e2e.VirtualSessionScenario{}
+	configureVirtualScenarioModelTiers(&scenario, "low", providerFactory)
+
+	response, errorValue := scenario.XHighLanguageModel.GenerateStructuredResponse(context.Background(), llm.StructuredResponseRequest{})
+	if errorValue != nil {
+		t.Fatalf("expected capped xhigh provider to succeed: %v", errorValue)
+	}
+	workDuration := agent.TaskLevelProfileForLevel(agent.TaskLevelXHigh).Duration
+
+	if response.ModelTier != "low" {
+		t.Fatalf("expected xhigh model slot to use the low ceiling, got %+v", response)
+	}
+	if workDuration != time.Hour {
+		t.Fatalf("expected xhigh work duration to remain one hour, got %s", workDuration)
 	}
 }
 
