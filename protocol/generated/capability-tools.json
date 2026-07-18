@@ -2420,6 +2420,481 @@
       "sideEffectClass": "destructive",
       "version": "2",
       "worksOffline": false
+    },
+    {
+      "availability": {
+        "state": "ok"
+      },
+      "canonicalName": "document.read",
+      "description": "Read a workspace document from an exact /workspace path and return Markdown content. Use image.read for image files.",
+      "estimatedLatency": "high",
+      "idempotency": {
+        "required": false,
+        "scope": "operation",
+        "supported": false
+      },
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "maxOutputBytes": {
+            "description": "Maximum Markdown bytes to return. Omit for the runtime default.",
+            "maximum": 1000000,
+            "minimum": 1024,
+            "type": "integer"
+          },
+          "maxPages": {
+            "description": "Maximum PDF pages to extract. Omit for the runtime default.",
+            "maximum": 500,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "path": {
+            "description": "Exact absolute /workspace path of the document to read.",
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "path"
+        ],
+        "type": "object"
+      },
+      "inputSchemaStrict": true,
+      "modelName": "document.read",
+      "modelVisibility": "visible",
+      "modelVisible": true,
+      "name": "document.read",
+      "namespace": "document",
+      "outputSchema": {
+        "$defs": {
+          "__schema0": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              },
+              {
+                "items": {
+                  "$ref": "#/$defs/__schema0"
+                },
+                "type": "array"
+              },
+              {
+                "additionalProperties": {
+                  "$ref": "#/$defs/__schema0"
+                },
+                "propertyNames": {
+                  "type": "string"
+                },
+                "type": "object"
+              }
+            ]
+          }
+        },
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "content": {
+            "type": "string"
+          },
+          "effects": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "contentType": {
+                  "type": "string"
+                },
+                "durability": {
+                  "type": "string"
+                },
+                "effect": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "filename": {
+                  "type": "string"
+                },
+                "id": {
+                  "type": "string"
+                },
+                "objectType": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "path": {
+                  "type": "string"
+                },
+                "summary": {
+                  "type": "string"
+                },
+                "url": {
+                  "type": "string"
+                },
+                "visibility": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "objectType",
+                "effect"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "errorCode": {
+            "type": "string"
+          },
+          "failureStage": {
+            "type": "string"
+          },
+          "isError": {
+            "type": "boolean"
+          },
+          "message": {
+            "type": "string"
+          },
+          "outcome": {
+            "enum": [
+              "succeeded",
+              "failed",
+              "denied"
+            ],
+            "type": "string"
+          },
+          "provider": {
+            "type": "string"
+          },
+          "result": {
+            "$ref": "#/$defs/__schema0"
+          },
+          "retryable": {
+            "type": "boolean"
+          },
+          "safeRetry": {
+            "type": "boolean"
+          },
+          "selectedBackend": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "toolName": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "provider",
+          "selectedBackend",
+          "toolName",
+          "result"
+        ],
+        "type": "object"
+      },
+      "outputSchemaStrict": true,
+      "policyResource": "tool:document.read",
+      "privacyClass": "workspace_document",
+      "requiresUserPresence": false,
+      "resultContract": {
+        "effects": [],
+        "schema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "additionalProperties": false,
+          "properties": {
+            "backend": {
+              "type": "string"
+            },
+            "content": {
+              "type": "string"
+            },
+            "format": {
+              "const": "markdown",
+              "type": "string"
+            },
+            "model": {
+              "type": "string"
+            },
+            "path": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "status": {
+              "const": "ok",
+              "type": "string"
+            },
+            "truncated": {
+              "type": "boolean"
+            },
+            "warnings": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "status",
+            "path",
+            "format",
+            "content",
+            "warnings",
+            "truncated"
+          ],
+          "type": "object"
+        }
+      },
+      "sideEffect": "read",
+      "sideEffectClass": "read",
+      "version": "1",
+      "worksOffline": false
+    },
+    {
+      "availability": {
+        "state": "ok"
+      },
+      "canonicalName": "image.read",
+      "description": "Read a workspace image from an exact /workspace path and return a base64 attachment. Use document.read for document files.",
+      "estimatedLatency": "medium",
+      "idempotency": {
+        "required": false,
+        "scope": "operation",
+        "supported": false
+      },
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "path": {
+            "description": "Exact absolute /workspace path of the image to read.",
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "path"
+        ],
+        "type": "object"
+      },
+      "inputSchemaStrict": true,
+      "modelName": "image.read",
+      "modelVisibility": "visible",
+      "modelVisible": true,
+      "name": "image.read",
+      "namespace": "image",
+      "outputSchema": {
+        "$defs": {
+          "__schema0": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              },
+              {
+                "items": {
+                  "$ref": "#/$defs/__schema0"
+                },
+                "type": "array"
+              },
+              {
+                "additionalProperties": {
+                  "$ref": "#/$defs/__schema0"
+                },
+                "propertyNames": {
+                  "type": "string"
+                },
+                "type": "object"
+              }
+            ]
+          }
+        },
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "content": {
+            "type": "string"
+          },
+          "effects": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "contentType": {
+                  "type": "string"
+                },
+                "durability": {
+                  "type": "string"
+                },
+                "effect": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "filename": {
+                  "type": "string"
+                },
+                "id": {
+                  "type": "string"
+                },
+                "objectType": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "path": {
+                  "type": "string"
+                },
+                "summary": {
+                  "type": "string"
+                },
+                "url": {
+                  "type": "string"
+                },
+                "visibility": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "objectType",
+                "effect"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "errorCode": {
+            "type": "string"
+          },
+          "failureStage": {
+            "type": "string"
+          },
+          "isError": {
+            "type": "boolean"
+          },
+          "message": {
+            "type": "string"
+          },
+          "outcome": {
+            "enum": [
+              "succeeded",
+              "failed",
+              "denied"
+            ],
+            "type": "string"
+          },
+          "provider": {
+            "type": "string"
+          },
+          "result": {
+            "$ref": "#/$defs/__schema0"
+          },
+          "retryable": {
+            "type": "boolean"
+          },
+          "safeRetry": {
+            "type": "boolean"
+          },
+          "selectedBackend": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "toolName": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "provider",
+          "selectedBackend",
+          "toolName",
+          "result"
+        ],
+        "type": "object"
+      },
+      "outputSchemaStrict": true,
+      "policyResource": "tool:image.read",
+      "privacyClass": "workspace_document",
+      "requiresUserPresence": false,
+      "resultContract": {
+        "effects": [],
+        "schema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "additionalProperties": false,
+          "properties": {
+            "attachments": {
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "contentBase64": {
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "contentType": {
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "devicePath": {
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "filename": {
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "sizeBytes": {
+                    "maximum": 9007199254740991,
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "devicePath",
+                  "filename",
+                  "contentType",
+                  "sizeBytes",
+                  "contentBase64"
+                ],
+                "type": "object"
+              },
+              "minItems": 1,
+              "type": "array"
+            },
+            "path": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "status": {
+              "const": "ok",
+              "type": "string"
+            }
+          },
+          "required": [
+            "status",
+            "path",
+            "attachments"
+          ],
+          "type": "object"
+        }
+      },
+      "sideEffect": "read",
+      "sideEffectClass": "read",
+      "version": "1",
+      "worksOffline": false
     }
   ]
 }
