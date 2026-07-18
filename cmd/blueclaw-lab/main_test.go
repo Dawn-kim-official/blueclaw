@@ -236,9 +236,9 @@ func TestCreateLiveLanguageModelSupportsSDKDWithoutOpenRouterCredentials(t *test
 	if sdkdClient.GenerationOptions.Seed == nil || *sdkdClient.GenerationOptions.Seed != seed {
 		t.Fatalf("expected sdkd generation seed, got %+v", sdkdClient.GenerationOptions)
 	}
-	expectedSchemaNames := []string{"blueclaw_agent_turn_action", "blueclaw_agent_turn_finalizer", "blueclaw_turn_router", "blueclaw_recovery_decision"}
+	expectedSchemaNames := []string{"blueclaw_agent_turn_action", "blueclaw_agent_turn_finalizer", "blueclaw_turn_router", "blueclaw_recovery_decision", "blueclaw_operation_contract", "blueclaw_operation_contract_review"}
 	if !slices.Equal(sdkdClient.StructuredSchemaNames, expectedSchemaNames) {
-		t.Fatalf("expected action, finalizer, router, and recovery decision sdkd schemas, got %#v", sdkdClient.StructuredSchemaNames)
+		t.Fatalf("expected authoritative SDKD schemas, got %#v", sdkdClient.StructuredSchemaNames)
 	}
 }
 
@@ -368,7 +368,7 @@ func TestSaveVirtualSessionEvidenceRecordsRoutingMetadataWithoutSecrets(t *testi
 		t.Fatalf("expected evidence file: %v", errorValue)
 	}
 	content := string(document)
-	for _, expectedText := range []string{"task-lifecycle", "sdkd", "recovery_chat", "llama.cpp", "gemma", "device", "blueclaw_agent_turn_action", "blueclaw_agent_turn_finalizer", "blueclaw_turn_router", "blueclaw_recovery_decision"} {
+	for _, expectedText := range []string{"task-lifecycle", "sdkd", "recovery_chat", "llama.cpp", "gemma", "device", "blueclaw_agent_turn_action", "blueclaw_agent_turn_finalizer", "blueclaw_turn_router", "blueclaw_recovery_decision", "blueclaw_operation_contract", "blueclaw_operation_contract_review"} {
 		if !strings.Contains(content, expectedText) {
 			t.Fatalf("evidence missing %q: %s", expectedText, content)
 		}

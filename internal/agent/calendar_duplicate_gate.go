@@ -51,7 +51,8 @@ func (agentTurnRunner *AgentTurnRunner) resolveCalendarDuplicate(ctx context.Con
 		existingEvent := candidates[0]
 		message := fmt.Sprintf("이미 같은 시각에 '%s' 일정이 등록돼 있어 새로 추가하지 않았습니다. 기존 일정(id=%s)을 그대로 유지합니다.", strings.TrimSpace(existingEvent.Title), strings.TrimSpace(existingEvent.ID))
 		toolInputKey := canonicalToolCallKey(actionDocument.ToolName, actionDocument.ToolInput)
-		return agentTurnRunner.saveToolObservation(ctx, taskRunID, observationID, actionDocument.ToolName, calendarAddOperation, toolInputKey, ToolSuccess(message), request.WorkspaceRootPath, request.TurnStartedAt, 0)
+		toolDefinition, _ := request.ToolSet.ToolDefinition(actionDocument.ToolName)
+		return agentTurnRunner.saveToolObservation(ctx, taskRunID, observationID, actionDocument.ToolName, toolDefinition.ID, actionDocument.ToolInput, calendarAddOperation, toolInputKey, ToolSuccess(message), request.WorkspaceRootPath, request.TurnStartedAt, 0)
 	}
 	forcedToolInput := calendarAddInputWithAllowDuplicate(actionDocument.ToolInput)
 	return agentTurnRunner.invokeTool(ctx, request.ToolSet, taskRunID, observationID, actionDocument.ToolName, forcedToolInput, request.WorkspaceRootPath, request.TurnStartedAt, request.ResponseLanguage, actionDocument.Message)

@@ -155,6 +155,8 @@ type turnObservation struct {
 	ObservationID        string               `json:"observationID"`
 	Action               string               `json:"action"`
 	Tool                 string               `json:"tool,omitempty"`
+	ToolID               string               `json:"toolID,omitempty"`
+	ToolInput            json.RawMessage      `json:"toolInput,omitempty"`
 	Output               ToolOutput           `json:"output,omitempty"`
 	Failure              *ToolFailure         `json:"failure,omitempty"`
 	Summary              string               `json:"summary,omitempty"`
