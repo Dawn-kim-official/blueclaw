@@ -17,6 +17,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -36,6 +37,7 @@ import (
 	"blueclaw/internal/security/actortest"
 	"blueclaw/internal/skill"
 	"blueclaw/internal/task"
+	capabilitycatalog "blueclaw/protocol/generated"
 )
 
 type VirtualSessionScenario struct {
@@ -85,6 +87,38 @@ type VirtualSiteFixture struct {
 }
 
 var virtualSiteSlugPattern = regexp.MustCompile(`^[a-z0-9]+(?:-[a-z0-9]+)*$`)
+
+var virtualCanonicalMessageToolNames = []string{
+	"message.context",
+	"message.search",
+	"message.send",
+	"message.update",
+	"message.delete",
+	"channel.update",
+}
+
+var virtualCanonicalMessageToolDescriptorByName = mustLoadVirtualCanonicalMessageToolDescriptors()
+
+func mustLoadVirtualCanonicalMessageToolDescriptors() map[string]agentruntime.CapabilityToolDescriptor {
+	var catalog struct {
+		Tools []agentruntime.CapabilityToolDescriptor `json:"tools"`
+	}
+	if errorValue := json.Unmarshal(capabilitycatalog.CapabilityToolCatalog(), &catalog); errorValue != nil {
+		panic(errorValue)
+	}
+	descriptors := map[string]agentruntime.CapabilityToolDescriptor{}
+	for _, descriptor := range catalog.Tools {
+		if slices.Contains(virtualCanonicalMessageToolNames, descriptor.Name) {
+			descriptors[descriptor.Name] = descriptor
+		}
+	}
+	for _, toolName := range virtualCanonicalMessageToolNames {
+		if _, isFound := descriptors[toolName]; !isFound {
+			panic("generated capability descriptor is missing: " + toolName)
+		}
+	}
+	return descriptors
+}
 
 type VirtualResponseExpectation string
 
@@ -876,6 +910,9 @@ func virtualCapabilityToolDescriptors(scenario VirtualSessionScenario) []agentru
 }
 
 func virtualCapabilityToolDescriptor(toolName string) agentruntime.CapabilityToolDescriptor {
+	if descriptor, isFound := virtualCanonicalMessageToolDescriptor(toolName); isFound {
+		return descriptor
+	}
 	sideEffectClass := virtualCapabilitySideEffectClass(toolName)
 	descriptor := agentruntime.CapabilityToolDescriptor{
 		Name:             toolName,
@@ -896,6 +933,11 @@ func virtualCapabilityToolDescriptor(toolName string) agentruntime.CapabilityToo
 	}
 	descriptor.CompletionEvidence = virtualCapabilityCompletionEvidence(toolName, sideEffectClass)
 	return descriptor
+}
+
+func virtualCanonicalMessageToolDescriptor(toolName string) (agentruntime.CapabilityToolDescriptor, bool) {
+	descriptor, isFound := virtualCanonicalMessageToolDescriptorByName[toolName]
+	return descriptor, isFound
 }
 
 func virtualCapabilityCompletionEvidence(toolName string, sideEffectClass string) *agentruntime.CapabilityCompletionEvidence {
@@ -1272,7 +1314,14 @@ func virtualCapabilityCatalogResponse(toolNameByName map[string]bool) string {
 	sort.Strings(toolNames)
 	descriptors := []string{}
 	for _, toolName := range toolNames {
-		descriptors = append(descriptors, `{"name":`+quote(toolName)+`,"description":"Virtual capability `+toolName+`","inputSchema":`+virtualCapabilityInputSchema(toolName)+virtualCapabilityResultContract(toolName)+`}`)
+		descriptor := virtualCapabilityToolDescriptor(toolName)
+		descriptors = append(
+			descriptors,
+			`{"name":`+quote(descriptor.Name)+
+				`,"description":`+quote(descriptor.Description)+
+				`,"inputSchema":`+string(descriptor.InputSchema)+
+				virtualCapabilityResultContract(toolName)+`}`,
+		)
 	}
 	return `{"deviceCapabilities":[` + strings.Join(descriptors, ",") + `]}`
 }
@@ -1411,23 +1460,100 @@ func (service *virtualCapabilityService) response(toolName string, requestBody [
 			}},
 		}
 		return virtualCapabilitySuccess(toolName, "BlueclawSearchStubToken virtual search result", result)
+	case "message.context":
+		return virtualCapabilitySuccess(toolName, "virtual Mattermost conversation context", virtualMessageContextResult())
+	case "message.search":
+		return virtualCapabilitySuccess(toolName, "found virtual Mattermost message", virtualMessageSearchResult(requestBody))
 	case "message.send":
 		messageInput := virtualCapabilityInput(requestBody)
 		if errorValue := validateVirtualMessageSendInput(messageInput); errorValue != nil {
 			return virtualCapabilityInvalidInput(toolName, errorValue.Error())
 		}
-		if virtualPlatformMessageSendRequiresApproval(requestBody) {
+		if virtualCapabilityRequestNeedsApproval(requestBody) {
 			return virtualCapabilityApprovalRequired(toolName)
 		}
 		messageID := "virtual-platform-message-001"
-		result := map[string]any{"messageID": messageID, "deliveryStatus": "sent"}
-		return virtualCapabilityMessageSuccess(toolName, "sent", messageID, "sent virtual platform message "+messageID, result)
+		result := map[string]any{"messageIDs": []string{messageID}, "deliveryStatus": "sent"}
+		return virtualCapabilityMessageSuccess(toolName, "sent", []string{messageID}, "sent virtual platform message "+messageID, result)
 	case "message.update":
-		messageID := stringValue(virtualCapabilityInput(requestBody)["messageID"])
-		result := map[string]any{"messageID": messageID, "deliveryStatus": "updated"}
-		return virtualCapabilityMessageSuccess(toolName, "updated", messageID, "updated virtual platform message "+messageID, result)
+		if virtualCapabilityRequestNeedsApproval(requestBody) {
+			return virtualCapabilityApprovalRequired(toolName)
+		}
+		input := virtualCapabilityInput(requestBody)
+		messageID := stringValue(input["messageID"])
+		result := map[string]any{
+			"messageID":      messageID,
+			"deliveryStatus": "updated",
+			"messageUpdated": strings.TrimSpace(stringValue(input["message"])) != "",
+		}
+		if isPinned, isFound := input["isPinned"].(bool); isFound {
+			result["isPinned"] = isPinned
+		}
+		return virtualCapabilityMessageSuccess(toolName, "updated", []string{messageID}, "updated virtual platform message "+messageID, result)
+	case "message.delete":
+		if virtualCapabilityRequestNeedsApproval(requestBody) {
+			return virtualCapabilityApprovalRequired(toolName)
+		}
+		messageIDs := stringSliceValue(virtualCapabilityInput(requestBody)["messageIDs"])
+		result := map[string]any{"messageIDs": messageIDs, "deliveryStatus": "deleted"}
+		return virtualCapabilityMessageSuccess(toolName, "deleted", messageIDs, "deleted virtual platform messages", result)
+	case "channel.update":
+		if virtualCapabilityRequestNeedsApproval(requestBody) {
+			return virtualCapabilityApprovalRequired(toolName)
+		}
+		input := virtualCapabilityInput(requestBody)
+		channelID := firstVirtualString(stringValue(input["channelID"]), "virtual-channel-1")
+		result := map[string]any{"channelID": channelID, "updated": true}
+		if inviteeHints := stringSliceValue(input["inviteeHints"]); len(inviteeHints) > 0 {
+			invitedUserIDs := make([]string, 0, len(inviteeHints))
+			for index := range inviteeHints {
+				invitedUserIDs = append(invitedUserIDs, fmt.Sprintf("virtual-invitee-%d", index+1))
+			}
+			result["invitedUserIDs"] = invitedUserIDs
+		}
+		return virtualCapabilityChannelSuccess(toolName, "updated", channelID, "updated virtual channel "+channelID, result)
 	default:
 		return virtualCapabilitySuccess(toolName, toolName+" completed", map[string]any{"toolName": toolName, "ok": true, "request": virtualCapabilityInput(requestBody)})
+	}
+}
+
+func virtualMessageContextResult() map[string]any {
+	return map[string]any{
+		"platform":                "mattermost",
+		"conversationID":          "virtual-conversation-1",
+		"conversationType":        "channel",
+		"channelID":               "virtual-channel-1",
+		"channelName":             "announcements",
+		"replyTargetID":           "",
+		"rootMessageID":           "",
+		"currentMessageID":        "virtual-current-message-001",
+		"requesterPersonID":       "virtual-requester-person",
+		"requesterPlatformUserID": "virtual-requester-user",
+		"botUserID":               "virtual-bot-user",
+		"botUsername":             "internkim",
+	}
+}
+
+func virtualMessageSearchResult(requestBody []byte) map[string]any {
+	input := virtualCapabilityInput(requestBody)
+	scope := firstVirtualString(stringValue(input["scope"]), "currentChannel")
+	authoredBy := firstVirtualString(stringValue(input["authoredBy"]), "anyone")
+	messageID := "virtual-platform-message-001"
+	return map[string]any{
+		"scope":      scope,
+		"queries":    stringSliceValue(input["queries"]),
+		"authoredBy": authoredBy,
+		"messageIDs": []string{messageID},
+		"candidates": []map[string]any{{
+			"messageID":  messageID,
+			"channelID":  "virtual-channel-1",
+			"userID":     "virtual-bot-user",
+			"authoredBy": "assistant",
+			"createdAt":  1,
+			"preview":    "virtual Mattermost message",
+			"deletable":  true,
+		}},
+		"hasMore": false,
 	}
 }
 
@@ -1550,6 +1676,9 @@ func validateVirtualMessageSendInput(input map[string]any) error {
 }
 
 func virtualCapabilityInputSchema(toolName string) string {
+	if descriptor, isFound := virtualCanonicalMessageToolDescriptor(toolName); isFound {
+		return string(descriptor.InputSchema)
+	}
 	switch toolName {
 	case "task.add":
 		return `{"type":"object","properties":{"title":{"type":"string"},"goal":{"type":"string"},"size":{"type":"string","enum":["XS","S","M","L","XL","XXL"]},"status":{"type":"string","enum":["예정","진행","완료","일시정지","기각","중단"]},"startDate":{"type":"string"},"endDate":{"type":"string"},"targetPersonHint":{"type":"string"},"participantPersonHints":{"type":"array","items":{"type":"string"}}},"required":["title"],"additionalProperties":false}`
@@ -1571,8 +1700,6 @@ func virtualCapabilityInputSchema(toolName string) string {
 		return `{"type":"object","properties":{"query":{"type":"string"},"location":{"type":"string"},"language":{"type":"string"},"limit":{"type":"integer"},"allowedDomains":{"type":"array","items":{"type":"string"}},"excludedDomains":{"type":"array","items":{"type":"string"}}},"required":["query"],"additionalProperties":false}`
 	case "image.read":
 		return `{"type":"object","properties":{"path":{"type":"string","minLength":1}},"required":["path"],"additionalProperties":false}`
-	case "message.update":
-		return `{"type":"object","properties":{"messageID":{"type":"string","minLength":1},"message":{"type":"string"},"isPinned":{"type":"boolean"}},"required":["messageID"],"additionalProperties":false}`
 	case "site.create":
 		return `{"type":"object","properties":{"slug":{"type":"string","minLength":1,"pattern":"^[a-z0-9]+(?:-[a-z0-9]+)*$"},"title":{"type":"string"},"prompt":{"type":"string"},"designBrief":{"type":"string"},"prototypeScope":{"type":"string"},"description":{"type":"string"},"idea":{"type":"string"},"purpose":{"type":"string"},"audience":{"type":"string"},"archetype":{"type":"string"},"domainKeywords":{"type":"array","items":{"type":"string"}},"content":{"type":"object","properties":{"siteName":{"type":"string"},"tagline":{"type":"string"},"heroActionLabel":{"type":"string"},"heroActionHref":{"type":"string"},"sections":{"type":"array","minItems":1,"items":{"type":"object","properties":{"title":{"type":"string"},"body":{"type":"string"}},"required":["title","body"],"additionalProperties":false}}},"required":["siteName","sections"],"additionalProperties":false}},"required":["slug"],"additionalProperties":false}`
 	case "site.status":
@@ -1583,8 +1710,6 @@ func virtualCapabilityInputSchema(toolName string) string {
 		return `{"type":"object","properties":{"siteID":{"type":"string","minLength":1},"previewID":{"type":"string","minLength":1},"message":{"type":"string"}},"required":["siteID"],"additionalProperties":false}`
 	case "site.delete":
 		return `{"type":"object","properties":{"siteID":{"type":"string","minLength":1},"reason":{"type":"string"}},"required":["siteID"],"additionalProperties":false}`
-	case "message.send":
-		return `{"type":"object","properties":{"targetType":{"type":"string","enum":["directMessage","currentThread","currentChannel","channel"]},"personHint":{"type":"string"},"personHints":{"type":"array","items":{"type":"string"}},"channelName":{"type":"string"},"channelID":{"type":"string"},"message":{"type":"string"}},"required":["targetType","message"],"additionalProperties":false}`
 	default:
 		return `{"type":"object"}`
 	}
@@ -1600,6 +1725,9 @@ func virtualCapabilityResultContract(toolName string) string {
 }
 
 func virtualCapabilityToolResultContract(toolName string) *agentruntime.CapabilityToolResultContract {
+	if descriptor, isFound := virtualCanonicalMessageToolDescriptor(toolName); isFound {
+		return descriptor.ResultContract
+	}
 	switch toolName {
 	case "task.add":
 		return virtualTaskResultContract("created")
@@ -1652,10 +1780,6 @@ func virtualCapabilityToolResultContract(toolName string) *agentruntime.Capabili
 		return &agentruntime.CapabilityToolResultContract{Schema: json.RawMessage(`{"type":"object","properties":{"query":{"type":"string","minLength":1},"results":{"type":"array","items":{"type":"object","properties":{"title":{"type":"string","minLength":1},"url":{"type":"string","minLength":1},"snippet":{"type":"string"}},"required":["title","url","snippet"],"additionalProperties":false}}},"required":["query","results"],"additionalProperties":false}`)}
 	case "image.read", "document.read":
 		return virtualAttachmentReadResultContract()
-	case "message.send":
-		return virtualMessageResultContract("sent")
-	case "message.update":
-		return virtualMessageResultContract("updated")
 	default:
 		return nil
 	}
@@ -1663,18 +1787,6 @@ func virtualCapabilityToolResultContract(toolName string) *agentruntime.Capabili
 
 func virtualAttachmentReadResultContract() *agentruntime.CapabilityToolResultContract {
 	return &agentruntime.CapabilityToolResultContract{Schema: json.RawMessage(`{"type":"object","properties":{"attachments":{"type":"array","items":{"type":"object","properties":{"devicePath":{"type":"string","minLength":1},"filename":{"type":"string","minLength":1},"contentType":{"type":"string","minLength":1},"sizeBytes":{"type":"integer","minimum":0},"contentBase64":{"type":"string"}},"required":["devicePath","filename","contentType","sizeBytes"],"additionalProperties":false}}},"required":["attachments"],"additionalProperties":false}`)}
-}
-
-func virtualMessageResultContract(effect string) *agentruntime.CapabilityToolResultContract {
-	return &agentruntime.CapabilityToolResultContract{
-		Schema: json.RawMessage(`{"type":"object","properties":{"messageID":{"type":"string","minLength":1},"deliveryStatus":{"type":"string","minLength":1}},"required":["messageID","deliveryStatus"],"additionalProperties":false}`),
-		Effects: []agentruntime.CapabilityResourceEffectContract{{
-			ObjectType:     "message",
-			Effect:         effect,
-			ResultField:    "messageID",
-			EffectIdentity: "id",
-		}},
-	}
 }
 
 func virtualSiteResultContract(schema string, effect string) *agentruntime.CapabilityToolResultContract {
@@ -2097,7 +2209,11 @@ func virtualCapabilityCalendarSuccess(toolName string, effect string, eventID st
 	})
 }
 
-func virtualCapabilityMessageSuccess(toolName string, effect string, messageID string, content string, result any) string {
+func virtualCapabilityMessageSuccess(toolName string, effect string, messageIDs []string, content string, result any) string {
+	effects := make([]map[string]any, 0, len(messageIDs))
+	for _, messageID := range messageIDs {
+		effects = append(effects, map[string]any{"objectType": "message", "effect": effect, "id": messageID})
+	}
 	return virtualCapabilityJSON(map[string]any{
 		"provider":        "virtual",
 		"selectedBackend": "device",
@@ -2106,7 +2222,20 @@ func virtualCapabilityMessageSuccess(toolName string, effect string, messageID s
 		"status":          "ok",
 		"content":         content,
 		"result":          result,
-		"effects":         []map[string]any{{"objectType": "message", "effect": effect, "id": messageID}},
+		"effects":         effects,
+	})
+}
+
+func virtualCapabilityChannelSuccess(toolName string, effect string, channelID string, content string, result any) string {
+	return virtualCapabilityJSON(map[string]any{
+		"provider":        "virtual",
+		"selectedBackend": "device",
+		"toolName":        toolName,
+		"outcome":         "succeeded",
+		"status":          "ok",
+		"content":         content,
+		"result":          result,
+		"effects":         []map[string]any{{"objectType": "channel", "effect": effect, "id": channelID}},
 	})
 }
 
@@ -2196,21 +2325,6 @@ func jsonObjectOrEmpty(document []byte) string {
 		return "{}"
 	}
 	return trimmedDocument
-}
-
-func virtualPlatformMessageSendRequiresApproval(requestBody []byte) bool {
-	var requestDocument struct {
-		Input struct {
-			TargetType string `json:"targetType"`
-		} `json:"input"`
-		Context struct {
-			IsApprovalContinuation bool `json:"isApprovalContinuation"`
-		} `json:"context"`
-	}
-	if len(requestBody) == 0 || json.Unmarshal(requestBody, &requestDocument) != nil {
-		return false
-	}
-	return strings.TrimSpace(requestDocument.Input.TargetType) == "directMessage" && !requestDocument.Context.IsApprovalContinuation
 }
 
 func virtualCapabilityRequestNeedsApproval(requestBody []byte) bool {

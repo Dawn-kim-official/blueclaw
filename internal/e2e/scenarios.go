@@ -1267,7 +1267,19 @@ func PlatformMessageEditAcceptanceScenario(artifactDirectoryPath string) Virtual
 		Turns: []VirtualTurn{{
 			Prompt: "방금 올린 공지 message virtual-platform-message-001 문구를 '오늘 오후 6시에 전체 공지 회의가 있습니다.'로 바꿔줘",
 			ActionResponses: []string{
-				actionCallTool("message.update", `{"messageID":"virtual-platform-message-001","message":"오늘 오후 6시에 전체 공지 회의가 있습니다."}`),
+				actionCallToolWithMessage("message.update", "공지 메시지 문구를 수정합니다.", `{"messageID":"virtual-platform-message-001","message":"오늘 오후 6시에 전체 공지 회의가 있습니다."}`),
+			},
+			ExpectedEventCounts: []VirtualEventCount{
+				{Name: "tool.message.update.requested", BodyFragment: `"messageID":"virtual-platform-message-001"`, Count: 0},
+				{Name: "approval.pending_call", BodyFragment: `"message.update"`, Count: 1},
+			},
+			ExpectedEvents:         []string{"confirmation.requested"},
+			ExpectedReplyFragments: []string{"수정"},
+			ExpectedTaskStatus:     task.TaskStatusWaitingApproval,
+		}, {
+			Prompt:         "확인",
+			RouterApproval: "approve",
+			ActionResponses: []string{
 				actionFinishMessage("공지 메시지 문구를 수정했습니다.", "obs-001:message.update:0"),
 			},
 			ExpectedToolCalls: []string{"message.update"},
@@ -1277,7 +1289,11 @@ func PlatformMessageEditAcceptanceScenario(artifactDirectoryPath string) Virtual
 			ExpectedEventCounts: []VirtualEventCount{
 				{Name: "tool.message.update.requested", BodyFragment: `"messageID":"virtual-platform-message-001"`, Count: 1},
 				{Name: "tool.message.update.requested", BodyFragment: `"message":"오늘 오후 6시에 전체 공지 회의가 있습니다."`, Count: 1},
+				{Name: "tool.message.update.result", BodyFragment: `"messageUpdated":true`, Count: 1},
+				{Name: "approval.executed", BodyFragment: `"message.update"`, Count: 1},
 			},
+			ExpectedEvents:         []string{"confirmation.reply_classified"},
+			ExpectedReplyFragments: []string{"수정했습니다"},
 		}},
 	}
 }
