@@ -13,6 +13,10 @@ describe('protocol artifacts', () => {
       'task.list',
       'task.update',
       'task.delete',
+      'calendar.add',
+      'calendar.list',
+      'calendar.update',
+      'calendar.delete',
     ]);
     expect(manifest.schemas.map(({ name }: { name: string }) => name)).toEqual(Object.keys(protocolSchemas).sort());
     expect(manifest.schemas.map(({ name }: { name: string }) => name)).toEqual(

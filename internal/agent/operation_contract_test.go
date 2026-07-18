@@ -148,6 +148,38 @@ func TestValidateRequiredOperationInputAllowsExplicitPartialInput(t *testing.T) 
 	}
 }
 
+func TestOperationContractSeparatesDescriptorValidityFromInvocationCompleteness(t *testing.T) {
+	inputSchema := json.RawMessage(`{
+		"type":"object",
+		"additionalProperties":false,
+		"required":["eventID"],
+		"minProperties":2,
+		"properties":{
+			"eventID":{"type":"string"},
+			"title":{"type":"string"}
+		}
+	}`)
+	toolSet := newTestToolSetWithDefinitions([]ToolDefinition{{
+		ID:              "capabilityd:calendar.update",
+		Name:            "calendar.update",
+		InputSchema:     inputSchema,
+		OutputSchema:    json.RawMessage(`{"type":"object","properties":{}}`),
+		SideEffectClass: ToolSideEffectStateChange,
+	}})
+
+	if _, errorValue := operationDescriptorDocuments(toolSet, []string{"calendar.update"}); errorValue != nil {
+		t.Fatalf("expected descriptor schema to resolve without a fake invocation: %v", errorValue)
+	}
+	for _, requiredValues := range []string{`{}`, `{"eventID":"event-1"}`, `{"title":"변경"}`} {
+		if _, errorValue := validateRequiredOperationInput(requiredValues, inputSchema); errorValue != nil {
+			t.Fatalf("expected partial explicit values %s to pass: %v", requiredValues, errorValue)
+		}
+	}
+	if _, errorValue := validateRequiredOperationInput(`{"query":"변경"}`, inputSchema); errorValue == nil {
+		t.Fatal("expected unknown partial value to fail")
+	}
+}
+
 func TestValidateRequiredOperationInputValidatesNestedAlternativesAndArrays(t *testing.T) {
 	inputSchema := json.RawMessage(`{
 		"type":"object",

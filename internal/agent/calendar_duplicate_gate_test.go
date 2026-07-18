@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"encoding/json"
 	"testing"
 )
@@ -20,20 +21,13 @@ func TestParseCalendarDuplicateCandidatesReadsMarkerPayload(t *testing.T) {
 	}
 }
 
-func TestCalendarAddInputWithAllowDuplicateInjectsFlag(t *testing.T) {
-	toolInput := json.RawMessage(`{"operation":"calendar.add","input":{"title":"세라에스이 사장님 미팅","startISO":"2026-07-02T09:30:00+09:00","endISO":"2026-07-02T10:30:00+09:00"}}`)
-	forced := calendarAddInputWithAllowDuplicate(toolInput)
-	var wrapper struct {
-		Operation string `json:"operation"`
-		Input     struct {
-			Title          string `json:"title"`
-			AllowDuplicate bool   `json:"allowDuplicate"`
-		} `json:"input"`
+func TestToolConflictResolutionUsesInvocationContext(t *testing.T) {
+	baseContext := context.Background()
+	if resolution := ToolConflictResolutionFromContext(baseContext); resolution != "" {
+		t.Fatalf("expected empty base resolution, got %q", resolution)
 	}
-	if json.Unmarshal(forced, &wrapper) != nil {
-		t.Fatalf("forced tool input is not valid json: %s", forced)
-	}
-	if wrapper.Operation != "calendar.add" || !wrapper.Input.AllowDuplicate || wrapper.Input.Title != "세라에스이 사장님 미팅" {
-		t.Fatalf("expected allowDuplicate injected while preserving fields, got %s", forced)
+	retryContext := WithToolConflictResolution(baseContext, ToolConflictResolutionAllowDuplicate)
+	if resolution := ToolConflictResolutionFromContext(retryContext); resolution != ToolConflictResolutionAllowDuplicate {
+		t.Fatalf("expected duplicate resolution, got %q", resolution)
 	}
 }
