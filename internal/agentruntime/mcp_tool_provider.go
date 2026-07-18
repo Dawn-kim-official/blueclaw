@@ -29,9 +29,16 @@ func (provider mcpToolProvider) ProviderID() string {
 func (provider mcpToolProvider) ListTools(context.Context) ([]agent.BoundTool, error) {
 	boundTools := make([]agent.BoundTool, 0, len(provider.definitions))
 	for _, definition := range provider.definitions {
+		if !mcpToolDefinitionIsRegistered(definition, provider.request) {
+			continue
+		}
 		boundTools = append(boundTools, provider.boundTool(definition))
 	}
 	return boundTools, nil
+}
+
+func mcpToolDefinitionIsRegistered(definition mcp.ToolDefinition, request ToolCatalogRequest) bool {
+	return !request.IsScheduledRun || !definition.Policy.RequiresUserPresence
 }
 
 func (provider mcpToolProvider) boundTool(definition mcp.ToolDefinition) agent.BoundTool {

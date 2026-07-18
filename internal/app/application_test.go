@@ -17,13 +17,25 @@ import (
 	"testing"
 	"time"
 
+	"blueclaw/internal/agent"
 	"blueclaw/internal/config"
 	"blueclaw/internal/connectors"
 	"blueclaw/internal/llm"
+	"blueclaw/internal/mcp"
 	"blueclaw/internal/protocolidentity"
 	"blueclaw/internal/runtimecontrol"
 	"blueclaw/internal/task"
 )
+
+type applicationMCPRegistryCloser struct {
+	closeCount int
+	closeError error
+}
+
+func (closer *applicationMCPRegistryCloser) Close() error {
+	closer.closeCount++
+	return closer.closeError
+}
 
 func TestTaskIntakeControllerStartsUnquiesced(t *testing.T) {
 	controller := runtimecontrol.NewTaskIntakeController()
@@ -429,6 +441,52 @@ func TestNewApplicationAllowsSignalInternalIngress(t *testing.T) {
 
 	if application.startupError != nil {
 		t.Fatalf("expected signal internal ingress to be allowed: %v", application.startupError)
+	}
+}
+
+func TestApplicationShutdownClosesOwnedMCPRegistry(t *testing.T) {
+	runtimeConfiguration := config.RuntimeConfiguration{}
+	runtimeConfiguration.Logging.DirectoryPath = t.TempDir()
+	application := NewApplication(runtimeConfiguration, "")
+	expectedError := errors.New("close MCP registry")
+	registry := &applicationMCPRegistryCloser{closeError: expectedError}
+	application.mcpRegistry = registry
+
+	errorValue := application.Shutdown(context.Background())
+
+	if !errors.Is(errorValue, expectedError) {
+		t.Fatalf("expected MCP close error, got %v", errorValue)
+	}
+	if registry.closeCount != 1 {
+		t.Fatalf("expected MCP registry to close once, got %d", registry.closeCount)
+	}
+}
+
+func TestMCPQuarantineLogsPreserveStructuredIdentity(t *testing.T) {
+	var output bytes.Buffer
+	logger := slog.New(slog.NewJSONHandler(&output, nil))
+
+	logMCPServerQuarantines(logger, mcp.LoadReport{Quarantined: []mcp.QuarantinedServer{{
+		Name:   "workspace",
+		Reason: "server unavailable",
+	}}})
+	logMCPProviderQuarantine(logger, agent.QuarantinedToolProvider{
+		ProviderID: "mcp:workspace",
+		Reason:     "tool name collision",
+	})
+
+	logOutput := output.String()
+	for _, expectedText := range []string{
+		`"msg":"mcp.server.quarantined"`,
+		`"serverName":"workspace"`,
+		`"reason":"server unavailable"`,
+		`"msg":"mcp.provider.quarantined"`,
+		`"providerID":"mcp:workspace"`,
+		`"reason":"tool name collision"`,
+	} {
+		if !strings.Contains(logOutput, expectedText) {
+			t.Fatalf("expected structured log field %s in %s", expectedText, logOutput)
+		}
 	}
 }
 

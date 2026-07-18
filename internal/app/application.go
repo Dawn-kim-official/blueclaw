@@ -75,6 +75,11 @@ type Application struct {
 	protocolIdentityCheckOnce     sync.Once
 	protocolIdentityCheckError    error
 	refreshSkillIndex             func(context.Context)
+	mcpRegistry                   mcpRegistryCloser
+}
+
+type mcpRegistryCloser interface {
+	Close() error
 }
 
 type interruptedTaskResumer interface {
@@ -224,10 +229,14 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 	backupCoordinator := backup.NewCoordinator(buildBackupManifest(runtimeConfiguration, database))
 	taskIntakeController := runtimecontrol.NewTaskIntakeController()
 	mcpRegistry := mcp.NewMcpRegistry()
-	mcpRegistry.LoadServerDefinition(runtimeConfiguration.MCPServers)
+	mcpLoadReport := mcpRegistry.LoadServerDefinition(runtimeConfiguration.MCPServers)
+	logMCPServerQuarantines(logger, mcpLoadReport)
 	logger.Info("application.initializing", "stage", "tool_catalog")
 	toolCatalogBuilder := agentruntime.NewToolCatalogBuilder()
 	toolCatalogBuilder.UseMCPRegistry(mcpRegistry)
+	toolCatalogBuilder.UseMCPQuarantineReporter(func(quarantinedProvider agent.QuarantinedToolProvider) {
+		logMCPProviderQuarantine(logger, quarantinedProvider)
+	})
 	toolCatalogBuilder.UseCapabilityToolDescriptors(capabilityClient, capabilityToolDescriptors(runtimeConfiguration.Capabilities.ToolDescriptors))
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(deriveAllowedToolNamesByProfile(runtimeConfiguration), deriveAllowedToolNames(runtimeConfiguration))
 	toolCatalogBuilder.UseSkillSearch(skillRetriever, instructionBundleLoader)
@@ -430,7 +439,24 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 		protocolIdentityExpected:      protocolIdentityExpected,
 		protocolIdentityStatus:        protocolIdentityStatus,
 		refreshSkillIndex:             refreshSkillIndex,
+		mcpRegistry:                   mcpRegistry,
 	}
+}
+
+func logMCPServerQuarantines(logger *slog.Logger, report mcp.LoadReport) {
+	if logger == nil {
+		return
+	}
+	for _, quarantinedServer := range report.Quarantined {
+		logger.Warn("mcp.server.quarantined", "serverName", quarantinedServer.Name, "reason", quarantinedServer.Reason)
+	}
+}
+
+func logMCPProviderQuarantine(logger *slog.Logger, quarantinedProvider agent.QuarantinedToolProvider) {
+	if logger == nil {
+		return
+	}
+	logger.Warn("mcp.provider.quarantined", "providerID", quarantinedProvider.ProviderID, "reason", quarantinedProvider.Reason)
 }
 
 func deriveAgentTurnOptions(runtimeConfiguration config.RuntimeConfiguration) agent.TurnOptions {
@@ -1254,15 +1280,26 @@ func (application *Application) Shutdown(ctx context.Context) error {
 		application.memoryUpdateCancel()
 	}
 	errorValue := application.httpServer.Shutdown(ctx)
+	mcpCloseError := application.closeMCPRegistry()
 	closeErrorValue := application.runtimeLogger.Close()
 	databaseCloseError := application.database.Close()
 	if errorValue != nil {
 		return errorValue
 	}
+	if mcpCloseError != nil {
+		return mcpCloseError
+	}
 	if closeErrorValue != nil {
 		return closeErrorValue
 	}
 	return databaseCloseError
+}
+
+func (application *Application) closeMCPRegistry() error {
+	if application.mcpRegistry == nil {
+		return nil
+	}
+	return application.mcpRegistry.Close()
 }
 
 func (application *Application) startConnectorRuntime() {

@@ -28,8 +28,19 @@ func capabilityToolIdempotencyKey(toolContext context.Context, descriptor Capabi
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) registerMCPTools(toolRegistry *agent.ToolSet, request ToolCatalogRequest) {
-	if _, errorValue := toolRegistry.RegisterProviders(context.Background(), mcpToolProviders(toolCatalogBuilder.mcpRegistry, request)); errorValue != nil {
+	quarantinedProviders, errorValue := toolRegistry.RegisterProviders(context.Background(), mcpToolProviders(toolCatalogBuilder.mcpRegistry, request))
+	if errorValue != nil {
 		panic(errorValue)
+	}
+	toolCatalogBuilder.reportMCPQuarantines(quarantinedProviders)
+}
+
+func (toolCatalogBuilder *ToolCatalogBuilder) reportMCPQuarantines(quarantinedProviders []agent.QuarantinedToolProvider) {
+	if toolCatalogBuilder.mcpQuarantineReporter == nil {
+		return
+	}
+	for _, quarantinedProvider := range quarantinedProviders {
+		toolCatalogBuilder.mcpQuarantineReporter(quarantinedProvider)
 	}
 }
 
