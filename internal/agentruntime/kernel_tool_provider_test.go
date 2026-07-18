@@ -101,7 +101,7 @@ func TestLocalKernelToolNamesExcludeCapabilityBackedImageReader(t *testing.T) {
 	}
 }
 
-func TestKernelFileToolsHaveCanonicalResultContracts(t *testing.T) {
+func TestKernelToolsHaveCanonicalResultContracts(t *testing.T) {
 	provider := newKernelToolProvider(NewToolCatalogBuilder(), toolHandlerContext{
 		request: ToolCatalogRequest{HistoryProvider: kernelHistoryProvider{}},
 	}, agent.NewToolSet(nil))
@@ -110,16 +110,17 @@ func TestKernelFileToolsHaveCanonicalResultContracts(t *testing.T) {
 		t.Fatal(errorValue)
 	}
 	expectedEffectCounts := map[string]int{
-		agent.FileReadToolName:    0,
-		agent.FileWriteToolName:   2,
-		agent.FileDeleteToolName:  1,
-		agent.FileEditToolName:    2,
-		agent.FilePreviewToolName: 0,
-		agent.FileDeliverToolName: 1,
+		agent.FileReadToolName:            0,
+		agent.FileWriteToolName:           2,
+		agent.FileDeleteToolName:          1,
+		agent.FileEditToolName:            2,
+		agent.FilePreviewToolName:         0,
+		agent.FileDeliverToolName:         1,
+		agent.ConversationHistoryToolName: 0,
 	}
 	for _, boundTool := range boundTools {
-		expectedEffectCount, isFileTool := expectedEffectCounts[boundTool.Definition.Name]
-		if !isFileTool {
+		expectedEffectCount, isContractedTool := expectedEffectCounts[boundTool.Definition.Name]
+		if !isContractedTool {
 			continue
 		}
 		contract := boundTool.Definition.ResultContract

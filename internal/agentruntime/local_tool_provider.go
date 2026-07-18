@@ -25,6 +25,7 @@ type localToolDescriptorSpec struct {
 	RequiresUserPresence bool
 	WorksOffline         bool
 	OutputSchema         json.RawMessage
+	ResultContract       *agent.ToolResultContract
 	Visibility           string
 	PolicyResource       string
 	SideEffectClass      string
@@ -56,7 +57,8 @@ var localToolDescriptorSpecs = []localToolDescriptorSpec{
 		Namespace:       "memory",
 		Name:            "memory.search",
 		PrivacyClass:    "workspace_memory",
-		OutputSchema:    localToolOutputSchema,
+		OutputSchema:    memorySearchOutputSchema,
+		ResultContract:  &agent.ToolResultContract{Schema: memorySearchOutputSchema},
 		Visibility:      agent.ToolVisibilityModel,
 		PolicyResource:  "tool:memory.search",
 		SideEffectClass: agent.ToolSideEffectRead,
@@ -270,6 +272,7 @@ func (provider localToolProvider) boundTool(spec localToolDescriptorSpec, handle
 			WorksOffline:         spec.WorksOffline,
 			InputSchema:          handlerDefinition.InputSchema,
 			OutputSchema:         spec.OutputSchema,
+			ResultContract:       spec.ResultContract,
 			Visibility:           spec.Visibility,
 			PolicyResource:       spec.PolicyResource,
 			SideEffectClass:      spec.SideEffectClass,
