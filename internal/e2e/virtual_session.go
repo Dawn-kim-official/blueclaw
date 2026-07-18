@@ -479,10 +479,7 @@ func virtualChatCallEvent(kind string, request llm.ChatCompletionRequest, respon
 }
 
 func virtualChatRequestSchemaName(request llm.ChatCompletionRequest) string {
-	if llm.ForcedFunctionToolName(request) == "blueclaw_agent_turn_action" {
-		return "blueclaw_agent_turn_action"
-	}
-	return ""
+	return strings.TrimSpace(request.SchemaName)
 }
 
 func virtualTextCallEvent(kind string, prompt string, reply string, startedAt time.Time, errorValue error) VirtualLanguageModelCallEvent {

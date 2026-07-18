@@ -655,6 +655,7 @@ func buildAgentActionChatCompletionRequest(structuredRequest llm.StructuredRespo
 		return llm.ChatCompletionRequest{}, false
 	}
 	return llm.ChatCompletionRequest{
+		SchemaName:        agentActionSchemaName,
 		Messages:          messages,
 		Tools:             tools,
 		ToolChoice:        json.RawMessage(`"required"`),
