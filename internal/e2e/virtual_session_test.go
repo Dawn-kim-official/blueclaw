@@ -540,7 +540,8 @@ func TestVirtualSitePublishRequiresValidSourceContent(t *testing.T) {
 		!strings.Contains(response, `"sourceWorkspacePath"`) ||
 		!strings.Contains(response, `"currentVersionID"`) ||
 		!strings.Contains(response, `"objectType":"website"`) ||
-		!strings.Contains(response, `"effect":"published"`) {
+		!strings.Contains(response, `"effect":"published"`) ||
+		!strings.Contains(response, `"url":"https://demo.device.example.test"`) {
 		t.Fatalf("expected valid source content to publish with metadata, got %s", response)
 	}
 	if strings.Contains(response, workspacePath) || strings.Contains(response, `"sourcePath"`) || strings.Contains(response, `"sourceSizeBytes"`) {
@@ -658,12 +659,23 @@ func TestVirtualSiteToolsUseCanonicalFiveToolContracts(t *testing.T) {
 			}
 			continue
 		}
-		if len(contract.Effects) != 1 ||
+		expectedEffectCount := 1
+		if toolName == "site.publish" {
+			expectedEffectCount = 2
+		}
+		if len(contract.Effects) != expectedEffectCount ||
 			contract.Effects[0].ObjectType != "website" ||
 			contract.Effects[0].Effect != expectedEffect ||
 			contract.Effects[0].ResultField != "siteID" ||
 			contract.Effects[0].EffectIdentity != "id" {
 			t.Fatalf("expected exact %s effect contract, got %+v", toolName, contract.Effects)
+		}
+		if toolName == "site.publish" &&
+			(contract.Effects[1].ObjectType != "website" ||
+				contract.Effects[1].Effect != expectedEffect ||
+				contract.Effects[1].ResultField != "publishedURL" ||
+				contract.Effects[1].EffectIdentity != "url") {
+			t.Fatalf("expected exact site.publish URL effect contract, got %+v", contract.Effects)
 		}
 	}
 	if descriptor := virtualCapabilityToolDescriptor("site.delete"); !descriptor.RequiresApproval {

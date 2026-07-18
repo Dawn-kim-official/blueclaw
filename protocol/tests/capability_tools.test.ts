@@ -430,6 +430,7 @@ describe('canonical capability tools', () => {
     ]);
     expect(publishTool?.resultContract?.effects).toEqual([
       { objectType: 'website', effect: 'published', resultField: 'siteID', effectIdentity: ResourceEffectIdentity.ID },
+      { objectType: 'website', effect: 'published', resultField: 'publishedURL', effectIdentity: ResourceEffectIdentity.URL },
     ]);
     expect(deleteTool?.resultContract?.effects).toEqual([
       { objectType: 'website', effect: 'deleted', resultField: 'siteID', effectIdentity: ResourceEffectIdentity.ID },

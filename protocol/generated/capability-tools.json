@@ -3713,6 +3713,12 @@
             "effectIdentity": "id",
             "objectType": "website",
             "resultField": "siteID"
+          },
+          {
+            "effect": "published",
+            "effectIdentity": "url",
+            "objectType": "website",
+            "resultField": "publishedURL"
           }
         ],
         "schema": {

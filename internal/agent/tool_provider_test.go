@@ -248,6 +248,24 @@ func TestRegisterProviderRejectsUnboundResultEffectIdentity(t *testing.T) {
 	}
 }
 
+func TestRegisterProviderAcceptsDistinctIdentitiesForOneEffect(t *testing.T) {
+	toolSet := NewToolSet([]string{"site.publish"})
+	providerTool := validProviderTool("capabilityd/site/site.publish", "site", "site.publish")
+	providerTool.Definition.ResultContract = &ToolResultContract{
+		Schema: json.RawMessage(`{"type":"object","properties":{"siteID":{"type":"string"},"publishedURL":{"type":"string"}},"required":["siteID","publishedURL"],"additionalProperties":false}`),
+		Effects: []ResourceEffectContract{
+			{ObjectType: "website", Effect: "published", ResultField: "siteID", EffectIdentity: "id"},
+			{ObjectType: "website", Effect: "published", ResultField: "publishedURL", EffectIdentity: "url"},
+		},
+	}
+
+	errorValue := toolSet.RegisterProvider(context.Background(), testToolProvider{providerID: "capabilityd", tools: []BoundTool{providerTool}})
+
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+}
+
 func TestRegisterProviderValidatesEvidenceConditionAgainstResultSchema(t *testing.T) {
 	providerTool := validProviderTool("capabilityd/artifact/artifact.review", "artifact", "artifact.review")
 	providerTool.Definition.ResultContract = &ToolResultContract{

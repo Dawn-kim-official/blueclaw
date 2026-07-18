@@ -851,12 +851,20 @@ const siteToolDefinitions: CapabilityToolDefinition[] = [
     inputSchema: sitePublishInputSchema,
     result: {
       schema: sitePublishResultSchema,
-      effects: [{
-        objectType: 'website',
-        effect: ResourceMutationEffect.Published,
-        resultField: 'siteID',
-        effectIdentity: ResourceEffectIdentity.ID,
-      }],
+      effects: [
+        {
+          objectType: 'website',
+          effect: ResourceMutationEffect.Published,
+          resultField: 'siteID',
+          effectIdentity: ResourceEffectIdentity.ID,
+        },
+        {
+          objectType: 'website',
+          effect: ResourceMutationEffect.Published,
+          resultField: 'publishedURL',
+          effectIdentity: ResourceEffectIdentity.URL,
+        },
+      ],
     },
     sideEffect: CapabilitySideEffect.SitePublish,
     completionEvidence: { mode: 'success', action: 'publish_site', targetKind: 'site' },
