@@ -234,11 +234,13 @@ func (agentKernel *AgentKernel) taskRunForLaunchFailure(request AgentTurnRequest
 }
 
 func (agentKernel *AgentKernel) RouteTurn(responseContext context.Context, request AgentRequest) (TurnDecision, error) {
+	request.ActiveGoal = normalizePersistedActiveGoal(request.ActiveGoal)
 	return NewTurnRouter(agentKernel.turnRouterLanguageModel(), agentKernel.intakeOptions).Plan(responseContext, request)
 }
 
 func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context, request AgentRequest) (AgentTurnResult, error) {
 	routerCallLedger := &turnRouterCallLedger{}
+	request.ActiveGoal = normalizePersistedActiveGoal(request.ActiveGoal)
 	if request.TurnStartedAt.IsZero() {
 		request.TurnStartedAt = time.Now().Add(-2 * time.Second)
 	}

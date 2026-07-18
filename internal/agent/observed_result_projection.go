@@ -1,24 +1,15 @@
 package agent
 
-import (
-	"encoding/json"
-	"path/filepath"
-	"strings"
-)
+import "strings"
 
 type ObservedFact struct {
 	ObjectType    string `json:"objectType"`
 	Effect        string `json:"effect"`
-	Visibility    string `json:"visibility,omitempty"`
-	Durability    string `json:"durability,omitempty"`
 	ObservationID string `json:"observationID,omitempty"`
 	ToolName      string `json:"toolName,omitempty"`
 	ID            string `json:"id,omitempty"`
 	Path          string `json:"path,omitempty"`
 	URL           string `json:"url,omitempty"`
-	Filename      string `json:"filename,omitempty"`
-	ContentType   string `json:"contentType,omitempty"`
-	Summary       string `json:"summary,omitempty"`
 }
 
 type ProjectionMissingRequirement struct {
@@ -39,9 +30,8 @@ type ObservedResultProjection struct {
 	RecoverableActions  []ProjectionRecoverableAction  `json:"recoverableActions,omitempty"`
 }
 
-func buildObservedResultProjection(request AgentTurnRequest, observations []turnObservation, attachments []FileAttachment, actionDocument turnActionDocument) ObservedResultProjection {
+func buildObservedResultProjection(request AgentTurnRequest, observations []turnObservation, _ []FileAttachment, actionDocument turnActionDocument) ObservedResultProjection {
 	facts := observedFactsFromObservations(request.ToolSet, observations)
-	facts = appendObservedAttachmentFacts(facts, attachments)
 	facts = deduplicateObservedFacts(facts)
 	return ObservedResultProjection{
 		ObservedFacts:       facts,
@@ -62,52 +52,18 @@ func observedFactsFromObservations(toolSet *ToolSet, observations []turnObservat
 }
 
 func factsFromObservation(toolSet *ToolSet, observation turnObservation) []ObservedFact {
-	if IsArtifactDeliveryTool(observation.Tool) {
-		return fileAttachmentFacts(observation)
-	}
-	if len(observation.Effects) > 0 {
-		if toolSet == nil {
-			return nil
-		}
-		descriptor, isRegistered := toolSet.ToolDefinition(observation.Tool)
-		if !isRegistered || descriptor.ResultContract == nil {
-			return nil
-		}
-		return observedFactsFromResourceEffects(observation)
-	}
-	switch strings.TrimSpace(observation.Tool) {
-	case "file.write":
-		return appendWorkspaceModifiedFact(filePathObservationFacts(observation, "file", "created"))
-	case "file.edit":
-		return appendWorkspaceModifiedFact(filePathObservationFacts(observation, "file", "updated"))
-	case "calendar.add":
-		return toolObjectFact(observation, "calendar_event", "scheduled")
-	case "calendar.update":
-		return toolObjectFact(observation, "calendar_event", "updated")
-	case "calendar.delete":
-		return toolObjectFact(observation, "calendar_event", "deleted")
-	case "task.add":
-		return toolObjectFact(observation, "task", "created")
-	case "task.update":
-		return toolObjectFact(observation, "task", "updated")
-	case "task.delete":
-		return toolObjectFact(observation, "task", "deleted")
-	case "site.publish":
-		return siteObservationFacts(observation, "published")
-	case "site.create":
-		return append(siteObservationFacts(observation, "created"), siteWorkspaceModifiedFacts(observation)...)
-	case "site.status":
-		return siteStatusFacts(observation)
-	case "site.delete":
-		return siteObservationFacts(observation, "deleted")
-	case AskInputToolName, AskChoiceToolName, AskConfirmToolName:
-		return toolObjectFact(observation, "user_input", "requested")
-	default:
-		if isSendEvidenceTool(toolSet, observation.Tool) {
-			return toolObjectFact(observation, "message", "sent")
-		}
+	if toolSet == nil || len(observation.Effects) == 0 {
 		return nil
 	}
+	descriptor, isRegistered := toolSet.ToolDefinition(observation.Tool)
+	if !isRegistered || descriptor.ResultContract == nil {
+		return nil
+	}
+	result := ToolResult{Output: observation.Output, Effects: observation.Effects}
+	if validateSuccessfulToolResult(*descriptor.ResultContract, result) != nil {
+		return nil
+	}
+	return observedFactsFromResourceEffects(observation)
 }
 
 func observedFactsFromResourceEffects(observation turnObservation) []ObservedFact {
@@ -116,157 +72,11 @@ func observedFactsFromResourceEffects(observation turnObservation) []ObservedFac
 		facts = append(facts, ObservedFact{
 			ObjectType:    strings.TrimSpace(resourceEffect.ObjectType),
 			Effect:        strings.TrimSpace(resourceEffect.Effect),
-			Visibility:    firstNonEmptyString(resourceEffect.Visibility, effectVisibility(resourceEffect.Effect)),
-			Durability:    firstNonEmptyString(resourceEffect.Durability, effectDurability(resourceEffect.Effect)),
 			ObservationID: observation.ObservationID,
 			ToolName:      observation.Tool,
 			ID:            strings.TrimSpace(resourceEffect.ID),
 			Path:          strings.TrimSpace(resourceEffect.Path),
 			URL:           strings.TrimSpace(resourceEffect.URL),
-			Filename:      strings.TrimSpace(resourceEffect.Filename),
-			ContentType:   strings.TrimSpace(resourceEffect.ContentType),
-			Summary:       truncateProjectionSummary(resourceEffect.Summary),
-		})
-	}
-	return facts
-}
-
-func fileAttachmentFacts(observation turnObservation) []ObservedFact {
-	facts := []ObservedFact{}
-	for _, attachment := range observation.Attachments {
-		facts = append(facts, ObservedFact{
-			ObjectType:    "file",
-			Effect:        "attached",
-			Visibility:    "conversation",
-			Durability:    "external",
-			ObservationID: observation.ObservationID,
-			ToolName:      observation.Tool,
-			Filename:      strings.TrimSpace(attachment.Filename),
-			ContentType:   strings.TrimSpace(attachment.ContentType),
-		})
-	}
-	return facts
-}
-
-func filePathObservationFacts(observation turnObservation, objectType string, effect string) []ObservedFact {
-	document := observationOutputDocument(observation)
-	path := firstNonEmptyString(stringValue(document["path"]), stringValue(document["devicePath"]), stringValue(document["targetPath"]))
-	if path == "" {
-		inputDocument := toolInputDocument(observation)
-		path = firstNonEmptyString(stringValue(inputDocument["path"]), stringValue(inputDocument["targetPath"]))
-	}
-	if path == "" {
-		return nil
-	}
-	return []ObservedFact{{
-		ObjectType:    objectType,
-		Effect:        effect,
-		Visibility:    fileVisibility(path),
-		Durability:    fileDurability(path),
-		ObservationID: observation.ObservationID,
-		ToolName:      observation.Tool,
-		Path:          path,
-		Filename:      filepath.Base(filepath.ToSlash(path)),
-		Summary:       truncateProjectionSummary(observation.Summary),
-	}}
-}
-
-func appendWorkspaceModifiedFact(facts []ObservedFact) []ObservedFact {
-	nextFacts := append([]ObservedFact{}, facts...)
-	for _, fact := range facts {
-		nextFacts = append(nextFacts, ObservedFact{
-			ObjectType:    "workspace",
-			Effect:        "modified",
-			Visibility:    fact.Visibility,
-			Durability:    fact.Durability,
-			ObservationID: fact.ObservationID,
-			ToolName:      fact.ToolName,
-			Path:          fact.Path,
-			Filename:      fact.Filename,
-			Summary:       fact.Summary,
-		})
-	}
-	return nextFacts
-}
-
-func toolObjectFact(observation turnObservation, objectType string, effect string) []ObservedFact {
-	document := observationOutputDocument(observation)
-	return []ObservedFact{{
-		ObjectType:    objectType,
-		Effect:        effect,
-		Visibility:    effectVisibility(effect),
-		Durability:    effectDurability(effect),
-		ObservationID: observation.ObservationID,
-		ToolName:      observation.Tool,
-		ID:            firstNonEmptyString(stringValue(document["id"]), stringValue(document["eventID"]), stringValue(document["taskID"]), stringValue(document["taskScheduleID"])),
-		URL:           firstNonEmptyString(stringValue(document["url"]), stringValue(document["publicURL"])),
-		Summary:       truncateProjectionSummary(firstNonEmptyString(stringValue(document["title"]), stringValue(document["summary"]), observation.Summary)),
-	}}
-}
-
-func siteObservationFacts(observation turnObservation, effect string) []ObservedFact {
-	document := observationOutputDocument(observation)
-	url := firstNonEmptyString(stringValue(document["url"]), stringValue(document["publicURL"]), stringValue(document["publishedURL"]), stringValue(document["previewURL"]))
-	return []ObservedFact{{
-		ObjectType:    "website",
-		Effect:        effect,
-		Visibility:    effectVisibility(effect),
-		Durability:    effectDurability(effect),
-		ObservationID: observation.ObservationID,
-		ToolName:      observation.Tool,
-		ID:            firstNonEmptyString(stringValue(document["siteID"]), stringValue(document["id"])),
-		URL:           url,
-		Summary:       truncateProjectionSummary(firstNonEmptyString(stringValue(document["title"]), observation.Summary)),
-	}}
-}
-
-func siteStatusFacts(observation turnObservation) []ObservedFact {
-	facts := siteObservationFacts(observation, "read")
-	document := observationOutputDocument(observation)
-	statusText := strings.ToLower(firstNonEmptyString(stringValue(document["status"]), stringValue(document["publishStatus"])))
-	if siteStatusIsPublished(statusText) {
-		facts = append(facts, siteObservationFacts(observation, "published")...)
-	}
-	return facts
-}
-
-func siteWorkspaceModifiedFacts(observation turnObservation) []ObservedFact {
-	document := observationOutputDocument(observation)
-	path := firstNonEmptyString(stringValue(document["appWorkspacePath"]), stringValue(document["sourceWorkspacePath"]), stringValue(document["workspacePath"]))
-	if path == "" {
-		return nil
-	}
-	return []ObservedFact{{
-		ObjectType:    "workspace",
-		Effect:        "modified",
-		Visibility:    fileVisibility(path),
-		Durability:    fileDurability(path),
-		ObservationID: observation.ObservationID,
-		ToolName:      observation.Tool,
-		Path:          path,
-		Filename:      filepath.Base(filepath.ToSlash(path)),
-		Summary:       truncateProjectionSummary(observation.Summary),
-	}}
-}
-
-func siteStatusIsPublished(statusText string) bool {
-	switch strings.ToLower(strings.TrimSpace(statusText)) {
-	case "published", "public", "live":
-		return true
-	default:
-		return false
-	}
-}
-
-func appendObservedAttachmentFacts(facts []ObservedFact, attachments []FileAttachment) []ObservedFact {
-	for _, attachment := range attachments {
-		facts = append(facts, ObservedFact{
-			ObjectType:  "file",
-			Effect:      "attached",
-			Visibility:  "conversation",
-			Durability:  "external",
-			Filename:    strings.TrimSpace(attachment.Filename),
-			ContentType: strings.TrimSpace(attachment.ContentType),
 		})
 	}
 	return facts
@@ -276,9 +86,6 @@ func missingRequirementsForFinishClaims(request AgentTurnRequest, facts []Observ
 	if strings.TrimSpace(actionDocument.Action) != "finish" {
 		return nil
 	}
-	// Completion is decided by the task's own contract and cited evidence, not by
-	// keyword-scanning the finish message for capability claims: that cross-contaminated
-	// unrelated tasks (a "회의록" document finish was read as a calendar-event claim).
 	requirements := requiredProjectionRequirementsFromContract(request)
 	missingRequirements := []ProjectionMissingRequirement{}
 	for _, requirement := range requirements {
@@ -348,71 +155,11 @@ func recoverableActionsForProjection(observations []turnObservation) []Projectio
 	return actions
 }
 
-func observationOutputDocument(observation turnObservation) map[string]any {
-	document := map[string]any{}
-	if errorValue := json.Unmarshal([]byte(strings.TrimSpace(observation.ContentText())), &document); errorValue != nil {
-		return document
-	}
-	return document
-}
-
-func toolInputDocument(observation turnObservation) map[string]any {
-	document := map[string]any{}
-	_, payload, hasPayload := strings.Cut(strings.TrimSpace(observation.ToolInputKey), "\x00")
-	if !hasPayload {
-		return document
-	}
-	if errorValue := json.Unmarshal([]byte(payload), &document); errorValue != nil {
-		return map[string]any{}
-	}
-	return document
-}
-
-func fileVisibility(path string) string {
-	normalizedPath := filepath.ToSlash(strings.TrimSpace(path))
-	switch {
-	case strings.Contains(normalizedPath, "/shared/public/") || strings.HasPrefix(normalizedPath, "/workspace/shared/public/"):
-		return "public"
-	case strings.Contains(normalizedPath, "/circles/") || strings.HasPrefix(normalizedPath, "/workspace/circles/"):
-		return "circle"
-	case strings.Contains(normalizedPath, "/artifacts/") || strings.HasPrefix(normalizedPath, "artifacts/"):
-		return "task_artifact"
-	default:
-		return "private"
-	}
-}
-
-func fileDurability(path string) string {
-	normalizedPath := filepath.ToSlash(strings.TrimSpace(path))
-	if strings.Contains(normalizedPath, "/tmp/") {
-		return "draft"
-	}
-	return "durable"
-}
-
-func effectVisibility(effect string) string {
-	switch effect {
-	case "sent", "published", "scheduled", "updated", "deleted":
-		return "external"
-	default:
-		return "workspace"
-	}
-}
-
-func effectDurability(effect string) string {
-	switch effect {
-	case "sent", "published", "scheduled", "updated", "deleted", "created":
-		return "durable"
-	default:
-		return ""
-	}
-}
-
 func deduplicateObservedFacts(facts []ObservedFact) []ObservedFact {
 	seenFacts := map[string]bool{}
 	deduplicatedFacts := []ObservedFact{}
 	for _, fact := range facts {
-		key := strings.Join([]string{fact.ObjectType, fact.Effect, fact.ObservationID, fact.ToolName, fact.ID, fact.Path, fact.URL, fact.Filename}, "\x00")
+		key := strings.Join([]string{fact.ObjectType, fact.Effect, fact.ObservationID, fact.ToolName, fact.ID, fact.Path, fact.URL}, "\x00")
 		if seenFacts[key] {
 			continue
 		}
@@ -434,12 +181,4 @@ func deduplicateProjectionRequirements(requirements []ProjectionMissingRequireme
 		deduplicatedRequirements = append(deduplicatedRequirements, requirement)
 	}
 	return deduplicatedRequirements
-}
-
-func truncateProjectionSummary(summary string) string {
-	trimmedSummary := compactWhitespace(strings.TrimSpace(summary))
-	if len(trimmedSummary) <= 180 {
-		return trimmedSummary
-	}
-	return trimmedSummary[:180] + "..."
 }

@@ -97,6 +97,83 @@ const (
 	ExpectedResultTypeLink    = "link"
 )
 
+func normalizePersistedActiveGoal(activeGoal ActiveGoal) ActiveGoal {
+	activeGoal.SelectedToolNames = normalizePersistedToolNames(activeGoal.SelectedToolNames)
+	activeGoal.OutcomeContract = normalizePersistedOutcomeContract(activeGoal.OutcomeContract)
+	return activeGoal
+}
+
+func normalizePersistedOutcomeContract(contract OutcomeContract) OutcomeContract {
+	contract.RequiredEvidenceTools = normalizePersistedToolNames(contract.RequiredEvidenceTools)
+	contract.RequiredEvidenceAnyOf = normalizePersistedToolNameGroups(contract.RequiredEvidenceAnyOf)
+	contract.SelectedEvidenceHints = normalizePersistedToolNames(contract.SelectedEvidenceHints)
+	contract.ExpectedResults = normalizePersistedExpectedResults(contract.ExpectedResults)
+	contract.RequiredEffects = normalizePersistedOutcomeEffects(contract.RequiredEffects)
+	contract.OperationContract = normalizePersistedOperationContract(contract.OperationContract)
+	return normalizeOutcomeContract(contract)
+}
+
+func normalizePersistedToolNameGroups(groups [][]string) [][]string {
+	normalizedGroups := make([][]string, 0, len(groups))
+	for _, group := range groups {
+		normalizedGroups = append(normalizedGroups, normalizePersistedToolNames(group))
+	}
+	return normalizedGroups
+}
+
+func normalizePersistedToolNames(toolNames []string) []string {
+	normalizedToolNames := make([]string, 0, len(toolNames))
+	for _, toolName := range toolNames {
+		normalizedToolNames = appendUniqueStrings(normalizedToolNames, normalizePersistedToolName(toolName))
+	}
+	return normalizedToolNames
+}
+
+func normalizePersistedToolName(toolName string) string {
+	switch strings.TrimSpace(toolName) {
+	case "ask.choice":
+		return AskInputToolName
+	case "artifact.deliver", "file.attach":
+		return FileDeliverToolName
+	case "site.promote":
+		return "site.publish"
+	case "terminal.session":
+		return TerminalRunToolName
+	default:
+		return strings.TrimSpace(toolName)
+	}
+}
+
+func normalizePersistedExpectedResults(results []ExpectedResult) []ExpectedResult {
+	normalizedResults := make([]ExpectedResult, 0, len(results))
+	for _, result := range results {
+		result.AcceptanceHints = normalizePersistedToolNames(result.AcceptanceHints)
+		normalizedResults = append(normalizedResults, result)
+	}
+	return normalizedResults
+}
+
+func normalizePersistedOutcomeEffects(effects []OutcomeEffect) []OutcomeEffect {
+	normalizedEffects := make([]OutcomeEffect, 0, len(effects))
+	for _, effect := range effects {
+		effect.SuggestedNextTools = normalizePersistedToolNames(effect.SuggestedNextTools)
+		normalizedEffects = append(normalizedEffects, effect)
+	}
+	return normalizedEffects
+}
+
+func normalizePersistedOperationContract(contract *OperationContract) *OperationContract {
+	if contract == nil {
+		return nil
+	}
+	normalizedContract := *contract
+	normalizedContract.Requirements = append([]OperationRequirement{}, contract.Requirements...)
+	for index := range normalizedContract.Requirements {
+		normalizedContract.Requirements[index].ToolName = normalizePersistedToolName(normalizedContract.Requirements[index].ToolName)
+	}
+	return &normalizedContract
+}
+
 func activeGoalDescription(activeGoal ActiveGoal) string {
 	if strings.TrimSpace(activeGoal.GoalID) == "" &&
 		strings.TrimSpace(activeGoal.TaskRunID) == "" &&

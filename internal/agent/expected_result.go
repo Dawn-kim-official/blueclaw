@@ -37,10 +37,10 @@ type ResultVerificationItem struct {
 
 var observedURLPattern = regexp.MustCompile(`https?://[^\s"'<>]+`)
 
-func buildObservedResults(observations []turnObservation, attachments []FileAttachment, finishMessage string) []ObservedResult {
+func buildObservedResults(toolSet *ToolSet, observations []turnObservation, attachments []FileAttachment, finishMessage string) []ObservedResult {
 	results := []ObservedResult{}
-	for _, observation := range observations {
-		results = append(results, observedResultsFromObservation(observation)...)
+	for _, fact := range observedFactsFromObservations(toolSet, observations) {
+		results = append(results, observedResultFromFact(fact))
 	}
 	for _, attachment := range attachments {
 		results = append(results, observedResultFromAttachment("", "", attachment))
@@ -54,57 +54,32 @@ func buildObservedResults(observations []turnObservation, attachments []FileAtta
 	return deduplicateObservedResults(results)
 }
 
-func observedResultsFromObservation(observation turnObservation) []ObservedResult {
-	if observation.Failed() {
-		return nil
+func observedResultFromFact(fact ObservedFact) ObservedResult {
+	result := ObservedResult{
+		Type:          ExpectedResultTypeMessage,
+		Description:   observedFactDescription(fact),
+		ObservationID: fact.ObservationID,
+		ToolName:      fact.ToolName,
 	}
-	return observedResultsFromSuccessfulObservation(observation)
+	if fact.URL != "" {
+		result.Type = ExpectedResultTypeLink
+		result.URL = fact.URL
+	}
+	return result
 }
 
-func observedResultsFromSuccessfulObservation(observation turnObservation) []ObservedResult {
-	results := []ObservedResult{}
-	content := observation.ContentText()
-	if strings.TrimSpace(content) != "" {
-		results = append(results, ObservedResult{
-			Type:          ExpectedResultTypeMessage,
-			Description:   observedResultDescription(observation, content),
-			ObservationID: observation.ObservationID,
-			ToolName:      observation.Tool,
-		})
-		if urlValue := firstObservedURL(content); urlValue != "" && observationCanDeliverLink(observation, content) {
-			results = append(results, ObservedResult{
-				Type:          ExpectedResultTypeLink,
-				Description:   observedResultDescription(observation, "URL: "+urlValue),
-				ObservationID: observation.ObservationID,
-				ToolName:      observation.Tool,
-				URL:           urlValue,
-			})
-		}
-	}
-	for _, attachment := range observation.Attachments {
-		results = append(results, observedResultFromAttachment(observation.ObservationID, observation.Tool, attachment))
-	}
-	return results
-}
-
-func observationCanDeliverLink(observation turnObservation, content string) bool {
-	switch strings.TrimSpace(observation.Tool) {
-	case "site.create":
-		return false
-	case "site.publish", "site.status":
-		return siteObservationHasPublishedStatus(content)
+func observedFactDescription(fact ObservedFact) string {
+	description := strings.TrimSpace(fact.ObjectType + " " + fact.Effect)
+	switch {
+	case fact.ID != "":
+		return description + ": " + fact.ID
+	case fact.Path != "":
+		return description + ": " + fact.Path
+	case fact.URL != "":
+		return description + ": " + fact.URL
 	default:
-		return true
+		return description
 	}
-}
-
-func siteObservationHasPublishedStatus(content string) bool {
-	var document map[string]any
-	if errorValue := json.Unmarshal([]byte(content), &document); errorValue != nil {
-		return false
-	}
-	status, _ := document["status"].(string)
-	return strings.TrimSpace(status) == "published"
 }
 
 func observedResultFromAttachment(observationID string, toolName string, attachment FileAttachment) ObservedResult {
@@ -123,33 +98,12 @@ func observedResultFromAttachment(observationID string, toolName string, attachm
 	}
 }
 
-func observedResultDescription(observation turnObservation, content string) string {
-	toolName := strings.TrimSpace(observation.Tool)
-	if toolName == "" {
-		return compactObservedResultText(content)
-	}
-	return toolName + " result: " + compactObservedResultText(content)
-}
-
-func compactObservedResultText(value string) string {
-	text := compactWhitespace(value)
-	if len([]rune(text)) <= 500 {
-		return text
-	}
-	return string([]rune(text)[:500])
-}
-
 func compactFinishDraftText(value string) string {
 	text := compactWhitespace(value)
 	if len([]rune(text)) <= 4000 {
 		return text
 	}
 	return string([]rune(text)[:4000])
-}
-
-func firstObservedURL(value string) string {
-	match := observedURLPattern.FindString(value)
-	return strings.TrimRight(match, ".,)")
 }
 
 func deduplicateObservedResults(results []ObservedResult) []ObservedResult {
@@ -176,7 +130,7 @@ func verifyExpectedResults(ctx context.Context, languageModel llm.LanguageModelP
 	if languageModel == nil {
 		return ResultVerification{}, errors.New("result verifier language model is not configured")
 	}
-	observedResults := buildObservedResults(observations, attachments, finishActionMessage(actionDocument))
+	observedResults := buildObservedResults(request.ToolSet, observations, attachments, finishActionMessage(actionDocument))
 	response, errorValue := languageModel.GenerateStructuredResponse(ctx, llm.StructuredResponseRequest{
 		Messages: resultVerifierMessages(request, expectedResults, observedResults),
 		StructuredOutputSchema: llm.StructuredOutputSchema{
@@ -271,7 +225,7 @@ func enforceObservedResultRequirements(expectedResults []ExpectedResult, observe
 			verification.Results[index] = satisfiedFinalMessageResult(item)
 			continue
 		}
-		linkResults := observedLinkResultsForExpectedResult(expectedResult, observedResults)
+		linkResults := observedResultsByType(observedResults, ExpectedResultTypeLink)
 		if expectedResult.Type == ExpectedResultTypeLink && len(linkResults) == 0 {
 			verification.Results[index] = missingObservedResultItem(item, "No link result was observed.")
 		}
@@ -299,21 +253,6 @@ func satisfiedFinalMessageResult(item ResultVerificationItem) ResultVerification
 	item.MissingDescription = ""
 	item.SuggestedNextTools = nil
 	return item
-}
-
-func observedLinkResultsForExpectedResult(expectedResult ExpectedResult, observedResults []ObservedResult) []ObservedResult {
-	linkResults := observedResultsByType(observedResults, ExpectedResultTypeLink)
-	if strings.TrimSpace(expectedResult.ID) != "site-public-link" {
-		return linkResults
-	}
-	siteLinkResults := []ObservedResult{}
-	for _, observedResult := range linkResults {
-		switch strings.TrimSpace(observedResult.ToolName) {
-		case "site.publish", "site.status":
-			siteLinkResults = append(siteLinkResults, observedResult)
-		}
-	}
-	return siteLinkResults
 }
 
 func missingObservedLinkReason(linkResults []ObservedResult) string {

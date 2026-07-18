@@ -101,15 +101,19 @@ func TestLLMContextBuilderOmitsEmptyOptionalSections(t *testing.T) {
 }
 
 func TestLLMContextBuilderIncludesObservedResultProjection(t *testing.T) {
+	descriptor, observation := canonicalEffectObservation(
+		"calendar.add",
+		`{"eventID":"event-1"}`,
+		[]ResourceEffect{{ObjectType: "calendar_event", Effect: "scheduled", ID: "event-1"}},
+		[]ResourceEffectContract{{ObjectType: "calendar_event", Effect: "scheduled", ResultField: "eventID", EffectIdentity: "id"}},
+	)
 	contextText := (LLMContextBuilder{}).Build(LLMContextInput{
 		TurnStartedAt: time.Date(2026, time.May, 12, 8, 32, 27, 0, time.UTC),
-		Observations: []turnObservation{
-			newContentObservation("obs-001", "continue", "calendar.add", `{"id":"event-1","title":"미팅"}`),
-		},
-		ToolSet: newTestToolSet([]string{"calendar.add"}),
+		Observations:  []turnObservation{observation},
+		ToolSet:       newTestToolSetWithDefinitions([]ToolDefinition{descriptor}),
 	})
 
-	for _, expected := range []string{"Observed result projection", "calendar_event", "scheduled", "obs-001"} {
+	for _, expected := range []string{"Observed result projection", "calendar_event", "scheduled", observation.ObservationID} {
 		if !strings.Contains(contextText, expected) {
 			t.Fatalf("expected observed result context %q, got %s", expected, contextText)
 		}

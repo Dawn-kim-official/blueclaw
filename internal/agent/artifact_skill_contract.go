@@ -72,9 +72,7 @@ func skillSupportsSiteArtifact(toolSet *ToolSet, skillInstruction SkillInstructi
 }
 
 func skillSupportsFileDelivery(skillInstruction SkillInstruction) bool {
-	return skillHasToolName(skillInstruction, FileDeliverToolName) ||
-		skillHasToolName(skillInstruction, ArtifactDeliverToolName) ||
-		skillHasToolName(skillInstruction, FileAttachToolName)
+	return skillHasToolName(skillInstruction, FileDeliverToolName)
 }
 
 func skillHasToolName(skillInstruction SkillInstruction, toolName string) bool {

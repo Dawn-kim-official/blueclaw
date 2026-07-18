@@ -8,8 +8,6 @@ const (
 	AskConfirmToolName          = "ask.confirm"
 	FileDeliverToolName         = "file.deliver"
 	AskChoiceToolName           = "ask.choice"
-	ArtifactDeliverToolName     = "artifact.deliver"
-	FileAttachToolName          = "file.attach"
 	SkillSearchToolName         = "skill.search"
 	FileReadToolName            = "file.read"
 	FileWriteToolName           = "file.write"
@@ -44,24 +42,10 @@ func IsKernelToolName(toolName string) bool {
 	return false
 }
 
-func CanonicalEvidenceToolName(toolName string) string {
-	trimmedToolName := strings.TrimSpace(toolName)
-	switch trimmedToolName {
-	case AskChoiceToolName:
-		return AskInputToolName
-	case ArtifactDeliverToolName, FileAttachToolName:
-		return FileDeliverToolName
-	case "terminal.session":
-		return TerminalRunToolName
-	default:
-		return trimmedToolName
-	}
-}
-
 func ToolNamesMatch(leftToolName string, rightToolName string) bool {
-	return CanonicalEvidenceToolName(leftToolName) == CanonicalEvidenceToolName(rightToolName)
+	return strings.TrimSpace(leftToolName) == strings.TrimSpace(rightToolName)
 }
 
 func IsArtifactDeliveryTool(toolName string) bool {
-	return CanonicalEvidenceToolName(toolName) == FileDeliverToolName
+	return strings.TrimSpace(toolName) == FileDeliverToolName
 }

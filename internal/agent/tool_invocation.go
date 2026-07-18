@@ -273,6 +273,15 @@ func siteToolResultSummary(observation turnObservation, fieldNames []string) str
 	return summarizeSafeJSONFields(observation.ContentText(), fieldNames)
 }
 
+func siteObservationHasPublishedStatus(content string) bool {
+	var document map[string]any
+	if json.Unmarshal([]byte(content), &document) != nil {
+		return false
+	}
+	status, isString := document["status"].(string)
+	return isString && strings.TrimSpace(status) == "published"
+}
+
 func withoutFieldName(fieldNames []string, removedFieldName string) []string {
 	filteredFieldNames := []string{}
 	for _, fieldName := range fieldNames {

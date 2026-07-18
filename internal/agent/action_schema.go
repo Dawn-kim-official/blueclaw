@@ -2,6 +2,7 @@ package agent
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 )
 
@@ -47,11 +48,7 @@ func buildActionSchemaFromToolDefinitions(toolDefinitions []ToolDefinition, allo
 		}
 	}
 
-	document, errorValue := json.Marshal(map[string]any{"oneOf": variants})
-	if errorValue != nil {
-		return fallbackActionSchema()
-	}
-	return string(document)
+	return mustMarshalActionSchema(map[string]any{"oneOf": variants})
 }
 
 func finishActionSchema(hasFailureDebt bool) map[string]any {
@@ -297,22 +294,18 @@ func failureReportFactsSchema() map[string]any {
 	}
 }
 
-func fallbackActionSchema() string {
-	return `{"oneOf":[{"type":"object","properties":{"action":{"type":"string","enum":["finish"]},"message":{"type":"string"},"failureResolution":{"type":"string","enum":["none","recovered_with_success","no_tool_fallback"]},"goalStatus":{"type":"string","enum":["satisfied"]},"goalSatisfied":{"type":"boolean"},"hasRemainingWork":{"type":"boolean"},"completionEvidenceIDs":{"type":"array","items":{"type":"string"}},"qualityReview":{"type":"array"},"remainingWork":{"type":"string"}},"required":["action","message","goalStatus","goalSatisfied","hasRemainingWork","completionEvidenceIDs","qualityReview"]},{"type":"object","properties":{"action":{"type":"string","enum":["fail"]},"reason":{"type":"string"},"goalStatus":{"type":"string","enum":["blocked"]},"goalSatisfied":{"type":"boolean"},"remainingWork":{"type":"string"}},"required":["action","reason","goalStatus","goalSatisfied"]}]}`
-}
-
 func finalizerActionSchema() string {
-	document, errorValue := json.Marshal(map[string]any{"oneOf": []any{finishActionSchema(false), failActionSchema(false)}})
-	if errorValue != nil {
-		return fallbackActionSchema()
-	}
-	return string(document)
+	return mustMarshalActionSchema(map[string]any{"oneOf": []any{finishActionSchema(false), failActionSchema(false)}})
 }
 
 func terminalNoToolsActionSchema() string {
-	document, errorValue := json.Marshal(map[string]any{"oneOf": []any{finishActionSchema(true), failActionSchema(true)}})
+	return mustMarshalActionSchema(map[string]any{"oneOf": []any{finishActionSchema(true), failActionSchema(true)}})
+}
+
+func mustMarshalActionSchema(schema any) string {
+	document, errorValue := json.Marshal(schema)
 	if errorValue != nil {
-		return fallbackActionSchema()
+		panic(fmt.Errorf("marshal action schema: %w", errorValue))
 	}
 	return string(document)
 }
