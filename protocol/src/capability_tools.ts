@@ -77,6 +77,10 @@ export enum ArtifactToolName {
   Review = 'artifact.review',
 }
 
+export enum WebToolName {
+  Search = 'web.search',
+}
+
 export enum ArtifactKind {
   Site = 'site',
   Slides = 'slides',
@@ -556,6 +560,31 @@ export const artifactReviewResultSchema = z.strictObject({
   summary: z.string(),
 });
 
+export const webSearchInputSchema = z.strictObject({
+  query: z.string().min(1).regex(/\S/, 'Search query must contain a non-whitespace character.'),
+  location: z.string().optional(),
+  language: z.string().optional(),
+  limit: z.number().int().min(1).max(10).optional(),
+  allowedDomains: z.array(z.string().min(1)).optional(),
+  excludedDomains: z.array(z.string().min(1)).optional(),
+});
+
+const webSearchResultItemSchema = z.strictObject({
+  title: z.string(),
+  url: z.string(),
+  snippet: z.string(),
+  source: z.string().optional(),
+});
+
+export const webSearchResultSchema = z.strictObject({
+  provider: z.string(),
+  remoteLLMInvolved: z.boolean(),
+  compatibility: z.string(),
+  query: z.string(),
+  answer: z.string(),
+  results: z.array(webSearchResultItemSchema),
+});
+
 function hasMutationField(document: object): boolean {
   return Object.keys(document).length > 1;
 }
@@ -950,9 +979,25 @@ const artifactToolDefinitions: CapabilityToolDefinition[] = [
   },
 ];
 
+const webToolDefinitions: CapabilityToolDefinition[] = [
+  {
+    name: WebToolName.Search,
+    namespace: 'web',
+    privacyClass: 'public_web',
+    policyResource: 'tool:web.search',
+    description: 'Search the public web and return ranked result snippets. Use this when you need current information, facts, or links that are not already in context. Do not use for workspace data, calendar, mail, or tasks — those have dedicated tools.',
+    version: '1',
+    estimatedLatency: CapabilityEstimatedLatency.Medium,
+    inputSchema: webSearchInputSchema,
+    result: { schema: webSearchResultSchema, effects: [] },
+    sideEffect: CapabilitySideEffect.Read,
+  },
+];
+
 const capabilityToolDefinitions = [
   ...taskToolDefinitions,
   ...calendarToolDefinitions,
+  ...webToolDefinitions,
   ...siteToolDefinitions,
   ...fileToolDefinitions,
   ...browserToolDefinitions,
@@ -998,6 +1043,8 @@ export type BrowserClickInput = z.infer<typeof browserClickInputSchema>;
 export type BrowserClickResult = z.infer<typeof browserClickResultSchema>;
 export type ArtifactReviewInput = z.infer<typeof artifactReviewInputSchema>;
 export type ArtifactReviewResult = z.infer<typeof artifactReviewResultSchema>;
+export type WebSearchInput = z.infer<typeof webSearchInputSchema>;
+export type WebSearchResult = z.infer<typeof webSearchResultSchema>;
 
 export function buildCapabilityToolCatalog(protocolVersion: string): CapabilityToolCatalog {
   return {

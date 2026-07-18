@@ -9,6 +9,7 @@ import {
   ImageToolName,
   SiteLifecycleStatus,
   SiteToolName,
+  WebToolName,
   WorkspaceTaskInitialStatus,
   WorkspaceTaskSize,
   artifactReviewInputSchema,
@@ -44,8 +45,10 @@ import {
   taskDeleteInputSchema,
   taskListInputSchema,
   taskUpdateInputSchema,
+  webSearchInputSchema,
+  webSearchResultSchema,
 } from '../src/capability_tools.ts';
-import { ResourceEffectIdentity } from '../src/capability.ts';
+import { CapabilitySideEffect, ResourceEffectIdentity } from '../src/capability.ts';
 import { protocolVersion } from '../src/registry.ts';
 
 describe('canonical capability tools', () => {
@@ -62,6 +65,7 @@ describe('canonical capability tools', () => {
       CalendarToolName.List,
       CalendarToolName.Update,
       CalendarToolName.Delete,
+      WebToolName.Search,
       SiteToolName.Create,
       SiteToolName.Status,
       SiteToolName.Preview,
@@ -77,6 +81,38 @@ describe('canonical capability tools', () => {
     ]);
     expect(catalog.tools.every(tool => tool.inputSchemaStrict && tool.outputSchemaStrict)).toBe(true);
     expect(new Set(catalog.tools.map(tool => tool.name)).size).toBe(catalog.tools.length);
+  });
+
+  test('defines exact web search inputs and normalized results', () => {
+    expect(webSearchInputSchema.safeParse({ query: 'internkim', limit: 3 }).success).toBe(true);
+    expect(webSearchInputSchema.safeParse({ query: 'internkim', allowedDomains: ['internkim.example'] }).success).toBe(true);
+    expect(webSearchInputSchema.safeParse({ query: 'internkim', limit: 0 }).success).toBe(false);
+    expect(webSearchInputSchema.safeParse({ query: '   ' }).success).toBe(false);
+    expect(webSearchInputSchema.safeParse({ query: 'internkim', unknown: true }).success).toBe(false);
+    expect(webSearchInputSchema.safeParse({}).success).toBe(false);
+
+    const result = {
+      provider: 'openrouter',
+      remoteLLMInvolved: true,
+      compatibility: 'openrouter_server_tool_auto',
+      query: 'internkim',
+      answer: 'result',
+      results: [{
+        title: 'InternKim',
+        url: 'https://internkim.example',
+        snippet: 'An agent platform',
+        source: 'internkim.example',
+      }],
+    };
+    expect(webSearchResultSchema.safeParse(result).success).toBe(true);
+    expect(webSearchResultSchema.safeParse({ ...result, extra: true }).success).toBe(false);
+    expect(webSearchResultSchema.safeParse({ ...result, results: [{ title: 'InternKim' }] }).success).toBe(false);
+
+    const catalog = buildCapabilityToolCatalog(protocolVersion);
+    const descriptor = catalog.tools.find(tool => tool.name === WebToolName.Search);
+    expect(descriptor?.resultContract?.effects).toEqual([]);
+    expect(descriptor?.requiresApproval).toBeUndefined();
+    expect(descriptor?.sideEffectClass).toBe(CapabilitySideEffect.Read);
   });
 
   test('defines exact browser inputs and successful results', () => {

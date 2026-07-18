@@ -17,6 +17,7 @@ describe('protocol artifacts', () => {
       'calendar.list',
       'calendar.update',
       'calendar.delete',
+      'web.search',
       'site.create',
       'site.status',
       'site.preview',

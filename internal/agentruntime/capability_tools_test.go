@@ -422,6 +422,38 @@ func TestCanonicalReadRejectsEffects(t *testing.T) {
 	}
 }
 
+func TestCanonicalWebSearchAcceptsNormalizedResultContract(t *testing.T) {
+	httpClient := &recordingHTTPClient{responseBody: `{"provider":"openrouter","selectedBackend":"remote","toolName":"web.search","outcome":"succeeded","status":"ok","result":{"provider":"openrouter","remoteLLMInvolved":true,"compatibility":"openrouter_server_tool_auto","query":"internkim","answer":"result","results":[{"title":"InternKim","url":"https://internkim.example","snippet":"An agent platform"}]}}`}
+	toolCatalogBuilder := NewToolCatalogBuilder()
+	toolCatalogBuilder.UseTestCapabilityToolDescriptors(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, []CapabilityToolDescriptor{canonicalWebSearchDescriptor()})
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"web.search"})
+	toolSet := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
+
+	result, errorValue := toolSet.Invoke(context.Background(), agent.ToolInvocation{ToolName: "web.search", Input: json.RawMessage(`{"query":"internkim"}`)})
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if result.Failed() {
+		t.Fatalf("expected normalized web search result, got %+v", result)
+	}
+}
+
+func TestCanonicalWebSearchRejectsReadEffects(t *testing.T) {
+	httpClient := &recordingHTTPClient{responseBody: `{"provider":"openrouter","selectedBackend":"remote","toolName":"web.search","outcome":"succeeded","status":"ok","result":{"provider":"openrouter","remoteLLMInvolved":true,"compatibility":"openrouter_server_tool_auto","query":"internkim","answer":"result","results":[]},"effects":[{"objectType":"web","effect":"read","url":"https://internkim.example"}]}`}
+	toolCatalogBuilder := NewToolCatalogBuilder()
+	toolCatalogBuilder.UseTestCapabilityToolDescriptors(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, []CapabilityToolDescriptor{canonicalWebSearchDescriptor()})
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"web.search"})
+	toolSet := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
+
+	result, errorValue := toolSet.Invoke(context.Background(), agent.ToolInvocation{ToolName: "web.search", Input: json.RawMessage(`{"query":"internkim"}`)})
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if !result.Failed() || result.FailureStage() != "tool_result_contract" {
+		t.Fatalf("expected web search effects rejection, got %+v", result)
+	}
+}
+
 func canonicalReadDescriptor(toolName string) CapabilityToolDescriptor {
 	resultSchema := `{"type":"object","additionalProperties":false,"properties":{"status":{"const":"ok","type":"string"},"path":{"minLength":1,"type":"string"},"format":{"const":"markdown","type":"string"},"content":{"type":"string"},"warnings":{"type":"array","items":{"type":"string"}},"truncated":{"type":"boolean"}},"required":["status","path","format","content","warnings","truncated"]}`
 	inputSchema := `{"type":"object","additionalProperties":false,"properties":{"path":{"minLength":1,"type":"string"}},"required":["path"]}`
@@ -440,6 +472,27 @@ func canonicalReadDescriptor(toolName string) CapabilityToolDescriptor {
 		OutputSchema:    json.RawMessage(`{"type":"object","additionalProperties":false}`),
 		ResultContract:  &CapabilityToolResultContract{Schema: json.RawMessage(resultSchema)},
 		PolicyResource:  "tool:" + toolName,
+		SideEffectClass: "read",
+		Availability:    CapabilityAvailability{State: "ok"},
+		Idempotency:     CapabilityIdempotency{Scope: "operation"},
+	}
+}
+
+func canonicalWebSearchDescriptor() CapabilityToolDescriptor {
+	inputSchema := `{"type":"object","additionalProperties":false,"properties":{"query":{"type":"string"},"location":{"type":"string"},"language":{"type":"string"},"limit":{"type":"integer","minimum":1,"maximum":10},"allowedDomains":{"type":"array","items":{"type":"string"}},"excludedDomains":{"type":"array","items":{"type":"string"}}},"required":["query"]}`
+	resultSchema := `{"type":"object","additionalProperties":false,"properties":{"provider":{"type":"string"},"remoteLLMInvolved":{"type":"boolean"},"compatibility":{"type":"string"},"query":{"type":"string"},"answer":{"type":"string"},"results":{"type":"array","items":{"type":"object","additionalProperties":false,"properties":{"title":{"type":"string"},"url":{"type":"string"},"snippet":{"type":"string"},"source":{"type":"string"}},"required":["title","url","snippet"]}}},"required":["provider","remoteLLMInvolved","compatibility","query","answer","results"]}`
+	return CapabilityToolDescriptor{
+		Name:            "web.search",
+		CanonicalName:   "web.search",
+		Namespace:       "web",
+		ModelName:       "web.search",
+		ModelVisibility: agent.ToolVisibilityModel,
+		Description:     "Canonical web search test descriptor.",
+		PrivacyClass:    "public_web",
+		InputSchema:     json.RawMessage(inputSchema),
+		OutputSchema:    json.RawMessage(`{"type":"object","additionalProperties":false}`),
+		ResultContract:  &CapabilityToolResultContract{Schema: json.RawMessage(resultSchema)},
+		PolicyResource:  "tool:web.search",
 		SideEffectClass: "read",
 		Availability:    CapabilityAvailability{State: "ok"},
 		Idempotency:     CapabilityIdempotency{Scope: "operation"},
