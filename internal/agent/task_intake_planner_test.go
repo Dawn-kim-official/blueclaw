@@ -53,6 +53,135 @@ func TestTurnRouterPropagatesLanguageModelError(t *testing.T) {
 	}
 }
 
+func TestTurnRouterCorrectsAuthoritativeStructuredOutputOnce(t *testing.T) {
+	correctionError := turnRouterStructuredCorrectionError{
+		message: "raw provider response must not enter the correction prompt",
+		correction: llm.StructuredOutputCorrection{
+			Code: "structured_output_invalid",
+			Diagnostic: llm.StructuredOutputDiagnostic{
+				Category: llm.StructuredOutputDiagnosticSchemaValidation,
+				ValidationIssues: []llm.StructuredOutputValidationIssue{
+					{FieldPath: "/expectedResults/0/start", Code: llm.StructuredOutputValidationAdditionalProperty},
+					{FieldPath: "/expectedResults/0/end", Code: llm.StructuredOutputValidationAdditionalProperty},
+					{FieldPath: "/expectedResults/0/userFacingReply", Code: llm.StructuredOutputValidationAdditionalProperty},
+				},
+			},
+		},
+	}
+	languageModel := &turnRouterCorrectionLanguageModel{
+		errorsByCall: map[int]error{0: correctionError},
+		contents: []string{
+			"",
+			`{"route":"start_task","classification":"bounded_task","taskShape":"maintenance_task","level":"low","estimatedMinutes":2,"requiredEvidence":[],"initialToolNames":[],"reason":"create the requested file","userFacingReply":"","responseLanguage":"ko","priorTaskReference":"none"}`,
+		},
+	}
+	router := NewTurnRouter(languageModel, IntakeOptions{IsEnabled: true})
+	responseContext := context.WithValue(context.Background(), turnRouterCorrectionContextKey{}, "same-context")
+
+	decision, errorValue := router.Plan(responseContext, AgentRequest{Prompt: "JSON 파일을 만들어줘"})
+
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if decision.Route != TurnRouteStartTask || decision.TaskShape != TaskShapeMaintenanceTask {
+		t.Fatalf("expected corrected router decision, got %+v", decision)
+	}
+	if len(languageModel.requests) != 2 {
+		t.Fatalf("expected exactly one correction, got %d calls", len(languageModel.requests))
+	}
+	firstRequest := languageModel.requests[0]
+	correctionRequest := languageModel.requests[1]
+	if firstRequest.StructuredOutputSchema != correctionRequest.StructuredOutputSchema {
+		t.Fatal("expected correction to preserve the router schema")
+	}
+	if firstRequest.GenerationOptions.MaxTokens == nil || correctionRequest.GenerationOptions.MaxTokens == nil ||
+		*firstRequest.GenerationOptions.MaxTokens != *correctionRequest.GenerationOptions.MaxTokens {
+		t.Fatal("expected correction to preserve generation options")
+	}
+	if languageModel.contexts[0] != languageModel.contexts[1] {
+		t.Fatal("expected correction to use the same response context")
+	}
+	if len(correctionRequest.Messages) != len(firstRequest.Messages)+1 {
+		t.Fatal("expected one typed correction instruction")
+	}
+	correctionInstruction := correctionRequest.Messages[len(correctionRequest.Messages)-1].Content
+	for _, expectedDiagnostic := range []string{
+		"/expectedResults/0/start (additional_property)",
+		"/expectedResults/0/end (additional_property)",
+		"/expectedResults/0/userFacingReply (additional_property)",
+	} {
+		if !strings.Contains(correctionInstruction, expectedDiagnostic) {
+			t.Fatalf("expected typed diagnostic %q, got %s", expectedDiagnostic, correctionInstruction)
+		}
+	}
+	if strings.Contains(correctionInstruction, correctionError.message) {
+		t.Fatal("expected correction to exclude the raw provider error")
+	}
+}
+
+func TestTurnRouterBoundsStructuredOutputCorrection(t *testing.T) {
+	firstError := newTurnRouterCorrectionError("first invalid response")
+	finalError := newTurnRouterCorrectionError("second invalid response")
+	languageModel := &turnRouterCorrectionLanguageModel{
+		errorsByCall: map[int]error{0: firstError, 1: finalError},
+		contents: []string{
+			"",
+			"",
+			`{"route":"start_task","classification":"bounded_task","taskShape":"maintenance_task","level":"low","estimatedMinutes":2}`,
+		},
+	}
+
+	_, errorValue := NewTurnRouter(languageModel, IntakeOptions{IsEnabled: true}).Plan(context.Background(), AgentRequest{Prompt: "파일을 만들어줘"})
+
+	if errorValue == nil || !strings.Contains(errorValue.Error(), finalError.message) {
+		t.Fatalf("expected final correction error, got %v", errorValue)
+	}
+	if len(languageModel.requests) != 2 {
+		t.Fatalf("expected exactly one correction attempt, got %d calls", len(languageModel.requests))
+	}
+}
+
+func TestTurnRouterDoesNotRetryNonCorrectableStructuredOutput(t *testing.T) {
+	nonCorrectableError := turnRouterStructuredCorrectionError{
+		message: "serialization failed",
+		correction: llm.StructuredOutputCorrection{
+			Code: "structured_output_invalid",
+			Diagnostic: llm.StructuredOutputDiagnostic{
+				Category: llm.StructuredOutputDiagnosticSerialization,
+			},
+		},
+	}
+	languageModel := &turnRouterCorrectionLanguageModel{errorsByCall: map[int]error{0: nonCorrectableError}}
+
+	_, errorValue := NewTurnRouter(languageModel, IntakeOptions{IsEnabled: true}).Plan(context.Background(), AgentRequest{Prompt: "hello"})
+
+	if errorValue == nil || !strings.Contains(errorValue.Error(), nonCorrectableError.message) {
+		t.Fatalf("expected non-correctable error, got %v", errorValue)
+	}
+	if len(languageModel.requests) != 1 {
+		t.Fatalf("expected no correction, got %d calls", len(languageModel.requests))
+	}
+}
+
+func TestTurnRouterDoesNotRetryCancellationOrDeadline(t *testing.T) {
+	for _, cause := range []error{context.Canceled, context.DeadlineExceeded} {
+		t.Run(cause.Error(), func(t *testing.T) {
+			correctionError := newTurnRouterCorrectionError("generation stopped")
+			correctionError.cause = cause
+			languageModel := &turnRouterCorrectionLanguageModel{errorsByCall: map[int]error{0: correctionError}}
+
+			_, errorValue := NewTurnRouter(languageModel, IntakeOptions{IsEnabled: true}).Plan(context.Background(), AgentRequest{Prompt: "hello"})
+
+			if !errors.Is(errorValue, cause) {
+				t.Fatalf("expected %v, got %v", cause, errorValue)
+			}
+			if len(languageModel.requests) != 1 {
+				t.Fatalf("expected no correction, got %d calls", len(languageModel.requests))
+			}
+		})
+	}
+}
+
 func TestTurnRouterReasksWithinSelectedEvidenceCandidates(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{`{"requiredEvidence":["task.update"]}`}}
 	router := NewTurnRouter(languageModel, IntakeOptions{IsEnabled: true})
@@ -1934,6 +2063,66 @@ func (retriever *countingSkillRetriever) Search(_ context.Context, request Agent
 func (retriever *countingSkillRetriever) Refresh(context.Context, []SkillInstruction) {}
 
 type failingLanguageModel struct{}
+
+type turnRouterCorrectionContextKey struct{}
+
+type turnRouterStructuredCorrectionError struct {
+	message    string
+	correction llm.StructuredOutputCorrection
+	cause      error
+}
+
+func newTurnRouterCorrectionError(message string) turnRouterStructuredCorrectionError {
+	return turnRouterStructuredCorrectionError{
+		message: message,
+		correction: llm.StructuredOutputCorrection{
+			Code: "structured_output_invalid",
+			Diagnostic: llm.StructuredOutputDiagnostic{
+				Category: llm.StructuredOutputDiagnosticSchemaValidation,
+				ValidationIssues: []llm.StructuredOutputValidationIssue{{
+					FieldPath: "/expectedResults/0/start",
+					Code:      llm.StructuredOutputValidationAdditionalProperty,
+				}},
+			},
+		},
+	}
+}
+
+func (errorValue turnRouterStructuredCorrectionError) Error() string {
+	return errorValue.message
+}
+
+func (errorValue turnRouterStructuredCorrectionError) Unwrap() error {
+	return errorValue.cause
+}
+
+func (errorValue turnRouterStructuredCorrectionError) StructuredOutputCorrection() (llm.StructuredOutputCorrection, bool) {
+	return errorValue.correction, true
+}
+
+type turnRouterCorrectionLanguageModel struct {
+	contexts     []context.Context
+	requests     []llm.StructuredResponseRequest
+	contents     []string
+	errorsByCall map[int]error
+}
+
+func (languageModel *turnRouterCorrectionLanguageModel) GenerateResponse(context.Context, string) (string, error) {
+	return "", nil
+}
+
+func (languageModel *turnRouterCorrectionLanguageModel) GenerateStructuredResponse(responseContext context.Context, request llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
+	languageModel.contexts = append(languageModel.contexts, responseContext)
+	languageModel.requests = append(languageModel.requests, request)
+	callIndex := len(languageModel.requests) - 1
+	if errorValue := languageModel.errorsByCall[callIndex]; errorValue != nil {
+		return llm.StructuredResponse{}, errorValue
+	}
+	if callIndex >= len(languageModel.contents) {
+		return llm.StructuredResponse{}, nil
+	}
+	return llm.StructuredResponse{Content: languageModel.contents[callIndex]}, nil
+}
 
 type clarificationReviewFailureLanguageModel struct {
 	content   string

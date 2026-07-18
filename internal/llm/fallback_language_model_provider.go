@@ -43,6 +43,9 @@ func (fallbackLanguageModelProvider FallbackLanguageModelProvider) GenerateStruc
 	if errorValue == nil || fallbackLanguageModelProvider.FallbackProvider == nil {
 		return structuredResponse, errorValue
 	}
+	if _, isCorrectable := StructuredOutputCorrectionFromError(errorValue); isCorrectable {
+		return structuredResponse, errorValue
+	}
 
 	fallbackLanguageModelProvider.logFallback("structured", errorValue)
 	structuredResponse, errorValue = fallbackLanguageModelProvider.FallbackProvider.GenerateStructuredResponse(responseContext, structuredResponseRequest)
