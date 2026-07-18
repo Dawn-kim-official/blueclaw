@@ -67,13 +67,14 @@ func (toolCatalogBuilder *ToolCatalogBuilder) invokeCapabilityOperation(toolCont
 	if unexpected := unexpectedCapabilityInputFields(toolDescriptor.InputSchema, rawInput); len(unexpected) > 0 {
 		return capabilityUnexpectedInputFailure(operation, toolDescriptor, unexpected), nil
 	}
-	toolInput, toolFailure, errorValue := toolCatalogBuilder.prepareCapabilityToolInput(toolContext, operation, request, rawInput)
+	preparedPayload, toolFailure, errorValue := toolCatalogBuilder.prepareCapabilityToolInput(toolContext, operation, request, rawInput)
 	if toolFailure != nil {
 		return *toolFailure, nil
 	}
 	if errorValue != nil {
 		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "capability_input", errorValue.Error()), nil
 	}
+	toolInput := preparedPayload.Input
 	if missing := missingRequiredCapabilityInputFields(toolDescriptor.InputSchema, toolInput); len(missing) > 0 {
 		return capabilityMissingInputFailure(operation, toolDescriptor, missing), nil
 	}
@@ -84,7 +85,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) invokeCapabilityOperation(toolCont
 		}
 		return agent.ToolFailureResult(agent.FailurePermissionDenied, agent.FailureCodes.AccessDenied, failureStage, errorValue.Error()), nil
 	}
-	errorValue = toolCatalogBuilder.capabilityClient.PostJSON(toolContext, "/v1/tools/"+url.PathEscape(operation)+"/invoke", capabilityToolRequest(toolContext, toolDescriptor, request, toolInput), &response)
+	errorValue = toolCatalogBuilder.capabilityClient.PostJSON(toolContext, "/v1/tools/"+url.PathEscape(operation)+"/invoke", capabilityToolRequest(toolContext, toolDescriptor, request, preparedPayload), &response)
 	if errorValue != nil {
 		return agent.ToolResult{}, errorValue
 	}
@@ -365,7 +366,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) capabilityRequestForOperation(tool
 	if !isFound {
 		return nil, errors.New("capability descriptor is not registered: " + operation)
 	}
-	return capabilityToolRequest(toolContext, descriptor, request, input), nil
+	return capabilityToolRequest(toolContext, descriptor, request, preparedCapabilityToolPayload{Input: input}), nil
 }
 
 func capabilityRequiredInputDescription(inputSchema json.RawMessage, requiredFields []string) string {
@@ -507,7 +508,12 @@ func isApprovalExemptCapabilityTool(toolName string, request ToolCatalogRequest)
 	return request.IsScheduledRun || request.IsApprovalContinuation
 }
 
-func capabilityToolRequest(toolContext context.Context, descriptor CapabilityToolDescriptor, request ToolCatalogRequest, toolInput json.RawMessage) map[string]any {
+type preparedCapabilityToolPayload struct {
+	Input     json.RawMessage
+	Transport map[string]any
+}
+
+func capabilityToolRequest(toolContext context.Context, descriptor CapabilityToolDescriptor, request ToolCatalogRequest, payload preparedCapabilityToolPayload) map[string]any {
 	contextDocument := map[string]any{
 		"requesterPersonID":       request.RequesterPersonID,
 		"requesterEmail":          request.RequesterEmail,
@@ -531,9 +537,12 @@ func capabilityToolRequest(toolContext context.Context, descriptor CapabilityToo
 	}
 	requestDocument := map[string]any{
 		"toolName":       descriptor.CanonicalName,
-		"input":          toolInput,
+		"input":          payload.Input,
 		"idempotencyKey": capabilityToolIdempotencyKey(toolContext, descriptor),
 		"context":        contextDocument,
+	}
+	if len(payload.Transport) > 0 {
+		requestDocument["transport"] = payload.Transport
 	}
 	if descriptor.PrivacyClass != "" {
 		requestDocument["privacyClass"] = descriptor.PrivacyClass
@@ -547,15 +556,16 @@ func capabilityToolRequest(toolContext context.Context, descriptor CapabilityToo
 	return requestDocument
 }
 
-func (toolCatalogBuilder *ToolCatalogBuilder) prepareCapabilityToolInput(toolContext context.Context, toolName string, request ToolCatalogRequest, toolInput json.RawMessage) (json.RawMessage, *agent.ToolResult, error) {
+func (toolCatalogBuilder *ToolCatalogBuilder) prepareCapabilityToolInput(toolContext context.Context, toolName string, request ToolCatalogRequest, toolInput json.RawMessage) (preparedCapabilityToolPayload, *agent.ToolResult, error) {
 	if siteToolNeedsSourceBundle(toolName) {
-		return toolCatalogBuilder.enrichSitePublishInput(toolContext, request, toolInput)
+		transport, toolFailure, errorValue := toolCatalogBuilder.prepareSiteSourceBundle(toolContext, request, toolInput)
+		return preparedCapabilityToolPayload{Input: toolInput, Transport: transport}, toolFailure, errorValue
 	}
 	if capabilityToolNeedsWorkspacePath(toolName) {
 		input, errorValue := toolCatalogBuilder.resolveCapabilityWorkspacePathInput(toolContext, toolName, request, toolInput)
-		return input, nil, errorValue
+		return preparedCapabilityToolPayload{Input: input}, nil, errorValue
 	}
-	return toolInput, nil, nil
+	return preparedCapabilityToolPayload{Input: toolInput}, nil, nil
 }
 
 func capabilityToolNeedsWorkspacePath(toolName string) bool {

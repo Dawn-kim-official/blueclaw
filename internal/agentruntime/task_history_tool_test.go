@@ -3,7 +3,6 @@ package agentruntime
 import (
 	"context"
 	"encoding/json"
-	"strings"
 	"testing"
 
 	"blueclaw/internal/agent"
@@ -102,7 +101,7 @@ func TestTaskHistoryToolRejectsCapabilityOperationInput(t *testing.T) {
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
-	if !result.Failed() || !strings.Contains(result.ContentText(), "unknown field") {
+	if !result.Failed() || result.FailureStage() != "tool_input_schema" {
 		t.Fatalf("expected task.history to reject task.add input, got %s", result.ContentText())
 	}
 }

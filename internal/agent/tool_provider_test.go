@@ -61,6 +61,51 @@ func TestRegisterProviderRejectsMissingSchemaAtomically(t *testing.T) {
 	}
 }
 
+func TestRegisterProviderRejectsUnresolvableSchemasAtomically(t *testing.T) {
+	testCases := []struct {
+		name         string
+		mutateSchema func(*ToolDescriptor)
+		expected     string
+	}{
+		{
+			name: "input",
+			mutateSchema: func(descriptor *ToolDescriptor) {
+				descriptor.InputSchema = json.RawMessage(`{"type":"object","$ref":"#/$defs/missing","additionalProperties":false}`)
+			},
+			expected: "inputSchema cannot be resolved",
+		},
+		{
+			name: "result",
+			mutateSchema: func(descriptor *ToolDescriptor) {
+				descriptor.ResultContract.Schema = json.RawMessage(`{"type":"object","$ref":"#/$defs/missing","additionalProperties":false}`)
+			},
+			expected: "resultContract.schema cannot be resolved",
+		},
+	}
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			toolSet := NewToolSet([]string{"task.add"})
+			providerTool := validProviderTool("capabilityd/task/task.add", "task", "task.add")
+			providerTool.Definition.ResultContract = &ToolResultContract{
+				Schema: json.RawMessage(`{"type":"object","properties":{},"additionalProperties":false}`),
+			}
+			testCase.mutateSchema(&providerTool.Definition)
+
+			errorValue := toolSet.RegisterProvider(context.Background(), testToolProvider{
+				providerID: "capabilityd",
+				tools:      []BoundTool{providerTool},
+			})
+
+			if errorValue == nil || !strings.Contains(errorValue.Error(), testCase.expected) {
+				t.Fatalf("expected unresolvable %s schema failure, got %v", testCase.name, errorValue)
+			}
+			if len(toolSet.ListRegisteredToolNames()) != 0 {
+				t.Fatalf("expected atomic rejection, got %+v", toolSet.ListRegisteredToolNames())
+			}
+		})
+	}
+}
+
 func TestRegisterProviderClosesObjectSchemas(t *testing.T) {
 	toolSet := NewToolSet([]string{"task.add"})
 	providerTool := validProviderTool("capabilityd/task/task.add", "task", "task.add")
@@ -119,6 +164,33 @@ func TestRegisterProviderRejectsIncompleteObservationMetadata(t *testing.T) {
 	}
 }
 
+func TestRegisterProviderRequiresIdempotencyScopeWhenSupported(t *testing.T) {
+	for _, idempotency := range []string{ToolIdempotencySupported, ToolIdempotencyRequired} {
+		toolSet := NewToolSet([]string{"task.add"})
+		providerTool := validProviderTool("capabilityd/task/task.add", "task", "task.add")
+		providerTool.Definition.Idempotency = idempotency
+
+		errorValue := toolSet.RegisterProvider(context.Background(), testToolProvider{providerID: "capabilityd", tools: []BoundTool{providerTool}})
+
+		if errorValue == nil || !strings.Contains(errorValue.Error(), "idempotencyScope is required") {
+			t.Fatalf("expected %s without scope to fail closed, got %v", idempotency, errorValue)
+		}
+	}
+}
+
+func TestRegisterProviderAllowsMissingIdempotencyScopeWhenUnsupported(t *testing.T) {
+	toolSet := NewToolSet([]string{"task.add"})
+
+	errorValue := toolSet.RegisterProvider(context.Background(), testToolProvider{
+		providerID: "capabilityd",
+		tools:      []BoundTool{validProviderTool("capabilityd/task/task.add", "task", "task.add")},
+	})
+
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+}
+
 func TestRegisterProviderRejectsUnboundResultEffectIdentity(t *testing.T) {
 	toolSet := NewToolSet([]string{"task.add"})
 	providerTool := validProviderTool("capabilityd/task/task.add", "task", "task.add")
@@ -134,8 +206,83 @@ func TestRegisterProviderRejectsUnboundResultEffectIdentity(t *testing.T) {
 
 	errorValue := toolSet.RegisterProvider(context.Background(), testToolProvider{providerID: "capabilityd", tools: []BoundTool{providerTool}})
 
-	if errorValue == nil || !strings.Contains(errorValue.Error(), "resultField must name a required string property") {
+	if errorValue == nil || !strings.Contains(errorValue.Error(), "resultField must name a required string or nonempty unique string array property") {
 		t.Fatalf("expected unbound result identity rejection, got %v", errorValue)
+	}
+}
+
+func TestRegisterProviderValidatesEvidenceConditionAgainstResultSchema(t *testing.T) {
+	providerTool := validProviderTool("capabilityd/artifact/artifact.review", "artifact", "artifact.review")
+	providerTool.Definition.ResultContract = &ToolResultContract{
+		Schema: json.RawMessage(`{"type":"object","properties":{"passed":{"type":"boolean"}},"required":["passed"],"additionalProperties":false}`),
+		EvidenceCondition: &EvidenceCondition{
+			ResultField: "passed",
+			Equals:      json.RawMessage(`"true"`),
+		},
+	}
+
+	errorValue := NewToolSet([]string{"artifact.review"}).RegisterProvider(context.Background(), testToolProvider{
+		providerID: "capabilityd",
+		tools:      []BoundTool{providerTool},
+	})
+
+	if errorValue == nil || !strings.Contains(errorValue.Error(), "must match a required result property") {
+		t.Fatalf("expected evidence condition type mismatch rejection, got %v", errorValue)
+	}
+}
+
+func TestRegisterProviderAcceptsStringArrayResultEffectIdentity(t *testing.T) {
+	toolSet := NewToolSet([]string{"file.edit"})
+	providerTool := validProviderTool("kernel/file.edit", "file", "file.edit")
+	providerTool.Definition.ResultContract = &ToolResultContract{
+		Schema: json.RawMessage(`{
+			"type":"object",
+			"properties":{"editedFiles":{"type":"array","items":{"type":"string"},"minItems":1,"uniqueItems":true}},
+			"required":["editedFiles"],
+			"additionalProperties":false
+		}`),
+		Effects: []ResourceEffectContract{{
+			ObjectType:     "file",
+			Effect:         "updated",
+			ResultField:    "editedFiles",
+			EffectIdentity: "path",
+		}},
+	}
+
+	errorValue := toolSet.RegisterProvider(context.Background(), testToolProvider{
+		providerID: "capabilityd",
+		tools:      []BoundTool{providerTool},
+	})
+
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+}
+
+func TestRegisterProviderRejectsNoncanonicalStringArrayResultEffectIdentity(t *testing.T) {
+	for _, schema := range []json.RawMessage{
+		json.RawMessage(`{"type":"object","properties":{"paths":{"type":"array","items":{"type":"string"},"uniqueItems":true}},"required":["paths"],"additionalProperties":false}`),
+		json.RawMessage(`{"type":"object","properties":{"paths":{"type":"array","items":{"type":"string"},"minItems":1}},"required":["paths"],"additionalProperties":false}`),
+		json.RawMessage(`{"type":"object","properties":{"paths":{"type":"array","items":{"type":"number"},"minItems":1,"uniqueItems":true}},"required":["paths"],"additionalProperties":false}`),
+	} {
+		toolSet := NewToolSet([]string{"file.edit"})
+		providerTool := validProviderTool("kernel/file.edit", "file", "file.edit")
+		providerTool.Definition.ResultContract = &ToolResultContract{
+			Schema: schema,
+			Effects: []ResourceEffectContract{{
+				ObjectType:     "file",
+				Effect:         "updated",
+				ResultField:    "paths",
+				EffectIdentity: "path",
+			}},
+		}
+		errorValue := toolSet.RegisterProvider(context.Background(), testToolProvider{
+			providerID: "kernel",
+			tools:      []BoundTool{providerTool},
+		})
+		if errorValue == nil {
+			t.Fatalf("expected noncanonical array identity rejection for %s", schema)
+		}
 	}
 }
 
@@ -203,6 +350,74 @@ func TestToolSetValidatesCanonicalResultContract(t *testing.T) {
 			}
 			if !testCase.isSuccess && result.FailureStage() != "tool_result_contract" {
 				t.Fatalf("expected result contract failure, got %+v", result)
+			}
+		})
+	}
+}
+
+func TestToolSetValidatesEveryArrayEffectIdentity(t *testing.T) {
+	testCases := []struct {
+		name      string
+		effects   []ResourceEffect
+		isSuccess bool
+	}{
+		{
+			name: "exact paths",
+			effects: []ResourceEffect{
+				{ObjectType: "file", Effect: "updated", Path: "/workspace/second.md"},
+				{ObjectType: "file", Effect: "updated", Path: "/workspace/first.md"},
+			},
+			isSuccess: true,
+		},
+		{
+			name: "missing path",
+			effects: []ResourceEffect{
+				{ObjectType: "file", Effect: "updated", Path: "/workspace/first.md"},
+			},
+		},
+		{
+			name: "duplicated path",
+			effects: []ResourceEffect{
+				{ObjectType: "file", Effect: "updated", Path: "/workspace/first.md"},
+				{ObjectType: "file", Effect: "updated", Path: "/workspace/first.md"},
+			},
+		},
+	}
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			toolSet := NewToolSet([]string{"file.edit"})
+			boundTool := validProviderTool("kernel/file.edit", "file", "file.edit")
+			boundTool.Definition.ResultContract = &ToolResultContract{
+				Schema: json.RawMessage(`{
+					"type":"object",
+					"properties":{"editedFiles":{"type":"array","items":{"type":"string"},"minItems":1,"uniqueItems":true}},
+					"required":["editedFiles"],
+					"additionalProperties":false
+				}`),
+				Effects: []ResourceEffectContract{{
+					ObjectType:     "file",
+					Effect:         "updated",
+					ResultField:    "editedFiles",
+					EffectIdentity: "path",
+				}},
+			}
+			boundTool.Handler = func(context.Context, ToolInvocation) (ToolResult, error) {
+				return ToolResult{
+					Output:  ToolOutput{Data: json.RawMessage(`{"editedFiles":["/workspace/first.md","/workspace/second.md"]}`)},
+					Effects: testCase.effects,
+				}, nil
+			}
+			if errorValue := toolSet.RegisterProvider(context.Background(), testToolProvider{providerID: "capabilityd", tools: []BoundTool{boundTool}}); errorValue != nil {
+				t.Fatal(errorValue)
+			}
+
+			result, errorValue := toolSet.Invoke(context.Background(), ToolInvocation{ToolName: "file.edit", Input: json.RawMessage(`{}`)})
+
+			if errorValue != nil {
+				t.Fatal(errorValue)
+			}
+			if testCase.isSuccess == result.Failed() {
+				t.Fatalf("expected success=%v, got %+v", testCase.isSuccess, result)
 			}
 		})
 	}

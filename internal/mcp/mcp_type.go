@@ -17,13 +17,33 @@ type ServerDefinition struct {
 }
 
 type ToolDefinition struct {
-	Name        string          `json:"name"`
-	Namespace   string          `json:"namespace"`
-	ServerName  string          `json:"serverName"`
-	Description string          `json:"description"`
-	InputSchema json.RawMessage `json:"inputSchema,omitempty"`
-	Policy      PolicyMetadata  `json:"policy"`
-	remoteName  string
+	Name           string              `json:"name"`
+	Namespace      string              `json:"namespace"`
+	ServerName     string              `json:"serverName"`
+	Description    string              `json:"description"`
+	InputSchema    json.RawMessage     `json:"inputSchema"`
+	OutputSchema   json.RawMessage     `json:"outputSchema"`
+	ResultContract *ToolResultContract `json:"resultContract"`
+	Policy         PolicyMetadata      `json:"policy"`
+	remoteName     string
+}
+
+type ToolResultContract struct {
+	Schema            json.RawMessage          `json:"schema"`
+	Effects           []ResourceEffectContract `json:"effects,omitempty"`
+	EvidenceCondition *EvidenceCondition       `json:"evidenceCondition,omitempty"`
+}
+
+type EvidenceCondition struct {
+	ResultField string          `json:"resultField"`
+	Equals      json.RawMessage `json:"equals"`
+}
+
+type ResourceEffectContract struct {
+	ObjectType     string `json:"objectType"`
+	Effect         string `json:"effect"`
+	ResultField    string `json:"resultField"`
+	EffectIdentity string `json:"effectIdentity"`
 }
 
 type PolicyMetadata struct {
@@ -38,6 +58,7 @@ type PolicyMetadata struct {
 	CompletionAction     string `json:"completionAction"`
 	CompletionTargetKind string `json:"completionTargetKind"`
 	Idempotency          string `json:"idempotency"`
+	IdempotencyScope     string `json:"idempotencyScope"`
 }
 
 type Invocation struct {

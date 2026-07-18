@@ -31,6 +31,7 @@ type ToolDescriptor struct {
 	RequiresApproval     bool                `json:"requiresApproval,omitempty"`
 	Completion           ToolCompletion      `json:"completion,omitempty"`
 	Idempotency          string              `json:"idempotency,omitempty"`
+	IdempotencyScope     string              `json:"idempotencyScope,omitempty"`
 }
 
 type ToolDefinition = ToolDescriptor
@@ -42,8 +43,14 @@ type ToolCompletion struct {
 }
 
 type ToolResultContract struct {
-	Schema  json.RawMessage          `json:"schema"`
-	Effects []ResourceEffectContract `json:"effects,omitempty"`
+	Schema            json.RawMessage          `json:"schema"`
+	Effects           []ResourceEffectContract `json:"effects,omitempty"`
+	EvidenceCondition *EvidenceCondition       `json:"evidenceCondition,omitempty"`
+}
+
+type EvidenceCondition struct {
+	ResultField string          `json:"resultField"`
+	Equals      json.RawMessage `json:"equals"`
 }
 
 type ResourceEffectContract struct {
@@ -402,6 +409,7 @@ func mergeTestToolDefinition(currentDefinition ToolDefinition, replacementDefini
 	replacementDefinition.SideEffectClass = firstNonEmptyString(replacementDefinition.SideEffectClass, currentDefinition.SideEffectClass)
 	replacementDefinition.RequiresApproval = replacementDefinition.RequiresApproval || currentDefinition.RequiresApproval
 	replacementDefinition.Idempotency = firstNonEmptyString(replacementDefinition.Idempotency, currentDefinition.Idempotency)
+	replacementDefinition.IdempotencyScope = firstNonEmptyString(replacementDefinition.IdempotencyScope, currentDefinition.IdempotencyScope)
 	if replacementDefinition.Completion.Mode == "" {
 		replacementDefinition.Completion = currentDefinition.Completion
 	}
@@ -632,6 +640,11 @@ func (toolSet *ToolSet) invokeRegistered(ctx context.Context, toolInvocation Too
 		return ToolFailureResult(FailureNotFound, FailureCodes.NotFound, "tool_registry", "tool is not registered"), nil
 	}
 	toolInvocation.ToolName = toolName
+	toolInput, errorValue := validateToolInput(boundTool.Definition.InputSchema, toolInvocation.Input)
+	if errorValue != nil {
+		return ToolFailureResult(FailureInvalidInput, FailureCodes.InvalidInput, "tool_input_schema", errorValue.Error()), nil
+	}
+	toolInvocation.Input = toolInput
 	result, errorValue := boundTool.Handler(ctx, toolInvocation)
 	if errorValue != nil || result.Failed() {
 		return result, errorValue
@@ -646,6 +659,32 @@ func (toolSet *ToolSet) invokeRegistered(ctx context.Context, toolInvocation Too
 		return ToolFailureResult(FailureExternalService, FailureCodes.OperationFailed, "tool_result_contract", errorValue.Error()), nil
 	}
 	return result, nil
+}
+
+func validateToolInput(schemaDocument json.RawMessage, inputDocument json.RawMessage) (json.RawMessage, error) {
+	if len(bytes.TrimSpace(schemaDocument)) == 0 {
+		return inputDocument, nil
+	}
+	normalizedInput := inputDocument
+	if len(bytes.TrimSpace(normalizedInput)) == 0 {
+		normalizedInput = json.RawMessage(`{}`)
+	}
+	var input any
+	if errorValue := json.Unmarshal(normalizedInput, &input); errorValue != nil {
+		return nil, errors.New("tool input is not valid JSON")
+	}
+	var schema jsonschema.Schema
+	if errorValue := json.Unmarshal(schemaDocument, &schema); errorValue != nil {
+		return nil, errors.New("tool input schema is invalid")
+	}
+	resolvedSchema, errorValue := schema.Resolve(nil)
+	if errorValue != nil {
+		return nil, errors.New("tool input schema cannot be resolved")
+	}
+	if errorValue := resolvedSchema.Validate(input); errorValue != nil {
+		return nil, errors.New("tool input does not match its descriptor schema")
+	}
+	return normalizedInput, nil
 }
 
 func validateSuccessfulToolResult(contract ToolResultContract, result ToolResult) error {
@@ -668,30 +707,125 @@ func validateSuccessfulToolResult(contract ToolResultContract, result ToolResult
 }
 
 func validateResourceEffects(effectContracts []ResourceEffectContract, resultDocument any, effects []ResourceEffect) error {
-	if len(effectContracts) != len(effects) {
-		return errors.New("tool result effects do not match its descriptor contract")
-	}
 	document, isObject := resultDocument.(map[string]any)
 	if !isObject {
 		return errors.New("tool result must be an object")
 	}
-	for _, effectContract := range effectContracts {
-		expectedIdentity, isString := document[effectContract.ResultField].(string)
-		if !isString || strings.TrimSpace(expectedIdentity) == "" {
-			return errors.New("tool result effect identity field is missing")
-		}
-		isMatched := false
-		for _, effect := range effects {
-			if resourceEffectMatchesContract(effect, effectContract, expectedIdentity) {
-				isMatched = true
-				break
-			}
-		}
-		if !isMatched {
+	expectedEffects, hasEffectIdentities := expectedResourceEffects(effectContracts, document)
+	if !hasEffectIdentities {
+		return errors.New("tool result effect identity field is missing")
+	}
+	if len(expectedEffects) != len(effects) {
+		return errors.New("tool result effects do not match its descriptor contract")
+	}
+	unmatchedEffects := append([]ResourceEffect{}, effects...)
+	for _, expectedEffect := range expectedEffects {
+		matchIndex := matchingResourceEffectIndex(unmatchedEffects, expectedEffect)
+		if matchIndex < 0 {
 			return errors.New("tool result effect identity does not match its result")
 		}
+		unmatchedEffects = append(unmatchedEffects[:matchIndex], unmatchedEffects[matchIndex+1:]...)
 	}
 	return nil
+}
+
+type expectedResourceEffect struct {
+	contract ResourceEffectContract
+	identity string
+}
+
+func ProjectResourceEffects(contract *ToolResultContract, resultDocument json.RawMessage) []ResourceEffect {
+	if contract == nil || len(contract.Effects) == 0 {
+		return nil
+	}
+	var document map[string]any
+	if json.Unmarshal(resultDocument, &document) != nil {
+		return nil
+	}
+	expectedEffects, hasEffectIdentities := expectedResourceEffects(contract.Effects, document)
+	if !hasEffectIdentities {
+		return nil
+	}
+	effects := make([]ResourceEffect, 0, len(expectedEffects))
+	for _, expectedEffect := range expectedEffects {
+		effect, isValid := projectedResourceEffect(expectedEffect)
+		if !isValid {
+			return nil
+		}
+		effects = append(effects, effect)
+	}
+	return effects
+}
+
+func projectedResourceEffect(expectedEffect expectedResourceEffect) (ResourceEffect, bool) {
+	contract := expectedEffect.contract
+	effect := ResourceEffect{
+		ObjectType: strings.TrimSpace(contract.ObjectType),
+		Effect:     strings.TrimSpace(contract.Effect),
+	}
+	switch strings.TrimSpace(contract.EffectIdentity) {
+	case "id":
+		effect.ID = expectedEffect.identity
+	case "path":
+		effect.Path = expectedEffect.identity
+	case "url":
+		effect.URL = expectedEffect.identity
+	default:
+		return ResourceEffect{}, false
+	}
+	return effect, true
+}
+
+func expectedResourceEffects(effectContracts []ResourceEffectContract, document map[string]any) ([]expectedResourceEffect, bool) {
+	expectedEffects := []expectedResourceEffect{}
+	for _, effectContract := range effectContracts {
+		identities, isValid := resourceEffectIdentities(document[effectContract.ResultField])
+		if !isValid {
+			return nil, false
+		}
+		for _, identity := range identities {
+			expectedEffects = append(expectedEffects, expectedResourceEffect{
+				contract: effectContract,
+				identity: identity,
+			})
+		}
+	}
+	return expectedEffects, true
+}
+
+func resourceEffectIdentities(value any) ([]string, bool) {
+	switch identity := value.(type) {
+	case string:
+		if strings.TrimSpace(identity) != "" {
+			return []string{strings.TrimSpace(identity)}, true
+		}
+	case []any:
+		if len(identity) == 0 {
+			return nil, false
+		}
+		identities := make([]string, 0, len(identity))
+		seenIdentities := map[string]bool{}
+		for _, item := range identity {
+			value, isString := item.(string)
+			trimmedValue := strings.TrimSpace(value)
+			if !isString || trimmedValue == "" || seenIdentities[trimmedValue] {
+				return nil, false
+			}
+			seenIdentities[trimmedValue] = true
+			identities = append(identities, trimmedValue)
+		}
+		return identities, true
+	}
+	return nil, false
+}
+
+func matchingResourceEffectIndex(effects []ResourceEffect, expectedEffect expectedResourceEffect) int {
+	for index, effect := range effects {
+		if resourceEffectMatchesContract(effect, expectedEffect.contract, expectedEffect.identity) {
+			return index
+		}
+	}
+	return -1
 }
 
 func resourceEffectMatchesContract(effect ResourceEffect, contract ResourceEffectContract, expectedIdentity string) bool {

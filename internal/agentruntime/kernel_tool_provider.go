@@ -25,7 +25,84 @@ type kernelToolDescriptorSpec struct {
 	CompletionTargetKind string
 	Idempotency          string
 	OutputSchema         json.RawMessage
+	ResultContract       *agent.ToolResultContract
 }
+
+var (
+	fileReadResultSchema = json.RawMessage(`{
+		"type":"object",
+		"properties":{
+			"path":{"type":"string"},
+			"content":{"type":"string"},
+			"startLine":{"type":"integer","minimum":0},
+			"endLine":{"type":"integer","minimum":0},
+			"totalLines":{"type":"integer","minimum":0},
+			"returnedBytes":{"type":"integer","minimum":0},
+			"startByte":{"type":"integer","minimum":0},
+			"endByte":{"type":"integer","minimum":0},
+			"nextByte":{"type":"integer","minimum":0},
+			"totalBytes":{"type":"integer","minimum":0},
+			"isEndOfFile":{"type":"boolean"},
+			"totalLinesKnown":{"type":"boolean"},
+			"originalSizeBytes":{"type":"integer","minimum":0},
+			"sizeBytes":{"type":"integer","minimum":0},
+			"isTruncated":{"type":"boolean"},
+			"exists":{"type":"boolean"},
+			"optional":{"type":"boolean"},
+			"recommendedWritePath":{"type":"string"},
+			"readHint":{"type":"string"},
+			"source":{"type":"string"},
+			"isExactFileRead":{"type":"boolean"}
+		},
+		"required":["path","content","startLine","endLine","totalLines","returnedBytes","startByte","endByte","nextByte","totalBytes","isEndOfFile","totalLinesKnown","originalSizeBytes","sizeBytes","isTruncated"]
+	}`)
+	fileWriteResultSchema = json.RawMessage(`{
+		"type":"object",
+		"properties":{
+			"path":{"type":"string","minLength":1},
+			"sizeBytes":{"type":"integer","minimum":0}
+		},
+		"required":["path","sizeBytes"]
+	}`)
+	fileDeleteResultSchema = json.RawMessage(`{
+		"type":"object",
+		"properties":{
+			"path":{"type":"string","minLength":1},
+			"deleted":{"const":true}
+		},
+		"required":["path","deleted"]
+	}`)
+	fileEditResultSchema = json.RawMessage(`{
+		"type":"object",
+		"properties":{
+			"editedFiles":{"type":"array","items":{"type":"string","minLength":1},"minItems":1,"uniqueItems":true},
+			"editCount":{"type":"integer","minimum":1}
+		},
+		"required":["editedFiles","editCount"]
+	}`)
+	filePreviewResultSchema = json.RawMessage(`{
+		"type":"object",
+		"properties":{
+			"path":{"type":"string"},
+			"filename":{"type":"string"},
+			"contentType":{"type":"string"},
+			"sizeBytes":{"type":"integer","minimum":0},
+			"previewFormat":{"type":"string","minLength":1},
+			"markdownPreview":{"type":"string"},
+			"conversionStatus":{"type":"string"},
+			"conversionMessage":{"type":"string"}
+		},
+		"required":["path","filename","contentType","sizeBytes","previewFormat","markdownPreview","conversionStatus","conversionMessage"]
+	}`)
+	fileDeliverResultSchema = json.RawMessage(`{
+		"type":"object",
+		"properties":{
+			"deliveredPaths":{"type":"array","items":{"type":"string","minLength":1},"minItems":1,"uniqueItems":true},
+			"attachmentCount":{"type":"integer","minimum":1}
+		},
+		"required":["deliveredPaths","attachmentCount"]
+	}`)
+)
 
 var kernelToolDescriptorSpecs = []kernelToolDescriptorSpec{
 	{
@@ -52,7 +129,16 @@ var kernelToolDescriptorSpecs = []kernelToolDescriptorSpec{
 		CompletionAction:     "deliver_file",
 		CompletionTargetKind: "artifact",
 		Idempotency:          agent.ToolIdempotencyNone,
-		OutputSchema:         json.RawMessage(`{"type":"object"}`),
+		OutputSchema:         fileDeliverResultSchema,
+		ResultContract: &agent.ToolResultContract{
+			Schema: fileDeliverResultSchema,
+			Effects: []agent.ResourceEffectContract{{
+				ObjectType:     "file",
+				Effect:         "attached",
+				ResultField:    "deliveredPaths",
+				EffectIdentity: "path",
+			}},
+		},
 	},
 	{
 		Name:            agent.SkillSearchToolName,
@@ -74,7 +160,10 @@ var kernelToolDescriptorSpecs = []kernelToolDescriptorSpec{
 		SideEffectClass: agent.ToolSideEffectRead,
 		CompletionMode:  agent.ToolCompletionNone,
 		Idempotency:     agent.ToolIdempotencyNone,
-		OutputSchema:    json.RawMessage(`{"type":"object"}`),
+		OutputSchema:    fileReadResultSchema,
+		ResultContract: &agent.ToolResultContract{
+			Schema: fileReadResultSchema,
+		},
 	},
 	{
 		Name:                 agent.FileWriteToolName,
@@ -87,7 +176,24 @@ var kernelToolDescriptorSpecs = []kernelToolDescriptorSpec{
 		CompletionAction:     "write_file",
 		CompletionTargetKind: "file",
 		Idempotency:          agent.ToolIdempotencyNone,
-		OutputSchema:         json.RawMessage(`{"type":"object"}`),
+		OutputSchema:         fileWriteResultSchema,
+		ResultContract: &agent.ToolResultContract{
+			Schema: fileWriteResultSchema,
+			Effects: []agent.ResourceEffectContract{
+				{
+					ObjectType:     "file",
+					Effect:         "created",
+					ResultField:    "path",
+					EffectIdentity: "path",
+				},
+				{
+					ObjectType:     "workspace",
+					Effect:         "modified",
+					ResultField:    "path",
+					EffectIdentity: "path",
+				},
+			},
+		},
 	},
 	{
 		Name:                 agent.FileDeleteToolName,
@@ -101,7 +207,16 @@ var kernelToolDescriptorSpecs = []kernelToolDescriptorSpec{
 		CompletionAction:     "delete_file",
 		CompletionTargetKind: "file",
 		Idempotency:          agent.ToolIdempotencyNone,
-		OutputSchema:         json.RawMessage(`{"type":"object"}`),
+		OutputSchema:         fileDeleteResultSchema,
+		ResultContract: &agent.ToolResultContract{
+			Schema: fileDeleteResultSchema,
+			Effects: []agent.ResourceEffectContract{{
+				ObjectType:     "file",
+				Effect:         "deleted",
+				ResultField:    "path",
+				EffectIdentity: "path",
+			}},
+		},
 	},
 	{
 		Name:                 agent.FileEditToolName,
@@ -114,7 +229,24 @@ var kernelToolDescriptorSpecs = []kernelToolDescriptorSpec{
 		CompletionAction:     "edit_file",
 		CompletionTargetKind: "file",
 		Idempotency:          agent.ToolIdempotencyNone,
-		OutputSchema:         json.RawMessage(`{"type":"object"}`),
+		OutputSchema:         fileEditResultSchema,
+		ResultContract: &agent.ToolResultContract{
+			Schema: fileEditResultSchema,
+			Effects: []agent.ResourceEffectContract{
+				{
+					ObjectType:     "file",
+					Effect:         "updated",
+					ResultField:    "editedFiles",
+					EffectIdentity: "path",
+				},
+				{
+					ObjectType:     "workspace",
+					Effect:         "modified",
+					ResultField:    "editedFiles",
+					EffectIdentity: "path",
+				},
+			},
+		},
 	},
 	{
 		Name:            agent.FilePreviewToolName,
@@ -125,7 +257,10 @@ var kernelToolDescriptorSpecs = []kernelToolDescriptorSpec{
 		SideEffectClass: agent.ToolSideEffectRead,
 		CompletionMode:  agent.ToolCompletionNone,
 		Idempotency:     agent.ToolIdempotencyNone,
-		OutputSchema:    json.RawMessage(`{"type":"object"}`),
+		OutputSchema:    filePreviewResultSchema,
+		ResultContract: &agent.ToolResultContract{
+			Schema: filePreviewResultSchema,
+		},
 	},
 	{
 		Name:            agent.ConversationHistoryToolName,
@@ -182,7 +317,12 @@ func (provider kernelToolProvider) boundTool(toolDefinition agent.ToolDefinition
 		},
 		Handler: func(toolContext context.Context, invocation agent.ToolInvocation) (agent.ToolResult, error) {
 			invocation.ToolName = canonicalDefinition.Name
-			return provider.handlerToolSet.InvokeInternal(toolContext, invocation)
+			result, errorValue := provider.handlerToolSet.InvokeInternal(toolContext, invocation)
+			if errorValue != nil || result.Failed() {
+				return result, errorValue
+			}
+			result.Effects = agent.ProjectResourceEffects(canonicalDefinition.ResultContract, result.Output.Data)
+			return result, nil
 		},
 	}, nil
 }
@@ -231,7 +371,29 @@ func canonicalKernelToolDescriptor(toolDefinition agent.ToolDefinition) (agent.T
 	}
 	toolDefinition.Idempotency = descriptorSpec.Idempotency
 	toolDefinition.OutputSchema = append(json.RawMessage{}, descriptorSpec.OutputSchema...)
+	toolDefinition.ResultContract = copyKernelToolResultContract(descriptorSpec.ResultContract)
 	return toolDefinition, nil
+}
+
+func copyKernelToolResultContract(contract *agent.ToolResultContract) *agent.ToolResultContract {
+	if contract == nil {
+		return nil
+	}
+	return &agent.ToolResultContract{
+		Schema:            append(json.RawMessage{}, contract.Schema...),
+		Effects:           append([]agent.ResourceEffectContract{}, contract.Effects...),
+		EvidenceCondition: copyKernelEvidenceCondition(contract.EvidenceCondition),
+	}
+}
+
+func copyKernelEvidenceCondition(condition *agent.EvidenceCondition) *agent.EvidenceCondition {
+	if condition == nil {
+		return nil
+	}
+	return &agent.EvidenceCondition{
+		ResultField: condition.ResultField,
+		Equals:      append(json.RawMessage{}, condition.Equals...),
+	}
 }
 
 func newKernelToolProvider(toolCatalogBuilder *ToolCatalogBuilder, handlerContext toolHandlerContext, availableToolSet *agent.ToolSet) kernelToolProvider {

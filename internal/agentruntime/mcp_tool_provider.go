@@ -11,8 +11,6 @@ import (
 	"blueclaw/internal/mcp"
 )
 
-var mcpToolOutputSchema = json.RawMessage(`{"type":"object","properties":{"content":{"type":"array"},"structuredContent":{},"isError":{"type":"boolean"}},"required":["content","isError"],"additionalProperties":false}`)
-
 type mcpToolProvider struct {
 	serverName  string
 	registry    mcpToolInvoker
@@ -37,6 +35,7 @@ func (provider mcpToolProvider) ListTools(context.Context) ([]agent.BoundTool, e
 }
 
 func (provider mcpToolProvider) boundTool(definition mcp.ToolDefinition) agent.BoundTool {
+	resultContract := mcpToolResultContract(definition.ResultContract)
 	return agent.BoundTool{
 		Definition: agent.ToolDescriptor{
 			ID:                   "mcp/" + provider.serverName + "/" + definition.Name,
@@ -48,7 +47,8 @@ func (provider mcpToolProvider) boundTool(definition mcp.ToolDefinition) agent.B
 			RequiresUserPresence: definition.Policy.RequiresUserPresence,
 			WorksOffline:         definition.Policy.WorksOffline,
 			InputSchema:          definition.InputSchema,
-			OutputSchema:         mcpToolOutputSchema,
+			OutputSchema:         definition.OutputSchema,
+			ResultContract:       resultContract,
 			Visibility:           definition.Policy.ModelVisibility,
 			PolicyResource:       definition.Policy.PolicyResource,
 			SideEffectClass:      definition.Policy.SideEffectClass,
@@ -58,7 +58,8 @@ func (provider mcpToolProvider) boundTool(definition mcp.ToolDefinition) agent.B
 				Action:     definition.Policy.CompletionAction,
 				TargetKind: definition.Policy.CompletionTargetKind,
 			},
-			Idempotency: definition.Policy.Idempotency,
+			Idempotency:      definition.Policy.Idempotency,
+			IdempotencyScope: definition.Policy.IdempotencyScope,
 		},
 		Availability: agent.ToolAvailability{Status: agent.ToolAvailabilityAvailable},
 		Handler: func(toolContext context.Context, toolInvocation agent.ToolInvocation) (agent.ToolResult, error) {
@@ -86,8 +87,40 @@ func (provider mcpToolProvider) boundTool(definition mcp.ToolDefinition) agent.B
 					json.RawMessage(output),
 				), nil
 			}
-			return agent.ToolSuccess(output), nil
+			toolResult := agent.ToolSuccessData(output, result.StructuredContent)
+			toolResult.Effects = agent.ProjectResourceEffects(resultContract, result.StructuredContent)
+			return toolResult, nil
 		},
+	}
+}
+
+func mcpToolResultContract(contract *mcp.ToolResultContract) *agent.ToolResultContract {
+	if contract == nil {
+		return nil
+	}
+	effects := make([]agent.ResourceEffectContract, 0, len(contract.Effects))
+	for _, effect := range contract.Effects {
+		effects = append(effects, agent.ResourceEffectContract{
+			ObjectType:     strings.TrimSpace(effect.ObjectType),
+			Effect:         strings.TrimSpace(effect.Effect),
+			ResultField:    strings.TrimSpace(effect.ResultField),
+			EffectIdentity: strings.TrimSpace(effect.EffectIdentity),
+		})
+	}
+	return &agent.ToolResultContract{
+		Schema:            append(json.RawMessage{}, contract.Schema...),
+		Effects:           effects,
+		EvidenceCondition: mcpEvidenceCondition(contract.EvidenceCondition),
+	}
+}
+
+func mcpEvidenceCondition(condition *mcp.EvidenceCondition) *agent.EvidenceCondition {
+	if condition == nil {
+		return nil
+	}
+	return &agent.EvidenceCondition{
+		ResultField: strings.TrimSpace(condition.ResultField),
+		Equals:      append(json.RawMessage{}, condition.Equals...),
 	}
 }
 

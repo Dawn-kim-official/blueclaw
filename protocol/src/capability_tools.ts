@@ -10,9 +10,13 @@ import {
   resourceEffectContractSchema,
   toolInvokeResponseSchema,
 } from './capability.ts';
+import { jsonValueSchema } from './common.ts';
 
 const dateDescription = 'Date in YYYY-MM-DD format.';
-const resourceIDSchema = z.string().trim().min(1);
+const resourceIDSchema = z.string()
+  .min(1)
+  .regex(/^\S(?:.*\S)?$/, 'Resource identity must not have leading or trailing whitespace.');
+const sha256Schema = z.string().regex(/^[a-f0-9]{64}$/);
 
 export enum WorkspaceTaskSize {
   ExtraSmall = 'XS',
@@ -31,6 +35,15 @@ export enum WorkspaceTaskStatus {
   Paused = '일시정지',
   Rejected = '기각',
   Cancelled = '중단',
+}
+
+export enum WorkspaceTaskInitialStatus {
+  Planned = WorkspaceTaskStatus.Planned,
+  InProgress = WorkspaceTaskStatus.InProgress,
+  Completed = WorkspaceTaskStatus.Completed,
+  Paused = WorkspaceTaskStatus.Paused,
+  Rejected = WorkspaceTaskStatus.Rejected,
+  Cancelled = WorkspaceTaskStatus.Cancelled,
 }
 
 export enum WorkspaceTaskScope {
@@ -53,9 +66,62 @@ export enum ImageToolName {
   Read = 'image.read',
 }
 
+export enum BrowserToolName {
+  Open = 'browser.open',
+  Snapshot = 'browser.snapshot',
+  Screenshot = 'browser.screenshot',
+  Click = 'browser.click',
+}
+
+export enum ArtifactToolName {
+  Review = 'artifact.review',
+}
+
+export enum ArtifactKind {
+  Site = 'site',
+  Slides = 'slides',
+  PowerPoint = 'pptx',
+  Word = 'docx',
+  PDF = 'pdf',
+}
+
+export enum ArtifactIssueSeverity {
+  Blocking = 'blocking',
+  Warning = 'warning',
+  Information = 'info',
+}
+
+export enum ArtifactIssueCategory {
+  TextFit = 'textFit',
+  Layout = 'layout',
+  VisualHierarchy = 'visualHierarchy',
+  ContentDensity = 'contentDensity',
+  TemplateSmell = 'templateSmell',
+  Responsiveness = 'responsiveness',
+  RenderFidelity = 'renderFidelity',
+}
+
+export enum SiteToolName {
+  Create = 'site.create',
+  Status = 'site.status',
+  Preview = 'site.preview',
+  Publish = 'site.publish',
+  Delete = 'site.delete',
+}
+
+export enum SiteLifecycleStatus {
+  Draft = 'draft',
+  Publishing = 'publishing',
+  Published = 'published',
+  Unpublished = 'unpublished',
+  Failed = 'failed',
+}
+
 export enum ResourceMutationEffect {
   Created = 'created',
   Updated = 'updated',
+  Previewed = 'previewed',
+  Published = 'published',
   Deleted = 'deleted',
 }
 
@@ -123,14 +189,9 @@ export const taskAddInputSchema = z.strictObject({
   size: workspaceTaskSizeSchema
     .describe('Effort size using the work-size rubric. Omit when the request does not support a useful estimate.')
     .optional(),
-  status: z.enum([
-    WorkspaceTaskStatus.Planned,
-    WorkspaceTaskStatus.InProgress,
-    WorkspaceTaskStatus.Completed,
-    WorkspaceTaskStatus.Paused,
-    WorkspaceTaskStatus.Rejected,
-    WorkspaceTaskStatus.Cancelled,
-  ]).describe('Initial task status. Defaults to 예정. The runtime may change delegated tasks to 요청.').optional(),
+  status: z.enum(WorkspaceTaskInitialStatus)
+    .describe('Initial task status. Defaults to 예정. The runtime may change delegated tasks to 요청.')
+    .optional(),
   startDate: z.string().describe(`${dateDescription} Resolve relative dates from the current date. Omit when the user did not specify one.`).optional(),
   endDate: z.string().describe(`Due ${dateDescription.toLowerCase()} Resolve relative dates from the current date. Omit when the user did not specify one.`).optional(),
   targetPersonHint: z.string()
@@ -276,6 +337,106 @@ export const calendarDeleteResultSchema = z.strictObject({
   deleted: z.literal(true),
 });
 
+const siteSlugSchema = z.string()
+  .min(1)
+  .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, 'Site slug must use lowercase letters, numbers, and single hyphens.');
+
+const siteContentSectionSchema = z.strictObject({
+  title: z.string(),
+  body: z.string(),
+});
+
+const siteContentSchema = z.strictObject({
+  siteName: z.string(),
+  tagline: z.string().optional(),
+  heroActionLabel: z.string().optional(),
+  heroActionHref: z.string().optional(),
+  sections: z.array(siteContentSectionSchema).min(1),
+});
+
+export const siteCreateInputSchema = z.strictObject({
+  slug: siteSlugSchema.describe('Unique URL-safe site identifier, such as team-dashboard.'),
+  title: z.string().describe('Human-readable site name.').optional(),
+  prompt: z.string().describe('Natural-language description of the site to build.').optional(),
+  designBrief: z.string().describe('Visual style and layout guidance.').optional(),
+  prototypeScope: z.string().describe('Scope limit for the initial implementation.').optional(),
+  description: z.string().describe('Short public-facing description.').optional(),
+  idea: z.string().describe('Core concept or value proposition.').optional(),
+  purpose: z.string().describe('Why the site exists and who it serves.').optional(),
+  audience: z.string().describe('Intended audience.').optional(),
+  archetype: z.string().describe('Site archetype, such as dashboard or landing-page.').optional(),
+  domainKeywords: z.array(z.string()).describe('Domain terms that should inform the site.').optional(),
+  content: siteContentSchema.describe('Structured content for a basic content site.').optional(),
+});
+
+export const siteStatusInputSchema = z.strictObject({
+  siteReference: resourceIDSchema.describe('Exact siteID or exact slug from the request or an earlier site result.'),
+  checkLive: z.boolean().describe('Probe the published URL in addition to reading persisted status.').optional(),
+});
+
+export const sitePreviewInputSchema = z.strictObject({
+  siteID: resourceIDSchema.describe('Exact site ID from site.create or site.status.'),
+  previewID: resourceIDSchema.describe('Existing preview ID to refresh. Omit to create a new preview.').optional(),
+});
+
+export const sitePublishInputSchema = z.strictObject({
+  siteID: resourceIDSchema.describe('Exact site ID from site.create or site.status.'),
+  message: z.string().describe('Short revision message describing the edits being published.').optional(),
+  previewID: resourceIDSchema.describe('Preview ID whose reviewed source should be published.').optional(),
+});
+
+export const siteDeleteInputSchema = z.strictObject({
+  siteID: resourceIDSchema.describe('Exact site ID from site.status.'),
+  reason: z.string().describe('Reason shown in the approval prompt.').optional(),
+});
+
+export const siteCreateResultSchema = z.strictObject({
+  siteID: resourceIDSchema,
+  slug: siteSlugSchema,
+  title: z.string(),
+  status: z.literal(SiteLifecycleStatus.Draft),
+  sourceWorkspacePath: resourceIDSchema,
+  appWorkspacePath: resourceIDSchema,
+});
+
+export const siteStatusResultSchema = z.strictObject({
+  siteID: resourceIDSchema,
+  slug: siteSlugSchema,
+  title: z.string(),
+  status: z.enum(SiteLifecycleStatus),
+  sourceWorkspacePath: resourceIDSchema,
+  appWorkspacePath: resourceIDSchema.optional(),
+  publishedURL: resourceIDSchema.optional(),
+  previewURL: resourceIDSchema.optional(),
+  workspaceHealth: z.string().optional(),
+  lastError: z.string().optional(),
+  updatedAt: z.string().optional(),
+  liveHTTPStatus: z.number().int().optional(),
+});
+
+export const sitePreviewResultSchema = z.strictObject({
+  siteID: resourceIDSchema,
+  status: z.enum(SiteLifecycleStatus),
+  sourceWorkspacePath: resourceIDSchema,
+  previewID: resourceIDSchema,
+  previewURL: resourceIDSchema,
+  previewExpiresAt: z.string(),
+});
+
+export const sitePublishResultSchema = z.strictObject({
+  siteID: resourceIDSchema,
+  status: z.literal(SiteLifecycleStatus.Published),
+  sourceWorkspacePath: resourceIDSchema,
+  sourceSHA256: sha256Schema,
+  publishedURL: resourceIDSchema,
+  currentVersionID: resourceIDSchema,
+});
+
+export const siteDeleteResultSchema = z.strictObject({
+  siteID: resourceIDSchema,
+  deleted: z.literal(true),
+});
+
 export const documentReadInputSchema = z.strictObject({
   path: resourceIDSchema.describe('Exact absolute /workspace path of the document to read.'),
   maxPages: z.number().int().min(1).max(500).describe('Maximum PDF pages to extract. Omit for the runtime default.').optional(),
@@ -311,13 +472,105 @@ export const imageReadResultSchema = z.strictObject({
   attachments: z.array(imageReadAttachmentSchema).min(1),
 });
 
+export const browserOpenInputSchema = z.strictObject({
+  url: resourceIDSchema.describe('Absolute HTTP or HTTPS URL to open.'),
+});
+
+export const browserOpenResultSchema = z.strictObject({
+  url: resourceIDSchema,
+  requestedURL: resourceIDSchema,
+  title: z.string().optional(),
+  snapshotText: z.string().optional(),
+  interactiveRefs: z.array(resourceIDSchema).optional(),
+  capturedAt: resourceIDSchema,
+});
+
+export const browserSnapshotInputSchema = z.strictObject({});
+
+export const browserSnapshotResultSchema = z.strictObject({
+  url: resourceIDSchema.optional(),
+  title: z.string().optional(),
+  snapshotText: z.string(),
+  interactiveRefs: z.array(resourceIDSchema),
+  hasMore: z.boolean(),
+  capturedAt: resourceIDSchema,
+});
+
+export const browserScreenshotInputSchema = z.strictObject({
+  ttlSeconds: z.number().int().nonnegative().optional(),
+});
+
+export const browserScreenshotResultSchema = z.strictObject({
+  fileID: resourceIDSchema,
+  filename: resourceIDSchema,
+  sizeBytes: z.number().int().nonnegative(),
+  contentType: resourceIDSchema,
+  devicePath: resourceIDSchema,
+  expiresAt: resourceIDSchema,
+  capturedAt: resourceIDSchema,
+});
+
+export const browserClickInputSchema = z.strictObject({
+  target: resourceIDSchema.optional(),
+  ref: resourceIDSchema.optional(),
+  selector: resourceIDSchema.optional(),
+}).refine(hasAnyField, 'A browser target, ref, or selector is required.')
+  .meta({ minProperties: 1 });
+
+export const browserClickResultSchema = z.strictObject({
+  ok: z.literal(true),
+  action: z.literal('click'),
+  target: resourceIDSchema,
+  capturedAt: resourceIDSchema,
+});
+
+const artifactReviewIssueSchema = z.strictObject({
+  severity: z.enum(ArtifactIssueSeverity),
+  category: z.enum(ArtifactIssueCategory),
+  target: z.string(),
+  message: z.string(),
+  suggestedFix: z.string(),
+});
+
+export const artifactReviewInputSchema = z.strictObject({
+  artifactKind: z.enum(ArtifactKind),
+  intent: resourceIDSchema,
+  rubric: resourceIDSchema,
+  evidence: z.array(z.strictObject({
+    role: resourceIDSchema,
+    path: resourceIDSchema,
+    mimeType: z.enum(['image/png', 'image/jpeg']),
+    label: resourceIDSchema,
+  })).min(1).max(8),
+  expectedText: z.array(z.strictObject({
+    target: resourceIDSchema,
+    text: z.string(),
+  })).optional(),
+  previousIssues: z.array(artifactReviewIssueSchema).optional(),
+});
+
+export const artifactReviewResultSchema = z.strictObject({
+  passed: z.boolean(),
+  issues: z.array(artifactReviewIssueSchema),
+  acceptedWarnings: z.array(z.string()),
+  summary: z.string(),
+});
+
 function hasMutationField(document: object): boolean {
   return Object.keys(document).length > 1;
+}
+
+function hasAnyField(document: object): boolean {
+  return Object.keys(document).length > 0;
 }
 
 type CapabilityResultDefinition = {
   schema: z.ZodType;
   effects: Array<z.infer<typeof resourceEffectContractSchema>>;
+  evidenceCondition?: {
+    resultField: string;
+    equals: z.infer<typeof jsonValueSchema>;
+  };
 };
 
 type CapabilityToolDefinition = {
@@ -332,6 +585,7 @@ type CapabilityToolDefinition = {
   result: CapabilityResultDefinition;
   sideEffect: CapabilitySideEffect;
   requiresApproval?: boolean;
+  requiresUserPresence?: boolean;
   completionEvidence?: {
     mode: string;
     action: string;
@@ -497,6 +751,107 @@ const calendarToolDefinitions: CapabilityToolDefinition[] = [
   },
 ];
 
+const siteToolDefinitions: CapabilityToolDefinition[] = [
+  {
+    name: SiteToolName.Create,
+    namespace: 'site',
+    privacyClass: 'workspace_site',
+    policyResource: 'tool:site.create',
+    description: 'Create a site workspace and return its exact siteID and sourceWorkspacePath. Use file.edit on that path for subsequent source changes.',
+    version: '2',
+    estimatedLatency: CapabilityEstimatedLatency.Medium,
+    inputSchema: siteCreateInputSchema,
+    result: {
+      schema: siteCreateResultSchema,
+      effects: [{
+        objectType: 'website',
+        effect: ResourceMutationEffect.Created,
+        resultField: 'siteID',
+        effectIdentity: ResourceEffectIdentity.ID,
+      }],
+    },
+    sideEffect: CapabilitySideEffect.WorkspaceWrite,
+    completionEvidence: { mode: 'success', action: 'create_site', targetKind: 'site' },
+  },
+  {
+    name: SiteToolName.Status,
+    namespace: 'site',
+    privacyClass: 'workspace_site',
+    policyResource: 'tool:site.status',
+    description: 'Read one site by exact siteID or slug and return its sourceWorkspacePath, lifecycle status, and published or preview URLs.',
+    version: '2',
+    estimatedLatency: CapabilityEstimatedLatency.Low,
+    inputSchema: siteStatusInputSchema,
+    result: { schema: siteStatusResultSchema, effects: [] },
+    sideEffect: CapabilitySideEffect.Read,
+  },
+  {
+    name: SiteToolName.Preview,
+    namespace: 'site',
+    privacyClass: 'workspace_site',
+    policyResource: 'tool:site.preview',
+    description: 'Create a reviewable preview for the exact siteID after source changes have been made with file.edit.',
+    version: '2',
+    estimatedLatency: CapabilityEstimatedLatency.High,
+    inputSchema: sitePreviewInputSchema,
+    result: {
+      schema: sitePreviewResultSchema,
+      effects: [{
+        objectType: 'website',
+        effect: ResourceMutationEffect.Previewed,
+        resultField: 'siteID',
+        effectIdentity: ResourceEffectIdentity.ID,
+      }],
+    },
+    sideEffect: CapabilitySideEffect.ExternalPublish,
+    completionEvidence: { mode: 'success', action: 'preview_site', targetKind: 'site' },
+  },
+  {
+    name: SiteToolName.Publish,
+    namespace: 'site',
+    privacyClass: 'workspace_site',
+    policyResource: 'tool:site.publish',
+    description: 'Publish the exact siteID after editing and optional preview verification, returning the public URL and deployed version.',
+    version: '2',
+    estimatedLatency: CapabilityEstimatedLatency.High,
+    inputSchema: sitePublishInputSchema,
+    result: {
+      schema: sitePublishResultSchema,
+      effects: [{
+        objectType: 'website',
+        effect: ResourceMutationEffect.Published,
+        resultField: 'siteID',
+        effectIdentity: ResourceEffectIdentity.ID,
+      }],
+    },
+    sideEffect: CapabilitySideEffect.SitePublish,
+    completionEvidence: { mode: 'success', action: 'publish_site', targetKind: 'site' },
+  },
+  {
+    name: SiteToolName.Delete,
+    namespace: 'site',
+    privacyClass: 'workspace_site',
+    policyResource: 'tool:site.delete',
+    description: 'Permanently delete the exact siteID after explicit runtime approval.',
+    version: '2',
+    estimatedLatency: CapabilityEstimatedLatency.Medium,
+    inputSchema: siteDeleteInputSchema,
+    result: {
+      schema: siteDeleteResultSchema,
+      effects: [{
+        objectType: 'website',
+        effect: ResourceMutationEffect.Deleted,
+        resultField: 'siteID',
+        effectIdentity: ResourceEffectIdentity.ID,
+      }],
+    },
+    sideEffect: CapabilitySideEffect.Destructive,
+    requiresApproval: true,
+    requiresUserPresence: true,
+    completionEvidence: { mode: 'success', action: 'delete_site', targetKind: 'site' },
+  },
+];
+
 const fileToolDefinitions: CapabilityToolDefinition[] = [
   {
     name: DocumentToolName.Read,
@@ -524,7 +879,85 @@ const fileToolDefinitions: CapabilityToolDefinition[] = [
   },
 ];
 
-const capabilityToolDefinitions = [...taskToolDefinitions, ...calendarToolDefinitions, ...fileToolDefinitions];
+const browserToolDefinitions: CapabilityToolDefinition[] = [
+  {
+    name: BrowserToolName.Open,
+    namespace: 'browser',
+    privacyClass: 'user_browser',
+    policyResource: 'tool:browser.open',
+    description: 'Open an exact HTTP or HTTPS URL in the available browser and return the resulting page identity and initial structure.',
+    version: '2',
+    estimatedLatency: CapabilityEstimatedLatency.Interactive,
+    inputSchema: browserOpenInputSchema,
+    result: { schema: browserOpenResultSchema, effects: [] },
+    sideEffect: CapabilitySideEffect.Connect,
+    requiresUserPresence: true,
+  },
+  {
+    name: BrowserToolName.Snapshot,
+    namespace: 'browser',
+    privacyClass: 'user_browser',
+    policyResource: 'tool:browser.snapshot',
+    description: 'Read the current browser page structure and return stable interactive references for inspection and control.',
+    version: '2',
+    estimatedLatency: CapabilityEstimatedLatency.Interactive,
+    inputSchema: browserSnapshotInputSchema,
+    result: { schema: browserSnapshotResultSchema, effects: [] },
+    sideEffect: CapabilitySideEffect.Read,
+  },
+  {
+    name: BrowserToolName.Screenshot,
+    namespace: 'browser',
+    privacyClass: 'user_browser',
+    policyResource: 'tool:browser.screenshot',
+    description: 'Capture the visible browser page and upload it to a temporary workspace-visible device path for visual review.',
+    version: '2',
+    estimatedLatency: CapabilityEstimatedLatency.Interactive,
+    inputSchema: browserScreenshotInputSchema,
+    result: { schema: browserScreenshotResultSchema, effects: [] },
+    sideEffect: CapabilitySideEffect.Read,
+  },
+  {
+    name: BrowserToolName.Click,
+    namespace: 'browser',
+    privacyClass: 'user_browser',
+    policyResource: 'tool:browser.click',
+    description: 'Click one exact target from the current browser snapshot and return the completed action.',
+    version: '2',
+    estimatedLatency: CapabilityEstimatedLatency.Interactive,
+    inputSchema: browserClickInputSchema,
+    result: { schema: browserClickResultSchema, effects: [] },
+    sideEffect: CapabilitySideEffect.ExternalWrite,
+  },
+];
+
+const artifactToolDefinitions: CapabilityToolDefinition[] = [
+  {
+    name: ArtifactToolName.Review,
+    namespace: 'artifact',
+    privacyClass: 'workspace_document',
+    policyResource: 'tool:artifact.review',
+    description: 'Review rendered artifact screenshots against a concrete intent and rubric, returning typed visual issues and suggested fixes.',
+    version: '2',
+    estimatedLatency: CapabilityEstimatedLatency.High,
+    inputSchema: artifactReviewInputSchema,
+    result: {
+      schema: artifactReviewResultSchema,
+      effects: [],
+      evidenceCondition: { resultField: 'passed', equals: true },
+    },
+    sideEffect: CapabilitySideEffect.Read,
+  },
+];
+
+const capabilityToolDefinitions = [
+  ...taskToolDefinitions,
+  ...calendarToolDefinitions,
+  ...siteToolDefinitions,
+  ...fileToolDefinitions,
+  ...browserToolDefinitions,
+  ...artifactToolDefinitions,
+];
 
 export type CapabilityToolCatalog = {
   protocolVersion: string;
@@ -541,10 +974,30 @@ export type CalendarListInput = z.infer<typeof calendarListInputSchema>;
 export type CalendarUpdateInput = z.infer<typeof calendarUpdateInputSchema>;
 export type CalendarDeleteInput = z.infer<typeof calendarDeleteInputSchema>;
 export type CalendarEventResult = z.infer<typeof calendarEventResultSchema>;
+export type SiteCreateInput = z.infer<typeof siteCreateInputSchema>;
+export type SiteStatusInput = z.infer<typeof siteStatusInputSchema>;
+export type SitePreviewInput = z.infer<typeof sitePreviewInputSchema>;
+export type SitePublishInput = z.infer<typeof sitePublishInputSchema>;
+export type SiteDeleteInput = z.infer<typeof siteDeleteInputSchema>;
+export type SiteCreateResult = z.infer<typeof siteCreateResultSchema>;
+export type SiteStatusResult = z.infer<typeof siteStatusResultSchema>;
+export type SitePreviewResult = z.infer<typeof sitePreviewResultSchema>;
+export type SitePublishResult = z.infer<typeof sitePublishResultSchema>;
+export type SiteDeleteResult = z.infer<typeof siteDeleteResultSchema>;
 export type DocumentReadInput = z.infer<typeof documentReadInputSchema>;
 export type DocumentReadResult = z.infer<typeof documentReadResultSchema>;
 export type ImageReadInput = z.infer<typeof imageReadInputSchema>;
 export type ImageReadResult = z.infer<typeof imageReadResultSchema>;
+export type BrowserOpenInput = z.infer<typeof browserOpenInputSchema>;
+export type BrowserOpenResult = z.infer<typeof browserOpenResultSchema>;
+export type BrowserSnapshotInput = z.infer<typeof browserSnapshotInputSchema>;
+export type BrowserSnapshotResult = z.infer<typeof browserSnapshotResultSchema>;
+export type BrowserScreenshotInput = z.infer<typeof browserScreenshotInputSchema>;
+export type BrowserScreenshotResult = z.infer<typeof browserScreenshotResultSchema>;
+export type BrowserClickInput = z.infer<typeof browserClickInputSchema>;
+export type BrowserClickResult = z.infer<typeof browserClickResultSchema>;
+export type ArtifactReviewInput = z.infer<typeof artifactReviewInputSchema>;
+export type ArtifactReviewResult = z.infer<typeof artifactReviewResultSchema>;
 
 export function buildCapabilityToolCatalog(protocolVersion: string): CapabilityToolCatalog {
   return {
@@ -557,6 +1010,7 @@ function buildCapabilityDescriptor(definition: CapabilityToolDefinition): z.infe
   const resultContract = {
     schema: z.toJSONSchema(definition.result.schema),
     effects: definition.result.effects,
+    evidenceCondition: definition.result.evidenceCondition,
   };
   return capabilityDescriptorSchema.parse({
     name: definition.name,
@@ -569,7 +1023,7 @@ function buildCapabilityDescriptor(definition: CapabilityToolDefinition): z.infe
     version: definition.version,
     privacyClass: definition.privacyClass,
     estimatedLatency: definition.estimatedLatency,
-    requiresUserPresence: false,
+    requiresUserPresence: definition.requiresUserPresence ?? false,
     worksOffline: false,
     inputSchema: z.toJSONSchema(definition.inputSchema),
     outputSchema: z.toJSONSchema(toolInvokeResponseSchema),

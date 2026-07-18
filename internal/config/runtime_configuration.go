@@ -61,8 +61,9 @@ type CapabilityToolDescriptor struct {
 }
 
 type CapabilityToolResultContract struct {
-	Schema  json.RawMessage                    `json:"schema"`
-	Effects []CapabilityResourceEffectContract `json:"effects,omitempty"`
+	Schema            json.RawMessage                    `json:"schema"`
+	Effects           []CapabilityResourceEffectContract `json:"effects,omitempty"`
+	EvidenceCondition *EvidenceCondition                 `json:"evidenceCondition,omitempty"`
 }
 
 type CapabilityResourceEffectContract struct {
@@ -104,11 +105,31 @@ type MCPServerConfiguration struct {
 }
 
 type MCPToolConfiguration struct {
-	Name        string                 `json:"name"`
-	Namespace   string                 `json:"namespace"`
-	Description string                 `json:"description"`
-	InputSchema json.RawMessage        `json:"inputSchema"`
-	Policy      *MCPToolPolicyMetadata `json:"policy"`
+	Name           string                 `json:"name"`
+	Namespace      string                 `json:"namespace"`
+	Description    string                 `json:"description"`
+	InputSchema    json.RawMessage        `json:"inputSchema"`
+	OutputSchema   json.RawMessage        `json:"outputSchema"`
+	ResultContract *MCPToolResultContract `json:"resultContract"`
+	Policy         *MCPToolPolicyMetadata `json:"policy"`
+}
+
+type MCPToolResultContract struct {
+	Schema            json.RawMessage             `json:"schema"`
+	Effects           []MCPResourceEffectContract `json:"effects,omitempty"`
+	EvidenceCondition *EvidenceCondition          `json:"evidenceCondition,omitempty"`
+}
+
+type EvidenceCondition struct {
+	ResultField string          `json:"resultField"`
+	Equals      json.RawMessage `json:"equals"`
+}
+
+type MCPResourceEffectContract struct {
+	ObjectType     string `json:"objectType"`
+	Effect         string `json:"effect"`
+	ResultField    string `json:"resultField"`
+	EffectIdentity string `json:"effectIdentity"`
 }
 
 type MCPToolPolicyMetadata struct {
@@ -123,6 +144,7 @@ type MCPToolPolicyMetadata struct {
 	CompletionAction     string `json:"completionAction"`
 	CompletionTargetKind string `json:"completionTargetKind"`
 	Idempotency          string `json:"idempotency"`
+	IdempotencyScope     string `json:"idempotencyScope"`
 }
 
 type AgentConfiguration struct {

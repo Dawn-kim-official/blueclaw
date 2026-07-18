@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+
+	"github.com/google/jsonschema-go/jsonschema"
 )
 
 const (
@@ -229,6 +231,7 @@ func normalizeProviderTool(providerID string, boundTool BoundTool) (BoundTool, e
 	toolDescriptor.SideEffectClass = normalizeToolSideEffectClass(toolDescriptor.SideEffectClass)
 	toolDescriptor.PolicyResource = strings.TrimSpace(toolDescriptor.PolicyResource)
 	toolDescriptor.Idempotency = strings.TrimSpace(toolDescriptor.Idempotency)
+	toolDescriptor.IdempotencyScope = strings.TrimSpace(toolDescriptor.IdempotencyScope)
 	toolDescriptor.Completion.Mode = strings.TrimSpace(toolDescriptor.Completion.Mode)
 	toolDescriptor.Completion.Action = strings.TrimSpace(toolDescriptor.Completion.Action)
 	toolDescriptor.Completion.TargetKind = strings.TrimSpace(toolDescriptor.Completion.TargetKind)
@@ -248,8 +251,9 @@ func normalizeProviderTool(providerID string, boundTool BoundTool) (BoundTool, e
 			return BoundTool{}, fmt.Errorf("invalid tool descriptor %s: resultContract.schema %w", firstNonEmptyString(toolDescriptor.ID, toolDescriptor.Name), resultSchemaError)
 		}
 		toolDescriptor.ResultContract = &ToolResultContract{
-			Schema:  normalizedResultSchema,
-			Effects: append([]ResourceEffectContract{}, toolDescriptor.ResultContract.Effects...),
+			Schema:            normalizedResultSchema,
+			Effects:           append([]ResourceEffectContract{}, toolDescriptor.ResultContract.Effects...),
+			EvidenceCondition: copyEvidenceCondition(toolDescriptor.ResultContract.EvidenceCondition),
 		}
 	}
 	boundTool.Definition = toolDescriptor
@@ -364,6 +368,9 @@ func validateProviderTool(boundTool BoundTool) error {
 	if !isOneOf(toolDescriptor.Idempotency, ToolIdempotencyNone, ToolIdempotencySupported, ToolIdempotencyRequired) {
 		return errors.New("idempotency is invalid")
 	}
+	if toolDescriptor.Idempotency != ToolIdempotencyNone && toolDescriptor.IdempotencyScope == "" {
+		return errors.New("idempotencyScope is required when idempotency is supported or required")
+	}
 	if !isOneOf(boundTool.Availability.Status, ToolAvailabilityAvailable, ToolAvailabilityAsk, ToolAvailabilityUnavailable, ToolAvailabilityDenied) {
 		return errors.New("availability.status is invalid")
 	}
@@ -383,6 +390,9 @@ func validateToolResultContract(contract *ToolResultContract) error {
 	if errorValue := validateToolSchema("resultContract.schema", contract.Schema, true); errorValue != nil {
 		return errorValue
 	}
+	if errorValue := validateEvidenceCondition(contract.Schema, contract.EvidenceCondition); errorValue != nil {
+		return errorValue
+	}
 	seenEffects := map[string]bool{}
 	for _, effectContract := range contract.Effects {
 		objectType := strings.TrimSpace(effectContract.ObjectType)
@@ -394,8 +404,8 @@ func validateToolResultContract(contract *ToolResultContract) error {
 		if !isOneOf(strings.TrimSpace(effectContract.EffectIdentity), "id", "path", "url") {
 			return errors.New("resultContract effectIdentity is invalid")
 		}
-		if !schemaRequiresStringField(contract.Schema, resultField) {
-			return errors.New("resultContract resultField must name a required string property")
+		if !schemaRequiresEffectIdentityField(contract.Schema, resultField) {
+			return errors.New("resultContract resultField must name a required string or nonempty unique string array property")
 		}
 		effectKey := objectType + "\x00" + effect
 		if seenEffects[effectKey] {
@@ -406,7 +416,47 @@ func validateToolResultContract(contract *ToolResultContract) error {
 	return nil
 }
 
-func schemaRequiresStringField(document json.RawMessage, fieldName string) bool {
+func copyEvidenceCondition(condition *EvidenceCondition) *EvidenceCondition {
+	if condition == nil {
+		return nil
+	}
+	return &EvidenceCondition{
+		ResultField: strings.TrimSpace(condition.ResultField),
+		Equals:      append(json.RawMessage{}, condition.Equals...),
+	}
+}
+
+func validateEvidenceCondition(schema json.RawMessage, condition *EvidenceCondition) error {
+	if condition == nil {
+		return nil
+	}
+	if len(bytes.TrimSpace(condition.Equals)) == 0 || !json.Valid(condition.Equals) {
+		return errors.New("resultContract evidenceCondition.equals must be valid JSON")
+	}
+	if !schemaAcceptsEvidenceValue(schema, strings.TrimSpace(condition.ResultField), condition.Equals) {
+		return errors.New("resultContract evidenceCondition must match a required result property")
+	}
+	return nil
+}
+
+func schemaAcceptsEvidenceValue(document json.RawMessage, fieldName string, value json.RawMessage) bool {
+	var schema jsonschema.Schema
+	if json.Unmarshal(document, &schema) != nil || !slices.Contains(schema.Required, fieldName) {
+		return false
+	}
+	property, isDefined := schema.Properties[fieldName]
+	if !isDefined {
+		return false
+	}
+	var instance any
+	if json.Unmarshal(value, &instance) != nil {
+		return false
+	}
+	resolvedProperty, errorValue := property.Resolve(nil)
+	return errorValue == nil && resolvedProperty.Validate(instance) == nil
+}
+
+func schemaRequiresEffectIdentityField(document json.RawMessage, fieldName string) bool {
 	var schema struct {
 		Properties map[string]json.RawMessage `json:"properties"`
 		Required   []string                   `json:"required"`
@@ -415,12 +465,19 @@ func schemaRequiresStringField(document json.RawMessage, fieldName string) bool 
 		return false
 	}
 	var property struct {
-		Type string `json:"type"`
+		Type        string `json:"type"`
+		MinItems    int    `json:"minItems"`
+		UniqueItems bool   `json:"uniqueItems"`
+		Items       struct {
+			Type string `json:"type"`
+		} `json:"items"`
 	}
-	if json.Unmarshal(schema.Properties[fieldName], &property) != nil || property.Type != "string" {
+	if json.Unmarshal(schema.Properties[fieldName], &property) != nil {
 		return false
 	}
-	return slices.Contains(schema.Required, fieldName)
+	isIdentity := property.Type == "string" ||
+		property.Type == "array" && property.Items.Type == "string" && property.MinItems >= 1 && property.UniqueItems
+	return isIdentity && slices.Contains(schema.Required, fieldName)
 }
 
 func validateToolSchema(fieldName string, schema json.RawMessage, requiresObject bool) error {
@@ -436,6 +493,13 @@ func validateToolSchema(fieldName string, schema json.RawMessage, requiresObject
 	}
 	if requiresObject && document["type"] != "object" {
 		return errors.New(fieldName + " must describe an object")
+	}
+	var compiledSchema jsonschema.Schema
+	if errorValue := json.Unmarshal(schema, &compiledSchema); errorValue != nil {
+		return fmt.Errorf("%s cannot be compiled: %w", fieldName, errorValue)
+	}
+	if _, errorValue := compiledSchema.Resolve(nil); errorValue != nil {
+		return fmt.Errorf("%s cannot be resolved: %w", fieldName, errorValue)
 	}
 	return nil
 }

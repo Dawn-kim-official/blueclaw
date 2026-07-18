@@ -100,3 +100,107 @@ func TestLocalKernelToolNamesExcludeCapabilityBackedImageReader(t *testing.T) {
 		}
 	}
 }
+
+func TestKernelFileToolsHaveCanonicalResultContracts(t *testing.T) {
+	provider := newKernelToolProvider(NewToolCatalogBuilder(), toolHandlerContext{
+		request: ToolCatalogRequest{HistoryProvider: kernelHistoryProvider{}},
+	}, agent.NewToolSet(nil))
+	boundTools, errorValue := provider.ListTools(context.Background())
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	expectedEffectCounts := map[string]int{
+		agent.FileReadToolName:    0,
+		agent.FileWriteToolName:   2,
+		agent.FileDeleteToolName:  1,
+		agent.FileEditToolName:    2,
+		agent.FilePreviewToolName: 0,
+		agent.FileDeliverToolName: 1,
+	}
+	for _, boundTool := range boundTools {
+		expectedEffectCount, isFileTool := expectedEffectCounts[boundTool.Definition.Name]
+		if !isFileTool {
+			continue
+		}
+		contract := boundTool.Definition.ResultContract
+		if contract == nil {
+			t.Fatalf("expected %s result contract", boundTool.Definition.Name)
+		}
+		if len(contract.Effects) != expectedEffectCount {
+			t.Fatalf("expected %s effect contracts, got %+v", boundTool.Definition.Name, contract.Effects)
+		}
+		if !equalJSONSchema(boundTool.Definition.OutputSchema, contract.Schema) {
+			t.Fatalf("expected %s output and result schemas to match", boundTool.Definition.Name)
+		}
+		delete(expectedEffectCounts, boundTool.Definition.Name)
+	}
+	if len(expectedEffectCounts) != 0 {
+		t.Fatalf("missing contracted file tools: %+v", expectedEffectCounts)
+	}
+}
+
+func TestKernelToolProviderProjectsEveryResultPathEffect(t *testing.T) {
+	testCases := []struct {
+		toolName       string
+		data           json.RawMessage
+		expectedEffect []agent.ResourceEffect
+	}{
+		{
+			toolName: agent.FileDeleteToolName,
+			data:     json.RawMessage(`{"path":"tmp/obsolete.txt","deleted":true}`),
+			expectedEffect: []agent.ResourceEffect{{
+				ObjectType: "file",
+				Effect:     "deleted",
+				Path:       "tmp/obsolete.txt",
+			}},
+		},
+		{
+			toolName: agent.FileEditToolName,
+			data:     json.RawMessage(`{"editedFiles":["tmp/first.md","tmp/second.md"],"editCount":2}`),
+			expectedEffect: []agent.ResourceEffect{
+				{ObjectType: "file", Effect: "updated", Path: "tmp/first.md"},
+				{ObjectType: "file", Effect: "updated", Path: "tmp/second.md"},
+				{ObjectType: "workspace", Effect: "modified", Path: "tmp/first.md"},
+				{ObjectType: "workspace", Effect: "modified", Path: "tmp/second.md"},
+			},
+		},
+	}
+	for _, testCase := range testCases {
+		t.Run(testCase.toolName, func(t *testing.T) {
+			handlerToolSet := agent.NewToolSet(nil)
+			handlerToolSet.RegisterTool(agent.ToolDefinition{
+				Name:        testCase.toolName,
+				Description: "test handler",
+				InputSchema: json.RawMessage(`{"type":"object"}`),
+			}, func(context.Context, agent.ToolInvocation) (agent.ToolResult, error) {
+				return agent.ToolSuccessData(string(testCase.data), testCase.data), nil
+			})
+			provider := kernelToolProvider{handlerToolSet: handlerToolSet}
+			handlerDefinition, isFound := handlerToolSet.ToolDefinition(testCase.toolName)
+			if !isFound {
+				t.Fatal("expected handler definition")
+			}
+			boundTool, errorValue := provider.boundTool(handlerDefinition)
+			if errorValue != nil {
+				t.Fatal(errorValue)
+			}
+
+			result, errorValue := boundTool.Handler(context.Background(), agent.ToolInvocation{
+				ToolName: testCase.toolName,
+				Input:    json.RawMessage(`{}`),
+			})
+
+			if errorValue != nil {
+				t.Fatal(errorValue)
+			}
+			if len(result.Effects) != len(testCase.expectedEffect) {
+				t.Fatalf("expected effects %+v, got %+v", testCase.expectedEffect, result.Effects)
+			}
+			for index, expectedEffect := range testCase.expectedEffect {
+				if result.Effects[index] != expectedEffect {
+					t.Fatalf("expected effect %+v, got %+v", expectedEffect, result.Effects[index])
+				}
+			}
+		})
+	}
+}

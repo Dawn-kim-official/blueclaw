@@ -2,11 +2,61 @@ package agent
 
 import (
 	"encoding/base64"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
 )
+
+func TestCompletionStateRequiresDeclaredResultCondition(t *testing.T) {
+	toolSet := newTestToolSetWithDefinitions([]ToolDefinition{{
+		Name:         "artifact.review",
+		InputSchema:  json.RawMessage(`{"type":"object","properties":{},"additionalProperties":false}`),
+		OutputSchema: json.RawMessage(`{"type":"object","properties":{},"additionalProperties":false}`),
+		ResultContract: &ToolResultContract{
+			Schema: json.RawMessage(`{"type":"object","properties":{"passed":{"type":"boolean"}},"required":["passed"],"additionalProperties":false}`),
+			EvidenceCondition: &EvidenceCondition{
+				ResultField: "passed",
+				Equals:      json.RawMessage(`true`),
+			},
+		},
+	}})
+	requirements := []toolUseRequirement{{ToolName: "artifact.review"}}
+	failedReview := turnObservation{
+		ObservationID: "obs-001",
+		Tool:          "artifact.review",
+		Output:        ToolOutput{Data: json.RawMessage(`{"passed":false}`)},
+	}
+
+	state := buildCompletionState(AgentTurnRequest{ToolSet: toolSet}, requirements, []turnObservation{failedReview})
+
+	if failedReview.Failed() {
+		t.Fatal("expected a completed review call to remain successful")
+	}
+	if len(state.EvidenceReferences) != 0 || state.Requirements[0].Satisfied {
+		t.Fatalf("expected failed review verdict to remain completion-ineligible, got %+v", state)
+	}
+
+	passedReview := failedReview
+	passedReview.Output.Data = json.RawMessage(`{"passed":true}`)
+	state = buildCompletionState(AgentTurnRequest{ToolSet: toolSet}, requirements, []turnObservation{passedReview})
+	if len(state.EvidenceReferences) != 1 || !state.Requirements[0].Satisfied {
+		t.Fatalf("expected passed review verdict to satisfy completion evidence, got %+v", state)
+	}
+}
+
+func TestEvidenceConditionUsesSemanticJSONEquality(t *testing.T) {
+	condition := EvidenceCondition{
+		ResultField: "review",
+		Equals:      json.RawMessage(`{"passed":true,"scores":[1,2]}`),
+	}
+	result := json.RawMessage(`{"review":{"scores":[1.0,2],"passed":true}}`)
+
+	if !resultSatisfiesEvidenceCondition(result, condition) {
+		t.Fatal("expected equivalent JSON values to match regardless of field order and number representation")
+	}
+}
 
 func TestCompletionStateFindsNewestArtifactByRequiredSuffix(t *testing.T) {
 	workspaceRootPath := t.TempDir()

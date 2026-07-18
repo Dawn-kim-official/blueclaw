@@ -15,6 +15,33 @@ import (
 	"blueclaw/internal/policy"
 )
 
+func assertFileResourceEffect(t *testing.T, result agent.ToolResult, objectType string, effect string, path string) {
+	t.Helper()
+	for _, resourceEffect := range result.Effects {
+		if resourceEffect.ObjectType == objectType && resourceEffect.Effect == effect && resourceEffect.Path == path {
+			return
+		}
+	}
+	t.Fatalf("missing %s %s effect for %s in %+v", objectType, effect, path, result.Effects)
+}
+
+func assertStringArrayResultField(t *testing.T, result agent.ToolResult, fieldName string, expected []string) {
+	t.Helper()
+	var document map[string]any
+	if errorValue := json.Unmarshal(result.Output.Data, &document); errorValue != nil {
+		t.Fatalf("invalid result data: %v", errorValue)
+	}
+	values, isArray := document[fieldName].([]any)
+	if !isArray || len(values) != len(expected) {
+		t.Fatalf("expected %s=%+v, got %+v", fieldName, expected, document[fieldName])
+	}
+	for index, expectedValue := range expected {
+		if values[index] != expectedValue {
+			t.Fatalf("expected %s[%d]=%q, got %+v", fieldName, index, expectedValue, values[index])
+		}
+	}
+}
+
 func TestFileAttachToolAttachesSinglePath(t *testing.T) {
 	workspacePath := t.TempDir()
 	requesterDeckPath := filepath.Join(workspacePath, "private", "people", "person-1", "tmp", "deck")
@@ -48,6 +75,9 @@ func TestFileAttachToolAttachesSinglePath(t *testing.T) {
 	if result.Attachments[0].Filename != "deck.pptx" {
 		t.Fatalf("expected attachment filenames to match paths, got %+v", result.Attachments)
 	}
+	expectedPath := "/workspace/private/people/person-1/tmp/deck/deck.pptx"
+	assertFileResourceEffect(t, result, "file", "attached", expectedPath)
+	assertStringArrayResultField(t, result, "deliveredPaths", []string{expectedPath})
 }
 
 func TestFileAttachToolAttachesMultipleFiles(t *testing.T) {
@@ -84,6 +114,14 @@ func TestFileAttachToolAttachesMultipleFiles(t *testing.T) {
 	if result.Attachments[0].Filename != "deck.html" || result.Attachments[1].Filename != "deck.pptx" {
 		t.Fatalf("expected attachment filenames to match paths, got %+v", result.Attachments)
 	}
+	expectedPaths := []string{
+		"/workspace/private/people/person-1/artifacts/deck/deck.html",
+		"/workspace/private/people/person-1/artifacts/deck/deck.pptx",
+	}
+	assertStringArrayResultField(t, result, "deliveredPaths", expectedPaths)
+	for _, path := range expectedPaths {
+		assertFileResourceEffect(t, result, "file", "attached", path)
+	}
 }
 
 func TestFileToolsAcceptVirtualHomePathsWithoutLeakingHostPath(t *testing.T) {
@@ -111,6 +149,9 @@ func TestFileToolsAcceptVirtualHomePathsWithoutLeakingHostPath(t *testing.T) {
 	if strings.Contains(writeResult.ContentText(), workspacePath) {
 		t.Fatalf("expected file.write result not to expose host path, got %s", writeResult.ContentText())
 	}
+	expectedWrittenPath := "projects/deck/presentation.md"
+	assertFileResourceEffect(t, writeResult, "file", "created", expectedWrittenPath)
+	assertFileResourceEffect(t, writeResult, "workspace", "modified", expectedWrittenPath)
 	if _, errorValue := os.Stat(filepath.Join(workspacePath, "private", "people", "person-1", "projects", "deck", "presentation.md")); errorValue != nil {
 		t.Fatal(errorValue)
 	}
@@ -752,6 +793,9 @@ func TestFileEditReplacesSingleExactMatch(t *testing.T) {
 	if string(document) != "const title = 'New';\n" {
 		t.Fatalf("expected exact replacement, got %q", string(document))
 	}
+	expectedEditedPath := "tmp/source.ts"
+	assertFileResourceEffect(t, editResult, "file", "updated", expectedEditedPath)
+	assertFileResourceEffect(t, editResult, "workspace", "modified", expectedEditedPath)
 }
 
 func TestFileEditRejectsAmbiguousExactMatch(t *testing.T) {
@@ -1518,7 +1562,7 @@ func TestFileWriteRejectsLegacyMode(t *testing.T) {
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
-	if !writeResult.Failed() || !strings.Contains(writeResult.ContentText(), `unknown field "mode"`) {
+	if !writeResult.Failed() || writeResult.FailureStage() != "tool_input_schema" {
 		t.Fatalf("expected legacy mode to be rejected, got %+v", writeResult)
 	}
 }

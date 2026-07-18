@@ -416,7 +416,7 @@ func shouldExposeFinishAction(state agentTaskState, requirements []toolUseRequir
 	if !evaluateRecoveryAllowance(state.Observations, state.Options.RecoveryBudget).CanRecover {
 		return true
 	}
-	return len(requirements) == 0 || completionRequirementsHaveEvidence(requirements, state.Observations)
+	return len(requirements) == 0 || completionRequirementsHaveEvidence(state.Request.ToolSet, requirements, state.Observations)
 }
 
 func actionSchemaForToolSet(toolSet *ToolSet, allowQualityCriteria bool, blockedToolNames map[string]bool, hasFailureDebt bool, allowFailValues ...bool) string {

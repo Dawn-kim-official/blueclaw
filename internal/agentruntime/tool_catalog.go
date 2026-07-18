@@ -103,8 +103,14 @@ type CapabilityToolDescriptor struct {
 }
 
 type CapabilityToolResultContract struct {
-	Schema  json.RawMessage                    `json:"schema"`
-	Effects []CapabilityResourceEffectContract `json:"effects,omitempty"`
+	Schema            json.RawMessage                    `json:"schema"`
+	Effects           []CapabilityResourceEffectContract `json:"effects,omitempty"`
+	EvidenceCondition *CapabilityEvidenceCondition       `json:"evidenceCondition,omitempty"`
+}
+
+type CapabilityEvidenceCondition struct {
+	ResultField string          `json:"resultField"`
+	Equals      json.RawMessage `json:"equals"`
 }
 
 type CapabilityResourceEffectContract struct {

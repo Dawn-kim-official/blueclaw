@@ -66,6 +66,46 @@ func TestCompletionGateAcceptsZeroRemainingWork(t *testing.T) {
 	}
 }
 
+func TestCompletionGateRejectsEvidenceThatMissesDeclaredResultCondition(t *testing.T) {
+	goalSatisfied := true
+	toolSet := newTestToolSetWithDefinitions([]ToolDefinition{{
+		Name:         "artifact.review",
+		InputSchema:  json.RawMessage(`{"type":"object","properties":{},"additionalProperties":false}`),
+		OutputSchema: json.RawMessage(`{"type":"object","properties":{},"additionalProperties":false}`),
+		ResultContract: &ToolResultContract{
+			Schema: json.RawMessage(`{"type":"object","properties":{"passed":{"type":"boolean"}},"required":["passed"],"additionalProperties":false}`),
+			EvidenceCondition: &EvidenceCondition{
+				ResultField: "passed",
+				Equals:      json.RawMessage(`true`),
+			},
+		},
+	}})
+	observation := turnObservation{
+		ObservationID: "obs-001",
+		Tool:          "artifact.review",
+		Output:        ToolOutput{Data: json.RawMessage(`{"passed":false}`)},
+	}
+
+	result := validateCompletionGate(toolSet, []toolUseRequirement{{ToolName: "artifact.review"}}, []turnObservation{observation}, nil, turnActionDocument{
+		Action:           "finish",
+		Message:          "검토했습니다.",
+		GoalStatus:       "satisfied",
+		GoalSatisfied:    &goalSatisfied,
+		HasRemainingWork: false,
+		CompletionEvidence: []completionEvidenceReference{{
+			ObservationID: "obs-001",
+			ToolName:      "artifact.review",
+		}},
+	})
+
+	if result.IsSatisfied || result.EvidenceKind != evidenceKindRequiredTool {
+		t.Fatalf("expected failed review verdict to be rejected as completion evidence, got %+v", result)
+	}
+	if observation.Failed() {
+		t.Fatal("expected review issues to remain available to the model as successful tool output")
+	}
+}
+
 func TestCompletionGateRejectsExternalSendFinishWithoutSendEvidence(t *testing.T) {
 	goalSatisfied := true
 	result := validateCompletionGateForRequestWithRecoveryBudget(
@@ -372,7 +412,7 @@ func TestAgentTurnRunnerAcceptsHtmlRequestWithHtmlAttachment(t *testing.T) {
 
 func TestValidateCompletionEvidenceDoesNotDeliverImageReadAttachment(t *testing.T) {
 	attachmentIndex := 0
-	attachments, errorValue := validateCompletionEvidence(nil, []turnObservation{{
+	attachments, errorValue := validateCompletionEvidence(nil, nil, []turnObservation{{
 		ObservationID: "obs-001",
 		Action:        "continue",
 		Tool:          "image.read",

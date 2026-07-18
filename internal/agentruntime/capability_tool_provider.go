@@ -35,16 +35,17 @@ func (provider capabilityToolProvider) ListTools(context.Context) ([]agent.Bound
 
 func validateCapabilityToolDescriptor(descriptor CapabilityToolDescriptor) error {
 	requiredValues := map[string]string{
-		"name":            descriptor.Name,
-		"canonicalName":   descriptor.CanonicalName,
-		"namespace":       descriptor.Namespace,
-		"modelName":       descriptor.ModelName,
-		"modelVisibility": descriptor.ModelVisibility,
-		"description":     descriptor.Description,
-		"privacyClass":    descriptor.PrivacyClass,
-		"policyResource":  descriptor.PolicyResource,
-		"sideEffectClass": descriptor.SideEffectClass,
-		"availability":    descriptor.Availability.State,
+		"name":              descriptor.Name,
+		"canonicalName":     descriptor.CanonicalName,
+		"namespace":         descriptor.Namespace,
+		"modelName":         descriptor.ModelName,
+		"modelVisibility":   descriptor.ModelVisibility,
+		"description":       descriptor.Description,
+		"privacyClass":      descriptor.PrivacyClass,
+		"policyResource":    descriptor.PolicyResource,
+		"sideEffectClass":   descriptor.SideEffectClass,
+		"availability":      descriptor.Availability.State,
+		"idempotency.scope": descriptor.Idempotency.Scope,
 	}
 	for fieldName, fieldValue := range requiredValues {
 		if strings.TrimSpace(fieldValue) == "" {
@@ -102,6 +103,7 @@ func (provider capabilityToolProvider) boundTool(descriptor CapabilityToolDescri
 			RequiresApproval:     descriptor.RequiresApproval,
 			Completion:           capabilityToolCompletion(descriptor.CompletionEvidence),
 			Idempotency:          capabilityToolIdempotency(descriptor.Idempotency),
+			IdempotencyScope:     strings.TrimSpace(descriptor.Idempotency.Scope),
 		},
 		Availability: capabilityToolAvailability(descriptor, provider.request),
 		Handler: func(toolContext context.Context, invocation agent.ToolInvocation) (agent.ToolResult, error) {
@@ -130,8 +132,19 @@ func capabilityResultContract(contract *CapabilityToolResultContract) *agent.Too
 		})
 	}
 	return &agent.ToolResultContract{
-		Schema:  contract.Schema,
-		Effects: effects,
+		Schema:            contract.Schema,
+		Effects:           effects,
+		EvidenceCondition: capabilityEvidenceCondition(contract.EvidenceCondition),
+	}
+}
+
+func capabilityEvidenceCondition(condition *CapabilityEvidenceCondition) *agent.EvidenceCondition {
+	if condition == nil {
+		return nil
+	}
+	return &agent.EvidenceCondition{
+		ResultField: strings.TrimSpace(condition.ResultField),
+		Equals:      append(json.RawMessage{}, condition.Equals...),
 	}
 }
 

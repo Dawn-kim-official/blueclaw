@@ -53,3 +53,34 @@ func TestRecoveryPacketSchemaFailureRetriesSameToolWithFixedInput(t *testing.T) 
 		t.Fatalf("expected guidance to retry the same tool with corrected input, got %+v", packet.MustDoNext)
 	}
 }
+
+func TestWorkspaceRecoveryRequiresTypedEvidence(t *testing.T) {
+	failedObservation := turnObservation{
+		ObservationID: "obs-001",
+		Action:        "continue",
+		Tool:          "site.publish",
+		ToolInputKey:  "site.publish\x00{\"siteID\":\"site-1\"}",
+		Failure: &ToolFailure{
+			RequiredPreconditions: []string{"workspace_repaired"},
+			RecoveryHints:         []RecoveryHint{{ToolNames: []string{"file.edit"}}},
+		},
+	}
+	observations := []turnObservation{
+		failedObservation,
+		newContentObservation("obs-002", "continue", "site.status", `{"siteID":"site-1","status":"failed"}`),
+		newContentObservation("obs-003", "continue", "site.repair", `{"status":"ready"}`),
+	}
+
+	missingPreconditions := missingRecoveryPreconditions(failedObservation, observations)
+	if len(missingPreconditions) != 1 || missingPreconditions[0] != "workspace_repaired" {
+		t.Fatalf("expected site names not to prove workspace repair, got %+v", missingPreconditions)
+	}
+	if classifyRecoveryStep(FailureDebt{LatestFailure: failedObservation}, "site.repair") == recoveryStepPrecondition {
+		t.Fatal("expected a stale site.repair name not to classify as precondition evidence")
+	}
+
+	packet := buildRecoveryPacket(failedObservation)
+	if len(packet.AllowedTools) != 1 || packet.AllowedTools[0] != "file.edit" {
+		t.Fatalf("expected typed recovery hint tools to remain available, got %+v", packet.AllowedTools)
+	}
+}

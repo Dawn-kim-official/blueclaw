@@ -16,6 +16,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -62,6 +63,7 @@ type VirtualSessionScenario struct {
 	CapabilityToolDescriptors []agentruntime.CapabilityToolDescriptor
 	InitialToolNames          []string
 	InitialMemory             []memory.MemoryFact
+	InitialSite               *VirtualSiteFixture
 	RouterRequiredEvidence    []string
 	RouterTaskShape           agent.TaskShape
 	RouterTaskLevel           string
@@ -74,6 +76,15 @@ type VirtualSessionScenario struct {
 	ProgressWriter            io.Writer
 	Turns                     []VirtualTurn
 }
+
+type VirtualSiteFixture struct {
+	SiteID      string
+	Slug        string
+	Title       string
+	IsPublished bool
+}
+
+var virtualSiteSlugPattern = regexp.MustCompile(`^[a-z0-9]+(?:-[a-z0-9]+)*$`)
 
 type VirtualResponseExpectation string
 
@@ -568,8 +579,6 @@ func BuiltinScenario(name string, artifactDirectoryPath string) (VirtualSessionS
 		return SiteCustomStructureAcceptanceScenario(artifactDirectoryPath), nil
 	case "site_lifecycle_acceptance":
 		return SiteLifecycleAcceptanceScenario(artifactDirectoryPath), nil
-	case "site_suggested_repair_recovery":
-		return SiteSuggestedRepairRecoveryScenario(artifactDirectoryPath), nil
 	case "ask_choice_reply_acceptance":
 		return AskChoiceReplyAcceptanceScenario(artifactDirectoryPath), nil
 	case "dm_send_confirm_acceptance":
@@ -682,7 +691,11 @@ func NewVirtualSessionHarness(scenario VirtualSessionScenario) (*VirtualSessionH
 	capabilityToolNames := virtualCapabilityToolNames(scenario)
 	if len(capabilityToolNames) > 0 {
 		var capabilityCleanup func()
-		capabilityClient, capabilityCleanup = startVirtualCapabilityServer(capabilityToolNames, workspacePath)
+		var errorValue error
+		capabilityClient, capabilityCleanup, errorValue = startVirtualCapabilityServer(capabilityToolNames, workspacePath, scenario.InitialSite)
+		if errorValue != nil {
+			return nil, errorValue
+		}
 		runtime.UseCapabilityToolDescriptors(capabilityClient, virtualCapabilityToolDescriptors(scenario))
 		cleanup = capabilityCleanup
 	}
@@ -850,25 +863,40 @@ func virtualCapabilityToolDescriptors(scenario VirtualSessionScenario) []agentru
 func virtualCapabilityToolDescriptor(toolName string) agentruntime.CapabilityToolDescriptor {
 	sideEffectClass := virtualCapabilitySideEffectClass(toolName)
 	descriptor := agentruntime.CapabilityToolDescriptor{
-		Name:            toolName,
-		CanonicalName:   toolName,
-		Namespace:       virtualCapabilityNamespace(toolName),
-		ModelName:       toolName,
-		ModelVisibility: agent.ToolVisibilityModel,
-		Description:     "Virtual capability " + toolName,
-		PrivacyClass:    "test",
-		InputSchema:     json.RawMessage(virtualCapabilityInputSchema(toolName)),
-		OutputSchema:    json.RawMessage(`{"type":"object","properties":{},"additionalProperties":false}`),
-		ResultContract:  virtualCapabilityToolResultContract(toolName),
-		PolicyResource:  "tool:" + toolName,
-		SideEffectClass: sideEffectClass,
-		Availability:    agentruntime.CapabilityAvailability{State: "ok"},
-		Idempotency:     agentruntime.CapabilityIdempotency{Scope: "operation"},
+		Name:             toolName,
+		CanonicalName:    toolName,
+		Namespace:        virtualCapabilityNamespace(toolName),
+		ModelName:        toolName,
+		ModelVisibility:  agent.ToolVisibilityModel,
+		Description:      "Virtual capability " + toolName,
+		PrivacyClass:     "test",
+		InputSchema:      json.RawMessage(virtualCapabilityInputSchema(toolName)),
+		OutputSchema:     json.RawMessage(`{"type":"object","properties":{},"additionalProperties":false}`),
+		ResultContract:   virtualCapabilityToolResultContract(toolName),
+		PolicyResource:   "tool:" + toolName,
+		SideEffectClass:  sideEffectClass,
+		RequiresApproval: toolName == "site.delete",
+		Availability:     agentruntime.CapabilityAvailability{State: "ok"},
+		Idempotency:      agentruntime.CapabilityIdempotency{Scope: "operation"},
 	}
-	if sideEffectClass != agent.ToolSideEffectRead {
-		descriptor.CompletionEvidence = &agentruntime.CapabilityCompletionEvidence{Mode: "success", Action: toolName, TargetKind: virtualCapabilityNamespace(toolName)}
-	}
+	descriptor.CompletionEvidence = virtualCapabilityCompletionEvidence(toolName, sideEffectClass)
 	return descriptor
+}
+
+func virtualCapabilityCompletionEvidence(toolName string, sideEffectClass string) *agentruntime.CapabilityCompletionEvidence {
+	siteActionByToolName := map[string]string{
+		"site.create":  "create_site",
+		"site.preview": "preview_site",
+		"site.publish": "publish_site",
+		"site.delete":  "delete_site",
+	}
+	if action := siteActionByToolName[toolName]; action != "" {
+		return &agentruntime.CapabilityCompletionEvidence{Mode: "success", Action: action, TargetKind: "site"}
+	}
+	if sideEffectClass == agent.ToolSideEffectRead {
+		return nil
+	}
+	return &agentruntime.CapabilityCompletionEvidence{Mode: "success", Action: toolName, TargetKind: virtualCapabilityNamespace(toolName)}
 }
 
 func mergeVirtualCapabilityToolDescriptor(base agentruntime.CapabilityToolDescriptor, override agentruntime.CapabilityToolDescriptor) agentruntime.CapabilityToolDescriptor {
@@ -902,6 +930,8 @@ func virtualCapabilitySideEffectClass(toolName string) string {
 		return agent.ToolSideEffectDestructive
 	case "message.send":
 		return agent.ToolSideEffectExternalSend
+	case "site.preview":
+		return agent.ToolSideEffectExternalPublish
 	case "site.publish":
 		return agent.ToolSideEffectSitePublish
 	default:
@@ -1144,8 +1174,6 @@ type virtualCapabilityRecord struct {
 	SourceWorkspacePath string
 }
 
-const virtualDefaultSiteSourceWorkspacePath = "/workspace/circles/staff/sites/demo/draft"
-
 type virtualCapabilityService struct {
 	mutex            sync.Mutex
 	toolNameByName   map[string]bool
@@ -1157,7 +1185,7 @@ type virtualCapabilityService struct {
 	sitePublished    bool
 }
 
-func startVirtualCapabilityServer(toolNames []string, workspacePath string) (capability.Client, func()) {
+func startVirtualCapabilityServer(toolNames []string, workspacePath string, initialSite *VirtualSiteFixture) (capability.Client, func(), error) {
 	toolNameByName := map[string]bool{}
 	for _, toolName := range toolNames {
 		trimmedToolName := strings.TrimSpace(toolName)
@@ -1166,11 +1194,40 @@ func startVirtualCapabilityServer(toolNames []string, workspacePath string) (cap
 		}
 	}
 	service := &virtualCapabilityService{toolNameByName: toolNameByName, workspacePath: workspacePath}
+	if errorValue := service.loadInitialSite(initialSite); errorValue != nil {
+		return capability.Client{}, nil, errorValue
+	}
 	server := httptest.NewServer(http.HandlerFunc(service.handleRequest))
 	return capability.Client{
 		Endpoint:   server.URL,
 		HTTPClient: server.Client(),
-	}, server.Close
+	}, server.Close, nil
+}
+
+func (service *virtualCapabilityService) loadInitialSite(initialSite *VirtualSiteFixture) error {
+	if initialSite == nil {
+		return nil
+	}
+	if initialSite.SiteID == "" || strings.TrimSpace(initialSite.SiteID) != initialSite.SiteID {
+		return errors.New("virtual initial site requires an exact site ID")
+	}
+	if initialSite.Title == "" || strings.TrimSpace(initialSite.Title) != initialSite.Title {
+		return errors.New("virtual initial site requires an exact title")
+	}
+	if !virtualSiteSlugPattern.MatchString(initialSite.Slug) {
+		return errors.New("virtual initial site requires a DNS-safe slug")
+	}
+	sourceWorkspacePath, errorValue := virtualSiteSourcePathForSlug(initialSite.Slug)
+	if errorValue != nil {
+		return errorValue
+	}
+	service.site = &virtualCapabilityRecord{
+		ID:                  initialSite.SiteID,
+		Values:              map[string]any{"slug": initialSite.Slug, "title": initialSite.Title},
+		SourceWorkspacePath: sourceWorkspacePath,
+	}
+	service.sitePublished = initialSite.IsPublished
+	return nil
 }
 
 func (service *virtualCapabilityService) handleRequest(responseWriter http.ResponseWriter, request *http.Request) {
@@ -1215,61 +1272,71 @@ func (service *virtualCapabilityService) response(toolName string, requestBody [
 		return service.calendarResponse(toolName, requestBody)
 	case "site.create":
 		if service.site != nil {
-			return virtualCapabilityJSON(map[string]any{"provider": "virtual", "toolName": toolName, "status": "error", "message": "virtual site already exists"})
+			return virtualCapabilityInvalidInput(toolName, "virtual site already exists")
 		}
 		input := virtualCapabilityInput(requestBody)
-		if strings.TrimSpace(stringValue(input["title"])) == "" {
-			return virtualCapabilityJSON(map[string]any{"provider": "virtual", "toolName": toolName, "status": "error", "message": "title is required"})
-		}
 		sourceWorkspacePath, errorValue := virtualSiteSourcePathForSlug(stringValue(input["slug"]))
 		if errorValue != nil {
-			return virtualCapabilityJSON(map[string]any{"provider": "virtual", "toolName": toolName, "status": "error", "message": errorValue.Error()})
+			return virtualCapabilityInvalidInput(toolName, errorValue.Error())
 		}
+		title := firstVirtualString(stringValue(input["title"]), stringValue(input["slug"]))
+		input["title"] = title
 		service.site = &virtualCapabilityRecord{ID: "site-1", Values: input, SourceWorkspacePath: sourceWorkspacePath}
 		if errorValue := os.MkdirAll(filepath.Join(service.workspacePath, strings.TrimPrefix(sourceWorkspacePath, "/workspace/"), "app", "public"), 0o770); errorValue != nil {
-			return virtualCapabilityJSON(map[string]any{"provider": "virtual", "toolName": toolName, "status": "error", "message": "virtual site workspace creation failed"})
+			return virtualCapabilityInvalidInput(toolName, "virtual site workspace creation failed")
 		}
-		workspacePath := virtualSiteWorkspacePath(sourceWorkspacePath)
-		return virtualCapabilityJSON(map[string]any{
-			"provider": "virtual",
-			"toolName": toolName,
-			"status":   "ok",
-			"result": map[string]any{
-				"siteID":              "site-1",
-				"slug":                stringValue(input["slug"]),
-				"title":               stringValue(input["title"]),
-				"workspacePath":       workspacePath,
-				"sourceWorkspacePath": sourceWorkspacePath,
-				"appWorkspacePath":    filepath.ToSlash(filepath.Join(sourceWorkspacePath, "app")),
-				"sourceFiles":         json.RawMessage(virtualSiteCreateSourceFiles(requestBody)),
-			},
-		})
+		result := map[string]any{
+			"siteID":              service.site.ID,
+			"slug":                stringValue(input["slug"]),
+			"title":               title,
+			"status":              "draft",
+			"sourceWorkspacePath": sourceWorkspacePath,
+			"appWorkspacePath":    filepath.ToSlash(filepath.Join(sourceWorkspacePath, "app")),
+			"sourceFiles":         json.RawMessage(virtualSiteCreateSourceFiles(requestBody)),
+		}
+		return virtualCapabilityWebsiteSuccess(toolName, "created", service.site.ID, result)
+	case "site.preview":
+		if !service.hasVirtualSiteID(requestBody) {
+			return virtualCapabilityNotFound(toolName, "site")
+		}
+		if _, errorValue := service.virtualSiteSourceMetadata(); errorValue != nil {
+			return virtualCapabilityInvalidInput(toolName, errorValue.Error())
+		}
+		input := virtualCapabilityInput(requestBody)
+		previewID := firstVirtualString(stringValue(input["previewID"]), "site-preview-1")
+		status := "draft"
+		if service.sitePublished {
+			status = "published"
+		}
+		result := map[string]any{
+			"siteID":              service.site.ID,
+			"status":              status,
+			"sourceWorkspacePath": service.site.SourceWorkspacePath,
+			"previewID":           previewID,
+			"previewURL":          "https://preview-demo.device.intern.kim",
+			"previewExpiresAt":    "2026-07-19T01:00:00Z",
+		}
+		return virtualCapabilityWebsiteSuccess(toolName, "previewed", service.site.ID, result)
 	case "site.publish":
-		if !service.ensureVirtualSite(requestBody) {
+		if !service.hasVirtualSiteID(requestBody) {
 			return virtualCapabilityNotFound(toolName, "site")
 		}
 		sourceMetadata, errorValue := service.virtualSiteSourceMetadata()
 		if errorValue != nil {
-			return virtualCapabilityJSON(map[string]any{
-				"provider":  "virtual",
-				"toolName":  toolName,
-				"status":    "error",
-				"message":   errorValue.Error(),
-				"errorCode": "invalid_input",
-			})
+			return virtualCapabilityInvalidInput(toolName, errorValue.Error())
 		}
 		service.sitePublished = true
 		publishedResult := map[string]any{
-			"siteID":          service.site.ID,
-			"status":          "published",
-			"publishedURL":    "https://demo.device.intern.kim",
-			"sourcePath":      sourceMetadata.VirtualPath,
-			"sourceSHA256":    sourceMetadata.SHA256,
-			"sourceSizeBytes": sourceMetadata.SizeBytes,
+			"siteID":              service.site.ID,
+			"status":              "published",
+			"sourceWorkspacePath": service.site.SourceWorkspacePath,
+			"sourceSHA256":        sourceMetadata.SHA256,
+			"publishedURL":        "https://demo.device.intern.kim",
+			"currentVersionID":    "site-version-1",
 		}
-		return virtualCapabilitySuccess(toolName, virtualCapabilityJSON(publishedResult), publishedResult)
+		return virtualCapabilityWebsiteSuccess(toolName, "published", service.site.ID, publishedResult)
 	case "site.status":
-		if !service.ensureVirtualSite(requestBody) {
+		if !service.hasVirtualSiteReference(requestBody) {
 			return virtualCapabilityNotFound(toolName, "site")
 		}
 		status := "draft"
@@ -1277,36 +1344,31 @@ func (service *virtualCapabilityService) response(toolName string, requestBody [
 			status = "published"
 		}
 		sourceWorkspacePath := service.site.SourceWorkspacePath
-		workspacePath := virtualSiteWorkspacePath(sourceWorkspacePath)
-		return virtualCapabilityJSON(map[string]any{
-			"provider": "virtual",
-			"toolName": toolName,
-			"status":   "ok",
-			"result": map[string]any{
-				"siteID":              service.site.ID,
-				"slug":                stringValue(service.site.Values["slug"]),
-				"status":              status,
-				"workspacePath":       workspacePath,
-				"sourceWorkspacePath": sourceWorkspacePath,
-				"appWorkspacePath":    filepath.ToSlash(filepath.Join(sourceWorkspacePath, "app")),
-			},
-		})
-	case "site.logs":
-		return `{"provider":"virtual","toolName":"site.logs","status":"ok","result":{"logs":[]}}`
+		result := map[string]any{
+			"siteID":              service.site.ID,
+			"slug":                stringValue(service.site.Values["slug"]),
+			"title":               firstVirtualString(stringValue(service.site.Values["title"]), stringValue(service.site.Values["slug"])),
+			"status":              status,
+			"sourceWorkspacePath": sourceWorkspacePath,
+			"appWorkspacePath":    filepath.ToSlash(filepath.Join(sourceWorkspacePath, "app")),
+		}
+		return virtualCapabilitySuccess(toolName, virtualCapabilityJSON(result), result)
 	case "site.delete":
 		if virtualCapabilityRequestNeedsApproval(requestBody) {
-			return `{"provider":"virtual","toolName":"site.delete","status":"denied","content":"requires approval","message":"requires approval","errorCode":"approval_required","failureStage":"authorization","result":{"errorCode":"approval_required","failureStage":"authorization","message":"requires approval"}}`
+			return virtualCapabilityApprovalRequired(toolName)
 		}
-		if !service.ensureVirtualSite(requestBody) {
+		if !service.hasVirtualSiteID(requestBody) {
 			return virtualCapabilityNotFound(toolName, "site")
 		}
+		deletedSiteID := service.site.ID
 		sourceWorkspacePath := service.site.SourceWorkspacePath
 		service.site = nil
 		service.sitePublished = false
 		if localPath, errorValue := virtualWorkspacePathToLocalPath(service.workspacePath, sourceWorkspacePath); errorValue == nil {
 			_ = os.RemoveAll(filepath.Dir(localPath))
 		}
-		return `{"provider":"virtual","toolName":"site.delete","status":"ok","content":"deleted virtual site","result":{"siteID":"site-1","slug":"demo","status":"deleted"}}`
+		result := map[string]any{"siteID": deletedSiteID, "deleted": true}
+		return virtualCapabilityWebsiteSuccess(toolName, "deleted", deletedSiteID, result)
 	case "image.read":
 		return `{"provider":"virtual","toolName":"image.read","status":"ok","content":"image loaded","result":{"attachments":[{"devicePath":"/workspace/circles/staff/inbox/virtual/virtual-conversation-1/virtual-message-001/mascot.png","filename":"mascot.png","contentType":"image/png","sizeBytes":13,"contentBase64":"dmlydHVhbC1pbWFnZQ=="}]}}`
 	case "web.search":
@@ -1325,23 +1387,20 @@ func (service *virtualCapabilityService) response(toolName string, requestBody [
 	}
 }
 
-func (service *virtualCapabilityService) ensureVirtualSite(requestBody []byte) bool {
-	if service.site != nil {
-		return true
-	}
-	input := virtualCapabilityInput(requestBody)
-	if strings.TrimSpace(stringValue(input["siteID"])) == "" && strings.TrimSpace(stringValue(input["slug"])) == "" && strings.TrimSpace(stringValue(input["title"])) == "" {
+func (service *virtualCapabilityService) hasVirtualSiteID(requestBody []byte) bool {
+	if service.site == nil {
 		return false
 	}
-	sourceWorkspacePath, _ := virtualSiteSourcePathForSlug(stringValue(input["slug"]))
-	if sourceWorkspacePath == "" {
-		sourceWorkspacePath = discoverVirtualSiteSourceWorkspacePath(service.workspacePath)
+	input := virtualCapabilityInput(requestBody)
+	return stringValue(input["siteID"]) == service.site.ID
+}
+
+func (service *virtualCapabilityService) hasVirtualSiteReference(requestBody []byte) bool {
+	if service.site == nil {
+		return false
 	}
-	if sourceWorkspacePath == "" {
-		sourceWorkspacePath = virtualDefaultSiteSourceWorkspacePath
-	}
-	service.site = &virtualCapabilityRecord{ID: "site-1", Values: input, SourceWorkspacePath: sourceWorkspacePath}
-	return true
+	siteReference := stringValue(virtualCapabilityInput(requestBody)["siteReference"])
+	return siteReference == service.site.ID || siteReference == stringValue(service.site.Values["slug"])
 }
 
 func virtualSiteSourcePathForSlug(slug string) (string, error) {
@@ -1354,23 +1413,6 @@ func virtualSiteSourcePathForSlug(slug string) (string, error) {
 		return "", errors.New("site slug cannot contain path separators")
 	}
 	return filepath.ToSlash(filepath.Join("/workspace/circles/staff/sites", cleanSlug, "draft")), nil
-}
-
-func virtualSiteWorkspacePath(sourceWorkspacePath string) string {
-	return filepath.ToSlash(filepath.Dir(sourceWorkspacePath))
-}
-
-func discoverVirtualSiteSourceWorkspacePath(workspacePath string) string {
-	pattern := filepath.Join(workspacePath, "circles", "staff", "sites", "*", "draft")
-	matches, errorValue := filepath.Glob(pattern)
-	if errorValue != nil || len(matches) != 1 {
-		return ""
-	}
-	relativePath, errorValue := filepath.Rel(workspacePath, matches[0])
-	if errorValue != nil {
-		return ""
-	}
-	return filepath.ToSlash(filepath.Join("/workspace", relativePath))
 }
 
 type virtualSiteSourceMetadata struct {
@@ -1481,10 +1523,22 @@ func virtualCapabilityInputSchema(toolName string) string {
 		return `{"type":"object","properties":{"eventID":{"type":"string","minLength":1},"title":{"type":"string"},"description":{"type":"string"},"location":{"type":"string"},"startISO":{"type":"string"},"endISO":{"type":"string"},"timeZone":{"type":"string"},"isAllDay":{"type":"boolean"},"color":{"type":"string"},"people":{"type":"array","items":{"type":"string"}},"includeRequester":{"type":"boolean"},"reminderLeadHours":{"type":"number","enum":[1,2,3,6,12,24,48]}},"required":["eventID"],"additionalProperties":false,"minProperties":2}`
 	case "calendar.delete":
 		return `{"type":"object","properties":{"eventID":{"type":"string","minLength":1}},"required":["eventID"],"additionalProperties":false}`
+	case "web.search":
+		return `{"type":"object","properties":{"query":{"type":"string"},"location":{"type":"string"},"language":{"type":"string"},"limit":{"type":"integer"},"allowedDomains":{"type":"array","items":{"type":"string"}},"excludedDomains":{"type":"array","items":{"type":"string"}}},"required":["query"],"additionalProperties":false}`
+	case "image.read":
+		return `{"type":"object","properties":{"path":{"type":"string","minLength":1}},"required":["path"],"additionalProperties":false}`
+	case "message.update":
+		return `{"type":"object","properties":{"messageID":{"type":"string","minLength":1},"message":{"type":"string"},"isPinned":{"type":"boolean"}},"required":["messageID"],"additionalProperties":false}`
 	case "site.create":
-		return `{"type":"object","properties":{"slug":{"type":"string"},"title":{"type":"string"},"prompt":{"type":"string"},"designBrief":{"type":"string"},"prototypeScope":{"type":"string"},"description":{"type":"string"},"idea":{"type":"string"},"purpose":{"type":"string"},"audience":{"type":"string"},"archetype":{"type":"string"},"domainKeywords":{"type":"array","items":{"type":"string"}},"content":{"type":"object"}},"required":["slug"],"additionalProperties":false}`
-	case "site.status", "site.publish", "site.delete":
-		return `{"type":"object","properties":{"siteID":{"type":"string"},"slug":{"type":"string"},"title":{"type":"string"},"message":{"type":"string"}},"additionalProperties":false}`
+		return `{"type":"object","properties":{"slug":{"type":"string","minLength":1,"pattern":"^[a-z0-9]+(?:-[a-z0-9]+)*$"},"title":{"type":"string"},"prompt":{"type":"string"},"designBrief":{"type":"string"},"prototypeScope":{"type":"string"},"description":{"type":"string"},"idea":{"type":"string"},"purpose":{"type":"string"},"audience":{"type":"string"},"archetype":{"type":"string"},"domainKeywords":{"type":"array","items":{"type":"string"}},"content":{"type":"object","properties":{"siteName":{"type":"string"},"tagline":{"type":"string"},"heroActionLabel":{"type":"string"},"heroActionHref":{"type":"string"},"sections":{"type":"array","minItems":1,"items":{"type":"object","properties":{"title":{"type":"string"},"body":{"type":"string"}},"required":["title","body"],"additionalProperties":false}}},"required":["siteName","sections"],"additionalProperties":false}},"required":["slug"],"additionalProperties":false}`
+	case "site.status":
+		return `{"type":"object","properties":{"siteReference":{"type":"string","minLength":1},"checkLive":{"type":"boolean"}},"required":["siteReference"],"additionalProperties":false}`
+	case "site.preview":
+		return `{"type":"object","properties":{"siteID":{"type":"string","minLength":1},"previewID":{"type":"string","minLength":1}},"required":["siteID"],"additionalProperties":false}`
+	case "site.publish":
+		return `{"type":"object","properties":{"siteID":{"type":"string","minLength":1},"previewID":{"type":"string","minLength":1},"message":{"type":"string"}},"required":["siteID"],"additionalProperties":false}`
+	case "site.delete":
+		return `{"type":"object","properties":{"siteID":{"type":"string","minLength":1},"reason":{"type":"string"}},"required":["siteID"],"additionalProperties":false}`
 	case "message.send":
 		return `{"type":"object","properties":{"targetType":{"type":"string","enum":["directMessage","currentThread","currentChannel","channel"]},"personHint":{"type":"string"},"personHints":{"type":"array","items":{"type":"string"}},"channelName":{"type":"string"},"channelID":{"type":"string"},"message":{"type":"string"}},"required":["targetType","message"],"additionalProperties":false}`
 	default:
@@ -1525,8 +1579,42 @@ func virtualCapabilityToolResultContract(toolName string) *agentruntime.Capabili
 			Schema:  json.RawMessage(`{"type":"object","properties":{"eventID":{"type":"string","minLength":1},"deleted":{"const":true}},"required":["eventID","deleted"],"additionalProperties":false}`),
 			Effects: []agentruntime.CapabilityResourceEffectContract{virtualCalendarEffectContract("deleted")},
 		}
+	case "site.create":
+		return virtualSiteResultContract(
+			`{"type":"object","properties":{"siteID":{"type":"string","minLength":1},"slug":{"type":"string","minLength":1,"pattern":"^[a-z0-9]+(?:-[a-z0-9]+)*$"},"title":{"type":"string"},"status":{"type":"string","const":"draft"},"sourceWorkspacePath":{"type":"string","minLength":1},"appWorkspacePath":{"type":"string","minLength":1}},"required":["siteID","slug","title","status","sourceWorkspacePath","appWorkspacePath"],"additionalProperties":false}`,
+			"created",
+		)
+	case "site.status":
+		return &agentruntime.CapabilityToolResultContract{Schema: json.RawMessage(`{"type":"object","properties":{"siteID":{"type":"string","minLength":1},"slug":{"type":"string","minLength":1,"pattern":"^[a-z0-9]+(?:-[a-z0-9]+)*$"},"title":{"type":"string"},"status":{"type":"string","enum":["draft","publishing","published","unpublished","failed"]},"sourceWorkspacePath":{"type":"string","minLength":1},"appWorkspacePath":{"type":"string","minLength":1},"previewURL":{"type":"string","minLength":1},"publishedURL":{"type":"string","minLength":1},"lastError":{"type":"string"},"updatedAt":{"type":"string"},"workspaceHealth":{"type":"string"},"liveHTTPStatus":{"type":"integer"}},"required":["siteID","slug","title","status","sourceWorkspacePath"],"additionalProperties":false}`)}
+	case "site.preview":
+		return virtualSiteResultContract(
+			`{"type":"object","properties":{"siteID":{"type":"string","minLength":1},"status":{"type":"string","enum":["draft","publishing","published","unpublished","failed"]},"sourceWorkspacePath":{"type":"string","minLength":1},"previewID":{"type":"string","minLength":1},"previewURL":{"type":"string","minLength":1},"previewExpiresAt":{"type":"string"}},"required":["siteID","status","sourceWorkspacePath","previewID","previewURL","previewExpiresAt"],"additionalProperties":false}`,
+			"previewed",
+		)
+	case "site.publish":
+		return virtualSiteResultContract(
+			`{"type":"object","properties":{"siteID":{"type":"string","minLength":1},"status":{"type":"string","const":"published"},"sourceWorkspacePath":{"type":"string","minLength":1},"sourceSHA256":{"type":"string","pattern":"^[a-f0-9]{64}$"},"publishedURL":{"type":"string","minLength":1},"currentVersionID":{"type":"string","minLength":1}},"required":["siteID","status","sourceWorkspacePath","sourceSHA256","publishedURL","currentVersionID"],"additionalProperties":false}`,
+			"published",
+		)
+	case "site.delete":
+		return virtualSiteResultContract(
+			`{"type":"object","properties":{"siteID":{"type":"string","minLength":1},"deleted":{"type":"boolean","const":true}},"required":["siteID","deleted"],"additionalProperties":false}`,
+			"deleted",
+		)
 	default:
 		return nil
+	}
+}
+
+func virtualSiteResultContract(schema string, effect string) *agentruntime.CapabilityToolResultContract {
+	return &agentruntime.CapabilityToolResultContract{
+		Schema: json.RawMessage(schema),
+		Effects: []agentruntime.CapabilityResourceEffectContract{{
+			ObjectType:     "website",
+			Effect:         effect,
+			ResultField:    "siteID",
+			EffectIdentity: "id",
+		}},
 	}
 }
 
@@ -1935,6 +2023,19 @@ func virtualCapabilityCalendarSuccess(toolName string, effect string, eventID st
 		"content":         content,
 		"result":          result,
 		"effects":         []map[string]any{{"objectType": "calendar", "effect": effect, "id": eventID}},
+	})
+}
+
+func virtualCapabilityWebsiteSuccess(toolName string, effect string, siteID string, result any) string {
+	return virtualCapabilityJSON(map[string]any{
+		"provider":        "virtual",
+		"selectedBackend": "device",
+		"toolName":        toolName,
+		"outcome":         "succeeded",
+		"status":          "ok",
+		"content":         virtualCapabilityJSON(result),
+		"result":          result,
+		"effects":         []map[string]any{{"objectType": "website", "effect": effect, "id": siteID}},
 	})
 }
 

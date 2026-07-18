@@ -208,7 +208,7 @@ func TestCapabilityToolRequestIncludesTrustedExecutionContext(t *testing.T) {
 		ConversationChannelID:   "channel-1",
 		ReplyTargetID:           "reply-target-1",
 		Platform:                "mattermost",
-	}, json.RawMessage(`{"targetType":"directMessage","personHint":"동하","message":"테스트"}`))
+	}, preparedCapabilityToolPayload{Input: json.RawMessage(`{"targetType":"directMessage","personHint":"동하","message":"테스트"}`)})
 	contextDocument, isFound := requestDocument["context"].(map[string]any)
 	if !isFound {
 		t.Fatalf("expected context document, got %+v", requestDocument)
@@ -221,6 +221,24 @@ func TestCapabilityToolRequestIncludesTrustedExecutionContext(t *testing.T) {
 	}
 	if contextDocument["conflictResolution"] != agent.ToolConflictResolutionAllowDuplicate {
 		t.Fatalf("expected typed conflict resolution in context, got %+v", contextDocument)
+	}
+}
+
+func TestCapabilityToolRequestSeparatesModelInputFromTransport(t *testing.T) {
+	input := json.RawMessage(`{"siteID":"site-1"}`)
+	transport := map[string]any{"siteSourceBundle": map[string]any{"workspacePath": "/workspace/site"}}
+	requestDocument := capabilityToolRequest(
+		context.Background(),
+		completeTestCapabilityToolDescriptor(CapabilityToolDescriptor{Name: "site.publish", CanonicalName: "site.publish"}),
+		ToolCatalogRequest{},
+		preparedCapabilityToolPayload{Input: input, Transport: transport},
+	)
+
+	if string(requestDocument["input"].(json.RawMessage)) != string(input) {
+		t.Fatalf("expected unchanged model input, got %+v", requestDocument["input"])
+	}
+	if requestDocument["transport"].(map[string]any)["siteSourceBundle"] == nil {
+		t.Fatalf("expected trusted transport payload, got %+v", requestDocument)
 	}
 }
 
@@ -278,7 +296,7 @@ func TestCanonicalReadRejectsMaterialIDInput(t *testing.T) {
 			if errorValue != nil {
 				t.Fatal(errorValue)
 			}
-			if !result.Failed() || result.FailureStage() != "capability_input" {
+			if !result.Failed() || result.FailureStage() != "tool_input_schema" {
 				t.Fatalf("expected %s materialID rejection, got %+v", toolName, result)
 			}
 		})
@@ -355,6 +373,16 @@ func TestCanonicalReadRejectsIdentityAndResultSchemaDrift(t *testing.T) {
 			responseBody: `{"provider":"internkim","selectedBackend":"device","toolName":"document.read","outcome":"succeeded","status":"ok","result":{"status":"ok","path":"/workspace/report.md","format":"markdown","content":"report","warnings":[]}}`,
 			failureStage: "tool_result_contract",
 		},
+		{
+			name:         "missing result",
+			responseBody: `{"provider":"internkim","selectedBackend":"device","toolName":"document.read","outcome":"succeeded","status":"ok"}`,
+			failureStage: "tool_result_contract",
+		},
+		{
+			name:         "generic scalar result",
+			responseBody: `{"provider":"internkim","selectedBackend":"device","toolName":"document.read","outcome":"succeeded","status":"ok","result":"report"}`,
+			failureStage: "tool_result_contract",
+		},
 	}
 
 	for _, testCase := range tests {
@@ -414,6 +442,7 @@ func canonicalReadDescriptor(toolName string) CapabilityToolDescriptor {
 		PolicyResource:  "tool:" + toolName,
 		SideEffectClass: "read",
 		Availability:    CapabilityAvailability{State: "ok"},
+		Idempotency:     CapabilityIdempotency{Scope: "operation"},
 	}
 }
 
@@ -454,7 +483,7 @@ func TestImageGenerateRequiresRequesterWorkspaceWriteAccess(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			workspacePath := t.TempDir()
-			httpClient := &recordingHTTPClient{responseBody: `{"content":"generated","status":"ok","result":{"status":"ok"}}`}
+			httpClient := &recordingHTTPClient{responseBody: `{"provider":"internkim","selectedBackend":"device","toolName":"image.generate","outcome":"succeeded","content":"generated","status":"ok","result":{}}`}
 			toolCatalogBuilder := newFileToolTestCatalogBuilder(workspacePath)
 			toolCatalogBuilder.UseTestCapabilityToolDescriptors(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, []CapabilityToolDescriptor{{
 				Name:           "image.generate",

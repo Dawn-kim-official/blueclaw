@@ -1,15 +1,18 @@
 package mcp
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"reflect"
+	"slices"
 	"strings"
 	"sync"
 	"time"
 
 	"blueclaw/internal/config"
+	"github.com/google/jsonschema-go/jsonschema"
 )
 
 const serverValidationTimeout = 3 * time.Second
@@ -168,21 +171,140 @@ func buildServerDefinition(configuration config.MCPServerConfiguration) (ServerD
 func buildToolDefinition(serverName string, configuration config.MCPToolConfiguration) (ToolDefinition, error) {
 	toolName := strings.TrimSpace(configuration.Name)
 	namespace := strings.TrimSpace(configuration.Namespace)
-	if toolName == "" || namespace == "" || strings.TrimSpace(configuration.Description) == "" || configuration.Policy == nil || !isObjectSchema(configuration.InputSchema) {
+	if toolName == "" ||
+		namespace == "" ||
+		strings.TrimSpace(configuration.Description) == "" ||
+		configuration.Policy == nil ||
+		!isObjectSchema(configuration.InputSchema) ||
+		!isObjectSchema(configuration.OutputSchema) {
 		return ToolDefinition{}, errors.New("mcp tool metadata is incomplete")
 	}
 	if !validPolicyMetadata(*configuration.Policy) {
 		return ToolDefinition{}, errors.New("mcp tool metadata is incomplete")
 	}
+	resultContract, errorValue := buildToolResultContract(configuration.OutputSchema, configuration.ResultContract)
+	if errorValue != nil {
+		return ToolDefinition{}, errorValue
+	}
 	return ToolDefinition{
-		Name:        qualifiedToolName(namespace, toolName),
-		Namespace:   namespace,
-		ServerName:  serverName,
-		Description: strings.TrimSpace(configuration.Description),
-		InputSchema: append([]byte{}, configuration.InputSchema...),
-		Policy:      policyMetadata(*configuration.Policy),
-		remoteName:  toolName,
+		Name:           qualifiedToolName(namespace, toolName),
+		Namespace:      namespace,
+		ServerName:     serverName,
+		Description:    strings.TrimSpace(configuration.Description),
+		InputSchema:    append([]byte{}, configuration.InputSchema...),
+		OutputSchema:   append([]byte{}, configuration.OutputSchema...),
+		ResultContract: resultContract,
+		Policy:         policyMetadata(*configuration.Policy),
+		remoteName:     toolName,
 	}, nil
+}
+
+func buildToolResultContract(outputSchema json.RawMessage, configuration *config.MCPToolResultContract) (*ToolResultContract, error) {
+	if configuration == nil || !schemasEqual(outputSchema, configuration.Schema) {
+		return nil, errors.New("mcp tool result contract must match output schema")
+	}
+	effects := make([]ResourceEffectContract, 0, len(configuration.Effects))
+	seenEffects := map[string]bool{}
+	for _, effect := range configuration.Effects {
+		normalizedEffect, errorValue := buildResourceEffectContract(configuration.Schema, effect)
+		if errorValue != nil {
+			return nil, errorValue
+		}
+		effectKey := normalizedEffect.ObjectType + "\x00" + normalizedEffect.Effect
+		if seenEffects[effectKey] {
+			return nil, errors.New("mcp tool result contract effect is duplicated")
+		}
+		seenEffects[effectKey] = true
+		effects = append(effects, normalizedEffect)
+	}
+	evidenceCondition, errorValue := buildEvidenceCondition(configuration.Schema, configuration.EvidenceCondition)
+	if errorValue != nil {
+		return nil, errorValue
+	}
+	return &ToolResultContract{
+		Schema:            append([]byte{}, configuration.Schema...),
+		Effects:           effects,
+		EvidenceCondition: evidenceCondition,
+	}, nil
+}
+
+func buildEvidenceCondition(schema json.RawMessage, configuration *config.EvidenceCondition) (*EvidenceCondition, error) {
+	if configuration == nil {
+		return nil, nil
+	}
+	resultField := strings.TrimSpace(configuration.ResultField)
+	if len(bytes.TrimSpace(configuration.Equals)) == 0 || !json.Valid(configuration.Equals) {
+		return nil, errors.New("mcp tool evidence condition equals must be valid JSON")
+	}
+	if !schemaAcceptsEvidenceValue(schema, resultField, configuration.Equals) {
+		return nil, errors.New("mcp tool evidence condition must match a required result property")
+	}
+	return &EvidenceCondition{
+		ResultField: resultField,
+		Equals:      append(json.RawMessage{}, configuration.Equals...),
+	}, nil
+}
+
+func buildResourceEffectContract(schema json.RawMessage, configuration config.MCPResourceEffectContract) (ResourceEffectContract, error) {
+	effect := ResourceEffectContract{
+		ObjectType:     strings.TrimSpace(configuration.ObjectType),
+		Effect:         strings.TrimSpace(configuration.Effect),
+		ResultField:    strings.TrimSpace(configuration.ResultField),
+		EffectIdentity: strings.TrimSpace(configuration.EffectIdentity),
+	}
+	if effect.ObjectType == "" || effect.Effect == "" || effect.ResultField == "" {
+		return ResourceEffectContract{}, errors.New("mcp tool result contract effect metadata is incomplete")
+	}
+	if effect.EffectIdentity != "id" && effect.EffectIdentity != "path" && effect.EffectIdentity != "url" {
+		return ResourceEffectContract{}, errors.New("mcp tool result contract effect identity is invalid")
+	}
+	if !schemaRequiresEffectIdentityField(schema, effect.ResultField) {
+		return ResourceEffectContract{}, errors.New("mcp tool result contract result field must name a required string or nonempty unique string array property")
+	}
+	return effect, nil
+}
+
+func schemaRequiresEffectIdentityField(schema json.RawMessage, fieldName string) bool {
+	var document struct {
+		Properties map[string]json.RawMessage `json:"properties"`
+		Required   []string                   `json:"required"`
+	}
+	if json.Unmarshal(schema, &document) != nil {
+		return false
+	}
+	var property struct {
+		Type        string `json:"type"`
+		MinItems    int    `json:"minItems"`
+		UniqueItems bool   `json:"uniqueItems"`
+		Items       struct {
+			Type string `json:"type"`
+		} `json:"items"`
+	}
+	if json.Unmarshal(document.Properties[fieldName], &property) != nil {
+		return false
+	}
+	if !slices.Contains(document.Required, fieldName) {
+		return false
+	}
+	return property.Type == "string" ||
+		property.Type == "array" && property.Items.Type == "string" && property.MinItems >= 1 && property.UniqueItems
+}
+
+func schemaAcceptsEvidenceValue(document json.RawMessage, fieldName string, value json.RawMessage) bool {
+	var schema jsonschema.Schema
+	if json.Unmarshal(document, &schema) != nil || !slices.Contains(schema.Required, fieldName) {
+		return false
+	}
+	property, isDefined := schema.Properties[fieldName]
+	if !isDefined {
+		return false
+	}
+	var instance any
+	if json.Unmarshal(value, &instance) != nil {
+		return false
+	}
+	resolvedProperty, errorValue := property.Resolve(nil)
+	return errorValue == nil && resolvedProperty.Validate(instance) == nil
 }
 
 func policyMetadata(policy config.MCPToolPolicyMetadata) PolicyMetadata {
@@ -198,6 +320,7 @@ func policyMetadata(policy config.MCPToolPolicyMetadata) PolicyMetadata {
 		CompletionAction:     policy.CompletionAction,
 		CompletionTargetKind: policy.CompletionTargetKind,
 		Idempotency:          policy.Idempotency,
+		IdempotencyScope:     policy.IdempotencyScope,
 	}
 }
 
@@ -207,7 +330,8 @@ func validPolicyMetadata(policy config.MCPToolPolicyMetadata) bool {
 		strings.TrimSpace(policy.PolicyResource) == "" ||
 		strings.TrimSpace(policy.SideEffectClass) == "" ||
 		strings.TrimSpace(policy.CompletionMode) == "" ||
-		strings.TrimSpace(policy.Idempotency) == "" {
+		strings.TrimSpace(policy.Idempotency) == "" ||
+		strings.TrimSpace(policy.IdempotencyScope) == "" {
 		return false
 	}
 	completionMode := strings.TrimSpace(policy.CompletionMode)
@@ -235,7 +359,9 @@ func discoverTools(ctx context.Context, serverClient ServerClient, session *serv
 			continue
 		}
 		toolDefinition, isConfigured := configuredTools[protocolTool.Name]
-		if !isConfigured || !schemasEqual(toolDefinition.InputSchema, protocolTool.InputSchema) {
+		if !isConfigured ||
+			!schemasEqual(toolDefinition.InputSchema, protocolTool.InputSchema) ||
+			!schemasEqual(toolDefinition.OutputSchema, protocolTool.OutputSchema) {
 			continue
 		}
 		discoveredTools = append(discoveredTools, toolDefinition)

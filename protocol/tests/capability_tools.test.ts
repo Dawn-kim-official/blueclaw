@@ -1,11 +1,26 @@
 import { describe, expect, test } from 'bun:test';
 
 import {
+  ArtifactKind,
+  ArtifactToolName,
+  BrowserToolName,
   CalendarToolName,
   DocumentToolName,
   ImageToolName,
+  SiteLifecycleStatus,
+  SiteToolName,
+  WorkspaceTaskInitialStatus,
   WorkspaceTaskSize,
-  WorkspaceTaskStatus,
+  artifactReviewInputSchema,
+  artifactReviewResultSchema,
+  browserClickInputSchema,
+  browserClickResultSchema,
+  browserOpenInputSchema,
+  browserOpenResultSchema,
+  browserScreenshotInputSchema,
+  browserScreenshotResultSchema,
+  browserSnapshotInputSchema,
+  browserSnapshotResultSchema,
   buildCapabilityToolCatalog,
   calendarAddInputSchema,
   calendarDeleteInputSchema,
@@ -15,6 +30,16 @@ import {
   documentReadResultSchema,
   imageReadInputSchema,
   imageReadResultSchema,
+  siteCreateInputSchema,
+  siteCreateResultSchema,
+  siteDeleteInputSchema,
+  siteDeleteResultSchema,
+  sitePreviewInputSchema,
+  sitePreviewResultSchema,
+  sitePublishInputSchema,
+  sitePublishResultSchema,
+  siteStatusInputSchema,
+  siteStatusResultSchema,
   taskAddInputSchema,
   taskDeleteInputSchema,
   taskListInputSchema,
@@ -37,11 +62,123 @@ describe('canonical capability tools', () => {
       CalendarToolName.List,
       CalendarToolName.Update,
       CalendarToolName.Delete,
+      SiteToolName.Create,
+      SiteToolName.Status,
+      SiteToolName.Preview,
+      SiteToolName.Publish,
+      SiteToolName.Delete,
       DocumentToolName.Read,
       ImageToolName.Read,
+      BrowserToolName.Open,
+      BrowserToolName.Snapshot,
+      BrowserToolName.Screenshot,
+      BrowserToolName.Click,
+      ArtifactToolName.Review,
     ]);
     expect(catalog.tools.every(tool => tool.inputSchemaStrict && tool.outputSchemaStrict)).toBe(true);
     expect(new Set(catalog.tools.map(tool => tool.name)).size).toBe(catalog.tools.length);
+  });
+
+  test('defines exact browser inputs and successful results', () => {
+    expect(browserOpenInputSchema.safeParse({ url: 'https://preview.example/site-1' }).success).toBe(true);
+    expect(browserSnapshotInputSchema.safeParse({}).success).toBe(true);
+    expect(browserScreenshotInputSchema.safeParse({ ttlSeconds: 300 }).success).toBe(true);
+    expect(browserClickInputSchema.safeParse({ ref: '@e1' }).success).toBe(true);
+
+    expect(browserOpenInputSchema.safeParse({ startURL: 'https://preview.example/site-1' }).success).toBe(false);
+    expect(browserSnapshotInputSchema.safeParse({ interactive: true }).success).toBe(false);
+    expect(browserScreenshotInputSchema.safeParse({ ttlSeconds: -1 }).success).toBe(false);
+    expect(browserClickInputSchema.safeParse({}).success).toBe(false);
+
+    expect(browserOpenResultSchema.safeParse({
+      url: 'https://preview.example/site-1',
+      requestedURL: 'https://preview.example/site-1',
+      title: 'Quarterly support',
+      snapshotText: '- button "Open report" [ref=e1]',
+      interactiveRefs: ['@e1'],
+      capturedAt: '2026-07-19T00:00:00Z',
+    }).success).toBe(true);
+    expect(browserSnapshotResultSchema.safeParse({
+      url: 'https://preview.example/site-1',
+      title: 'Quarterly support',
+      snapshotText: '- button "Open report" [ref=e1]',
+      interactiveRefs: ['@e1'],
+      hasMore: false,
+      capturedAt: '2026-07-19T00:00:00Z',
+    }).success).toBe(true);
+    expect(browserScreenshotResultSchema.safeParse({
+      fileID: 'file-1',
+      filename: 'site.png',
+      sizeBytes: 1024,
+      contentType: 'image/png',
+      devicePath: '/tmp/internkim-companion-files/site.png',
+      expiresAt: '2026-07-19T00:05:00Z',
+      capturedAt: '2026-07-19T00:00:00Z',
+    }).success).toBe(true);
+    expect(browserClickResultSchema.safeParse({
+      ok: true,
+      action: 'click',
+      target: '@e1',
+      capturedAt: '2026-07-19T00:00:00Z',
+    }).success).toBe(true);
+    expect(browserClickResultSchema.safeParse({
+      ok: true,
+      action: 'fill',
+      capturedAt: '2026-07-19T00:00:00Z',
+    }).success).toBe(false);
+  });
+
+  test('defines exact artifact review evidence and result contracts', () => {
+    const reviewInput = {
+      artifactKind: ArtifactKind.Site,
+      intent: 'Check the customer support landing page',
+      rubric: 'Verify hierarchy, text fit, and primary interaction',
+      evidence: [{
+        role: 'desktopScreenshot',
+        path: '/tmp/internkim-companion-files/site.png',
+        mimeType: 'image/png',
+        label: 'Desktop preview',
+      }],
+    };
+    const reviewResult = {
+      passed: false,
+      issues: [{
+        severity: 'warning',
+        category: 'visualHierarchy',
+        target: 'Primary action',
+        message: 'The action is hard to distinguish.',
+        suggestedFix: 'Increase contrast.',
+      }],
+      acceptedWarnings: [],
+      summary: 'One visual hierarchy issue remains.',
+    };
+
+    expect(artifactReviewInputSchema.safeParse(reviewInput).success).toBe(true);
+    expect(artifactReviewResultSchema.safeParse(reviewResult).success).toBe(true);
+    expect(artifactReviewInputSchema.safeParse({ ...reviewInput, evidence: [] }).success).toBe(false);
+    expect(artifactReviewInputSchema.safeParse({
+      ...reviewInput,
+      evidence: [{ ...reviewInput.evidence[0], mimeType: 'text/html' }],
+    }).success).toBe(false);
+    expect(artifactReviewResultSchema.safeParse({
+      ...reviewResult,
+      issues: [{ ...reviewResult.issues[0], category: 'performance' }],
+    }).success).toBe(false);
+
+    const catalog = buildCapabilityToolCatalog(protocolVersion);
+    for (const toolName of [
+      BrowserToolName.Open,
+      BrowserToolName.Snapshot,
+      BrowserToolName.Screenshot,
+      BrowserToolName.Click,
+      ArtifactToolName.Review,
+    ]) {
+      expect(catalog.tools.find(tool => tool.name === toolName)?.resultContract?.effects).toEqual([]);
+    }
+    expect(catalog.tools.find(tool => tool.name === ArtifactToolName.Review)?.resultContract?.evidenceCondition).toEqual({
+      resultField: 'passed',
+      equals: true,
+    });
   });
 
   test('keeps task mutation contracts exact', () => {
@@ -91,12 +228,12 @@ describe('canonical capability tools', () => {
     expect(taskAddInputSchema.parse({
       title: '고객지원 분기 결산 누락 항목 확인',
       size: WorkspaceTaskSize.Small,
-      status: WorkspaceTaskStatus.Planned,
+      status: WorkspaceTaskInitialStatus.Planned,
       endDate: '2026-07-24',
     })).toEqual({
       title: '고객지원 분기 결산 누락 항목 확인',
       size: WorkspaceTaskSize.Small,
-      status: WorkspaceTaskStatus.Planned,
+      status: WorkspaceTaskInitialStatus.Planned,
       endDate: '2026-07-24',
     });
     expect(taskListInputSchema.safeParse({ query: '결산', scope: 'self' }).success).toBe(true);
@@ -152,6 +289,121 @@ describe('canonical capability tools', () => {
       },
     });
     expect(calendarUpdateTool?.inputSchema).toMatchObject({ minProperties: 2 });
+  });
+
+  test('keeps the site workflow explicit without a duplicate edit tool', () => {
+    const catalog = buildCapabilityToolCatalog(protocolVersion);
+    const siteTools = catalog.tools.filter(tool => tool.namespace === 'site');
+
+    expect(siteTools.map(tool => tool.name)).toEqual([
+      SiteToolName.Create,
+      SiteToolName.Status,
+      SiteToolName.Preview,
+      SiteToolName.Publish,
+      SiteToolName.Delete,
+    ]);
+    expect(catalog.tools.some(tool => tool.name === 'site.edit')).toBe(false);
+    expect(siteTools.every(tool => tool.resultContract !== undefined)).toBe(true);
+    expect(siteTools.every(tool => tool.resultContract?.schema.additionalProperties === false)).toBe(true);
+  });
+
+  test('requires exact site identities for lifecycle mutations', () => {
+    expect(siteCreateInputSchema.safeParse({
+      slug: 'customer-support-quarterly',
+      title: '고객지원 분기 결산',
+      prompt: '고객지원팀이 분기별 문의량과 미해결 이슈를 공유하는 한 페이지 사이트를 만들어줘.',
+    }).success).toBe(true);
+    expect(siteStatusInputSchema.safeParse({ siteReference: 'customer-support-quarterly' }).success).toBe(true);
+    expect(siteStatusInputSchema.safeParse({ siteReference: 'site-1', checkLive: true }).success).toBe(true);
+    expect(sitePreviewInputSchema.safeParse({ siteID: 'site-1' }).success).toBe(true);
+    expect(sitePublishInputSchema.safeParse({ siteID: 'site-1', message: 'Update quarterly totals' }).success).toBe(true);
+    expect(siteDeleteInputSchema.safeParse({ siteID: 'site-1', reason: 'The campaign ended.' }).success).toBe(true);
+
+    expect(siteStatusInputSchema.safeParse({}).success).toBe(false);
+    expect(siteStatusInputSchema.safeParse({ siteReference: ' site-1 ' }).success).toBe(false);
+    expect(siteStatusInputSchema.safeParse({ siteID: 'site-1' }).success).toBe(false);
+    expect(siteStatusInputSchema.safeParse({ slug: 'customer-support-quarterly' }).success).toBe(false);
+    expect(sitePreviewInputSchema.safeParse({ slug: 'customer-support-quarterly' }).success).toBe(false);
+    expect(sitePublishInputSchema.safeParse({ slug: 'customer-support-quarterly' }).success).toBe(false);
+    expect(siteDeleteInputSchema.safeParse({}).success).toBe(false);
+    expect(siteDeleteInputSchema.safeParse({ siteID: 'site-1', userConfirmed: true }).success).toBe(false);
+    expect(siteDeleteInputSchema.safeParse({ siteID: 'site-1', slug: 'customer-support-quarterly' }).success).toBe(false);
+  });
+
+  test('requires operation-specific site result shapes', () => {
+    const createResult = {
+      siteID: 'site-1',
+      slug: 'customer-support-quarterly',
+      title: '고객지원 분기 결산',
+      status: SiteLifecycleStatus.Draft,
+      sourceWorkspacePath: '/workspace/circles/staff/sites/customer-support-quarterly/draft',
+      appWorkspacePath: '/workspace/circles/staff/sites/customer-support-quarterly/draft/app',
+    };
+    const statusResult = {
+      ...createResult,
+      workspaceHealth: 'healthy',
+    };
+    const previewResult = {
+      siteID: 'site-1',
+      status: SiteLifecycleStatus.Draft,
+      sourceWorkspacePath: createResult.sourceWorkspacePath,
+      previewID: 'preview-1',
+      previewURL: 'https://preview.example/site-1',
+      previewExpiresAt: '2026-07-19T12:00:00Z',
+    };
+    const publishResult = {
+      siteID: 'site-1',
+      status: SiteLifecycleStatus.Published,
+      sourceWorkspacePath: createResult.sourceWorkspacePath,
+      sourceSHA256: '254cc09182b94752e96474af9ba307f74dcfff4e8dfa5b0c4a76f97e634c1c28',
+      publishedURL: 'https://customer-support-quarterly.example',
+      currentVersionID: 'revision-1',
+    };
+    const deleteResult = { siteID: 'site-1', deleted: true };
+
+    expect(siteCreateResultSchema.safeParse(createResult).success).toBe(true);
+    expect(siteStatusResultSchema.safeParse(statusResult).success).toBe(true);
+    expect(sitePreviewResultSchema.safeParse(previewResult).success).toBe(true);
+    expect(sitePublishResultSchema.safeParse(publishResult).success).toBe(true);
+    expect(siteDeleteResultSchema.safeParse(deleteResult).success).toBe(true);
+
+    expect(siteCreateResultSchema.safeParse({ siteID: 'site-1', status: 'draft' }).success).toBe(false);
+    expect(siteCreateResultSchema.safeParse({ ...createResult, appWorkspacePath: undefined }).success).toBe(false);
+    expect(siteStatusResultSchema.safeParse({ ...statusResult, sourceWorkspacePath: undefined }).success).toBe(false);
+    expect(sitePreviewResultSchema.safeParse({ ...previewResult, previewURL: undefined }).success).toBe(false);
+    expect(sitePublishResultSchema.safeParse({ ...publishResult, publishedURL: undefined }).success).toBe(false);
+    expect(sitePublishResultSchema.safeParse({ ...publishResult, sourceSHA256: undefined }).success).toBe(false);
+    expect(siteDeleteResultSchema.safeParse({ siteID: 'site-1', status: 'deleted' }).success).toBe(false);
+    expect(sitePublishResultSchema.safeParse({ ...publishResult, extra: true }).success).toBe(false);
+  });
+
+  test('publishes exact site effects and delete completion evidence', () => {
+    const catalog = buildCapabilityToolCatalog(protocolVersion);
+    const createTool = catalog.tools.find(tool => tool.name === SiteToolName.Create);
+    const statusTool = catalog.tools.find(tool => tool.name === SiteToolName.Status);
+    const previewTool = catalog.tools.find(tool => tool.name === SiteToolName.Preview);
+    const publishTool = catalog.tools.find(tool => tool.name === SiteToolName.Publish);
+    const deleteTool = catalog.tools.find(tool => tool.name === SiteToolName.Delete);
+
+    expect(createTool?.resultContract?.effects).toEqual([
+      { objectType: 'website', effect: 'created', resultField: 'siteID', effectIdentity: ResourceEffectIdentity.ID },
+    ]);
+    expect(statusTool?.resultContract?.effects).toEqual([]);
+    expect(previewTool?.resultContract?.effects).toEqual([
+      { objectType: 'website', effect: 'previewed', resultField: 'siteID', effectIdentity: ResourceEffectIdentity.ID },
+    ]);
+    expect(publishTool?.resultContract?.effects).toEqual([
+      { objectType: 'website', effect: 'published', resultField: 'siteID', effectIdentity: ResourceEffectIdentity.ID },
+    ]);
+    expect(deleteTool?.resultContract?.effects).toEqual([
+      { objectType: 'website', effect: 'deleted', resultField: 'siteID', effectIdentity: ResourceEffectIdentity.ID },
+    ]);
+    expect(deleteTool?.requiresApproval).toBe(true);
+    expect(deleteTool?.completionEvidence).toEqual({
+      mode: 'success',
+      action: 'delete_site',
+      targetKind: 'site',
+    });
   });
 
   test('validates document and image read inputs without material aliases', () => {

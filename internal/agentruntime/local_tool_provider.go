@@ -101,7 +101,7 @@ var localToolDescriptorSpecs = []localToolDescriptorSpec{
 		PrivacyClass:         "user_browser",
 		RequiresUserPresence: true,
 		OutputSchema:         localToolOutputSchema,
-		Visibility:           agent.ToolVisibilityModel,
+		Visibility:           agent.ToolVisibilityInternal,
 		PolicyResource:       "tool:browser_handoff.openURL",
 		SideEffectClass:      agent.ToolSideEffectConnect,
 		Completion:           agent.ToolCompletion{Mode: agent.ToolCompletionObservation, Action: "open_browser", TargetKind: "browser"},
