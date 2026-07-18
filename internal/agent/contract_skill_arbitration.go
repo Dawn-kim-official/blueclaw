@@ -10,6 +10,19 @@ import (
 
 const maxContractSkillArbitrationCandidates = 8
 
+type contractSkillArbitrationStatus string
+
+const (
+	contractSkillArbitrationNotApplicable contractSkillArbitrationStatus = "not_applicable"
+	contractSkillArbitrationSucceeded     contractSkillArbitrationStatus = "succeeded"
+	contractSkillArbitrationFailed        contractSkillArbitrationStatus = "failed"
+)
+
+type contractSkillArbitrationResult struct {
+	Arbitration contractSkillArbitration
+	Status      contractSkillArbitrationStatus
+}
+
 type contractSkillArbitration struct {
 	SelectedSkillNames []string `json:"selectedSkillNames"`
 	RejectedSkillNames []string `json:"rejectedSkillNames"`
@@ -29,9 +42,12 @@ type contractSkillCandidateCard struct {
 	PromptExcerpt   string   `json:"promptExcerpt,omitempty"`
 }
 
-func (skillSearchQueryRouter SkillSearchQueryRouter) ArbitrateContractSkills(ctx context.Context, request AgentRequest, candidates []SkillInstruction, candidateByName map[string]SkillCandidate) (contractSkillArbitration, bool) {
-	if skillSearchQueryRouter.languageModel == nil || !requestHasOutcomeContractForSkillArbitration(request) || len(candidates) == 0 {
-		return contractSkillArbitration{}, false
+func (skillSearchQueryRouter SkillSearchQueryRouter) ArbitrateContractSkills(ctx context.Context, request AgentRequest, candidates []SkillInstruction, candidateByName map[string]SkillCandidate) contractSkillArbitrationResult {
+	if !requestHasOutcomeContractForSkillArbitration(request) || len(candidates) == 0 {
+		return contractSkillArbitrationResult{Status: contractSkillArbitrationNotApplicable}
+	}
+	if skillSearchQueryRouter.languageModel == nil {
+		return contractSkillArbitrationResult{Status: contractSkillArbitrationFailed}
 	}
 	candidates = limitSkillInstructions(candidates, maxContractSkillArbitrationCandidates)
 	structuredResponse, errorValue := skillSearchQueryRouter.languageModel.GenerateStructuredResponse(ctx, llm.StructuredResponseRequest{
@@ -43,17 +59,20 @@ func (skillSearchQueryRouter SkillSearchQueryRouter) ArbitrateContractSkills(ctx
 		},
 	})
 	if errorValue != nil {
-		return contractSkillArbitration{}, false
+		return contractSkillArbitrationResult{Status: contractSkillArbitrationFailed}
 	}
 	var arbitration contractSkillArbitration
 	if errorValue := json.Unmarshal([]byte(structuredResponse.Content), &arbitration); errorValue != nil {
-		return contractSkillArbitration{}, false
+		return contractSkillArbitrationResult{Status: contractSkillArbitrationFailed}
 	}
 	arbitration = normalizeContractSkillArbitration(arbitration, candidates)
 	if !contractSkillArbitrationHasContent(arbitration) {
-		return contractSkillArbitration{}, false
+		return contractSkillArbitrationResult{Status: contractSkillArbitrationFailed}
 	}
-	return arbitration, true
+	return contractSkillArbitrationResult{
+		Arbitration: arbitration,
+		Status:      contractSkillArbitrationSucceeded,
+	}
 }
 
 func requestHasOutcomeContractForSkillArbitration(request AgentRequest) bool {

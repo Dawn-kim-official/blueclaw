@@ -48,6 +48,9 @@ func TestSelectedSkillExposesDirectTools(t *testing.T) {
 			t.Fatalf("expected selected skill tool %s, got %+v", toolName, filteredToolSet.ListToolNames())
 		}
 	}
+	if filteredToolSet.IsAllowed(SkillSearchToolName) {
+		t.Fatalf("expected loaded skill instructions to hide skill.search, got %+v", filteredToolSet.ListToolNames())
+	}
 	if filteredToolSet.IsAllowed(TaskHistoryToolName) {
 		t.Fatalf("expected internal tool %s to stay hidden, got %+v", TaskHistoryToolName, filteredToolSet.ListToolNames())
 	}
@@ -80,7 +83,7 @@ func TestAuthoritativeContractExposesSelectedTaskDomain(t *testing.T) {
 		ToolExposureEvent{},
 	)
 
-	expectedToolNames := append(append([]string{}, KernelToolNames()...), flowToolNames...)
+	expectedToolNames := append(kernelToolNamesForInstructionBundle(instructionBundle), flowToolNames...)
 	if !sameStringSet(filteredToolSet.ListToolNames(), expectedToolNames) {
 		t.Fatalf("expected selected task domain, got %+v", filteredToolSet.ListToolNames())
 	}
@@ -120,7 +123,7 @@ func TestAuthoritativeContractPreservesCompoundWorkflow(t *testing.T) {
 		ToolExposureEvent{},
 	)
 
-	expectedToolNames := append(append(append([]string{}, KernelToolNames()...), flowToolNames...), calendarToolNames...)
+	expectedToolNames := append(append(kernelToolNamesForInstructionBundle(instructionBundle), flowToolNames...), calendarToolNames...)
 	if !sameStringSet(filteredToolSet.ListToolNames(), expectedToolNames) {
 		t.Fatalf("expected selected domain tools, got %+v", filteredToolSet.ListToolNames())
 	}
@@ -150,7 +153,7 @@ func TestAuthoritativeContractPreservesTypedRecoveryTool(t *testing.T) {
 		[]turnObservation{observation},
 	)
 
-	expectedToolNames := append(append([]string{}, KernelToolNames()...), "task.add", "task.update")
+	expectedToolNames := append(kernelToolNamesForInstructionBundle(instructionBundle), "task.add", "task.update")
 	if !sameStringSet(filteredToolSet.ListToolNames(), expectedToolNames) {
 		t.Fatalf("expected contract and recovery working set, got %+v", filteredToolSet.ListToolNames())
 	}
@@ -214,7 +217,7 @@ func TestEmptyArbitrationWorkingSetPreservesDocumentKernel(t *testing.T) {
 		ToolExposureEvent{},
 	)
 
-	if !sameStringSet(filteredToolSet.ListToolNames(), KernelToolNames()) {
+	if !sameStringSet(filteredToolSet.ListToolNames(), kernelToolNamesForInstructionBundle(instructionBundle)) {
 		t.Fatalf("expected document kernel fallback, got %+v", filteredToolSet.ListToolNames())
 	}
 	if event.SelectionSource != "fixed_kernel" {
@@ -277,8 +280,9 @@ func TestPinnedDirectToolWinsSelectedSkillBudget(t *testing.T) {
 	if !filteredToolSet.IsAllowed("terminal.run") {
 		t.Fatalf("expected pinned direct tool inside budget, got %+v", filteredToolSet.ListToolNames())
 	}
-	if len(filteredToolSet.ListToolNames()) != maxSchemaCallableToolCount {
-		t.Fatalf("expected %d tools, got %+v", maxSchemaCallableToolCount, filteredToolSet.ListToolNames())
+	expectedToolCount := len(kernelToolNamesForInstructionBundle(instructionBundle)) + maxExtensionCallableToolCount
+	if len(filteredToolSet.ListToolNames()) != expectedToolCount {
+		t.Fatalf("expected %d tools, got %+v", expectedToolCount, filteredToolSet.ListToolNames())
 	}
 	if len(event.DroppedGroups) == 0 {
 		t.Fatalf("expected oversized selected skill to report dropped tools, got %+v", event)

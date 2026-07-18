@@ -532,12 +532,22 @@ func TestSiteArtifactRequestAllowsContentDomainSkillsButGuidesPromptToTheActualT
 		RetrievalMode: "bm25_fallback",
 		IndexStatus:   "ready",
 	}}
-	selectedBundle := selectInstructionBundleForRequestWithRetriever(context.Background(), instructionBundle, AgentRequest{
-		Prompt: "메일, 일정, 브라우저 제어 능력을 소개하는 세련된 개인 홈페이지 하나 만들어서 배포해줘",
-		ActiveGoal: ActiveGoal{OutcomeContract: OutcomeContract{ExpectedResults: []ExpectedResult{
-			{ID: "site-public-link", Type: "link", Description: "public website URL", Required: true},
-		}}},
-	}, retriever)
+	languageModel := &schemaStructuredLanguageModel{contentBySchema: map[string]string{
+		"blueclaw_skill_search_queries":       `{"queries":[]}`,
+		"blueclaw_contract_skill_arbitration": `{"selectedSkillNames":["site-prototype","mail","calendar","browser"],"rejectedSkillNames":[],"requiredNextToolNames":[],"expectedEvidence":[],"unmetPreconditions":[],"reason":"Use the website workflow and the referenced capability descriptions as content."}`,
+	}}
+	selectedBundle := selectInstructionBundleForRequestWithRetrieverAndRouter(
+		context.Background(),
+		instructionBundle,
+		AgentRequest{
+			Prompt: "메일, 일정, 브라우저 제어 능력을 소개하는 세련된 개인 홈페이지 하나 만들어서 배포해줘",
+			ActiveGoal: ActiveGoal{OutcomeContract: OutcomeContract{ExpectedResults: []ExpectedResult{
+				{ID: "site-public-link", Type: "link", Description: "public website URL", Required: true},
+			}}},
+		},
+		retriever,
+		NewSkillSearchQueryRouter(languageModel),
+	)
 
 	if !skillDecisionHasStatus(selectedBundle.SkillDecisions, "site-prototype", "selected") {
 		t.Fatalf("expected site-prototype selected, got %+v", selectedBundle.SkillDecisions)
@@ -837,6 +847,135 @@ func TestContractSkillArbitrationDoesNotRunWithoutOutcomeContract(t *testing.T) 
 
 	if structuredRequestHasSchema(languageModel.requests, "blueclaw_contract_skill_arbitration") {
 		t.Fatalf("expected no contract arbitration without an outcome contract, got %+v", structuredRequestSchemaNames(languageModel.requests))
+	}
+}
+
+func TestContractSkillArbitrationReportsExplicitStatuses(t *testing.T) {
+	skillInstruction := SkillInstruction{
+		Name:           "internkim-flow",
+		Description:    "Manage tasks.",
+		ToolReferences: []string{"task.add"},
+	}
+	candidates := []SkillInstruction{skillInstruction}
+	candidateByName := map[string]SkillCandidate{
+		skillInstruction.Name: {Name: skillInstruction.Name, Score: 1, Reason: "required_evidence_tool"},
+	}
+	request := AgentRequest{
+		ToolSet: testToolSet([]string{"task.add"}),
+		ActiveGoal: ActiveGoal{OutcomeContract: OutcomeContract{
+			RequiredEvidenceTools: []string{"task.add"},
+		}},
+	}
+
+	testCases := []struct {
+		name           string
+		router         SkillSearchQueryRouter
+		request        AgentRequest
+		expectedStatus contractSkillArbitrationStatus
+	}{
+		{
+			name:           "not applicable",
+			router:         NewSkillSearchQueryRouter(staticStructuredLanguageModel{}),
+			request:        AgentRequest{ToolSet: request.ToolSet},
+			expectedStatus: contractSkillArbitrationNotApplicable,
+		},
+		{
+			name:           "missing language model",
+			router:         SkillSearchQueryRouter{},
+			request:        request,
+			expectedStatus: contractSkillArbitrationFailed,
+		},
+		{
+			name: "invalid response",
+			router: NewSkillSearchQueryRouter(staticStructuredLanguageModel{
+				content: `{}`,
+			}),
+			request:        request,
+			expectedStatus: contractSkillArbitrationFailed,
+		},
+		{
+			name: "succeeded",
+			router: NewSkillSearchQueryRouter(staticStructuredLanguageModel{
+				content: `{"selectedSkillNames":["internkim-flow"],"rejectedSkillNames":[],"requiredNextToolNames":["task.add"],"expectedEvidence":["task.add"],"unmetPreconditions":[],"reason":"The task contract requires task creation."}`,
+			}),
+			request:        request,
+			expectedStatus: contractSkillArbitrationSucceeded,
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			result := testCase.router.ArbitrateContractSkills(context.Background(), testCase.request, candidates, candidateByName)
+			if result.Status != testCase.expectedStatus {
+				t.Fatalf("expected status %q, got %+v", testCase.expectedStatus, result)
+			}
+		})
+	}
+}
+
+func TestContractSkillArbitrationFailureKeepsOnlyExplicitEvidenceAndKernelTools(t *testing.T) {
+	instructionBundle := InstructionBundle{
+		Prompt: "base",
+		Skills: []SkillInstruction{{
+			Name:           "internkim-flow",
+			Description:    "Manage company tasks.",
+			Prompt:         "Task workflow instructions must not load after arbitration failure.",
+			ToolReferences: []string{"task.add", "task.list"},
+		}},
+	}
+	languageModel := &schemaStructuredLanguageModel{contentBySchema: map[string]string{
+		"blueclaw_skill_search_queries":       `{"queries":[{"description":"Create a company task."}]}`,
+		"blueclaw_contract_skill_arbitration": `{}`,
+	}}
+	toolSet := testToolSet([]string{TerminalRunToolName, "task.add", "task.list"})
+	outcomeContract := OutcomeContract{RequiredEvidenceTools: []string{"task.add"}}
+	request := AgentRequest{
+		Prompt:     "고객지원 분기 결산 누락 항목 확인 업무를 추가해줘",
+		ToolSet:    toolSet,
+		ActiveGoal: ActiveGoal{OutcomeContract: outcomeContract},
+	}
+	retriever := staticSkillRetriever{result: SkillRetrievalResult{
+		SelectedCandidates: []SkillCandidate{{
+			Name:   "internkim-flow",
+			Score:  1,
+			Reason: "required_evidence_tool",
+		}},
+		RetrievalMode: "embedding",
+		IndexStatus:   "ready",
+	}}
+
+	selectedBundle := selectInstructionBundleForRequestWithRetrieverAndRouter(
+		context.Background(),
+		instructionBundle,
+		request,
+		retriever,
+		NewSkillSearchQueryRouter(languageModel),
+	)
+
+	if !skillDecisionHasReason(selectedBundle.SkillDecisions, "internkim-flow", "contract_skill_arbitration_failed") {
+		t.Fatalf("expected failed arbitration decision, got %+v", selectedBundle.SkillDecisions)
+	}
+	if skillDecisionHasStatus(selectedBundle.SkillDecisions, "internkim-flow", "selected") {
+		t.Fatalf("expected no selected skill after arbitration failure, got %+v", selectedBundle.SkillDecisions)
+	}
+	if strings.Contains(selectedBundle.Prompt, "Task workflow instructions") {
+		t.Fatalf("expected failed skill body to stay unloaded, got %q", selectedBundle.Prompt)
+	}
+
+	exposedToolSet, _ := toolSetForAgentTurnWithExposure(
+		toolSet,
+		selectedBundle,
+		request,
+		ExecutionPlan{},
+		false,
+		outcomeContract,
+		ToolExposureEvent{},
+	)
+	if !exposedToolSet.IsAllowed(TerminalRunToolName) || !exposedToolSet.IsAllowed("task.add") {
+		t.Fatalf("expected kernel and explicit evidence tools, got %+v", exposedToolSet.ListToolNames())
+	}
+	if exposedToolSet.IsAllowed("task.list") {
+		t.Fatalf("expected unrelated skill tool to stay hidden, got %+v", exposedToolSet.ListToolNames())
 	}
 }
 
