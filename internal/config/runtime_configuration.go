@@ -1,8 +1,11 @@
 package config
 
 import (
+	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"os"
+	"strings"
 )
 
 type RuntimeConfiguration struct {
@@ -23,13 +26,15 @@ type RuntimeConfiguration struct {
 }
 
 type CapabilityConfiguration struct {
-	Endpoint        string                     `json:"endpoint"`
-	Transport       string                     `json:"transport"`
-	UnixSocketPath  string                     `json:"unixSocketPath"`
-	TimeoutSecond   int                        `json:"timeoutSecond"`
-	VSockCID        uint32                     `json:"vsockCID"`
-	VSockPort       uint32                     `json:"vsockPort"`
-	ToolDescriptors []CapabilityToolDescriptor `json:"toolDescriptors,omitempty"`
+	Endpoint              string                     `json:"endpoint"`
+	Transport             string                     `json:"transport"`
+	UnixSocketPath        string                     `json:"unixSocketPath"`
+	TimeoutSecond         int                        `json:"timeoutSecond"`
+	VSockCID              uint32                     `json:"vsockCID"`
+	VSockPort             uint32                     `json:"vsockPort"`
+	ProtocolVersion       string                     `json:"protocolVersion"`
+	AggregateProtocolHash string                     `json:"aggregateProtocolHash"`
+	ToolDescriptors       []CapabilityToolDescriptor `json:"toolDescriptors,omitempty"`
 }
 
 type CapabilityToolDescriptor struct {
@@ -296,6 +301,24 @@ func LoadRuntimeConfiguration(path string) (RuntimeConfiguration, error) {
 	if errorValue != nil {
 		return RuntimeConfiguration{}, errorValue
 	}
+	if errorValue := validateCapabilityProtocolIdentity(&configuration.Capabilities); errorValue != nil {
+		return RuntimeConfiguration{}, errorValue
+	}
 
 	return configuration, nil
+}
+
+func validateCapabilityProtocolIdentity(configuration *CapabilityConfiguration) error {
+	configuration.ProtocolVersion = strings.TrimSpace(configuration.ProtocolVersion)
+	configuration.AggregateProtocolHash = strings.TrimSpace(configuration.AggregateProtocolHash)
+	if configuration.ProtocolVersion == "" {
+		return fmt.Errorf("capabilities.protocolVersion is required")
+	}
+	if len(configuration.AggregateProtocolHash) != 64 {
+		return fmt.Errorf("capabilities.aggregateProtocolHash must be a 64-character lowercase hexadecimal hash")
+	}
+	if _, errorValue := hex.DecodeString(configuration.AggregateProtocolHash); errorValue != nil || strings.ToLower(configuration.AggregateProtocolHash) != configuration.AggregateProtocolHash {
+		return fmt.Errorf("capabilities.aggregateProtocolHash must be a 64-character lowercase hexadecimal hash")
+	}
+	return nil
 }

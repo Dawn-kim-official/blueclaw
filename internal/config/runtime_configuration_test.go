@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -15,6 +16,8 @@ func TestLoadRuntimeConfigurationIncludesFirecrackerAndBridge(t *testing.T) {
     "endpoint": "http://127.0.0.1:7781",
     "unixSocketPath": "/run/internkim/capability.sock",
     "timeoutSecond": 15,
+    "protocolVersion": "0.4.0",
+    "aggregateProtocolHash": "58ff1977989bacbf2db3fdce08fd57c9b52f344ca747a3322f4e60bdf6052a78",
     "toolDescriptors": [
       {
         "name": "browser.open",
@@ -162,6 +165,12 @@ func TestLoadRuntimeConfigurationIncludesFirecrackerAndBridge(t *testing.T) {
 	if runtimeConfiguration.Capabilities.Endpoint != "http://127.0.0.1:7781" {
 		t.Fatalf("expected capability endpoint to match, got %q", runtimeConfiguration.Capabilities.Endpoint)
 	}
+	if runtimeConfiguration.Capabilities.ProtocolVersion != "0.4.0" {
+		t.Fatalf("expected protocol version to match, got %q", runtimeConfiguration.Capabilities.ProtocolVersion)
+	}
+	if runtimeConfiguration.Capabilities.AggregateProtocolHash != "58ff1977989bacbf2db3fdce08fd57c9b52f344ca747a3322f4e60bdf6052a78" {
+		t.Fatalf("expected aggregate protocol hash to match, got %q", runtimeConfiguration.Capabilities.AggregateProtocolHash)
+	}
 	if len(runtimeConfiguration.Capabilities.ToolDescriptors) != 2 {
 		t.Fatalf("expected capability descriptors to load, got %+v", runtimeConfiguration.Capabilities.ToolDescriptors)
 	}
@@ -251,5 +260,31 @@ func TestLoadRuntimeConfigurationIncludesFirecrackerAndBridge(t *testing.T) {
 	}
 	if runtimeConfiguration.Scheduler.TaskSchedulePollIntervalSecond != 30 {
 		t.Fatalf("expected task schedule poll interval to match, got %d", runtimeConfiguration.Scheduler.TaskSchedulePollIntervalSecond)
+	}
+}
+
+func TestLoadRuntimeConfigurationRejectsMissingOrInvalidCapabilityProtocolIdentity(t *testing.T) {
+	testCases := []struct {
+		name             string
+		identityDocument string
+		errorFragment    string
+	}{
+		{name: "missing version", identityDocument: `"aggregateProtocolHash":"` + strings.Repeat("a", 64) + `"`, errorFragment: "protocolVersion is required"},
+		{name: "missing hash", identityDocument: `"protocolVersion":"0.4.0"`, errorFragment: "aggregateProtocolHash"},
+		{name: "invalid hash", identityDocument: `"protocolVersion":"0.4.0","aggregateProtocolHash":"not-a-hash"`, errorFragment: "aggregateProtocolHash"},
+		{name: "uppercase hash", identityDocument: `"protocolVersion":"0.4.0","aggregateProtocolHash":"` + strings.Repeat("A", 64) + `"`, errorFragment: "aggregateProtocolHash"},
+	}
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			runtimeConfigurationPath := filepath.Join(t.TempDir(), "runtime.json")
+			document := `{"capabilities":{` + testCase.identityDocument + `}}`
+			if errorValue := os.WriteFile(runtimeConfigurationPath, []byte(document), 0o600); errorValue != nil {
+				t.Fatal(errorValue)
+			}
+			_, errorValue := LoadRuntimeConfiguration(runtimeConfigurationPath)
+			if errorValue == nil || !strings.Contains(errorValue.Error(), testCase.errorFragment) {
+				t.Fatalf("expected %q error, got %v", testCase.errorFragment, errorValue)
+			}
+		})
 	}
 }

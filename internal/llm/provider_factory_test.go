@@ -163,6 +163,33 @@ func TestConfiguredProviderCreatesSDKDBridgeWithoutGuestCredential(t *testing.T)
 	}
 }
 
+func TestConfiguredProviderCreatesUnixSDKDBridgeWithoutCredential(t *testing.T) {
+	runtimeConfiguration := config.RuntimeConfiguration{}
+	runtimeConfiguration.LanguageModel.DefaultProvider = "sdkd"
+	runtimeConfiguration.LanguageModel.Capability.Model = "xiaomi/mimo-v2.5"
+	runtimeConfiguration.LanguageModel.SDKD.Endpoint = "http://internkim/_internkim/sdkd"
+	runtimeConfiguration.LanguageModel.SDKD.UnixSocketPath = "/run/internkim/capability.sock"
+
+	languageModelProvider, errorValue := NewConfiguredLanguageModelProvider(runtimeConfiguration)
+	if errorValue != nil {
+		t.Fatalf("expected Unix SDKD bridge provider: %v", errorValue)
+	}
+	sdkdClient, isSDKDClient := languageModelProvider.(SDKDClient)
+	if !isSDKDClient || sdkdClient.AuthKey != "" {
+		t.Fatalf("unexpected Unix SDKD bridge client: %+v", languageModelProvider)
+	}
+}
+
+func TestConfiguredProviderRejectsUnauthenticatedRemoteSDKDBridgePath(t *testing.T) {
+	runtimeConfiguration := config.RuntimeConfiguration{}
+	runtimeConfiguration.LanguageModel.DefaultProvider = "sdkd"
+	runtimeConfiguration.LanguageModel.SDKD.Endpoint = "https://sdkd.example.com/_internkim/sdkd"
+
+	if _, errorValue := NewConfiguredLanguageModelProvider(runtimeConfiguration); errorValue == nil {
+		t.Fatal("expected remote SDKD bridge path without a Unix socket to require authentication")
+	}
+}
+
 func TestConfiguredProviderWrapsCapabilityWithOptionalSDKDShadow(t *testing.T) {
 	authKeyPath := filepath.Join(t.TempDir(), "sdkd.key")
 	if errorValue := os.WriteFile(authKeyPath, []byte("installation-key"), 0o600); errorValue != nil {
