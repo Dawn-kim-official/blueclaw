@@ -61,7 +61,9 @@ func selectInstructionBundleForRequestWithRetrieverAndRouter(ctx context.Context
 	retrievalResult := retrieveSkillCandidates(ctx, request, instructionBundle.Skills, skillRetriever, querySet, hasStructuredQueries)
 	candidateByName := skillCandidateByName(retrievalResult.SelectedCandidates)
 	candidateInstructions := visibleCandidateSkillInstructions(candidateSkillInstructions(instructionBundle.Skills, retrievalResult.SelectedCandidates), candidateByName, request.RequesterCircles)
-	contractArbitration, hasContractArbitration := skillSearchQueryRouter.ArbitrateContractSkills(ctx, request, candidateInstructions, candidateByName)
+	contractArbitrationResult := skillSearchQueryRouter.ArbitrateContractSkills(ctx, request, candidateInstructions, candidateByName)
+	contractArbitration := contractArbitrationResult.Arbitration
+	hasContractArbitration := contractArbitrationResult.Status == contractSkillArbitrationSucceeded
 	contractSelectedSkillNames := stringSet(contractArbitration.SelectedSkillNames)
 	for _, skillInstruction := range candidateInstructions {
 		skillCandidate, isFound := candidateByName[skillInstruction.Name]
@@ -71,6 +73,9 @@ func selectInstructionBundleForRequestWithRetrieverAndRouter(ctx context.Context
 		skillDecision := skillDecisionForCandidate(skillInstruction, skillCandidate, normalizedAgentProfileName(request.ProfileName))
 		if hasContractArbitration {
 			skillDecision = skillDecisionForArbitratedCandidate(skillInstruction, skillCandidate, contractSelectedSkillNames, normalizedAgentProfileName(request.ProfileName))
+		} else if contractArbitrationResult.Status == contractSkillArbitrationFailed {
+			skillDecision = skippedSkillDecision(skillInstruction, normalizedAgentProfileName(request.ProfileName), "contract_skill_arbitration_failed", nil)
+			skillDecision.Score = skillCandidate.Score
 		}
 		if skillDecision.Status == "selected" {
 			availabilityDecision := skillAvailabilityDecision(skillInstruction, request, normalizedAgentProfileName(request.ProfileName))
