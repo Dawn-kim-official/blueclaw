@@ -36,6 +36,7 @@ func (agentTurnRunner *AgentTurnRunner) invokeTool(ctx context.Context, toolRegi
 	toolInputKey := canonicalToolCallKey(trimmedToolName, toolInput)
 	if toolRegistry == nil {
 		observation := toolFailureObservation(observationID, trimmedToolName, "tool registry was not configured")
+		observation.ToolInput = append(json.RawMessage{}, toolInput...)
 		observation.ToolInputKey = toolInputKey
 		observation.AttemptFingerprint = attemptFingerprint(toolInputKey, observation.FailureCode())
 		return observation
@@ -49,11 +50,12 @@ func (agentTurnRunner *AgentTurnRunner) invokeTool(ctx context.Context, toolRegi
 	defer unregisterTool()
 	toolContext := WithUserFacingMessage(WithObservationID(WithResponseLanguage(WithTaskRunID(ctx, taskRunID), responseLanguage), observationID), userFacingMessage)
 	invocationStartedAt := time.Now()
+	toolDefinition, _ := toolRegistry.ToolDefinition(trimmedToolName)
 	toolResult, errorValue := toolRegistry.Invoke(toolContext, ToolInvocation{ToolName: trimmedToolName, Input: toolInput})
 	if errorValue != nil {
 		toolResult = ToolFailureResult(FailureUnknown, FailureCodes.OperationFailed, trimmedToolName, errorValue.Error())
 	}
-	observation := agentTurnRunner.saveToolObservation(ctx, taskRunID, observationID, trimmedToolName, effectiveObservationToolName(trimmedToolName, toolInput), toolInputKey, toolResult, workspaceRootPath, minimumModifiedAt, time.Since(invocationStartedAt).Milliseconds())
+	observation := agentTurnRunner.saveToolObservation(ctx, taskRunID, observationID, trimmedToolName, toolDefinition.ID, toolInput, effectiveObservationToolName(trimmedToolName, toolInput), toolInputKey, toolResult, workspaceRootPath, minimumModifiedAt, time.Since(invocationStartedAt).Milliseconds())
 	return observation
 }
 
@@ -65,7 +67,7 @@ func toolFailureObservation(observationID string, toolName string, message strin
 	return newFailureObservation(observationID, "continue", toolName, message, FailureUnknown, FailureCodes.OperationFailed, firstNonEmptyString(toolName, "tool"))
 }
 
-func (agentTurnRunner *AgentTurnRunner) saveToolObservation(ctx context.Context, taskRunID string, observationID string, toolName string, observationToolName string, toolInputKey string, toolResult ToolResult, workspaceRootPath string, minimumModifiedAt time.Time, durationMS int64) turnObservation {
+func (agentTurnRunner *AgentTurnRunner) saveToolObservation(ctx context.Context, taskRunID string, observationID string, toolName string, toolID string, toolInput json.RawMessage, observationToolName string, toolInputKey string, toolResult ToolResult, workspaceRootPath string, minimumModifiedAt time.Time, durationMS int64) turnObservation {
 	toolResult = normalizeToolFailureResult(toolName, toolResult)
 	content := toolResult.ContentText()
 	originalContent := content
@@ -95,6 +97,8 @@ func (agentTurnRunner *AgentTurnRunner) saveToolObservation(ctx context.Context,
 		ObservationID:   observationID,
 		Action:          "continue",
 		Tool:            firstNonEmptyString(observationToolName, toolName),
+		ToolID:          strings.TrimSpace(toolID),
+		ToolInput:       append(json.RawMessage{}, toolInput...),
 		Output:          toolResult.Output,
 		Failure:         toolResult.Failure,
 		Attachments:     attachments,

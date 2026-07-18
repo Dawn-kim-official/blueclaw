@@ -97,7 +97,7 @@ func configuredSDKDSchemaNames(runtimeConfiguration config.RuntimeConfiguration)
 }
 
 func DefaultSDKDStructuredSchemaNames() []string {
-	return []string{"blueclaw_agent_turn_action", "blueclaw_agent_turn_finalizer", "blueclaw_turn_router", "blueclaw_recovery_decision"}
+	return []string{"blueclaw_agent_turn_action", "blueclaw_agent_turn_finalizer", "blueclaw_turn_router", "blueclaw_recovery_decision", "blueclaw_operation_contract", "blueclaw_operation_contract_review"}
 }
 
 func newCapabilityLLMClient(runtimeConfiguration config.RuntimeConfiguration) CapabilityLLMClient {

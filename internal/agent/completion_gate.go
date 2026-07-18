@@ -370,6 +370,9 @@ func validateOutcomeContractRequirements(contract OutcomeContract, observations 
 			return missingContractToolResult(toolNames)
 		}
 	}
+	if !operationRequirementsSatisfied(contract.OperationContract, observations) {
+		return missingOperationRequirementsResult(contract.OperationContract)
+	}
 	if contractRequiresAttachment(contract) && len(attachments) == 0 {
 		return completionGateResult{Message: "finish requires a delivered file attachment", EvidenceKind: evidenceKindAttachment, SuggestedNextTools: []string{FileDeliverToolName}}
 	}
@@ -377,6 +380,20 @@ func validateOutcomeContractRequirements(contract OutcomeContract, observations 
 		return completionGateResult{Message: "required file attachment must include suffix " + missingSuffix, EvidenceKind: evidenceKindAttachmentValid, SuggestedNextTools: []string{FileDeliverToolName}}
 	}
 	return completionGateResult{IsSatisfied: true, Attachments: attachments}
+}
+
+func missingOperationRequirementsResult(contract *OperationContract) completionGateResult {
+	toolNames := []string{}
+	if contract != nil {
+		for _, requirement := range contract.Requirements {
+			toolNames = append(toolNames, requirement.ToolName)
+		}
+	}
+	return completionGateResult{
+		Message:            "finish requires successful operations with the requested input values",
+		EvidenceKind:       evidenceKindRequiredTool,
+		SuggestedNextTools: appendUniqueStrings(nil, toolNames...),
+	}
 }
 
 func hasAnySuccessfulEvidenceToolObservation(observations []turnObservation, toolNames []string) bool {
