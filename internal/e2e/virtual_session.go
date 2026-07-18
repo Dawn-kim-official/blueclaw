@@ -704,7 +704,6 @@ func NewVirtualSessionHarness(scenario VirtualSessionScenario) (*VirtualSessionH
 	memoryService := &memory.MemoryService{}
 	memoryService.UseGraphStore(memoryStore)
 	runtime.UseMemoryService(memoryService)
-	runtime.UseGraphitiIngestionRouter(memory.NewGraphitiIngestionRouter(languageModel, "e2e"))
 	toolCatalogBuilder := virtualToolCatalogBuilder(
 		scenario,
 		workspacePath,

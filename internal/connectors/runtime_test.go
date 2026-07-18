@@ -3385,7 +3385,6 @@ func TestConnectorRuntimeDoesNotAutomaticallyIngestMemoryButInjectsGraphMemoryAt
 	memoryService := &memory.MemoryService{}
 	memoryService.UseGraphStore(graphStore)
 	connectorRuntime.UseMemoryService(memoryService)
-	connectorRuntime.UseGraphitiIngestionRouter(memory.NewGraphitiIngestionRouter(staticScopeLanguageModel{content: `{"shouldStore":true,"storeWorkspace":false,"securityLevelRank":0,"requiredClasses":[],"reason":"user_fact","confidence":0.9}`}, "default"))
 
 	channelEvent := testInboundEvent("message-1")
 	channelEvent.ConversationID = "channel-1"
@@ -3418,7 +3417,6 @@ func TestConnectorRuntimeDoesNotAutomaticallyIngestMemoryWhenReplySendFails(t *t
 	memoryService := &memory.MemoryService{}
 	memoryService.UseGraphStore(graphStore)
 	connectorRuntime.UseMemoryService(memoryService)
-	connectorRuntime.UseGraphitiIngestionRouter(memory.NewGraphitiIngestionRouter(staticScopeLanguageModel{content: `{"shouldStore":true,"storeWorkspace":false,"securityLevelRank":0,"requiredClasses":[],"reason":"user_fact","confidence":0.9}`}, "default"))
 
 	event := testInboundEvent("message-memory-reply-failed")
 	event.Prompt = "내 선호는 Graphiti-only 메모리야"
@@ -3440,7 +3438,6 @@ func TestConnectorRuntimeDoesNotAutomaticallyIngestMemoryForPathBearingReply(t *
 	memoryService := &memory.MemoryService{}
 	memoryService.UseGraphStore(graphStore)
 	connectorRuntime.UseMemoryService(memoryService)
-	connectorRuntime.UseGraphitiIngestionRouter(memory.NewGraphitiIngestionRouter(staticScopeLanguageModel{content: `{"shouldStore":true,"storeWorkspace":false,"securityLevelRank":0,"requiredClasses":[],"reason":"user_fact","confidence":0.9}`}, "default"))
 
 	event := testInboundEvent("message-memory-blocked")
 	event.Prompt = "내 선호는 artifact 경로를 노출하지 않는 거야"
