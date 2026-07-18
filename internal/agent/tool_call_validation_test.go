@@ -85,6 +85,72 @@ func TestAgentTurnRunnerRejectsMalformedInputBeforeApproval(t *testing.T) {
 	}
 }
 
+func TestAgentTurnRunnerRejectsContractInputMismatchBeforeSideEffect(t *testing.T) {
+	languageModel := &sequenceLanguageModel{contents: []string{
+		directToolAction("continue", "", FileWriteToolName, `{"path":"report.txt","content":"wrong"}`),
+		directToolAction("continue", "", FileWriteToolName, `{"path":"report.txt","content":"expected"}`),
+		finishMessageWithEvidence("완료했습니다.", "obs-002", FileWriteToolName, 0),
+	}}
+	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 5, MaxToolCallCount: 3})
+	toolDefinition := ToolDefinition{
+		ID:              "kernel:file.write",
+		Name:            FileWriteToolName,
+		SideEffectClass: ToolSideEffectWorkspaceWrite,
+		InputSchema: json.RawMessage(`{
+			"type":"object",
+			"properties":{"path":{"type":"string"},"content":{"type":"string"}},
+			"required":["path","content"],
+			"additionalProperties":false
+		}`),
+	}
+	toolSet := newTestToolSetWithDefinitions([]ToolDefinition{toolDefinition})
+	invocations := []ToolInvocation{}
+	registerTestTool(toolSet, toolDefinition, func(_ context.Context, invocation ToolInvocation) (ToolResult, error) {
+		invocations = append(invocations, invocation)
+		return testToolSuccess("written"), nil
+	})
+	contract := OutcomeContract{
+		RequiredEvidenceTools: []string{FileWriteToolName},
+		OperationContract: &OperationContract{
+			Version: operationContractVersion,
+			Requirements: []OperationRequirement{{
+				RequirementID: "operation-1",
+				ToolID:        toolDefinition.ID,
+				ToolName:      FileWriteToolName,
+				InputMode:     OperationInputContainsExplicit,
+				RequiredInput: json.RawMessage(`{"path":"report.txt","content":"expected"}`),
+			}},
+		},
+	}
+
+	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
+		RequesterPersonID:     "person-1",
+		ConversationID:        "conversation-1",
+		Prompt:                "정확한 내용으로 파일을 작성해줘",
+		ToolSet:               toolSet,
+		PinnedToolNames:       []string{FileWriteToolName},
+		RequiredEvidenceTools: []string{FileWriteToolName},
+		OutcomeContract:       contract,
+	})
+
+	if errorValue != nil {
+		t.Fatalf("expected corrected contract input to succeed: %v", errorValue)
+	}
+	if result.TaskRun.Status != task.TaskStatusCompleted {
+		t.Fatalf("expected completed turn, got %s", result.TaskRun.Status)
+	}
+	if len(invocations) != 1 || string(invocations[0].Input) != `{"path":"report.txt","content":"expected"}` {
+		t.Fatalf("expected only exact contract input to reach the handler, got %+v", invocations)
+	}
+	events := services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID)
+	if !taskEventsContain(events, "agent.operation_contract_input_rejected", "operation_contract_input_mismatch") {
+		t.Fatalf("expected typed mismatch event, got %+v", events)
+	}
+	if !taskEventsContain(events, "agent.operation_contract_input_rejected", FailureCodes.InvalidInput.String()) {
+		t.Fatalf("expected mismatch to remain failed evidence, got %+v", events)
+	}
+}
+
 func TestValidateTerminalToolInputRejectsRegisteredToolNameAsCommand(t *testing.T) {
 	toolRegistry := newTestToolSet([]string{"terminal.run"})
 	registerTestTool(toolRegistry, ToolDefinition{Name: "site.create"}, func(context.Context, ToolInvocation) (ToolResult, error) {
