@@ -381,8 +381,8 @@ func TestAgentTurnRunnerDoesNotUseDeterministicCapabilityFallbackWhenActionModel
 	toolRegistry := newTestToolSet([]string{"math.calculate", "file.write", "schedule.create"})
 	for _, toolName := range toolRegistry.ListToolNames() {
 		currentToolName := toolName
-		toolRegistry.RegisterTool(ToolDefinition{Name: currentToolName}, func(context.Context, ToolInvocation) (ToolResult, error) {
-			return ToolSuccess("unused"), nil
+		registerTestTool(toolRegistry, ToolDefinition{Name: currentToolName}, func(context.Context, ToolInvocation) (ToolResult, error) {
+			return testToolSuccess("unused"), nil
 		})
 	}
 
@@ -416,7 +416,7 @@ func TestAgentTurnRunnerUsesNaturalCaptchaFailureReply(t *testing.T) {
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 4})
 	toolRegistry := newTestToolSet([]string{"browser.snapshot"})
-	toolRegistry.RegisterTool(ToolDefinition{Name: "browser.snapshot"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	registerTestTool(toolRegistry, ToolDefinition{Name: "browser.snapshot"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		return ToolFailureResult(FailureInteractionRequired, FailureCodes.InteractionRequired, "browser_snapshot", "automated access requires user interaction"), nil
 	})
 
@@ -470,7 +470,7 @@ func TestAgentTurnRunnerPreservesStructuredToolFailure(t *testing.T) {
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{RecoveryAttemptLimit: 1, RecoveryBudget: exhaustedRecoveryBudgetForTest()})
 	toolRegistry := newTestCapabilityToolSet([]string{"message.send", "message.context"})
-	toolRegistry.RegisterTool(ToolDefinition{Name: "message.send"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	registerTestTool(toolRegistry, ToolDefinition{Name: "message.send"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		return structuredFailureToolResult("recipient not found", "approved active Mattermost recipient was not found", "recipient_not_found", "recipient_resolve", false, false), nil
 	})
 
@@ -507,7 +507,7 @@ func TestAgentTurnRunnerDeliversSafeDegradedFailureReplyWithoutStageAndCode(t *t
 	}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{RecoveryAttemptLimit: 1, RecoveryBudget: exhaustedRecoveryBudgetForTest()})
 	toolRegistry := newTestCapabilityToolSet([]string{"message.send"})
-	toolRegistry.RegisterTool(ToolDefinition{Name: "message.send"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	registerTestTool(toolRegistry, ToolDefinition{Name: "message.send"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		return structuredFailureToolResult("recipient not found", "approved active Mattermost recipient was not found", "recipient_not_found", "recipient_resolve", false, false), nil
 	})
 	existingTaskRun := services.taskRunService.CreateTaskRunWithOrigin("person-1", task.TaskRunOrigin{ConversationID: "conversation-1"}, "정국에게 DM 보내줘")
@@ -548,7 +548,7 @@ func TestAgentTurnRunnerAcceptsGeneratedStructuredFailureReplyWithStageAndCode(t
 	}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{RecoveryAttemptLimit: 1, RecoveryBudget: exhaustedRecoveryBudgetForTest()})
 	toolRegistry := newTestCapabilityToolSet([]string{"message.send"})
-	toolRegistry.RegisterTool(ToolDefinition{Name: "message.send"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	registerTestTool(toolRegistry, ToolDefinition{Name: "message.send"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		return structuredFailureToolResult("recipient not found", "approved active Mattermost recipient was not found", "recipient_not_found", "recipient_resolve", false, false), nil
 	})
 
@@ -623,8 +623,8 @@ func TestAgentTurnRunnerUsesContextualLimitReply(t *testing.T) {
 	}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 1})
 	toolRegistry := newTestToolSet([]string{"loop"})
-	toolRegistry.RegisterTool(ToolDefinition{Name: "loop"}, func(context.Context, ToolInvocation) (ToolResult, error) {
-		return ToolSuccess("again"), nil
+	registerTestTool(toolRegistry, ToolDefinition{Name: "loop"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return testToolSuccess("again"), nil
 	})
 
 	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
@@ -656,7 +656,7 @@ func TestAgentTurnRunnerLimitReplyPromptHidesUndeliveredAttachments(t *testing.T
 	}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 1})
 	toolRegistry := newTestToolSet([]string{"loop"})
-	toolRegistry.RegisterTool(ToolDefinition{Name: "loop"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	registerTestTool(toolRegistry, ToolDefinition{Name: "loop"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		return ToolResult{
 			Output: ToolOutput{Content: "started"},
 			Attachments: []FileAttachment{{
@@ -707,8 +707,8 @@ func TestAgentTurnRunnerDoesNotRegenerateLimitReplyFromStringPatterns(t *testing
 	}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 1})
 	toolRegistry := newTestToolSet([]string{"loop"})
-	toolRegistry.RegisterTool(ToolDefinition{Name: "loop"}, func(context.Context, ToolInvocation) (ToolResult, error) {
-		return ToolSuccess("started"), nil
+	registerTestTool(toolRegistry, ToolDefinition{Name: "loop"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return testToolSuccess("started"), nil
 	})
 
 	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{

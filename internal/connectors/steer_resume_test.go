@@ -29,8 +29,8 @@ func TestPlatformFromSourceReferenceRejectsResumePrefixes(t *testing.T) {
 
 func TestResumePausedTaskForSteerWithoutLaunchContextSendsNoticeWithoutOrphan(t *testing.T) {
 	languageModel := agenttest.NewScriptedLanguageModel(agenttest.ScriptedLanguageModelOptions{
-		StructuredResponsesBySchema: map[string][]string{
-			"blueclaw_reply": {`{"reply":"저장된 컨텍스트에서 이 작업을 재개할 수 없습니다."}`},
+		ChatResponsesBySchema: map[string][]string{
+			"blueclaw_reply": {"저장된 컨텍스트에서 이 작업을 재개할 수 없습니다."},
 		},
 	})
 	connectorRuntime, _ := newTestConnectorRuntime(t, languageModel)

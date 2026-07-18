@@ -16,8 +16,8 @@ func TestAgentTurnRunnerRecordsDeniedToolAsObservation(t *testing.T) {
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
 	toolRegistry := newTestToolSet([]string{"allowed"})
-	toolRegistry.RegisterTool(ToolDefinition{Name: "forbidden"}, func(context.Context, ToolInvocation) (ToolResult, error) {
-		return ToolSuccess("should not run"), nil
+	registerTestTool(toolRegistry, ToolDefinition{Name: "forbidden"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return testToolSuccess("should not run"), nil
 	})
 
 	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
@@ -46,7 +46,7 @@ func TestAgentTurnRunnerRejectsMalformedInputBeforeApproval(t *testing.T) {
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 3})
 	toolRegistry := newTestCapabilityToolSet([]string{"site.delete"})
 	handlerCallCount := 0
-	toolRegistry.RegisterTool(ToolDefinition{
+	registerTestTool(toolRegistry, ToolDefinition{
 		Name:             "site.delete",
 		RequiresApproval: true,
 		InputSchema: json.RawMessage(`{
@@ -57,7 +57,7 @@ func TestAgentTurnRunnerRejectsMalformedInputBeforeApproval(t *testing.T) {
 		}`),
 	}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		handlerCallCount++
-		return ToolSuccess("deleted"), nil
+		return testToolSuccess("deleted"), nil
 	})
 
 	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
@@ -87,8 +87,8 @@ func TestAgentTurnRunnerRejectsMalformedInputBeforeApproval(t *testing.T) {
 
 func TestValidateTerminalToolInputRejectsRegisteredToolNameAsCommand(t *testing.T) {
 	toolRegistry := newTestToolSet([]string{"terminal.run"})
-	toolRegistry.RegisterTool(ToolDefinition{Name: "site.create"}, func(context.Context, ToolInvocation) (ToolResult, error) {
-		return ToolSuccess("created"), nil
+	registerTestTool(toolRegistry, ToolDefinition{Name: "site.create"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return testToolSuccess("created"), nil
 	})
 	input := MarshalToolInput(map[string]any{"command": "site.create --slug demo"})
 
@@ -108,9 +108,9 @@ func TestAgentTurnRunnerRejectsSecondDMSendAfterSuccess(t *testing.T) {
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 5})
 	toolRegistry := newTestCapabilityToolSet([]string{"message.send"})
 	sendCallCount := 0
-	toolRegistry.RegisterTool(testExternalSendToolDefinition("message.send"), func(context.Context, ToolInvocation) (ToolResult, error) {
+	registerTestTool(toolRegistry, testExternalSendToolDefinition("message.send"), func(context.Context, ToolInvocation) (ToolResult, error) {
 		sendCallCount++
-		return ToolSuccess("sent"), nil
+		return testToolSuccess("sent"), nil
 	})
 
 	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
@@ -146,9 +146,9 @@ func TestAgentTurnRunnerAllowsSendToDifferentRecipients(t *testing.T) {
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 5})
 	toolRegistry := newTestCapabilityToolSet([]string{"message.send"})
 	sendCallCount := 0
-	toolRegistry.RegisterTool(testExternalSendToolDefinition("message.send"), func(context.Context, ToolInvocation) (ToolResult, error) {
+	registerTestTool(toolRegistry, testExternalSendToolDefinition("message.send"), func(context.Context, ToolInvocation) (ToolResult, error) {
 		sendCallCount++
-		return ToolSuccess("sent"), nil
+		return testToolSuccess("sent"), nil
 	})
 
 	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
@@ -179,7 +179,7 @@ func TestAgentTurnRunnerRejectsMessageSendWithoutExternalSendIntent(t *testing.T
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 3})
 	toolRegistry := newTestCapabilityToolSet([]string{"message.send"})
-	toolRegistry.RegisterTool(testExternalSendToolDefinition("message.send"), func(context.Context, ToolInvocation) (ToolResult, error) {
+	registerTestTool(toolRegistry, testExternalSendToolDefinition("message.send"), func(context.Context, ToolInvocation) (ToolResult, error) {
 		t.Fatal("message.send must not run without external send intent")
 		return ToolResult{}, nil
 	})
@@ -218,12 +218,12 @@ func TestAgentTurnRunnerRejectsRepeatedFailedFingerprint(t *testing.T) {
 	toolRegistry := newTestCapabilityToolSet([]string{"message.send", "message.context"})
 	callCount := 0
 	sendInputs := []string{}
-	toolRegistry.RegisterTool(testExternalSendToolDefinition("message.send"), func(_ context.Context, invocation ToolInvocation) (ToolResult, error) {
+	registerTestTool(toolRegistry, testExternalSendToolDefinition("message.send"), func(_ context.Context, invocation ToolInvocation) (ToolResult, error) {
 		callCount++
 		sendInputs = append(sendInputs, string(invocation.Input))
 		return structuredFailureToolResult("temporary user lookup timeout", "temporary user lookup timeout", "mattermost_unavailable", "mattermost_lookup", true, true), nil
 	})
-	toolRegistry.RegisterTool(ToolDefinition{Name: "message.context"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	registerTestTool(toolRegistry, ToolDefinition{Name: "message.context"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		return structuredFailureToolResult("mattermost still unavailable", "mattermost still unavailable", "mattermost_unavailable", "mattermost_lookup", true, true), nil
 	})
 
@@ -263,7 +263,7 @@ func TestAgentTurnRunnerRejectsUnsafeRepeatedExternalSend(t *testing.T) {
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{RecoveryAttemptLimit: 2, RecoveryBudget: exhaustedRecoveryBudgetForTest()})
 	toolRegistry := newTestCapabilityToolSet([]string{"message.send", "message.context"})
 	callCount := 0
-	toolRegistry.RegisterTool(testExternalSendToolDefinition("message.send"), func(context.Context, ToolInvocation) (ToolResult, error) {
+	registerTestTool(toolRegistry, testExternalSendToolDefinition("message.send"), func(context.Context, ToolInvocation) (ToolResult, error) {
 		callCount++
 		return structuredFailureToolResult("Mattermost returned 503 after post create", "Mattermost returned 503 after post create", "send_failed", "message_send", true, false), nil
 	})
@@ -299,7 +299,7 @@ func TestAgentTurnRunnerRejectsUnavailableToolBeforeInvoke(t *testing.T) {
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
 	toolRegistry := newTestToolSet([]string{"math.calculate"})
-	toolRegistry.RegisterTool(ToolDefinition{Name: "math.calculate"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	registerTestTool(toolRegistry, ToolDefinition{Name: "math.calculate"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		t.Fatal("unexpected math.calculate invocation")
 		return ToolResult{}, nil
 	})
@@ -334,12 +334,12 @@ func TestAgentTurnRunnerRejectsEmptyBrowserPressAfterFill(t *testing.T) {
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
 	pressCallCount := 0
 	toolRegistry := newTestCapabilityToolSet([]string{"browser.fill", "browser.press"})
-	toolRegistry.RegisterTool(ToolDefinition{Name: "browser.fill"}, func(context.Context, ToolInvocation) (ToolResult, error) {
-		return ToolSuccess(`{"ok":true}`), nil
+	registerTestTool(toolRegistry, ToolDefinition{Name: "browser.fill"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return testToolSuccess(`{"ok":true}`), nil
 	})
-	toolRegistry.RegisterTool(ToolDefinition{Name: "browser.press"}, func(_ context.Context, toolInvocation ToolInvocation) (ToolResult, error) {
+	registerTestTool(toolRegistry, ToolDefinition{Name: "browser.press"}, func(_ context.Context, toolInvocation ToolInvocation) (ToolResult, error) {
 		pressCallCount++
-		return ToolSuccess(`{"ok":true}`), nil
+		return testToolSuccess(`{"ok":true}`), nil
 	})
 
 	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
@@ -372,12 +372,12 @@ func TestAgentTurnRunnerRejectsBrowserFillWithoutRequiredInput(t *testing.T) {
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
 	fillCallCount := 0
 	toolRegistry := newTestCapabilityToolSet([]string{"browser.snapshot", "browser.fill"})
-	toolRegistry.RegisterTool(ToolDefinition{Name: "browser.snapshot"}, func(context.Context, ToolInvocation) (ToolResult, error) {
-		return ToolSuccess(`{"snapshotText":"- textbox \"Google 검색\" [ref=e5]"}`), nil
+	registerTestTool(toolRegistry, ToolDefinition{Name: "browser.snapshot"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return testToolSuccess(`{"snapshotText":"- textbox \"Google 검색\" [ref=e5]"}`), nil
 	})
-	toolRegistry.RegisterTool(ToolDefinition{Name: "browser.fill"}, func(_ context.Context, toolInvocation ToolInvocation) (ToolResult, error) {
+	registerTestTool(toolRegistry, ToolDefinition{Name: "browser.fill"}, func(_ context.Context, toolInvocation ToolInvocation) (ToolResult, error) {
 		fillCallCount++
-		return ToolSuccess(`{"ok":true}`), nil
+		return testToolSuccess(`{"ok":true}`), nil
 	})
 
 	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
@@ -410,9 +410,9 @@ func TestAgentTurnRunnerRejectsEmptyGoogleNavigate(t *testing.T) {
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
 	navigateCallCount := 0
 	toolRegistry := newTestCapabilityToolSet([]string{"browser.open"})
-	toolRegistry.RegisterTool(ToolDefinition{Name: "browser.open"}, func(_ context.Context, toolInvocation ToolInvocation) (ToolResult, error) {
+	registerTestTool(toolRegistry, ToolDefinition{Name: "browser.open"}, func(_ context.Context, toolInvocation ToolInvocation) (ToolResult, error) {
 		navigateCallCount++
-		return ToolSuccess(`{"url":"https://www.google.com"}`), nil
+		return testToolSuccess(`{"url":"https://www.google.com"}`), nil
 	})
 
 	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
@@ -447,9 +447,9 @@ func TestAgentTurnRunnerStopsRepeatedMalformedToolInputByLimit(t *testing.T) {
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 40})
 	fillCallCount := 0
 	toolRegistry := newTestToolSet([]string{"browser.fill"})
-	toolRegistry.RegisterTool(ToolDefinition{Name: "browser.fill"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	registerTestTool(toolRegistry, ToolDefinition{Name: "browser.fill"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		fillCallCount++
-		return ToolSuccess(`{"ok":true}`), nil
+		return testToolSuccess(`{"ok":true}`), nil
 	})
 
 	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
@@ -482,14 +482,14 @@ func TestAgentTurnRunnerDoesNotChargeMalformedInputToToolEffort(t *testing.T) {
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 4, MaxToolCallCount: 2})
 	toolRegistry := newTestToolSet([]string{"browser.fill", "alpha", "beta"})
-	toolRegistry.RegisterTool(ToolDefinition{Name: "browser.fill"}, func(context.Context, ToolInvocation) (ToolResult, error) {
-		return ToolSuccess(`{"ok":true}`), nil
+	registerTestTool(toolRegistry, ToolDefinition{Name: "browser.fill"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return testToolSuccess(`{"ok":true}`), nil
 	})
-	toolRegistry.RegisterTool(ToolDefinition{Name: "alpha"}, func(context.Context, ToolInvocation) (ToolResult, error) {
-		return ToolSuccess("alpha result"), nil
+	registerTestTool(toolRegistry, ToolDefinition{Name: "alpha"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return testToolSuccess("alpha result"), nil
 	})
-	toolRegistry.RegisterTool(ToolDefinition{Name: "beta"}, func(context.Context, ToolInvocation) (ToolResult, error) {
-		return ToolSuccess("beta result"), nil
+	registerTestTool(toolRegistry, ToolDefinition{Name: "beta"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return testToolSuccess("beta result"), nil
 	})
 
 	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
@@ -540,9 +540,9 @@ func TestAgentTurnRunnerRejectsRepeatedSuccessfulToolCall(t *testing.T) {
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 4, MaxToolCallCount: 4})
 	toolCallCount := 0
 	toolRegistry := newTestToolSet([]string{"terminal.run"})
-	toolRegistry.RegisterTool(ToolDefinition{Name: "terminal.run"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	registerTestTool(toolRegistry, ToolDefinition{Name: "terminal.run"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		toolCallCount++
-		return ToolSuccess(`{"exitCode":0,"stdout":"@marp-team/marp-cli v4.3.1\n","stderr":"","timedOut":false}`), nil
+		return testToolSuccess(`{"exitCode":0,"stdout":"@marp-team/marp-cli v4.3.1\n","stderr":"","timedOut":false}`), nil
 	})
 
 	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
@@ -656,14 +656,14 @@ func TestAgentTurnRunnerRejectsRepeatedScheduleCreateWithoutExecutingAgain(t *te
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 4, MaxToolCallCount: 4})
 	toolCallCount := 0
 	toolRegistry := newTestCapabilityToolSet([]string{"schedule.create"})
-	toolRegistry.RegisterTool(ToolDefinition{
+	registerTestTool(toolRegistry, ToolDefinition{
 		Name:            "schedule.create",
 		Namespace:       "schedule",
 		SideEffectClass: ToolSideEffectStateChange,
 		Completion:      ToolCompletion{Mode: ToolCompletionObservation, Action: "create_schedule", TargetKind: "schedule"},
 	}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		toolCallCount++
-		return ToolSuccess(`{"taskScheduleID":"schedule-1","taskInstruction":"현재 대화에 \"죄송합니다\"라고 보낸다.","kind":"interval","intervalSecond":60,"maxRunCount":10}`), nil
+		return testToolSuccess(`{"taskScheduleID":"schedule-1","taskInstruction":"현재 대화에 \"죄송합니다\"라고 보낸다.","kind":"interval","intervalSecond":60,"maxRunCount":10}`), nil
 	})
 
 	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{

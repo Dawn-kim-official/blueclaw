@@ -117,11 +117,11 @@ func TestAgentTurnRunnerEscalatesToolCallLimitAfterDurableProgress(t *testing.T)
 		MaxToolCallCount:  2,
 	})
 	toolRegistry := newHybridKernelCapabilityToolSet([]string{"file.write"}, []string{"site.build"})
-	toolRegistry.RegisterTool(ToolDefinition{Name: "file.write"}, func(context.Context, ToolInvocation) (ToolResult, error) {
-		return ToolSuccess(`{"path":"tmp/app/index.html"}`), nil
+	registerTestTool(toolRegistry, ToolDefinition{Name: "file.write"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return testToolSuccess(`{"path":"tmp/app/index.html"}`), nil
 	})
-	toolRegistry.RegisterTool(ToolDefinition{Name: "site.build"}, func(context.Context, ToolInvocation) (ToolResult, error) {
-		return ToolSuccess(`{"status":"built"}`), nil
+	registerTestTool(toolRegistry, ToolDefinition{Name: "site.build"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return testToolSuccess(`{"status":"built"}`), nil
 	})
 
 	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{

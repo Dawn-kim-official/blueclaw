@@ -16,17 +16,17 @@ func PresentationLocalMultiturnSuccessScenario(artifactDirectoryPath string) Vir
 		Name:                  "presentation_local_multiturn_success",
 		ArtifactDirectoryPath: artifactDirectoryPath,
 		Skills:                []agent.SkillInstruction{presentationSkill()},
-		AllowedTools:          []string{"conversation.history", "memory.search", "terminal.run", "file.write", "file.attach"},
+		AllowedTools:          []string{"conversation.history", "memory.search", "terminal.run", "file.write", "file.deliver"},
 		Turns: []VirtualTurn{{
 			Prompt:                 "너 뭐 할 수 있는지 8장 피피티 만들어서 보내줘봐",
 			ExpectedSelectedSkills: []string{"presentation"},
-			ExpectedToolCalls:      []string{"terminal.run", "file.attach"},
+			ExpectedToolCalls:      []string{"terminal.run", "file.deliver"},
 			ExpectedEventCounts: []VirtualEventCount{
 				{Name: "tool.terminal.run.requested", BodyFragment: "NAME=", Count: 1},
 				{Name: "tool.terminal.run.requested", BodyFragment: "/workspace/skills/presentation/scripts/build.sh", Count: 1},
 				{Name: "tool.terminal.run.result", BodyFragment: "Building requested formats", Count: 1},
 				{Name: "tool.terminal.run.result", BodyFragment: "Slide render review", Count: 1},
-				{Name: "tool.file.attach.result", BodyFragment: `"output"`, Count: 1},
+				{Name: "tool.file.deliver.result", BodyFragment: `"output"`, Count: 1},
 			},
 			ExpectedEvents:      []string{"agent.validity_review"},
 			ExpectedAttachments: []string{".pptx", ".pdf", ".html", "-notes.txt"},
@@ -374,15 +374,14 @@ func GWSDisabledScenario(artifactDirectoryPath string) VirtualSessionScenario {
 	return VirtualSessionScenario{
 		Name:                  "gws_disabled",
 		ArtifactDirectoryPath: artifactDirectoryPath,
-		AllowedTools:          []string{"memory.search", "terminal.run", "file.write", "file.attach"},
+		AllowedTools:          []string{"memory.search", "terminal.run", "file.write"},
 		Turns: []VirtualTurn{{
 			Prompt: "구글 드라이브에 파일 올릴 수 있는지 확인해줘",
 			ActionResponses: []string{
-				actionCallTool("google.drive.import_pptx", `{"path":"deck.pptx"}`),
-				actionNoToolFallbackFinishMessage("Google Workspace 도구는 노출되지 않아 호출이 거부되었습니다. 로컬 첨부 경로만 사용할 수 있습니다."),
+				actionFinishMessage("Google Workspace 도구는 현재 사용할 수 없습니다. 로컬 파일 작업은 가능합니다."),
 			},
-			ExpectedToolCalls:      []string{"google.drive.import_pptx"},
-			ExpectedReplyFragments: []string{"거부"},
+			ForbiddenModelContexts: []string{"google.drive.import_pptx"},
+			ExpectedReplyFragments: []string{"사용할 수 없습니다"},
 		}},
 	}
 }
@@ -799,49 +798,6 @@ func MemoryExplicitToolAcceptanceScenario(artifactDirectoryPath string) VirtualS
 					"memory.search": 1,
 				},
 				ExpectedReplyFragments: []string{"Korean"},
-			},
-		},
-	}
-}
-
-func DatabaseSQLAcceptanceScenario(artifactDirectoryPath string) VirtualSessionScenario {
-	return VirtualSessionScenario{
-		Name:                  "database_sql_acceptance",
-		ArtifactDirectoryPath: artifactDirectoryPath,
-		AllowedTools:          []string{"conversation.history", "memory.search", "db.sql"},
-		InitialToolNames:      []string{"db.sql"},
-		Turns: []VirtualTurn{
-			{
-				Prompt: "거래처 Acme 를 데이터베이스에 기록해줘.",
-				ActionResponses: []string{
-					actionCallTool("db.sql", `{"sql":"CREATE TABLE IF NOT EXISTS vendors(id INTEGER PRIMARY KEY, name TEXT)","scope":"me"}`),
-					actionCallTool("db.sql", `{"sql":"INSERT INTO vendors(name) VALUES ('Acme')","scope":"me"}`),
-					actionFinishMessage("거래처 Acme를 vendors 테이블에 기록했습니다."),
-				},
-				ExpectedToolCalls: []string{"db.sql"},
-				ExpectedToolCallCounts: map[string]int{
-					"db.sql": 2,
-				},
-				ExpectedEventCounts: []VirtualEventCount{
-					{Name: "tool.db.sql.result", BodyFragment: "vendors", Count: 2},
-				},
-				ExpectedReplyFragments: []string{"vendors"},
-			},
-			{
-				Prompt: "거래처 Beta 도 추가해줘. 이미 있는 테이블을 다시 써.",
-				ActionResponses: []string{
-					actionCallTool("db.sql", `{"sql":"SELECT name, sql FROM sqlite_master WHERE type='table'","scope":"me"}`),
-					actionCallTool("db.sql", `{"sql":"INSERT INTO vendors(name) VALUES ('Beta')","scope":"me"}`),
-					actionFinishMessage("기존 vendors 테이블에 거래처 Beta를 추가했습니다."),
-				},
-				ExpectedToolCalls: []string{"db.sql"},
-				ExpectedToolCallCounts: map[string]int{
-					"db.sql": 2,
-				},
-				ExpectedEventCounts: []VirtualEventCount{
-					{Name: "tool.db.sql.result", BodyFragment: "vendors", Count: 2},
-				},
-				ExpectedReplyFragments: []string{"vendors"},
 			},
 		},
 	}

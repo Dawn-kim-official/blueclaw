@@ -321,10 +321,28 @@ type virtualObservedLocalRecoveryChatCompleter struct {
 }
 
 func (completer virtualObservedChatCompleter) GenerateChatCompletion(ctx context.Context, request llm.ChatCompletionRequest) (llm.ChatCompletionResponse, error) {
+	completer.languageModel.appendRequest(virtualStructuredRequestFromChat(request))
 	startedAt := time.Now()
 	response, errorValue := completer.delegate.GenerateChatCompletion(ctx, request)
 	completer.languageModel.appendCall(virtualChatCallEvent("chat", request, response, startedAt, errorValue))
 	return response, errorValue
+}
+
+func virtualStructuredRequestFromChat(request llm.ChatCompletionRequest) llm.StructuredResponseRequest {
+	messages := make([]llm.Message, 0, len(request.Messages))
+	for _, message := range request.Messages {
+		messages = append(messages, llm.Message{Role: message.Role, Content: message.Content})
+	}
+	tools, _ := json.Marshal(request.Tools)
+	return llm.StructuredResponseRequest{
+		Messages: messages,
+		StructuredOutputSchema: llm.StructuredOutputSchema{
+			Name:               request.SchemaName,
+			Document:           string(tools),
+			IsStrictlyEnforced: true,
+		},
+		GenerationOptions: request.GenerationOptions,
+	}
 }
 
 func (completer virtualObservedRecoveryChatCompleter) GenerateRecoveryChatCompletion(ctx context.Context, request llm.ChatCompletionRequest) (llm.ChatCompletionResponse, error) {
@@ -565,8 +583,6 @@ func BuiltinScenario(name string, artifactDirectoryPath string) (VirtualSessionS
 		return TaskHistoryQuestionAcceptanceScenario(artifactDirectoryPath), nil
 	case "memory_explicit_tool_acceptance":
 		return MemoryExplicitToolAcceptanceScenario(artifactDirectoryPath), nil
-	case "database_sql_acceptance":
-		return DatabaseSQLAcceptanceScenario(artifactDirectoryPath), nil
 	case "failure_explanation_acceptance":
 		return FailureExplanationAcceptanceScenario(artifactDirectoryPath), nil
 	case "one_time_schedule_acceptance":
@@ -1369,20 +1385,49 @@ func (service *virtualCapabilityService) response(toolName string, requestBody [
 		result := map[string]any{"siteID": deletedSiteID, "deleted": true}
 		return virtualCapabilityWebsiteSuccess(toolName, "deleted", deletedSiteID, result)
 	case "image.read":
-		return `{"provider":"virtual","toolName":"image.read","status":"ok","content":"image loaded","result":{"attachments":[{"devicePath":"/workspace/circles/staff/inbox/virtual/virtual-conversation-1/virtual-message-001/mascot.png","filename":"mascot.png","contentType":"image/png","sizeBytes":13,"contentBase64":"dmlydHVhbC1pbWFnZQ=="}]}}`
+		result := map[string]any{"attachments": []map[string]any{{
+			"devicePath":    "/workspace/circles/staff/inbox/virtual/virtual-conversation-1/virtual-message-001/mascot.png",
+			"filename":      "mascot.png",
+			"contentType":   "image/png",
+			"sizeBytes":     13,
+			"contentBase64": "dmlydHVhbC1pbWFnZQ==",
+		}}}
+		return virtualCapabilitySuccess(toolName, "image loaded", result)
+	case "document.read":
+		result := map[string]any{"attachments": []map[string]any{{
+			"devicePath":  "/workspace/circles/staff/inbox/virtual/virtual-conversation-1/virtual-message-001/placeholder.docx",
+			"filename":    "placeholder.docx",
+			"contentType": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+			"sizeBytes":   13,
+		}}}
+		return virtualCapabilitySuccess(toolName, "document loaded", result)
 	case "web.search":
-		return `{"provider":"virtual","toolName":"web.search","status":"ok","content":"BlueclawSearchStubToken virtual search result","result":{"query":"current external information acceptance test","results":[{"title":"BlueclawSearchStubToken result","url":"https://example.test/blueclaw-search-stub","snippet":"Deterministic virtual search result for BlueclawSearchStubToken."}]}}`
+		result := map[string]any{
+			"query": "current external information acceptance test",
+			"results": []map[string]any{{
+				"title":   "BlueclawSearchStubToken result",
+				"url":     "https://example.test/blueclaw-search-stub",
+				"snippet": "Deterministic virtual search result for BlueclawSearchStubToken.",
+			}},
+		}
+		return virtualCapabilitySuccess(toolName, "BlueclawSearchStubToken virtual search result", result)
 	case "message.send":
 		messageInput := virtualCapabilityInput(requestBody)
 		if errorValue := validateVirtualMessageSendInput(messageInput); errorValue != nil {
-			return virtualCapabilityJSON(map[string]any{"provider": "virtual", "toolName": toolName, "status": "error", "message": errorValue.Error()})
+			return virtualCapabilityInvalidInput(toolName, errorValue.Error())
 		}
 		if virtualPlatformMessageSendRequiresApproval(requestBody) {
-			return `{"provider":"virtual","toolName":"message.send","status":"denied","content":"requires approval","message":"requires approval","errorCode":"approval_required","failureStage":"authorization","result":{"errorCode":"approval_required","failureStage":"authorization","message":"requires approval"}}`
+			return virtualCapabilityApprovalRequired(toolName)
 		}
-		return `{"provider":"virtual","toolName":"message.send","status":"ok","content":"sent virtual platform message virtual-platform-message-001","result":{"messageID":"virtual-platform-message-001","deliveryStatus":"sent"}}`
+		messageID := "virtual-platform-message-001"
+		result := map[string]any{"messageID": messageID, "deliveryStatus": "sent"}
+		return virtualCapabilityMessageSuccess(toolName, "sent", messageID, "sent virtual platform message "+messageID, result)
+	case "message.update":
+		messageID := stringValue(virtualCapabilityInput(requestBody)["messageID"])
+		result := map[string]any{"messageID": messageID, "deliveryStatus": "updated"}
+		return virtualCapabilityMessageSuccess(toolName, "updated", messageID, "updated virtual platform message "+messageID, result)
 	default:
-		return `{"provider":"virtual","toolName":` + quote(toolName) + `,"status":"ok","result":{"toolName":` + quote(toolName) + `,"ok":true,"request":` + jsonObjectOrEmpty(requestBody) + `}}`
+		return virtualCapabilitySuccess(toolName, toolName+" completed", map[string]any{"toolName": toolName, "ok": true, "request": virtualCapabilityInput(requestBody)})
 	}
 }
 
@@ -1600,8 +1645,32 @@ func virtualCapabilityToolResultContract(toolName string) *agentruntime.Capabili
 			`{"type":"object","properties":{"siteID":{"type":"string","minLength":1},"deleted":{"type":"boolean","const":true}},"required":["siteID","deleted"],"additionalProperties":false}`,
 			"deleted",
 		)
+	case "web.search":
+		return &agentruntime.CapabilityToolResultContract{Schema: json.RawMessage(`{"type":"object","properties":{"query":{"type":"string","minLength":1},"results":{"type":"array","items":{"type":"object","properties":{"title":{"type":"string","minLength":1},"url":{"type":"string","minLength":1},"snippet":{"type":"string"}},"required":["title","url","snippet"],"additionalProperties":false}}},"required":["query","results"],"additionalProperties":false}`)}
+	case "image.read", "document.read":
+		return virtualAttachmentReadResultContract()
+	case "message.send":
+		return virtualMessageResultContract("sent")
+	case "message.update":
+		return virtualMessageResultContract("updated")
 	default:
 		return nil
+	}
+}
+
+func virtualAttachmentReadResultContract() *agentruntime.CapabilityToolResultContract {
+	return &agentruntime.CapabilityToolResultContract{Schema: json.RawMessage(`{"type":"object","properties":{"attachments":{"type":"array","items":{"type":"object","properties":{"devicePath":{"type":"string","minLength":1},"filename":{"type":"string","minLength":1},"contentType":{"type":"string","minLength":1},"sizeBytes":{"type":"integer","minimum":0},"contentBase64":{"type":"string"}},"required":["devicePath","filename","contentType","sizeBytes"],"additionalProperties":false}}},"required":["attachments"],"additionalProperties":false}`)}
+}
+
+func virtualMessageResultContract(effect string) *agentruntime.CapabilityToolResultContract {
+	return &agentruntime.CapabilityToolResultContract{
+		Schema: json.RawMessage(`{"type":"object","properties":{"messageID":{"type":"string","minLength":1},"deliveryStatus":{"type":"string","minLength":1}},"required":["messageID","deliveryStatus"],"additionalProperties":false}`),
+		Effects: []agentruntime.CapabilityResourceEffectContract{{
+			ObjectType:     "message",
+			Effect:         effect,
+			ResultField:    "messageID",
+			EffectIdentity: "id",
+		}},
 	}
 }
 
@@ -2022,6 +2091,19 @@ func virtualCapabilityCalendarSuccess(toolName string, effect string, eventID st
 		"content":         content,
 		"result":          result,
 		"effects":         []map[string]any{{"objectType": "calendar", "effect": effect, "id": eventID}},
+	})
+}
+
+func virtualCapabilityMessageSuccess(toolName string, effect string, messageID string, content string, result any) string {
+	return virtualCapabilityJSON(map[string]any{
+		"provider":        "virtual",
+		"selectedBackend": "device",
+		"toolName":        toolName,
+		"outcome":         "succeeded",
+		"status":          "ok",
+		"content":         content,
+		"result":          result,
+		"effects":         []map[string]any{{"objectType": "message", "effect": effect, "id": messageID}},
 	})
 }
 
@@ -3048,7 +3130,7 @@ func allowedToolsOrDefault(allowedTools []string) []string {
 	if len(allowedTools) > 0 {
 		return append([]string{}, allowedTools...)
 	}
-	return []string{"conversation.history", "memory.search", "terminal.run", "terminal.session", "browser_handoff.openURL", "ask.choice", "ask.input", "file.read", "file.write", "file.edit", "file.promote", "file.attach"}
+	return []string{"conversation.history", "memory.search", "terminal.run", "ask.input", "file.read", "file.write", "file.edit", "file.deliver"}
 }
 
 func terminalConfiguration(workspacePath string) config.TerminalConfiguration {

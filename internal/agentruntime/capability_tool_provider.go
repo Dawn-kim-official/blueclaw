@@ -55,6 +55,9 @@ func validateCapabilityToolDescriptor(descriptor CapabilityToolDescriptor) error
 	if descriptor.ModelVisibility != agent.ToolVisibilityModel && descriptor.ModelVisibility != agent.ToolVisibilityInternal && descriptor.ModelVisibility != agent.ToolVisibilityControl {
 		return errors.New("capability descriptor modelVisibility is invalid")
 	}
+	if descriptor.ModelVisibility == agent.ToolVisibilityModel && descriptor.ResultContract == nil {
+		return errors.New("capability descriptor resultContract is required for model-visible tools")
+	}
 	if descriptor.Availability.State != "ok" && descriptor.Availability.State != "not_allowed" && descriptor.Availability.State != "not_connected" && descriptor.Availability.State != "not_ready" {
 		return errors.New("capability descriptor availability is invalid")
 	}

@@ -33,8 +33,8 @@ func newTestCapabilityToolSet(operationNames []string) *ToolSet {
 		if trimmedOperationName == "" {
 			continue
 		}
-		toolSet.RegisterTool(testToolDescriptor(trimmedOperationName), func(context.Context, ToolInvocation) (ToolResult, error) {
-			return ToolSuccess("ok"), nil
+		registerTestTool(toolSet, testToolDescriptor(trimmedOperationName), func(context.Context, ToolInvocation) (ToolResult, error) {
+			return testToolSuccess("ok"), nil
 		})
 	}
 	return toolSet
@@ -54,8 +54,8 @@ func newTestToolSetWithDefinitions(definitions []ToolDefinition) *ToolSet {
 		if len(definition.OutputSchema) == 0 {
 			definition.OutputSchema = json.RawMessage(`{"type":"object","properties":{}}`)
 		}
-		toolSet.RegisterTool(definition, func(context.Context, ToolInvocation) (ToolResult, error) {
-			return ToolSuccess("ok"), nil
+		registerTestTool(toolSet, definition, func(context.Context, ToolInvocation) (ToolResult, error) {
+			return testToolSuccess("ok"), nil
 		})
 	}
 	return toolSet
@@ -65,10 +65,38 @@ func testToolDescriptor(toolName string) ToolDefinition {
 	return ToolDefinition{
 		ID:              "test:" + toolName,
 		Name:            toolName,
+		Visibility:      ToolVisibilityModel,
 		InputSchema:     json.RawMessage(`{"type":"object","properties":{}}`),
 		OutputSchema:    json.RawMessage(`{"type":"object","properties":{}}`),
+		ResultContract:  testToolResultContract(),
 		SideEffectClass: testToolSideEffectClass(toolName),
 	}
+}
+
+func testToolResultContract() *ToolResultContract {
+	return &ToolResultContract{
+		Schema: json.RawMessage(`{"type":"object","properties":{},"additionalProperties":false}`),
+	}
+}
+
+func testToolSuccess(content string) ToolResult {
+	return ToolSuccessData(content, json.RawMessage(`{}`))
+}
+
+func registerTestTool(toolSet *ToolSet, definition ToolDefinition, handler ToolHandler) error {
+	if definition.Visibility == "" {
+		definition.Visibility = ToolVisibilityModel
+	}
+	if definition.Visibility == ToolVisibilityModel && definition.ResultContract == nil {
+		definition.ResultContract = testToolResultContract()
+	}
+	return toolSet.RegisterTool(definition, func(toolContext context.Context, invocation ToolInvocation) (ToolResult, error) {
+		result, errorValue := handler(toolContext, invocation)
+		if errorValue == nil && !result.Failed() && len(result.Output.Data) == 0 {
+			result.Output.Data = json.RawMessage(`{}`)
+		}
+		return result, errorValue
+	})
 }
 
 func testExternalSendToolDefinition(toolName string) ToolDefinition {

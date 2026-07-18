@@ -670,12 +670,12 @@ func TestConnectorRuntimeStopCommandAtChannelRootCancelsLatestRootScopedTask(t *
 
 func TestConnectorRuntimeBusyStatusDoesNotCreateNewTask(t *testing.T) {
 	languageModel := agenttest.NewScriptedLanguageModel(agenttest.ScriptedLanguageModelOptions{
+		ChatResponsesBySchema: map[string][]string{
+			"blueclaw_reply": {"지금 처리 중입니다."},
+		},
 		StructuredResponsesBySchema: map[string][]string{
 			"blueclaw_turn_router": {
 				`{"route":"answer_question","classification":"quick_reply","taskShape":"immediate_reply","level":"xlow","estimatedMinutes":1,"requestedOutputFormats":null,"responseLanguage":"ko","reason":"user asked for progress","userFacingReply":"","busyRoute":"status","busyInstruction":""}`,
-			},
-			"blueclaw_reply": {
-				`{"reply":"지금 처리 중입니다."}`,
 			},
 		},
 	})
@@ -763,12 +763,12 @@ func TestConnectorRuntimeInterruptsInactiveRunningTaskAndStartsNewTask(t *testin
 
 func TestConnectorRuntimeBusySteerAppendsInstructionWithoutNewTask(t *testing.T) {
 	languageModel := agenttest.NewScriptedLanguageModel(agenttest.ScriptedLanguageModelOptions{
+		ChatResponsesBySchema: map[string][]string{
+			"blueclaw_reply": {"방향 수정 내용을 현재 작업에 반영하겠습니다."},
+		},
 		StructuredResponsesBySchema: map[string][]string{
 			"blueclaw_turn_router": {
 				`{"route":"revise_task","classification":"bounded_task","taskShape":"maintenance_task","level":"low","estimatedMinutes":1,"requestedOutputFormats":null,"responseLanguage":"ko","reason":"user corrected active task","userFacingReply":"","busyRoute":"steer","busyInstruction":"PDF 대신 HTML로 작성한다."}`,
-			},
-			"blueclaw_reply": {
-				`{"reply":"방향 수정 내용을 현재 작업에 반영하겠습니다."}`,
 			},
 		},
 	})
@@ -806,12 +806,12 @@ func TestConnectorRuntimeBusySteerAppendsInstructionWithoutNewTask(t *testing.T)
 
 func TestConnectorRuntimeBusyCancelStopsActiveTaskWithoutNewTask(t *testing.T) {
 	languageModel := agenttest.NewScriptedLanguageModel(agenttest.ScriptedLanguageModelOptions{
+		ChatResponsesBySchema: map[string][]string{
+			"blueclaw_reply": {"진행 중인 작업을 중단했습니다."},
+		},
 		StructuredResponsesBySchema: map[string][]string{
 			"blueclaw_turn_router": {
 				`{"route":"consume","classification":"quick_reply","taskShape":"immediate_reply","level":"xlow","estimatedMinutes":1,"requestedOutputFormats":null,"responseLanguage":"ko","reason":"user asked to cancel active task","userFacingReply":"","busyRoute":"cancel","busyInstruction":""}`,
-			},
-			"blueclaw_reply": {
-				`{"reply":"진행 중인 작업을 중단했습니다."}`,
 			},
 		},
 	})
@@ -850,13 +850,11 @@ func TestConnectorRuntimeBusyCancelStopsActiveTaskWithoutNewTask(t *testing.T) {
 
 func TestConnectorRuntimeFollowUpReceivedBeforeTaskFinishedDoesNotCreateNewTask(t *testing.T) {
 	languageModel := agenttest.NewScriptedLanguageModel(agenttest.ScriptedLanguageModelOptions{
+		ChatResponsesBySchema: map[string][]string{
+			"blueclaw_reply": {"그 작업은 이미 끝났습니다. 되돌릴까요, 아니면 새로 시작할까요?"},
+		},
 		DefaultResponsesBySchema: map[string]string{
 			"blueclaw_active_task_followup": `{"relatesToActiveTask":true}`,
-		},
-		StructuredResponsesBySchema: map[string][]string{
-			"blueclaw_reply": {
-				`{"reply":"그 작업은 이미 끝났습니다. 되돌릴까요, 아니면 새로 시작할까요?"}`,
-			},
 		},
 	})
 	taskRunRepository := newTestTaskRunRepository()
@@ -2565,7 +2563,7 @@ func TestConnectorRuntimeClassifiesConfirmationReplyBeforeResumingPendingTask(t 
 			invokedTools = append(invokedTools, strings.TrimPrefix(request.URL.Path, "/v1/tools/"))
 			return &http.Response{
 				StatusCode: http.StatusOK,
-				Body:       io.NopCloser(strings.NewReader(`{"status":"ok","content":"calendar event deleted","result":{"eventID":"event-1"}}`)),
+				Body:       io.NopCloser(strings.NewReader(`{"provider":"capabilityd","selectedBackend":"device","toolName":"calendar.delete","outcome":"succeeded","status":"ok","content":"calendar event deleted","result":{"eventID":"event-1"}}`)),
 				Header:     http.Header{"Content-Type": []string{"application/json"}},
 			}, nil
 		}),
@@ -2616,6 +2614,9 @@ func TestConnectorRuntimeClassifiesConfirmationReplyBeforeResumingPendingTask(t 
 
 func TestConnectorRuntimeClassifiesNaturalLanguageConfirmationRejection(t *testing.T) {
 	languageModel := agenttest.NewScriptedLanguageModel(agenttest.ScriptedLanguageModelOptions{
+		ChatResponsesBySchema: map[string][]string{
+			"blueclaw_reply": {"알겠습니다. 이번에는 삭제하지 않겠습니다."},
+		},
 		StructuredResponsesBySchema: map[string][]string{
 			"blueclaw_turn_router": {
 				`{"route":"start_task","classification":"bounded_task","taskShape":"approval_gated_task","level":"low","estimatedMinutes":1,"requestedOutputFormats":null,"responseLanguage":"ko","reason":"calendar delete needs approval first","userFacingReply":""}`,
@@ -2626,9 +2627,6 @@ func TestConnectorRuntimeClassifiesNaturalLanguageConfirmationRejection(t *testi
 			},
 			"blueclaw_confirmation_message": {
 				`{"reply":"내일 휴가 일정을 삭제할까요?"}`,
-			},
-			"blueclaw_reply": {
-				`{"reply":"알겠습니다. 이번에는 삭제하지 않겠습니다."}`,
 			},
 		},
 	})
@@ -2698,7 +2696,7 @@ func TestConnectorRuntimeRoutesShortConfirmationReplyThroughRouter(t *testing.T)
 			invokedTools = append(invokedTools, strings.TrimPrefix(request.URL.Path, "/v1/tools/"))
 			return &http.Response{
 				StatusCode: http.StatusOK,
-				Body:       io.NopCloser(strings.NewReader(`{"status":"ok","content":"calendar event deleted","result":{"eventID":"event-1"}}`)),
+				Body:       io.NopCloser(strings.NewReader(`{"provider":"capabilityd","selectedBackend":"device","toolName":"calendar.delete","outcome":"succeeded","status":"ok","content":"calendar event deleted","result":{"eventID":"event-1"}}`)),
 				Header:     http.Header{"Content-Type": []string{"application/json"}},
 			}, nil
 		}),
@@ -2734,6 +2732,9 @@ func TestConnectorRuntimeRoutesShortConfirmationReplyThroughRouter(t *testing.T)
 
 func TestConnectorRuntimeAnswersPendingConfirmationQuestionWithoutLaunching(t *testing.T) {
 	languageModel := agenttest.NewScriptedLanguageModel(agenttest.ScriptedLanguageModelOptions{
+		ChatResponsesBySchema: map[string][]string{
+			"blueclaw_reply": {"요청하신 작업은 취소했습니다."},
+		},
 		StructuredResponsesBySchema: map[string][]string{
 			"blueclaw_turn_router": {
 				`{"route":"start_task","classification":"bounded_task","taskShape":"approval_gated_task","level":"low","estimatedMinutes":1,"requestedOutputFormats":null,"responseLanguage":"ko","reason":"calendar delete needs approval first","userFacingReply":""}`,
@@ -2744,9 +2745,6 @@ func TestConnectorRuntimeAnswersPendingConfirmationQuestionWithoutLaunching(t *t
 			},
 			"blueclaw_confirmation_message": {
 				`{"reply":"내일 휴가 일정을 캘린더에서 삭제하는 것으로 이해했습니다. 승인하면 바로 진행하겠습니다."}`,
-			},
-			"blueclaw_reply": {
-				`{"reply":"요청하신 작업은 취소했습니다."}`,
 			},
 		},
 	})
@@ -3003,7 +3001,7 @@ func TestConnectorRuntimeContinuesWaitingUserInputGoal(t *testing.T) {
 		HTTPClient: testHTTPDoer(func(request *http.Request) (*http.Response, error) {
 			return &http.Response{
 				StatusCode: http.StatusOK,
-				Body:       io.NopCloser(strings.NewReader(`{"status":"ok","content":"sent","result":{"messageID":"dm-1"}}`)),
+				Body:       io.NopCloser(strings.NewReader(`{"provider":"capabilityd","selectedBackend":"device","toolName":"message.send","outcome":"succeeded","status":"ok","content":"sent","result":{"messageID":"dm-1"}}`)),
 				Header:     http.Header{"Content-Type": []string{"application/json"}},
 			}, nil
 		}),
@@ -3117,7 +3115,7 @@ func TestConnectorRuntimeAddsCalendarEventWithoutApproval(t *testing.T) {
 			invokedTools = append(invokedTools, strings.TrimPrefix(request.URL.Path, "/v1/tools/"))
 			return &http.Response{
 				StatusCode: http.StatusOK,
-				Body:       io.NopCloser(strings.NewReader(`{"status":"ok","content":"calendar event created","result":{"eventID":"event-1"}}`)),
+				Body:       io.NopCloser(strings.NewReader(`{"provider":"capabilityd","selectedBackend":"device","toolName":"calendar.add","outcome":"succeeded","status":"ok","content":"calendar event created","result":{"eventID":"event-1"}}`)),
 				Header:     http.Header{"Content-Type": []string{"application/json"}},
 			}, nil
 		}),
@@ -3163,7 +3161,7 @@ func TestConnectorRuntimeReadsTypedCapabilityToolResponse(t *testing.T) {
 			}
 			return &http.Response{
 				StatusCode: http.StatusOK,
-				Body:       io.NopCloser(strings.NewReader(`{"provider":"device","selectedBackend":"device_local","toolName":"browser.snapshot","status":"ok","result":{"url":"https://example.com","snapshotText":"Example","devicePath":"/tmp/internkim-companion-files/screen.png","filename":"screen.png","contentType":"image/png","sizeBytes":123}}`)),
+				Body:       io.NopCloser(strings.NewReader(`{"provider":"companion","selectedBackend":"device","toolName":"browser.snapshot","outcome":"succeeded","status":"ok","result":{"url":"https://example.com","snapshotText":"Example","devicePath":"/tmp/internkim-companion-files/screen.png","filename":"screen.png","contentType":"image/png","sizeBytes":123}}`)),
 				Header:     http.Header{"Content-Type": []string{"application/json"}},
 			}, nil
 		}),

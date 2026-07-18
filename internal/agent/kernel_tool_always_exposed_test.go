@@ -14,11 +14,13 @@ import (
 // model or from required-evidence validation.
 func TestKernelToolsStayExposedEvenWhenAvailabilityDenied(t *testing.T) {
 	deniedTool := func(name string) BoundTool {
+		definition := testToolDescriptor(name)
+		definition.Description = name
 		return BoundTool{
-			Definition:   ToolDefinition{Name: name, Description: name},
+			Definition:   definition,
 			Availability: ToolAvailability{Status: ToolAvailabilityDenied, Reason: "policy"},
 			Handler: func(context.Context, ToolInvocation) (ToolResult, error) {
-				return ToolSuccess("ok"), nil
+				return testToolSuccess("ok"), nil
 			},
 		}
 	}

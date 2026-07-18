@@ -14,8 +14,8 @@ func TestAgentTurnRunnerRecordsToolRequestedEvent(t *testing.T) {
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{RecoveryBudget: exhaustedRecoveryBudgetForTest()})
 	toolRegistry := newTestCapabilityToolSet([]string{"alpha"})
-	toolRegistry.RegisterTool(ToolDefinition{Name: "alpha"}, func(context.Context, ToolInvocation) (ToolResult, error) {
-		return ToolSuccess("alpha result"), nil
+	registerTestTool(toolRegistry, ToolDefinition{Name: "alpha"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return testToolSuccess("alpha result"), nil
 	})
 
 	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
@@ -43,7 +43,7 @@ func TestAgentTurnRunnerTreatsToolFailureAsObservation(t *testing.T) {
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
 	toolRegistry := newTestCapabilityToolSet([]string{"unstable"})
-	toolRegistry.RegisterTool(ToolDefinition{Name: "unstable"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	registerTestTool(toolRegistry, ToolDefinition{Name: "unstable"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		return ToolResult{}, errors.New("tool failed")
 	})
 
@@ -72,8 +72,8 @@ func TestAgentTurnRunnerStoresLargeToolResultAsArtifact(t *testing.T) {
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{ToolResultMaxBytes: 8})
 	toolRegistry := newTestCapabilityToolSet([]string{"large"})
-	toolRegistry.RegisterTool(ToolDefinition{Name: "large"}, func(context.Context, ToolInvocation) (ToolResult, error) {
-		return ToolSuccess(strings.Repeat("x", 32)), nil
+	registerTestTool(toolRegistry, ToolDefinition{Name: "large"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return testToolSuccess(strings.Repeat("x", 32)), nil
 	})
 
 	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{

@@ -37,21 +37,6 @@ type localToolDescriptorSpec struct {
 
 var localToolDescriptorSpecs = []localToolDescriptorSpec{
 	{
-		ID:              "local/task.history",
-		ProviderID:      localToolProviderID,
-		Namespace:       "task",
-		Name:            "task.history",
-		PrivacyClass:    "workspace_task",
-		WorksOffline:    true,
-		OutputSchema:    localToolOutputSchema,
-		Visibility:      agent.ToolVisibilityInternal,
-		PolicyResource:  "tool:task.history",
-		SideEffectClass: agent.ToolSideEffectRead,
-		Completion:      agent.ToolCompletion{Mode: agent.ToolCompletionNone},
-		Idempotency:     agent.ToolIdempotencyNone,
-		Availability:    localToolAvailable,
-	},
-	{
 		ID:              "local/memory.search",
 		ProviderID:      localToolProviderID,
 		Namespace:       "memory",
@@ -108,21 +93,6 @@ var localToolDescriptorSpecs = []localToolDescriptorSpec{
 		Completion:      agent.ToolCompletion{Mode: agent.ToolCompletionNone},
 		Idempotency:     agent.ToolIdempotencyNone,
 		Availability:    localToolAvailable,
-	},
-	{
-		ID:                   "local/browser_handoff.openURL",
-		ProviderID:           localToolProviderID,
-		Namespace:            "browser_handoff",
-		Name:                 "browser_handoff.openURL",
-		PrivacyClass:         "user_browser",
-		RequiresUserPresence: true,
-		OutputSchema:         localToolOutputSchema,
-		Visibility:           agent.ToolVisibilityInternal,
-		PolicyResource:       "tool:browser_handoff.openURL",
-		SideEffectClass:      agent.ToolSideEffectConnect,
-		Completion:           agent.ToolCompletion{Mode: agent.ToolCompletionObservation, Action: "open_browser", TargetKind: "browser"},
-		Idempotency:          agent.ToolIdempotencyNone,
-		Availability:         localToolAvailable,
 	},
 	{
 		ID:                   "local/ask.input",
@@ -255,26 +225,10 @@ var localToolDescriptorSpecs = []localToolDescriptorSpec{
 		Idempotency:     agent.ToolIdempotencyNone,
 		Availability:    localToolAvailable,
 	},
-	{
-		ID:              "local/db.sql",
-		ProviderID:      localToolProviderID,
-		Namespace:       "database",
-		Name:            "db.sql",
-		PrivacyClass:    "workspace_database",
-		WorksOffline:    true,
-		OutputSchema:    localToolOutputSchema,
-		Visibility:      agent.ToolVisibilityInternal,
-		PolicyResource:  "tool:db.sql",
-		SideEffectClass: agent.ToolSideEffectWorkspaceWrite,
-		Completion:      agent.ToolCompletion{Mode: agent.ToolCompletionObservation, Action: "run_sql", TargetKind: "database"},
-		Idempotency:     agent.ToolIdempotencyNone,
-		Availability:    localToolAvailable,
-	},
 }
 
 var (
-	localToolOutputSchema = json.RawMessage(`{"type":"object"}`)
-	localToolAvailable    = agent.ToolAvailability{Status: agent.ToolAvailabilityAvailable}
+	localToolAvailable = agent.ToolAvailability{Status: agent.ToolAvailabilityAvailable}
 )
 
 func (provider localToolProvider) ProviderID() string {
@@ -368,7 +322,6 @@ func validateLocalToolDescriptorSpec(spec localToolDescriptorSpec) error {
 
 func (toolCatalogBuilder *ToolCatalogBuilder) registerLocalTools(toolSet *agent.ToolSet, request ToolCatalogRequest, handlerContext toolHandlerContext) {
 	handlerToolSet := agent.NewToolSet(nil)
-	toolCatalogBuilder.registerTaskHistoryTool(handlerToolSet, request)
 	toolCatalogBuilder.registerMemoryTool(handlerToolSet, request)
 	toolCatalogBuilder.registerBuiltInTools(handlerToolSet, handlerContext)
 	provider := localToolProvider{handlerToolSet: handlerToolSet}
