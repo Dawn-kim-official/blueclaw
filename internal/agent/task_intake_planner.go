@@ -307,16 +307,7 @@ func (turnRouter TurnRouter) planWithLanguageModel(ctx context.Context, request 
 }
 
 func (turnRouter TurnRouter) planWithMessages(ctx context.Context, request AgentRequest, messages []llm.Message) (TurnDecision, error) {
-	maxTokens := turnRouterMaxTokens
-	structuredResponse, errorValue := turnRouter.languageModel.GenerateStructuredResponse(ctx, llm.StructuredResponseRequest{
-		Messages:          messages,
-		GenerationOptions: llm.GenerationOptions{MaxTokens: &maxTokens},
-		StructuredOutputSchema: llm.StructuredOutputSchema{
-			Name:               "blueclaw_turn_router",
-			Document:           turnRouterSchema(request),
-			IsStrictlyEnforced: true,
-		},
-	})
+	structuredResponse, errorValue := turnRouter.generateStructuredResponse(ctx, turnRouterRequest(request, messages))
 	if errorValue != nil {
 		return TurnDecision{}, errorValue
 	}
@@ -327,6 +318,56 @@ func (turnRouter TurnRouter) planWithMessages(ctx context.Context, request Agent
 		return TurnDecision{}, errorValue
 	}
 	return turnDecision, nil
+}
+
+func (turnRouter TurnRouter) generateStructuredResponse(ctx context.Context, request llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
+	structuredResponse, errorValue := turnRouter.languageModel.GenerateStructuredResponse(ctx, request)
+	if errorValue == nil {
+		return structuredResponse, nil
+	}
+	if errors.Is(errorValue, context.Canceled) || errors.Is(errorValue, context.DeadlineExceeded) || ctx.Err() != nil {
+		return llm.StructuredResponse{}, errorValue
+	}
+	correction, isCorrectable := llm.StructuredOutputCorrectionFromError(errorValue)
+	if !isCorrectable {
+		return llm.StructuredResponse{}, errorValue
+	}
+	correctionRequest := request
+	correctionRequest.Messages = append([]llm.Message{}, request.Messages...)
+	correctionRequest.Messages = append(correctionRequest.Messages, llm.Message{
+		Role:    "system",
+		Content: turnRouterCorrectionInstruction(correction),
+	})
+	return turnRouter.languageModel.GenerateStructuredResponse(ctx, correctionRequest)
+}
+
+func turnRouterRequest(request AgentRequest, messages []llm.Message) llm.StructuredResponseRequest {
+	maxTokens := turnRouterMaxTokens
+	return llm.StructuredResponseRequest{
+		Messages:          messages,
+		GenerationOptions: llm.GenerationOptions{MaxTokens: &maxTokens},
+		StructuredOutputSchema: llm.StructuredOutputSchema{
+			Name:               "blueclaw_turn_router",
+			Document:           turnRouterSchema(request),
+			IsStrictlyEnforced: true,
+		},
+	}
+}
+
+func turnRouterCorrectionInstruction(correction llm.StructuredOutputCorrection) string {
+	messageParts := []string{
+		"The previous response did not match the required structured output.",
+		"Regenerate the complete response against the same schema.",
+		"Correction code: " + correction.Code + ".",
+		"Diagnostic category: " + string(correction.Diagnostic.Category) + ".",
+	}
+	if correction.Diagnostic.FinishReason != "" {
+		messageParts = append(messageParts, "Finish reason: "+string(correction.Diagnostic.FinishReason)+".")
+	}
+	for _, issue := range correction.Diagnostic.ValidationIssues {
+		messageParts = append(messageParts, "Validation issue: "+issue.FieldPath+" ("+string(issue.Code)+").")
+	}
+	return strings.Join(messageParts, " ")
 }
 
 func (turnRouter TurnRouter) reviewClarificationDecision(ctx context.Context, request AgentRequest, decision TurnDecision) (TurnDecision, error) {
