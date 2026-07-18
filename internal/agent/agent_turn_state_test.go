@@ -261,6 +261,180 @@ func TestDecideAgentActionNativeChatRetryUsesExactDiagnosticTool(t *testing.T) {
 	}
 }
 
+func TestDecideAgentActionNativeChatRetryUsesFirstPendingContractOperation(t *testing.T) {
+	correctionError := testStructuredOutputCorrectionError{correction: llm.StructuredOutputCorrection{
+		Code: "structured_output_invalid",
+		Diagnostic: llm.StructuredOutputDiagnostic{
+			Category:     llm.StructuredOutputDiagnosticFinishReason,
+			FinishReason: "stop",
+		},
+	}}
+	testCases := []struct {
+		name             string
+		observations     []turnObservation
+		expectedToolName string
+	}{
+		{name: "first operation", expectedToolName: "file.write"},
+		{
+			name: "next operation",
+			observations: []turnObservation{{
+				ObservationID: "observation-1",
+				Action:        "continue",
+				Tool:          "file.write",
+				ToolID:        "kernel:file.write",
+				ToolInput:     json.RawMessage(`{"path":"report.txt"}`),
+				Output:        ToolOutput{Content: "written"},
+			}},
+			expectedToolName: TerminalRunToolName,
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			state := nativeAgentActionContractState()
+			state.Observations = testCase.observations
+			provider := nativeAgentActionLanguageModel{
+				chatErrors: []error{correctionError, nil},
+				chatResponses: []llm.ChatCompletionResponse{
+					{},
+					nativeAgentActionChatResponse(testCase.expectedToolName, `{}`),
+				},
+			}
+
+			_, errorValue := DecideAgentAction(context.Background(), &provider, state)
+			if errorValue != nil {
+				t.Fatalf("expected corrected native action: %v", errorValue)
+			}
+			if string(provider.chatRequests[0].ToolChoice) != `"required"` {
+				t.Fatalf("expected initial model choice to remain required, got %s", provider.chatRequests[0].ToolChoice)
+			}
+			retryRequest := provider.chatRequests[1]
+			if len(retryRequest.Tools) != 1 || retryRequest.Tools[0].Function.Name != testCase.expectedToolName {
+				t.Fatalf("expected first pending contract operation %q, got %+v", testCase.expectedToolName, retryRequest.Tools)
+			}
+			expectedToolChoice := `{"type":"function","function":{"name":"` + testCase.expectedToolName + `"}}`
+			if string(retryRequest.ToolChoice) != expectedToolChoice {
+				t.Fatalf("expected named contract tool choice %s, got %s", expectedToolChoice, retryRequest.ToolChoice)
+			}
+		})
+	}
+}
+
+func TestDecideAgentActionNativeChatRetryPreservesModelChoiceOutsidePendingContract(t *testing.T) {
+	correctionError := testStructuredOutputCorrectionError{correction: llm.StructuredOutputCorrection{
+		Code: "structured_output_invalid",
+		Diagnostic: llm.StructuredOutputDiagnostic{
+			Category:     llm.StructuredOutputDiagnosticFinishReason,
+			FinishReason: "stop",
+		},
+	}}
+	testCases := []struct {
+		name         string
+		updateState  func(agentTaskState) agentTaskState
+		expectedCall string
+	}{
+		{
+			name: "contract satisfied",
+			updateState: func(state agentTaskState) agentTaskState {
+				state.Observations = []turnObservation{
+					successfulContractObservation("observation-1", "file.write", "kernel:file.write", `{"path":"report.txt"}`),
+					successfulContractObservation("observation-2", TerminalRunToolName, "kernel:terminal.run", `{"command":"wc report.txt"}`),
+				}
+				return state
+			},
+			expectedCall: "finish",
+		},
+		{
+			name: "failure debt",
+			updateState: func(state agentTaskState) agentTaskState {
+				state.Observations = []turnObservation{{
+					ObservationID: "observation-1",
+					Action:        "continue",
+					Tool:          "file.write",
+					ToolInputKey:  "file.write\x00{}",
+					Failure:       &ToolFailure{Code: "write_failed"},
+				}}
+				return state
+			},
+			expectedCall: "fail",
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			state := testCase.updateState(nativeAgentActionContractState())
+			provider := nativeAgentActionLanguageModel{
+				chatErrors: []error{correctionError, nil},
+				chatResponses: []llm.ChatCompletionResponse{
+					{},
+					nativeAgentActionChatResponse(testCase.expectedCall, `{}`),
+				},
+			}
+
+			_, errorValue := DecideAgentAction(context.Background(), &provider, state)
+			if errorValue != nil {
+				t.Fatalf("expected corrected native action: %v", errorValue)
+			}
+			retryRequest := provider.chatRequests[1]
+			if string(retryRequest.ToolChoice) != `"required"` || len(retryRequest.Tools) <= 1 {
+				t.Fatalf("expected model choice to remain open, got choice=%s tools=%+v", retryRequest.ToolChoice, retryRequest.Tools)
+			}
+		})
+	}
+}
+
+func TestDecideAgentActionNativeChatRetryFailsClosedWhenContractToolIsUnavailable(t *testing.T) {
+	correctionError := testStructuredOutputCorrectionError{correction: llm.StructuredOutputCorrection{
+		Code:       "structured_output_invalid",
+		Diagnostic: llm.StructuredOutputDiagnostic{Category: llm.StructuredOutputDiagnosticFinishReason, FinishReason: "stop"},
+	}}
+	state := nativeAgentActionContractState()
+	state.Request.OutcomeContract.OperationContract.Requirements[0].ToolName = "missing.tool"
+	provider := nativeAgentActionLanguageModel{chatError: correctionError}
+
+	_, errorValue := DecideAgentAction(context.Background(), &provider, state)
+
+	if errorValue == nil || errorValue.Error() != correctionError.Error() {
+		t.Fatalf("expected original correction error, got %v", errorValue)
+	}
+	if provider.chatCalls != 1 || provider.structuredCalls != 0 {
+		t.Fatalf("expected unavailable contract tool to fail closed, got chat=%d structured=%d", provider.chatCalls, provider.structuredCalls)
+	}
+}
+
+func TestFirstPendingOperationToolNameRequiresDistinctObservations(t *testing.T) {
+	state := nativeAgentActionContractState()
+	state.Request.OutcomeContract.OperationContract.Requirements = []OperationRequirement{
+		{
+			RequirementID: "operation-1",
+			ToolID:        "kernel:file.write",
+			ToolName:      "file.write",
+			InputMode:     OperationInputContainsExplicit,
+			RequiredInput: json.RawMessage(`{"path":"report.txt"}`),
+		},
+		{
+			RequirementID: "operation-2",
+			ToolID:        "kernel:file.write",
+			ToolName:      "file.write",
+			InputMode:     OperationInputContainsExplicit,
+			RequiredInput: json.RawMessage(`{"path":"report.txt"}`),
+		},
+	}
+	firstObservation := successfulContractObservation("observation-1", "file.write", "kernel:file.write", `{"path":"report.txt"}`)
+	state.Observations = []turnObservation{firstObservation}
+
+	if toolName := firstPendingOperationToolName(state); toolName != "file.write" {
+		t.Fatalf("expected the repeated occurrence to remain pending, got %q", toolName)
+	}
+
+	secondObservation := firstObservation
+	secondObservation.ObservationID = "observation-2"
+	state.Observations = append(state.Observations, secondObservation)
+	if toolName := firstPendingOperationToolName(state); toolName != "" {
+		t.Fatalf("expected two observations to satisfy two occurrences, got %q", toolName)
+	}
+}
+
 func TestDecideAgentActionNativeChatStopsAfterOneCorrectionRetry(t *testing.T) {
 	correctionError := testStructuredOutputCorrectionError{correction: llm.StructuredOutputCorrection{
 		Code: "provider_response_invalid",
@@ -400,6 +574,41 @@ func nativeAgentActionTestStateWithTools(toolNames ...string) agentTaskState {
 		})
 	}
 	return agentTaskState{Request: AgentTurnRequest{Prompt: "use a tool", ToolSet: toolSet}}
+}
+
+func nativeAgentActionContractState() agentTaskState {
+	state := nativeAgentActionTestStateWithTools("file.write", TerminalRunToolName)
+	state.Request.OutcomeContract.OperationContract = &OperationContract{
+		Version: operationContractVersion,
+		Requirements: []OperationRequirement{
+			{
+				RequirementID: "operation-1",
+				ToolID:        "kernel:file.write",
+				ToolName:      "file.write",
+				InputMode:     OperationInputContainsExplicit,
+				RequiredInput: json.RawMessage(`{"path":"report.txt"}`),
+			},
+			{
+				RequirementID: "operation-2",
+				ToolID:        "kernel:terminal.run",
+				ToolName:      TerminalRunToolName,
+				InputMode:     OperationInputContainsExplicit,
+				RequiredInput: json.RawMessage(`{"command":"wc report.txt"}`),
+			},
+		},
+	}
+	return state
+}
+
+func successfulContractObservation(observationID string, toolName string, toolID string, toolInput string) turnObservation {
+	return turnObservation{
+		ObservationID: observationID,
+		Action:        "continue",
+		Tool:          toolName,
+		ToolID:        toolID,
+		ToolInput:     json.RawMessage(toolInput),
+		Output:        ToolOutput{Content: "succeeded"},
+	}
 }
 
 func nativeAgentActionChatResponse(toolName string, arguments string) llm.ChatCompletionResponse {
