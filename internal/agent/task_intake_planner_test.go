@@ -227,6 +227,9 @@ func TestTaskIntakePlannerUsesStructuredModelDecision(t *testing.T) {
 	if !strings.Contains(languageModel.requests[0].StructuredOutputSchema.Document, `"requestedOutputFormats"`) {
 		t.Fatalf("expected requested output formats in intake schema, got %s", languageModel.requests[0].StructuredOutputSchema.Document)
 	}
+	if !strings.Contains(languageModel.requests[0].StructuredOutputSchema.Document, `"json"`) {
+		t.Fatalf("expected JSON in requested output formats, got %s", languageModel.requests[0].StructuredOutputSchema.Document)
+	}
 	if !strings.Contains(languageModel.requests[0].StructuredOutputSchema.Document, `"requiredEvidence"`) {
 		t.Fatalf("expected required evidence in intake schema, got %s", languageModel.requests[0].StructuredOutputSchema.Document)
 	}
@@ -251,6 +254,9 @@ func TestTaskIntakePlannerUsesStructuredModelDecision(t *testing.T) {
 	}
 	if !strings.Contains(joinedMessageContent(languageModel.requests[0].Messages), "Do not ignore jokes") {
 		t.Fatal("expected intake prompt to guide playful addressed remarks")
+	}
+	if !strings.Contains(joinedMessageContent(languageModel.requests[0].Messages), "Use maintenance_task or approval_gated_task only for work that changes state") {
+		t.Fatal("expected intake prompt to distinguish mutations from reads and tool-free replies")
 	}
 	if !strings.Contains(joinedMessageContent(languageModel.requests[0].Messages), "leave it null for reading, summarizing, searching, or analyzing an input attachment") {
 		t.Fatal("expected intake prompt to separate input attachments from file deliverables")
@@ -556,6 +562,29 @@ func TestTaskIntakePlannerKeepsStructuredOutputFormats(t *testing.T) {
 	}
 	if !hasArtifactOutputFormat(decision.RequestedOutputFormats) {
 		t.Fatalf("expected requested output formats to imply file artifact work, got %+v", decision.RequestedOutputFormats)
+	}
+}
+
+func TestTaskIntakePlannerKeepsJSONOutputFormat(t *testing.T) {
+	languageModel := &sequenceLanguageModel{contents: []string{
+		`{"route":"start_task","classification":"bounded_task","taskShape":"maintenance_task","level":"low","estimatedMinutes":1,"requestedOutputFormats":["json"],"expectedResults":[{"id":"memo","type":"file","description":"JSON memo","required":true}],"requiredEvidence":["file.write","file.deliver"],"responseLanguage":"ko","reason":"create and deliver a JSON memo","userFacingReply":"","initialToolNames":["file.write","file.deliver"],"priorTaskReference":"none"}`,
+	}}
+	toolRegistry := newTestToolSet([]string{"file.write", "file.deliver"})
+	planner := NewTaskIntakePlanner(languageModel, IntakeOptions{IsEnabled: true})
+
+	decision := mustPlanIntake(t, planner, AgentRequest{
+		Prompt:  "고객지원 FAQ 개편 작업용 JSON 메모를 만들어줘",
+		ToolSet: toolRegistry,
+	})
+
+	if !slices.Equal(decision.RequestedOutputFormats, []string{"json"}) {
+		t.Fatalf("expected JSON output format, got %+v", decision.RequestedOutputFormats)
+	}
+	if !hasArtifactOutputFormat(decision.RequestedOutputFormats) {
+		t.Fatalf("expected JSON to be an artifact output format, got %+v", decision.RequestedOutputFormats)
+	}
+	if !slices.Equal(attachmentSuffixesForRequestedOutputFormats(decision.RequestedOutputFormats), []string{".json"}) {
+		t.Fatalf("expected JSON attachment suffix, got %+v", attachmentSuffixesForRequestedOutputFormats(decision.RequestedOutputFormats))
 	}
 }
 
@@ -1561,7 +1590,7 @@ func TestAgentKernelQuickReplyAllowsToolFreeReplyWithoutAskInput(t *testing.T) {
 
 func TestAgentKernelRunTurnPreservesCheckpointSender(t *testing.T) {
 	intakeLanguageModel := &sequenceLanguageModel{contents: []string{
-		`{"route":"start_task","classification":"bounded_task","taskShape":"maintenance_task","level":"low","estimatedMinutes":1,"requestedOutputFormats":null,"initialToolNames":["alpha"],"reason":"needs tool","userFacingReply":""}`,
+		`{"route":"start_task","classification":"bounded_task","taskShape":"maintenance_task","level":"low","estimatedMinutes":1,"requestedOutputFormats":null,"requiredEvidence":["alpha"],"initialToolNames":["alpha"],"reason":"needs tool","userFacingReply":""}`,
 	}}
 	replyLanguageModel := &sequenceLanguageModel{contents: []string{
 		`{"action":"continue","message":"확인 중입니다.","toolName":"alpha","toolInput":{"value":"one"}}`,

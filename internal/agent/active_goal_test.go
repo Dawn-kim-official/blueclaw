@@ -68,6 +68,52 @@ func TestNormalizePersistedActiveGoalDoesNotMutateSource(t *testing.T) {
 	}
 }
 
+func TestNormalizeOutcomeContractRequiresDeliveryForRequiredFileResult(t *testing.T) {
+	contract := normalizeOutcomeContract(OutcomeContract{
+		RequiredEvidenceTools: []string{"file.write"},
+		ExpectedResults: []ExpectedResult{{
+			Type:        ExpectedResultTypeFile,
+			Description: "attached report",
+			Required:    true,
+		}},
+	})
+
+	assertSameStrings(t, contract.RequiredEvidenceTools, []string{"file.write", FileDeliverToolName})
+	if contract.ArtifactRequirement != ArtifactRequirementRequired {
+		t.Fatalf("expected required artifact, got %q", contract.ArtifactRequirement)
+	}
+}
+
+func TestNormalizePersistedActiveGoalRestoresFileDeliveryInvariant(t *testing.T) {
+	activeGoal := normalizePersistedActiveGoal(ActiveGoal{OutcomeContract: OutcomeContract{
+		ExpectedResults: []ExpectedResult{{
+			Type:        ExpectedResultTypeFile,
+			Description: "attached report",
+			Required:    true,
+		}},
+	}})
+
+	assertSameStrings(t, activeGoal.OutcomeContract.RequiredEvidenceTools, []string{FileDeliverToolName})
+	if activeGoal.OutcomeContract.ArtifactRequirement != ArtifactRequirementRequired {
+		t.Fatalf("expected persisted required artifact, got %q", activeGoal.OutcomeContract.ArtifactRequirement)
+	}
+}
+
+func TestNormalizeOutcomeContractDoesNotAddDeliveryForMessageResult(t *testing.T) {
+	contract := normalizeOutcomeContract(OutcomeContract{ExpectedResults: []ExpectedResult{{
+		Type:        ExpectedResultTypeMessage,
+		Description: "final reply",
+		Required:    true,
+	}}})
+
+	if len(contract.RequiredEvidenceTools) != 0 {
+		t.Fatalf("expected no delivery requirement, got %+v", contract.RequiredEvidenceTools)
+	}
+	if contract.ArtifactRequirement != ArtifactRequirementNone {
+		t.Fatalf("expected no artifact requirement, got %q", contract.ArtifactRequirement)
+	}
+}
+
 func assertSameStrings(t *testing.T, actual []string, expected []string) {
 	t.Helper()
 	if len(actual) != len(expected) {

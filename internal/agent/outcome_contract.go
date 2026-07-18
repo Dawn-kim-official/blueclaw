@@ -363,6 +363,70 @@ func removeImplicitSiteFileContract(contract OutcomeContract) OutcomeContract {
 	return contract
 }
 
+func dischargeResolvedInputContract(request AgentRequest, turnDecision TurnDecision, contract OutcomeContract) OutcomeContract {
+	if !resolvesActiveGoalInput(request, turnDecision) {
+		return contract
+	}
+	contract.RequiredEvidenceTools = removeToolName(contract.RequiredEvidenceTools, AskInputToolName)
+	contract.RequiredEvidenceAnyOf = removeToolNameGroups(contract.RequiredEvidenceAnyOf, AskInputToolName)
+	contract.SelectedEvidenceHints = removeToolName(contract.SelectedEvidenceHints, AskInputToolName)
+	contract.ExpectedResults = dischargeExpectedResultTool(contract.ExpectedResults, AskInputToolName)
+	contract.OperationContract = removeOperationRequirementsForTool(contract.OperationContract, AskInputToolName)
+	return normalizeOutcomeContract(contract)
+}
+
+func resolvesActiveGoalInput(request AgentRequest, turnDecision TurnDecision) bool {
+	if request.ActiveGoal.Status != ActiveGoalStatusWaitingUserInput {
+		return false
+	}
+	taskRunID := strings.TrimSpace(request.ActiveGoal.TaskRunID)
+	if taskRunID == "" || taskRunID != strings.TrimSpace(request.ExistingTaskRunID) {
+		return false
+	}
+	return turnDecision.Route == TurnRouteContinueTask || turnDecision.Route == TurnRouteReviseTask
+}
+
+func dischargeExpectedResultTool(results []ExpectedResult, toolName string) []ExpectedResult {
+	filteredResults := []ExpectedResult{}
+	for _, result := range results {
+		if !expectedResultRequiresNamedTool(result, toolName) {
+			filteredResults = append(filteredResults, result)
+			continue
+		}
+		result.AcceptanceHints = removeToolName(result.AcceptanceHints, toolName)
+		if len(result.AcceptanceHints) == 0 {
+			continue
+		}
+		filteredResults = append(filteredResults, result)
+	}
+	return filteredResults
+}
+
+func expectedResultRequiresNamedTool(result ExpectedResult, toolName string) bool {
+	for _, hint := range result.AcceptanceHints {
+		if ToolNamesMatch(hint, toolName) {
+			return true
+		}
+	}
+	return false
+}
+
+func removeOperationRequirementsForTool(contract *OperationContract, toolName string) *OperationContract {
+	if contract == nil {
+		return nil
+	}
+	requirements := []OperationRequirement{}
+	for _, requirement := range contract.Requirements {
+		if !ToolNamesMatch(requirement.ToolName, toolName) {
+			requirements = append(requirements, requirement)
+		}
+	}
+	if len(requirements) == 0 {
+		return nil
+	}
+	return &OperationContract{Version: contract.Version, Requirements: requirements}
+}
+
 func removeToolName(toolNames []string, removedToolName string) []string {
 	values := []string{}
 	for _, toolName := range toolNames {
@@ -829,6 +893,8 @@ func attachmentSuffixesForRequestedOutputFormats(formats []string) []string {
 			suffixes = append(suffixes, ".xlsx")
 		case "csv":
 			suffixes = append(suffixes, ".csv")
+		case "json":
+			suffixes = append(suffixes, ".json")
 		}
 	}
 	return suffixes
