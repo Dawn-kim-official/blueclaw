@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 
 import { z } from 'zod';
 
+import { buildCapabilityToolCatalog } from './capability_tools.ts';
 import { protocolSchemas, protocolVersion } from './registry.ts';
 
 type SchemaArtifact = {
@@ -11,8 +12,15 @@ type SchemaArtifact = {
   schema: Record<string, unknown>;
 };
 
+type CatalogArtifact = {
+  fileName: string;
+  hash: string;
+  catalog: ReturnType<typeof buildCapabilityToolCatalog>;
+};
+
 export type ProtocolManifest = {
   aggregateHash: string;
+  capabilityToolCatalog: Pick<CatalogArtifact, 'fileName' | 'hash'>;
   protocolVersion: string;
   schemas: Array<Pick<SchemaArtifact, 'fileName' | 'hash' | 'name'>>;
 };
@@ -21,9 +29,20 @@ export function buildProtocolArtifacts() {
   const schemas = Object.entries(protocolSchemas)
     .sort(([left], [right]) => compareCodeUnits(left, right))
     .map(([name, schema]) => buildSchemaArtifact(name, schema));
-  const aggregateHash = calculateHash(schemas.map(({ name, fileName, hash }) => `${name}:${fileName}:${hash}`).join('\n'));
+  const capabilityToolCatalog = buildCatalogArtifact();
+  const artifactHashes = [
+    ...schemas.map(({ name, fileName, hash }) => `${name}:${fileName}:${hash}`),
+    `capability-tool-catalog:${capabilityToolCatalog.fileName}:${capabilityToolCatalog.hash}`,
+  ];
+  const aggregateHash = calculateHash(artifactHashes.join('\n'));
   return {
-    manifest: { aggregateHash, protocolVersion, schemas: schemas.map(withoutSchema) },
+    capabilityToolCatalog,
+    manifest: {
+      aggregateHash,
+      capabilityToolCatalog: withoutCatalog(capabilityToolCatalog),
+      protocolVersion,
+      schemas: schemas.map(withoutSchema),
+    },
     schemas,
   };
 }
@@ -46,8 +65,21 @@ function buildSchemaArtifact(name: string, schema: z.ZodType): SchemaArtifact {
   };
 }
 
+function buildCatalogArtifact(): CatalogArtifact {
+  const catalog = buildCapabilityToolCatalog(protocolVersion);
+  return {
+    fileName: 'capability-tools.json',
+    hash: calculateHash(serializeArtifact(catalog)),
+    catalog,
+  };
+}
+
 function withoutSchema({ fileName, hash, name }: SchemaArtifact) {
   return { fileName, hash, name };
+}
+
+function withoutCatalog({ fileName, hash }: CatalogArtifact) {
+  return { fileName, hash };
 }
 
 function calculateHash(value: string): string {

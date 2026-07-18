@@ -1,0 +1,182 @@
+{
+  "$defs": {
+    "__schema0": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        },
+        {
+          "items": {
+            "$ref": "#/$defs/__schema0"
+          },
+          "type": "array"
+        },
+        {
+          "additionalProperties": {
+            "$ref": "#/$defs/__schema0"
+          },
+          "propertyNames": {
+            "type": "string"
+          },
+          "type": "object"
+        }
+      ]
+    }
+  },
+  "$id": "https://schemas.blueclaw.dev/0.3.0/chat-completion-response.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": {},
+  "properties": {
+    "finishReason": {
+      "enum": [
+        "stop",
+        "length",
+        "tool_calls",
+        "content_filter",
+        "error",
+        "other",
+        "unknown"
+      ],
+      "type": "string"
+    },
+    "message": {
+      "additionalProperties": {},
+      "properties": {
+        "content": {
+          "type": "string"
+        },
+        "role": {
+          "const": "assistant",
+          "type": "string"
+        },
+        "toolCalls": {
+          "items": {
+            "additionalProperties": {},
+            "properties": {
+              "function": {
+                "additionalProperties": {},
+                "properties": {
+                  "arguments": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "minLength": 1,
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "name",
+                  "arguments"
+                ],
+                "type": "object"
+              },
+              "id": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "type": {
+                "const": "function",
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "type",
+              "function"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "role"
+      ],
+      "type": "object"
+    },
+    "model": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "provider": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "providerMetadata": {
+      "$ref": "#/$defs/__schema0"
+    },
+    "selectedBackend": {
+      "enum": [
+        "device",
+        "remote"
+      ],
+      "type": "string"
+    },
+    "usage": {
+      "additionalProperties": {},
+      "properties": {
+        "cacheWriteTokens": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "cachedPromptTokens": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "completionTokens": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "costUSD": {
+          "minimum": 0,
+          "type": "number"
+        },
+        "promptTokens": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "reasoningTokens": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "totalTokens": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "upstreamInferenceCostUSD": {
+          "minimum": 0,
+          "type": "number"
+        }
+      },
+      "required": [
+        "promptTokens",
+        "completionTokens",
+        "totalTokens"
+      ],
+      "type": "object"
+    }
+  },
+  "required": [
+    "finishReason",
+    "provider",
+    "model",
+    "message",
+    "selectedBackend"
+  ],
+  "type": "object"
+}

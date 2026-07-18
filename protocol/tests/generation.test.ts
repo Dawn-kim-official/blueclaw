@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promis
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
-import { replaceGeneratedDirectory } from '../scripts/generate.ts';
+import { checkProtocolArtifacts, generateProtocolArtifacts, replaceGeneratedDirectory } from '../scripts/generate.ts';
 
 describe('protocol artifact generation', () => {
   test('replaces generated artifacts after population succeeds', async () => {
@@ -39,6 +39,25 @@ describe('protocol artifact generation', () => {
       await expect(generation).rejects.toThrow('generation failed');
       expect(await readFile(join(generatedDirectory, 'manifest.json'), 'utf8')).toBe('{"version":"current"}');
       expect(await readdir(parentDirectory)).toEqual(['generated']);
+    } finally {
+      await rm(parentDirectory, { force: true, recursive: true });
+    }
+  });
+
+  test('rejects stale and extra generated artifacts', async () => {
+    const parentDirectory = await mkdtemp(join(tmpdir(), 'blueclaw-protocol-'));
+    const generatedDirectory = join(parentDirectory, 'generated');
+
+    try {
+      await generateProtocolArtifacts(generatedDirectory);
+      await expect(checkProtocolArtifacts(generatedDirectory)).resolves.toBeUndefined();
+
+      await writeFile(join(generatedDirectory, 'capability-tools.json'), '{}');
+      await expect(checkProtocolArtifacts(generatedDirectory)).rejects.toThrow('capability-tools.json');
+
+      await generateProtocolArtifacts(generatedDirectory);
+      await writeFile(join(generatedDirectory, 'extra.json'), '{}');
+      await expect(checkProtocolArtifacts(generatedDirectory)).rejects.toThrow('generated protocol paths differ');
     } finally {
       await rm(parentDirectory, { force: true, recursive: true });
     }
