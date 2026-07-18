@@ -2,6 +2,7 @@ package agentruntime
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
@@ -181,7 +182,36 @@ func (languageModel *capturingScheduleRuntimeLanguageModel) GenerateStructuredRe
 	if request.StructuredOutputSchema.Name == "blueclaw_turn_router" {
 		return llm.StructuredResponse{Content: firstScheduleRuntimeRouterResponse(languageModel.routerContent)}, nil
 	}
+	if request.StructuredOutputSchema.Name == "blueclaw_operation_contract" {
+		return llm.StructuredResponse{Content: scheduledRuntimeOperationContract(request.StructuredOutputSchema.Document)}, nil
+	}
+	if request.StructuredOutputSchema.Name == "blueclaw_operation_contract_review" {
+		return llm.StructuredResponse{Content: `{"isComplete":true,"reason":"scheduled runtime fixture"}`}, nil
+	}
 	return llm.StructuredResponse{Content: languageModel.content}, nil
+}
+
+func scheduledRuntimeOperationContract(schemaDocument string) string {
+	var schema struct {
+		Properties struct {
+			Operations struct {
+				Items struct {
+					Properties struct {
+						ToolName struct {
+							Enum []string `json:"enum"`
+						} `json:"toolName"`
+					} `json:"properties"`
+				} `json:"items"`
+			} `json:"operations"`
+		} `json:"properties"`
+	}
+	json.Unmarshal([]byte(schemaDocument), &schema)
+	operations := make([]map[string]string, 0, len(schema.Properties.Operations.Items.Properties.ToolName.Enum))
+	for _, toolName := range schema.Properties.Operations.Items.Properties.ToolName.Enum {
+		operations = append(operations, map[string]string{"toolName": toolName, "requiredValuesJSON": "{}"})
+	}
+	document, _ := json.Marshal(map[string]any{"operations": operations})
+	return string(document)
 }
 
 func scheduledRuntimeTurnRouterResponse() string {

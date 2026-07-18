@@ -680,6 +680,7 @@ func capabilityToolDescriptors(toolDescriptors []config.CapabilityToolDescriptor
 			WorksOffline:         toolDescriptor.WorksOffline,
 			InputSchema:          toolDescriptor.InputSchema,
 			OutputSchema:         toolDescriptor.OutputSchema,
+			ResultContract:       capabilityToolResultContract(toolDescriptor.ResultContract),
 			PolicyResource:       toolDescriptor.PolicyResource,
 			SideEffectClass:      toolDescriptor.SideEffectClass,
 			RequiresApproval:     toolDescriptor.RequiresApproval,
@@ -696,6 +697,25 @@ func capabilityToolDescriptors(toolDescriptors []config.CapabilityToolDescriptor
 		})
 	}
 	return catalogToolDescriptors
+}
+
+func capabilityToolResultContract(contract *config.CapabilityToolResultContract) *agentruntime.CapabilityToolResultContract {
+	if contract == nil {
+		return nil
+	}
+	effects := make([]agentruntime.CapabilityResourceEffectContract, 0, len(contract.Effects))
+	for _, effectContract := range contract.Effects {
+		effects = append(effects, agentruntime.CapabilityResourceEffectContract{
+			ObjectType:     effectContract.ObjectType,
+			Effect:         effectContract.Effect,
+			ResultField:    effectContract.ResultField,
+			EffectIdentity: effectContract.EffectIdentity,
+		})
+	}
+	return &agentruntime.CapabilityToolResultContract{
+		Schema:  contract.Schema,
+		Effects: effects,
+	}
 }
 
 func capabilityCompletionEvidence(completionEvidence *config.CapabilityCompletionEvidence) *agentruntime.CapabilityCompletionEvidence {

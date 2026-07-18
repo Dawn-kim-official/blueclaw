@@ -158,6 +158,7 @@ type turnObservation struct {
 	ToolID               string               `json:"toolID,omitempty"`
 	ToolInput            json.RawMessage      `json:"toolInput,omitempty"`
 	Output               ToolOutput           `json:"output,omitempty"`
+	Effects              []ResourceEffect     `json:"effects,omitempty"`
 	Failure              *ToolFailure         `json:"failure,omitempty"`
 	Summary              string               `json:"summary,omitempty"`
 	ImageRefs            []ToolResultImageRef `json:"imageRefs,omitempty"`

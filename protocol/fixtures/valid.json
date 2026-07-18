@@ -47,6 +47,11 @@
   "capability-descriptor": [
     {
       "name": "calendar.add",
+      "canonicalName": "calendar.add",
+      "namespace": "calendar",
+      "modelName": "calendar.add",
+      "modelVisibility": "visible",
+      "modelVisible": true,
       "description": "Create a new calendar event",
       "version": "1",
       "privacyClass": "workspace_calendar",
@@ -70,15 +75,32 @@
           "title",
           "startISO",
           "endISO"
-        ]
+        ],
+        "additionalProperties": false
       },
+      "outputSchema": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      },
+      "inputSchemaStrict": true,
+      "outputSchemaStrict": true,
       "policyResource": "tool:calendar.add",
       "sideEffectClass": "workspace_write",
+      "sideEffect": "workspace_write",
       "requiresApproval": false,
       "completionEvidence": {
         "mode": "success",
         "action": "write_calendar",
         "targetKind": "calendar"
+      },
+      "availability": {
+        "state": "ok"
+      },
+      "idempotency": {
+        "supported": false,
+        "required": false,
+        "scope": "operation"
       }
     }
   ],
@@ -89,11 +111,40 @@
       "capabilities": [
         {
           "name": "llm.structured",
+          "canonicalName": "llm.structured",
+          "namespace": "llm",
+          "modelName": "llm.structured",
+          "modelVisibility": "hidden",
+          "modelVisible": false,
+          "description": "Generate structured output",
           "version": "1",
           "privacyClass": "local_model",
           "estimatedLatency": "medium",
           "requiresUserPresence": false,
-          "worksOffline": true
+          "worksOffline": true,
+          "inputSchema": {
+            "type": "object",
+            "properties": {},
+            "additionalProperties": false
+          },
+          "outputSchema": {
+            "type": "object",
+            "properties": {},
+            "additionalProperties": false
+          },
+          "inputSchemaStrict": true,
+          "outputSchemaStrict": true,
+          "policyResource": "tool:llm.structured",
+          "sideEffectClass": "computation",
+          "sideEffect": "computation",
+          "availability": {
+            "state": "ok"
+          },
+          "idempotency": {
+            "supported": false,
+            "required": false,
+            "scope": "operation"
+          }
         }
       ]
     }
@@ -485,6 +536,14 @@
       "provider": "internkim",
       "selectedBackend": "device",
       "toolName": "calendar.add",
+      "outcome": "succeeded",
+      "effects": [
+        {
+          "objectType": "calendar_event",
+          "effect": "created",
+          "id": "event-1"
+        }
+      ],
       "status": "success",
       "content": "{\"eventID\":\"event-1\"}",
       "isError": false,

@@ -32,6 +32,32 @@ func TestTaskIntakeControllerStartsUnquiesced(t *testing.T) {
 	}
 }
 
+func TestCapabilityToolDescriptorsPreserveResultContracts(t *testing.T) {
+	descriptors := capabilityToolDescriptors([]config.CapabilityToolDescriptor{{
+		Name: "task.add",
+		ResultContract: &config.CapabilityToolResultContract{
+			Schema: json.RawMessage(`{"type":"object","properties":{"taskID":{"type":"string"}},"required":["taskID"],"additionalProperties":false}`),
+			Effects: []config.CapabilityResourceEffectContract{{
+				ObjectType:     "task",
+				Effect:         "created",
+				ResultField:    "taskID",
+				EffectIdentity: "id",
+			}},
+		},
+	}})
+
+	if len(descriptors) != 1 || descriptors[0].ResultContract == nil {
+		t.Fatalf("expected mapped result contract, got %+v", descriptors)
+	}
+	if len(descriptors[0].ResultContract.Effects) != 1 ||
+		descriptors[0].ResultContract.Effects[0].ObjectType != "task" ||
+		descriptors[0].ResultContract.Effects[0].Effect != "created" ||
+		descriptors[0].ResultContract.Effects[0].ResultField != "taskID" ||
+		descriptors[0].ResultContract.Effects[0].EffectIdentity != "id" {
+		t.Fatalf("expected mapped resource effect, got %+v", descriptors[0].ResultContract)
+	}
+}
+
 func TestResolveLanguageModelProviderDefaultsToCapabilityLLM(t *testing.T) {
 	t.Setenv("OPENROUTER_API_KEY", "must-not-be-read")
 	runtimeConfiguration := config.RuntimeConfiguration{}

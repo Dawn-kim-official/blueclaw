@@ -60,7 +60,6 @@ type VirtualSessionScenario struct {
 	CapabilityToolNames       []string
 	CapabilityToolDescriptors []agentruntime.CapabilityToolDescriptor
 	InitialToolNames          []string
-	InitialTaskRuns           []VirtualTaskRunFixture
 	InitialMemory             []memory.MemoryFact
 	RouterRequiredEvidence    []string
 	RouterTaskShape           agent.TaskShape
@@ -73,13 +72,6 @@ type VirtualSessionScenario struct {
 	TurnOptions               agent.TurnOptions
 	ProgressWriter            io.Writer
 	Turns                     []VirtualTurn
-}
-
-type VirtualTaskRunFixture struct {
-	Prompt        string
-	Result        string
-	FailureReason string
-	Status        task.TaskStatus
 }
 
 type VirtualResponseExpectation string
@@ -206,7 +198,6 @@ type VirtualSessionHarness struct {
 	memoryStore      *virtualMemoryStore
 	runtime          *connectors.ConnectorRuntime
 	adapter          *virtualAdapter
-	history          []connectors.VisibleContextMessage
 	cleanup          func()
 }
 
@@ -632,7 +623,6 @@ func NewVirtualSessionHarness(scenario VirtualSessionScenario) (*VirtualSessionH
 
 	taskEventService := task.NewTaskEventService()
 	taskRunService := task.NewTaskRunService(taskEventService)
-	seedVirtualTaskRuns(taskRunService, scenario.InitialTaskRuns)
 	taskStepService := task.NewTaskStepService()
 	taskArtifactService := task.NewTaskArtifactService()
 	scriptedModel := actionScriptedLanguageModelForScenario(scenario)
@@ -691,7 +681,7 @@ func NewVirtualSessionHarness(scenario VirtualSessionScenario) (*VirtualSessionH
 	capabilityToolNames := virtualCapabilityToolNames(scenario)
 	if len(capabilityToolNames) > 0 {
 		var capabilityCleanup func()
-		capabilityClient, capabilityCleanup = startVirtualCapabilityServer(capabilityToolNames, workspacePath, taskRunService)
+		capabilityClient, capabilityCleanup = startVirtualCapabilityServer(capabilityToolNames, workspacePath)
 		runtime.UseCapabilityToolDescriptors(capabilityClient, virtualCapabilityToolDescriptors(scenario))
 		cleanup = capabilityCleanup
 	}
@@ -1155,14 +1145,13 @@ type virtualCapabilityService struct {
 	mutex          sync.Mutex
 	toolNameByName map[string]bool
 	workspacePath  string
-	taskRunService *task.TaskRunService
 	tasks          []virtualCapabilityRecord
 	events         []virtualCapabilityRecord
 	site           *virtualCapabilityRecord
 	sitePublished  bool
 }
 
-func startVirtualCapabilityServer(toolNames []string, workspacePath string, taskRunService *task.TaskRunService) (capability.Client, func()) {
+func startVirtualCapabilityServer(toolNames []string, workspacePath string) (capability.Client, func()) {
 	toolNameByName := map[string]bool{}
 	for _, toolName := range toolNames {
 		trimmedToolName := strings.TrimSpace(toolName)
@@ -1170,24 +1159,12 @@ func startVirtualCapabilityServer(toolNames []string, workspacePath string, task
 			toolNameByName[trimmedToolName] = true
 		}
 	}
-	service := &virtualCapabilityService{toolNameByName: toolNameByName, workspacePath: workspacePath, taskRunService: taskRunService}
+	service := &virtualCapabilityService{toolNameByName: toolNameByName, workspacePath: workspacePath}
 	server := httptest.NewServer(http.HandlerFunc(service.handleRequest))
 	return capability.Client{
 		Endpoint:   server.URL,
 		HTTPClient: server.Client(),
 	}, server.Close
-}
-
-func seedVirtualTaskRuns(taskRunService *task.TaskRunService, fixtures []VirtualTaskRunFixture) {
-	for _, fixture := range fixtures {
-		taskRun := taskRunService.CreateTaskRun("person-1", "virtual-history", fixture.Prompt)
-		switch fixture.Status {
-		case task.TaskStatusFailed:
-			_, _ = taskRunService.FailTaskRun(taskRun.TaskRunID, fixture.FailureReason)
-		case task.TaskStatusCompleted:
-			_, _ = taskRunService.CompleteTaskRun(taskRun.TaskRunID, fixture.Result)
-		}
-	}
 }
 
 func (service *virtualCapabilityService) handleRequest(responseWriter http.ResponseWriter, request *http.Request) {
@@ -1217,7 +1194,7 @@ func virtualCapabilityCatalogResponse(toolNameByName map[string]bool) string {
 	sort.Strings(toolNames)
 	descriptors := []string{}
 	for _, toolName := range toolNames {
-		descriptors = append(descriptors, `{"name":`+quote(toolName)+`,"description":"Virtual capability `+toolName+`","inputSchema":`+virtualCapabilityInputSchema(toolName)+`}`)
+		descriptors = append(descriptors, `{"name":`+quote(toolName)+`,"description":"Virtual capability `+toolName+`","inputSchema":`+virtualCapabilityInputSchema(toolName)+virtualCapabilityResultContract(toolName)+`}`)
 	}
 	return `{"deviceCapabilities":[` + strings.Join(descriptors, ",") + `]}`
 }
@@ -1485,7 +1462,7 @@ func virtualCapabilityInputSchema(toolName string) string {
 	case "task.add":
 		return `{"type":"object","properties":{"title":{"type":"string"},"goal":{"type":"string"},"size":{"type":"string","enum":["XS","S","M","L","XL","XXL"]},"status":{"type":"string","enum":["예정","진행","완료","일시정지","기각","중단"]},"startDate":{"type":"string"},"endDate":{"type":"string"},"targetPersonHint":{"type":"string"},"participantPersonHints":{"type":"array","items":{"type":"string"}}},"required":["title"],"additionalProperties":false}`
 	case "task.list":
-		return `{"type":"object","properties":{"query":{"type":"string"},"targetPersonHint":{"type":"string"},"weekFrom":{"type":"integer"},"weekTo":{"type":"integer"},"status":{"type":"string"},"limit":{"type":"integer"}},"additionalProperties":false}`
+		return `{"type":"object","properties":{"query":{"type":"string"},"targetPersonHint":{"type":"string"},"scope":{"type":"string","enum":["self","all"]},"weekFrom":{"type":"integer"},"weekTo":{"type":"integer"},"status":{"type":"string"},"limit":{"type":"integer"}},"additionalProperties":false}`
 	case "task.update":
 		return `{"type":"object","properties":{"taskID":{"type":"string"},"title":{"type":"string"},"goal":{"type":"string"},"status":{"type":"string","enum":["예정","진행","완료","요청","일시정지","기각","중단"]},"size":{"type":"string","enum":["XS","S","M","L","XL","XXL"]},"category":{"type":"string"},"type":{"type":"string"},"startDate":{"type":"string"},"endDate":{"type":"string"},"flag":{"type":"integer"},"requestReason":{"type":"string"},"decisionReason":{"type":"string"}},"required":["taskID"],"additionalProperties":false}`
 	case "task.delete":
@@ -1509,6 +1486,25 @@ func virtualCapabilityInputSchema(toolName string) string {
 	}
 }
 
+func virtualCapabilityResultContract(toolName string) string {
+	switch toolName {
+	case "task.add":
+		return `,"resultContract":{"schema":` + virtualTaskResultSchema() + `,"effects":[{"objectType":"task","effect":"created","resultField":"taskID","effectIdentity":"id"}]}`
+	case "task.list":
+		return `,"resultContract":{"schema":{"type":"object","properties":{"tasks":{"type":"array","items":` + virtualTaskResultSchema() + `},"count":{"type":"integer"},"scope":{"type":"string"}},"required":["tasks","count","scope"],"additionalProperties":false}}`
+	case "task.update":
+		return `,"resultContract":{"schema":` + virtualTaskResultSchema() + `,"effects":[{"objectType":"task","effect":"updated","resultField":"taskID","effectIdentity":"id"}]}`
+	case "task.delete":
+		return `,"resultContract":{"schema":{"type":"object","properties":{"taskID":{"type":"string"},"deleted":{"const":true}},"required":["taskID","deleted"],"additionalProperties":false},"effects":[{"objectType":"task","effect":"deleted","resultField":"taskID","effectIdentity":"id"}]}`
+	default:
+		return ""
+	}
+}
+
+func virtualTaskResultSchema() string {
+	return `{"type":"object","properties":{"taskID":{"type":"string"},"goal":{"type":"string"},"size":{"type":"string"},"status":{"type":"string"},"startDate":{"type":"string"},"endDate":{"type":"string"},"targetPersonHint":{"type":"string"},"participantPersonHints":{"type":"array","items":{"type":"string"}},"content":{"type":"string"},"category":{"type":"string"},"type":{"type":"string"},"flag":{"type":"integer"},"requestReason":{"type":"string"},"decisionReason":{"type":"string"}},"required":["taskID"],"additionalProperties":false}`
+}
+
 func (service *virtualCapabilityService) taskResponse(toolName string, requestBody []byte) string {
 	input := virtualCapabilityInput(requestBody)
 	switch toolName {
@@ -1519,9 +1515,10 @@ func (service *virtualCapabilityService) taskResponse(toolName string, requestBo
 		record := virtualCapabilityRecord{ID: fmt.Sprintf("task-%d", len(service.tasks)+1), Values: values}
 		record.Values["taskID"] = record.ID
 		service.tasks = append(service.tasks, record)
-		return virtualCapabilitySuccess(toolName, "created virtual task", map[string]any{"task": record.Values})
+		return virtualCapabilityTaskSuccess(toolName, "created", record.ID, "created virtual task", record.Values)
 	case "task.list":
-		return virtualCapabilitySuccess(toolName, "listed virtual tasks", map[string]any{"tasks": service.taskRunValues()})
+		tasks := virtualCapabilityRecordValues(service.tasks)
+		return virtualCapabilitySuccess(toolName, "listed virtual tasks", map[string]any{"tasks": tasks, "count": len(tasks), "scope": "virtual"})
 	case "task.update":
 		index := virtualCapabilityRecordIndexByID(service.tasks, input, "taskID")
 		if index < 0 {
@@ -1533,7 +1530,7 @@ func (service *virtualCapabilityService) taskResponse(toolName string, requestBo
 		}
 		delete(values, "title")
 		mergeVirtualCapabilityRecord(service.tasks[index].Values, values, "taskID")
-		return virtualCapabilitySuccess(toolName, "updated virtual task", map[string]any{"task": service.tasks[index].Values})
+		return virtualCapabilityTaskSuccess(toolName, "updated", service.tasks[index].ID, "updated virtual task", service.tasks[index].Values)
 	default:
 		if virtualCapabilityRequestNeedsApproval(requestBody) {
 			return virtualCapabilityApprovalRequired(toolName)
@@ -1544,27 +1541,8 @@ func (service *virtualCapabilityService) taskResponse(toolName string, requestBo
 		}
 		deletedRecord := service.tasks[index]
 		service.tasks = append(service.tasks[:index], service.tasks[index+1:]...)
-		return virtualCapabilitySuccess(toolName, "deleted virtual task", map[string]any{"task": deletedRecord.Values, "status": "deleted"})
+		return virtualCapabilityTaskSuccess(toolName, "deleted", deletedRecord.ID, "deleted virtual task", map[string]any{"taskID": deletedRecord.ID, "deleted": true})
 	}
-}
-
-func (service *virtualCapabilityService) taskRunValues() []map[string]any {
-	if service.taskRunService == nil {
-		return virtualCapabilityRecordValues(service.tasks)
-	}
-	values := make([]map[string]any, 0, len(service.taskRunService.ListTaskRun()))
-	for _, taskRun := range service.taskRunService.ListTaskRun() {
-		values = append(values, map[string]any{
-			"taskRunID":     taskRun.TaskRunID,
-			"status":        string(taskRun.Status),
-			"prompt":        taskRun.Prompt,
-			"result":        taskRun.Result,
-			"failureReason": taskRun.FailureReason,
-			"createdAt":     taskRun.CreatedAt.UTC().Format(time.RFC3339),
-			"updatedAt":     taskRun.UpdatedAt.UTC().Format(time.RFC3339),
-		})
-	}
-	return values
 }
 
 func (service *virtualCapabilityService) calendarResponse(toolName string, requestBody []byte) string {
@@ -1669,17 +1647,30 @@ func virtualCapabilityRecordValues(records []virtualCapabilityRecord) []map[stri
 }
 
 func virtualCapabilitySuccess(toolName string, content string, result any) string {
-	return virtualCapabilityJSON(map[string]any{"provider": "virtual", "toolName": toolName, "status": "ok", "content": content, "result": result})
+	return virtualCapabilityJSON(map[string]any{"provider": "virtual", "selectedBackend": "device", "toolName": toolName, "outcome": "succeeded", "status": "ok", "content": content, "result": result})
+}
+
+func virtualCapabilityTaskSuccess(toolName string, effect string, taskID string, content string, result any) string {
+	return virtualCapabilityJSON(map[string]any{
+		"provider":        "virtual",
+		"selectedBackend": "device",
+		"toolName":        toolName,
+		"outcome":         "succeeded",
+		"status":          "ok",
+		"content":         content,
+		"result":          result,
+		"effects":         []map[string]any{{"objectType": "task", "effect": effect, "id": taskID}},
+	})
 }
 
 func virtualCapabilityApprovalRequired(toolName string) string {
 	result := map[string]any{"errorCode": "approval_required", "failureStage": "authorization", "message": "requires approval"}
-	return virtualCapabilityJSON(map[string]any{"provider": "virtual", "toolName": toolName, "status": "denied", "content": "requires approval", "message": "requires approval", "errorCode": "approval_required", "failureStage": "authorization", "result": result})
+	return virtualCapabilityJSON(map[string]any{"provider": "virtual", "selectedBackend": "device", "toolName": toolName, "outcome": "denied", "status": "denied", "content": "requires approval", "message": "requires approval", "errorCode": "approval_required", "failureStage": "authorization", "result": result})
 }
 
 func virtualCapabilityNotFound(toolName string, resourceName string) string {
 	message := "virtual " + resourceName + " not found"
-	return virtualCapabilityJSON(map[string]any{"provider": "virtual", "toolName": toolName, "status": "error", "content": message, "message": message, "errorCode": "not_found", "failureStage": "lookup", "result": map[string]any{"message": message}})
+	return virtualCapabilityJSON(map[string]any{"provider": "virtual", "selectedBackend": "device", "toolName": toolName, "outcome": "failed", "status": "error", "content": message, "message": message, "errorCode": "not_found", "failureStage": "lookup", "result": map[string]any{"message": message}})
 }
 
 func virtualCapabilityJSON(document any) string {
@@ -1940,18 +1931,25 @@ func (harness *VirtualSessionHarness) runTurn(ctx context.Context, index int, vi
 	if harness.callRecorder != nil {
 		modelCallStartIndex = harness.callRecorder.CallCount()
 	}
-	messages := append([]connectors.VisibleContextMessage{}, harness.history...)
+	messages := harness.adapter.VisibleHistory()
 	messages = append(messages, virtualTurn.ContextMessages...)
+	conversationID := "virtual-conversation-1"
+	historyCursor := ""
+	if len(messages) > 0 {
+		historyCursor = conversationID
+	}
 	event := connectors.PlatformInboundEvent{
 		Platform:       "virtual",
 		Source:         "e2e",
-		ConversationID: "virtual-conversation-1",
+		ConversationID: conversationID,
 		MessageID:      fmt.Sprintf("virtual-message-%03d", index+1),
 		SenderID:       "user-1",
 		ReplyTargetID:  virtualReplyTargetID(index, virtualTurn),
 		Prompt:         virtualTurn.Prompt,
 		Context: connectors.VisibleContext{
-			Messages: messages,
+			Messages:      messages,
+			HasMoreBefore: len(messages) > 0,
+			HistoryCursor: historyCursor,
 			InputAttachments: append([]connectors.InputAttachment{},
 				virtualTurn.InputAttachments...,
 			),
@@ -2067,10 +2065,11 @@ func (harness *VirtualSessionHarness) modelImagePartCountByRoleSince(startIndex 
 }
 
 func (harness *VirtualSessionHarness) rememberTurn(virtualTurn VirtualTurn, turnResult VirtualTurnResult) {
-	harness.history = append(harness.history, connectors.VisibleContextMessage{Speaker: "user", SpeakerCallingName: "샘플 님", SpeakerHandle: "dongha", Text: virtualTurn.Prompt})
-	if turnResult.DidReply {
-		harness.history = append(harness.history, connectors.VisibleContextMessage{Speaker: "assistant", SpeakerCallingName: "김인턴", SpeakerHandle: "internkim", Text: turnResult.FinishMessage})
+	harness.adapter.RememberMessage(connectors.VisibleContextMessage{Speaker: "user", SpeakerCallingName: "샘플 님", SpeakerHandle: "dongha", Text: virtualTurn.Prompt})
+	if !turnResult.DidReply {
+		return
 	}
+	harness.adapter.RememberMessage(connectors.VisibleContextMessage{Speaker: "assistant", SpeakerCallingName: "김인턴", SpeakerHandle: "internkim", Text: turnResult.FinishMessage})
 }
 
 func virtualRequestRecorder(languageModel llm.LanguageModelProvider) virtualLanguageModelRequestRecorder {
@@ -2709,6 +2708,7 @@ type virtualAdapter struct {
 	workspacePath string
 	replies       map[string]virtualReply
 	reactions     []connectors.ReactionTarget
+	history       []connectors.VisibleContextMessage
 }
 
 type virtualReply struct {
@@ -2783,8 +2783,33 @@ func (adapter *virtualAdapter) ReactionsSince(startIndex int) []connectors.React
 	return append([]connectors.ReactionTarget{}, adapter.reactions[startIndex:]...)
 }
 
-func (adapter *virtualAdapter) FetchHistory(context.Context, string, int) (connectors.VisibleContext, error) {
-	return connectors.VisibleContext{}, nil
+func (adapter *virtualAdapter) RememberMessage(message connectors.VisibleContextMessage) {
+	adapter.mutex.Lock()
+	defer adapter.mutex.Unlock()
+	adapter.history = append(adapter.history, message)
+}
+
+func (adapter *virtualAdapter) VisibleHistory() []connectors.VisibleContextMessage {
+	adapter.mutex.Lock()
+	defer adapter.mutex.Unlock()
+	return append([]connectors.VisibleContextMessage{}, adapter.history...)
+}
+
+func (adapter *virtualAdapter) FetchHistory(_ context.Context, historyCursor string, limit int) (connectors.VisibleContext, error) {
+	historyCursor = strings.TrimSpace(historyCursor)
+	if historyCursor == "" {
+		return connectors.VisibleContext{}, nil
+	}
+	messages := adapter.VisibleHistory()
+	if limit <= 0 || limit > 50 {
+		limit = 20
+	}
+	startIndex := max(0, len(messages)-limit)
+	return connectors.VisibleContext{
+		Messages:      messages[startIndex:],
+		HasMoreBefore: startIndex > 0,
+		HistoryCursor: historyCursor,
+	}, nil
 }
 
 func (adapter *virtualAdapter) ImportInputAttachments(_ context.Context, request connectors.InputAttachmentImportRequest) (connectors.InputAttachmentImportResult, error) {

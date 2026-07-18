@@ -8,26 +8,29 @@ import (
 	"io"
 	"sort"
 	"strings"
+
+	"github.com/google/jsonschema-go/jsonschema"
 )
 
 type ToolDescriptor struct {
-	ID                   string           `json:"id,omitempty"`
-	ProviderID           string           `json:"providerID,omitempty"`
-	Namespace            string           `json:"namespace,omitempty"`
-	Name                 string           `json:"name"`
-	Description          string           `json:"description"`
-	PrivacyClass         string           `json:"privacyClass,omitempty"`
-	RequiresUserPresence bool             `json:"requiresUserPresence,omitempty"`
-	WorksOffline         bool             `json:"worksOffline,omitempty"`
-	RecoveryCard         ToolRecoveryCard `json:"recoveryCard,omitempty"`
-	InputSchema          json.RawMessage  `json:"inputSchema,omitempty"`
-	OutputSchema         json.RawMessage  `json:"outputSchema,omitempty"`
-	Visibility           string           `json:"visibility,omitempty"`
-	PolicyResource       string           `json:"policyResource,omitempty"`
-	SideEffectClass      string           `json:"sideEffectClass,omitempty"`
-	RequiresApproval     bool             `json:"requiresApproval,omitempty"`
-	Completion           ToolCompletion   `json:"completion,omitempty"`
-	Idempotency          string           `json:"idempotency,omitempty"`
+	ID                   string              `json:"id,omitempty"`
+	ProviderID           string              `json:"providerID,omitempty"`
+	Namespace            string              `json:"namespace,omitempty"`
+	Name                 string              `json:"name"`
+	Description          string              `json:"description"`
+	PrivacyClass         string              `json:"privacyClass,omitempty"`
+	RequiresUserPresence bool                `json:"requiresUserPresence,omitempty"`
+	WorksOffline         bool                `json:"worksOffline,omitempty"`
+	RecoveryCard         ToolRecoveryCard    `json:"recoveryCard,omitempty"`
+	InputSchema          json.RawMessage     `json:"inputSchema,omitempty"`
+	OutputSchema         json.RawMessage     `json:"outputSchema,omitempty"`
+	ResultContract       *ToolResultContract `json:"resultContract,omitempty"`
+	Visibility           string              `json:"visibility,omitempty"`
+	PolicyResource       string              `json:"policyResource,omitempty"`
+	SideEffectClass      string              `json:"sideEffectClass,omitempty"`
+	RequiresApproval     bool                `json:"requiresApproval,omitempty"`
+	Completion           ToolCompletion      `json:"completion,omitempty"`
+	Idempotency          string              `json:"idempotency,omitempty"`
 }
 
 type ToolDefinition = ToolDescriptor
@@ -36,6 +39,31 @@ type ToolCompletion struct {
 	Mode       string `json:"mode,omitempty"`
 	Action     string `json:"action,omitempty"`
 	TargetKind string `json:"targetKind,omitempty"`
+}
+
+type ToolResultContract struct {
+	Schema  json.RawMessage          `json:"schema"`
+	Effects []ResourceEffectContract `json:"effects,omitempty"`
+}
+
+type ResourceEffectContract struct {
+	ObjectType     string `json:"objectType"`
+	Effect         string `json:"effect"`
+	ResultField    string `json:"resultField"`
+	EffectIdentity string `json:"effectIdentity"`
+}
+
+type ResourceEffect struct {
+	ObjectType  string `json:"objectType"`
+	Effect      string `json:"effect"`
+	ID          string `json:"id,omitempty"`
+	Path        string `json:"path,omitempty"`
+	URL         string `json:"url,omitempty"`
+	Visibility  string `json:"visibility,omitempty"`
+	Durability  string `json:"durability,omitempty"`
+	Filename    string `json:"filename,omitempty"`
+	ContentType string `json:"contentType,omitempty"`
+	Summary     string `json:"summary,omitempty"`
 }
 
 type ToolRecoveryCard struct {
@@ -203,6 +231,7 @@ type ToolFailure struct {
 
 type ToolResult struct {
 	Output          ToolOutput       `json:"output,omitempty"`
+	Effects         []ResourceEffect `json:"effects,omitempty"`
 	Failure         *ToolFailure     `json:"failure,omitempty"`
 	Attachments     []FileAttachment `json:"attachments,omitempty"`
 	RecoveryActions []RecoveryAction `json:"recoveryActions,omitempty"`
@@ -365,6 +394,9 @@ func mergeTestToolDefinition(currentDefinition ToolDefinition, replacementDefini
 	replacementDefinition.WorksOffline = replacementDefinition.WorksOffline || currentDefinition.WorksOffline
 	replacementDefinition.InputSchema = firstNonEmptySchema(replacementDefinition.InputSchema, currentDefinition.InputSchema)
 	replacementDefinition.OutputSchema = firstNonEmptySchema(replacementDefinition.OutputSchema, currentDefinition.OutputSchema)
+	if replacementDefinition.ResultContract == nil {
+		replacementDefinition.ResultContract = currentDefinition.ResultContract
+	}
 	replacementDefinition.Visibility = firstNonEmptyString(replacementDefinition.Visibility, currentDefinition.Visibility)
 	replacementDefinition.PolicyResource = firstNonEmptyString(replacementDefinition.PolicyResource, currentDefinition.PolicyResource)
 	replacementDefinition.SideEffectClass = firstNonEmptyString(replacementDefinition.SideEffectClass, currentDefinition.SideEffectClass)
@@ -600,7 +632,90 @@ func (toolSet *ToolSet) invokeRegistered(ctx context.Context, toolInvocation Too
 		return ToolFailureResult(FailureNotFound, FailureCodes.NotFound, "tool_registry", "tool is not registered"), nil
 	}
 	toolInvocation.ToolName = toolName
-	return boundTool.Handler(ctx, toolInvocation)
+	result, errorValue := boundTool.Handler(ctx, toolInvocation)
+	if errorValue != nil || result.Failed() {
+		return result, errorValue
+	}
+	if boundTool.Definition.ResultContract == nil {
+		if len(result.Effects) > 0 {
+			return ToolFailureResult(FailureExternalService, FailureCodes.OperationFailed, "tool_result_contract", "tool returned effects without a result contract"), nil
+		}
+		return result, nil
+	}
+	if errorValue := validateSuccessfulToolResult(*boundTool.Definition.ResultContract, result); errorValue != nil {
+		return ToolFailureResult(FailureExternalService, FailureCodes.OperationFailed, "tool_result_contract", errorValue.Error()), nil
+	}
+	return result, nil
+}
+
+func validateSuccessfulToolResult(contract ToolResultContract, result ToolResult) error {
+	var resultDocument any
+	if errorValue := json.Unmarshal(result.Output.Data, &resultDocument); errorValue != nil {
+		return errors.New("tool result is not valid JSON")
+	}
+	var schema jsonschema.Schema
+	if errorValue := json.Unmarshal(contract.Schema, &schema); errorValue != nil {
+		return errors.New("tool result schema is invalid")
+	}
+	resolvedSchema, errorValue := schema.Resolve(nil)
+	if errorValue != nil {
+		return errors.New("tool result schema cannot be resolved")
+	}
+	if errorValue := resolvedSchema.Validate(resultDocument); errorValue != nil {
+		return errors.New("tool result does not match its descriptor schema")
+	}
+	return validateResourceEffects(contract.Effects, resultDocument, result.Effects)
+}
+
+func validateResourceEffects(effectContracts []ResourceEffectContract, resultDocument any, effects []ResourceEffect) error {
+	if len(effectContracts) != len(effects) {
+		return errors.New("tool result effects do not match its descriptor contract")
+	}
+	document, isObject := resultDocument.(map[string]any)
+	if !isObject {
+		return errors.New("tool result must be an object")
+	}
+	for _, effectContract := range effectContracts {
+		expectedIdentity, isString := document[effectContract.ResultField].(string)
+		if !isString || strings.TrimSpace(expectedIdentity) == "" {
+			return errors.New("tool result effect identity field is missing")
+		}
+		isMatched := false
+		for _, effect := range effects {
+			if resourceEffectMatchesContract(effect, effectContract, expectedIdentity) {
+				isMatched = true
+				break
+			}
+		}
+		if !isMatched {
+			return errors.New("tool result effect identity does not match its result")
+		}
+	}
+	return nil
+}
+
+func resourceEffectMatchesContract(effect ResourceEffect, contract ResourceEffectContract, expectedIdentity string) bool {
+	if strings.TrimSpace(effect.ObjectType) != strings.TrimSpace(contract.ObjectType) {
+		return false
+	}
+	if strings.TrimSpace(effect.Effect) != strings.TrimSpace(contract.Effect) {
+		return false
+	}
+	identity, isValid := resourceEffectIdentity(effect, contract.EffectIdentity)
+	return isValid && identity == strings.TrimSpace(expectedIdentity)
+}
+
+func resourceEffectIdentity(effect ResourceEffect, identityField string) (string, bool) {
+	switch strings.TrimSpace(identityField) {
+	case "id":
+		return strings.TrimSpace(effect.ID), strings.TrimSpace(effect.ID) != "" && strings.TrimSpace(effect.Path) == "" && strings.TrimSpace(effect.URL) == ""
+	case "path":
+		return strings.TrimSpace(effect.Path), strings.TrimSpace(effect.ID) == "" && strings.TrimSpace(effect.Path) != "" && strings.TrimSpace(effect.URL) == ""
+	case "url":
+		return strings.TrimSpace(effect.URL), strings.TrimSpace(effect.ID) == "" && strings.TrimSpace(effect.Path) == "" && strings.TrimSpace(effect.URL) != ""
+	default:
+		return "", false
+	}
 }
 
 func (toolSet *ToolSet) InvokeInternal(ctx context.Context, toolInvocation ToolInvocation) (ToolResult, error) {

@@ -17,6 +17,7 @@ import {
   StructuredOutputRepairStatus,
   StructuredOutputValidationCode,
   structuredOutputDiagnosticSchema,
+  toolInvokeResponseSchema,
   type ProtocolSchemaName,
 } from '../src/index.ts';
 
@@ -176,6 +177,74 @@ describe('closed protocol values', () => {
       estimatedLatency: 'instant',
       requiresUserPresence: false,
       worksOffline: false,
+    }).success).toBe(false);
+    expect(toolInvokeResponseSchema.safeParse({
+      provider: 'internkim',
+      selectedBackend: 'device',
+      toolName: 'task.add',
+      outcome: 'complete',
+      result: { taskID: 'task-1' },
+    }).success).toBe(false);
+    expect(toolInvokeResponseSchema.safeParse({
+      provider: 'internkim',
+      selectedBackend: 'device',
+      toolName: 'task.add',
+      outcome: 'succeeded',
+      effects: [{ objectType: 'task', effect: 'created' }],
+      result: { taskID: 'task-1' },
+    }).success).toBe(false);
+  });
+
+  test('keeps capability schemas recursively strict', async () => {
+    const fixtures = await readFixtureBundle('valid');
+    const descriptor = capabilityDescriptorSchema.parse(fixtures['capability-descriptor']?.[0]);
+    expect(capabilityDescriptorSchema.safeParse({ ...descriptor, name: '' }).success).toBe(false);
+    expect(capabilityDescriptorSchema.safeParse({ ...descriptor, canonicalName: ` ${descriptor.canonicalName}` }).success).toBe(false);
+    expect(capabilityDescriptorSchema.safeParse({ ...descriptor, availability: { state: 'not_ready', reason: 'connection pending' } }).success).toBe(true);
+    expect(capabilityDescriptorSchema.safeParse({ ...descriptor, inputSchemaStrict: false }).success).toBe(false);
+    expect(capabilityDescriptorSchema.safeParse({
+      ...descriptor,
+      inputSchema: {
+        type: 'object',
+        properties: {
+          nested: { type: 'object', properties: {} },
+        },
+        additionalProperties: false,
+      },
+    }).success).toBe(false);
+    expect(capabilityDescriptorSchema.safeParse({
+      ...descriptor,
+      resultContract: {
+        schema: {
+          type: 'object',
+          properties: { taskID: { type: 'string' } },
+          required: ['taskID'],
+          additionalProperties: false,
+        },
+        effects: [{
+          objectType: 'task',
+          effect: 'created',
+          resultField: 'taskID',
+          effectIdentity: 'id',
+        }],
+      },
+    }).success).toBe(true);
+    expect(capabilityDescriptorSchema.safeParse({
+      ...descriptor,
+      resultContract: {
+        schema: {
+          type: 'object',
+          properties: { taskID: { type: 'string' } },
+          required: ['taskID'],
+          additionalProperties: false,
+        },
+        effects: [{
+          objectType: 'task',
+          effect: 'created',
+          resultField: 'missingID',
+          effectIdentity: 'id',
+        }],
+      },
     }).success).toBe(false);
   });
 
