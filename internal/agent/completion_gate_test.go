@@ -1182,8 +1182,8 @@ func TestAgentTurnRunnerDoesNotBlockFinishedExpectedResultForMissingQualityRevie
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 5})
 	toolRegistry := newTestCapabilityToolSet([]string{"site.publish"})
-	registerTestTool(toolRegistry, ToolDefinition{Name: "site.publish"}, func(context.Context, ToolInvocation) (ToolResult, error) {
-		return testToolSuccess(`{"publishedURL":"https://portfolio.example","status":"published"}`), nil
+	registerTestTool(toolRegistry, canonicalLinkToolDefinition("site.publish"), func(context.Context, ToolInvocation) (ToolResult, error) {
+		return canonicalLinkToolResult("https://portfolio.example"), nil
 	})
 
 	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
@@ -1230,9 +1230,9 @@ func TestAgentTurnRunnerExpectedResultVerifierBlocksEarlyFinish(t *testing.T) {
 		toolCalls = append(toolCalls, "site.create")
 		return testToolSuccess(`{"siteID":"site-1","status":"draft"}`), nil
 	})
-	registerTestTool(toolRegistry, ToolDefinition{Name: "site.publish"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	registerTestTool(toolRegistry, canonicalLinkToolDefinition("site.publish"), func(context.Context, ToolInvocation) (ToolResult, error) {
 		toolCalls = append(toolCalls, "site.publish")
-		return testToolSuccess(`{"siteID":"site-1","status":"published","publishedURL":"https://portfolio.example"}`), nil
+		return canonicalLinkToolResult("https://portfolio.example"), nil
 	})
 
 	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
@@ -1411,8 +1411,8 @@ func TestAgentTurnRunnerExpectedResultsRequireTheirTypedToolEvidence(t *testing.
 	}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 4})
 	toolRegistry := newTestCapabilityToolSet([]string{"site.publish"})
-	registerTestTool(toolRegistry, ToolDefinition{Name: "site.publish"}, func(context.Context, ToolInvocation) (ToolResult, error) {
-		return testToolSuccess(`{"status":"published","publishedURL":"https://portfolio.example"}`), nil
+	registerTestTool(toolRegistry, canonicalLinkToolDefinition("site.publish"), func(context.Context, ToolInvocation) (ToolResult, error) {
+		return canonicalLinkToolResult("https://portfolio.example"), nil
 	})
 	registerTestTool(toolRegistry, ToolDefinition{Name: FileDeliverToolName}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		return ToolFailureResult(FailureUnknown, FailureCodes.NotFound, "test_tool", "tool is not registered"), nil

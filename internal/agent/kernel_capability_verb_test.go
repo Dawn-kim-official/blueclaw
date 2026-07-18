@@ -5,19 +5,13 @@ import (
 	"testing"
 )
 
-func TestCanonicalEvidenceToolNameLeavesNeutralOperationsUntouched(t *testing.T) {
-	cases := map[string]string{
-		"task.add":         "task.add",
-		"message.send":     "message.send",
-		"site.create":      "site.create",
-		"schedule.create":  "schedule.create",
-		"ask.choice":       "ask.input",
-		"artifact.deliver": "file.deliver",
-		"terminal.session": "terminal.run",
+func TestToolNamesMatchRequiresExactCanonicalIdentity(t *testing.T) {
+	if !ToolNamesMatch(" file.deliver ", FileDeliverToolName) {
+		t.Fatal("expected surrounding whitespace to be ignored")
 	}
-	for inputName, expected := range cases {
-		if got := CanonicalEvidenceToolName(inputName); got != expected {
-			t.Fatalf("CanonicalEvidenceToolName(%q) = %q, want %q", inputName, got, expected)
+	for _, legacyToolName := range []string{"ask.choice", "artifact.deliver", "file.attach", "site.promote", "terminal.session"} {
+		if ToolNamesMatch(legacyToolName, normalizePersistedToolName(legacyToolName)) {
+			t.Fatalf("expected legacy tool %q not to match its canonical replacement", legacyToolName)
 		}
 	}
 }

@@ -612,9 +612,7 @@ func normalizeTurnDecisionFileRequirement(decision TurnDecision) TurnDecision {
 	}
 	decision.ExpectedResults = removeExpectedResultsByType(decision.ExpectedResults, ExpectedResultTypeFile)
 	decision.RequiredEvidenceTools = removeToolName(decision.RequiredEvidenceTools, FileDeliverToolName)
-	decision.RequiredEvidenceTools = removeToolName(decision.RequiredEvidenceTools, FileAttachToolName)
 	decision.InitialToolNames = removeToolName(decision.InitialToolNames, FileDeliverToolName)
-	decision.InitialToolNames = removeToolName(decision.InitialToolNames, FileAttachToolName)
 	return decision
 }
 

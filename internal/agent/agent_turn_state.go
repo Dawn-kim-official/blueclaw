@@ -252,7 +252,7 @@ func isDurableDeliveryObservation(observation turnObservation) bool {
 		return true
 	}
 	switch strings.TrimSpace(observation.Tool) {
-	case "site.publish", "site.promote":
+	case "site.publish":
 		return true
 	default:
 		return false

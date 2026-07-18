@@ -358,9 +358,7 @@ func removeExternalSendContract(toolSet *ToolSet, contract OutcomeContract) Outc
 func removeImplicitSiteFileContract(contract OutcomeContract) OutcomeContract {
 	contract.RequiredAttachmentSuffixes = nil
 	contract.RequiredEvidenceTools = removeToolName(contract.RequiredEvidenceTools, FileDeliverToolName)
-	contract.RequiredEvidenceTools = removeToolName(contract.RequiredEvidenceTools, FileAttachToolName)
 	contract.RequiredEvidenceAnyOf = removeToolNameGroups(contract.RequiredEvidenceAnyOf, FileDeliverToolName)
-	contract.RequiredEvidenceAnyOf = removeToolNameGroups(contract.RequiredEvidenceAnyOf, FileAttachToolName)
 	contract.ExpectedResults = removeExpectedResultsByType(contract.ExpectedResults, ExpectedResultTypeFile)
 	return contract
 }
