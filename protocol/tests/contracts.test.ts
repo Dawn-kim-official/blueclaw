@@ -11,6 +11,8 @@ import {
   capabilityDescriptorSchema,
   languageModelMessagePartSchema,
   languageModelMessageSchema,
+  capabilityRegistryResponseSchema,
+  protocolIdentitySchema,
   protocolSchemas,
   structuredResponseSchema,
   StructuredOutputDiagnosticCategory,
@@ -49,6 +51,25 @@ const fixtureSchemaNames = {
 } satisfies Record<string, ProtocolSchemaName>;
 
 describe('closed protocol values', () => {
+  test('requires canonical protocol identity on registry responses', () => {
+    const identity = {
+      protocolVersion: '0.4.0',
+      aggregateProtocolHash: 'a'.repeat(64),
+    };
+    const registryResponse = {
+      ...identity,
+      localOnly: true,
+      routingCandidates: null,
+    };
+
+    expect(protocolIdentitySchema.safeParse(identity).success).toBe(true);
+    expect(capabilityRegistryResponseSchema.safeParse(registryResponse).success).toBe(true);
+    expect(protocolIdentitySchema.safeParse({ ...identity, protocolVersion: '   ' }).success).toBe(false);
+    expect(protocolIdentitySchema.safeParse({ ...identity, aggregateProtocolHash: 'A'.repeat(64) }).success).toBe(false);
+    expect(protocolIdentitySchema.safeParse({ ...identity, extra: true }).success).toBe(false);
+    expect(capabilityRegistryResponseSchema.safeParse({ ...registryResponse, protocolVersion: undefined }).success).toBe(false);
+  });
+
   test('keeps internal conflict resolution typed and outside tool input', () => {
     const request = {
       toolName: 'calendar.add',

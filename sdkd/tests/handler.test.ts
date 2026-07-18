@@ -9,11 +9,14 @@ import {
   StructuredOutputRepairStatus,
   StructuredOutputConstraintMode,
   StructuredOutputValidationCode,
+  protocolIdentitySchema,
+  protocolVersion,
   type ChatCompletionRequest,
   type ChatCompletionResponse,
   type StructuredResponse,
   type StructuredResponseRequest,
 } from '@blueclaw/protocol';
+import { buildProtocolArtifacts } from '@blueclaw/protocol/artifacts';
 
 import { SDKDAutoRoute, type SDKDConfiguration } from '../src/configuration.ts';
 import { SDKDError } from '../src/errors.ts';
@@ -69,10 +72,21 @@ describe('sdkd handler', () => {
     const handler = createSDKDHandler({ configuration, generateStructuredResponse: async () => responseDocument() });
     const response = await handler(new Request('http://sdkd/health'));
     const body = await response.json();
+    const protocolManifest = buildProtocolArtifacts().manifest;
 
     expect(response.status).toBe(200);
-    expect(body.status).toBe('ok');
-    expect(body.aggregateProtocolHash).toMatch(/^[a-f0-9]{64}$/);
+    expect(body).toEqual({
+      ...protocolIdentitySchema.parse({
+        protocolVersion: body.protocolVersion,
+        aggregateProtocolHash: body.aggregateProtocolHash,
+      }),
+      status: 'ok',
+    });
+    expect(body).toEqual({
+      protocolVersion,
+      aggregateProtocolHash: protocolManifest.aggregateHash,
+      status: 'ok',
+    });
   });
 
   test('requires the installation key', async () => {

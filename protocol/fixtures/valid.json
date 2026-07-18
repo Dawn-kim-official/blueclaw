@@ -106,6 +106,8 @@
   ],
   "capability-registry-response": [
     {
+      "protocolVersion": "0.4.0",
+      "aggregateProtocolHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       "localOnly": true,
       "routingCandidates": null,
       "capabilities": [

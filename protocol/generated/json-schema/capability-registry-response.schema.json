@@ -36,6 +36,10 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
   "properties": {
+    "aggregateProtocolHash": {
+      "pattern": "^[a-f0-9]{64}$",
+      "type": "string"
+    },
     "capabilities": {
       "items": {
         "additionalProperties": false,
@@ -1026,6 +1030,10 @@
     "localOnly": {
       "type": "boolean"
     },
+    "protocolVersion": {
+      "minLength": 1,
+      "type": "string"
+    },
     "routingCandidates": {
       "anyOf": [
         {
@@ -1041,6 +1049,8 @@
     }
   },
   "required": [
+    "protocolVersion",
+    "aggregateProtocolHash",
     "localOnly",
     "routingCandidates"
   ],

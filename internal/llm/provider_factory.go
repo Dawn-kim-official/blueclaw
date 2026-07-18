@@ -3,6 +3,7 @@ package llm
 import (
 	"errors"
 	"log/slog"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -60,7 +61,7 @@ func newSDKDClient(runtimeConfiguration config.RuntimeConfiguration, modelName s
 	sdkdConfiguration := runtimeConfiguration.LanguageModel.SDKD
 	authKey := ""
 	authKeyPath := strings.TrimSpace(sdkdConfiguration.AuthKeyPath)
-	if authKeyPath == "" && strings.TrimRight(strings.TrimSpace(sdkdConfiguration.Endpoint), "/") != sdkdLoopbackBridgeEndpoint {
+	if authKeyPath == "" && !isSDKDBridgeConfiguration(sdkdConfiguration) {
 		return SDKDClient{}, errors.New("sdkd auth key path is not configured")
 	}
 	if authKeyPath != "" {
@@ -86,6 +87,25 @@ func newSDKDClient(runtimeConfiguration config.RuntimeConfiguration, modelName s
 		StructuredSchemaNames:           configuredSDKDSchemaNames(runtimeConfiguration),
 		IsStructuredOutputAuthoritative: strings.TrimSpace(runtimeConfiguration.LanguageModel.DefaultProvider) == "sdkd",
 	}), nil
+}
+
+func isSDKDBridgeConfiguration(configuration config.LanguageModelSDKDConfiguration) bool {
+	normalizedEndpoint := strings.TrimRight(strings.TrimSpace(configuration.Endpoint), "/")
+	if normalizedEndpoint == sdkdLoopbackBridgeEndpoint {
+		return true
+	}
+	if strings.TrimSpace(configuration.UnixSocketPath) == "" {
+		return false
+	}
+	parsedEndpoint, errorValue := url.Parse(normalizedEndpoint)
+	if errorValue != nil {
+		return false
+	}
+	return parsedEndpoint.Scheme == "http" &&
+		parsedEndpoint.Host != "" &&
+		parsedEndpoint.Path == "/_internkim/sdkd" &&
+		parsedEndpoint.RawQuery == "" &&
+		parsedEndpoint.Fragment == ""
 }
 
 func configuredSDKDSchemaNames(runtimeConfiguration config.RuntimeConfiguration) []string {

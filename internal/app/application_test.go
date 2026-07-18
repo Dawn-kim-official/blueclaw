@@ -20,6 +20,7 @@ import (
 	"blueclaw/internal/config"
 	"blueclaw/internal/connectors"
 	"blueclaw/internal/llm"
+	"blueclaw/internal/protocolidentity"
 	"blueclaw/internal/runtimecontrol"
 	"blueclaw/internal/task"
 )
@@ -420,6 +421,48 @@ func TestNewApplicationAllowsSignalInternalIngress(t *testing.T) {
 
 	if application.startupError != nil {
 		t.Fatalf("expected signal internal ingress to be allowed: %v", application.startupError)
+	}
+}
+
+func TestApplicationChecksProtocolIdentityOnceAndStoresResult(t *testing.T) {
+	protocolVersion := "0.4.0"
+	aggregateProtocolHash := "58ff1977989bacbf2db3fdce08fd57c9b52f344ca747a3322f4e60bdf6052a78"
+	requestCount := 0
+	server := httptest.NewServer(http.HandlerFunc(func(responseWriter http.ResponseWriter, request *http.Request) {
+		requestCount++
+		responseWriter.Header().Set("Content-Type", "application/json")
+		_, _ = responseWriter.Write([]byte(`{"protocolVersion":"` + protocolVersion + `","aggregateProtocolHash":"` + aggregateProtocolHash + `"}`))
+	}))
+	defer server.Close()
+
+	runtimeConfiguration := config.RuntimeConfiguration{}
+	runtimeConfiguration.Logging.DirectoryPath = t.TempDir()
+	runtimeConfiguration.Capabilities.Endpoint = server.URL
+	runtimeConfiguration.Capabilities.ProtocolVersion = protocolVersion
+	runtimeConfiguration.Capabilities.AggregateProtocolHash = aggregateProtocolHash
+	runtimeConfiguration.LanguageModel.SDKD.Endpoint = server.URL
+	application := NewApplication(runtimeConfiguration, "")
+	application.protocolIdentityExpected = protocolidentity.Identity{
+		ProtocolVersion:       protocolVersion,
+		AggregateProtocolHash: aggregateProtocolHash,
+	}
+	application.protocolIdentityChecker = protocolidentity.NewChecker(protocolidentity.Configuration{
+		CapabilityEndpoint: server.URL,
+		SDKDBridgeEndpoint: server.URL,
+		HTTPClient:         server.Client(),
+	})
+
+	if errorValue := application.checkProtocolIdentity(); errorValue != nil {
+		t.Fatalf("expected protocol identity check to pass: %v", errorValue)
+	}
+	if errorValue := application.checkProtocolIdentity(); errorValue != nil {
+		t.Fatalf("expected repeated protocol identity check to reuse result: %v", errorValue)
+	}
+	if requestCount != 2 {
+		t.Fatalf("expected one capabilityd and one SDKD request, got %d", requestCount)
+	}
+	if !application.protocolIdentityStatus.Passed {
+		t.Fatalf("expected stored protocol identity result to pass: %+v", application.protocolIdentityStatus)
 	}
 }
 
