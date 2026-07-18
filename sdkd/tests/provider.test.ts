@@ -163,15 +163,16 @@ describe('sdkd provider adapter', () => {
   });
 
   test('rejects schema-invalid native tool arguments without fallback', async () => {
+    const request = multipleToolChatRequest();
     const llamaModel = successfulLanguageModel('unused-local-model', { ok: true });
-    const remoteModel = toolCallLanguageModel('served-remote-model', [{ toolName: 'lookup', input: '{' }]);
+    const remoteModel = toolCallLanguageModel('served-remote-model', [{ toolName: 'task.add', input: '{' }]);
     const generateChatCompletion = createChatCompletionGenerator(
       completeConfiguration(SDKDAutoRoute.RemoteFirst),
       languageModelFactory(llamaModel, remoteModel),
     );
 
     try {
-      await generateChatCompletion(chatRequest);
+      await generateChatCompletion(request);
       throw new Error('expected invalid tool arguments');
     } catch (errorValue) {
       expect(errorValue).toMatchObject({
@@ -179,11 +180,46 @@ describe('sdkd provider adapter', () => {
         allowLegacyFallback: false,
         diagnostic: {
           category: StructuredOutputDiagnosticCategory.JSONParse,
-          toolName: 'lookup',
+          toolName: 'task.add',
           repairStatus: StructuredOutputRepairStatus.Failed,
         },
       });
     }
+    expect(remoteModel.doGenerateCalls).toHaveLength(2);
+    expect(remoteModel.doGenerateCalls[1]?.tools?.map(tool => tool.name)).toEqual(['task.add']);
+    const repairPrompt = JSON.stringify(remoteModel.doGenerateCalls[1]?.prompt);
+    expect(repairPrompt).toContain('Malformed arguments: {');
+    expect(repairPrompt).toContain('Validation failure: tool arguments are not valid JSON');
+    expect(repairPrompt).toContain('"input":{}');
+    expect(repairPrompt).not.toContain('"input":"{"');
+    expect(llamaModel.doGenerateCalls).toHaveLength(0);
+  });
+
+  test('repairs malformed native tool arguments with the failed tool only', async () => {
+    const request = multipleToolChatRequest();
+    const llamaModel = successfulLanguageModel('unused-local-model', { ok: true });
+    const remoteModel = sequencedNamedToolCallLanguageModel('served-remote-model', 'task.add', [
+      '{',
+      '{"title":"repaired task"}',
+    ]);
+    const generateChatCompletion = createChatCompletionGenerator(
+      completeConfiguration(SDKDAutoRoute.RemoteFirst),
+      languageModelFactory(llamaModel, remoteModel),
+    );
+
+    const response = await generateChatCompletion(request);
+
+    expect(response.message.toolCalls?.[0]?.function).toEqual({
+      name: 'task.add',
+      arguments: '{"title":"repaired task"}',
+    });
+    expect(remoteModel.doGenerateCalls).toHaveLength(2);
+    expect(remoteModel.doGenerateCalls[0]?.tools?.map(tool => tool.name)).toEqual(['lookup', 'task.add']);
+    expect(remoteModel.doGenerateCalls[1]?.tools?.map(tool => tool.name)).toEqual(['task.add']);
+    const repairPrompt = JSON.stringify(remoteModel.doGenerateCalls[1]?.prompt);
+    expect(repairPrompt).toContain('Malformed arguments: {');
+    expect(repairPrompt).toContain('"input":{}');
+    expect(repairPrompt).not.toContain('"input":"{"');
     expect(llamaModel.doGenerateCalls).toHaveLength(0);
   });
 
@@ -204,7 +240,10 @@ describe('sdkd provider adapter', () => {
     expect(response.message.toolCalls?.[0]?.function.arguments).toBe('{"details":{"count":2}}');
     expect(remoteModel.doGenerateCalls).toHaveLength(2);
     expect(remoteModel.doGenerateCalls[1]?.toolChoice).toEqual({ type: 'tool', toolName: 'lookup' });
-    expect(JSON.stringify(remoteModel.doGenerateCalls[1]?.prompt)).toContain(
+    const repairPrompt = JSON.stringify(remoteModel.doGenerateCalls[1]?.prompt);
+    expect(repairPrompt).toContain('"input":{"details":{"count":"wrong"}}');
+    expect(repairPrompt).not.toContain('"input":"{');
+    expect(repairPrompt).toContain(
       'Validation failure: data/details/count must be number',
     );
     expect(llamaModel.doGenerateCalls).toHaveLength(0);
@@ -1277,13 +1316,17 @@ function toolCallLanguageModel(
 }
 
 function sequencedToolCallLanguageModel(modelID: string, inputs: string[]): MockLanguageModelV3 {
+  return sequencedNamedToolCallLanguageModel(modelID, 'lookup', inputs);
+}
+
+function sequencedNamedToolCallLanguageModel(modelID: string, toolName: string, inputs: string[]): MockLanguageModelV3 {
   let generationCount = 0;
   return new MockLanguageModelV3({
     modelId: modelID,
     doGenerate: async () => {
       const input = inputs[Math.min(generationCount, inputs.length - 1)];
       generationCount += 1;
-      return toolCallGeneration(modelID, 'lookup', input ?? '{}');
+      return toolCallGeneration(modelID, toolName, input ?? '{}');
     },
   });
 }
@@ -1405,6 +1448,39 @@ function nestedChatRequest(): ChatCompletionRequest {
         },
       },
     }],
+  };
+}
+
+function multipleToolChatRequest(): ChatCompletionRequest {
+  return {
+    ...chatRequest,
+    tools: [
+      {
+        type: 'function',
+        function: {
+          name: 'lookup',
+          description: 'Look up a value.',
+          parameters: { type: 'object', properties: { key: { type: 'string' } } },
+        },
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'task.add',
+          description: 'Add a task.',
+          parameters: {
+            type: 'object',
+            properties: {
+              title: { type: 'string' },
+              endDate: { type: 'string' },
+            },
+            required: ['title'],
+            additionalProperties: false,
+          },
+        },
+      },
+    ],
+    toolChoice: { type: 'function', function: { name: 'task.add' } },
   };
 }
 

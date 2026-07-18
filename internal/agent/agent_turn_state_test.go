@@ -177,6 +177,128 @@ func TestDecideAgentActionNativeChatRejectsInvalidCallsWithoutStructuredFallback
 	}
 }
 
+func TestDecideAgentActionNativeChatRecoversTaskAddAndInvokesItOnce(t *testing.T) {
+	executionCount := 0
+	toolSet := NewToolSet([]string{"task.add"})
+	toolSet.RegisterTool(ToolDefinition{
+		Name:        "task.add",
+		Description: "Add a task.",
+		InputSchema: json.RawMessage(`{"type":"object","properties":{"title":{"type":"string"}},"required":["title"],"additionalProperties":false}`),
+	}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		executionCount++
+		return ToolSuccess("added"), nil
+	})
+	state := agentTaskState{Request: AgentTurnRequest{Prompt: "add a task", ToolSet: toolSet}}
+	correctionError := testStructuredOutputCorrectionError{correction: llm.StructuredOutputCorrection{
+		Code: "provider_response_invalid",
+		Diagnostic: llm.StructuredOutputDiagnostic{
+			Category:     llm.StructuredOutputDiagnosticJSONParse,
+			ToolName:     "task.add",
+			RepairStatus: llm.StructuredOutputRepairFailed,
+		},
+	}}
+	provider := nativeAgentActionLanguageModel{
+		chatErrors: []error{correctionError, nil},
+		chatResponses: []llm.ChatCompletionResponse{
+			{},
+			nativeAgentActionChatResponse("task.add", `{"title":"plan review"}`),
+		},
+	}
+
+	action, errorValue := DecideAgentAction(context.Background(), &provider, state)
+	if errorValue != nil {
+		t.Fatalf("expected corrected native action: %v", errorValue)
+	}
+	if action.Action != "continue" || action.ToolName != "task.add" || string(action.ToolInput) != `{"title":"plan review"}` {
+		t.Fatalf("expected parsed task.add action, got %+v", action)
+	}
+	result, invokeError := state.Request.ToolSet.Invoke(context.Background(), ToolInvocation{ToolName: action.ToolName, Input: action.ToolInput})
+	if invokeError != nil || result.Failure != nil {
+		t.Fatalf("expected task.add invocation, got %+v, %v", result, invokeError)
+	}
+	if executionCount != 1 || provider.chatCalls != 2 || provider.structuredCalls != 0 {
+		t.Fatalf("expected one side effect after two native calls, got executions=%d chat=%d structured=%d", executionCount, provider.chatCalls, provider.structuredCalls)
+	}
+}
+
+func TestDecideAgentActionNativeChatRetryUsesExactDiagnosticTool(t *testing.T) {
+	correctionError := testStructuredOutputCorrectionError{correction: llm.StructuredOutputCorrection{
+		Code: "structured_output_invalid",
+		Diagnostic: llm.StructuredOutputDiagnostic{
+			Category: llm.StructuredOutputDiagnosticSchemaValidation,
+			ToolName: "task.add",
+			ValidationIssues: []llm.StructuredOutputValidationIssue{{
+				FieldPath: "/title",
+				Code:      llm.StructuredOutputValidationRequired,
+			}},
+		},
+	}}
+	provider := nativeAgentActionLanguageModel{
+		chatErrors: []error{correctionError, nil},
+		chatResponses: []llm.ChatCompletionResponse{
+			{},
+			nativeAgentActionChatResponse("task.add", `{"title":"plan review"}`),
+		},
+	}
+	state := nativeAgentActionTestStateWithTools("task.add", TerminalRunToolName)
+
+	_, errorValue := DecideAgentAction(context.Background(), &provider, state)
+	if errorValue != nil {
+		t.Fatalf("expected corrected native action: %v", errorValue)
+	}
+	if len(provider.chatRequests) != 2 {
+		t.Fatalf("expected two native requests, got %d", len(provider.chatRequests))
+	}
+	retryRequest := provider.chatRequests[1]
+	if len(retryRequest.Tools) != 1 || retryRequest.Tools[0].Function.Name != "task.add" {
+		t.Fatalf("expected exact diagnostic tool retry, got %+v", retryRequest.Tools)
+	}
+	if string(retryRequest.ToolChoice) != `{"type":"function","function":{"name":"task.add"}}` {
+		t.Fatalf("expected named exact tool choice, got %s", retryRequest.ToolChoice)
+	}
+	if !strings.Contains(retryRequest.Messages[len(retryRequest.Messages)-1].Content, "schema_validation") || !strings.Contains(retryRequest.Messages[len(retryRequest.Messages)-1].Content, "/title") {
+		t.Fatalf("expected typed correction context, got %+v", retryRequest.Messages)
+	}
+}
+
+func TestDecideAgentActionNativeChatStopsAfterOneCorrectionRetry(t *testing.T) {
+	correctionError := testStructuredOutputCorrectionError{correction: llm.StructuredOutputCorrection{
+		Code: "provider_response_invalid",
+		Diagnostic: llm.StructuredOutputDiagnostic{
+			Category: llm.StructuredOutputDiagnosticToolCallContract,
+			ToolName: "terminal.run",
+		},
+	}}
+	provider := nativeAgentActionLanguageModel{chatErrors: []error{correctionError, correctionError}}
+	_, errorValue := DecideAgentAction(context.Background(), &provider, nativeAgentActionTestState())
+	if errorValue == nil {
+		t.Fatal("expected repeated invalid output error")
+	}
+	if provider.chatCalls != 2 || provider.structuredCalls != 0 {
+		t.Fatalf("expected exactly two native calls without structured fallback, got chat=%d structured=%d", provider.chatCalls, provider.structuredCalls)
+	}
+}
+
+func TestDecideAgentActionNativeChatRejectsUnknownDiagnosticTool(t *testing.T) {
+	correctionError := testStructuredOutputCorrectionError{correction: llm.StructuredOutputCorrection{
+		Code: "provider_response_invalid",
+		Diagnostic: llm.StructuredOutputDiagnostic{
+			Category: llm.StructuredOutputDiagnosticJSONParse,
+			ToolName: "unknown.tool",
+		},
+	}}
+	provider := nativeAgentActionLanguageModel{chatError: correctionError}
+
+	_, errorValue := DecideAgentAction(context.Background(), &provider, nativeAgentActionTestState())
+
+	if errorValue == nil || errorValue.Error() != correctionError.Error() {
+		t.Fatalf("expected original correction error, got %v", errorValue)
+	}
+	if provider.chatCalls != 1 || provider.structuredCalls != 0 {
+		t.Fatalf("expected fail-closed native call, got chat=%d structured=%d", provider.chatCalls, provider.structuredCalls)
+	}
+}
+
 func TestDecideAgentActionNativeChatUsesFirstProviderOrderedCall(t *testing.T) {
 	provider := nativeAgentActionLanguageModel{chatResponse: nativeAgentActionMultipleCallsResponse()}
 
@@ -210,6 +332,12 @@ func TestDecideAgentActionUsesStructuredProviderForMessageParts(t *testing.T) {
 }
 
 func TestDecideAgentActionNativeChatPropagatesProviderErrorAndCancellation(t *testing.T) {
+	deadlineContext, cancelDeadline := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+	defer cancelDeadline()
+	correctionError := testStructuredOutputCorrectionError{correction: llm.StructuredOutputCorrection{
+		Code:       "provider_response_invalid",
+		Diagnostic: llm.StructuredOutputDiagnostic{Category: llm.StructuredOutputDiagnosticJSONParse},
+	}}
 	testCases := []struct {
 		name      string
 		context   context.Context
@@ -217,13 +345,15 @@ func TestDecideAgentActionNativeChatPropagatesProviderErrorAndCancellation(t *te
 	}{
 		{name: "provider error", context: context.Background(), chatError: errors.New("native provider failed")},
 		{name: "cancellation", context: cancelledContext(), chatError: context.Canceled},
+		{name: "cancellation during correction", context: cancelledContext(), chatError: correctionError},
+		{name: "deadline", context: deadlineContext, chatError: context.DeadlineExceeded},
 	}
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
 			provider := nativeAgentActionLanguageModel{chatError: testCase.chatError}
 			_, errorValue := DecideAgentAction(testCase.context, &provider, nativeAgentActionTestState())
-			if !errors.Is(errorValue, testCase.chatError) {
+			if testCase.name != "cancellation during correction" && !errors.Is(errorValue, testCase.chatError) {
 				t.Fatalf("expected direct provider error %v, got %v", testCase.chatError, errorValue)
 			}
 			if provider.chatCalls != 1 || provider.structuredCalls != 0 {
@@ -256,6 +386,20 @@ func nativeAgentActionTestState() agentTaskState {
 		return ToolSuccess("ran"), nil
 	})
 	return agentTaskState{Request: AgentTurnRequest{Prompt: "run command", ToolSet: toolSet}}
+}
+
+func nativeAgentActionTestStateWithTools(toolNames ...string) agentTaskState {
+	toolSet := NewToolSet(toolNames)
+	for _, toolName := range toolNames {
+		toolSet.RegisterTool(ToolDefinition{
+			Name:        toolName,
+			Description: "Test tool.",
+			InputSchema: json.RawMessage(`{"type":"object","properties":{},"additionalProperties":false}`),
+		}, func(context.Context, ToolInvocation) (ToolResult, error) {
+			return ToolSuccess("ok"), nil
+		})
+	}
+	return agentTaskState{Request: AgentTurnRequest{Prompt: "use a tool", ToolSet: toolSet}}
 }
 
 func nativeAgentActionChatResponse(toolName string, arguments string) llm.ChatCompletionResponse {
@@ -309,12 +453,27 @@ func cancelledContext() context.Context {
 	return contextValue
 }
 
+type testStructuredOutputCorrectionError struct {
+	correction llm.StructuredOutputCorrection
+}
+
+func (errorValue testStructuredOutputCorrectionError) Error() string {
+	return errorValue.correction.Code
+}
+
+func (errorValue testStructuredOutputCorrectionError) StructuredOutputCorrection() (llm.StructuredOutputCorrection, bool) {
+	return errorValue.correction, true
+}
+
 type nativeAgentActionLanguageModel struct {
 	chatResponse    llm.ChatCompletionResponse
 	chatError       error
+	chatResponses   []llm.ChatCompletionResponse
+	chatErrors      []error
 	chatCalls       int
 	structuredCalls int
 	lastRequest     llm.ChatCompletionRequest
+	chatRequests    []llm.ChatCompletionRequest
 }
 
 func (provider *nativeAgentActionLanguageModel) GenerateResponse(context.Context, string) (string, error) {
@@ -327,9 +486,19 @@ func (provider *nativeAgentActionLanguageModel) GenerateStructuredResponse(conte
 }
 
 func (provider *nativeAgentActionLanguageModel) GenerateChatCompletion(_ context.Context, request llm.ChatCompletionRequest) (llm.ChatCompletionResponse, error) {
+	callIndex := provider.chatCalls
 	provider.chatCalls++
 	provider.lastRequest = request
-	return provider.chatResponse, provider.chatError
+	provider.chatRequests = append(provider.chatRequests, request)
+	response := provider.chatResponse
+	if callIndex < len(provider.chatResponses) {
+		response = provider.chatResponses[callIndex]
+	}
+	errorValue := provider.chatError
+	if callIndex < len(provider.chatErrors) {
+		errorValue = provider.chatErrors[callIndex]
+	}
+	return response, errorValue
 }
 
 func (provider *nativeAgentActionLanguageModel) chatResponseAsStructured() llm.StructuredResponse {
