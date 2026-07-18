@@ -23,6 +23,41 @@ func TestNewSDKDClientDoesNotSetHTTPTimeout(t *testing.T) {
 	}
 }
 
+func TestStructuredOutputCorrectionFromErrorAllowsOnlyAuthoritativeDiagnostics(t *testing.T) {
+	correctableCategories := []StructuredOutputDiagnosticCategory{
+		StructuredOutputDiagnosticJSONParse,
+		StructuredOutputDiagnosticSchemaValidation,
+		StructuredOutputDiagnosticFinishReason,
+		StructuredOutputDiagnosticToolCallContract,
+	}
+	for _, code := range []string{"provider_response_invalid", "structured_output_invalid"} {
+		for _, category := range correctableCategories {
+			correction, isCorrectable := StructuredOutputCorrectionFromError(sdkdHTTPError{
+				Code:       code,
+				Diagnostic: StructuredOutputDiagnostic{Category: category},
+			})
+			if !isCorrectable || correction.Code != code || correction.Diagnostic.Category != category {
+				t.Fatalf("expected %s/%s to be correctable, got %+v, %t", code, category, correction, isCorrectable)
+			}
+		}
+	}
+
+	nonCorrectableErrors := []error{
+		sdkdHTTPError{Code: "provider_response_invalid", Diagnostic: StructuredOutputDiagnostic{Category: StructuredOutputDiagnosticSerialization}},
+		sdkdHTTPError{Code: "provider_response_invalid", AllowLegacyFallback: true, Diagnostic: StructuredOutputDiagnostic{Category: StructuredOutputDiagnosticJSONParse}},
+		sdkdHTTPError{Code: "provider_api_error", Diagnostic: StructuredOutputDiagnostic{Category: StructuredOutputDiagnosticJSONParse}},
+		sdkdTransportError{Cause: errors.New("transport failed")},
+		context.Canceled,
+		context.DeadlineExceeded,
+		errors.New("request failed"),
+	}
+	for _, errorValue := range nonCorrectableErrors {
+		if _, isCorrectable := StructuredOutputCorrectionFromError(errorValue); isCorrectable {
+			t.Fatalf("expected non-correctable error %T: %v", errorValue, errorValue)
+		}
+	}
+}
+
 func TestSDKDClientSendsAuthenticatedStructuredRequest(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(responseWriter http.ResponseWriter, request *http.Request) {
 		if request.Header.Get("Authorization") != "Bearer installation-key" {

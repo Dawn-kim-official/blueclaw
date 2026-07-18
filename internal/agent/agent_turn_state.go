@@ -636,10 +636,78 @@ func DecideAgentAction(ctx context.Context, languageModel llm.LanguageModelProvi
 
 func decideAgentActionWithChat(ctx context.Context, chatCompleter llm.ChatCompleter, request llm.ChatCompletionRequest) (agentAction, error) {
 	response, errorValue := chatCompleter.GenerateChatCompletion(ctx, request)
-	if errorValue != nil {
+	if errorValue == nil {
+		return parseNativeAgentActionResponse(response, request.Tools)
+	}
+	if errors.Is(errorValue, context.Canceled) || errors.Is(errorValue, context.DeadlineExceeded) || ctx.Err() != nil {
 		return turnActionDocument{}, errorValue
 	}
-	return parseNativeAgentActionResponse(response, request.Tools)
+	correction, isCorrectable := llm.StructuredOutputCorrectionFromError(errorValue)
+	if !isCorrectable {
+		return turnActionDocument{}, errorValue
+	}
+	retryRequest, canRetry := retryAgentActionChatCompletionRequest(request, correction)
+	if !canRetry {
+		return turnActionDocument{}, errorValue
+	}
+	retryResponse, retryError := chatCompleter.GenerateChatCompletion(ctx, retryRequest)
+	if retryError != nil {
+		return turnActionDocument{}, retryError
+	}
+	return parseNativeAgentActionResponse(retryResponse, retryRequest.Tools)
+}
+
+func retryAgentActionChatCompletionRequest(request llm.ChatCompletionRequest, correction llm.StructuredOutputCorrection) (llm.ChatCompletionRequest, bool) {
+	retryRequest := request
+	retryRequest.Messages = append([]llm.ChatCompletionMessage{}, request.Messages...)
+	retryRequest.Messages = append(retryRequest.Messages, llm.ChatCompletionMessage{
+		Role:    "system",
+		Content: agentActionCorrectionMessage(correction),
+	})
+	toolName := strings.TrimSpace(correction.Diagnostic.ToolName)
+	if toolName == "" {
+		return retryRequest, true
+	}
+	for _, tool := range request.Tools {
+		if tool.Function.Name != toolName {
+			continue
+		}
+		retryRequest.Tools = []llm.ChatCompletionTool{tool}
+		retryRequest.ToolChoice = namedAgentActionToolChoice(toolName)
+		return retryRequest, true
+	}
+	return llm.ChatCompletionRequest{}, false
+}
+
+func namedAgentActionToolChoice(toolName string) json.RawMessage {
+	choice := struct {
+		Type     string `json:"type"`
+		Function struct {
+			Name string `json:"name"`
+		} `json:"function"`
+	}{Type: "function"}
+	choice.Function.Name = toolName
+	document, _ := json.Marshal(choice)
+	return document
+}
+
+func agentActionCorrectionMessage(correction llm.StructuredOutputCorrection) string {
+	diagnostic := correction.Diagnostic
+	messageParts := []string{
+		"The previous native action response was invalid.",
+		"Return exactly one valid tool call.",
+		"Diagnostic category: " + string(diagnostic.Category) + ".",
+	}
+	if diagnostic.ToolName != "" {
+		messageParts = append(messageParts, "Expected tool: "+diagnostic.ToolName+".")
+	}
+	if diagnostic.FinishReason != "" {
+		messageParts = append(messageParts, "Observed finish reason: "+string(diagnostic.FinishReason)+".")
+	}
+	for _, issue := range diagnostic.ValidationIssues {
+		messageParts = append(messageParts, "Validation issue: "+issue.FieldPath+" ("+string(issue.Code)+").")
+	}
+	return strings.Join(messageParts, " ")
 }
 
 func buildAgentActionChatCompletionRequest(structuredRequest llm.StructuredResponseRequest) (llm.ChatCompletionRequest, bool) {
