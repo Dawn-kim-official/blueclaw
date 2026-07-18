@@ -1145,7 +1145,10 @@ func TestAgentKernelSelectsArtifactSkillOnceAfterRouting(t *testing.T) {
 }
 
 func TestAgentKernelSelectsSkillForTypedToolContract(t *testing.T) {
-	intakeLanguageModel := &sequenceLanguageModel{contents: []string{`{"queries":[{"description":"Create a task."}]}`}}
+	intakeLanguageModel := &sequenceLanguageModel{contents: []string{
+		`{"queries":[{"description":"Create a task."}]}`,
+		`{"selectedSkillNames":["internkim-flow"],"rejectedSkillNames":[],"requiredNextToolNames":["task.add"],"expectedEvidence":["task.add"],"unmetPreconditions":[],"reason":"The task contract requires task creation."}`,
+	}}
 	services := newKernelIntakeTestServices(&sequenceLanguageModel{}, intakeLanguageModel)
 	skillRetriever := &countingSkillRetriever{result: SkillRetrievalResult{
 		SelectedCandidates: []SkillCandidate{{Name: "internkim-flow", Score: 1}},

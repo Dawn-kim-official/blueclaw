@@ -37,6 +37,52 @@ func TestToolExposureUsesKernelWithoutSelectedSkills(t *testing.T) {
 	}
 }
 
+func TestToolExposureHidesSkillSearchAfterSelectedInstructionsLoad(t *testing.T) {
+	toolSet := testToolSet(append(KernelToolNames(), "task.add"))
+	instructionBundle := InstructionBundle{
+		Skills:         []SkillInstruction{{Name: "internkim-flow", ToolReferences: []string{"task.add"}}},
+		SkillDecisions: []SkillSelectionDecision{{Name: "internkim-flow", Status: "selected"}},
+	}
+
+	filteredToolSet, _ := toolSetForAgentTurnWithExposure(
+		toolSet,
+		instructionBundle,
+		AgentRequest{},
+		ExecutionPlan{},
+		false,
+		OutcomeContract{},
+		ToolExposureEvent{},
+	)
+
+	if filteredToolSet.IsAllowed(SkillSearchToolName) {
+		t.Fatalf("expected loaded skill instructions to hide skill.search, got %+v", filteredToolSet.ListToolNames())
+	}
+	if !filteredToolSet.IsAllowed("task.add") {
+		t.Fatalf("expected selected skill tool to remain exposed, got %+v", filteredToolSet.ListToolNames())
+	}
+}
+
+func TestToolExposureKeepsSkillSearchWhenSelectedInstructionIsMissing(t *testing.T) {
+	toolSet := testToolSet(KernelToolNames())
+	instructionBundle := InstructionBundle{
+		SkillDecisions: []SkillSelectionDecision{{Name: "missing", Status: "selected"}},
+	}
+
+	filteredToolSet, _ := toolSetForAgentTurnWithExposure(
+		toolSet,
+		instructionBundle,
+		AgentRequest{},
+		ExecutionPlan{},
+		false,
+		OutcomeContract{},
+		ToolExposureEvent{},
+	)
+
+	if !filteredToolSet.IsAllowed(SkillSearchToolName) {
+		t.Fatalf("expected unresolved skill discovery to keep skill.search, got %+v", filteredToolSet.ListToolNames())
+	}
+}
+
 func TestToolExposureAddsAskInputOnlyForTypedInteraction(t *testing.T) {
 	toolSet := testToolSet(append(KernelToolNames(), AskInputToolName))
 	outcomeContract := OutcomeContract{ExpectedResults: []ExpectedResult{{
@@ -139,7 +185,7 @@ func TestReconstructedEvidenceOnlyArbitrationPreservesSelectedDomain(t *testing.
 		ToolExposureEvent{},
 	)
 
-	expectedToolNames := append(append([]string{}, KernelToolNames()...), flowToolNames...)
+	expectedToolNames := append(kernelToolNamesForInstructionBundle(instructionBundleFromTurnRequest(request)), flowToolNames...)
 	if !sameStringSet(filteredToolSet.ListToolNames(), expectedToolNames) {
 		t.Fatalf("expected reconstructed selected domain, got %+v", filteredToolSet.ListToolNames())
 	}
