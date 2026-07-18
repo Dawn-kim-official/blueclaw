@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -11,9 +12,10 @@ import (
 )
 
 type operationContractLanguageModel struct {
-	contents []string
-	requests []llm.StructuredResponseRequest
-	calls    int
+	contents     []string
+	errorsByCall map[int]error
+	requests     []llm.StructuredResponseRequest
+	calls        int
 }
 
 func (languageModel *operationContractLanguageModel) GenerateResponse(context.Context, string) (string, error) {
@@ -22,12 +24,27 @@ func (languageModel *operationContractLanguageModel) GenerateResponse(context.Co
 
 func (languageModel *operationContractLanguageModel) GenerateStructuredResponse(_ context.Context, request llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
 	languageModel.requests = append(languageModel.requests, request)
-	if languageModel.calls >= len(languageModel.contents) {
+	callIndex := languageModel.calls
+	languageModel.calls++
+	if errorValue := languageModel.errorsByCall[callIndex]; errorValue != nil {
+		return llm.StructuredResponse{}, errorValue
+	}
+	if callIndex >= len(languageModel.contents) {
 		return llm.StructuredResponse{}, context.Canceled
 	}
-	content := languageModel.contents[languageModel.calls]
-	languageModel.calls++
-	return llm.StructuredResponse{Content: content}, nil
+	return llm.StructuredResponse{Content: languageModel.contents[callIndex]}, nil
+}
+
+type operationContractCorrectionError struct {
+	correction llm.StructuredOutputCorrection
+}
+
+func (errorValue operationContractCorrectionError) Error() string {
+	return errorValue.correction.Code
+}
+
+func (errorValue operationContractCorrectionError) StructuredOutputCorrection() (llm.StructuredOutputCorrection, bool) {
+	return errorValue.correction, true
 }
 
 func TestCompileOperationRequirementsPreservesPersistedContract(t *testing.T) {
@@ -145,6 +162,14 @@ func TestValidateRequiredOperationInputAllowsExplicitPartialInput(t *testing.T) 
 	}
 	if string(requiredInput) != `{"title":"분기 결산 누락 확인"}` {
 		t.Fatalf("unexpected normalized input %s", requiredInput)
+	}
+}
+
+func TestOperationContractSchemaRejectsEmptyRequiredValues(t *testing.T) {
+	schemaDocument := operationContractSchema([]string{"terminal.run"})
+
+	if !strings.Contains(schemaDocument, `"requiredValuesJSON":{"maxLength":4096,"minLength":2,"type":"string"}`) {
+		t.Fatalf("expected required values to require at least an empty JSON object, got %s", schemaDocument)
 	}
 }
 
@@ -314,6 +339,126 @@ func TestCompileOperationRequirementsRepairsRejectedCandidateOnce(t *testing.T) 
 	}
 	if string(contract.OperationContract.Requirements[0].RequiredInput) != `{"title":"분기 결산 누락 확인"}` {
 		t.Fatalf("unexpected corrected operation contract %+v", contract.OperationContract)
+	}
+}
+
+func TestCompileOperationRequirementsCorrectsInvalidReviewedCandidate(t *testing.T) {
+	languageModel := &operationContractLanguageModel{contents: []string{
+		`{"operations":[{"toolName":"task.add","requiredValuesJSON":"{}"}]}`,
+		`{"isComplete":false,"reason":"missing explicit title"}`,
+		`{"operations":[{"toolName":"task.add","requiredValuesJSON":"{"}]}`,
+		`{"operations":[{"toolName":"task.add","requiredValuesJSON":"{\"title\":\"분기 결산 누락 확인\"}"}]}`,
+		`{"isComplete":true,"reason":""}`,
+	}}
+
+	contract, errorValue := compileOperationRequirements(
+		context.Background(),
+		languageModel,
+		AgentRequest{Prompt: "분기 결산 누락 확인 업무를 추가해줘"},
+		operationContractTestToolSet(),
+		OutcomeContract{RequiredEvidenceTools: []string{"task.add"}},
+	)
+
+	if errorValue != nil {
+		t.Fatalf("expected invalid correction candidate to receive typed correction: %v", errorValue)
+	}
+	if languageModel.calls != 5 {
+		t.Fatalf("expected compile, review, invalid correction, typed correction, and review calls, got %d", languageModel.calls)
+	}
+	correctionMessages := joinedMessageContent(languageModel.requests[3].Messages)
+	if !strings.Contains(correctionMessages, "missing explicit title") || !strings.Contains(correctionMessages, "unexpected EOF") {
+		t.Fatalf("expected review and validation diagnostics in correction request, got %s", correctionMessages)
+	}
+	if string(contract.OperationContract.Requirements[0].RequiredInput) != `{"title":"분기 결산 누락 확인"}` {
+		t.Fatalf("unexpected corrected operation contract %+v", contract.OperationContract)
+	}
+}
+
+func TestCompileOperationRequirementsCorrectsAuthoritativeStructuredOutputError(t *testing.T) {
+	correctionError := operationContractCorrectionError{correction: llm.StructuredOutputCorrection{
+		Code: "structured_output_invalid",
+		Diagnostic: llm.StructuredOutputDiagnostic{
+			Category: llm.StructuredOutputDiagnosticSchemaValidation,
+			ValidationIssues: []llm.StructuredOutputValidationIssue{{
+				FieldPath: "operations[0].requiredValuesJSON",
+				Code:      llm.StructuredOutputValidationOther,
+			}},
+		},
+	}}
+	languageModel := &operationContractLanguageModel{
+		contents: []string{
+			"",
+			`{"operations":[{"toolName":"task.add","requiredValuesJSON":"{\"title\":\"분기 결산 누락 확인\"}"}]}`,
+			`{"isComplete":true,"reason":""}`,
+		},
+		errorsByCall: map[int]error{0: correctionError},
+	}
+
+	contract, errorValue := compileOperationRequirements(
+		context.Background(),
+		languageModel,
+		AgentRequest{Prompt: "분기 결산 누락 확인 업무를 추가해줘"},
+		operationContractTestToolSet(),
+		OutcomeContract{RequiredEvidenceTools: []string{"task.add"}},
+	)
+
+	if errorValue != nil {
+		t.Fatalf("expected authoritative structured error to receive typed correction: %v", errorValue)
+	}
+	if languageModel.calls != 3 {
+		t.Fatalf("expected failed generation, correction, and review calls, got %d", languageModel.calls)
+	}
+	correctionMessages := joinedMessageContent(languageModel.requests[1].Messages)
+	if !strings.Contains(correctionMessages, "schema_validation") || !strings.Contains(correctionMessages, "operations[0].requiredValuesJSON") {
+		t.Fatalf("expected typed SDKD diagnostic in correction request, got %s", correctionMessages)
+	}
+	if string(contract.OperationContract.Requirements[0].RequiredInput) != `{"title":"분기 결산 누락 확인"}` {
+		t.Fatalf("unexpected corrected operation contract %+v", contract.OperationContract)
+	}
+}
+
+func TestCompileOperationRequirementsFailsClosedWhenCorrectionIsInvalid(t *testing.T) {
+	languageModel := &operationContractLanguageModel{contents: []string{
+		`{"operations":[{"toolName":"task.add","requiredValuesJSON":"{"}]}`,
+		`{"operations":[{"toolName":"task.add","requiredValuesJSON":"["}]}`,
+	}}
+
+	_, errorValue := compileOperationRequirements(
+		context.Background(),
+		languageModel,
+		AgentRequest{Prompt: "분기 결산 누락 확인 업무를 추가해줘"},
+		operationContractTestToolSet(),
+		OutcomeContract{RequiredEvidenceTools: []string{"task.add"}},
+	)
+
+	if errorValue == nil || !strings.Contains(errorValue.Error(), "correct operation contract") {
+		t.Fatalf("expected invalid correction to fail closed, got %v", errorValue)
+	}
+	if languageModel.calls != 2 {
+		t.Fatalf("expected one correction attempt, got %d calls", languageModel.calls)
+	}
+}
+
+func TestCompileOperationRequirementsDoesNotRetryNonCorrectableError(t *testing.T) {
+	generationError := errors.New("provider unavailable")
+	languageModel := &operationContractLanguageModel{
+		contents:     []string{""},
+		errorsByCall: map[int]error{0: generationError},
+	}
+
+	_, errorValue := compileOperationRequirements(
+		context.Background(),
+		languageModel,
+		AgentRequest{Prompt: "분기 결산 누락 확인 업무를 추가해줘"},
+		operationContractTestToolSet(),
+		OutcomeContract{RequiredEvidenceTools: []string{"task.add"}},
+	)
+
+	if !errors.Is(errorValue, generationError) {
+		t.Fatalf("expected non-correctable provider error, got %v", errorValue)
+	}
+	if languageModel.calls != 1 {
+		t.Fatalf("expected no retry, got %d calls", languageModel.calls)
 	}
 }
 
