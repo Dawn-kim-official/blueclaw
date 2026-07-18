@@ -2,7 +2,6 @@ package agent
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -33,44 +32,17 @@ func (agentKernel *AgentKernel) GenerateReplyWithContext(responseContext context
 	}
 	instructionBundle := agentKernel.currentInstructionBundle()
 	messages := buildReplyMessagesWithInstructions(prompt, visibleContext, memoryFacts, instructionBundle.Prompt)
-	if chatCompleter, isAvailable := llm.ResolveTextChatCompleter(agentKernel.languageModel); isAvailable {
-		return generateChatReply(responseContext, chatCompleter, messages)
+	chatCompleter, isAvailable := llm.ResolveTextChatCompleter(agentKernel.languageModel)
+	if !isAvailable {
+		return "", errors.New("language model provider does not support chat completion")
 	}
-
-	structuredResponse, errorValue := agentKernel.languageModel.GenerateStructuredResponse(
-		responseContext,
-		llm.StructuredResponseRequest{
-			Messages: messages,
-			StructuredOutputSchema: llm.StructuredOutputSchema{
-				Name:               "blueclaw_reply",
-				Document:           `{"type":"object","properties":{"reply":{"type":"string"}},"required":["reply"],"additionalProperties":false}`,
-				IsStrictlyEnforced: true,
-			},
-		},
-	)
-	if errorValue != nil {
-		return "", errorValue
-	}
-
-	var replyDocument struct {
-		Reply string `json:"reply"`
-	}
-	errorValue = json.Unmarshal([]byte(structuredResponse.Content), &replyDocument)
-	if errorValue != nil {
-		return "", errorValue
-	}
-
-	reply := strings.TrimSpace(replyDocument.Reply)
-	if reply == "" {
-		return "", errors.New("language model reply is empty")
-	}
-
-	return reply, nil
+	return generateChatReply(responseContext, chatCompleter, messages)
 }
 
 func generateChatReply(responseContext context.Context, chatCompleter llm.ChatCompleter, messages []llm.Message) (string, error) {
 	response, errorValue := chatCompleter.GenerateChatCompletion(responseContext, llm.ChatCompletionRequest{
-		Messages: chatMessages(messages),
+		SchemaName: "blueclaw_reply",
+		Messages:   chatMessages(messages),
 	})
 	if errorValue != nil {
 		return "", errorValue
