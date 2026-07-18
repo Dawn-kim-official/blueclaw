@@ -160,7 +160,7 @@ export const toolResultContractSchema = z.strictObject({
   effects: z.array(resourceEffectContractSchema).optional(),
   evidenceCondition: evidenceConditionSchema.optional(),
 }).superRefine((contract, context) => {
-  const keys = contract.effects?.map(effect => `${effect.objectType}\u0000${effect.effect}`) ?? [];
+  const keys = contract.effects?.map(effect => `${effect.objectType}\u0000${effect.effect}\u0000${effect.effectIdentity}`) ?? [];
   if (new Set(keys).size !== keys.length) {
     context.addIssue({ code: 'custom', message: 'effects must be unique' });
   }

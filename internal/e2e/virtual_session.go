@@ -1636,10 +1636,13 @@ func virtualCapabilityToolResultContract(toolName string) *agentruntime.Capabili
 			"previewed",
 		)
 	case "site.publish":
-		return virtualSiteResultContract(
-			`{"type":"object","properties":{"siteID":{"type":"string","minLength":1},"status":{"type":"string","const":"published"},"sourceWorkspacePath":{"type":"string","minLength":1},"sourceSHA256":{"type":"string","pattern":"^[a-f0-9]{64}$"},"publishedURL":{"type":"string","minLength":1},"currentVersionID":{"type":"string","minLength":1}},"required":["siteID","status","sourceWorkspacePath","sourceSHA256","publishedURL","currentVersionID"],"additionalProperties":false}`,
-			"published",
-		)
+		return &agentruntime.CapabilityToolResultContract{
+			Schema: json.RawMessage(`{"type":"object","properties":{"siteID":{"type":"string","minLength":1},"status":{"type":"string","const":"published"},"sourceWorkspacePath":{"type":"string","minLength":1},"sourceSHA256":{"type":"string","pattern":"^[a-f0-9]{64}$"},"publishedURL":{"type":"string","minLength":1},"currentVersionID":{"type":"string","minLength":1}},"required":["siteID","status","sourceWorkspacePath","sourceSHA256","publishedURL","currentVersionID"],"additionalProperties":false}`),
+			Effects: []agentruntime.CapabilityResourceEffectContract{
+				{ObjectType: "website", Effect: "published", ResultField: "siteID", EffectIdentity: "id"},
+				{ObjectType: "website", Effect: "published", ResultField: "publishedURL", EffectIdentity: "url"},
+			},
+		}
 	case "site.delete":
 		return virtualSiteResultContract(
 			`{"type":"object","properties":{"siteID":{"type":"string","minLength":1},"deleted":{"type":"boolean","const":true}},"required":["siteID","deleted"],"additionalProperties":false}`,
@@ -2108,6 +2111,12 @@ func virtualCapabilityMessageSuccess(toolName string, effect string, messageID s
 }
 
 func virtualCapabilityWebsiteSuccess(toolName string, effect string, siteID string, result any) string {
+	effects := []map[string]any{{"objectType": "website", "effect": effect, "id": siteID}}
+	if resultDocument, isObject := result.(map[string]any); isObject {
+		if publishedURL := strings.TrimSpace(stringValue(resultDocument["publishedURL"])); publishedURL != "" {
+			effects = append(effects, map[string]any{"objectType": "website", "effect": effect, "url": publishedURL})
+		}
+	}
 	return virtualCapabilityJSON(map[string]any{
 		"provider":        "virtual",
 		"selectedBackend": "device",
@@ -2116,7 +2125,7 @@ func virtualCapabilityWebsiteSuccess(toolName string, effect string, siteID stri
 		"status":          "ok",
 		"content":         virtualCapabilityJSON(result),
 		"result":          result,
-		"effects":         []map[string]any{{"objectType": "website", "effect": effect, "id": siteID}},
+		"effects":         effects,
 	})
 }
 
