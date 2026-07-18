@@ -91,9 +91,7 @@ func (taskRunHandler TaskRunHandler) HandleRunTask(responseWriter http.ResponseW
 	}
 	personAccess := taskRunHandler.IdentityService.ResolvePersonAccess(runRequest.RequesterPersonID)
 	conversationID := firstNonEmptyAdminString(runRequest.ConversationID, "admin:"+runRequest.RequesterPersonID)
-	launchContext, cancelLaunch := context.WithTimeout(context.Background(), 15*time.Minute)
-	defer cancelLaunch()
-	launchResult, errorValue := taskRunHandler.TaskLauncher.Launch(launchContext, agentruntime.TaskLaunchRequest{
+	launchResult, errorValue := taskRunHandler.TaskLauncher.Launch(context.Background(), agentruntime.TaskLaunchRequest{
 		Source:                     agentruntime.TaskLaunchSourceAdmin,
 		SourceReference:            "admin:" + runRequest.RequesterPersonID,
 		RequesterPersonID:          runRequest.RequesterPersonID,

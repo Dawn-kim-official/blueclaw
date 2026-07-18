@@ -19,7 +19,7 @@ func (agentTurnRunner *AgentTurnRunner) prepareRecoveryAttempt(ctx context.Conte
 		agentTurnRunner.appendEvent(taskRunID, "agent.recovery_choice_rejected", marshalEventBody(observation))
 		agentTurnRunner.saveStep(taskRunID, stepID, task.TaskStatusCompleted, "recovery_choice_rejected "+effectiveToolName, observation.ContentText())
 		result, shouldStop := stopForNoProgress(stepID)
-		return "", toolCallActionOutcome{Result: result, ShouldReturn: shouldStop, WasHandled: true}
+		return "", noProgressToolCallActionOutcome(result, shouldStop)
 	}
 	recoveryStep := classifyRecoveryStep(failureDebt, effectiveToolName)
 	if !recoveryBudgetAllowsStep(state.Observations, agentTurnRunner.options.RecoveryBudget, recoveryStep) {
@@ -32,7 +32,7 @@ func (agentTurnRunner *AgentTurnRunner) prepareRecoveryAttempt(ctx context.Conte
 			return "", toolCallActionOutcome{Result: result, ShouldReturn: true, WasHandled: true}
 		}
 		result, shouldStop := stopForNoProgress(stepID)
-		return "", toolCallActionOutcome{Result: result, ShouldReturn: shouldStop, WasHandled: true}
+		return "", noProgressToolCallActionOutcome(result, shouldStop)
 	}
 	agentTurnRunner.appendEvent(taskRunID, "agent.recovery_attempt", marshalEventBody(map[string]any{
 		"status":       "started",

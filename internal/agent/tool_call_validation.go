@@ -17,21 +17,21 @@ func (agentTurnRunner *AgentTurnRunner) rejectUnavailableToolCall(taskRunID stri
 		state.Observations = append(state.Observations, observation)
 		agentTurnRunner.saveStep(taskRunID, stepID, task.TaskStatusCompleted, "tool_unavailable "+actionDocument.ToolName, observation.ContentText())
 		result, shouldStop := stopForNoProgress(stepID)
-		return toolCallActionOutcome{Result: result, ShouldReturn: shouldStop, WasHandled: true}
+		return noProgressToolCallActionOutcome(result, shouldStop)
 	}
 	if observation, isRejected := unrequestedPlatformMessageSendObservation(request, actionDocument, nextObservationIDForObservations(state.Observations)); isRejected {
 		state.Observations = append(state.Observations, observation)
 		agentTurnRunner.appendEvent(taskRunID, "agent.external_send_intent_rejected", marshalEventBody(observation))
 		agentTurnRunner.saveStep(taskRunID, stepID, task.TaskStatusCompleted, "external_send_intent_rejected "+actionDocument.ToolName, observation.ContentText())
 		result, shouldStop := stopForNoProgress(stepID)
-		return toolCallActionOutcome{Result: result, ShouldReturn: shouldStop, WasHandled: true}
+		return noProgressToolCallActionOutcome(result, shouldStop)
 	}
 	if observation, isRejected := sitePublishPrerequisiteFailure(state.Observations, actionDocument, nextObservationIDForObservations(state.Observations)); isRejected {
 		state.Observations = append(state.Observations, observation)
 		agentTurnRunner.appendEvent(taskRunID, "agent.site_publish_prerequisite_rejected", marshalEventBody(observation))
 		agentTurnRunner.saveStep(taskRunID, stepID, task.TaskStatusCompleted, "site_publish_prerequisite_rejected", observation.ContentText())
 		result, shouldStop := stopForNoProgress(stepID)
-		return toolCallActionOutcome{Result: result, ShouldReturn: shouldStop, WasHandled: true}
+		return noProgressToolCallActionOutcome(result, shouldStop)
 	}
 	return toolCallActionOutcome{}
 }
@@ -43,7 +43,7 @@ func (agentTurnRunner *AgentTurnRunner) rejectMalformedToolCall(taskRunID string
 		agentTurnRunner.appendEvent(taskRunID, "agent.tool_input_malformed", marshalEventBody(observation))
 		agentTurnRunner.saveStep(taskRunID, stepID, task.TaskStatusCompleted, "malformed_tool_input "+actionDocument.ToolName, observation.ContentText())
 		result, shouldStop := stopForNoProgress(stepID)
-		return toolCallActionOutcome{Result: result, ShouldReturn: shouldStop, WasHandled: true}
+		return noProgressToolCallActionOutcome(result, shouldStop)
 	}
 	if validationError := validateTerminalToolInput(actionDocument.ToolName, actionDocument.ToolInput, request.ToolSet); validationError != nil {
 		failureCode := FailureCodes.InvalidInput
@@ -55,7 +55,7 @@ func (agentTurnRunner *AgentTurnRunner) rejectMalformedToolCall(taskRunID string
 		agentTurnRunner.appendEvent(taskRunID, "agent.tool_input_malformed", marshalEventBody(observation))
 		agentTurnRunner.saveStep(taskRunID, stepID, task.TaskStatusCompleted, "malformed_tool_input "+actionDocument.ToolName, observation.ContentText())
 		result, shouldStop := stopForNoProgress(stepID)
-		return toolCallActionOutcome{Result: result, ShouldReturn: shouldStop, WasHandled: true}
+		return noProgressToolCallActionOutcome(result, shouldStop)
 	}
 	return toolCallActionOutcome{}
 }
@@ -66,7 +66,7 @@ func (agentTurnRunner *AgentTurnRunner) rejectRepeatedToolCall(taskRunID string,
 		agentTurnRunner.appendEvent(taskRunID, "agent.file_read_cache_hit", marshalEventBody(observation))
 		agentTurnRunner.saveStep(taskRunID, stepID, task.TaskStatusCompleted, "file_read_cache_hit", observation.ContentText())
 		result, shouldStop := stopForNoProgress(stepID)
-		return toolCallActionOutcome{Result: result, ShouldReturn: shouldStop, WasHandled: true}
+		return noProgressToolCallActionOutcome(result, shouldStop)
 	}
 	if sentObservation, wasSent := previousSuccessfulExternalSend(state.Request.ToolSet, state.Observations, actionDocument.ToolName, actionDocument.ToolInput); wasSent {
 		observation := turnObservation{
@@ -80,7 +80,7 @@ func (agentTurnRunner *AgentTurnRunner) rejectRepeatedToolCall(taskRunID string,
 		agentTurnRunner.appendEvent(taskRunID, "agent.external_send_repeat_rejected", marshalEventBody(observation))
 		agentTurnRunner.saveStep(taskRunID, stepID, task.TaskStatusCompleted, "external_send_repeat_rejected "+actionDocument.ToolName, observation.ContentText())
 		result, shouldStop := stopForNoProgress(stepID)
-		return toolCallActionOutcome{Result: result, ShouldReturn: shouldStop, WasHandled: true}
+		return noProgressToolCallActionOutcome(result, shouldStop)
 	}
 	if duplicateObservation, isDuplicate := repeatedSuccessfulToolObservation(state, actionDocument, successfulToolCalls); isDuplicate {
 		observation := turnObservation{
@@ -94,7 +94,7 @@ func (agentTurnRunner *AgentTurnRunner) rejectRepeatedToolCall(taskRunID string,
 		agentTurnRunner.appendEvent(taskRunID, "agent.duplicate_tool_call_rejected", marshalEventBody(observation))
 		agentTurnRunner.saveStep(taskRunID, stepID, task.TaskStatusCompleted, "duplicate_tool_call "+actionDocument.ToolName, observation.ContentText())
 		result, shouldStop := stopForNoProgress(stepID)
-		return toolCallActionOutcome{Result: result, ShouldReturn: shouldStop, WasHandled: true}
+		return noProgressToolCallActionOutcome(result, shouldStop)
 	}
 	if duplicateFailure, isDuplicateFailure := previousFailedToolInput(state.Observations, actionDocument.ToolName, actionDocument.ToolInput); isDuplicateFailure {
 		if len(requiredPreconditionsForObservation(duplicateFailure)) > 0 {
@@ -103,14 +103,14 @@ func (agentTurnRunner *AgentTurnRunner) rejectRepeatedToolCall(taskRunID string,
 			agentTurnRunner.appendEvent(taskRunID, "agent.recovery_choice_rejected", marshalEventBody(observation))
 			agentTurnRunner.saveStep(taskRunID, stepID, task.TaskStatusCompleted, "recovery_choice_rejected "+actionDocument.ToolName, observation.ContentText())
 			result, shouldStop := stopForNoProgress(stepID)
-			return toolCallActionOutcome{Result: result, ShouldReturn: shouldStop, WasHandled: true}
+			return noProgressToolCallActionOutcome(result, shouldStop)
 		}
 		observation := repeatedFailedAttemptObservation(len(state.Observations)+1, duplicateFailure, firstNonEmptyString(state.Request.ActiveGoal.OriginalInstruction, state.Request.Prompt))
 		state.Observations = append(state.Observations, observation)
 		agentTurnRunner.appendEvent(taskRunID, "agent.failed_fingerprint_rejected", marshalEventBody(observation))
 		agentTurnRunner.saveStep(taskRunID, stepID, task.TaskStatusCompleted, "failed_fingerprint_rejected "+actionDocument.ToolName, observation.ContentText())
 		result, shouldStop := stopForNoProgress(stepID)
-		return toolCallActionOutcome{Result: result, ShouldReturn: shouldStop, WasHandled: true}
+		return noProgressToolCallActionOutcome(result, shouldStop)
 	}
 	return toolCallActionOutcome{}
 }
