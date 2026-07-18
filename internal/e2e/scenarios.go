@@ -140,17 +140,16 @@ func FileWriteAcceptanceScenario(artifactDirectoryPath string) VirtualSessionSce
 	return VirtualSessionScenario{
 		Name:                  "file_write_acceptance",
 		ArtifactDirectoryPath: artifactDirectoryPath,
-		AllowedTools:          []string{"file.write", "terminal.run"},
-		InitialToolNames:      []string{"file.write", "terminal.run"},
+		AllowedTools:          []string{"file.write"},
+		InitialToolNames:      []string{"file.write"},
 		Turns: []VirtualTurn{{
 			Prompt:                 "고객지원 FAQ 개편 작업용 JSON 메모를 만들어줘. 제목은 'FAQ 개편', 담당은 '고객지원팀', 상태는 '검토 중'으로 적고 잘 저장됐는지 확인해줘.",
 			RouterRequiredEvidence: []string{"file.write"},
 			ActionResponses: []string{
 				actionCallTool("file.write", `{"path":"work/customer-support/faq-revision.json","content":"{\"title\":\"FAQ 개편\",\"owner\":\"고객지원팀\",\"status\":\"검토 중\"}\n"}`),
-				actionCallTool("terminal.run", `{"workingDirectoryPath":"work/customer-support","command":"cat faq-revision.json","timeoutSecond":30}`),
-				actionFinishMessage("파일을 생성하고 터미널에서 읽히는 것을 확인했습니다.", "obs-002:terminal.run:0"),
+				actionFinishMessage("파일을 생성하고 저장 결과를 확인했습니다.", "obs-001:file.write:0"),
 			},
-			ExpectedToolCalls: []string{"file.write", "terminal.run"},
+			ExpectedToolCalls: []string{"file.write"},
 			ExpectedWorkspaceFiles: []VirtualWorkspaceFileExpectation{{
 				PathGlob:          "private/people/person-1/work/customer-support/faq-revision.json",
 				ContainsFragments: []string{"FAQ 개편", "고객지원팀", "검토 중"},

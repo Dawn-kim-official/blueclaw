@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -329,6 +330,101 @@ func TestDecideAgentActionNativeChatRetryRequiresSinglePendingContractTool(t *te
 			}
 		})
 	}
+}
+
+func TestAgentActionFinishCorrectionUsesCompleteTypedState(t *testing.T) {
+	testCases := []struct {
+		name          string
+		updateState   func(*agentTaskState)
+		expectsFinish bool
+	}{
+		{name: "complete contract and effect", expectsFinish: true},
+		{
+			name:        "missing evidence",
+			updateState: func(state *agentTaskState) { state.Observations = nil },
+		},
+		{
+			name:        "missing required effect",
+			updateState: func(state *agentTaskState) { state.Observations[0].Effects = nil },
+		},
+		{
+			name: "expected result pending",
+			updateState: func(state *agentTaskState) {
+				state.Request.OutcomeContract.ExpectedResults = []ExpectedResult{{Required: true}}
+			},
+		},
+		{
+			name: "recovery pending",
+			updateState: func(state *agentTaskState) {
+				state.Observations[0].RecoveryPacket = &RecoveryPacket{AllowedTools: []string{"task.list"}}
+			},
+		},
+		{
+			name:        "user input pending",
+			updateState: func(state *agentTaskState) { state.PendingWait = &agentPendingWait{Kind: agentPendingWaitUserInput} },
+		},
+		{
+			name: "failed evidence",
+			updateState: func(state *agentTaskState) {
+				state.Observations[0].Failure = &ToolFailure{Code: FailureCodes.OperationFailed.String()}
+			},
+		},
+		{
+			name: "failure debt",
+			updateState: func(state *agentTaskState) {
+				state.Observations = append(state.Observations, turnObservation{
+					ObservationID: "observation-2",
+					Action:        "continue",
+					Tool:          "task.add",
+					ToolInputKey:  "task.add\x00{}",
+					Failure:       &ToolFailure{Code: FailureCodes.OperationFailed.String()},
+				})
+			},
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			state := nativeAgentActionCompletionReadyState()
+			if testCase.updateState != nil {
+				testCase.updateState(&state)
+			}
+
+			retryRequest := finishReasonRetryRequest(t, state)
+			isFinishRequired := len(retryRequest.Tools) == 1 && retryRequest.Tools[0].Function.Name == "finish"
+			if isFinishRequired != testCase.expectsFinish {
+				t.Fatalf("expected finish required=%t, got %+v", testCase.expectsFinish, retryRequest.Tools)
+			}
+			if isFinishRequired {
+				assertRequiredAgentActionTool(t, retryRequest, "finish")
+			}
+		})
+	}
+}
+
+func TestAgentActionFinishCorrectionPrecedenceAndFailClosed(t *testing.T) {
+	t.Run("pending operation precedes finish", func(t *testing.T) {
+		state := nativeAgentActionCompletionReadyState()
+		state.Request.OutcomeContract.OperationContract.Requirements = append(
+			state.Request.OutcomeContract.OperationContract.Requirements,
+			taskAddOperationRequirement("operation-2", "second"),
+		)
+
+		assertRequiredAgentActionTool(t, finishReasonRetryRequest(t, state), "task.add")
+	})
+
+	t.Run("finish absent from request", func(t *testing.T) {
+		state := nativeAgentActionCompletionReadyState()
+		request := nativeAgentActionChatCompletionRequest(t, state)
+		request.Tools = slices.DeleteFunc(request.Tools, func(tool llm.ChatCompletionTool) bool {
+			return tool.Function.Name == "finish"
+		})
+
+		_, canRetry := retryAgentActionChatCompletionRequest(request, finishReasonCorrection(), state)
+		if canRetry {
+			t.Fatal("expected completion-ready correction without finish to fail closed")
+		}
+	})
 }
 
 func TestDecideAgentActionNativeChatRetryPreservesModelChoiceOutsidePendingContract(t *testing.T) {
@@ -690,6 +786,105 @@ func nativeAgentActionContractState() agentTaskState {
 		},
 	}
 	return state
+}
+
+func nativeAgentActionCompletionReadyState() agentTaskState {
+	toolDefinition := testToolDescriptor("task.add")
+	toolDefinition.SideEffectClass = ToolSideEffectStateChange
+	toolDefinition.Completion = ToolCompletion{Mode: ToolCompletionObservation, Action: "add_task", TargetKind: "task"}
+	toolDefinition.ResultContract = &ToolResultContract{
+		Schema: json.RawMessage(`{"type":"object","properties":{"taskID":{"type":"string"},"created":{"type":"boolean"}},"required":["taskID","created"],"additionalProperties":false}`),
+		Effects: []ResourceEffectContract{{
+			ObjectType:     "task",
+			Effect:         "created",
+			ResultField:    "taskID",
+			EffectIdentity: "id",
+		}},
+		EvidenceCondition: &EvidenceCondition{
+			ResultField: "created",
+			Equals:      json.RawMessage(`true`),
+		},
+	}
+	toolSet := newTestToolSetWithDefinitions([]ToolDefinition{toolDefinition})
+	return agentTaskState{
+		Request: AgentTurnRequest{
+			Prompt:                "add task",
+			ToolSet:               toolSet,
+			RequiredEvidenceTools: []string{"task.add"},
+			OutcomeContract: OutcomeContract{
+				RequiredEvidenceTools: []string{"task.add"},
+				RequiredEffects: []OutcomeEffect{{
+					ObjectType: "task",
+					Effect:     "created",
+				}},
+				OperationContract: &OperationContract{
+					Version: operationContractVersion,
+					Requirements: []OperationRequirement{
+						taskAddOperationRequirement("operation-1", "first"),
+					},
+				},
+			},
+		},
+		Observations: []turnObservation{{
+			ObservationID: "observation-1",
+			Action:        "continue",
+			Tool:          "task.add",
+			ToolID:        toolDefinition.ID,
+			ToolInput:     json.RawMessage(`{"title":"first"}`),
+			Output:        ToolOutput{Content: "added", Data: json.RawMessage(`{"taskID":"task-1","created":true}`)},
+			Effects:       []ResourceEffect{{ObjectType: "task", Effect: "created", ID: "task-1"}},
+		}},
+	}
+}
+
+func taskAddOperationRequirement(requirementID string, title string) OperationRequirement {
+	return OperationRequirement{
+		RequirementID: requirementID,
+		ToolID:        "test:task.add",
+		ToolName:      "task.add",
+		InputMode:     OperationInputContainsExplicit,
+		RequiredInput: json.RawMessage(`{"title":"` + title + `"}`),
+	}
+}
+
+func finishReasonRetryRequest(t *testing.T, state agentTaskState) llm.ChatCompletionRequest {
+	t.Helper()
+	request := nativeAgentActionChatCompletionRequest(t, state)
+	retryRequest, canRetry := retryAgentActionChatCompletionRequest(request, finishReasonCorrection(), state)
+	if !canRetry {
+		t.Fatal("expected finish-reason correction")
+	}
+	return retryRequest
+}
+
+func nativeAgentActionChatCompletionRequest(t *testing.T, state agentTaskState) llm.ChatCompletionRequest {
+	t.Helper()
+	requestSource := buildAgentActionRequest(state, false)
+	request, isRepresentable := buildAgentActionChatCompletionRequest(requestSource)
+	if !isRepresentable {
+		t.Fatal("expected native action request")
+	}
+	return request
+}
+
+func assertRequiredAgentActionTool(t *testing.T, request llm.ChatCompletionRequest, toolName string) {
+	t.Helper()
+	if len(request.Tools) != 1 || request.Tools[0].Function.Name != toolName {
+		t.Fatalf("expected only %q, got %+v", toolName, request.Tools)
+	}
+	if string(request.ToolChoice) != `"required"` || request.ParallelToolCalls {
+		t.Fatalf("expected portable single-tool requirement, got choice=%s parallel=%t", request.ToolChoice, request.ParallelToolCalls)
+	}
+}
+
+func finishReasonCorrection() llm.StructuredOutputCorrection {
+	return llm.StructuredOutputCorrection{
+		Code: "structured_output_invalid",
+		Diagnostic: llm.StructuredOutputDiagnostic{
+			Category:     llm.StructuredOutputDiagnosticFinishReason,
+			FinishReason: llm.StructuredOutputDiagnosticFinishStop,
+		},
+	}
 }
 
 func successfulContractObservation(observationID string, toolName string, toolID string, toolInput string) turnObservation {
