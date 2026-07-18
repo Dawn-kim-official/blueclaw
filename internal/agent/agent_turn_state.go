@@ -677,6 +677,9 @@ func retryAgentActionChatCompletionRequest(request llm.ChatCompletionRequest, co
 			return retryRequest, true
 		}
 		toolName = firstPendingOperationToolName(state)
+		if toolName == "" && agentActionCompletionIsReady(state) {
+			toolName = "finish"
+		}
 		if toolName == "" {
 			return retryRequest, true
 		}
@@ -710,6 +713,48 @@ func firstPendingOperationToolName(state agentTaskState) string {
 		return ""
 	}
 	return strings.TrimSpace(requirement.ToolName)
+}
+
+func agentActionCompletionIsReady(state agentTaskState) bool {
+	if agentActionCompletionIsBlocked(state) {
+		return false
+	}
+	requirements := state.Requirements
+	if requirements == nil {
+		requirements = deriveToolUseRequirements(state.Request)
+	}
+	completionState := buildCompletionState(state.Request, requirements, state.Observations)
+	if completionState.RecommendedAction != completionActionFinalizeWithEvidence {
+		return false
+	}
+	action := completionStateFinishDocument(completionState, "completion wording pending")
+	gateResult := validateCompletionGateForRequestWithRecoveryBudget(
+		state.Request,
+		requirements,
+		state.Observations,
+		state.QualityCriteria,
+		action,
+		state.Options.RecoveryBudget,
+	)
+	if !gateResult.IsSatisfied {
+		return false
+	}
+	return validateOutcomeContractRequirements(
+		state.Request.OutcomeContract,
+		state.Observations,
+		gateResult.Attachments,
+	).IsSatisfied
+}
+
+func agentActionCompletionIsBlocked(state agentTaskState) bool {
+	if state.PendingWait != nil || len(state.Request.OutcomeContract.ExpectedResults) > 0 {
+		return true
+	}
+	if hasPendingObservedSuggestedNextTool(state.Observations) {
+		return true
+	}
+	_, hasFailureDebt := activeFailureDebt(state.Observations)
+	return hasFailureDebt
 }
 
 func agentActionCorrectionMessage(correction llm.StructuredOutputCorrection) string {
