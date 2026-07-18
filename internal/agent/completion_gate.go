@@ -446,14 +446,16 @@ func validateExpectedResultCompletionGate(request AgentTurnRequest, observations
 	}
 	if expectedResultRequiresFileAttachment(request.OutcomeContract) && len(attachments) == 0 {
 		return completionGateResult{
-			Message:      "required file expected result must cite file.deliver completionEvidence",
-			EvidenceKind: evidenceKindAttachment,
+			Message:            "required file expected result must cite file.deliver completionEvidence",
+			EvidenceKind:       evidenceKindAttachment,
+			SuggestedNextTools: []string{FileDeliverToolName},
 		}
 	}
 	if missingSuffix := missingRequiredAttachmentSuffix(attachments, request.OutcomeContract.RequiredAttachmentSuffixes); len(attachments) > 0 && missingSuffix != "" {
 		return completionGateResult{
-			Message:      "required file expected result must include attachment suffix " + missingSuffix,
-			EvidenceKind: evidenceKindAttachmentValid,
+			Message:            "required file expected result must include attachment suffix " + missingSuffix,
+			EvidenceKind:       evidenceKindAttachmentValid,
+			SuggestedNextTools: []string{FileDeliverToolName},
 		}
 	}
 	if expectedResultRequiresTool(request.OutcomeContract, AskInputToolName) && !hasSuccessfulToolObservationForTurn(observations, AskInputToolName) {

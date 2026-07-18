@@ -350,22 +350,23 @@ func TestAgentKernelBlocksUnsupportedIntake(t *testing.T) {
 	}
 }
 
-// Invalid required evidence must never hard-block the task at intake. The
-// invalid names are pruned and the task keeps executing; real permission is
-// enforced at execution.
-func TestAgentKernelPrunesInvalidRequiredEvidenceAndProceeds(t *testing.T) {
+func TestAgentKernelReasksAndRecoversInvalidRequiredEvidence(t *testing.T) {
 	agentKernel, taskRunService := newKernelTestServices()
-	agentKernel.UseIntakeLanguageModelProvider(intakeDecisionLanguageModel{decision: TurnDecision{
-		Route:                 TurnRouteStartTask,
-		Classification:        IntakeClassificationBoundedTask,
-		TaskShape:             TaskShapeMaintenanceTask,
-		TaskLevel:             TaskLevelLow,
-		EstimatedMinutes:      1,
-		RequiredEvidenceTools: []string{"calendar.create"},
-		InitialToolNames:      []string{"calendar.add"},
-		ResponseLanguage:      "ko",
-		Reason:                "calendar event creation",
-	}})
+	intakeLanguageModel := &turnRouterDecisionLanguageModel{
+		initialDecision: TurnDecision{
+			Route:                 TurnRouteStartTask,
+			Classification:        IntakeClassificationBoundedTask,
+			TaskShape:             TaskShapeMaintenanceTask,
+			TaskLevel:             TaskLevelLow,
+			EstimatedMinutes:      1,
+			RequiredEvidenceTools: []string{"calendar.create"},
+			InitialToolNames:      []string{"calendar.add"},
+			ResponseLanguage:      "ko",
+			Reason:                "calendar event creation",
+		},
+		reaskDecision: TurnDecision{RequiredEvidenceTools: []string{"calendar.add"}},
+	}
+	agentKernel.UseIntakeLanguageModelProvider(intakeLanguageModel)
 	toolSet := newTestToolSet([]string{"calendar.add"})
 	registerTestTool(toolSet, ToolDefinition{Name: "calendar.add"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		return testToolSuccess(`{"created":true}`), nil
@@ -379,18 +380,25 @@ func TestAgentKernelPrunesInvalidRequiredEvidenceAndProceeds(t *testing.T) {
 
 	result, errorValue := agentKernel.RunAgentRequest(context.Background(), request)
 	if errorValue != nil {
-		t.Fatalf("expected invalid evidence to prune and proceed: %v", errorValue)
+		t.Fatalf("expected invalid evidence to recover and proceed: %v", errorValue)
 	}
 	if result.TaskRun.Status == task.TaskStatusBlocked {
-		t.Fatalf("invalid required evidence must not hard-block; task should proceed, got %q", result.TaskRun.Status)
+		t.Fatalf("expected recovered evidence to proceed, got %q", result.TaskRun.Status)
 	}
-	if !taskEventsContain(taskRunService.ListTaskEvent(result.TaskRun.TaskRunID), requiredEvidenceInvalidEventName, "pruned") {
-		t.Fatal("expected the invalid evidence to be recorded as pruned, not blocking")
+	if intakeLanguageModel.reaskCallCount != 1 {
+		t.Fatalf("expected one evidence re-ask, got %d", intakeLanguageModel.reaskCallCount)
+	}
+	taskEvents := taskRunService.ListTaskEvent(result.TaskRun.TaskRunID)
+	if !taskEventsContain(taskEvents, requiredEvidenceInvalidEventName, "calendar.create") {
+		t.Fatal("expected invalid evidence event to preserve the rejected tool")
+	}
+	if !taskEventsContain(taskEvents, requiredEvidenceReaskEventName, `"recoveredEvidence":["calendar.add"]`) {
+		t.Fatal("expected reask event to preserve the recovered canonical tool")
 	}
 }
 
 func TestAgentKernelPreservesActiveContractOnApprovalContinuation(t *testing.T) {
-	agentKernel, _ := newKernelTestServices()
+	agentKernel, taskRunService := newKernelTestServices()
 	agentKernel.UseIntakeLanguageModelProvider(intakeDecisionLanguageModel{decision: TurnDecision{
 		Route:                 TurnRouteContinueTask,
 		Classification:        IntakeClassificationBoundedTask,
@@ -450,6 +458,10 @@ func TestAgentKernelPreservesActiveContractOnApprovalContinuation(t *testing.T) 
 	}
 	if toolCallCount != 1 {
 		t.Fatalf("expected the approved capability call to run once, got %d", toolCallCount)
+	}
+	taskEvents := taskRunService.ListTaskEvent(result.TaskRun.TaskRunID)
+	if countTaskEvents(taskEvents, requiredEvidenceInvalidEventName) != 0 || countTaskEvents(taskEvents, requiredEvidenceReaskEventName) != 0 {
+		t.Fatal("expected router evidence hallucination not to alter the persisted approval contract")
 	}
 }
 
@@ -618,20 +630,13 @@ func destructiveSiteDeleteExecutionPlan() string {
 	return `{"originalInstruction":"site-1 웹사이트를 삭제해줘","summary":"site-1 삭제","targets":["site-1"],"schedule":"","startAt":"","endAt":"","cadence":"","externalSend":false,"thirdPartyExternalSend":false,"repeated":false,"highFrequency":false,"destructive":true,"permissionChange":false,"publicDeploy":false,"paidAction":false,"missingInformation":[],"continuationInstruction":"승인 후 삭제"}`
 }
 
-// A side-effect task that arrives without required evidence must not hard-block;
-// it proceeds and the tool actually runs.
-func TestAgentKernelSideEffectWithoutRequiredEvidenceProceeds(t *testing.T) {
+func TestAgentKernelBlocksSideEffectWhenRequiredEvidenceRemainsMissing(t *testing.T) {
 	agentKernel, _ := newKernelTestServices()
-	agentKernel.UseIntakeLanguageModelProvider(intakeDecisionLanguageModel{decision: TurnDecision{
-		Route:            TurnRouteStartTask,
-		Classification:   IntakeClassificationBoundedTask,
-		TaskShape:        TaskShapeMaintenanceTask,
-		TaskLevel:        TaskLevelLow,
-		EstimatedMinutes: 1,
-		InitialToolNames: []string{TerminalRunToolName},
-		ResponseLanguage: "ko",
-		Reason:           "side effect tool planned without evidence",
-	}})
+	intakeLanguageModel := &turnRouterDecisionLanguageModel{
+		initialDecision: sideEffectMissingEvidenceDecision(),
+		reaskDecision:   sideEffectMissingEvidenceDecision(),
+	}
+	agentKernel.UseIntakeLanguageModelProvider(intakeLanguageModel)
 	toolCallCount := 0
 	toolSet := newTestToolSet([]string{TerminalRunToolName})
 	registerTestTool(toolSet, ToolDefinition{Name: TerminalRunToolName}, func(context.Context, ToolInvocation) (ToolResult, error) {
@@ -647,13 +652,16 @@ func TestAgentKernelSideEffectWithoutRequiredEvidenceProceeds(t *testing.T) {
 
 	result, errorValue := agentKernel.RunAgentRequest(context.Background(), request)
 	if errorValue != nil {
-		t.Fatalf("expected side-effect task to proceed: %v", errorValue)
+		t.Fatalf("expected side-effect task to return a blocked result: %v", errorValue)
 	}
-	if result.TaskRun.Status == task.TaskStatusBlocked {
-		t.Fatalf("missing required evidence must not hard-block; task should proceed, got %q", result.TaskRun.Status)
+	if result.TaskRun.Status != task.TaskStatusBlocked {
+		t.Fatalf("expected missing required evidence to fail closed, got %q", result.TaskRun.Status)
 	}
-	if toolCallCount != 1 {
-		t.Fatalf("expected the side-effect tool to run once, got %d", toolCallCount)
+	if intakeLanguageModel.reaskCallCount != 1 {
+		t.Fatalf("expected exactly one evidence re-ask, got %d", intakeLanguageModel.reaskCallCount)
+	}
+	if toolCallCount != 0 {
+		t.Fatalf("expected no side effect without evidence, got %d calls", toolCallCount)
 	}
 }
 
@@ -796,7 +804,7 @@ func TestAgentKernelReasksAndRecoversRequiredEvidence(t *testing.T) {
 	}
 }
 
-func TestAgentKernelDoesNotReaskMaintenanceEvidenceWithoutInitialTool(t *testing.T) {
+func TestAgentKernelRecoversMaintenanceEvidenceWithoutInitialTool(t *testing.T) {
 	agentKernel, taskRunService := newKernelTestServices()
 	intakeLanguageModel := &turnRouterDecisionLanguageModel{
 		initialDecision: TurnDecision{
@@ -828,19 +836,53 @@ func TestAgentKernelDoesNotReaskMaintenanceEvidenceWithoutInitialTool(t *testing
 	result, errorValue := agentKernel.RunAgentRequest(context.Background(), request)
 
 	if errorValue != nil {
-		t.Fatalf("expected maintenance task to return a blocked result: %v", errorValue)
+		t.Fatalf("expected maintenance evidence recovery to complete: %v", errorValue)
+	}
+	if result.TaskRun.Status != task.TaskStatusCompleted {
+		t.Fatalf("expected recovered maintenance task to complete, got %q", result.TaskRun.Status)
+	}
+	if intakeLanguageModel.reaskCallCount != 1 {
+		t.Fatalf("expected one evidence re-ask for maintenance work, got %d", intakeLanguageModel.reaskCallCount)
+	}
+	if toolCallCount != 1 {
+		t.Fatalf("expected recovered task.add to run once, got %d", toolCallCount)
+	}
+	if !taskEventsContain(taskRunService.ListTaskEvent(result.TaskRun.TaskRunID), requiredEvidenceReaskEventName, `"recoveredEvidence":["task.add"]`) {
+		t.Fatal("expected recovered maintenance evidence event")
+	}
+}
+
+func TestAgentKernelBlocksMaintenanceWithoutToolOrEvidence(t *testing.T) {
+	agentKernel, taskRunService := newKernelTestServices()
+	emptyDecision := TurnDecision{
+		Route:            TurnRouteStartTask,
+		Classification:   IntakeClassificationBoundedTask,
+		TaskShape:        TaskShapeMaintenanceTask,
+		TaskLevel:        TaskLevelLow,
+		EstimatedMinutes: 1,
+		ResponseLanguage: "ko",
+		Reason:           "maintenance mutation without evidence",
+	}
+	intakeLanguageModel := &turnRouterDecisionLanguageModel{
+		initialDecision: emptyDecision,
+		reaskDecision:   emptyDecision,
+	}
+	agentKernel.UseIntakeLanguageModelProvider(intakeLanguageModel)
+	agentKernel.UseLanguageModelProvider(&sequenceLanguageModel{contents: []string{"작업 계약을 확인하지 못했습니다."}})
+
+	result, errorValue := agentKernel.RunAgentRequest(context.Background(), kernelTestRequest("고객지원 업무 상태를 수정해줘"))
+
+	if errorValue != nil {
+		t.Fatalf("expected blocked maintenance result: %v", errorValue)
 	}
 	if result.TaskRun.Status != task.TaskStatusBlocked {
-		t.Fatalf("expected maintenance task without an initial direct tool to block, got %q", result.TaskRun.Status)
+		t.Fatalf("expected missing maintenance evidence to block, got %q", result.TaskRun.Status)
 	}
-	if intakeLanguageModel.reaskCallCount != 0 {
-		t.Fatalf("expected no evidence re-ask without a typed side-effect signal, got %d", intakeLanguageModel.reaskCallCount)
+	if intakeLanguageModel.reaskCallCount != 1 {
+		t.Fatalf("expected exactly one evidence re-ask, got %d", intakeLanguageModel.reaskCallCount)
 	}
-	if toolCallCount != 0 {
-		t.Fatalf("expected task.add to remain unavailable without an initial direct tool, got %d", toolCallCount)
-	}
-	if countTaskEvents(taskRunService.ListTaskEvent(result.TaskRun.TaskRunID), requiredEvidenceReaskEventName) != 0 {
-		t.Fatal("did not expect a required-evidence reask event")
+	if !taskEventsContain(taskRunService.ListTaskEvent(result.TaskRun.TaskRunID), requiredEvidenceReaskEventName, `"didRecoverEvidence":false`) {
+		t.Fatal("expected failed evidence re-ask event")
 	}
 }
 
@@ -937,13 +979,13 @@ func TestAgentKernelDoesNotLetInvalidEvidenceChooseExecution(t *testing.T) {
 	result, errorValue := agentKernel.RunAgentRequest(context.Background(), request)
 
 	if errorValue != nil {
-		t.Fatalf("expected task to stop safely after rejecting read-only recovery: %v", errorValue)
+		t.Fatalf("expected task to block safely after rejecting read-only recovery: %v", errorValue)
 	}
-	if result.TaskRun.Status != task.TaskStatusCompleted {
-		t.Fatalf("expected direct execution to complete with its own evidence, got %q", result.TaskRun.Status)
+	if result.TaskRun.Status != task.TaskStatusBlocked {
+		t.Fatalf("expected invalid evidence recovery to fail closed, got %q", result.TaskRun.Status)
 	}
-	if toolCallCount != 1 {
-		t.Fatalf("expected direct terminal tool to run once, got %d calls", toolCallCount)
+	if toolCallCount != 0 {
+		t.Fatalf("expected no side effect after invalid evidence recovery, got %d calls", toolCallCount)
 	}
 	if intakeLanguageModel.reaskCallCount != 1 {
 		t.Fatalf("expected exactly one re-ask attempt, got %d", intakeLanguageModel.reaskCallCount)
@@ -957,7 +999,7 @@ func TestAgentKernelDoesNotLetInvalidEvidenceChooseExecution(t *testing.T) {
 	}
 }
 
-func TestAgentKernelContinuesWhenEmptyReaskHasNoWrongContract(t *testing.T) {
+func TestAgentKernelBlocksWhenEvidenceReaskRemainsEmpty(t *testing.T) {
 	agentKernel, taskRunService := newKernelTestServices()
 	intakeLanguageModel := &turnRouterDecisionLanguageModel{
 		initialDecision: sideEffectMissingEvidenceDecision(),
@@ -980,16 +1022,16 @@ func TestAgentKernelContinuesWhenEmptyReaskHasNoWrongContract(t *testing.T) {
 
 	result, errorValue := agentKernel.RunAgentRequest(context.Background(), request)
 	if errorValue != nil {
-		t.Fatalf("expected task to proceed without an incorrect contract: %v", errorValue)
+		t.Fatalf("expected task to return a blocked result: %v", errorValue)
 	}
-	if result.TaskRun.Status == task.TaskStatusBlocked {
-		t.Fatalf("expected empty evidence recovery to remain a soft fallback, got %q", result.TaskRun.Status)
+	if result.TaskRun.Status != task.TaskStatusBlocked {
+		t.Fatalf("expected empty evidence recovery to fail closed, got %q", result.TaskRun.Status)
 	}
 	if intakeLanguageModel.reaskCallCount != 1 {
 		t.Fatalf("expected exactly one re-ask attempt, got %d", intakeLanguageModel.reaskCallCount)
 	}
-	if toolCallCount != 1 {
-		t.Fatalf("expected the side-effect tool to run once, got %d calls", toolCallCount)
+	if toolCallCount != 0 {
+		t.Fatalf("expected no side effect without evidence, got %d calls", toolCallCount)
 	}
 	taskEvents := taskRunService.ListTaskEvent(result.TaskRun.TaskRunID)
 	if !taskEventsContain(taskEvents, requiredEvidenceReaskEventName, `"wasAttempted":true`) {

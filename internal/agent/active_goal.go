@@ -197,6 +197,10 @@ func normalizeOutcomeContract(contract OutcomeContract) OutcomeContract {
 	contract.RequiredEffects = normalizeOutcomeEffects(contract.RequiredEffects)
 	contract.ExpectedResults = normalizeExpectedResults(contract.ExpectedResults)
 	contract.ArtifactRequirement = normalizeArtifactRequirement(contract.ArtifactRequirement)
+	if expectedResultRequiresFileAttachment(contract) {
+		contract.RequiredEvidenceTools = appendUniqueStrings(contract.RequiredEvidenceTools, FileDeliverToolName)
+		contract.ArtifactRequirement = ArtifactRequirementRequired
+	}
 	contract.Source = strings.TrimSpace(contract.Source)
 	return contract
 }

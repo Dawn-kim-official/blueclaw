@@ -2366,7 +2366,7 @@ func (harness *VirtualSessionHarness) Run(ctx context.Context) (VirtualSessionRe
 		if harness.scriptedModel != nil {
 			if strings.TrimSpace(virtualTurn.RouterApproval) != "" {
 				harness.scriptedModel.EnqueueStructuredResponses("blueclaw_turn_router", scenarioApprovalRouterResponse(virtualTurn.RouterApproval))
-			} else if len(virtualTurn.RouterRequiredEvidence) > 0 || strings.TrimSpace(virtualTurn.RouterSiteEvidence) != "" || virtualTurnExpectsEvent(virtualTurn, "ask.requested") || virtualTurnExpectsEvent(virtualTurn, "ask.resolved") {
+			} else if len(virtualTurn.RouterRequiredEvidence) > 0 || virtualTurn.RouterTaskShape != "" || strings.TrimSpace(virtualTurn.RouterSiteEvidence) != "" || virtualTurnExpectsEvent(virtualTurn, "ask.requested") || virtualTurnExpectsEvent(virtualTurn, "ask.resolved") {
 				harness.scriptedModel.EnqueueStructuredResponses("blueclaw_turn_router", scenarioTurnRouterResponse(harness.scenario, virtualTurn))
 			}
 			harness.scriptedModel.SetActionResponses(virtualTurn.ActionResponses...)
@@ -2421,7 +2421,7 @@ func scenarioDefaultResponses(scenario VirtualSessionScenario) map[string]string
 			defaultResponses["blueclaw_confirmation_message"] = string(document)
 		}
 	}
-	if len(scenario.InitialToolNames) == 0 && len(scenario.RouterRequiredEvidence) == 0 {
+	if len(scenario.InitialToolNames) == 0 && len(scenario.RouterRequiredEvidence) == 0 && scenario.RouterTaskShape == "" {
 		return defaultResponses
 	}
 	defaultResponses["blueclaw_turn_router"] = scenarioTurnRouterResponse(scenario, VirtualTurn{})
@@ -2473,6 +2473,10 @@ func scenarioTurnRouterResponse(scenario VirtualSessionScenario, virtualTurn Vir
 	if taskShape == "" {
 		taskShape = agent.TaskShapeMaintenanceTask
 	}
+	classification := "bounded_task"
+	if taskShape == agent.TaskShapeImmediateReply {
+		classification = "quick_reply"
+	}
 	siteEvidence := scenario.RouterSiteEvidence
 	if strings.TrimSpace(virtualTurn.RouterSiteEvidence) != "" {
 		siteEvidence = virtualTurn.RouterSiteEvidence
@@ -2483,7 +2487,7 @@ func scenarioTurnRouterResponse(scenario VirtualSessionScenario, virtualTurn Vir
 	}
 	routerDocument := map[string]any{
 		"route":                  route,
-		"classification":         "bounded_task",
+		"classification":         classification,
 		"taskShape":              taskShape,
 		"level":                  string(taskLevel),
 		"estimatedMinutes":       10,
