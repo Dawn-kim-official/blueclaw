@@ -116,7 +116,14 @@ var kernelToolDescriptorSpecs = []kernelToolDescriptorSpec{
 		CompletionAction:     "run_command",
 		CompletionTargetKind: "workspace",
 		Idempotency:          agent.ToolIdempotencyNone,
-		OutputSchema:         json.RawMessage(`{"type":"object"}`),
+		OutputSchema:         terminalRunResultSchema,
+		ResultContract: &agent.ToolResultContract{
+			Schema: terminalRunResultSchema,
+			EvidenceCondition: &agent.EvidenceCondition{
+				ResultField: "completed",
+				Equals:      json.RawMessage(`true`),
+			},
+		},
 	},
 	{
 		Name:                 agent.FileDeliverToolName,

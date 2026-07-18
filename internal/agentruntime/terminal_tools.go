@@ -26,63 +26,16 @@ type terminalSessionToolInput struct {
 	TimeoutSecond        int               `json:"timeoutSecond"`
 }
 
-type terminalRunToolInput struct {
-	Mode                 string            `json:"mode"`
-	ApprovalRequired     bool              `json:"approvalRequired"`
-	ApprovalReason       string            `json:"approvalReason"`
-	Command              string            `json:"command"`
-	ExecutableName       string            `json:"executableName"`
-	Arguments            []string          `json:"arguments"`
-	Stdin                string            `json:"stdin"`
-	WorkingDirectoryPath string            `json:"workingDirectoryPath"`
-	EnvironmentVariables map[string]string `json:"environmentVariables"`
-	TimeoutSecond        int               `json:"timeoutSecond"`
-	SessionID            string            `json:"sessionID"`
-	Input                string            `json:"input"`
-}
-
 func (input terminalRunToolInput) commandRequest() security.CommandRequest {
-	command := strings.TrimSpace(input.Command)
-	arguments := normalizedTerminalRunArguments(command, input.Arguments)
-	if command != "" && len(arguments) > 0 && isSingleExecutableCommand(command) {
-		return security.CommandRequest{
-			ExecutableName:       command,
-			Arguments:            arguments,
-			Stdin:                input.Stdin,
-			WorkingDirectoryPath: input.WorkingDirectoryPath,
-			EnvironmentVariables: input.EnvironmentVariables,
-			TimeoutSecond:        input.TimeoutSecond,
-		}
-	}
 	return security.CommandRequest{
 		Command:              input.Command,
 		ExecutableName:       input.ExecutableName,
-		Arguments:            arguments,
+		Arguments:            append([]string{}, input.Arguments...),
 		Stdin:                input.Stdin,
 		WorkingDirectoryPath: input.WorkingDirectoryPath,
 		EnvironmentVariables: input.EnvironmentVariables,
 		TimeoutSecond:        input.TimeoutSecond,
 	}
-}
-
-func normalizedTerminalRunArguments(command string, arguments []string) []string {
-	normalizedArguments := append([]string{}, arguments...)
-	if len(normalizedArguments) == 0 {
-		return normalizedArguments
-	}
-	firstArgument := strings.TrimSpace(normalizedArguments[0])
-	if firstArgument == strings.TrimSpace(command) || filepath.Base(firstArgument) == filepath.Base(strings.TrimSpace(command)) {
-		return append([]string{}, normalizedArguments[1:]...)
-	}
-	return normalizedArguments
-}
-
-func isSingleExecutableCommand(command string) bool {
-	trimmedCommand := strings.TrimSpace(command)
-	if trimmedCommand == "" {
-		return false
-	}
-	return !strings.ContainsAny(trimmedCommand, " \t\n\r;&|<>$`'\"")
 }
 
 func (input terminalRunToolInput) sessionInput(action string) terminalSessionToolInput {
@@ -109,7 +62,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerTerminalTools(toolRegistry
 				UseWhen:    "You need to execute a toolchain command, build, render, test, list files, or inspect environment state.",
 				AvoidWhen:  "A dedicated bundled skill script or typed capability tool can perform the action more directly.",
 			},
-			InputSchema: json.RawMessage(`{"type":"object","properties":{"mode":{"type":"string","enum":["command","session_start","session_write","session_status","session_close"]},"approvalRequired":{"type":"boolean"},"approvalReason":{"type":"string"},"command":{"type":"string"},"executableName":{"type":"string"},"arguments":{"type":"array","items":{"type":"string"}},"stdin":{"type":"string"},"workingDirectoryPath":{"type":"string"},"environmentVariables":{"type":"object","additionalProperties":{"type":"string"}},"timeoutSecond":{"type":"number"},"sessionID":{"type":"string"},"input":{"type":"string"}}}`),
+			InputSchema: terminalRunInputSchema,
 		},
 		Handler: func(toolContext context.Context, input terminalRunToolInput) (agent.ToolResult, error) {
 			return toolCatalogBuilder.runTerminalRunTool(toolContext, input, handlerContext)
@@ -119,28 +72,28 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerTerminalTools(toolRegistry
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) runTerminalRunTool(toolContext context.Context, input terminalRunToolInput, handlerContext toolHandlerContext) (agent.ToolResult, error) {
-	switch normalizedTerminalRunMode(input.Mode) {
-	case "command":
-		return toolCatalogBuilder.runTerminalTool(toolContext, input.commandRequest(), handlerContext)
-	case "session_start":
-		return toolCatalogBuilder.startTerminalSession(toolContext, input.sessionInput("start"), handlerContext)
-	case "session_write":
-		return toolCatalogBuilder.writeTerminalSession(input.sessionInput("write"))
-	case "session_status":
-		return toolCatalogBuilder.statusTerminalSession(input.sessionInput("status"))
-	case "session_close":
-		return toolCatalogBuilder.closeTerminalSession(input.sessionInput("close"))
+	mode := normalizedTerminalRunMode(input.Mode)
+	if errorValue := validateTerminalRunInput(input); errorValue != nil {
+		result := agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "terminal_run", errorValue.Error())
+		return normalizedTerminalRunFailure(input, result), nil
+	}
+	var result agent.ToolResult
+	var errorValue error
+	switch mode {
+	case terminalRunModeCommand:
+		result, errorValue = toolCatalogBuilder.runTerminalTool(toolContext, input.commandRequest(), handlerContext)
+	case terminalRunModeSessionStart:
+		result, errorValue = toolCatalogBuilder.startTerminalSession(toolContext, input.sessionInput("start"), handlerContext)
+	case terminalRunModeSessionWrite:
+		result, errorValue = toolCatalogBuilder.writeTerminalSession(input.sessionInput("write"))
+	case terminalRunModeSessionStatus:
+		result, errorValue = toolCatalogBuilder.statusTerminalSession(input.sessionInput("status"))
+	case terminalRunModeSessionClose:
+		result, errorValue = toolCatalogBuilder.closeTerminalSession(input.sessionInput("close"))
 	default:
-		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "terminal_run", "terminal.run mode must be command, session_start, session_write, session_status, or session_close"), nil
+		result = agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "terminal_run", "terminal.run mode is invalid")
 	}
-}
-
-func normalizedTerminalRunMode(mode string) string {
-	trimmedMode := strings.TrimSpace(mode)
-	if trimmedMode == "" {
-		return "command"
-	}
-	return trimmedMode
+	return normalizedTerminalRunFailure(input, result), errorValue
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) runTerminalTool(toolContext context.Context, input security.CommandRequest, handlerContext toolHandlerContext) (agent.ToolResult, error) {
@@ -187,9 +140,84 @@ func (toolCatalogBuilder *ToolCatalogBuilder) runTerminalTool(toolContext contex
 		if runtimePathFailure := terminalRuntimePathFailure(input, commandResult, content); runtimePathFailure != nil {
 			return *runtimePathFailure, nil
 		}
+		document := terminalCommandResult(commandResult, false)
+		content = marshalToolResult(document)
 		return agent.ToolFailureWithOutput(agent.FailureExternalService, agent.FailureCodes.OperationFailed, "terminal_run", content, json.RawMessage(content)), nil
 	}
-	return agent.ToolSuccess(content), nil
+	document := terminalCommandResult(commandResult, true)
+	content = marshalToolResult(document)
+	return agent.ToolSuccessData(content, json.RawMessage(content)), nil
+}
+
+func terminalCommandResult(commandResult security.CommandResult, isCompleted bool) terminalCommandResultDocument {
+	return terminalCommandResultDocument{
+		Mode:          terminalRunModeCommand,
+		Completed:     isCompleted && commandResult.ExitCode == 0 && !commandResult.TimedOut,
+		ExitCode:      commandResult.ExitCode,
+		Stdout:        commandResult.Stdout,
+		Stderr:        commandResult.Stderr,
+		TimedOut:      commandResult.TimedOut,
+		OutputTrimmed: commandResult.OutputTrimmed,
+	}
+}
+
+func normalizedTerminalRunFailure(input terminalRunToolInput, result agent.ToolResult) agent.ToolResult {
+	if !result.Failed() {
+		return result
+	}
+	document := terminalFailureDocument(result)
+	mode := normalizedTerminalRunMode(input.Mode)
+	document["mode"] = mode
+	document["completed"] = false
+	switch mode {
+	case terminalRunModeCommand:
+		completeTerminalCommandFailureDocument(document, result)
+	case terminalRunModeSessionStart, terminalRunModeSessionWrite, terminalRunModeSessionStatus:
+		completeTerminalSessionFailureDocument(document, input, result)
+	case terminalRunModeSessionClose:
+		document["sessionID"] = strings.TrimSpace(input.SessionID)
+		document["status"] = "failed"
+	}
+	data := json.RawMessage(marshalToolResult(document))
+	result.Output.Data = data
+	return result
+}
+
+func terminalFailureDocument(result agent.ToolResult) map[string]any {
+	document := map[string]any{}
+	_ = json.Unmarshal(result.Output.Data, &document)
+	return document
+}
+
+func completeTerminalCommandFailureDocument(document map[string]any, result agent.ToolResult) {
+	setTerminalFailureDefault(document, "exitCode", -1)
+	setTerminalFailureDefault(document, "stdout", "")
+	setTerminalFailureDefault(document, "stderr", terminalFailureSummary(result))
+	setTerminalFailureDefault(document, "timedOut", false)
+	setTerminalFailureDefault(document, "outputTrimmed", false)
+}
+
+func completeTerminalSessionFailureDocument(document map[string]any, input terminalRunToolInput, result agent.ToolResult) {
+	document["sessionID"] = strings.TrimSpace(input.SessionID)
+	document["status"] = "failed"
+	setTerminalFailureDefault(document, "exitCode", -1)
+	setTerminalFailureDefault(document, "stdout", "")
+	setTerminalFailureDefault(document, "stderr", terminalFailureSummary(result))
+	setTerminalFailureDefault(document, "recentOutput", "")
+	setTerminalFailureDefault(document, "outputTrimmed", false)
+}
+
+func setTerminalFailureDefault(document map[string]any, fieldName string, value any) {
+	if _, isFound := document[fieldName]; !isFound {
+		document[fieldName] = value
+	}
+}
+
+func terminalFailureSummary(result agent.ToolResult) string {
+	if result.Failure != nil && strings.TrimSpace(result.Failure.UserSafeSummary) != "" {
+		return strings.TrimSpace(result.Failure.UserSafeSummary)
+	}
+	return strings.TrimSpace(result.Output.Content)
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) startTerminalRunHeartbeat(toolContext context.Context, command string) func() {
@@ -315,15 +343,15 @@ func (toolCatalogBuilder *ToolCatalogBuilder) startTerminalSession(toolContext c
 		return agent.ToolFailureResult(agent.FailureExternalService, agent.FailureCodes.OperationFailed, "terminal_session", errorValue.Error()), nil
 	}
 	status, errorValue := toolCatalogBuilder.terminalService.StatusSession(sessionID)
-	return statusToolResult(status, errorValue), nil
+	return terminalSessionStatusToolResult(terminalRunModeSessionStart, status, false, errorValue), nil
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) writeTerminalSession(input terminalSessionToolInput) (agent.ToolResult, error) {
 	if toolCatalogBuilder.terminalService == nil {
 		return agent.ToolFailureResult(agent.FailureDependencyUnavailable, agent.FailureCodes.Unavailable, "terminal_run", "terminal service is unavailable"), nil
 	}
-	commandResult, errorValue := toolCatalogBuilder.terminalService.WriteSessionInput(input.SessionID, input.Input)
-	return terminalSessionToolResult(commandResult, errorValue), nil
+	status, errorValue := toolCatalogBuilder.terminalService.WriteSessionInput(input.SessionID, input.Input)
+	return terminalSessionStatusToolResult(terminalRunModeSessionWrite, status, false, errorValue), nil
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) statusTerminalSession(input terminalSessionToolInput) (agent.ToolResult, error) {
@@ -331,7 +359,8 @@ func (toolCatalogBuilder *ToolCatalogBuilder) statusTerminalSession(input termin
 		return agent.ToolFailureResult(agent.FailureDependencyUnavailable, agent.FailureCodes.Unavailable, "terminal_run", "terminal service is unavailable"), nil
 	}
 	status, errorValue := toolCatalogBuilder.terminalService.StatusSession(input.SessionID)
-	return statusToolResult(status, errorValue), nil
+	isCompleted := status.Status == "exited" && status.ExitCode == 0
+	return terminalSessionStatusToolResult(terminalRunModeSessionStatus, status, isCompleted, errorValue), nil
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) closeTerminalSession(input terminalSessionToolInput) (agent.ToolResult, error) {
@@ -342,7 +371,14 @@ func (toolCatalogBuilder *ToolCatalogBuilder) closeTerminalSession(input termina
 	if errorValue != nil {
 		return agent.ToolFailureResult(agent.FailureExternalService, agent.FailureCodes.OperationFailed, "terminal_run", errorValue.Error()), nil
 	}
-	return agent.ToolSuccess(marshalToolResult(map[string]string{"sessionID": input.SessionID, "status": "closed"})), nil
+	document := terminalSessionCloseResultDocument{
+		Mode:      terminalRunModeSessionClose,
+		Completed: false,
+		SessionID: input.SessionID,
+		Status:    "closed",
+	}
+	content := marshalToolResult(document)
+	return agent.ToolSuccessData(content, json.RawMessage(content)), nil
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) terminalEnvironmentVariables(environmentVariables map[string]string, scope WorkspaceScope) map[string]string {
@@ -351,14 +387,6 @@ func (toolCatalogBuilder *ToolCatalogBuilder) terminalEnvironmentVariables(envir
 		mergedEnvironmentVariables["CAPABILITY_BRIDGE_URL"] = endpoint
 	}
 	return toolCatalogBuilder.resolveAgentWorkspaceEnvironment(mergedEnvironmentVariables)
-}
-
-func terminalSessionToolResult(commandResult security.CommandResult, errorValue error) agent.ToolResult {
-	content := marshalToolResult(commandResult)
-	if errorValue != nil {
-		return agent.ToolFailureWithOutput(agent.FailureExternalService, agent.FailureCodes.OperationFailed, "terminal_session", content, json.RawMessage(content))
-	}
-	return agent.ToolSuccess(content)
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) materializeTerminalRuntimeDirectories(ctx context.Context, workspaceActor security.WorkspaceActor, scope WorkspaceScope, environmentVariables map[string]string) *agent.ToolResult {
@@ -411,25 +439,23 @@ func requesterOwnedRuntimeDirectory(scope WorkspaceScope, directoryPath string) 
 	}
 }
 
-func terminalCommandWords(command string) []string {
-	replacer := strings.NewReplacer("\n", " ", "\t", " ", ";", " ", "&&", " ", "||", " ")
-	fields := strings.Fields(replacer.Replace(command))
-	words := make([]string, 0, len(fields))
-	for _, field := range fields {
-		word := strings.Trim(field, `"'`)
-		if word != "" {
-			words = append(words, word)
-		}
-	}
-	return words
-}
-
-func statusToolResult(status security.TerminalSessionStatus, errorValue error) agent.ToolResult {
-	content := marshalToolResult(status)
+func terminalSessionStatusToolResult(mode string, status security.TerminalSessionStatus, isCompleted bool, errorValue error) agent.ToolResult {
 	if errorValue != nil {
 		return agent.ToolFailureResult(agent.FailureExternalService, agent.FailureCodes.OperationFailed, "terminal_session", errorValue.Error())
 	}
-	return agent.ToolSuccess(content)
+	document := terminalSessionResultDocument{
+		Mode:          mode,
+		Completed:     isCompleted,
+		SessionID:     status.SessionID,
+		Status:        status.Status,
+		ExitCode:      status.ExitCode,
+		Stdout:        status.Stdout,
+		Stderr:        status.Stderr,
+		RecentOutput:  status.RecentOutput,
+		OutputTrimmed: status.OutputTrimmed,
+	}
+	content := marshalToolResult(document)
+	return agent.ToolSuccessData(content, json.RawMessage(content))
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) resolveTerminalWorkingDirectoryPath(value string, conversationScope ConversationResourceScope) string {

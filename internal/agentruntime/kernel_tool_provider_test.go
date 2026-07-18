@@ -110,6 +110,7 @@ func TestKernelToolsHaveCanonicalResultContracts(t *testing.T) {
 		t.Fatal(errorValue)
 	}
 	expectedEffectCounts := map[string]int{
+		agent.TerminalRunToolName:         0,
 		agent.FileReadToolName:            0,
 		agent.FileWriteToolName:           2,
 		agent.FileDeleteToolName:          1,
@@ -136,7 +137,42 @@ func TestKernelToolsHaveCanonicalResultContracts(t *testing.T) {
 		delete(expectedEffectCounts, boundTool.Definition.Name)
 	}
 	if len(expectedEffectCounts) != 0 {
-		t.Fatalf("missing contracted file tools: %+v", expectedEffectCounts)
+		t.Fatalf("missing contracted kernel tools: %+v", expectedEffectCounts)
+	}
+}
+
+func TestTerminalRunDescriptorUsesStrictCanonicalContract(t *testing.T) {
+	provider := newKernelToolProvider(NewToolCatalogBuilder(), toolHandlerContext{}, agent.NewToolSet(nil))
+	boundTools, errorValue := provider.ListTools(context.Background())
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	var definition agent.ToolDefinition
+	for _, boundTool := range boundTools {
+		if boundTool.Definition.Name == agent.TerminalRunToolName {
+			definition = boundTool.Definition
+			break
+		}
+	}
+	if definition.Name == "" || definition.ResultContract == nil || definition.ResultContract.EvidenceCondition == nil {
+		t.Fatalf("expected canonical terminal descriptor, got %+v", definition)
+	}
+	if definition.ResultContract.EvidenceCondition.ResultField != "completed" ||
+		string(definition.ResultContract.EvidenceCondition.Equals) != "true" ||
+		len(definition.ResultContract.Effects) != 0 {
+		t.Fatalf("expected completed terminal evidence without inferred effects, got %+v", definition.ResultContract)
+	}
+	var inputSchema map[string]any
+	if errorValue := json.Unmarshal(definition.InputSchema, &inputSchema); errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	properties, isObject := inputSchema["properties"].(map[string]any)
+	if !isObject || inputSchema["additionalProperties"] != false {
+		t.Fatalf("expected closed terminal input schema, got %s", definition.InputSchema)
+	}
+	timeoutSchema, isObject := properties["timeoutSecond"].(map[string]any)
+	if !isObject || timeoutSchema["type"] != "integer" || timeoutSchema["minimum"] != float64(1) {
+		t.Fatalf("expected positive integer timeout, got %v", timeoutSchema)
 	}
 }
 

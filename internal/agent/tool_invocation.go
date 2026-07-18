@@ -160,7 +160,7 @@ func recoveryActionsFromObservations(observations []turnObservation) []RecoveryA
 func (agentTurnRunner *AgentTurnRunner) buildToolResultSummary(ctx context.Context, taskRunID string, toolName string, content string, isError bool, attachments []FileAttachment, artifactID string, toolResult ToolResult) string {
 	observation := turnObservation{
 		Tool:        toolName,
-		Output:      ToolOutput{Content: content},
+		Output:      ToolOutput{Content: content, Data: append(json.RawMessage{}, toolResult.Output.Data...)},
 		Attachments: attachments,
 	}
 	if isError {
