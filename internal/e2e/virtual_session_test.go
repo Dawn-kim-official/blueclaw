@@ -708,6 +708,100 @@ func TestVirtualSiteToolsUseCanonicalFiveToolContracts(t *testing.T) {
 	}
 }
 
+func TestVirtualMessageToolsUseGeneratedCanonicalContracts(t *testing.T) {
+	expectedRequiredFields := map[string][]string{
+		"message.context": {"platform", "conversationID", "conversationType", "channelID", "channelName", "replyTargetID", "rootMessageID", "currentMessageID", "requesterPersonID", "requesterPlatformUserID", "botUserID", "botUsername"},
+		"message.search":  {"scope", "queries", "authoredBy", "messageIDs", "candidates", "hasMore"},
+		"message.send":    {"messageIDs", "deliveryStatus"},
+		"message.update":  {"messageID", "deliveryStatus", "messageUpdated"},
+		"message.delete":  {"messageIDs", "deliveryStatus"},
+		"channel.update":  {"channelID", "updated"},
+	}
+	expectedEffects := map[string]agentruntime.CapabilityResourceEffectContract{
+		"message.send":   {ObjectType: "message", Effect: "sent", ResultField: "messageIDs", EffectIdentity: "id"},
+		"message.update": {ObjectType: "message", Effect: "updated", ResultField: "messageID", EffectIdentity: "id"},
+		"message.delete": {ObjectType: "message", Effect: "deleted", ResultField: "messageIDs", EffectIdentity: "id"},
+		"channel.update": {ObjectType: "channel", Effect: "updated", ResultField: "channelID", EffectIdentity: "id"},
+	}
+
+	for _, toolName := range virtualCanonicalMessageToolNames {
+		descriptor := virtualCapabilityToolDescriptor(toolName)
+		if strings.HasPrefix(descriptor.Description, "Virtual capability") || descriptor.ResultContract == nil {
+			t.Fatalf("expected generated canonical descriptor for %s, got %+v", toolName, descriptor)
+		}
+		var resultSchema struct {
+			Required []string `json:"required"`
+		}
+		if errorValue := json.Unmarshal(descriptor.ResultContract.Schema, &resultSchema); errorValue != nil {
+			t.Fatal(errorValue)
+		}
+		if !slices.Equal(resultSchema.Required, expectedRequiredFields[toolName]) {
+			t.Fatalf("expected canonical %s result fields, got %v", toolName, resultSchema.Required)
+		}
+		expectedEffect, hasEffect := expectedEffects[toolName]
+		if !hasEffect {
+			if len(descriptor.ResultContract.Effects) != 0 {
+				t.Fatalf("expected read-only %s contract, got %+v", toolName, descriptor.ResultContract.Effects)
+			}
+			continue
+		}
+		if !descriptor.RequiresApproval || len(descriptor.ResultContract.Effects) != 1 || descriptor.ResultContract.Effects[0] != expectedEffect {
+			t.Fatalf("expected canonical %s mutation contract, got %+v", toolName, descriptor)
+		}
+	}
+}
+
+func TestVirtualMessageServiceReturnsCanonicalContextSearchDeleteAndChannelResults(t *testing.T) {
+	service := virtualCapabilityService{}
+
+	contextResult, contextEffects := virtualCapabilityResponseResult(t, service.response("message.context", []byte(`{"input":{}}`)))
+	if contextResult["platform"] != "mattermost" || contextResult["conversationID"] != "virtual-conversation-1" || len(contextEffects) != 0 {
+		t.Fatalf("unexpected message context result=%+v effects=%+v", contextResult, contextEffects)
+	}
+
+	searchResult, searchEffects := virtualCapabilityResponseResult(t, service.response("message.search", []byte(`{"input":{"scope":"currentChannel","queries":["공지"],"authoredBy":"assistant"}}`)))
+	if !slices.Equal(stringSliceValue(searchResult["messageIDs"]), []string{"virtual-platform-message-001"}) ||
+		searchResult["scope"] != "currentChannel" ||
+		len(searchEffects) != 0 {
+		t.Fatalf("unexpected message search result=%+v effects=%+v", searchResult, searchEffects)
+	}
+
+	approvalResponse := service.response("message.delete", []byte(`{"input":{"messageIDs":["virtual-platform-message-001"]},"context":{}}`))
+	if !strings.Contains(approvalResponse, `"errorCode":"approval_required"`) {
+		t.Fatalf("expected message delete approval, got %s", approvalResponse)
+	}
+	deleteResult, deleteEffects := virtualCapabilityResponseResult(t, service.response(
+		"message.delete",
+		[]byte(`{"input":{"messageIDs":["virtual-platform-message-001","virtual-platform-message-002"]},"context":{"isApprovalContinuation":true}}`),
+	))
+	if deleteResult["deliveryStatus"] != "deleted" ||
+		!slices.Equal(stringSliceValue(deleteResult["messageIDs"]), []string{"virtual-platform-message-001", "virtual-platform-message-002"}) ||
+		len(deleteEffects) != 2 {
+		t.Fatalf("unexpected message delete result=%+v effects=%+v", deleteResult, deleteEffects)
+	}
+
+	channelResult, channelEffects := virtualCapabilityResponseResult(t, service.response(
+		"channel.update",
+		[]byte(`{"input":{"channelID":"virtual-channel-1","header":"분기 공지"},"context":{"isApprovalContinuation":true}}`),
+	))
+	if channelResult["channelID"] != "virtual-channel-1" || channelResult["updated"] != true || len(channelEffects) != 1 ||
+		channelEffects[0].ObjectType != "channel" || channelEffects[0].ID != "virtual-channel-1" {
+		t.Fatalf("unexpected channel update result=%+v effects=%+v", channelResult, channelEffects)
+	}
+}
+
+func virtualCapabilityResponseResult(t *testing.T, response string) (map[string]any, []agent.ResourceEffect) {
+	t.Helper()
+	var document struct {
+		Result  map[string]any         `json:"result"`
+		Effects []agent.ResourceEffect `json:"effects"`
+	}
+	if errorValue := json.Unmarshal([]byte(response), &document); errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	return document.Result, document.Effects
+}
+
 func writeCanonicalDOCX(t *testing.T, path string) {
 	writeDOCX(t, path, map[string]string{
 		"[Content_Types].xml":          `<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>`,
@@ -1350,6 +1444,9 @@ func TestDirectMessageSendConfirmAcceptance(t *testing.T) {
 	if !eventsContain(secondTurnResult.Events, "tool.message.send.result", "virtual-platform-message-001") {
 		t.Fatalf("expected send result message id observation; events: %s", summarizeEvents(secondTurnResult.Events))
 	}
+	if !eventsContain(secondTurnResult.Events, "tool.message.send.result", `"messageIDs":["virtual-platform-message-001"]`) {
+		t.Fatalf("expected canonical messageIDs result; events: %s", summarizeEvents(secondTurnResult.Events))
+	}
 	if !strings.Contains(secondTurnResult.FinishMessage, "보냈습니다") {
 		t.Fatalf("expected successful delivery reply, got %q", secondTurnResult.FinishMessage)
 	}
@@ -1383,10 +1480,13 @@ func TestPlatformMessageEditAcceptance(t *testing.T) {
 	if errorValue != nil {
 		t.Fatalf("expected platform message edit acceptance scenario to pass: %v", errorValue)
 	}
-	if len(result.TurnResults) != 1 {
-		t.Fatalf("expected one turn, got %+v", result)
+	if len(result.TurnResults) != 2 {
+		t.Fatalf("expected approval and execution turns, got %+v", result)
 	}
-	turnResult := result.TurnResults[0]
+	if !eventsContain(result.TurnResults[0].Events, "approval.pending_call", `"message.update"`) {
+		t.Fatalf("expected message update approval; events: %s", summarizeEvents(result.TurnResults[0].Events))
+	}
+	turnResult := result.TurnResults[1]
 	if countRequestedToolCalls(turnResult.Events, "message.update") != 1 {
 		t.Fatalf("expected one message update request; events: %s", summarizeEvents(turnResult.Events))
 	}
@@ -1395,6 +1495,9 @@ func TestPlatformMessageEditAcceptance(t *testing.T) {
 	}
 	if !eventsContain(turnResult.Events, "tool.message.update.requested", `"message":"오늘 오후 6시에 전체 공지 회의가 있습니다."`) {
 		t.Fatalf("expected new text in update input; events: %s", summarizeEvents(turnResult.Events))
+	}
+	if !eventsContain(turnResult.Events, "tool.message.update.result", `"messageUpdated":true`) {
+		t.Fatalf("expected canonical update result; events: %s", summarizeEvents(turnResult.Events))
 	}
 }
 
