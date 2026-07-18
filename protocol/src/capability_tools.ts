@@ -6,6 +6,7 @@ import {
   CapabilityModelVisibility,
   CapabilitySideEffect,
   ResourceEffectIdentity,
+  capabilityIdempotencySchema,
   capabilityDescriptorSchema,
   resourceEffectContractSchema,
   toolInvokeResponseSchema,
@@ -56,6 +57,44 @@ export enum CalendarToolName {
   List = 'calendar.list',
   Update = 'calendar.update',
   Delete = 'calendar.delete',
+}
+
+export enum MessageToolName {
+  Context = 'message.context',
+  Search = 'message.search',
+  Send = 'message.send',
+  Update = 'message.update',
+  Delete = 'message.delete',
+}
+
+export enum ChannelToolName {
+  Update = 'channel.update',
+}
+
+export enum MessageTargetType {
+  DirectMessage = 'directMessage',
+  CurrentThread = 'currentThread',
+  CurrentChannel = 'currentChannel',
+  Channel = 'channel',
+}
+
+export enum MessageSearchScope {
+  CurrentThread = 'currentThread',
+  CurrentChannel = 'currentChannel',
+  DirectMessage = 'directMessage',
+  Channel = 'channel',
+}
+
+export enum MessageAuthor {
+  Assistant = 'assistant',
+  Requester = 'requester',
+  Anyone = 'anyone',
+}
+
+export enum MessageDeliveryStatus {
+  Sent = 'sent',
+  Updated = 'updated',
+  Deleted = 'deleted',
 }
 
 export enum DocumentToolName {
@@ -128,6 +167,7 @@ export enum SiteLifecycleStatus {
 
 export enum ResourceMutationEffect {
   Created = 'created',
+  Sent = 'sent',
   Updated = 'updated',
   Previewed = 'previewed',
   Published = 'published',
@@ -344,6 +384,140 @@ export const calendarListResultSchema = z.strictObject({
 export const calendarDeleteResultSchema = z.strictObject({
   eventID: resourceIDSchema,
   deleted: z.literal(true),
+});
+
+const uniqueResourceIDArraySchema = z.array(resourceIDSchema)
+  .min(1)
+  .max(50)
+  .refine(values => new Set(values).size === values.length, 'Resource identities must be unique.')
+  .meta({ uniqueItems: true });
+
+const uniqueMessageIDArraySchema = z.array(resourceIDSchema)
+  .min(1)
+  .max(25)
+  .refine(values => new Set(values).size === values.length, 'Message identities must be unique.')
+  .meta({ uniqueItems: true });
+
+export const messageContextInputSchema = z.strictObject({});
+
+export const messageSearchInputSchema = z.strictObject({
+  scope: z.enum(MessageSearchScope)
+    .describe('Where to search. Current conversation scopes use the active Mattermost context.')
+    .optional(),
+  channelName: z.string().describe('Exact Mattermost channel name without the # prefix.').optional(),
+  channelID: resourceIDSchema.describe('Exact channel ID from message.context or a prior result.').optional(),
+  personHint: z.string().describe('Exact name, @handle, or email of the direct-message counterpart.').optional(),
+  authoredBy: z.enum(MessageAuthor).describe('Message author filter. Defaults to anyone.').optional(),
+  queries: z.array(z.string().min(1)).describe('Keyword queries matched against message content.').optional(),
+  limit: z.number().int().min(1).max(25).describe('Maximum messages to return. Defaults to 20.').optional(),
+  cursor: z.string().describe('Pagination cursor from a previous message.search result.').optional(),
+});
+
+export const messageSendInputSchema = z.strictObject({
+  targetType: z.enum(MessageTargetType).describe('Destination for the new message.'),
+  message: z.string().min(1).regex(/\S/, 'Message must contain a non-whitespace character.'),
+  channelName: z.string().describe('Exact Mattermost channel name without the # prefix.').optional(),
+  channelID: resourceIDSchema.describe('Exact channel ID from message.context or a prior result.').optional(),
+  personHint: z.string().describe('Name, @handle, or email of one direct-message recipient.').optional(),
+  personHints: z.array(z.string().min(1)).max(50).describe('Direct-message recipients for one fan-out send.').optional(),
+  pin: z.boolean().describe('Whether to pin the created message. Defaults to false.').optional(),
+  reason: z.string().describe('Reason shown to the approver.').optional(),
+});
+
+const messageUpdateObjectSchema = z.strictObject({
+  messageID: resourceIDSchema.describe('Exact message ID from message.search or message.send.'),
+  message: z.string().min(1).regex(/\S/, 'Message must contain a non-whitespace character.').optional(),
+  isPinned: z.boolean().describe('Whether the message should be pinned.').optional(),
+});
+
+export const messageUpdateInputSchema = messageUpdateObjectSchema
+  .refine(hasMutationField, 'At least one message field must be updated.')
+  .meta({ minProperties: 2 });
+
+export const messageDeleteInputSchema = z.strictObject({
+  messageIDs: uniqueMessageIDArraySchema.describe('Exact message IDs from message.search.'),
+});
+
+const messageSearchCandidateSchema = z.strictObject({
+  messageID: resourceIDSchema,
+  channelID: resourceIDSchema,
+  rootMessageID: resourceIDSchema.optional(),
+  userID: resourceIDSchema,
+  authoredBy: z.enum(MessageAuthor),
+  createdAt: z.number().int().nonnegative(),
+  preview: z.string(),
+  deletable: z.boolean(),
+  protectedReason: z.string().optional(),
+});
+
+export const messageContextResultSchema = z.strictObject({
+  platform: z.string().min(1),
+  conversationID: z.string(),
+  conversationType: z.string(),
+  channelID: z.string(),
+  channelName: z.string(),
+  replyTargetID: z.string(),
+  rootMessageID: z.string(),
+  currentMessageID: z.string(),
+  requesterPersonID: z.string(),
+  requesterPlatformUserID: z.string(),
+  botUserID: resourceIDSchema,
+  botUsername: z.string().min(1),
+});
+
+export const messageSearchResultSchema = z.strictObject({
+  scope: z.enum(MessageSearchScope),
+  queries: z.array(z.string()),
+  authoredBy: z.enum(MessageAuthor),
+  messageIDs: z.array(resourceIDSchema),
+  candidates: z.array(messageSearchCandidateSchema),
+  nextCursor: z.string().optional(),
+  hasMore: z.boolean(),
+});
+
+const messageDeliveryFailureSchema = z.strictObject({
+  personHint: z.string().optional(),
+  messageID: z.string().optional(),
+  errorCode: z.string().min(1),
+  message: z.string().min(1),
+});
+
+export const messageSendResultSchema = z.strictObject({
+  messageIDs: uniqueResourceIDArraySchema,
+  deliveryStatus: z.literal(MessageDeliveryStatus.Sent),
+  failures: z.array(messageDeliveryFailureSchema).optional(),
+});
+
+export const messageUpdateResultSchema = z.strictObject({
+  messageID: resourceIDSchema,
+  deliveryStatus: z.literal(MessageDeliveryStatus.Updated),
+  messageUpdated: z.boolean(),
+  isPinned: z.boolean().optional(),
+});
+
+export const messageDeleteResultSchema = z.strictObject({
+  messageIDs: uniqueResourceIDArraySchema,
+  deliveryStatus: z.literal(MessageDeliveryStatus.Deleted),
+  failures: z.array(messageDeliveryFailureSchema).optional(),
+});
+
+const channelUpdateObjectSchema = z.strictObject({
+  channelID: resourceIDSchema.describe('Exact channel ID from message.context or a prior result.').optional(),
+  channelName: z.string().min(1).describe('Exact Mattermost channel name without the # prefix.').optional(),
+  header: z.string().describe('New channel header. Use an empty string to clear it.').optional(),
+  displayName: z.string().min(1).describe('New channel display name.').optional(),
+  inviteeHints: z.array(z.string().min(1)).describe('Names, @handles, or emails of people to invite.').optional(),
+});
+
+export const channelUpdateInputSchema = channelUpdateObjectSchema
+  .refine(input => Boolean(input.channelID || input.channelName), 'channelID or channelName is required.')
+  .refine(input => input.header !== undefined || input.displayName !== undefined || input.inviteeHints !== undefined, 'At least one channel field must be updated.')
+  .meta({ minProperties: 2 });
+
+export const channelUpdateResultSchema = z.strictObject({
+  channelID: resourceIDSchema,
+  updated: z.literal(true),
+  invitedUserIDs: z.array(resourceIDSchema).optional(),
 });
 
 const siteSlugSchema = z.string()
@@ -618,6 +792,7 @@ type CapabilityToolDefinition = {
   inputSchema: z.ZodType;
   result: CapabilityResultDefinition;
   sideEffect: CapabilitySideEffect;
+  idempotency?: z.infer<typeof capabilityIdempotencySchema>;
   requiresApproval?: boolean;
   requiresUserPresence?: boolean;
   completionEvidence?: {
@@ -782,6 +957,125 @@ const calendarToolDefinitions: CapabilityToolDefinition[] = [
     sideEffect: CapabilitySideEffect.Destructive,
     requiresApproval: true,
     completionEvidence: { mode: 'success', action: 'write_calendar', targetKind: 'calendar' },
+  },
+];
+
+const messageToolDefinitions: CapabilityToolDefinition[] = [
+  {
+    name: MessageToolName.Context,
+    namespace: 'message',
+    privacyClass: 'platform_message',
+    policyResource: 'tool:message.context',
+    description: 'Return the exact current Mattermost conversation, thread, requester, and bot identities.',
+    version: '2',
+    estimatedLatency: CapabilityEstimatedLatency.Low,
+    inputSchema: messageContextInputSchema,
+    result: { schema: messageContextResultSchema, effects: [] },
+    sideEffect: CapabilitySideEffect.Read,
+  },
+  {
+    name: MessageToolName.Search,
+    namespace: 'message',
+    privacyClass: 'platform_message',
+    policyResource: 'tool:message.search',
+    description: 'Search Mattermost messages in an exact conversation scope and return message IDs for later update or delete operations.',
+    version: '2',
+    estimatedLatency: CapabilityEstimatedLatency.Low,
+    inputSchema: messageSearchInputSchema,
+    result: { schema: messageSearchResultSchema, effects: [] },
+    sideEffect: CapabilitySideEffect.Read,
+  },
+  {
+    name: MessageToolName.Send,
+    namespace: 'message',
+    privacyClass: 'platform_message',
+    policyResource: 'tool:message.send',
+    description: 'Send a Mattermost message to a direct message, channel, or the current conversation after approval.',
+    version: '2',
+    estimatedLatency: CapabilityEstimatedLatency.Medium,
+    inputSchema: messageSendInputSchema,
+    result: {
+      schema: messageSendResultSchema,
+      effects: [{
+        objectType: 'message',
+        effect: ResourceMutationEffect.Sent,
+        resultField: 'messageIDs',
+        effectIdentity: ResourceEffectIdentity.ID,
+      }],
+    },
+    sideEffect: CapabilitySideEffect.ExternalSend,
+    idempotency: { supported: true, required: false, scope: 'operation' },
+    requiresApproval: true,
+    completionEvidence: { mode: 'success', action: 'send_message', targetKind: 'message' },
+  },
+  {
+    name: MessageToolName.Update,
+    namespace: 'message',
+    privacyClass: 'platform_message',
+    policyResource: 'tool:message.update',
+    description: 'Update the text or pinned state of the exact Mattermost message ID after approval.',
+    version: '2',
+    estimatedLatency: CapabilityEstimatedLatency.Medium,
+    inputSchema: messageUpdateInputSchema,
+    result: {
+      schema: messageUpdateResultSchema,
+      effects: [{
+        objectType: 'message',
+        effect: ResourceMutationEffect.Updated,
+        resultField: 'messageID',
+        effectIdentity: ResourceEffectIdentity.ID,
+      }],
+    },
+    sideEffect: CapabilitySideEffect.ExternalWrite,
+    requiresApproval: true,
+    completionEvidence: { mode: 'success', action: 'update_message', targetKind: 'message' },
+  },
+  {
+    name: MessageToolName.Delete,
+    namespace: 'message',
+    privacyClass: 'platform_message',
+    policyResource: 'tool:message.delete',
+    description: 'Permanently delete exact Mattermost message IDs from message.search after approval.',
+    version: '2',
+    estimatedLatency: CapabilityEstimatedLatency.Medium,
+    inputSchema: messageDeleteInputSchema,
+    result: {
+      schema: messageDeleteResultSchema,
+      effects: [{
+        objectType: 'message',
+        effect: ResourceMutationEffect.Deleted,
+        resultField: 'messageIDs',
+        effectIdentity: ResourceEffectIdentity.ID,
+      }],
+    },
+    sideEffect: CapabilitySideEffect.Destructive,
+    requiresApproval: true,
+    completionEvidence: { mode: 'success', action: 'delete_message', targetKind: 'message' },
+  },
+];
+
+const channelToolDefinitions: CapabilityToolDefinition[] = [
+  {
+    name: ChannelToolName.Update,
+    namespace: 'channel',
+    privacyClass: 'platform_message',
+    policyResource: 'tool:channel.update',
+    description: 'Update an exact Mattermost channel display name, header, or membership after approval.',
+    version: '2',
+    estimatedLatency: CapabilityEstimatedLatency.Medium,
+    inputSchema: channelUpdateInputSchema,
+    result: {
+      schema: channelUpdateResultSchema,
+      effects: [{
+        objectType: 'channel',
+        effect: ResourceMutationEffect.Updated,
+        resultField: 'channelID',
+        effectIdentity: ResourceEffectIdentity.ID,
+      }],
+    },
+    sideEffect: CapabilitySideEffect.ExternalWrite,
+    requiresApproval: true,
+    completionEvidence: { mode: 'success', action: 'update_channel', targetKind: 'channel' },
   },
 ];
 
@@ -1010,6 +1304,8 @@ const webToolDefinitions: CapabilityToolDefinition[] = [
 const capabilityToolDefinitions = [
   ...taskToolDefinitions,
   ...calendarToolDefinitions,
+  ...messageToolDefinitions,
+  ...channelToolDefinitions,
   ...webToolDefinitions,
   ...siteToolDefinitions,
   ...fileToolDefinitions,
@@ -1032,6 +1328,18 @@ export type CalendarListInput = z.infer<typeof calendarListInputSchema>;
 export type CalendarUpdateInput = z.infer<typeof calendarUpdateInputSchema>;
 export type CalendarDeleteInput = z.infer<typeof calendarDeleteInputSchema>;
 export type CalendarEventResult = z.infer<typeof calendarEventResultSchema>;
+export type MessageContextInput = z.infer<typeof messageContextInputSchema>;
+export type MessageSearchInput = z.infer<typeof messageSearchInputSchema>;
+export type MessageSendInput = z.infer<typeof messageSendInputSchema>;
+export type MessageUpdateInput = z.infer<typeof messageUpdateInputSchema>;
+export type MessageDeleteInput = z.infer<typeof messageDeleteInputSchema>;
+export type MessageContextResult = z.infer<typeof messageContextResultSchema>;
+export type MessageSearchResult = z.infer<typeof messageSearchResultSchema>;
+export type MessageSendResult = z.infer<typeof messageSendResultSchema>;
+export type MessageUpdateResult = z.infer<typeof messageUpdateResultSchema>;
+export type MessageDeleteResult = z.infer<typeof messageDeleteResultSchema>;
+export type ChannelUpdateInput = z.infer<typeof channelUpdateInputSchema>;
+export type ChannelUpdateResult = z.infer<typeof channelUpdateResultSchema>;
 export type SiteCreateInput = z.infer<typeof siteCreateInputSchema>;
 export type SiteStatusInput = z.infer<typeof siteStatusInputSchema>;
 export type SitePreviewInput = z.infer<typeof sitePreviewInputSchema>;
@@ -1096,6 +1404,6 @@ function buildCapabilityDescriptor(definition: CapabilityToolDefinition): z.infe
     requiresApproval: definition.requiresApproval,
     completionEvidence: definition.completionEvidence,
     availability: { state: CapabilityAvailabilityState.Available },
-    idempotency: { supported: false, required: false, scope: 'operation' },
+    idempotency: definition.idempotency ?? { supported: false, required: false, scope: 'operation' },
   });
 }

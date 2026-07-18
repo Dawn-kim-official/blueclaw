@@ -5,8 +5,14 @@ import {
   ArtifactToolName,
   BrowserToolName,
   CalendarToolName,
+  ChannelToolName,
   DocumentToolName,
   ImageToolName,
+  MessageAuthor,
+  MessageDeliveryStatus,
+  MessageSearchScope,
+  MessageTargetType,
+  MessageToolName,
   SiteLifecycleStatus,
   SiteToolName,
   WebToolName,
@@ -27,10 +33,22 @@ import {
   calendarDeleteInputSchema,
   calendarListInputSchema,
   calendarUpdateInputSchema,
+  channelUpdateInputSchema,
+  channelUpdateResultSchema,
   documentReadInputSchema,
   documentReadResultSchema,
   imageReadInputSchema,
   imageReadResultSchema,
+  messageContextInputSchema,
+  messageContextResultSchema,
+  messageDeleteInputSchema,
+  messageDeleteResultSchema,
+  messageSearchInputSchema,
+  messageSearchResultSchema,
+  messageSendInputSchema,
+  messageSendResultSchema,
+  messageUpdateInputSchema,
+  messageUpdateResultSchema,
   siteCreateInputSchema,
   siteCreateResultSchema,
   siteDeleteInputSchema,
@@ -65,6 +83,12 @@ describe('canonical capability tools', () => {
       CalendarToolName.List,
       CalendarToolName.Update,
       CalendarToolName.Delete,
+      MessageToolName.Context,
+      MessageToolName.Search,
+      MessageToolName.Send,
+      MessageToolName.Update,
+      MessageToolName.Delete,
+      ChannelToolName.Update,
       WebToolName.Search,
       SiteToolName.Create,
       SiteToolName.Status,
@@ -258,6 +282,155 @@ describe('canonical capability tools', () => {
       { objectType: 'calendar', effect: 'deleted', resultField: 'eventID', effectIdentity: ResourceEffectIdentity.ID },
     ]);
     expect(deleteTool?.requiresApproval).toBe(true);
+  });
+
+  test('validates shallow message and channel inputs', () => {
+    expect(messageContextInputSchema.safeParse({}).success).toBe(true);
+    expect(messageSearchInputSchema.safeParse({
+      scope: MessageSearchScope.CurrentChannel,
+      authoredBy: MessageAuthor.Assistant,
+      queries: ['분기 결산'],
+      limit: 20,
+    }).success).toBe(true);
+    expect(messageSendInputSchema.safeParse({
+      targetType: MessageTargetType.DirectMessage,
+      message: '분기 결산 자료를 확인해 주세요.',
+      personHint: '@support-lead',
+    }).success).toBe(true);
+    expect(messageUpdateInputSchema.safeParse({
+      messageID: 'message-1',
+      message: '수정된 분기 결산 안내입니다.',
+    }).success).toBe(true);
+    expect(messageDeleteInputSchema.safeParse({
+      messageIDs: ['message-1', 'message-2'],
+    }).success).toBe(true);
+    expect(channelUpdateInputSchema.safeParse({
+      channelID: 'channel-1',
+      header: '고객지원 분기 결산 공유',
+      inviteeHints: ['@support-lead'],
+    }).success).toBe(true);
+
+    expect(messageContextInputSchema.safeParse({ scope: 'currentChannel' }).success).toBe(false);
+    expect(messageSearchInputSchema.safeParse({ query: '분기 결산' }).success).toBe(false);
+    expect(messageSearchInputSchema.safeParse({ limit: 26 }).success).toBe(false);
+    expect(messageSendInputSchema.safeParse({
+      targetType: MessageTargetType.CurrentChannel,
+      message: '   ',
+    }).success).toBe(false);
+    expect(messageSendInputSchema.safeParse({
+      targetType: MessageTargetType.CurrentChannel,
+      message: '안내',
+      deliveryTarget: { type: 'currentChannel' },
+    }).success).toBe(false);
+    expect(messageUpdateInputSchema.safeParse({ messageID: 'message-1' }).success).toBe(false);
+    expect(messageDeleteInputSchema.safeParse({ messageIDs: [] }).success).toBe(false);
+    expect(messageDeleteInputSchema.safeParse({ messageIDs: ['message-1', 'message-1'] }).success).toBe(false);
+    expect(channelUpdateInputSchema.safeParse({ channelID: 'channel-1' }).success).toBe(false);
+    expect(channelUpdateInputSchema.safeParse({ header: '새 헤더' }).success).toBe(false);
+  });
+
+  test('requires canonical message and channel result identities', () => {
+    const contextResult = {
+      platform: 'mattermost',
+      conversationID: 'conversation-1',
+      conversationType: 'direct',
+      channelID: 'channel-1',
+      channelName: 'support',
+      replyTargetID: 'message-1',
+      rootMessageID: '',
+      currentMessageID: 'message-1',
+      requesterPersonID: 'person-1',
+      requesterPlatformUserID: 'user-1',
+      botUserID: 'bot-1',
+      botUsername: 'internkim',
+    };
+    const searchResult = {
+      scope: MessageSearchScope.CurrentChannel,
+      queries: ['분기 결산'],
+      authoredBy: MessageAuthor.Assistant,
+      messageIDs: ['message-1'],
+      candidates: [{
+        messageID: 'message-1',
+        channelID: 'channel-1',
+        userID: 'bot-1',
+        authoredBy: MessageAuthor.Assistant,
+        createdAt: 1784422800000,
+        preview: '분기 결산 안내',
+        deletable: true,
+      }],
+      hasMore: false,
+    };
+    const sendResult = {
+      messageIDs: ['message-2'],
+      deliveryStatus: MessageDeliveryStatus.Sent,
+    };
+    const updateResult = {
+      messageID: 'message-2',
+      deliveryStatus: MessageDeliveryStatus.Updated,
+      messageUpdated: true,
+      isPinned: false,
+    };
+    const deleteResult = {
+      messageIDs: ['message-2'],
+      deliveryStatus: MessageDeliveryStatus.Deleted,
+    };
+    const channelResult = {
+      channelID: 'channel-1',
+      updated: true,
+      invitedUserIDs: ['user-2'],
+    };
+
+    expect(messageContextResultSchema.safeParse(contextResult).success).toBe(true);
+    expect(messageSearchResultSchema.safeParse(searchResult).success).toBe(true);
+    expect(messageSendResultSchema.safeParse(sendResult).success).toBe(true);
+    expect(messageUpdateResultSchema.safeParse(updateResult).success).toBe(true);
+    expect(messageDeleteResultSchema.safeParse(deleteResult).success).toBe(true);
+    expect(channelUpdateResultSchema.safeParse(channelResult).success).toBe(true);
+
+    expect(messageContextResultSchema.safeParse({ ...contextResult, extra: true }).success).toBe(false);
+    expect(messageSearchResultSchema.safeParse({ ...searchResult, candidates: [{ messageID: 'message-1' }] }).success).toBe(false);
+    expect(messageSendResultSchema.safeParse({ ...sendResult, messageIDs: [] }).success).toBe(false);
+    expect(messageUpdateResultSchema.safeParse({ ...updateResult, messageID: '' }).success).toBe(false);
+    expect(messageDeleteResultSchema.safeParse({ ...deleteResult, messageIDs: ['message-2', 'message-2'] }).success).toBe(false);
+    expect(channelUpdateResultSchema.safeParse({ ...channelResult, channelID: ' channel-1 ' }).success).toBe(false);
+  });
+
+  test('publishes exact message and channel effects and approvals', () => {
+    const catalog = buildCapabilityToolCatalog(protocolVersion);
+    const contextTool = catalog.tools.find(tool => tool.name === MessageToolName.Context);
+    const searchTool = catalog.tools.find(tool => tool.name === MessageToolName.Search);
+    const sendTool = catalog.tools.find(tool => tool.name === MessageToolName.Send);
+    const updateTool = catalog.tools.find(tool => tool.name === MessageToolName.Update);
+    const deleteTool = catalog.tools.find(tool => tool.name === MessageToolName.Delete);
+    const channelTool = catalog.tools.find(tool => tool.name === ChannelToolName.Update);
+
+    expect(contextTool?.resultContract?.effects).toEqual([]);
+    expect(searchTool?.resultContract?.effects).toEqual([]);
+    expect(sendTool?.resultContract?.effects).toEqual([
+      { objectType: 'message', effect: 'sent', resultField: 'messageIDs', effectIdentity: ResourceEffectIdentity.ID },
+    ]);
+    expect(updateTool?.resultContract?.effects).toEqual([
+      { objectType: 'message', effect: 'updated', resultField: 'messageID', effectIdentity: ResourceEffectIdentity.ID },
+    ]);
+    expect(deleteTool?.resultContract?.effects).toEqual([
+      { objectType: 'message', effect: 'deleted', resultField: 'messageIDs', effectIdentity: ResourceEffectIdentity.ID },
+    ]);
+    expect(channelTool?.resultContract?.effects).toEqual([
+      { objectType: 'channel', effect: 'updated', resultField: 'channelID', effectIdentity: ResourceEffectIdentity.ID },
+    ]);
+    expect(contextTool?.requiresApproval).toBeUndefined();
+    expect(searchTool?.requiresApproval).toBeUndefined();
+    expect(sendTool?.requiresApproval).toBe(true);
+    expect(updateTool?.requiresApproval).toBe(true);
+    expect(deleteTool?.requiresApproval).toBe(true);
+    expect(channelTool?.requiresApproval).toBe(true);
+    expect(sendTool?.idempotency).toEqual({ supported: true, required: false, scope: 'operation' });
+    expect(updateTool?.idempotency).toEqual({ supported: false, required: false, scope: 'operation' });
+    expect(sendTool?.completionEvidence).toEqual({
+      mode: 'success',
+      action: 'send_message',
+      targetKind: 'message',
+    });
   });
 
   test('validates task inputs without operation aliases', () => {

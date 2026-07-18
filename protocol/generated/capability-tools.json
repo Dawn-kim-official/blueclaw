@@ -2437,6 +2437,1587 @@
       "availability": {
         "state": "ok"
       },
+      "canonicalName": "message.context",
+      "description": "Return the exact current Mattermost conversation, thread, requester, and bot identities.",
+      "estimatedLatency": "low",
+      "idempotency": {
+        "required": false,
+        "scope": "operation",
+        "supported": false
+      },
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {},
+        "type": "object"
+      },
+      "inputSchemaStrict": true,
+      "modelName": "message.context",
+      "modelVisibility": "visible",
+      "modelVisible": true,
+      "name": "message.context",
+      "namespace": "message",
+      "outputSchema": {
+        "$defs": {
+          "__schema0": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              },
+              {
+                "items": {
+                  "$ref": "#/$defs/__schema0"
+                },
+                "type": "array"
+              },
+              {
+                "additionalProperties": {
+                  "$ref": "#/$defs/__schema0"
+                },
+                "propertyNames": {
+                  "type": "string"
+                },
+                "type": "object"
+              }
+            ]
+          }
+        },
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "content": {
+            "type": "string"
+          },
+          "effects": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "contentType": {
+                  "type": "string"
+                },
+                "durability": {
+                  "type": "string"
+                },
+                "effect": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "filename": {
+                  "type": "string"
+                },
+                "id": {
+                  "type": "string"
+                },
+                "objectType": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "path": {
+                  "type": "string"
+                },
+                "summary": {
+                  "type": "string"
+                },
+                "url": {
+                  "type": "string"
+                },
+                "visibility": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "objectType",
+                "effect"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "errorCode": {
+            "type": "string"
+          },
+          "failureStage": {
+            "type": "string"
+          },
+          "isError": {
+            "type": "boolean"
+          },
+          "message": {
+            "type": "string"
+          },
+          "outcome": {
+            "enum": [
+              "succeeded",
+              "failed",
+              "denied"
+            ],
+            "type": "string"
+          },
+          "provider": {
+            "type": "string"
+          },
+          "result": {
+            "$ref": "#/$defs/__schema0"
+          },
+          "retryable": {
+            "type": "boolean"
+          },
+          "safeRetry": {
+            "type": "boolean"
+          },
+          "selectedBackend": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "toolName": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "provider",
+          "selectedBackend",
+          "toolName",
+          "result"
+        ],
+        "type": "object"
+      },
+      "outputSchemaStrict": true,
+      "policyResource": "tool:message.context",
+      "privacyClass": "platform_message",
+      "requiresUserPresence": false,
+      "resultContract": {
+        "effects": [],
+        "schema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "additionalProperties": false,
+          "properties": {
+            "botUserID": {
+              "minLength": 1,
+              "pattern": "^\\S(?:.*\\S)?$",
+              "type": "string"
+            },
+            "botUsername": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "channelID": {
+              "type": "string"
+            },
+            "channelName": {
+              "type": "string"
+            },
+            "conversationID": {
+              "type": "string"
+            },
+            "conversationType": {
+              "type": "string"
+            },
+            "currentMessageID": {
+              "type": "string"
+            },
+            "platform": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "replyTargetID": {
+              "type": "string"
+            },
+            "requesterPersonID": {
+              "type": "string"
+            },
+            "requesterPlatformUserID": {
+              "type": "string"
+            },
+            "rootMessageID": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "platform",
+            "conversationID",
+            "conversationType",
+            "channelID",
+            "channelName",
+            "replyTargetID",
+            "rootMessageID",
+            "currentMessageID",
+            "requesterPersonID",
+            "requesterPlatformUserID",
+            "botUserID",
+            "botUsername"
+          ],
+          "type": "object"
+        }
+      },
+      "sideEffect": "read",
+      "sideEffectClass": "read",
+      "version": "2",
+      "worksOffline": false
+    },
+    {
+      "availability": {
+        "state": "ok"
+      },
+      "canonicalName": "message.search",
+      "description": "Search Mattermost messages in an exact conversation scope and return message IDs for later update or delete operations.",
+      "estimatedLatency": "low",
+      "idempotency": {
+        "required": false,
+        "scope": "operation",
+        "supported": false
+      },
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "authoredBy": {
+            "description": "Message author filter. Defaults to anyone.",
+            "enum": [
+              "assistant",
+              "requester",
+              "anyone"
+            ],
+            "type": "string"
+          },
+          "channelID": {
+            "description": "Exact channel ID from message.context or a prior result.",
+            "minLength": 1,
+            "pattern": "^\\S(?:.*\\S)?$",
+            "type": "string"
+          },
+          "channelName": {
+            "description": "Exact Mattermost channel name without the # prefix.",
+            "type": "string"
+          },
+          "cursor": {
+            "description": "Pagination cursor from a previous message.search result.",
+            "type": "string"
+          },
+          "limit": {
+            "description": "Maximum messages to return. Defaults to 20.",
+            "maximum": 25,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "personHint": {
+            "description": "Exact name, @handle, or email of the direct-message counterpart.",
+            "type": "string"
+          },
+          "queries": {
+            "description": "Keyword queries matched against message content.",
+            "items": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "scope": {
+            "description": "Where to search. Current conversation scopes use the active Mattermost context.",
+            "enum": [
+              "currentThread",
+              "currentChannel",
+              "directMessage",
+              "channel"
+            ],
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "inputSchemaStrict": true,
+      "modelName": "message.search",
+      "modelVisibility": "visible",
+      "modelVisible": true,
+      "name": "message.search",
+      "namespace": "message",
+      "outputSchema": {
+        "$defs": {
+          "__schema0": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              },
+              {
+                "items": {
+                  "$ref": "#/$defs/__schema0"
+                },
+                "type": "array"
+              },
+              {
+                "additionalProperties": {
+                  "$ref": "#/$defs/__schema0"
+                },
+                "propertyNames": {
+                  "type": "string"
+                },
+                "type": "object"
+              }
+            ]
+          }
+        },
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "content": {
+            "type": "string"
+          },
+          "effects": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "contentType": {
+                  "type": "string"
+                },
+                "durability": {
+                  "type": "string"
+                },
+                "effect": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "filename": {
+                  "type": "string"
+                },
+                "id": {
+                  "type": "string"
+                },
+                "objectType": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "path": {
+                  "type": "string"
+                },
+                "summary": {
+                  "type": "string"
+                },
+                "url": {
+                  "type": "string"
+                },
+                "visibility": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "objectType",
+                "effect"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "errorCode": {
+            "type": "string"
+          },
+          "failureStage": {
+            "type": "string"
+          },
+          "isError": {
+            "type": "boolean"
+          },
+          "message": {
+            "type": "string"
+          },
+          "outcome": {
+            "enum": [
+              "succeeded",
+              "failed",
+              "denied"
+            ],
+            "type": "string"
+          },
+          "provider": {
+            "type": "string"
+          },
+          "result": {
+            "$ref": "#/$defs/__schema0"
+          },
+          "retryable": {
+            "type": "boolean"
+          },
+          "safeRetry": {
+            "type": "boolean"
+          },
+          "selectedBackend": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "toolName": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "provider",
+          "selectedBackend",
+          "toolName",
+          "result"
+        ],
+        "type": "object"
+      },
+      "outputSchemaStrict": true,
+      "policyResource": "tool:message.search",
+      "privacyClass": "platform_message",
+      "requiresUserPresence": false,
+      "resultContract": {
+        "effects": [],
+        "schema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "additionalProperties": false,
+          "properties": {
+            "authoredBy": {
+              "enum": [
+                "assistant",
+                "requester",
+                "anyone"
+              ],
+              "type": "string"
+            },
+            "candidates": {
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "authoredBy": {
+                    "enum": [
+                      "assistant",
+                      "requester",
+                      "anyone"
+                    ],
+                    "type": "string"
+                  },
+                  "channelID": {
+                    "minLength": 1,
+                    "pattern": "^\\S(?:.*\\S)?$",
+                    "type": "string"
+                  },
+                  "createdAt": {
+                    "maximum": 9007199254740991,
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "deletable": {
+                    "type": "boolean"
+                  },
+                  "messageID": {
+                    "minLength": 1,
+                    "pattern": "^\\S(?:.*\\S)?$",
+                    "type": "string"
+                  },
+                  "preview": {
+                    "type": "string"
+                  },
+                  "protectedReason": {
+                    "type": "string"
+                  },
+                  "rootMessageID": {
+                    "minLength": 1,
+                    "pattern": "^\\S(?:.*\\S)?$",
+                    "type": "string"
+                  },
+                  "userID": {
+                    "minLength": 1,
+                    "pattern": "^\\S(?:.*\\S)?$",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "messageID",
+                  "channelID",
+                  "userID",
+                  "authoredBy",
+                  "createdAt",
+                  "preview",
+                  "deletable"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "hasMore": {
+              "type": "boolean"
+            },
+            "messageIDs": {
+              "items": {
+                "minLength": 1,
+                "pattern": "^\\S(?:.*\\S)?$",
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "nextCursor": {
+              "type": "string"
+            },
+            "queries": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "scope": {
+              "enum": [
+                "currentThread",
+                "currentChannel",
+                "directMessage",
+                "channel"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "scope",
+            "queries",
+            "authoredBy",
+            "messageIDs",
+            "candidates",
+            "hasMore"
+          ],
+          "type": "object"
+        }
+      },
+      "sideEffect": "read",
+      "sideEffectClass": "read",
+      "version": "2",
+      "worksOffline": false
+    },
+    {
+      "availability": {
+        "state": "ok"
+      },
+      "canonicalName": "message.send",
+      "completionEvidence": {
+        "action": "send_message",
+        "mode": "success",
+        "targetKind": "message"
+      },
+      "description": "Send a Mattermost message to a direct message, channel, or the current conversation after approval.",
+      "estimatedLatency": "medium",
+      "idempotency": {
+        "required": false,
+        "scope": "operation",
+        "supported": true
+      },
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "channelID": {
+            "description": "Exact channel ID from message.context or a prior result.",
+            "minLength": 1,
+            "pattern": "^\\S(?:.*\\S)?$",
+            "type": "string"
+          },
+          "channelName": {
+            "description": "Exact Mattermost channel name without the # prefix.",
+            "type": "string"
+          },
+          "message": {
+            "minLength": 1,
+            "pattern": "\\S",
+            "type": "string"
+          },
+          "personHint": {
+            "description": "Name, @handle, or email of one direct-message recipient.",
+            "type": "string"
+          },
+          "personHints": {
+            "description": "Direct-message recipients for one fan-out send.",
+            "items": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxItems": 50,
+            "type": "array"
+          },
+          "pin": {
+            "description": "Whether to pin the created message. Defaults to false.",
+            "type": "boolean"
+          },
+          "reason": {
+            "description": "Reason shown to the approver.",
+            "type": "string"
+          },
+          "targetType": {
+            "description": "Destination for the new message.",
+            "enum": [
+              "directMessage",
+              "currentThread",
+              "currentChannel",
+              "channel"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "targetType",
+          "message"
+        ],
+        "type": "object"
+      },
+      "inputSchemaStrict": true,
+      "modelName": "message.send",
+      "modelVisibility": "visible",
+      "modelVisible": true,
+      "name": "message.send",
+      "namespace": "message",
+      "outputSchema": {
+        "$defs": {
+          "__schema0": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              },
+              {
+                "items": {
+                  "$ref": "#/$defs/__schema0"
+                },
+                "type": "array"
+              },
+              {
+                "additionalProperties": {
+                  "$ref": "#/$defs/__schema0"
+                },
+                "propertyNames": {
+                  "type": "string"
+                },
+                "type": "object"
+              }
+            ]
+          }
+        },
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "content": {
+            "type": "string"
+          },
+          "effects": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "contentType": {
+                  "type": "string"
+                },
+                "durability": {
+                  "type": "string"
+                },
+                "effect": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "filename": {
+                  "type": "string"
+                },
+                "id": {
+                  "type": "string"
+                },
+                "objectType": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "path": {
+                  "type": "string"
+                },
+                "summary": {
+                  "type": "string"
+                },
+                "url": {
+                  "type": "string"
+                },
+                "visibility": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "objectType",
+                "effect"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "errorCode": {
+            "type": "string"
+          },
+          "failureStage": {
+            "type": "string"
+          },
+          "isError": {
+            "type": "boolean"
+          },
+          "message": {
+            "type": "string"
+          },
+          "outcome": {
+            "enum": [
+              "succeeded",
+              "failed",
+              "denied"
+            ],
+            "type": "string"
+          },
+          "provider": {
+            "type": "string"
+          },
+          "result": {
+            "$ref": "#/$defs/__schema0"
+          },
+          "retryable": {
+            "type": "boolean"
+          },
+          "safeRetry": {
+            "type": "boolean"
+          },
+          "selectedBackend": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "toolName": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "provider",
+          "selectedBackend",
+          "toolName",
+          "result"
+        ],
+        "type": "object"
+      },
+      "outputSchemaStrict": true,
+      "policyResource": "tool:message.send",
+      "privacyClass": "platform_message",
+      "requiresApproval": true,
+      "requiresUserPresence": false,
+      "resultContract": {
+        "effects": [
+          {
+            "effect": "sent",
+            "effectIdentity": "id",
+            "objectType": "message",
+            "resultField": "messageIDs"
+          }
+        ],
+        "schema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "additionalProperties": false,
+          "properties": {
+            "deliveryStatus": {
+              "const": "sent",
+              "type": "string"
+            },
+            "failures": {
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "errorCode": {
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "message": {
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "messageID": {
+                    "type": "string"
+                  },
+                  "personHint": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "errorCode",
+                  "message"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "messageIDs": {
+              "items": {
+                "minLength": 1,
+                "pattern": "^\\S(?:.*\\S)?$",
+                "type": "string"
+              },
+              "maxItems": 50,
+              "minItems": 1,
+              "type": "array",
+              "uniqueItems": true
+            }
+          },
+          "required": [
+            "messageIDs",
+            "deliveryStatus"
+          ],
+          "type": "object"
+        }
+      },
+      "sideEffect": "external_send",
+      "sideEffectClass": "external_send",
+      "version": "2",
+      "worksOffline": false
+    },
+    {
+      "availability": {
+        "state": "ok"
+      },
+      "canonicalName": "message.update",
+      "completionEvidence": {
+        "action": "update_message",
+        "mode": "success",
+        "targetKind": "message"
+      },
+      "description": "Update the text or pinned state of the exact Mattermost message ID after approval.",
+      "estimatedLatency": "medium",
+      "idempotency": {
+        "required": false,
+        "scope": "operation",
+        "supported": false
+      },
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "minProperties": 2,
+        "properties": {
+          "isPinned": {
+            "description": "Whether the message should be pinned.",
+            "type": "boolean"
+          },
+          "message": {
+            "minLength": 1,
+            "pattern": "\\S",
+            "type": "string"
+          },
+          "messageID": {
+            "description": "Exact message ID from message.search or message.send.",
+            "minLength": 1,
+            "pattern": "^\\S(?:.*\\S)?$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "messageID"
+        ],
+        "type": "object"
+      },
+      "inputSchemaStrict": true,
+      "modelName": "message.update",
+      "modelVisibility": "visible",
+      "modelVisible": true,
+      "name": "message.update",
+      "namespace": "message",
+      "outputSchema": {
+        "$defs": {
+          "__schema0": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              },
+              {
+                "items": {
+                  "$ref": "#/$defs/__schema0"
+                },
+                "type": "array"
+              },
+              {
+                "additionalProperties": {
+                  "$ref": "#/$defs/__schema0"
+                },
+                "propertyNames": {
+                  "type": "string"
+                },
+                "type": "object"
+              }
+            ]
+          }
+        },
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "content": {
+            "type": "string"
+          },
+          "effects": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "contentType": {
+                  "type": "string"
+                },
+                "durability": {
+                  "type": "string"
+                },
+                "effect": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "filename": {
+                  "type": "string"
+                },
+                "id": {
+                  "type": "string"
+                },
+                "objectType": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "path": {
+                  "type": "string"
+                },
+                "summary": {
+                  "type": "string"
+                },
+                "url": {
+                  "type": "string"
+                },
+                "visibility": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "objectType",
+                "effect"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "errorCode": {
+            "type": "string"
+          },
+          "failureStage": {
+            "type": "string"
+          },
+          "isError": {
+            "type": "boolean"
+          },
+          "message": {
+            "type": "string"
+          },
+          "outcome": {
+            "enum": [
+              "succeeded",
+              "failed",
+              "denied"
+            ],
+            "type": "string"
+          },
+          "provider": {
+            "type": "string"
+          },
+          "result": {
+            "$ref": "#/$defs/__schema0"
+          },
+          "retryable": {
+            "type": "boolean"
+          },
+          "safeRetry": {
+            "type": "boolean"
+          },
+          "selectedBackend": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "toolName": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "provider",
+          "selectedBackend",
+          "toolName",
+          "result"
+        ],
+        "type": "object"
+      },
+      "outputSchemaStrict": true,
+      "policyResource": "tool:message.update",
+      "privacyClass": "platform_message",
+      "requiresApproval": true,
+      "requiresUserPresence": false,
+      "resultContract": {
+        "effects": [
+          {
+            "effect": "updated",
+            "effectIdentity": "id",
+            "objectType": "message",
+            "resultField": "messageID"
+          }
+        ],
+        "schema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "additionalProperties": false,
+          "properties": {
+            "deliveryStatus": {
+              "const": "updated",
+              "type": "string"
+            },
+            "isPinned": {
+              "type": "boolean"
+            },
+            "messageID": {
+              "minLength": 1,
+              "pattern": "^\\S(?:.*\\S)?$",
+              "type": "string"
+            },
+            "messageUpdated": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "messageID",
+            "deliveryStatus",
+            "messageUpdated"
+          ],
+          "type": "object"
+        }
+      },
+      "sideEffect": "external_write",
+      "sideEffectClass": "external_write",
+      "version": "2",
+      "worksOffline": false
+    },
+    {
+      "availability": {
+        "state": "ok"
+      },
+      "canonicalName": "message.delete",
+      "completionEvidence": {
+        "action": "delete_message",
+        "mode": "success",
+        "targetKind": "message"
+      },
+      "description": "Permanently delete exact Mattermost message IDs from message.search after approval.",
+      "estimatedLatency": "medium",
+      "idempotency": {
+        "required": false,
+        "scope": "operation",
+        "supported": false
+      },
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "messageIDs": {
+            "description": "Exact message IDs from message.search.",
+            "items": {
+              "minLength": 1,
+              "pattern": "^\\S(?:.*\\S)?$",
+              "type": "string"
+            },
+            "maxItems": 25,
+            "minItems": 1,
+            "type": "array",
+            "uniqueItems": true
+          }
+        },
+        "required": [
+          "messageIDs"
+        ],
+        "type": "object"
+      },
+      "inputSchemaStrict": true,
+      "modelName": "message.delete",
+      "modelVisibility": "visible",
+      "modelVisible": true,
+      "name": "message.delete",
+      "namespace": "message",
+      "outputSchema": {
+        "$defs": {
+          "__schema0": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              },
+              {
+                "items": {
+                  "$ref": "#/$defs/__schema0"
+                },
+                "type": "array"
+              },
+              {
+                "additionalProperties": {
+                  "$ref": "#/$defs/__schema0"
+                },
+                "propertyNames": {
+                  "type": "string"
+                },
+                "type": "object"
+              }
+            ]
+          }
+        },
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "content": {
+            "type": "string"
+          },
+          "effects": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "contentType": {
+                  "type": "string"
+                },
+                "durability": {
+                  "type": "string"
+                },
+                "effect": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "filename": {
+                  "type": "string"
+                },
+                "id": {
+                  "type": "string"
+                },
+                "objectType": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "path": {
+                  "type": "string"
+                },
+                "summary": {
+                  "type": "string"
+                },
+                "url": {
+                  "type": "string"
+                },
+                "visibility": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "objectType",
+                "effect"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "errorCode": {
+            "type": "string"
+          },
+          "failureStage": {
+            "type": "string"
+          },
+          "isError": {
+            "type": "boolean"
+          },
+          "message": {
+            "type": "string"
+          },
+          "outcome": {
+            "enum": [
+              "succeeded",
+              "failed",
+              "denied"
+            ],
+            "type": "string"
+          },
+          "provider": {
+            "type": "string"
+          },
+          "result": {
+            "$ref": "#/$defs/__schema0"
+          },
+          "retryable": {
+            "type": "boolean"
+          },
+          "safeRetry": {
+            "type": "boolean"
+          },
+          "selectedBackend": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "toolName": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "provider",
+          "selectedBackend",
+          "toolName",
+          "result"
+        ],
+        "type": "object"
+      },
+      "outputSchemaStrict": true,
+      "policyResource": "tool:message.delete",
+      "privacyClass": "platform_message",
+      "requiresApproval": true,
+      "requiresUserPresence": false,
+      "resultContract": {
+        "effects": [
+          {
+            "effect": "deleted",
+            "effectIdentity": "id",
+            "objectType": "message",
+            "resultField": "messageIDs"
+          }
+        ],
+        "schema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "additionalProperties": false,
+          "properties": {
+            "deliveryStatus": {
+              "const": "deleted",
+              "type": "string"
+            },
+            "failures": {
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "errorCode": {
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "message": {
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "messageID": {
+                    "type": "string"
+                  },
+                  "personHint": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "errorCode",
+                  "message"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "messageIDs": {
+              "items": {
+                "minLength": 1,
+                "pattern": "^\\S(?:.*\\S)?$",
+                "type": "string"
+              },
+              "maxItems": 50,
+              "minItems": 1,
+              "type": "array",
+              "uniqueItems": true
+            }
+          },
+          "required": [
+            "messageIDs",
+            "deliveryStatus"
+          ],
+          "type": "object"
+        }
+      },
+      "sideEffect": "destructive",
+      "sideEffectClass": "destructive",
+      "version": "2",
+      "worksOffline": false
+    },
+    {
+      "availability": {
+        "state": "ok"
+      },
+      "canonicalName": "channel.update",
+      "completionEvidence": {
+        "action": "update_channel",
+        "mode": "success",
+        "targetKind": "channel"
+      },
+      "description": "Update an exact Mattermost channel display name, header, or membership after approval.",
+      "estimatedLatency": "medium",
+      "idempotency": {
+        "required": false,
+        "scope": "operation",
+        "supported": false
+      },
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "minProperties": 2,
+        "properties": {
+          "channelID": {
+            "description": "Exact channel ID from message.context or a prior result.",
+            "minLength": 1,
+            "pattern": "^\\S(?:.*\\S)?$",
+            "type": "string"
+          },
+          "channelName": {
+            "description": "Exact Mattermost channel name without the # prefix.",
+            "minLength": 1,
+            "type": "string"
+          },
+          "displayName": {
+            "description": "New channel display name.",
+            "minLength": 1,
+            "type": "string"
+          },
+          "header": {
+            "description": "New channel header. Use an empty string to clear it.",
+            "type": "string"
+          },
+          "inviteeHints": {
+            "description": "Names, @handles, or emails of people to invite.",
+            "items": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object"
+      },
+      "inputSchemaStrict": true,
+      "modelName": "channel.update",
+      "modelVisibility": "visible",
+      "modelVisible": true,
+      "name": "channel.update",
+      "namespace": "channel",
+      "outputSchema": {
+        "$defs": {
+          "__schema0": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              },
+              {
+                "items": {
+                  "$ref": "#/$defs/__schema0"
+                },
+                "type": "array"
+              },
+              {
+                "additionalProperties": {
+                  "$ref": "#/$defs/__schema0"
+                },
+                "propertyNames": {
+                  "type": "string"
+                },
+                "type": "object"
+              }
+            ]
+          }
+        },
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "content": {
+            "type": "string"
+          },
+          "effects": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "contentType": {
+                  "type": "string"
+                },
+                "durability": {
+                  "type": "string"
+                },
+                "effect": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "filename": {
+                  "type": "string"
+                },
+                "id": {
+                  "type": "string"
+                },
+                "objectType": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "path": {
+                  "type": "string"
+                },
+                "summary": {
+                  "type": "string"
+                },
+                "url": {
+                  "type": "string"
+                },
+                "visibility": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "objectType",
+                "effect"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "errorCode": {
+            "type": "string"
+          },
+          "failureStage": {
+            "type": "string"
+          },
+          "isError": {
+            "type": "boolean"
+          },
+          "message": {
+            "type": "string"
+          },
+          "outcome": {
+            "enum": [
+              "succeeded",
+              "failed",
+              "denied"
+            ],
+            "type": "string"
+          },
+          "provider": {
+            "type": "string"
+          },
+          "result": {
+            "$ref": "#/$defs/__schema0"
+          },
+          "retryable": {
+            "type": "boolean"
+          },
+          "safeRetry": {
+            "type": "boolean"
+          },
+          "selectedBackend": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "toolName": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "provider",
+          "selectedBackend",
+          "toolName",
+          "result"
+        ],
+        "type": "object"
+      },
+      "outputSchemaStrict": true,
+      "policyResource": "tool:channel.update",
+      "privacyClass": "platform_message",
+      "requiresApproval": true,
+      "requiresUserPresence": false,
+      "resultContract": {
+        "effects": [
+          {
+            "effect": "updated",
+            "effectIdentity": "id",
+            "objectType": "channel",
+            "resultField": "channelID"
+          }
+        ],
+        "schema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "additionalProperties": false,
+          "properties": {
+            "channelID": {
+              "minLength": 1,
+              "pattern": "^\\S(?:.*\\S)?$",
+              "type": "string"
+            },
+            "invitedUserIDs": {
+              "items": {
+                "minLength": 1,
+                "pattern": "^\\S(?:.*\\S)?$",
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "updated": {
+              "const": true,
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "channelID",
+            "updated"
+          ],
+          "type": "object"
+        }
+      },
+      "sideEffect": "external_write",
+      "sideEffectClass": "external_write",
+      "version": "2",
+      "worksOffline": false
+    },
+    {
+      "availability": {
+        "state": "ok"
+      },
       "canonicalName": "web.search",
       "description": "Search the public web and return ranked result snippets. Use this when you need current information, facts, or links that are not already in context. Do not use for workspace data, calendar, mail, or tasks — those have dedicated tools.",
       "estimatedLatency": "medium",
