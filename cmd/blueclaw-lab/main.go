@@ -143,6 +143,8 @@ type virtualSessionEvidence struct {
 type virtualTurnMetrics struct {
 	TurnNumber              int                                 `json:"turnNumber"`
 	TaskRunID               string                              `json:"taskRunID,omitempty"`
+	TaskStatus              string                              `json:"taskStatus,omitempty"`
+	FailureReason           string                              `json:"failureReason,omitempty"`
 	AgentStepCount          int                                 `json:"agentStepCount"`
 	ToolCallCount           int                                 `json:"toolCallCount"`
 	LanguageModelCallCount  int                                 `json:"languageModelCallCount"`
@@ -416,6 +418,8 @@ func buildVirtualTurnMetrics(turnNumber int, turnResult e2e.VirtualTurnResult) v
 	metrics := virtualTurnMetrics{
 		TurnNumber:              turnNumber,
 		TaskRunID:               turnResult.TaskRunID,
+		TaskStatus:              string(turnResult.TaskStatus),
+		FailureReason:           strings.TrimSpace(turnResult.FailureReason),
 		LanguageModelCallCount:  len(turnResult.LanguageModelCallEvents),
 		InformationalAssertions: turnResult.InformationalAssertions,
 	}

@@ -348,14 +348,18 @@ func TestSaveVirtualSessionEvidenceRecordsRoutingMetadataWithoutSecrets(t *testi
 	result := e2e.VirtualSessionResult{
 		ScenarioName:          "task-lifecycle",
 		ArtifactDirectoryPath: artifactDirectoryPath,
-		TurnResults: []e2e.VirtualTurnResult{{LanguageModelCallEvents: []e2e.VirtualLanguageModelCallEvent{{
-			Kind:            "recovery_chat",
-			Provider:        "llama.cpp",
-			Model:           "gemma",
-			SelectedBackend: "device",
-			UsedFallback:    false,
-			FinishReason:    "stop",
-		}}}},
+		TurnResults: []e2e.VirtualTurnResult{{
+			TaskStatus:    "blocked",
+			FailureReason: "operation contract was invalid",
+			LanguageModelCallEvents: []e2e.VirtualLanguageModelCallEvent{{
+				Kind:            "recovery_chat",
+				Provider:        "llama.cpp",
+				Model:           "gemma",
+				SelectedBackend: "device",
+				UsedFallback:    false,
+				FinishReason:    "stop",
+			}},
+		}},
 	}
 	arguments := virtualSessionArguments{
 		LanguageModelProvider:    "sdkd",
@@ -370,7 +374,7 @@ func TestSaveVirtualSessionEvidenceRecordsRoutingMetadataWithoutSecrets(t *testi
 		t.Fatalf("expected evidence file: %v", errorValue)
 	}
 	content := string(document)
-	for _, expectedText := range []string{"task-lifecycle", "sdkd", "recovery_chat", "llama.cpp", "gemma", "device", "blueclaw_agent_turn_action", "blueclaw_agent_turn_finalizer", "blueclaw_turn_router", "blueclaw_recovery_decision", "blueclaw_operation_contract", "blueclaw_operation_contract_review"} {
+	for _, expectedText := range []string{"task-lifecycle", "blocked", "operation contract was invalid", "sdkd", "recovery_chat", "llama.cpp", "gemma", "device", "blueclaw_agent_turn_action", "blueclaw_agent_turn_finalizer", "blueclaw_turn_router", "blueclaw_recovery_decision", "blueclaw_operation_contract", "blueclaw_operation_contract_review"} {
 		if !strings.Contains(content, expectedText) {
 			t.Fatalf("evidence missing %q: %s", expectedText, content)
 		}
