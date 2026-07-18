@@ -156,7 +156,10 @@ var kernelToolDescriptorSpecs = []kernelToolDescriptorSpec{
 		SideEffectClass: agent.ToolSideEffectRead,
 		CompletionMode:  agent.ToolCompletionNone,
 		Idempotency:     agent.ToolIdempotencyNone,
-		OutputSchema:    json.RawMessage(`{"type":"object"}`),
+		OutputSchema:    skillSearchResultSchema,
+		ResultContract: &agent.ToolResultContract{
+			Schema: skillSearchResultSchema,
+		},
 	},
 	{
 		Name:            agent.FileReadToolName,
