@@ -542,10 +542,18 @@ const safeFieldPathPattern = /^\/(?:[A-Za-z0-9_.$~-]+(?:\/[A-Za-z0-9_.$~-]+)*)?$
 
 function validationFieldPath(errorValue: ErrorObject): string {
   const instancePath = safeFieldPathPattern.test(errorValue.instancePath) ? errorValue.instancePath : '';
-  if (errorValue.keyword !== 'required') return instancePath || '/';
-  const missingProperty = errorValue.params.missingProperty;
-  if (typeof missingProperty !== 'string' || !safeFieldPathPattern.test(`/${missingProperty}`)) return instancePath || '/';
-  return `${instancePath}/${missingProperty}`;
+  if (errorValue.keyword === 'required') {
+    return validationPropertyPath(instancePath, errorValue.params.missingProperty);
+  }
+  if (errorValue.keyword === 'additionalProperties') {
+    return validationPropertyPath(instancePath, errorValue.params.additionalProperty);
+  }
+  return instancePath || '/';
+}
+
+function validationPropertyPath(instancePath: string, property: unknown): string {
+  if (typeof property !== 'string' || !safeFieldPathPattern.test(`/${property}`)) return instancePath || '/';
+  return `${instancePath}/${property}`;
 }
 
 function validationCode(keyword: string): StructuredOutputValidationCode {
