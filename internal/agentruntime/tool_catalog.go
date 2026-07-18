@@ -226,7 +226,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) BuildToolSet(request ToolCatalogRe
 	toolCatalogBuilder.registerLocalTools(toolSet, request, handlerContext)
 	toolCatalogBuilder.registerKernelTools(toolSet, handlerContext)
 	toolCatalogBuilder.registerCapabilityTools(toolSet, request)
-	toolCatalogBuilder.registerMCPTools(toolSet)
+	toolCatalogBuilder.registerMCPTools(toolSet, request)
 	return toolSet
 }
 
