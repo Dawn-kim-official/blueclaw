@@ -348,9 +348,24 @@ func TestAgentActionFinishCorrectionUsesCompleteTypedState(t *testing.T) {
 			updateState: func(state *agentTaskState) { state.Observations[0].Effects = nil },
 		},
 		{
-			name: "expected result pending",
+			name:          "message expected result ready for verification",
+			expectsFinish: true,
 			updateState: func(state *agentTaskState) {
-				state.Request.OutcomeContract.ExpectedResults = []ExpectedResult{{Required: true}}
+				state.Request.OutcomeContract.ExpectedResults = []ExpectedResult{{
+					Type:        ExpectedResultTypeMessage,
+					Description: "final reply",
+					Required:    true,
+				}}
+			},
+		},
+		{
+			name: "file expected result missing attachment",
+			updateState: func(state *agentTaskState) {
+				state.Request.OutcomeContract.ExpectedResults = []ExpectedResult{{
+					Type:        ExpectedResultTypeFile,
+					Description: "attached report",
+					Required:    true,
+				}}
 			},
 		},
 		{

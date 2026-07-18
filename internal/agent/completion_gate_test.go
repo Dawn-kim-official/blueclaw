@@ -334,6 +334,46 @@ func TestAgentTurnRunnerRejectsRequiredFileWithoutAttachmentEvidence(t *testing.
 	}
 }
 
+func TestExpectedResultCompletionGateSuggestsFileDelivery(t *testing.T) {
+	goalSatisfied := true
+	request := AgentTurnRequest{
+		ToolSet: newTestToolSet([]string{FileDeliverToolName}),
+		OutcomeContract: OutcomeContract{
+			RequiredAttachmentSuffixes: []string{".pdf"},
+			ExpectedResults: []ExpectedResult{{
+				Type:        ExpectedResultTypeFile,
+				Description: "attached report",
+				Required:    true,
+			}},
+		},
+	}
+	action := turnActionDocument{
+		Action:        "finish",
+		Message:       "완료했습니다.",
+		GoalStatus:    "satisfied",
+		GoalSatisfied: &goalSatisfied,
+	}
+
+	t.Run("missing attachment", func(t *testing.T) {
+		result := validateExpectedResultCompletionGate(request, nil, nil, action, defaultRecoveryBudget())
+
+		assertSameStrings(t, result.SuggestedNextTools, []string{FileDeliverToolName})
+	})
+
+	t.Run("wrong suffix", func(t *testing.T) {
+		observation := newContentObservation("obs-001", "continue", FileDeliverToolName, "attached")
+		observation.Attachments = []FileAttachment{{Filename: "report.md"}}
+		action.CompletionEvidence = []completionEvidenceReference{{
+			ObservationID: observation.ObservationID,
+			ToolName:      FileDeliverToolName,
+		}}
+
+		result := validateExpectedResultCompletionGate(request, []turnObservation{observation}, nil, action, defaultRecoveryBudget())
+
+		assertSameStrings(t, result.SuggestedNextTools, []string{FileDeliverToolName})
+	})
+}
+
 func TestAgentTurnRunnerRejectsHtmlClaimBackedByMarkdownAttachment(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		`{"action":"continue","toolName":"file.deliver","toolInput":{"path":"DESIGN.md"}}`,

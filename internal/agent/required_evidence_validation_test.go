@@ -76,6 +76,21 @@ func TestValidateRequiredEvidenceRejectsUnavailableDirectTool(t *testing.T) {
 	}
 }
 
+func TestValidateRequiredEvidenceRejectsDisallowedKernelTool(t *testing.T) {
+	toolSet := NewToolSet([]string{"file.write"})
+	for _, toolName := range []string{"file.write", FileDeliverToolName} {
+		registerTestTool(toolSet, ToolDefinition{Name: toolName}, func(context.Context, ToolInvocation) (ToolResult, error) {
+			return testToolSuccess("ok"), nil
+		})
+	}
+
+	report := validateRequiredEvidenceTools(toolSet, []string{FileDeliverToolName})
+
+	if !report.HasInvalidEvidence() {
+		t.Fatal("expected a disallowed kernel tool to be invalid required evidence")
+	}
+}
+
 func TestValidateRequiredEvidenceClassifiesNativeTool(t *testing.T) {
 	toolSet := newTestToolSet([]string{FileDeliverToolName})
 
@@ -99,7 +114,7 @@ func TestValidateRequiredEvidenceRejectsLegacyDeliveryAlias(t *testing.T) {
 	}
 }
 
-func TestRequiredEvidenceDoesNotAssumeSideEffectForMaintenanceTask(t *testing.T) {
+func TestRequiredEvidenceRequiresEvidenceForMaintenanceTask(t *testing.T) {
 	intakeDecision := IntakeDecision{
 		Classification: IntakeClassificationBoundedTask,
 		TaskShape:      TaskShapeMaintenanceTask,
@@ -107,8 +122,34 @@ func TestRequiredEvidenceDoesNotAssumeSideEffectForMaintenanceTask(t *testing.T)
 
 	isMissing := requiredEvidenceMissingForSideEffect(intakeDecision, OutcomeContract{}, newTestToolSet([]string{"task.add"}))
 
+	if !isMissing {
+		t.Fatal("expected maintenance task without evidence to require recovery")
+	}
+}
+
+func TestRequiredEvidenceRequiresEvidenceForApprovalGatedTask(t *testing.T) {
+	intakeDecision := IntakeDecision{
+		Classification: IntakeClassificationBoundedTask,
+		TaskShape:      TaskShapeApprovalGatedTask,
+	}
+
+	isMissing := requiredEvidenceMissingForSideEffect(intakeDecision, OutcomeContract{}, newTestToolSet([]string{"site.delete"}))
+
+	if !isMissing {
+		t.Fatal("expected approval-gated task without evidence to require recovery")
+	}
+}
+
+func TestRequiredEvidenceAllowsBrowserHandoffWithoutMutationEvidence(t *testing.T) {
+	intakeDecision := IntakeDecision{
+		Classification: IntakeClassificationBoundedTask,
+		TaskShape:      TaskShapeBrowserHandoffTask,
+	}
+
+	isMissing := requiredEvidenceMissingForSideEffect(intakeDecision, OutcomeContract{}, newTestToolSet([]string{"browser.open"}))
+
 	if isMissing {
-		t.Fatal("expected maintenance task without a typed side-effect signal not to require recovery")
+		t.Fatal("expected browser handoff not to imply a mutation")
 	}
 }
 
@@ -126,7 +167,7 @@ func TestRequiredEvidenceNotMissingForReadOnlyResearchTask(t *testing.T) {
 	}
 }
 
-func TestRequiredEvidencePreservesReadOnlyMaintenanceEvidence(t *testing.T) {
+func TestRequiredEvidenceRejectsReadOnlyMaintenanceEvidence(t *testing.T) {
 	intakeDecision := IntakeDecision{
 		Classification: IntakeClassificationBoundedTask,
 		TaskShape:      TaskShapeMaintenanceTask,
@@ -136,12 +177,12 @@ func TestRequiredEvidencePreservesReadOnlyMaintenanceEvidence(t *testing.T) {
 
 	isMissing := requiredEvidenceMissingForSideEffect(intakeDecision, outcomeContract, toolSet)
 
-	if isMissing {
-		t.Fatal("expected read-only task.history evidence to remain valid for maintenance lookup")
+	if !isMissing {
+		t.Fatal("expected read-only task.history not to prove maintenance mutation")
 	}
 }
 
-func TestRequiredEvidenceIgnoresSpeculativeInitialSideEffect(t *testing.T) {
+func TestRequiredEvidenceRejectsReadOnlyEvidenceForMaintenanceShape(t *testing.T) {
 	intakeDecision := IntakeDecision{
 		Classification:        IntakeClassificationBoundedTask,
 		TaskShape:             TaskShapeMaintenanceTask,
@@ -151,8 +192,8 @@ func TestRequiredEvidenceIgnoresSpeculativeInitialSideEffect(t *testing.T) {
 	toolSet := newTestCapabilityToolSet([]string{TerminalRunToolName, "task.list"})
 	outcomeContract := OutcomeContract{RequiredEvidenceTools: []string{"task.list"}}
 
-	if requiredEvidenceMissingForSideEffect(intakeDecision, outcomeContract, toolSet) {
-		t.Fatal("expected typed task.list evidence to remain authoritative")
+	if !requiredEvidenceMissingForSideEffect(intakeDecision, outcomeContract, toolSet) {
+		t.Fatal("expected task.list not to satisfy a maintenance mutation contract")
 	}
 }
 

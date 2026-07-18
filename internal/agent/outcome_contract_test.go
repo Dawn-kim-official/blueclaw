@@ -218,6 +218,91 @@ func TestOutcomeContractKeepsRequestedFileWhenSiteSkillOnlySelected(t *testing.T
 	}
 }
 
+func TestResolvedInputDischargesAskInputContract(t *testing.T) {
+	request := AgentRequest{
+		ExistingTaskRunID: "task-1",
+		ActiveGoal: ActiveGoal{
+			TaskRunID: "task-1",
+			Status:    ActiveGoalStatusWaitingUserInput,
+		},
+	}
+	contract := OutcomeContract{
+		RequiredEvidenceTools: []string{AskInputToolName, "task.update"},
+		RequiredEvidenceAnyOf: [][]string{{AskInputToolName, "task.update"}},
+		SelectedEvidenceHints: []string{AskInputToolName},
+		ExpectedResults: []ExpectedResult{{
+			ID:              "choice",
+			Type:            ExpectedResultTypeMessage,
+			Description:     "user choice",
+			Required:        true,
+			AcceptanceHints: []string{AskInputToolName},
+		}, {
+			ID:              "choice-update",
+			Type:            ExpectedResultTypeMessage,
+			Description:     "user choice applied",
+			Required:        true,
+			AcceptanceHints: []string{AskInputToolName, "task.update"},
+		}},
+		OperationContract: &OperationContract{
+			Version: operationContractVersion,
+			Requirements: []OperationRequirement{
+				{RequirementID: "ask", ToolName: AskInputToolName},
+				{RequirementID: "update", ToolName: "task.update"},
+			},
+		},
+	}
+
+	resolvedContract := dischargeResolvedInputContract(request, TurnDecision{Route: TurnRouteContinueTask}, contract)
+
+	if stringSliceContains(resolvedContract.RequiredEvidenceTools, AskInputToolName) ||
+		stringSliceContains(resolvedContract.SelectedEvidenceHints, AskInputToolName) {
+		t.Fatalf("expected resolved ask.input requirements to be discharged, got %+v", resolvedContract)
+	}
+	if len(resolvedContract.ExpectedResults) != 1 ||
+		len(resolvedContract.ExpectedResults[0].AcceptanceHints) != 1 ||
+		resolvedContract.ExpectedResults[0].AcceptanceHints[0] != "task.update" {
+		t.Fatalf("expected mixed expected result to retain its remaining hint, got %+v", resolvedContract.ExpectedResults)
+	}
+	if len(resolvedContract.RequiredEvidenceAnyOf) != 1 || !stringSliceContains(resolvedContract.RequiredEvidenceAnyOf[0], "task.update") {
+		t.Fatalf("expected unrelated evidence alternative to remain, got %+v", resolvedContract.RequiredEvidenceAnyOf)
+	}
+	if resolvedContract.OperationContract == nil || len(resolvedContract.OperationContract.Requirements) != 1 || resolvedContract.OperationContract.Requirements[0].ToolName != "task.update" {
+		t.Fatalf("expected unrelated operation requirement to remain, got %+v", resolvedContract.OperationContract)
+	}
+}
+
+func TestUnresolvedInputKeepsAskInputContract(t *testing.T) {
+	contract := OutcomeContract{
+		RequiredEvidenceTools: []string{AskInputToolName},
+		ExpectedResults: []ExpectedResult{{
+			ID:              "choice",
+			Type:            ExpectedResultTypeMessage,
+			Description:     "user choice",
+			Required:        true,
+			AcceptanceHints: []string{AskInputToolName},
+		}},
+	}
+	request := AgentRequest{
+		ExistingTaskRunID: "task-1",
+		ActiveGoal: ActiveGoal{
+			TaskRunID: "task-1",
+			Status:    ActiveGoalStatusWaitingUserInput,
+		},
+	}
+
+	for _, turnDecision := range []TurnDecision{{Route: TurnRouteStartTask}, {Route: TurnRouteAnswerQuestion}} {
+		unresolvedContract := dischargeResolvedInputContract(request, turnDecision, contract)
+		if !stringSliceContains(unresolvedContract.RequiredEvidenceTools, AskInputToolName) || len(unresolvedContract.ExpectedResults) != 1 {
+			t.Fatalf("expected route %s to preserve ask.input contract, got %+v", turnDecision.Route, unresolvedContract)
+		}
+	}
+	request.ExistingTaskRunID = "task-2"
+	mismatchedContract := dischargeResolvedInputContract(request, TurnDecision{Route: TurnRouteContinueTask}, contract)
+	if !stringSliceContains(mismatchedContract.RequiredEvidenceTools, AskInputToolName) {
+		t.Fatal("expected another task's continuation not to discharge ask.input")
+	}
+}
+
 func TestOutcomeContractDoesNotTreatReplyInstructionAsExternalSend(t *testing.T) {
 	instructionBundle := InstructionBundle{
 		Skills: []SkillInstruction{{Name: "direct-message"}, {Name: "site-prototype"}},

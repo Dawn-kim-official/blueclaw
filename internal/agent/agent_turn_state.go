@@ -728,14 +728,7 @@ func agentActionCompletionIsReady(state agentTaskState) bool {
 		return false
 	}
 	action := completionStateFinishDocument(completionState, "completion wording pending")
-	gateResult := validateCompletionGateForRequestWithRecoveryBudget(
-		state.Request,
-		requirements,
-		state.Observations,
-		state.QualityCriteria,
-		action,
-		state.Options.RecoveryBudget,
-	)
+	gateResult := validateAgentActionCompletionGate(state, requirements, action)
 	if !gateResult.IsSatisfied {
 		return false
 	}
@@ -746,8 +739,28 @@ func agentActionCompletionIsReady(state agentTaskState) bool {
 	).IsSatisfied
 }
 
+func validateAgentActionCompletionGate(state agentTaskState, requirements []toolUseRequirement, action turnActionDocument) completionGateResult {
+	if len(state.Request.OutcomeContract.ExpectedResults) > 0 {
+		return validateExpectedResultCompletionGate(
+			state.Request,
+			state.Observations,
+			state.QualityCriteria,
+			action,
+			state.Options.RecoveryBudget,
+		)
+	}
+	return validateCompletionGateForRequestWithRecoveryBudget(
+		state.Request,
+		requirements,
+		state.Observations,
+		state.QualityCriteria,
+		action,
+		state.Options.RecoveryBudget,
+	)
+}
+
 func agentActionCompletionIsBlocked(state agentTaskState) bool {
-	if state.PendingWait != nil || len(state.Request.OutcomeContract.ExpectedResults) > 0 {
+	if state.PendingWait != nil {
 		return true
 	}
 	if hasPendingObservedSuggestedNextTool(state.Observations) {

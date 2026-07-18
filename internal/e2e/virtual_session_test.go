@@ -916,6 +916,9 @@ func TestFileWriteAcceptance(t *testing.T) {
 	if countEvents(turnResult.Events, "tool.file.write.requested") != 1 {
 		t.Fatalf("expected one file.write request, got events: %s", summarizeEvents(turnResult.Events))
 	}
+	if countEvents(turnResult.Events, "tool.file.deliver.requested") != 1 {
+		t.Fatalf("expected one file.deliver request, got events: %s", summarizeEvents(turnResult.Events))
+	}
 	if countEvents(turnResult.Events, "tool.terminal.run.requested") != 0 {
 		t.Fatalf("file.write result contract must avoid redundant terminal verification, got events: %s", summarizeEvents(turnResult.Events))
 	}

@@ -65,14 +65,16 @@ func MemoryGuidedFollowupScenario(artifactDirectoryPath string) VirtualSessionSc
 		ArtifactDirectoryPath: artifactDirectoryPath,
 		Turns: []VirtualTurn{
 			{
-				Prompt: "내 발표 자료는 항상 짧은 문장과 한국어 제목을 선호한다고 기억해줘",
+				Prompt:          "내 발표 자료는 항상 짧은 문장과 한국어 제목을 선호한다고 기억해줘",
+				RouterTaskShape: agent.TaskShapeImmediateReply,
 				ActionResponses: []string{
 					actionFinishMessage("기억해둘게요."),
 				},
 				ExpectedReplyFragments: []string{"기억"},
 			},
 			{
-				Prompt: "아까 말한 선호를 반영해서 다음 발표 스타일을 한 문장으로 정리해줘",
+				Prompt:          "아까 말한 선호를 반영해서 다음 발표 스타일을 한 문장으로 정리해줘",
+				RouterTaskShape: agent.TaskShapeImmediateReply,
 				ActionResponses: []string{
 					actionFinishMessage("짧은 문장과 한국어 제목 중심으로 정리하겠습니다."),
 				},
@@ -87,7 +89,8 @@ func PlainQuestionAcceptanceScenario(artifactDirectoryPath string) VirtualSessio
 		Name:                  "plain_question_acceptance",
 		ArtifactDirectoryPath: artifactDirectoryPath,
 		Turns: []VirtualTurn{{
-			Prompt: "도구 없이 짧게 답해줘. 좋은 회의록의 핵심은 뭐야?",
+			Prompt:          "도구 없이 짧게 답해줘. 좋은 회의록의 핵심은 뭐야?",
+			RouterTaskShape: agent.TaskShapeImmediateReply,
 			ActionResponses: []string{
 				actionFinishMessage("좋은 회의록의 핵심은 결정사항, 담당자, 기한을 분명히 남기는 것입니다."),
 			},
@@ -127,7 +130,8 @@ func ToolPermissionHidesSkillScenario(artifactDirectoryPath string) VirtualSessi
 		Skills:                []agent.SkillInstruction{presentationSkill()},
 		AllowedTools:          []string{"memory.search", "file.write"},
 		Turns: []VirtualTurn{{
-			Prompt: "피피티 만들어줘",
+			Prompt:          "피피티 만들어줘",
+			RouterTaskShape: agent.TaskShapeImmediateReply,
 			ActionResponses: []string{
 				actionFinishMessage("현재 profile에서는 필요한 도구가 없어 슬라이드 생성 skill을 실행하지 않았습니다."),
 			},
@@ -140,16 +144,18 @@ func FileWriteAcceptanceScenario(artifactDirectoryPath string) VirtualSessionSce
 	return VirtualSessionScenario{
 		Name:                  "file_write_acceptance",
 		ArtifactDirectoryPath: artifactDirectoryPath,
-		AllowedTools:          []string{"file.write"},
-		InitialToolNames:      []string{"file.write"},
+		AllowedTools:          []string{"file.write", "file.deliver"},
+		InitialToolNames:      []string{"file.write", "file.deliver"},
 		Turns: []VirtualTurn{{
 			Prompt:                 "고객지원 FAQ 개편 작업용 JSON 메모를 만들어줘. 제목은 'FAQ 개편', 담당은 '고객지원팀', 상태는 '검토 중'으로 적고 잘 저장됐는지 확인해줘.",
-			RouterRequiredEvidence: []string{"file.write"},
+			RouterRequiredEvidence: []string{"file.write", "file.deliver"},
 			ActionResponses: []string{
 				actionCallTool("file.write", `{"path":"work/customer-support/faq-revision.json","content":"{\"title\":\"FAQ 개편\",\"owner\":\"고객지원팀\",\"status\":\"검토 중\"}\n"}`),
-				actionFinishMessage("파일을 생성하고 저장 결과를 확인했습니다.", "obs-001:file.write:0"),
+				actionCallTool("file.deliver", `{"path":"work/customer-support/faq-revision.json"}`),
+				actionFinishMessage("JSON 메모 파일을 생성하고 첨부해 저장 결과를 확인했습니다.", "obs-002:file.deliver:0"),
 			},
-			ExpectedToolCalls: []string{"file.write"},
+			ExpectedToolCalls:   []string{"file.write", "file.deliver"},
+			ExpectedAttachments: []string{".json"},
 			ExpectedWorkspaceFiles: []VirtualWorkspaceFileExpectation{{
 				PathGlob:          "private/people/person-1/work/customer-support/faq-revision.json",
 				ContainsFragments: []string{"FAQ 개편", "고객지원팀", "검토 중"},
@@ -179,7 +185,8 @@ func AttachmentMaterialReadScenario(artifactDirectoryPath string) VirtualSession
 		AllowedTools:          []string{"conversation.history", "memory.search", "terminal.run", "image.read", "document.read"},
 		CapabilityToolNames:   []string{"image.read", "document.read"},
 		Turns: []VirtualTurn{{
-			Prompt: "다시 이미지 내가 첨부한 거 봐봐",
+			Prompt:          "다시 이미지 내가 첨부한 거 봐봐",
+			RouterTaskShape: agent.TaskShapeResearchTask,
 			ContextMessages: []connectors.VisibleContextMessage{{
 				Speaker:            "동하",
 				SpeakerCallingName: "동하 님",
@@ -226,6 +233,7 @@ func AttachmentHTMLPreviewRecoveryScenario(artifactDirectoryPath string) Virtual
 		AllowedTools:          []string{"conversation.history", "memory.search", "terminal.run", "file.preview", "file.read", "image.read"},
 		Turns: []VirtualTurn{{
 			Prompt:           "이거 파일 내용 보고 어떻게 개선하면 좋을지 말해줘봐",
+			RouterTaskShape:  agent.TaskShapeResearchTask,
 			InputAttachments: []connectors.InputAttachment{attachment},
 			ActionResponses: []string{
 				actionCallTool("file.preview", `{"path":"home/inbox/mattermost/thread-1/kim-intern-automation.html"}`),
@@ -263,7 +271,8 @@ func AttachmentHTMLPreviousPreviewRecoveryScenario(artifactDirectoryPath string)
 		ArtifactDirectoryPath: artifactDirectoryPath,
 		AllowedTools:          []string{"conversation.history", "memory.search", "terminal.run", "file.preview", "file.read", "image.read"},
 		Turns: []VirtualTurn{{
-			Prompt: "다시",
+			Prompt:          "다시",
+			RouterTaskShape: agent.TaskShapeResearchTask,
 			ContextMessages: []connectors.VisibleContextMessage{{
 				Speaker:            "동하",
 				SpeakerCallingName: "동하 님",
@@ -312,6 +321,7 @@ func AttachmentCurrentImageInputScenario(artifactDirectoryPath string) VirtualSe
 		CapabilityToolNames:   []string{"image.read", "document.read"},
 		Turns: []VirtualTurn{{
 			Prompt:           "이거 보여? 묘사 좀 자세히 해봐.",
+			RouterTaskShape:  agent.TaskShapeImmediateReply,
 			InputAttachments: []connectors.InputAttachment{attachment},
 			ActionResponses: []string{
 				actionFinishWithReplyPart(
@@ -375,7 +385,8 @@ func GWSDisabledScenario(artifactDirectoryPath string) VirtualSessionScenario {
 		ArtifactDirectoryPath: artifactDirectoryPath,
 		AllowedTools:          []string{"memory.search", "terminal.run", "file.write"},
 		Turns: []VirtualTurn{{
-			Prompt: "구글 드라이브에 파일 올릴 수 있는지 확인해줘",
+			Prompt:          "구글 드라이브에 파일 올릴 수 있는지 확인해줘",
+			RouterTaskShape: agent.TaskShapeImmediateReply,
 			ActionResponses: []string{
 				actionFinishMessage("Google Workspace 도구는 현재 사용할 수 없습니다. 로컬 파일 작업은 가능합니다."),
 			},
@@ -663,10 +674,10 @@ func SkillLifecycleAcceptanceScenario(artifactDirectoryPath string) VirtualSessi
 		Name:                  "skill_lifecycle_acceptance",
 		ArtifactDirectoryPath: artifactDirectoryPath,
 		AllowedTools:          []string{"conversation.history", "memory.search", "skill.add", "skill.remove"},
-		InitialToolNames:      []string{"skill.add", "skill.remove"},
 		Turns: []VirtualTurn{
 			{
-				Prompt: "간단한 메모 정리 custom skill을 등록해줘",
+				Prompt:                 "간단한 메모 정리 custom skill을 등록해줘",
+				RouterRequiredEvidence: []string{"skill.add"},
 				ActionResponses: []string{
 					actionCallTool("skill.add", skillAddToolInput(skillName, skillContent)),
 					actionFinishMessage("memo-helper skill을 등록했습니다.", "obs-001:skill.add:0"),
@@ -686,7 +697,8 @@ func SkillLifecycleAcceptanceScenario(artifactDirectoryPath string) VirtualSessi
 				ExpectedReplyFragments: []string{"memo-helper", "등록"},
 			},
 			{
-				Prompt: "방금 등록한 memo-helper skill 삭제해줘",
+				Prompt:                 "방금 등록한 memo-helper skill 삭제해줘",
+				RouterRequiredEvidence: []string{"skill.remove"},
 				ActionResponses: []string{
 					actionCallTool("skill.remove", `{"name":"memo-helper"}`),
 					actionFinishMessage("memo-helper skill을 삭제했습니다.", "obs-001:skill.remove:0"),
@@ -712,7 +724,8 @@ func CapabilityQuestionAcceptanceScenario(artifactDirectoryPath string) VirtualS
 		Skills:                []agent.SkillInstruction{presentationSkill(), scheduledTaskSkill(), sitePrototypeSkill()},
 		AllowedTools:          []string{"conversation.history", "memory.search", "skill.search"},
 		Turns: []VirtualTurn{{
-			Prompt: "너는 무엇을 할 수 있어?",
+			Prompt:          "너는 무엇을 할 수 있어?",
+			RouterTaskShape: agent.TaskShapeResearchTask,
 			ActionResponses: []string{
 				actionCallTool("skill.search", `{}`),
 				actionFinishMessage("사용 가능한 skill에는 presentation, scheduled-task, site-prototype이 있습니다.", "obs-001:skill.search:0"),
@@ -736,7 +749,8 @@ func TaskHistoryQuestionAcceptanceScenario(artifactDirectoryPath string) Virtual
 		AllowedTools:          []string{"conversation.history", "memory.search"},
 		Turns: []VirtualTurn{
 			{
-				Prompt: "계약서 확인 요약 작업을 완료했다고 답해줘",
+				Prompt:          "계약서 확인 요약 작업을 완료했다고 답해줘",
+				RouterTaskShape: agent.TaskShapeImmediateReply,
 				ActionResponses: []string{
 					actionFinishMessage("계약서 확인 요약 작업을 완료했습니다."),
 				},
@@ -746,7 +760,8 @@ func TaskHistoryQuestionAcceptanceScenario(artifactDirectoryPath string) Virtual
 				ExpectedReplyFragments: []string{"계약서 확인 요약", "완료"},
 			},
 			{
-				Prompt: "최근에 어떤 작업을 했는지 알려줘",
+				Prompt:          "최근에 어떤 작업을 했는지 알려줘",
+				RouterTaskShape: agent.TaskShapeResearchTask,
 				ActionResponses: []string{
 					actionCallTool("conversation.history", `{"limit":20}`),
 					actionFinishMessage("최근에는 계약서 확인 요약 작업을 완료했습니다.", "obs-001:conversation.history:0"),
@@ -769,10 +784,10 @@ func MemoryExplicitToolAcceptanceScenario(artifactDirectoryPath string) VirtualS
 		Name:                  "memory_explicit_tool_acceptance",
 		ArtifactDirectoryPath: artifactDirectoryPath,
 		AllowedTools:          []string{"conversation.history", "memory.search", "memory.remember"},
-		InitialToolNames:      []string{"memory.remember", "memory.search"},
 		Turns: []VirtualTurn{
 			{
-				Prompt: "Please remember that my preferred language is Korean.",
+				Prompt:                 "Please remember that my preferred language is Korean.",
+				RouterRequiredEvidence: []string{"memory.remember"},
 				ActionResponses: []string{
 					actionCallTool("memory.remember", `{"content":"preferred language is Korean"}`),
 					actionFinishMessage("Remembered: your preferred language is Korean.", "obs-001:memory.remember:0"),
@@ -787,7 +802,9 @@ func MemoryExplicitToolAcceptanceScenario(artifactDirectoryPath string) VirtualS
 				ExpectedReplyFragments: []string{"Korean"},
 			},
 			{
-				Prompt: "What language do I prefer?",
+				Prompt:                 "What language do I prefer?",
+				RouterTaskShape:        agent.TaskShapeResearchTask,
+				RouterRequiredEvidence: []string{"memory.search"},
 				ActionResponses: []string{
 					actionCallTool("memory.search", `{"query":"preferred language"}`),
 					actionFinishMessage("Your preferred language is Korean.", "obs-001:memory.search:0"),
@@ -807,7 +824,6 @@ func FailureExplanationAcceptanceScenario(artifactDirectoryPath string) VirtualS
 		Name:                  "failure_explanation_acceptance",
 		ArtifactDirectoryPath: artifactDirectoryPath,
 		AllowedTools:          []string{"conversation.history", "memory.search", "terminal.run"},
-		InitialToolNames:      []string{"terminal.run"},
 		TurnOptions: agent.TurnOptions{
 			RecoveryBudget: agent.RecoveryBudget{
 				CorrectedRetry: -1,
@@ -818,7 +834,8 @@ func FailureExplanationAcceptanceScenario(artifactDirectoryPath string) VirtualS
 		},
 		Turns: []VirtualTurn{
 			{
-				Prompt: "Run the analysis.",
+				Prompt:                 "Run the analysis.",
+				RouterRequiredEvidence: []string{"terminal.run"},
 				ActionResponses: []string{
 					actionCallTool("terminal.run", `{"command":"printf 'permission denied blocked_by_captcha' >&2; exit 126","workingDirectoryPath":"home","timeoutSecond":30}`),
 					actionFailMessage("terminal.run: permission denied"),
@@ -829,7 +846,8 @@ func FailureExplanationAcceptanceScenario(artifactDirectoryPath string) VirtualS
 				},
 			},
 			{
-				Prompt: "왜 실패했어?",
+				Prompt:          "왜 실패했어?",
+				RouterTaskShape: agent.TaskShapeResearchTask,
 				ActionResponses: []string{
 					actionCallTool("conversation.history", `{"limit":20}`),
 					actionFinishMessage("terminal.run 실행이 permission denied 때문에 실패했습니다.", "obs-001:conversation.history:0"),
@@ -850,9 +868,9 @@ func OneTimeScheduleAcceptanceScenario(artifactDirectoryPath string) VirtualSess
 		ArtifactDirectoryPath: artifactDirectoryPath,
 		Skills:                []agent.SkillInstruction{scheduledTaskSkill()},
 		AllowedTools:          []string{"conversation.history", "memory.search", "schedule.create", "schedule.cancel"},
-		InitialToolNames:      []string{"schedule.create", "schedule.cancel"},
 		Turns: []VirtualTurn{{
-			Prompt: "2027년 1월 15일 오전 9시에 계약서 확인 알림을 한 번만 예약해줘",
+			Prompt:                 "2027년 1월 15일 오전 9시에 계약서 확인 알림을 한 번만 예약해줘",
+			RouterRequiredEvidence: []string{"schedule.create"},
 			ActionResponses: []string{
 				actionInvokeCapabilityTool("schedule.create", `{"name":"계약서 확인 알림","taskInstruction":"현재 대화에 \"계약서를 확인하세요\"라고 보낸다.","kind":"once","runAt":"2027-01-15T00:00:00Z","timeZone":"Asia/Seoul"}`),
 				actionFinishMessage("2027년 1월 15일 오전 9시에 한 번 알림을 보내도록 예약해둘게요.", "obs-001:schedule.create:0"),
@@ -1143,9 +1161,9 @@ func AskChoiceReplyAcceptanceScenario(artifactDirectoryPath string) VirtualSessi
 		Name:                  "ask_choice_reply_acceptance",
 		ArtifactDirectoryPath: artifactDirectoryPath,
 		AllowedTools:          []string{"conversation.history", "memory.search", "ask.input"},
-		InitialToolNames:      []string{agent.AskInputToolName},
 		Turns: []VirtualTurn{{
-			Prompt: "둘 중 하나 고르게 해줘",
+			Prompt:                 "둘 중 하나 고르게 해줘",
+			RouterRequiredEvidence: []string{agent.AskInputToolName},
 			ActionResponses: []string{
 				actionCallToolWithMessage("ask.input", "어느 쪽으로 진행할까요?", `{"question":"어느 쪽으로 진행할까요?","choices":["첫 번째","두 번째"]}`),
 			},
@@ -1154,7 +1172,8 @@ func AskChoiceReplyAcceptanceScenario(artifactDirectoryPath string) VirtualSessi
 			ExpectedReplyFragments: []string{"어느 쪽으로 진행할까요?"},
 			ExpectedModelContexts:  []string{"choices"},
 		}, {
-			Prompt: "두 번째",
+			Prompt:          "두 번째",
+			RouterTaskShape: agent.TaskShapeImmediateReply,
 			ActionResponses: []string{
 				actionFinishMessage("두 번째로 진행하겠습니다."),
 			},

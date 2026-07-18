@@ -28,7 +28,7 @@ func validateRequiredEvidenceTools(toolSet *ToolSet, toolNames []string) require
 	requiredEvidence := appendUniqueStrings(toolNames)
 	report := requiredEvidenceValidationReport{
 		RequiredEvidence: requiredEvidence,
-		Reason:           "required evidence must name a registered native tool or capability operation",
+		Reason:           "required evidence must name an exact available registered tool",
 	}
 	for _, toolName := range requiredEvidence {
 		toolKind, isValid := requiredEvidenceToolKind(toolSet, toolName)
@@ -46,20 +46,6 @@ func validateRequiredEvidenceTools(toolSet *ToolSet, toolNames []string) require
 
 func (report requiredEvidenceValidationReport) HasInvalidEvidence() bool {
 	return len(report.InvalidEvidence) > 0
-}
-
-func requiredEvidenceToolsWithout(toolNames []string, excludedToolNames []string) []string {
-	excludedSet := map[string]bool{}
-	for _, toolName := range excludedToolNames {
-		excludedSet[strings.TrimSpace(toolName)] = true
-	}
-	keptToolNames := []string{}
-	for _, toolName := range toolNames {
-		if !excludedSet[strings.TrimSpace(toolName)] {
-			keptToolNames = append(keptToolNames, toolName)
-		}
-	}
-	return keptToolNames
 }
 
 func addRequiredEvidenceKind(evidenceKinds map[string]string, toolName string, toolKind string) map[string]string {
@@ -97,15 +83,8 @@ func requiredEvidenceToolKind(toolSet *ToolSet, toolName string) (string, bool) 
 }
 
 func requiredEvidenceRegisteredToolName(toolSet *ToolSet, toolName string) (string, bool) {
-	if toolSet.IsRegistered(toolName) {
-		return toolName, true
-	}
-	for _, registeredToolName := range toolSet.ListRegisteredToolNames() {
-		if ToolNamesMatch(registeredToolName, toolName) {
-			return registeredToolName, true
-		}
-	}
-	return "", false
+	trimmedToolName := strings.TrimSpace(toolName)
+	return trimmedToolName, toolSet.IsRegistered(trimmedToolName)
 }
 
 func requiredEvidenceToolIsCapabilityOperation(toolSet *ToolSet, toolName string) bool {
@@ -140,7 +119,9 @@ func intakeDecisionRequiresSideEffectEvidence(intakeDecision IntakeDecision, too
 }
 
 func intakeDecisionHasRequiredSideEffect(intakeDecision IntakeDecision, toolSet *ToolSet) bool {
-	return intakeDecision.TaskShape == TaskShapeScheduledTask ||
+	return intakeDecision.TaskShape == TaskShapeMaintenanceTask ||
+		intakeDecision.TaskShape == TaskShapeScheduledTask ||
+		intakeDecision.TaskShape == TaskShapeApprovalGatedTask ||
 		hasArtifactOutputFormat(intakeDecision.RequestedOutputFormats) ||
 		intakeDecisionRequiresSiteEvidence(intakeDecision, toolSet)
 }
