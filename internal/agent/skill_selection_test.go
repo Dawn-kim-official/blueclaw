@@ -164,8 +164,8 @@ func TestToolSetForAgentTurnExposesSelectedSkillToolsAlongsideKernel(t *testing.
 func TestSelectedFlowSkillExposesRegisteredDirectToolsFromKernelPalette(t *testing.T) {
 	toolSet := NewToolSet(KernelToolNames())
 	for _, toolName := range append(KernelToolNames(), "task.add", "task.list", "task.update", "task.delete") {
-		toolSet.RegisterTool(ToolDefinition{Name: toolName}, func(context.Context, ToolInvocation) (ToolResult, error) {
-			return ToolSuccess("ok"), nil
+		registerTestTool(toolSet, ToolDefinition{Name: toolName}, func(context.Context, ToolInvocation) (ToolResult, error) {
+			return testToolSuccess("ok"), nil
 		})
 	}
 	flowSkill := SkillInstruction{
@@ -278,7 +278,7 @@ func TestAgentKernelActionSchemaExposesTypedInitialTools(t *testing.T) {
 	})
 	// The initial tool list contains direct typed tools; skill selection can add more direct tools later.
 	toolRegistry := newTestCapabilityToolSet([]string{"schedule.create", "mail.message.search", "math.calculate"})
-	toolRegistry.RegisterTool(ToolDefinition{Name: AskInputToolName}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	registerTestTool(toolRegistry, ToolDefinition{Name: AskInputToolName}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		return ToolResult{}, nil
 	})
 
@@ -347,8 +347,8 @@ func TestSelectInstructionBundleKeepsSkillWhenDirectToolsAreAvailable(t *testing
 	toolSet := NewToolSet([]string{"terminal.run", "site.create", "site.publish"})
 	for _, toolName := range []string{"terminal.run", "site.create", "site.publish"} {
 		currentToolName := toolName
-		toolSet.RegisterTool(ToolDefinition{Name: currentToolName}, func(context.Context, ToolInvocation) (ToolResult, error) {
-			return ToolSuccess("ok"), nil
+		registerTestTool(toolSet, ToolDefinition{Name: currentToolName}, func(context.Context, ToolInvocation) (ToolResult, error) {
+			return testToolSuccess("ok"), nil
 		})
 	}
 	instructionBundle := InstructionBundle{Skills: []SkillInstruction{{
@@ -382,15 +382,15 @@ func TestSelectInstructionBundleKeepsSkillWhenDirectToolsAreAvailable(t *testing
 
 func TestSelectInstructionBundleSkipsSkillWhenDirectToolIsUnavailable(t *testing.T) {
 	toolSet := NewToolSet([]string{"terminal.run"})
-	toolSet.RegisterTool(ToolDefinition{Name: "terminal.run"}, func(context.Context, ToolInvocation) (ToolResult, error) {
-		return ToolSuccess("ok"), nil
+	registerTestTool(toolSet, ToolDefinition{Name: "terminal.run"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return testToolSuccess("ok"), nil
 	})
 	for _, toolName := range []string{"site.create", "site.publish"} {
 		toolSet.RegisterBoundTool(BoundTool{
 			Definition:   ToolDefinition{Name: toolName},
 			Availability: ToolAvailability{Status: ToolAvailabilityUnavailable},
 			Handler: func(context.Context, ToolInvocation) (ToolResult, error) {
-				return ToolSuccess("ok"), nil
+				return testToolSuccess("ok"), nil
 			},
 		})
 	}
@@ -1508,7 +1508,7 @@ func structuredRequestSchemaNames(requests []llm.StructuredResponseRequest) []st
 func testToolSet(toolNames []string) *ToolSet {
 	toolRegistry := newTestToolSet(toolNames)
 	for _, toolName := range toolNames {
-		toolRegistry.RegisterTool(ToolDefinition{Name: toolName}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		registerTestTool(toolRegistry, ToolDefinition{Name: toolName}, func(context.Context, ToolInvocation) (ToolResult, error) {
 			return ToolResult{}, nil
 		})
 	}

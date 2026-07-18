@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"encoding/json"
 	"testing"
 )
@@ -50,8 +51,18 @@ func TestObservedResultProjectionUsesCanonicalEffectsWithoutToolNameInference(t 
 func TestObservedResultProjectionRejectsEffectsWithoutContract(t *testing.T) {
 	observation := newContentObservation("obs-001", "continue", "external.tasks.create", `{"taskID":"task-1"}`)
 	observation.Effects = []ResourceEffect{{ObjectType: "task", Effect: "created", ID: "task-1"}}
+	toolSet := NewToolSet([]string{"external.tasks.create"})
+	if errorValue := toolSet.RegisterBoundTool(BoundTool{
+		Definition:   ToolDefinition{ID: "test:external.tasks.create", Name: "external.tasks.create", Visibility: ToolVisibilityInternal},
+		Availability: ToolAvailability{Status: ToolAvailabilityAvailable},
+		Handler: func(context.Context, ToolInvocation) (ToolResult, error) {
+			return testToolSuccess("ok"), nil
+		},
+	}); errorValue != nil {
+		t.Fatal(errorValue)
+	}
 
-	facts := factsFromObservation(newTestToolSet([]string{"external.tasks.create"}), observation)
+	facts := factsFromObservation(toolSet, observation)
 
 	if len(facts) != 0 {
 		t.Fatalf("expected uncontracted effects to be ignored, got %+v", facts)

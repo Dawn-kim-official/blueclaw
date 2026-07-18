@@ -60,7 +60,7 @@ func registerMemoryTools(toolCatalogBuilder *ToolCatalogBuilder, toolRegistry *a
 	agent.RegisterToolFunction(toolRegistry, agent.ToolFunction[memorySearchToolInput, agent.ToolResult]{
 		Definition: agent.ToolDefinition{
 			Name:        "memory.search",
-			Description: "Search Blueclaw graph memory allowed for this requester and conversation. Returns durable facts, preferences, and relationships by meaning, not exact rows; for exact queries, counts, or aggregates over records you stored in a table, use db.sql instead.",
+			Description: "Search Blueclaw graph memory allowed for this requester and conversation. Returns durable facts, preferences, and relationships by meaning, not exact rows.",
 			InputSchema: memorySearchInputSchema,
 		},
 		Handler: func(toolContext context.Context, input memorySearchToolInput) (agent.ToolResult, error) {
@@ -71,7 +71,7 @@ func registerMemoryTools(toolCatalogBuilder *ToolCatalogBuilder, toolRegistry *a
 	agent.RegisterToolFunction(toolRegistry, agent.ToolFunction[memoryRememberToolInput, agent.ToolResult]{
 		Definition: agent.ToolDefinition{
 			Name:        "memory.remember",
-			Description: "Store one durable fact, preference, or relationship for the current person or active circle; nothing is remembered unless this tool is called. Keep content a single compact standalone fact. Do not store secrets, one-off requests, transient task details, or small talk; for structured records you query, count, or aggregate over many rows, store them with db.sql instead.",
+			Description: "Store one durable fact, preference, or relationship for the current person or active circle; nothing is remembered unless this tool is called. Keep content a single compact standalone fact. Do not store secrets, one-off requests, transient task details, or small talk.",
 			InputSchema: memoryRememberInputSchema,
 		},
 		Handler: func(toolContext context.Context, input memoryRememberToolInput) (agent.ToolResult, error) {

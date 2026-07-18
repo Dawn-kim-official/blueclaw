@@ -5,12 +5,6 @@ import (
 	"testing"
 )
 
-func TestKernelToolNamesExcludeInternalDispatchTools(t *testing.T) {
-	if stringSliceContains(KernelToolNames(), TaskHistoryToolName) {
-		t.Fatalf("expected internal tool %s outside model kernel, got %v", TaskHistoryToolName, KernelToolNames())
-	}
-}
-
 func TestCanonicalEvidenceToolNameLeavesNeutralOperationsUntouched(t *testing.T) {
 	cases := map[string]string{
 		"task.add":         "task.add",

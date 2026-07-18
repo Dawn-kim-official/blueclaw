@@ -91,7 +91,7 @@ func TestCapabilityToolProviderRejectsIncompleteDescriptor(t *testing.T) {
 	}
 }
 
-func TestCapabilityToolProviderPreservesLegacyDescriptorWithoutResultContract(t *testing.T) {
+func TestCapabilityToolProviderRejectsModelVisibleDescriptorWithoutResultContract(t *testing.T) {
 	descriptor := completeTestCapabilityToolDescriptor(CapabilityToolDescriptor{Name: "task.add"})
 	descriptor.ResultContract = nil
 	provider := capabilityToolProvider{
@@ -100,12 +100,31 @@ func TestCapabilityToolProviderPreservesLegacyDescriptorWithoutResultContract(t 
 	}
 	toolSet := agent.NewToolSet([]string{"task.add"})
 
+	errorValue := toolSet.RegisterProvider(context.Background(), provider)
+
+	if errorValue == nil || !strings.Contains(errorValue.Error(), "resultContract is required for model-visible tools") {
+		t.Fatalf("expected missing result contract rejection, got %v", errorValue)
+	}
+	if toolSet.IsRegistered("task.add") {
+		t.Fatal("expected rejected capability descriptor to remain unregistered")
+	}
+}
+
+func TestCapabilityToolProviderAllowsHiddenDescriptorWithoutResultContract(t *testing.T) {
+	descriptor := completeTestCapabilityToolDescriptor(CapabilityToolDescriptor{Name: "task.history"})
+	descriptor.ModelVisibility = agent.ToolVisibilityInternal
+	descriptor.ResultContract = nil
+	provider := capabilityToolProvider{
+		toolCatalogBuilder: NewToolCatalogBuilder(),
+		descriptors:        []CapabilityToolDescriptor{descriptor},
+	}
+	toolSet := agent.NewToolSet([]string{"task.history"})
+
 	if errorValue := toolSet.RegisterProvider(context.Background(), provider); errorValue != nil {
 		t.Fatal(errorValue)
 	}
-	registeredDescriptor, isFound := toolSet.ToolDefinition("task.add")
-	if !isFound || registeredDescriptor.ResultContract != nil {
-		t.Fatalf("expected legacy descriptor without synthetic result contract, got %+v", registeredDescriptor)
+	if toolSet.IsRegistered("task.history") {
+		t.Fatal("expected hidden capability descriptor not to be registered as a model tool")
 	}
 }
 

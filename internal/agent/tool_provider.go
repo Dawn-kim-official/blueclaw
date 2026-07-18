@@ -340,6 +340,9 @@ func validateProviderTool(boundTool BoundTool) error {
 	if !isOneOf(toolDescriptor.Visibility, ToolVisibilityModel, ToolVisibilityInternal, ToolVisibilityControl) {
 		return errors.New("visibility is invalid")
 	}
+	if toolDescriptor.Visibility == ToolVisibilityModel && toolDescriptor.ResultContract == nil {
+		return errors.New("resultContract is required for model-visible tools")
+	}
 	if !isOneOf(
 		toolDescriptor.SideEffectClass,
 		ToolSideEffectNone,

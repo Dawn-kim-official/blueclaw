@@ -90,10 +90,8 @@ func (toolCatalogBuilder *ToolCatalogBuilder) invokeCapabilityOperation(toolCont
 		return agent.ToolResult{}, errorValue
 	}
 	isError := response.IsError || response.Status == "error" || response.Status == "denied"
-	if toolDescriptor.ResultContract != nil {
-		if errorValue := validateCapabilityResultIdentity(operation, response.Provider, response.SelectedBackend, response.ToolName, response.Outcome, isError); errorValue != nil {
-			return agent.ToolFailureResult(agent.FailureExternalService, agent.FailureCodes.OperationFailed, "capability_result_identity", errorValue.Error()), nil
-		}
+	if errorValue := validateCapabilityResultIdentity(operation, response.Provider, response.SelectedBackend, response.ToolName, response.Outcome, isError); errorValue != nil {
+		return agent.ToolFailureResult(agent.FailureExternalService, agent.FailureCodes.OperationFailed, "capability_result_identity", errorValue.Error()), nil
 	}
 	if !response.IsError && response.Status != "error" && response.Status != "denied" {
 		toolFailure, errorValue := toolCatalogBuilder.handleCapabilityToolSuccess(toolContext, operation, request, &response.Result)

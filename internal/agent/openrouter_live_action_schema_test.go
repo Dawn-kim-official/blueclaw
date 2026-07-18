@@ -21,12 +21,12 @@ func TestOpenRouterLiveLowTierCurrentAgentActionSchemaFromEnv(t *testing.T) {
 	}
 
 	toolSet := NewToolSet([]string{TerminalRunToolName})
-	toolSet.RegisterTool(ToolDefinition{
+	registerTestTool(toolSet, ToolDefinition{
 		Name:        TerminalRunToolName,
 		Description: "Run a terminal command.",
 		InputSchema: json.RawMessage(`{"type":"object","properties":{"command":{"type":"string"}},"required":["command"],"additionalProperties":false}`),
 	}, func(context.Context, ToolInvocation) (ToolResult, error) {
-		return ToolSuccess("not executed"), nil
+		return testToolSuccess("not executed"), nil
 	})
 	request := BuildAgentActionRequest(agentTaskState{Request: AgentTurnRequest{
 		Prompt:  "Do not finish. Choose continue, call terminal.run, and set command to printf low-tier-schema-ok.",

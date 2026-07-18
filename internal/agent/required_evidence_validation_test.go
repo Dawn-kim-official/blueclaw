@@ -41,8 +41,8 @@ func TestValidateRequiredEvidenceAcceptsRegisteredDirectTool(t *testing.T) {
 	toolSet := NewToolSet([]string{TerminalRunToolName})
 	for _, toolName := range []string{TerminalRunToolName, "calendar.add"} {
 		currentToolName := toolName
-		toolSet.RegisterTool(ToolDefinition{Name: currentToolName}, func(context.Context, ToolInvocation) (ToolResult, error) {
-			return ToolSuccess("ok"), nil
+		registerTestTool(toolSet, ToolDefinition{Name: currentToolName}, func(context.Context, ToolInvocation) (ToolResult, error) {
+			return testToolSuccess("ok"), nil
 		})
 	}
 
@@ -65,7 +65,7 @@ func TestValidateRequiredEvidenceRejectsUnavailableDirectTool(t *testing.T) {
 		Definition:   ToolDefinition{Name: "calendar.add"},
 		Availability: ToolAvailability{Status: ToolAvailabilityDenied},
 		Handler: func(context.Context, ToolInvocation) (ToolResult, error) {
-			return ToolSuccess("ok"), nil
+			return testToolSuccess("ok"), nil
 		},
 	})
 
@@ -211,8 +211,8 @@ func TestRequiredEvidencePreservesDeliveryAndSendSideEffects(t *testing.T) {
 		TaskShape:      TaskShapeMaintenanceTask,
 	}
 	toolSet := newTestCapabilityToolSet([]string{FileDeliverToolName, "message.send"})
-	toolSet.RegisterTool(ToolDefinition{Name: FileDeliverToolName, SideEffectClass: ToolSideEffectExternalWrite}, func(context.Context, ToolInvocation) (ToolResult, error) {
-		return ToolSuccess("ok"), nil
+	registerTestTool(toolSet, ToolDefinition{Name: FileDeliverToolName, SideEffectClass: ToolSideEffectExternalWrite}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return testToolSuccess("ok"), nil
 	})
 
 	for _, toolName := range []string{FileDeliverToolName, "message.send"} {

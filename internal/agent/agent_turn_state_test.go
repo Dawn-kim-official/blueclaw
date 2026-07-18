@@ -180,13 +180,13 @@ func TestDecideAgentActionNativeChatRejectsInvalidCallsWithoutStructuredFallback
 func TestDecideAgentActionNativeChatRecoversTaskAddAndInvokesItOnce(t *testing.T) {
 	executionCount := 0
 	toolSet := NewToolSet([]string{"task.add"})
-	toolSet.RegisterTool(ToolDefinition{
+	registerTestTool(toolSet, ToolDefinition{
 		Name:        "task.add",
 		Description: "Add a task.",
 		InputSchema: json.RawMessage(`{"type":"object","properties":{"title":{"type":"string"}},"required":["title"],"additionalProperties":false}`),
 	}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		executionCount++
-		return ToolSuccess("added"), nil
+		return testToolSuccess("added"), nil
 	})
 	state := agentTaskState{Request: AgentTurnRequest{Prompt: "add a task", ToolSet: toolSet}}
 	correctionError := testStructuredOutputCorrectionError{correction: llm.StructuredOutputCorrection{
@@ -378,12 +378,12 @@ func TestDecideAgentActionUsesStructuredProviderWithoutChatCapability(t *testing
 
 func nativeAgentActionTestState() agentTaskState {
 	toolSet := NewToolSet([]string{TerminalRunToolName})
-	toolSet.RegisterTool(ToolDefinition{
+	registerTestTool(toolSet, ToolDefinition{
 		Name:        TerminalRunToolName,
 		Description: "Run a command.",
 		InputSchema: json.RawMessage(`{"type":"object","properties":{"command":{"type":"string"}},"required":["command"],"additionalProperties":false}`),
 	}, func(context.Context, ToolInvocation) (ToolResult, error) {
-		return ToolSuccess("ran"), nil
+		return testToolSuccess("ran"), nil
 	})
 	return agentTaskState{Request: AgentTurnRequest{Prompt: "run command", ToolSet: toolSet}}
 }
@@ -391,12 +391,12 @@ func nativeAgentActionTestState() agentTaskState {
 func nativeAgentActionTestStateWithTools(toolNames ...string) agentTaskState {
 	toolSet := NewToolSet(toolNames)
 	for _, toolName := range toolNames {
-		toolSet.RegisterTool(ToolDefinition{
+		registerTestTool(toolSet, ToolDefinition{
 			Name:        toolName,
 			Description: "Test tool.",
 			InputSchema: json.RawMessage(`{"type":"object","properties":{},"additionalProperties":false}`),
 		}, func(context.Context, ToolInvocation) (ToolResult, error) {
-			return ToolSuccess("ok"), nil
+			return testToolSuccess("ok"), nil
 		})
 	}
 	return agentTaskState{Request: AgentTurnRequest{Prompt: "use a tool", ToolSet: toolSet}}
@@ -531,19 +531,19 @@ func TestBuildAgentActionRequestPreservesNativeToolCallingWireShape(t *testing.T
 	seed := int64(77)
 	temperature := 0.4
 	toolSet := NewToolSet([]string{TerminalRunToolName, "site.publish"})
-	toolSet.RegisterTool(ToolDefinition{
+	registerTestTool(toolSet, ToolDefinition{
 		Name:        TerminalRunToolName,
 		Description: "Run a command.",
 		InputSchema: json.RawMessage(`{"type":"object","properties":{"command":{"type":"string"}},"required":["command"],"additionalProperties":false}`),
 	}, func(context.Context, ToolInvocation) (ToolResult, error) {
-		return ToolSuccess("ran"), nil
+		return testToolSuccess("ran"), nil
 	})
-	toolSet.RegisterTool(ToolDefinition{
+	registerTestTool(toolSet, ToolDefinition{
 		Name:        "site.publish",
 		Description: "Publish a site.",
 		InputSchema: json.RawMessage(`{"type":"object","properties":{"siteID":{"type":"string"}},"required":["siteID"],"additionalProperties":false}`),
 	}, func(context.Context, ToolInvocation) (ToolResult, error) {
-		return ToolSuccess("published"), nil
+		return testToolSuccess("published"), nil
 	})
 	state := agentTaskState{
 		Request: AgentTurnRequest{
@@ -658,11 +658,11 @@ func TestBuildAgentActionRequestPreservesNativeToolCallingWireShape(t *testing.T
 
 func TestBuildAgentActionRequestPreservesTypedInteractionTool(t *testing.T) {
 	toolSet := NewToolSet([]string{AskInputToolName})
-	toolSet.RegisterTool(ToolDefinition{
+	registerTestTool(toolSet, ToolDefinition{
 		Name:        AskInputToolName,
 		InputSchema: json.RawMessage(`{"type":"object","properties":{"question":{"type":"string"}},"required":["question"]}`),
 	}, func(context.Context, ToolInvocation) (ToolResult, error) {
-		return ToolSuccess("waiting"), nil
+		return testToolSuccess("waiting"), nil
 	})
 
 	request := BuildAgentActionRequest(agentTaskState{Request: AgentTurnRequest{ToolSet: toolSet}})
@@ -735,8 +735,8 @@ func TestBuildAgentActionRequestGenerationOptionsDoNotChangeSchema(t *testing.T)
 	seed := int64(88)
 	temperature := 0.5
 	toolSet := NewToolSet([]string{"browser.open"})
-	toolSet.RegisterTool(ToolDefinition{Name: "browser.open"}, func(context.Context, ToolInvocation) (ToolResult, error) {
-		return ToolSuccess("opened"), nil
+	registerTestTool(toolSet, ToolDefinition{Name: "browser.open"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return testToolSuccess("opened"), nil
 	})
 	state := agentTaskState{
 		Request: AgentTurnRequest{
@@ -905,16 +905,6 @@ func TestParseAgentActionResponsePreservesDirectToolName(t *testing.T) {
 	}
 }
 
-func TestParseAgentActionResponsePreservesTaskHistoryInput(t *testing.T) {
-	action, errorValue := ParseAgentActionResponse(llm.StructuredResponse{Content: `{"action":"continue","toolName":"task.history","toolInput":{"limit":5,"status":"completed"}}`})
-	if errorValue != nil {
-		t.Fatalf("expected parsed action: %v", errorValue)
-	}
-	if action.ToolName != TaskHistoryToolName {
-		t.Fatalf("expected genuine task history call to be preserved, got %+v", action)
-	}
-}
-
 func TestParseAgentActionResponseRejectsMalformedJSON(t *testing.T) {
 	_, errorValue := ParseAgentActionResponse(llm.StructuredResponse{Content: `{"action":`})
 	if errorValue == nil {
@@ -971,8 +961,8 @@ func TestAdvanceAgentTaskReturnsAttachExistingArtifactEffect(t *testing.T) {
 		t.Fatal(errorValue)
 	}
 	toolSet := NewToolSet([]string{FileDeliverToolName})
-	toolSet.RegisterTool(ToolDefinition{Name: FileDeliverToolName}, func(context.Context, ToolInvocation) (ToolResult, error) {
-		return ToolSuccess("delivered"), nil
+	registerTestTool(toolSet, ToolDefinition{Name: FileDeliverToolName}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return testToolSuccess("delivered"), nil
 	})
 	state := agentTaskState{
 		Request: AgentTurnRequest{
@@ -1094,7 +1084,7 @@ func TestBlockedResumeRestoresPriorObservations(t *testing.T) {
 	if state.ToolCallCount != 2 {
 		t.Fatalf("expected restored tool call count, got %d", state.ToolCallCount)
 	}
-	state = applyToolResult(state, ToolInvocation{ToolName: "file.write", Input: json.RawMessage(`{"path":"app.txt","content":"next"}`)}, ToolSuccess("wrote next"))
+	state = applyToolResult(state, ToolInvocation{ToolName: "file.write", Input: json.RawMessage(`{"path":"app.txt","content":"next"}`)}, testToolSuccess("wrote next"))
 	if state.Observations[2].ObservationID != "obs-004" {
 		t.Fatalf("expected observation IDs to continue after the highest restored ID, got %+v", state.Observations)
 	}
