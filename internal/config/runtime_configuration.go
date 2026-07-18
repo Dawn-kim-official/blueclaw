@@ -309,10 +309,11 @@ func LoadRuntimeConfiguration(path string) (RuntimeConfiguration, error) {
 }
 
 func validateCapabilityProtocolIdentity(configuration *CapabilityConfiguration) error {
-	configuration.ProtocolVersion = strings.TrimSpace(configuration.ProtocolVersion)
-	configuration.AggregateProtocolHash = strings.TrimSpace(configuration.AggregateProtocolHash)
-	if configuration.ProtocolVersion == "" {
-		return fmt.Errorf("capabilities.protocolVersion is required")
+	if configuration.ProtocolVersion == "" || configuration.ProtocolVersion != strings.TrimSpace(configuration.ProtocolVersion) {
+		return fmt.Errorf("capabilities.protocolVersion must be a non-empty trimmed string")
+	}
+	if configuration.AggregateProtocolHash != strings.TrimSpace(configuration.AggregateProtocolHash) {
+		return fmt.Errorf("capabilities.aggregateProtocolHash must be a 64-character lowercase hexadecimal hash")
 	}
 	if len(configuration.AggregateProtocolHash) != 64 {
 		return fmt.Errorf("capabilities.aggregateProtocolHash must be a 64-character lowercase hexadecimal hash")
