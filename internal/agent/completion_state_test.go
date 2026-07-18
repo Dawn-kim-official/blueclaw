@@ -58,6 +58,52 @@ func TestEvidenceConditionUsesSemanticJSONEquality(t *testing.T) {
 	}
 }
 
+func TestTerminalCompletionRequiresCompletedResult(t *testing.T) {
+	toolSet := newTestToolSetWithDefinitions([]ToolDefinition{{
+		Name:            TerminalRunToolName,
+		InputSchema:     json.RawMessage(`{"type":"object","additionalProperties":false}`),
+		OutputSchema:    json.RawMessage(`{"type":"object","properties":{"completed":{"type":"boolean"}},"required":["completed"],"additionalProperties":true}`),
+		SideEffectClass: ToolSideEffectWorkspaceWrite,
+		Completion:      ToolCompletion{Mode: ToolCompletionObservation, Action: "run_command", TargetKind: "workspace"},
+		ResultContract: &ToolResultContract{
+			Schema: json.RawMessage(`{"type":"object","properties":{"completed":{"type":"boolean"}},"required":["completed"],"additionalProperties":true}`),
+			EvidenceCondition: &EvidenceCondition{
+				ResultField: "completed",
+				Equals:      json.RawMessage(`true`),
+			},
+		},
+	}})
+	testCases := []struct {
+		name        string
+		data        json.RawMessage
+		isSatisfied bool
+	}{
+		{name: "command", data: json.RawMessage(`{"mode":"command","completed":true}`), isSatisfied: true},
+		{name: "session status", data: json.RawMessage(`{"mode":"session_status","completed":true}`), isSatisfied: true},
+		{name: "session start", data: json.RawMessage(`{"mode":"session_start","completed":false}`)},
+		{name: "session write", data: json.RawMessage(`{"mode":"session_write","completed":false}`)},
+		{name: "session close", data: json.RawMessage(`{"mode":"session_close","completed":false}`)},
+		{name: "missing data"},
+	}
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			observation := turnObservation{
+				ObservationID: "obs-001",
+				Tool:          TerminalRunToolName,
+				Output:        ToolOutput{Data: testCase.data},
+			}
+			state := buildCompletionState(
+				AgentTurnRequest{ToolSet: toolSet},
+				[]toolUseRequirement{{ToolName: TerminalRunToolName}},
+				[]turnObservation{observation},
+			)
+			if state.Requirements[0].Satisfied != testCase.isSatisfied {
+				t.Fatalf("expected satisfied=%t, got %+v", testCase.isSatisfied, state)
+			}
+		})
+	}
+}
+
 func TestCompletionStateFindsNewestArtifactByRequiredSuffix(t *testing.T) {
 	workspaceRootPath := t.TempDir()
 	artifactDirectoryPath := filepath.Join(workspaceRootPath, "private", "people", "person-1", "artifacts", "deck")

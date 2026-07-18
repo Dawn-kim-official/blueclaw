@@ -117,7 +117,7 @@ func qualifyingDurableProgressEvent(observation turnObservation) (qualifyingProg
 	case FileDeliverToolName:
 		return qualifyingProgressEvent{ObservationID: observation.ObservationID, Kind: "attachment", Tool: toolName}, true
 	case "terminal.run":
-		if terminalObservationExitCode(observation) == 0 {
+		if terminalObservationCompleted(observation) {
 			return qualifyingProgressEvent{ObservationID: observation.ObservationID, Kind: "terminal_success", Tool: toolName}, true
 		}
 	}
@@ -136,14 +136,14 @@ func isInspectionProgressTool(toolName string) bool {
 	}
 }
 
-func terminalObservationExitCode(observation turnObservation) int {
+func terminalObservationCompleted(observation turnObservation) bool {
 	var output struct {
-		ExitCode *int `json:"exitCode"`
+		Completed bool `json:"completed"`
 	}
-	if json.Unmarshal([]byte(observation.ContentText()), &output) != nil || output.ExitCode == nil {
-		return -1
+	if json.Unmarshal(observation.Output.Data, &output) != nil {
+		return false
 	}
-	return *output.ExitCode
+	return output.Completed
 }
 
 func qualifyingProgressEventIDs(events []qualifyingProgressEvent) []string {

@@ -34,10 +34,11 @@ const (
 var commandWaitHeartbeatInterval = 60 * time.Second
 
 type CommandResult struct {
-	ExitCode int    `json:"exitCode"`
-	Stdout   string `json:"stdout"`
-	Stderr   string `json:"stderr"`
-	TimedOut bool   `json:"timedOut"`
+	ExitCode      int    `json:"exitCode"`
+	Stdout        string `json:"stdout"`
+	Stderr        string `json:"stderr"`
+	TimedOut      bool   `json:"timedOut"`
+	OutputTrimmed bool   `json:"outputTrimmed"`
 }
 
 type TerminalSessionStatus struct {
@@ -128,19 +129,21 @@ func (terminalSessionService *TerminalSessionService) RunCommand(ctx context.Con
 	if isAbandoned {
 		terminalSessionService.abandonUnreapableProcessGroup(command, runResult, scopeMarker)
 		return CommandResult{
-			ExitCode: -1,
-			Stdout:   truncateString(standardOutputBuffer.String(), terminalSessionService.outputMaxBytes()),
-			Stderr:   truncateString(standardErrorBuffer.String(), terminalSessionService.outputMaxBytes()),
-			TimedOut: true,
+			ExitCode:      -1,
+			Stdout:        truncateString(standardOutputBuffer.String(), terminalSessionService.outputMaxBytes()),
+			Stderr:        truncateString(standardErrorBuffer.String(), terminalSessionService.outputMaxBytes()),
+			TimedOut:      true,
+			OutputTrimmed: terminalOutputWasTrimmed(standardOutputBuffer, standardErrorBuffer),
 		}, errors.New("command timed out")
 	}
 	if ctx.Err() == context.DeadlineExceeded {
 		sweepEscapedCommandProcesses(scopeMarker)
 		return CommandResult{
-			ExitCode: -1,
-			Stdout:   truncateString(standardOutputBuffer.String(), terminalSessionService.outputMaxBytes()),
-			Stderr:   truncateString(standardErrorBuffer.String(), terminalSessionService.outputMaxBytes()),
-			TimedOut: true,
+			ExitCode:      -1,
+			Stdout:        truncateString(standardOutputBuffer.String(), terminalSessionService.outputMaxBytes()),
+			Stderr:        truncateString(standardErrorBuffer.String(), terminalSessionService.outputMaxBytes()),
+			TimedOut:      true,
+			OutputTrimmed: terminalOutputWasTrimmed(standardOutputBuffer, standardErrorBuffer),
 		}, errors.New("command timed out")
 	}
 
@@ -155,17 +158,23 @@ func (terminalSessionService *TerminalSessionService) RunCommand(ctx context.Con
 			standardError = errorValue.Error()
 		}
 		return CommandResult{
-			ExitCode: exitCode,
-			Stdout:   truncateString(standardOutputBuffer.String(), terminalSessionService.outputMaxBytes()),
-			Stderr:   truncateString(standardError, terminalSessionService.outputMaxBytes()),
+			ExitCode:      exitCode,
+			Stdout:        truncateString(standardOutputBuffer.String(), terminalSessionService.outputMaxBytes()),
+			Stderr:        truncateString(standardError, terminalSessionService.outputMaxBytes()),
+			OutputTrimmed: terminalOutputWasTrimmed(standardOutputBuffer, standardErrorBuffer),
 		}, errorValue
 	}
 
 	return CommandResult{
-		ExitCode: exitCode,
-		Stdout:   truncateString(standardOutputBuffer.String(), terminalSessionService.outputMaxBytes()),
-		Stderr:   truncateString(standardErrorBuffer.String(), terminalSessionService.outputMaxBytes()),
+		ExitCode:      exitCode,
+		Stdout:        truncateString(standardOutputBuffer.String(), terminalSessionService.outputMaxBytes()),
+		Stderr:        truncateString(standardErrorBuffer.String(), terminalSessionService.outputMaxBytes()),
+		OutputTrimmed: terminalOutputWasTrimmed(standardOutputBuffer, standardErrorBuffer),
 	}, nil
+}
+
+func terminalOutputWasTrimmed(standardOutputBuffer *outputRingBuffer, standardErrorBuffer *outputRingBuffer) bool {
+	return standardOutputBuffer.IsTrimmed() || standardErrorBuffer.IsTrimmed()
 }
 
 func configureCommandGroupKill(command *exec.Cmd) {
@@ -391,22 +400,21 @@ func (terminalSessionService *TerminalSessionService) StartInteractiveSession(co
 	return sessionID, nil
 }
 
-func (terminalSessionService *TerminalSessionService) WriteSessionInput(sessionID string, input string) (CommandResult, error) {
+func (terminalSessionService *TerminalSessionService) WriteSessionInput(sessionID string, input string) (TerminalSessionStatus, error) {
 	terminalSessionService.mutex.RLock()
 	terminalSession, isFound := terminalSessionService.terminalSessions[sessionID]
 	terminalSessionService.mutex.RUnlock()
 	if !isFound {
-		return CommandResult{}, errors.New("terminal session not found")
+		return TerminalSessionStatus{}, errors.New("terminal session not found")
 	}
 
 	_, errorValue := terminalSession.standardInputWriter.Write([]byte(input))
 	if errorValue != nil {
-		return CommandResult{}, errorValue
+		return TerminalSessionStatus{}, errorValue
 	}
 
 	time.Sleep(50 * time.Millisecond)
-	status := terminalSession.status()
-	return CommandResult{ExitCode: status.ExitCode, Stdout: status.Stdout, Stderr: status.Stderr}, nil
+	return terminalSession.status(), nil
 }
 
 func (terminalSessionService *TerminalSessionService) StatusSession(sessionID string) (TerminalSessionStatus, error) {

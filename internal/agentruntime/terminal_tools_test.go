@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"blueclaw/internal/agent"
 	"blueclaw/internal/policy"
@@ -35,6 +36,16 @@ func TestTerminalRunTranslatesAgentWorkspacePaths(t *testing.T) {
 	if result.Failed() {
 		t.Fatalf("expected terminal.run success, got %s", result.ContentText())
 	}
+	var resultDocument terminalCommandResultDocument
+	if errorValue := json.Unmarshal(result.Output.Data, &resultDocument); errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if resultDocument.Mode != terminalRunModeCommand || !resultDocument.Completed || resultDocument.ExitCode != 0 || resultDocument.TimedOut {
+		t.Fatalf("expected canonical completed command result, got %+v", resultDocument)
+	}
+	if len(result.Effects) != 0 {
+		t.Fatalf("expected terminal.run to avoid inferred resource effects, got %+v", result.Effects)
+	}
 	content, errorValue := os.ReadFile(filepath.Join(workspacePath, "private", "people", "person-1", "tmp", "deck", "build", "result.txt"))
 	if errorValue != nil {
 		t.Fatal(errorValue)
@@ -44,15 +55,10 @@ func TestTerminalRunTranslatesAgentWorkspacePaths(t *testing.T) {
 	}
 }
 
-func TestTerminalRunCommandRequestTreatsCommandWithArgumentsAsExecutable(t *testing.T) {
+func TestTerminalRunCommandRequestPreservesExplicitExecutable(t *testing.T) {
 	input := terminalRunToolInput{
-		Command: "/workspace/tools/capability",
-		Arguments: []string{
-			"/workspace/tools/capability",
-			"invoke",
-			"task.add",
-			`{"prompt":"test"}`,
-		},
+		ExecutableName:       "/workspace/tools/capability",
+		Arguments:            []string{"invoke", "task.add", `{"prompt":"test"}`},
 		WorkingDirectoryPath: "/workspace",
 	}
 
@@ -65,7 +71,148 @@ func TestTerminalRunCommandRequestTreatsCommandWithArgumentsAsExecutable(t *test
 	}
 	expectedArguments := []string{"invoke", "task.add", `{"prompt":"test"}`}
 	if strings.Join(commandRequest.Arguments, "\n") != strings.Join(expectedArguments, "\n") {
-		t.Fatalf("expected normalized arguments %+v, got %+v", expectedArguments, commandRequest.Arguments)
+		t.Fatalf("expected explicit arguments %+v, got %+v", expectedArguments, commandRequest.Arguments)
+	}
+}
+
+func TestTerminalRunRejectsInvalidInputShapes(t *testing.T) {
+	toolRegistry := newTerminalToolTestCatalogBuilder(t.TempDir()).BuildToolSet(ToolCatalogRequest{
+		ProfileName:       "default",
+		RequesterPersonID: "person-1",
+		PersonAccess:      policy.PersonAccess{PersonID: "person-1", Circles: []string{"staff"}},
+	})
+	testCases := []struct {
+		name  string
+		input json.RawMessage
+	}{
+		{name: "unknown field", input: json.RawMessage(`{"command":"true","unknown":true}`)},
+		{name: "fractional timeout", input: json.RawMessage(`{"command":"true","timeoutSecond":1.5}`)},
+		{name: "zero timeout", input: json.RawMessage(`{"command":"true","timeoutSecond":0}`)},
+		{name: "negative timeout", input: json.RawMessage(`{"command":"true","timeoutSecond":-1}`)},
+		{name: "missing command", input: json.RawMessage(`{}`)},
+		{name: "ambiguous execution", input: json.RawMessage(`{"command":"true","executableName":"true"}`)},
+		{name: "shell arguments", input: json.RawMessage(`{"command":"true","arguments":["one"]}`)},
+		{name: "arguments without executable", input: json.RawMessage(`{"arguments":["one"]}`)},
+		{name: "session start executable", input: json.RawMessage(`{"mode":"session_start","command":"sh","executableName":"sh"}`)},
+		{name: "session write missing input", input: json.RawMessage(`{"mode":"session_write","sessionID":"session-1"}`)},
+		{name: "session status command", input: json.RawMessage(`{"mode":"session_status","sessionID":"session-1","command":"true"}`)},
+		{name: "session status approval flag", input: json.RawMessage(`{"mode":"session_status","sessionID":"session-1","approvalRequired":false}`)},
+		{name: "approval without reason", input: json.RawMessage(`{"command":"true","approvalRequired":true}`)},
+		{name: "reason without approval", input: json.RawMessage(`{"command":"true","approvalReason":"required"}`)},
+	}
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+				ToolName: agent.TerminalRunToolName,
+				Input:    testCase.input,
+			})
+			if errorValue != nil {
+				t.Fatal(errorValue)
+			}
+			if !result.Failed() || result.FailureCode() != agent.FailureCodes.InvalidInput.String() {
+				t.Fatalf("expected invalid input failure, got %+v", result)
+			}
+		})
+	}
+}
+
+func TestTerminalRunFailureHasCanonicalData(t *testing.T) {
+	toolRegistry := newTerminalToolTestCatalogBuilder(t.TempDir()).BuildToolSet(ToolCatalogRequest{
+		ProfileName:       "default",
+		RequesterPersonID: "person-1",
+		PersonAccess:      policy.PersonAccess{PersonID: "person-1", Circles: []string{"staff"}},
+	})
+
+	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+		ToolName: agent.TerminalRunToolName,
+		Input:    json.RawMessage(`{"command":"exit 7"}`),
+	})
+
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if !result.Failed() {
+		t.Fatalf("expected command failure, got %+v", result)
+	}
+	var resultDocument terminalCommandResultDocument
+	if errorValue := json.Unmarshal(result.Output.Data, &resultDocument); errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if resultDocument.Mode != terminalRunModeCommand || resultDocument.Completed || resultDocument.ExitCode != 7 {
+		t.Fatalf("expected canonical failed command result, got %+v", resultDocument)
+	}
+}
+
+func TestTerminalRunSessionModesUseCanonicalCompletion(t *testing.T) {
+	toolRegistry := newTerminalToolTestCatalogBuilder(t.TempDir()).BuildToolSet(ToolCatalogRequest{
+		ProfileName:       "default",
+		RequesterPersonID: "person-1",
+		PersonAccess:      policy.PersonAccess{PersonID: "person-1", Circles: []string{"staff"}},
+	})
+
+	runningStartResult := invokeTerminalRunTestTool(t, toolRegistry, json.RawMessage(`{"mode":"session_start","command":"sh"}`))
+	var runningStartDocument terminalSessionResultDocument
+	decodeTerminalRunTestData(t, runningStartResult, &runningStartDocument)
+	writeInput := agent.MarshalToolInput(map[string]any{
+		"mode":      terminalRunModeSessionWrite,
+		"sessionID": runningStartDocument.SessionID,
+		"input":     "printf 'ready\\n'\n",
+	})
+	writeResult := invokeTerminalRunTestTool(t, toolRegistry, writeInput)
+	var writeDocument terminalSessionResultDocument
+	decodeTerminalRunTestData(t, writeResult, &writeDocument)
+	if writeDocument.Completed || writeDocument.Mode != terminalRunModeSessionWrite || writeDocument.SessionID != runningStartDocument.SessionID {
+		t.Fatalf("expected incomplete session write, got %+v", writeDocument)
+	}
+	runningCloseInput := agent.MarshalToolInput(map[string]any{"mode": terminalRunModeSessionClose, "sessionID": runningStartDocument.SessionID})
+	invokeTerminalRunTestTool(t, toolRegistry, runningCloseInput)
+
+	startResult := invokeTerminalRunTestTool(t, toolRegistry, json.RawMessage(`{"mode":"session_start","command":"exit 0"}`))
+	var startDocument terminalSessionResultDocument
+	decodeTerminalRunTestData(t, startResult, &startDocument)
+	if startDocument.Completed || startDocument.Mode != terminalRunModeSessionStart || startDocument.SessionID == "" {
+		t.Fatalf("expected incomplete session start, got %+v", startDocument)
+	}
+
+	var statusDocument terminalSessionResultDocument
+	for attempt := 0; attempt < 50; attempt++ {
+		statusInput := agent.MarshalToolInput(map[string]any{"mode": terminalRunModeSessionStatus, "sessionID": startDocument.SessionID})
+		statusResult := invokeTerminalRunTestTool(t, toolRegistry, statusInput)
+		decodeTerminalRunTestData(t, statusResult, &statusDocument)
+		if statusDocument.Status == "exited" {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if statusDocument.Mode != terminalRunModeSessionStatus || !statusDocument.Completed || statusDocument.ExitCode != 0 {
+		t.Fatalf("expected completed exited session status, got %+v", statusDocument)
+	}
+
+	closeInput := agent.MarshalToolInput(map[string]any{"mode": terminalRunModeSessionClose, "sessionID": startDocument.SessionID})
+	closeResult := invokeTerminalRunTestTool(t, toolRegistry, closeInput)
+	var closeDocument terminalSessionCloseResultDocument
+	decodeTerminalRunTestData(t, closeResult, &closeDocument)
+	if closeDocument.Completed || closeDocument.Status != "closed" {
+		t.Fatalf("expected incomplete session close, got %+v", closeDocument)
+	}
+}
+
+func invokeTerminalRunTestTool(t *testing.T, toolRegistry *agent.ToolSet, input json.RawMessage) agent.ToolResult {
+	t.Helper()
+	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{ToolName: agent.TerminalRunToolName, Input: input})
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if result.Failed() {
+		t.Fatalf("expected terminal.run success, got %+v", result)
+	}
+	return result
+}
+
+func decodeTerminalRunTestData(t *testing.T, result agent.ToolResult, target any) {
+	t.Helper()
+	if errorValue := json.Unmarshal(result.Output.Data, target); errorValue != nil {
+		t.Fatal(errorValue)
 	}
 }
 
