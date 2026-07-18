@@ -103,15 +103,15 @@ type CapabilityToolDescriptor struct {
 }
 
 type CapabilityToolResultContract struct {
-	Schema  json.RawMessage
-	Effects []CapabilityResourceEffectContract
+	Schema  json.RawMessage                    `json:"schema"`
+	Effects []CapabilityResourceEffectContract `json:"effects,omitempty"`
 }
 
 type CapabilityResourceEffectContract struct {
-	ObjectType     string
-	Effect         string
-	ResultField    string
-	EffectIdentity string
+	ObjectType     string `json:"objectType"`
+	Effect         string `json:"effect"`
+	ResultField    string `json:"resultField"`
+	EffectIdentity string `json:"effectIdentity"`
 }
 
 type CapabilityCompletionEvidence struct {

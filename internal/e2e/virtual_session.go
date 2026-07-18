@@ -858,6 +858,7 @@ func virtualCapabilityToolDescriptor(toolName string) agentruntime.CapabilityToo
 		PrivacyClass:    "test",
 		InputSchema:     json.RawMessage(virtualCapabilityInputSchema(toolName)),
 		OutputSchema:    json.RawMessage(`{"type":"object","properties":{},"additionalProperties":false}`),
+		ResultContract:  virtualCapabilityToolResultContract(toolName),
 		PolicyResource:  "tool:" + toolName,
 		SideEffectClass: sideEffectClass,
 		Availability:    agentruntime.CapabilityAvailability{State: "ok"},
@@ -879,6 +880,9 @@ func mergeVirtualCapabilityToolDescriptor(base agentruntime.CapabilityToolDescri
 	override.PrivacyClass = firstVirtualString(override.PrivacyClass, base.PrivacyClass)
 	override.InputSchema = firstVirtualSchema(override.InputSchema, base.InputSchema)
 	override.OutputSchema = firstVirtualSchema(override.OutputSchema, base.OutputSchema)
+	if override.ResultContract == nil {
+		override.ResultContract = base.ResultContract
+	}
 	override.PolicyResource = firstVirtualString(override.PolicyResource, base.PolicyResource)
 	override.SideEffectClass = firstVirtualString(override.SideEffectClass, base.SideEffectClass)
 	override.Availability.State = firstVirtualString(override.Availability.State, base.Availability.State)
@@ -1487,18 +1491,41 @@ func virtualCapabilityInputSchema(toolName string) string {
 }
 
 func virtualCapabilityResultContract(toolName string) string {
-	switch toolName {
-	case "task.add":
-		return `,"resultContract":{"schema":` + virtualTaskResultSchema() + `,"effects":[{"objectType":"task","effect":"created","resultField":"taskID","effectIdentity":"id"}]}`
-	case "task.list":
-		return `,"resultContract":{"schema":{"type":"object","properties":{"tasks":{"type":"array","items":` + virtualTaskResultSchema() + `},"count":{"type":"integer"},"scope":{"type":"string"}},"required":["tasks","count","scope"],"additionalProperties":false}}`
-	case "task.update":
-		return `,"resultContract":{"schema":` + virtualTaskResultSchema() + `,"effects":[{"objectType":"task","effect":"updated","resultField":"taskID","effectIdentity":"id"}]}`
-	case "task.delete":
-		return `,"resultContract":{"schema":{"type":"object","properties":{"taskID":{"type":"string"},"deleted":{"const":true}},"required":["taskID","deleted"],"additionalProperties":false},"effects":[{"objectType":"task","effect":"deleted","resultField":"taskID","effectIdentity":"id"}]}`
-	default:
+	contract := virtualCapabilityToolResultContract(toolName)
+	if contract == nil {
 		return ""
 	}
+	document, _ := json.Marshal(contract)
+	return `,"resultContract":` + string(document)
+}
+
+func virtualCapabilityToolResultContract(toolName string) *agentruntime.CapabilityToolResultContract {
+	switch toolName {
+	case "task.add":
+		return virtualTaskResultContract("created")
+	case "task.list":
+		return &agentruntime.CapabilityToolResultContract{Schema: json.RawMessage(`{"type":"object","properties":{"tasks":{"type":"array","items":` + virtualTaskResultSchema() + `},"count":{"type":"integer"},"scope":{"type":"string"}},"required":["tasks","count","scope"],"additionalProperties":false}`)}
+	case "task.update":
+		return virtualTaskResultContract("updated")
+	case "task.delete":
+		return &agentruntime.CapabilityToolResultContract{
+			Schema:  json.RawMessage(`{"type":"object","properties":{"taskID":{"type":"string"},"deleted":{"const":true}},"required":["taskID","deleted"],"additionalProperties":false}`),
+			Effects: []agentruntime.CapabilityResourceEffectContract{virtualTaskEffectContract("deleted")},
+		}
+	default:
+		return nil
+	}
+}
+
+func virtualTaskResultContract(effect string) *agentruntime.CapabilityToolResultContract {
+	return &agentruntime.CapabilityToolResultContract{
+		Schema:  json.RawMessage(virtualTaskResultSchema()),
+		Effects: []agentruntime.CapabilityResourceEffectContract{virtualTaskEffectContract(effect)},
+	}
+}
+
+func virtualTaskEffectContract(effect string) agentruntime.CapabilityResourceEffectContract {
+	return agentruntime.CapabilityResourceEffectContract{ObjectType: "task", Effect: effect, ResultField: "taskID", EffectIdentity: "id"}
 }
 
 func virtualTaskResultSchema() string {

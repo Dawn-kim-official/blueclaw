@@ -646,11 +646,10 @@ func AmbientTaskCaptureAcceptanceScenario(artifactDirectoryPath string) VirtualS
 			ReplyTargetID:          "virtual-message-011",
 			Addressing:             connectors.AddressingMetadata{OtherPersonMentioned: true},
 			ActionResponses: []string{
-				actionInvokeCapabilityTool("task.list", `{"targetPersonHint":"예시"}`),
 				actionInvokeCapabilityTool("task.update", `{"taskID":"task-1","endDate":"2026-06-24"}`),
-				actionFinishMessage("예시 님 업무 마감을 수요일로 변경했습니다.", "obs-002:task.update:0"),
+				actionFinishMessage("예시 님 업무 마감을 수요일로 변경했습니다.", "obs-001:task.update:0"),
 			},
-			ExpectedToolCalls: []string{"task.list", "task.update"},
+			ExpectedToolCalls: []string{"task.update"},
 			ExpectedToolCallCounts: map[string]int{
 				"task.add":    0,
 				"task.update": 1,
