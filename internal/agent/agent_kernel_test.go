@@ -30,7 +30,7 @@ func (model rejectingOperationContractLanguageModel) GenerateResponse(context.Co
 
 func (model rejectingOperationContractLanguageModel) GenerateStructuredResponse(_ context.Context, request llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
 	if request.StructuredOutputSchema.Name == operationContractSchemaName {
-		return llm.StructuredResponse{Content: `{"operations":[{"toolName":"task.add","requiredValuesJSON":"{\"query\":\"분기 결산\"}"}]}`}, nil
+		return llm.StructuredResponse{Content: `{"operations":[{"toolName":"task.add","requiredValues":{"query":"분기 결산"}}]}`}, nil
 	}
 	document, errorValue := json.Marshal(model.decision)
 	if errorValue != nil {
@@ -60,13 +60,18 @@ func operationContractTestDocument(schemaDocument string) string {
 	properties, _ := schema["properties"].(map[string]any)
 	operations, _ := properties["operations"].(map[string]any)
 	items, _ := operations["items"].(map[string]any)
-	itemProperties, _ := items["properties"].(map[string]any)
-	toolName, _ := itemProperties["toolName"].(map[string]any)
-	toolNames, _ := toolName["enum"].([]any)
-	operationDocuments := []map[string]string{}
-	for _, value := range toolNames {
-		name, _ := value.(string)
-		operationDocuments = append(operationDocuments, map[string]string{"toolName": name, "requiredValuesJSON": "{}"})
+	itemSchemas := []any{items}
+	if oneOf, isUnion := items["oneOf"].([]any); isUnion {
+		itemSchemas = oneOf
+	}
+	operationDocuments := []map[string]any{}
+	for _, value := range itemSchemas {
+		itemSchema, _ := value.(map[string]any)
+		itemProperties, _ := itemSchema["properties"].(map[string]any)
+		toolName, _ := itemProperties["toolName"].(map[string]any)
+		toolNames, _ := toolName["enum"].([]any)
+		name, _ := toolNames[0].(string)
+		operationDocuments = append(operationDocuments, map[string]any{"toolName": name, "requiredValues": map[string]any{}})
 	}
 	document, _ := json.Marshal(map[string]any{"operations": operationDocuments})
 	return string(document)
