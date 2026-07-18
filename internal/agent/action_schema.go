@@ -56,7 +56,7 @@ func buildActionSchemaFromToolDefinitions(toolDefinitions []ToolDefinition, allo
 
 func finishActionSchema(hasFailureDebt bool) map[string]any {
 	failureResolutionValues := []string{"none", "recovered_with_success", "no_tool_fallback"}
-	requiredFields := []string{"action", "message", "goalStatus", "goalSatisfied", "hasRemainingWork", "completionEvidenceIDs", "qualityReview", "executionStateUpdate"}
+	requiredFields := []string{"action", "message", "goalStatus", "goalSatisfied", "hasRemainingWork", "completionEvidenceIDs", "qualityReview"}
 	if hasFailureDebt {
 		failureResolutionValues = []string{"recovered_with_success", "no_tool_fallback"}
 		requiredFields = append(requiredFields, "failureResolution")

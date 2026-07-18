@@ -126,6 +126,9 @@ func TestBuildAgentActionChatRequestExposesDirectToolsAndTerminalControls(t *tes
 	if chatRequest.GenerationOptions.MaxTokens == nil || *chatRequest.GenerationOptions.MaxTokens != maxTokens {
 		t.Fatalf("expected native chat max tokens to be preserved, got %+v", chatRequest.GenerationOptions)
 	}
+	if chatRequest.SchemaName != agentActionSchemaName {
+		t.Fatalf("expected native chat schema provenance, got %q", chatRequest.SchemaName)
+	}
 }
 
 func TestBuildAgentActionRequestKeepsTextToolCatalogForStructuredFallback(t *testing.T) {
@@ -450,10 +453,13 @@ func TestBuildAgentActionRequestPreservesNativeToolCallingWireShape(t *testing.T
 	}
 	finishVariant := actionSchemaVariant(t, request.StructuredOutputSchema.Document, "finish")
 	requiredFields := stringSliceFromAny(finishVariant["required"])
-	for _, fieldName := range []string{"message", "completionEvidenceIDs", "qualityReview", "executionStateUpdate"} {
+	for _, fieldName := range []string{"message", "completionEvidenceIDs", "qualityReview"} {
 		if !containsString(requiredFields, fieldName) {
 			t.Fatalf("expected finish schema to require %s, got %+v", fieldName, requiredFields)
 		}
+	}
+	if containsString(requiredFields, "executionStateUpdate") {
+		t.Fatalf("expected terminal execution state update to remain optional, got %+v", requiredFields)
 	}
 	finishProperties := mapFromAny(finishVariant["properties"])
 	qualityReviewItems := mapFromAny(mapFromAny(finishProperties["qualityReview"])["items"])
