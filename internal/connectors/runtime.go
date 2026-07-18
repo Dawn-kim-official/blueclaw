@@ -2028,7 +2028,7 @@ func latestActiveGoal(taskEvents []task.TaskEvent) agent.ActiveGoal {
 		}
 		var activeGoal agent.ActiveGoal
 		if errorValue := json.Unmarshal([]byte(taskEvent.Body), &activeGoal); errorValue != nil {
-			continue
+			return agent.ActiveGoal{RestoreError: "latest active goal event is invalid: " + errorValue.Error()}
 		}
 		return activeGoal
 	}

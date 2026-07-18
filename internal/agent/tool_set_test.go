@@ -63,6 +63,7 @@ func newTestToolSetWithDefinitions(definitions []ToolDefinition) *ToolSet {
 
 func testToolDescriptor(toolName string) ToolDefinition {
 	return ToolDefinition{
+		ID:              "test:" + toolName,
 		Name:            toolName,
 		InputSchema:     json.RawMessage(`{"type":"object","properties":{}}`),
 		OutputSchema:    json.RawMessage(`{"type":"object","properties":{}}`),

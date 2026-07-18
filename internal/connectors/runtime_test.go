@@ -4451,3 +4451,23 @@ func TestResolveInboundEngagementReactAndRespond(t *testing.T) {
 		t.Fatalf("expected react-and-respond (launch + emoji), got %+v", decision)
 	}
 }
+
+func TestLatestActiveGoalFailsClosedOnMalformedNewestEvent(t *testing.T) {
+	validGoalDocument, _ := json.Marshal(agent.ActiveGoal{
+		TaskRunID: "old-task",
+		Status:    agent.ActiveGoalStatusActive,
+	})
+	taskEvents := []task.TaskEvent{
+		{Name: "agent.goal.active", Body: string(validGoalDocument)},
+		{Name: "agent.goal.waiting_approval", Body: `{"taskRunID":`},
+	}
+
+	activeGoal := latestActiveGoal(taskEvents)
+
+	if strings.TrimSpace(activeGoal.RestoreError) == "" {
+		t.Fatal("expected malformed newest goal to fail closed")
+	}
+	if activeGoal.TaskRunID != "" {
+		t.Fatalf("expected no fallback to the older goal, got %+v", activeGoal)
+	}
+}

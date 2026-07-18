@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"time"
 
@@ -242,6 +243,9 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 		request.TurnStartedAt = time.Now().Add(-2 * time.Second)
 	}
 	request.ResponseLanguage = ResolveResponseLanguage(request.ResponseLanguage, request.VisibleContext.ResponseLanguage)
+	if strings.TrimSpace(request.ActiveGoal.RestoreError) != "" {
+		return agentKernel.CompleteLaunchFailure(responseContext, launchFailureRequest(request), "restore_state", "active_goal", errors.New(request.ActiveGoal.RestoreError)), nil
+	}
 	baseInstructionBundle := agentKernel.currentInstructionBundle()
 	instructionBundle := baseInstructionBundle
 	turnToolSet := request.ToolSet
@@ -275,7 +279,16 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 		intakeRequest.ActiveGoal = request.ActiveGoal
 		intakeDecision = agentKernel.restoreEscalatedTaskLevelForContinuation(intakeRequest, intakeDecision)
 	}
-	isFreshTask := requestStartsFreshTask(turnDecision, request)
+	lifecycleMode := taskLifecycleModeForRequest(turnDecision, request)
+	if lifecycleMode == taskLifecycleSemanticRevision {
+		request.ExistingTaskRunID = ""
+		request.IsRuntimeRestartResume = false
+		request.ActiveGoal = ActiveGoal{}
+		intakeRequest.ExistingTaskRunID = ""
+		intakeRequest.IsRuntimeRestartResume = false
+		intakeRequest.ActiveGoal = ActiveGoal{}
+	}
+	startsNewSemanticRun := lifecycleMode == taskLifecycleFresh || lifecycleMode == taskLifecycleSemanticRevision
 	request.PinnedToolNames = appendUniqueStrings(append([]string{}, request.PinnedToolNames...), intakeDecision.InitialToolNames...)
 	intakeRequest.PinnedToolNames = request.PinnedToolNames
 	if turnDecision.Route == TurnRouteConsume {
@@ -291,7 +304,7 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 		persistedPinnedToolNames,
 		intakeDecision.InitialToolNames,
 		instructionBundle.RequiredEvidenceTools,
-		isFreshTask,
+		startsNewSemanticRun,
 	)
 	intakeRequest.PinnedToolNames = request.PinnedToolNames
 	request.PinnedSkillNames = appendUniqueStrings(request.PinnedSkillNames, selectedSkillNameList(instructionBundle.SkillDecisions)...)
@@ -310,11 +323,17 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 	requiredAttachmentSuffixes := attachmentSuffixesForRequestedOutputFormats(intakeDecision.RequestedOutputFormats)
 	evidenceHints := selectedEvidenceHintTools(instructionBundle)
 	confirmationEvidenceHints := confirmationEvidenceHintsForRequest(request, intakeDecision, evidenceHints)
-	confirmationResult, isBlocked, executionPlan, hasExecutionPlan, errorValue := agentKernel.applyConfirmationGate(responseContext, request, intakeDecision, confirmationEvidenceHints, selectedSkillNameList(instructionBundle.SkillDecisions))
-	if isBlocked || errorValue != nil {
-		confirmationResult.TurnRoute = turnDecision.Route
-		return confirmationResult, errorValue
+	confirmationPlan, errorValue := agentKernel.planConfirmationGate(responseContext, request, intakeDecision, confirmationEvidenceHints)
+	if errorValue != nil {
+		return AgentTurnResult{}, errorValue
 	}
+	if confirmationPlan.Decision.RequiresClarification {
+		confirmationResult, pauseError := agentKernel.pauseForConfirmation(responseContext, request, confirmationPlan, OutcomeContract{}, confirmationEvidenceHints, selectedSkillNameList(instructionBundle.SkillDecisions))
+		confirmationResult.TurnRoute = turnDecision.Route
+		return confirmationResult, pauseError
+	}
+	executionPlan := confirmationPlan.ExecutionPlan
+	hasExecutionPlan := confirmationPlan.HasExecutionPlan
 	outcomeContract := outcomeContractForRequest(request, intakeDecision, instructionBundle, executionPlan, hasExecutionPlan, requiredAttachmentSuffixes)
 	isDeterministicResume := request.IsApprovalContinuation || request.IsRuntimeRestartResume
 	evidenceValidationReport := validateRequiredEvidenceTools(turnToolSet, outcomeContract.RequiredEvidenceTools)
@@ -339,6 +358,19 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 		agentKernel.AppendTaskEvent(result.TaskRun.TaskRunID, requiredEvidenceReaskEventName, marshalEventBody(requiredEvidenceReask))
 		return result, blockError
 	}
+	outcomeContract, errorValue = compileOperationRequirements(responseContext, routerLanguageModel, request, turnToolSet, outcomeContract)
+	if errorValue != nil {
+		intakeDecision.Reason = errorValue.Error()
+		intakeDecision.UserFacingReply = ""
+		result, blockError := agentKernel.completeIntakeOnlyRequest(responseContext, intakeRequest, intakeDecision, task.TaskStatusBlocked, routerCallLedger.records)
+		result.TurnRoute = turnDecision.Route
+		return result, blockError
+	}
+	if confirmationPlan.Decision.RequiresConfirmation {
+		confirmationResult, pauseError := agentKernel.pauseForConfirmation(responseContext, request, confirmationPlan, outcomeContract, confirmationEvidenceHints, selectedSkillNameList(instructionBundle.SkillDecisions))
+		confirmationResult.TurnRoute = turnDecision.Route
+		return confirmationResult, pauseError
+	}
 	requiredEvidenceTools := outcomeContract.RequiredEvidenceTools
 	requiredAttachmentSuffixes = outcomeContract.RequiredAttachmentSuffixes
 	request.PinnedToolNames = pinnedToolNamesForResolvedRequest(
@@ -346,7 +378,7 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 		persistedPinnedToolNames,
 		intakeDecision.InitialToolNames,
 		requiredEvidenceTools,
-		isFreshTask,
+		startsNewSemanticRun,
 	)
 	intakeRequest.PinnedToolNames = request.PinnedToolNames
 
@@ -433,6 +465,46 @@ func requestStartsFreshTask(turnDecision TurnDecision, request AgentRequest) boo
 		!request.IsApprovalContinuation &&
 		!request.IsRuntimeRestartResume &&
 		strings.TrimSpace(request.ExistingTaskRunID) == ""
+}
+
+func launchFailureRequest(request AgentRequest) AgentTurnRequest {
+	return AgentTurnRequest{
+		RequesterPersonID:   request.RequesterPersonID,
+		SourceReference:     request.SourceReference,
+		ExistingTaskRunID:   request.ExistingTaskRunID,
+		OriginReplyTargetID: request.OriginReplyTargetID,
+		OriginIsThread:      request.OriginIsThread,
+		ConversationID:      request.ConversationID,
+		Prompt:              request.Prompt,
+		ResponseLanguage:    request.ResponseLanguage,
+		ToolSet:             request.ToolSet,
+	}
+}
+
+type taskLifecycleMode string
+
+const (
+	taskLifecycleFresh            taskLifecycleMode = "fresh"
+	taskLifecycleApprovalResume   taskLifecycleMode = "approval_resume"
+	taskLifecycleRuntimeResume    taskLifecycleMode = "runtime_resume"
+	taskLifecycleSemanticRevision taskLifecycleMode = "semantic_revision"
+	taskLifecycleContinuation     taskLifecycleMode = "continuation"
+)
+
+func taskLifecycleModeForRequest(turnDecision TurnDecision, request AgentRequest) taskLifecycleMode {
+	if request.IsApprovalContinuation {
+		return taskLifecycleApprovalResume
+	}
+	if request.IsRuntimeRestartResume {
+		return taskLifecycleRuntimeResume
+	}
+	if turnDecision.Route == TurnRouteReviseTask {
+		return taskLifecycleSemanticRevision
+	}
+	if requestStartsFreshTask(turnDecision, request) {
+		return taskLifecycleFresh
+	}
+	return taskLifecycleContinuation
 }
 
 func pinnedToolNamesForResolvedRequest(
@@ -542,22 +614,33 @@ func (agentKernel *AgentKernel) completeConsumedRequest(request AgentRequest, de
 	return AgentTurnResult{TaskRun: completedTaskRun, TurnRoute: TurnRouteConsume, ReactionEmojiName: reactionEmojiName, FinishMessage: strings.TrimSpace(decision.UserFacingReply), ReplySuppressed: true, ToolNames: toolNamesForEvent(request.ToolSet)}, nil
 }
 
-func (agentKernel *AgentKernel) applyConfirmationGate(responseContext context.Context, request AgentRequest, intakeDecision IntakeDecision, evidenceHints []string, selectedSkills []string) (AgentTurnResult, bool, ExecutionPlan, bool, error) {
-	if request.IsApprovalContinuation || strings.TrimSpace(request.ExistingTaskRunID) != "" {
-		return AgentTurnResult{}, false, ExecutionPlan{}, false, nil
+type confirmationGatePlan struct {
+	ExecutionPlan    ExecutionPlan
+	Decision         ConfirmationPolicyDecision
+	HasExecutionPlan bool
+}
+
+func (agentKernel *AgentKernel) planConfirmationGate(responseContext context.Context, request AgentRequest, intakeDecision IntakeDecision, evidenceHints []string) (confirmationGatePlan, error) {
+	if request.IsApprovalContinuation || request.IsRuntimeRestartResume {
+		return confirmationGatePlan{}, nil
 	}
 	if !shouldBuildExecutionPlanForConfirmation(request, intakeDecision, evidenceHints) {
-		return AgentTurnResult{}, false, ExecutionPlan{}, false, nil
+		return confirmationGatePlan{}, nil
 	}
 	executionPlan, errorValue := agentKernel.BuildExecutionPlan(responseContext, request, evidenceHints)
 	if errorValue != nil {
-		return AgentTurnResult{}, false, ExecutionPlan{}, false, errorValue
+		return confirmationGatePlan{}, errorValue
 	}
 	decision := EvaluateConfirmationPolicy(executionPlan)
 	if !decision.RequiresConfirmation && !decision.RequiresClarification {
-		return AgentTurnResult{}, false, executionPlan, true, nil
+		return confirmationGatePlan{ExecutionPlan: executionPlan, Decision: decision, HasExecutionPlan: true}, nil
 	}
+	return confirmationGatePlan{ExecutionPlan: executionPlan, Decision: decision, HasExecutionPlan: true}, nil
+}
 
+func (agentKernel *AgentKernel) pauseForConfirmation(responseContext context.Context, request AgentRequest, plan confirmationGatePlan, outcomeContract OutcomeContract, evidenceHints []string, selectedSkills []string) (AgentTurnResult, error) {
+	executionPlan := plan.ExecutionPlan
+	decision := plan.Decision
 	taskRun := agentKernel.createTaskRunForRequest(request)
 	agentKernel.AppendTaskEvent(taskRun.TaskRunID, "confirmation.plan_created", marshalEventBody(executionPlan))
 	agentKernel.AppendTaskEvent(taskRun.TaskRunID, "confirmation.policy_decision", marshalEventBody(decision))
@@ -565,13 +648,14 @@ func (agentKernel *AgentKernel) applyConfirmationGate(responseContext context.Co
 	if decision.RequiresClarification {
 		reply, errorValue := agentKernel.GenerateClarificationMessage(responseContext, request, executionPlan, decision)
 		if errorValue != nil {
-			return AgentTurnResult{}, false, ExecutionPlan{}, false, errorValue
+			return AgentTurnResult{}, errorValue
 		}
 		waitingTaskRun, errorValue := agentKernel.taskRunService.PauseTaskRun(taskRun.TaskRunID, task.TaskStatusWaitingUserInput, reply)
 		if errorValue != nil {
-			return AgentTurnResult{}, false, ExecutionPlan{}, false, errorValue
+			return AgentTurnResult{}, errorValue
 		}
 		waitingGoal := activeGoalFromExecutionPlan(taskRun.TaskRunID, executionPlan, ActiveGoalStatusWaitingUserInput, request.ToolSet, evidenceHints, nil)
+		waitingGoal.OutcomeContract = normalizeOutcomeContract(outcomeContract)
 		waitingGoal.SelectedToolNames = appendUniqueStrings(nil, request.PinnedToolNames...)
 		waitingGoal.SelectedSkillNames = appendUniqueStrings(nil, selectedSkills...)
 		agentKernel.AppendTaskEvent(taskRun.TaskRunID, "agent.goal.created", marshalEventBody(waitingGoal))
@@ -583,18 +667,19 @@ func (agentKernel *AgentKernel) applyConfirmationGate(responseContext context.Co
 			"message":          reply,
 			"responseLanguage": request.ResponseLanguage,
 		}))
-		return AgentTurnResult{TaskRun: waitingTaskRun, UserNotice: reply, ToolNames: toolNamesForEvent(request.ToolSet)}, true, ExecutionPlan{}, false, nil
+		return AgentTurnResult{TaskRun: waitingTaskRun, UserNotice: reply, ToolNames: toolNamesForEvent(request.ToolSet)}, nil
 	}
 
 	reply, errorValue := agentKernel.GenerateConfirmationMessage(responseContext, request, executionPlan, decision)
 	if errorValue != nil {
-		return AgentTurnResult{}, false, ExecutionPlan{}, false, errorValue
+		return AgentTurnResult{}, errorValue
 	}
 	waitingTaskRun, errorValue := agentKernel.taskRunService.PauseTaskRun(taskRun.TaskRunID, task.TaskStatusWaitingApproval, reply)
 	if errorValue != nil {
-		return AgentTurnResult{}, false, ExecutionPlan{}, false, errorValue
+		return AgentTurnResult{}, errorValue
 	}
 	approvalGoal := activeGoalFromExecutionPlan(taskRun.TaskRunID, executionPlan, ActiveGoalStatusWaitingApproval, request.ToolSet, evidenceHints, nil)
+	approvalGoal.OutcomeContract = normalizeOutcomeContract(outcomeContract)
 	approvalGoal.SelectedToolNames = appendUniqueStrings(nil, request.PinnedToolNames...)
 	approvalGoal.SelectedSkillNames = appendUniqueStrings(nil, selectedSkills...)
 	agentKernel.AppendTaskEvent(taskRun.TaskRunID, "agent.goal.created", marshalEventBody(approvalGoal))
@@ -610,7 +695,7 @@ func (agentKernel *AgentKernel) applyConfirmationGate(responseContext context.Co
 		"message":          reply,
 		"responseLanguage": request.ResponseLanguage,
 	}))
-	return AgentTurnResult{TaskRun: waitingTaskRun, UserNotice: reply, ToolNames: toolNamesForEvent(request.ToolSet)}, true, ExecutionPlan{}, false, nil
+	return AgentTurnResult{TaskRun: waitingTaskRun, UserNotice: reply, ToolNames: toolNamesForEvent(request.ToolSet)}, nil
 }
 
 func (agentKernel *AgentKernel) RunTask(requesterPersonID string, originConversationID string, prompt string) (task.TaskRun, error) {

@@ -107,6 +107,16 @@ func (languageModel *ScriptedLanguageModel) GenerateStructuredResponse(_ context
 		if schemaName == "blueclaw_result_verifier" {
 			return languageModel.structuredResponse(defaultResultVerificationResponse(request)), nil
 		}
+		if schemaName == "blueclaw_operation_contract" {
+			response, errorValue := defaultOperationContractResponse(request)
+			if errorValue != nil {
+				return llm.StructuredResponse{}, errorValue
+			}
+			return languageModel.structuredResponse(response), nil
+		}
+		if schemaName == "blueclaw_operation_contract_review" {
+			return languageModel.structuredResponse(`{"isComplete":true,"reason":"scripted runtime fixture"}`), nil
+		}
 		if schemaName == "blueclaw_approval_question" {
 			return languageModel.structuredResponse(defaultApprovalQuestionResponse(request)), nil
 		}
@@ -116,6 +126,34 @@ func (languageModel *ScriptedLanguageModel) GenerateStructuredResponse(_ context
 		return languageModel.structuredResponse(defaultSkillSearchQueriesResponse(request)), nil
 	}
 	return languageModel.structuredResponse(response), nil
+}
+
+func defaultOperationContractResponse(request llm.StructuredResponseRequest) (string, error) {
+	var schema struct {
+		Properties struct {
+			Operations struct {
+				Items struct {
+					Properties struct {
+						ToolName struct {
+							Enum []string `json:"enum"`
+						} `json:"toolName"`
+					} `json:"properties"`
+				} `json:"items"`
+			} `json:"operations"`
+		} `json:"properties"`
+	}
+	if errorValue := json.Unmarshal([]byte(request.StructuredOutputSchema.Document), &schema); errorValue != nil {
+		return "", fmt.Errorf("decode operation contract schema: %w", errorValue)
+	}
+	operations := make([]map[string]string, 0, len(schema.Properties.Operations.Items.Properties.ToolName.Enum))
+	for _, toolName := range schema.Properties.Operations.Items.Properties.ToolName.Enum {
+		operations = append(operations, map[string]string{"toolName": toolName, "requiredValuesJSON": "{}"})
+	}
+	document, errorValue := json.Marshal(map[string]any{"operations": operations})
+	if errorValue != nil {
+		return "", fmt.Errorf("encode operation contract fixture: %w", errorValue)
+	}
+	return string(document), nil
 }
 
 func defaultSkillSearchQueriesResponse(request llm.StructuredResponseRequest) string {

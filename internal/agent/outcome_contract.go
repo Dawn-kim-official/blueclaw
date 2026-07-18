@@ -401,6 +401,7 @@ func OutcomeContractHasRequirements(contract OutcomeContract) bool {
 	return len(contract.ExpectedResults) > 0 ||
 		len(contract.RequiredEvidenceTools) > 0 ||
 		len(contract.RequiredEvidenceAnyOf) > 0 ||
+		contract.OperationContract != nil ||
 		len(contract.RequiredAttachmentSuffixes) > 0 ||
 		len(contract.RequiredEffects) > 0 ||
 		(artifactRequirement != "" && artifactRequirement != ArtifactRequirementNone)
@@ -689,6 +690,11 @@ func outcomeContractRequiredToolNames(contract OutcomeContract) []string {
 	toolNames := append([]string{}, contract.RequiredEvidenceTools...)
 	for _, toolNameGroup := range contract.RequiredEvidenceAnyOf {
 		toolNames = append(toolNames, toolNameGroup...)
+	}
+	if contract.OperationContract != nil {
+		for _, requirement := range contract.OperationContract.Requirements {
+			toolNames = append(toolNames, requirement.ToolName)
+		}
 	}
 	return toolNames
 }

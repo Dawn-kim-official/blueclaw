@@ -27,17 +27,39 @@ type ActiveGoal struct {
 	SelectedSkillNames  []string         `json:"selectedSkillNames,omitempty"`
 	OutcomeContract     OutcomeContract  `json:"outcomeContract,omitempty"`
 	Status              ActiveGoalStatus `json:"status,omitempty"`
+	RestoreError        string           `json:"-"`
 }
 
 type OutcomeContract struct {
-	RequiredEvidenceTools      []string         `json:"requiredEvidenceTools,omitempty"`
-	RequiredEvidenceAnyOf      [][]string       `json:"requiredEvidenceAnyOf,omitempty"`
-	RequiredAttachmentSuffixes []string         `json:"requiredAttachmentSuffixes,omitempty"`
-	RequiredEffects            []OutcomeEffect  `json:"requiredEffects,omitempty"`
-	ExpectedResults            []ExpectedResult `json:"expectedResults,omitempty"`
-	ArtifactRequirement        string           `json:"artifactRequirement,omitempty"`
-	SelectedEvidenceHints      []string         `json:"selectedEvidenceHints,omitempty"`
-	Source                     string           `json:"source,omitempty"`
+	RequiredEvidenceTools      []string           `json:"requiredEvidenceTools,omitempty"`
+	RequiredEvidenceAnyOf      [][]string         `json:"requiredEvidenceAnyOf,omitempty"`
+	OperationContract          *OperationContract `json:"operationContract,omitempty"`
+	RequiredAttachmentSuffixes []string           `json:"requiredAttachmentSuffixes,omitempty"`
+	RequiredEffects            []OutcomeEffect    `json:"requiredEffects,omitempty"`
+	ExpectedResults            []ExpectedResult   `json:"expectedResults,omitempty"`
+	ArtifactRequirement        string             `json:"artifactRequirement,omitempty"`
+	SelectedEvidenceHints      []string           `json:"selectedEvidenceHints,omitempty"`
+	Source                     string             `json:"source,omitempty"`
+}
+
+type OperationContract struct {
+	Version      int                    `json:"version"`
+	Requirements []OperationRequirement `json:"requirements"`
+}
+
+type OperationInputMode string
+
+const (
+	OperationInputContainsExplicit OperationInputMode = "contains_explicit"
+	OperationInputNoExplicitValues OperationInputMode = "no_explicit_values"
+)
+
+type OperationRequirement struct {
+	RequirementID string             `json:"requirementID"`
+	ToolID        string             `json:"toolID"`
+	ToolName      string             `json:"toolName"`
+	InputMode     OperationInputMode `json:"inputMode"`
+	RequiredInput json.RawMessage    `json:"requiredInput"`
 }
 
 type OutcomeEffect struct {
@@ -94,11 +116,43 @@ func normalizeOutcomeContract(contract OutcomeContract) OutcomeContract {
 	contract.RequiredAttachmentSuffixes = appendUniqueStrings(contract.RequiredAttachmentSuffixes)
 	contract.SelectedEvidenceHints = appendUniqueStrings(contract.SelectedEvidenceHints)
 	contract.RequiredEvidenceAnyOf = normalizeEvidenceAnyOf(contract.RequiredEvidenceAnyOf)
+	contract.OperationContract = normalizeOperationContract(contract.OperationContract)
 	contract.RequiredEffects = normalizeOutcomeEffects(contract.RequiredEffects)
 	contract.ExpectedResults = normalizeExpectedResults(contract.ExpectedResults)
 	contract.ArtifactRequirement = normalizeArtifactRequirement(contract.ArtifactRequirement)
 	contract.Source = strings.TrimSpace(contract.Source)
 	return contract
+}
+
+func normalizeOperationContract(contract *OperationContract) *OperationContract {
+	if contract == nil {
+		return nil
+	}
+	normalizedContract := &OperationContract{
+		Version:      contract.Version,
+		Requirements: make([]OperationRequirement, 0, len(contract.Requirements)),
+	}
+	for _, requirement := range contract.Requirements {
+		requirement.RequirementID = strings.TrimSpace(requirement.RequirementID)
+		requirement.ToolID = strings.TrimSpace(requirement.ToolID)
+		requirement.ToolName = strings.TrimSpace(requirement.ToolName)
+		requirement.InputMode = OperationInputMode(strings.TrimSpace(string(requirement.InputMode)))
+		requirement.RequiredInput = normalizeOperationRequiredInput(requirement.RequiredInput)
+		normalizedContract.Requirements = append(normalizedContract.Requirements, requirement)
+	}
+	return normalizedContract
+}
+
+func normalizeOperationRequiredInput(requiredInput json.RawMessage) json.RawMessage {
+	if len(requiredInput) == 0 {
+		return nil
+	}
+	var values map[string]json.RawMessage
+	if json.Unmarshal(requiredInput, &values) != nil || values == nil {
+		return append(json.RawMessage{}, requiredInput...)
+	}
+	normalizedInput, _ := json.Marshal(values)
+	return normalizedInput
 }
 
 func normalizeOutcomeEffects(effects []OutcomeEffect) []OutcomeEffect {
