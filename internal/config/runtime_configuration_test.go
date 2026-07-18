@@ -269,10 +269,12 @@ func TestLoadRuntimeConfigurationRejectsMissingOrInvalidCapabilityProtocolIdenti
 		identityDocument string
 		errorFragment    string
 	}{
-		{name: "missing version", identityDocument: `"aggregateProtocolHash":"` + strings.Repeat("a", 64) + `"`, errorFragment: "protocolVersion is required"},
+		{name: "missing version", identityDocument: `"aggregateProtocolHash":"` + strings.Repeat("a", 64) + `"`, errorFragment: "protocolVersion must be"},
 		{name: "missing hash", identityDocument: `"protocolVersion":"0.4.0"`, errorFragment: "aggregateProtocolHash"},
 		{name: "invalid hash", identityDocument: `"protocolVersion":"0.4.0","aggregateProtocolHash":"not-a-hash"`, errorFragment: "aggregateProtocolHash"},
 		{name: "uppercase hash", identityDocument: `"protocolVersion":"0.4.0","aggregateProtocolHash":"` + strings.Repeat("A", 64) + `"`, errorFragment: "aggregateProtocolHash"},
+		{name: "padded version", identityDocument: `"protocolVersion":" 0.4.0","aggregateProtocolHash":"` + strings.Repeat("a", 64) + `"`, errorFragment: "protocolVersion must be"},
+		{name: "padded hash", identityDocument: `"protocolVersion":"0.4.0","aggregateProtocolHash":"` + strings.Repeat("a", 64) + ` "`, errorFragment: "aggregateProtocolHash"},
 	}
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {

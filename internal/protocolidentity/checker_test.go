@@ -40,7 +40,7 @@ func TestCheckerReportsDriftWithoutDescriptorHashing(t *testing.T) {
 	identity := Identity{ProtocolVersion: testProtocolVersion, AggregateProtocolHash: testAggregateProtocolHash}
 	server := httptest.NewServer(http.HandlerFunc(func(responseWriter http.ResponseWriter, request *http.Request) {
 		responseWriter.Header().Set("Content-Type", "application/json")
-		_, _ = responseWriter.Write([]byte(`{"protocolVersion":"0.4.1","aggregateProtocolHash":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","deviceCapabilities":[{"name":"different"}]}`))
+		_, _ = responseWriter.Write([]byte(`{"status":"ok","protocolVersion":"0.4.1","aggregateProtocolHash":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","deviceCapabilities":[{"name":"different"}]}`))
 	}))
 	defer server.Close()
 
@@ -86,7 +86,7 @@ func TestCheckerUsesConfiguredCapabilityUnixTransport(t *testing.T) {
 	defer capabilityServer.Close()
 
 	sdkdServer := httptest.NewServer(http.HandlerFunc(func(responseWriter http.ResponseWriter, request *http.Request) {
-		_, _ = responseWriter.Write([]byte(`{"protocolVersion":"0.4.0","aggregateProtocolHash":"58ff1977989bacbf2db3fdce08fd57c9b52f344ca747a3322f4e60bdf6052a78"}`))
+		_, _ = responseWriter.Write([]byte(`{"status":"ok","protocolVersion":"0.4.0","aggregateProtocolHash":"58ff1977989bacbf2db3fdce08fd57c9b52f344ca747a3322f4e60bdf6052a78"}`))
 	}))
 	defer sdkdServer.Close()
 	capabilityHTTPClient := &http.Client{Transport: &http.Transport{
@@ -113,10 +113,30 @@ func TestValidateIdentityRejectsMissingAndInvalidValues(t *testing.T) {
 		{ProtocolVersion: testProtocolVersion},
 		{ProtocolVersion: testProtocolVersion, AggregateProtocolHash: strings.Repeat("A", 64)},
 		{ProtocolVersion: testProtocolVersion, AggregateProtocolHash: "short"},
+		{ProtocolVersion: " " + testProtocolVersion, AggregateProtocolHash: testAggregateProtocolHash},
+		{ProtocolVersion: testProtocolVersion, AggregateProtocolHash: testAggregateProtocolHash + " "},
 	}
 	for _, identity := range testCases {
 		if errorValue := ValidateIdentity(identity); errorValue == nil {
 			t.Fatalf("expected identity to be rejected: %+v", identity)
 		}
+	}
+}
+
+func TestCheckerRejectsNonHealthySDKDStatus(t *testing.T) {
+	identity := Identity{ProtocolVersion: testProtocolVersion, AggregateProtocolHash: testAggregateProtocolHash}
+	server := httptest.NewServer(http.HandlerFunc(func(responseWriter http.ResponseWriter, request *http.Request) {
+		status := ""
+		if request.URL.Path == "/health" {
+			status = `"status":"degraded",`
+		}
+		_, _ = responseWriter.Write([]byte(`{` + status + `"protocolVersion":"0.4.0","aggregateProtocolHash":"58ff1977989bacbf2db3fdce08fd57c9b52f344ca747a3322f4e60bdf6052a78"}`))
+	}))
+	defer server.Close()
+
+	result := NewChecker(Configuration{CapabilityEndpoint: server.URL, SDKDBridgeEndpoint: server.URL}).Check(context.Background(), identity)
+
+	if result.Passed || !result.Capabilityd.Passed || result.SDKD.Passed || result.SDKD.Status != "unhealthy" {
+		t.Fatalf("expected non-healthy SDKD status rejection, got %+v", result)
 	}
 }

@@ -48,10 +48,10 @@ func TestHealthRefreshesProtocolIdentityAfterStartup(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(responseWriter http.ResponseWriter, request *http.Request) {
 		responseWriter.Header().Set("Content-Type", "application/json")
 		if isDrifting {
-			_, _ = responseWriter.Write([]byte(`{"protocolVersion":"0.4.1","aggregateProtocolHash":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}`))
+			_, _ = responseWriter.Write([]byte(`{"status":"ok","protocolVersion":"0.4.1","aggregateProtocolHash":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}`))
 			return
 		}
-		_, _ = responseWriter.Write([]byte(`{"protocolVersion":"` + protocolVersion + `","aggregateProtocolHash":"` + aggregateProtocolHash + `"}`))
+		_, _ = responseWriter.Write([]byte(`{"status":"ok","protocolVersion":"` + protocolVersion + `","aggregateProtocolHash":"` + aggregateProtocolHash + `"}`))
 	}))
 	defer server.Close()
 

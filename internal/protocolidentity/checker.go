@@ -58,6 +58,7 @@ type Checker struct {
 
 type identityResponse struct {
 	Identity
+	Status string `json:"status,omitempty"`
 }
 
 func NewChecker(configuration Configuration) Checker {
@@ -87,8 +88,11 @@ func NewChecker(configuration Configuration) Checker {
 }
 
 func ValidateIdentity(identity Identity) error {
-	if strings.TrimSpace(identity.ProtocolVersion) == "" {
-		return errors.New("protocol version is required")
+	if identity.ProtocolVersion == "" || identity.ProtocolVersion != strings.TrimSpace(identity.ProtocolVersion) {
+		return errors.New("protocol version must be a non-empty trimmed string")
+	}
+	if identity.AggregateProtocolHash != strings.TrimSpace(identity.AggregateProtocolHash) {
+		return errors.New("aggregate protocol hash must be a 64-character lowercase hexadecimal hash")
 	}
 	if len(identity.AggregateProtocolHash) != 64 {
 		return errors.New("aggregate protocol hash must be a 64-character lowercase hexadecimal hash")
@@ -109,8 +113,8 @@ func (checker Checker) Check(ctx context.Context, expected Identity) Result {
 	}
 	requestContext, cancel := context.WithTimeout(ctx, checker.timeout)
 	defer cancel()
-	result.Capabilityd = checker.checkEndpoint(requestContext, checker.capabilityEndpoint, "/v1/capabilities", expected, checker.capabilityHTTPClient)
-	result.SDKD = checker.checkEndpoint(requestContext, checker.sdkdEndpoint, "/health", expected, checker.sdkdHTTPClient)
+	result.Capabilityd = checker.checkEndpoint(requestContext, checker.capabilityEndpoint, "/v1/capabilities", expected, "", checker.capabilityHTTPClient)
+	result.SDKD = checker.checkEndpoint(requestContext, checker.sdkdEndpoint, "/health", expected, "ok", checker.sdkdHTTPClient)
 	result.FailureReasons = append(result.FailureReasons, endpointFailureReason("capabilityd", result.Capabilityd))
 	result.FailureReasons = append(result.FailureReasons, endpointFailureReason("sdkd", result.SDKD))
 	result.FailureReasons = compactFailureReasons(result.FailureReasons)
@@ -118,7 +122,7 @@ func (checker Checker) Check(ctx context.Context, expected Identity) Result {
 	return result
 }
 
-func (checker Checker) checkEndpoint(ctx context.Context, endpoint string, path string, expected Identity, httpClient HTTPDoer) EndpointStatus {
+func (checker Checker) checkEndpoint(ctx context.Context, endpoint string, path string, expected Identity, requiredStatus string, httpClient HTTPDoer) EndpointStatus {
 	responseDocument := identityResponse{}
 	if errorValue := getJSON(ctx, endpoint, path, &responseDocument, httpClient); errorValue != nil {
 		return unavailableStatus(errorValue)
@@ -130,6 +134,11 @@ func (checker Checker) checkEndpoint(ctx context.Context, endpoint string, path 
 	if responseDocument.Identity != expected {
 		status.Status = "drift"
 		status.Error = fmt.Sprintf("expected protocolVersion %q and aggregateProtocolHash %q", expected.ProtocolVersion, expected.AggregateProtocolHash)
+		return status
+	}
+	if requiredStatus != "" && responseDocument.Status != requiredStatus {
+		status.Status = "unhealthy"
+		status.Error = fmt.Sprintf("expected status %q", requiredStatus)
 		return status
 	}
 	status.Status = "ok"
