@@ -370,6 +370,9 @@ func TestAgentTurnRunnerUsesLocalRecoveryWhenRemoteAndRecoveryModelsFail(t *test
 	if len(languageModel.localPrompts) == 0 {
 		t.Fatal("expected local recovery prompt")
 	}
+	if languageModel.legacyCalls != 0 {
+		t.Fatalf("expected local recovery Chat without legacy text calls, got %d", languageModel.legacyCalls)
+	}
 	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.failure_reply", "local_generated") {
 		t.Fatal("expected local generated failure reply event")
 	}
@@ -574,17 +577,15 @@ func TestAgentTurnRunnerAcceptsGeneratedStructuredFailureReplyWithStageAndCode(t
 	}
 }
 
-func TestLimitReachedPromptPreservesFailureReportFacts(t *testing.T) {
+func TestLimitFailureNoticePreservesTypedFailureFacts(t *testing.T) {
 	observations := []turnObservation{
 		newFailureObservation("obs-001", "continue", "terminal.run", `{"exitCode":1,"stderr":"mkdir: cannot create directory 'artifacts': Permission denied"}`, FailureExternalService, FailureCodes.OperationFailed, "terminal_run"),
 	}
-	prompt := buildLimitReachedPrompt(AgentTurnRequest{Prompt: "pptx 만들어줘"}, "max_iterations", observations, nil, ExecutionState{}, recoveryDecision{})
+	report := buildFailureReport(AgentTurnRequest{Prompt: "pptx 만들어줘"}, "task-1", "limit", "max_iterations", observations, nil, ExecutionState{}, recoveryDecision{})
+	prompt := buildFailureNoticePrompt(report)
 
 	for _, expectedText := range []string{
-		"FailureReportFacts that must be reflected accurately",
 		"terminal.run",
-		"operation_failed",
-		"terminal_run",
 		"Permission denied",
 	} {
 		if !strings.Contains(prompt, expectedText) {
@@ -593,7 +594,7 @@ func TestLimitReachedPromptPreservesFailureReportFacts(t *testing.T) {
 	}
 }
 
-func TestRequiredArtifactPromptsForbidTextSubstitute(t *testing.T) {
+func TestRequiredArtifactFailureNoticeForbidsTextSubstitute(t *testing.T) {
 	request := AgentTurnRequest{
 		Prompt:                     "사업계획서 발표 자료 pptx 만들어줘",
 		RequiredEvidenceTools:      []string{"file.deliver"},
@@ -601,16 +602,14 @@ func TestRequiredArtifactPromptsForbidTextSubstitute(t *testing.T) {
 		OutcomeContract:            OutcomeContract{ArtifactRequirement: ArtifactRequirementRequired},
 	}
 
-	failurePrompt := buildFailureReplyPrompt(request, "terminal.run failed", nil, nil, ExecutionState{}, recoveryDecision{})
-	limitPrompt := buildLimitReachedPrompt(request, "max_iterations", nil, nil, ExecutionState{}, recoveryDecision{})
+	report := buildFailureReport(request, "task-1", "failure", "terminal.run failed", nil, nil, ExecutionState{}, recoveryDecision{})
+	prompt := buildFailureNoticePrompt(report)
 
-	for _, prompt := range []string{failurePrompt, limitPrompt} {
-		if !strings.Contains(prompt, "Do not offer chat text as a substitute") {
-			t.Fatalf("expected required artifact prompt to forbid chat text substitute, got %s", prompt)
-		}
-		if !strings.Contains(prompt, "errorCode") {
-			t.Fatalf("expected required artifact prompt to mention raw diagnostic identifiers, got %s", prompt)
-		}
+	if !strings.Contains(prompt, "Do not offer chat text as a substitute") {
+		t.Fatalf("expected required artifact prompt to forbid chat text substitute, got %s", prompt)
+	}
+	if !strings.Contains(prompt, `"artifactRequired":true`) {
+		t.Fatalf("expected typed artifact requirement in compact context, got %s", prompt)
 	}
 }
 

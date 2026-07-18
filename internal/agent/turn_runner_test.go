@@ -1952,12 +1952,28 @@ func recoveryDecisionDocument(whatFailed string, whatWasKnown string, nextAction
 }
 
 func (languageModel *sequenceLanguageModel) GenerateResponse(_ context.Context, prompt string) (string, error) {
+	return languageModel.nextTextResponse(prompt), nil
+}
+
+func (languageModel *sequenceLanguageModel) GenerateRecoveryChatCompletion(_ context.Context, request llm.ChatCompletionRequest) (llm.ChatCompletionResponse, error) {
+	prompt := ""
+	if len(request.Messages) > 0 {
+		prompt = request.Messages[len(request.Messages)-1].Content
+	}
+	return llm.ChatCompletionResponse{
+		FinishReason:    "stop",
+		SelectedBackend: "remote",
+		Message:         llm.ChatCompletionMessage{Role: "assistant", Content: languageModel.nextTextResponse(prompt)},
+	}, nil
+}
+
+func (languageModel *sequenceLanguageModel) nextTextResponse(prompt string) string {
 	languageModel.textPrompts = append(languageModel.textPrompts, prompt)
 	index := len(languageModel.textPrompts) - 1
 	if index >= len(languageModel.textResponses) {
-		return "", nil
+		return ""
 	}
-	return languageModel.textResponses[index], nil
+	return languageModel.textResponses[index]
 }
 
 func (languageModel *sequenceLanguageModel) GenerateStructuredResponse(_ context.Context, request llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
@@ -2036,6 +2052,19 @@ func (languageModel *structuredFailureTextRecoveryLanguageModel) GenerateStructu
 	return llm.StructuredResponse{}, languageModel.errorValue
 }
 
+func (languageModel *structuredFailureTextRecoveryLanguageModel) GenerateRecoveryChatCompletion(_ context.Context, request llm.ChatCompletionRequest) (llm.ChatCompletionResponse, error) {
+	prompt := ""
+	if len(request.Messages) > 0 {
+		prompt = request.Messages[len(request.Messages)-1].Content
+	}
+	languageModel.textPrompts = append(languageModel.textPrompts, prompt)
+	return llm.ChatCompletionResponse{
+		FinishReason:    "stop",
+		SelectedBackend: "remote",
+		Message:         llm.ChatCompletionMessage{Role: "assistant", Content: languageModel.reply},
+	}, nil
+}
+
 type failingRecoveryLanguageModel struct {
 	errorValue error
 }
@@ -2053,6 +2082,7 @@ type localRecoveryFallbackLanguageModel struct {
 	localReply   string
 	localError   error
 	localPrompts []string
+	legacyCalls  int
 }
 
 func (languageModel localRecoveryFallbackLanguageModel) GenerateResponse(context.Context, string) (string, error) {
@@ -2064,15 +2094,37 @@ func (languageModel localRecoveryFallbackLanguageModel) GenerateStructuredRespon
 }
 
 func (languageModel *localRecoveryFallbackLanguageModel) GenerateRecoveryResponse(context.Context, string) (string, error) {
+	languageModel.legacyCalls++
 	return "", languageModel.errorValue
 }
 
 func (languageModel *localRecoveryFallbackLanguageModel) GenerateLocalRecoveryResponse(_ context.Context, prompt string) (string, error) {
+	languageModel.legacyCalls++
 	languageModel.localPrompts = append(languageModel.localPrompts, prompt)
 	if languageModel.localError != nil {
 		return "", languageModel.localError
 	}
 	return languageModel.localReply, nil
+}
+
+func (languageModel *localRecoveryFallbackLanguageModel) GenerateRecoveryChatCompletion(context.Context, llm.ChatCompletionRequest) (llm.ChatCompletionResponse, error) {
+	return llm.ChatCompletionResponse{}, languageModel.errorValue
+}
+
+func (languageModel *localRecoveryFallbackLanguageModel) GenerateLocalRecoveryChatCompletion(_ context.Context, request llm.ChatCompletionRequest) (llm.ChatCompletionResponse, error) {
+	prompt := ""
+	if len(request.Messages) > 0 {
+		prompt = request.Messages[len(request.Messages)-1].Content
+	}
+	languageModel.localPrompts = append(languageModel.localPrompts, prompt)
+	if languageModel.localError != nil {
+		return llm.ChatCompletionResponse{}, languageModel.localError
+	}
+	return llm.ChatCompletionResponse{
+		FinishReason:    "stop",
+		SelectedBackend: "device",
+		Message:         llm.ChatCompletionMessage{Role: "assistant", Content: languageModel.localReply},
+	}, nil
 }
 
 func taskEventsContain(taskEvents []task.TaskEvent, name string, bodyFragment string) bool {

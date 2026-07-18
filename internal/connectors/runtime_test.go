@@ -3819,6 +3819,14 @@ func (languageModel testLanguageModel) GenerateStructuredResponse(_ context.Cont
 	return llm.StructuredResponse{Content: connectorFinishMessage(languageModel.reply)}, nil
 }
 
+func (languageModel testLanguageModel) GenerateRecoveryChatCompletion(context.Context, llm.ChatCompletionRequest) (llm.ChatCompletionResponse, error) {
+	return llm.ChatCompletionResponse{
+		FinishReason:    "stop",
+		SelectedBackend: "remote",
+		Message:         llm.ChatCompletionMessage{Role: "assistant", Content: languageModel.reply},
+	}, languageModel.errorValue
+}
+
 type blockingTestLanguageModel struct {
 	reply   string
 	started chan struct{}
