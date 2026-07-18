@@ -175,6 +175,66 @@ func TestMCPToolProviderUsesCanonicalDescriptor(t *testing.T) {
 	}
 }
 
+func TestMCPToolProviderExcludesUserPresenceToolsFromScheduledRuns(t *testing.T) {
+	definition := mcp.ToolDefinition{
+		Name:           "workspace.echo",
+		Namespace:      "workspace",
+		Description:    "Echo workspace text",
+		InputSchema:    json.RawMessage(`{"type":"object","properties":{},"additionalProperties":false}`),
+		OutputSchema:   mcpProviderOutputSchema,
+		ResultContract: mcpProviderResultContract(),
+		Policy: mcp.PolicyMetadata{
+			PrivacyClass:         "workspace",
+			RequiresUserPresence: true,
+			ModelVisibility:      agent.ToolVisibilityModel,
+			PolicyResource:       "tool:workspace.echo",
+			SideEffectClass:      agent.ToolSideEffectRead,
+			CompletionMode:       agent.ToolCompletionNone,
+			Idempotency:          agent.ToolIdempotencySupported,
+			IdempotencyScope:     "operation",
+		},
+	}
+	provider := mcpToolProvider{
+		serverName:  "workspace",
+		definitions: []mcp.ToolDefinition{definition},
+		request:     ToolCatalogRequest{IsScheduledRun: true},
+	}
+	toolSet := agent.NewToolSet([]string{"workspace.echo"})
+
+	if errorValue := toolSet.RegisterProvider(context.Background(), provider); errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if toolSet.IsRegistered("workspace.echo") {
+		t.Fatal("scheduled runs must not register MCP tools that require user presence")
+	}
+
+	provider.request.IsScheduledRun = false
+	if errorValue := toolSet.RegisterProvider(context.Background(), provider); errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if !toolSet.IsRegistered("workspace.echo") {
+		t.Fatal("interactive runs must register MCP tools that require user presence")
+	}
+}
+
+func TestToolCatalogReportsEveryMCPQuarantine(t *testing.T) {
+	reportedProviders := []agent.QuarantinedToolProvider{}
+	toolCatalogBuilder := NewToolCatalogBuilder()
+	toolCatalogBuilder.UseMCPQuarantineReporter(func(quarantinedProvider agent.QuarantinedToolProvider) {
+		reportedProviders = append(reportedProviders, quarantinedProvider)
+	})
+	expectedProviders := []agent.QuarantinedToolProvider{
+		{ProviderID: "mcp:first", Reason: "invalid metadata"},
+		{ProviderID: "mcp:second", Reason: "tool name collision"},
+	}
+
+	toolCatalogBuilder.reportMCPQuarantines(expectedProviders)
+
+	if !reflect.DeepEqual(reportedProviders, expectedProviders) {
+		t.Fatalf("expected every MCP quarantine report, got %+v", reportedProviders)
+	}
+}
+
 func equalJSONSchema(firstSchema json.RawMessage, secondSchema json.RawMessage) bool {
 	var firstDocument any
 	var secondDocument any

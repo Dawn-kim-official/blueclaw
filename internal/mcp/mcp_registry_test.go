@@ -59,6 +59,31 @@ func TestMcpRegistryBuildsSchemaAwareToolCatalog(t *testing.T) {
 	}
 }
 
+func TestRuntimeExampleDefinesCanonicalMCPTools(t *testing.T) {
+	document, errorValue := os.ReadFile("../../config/runtime.example.json")
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	var runtimeConfiguration config.RuntimeConfiguration
+	if errorValue := json.Unmarshal(document, &runtimeConfiguration); errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if len(runtimeConfiguration.MCPServers) != 1 {
+		t.Fatalf("expected one example MCP server, got %+v", runtimeConfiguration.MCPServers)
+	}
+
+	serverDefinition, errorValue := buildServerDefinition(runtimeConfiguration.MCPServers[0])
+
+	if errorValue != nil {
+		t.Fatalf("expected valid example MCP metadata: %v", errorValue)
+	}
+	if len(serverDefinition.Tools) != 2 ||
+		serverDefinition.Tools[0].Name != "workspace.list" ||
+		serverDefinition.Tools[1].Name != "workspace.read" {
+		t.Fatalf("unexpected example MCP tools: %+v", serverDefinition.Tools)
+	}
+}
+
 func TestMcpRegistryQuarantinesLegacyAndUnreachableServers(t *testing.T) {
 	mcpRegistry := NewMcpRegistry()
 	loadReport := mcpRegistry.LoadServerDefinition([]config.MCPServerConfiguration{
