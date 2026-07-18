@@ -108,6 +108,58 @@ func TestAgentTurnRunnerCancelsModelCallAtExecutionEffortDeadline(t *testing.T) 
 	}
 }
 
+func TestAgentTurnRunnerFinishesElapsedActionErrorFromExactEvidence(t *testing.T) {
+	primaryLanguageModel := &nativeActionErrorLanguageModel{}
+	recoveryLanguageModel := &sequenceLanguageModel{textResponses: []string{"고객지원 분기 결산 업무가 남아 있습니다."}}
+	services := newTurnRunnerTestServicesWithRecoveryModel(
+		primaryLanguageModel,
+		recoveryLanguageModel,
+		TurnOptions{MaxElapsedSecond: 1, LimitFinalizationGrace: 500 * time.Millisecond},
+	)
+	toolRegistry := newTestToolSet([]string{"task.list"})
+	toolRegistry.RegisterTool(ToolDefinition{Name: "task.list"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return ToolSuccess(`{"count":1,"tasks":[{"title":"고객지원 분기 결산"}]}`), nil
+	})
+	startedAt := time.Now()
+
+	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
+		RequesterPersonID:     "person-1",
+		ConversationID:        "conversation-1",
+		Prompt:                "내 업무를 조회해서 고객지원 분기 결산 업무가 남아 있는지 알려줘",
+		ResponseLanguage:      ResponseLanguageKorean,
+		ToolSet:               toolRegistry,
+		PinnedToolNames:       toolRegistry.ListToolNames(),
+		RequiredEvidenceTools: []string{"task.list"},
+		EffortStartedAt:       time.Now().Add(-800 * time.Millisecond),
+	})
+
+	if errorValue != nil {
+		t.Fatalf("expected bounded evidence completion, got %v", errorValue)
+	}
+	if result.TaskRun.Status != task.TaskStatusCompleted {
+		t.Fatalf("expected completed task, got %+v", result.TaskRun)
+	}
+	if result.FinishMessage != recoveryLanguageModel.textResponses[0] {
+		t.Fatalf("expected model-authored completion reply, got %q", result.FinishMessage)
+	}
+	if primaryLanguageModel.chatCalls != 2 || primaryLanguageModel.finalizerCalls != 1 {
+		t.Fatalf("expected two native actions and one bounded finalizer, got chat=%d finalizer=%d", primaryLanguageModel.chatCalls, primaryLanguageModel.finalizerCalls)
+	}
+	taskEvents := services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID)
+	if !taskEventsContain(taskEvents, "agent.limit_stop", "max_elapsed") {
+		t.Fatal("expected max_elapsed stop before post-limit wording")
+	}
+	if !taskEventsContain(taskEvents, "agent.limit_completed_from_evidence", "max_elapsed") {
+		t.Fatal("expected elapsed evidence completion")
+	}
+	if len(recoveryLanguageModel.textPrompts) != 1 || !strings.Contains(recoveryLanguageModel.textPrompts[0], "- task.list:") {
+		t.Fatalf("expected exact task.list evidence in completion prompt, got %+v", recoveryLanguageModel.textPrompts)
+	}
+	if elapsed := time.Since(startedAt); elapsed >= 1500*time.Millisecond {
+		t.Fatalf("expected finalizer to respect the effort deadline, took %s", elapsed)
+	}
+}
+
 func TestAgentTurnRunnerFinalizesSuccessfulSideEffectAtExecutionEffortDeadline(t *testing.T) {
 	languageModel := &elapsedFinalizationLanguageModel{
 		firstAction: `{"action":"continue","toolName":"task.add","toolInput":{"prompt":"분기 결산 운영 검토"}}`,
@@ -689,6 +741,41 @@ type elapsedFinalizationLanguageModel struct {
 	finalizerStarted chan struct{}
 	finalizerCalls   int
 	actionCount      int
+}
+
+type nativeActionErrorLanguageModel struct {
+	chatCalls      int
+	finalizerCalls int
+}
+
+func (*nativeActionErrorLanguageModel) GenerateResponse(context.Context, string) (string, error) {
+	return "", nil
+}
+
+func (languageModel *nativeActionErrorLanguageModel) GenerateStructuredResponse(responseContext context.Context, request llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
+	if request.StructuredOutputSchema.Name != "blueclaw_agent_turn_finalizer" {
+		return llm.StructuredResponse{}, errors.New("unexpected structured request")
+	}
+	languageModel.finalizerCalls++
+	<-responseContext.Done()
+	return llm.StructuredResponse{}, responseContext.Err()
+}
+
+func (languageModel *nativeActionErrorLanguageModel) GenerateChatCompletion(_ context.Context, _ llm.ChatCompletionRequest) (llm.ChatCompletionResponse, error) {
+	languageModel.chatCalls++
+	if languageModel.chatCalls == 1 {
+		return llm.ChatCompletionResponse{
+			FinishReason: "tool_calls",
+			Message: llm.ChatCompletionMessage{
+				Role:      "assistant",
+				ToolCalls: []llm.ChatCompletionToolCall{nativeAgentActionToolCall("task.list", `{}`)},
+			},
+		}, nil
+	}
+	return llm.ChatCompletionResponse{
+		FinishReason: "stop",
+		Message:      llm.ChatCompletionMessage{Role: "assistant", Content: "고객지원 분기 결산 업무가 남아 있습니다."},
+	}, nil
 }
 
 func (languageModel *elapsedFinalizationLanguageModel) GenerateResponse(context.Context, string) (string, error) {

@@ -111,6 +111,57 @@ describe('sdkd provider adapter', () => {
     expect(llamaModel.doGenerateCalls).toHaveLength(0);
   });
 
+  test('rejects text when a tool call is required without fallback', async () => {
+    const fallbackModel = chatLanguageModel('unused-local-model');
+    const remoteModel = textLanguageModel('served-remote-model');
+    const generateChatCompletion = createChatCompletionGenerator(
+      completeConfiguration(SDKDAutoRoute.RemoteFirst),
+      languageModelFactory(fallbackModel, remoteModel),
+    );
+
+    await expect(generateChatCompletion({
+      ...chatRequest,
+      toolChoice: 'required',
+    })).rejects.toMatchObject({
+      code: 'structured_output_invalid',
+      status: 422,
+      allowLegacyFallback: false,
+      diagnostic: {
+        category: StructuredOutputDiagnosticCategory.FinishReason,
+        finishReason: ChatCompletionFinishReason.Stop,
+      },
+    });
+    expect(remoteModel.doGenerateCalls).toHaveLength(1);
+    expect(fallbackModel.doGenerateCalls).toHaveLength(0);
+  });
+
+  test('rejects named tool choice contract violations without fallback', async () => {
+    const invalidModels = [
+      textLanguageModel('text-model'),
+      toolCallLanguageModel('wrong-tool-model', [{ toolName: 'other', input: '{}' }]),
+      toolCallLanguageModel('multiple-tools-model', [
+        { toolName: 'lookup', input: '{"key":"first"}' },
+        { toolName: 'lookup', input: '{"key":"second"}' },
+      ]),
+    ];
+
+    for (const remoteModel of invalidModels) {
+      const fallbackModel = chatLanguageModel('unused-local-model');
+      const generateChatCompletion = createChatCompletionGenerator(
+        completeConfiguration(SDKDAutoRoute.RemoteFirst),
+        languageModelFactory(fallbackModel, remoteModel),
+      );
+
+      await expect(generateChatCompletion(chatRequest)).rejects.toMatchObject({
+        code: 'structured_output_invalid',
+        status: 422,
+        allowLegacyFallback: false,
+      });
+      expect(remoteModel.doGenerateCalls).toHaveLength(1);
+      expect(fallbackModel.doGenerateCalls).toHaveLength(0);
+    }
+  });
+
   test('rejects schema-invalid native tool arguments without fallback', async () => {
     const llamaModel = successfulLanguageModel('unused-local-model', { ok: true });
     const remoteModel = toolCallLanguageModel('served-remote-model', [{ toolName: 'lookup', input: '{' }]);
@@ -170,7 +221,7 @@ describe('sdkd provider adapter', () => {
       languageModelFactory(llamaModel, remoteModel),
     );
 
-    const response = await generateChatCompletion(chatRequest);
+    const response = await generateChatCompletion({ ...chatRequest, toolChoice: 'required' });
 
     expect(response.message.toolCalls).toEqual([{
       id: 'call-0',
@@ -198,7 +249,7 @@ describe('sdkd provider adapter', () => {
       languageModelFactory(llamaModel, remoteModel),
     );
 
-    const response = await generateChatCompletion(chatRequest);
+    const response = await generateChatCompletion({ ...chatRequest, toolChoice: 'required' });
 
     expect(response.message.toolCalls).toEqual([{
       id: 'call-0',
@@ -220,7 +271,11 @@ describe('sdkd provider adapter', () => {
       languageModelFactory(llamaModel, remoteModel),
     );
 
-    const response = await generateChatCompletion({ ...chatRequest, parallelToolCalls: true });
+    const response = await generateChatCompletion({
+      ...chatRequest,
+      toolChoice: 'required',
+      parallelToolCalls: true,
+    });
 
     expect(response.message.toolCalls?.map(toolCall => toolCall.function.arguments)).toEqual([
       '{"key":"first"}',
@@ -476,13 +531,28 @@ describe('sdkd provider adapter', () => {
       wireLanguageModelFactory(requestBodies),
     );
 
-    await generateChatCompletion({ ...chatRequest, executionMode: ExecutionMode.Remote, parallelToolCalls: false });
-    await generateChatCompletion({ ...chatRequest, executionMode: ExecutionMode.Device, parallelToolCalls: true });
+    await generateChatCompletion({
+      ...chatRequest,
+      executionMode: ExecutionMode.Remote,
+      toolChoice: 'auto',
+      parallelToolCalls: false,
+    });
+    await generateChatCompletion({
+      ...chatRequest,
+      executionMode: ExecutionMode.Device,
+      toolChoice: 'auto',
+      parallelToolCalls: true,
+    });
     const localOnlyGenerator = createChatCompletionGenerator(
       { ...completeConfiguration(SDKDAutoRoute.RemoteFirst), localOnly: true },
       wireLanguageModelFactory(requestBodies),
     );
-    await localOnlyGenerator({ ...chatRequest, executionMode: ExecutionMode.Auto, parallelToolCalls: false });
+    await localOnlyGenerator({
+      ...chatRequest,
+      executionMode: ExecutionMode.Auto,
+      toolChoice: 'auto',
+      parallelToolCalls: false,
+    });
 
     expect(requestBodies).toHaveLength(3);
     expect(requestBodies[0]?.parallel_tool_calls).toBe(false);
@@ -1294,6 +1364,19 @@ function chatLanguageModel(modelID: string): MockLanguageModelV3 {
       usage: defaultUsage(),
       response: { modelId: modelID, headers: { 'x-test': 'ok' } },
       providerMetadata: { openrouter: { trace: 'test' } },
+      warnings: [],
+    }),
+  });
+}
+
+function textLanguageModel(modelID: string): MockLanguageModelV3 {
+  return new MockLanguageModelV3({
+    modelId: modelID,
+    doGenerate: async () => ({
+      content: [{ type: 'text', text: 'The answer is ready.' }],
+      finishReason: { unified: 'stop', raw: 'stop' },
+      usage: defaultUsage(),
+      response: { modelId: modelID },
       warnings: [],
     }),
   });

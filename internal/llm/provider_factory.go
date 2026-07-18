@@ -91,9 +91,13 @@ func newSDKDClient(runtimeConfiguration config.RuntimeConfiguration, modelName s
 func configuredSDKDSchemaNames(runtimeConfiguration config.RuntimeConfiguration) []string {
 	configuredSchemaNames := runtimeConfiguration.LanguageModel.SDKD.StructuredSchemaNames
 	if len(configuredSchemaNames) == 0 {
-		return []string{"blueclaw_agent_turn_action", "blueclaw_turn_router", "blueclaw_recovery_decision"}
+		return DefaultSDKDStructuredSchemaNames()
 	}
 	return append([]string{}, configuredSchemaNames...)
+}
+
+func DefaultSDKDStructuredSchemaNames() []string {
+	return []string{"blueclaw_agent_turn_action", "blueclaw_agent_turn_finalizer", "blueclaw_turn_router", "blueclaw_recovery_decision"}
 }
 
 func newCapabilityLLMClient(runtimeConfiguration config.RuntimeConfiguration) CapabilityLLMClient {

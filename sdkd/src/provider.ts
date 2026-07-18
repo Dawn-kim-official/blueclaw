@@ -553,9 +553,10 @@ async function generateChatForRoute(
   abortSignal?: AbortSignal,
 ): Promise<ChatCompletionResponse> {
   const tools = createChatTools(request);
+  const toolChoice = convertToolChoice(request.toolChoice, Object.keys(tools));
   const messages = convertChatMessages(request);
   const system = systemContent(request);
-  const chatRoute = routeForChatRequest(request, route);
+  const chatRoute = routeForChatRequest(request, route, toolChoice);
   let repairAttempted = false;
   const repairStatuses = new Map<string, StructuredOutputRepairStatus>();
   const result = await generateText({
@@ -563,7 +564,7 @@ async function generateChatForRoute(
     system,
     messages,
     tools: Object.keys(tools).length > 0 ? tools : undefined,
-    toolChoice: convertToolChoice(request.toolChoice, Object.keys(tools)),
+    toolChoice,
     maxOutputTokens: request.generationOptions?.maxTokens,
     maxRetries: 0,
     abortSignal,
@@ -589,6 +590,7 @@ async function generateChatForRoute(
     temperature: request.generationOptions?.temperature,
   });
   throwIfAborted(abortSignal);
+  requireChatToolChoice(result, toolChoice);
   for (const toolCall of result.toolCalls) {
     if (!toolCall.invalid) continue;
     const toolName = tools[toolCall.toolName] === undefined ? undefined : toolCall.toolName;
@@ -626,8 +628,12 @@ async function generateChatForRoute(
   };
 }
 
-function routeForChatRequest(request: ChatCompletionRequest, route: ProviderRoute): ProviderRoute {
-  if (request.parallelToolCalls !== false) return route;
+function routeForChatRequest(
+  request: ChatCompletionRequest,
+  route: ProviderRoute,
+  toolChoice: ToolChoice<DynamicToolSet> | undefined,
+): ProviderRoute {
+  if (request.parallelToolCalls !== false || isNamedToolChoice(toolChoice)) return route;
   return { ...route, languageModel: firstToolCallLanguageModel(route.languageModel) };
 }
 
@@ -648,6 +654,55 @@ function keepFirstToolCall(result: LanguageModelV3GenerateResult): LanguageModel
     ...result,
     content: result.content.filter((content, index) => content.type !== 'tool-call' || index === firstToolCallIndex),
   };
+}
+
+function requireChatToolChoice(
+  result: StructuredOutputToolResult,
+  toolChoice: ToolChoice<DynamicToolSet> | undefined,
+): void {
+  if (toolChoice === 'required') {
+    requireToolCallFinishReason(result, 'required tool choice');
+    if (result.toolCalls.length > 0) return;
+    throw toolCallContractError('required tool choice did not return a tool call');
+  }
+  if (!isNamedToolChoice(toolChoice)) return;
+  requireToolCallFinishReason(result, `named tool choice ${toolChoice.toolName}`);
+  if (result.toolCalls.length !== 1) {
+    throw toolCallContractError(`named tool choice ${toolChoice.toolName} must return exactly one tool call`);
+  }
+  if (result.toolCalls[0]?.toolName !== toolChoice.toolName) {
+    throw toolCallContractError(`named tool choice ${toolChoice.toolName} returned a different tool`);
+  }
+}
+
+function isNamedToolChoice(
+  toolChoice: ToolChoice<DynamicToolSet> | undefined,
+): toolChoice is { type: 'tool'; toolName: string } {
+  return typeof toolChoice === 'object' && toolChoice.type === 'tool';
+}
+
+function requireToolCallFinishReason(result: StructuredOutputToolResult, subject: string): void {
+  if (result.finishReason === 'tool-calls') return;
+  throw new SDKDError(
+    'structured_output_invalid',
+    422,
+    false,
+    `${subject} finished with ${result.finishReason}`,
+    {
+      category: StructuredOutputDiagnosticCategory.FinishReason,
+      finishReason: normalizeChatFinishReason(result.finishReason),
+    },
+  );
+}
+
+function toolCallContractError(message: string): SDKDError {
+  return new SDKDError(
+    'structured_output_invalid',
+    422,
+    false,
+    message,
+    { category: StructuredOutputDiagnosticCategory.ToolCallContract },
+  );
 }
 
 function createChatTools(request: ChatCompletionRequest): DynamicToolSet {
