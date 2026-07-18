@@ -1358,9 +1358,11 @@ func (agentTurnRunner *AgentTurnRunner) blockTurnForStall(ctx context.Context, t
 	agentTurnRunner.saveStep(taskRunID, stepID, task.TaskStatusBlocked, "no_progress_loop_stopped", reason)
 	if !hasReply {
 		agentTurnRunner.appendUnavailableReplyEvents(taskRunID, "stall", reason, replyStatus)
-		fallbackReply := deterministicFailureFallbackReply(request.ResponseLanguage)
+		failureReport := buildFailureReport(request, taskRunID, "stall", reason, state.Observations, state.Attachments, state.ExecutionState, recoveryDecision{})
+		notice = buildRawErrorFailureNotice(failureReport)
+		fallbackReply := notice.SendableMessage()
 		blockedTaskRun = persistTaskRunResult(agentTurnRunner.taskRunService, blockedTaskRun, fallbackReply)
-		return AgentTurnResult{TaskRun: blockedTaskRun, UserNotice: fallbackReply, RecoveryActions: recoveryActionsFromObservations(state.Observations)}, true
+		return AgentTurnResult{TaskRun: blockedTaskRun, UserNotice: fallbackReply, FailureNotice: notice, RecoveryActions: recoveryActionsFromObservations(state.Observations)}, true
 	}
 	reply := notice.SendableMessage()
 	blockedTaskRun = persistTaskRunResult(agentTurnRunner.taskRunService, blockedTaskRun, reply)
@@ -1413,22 +1415,14 @@ func (agentTurnRunner *AgentTurnRunner) failTurnWithContext(ctx context.Context,
 	reply := failureNotice.SendableMessage()
 	if !hasReply {
 		agentTurnRunner.appendUnavailableReplyEvents(taskRunID, "failure", reason, replyStatus)
-		reply = deterministicFailureFallbackReply(request.ResponseLanguage)
+		failureReport := buildFailureReport(request, taskRunID, "failure", reason, observations, attachments, executionState, recoveryDecision{})
+		failureNotice = buildRawErrorFailureNotice(failureReport)
+		reply = failureNotice.SendableMessage()
 	}
 	failedTaskRun, _ := agentTurnRunner.taskRunService.FailTaskRun(taskRunID, reason)
 	failedTaskRun = persistTaskRunResult(agentTurnRunner.taskRunService, failedTaskRun, reply)
-	result := AgentTurnResult{TaskRun: failedTaskRun, UserNotice: reply, RecoveryActions: recoveryActionsFromObservations(observations)}
-	if hasReply {
-		result.FailureNotice = failureNotice
-	}
+	result := AgentTurnResult{TaskRun: failedTaskRun, UserNotice: reply, FailureNotice: failureNotice, RecoveryActions: recoveryActionsFromObservations(observations)}
 	return result, nil
-}
-
-func deterministicFailureFallbackReply(responseLanguage string) string {
-	if strings.HasPrefix(strings.ToLower(strings.TrimSpace(responseLanguage)), "en") {
-		return "Sorry — a temporary system error interrupted this task before it could finish. Please try again in a moment."
-	}
-	return "죄송합니다. 일시적인 시스템 오류로 요청을 끝까지 처리하지 못했습니다. 잠시 후 다시 시도해 주세요."
 }
 
 type limitPressureWarning struct {
@@ -2033,11 +2027,12 @@ func (agentTurnRunner *AgentTurnRunner) stopForLimit(ctx context.Context, taskRu
 	agentTurnRunner.appendEvent(taskRunID, "agent.limit_reply", marshalEventBody(replyStatus))
 	if !hasReply {
 		agentTurnRunner.appendUnavailableReplyEvents(taskRunID, "limit", reason, replyStatus)
-		fallbackReply := deterministicFailureFallbackReply(request.ResponseLanguage)
+		failureReport := buildFailureReport(request, taskRunID, "limit", reason, observations, attachments, executionState, recoveryDecision{})
+		failureNotice = buildRawErrorFailureNotice(failureReport)
 		if reason == "max_elapsed" {
 			failureNotice = buildElapsedLimitRawErrorFailureNotice(request)
-			fallbackReply = failureNotice.SendableMessage()
 		}
+		fallbackReply := failureNotice.SendableMessage()
 		blockedTaskRun = persistTaskRunResult(agentTurnRunner.taskRunService, blockedTaskRun, fallbackReply)
 		return AgentTurnResult{TaskRun: blockedTaskRun, UserNotice: fallbackReply, FailureNotice: failureNotice, RecoveryActions: recoveryActionsFromObservations(observations)}, nil
 	}

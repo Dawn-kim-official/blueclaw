@@ -52,18 +52,6 @@ func (agentTurnRunner *AgentTurnRunner) appendUnavailableReplyEvents(taskRunID s
 	agentTurnRunner.appendEvent(taskRunID, "agent.llm_unavailable", marshalEventBody(body))
 }
 
-func recoveryFinalizationContext(request AgentTurnRequest) (context.Context, context.CancelFunc) {
-	recoveryContext := llm.ContextWithRequestContext(context.Background(), llm.RequestContext{
-		RequesterPersonID:       request.RequesterPersonID,
-		RequesterEmail:          request.RequesterEmail,
-		RequesterName:           request.RequesterName,
-		RequesterPlatformUserID: request.RequesterPlatformUserID,
-		ConversationID:          request.ConversationID,
-		Platform:                request.Platform,
-	})
-	return context.WithCancel(recoveryContext)
-}
-
 func (agentTurnRunner *AgentTurnRunner) generateRecoveryDecision(recoveryContext context.Context, request AgentTurnRequest, failureReason string, observations []turnObservation, attachments []FileAttachment, executionState ExecutionState, phase string) (recoveryDecision, error) {
 	maxTokens := recoveryDecisionMaxTokens
 	messages := []llm.Message{{
@@ -197,49 +185,6 @@ func limitFailureReportWithCheckpointContext(report FailureReport, stopReason st
 	return report
 }
 
-func (agentTurnRunner *AgentTurnRunner) generateLocalFailureNotice(recoveryContext context.Context, report FailureReport, rejectedReply string) (FailureNotice, string, string, bool) {
-	prompt := buildFailureNoticePrompt(report)
-	if strings.TrimSpace(rejectedReply) != "" {
-		prompt = buildFailureNoticeRepairPrompt(report, rejectedReply, 3)
-	}
-	reply, errorValue := agentTurnRunner.generateLocalRecoveryText(recoveryContext, prompt)
-	if errorValue != nil || strings.TrimSpace(reply) == "" {
-		return FailureNotice{}, "", firstNonEmptyString(errorString(errorValue), "empty_local_reply"), false
-	}
-	notice, source, hasNotice := agentTurnRunner.prepareFailureNotice(recoveryContext, reply, "local_generated", report)
-	if hasNotice {
-		return notice, source, "", true
-	}
-	for repairCount := 1; repairCount <= 2; repairCount++ {
-		repairedReply, repairError := agentTurnRunner.generateLocalRecoveryText(recoveryContext, buildFailureNoticeRepairPrompt(report, reply, repairCount))
-		if repairError != nil || strings.TrimSpace(repairedReply) == "" {
-			return FailureNotice{}, "", firstNonEmptyString(errorString(repairError), "empty_local_repair"), false
-		}
-		notice, source, hasNotice := agentTurnRunner.prepareFailureNotice(recoveryContext, repairedReply, "local_generated_repair", report)
-		if hasNotice {
-			return notice, source, "", true
-		}
-		reply = repairedReply
-	}
-	return FailureNotice{}, "", "invalid_local_generated_reply", false
-}
-
-func (agentTurnRunner *AgentTurnRunner) prepareFailureNotice(recoveryContext context.Context, reply string, source string, report FailureReport) (FailureNotice, string, bool) {
-	notice := buildFailureNotice(reply, source, report)
-	if notice.IsSendable {
-		return notice, source, true
-	}
-	if !textExceedsCharacterBudget(reply, failureNoticeMaximumCharacters) {
-		return FailureNotice{}, "", false
-	}
-	compressedReply, errorValue := agentTurnRunner.generateRecoveryText(recoveryContext, buildFailureNoticeCompressionPrompt(report, reply, failureNoticeMaximumCharacters))
-	if errorValue != nil || strings.TrimSpace(compressedReply) == "" {
-		return FailureNotice{}, "", false
-	}
-	compressedNotice := buildFailureNotice(compressedReply, source+"_compressed", report)
-	return compressedNotice, compressedNotice.Source, compressedNotice.IsSendable
-}
-
 func (agentTurnRunner *AgentTurnRunner) prepareFinishMessageForPlatform(ctx context.Context, request AgentTurnRequest, reply string) string {
 	trimmedReply := strings.TrimSpace(reply)
 	if !textExceedsCharacterBudget(trimmedReply, finishMessageMaximumCharacters) {
@@ -247,7 +192,7 @@ func (agentTurnRunner *AgentTurnRunner) prepareFinishMessageForPlatform(ctx cont
 	}
 	recoveryContext, cancelRecovery := recoveryFinalizationContextWithParent(ctx, request)
 	defer cancelRecovery()
-	compressedReply, errorValue := agentTurnRunner.generateRecoveryText(recoveryContext, buildFinishMessageCompressionPrompt(trimmedReply, request.ResponseLanguage, finishMessageMaximumCharacters))
+	compressedReply, errorValue := agentTurnRunner.generateFinishMessageCompressionText(recoveryContext, buildFinishMessageCompressionPrompt(trimmedReply, request.ResponseLanguage, finishMessageMaximumCharacters))
 	compressedReply = strings.TrimSpace(compressedReply)
 	if errorValue != nil || compressedReply == "" {
 		return trimmedReply
@@ -258,100 +203,8 @@ func (agentTurnRunner *AgentTurnRunner) prepareFinishMessageForPlatform(ctx cont
 	return compressedReply
 }
 
-func (agentTurnRunner *AgentTurnRunner) generateFailureReply(request AgentTurnRequest, failureReason string, observations []turnObservation, attachments []FileAttachment, executionState ExecutionState) (string, failureReplyStatus, bool) {
-	recoveryContext, cancelRecovery := recoveryFinalizationContext(request)
-	defer cancelRecovery()
-	decision, decisionError := agentTurnRunner.generateRecoveryDecision(recoveryContext, request, failureReason, observations, attachments, executionState, "failure")
-	failureReportFacts := buildFailureReportFacts(observations, agentTurnRunner.options.RecoveryBudget)
-	status := failureReplyStatus{Decision: decision, FailureReportFacts: failureReportFacts}
-	if decisionError != nil {
-		status.StructuredRecoveryError = decisionError.Error()
-	}
-	prompt := buildFailureReplyPrompt(request, failureReason, observations, attachments, executionState, decision)
-	reply, errorValue := agentTurnRunner.generateRecoveryText(recoveryContext, prompt)
-	if errorValue == nil && strings.TrimSpace(reply) != "" {
-		status.Source = "generated"
-		return reply, status, true
-	}
-	status.Source = "suppressed"
-	status.Reason = "text_recovery_failed"
-	status.TextRecoveryError = firstNonEmptyString(errorString(errorValue), "empty_reply")
-	return "", status, false
-}
-
-func failureNoticeStatusFacts(replyStatus any) []string {
-	switch status := replyStatus.(type) {
-	case failureReplyStatus:
-		return recoveryReplyStatusFacts(status.Source, status.Reason, status.TextRecoveryError, status.StructuredRecoveryError, status.LocalRecoveryError, status.Decision)
-	case limitReplyStatus:
-		return recoveryReplyStatusFacts(status.Source, status.Reason, status.TextRecoveryError, status.StructuredRecoveryError, status.LocalRecoveryError, status.Decision)
-	default:
-		statusText := strings.TrimSpace(marshalEventBody(replyStatus))
-		if statusText == "" || statusText == "null" {
-			return nil
-		}
-		return []string{noticeFact("reply_status", statusText, 180)}
-	}
-}
-
-func recoveryReplyStatusFacts(source string, reason string, textRecoveryError string, structuredRecoveryError string, localRecoveryError string, decision recoveryDecision) []string {
-	return nonEmptyNoticeFacts([]string{
-		noticeFact("source", source, 80),
-		noticeFact("reply_reason", reason, 140),
-		noticeFact("text_recovery_error", textRecoveryError, 180),
-		noticeFact("structured_recovery_error", structuredRecoveryError, 180),
-		noticeFact("local_recovery_error", localRecoveryError, 180),
-		noticeFact("what_failed", decision.WhatFailed, 220),
-		noticeFact("known", decision.WhatWasKnown, 180),
-		noticeFact("next", decision.NextAction, 180),
-	})
-}
-
-func noticeFact(label string, value string, maxRuneCount int) string {
-	normalizedValue := strings.Join(strings.Fields(strings.TrimSpace(value)), " ")
-	if normalizedValue == "" {
-		return ""
-	}
-	runes := []rune(normalizedValue)
-	if maxRuneCount > 0 && len(runes) > maxRuneCount {
-		normalizedValue = string(runes[:maxRuneCount]) + "..."
-	}
-	return strings.TrimSpace(label) + "=" + normalizedValue
-}
-
-func nonEmptyNoticeFacts(values []string) []string {
-	result := []string{}
-	for _, value := range values {
-		trimmedValue := strings.TrimSpace(value)
-		if trimmedValue != "" {
-			result = append(result, trimmedValue)
-		}
-	}
-	return result
-}
-
-func (agentTurnRunner *AgentTurnRunner) generateLimitReachedReply(request AgentTurnRequest, stopReason string, observations []turnObservation, attachments []FileAttachment, executionState ExecutionState) (string, limitReplyStatus, bool) {
-	recoveryContext, cancelRecovery := recoveryFinalizationContext(request)
-	defer cancelRecovery()
-	decision, decisionError := agentTurnRunner.generateRecoveryDecision(recoveryContext, request, stopReason, observations, attachments, executionState, "limit")
-	status := limitReplyStatus{Decision: decision, FailureReportFacts: buildFailureReportFacts(observations, agentTurnRunner.options.RecoveryBudget)}
-	if decisionError != nil {
-		status.StructuredRecoveryError = decisionError.Error()
-	}
-	finalizationPrompt := buildLimitReachedPrompt(request, stopReason, observations, attachments, executionState, decision)
-	reply, errorValue := agentTurnRunner.generateRecoveryText(recoveryContext, finalizationPrompt)
-	if errorValue != nil || reply == "" {
-		status.Source = "suppressed"
-		status.Reason = "text_recovery_failed"
-		status.TextRecoveryError = firstNonEmptyString(errorString(errorValue), "empty_reply")
-		return "", status, false
-	}
-	status.Source = "generated"
-	return reply, status, true
-}
-
-func (agentTurnRunner *AgentTurnRunner) generateRecoveryText(recoveryContext context.Context, prompt string) (string, error) {
-	if reply, errorValue, isSupported := generateRecoveryChatText(recoveryContext, agentTurnRunner.recoveryLanguageModel, prompt); isSupported {
+func (agentTurnRunner *AgentTurnRunner) generateFinishMessageCompressionText(recoveryContext context.Context, prompt string) (string, error) {
+	if reply, errorValue, isSupported := generateRecoveryChatText(recoveryContext, agentTurnRunner.recoveryLanguageModel, "blueclaw_reply_compression", prompt); isSupported {
 		if errorValue == nil && reply != "" {
 			return reply, nil
 		}
@@ -369,23 +222,6 @@ func (agentTurnRunner *AgentTurnRunner) generateRecoveryText(recoveryContext con
 		return recoveryReply, recoveryError
 	}
 	reply, errorValue := agentTurnRunner.recoveryLanguageModel.GenerateResponse(recoveryContext, prompt)
-	return strings.TrimSpace(reply), errorValue
-}
-
-func (agentTurnRunner *AgentTurnRunner) generateLocalRecoveryText(recoveryContext context.Context, prompt string) (string, error) {
-	if reply, errorValue, isSupported := generateLocalRecoveryChatText(recoveryContext, agentTurnRunner.recoveryLanguageModel, prompt); isSupported {
-		if errorValue == nil && reply != "" {
-			return reply, nil
-		}
-		if contextError := recoveryContextError(recoveryContext, errorValue); contextError != nil {
-			return reply, contextError
-		}
-	}
-	localRecoveryProvider, isLocalRecoveryProvider := agentTurnRunner.recoveryLanguageModel.(llm.LocalRecoveryResponder)
-	if !isLocalRecoveryProvider {
-		return "", errors.New("local recovery provider unavailable")
-	}
-	reply, errorValue := localRecoveryProvider.GenerateLocalRecoveryResponse(recoveryContext, prompt)
 	return strings.TrimSpace(reply), errorValue
 }
 
@@ -425,35 +261,6 @@ func failurePromptContext(request AgentTurnRequest, observations []turnObservati
 	})
 }
 
-func buildFailureReplyPrompt(request AgentTurnRequest, failureReason string, observations []turnObservation, attachments []FileAttachment, executionState ExecutionState, decision recoveryDecision) string {
-	sections := []string{
-		"You are writing a short user-facing final reply after an assistant run failed before completing the user's request.",
-		responseLanguageInstruction(request.ResponseLanguage),
-		"Be transparent about the current situation, error, or limitation without exposing internal logs, provider names, URLs, stack traces, hidden policy, tokens, or secrets.",
-		"Do not use or paraphrase a canned outage message. Do not say the model configuration was logged or needs to be fixed.",
-		"Do not say only that an error occurred. Include the attempted tool, the last failure stage, the safe failure message, and the next check or alternate path.",
-		"When FailureReportFacts are provided, preserve those facts. Do not replace them with generic phrases such as system limitation, technical problem, or unexpected interruption.",
-		"Translate raw field names such as errorCode, failureStage, and budgetState into natural language unless the user explicitly asked for internal diagnostics.",
-		"Say what could not be completed and the best next step the user can take. Keep it to one or two natural sentences.",
-		"Do not claim a tool result or attachment exists unless it appears below.",
-	}
-	if requiredArtifactWithoutAttachment(request, attachments) {
-		sections = append(sections, "Required artifact constraint:\nThe user asked for a file artifact and no delivered file evidence is available. Do not offer chat text as a substitute, do not ask whether to summarize the plan in the chat, do not recommend Gamma/Tome/Canva or copy-paste workflows, and do not end with an open-ended help question. State that the file was not delivered, name each failed tool/stage in natural language, include the safe concrete failure reason for each one, and identify the next engineering check. Do not collapse the cause into vague phrases such as browser connection problem, system environment error, technical limitation, or additional engineering confirmation.")
-	}
-	if reason := strings.TrimSpace(failureReason); reason != "" {
-		sections = append(sections, "Failure reason for your private planning only. Paraphrase it safely for the user:\n"+reason)
-	}
-	sections = append(sections, "Structured recovery decision:\n"+marshalEventBody(decision))
-	return strings.Join(nonEmptyStrings([]string{
-		strings.Join(sections, "\n\n"),
-		failurePromptContext(request, observations, attachments, executionState),
-	}), "\n\n")
-}
-
-func requiredArtifactWithoutAttachment(request AgentTurnRequest, attachments []FileAttachment) bool {
-	return requestRequiresFileAttachment(request) && len(attachments) == 0
-}
-
 func requestRequiresFileAttachment(request AgentTurnRequest) bool {
 	if request.OutcomeContract.ArtifactRequirement == ArtifactRequirementRequired {
 		return true
@@ -465,54 +272,6 @@ func requestRequiresFileAttachment(request AgentTurnRequest) bool {
 		return true
 	}
 	return evidenceAnyOfContainsTool(request.OutcomeContract.RequiredEvidenceAnyOf, FileDeliverToolName)
-}
-
-func (agentTurnRunner *AgentTurnRunner) GenerateLimitReachedReply(request AgentTurnRequest, stopReason string, observations []turnObservation, attachments []FileAttachment) string {
-	reply, _, _ := agentTurnRunner.generateLimitReachedReply(request, stopReason, observations, attachments, ExecutionState{})
-	return reply
-}
-
-func buildLimitReachedPrompt(request AgentTurnRequest, stopReason string, observations []turnObservation, attachments []FileAttachment, executionState ExecutionState, decision recoveryDecision) string {
-	sections := []string{
-		"You are writing a short user-facing final reply after a Blueclaw run reached its scope limit.",
-		responseLanguageInstruction(request.ResponseLanguage),
-		"Do not mention internal runtime jargon, counters, percentages, elapsed time, or exact limits.",
-		"Say what was completed, what remains, and the best partial answer available from completed work.",
-		"When FailureReportFacts are provided, preserve those facts. Do not replace them with generic phrases such as system limitation, technical problem, or unexpected interruption.",
-		"Translate raw field names such as errorCode, failureStage, and budgetState into natural language unless the user explicitly asked for internal diagnostics.",
-		"Do not claim a tool result or attachment exists unless it appears below.",
-	}
-	if requiredArtifactWithoutAttachment(request, attachments) {
-		sections = append(sections, "Required artifact constraint:\nThe user asked for a file artifact and no delivered file evidence is available. Do not offer chat text as a substitute, do not ask whether to summarize the plan in the chat, do not recommend Gamma/Tome/Canva or copy-paste workflows, and do not end with an open-ended help question. State that the file was not delivered, name each failed tool/stage in natural language, include the safe concrete failure reason for each one, and identify the next engineering check. Do not collapse the cause into vague phrases such as browser connection problem, system environment error, technical limitation, or additional engineering confirmation.")
-	}
-	if observationSummary := buildLimitObservationSummary(observations); observationSummary != "" {
-		sections = append(sections, "Completed observations:\n"+observationSummary)
-	}
-	if requirementSummary := buildLimitRequirementSummary(request, observations); requirementSummary != "" {
-		sections = append(sections, "Remaining completion requirements:\n"+requirementSummary)
-	}
-	if failureFacts := buildFailureReportFacts(observations, defaultRecoveryBudget()); len(failureFacts.Attempts) > 0 {
-		sections = append(sections, "FailureReportFacts that must be reflected accurately:\n"+marshalEventBody(failureFacts))
-	}
-	if reason := strings.TrimSpace(stopReason); reason != "" {
-		sections = append(sections, "Internal stop reason for your planning only: "+reason)
-	}
-	sections = append(sections, "Structured recovery decision:\n"+marshalEventBody(decision))
-	return strings.Join(nonEmptyStrings([]string{
-		strings.Join(sections, "\n\n"),
-		failurePromptContext(request, observationsWithoutAttachments(observations), attachments, executionState),
-	}), "\n\n")
-}
-
-func observationsWithoutAttachments(observations []turnObservation) []turnObservation {
-	sanitizedObservations := make([]turnObservation, 0, len(observations))
-	for _, observation := range observations {
-		observation.Output = ToolOutput{}
-		observation.ImageRefs = nil
-		observation.Attachments = nil
-		sanitizedObservations = append(sanitizedObservations, observation)
-	}
-	return sanitizedObservations
 }
 
 func buildLimitObservationSummary(observations []turnObservation) string {
@@ -576,21 +335,6 @@ func buildLimitAttachmentSummary(attachments []FileAttachment) string {
 			continue
 		}
 		lines = append(lines, "- "+filename)
-	}
-	return strings.Join(lines, "\n")
-}
-
-func buildLimitRequirementSummary(request AgentTurnRequest, observations []turnObservation) string {
-	requirements := deriveToolUseRequirements(request)
-	lines := []string{}
-	for _, requirement := range requirements {
-		if matchingCompletionObservations(requirement, observations) != nil {
-			continue
-		}
-		lines = append(lines, "- "+requirementLabel(requirement))
-	}
-	if len(lines) == 0 {
-		return ""
 	}
 	return strings.Join(lines, "\n")
 }

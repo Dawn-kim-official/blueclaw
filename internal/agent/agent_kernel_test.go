@@ -1019,7 +1019,7 @@ func TestAgentKernelGeneratesIntakeNoticeWhenRouterReplyMissing(t *testing.T) {
 		ResponseLanguage: "ko",
 		Reason:           "request is outside the available execution boundary",
 	}})
-	agentKernel.UseLanguageModelProvider(staticReplyProvider{content: "지금 실행 범위에서는 안전하게 처리할 수 없어요. 요청을 좁혀주시면 도와드릴게요."})
+	agentKernel.UseLanguageModelProvider(&recoveryChatNoticeProvider{chatReply: "지금 실행 범위에서는 안전하게 처리할 수 없어요. 요청을 좁혀주시면 도와드릴게요."})
 
 	result, errorValue := agentKernel.RunAgentRequest(context.Background(), kernelTestRequest("시스템 패키지 전부 지워줘"))
 	if errorValue != nil {
@@ -1127,7 +1127,7 @@ func TestAgentKernelPersistsTurnRouterFailureWithoutFallbackRoute(t *testing.T) 
 		},
 		errorValue: errors.New("router unavailable"),
 	})
-	agentKernel.UseLanguageModelProvider(fixedReplyLanguageModel{reply: "요청을 분류하지 못해 이번 작업을 시작하지 못했습니다. 다시 요청해 주세요."})
+	agentKernel.UseLanguageModelProvider(&recoveryChatNoticeProvider{chatReply: "요청을 분류하지 못해 이번 작업을 시작하지 못했습니다. 다시 요청해 주세요."})
 
 	result, errorValue := agentKernel.RunAgentRequest(context.Background(), kernelTestRequest("오늘 무슨 요일이야?"))
 	if errorValue != nil {

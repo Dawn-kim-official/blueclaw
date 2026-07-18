@@ -20,12 +20,14 @@ func TestFailureNoticeSendabilityDoesNotParseModelWording(t *testing.T) {
 
 type recoveryChatNoticeProvider struct {
 	chatReply        string
+	chatReplies      []string
 	chatFinishReason string
 	chatError        error
 	legacyReply      string
 	legacyError      error
 	chatCalls        int
 	legacyCalls      int
+	chatRequests     []llm.ChatCompletionRequest
 }
 
 type recoveryChatNoticeAccessor struct {
@@ -67,7 +69,12 @@ func (provider *recoveryChatNoticeProvider) GenerateLocalRecoveryResponse(contex
 	return provider.legacyReply, provider.legacyError
 }
 
-func (provider *recoveryChatNoticeProvider) GenerateRecoveryChatCompletion(context.Context, llm.ChatCompletionRequest) (llm.ChatCompletionResponse, error) {
+func (provider *recoveryChatNoticeProvider) GenerateRecoveryChatCompletion(_ context.Context, request llm.ChatCompletionRequest) (llm.ChatCompletionResponse, error) {
+	provider.chatRequests = append(provider.chatRequests, request)
+	reply := provider.chatReply
+	if provider.chatCalls < len(provider.chatReplies) {
+		reply = provider.chatReplies[provider.chatCalls]
+	}
 	provider.chatCalls++
 	finishReason := provider.chatFinishReason
 	if finishReason == "" {
@@ -76,11 +83,16 @@ func (provider *recoveryChatNoticeProvider) GenerateRecoveryChatCompletion(conte
 	return llm.ChatCompletionResponse{
 		FinishReason:    finishReason,
 		SelectedBackend: "remote",
-		Message:         llm.ChatCompletionMessage{Role: "assistant", Content: provider.chatReply},
+		Message:         llm.ChatCompletionMessage{Role: "assistant", Content: reply},
 	}, provider.chatError
 }
 
-func (provider *recoveryChatNoticeProvider) GenerateLocalRecoveryChatCompletion(context.Context, llm.ChatCompletionRequest) (llm.ChatCompletionResponse, error) {
+func (provider *recoveryChatNoticeProvider) GenerateLocalRecoveryChatCompletion(_ context.Context, request llm.ChatCompletionRequest) (llm.ChatCompletionResponse, error) {
+	provider.chatRequests = append(provider.chatRequests, request)
+	reply := provider.chatReply
+	if provider.chatCalls < len(provider.chatReplies) {
+		reply = provider.chatReplies[provider.chatCalls]
+	}
 	provider.chatCalls++
 	finishReason := provider.chatFinishReason
 	if finishReason == "" {
@@ -89,7 +101,7 @@ func (provider *recoveryChatNoticeProvider) GenerateLocalRecoveryChatCompletion(
 	return llm.ChatCompletionResponse{
 		FinishReason:    finishReason,
 		SelectedBackend: "device",
-		Message:         llm.ChatCompletionMessage{Role: "assistant", Content: provider.chatReply},
+		Message:         llm.ChatCompletionMessage{Role: "assistant", Content: reply},
 	}, provider.chatError
 }
 
@@ -103,6 +115,9 @@ func TestFailureNoticeGeneratorUsesRecoveryChatBeforeLegacyText(t *testing.T) {
 	}
 	if provider.chatCalls != 1 || provider.legacyCalls != 0 {
 		t.Fatalf("expected chat-first generation, got chat=%d legacy=%d", provider.chatCalls, provider.legacyCalls)
+	}
+	if len(provider.chatRequests) != 1 || provider.chatRequests[0].SchemaName != "blueclaw_failure_notice" {
+		t.Fatalf("expected named failure notice chat request, got %+v", provider.chatRequests)
 	}
 }
 
@@ -119,20 +134,20 @@ func TestFailureNoticeGeneratorResolvesNestedRecoveryChatAccessor(t *testing.T) 
 	}
 }
 
-func TestFailureNoticeGeneratorFallsBackToLegacyAfterRecoveryChatFailure(t *testing.T) {
+func TestFailureNoticeGeneratorUsesRawErrorAfterRecoveryChatFailure(t *testing.T) {
 	provider := &recoveryChatNoticeProvider{chatError: errors.New("chat unavailable"), legacyReply: "legacy recovery reply"}
 	generator := FailureNoticeGenerator{LanguageModel: provider}
 
 	notice, status := generator.Generate(context.Background(), FailureReport{Phase: "failure", StopReason: "tool failed", ResponseLanguage: "en"})
-	if status.Source != "generated" || notice.SendableMessage() != "legacy recovery reply" {
-		t.Fatalf("expected legacy recovery notice, got notice=%+v status=%+v", notice, status)
+	if status.Source != "raw_error" || notice.SendableMessage() != "tool failed" {
+		t.Fatalf("expected raw recovery notice, got notice=%+v status=%+v", notice, status)
 	}
-	if provider.chatCalls != 1 || provider.legacyCalls != 1 {
-		t.Fatalf("expected chat then legacy fallback, got chat=%d legacy=%d", provider.chatCalls, provider.legacyCalls)
+	if provider.chatCalls != 2 || provider.legacyCalls != 0 {
+		t.Fatalf("expected recovery and local Chat without legacy fallback, got chat=%d legacy=%d", provider.chatCalls, provider.legacyCalls)
 	}
 }
 
-func TestFailureNoticeGeneratorFallsBackToLegacyAfterIncompleteRecoveryChat(t *testing.T) {
+func TestFailureNoticeGeneratorUsesRawErrorAfterIncompleteRecoveryChat(t *testing.T) {
 	provider := &recoveryChatNoticeProvider{
 		chatReply:        "incomplete recovery reply",
 		chatFinishReason: "length",
@@ -141,11 +156,11 @@ func TestFailureNoticeGeneratorFallsBackToLegacyAfterIncompleteRecoveryChat(t *t
 	generator := FailureNoticeGenerator{LanguageModel: provider}
 
 	notice, status := generator.Generate(context.Background(), FailureReport{Phase: "failure", StopReason: "tool failed", ResponseLanguage: "en"})
-	if status.Source != "generated" || notice.SendableMessage() != "legacy recovery reply" {
-		t.Fatalf("expected legacy recovery notice, got notice=%+v status=%+v", notice, status)
+	if status.Source != "raw_error" || notice.SendableMessage() != "tool failed" {
+		t.Fatalf("expected raw recovery notice, got notice=%+v status=%+v", notice, status)
 	}
-	if provider.chatCalls != 1 || provider.legacyCalls != 1 {
-		t.Fatalf("expected incomplete chat then legacy fallback, got chat=%d legacy=%d", provider.chatCalls, provider.legacyCalls)
+	if provider.chatCalls != 2 || provider.legacyCalls != 0 {
+		t.Fatalf("expected incomplete recovery and local Chat without legacy fallback, got chat=%d legacy=%d", provider.chatCalls, provider.legacyCalls)
 	}
 }
 
@@ -154,7 +169,7 @@ func TestFailureNoticeGeneratorDoesNotUseLegacyAfterRecoveryChatCancellation(t *
 	responseContext, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	reply, errorValue := (FailureNoticeGenerator{LanguageModel: provider}).generateRecoveryText(responseContext, "failure prompt")
+	reply, errorValue := (FailureNoticeGenerator{LanguageModel: provider}).generateRecoveryText(responseContext, "blueclaw_failure_notice", "failure prompt")
 	if reply != "" || !errors.Is(errorValue, context.Canceled) {
 		t.Fatalf("expected canceled recovery chat, got %q and %v", reply, errorValue)
 	}
@@ -163,7 +178,7 @@ func TestFailureNoticeGeneratorDoesNotUseLegacyAfterRecoveryChatCancellation(t *
 	}
 }
 
-func TestFailureNoticeGeneratorKeepsRawErrorAfterChatAndLegacyFailures(t *testing.T) {
+func TestFailureNoticeGeneratorKeepsRawErrorAfterChatFailures(t *testing.T) {
 	provider := &recoveryChatNoticeProvider{
 		chatError:   errors.New("chat unavailable"),
 		legacyError: errors.New("legacy unavailable"),
@@ -188,9 +203,11 @@ func TestFailureNoticeSendabilityAllowsPublicURLAndNaturalEllipsis(t *testing.T)
 }
 
 func TestFailureNoticeGeneratorRejectsUngroundedGeneratedReply(t *testing.T) {
-	generator := FailureNoticeGenerator{LanguageModel: reviewingReplyLanguageModel{
-		reply:           "4. I am a large language model, trained by Google DeepMind. I am an open weights model.",
-		structuredReply: `{"decision":"rewrite","message":"사이트 빌드가 정체되어 요청하신 귤 웹사이트를 아직 게시하지 못했습니다. 현재 작업 상태를 다시 확인한 뒤 같은 프로젝트에서 이어가겠습니다.","reason":"candidate was unrelated to the failure context"}`,
+	generator := FailureNoticeGenerator{LanguageModel: &recoveryChatNoticeProvider{
+		chatReplies: []string{
+			"4. I am a large language model, trained by Google DeepMind. I am an open weights model.",
+			"사이트 빌드가 정체되어 요청하신 귤 웹사이트를 아직 게시하지 못했습니다. 현재 작업 상태를 다시 확인한 뒤 같은 프로젝트에서 이어가겠습니다.",
+		},
 	}}
 
 	notice, status := generator.Generate(context.Background(), FailureReport{
@@ -204,7 +221,7 @@ func TestFailureNoticeGeneratorRejectsUngroundedGeneratedReply(t *testing.T) {
 	})
 
 	if status.Source != "generated_review" || notice.Source != "generated_review" {
-		t.Fatalf("expected structured review rewrite, got notice=%+v status=%+v", notice, status)
+		t.Fatalf("expected Chat review rewrite, got notice=%+v status=%+v", notice, status)
 	}
 	if strings.Contains(notice.SendableMessage(), "large language model") {
 		t.Fatalf("expected unrelated generated text not to be sent, got %q", notice.SendableMessage())
@@ -328,17 +345,12 @@ func (model staticReplyLanguageModel) GenerateStructuredResponse(context.Context
 	return llm.StructuredResponse{}, errors.New("structured response unsupported")
 }
 
-type reviewingReplyLanguageModel struct {
-	reply           string
-	structuredReply string
-}
-
-func (model reviewingReplyLanguageModel) GenerateResponse(context.Context, string) (string, error) {
-	return model.reply, nil
-}
-
-func (model reviewingReplyLanguageModel) GenerateStructuredResponse(context.Context, llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
-	return llm.StructuredResponse{Content: model.structuredReply}, nil
+func (model staticReplyLanguageModel) GenerateRecoveryChatCompletion(context.Context, llm.ChatCompletionRequest) (llm.ChatCompletionResponse, error) {
+	return llm.ChatCompletionResponse{
+		FinishReason:    "stop",
+		SelectedBackend: "remote",
+		Message:         llm.ChatCompletionMessage{Role: "assistant", Content: model.reply},
+	}, nil
 }
 
 func TestIntakeNoticeGeneratorUsesGeneratedReply(t *testing.T) {
