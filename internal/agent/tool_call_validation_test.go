@@ -38,6 +38,53 @@ func TestAgentTurnRunnerRecordsDeniedToolAsObservation(t *testing.T) {
 	}
 }
 
+func TestAgentTurnRunnerRejectsMalformedInputBeforeApproval(t *testing.T) {
+	languageModel := &sequenceLanguageModel{contents: []string{
+		directToolAction("continue", "", "site.delete", `{"siteID":42}`),
+		noToolFallbackFinishMessageDocument("삭제 요청 형식을 확인하지 못했습니다."),
+	}}
+	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 3})
+	toolRegistry := newTestCapabilityToolSet([]string{"site.delete"})
+	handlerCallCount := 0
+	toolRegistry.RegisterTool(ToolDefinition{
+		Name:             "site.delete",
+		RequiresApproval: true,
+		InputSchema: json.RawMessage(`{
+			"type":"object",
+			"properties":{"siteID":{"type":"string"}},
+			"required":["siteID"],
+			"additionalProperties":false
+		}`),
+	}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		handlerCallCount++
+		return ToolSuccess("deleted"), nil
+	})
+
+	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
+		RequesterPersonID: "person-1",
+		ConversationID:    "conversation-1",
+		Prompt:            "사이트를 삭제해줘",
+		ToolSet:           toolRegistry,
+		PinnedToolNames:   []string{"site.delete"},
+	})
+	if errorValue != nil {
+		t.Fatalf("expected malformed call recovery: %v", errorValue)
+	}
+	if result.TaskRun.Status == task.TaskStatusWaitingApproval {
+		t.Fatal("expected malformed input to stay outside the approval flow")
+	}
+	if handlerCallCount != 0 {
+		t.Fatalf("expected malformed input to stay outside the handler, got %d calls", handlerCallCount)
+	}
+	events := services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID)
+	if !taskEventsContain(events, "agent.tool_input_malformed", "site.delete") {
+		t.Fatalf("expected malformed input event, got %+v", events)
+	}
+	if taskEventsContain(events, "approval.pending_call", "") {
+		t.Fatalf("expected no held approval call, got %+v", events)
+	}
+}
+
 func TestValidateTerminalToolInputRejectsRegisteredToolNameAsCommand(t *testing.T) {
 	toolRegistry := newTestToolSet([]string{"terminal.run"})
 	toolRegistry.RegisterTool(ToolDefinition{Name: "site.create"}, func(context.Context, ToolInvocation) (ToolResult, error) {

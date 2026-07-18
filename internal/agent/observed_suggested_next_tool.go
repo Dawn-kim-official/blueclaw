@@ -1,7 +1,6 @@
 package agent
 
 import (
-	"encoding/json"
 	"strings"
 )
 
@@ -51,47 +50,6 @@ func suggestedNextToolFromObservation(observation turnObservation) string {
 			if trimmedToolName := strings.TrimSpace(toolName); trimmedToolName != "" {
 				return trimmedToolName
 			}
-		}
-	}
-	document := map[string]any{}
-	if json.Unmarshal([]byte(strings.TrimSpace(observation.ContentText())), &document) != nil {
-		return ""
-	}
-	return suggestedNextToolFromValue(document)
-}
-
-func suggestedNextToolFromValue(value any) string {
-	switch typedValue := value.(type) {
-	case map[string]any:
-		if toolName := strings.TrimSpace(stringValue(typedValue["suggestedNextTool"])); toolName != "" {
-			return toolName
-		}
-		if toolName := firstStringValue(typedValue["suggestedNextTools"]); toolName != "" {
-			return toolName
-		}
-		for _, key := range []string{"workspaceHealthDetails", "result", "data"} {
-			if toolName := suggestedNextToolFromValue(typedValue[key]); toolName != "" {
-				return toolName
-			}
-		}
-	case []any:
-		for _, item := range typedValue {
-			if toolName := suggestedNextToolFromValue(item); toolName != "" {
-				return toolName
-			}
-		}
-	}
-	return ""
-}
-
-func firstStringValue(value any) string {
-	values, isArray := value.([]any)
-	if !isArray {
-		return ""
-	}
-	for _, item := range values {
-		if toolName := strings.TrimSpace(stringValue(item)); toolName != "" {
-			return toolName
 		}
 	}
 	return ""

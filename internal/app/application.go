@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net"
@@ -741,8 +742,19 @@ func capabilityToolResultContract(contract *config.CapabilityToolResultContract)
 		})
 	}
 	return &agentruntime.CapabilityToolResultContract{
-		Schema:  contract.Schema,
-		Effects: effects,
+		Schema:            contract.Schema,
+		Effects:           effects,
+		EvidenceCondition: capabilityEvidenceCondition(contract.EvidenceCondition),
+	}
+}
+
+func capabilityEvidenceCondition(condition *config.EvidenceCondition) *agentruntime.CapabilityEvidenceCondition {
+	if condition == nil {
+		return nil
+	}
+	return &agentruntime.CapabilityEvidenceCondition{
+		ResultField: condition.ResultField,
+		Equals:      append(json.RawMessage{}, condition.Equals...),
 	}
 }
 

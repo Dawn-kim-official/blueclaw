@@ -77,6 +77,22 @@ func TestTaskHistoryDescriptorIsInternal(t *testing.T) {
 	}
 }
 
+func TestLegacyBrowserHandoffIsRegisteredButHiddenFromModels(t *testing.T) {
+	toolCatalogBuilder := NewToolCatalogBuilder()
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(map[string][]string{
+		"default": {"browser_handoff.openURL"},
+	}, nil)
+	toolSet := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
+
+	descriptor, isFound := toolSet.ToolDefinition("browser_handoff.openURL")
+	if !isFound || descriptor.Visibility != agent.ToolVisibilityInternal {
+		t.Fatalf("expected registered internal browser handoff descriptor, found=%v descriptor=%+v", isFound, descriptor)
+	}
+	if toolSet.CanExpose("browser_handoff.openURL") || containsString(toolSet.ListToolNames(), "browser_handoff.openURL") {
+		t.Fatalf("expected browser handoff to stay outside model exposure, got %+v", toolSet.ListToolNames())
+	}
+}
+
 func TestLocalToolDescriptorsAreComplete(t *testing.T) {
 	identifiers := map[string]string{}
 	names := map[string]string{}

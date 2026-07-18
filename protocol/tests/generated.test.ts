@@ -17,8 +17,18 @@ describe('protocol artifacts', () => {
       'calendar.list',
       'calendar.update',
       'calendar.delete',
+      'site.create',
+      'site.status',
+      'site.preview',
+      'site.publish',
+      'site.delete',
       'document.read',
       'image.read',
+      'browser.open',
+      'browser.snapshot',
+      'browser.screenshot',
+      'browser.click',
+      'artifact.review',
     ]);
     expect(manifest.schemas.map(({ name }: { name: string }) => name)).toEqual(Object.keys(protocolSchemas).sort());
     expect(manifest.schemas.map(({ name }: { name: string }) => name)).toEqual(

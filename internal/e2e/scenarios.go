@@ -190,7 +190,7 @@ func AttachmentMaterialReadScenario(artifactDirectoryPath string) VirtualSession
 			}},
 			ContextMaterials: []connectors.InputAttachment{attachment},
 			ActionResponses: []string{
-				actionCallTool("image.read", `{"materialID":"mattermost:file-1"}`),
+				actionCallTool("image.read", `{"path":"/workspace/circles/staff/inbox/virtual/virtual-conversation-1/virtual-message-001/mascot.png"}`),
 				actionFinishMessage("이미지를 확인했습니다.", "obs-001:image.read:0"),
 			},
 			ExpectedToolCalls:      []string{"image.read"},
@@ -566,7 +566,7 @@ func AmbientDutyCalendarAcceptanceScenario(artifactDirectoryPath string) Virtual
 			ReplyTargetID:    "virtual-message-001",
 			Addressing:       connectors.AddressingMetadata{},
 			ActionResponses: []string{
-				actionInvokeCapabilityTool("calendar.add", `{"title":"정기회의","startISO":"2026-06-12T17:00:00+09:00","endISO":"2026-06-12T18:00:00+09:00","timeZone":"Asia/Seoul","attendees":["최견본","이샘플"]}`),
+				actionInvokeCapabilityTool("calendar.add", `{"title":"정기회의","startISO":"2026-06-12T17:00:00+09:00","endISO":"2026-06-12T18:00:00+09:00","timeZone":"Asia/Seoul","people":["최견본","이샘플"]}`),
 				actionFinishMessage("정기회의 일정을 추가했습니다.", "obs-001:calendar.add:0"),
 			},
 			ExpectedSelectedSkills: []string{"calendar"},
@@ -1024,7 +1024,7 @@ func SiteEditRedeployAcceptanceScenario(artifactDirectoryPath string) VirtualSes
 			{
 				Prompt: "Update the same Local Fleet Studio website heading to say 'Local Fleet Studio Updated' and add the subtitle 'Redeploy verification passed', then redeploy the same site. Do not create a new site.",
 				ActionResponses: []string{
-					actionCallTool("site.status", `{"siteID":"site-1"}`),
+					actionCallTool("site.status", `{"siteReference":"site-1"}`),
 					actionCallTool("file.write", `{"path":"/workspace/circles/staff/sites/demo/draft/app/public/site-content.json","content":"{\"siteName\":\"Local Fleet Studio Updated\",\"tagline\":\"Redeploy verification passed\",\"blocks\":[{\"variant\":\"hero\",\"title\":\"Local Fleet Studio Updated\",\"body\":\"Redeploy verification passed\"}]}"}`),
 					actionInvokeCapabilityTool("site.publish", `{"siteID":"site-1","message":"Update heading to Local Fleet Studio Updated"}`),
 					actionFinishMessage("Updated and redeployed the site: https://demo.device.example.test", "obs-002:file.write:0", "obs-003:site.publish:0"),
@@ -1055,6 +1055,12 @@ func SiteCustomStructureAcceptanceScenario(artifactDirectoryPath string) Virtual
 		AllowedTools:           append(agent.KernelToolNames(), sitePrototypeCapabilityToolNames()...),
 		CapabilityToolNames:    sitePrototypeCapabilityToolNames(),
 		InitialToolNames:       []string{"site.publish", "file.write", "terminal.run"},
+		InitialSite: &VirtualSiteFixture{
+			SiteID:      "site-1",
+			Slug:        "demo",
+			Title:       "Local Fleet Studio",
+			IsPublished: true,
+		},
 		Turns: []VirtualTurn{{
 			Prompt: "Local Fleet Studio 웹사이트 레이아웃을 두 칼럼 커스텀 구조로 바꿔서 다시 배포해줘.",
 			ActionResponses: []string{
@@ -1124,7 +1130,7 @@ func SiteLifecycleAcceptanceScenario(artifactDirectoryPath string) VirtualSessio
 					"site.publish",
 				},
 				ActionResponses: []string{
-					actionCallTool("site.status", `{"siteID":"site-1"}`),
+					actionCallTool("site.status", `{"siteReference":"site-1"}`),
 					actionCallTool("file.write", `{"path":"/workspace/circles/staff/sites/demo/draft/app/src/App.tsx","content":"export default function App() {\n  return <main><h1>Local Fleet Studio Updated</h1><p>재배포 검증 완료</p></main>;\n}\n"}`),
 					actionCallTool("terminal.run", `{"command":"mkdir -p dist && printf '<!doctype html><html><body><main><h1>Local Fleet Studio Updated</h1><p>재배포 검증 완료</p></main></body></html>' > dist/index.html","workingDirectoryPath":"/workspace/circles/staff/sites/demo/draft/app","timeoutSecond":120}`),
 					actionInvokeCapabilityTool("site.publish", `{"siteID":"site-1","message":"Update Local Fleet Studio heading"}`),
@@ -1145,7 +1151,7 @@ func SiteLifecycleAcceptanceScenario(artifactDirectoryPath string) VirtualSessio
 					"site.delete",
 				},
 				ActionResponses: []string{
-					actionCallTool("site.status", `{"siteID":"site-1"}`),
+					actionCallTool("site.status", `{"siteReference":"site-1"}`),
 					actionCallToolWithMessage("site.delete", "Local Fleet Studio 테스트 웹사이트를 삭제합니다.", `{"siteID":"site-1"}`),
 				},
 				ExpectedEventCounts: []VirtualEventCount{
@@ -1174,51 +1180,6 @@ func SiteLifecycleAcceptanceScenario(artifactDirectoryPath string) VirtualSessio
 				ExpectedReplyFragments: []string{"삭제했습니다"},
 			},
 		},
-	}
-}
-
-func SiteSuggestedRepairRecoveryScenario(artifactDirectoryPath string) VirtualSessionScenario {
-	return VirtualSessionScenario{
-		Name:                   "site_suggested_repair_recovery",
-		ArtifactDirectoryPath:  artifactDirectoryPath,
-		RouterRequiredEvidence: []string{"site.publish"},
-		RouterSiteEvidence:     "웹사이트 퀄리티가 너무 낮잖아",
-		Skills:                 []agent.SkillInstruction{sitePrototypeSkill()},
-		AllowedTools:           append([]string{"conversation.history", "memory.search", "file.write", "terminal.run"}, sitePrototypeCapabilityToolNames()...),
-		CapabilityToolNames:    sitePrototypeCapabilityToolNames(),
-		InitialToolNames:       []string{"site.status", "site.repair", "site.publish", "file.write", "terminal.run"},
-		Turns: []VirtualTurn{{
-			Prompt: "더 예쁘게 해달라구. 웹사이트 퀄리티가 너무 낮잖아.",
-			ActionResponses: []string{
-				actionCallTool("site.status", `{"siteID":"site-1"}`),
-				actionFinishMessage("사이트 수정이 어렵습니다."),
-				actionInvokeCapabilityTool("site.status", `{"siteID":"site-1"}`),
-				actionInvokeCapabilityTool("site.repair", `{"siteID":"site-1"}`),
-				actionCallTool("file.write", `{"path":"/workspace/circles/staff/sites/demo/draft/app/src/App.tsx","content":"export default function App() {\n  return <main><h1>Polished Citrus Studio</h1><p>Fresh, warm, and carefully crafted.</p></main>;\n}\n"}`),
-				actionCallTool("terminal.run", `{"command":"mkdir -p dist && printf '<!doctype html><html><body><main><h1>Polished Citrus Studio</h1><p>Fresh, warm, and carefully crafted.</p></main></body></html>' > dist/index.html","workingDirectoryPath":"/workspace/circles/staff/sites/demo/draft/app","timeoutSecond":120}`),
-				actionInvokeCapabilityTool("site.publish", `{"siteID":"site-1","message":"Improve visual quality"}`),
-				actionFinishMessage("사이트를 더 예쁘게 다듬고 다시 배포했습니다: https://demo.device.example.test", "obs-007:site.publish:0"),
-			},
-			ExpectedSelectedSkills: []string{"site-prototype"},
-			ExpectedToolCalls:      []string{"site.status", "site.repair", "file.write", "terminal.run", "site.publish"},
-			ExpectedToolCallCounts: map[string]int{
-				"site.status":  2,
-				"site.repair":  1,
-				"file.write":   1,
-				"terminal.run": 1,
-				"site.publish": 1,
-			},
-			ExpectedEvents:         []string{"agent.completion_required"},
-			ExpectedModelContexts:  []string{"site.repair", "/workspace/circles/staff/sites/demo/draft"},
-			ForbiddenModelContexts: []string{"home/sites/site-1"},
-			ExpectedReplyFragments: []string{"https://demo.device.example.test"},
-			ForbiddenReplyFragments: []string{
-				"권한",
-				"제약",
-				"어렵",
-				"완료하지 못",
-			},
-		}},
 	}
 }
 
@@ -1350,7 +1311,7 @@ func PlatformMessageEditAcceptanceScenario(artifactDirectoryPath string) Virtual
 		Turns: []VirtualTurn{{
 			Prompt: "방금 올린 공지 message virtual-platform-message-001 문구를 '오늘 오후 6시에 전체 공지 회의가 있습니다.'로 바꿔줘",
 			ActionResponses: []string{
-				actionCallTool("message.update", `{"messageID":"virtual-platform-message-001","text":"오늘 오후 6시에 전체 공지 회의가 있습니다."}`),
+				actionCallTool("message.update", `{"messageID":"virtual-platform-message-001","message":"오늘 오후 6시에 전체 공지 회의가 있습니다."}`),
 				actionFinishMessage("공지 메시지 문구를 수정했습니다.", "obs-001:message.update:0"),
 			},
 			ExpectedToolCalls: []string{"message.update"},
@@ -1359,7 +1320,7 @@ func PlatformMessageEditAcceptanceScenario(artifactDirectoryPath string) Virtual
 			},
 			ExpectedEventCounts: []VirtualEventCount{
 				{Name: "tool.message.update.requested", BodyFragment: `"messageID":"virtual-platform-message-001"`, Count: 1},
-				{Name: "tool.message.update.requested", BodyFragment: `"text":"오늘 오후 6시에 전체 공지 회의가 있습니다."`, Count: 1},
+				{Name: "tool.message.update.requested", BodyFragment: `"message":"오늘 오후 6시에 전체 공지 회의가 있습니다."`, Count: 1},
 			},
 		}},
 	}
@@ -1383,8 +1344,8 @@ func presentationSkill() agent.SkillInstruction {
 func sitePrototypeSkill() agent.SkillInstruction {
 	return agent.SkillInstruction{
 		Name:           "site-prototype",
-		Description:    "Create, publish, update, take down, restore, or delete React and PocketBase 웹사이트, 사이트, web app, and website prototypes.",
-		Prompt:         "Create and publish website prototypes. For a new prototype, call site.create with a DNS-safe slug and title, write or edit source inside the returned site workspace, call terminal.run to build the app with bun, then call site.publish with the siteID and a concise message. Never claim deployment succeeded until site.publish succeeds.",
+		Description:    "Create, preview, publish, update, inspect, or delete React and PocketBase 웹사이트, 사이트, web app, and website prototypes.",
+		Prompt:         "Create and publish website prototypes. For a new prototype, call site.create with a DNS-safe slug and title, write or edit source inside the returned site workspace, call terminal.run to build the app with bun, optionally call site.preview for review, then call site.publish with the siteID and a concise message. Never claim deployment succeeded until site.publish succeeds.",
 		ToolReferences: sitePrototypeToolNames(),
 		Source: agent.InstructionSource{
 			Path:      "skills/site-prototype/SKILL.md",
@@ -1402,13 +1363,9 @@ func sitePrototypeToolNames() []string {
 		"file.write",
 		"file.edit",
 		"site.create",
-		"site.repair",
-		"site.publish",
 		"site.status",
-		"site.logs",
-		"site.rollback",
-		"site.unpublish",
-		"site.restore",
+		"site.preview",
+		"site.publish",
 		"site.delete",
 		"user.confirm",
 	}
@@ -1417,14 +1374,9 @@ func sitePrototypeToolNames() []string {
 func sitePrototypeCapabilityToolNames() []string {
 	return []string{
 		"site.create",
-		"site.publish",
 		"site.status",
-		"site.logs",
-		"site.repair",
-		"site.rollback",
-		"site.unpublish",
-		"site.restore",
+		"site.preview",
+		"site.publish",
 		"site.delete",
-		"user.confirm",
 	}
 }

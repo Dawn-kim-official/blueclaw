@@ -254,6 +254,23 @@
           },
           "type": "array"
         },
+        "evidenceCondition": {
+          "additionalProperties": false,
+          "properties": {
+            "equals": {
+              "$ref": "#/$defs/__schema0"
+            },
+            "resultField": {
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "resultField",
+            "equals"
+          ],
+          "type": "object"
+        },
         "schema": {
           "additionalProperties": {},
           "properties": {

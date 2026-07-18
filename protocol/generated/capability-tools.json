@@ -316,6 +316,7 @@
             },
             "taskID": {
               "minLength": 1,
+              "pattern": "^\\S(?:.*\\S)?$",
               "type": "string"
             },
             "type": {
@@ -635,6 +636,7 @@
                   },
                   "taskID": {
                     "minLength": 1,
+                    "pattern": "^\\S(?:.*\\S)?$",
                     "type": "string"
                   },
                   "type": {
@@ -753,6 +755,7 @@
           "taskID": {
             "description": "Exact ID of the task to update, copied from a task.list result.",
             "minLength": 1,
+            "pattern": "^\\S(?:.*\\S)?$",
             "type": "string"
           },
           "title": {
@@ -1006,6 +1009,7 @@
             },
             "taskID": {
               "minLength": 1,
+              "pattern": "^\\S(?:.*\\S)?$",
               "type": "string"
             },
             "type": {
@@ -1050,6 +1054,7 @@
           "taskID": {
             "description": "Exact ID of the task to delete, copied from a task.list result.",
             "minLength": 1,
+            "pattern": "^\\S(?:.*\\S)?$",
             "type": "string"
           }
         },
@@ -1223,6 +1228,7 @@
             },
             "taskID": {
               "minLength": 1,
+              "pattern": "^\\S(?:.*\\S)?$",
               "type": "string"
             }
           },
@@ -1492,6 +1498,7 @@
             },
             "eventID": {
               "minLength": 1,
+              "pattern": "^\\S(?:.*\\S)?$",
               "type": "string"
             },
             "isAllDay": {
@@ -1777,6 +1784,7 @@
                   },
                   "eventID": {
                     "minLength": 1,
+                    "pattern": "^\\S(?:.*\\S)?$",
                     "type": "string"
                   },
                   "isAllDay": {
@@ -1905,6 +1913,7 @@
           "eventID": {
             "description": "Exact event ID copied from a calendar.list result.",
             "minLength": 1,
+            "pattern": "^\\S(?:.*\\S)?$",
             "type": "string"
           },
           "includeRequester": {
@@ -2126,6 +2135,7 @@
             },
             "eventID": {
               "minLength": 1,
+              "pattern": "^\\S(?:.*\\S)?$",
               "type": "string"
             },
             "isAllDay": {
@@ -2233,6 +2243,7 @@
           "eventID": {
             "description": "Exact event ID copied from a calendar.list result.",
             "minLength": 1,
+            "pattern": "^\\S(?:.*\\S)?$",
             "type": "string"
           }
         },
@@ -2406,11 +2417,1300 @@
             },
             "eventID": {
               "minLength": 1,
+              "pattern": "^\\S(?:.*\\S)?$",
               "type": "string"
             }
           },
           "required": [
             "eventID",
+            "deleted"
+          ],
+          "type": "object"
+        }
+      },
+      "sideEffect": "destructive",
+      "sideEffectClass": "destructive",
+      "version": "2",
+      "worksOffline": false
+    },
+    {
+      "availability": {
+        "state": "ok"
+      },
+      "canonicalName": "site.create",
+      "completionEvidence": {
+        "action": "create_site",
+        "mode": "success",
+        "targetKind": "site"
+      },
+      "description": "Create a site workspace and return its exact siteID and sourceWorkspacePath. Use file.edit on that path for subsequent source changes.",
+      "estimatedLatency": "medium",
+      "idempotency": {
+        "required": false,
+        "scope": "operation",
+        "supported": false
+      },
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "archetype": {
+            "description": "Site archetype, such as dashboard or landing-page.",
+            "type": "string"
+          },
+          "audience": {
+            "description": "Intended audience.",
+            "type": "string"
+          },
+          "content": {
+            "additionalProperties": false,
+            "description": "Structured content for a basic content site.",
+            "properties": {
+              "heroActionHref": {
+                "type": "string"
+              },
+              "heroActionLabel": {
+                "type": "string"
+              },
+              "sections": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "body": {
+                      "type": "string"
+                    },
+                    "title": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "title",
+                    "body"
+                  ],
+                  "type": "object"
+                },
+                "minItems": 1,
+                "type": "array"
+              },
+              "siteName": {
+                "type": "string"
+              },
+              "tagline": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "siteName",
+              "sections"
+            ],
+            "type": "object"
+          },
+          "description": {
+            "description": "Short public-facing description.",
+            "type": "string"
+          },
+          "designBrief": {
+            "description": "Visual style and layout guidance.",
+            "type": "string"
+          },
+          "domainKeywords": {
+            "description": "Domain terms that should inform the site.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "idea": {
+            "description": "Core concept or value proposition.",
+            "type": "string"
+          },
+          "prompt": {
+            "description": "Natural-language description of the site to build.",
+            "type": "string"
+          },
+          "prototypeScope": {
+            "description": "Scope limit for the initial implementation.",
+            "type": "string"
+          },
+          "purpose": {
+            "description": "Why the site exists and who it serves.",
+            "type": "string"
+          },
+          "slug": {
+            "description": "Unique URL-safe site identifier, such as team-dashboard.",
+            "minLength": 1,
+            "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+            "type": "string"
+          },
+          "title": {
+            "description": "Human-readable site name.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "slug"
+        ],
+        "type": "object"
+      },
+      "inputSchemaStrict": true,
+      "modelName": "site.create",
+      "modelVisibility": "visible",
+      "modelVisible": true,
+      "name": "site.create",
+      "namespace": "site",
+      "outputSchema": {
+        "$defs": {
+          "__schema0": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              },
+              {
+                "items": {
+                  "$ref": "#/$defs/__schema0"
+                },
+                "type": "array"
+              },
+              {
+                "additionalProperties": {
+                  "$ref": "#/$defs/__schema0"
+                },
+                "propertyNames": {
+                  "type": "string"
+                },
+                "type": "object"
+              }
+            ]
+          }
+        },
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "content": {
+            "type": "string"
+          },
+          "effects": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "contentType": {
+                  "type": "string"
+                },
+                "durability": {
+                  "type": "string"
+                },
+                "effect": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "filename": {
+                  "type": "string"
+                },
+                "id": {
+                  "type": "string"
+                },
+                "objectType": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "path": {
+                  "type": "string"
+                },
+                "summary": {
+                  "type": "string"
+                },
+                "url": {
+                  "type": "string"
+                },
+                "visibility": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "objectType",
+                "effect"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "errorCode": {
+            "type": "string"
+          },
+          "failureStage": {
+            "type": "string"
+          },
+          "isError": {
+            "type": "boolean"
+          },
+          "message": {
+            "type": "string"
+          },
+          "outcome": {
+            "enum": [
+              "succeeded",
+              "failed",
+              "denied"
+            ],
+            "type": "string"
+          },
+          "provider": {
+            "type": "string"
+          },
+          "result": {
+            "$ref": "#/$defs/__schema0"
+          },
+          "retryable": {
+            "type": "boolean"
+          },
+          "safeRetry": {
+            "type": "boolean"
+          },
+          "selectedBackend": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "toolName": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "provider",
+          "selectedBackend",
+          "toolName",
+          "result"
+        ],
+        "type": "object"
+      },
+      "outputSchemaStrict": true,
+      "policyResource": "tool:site.create",
+      "privacyClass": "workspace_site",
+      "requiresUserPresence": false,
+      "resultContract": {
+        "effects": [
+          {
+            "effect": "created",
+            "effectIdentity": "id",
+            "objectType": "website",
+            "resultField": "siteID"
+          }
+        ],
+        "schema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "additionalProperties": false,
+          "properties": {
+            "appWorkspacePath": {
+              "minLength": 1,
+              "pattern": "^\\S(?:.*\\S)?$",
+              "type": "string"
+            },
+            "siteID": {
+              "minLength": 1,
+              "pattern": "^\\S(?:.*\\S)?$",
+              "type": "string"
+            },
+            "slug": {
+              "minLength": 1,
+              "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+              "type": "string"
+            },
+            "sourceWorkspacePath": {
+              "minLength": 1,
+              "pattern": "^\\S(?:.*\\S)?$",
+              "type": "string"
+            },
+            "status": {
+              "const": "draft",
+              "type": "string"
+            },
+            "title": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "siteID",
+            "slug",
+            "title",
+            "status",
+            "sourceWorkspacePath",
+            "appWorkspacePath"
+          ],
+          "type": "object"
+        }
+      },
+      "sideEffect": "workspace_write",
+      "sideEffectClass": "workspace_write",
+      "version": "2",
+      "worksOffline": false
+    },
+    {
+      "availability": {
+        "state": "ok"
+      },
+      "canonicalName": "site.status",
+      "description": "Read one site by exact siteID or slug and return its sourceWorkspacePath, lifecycle status, and published or preview URLs.",
+      "estimatedLatency": "low",
+      "idempotency": {
+        "required": false,
+        "scope": "operation",
+        "supported": false
+      },
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "checkLive": {
+            "description": "Probe the published URL in addition to reading persisted status.",
+            "type": "boolean"
+          },
+          "siteReference": {
+            "description": "Exact siteID or exact slug from the request or an earlier site result.",
+            "minLength": 1,
+            "pattern": "^\\S(?:.*\\S)?$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "siteReference"
+        ],
+        "type": "object"
+      },
+      "inputSchemaStrict": true,
+      "modelName": "site.status",
+      "modelVisibility": "visible",
+      "modelVisible": true,
+      "name": "site.status",
+      "namespace": "site",
+      "outputSchema": {
+        "$defs": {
+          "__schema0": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              },
+              {
+                "items": {
+                  "$ref": "#/$defs/__schema0"
+                },
+                "type": "array"
+              },
+              {
+                "additionalProperties": {
+                  "$ref": "#/$defs/__schema0"
+                },
+                "propertyNames": {
+                  "type": "string"
+                },
+                "type": "object"
+              }
+            ]
+          }
+        },
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "content": {
+            "type": "string"
+          },
+          "effects": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "contentType": {
+                  "type": "string"
+                },
+                "durability": {
+                  "type": "string"
+                },
+                "effect": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "filename": {
+                  "type": "string"
+                },
+                "id": {
+                  "type": "string"
+                },
+                "objectType": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "path": {
+                  "type": "string"
+                },
+                "summary": {
+                  "type": "string"
+                },
+                "url": {
+                  "type": "string"
+                },
+                "visibility": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "objectType",
+                "effect"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "errorCode": {
+            "type": "string"
+          },
+          "failureStage": {
+            "type": "string"
+          },
+          "isError": {
+            "type": "boolean"
+          },
+          "message": {
+            "type": "string"
+          },
+          "outcome": {
+            "enum": [
+              "succeeded",
+              "failed",
+              "denied"
+            ],
+            "type": "string"
+          },
+          "provider": {
+            "type": "string"
+          },
+          "result": {
+            "$ref": "#/$defs/__schema0"
+          },
+          "retryable": {
+            "type": "boolean"
+          },
+          "safeRetry": {
+            "type": "boolean"
+          },
+          "selectedBackend": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "toolName": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "provider",
+          "selectedBackend",
+          "toolName",
+          "result"
+        ],
+        "type": "object"
+      },
+      "outputSchemaStrict": true,
+      "policyResource": "tool:site.status",
+      "privacyClass": "workspace_site",
+      "requiresUserPresence": false,
+      "resultContract": {
+        "effects": [],
+        "schema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "additionalProperties": false,
+          "properties": {
+            "appWorkspacePath": {
+              "minLength": 1,
+              "pattern": "^\\S(?:.*\\S)?$",
+              "type": "string"
+            },
+            "lastError": {
+              "type": "string"
+            },
+            "liveHTTPStatus": {
+              "maximum": 9007199254740991,
+              "minimum": -9007199254740991,
+              "type": "integer"
+            },
+            "previewURL": {
+              "minLength": 1,
+              "pattern": "^\\S(?:.*\\S)?$",
+              "type": "string"
+            },
+            "publishedURL": {
+              "minLength": 1,
+              "pattern": "^\\S(?:.*\\S)?$",
+              "type": "string"
+            },
+            "siteID": {
+              "minLength": 1,
+              "pattern": "^\\S(?:.*\\S)?$",
+              "type": "string"
+            },
+            "slug": {
+              "minLength": 1,
+              "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+              "type": "string"
+            },
+            "sourceWorkspacePath": {
+              "minLength": 1,
+              "pattern": "^\\S(?:.*\\S)?$",
+              "type": "string"
+            },
+            "status": {
+              "enum": [
+                "draft",
+                "publishing",
+                "published",
+                "unpublished",
+                "failed"
+              ],
+              "type": "string"
+            },
+            "title": {
+              "type": "string"
+            },
+            "updatedAt": {
+              "type": "string"
+            },
+            "workspaceHealth": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "siteID",
+            "slug",
+            "title",
+            "status",
+            "sourceWorkspacePath"
+          ],
+          "type": "object"
+        }
+      },
+      "sideEffect": "read",
+      "sideEffectClass": "read",
+      "version": "2",
+      "worksOffline": false
+    },
+    {
+      "availability": {
+        "state": "ok"
+      },
+      "canonicalName": "site.preview",
+      "completionEvidence": {
+        "action": "preview_site",
+        "mode": "success",
+        "targetKind": "site"
+      },
+      "description": "Create a reviewable preview for the exact siteID after source changes have been made with file.edit.",
+      "estimatedLatency": "high",
+      "idempotency": {
+        "required": false,
+        "scope": "operation",
+        "supported": false
+      },
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "previewID": {
+            "description": "Existing preview ID to refresh. Omit to create a new preview.",
+            "minLength": 1,
+            "pattern": "^\\S(?:.*\\S)?$",
+            "type": "string"
+          },
+          "siteID": {
+            "description": "Exact site ID from site.create or site.status.",
+            "minLength": 1,
+            "pattern": "^\\S(?:.*\\S)?$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "siteID"
+        ],
+        "type": "object"
+      },
+      "inputSchemaStrict": true,
+      "modelName": "site.preview",
+      "modelVisibility": "visible",
+      "modelVisible": true,
+      "name": "site.preview",
+      "namespace": "site",
+      "outputSchema": {
+        "$defs": {
+          "__schema0": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              },
+              {
+                "items": {
+                  "$ref": "#/$defs/__schema0"
+                },
+                "type": "array"
+              },
+              {
+                "additionalProperties": {
+                  "$ref": "#/$defs/__schema0"
+                },
+                "propertyNames": {
+                  "type": "string"
+                },
+                "type": "object"
+              }
+            ]
+          }
+        },
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "content": {
+            "type": "string"
+          },
+          "effects": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "contentType": {
+                  "type": "string"
+                },
+                "durability": {
+                  "type": "string"
+                },
+                "effect": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "filename": {
+                  "type": "string"
+                },
+                "id": {
+                  "type": "string"
+                },
+                "objectType": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "path": {
+                  "type": "string"
+                },
+                "summary": {
+                  "type": "string"
+                },
+                "url": {
+                  "type": "string"
+                },
+                "visibility": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "objectType",
+                "effect"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "errorCode": {
+            "type": "string"
+          },
+          "failureStage": {
+            "type": "string"
+          },
+          "isError": {
+            "type": "boolean"
+          },
+          "message": {
+            "type": "string"
+          },
+          "outcome": {
+            "enum": [
+              "succeeded",
+              "failed",
+              "denied"
+            ],
+            "type": "string"
+          },
+          "provider": {
+            "type": "string"
+          },
+          "result": {
+            "$ref": "#/$defs/__schema0"
+          },
+          "retryable": {
+            "type": "boolean"
+          },
+          "safeRetry": {
+            "type": "boolean"
+          },
+          "selectedBackend": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "toolName": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "provider",
+          "selectedBackend",
+          "toolName",
+          "result"
+        ],
+        "type": "object"
+      },
+      "outputSchemaStrict": true,
+      "policyResource": "tool:site.preview",
+      "privacyClass": "workspace_site",
+      "requiresUserPresence": false,
+      "resultContract": {
+        "effects": [
+          {
+            "effect": "previewed",
+            "effectIdentity": "id",
+            "objectType": "website",
+            "resultField": "siteID"
+          }
+        ],
+        "schema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "additionalProperties": false,
+          "properties": {
+            "previewExpiresAt": {
+              "type": "string"
+            },
+            "previewID": {
+              "minLength": 1,
+              "pattern": "^\\S(?:.*\\S)?$",
+              "type": "string"
+            },
+            "previewURL": {
+              "minLength": 1,
+              "pattern": "^\\S(?:.*\\S)?$",
+              "type": "string"
+            },
+            "siteID": {
+              "minLength": 1,
+              "pattern": "^\\S(?:.*\\S)?$",
+              "type": "string"
+            },
+            "sourceWorkspacePath": {
+              "minLength": 1,
+              "pattern": "^\\S(?:.*\\S)?$",
+              "type": "string"
+            },
+            "status": {
+              "enum": [
+                "draft",
+                "publishing",
+                "published",
+                "unpublished",
+                "failed"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "siteID",
+            "status",
+            "sourceWorkspacePath",
+            "previewID",
+            "previewURL",
+            "previewExpiresAt"
+          ],
+          "type": "object"
+        }
+      },
+      "sideEffect": "external_publish",
+      "sideEffectClass": "external_publish",
+      "version": "2",
+      "worksOffline": false
+    },
+    {
+      "availability": {
+        "state": "ok"
+      },
+      "canonicalName": "site.publish",
+      "completionEvidence": {
+        "action": "publish_site",
+        "mode": "success",
+        "targetKind": "site"
+      },
+      "description": "Publish the exact siteID after editing and optional preview verification, returning the public URL and deployed version.",
+      "estimatedLatency": "high",
+      "idempotency": {
+        "required": false,
+        "scope": "operation",
+        "supported": false
+      },
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "message": {
+            "description": "Short revision message describing the edits being published.",
+            "type": "string"
+          },
+          "previewID": {
+            "description": "Preview ID whose reviewed source should be published.",
+            "minLength": 1,
+            "pattern": "^\\S(?:.*\\S)?$",
+            "type": "string"
+          },
+          "siteID": {
+            "description": "Exact site ID from site.create or site.status.",
+            "minLength": 1,
+            "pattern": "^\\S(?:.*\\S)?$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "siteID"
+        ],
+        "type": "object"
+      },
+      "inputSchemaStrict": true,
+      "modelName": "site.publish",
+      "modelVisibility": "visible",
+      "modelVisible": true,
+      "name": "site.publish",
+      "namespace": "site",
+      "outputSchema": {
+        "$defs": {
+          "__schema0": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              },
+              {
+                "items": {
+                  "$ref": "#/$defs/__schema0"
+                },
+                "type": "array"
+              },
+              {
+                "additionalProperties": {
+                  "$ref": "#/$defs/__schema0"
+                },
+                "propertyNames": {
+                  "type": "string"
+                },
+                "type": "object"
+              }
+            ]
+          }
+        },
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "content": {
+            "type": "string"
+          },
+          "effects": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "contentType": {
+                  "type": "string"
+                },
+                "durability": {
+                  "type": "string"
+                },
+                "effect": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "filename": {
+                  "type": "string"
+                },
+                "id": {
+                  "type": "string"
+                },
+                "objectType": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "path": {
+                  "type": "string"
+                },
+                "summary": {
+                  "type": "string"
+                },
+                "url": {
+                  "type": "string"
+                },
+                "visibility": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "objectType",
+                "effect"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "errorCode": {
+            "type": "string"
+          },
+          "failureStage": {
+            "type": "string"
+          },
+          "isError": {
+            "type": "boolean"
+          },
+          "message": {
+            "type": "string"
+          },
+          "outcome": {
+            "enum": [
+              "succeeded",
+              "failed",
+              "denied"
+            ],
+            "type": "string"
+          },
+          "provider": {
+            "type": "string"
+          },
+          "result": {
+            "$ref": "#/$defs/__schema0"
+          },
+          "retryable": {
+            "type": "boolean"
+          },
+          "safeRetry": {
+            "type": "boolean"
+          },
+          "selectedBackend": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "toolName": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "provider",
+          "selectedBackend",
+          "toolName",
+          "result"
+        ],
+        "type": "object"
+      },
+      "outputSchemaStrict": true,
+      "policyResource": "tool:site.publish",
+      "privacyClass": "workspace_site",
+      "requiresUserPresence": false,
+      "resultContract": {
+        "effects": [
+          {
+            "effect": "published",
+            "effectIdentity": "id",
+            "objectType": "website",
+            "resultField": "siteID"
+          }
+        ],
+        "schema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "additionalProperties": false,
+          "properties": {
+            "currentVersionID": {
+              "minLength": 1,
+              "pattern": "^\\S(?:.*\\S)?$",
+              "type": "string"
+            },
+            "publishedURL": {
+              "minLength": 1,
+              "pattern": "^\\S(?:.*\\S)?$",
+              "type": "string"
+            },
+            "siteID": {
+              "minLength": 1,
+              "pattern": "^\\S(?:.*\\S)?$",
+              "type": "string"
+            },
+            "sourceSHA256": {
+              "pattern": "^[a-f0-9]{64}$",
+              "type": "string"
+            },
+            "sourceWorkspacePath": {
+              "minLength": 1,
+              "pattern": "^\\S(?:.*\\S)?$",
+              "type": "string"
+            },
+            "status": {
+              "const": "published",
+              "type": "string"
+            }
+          },
+          "required": [
+            "siteID",
+            "status",
+            "sourceWorkspacePath",
+            "sourceSHA256",
+            "publishedURL",
+            "currentVersionID"
+          ],
+          "type": "object"
+        }
+      },
+      "sideEffect": "site_publish",
+      "sideEffectClass": "site_publish",
+      "version": "2",
+      "worksOffline": false
+    },
+    {
+      "availability": {
+        "state": "ok"
+      },
+      "canonicalName": "site.delete",
+      "completionEvidence": {
+        "action": "delete_site",
+        "mode": "success",
+        "targetKind": "site"
+      },
+      "description": "Permanently delete the exact siteID after explicit runtime approval.",
+      "estimatedLatency": "medium",
+      "idempotency": {
+        "required": false,
+        "scope": "operation",
+        "supported": false
+      },
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "reason": {
+            "description": "Reason shown in the approval prompt.",
+            "type": "string"
+          },
+          "siteID": {
+            "description": "Exact site ID from site.status.",
+            "minLength": 1,
+            "pattern": "^\\S(?:.*\\S)?$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "siteID"
+        ],
+        "type": "object"
+      },
+      "inputSchemaStrict": true,
+      "modelName": "site.delete",
+      "modelVisibility": "visible",
+      "modelVisible": true,
+      "name": "site.delete",
+      "namespace": "site",
+      "outputSchema": {
+        "$defs": {
+          "__schema0": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              },
+              {
+                "items": {
+                  "$ref": "#/$defs/__schema0"
+                },
+                "type": "array"
+              },
+              {
+                "additionalProperties": {
+                  "$ref": "#/$defs/__schema0"
+                },
+                "propertyNames": {
+                  "type": "string"
+                },
+                "type": "object"
+              }
+            ]
+          }
+        },
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "content": {
+            "type": "string"
+          },
+          "effects": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "contentType": {
+                  "type": "string"
+                },
+                "durability": {
+                  "type": "string"
+                },
+                "effect": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "filename": {
+                  "type": "string"
+                },
+                "id": {
+                  "type": "string"
+                },
+                "objectType": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "path": {
+                  "type": "string"
+                },
+                "summary": {
+                  "type": "string"
+                },
+                "url": {
+                  "type": "string"
+                },
+                "visibility": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "objectType",
+                "effect"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "errorCode": {
+            "type": "string"
+          },
+          "failureStage": {
+            "type": "string"
+          },
+          "isError": {
+            "type": "boolean"
+          },
+          "message": {
+            "type": "string"
+          },
+          "outcome": {
+            "enum": [
+              "succeeded",
+              "failed",
+              "denied"
+            ],
+            "type": "string"
+          },
+          "provider": {
+            "type": "string"
+          },
+          "result": {
+            "$ref": "#/$defs/__schema0"
+          },
+          "retryable": {
+            "type": "boolean"
+          },
+          "safeRetry": {
+            "type": "boolean"
+          },
+          "selectedBackend": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "toolName": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "provider",
+          "selectedBackend",
+          "toolName",
+          "result"
+        ],
+        "type": "object"
+      },
+      "outputSchemaStrict": true,
+      "policyResource": "tool:site.delete",
+      "privacyClass": "workspace_site",
+      "requiresApproval": true,
+      "requiresUserPresence": true,
+      "resultContract": {
+        "effects": [
+          {
+            "effect": "deleted",
+            "effectIdentity": "id",
+            "objectType": "website",
+            "resultField": "siteID"
+          }
+        ],
+        "schema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "additionalProperties": false,
+          "properties": {
+            "deleted": {
+              "const": true,
+              "type": "boolean"
+            },
+            "siteID": {
+              "minLength": 1,
+              "pattern": "^\\S(?:.*\\S)?$",
+              "type": "string"
+            }
+          },
+          "required": [
+            "siteID",
             "deleted"
           ],
           "type": "object"
@@ -2452,6 +3752,7 @@
           "path": {
             "description": "Exact absolute /workspace path of the document to read.",
             "minLength": 1,
+            "pattern": "^\\S(?:.*\\S)?$",
             "type": "string"
           }
         },
@@ -2626,6 +3927,7 @@
             },
             "path": {
               "minLength": 1,
+              "pattern": "^\\S(?:.*\\S)?$",
               "type": "string"
             },
             "status": {
@@ -2677,6 +3979,7 @@
           "path": {
             "description": "Exact absolute /workspace path of the image to read.",
             "minLength": 1,
+            "pattern": "^\\S(?:.*\\S)?$",
             "type": "string"
           }
         },
@@ -2846,14 +4149,17 @@
                   },
                   "contentType": {
                     "minLength": 1,
+                    "pattern": "^\\S(?:.*\\S)?$",
                     "type": "string"
                   },
                   "devicePath": {
                     "minLength": 1,
+                    "pattern": "^\\S(?:.*\\S)?$",
                     "type": "string"
                   },
                   "filename": {
                     "minLength": 1,
+                    "pattern": "^\\S(?:.*\\S)?$",
                     "type": "string"
                   },
                   "sizeBytes": {
@@ -2876,6 +4182,7 @@
             },
             "path": {
               "minLength": 1,
+              "pattern": "^\\S(?:.*\\S)?$",
               "type": "string"
             },
             "status": {
@@ -2894,6 +4201,1263 @@
       "sideEffect": "read",
       "sideEffectClass": "read",
       "version": "1",
+      "worksOffline": false
+    },
+    {
+      "availability": {
+        "state": "ok"
+      },
+      "canonicalName": "browser.open",
+      "description": "Open an exact HTTP or HTTPS URL in the available browser and return the resulting page identity and initial structure.",
+      "estimatedLatency": "interactive",
+      "idempotency": {
+        "required": false,
+        "scope": "operation",
+        "supported": false
+      },
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "url": {
+            "description": "Absolute HTTP or HTTPS URL to open.",
+            "minLength": 1,
+            "pattern": "^\\S(?:.*\\S)?$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "url"
+        ],
+        "type": "object"
+      },
+      "inputSchemaStrict": true,
+      "modelName": "browser.open",
+      "modelVisibility": "visible",
+      "modelVisible": true,
+      "name": "browser.open",
+      "namespace": "browser",
+      "outputSchema": {
+        "$defs": {
+          "__schema0": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              },
+              {
+                "items": {
+                  "$ref": "#/$defs/__schema0"
+                },
+                "type": "array"
+              },
+              {
+                "additionalProperties": {
+                  "$ref": "#/$defs/__schema0"
+                },
+                "propertyNames": {
+                  "type": "string"
+                },
+                "type": "object"
+              }
+            ]
+          }
+        },
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "content": {
+            "type": "string"
+          },
+          "effects": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "contentType": {
+                  "type": "string"
+                },
+                "durability": {
+                  "type": "string"
+                },
+                "effect": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "filename": {
+                  "type": "string"
+                },
+                "id": {
+                  "type": "string"
+                },
+                "objectType": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "path": {
+                  "type": "string"
+                },
+                "summary": {
+                  "type": "string"
+                },
+                "url": {
+                  "type": "string"
+                },
+                "visibility": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "objectType",
+                "effect"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "errorCode": {
+            "type": "string"
+          },
+          "failureStage": {
+            "type": "string"
+          },
+          "isError": {
+            "type": "boolean"
+          },
+          "message": {
+            "type": "string"
+          },
+          "outcome": {
+            "enum": [
+              "succeeded",
+              "failed",
+              "denied"
+            ],
+            "type": "string"
+          },
+          "provider": {
+            "type": "string"
+          },
+          "result": {
+            "$ref": "#/$defs/__schema0"
+          },
+          "retryable": {
+            "type": "boolean"
+          },
+          "safeRetry": {
+            "type": "boolean"
+          },
+          "selectedBackend": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "toolName": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "provider",
+          "selectedBackend",
+          "toolName",
+          "result"
+        ],
+        "type": "object"
+      },
+      "outputSchemaStrict": true,
+      "policyResource": "tool:browser.open",
+      "privacyClass": "user_browser",
+      "requiresUserPresence": true,
+      "resultContract": {
+        "effects": [],
+        "schema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "additionalProperties": false,
+          "properties": {
+            "capturedAt": {
+              "minLength": 1,
+              "pattern": "^\\S(?:.*\\S)?$",
+              "type": "string"
+            },
+            "interactiveRefs": {
+              "items": {
+                "minLength": 1,
+                "pattern": "^\\S(?:.*\\S)?$",
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "requestedURL": {
+              "minLength": 1,
+              "pattern": "^\\S(?:.*\\S)?$",
+              "type": "string"
+            },
+            "snapshotText": {
+              "type": "string"
+            },
+            "title": {
+              "type": "string"
+            },
+            "url": {
+              "minLength": 1,
+              "pattern": "^\\S(?:.*\\S)?$",
+              "type": "string"
+            }
+          },
+          "required": [
+            "url",
+            "requestedURL",
+            "capturedAt"
+          ],
+          "type": "object"
+        }
+      },
+      "sideEffect": "connect",
+      "sideEffectClass": "connect",
+      "version": "2",
+      "worksOffline": false
+    },
+    {
+      "availability": {
+        "state": "ok"
+      },
+      "canonicalName": "browser.snapshot",
+      "description": "Read the current browser page structure and return stable interactive references for inspection and control.",
+      "estimatedLatency": "interactive",
+      "idempotency": {
+        "required": false,
+        "scope": "operation",
+        "supported": false
+      },
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {},
+        "type": "object"
+      },
+      "inputSchemaStrict": true,
+      "modelName": "browser.snapshot",
+      "modelVisibility": "visible",
+      "modelVisible": true,
+      "name": "browser.snapshot",
+      "namespace": "browser",
+      "outputSchema": {
+        "$defs": {
+          "__schema0": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              },
+              {
+                "items": {
+                  "$ref": "#/$defs/__schema0"
+                },
+                "type": "array"
+              },
+              {
+                "additionalProperties": {
+                  "$ref": "#/$defs/__schema0"
+                },
+                "propertyNames": {
+                  "type": "string"
+                },
+                "type": "object"
+              }
+            ]
+          }
+        },
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "content": {
+            "type": "string"
+          },
+          "effects": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "contentType": {
+                  "type": "string"
+                },
+                "durability": {
+                  "type": "string"
+                },
+                "effect": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "filename": {
+                  "type": "string"
+                },
+                "id": {
+                  "type": "string"
+                },
+                "objectType": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "path": {
+                  "type": "string"
+                },
+                "summary": {
+                  "type": "string"
+                },
+                "url": {
+                  "type": "string"
+                },
+                "visibility": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "objectType",
+                "effect"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "errorCode": {
+            "type": "string"
+          },
+          "failureStage": {
+            "type": "string"
+          },
+          "isError": {
+            "type": "boolean"
+          },
+          "message": {
+            "type": "string"
+          },
+          "outcome": {
+            "enum": [
+              "succeeded",
+              "failed",
+              "denied"
+            ],
+            "type": "string"
+          },
+          "provider": {
+            "type": "string"
+          },
+          "result": {
+            "$ref": "#/$defs/__schema0"
+          },
+          "retryable": {
+            "type": "boolean"
+          },
+          "safeRetry": {
+            "type": "boolean"
+          },
+          "selectedBackend": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "toolName": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "provider",
+          "selectedBackend",
+          "toolName",
+          "result"
+        ],
+        "type": "object"
+      },
+      "outputSchemaStrict": true,
+      "policyResource": "tool:browser.snapshot",
+      "privacyClass": "user_browser",
+      "requiresUserPresence": false,
+      "resultContract": {
+        "effects": [],
+        "schema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "additionalProperties": false,
+          "properties": {
+            "capturedAt": {
+              "minLength": 1,
+              "pattern": "^\\S(?:.*\\S)?$",
+              "type": "string"
+            },
+            "hasMore": {
+              "type": "boolean"
+            },
+            "interactiveRefs": {
+              "items": {
+                "minLength": 1,
+                "pattern": "^\\S(?:.*\\S)?$",
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "snapshotText": {
+              "type": "string"
+            },
+            "title": {
+              "type": "string"
+            },
+            "url": {
+              "minLength": 1,
+              "pattern": "^\\S(?:.*\\S)?$",
+              "type": "string"
+            }
+          },
+          "required": [
+            "snapshotText",
+            "interactiveRefs",
+            "hasMore",
+            "capturedAt"
+          ],
+          "type": "object"
+        }
+      },
+      "sideEffect": "read",
+      "sideEffectClass": "read",
+      "version": "2",
+      "worksOffline": false
+    },
+    {
+      "availability": {
+        "state": "ok"
+      },
+      "canonicalName": "browser.screenshot",
+      "description": "Capture the visible browser page and upload it to a temporary workspace-visible device path for visual review.",
+      "estimatedLatency": "interactive",
+      "idempotency": {
+        "required": false,
+        "scope": "operation",
+        "supported": false
+      },
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "ttlSeconds": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "inputSchemaStrict": true,
+      "modelName": "browser.screenshot",
+      "modelVisibility": "visible",
+      "modelVisible": true,
+      "name": "browser.screenshot",
+      "namespace": "browser",
+      "outputSchema": {
+        "$defs": {
+          "__schema0": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              },
+              {
+                "items": {
+                  "$ref": "#/$defs/__schema0"
+                },
+                "type": "array"
+              },
+              {
+                "additionalProperties": {
+                  "$ref": "#/$defs/__schema0"
+                },
+                "propertyNames": {
+                  "type": "string"
+                },
+                "type": "object"
+              }
+            ]
+          }
+        },
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "content": {
+            "type": "string"
+          },
+          "effects": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "contentType": {
+                  "type": "string"
+                },
+                "durability": {
+                  "type": "string"
+                },
+                "effect": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "filename": {
+                  "type": "string"
+                },
+                "id": {
+                  "type": "string"
+                },
+                "objectType": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "path": {
+                  "type": "string"
+                },
+                "summary": {
+                  "type": "string"
+                },
+                "url": {
+                  "type": "string"
+                },
+                "visibility": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "objectType",
+                "effect"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "errorCode": {
+            "type": "string"
+          },
+          "failureStage": {
+            "type": "string"
+          },
+          "isError": {
+            "type": "boolean"
+          },
+          "message": {
+            "type": "string"
+          },
+          "outcome": {
+            "enum": [
+              "succeeded",
+              "failed",
+              "denied"
+            ],
+            "type": "string"
+          },
+          "provider": {
+            "type": "string"
+          },
+          "result": {
+            "$ref": "#/$defs/__schema0"
+          },
+          "retryable": {
+            "type": "boolean"
+          },
+          "safeRetry": {
+            "type": "boolean"
+          },
+          "selectedBackend": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "toolName": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "provider",
+          "selectedBackend",
+          "toolName",
+          "result"
+        ],
+        "type": "object"
+      },
+      "outputSchemaStrict": true,
+      "policyResource": "tool:browser.screenshot",
+      "privacyClass": "user_browser",
+      "requiresUserPresence": false,
+      "resultContract": {
+        "effects": [],
+        "schema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "additionalProperties": false,
+          "properties": {
+            "capturedAt": {
+              "minLength": 1,
+              "pattern": "^\\S(?:.*\\S)?$",
+              "type": "string"
+            },
+            "contentType": {
+              "minLength": 1,
+              "pattern": "^\\S(?:.*\\S)?$",
+              "type": "string"
+            },
+            "devicePath": {
+              "minLength": 1,
+              "pattern": "^\\S(?:.*\\S)?$",
+              "type": "string"
+            },
+            "expiresAt": {
+              "minLength": 1,
+              "pattern": "^\\S(?:.*\\S)?$",
+              "type": "string"
+            },
+            "fileID": {
+              "minLength": 1,
+              "pattern": "^\\S(?:.*\\S)?$",
+              "type": "string"
+            },
+            "filename": {
+              "minLength": 1,
+              "pattern": "^\\S(?:.*\\S)?$",
+              "type": "string"
+            },
+            "sizeBytes": {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "fileID",
+            "filename",
+            "sizeBytes",
+            "contentType",
+            "devicePath",
+            "expiresAt",
+            "capturedAt"
+          ],
+          "type": "object"
+        }
+      },
+      "sideEffect": "read",
+      "sideEffectClass": "read",
+      "version": "2",
+      "worksOffline": false
+    },
+    {
+      "availability": {
+        "state": "ok"
+      },
+      "canonicalName": "browser.click",
+      "description": "Click one exact target from the current browser snapshot and return the completed action.",
+      "estimatedLatency": "interactive",
+      "idempotency": {
+        "required": false,
+        "scope": "operation",
+        "supported": false
+      },
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "minProperties": 1,
+        "properties": {
+          "ref": {
+            "minLength": 1,
+            "pattern": "^\\S(?:.*\\S)?$",
+            "type": "string"
+          },
+          "selector": {
+            "minLength": 1,
+            "pattern": "^\\S(?:.*\\S)?$",
+            "type": "string"
+          },
+          "target": {
+            "minLength": 1,
+            "pattern": "^\\S(?:.*\\S)?$",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "inputSchemaStrict": true,
+      "modelName": "browser.click",
+      "modelVisibility": "visible",
+      "modelVisible": true,
+      "name": "browser.click",
+      "namespace": "browser",
+      "outputSchema": {
+        "$defs": {
+          "__schema0": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              },
+              {
+                "items": {
+                  "$ref": "#/$defs/__schema0"
+                },
+                "type": "array"
+              },
+              {
+                "additionalProperties": {
+                  "$ref": "#/$defs/__schema0"
+                },
+                "propertyNames": {
+                  "type": "string"
+                },
+                "type": "object"
+              }
+            ]
+          }
+        },
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "content": {
+            "type": "string"
+          },
+          "effects": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "contentType": {
+                  "type": "string"
+                },
+                "durability": {
+                  "type": "string"
+                },
+                "effect": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "filename": {
+                  "type": "string"
+                },
+                "id": {
+                  "type": "string"
+                },
+                "objectType": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "path": {
+                  "type": "string"
+                },
+                "summary": {
+                  "type": "string"
+                },
+                "url": {
+                  "type": "string"
+                },
+                "visibility": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "objectType",
+                "effect"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "errorCode": {
+            "type": "string"
+          },
+          "failureStage": {
+            "type": "string"
+          },
+          "isError": {
+            "type": "boolean"
+          },
+          "message": {
+            "type": "string"
+          },
+          "outcome": {
+            "enum": [
+              "succeeded",
+              "failed",
+              "denied"
+            ],
+            "type": "string"
+          },
+          "provider": {
+            "type": "string"
+          },
+          "result": {
+            "$ref": "#/$defs/__schema0"
+          },
+          "retryable": {
+            "type": "boolean"
+          },
+          "safeRetry": {
+            "type": "boolean"
+          },
+          "selectedBackend": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "toolName": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "provider",
+          "selectedBackend",
+          "toolName",
+          "result"
+        ],
+        "type": "object"
+      },
+      "outputSchemaStrict": true,
+      "policyResource": "tool:browser.click",
+      "privacyClass": "user_browser",
+      "requiresUserPresence": false,
+      "resultContract": {
+        "effects": [],
+        "schema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "additionalProperties": false,
+          "properties": {
+            "action": {
+              "const": "click",
+              "type": "string"
+            },
+            "capturedAt": {
+              "minLength": 1,
+              "pattern": "^\\S(?:.*\\S)?$",
+              "type": "string"
+            },
+            "ok": {
+              "const": true,
+              "type": "boolean"
+            },
+            "target": {
+              "minLength": 1,
+              "pattern": "^\\S(?:.*\\S)?$",
+              "type": "string"
+            }
+          },
+          "required": [
+            "ok",
+            "action",
+            "target",
+            "capturedAt"
+          ],
+          "type": "object"
+        }
+      },
+      "sideEffect": "external_write",
+      "sideEffectClass": "external_write",
+      "version": "2",
+      "worksOffline": false
+    },
+    {
+      "availability": {
+        "state": "ok"
+      },
+      "canonicalName": "artifact.review",
+      "description": "Review rendered artifact screenshots against a concrete intent and rubric, returning typed visual issues and suggested fixes.",
+      "estimatedLatency": "high",
+      "idempotency": {
+        "required": false,
+        "scope": "operation",
+        "supported": false
+      },
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "artifactKind": {
+            "enum": [
+              "site",
+              "slides",
+              "pptx",
+              "docx",
+              "pdf"
+            ],
+            "type": "string"
+          },
+          "evidence": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "label": {
+                  "minLength": 1,
+                  "pattern": "^\\S(?:.*\\S)?$",
+                  "type": "string"
+                },
+                "mimeType": {
+                  "enum": [
+                    "image/png",
+                    "image/jpeg"
+                  ],
+                  "type": "string"
+                },
+                "path": {
+                  "minLength": 1,
+                  "pattern": "^\\S(?:.*\\S)?$",
+                  "type": "string"
+                },
+                "role": {
+                  "minLength": 1,
+                  "pattern": "^\\S(?:.*\\S)?$",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "role",
+                "path",
+                "mimeType",
+                "label"
+              ],
+              "type": "object"
+            },
+            "maxItems": 8,
+            "minItems": 1,
+            "type": "array"
+          },
+          "expectedText": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "target": {
+                  "minLength": 1,
+                  "pattern": "^\\S(?:.*\\S)?$",
+                  "type": "string"
+                },
+                "text": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "target",
+                "text"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "intent": {
+            "minLength": 1,
+            "pattern": "^\\S(?:.*\\S)?$",
+            "type": "string"
+          },
+          "previousIssues": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "category": {
+                  "enum": [
+                    "textFit",
+                    "layout",
+                    "visualHierarchy",
+                    "contentDensity",
+                    "templateSmell",
+                    "responsiveness",
+                    "renderFidelity"
+                  ],
+                  "type": "string"
+                },
+                "message": {
+                  "type": "string"
+                },
+                "severity": {
+                  "enum": [
+                    "blocking",
+                    "warning",
+                    "info"
+                  ],
+                  "type": "string"
+                },
+                "suggestedFix": {
+                  "type": "string"
+                },
+                "target": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "severity",
+                "category",
+                "target",
+                "message",
+                "suggestedFix"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "rubric": {
+            "minLength": 1,
+            "pattern": "^\\S(?:.*\\S)?$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "artifactKind",
+          "intent",
+          "rubric",
+          "evidence"
+        ],
+        "type": "object"
+      },
+      "inputSchemaStrict": true,
+      "modelName": "artifact.review",
+      "modelVisibility": "visible",
+      "modelVisible": true,
+      "name": "artifact.review",
+      "namespace": "artifact",
+      "outputSchema": {
+        "$defs": {
+          "__schema0": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              },
+              {
+                "items": {
+                  "$ref": "#/$defs/__schema0"
+                },
+                "type": "array"
+              },
+              {
+                "additionalProperties": {
+                  "$ref": "#/$defs/__schema0"
+                },
+                "propertyNames": {
+                  "type": "string"
+                },
+                "type": "object"
+              }
+            ]
+          }
+        },
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "content": {
+            "type": "string"
+          },
+          "effects": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "contentType": {
+                  "type": "string"
+                },
+                "durability": {
+                  "type": "string"
+                },
+                "effect": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "filename": {
+                  "type": "string"
+                },
+                "id": {
+                  "type": "string"
+                },
+                "objectType": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "path": {
+                  "type": "string"
+                },
+                "summary": {
+                  "type": "string"
+                },
+                "url": {
+                  "type": "string"
+                },
+                "visibility": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "objectType",
+                "effect"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "errorCode": {
+            "type": "string"
+          },
+          "failureStage": {
+            "type": "string"
+          },
+          "isError": {
+            "type": "boolean"
+          },
+          "message": {
+            "type": "string"
+          },
+          "outcome": {
+            "enum": [
+              "succeeded",
+              "failed",
+              "denied"
+            ],
+            "type": "string"
+          },
+          "provider": {
+            "type": "string"
+          },
+          "result": {
+            "$ref": "#/$defs/__schema0"
+          },
+          "retryable": {
+            "type": "boolean"
+          },
+          "safeRetry": {
+            "type": "boolean"
+          },
+          "selectedBackend": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "toolName": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "provider",
+          "selectedBackend",
+          "toolName",
+          "result"
+        ],
+        "type": "object"
+      },
+      "outputSchemaStrict": true,
+      "policyResource": "tool:artifact.review",
+      "privacyClass": "workspace_document",
+      "requiresUserPresence": false,
+      "resultContract": {
+        "effects": [],
+        "evidenceCondition": {
+          "equals": true,
+          "resultField": "passed"
+        },
+        "schema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "additionalProperties": false,
+          "properties": {
+            "acceptedWarnings": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "issues": {
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "category": {
+                    "enum": [
+                      "textFit",
+                      "layout",
+                      "visualHierarchy",
+                      "contentDensity",
+                      "templateSmell",
+                      "responsiveness",
+                      "renderFidelity"
+                    ],
+                    "type": "string"
+                  },
+                  "message": {
+                    "type": "string"
+                  },
+                  "severity": {
+                    "enum": [
+                      "blocking",
+                      "warning",
+                      "info"
+                    ],
+                    "type": "string"
+                  },
+                  "suggestedFix": {
+                    "type": "string"
+                  },
+                  "target": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "severity",
+                  "category",
+                  "target",
+                  "message",
+                  "suggestedFix"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "passed": {
+              "type": "boolean"
+            },
+            "summary": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "passed",
+            "issues",
+            "acceptedWarnings",
+            "summary"
+          ],
+          "type": "object"
+        }
+      },
+      "sideEffect": "read",
+      "sideEffectClass": "read",
+      "version": "2",
       "worksOffline": false
     }
   ]

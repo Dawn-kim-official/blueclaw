@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -436,7 +437,7 @@ func TestBrowserHandoffOpenURLUsesCapabilityBridge(t *testing.T) {
 		Platform:                "mattermost",
 	})
 
-	toolResult, errorValue := toolRegistry.Invoke(agent.WithTaskRunID(context.Background(), taskRun.TaskRunID), agent.ToolInvocation{
+	toolResult, errorValue := toolRegistry.InvokeInternal(agent.WithTaskRunID(context.Background(), taskRun.TaskRunID), agent.ToolInvocation{
 		ToolName: "browser_handoff.openURL",
 		Input:    json.RawMessage(`{"url":"https://example.com/login"}`),
 	})
@@ -498,7 +499,7 @@ func TestBrowserHandoffPausesTaskWhileWaitingForUser(t *testing.T) {
 		Platform:                "mattermost",
 	})
 
-	toolResult, errorValue := toolRegistry.Invoke(agent.WithTaskRunID(context.Background(), taskRun.TaskRunID), agent.ToolInvocation{
+	toolResult, errorValue := toolRegistry.InvokeInternal(agent.WithTaskRunID(context.Background(), taskRun.TaskRunID), agent.ToolInvocation{
 		ToolName: "browser_handoff.openURL",
 		Input:    json.RawMessage(`{"url":"https://example.com/login"}`),
 	})
@@ -672,7 +673,7 @@ func TestBrowserFollowUpWithSensitiveVisibleContextUsesCompanion(t *testing.T) {
 }
 
 func TestCapabilityDenialPreservesRecoveryAction(t *testing.T) {
-	httpClient := &recordingHTTPClient{responseBody: `{"provider":"companion","toolName":"browser.open","status":"denied","content":"Companion이 연결되어 있지 않아 브라우저를 열 수 없습니다.","isError":true,"result":{"status":"denied","code":"not_connected","toolName":"browser.open","userReason":"Companion이 연결되어 있지 않아 브라우저를 열 수 없습니다.","recovery":{"kind":"companion_connect","delivery":"dm_preferred","downloadURL":"https://example.com/companion.dmg","connectCommand":"/connect"}}}`}
+	httpClient := &recordingHTTPClient{responseBody: `{"provider":"companion","selectedBackend":"companion","toolName":"browser.open","outcome":"denied","status":"denied","content":"Companion이 연결되어 있지 않아 브라우저를 열 수 없습니다.","isError":true,"result":{"status":"denied","code":"not_connected","toolName":"browser.open","userReason":"Companion이 연결되어 있지 않아 브라우저를 열 수 없습니다.","recovery":{"kind":"companion_connect","delivery":"dm_preferred","downloadURL":"https://example.com/companion.dmg","connectCommand":"/connect"}}}`}
 	toolCatalogBuilder := NewToolCatalogBuilder()
 	toolCatalogBuilder.UseTestCapabilityTools(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, []string{"browser.open"})
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(map[string][]string{
@@ -750,7 +751,7 @@ func TestBrowserHandoffOpenURLRecordsFailureWhenCompanionIsDisconnected(t *testi
 	}, nil)
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default", RequesterPersonID: "person-1"})
 
-	toolResult, errorValue := toolRegistry.Invoke(agent.WithTaskRunID(context.Background(), taskRun.TaskRunID), agent.ToolInvocation{
+	toolResult, errorValue := toolRegistry.InvokeInternal(agent.WithTaskRunID(context.Background(), taskRun.TaskRunID), agent.ToolInvocation{
 		ToolName: "browser_handoff.openURL",
 		Input:    json.RawMessage(`{"url":"https://example.com/login"}`),
 	})
@@ -937,7 +938,8 @@ func (httpClient *recordingHTTPClient) Do(request *http.Request) (*http.Response
 	httpClient.requestBody = string(body)
 	responseBody := httpClient.responseBody
 	if responseBody == "" {
-		responseBody = `{"content":"opened","status":"ok"}`
+		toolName := strings.TrimSuffix(strings.TrimPrefix(request.URL.Path, "/v1/tools/"), "/invoke")
+		responseBody = `{"provider":"internkim","selectedBackend":"device","toolName":` + strconv.Quote(toolName) + `,"outcome":"succeeded","content":"opened","status":"ok","result":{}}`
 	}
 	return &http.Response{
 		StatusCode: http.StatusOK,
