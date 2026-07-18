@@ -58,6 +58,13 @@ func TestObservedResultProjectionRejectsEffectsWithoutContract(t *testing.T) {
 	}
 }
 
+func TestObservedResultProjectionDoesNotInferScheduleFactsFromToolName(t *testing.T) {
+	observation := newContentObservation("obs-001", "continue", "schedule.create", `{"scheduleID":"schedule-1"}`)
+	if facts := factsFromObservation(nil, observation); len(facts) != 0 {
+		t.Fatalf("expected schedule facts to require canonical effects, got %+v", facts)
+	}
+}
+
 func TestObservedResultProjectionDoesNotTreatUnpublishedStatusAsPublished(t *testing.T) {
 	facts := factsFromObservation(nil, newContentObservation("obs-001", "continue", "site.status", `{"siteID":"site-1","status":"unpublished"}`))
 

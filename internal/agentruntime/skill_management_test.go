@@ -96,6 +96,9 @@ func TestSkillAddCreatesUserManagedSkillAndRefreshes(t *testing.T) {
 	if result.Failed() {
 		t.Fatalf("expected skill.add success, got %s", result.ContentText())
 	}
+	if len(result.Output.Data) == 0 {
+		t.Fatal("expected structured skill.add result data")
+	}
 	if refreshCount != 1 {
 		t.Fatalf("expected skill index refresh, got %d", refreshCount)
 	}
@@ -177,6 +180,9 @@ func TestSkillRemoveDeletesOnlyUserManagedSkill(t *testing.T) {
 	}
 	if result.Failed() {
 		t.Fatalf("expected skill.remove success, got %s", result.ContentText())
+	}
+	if len(result.Output.Data) == 0 {
+		t.Fatal("expected structured skill.remove result data")
 	}
 	if _, errorValue := os.Stat(skillDirectoryPath); !os.IsNotExist(errorValue) {
 		t.Fatalf("expected user-managed skill directory removed, got %v", errorValue)

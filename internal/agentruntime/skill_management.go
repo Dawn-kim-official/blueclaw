@@ -79,16 +79,31 @@ type skillAddResult struct {
 	Name          string   `json:"name"`
 	Path          string   `json:"path"`
 	Status        string   `json:"status"`
+	Written       bool     `json:"written"`
 	ResourcePaths []string `json:"resourcePaths"`
 	Warnings      []string `json:"warnings"`
 }
+
+type skillRemoveResult struct {
+	Name    string `json:"name"`
+	Path    string `json:"path"`
+	Status  string `json:"status"`
+	Removed bool   `json:"removed"`
+}
+
+var (
+	skillAddInputSchema     = json.RawMessage(`{"type":"object","properties":{"name":{"type":"string","minLength":1,"maxLength":64,"pattern":"^[a-z0-9][a-z0-9-]{0,63}$"},"content":{"type":"string","minLength":1,"pattern":"\\S"},"resources":{"type":"array","items":{"type":"object","properties":{"path":{"type":"string","minLength":1,"pattern":"\\S"},"content":{"type":"string"},"mode":{"type":"integer","minimum":0}},"required":["path","content"],"additionalProperties":false}}},"required":["name","content"],"additionalProperties":false}`)
+	skillAddResultSchema    = json.RawMessage(`{"type":"object","properties":{"name":{"type":"string","minLength":1,"pattern":"\\S"},"path":{"type":"string","minLength":1,"pattern":"\\S"},"status":{"type":"string","enum":["created","updated"]},"written":{"const":true},"resourcePaths":{"type":"array","items":{"type":"string","minLength":1,"pattern":"\\S"},"uniqueItems":true},"warnings":{"type":"array","items":{"type":"string"}}},"required":["name","path","status","written","resourcePaths","warnings"],"additionalProperties":false}`)
+	skillRemoveInputSchema  = json.RawMessage(`{"type":"object","properties":{"name":{"type":"string","minLength":1,"maxLength":64,"pattern":"^[a-z0-9][a-z0-9-]{0,63}$"}},"required":["name"],"additionalProperties":false}`)
+	skillRemoveResultSchema = json.RawMessage(`{"type":"object","properties":{"name":{"type":"string","minLength":1,"pattern":"\\S"},"path":{"type":"string","minLength":1,"pattern":"\\S"},"status":{"const":"removed"},"removed":{"const":true}},"required":["name","path","status","removed"],"additionalProperties":false}`)
+)
 
 func (toolCatalogBuilder *ToolCatalogBuilder) registerSkillManagementTools(toolRegistry *agent.ToolSet) {
 	agent.RegisterToolFunction(toolRegistry, agent.ToolFunction[skillAddInput, agent.ToolResult]{
 		Definition: agent.ToolDefinition{
 			Name:        "skill.add",
 			Description: "Create or update a user-managed SKILL.md under /workspace/.agents/skills/<name>.",
-			InputSchema: json.RawMessage(`{"type":"object","properties":{"name":{"type":"string"},"content":{"type":"string"},"resources":{"type":"array","items":{"type":"object","properties":{"path":{"type":"string"},"content":{"type":"string"},"mode":{"type":"number"}},"required":["path","content"]}}},"required":["name","content"]}`),
+			InputSchema: skillAddInputSchema,
 		},
 		Handler: toolCatalogBuilder.addSkillTool,
 		Result:  agent.IdentityToolResult,
@@ -97,7 +112,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerSkillManagementTools(toolR
 		Definition: agent.ToolDefinition{
 			Name:        "skill.remove",
 			Description: "Remove a user-managed skill under /workspace/.agents/skills/<name>.",
-			InputSchema: json.RawMessage(`{"type":"object","properties":{"name":{"type":"string"}},"required":["name"]}`),
+			InputSchema: skillRemoveInputSchema,
 		},
 		Handler: toolCatalogBuilder.removeSkillTool,
 		Result:  agent.IdentityToolResult,
@@ -141,13 +156,15 @@ func (toolCatalogBuilder *ToolCatalogBuilder) addSkillTool(toolContext context.C
 		return agent.ToolResult{}, errorValue
 	}
 	toolCatalogBuilder.refreshSkills(toolContext)
-	return agent.ToolSuccess(marshalToolResult(skillAddResult{
+	resultDocument := json.RawMessage(marshalToolResult(skillAddResult{
 		Name:          skillName,
 		Path:          toolCatalogBuilder.agentWorkspacePath(filepath.Join(skillDirectoryPath, "SKILL.md")),
 		Status:        status,
+		Written:       true,
 		ResourcePaths: writtenResourcePaths,
 		Warnings:      warnings,
-	})), nil
+	}))
+	return agent.ToolSuccessData(string(resultDocument), resultDocument), nil
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) removeSkillTool(toolContext context.Context, input skillRemoveInput) (agent.ToolResult, error) {
@@ -170,11 +187,13 @@ func (toolCatalogBuilder *ToolCatalogBuilder) removeSkillTool(toolContext contex
 		return agent.ToolResult{}, errorValue
 	}
 	toolCatalogBuilder.refreshSkills(toolContext)
-	return agent.ToolSuccess(marshalToolResult(map[string]string{
-		"name":   skillName,
-		"path":   toolCatalogBuilder.agentWorkspacePath(skillDirectoryPath),
-		"status": "removed",
-	})), nil
+	resultDocument := json.RawMessage(marshalToolResult(skillRemoveResult{
+		Name:    skillName,
+		Path:    toolCatalogBuilder.agentWorkspacePath(skillDirectoryPath),
+		Status:  "removed",
+		Removed: true,
+	}))
+	return agent.ToolSuccessData(string(resultDocument), resultDocument), nil
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) userManagedSkillDirectoryPath(skillName string) string {

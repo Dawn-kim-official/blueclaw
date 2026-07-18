@@ -487,7 +487,7 @@ func TestConnectorRuntimeWritesResolvesAndExpiresTaskWaitRecord(t *testing.T) {
 			},
 		},
 		ActionResponses: []string{
-			`{"action":"continue","message":"추가 정보가 필요합니다.","toolName":"ask.input","toolInput":{},"nextStepPlan":{"objective":"wait","expectedTools":[],"expectedNextResults":["user replies"],"doneCriteria":["reply received"],"risk":"none","workingSetReason":"ask.input waits for the user"}}`,
+			`{"action":"continue","message":"추가 정보가 필요합니다.","toolName":"ask.input","toolInput":{"question":"추가 정보가 필요합니다."},"nextStepPlan":{"objective":"wait","expectedTools":[],"expectedNextResults":["user replies"],"doneCriteria":["reply received"],"risk":"none","workingSetReason":"ask.input waits for the user"}}`,
 		},
 	})
 	connectorRuntime, adapter, taskRunService, taskWaitRepository := newWaitRoutingTestConnectorRuntime(t, languageModel)
