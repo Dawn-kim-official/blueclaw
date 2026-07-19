@@ -975,7 +975,7 @@ func TestAgentTurnRunnerDoesNotRepeatFailedAutomaticAttachment(t *testing.T) {
 	}
 }
 
-func TestAgentTurnRunnerAttachesReadableImperfectArtifactCandidate(t *testing.T) {
+func TestAgentTurnRunnerBlocksReadableArtifactWithWrongFormat(t *testing.T) {
 	workspaceRootPath := t.TempDir()
 	artifactDirectoryPath := filepath.Join(workspaceRootPath, "private", "people", "person-1", "artifacts", "deck")
 	if errorValue := os.MkdirAll(artifactDirectoryPath, 0700); errorValue != nil {
@@ -1015,14 +1015,14 @@ func TestAgentTurnRunnerAttachesReadableImperfectArtifactCandidate(t *testing.T)
 	if errorValue != nil {
 		t.Fatalf("expected invalid artifact turn to return result without runner error: %v", errorValue)
 	}
-	if attachmentCallCount == 0 {
-		t.Fatal("expected readable imperfect artifact to be attached")
+	if attachmentCallCount != 0 {
+		t.Fatalf("expected wrong-format artifact not to be attached, got %d calls", attachmentCallCount)
 	}
-	if len(result.Attachments) != 1 {
-		t.Fatalf("expected imperfect artifact attachment, got %+v", result.Attachments)
+	if len(result.Attachments) != 0 {
+		t.Fatalf("expected no wrong-format artifact attachment, got %+v", result.Attachments)
 	}
-	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.validity_review", `"passed":true`) {
-		t.Fatal("expected passing basic validity review event")
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.validity_review", `"passed":false`) {
+		t.Fatal("expected failed format validity review event")
 	}
 }
 

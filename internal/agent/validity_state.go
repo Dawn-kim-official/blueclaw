@@ -92,6 +92,9 @@ func validateAttachmentPayload(attachment FileAttachment) ArtifactValidity {
 	if artifact.SizeBytes == 0 {
 		artifact.SizeBytes = int64(len(document))
 	}
+	if reason := validateArtifactFormatsBytes(document, attachment.Filename, attachment.DevicePath); reason != "" {
+		return invalidArtifact(artifact, reason)
+	}
 	return validArtifact(artifact)
 }
 
@@ -157,6 +160,9 @@ func validateArtifactPath(path string, filename string, relativePath string) Art
 	artifact.SizeBytes = fileInformation.Size()
 	if artifact.SizeBytes == 0 {
 		return invalidArtifact(artifact, "artifact file is empty")
+	}
+	if reason := validateArtifactFormatsPath(path, filename, path); reason != "" {
+		return invalidArtifact(artifact, reason)
 	}
 	return validArtifact(artifact)
 }
