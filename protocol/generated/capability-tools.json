@@ -773,12 +773,6 @@
             ],
             "type": "string"
           },
-          "taskID": {
-            "description": "Exact ID of the task to update, copied from a task.list result.",
-            "minLength": 1,
-            "pattern": "^\\S(?:.*\\S)?$",
-            "type": "string"
-          },
           "title": {
             "description": "New task title. Omit to leave the title unchanged.",
             "type": "string"
@@ -1109,14 +1103,7 @@
       "inputIntentSchema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "additionalProperties": false,
-        "properties": {
-          "taskID": {
-            "description": "Exact ID of the task to delete, copied from a task.list result.",
-            "minLength": 1,
-            "pattern": "^\\S(?:.*\\S)?$",
-            "type": "string"
-          }
-        },
+        "properties": {},
         "type": "object"
       },
       "inputSchema": {
