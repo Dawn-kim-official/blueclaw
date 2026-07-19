@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"reflect"
+	"regexp"
 	"slices"
 	"strings"
 	"sync"
@@ -17,6 +18,8 @@ import (
 )
 
 const serverValidationTimeout = 3 * time.Second
+
+var canonicalToolNamePattern = regexp.MustCompile(`^[A-Za-z0-9_.-]{1,128}$`)
 
 type McpRegistry struct {
 	mutex            sync.RWMutex
@@ -172,8 +175,12 @@ func buildServerDefinition(configuration config.MCPServerConfiguration) (ServerD
 func buildToolDefinition(serverName string, configuration config.MCPToolConfiguration) (ToolDefinition, error) {
 	toolName := strings.TrimSpace(configuration.Name)
 	namespace := strings.TrimSpace(configuration.Namespace)
+	qualifiedName := qualifiedToolName(namespace, toolName)
 	if toolName == "" ||
 		namespace == "" ||
+		!canonicalToolNamePattern.MatchString(toolName) ||
+		!canonicalToolNamePattern.MatchString(namespace) ||
+		!canonicalToolNamePattern.MatchString(qualifiedName) ||
 		strings.TrimSpace(configuration.Description) == "" ||
 		configuration.Policy == nil ||
 		!isObjectSchema(configuration.InputSchema) ||
@@ -197,7 +204,7 @@ func buildToolDefinition(serverName string, configuration config.MCPToolConfigur
 		return ToolDefinition{}, errorValue
 	}
 	return ToolDefinition{
-		Name:              qualifiedToolName(namespace, toolName),
+		Name:              qualifiedName,
 		Namespace:         namespace,
 		ServerName:        serverName,
 		Description:       strings.TrimSpace(configuration.Description),
@@ -427,7 +434,7 @@ func serverRemoteToolName(serverDefinition ServerDefinition, toolName string) st
 }
 
 func qualifiedToolName(namespace string, toolName string) string {
-	if toolName == namespace || strings.HasPrefix(toolName, namespace+".") {
+	if strings.HasPrefix(toolName, namespace+".") {
 		return toolName
 	}
 	return namespace + "." + toolName
