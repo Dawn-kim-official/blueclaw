@@ -218,6 +218,59 @@ func TestRegisterProviderRejectsOpenObjectSchema(t *testing.T) {
 	}
 }
 
+func TestRegisterProvidersRequiresExplicitlyClosedExternalObjectSchemas(t *testing.T) {
+	testCases := []struct {
+		name           string
+		schema         json.RawMessage
+		shouldRegister bool
+	}{
+		{name: "missing", schema: json.RawMessage(`{"type":"object","properties":{}}`)},
+		{name: "true", schema: json.RawMessage(`{"type":"object","properties":{},"additionalProperties":true}`)},
+		{name: "false", schema: json.RawMessage(`{"type":"object","properties":{},"additionalProperties":false}`), shouldRegister: true},
+		{name: "nested missing", schema: json.RawMessage(`{"type":"object","properties":{"nested":{"type":"object","properties":{}}},"additionalProperties":false}`)},
+		{name: "nested true", schema: json.RawMessage(`{"type":"object","properties":{"nested":{"type":"object","properties":{},"additionalProperties":true}},"additionalProperties":false}`)},
+		{name: "nested false", schema: json.RawMessage(`{"type":"object","properties":{"nested":{"type":"object","properties":{},"additionalProperties":false}},"additionalProperties":false}`), shouldRegister: true},
+		{name: "nested nullable object missing", schema: json.RawMessage(`{"type":"object","properties":{"nested":{"type":["object","null"],"properties":{}}},"additionalProperties":false}`)},
+		{name: "nested nullable object false", schema: json.RawMessage(`{"type":"object","properties":{"nested":{"type":["object","null"],"properties":{},"additionalProperties":false}},"additionalProperties":false}`), shouldRegister: true},
+	}
+
+	for _, testCase := range testCases {
+		for _, schemaField := range []string{"input", "output"} {
+			t.Run(testCase.name+"/"+schemaField, func(t *testing.T) {
+				providerTool := validProviderTool("mcp/schema/task.add", "task", "task.add")
+				providerTool.Definition.OutputSchema = json.RawMessage(`{"type":"object","properties":{},"additionalProperties":false}`)
+				if schemaField == "input" {
+					providerTool.Definition.InputSchema = testCase.schema
+				} else {
+					providerTool.Definition.OutputSchema = testCase.schema
+				}
+
+				toolSet := NewToolSet([]string{"task.add"})
+				quarantinedProviders, errorValue := toolSet.RegisterProviders(context.Background(), []ToolProviderRegistration{{
+					Provider: testToolProvider{providerID: "mcp:schema", tools: []BoundTool{providerTool}},
+					Trust:    ToolProviderExternal,
+				}})
+				if errorValue != nil {
+					t.Fatal(errorValue)
+				}
+
+				if testCase.shouldRegister {
+					if len(quarantinedProviders) != 0 || !toolSet.IsRegistered("task.add") {
+						t.Fatalf("expected external provider to register, quarantined=%+v", quarantinedProviders)
+					}
+					return
+				}
+				if len(quarantinedProviders) != 1 || !strings.Contains(quarantinedProviders[0].Reason, "explicitly set additionalProperties to false") {
+					t.Fatalf("expected external provider quarantine, got %+v", quarantinedProviders)
+				}
+				if toolSet.IsRegistered("task.add") {
+					t.Fatal("expected rejected external provider to remain unregistered")
+				}
+			})
+		}
+	}
+}
+
 func TestRegisterProviderRejectsNonObjectOutputSchema(t *testing.T) {
 	toolSet := NewToolSet([]string{"task.add"})
 	providerTool := validProviderTool("capabilityd/task/task.add", "task", "task.add")
