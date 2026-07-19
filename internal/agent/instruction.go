@@ -9,18 +9,19 @@ type InstructionSource struct {
 }
 
 type InstructionBundle struct {
-	Prompt                      string                   `json:"prompt"`
-	Sources                     []InstructionSource      `json:"sources"`
-	Skills                      []SkillInstruction       `json:"skills,omitempty"`
-	SkillDecisions              []SkillSelectionDecision `json:"skillDecisions,omitempty"`
-	RequiredNextTools           []string                 `json:"requiredNextTools,omitempty"`
-	RequiredEvidenceTools       []string                 `json:"requiredEvidenceTools,omitempty"`
-	RequiredEvidenceCandidates  []string                 `json:"requiredEvidenceCandidates,omitempty"`
-	HasContractSkillArbitration bool                     `json:"hasContractSkillArbitration,omitempty"`
-	RetrievalMode               string                   `json:"retrievalMode,omitempty"`
-	IndexStatus                 string                   `json:"indexStatus,omitempty"`
-	CandidateCount              int                      `json:"candidateCount,omitempty"`
-	SkillQueries                []string                 `json:"skillQueries,omitempty"`
+	Prompt                         string                   `json:"prompt"`
+	Sources                        []InstructionSource      `json:"sources"`
+	Skills                         []SkillInstruction       `json:"skills,omitempty"`
+	SkillDecisions                 []SkillSelectionDecision `json:"skillDecisions,omitempty"`
+	RequiredNextTools              []string                 `json:"requiredNextTools,omitempty"`
+	RequiredEvidenceTools          []string                 `json:"requiredEvidenceTools,omitempty"`
+	RequiredEvidenceCandidates     []string                 `json:"requiredEvidenceCandidates,omitempty"`
+	HasContractSkillArbitration    bool                     `json:"hasContractSkillArbitration,omitempty"`
+	ContractSkillArbitrationFailed bool                     `json:"contractSkillArbitrationFailed,omitempty"`
+	RetrievalMode                  string                   `json:"retrievalMode,omitempty"`
+	IndexStatus                    string                   `json:"indexStatus,omitempty"`
+	CandidateCount                 int                      `json:"candidateCount,omitempty"`
+	SkillQueries                   []string                 `json:"skillQueries,omitempty"`
 }
 
 type SkillInstruction struct {

@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -898,6 +899,14 @@ func TestContractSkillArbitrationReportsExplicitStatuses(t *testing.T) {
 			expectedStatus: contractSkillArbitrationFailed,
 		},
 		{
+			name: "missing side effect evidence",
+			router: NewSkillSearchQueryRouter(staticStructuredLanguageModel{
+				content: `{"selectedSkillNames":["internkim-flow"],"rejectedSkillNames":[],"requiredNextToolNames":["task.add"],"expectedEvidence":[],"unmetPreconditions":[],"reason":"create task"}`,
+			}),
+			request:        request,
+			expectedStatus: contractSkillArbitrationFailed,
+		},
+		{
 			name: "succeeded",
 			router: NewSkillSearchQueryRouter(staticStructuredLanguageModel{
 				content: `{"selectedSkillNames":["internkim-flow"],"rejectedSkillNames":[],"requiredNextToolNames":["task.add"],"expectedEvidence":["task.add"],"unmetPreconditions":[],"reason":"The task contract requires task creation."}`,
@@ -915,6 +924,49 @@ func TestContractSkillArbitrationReportsExplicitStatuses(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestContractSkillArbitrationCorrectsProseToExactCanonicalNames(t *testing.T) {
+	candidates := []SkillInstruction{{
+		Name:           "document",
+		ToolReferences: []string{"document.read"},
+	}}
+	request := AgentRequest{
+		ToolSet: testToolSet([]string{"document.read", TerminalRunToolName, FileWriteToolName, FileDeliverToolName}),
+		ActiveGoal: ActiveGoal{OutcomeContract: OutcomeContract{
+			RequiredEvidenceTools: []string{FileWriteToolName, FileDeliverToolName},
+		}},
+	}
+	languageModel := &contractArbitrationSequenceLanguageModel{contents: []string{
+		`{"selectedSkillNames":["document"],"rejectedSkillNames":[],"requiredNextToolNames":["file.write","terminal.run","file.deliver"],"expectedEvidence":["file.deliver attaches the DOCX"],"unmetPreconditions":[],"reason":"document workflow"}`,
+		`{"selectedSkillNames":["document"],"rejectedSkillNames":[],"requiredNextToolNames":["file.write","terminal.run","file.deliver"],"expectedEvidence":["file.deliver"],"unmetPreconditions":[],"reason":"document workflow"}`,
+	}}
+
+	result := NewSkillSearchQueryRouter(languageModel).ArbitrateContractSkills(
+		context.Background(),
+		request,
+		candidates,
+		map[string]SkillCandidate{"document": {Name: "document"}},
+	)
+
+	if result.Status != contractSkillArbitrationSucceeded {
+		t.Fatalf("expected corrected arbitration, got %+v", result)
+	}
+	if !reflect.DeepEqual(result.Arbitration.RequiredNextTools, []string{"file.write", "terminal.run", "file.deliver"}) {
+		t.Fatalf("expected exact kernel workflow, got %v", result.Arbitration.RequiredNextTools)
+	}
+	if !reflect.DeepEqual(result.Arbitration.ExpectedEvidence, []string{"file.deliver"}) {
+		t.Fatalf("expected exact delivery evidence, got %v", result.Arbitration.ExpectedEvidence)
+	}
+	if len(languageModel.requests) != 2 || !strings.Contains(joinedMessageContent(languageModel.requests[1].Messages), "previous candidate was invalid") {
+		t.Fatalf("expected one correction request, got %+v", languageModel.requests)
+	}
+	assertContractArbitrationSchemaEnums(t, languageModel.requests[0].StructuredOutputSchema.Document, map[string][]string{
+		"selectedSkillNames":    {"document"},
+		"rejectedSkillNames":    {"document"},
+		"requiredNextToolNames": {"document.read", "terminal.run", "file.deliver", "file.write"},
+		"expectedEvidence":      {"file.write", "file.deliver", "document.read"},
+	})
 }
 
 func TestContractSkillArbitrationFailureKeepsOnlyExplicitEvidenceAndKernelTools(t *testing.T) {
@@ -959,6 +1011,9 @@ func TestContractSkillArbitrationFailureKeepsOnlyExplicitEvidenceAndKernelTools(
 	if !skillDecisionHasReason(selectedBundle.SkillDecisions, "internkim-flow", "contract_skill_arbitration_failed") {
 		t.Fatalf("expected failed arbitration decision, got %+v", selectedBundle.SkillDecisions)
 	}
+	if !selectedBundle.ContractSkillArbitrationFailed {
+		t.Fatal("expected failed arbitration to remain explicit")
+	}
 	if skillDecisionHasStatus(selectedBundle.SkillDecisions, "internkim-flow", "selected") {
 		t.Fatalf("expected no selected skill after arbitration failure, got %+v", selectedBundle.SkillDecisions)
 	}
@@ -980,6 +1035,25 @@ func TestContractSkillArbitrationFailureKeepsOnlyExplicitEvidenceAndKernelTools(
 	}
 	if exposedToolSet.IsAllowed("task.list") {
 		t.Fatalf("expected unrelated skill tool to stay hidden, got %+v", exposedToolSet.ListToolNames())
+	}
+}
+
+func assertContractArbitrationSchemaEnums(t *testing.T, schemaDocument string, expectedValues map[string][]string) {
+	t.Helper()
+	var schema struct {
+		Properties map[string]struct {
+			Items struct {
+				Enum []string `json:"enum"`
+			} `json:"items"`
+		} `json:"properties"`
+	}
+	if errorValue := json.Unmarshal([]byte(schemaDocument), &schema); errorValue != nil {
+		t.Fatalf("decode arbitration schema: %v", errorValue)
+	}
+	for propertyName, values := range expectedValues {
+		if !reflect.DeepEqual(schema.Properties[propertyName].Items.Enum, values) {
+			t.Fatalf("expected %s enum %v, got %v", propertyName, values, schema.Properties[propertyName].Items.Enum)
+		}
 	}
 }
 
@@ -1429,6 +1503,24 @@ func (languageModel staticStructuredLanguageModel) GenerateStructuredResponse(co
 type schemaStructuredLanguageModel struct {
 	contentBySchema map[string]string
 	requests        []llm.StructuredResponseRequest
+}
+
+type contractArbitrationSequenceLanguageModel struct {
+	contents []string
+	requests []llm.StructuredResponseRequest
+}
+
+func (languageModel *contractArbitrationSequenceLanguageModel) GenerateResponse(context.Context, string) (string, error) {
+	return "", nil
+}
+
+func (languageModel *contractArbitrationSequenceLanguageModel) GenerateStructuredResponse(_ context.Context, request llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
+	languageModel.requests = append(languageModel.requests, request)
+	index := len(languageModel.requests) - 1
+	if index >= len(languageModel.contents) {
+		index = len(languageModel.contents) - 1
+	}
+	return llm.StructuredResponse{Content: languageModel.contents[index]}, nil
 }
 
 func (languageModel *schemaStructuredLanguageModel) GenerateResponse(context.Context, string) (string, error) {

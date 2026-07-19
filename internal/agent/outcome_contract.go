@@ -298,6 +298,9 @@ func requestExpectsSiteLinkResult(executionPlan ExecutionPlan, hasExecutionPlan 
 
 func sanitizeOutcomeContractForRequest(request AgentRequest, executionPlan ExecutionPlan, hasExecutionPlan bool, contract OutcomeContract) OutcomeContract {
 	contract = normalizeOutcomeContract(contract)
+	if outcomeContractExpectsFileResult(contract) {
+		contract = removeIntermediateAttachmentEvidence(request.ToolSet, contract)
+	}
 	if requestExpectsSiteLinkResult(executionPlan, hasExecutionPlan, contract) && !outcomeContractExpectsFileResult(contract) {
 		contract = removeImplicitSiteFileContract(contract)
 	}
@@ -311,6 +314,54 @@ func sanitizeOutcomeContractForRequest(request AgentRequest, executionPlan Execu
 		contract = removeExternalSendContract(request.ToolSet, contract)
 	}
 	return normalizeOutcomeContract(contract)
+}
+
+func removeIntermediateAttachmentEvidence(toolSet *ToolSet, contract OutcomeContract) OutcomeContract {
+	requiredEvidenceTools := []string{}
+	for _, toolName := range contract.RequiredEvidenceTools {
+		if toolProducesIntermediateAttachmentSource(toolSet, toolName) {
+			contract.OperationContract = removeOperationRequirementsForTool(contract.OperationContract, toolName)
+			continue
+		}
+		requiredEvidenceTools = appendUniqueStrings(requiredEvidenceTools, toolName)
+	}
+	contract.RequiredEvidenceTools = requiredEvidenceTools
+	filteredGroups := [][]string{}
+	for _, group := range contract.RequiredEvidenceAnyOf {
+		filteredGroup := []string{}
+		for _, toolName := range group {
+			if !toolProducesIntermediateAttachmentSource(toolSet, toolName) {
+				filteredGroup = appendUniqueStrings(filteredGroup, toolName)
+			}
+		}
+		if len(filteredGroup) > 0 {
+			filteredGroups = append(filteredGroups, filteredGroup)
+		}
+	}
+	contract.RequiredEvidenceAnyOf = filteredGroups
+	return contract
+}
+
+func toolProducesIntermediateAttachmentSource(toolSet *ToolSet, toolName string) bool {
+	toolDefinition, isFound := toolDefinitionForName(toolSet, toolName)
+	if !isFound {
+		return false
+	}
+	return toolDefinition.SideEffectClass == ToolSideEffectWorkspaceWrite &&
+		toolDefinition.Completion.TargetKind == "file" &&
+		!toolResultContractAttachesFile(toolDefinition.ResultContract)
+}
+
+func toolResultContractAttachesFile(resultContract *ToolResultContract) bool {
+	if resultContract == nil {
+		return false
+	}
+	for _, effect := range resultContract.Effects {
+		if effect.ObjectType == "file" && effect.Effect == "attached" {
+			return true
+		}
+	}
+	return false
 }
 
 func requestExpectsExternalSend(request AgentRequest, executionPlan ExecutionPlan, hasExecutionPlan bool) bool {

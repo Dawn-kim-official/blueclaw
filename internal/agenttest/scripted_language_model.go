@@ -240,6 +240,13 @@ func (languageModel *ScriptedLanguageModel) GenerateStructuredResponse(_ context
 	}
 	response := strings.TrimSpace(languageModel.defaultResponsesBySchema[schemaName])
 	if response == "" {
+		if schemaName == "blueclaw_contract_skill_arbitration" {
+			response, errorValue := defaultContractSkillArbitrationResponse(request)
+			if errorValue != nil {
+				return llm.StructuredResponse{}, errorValue
+			}
+			return languageModel.structuredResponse(response), nil
+		}
 		if schemaName == "blueclaw_operation_contract" {
 			response, errorValue := defaultOperationContractResponse(request)
 			if errorValue != nil {
@@ -256,6 +263,36 @@ func (languageModel *ScriptedLanguageModel) GenerateStructuredResponse(_ context
 		return languageModel.structuredResponse(defaultSkillSearchQueriesResponse(request)), nil
 	}
 	return languageModel.structuredResponse(response), nil
+}
+
+func defaultContractSkillArbitrationResponse(request llm.StructuredResponseRequest) (string, error) {
+	var schema struct {
+		Properties map[string]struct {
+			Items struct {
+				Enum []string `json:"enum"`
+			} `json:"items"`
+		} `json:"properties"`
+	}
+	if errorValue := json.Unmarshal([]byte(request.StructuredOutputSchema.Document), &schema); errorValue != nil {
+		return "", fmt.Errorf("decode contract skill arbitration schema: %w", errorValue)
+	}
+	skillNames := schema.Properties["selectedSkillNames"].Items.Enum
+	evidenceNames := schema.Properties["expectedEvidence"].Items.Enum
+	selectedSkillNames := append([]string{}, skillNames[:min(1, len(skillNames))]...)
+	rejectedSkillNames := append([]string{}, skillNames[len(selectedSkillNames):]...)
+	expectedEvidence := append([]string{}, evidenceNames[:min(1, len(evidenceNames))]...)
+	document, errorValue := json.Marshal(map[string]any{
+		"selectedSkillNames":    selectedSkillNames,
+		"rejectedSkillNames":    rejectedSkillNames,
+		"requiredNextToolNames": []string{},
+		"expectedEvidence":      expectedEvidence,
+		"unmetPreconditions":    []string{},
+		"reason":                "scripted test default",
+	})
+	if errorValue != nil {
+		return "", fmt.Errorf("encode contract skill arbitration fixture: %w", errorValue)
+	}
+	return string(document), nil
 }
 
 func defaultOperationContractResponse(request llm.StructuredResponseRequest) (string, error) {
