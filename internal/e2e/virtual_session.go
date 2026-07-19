@@ -1885,11 +1885,8 @@ func (service *virtualCapabilityService) taskResponse(toolName string, requestBo
 	input := virtualCapabilityInput(requestBody)
 	switch toolName {
 	case "task.add":
-		values := copyVirtualCapabilityValues(input)
-		values["content"] = strings.TrimSpace(stringValue(values["title"]))
-		delete(values, "title")
-		record := virtualCapabilityRecord{ID: fmt.Sprintf("task-%d", len(service.tasks)+1), Values: values}
-		record.Values["taskID"] = record.ID
+		taskID := fmt.Sprintf("task-%d", len(service.tasks)+1)
+		record := virtualCapabilityRecord{ID: taskID, Values: virtualTaskResultFromAddInput(taskID, input)}
 		service.tasks = append(service.tasks, record)
 		return virtualCapabilityTaskSuccess(toolName, "created", record.ID, "created virtual task", record.Values)
 	case "task.list":
@@ -1922,6 +1919,25 @@ func (service *virtualCapabilityService) taskResponse(toolName string, requestBo
 		service.tasks = append(service.tasks[:index], service.tasks[index+1:]...)
 		return virtualCapabilityTaskSuccess(toolName, "deleted", deletedRecord.ID, "deleted virtual task", map[string]any{"taskID": deletedRecord.ID, "deleted": true})
 	}
+}
+
+func virtualTaskResultFromAddInput(taskID string, input map[string]any) map[string]any {
+	result := map[string]any{
+		"taskID":  taskID,
+		"content": strings.TrimSpace(stringValue(input["title"])),
+	}
+	for _, fieldName := range []string{"goal", "size", "status", "startDate", "endDate"} {
+		if value, isFound := input[fieldName]; isFound {
+			result[fieldName] = value
+		}
+	}
+	if ownerName := strings.TrimSpace(stringValue(input["targetPersonHint"])); ownerName != "" {
+		result["ownerName"] = ownerName
+	}
+	if participantNames := stringSliceValue(input["participantPersonHints"]); len(participantNames) > 0 {
+		result["participantNames"] = participantNames
+	}
+	return result
 }
 
 func (service *virtualCapabilityService) calendarResponse(toolName string, requestBody []byte) string {

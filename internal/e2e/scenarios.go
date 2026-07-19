@@ -668,7 +668,10 @@ func AmbientTaskCaptureAcceptanceScenario(artifactDirectoryPath string) VirtualS
 			ExpectedEventCounts: []VirtualEventCount{
 				{Name: "agent.ambient_duty_launch", BodyFragment: `"dutyName":"team_flow_update"`, Count: 1},
 				{Name: "tool.task.add.requested", BodyFragment: "세은", Count: 1},
+				{Name: "tool.task.add.result", BodyFragment: `"ownerName":"세은"`, Count: 1},
+				{Name: "tool.task.add.result", BodyFragment: `"effect":"created"`, Count: 1},
 			},
+			ExpectedTaskStatus: task.TaskStatusCompleted,
 			ExpectedModelContexts: []string{
 				"Ambient duty context",
 				"not addressed to you",
@@ -693,6 +696,7 @@ func AmbientTaskCaptureAcceptanceScenario(artifactDirectoryPath string) VirtualS
 				"task.add":    0,
 				"task.update": 1,
 			},
+			ExpectedTaskStatus: task.TaskStatusCompleted,
 		}},
 	}
 }
