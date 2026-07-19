@@ -394,7 +394,8 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 		agentKernel.appendRequiredEvidenceEvents(result.TaskRun.TaskRunID, evidenceValidationReport, requiredEvidenceReask)
 		return result, blockError
 	}
-	outcomeContract, errorValue = compileOperationRequirements(taskContext, routerLanguageModel, request, turnToolSet, outcomeContract)
+	requiredNextToolNames := appendUniqueStrings(intakeDecision.InitialToolNames, instructionBundle.RequiredNextTools...)
+	outcomeContract, errorValue = compileOperationRequirements(taskContext, routerLanguageModel, request, turnToolSet, outcomeContract, requiredNextToolNames...)
 	if errorValue != nil {
 		if result, didExpire := agentKernel.completeIntakeIfElapsed(taskBudget, intakeRequest, intakeDecision, turnDecision.Route, routerCallLedger.records); didExpire {
 			return result, nil
