@@ -193,7 +193,7 @@ func TestLanguageModelCallAssertionRejectsUnrecoveredTypedError(t *testing.T) {
 	}
 }
 
-func TestLanguageModelCallAssertionAllowsElapsedCompletionCutover(t *testing.T) {
+func TestLanguageModelCallAssertionRejectsDeadlineDespiteElapsedCompletionEvent(t *testing.T) {
 	turnResult := VirtualTurnResult{
 		TaskStatus: task.TaskStatusCompleted,
 		Events: []task.TaskEvent{{
@@ -202,24 +202,7 @@ func TestLanguageModelCallAssertionAllowsElapsedCompletionCutover(t *testing.T) 
 		}},
 		LanguageModelCallEvents: []VirtualLanguageModelCallEvent{{
 			Kind:               "structured",
-			SchemaName:         "blueclaw_result_verifier",
-			IsError:            true,
-			IsDeadlineExceeded: true,
-			Error:              context.DeadlineExceeded.Error(),
-		}},
-	}
-
-	if errorValue := assertLanguageModelCallsSucceeded(turnResult); errorValue != nil {
-		t.Fatalf("expected exact-evidence elapsed completion to pass strict assertion: %v", errorValue)
-	}
-}
-
-func TestLanguageModelCallAssertionRejectsUnsettledDeadline(t *testing.T) {
-	turnResult := VirtualTurnResult{
-		TaskStatus: task.TaskStatusBlocked,
-		LanguageModelCallEvents: []VirtualLanguageModelCallEvent{{
-			Kind:               "structured",
-			SchemaName:         "blueclaw_result_verifier",
+			SchemaName:         "blueclaw_turn_router",
 			IsError:            true,
 			IsDeadlineExceeded: true,
 			Error:              context.DeadlineExceeded.Error(),
@@ -227,28 +210,7 @@ func TestLanguageModelCallAssertionRejectsUnsettledDeadline(t *testing.T) {
 	}
 
 	if errorValue := assertLanguageModelCallsSucceeded(turnResult); errorValue == nil {
-		t.Fatal("expected unsettled deadline to fail strict assertion")
-	}
-}
-
-func TestLanguageModelCallAssertionRejectsForgedElapsedCutoverEvent(t *testing.T) {
-	turnResult := VirtualTurnResult{
-		TaskStatus: task.TaskStatusCompleted,
-		Events: []task.TaskEvent{{
-			Name: "agent.limit_completed_from_evidence",
-			Body: `{"note":"\"reason\":\"max_elapsed\"","source":"typed_evidence"}`,
-		}},
-		LanguageModelCallEvents: []VirtualLanguageModelCallEvent{{
-			Kind:               "structured",
-			SchemaName:         "blueclaw_result_verifier",
-			IsError:            true,
-			IsDeadlineExceeded: true,
-			Error:              context.DeadlineExceeded.Error(),
-		}},
-	}
-
-	if errorValue := assertLanguageModelCallsSucceeded(turnResult); errorValue == nil {
-		t.Fatal("expected malformed elapsed completion evidence to fail strict assertion")
+		t.Fatal("expected elapsed completion event not to hide a language model deadline")
 	}
 }
 

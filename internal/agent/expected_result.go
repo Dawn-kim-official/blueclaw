@@ -1,288 +1,94 @@
 package agent
 
 import (
-	"context"
-	"encoding/json"
-	"errors"
 	"regexp"
 	"strings"
-
-	"blueclaw/internal/llm"
 )
-
-type ObservedResult struct {
-	Type          string `json:"type,omitempty"`
-	Description   string `json:"description,omitempty"`
-	ObservationID string `json:"observationID,omitempty"`
-	ToolName      string `json:"toolName,omitempty"`
-	URL           string `json:"url,omitempty"`
-	Filename      string `json:"filename,omitempty"`
-	ContentType   string `json:"contentType,omitempty"`
-}
-
-type ResultVerification struct {
-	Results       []ResultVerificationItem `json:"results"`
-	OverallStatus string                   `json:"overallStatus"`
-	Summary       string                   `json:"summary"`
-}
-
-type ResultVerificationItem struct {
-	ID                  string   `json:"id"`
-	Status              string   `json:"status"`
-	Reason              string   `json:"reason"`
-	CitedObservationIDs []string `json:"citedObservationIDs"`
-	MissingDescription  string   `json:"missingDescription,omitempty"`
-	SuggestedNextTools  []string `json:"suggestedNextTools,omitempty"`
-}
 
 var observedURLPattern = regexp.MustCompile(`https?://[^\s"'<>]+`)
 
-func buildObservedResults(toolSet *ToolSet, observations []turnObservation, attachments []FileAttachment, finishMessage string) []ObservedResult {
-	results := []ObservedResult{}
-	for _, fact := range observedFactsFromObservations(toolSet, observations) {
-		results = append(results, observedResultFromFact(fact))
-	}
-	for _, attachment := range attachments {
-		results = append(results, observedResultFromAttachment("", "", attachment))
-	}
-	if strings.TrimSpace(finishMessage) != "" {
-		results = append(results, ObservedResult{
-			Type:        ExpectedResultTypeMessage,
-			Description: "Final message draft: " + compactFinishDraftText(finishMessage),
-		})
-	}
-	return deduplicateObservedResults(results)
-}
-
-func observedResultFromFact(fact ObservedFact) ObservedResult {
-	result := ObservedResult{
-		Type:          ExpectedResultTypeMessage,
-		Description:   observedFactDescription(fact),
-		ObservationID: fact.ObservationID,
-		ToolName:      fact.ToolName,
-	}
-	if fact.URL != "" {
-		result.Type = ExpectedResultTypeLink
-		result.URL = fact.URL
-	}
-	return result
-}
-
-func observedFactDescription(fact ObservedFact) string {
-	description := strings.TrimSpace(fact.ObjectType + " " + fact.Effect)
-	switch {
-	case fact.ID != "":
-		return description + ": " + fact.ID
-	case fact.Path != "":
-		return description + ": " + fact.Path
-	case fact.URL != "":
-		return description + ": " + fact.URL
-	default:
-		return description
-	}
-}
-
-func observedResultFromAttachment(observationID string, toolName string, attachment FileAttachment) ObservedResult {
-	filename := strings.TrimSpace(attachment.Filename)
-	description := "File available"
-	if filename != "" {
-		description = "File available: " + filename
-	}
-	return ObservedResult{
-		Type:          ExpectedResultTypeFile,
-		Description:   description,
-		ObservationID: strings.TrimSpace(observationID),
-		ToolName:      strings.TrimSpace(toolName),
-		Filename:      filename,
-		ContentType:   strings.TrimSpace(attachment.ContentType),
-	}
-}
-
-func compactFinishDraftText(value string) string {
-	text := compactWhitespace(value)
-	if len([]rune(text)) <= 4000 {
-		return text
-	}
-	return string([]rune(text)[:4000])
-}
-
-func deduplicateObservedResults(results []ObservedResult) []ObservedResult {
-	deduplicatedResults := []ObservedResult{}
-	seenResults := map[string]bool{}
-	for _, result := range results {
-		result.Type = normalizeExpectedResultType(result.Type)
-		result.Description = strings.TrimSpace(result.Description)
-		key := result.Type + "\x00" + result.Description + "\x00" + result.ObservationID + "\x00" + result.URL + "\x00" + result.Filename
-		if result.Description == "" || seenResults[key] {
-			continue
-		}
-		seenResults[key] = true
-		deduplicatedResults = append(deduplicatedResults, result)
-	}
-	return deduplicatedResults
-}
-
-func verifyExpectedResults(ctx context.Context, languageModel llm.LanguageModelProvider, request AgentTurnRequest, observations []turnObservation, attachments []FileAttachment, actionDocument turnActionDocument) (ResultVerification, error) {
+func validateExpectedResultDelivery(request AgentTurnRequest, observations []turnObservation, attachments []FileAttachment, actionDocument turnActionDocument) completionGateResult {
 	expectedResults := normalizeExpectedResults(request.OutcomeContract.ExpectedResults)
 	if len(expectedResults) == 0 {
-		return ResultVerification{OverallStatus: "satisfied"}, nil
+		return completionGateResult{IsSatisfied: true, Attachments: attachments}
 	}
-	if languageModel == nil {
-		return ResultVerification{}, errors.New("result verifier language model is not configured")
-	}
-	observedResults := buildObservedResults(request.ToolSet, observations, attachments, finishActionMessage(actionDocument))
-	response, errorValue := languageModel.GenerateStructuredResponse(ctx, llm.StructuredResponseRequest{
-		Messages: resultVerifierMessages(request, expectedResults, observedResults),
-		StructuredOutputSchema: llm.StructuredOutputSchema{
-			Name:               "blueclaw_result_verifier",
-			Document:           resultVerifierSchema(),
-			IsStrictlyEnforced: true,
-		},
-	})
-	if errorValue != nil {
-		return ResultVerification{}, errorValue
-	}
-	var verification ResultVerification
-	if errorValue := json.Unmarshal([]byte(response.Content), &verification); errorValue != nil {
-		return ResultVerification{}, errorValue
-	}
-	observedResults = deduplicateObservedResults(observedResults)
-	return enforceObservedResultRequirements(expectedResults, observedResults, finishActionMessage(actionDocument), normalizeResultVerification(expectedResults, verification)), nil
-}
-
-func resultVerifierMessages(request AgentTurnRequest, expectedResults []ExpectedResult, observedResults []ObservedResult) []llm.Message {
-	expectedDocument, _ := json.Marshal(expectedResults)
-	observedDocument, _ := json.Marshal(observedResults)
-	return []llm.Message{
-		{
-			Role:    "system",
-			Content: "You verify whether a Blueclaw task produced the user's expected results. Expected results are natural-language deliverables. Types are only delivery shapes: message, file, link. Judge flexibly from observed results, not from tool names alone. Return missing when a required result is clearly absent, uncertain when evidence is ambiguous, and satisfied when the result is present. For required link results, the final message must include an exact observed URL so the user can open it.",
-		},
-		{
-			Role:    "system",
-			Content: "Expected results:\n" + string(expectedDocument),
-		},
-		{
-			Role:    "system",
-			Content: "Observed results:\n" + string(observedDocument),
-		},
-		{
-			Role:    "user",
-			Content: request.Prompt,
-		},
-	}
-}
-
-func resultVerifierSchema() string {
-	return `{"type":"object","properties":{"overallStatus":{"type":"string","enum":["satisfied","missing","uncertain"]},"summary":{"type":"string"},"results":{"type":"array","items":{"type":"object","properties":{"id":{"type":"string"},"status":{"type":"string","enum":["satisfied","missing","uncertain"]},"reason":{"type":"string"},"citedObservationIDs":{"type":"array","items":{"type":"string"}},"missingDescription":{"type":"string"},"suggestedNextTools":{"type":"array","items":{"type":"string"}}},"required":["id","status","reason","citedObservationIDs","missingDescription","suggestedNextTools"],"additionalProperties":false}}},"required":["overallStatus","summary","results"],"additionalProperties":false}`
-}
-
-func normalizeResultVerification(expectedResults []ExpectedResult, verification ResultVerification) ResultVerification {
-	itemByID := map[string]ResultVerificationItem{}
-	for _, item := range verification.Results {
-		normalizedItem := normalizeResultVerificationItem(item)
-		if normalizedItem.ID != "" {
-			itemByID[normalizedItem.ID] = normalizedItem
-		}
-	}
-	results := []ResultVerificationItem{}
+	observedURLs := canonicalExpectedResultURLs(request, observations)
+	finishMessage := finishActionMessage(actionDocument)
 	for _, expectedResult := range expectedResults {
-		item, isFound := itemByID[expectedResult.ID]
-		if !isFound {
-			item = ResultVerificationItem{
-				ID:                 expectedResult.ID,
-				Status:             "uncertain",
-				Reason:             "The verifier did not evaluate this expected result.",
-				MissingDescription: expectedResult.Description,
-			}
-		}
-		results = append(results, item)
-	}
-	verification.Results = results
-	verification.OverallStatus = normalizeResultVerificationOverallStatus(verification.OverallStatus, results)
-	verification.Summary = strings.TrimSpace(verification.Summary)
-	return verification
-}
-
-func normalizeResultVerificationItem(item ResultVerificationItem) ResultVerificationItem {
-	item.ID = strings.TrimSpace(item.ID)
-	item.Status = normalizeResultVerificationStatus(item.Status)
-	item.Reason = strings.TrimSpace(item.Reason)
-	item.MissingDescription = strings.TrimSpace(item.MissingDescription)
-	item.CitedObservationIDs = appendUniqueStrings(item.CitedObservationIDs)
-	item.SuggestedNextTools = appendUniqueStrings(item.SuggestedNextTools)
-	return item
-}
-
-func enforceObservedResultRequirements(expectedResults []ExpectedResult, observedResults []ObservedResult, finishMessage string, verification ResultVerification) ResultVerification {
-	hasFileResult := observedResultsContainType(observedResults, ExpectedResultTypeFile)
-	for index, item := range verification.Results {
-		expectedResult := expectedResultByID(expectedResults, item.ID)
 		if !expectedResult.Required {
 			continue
 		}
-		if canonicalFinalMessageIsReady(expectedResult, finishMessage) {
-			verification.Results[index] = satisfiedFinalMessageResult(item)
+		if message := missingExpectedResultDelivery(expectedResult, observedURLs, attachments, finishMessage); message != "" {
+			return completionGateResult{Message: message, EvidenceKind: evidenceKindExpectedResult}
+		}
+	}
+	return completionGateResult{IsSatisfied: true, Attachments: attachments}
+}
+
+func missingExpectedResultDelivery(expectedResult ExpectedResult, observedURLs []string, attachments []FileAttachment, finishMessage string) string {
+	switch expectedResult.Type {
+	case ExpectedResultTypeFile:
+		if len(attachments) == 0 {
+			return "finish requires a delivered file result"
+		}
+	case ExpectedResultTypeLink:
+		if len(observedURLs) == 0 {
+			return "finish requires a canonical link result"
+		}
+		if !finishMessageContainsObservedURL(finishMessage, observedURLs) {
+			return missingObservedLinkReason(observedURLs)
+		}
+	case ExpectedResultTypeMessage:
+		if strings.TrimSpace(finishMessage) == "" {
+			return "finish requires a non-empty final message"
+		}
+	}
+	return ""
+}
+
+func canonicalExpectedResultURLs(request AgentTurnRequest, observations []turnObservation) []string {
+	facts := observedFactsFromObservations(request.ToolSet, observations)
+	requiredEffects := normalizeOutcomeEffects(request.OutcomeContract.RequiredEffects)
+	matchingURLs := observedFactURLs(facts, requiredEffects)
+	if len(matchingURLs) > 0 {
+		return matchingURLs
+	}
+	return observedFactURLs(facts, nil)
+}
+
+func observedFactURLs(facts []ObservedFact, requiredEffects []OutcomeEffect) []string {
+	urls := []string{}
+	for _, fact := range facts {
+		if len(requiredEffects) > 0 && !factMatchesAnyRequiredEffect(fact, requiredEffects) {
 			continue
 		}
-		linkResults := observedResultsByType(observedResults, ExpectedResultTypeLink)
-		if expectedResult.Type == ExpectedResultTypeLink && len(linkResults) == 0 {
-			verification.Results[index] = missingObservedResultItem(item, "No link result was observed.")
-		}
-		if expectedResult.Type == ExpectedResultTypeLink && len(linkResults) > 0 && !finishMessageContainsObservedLink(finishMessage, linkResults) {
-			verification.Results[index] = missingObservedResultItem(item, missingObservedLinkReason(linkResults))
-		}
-		if expectedResult.Type == ExpectedResultTypeFile && !hasFileResult {
-			verification.Results[index] = missingObservedResultItem(item, "No file result was observed.")
+		if normalizedURL := normalizeObservedURL(fact.URL); normalizedURL != "" {
+			urls = appendUniqueStrings(urls, normalizedURL)
 		}
 	}
-	verification.OverallStatus = normalizeResultVerificationOverallStatus("satisfied", verification.Results)
-	return verification
+	return urls
 }
 
-func canonicalFinalMessageIsReady(expectedResult ExpectedResult, finishMessage string) bool {
-	return expectedResult.ID == "final-message" &&
-		expectedResult.Type == ExpectedResultTypeMessage &&
-		strings.TrimSpace(finishMessage) != ""
-}
-
-func satisfiedFinalMessageResult(item ResultVerificationItem) ResultVerificationItem {
-	item.Status = "satisfied"
-	item.Reason = "A non-empty final message is ready for delivery."
-	item.CitedObservationIDs = nil
-	item.MissingDescription = ""
-	item.SuggestedNextTools = nil
-	return item
-}
-
-func missingObservedLinkReason(linkResults []ObservedResult) string {
-	observedURLs := []string{}
-	for _, observedResult := range linkResults {
-		observedURL := normalizeObservedURL(observedResult.URL)
-		if observedURL != "" {
-			observedURLs = appendUniqueStrings(observedURLs, observedURL)
+func factMatchesAnyRequiredEffect(fact ObservedFact, requiredEffects []OutcomeEffect) bool {
+	for _, requiredEffect := range requiredEffects {
+		if fact.ObjectType == requiredEffect.ObjectType && fact.Effect == requiredEffect.Effect {
+			return true
 		}
 	}
+	return false
+}
+
+func missingObservedLinkReason(observedURLs []string) string {
 	if len(observedURLs) == 0 {
-		return "Final message does not include an exact observed link URL."
+		return "final message does not include a canonical link result"
 	}
-	return "Final message must include the published link verbatim. Copy this exact URL into your reply, character for character: " + strings.Join(observedURLs, " ")
+	return "final message must include this exact observed URL: " + strings.Join(observedURLs, " ")
 }
 
-func finishMessageContainsObservedLink(finishMessage string, observedResults []ObservedResult) bool {
+func finishMessageContainsObservedURL(finishMessage string, observedURLs []string) bool {
 	messageURLs := observedURLsFromText(finishMessage)
-	if len(messageURLs) == 0 {
-		return false
-	}
-	for _, observedResult := range observedResults {
-		if normalizeExpectedResultType(observedResult.Type) != ExpectedResultTypeLink {
-			continue
-		}
-		observedURL := normalizeObservedURL(observedResult.URL)
-		if observedURL == "" {
-			continue
-		}
-		if stringSliceContains(messageURLs, observedURL) {
+	for _, observedURL := range observedURLs {
+		if stringSliceContains(messageURLs, normalizeObservedURL(observedURL)) {
 			return true
 		}
 	}
@@ -300,120 +106,4 @@ func observedURLsFromText(value string) []string {
 func normalizeObservedURL(value string) string {
 	normalizedURL := strings.TrimRight(strings.TrimSpace(value), ".,);:!?")
 	return strings.TrimRight(normalizedURL, "/")
-}
-
-func expectedResultByID(expectedResults []ExpectedResult, id string) ExpectedResult {
-	for _, expectedResult := range expectedResults {
-		if expectedResult.ID == id {
-			return expectedResult
-		}
-	}
-	return ExpectedResult{}
-}
-
-func observedResultsContainType(observedResults []ObservedResult, resultType string) bool {
-	return len(observedResultsByType(observedResults, resultType)) > 0
-}
-
-func observedResultsByType(observedResults []ObservedResult, resultType string) []ObservedResult {
-	results := []ObservedResult{}
-	for _, result := range observedResults {
-		if normalizeExpectedResultType(result.Type) == resultType {
-			results = append(results, result)
-		}
-	}
-	return results
-}
-
-func missingObservedResultItem(item ResultVerificationItem, reason string) ResultVerificationItem {
-	item.Status = "missing"
-	item.Reason = reason
-	item.CitedObservationIDs = nil
-	if item.MissingDescription == "" {
-		item.MissingDescription = reason
-	}
-	return item
-}
-
-func normalizeResultVerificationStatus(value string) string {
-	switch strings.ToLower(strings.TrimSpace(value)) {
-	case "satisfied", "missing", "uncertain":
-		return strings.ToLower(strings.TrimSpace(value))
-	default:
-		return "uncertain"
-	}
-}
-
-func normalizeResultVerificationOverallStatus(value string, items []ResultVerificationItem) string {
-	if strings.ToLower(strings.TrimSpace(value)) == "missing" {
-		return "missing"
-	}
-	hasUncertainResult := false
-	for _, item := range items {
-		if item.Status == "missing" {
-			return "missing"
-		}
-		if item.Status == "uncertain" {
-			hasUncertainResult = true
-		}
-	}
-	if hasUncertainResult {
-		return "uncertain"
-	}
-	return "satisfied"
-}
-
-func blockingExpectedResultItems(contract OutcomeContract, verification ResultVerification, observations []turnObservation) []ResultVerificationItem {
-	requiredResultByID := map[string]bool{}
-	resultTypeByID := map[string]string{}
-	for _, result := range normalizeExpectedResults(contract.ExpectedResults) {
-		if result.Required {
-			requiredResultByID[result.ID] = true
-		}
-		resultTypeByID[result.ID] = result.Type
-	}
-	missingResults := []ResultVerificationItem{}
-	for _, item := range verification.Results {
-		if !requiredResultByID[item.ID] {
-			continue
-		}
-		if expectedResultVerdictBlocksFinish(item, resultTypeByID[item.ID], observations) {
-			missingResults = append(missingResults, item)
-		}
-	}
-	return missingResults
-}
-
-func expectedResultVerdictBlocksFinish(item ResultVerificationItem, resultType string, observations []turnObservation) bool {
-	if item.Status != "missing" && item.Status != "uncertain" {
-		return false
-	}
-	if resultType == ExpectedResultTypeMessage || item.Status == "uncertain" {
-		return !expectedResultWasPreviouslyFlagged(item.ID, observations)
-	}
-	return true
-}
-
-func expectedResultWasPreviouslyFlagged(resultID string, observations []turnObservation) bool {
-	trimmedResultID := strings.TrimSpace(resultID)
-	if trimmedResultID == "" {
-		return false
-	}
-	for _, observation := range observations {
-		if observation.PolicyCode != evidenceKindExpectedResult {
-			continue
-		}
-		if stringSliceContains(observation.RelatedResultIDs, trimmedResultID) {
-			return true
-		}
-	}
-	return false
-}
-
-func suggestedNextToolsForResultVerification(items []ResultVerificationItem) []string {
-	toolNames := []string{}
-	for _, item := range items {
-		toolNames = appendUniqueStrings(toolNames, item.SuggestedNextTools...)
-	}
-	return toolNames
 }

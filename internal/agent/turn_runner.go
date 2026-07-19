@@ -514,7 +514,7 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 			agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusCompleted, "set_quality_criteria", marshalEventBody(map[string]any{"criteria": state.QualityCriteria}))
 			continue
 		case "finish":
-			completionGateResult := agentTurnRunner.validateCompletionGateForRequestWithExpectedResults(workContext, taskRun.TaskRunID, request, toolUseRequirements, state.Observations, state.Attachments, state.QualityCriteria, actionDocument)
+			completionGateResult := validateCompletionGateForRequestWithExpectedResults(request, toolUseRequirements, state.Observations, state.Attachments, state.QualityCriteria, actionDocument, agentTurnRunner.options.RecoveryBudget)
 			agentTurnRunner.appendValidityReview(taskRun.TaskRunID, "finish", completionGateResult.ValidityState)
 			if !completionGateResult.IsSatisfied {
 				observation := completionGateObservation(len(state.Observations)+1, completionGateResult)
@@ -1738,7 +1738,7 @@ func (agentTurnRunner *AgentTurnRunner) finalizeSatisfiedTurn(ctx context.Contex
 		agentTurnRunner.appendEvent(taskRunID, "agent.finalizer_rejected", marshalEventBody(map[string]string{"reason": "finalizer omitted successful evidence for the repeated tool"}))
 		return AgentTurnResult{}, false
 	}
-	completionGateResult := agentTurnRunner.validateCompletionGateForRequestWithExpectedResults(finalizationContext, taskRunID, request, requirements, observations, nil, criteria, actionDocument)
+	completionGateResult := validateCompletionGateForRequestWithExpectedResults(request, requirements, observations, nil, criteria, actionDocument, agentTurnRunner.options.RecoveryBudget)
 	if !completionGateResult.IsSatisfied {
 		agentTurnRunner.appendEvent(taskRunID, "agent.finalizer_rejected", marshalEventBody(map[string]string{"reason": completionGateResult.Message}))
 		return AgentTurnResult{}, false
@@ -1864,7 +1864,7 @@ func (agentTurnRunner *AgentTurnRunner) applyTerminalNoToolsAction(ctx context.C
 }
 
 func (agentTurnRunner *AgentTurnRunner) completeTerminalNoToolsFinish(ctx context.Context, taskRunID string, stepID string, request AgentTurnRequest, state *agentTaskState, actionDocument turnActionDocument) (AgentTurnResult, bool, string) {
-	completionGateResult := agentTurnRunner.validateCompletionGateForRequestWithExpectedResults(ctx, taskRunID, request, state.Requirements, state.Observations, state.Attachments, state.QualityCriteria, actionDocument)
+	completionGateResult := validateCompletionGateForRequestWithExpectedResults(request, state.Requirements, state.Observations, state.Attachments, state.QualityCriteria, actionDocument, agentTurnRunner.options.RecoveryBudget)
 	agentTurnRunner.appendValidityReview(taskRunID, "terminal_no_tools_finish", completionGateResult.ValidityState)
 	if !completionGateResult.IsSatisfied {
 		return AgentTurnResult{}, false, completionGateResult.Message

@@ -22,6 +22,22 @@ func TestCompletionStateWaitsForModelWordingBeforeCompleting(t *testing.T) {
 	}
 }
 
+func TestCompletionReplyPromptUsesOriginalInstructionForContinuation(t *testing.T) {
+	prompt := buildCompletionReplyPrompt(AgentTurnRequest{
+		Prompt: "승인",
+		ActiveGoal: ActiveGoal{
+			OriginalInstruction: "고객지원 보고서를 JSON으로 만들어 이 DM에 첨부해줘.",
+		},
+	}, nil, nil)
+
+	if !strings.Contains(prompt, "고객지원 보고서를 JSON으로 만들어 이 DM에 첨부해줘.") {
+		t.Fatalf("expected original instruction in completion prompt, got %q", prompt)
+	}
+	if strings.Contains(prompt, "Original request:\n승인") {
+		t.Fatalf("continuation prompt must not replace the original instruction: %q", prompt)
+	}
+}
+
 func TestCompletionGateRejectsSatisfiedFinishWithUnresolvedFailureDebt(t *testing.T) {
 	goalSatisfied := true
 	result := validateCompletionGate(
@@ -1342,12 +1358,8 @@ func TestAgentTurnRunnerDoesNotBlockFinishedExpectedResultForMissingQualityRevie
 	}
 }
 
-func TestAgentTurnRunnerExpectedResultVerifierBlocksEarlyFinish(t *testing.T) {
+func TestAgentTurnRunnerCanonicalLinkGateBlocksEarlyFinish(t *testing.T) {
 	languageModel := &sequenceLanguageModel{
-		resultVerifications: []string{
-			`{"overallStatus":"missing","summary":"missing public URL","results":[{"id":"site-public-link","status":"missing","reason":"Only a draft exists.","citedObservationIDs":["obs-001"],"missingDescription":"A public URL is still missing.","suggestedNextTools":["site.publish"]}]}`,
-			`{"overallStatus":"satisfied","summary":"public URL exists","results":[{"id":"site-public-link","status":"satisfied","reason":"Publish returned a public URL.","citedObservationIDs":["obs-003"],"missingDescription":"","suggestedNextTools":[]}]}`,
-		},
 		contents: []string{
 			`{"action":"continue","toolName":"site.create","toolInput":{"slug":"portfolio","title":"Portfolio"},"nextStepPlan":{"objective":"create draft","expectedTools":[],"expectedNextResults":["draft site project exists"],"doneCriteria":["draft exists"],"risk":"none","workingSetReason":"create prepares the project"}}`,
 			`{"action":"finish","message":"초안을 만들었습니다.","replyParts":[{"type":"text","text":"초안을 만들었습니다."}],"goalStatus":"satisfied","goalSatisfied":true,"completionEvidence":[{"observationID":"obs-001","toolName":"site.create"}]}`,
@@ -1391,8 +1403,8 @@ func TestAgentTurnRunnerExpectedResultVerifierBlocksEarlyFinish(t *testing.T) {
 	if result.TaskRun.Status != task.TaskStatusCompleted {
 		t.Fatalf("expected completed task, got %s", result.TaskRun.Status)
 	}
-	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.expected_result_verification", "missing public URL") {
-		t.Fatal("expected result verification event")
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.completion_required", "canonical link result") {
+		t.Fatal("expected canonical link delivery gate event")
 	}
 }
 
@@ -1401,28 +1413,21 @@ func TestCompletionGateSkipsResultVerifierForEmptyContract(t *testing.T) {
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
 	goalSatisfied := true
 
-	result := services.runner.validateCompletionGateForRequestWithExpectedResults(context.Background(), "task-1", AgentTurnRequest{}, nil, nil, nil, nil, turnActionDocument{
+	result := validateCompletionGateForRequestWithExpectedResults(AgentTurnRequest{}, nil, nil, nil, nil, turnActionDocument{
 		Action:             "finish",
 		Message:            "완료했습니다.",
 		GoalStatus:         "satisfied",
 		GoalSatisfied:      &goalSatisfied,
 		CompletionEvidence: nil,
-	})
+	}, services.runner.options.RecoveryBudget)
 
 	if !result.IsSatisfied {
 		t.Fatalf("expected empty contract to stay on fast path, got %+v", result)
 	}
-	if len(languageModel.verificationRequests) != 0 {
-		t.Fatalf("expected no result verifier call for empty contract, got %d", len(languageModel.verificationRequests))
-	}
 }
 
-func TestCompletionGateUsesOneResultVerifierForExpectedResults(t *testing.T) {
-	languageModel := &sequenceLanguageModel{
-		resultVerifications: []string{
-			`{"overallStatus":"missing","summary":"final reply not delivered","results":[{"id":"task-status-update","status":"satisfied","reason":"task.update changed the status","citedObservationIDs":["obs-001"],"missingDescription":"","suggestedNextTools":[]},{"id":"final-message","status":"missing","reason":"the final reply is not delivered yet","citedObservationIDs":[],"missingDescription":"a final reply is missing","suggestedNextTools":["finish"]}]}`,
-		},
-	}
+func TestCompletionGateUsesNoResultVerifierForExpectedResults(t *testing.T) {
+	languageModel := &sequenceLanguageModel{}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
 	goalSatisfied := true
 	observations := []turnObservation{
@@ -1435,7 +1440,7 @@ func TestCompletionGateUsesOneResultVerifierForExpectedResults(t *testing.T) {
 			{ID: "final-message", Type: ExpectedResultTypeMessage, Description: "final reply to the user", Required: true},
 		},
 	}
-	result := services.runner.validateCompletionGateForRequestWithExpectedResults(context.Background(), "task-1", AgentTurnRequest{
+	result := validateCompletionGateForRequestWithExpectedResults(AgentTurnRequest{
 		ToolSet:         newTestToolSet([]string{"task.update"}),
 		OutcomeContract: contract,
 	}, nil, observations, nil, nil, turnActionDocument{
@@ -1447,22 +1452,15 @@ func TestCompletionGateUsesOneResultVerifierForExpectedResults(t *testing.T) {
 			ObservationID: "obs-001",
 			ToolName:      "task.update",
 		}},
-	})
+	}, services.runner.options.RecoveryBudget)
 
 	if !result.IsSatisfied {
 		t.Fatalf("expected verified task update and ready final message to complete, got %+v", result)
 	}
-	if len(languageModel.verificationRequests) != 1 {
-		t.Fatalf("expected exactly one result verifier call, got %d", len(languageModel.verificationRequests))
-	}
 }
 
-func TestCompletionGateVerifiesAttachmentsFromCompletionEvidence(t *testing.T) {
-	languageModel := &sequenceLanguageModel{
-		resultVerifications: []string{
-			`{"overallStatus":"satisfied","summary":"file attached","results":[{"id":"attached-file","status":"satisfied","reason":"The requested file is attached.","citedObservationIDs":["obs-001"],"missingDescription":"","suggestedNextTools":[]}]}`,
-		},
-	}
+func TestCompletionGateUsesAttachmentsFromCompletionEvidence(t *testing.T) {
+	languageModel := &sequenceLanguageModel{}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
 	goalSatisfied := true
 	observation := newContentObservation("obs-001", "continue", FileDeliverToolName, "file attached")
@@ -1471,7 +1469,7 @@ func TestCompletionGateVerifiesAttachmentsFromCompletionEvidence(t *testing.T) {
 		Filename:    "report.json",
 		ContentType: "application/json",
 	}}
-	result := services.runner.validateCompletionGateForRequestWithExpectedResults(context.Background(), "task-1", AgentTurnRequest{
+	result := validateCompletionGateForRequestWithExpectedResults(AgentTurnRequest{
 		ToolSet: newTestToolSet([]string{FileDeliverToolName}),
 		OutcomeContract: OutcomeContract{
 			ArtifactRequirement:        ArtifactRequirementRequired,
@@ -1492,13 +1490,10 @@ func TestCompletionGateVerifiesAttachmentsFromCompletionEvidence(t *testing.T) {
 			ObservationID: "obs-001",
 			ToolName:      FileDeliverToolName,
 		}},
-	})
+	}, services.runner.options.RecoveryBudget)
 
 	if !result.IsSatisfied || len(result.Attachments) != 1 {
 		t.Fatalf("expected completion evidence attachment to satisfy verification, got %+v", result)
-	}
-	if len(languageModel.verificationRequests) != 1 || !strings.Contains(languageModel.verificationRequests[0].Messages[2].Content, "report.json") {
-		t.Fatalf("expected verifier to observe the delivered file, got %+v", languageModel.verificationRequests)
 	}
 }
 
@@ -1590,9 +1585,6 @@ func (languageModel *completionReplyLanguageModel) GenerateResponse(context.Cont
 }
 
 func (languageModel *completionReplyLanguageModel) GenerateStructuredResponse(_ context.Context, request llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
-	if request.StructuredOutputSchema.Name == "blueclaw_result_verifier" {
-		return llm.StructuredResponse{Content: defaultResultVerificationResponse(request)}, nil
-	}
 	return llm.StructuredResponse{}, fmt.Errorf("unexpected structured schema %s", request.StructuredOutputSchema.Name)
 }
 
@@ -1632,7 +1624,7 @@ func TestCompletionGateUsesNoVerifierForExactToolOnlyContract(t *testing.T) {
 	}
 	contract := OutcomeContract{RequiredEvidenceTools: []string{"task.add"}}
 
-	result := services.runner.validateCompletionGateForRequestWithExpectedResults(context.Background(), "task-1", AgentTurnRequest{
+	result := validateCompletionGateForRequestWithExpectedResults(AgentTurnRequest{
 		ToolSet:         newTestToolSet([]string{"task.add"}),
 		OutcomeContract: contract,
 	}, []toolUseRequirement{{ToolName: "task.add"}}, observations, nil, nil, turnActionDocument{
@@ -1644,13 +1636,10 @@ func TestCompletionGateUsesNoVerifierForExactToolOnlyContract(t *testing.T) {
 			ObservationID: "obs-001",
 			ToolName:      "task.add",
 		}},
-	})
+	}, services.runner.options.RecoveryBudget)
 
 	if !result.IsSatisfied {
 		t.Fatalf("expected exact task.add evidence and post-evidence finish judgment to complete, got %+v", result)
-	}
-	if len(languageModel.verificationRequests) != 0 {
-		t.Fatalf("expected no semantic verifier call, got %d", len(languageModel.verificationRequests))
 	}
 }
 
@@ -1659,7 +1648,7 @@ func TestCompletionGateDoesNotRequirePreferredArtifact(t *testing.T) {
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
 	goalSatisfied := true
 
-	result := services.runner.validateCompletionGateForRequestWithExpectedResults(context.Background(), "task-1", AgentTurnRequest{
+	result := validateCompletionGateForRequestWithExpectedResults(AgentTurnRequest{
 		ToolSet: newTestToolSet([]string{"file.deliver"}),
 		OutcomeContract: OutcomeContract{
 			ArtifactRequirement: ArtifactRequirementPreferred,
@@ -1670,13 +1659,10 @@ func TestCompletionGateDoesNotRequirePreferredArtifact(t *testing.T) {
 		GoalStatus:         "satisfied",
 		GoalSatisfied:      &goalSatisfied,
 		CompletionEvidence: nil,
-	})
+	}, services.runner.options.RecoveryBudget)
 
 	if !result.IsSatisfied {
 		t.Fatalf("expected preferred artifact to remain optional, got %+v", result)
-	}
-	if len(languageModel.verificationRequests) != 0 {
-		t.Fatalf("expected no semantic verifier call, got %d", len(languageModel.verificationRequests))
 	}
 }
 
@@ -1685,9 +1671,9 @@ func TestCompletionGateRequiresOneSuccessfulToolFromEachEvidenceGroup(t *testing
 	contract := OutcomeContract{RequiredEvidenceAnyOf: [][]string{{"task.add", "task.update"}, {"task.history"}}}
 	observations := []turnObservation{newContentObservation("obs-001", "continue", "task.update", `{"id":"task-1"}`)}
 
-	result := (&AgentTurnRunner{}).validateCompletionGateForRequestWithExpectedResults(context.Background(), "task-1", AgentTurnRequest{OutcomeContract: contract}, nil, observations, nil, nil, turnActionDocument{
+	result := validateCompletionGateForRequestWithExpectedResults(AgentTurnRequest{OutcomeContract: contract}, nil, observations, nil, nil, turnActionDocument{
 		Action: "finish", Message: "완료했습니다.", GoalStatus: "satisfied", GoalSatisfied: &goalSatisfied,
-	})
+	}, defaultRecoveryBudget())
 
 	if result.IsSatisfied {
 		t.Fatal("expected the unsatisfied task.history evidence group to block completion")
@@ -1699,9 +1685,6 @@ func TestCompletionGateRequiresOneSuccessfulToolFromEachEvidenceGroup(t *testing
 
 func TestAgentTurnRunnerExpectedResultsRequireTheirTypedToolEvidence(t *testing.T) {
 	languageModel := &sequenceLanguageModel{
-		resultVerifications: []string{
-			`{"overallStatus":"satisfied","summary":"public URL exists","results":[{"id":"site-public-link","status":"satisfied","reason":"Publish returned a public URL.","citedObservationIDs":["obs-001"],"missingDescription":"","suggestedNextTools":[]}]}`,
-		},
 		contents: []string{
 			`{"action":"continue","toolName":"site.publish","toolInput":{"siteID":"site-1","message":"Publish"},"nextStepPlan":{"objective":"finish with public URL","expectedTools":[],"expectedNextResults":["public URL exists"],"doneCriteria":["public URL exists"],"risk":"none","workingSetReason":"publish should satisfy the expected result"}}`,
 			`{"action":"finish","message":"배포했습니다: https://portfolio.example","replyParts":[{"type":"text","text":"배포했습니다: https://portfolio.example"}],"goalStatus":"satisfied","goalSatisfied":true,"completionEvidence":[{"observationID":"obs-001","toolName":"site.publish"}]}`,
@@ -1747,9 +1730,6 @@ func TestAgentTurnRunnerExpectedResultsRequireTheirTypedToolEvidence(t *testing.
 
 func TestAgentTurnRunnerFileExpectedResultRequiresAttachment(t *testing.T) {
 	languageModel := &sequenceLanguageModel{
-		resultVerifications: []string{
-			`{"overallStatus":"satisfied","summary":"PPTX attached","results":[{"id":"attached-file","status":"satisfied","reason":"file.deliver returned an attachment.","citedObservationIDs":["obs-003"],"missingDescription":"","suggestedNextTools":[]}]}`,
-		},
 		contents: []string{
 			`{"action":"continue","toolName":"file.promote","toolInput":{"path":"tmp/deck/build/deck.pptx","destinationDirectoryPath":"artifacts/deck","overwrite":true},"nextStepPlan":{"objective":"attach promoted file","expectedTools":["file.deliver"],"expectedNextResults":["attached pptx"],"doneCriteria":["file attached"],"risk":"none","workingSetReason":"file deliverable requires attachment"}}`,
 			`{"action":"finish","message":"PPTX를 첨부했습니다.","replyParts":[{"type":"text","text":"PPTX를 첨부했습니다."}],"goalStatus":"satisfied","goalSatisfied":true,"completionEvidence":[{"observationID":"obs-001","toolName":"file.promote"}]}`,

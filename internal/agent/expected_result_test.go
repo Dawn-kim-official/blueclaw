@@ -6,69 +6,118 @@ import (
 	"testing"
 )
 
-func TestObservedResultsIgnoreURLsWithoutCanonicalEffects(t *testing.T) {
-	results := buildObservedResults(newTestToolSet([]string{"external.publish"}), []turnObservation{{
+func TestCanonicalExpectedResultURLsIgnoreUncontractedOutput(t *testing.T) {
+	request := AgentTurnRequest{ToolSet: newTestToolSet([]string{"external.publish"})}
+	observations := []turnObservation{{
 		ObservationID: "obs-001",
 		Tool:          "external.publish",
 		Output: ToolOutput{
 			Content: `{"publicURL":"https://portfolio.example"}`,
 			Data:    json.RawMessage(`{}`),
 		},
-	}}, nil, "초안을 만들었습니다: https://portfolio.example")
+	}}
 
-	if observedResultsContainType(results, ExpectedResultTypeLink) {
-		t.Fatalf("uncontracted URL must not count as delivered link: %+v", results)
+	if urls := canonicalExpectedResultURLs(request, observations); len(urls) != 0 {
+		t.Fatalf("uncontracted URL must not count as delivered link: %+v", urls)
 	}
 }
 
-func TestObservedResultsUseCanonicalURLEffectsWithoutToolNameInference(t *testing.T) {
+func TestCanonicalExpectedResultURLsUseValidatedEffects(t *testing.T) {
 	toolSet, observation := canonicalLinkObservation("external.publish", "https://portfolio.example")
-	results := buildObservedResults(toolSet, []turnObservation{observation}, nil, "")
+	request := AgentTurnRequest{ToolSet: toolSet}
 
-	if !observedResultsContainType(results, ExpectedResultTypeLink) {
-		t.Fatalf("canonical URL effect should count as delivered link: %+v", results)
+	if urls := canonicalExpectedResultURLs(request, []turnObservation{observation}); strings.Join(urls, ",") != "https://portfolio.example" {
+		t.Fatalf("expected exact canonical URL, got %+v", urls)
 	}
-	if results[0].ToolName != "external.publish" || results[0].URL != "https://portfolio.example" {
-		t.Fatalf("expected exact canonical URL identity, got %+v", results)
-	}
-}
 
-func TestObservedResultsRejectEffectsThatDriftFromTheirContract(t *testing.T) {
-	toolSet, observation := canonicalLinkObservation("external.publish", "https://portfolio.example")
 	observation.Effects[0].URL = "https://different.example"
-	results := buildObservedResults(toolSet, []turnObservation{observation}, nil, "")
-
-	if observedResultsContainType(results, ExpectedResultTypeLink) {
-		t.Fatalf("mismatched effect identity must not count as delivered link: %+v", results)
+	if urls := canonicalExpectedResultURLs(request, []turnObservation{observation}); len(urls) != 0 {
+		t.Fatalf("mismatched effect identity must fail closed: %+v", urls)
 	}
 }
 
-func TestObservedResultsPreserveTypedFileAttachment(t *testing.T) {
-	results := buildObservedResults(
-		nil,
-		nil,
-		[]FileAttachment{{Filename: "quarterly.docx", ContentType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document"}},
-		"",
-	)
-
-	if !observedResultsContainType(results, ExpectedResultTypeFile) {
-		t.Fatalf("typed attachment should count as a file result: %+v", results)
+func TestCanonicalExpectedResultURLsPreferRequiredEffectIdentity(t *testing.T) {
+	searchDefinition := canonicalLinkToolDefinition("web.search")
+	searchDefinition.ResultContract.Effects[0].ObjectType = "reference"
+	searchDefinition.ResultContract.Effects[0].Effect = "found"
+	searchResult := canonicalLinkToolResult("https://reference.example")
+	searchResult.Effects[0].ObjectType = "reference"
+	searchResult.Effects[0].Effect = "found"
+	searchObservation := turnObservation{
+		ObservationID: "obs-001",
+		Tool:          "web.search",
+		Output:        searchResult.Output,
+		Effects:       searchResult.Effects,
 	}
-	if results[0].Filename != "quarterly.docx" {
-		t.Fatalf("expected exact attachment filename, got %+v", results[0])
+	publishToolSet, publishObservation := canonicalLinkObservation("site.publish", "https://portfolio.example")
+	toolSet := newTestToolSetWithDefinitions([]ToolDefinition{
+		searchDefinition,
+		mustToolDefinition(t, publishToolSet, "site.publish"),
+	})
+	request := AgentTurnRequest{
+		ToolSet: toolSet,
+		OutcomeContract: OutcomeContract{RequiredEffects: []OutcomeEffect{{
+			ObjectType: "website",
+			Effect:     "published",
+		}}},
+	}
+
+	if urls := canonicalExpectedResultURLs(request, []turnObservation{searchObservation, publishObservation}); strings.Join(urls, ",") != "https://portfolio.example" {
+		t.Fatalf("expected required publish effect URL only, got %+v", urls)
+	}
+}
+
+func TestExpectedResultDeliveryRequiresExactCanonicalURL(t *testing.T) {
+	toolSet, observation := canonicalLinkObservation("site.publish", "https://portfolio.example")
+	request := AgentTurnRequest{
+		ToolSet: toolSet,
+		OutcomeContract: OutcomeContract{
+			ExpectedResults: []ExpectedResult{{
+				ID:          "site-public-link",
+				Type:        ExpectedResultTypeLink,
+				Description: "published website URL",
+				Required:    true,
+			}},
+		},
+	}
+
+	wrongURL := validateExpectedResultDelivery(request, []turnObservation{observation}, nil, finishDocument("배포했습니다: https://different.example"))
+	if wrongURL.IsSatisfied || !strings.Contains(wrongURL.Message, "https://portfolio.example") {
+		t.Fatalf("expected exact observed URL requirement, got %+v", wrongURL)
+	}
+
+	exactURL := validateExpectedResultDelivery(request, []turnObservation{observation}, nil, finishDocument("배포했습니다: https://portfolio.example/"))
+	if !exactURL.IsSatisfied {
+		t.Fatalf("expected normalized exact URL to pass, got %+v", exactURL)
+	}
+}
+
+func TestExpectedResultDeliveryRequiresTypedFileAndMessage(t *testing.T) {
+	request := AgentTurnRequest{OutcomeContract: OutcomeContract{ExpectedResults: []ExpectedResult{
+		{ID: "attached-file", Type: ExpectedResultTypeFile, Description: "attached report", Required: true},
+		{ID: "final-message", Type: ExpectedResultTypeMessage, Description: "final user reply", Required: true},
+	}}}
+
+	missingFile := validateExpectedResultDelivery(request, nil, nil, finishDocument("파일을 준비했습니다."))
+	if missingFile.IsSatisfied {
+		t.Fatal("expected missing typed attachment to block delivery")
+	}
+
+	ready := validateExpectedResultDelivery(request, nil, []FileAttachment{{Filename: "report.json"}}, finishDocument("파일을 첨부했습니다."))
+	if !ready.IsSatisfied {
+		t.Fatalf("expected typed attachment and message to pass, got %+v", ready)
 	}
 }
 
 func canonicalLinkObservation(toolName string, publicURL string) (*ToolSet, turnObservation) {
 	descriptor := canonicalLinkToolDefinition(toolName)
 	result := canonicalLinkToolResult(publicURL)
-	observation := turnObservation{
+	return newTestToolSetWithDefinitions([]ToolDefinition{descriptor}), turnObservation{
 		ObservationID: "obs-001",
 		Tool:          toolName,
 		Output:        result.Output,
 		Effects:       result.Effects,
 	}
-	return newTestToolSetWithDefinitions([]ToolDefinition{descriptor}), observation
 }
 
 func canonicalLinkToolDefinition(toolName string) ToolDefinition {
@@ -94,287 +143,15 @@ func canonicalLinkToolResult(publicURL string) ToolResult {
 	}
 }
 
-func TestRequiredLinkVerificationRequiresObservedLinkResult(t *testing.T) {
-	expectedResults := []ExpectedResult{{
-		ID:          "site-public-link",
-		Type:        ExpectedResultTypeLink,
-		Description: "사용자가 열 수 있는 public URL의 개인 홈페이지",
-		Required:    true,
-	}}
-	verification := ResultVerification{
-		OverallStatus: "satisfied",
-		Results: []ResultVerificationItem{{
-			ID:                  "site-public-link",
-			Status:              "satisfied",
-			Reason:              "The final message contains a URL.",
-			CitedObservationIDs: []string{"obs-001"},
-		}},
+func mustToolDefinition(t *testing.T, toolSet *ToolSet, toolName string) ToolDefinition {
+	t.Helper()
+	definition, isFound := toolSet.ToolDefinition(toolName)
+	if !isFound {
+		t.Fatalf("expected tool definition %s", toolName)
 	}
-
-	verification = enforceObservedResultRequirements(expectedResults, []ObservedResult{{
-		Type:          ExpectedResultTypeMessage,
-		Description:   "Final message draft: https://portfolio.example",
-		ObservationID: "obs-001",
-	}}, "https://portfolio.example", verification)
-
-	if verification.OverallStatus != "missing" {
-		t.Fatalf("expected missing verification without observed link, got %+v", verification)
-	}
-	if verification.Results[0].Status != "missing" {
-		t.Fatalf("expected link result to be missing, got %+v", verification.Results[0])
-	}
+	return definition
 }
 
-func TestRequiredLinkVerificationDoesNotInferProvenanceFromToolNames(t *testing.T) {
-	expectedResults := []ExpectedResult{{
-		ID:              "site-public-link",
-		Type:            ExpectedResultTypeLink,
-		Description:     "public website URL",
-		Required:        true,
-		AcceptanceHints: []string{"site public URL deliverable"},
-	}}
-	verification := ResultVerification{
-		OverallStatus: "satisfied",
-		Results: []ResultVerificationItem{{
-			ID:                  "site-public-link",
-			Status:              "satisfied",
-			Reason:              "A URL exists.",
-			CitedObservationIDs: []string{"obs-002"},
-		}},
-	}
-	observedResults := []ObservedResult{{
-		Type:          ExpectedResultTypeMessage,
-		Description:   "site.build result: build completed",
-		ObservationID: "obs-001",
-		ToolName:      "site.build",
-	}, {
-		Type:          ExpectedResultTypeLink,
-		Description:   "web.search result: URL: https://example.com/reference",
-		ObservationID: "obs-002",
-		ToolName:      "web.search",
-		URL:           "https://example.com/reference",
-	}}
-
-	verification = enforceObservedResultRequirements(expectedResults, observedResults, "https://example.com/reference", verification)
-
-	if verification.OverallStatus != "satisfied" {
-		t.Fatalf("expected canonical link result to avoid tool-name provenance inference, got %+v", verification)
-	}
-}
-
-func TestRequiredGenericLinkVerificationAcceptsGenericURLWithoutSiteTool(t *testing.T) {
-	expectedResults := []ExpectedResult{{
-		ID:          "reference-link",
-		Type:        ExpectedResultTypeLink,
-		Description: "reference URL",
-		Required:    true,
-	}}
-	verification := ResultVerification{
-		OverallStatus: "satisfied",
-		Results: []ResultVerificationItem{{
-			ID:                  "reference-link",
-			Status:              "satisfied",
-			Reason:              "A URL exists.",
-			CitedObservationIDs: []string{"obs-001"},
-		}},
-	}
-	observedResults := []ObservedResult{{
-		Type:          ExpectedResultTypeLink,
-		Description:   "web.search result: URL: https://example.com/reference",
-		ObservationID: "obs-001",
-		ToolName:      "web.search",
-		URL:           "https://example.com/reference",
-	}}
-
-	verification = enforceObservedResultRequirements(expectedResults, observedResults, "https://example.com/reference", verification)
-
-	if verification.OverallStatus != "satisfied" {
-		t.Fatalf("expected generic URL to satisfy generic link result, got %+v", verification)
-	}
-}
-
-func TestCanonicalFinalMessageUsesNonEmptyFinishDraftAsDeliveryEvidence(t *testing.T) {
-	expectedResults := []ExpectedResult{{
-		ID:          "final-message",
-		Type:        ExpectedResultTypeMessage,
-		Description: "final reply to the user",
-		Required:    true,
-	}}
-	verification := ResultVerification{
-		OverallStatus: "missing",
-		Results: []ResultVerificationItem{{
-			ID:                 "final-message",
-			Status:             "missing",
-			Reason:             "The reply has not been delivered yet.",
-			MissingDescription: "A final reply is missing.",
-			SuggestedNextTools: []string{"finish"},
-		}},
-	}
-
-	verification = enforceObservedResultRequirements(expectedResults, nil, "업무 상태를 진행으로 변경했습니다.", verification)
-
-	if verification.OverallStatus != "satisfied" {
-		t.Fatalf("expected ready final message to satisfy verification, got %+v", verification)
-	}
-	result := verification.Results[0]
-	if result.Status != "satisfied" || result.MissingDescription != "" || len(result.SuggestedNextTools) != 0 {
-		t.Fatalf("expected final message result to be satisfied without recovery, got %+v", result)
-	}
-}
-
-func TestCanonicalFinalMessageStillRequiresNonEmptyFinishDraft(t *testing.T) {
-	expectedResults := []ExpectedResult{{
-		ID:       "final-message",
-		Type:     ExpectedResultTypeMessage,
-		Required: true,
-	}}
-	verification := ResultVerification{
-		OverallStatus: "missing",
-		Results: []ResultVerificationItem{{
-			ID:     "final-message",
-			Status: "missing",
-		}},
-	}
-
-	verification = enforceObservedResultRequirements(expectedResults, nil, "  ", verification)
-
-	if verification.Results[0].Status != "missing" {
-		t.Fatalf("expected empty final message to remain missing, got %+v", verification.Results[0])
-	}
-}
-
-func TestRequiredLinkVerificationRequiresFinalMessageToUseObservedURL(t *testing.T) {
-	expectedResults := []ExpectedResult{{
-		ID:          "site-public-link",
-		Type:        ExpectedResultTypeLink,
-		Description: "사용자가 열 수 있는 public URL의 개인 홈페이지",
-		Required:    true,
-	}}
-	verification := ResultVerification{
-		OverallStatus: "satisfied",
-		Results: []ResultVerificationItem{{
-			ID:                  "site-public-link",
-			Status:              "satisfied",
-			Reason:              "A published URL exists.",
-			CitedObservationIDs: []string{"obs-001"},
-		}},
-	}
-	observedResults := []ObservedResult{{
-		Type:          ExpectedResultTypeLink,
-		Description:   "site.publish result: URL: https://portfolio-probe.device.example.test",
-		ObservationID: "obs-001",
-		ToolName:      "site.publish",
-		URL:           "https://portfolio-probe.device.example.test",
-	}}
-
-	verification = enforceObservedResultRequirements(expectedResults, observedResults, "배포했습니다: https://portfoli-device.example.test", verification)
-
-	if verification.OverallStatus != "missing" {
-		t.Fatalf("expected missing verification with wrong final URL, got %+v", verification)
-	}
-	if !strings.Contains(verification.Results[0].Reason, "https://portfolio-probe.device.example.test") {
-		t.Fatalf("missing reason must name the exact observed URL: %+v", verification.Results[0])
-	}
-}
-
-func TestRequiredLinkVerificationAcceptsExactObservedURLInFinalMessage(t *testing.T) {
-	expectedResults := []ExpectedResult{{
-		ID:          "site-public-link",
-		Type:        ExpectedResultTypeLink,
-		Description: "사용자가 열 수 있는 public URL의 개인 홈페이지",
-		Required:    true,
-	}}
-	verification := ResultVerification{
-		OverallStatus: "satisfied",
-		Results: []ResultVerificationItem{{
-			ID:                  "site-public-link",
-			Status:              "satisfied",
-			Reason:              "A published URL exists.",
-			CitedObservationIDs: []string{"obs-001"},
-		}},
-	}
-	observedResults := []ObservedResult{{
-		Type:          ExpectedResultTypeLink,
-		Description:   "site.publish result: URL: https://portfolio-probe.device.example.test",
-		ObservationID: "obs-001",
-		ToolName:      "site.publish",
-		URL:           "https://portfolio-probe.device.example.test",
-	}}
-
-	verification = enforceObservedResultRequirements(expectedResults, observedResults, "배포했습니다: https://portfolio-probe.device.example.test", verification)
-
-	if verification.OverallStatus != "satisfied" {
-		t.Fatalf("expected satisfied verification with exact final URL, got %+v", verification)
-	}
-}
-
-func TestRequiredLinkVerificationAcceptsTrailingSlashDifference(t *testing.T) {
-	expectedResults := []ExpectedResult{{
-		ID:          "site-public-link",
-		Type:        ExpectedResultTypeLink,
-		Description: "사용자가 열 수 있는 public URL의 개인 홈페이지",
-		Required:    true,
-	}}
-	verification := ResultVerification{
-		OverallStatus: "satisfied",
-		Results: []ResultVerificationItem{{
-			ID:                  "site-public-link",
-			Status:              "satisfied",
-			Reason:              "A published URL exists.",
-			CitedObservationIDs: []string{"obs-001"},
-		}},
-	}
-	observedResults := []ObservedResult{{
-		Type:          ExpectedResultTypeLink,
-		Description:   "site.publish result: URL: https://portfolio-probe.device.example.test",
-		ObservationID: "obs-001",
-		ToolName:      "site.publish",
-		URL:           "https://portfolio-probe.device.example.test",
-	}}
-
-	verification = enforceObservedResultRequirements(expectedResults, observedResults, "배포했습니다: https://portfolio-probe.device.example.test/", verification)
-
-	if verification.OverallStatus != "satisfied" {
-		t.Fatalf("expected satisfied verification with trailing slash difference, got %+v", verification)
-	}
-}
-
-func TestMessageResultBlocksOnceThenDelivers(t *testing.T) {
-	contract := OutcomeContract{ExpectedResults: []ExpectedResult{
-		{ID: "result-1", Type: ExpectedResultTypeMessage, Description: "self-intro text", Required: true},
-	}}
-	verification := ResultVerification{Results: []ResultVerificationItem{
-		{ID: "result-1", Status: "missing"},
-	}}
-
-	firstPass := blockingExpectedResultItems(contract, verification, nil)
-	if len(firstPass) != 1 {
-		t.Fatalf("message result should block on first verdict, got %d", len(firstPass))
-	}
-
-	priorFlag := []turnObservation{{
-		Action:           "evidence_missing",
-		PolicyCode:       evidenceKindExpectedResult,
-		RelatedResultIDs: []string{"result-1"},
-	}}
-	secondPass := blockingExpectedResultItems(contract, verification, priorFlag)
-	if len(secondPass) != 0 {
-		t.Fatalf("message result should deliver after one advisory round, got %d", len(secondPass))
-	}
-}
-
-func TestFileResultBlocksEveryTime(t *testing.T) {
-	contract := OutcomeContract{ExpectedResults: []ExpectedResult{
-		{ID: "doc-1", Type: ExpectedResultTypeFile, Description: "the report file", Required: true},
-	}}
-	verification := ResultVerification{Results: []ResultVerificationItem{
-		{ID: "doc-1", Status: "missing"},
-	}}
-	priorFlag := []turnObservation{{
-		Action: "evidence_missing",
-		Output: ToolOutput{Content: "missing required expected result: doc-1"},
-	}}
-	if len(blockingExpectedResultItems(contract, verification, priorFlag)) != 1 {
-		t.Fatal("checkable file result must keep blocking until observed")
-	}
+func finishDocument(message string) turnActionDocument {
+	return turnActionDocument{Action: "finish", Message: message}
 }
