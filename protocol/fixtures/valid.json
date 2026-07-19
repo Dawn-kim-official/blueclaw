@@ -359,7 +359,8 @@
           },
           "required": [
             "items"
-          ]
+          ],
+          "additionalProperties": false
         },
         "isStrictlyEnforced": true
       },
