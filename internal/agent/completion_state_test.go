@@ -159,6 +159,35 @@ func TestCompletionStateFinalizesWhenRequiredAttachmentEvidenceExists(t *testing
 	}
 }
 
+func TestCompletionStateKeepsWorkingWithActiveFailureDebt(t *testing.T) {
+	failedObservation := newFailureObservation(
+		"obs-002",
+		"continue",
+		"file.read",
+		"permission denied",
+		FailurePermissionDenied,
+		FailureCodes.AccessDenied,
+		"file_read",
+	)
+	failedObservation.ToolInputKey = "file.read\x00{}"
+	state := buildCompletionState(
+		AgentTurnRequest{},
+		[]toolUseRequirement{{ToolName: FileDeliverToolName, RequiresAttachment: true, AttachmentSuffixes: []string{".json"}}},
+		[]turnObservation{{
+			ObservationID: "obs-001",
+			Tool:          FileDeliverToolName,
+			Attachments: []FileAttachment{{
+				DevicePath: "artifacts/report/report.json",
+				Filename:   "report.json",
+			}},
+		}, failedObservation},
+	)
+
+	if state.RecommendedAction != completionActionContinueWork {
+		t.Fatalf("expected active failure debt to prevent completion, got %+v", state)
+	}
+}
+
 func TestCompletionStateUsesAttachmentIndexesForRequiredSuffixEvidence(t *testing.T) {
 	state := buildCompletionState(
 		AgentTurnRequest{},

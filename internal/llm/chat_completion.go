@@ -70,19 +70,27 @@ type LocalRecoveryChatCompleter interface {
 	GenerateLocalRecoveryChatCompletion(context.Context, ChatCompletionRequest) (ChatCompletionResponse, error)
 }
 
-func RecoveryChatCompletionText(response ChatCompletionResponse) (string, error) {
+func ChatCompletionText(response ChatCompletionResponse) (string, error) {
 	if response.FinishReason != "stop" {
-		return "", errors.New("recovery chat completion did not stop normally")
+		return "", errors.New("chat completion did not stop normally")
 	}
 	if response.Message.Role != "assistant" {
-		return "", errors.New("recovery chat completion message must be assistant")
+		return "", errors.New("chat completion message must be assistant")
 	}
 	if len(response.Message.ToolCalls) > 0 {
-		return "", errors.New("recovery chat completion must not call tools")
+		return "", errors.New("chat completion must not call tools")
 	}
 	reply := strings.TrimSpace(response.Message.Content)
 	if reply == "" {
-		return "", errors.New("recovery chat completion is empty")
+		return "", errors.New("chat completion is empty")
+	}
+	return reply, nil
+}
+
+func RecoveryChatCompletionText(response ChatCompletionResponse) (string, error) {
+	reply, errorValue := ChatCompletionText(response)
+	if errorValue != nil {
+		return "", errors.New("recovery " + errorValue.Error())
 	}
 	return reply, nil
 }
