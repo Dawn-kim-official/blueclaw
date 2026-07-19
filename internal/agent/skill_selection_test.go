@@ -1042,7 +1042,8 @@ func assertContractArbitrationSchemaEnums(t *testing.T, schemaDocument string, e
 	t.Helper()
 	var schema struct {
 		Properties map[string]struct {
-			Items struct {
+			UniqueItems bool `json:"uniqueItems"`
+			Items       struct {
 				Enum []string `json:"enum"`
 			} `json:"items"`
 		} `json:"properties"`
@@ -1051,6 +1052,9 @@ func assertContractArbitrationSchemaEnums(t *testing.T, schemaDocument string, e
 		t.Fatalf("decode arbitration schema: %v", errorValue)
 	}
 	for propertyName, values := range expectedValues {
+		if schema.Properties[propertyName].UniqueItems {
+			t.Fatalf("expected provider-portable %s array schema", propertyName)
+		}
 		if !reflect.DeepEqual(schema.Properties[propertyName].Items.Enum, values) {
 			t.Fatalf("expected %s enum %v, got %v", propertyName, values, schema.Properties[propertyName].Items.Enum)
 		}

@@ -124,10 +124,9 @@ func exactStringArraySchema(values []string, maximumItems int) map[string]any {
 		maximumItems = 0
 	}
 	return map[string]any{
-		"type":        "array",
-		"maxItems":    maximumItems,
-		"uniqueItems": true,
-		"items":       itemSchema,
+		"type":     "array",
+		"maxItems": maximumItems,
+		"items":    itemSchema,
 	}
 }
 
