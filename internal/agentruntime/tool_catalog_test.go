@@ -27,6 +27,63 @@ type memoryTaskScheduleRepository struct {
 	failed        []string
 }
 
+func TestResolveAgentWorkspaceReferencesUsesPathBoundaries(t *testing.T) {
+	workspaceRootPath := "/Users/lee/orca/workspaces/internkim/tool-test"
+	toolCatalogBuilder := NewToolCatalogBuilder()
+	toolCatalogBuilder.UseWorkspaceRootPath(workspaceRootPath)
+	testCases := []struct {
+		input    string
+		expected string
+	}{
+		{
+			input:    "python3 /workspace/skills/document/scripts/export.py",
+			expected: "python3 " + workspaceRootPath + "/skills/document/scripts/export.py",
+		},
+		{
+			input:    "cd '/workspace' && pwd",
+			expected: "cd '" + workspaceRootPath + "' && pwd",
+		},
+		{
+			input:    "WORKSPACE=/workspace",
+			expected: "WORKSPACE=" + workspaceRootPath,
+		},
+		{
+			input:    "cat " + workspaceRootPath + "/documents/report.md",
+			expected: "cat " + workspaceRootPath + "/documents/report.md",
+		},
+		{
+			input:    "cat /other/workspace/documents/report.md",
+			expected: "cat /other/workspace/documents/report.md",
+		},
+		{
+			input:    "echo /workspaceBackup",
+			expected: "echo /workspaceBackup",
+		},
+	}
+	for _, testCase := range testCases {
+		actual := toolCatalogBuilder.resolveAgentWorkspaceReferences(testCase.input)
+		if actual != testCase.expected {
+			t.Fatalf("expected %q, got %q", testCase.expected, actual)
+		}
+	}
+}
+
+func TestResolveAgentWorkspaceEnvironmentLeavesConcretePathsUnchanged(t *testing.T) {
+	workspaceRootPath := "/Users/lee/orca/workspaces/internkim/tool-test"
+	toolCatalogBuilder := NewToolCatalogBuilder()
+	toolCatalogBuilder.UseWorkspaceRootPath(workspaceRootPath)
+
+	resolved := toolCatalogBuilder.resolveAgentWorkspaceEnvironment(map[string]string{
+		"HOME":     workspaceRootPath + "/private/people/person-1",
+		"TOOL_DIR": "/workspace/tools",
+	})
+
+	if resolved["HOME"] != workspaceRootPath+"/private/people/person-1" ||
+		resolved["TOOL_DIR"] != workspaceRootPath+"/tools" {
+		t.Fatalf("expected exact concrete environment paths, got %+v", resolved)
+	}
+}
+
 type recordingMemoryUpdateQueue struct {
 	jobs []memory.MemoryUpdateJob
 }

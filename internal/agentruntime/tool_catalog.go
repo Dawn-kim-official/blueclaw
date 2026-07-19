@@ -508,7 +508,46 @@ func (toolCatalogBuilder *ToolCatalogBuilder) resolveAgentWorkspaceReferences(va
 	if strings.TrimSpace(value) == "" || toolCatalogBuilder.workspaceRootPath == "/workspace" {
 		return value
 	}
-	return strings.ReplaceAll(value, "/workspace", toolCatalogBuilder.workspaceRootPath)
+	const workspaceReference = "/workspace"
+	var result strings.Builder
+	remainingStart := 0
+	searchStart := 0
+	for {
+		relativeIndex := strings.Index(value[searchStart:], workspaceReference)
+		if relativeIndex < 0 {
+			break
+		}
+		referenceStart := searchStart + relativeIndex
+		referenceEnd := referenceStart + len(workspaceReference)
+		searchStart = referenceEnd
+		if !isWorkspaceReference(value, referenceStart, referenceEnd) {
+			continue
+		}
+		result.WriteString(value[remainingStart:referenceStart])
+		result.WriteString(toolCatalogBuilder.workspaceRootPath)
+		remainingStart = referenceEnd
+	}
+	if remainingStart == 0 {
+		return value
+	}
+	result.WriteString(value[remainingStart:])
+	return result.String()
+}
+
+func isWorkspaceReference(value string, referenceStart int, referenceEnd int) bool {
+	if referenceStart > 0 && isWorkspacePathCharacter(value[referenceStart-1]) {
+		return false
+	}
+	return referenceEnd == len(value) || !isWorkspacePathCharacter(value[referenceEnd])
+}
+
+func isWorkspacePathCharacter(value byte) bool {
+	return value >= 'a' && value <= 'z' ||
+		value >= 'A' && value <= 'Z' ||
+		value >= '0' && value <= '9' ||
+		value == '_' ||
+		value == '-' ||
+		value == '.'
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) resolveAgentWorkspaceEnvironment(environmentVariables map[string]string) map[string]string {
@@ -517,7 +556,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) resolveAgentWorkspaceEnvironment(e
 	}
 	resolvedEnvironmentVariables := map[string]string{}
 	for key, value := range environmentVariables {
-		resolvedEnvironmentVariables[key] = toolCatalogBuilder.resolveAgentWorkspaceReferences(value)
+		resolvedEnvironmentVariables[key] = toolCatalogBuilder.resolveAgentWorkspacePath(value)
 	}
 	return resolvedEnvironmentVariables
 }

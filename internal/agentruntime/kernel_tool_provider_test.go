@@ -3,6 +3,7 @@ package agentruntime
 import (
 	"context"
 	"encoding/json"
+	"slices"
 	"testing"
 
 	"blueclaw/internal/agent"
@@ -174,6 +175,56 @@ func TestTerminalRunDescriptorUsesStrictCanonicalContract(t *testing.T) {
 	if !isObject || timeoutSchema["type"] != "integer" || timeoutSchema["minimum"] != float64(1) {
 		t.Fatalf("expected positive integer timeout, got %v", timeoutSchema)
 	}
+	expectedPropertyNames := []string{"approvalReason", "approvalRequired", "command", "timeoutSecond", "workingDirectoryPath"}
+	propertyNames := make([]string, 0, len(properties))
+	for propertyName := range properties {
+		propertyNames = append(propertyNames, propertyName)
+	}
+	slices.Sort(propertyNames)
+	if !slices.Equal(propertyNames, expectedPropertyNames) {
+		t.Fatalf("expected shallow portable terminal fields, got %v", propertyNames)
+	}
+	requiredFields, isArray := inputSchema["required"].([]any)
+	if !isArray || len(requiredFields) != 1 || requiredFields[0] != "command" {
+		t.Fatalf("expected command as the required terminal input, got %v", inputSchema["required"])
+	}
+	if _, isFound := inputSchema["allOf"]; isFound {
+		t.Fatalf("terminal input schema must not use allOf: %s", definition.InputSchema)
+	}
+	if _, isFound := inputSchema["oneOf"]; isFound {
+		t.Fatalf("terminal input schema must not use oneOf: %s", definition.InputSchema)
+	}
+	var inputIntentSchema map[string]any
+	if errorValue := json.Unmarshal(definition.InputIntentSchema, &inputIntentSchema); errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	intentProperties, isObject := inputIntentSchema["properties"].(map[string]any)
+	if !isObject || len(intentProperties) != 0 || inputIntentSchema["additionalProperties"] != false {
+		t.Fatalf("expected terminal execution details outside the operation intent, got %s", definition.InputIntentSchema)
+	}
+}
+
+func TestFileDeliverDescriptorKeepsGeneratedArtifactOutsideOperationIntent(t *testing.T) {
+	provider := newKernelToolProvider(NewToolCatalogBuilder(), toolHandlerContext{}, agent.NewToolSet(nil))
+	boundTools, errorValue := provider.ListTools(context.Background())
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	for _, boundTool := range boundTools {
+		if boundTool.Definition.Name != agent.FileDeliverToolName {
+			continue
+		}
+		var inputIntentSchema map[string]any
+		if errorValue := json.Unmarshal(boundTool.Definition.InputIntentSchema, &inputIntentSchema); errorValue != nil {
+			t.Fatal(errorValue)
+		}
+		properties, isObject := inputIntentSchema["properties"].(map[string]any)
+		if !isObject || len(properties) != 0 || inputIntentSchema["additionalProperties"] != false {
+			t.Fatalf("expected generated delivery details outside the operation intent, got %s", boundTool.Definition.InputIntentSchema)
+		}
+		return
+	}
+	t.Fatal("file.deliver descriptor is missing")
 }
 
 func TestKernelToolProviderProjectsEveryResultPathEffect(t *testing.T) {
