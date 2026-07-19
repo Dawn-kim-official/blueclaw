@@ -2978,38 +2978,12 @@ func assertTurnResult(workspacePath string, virtualTurn VirtualTurn, turnResult 
 
 func assertLanguageModelCallsSucceeded(turnResult VirtualTurnResult) error {
 	for _, event := range turnResult.LanguageModelCallEvents {
-		if !event.IsError || event.WasCorrected || isElapsedCompletionCutover(event, turnResult) {
+		if !event.IsError || event.WasCorrected {
 			continue
 		}
 		return fmt.Errorf("language model call failed: %s", strings.TrimSpace(strings.Join([]string{event.Kind, event.SchemaName, event.Error}, " ")))
 	}
 	return nil
-}
-
-func isElapsedCompletionCutover(event VirtualLanguageModelCallEvent, turnResult VirtualTurnResult) bool {
-	if !event.IsDeadlineExceeded || event.SchemaName != "blueclaw_result_verifier" {
-		return false
-	}
-	if turnResult.TaskStatus != task.TaskStatusCompleted {
-		return false
-	}
-	return hasElapsedCompletionEvidence(turnResult.Events)
-}
-
-func hasElapsedCompletionEvidence(events []task.TaskEvent) bool {
-	for _, event := range events {
-		if event.Name != "agent.limit_completed_from_evidence" {
-			continue
-		}
-		var evidence struct {
-			Reason string `json:"reason"`
-			Source string `json:"source"`
-		}
-		if json.Unmarshal([]byte(event.Body), &evidence) == nil && evidence.Reason == "max_elapsed" && evidence.Source == "typed_evidence" {
-			return true
-		}
-	}
-	return false
 }
 
 func assertResponseExpectation(virtualTurn VirtualTurn, turnResult VirtualTurnResult) error {
