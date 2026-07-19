@@ -437,10 +437,28 @@ func buildSelectedSkillInstructionPrompt(skillInstructions []SkillInstruction) s
 	}
 	for _, skillInstruction := range skillInstructions {
 		if strings.TrimSpace(skillInstruction.Prompt) != "" {
-			parts = append(parts, strings.TrimSpace(skillInstruction.Prompt))
+			parts = append(parts, selectedSkillInstructionPrompt(skillInstruction))
 		}
 	}
 	return strings.Join(parts, "\n\n")
+}
+
+func selectedSkillInstructionPrompt(skillInstruction SkillInstruction) string {
+	return strings.Join([]string{
+		"Skill: " + strings.TrimSpace(skillInstruction.Name),
+		"Source: " + selectedSkillSourcePath(skillInstruction),
+		"Resolve relative scripts, references, and assets from the source directory.",
+		strings.TrimSpace(skillInstruction.Prompt),
+	}, "\n")
+}
+
+func selectedSkillSourcePath(skillInstruction SkillInstruction) string {
+	skillName := strings.TrimSpace(skillInstruction.Name)
+	sourcePath := "/" + strings.TrimPrefix(strings.ReplaceAll(strings.TrimSpace(skillInstruction.Source.Path), "\\", "/"), "/")
+	if strings.Contains(sourcePath, "/.agents/skills/") {
+		return "/workspace/.agents/skills/" + skillName + "/SKILL.md"
+	}
+	return "/workspace/skills/" + skillName + "/SKILL.md"
 }
 
 func nonEmptyStrings(values []string) []string {

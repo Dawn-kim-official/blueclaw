@@ -842,10 +842,17 @@ func isLiveVirtualScenario(scenario e2e.VirtualSessionScenario) bool {
 }
 
 func defaultSkillDirectoryPath(scenarioName string) string {
-	if scenarioName != "presentation_local_multiturn_success" {
+	var skillName string
+	switch scenarioName {
+	case "document_create_acceptance":
+		skillName = "document"
+	case "presentation_local_multiturn_success":
+		skillName = "presentation"
+	}
+	if skillName == "" {
 		return ""
 	}
-	candidatePath := filepath.Clean("../../assets/blueclaw-workspace/skills/presentation")
+	candidatePath := filepath.Clean(filepath.Join("../../assets/blueclaw-workspace/skills", skillName))
 	if _, errorValue := os.Stat(candidatePath); errorValue == nil {
 		return candidatePath
 	}
