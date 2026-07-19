@@ -63,8 +63,10 @@ import {
   siteStatusResultSchema,
   taskAddInputSchema,
   taskDeleteInputSchema,
+  taskDeleteInputIntentSchema,
   taskListInputSchema,
   taskUpdateInputSchema,
+  taskUpdateInputIntentSchema,
   webSearchInputSchema,
   webSearchResultSchema,
 } from '../src/capability_tools.ts';
@@ -314,6 +316,13 @@ describe('canonical capability tools', () => {
       { objectType: 'task', effect: 'deleted', resultField: 'taskID', effectIdentity: ResourceEffectIdentity.ID },
     ]);
     expect(deleteTool?.requiresApproval).toBe(true);
+  });
+
+  test('keeps runtime task identities out of user intent', () => {
+    expect(taskUpdateInputIntentSchema.safeParse({ title: '분기 결산 검토' }).success).toBe(true);
+    expect(taskUpdateInputIntentSchema.safeParse({ taskID: 'task-1' }).success).toBe(false);
+    expect(taskDeleteInputIntentSchema.safeParse({}).success).toBe(true);
+    expect(taskDeleteInputIntentSchema.safeParse({ taskID: 'task-1' }).success).toBe(false);
   });
 
   test('keeps calendar metadata and mutation contracts explicit', () => {

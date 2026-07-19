@@ -289,13 +289,13 @@ export const taskUpdateInputSchema = taskUpdateObjectSchema
   .refine(hasMutationField, 'At least one task field must be updated.')
   .meta({ minProperties: 2 });
 
-export const taskUpdateInputIntentSchema = taskUpdateObjectSchema.partial();
+export const taskUpdateInputIntentSchema = taskUpdateObjectSchema.omit({ taskID: true });
 
 export const taskDeleteInputSchema = z.strictObject({
   taskID: resourceIDSchema.describe('Exact ID of the task to delete, copied from a task.list result.'),
 });
 
-export const taskDeleteInputIntentSchema = taskDeleteInputSchema.partial();
+export const taskDeleteInputIntentSchema = z.strictObject({});
 
 export const taskListResultSchema = z.strictObject({
   tasks: z.array(taskResultSchema),
