@@ -185,9 +185,6 @@ func (languageModel *capturingScheduleRuntimeLanguageModel) GenerateStructuredRe
 	if request.StructuredOutputSchema.Name == "blueclaw_operation_contract" {
 		return llm.StructuredResponse{Content: scheduledRuntimeOperationContract(request.StructuredOutputSchema.Document)}, nil
 	}
-	if request.StructuredOutputSchema.Name == "blueclaw_operation_contract_review" {
-		return llm.StructuredResponse{Content: `{"isComplete":true,"reason":"scheduled runtime fixture"}`}, nil
-	}
 	return llm.StructuredResponse{Content: languageModel.content}, nil
 }
 

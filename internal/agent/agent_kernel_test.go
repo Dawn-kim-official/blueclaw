@@ -44,9 +44,6 @@ func (model intakeDecisionLanguageModel) GenerateStructuredResponse(_ context.Co
 		document := operationContractTestDocument(request.StructuredOutputSchema.Document)
 		return llm.StructuredResponse{Content: document}, nil
 	}
-	if request.StructuredOutputSchema.Name == operationContractReviewSchemaName {
-		return llm.StructuredResponse{Content: `{"isComplete":true,"reason":""}`}, nil
-	}
 	document, errorValue := json.Marshal(model.decision)
 	if errorValue != nil {
 		return llm.StructuredResponse{}, errorValue
@@ -723,9 +720,6 @@ func (model *turnRouterDecisionLanguageModel) GenerateResponse(context.Context, 
 func (model *turnRouterDecisionLanguageModel) GenerateStructuredResponse(_ context.Context, structuredResponseRequest llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
 	if structuredResponseRequest.StructuredOutputSchema.Name == operationContractSchemaName {
 		return llm.StructuredResponse{Content: operationContractTestDocument(structuredResponseRequest.StructuredOutputSchema.Document)}, nil
-	}
-	if structuredResponseRequest.StructuredOutputSchema.Name == operationContractReviewSchemaName {
-		return llm.StructuredResponse{Content: `{"isComplete":true,"reason":""}`}, nil
 	}
 	if structuredResponseRequest.StructuredOutputSchema.Name != "blueclaw_turn_router" {
 		return llm.StructuredResponse{Content: "{}"}, nil

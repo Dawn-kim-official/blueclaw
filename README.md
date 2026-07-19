@@ -231,7 +231,7 @@ The AI SDK runtime is under `sdkd/`. Selecting `sdkd` or enabling its shadow obs
       "executionMode": "auto",
       "timeoutSecond": 60,
       "shadowEnabled": false,
-      "structuredSchemaNames": ["blueclaw_agent_turn_action", "blueclaw_agent_turn_finalizer", "blueclaw_turn_router", "blueclaw_recovery_decision", "blueclaw_operation_contract", "blueclaw_operation_contract_review"]
+      "structuredSchemaNames": ["blueclaw_agent_turn_action", "blueclaw_agent_turn_finalizer", "blueclaw_turn_router", "blueclaw_recovery_decision", "blueclaw_operation_contract"]
     }
   }
 }

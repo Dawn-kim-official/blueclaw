@@ -141,6 +141,12 @@ type virtualSessionEvidence struct {
 	TurnMetrics           []virtualTurnMetrics                `json:"turnMetrics"`
 }
 
+type virtualSessionResultEvidence struct {
+	Status   string                   `json:"status"`
+	RunError string                   `json:"runError,omitempty"`
+	Result   e2e.VirtualSessionResult `json:"result"`
+}
+
 type virtualTurnMetrics struct {
 	TurnNumber              int                                 `json:"turnNumber"`
 	TaskRunID               string                              `json:"taskRunID,omitempty"`
@@ -383,9 +389,10 @@ func saveVirtualSessionEvidence(arguments virtualSessionArguments, result e2e.Vi
 	if strings.TrimSpace(result.ArtifactDirectoryPath) == "" {
 		return errors.New("virtual session artifact directory is required for LLM evidence")
 	}
+	status := virtualSessionEvidenceStatus(result, runError)
 	evidence := virtualSessionEvidence{
 		Scenario:              result.ScenarioName,
-		Status:                virtualSessionEvidenceStatus(result, runError),
+		Status:                status,
 		RequestedProvider:     strings.TrimSpace(arguments.LanguageModelProvider),
 		RequestedModel:        strings.TrimSpace(arguments.LanguageModelName),
 		ExecutionMode:         strings.TrimSpace(arguments.ExecutionMode),
@@ -395,12 +402,30 @@ func saveVirtualSessionEvidence(arguments virtualSessionArguments, result e2e.Vi
 		Calls:                 virtualSessionLanguageModelCalls(result),
 		TurnMetrics:           virtualSessionTurnMetrics(result),
 	}
-	evidencePath := filepath.Join(result.ArtifactDirectoryPath, "llm-routing-evidence.json")
-	document, errorValue := json.MarshalIndent(evidence, "", "  ")
+	resultEvidence := virtualSessionResultEvidence{
+		Status:   status,
+		RunError: errorString(runError),
+		Result:   result,
+	}
+	if errorValue := writeVirtualSessionJSON(filepath.Join(result.ArtifactDirectoryPath, "result.json"), resultEvidence); errorValue != nil {
+		return errorValue
+	}
+	return writeVirtualSessionJSON(filepath.Join(result.ArtifactDirectoryPath, "llm-routing-evidence.json"), evidence)
+}
+
+func writeVirtualSessionJSON(path string, value any) error {
+	document, errorValue := json.MarshalIndent(value, "", "  ")
 	if errorValue != nil {
 		return errorValue
 	}
-	return os.WriteFile(evidencePath, append(document, '\n'), 0600)
+	return os.WriteFile(path, append(document, '\n'), 0600)
+}
+
+func errorString(errorValue error) string {
+	if errorValue == nil {
+		return ""
+	}
+	return errorValue.Error()
 }
 
 func virtualSessionEvidenceStatus(result e2e.VirtualSessionResult, runError error) string {

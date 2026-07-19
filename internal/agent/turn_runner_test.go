@@ -1980,9 +1980,6 @@ func (languageModel *sequenceLanguageModel) GenerateStructuredResponse(_ context
 	if request.StructuredOutputSchema.Name == operationContractSchemaName {
 		return llm.StructuredResponse{Content: operationContractTestDocument(request.StructuredOutputSchema.Document)}, nil
 	}
-	if request.StructuredOutputSchema.Name == operationContractReviewSchemaName {
-		return llm.StructuredResponse{Content: `{"isComplete":true,"reason":""}`}, nil
-	}
 	if strings.TrimSpace(request.StructuredOutputSchema.Name) == "blueclaw_result_verifier" {
 		languageModel.verificationRequests = append(languageModel.verificationRequests, request)
 		index := len(languageModel.verificationRequests) - 1

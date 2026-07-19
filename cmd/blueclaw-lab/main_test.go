@@ -239,7 +239,7 @@ func TestCreateLiveLanguageModelSupportsSDKDWithoutOpenRouterCredentials(t *test
 	if sdkdClient.GenerationOptions.Seed == nil || *sdkdClient.GenerationOptions.Seed != seed {
 		t.Fatalf("expected sdkd generation seed, got %+v", sdkdClient.GenerationOptions)
 	}
-	expectedSchemaNames := []string{"blueclaw_agent_turn_action", "blueclaw_agent_turn_finalizer", "blueclaw_turn_router", "blueclaw_recovery_decision", "blueclaw_operation_contract", "blueclaw_operation_contract_review"}
+	expectedSchemaNames := []string{"blueclaw_agent_turn_action", "blueclaw_agent_turn_finalizer", "blueclaw_turn_router", "blueclaw_recovery_decision", "blueclaw_operation_contract"}
 	if !slices.Equal(sdkdClient.StructuredSchemaNames, expectedSchemaNames) {
 		t.Fatalf("expected authoritative SDKD schemas, got %#v", sdkdClient.StructuredSchemaNames)
 	}
@@ -375,13 +375,60 @@ func TestSaveVirtualSessionEvidenceRecordsRoutingMetadataWithoutSecrets(t *testi
 		t.Fatalf("expected evidence file: %v", errorValue)
 	}
 	content := string(document)
-	for _, expectedText := range []string{"task-lifecycle", "failed", "blocked", "operation contract was invalid", "sdkd", "recovery_chat", "llama.cpp", "gemma", "device", "blueclaw_agent_turn_action", "blueclaw_agent_turn_finalizer", "blueclaw_turn_router", "blueclaw_recovery_decision", "blueclaw_operation_contract", "blueclaw_operation_contract_review"} {
+	for _, expectedText := range []string{"task-lifecycle", "failed", "blocked", "operation contract was invalid", "sdkd", "recovery_chat", "llama.cpp", "gemma", "device", "blueclaw_agent_turn_action", "blueclaw_agent_turn_finalizer", "blueclaw_turn_router", "blueclaw_recovery_decision", "blueclaw_operation_contract"} {
 		if !strings.Contains(content, expectedText) {
 			t.Fatalf("evidence missing %q: %s", expectedText, content)
 		}
 	}
 	if strings.Contains(content, "secret-auth-key") {
 		t.Fatalf("evidence leaked authentication path: %s", content)
+	}
+	resultDocument, errorValue := os.ReadFile(filepath.Join(artifactDirectoryPath, "result.json"))
+	if errorValue != nil {
+		t.Fatalf("expected full result evidence file: %v", errorValue)
+	}
+	for _, expectedText := range []string{"task-lifecycle", "blocked", "operation contract was invalid"} {
+		if !strings.Contains(string(resultDocument), expectedText) {
+			t.Fatalf("result evidence missing %q: %s", expectedText, resultDocument)
+		}
+	}
+	if strings.Contains(string(resultDocument), "secret-auth-key") {
+		t.Fatalf("result evidence leaked authentication path: %s", resultDocument)
+	}
+}
+
+func TestSaveVirtualSessionEvidencePreservesFailureResult(t *testing.T) {
+	artifactDirectoryPath := t.TempDir()
+	result := e2e.VirtualSessionResult{
+		ScenarioName:          "file-write",
+		ArtifactDirectoryPath: artifactDirectoryPath,
+		TurnResults: []e2e.VirtualTurnResult{{
+			TaskRunID:  "task-1",
+			TaskStatus: task.TaskStatusCompleted,
+			Events: []task.TaskEvent{{
+				Name: "agent.operation_contract",
+				Body: `{"operations":[{"toolName":"file.deliver"}]}`,
+			}},
+		}},
+	}
+	runError := errors.New("strict assertion failed")
+
+	if errorValue := saveVirtualSessionEvidence(virtualSessionArguments{}, result, runError); errorValue != nil {
+		t.Fatalf("expected failure evidence to save: %v", errorValue)
+	}
+	document, errorValue := os.ReadFile(filepath.Join(artifactDirectoryPath, "result.json"))
+	if errorValue != nil {
+		t.Fatalf("expected result evidence: %v", errorValue)
+	}
+	var evidence virtualSessionResultEvidence
+	if errorValue := json.Unmarshal(document, &evidence); errorValue != nil {
+		t.Fatalf("expected result evidence JSON: %v", errorValue)
+	}
+	if evidence.Status != "failed" || evidence.RunError != runError.Error() {
+		t.Fatalf("expected failed run evidence, got %+v", evidence)
+	}
+	if len(evidence.Result.TurnResults) != 1 || len(evidence.Result.TurnResults[0].Events) != 1 {
+		t.Fatalf("expected task event evidence, got %+v", evidence.Result)
 	}
 }
 
