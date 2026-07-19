@@ -9,7 +9,9 @@ func applyInstructionBundleRequirements(decision IntakeDecision, instructionBund
 	if decision.Classification != IntakeClassificationBoundedTask {
 		return decision
 	}
-	if instructionBundle.HasContractSkillArbitration && len(instructionBundle.RequiredEvidenceTools) > 0 {
+	if instructionBundle.ContractSkillArbitrationFailed {
+		decision.RequiredEvidenceTools = nil
+	} else if instructionBundle.HasContractSkillArbitration {
 		decision.RequiredEvidenceTools = appendUniqueStrings(instructionBundle.RequiredEvidenceTools)
 	} else {
 		decision.RequiredEvidenceTools = appendUniqueStrings(decision.RequiredEvidenceTools)
@@ -102,65 +104,54 @@ func selectInstructionBundleForRequestWithRetrieverAndRouter(ctx context.Context
 	skillDecisions = append(skillDecisions, blockedSkillSelectionDecisions(instructionBundle.Skills, skillDecisions, request, normalizedAgentProfileName(request.ProfileName))...)
 	requiredNextTools := validatedContractNextTools(contractArbitration, selectedSkillInstructions, request)
 	requiredEvidenceTools := validatedContractEvidenceTools(contractArbitration, selectedSkillInstructions, request)
-	requiredEvidenceCandidates := unresolvedContractEvidenceCandidates(contractArbitration, selectedSkillInstructions, request, requiredEvidenceTools)
 	prompts = append(prompts, buildCompactSkillIndexPrompt(candidateInstructions))
 	prompts = append(prompts, buildSelectedSkillInstructionPrompt(defaultSkillInstructions))
 	prompts = append(prompts, buildSelectedSkillInstructionPrompt(selectedSkillInstructions))
 	return InstructionBundle{
-		Prompt:                      strings.Join(nonEmptyStrings(prompts), "\n\n"),
-		Sources:                     sources,
-		Skills:                      appendSkillInstructions(instructionBundle.Skills, defaultSkillInstructions...),
-		SkillDecisions:              skillDecisions,
-		RequiredNextTools:           requiredNextTools,
-		RequiredEvidenceTools:       requiredEvidenceTools,
-		RequiredEvidenceCandidates:  requiredEvidenceCandidates,
-		HasContractSkillArbitration: hasContractArbitration,
-		RetrievalMode:               retrievalResult.RetrievalMode,
-		IndexStatus:                 retrievalResult.IndexStatus,
-		CandidateCount:              len(candidateInstructions),
-		SkillQueries:                append([]string{}, retrievalResult.QueryDescriptions...),
+		Prompt:                         strings.Join(nonEmptyStrings(prompts), "\n\n"),
+		Sources:                        sources,
+		Skills:                         appendSkillInstructions(instructionBundle.Skills, defaultSkillInstructions...),
+		SkillDecisions:                 skillDecisions,
+		RequiredNextTools:              requiredNextTools,
+		RequiredEvidenceTools:          requiredEvidenceTools,
+		HasContractSkillArbitration:    hasContractArbitration,
+		ContractSkillArbitrationFailed: contractArbitrationResult.Status == contractSkillArbitrationFailed,
+		RetrievalMode:                  retrievalResult.RetrievalMode,
+		IndexStatus:                    retrievalResult.IndexStatus,
+		CandidateCount:                 len(candidateInstructions),
+		SkillQueries:                   append([]string{}, retrievalResult.QueryDescriptions...),
 	}
 }
 
 func validatedContractNextTools(arbitration contractSkillArbitration, selectedSkills []SkillInstruction, request AgentRequest) []string {
-	return validateArbitratedToolNames(arbitration.RequiredNextTools, selectedSkillToolNameSet(selectedSkills), request, false)
-}
-
-func unresolvedContractEvidenceCandidates(arbitration contractSkillArbitration, selectedSkills []SkillInstruction, request AgentRequest, requiredEvidenceTools []string) []string {
-	if len(requiredEvidenceTools) > 0 {
-		return nil
-	}
-	selectedToolNames := selectedSkillToolNameSet(selectedSkills)
-	candidates := validateArbitratedToolNames(arbitration.RequiredNextTools, selectedToolNames, request, false)
-	result := []string{}
-	for _, toolName := range candidates {
-		if activeContractRequiresTool(request, toolName) {
-			continue
-		}
-		if IsArtifactDeliveryTool(toolName) || requiredEvidenceToolNeedsSuccessfulSideEffect(request.ToolSet, toolName) {
-			result = append(result, toolName)
-		}
-	}
-	return result
-}
-
-func activeContractRequiresTool(request AgentRequest, toolName string) bool {
-	if !requiredEvidenceToolCanBeSatisfied(request.ToolSet, toolName) {
-		return false
-	}
-	for _, requiredToolName := range request.ActiveGoal.OutcomeContract.RequiredEvidenceTools {
-		if strings.TrimSpace(requiredToolName) == strings.TrimSpace(toolName) {
-			return true
-		}
-	}
-	return false
+	return validateArbitratedToolNames(arbitration.RequiredNextTools, selectedSkillNextToolNameSet(selectedSkills, request), request, false)
 }
 
 func validatedContractEvidenceTools(arbitration contractSkillArbitration, selectedSkills []SkillInstruction, request AgentRequest) []string {
-	selectedToolNames := selectedSkillToolNameSet(selectedSkills)
+	selectedToolNames := selectedSkillEvidenceToolNameSet(selectedSkills, request)
 	requiresSideEffect := requiredEvidenceIncludesSideEffect(request.ToolSet, request.ActiveGoal.OutcomeContract.RequiredEvidenceTools) ||
 		arbitrationHasSelectedSideEffect(arbitration.RequiredNextTools, selectedToolNames, request)
 	return validateArbitratedToolNames(arbitration.ExpectedEvidence, selectedToolNames, request, requiresSideEffect)
+}
+
+func selectedSkillNextToolNameSet(selectedSkills []SkillInstruction, request AgentRequest) map[string]bool {
+	toolNames := selectedSkillToolNameSet(selectedSkills)
+	for _, toolName := range KernelToolNames() {
+		if requestHasToolName(request, toolName) {
+			toolNames[toolName] = true
+		}
+	}
+	return toolNames
+}
+
+func selectedSkillEvidenceToolNameSet(selectedSkills []SkillInstruction, request AgentRequest) map[string]bool {
+	toolNames := selectedSkillToolNameSet(selectedSkills)
+	for _, toolName := range request.ActiveGoal.OutcomeContract.RequiredEvidenceTools {
+		if requiredEvidenceToolCanBeSatisfied(request.ToolSet, toolName) {
+			toolNames[toolName] = true
+		}
+	}
+	return toolNames
 }
 
 func selectedSkillToolNameSet(selectedSkills []SkillInstruction) map[string]bool {

@@ -1978,12 +1978,54 @@ func (languageModel *sequenceLanguageModel) GenerateStructuredResponse(_ context
 	if request.StructuredOutputSchema.Name == operationContractSchemaName {
 		return llm.StructuredResponse{Content: operationContractTestDocument(request.StructuredOutputSchema.Document)}, nil
 	}
+	if request.StructuredOutputSchema.Name == "blueclaw_contract_skill_arbitration" {
+		return llm.StructuredResponse{Content: contractSkillArbitrationTestDocument(request.StructuredOutputSchema.Document)}, nil
+	}
 	languageModel.requests = append(languageModel.requests, request)
 	index := len(languageModel.requests) - 1
 	if index >= len(languageModel.contents) {
 		index = len(languageModel.contents) - 1
 	}
 	return llm.StructuredResponse{ModelTier: languageModel.modelTier, Content: languageModel.contents[index]}, nil
+}
+
+func contractSkillArbitrationTestDocument(schemaDocument string) string {
+	var schema struct {
+		Properties map[string]struct {
+			Items struct {
+				Enum []string `json:"enum"`
+			} `json:"items"`
+		} `json:"properties"`
+	}
+	if json.Unmarshal([]byte(schemaDocument), &schema) != nil {
+		return `{}`
+	}
+	selectedSkillNames := firstSchemaEnumValue(schema.Properties["selectedSkillNames"].Items.Enum)
+	rejectedSkillNames := remainingSchemaEnumValues(schema.Properties["selectedSkillNames"].Items.Enum)
+	expectedEvidence := firstSchemaEnumValue(schema.Properties["expectedEvidence"].Items.Enum)
+	document, _ := json.Marshal(map[string]any{
+		"selectedSkillNames":    selectedSkillNames,
+		"rejectedSkillNames":    rejectedSkillNames,
+		"requiredNextToolNames": expectedEvidence,
+		"expectedEvidence":      expectedEvidence,
+		"unmetPreconditions":    []string{},
+		"reason":                "test contract arbitration",
+	})
+	return string(document)
+}
+
+func firstSchemaEnumValue(values []string) []string {
+	if len(values) == 0 {
+		return []string{}
+	}
+	return []string{values[0]}
+}
+
+func remainingSchemaEnumValues(values []string) []string {
+	if len(values) < 2 {
+		return []string{}
+	}
+	return append([]string{}, values[1:]...)
 }
 
 type structuredFailureTextRecoveryLanguageModel struct {

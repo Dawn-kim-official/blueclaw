@@ -317,6 +317,13 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 		instructionBundle, intakeDecision = agentKernel.selectInstructionBundleForResolvedRequest(taskContext, baseInstructionBundle, request, intakeDecision)
 		intakeDecision = applyInstructionBundleRequirements(intakeDecision, instructionBundle)
 	}
+	if instructionBundle.ContractSkillArbitrationFailed {
+		intakeDecision.Reason = "contract skill arbitration failed"
+		intakeDecision.UserFacingReply = ""
+		result, blockError := agentKernel.completeIntakeOnlyRequest(taskContext, intakeRequest, intakeDecision, task.TaskStatusBlocked, routerCallLedger.records)
+		result.TurnRoute = turnDecision.Route
+		return result, blockError
+	}
 	if result, didExpire := agentKernel.completeIntakeIfElapsed(taskBudget, intakeRequest, intakeDecision, turnDecision.Route, routerCallLedger.records); didExpire {
 		return result, nil
 	}

@@ -1,6 +1,9 @@
 package agent
 
 import (
+	"context"
+	"encoding/json"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -54,6 +57,61 @@ func TestOutcomeContractUsesIntakeRequiredEvidenceWithoutToolFallback(t *testing
 	}
 	if stringSliceContains(contract.RequiredEvidenceTools, "task.add") {
 		t.Fatalf("expected explicit required evidence not to add fallback evidence, got %+v", contract.RequiredEvidenceTools)
+	}
+}
+
+func TestAttachmentOutcomeTreatsWorkspaceFileWriteAsIntermediate(t *testing.T) {
+	fileWrite := testToolDescriptor(FileWriteToolName)
+	fileWrite.SideEffectClass = ToolSideEffectWorkspaceWrite
+	fileWrite.Completion = ToolCompletion{Mode: ToolCompletionObservation, Action: "write_file", TargetKind: "file"}
+	fileWrite.OutputSchema = json.RawMessage(`{"type":"object","properties":{"path":{"type":"string"}},"required":["path"],"additionalProperties":false}`)
+	fileWrite.ResultContract.Schema = fileWrite.OutputSchema
+	fileWrite.ResultContract.Effects = []ResourceEffectContract{{
+		ObjectType:     "file",
+		Effect:         "created",
+		ResultField:    "path",
+		EffectIdentity: "path",
+	}}
+	fileDeliver := testToolDescriptor(FileDeliverToolName)
+	fileDeliver.SideEffectClass = ToolSideEffectExternalWrite
+	fileDeliver.Completion = ToolCompletion{Mode: ToolCompletionObservation, Action: "deliver_file", TargetKind: "artifact"}
+	fileDeliver.InputIntentSchema = json.RawMessage(`{"type":"object","properties":{},"additionalProperties":false}`)
+	fileDeliver.OutputSchema = json.RawMessage(`{"type":"object","properties":{"deliveredPaths":{"type":"array","items":{"type":"string"}}},"required":["deliveredPaths"],"additionalProperties":false}`)
+	fileDeliver.ResultContract.Schema = fileDeliver.OutputSchema
+	fileDeliver.ResultContract.Effects = []ResourceEffectContract{{
+		ObjectType:     "file",
+		Effect:         "attached",
+		ResultField:    "deliveredPaths",
+		EffectIdentity: "path",
+	}}
+	toolSet := newTestToolSetWithDefinitions([]ToolDefinition{fileWrite, fileDeliver})
+	if !toolProducesIntermediateAttachmentSource(toolSet, FileWriteToolName) {
+		t.Fatal("expected file.write descriptor to represent an intermediate attachment source")
+	}
+
+	contract := outcomeContractForRequest(
+		AgentRequest{ToolSet: toolSet},
+		IntakeDecision{
+			Classification:         IntakeClassificationBoundedTask,
+			TaskShape:              TaskShapeMaintenanceTask,
+			RequestedOutputFormats: []string{"docx"},
+			RequiredEvidenceTools:  []string{FileWriteToolName, FileDeliverToolName},
+		},
+		InstructionBundle{},
+		ExecutionPlan{},
+		false,
+		[]string{".docx"},
+	)
+	compiledContract, errorValue := compileOperationRequirements(context.Background(), nil, AgentRequest{}, toolSet, contract)
+
+	if errorValue != nil {
+		t.Fatalf("expected no intermediate file operation contract, got %v", errorValue)
+	}
+	if !reflect.DeepEqual(compiledContract.RequiredEvidenceTools, []string{FileDeliverToolName}) {
+		t.Fatalf("expected delivery-only attachment evidence, got %v", compiledContract.RequiredEvidenceTools)
+	}
+	if compiledContract.OperationContract != nil {
+		t.Fatalf("expected no file.write operation contract, got %+v", compiledContract.OperationContract)
 	}
 }
 
