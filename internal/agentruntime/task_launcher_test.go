@@ -654,7 +654,7 @@ func TestCapabilityDescriptorAppearsInToolSetAndInvokesBridge(t *testing.T) {
 	toolCatalogBuilder.UseTestCapabilityToolDescriptors(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, []CapabilityToolDescriptor{{
 		Name:             "browser.open",
 		InputSchema:      json.RawMessage(`{"type":"object","properties":{"url":{"type":"string"}},"required":["url"],"additionalProperties":false}`),
-		OutputSchema:     json.RawMessage(`{"type":"object","properties":{"status":{"type":"string"}}}`),
+		OutputSchema:     json.RawMessage(`{"type":"object","properties":{"status":{"type":"string"}},"additionalProperties":false}`),
 		PolicyResource:   "tool:browser.open",
 		SideEffectClass:  agent.ToolSideEffectConnect,
 		RequiresApproval: true,
@@ -768,7 +768,7 @@ func TestFlowTaskAddToolRequiresStaffCircle(t *testing.T) {
 	})
 	guestResult, errorValue := guestToolSet.Invoke(context.Background(), agent.ToolInvocation{
 		ToolName: "task.add",
-		Input:    json.RawMessage(`{"prompt":"10분 회의"}`),
+		Input:    json.RawMessage(`{"title":"10분 회의"}`),
 	})
 	if errorValue != nil {
 		t.Fatalf("expected denied tool result: %v", errorValue)
@@ -790,7 +790,7 @@ func TestFlowTaskAddToolRequiresStaffCircle(t *testing.T) {
 	})
 	staffResult, errorValue := staffToolSet.Invoke(context.Background(), agent.ToolInvocation{
 		ToolName: "task.add",
-		Input:    json.RawMessage(`{"prompt":"10분 회의"}`),
+		Input:    json.RawMessage(`{"title":"10분 회의"}`),
 	})
 	if errorValue != nil {
 		t.Fatalf("expected staff tool result: %v", errorValue)
@@ -892,15 +892,15 @@ func platformMessageLiveRegistryResponse(deleteSchema json.RawMessage) string {
 }
 
 func platformMessageEmptySchema() json.RawMessage {
-	return json.RawMessage(`{"type":"object","properties":{}}`)
+	return json.RawMessage(`{"type":"object","properties":{},"additionalProperties":false}`)
 }
 
 func platformMessageDeleteCriteriaSchema() json.RawMessage {
-	return json.RawMessage(`{"type":"object","properties":{"messageIDs":{"type":"array","items":{"type":"string"}},"scope":{"type":"string"},"deliveryTarget":{"type":"object","properties":{"type":{"type":"string"},"personHint":{"type":"string"},"channelID":{"type":"string"},"channelName":{"type":"string"}}},"authoredBy":{"type":"string"},"query":{"type":"string"},"limit":{"type":"integer"}}}`)
+	return json.RawMessage(`{"type":"object","properties":{"messageIDs":{"type":"array","items":{"type":"string"}},"scope":{"type":"string"},"deliveryTarget":{"type":"object","properties":{"type":{"type":"string"},"personHint":{"type":"string"},"channelID":{"type":"string"},"channelName":{"type":"string"}},"additionalProperties":false},"authoredBy":{"type":"string"},"query":{"type":"string"},"limit":{"type":"integer"}},"additionalProperties":false}`)
 }
 
 func platformMessageDeleteIDsOnlySchema() json.RawMessage {
-	return json.RawMessage(`{"type":"object","properties":{"messageIDs":{"type":"array","items":{"type":"string"}}},"required":["messageIDs"]}`)
+	return json.RawMessage(`{"type":"object","properties":{"messageIDs":{"type":"array","items":{"type":"string"}}},"required":["messageIDs"],"additionalProperties":false}`)
 }
 
 func (languageModel staticRuntimeLanguageModel) GenerateResponse(context.Context, string) (string, error) {
