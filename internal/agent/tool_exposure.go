@@ -45,6 +45,8 @@ func toolSetForAgentTurnWithExposure(toolSet *ToolSet, instructionBundle Instruc
 	interactionGroup := filterGroupTools(toolSet, toolExposureGroup{Name: "required interaction", ToolIDs: requiredInteractionToolNames(outcomeContract, recentObservations)})
 	recoveryToolNames := appendUniqueStrings(activeRecoveryToolNames(recentObservations), activeRecoveryPreconditionToolNames(toolSet, recentObservations)...)
 	recoveryGroup := filterGroupTools(toolSet, toolExposureGroup{Name: "recovery tools", ToolIDs: recoveryToolNames})
+	pendingToolName := firstPendingRequiredToolName(outcomeContract.OperationContract, instructionBundle.RequiredNextTools, recentObservations)
+	pendingGroup := filterGroupTools(toolSet, toolExposureGroup{Name: "pending working-set tool", ToolIDs: []string{pendingToolName}})
 	requiredEvidenceGroup, evidenceAlternativesGroup := outcomeContractEvidenceGroups(toolSet, outcomeContract)
 	selectedSkillGroup := filterGroupTools(toolSet, toolExposureGroup{Name: "selected skills", ToolIDs: selectedSkillToolNames(instructionBundle)})
 	pinnedGroup := filterGroupTools(toolSet, toolExposureGroup{Name: "pinned tools", ToolIDs: request.PinnedToolNames})
@@ -52,9 +54,9 @@ func toolSetForAgentTurnWithExposure(toolSet *ToolSet, instructionBundle Instruc
 	hasAuthoritativeWorkingSet := instructionBundle.HasContractSkillArbitration &&
 		len(selectedSkillInstructionList(instructionBundle)) > 0 &&
 		(len(instructionBundle.RequiredNextTools) > 0 || len(instructionBundle.RequiredEvidenceTools) > 0)
-	groups := []toolExposureGroup{interactionGroup, recoveryGroup, requiredEvidenceGroup, pinnedGroup, selectedSkillGroup, evidenceAlternativesGroup}
+	groups := []toolExposureGroup{interactionGroup, recoveryGroup, pendingGroup, requiredEvidenceGroup, pinnedGroup, selectedSkillGroup, evidenceAlternativesGroup}
 	if hasAuthoritativeWorkingSet {
-		groups = []toolExposureGroup{interactionGroup, recoveryGroup, requiredEvidenceGroup, pinnedGroup, requiredNextGroup, selectedSkillGroup, evidenceAlternativesGroup}
+		groups = []toolExposureGroup{interactionGroup, recoveryGroup, pendingGroup, requiredEvidenceGroup, pinnedGroup, requiredNextGroup, selectedSkillGroup, evidenceAlternativesGroup}
 	}
 	extensionToolIDs, droppedGroups := selectToolGroups(extensionToolGroups(groups), maxExtensionCallableToolCount)
 	kernelToolIDs := []string{}

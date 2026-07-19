@@ -483,6 +483,14 @@ func TestAgentActionFinishCorrectionPrecedenceAndFailClosed(t *testing.T) {
 		assertRequiredAgentActionTool(t, finishReasonRetryRequest(t, state), "task.add")
 	})
 
+	t.Run("required next tool without input contract", func(t *testing.T) {
+		state := nativeAgentActionContractState()
+		state.Request.OutcomeContract.OperationContract = nil
+		state.Request.ContractToolWorkingSet.RequiredNextTools = []string{"file.write", TerminalRunToolName}
+
+		assertRequiredAgentActionTool(t, finishReasonRetryRequest(t, state), "file.write")
+	})
+
 	t.Run("finish absent from request", func(t *testing.T) {
 		state := nativeAgentActionCompletionReadyState()
 		request := nativeAgentActionChatCompletionRequest(t, state)
@@ -579,7 +587,7 @@ func TestDecideAgentActionNativeChatRetryFailsClosedWhenContractToolIsUnavailabl
 	}
 }
 
-func TestFirstPendingOperationToolNameRequiresDistinctObservations(t *testing.T) {
+func TestFirstPendingActionToolNameRequiresDistinctObservations(t *testing.T) {
 	state := nativeAgentActionContractState()
 	state.Request.OutcomeContract.OperationContract.Requirements = []OperationRequirement{
 		{
@@ -600,15 +608,43 @@ func TestFirstPendingOperationToolNameRequiresDistinctObservations(t *testing.T)
 	firstObservation := successfulContractObservation("observation-1", "file.write", "kernel:file.write", `{"path":"report.txt"}`)
 	state.Observations = []turnObservation{firstObservation}
 
-	if toolName := firstPendingOperationToolName(state); toolName != "file.write" {
+	if toolName := firstPendingActionToolName(state); toolName != "file.write" {
 		t.Fatalf("expected the repeated occurrence to remain pending, got %q", toolName)
 	}
 
 	secondObservation := firstObservation
 	secondObservation.ObservationID = "observation-2"
 	state.Observations = append(state.Observations, secondObservation)
-	if toolName := firstPendingOperationToolName(state); toolName != "" {
+	if toolName := firstPendingActionToolName(state); toolName != "" {
 		t.Fatalf("expected two observations to satisfy two occurrences, got %q", toolName)
+	}
+}
+
+func TestFirstPendingActionToolNameUsesRequiredNextToolsWithoutInputContract(t *testing.T) {
+	state := nativeAgentActionContractState()
+	state.Request.OutcomeContract.OperationContract = nil
+	state.Request.ContractToolWorkingSet.RequiredNextTools = []string{"file.write", TerminalRunToolName}
+
+	if toolName := firstPendingActionToolName(state); toolName != "file.write" {
+		t.Fatalf("expected first required next tool, got %q", toolName)
+	}
+
+	state.Observations = []turnObservation{
+		successfulContractObservation("observation-1", TerminalRunToolName, "kernel:terminal.run", `{"command":"ls"}`),
+		successfulContractObservation("observation-2", "file.write", "kernel:file.write", `{"path":"report.txt"}`),
+		{
+			ObservationID: "observation-3",
+			Action:        "continue",
+			Tool:          TerminalRunToolName,
+			ToolInputKey:  TerminalRunToolName + "\x00{}",
+			Failure:       &ToolFailure{Code: FailureCodes.OperationFailed.String()},
+		},
+	}
+	if toolName := firstPendingRequiredToolName(nil, state.Request.ContractToolWorkingSet.RequiredNextTools, state.Observations); toolName != TerminalRunToolName {
+		t.Fatalf("expected out-of-order and failed observations not to advance the sequence, got %q", toolName)
+	}
+	if toolName := firstPendingActionToolName(state); toolName != "" {
+		t.Fatalf("expected failure debt to leave recovery choice open, got %q", toolName)
 	}
 }
 

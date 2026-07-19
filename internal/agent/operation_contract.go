@@ -34,8 +34,8 @@ type operationDescriptorDocument struct {
 	InputIntentSchema json.RawMessage `json:"inputIntentSchema"`
 }
 
-func compileOperationRequirements(responseContext context.Context, languageModel llm.LanguageModelProvider, request AgentRequest, toolSet *ToolSet, contract OutcomeContract, requiredNextToolNames ...string) (OutcomeContract, error) {
-	toolNames := stateChangingRequiredToolNames(toolSet, operationCandidateToolNames(contract, requiredNextToolNames))
+func compileOperationRequirements(responseContext context.Context, languageModel llm.LanguageModelProvider, request AgentRequest, toolSet *ToolSet, contract OutcomeContract) (OutcomeContract, error) {
+	toolNames := stateChangingRequiredToolNames(toolSet, operationCandidateToolNames(contract))
 	if len(toolNames) == 0 {
 		if contract.OperationContract != nil {
 			return contract, errors.New("operation contract has no required state-changing operation")
@@ -74,7 +74,7 @@ func compileOperationRequirements(responseContext context.Context, languageModel
 	return normalizeOutcomeContract(contract), nil
 }
 
-func operationCandidateToolNames(contract OutcomeContract, requiredNextToolNames []string) []string {
+func operationCandidateToolNames(contract OutcomeContract) []string {
 	if contract.OperationContract != nil {
 		toolNames := make([]string, 0, len(contract.OperationContract.Requirements))
 		for _, requirement := range contract.OperationContract.Requirements {
@@ -82,7 +82,7 @@ func operationCandidateToolNames(contract OutcomeContract, requiredNextToolNames
 		}
 		return appendUniqueStrings(toolNames)
 	}
-	return appendUniqueStrings(contract.RequiredEvidenceTools, requiredNextToolNames...)
+	return appendUniqueStrings(contract.RequiredEvidenceTools)
 }
 
 func operationDescriptorsWithBindableIntent(descriptors []operationDescriptorDocument) []operationDescriptorDocument {
@@ -465,6 +465,27 @@ func firstPendingOperationRequirement(contract *OperationContract, observations 
 		return OperationRequirement{}, false
 	}
 	return pendingRequirements[0], true
+}
+
+func firstPendingRequiredToolName(operationContract *OperationContract, requiredNextToolNames []string, observations []turnObservation) string {
+	if requirement, isPending := firstPendingOperationRequirement(operationContract, observations); isPending {
+		return strings.TrimSpace(requirement.ToolName)
+	}
+	nextToolIndex := 0
+	requiredNextToolNames = appendUniqueStrings(requiredNextToolNames)
+	for _, observation := range observations {
+		if nextToolIndex >= len(requiredNextToolNames) {
+			break
+		}
+		if observation.Failed() || strings.TrimSpace(observation.Tool) != requiredNextToolNames[nextToolIndex] {
+			continue
+		}
+		nextToolIndex++
+	}
+	if nextToolIndex < len(requiredNextToolNames) {
+		return requiredNextToolNames[nextToolIndex]
+	}
+	return ""
 }
 
 func pendingOperationRequirements(contract *OperationContract, observations []turnObservation) []OperationRequirement {
