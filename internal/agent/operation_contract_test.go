@@ -180,6 +180,98 @@ func TestCompileOperationRequirementsAsksModelOnlyForBindableIntents(t *testing.
 	}
 }
 
+func TestCompileOperationRequirementsSeparatesPinnedOperationsFromCompletionEvidence(t *testing.T) {
+	languageModel := &operationContractLanguageModel{contents: []string{
+		`{"operations":[{"toolName":"file.write","requiredValues":{"path":"FAQ.json","content":"{}"}}]}`,
+	}}
+	toolSet := newTestToolSetWithDefinitions([]ToolDefinition{
+		{
+			ID:                "kernel:file.read",
+			Name:              FileReadToolName,
+			InputIntentSchema: json.RawMessage(`{"type":"object","properties":{},"additionalProperties":false}`),
+			SideEffectClass:   ToolSideEffectRead,
+		},
+		{
+			ID:                "kernel:file.write",
+			Name:              FileWriteToolName,
+			InputIntentSchema: json.RawMessage(`{"type":"object","properties":{"path":{"type":"string"},"content":{"type":"string"}},"additionalProperties":false}`),
+			SideEffectClass:   ToolSideEffectWorkspaceWrite,
+		},
+		{
+			ID:                "kernel:file.deliver",
+			Name:              FileDeliverToolName,
+			InputIntentSchema: json.RawMessage(`{"type":"object","properties":{},"additionalProperties":false}`),
+			SideEffectClass:   ToolSideEffectExternalWrite,
+		},
+	})
+	contract, errorValue := compileOperationRequirements(
+		context.Background(),
+		languageModel,
+		AgentRequest{
+			Prompt: "FAQ JSON 파일을 만들어서 전달해줘",
+		},
+		toolSet,
+		OutcomeContract{RequiredEvidenceTools: []string{FileDeliverToolName}},
+		FileReadToolName,
+		FileWriteToolName,
+		FileDeliverToolName,
+	)
+
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if !slices.Equal(contract.RequiredEvidenceTools, []string{FileDeliverToolName}) {
+		t.Fatalf("expected delivery-only completion evidence, got %v", contract.RequiredEvidenceTools)
+	}
+	if contract.OperationContract == nil || len(contract.OperationContract.Requirements) != 1 {
+		t.Fatalf("expected one pinned operation requirement, got %+v", contract.OperationContract)
+	}
+	if contract.OperationContract.Requirements[0].ToolName != FileWriteToolName {
+		t.Fatalf("expected file.write operation requirement, got %+v", contract.OperationContract.Requirements)
+	}
+	modelRequest := joinedMessageContent(languageModel.requests[0].Messages)
+	if strings.Contains(modelRequest, `"name":"file.read"`) || strings.Contains(modelRequest, `"name":"file.deliver"`) {
+		t.Fatalf("expected read and empty-intent tools to stay out of the operation contract, got %s", modelRequest)
+	}
+}
+
+func TestCompileOperationRequirementsUsesPersistedOperationContractOnContinuation(t *testing.T) {
+	toolSet := newTestToolSetWithDefinitions([]ToolDefinition{{
+		ID:                "kernel:file.write",
+		Name:              FileWriteToolName,
+		InputIntentSchema: json.RawMessage(`{"type":"object","properties":{"path":{"type":"string"},"content":{"type":"string"}},"additionalProperties":false}`),
+		SideEffectClass:   ToolSideEffectWorkspaceWrite,
+	}})
+	operationContract := &OperationContract{
+		Version: operationContractVersion,
+		Requirements: []OperationRequirement{{
+			RequirementID: "operation-1",
+			ToolID:        "kernel:file.write",
+			ToolName:      FileWriteToolName,
+			InputMode:     OperationInputContainsExplicit,
+			RequiredInput: json.RawMessage(`{"path":"FAQ.json","content":"{}"}`),
+		}},
+	}
+
+	contract, errorValue := compileOperationRequirements(
+		context.Background(),
+		nil,
+		AgentRequest{},
+		toolSet,
+		OutcomeContract{
+			RequiredEvidenceTools: []string{FileDeliverToolName},
+			OperationContract:     operationContract,
+		},
+	)
+
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if contract.OperationContract != operationContract {
+		t.Fatalf("expected persisted operation contract, got %+v", contract.OperationContract)
+	}
+}
+
 func TestEmptyIntentEvidenceToolCanRepeatBeforeCompletion(t *testing.T) {
 	toolSet := newTestToolSetWithDefinitions([]ToolDefinition{
 		{

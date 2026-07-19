@@ -34,8 +34,8 @@ type operationDescriptorDocument struct {
 	InputIntentSchema json.RawMessage `json:"inputIntentSchema"`
 }
 
-func compileOperationRequirements(responseContext context.Context, languageModel llm.LanguageModelProvider, request AgentRequest, toolSet *ToolSet, contract OutcomeContract) (OutcomeContract, error) {
-	toolNames := stateChangingRequiredToolNames(toolSet, contract.RequiredEvidenceTools)
+func compileOperationRequirements(responseContext context.Context, languageModel llm.LanguageModelProvider, request AgentRequest, toolSet *ToolSet, contract OutcomeContract, requiredNextToolNames ...string) (OutcomeContract, error) {
+	toolNames := stateChangingRequiredToolNames(toolSet, operationCandidateToolNames(contract, requiredNextToolNames))
 	if len(toolNames) == 0 {
 		if contract.OperationContract != nil {
 			return contract, errors.New("operation contract has no required state-changing operation")
@@ -72,6 +72,17 @@ func compileOperationRequirements(responseContext context.Context, languageModel
 		Requirements: requirements,
 	}
 	return normalizeOutcomeContract(contract), nil
+}
+
+func operationCandidateToolNames(contract OutcomeContract, requiredNextToolNames []string) []string {
+	if contract.OperationContract != nil {
+		toolNames := make([]string, 0, len(contract.OperationContract.Requirements))
+		for _, requirement := range contract.OperationContract.Requirements {
+			toolNames = append(toolNames, requirement.ToolName)
+		}
+		return appendUniqueStrings(toolNames)
+	}
+	return appendUniqueStrings(contract.RequiredEvidenceTools, requiredNextToolNames...)
 }
 
 func operationDescriptorsWithBindableIntent(descriptors []operationDescriptorDocument) []operationDescriptorDocument {

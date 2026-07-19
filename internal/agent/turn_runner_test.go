@@ -770,11 +770,11 @@ func TestBrowserActionSchemaUsesProviderCompatibleObjectInputs(t *testing.T) {
 	runner := NewAgentTurnRunner(nil, nil, nil, nil, TurnOptions{})
 	toolRegistry := newTestToolSet([]string{"browser.open", "browser.click", "browser.fill", "browser.select", "browser.wait"})
 	inputSchemas := map[string]json.RawMessage{
-		"browser.open":   json.RawMessage(`{"type":"object","properties":{"url":{"type":"string"}},"required":["url"]}`),
-		"browser.click":  json.RawMessage(`{"type":"object","properties":{"target":{"type":"string"},"ref":{"type":"string"},"selector":{"type":"string"}}}`),
-		"browser.fill":   json.RawMessage(`{"type":"object","properties":{"target":{"type":"string"},"ref":{"type":"string"},"selector":{"type":"string"},"text":{"type":"string"}},"required":["text"]}`),
-		"browser.select": json.RawMessage(`{"type":"object","properties":{"target":{"type":"string"},"ref":{"type":"string"},"selector":{"type":"string"},"value":{"type":"string"}},"required":["value"]}`),
-		"browser.wait":   json.RawMessage(`{"type":"object","properties":{"target":{"type":"string"},"ref":{"type":"string"},"selector":{"type":"string"},"milliseconds":{"type":"number"}}}`),
+		"browser.open":   json.RawMessage(`{"type":"object","properties":{"url":{"type":"string"}},"required":["url"],"additionalProperties":false}`),
+		"browser.click":  json.RawMessage(`{"type":"object","properties":{"target":{"type":"string"},"ref":{"type":"string"},"selector":{"type":"string"}},"additionalProperties":false}`),
+		"browser.fill":   json.RawMessage(`{"type":"object","properties":{"target":{"type":"string"},"ref":{"type":"string"},"selector":{"type":"string"},"text":{"type":"string"}},"required":["text"],"additionalProperties":false}`),
+		"browser.select": json.RawMessage(`{"type":"object","properties":{"target":{"type":"string"},"ref":{"type":"string"},"selector":{"type":"string"},"value":{"type":"string"}},"required":["value"],"additionalProperties":false}`),
+		"browser.wait":   json.RawMessage(`{"type":"object","properties":{"target":{"type":"string"},"ref":{"type":"string"},"selector":{"type":"string"},"milliseconds":{"type":"number"}},"additionalProperties":false}`),
 	}
 	for toolName, inputSchema := range inputSchemas {
 		registerTestTool(toolRegistry, ToolDefinition{Name: toolName, InputSchema: inputSchema}, func(context.Context, ToolInvocation) (ToolResult, error) {
@@ -826,10 +826,13 @@ func assertProviderSafeNestedSchemaValue(t *testing.T, value any, isPropertiesMa
 				assertProviderSafeNestedSchemaValue(t, fieldValue, false)
 				continue
 			}
-			if fieldName == "additionalProperties" && isClosedQualityReviewSchema(document) {
+			if fieldName == "additionalProperties" {
+				if fieldValue != false {
+					t.Fatalf("nested action schema is not closed in %+v", document)
+				}
 				continue
 			}
-			if fieldName == "additionalProperties" || fieldName == "maxItems" {
+			if fieldName == "maxItems" {
 				t.Fatalf("nested action schema uses unsupported key %s in %+v", fieldName, document)
 			}
 			if fieldName == "type" && fieldValue == "integer" {
@@ -845,13 +848,6 @@ func assertProviderSafeNestedSchemaValue(t *testing.T, value any, isPropertiesMa
 			assertProviderSafeNestedSchemaValue(t, item, false)
 		}
 	}
-}
-
-func isClosedQualityReviewSchema(document map[string]any) bool {
-	properties := mapFromAny(document["properties"])
-	_, hasEvidenceIDs := properties["evidenceIDs"]
-	_, hasEvidence := properties["evidence"]
-	return document["additionalProperties"] == false && hasEvidenceIDs && !hasEvidence
 }
 
 func TestAgentTurnRunnerSiteLoopBuildsReviewsPublishesBeforeFinish(t *testing.T) {
