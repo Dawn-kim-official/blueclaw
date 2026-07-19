@@ -56,7 +56,7 @@ func toolSetForAgentTurnWithExposure(toolSet *ToolSet, instructionBundle Instruc
 		(len(instructionBundle.RequiredNextTools) > 0 || len(instructionBundle.RequiredEvidenceTools) > 0)
 	groups := []toolExposureGroup{interactionGroup, recoveryGroup, pendingGroup, requiredEvidenceGroup, pinnedGroup, selectedSkillGroup, evidenceAlternativesGroup}
 	if hasAuthoritativeWorkingSet {
-		groups = []toolExposureGroup{interactionGroup, recoveryGroup, pendingGroup, requiredEvidenceGroup, pinnedGroup, requiredNextGroup, selectedSkillGroup, evidenceAlternativesGroup}
+		groups = []toolExposureGroup{interactionGroup, recoveryGroup, pendingGroup, requiredEvidenceGroup, pinnedGroup, requiredNextGroup, evidenceAlternativesGroup}
 	}
 	extensionToolIDs, droppedGroups := selectToolGroups(extensionToolGroups(groups), maxExtensionCallableToolCount)
 	kernelToolIDs := []string{}
@@ -158,7 +158,7 @@ func toolSelectionSource(selectedSkillGroup toolExposureGroup, hasAuthoritativeW
 
 func toolSelectionReason(selectedSkillGroup toolExposureGroup, hasAuthoritativeWorkingSet bool) string {
 	if hasAuthoritativeWorkingSet {
-		return "Blueclaw exposes direct tools declared by the validated contract skills"
+		return "Blueclaw exposes the validated contract working set"
 	}
 	if len(selectedSkillGroup.ToolIDs) > 0 {
 		return "Blueclaw exposes direct tools declared by the selected skills"
