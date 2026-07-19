@@ -245,6 +245,51 @@ describe('sdkd handler', () => {
     expect(callCount).toBe(0);
   });
 
+  test('rejects non-canonical structured output boundaries before provider execution', async () => {
+    let callCount = 0;
+    const handler = createSDKDHandler({
+      configuration,
+      generateStructuredResponse: async () => {
+        callCount += 1;
+        return responseDocument();
+      },
+    });
+    const invalidDocuments = [
+      {
+        ...requestDocument,
+        structuredOutputSchema: { ...requestDocument.structuredOutputSchema, name: 'structured result' },
+      },
+      {
+        ...requestDocument,
+        structuredOutputSchema: { ...requestDocument.structuredOutputSchema, isStrictlyEnforced: false },
+      },
+      {
+        ...requestDocument,
+        structuredOutputSchema: {
+          ...requestDocument.structuredOutputSchema,
+          document: {
+            type: 'object',
+            properties: { nested: { type: 'object', properties: {} } },
+            additionalProperties: false,
+          },
+        },
+      },
+    ];
+
+    for (const document of invalidDocuments) {
+      const response = await handler(new Request('http://sdkd/v1/llm/structured', {
+        method: 'POST',
+        headers: { authorization: 'Bearer installation-key', 'content-type': 'application/json' },
+        body: JSON.stringify(document),
+      }));
+      expect(response.status).toBe(400);
+      expect(await response.json()).toEqual({
+        error: { code: 'invalid_structured_response_request', allowLegacyFallback: false },
+      });
+    }
+    expect(callCount).toBe(0);
+  });
+
   test('validates chat ingress and egress contracts', async () => {
     let observedRequest: ChatCompletionRequest | undefined;
     const handler = createSDKDHandler({

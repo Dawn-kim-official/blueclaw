@@ -897,6 +897,39 @@ describe('sdkd provider adapter', () => {
     expect(llamaModel.doGenerateCalls[0]?.temperature).toBe(0);
   });
 
+  test('preserves closed dynamic enum schemas for structured output', async () => {
+    const request: StructuredResponseRequest = {
+      ...structuredRequest,
+      structuredOutputSchema: {
+        name: 'provider_enum_output',
+        document: {
+          type: 'object',
+          properties: { state: { type: 'string', enum: ['ready', 'blocked'] } },
+          required: ['state'],
+          additionalProperties: false,
+        },
+        isStrictlyEnforced: true,
+      },
+    };
+    const model = toolCallLanguageModel('served-remote-model', [{
+      toolName: 'provider_enum_output',
+      input: '{"state":"ready"}',
+    }]);
+    const generateStructuredResponse = createStructuredResponseGenerator(
+      completeConfiguration(SDKDAutoRoute.RemoteFirst),
+      languageModelFactory(successfulLanguageModel('unused-local-model', { ok: false }), model),
+    );
+
+    const response = await generateStructuredResponse(request);
+    const providerTool = model.doGenerateCalls[0]?.tools?.[0];
+
+    expect(response.content).toBe('{"state":"ready"}');
+    expect(JSON.stringify(providerTool?.type === 'function' ? providerTool.inputSchema : undefined)).toBe(
+      JSON.stringify(request.structuredOutputSchema.document),
+    );
+    expect(model.doGenerateCalls[0]?.toolChoice).toEqual({ type: 'tool', toolName: 'provider_enum_output' });
+  });
+
   test('honors auto route order and falls back after a retryable provider failure', async () => {
     const routeAttempts: string[] = [];
     const llamaModel = apiFailingLanguageModel('llama.cpp', true, routeAttempts);
@@ -1686,9 +1719,11 @@ function nestedStructuredRequest(): StructuredResponseRequest {
             type: 'object',
             properties: { count: { type: 'number' } },
             required: ['count'],
+            additionalProperties: false,
           },
         },
         required: ['details'],
+        additionalProperties: false,
       },
     },
   };

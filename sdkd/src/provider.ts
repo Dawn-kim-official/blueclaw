@@ -15,6 +15,7 @@ import {
   StructuredOutputRepairStatus,
   StructuredOutputConstraintMode,
   StructuredOutputValidationCode,
+  structuredOutputSchemaSchema,
 } from '@blueclaw/protocol';
 import type {
   ChatCompletionRequest,
@@ -72,6 +73,7 @@ export function createStructuredResponseGenerator(
 ): StructuredResponseGenerator {
   return async (request, abortSignal) => {
     throwIfAborted(abortSignal);
+    validateStructuredOutputRequest(request);
     const routes = resolveProviderRoutes(request, configuration, languageModelFactory);
     let lastError: unknown;
     for (const route of routes) {
@@ -932,6 +934,11 @@ function createValidatedJSONSchema(document: unknown) {
       };
     },
   });
+}
+
+function validateStructuredOutputRequest(request: StructuredResponseRequest): void {
+  if (structuredOutputSchemaSchema.safeParse(request.structuredOutputSchema).success) return;
+  throw new SDKDError('request_invalid', 400, false, 'structured output schema request is invalid');
 }
 
 function removeOptionalNullProperties(value: unknown, schema: unknown): unknown {

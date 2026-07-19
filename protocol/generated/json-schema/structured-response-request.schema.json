@@ -169,9 +169,13 @@
           "$ref": "#/$defs/__schema0"
         },
         "isStrictlyEnforced": {
+          "const": true,
           "type": "boolean"
         },
         "name": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9_.-]+$",
           "type": "string"
         }
       },

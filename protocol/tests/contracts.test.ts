@@ -19,6 +19,7 @@ import {
   StructuredOutputRepairStatus,
   StructuredOutputValidationCode,
   structuredOutputDiagnosticSchema,
+  structuredOutputSchemaSchema,
   ToolConflictResolution,
   toolInvokeRequestSchema,
   toolInvokeResponseSchema,
@@ -84,6 +85,28 @@ describe('closed protocol values', () => {
     expect(toolInvokeRequestSchema.safeParse({
       ...request,
       context: { conflictResolution: 'ignore_conflict' },
+    }).success).toBe(false);
+  });
+
+  test('requires strict structured output schema requests', () => {
+    const closedRequest = {
+      name: 'structured.enum-result',
+      document: {
+        type: 'object',
+        properties: { state: { enum: ['ready', 'blocked'] } },
+        required: ['state'],
+        additionalProperties: false,
+      },
+      isStrictlyEnforced: true,
+    };
+
+    expect(structuredOutputSchemaSchema.safeParse(closedRequest).success).toBe(true);
+    expect(structuredOutputSchemaSchema.safeParse({ ...closedRequest, name: 'structured result' }).success).toBe(false);
+    expect(structuredOutputSchemaSchema.safeParse({ ...closedRequest, name: 'structured/result' }).success).toBe(false);
+    expect(structuredOutputSchemaSchema.safeParse({ ...closedRequest, isStrictlyEnforced: false }).success).toBe(false);
+    expect(structuredOutputSchemaSchema.safeParse({
+      ...closedRequest,
+      document: { type: 'object', properties: {} },
     }).success).toBe(false);
   });
 
