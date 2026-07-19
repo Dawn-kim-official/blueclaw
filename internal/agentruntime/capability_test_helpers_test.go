@@ -8,7 +8,7 @@ import (
 	"blueclaw/internal/capability"
 )
 
-var testCapabilityInputSchema = json.RawMessage(`{"type":"object","additionalProperties":{"type":["string","number","boolean","array","object","null"]}}`)
+var testCapabilityInputSchema = json.RawMessage(`{"type":"object","properties":{},"additionalProperties":false}`)
 
 func (toolCatalogBuilder *ToolCatalogBuilder) UseTestCapabilityToolDescriptors(capabilityClient capability.Client, descriptors []CapabilityToolDescriptor) {
 	toolCatalogBuilder.UseCapabilityToolDescriptors(capabilityClient, completeTestCapabilityToolDescriptors(descriptors))
@@ -17,7 +17,10 @@ func (toolCatalogBuilder *ToolCatalogBuilder) UseTestCapabilityToolDescriptors(c
 func (toolCatalogBuilder *ToolCatalogBuilder) UseTestCapabilityTools(capabilityClient capability.Client, toolNames []string) {
 	descriptors := make([]CapabilityToolDescriptor, 0, len(toolNames))
 	for _, toolName := range toolNames {
-		descriptor := CapabilityToolDescriptor{Name: toolName}
+		descriptor := CapabilityToolDescriptor{
+			Name:        toolName,
+			InputSchema: testCapabilityInputSchemaForTool(toolName),
+		}
 		if toolName == "browser.open" {
 			descriptor.PrivacyClass = "user_browser"
 			descriptor.RequiresUserPresence = true
@@ -30,6 +33,19 @@ func (toolCatalogBuilder *ToolCatalogBuilder) UseTestCapabilityTools(capabilityC
 		RequiresUserPresence: true,
 	})
 	toolCatalogBuilder.UseTestCapabilityToolDescriptors(capabilityClient, descriptors)
+}
+
+func testCapabilityInputSchemaForTool(toolName string) json.RawMessage {
+	switch strings.TrimSpace(toolName) {
+	case "browser.open":
+		return json.RawMessage(`{"type":"object","properties":{"url":{"type":"string"}},"required":["url"],"additionalProperties":false}`)
+	case "company.broadcast.send":
+		return json.RawMessage(`{"type":"object","properties":{"message":{"type":"string"}},"required":["message"],"additionalProperties":false}`)
+	case "task.add":
+		return json.RawMessage(`{"type":"object","properties":{"title":{"type":"string"}},"required":["title"],"additionalProperties":false}`)
+	default:
+		return testCapabilityInputSchema
+	}
 }
 
 func completeTestCapabilityToolDescriptors(descriptors []CapabilityToolDescriptor) []CapabilityToolDescriptor {

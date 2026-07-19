@@ -184,20 +184,18 @@ func TestRegisterProviderRejectsUnresolvableSchemasAtomically(t *testing.T) {
 	}
 }
 
-func TestRegisterProviderClosesObjectSchemas(t *testing.T) {
+func TestRegisterProviderRequiresExplicitlyClosedObjectSchemas(t *testing.T) {
 	toolSet := NewToolSet([]string{"task.add"})
 	providerTool := validProviderTool("capabilityd/task/task.add", "task", "task.add")
 	providerTool.Definition.InputSchema = json.RawMessage(`{"type":"object","properties":{"patch":{"type":"object","properties":{}}}}`)
 
-	if errorValue := toolSet.RegisterProvider(context.Background(), testToolProvider{providerID: "capabilityd", tools: []BoundTool{providerTool}}); errorValue != nil {
-		t.Fatal(errorValue)
+	errorValue := toolSet.RegisterProvider(context.Background(), testToolProvider{providerID: "capabilityd", tools: []BoundTool{providerTool}})
+
+	if errorValue == nil || !strings.Contains(errorValue.Error(), "object schema must explicitly set additionalProperties to false") {
+		t.Fatalf("expected implicitly open schema rejection, got %v", errorValue)
 	}
-	descriptor, isFound := toolSet.ToolDefinition("task.add")
-	if !isFound || strings.Contains(string(descriptor.InputSchema), `"additionalProperties":true`) {
-		t.Fatalf("expected closed input schema, got %s", descriptor.InputSchema)
-	}
-	if strings.Count(string(descriptor.InputSchema), `"additionalProperties":false`) != 2 {
-		t.Fatalf("expected every object schema to be closed, got %s", descriptor.InputSchema)
+	if toolSet.IsRegistered("task.add") {
+		t.Fatal("expected rejected provider tool to remain unregistered")
 	}
 }
 
@@ -212,7 +210,7 @@ func TestRegisterProviderRejectsOpenObjectSchema(t *testing.T) {
 
 		errorValue := toolSet.RegisterProvider(context.Background(), testToolProvider{providerID: "capabilityd", tools: []BoundTool{providerTool}})
 
-		if errorValue == nil || !strings.Contains(errorValue.Error(), "must not allow additional properties") {
+		if errorValue == nil || !strings.Contains(errorValue.Error(), "object schema must explicitly set additionalProperties to false") {
 			t.Fatalf("expected open input schema to fail closed, got %v", errorValue)
 		}
 	}
@@ -782,7 +780,7 @@ func validProviderTool(toolID string, namespace string, name string) BoundTool {
 			PrivacyClass:      "workspace",
 			InputSchema:       json.RawMessage(`{"type":"object","properties":{},"additionalProperties":false}`),
 			InputIntentSchema: json.RawMessage(`{"type":"object","properties":{},"additionalProperties":false}`),
-			OutputSchema:      json.RawMessage(`{"type":"object","properties":{}}`),
+			OutputSchema:      json.RawMessage(`{"type":"object","properties":{},"additionalProperties":false}`),
 			ResultContract:    &ToolResultContract{Schema: json.RawMessage(`{"type":"object","properties":{},"additionalProperties":false}`)},
 			Visibility:        ToolVisibilityModel,
 			PolicyResource:    "tool:" + name,

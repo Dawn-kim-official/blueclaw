@@ -55,32 +55,36 @@ var (
 			"source":{"type":"string"},
 			"isExactFileRead":{"type":"boolean"}
 		},
-		"required":["path","content","startLine","endLine","totalLines","returnedBytes","startByte","endByte","nextByte","totalBytes","isEndOfFile","totalLinesKnown","originalSizeBytes","sizeBytes","isTruncated"]
-	}`)
+		"required":["path","content","startLine","endLine","totalLines","returnedBytes","startByte","endByte","nextByte","totalBytes","isEndOfFile","totalLinesKnown","originalSizeBytes","sizeBytes","isTruncated"],
+		"additionalProperties":false
+		}`)
 	fileWriteResultSchema = json.RawMessage(`{
 		"type":"object",
 		"properties":{
 			"path":{"type":"string","minLength":1},
 			"sizeBytes":{"type":"integer","minimum":0}
 		},
-		"required":["path","sizeBytes"]
-	}`)
+		"required":["path","sizeBytes"],
+		"additionalProperties":false
+		}`)
 	fileDeleteResultSchema = json.RawMessage(`{
 		"type":"object",
 		"properties":{
 			"path":{"type":"string","minLength":1},
 			"deleted":{"const":true}
 		},
-		"required":["path","deleted"]
-	}`)
+		"required":["path","deleted"],
+		"additionalProperties":false
+		}`)
 	fileEditResultSchema = json.RawMessage(`{
 		"type":"object",
 		"properties":{
 			"editedFiles":{"type":"array","items":{"type":"string","minLength":1},"minItems":1,"uniqueItems":true},
 			"editCount":{"type":"integer","minimum":1}
 		},
-		"required":["editedFiles","editCount"]
-	}`)
+		"required":["editedFiles","editCount"],
+		"additionalProperties":false
+		}`)
 	filePreviewResultSchema = json.RawMessage(`{
 		"type":"object",
 		"properties":{
@@ -93,16 +97,18 @@ var (
 			"conversionStatus":{"type":"string"},
 			"conversionMessage":{"type":"string"}
 		},
-		"required":["path","filename","contentType","sizeBytes","previewFormat","markdownPreview","conversionStatus","conversionMessage"]
-	}`)
+		"required":["path","filename","contentType","sizeBytes","previewFormat","markdownPreview","conversionStatus","conversionMessage"],
+		"additionalProperties":false
+		}`)
 	fileDeliverResultSchema = json.RawMessage(`{
 		"type":"object",
 		"properties":{
 			"deliveredPaths":{"type":"array","items":{"type":"string","minLength":1},"minItems":1,"uniqueItems":true},
 			"attachmentCount":{"type":"integer","minimum":1}
 		},
-		"required":["deliveredPaths","attachmentCount"]
-	}`)
+		"required":["deliveredPaths","attachmentCount"],
+		"additionalProperties":false
+		}`)
 	fileWriteInputIntentSchema = json.RawMessage(`{
 		"type":"object",
 		"properties":{

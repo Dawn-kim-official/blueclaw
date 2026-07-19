@@ -77,6 +77,26 @@ func TestKernelToolProviderUsesCanonicalDescriptors(t *testing.T) {
 	}
 }
 
+func TestKernelToolProviderPassesExplicitSchemaValidation(t *testing.T) {
+	provider := newKernelToolProvider(NewToolCatalogBuilder(), toolHandlerContext{
+		request: ToolCatalogRequest{HistoryProvider: kernelHistoryProvider{}},
+	}, agent.NewToolSet(nil))
+	toolSet := agent.NewToolSet(nil)
+	quarantinedProviders, errorValue := toolSet.RegisterProviders(context.Background(), []agent.ToolProviderRegistration{{
+		Provider: provider,
+		Trust:    agent.ToolProviderExternal,
+	}})
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if len(quarantinedProviders) != 0 {
+		t.Fatalf("expected kernel provider to pass explicit schema validation, got %+v", quarantinedProviders)
+	}
+	if len(toolSet.ListRegisteredToolNames()) == 0 {
+		t.Fatal("expected kernel tools to register")
+	}
+}
+
 func TestLocalKernelToolNamesExcludeCapabilityBackedImageReader(t *testing.T) {
 	expectedKernelToolNames := []string{
 		agent.TerminalRunToolName,
