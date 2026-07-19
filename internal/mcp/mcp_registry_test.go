@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"reflect"
+	"strings"
 	"testing"
 
 	"blueclaw/internal/config"
@@ -196,6 +197,41 @@ func TestMcpServerDefinitionRejectsNonObjectInputSchema(t *testing.T) {
 
 	if _, errorValue := buildServerDefinition(configuration); errorValue == nil {
 		t.Fatal("expected non-object input schema to fail")
+	}
+}
+
+func TestMcpServerDefinitionRequiresCanonicalQualifiedToolNames(t *testing.T) {
+	testCases := []struct {
+		name      string
+		toolName  string
+		namespace string
+	}{
+		{name: "remote name with spaces", toolName: "read file", namespace: "workspace"},
+		{name: "namespace with slashes", toolName: "read", namespace: "workspace/files"},
+		{name: "qualified name over protocol limit", toolName: strings.Repeat("a", 120), namespace: "workspace"},
+	}
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			configuration := canonicalServerConfiguration(os.Args[0], testCase.toolName)
+			configuration.Tools[0].Namespace = testCase.namespace
+
+			if _, errorValue := buildServerDefinition(configuration); errorValue == nil {
+				t.Fatal("expected invalid canonical tool name to fail")
+			}
+		})
+	}
+}
+
+func TestMcpServerDefinitionAlwaysQualifiesToolNames(t *testing.T) {
+	configuration := canonicalServerConfiguration(os.Args[0], "workspace")
+
+	serverDefinition, errorValue := buildServerDefinition(configuration)
+
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if serverDefinition.Tools[0].Name != "workspace.workspace" {
+		t.Fatalf("expected namespace-qualified tool name, got %q", serverDefinition.Tools[0].Name)
 	}
 }
 
