@@ -7,20 +7,24 @@ import {
   protocolIdentitySchema,
   resourceScopeSchema,
 } from './common.ts';
+import { registerCanonicalClosedJSONSchema } from './json_schema.ts';
 
 const nonBlankStringSchema = z.string().trim().min(1);
 const unpaddedStringSchema = z.string().min(1).refine(value => value === value.trim(), {
   message: 'value must not have surrounding whitespace',
 });
 
-const strictObjectJsonSchema = z.looseObject({
-  type: z.literal('object'),
-  additionalProperties: z.union([z.literal(false), z.record(z.string(), jsonValueSchema)]),
-}).superRefine((schema, context) => {
-  if (!schemaObjectsAreClosed(schema)) {
-    context.addIssue({ code: 'custom', message: 'every object schema must disable additional properties' });
-  }
-});
+const strictObjectJsonSchema = registerCanonicalClosedJSONSchema(
+  z.looseObject({
+    type: z.literal('object'),
+    additionalProperties: z.union([z.literal(false), z.record(z.string(), jsonValueSchema)]),
+  }).superRefine((schema, context) => {
+    if (!schemaObjectsAreClosed(schema)) {
+      context.addIssue({ code: 'custom', message: 'every object schema must disable additional properties' });
+    }
+  }).meta({ id: 'canonical-strict-object-json-schema' }),
+  'strict_object',
+);
 
 function schemaObjectsAreClosed(value: unknown): boolean {
   if (Array.isArray(value)) return value.every(schemaObjectsAreClosed);

@@ -30,6 +30,69 @@
           "type": "object"
         }
       ]
+    },
+    "canonical-structured-output-document": {
+      "$dynamicAnchor": "canonicalClosedJSONSchemaValue0",
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        },
+        {
+          "items": {
+            "$dynamicRef": "#canonicalClosedJSONSchemaValue0"
+          },
+          "type": "array"
+        },
+        {
+          "additionalProperties": {
+            "$dynamicRef": "#canonicalClosedJSONSchemaValue0"
+          },
+          "allOf": [
+            {
+              "if": {
+                "properties": {
+                  "type": {
+                    "anyOf": [
+                      {
+                        "const": "object"
+                      },
+                      {
+                        "contains": {
+                          "const": "object"
+                        },
+                        "type": "array"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "type"
+                ]
+              },
+              "then": {
+                "properties": {
+                  "additionalProperties": {
+                    "const": false
+                  }
+                },
+                "required": [
+                  "additionalProperties"
+                ]
+              }
+            }
+          ],
+          "type": "object"
+        }
+      ]
     }
   },
   "$id": "https://schemas.blueclaw.dev/0.4.0/structured-response-request.schema.json",
@@ -166,7 +229,7 @@
       "additionalProperties": {},
       "properties": {
         "document": {
-          "$ref": "#/$defs/__schema0"
+          "$ref": "#/$defs/canonical-structured-output-document"
         },
         "isStrictlyEnforced": {
           "const": true,
