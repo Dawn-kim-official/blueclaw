@@ -144,137 +144,100 @@
       "name": "task.add",
       "namespace": "task",
       "outputSchema": {
-        "$defs": {
-          "__schema0": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "number"
-              },
-              {
-                "type": "boolean"
-              },
-              {
-                "type": "null"
-              },
-              {
-                "items": {
-                  "$ref": "#/$defs/__schema0"
-                },
-                "type": "array"
-              },
-              {
-                "additionalProperties": {
-                  "$ref": "#/$defs/__schema0"
-                },
-                "propertyNames": {
-                  "type": "string"
-                },
-                "type": "object"
-              }
-            ]
-          }
-        },
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "additionalProperties": false,
         "properties": {
+          "business": {
+            "type": "string"
+          },
           "content": {
             "type": "string"
           },
-          "effects": {
+          "decisionReason": {
+            "type": "string"
+          },
+          "endDate": {
+            "type": "string"
+          },
+          "flag": {
+            "maximum": 9007199254740991,
+            "minimum": -9007199254740991,
+            "type": "integer"
+          },
+          "goal": {
+            "type": "string"
+          },
+          "mattermostPostID": {
+            "type": "string"
+          },
+          "ownerID": {
+            "type": "string"
+          },
+          "ownerName": {
+            "type": "string"
+          },
+          "participantIDs": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "participantNames": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "participantPresentations": {
             "items": {
               "additionalProperties": false,
               "properties": {
-                "contentType": {
+                "displayName": {
                   "type": "string"
                 },
-                "durability": {
+                "email": {
                   "type": "string"
                 },
-                "effect": {
-                  "minLength": 1,
+                "mattermostUsername": {
                   "type": "string"
                 },
-                "filename": {
+                "mention": {
                   "type": "string"
                 },
-                "id": {
-                  "type": "string"
-                },
-                "objectType": {
-                  "minLength": 1,
-                  "type": "string"
-                },
-                "path": {
-                  "type": "string"
-                },
-                "summary": {
-                  "type": "string"
-                },
-                "url": {
-                  "type": "string"
-                },
-                "visibility": {
+                "personID": {
                   "type": "string"
                 }
               },
-              "required": [
-                "objectType",
-                "effect"
-              ],
               "type": "object"
             },
             "type": "array"
           },
-          "errorCode": {
+          "requestReason": {
             "type": "string"
           },
-          "failureStage": {
+          "size": {
             "type": "string"
           },
-          "isError": {
-            "type": "boolean"
-          },
-          "message": {
-            "type": "string"
-          },
-          "outcome": {
-            "enum": [
-              "succeeded",
-              "failed",
-              "denied"
-            ],
-            "type": "string"
-          },
-          "provider": {
-            "type": "string"
-          },
-          "result": {
-            "$ref": "#/$defs/__schema0"
-          },
-          "retryable": {
-            "type": "boolean"
-          },
-          "safeRetry": {
-            "type": "boolean"
-          },
-          "selectedBackend": {
+          "startDate": {
             "type": "string"
           },
           "status": {
             "type": "string"
           },
-          "toolName": {
+          "taskID": {
+            "minLength": 1,
+            "pattern": "^\\S(?:.*\\S)?$",
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          },
+          "weekCode": {
             "type": "string"
           }
         },
         "required": [
-          "provider",
-          "selectedBackend",
-          "toolName",
-          "result"
+          "taskID"
         ],
         "type": "object"
       },
@@ -453,137 +416,138 @@
       "name": "task.list",
       "namespace": "task",
       "outputSchema": {
-        "$defs": {
-          "__schema0": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "number"
-              },
-              {
-                "type": "boolean"
-              },
-              {
-                "type": "null"
-              },
-              {
-                "items": {
-                  "$ref": "#/$defs/__schema0"
-                },
-                "type": "array"
-              },
-              {
-                "additionalProperties": {
-                  "$ref": "#/$defs/__schema0"
-                },
-                "propertyNames": {
-                  "type": "string"
-                },
-                "type": "object"
-              }
-            ]
-          }
-        },
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "additionalProperties": false,
         "properties": {
-          "content": {
+          "count": {
+            "maximum": 9007199254740991,
+            "minimum": -9007199254740991,
+            "type": "integer"
+          },
+          "ownerID": {
             "type": "string"
           },
-          "effects": {
+          "scope": {
+            "type": "string"
+          },
+          "statusFilter": {
+            "type": "string"
+          },
+          "tasks": {
             "items": {
               "additionalProperties": false,
               "properties": {
-                "contentType": {
+                "business": {
                   "type": "string"
                 },
-                "durability": {
+                "content": {
                   "type": "string"
                 },
-                "effect": {
+                "decisionReason": {
+                  "type": "string"
+                },
+                "endDate": {
+                  "type": "string"
+                },
+                "flag": {
+                  "maximum": 9007199254740991,
+                  "minimum": -9007199254740991,
+                  "type": "integer"
+                },
+                "goal": {
+                  "type": "string"
+                },
+                "mattermostPostID": {
+                  "type": "string"
+                },
+                "ownerID": {
+                  "type": "string"
+                },
+                "ownerName": {
+                  "type": "string"
+                },
+                "participantIDs": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "participantNames": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "participantPresentations": {
+                  "items": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "displayName": {
+                        "type": "string"
+                      },
+                      "email": {
+                        "type": "string"
+                      },
+                      "mattermostUsername": {
+                        "type": "string"
+                      },
+                      "mention": {
+                        "type": "string"
+                      },
+                      "personID": {
+                        "type": "string"
+                      }
+                    },
+                    "type": "object"
+                  },
+                  "type": "array"
+                },
+                "requestReason": {
+                  "type": "string"
+                },
+                "size": {
+                  "type": "string"
+                },
+                "startDate": {
+                  "type": "string"
+                },
+                "status": {
+                  "type": "string"
+                },
+                "taskID": {
                   "minLength": 1,
+                  "pattern": "^\\S(?:.*\\S)?$",
                   "type": "string"
                 },
-                "filename": {
+                "type": {
                   "type": "string"
                 },
-                "id": {
-                  "type": "string"
-                },
-                "objectType": {
-                  "minLength": 1,
-                  "type": "string"
-                },
-                "path": {
-                  "type": "string"
-                },
-                "summary": {
-                  "type": "string"
-                },
-                "url": {
-                  "type": "string"
-                },
-                "visibility": {
+                "weekCode": {
                   "type": "string"
                 }
               },
               "required": [
-                "objectType",
-                "effect"
+                "taskID"
               ],
               "type": "object"
             },
             "type": "array"
           },
-          "errorCode": {
-            "type": "string"
+          "weekFrom": {
+            "maximum": 9007199254740991,
+            "minimum": -9007199254740991,
+            "type": "integer"
           },
-          "failureStage": {
-            "type": "string"
-          },
-          "isError": {
-            "type": "boolean"
-          },
-          "message": {
-            "type": "string"
-          },
-          "outcome": {
-            "enum": [
-              "succeeded",
-              "failed",
-              "denied"
-            ],
-            "type": "string"
-          },
-          "provider": {
-            "type": "string"
-          },
-          "result": {
-            "$ref": "#/$defs/__schema0"
-          },
-          "retryable": {
-            "type": "boolean"
-          },
-          "safeRetry": {
-            "type": "boolean"
-          },
-          "selectedBackend": {
-            "type": "string"
-          },
-          "status": {
-            "type": "string"
-          },
-          "toolName": {
-            "type": "string"
+          "weekTo": {
+            "maximum": 9007199254740991,
+            "minimum": -9007199254740991,
+            "type": "integer"
           }
         },
         "required": [
-          "provider",
-          "selectedBackend",
-          "toolName",
-          "result"
+          "tasks",
+          "count",
+          "scope"
         ],
         "type": "object"
       },
@@ -911,137 +875,100 @@
       "name": "task.update",
       "namespace": "task",
       "outputSchema": {
-        "$defs": {
-          "__schema0": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "number"
-              },
-              {
-                "type": "boolean"
-              },
-              {
-                "type": "null"
-              },
-              {
-                "items": {
-                  "$ref": "#/$defs/__schema0"
-                },
-                "type": "array"
-              },
-              {
-                "additionalProperties": {
-                  "$ref": "#/$defs/__schema0"
-                },
-                "propertyNames": {
-                  "type": "string"
-                },
-                "type": "object"
-              }
-            ]
-          }
-        },
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "additionalProperties": false,
         "properties": {
+          "business": {
+            "type": "string"
+          },
           "content": {
             "type": "string"
           },
-          "effects": {
+          "decisionReason": {
+            "type": "string"
+          },
+          "endDate": {
+            "type": "string"
+          },
+          "flag": {
+            "maximum": 9007199254740991,
+            "minimum": -9007199254740991,
+            "type": "integer"
+          },
+          "goal": {
+            "type": "string"
+          },
+          "mattermostPostID": {
+            "type": "string"
+          },
+          "ownerID": {
+            "type": "string"
+          },
+          "ownerName": {
+            "type": "string"
+          },
+          "participantIDs": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "participantNames": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "participantPresentations": {
             "items": {
               "additionalProperties": false,
               "properties": {
-                "contentType": {
+                "displayName": {
                   "type": "string"
                 },
-                "durability": {
+                "email": {
                   "type": "string"
                 },
-                "effect": {
-                  "minLength": 1,
+                "mattermostUsername": {
                   "type": "string"
                 },
-                "filename": {
+                "mention": {
                   "type": "string"
                 },
-                "id": {
-                  "type": "string"
-                },
-                "objectType": {
-                  "minLength": 1,
-                  "type": "string"
-                },
-                "path": {
-                  "type": "string"
-                },
-                "summary": {
-                  "type": "string"
-                },
-                "url": {
-                  "type": "string"
-                },
-                "visibility": {
+                "personID": {
                   "type": "string"
                 }
               },
-              "required": [
-                "objectType",
-                "effect"
-              ],
               "type": "object"
             },
             "type": "array"
           },
-          "errorCode": {
+          "requestReason": {
             "type": "string"
           },
-          "failureStage": {
+          "size": {
             "type": "string"
           },
-          "isError": {
-            "type": "boolean"
-          },
-          "message": {
-            "type": "string"
-          },
-          "outcome": {
-            "enum": [
-              "succeeded",
-              "failed",
-              "denied"
-            ],
-            "type": "string"
-          },
-          "provider": {
-            "type": "string"
-          },
-          "result": {
-            "$ref": "#/$defs/__schema0"
-          },
-          "retryable": {
-            "type": "boolean"
-          },
-          "safeRetry": {
-            "type": "boolean"
-          },
-          "selectedBackend": {
+          "startDate": {
             "type": "string"
           },
           "status": {
             "type": "string"
           },
-          "toolName": {
+          "taskID": {
+            "minLength": 1,
+            "pattern": "^\\S(?:.*\\S)?$",
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          },
+          "weekCode": {
             "type": "string"
           }
         },
         "required": [
-          "provider",
-          "selectedBackend",
-          "toolName",
-          "result"
+          "taskID"
         ],
         "type": "object"
       },
@@ -1215,137 +1142,22 @@
       "name": "task.delete",
       "namespace": "task",
       "outputSchema": {
-        "$defs": {
-          "__schema0": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "number"
-              },
-              {
-                "type": "boolean"
-              },
-              {
-                "type": "null"
-              },
-              {
-                "items": {
-                  "$ref": "#/$defs/__schema0"
-                },
-                "type": "array"
-              },
-              {
-                "additionalProperties": {
-                  "$ref": "#/$defs/__schema0"
-                },
-                "propertyNames": {
-                  "type": "string"
-                },
-                "type": "object"
-              }
-            ]
-          }
-        },
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "additionalProperties": false,
         "properties": {
-          "content": {
-            "type": "string"
-          },
-          "effects": {
-            "items": {
-              "additionalProperties": false,
-              "properties": {
-                "contentType": {
-                  "type": "string"
-                },
-                "durability": {
-                  "type": "string"
-                },
-                "effect": {
-                  "minLength": 1,
-                  "type": "string"
-                },
-                "filename": {
-                  "type": "string"
-                },
-                "id": {
-                  "type": "string"
-                },
-                "objectType": {
-                  "minLength": 1,
-                  "type": "string"
-                },
-                "path": {
-                  "type": "string"
-                },
-                "summary": {
-                  "type": "string"
-                },
-                "url": {
-                  "type": "string"
-                },
-                "visibility": {
-                  "type": "string"
-                }
-              },
-              "required": [
-                "objectType",
-                "effect"
-              ],
-              "type": "object"
-            },
-            "type": "array"
-          },
-          "errorCode": {
-            "type": "string"
-          },
-          "failureStage": {
-            "type": "string"
-          },
-          "isError": {
+          "deleted": {
+            "const": true,
             "type": "boolean"
           },
-          "message": {
-            "type": "string"
-          },
-          "outcome": {
-            "enum": [
-              "succeeded",
-              "failed",
-              "denied"
-            ],
-            "type": "string"
-          },
-          "provider": {
-            "type": "string"
-          },
-          "result": {
-            "$ref": "#/$defs/__schema0"
-          },
-          "retryable": {
-            "type": "boolean"
-          },
-          "safeRetry": {
-            "type": "boolean"
-          },
-          "selectedBackend": {
-            "type": "string"
-          },
-          "status": {
-            "type": "string"
-          },
-          "toolName": {
+          "taskID": {
+            "minLength": 1,
+            "pattern": "^\\S(?:.*\\S)?$",
             "type": "string"
           }
         },
         "required": [
-          "provider",
-          "selectedBackend",
-          "toolName",
-          "result"
+          "taskID",
+          "deleted"
         ],
         "type": "object"
       },
@@ -1544,137 +1356,95 @@
       "name": "calendar.add",
       "namespace": "calendar",
       "outputSchema": {
-        "$defs": {
-          "__schema0": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "number"
-              },
-              {
-                "type": "boolean"
-              },
-              {
-                "type": "null"
-              },
-              {
-                "items": {
-                  "$ref": "#/$defs/__schema0"
-                },
-                "type": "array"
-              },
-              {
-                "additionalProperties": {
-                  "$ref": "#/$defs/__schema0"
-                },
-                "propertyNames": {
-                  "type": "string"
-                },
-                "type": "object"
-              }
-            ]
-          }
-        },
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "additionalProperties": false,
         "properties": {
-          "content": {
+          "color": {
             "type": "string"
           },
-          "effects": {
+          "description": {
+            "type": "string"
+          },
+          "endISO": {
+            "type": "string"
+          },
+          "eventID": {
+            "minLength": 1,
+            "pattern": "^\\S(?:.*\\S)?$",
+            "type": "string"
+          },
+          "isAllDay": {
+            "type": "boolean"
+          },
+          "location": {
+            "type": "string"
+          },
+          "participants": {
             "items": {
               "additionalProperties": false,
               "properties": {
-                "contentType": {
+                "email": {
                   "type": "string"
                 },
-                "durability": {
+                "name": {
                   "type": "string"
                 },
-                "effect": {
-                  "minLength": 1,
-                  "type": "string"
-                },
-                "filename": {
-                  "type": "string"
-                },
-                "id": {
-                  "type": "string"
-                },
-                "objectType": {
-                  "minLength": 1,
-                  "type": "string"
-                },
-                "path": {
-                  "type": "string"
-                },
-                "summary": {
-                  "type": "string"
-                },
-                "url": {
-                  "type": "string"
-                },
-                "visibility": {
+                "personID": {
                   "type": "string"
                 }
               },
               "required": [
-                "objectType",
-                "effect"
+                "name"
               ],
               "type": "object"
             },
             "type": "array"
           },
-          "errorCode": {
-            "type": "string"
+          "people": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
           },
-          "failureStage": {
-            "type": "string"
-          },
-          "isError": {
-            "type": "boolean"
-          },
-          "message": {
-            "type": "string"
-          },
-          "outcome": {
+          "reminderLeadHours": {
             "enum": [
-              "succeeded",
-              "failed",
-              "denied"
+              1,
+              2,
+              3,
+              6,
+              12,
+              24,
+              48
             ],
+            "type": "number"
+          },
+          "startISO": {
             "type": "string"
           },
-          "provider": {
+          "timeZone": {
             "type": "string"
           },
-          "result": {
-            "$ref": "#/$defs/__schema0"
-          },
-          "retryable": {
-            "type": "boolean"
-          },
-          "safeRetry": {
-            "type": "boolean"
-          },
-          "selectedBackend": {
+          "title": {
             "type": "string"
           },
-          "status": {
-            "type": "string"
-          },
-          "toolName": {
+          "updatedAt": {
             "type": "string"
           }
         },
         "required": [
-          "provider",
-          "selectedBackend",
-          "toolName",
-          "result"
+          "eventID",
+          "title",
+          "description",
+          "location",
+          "startISO",
+          "endISO",
+          "timeZone",
+          "isAllDay",
+          "color",
+          "people",
+          "participants",
+          "reminderLeadHours",
+          "updatedAt"
         ],
         "type": "object"
       },
@@ -1833,137 +1603,107 @@
       "name": "calendar.list",
       "namespace": "calendar",
       "outputSchema": {
-        "$defs": {
-          "__schema0": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "number"
-              },
-              {
-                "type": "boolean"
-              },
-              {
-                "type": "null"
-              },
-              {
-                "items": {
-                  "$ref": "#/$defs/__schema0"
-                },
-                "type": "array"
-              },
-              {
-                "additionalProperties": {
-                  "$ref": "#/$defs/__schema0"
-                },
-                "propertyNames": {
-                  "type": "string"
-                },
-                "type": "object"
-              }
-            ]
-          }
-        },
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "additionalProperties": false,
         "properties": {
-          "content": {
-            "type": "string"
-          },
-          "effects": {
+          "events": {
             "items": {
               "additionalProperties": false,
               "properties": {
-                "contentType": {
+                "color": {
                   "type": "string"
                 },
-                "durability": {
+                "description": {
                   "type": "string"
                 },
-                "effect": {
+                "endISO": {
+                  "type": "string"
+                },
+                "eventID": {
                   "minLength": 1,
+                  "pattern": "^\\S(?:.*\\S)?$",
                   "type": "string"
                 },
-                "filename": {
+                "isAllDay": {
+                  "type": "boolean"
+                },
+                "location": {
                   "type": "string"
                 },
-                "id": {
+                "participants": {
+                  "items": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "email": {
+                        "type": "string"
+                      },
+                      "name": {
+                        "type": "string"
+                      },
+                      "personID": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "name"
+                    ],
+                    "type": "object"
+                  },
+                  "type": "array"
+                },
+                "people": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "reminderLeadHours": {
+                  "enum": [
+                    1,
+                    2,
+                    3,
+                    6,
+                    12,
+                    24,
+                    48
+                  ],
+                  "type": "number"
+                },
+                "startISO": {
                   "type": "string"
                 },
-                "objectType": {
-                  "minLength": 1,
+                "timeZone": {
                   "type": "string"
                 },
-                "path": {
+                "title": {
                   "type": "string"
                 },
-                "summary": {
-                  "type": "string"
-                },
-                "url": {
-                  "type": "string"
-                },
-                "visibility": {
+                "updatedAt": {
                   "type": "string"
                 }
               },
               "required": [
-                "objectType",
-                "effect"
+                "eventID",
+                "title",
+                "description",
+                "location",
+                "startISO",
+                "endISO",
+                "timeZone",
+                "isAllDay",
+                "color",
+                "people",
+                "participants",
+                "reminderLeadHours",
+                "updatedAt"
               ],
               "type": "object"
             },
             "type": "array"
-          },
-          "errorCode": {
-            "type": "string"
-          },
-          "failureStage": {
-            "type": "string"
-          },
-          "isError": {
-            "type": "boolean"
-          },
-          "message": {
-            "type": "string"
-          },
-          "outcome": {
-            "enum": [
-              "succeeded",
-              "failed",
-              "denied"
-            ],
-            "type": "string"
-          },
-          "provider": {
-            "type": "string"
-          },
-          "result": {
-            "$ref": "#/$defs/__schema0"
-          },
-          "retryable": {
-            "type": "boolean"
-          },
-          "safeRetry": {
-            "type": "boolean"
-          },
-          "selectedBackend": {
-            "type": "string"
-          },
-          "status": {
-            "type": "string"
-          },
-          "toolName": {
-            "type": "string"
           }
         },
         "required": [
-          "provider",
-          "selectedBackend",
-          "toolName",
-          "result"
+          "events"
         ],
         "type": "object"
       },
@@ -2250,137 +1990,95 @@
       "name": "calendar.update",
       "namespace": "calendar",
       "outputSchema": {
-        "$defs": {
-          "__schema0": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "number"
-              },
-              {
-                "type": "boolean"
-              },
-              {
-                "type": "null"
-              },
-              {
-                "items": {
-                  "$ref": "#/$defs/__schema0"
-                },
-                "type": "array"
-              },
-              {
-                "additionalProperties": {
-                  "$ref": "#/$defs/__schema0"
-                },
-                "propertyNames": {
-                  "type": "string"
-                },
-                "type": "object"
-              }
-            ]
-          }
-        },
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "additionalProperties": false,
         "properties": {
-          "content": {
+          "color": {
             "type": "string"
           },
-          "effects": {
+          "description": {
+            "type": "string"
+          },
+          "endISO": {
+            "type": "string"
+          },
+          "eventID": {
+            "minLength": 1,
+            "pattern": "^\\S(?:.*\\S)?$",
+            "type": "string"
+          },
+          "isAllDay": {
+            "type": "boolean"
+          },
+          "location": {
+            "type": "string"
+          },
+          "participants": {
             "items": {
               "additionalProperties": false,
               "properties": {
-                "contentType": {
+                "email": {
                   "type": "string"
                 },
-                "durability": {
+                "name": {
                   "type": "string"
                 },
-                "effect": {
-                  "minLength": 1,
-                  "type": "string"
-                },
-                "filename": {
-                  "type": "string"
-                },
-                "id": {
-                  "type": "string"
-                },
-                "objectType": {
-                  "minLength": 1,
-                  "type": "string"
-                },
-                "path": {
-                  "type": "string"
-                },
-                "summary": {
-                  "type": "string"
-                },
-                "url": {
-                  "type": "string"
-                },
-                "visibility": {
+                "personID": {
                   "type": "string"
                 }
               },
               "required": [
-                "objectType",
-                "effect"
+                "name"
               ],
               "type": "object"
             },
             "type": "array"
           },
-          "errorCode": {
-            "type": "string"
+          "people": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
           },
-          "failureStage": {
-            "type": "string"
-          },
-          "isError": {
-            "type": "boolean"
-          },
-          "message": {
-            "type": "string"
-          },
-          "outcome": {
+          "reminderLeadHours": {
             "enum": [
-              "succeeded",
-              "failed",
-              "denied"
+              1,
+              2,
+              3,
+              6,
+              12,
+              24,
+              48
             ],
+            "type": "number"
+          },
+          "startISO": {
             "type": "string"
           },
-          "provider": {
+          "timeZone": {
             "type": "string"
           },
-          "result": {
-            "$ref": "#/$defs/__schema0"
-          },
-          "retryable": {
-            "type": "boolean"
-          },
-          "safeRetry": {
-            "type": "boolean"
-          },
-          "selectedBackend": {
+          "title": {
             "type": "string"
           },
-          "status": {
-            "type": "string"
-          },
-          "toolName": {
+          "updatedAt": {
             "type": "string"
           }
         },
         "required": [
-          "provider",
-          "selectedBackend",
-          "toolName",
-          "result"
+          "eventID",
+          "title",
+          "description",
+          "location",
+          "startISO",
+          "endISO",
+          "timeZone",
+          "isAllDay",
+          "color",
+          "people",
+          "participants",
+          "reminderLeadHours",
+          "updatedAt"
         ],
         "type": "object"
       },
@@ -2549,137 +2247,22 @@
       "name": "calendar.delete",
       "namespace": "calendar",
       "outputSchema": {
-        "$defs": {
-          "__schema0": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "number"
-              },
-              {
-                "type": "boolean"
-              },
-              {
-                "type": "null"
-              },
-              {
-                "items": {
-                  "$ref": "#/$defs/__schema0"
-                },
-                "type": "array"
-              },
-              {
-                "additionalProperties": {
-                  "$ref": "#/$defs/__schema0"
-                },
-                "propertyNames": {
-                  "type": "string"
-                },
-                "type": "object"
-              }
-            ]
-          }
-        },
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "additionalProperties": false,
         "properties": {
-          "content": {
-            "type": "string"
-          },
-          "effects": {
-            "items": {
-              "additionalProperties": false,
-              "properties": {
-                "contentType": {
-                  "type": "string"
-                },
-                "durability": {
-                  "type": "string"
-                },
-                "effect": {
-                  "minLength": 1,
-                  "type": "string"
-                },
-                "filename": {
-                  "type": "string"
-                },
-                "id": {
-                  "type": "string"
-                },
-                "objectType": {
-                  "minLength": 1,
-                  "type": "string"
-                },
-                "path": {
-                  "type": "string"
-                },
-                "summary": {
-                  "type": "string"
-                },
-                "url": {
-                  "type": "string"
-                },
-                "visibility": {
-                  "type": "string"
-                }
-              },
-              "required": [
-                "objectType",
-                "effect"
-              ],
-              "type": "object"
-            },
-            "type": "array"
-          },
-          "errorCode": {
-            "type": "string"
-          },
-          "failureStage": {
-            "type": "string"
-          },
-          "isError": {
+          "deleted": {
+            "const": true,
             "type": "boolean"
           },
-          "message": {
-            "type": "string"
-          },
-          "outcome": {
-            "enum": [
-              "succeeded",
-              "failed",
-              "denied"
-            ],
-            "type": "string"
-          },
-          "provider": {
-            "type": "string"
-          },
-          "result": {
-            "$ref": "#/$defs/__schema0"
-          },
-          "retryable": {
-            "type": "boolean"
-          },
-          "safeRetry": {
-            "type": "boolean"
-          },
-          "selectedBackend": {
-            "type": "string"
-          },
-          "status": {
-            "type": "string"
-          },
-          "toolName": {
+          "eventID": {
+            "minLength": 1,
+            "pattern": "^\\S(?:.*\\S)?$",
             "type": "string"
           }
         },
         "required": [
-          "provider",
-          "selectedBackend",
-          "toolName",
-          "result"
+          "eventID",
+          "deleted"
         ],
         "type": "object"
       },
@@ -2748,137 +2331,63 @@
       "name": "message.context",
       "namespace": "message",
       "outputSchema": {
-        "$defs": {
-          "__schema0": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "number"
-              },
-              {
-                "type": "boolean"
-              },
-              {
-                "type": "null"
-              },
-              {
-                "items": {
-                  "$ref": "#/$defs/__schema0"
-                },
-                "type": "array"
-              },
-              {
-                "additionalProperties": {
-                  "$ref": "#/$defs/__schema0"
-                },
-                "propertyNames": {
-                  "type": "string"
-                },
-                "type": "object"
-              }
-            ]
-          }
-        },
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "additionalProperties": false,
         "properties": {
-          "content": {
+          "botUserID": {
+            "minLength": 1,
+            "pattern": "^\\S(?:.*\\S)?$",
             "type": "string"
           },
-          "effects": {
-            "items": {
-              "additionalProperties": false,
-              "properties": {
-                "contentType": {
-                  "type": "string"
-                },
-                "durability": {
-                  "type": "string"
-                },
-                "effect": {
-                  "minLength": 1,
-                  "type": "string"
-                },
-                "filename": {
-                  "type": "string"
-                },
-                "id": {
-                  "type": "string"
-                },
-                "objectType": {
-                  "minLength": 1,
-                  "type": "string"
-                },
-                "path": {
-                  "type": "string"
-                },
-                "summary": {
-                  "type": "string"
-                },
-                "url": {
-                  "type": "string"
-                },
-                "visibility": {
-                  "type": "string"
-                }
-              },
-              "required": [
-                "objectType",
-                "effect"
-              ],
-              "type": "object"
-            },
-            "type": "array"
-          },
-          "errorCode": {
+          "botUsername": {
+            "minLength": 1,
             "type": "string"
           },
-          "failureStage": {
+          "channelID": {
             "type": "string"
           },
-          "isError": {
-            "type": "boolean"
-          },
-          "message": {
+          "channelName": {
             "type": "string"
           },
-          "outcome": {
-            "enum": [
-              "succeeded",
-              "failed",
-              "denied"
-            ],
+          "conversationID": {
             "type": "string"
           },
-          "provider": {
+          "conversationType": {
             "type": "string"
           },
-          "result": {
-            "$ref": "#/$defs/__schema0"
-          },
-          "retryable": {
-            "type": "boolean"
-          },
-          "safeRetry": {
-            "type": "boolean"
-          },
-          "selectedBackend": {
+          "currentMessageID": {
             "type": "string"
           },
-          "status": {
+          "platform": {
+            "minLength": 1,
             "type": "string"
           },
-          "toolName": {
+          "replyTargetID": {
+            "type": "string"
+          },
+          "requesterPersonID": {
+            "type": "string"
+          },
+          "requesterPlatformUserID": {
+            "type": "string"
+          },
+          "rootMessageID": {
             "type": "string"
           }
         },
         "required": [
-          "provider",
-          "selectedBackend",
-          "toolName",
-          "result"
+          "platform",
+          "conversationID",
+          "conversationType",
+          "channelID",
+          "channelName",
+          "replyTargetID",
+          "rootMessageID",
+          "currentMessageID",
+          "requesterPersonID",
+          "requesterPlatformUserID",
+          "botUserID",
+          "botUsername"
         ],
         "type": "object"
       },
@@ -3032,137 +2541,114 @@
       "name": "message.search",
       "namespace": "message",
       "outputSchema": {
-        "$defs": {
-          "__schema0": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "number"
-              },
-              {
-                "type": "boolean"
-              },
-              {
-                "type": "null"
-              },
-              {
-                "items": {
-                  "$ref": "#/$defs/__schema0"
-                },
-                "type": "array"
-              },
-              {
-                "additionalProperties": {
-                  "$ref": "#/$defs/__schema0"
-                },
-                "propertyNames": {
-                  "type": "string"
-                },
-                "type": "object"
-              }
-            ]
-          }
-        },
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "additionalProperties": false,
         "properties": {
-          "content": {
+          "authoredBy": {
+            "enum": [
+              "assistant",
+              "requester",
+              "anyone"
+            ],
             "type": "string"
           },
-          "effects": {
+          "candidates": {
             "items": {
               "additionalProperties": false,
               "properties": {
-                "contentType": {
+                "authoredBy": {
+                  "enum": [
+                    "assistant",
+                    "requester",
+                    "anyone"
+                  ],
                   "type": "string"
                 },
-                "durability": {
-                  "type": "string"
-                },
-                "effect": {
+                "channelID": {
                   "minLength": 1,
+                  "pattern": "^\\S(?:.*\\S)?$",
                   "type": "string"
                 },
-                "filename": {
-                  "type": "string"
+                "createdAt": {
+                  "maximum": 9007199254740991,
+                  "minimum": 0,
+                  "type": "integer"
                 },
-                "id": {
-                  "type": "string"
+                "deletable": {
+                  "type": "boolean"
                 },
-                "objectType": {
+                "messageID": {
                   "minLength": 1,
+                  "pattern": "^\\S(?:.*\\S)?$",
                   "type": "string"
                 },
-                "path": {
+                "preview": {
                   "type": "string"
                 },
-                "summary": {
+                "protectedReason": {
                   "type": "string"
                 },
-                "url": {
+                "rootMessageID": {
+                  "minLength": 1,
+                  "pattern": "^\\S(?:.*\\S)?$",
                   "type": "string"
                 },
-                "visibility": {
+                "userID": {
+                  "minLength": 1,
+                  "pattern": "^\\S(?:.*\\S)?$",
                   "type": "string"
                 }
               },
               "required": [
-                "objectType",
-                "effect"
+                "messageID",
+                "channelID",
+                "userID",
+                "authoredBy",
+                "createdAt",
+                "preview",
+                "deletable"
               ],
               "type": "object"
             },
             "type": "array"
           },
-          "errorCode": {
-            "type": "string"
-          },
-          "failureStage": {
-            "type": "string"
-          },
-          "isError": {
+          "hasMore": {
             "type": "boolean"
           },
-          "message": {
+          "messageIDs": {
+            "items": {
+              "minLength": 1,
+              "pattern": "^\\S(?:.*\\S)?$",
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "nextCursor": {
             "type": "string"
           },
-          "outcome": {
+          "queries": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "scope": {
             "enum": [
-              "succeeded",
-              "failed",
-              "denied"
+              "currentThread",
+              "currentChannel",
+              "directMessage",
+              "channel"
             ],
-            "type": "string"
-          },
-          "provider": {
-            "type": "string"
-          },
-          "result": {
-            "$ref": "#/$defs/__schema0"
-          },
-          "retryable": {
-            "type": "boolean"
-          },
-          "safeRetry": {
-            "type": "boolean"
-          },
-          "selectedBackend": {
-            "type": "string"
-          },
-          "status": {
-            "type": "string"
-          },
-          "toolName": {
             "type": "string"
           }
         },
         "required": [
-          "provider",
-          "selectedBackend",
-          "toolName",
-          "result"
+          "scope",
+          "queries",
+          "authoredBy",
+          "messageIDs",
+          "candidates",
+          "hasMore"
         ],
         "type": "object"
       },
@@ -3424,137 +2910,55 @@
       "name": "message.send",
       "namespace": "message",
       "outputSchema": {
-        "$defs": {
-          "__schema0": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "number"
-              },
-              {
-                "type": "boolean"
-              },
-              {
-                "type": "null"
-              },
-              {
-                "items": {
-                  "$ref": "#/$defs/__schema0"
-                },
-                "type": "array"
-              },
-              {
-                "additionalProperties": {
-                  "$ref": "#/$defs/__schema0"
-                },
-                "propertyNames": {
-                  "type": "string"
-                },
-                "type": "object"
-              }
-            ]
-          }
-        },
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "additionalProperties": false,
         "properties": {
-          "content": {
+          "deliveryStatus": {
+            "const": "sent",
             "type": "string"
           },
-          "effects": {
+          "failures": {
             "items": {
               "additionalProperties": false,
               "properties": {
-                "contentType": {
-                  "type": "string"
-                },
-                "durability": {
-                  "type": "string"
-                },
-                "effect": {
+                "errorCode": {
                   "minLength": 1,
                   "type": "string"
                 },
-                "filename": {
-                  "type": "string"
-                },
-                "id": {
-                  "type": "string"
-                },
-                "objectType": {
+                "message": {
                   "minLength": 1,
                   "type": "string"
                 },
-                "path": {
+                "messageID": {
                   "type": "string"
                 },
-                "summary": {
-                  "type": "string"
-                },
-                "url": {
-                  "type": "string"
-                },
-                "visibility": {
+                "personHint": {
                   "type": "string"
                 }
               },
               "required": [
-                "objectType",
-                "effect"
+                "errorCode",
+                "message"
               ],
               "type": "object"
             },
             "type": "array"
           },
-          "errorCode": {
-            "type": "string"
-          },
-          "failureStage": {
-            "type": "string"
-          },
-          "isError": {
-            "type": "boolean"
-          },
-          "message": {
-            "type": "string"
-          },
-          "outcome": {
-            "enum": [
-              "succeeded",
-              "failed",
-              "denied"
-            ],
-            "type": "string"
-          },
-          "provider": {
-            "type": "string"
-          },
-          "result": {
-            "$ref": "#/$defs/__schema0"
-          },
-          "retryable": {
-            "type": "boolean"
-          },
-          "safeRetry": {
-            "type": "boolean"
-          },
-          "selectedBackend": {
-            "type": "string"
-          },
-          "status": {
-            "type": "string"
-          },
-          "toolName": {
-            "type": "string"
+          "messageIDs": {
+            "items": {
+              "minLength": 1,
+              "pattern": "^\\S(?:.*\\S)?$",
+              "type": "string"
+            },
+            "maxItems": 50,
+            "minItems": 1,
+            "type": "array",
+            "uniqueItems": true
           }
         },
         "required": [
-          "provider",
-          "selectedBackend",
-          "toolName",
-          "result"
+          "messageIDs",
+          "deliveryStatus"
         ],
         "type": "object"
       },
@@ -3703,137 +3107,29 @@
       "name": "message.update",
       "namespace": "message",
       "outputSchema": {
-        "$defs": {
-          "__schema0": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "number"
-              },
-              {
-                "type": "boolean"
-              },
-              {
-                "type": "null"
-              },
-              {
-                "items": {
-                  "$ref": "#/$defs/__schema0"
-                },
-                "type": "array"
-              },
-              {
-                "additionalProperties": {
-                  "$ref": "#/$defs/__schema0"
-                },
-                "propertyNames": {
-                  "type": "string"
-                },
-                "type": "object"
-              }
-            ]
-          }
-        },
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "additionalProperties": false,
         "properties": {
-          "content": {
+          "deliveryStatus": {
+            "const": "updated",
             "type": "string"
           },
-          "effects": {
-            "items": {
-              "additionalProperties": false,
-              "properties": {
-                "contentType": {
-                  "type": "string"
-                },
-                "durability": {
-                  "type": "string"
-                },
-                "effect": {
-                  "minLength": 1,
-                  "type": "string"
-                },
-                "filename": {
-                  "type": "string"
-                },
-                "id": {
-                  "type": "string"
-                },
-                "objectType": {
-                  "minLength": 1,
-                  "type": "string"
-                },
-                "path": {
-                  "type": "string"
-                },
-                "summary": {
-                  "type": "string"
-                },
-                "url": {
-                  "type": "string"
-                },
-                "visibility": {
-                  "type": "string"
-                }
-              },
-              "required": [
-                "objectType",
-                "effect"
-              ],
-              "type": "object"
-            },
-            "type": "array"
-          },
-          "errorCode": {
-            "type": "string"
-          },
-          "failureStage": {
-            "type": "string"
-          },
-          "isError": {
+          "isPinned": {
             "type": "boolean"
           },
-          "message": {
+          "messageID": {
+            "minLength": 1,
+            "pattern": "^\\S(?:.*\\S)?$",
             "type": "string"
           },
-          "outcome": {
-            "enum": [
-              "succeeded",
-              "failed",
-              "denied"
-            ],
-            "type": "string"
-          },
-          "provider": {
-            "type": "string"
-          },
-          "result": {
-            "$ref": "#/$defs/__schema0"
-          },
-          "retryable": {
+          "messageUpdated": {
             "type": "boolean"
-          },
-          "safeRetry": {
-            "type": "boolean"
-          },
-          "selectedBackend": {
-            "type": "string"
-          },
-          "status": {
-            "type": "string"
-          },
-          "toolName": {
-            "type": "string"
           }
         },
         "required": [
-          "provider",
-          "selectedBackend",
-          "toolName",
-          "result"
+          "messageID",
+          "deliveryStatus",
+          "messageUpdated"
         ],
         "type": "object"
       },
@@ -3949,137 +3245,55 @@
       "name": "message.delete",
       "namespace": "message",
       "outputSchema": {
-        "$defs": {
-          "__schema0": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "number"
-              },
-              {
-                "type": "boolean"
-              },
-              {
-                "type": "null"
-              },
-              {
-                "items": {
-                  "$ref": "#/$defs/__schema0"
-                },
-                "type": "array"
-              },
-              {
-                "additionalProperties": {
-                  "$ref": "#/$defs/__schema0"
-                },
-                "propertyNames": {
-                  "type": "string"
-                },
-                "type": "object"
-              }
-            ]
-          }
-        },
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "additionalProperties": false,
         "properties": {
-          "content": {
+          "deliveryStatus": {
+            "const": "deleted",
             "type": "string"
           },
-          "effects": {
+          "failures": {
             "items": {
               "additionalProperties": false,
               "properties": {
-                "contentType": {
-                  "type": "string"
-                },
-                "durability": {
-                  "type": "string"
-                },
-                "effect": {
+                "errorCode": {
                   "minLength": 1,
                   "type": "string"
                 },
-                "filename": {
-                  "type": "string"
-                },
-                "id": {
-                  "type": "string"
-                },
-                "objectType": {
+                "message": {
                   "minLength": 1,
                   "type": "string"
                 },
-                "path": {
+                "messageID": {
                   "type": "string"
                 },
-                "summary": {
-                  "type": "string"
-                },
-                "url": {
-                  "type": "string"
-                },
-                "visibility": {
+                "personHint": {
                   "type": "string"
                 }
               },
               "required": [
-                "objectType",
-                "effect"
+                "errorCode",
+                "message"
               ],
               "type": "object"
             },
             "type": "array"
           },
-          "errorCode": {
-            "type": "string"
-          },
-          "failureStage": {
-            "type": "string"
-          },
-          "isError": {
-            "type": "boolean"
-          },
-          "message": {
-            "type": "string"
-          },
-          "outcome": {
-            "enum": [
-              "succeeded",
-              "failed",
-              "denied"
-            ],
-            "type": "string"
-          },
-          "provider": {
-            "type": "string"
-          },
-          "result": {
-            "$ref": "#/$defs/__schema0"
-          },
-          "retryable": {
-            "type": "boolean"
-          },
-          "safeRetry": {
-            "type": "boolean"
-          },
-          "selectedBackend": {
-            "type": "string"
-          },
-          "status": {
-            "type": "string"
-          },
-          "toolName": {
-            "type": "string"
+          "messageIDs": {
+            "items": {
+              "minLength": 1,
+              "pattern": "^\\S(?:.*\\S)?$",
+              "type": "string"
+            },
+            "maxItems": 50,
+            "minItems": 1,
+            "type": "array",
+            "uniqueItems": true
           }
         },
         "required": [
-          "provider",
-          "selectedBackend",
-          "toolName",
-          "result"
+          "messageIDs",
+          "deliveryStatus"
         ],
         "type": "object"
       },
@@ -4251,137 +3465,30 @@
       "name": "channel.update",
       "namespace": "channel",
       "outputSchema": {
-        "$defs": {
-          "__schema0": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "number"
-              },
-              {
-                "type": "boolean"
-              },
-              {
-                "type": "null"
-              },
-              {
-                "items": {
-                  "$ref": "#/$defs/__schema0"
-                },
-                "type": "array"
-              },
-              {
-                "additionalProperties": {
-                  "$ref": "#/$defs/__schema0"
-                },
-                "propertyNames": {
-                  "type": "string"
-                },
-                "type": "object"
-              }
-            ]
-          }
-        },
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "additionalProperties": false,
         "properties": {
-          "content": {
+          "channelID": {
+            "minLength": 1,
+            "pattern": "^\\S(?:.*\\S)?$",
             "type": "string"
           },
-          "effects": {
+          "invitedUserIDs": {
             "items": {
-              "additionalProperties": false,
-              "properties": {
-                "contentType": {
-                  "type": "string"
-                },
-                "durability": {
-                  "type": "string"
-                },
-                "effect": {
-                  "minLength": 1,
-                  "type": "string"
-                },
-                "filename": {
-                  "type": "string"
-                },
-                "id": {
-                  "type": "string"
-                },
-                "objectType": {
-                  "minLength": 1,
-                  "type": "string"
-                },
-                "path": {
-                  "type": "string"
-                },
-                "summary": {
-                  "type": "string"
-                },
-                "url": {
-                  "type": "string"
-                },
-                "visibility": {
-                  "type": "string"
-                }
-              },
-              "required": [
-                "objectType",
-                "effect"
-              ],
-              "type": "object"
+              "minLength": 1,
+              "pattern": "^\\S(?:.*\\S)?$",
+              "type": "string"
             },
             "type": "array"
           },
-          "errorCode": {
-            "type": "string"
-          },
-          "failureStage": {
-            "type": "string"
-          },
-          "isError": {
+          "updated": {
+            "const": true,
             "type": "boolean"
-          },
-          "message": {
-            "type": "string"
-          },
-          "outcome": {
-            "enum": [
-              "succeeded",
-              "failed",
-              "denied"
-            ],
-            "type": "string"
-          },
-          "provider": {
-            "type": "string"
-          },
-          "result": {
-            "$ref": "#/$defs/__schema0"
-          },
-          "retryable": {
-            "type": "boolean"
-          },
-          "safeRetry": {
-            "type": "boolean"
-          },
-          "selectedBackend": {
-            "type": "string"
-          },
-          "status": {
-            "type": "string"
-          },
-          "toolName": {
-            "type": "string"
           }
         },
         "required": [
-          "provider",
-          "selectedBackend",
-          "toolName",
-          "result"
+          "channelID",
+          "updated"
         ],
         "type": "object"
       },
@@ -4492,137 +3599,58 @@
       "name": "web.search",
       "namespace": "web",
       "outputSchema": {
-        "$defs": {
-          "__schema0": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "number"
-              },
-              {
-                "type": "boolean"
-              },
-              {
-                "type": "null"
-              },
-              {
-                "items": {
-                  "$ref": "#/$defs/__schema0"
-                },
-                "type": "array"
-              },
-              {
-                "additionalProperties": {
-                  "$ref": "#/$defs/__schema0"
-                },
-                "propertyNames": {
-                  "type": "string"
-                },
-                "type": "object"
-              }
-            ]
-          }
-        },
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "additionalProperties": false,
         "properties": {
-          "content": {
+          "answer": {
             "type": "string"
           },
-          "effects": {
-            "items": {
-              "additionalProperties": false,
-              "properties": {
-                "contentType": {
-                  "type": "string"
-                },
-                "durability": {
-                  "type": "string"
-                },
-                "effect": {
-                  "minLength": 1,
-                  "type": "string"
-                },
-                "filename": {
-                  "type": "string"
-                },
-                "id": {
-                  "type": "string"
-                },
-                "objectType": {
-                  "minLength": 1,
-                  "type": "string"
-                },
-                "path": {
-                  "type": "string"
-                },
-                "summary": {
-                  "type": "string"
-                },
-                "url": {
-                  "type": "string"
-                },
-                "visibility": {
-                  "type": "string"
-                }
-              },
-              "required": [
-                "objectType",
-                "effect"
-              ],
-              "type": "object"
-            },
-            "type": "array"
-          },
-          "errorCode": {
-            "type": "string"
-          },
-          "failureStage": {
-            "type": "string"
-          },
-          "isError": {
-            "type": "boolean"
-          },
-          "message": {
-            "type": "string"
-          },
-          "outcome": {
-            "enum": [
-              "succeeded",
-              "failed",
-              "denied"
-            ],
+          "compatibility": {
             "type": "string"
           },
           "provider": {
             "type": "string"
           },
-          "result": {
-            "$ref": "#/$defs/__schema0"
+          "query": {
+            "type": "string"
           },
-          "retryable": {
+          "remoteLLMInvolved": {
             "type": "boolean"
           },
-          "safeRetry": {
-            "type": "boolean"
-          },
-          "selectedBackend": {
-            "type": "string"
-          },
-          "status": {
-            "type": "string"
-          },
-          "toolName": {
-            "type": "string"
+          "results": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "snippet": {
+                  "type": "string"
+                },
+                "source": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "url": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "title",
+                "url",
+                "snippet"
+              ],
+              "type": "object"
+            },
+            "type": "array"
           }
         },
         "required": [
           "provider",
-          "selectedBackend",
-          "toolName",
-          "result"
+          "remoteLLMInvolved",
+          "compatibility",
+          "query",
+          "answer",
+          "results"
         ],
         "type": "object"
       },
@@ -4899,137 +3927,44 @@
       "name": "site.create",
       "namespace": "site",
       "outputSchema": {
-        "$defs": {
-          "__schema0": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "number"
-              },
-              {
-                "type": "boolean"
-              },
-              {
-                "type": "null"
-              },
-              {
-                "items": {
-                  "$ref": "#/$defs/__schema0"
-                },
-                "type": "array"
-              },
-              {
-                "additionalProperties": {
-                  "$ref": "#/$defs/__schema0"
-                },
-                "propertyNames": {
-                  "type": "string"
-                },
-                "type": "object"
-              }
-            ]
-          }
-        },
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "additionalProperties": false,
         "properties": {
-          "content": {
+          "appWorkspacePath": {
+            "minLength": 1,
+            "pattern": "^\\S(?:.*\\S)?$",
             "type": "string"
           },
-          "effects": {
-            "items": {
-              "additionalProperties": false,
-              "properties": {
-                "contentType": {
-                  "type": "string"
-                },
-                "durability": {
-                  "type": "string"
-                },
-                "effect": {
-                  "minLength": 1,
-                  "type": "string"
-                },
-                "filename": {
-                  "type": "string"
-                },
-                "id": {
-                  "type": "string"
-                },
-                "objectType": {
-                  "minLength": 1,
-                  "type": "string"
-                },
-                "path": {
-                  "type": "string"
-                },
-                "summary": {
-                  "type": "string"
-                },
-                "url": {
-                  "type": "string"
-                },
-                "visibility": {
-                  "type": "string"
-                }
-              },
-              "required": [
-                "objectType",
-                "effect"
-              ],
-              "type": "object"
-            },
-            "type": "array"
-          },
-          "errorCode": {
+          "siteID": {
+            "minLength": 1,
+            "pattern": "^\\S(?:.*\\S)?$",
             "type": "string"
           },
-          "failureStage": {
+          "slug": {
+            "minLength": 1,
+            "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
             "type": "string"
           },
-          "isError": {
-            "type": "boolean"
-          },
-          "message": {
-            "type": "string"
-          },
-          "outcome": {
-            "enum": [
-              "succeeded",
-              "failed",
-              "denied"
-            ],
-            "type": "string"
-          },
-          "provider": {
-            "type": "string"
-          },
-          "result": {
-            "$ref": "#/$defs/__schema0"
-          },
-          "retryable": {
-            "type": "boolean"
-          },
-          "safeRetry": {
-            "type": "boolean"
-          },
-          "selectedBackend": {
+          "sourceWorkspacePath": {
+            "minLength": 1,
+            "pattern": "^\\S(?:.*\\S)?$",
             "type": "string"
           },
           "status": {
+            "const": "draft",
             "type": "string"
           },
-          "toolName": {
+          "title": {
             "type": "string"
           }
         },
         "required": [
-          "provider",
-          "selectedBackend",
-          "toolName",
-          "result"
+          "siteID",
+          "slug",
+          "title",
+          "status",
+          "sourceWorkspacePath",
+          "appWorkspacePath"
         ],
         "type": "object"
       },
@@ -5133,137 +4068,73 @@
       "name": "site.status",
       "namespace": "site",
       "outputSchema": {
-        "$defs": {
-          "__schema0": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "number"
-              },
-              {
-                "type": "boolean"
-              },
-              {
-                "type": "null"
-              },
-              {
-                "items": {
-                  "$ref": "#/$defs/__schema0"
-                },
-                "type": "array"
-              },
-              {
-                "additionalProperties": {
-                  "$ref": "#/$defs/__schema0"
-                },
-                "propertyNames": {
-                  "type": "string"
-                },
-                "type": "object"
-              }
-            ]
-          }
-        },
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "additionalProperties": false,
         "properties": {
-          "content": {
+          "appWorkspacePath": {
+            "minLength": 1,
+            "pattern": "^\\S(?:.*\\S)?$",
             "type": "string"
           },
-          "effects": {
-            "items": {
-              "additionalProperties": false,
-              "properties": {
-                "contentType": {
-                  "type": "string"
-                },
-                "durability": {
-                  "type": "string"
-                },
-                "effect": {
-                  "minLength": 1,
-                  "type": "string"
-                },
-                "filename": {
-                  "type": "string"
-                },
-                "id": {
-                  "type": "string"
-                },
-                "objectType": {
-                  "minLength": 1,
-                  "type": "string"
-                },
-                "path": {
-                  "type": "string"
-                },
-                "summary": {
-                  "type": "string"
-                },
-                "url": {
-                  "type": "string"
-                },
-                "visibility": {
-                  "type": "string"
-                }
-              },
-              "required": [
-                "objectType",
-                "effect"
-              ],
-              "type": "object"
-            },
-            "type": "array"
-          },
-          "errorCode": {
+          "lastError": {
             "type": "string"
           },
-          "failureStage": {
+          "liveHTTPStatus": {
+            "maximum": 9007199254740991,
+            "minimum": -9007199254740991,
+            "type": "integer"
+          },
+          "previewURL": {
+            "minLength": 1,
+            "pattern": "^\\S(?:.*\\S)?$",
             "type": "string"
           },
-          "isError": {
-            "type": "boolean"
-          },
-          "message": {
+          "publishedURL": {
+            "minLength": 1,
+            "pattern": "^\\S(?:.*\\S)?$",
             "type": "string"
           },
-          "outcome": {
-            "enum": [
-              "succeeded",
-              "failed",
-              "denied"
-            ],
+          "siteID": {
+            "minLength": 1,
+            "pattern": "^\\S(?:.*\\S)?$",
             "type": "string"
           },
-          "provider": {
+          "slug": {
+            "minLength": 1,
+            "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
             "type": "string"
           },
-          "result": {
-            "$ref": "#/$defs/__schema0"
-          },
-          "retryable": {
-            "type": "boolean"
-          },
-          "safeRetry": {
-            "type": "boolean"
-          },
-          "selectedBackend": {
+          "sourceWorkspacePath": {
+            "minLength": 1,
+            "pattern": "^\\S(?:.*\\S)?$",
             "type": "string"
           },
           "status": {
+            "enum": [
+              "draft",
+              "publishing",
+              "published",
+              "unpublished",
+              "failed"
+            ],
             "type": "string"
           },
-          "toolName": {
+          "title": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "type": "string"
+          },
+          "workspaceHealth": {
             "type": "string"
           }
         },
         "required": [
-          "provider",
-          "selectedBackend",
-          "toolName",
-          "result"
+          "siteID",
+          "slug",
+          "title",
+          "status",
+          "sourceWorkspacePath"
         ],
         "type": "object"
       },
@@ -5415,137 +4286,50 @@
       "name": "site.preview",
       "namespace": "site",
       "outputSchema": {
-        "$defs": {
-          "__schema0": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "number"
-              },
-              {
-                "type": "boolean"
-              },
-              {
-                "type": "null"
-              },
-              {
-                "items": {
-                  "$ref": "#/$defs/__schema0"
-                },
-                "type": "array"
-              },
-              {
-                "additionalProperties": {
-                  "$ref": "#/$defs/__schema0"
-                },
-                "propertyNames": {
-                  "type": "string"
-                },
-                "type": "object"
-              }
-            ]
-          }
-        },
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "additionalProperties": false,
         "properties": {
-          "content": {
+          "previewExpiresAt": {
             "type": "string"
           },
-          "effects": {
-            "items": {
-              "additionalProperties": false,
-              "properties": {
-                "contentType": {
-                  "type": "string"
-                },
-                "durability": {
-                  "type": "string"
-                },
-                "effect": {
-                  "minLength": 1,
-                  "type": "string"
-                },
-                "filename": {
-                  "type": "string"
-                },
-                "id": {
-                  "type": "string"
-                },
-                "objectType": {
-                  "minLength": 1,
-                  "type": "string"
-                },
-                "path": {
-                  "type": "string"
-                },
-                "summary": {
-                  "type": "string"
-                },
-                "url": {
-                  "type": "string"
-                },
-                "visibility": {
-                  "type": "string"
-                }
-              },
-              "required": [
-                "objectType",
-                "effect"
-              ],
-              "type": "object"
-            },
-            "type": "array"
-          },
-          "errorCode": {
+          "previewID": {
+            "minLength": 1,
+            "pattern": "^\\S(?:.*\\S)?$",
             "type": "string"
           },
-          "failureStage": {
+          "previewURL": {
+            "minLength": 1,
+            "pattern": "^\\S(?:.*\\S)?$",
             "type": "string"
           },
-          "isError": {
-            "type": "boolean"
-          },
-          "message": {
+          "siteID": {
+            "minLength": 1,
+            "pattern": "^\\S(?:.*\\S)?$",
             "type": "string"
           },
-          "outcome": {
-            "enum": [
-              "succeeded",
-              "failed",
-              "denied"
-            ],
-            "type": "string"
-          },
-          "provider": {
-            "type": "string"
-          },
-          "result": {
-            "$ref": "#/$defs/__schema0"
-          },
-          "retryable": {
-            "type": "boolean"
-          },
-          "safeRetry": {
-            "type": "boolean"
-          },
-          "selectedBackend": {
+          "sourceWorkspacePath": {
+            "minLength": 1,
+            "pattern": "^\\S(?:.*\\S)?$",
             "type": "string"
           },
           "status": {
-            "type": "string"
-          },
-          "toolName": {
+            "enum": [
+              "draft",
+              "publishing",
+              "published",
+              "unpublished",
+              "failed"
+            ],
             "type": "string"
           }
         },
         "required": [
-          "provider",
-          "selectedBackend",
-          "toolName",
-          "result"
+          "siteID",
+          "status",
+          "sourceWorkspacePath",
+          "previewID",
+          "previewURL",
+          "previewExpiresAt"
         ],
         "type": "object"
       },
@@ -5689,137 +4473,45 @@
       "name": "site.publish",
       "namespace": "site",
       "outputSchema": {
-        "$defs": {
-          "__schema0": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "number"
-              },
-              {
-                "type": "boolean"
-              },
-              {
-                "type": "null"
-              },
-              {
-                "items": {
-                  "$ref": "#/$defs/__schema0"
-                },
-                "type": "array"
-              },
-              {
-                "additionalProperties": {
-                  "$ref": "#/$defs/__schema0"
-                },
-                "propertyNames": {
-                  "type": "string"
-                },
-                "type": "object"
-              }
-            ]
-          }
-        },
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "additionalProperties": false,
         "properties": {
-          "content": {
+          "currentVersionID": {
+            "minLength": 1,
+            "pattern": "^\\S(?:.*\\S)?$",
             "type": "string"
           },
-          "effects": {
-            "items": {
-              "additionalProperties": false,
-              "properties": {
-                "contentType": {
-                  "type": "string"
-                },
-                "durability": {
-                  "type": "string"
-                },
-                "effect": {
-                  "minLength": 1,
-                  "type": "string"
-                },
-                "filename": {
-                  "type": "string"
-                },
-                "id": {
-                  "type": "string"
-                },
-                "objectType": {
-                  "minLength": 1,
-                  "type": "string"
-                },
-                "path": {
-                  "type": "string"
-                },
-                "summary": {
-                  "type": "string"
-                },
-                "url": {
-                  "type": "string"
-                },
-                "visibility": {
-                  "type": "string"
-                }
-              },
-              "required": [
-                "objectType",
-                "effect"
-              ],
-              "type": "object"
-            },
-            "type": "array"
-          },
-          "errorCode": {
+          "publishedURL": {
+            "minLength": 1,
+            "pattern": "^\\S(?:.*\\S)?$",
             "type": "string"
           },
-          "failureStage": {
+          "siteID": {
+            "minLength": 1,
+            "pattern": "^\\S(?:.*\\S)?$",
             "type": "string"
           },
-          "isError": {
-            "type": "boolean"
-          },
-          "message": {
+          "sourceSHA256": {
+            "pattern": "^[a-f0-9]{64}$",
             "type": "string"
           },
-          "outcome": {
-            "enum": [
-              "succeeded",
-              "failed",
-              "denied"
-            ],
-            "type": "string"
-          },
-          "provider": {
-            "type": "string"
-          },
-          "result": {
-            "$ref": "#/$defs/__schema0"
-          },
-          "retryable": {
-            "type": "boolean"
-          },
-          "safeRetry": {
-            "type": "boolean"
-          },
-          "selectedBackend": {
+          "sourceWorkspacePath": {
+            "minLength": 1,
+            "pattern": "^\\S(?:.*\\S)?$",
             "type": "string"
           },
           "status": {
-            "type": "string"
-          },
-          "toolName": {
+            "const": "published",
             "type": "string"
           }
         },
         "required": [
-          "provider",
-          "selectedBackend",
-          "toolName",
-          "result"
+          "siteID",
+          "status",
+          "sourceWorkspacePath",
+          "sourceSHA256",
+          "publishedURL",
+          "currentVersionID"
         ],
         "type": "object"
       },
@@ -5952,137 +4644,22 @@
       "name": "site.delete",
       "namespace": "site",
       "outputSchema": {
-        "$defs": {
-          "__schema0": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "number"
-              },
-              {
-                "type": "boolean"
-              },
-              {
-                "type": "null"
-              },
-              {
-                "items": {
-                  "$ref": "#/$defs/__schema0"
-                },
-                "type": "array"
-              },
-              {
-                "additionalProperties": {
-                  "$ref": "#/$defs/__schema0"
-                },
-                "propertyNames": {
-                  "type": "string"
-                },
-                "type": "object"
-              }
-            ]
-          }
-        },
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "additionalProperties": false,
         "properties": {
-          "content": {
-            "type": "string"
-          },
-          "effects": {
-            "items": {
-              "additionalProperties": false,
-              "properties": {
-                "contentType": {
-                  "type": "string"
-                },
-                "durability": {
-                  "type": "string"
-                },
-                "effect": {
-                  "minLength": 1,
-                  "type": "string"
-                },
-                "filename": {
-                  "type": "string"
-                },
-                "id": {
-                  "type": "string"
-                },
-                "objectType": {
-                  "minLength": 1,
-                  "type": "string"
-                },
-                "path": {
-                  "type": "string"
-                },
-                "summary": {
-                  "type": "string"
-                },
-                "url": {
-                  "type": "string"
-                },
-                "visibility": {
-                  "type": "string"
-                }
-              },
-              "required": [
-                "objectType",
-                "effect"
-              ],
-              "type": "object"
-            },
-            "type": "array"
-          },
-          "errorCode": {
-            "type": "string"
-          },
-          "failureStage": {
-            "type": "string"
-          },
-          "isError": {
+          "deleted": {
+            "const": true,
             "type": "boolean"
           },
-          "message": {
-            "type": "string"
-          },
-          "outcome": {
-            "enum": [
-              "succeeded",
-              "failed",
-              "denied"
-            ],
-            "type": "string"
-          },
-          "provider": {
-            "type": "string"
-          },
-          "result": {
-            "$ref": "#/$defs/__schema0"
-          },
-          "retryable": {
-            "type": "boolean"
-          },
-          "safeRetry": {
-            "type": "boolean"
-          },
-          "selectedBackend": {
-            "type": "string"
-          },
-          "status": {
-            "type": "string"
-          },
-          "toolName": {
+          "siteID": {
+            "minLength": 1,
+            "pattern": "^\\S(?:.*\\S)?$",
             "type": "string"
           }
         },
         "required": [
-          "provider",
-          "selectedBackend",
-          "toolName",
-          "result"
+          "siteID",
+          "deleted"
         ],
         "type": "object"
       },
@@ -6173,137 +4750,48 @@
       "name": "document.read",
       "namespace": "document",
       "outputSchema": {
-        "$defs": {
-          "__schema0": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "number"
-              },
-              {
-                "type": "boolean"
-              },
-              {
-                "type": "null"
-              },
-              {
-                "items": {
-                  "$ref": "#/$defs/__schema0"
-                },
-                "type": "array"
-              },
-              {
-                "additionalProperties": {
-                  "$ref": "#/$defs/__schema0"
-                },
-                "propertyNames": {
-                  "type": "string"
-                },
-                "type": "object"
-              }
-            ]
-          }
-        },
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "additionalProperties": false,
         "properties": {
+          "backend": {
+            "type": "string"
+          },
           "content": {
             "type": "string"
           },
-          "effects": {
-            "items": {
-              "additionalProperties": false,
-              "properties": {
-                "contentType": {
-                  "type": "string"
-                },
-                "durability": {
-                  "type": "string"
-                },
-                "effect": {
-                  "minLength": 1,
-                  "type": "string"
-                },
-                "filename": {
-                  "type": "string"
-                },
-                "id": {
-                  "type": "string"
-                },
-                "objectType": {
-                  "minLength": 1,
-                  "type": "string"
-                },
-                "path": {
-                  "type": "string"
-                },
-                "summary": {
-                  "type": "string"
-                },
-                "url": {
-                  "type": "string"
-                },
-                "visibility": {
-                  "type": "string"
-                }
-              },
-              "required": [
-                "objectType",
-                "effect"
-              ],
-              "type": "object"
-            },
-            "type": "array"
-          },
-          "errorCode": {
+          "format": {
+            "const": "markdown",
             "type": "string"
           },
-          "failureStage": {
+          "model": {
             "type": "string"
           },
-          "isError": {
-            "type": "boolean"
-          },
-          "message": {
-            "type": "string"
-          },
-          "outcome": {
-            "enum": [
-              "succeeded",
-              "failed",
-              "denied"
-            ],
-            "type": "string"
-          },
-          "provider": {
-            "type": "string"
-          },
-          "result": {
-            "$ref": "#/$defs/__schema0"
-          },
-          "retryable": {
-            "type": "boolean"
-          },
-          "safeRetry": {
-            "type": "boolean"
-          },
-          "selectedBackend": {
+          "path": {
+            "minLength": 1,
+            "pattern": "^\\S(?:.*\\S)?$",
             "type": "string"
           },
           "status": {
+            "const": "ok",
             "type": "string"
           },
-          "toolName": {
-            "type": "string"
+          "truncated": {
+            "type": "boolean"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
           }
         },
         "required": [
-          "provider",
-          "selectedBackend",
-          "toolName",
-          "result"
+          "status",
+          "path",
+          "format",
+          "content",
+          "warnings",
+          "truncated"
         ],
         "type": "object"
       },
@@ -6400,137 +4888,64 @@
       "name": "image.read",
       "namespace": "image",
       "outputSchema": {
-        "$defs": {
-          "__schema0": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "number"
-              },
-              {
-                "type": "boolean"
-              },
-              {
-                "type": "null"
-              },
-              {
-                "items": {
-                  "$ref": "#/$defs/__schema0"
-                },
-                "type": "array"
-              },
-              {
-                "additionalProperties": {
-                  "$ref": "#/$defs/__schema0"
-                },
-                "propertyNames": {
-                  "type": "string"
-                },
-                "type": "object"
-              }
-            ]
-          }
-        },
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "additionalProperties": false,
         "properties": {
-          "content": {
-            "type": "string"
-          },
-          "effects": {
+          "attachments": {
             "items": {
               "additionalProperties": false,
               "properties": {
-                "contentType": {
-                  "type": "string"
-                },
-                "durability": {
-                  "type": "string"
-                },
-                "effect": {
+                "contentBase64": {
                   "minLength": 1,
+                  "type": "string"
+                },
+                "contentType": {
+                  "minLength": 1,
+                  "pattern": "^\\S(?:.*\\S)?$",
+                  "type": "string"
+                },
+                "devicePath": {
+                  "minLength": 1,
+                  "pattern": "^\\S(?:.*\\S)?$",
                   "type": "string"
                 },
                 "filename": {
-                  "type": "string"
-                },
-                "id": {
-                  "type": "string"
-                },
-                "objectType": {
                   "minLength": 1,
+                  "pattern": "^\\S(?:.*\\S)?$",
                   "type": "string"
                 },
-                "path": {
-                  "type": "string"
-                },
-                "summary": {
-                  "type": "string"
-                },
-                "url": {
-                  "type": "string"
-                },
-                "visibility": {
-                  "type": "string"
+                "sizeBytes": {
+                  "maximum": 9007199254740991,
+                  "minimum": 0,
+                  "type": "integer"
                 }
               },
               "required": [
-                "objectType",
-                "effect"
+                "devicePath",
+                "filename",
+                "contentType",
+                "sizeBytes",
+                "contentBase64"
               ],
               "type": "object"
             },
+            "minItems": 1,
             "type": "array"
           },
-          "errorCode": {
-            "type": "string"
-          },
-          "failureStage": {
-            "type": "string"
-          },
-          "isError": {
-            "type": "boolean"
-          },
-          "message": {
-            "type": "string"
-          },
-          "outcome": {
-            "enum": [
-              "succeeded",
-              "failed",
-              "denied"
-            ],
-            "type": "string"
-          },
-          "provider": {
-            "type": "string"
-          },
-          "result": {
-            "$ref": "#/$defs/__schema0"
-          },
-          "retryable": {
-            "type": "boolean"
-          },
-          "safeRetry": {
-            "type": "boolean"
-          },
-          "selectedBackend": {
+          "path": {
+            "minLength": 1,
+            "pattern": "^\\S(?:.*\\S)?$",
             "type": "string"
           },
           "status": {
-            "type": "string"
-          },
-          "toolName": {
+            "const": "ok",
             "type": "string"
           }
         },
         "required": [
-          "provider",
-          "selectedBackend",
-          "toolName",
-          "result"
+          "status",
+          "path",
+          "attachments"
         ],
         "type": "object"
       },
@@ -6656,137 +5071,43 @@
       "name": "browser.open",
       "namespace": "browser",
       "outputSchema": {
-        "$defs": {
-          "__schema0": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "number"
-              },
-              {
-                "type": "boolean"
-              },
-              {
-                "type": "null"
-              },
-              {
-                "items": {
-                  "$ref": "#/$defs/__schema0"
-                },
-                "type": "array"
-              },
-              {
-                "additionalProperties": {
-                  "$ref": "#/$defs/__schema0"
-                },
-                "propertyNames": {
-                  "type": "string"
-                },
-                "type": "object"
-              }
-            ]
-          }
-        },
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "additionalProperties": false,
         "properties": {
-          "content": {
+          "capturedAt": {
+            "minLength": 1,
+            "pattern": "^\\S(?:.*\\S)?$",
             "type": "string"
           },
-          "effects": {
+          "interactiveRefs": {
             "items": {
-              "additionalProperties": false,
-              "properties": {
-                "contentType": {
-                  "type": "string"
-                },
-                "durability": {
-                  "type": "string"
-                },
-                "effect": {
-                  "minLength": 1,
-                  "type": "string"
-                },
-                "filename": {
-                  "type": "string"
-                },
-                "id": {
-                  "type": "string"
-                },
-                "objectType": {
-                  "minLength": 1,
-                  "type": "string"
-                },
-                "path": {
-                  "type": "string"
-                },
-                "summary": {
-                  "type": "string"
-                },
-                "url": {
-                  "type": "string"
-                },
-                "visibility": {
-                  "type": "string"
-                }
-              },
-              "required": [
-                "objectType",
-                "effect"
-              ],
-              "type": "object"
+              "minLength": 1,
+              "pattern": "^\\S(?:.*\\S)?$",
+              "type": "string"
             },
             "type": "array"
           },
-          "errorCode": {
+          "requestedURL": {
+            "minLength": 1,
+            "pattern": "^\\S(?:.*\\S)?$",
             "type": "string"
           },
-          "failureStage": {
+          "snapshotText": {
             "type": "string"
           },
-          "isError": {
-            "type": "boolean"
-          },
-          "message": {
+          "title": {
             "type": "string"
           },
-          "outcome": {
-            "enum": [
-              "succeeded",
-              "failed",
-              "denied"
-            ],
-            "type": "string"
-          },
-          "provider": {
-            "type": "string"
-          },
-          "result": {
-            "$ref": "#/$defs/__schema0"
-          },
-          "retryable": {
-            "type": "boolean"
-          },
-          "safeRetry": {
-            "type": "boolean"
-          },
-          "selectedBackend": {
-            "type": "string"
-          },
-          "status": {
-            "type": "string"
-          },
-          "toolName": {
+          "url": {
+            "minLength": 1,
+            "pattern": "^\\S(?:.*\\S)?$",
             "type": "string"
           }
         },
         "required": [
-          "provider",
-          "selectedBackend",
-          "toolName",
-          "result"
+          "url",
+          "requestedURL",
+          "capturedAt"
         ],
         "type": "object"
       },
@@ -6868,137 +5189,42 @@
       "name": "browser.snapshot",
       "namespace": "browser",
       "outputSchema": {
-        "$defs": {
-          "__schema0": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "number"
-              },
-              {
-                "type": "boolean"
-              },
-              {
-                "type": "null"
-              },
-              {
-                "items": {
-                  "$ref": "#/$defs/__schema0"
-                },
-                "type": "array"
-              },
-              {
-                "additionalProperties": {
-                  "$ref": "#/$defs/__schema0"
-                },
-                "propertyNames": {
-                  "type": "string"
-                },
-                "type": "object"
-              }
-            ]
-          }
-        },
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "additionalProperties": false,
         "properties": {
-          "content": {
+          "capturedAt": {
+            "minLength": 1,
+            "pattern": "^\\S(?:.*\\S)?$",
             "type": "string"
           },
-          "effects": {
+          "hasMore": {
+            "type": "boolean"
+          },
+          "interactiveRefs": {
             "items": {
-              "additionalProperties": false,
-              "properties": {
-                "contentType": {
-                  "type": "string"
-                },
-                "durability": {
-                  "type": "string"
-                },
-                "effect": {
-                  "minLength": 1,
-                  "type": "string"
-                },
-                "filename": {
-                  "type": "string"
-                },
-                "id": {
-                  "type": "string"
-                },
-                "objectType": {
-                  "minLength": 1,
-                  "type": "string"
-                },
-                "path": {
-                  "type": "string"
-                },
-                "summary": {
-                  "type": "string"
-                },
-                "url": {
-                  "type": "string"
-                },
-                "visibility": {
-                  "type": "string"
-                }
-              },
-              "required": [
-                "objectType",
-                "effect"
-              ],
-              "type": "object"
+              "minLength": 1,
+              "pattern": "^\\S(?:.*\\S)?$",
+              "type": "string"
             },
             "type": "array"
           },
-          "errorCode": {
+          "snapshotText": {
             "type": "string"
           },
-          "failureStage": {
+          "title": {
             "type": "string"
           },
-          "isError": {
-            "type": "boolean"
-          },
-          "message": {
-            "type": "string"
-          },
-          "outcome": {
-            "enum": [
-              "succeeded",
-              "failed",
-              "denied"
-            ],
-            "type": "string"
-          },
-          "provider": {
-            "type": "string"
-          },
-          "result": {
-            "$ref": "#/$defs/__schema0"
-          },
-          "retryable": {
-            "type": "boolean"
-          },
-          "safeRetry": {
-            "type": "boolean"
-          },
-          "selectedBackend": {
-            "type": "string"
-          },
-          "status": {
-            "type": "string"
-          },
-          "toolName": {
+          "url": {
+            "minLength": 1,
+            "pattern": "^\\S(?:.*\\S)?$",
             "type": "string"
           }
         },
         "required": [
-          "provider",
-          "selectedBackend",
-          "toolName",
-          "result"
+          "snapshotText",
+          "interactiveRefs",
+          "hasMore",
+          "capturedAt"
         ],
         "type": "object"
       },
@@ -7085,137 +5311,53 @@
       "name": "browser.screenshot",
       "namespace": "browser",
       "outputSchema": {
-        "$defs": {
-          "__schema0": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "number"
-              },
-              {
-                "type": "boolean"
-              },
-              {
-                "type": "null"
-              },
-              {
-                "items": {
-                  "$ref": "#/$defs/__schema0"
-                },
-                "type": "array"
-              },
-              {
-                "additionalProperties": {
-                  "$ref": "#/$defs/__schema0"
-                },
-                "propertyNames": {
-                  "type": "string"
-                },
-                "type": "object"
-              }
-            ]
-          }
-        },
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "additionalProperties": false,
         "properties": {
-          "content": {
+          "capturedAt": {
+            "minLength": 1,
+            "pattern": "^\\S(?:.*\\S)?$",
             "type": "string"
           },
-          "effects": {
-            "items": {
-              "additionalProperties": false,
-              "properties": {
-                "contentType": {
-                  "type": "string"
-                },
-                "durability": {
-                  "type": "string"
-                },
-                "effect": {
-                  "minLength": 1,
-                  "type": "string"
-                },
-                "filename": {
-                  "type": "string"
-                },
-                "id": {
-                  "type": "string"
-                },
-                "objectType": {
-                  "minLength": 1,
-                  "type": "string"
-                },
-                "path": {
-                  "type": "string"
-                },
-                "summary": {
-                  "type": "string"
-                },
-                "url": {
-                  "type": "string"
-                },
-                "visibility": {
-                  "type": "string"
-                }
-              },
-              "required": [
-                "objectType",
-                "effect"
-              ],
-              "type": "object"
-            },
-            "type": "array"
-          },
-          "errorCode": {
+          "contentType": {
+            "minLength": 1,
+            "pattern": "^\\S(?:.*\\S)?$",
             "type": "string"
           },
-          "failureStage": {
+          "devicePath": {
+            "minLength": 1,
+            "pattern": "^\\S(?:.*\\S)?$",
             "type": "string"
           },
-          "isError": {
-            "type": "boolean"
-          },
-          "message": {
+          "expiresAt": {
+            "minLength": 1,
+            "pattern": "^\\S(?:.*\\S)?$",
             "type": "string"
           },
-          "outcome": {
-            "enum": [
-              "succeeded",
-              "failed",
-              "denied"
-            ],
+          "fileID": {
+            "minLength": 1,
+            "pattern": "^\\S(?:.*\\S)?$",
             "type": "string"
           },
-          "provider": {
+          "filename": {
+            "minLength": 1,
+            "pattern": "^\\S(?:.*\\S)?$",
             "type": "string"
           },
-          "result": {
-            "$ref": "#/$defs/__schema0"
-          },
-          "retryable": {
-            "type": "boolean"
-          },
-          "safeRetry": {
-            "type": "boolean"
-          },
-          "selectedBackend": {
-            "type": "string"
-          },
-          "status": {
-            "type": "string"
-          },
-          "toolName": {
-            "type": "string"
+          "sizeBytes": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
           }
         },
         "required": [
-          "provider",
-          "selectedBackend",
-          "toolName",
-          "result"
+          "fileID",
+          "filename",
+          "sizeBytes",
+          "contentType",
+          "devicePath",
+          "expiresAt",
+          "capturedAt"
         ],
         "type": "object"
       },
@@ -7346,137 +5488,33 @@
       "name": "browser.click",
       "namespace": "browser",
       "outputSchema": {
-        "$defs": {
-          "__schema0": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "number"
-              },
-              {
-                "type": "boolean"
-              },
-              {
-                "type": "null"
-              },
-              {
-                "items": {
-                  "$ref": "#/$defs/__schema0"
-                },
-                "type": "array"
-              },
-              {
-                "additionalProperties": {
-                  "$ref": "#/$defs/__schema0"
-                },
-                "propertyNames": {
-                  "type": "string"
-                },
-                "type": "object"
-              }
-            ]
-          }
-        },
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "additionalProperties": false,
         "properties": {
-          "content": {
+          "action": {
+            "const": "click",
             "type": "string"
           },
-          "effects": {
-            "items": {
-              "additionalProperties": false,
-              "properties": {
-                "contentType": {
-                  "type": "string"
-                },
-                "durability": {
-                  "type": "string"
-                },
-                "effect": {
-                  "minLength": 1,
-                  "type": "string"
-                },
-                "filename": {
-                  "type": "string"
-                },
-                "id": {
-                  "type": "string"
-                },
-                "objectType": {
-                  "minLength": 1,
-                  "type": "string"
-                },
-                "path": {
-                  "type": "string"
-                },
-                "summary": {
-                  "type": "string"
-                },
-                "url": {
-                  "type": "string"
-                },
-                "visibility": {
-                  "type": "string"
-                }
-              },
-              "required": [
-                "objectType",
-                "effect"
-              ],
-              "type": "object"
-            },
-            "type": "array"
-          },
-          "errorCode": {
+          "capturedAt": {
+            "minLength": 1,
+            "pattern": "^\\S(?:.*\\S)?$",
             "type": "string"
           },
-          "failureStage": {
-            "type": "string"
-          },
-          "isError": {
+          "ok": {
+            "const": true,
             "type": "boolean"
           },
-          "message": {
-            "type": "string"
-          },
-          "outcome": {
-            "enum": [
-              "succeeded",
-              "failed",
-              "denied"
-            ],
-            "type": "string"
-          },
-          "provider": {
-            "type": "string"
-          },
-          "result": {
-            "$ref": "#/$defs/__schema0"
-          },
-          "retryable": {
-            "type": "boolean"
-          },
-          "safeRetry": {
-            "type": "boolean"
-          },
-          "selectedBackend": {
-            "type": "string"
-          },
-          "status": {
-            "type": "string"
-          },
-          "toolName": {
+          "target": {
+            "minLength": 1,
+            "pattern": "^\\S(?:.*\\S)?$",
             "type": "string"
           }
         },
         "required": [
-          "provider",
-          "selectedBackend",
-          "toolName",
-          "result"
+          "ok",
+          "action",
+          "target",
+          "capturedAt"
         ],
         "type": "object"
       },
@@ -7680,137 +5718,72 @@
       "name": "artifact.review",
       "namespace": "artifact",
       "outputSchema": {
-        "$defs": {
-          "__schema0": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "number"
-              },
-              {
-                "type": "boolean"
-              },
-              {
-                "type": "null"
-              },
-              {
-                "items": {
-                  "$ref": "#/$defs/__schema0"
-                },
-                "type": "array"
-              },
-              {
-                "additionalProperties": {
-                  "$ref": "#/$defs/__schema0"
-                },
-                "propertyNames": {
-                  "type": "string"
-                },
-                "type": "object"
-              }
-            ]
-          }
-        },
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "additionalProperties": false,
         "properties": {
-          "content": {
-            "type": "string"
+          "acceptedWarnings": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
           },
-          "effects": {
+          "issues": {
             "items": {
               "additionalProperties": false,
               "properties": {
-                "contentType": {
+                "category": {
+                  "enum": [
+                    "textFit",
+                    "layout",
+                    "visualHierarchy",
+                    "contentDensity",
+                    "templateSmell",
+                    "responsiveness",
+                    "renderFidelity"
+                  ],
                   "type": "string"
                 },
-                "durability": {
+                "message": {
                   "type": "string"
                 },
-                "effect": {
-                  "minLength": 1,
+                "severity": {
+                  "enum": [
+                    "blocking",
+                    "warning",
+                    "info"
+                  ],
                   "type": "string"
                 },
-                "filename": {
+                "suggestedFix": {
                   "type": "string"
                 },
-                "id": {
-                  "type": "string"
-                },
-                "objectType": {
-                  "minLength": 1,
-                  "type": "string"
-                },
-                "path": {
-                  "type": "string"
-                },
-                "summary": {
-                  "type": "string"
-                },
-                "url": {
-                  "type": "string"
-                },
-                "visibility": {
+                "target": {
                   "type": "string"
                 }
               },
               "required": [
-                "objectType",
-                "effect"
+                "severity",
+                "category",
+                "target",
+                "message",
+                "suggestedFix"
               ],
               "type": "object"
             },
             "type": "array"
           },
-          "errorCode": {
-            "type": "string"
-          },
-          "failureStage": {
-            "type": "string"
-          },
-          "isError": {
+          "passed": {
             "type": "boolean"
           },
-          "message": {
-            "type": "string"
-          },
-          "outcome": {
-            "enum": [
-              "succeeded",
-              "failed",
-              "denied"
-            ],
-            "type": "string"
-          },
-          "provider": {
-            "type": "string"
-          },
-          "result": {
-            "$ref": "#/$defs/__schema0"
-          },
-          "retryable": {
-            "type": "boolean"
-          },
-          "safeRetry": {
-            "type": "boolean"
-          },
-          "selectedBackend": {
-            "type": "string"
-          },
-          "status": {
-            "type": "string"
-          },
-          "toolName": {
+          "summary": {
             "type": "string"
           }
         },
         "required": [
-          "provider",
-          "selectedBackend",
-          "toolName",
-          "result"
+          "passed",
+          "issues",
+          "acceptedWarnings",
+          "summary"
         ],
         "type": "object"
       },

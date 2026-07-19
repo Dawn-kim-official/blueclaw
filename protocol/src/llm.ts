@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
 import { ExecutionMode, jsonValueSchema, nonNegativeIntegerSchema } from './common.ts';
+import { registerCanonicalClosedJSONSchema } from './json_schema.ts';
 
 export enum LanguageModelMessageRole {
   System = 'system',
@@ -155,18 +156,22 @@ const chatCompletionResponseMessageSchema = z.looseObject({
   }
 });
 
+const structuredOutputDocumentSchema = registerCanonicalClosedJSONSchema(
+  jsonValueSchema.superRefine((schema, context) => {
+    if (hasOpenObjectSchema(schema)) {
+      context.addIssue({
+        code: 'custom',
+        message: 'structured output JSON schema objects must set additionalProperties to false',
+      });
+    }
+  }).meta({ id: 'canonical-structured-output-document' }),
+  'structured_output',
+);
+
 export const structuredOutputSchemaSchema = z.looseObject({
   name: toolNameSchema,
-  document: jsonValueSchema,
+  document: structuredOutputDocumentSchema,
   isStrictlyEnforced: z.literal(true),
-}).superRefine((schema, context) => {
-  if (hasOpenObjectSchema(schema.document)) {
-    context.addIssue({
-      code: 'custom',
-      path: ['document'],
-      message: 'structured output JSON schema objects must set additionalProperties to false',
-    });
-  }
 });
 
 function hasOpenObjectSchema(value: unknown): boolean {

@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import { z } from 'zod';
 
 import { buildCapabilityToolCatalog } from './capability_tools.ts';
+import { createCanonicalJSONSchemaGenerationOverride } from './json_schema.ts';
 import { protocolSchemas, protocolVersion } from './registry.ts';
 
 type SchemaArtifact = {
@@ -52,7 +53,9 @@ export function serializeArtifact(value: unknown): string {
 }
 
 function buildSchemaArtifact(name: string, schema: z.ZodType): SchemaArtifact {
-  const jsonSchema = z.toJSONSchema(schema) as Record<string, unknown>;
+  const jsonSchema = z.toJSONSchema(schema, {
+    override: createCanonicalJSONSchemaGenerationOverride(),
+  }) as Record<string, unknown>;
   const document = {
     ...jsonSchema,
     $id: `https://schemas.blueclaw.dev/${protocolVersion}/${name}.schema.json`,
