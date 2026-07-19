@@ -97,6 +97,17 @@ var virtualCanonicalMessageToolNames = []string{
 	"channel.update",
 }
 
+var virtualGeneratedDescriptorToolNames = []string{
+	"message.context",
+	"message.search",
+	"message.send",
+	"message.update",
+	"message.delete",
+	"channel.update",
+	"document.read",
+	"image.read",
+}
+
 var virtualCanonicalCapabilityToolDescriptorByName = mustLoadVirtualCanonicalCapabilityToolDescriptors()
 
 func mustLoadVirtualCanonicalCapabilityToolDescriptors() map[string]agentruntime.CapabilityToolDescriptor {
@@ -651,6 +662,8 @@ func BuiltinScenario(name string, artifactDirectoryPath string) (VirtualSessionS
 		return ToolPermissionHidesSkillScenario(artifactDirectoryPath), nil
 	case "file_write_acceptance":
 		return FileWriteAcceptanceScenario(artifactDirectoryPath), nil
+	case "document_create_acceptance":
+		return DocumentCreateAcceptanceScenario(artifactDirectoryPath), nil
 	case "gws_disabled":
 		return GWSDisabledScenario(artifactDirectoryPath), nil
 	case "schedule_create_acceptance":
@@ -851,7 +864,13 @@ func observedVirtualLanguageModelOrDefault(provider llm.LanguageModelProvider, d
 }
 
 func virtualTurnOptions(scenarioOptions agent.TurnOptions) agent.TurnOptions {
-	turnOptions := agent.TurnOptions{MaxIterationCount: 20, MaxToolCallCount: 16, MaxElapsedSecond: 120}
+	taskLevelProfile := agent.TaskLevelProfileForLevel(scenarioOptions.TaskLevel)
+	turnOptions := agent.TurnOptions{
+		TaskLevel:         taskLevelProfile.TaskLevel,
+		MaxIterationCount: taskLevelProfile.MaxIterationCount,
+		MaxToolCallCount:  taskLevelProfile.MaxToolCallCount,
+		MaxElapsedSecond:  int(taskLevelProfile.Duration.Seconds()),
+	}
 	if scenarioOptions.MaxIterationCount > 0 {
 		turnOptions.MaxIterationCount = scenarioOptions.MaxIterationCount
 	}
@@ -966,7 +985,7 @@ func virtualCapabilityToolDescriptors(scenario VirtualSessionScenario) []agentru
 }
 
 func virtualCapabilityToolDescriptor(toolName string) agentruntime.CapabilityToolDescriptor {
-	if descriptor, isFound := virtualCanonicalMessageToolDescriptor(toolName); isFound {
+	if descriptor, isFound := virtualGeneratedToolDescriptor(toolName); isFound {
 		return descriptor
 	}
 	sideEffectClass := virtualCapabilitySideEffectClass(toolName)
@@ -997,8 +1016,8 @@ func virtualCanonicalCapabilityToolDescriptor(toolName string) (agentruntime.Cap
 	return descriptor, isFound
 }
 
-func virtualCanonicalMessageToolDescriptor(toolName string) (agentruntime.CapabilityToolDescriptor, bool) {
-	if !slices.Contains(virtualCanonicalMessageToolNames, toolName) {
+func virtualGeneratedToolDescriptor(toolName string) (agentruntime.CapabilityToolDescriptor, bool) {
+	if !slices.Contains(virtualGeneratedDescriptorToolNames, toolName) {
 		return agentruntime.CapabilityToolDescriptor{}, false
 	}
 	return virtualCanonicalCapabilityToolDescriptor(toolName)
@@ -1499,22 +1518,30 @@ func (service *virtualCapabilityService) response(toolName string, requestBody [
 		result := map[string]any{"siteID": deletedSiteID, "deleted": true}
 		return virtualCapabilityWebsiteSuccess(toolName, "deleted", deletedSiteID, result)
 	case "image.read":
+		path := stringValue(virtualCapabilityInput(requestBody)["path"])
 		result := map[string]any{"attachments": []map[string]any{{
-			"devicePath":    "/workspace/circles/staff/inbox/virtual/virtual-conversation-1/virtual-message-001/mascot.png",
-			"filename":      "mascot.png",
+			"devicePath":    path,
+			"filename":      filepath.Base(path),
 			"contentType":   "image/png",
 			"sizeBytes":     13,
 			"contentBase64": "dmlydHVhbC1pbWFnZQ==",
-		}}}
+		}}, "path": path, "status": "ok"}
 		return virtualCapabilitySuccess(toolName, "image loaded", result)
 	case "document.read":
-		result := map[string]any{"attachments": []map[string]any{{
-			"devicePath":  "/workspace/circles/staff/inbox/virtual/virtual-conversation-1/virtual-message-001/placeholder.docx",
-			"filename":    "placeholder.docx",
-			"contentType": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-			"sizeBytes":   13,
-		}}}
-		return virtualCapabilitySuccess(toolName, "document loaded", result)
+		path := stringValue(virtualCapabilityInput(requestBody)["path"])
+		content, errorValue := virtualDocumentContent(service.workspacePath, path)
+		if errorValue != nil {
+			return virtualCapabilityInvalidInput(toolName, errorValue.Error())
+		}
+		result := map[string]any{
+			"status":    "ok",
+			"path":      path,
+			"format":    "markdown",
+			"content":   content,
+			"warnings":  []string{},
+			"truncated": false,
+		}
+		return virtualCapabilitySuccess(toolName, content, result)
 	case "web.search":
 		result := map[string]any{
 			"query": "current external information acceptance test",
@@ -1765,7 +1792,7 @@ func virtualCapabilityResultContract(toolName string) string {
 }
 
 func virtualCapabilityToolResultContract(toolName string) *agentruntime.CapabilityToolResultContract {
-	if descriptor, isFound := virtualCanonicalMessageToolDescriptor(toolName); isFound {
+	if descriptor, isFound := virtualGeneratedToolDescriptor(toolName); isFound {
 		return descriptor.ResultContract
 	}
 	switch toolName {
@@ -1818,15 +1845,60 @@ func virtualCapabilityToolResultContract(toolName string) *agentruntime.Capabili
 		)
 	case "web.search":
 		return &agentruntime.CapabilityToolResultContract{Schema: json.RawMessage(`{"type":"object","properties":{"query":{"type":"string","minLength":1},"results":{"type":"array","items":{"type":"object","properties":{"title":{"type":"string","minLength":1},"url":{"type":"string","minLength":1},"snippet":{"type":"string"}},"required":["title","url","snippet"],"additionalProperties":false}}},"required":["query","results"],"additionalProperties":false}`)}
-	case "image.read", "document.read":
-		return virtualAttachmentReadResultContract()
 	default:
 		return nil
 	}
 }
 
-func virtualAttachmentReadResultContract() *agentruntime.CapabilityToolResultContract {
-	return &agentruntime.CapabilityToolResultContract{Schema: json.RawMessage(`{"type":"object","properties":{"attachments":{"type":"array","items":{"type":"object","properties":{"devicePath":{"type":"string","minLength":1},"filename":{"type":"string","minLength":1},"contentType":{"type":"string","minLength":1},"sizeBytes":{"type":"integer","minimum":0},"contentBase64":{"type":"string"}},"required":["devicePath","filename","contentType","sizeBytes"],"additionalProperties":false}}},"required":["attachments"],"additionalProperties":false}`)}
+func virtualDocumentContent(workspacePath string, path string) (string, error) {
+	localPath, errorValue := virtualWorkspacePathToLocalPath(workspacePath, path)
+	if errorValue != nil {
+		return "", errorValue
+	}
+	if strings.EqualFold(filepath.Ext(localPath), ".docx") {
+		return virtualDOCXContent(localPath)
+	}
+	content, errorValue := os.ReadFile(localPath)
+	if errorValue != nil {
+		return "", errorValue
+	}
+	return string(content), nil
+}
+
+func virtualDOCXContent(path string) (string, error) {
+	reader, errorValue := zip.OpenReader(path)
+	if errorValue != nil {
+		return "", errorValue
+	}
+	defer reader.Close()
+	content, errorValue := readDOCXEntry(reader, "word/document.xml")
+	if errorValue != nil {
+		return "", errorValue
+	}
+	return extractDOCXText(content)
+}
+
+func extractDOCXText(content []byte) (string, error) {
+	decoder := xml.NewDecoder(strings.NewReader(string(content)))
+	textParts := []string{}
+	for {
+		token, errorValue := decoder.Token()
+		if errorValue == io.EOF {
+			return strings.Join(textParts, " "), nil
+		}
+		if errorValue != nil {
+			return "", errorValue
+		}
+		startElement, isStartElement := token.(xml.StartElement)
+		if !isStartElement || startElement.Name.Local != "t" {
+			continue
+		}
+		var text string
+		if errorValue := decoder.DecodeElement(&text, &startElement); errorValue != nil {
+			return "", errorValue
+		}
+		textParts = append(textParts, text)
+	}
 }
 
 func virtualSiteResultContract(schema string, effect string) *agentruntime.CapabilityToolResultContract {

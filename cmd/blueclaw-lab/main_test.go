@@ -173,9 +173,9 @@ func openRouterContentForSchema(schemaName string) string {
 	case "blueclaw_skill_search_queries":
 		return `{"queries":[]}`
 	case "blueclaw_turn_router":
-		return `{"route":"start_task","classification":"bounded_task","taskShape":"maintenance_task","level":"low","estimatedMinutes":1,"requestedOutputFormats":null,"requiredEvidence":[],"initialToolNames":[],"responseLanguage":"ko","reason":"fake live router","userFacingReply":"","priorTaskReference":"none"}`
+		return `{"route":"answer_question","classification":"quick_reply","taskShape":"immediate_reply","level":"xlow","estimatedMinutes":1,"requestedOutputFormats":null,"requiredEvidence":[],"initialToolNames":[],"responseLanguage":"ko","reason":"fake live router","userFacingReply":"","priorTaskReference":"none"}`
 	case "blueclaw_agent_turn_action":
-		return `{"action":"finish","message":"fake live reply from OpenRouter","completionSummary":"fake live reply from OpenRouter","replyParts":[{"type":"text","text":"fake live reply from OpenRouter"}],"goalStatus":"satisfied","goalSatisfied":true,"completionEvidenceIDs":[],"qualityReview":[],"executionStateUpdate":{}}`
+		return `{"action":"finish","message":"fake live reply from OpenRouter","completionSummary":"fake live reply from OpenRouter","replyParts":[{"type":"text","text":"fake live reply from OpenRouter"}],"goalStatus":"satisfied","goalSatisfied":true,"hasRemainingWork":false,"completionEvidenceIDs":[],"qualityReview":[],"executionStateUpdate":{}}`
 	default:
 		return "fake recovery reply"
 	}
@@ -617,7 +617,7 @@ func (provider virtualTierTestProvider) GenerateResponse(context.Context, string
 func (provider virtualTierTestProvider) GenerateStructuredResponse(_ context.Context, request llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
 	content := openRouterContentForSchema(request.StructuredOutputSchema.Name)
 	if request.StructuredOutputSchema.Name == "blueclaw_turn_router" {
-		content = `{"route":"start_task","classification":"bounded_task","taskShape":"maintenance_task","level":"xhigh","estimatedMinutes":60,"requestedOutputFormats":null,"requiredEvidence":[],"initialToolNames":[],"responseLanguage":"ko","reason":"xhigh integration test","userFacingReply":"","priorTaskReference":"none"}`
+		content = `{"route":"start_task","classification":"bounded_task","taskShape":"research_task","level":"xhigh","estimatedMinutes":60,"requestedOutputFormats":null,"requiredEvidence":[],"initialToolNames":[],"responseLanguage":"ko","reason":"xhigh integration test","userFacingReply":"","priorTaskReference":"none"}`
 	}
 	return llm.StructuredResponse{ModelName: provider.modelName, Content: content}, nil
 }
@@ -656,7 +656,7 @@ func TestVirtualModelCeilingDoesNotReduceTaskWorkDuration(t *testing.T) {
 
 	result, errorValue := e2e.RunVirtualSession(context.Background(), scenario)
 	if errorValue != nil {
-		t.Fatalf("expected capped xhigh virtual session to succeed: %v", errorValue)
+		t.Fatalf("expected capped xhigh virtual session to succeed: %v\n%+v", errorValue, result)
 	}
 	if len(result.TurnResults) != 1 {
 		t.Fatalf("expected one virtual turn, got %+v", result.TurnResults)
