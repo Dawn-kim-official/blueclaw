@@ -5,14 +5,20 @@ import { fileURLToPath } from 'node:url';
 import { buildProtocolArtifacts, serializeArtifact } from '../src/artifacts.ts';
 
 const generatedDirectory = fileURLToPath(new URL('../generated/', import.meta.url));
+const preservedGeneratedPaths = ['catalog.go', 'catalog_test.go'];
 
 export async function generateProtocolArtifacts(targetDirectory = generatedDirectory): Promise<void> {
-  await replaceGeneratedDirectory(targetDirectory, writeProtocolArtifacts);
+  const preservedDocuments = await readPreservedDocuments(targetDirectory);
+  await replaceGeneratedDirectory(targetDirectory, async temporaryDirectory => {
+    await writeProtocolArtifacts(temporaryDirectory);
+    await writeDocuments(temporaryDirectory, preservedDocuments);
+  });
 }
 
 export async function checkProtocolArtifacts(targetDirectory = generatedDirectory): Promise<void> {
   const expectedDocuments = buildProtocolArtifactDocuments();
-  const actualPaths = await listRelativeFilePaths(targetDirectory);
+  const actualPaths = (await listRelativeFilePaths(targetDirectory))
+    .filter(relativePath => !preservedGeneratedPaths.includes(relativePath));
   const expectedPaths = [...expectedDocuments.keys()].sort();
   if (JSON.stringify(actualPaths) !== JSON.stringify(expectedPaths)) {
     throw new Error(`generated protocol paths differ: expected ${expectedPaths.join(', ')}, got ${actualPaths.join(', ')}`);
@@ -56,12 +62,27 @@ export async function replaceGeneratedDirectory(
 }
 
 async function writeProtocolArtifacts(targetDirectory: string): Promise<void> {
-  const documents = buildProtocolArtifactDocuments();
+  await writeDocuments(targetDirectory, buildProtocolArtifactDocuments());
+}
+
+async function writeDocuments(targetDirectory: string, documents: Map<string, string>): Promise<void> {
   await Promise.all([...documents].map(async ([relativePath, document]) => {
     const artifactPath = join(targetDirectory, relativePath);
     await mkdir(dirname(artifactPath), { recursive: true });
     await writeFile(artifactPath, document);
   }));
+}
+
+async function readPreservedDocuments(targetDirectory: string): Promise<Map<string, string>> {
+  const documents = await Promise.all(preservedGeneratedPaths.map(async relativePath => {
+    try {
+      return [relativePath, await readFile(join(targetDirectory, relativePath), 'utf8')] as const;
+    } catch (errorValue) {
+      if (isNotFoundError(errorValue)) return undefined;
+      throw errorValue;
+    }
+  }));
+  return new Map(documents.filter(document => document !== undefined));
 }
 
 function buildProtocolArtifactDocuments(): Map<string, string> {

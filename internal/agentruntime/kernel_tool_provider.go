@@ -24,6 +24,7 @@ type kernelToolDescriptorSpec struct {
 	CompletionAction     string
 	CompletionTargetKind string
 	Idempotency          string
+	InputIntentSchema    json.RawMessage
 	OutputSchema         json.RawMessage
 	ResultContract       *agent.ToolResultContract
 }
@@ -102,6 +103,62 @@ var (
 		},
 		"required":["deliveredPaths","attachmentCount"]
 	}`)
+	fileWriteInputIntentSchema = json.RawMessage(`{
+		"type":"object",
+		"properties":{
+			"path":{"type":"string"},
+			"content":{"type":"string"}
+		},
+		"additionalProperties":false
+	}`)
+	fileDeleteInputIntentSchema = json.RawMessage(`{
+		"type":"object",
+		"properties":{"path":{"type":"string"}},
+		"additionalProperties":false
+	}`)
+	fileEditInputIntentSchema = json.RawMessage(`{
+		"type":"object",
+		"properties":{
+			"edits":{
+				"type":"array",
+				"minItems":1,
+				"items":{
+					"type":"object",
+					"properties":{
+						"path":{"type":"string"},
+						"oldText":{"type":"string"},
+						"newText":{"type":"string"}
+					},
+					"additionalProperties":false
+				}
+			}
+		},
+		"additionalProperties":false
+	}`)
+	fileDeliverInputIntentSchema = json.RawMessage(`{
+		"type":"object",
+		"properties":{
+			"path":{"type":"string"},
+			"filename":{"type":"string"},
+			"contentType":{"type":"string"},
+			"title":{"type":"string"},
+			"files":{
+				"type":"array",
+				"minItems":1,
+				"items":{
+					"type":"object",
+					"properties":{
+						"path":{"type":"string"},
+						"filename":{"type":"string"},
+						"contentType":{"type":"string"},
+						"title":{"type":"string"}
+					},
+					"additionalProperties":false
+				}
+			}
+		},
+		"additionalProperties":false
+	}`)
 )
 
 var kernelToolDescriptorSpecs = []kernelToolDescriptorSpec{
@@ -116,6 +173,7 @@ var kernelToolDescriptorSpecs = []kernelToolDescriptorSpec{
 		CompletionAction:     "run_command",
 		CompletionTargetKind: "workspace",
 		Idempotency:          agent.ToolIdempotencyNone,
+		InputIntentSchema:    terminalRunInputIntentSchema,
 		OutputSchema:         terminalRunResultSchema,
 		ResultContract: &agent.ToolResultContract{
 			Schema: terminalRunResultSchema,
@@ -136,6 +194,7 @@ var kernelToolDescriptorSpecs = []kernelToolDescriptorSpec{
 		CompletionAction:     "deliver_file",
 		CompletionTargetKind: "artifact",
 		Idempotency:          agent.ToolIdempotencyNone,
+		InputIntentSchema:    fileDeliverInputIntentSchema,
 		OutputSchema:         fileDeliverResultSchema,
 		ResultContract: &agent.ToolResultContract{
 			Schema: fileDeliverResultSchema,
@@ -186,6 +245,7 @@ var kernelToolDescriptorSpecs = []kernelToolDescriptorSpec{
 		CompletionAction:     "write_file",
 		CompletionTargetKind: "file",
 		Idempotency:          agent.ToolIdempotencyNone,
+		InputIntentSchema:    fileWriteInputIntentSchema,
 		OutputSchema:         fileWriteResultSchema,
 		ResultContract: &agent.ToolResultContract{
 			Schema: fileWriteResultSchema,
@@ -217,6 +277,7 @@ var kernelToolDescriptorSpecs = []kernelToolDescriptorSpec{
 		CompletionAction:     "delete_file",
 		CompletionTargetKind: "file",
 		Idempotency:          agent.ToolIdempotencyNone,
+		InputIntentSchema:    fileDeleteInputIntentSchema,
 		OutputSchema:         fileDeleteResultSchema,
 		ResultContract: &agent.ToolResultContract{
 			Schema: fileDeleteResultSchema,
@@ -239,6 +300,7 @@ var kernelToolDescriptorSpecs = []kernelToolDescriptorSpec{
 		CompletionAction:     "edit_file",
 		CompletionTargetKind: "file",
 		Idempotency:          agent.ToolIdempotencyNone,
+		InputIntentSchema:    fileEditInputIntentSchema,
 		OutputSchema:         fileEditResultSchema,
 		ResultContract: &agent.ToolResultContract{
 			Schema: fileEditResultSchema,
@@ -383,6 +445,7 @@ func canonicalKernelToolDescriptor(toolDefinition agent.ToolDefinition) (agent.T
 		TargetKind: descriptorSpec.CompletionTargetKind,
 	}
 	toolDefinition.Idempotency = descriptorSpec.Idempotency
+	toolDefinition.InputIntentSchema = append(json.RawMessage{}, descriptorSpec.InputIntentSchema...)
 	toolDefinition.OutputSchema = append(json.RawMessage{}, descriptorSpec.OutputSchema...)
 	toolDefinition.ResultContract = copyKernelToolResultContract(descriptorSpec.ResultContract)
 	return toolDefinition, nil

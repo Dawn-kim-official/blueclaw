@@ -155,7 +155,7 @@ func TestValidateRequiredOperationInputFailsClosed(t *testing.T) {
 }
 
 func TestValidateRequiredOperationInputAllowsExplicitPartialInput(t *testing.T) {
-	requiredInput, errorValue := validateRequiredOperationInput(json.RawMessage(`{"title":"분기 결산 누락 확인"}`), operationContractTaskInputSchema())
+	requiredInput, errorValue := validateRequiredOperationInput(json.RawMessage(`{"title":"분기 결산 누락 확인"}`), operationContractTaskInputIntentSchema())
 
 	if errorValue != nil {
 		t.Fatalf("expected partial input to pass: %v", errorValue)
@@ -177,13 +177,11 @@ func TestParseOperationRequirementsRejectsJSONEncodedRequiredValues(t *testing.T
 	}
 }
 
-func TestOperationContractSchemaUsesPartialDescriptorInputSchema(t *testing.T) {
+func TestOperationContractSchemaUsesDescriptorInputIntentSchema(t *testing.T) {
 	schemaDocument := operationContractSchema([]operationDescriptorDocument{
-		operationContractSchemaTestDescriptor(t, "task.add", json.RawMessage(`{
+		operationContractSchemaTestDescriptor("task.add", json.RawMessage(`{
 			"type":"object",
 			"additionalProperties":false,
-			"required":["title"],
-			"minProperties":1,
 			"properties":{"title":{"type":"string"},"size":{"type":"string","enum":["S","M"]}}
 		}`)),
 	})
@@ -191,21 +189,19 @@ func TestOperationContractSchemaUsesPartialDescriptorInputSchema(t *testing.T) {
 	if strings.Contains(schemaDocument, "requiredValuesJSON") {
 		t.Fatalf("expected no JSON-inside-string field, got %s", schemaDocument)
 	}
-	if !strings.Contains(schemaDocument, `"requiredValues":{"additionalProperties":false`) ||
+	if !strings.Contains(schemaDocument, `"requiredValues":{`) ||
+		!strings.Contains(schemaDocument, `"additionalProperties":false`) ||
 		!strings.Contains(schemaDocument, `"size":`) ||
 		!strings.Contains(schemaDocument, `"enum":["S","M"]`) ||
 		!strings.Contains(schemaDocument, `"title":{"type":"string"}`) {
 		t.Fatalf("expected exact partial descriptor schema, got %s", schemaDocument)
 	}
-	if strings.Contains(schemaDocument, `"required":["title"]`) || strings.Contains(schemaDocument, `"minProperties":1`) {
-		t.Fatalf("expected root invocation completeness constraints removed, got %s", schemaDocument)
-	}
 }
 
 func TestOperationContractSchemaValidatesToolSpecificValuesAndRepeatedOperations(t *testing.T) {
 	schemaDocument := operationContractSchema([]operationDescriptorDocument{
-		operationContractSchemaTestDescriptor(t, "task.add", json.RawMessage(`{"type":"object","additionalProperties":false,"required":["title"],"properties":{"title":{"type":"string"},"size":{"type":"string","enum":["S","M"]}}}`)),
-		operationContractSchemaTestDescriptor(t, "calendar.add", json.RawMessage(`{"type":"object","additionalProperties":false,"required":["startTime"],"properties":{"startTime":{"type":"string"},"attendees":{"type":"array","items":{"type":"string"}}}}`)),
+		operationContractSchemaTestDescriptor("task.add", json.RawMessage(`{"type":"object","additionalProperties":false,"properties":{"title":{"type":"string"},"size":{"type":"string","enum":["S","M"]}}}`)),
+		operationContractSchemaTestDescriptor("calendar.add", json.RawMessage(`{"type":"object","additionalProperties":false,"properties":{"startTime":{"type":"string"},"attendees":{"type":"array","items":{"type":"string"}}}}`)),
 	})
 	schema, errorValue := decodeOperationInputSchema(json.RawMessage(schemaDocument))
 	if errorValue != nil {
@@ -242,16 +238,10 @@ func TestOperationContractSchemaValidatesToolSpecificValuesAndRepeatedOperations
 	}
 }
 
-func operationContractSchemaTestDescriptor(t *testing.T, name string, inputSchema json.RawMessage) operationDescriptorDocument {
-	t.Helper()
-	partialInputSchema, errorValue := partialOperationInputSchema(inputSchema)
-	if errorValue != nil {
-		t.Fatalf("create partial input schema: %v", errorValue)
-	}
+func operationContractSchemaTestDescriptor(name string, inputIntentSchema json.RawMessage) operationDescriptorDocument {
 	return operationDescriptorDocument{
-		Name:               name,
-		InputSchema:        inputSchema,
-		PartialInputSchema: partialInputSchema,
+		Name:              name,
+		InputIntentSchema: inputIntentSchema,
 	}
 }
 
@@ -267,42 +257,42 @@ func TestOperationContractSeparatesDescriptorValidityFromInvocationCompleteness(
 		}
 	}`)
 	toolSet := newTestToolSetWithDefinitions([]ToolDefinition{{
-		ID:              "capabilityd:calendar.update",
-		Name:            "calendar.update",
-		InputSchema:     inputSchema,
-		OutputSchema:    json.RawMessage(`{"type":"object","properties":{}}`),
-		SideEffectClass: ToolSideEffectStateChange,
+		ID:                "capabilityd:calendar.update",
+		Name:              "calendar.update",
+		InputSchema:       inputSchema,
+		InputIntentSchema: operationContractCalendarUpdateIntentSchema(),
+		OutputSchema:      json.RawMessage(`{"type":"object","properties":{}}`),
+		SideEffectClass:   ToolSideEffectStateChange,
 	}})
 
 	if _, errorValue := operationDescriptorDocuments(toolSet, []string{"calendar.update"}); errorValue != nil {
 		t.Fatalf("expected descriptor schema to resolve without a fake invocation: %v", errorValue)
 	}
 	for _, requiredValues := range []string{`{}`, `{"eventID":"event-1"}`, `{"title":"변경"}`} {
-		if _, errorValue := validateRequiredOperationInput(json.RawMessage(requiredValues), inputSchema); errorValue != nil {
+		if _, errorValue := validateRequiredOperationInput(json.RawMessage(requiredValues), operationContractCalendarUpdateIntentSchema()); errorValue != nil {
 			t.Fatalf("expected partial explicit values %s to pass: %v", requiredValues, errorValue)
 		}
 	}
-	if _, errorValue := validateRequiredOperationInput(json.RawMessage(`{"query":"변경"}`), inputSchema); errorValue == nil {
+	if _, errorValue := validateRequiredOperationInput(json.RawMessage(`{"query":"변경"}`), operationContractCalendarUpdateIntentSchema()); errorValue == nil {
 		t.Fatal("expected unknown partial value to fail")
 	}
 }
 
-func TestValidateRequiredOperationInputValidatesNestedAlternativesAndArrays(t *testing.T) {
-	inputSchema := json.RawMessage(`{
+func TestValidateRequiredOperationInputValidatesNestedObjectsAndArrays(t *testing.T) {
+	inputIntentSchema := json.RawMessage(`{
 		"type":"object",
 		"properties":{
 			"updates":{
 				"type":"object",
 				"additionalProperties":false,
-				"required":["status"],
 				"properties":{"status":{"type":"string","enum":["open","done"]}}
 			},
 			"labels":{"type":"array","items":{"type":"string"}},
-			"owner":{"anyOf":[{"type":"string"},{"type":"null"}]}
+			"owner":{"type":"string"}
 		}
 	}`)
-	validDocument := `{"updates":{"status":"done"},"labels":["quarterly"],"owner":null}`
-	if _, errorValue := validateRequiredOperationInput(json.RawMessage(validDocument), inputSchema); errorValue != nil {
+	validDocument := `{"updates":{"status":"done"},"labels":["quarterly"],"owner":"Lee"}`
+	if _, errorValue := validateRequiredOperationInput(json.RawMessage(validDocument), inputIntentSchema); errorValue != nil {
 		t.Fatalf("expected nested input to pass: %v", errorValue)
 	}
 	for _, invalidDocument := range []string{
@@ -311,17 +301,16 @@ func TestValidateRequiredOperationInputValidatesNestedAlternativesAndArrays(t *t
 		`{"labels":[3]}`,
 		`{"owner":false}`,
 	} {
-		if _, errorValue := validateRequiredOperationInput(json.RawMessage(invalidDocument), inputSchema); errorValue == nil {
+		if _, errorValue := validateRequiredOperationInput(json.RawMessage(invalidDocument), inputIntentSchema); errorValue == nil {
 			t.Fatalf("expected nested input to fail: %s", invalidDocument)
 		}
 	}
 }
 
 func TestValidateRequiredOperationInputAllowsPartialNestedArrayObjects(t *testing.T) {
-	inputSchema := json.RawMessage(`{
+	inputIntentSchema := json.RawMessage(`{
 		"type":"object",
 		"additionalProperties":false,
-		"required":["edits"],
 		"properties":{
 			"edits":{
 				"type":"array",
@@ -329,8 +318,6 @@ func TestValidateRequiredOperationInputAllowsPartialNestedArrayObjects(t *testin
 				"items":{
 					"type":"object",
 					"additionalProperties":false,
-					"required":["path","oldText","newText"],
-					"minProperties":3,
 					"properties":{
 						"path":{"type":"string"},
 						"oldText":{"type":"string"},
@@ -343,7 +330,7 @@ func TestValidateRequiredOperationInputAllowsPartialNestedArrayObjects(t *testin
 
 	requiredInput, errorValue := validateRequiredOperationInput(
 		json.RawMessage(`{"edits":[{"newText":"완료"}]}`),
-		inputSchema,
+		inputIntentSchema,
 	)
 
 	if errorValue != nil {
@@ -357,30 +344,77 @@ func TestValidateRequiredOperationInputAllowsPartialNestedArrayObjects(t *testin
 		json.RawMessage(`{"edits":[{"newText":3}]}`),
 		json.RawMessage(`{"edits":[{"unknown":"완료"}]}`),
 	} {
-		if _, errorValue := validateRequiredOperationInput(invalidInput, inputSchema); errorValue == nil {
+		if _, errorValue := validateRequiredOperationInput(invalidInput, inputIntentSchema); errorValue == nil {
 			t.Fatalf("expected invalid nested input to fail: %s", invalidInput)
 		}
 	}
 }
 
-func TestValidateRequiredOperationInputAllowsEmptyPartialObjectAlternatives(t *testing.T) {
-	inputSchema := json.RawMessage(`{
+func TestInputIntentSchemaSupportsCanonicalSiteContent(t *testing.T) {
+	inputIntentSchema := json.RawMessage(`{
+		"$schema":"https://json-schema.org/draft/2020-12/schema",
 		"type":"object",
-		"allOf":[{
-			"oneOf":[
-				{"type":"object","additionalProperties":false,"required":["command"],"properties":{"command":{"type":"string"}}},
-				{"type":"object","additionalProperties":false,"required":["script"],"properties":{"script":{"type":"string"}}}
-			]
-		}]
+		"additionalProperties":false,
+		"properties":{
+			"slug":{"type":"string","minLength":1,"pattern":"^[a-z0-9]+(?:-[a-z0-9]+)*$"},
+			"content":{
+				"type":"object",
+				"additionalProperties":false,
+				"properties":{
+					"siteName":{"type":"string"},
+					"sections":{
+						"type":"array",
+						"minItems":1,
+						"items":{
+							"type":"object",
+							"additionalProperties":false,
+							"properties":{"title":{"type":"string"},"body":{"type":"string"}}
+						}
+					}
+				}
+			}
+		}
 	}`)
 
-	requiredInput, errorValue := validateRequiredOperationInput(json.RawMessage(`{}`), inputSchema)
-
+	schema, errorValue := decodeOperationInputSchema(inputIntentSchema)
 	if errorValue != nil {
-		t.Fatalf("expected no-explicit-values contract to pass overlapping partial alternatives: %v", errorValue)
+		t.Fatalf("decode site input intent schema: %v", errorValue)
 	}
-	if string(requiredInput) != `{}` {
-		t.Fatalf("unexpected normalized empty input %s", requiredInput)
+	resolvedSchema, errorValue := schema.Resolve(nil)
+	if errorValue != nil {
+		t.Fatalf("resolve projected site schema: %v", errorValue)
+	}
+	partialContent := map[string]any{
+		"content": map[string]any{
+			"sections": []any{map[string]any{"body": "고객지원 운영 현황"}},
+		},
+	}
+	if errorValue := resolvedSchema.Validate(partialContent); errorValue != nil {
+		t.Fatalf("expected partial nested site content to pass: %v", errorValue)
+	}
+}
+
+func TestOperationDescriptorDocumentsRejectMissingOrMalformedInputIntentSchema(t *testing.T) {
+	for _, inputIntentSchema := range []json.RawMessage{
+		nil,
+		json.RawMessage(`{"type":"string"}`),
+		json.RawMessage(`{"type":"object","properties":{"title":{"$ref":"#/$defs/missing"}}}`),
+	} {
+		toolSet := NewToolSet([]string{"task.add"})
+		toolSet.RegisterBoundTool(BoundTool{Definition: ToolDefinition{
+			ID:                "capabilityd:task.add",
+			Name:              "task.add",
+			InputSchema:       operationContractTaskInputSchema(),
+			InputIntentSchema: inputIntentSchema,
+			OutputSchema:      json.RawMessage(`{"type":"object","properties":{}}`),
+			SideEffectClass:   ToolSideEffectStateChange,
+		}})
+
+		_, errorValue := operationDescriptorDocuments(toolSet, []string{"task.add"})
+
+		if errorValue == nil {
+			t.Fatalf("expected invalid input intent schema to fail before generation: %s", inputIntentSchema)
+		}
 	}
 }
 
@@ -842,11 +876,12 @@ func TestCompileOperationRequirementsRejectsCorruptedPersistedContract(t *testin
 
 func operationContractTestToolSet() *ToolSet {
 	return newTestToolSetWithDefinitions([]ToolDefinition{{
-		ID:              "capabilityd:task.add",
-		Name:            "task.add",
-		InputSchema:     operationContractTaskInputSchema(),
-		OutputSchema:    json.RawMessage(`{"type":"object","properties":{}}`),
-		SideEffectClass: ToolSideEffectStateChange,
+		ID:                "capabilityd:task.add",
+		Name:              "task.add",
+		InputSchema:       operationContractTaskInputSchema(),
+		InputIntentSchema: operationContractTaskInputIntentSchema(),
+		OutputSchema:      json.RawMessage(`{"type":"object","properties":{}}`),
+		SideEffectClass:   ToolSideEffectStateChange,
 	}})
 }
 
@@ -860,6 +895,30 @@ func operationContractTaskInputSchema() json.RawMessage {
 			"goal":{"type":"string"},
 			"endDate":{"type":"string"},
 			"size":{"type":"string","enum":["S","M","L"]}
+		}
+	}`)
+}
+
+func operationContractTaskInputIntentSchema() json.RawMessage {
+	return json.RawMessage(`{
+		"type":"object",
+		"additionalProperties":false,
+		"properties":{
+			"title":{"type":"string"},
+			"goal":{"type":"string"},
+			"endDate":{"type":"string"},
+			"size":{"type":"string","enum":["S","M","L"]}
+		}
+	}`)
+}
+
+func operationContractCalendarUpdateIntentSchema() json.RawMessage {
+	return json.RawMessage(`{
+		"type":"object",
+		"additionalProperties":false,
+		"properties":{
+			"eventID":{"type":"string"},
+			"title":{"type":"string"}
 		}
 	}`)
 }

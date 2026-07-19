@@ -48,6 +48,23 @@ var terminalRunInputSchema = json.RawMessage(`{
 	"additionalProperties":false
 }`)
 
+var terminalRunInputIntentSchema = json.RawMessage(`{
+	"type":"object",
+	"properties":{
+		"mode":{"type":"string","enum":["command","session_start","session_write","session_status","session_close"]},
+		"command":{"type":"string","minLength":1},
+		"executableName":{"type":"string","minLength":1},
+		"arguments":{"type":"array","items":{"type":"string"}},
+		"stdin":{"type":"string"},
+		"workingDirectoryPath":{"type":"string"},
+		"environmentVariables":{"type":"object","additionalProperties":{"type":"string"}},
+		"timeoutSecond":{"type":"integer","minimum":1},
+		"sessionID":{"type":"string","minLength":1},
+		"input":{"type":"string","minLength":1}
+	},
+	"additionalProperties":false
+}`)
+
 var terminalRunResultSchema = json.RawMessage(`{
 	"type":"object",
 	"properties":{

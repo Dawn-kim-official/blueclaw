@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"blueclaw/internal/agent"
 	"blueclaw/internal/config"
 	"github.com/google/jsonschema-go/jsonschema"
 )
@@ -182,20 +183,30 @@ func buildToolDefinition(serverName string, configuration config.MCPToolConfigur
 	if !validPolicyMetadata(*configuration.Policy) {
 		return ToolDefinition{}, errors.New("mcp tool metadata is incomplete")
 	}
+	if agent.ToolDescriptorRequiresInputIntentSchema(agent.ToolDescriptor{
+		Visibility:      strings.TrimSpace(configuration.Policy.ModelVisibility),
+		SideEffectClass: strings.TrimSpace(configuration.Policy.SideEffectClass),
+	}) && !isObjectSchema(configuration.InputIntentSchema) {
+		return ToolDefinition{}, errors.New("mcp state-changing tool requires inputIntentSchema")
+	}
+	if len(configuration.InputIntentSchema) > 0 && !isObjectSchema(configuration.InputIntentSchema) {
+		return ToolDefinition{}, errors.New("mcp tool inputIntentSchema must describe an object")
+	}
 	resultContract, errorValue := buildToolResultContract(configuration.OutputSchema, configuration.ResultContract)
 	if errorValue != nil {
 		return ToolDefinition{}, errorValue
 	}
 	return ToolDefinition{
-		Name:           qualifiedToolName(namespace, toolName),
-		Namespace:      namespace,
-		ServerName:     serverName,
-		Description:    strings.TrimSpace(configuration.Description),
-		InputSchema:    append([]byte{}, configuration.InputSchema...),
-		OutputSchema:   append([]byte{}, configuration.OutputSchema...),
-		ResultContract: resultContract,
-		Policy:         policyMetadata(*configuration.Policy),
-		remoteName:     toolName,
+		Name:              qualifiedToolName(namespace, toolName),
+		Namespace:         namespace,
+		ServerName:        serverName,
+		Description:       strings.TrimSpace(configuration.Description),
+		InputSchema:       append([]byte{}, configuration.InputSchema...),
+		InputIntentSchema: append([]byte{}, configuration.InputIntentSchema...),
+		OutputSchema:      append([]byte{}, configuration.OutputSchema...),
+		ResultContract:    resultContract,
+		Policy:            policyMetadata(*configuration.Policy),
+		remoteName:        toolName,
 	}, nil
 }
 

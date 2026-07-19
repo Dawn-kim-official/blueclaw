@@ -312,12 +312,13 @@ func TestMCPToolProviderValidatesStructuredSuccess(t *testing.T) {
 func TestMCPToolProviderProjectsExactResultEvidence(t *testing.T) {
 	resultSchema := json.RawMessage(`{"type":"object","properties":{"siteID":{"type":"string"}},"required":["siteID"],"additionalProperties":false}`)
 	definition := mcp.ToolDefinition{
-		Name:         "site.publish",
-		Namespace:    "site",
-		ServerName:   "workspace",
-		Description:  "Publish a site",
-		InputSchema:  json.RawMessage(`{"type":"object","properties":{},"additionalProperties":false}`),
-		OutputSchema: resultSchema,
+		Name:              "site.publish",
+		Namespace:         "site",
+		ServerName:        "workspace",
+		Description:       "Publish a site",
+		InputSchema:       json.RawMessage(`{"type":"object","properties":{},"additionalProperties":false}`),
+		InputIntentSchema: json.RawMessage(`{"type":"object","properties":{},"additionalProperties":false}`),
+		OutputSchema:      resultSchema,
 		ResultContract: &mcp.ToolResultContract{
 			Schema: resultSchema,
 			Effects: []mcp.ResourceEffectContract{{
@@ -366,12 +367,13 @@ func TestMCPToolProviderProjectsExactResultEvidence(t *testing.T) {
 func TestMCPToolProviderProjectsEveryArrayResultEffect(t *testing.T) {
 	resultSchema := json.RawMessage(`{"type":"object","properties":{"paths":{"type":"array","items":{"type":"string"},"minItems":1,"uniqueItems":true}},"required":["paths"],"additionalProperties":false}`)
 	definition := mcp.ToolDefinition{
-		Name:         "workspace.edit",
-		Namespace:    "workspace",
-		ServerName:   "workspace",
-		Description:  "Edit workspace files",
-		InputSchema:  json.RawMessage(`{"type":"object","properties":{},"additionalProperties":false}`),
-		OutputSchema: resultSchema,
+		Name:              "workspace.edit",
+		Namespace:         "workspace",
+		ServerName:        "workspace",
+		Description:       "Edit workspace files",
+		InputSchema:       json.RawMessage(`{"type":"object","properties":{},"additionalProperties":false}`),
+		InputIntentSchema: json.RawMessage(`{"type":"object","properties":{},"additionalProperties":false}`),
+		OutputSchema:      resultSchema,
 		ResultContract: &mcp.ToolResultContract{
 			Schema: resultSchema,
 			Effects: []mcp.ResourceEffectContract{{

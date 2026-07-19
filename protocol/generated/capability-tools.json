@@ -18,6 +18,64 @@
         "scope": "operation",
         "supported": false
       },
+      "inputIntentSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "endDate": {
+            "description": "Due date in yyyy-mm-dd format. Resolve relative dates from the current date. Omit when the user did not specify one.",
+            "type": "string"
+          },
+          "goal": {
+            "description": "Definition of done or desired outcome. Omit when the title already states the complete outcome.",
+            "type": "string"
+          },
+          "participantPersonHints": {
+            "description": "Names, @handles, or emails of additional participants explicitly named by the user. The owner is included automatically.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "size": {
+            "description": "Effort size using the work-size rubric. Omit when the request does not support a useful estimate.",
+            "enum": [
+              "XS",
+              "S",
+              "M",
+              "L",
+              "XL",
+              "XXL"
+            ],
+            "type": "string"
+          },
+          "startDate": {
+            "description": "Date in YYYY-MM-DD format. Resolve relative dates from the current date. Omit when the user did not specify one.",
+            "type": "string"
+          },
+          "status": {
+            "description": "Initial task status. Defaults to 예정. The runtime may change delegated tasks to 요청.",
+            "enum": [
+              "예정",
+              "진행",
+              "완료",
+              "일시정지",
+              "기각",
+              "중단"
+            ],
+            "type": "string"
+          },
+          "targetPersonHint": {
+            "description": "Name or email of the person the task belongs to, e.g. 'Alice' or 'alice@example.com'. Leave empty to assign to the requester themselves.",
+            "type": "string"
+          },
+          "title": {
+            "description": "Concise task title. Preserve the user's exact title when they provide one; otherwise derive it directly from their request.",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
       "inputSchema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "additionalProperties": false,
@@ -694,6 +752,80 @@
         "scope": "operation",
         "supported": false
       },
+      "inputIntentSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "category": {
+            "description": "Business category label for the task. Omit to leave unchanged.",
+            "type": "string"
+          },
+          "decisionReason": {
+            "description": "Reason for the approval or rejection decision. Omit to leave unchanged.",
+            "type": "string"
+          },
+          "endDate": {
+            "description": "Due date in yyyy-mm-dd format. Omit to leave unchanged.",
+            "type": "string"
+          },
+          "flag": {
+            "description": "Numeric flag bitmask for internal task classification. Omit to leave unchanged.",
+            "type": "number"
+          },
+          "goal": {
+            "description": "Definition of done or success criterion for this task. Omit to leave unchanged.",
+            "type": "string"
+          },
+          "requestReason": {
+            "description": "Reason for requesting this task. Omit to leave unchanged.",
+            "type": "string"
+          },
+          "size": {
+            "description": "Effort size estimate. Omit to leave unchanged.",
+            "enum": [
+              "XS",
+              "S",
+              "M",
+              "L",
+              "XL",
+              "XXL"
+            ],
+            "type": "string"
+          },
+          "startDate": {
+            "description": "Date in YYYY-MM-DD format. Omit to leave unchanged.",
+            "type": "string"
+          },
+          "status": {
+            "description": "New task status. Omit to leave unchanged.",
+            "enum": [
+              "예정",
+              "진행",
+              "완료",
+              "요청",
+              "일시정지",
+              "기각",
+              "중단"
+            ],
+            "type": "string"
+          },
+          "taskID": {
+            "description": "Exact ID of the task to update, copied from a task.list result.",
+            "minLength": 1,
+            "pattern": "^\\S(?:.*\\S)?$",
+            "type": "string"
+          },
+          "title": {
+            "description": "New task title. Omit to leave the title unchanged.",
+            "type": "string"
+          },
+          "type": {
+            "description": "Task type classification, e.g. 'task', 'milestone'. Omit to leave unchanged.",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
       "inputSchema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "additionalProperties": false,
@@ -1047,6 +1179,19 @@
         "scope": "operation",
         "supported": false
       },
+      "inputIntentSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "taskID": {
+            "description": "Exact ID of the task to delete, copied from a task.list result.",
+            "minLength": 1,
+            "pattern": "^\\S(?:.*\\S)?$",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
       "inputSchema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "additionalProperties": false,
@@ -1260,6 +1405,69 @@
         "required": false,
         "scope": "operation",
         "supported": false
+      },
+      "inputIntentSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "color": {
+            "description": "Optional provider-supported color label.",
+            "type": "string"
+          },
+          "description": {
+            "description": "Optional event notes or agenda visible to attendees.",
+            "type": "string"
+          },
+          "endISO": {
+            "description": "Event end as ISO 8601 with timezone. It must be after startISO.",
+            "type": "string"
+          },
+          "includeRequester": {
+            "description": "Set false when the requester is not an attendee. Defaults to true.",
+            "type": "boolean"
+          },
+          "isAllDay": {
+            "description": "Set true for an all-day event.",
+            "type": "boolean"
+          },
+          "location": {
+            "description": "Optional physical or virtual location.",
+            "type": "string"
+          },
+          "people": {
+            "description": "Attendee hints such as names, @handles, or emails.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "reminderLeadHours": {
+            "description": "Reminder lead time in hours.",
+            "enum": [
+              1,
+              2,
+              3,
+              6,
+              12,
+              24,
+              48
+            ],
+            "type": "number"
+          },
+          "startISO": {
+            "description": "Event start as ISO 8601 with timezone. Resolve relative times before calling.",
+            "type": "string"
+          },
+          "timeZone": {
+            "description": "IANA timezone identifier. Defaults to the workspace timezone.",
+            "type": "string"
+          },
+          "title": {
+            "description": "Event title shown in the calendar.",
+            "type": "string"
+          }
+        },
+        "type": "object"
       },
       "inputSchema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -1893,6 +2101,75 @@
         "scope": "operation",
         "supported": false
       },
+      "inputIntentSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "color": {
+            "description": "New provider-supported color label. Omit to leave unchanged.",
+            "type": "string"
+          },
+          "description": {
+            "description": "New event notes or agenda. Use an empty string to clear them.",
+            "type": "string"
+          },
+          "endISO": {
+            "description": "New event end as ISO 8601 with timezone. Omit to leave unchanged.",
+            "type": "string"
+          },
+          "eventID": {
+            "description": "Exact event ID copied from a calendar.list result.",
+            "minLength": 1,
+            "pattern": "^\\S(?:.*\\S)?$",
+            "type": "string"
+          },
+          "includeRequester": {
+            "description": "Whether the requester should be included as an attendee.",
+            "type": "boolean"
+          },
+          "isAllDay": {
+            "description": "Whether the event is all day. Omit to leave unchanged.",
+            "type": "boolean"
+          },
+          "location": {
+            "description": "New physical or virtual location. Use an empty string to clear it.",
+            "type": "string"
+          },
+          "people": {
+            "description": "Replacement attendee hints such as names, @handles, or emails.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "reminderLeadHours": {
+            "description": "Reminder lead time in hours. Omit to leave unchanged.",
+            "enum": [
+              1,
+              2,
+              3,
+              6,
+              12,
+              24,
+              48
+            ],
+            "type": "number"
+          },
+          "startISO": {
+            "description": "New event start as ISO 8601 with timezone. Omit to leave unchanged.",
+            "type": "string"
+          },
+          "timeZone": {
+            "description": "New IANA timezone identifier. Omit to leave unchanged.",
+            "type": "string"
+          },
+          "title": {
+            "description": "New event title. Omit to leave unchanged.",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
       "inputSchema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "additionalProperties": false,
@@ -2235,6 +2512,19 @@
         "required": false,
         "scope": "operation",
         "supported": false
+      },
+      "inputIntentSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "eventID": {
+            "description": "Exact event ID copied from a calendar.list result.",
+            "minLength": 1,
+            "pattern": "^\\S(?:.*\\S)?$",
+            "type": "string"
+          }
+        },
+        "type": "object"
       },
       "inputSchema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -3017,6 +3307,59 @@
         "scope": "operation",
         "supported": true
       },
+      "inputIntentSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "channelID": {
+            "description": "Exact channel ID from message.context or a prior result.",
+            "minLength": 1,
+            "pattern": "^\\S(?:.*\\S)?$",
+            "type": "string"
+          },
+          "channelName": {
+            "description": "Exact Mattermost channel name without the # prefix.",
+            "type": "string"
+          },
+          "message": {
+            "minLength": 1,
+            "pattern": "\\S",
+            "type": "string"
+          },
+          "personHint": {
+            "description": "Name, @handle, or email of one direct-message recipient.",
+            "type": "string"
+          },
+          "personHints": {
+            "description": "Direct-message recipients for one fan-out send.",
+            "items": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxItems": 50,
+            "type": "array"
+          },
+          "pin": {
+            "description": "Whether to pin the created message. Defaults to false.",
+            "type": "boolean"
+          },
+          "reason": {
+            "description": "Reason shown to the approver.",
+            "type": "string"
+          },
+          "targetType": {
+            "description": "Destination for the new message.",
+            "enum": [
+              "directMessage",
+              "currentThread",
+              "currentChannel",
+              "channel"
+            ],
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
       "inputSchema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "additionalProperties": false,
@@ -3305,6 +3648,28 @@
         "scope": "operation",
         "supported": false
       },
+      "inputIntentSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "isPinned": {
+            "description": "Whether the message should be pinned.",
+            "type": "boolean"
+          },
+          "message": {
+            "minLength": 1,
+            "pattern": "\\S",
+            "type": "string"
+          },
+          "messageID": {
+            "description": "Exact message ID from message.search or message.send.",
+            "minLength": 1,
+            "pattern": "^\\S(?:.*\\S)?$",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
       "inputSchema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "additionalProperties": false,
@@ -3535,6 +3900,25 @@
         "required": false,
         "scope": "operation",
         "supported": false
+      },
+      "inputIntentSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "messageIDs": {
+            "description": "Exact message IDs from message.search.",
+            "items": {
+              "minLength": 1,
+              "pattern": "^\\S(?:.*\\S)?$",
+              "type": "string"
+            },
+            "maxItems": 25,
+            "minItems": 1,
+            "type": "array",
+            "uniqueItems": true
+          }
+        },
+        "type": "object"
       },
       "inputSchema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -3788,6 +4172,41 @@
         "required": false,
         "scope": "operation",
         "supported": false
+      },
+      "inputIntentSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "channelID": {
+            "description": "Exact channel ID from message.context or a prior result.",
+            "minLength": 1,
+            "pattern": "^\\S(?:.*\\S)?$",
+            "type": "string"
+          },
+          "channelName": {
+            "description": "Exact Mattermost channel name without the # prefix.",
+            "minLength": 1,
+            "type": "string"
+          },
+          "displayName": {
+            "description": "New channel display name.",
+            "minLength": 1,
+            "type": "string"
+          },
+          "header": {
+            "description": "New channel header. Use an empty string to clear it.",
+            "type": "string"
+          },
+          "inviteeHints": {
+            "description": "Names, @handles, or emails of people to invite.",
+            "items": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object"
       },
       "inputSchema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -4291,6 +4710,85 @@
         "required": false,
         "scope": "operation",
         "supported": false
+      },
+      "inputIntentSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "archetype": {
+            "type": "string"
+          },
+          "audience": {
+            "type": "string"
+          },
+          "content": {
+            "additionalProperties": false,
+            "properties": {
+              "heroActionHref": {
+                "type": "string"
+              },
+              "heroActionLabel": {
+                "type": "string"
+              },
+              "sections": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "body": {
+                      "type": "string"
+                    },
+                    "title": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                },
+                "minItems": 1,
+                "type": "array"
+              },
+              "siteName": {
+                "type": "string"
+              },
+              "tagline": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "description": {
+            "type": "string"
+          },
+          "designBrief": {
+            "type": "string"
+          },
+          "domainKeywords": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "idea": {
+            "type": "string"
+          },
+          "prompt": {
+            "type": "string"
+          },
+          "prototypeScope": {
+            "type": "string"
+          },
+          "purpose": {
+            "type": "string"
+          },
+          "slug": {
+            "minLength": 1,
+            "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          }
+        },
+        "type": "object"
       },
       "inputSchema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -4869,6 +5367,25 @@
         "scope": "operation",
         "supported": false
       },
+      "inputIntentSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "previewID": {
+            "description": "Existing preview ID to refresh. Omit to create a new preview.",
+            "minLength": 1,
+            "pattern": "^\\S(?:.*\\S)?$",
+            "type": "string"
+          },
+          "siteID": {
+            "description": "Exact site ID from site.create or site.status.",
+            "minLength": 1,
+            "pattern": "^\\S(?:.*\\S)?$",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
       "inputSchema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "additionalProperties": false,
@@ -5115,6 +5632,29 @@
         "required": false,
         "scope": "operation",
         "supported": false
+      },
+      "inputIntentSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "message": {
+            "description": "Short revision message describing the edits being published.",
+            "type": "string"
+          },
+          "previewID": {
+            "description": "Preview ID whose reviewed source should be published.",
+            "minLength": 1,
+            "pattern": "^\\S(?:.*\\S)?$",
+            "type": "string"
+          },
+          "siteID": {
+            "description": "Exact site ID from site.create or site.status.",
+            "minLength": 1,
+            "pattern": "^\\S(?:.*\\S)?$",
+            "type": "string"
+          }
+        },
+        "type": "object"
       },
       "inputSchema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -5367,6 +5907,23 @@
         "required": false,
         "scope": "operation",
         "supported": false
+      },
+      "inputIntentSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "reason": {
+            "description": "Reason shown in the approval prompt.",
+            "type": "string"
+          },
+          "siteID": {
+            "description": "Exact site ID from site.status.",
+            "minLength": 1,
+            "pattern": "^\\S(?:.*\\S)?$",
+            "type": "string"
+          }
+        },
+        "type": "object"
       },
       "inputSchema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -6063,6 +6620,19 @@
         "scope": "operation",
         "supported": false
       },
+      "inputIntentSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "url": {
+            "description": "Absolute HTTP or HTTPS URL to open.",
+            "minLength": 1,
+            "pattern": "^\\S(?:.*\\S)?$",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
       "inputSchema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "additionalProperties": false,
@@ -6723,6 +7293,28 @@
         "required": false,
         "scope": "operation",
         "supported": false
+      },
+      "inputIntentSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "ref": {
+            "minLength": 1,
+            "pattern": "^\\S(?:.*\\S)?$",
+            "type": "string"
+          },
+          "selector": {
+            "minLength": 1,
+            "pattern": "^\\S(?:.*\\S)?$",
+            "type": "string"
+          },
+          "target": {
+            "minLength": 1,
+            "pattern": "^\\S(?:.*\\S)?$",
+            "type": "string"
+          }
+        },
+        "type": "object"
       },
       "inputSchema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",

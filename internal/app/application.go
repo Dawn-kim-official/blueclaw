@@ -734,6 +734,7 @@ func capabilityToolDescriptors(toolDescriptors []config.CapabilityToolDescriptor
 			RequiresUserPresence: toolDescriptor.RequiresUserPresence,
 			WorksOffline:         toolDescriptor.WorksOffline,
 			InputSchema:          toolDescriptor.InputSchema,
+			InputIntentSchema:    toolDescriptor.InputIntentSchema,
 			OutputSchema:         toolDescriptor.OutputSchema,
 			ResultContract:       capabilityToolResultContract(toolDescriptor.ResultContract),
 			PolicyResource:       toolDescriptor.PolicyResource,

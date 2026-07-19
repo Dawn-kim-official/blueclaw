@@ -34,6 +34,24 @@ var scheduleCreateInputSchema = json.RawMessage(`{
 	"additionalProperties": false
 }`)
 
+var scheduleCreateInputIntentSchema = json.RawMessage(`{
+	"type": "object",
+	"properties": {
+		"name": {"type": "string"},
+		"taskInstruction": {"type": "string", "minLength": 1, "pattern": "\\S"},
+		"agentProfileName": {"type": "string"},
+		"kind": {"type": "string", "enum": ["once", "interval", "cron"]},
+		"runAt": {"type": "string", "format": "date-time"},
+		"expiresAt": {"type": "string", "format": "date-time"},
+		"intervalSecond": {"type": "integer", "minimum": 1},
+		"cronExpression": {"type": "string"},
+		"timeZone": {"type": "string", "minLength": 1, "pattern": "\\S"},
+		"maxRunCount": {"type": "integer", "minimum": 1},
+		"repeatPolicy": {"type": "string", "enum": ["finite", "unbounded"]}
+	},
+	"additionalProperties": false
+}`)
+
 var scheduleUpdateInputSchema = json.RawMessage(`{
 	"type": "object",
 	"properties": {
@@ -54,6 +72,25 @@ var scheduleUpdateInputSchema = json.RawMessage(`{
 	"additionalProperties": false
 }`)
 
+var scheduleUpdateInputIntentSchema = json.RawMessage(`{
+	"type": "object",
+	"properties": {
+		"scheduleID": {"type": "string", "minLength": 1, "pattern": "^\\S(?:.*\\S)?$"},
+		"name": {"type": "string"},
+		"taskInstruction": {"type": "string", "minLength": 1, "pattern": "\\S"},
+		"agentProfileName": {"type": "string"},
+		"kind": {"type": "string", "enum": ["once", "interval", "cron"]},
+		"runAt": {"type": "string", "format": "date-time"},
+		"expiresAt": {"type": "string", "format": "date-time"},
+		"intervalSecond": {"type": "integer", "minimum": 1},
+		"cronExpression": {"type": "string"},
+		"timeZone": {"type": "string", "minLength": 1, "pattern": "\\S"},
+		"maxRunCount": {"type": "integer", "minimum": 1},
+		"repeatPolicy": {"type": "string", "enum": ["finite", "unbounded"]}
+	},
+	"additionalProperties": false
+}`)
+
 var scheduleCancelInputSchema = json.RawMessage(`{
 	"type": "object",
 	"properties": {
@@ -66,6 +103,20 @@ var scheduleCancelInputSchema = json.RawMessage(`{
 		}
 	},
 	"required": ["scope"],
+	"additionalProperties": false
+}`)
+
+var scheduleCancelInputIntentSchema = json.RawMessage(`{
+	"type": "object",
+	"properties": {
+		"scope": {"type": "string", "enum": ["currentConversation", "mine", "scheduleIDs"]},
+		"scheduleIDs": {
+			"type": "array",
+			"items": {"type": "string", "minLength": 1, "pattern": "^\\S(?:.*\\S)?$"},
+			"minItems": 1,
+			"uniqueItems": true
+		}
+	},
 	"additionalProperties": false
 }`)
 

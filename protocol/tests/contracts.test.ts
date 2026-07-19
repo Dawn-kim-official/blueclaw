@@ -280,6 +280,40 @@ describe('closed protocol values', () => {
     }).success).toBe(false);
     expect(capabilityDescriptorSchema.safeParse({
       ...descriptor,
+      inputIntentSchema: undefined,
+    }).success).toBe(false);
+    expect(capabilityDescriptorSchema.safeParse({
+      ...descriptor,
+      inputIntentSchema: descriptor.inputSchema,
+    }).success).toBe(false);
+    expect(capabilityDescriptorSchema.safeParse({
+      ...descriptor,
+      inputIntentSchema: {
+        type: 'object',
+        properties: {
+          nested: { type: 'object', properties: {} },
+        },
+        additionalProperties: false,
+      },
+    }).success).toBe(false);
+    expect(capabilityDescriptorSchema.safeParse({
+      ...descriptor,
+      inputIntentSchema: {
+        type: 'object',
+        properties: {
+          unexpected: { type: 'string' },
+        },
+        additionalProperties: false,
+      },
+    }).success).toBe(false);
+    expect(capabilityDescriptorSchema.safeParse({
+      ...descriptor,
+      sideEffectClass: 'read',
+      sideEffect: 'read',
+      inputIntentSchema: undefined,
+    }).success).toBe(true);
+    expect(capabilityDescriptorSchema.safeParse({
+      ...descriptor,
       resultContract: {
         schema: {
           type: 'object',
