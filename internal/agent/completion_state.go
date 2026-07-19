@@ -268,11 +268,23 @@ func completionRequirementStateLabel(requirement CompletionRequirementState) str
 }
 
 func recommendedCompletionAction(request AgentTurnRequest, requirements []toolUseRequirement, observations []turnObservation, state CompletionState) completionRecommendedAction {
+	if _, hasFailureDebt := activeFailureDebt(observations); hasFailureDebt {
+		return completionActionContinueWork
+	}
 	if len(state.MissingRequirements) == 0 {
 		if requestOnlyOpensBrowser(request) {
 			return completionActionFinalizeWithEvidence
 		}
 		if satisfiedOneShotEvidenceRequirementsCanFinalize(request.ToolSet, requirements) {
+			return completionActionFinalizeWithEvidence
+		}
+		if expectedResultRequiresFileAttachment(request.OutcomeContract) && len(state.AttachedEvidence) > 0 {
+			if !state.ValidityState.Passed {
+				if hasInvalidArtifactObservationForPaths(observations, completionValidityPaths(state)) {
+					return completionActionContinueWork
+				}
+				return completionActionBlockedInvalidArtifact
+			}
 			return completionActionFinalizeWithEvidence
 		}
 		if !allRequirementsAreFileAttachments(requirements) {
