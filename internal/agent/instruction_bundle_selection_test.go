@@ -68,7 +68,7 @@ func TestSelectedSkillRequirementsPreserveRouterEvidenceWithoutArbitration(t *te
 	}
 }
 
-func TestSelectedSkillRequirementsPreserveRouterEvidenceWhenArbitrationHasNoEvidence(t *testing.T) {
+func TestSelectedSkillRequirementsDoNotRetainRouterEvidenceAfterArbitration(t *testing.T) {
 	decision := IntakeDecision{
 		Classification:        IntakeClassificationBoundedTask,
 		RequiredEvidenceTools: []string{"task.add"},
@@ -81,8 +81,22 @@ func TestSelectedSkillRequirementsPreserveRouterEvidenceWhenArbitrationHasNoEvid
 
 	result := applyInstructionBundleRequirements(decision, instructionBundle)
 
-	if !reflect.DeepEqual(result.RequiredEvidenceTools, []string{"task.add"}) {
-		t.Fatalf("expected explicit router evidence to survive empty arbitration, got %v", result.RequiredEvidenceTools)
+	if len(result.RequiredEvidenceTools) != 0 {
+		t.Fatalf("expected arbitration evidence to remain authoritative, got %v", result.RequiredEvidenceTools)
+	}
+}
+
+func TestFailedContractSkillArbitrationClearsRouterEvidence(t *testing.T) {
+	decision := IntakeDecision{
+		Classification:        IntakeClassificationBoundedTask,
+		RequiredEvidenceTools: []string{"file.write", "file.deliver"},
+	}
+	instructionBundle := InstructionBundle{ContractSkillArbitrationFailed: true}
+
+	result := applyInstructionBundleRequirements(decision, instructionBundle)
+
+	if len(result.RequiredEvidenceTools) != 0 {
+		t.Fatalf("expected failed arbitration to clear untrusted router evidence, got %v", result.RequiredEvidenceTools)
 	}
 }
 
@@ -114,8 +128,8 @@ func TestContractNextToolsUseOnlySelectedRegisteredTools(t *testing.T) {
 		RequiredNextTools: []string{"file.edit", "task.add", "task.update", "task.delete", "unknown.operation"},
 	}, selectedSkills, request)
 
-	if !reflect.DeepEqual(result, []string{"task.add", "task.update"}) {
-		t.Fatalf("expected selected registered next tools only, got %v", result)
+	if !reflect.DeepEqual(result, []string{"file.edit", "task.add", "task.update"}) {
+		t.Fatalf("expected registered kernel and selected next tools only, got %v", result)
 	}
 }
 
@@ -131,75 +145,6 @@ func TestContractEvidenceDoesNotPromoteRequiredNextTools(t *testing.T) {
 
 	if len(result) != 0 {
 		t.Fatalf("expected next tools to remain execution hints, got evidence %v", result)
-	}
-	candidates := unresolvedContractEvidenceCandidates(arbitration, selectedSkills, request, result)
-	if !reflect.DeepEqual(candidates, []string{"task.update"}) {
-		t.Fatalf("expected typed side-effect candidate for evidence re-ask, got %v", candidates)
-	}
-}
-
-func TestContractEvidenceDoesNotReaskForReadOnlyNextTool(t *testing.T) {
-	selectedSkills := []SkillInstruction{{Name: "internkim-flow", ToolReferences: []string{"task.list"}}}
-	request := AgentRequest{ToolSet: newTestToolSet([]string{"task.list"})}
-	arbitration := contractSkillArbitration{RequiredNextTools: []string{"task.list"}}
-
-	candidates := unresolvedContractEvidenceCandidates(arbitration, selectedSkills, request, nil)
-
-	if len(candidates) != 0 {
-		t.Fatalf("expected read-only next tool not to trigger evidence re-ask, got %v", candidates)
-	}
-}
-
-func TestContractEvidenceDoesNotReaskForExactActiveEvidence(t *testing.T) {
-	selectedSkills := []SkillInstruction{{Name: "internkim-flow", ToolReferences: []string{"task.delete"}}}
-	request := AgentRequest{
-		ToolSet: newTestToolSet([]string{"task.delete"}),
-		ActiveGoal: ActiveGoal{OutcomeContract: OutcomeContract{
-			RequiredEvidenceTools: []string{"task.delete"},
-		}},
-	}
-	arbitration := contractSkillArbitration{RequiredNextTools: []string{"task.delete"}}
-
-	candidates := unresolvedContractEvidenceCandidates(arbitration, selectedSkills, request, nil)
-
-	if len(candidates) != 0 {
-		t.Fatalf("expected exact active evidence to resolve the candidate, got %v", candidates)
-	}
-}
-
-func TestContractEvidenceReasksForDifferentActiveEvidence(t *testing.T) {
-	selectedSkills := []SkillInstruction{{Name: "internkim-flow", ToolReferences: []string{"task.update"}}}
-	for _, requiredEvidence := range []string{"task.list", "file.edit"} {
-		request := AgentRequest{
-			ToolSet: newTestToolSet([]string{"task.list", "task.update", "file.edit"}),
-			ActiveGoal: ActiveGoal{OutcomeContract: OutcomeContract{
-				RequiredEvidenceTools: []string{requiredEvidence},
-			}},
-		}
-		arbitration := contractSkillArbitration{RequiredNextTools: []string{"task.update"}}
-
-		candidates := unresolvedContractEvidenceCandidates(arbitration, selectedSkills, request, nil)
-
-		if !reflect.DeepEqual(candidates, []string{"task.update"}) {
-			t.Fatalf("expected %s not to satisfy task.update, got %v", requiredEvidence, candidates)
-		}
-	}
-}
-
-func TestContractEvidenceReasksForUnavailableActiveEvidence(t *testing.T) {
-	toolSet := newTestToolSet([]string{"task.delete"})
-	boundTool := toolSet.boundToolByName["task.delete"]
-	boundTool.Availability = ToolAvailability{Status: ToolAvailabilityDenied}
-	toolSet.boundToolByName["task.delete"] = boundTool
-	request := AgentRequest{
-		ToolSet: toolSet,
-		ActiveGoal: ActiveGoal{OutcomeContract: OutcomeContract{
-			RequiredEvidenceTools: []string{"task.delete"},
-		}},
-	}
-
-	if activeContractRequiresTool(request, "task.delete") {
-		t.Fatal("expected unavailable evidence not to resolve a candidate")
 	}
 }
 
@@ -230,10 +175,10 @@ func TestContractEvidenceRejectsReadWhenNextToolChangesState(t *testing.T) {
 	}
 
 	result := validatedContractEvidenceTools(arbitration, selectedSkills, request)
-	candidates := unresolvedContractEvidenceCandidates(arbitration, selectedSkills, request, result)
+	nextTools := validatedContractNextTools(arbitration, selectedSkills, request)
 
-	if len(result) != 0 || !reflect.DeepEqual(candidates, []string{"task.update"}) {
-		t.Fatalf("expected state-changing next tool to force exact evidence re-ask, got evidence=%v candidates=%v", result, candidates)
+	if len(result) != 0 || !reflect.DeepEqual(nextTools, []string{"task.update"}) {
+		t.Fatalf("expected next tools to remain separate from evidence, got evidence=%v next=%v", result, nextTools)
 	}
 }
 

@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 
 	"blueclaw/internal/llm"
@@ -42,6 +43,13 @@ type contractSkillCandidateCard struct {
 	PromptExcerpt   string   `json:"promptExcerpt,omitempty"`
 }
 
+type contractSkillArbitrationVocabulary struct {
+	SkillNames       []string
+	ToolNames        []string
+	EvidenceNames    []string
+	RequiresEvidence bool
+}
+
 func (skillSearchQueryRouter SkillSearchQueryRouter) ArbitrateContractSkills(ctx context.Context, request AgentRequest, candidates []SkillInstruction, candidateByName map[string]SkillCandidate) contractSkillArbitrationResult {
 	if !requestHasOutcomeContractForSkillArbitration(request) || len(candidates) == 0 {
 		return contractSkillArbitrationResult{Status: contractSkillArbitrationNotApplicable}
@@ -50,29 +58,157 @@ func (skillSearchQueryRouter SkillSearchQueryRouter) ArbitrateContractSkills(ctx
 		return contractSkillArbitrationResult{Status: contractSkillArbitrationFailed}
 	}
 	candidates = limitSkillInstructions(candidates, maxContractSkillArbitrationCandidates)
-	structuredResponse, errorValue := skillSearchQueryRouter.languageModel.GenerateStructuredResponse(ctx, llm.StructuredResponseRequest{
-		Messages: contractSkillArbitrationMessages(request, candidates, candidateByName),
+	messages := contractSkillArbitrationMessages(request, candidates, candidateByName)
+	vocabulary := buildContractSkillArbitrationVocabulary(request, candidates)
+	schema := contractSkillArbitrationSchema(vocabulary)
+	for attempt := 0; attempt < 2; attempt++ {
+		arbitration, errorValue := skillSearchQueryRouter.generateContractSkillArbitration(ctx, messages, schema)
+		if errorValue == nil {
+			errorValue = validateContractSkillArbitration(arbitration, request, candidates, vocabulary)
+		}
+		if errorValue == nil {
+			return contractSkillArbitrationResult{Arbitration: arbitration, Status: contractSkillArbitrationSucceeded}
+		}
+		messages = append(messages, llm.Message{
+			Role:    "system",
+			Content: "The previous candidate was invalid. Return only exact enum values from the schema. Validation: " + errorValue.Error(),
+		})
+	}
+	return contractSkillArbitrationResult{Status: contractSkillArbitrationFailed}
+}
+
+func (skillSearchQueryRouter SkillSearchQueryRouter) generateContractSkillArbitration(ctx context.Context, messages []llm.Message, schema string) (contractSkillArbitration, error) {
+	response, errorValue := skillSearchQueryRouter.languageModel.GenerateStructuredResponse(ctx, llm.StructuredResponseRequest{
+		Messages: messages,
 		StructuredOutputSchema: llm.StructuredOutputSchema{
 			Name:               "blueclaw_contract_skill_arbitration",
-			Document:           `{"type":"object","properties":{"selectedSkillNames":{"type":"array","maxItems":3,"items":{"type":"string"}},"rejectedSkillNames":{"type":"array","items":{"type":"string"}},"requiredNextToolNames":{"type":"array","maxItems":12,"items":{"type":"string"}},"expectedEvidence":{"type":"array","maxItems":8,"items":{"type":"string"}},"unmetPreconditions":{"type":"array","maxItems":8,"items":{"type":"string"}},"reason":{"type":"string"}},"required":["selectedSkillNames","rejectedSkillNames","requiredNextToolNames","expectedEvidence","unmetPreconditions","reason"],"additionalProperties":false}`,
+			Document:           schema,
 			IsStrictlyEnforced: true,
 		},
 	})
 	if errorValue != nil {
-		return contractSkillArbitrationResult{Status: contractSkillArbitrationFailed}
+		return contractSkillArbitration{}, errorValue
 	}
 	var arbitration contractSkillArbitration
-	if errorValue := json.Unmarshal([]byte(structuredResponse.Content), &arbitration); errorValue != nil {
-		return contractSkillArbitrationResult{Status: contractSkillArbitrationFailed}
+	errorValue = json.Unmarshal([]byte(response.Content), &arbitration)
+	return arbitration, errorValue
+}
+
+func contractSkillArbitrationSchema(vocabulary contractSkillArbitrationVocabulary) string {
+	document := map[string]any{
+		"type":                 "object",
+		"additionalProperties": false,
+		"required":             []string{"selectedSkillNames", "rejectedSkillNames", "requiredNextToolNames", "expectedEvidence", "unmetPreconditions", "reason"},
+		"properties": map[string]any{
+			"selectedSkillNames":    exactStringArraySchema(vocabulary.SkillNames, 3),
+			"rejectedSkillNames":    exactStringArraySchema(vocabulary.SkillNames, len(vocabulary.SkillNames)),
+			"requiredNextToolNames": exactStringArraySchema(vocabulary.ToolNames, 12),
+			"expectedEvidence":      exactStringArraySchema(vocabulary.EvidenceNames, 8),
+			"unmetPreconditions": map[string]any{
+				"type":     "array",
+				"maxItems": 8,
+				"items":    map[string]any{"type": "string"},
+			},
+			"reason": map[string]any{"type": "string"},
+		},
 	}
-	arbitration = normalizeContractSkillArbitration(arbitration, candidates)
-	if !contractSkillArbitrationHasContent(arbitration) {
-		return contractSkillArbitrationResult{Status: contractSkillArbitrationFailed}
+	encodedDocument, _ := json.Marshal(document)
+	return string(encodedDocument)
+}
+
+func exactStringArraySchema(values []string, maximumItems int) map[string]any {
+	itemSchema := map[string]any{"type": "string"}
+	if len(values) > 0 {
+		itemSchema["enum"] = values
+	} else {
+		maximumItems = 0
 	}
-	return contractSkillArbitrationResult{
-		Arbitration: arbitration,
-		Status:      contractSkillArbitrationSucceeded,
+	return map[string]any{
+		"type":        "array",
+		"maxItems":    maximumItems,
+		"uniqueItems": true,
+		"items":       itemSchema,
 	}
+}
+
+func buildContractSkillArbitrationVocabulary(request AgentRequest, candidates []SkillInstruction) contractSkillArbitrationVocabulary {
+	vocabulary := contractSkillArbitrationVocabulary{
+		RequiresEvidence: requiredEvidenceIncludesSideEffect(request.ToolSet, request.ActiveGoal.OutcomeContract.RequiredEvidenceTools),
+	}
+	for _, candidate := range candidates {
+		vocabulary.SkillNames = appendUniqueStrings(vocabulary.SkillNames, candidate.Name)
+		for _, toolName := range SkillToolNames(candidate) {
+			if requestHasToolName(request, toolName) {
+				vocabulary.ToolNames = appendUniqueStrings(vocabulary.ToolNames, toolName)
+			}
+		}
+	}
+	for _, toolName := range KernelToolNames() {
+		if requestHasToolName(request, toolName) {
+			vocabulary.ToolNames = appendUniqueStrings(vocabulary.ToolNames, toolName)
+		}
+	}
+	evidenceCandidates := appendUniqueStrings(request.ActiveGoal.OutcomeContract.RequiredEvidenceTools)
+	for _, candidate := range candidates {
+		evidenceCandidates = appendUniqueStrings(evidenceCandidates, SkillToolNames(candidate)...)
+	}
+	for _, toolName := range evidenceCandidates {
+		if requiredEvidenceToolCanBeSatisfied(request.ToolSet, toolName) {
+			vocabulary.EvidenceNames = appendUniqueStrings(vocabulary.EvidenceNames, toolName)
+		}
+	}
+	return vocabulary
+}
+
+func validateContractSkillArbitration(arbitration contractSkillArbitration, request AgentRequest, candidates []SkillInstruction, vocabulary contractSkillArbitrationVocabulary) error {
+	if len(arbitration.SelectedSkillNames)+len(arbitration.RejectedSkillNames) == 0 {
+		return fmt.Errorf("no skill was selected or rejected")
+	}
+	if errorValue := validateExactContractNames(arbitration.SelectedSkillNames, stringSet(vocabulary.SkillNames)); errorValue != nil {
+		return errorValue
+	}
+	if errorValue := validateExactContractNames(arbitration.RejectedSkillNames, stringSet(vocabulary.SkillNames)); errorValue != nil {
+		return errorValue
+	}
+	selectedSkills := contractSelectedSkillInstructions(arbitration.SelectedSkillNames, candidates)
+	if errorValue := validateExactContractNames(arbitration.RequiredNextTools, selectedSkillNextToolNameSet(selectedSkills, request)); errorValue != nil {
+		return fmt.Errorf("required next: %w", errorValue)
+	}
+	if errorValue := validateExactContractNames(arbitration.ExpectedEvidence, selectedSkillEvidenceToolNameSet(selectedSkills, request)); errorValue != nil {
+		return fmt.Errorf("expected evidence: %w", errorValue)
+	}
+	if vocabulary.RequiresEvidence && len(arbitration.ExpectedEvidence) == 0 {
+		return fmt.Errorf("expected evidence is required")
+	}
+	evidenceNames := stringSet(vocabulary.EvidenceNames)
+	for _, toolName := range arbitration.ExpectedEvidence {
+		if !evidenceNames[toolName] {
+			return fmt.Errorf("expected evidence %s cannot prove completion", toolName)
+		}
+	}
+	return nil
+}
+
+func validateExactContractNames(values []string, allowedValues map[string]bool) error {
+	seenValues := map[string]bool{}
+	for _, value := range values {
+		if !allowedValues[value] || seenValues[value] {
+			return fmt.Errorf("invalid value %s", value)
+		}
+		seenValues[value] = true
+	}
+	return nil
+}
+
+func contractSelectedSkillInstructions(selectedSkillNames []string, candidates []SkillInstruction) []SkillInstruction {
+	selectedNames := stringSet(selectedSkillNames)
+	selectedSkills := []SkillInstruction{}
+	for _, candidate := range candidates {
+		if selectedNames[candidate.Name] {
+			selectedSkills = append(selectedSkills, candidate)
+		}
+	}
+	return selectedSkills
 }
 
 func requestHasOutcomeContractForSkillArbitration(request AgentRequest) bool {
@@ -99,7 +235,7 @@ func contractSkillArbitrationMessages(request AgentRequest, candidates []SkillIn
 			"Select only skill names from the candidate list. Do not invent skills or tools.",
 			"The latest user request is authoritative. Use prior conversation only to understand the current requested outcome.",
 			"Choose capabilities needed to create, verify, deliver, or update the required result. Do not select skills merely because the requested content mentions their domain.",
-			"expectedEvidence must name the exact successful operations that prove the requested outcome. Include each state-changing requiredNextTool in expectedEvidence; requiredNextToolNames only describes execution order.",
+			"requiredNextToolNames describes execution order. expectedEvidence contains only exact successful operations whose results prove the final requested outcome; do not promote intermediate operations to evidence.",
 			"If no candidate is useful for the contract, return an empty selectedSkillNames array and reject the unsuitable candidates.",
 		}, " "),
 	}, {
@@ -142,35 +278,6 @@ func contractSkillCandidateCardsJSON(candidates []SkillInstruction, candidateByN
 		return "[]"
 	}
 	return string(document)
-}
-
-func normalizeContractSkillArbitration(arbitration contractSkillArbitration, candidates []SkillInstruction) contractSkillArbitration {
-	candidateNames := map[string]bool{}
-	for _, candidate := range candidates {
-		candidateNames[strings.TrimSpace(candidate.Name)] = true
-	}
-	arbitration.SelectedSkillNames = filterCandidateSkillNames(arbitration.SelectedSkillNames, candidateNames)
-	arbitration.RejectedSkillNames = filterCandidateSkillNames(arbitration.RejectedSkillNames, candidateNames)
-	arbitration.RequiredNextTools = appendUniqueStrings(arbitration.RequiredNextTools)
-	arbitration.ExpectedEvidence = appendUniqueStrings(arbitration.ExpectedEvidence)
-	arbitration.UnmetPreconditions = appendUniqueStrings(arbitration.UnmetPreconditions)
-	arbitration.Reason = strings.TrimSpace(arbitration.Reason)
-	return arbitration
-}
-
-func filterCandidateSkillNames(values []string, candidateNames map[string]bool) []string {
-	result := []string{}
-	for _, value := range values {
-		trimmedValue := strings.TrimSpace(value)
-		if trimmedValue != "" && candidateNames[trimmedValue] {
-			result = appendUniqueStrings(result, trimmedValue)
-		}
-	}
-	return result
-}
-
-func contractSkillArbitrationHasContent(arbitration contractSkillArbitration) bool {
-	return len(arbitration.SelectedSkillNames) > 0 || len(arbitration.RejectedSkillNames) > 0
 }
 
 func limitSkillInstructions(skillInstructions []SkillInstruction, limit int) []SkillInstruction {
