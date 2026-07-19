@@ -110,6 +110,9 @@ describe('canonical capability tools', () => {
       ArtifactToolName.Review,
     ]);
     expect(catalog.tools.every(tool => tool.inputSchemaStrict && tool.outputSchemaStrict)).toBe(true);
+    expect(catalog.tools.every(tool => (
+      JSON.stringify(tool.outputSchema) === JSON.stringify(tool.resultContract?.schema)
+    ))).toBe(true);
     expect(new Set(catalog.tools.map(tool => tool.name)).size).toBe(catalog.tools.length);
   });
 

@@ -9,7 +9,6 @@ import {
   capabilityIdempotencySchema,
   capabilityDescriptorSchema,
   resourceEffectContractSchema,
-  toolInvokeResponseSchema,
 } from './capability.ts';
 import { jsonValueSchema } from './common.ts';
 
@@ -1449,8 +1448,9 @@ export function buildCapabilityToolCatalog(protocolVersion: string): CapabilityT
 }
 
 function buildCapabilityDescriptor(definition: CapabilityToolDefinition): z.infer<typeof capabilityDescriptorSchema> {
+  const resultSchema = z.toJSONSchema(definition.result.schema);
   const resultContract = {
-    schema: z.toJSONSchema(definition.result.schema),
+    schema: resultSchema,
     effects: definition.result.effects,
     evidenceCondition: definition.result.evidenceCondition,
   };
@@ -1471,7 +1471,7 @@ function buildCapabilityDescriptor(definition: CapabilityToolDefinition): z.infe
     inputIntentSchema: definition.inputIntentSchema === undefined
       ? undefined
       : z.toJSONSchema(definition.inputIntentSchema),
-    outputSchema: z.toJSONSchema(toolInvokeResponseSchema),
+    outputSchema: resultSchema,
     inputSchemaStrict: true,
     outputSchemaStrict: true,
     resultContract,
