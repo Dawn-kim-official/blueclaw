@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -141,6 +142,44 @@ func TestFreshTaskKeepsRouterInitialToolsWithoutRequiredEvidence(t *testing.T) {
 	)
 	if !sameStringSet(pinnedToolNames, []string{"manual.tool", "file.read"}) {
 		t.Fatalf("expected router fallback without required evidence, got %+v", pinnedToolNames)
+	}
+}
+
+func TestRequiredNextToolsPreferPersistedThenArbitratedThenRouterOrder(t *testing.T) {
+	testCases := []struct {
+		name              string
+		activeGoal        ActiveGoal
+		arbitratedTools   []string
+		routerTools       []string
+		expectedToolNames []string
+	}{
+		{
+			name:              "persisted continuation",
+			activeGoal:        ActiveGoal{RequiredNextTools: []string{"task.update", "file.deliver"}},
+			arbitratedTools:   []string{"calendar.update"},
+			routerTools:       []string{"file.write"},
+			expectedToolNames: []string{"task.update", "file.deliver"},
+		},
+		{
+			name:              "arbitrated workflow",
+			arbitratedTools:   []string{"file.write", TerminalRunToolName, FileDeliverToolName},
+			routerTools:       []string{"file.write", FileDeliverToolName},
+			expectedToolNames: []string{"file.write", TerminalRunToolName, FileDeliverToolName},
+		},
+		{
+			name:              "router fallback",
+			routerTools:       []string{"file.write", FileDeliverToolName},
+			expectedToolNames: []string{"file.write", FileDeliverToolName},
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			toolNames := requiredNextToolNamesForResolvedRequest(testCase.activeGoal, testCase.arbitratedTools, testCase.routerTools)
+			if !slices.Equal(toolNames, testCase.expectedToolNames) {
+				t.Fatalf("expected %v, got %v", testCase.expectedToolNames, toolNames)
+			}
+		})
 	}
 }
 
@@ -495,8 +534,12 @@ func TestAgentKernelCompilesOperationContractBeforeApprovalPause(t *testing.T) {
 	if toolCallCount != 0 {
 		t.Fatalf("expected no side effect before approval, got %d calls", toolCallCount)
 	}
-	if !taskEventsContain(taskRunService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.goal.waiting_approval", `"operationContract":{"version":1`) {
+	taskEvents := taskRunService.ListTaskEvent(result.TaskRun.TaskRunID)
+	if !taskEventsContain(taskEvents, "agent.goal.waiting_approval", `"operationContract":{"version":1`) {
 		t.Fatal("expected reviewed operation contract persisted before approval")
+	}
+	if !taskEventsContain(taskEvents, "agent.goal.waiting_approval", `"requiredNextTools":["site.delete"]`) {
+		t.Fatal("expected required next tools persisted before approval")
 	}
 }
 

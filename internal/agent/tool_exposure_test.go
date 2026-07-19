@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 )
 
@@ -316,6 +317,45 @@ func TestRequiredEvidenceWinsToolBudget(t *testing.T) {
 
 	if !filteredToolSet.IsAllowed("task.update") {
 		t.Fatalf("expected required evidence inside budget, got %+v", filteredToolSet.ListToolNames())
+	}
+}
+
+func TestPendingOperationWinsExtensionToolBudget(t *testing.T) {
+	selectedToolNames := []string{
+		"tool.01", "tool.02", "tool.03", "tool.04", "tool.05",
+		"tool.06", "tool.07", "tool.08", "tool.09", "tool.10", "tool.11",
+	}
+	toolSet := testToolSet(append(KernelToolNames(), selectedToolNames...))
+	instructionBundle := InstructionBundle{
+		Skills:         []SkillInstruction{{Name: "extension", ToolReferences: selectedToolNames}},
+		SkillDecisions: []SkillSelectionDecision{{Name: "extension", Status: "selected"}},
+	}
+	outcomeContract := OutcomeContract{OperationContract: &OperationContract{
+		Version: operationContractVersion,
+		Requirements: []OperationRequirement{{
+			RequirementID: "operation-1",
+			ToolID:        "test:tool.11",
+			ToolName:      "tool.11",
+			InputMode:     OperationInputNoExplicitValues,
+			RequiredInput: json.RawMessage(`{}`),
+		}},
+	}}
+
+	filteredToolSet, _ := toolSetForAgentTurnWithExposure(
+		toolSet,
+		instructionBundle,
+		AgentRequest{},
+		ExecutionPlan{},
+		false,
+		outcomeContract,
+		ToolExposureEvent{},
+	)
+
+	if !filteredToolSet.IsAllowed("tool.11") {
+		t.Fatalf("expected pending operation inside budget, got %+v", filteredToolSet.ListToolNames())
+	}
+	if filteredToolSet.IsAllowed("tool.10") {
+		t.Fatalf("expected a non-pending extension to leave the budget, got %+v", filteredToolSet.ListToolNames())
 	}
 }
 

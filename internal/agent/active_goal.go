@@ -23,6 +23,7 @@ type ActiveGoal struct {
 	CurrentObjective    string           `json:"currentObjective,omitempty"`
 	KnownContext        []string         `json:"knownContext,omitempty"`
 	MissingInformation  []string         `json:"missingInformation,omitempty"`
+	RequiredNextTools   []string         `json:"requiredNextTools,omitempty"`
 	SelectedToolNames   []string         `json:"selectedToolNames,omitempty"`
 	SelectedSkillNames  []string         `json:"selectedSkillNames,omitempty"`
 	OutcomeContract     OutcomeContract  `json:"outcomeContract,omitempty"`
@@ -98,6 +99,7 @@ const (
 )
 
 func normalizePersistedActiveGoal(activeGoal ActiveGoal) ActiveGoal {
+	activeGoal.RequiredNextTools = normalizePersistedToolNames(activeGoal.RequiredNextTools)
 	activeGoal.SelectedToolNames = normalizePersistedToolNames(activeGoal.SelectedToolNames)
 	activeGoal.OutcomeContract = normalizePersistedOutcomeContract(activeGoal.OutcomeContract)
 	return activeGoal
