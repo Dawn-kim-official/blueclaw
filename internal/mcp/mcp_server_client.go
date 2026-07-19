@@ -36,11 +36,14 @@ func (serverClient ServerClient) Connect(ctx context.Context, serverDefinition S
 }
 
 func (serverClient ServerClient) ListTools(ctx context.Context, session *serverSession) ([]*sdkmcp.Tool, error) {
-	result, errorValue := session.session.ListTools(ctx, &sdkmcp.ListToolsParams{})
-	if errorValue != nil {
-		return nil, errorValue
+	tools := []*sdkmcp.Tool{}
+	for tool, errorValue := range session.session.Tools(ctx, nil) {
+		if errorValue != nil {
+			return nil, errorValue
+		}
+		tools = append(tools, tool)
 	}
-	return result.Tools, nil
+	return tools, nil
 }
 
 func (serverClient ServerClient) InvokeTool(ctx context.Context, session *serverSession, invocation Invocation) (string, error) {
