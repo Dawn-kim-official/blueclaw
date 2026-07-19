@@ -54,6 +54,7 @@ func (provider mcpToolProvider) boundTool(definition mcp.ToolDefinition) agent.B
 			RequiresUserPresence: definition.Policy.RequiresUserPresence,
 			WorksOffline:         definition.Policy.WorksOffline,
 			InputSchema:          definition.InputSchema,
+			InputIntentSchema:    definition.InputIntentSchema,
 			OutputSchema:         definition.OutputSchema,
 			ResultContract:       resultContract,
 			Visibility:           definition.Policy.ModelVisibility,

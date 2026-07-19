@@ -30,10 +30,9 @@ type operationRequirementDocument struct {
 }
 
 type operationDescriptorDocument struct {
-	Name               string          `json:"name"`
-	Description        string          `json:"description"`
-	InputSchema        json.RawMessage `json:"inputSchema"`
-	PartialInputSchema json.RawMessage `json:"-"`
+	Name              string          `json:"name"`
+	Description       string          `json:"description"`
+	InputIntentSchema json.RawMessage `json:"inputIntentSchema"`
 }
 
 type operationContractReviewDocument struct {
@@ -234,21 +233,16 @@ func operationDescriptorDocuments(toolSet *ToolSet, toolNames []string) ([]opera
 		if !isRegistered || strings.TrimSpace(descriptor.ID) == "" {
 			return nil, fmt.Errorf("operation %s has no canonical descriptor ID", toolName)
 		}
-		if len(descriptor.InputSchema) == 0 {
-			return nil, fmt.Errorf("operation %s has no input schema", toolName)
+		if len(descriptor.InputIntentSchema) == 0 {
+			return nil, fmt.Errorf("operation %s has no input intent schema", toolName)
 		}
-		if errorValue := validateOperationInputSchema(descriptor.InputSchema); errorValue != nil {
-			return nil, fmt.Errorf("operation %s has invalid input schema: %w", toolName, errorValue)
-		}
-		partialInputSchema, errorValue := partialOperationInputSchema(descriptor.InputSchema)
-		if errorValue != nil {
-			return nil, fmt.Errorf("operation %s has invalid partial input schema: %w", toolName, errorValue)
+		if errorValue := validateOperationInputSchema(descriptor.InputIntentSchema); errorValue != nil {
+			return nil, fmt.Errorf("operation %s has invalid input intent schema: %w", toolName, errorValue)
 		}
 		descriptors = append(descriptors, operationDescriptorDocument{
-			Name:               descriptor.Name,
-			Description:        descriptor.Description,
-			InputSchema:        descriptor.InputSchema,
-			PartialInputSchema: partialInputSchema,
+			Name:              descriptor.Name,
+			Description:       descriptor.Description,
+			InputIntentSchema: descriptor.InputIntentSchema,
 		})
 	}
 	return descriptors, nil
@@ -290,81 +284,9 @@ func operationRequirementSchema(descriptor operationDescriptorDocument) map[stri
 				"type": "string",
 				"enum": []string{descriptor.Name},
 			},
-			"requiredValues": descriptor.PartialInputSchema,
+			"requiredValues": descriptor.InputIntentSchema,
 		},
 	}
-}
-
-func partialOperationInputSchema(inputSchema json.RawMessage) (json.RawMessage, error) {
-	document, errorValue := decodeJSONValue(inputSchema)
-	if errorValue != nil {
-		return nil, fmt.Errorf("decode descriptor input schema: %w", errorValue)
-	}
-	removeOperationInputCompletenessConstraints(document)
-	partialSchema, errorValue := json.Marshal(document)
-	if errorValue != nil {
-		return nil, fmt.Errorf("encode partial descriptor input schema: %w", errorValue)
-	}
-	return partialSchema, nil
-}
-
-func removeOperationInputCompletenessConstraints(schema any) {
-	switch document := schema.(type) {
-	case map[string]any:
-		if operationInputSchemaDescribesObject(document) {
-			delete(document, "required")
-			delete(document, "minProperties")
-		}
-		if alternatives, hasOneOf := document["oneOf"].([]any); hasOneOf && operationInputAlternativesContainObjects(alternatives) {
-			document["anyOf"] = alternatives
-			delete(document, "oneOf")
-		}
-		for _, value := range document {
-			removeOperationInputCompletenessConstraints(value)
-		}
-	case []any:
-		for _, value := range document {
-			removeOperationInputCompletenessConstraints(value)
-		}
-	}
-}
-
-func operationInputSchemaDescribesObject(schema map[string]any) bool {
-	if schema["type"] == "object" {
-		return true
-	}
-	_, hasProperties := schema["properties"]
-	return hasProperties
-}
-
-func operationInputAlternativesContainObjects(alternatives []any) bool {
-	for _, alternative := range alternatives {
-		if operationInputSchemaContainsObject(alternative) {
-			return true
-		}
-	}
-	return false
-}
-
-func operationInputSchemaContainsObject(schema any) bool {
-	switch document := schema.(type) {
-	case map[string]any:
-		if operationInputSchemaDescribesObject(document) {
-			return true
-		}
-		for _, value := range document {
-			if operationInputSchemaContainsObject(value) {
-				return true
-			}
-		}
-	case []any:
-		for _, value := range document {
-			if operationInputSchemaContainsObject(value) {
-				return true
-			}
-		}
-	}
-	return false
 }
 
 func parseOperationRequirements(content string, toolSet *ToolSet, expectedToolNames []string) ([]OperationRequirement, error) {
@@ -402,7 +324,7 @@ func parseOperationRequirement(index int, document operationRequirementDocument,
 	if !isRegistered || strings.TrimSpace(descriptor.ID) == "" {
 		return OperationRequirement{}, fmt.Errorf("operation %s has no canonical descriptor ID", toolName)
 	}
-	requiredInput, errorValue := validateRequiredOperationInput(document.RequiredValues, descriptor.InputSchema)
+	requiredInput, errorValue := validateRequiredOperationInput(document.RequiredValues, descriptor.InputIntentSchema)
 	if errorValue != nil {
 		return OperationRequirement{}, fmt.Errorf("operation %s: %w", toolName, errorValue)
 	}
@@ -423,7 +345,7 @@ func operationInputMode(requiredInput json.RawMessage) OperationInputMode {
 	return OperationInputContainsExplicit
 }
 
-func validateRequiredOperationInput(document json.RawMessage, inputSchema json.RawMessage) (json.RawMessage, error) {
+func validateRequiredOperationInput(document json.RawMessage, inputIntentSchema json.RawMessage) (json.RawMessage, error) {
 	requiredInput, errorValue := decodeJSONObject(document)
 	if errorValue != nil {
 		return nil, fmt.Errorf("required values must be a JSON object: %w", errorValue)
@@ -432,11 +354,7 @@ func validateRequiredOperationInput(document json.RawMessage, inputSchema json.R
 	if errorValue := json.Unmarshal(document, &validationInput); errorValue != nil || validationInput == nil {
 		return nil, errors.New("required values must be a JSON object")
 	}
-	partialInputSchema, errorValue := partialOperationInputSchema(inputSchema)
-	if errorValue != nil {
-		return nil, errorValue
-	}
-	schema, errorValue := decodeOperationInputSchema(partialInputSchema)
+	schema, errorValue := decodeOperationInputSchema(inputIntentSchema)
 	if errorValue != nil {
 		return nil, errorValue
 	}
@@ -521,7 +439,7 @@ func validateOperationContract(contract *OperationContract, toolSet *ToolSet, ex
 		if !isRegistered || strings.TrimSpace(requirement.ToolID) != strings.TrimSpace(descriptor.ID) {
 			return fmt.Errorf("operation contract descriptor identity does not match %s", toolName)
 		}
-		if _, errorValue := validateRequiredOperationInput(requirement.RequiredInput, descriptor.InputSchema); errorValue != nil {
+		if _, errorValue := validateRequiredOperationInput(requirement.RequiredInput, descriptor.InputIntentSchema); errorValue != nil {
 			return fmt.Errorf("operation contract requirement %s is invalid: %w", requirementID, errorValue)
 		}
 		if requirement.InputMode != operationInputMode(requirement.RequiredInput) {

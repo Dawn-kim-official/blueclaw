@@ -46,8 +46,10 @@ func TestTaskIntakeControllerStartsUnquiesced(t *testing.T) {
 }
 
 func TestCapabilityToolDescriptorsPreserveResultContracts(t *testing.T) {
+	inputIntentSchema := json.RawMessage(`{"type":"object","properties":{"title":{"type":"string"}},"additionalProperties":false}`)
 	descriptors := capabilityToolDescriptors([]config.CapabilityToolDescriptor{{
-		Name: "task.add",
+		Name:              "task.add",
+		InputIntentSchema: inputIntentSchema,
 		ResultContract: &config.CapabilityToolResultContract{
 			Schema: json.RawMessage(`{"type":"object","properties":{"taskID":{"type":"string"}},"required":["taskID"],"additionalProperties":false}`),
 			Effects: []config.CapabilityResourceEffectContract{{
@@ -65,6 +67,9 @@ func TestCapabilityToolDescriptorsPreserveResultContracts(t *testing.T) {
 
 	if len(descriptors) != 1 || descriptors[0].ResultContract == nil {
 		t.Fatalf("expected mapped result contract, got %+v", descriptors)
+	}
+	if string(descriptors[0].InputIntentSchema) != string(inputIntentSchema) {
+		t.Fatalf("expected mapped input intent schema, got %s", descriptors[0].InputIntentSchema)
 	}
 	if len(descriptors[0].ResultContract.Effects) != 1 ||
 		descriptors[0].ResultContract.Effects[0].ObjectType != "task" ||

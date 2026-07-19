@@ -55,7 +55,11 @@ describe('protocol artifact generation', () => {
       await writeFile(join(generatedDirectory, 'capability-tools.json'), '{}');
       await expect(checkProtocolArtifacts(generatedDirectory)).rejects.toThrow('capability-tools.json');
 
+      await writeFile(join(generatedDirectory, 'catalog.go'), 'package capabilitycatalog\n');
       await generateProtocolArtifacts(generatedDirectory);
+      expect(await readFile(join(generatedDirectory, 'catalog.go'), 'utf8')).toBe('package capabilitycatalog\n');
+      await expect(checkProtocolArtifacts(generatedDirectory)).resolves.toBeUndefined();
+
       await writeFile(join(generatedDirectory, 'extra.json'), '{}');
       await expect(checkProtocolArtifacts(generatedDirectory)).rejects.toThrow('generated protocol paths differ');
     } finally {

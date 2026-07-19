@@ -103,6 +103,42 @@ func TestMcpRegistryQuarantinesLegacyAndUnreachableServers(t *testing.T) {
 	}
 }
 
+func TestMcpRegistryQuarantinesStateChangingToolWithoutValidInputIntentSchema(t *testing.T) {
+	for _, inputIntentSchema := range []json.RawMessage{
+		nil,
+		json.RawMessage(`{"type":"string"}`),
+	} {
+		configuration := canonicalServerConfiguration(os.Args[0], "echo")
+		configuration.Tools[0].Policy.SideEffectClass = "workspace_write"
+		configuration.Tools[0].InputIntentSchema = inputIntentSchema
+		mcpRegistry := NewMcpRegistry()
+
+		loadReport := mcpRegistry.LoadServerDefinition([]config.MCPServerConfiguration{configuration})
+
+		if !reflect.DeepEqual(loadReport.Quarantined, []QuarantinedServer{{Name: "local-tools", Reason: "invalid configuration"}}) {
+			t.Fatalf("expected invalid input intent quarantine, got %+v", loadReport.Quarantined)
+		}
+		if len(mcpRegistry.ListTool()) != 0 {
+			t.Fatalf("expected quarantined tool to stay hidden, got %+v", mcpRegistry.ListTool())
+		}
+	}
+}
+
+func TestMcpServerDefinitionPreservesStateChangingInputIntentSchema(t *testing.T) {
+	configuration := canonicalServerConfiguration(os.Args[0], "echo")
+	configuration.Tools[0].Policy.SideEffectClass = "workspace_write"
+	configuration.Tools[0].InputIntentSchema = json.RawMessage(`{"type":"object","properties":{"text":{"type":"string"}},"additionalProperties":false}`)
+
+	serverDefinition, errorValue := buildServerDefinition(configuration)
+
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if string(serverDefinition.Tools[0].InputIntentSchema) != string(configuration.Tools[0].InputIntentSchema) {
+		t.Fatalf("expected input intent schema preservation, got %s", serverDefinition.Tools[0].InputIntentSchema)
+	}
+}
+
 func TestMcpRegistryQuarantinesDuplicateServerNamesWithoutConnecting(t *testing.T) {
 	mcpRegistry := NewMcpRegistry()
 	loadReport := mcpRegistry.LoadServerDefinition([]config.MCPServerConfiguration{

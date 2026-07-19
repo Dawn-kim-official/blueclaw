@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"strings"
 
+	"blueclaw/internal/agent"
 	"blueclaw/internal/capability"
 )
 
@@ -57,6 +58,12 @@ func completeTestCapabilityToolDescriptor(descriptor CapabilityToolDescriptor) C
 	}
 	descriptor.PolicyResource = firstNonEmptyString(descriptor.PolicyResource, "tool:"+descriptor.CanonicalName)
 	descriptor.SideEffectClass = firstNonEmptyString(descriptor.SideEffectClass, "read")
+	if agent.ToolDescriptorRequiresInputIntentSchema(agent.ToolDescriptor{
+		Visibility:      descriptor.ModelVisibility,
+		SideEffectClass: descriptor.SideEffectClass,
+	}) {
+		descriptor.InputIntentSchema = firstNonEmptySchema(descriptor.InputIntentSchema, json.RawMessage(`{"type":"object","properties":{},"additionalProperties":false}`))
+	}
 	descriptor.Availability.State = firstNonEmptyString(descriptor.Availability.State, "ok")
 	descriptor.Idempotency.Scope = firstNonEmptyString(descriptor.Idempotency.Scope, "operation")
 	return descriptor

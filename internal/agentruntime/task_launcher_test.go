@@ -191,6 +191,21 @@ func TestTaskLauncherAuditsPlatformMessageSchemaSkewWithoutBlocking(t *testing.T
 	}
 }
 
+func TestPlatformMessageDescriptorHashIncludesInputIntentSchema(t *testing.T) {
+	baseDescriptor := CapabilityToolDescriptor{
+		Name:              "message.delete",
+		InputSchema:       platformMessageDeleteCriteriaSchema(),
+		InputIntentSchema: platformMessageDeleteIDsOnlySchema(),
+	}
+	changedDescriptor := baseDescriptor
+	changedDescriptor.InputIntentSchema = platformMessageEmptySchema()
+
+	if hashCapabilityDescriptors([]CapabilityToolDescriptor{baseDescriptor}) ==
+		hashCapabilityDescriptors([]CapabilityToolDescriptor{changedDescriptor}) {
+		t.Fatal("expected input intent schema drift to change the descriptor hash")
+	}
+}
+
 func TestTaskLauncherRejectsStaleMessageToolRegistryBeforeModelCall(t *testing.T) {
 	taskEventService := task.NewTaskEventService()
 	agentKernel := agent.NewAgentKernel(task.NewTaskRunService(taskEventService), task.NewTaskStepService())

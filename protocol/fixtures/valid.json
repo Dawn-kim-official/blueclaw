@@ -78,6 +78,21 @@
         ],
         "additionalProperties": false
       },
+      "inputIntentSchema": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string"
+          },
+          "startISO": {
+            "type": "string"
+          },
+          "endISO": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
       "outputSchema": {
         "type": "object",
         "properties": {},

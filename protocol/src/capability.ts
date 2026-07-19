@@ -72,6 +72,31 @@ function schemaAcceptsEvidenceCondition(
   }
 }
 
+function schemaAcceptsEmptyObject(schema: unknown): boolean {
+  if (!isJSONSchema(schema)) return false;
+  try {
+    return z.fromJSONSchema(schema).safeParse({}).success;
+  } catch {
+    return false;
+  }
+}
+
+function schemaPropertiesAreSubset(inputSchema: unknown, inputIntentSchema: unknown): boolean {
+  const inputProperties = objectField(inputSchema, 'properties');
+  const intentProperties = objectField(inputIntentSchema, 'properties');
+  if (!intentProperties || typeof intentProperties !== 'object' || Array.isArray(intentProperties)) return true;
+  return Object.keys(intentProperties).every(propertyName => objectField(inputProperties, propertyName) !== undefined);
+}
+
+function descriptorRequiresInputIntentSchema(descriptor: {
+  modelVisibility: CapabilityModelVisibility;
+  sideEffectClass: CapabilitySideEffect;
+}): boolean {
+  if (descriptor.modelVisibility !== CapabilityModelVisibility.Visible) return false;
+  return descriptor.sideEffectClass !== CapabilitySideEffect.Read
+    && descriptor.sideEffectClass !== CapabilitySideEffect.Computation;
+}
+
 export enum CapabilityEstimatedLatency {
   Low = 'low',
   Medium = 'medium',
@@ -199,6 +224,7 @@ export const capabilityDescriptorSchema = z.strictObject({
   requiresUserPresence: z.boolean(),
   worksOffline: z.boolean(),
   inputSchema: strictObjectJsonSchema,
+  inputIntentSchema: strictObjectJsonSchema.optional(),
   outputSchema: strictObjectJsonSchema,
   inputSchemaStrict: z.literal(true),
   outputSchemaStrict: z.literal(true),
@@ -214,6 +240,16 @@ export const capabilityDescriptorSchema = z.strictObject({
   message: 'modelVisible must match modelVisibility',
 }).refine(descriptor => descriptor.sideEffectClass === descriptor.sideEffect, {
   message: 'sideEffectClass must match sideEffect',
+}).superRefine((descriptor, context) => {
+  if (descriptorRequiresInputIntentSchema(descriptor) && descriptor.inputIntentSchema === undefined) {
+    context.addIssue({ code: 'custom', path: ['inputIntentSchema'], message: 'model-visible state-changing capabilities require inputIntentSchema' });
+  }
+  if (descriptor.inputIntentSchema !== undefined && !schemaAcceptsEmptyObject(descriptor.inputIntentSchema)) {
+    context.addIssue({ code: 'custom', path: ['inputIntentSchema'], message: 'inputIntentSchema must accept an empty object' });
+  }
+  if (descriptor.inputIntentSchema !== undefined && !schemaPropertiesAreSubset(descriptor.inputSchema, descriptor.inputIntentSchema)) {
+    context.addIssue({ code: 'custom', path: ['inputIntentSchema'], message: 'inputIntentSchema properties must exist in inputSchema' });
+  }
 });
 
 export const capabilityRegistryResponseSchema = protocolIdentitySchema.extend({

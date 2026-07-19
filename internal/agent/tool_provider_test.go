@@ -42,6 +42,47 @@ func TestRegisterProviderAddsValidatedTools(t *testing.T) {
 	}
 }
 
+func TestRegisterProviderRequiresValidInputIntentSchemaForVisibleMutation(t *testing.T) {
+	testCases := []struct {
+		name              string
+		inputIntentSchema json.RawMessage
+		expectedError     string
+	}{
+		{name: "missing", expectedError: "inputIntentSchema is required"},
+		{name: "requires value", inputIntentSchema: json.RawMessage(`{"type":"object","properties":{"title":{"type":"string"}},"required":["title"],"additionalProperties":false}`), expectedError: "must accept an empty object"},
+		{name: "unknown property", inputIntentSchema: json.RawMessage(`{"type":"object","properties":{"unknown":{"type":"string"}},"additionalProperties":false}`), expectedError: "property is absent from inputSchema: unknown"},
+	}
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			boundTool := validProviderTool("capabilityd/task/task.add", "task", "task.add")
+			boundTool.Definition.InputIntentSchema = testCase.inputIntentSchema
+			provider := &testToolProvider{providerID: "capabilityd", tools: []BoundTool{boundTool}}
+
+			errorValue := NewToolSet(nil).RegisterProvider(context.Background(), provider)
+
+			if errorValue == nil || !strings.Contains(errorValue.Error(), testCase.expectedError) {
+				t.Fatalf("expected %s, got %v", testCase.expectedError, errorValue)
+			}
+		})
+	}
+}
+
+func TestRegisterProviderPreservesInputIntentSchema(t *testing.T) {
+	boundTool := validProviderTool("capabilityd/task/task.add", "task", "task.add")
+	boundTool.Definition.InputSchema = json.RawMessage(`{"type":"object","properties":{"title":{"type":"string"}},"required":["title"],"additionalProperties":false}`)
+	boundTool.Definition.InputIntentSchema = json.RawMessage(`{"type":"object","properties":{"title":{"type":"string"}},"additionalProperties":false}`)
+	provider := &testToolProvider{providerID: "capabilityd", tools: []BoundTool{boundTool}}
+	toolSet := NewToolSet(nil)
+
+	if errorValue := toolSet.RegisterProvider(context.Background(), provider); errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	descriptor, isFound := toolSet.ToolDefinition("task.add")
+	if !isFound || !strings.Contains(string(descriptor.InputIntentSchema), `"title"`) {
+		t.Fatalf("expected canonical input intent schema, got %+v", descriptor)
+	}
+}
+
 func TestRegisterProviderRejectsMissingSchemaAtomically(t *testing.T) {
 	validTool := validProviderTool("capabilityd/task/task.add", "task", "task.add")
 	invalidTool := validProviderTool("capabilityd/task/task.list", "task", "task.list")
@@ -681,19 +722,20 @@ func TestProviderVisibilityControlsModelExposure(t *testing.T) {
 func validProviderTool(toolID string, namespace string, name string) BoundTool {
 	return BoundTool{
 		Definition: ToolDescriptor{
-			ID:              toolID,
-			Namespace:       namespace,
-			Name:            name,
-			Description:     "Execute " + name,
-			PrivacyClass:    "workspace",
-			InputSchema:     json.RawMessage(`{"type":"object","properties":{},"additionalProperties":false}`),
-			OutputSchema:    json.RawMessage(`{"type":"object","properties":{}}`),
-			ResultContract:  &ToolResultContract{Schema: json.RawMessage(`{"type":"object","properties":{},"additionalProperties":false}`)},
-			Visibility:      ToolVisibilityModel,
-			PolicyResource:  "tool:" + name,
-			SideEffectClass: ToolSideEffectStateChange,
-			Completion:      ToolCompletion{Mode: ToolCompletionObservation, Action: "write_task", TargetKind: "task"},
-			Idempotency:     ToolIdempotencyNone,
+			ID:                toolID,
+			Namespace:         namespace,
+			Name:              name,
+			Description:       "Execute " + name,
+			PrivacyClass:      "workspace",
+			InputSchema:       json.RawMessage(`{"type":"object","properties":{},"additionalProperties":false}`),
+			InputIntentSchema: json.RawMessage(`{"type":"object","properties":{},"additionalProperties":false}`),
+			OutputSchema:      json.RawMessage(`{"type":"object","properties":{}}`),
+			ResultContract:    &ToolResultContract{Schema: json.RawMessage(`{"type":"object","properties":{},"additionalProperties":false}`)},
+			Visibility:        ToolVisibilityModel,
+			PolicyResource:    "tool:" + name,
+			SideEffectClass:   ToolSideEffectStateChange,
+			Completion:        ToolCompletion{Mode: ToolCompletionObservation, Action: "write_task", TargetKind: "task"},
+			Idempotency:       ToolIdempotencyNone,
 		},
 		Availability: ToolAvailability{Status: ToolAvailabilityAvailable},
 		Handler: func(context.Context, ToolInvocation) (ToolResult, error) {

@@ -97,9 +97,9 @@ var virtualCanonicalMessageToolNames = []string{
 	"channel.update",
 }
 
-var virtualCanonicalMessageToolDescriptorByName = mustLoadVirtualCanonicalMessageToolDescriptors()
+var virtualCanonicalCapabilityToolDescriptorByName = mustLoadVirtualCanonicalCapabilityToolDescriptors()
 
-func mustLoadVirtualCanonicalMessageToolDescriptors() map[string]agentruntime.CapabilityToolDescriptor {
+func mustLoadVirtualCanonicalCapabilityToolDescriptors() map[string]agentruntime.CapabilityToolDescriptor {
 	var catalog struct {
 		Tools []agentruntime.CapabilityToolDescriptor `json:"tools"`
 	}
@@ -108,9 +108,7 @@ func mustLoadVirtualCanonicalMessageToolDescriptors() map[string]agentruntime.Ca
 	}
 	descriptors := map[string]agentruntime.CapabilityToolDescriptor{}
 	for _, descriptor := range catalog.Tools {
-		if slices.Contains(virtualCanonicalMessageToolNames, descriptor.Name) {
-			descriptors[descriptor.Name] = descriptor
-		}
+		descriptors[descriptor.Name] = descriptor
 	}
 	for _, toolName := range virtualCanonicalMessageToolNames {
 		if _, isFound := descriptors[toolName]; !isFound {
@@ -915,29 +913,37 @@ func virtualCapabilityToolDescriptor(toolName string) agentruntime.CapabilityToo
 	}
 	sideEffectClass := virtualCapabilitySideEffectClass(toolName)
 	descriptor := agentruntime.CapabilityToolDescriptor{
-		Name:             toolName,
-		CanonicalName:    toolName,
-		Namespace:        virtualCapabilityNamespace(toolName),
-		ModelName:        toolName,
-		ModelVisibility:  agent.ToolVisibilityModel,
-		Description:      "Virtual capability " + toolName,
-		PrivacyClass:     "test",
-		InputSchema:      json.RawMessage(virtualCapabilityInputSchema(toolName)),
-		OutputSchema:     json.RawMessage(`{"type":"object","properties":{},"additionalProperties":false}`),
-		ResultContract:   virtualCapabilityToolResultContract(toolName),
-		PolicyResource:   "tool:" + toolName,
-		SideEffectClass:  sideEffectClass,
-		RequiresApproval: toolName == "site.delete",
-		Availability:     agentruntime.CapabilityAvailability{State: "ok"},
-		Idempotency:      agentruntime.CapabilityIdempotency{Scope: "operation"},
+		Name:              toolName,
+		CanonicalName:     toolName,
+		Namespace:         virtualCapabilityNamespace(toolName),
+		ModelName:         toolName,
+		ModelVisibility:   agent.ToolVisibilityModel,
+		Description:       "Virtual capability " + toolName,
+		PrivacyClass:      "test",
+		InputSchema:       json.RawMessage(virtualCapabilityInputSchema(toolName)),
+		InputIntentSchema: virtualCapabilityInputIntentSchema(toolName),
+		OutputSchema:      json.RawMessage(`{"type":"object","properties":{},"additionalProperties":false}`),
+		ResultContract:    virtualCapabilityToolResultContract(toolName),
+		PolicyResource:    "tool:" + toolName,
+		SideEffectClass:   sideEffectClass,
+		RequiresApproval:  toolName == "site.delete",
+		Availability:      agentruntime.CapabilityAvailability{State: "ok"},
+		Idempotency:       agentruntime.CapabilityIdempotency{Scope: "operation"},
 	}
 	descriptor.CompletionEvidence = virtualCapabilityCompletionEvidence(toolName, sideEffectClass)
 	return descriptor
 }
 
-func virtualCanonicalMessageToolDescriptor(toolName string) (agentruntime.CapabilityToolDescriptor, bool) {
-	descriptor, isFound := virtualCanonicalMessageToolDescriptorByName[toolName]
+func virtualCanonicalCapabilityToolDescriptor(toolName string) (agentruntime.CapabilityToolDescriptor, bool) {
+	descriptor, isFound := virtualCanonicalCapabilityToolDescriptorByName[toolName]
 	return descriptor, isFound
+}
+
+func virtualCanonicalMessageToolDescriptor(toolName string) (agentruntime.CapabilityToolDescriptor, bool) {
+	if !slices.Contains(virtualCanonicalMessageToolNames, toolName) {
+		return agentruntime.CapabilityToolDescriptor{}, false
+	}
+	return virtualCanonicalCapabilityToolDescriptor(toolName)
 }
 
 func virtualCapabilityCompletionEvidence(toolName string, sideEffectClass string) *agentruntime.CapabilityCompletionEvidence {
@@ -965,6 +971,7 @@ func mergeVirtualCapabilityToolDescriptor(base agentruntime.CapabilityToolDescri
 	override.Description = firstVirtualString(override.Description, base.Description)
 	override.PrivacyClass = firstVirtualString(override.PrivacyClass, base.PrivacyClass)
 	override.InputSchema = firstVirtualSchema(override.InputSchema, base.InputSchema)
+	override.InputIntentSchema = firstVirtualSchema(override.InputIntentSchema, base.InputIntentSchema)
 	override.OutputSchema = firstVirtualSchema(override.OutputSchema, base.OutputSchema)
 	if override.ResultContract == nil {
 		override.ResultContract = base.ResultContract
@@ -1676,43 +1683,18 @@ func validateVirtualMessageSendInput(input map[string]any) error {
 }
 
 func virtualCapabilityInputSchema(toolName string) string {
-	if descriptor, isFound := virtualCanonicalMessageToolDescriptor(toolName); isFound {
+	if descriptor, isFound := virtualCanonicalCapabilityToolDescriptor(toolName); isFound {
 		return string(descriptor.InputSchema)
 	}
-	switch toolName {
-	case "task.add":
-		return `{"type":"object","properties":{"title":{"type":"string"},"goal":{"type":"string"},"size":{"type":"string","enum":["XS","S","M","L","XL","XXL"]},"status":{"type":"string","enum":["예정","진행","완료","일시정지","기각","중단"]},"startDate":{"type":"string"},"endDate":{"type":"string"},"targetPersonHint":{"type":"string"},"participantPersonHints":{"type":"array","items":{"type":"string"}}},"required":["title"],"additionalProperties":false}`
-	case "task.list":
-		return `{"type":"object","properties":{"query":{"type":"string"},"targetPersonHint":{"type":"string"},"scope":{"type":"string","enum":["self","all"]},"weekFrom":{"type":"integer"},"weekTo":{"type":"integer"},"status":{"type":"string"},"limit":{"type":"integer"}},"additionalProperties":false}`
-	case "task.update":
-		return `{"type":"object","properties":{"taskID":{"type":"string","minLength":1},"title":{"type":"string"},"goal":{"type":"string"},"status":{"type":"string","enum":["예정","진행","완료","요청","일시정지","기각","중단"]},"size":{"type":"string","enum":["XS","S","M","L","XL","XXL"]},"category":{"type":"string"},"type":{"type":"string"},"startDate":{"type":"string"},"endDate":{"type":"string"},"flag":{"type":"number"},"requestReason":{"type":"string"},"decisionReason":{"type":"string"}},"required":["taskID"],"additionalProperties":false,"minProperties":2}`
-	case "task.delete":
-		return `{"type":"object","properties":{"taskID":{"type":"string"}},"required":["taskID"],"additionalProperties":false}`
-	case "calendar.add":
-		return `{"type":"object","properties":{"title":{"type":"string"},"description":{"type":"string"},"location":{"type":"string"},"startISO":{"type":"string"},"endISO":{"type":"string"},"timeZone":{"type":"string"},"isAllDay":{"type":"boolean"},"color":{"type":"string"},"people":{"type":"array","items":{"type":"string"}},"includeRequester":{"type":"boolean"},"reminderLeadHours":{"type":"number","enum":[1,2,3,6,12,24,48]}},"required":["title","startISO","endISO"],"additionalProperties":false}`
-	case "calendar.list":
-		return `{"type":"object","properties":{"startISO":{"type":"string"},"endISO":{"type":"string"},"query":{"type":"string"},"limit":{"type":"number","exclusiveMinimum":0}},"additionalProperties":false}`
-	case "calendar.update":
-		return `{"type":"object","properties":{"eventID":{"type":"string","minLength":1},"title":{"type":"string"},"description":{"type":"string"},"location":{"type":"string"},"startISO":{"type":"string"},"endISO":{"type":"string"},"timeZone":{"type":"string"},"isAllDay":{"type":"boolean"},"color":{"type":"string"},"people":{"type":"array","items":{"type":"string"}},"includeRequester":{"type":"boolean"},"reminderLeadHours":{"type":"number","enum":[1,2,3,6,12,24,48]}},"required":["eventID"],"additionalProperties":false,"minProperties":2}`
-	case "calendar.delete":
-		return `{"type":"object","properties":{"eventID":{"type":"string","minLength":1}},"required":["eventID"],"additionalProperties":false}`
-	case "web.search":
-		return `{"type":"object","properties":{"query":{"type":"string"},"location":{"type":"string"},"language":{"type":"string"},"limit":{"type":"integer"},"allowedDomains":{"type":"array","items":{"type":"string"}},"excludedDomains":{"type":"array","items":{"type":"string"}}},"required":["query"],"additionalProperties":false}`
-	case "image.read":
-		return `{"type":"object","properties":{"path":{"type":"string","minLength":1}},"required":["path"],"additionalProperties":false}`
-	case "site.create":
-		return `{"type":"object","properties":{"slug":{"type":"string","minLength":1,"pattern":"^[a-z0-9]+(?:-[a-z0-9]+)*$"},"title":{"type":"string"},"prompt":{"type":"string"},"designBrief":{"type":"string"},"prototypeScope":{"type":"string"},"description":{"type":"string"},"idea":{"type":"string"},"purpose":{"type":"string"},"audience":{"type":"string"},"archetype":{"type":"string"},"domainKeywords":{"type":"array","items":{"type":"string"}},"content":{"type":"object","properties":{"siteName":{"type":"string"},"tagline":{"type":"string"},"heroActionLabel":{"type":"string"},"heroActionHref":{"type":"string"},"sections":{"type":"array","minItems":1,"items":{"type":"object","properties":{"title":{"type":"string"},"body":{"type":"string"}},"required":["title","body"],"additionalProperties":false}}},"required":["siteName","sections"],"additionalProperties":false}},"required":["slug"],"additionalProperties":false}`
-	case "site.status":
-		return `{"type":"object","properties":{"siteReference":{"type":"string","minLength":1},"checkLive":{"type":"boolean"}},"required":["siteReference"],"additionalProperties":false}`
-	case "site.preview":
-		return `{"type":"object","properties":{"siteID":{"type":"string","minLength":1},"previewID":{"type":"string","minLength":1}},"required":["siteID"],"additionalProperties":false}`
-	case "site.publish":
-		return `{"type":"object","properties":{"siteID":{"type":"string","minLength":1},"previewID":{"type":"string","minLength":1},"message":{"type":"string"}},"required":["siteID"],"additionalProperties":false}`
-	case "site.delete":
-		return `{"type":"object","properties":{"siteID":{"type":"string","minLength":1},"reason":{"type":"string"}},"required":["siteID"],"additionalProperties":false}`
-	default:
-		return `{"type":"object"}`
+	return `{"type":"object"}`
+}
+
+func virtualCapabilityInputIntentSchema(toolName string) json.RawMessage {
+	descriptor, isFound := virtualCanonicalCapabilityToolDescriptor(toolName)
+	if !isFound {
+		return nil
 	}
+	return descriptor.InputIntentSchema
 }
 
 func virtualCapabilityResultContract(toolName string) string {

@@ -623,7 +623,13 @@ func TestVirtualSiteToolsUseCanonicalFiveToolContracts(t *testing.T) {
 	}
 
 	statusInputSchema := virtualCapabilityInputSchema("site.status")
-	if !strings.Contains(statusInputSchema, `"required":["siteReference"]`) || strings.Contains(statusInputSchema, `"siteID"`) {
+	var statusInputDocument struct {
+		Required []string `json:"required"`
+	}
+	if errorValue := json.Unmarshal([]byte(statusInputSchema), &statusInputDocument); errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if !slices.Equal(statusInputDocument.Required, []string{"siteReference"}) || strings.Contains(statusInputSchema, `"siteID"`) {
 		t.Fatalf("expected site.status to require only siteReference, got %s", statusInputSchema)
 	}
 
@@ -641,6 +647,10 @@ func TestVirtualSiteToolsUseCanonicalFiveToolContracts(t *testing.T) {
 		"site.delete":  {"siteID", "deleted"},
 	}
 	for _, toolName := range expectedToolNames {
+		descriptor := virtualCapabilityToolDescriptor(toolName)
+		if descriptor.SideEffectClass != agent.ToolSideEffectRead && len(descriptor.InputIntentSchema) == 0 {
+			t.Fatalf("expected canonical %s input intent schema", toolName)
+		}
 		contract := virtualCapabilityToolResultContract(toolName)
 		if contract == nil {
 			t.Fatalf("expected %s result contract", toolName)
@@ -745,9 +755,31 @@ func TestVirtualMessageToolsUseGeneratedCanonicalContracts(t *testing.T) {
 			}
 			continue
 		}
+		if len(descriptor.InputIntentSchema) == 0 {
+			t.Fatalf("expected canonical %s input intent schema", toolName)
+		}
 		if !descriptor.RequiresApproval || len(descriptor.ResultContract.Effects) != 1 || descriptor.ResultContract.Effects[0] != expectedEffect {
 			t.Fatalf("expected canonical %s mutation contract, got %+v", toolName, descriptor)
 		}
+	}
+}
+
+func TestVirtualCapabilityDescriptorMergePreservesCanonicalInputIntentSchema(t *testing.T) {
+	descriptor := mergeVirtualCapabilityToolDescriptor(
+		virtualCapabilityToolDescriptor("task.update"),
+		agentruntime.CapabilityToolDescriptor{Name: "task.update", RequiresApproval: true},
+	)
+	if len(descriptor.InputIntentSchema) == 0 || !descriptor.RequiresApproval {
+		t.Fatalf("expected canonical intent and configured approval, got %+v", descriptor)
+	}
+
+	overrideSchema := json.RawMessage(`{"type":"object","properties":{"taskID":{"type":"string"}},"additionalProperties":false}`)
+	descriptor = mergeVirtualCapabilityToolDescriptor(
+		descriptor,
+		agentruntime.CapabilityToolDescriptor{Name: "task.update", InputIntentSchema: overrideSchema},
+	)
+	if string(descriptor.InputIntentSchema) != string(overrideSchema) {
+		t.Fatalf("expected explicit input intent override, got %s", descriptor.InputIntentSchema)
 	}
 }
 

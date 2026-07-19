@@ -243,7 +243,12 @@ func normalizeProviderTool(providerID string, boundTool BoundTool) (BoundTool, e
 	if errorValue != nil {
 		return BoundTool{}, fmt.Errorf("invalid tool descriptor %s: outputSchema %w", firstNonEmptyString(toolDescriptor.ID, toolDescriptor.Name), errorValue)
 	}
+	normalizedInputIntentSchema, errorValue := normalizeProviderToolSchema(toolDescriptor.InputIntentSchema)
+	if errorValue != nil {
+		return BoundTool{}, fmt.Errorf("invalid tool descriptor %s: inputIntentSchema %w", firstNonEmptyString(toolDescriptor.ID, toolDescriptor.Name), errorValue)
+	}
 	toolDescriptor.InputSchema = normalizedInputSchema
+	toolDescriptor.InputIntentSchema = normalizedInputIntentSchema
 	toolDescriptor.OutputSchema = normalizedOutputSchema
 	if toolDescriptor.ResultContract != nil {
 		normalizedResultSchema, resultSchemaError := normalizeProviderToolSchema(toolDescriptor.ResultContract.Schema)
@@ -380,10 +385,55 @@ func validateProviderTool(boundTool BoundTool) error {
 	if errorValue := validateToolSchema("inputSchema", toolDescriptor.InputSchema, true); errorValue != nil {
 		return errorValue
 	}
+	if ToolDescriptorRequiresInputIntentSchema(toolDescriptor) && len(toolDescriptor.InputIntentSchema) == 0 {
+		return errors.New("inputIntentSchema is required for model-visible state-changing tools")
+	}
+	if len(toolDescriptor.InputIntentSchema) > 0 {
+		if errorValue := validateToolSchema("inputIntentSchema", toolDescriptor.InputIntentSchema, true); errorValue != nil {
+			return errorValue
+		}
+		if errorValue := validateInputIntentSchema(toolDescriptor); errorValue != nil {
+			return errorValue
+		}
+	}
 	if errorValue := validateToolSchema("outputSchema", toolDescriptor.OutputSchema, true); errorValue != nil {
 		return errorValue
 	}
 	return validateToolResultContract(toolDescriptor.ResultContract)
+}
+
+func validateInputIntentSchema(toolDescriptor ToolDescriptor) error {
+	if _, errorValue := validateToolInput(toolDescriptor.InputIntentSchema, json.RawMessage(`{}`)); errorValue != nil {
+		return errors.New("inputIntentSchema must accept an empty object")
+	}
+	inputProperties, errorValue := toolSchemaPropertyNames(toolDescriptor.InputSchema)
+	if errorValue != nil {
+		return errorValue
+	}
+	intentProperties, errorValue := toolSchemaPropertyNames(toolDescriptor.InputIntentSchema)
+	if errorValue != nil {
+		return errorValue
+	}
+	for propertyName := range intentProperties {
+		if !inputProperties[propertyName] {
+			return errors.New("inputIntentSchema property is absent from inputSchema: " + propertyName)
+		}
+	}
+	return nil
+}
+
+func toolSchemaPropertyNames(schema json.RawMessage) (map[string]bool, error) {
+	var document struct {
+		Properties map[string]json.RawMessage `json:"properties"`
+	}
+	if errorValue := json.Unmarshal(schema, &document); errorValue != nil {
+		return nil, errorValue
+	}
+	properties := make(map[string]bool, len(document.Properties))
+	for propertyName := range document.Properties {
+		properties[propertyName] = true
+	}
+	return properties, nil
 }
 
 func validateToolResultContract(contract *ToolResultContract) error {

@@ -54,8 +54,9 @@ type capabilityRegistryResponse struct {
 }
 
 type capabilityRegistryDescriptor struct {
-	Name        string          `json:"name"`
-	InputSchema json.RawMessage `json:"inputSchema,omitempty"`
+	Name              string          `json:"name"`
+	InputSchema       json.RawMessage `json:"inputSchema,omitempty"`
+	InputIntentSchema json.RawMessage `json:"inputIntentSchema,omitempty"`
 }
 
 type toolRegistryMismatchError struct {
@@ -144,8 +145,9 @@ func (toolCatalogBuilder *ToolCatalogBuilder) liveCapabilityToolDescriptors(ctx 
 		toolName := strings.TrimSpace(descriptor.Name)
 		if toolName != "" {
 			toolDescriptors = append(toolDescriptors, CapabilityToolDescriptor{
-				Name:        toolName,
-				InputSchema: append(json.RawMessage{}, descriptor.InputSchema...),
+				Name:              toolName,
+				InputSchema:       append(json.RawMessage{}, descriptor.InputSchema...),
+				InputIntentSchema: append(json.RawMessage{}, descriptor.InputIntentSchema...),
 			})
 		}
 	}
@@ -183,7 +185,11 @@ func hashCapabilityDescriptors(toolDescriptors []CapabilityToolDescriptor) strin
 		if toolName == "" {
 			continue
 		}
-		signatures = append(signatures, toolName+"\t"+normalizedJSONSchemaString(toolDescriptor.InputSchema))
+		signatures = append(signatures, strings.Join([]string{
+			toolName,
+			normalizedJSONSchemaString(toolDescriptor.InputSchema),
+			normalizedJSONSchemaString(toolDescriptor.InputIntentSchema),
+		}, "\t"))
 	}
 	return hashStrings(signatures)
 }

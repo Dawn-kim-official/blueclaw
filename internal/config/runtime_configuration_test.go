@@ -22,6 +22,7 @@ func TestLoadRuntimeConfigurationIncludesFirecrackerAndBridge(t *testing.T) {
       {
         "name": "browser.open",
         "inputSchema": {"type": "object"},
+        "inputIntentSchema": {"type": "object"},
         "sideEffectClass": "browser"
       },
       {
@@ -105,6 +106,7 @@ func TestLoadRuntimeConfigurationIncludesFirecrackerAndBridge(t *testing.T) {
         "namespace": "test",
         "description": "Echo input",
         "inputSchema": {"type": "object"},
+        "inputIntentSchema": {"type": "object"},
         "policy": {
           "privacyClass": "test",
           "modelVisibility": "visible",
@@ -176,6 +178,9 @@ func TestLoadRuntimeConfigurationIncludesFirecrackerAndBridge(t *testing.T) {
 	}
 	if string(runtimeConfiguration.Capabilities.ToolDescriptors[0].InputSchema) != `{"type": "object"}` && string(runtimeConfiguration.Capabilities.ToolDescriptors[0].InputSchema) != `{"type":"object"}` {
 		t.Fatalf("expected descriptor input schema to load, got %s", runtimeConfiguration.Capabilities.ToolDescriptors[0].InputSchema)
+	}
+	if len(runtimeConfiguration.Capabilities.ToolDescriptors[0].InputIntentSchema) == 0 {
+		t.Fatal("expected descriptor input intent schema to load")
 	}
 	if !runtimeConfiguration.Capabilities.ToolDescriptors[1].RequiresApproval {
 		t.Fatalf("expected descriptor approval flag to load, got %+v", runtimeConfiguration.Capabilities.ToolDescriptors[1])
@@ -254,6 +259,9 @@ func TestLoadRuntimeConfigurationIncludesFirecrackerAndBridge(t *testing.T) {
 	}
 	if len(runtimeConfiguration.MCPServers) != 1 || len(runtimeConfiguration.MCPServers[0].Tools) != 1 || runtimeConfiguration.MCPServers[0].Tools[0].Name != "echo" {
 		t.Fatalf("expected canonical MCP tools to load, got %+v", runtimeConfiguration.MCPServers)
+	}
+	if len(runtimeConfiguration.MCPServers[0].Tools[0].InputIntentSchema) == 0 {
+		t.Fatal("expected MCP input intent schema to load")
 	}
 	if runtimeConfiguration.Logging.RetentionDays != 7 {
 		t.Fatalf("expected log retention to match, got %d", runtimeConfiguration.Logging.RetentionDays)

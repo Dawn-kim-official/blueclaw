@@ -54,6 +54,9 @@ func newTestToolSetWithDefinitions(definitions []ToolDefinition) *ToolSet {
 		if len(definition.OutputSchema) == 0 {
 			definition.OutputSchema = json.RawMessage(`{"type":"object","properties":{}}`)
 		}
+		if ToolDescriptorRequiresInputIntentSchema(definition) && len(definition.InputIntentSchema) == 0 {
+			definition.InputIntentSchema = json.RawMessage(`{"type":"object","properties":{}}`)
+		}
 		registerTestTool(toolSet, definition, func(context.Context, ToolInvocation) (ToolResult, error) {
 			return testToolSuccess("ok"), nil
 		})
@@ -63,13 +66,14 @@ func newTestToolSetWithDefinitions(definitions []ToolDefinition) *ToolSet {
 
 func testToolDescriptor(toolName string) ToolDefinition {
 	return ToolDefinition{
-		ID:              "test:" + toolName,
-		Name:            toolName,
-		Visibility:      ToolVisibilityModel,
-		InputSchema:     json.RawMessage(`{"type":"object","properties":{}}`),
-		OutputSchema:    json.RawMessage(`{"type":"object","properties":{}}`),
-		ResultContract:  testToolResultContract(),
-		SideEffectClass: testToolSideEffectClass(toolName),
+		ID:                "test:" + toolName,
+		Name:              toolName,
+		Visibility:        ToolVisibilityModel,
+		InputSchema:       json.RawMessage(`{"type":"object","properties":{}}`),
+		InputIntentSchema: json.RawMessage(`{"type":"object","properties":{}}`),
+		OutputSchema:      json.RawMessage(`{"type":"object","properties":{}}`),
+		ResultContract:    testToolResultContract(),
+		SideEffectClass:   testToolSideEffectClass(toolName),
 	}
 }
 
