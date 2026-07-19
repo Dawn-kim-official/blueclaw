@@ -851,6 +851,26 @@ func TestVirtualSiteToolsUseCanonicalFiveToolContracts(t *testing.T) {
 	}
 }
 
+func TestVirtualDomainToolsUseGeneratedResultContracts(t *testing.T) {
+	for _, toolName := range virtualGeneratedResultContractToolNames {
+		generatedDescriptor, isFound := virtualCanonicalCapabilityToolDescriptor(toolName)
+		if !isFound || generatedDescriptor.ResultContract == nil {
+			t.Fatalf("expected generated result contract for %s", toolName)
+		}
+		generatedDocument, errorValue := json.Marshal(generatedDescriptor.ResultContract)
+		if errorValue != nil {
+			t.Fatal(errorValue)
+		}
+		virtualDocument, errorValue := json.Marshal(virtualCapabilityToolResultContract(toolName))
+		if errorValue != nil {
+			t.Fatal(errorValue)
+		}
+		if string(virtualDocument) != string(generatedDocument) {
+			t.Fatalf("expected %s to use its generated result contract", toolName)
+		}
+	}
+}
+
 func TestVirtualMessageToolsUseGeneratedCanonicalContracts(t *testing.T) {
 	expectedRequiredFields := map[string][]string{
 		"message.context": {"platform", "conversationID", "conversationType", "channelID", "channelName", "replyTargetID", "rootMessageID", "currentMessageID", "requesterPersonID", "requesterPlatformUserID", "botUserID", "botUsername"},
