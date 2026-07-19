@@ -180,10 +180,8 @@ func TestCompileOperationRequirementsAsksModelOnlyForBindableIntents(t *testing.
 	}
 }
 
-func TestCompileOperationRequirementsSeparatesPinnedOperationsFromCompletionEvidence(t *testing.T) {
-	languageModel := &operationContractLanguageModel{contents: []string{
-		`{"operations":[{"toolName":"file.write","requiredValues":{"path":"FAQ.json","content":"{}"}}]}`,
-	}}
+func TestCompileOperationRequirementsDoesNotPromoteExecutionHintsToEvidence(t *testing.T) {
+	languageModel := &operationContractLanguageModel{}
 	toolSet := newTestToolSetWithDefinitions([]ToolDefinition{
 		{
 			ID:                "kernel:file.read",
@@ -208,13 +206,11 @@ func TestCompileOperationRequirementsSeparatesPinnedOperationsFromCompletionEvid
 		context.Background(),
 		languageModel,
 		AgentRequest{
-			Prompt: "FAQ JSON 파일을 만들어서 전달해줘",
+			Prompt:          "FAQ JSON 파일을 만들어서 전달해줘",
+			PinnedToolNames: []string{FileReadToolName, FileWriteToolName, FileDeliverToolName},
 		},
 		toolSet,
 		OutcomeContract{RequiredEvidenceTools: []string{FileDeliverToolName}},
-		FileReadToolName,
-		FileWriteToolName,
-		FileDeliverToolName,
 	)
 
 	if errorValue != nil {
@@ -223,15 +219,11 @@ func TestCompileOperationRequirementsSeparatesPinnedOperationsFromCompletionEvid
 	if !slices.Equal(contract.RequiredEvidenceTools, []string{FileDeliverToolName}) {
 		t.Fatalf("expected delivery-only completion evidence, got %v", contract.RequiredEvidenceTools)
 	}
-	if contract.OperationContract == nil || len(contract.OperationContract.Requirements) != 1 {
-		t.Fatalf("expected one pinned operation requirement, got %+v", contract.OperationContract)
+	if contract.OperationContract != nil {
+		t.Fatalf("expected execution hints to stay out of the completion contract, got %+v", contract.OperationContract)
 	}
-	if contract.OperationContract.Requirements[0].ToolName != FileWriteToolName {
-		t.Fatalf("expected file.write operation requirement, got %+v", contract.OperationContract.Requirements)
-	}
-	modelRequest := joinedMessageContent(languageModel.requests[0].Messages)
-	if strings.Contains(modelRequest, `"name":"file.read"`) || strings.Contains(modelRequest, `"name":"file.deliver"`) {
-		t.Fatalf("expected read and empty-intent tools to stay out of the operation contract, got %s", modelRequest)
+	if languageModel.calls != 0 {
+		t.Fatalf("expected execution hints not to invoke the operation compiler, got %d calls", languageModel.calls)
 	}
 }
 

@@ -713,7 +713,7 @@ func retryAgentActionChatCompletionRequest(request llm.ChatCompletionRequest, co
 			correction.Diagnostic.FinishReason != llm.StructuredOutputDiagnosticFinishStop {
 			return retryRequest, true
 		}
-		toolName = firstPendingOperationToolName(state)
+		toolName = firstPendingActionToolName(state)
 		if toolName == "" && agentActionCompletionIsReady(state) {
 			toolName = "finish"
 		}
@@ -737,19 +737,15 @@ func restrictAgentActionChatCompletionRequest(request llm.ChatCompletionRequest,
 	return llm.ChatCompletionRequest{}, false
 }
 
-func firstPendingOperationToolName(state agentTaskState) string {
+func firstPendingActionToolName(state agentTaskState) string {
 	if _, hasFailureDebt := activeFailureDebt(state.Observations); hasFailureDebt {
 		return ""
 	}
-	contract := state.Request.OutcomeContract.OperationContract
-	if contract == nil || contract.Version != operationContractVersion || len(contract.Requirements) == 0 {
-		return ""
-	}
-	requirement, isPending := firstPendingOperationRequirement(contract, state.Observations)
-	if !isPending {
-		return ""
-	}
-	return strings.TrimSpace(requirement.ToolName)
+	return firstPendingRequiredToolName(
+		state.Request.OutcomeContract.OperationContract,
+		state.Request.ContractToolWorkingSet.RequiredNextTools,
+		state.Observations,
+	)
 }
 
 func agentActionCompletionIsReady(state agentTaskState) bool {

@@ -348,6 +348,9 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 		return result, errorValue
 	}
 
+	requiredNextToolNames := requiredNextToolNamesForResolvedRequest(request.ActiveGoal, instructionBundle.RequiredNextTools, intakeDecision.InitialToolNames)
+	request.ActiveGoal.RequiredNextTools = requiredNextToolNames
+	intakeRequest.ActiveGoal = request.ActiveGoal
 	requiredAttachmentSuffixes := attachmentSuffixesForRequestedOutputFormats(intakeDecision.RequestedOutputFormats)
 	evidenceHints := selectedEvidenceHintTools(instructionBundle)
 	confirmationEvidenceHints := confirmationEvidenceHintsForRequest(request, intakeDecision, evidenceHints)
@@ -394,8 +397,9 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 		agentKernel.appendRequiredEvidenceEvents(result.TaskRun.TaskRunID, evidenceValidationReport, requiredEvidenceReask)
 		return result, blockError
 	}
-	requiredNextToolNames := appendUniqueStrings(intakeDecision.InitialToolNames, instructionBundle.RequiredNextTools...)
-	outcomeContract, errorValue = compileOperationRequirements(taskContext, routerLanguageModel, request, turnToolSet, outcomeContract, requiredNextToolNames...)
+	requiredNextToolNames = requiredNextToolNamesForResolvedRequest(request.ActiveGoal, instructionBundle.RequiredNextTools, intakeDecision.InitialToolNames)
+	request.ActiveGoal.RequiredNextTools = requiredNextToolNames
+	outcomeContract, errorValue = compileOperationRequirements(taskContext, routerLanguageModel, request, turnToolSet, outcomeContract)
 	if errorValue != nil {
 		if result, didExpire := agentKernel.completeIntakeIfElapsed(taskBudget, intakeRequest, intakeDecision, turnDecision.Route, routerCallLedger.records); didExpire {
 			return result, nil
@@ -428,7 +432,7 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 	intakeRequest.PinnedToolNames = request.PinnedToolNames
 
 	contractToolWorkingSet := ContractToolWorkingSet{
-		RequiredNextTools:     append([]string{}, instructionBundle.RequiredNextTools...),
+		RequiredNextTools:     requiredNextToolNames,
 		RequiredEvidenceTools: append([]string{}, instructionBundle.RequiredEvidenceTools...),
 	}
 	turnRequest := AgentTurnRequest{
@@ -559,6 +563,16 @@ func pinnedToolNamesForResolvedRequest(
 		selectedToolNames = appendUniqueStrings(routerToolNames, requiredEvidenceTools...)
 	}
 	return appendUniqueStrings(append([]string{}, preservedToolNames...), selectedToolNames...)
+}
+
+func requiredNextToolNamesForResolvedRequest(activeGoal ActiveGoal, arbitratedToolNames []string, routerToolNames []string) []string {
+	if len(activeGoal.RequiredNextTools) > 0 {
+		return appendUniqueStrings(activeGoal.RequiredNextTools)
+	}
+	if len(arbitratedToolNames) > 0 {
+		return appendUniqueStrings(arbitratedToolNames)
+	}
+	return appendUniqueStrings(routerToolNames)
 }
 
 func (agentKernel *AgentKernel) completeTurnRouterFailure(responseContext context.Context, request AgentRequest, errorValue error, routerCallRecords []llmCallRecord) AgentTurnResult {
@@ -720,6 +734,7 @@ func (agentKernel *AgentKernel) pauseForConfirmation(responseContext context.Con
 			return AgentTurnResult{}, errorValue
 		}
 		waitingGoal := activeGoalFromExecutionPlan(taskRun.TaskRunID, executionPlan, ActiveGoalStatusWaitingUserInput, request.ToolSet, evidenceHints, nil)
+		waitingGoal.RequiredNextTools = appendUniqueStrings(request.ActiveGoal.RequiredNextTools)
 		waitingGoal.OutcomeContract = normalizeOutcomeContract(outcomeContract)
 		waitingGoal.SelectedToolNames = appendUniqueStrings(nil, request.PinnedToolNames...)
 		waitingGoal.SelectedSkillNames = appendUniqueStrings(nil, selectedSkills...)
@@ -744,6 +759,7 @@ func (agentKernel *AgentKernel) pauseForConfirmation(responseContext context.Con
 		return AgentTurnResult{}, errorValue
 	}
 	approvalGoal := activeGoalFromExecutionPlan(taskRun.TaskRunID, executionPlan, ActiveGoalStatusWaitingApproval, request.ToolSet, evidenceHints, nil)
+	approvalGoal.RequiredNextTools = appendUniqueStrings(request.ActiveGoal.RequiredNextTools)
 	approvalGoal.OutcomeContract = normalizeOutcomeContract(outcomeContract)
 	approvalGoal.SelectedToolNames = appendUniqueStrings(nil, request.PinnedToolNames...)
 	approvalGoal.SelectedSkillNames = appendUniqueStrings(nil, selectedSkills...)

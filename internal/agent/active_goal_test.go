@@ -7,6 +7,7 @@ import (
 
 func TestNormalizePersistedActiveGoalMigratesLegacyToolNames(t *testing.T) {
 	activeGoal := ActiveGoal{
+		RequiredNextTools: []string{"terminal.session", "site.promote"},
 		SelectedToolNames: []string{"terminal.session", "site.promote"},
 		OutcomeContract: OutcomeContract{
 			RequiredEvidenceTools: []string{"file.attach", "artifact.deliver"},
@@ -37,6 +38,7 @@ func TestNormalizePersistedActiveGoalMigratesLegacyToolNames(t *testing.T) {
 
 	normalizedGoal := normalizePersistedActiveGoal(activeGoal)
 
+	assertSameStrings(t, normalizedGoal.RequiredNextTools, []string{TerminalRunToolName, "site.publish"})
 	assertSameStrings(t, normalizedGoal.SelectedToolNames, []string{TerminalRunToolName, "site.publish"})
 	assertSameStrings(t, normalizedGoal.OutcomeContract.RequiredEvidenceTools, []string{FileDeliverToolName})
 	assertSameStrings(t, normalizedGoal.OutcomeContract.RequiredEvidenceAnyOf[0], []string{AskInputToolName, TerminalRunToolName})
@@ -50,6 +52,7 @@ func TestNormalizePersistedActiveGoalMigratesLegacyToolNames(t *testing.T) {
 
 func TestNormalizePersistedActiveGoalDoesNotMutateSource(t *testing.T) {
 	activeGoal := ActiveGoal{
+		RequiredNextTools: []string{"site.promote"},
 		SelectedToolNames: []string{"file.attach"},
 		OutcomeContract: OutcomeContract{
 			RequiredEvidenceTools: []string{"site.promote"},
@@ -61,6 +64,7 @@ func TestNormalizePersistedActiveGoalDoesNotMutateSource(t *testing.T) {
 
 	normalizePersistedActiveGoal(activeGoal)
 
+	assertSameStrings(t, activeGoal.RequiredNextTools, []string{"site.promote"})
 	assertSameStrings(t, activeGoal.SelectedToolNames, []string{"file.attach"})
 	assertSameStrings(t, activeGoal.OutcomeContract.RequiredEvidenceTools, []string{"site.promote"})
 	if activeGoal.OutcomeContract.OperationContract.Requirements[0].ToolName != "terminal.session" {
