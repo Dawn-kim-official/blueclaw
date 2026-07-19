@@ -20,6 +20,22 @@ import (
 	"blueclaw/internal/task"
 )
 
+type virtualStructuredOutputCorrectionTestError struct{}
+
+func (virtualStructuredOutputCorrectionTestError) Error() string {
+	return "structured output invalid"
+}
+
+func (virtualStructuredOutputCorrectionTestError) StructuredOutputCorrection() (llm.StructuredOutputCorrection, bool) {
+	return llm.StructuredOutputCorrection{
+		Code: "structured_output_invalid",
+		Diagnostic: llm.StructuredOutputDiagnostic{
+			Category:     llm.StructuredOutputDiagnosticFinishReason,
+			FinishReason: llm.StructuredOutputDiagnosticFinishStop,
+		},
+	}, true
+}
+
 func TestPresentationScenarioDoesNotScriptToolCalls(t *testing.T) {
 	scenario := PresentationLocalMultiturnSuccessScenario(t.TempDir())
 	if len(scenario.Turns) != 1 {
@@ -69,15 +85,152 @@ func TestExpectedEventCountAllowsRepeatedReadResults(t *testing.T) {
 }
 
 func TestLanguageModelCallAssertionRejectsError(t *testing.T) {
-	errorValue := assertLanguageModelCallsSucceeded([]VirtualLanguageModelCallEvent{{
-		Kind:       "structured",
-		SchemaName: "blueclaw_turn_router",
-		IsError:    true,
-		Error:      "truncated",
-	}})
+	errorValue := assertLanguageModelCallsSucceeded(VirtualTurnResult{
+		LanguageModelCallEvents: []VirtualLanguageModelCallEvent{{
+			Kind:       "structured",
+			SchemaName: "blueclaw_turn_router",
+			IsError:    true,
+			Error:      "truncated",
+		}},
+	})
 
 	if errorValue == nil || !strings.Contains(errorValue.Error(), "blueclaw_turn_router") {
 		t.Fatalf("expected strict assertion to reject the model error, got %v", errorValue)
+	}
+}
+
+func TestLanguageModelCallAssertionAllowsCorrectedTypedError(t *testing.T) {
+	observed := &virtualObservedLanguageModel{store: &virtualLanguageModelObservationStore{}}
+	request := llm.ChatCompletionRequest{SchemaName: "blueclaw_agent_turn_action"}
+	observed.appendCall(virtualChatCallEvent(
+		"chat",
+		request,
+		llm.ChatCompletionResponse{},
+		time.Now(),
+		virtualStructuredOutputCorrectionTestError{},
+	))
+	observed.appendCall(VirtualLanguageModelCallEvent{
+		Kind:         "chat",
+		SchemaName:   "blueclaw_agent_turn_action",
+		FinishReason: "tool_calls",
+	})
+
+	calls := observed.CallsSince(0)
+	if len(calls) != 2 || !calls[0].IsError || !calls[0].WasCorrected {
+		t.Fatalf("expected corrected error evidence to remain visible, got %+v", calls)
+	}
+	if errorValue := assertLanguageModelCallsSucceeded(VirtualTurnResult{LanguageModelCallEvents: calls}); errorValue != nil {
+		t.Fatalf("expected corrected typed error to pass strict assertion: %v", errorValue)
+	}
+}
+
+func TestLanguageModelCallAssertionAllowsCorrectedTypedErrorChain(t *testing.T) {
+	observed := &virtualObservedLanguageModel{store: &virtualLanguageModelObservationStore{}}
+	request := llm.ChatCompletionRequest{SchemaName: "blueclaw_agent_turn_action"}
+	for range 2 {
+		observed.appendCall(virtualChatCallEvent(
+			"chat",
+			request,
+			llm.ChatCompletionResponse{},
+			time.Now(),
+			virtualStructuredOutputCorrectionTestError{},
+		))
+	}
+	observed.appendCall(VirtualLanguageModelCallEvent{
+		Kind:         "chat",
+		SchemaName:   "blueclaw_agent_turn_action",
+		FinishReason: "tool_calls",
+	})
+
+	calls := observed.CallsSince(0)
+	if len(calls) != 3 || !calls[0].WasCorrected || !calls[1].WasCorrected {
+		t.Fatalf("expected both typed errors to be corrected, got %+v", calls)
+	}
+	if errorValue := assertLanguageModelCallsSucceeded(VirtualTurnResult{LanguageModelCallEvents: calls}); errorValue != nil {
+		t.Fatalf("expected corrected typed error chain to pass strict assertion: %v", errorValue)
+	}
+}
+
+func TestLanguageModelCallAssertionRejectsUnrecoveredTypedError(t *testing.T) {
+	observed := &virtualObservedLanguageModel{store: &virtualLanguageModelObservationStore{}}
+	observed.appendCall(VirtualLanguageModelCallEvent{
+		Kind:                       "chat",
+		SchemaName:                 "blueclaw_agent_turn_action",
+		IsError:                    true,
+		Error:                      "structured output invalid",
+		StructuredOutputCorrection: &llm.StructuredOutputCorrection{},
+	})
+	observed.appendCall(VirtualLanguageModelCallEvent{
+		Kind:         "chat",
+		SchemaName:   "blueclaw_agent_turn_action",
+		FinishReason: "stop",
+	})
+
+	calls := observed.CallsSince(0)
+	if calls[0].WasCorrected {
+		t.Fatalf("expected non-tool response not to correct the error, got %+v", calls)
+	}
+	if errorValue := assertLanguageModelCallsSucceeded(VirtualTurnResult{LanguageModelCallEvents: calls}); errorValue == nil {
+		t.Fatal("expected unrecovered typed error to fail strict assertion")
+	}
+}
+
+func TestLanguageModelCallAssertionAllowsElapsedCompletionCutover(t *testing.T) {
+	turnResult := VirtualTurnResult{
+		TaskStatus: task.TaskStatusCompleted,
+		Events: []task.TaskEvent{{
+			Name: "agent.limit_completed_from_evidence",
+			Body: `{"reason":"max_elapsed","source":"typed_evidence"}`,
+		}},
+		LanguageModelCallEvents: []VirtualLanguageModelCallEvent{{
+			Kind:               "structured",
+			SchemaName:         "blueclaw_result_verifier",
+			IsError:            true,
+			IsDeadlineExceeded: true,
+			Error:              context.DeadlineExceeded.Error(),
+		}},
+	}
+
+	if errorValue := assertLanguageModelCallsSucceeded(turnResult); errorValue != nil {
+		t.Fatalf("expected exact-evidence elapsed completion to pass strict assertion: %v", errorValue)
+	}
+}
+
+func TestLanguageModelCallAssertionRejectsUnsettledDeadline(t *testing.T) {
+	turnResult := VirtualTurnResult{
+		TaskStatus: task.TaskStatusBlocked,
+		LanguageModelCallEvents: []VirtualLanguageModelCallEvent{{
+			Kind:               "structured",
+			SchemaName:         "blueclaw_result_verifier",
+			IsError:            true,
+			IsDeadlineExceeded: true,
+			Error:              context.DeadlineExceeded.Error(),
+		}},
+	}
+
+	if errorValue := assertLanguageModelCallsSucceeded(turnResult); errorValue == nil {
+		t.Fatal("expected unsettled deadline to fail strict assertion")
+	}
+}
+
+func TestLanguageModelCallAssertionRejectsForgedElapsedCutoverEvent(t *testing.T) {
+	turnResult := VirtualTurnResult{
+		TaskStatus: task.TaskStatusCompleted,
+		Events: []task.TaskEvent{{
+			Name: "agent.limit_completed_from_evidence",
+			Body: `{"note":"\"reason\":\"max_elapsed\"","source":"typed_evidence"}`,
+		}},
+		LanguageModelCallEvents: []VirtualLanguageModelCallEvent{{
+			Kind:               "structured",
+			SchemaName:         "blueclaw_result_verifier",
+			IsError:            true,
+			IsDeadlineExceeded: true,
+			Error:              context.DeadlineExceeded.Error(),
+		}},
+	}
+
+	if errorValue := assertLanguageModelCallsSucceeded(turnResult); errorValue == nil {
+		t.Fatal("expected malformed elapsed completion evidence to fail strict assertion")
 	}
 }
 
@@ -953,6 +1106,16 @@ func TestFileWriteAcceptance(t *testing.T) {
 	}
 	if countEvents(turnResult.Events, "tool.terminal.run.requested") != 0 {
 		t.Fatalf("file.write result contract must avoid redundant terminal verification, got events: %s", summarizeEvents(turnResult.Events))
+	}
+}
+
+func TestFileWriteAcceptanceRejectsWrongPersistedContent(t *testing.T) {
+	scenario := FileWriteAcceptanceScenario(t.TempDir())
+	scenario.Turns[0].ActionResponses[0] = actionCallTool("file.write", `{"path":"work/customer-support/faq-revision.json","content":"{}\n"}`)
+
+	_, errorValue := RunVirtualSession(context.Background(), scenario)
+	if errorValue == nil || !strings.Contains(errorValue.Error(), "FAQ 개편") {
+		t.Fatalf("expected attached JSON content validation failure, got %v", errorValue)
 	}
 }
 

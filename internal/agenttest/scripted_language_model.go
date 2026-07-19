@@ -250,9 +250,6 @@ func (languageModel *ScriptedLanguageModel) GenerateStructuredResponse(_ context
 			}
 			return languageModel.structuredResponse(response), nil
 		}
-		if schemaName == "blueclaw_operation_contract_review" {
-			return languageModel.structuredResponse(`{"isComplete":true,"reason":"scripted runtime fixture"}`), nil
-		}
 		if schemaName == "blueclaw_approval_question" {
 			return languageModel.structuredResponse(defaultApprovalQuestionResponse(request)), nil
 		}

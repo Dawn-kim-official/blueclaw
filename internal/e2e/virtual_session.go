@@ -151,6 +151,7 @@ type VirtualTurn struct {
 	ExpectedToolCallCounts    map[string]int
 	ExpectedEventCounts       []VirtualEventCount
 	ExpectedAttachments       []string
+	ExpectedAttachmentFiles   []VirtualAttachmentFileExpectation
 	ExpectedWorkspaceFiles    []VirtualWorkspaceFileExpectation
 	ForbiddenWorkspaceFiles   []string
 	ExpectedModelContexts     []string
@@ -176,6 +177,11 @@ type VirtualWorkspaceFileExpectation struct {
 	ContainsFragments  []string
 	ForbiddenFragments []string
 	FragmentCounts     map[string]int
+}
+
+type VirtualAttachmentFileExpectation struct {
+	Suffix            string
+	ContainsFragments []string
 }
 
 type VirtualSessionResult struct {
@@ -206,21 +212,26 @@ type VirtualTurnResult struct {
 }
 
 type VirtualLanguageModelCallEvent struct {
-	Kind             string `json:"kind"`
-	SchemaName       string `json:"schemaName,omitempty"`
-	Provider         string `json:"provider,omitempty"`
-	Model            string `json:"model,omitempty"`
-	SelectedBackend  string `json:"selectedBackend,omitempty"`
-	FinishReason     string `json:"finishReason,omitempty"`
-	LatencyMS        int64  `json:"latencyMs"`
-	PromptBytes      int    `json:"promptBytes"`
-	ContentBytes     int    `json:"contentBytes"`
-	UsedFallback     bool   `json:"usedFallback,omitempty"`
-	PromptTokens     int64  `json:"promptTokens,omitempty"`
-	CompletionTokens int64  `json:"completionTokens,omitempty"`
-	TotalTokens      int64  `json:"totalTokens,omitempty"`
-	IsError          bool   `json:"isError,omitempty"`
-	Error            string `json:"error,omitempty"`
+	Kind                       string                          `json:"kind"`
+	SchemaName                 string                          `json:"schemaName,omitempty"`
+	Provider                   string                          `json:"provider,omitempty"`
+	Model                      string                          `json:"model,omitempty"`
+	SelectedBackend            string                          `json:"selectedBackend,omitempty"`
+	FinishReason               string                          `json:"finishReason,omitempty"`
+	LatencyMS                  int64                           `json:"latencyMs"`
+	PromptBytes                int                             `json:"promptBytes"`
+	ContentBytes               int                             `json:"contentBytes"`
+	UsedFallback               bool                            `json:"usedFallback,omitempty"`
+	PromptTokens               int64                           `json:"promptTokens,omitempty"`
+	CompletionTokens           int64                           `json:"completionTokens,omitempty"`
+	TotalTokens                int64                           `json:"totalTokens,omitempty"`
+	IsError                    bool                            `json:"isError,omitempty"`
+	Error                      string                          `json:"error,omitempty"`
+	ResponseContent            string                          `json:"responseContent,omitempty"`
+	ToolCalls                  []llm.ChatCompletionToolCall    `json:"toolCalls,omitempty"`
+	IsDeadlineExceeded         bool                            `json:"isDeadlineExceeded,omitempty"`
+	WasCorrected               bool                            `json:"wasCorrected,omitempty"`
+	StructuredOutputCorrection *llm.StructuredOutputCorrection `json:"-"`
 }
 
 type VirtualInformationalAssertion struct {
@@ -468,7 +479,30 @@ func (languageModel *virtualObservedLanguageModel) appendRequest(request llm.Str
 func (languageModel *virtualObservedLanguageModel) appendCall(callEvent VirtualLanguageModelCallEvent) {
 	languageModel.store.mutex.Lock()
 	defer languageModel.store.mutex.Unlock()
+	markCorrectedVirtualCalls(languageModel.store.calls, callEvent)
 	languageModel.store.calls = append(languageModel.store.calls, callEvent)
+}
+
+func markCorrectedVirtualCalls(calls []VirtualLanguageModelCallEvent, successfulCall VirtualLanguageModelCallEvent) {
+	if successfulCall.IsError {
+		return
+	}
+	for index := len(calls) - 1; index >= 0; index-- {
+		if !virtualCallCorrectsError(calls[index], successfulCall) {
+			return
+		}
+		calls[index].WasCorrected = true
+	}
+}
+
+func virtualCallCorrectsError(errorCall VirtualLanguageModelCallEvent, successfulCall VirtualLanguageModelCallEvent) bool {
+	if !errorCall.IsError || errorCall.StructuredOutputCorrection == nil {
+		return false
+	}
+	if errorCall.SchemaName == "" || errorCall.Kind != successfulCall.Kind || errorCall.SchemaName != successfulCall.SchemaName {
+		return false
+	}
+	return errorCall.Kind != "chat" || successfulCall.FinishReason == "tool_calls"
 }
 
 type imageRejectingLanguageModel struct {
@@ -496,6 +530,7 @@ func virtualStructuredCallEvent(request llm.StructuredResponseRequest, response 
 		SchemaName:       strings.TrimSpace(request.StructuredOutputSchema.Name),
 		Provider:         response.ProviderName,
 		Model:            response.ModelName,
+		ResponseContent:  virtualTruncatedCallContent(response.Content),
 		LatencyMS:        time.Since(startedAt).Milliseconds(),
 		PromptBytes:      virtualStructuredRequestByteCount(request),
 		ContentBytes:     len(response.Content),
@@ -507,6 +542,8 @@ func virtualStructuredCallEvent(request llm.StructuredResponseRequest, response 
 	if errorValue != nil {
 		callEvent.IsError = true
 		callEvent.Error = virtualTruncatedCallError(errorValue)
+		callEvent.IsDeadlineExceeded = errors.Is(errorValue, context.DeadlineExceeded)
+		callEvent.StructuredOutputCorrection = virtualStructuredOutputCorrection(errorValue)
 	}
 	return callEvent
 }
@@ -519,6 +556,8 @@ func virtualChatCallEvent(kind string, request llm.ChatCompletionRequest, respon
 		Model:           response.ModelName,
 		SelectedBackend: response.SelectedBackend,
 		FinishReason:    response.FinishReason,
+		ResponseContent: virtualTruncatedCallContent(response.Message.Content),
+		ToolCalls:       append([]llm.ChatCompletionToolCall{}, response.Message.ToolCalls...),
 		LatencyMS:       time.Since(startedAt).Milliseconds(),
 		PromptBytes:     virtualChatRequestByteCount(request),
 		ContentBytes:    len(response.Message.Content),
@@ -527,8 +566,18 @@ func virtualChatCallEvent(kind string, request llm.ChatCompletionRequest, respon
 	if errorValue != nil {
 		callEvent.IsError = true
 		callEvent.Error = virtualTruncatedCallError(errorValue)
+		callEvent.IsDeadlineExceeded = errors.Is(errorValue, context.DeadlineExceeded)
+		callEvent.StructuredOutputCorrection = virtualStructuredOutputCorrection(errorValue)
 	}
 	return callEvent
+}
+
+func virtualStructuredOutputCorrection(errorValue error) *llm.StructuredOutputCorrection {
+	correction, isCorrectable := llm.StructuredOutputCorrectionFromError(errorValue)
+	if !isCorrectable {
+		return nil
+	}
+	return &correction
 }
 
 func virtualChatRequestSchemaName(request llm.ChatCompletionRequest) string {
@@ -537,10 +586,11 @@ func virtualChatRequestSchemaName(request llm.ChatCompletionRequest) string {
 
 func virtualTextCallEvent(kind string, prompt string, reply string, startedAt time.Time, errorValue error) VirtualLanguageModelCallEvent {
 	callEvent := VirtualLanguageModelCallEvent{
-		Kind:         kind,
-		LatencyMS:    time.Since(startedAt).Milliseconds(),
-		PromptBytes:  len(prompt),
-		ContentBytes: len(reply),
+		Kind:            kind,
+		LatencyMS:       time.Since(startedAt).Milliseconds(),
+		PromptBytes:     len(prompt),
+		ContentBytes:    len(reply),
+		ResponseContent: virtualTruncatedCallContent(reply),
 	}
 	if errorValue != nil {
 		callEvent.IsError = true
@@ -577,6 +627,14 @@ func virtualTruncatedCallError(errorValue error) string {
 		return errorText
 	}
 	return string([]rune(errorText)[:300])
+}
+
+func virtualTruncatedCallContent(content string) string {
+	const maximumVirtualCallContentBytes = 64 * 1024
+	if len(content) <= maximumVirtualCallContentBytes {
+		return content
+	}
+	return content[:maximumVirtualCallContentBytes]
 }
 
 func BuiltinScenario(name string, artifactDirectoryPath string) (VirtualSessionScenario, error) {
@@ -2672,7 +2730,7 @@ func (harness *VirtualSessionHarness) modelCallsSince(startIndex int) []VirtualL
 
 func (harness *VirtualSessionHarness) assertTurnResult(virtualTurn VirtualTurn, turnResult VirtualTurnResult) error {
 	if harness.scenario.FailOnLanguageModelError {
-		if errorValue := assertLanguageModelCallsSucceeded(turnResult.LanguageModelCallEvents); errorValue != nil {
+		if errorValue := assertLanguageModelCallsSucceeded(turnResult); errorValue != nil {
 			return errorValue
 		}
 	}
@@ -2802,6 +2860,11 @@ func assertTurnResult(workspacePath string, virtualTurn VirtualTurn, turnResult 
 			return errorValue
 		}
 	}
+	for _, expectedAttachmentFile := range virtualTurn.ExpectedAttachmentFiles {
+		if errorValue := validateAttachmentFileExpectation(workspacePath, turnResult.Attachments, expectedAttachmentFile); errorValue != nil {
+			return errorValue
+		}
+	}
 	for _, expectedWorkspaceFile := range virtualTurn.ExpectedWorkspaceFiles {
 		if errorValue := validateExpectedWorkspaceFile(workspacePath, expectedWorkspaceFile); errorValue != nil {
 			return errorValue
@@ -2841,13 +2904,40 @@ func assertTurnResult(workspacePath string, virtualTurn VirtualTurn, turnResult 
 	return assertStructuralTurnExpectations(virtualTurn, turnResult)
 }
 
-func assertLanguageModelCallsSucceeded(events []VirtualLanguageModelCallEvent) error {
-	for _, event := range events {
-		if event.IsError {
-			return fmt.Errorf("language model call failed: %s", strings.TrimSpace(strings.Join([]string{event.Kind, event.SchemaName, event.Error}, " ")))
+func assertLanguageModelCallsSucceeded(turnResult VirtualTurnResult) error {
+	for _, event := range turnResult.LanguageModelCallEvents {
+		if !event.IsError || event.WasCorrected || isElapsedCompletionCutover(event, turnResult) {
+			continue
 		}
+		return fmt.Errorf("language model call failed: %s", strings.TrimSpace(strings.Join([]string{event.Kind, event.SchemaName, event.Error}, " ")))
 	}
 	return nil
+}
+
+func isElapsedCompletionCutover(event VirtualLanguageModelCallEvent, turnResult VirtualTurnResult) bool {
+	if !event.IsDeadlineExceeded || event.SchemaName != "blueclaw_result_verifier" {
+		return false
+	}
+	if turnResult.TaskStatus != task.TaskStatusCompleted {
+		return false
+	}
+	return hasElapsedCompletionEvidence(turnResult.Events)
+}
+
+func hasElapsedCompletionEvidence(events []task.TaskEvent) bool {
+	for _, event := range events {
+		if event.Name != "agent.limit_completed_from_evidence" {
+			continue
+		}
+		var evidence struct {
+			Reason string `json:"reason"`
+			Source string `json:"source"`
+		}
+		if json.Unmarshal([]byte(event.Body), &evidence) == nil && evidence.Reason == "max_elapsed" && evidence.Source == "typed_evidence" {
+			return true
+		}
+	}
+	return false
 }
 
 func assertResponseExpectation(virtualTurn VirtualTurn, turnResult VirtualTurnResult) error {
@@ -3071,6 +3161,23 @@ func validateAttachmentContent(workspacePath string, attachment agent.FileAttach
 	default:
 		return validateNonEmptyFile(path)
 	}
+}
+
+func validateAttachmentFileExpectation(workspacePath string, attachments []agent.FileAttachment, expectation VirtualAttachmentFileExpectation) error {
+	attachment, isFound := findAttachmentWithSuffix(attachments, expectation.Suffix)
+	if !isFound {
+		return fmt.Errorf("expected attachment suffix %q, got %+v", expectation.Suffix, attachments)
+	}
+	if errorValue := validateAttachmentContent(workspacePath, attachment, expectation.Suffix); errorValue != nil {
+		return errorValue
+	}
+	path := localAttachmentPath(workspacePath, attachment)
+	for _, fragment := range expectation.ContainsFragments {
+		if errorValue := validateFileContains(path, fragment); errorValue != nil {
+			return errorValue
+		}
+	}
+	return nil
 }
 
 func localAttachmentPath(workspacePath string, attachment agent.FileAttachment) string {
