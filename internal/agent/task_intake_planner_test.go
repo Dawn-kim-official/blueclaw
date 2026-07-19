@@ -1769,11 +1769,11 @@ func TestAgentKernelQuickReplyPromotesToolFailureToRecovery(t *testing.T) {
 	toolRegistry := newTestCapabilityToolSet([]string{"primary.lookup", "backup.lookup"})
 	primaryCallCount := 0
 	backupCallCount := 0
-	registerTestTool(toolRegistry, ToolDefinition{Name: "primary.lookup"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	registerTestTool(toolRegistry, ToolDefinition{Name: "primary.lookup", SideEffectClass: ToolSideEffectRead}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		primaryCallCount++
 		return ToolFailureResult(FailureExternalService, FailureCodes.OperationFailed, "primary_lookup", "primary lookup failed"), nil
 	})
-	registerTestTool(toolRegistry, ToolDefinition{Name: "backup.lookup"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	registerTestTool(toolRegistry, ToolDefinition{Name: "backup.lookup", SideEffectClass: ToolSideEffectRead}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		backupCallCount++
 		return testToolSuccess("backup result"), nil
 	})
@@ -1788,7 +1788,7 @@ func TestAgentKernelQuickReplyPromotesToolFailureToRecovery(t *testing.T) {
 		t.Fatalf("expected quick recovery: %v", errorValue)
 	}
 	if result.FinishMessage != "backup answer" {
-		t.Fatalf("expected recovered final reply, got %q", result.FinishMessage)
+		t.Fatalf("expected recovered final reply, got finish=%q notice=%q status=%s failure=%q", result.FinishMessage, result.UserNotice, result.TaskRun.Status, result.TaskRun.FailureReason)
 	}
 	if primaryCallCount != 1 || backupCallCount != 1 {
 		t.Fatalf("expected one primary failure and one backup recovery, got primary=%d backup=%d", primaryCallCount, backupCallCount)

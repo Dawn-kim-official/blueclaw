@@ -48,7 +48,7 @@ func buildActionSchemaFromToolDefinitions(toolDefinitions []ToolDefinition, allo
 		}
 	}
 
-	return mustMarshalActionSchema(map[string]any{"oneOf": variants})
+	return mustMarshalStructuredSchema(map[string]any{"oneOf": variants})
 }
 
 func finishActionSchema(hasFailureDebt bool) map[string]any {
@@ -58,82 +58,62 @@ func finishActionSchema(hasFailureDebt bool) map[string]any {
 		failureResolutionValues = []string{"recovered_with_success", "no_tool_fallback"}
 		requiredFields = append(requiredFields, "failureResolution")
 	}
-	return map[string]any{
-		"type": "object",
-		"properties": map[string]any{
-			"action":                enumStringSchema("finish"),
-			"message":               stringSchema(),
-			"replyParts":            finishReplyPartArraySchema(),
-			"completionSummary":     stringSchema(),
-			"failureResolution":     enumValuesStringSchema(failureResolutionValues),
-			"goalStatus":            enumValuesStringSchema([]string{"satisfied"}),
-			"goalSatisfied":         booleanSchema(),
-			"hasRemainingWork":      booleanSchema(),
-			"completionEvidenceIDs": stringArraySchema(0),
-			"qualityReview":         qualityReviewSchema(),
-			"remainingWork":         stringSchema(),
-			"executionStateUpdate":  executionStateSchema(),
-		},
-		"required": requiredFields,
-	}
+	return closedObjectSchema(map[string]any{
+		"action":                enumStringSchema("finish"),
+		"message":               stringSchema(),
+		"replyParts":            finishReplyPartArraySchema(),
+		"completionSummary":     stringSchema(),
+		"failureResolution":     enumValuesStringSchema(failureResolutionValues),
+		"goalStatus":            enumValuesStringSchema([]string{"satisfied"}),
+		"goalSatisfied":         booleanSchema(),
+		"hasRemainingWork":      booleanSchema(),
+		"completionEvidenceIDs": stringArraySchema(0),
+		"qualityReview":         qualityReviewSchema(),
+		"remainingWork":         stringSchema(),
+		"executionStateUpdate":  executionStateSchema(),
+	}, requiredFields...)
 }
 
 func finishReplyPartArraySchema() map[string]any {
 	return map[string]any{
 		"type": "array",
-		"items": map[string]any{
-			"type": "object",
-			"properties": map[string]any{
-				"type": enumValuesStringSchema([]string{"text"}),
-				"text": stringSchema(),
-			},
-		},
+		"items": closedObjectSchema(map[string]any{
+			"type": enumValuesStringSchema([]string{"text"}),
+			"text": stringSchema(),
+		}),
 	}
 }
 
 func agentPartArraySchema() map[string]any {
 	return map[string]any{
 		"type": "array",
-		"items": map[string]any{
-			"type": "object",
-			"properties": map[string]any{
-				"type": enumValuesStringSchema([]string{"text", "image", "file"}),
-				"text": stringSchema(),
-				"image": map[string]any{
-					"type": "object",
-					"properties": map[string]any{
-						"mimeType": stringSchema(),
-						"path":     stringSchema(),
-						"filename": stringSchema(),
-					},
-				},
-				"file": map[string]any{
-					"type": "object",
-					"properties": map[string]any{
-						"path":        stringSchema(),
-						"filename":    stringSchema(),
-						"contentType": stringSchema(),
-					},
-				},
-			},
-		},
+		"items": closedObjectSchema(map[string]any{
+			"type": enumValuesStringSchema([]string{"text", "image", "file"}),
+			"text": stringSchema(),
+			"image": closedObjectSchema(map[string]any{
+				"mimeType": stringSchema(),
+				"path":     stringSchema(),
+				"filename": stringSchema(),
+			}),
+			"file": closedObjectSchema(map[string]any{
+				"path":        stringSchema(),
+				"filename":    stringSchema(),
+				"contentType": stringSchema(),
+			}),
+		}),
 	}
 }
 
 func setQualityCriteriaActionSchema() map[string]any {
-	return map[string]any{
-		"type": "object",
-		"properties": map[string]any{
-			"action":               enumStringSchema("set_quality_criteria"),
-			"qualityCriteria":      qualityCriteriaSchema(),
-			"reason":               stringSchema(),
-			"goalStatus":           enumValuesStringSchema([]string{"in_progress"}),
-			"goalSatisfied":        booleanSchema(),
-			"remainingWork":        stringSchema(),
-			"executionStateUpdate": executionStateSchema(),
-		},
-		"required": []string{"action", "qualityCriteria", "executionStateUpdate"},
-	}
+	return closedObjectSchema(map[string]any{
+		"action":               enumStringSchema("set_quality_criteria"),
+		"qualityCriteria":      qualityCriteriaSchema(),
+		"reason":               stringSchema(),
+		"goalStatus":           enumValuesStringSchema([]string{"in_progress"}),
+		"goalSatisfied":        booleanSchema(),
+		"remainingWork":        stringSchema(),
+		"executionStateUpdate": executionStateSchema(),
+	}, "action", "qualityCriteria", "executionStateUpdate")
 }
 
 func failActionSchema(hasFailureDebt bool) map[string]any {
@@ -151,11 +131,7 @@ func failActionSchema(hasFailureDebt bool) map[string]any {
 		properties["usedFailureFacts"] = failureReportFactsSchema()
 		requiredFields = append(requiredFields, "failureResolution", "usedFailureFacts")
 	}
-	return map[string]any{
-		"type":       "object",
-		"properties": properties,
-		"required":   requiredFields,
-	}
+	return closedObjectSchema(properties, requiredFields...)
 }
 
 func continueActionSchema(toolDefinition ToolDefinition) (map[string]any, bool) {
@@ -163,22 +139,18 @@ func continueActionSchema(toolDefinition ToolDefinition) (map[string]any, bool) 
 	if !isValid {
 		return nil, false
 	}
-	schema := map[string]any{
-		"type": "object",
-		"properties": map[string]any{
-			"action":               enumStringSchema("continue"),
-			"toolName":             enumStringSchema(toolDefinition.Name),
-			"toolInput":            inputSchema,
-			"message":              stringSchema(),
-			"reason":               stringSchema(),
-			"goalStatus":           enumValuesStringSchema([]string{"in_progress"}),
-			"goalSatisfied":        booleanSchema(),
-			"hasRemainingWork":     booleanSchema(),
-			"remainingWork":        stringSchema(),
-			"executionStateUpdate": executionStateSchema(),
-		},
-		"required": []string{"action", "toolName", "toolInput", "goalSatisfied", "hasRemainingWork", "executionStateUpdate"},
-	}
+	schema := closedObjectSchema(map[string]any{
+		"action":               enumStringSchema("continue"),
+		"toolName":             enumStringSchema(toolDefinition.Name),
+		"toolInput":            inputSchema,
+		"message":              stringSchema(),
+		"reason":               stringSchema(),
+		"goalStatus":           enumValuesStringSchema([]string{"in_progress"}),
+		"goalSatisfied":        booleanSchema(),
+		"hasRemainingWork":     booleanSchema(),
+		"remainingWork":        stringSchema(),
+		"executionStateUpdate": executionStateSchema(),
+	}, "action", "toolName", "toolInput", "goalSatisfied", "hasRemainingWork", "executionStateUpdate")
 	if description := strings.TrimSpace(toolDefinition.Description); description != "" {
 		schema["description"] = description
 	}
@@ -244,8 +216,16 @@ func booleanSchema() map[string]any {
 	return map[string]any{"type": "boolean"}
 }
 
-func objectSchema() map[string]any {
-	return map[string]any{"type": "object", "properties": map[string]any{}}
+func closedObjectSchema(properties map[string]any, requiredFields ...string) map[string]any {
+	schema := map[string]any{
+		"type":                 "object",
+		"properties":           properties,
+		"additionalProperties": false,
+	}
+	if len(requiredFields) > 0 {
+		schema["required"] = requiredFields
+	}
+	return schema
 }
 
 func completionEvidenceSchema() map[string]any {
@@ -259,70 +239,52 @@ func qualityCriteriaSchema() map[string]any {
 func qualityReviewSchema() map[string]any {
 	return map[string]any{
 		"type": "array",
-		"items": map[string]any{
-			"type":                 "object",
-			"additionalProperties": false,
-			"properties": map[string]any{
-				"id":          stringSchema(),
-				"passed":      booleanSchema(),
-				"evidenceIDs": completionEvidenceSchema(),
-				"notes":       stringSchema(),
-			},
-		},
+		"items": closedObjectSchema(map[string]any{
+			"id":          stringSchema(),
+			"passed":      booleanSchema(),
+			"evidenceIDs": completionEvidenceSchema(),
+			"notes":       stringSchema(),
+		}),
 	}
 }
 
 func failureReportFactsSchema() map[string]any {
-	return map[string]any{
-		"type": "object",
-		"properties": map[string]any{
-			"attempts": map[string]any{
-				"type": "array",
-				"items": map[string]any{
-					"type": "object",
-					"properties": map[string]any{
-						"toolName":     stringSchema(),
-						"inputSummary": stringSchema(),
-						"errorCode":    stringSchema(),
-						"failureStage": stringSchema(),
-						"message":      stringSchema(),
-					},
-				},
-			},
-			"budgetState": stringSchema(),
+	return closedObjectSchema(map[string]any{
+		"attempts": map[string]any{
+			"type": "array",
+			"items": closedObjectSchema(map[string]any{
+				"toolName":     stringSchema(),
+				"inputSummary": stringSchema(),
+				"errorCode":    stringSchema(),
+				"failureStage": stringSchema(),
+				"message":      stringSchema(),
+			}),
 		},
-	}
+		"budgetState": stringSchema(),
+	})
 }
 
 func finalizerActionSchema() string {
-	return mustMarshalActionSchema(map[string]any{"oneOf": []any{finishActionSchema(false), failActionSchema(false)}})
+	return mustMarshalStructuredSchema(map[string]any{"oneOf": []any{finishActionSchema(false), failActionSchema(false)}})
 }
 
 func terminalNoToolsActionSchema() string {
-	return mustMarshalActionSchema(map[string]any{"oneOf": []any{finishActionSchema(true), failActionSchema(true)}})
+	return mustMarshalStructuredSchema(map[string]any{"oneOf": []any{finishActionSchema(true), failActionSchema(true)}})
 }
 
-func mustMarshalActionSchema(schema any) string {
+func mustMarshalStructuredSchema(schema any) string {
 	document, errorValue := json.Marshal(schema)
 	if errorValue != nil {
-		panic(fmt.Errorf("marshal action schema: %w", errorValue))
+		panic(fmt.Errorf("marshal structured schema: %w", errorValue))
 	}
 	return string(document)
 }
 
 func recoveryDecisionSchema() string {
-	document, errorValue := json.Marshal(map[string]any{
-		"type": "object",
-		"properties": map[string]any{
-			"whatFailed":      stringSchema(),
-			"whatWasKnown":    stringSchema(),
-			"nextAction":      stringSchema(),
-			"userReplyIntent": stringSchema(),
-		},
-		"required": []string{"whatFailed", "whatWasKnown", "nextAction", "userReplyIntent"},
-	})
-	if errorValue != nil {
-		return `{"type":"object"}`
-	}
-	return string(document)
+	return mustMarshalStructuredSchema(closedObjectSchema(map[string]any{
+		"whatFailed":      stringSchema(),
+		"whatWasKnown":    stringSchema(),
+		"nextAction":      stringSchema(),
+		"userReplyIntent": stringSchema(),
+	}, "whatFailed", "whatWasKnown", "nextAction", "userReplyIntent"))
 }

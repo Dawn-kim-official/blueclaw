@@ -259,7 +259,8 @@ func tailLines(value string, maxLines int, maxCharacters int) ([]string, bool) {
 
 func executionStateSchema() map[string]any {
 	return map[string]any{
-		"type": "object",
+		"type":                 "object",
+		"additionalProperties": false,
 		"properties": map[string]any{
 			"goal":           stringSchema(),
 			"workspace":      stringSchema(),
