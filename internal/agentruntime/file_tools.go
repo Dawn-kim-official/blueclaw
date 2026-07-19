@@ -91,7 +91,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerFileTools(toolRegistry *ag
 				UseWhen:    "A new file must be created, or an existing file is being replaced wholesale.",
 				AvoidWhen:  "An existing file only needs a targeted change — use file.edit to keep the rest of the work instead of rewriting the whole file; or you only need to inspect files, append shell output, or run commands. Do not pass escaped newline sequences when writing multiline source.",
 			},
-			InputSchema: json.RawMessage(`{"type":"object","properties":{"path":{"type":"string","description":"Workspace path to create or overwrite."},"content":{"type":"string","description":"Complete file body as plain UTF-8 text. Use real line breaks for multiline files; this is the text that will be written exactly."}},"required":["path","content"]}`),
+			InputSchema: json.RawMessage(`{"type":"object","properties":{"path":{"type":"string","description":"Workspace path to create or overwrite."},"content":{"type":"string","description":"Complete file body as plain UTF-8 text. Use real line breaks for multiline files; this is the text that will be written exactly."}},"required":["path","content"],"additionalProperties":false}`),
 		},
 		Handler: func(toolContext context.Context, input fileWriteToolInput) (agent.ToolResult, error) {
 			return toolCatalogBuilder.writeFileTool(toolContext, input, handlerContext)
@@ -109,7 +109,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerFileTools(toolRegistry *ag
 				UseWhen:    "You need current file content before file.edit or file.write.",
 				AvoidWhen:  "The file is binary, an attached document needing conversion, or you already have the exact current text needed for an edit.",
 			},
-			InputSchema: json.RawMessage(`{"type":"object","properties":{"path":{"type":"string","description":"Workspace text file path to read."},"fileHint":{"type":"string","description":"Exact fileHint from Current attachments or Previous attachments."},"materialID":{"type":"string","description":"Attachment materialID from Current attachments or Previous attachments. Use file.preview first; file.read returns cached preview text if no exact workspace file is available."},"startLine":{"type":"integer","description":"Optional 1-based first line to return. Avoid for minified or few-line files; use startByte instead."},"lineCount":{"type":"integer","description":"Optional number of lines to return from startLine."},"startByte":{"type":"integer","description":"Optional 0-based byte offset for byte-range reads. Use this for minified or single-line files; continue from the nextByte value of the previous read until isEndOfFile is true."}}}`),
+			InputSchema: json.RawMessage(`{"type":"object","properties":{"path":{"type":"string","description":"Workspace text file path to read."},"fileHint":{"type":"string","description":"Exact fileHint from Current attachments or Previous attachments."},"materialID":{"type":"string","description":"Attachment materialID from Current attachments or Previous attachments. Use file.preview first; file.read returns cached preview text if no exact workspace file is available."},"startLine":{"type":"integer","description":"Optional 1-based first line to return. Avoid for minified or few-line files; use startByte instead."},"lineCount":{"type":"integer","description":"Optional number of lines to return from startLine."},"startByte":{"type":"integer","description":"Optional 0-based byte offset for byte-range reads. Use this for minified or single-line files; continue from the nextByte value of the previous read until isEndOfFile is true."}},"additionalProperties":false}`),
 		},
 		Handler: func(toolContext context.Context, input fileReadToolInput) (agent.ToolResult, error) {
 			return toolCatalogBuilder.readFileTool(toolContext, input, handlerContext)
@@ -127,7 +127,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerFileTools(toolRegistry *ag
 				UseWhen:    "The attachment catalog lists a materialID or path for an HTML, PDF, DOCX, PPTX, XLSX, text, or data file and you need to understand it.",
 				AvoidWhen:  "You need exact source lines for an edit; use file.read after previewing.",
 			},
-			InputSchema: json.RawMessage(`{"type":"object","properties":{"path":{"type":"string","description":"Workspace file path to preview. Use this when the attachment catalog has a readable path."},"fileHint":{"type":"string","description":"Exact fileHint from Current attachments or Previous attachments."},"materialID":{"type":"string","description":"Attachment materialID from Current attachments or Previous attachments. Use this when the catalog lists a materialID, especially if no readable path is available."}}}`),
+			InputSchema: json.RawMessage(`{"type":"object","properties":{"path":{"type":"string","description":"Workspace file path to preview. Use this when the attachment catalog has a readable path."},"fileHint":{"type":"string","description":"Exact fileHint from Current attachments or Previous attachments."},"materialID":{"type":"string","description":"Attachment materialID from Current attachments or Previous attachments. Use this when the catalog lists a materialID, especially if no readable path is available."}},"additionalProperties":false}`),
 		},
 		Handler: func(toolContext context.Context, input filePreviewToolInput) (agent.ToolResult, error) {
 			return toolCatalogBuilder.previewFileTool(toolContext, input, handlerContext)
@@ -145,7 +145,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerFileTools(toolRegistry *ag
 				UseWhen:    "An existing file needs one or more targeted changes and the current oldText snippets are known.",
 				AvoidWhen:  "The change creates a new file or replaces most of a file (use file.write), or oldText is missing or ambiguous (use file.read first).",
 			},
-			InputSchema: json.RawMessage(`{"type":"object","properties":{"edits":{"type":"array","items":{"type":"object","properties":{"path":{"type":"string","description":"Workspace text file path to modify."},"oldText":{"type":"string","description":"Exact existing text to replace; must appear exactly once when this edit is applied."},"newText":{"type":"string","description":"Replacement text."}},"required":["path","oldText","newText"]}}},"required":["edits"]}`),
+			InputSchema: json.RawMessage(`{"type":"object","properties":{"edits":{"type":"array","items":{"type":"object","properties":{"path":{"type":"string","description":"Workspace text file path to modify."},"oldText":{"type":"string","description":"Exact existing text to replace; must appear exactly once when this edit is applied."},"newText":{"type":"string","description":"Replacement text."}},"required":["path","oldText","newText"],"additionalProperties":false}}},"required":["edits"],"additionalProperties":false}`),
 		},
 		Handler: func(toolContext context.Context, input filePatchToolInput) (agent.ToolResult, error) {
 			return toolCatalogBuilder.patchFileTool(toolContext, input, handlerContext)
@@ -164,7 +164,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerFileTools(toolRegistry *ag
 				UseWhen:    "A workspace file the requester created or owns should be removed; resolve the path with the same form used to write it.",
 				AvoidWhen:  "You only need to overwrite a file (use file.write), the path is a directory, or it is a built-in resource.",
 			},
-			InputSchema: json.RawMessage(`{"type":"object","properties":{"path":{"type":"string","description":"Workspace file path to delete, in the same form as file.write (for example tmp/notes.txt)."}},"required":["path"]}`),
+			InputSchema: json.RawMessage(`{"type":"object","properties":{"path":{"type":"string","description":"Workspace file path to delete, in the same form as file.write (for example tmp/notes.txt)."}},"required":["path"],"additionalProperties":false}`),
 		},
 		Handler: func(toolContext context.Context, input fileDeleteToolInput) (agent.ToolResult, error) {
 			return toolCatalogBuilder.deleteFileTool(toolContext, input, handlerContext)
@@ -176,7 +176,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerFileTools(toolRegistry *ag
 			Name:            agent.FileDeliverToolName,
 			Description:     "Deliver one or more existing workspace files as final reply evidence.",
 			SideEffectClass: agent.ToolSideEffectStateChange,
-			InputSchema:     json.RawMessage(`{"type":"object","properties":{"path":{"type":"string","description":"Workspace path to one finished file."},"filename":{"type":"string","description":"Optional display filename."},"contentType":{"type":"string","description":"Optional MIME type."},"title":{"type":"string","description":"Optional attachment title."},"files":{"type":"array","description":"One or more finished workspace files to deliver in this single call.","items":{"type":"object","properties":{"path":{"type":"string","description":"Workspace path to an existing file."},"filename":{"type":"string","description":"Optional display filename."},"contentType":{"type":"string","description":"Optional MIME type."},"title":{"type":"string","description":"Optional attachment title."}},"required":["path"]}}}}`),
+			InputSchema:     json.RawMessage(`{"type":"object","properties":{"path":{"type":"string","description":"Workspace path to one finished file."},"filename":{"type":"string","description":"Optional display filename."},"contentType":{"type":"string","description":"Optional MIME type."},"title":{"type":"string","description":"Optional attachment title."},"files":{"type":"array","description":"One or more finished workspace files to deliver in this single call.","items":{"type":"object","properties":{"path":{"type":"string","description":"Workspace path to an existing file."},"filename":{"type":"string","description":"Optional display filename."},"contentType":{"type":"string","description":"Optional MIME type."},"title":{"type":"string","description":"Optional attachment title."}},"required":["path"],"additionalProperties":false}}},"additionalProperties":false}`),
 		},
 		Handler: func(toolContext context.Context, input fileAttachToolInput) (agent.ToolResult, error) {
 			return toolCatalogBuilder.attachFileTool(toolContext, input, handlerContext)

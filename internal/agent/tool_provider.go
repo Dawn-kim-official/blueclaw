@@ -63,7 +63,7 @@ func (toolSet *ToolSet) RegisterProvider(toolContext context.Context, provider T
 	if errorValue != nil {
 		return fmt.Errorf("load tool provider %s: %w", providerID, errorValue)
 	}
-	normalizedTools, errorValue := normalizeProviderTools(providerID, boundTools, false)
+	normalizedTools, errorValue := normalizeProviderTools(providerID, boundTools)
 	if errorValue != nil {
 		return errorValue
 	}
@@ -135,7 +135,7 @@ func prepareToolProvider(toolContext context.Context, provider ToolProvider) (pr
 	if errorValue != nil {
 		return preparedToolProvider{}, fmt.Errorf("load tool provider %s: %w", providerID, errorValue)
 	}
-	normalizedTools, errorValue := normalizeProviderTools(providerID, boundTools, true)
+	normalizedTools, errorValue := normalizeProviderTools(providerID, boundTools)
 	if errorValue != nil {
 		return preparedToolProvider{}, errorValue
 	}
@@ -190,12 +190,12 @@ func markExternalCollisions(reasons map[string]string, providerIDsByValue map[st
 	}
 }
 
-func normalizeProviderTools(providerID string, boundTools []BoundTool, requireExplicitlyClosedSchemas bool) ([]BoundTool, error) {
+func normalizeProviderTools(providerID string, boundTools []BoundTool) ([]BoundTool, error) {
 	normalizedTools := make([]BoundTool, 0, len(boundTools))
 	toolNameByID := map[string]string{}
 	toolIDByName := map[string]string{}
 	for _, boundTool := range boundTools {
-		normalizedTool, errorValue := normalizeProviderTool(providerID, boundTool, requireExplicitlyClosedSchemas)
+		normalizedTool, errorValue := normalizeProviderTool(providerID, boundTool)
 		if errorValue != nil {
 			return nil, errorValue
 		}
@@ -213,7 +213,7 @@ func normalizeProviderTools(providerID string, boundTools []BoundTool, requireEx
 	return normalizedTools, nil
 }
 
-func normalizeProviderTool(providerID string, boundTool BoundTool, requireExplicitlyClosedSchemas bool) (BoundTool, error) {
+func normalizeProviderTool(providerID string, boundTool BoundTool) (BoundTool, error) {
 	toolDescriptor := boundTool.Definition
 	toolDescriptor.ProviderID = strings.TrimSpace(toolDescriptor.ProviderID)
 	if toolDescriptor.ProviderID == "" {
@@ -235,15 +235,15 @@ func normalizeProviderTool(providerID string, boundTool BoundTool, requireExplic
 	toolDescriptor.Completion.Mode = strings.TrimSpace(toolDescriptor.Completion.Mode)
 	toolDescriptor.Completion.Action = strings.TrimSpace(toolDescriptor.Completion.Action)
 	toolDescriptor.Completion.TargetKind = strings.TrimSpace(toolDescriptor.Completion.TargetKind)
-	normalizedInputSchema, errorValue := normalizeProviderToolSchema(toolDescriptor.InputSchema, requireExplicitlyClosedSchemas)
+	normalizedInputSchema, errorValue := normalizeProviderToolSchema(toolDescriptor.InputSchema)
 	if errorValue != nil {
 		return BoundTool{}, fmt.Errorf("invalid tool descriptor %s: inputSchema %w", firstNonEmptyString(toolDescriptor.ID, toolDescriptor.Name), errorValue)
 	}
-	normalizedOutputSchema, errorValue := normalizeProviderToolSchema(toolDescriptor.OutputSchema, requireExplicitlyClosedSchemas)
+	normalizedOutputSchema, errorValue := normalizeProviderToolSchema(toolDescriptor.OutputSchema)
 	if errorValue != nil {
 		return BoundTool{}, fmt.Errorf("invalid tool descriptor %s: outputSchema %w", firstNonEmptyString(toolDescriptor.ID, toolDescriptor.Name), errorValue)
 	}
-	normalizedInputIntentSchema, errorValue := normalizeProviderToolSchema(toolDescriptor.InputIntentSchema, requireExplicitlyClosedSchemas)
+	normalizedInputIntentSchema, errorValue := normalizeProviderToolSchema(toolDescriptor.InputIntentSchema)
 	if errorValue != nil {
 		return BoundTool{}, fmt.Errorf("invalid tool descriptor %s: inputIntentSchema %w", firstNonEmptyString(toolDescriptor.ID, toolDescriptor.Name), errorValue)
 	}
@@ -251,7 +251,7 @@ func normalizeProviderTool(providerID string, boundTool BoundTool, requireExplic
 	toolDescriptor.InputIntentSchema = normalizedInputIntentSchema
 	toolDescriptor.OutputSchema = normalizedOutputSchema
 	if toolDescriptor.ResultContract != nil {
-		normalizedResultSchema, resultSchemaError := normalizeProviderToolSchema(toolDescriptor.ResultContract.Schema, requireExplicitlyClosedSchemas)
+		normalizedResultSchema, resultSchemaError := normalizeProviderToolSchema(toolDescriptor.ResultContract.Schema)
 		if resultSchemaError != nil {
 			return BoundTool{}, fmt.Errorf("invalid tool descriptor %s: resultContract.schema %w", firstNonEmptyString(toolDescriptor.ID, toolDescriptor.Name), resultSchemaError)
 		}
@@ -268,7 +268,7 @@ func normalizeProviderTool(providerID string, boundTool BoundTool, requireExplic
 	return boundTool, nil
 }
 
-func normalizeProviderToolSchema(schema json.RawMessage, requireExplicitlyClosedSchemas bool) (json.RawMessage, error) {
+func normalizeProviderToolSchema(schema json.RawMessage) (json.RawMessage, error) {
 	var document any
 	if len(bytes.TrimSpace(schema)) == 0 {
 		return schema, nil
@@ -276,17 +276,10 @@ func normalizeProviderToolSchema(schema json.RawMessage, requireExplicitlyClosed
 	if errorValue := json.Unmarshal(schema, &document); errorValue != nil {
 		return nil, errorValue
 	}
-	if errorValue := normalizeProviderSchemaObjects(document, requireExplicitlyClosedSchemas); errorValue != nil {
+	if errorValue := validateExplicitlyClosedProviderSchemaObjects(document); errorValue != nil {
 		return nil, errorValue
 	}
 	return json.Marshal(document)
-}
-
-func normalizeProviderSchemaObjects(value any, requireExplicitlyClosedSchemas bool) error {
-	if requireExplicitlyClosedSchemas {
-		return validateExplicitlyClosedProviderSchemaObjects(value)
-	}
-	return closeProviderSchemaObjects(value)
 }
 
 func validateExplicitlyClosedProviderSchemaObjects(value any) error {
@@ -327,43 +320,6 @@ func schemaTypeIncludesObject(value any) bool {
 func isExplicitlyClosedAdditionalProperties(value any) bool {
 	additionalProperties, isBoolean := value.(bool)
 	return isBoolean && !additionalProperties
-}
-
-func closeProviderSchemaObjects(value any) error {
-	switch document := value.(type) {
-	case []any:
-		for _, item := range document {
-			if errorValue := closeProviderSchemaObjects(item); errorValue != nil {
-				return errorValue
-			}
-		}
-	case map[string]any:
-		if schemaTypeIncludesObject(document["type"]) {
-			additionalProperties, exists := document["additionalProperties"]
-			if !exists {
-				document["additionalProperties"] = false
-			} else if !isClosedAdditionalProperties(additionalProperties) {
-				return errors.New("must not allow additional properties")
-			}
-		}
-		for _, child := range document {
-			if errorValue := closeProviderSchemaObjects(child); errorValue != nil {
-				return errorValue
-			}
-		}
-	}
-	return nil
-}
-
-func isClosedAdditionalProperties(value any) bool {
-	switch additionalProperties := value.(type) {
-	case bool:
-		return !additionalProperties
-	case map[string]any:
-		return len(additionalProperties) > 0
-	default:
-		return false
-	}
 }
 
 func validateProviderTool(boundTool BoundTool) error {

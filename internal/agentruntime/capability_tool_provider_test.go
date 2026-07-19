@@ -3,11 +3,49 @@ package agentruntime
 import (
 	"context"
 	"encoding/json"
+	"os"
 	"strings"
 	"testing"
 
 	"blueclaw/internal/agent"
 )
+
+func TestCapabilityToolProviderRegistersGeneratedCatalogAtExternalBoundary(t *testing.T) {
+	document, errorValue := os.ReadFile("../../protocol/generated/capability-tools.json")
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	var catalog struct {
+		Tools []CapabilityToolDescriptor `json:"tools"`
+	}
+	if errorValue := json.Unmarshal(document, &catalog); errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	toolNames := make([]string, 0, len(catalog.Tools))
+	for _, descriptor := range catalog.Tools {
+		toolNames = append(toolNames, descriptor.ModelName)
+	}
+	provider := capabilityToolProvider{
+		toolCatalogBuilder: NewToolCatalogBuilder(),
+		descriptors:        catalog.Tools,
+	}
+	toolSet := agent.NewToolSet(toolNames)
+
+	quarantinedProviders, errorValue := toolSet.RegisterProviders(context.Background(), []agent.ToolProviderRegistration{{
+		Provider: provider,
+		Trust:    agent.ToolProviderExternal,
+	}})
+
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if len(quarantinedProviders) != 0 {
+		t.Fatalf("expected generated capability catalog to pass the external boundary, got %+v", quarantinedProviders)
+	}
+	if len(toolSet.ListRegisteredToolDefinitions()) != len(catalog.Tools) {
+		t.Fatalf("expected %d registered capability tools, got %d", len(catalog.Tools), len(toolSet.ListRegisteredToolDefinitions()))
+	}
+}
 
 func TestCapabilityToolProviderRegistersCanonicalDescriptor(t *testing.T) {
 	provider := capabilityToolProvider{

@@ -39,7 +39,7 @@ func TestToolCatalogHidesPolicyDeniedCapabilityTools(t *testing.T) {
 }
 
 func TestToolCatalogKeepsCapabilityInputSchemaAuthoritative(t *testing.T) {
-	taskAddSchema := json.RawMessage(`{"type":"object","properties":{"title":{"type":"string"},"endDate":{"type":"string"}},"required":["title"]}`)
+	taskAddSchema := json.RawMessage(`{"type":"object","properties":{"title":{"type":"string"},"endDate":{"type":"string"}},"required":["title"],"additionalProperties":false}`)
 	toolCatalogBuilder := NewToolCatalogBuilder()
 	toolCatalogBuilder.UseTestCapabilityToolDescriptors(capability.Client{}, []CapabilityToolDescriptor{{
 		Name:        "task.add",
