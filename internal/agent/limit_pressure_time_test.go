@@ -235,6 +235,51 @@ func TestElapsedClosingUsesRemainingTotalBudget(t *testing.T) {
 	assertSingleElapsedClosing(t, languageModel)
 }
 
+func TestElapsedClosingTotalDeadlinePersistsRawFallback(t *testing.T) {
+	languageModel := newElapsedClosingLanguageModel("", "", "")
+	languageModel.closingStarted = make(chan struct{})
+	languageModel.blockClosing = true
+	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxElapsedSecond: 1})
+	resultChannel := make(chan AgentTurnResult, 1)
+
+	go func() {
+		result, _ := services.runner.RunTurn(context.Background(), AgentTurnRequest{
+			RequesterPersonID: "person-1",
+			ConversationID:    "conversation-1",
+			Prompt:            "진행 상황을 정리해줘",
+			ResponseLanguage:  ResponseLanguageKorean,
+			ToolSet:           newTestToolSet(nil),
+			EffortStartedAt:   time.Now().Add(-500 * time.Millisecond),
+		})
+		resultChannel <- result
+	}()
+
+	select {
+	case <-languageModel.closingStarted:
+	case <-time.After(2 * time.Second):
+		t.Fatal("expected elapsed closing to start")
+	}
+
+	select {
+	case result := <-resultChannel:
+		if result.TaskRun.Status != task.TaskStatusBlocked || result.TaskRun.FailureReason != "max_elapsed" {
+			t.Fatalf("expected max elapsed block, got %+v", result.TaskRun)
+		}
+		if result.ReplySuppressed {
+			t.Fatal("expected the internal total deadline to preserve the raw fallback")
+		}
+		if result.FailureNotice.Source != "raw_error" || strings.TrimSpace(result.UserNotice) == "" {
+			t.Fatalf("expected a compact raw failure notice, got %+v", result)
+		}
+		if result.TaskRun.Result != result.UserNotice {
+			t.Fatalf("expected persisted fallback %q, got %q", result.UserNotice, result.TaskRun.Result)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("expected closing to stop at the hard total deadline")
+	}
+	assertSingleElapsedClosing(t, languageModel)
+}
+
 func TestElapsedClosingFailureDoesNotRetryOrUseLegacyFallback(t *testing.T) {
 	languageModel := newElapsedClosingLanguageModel("", "", "")
 	languageModel.closingError = errors.New("closing model unavailable")
