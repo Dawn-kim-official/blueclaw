@@ -108,6 +108,23 @@ var virtualGeneratedDescriptorToolNames = []string{
 	"image.read",
 }
 
+var virtualGeneratedResultContractToolNames = []string{
+	"task.add",
+	"task.list",
+	"task.update",
+	"task.delete",
+	"calendar.add",
+	"calendar.list",
+	"calendar.update",
+	"calendar.delete",
+	"web.search",
+	"site.create",
+	"site.status",
+	"site.preview",
+	"site.publish",
+	"site.delete",
+}
+
 var virtualCanonicalCapabilityToolDescriptorByName = mustLoadVirtualCanonicalCapabilityToolDescriptors()
 
 func mustLoadVirtualCanonicalCapabilityToolDescriptors() map[string]agentruntime.CapabilityToolDescriptor {
@@ -121,7 +138,9 @@ func mustLoadVirtualCanonicalCapabilityToolDescriptors() map[string]agentruntime
 	for _, descriptor := range catalog.Tools {
 		descriptors[descriptor.Name] = descriptor
 	}
-	for _, toolName := range virtualCanonicalMessageToolNames {
+	requiredToolNames := append([]string{}, virtualGeneratedDescriptorToolNames...)
+	requiredToolNames = append(requiredToolNames, virtualGeneratedResultContractToolNames...)
+	for _, toolName := range requiredToolNames {
 		if _, isFound := descriptors[toolName]; !isFound {
 			panic("generated capability descriptor is missing: " + toolName)
 		}
@@ -1543,15 +1562,21 @@ func (service *virtualCapabilityService) response(toolName string, requestBody [
 		}
 		return virtualCapabilitySuccess(toolName, content, result)
 	case "web.search":
+		query := stringValue(virtualCapabilityInput(requestBody)["query"])
+		answer := "BlueclawSearchStubToken virtual search result"
 		result := map[string]any{
-			"query": "current external information acceptance test",
+			"provider":          "virtual",
+			"remoteLLMInvolved": false,
+			"compatibility":     "native",
+			"query":             query,
+			"answer":            answer,
 			"results": []map[string]any{{
 				"title":   "BlueclawSearchStubToken result",
 				"url":     "https://example.test/blueclaw-search-stub",
 				"snippet": "Deterministic virtual search result for BlueclawSearchStubToken.",
 			}},
 		}
-		return virtualCapabilitySuccess(toolName, "BlueclawSearchStubToken virtual search result", result)
+		return virtualCapabilitySuccess(toolName, answer, result)
 	case "message.context":
 		return virtualCapabilitySuccess(toolName, "virtual Mattermost conversation context", virtualMessageContextResult())
 	case "message.search":
@@ -1795,59 +1820,14 @@ func virtualCapabilityToolResultContract(toolName string) *agentruntime.Capabili
 	if descriptor, isFound := virtualGeneratedToolDescriptor(toolName); isFound {
 		return descriptor.ResultContract
 	}
-	switch toolName {
-	case "task.add":
-		return virtualTaskResultContract("created")
-	case "task.list":
-		return &agentruntime.CapabilityToolResultContract{Schema: json.RawMessage(`{"type":"object","properties":{"tasks":{"type":"array","items":` + virtualTaskResultSchema() + `},"count":{"type":"integer"},"scope":{"type":"string"}},"required":["tasks","count","scope"],"additionalProperties":false}`)}
-	case "task.update":
-		return virtualTaskResultContract("updated")
-	case "task.delete":
-		return &agentruntime.CapabilityToolResultContract{
-			Schema:  json.RawMessage(`{"type":"object","properties":{"taskID":{"type":"string"},"deleted":{"const":true}},"required":["taskID","deleted"],"additionalProperties":false}`),
-			Effects: []agentruntime.CapabilityResourceEffectContract{virtualTaskEffectContract("deleted")},
-		}
-	case "calendar.add":
-		return virtualCalendarResultContract("created")
-	case "calendar.list":
-		return &agentruntime.CapabilityToolResultContract{Schema: json.RawMessage(`{"type":"object","properties":{"events":{"type":"array","items":` + virtualCalendarEventResultSchema() + `}},"required":["events"],"additionalProperties":false}`)}
-	case "calendar.update":
-		return virtualCalendarResultContract("updated")
-	case "calendar.delete":
-		return &agentruntime.CapabilityToolResultContract{
-			Schema:  json.RawMessage(`{"type":"object","properties":{"eventID":{"type":"string","minLength":1},"deleted":{"const":true}},"required":["eventID","deleted"],"additionalProperties":false}`),
-			Effects: []agentruntime.CapabilityResourceEffectContract{virtualCalendarEffectContract("deleted")},
-		}
-	case "site.create":
-		return virtualSiteResultContract(
-			`{"type":"object","properties":{"siteID":{"type":"string","minLength":1},"slug":{"type":"string","minLength":1,"pattern":"^[a-z0-9]+(?:-[a-z0-9]+)*$"},"title":{"type":"string"},"status":{"type":"string","const":"draft"},"sourceWorkspacePath":{"type":"string","minLength":1},"appWorkspacePath":{"type":"string","minLength":1}},"required":["siteID","slug","title","status","sourceWorkspacePath","appWorkspacePath"],"additionalProperties":false}`,
-			"created",
-		)
-	case "site.status":
-		return &agentruntime.CapabilityToolResultContract{Schema: json.RawMessage(`{"type":"object","properties":{"siteID":{"type":"string","minLength":1},"slug":{"type":"string","minLength":1,"pattern":"^[a-z0-9]+(?:-[a-z0-9]+)*$"},"title":{"type":"string"},"status":{"type":"string","enum":["draft","publishing","published","unpublished","failed"]},"sourceWorkspacePath":{"type":"string","minLength":1},"appWorkspacePath":{"type":"string","minLength":1},"previewURL":{"type":"string","minLength":1},"publishedURL":{"type":"string","minLength":1},"lastError":{"type":"string"},"updatedAt":{"type":"string"},"workspaceHealth":{"type":"string"},"liveHTTPStatus":{"type":"integer"}},"required":["siteID","slug","title","status","sourceWorkspacePath"],"additionalProperties":false}`)}
-	case "site.preview":
-		return virtualSiteResultContract(
-			`{"type":"object","properties":{"siteID":{"type":"string","minLength":1},"status":{"type":"string","enum":["draft","publishing","published","unpublished","failed"]},"sourceWorkspacePath":{"type":"string","minLength":1},"previewID":{"type":"string","minLength":1},"previewURL":{"type":"string","minLength":1},"previewExpiresAt":{"type":"string"}},"required":["siteID","status","sourceWorkspacePath","previewID","previewURL","previewExpiresAt"],"additionalProperties":false}`,
-			"previewed",
-		)
-	case "site.publish":
-		return &agentruntime.CapabilityToolResultContract{
-			Schema: json.RawMessage(`{"type":"object","properties":{"siteID":{"type":"string","minLength":1},"status":{"type":"string","const":"published"},"sourceWorkspacePath":{"type":"string","minLength":1},"sourceSHA256":{"type":"string","pattern":"^[a-f0-9]{64}$"},"publishedURL":{"type":"string","minLength":1},"currentVersionID":{"type":"string","minLength":1}},"required":["siteID","status","sourceWorkspacePath","sourceSHA256","publishedURL","currentVersionID"],"additionalProperties":false}`),
-			Effects: []agentruntime.CapabilityResourceEffectContract{
-				{ObjectType: "website", Effect: "published", ResultField: "siteID", EffectIdentity: "id"},
-				{ObjectType: "website", Effect: "published", ResultField: "publishedURL", EffectIdentity: "url"},
-			},
-		}
-	case "site.delete":
-		return virtualSiteResultContract(
-			`{"type":"object","properties":{"siteID":{"type":"string","minLength":1},"deleted":{"type":"boolean","const":true}},"required":["siteID","deleted"],"additionalProperties":false}`,
-			"deleted",
-		)
-	case "web.search":
-		return &agentruntime.CapabilityToolResultContract{Schema: json.RawMessage(`{"type":"object","properties":{"query":{"type":"string","minLength":1},"results":{"type":"array","items":{"type":"object","properties":{"title":{"type":"string","minLength":1},"url":{"type":"string","minLength":1},"snippet":{"type":"string"}},"required":["title","url","snippet"],"additionalProperties":false}}},"required":["query","results"],"additionalProperties":false}`)}
-	default:
+	if !slices.Contains(virtualGeneratedResultContractToolNames, toolName) {
 		return nil
 	}
+	descriptor, isFound := virtualCanonicalCapabilityToolDescriptor(toolName)
+	if !isFound || descriptor.ResultContract == nil {
+		panic("generated capability result contract is missing: " + toolName)
+	}
+	return descriptor.ResultContract
 }
 
 func virtualDocumentContent(workspacePath string, path string) (string, error) {
@@ -1899,48 +1879,6 @@ func extractDOCXText(content []byte) (string, error) {
 		}
 		textParts = append(textParts, text)
 	}
-}
-
-func virtualSiteResultContract(schema string, effect string) *agentruntime.CapabilityToolResultContract {
-	return &agentruntime.CapabilityToolResultContract{
-		Schema: json.RawMessage(schema),
-		Effects: []agentruntime.CapabilityResourceEffectContract{{
-			ObjectType:     "website",
-			Effect:         effect,
-			ResultField:    "siteID",
-			EffectIdentity: "id",
-		}},
-	}
-}
-
-func virtualTaskResultContract(effect string) *agentruntime.CapabilityToolResultContract {
-	return &agentruntime.CapabilityToolResultContract{
-		Schema:  json.RawMessage(virtualTaskResultSchema()),
-		Effects: []agentruntime.CapabilityResourceEffectContract{virtualTaskEffectContract(effect)},
-	}
-}
-
-func virtualTaskEffectContract(effect string) agentruntime.CapabilityResourceEffectContract {
-	return agentruntime.CapabilityResourceEffectContract{ObjectType: "task", Effect: effect, ResultField: "taskID", EffectIdentity: "id"}
-}
-
-func virtualTaskResultSchema() string {
-	return `{"type":"object","properties":{"taskID":{"type":"string"},"goal":{"type":"string"},"size":{"type":"string"},"status":{"type":"string"},"startDate":{"type":"string"},"endDate":{"type":"string"},"targetPersonHint":{"type":"string"},"participantPersonHints":{"type":"array","items":{"type":"string"}},"content":{"type":"string"},"category":{"type":"string"},"type":{"type":"string"},"flag":{"type":"integer"},"requestReason":{"type":"string"},"decisionReason":{"type":"string"}},"required":["taskID"],"additionalProperties":false}`
-}
-
-func virtualCalendarResultContract(effect string) *agentruntime.CapabilityToolResultContract {
-	return &agentruntime.CapabilityToolResultContract{
-		Schema:  json.RawMessage(virtualCalendarEventResultSchema()),
-		Effects: []agentruntime.CapabilityResourceEffectContract{virtualCalendarEffectContract(effect)},
-	}
-}
-
-func virtualCalendarEffectContract(effect string) agentruntime.CapabilityResourceEffectContract {
-	return agentruntime.CapabilityResourceEffectContract{ObjectType: "calendar", Effect: effect, ResultField: "eventID", EffectIdentity: "id"}
-}
-
-func virtualCalendarEventResultSchema() string {
-	return `{"type":"object","properties":{"eventID":{"type":"string","minLength":1},"title":{"type":"string"},"description":{"type":"string"},"location":{"type":"string"},"startISO":{"type":"string"},"endISO":{"type":"string"},"timeZone":{"type":"string"},"isAllDay":{"type":"boolean"},"color":{"type":"string"},"people":{"type":"array","items":{"type":"string"}},"participants":{"type":"array","items":{"type":"object","properties":{"personID":{"type":"string"},"name":{"type":"string"},"email":{"type":"string"}},"required":["name"],"additionalProperties":false}},"reminderLeadHours":{"type":"number","enum":[1,2,3,6,12,24,48]},"updatedAt":{"type":"string"}},"required":["eventID","title","description","location","startISO","endISO","timeZone","isAllDay","color","people","participants","reminderLeadHours","updatedAt"],"additionalProperties":false}`
 }
 
 func (service *virtualCapabilityService) taskResponse(toolName string, requestBody []byte) string {
