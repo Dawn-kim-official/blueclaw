@@ -1,0 +1,63 @@
+package agentruntime
+
+import (
+	"context"
+	"encoding/json"
+	"os"
+	"strings"
+	"testing"
+
+	"blueclaw/internal/config"
+	"blueclaw/internal/llm"
+)
+
+func TestSDKDLiveLowCanonicalTerminalSchemaFromEnv(t *testing.T) {
+	socketPath := strings.TrimSpace(os.Getenv("BLUECLAW_SDKD_LIVE_SOCKET"))
+	authKey := strings.TrimSpace(os.Getenv("BLUECLAW_SDKD_LIVE_AUTH_KEY"))
+	if socketPath == "" || authKey == "" {
+		t.Skip("BLUECLAW_SDKD_LIVE_SOCKET and BLUECLAW_SDKD_LIVE_AUTH_KEY are required")
+	}
+	client := llm.NewSDKDClient(llm.SDKDClientConfiguration{
+		UnixSocketPath: socketPath,
+		AuthKey:        authKey,
+		ModelName:      llm.ResolveModelTierNames(config.RuntimeConfiguration{}).Low,
+		ExecutionMode:  "remote",
+	})
+	response, errorValue := client.GenerateChatCompletion(context.Background(), llm.ChatCompletionRequest{
+		SchemaName: "blueclaw_agent_turn_action",
+		Messages: []llm.ChatCompletionMessage{{
+			Role:    "user",
+			Content: "Call terminal.run with command printf sdkd-terminal-ok.",
+		}},
+		Tools: []llm.ChatCompletionTool{{
+			Type: "function",
+			Function: llm.ChatCompletionFunction{
+				Name:        "terminal.run",
+				Description: "Run a command in the requester workspace.",
+				Parameters:  terminalRunInputSchema,
+			},
+		}},
+		ToolChoice:        json.RawMessage(`"required"`),
+		ParallelToolCalls: false,
+	})
+	if errorValue != nil {
+		t.Fatalf("expected low SDKD terminal tool call: %v", errorValue)
+	}
+	if response.FinishReason != "tool_calls" || len(response.Message.ToolCalls) != 1 {
+		t.Fatalf("expected one terminal tool call, got %+v", response)
+	}
+	toolCall := response.Message.ToolCalls[0]
+	if toolCall.Function.Name != "terminal.run" {
+		t.Fatalf("expected terminal.run, got %+v", toolCall)
+	}
+	var input terminalRunToolInput
+	if errorValue := json.Unmarshal([]byte(toolCall.Function.Arguments), &input); errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if errorValue := validateTerminalRunInput(input); errorValue != nil {
+		t.Fatalf("expected canonical terminal input, got %s: %v", toolCall.Function.Arguments, errorValue)
+	}
+	if strings.TrimSpace(input.Command) == "" {
+		t.Fatalf("expected command input, got %+v", input)
+	}
+}

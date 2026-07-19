@@ -850,8 +850,8 @@ func nativeAgentActionContractState() agentTaskState {
 				RequirementID: "operation-2",
 				ToolID:        "kernel:terminal.run",
 				ToolName:      TerminalRunToolName,
-				InputMode:     OperationInputContainsExplicit,
-				RequiredInput: json.RawMessage(`{"command":"wc report.txt"}`),
+				InputMode:     OperationInputNoExplicitValues,
+				RequiredInput: json.RawMessage(`{}`),
 			},
 		},
 	}

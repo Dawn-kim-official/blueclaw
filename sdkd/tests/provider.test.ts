@@ -6,6 +6,7 @@ import { createOpenRouter } from '@openrouter/ai-sdk-provider';
 import {
   ChatCompletionFinishReason,
   ChatCompletionMessageRole,
+  DocumentToolName,
   ExecutionMode,
   LanguageModelBackend,
   LanguageModelMessageRole,
@@ -13,6 +14,8 @@ import {
   StructuredOutputDiagnosticCategory,
   StructuredOutputRepairStatus,
   StructuredOutputValidationCode,
+  buildCapabilityToolCatalog,
+  chatCompletionRequestSchema,
   type ChatCompletionRequest,
   type StructuredResponseRequest,
 } from '@blueclaw/protocol';
@@ -72,6 +75,40 @@ const chatRequest: ChatCompletionRequest = {
 };
 
 describe('sdkd provider adapter', () => {
+  test('accepts canonical generated document tool schemas', async () => {
+    const descriptor = buildCapabilityToolCatalog('test').tools
+      .find(tool => tool.name === DocumentToolName.Read);
+    if (descriptor === undefined) throw new Error('document.read descriptor is missing');
+    const fallbackModel = chatLanguageModel('unused-local-model');
+    const remoteModel = toolCallLanguageModel('served-remote-model', [{
+      toolName: DocumentToolName.Read,
+      input: '{"path":"/workspace/documents/review.docx"}',
+    }]);
+    const generateChatCompletion = createChatCompletionGenerator(
+      completeConfiguration(SDKDAutoRoute.RemoteFirst),
+      languageModelFactory(fallbackModel, remoteModel),
+    );
+
+    const request = chatCompletionRequestSchema.parse({
+      ...chatRequest,
+      messages: [{ role: ChatCompletionMessageRole.User, content: 'Read the document.' }],
+      tools: [{
+        type: 'function',
+        function: {
+          name: descriptor.name,
+          description: descriptor.description,
+          parameters: descriptor.inputSchema,
+        },
+      }],
+      toolChoice: 'required',
+    });
+    const response = await generateChatCompletion(request);
+
+    expect(response.message.toolCalls?.[0]?.function.name).toBe(DocumentToolName.Read);
+    expect(remoteModel.doGenerateCalls).toHaveLength(1);
+    expect(fallbackModel.doGenerateCalls).toHaveLength(0);
+  });
+
   test('generates chat completions with native tools and provider metadata', async () => {
     const llamaModel = successfulLanguageModel('unused-local-model', { ok: true });
     const remoteModel = chatLanguageModel('served-remote-model');
@@ -155,7 +192,7 @@ describe('sdkd provider adapter', () => {
       name: 'lookup',
       arguments: '{"key":"result"}',
     });
-    expect(remoteModel.doGenerateCalls[0]?.toolChoice).toEqual({ type: 'required' });
+    expect(remoteModel.doGenerateCalls[0]?.toolChoice).toEqual({ type: 'tool', toolName: 'lookup' });
     expect(fallbackModel.doGenerateCalls).toHaveLength(0);
   });
 

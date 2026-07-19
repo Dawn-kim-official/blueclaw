@@ -89,12 +89,16 @@ func TestCommandPlanUsesPOSIXHelperForExecutionIdentity(t *testing.T) {
 
 func TestSanitizeEnvironmentIgnoresRequesterPATH(t *testing.T) {
 	environmentVariables := sanitizeEnvironmentVariables(map[string]string{
-		"PATH": "/workspace/private/people/person-1/bin",
-		"HOME": "/workspace/private/people/person-1",
+		"PATH":                           "/workspace/private/people/person-1/bin",
+		"HOME":                           "/workspace/private/people/person-1",
+		"BLUECLAW_BUILTIN_SKILLS_PYTHON": "/opt/blueclaw/builtin-skills-venv/bin/python",
 	}, "/workspace")
 
 	if environmentVariables["PATH"] != CanonicalRuntimePATH {
 		t.Fatalf("expected requester PATH to be ignored, got %+v", environmentVariables)
+	}
+	if environmentVariables["BLUECLAW_BUILTIN_SKILLS_PYTHON"] != "/opt/blueclaw/builtin-skills-venv/bin/python" {
+		t.Fatalf("expected managed skills runtime to survive sanitization, got %+v", environmentVariables)
 	}
 }
 

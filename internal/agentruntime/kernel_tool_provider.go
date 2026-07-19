@@ -135,30 +135,7 @@ var (
 		},
 		"additionalProperties":false
 	}`)
-	fileDeliverInputIntentSchema = json.RawMessage(`{
-		"type":"object",
-		"properties":{
-			"path":{"type":"string"},
-			"filename":{"type":"string"},
-			"contentType":{"type":"string"},
-			"title":{"type":"string"},
-			"files":{
-				"type":"array",
-				"minItems":1,
-				"items":{
-					"type":"object",
-					"properties":{
-						"path":{"type":"string"},
-						"filename":{"type":"string"},
-						"contentType":{"type":"string"},
-						"title":{"type":"string"}
-					},
-					"additionalProperties":false
-				}
-			}
-		},
-		"additionalProperties":false
-	}`)
+	fileDeliverInputIntentSchema = json.RawMessage(`{"type":"object","properties":{},"additionalProperties":false}`)
 )
 
 var kernelToolDescriptorSpecs = []kernelToolDescriptorSpec{

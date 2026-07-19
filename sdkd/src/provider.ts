@@ -34,7 +34,7 @@ import {
   TypeValidationError,
   wrapLanguageModel,
 } from 'ai';
-import Ajv, { type ErrorObject } from 'ajv';
+import Ajv, { type ErrorObject } from 'ajv/dist/2020.js';
 
 import { SDKDAutoRoute, type SDKDConfiguration } from './configuration.ts';
 import { classifySDKDError, isRetryableProviderError, SDKDError } from './errors.ts';
@@ -574,10 +574,15 @@ async function generateChatForRoute(
   abortSignal?: AbortSignal,
 ): Promise<ChatCompletionResponse> {
   const tools = createChatTools(request);
-  const toolChoice = convertToolChoice(request.toolChoice, Object.keys(tools));
+  const requestedToolChoice = convertToolChoice(request.toolChoice, Object.keys(tools));
+  const providerChoice = providerToolChoice(
+    requestedToolChoice,
+    Object.keys(tools),
+    request.parallelToolCalls,
+  );
   const messages = convertChatMessages(request);
   const system = systemContent(request);
-  const chatRoute = routeForChatRequest(request, route, toolChoice);
+  const chatRoute = routeForChatRequest(request, route, requestedToolChoice);
   let repairAttempted = false;
   const repairStatuses = new Map<string, StructuredOutputRepairStatus>();
   const result = await generateText({
@@ -585,7 +590,7 @@ async function generateChatForRoute(
     system,
     messages,
     tools: Object.keys(tools).length > 0 ? tools : undefined,
-    toolChoice,
+    toolChoice: providerChoice,
     maxOutputTokens: request.generationOptions?.maxTokens,
     maxRetries: 0,
     abortSignal,
@@ -611,7 +616,7 @@ async function generateChatForRoute(
     temperature: request.generationOptions?.temperature,
   });
   throwIfAborted(abortSignal);
-  requireChatToolChoice(result, toolChoice, Object.keys(tools));
+  requireChatToolChoice(result, requestedToolChoice, Object.keys(tools));
   for (const toolCall of result.toolCalls) {
     if (!toolCall.invalid) continue;
     const toolName = tools[toolCall.toolName] === undefined ? undefined : toolCall.toolName;
@@ -649,12 +654,23 @@ async function generateChatForRoute(
   };
 }
 
+function providerToolChoice(
+  toolChoice: ToolChoice<DynamicToolSet> | undefined,
+  toolNames: string[],
+  parallelToolCalls: boolean | undefined,
+): ToolChoice<DynamicToolSet> | undefined {
+  if (toolChoice !== 'required' || toolNames.length !== 1 || parallelToolCalls !== false) return toolChoice;
+  const [toolName] = toolNames;
+  if (toolName === undefined) return toolChoice;
+  return { type: 'tool', toolName };
+}
+
 function routeForChatRequest(
   request: ChatCompletionRequest,
   route: ProviderRoute,
-  toolChoice: ToolChoice<DynamicToolSet> | undefined,
+  requestedToolChoice: ToolChoice<DynamicToolSet> | undefined,
 ): ProviderRoute {
-  if (request.parallelToolCalls !== false || isNamedToolChoice(toolChoice)) return route;
+  if (request.parallelToolCalls !== false || isNamedToolChoice(requestedToolChoice)) return route;
   return { ...route, languageModel: firstToolCallLanguageModel(route.languageModel) };
 }
 
