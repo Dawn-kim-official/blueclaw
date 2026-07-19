@@ -17,15 +17,16 @@ type ServerDefinition struct {
 }
 
 type ToolDefinition struct {
-	Name           string              `json:"name"`
-	Namespace      string              `json:"namespace"`
-	ServerName     string              `json:"serverName"`
-	Description    string              `json:"description"`
-	InputSchema    json.RawMessage     `json:"inputSchema"`
-	OutputSchema   json.RawMessage     `json:"outputSchema"`
-	ResultContract *ToolResultContract `json:"resultContract"`
-	Policy         PolicyMetadata      `json:"policy"`
-	remoteName     string
+	Name              string              `json:"name"`
+	Namespace         string              `json:"namespace"`
+	ServerName        string              `json:"serverName"`
+	Description       string              `json:"description"`
+	InputSchema       json.RawMessage     `json:"inputSchema"`
+	InputIntentSchema json.RawMessage     `json:"inputIntentSchema,omitempty"`
+	OutputSchema      json.RawMessage     `json:"outputSchema"`
+	ResultContract    *ToolResultContract `json:"resultContract"`
+	Policy            PolicyMetadata      `json:"policy"`
+	remoteName        string
 }
 
 type ToolResultContract struct {

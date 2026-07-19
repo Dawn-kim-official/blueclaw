@@ -23,6 +23,7 @@ type ToolDescriptor struct {
 	WorksOffline         bool                `json:"worksOffline,omitempty"`
 	RecoveryCard         ToolRecoveryCard    `json:"recoveryCard,omitempty"`
 	InputSchema          json.RawMessage     `json:"inputSchema,omitempty"`
+	InputIntentSchema    json.RawMessage     `json:"inputIntentSchema,omitempty"`
 	OutputSchema         json.RawMessage     `json:"outputSchema,omitempty"`
 	ResultContract       *ToolResultContract `json:"resultContract,omitempty"`
 	Visibility           string              `json:"visibility,omitempty"`
@@ -97,6 +98,18 @@ const (
 	ToolSideEffectPlatformReply   = "platform_reply"
 	ToolSideEffectSitePublish     = "site_publish"
 )
+
+func ToolDescriptorRequiresInputIntentSchema(toolDescriptor ToolDescriptor) bool {
+	if toolDescriptor.Visibility != ToolVisibilityModel {
+		return false
+	}
+	switch toolDescriptor.SideEffectClass {
+	case ToolSideEffectNone, ToolSideEffectRead, ToolSideEffectComputation:
+		return false
+	default:
+		return true
+	}
+}
 
 type ToolInvocation struct {
 	ToolName string          `json:"toolName"`
@@ -400,6 +413,7 @@ func mergeTestToolDefinition(currentDefinition ToolDefinition, replacementDefini
 	replacementDefinition.RequiresUserPresence = replacementDefinition.RequiresUserPresence || currentDefinition.RequiresUserPresence
 	replacementDefinition.WorksOffline = replacementDefinition.WorksOffline || currentDefinition.WorksOffline
 	replacementDefinition.InputSchema = firstNonEmptySchema(replacementDefinition.InputSchema, currentDefinition.InputSchema)
+	replacementDefinition.InputIntentSchema = firstNonEmptySchema(replacementDefinition.InputIntentSchema, currentDefinition.InputIntentSchema)
 	replacementDefinition.OutputSchema = firstNonEmptySchema(replacementDefinition.OutputSchema, currentDefinition.OutputSchema)
 	if replacementDefinition.ResultContract == nil {
 		replacementDefinition.ResultContract = currentDefinition.ResultContract

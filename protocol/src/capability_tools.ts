@@ -251,6 +251,8 @@ export const taskAddInputSchema = z.strictObject({
     .optional(),
 });
 
+export const taskAddInputIntentSchema = taskAddInputSchema.partial();
+
 export const taskListInputSchema = z.strictObject({
   query: z.string()
     .describe("Free-text keyword filter matched against task titles and content, e.g. 'budget'. Do not put dates, week codes, or person names here — use the dedicated fields instead.")
@@ -288,9 +290,13 @@ export const taskUpdateInputSchema = taskUpdateObjectSchema
   .refine(hasMutationField, 'At least one task field must be updated.')
   .meta({ minProperties: 2 });
 
+export const taskUpdateInputIntentSchema = taskUpdateObjectSchema.partial();
+
 export const taskDeleteInputSchema = z.strictObject({
   taskID: resourceIDSchema.describe('Exact ID of the task to delete, copied from a task.list result.'),
 });
+
+export const taskDeleteInputIntentSchema = taskDeleteInputSchema.partial();
 
 export const taskListResultSchema = z.strictObject({
   tasks: z.array(taskResultSchema),
@@ -357,6 +363,8 @@ export const calendarAddInputSchema = z.strictObject({
   reminderLeadHours: calendarReminderLeadHoursSchema.describe('Reminder lead time in hours.').optional(),
 });
 
+export const calendarAddInputIntentSchema = calendarAddInputSchema.partial();
+
 export const calendarListInputSchema = z.strictObject({
   startISO: z.string().describe('Inclusive start of the time window as ISO 8601 with timezone.').optional(),
   endISO: z.string().describe('Exclusive end of the time window as ISO 8601 with timezone.').optional(),
@@ -373,9 +381,13 @@ export const calendarUpdateInputSchema = calendarUpdateObjectSchema
   .refine(hasMutationField, 'At least one calendar event field must be updated.')
   .meta({ minProperties: 2 });
 
+export const calendarUpdateInputIntentSchema = calendarUpdateObjectSchema.partial();
+
 export const calendarDeleteInputSchema = z.strictObject({
   eventID: resourceIDSchema.describe('Exact event ID copied from a calendar.list result.'),
 });
+
+export const calendarDeleteInputIntentSchema = calendarDeleteInputSchema.partial();
 
 export const calendarListResultSchema = z.strictObject({
   events: z.array(calendarEventResultSchema),
@@ -424,6 +436,8 @@ export const messageSendInputSchema = z.strictObject({
   reason: z.string().describe('Reason shown to the approver.').optional(),
 });
 
+export const messageSendInputIntentSchema = messageSendInputSchema.partial();
+
 const messageUpdateObjectSchema = z.strictObject({
   messageID: resourceIDSchema.describe('Exact message ID from message.search or message.send.'),
   message: z.string().min(1).regex(/\S/, 'Message must contain a non-whitespace character.').optional(),
@@ -434,9 +448,13 @@ export const messageUpdateInputSchema = messageUpdateObjectSchema
   .refine(hasMutationField, 'At least one message field must be updated.')
   .meta({ minProperties: 2 });
 
+export const messageUpdateInputIntentSchema = messageUpdateObjectSchema.partial();
+
 export const messageDeleteInputSchema = z.strictObject({
   messageIDs: uniqueMessageIDArraySchema.describe('Exact message IDs from message.search.'),
 });
+
+export const messageDeleteInputIntentSchema = messageDeleteInputSchema.partial();
 
 const messageSearchCandidateSchema = z.strictObject({
   messageID: resourceIDSchema,
@@ -514,6 +532,8 @@ export const channelUpdateInputSchema = channelUpdateObjectSchema
   .refine(input => input.header !== undefined || input.displayName !== undefined || input.inviteeHints !== undefined, 'At least one channel field must be updated.')
   .meta({ minProperties: 2 });
 
+export const channelUpdateInputIntentSchema = channelUpdateObjectSchema;
+
 export const channelUpdateResultSchema = z.strictObject({
   channelID: resourceIDSchema,
   updated: z.literal(true),
@@ -537,6 +557,15 @@ const siteContentSchema = z.strictObject({
   sections: z.array(siteContentSectionSchema).min(1),
 });
 
+const siteContentSectionIntentSchema = siteContentSectionSchema.partial();
+const siteContentIntentSchema = z.strictObject({
+  siteName: z.string().optional(),
+  tagline: z.string().optional(),
+  heroActionLabel: z.string().optional(),
+  heroActionHref: z.string().optional(),
+  sections: z.array(siteContentSectionIntentSchema).min(1).optional(),
+});
+
 export const siteCreateInputSchema = z.strictObject({
   slug: siteSlugSchema.describe('Unique URL-safe site identifier, such as team-dashboard.'),
   title: z.string().describe('Human-readable site name.').optional(),
@@ -552,6 +581,21 @@ export const siteCreateInputSchema = z.strictObject({
   content: siteContentSchema.describe('Structured content for a basic content site.').optional(),
 });
 
+export const siteCreateInputIntentSchema = z.strictObject({
+  slug: siteSlugSchema.optional(),
+  title: z.string().optional(),
+  prompt: z.string().optional(),
+  designBrief: z.string().optional(),
+  prototypeScope: z.string().optional(),
+  description: z.string().optional(),
+  idea: z.string().optional(),
+  purpose: z.string().optional(),
+  audience: z.string().optional(),
+  archetype: z.string().optional(),
+  domainKeywords: z.array(z.string()).optional(),
+  content: siteContentIntentSchema.optional(),
+});
+
 export const siteStatusInputSchema = z.strictObject({
   siteReference: resourceIDSchema.describe('Exact siteID or exact slug from the request or an earlier site result.'),
   checkLive: z.boolean().describe('Probe the published URL in addition to reading persisted status.').optional(),
@@ -562,16 +606,22 @@ export const sitePreviewInputSchema = z.strictObject({
   previewID: resourceIDSchema.describe('Existing preview ID to refresh. Omit to create a new preview.').optional(),
 });
 
+export const sitePreviewInputIntentSchema = sitePreviewInputSchema.partial();
+
 export const sitePublishInputSchema = z.strictObject({
   siteID: resourceIDSchema.describe('Exact site ID from site.create or site.status.'),
   message: z.string().describe('Short revision message describing the edits being published.').optional(),
   previewID: resourceIDSchema.describe('Preview ID whose reviewed source should be published.').optional(),
 });
 
+export const sitePublishInputIntentSchema = sitePublishInputSchema.partial();
+
 export const siteDeleteInputSchema = z.strictObject({
   siteID: resourceIDSchema.describe('Exact site ID from site.status.'),
   reason: z.string().describe('Reason shown in the approval prompt.').optional(),
 });
+
+export const siteDeleteInputIntentSchema = siteDeleteInputSchema.partial();
 
 export const siteCreateResultSchema = z.strictObject({
   siteID: resourceIDSchema,
@@ -659,6 +709,8 @@ export const browserOpenInputSchema = z.strictObject({
   url: resourceIDSchema.describe('Absolute HTTP or HTTPS URL to open.'),
 });
 
+export const browserOpenInputIntentSchema = browserOpenInputSchema.partial();
+
 export const browserOpenResultSchema = z.strictObject({
   url: resourceIDSchema,
   requestedURL: resourceIDSchema,
@@ -693,12 +745,17 @@ export const browserScreenshotResultSchema = z.strictObject({
   capturedAt: resourceIDSchema,
 });
 
-export const browserClickInputSchema = z.strictObject({
+const browserClickObjectSchema = z.strictObject({
   target: resourceIDSchema.optional(),
   ref: resourceIDSchema.optional(),
   selector: resourceIDSchema.optional(),
-}).refine(hasAnyField, 'A browser target, ref, or selector is required.')
+});
+
+export const browserClickInputSchema = browserClickObjectSchema
+  .refine(hasAnyField, 'A browser target, ref, or selector is required.')
   .meta({ minProperties: 1 });
+
+export const browserClickInputIntentSchema = browserClickObjectSchema;
 
 export const browserClickResultSchema = z.strictObject({
   ok: z.literal(true),
@@ -790,6 +847,7 @@ type CapabilityToolDefinition = {
   version: string;
   estimatedLatency: CapabilityEstimatedLatency;
   inputSchema: z.ZodType;
+  inputIntentSchema?: z.ZodType;
   result: CapabilityResultDefinition;
   sideEffect: CapabilitySideEffect;
   idempotency?: z.infer<typeof capabilityIdempotencySchema>;
@@ -812,6 +870,7 @@ const taskToolDefinitions: CapabilityToolDefinition[] = [
     version: '3',
     estimatedLatency: CapabilityEstimatedLatency.Medium,
     inputSchema: taskAddInputSchema,
+    inputIntentSchema: taskAddInputIntentSchema,
     result: {
       schema: taskResultSchema,
       effects: [{
@@ -845,6 +904,7 @@ const taskToolDefinitions: CapabilityToolDefinition[] = [
     version: '3',
     estimatedLatency: CapabilityEstimatedLatency.Medium,
     inputSchema: taskUpdateInputSchema,
+    inputIntentSchema: taskUpdateInputIntentSchema,
     result: {
       schema: taskResultSchema,
       effects: [{
@@ -866,6 +926,7 @@ const taskToolDefinitions: CapabilityToolDefinition[] = [
     version: '3',
     estimatedLatency: CapabilityEstimatedLatency.Medium,
     inputSchema: taskDeleteInputSchema,
+    inputIntentSchema: taskDeleteInputIntentSchema,
     result: {
       schema: taskDeleteResultSchema,
       effects: [{
@@ -891,6 +952,7 @@ const calendarToolDefinitions: CapabilityToolDefinition[] = [
     version: '2',
     estimatedLatency: CapabilityEstimatedLatency.Medium,
     inputSchema: calendarAddInputSchema,
+    inputIntentSchema: calendarAddInputIntentSchema,
     result: {
       schema: calendarEventResultSchema,
       effects: [{
@@ -924,6 +986,7 @@ const calendarToolDefinitions: CapabilityToolDefinition[] = [
     version: '3',
     estimatedLatency: CapabilityEstimatedLatency.Medium,
     inputSchema: calendarUpdateInputSchema,
+    inputIntentSchema: calendarUpdateInputIntentSchema,
     result: {
       schema: calendarEventResultSchema,
       effects: [{
@@ -945,6 +1008,7 @@ const calendarToolDefinitions: CapabilityToolDefinition[] = [
     version: '2',
     estimatedLatency: CapabilityEstimatedLatency.Medium,
     inputSchema: calendarDeleteInputSchema,
+    inputIntentSchema: calendarDeleteInputIntentSchema,
     result: {
       schema: calendarDeleteResultSchema,
       effects: [{
@@ -994,6 +1058,7 @@ const messageToolDefinitions: CapabilityToolDefinition[] = [
     version: '2',
     estimatedLatency: CapabilityEstimatedLatency.Medium,
     inputSchema: messageSendInputSchema,
+    inputIntentSchema: messageSendInputIntentSchema,
     result: {
       schema: messageSendResultSchema,
       effects: [{
@@ -1017,6 +1082,7 @@ const messageToolDefinitions: CapabilityToolDefinition[] = [
     version: '2',
     estimatedLatency: CapabilityEstimatedLatency.Medium,
     inputSchema: messageUpdateInputSchema,
+    inputIntentSchema: messageUpdateInputIntentSchema,
     result: {
       schema: messageUpdateResultSchema,
       effects: [{
@@ -1039,6 +1105,7 @@ const messageToolDefinitions: CapabilityToolDefinition[] = [
     version: '2',
     estimatedLatency: CapabilityEstimatedLatency.Medium,
     inputSchema: messageDeleteInputSchema,
+    inputIntentSchema: messageDeleteInputIntentSchema,
     result: {
       schema: messageDeleteResultSchema,
       effects: [{
@@ -1064,6 +1131,7 @@ const channelToolDefinitions: CapabilityToolDefinition[] = [
     version: '2',
     estimatedLatency: CapabilityEstimatedLatency.Medium,
     inputSchema: channelUpdateInputSchema,
+    inputIntentSchema: channelUpdateInputIntentSchema,
     result: {
       schema: channelUpdateResultSchema,
       effects: [{
@@ -1089,6 +1157,7 @@ const siteToolDefinitions: CapabilityToolDefinition[] = [
     version: '2',
     estimatedLatency: CapabilityEstimatedLatency.Medium,
     inputSchema: siteCreateInputSchema,
+    inputIntentSchema: siteCreateInputIntentSchema,
     result: {
       schema: siteCreateResultSchema,
       effects: [{
@@ -1122,6 +1191,7 @@ const siteToolDefinitions: CapabilityToolDefinition[] = [
     version: '2',
     estimatedLatency: CapabilityEstimatedLatency.High,
     inputSchema: sitePreviewInputSchema,
+    inputIntentSchema: sitePreviewInputIntentSchema,
     result: {
       schema: sitePreviewResultSchema,
       effects: [{
@@ -1143,6 +1213,7 @@ const siteToolDefinitions: CapabilityToolDefinition[] = [
     version: '2',
     estimatedLatency: CapabilityEstimatedLatency.High,
     inputSchema: sitePublishInputSchema,
+    inputIntentSchema: sitePublishInputIntentSchema,
     result: {
       schema: sitePublishResultSchema,
       effects: [
@@ -1172,6 +1243,7 @@ const siteToolDefinitions: CapabilityToolDefinition[] = [
     version: '2',
     estimatedLatency: CapabilityEstimatedLatency.Medium,
     inputSchema: siteDeleteInputSchema,
+    inputIntentSchema: siteDeleteInputIntentSchema,
     result: {
       schema: siteDeleteResultSchema,
       effects: [{
@@ -1225,6 +1297,7 @@ const browserToolDefinitions: CapabilityToolDefinition[] = [
     version: '2',
     estimatedLatency: CapabilityEstimatedLatency.Interactive,
     inputSchema: browserOpenInputSchema,
+    inputIntentSchema: browserOpenInputIntentSchema,
     result: { schema: browserOpenResultSchema, effects: [] },
     sideEffect: CapabilitySideEffect.Connect,
     requiresUserPresence: true,
@@ -1262,6 +1335,7 @@ const browserToolDefinitions: CapabilityToolDefinition[] = [
     version: '2',
     estimatedLatency: CapabilityEstimatedLatency.Interactive,
     inputSchema: browserClickInputSchema,
+    inputIntentSchema: browserClickInputIntentSchema,
     result: { schema: browserClickResultSchema, effects: [] },
     sideEffect: CapabilitySideEffect.ExternalWrite,
   },
@@ -1394,6 +1468,9 @@ function buildCapabilityDescriptor(definition: CapabilityToolDefinition): z.infe
     requiresUserPresence: definition.requiresUserPresence ?? false,
     worksOffline: false,
     inputSchema: z.toJSONSchema(definition.inputSchema),
+    inputIntentSchema: definition.inputIntentSchema === undefined
+      ? undefined
+      : z.toJSONSchema(definition.inputIntentSchema),
     outputSchema: z.toJSONSchema(toolInvokeResponseSchema),
     inputSchemaStrict: true,
     outputSchemaStrict: true,

@@ -93,6 +93,7 @@ type CapabilityToolDescriptor struct {
 	RequiresUserPresence bool
 	WorksOffline         bool
 	InputSchema          json.RawMessage
+	InputIntentSchema    json.RawMessage
 	OutputSchema         json.RawMessage
 	ResultContract       *CapabilityToolResultContract
 	PolicyResource       string
@@ -553,6 +554,9 @@ func copyCapabilityToolDescriptors(toolDescriptors []CapabilityToolDescriptor) [
 			continue
 		}
 		toolDescriptor.Name = trimmedName
+		toolDescriptor.InputSchema = append(json.RawMessage{}, toolDescriptor.InputSchema...)
+		toolDescriptor.InputIntentSchema = append(json.RawMessage{}, toolDescriptor.InputIntentSchema...)
+		toolDescriptor.OutputSchema = append(json.RawMessage{}, toolDescriptor.OutputSchema...)
 		copiedToolDescriptors = append(copiedToolDescriptors, toolDescriptor)
 	}
 	return copiedToolDescriptors

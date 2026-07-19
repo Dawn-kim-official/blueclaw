@@ -50,6 +50,7 @@ type CapabilityToolDescriptor struct {
 	RequiresUserPresence bool                          `json:"requiresUserPresence,omitempty"`
 	WorksOffline         bool                          `json:"worksOffline,omitempty"`
 	InputSchema          json.RawMessage               `json:"inputSchema,omitempty"`
+	InputIntentSchema    json.RawMessage               `json:"inputIntentSchema,omitempty"`
 	OutputSchema         json.RawMessage               `json:"outputSchema,omitempty"`
 	ResultContract       *CapabilityToolResultContract `json:"resultContract,omitempty"`
 	PolicyResource       string                        `json:"policyResource,omitempty"`
@@ -105,13 +106,14 @@ type MCPServerConfiguration struct {
 }
 
 type MCPToolConfiguration struct {
-	Name           string                 `json:"name"`
-	Namespace      string                 `json:"namespace"`
-	Description    string                 `json:"description"`
-	InputSchema    json.RawMessage        `json:"inputSchema"`
-	OutputSchema   json.RawMessage        `json:"outputSchema"`
-	ResultContract *MCPToolResultContract `json:"resultContract"`
-	Policy         *MCPToolPolicyMetadata `json:"policy"`
+	Name              string                 `json:"name"`
+	Namespace         string                 `json:"namespace"`
+	Description       string                 `json:"description"`
+	InputSchema       json.RawMessage        `json:"inputSchema"`
+	InputIntentSchema json.RawMessage        `json:"inputIntentSchema,omitempty"`
+	OutputSchema      json.RawMessage        `json:"outputSchema"`
+	ResultContract    *MCPToolResultContract `json:"resultContract"`
+	Policy            *MCPToolPolicyMetadata `json:"policy"`
 }
 
 type MCPToolResultContract struct {

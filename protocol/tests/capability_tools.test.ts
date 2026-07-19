@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test';
+import { z } from 'zod';
 
 import {
   ArtifactKind,
@@ -50,6 +51,7 @@ import {
   messageUpdateInputSchema,
   messageUpdateResultSchema,
   siteCreateInputSchema,
+  siteCreateInputIntentSchema,
   siteCreateResultSchema,
   siteDeleteInputSchema,
   siteDeleteResultSchema,
@@ -66,7 +68,11 @@ import {
   webSearchInputSchema,
   webSearchResultSchema,
 } from '../src/capability_tools.ts';
-import { CapabilitySideEffect, ResourceEffectIdentity } from '../src/capability.ts';
+import {
+  CapabilityModelVisibility,
+  CapabilitySideEffect,
+  ResourceEffectIdentity,
+} from '../src/capability.ts';
 import { protocolVersion } from '../src/registry.ts';
 
 describe('canonical capability tools', () => {
@@ -105,6 +111,54 @@ describe('canonical capability tools', () => {
     ]);
     expect(catalog.tools.every(tool => tool.inputSchemaStrict && tool.outputSchemaStrict)).toBe(true);
     expect(new Set(catalog.tools.map(tool => tool.name)).size).toBe(catalog.tools.length);
+  });
+
+  test('publishes explicit intent schemas for model-visible state changes', () => {
+    const catalog = buildCapabilityToolCatalog(protocolVersion);
+    const stateChangingTools = catalog.tools.filter(tool =>
+      tool.modelVisibility === CapabilityModelVisibility.Visible
+      && tool.sideEffectClass !== CapabilitySideEffect.Read
+      && tool.sideEffectClass !== CapabilitySideEffect.Computation
+    );
+
+    expect(stateChangingTools.map(tool => tool.name)).toEqual([
+      'task.add',
+      'task.update',
+      'task.delete',
+      CalendarToolName.Add,
+      CalendarToolName.Update,
+      CalendarToolName.Delete,
+      MessageToolName.Send,
+      MessageToolName.Update,
+      MessageToolName.Delete,
+      ChannelToolName.Update,
+      SiteToolName.Create,
+      SiteToolName.Preview,
+      SiteToolName.Publish,
+      SiteToolName.Delete,
+      BrowserToolName.Open,
+      BrowserToolName.Click,
+    ]);
+
+    for (const tool of stateChangingTools) {
+      if (tool.inputIntentSchema === undefined) {
+        throw new Error(`${tool.name} is missing inputIntentSchema`);
+      }
+      const intentSchema = z.fromJSONSchema(tool.inputIntentSchema);
+      expect(intentSchema.safeParse({}).success).toBe(true);
+      expect(intentSchema.safeParse({ unexpected: true }).success).toBe(false);
+    }
+
+    expect(siteCreateInputIntentSchema.safeParse({
+      content: {
+        sections: [{ title: 'FAQ' }],
+      },
+    }).success).toBe(true);
+    expect(siteCreateInputIntentSchema.safeParse({
+      content: {
+        sections: [{ title: 'FAQ', unexpected: true }],
+      },
+    }).success).toBe(false);
   });
 
   test('defines exact web search inputs and normalized results', () => {

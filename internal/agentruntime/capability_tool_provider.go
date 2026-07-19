@@ -58,6 +58,16 @@ func validateCapabilityToolDescriptor(descriptor CapabilityToolDescriptor) error
 	if descriptor.ModelVisibility == agent.ToolVisibilityModel && descriptor.ResultContract == nil {
 		return errors.New("capability descriptor resultContract is required for model-visible tools")
 	}
+	toolDescriptor := agent.ToolDescriptor{
+		Visibility:      descriptor.ModelVisibility,
+		SideEffectClass: descriptor.SideEffectClass,
+	}
+	if agent.ToolDescriptorRequiresInputIntentSchema(toolDescriptor) && !validCapabilityObjectSchema(descriptor.InputIntentSchema) {
+		return errors.New("capability descriptor inputIntentSchema is required for model-visible state-changing tools")
+	}
+	if len(descriptor.InputIntentSchema) > 0 && !validCapabilityObjectSchema(descriptor.InputIntentSchema) {
+		return errors.New("capability descriptor inputIntentSchema must describe an object")
+	}
 	if descriptor.Availability.State != "ok" && descriptor.Availability.State != "not_allowed" && descriptor.Availability.State != "not_connected" && descriptor.Availability.State != "not_ready" {
 		return errors.New("capability descriptor availability is invalid")
 	}
@@ -98,6 +108,7 @@ func (provider capabilityToolProvider) boundTool(descriptor CapabilityToolDescri
 			RequiresUserPresence: descriptor.RequiresUserPresence,
 			WorksOffline:         descriptor.WorksOffline,
 			InputSchema:          descriptor.InputSchema,
+			InputIntentSchema:    descriptor.InputIntentSchema,
 			OutputSchema:         descriptor.OutputSchema,
 			ResultContract:       capabilityResultContract(descriptor.ResultContract),
 			Visibility:           strings.TrimSpace(descriptor.ModelVisibility),

@@ -14,15 +14,16 @@ func TestCapabilityToolProviderRegistersCanonicalDescriptor(t *testing.T) {
 		toolCatalogBuilder: NewToolCatalogBuilder(),
 		request:            ToolCatalogRequest{},
 		descriptors: []CapabilityToolDescriptor{{
-			Name:            "task.add",
-			CanonicalName:   "task.add",
-			Namespace:       "task",
-			ModelName:       "task.add",
-			ModelVisibility: agent.ToolVisibilityModel,
-			Description:     "Create a task.",
-			PrivacyClass:    "workspace_task",
-			InputSchema:     json.RawMessage(`{"type":"object","properties":{"title":{"type":"string"}},"required":["title"],"additionalProperties":false}`),
-			OutputSchema:    json.RawMessage(`{"type":"object","properties":{"result":{}},"additionalProperties":false}`),
+			Name:              "task.add",
+			CanonicalName:     "task.add",
+			Namespace:         "task",
+			ModelName:         "task.add",
+			ModelVisibility:   agent.ToolVisibilityModel,
+			Description:       "Create a task.",
+			PrivacyClass:      "workspace_task",
+			InputSchema:       json.RawMessage(`{"type":"object","properties":{"title":{"type":"string"}},"required":["title"],"additionalProperties":false}`),
+			InputIntentSchema: json.RawMessage(`{"type":"object","properties":{"title":{"type":"string"}},"additionalProperties":false}`),
+			OutputSchema:      json.RawMessage(`{"type":"object","properties":{"result":{}},"additionalProperties":false}`),
 			ResultContract: &CapabilityToolResultContract{
 				Schema: json.RawMessage(`{"type":"object","properties":{"taskID":{"type":"string"}},"required":["taskID"],"additionalProperties":false}`),
 				EvidenceCondition: &CapabilityEvidenceCondition{
@@ -52,6 +53,10 @@ func TestCapabilityToolProviderRegistersCanonicalDescriptor(t *testing.T) {
 	if descriptor.ResultContract == nil || descriptor.ResultContract.EvidenceCondition == nil ||
 		string(descriptor.ResultContract.EvidenceCondition.Equals) != `"task-1"` {
 		t.Fatalf("expected evidence condition to survive capability binding, got %+v", descriptor.ResultContract)
+	}
+	expectedInputIntentSchema := `{"additionalProperties":false,"properties":{"title":{"type":"string"}},"type":"object"}`
+	if string(descriptor.InputIntentSchema) != expectedInputIntentSchema {
+		t.Fatalf("expected canonical input intent schema, got %s", descriptor.InputIntentSchema)
 	}
 }
 
@@ -88,6 +93,31 @@ func TestCapabilityToolProviderRejectsIncompleteDescriptor(t *testing.T) {
 
 	if errorValue == nil || !strings.Contains(errorValue.Error(), "required") {
 		t.Fatalf("expected fail-closed descriptor validation, got %v", errorValue)
+	}
+}
+
+func TestCapabilityToolProviderRejectsMissingOrMalformedStateChangingInputIntentSchema(t *testing.T) {
+	testCases := []struct {
+		name              string
+		inputIntentSchema json.RawMessage
+	}{
+		{name: "missing"},
+		{name: "malformed", inputIntentSchema: json.RawMessage(`{"type":"string"}`)},
+	}
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			descriptor := completeTestCapabilityToolDescriptor(CapabilityToolDescriptor{
+				Name:            "task.add",
+				SideEffectClass: agent.ToolSideEffectStateChange,
+			})
+			descriptor.InputIntentSchema = testCase.inputIntentSchema
+
+			errorValue := validateCapabilityToolDescriptor(descriptor)
+
+			if errorValue == nil || !strings.Contains(errorValue.Error(), "inputIntentSchema") {
+				t.Fatalf("expected input intent rejection, got %v", errorValue)
+			}
+		})
 	}
 }
 
