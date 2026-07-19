@@ -37,10 +37,7 @@ func ResolveRecipient(platform string, hint string, people []policy.PersonPolicy
 		return RecipientResolution{Status: RecipientNotFound, ApprovedPeople: approvedPeopleNames(people)}
 	}
 	candidates := recipientCandidates(platform, people, platformAccounts)
-	matches := bestScoredRecipientMatches(normalizedHint, candidates)
-	if len(matches) == 0 {
-		matches = fuzzyRecipientMatches(normalizedHint, candidates)
-	}
+	matches := exactRecipientMatches(normalizedHint, candidates)
 	switch len(matches) {
 	case 0:
 		return RecipientResolution{Status: RecipientNotFound, ApprovedPeople: approvedPeopleNames(people)}
@@ -51,68 +48,6 @@ func ResolveRecipient(platform string, hint string, people []policy.PersonPolicy
 	}
 }
 
-func fuzzyRecipientMatches(normalizedHint string, candidates []scoredRecipientCandidate) []RecipientCandidate {
-	matches := []RecipientCandidate{}
-	bestOverlap := 0
-	for _, candidate := range candidates {
-		overlap := fuzzyCandidateOverlap(normalizedHint, candidate.matchValues)
-		if overlap == 0 {
-			continue
-		}
-		if overlap > bestOverlap {
-			bestOverlap = overlap
-			matches = nil
-		}
-		if overlap == bestOverlap {
-			matches = append(matches, candidate.candidate)
-		}
-	}
-	sort.Slice(matches, func(first int, second int) bool {
-		return matches[first].DisplayName < matches[second].DisplayName
-	})
-	return matches
-}
-
-func fuzzyCandidateOverlap(normalizedHint string, matchValues []string) int {
-	best := 0
-	for _, value := range matchValues {
-		normalizedValue := normalizeRecipientMatchValue(value)
-		if normalizedValue == "" {
-			continue
-		}
-		overlap := longestCommonSubstringLength([]rune(normalizedHint), []rune(normalizedValue))
-		shorter := len([]rune(normalizedHint))
-		if valueLength := len([]rune(normalizedValue)); valueLength < shorter {
-			shorter = valueLength
-		}
-		if overlap < 2 || overlap*3 < shorter*2 {
-			continue
-		}
-		if overlap > best {
-			best = overlap
-		}
-	}
-	return best
-}
-
-func longestCommonSubstringLength(left []rune, right []rune) int {
-	longest := 0
-	previousRow := make([]int, len(right)+1)
-	for leftIndex := 1; leftIndex <= len(left); leftIndex++ {
-		currentRow := make([]int, len(right)+1)
-		for rightIndex := 1; rightIndex <= len(right); rightIndex++ {
-			if left[leftIndex-1] == right[rightIndex-1] {
-				currentRow[rightIndex] = previousRow[rightIndex-1] + 1
-				if currentRow[rightIndex] > longest {
-					longest = currentRow[rightIndex]
-				}
-			}
-		}
-		previousRow = currentRow
-	}
-	return longest
-}
-
 func singleRecipientResolution(recipient RecipientCandidate) RecipientResolution {
 	if recipient.ExternalUserID == "" {
 		return RecipientResolution{Status: RecipientUnlinked, Recipient: &recipient}
@@ -120,14 +55,14 @@ func singleRecipientResolution(recipient RecipientCandidate) RecipientResolution
 	return RecipientResolution{Status: RecipientResolved, Recipient: &recipient}
 }
 
-type scoredRecipientCandidate struct {
+type recipientMatchCandidate struct {
 	candidate   RecipientCandidate
 	matchValues []string
 }
 
-func recipientCandidates(platform string, people []policy.PersonPolicy, platformAccounts []PlatformAccountIdentity) []scoredRecipientCandidate {
+func recipientCandidates(platform string, people []policy.PersonPolicy, platformAccounts []PlatformAccountIdentity) []recipientMatchCandidate {
 	accountsByPersonID := platformAccountsByPersonID(platform, people, platformAccounts)
-	candidates := []scoredRecipientCandidate{}
+	candidates := []recipientMatchCandidate{}
 	for _, person := range people {
 		candidate := RecipientCandidate{
 			PersonID:    strings.TrimSpace(person.PersonID),
@@ -140,7 +75,7 @@ func recipientCandidates(platform string, people []policy.PersonPolicy, platform
 			candidate.Username = strings.TrimSpace(account.DisplayName)
 			matchValues = append(matchValues, account.DisplayName, account.Email)
 		}
-		candidates = append(candidates, scoredRecipientCandidate{candidate: candidate, matchValues: matchValues})
+		candidates = append(candidates, recipientMatchCandidate{candidate: candidate, matchValues: matchValues})
 	}
 	return candidates
 }
@@ -169,19 +104,10 @@ func platformAccountsByPersonID(platform string, people []policy.PersonPolicy, p
 	return accountsByPersonID
 }
 
-func bestScoredRecipientMatches(normalizedHint string, candidates []scoredRecipientCandidate) []RecipientCandidate {
+func exactRecipientMatches(normalizedHint string, candidates []recipientMatchCandidate) []RecipientCandidate {
 	matches := []RecipientCandidate{}
-	bestScore := 0
 	for _, candidate := range candidates {
-		score := recipientMatchScore(normalizedHint, candidate.matchValues)
-		if score == 0 {
-			continue
-		}
-		if bestScore == 0 || score < bestScore {
-			bestScore = score
-			matches = nil
-		}
-		if score == bestScore {
+		if recipientMatchesHint(normalizedHint, candidate.matchValues) {
 			matches = append(matches, candidate.candidate)
 		}
 	}
@@ -191,22 +117,13 @@ func bestScoredRecipientMatches(normalizedHint string, candidates []scoredRecipi
 	return matches
 }
 
-func recipientMatchScore(normalizedHint string, matchValues []string) int {
+func recipientMatchesHint(normalizedHint string, matchValues []string) bool {
 	for _, value := range matchValues {
 		if normalizeRecipientMatchValue(value) == normalizedHint {
-			return 1
+			return true
 		}
 	}
-	for _, value := range matchValues {
-		normalizedValue := normalizeRecipientMatchValue(value)
-		if normalizedValue == "" {
-			continue
-		}
-		if strings.Contains(normalizedValue, normalizedHint) || strings.Contains(normalizedHint, normalizedValue) {
-			return 2
-		}
-	}
-	return 0
+	return false
 }
 
 func normalizeRecipientMatchValue(value string) string {
