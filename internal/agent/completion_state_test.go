@@ -313,7 +313,7 @@ func TestCompletionStateFindsArtifactsNewerThanTurn(t *testing.T) {
 	}
 }
 
-func TestCompletionStateAllowsReadableImperfectArtifactCandidate(t *testing.T) {
+func TestCompletionStateRejectsReadableArtifactWithWrongFormat(t *testing.T) {
 	workspaceRootPath := t.TempDir()
 	artifactDirectoryPath := filepath.Join(workspaceRootPath, "private", "people", "person-1", "artifacts", "deck")
 	if errorValue := os.MkdirAll(artifactDirectoryPath, 0700); errorValue != nil {
@@ -331,10 +331,10 @@ func TestCompletionStateAllowsReadableImperfectArtifactCandidate(t *testing.T) {
 		nil,
 	)
 
-	if state.RecommendedAction != completionActionAttachExistingArtifacts {
-		t.Fatalf("expected readable artifact to be attachable, got %+v", state)
+	if state.RecommendedAction != completionActionBlockedInvalidArtifact {
+		t.Fatalf("expected wrong-format artifact to be blocked, got %+v", state)
 	}
-	if !state.ValidityState.Passed {
-		t.Fatalf("expected basic validity to pass, got %+v", state.ValidityState)
+	if state.ValidityState.Passed {
+		t.Fatalf("expected format validity to fail, got %+v", state.ValidityState)
 	}
 }
