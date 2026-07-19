@@ -421,7 +421,7 @@ func buildAgentActionRequest(state agentTaskState, includeToolDescription bool) 
 		StructuredOutputSchema: llm.StructuredOutputSchema{
 			Name:               "blueclaw_agent_turn_action",
 			Document:           actionSchemaForToolSet(modelToolSet, allowQualityCriteria, blockedToolNames, hasFailureDebt, allowFail, allowFinish),
-			IsStrictlyEnforced: false,
+			IsStrictlyEnforced: true,
 		},
 		GenerationOptions: agentActionGenerationOptions(state.Options.GenerationOptions),
 	}

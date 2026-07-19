@@ -1133,8 +1133,8 @@ func TestBuildAgentActionRequestPreservesNativeToolCallingWireShape(t *testing.T
 	if request.StructuredOutputSchema.Name != "blueclaw_agent_turn_action" {
 		t.Fatalf("expected agent action schema name, got %q", request.StructuredOutputSchema.Name)
 	}
-	if request.StructuredOutputSchema.IsStrictlyEnforced {
-		t.Fatal("provider-portable action schema must not claim strict provider enforcement")
+	if !request.StructuredOutputSchema.IsStrictlyEnforced {
+		t.Fatal("expected agent action schema to be strictly enforced")
 	}
 	if request.GenerationOptions.Seed == nil || *request.GenerationOptions.Seed != seed {
 		t.Fatalf("expected seed to be preserved, got %+v", request.GenerationOptions)

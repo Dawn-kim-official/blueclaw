@@ -59,6 +59,8 @@ export enum StructuredOutputRepairStatus {
   Failed = 'failed',
 }
 
+const toolNameSchema = z.string().min(1).max(128).regex(/^[A-Za-z0-9_.-]+$/);
+
 export const structuredOutputValidationIssueSchema = z.strictObject({
   fieldPath: z.string().max(256).regex(/^\/(?:[A-Za-z0-9_.$~-]+(?:\/[A-Za-z0-9_.$~-]+)*)?$/),
   code: z.enum(StructuredOutputValidationCode),
@@ -67,7 +69,7 @@ export const structuredOutputValidationIssueSchema = z.strictObject({
 export const structuredOutputDiagnosticSchema = z.strictObject({
   category: z.enum(StructuredOutputDiagnosticCategory),
   finishReason: z.enum(ChatCompletionFinishReason).optional(),
-  toolName: z.string().min(1).max(128).regex(/^[A-Za-z0-9_.-]+$/).optional(),
+  toolName: toolNameSchema.optional(),
   validationIssues: z.array(structuredOutputValidationIssueSchema).max(8).optional(),
   repairStatus: z.enum(StructuredOutputRepairStatus).optional(),
 }).superRefine((diagnostic, context) => {
@@ -154,10 +156,31 @@ const chatCompletionResponseMessageSchema = z.looseObject({
 });
 
 export const structuredOutputSchemaSchema = z.looseObject({
-  name: z.string(),
+  name: toolNameSchema,
   document: jsonValueSchema,
-  isStrictlyEnforced: z.boolean(),
+  isStrictlyEnforced: z.literal(true),
+}).superRefine((schema, context) => {
+  if (hasOpenObjectSchema(schema.document)) {
+    context.addIssue({
+      code: 'custom',
+      path: ['document'],
+      message: 'structured output JSON schema objects must set additionalProperties to false',
+    });
+  }
 });
+
+function hasOpenObjectSchema(value: unknown): boolean {
+  if (Array.isArray(value)) return value.some(hasOpenObjectSchema);
+  if (!isRecord(value)) return false;
+  const schemaType = value.type;
+  const isObjectType = schemaType === 'object' || (Array.isArray(schemaType) && schemaType.includes('object'));
+  if (isObjectType && value.additionalProperties !== false) return true;
+  return Object.values(value).some(hasOpenObjectSchema);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
 
 export const generationOptionsSchema = z.looseObject({
   seed: z.number().int().optional(),
