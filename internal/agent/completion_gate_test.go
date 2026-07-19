@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"blueclaw/internal/llm"
 	"blueclaw/internal/task"
 )
 
@@ -1453,6 +1454,172 @@ func TestCompletionGateUsesOneResultVerifierForExpectedResults(t *testing.T) {
 	}
 	if len(languageModel.verificationRequests) != 1 {
 		t.Fatalf("expected exactly one result verifier call, got %d", len(languageModel.verificationRequests))
+	}
+}
+
+func TestCompletionGateVerifiesAttachmentsFromCompletionEvidence(t *testing.T) {
+	languageModel := &sequenceLanguageModel{
+		resultVerifications: []string{
+			`{"overallStatus":"satisfied","summary":"file attached","results":[{"id":"attached-file","status":"satisfied","reason":"The requested file is attached.","citedObservationIDs":["obs-001"],"missingDescription":"","suggestedNextTools":[]}]}`,
+		},
+	}
+	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
+	goalSatisfied := true
+	observation := newContentObservation("obs-001", "continue", FileDeliverToolName, "file attached")
+	observation.Attachments = []FileAttachment{{
+		DevicePath:  "/workspace/private/people/person-1/report.json",
+		Filename:    "report.json",
+		ContentType: "application/json",
+	}}
+	result := services.runner.validateCompletionGateForRequestWithExpectedResults(context.Background(), "task-1", AgentTurnRequest{
+		ToolSet: newTestToolSet([]string{FileDeliverToolName}),
+		OutcomeContract: OutcomeContract{
+			ArtifactRequirement:        ArtifactRequirementRequired,
+			RequiredAttachmentSuffixes: []string{".json"},
+			ExpectedResults: []ExpectedResult{{
+				ID:          "attached-file",
+				Type:        ExpectedResultTypeFile,
+				Description: "requested JSON file attached",
+				Required:    true,
+			}},
+		},
+	}, nil, []turnObservation{observation}, nil, nil, turnActionDocument{
+		Action:        "finish",
+		Message:       "JSON 파일을 첨부했습니다.",
+		GoalStatus:    "satisfied",
+		GoalSatisfied: &goalSatisfied,
+		CompletionEvidence: []completionEvidenceReference{{
+			ObservationID: "obs-001",
+			ToolName:      FileDeliverToolName,
+		}},
+	})
+
+	if !result.IsSatisfied || len(result.Attachments) != 1 {
+		t.Fatalf("expected completion evidence attachment to satisfy verification, got %+v", result)
+	}
+	if len(languageModel.verificationRequests) != 1 || !strings.Contains(languageModel.verificationRequests[0].Messages[2].Content, "report.json") {
+		t.Fatalf("expected verifier to observe the delivered file, got %+v", languageModel.verificationRequests)
+	}
+}
+
+func TestAgentTurnRunnerUsesNoToolChatWhenCompletionEvidenceIsReady(t *testing.T) {
+	languageModel := &completionReplyLanguageModel{}
+	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 4})
+	workspaceRootPath := t.TempDir()
+	artifactPath := filepath.Join(workspaceRootPath, "private", "people", "person-1", "artifacts", "report", "report.json")
+	toolSet := newTestToolSet([]string{"file.write", FileDeliverToolName})
+	registerTestTool(toolSet, ToolDefinition{Name: "file.write"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		if errorValue := os.MkdirAll(filepath.Dir(artifactPath), 0700); errorValue != nil {
+			return ToolResult{}, errorValue
+		}
+		if errorValue := os.WriteFile(artifactPath, []byte(`{"status":"ready"}`), 0600); errorValue != nil {
+			return ToolResult{}, errorValue
+		}
+		return ToolResult{Output: ToolOutput{Content: "file written"}}, nil
+	})
+	registerTestTool(toolSet, ToolDefinition{Name: FileDeliverToolName}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return ToolResult{
+			Output: ToolOutput{Content: "file attached"},
+			Attachments: []FileAttachment{{
+				DevicePath:  artifactPath,
+				Filename:    "report.json",
+				ContentType: "application/json",
+			}},
+		}, nil
+	})
+
+	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
+		RequesterPersonID:          "person-1",
+		ConversationID:             "conversation-1",
+		Prompt:                     "JSON 보고서를 이 DM에 첨부해줘.",
+		ResponseLanguage:           "ko",
+		WorkspaceRootPath:          workspaceRootPath,
+		TurnStartedAt:              time.Now().Add(-time.Minute),
+		ToolSet:                    toolSet,
+		PinnedToolNames:            toolSet.ListToolNames(),
+		RequiredEvidenceTools:      []string{"file.write", FileDeliverToolName},
+		RequiredAttachmentSuffixes: []string{".json"},
+		OutcomeContract: OutcomeContract{
+			RequiredEvidenceTools:      []string{"file.write", FileDeliverToolName},
+			ArtifactRequirement:        ArtifactRequirementRequired,
+			RequiredAttachmentSuffixes: []string{".json"},
+			ExpectedResults: []ExpectedResult{{
+				ID:          "attached-file",
+				Type:        ExpectedResultTypeFile,
+				Description: "requested JSON file attached",
+				Required:    true,
+			}},
+		},
+	})
+
+	if errorValue != nil || result.TaskRun.Status != task.TaskStatusCompleted {
+		t.Fatalf("expected completed file delivery, got result=%+v error=%v", result, errorValue)
+	}
+	if result.FinishMessage != "JSON 보고서를 첨부했습니다." || len(result.Attachments) != 1 {
+		t.Fatalf("expected completion reply and attachment, got %+v", result)
+	}
+	if languageModel.actionCalls != 1 || len(languageModel.completionRequests) != 1 {
+		t.Fatalf("expected one tool action then one completion reply, got actions=%d completions=%d", languageModel.actionCalls, len(languageModel.completionRequests))
+	}
+	request := languageModel.completionRequests[0]
+	if len(request.Tools) != 0 || len(request.ToolChoice) != 0 ||
+		!strings.Contains(request.Messages[0].Content, "file written") ||
+		!strings.Contains(request.Messages[0].Content, "report.json") {
+		t.Fatalf("expected evidence-grounded no-tool completion request, got %+v", request)
+	}
+	taskEvents := services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID)
+	if taskEventsContain(taskEvents, "agent.finalizer_rejected", "") {
+		t.Fatal("expected completion-ready chat to avoid structured finalizer rejection")
+	}
+	if !taskEventsContain(taskEvents, "tool.file.deliver.result", "report.json") {
+		t.Fatal("expected completion state to deliver the written file")
+	}
+	if !taskEventsContain(taskEvents, "agent.completion_state_finalized", `"observationID":"obs-001"`) ||
+		!taskEventsContain(taskEvents, "agent.completion_state_finalized", `"observationID":"obs-002"`) {
+		t.Fatal("expected finalization event to preserve exact write and delivery evidence")
+	}
+}
+
+type completionReplyLanguageModel struct {
+	actionCalls        int
+	completionRequests []llm.ChatCompletionRequest
+}
+
+func (languageModel *completionReplyLanguageModel) GenerateResponse(context.Context, string) (string, error) {
+	return "", nil
+}
+
+func (languageModel *completionReplyLanguageModel) GenerateStructuredResponse(_ context.Context, request llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
+	if request.StructuredOutputSchema.Name == "blueclaw_result_verifier" {
+		return llm.StructuredResponse{Content: defaultResultVerificationResponse(request)}, nil
+	}
+	return llm.StructuredResponse{}, fmt.Errorf("unexpected structured schema %s", request.StructuredOutputSchema.Name)
+}
+
+func (languageModel *completionReplyLanguageModel) GenerateChatCompletion(_ context.Context, request llm.ChatCompletionRequest) (llm.ChatCompletionResponse, error) {
+	switch request.SchemaName {
+	case agentActionSchemaName:
+		languageModel.actionCalls++
+		if languageModel.actionCalls > 1 {
+			return llm.ChatCompletionResponse{}, fmt.Errorf("unexpected repeated action request")
+		}
+		return llm.ChatCompletionResponse{
+			FinishReason: "tool_calls",
+			Message: llm.ChatCompletionMessage{
+				Role: "assistant",
+				ToolCalls: []llm.ChatCompletionToolCall{
+					nativeAgentActionToolCall("file.write", `{"path":"report.json","content":"{\"status\":\"ready\"}"}`),
+				},
+			},
+		}, nil
+	case completionReplySchemaName:
+		languageModel.completionRequests = append(languageModel.completionRequests, request)
+		return llm.ChatCompletionResponse{
+			FinishReason: "stop",
+			Message:      llm.ChatCompletionMessage{Role: "assistant", Content: "JSON 보고서를 첨부했습니다."},
+		}, nil
+	default:
+		return llm.ChatCompletionResponse{}, fmt.Errorf("unexpected chat schema %s", request.SchemaName)
 	}
 }
 

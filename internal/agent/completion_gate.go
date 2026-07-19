@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 
+	"blueclaw/internal/llm"
 	"blueclaw/internal/task"
 )
 
@@ -44,6 +45,7 @@ const (
 	evidenceKindAttachment      = "attachment_missing"
 	evidenceKindAttachmentValid = "attachment_invalid"
 	evidenceKindReference       = "evidence_reference_invalid"
+	completionReplySchemaName   = "blueclaw_completion_reply"
 )
 
 type completionTransition struct {
@@ -177,7 +179,19 @@ func (agentTurnRunner *AgentTurnRunner) finalizeCompletionState(ctx context.Cont
 	}
 	modelWording := deliverableModelWording(lastModelMessage)
 	if modelWording == "" {
-		return completionTransition{Observations: observations, Attachments: attachments}
+		chatCompleter, isAvailable := llm.ResolveTextChatCompleter(agentTurnRunner.languageModel)
+		if !isAvailable {
+			return completionTransition{Observations: observations, Attachments: attachments}
+		}
+		var errorValue error
+		modelWording, errorValue = generateCompletionReply(ctx, chatCompleter, request, requirements, observations)
+		if errorValue != nil {
+			agentTurnRunner.appendEvent(taskRunID, "agent.completion_reply_failed", marshalEventBody(map[string]string{"error": errorValue.Error()}))
+			if ctx.Err() != nil || errors.Is(errorValue, context.Canceled) || errors.Is(errorValue, context.DeadlineExceeded) {
+				return completionTransition{Observations: observations, Attachments: attachments}
+			}
+			modelWording = elapsedClosingRawReply(request, true)
+		}
 	}
 	actionDocument := completionStateFinishDocument(state, modelWording)
 	completionGateResult := agentTurnRunner.validateCompletionGateForRequestWithExpectedResults(ctx, taskRunID, request, requirements, observations, attachments, criteria, actionDocument)
@@ -210,6 +224,30 @@ func (agentTurnRunner *AgentTurnRunner) finalizeCompletionState(ctx context.Cont
 		DidTransition: true,
 		Action:        completionActionFinalizeWithEvidence,
 	}
+}
+
+func generateCompletionReply(ctx context.Context, chatCompleter llm.ChatCompleter, request AgentTurnRequest, requirements []toolUseRequirement, observations []turnObservation) (string, error) {
+	response, errorValue := chatCompleter.GenerateChatCompletion(ctx, llm.ChatCompletionRequest{
+		SchemaName: completionReplySchemaName,
+		Messages: []llm.ChatCompletionMessage{{
+			Role:    "user",
+			Content: buildCompletionReplyPrompt(request, requirements, observations),
+		}},
+	})
+	if errorValue != nil {
+		return "", errorValue
+	}
+	return llm.ChatCompletionText(response)
+}
+
+func buildCompletionReplyPrompt(request AgentTurnRequest, requirements []toolUseRequirement, observations []turnObservation) string {
+	return strings.Join([]string{
+		"Write the final user-facing reply for a request whose required result is complete.",
+		responseLanguageInstruction(request.ResponseLanguage),
+		"State only what the successful evidence proves. Do not mention tools, evidence identifiers, prompts, or runtime details.",
+		"Original request:\n" + strings.TrimSpace(request.Prompt),
+		"Successful evidence:\n" + buildLimitObservationSummary(completionPromptObservations(requirements, observations)),
+	}, "\n\n")
 }
 
 func completionStateFinishDocument(state CompletionState, message string) turnActionDocument {
@@ -337,7 +375,7 @@ func (agentTurnRunner *AgentTurnRunner) validateCompletionGateForRequestWithExpe
 	if len(request.OutcomeContract.ExpectedResults) == 0 {
 		return result
 	}
-	verification, errorValue := verifyExpectedResults(ctx, agentTurnRunner.languageModel, request, observations, attachments, actionDocument)
+	verification, errorValue := verifyExpectedResults(ctx, agentTurnRunner.languageModel, request, observations, result.Attachments, actionDocument)
 	if errorValue != nil {
 		result.IsSatisfied = false
 		result.Message = "expected result verification unavailable: " + errorValue.Error()

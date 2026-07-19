@@ -451,6 +451,9 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 		transition := agentTurnRunner.applyCompletionState(workContext, taskRun.TaskRunID, stepID, request, toolUseRequirements, state.Observations, state.Attachments, state.QualityCriteria, state.LastModelMessage)
 		state.Observations = transition.Observations
 		state.Attachments = transition.Attachments
+		if workContext.Err() != nil {
+			return agentTurnRunner.cancelledTaskResultOrCurrent(taskRun.TaskRunID, state.Attachments), nil
+		}
 		if transition.IsCompleted {
 			return transition.Result, nil
 		}
