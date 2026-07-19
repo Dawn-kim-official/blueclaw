@@ -45,6 +45,10 @@ func TestSelectInstructionBundleIncludesPresentationForKoreanPPTRequest(t *testi
 	if !strings.Contains(selectedBundle.Prompt, "Available skill references") || !strings.Contains(selectedBundle.Prompt, "They are not mandatory") {
 		t.Fatalf("expected selected skill prompt to be framed as references, got %q", selectedBundle.Prompt)
 	}
+	if !strings.Contains(selectedBundle.Prompt, "Source: /workspace/skills/presentation/SKILL.md") ||
+		!strings.Contains(selectedBundle.Prompt, "Resolve relative scripts, references, and assets from the source directory.") {
+		t.Fatalf("expected selected skill resources to have a canonical base path, got %q", selectedBundle.Prompt)
+	}
 	if strings.Contains(selectedBundle.Prompt, "Selected skill instructions") {
 		t.Fatalf("expected no mandatory selected skill framing, got %q", selectedBundle.Prompt)
 	}

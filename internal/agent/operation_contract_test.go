@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -74,6 +75,150 @@ func TestCompileOperationRequirementsPreservesPersistedContract(t *testing.T) {
 	}
 	if string(compiledContract.OperationContract.Requirements[0].RequiredInput) != `{"title":"기존 업무"}` {
 		t.Fatalf("expected persisted requirement unchanged, got %+v", compiledContract.OperationContract)
+	}
+}
+
+func TestCompileOperationRequirementsSkipsModelForEmptyIntents(t *testing.T) {
+	toolSet := newTestToolSetWithDefinitions([]ToolDefinition{
+		{
+			ID:                "kernel:terminal.run",
+			Name:              TerminalRunToolName,
+			InputIntentSchema: json.RawMessage(`{"type":"object","properties":{},"additionalProperties":false}`),
+			SideEffectClass:   ToolSideEffectWorkspaceWrite,
+		},
+		{
+			ID:                "kernel:file.deliver",
+			Name:              FileDeliverToolName,
+			InputIntentSchema: json.RawMessage(`{"type":"object","properties":{},"additionalProperties":false}`),
+			SideEffectClass:   ToolSideEffectExternalWrite,
+		},
+	})
+	contract, errorValue := compileOperationRequirements(
+		context.Background(),
+		nil,
+		AgentRequest{},
+		toolSet,
+		OutcomeContract{RequiredEvidenceTools: []string{TerminalRunToolName, FileDeliverToolName}},
+	)
+	if errorValue != nil {
+		t.Fatalf("expected evidence-only operations without a language model: %v", errorValue)
+	}
+	if contract.OperationContract != nil {
+		t.Fatalf("empty intent tools need exact completion evidence, not an operation input contract: %+v", contract.OperationContract)
+	}
+	if !slices.Equal(contract.RequiredEvidenceTools, []string{TerminalRunToolName, FileDeliverToolName}) {
+		t.Fatalf("expected exact evidence requirements to remain authoritative, got %+v", contract.RequiredEvidenceTools)
+	}
+}
+
+func TestCompileOperationRequirementsRejectsPersistedContractForEmptyIntents(t *testing.T) {
+	toolSet := newTestToolSetWithDefinitions([]ToolDefinition{{
+		ID:                "kernel:terminal.run",
+		Name:              TerminalRunToolName,
+		InputIntentSchema: json.RawMessage(`{"type":"object","properties":{},"additionalProperties":false}`),
+		SideEffectClass:   ToolSideEffectWorkspaceWrite,
+	}})
+	contract := OutcomeContract{
+		RequiredEvidenceTools: []string{TerminalRunToolName},
+		OperationContract: &OperationContract{
+			Version: operationContractVersion,
+			Requirements: []OperationRequirement{{
+				RequirementID: "operation-1",
+				ToolID:        "kernel:terminal.run",
+				ToolName:      TerminalRunToolName,
+				InputMode:     OperationInputContainsExplicit,
+				RequiredInput: json.RawMessage(`{}`),
+			}},
+		},
+	}
+
+	_, errorValue := compileOperationRequirements(context.Background(), nil, AgentRequest{}, toolSet, contract)
+
+	if errorValue == nil || errorValue.Error() != "operation contract has no bindable required operation" {
+		t.Fatalf("expected stale empty-intent contract rejection, got %v", errorValue)
+	}
+}
+
+func TestCompileOperationRequirementsAsksModelOnlyForBindableIntents(t *testing.T) {
+	languageModel := &operationContractLanguageModel{contents: []string{
+		`{"operations":[{"toolName":"task.add","requiredValues":{"title":"분기 결산"}}]}`,
+	}}
+	toolSet := newTestToolSetWithDefinitions([]ToolDefinition{
+		{
+			ID:                "kernel:terminal.run",
+			Name:              TerminalRunToolName,
+			InputIntentSchema: json.RawMessage(`{"type":"object","properties":{},"additionalProperties":false}`),
+			SideEffectClass:   ToolSideEffectWorkspaceWrite,
+		},
+		{
+			ID:                "capabilityd:task.add",
+			Name:              "task.add",
+			InputIntentSchema: operationContractTaskInputIntentSchema(),
+			SideEffectClass:   ToolSideEffectStateChange,
+		},
+	})
+	contract, errorValue := compileOperationRequirements(
+		context.Background(),
+		languageModel,
+		AgentRequest{Prompt: "분기 결산 업무를 추가하고 필요한 작업을 해줘"},
+		toolSet,
+		OutcomeContract{RequiredEvidenceTools: []string{TerminalRunToolName, "task.add"}},
+	)
+	if errorValue != nil {
+		t.Fatalf("expected mixed static and model-bound requirements: %v", errorValue)
+	}
+	if languageModel.calls != 1 {
+		t.Fatalf("expected one model call for the bindable intent, got %d", languageModel.calls)
+	}
+	modelRequest := joinedMessageContent(languageModel.requests[0].Messages)
+	if strings.Contains(modelRequest, `"name":"terminal.run"`) || !strings.Contains(modelRequest, `"name":"task.add"`) {
+		t.Fatalf("expected only bindable descriptors in the model request, got %s", modelRequest)
+	}
+	if len(contract.OperationContract.Requirements) != 1 ||
+		contract.OperationContract.Requirements[0].ToolName != "task.add" {
+		t.Fatalf("expected only the bindable operation requirement, got %+v", contract.OperationContract)
+	}
+}
+
+func TestEmptyIntentEvidenceToolCanRepeatBeforeCompletion(t *testing.T) {
+	toolSet := newTestToolSetWithDefinitions([]ToolDefinition{
+		{
+			ID:                "kernel:terminal.run",
+			Name:              TerminalRunToolName,
+			InputIntentSchema: json.RawMessage(`{"type":"object","properties":{},"additionalProperties":false}`),
+			SideEffectClass:   ToolSideEffectWorkspaceWrite,
+		},
+		{
+			ID:                "kernel:file.deliver",
+			Name:              FileDeliverToolName,
+			InputIntentSchema: json.RawMessage(`{"type":"object","properties":{},"additionalProperties":false}`),
+			SideEffectClass:   ToolSideEffectExternalWrite,
+		},
+	})
+	contract, errorValue := compileOperationRequirements(
+		context.Background(),
+		nil,
+		AgentRequest{},
+		toolSet,
+		OutcomeContract{RequiredEvidenceTools: []string{TerminalRunToolName, FileDeliverToolName}},
+	)
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if _, isMismatch := pendingOperationInputMismatch(
+		toolSet,
+		contract.OperationContract,
+		[]turnObservation{{
+			ObservationID: "observation-1",
+			Action:        "continue",
+			Tool:          TerminalRunToolName,
+			ToolID:        "kernel:terminal.run",
+			ToolInput:     json.RawMessage(`{"command":"write source"}`),
+		}},
+		TerminalRunToolName,
+		json.RawMessage(`{"command":"python export_document.py"}`),
+	); isMismatch {
+		t.Fatal("evidence-only terminal work must be repeatable until the artifact is ready")
 	}
 }
 
@@ -681,6 +826,23 @@ func TestOperationWithoutExplicitValuesStillRequiresMatchingToolObservation(t *t
 	}
 	if !operationRequirementsSatisfied(contract, []turnObservation{successfulOperationObservation(`{"title":"generated value"}`)}) {
 		t.Fatal("expected generated tool input when the independent review found no explicit user values")
+	}
+}
+
+func TestTerminalOperationIntentRejectsGeneratedExecutionDetails(t *testing.T) {
+	inputIntentSchema := json.RawMessage(`{"type":"object","properties":{},"additionalProperties":false}`)
+	requiredInput, errorValue := validateRequiredOperationInput(json.RawMessage(`{}`), inputIntentSchema)
+	if errorValue != nil || string(requiredInput) != `{}` {
+		t.Fatalf("expected an empty terminal operation intent, got %s, %v", requiredInput, errorValue)
+	}
+	for _, generatedInput := range []string{
+		`{"command":"python create_document.py"}`,
+		`{"mode":"command"}`,
+		`{"workingDirectoryPath":"/tmp"}`,
+	} {
+		if _, errorValue := validateRequiredOperationInput(json.RawMessage(generatedInput), inputIntentSchema); errorValue == nil {
+			t.Fatalf("expected generated execution detail to fail closed: %s", generatedInput)
+		}
 	}
 }
 

@@ -42,6 +42,18 @@ func compileOperationRequirements(responseContext context.Context, languageModel
 		}
 		return contract, nil
 	}
+	descriptors, errorValue := operationDescriptorDocuments(toolSet, toolNames)
+	if errorValue != nil {
+		return contract, errorValue
+	}
+	descriptors = operationDescriptorsWithBindableIntent(descriptors)
+	toolNames = operationDescriptorNames(descriptors)
+	if len(toolNames) == 0 {
+		if contract.OperationContract != nil {
+			return contract, errors.New("operation contract has no bindable required operation")
+		}
+		return contract, nil
+	}
 	if contract.OperationContract != nil {
 		if errorValue := validateOperationContract(contract.OperationContract, toolSet, toolNames); errorValue != nil {
 			return contract, errorValue
@@ -50,10 +62,6 @@ func compileOperationRequirements(responseContext context.Context, languageModel
 	}
 	if languageModel == nil {
 		return contract, errors.New("operation contract language model was not configured")
-	}
-	descriptors, errorValue := operationDescriptorDocuments(toolSet, toolNames)
-	if errorValue != nil {
-		return contract, errorValue
 	}
 	requirements, errorValue := generateOperationRequirements(responseContext, languageModel, request, descriptors, toolSet, toolNames)
 	if errorValue != nil {
@@ -66,7 +74,40 @@ func compileOperationRequirements(responseContext context.Context, languageModel
 	return normalizeOutcomeContract(contract), nil
 }
 
+func operationDescriptorsWithBindableIntent(descriptors []operationDescriptorDocument) []operationDescriptorDocument {
+	result := make([]operationDescriptorDocument, 0, len(descriptors))
+	for _, descriptor := range descriptors {
+		if !hasEmptyClosedObjectSchema(descriptor.InputIntentSchema) {
+			result = append(result, descriptor)
+		}
+	}
+	return result
+}
+
+func hasEmptyClosedObjectSchema(document json.RawMessage) bool {
+	var schemaDocument struct {
+		Properties           map[string]json.RawMessage `json:"properties"`
+		AdditionalProperties any                        `json:"additionalProperties"`
+	}
+	if json.Unmarshal(document, &schemaDocument) != nil {
+		return false
+	}
+	isClosed, isBoolean := schemaDocument.AdditionalProperties.(bool)
+	return len(schemaDocument.Properties) == 0 && isBoolean && !isClosed
+}
+
+func operationDescriptorNames(descriptors []operationDescriptorDocument) []string {
+	names := make([]string, 0, len(descriptors))
+	for _, descriptor := range descriptors {
+		names = append(names, descriptor.Name)
+	}
+	return names
+}
+
 func generateOperationRequirements(responseContext context.Context, languageModel llm.LanguageModelProvider, request AgentRequest, descriptors []operationDescriptorDocument, toolSet *ToolSet, toolNames []string) ([]OperationRequirement, error) {
+	if len(descriptors) == 0 {
+		return nil, nil
+	}
 	response, errorValue := languageModel.GenerateStructuredResponse(responseContext, operationContractRequest(request, descriptors, ""))
 	if errorValue != nil {
 		correctionReason, canCorrect := operationContractStructuredCorrectionReason(errorValue)

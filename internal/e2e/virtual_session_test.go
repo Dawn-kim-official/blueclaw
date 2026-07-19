@@ -84,6 +84,24 @@ func TestExpectedEventCountAllowsRepeatedReadResults(t *testing.T) {
 	}
 }
 
+func TestVirtualTurnOptionsUseProductionTaskLevelBudget(t *testing.T) {
+	defaultOptions := virtualTurnOptions(agent.TurnOptions{})
+	lowProfile := agent.TaskLevelProfileForLevel(agent.TaskLevelLow)
+	if defaultOptions.TaskLevel != lowProfile.TaskLevel ||
+		defaultOptions.MaxIterationCount != lowProfile.MaxIterationCount ||
+		defaultOptions.MaxToolCallCount != lowProfile.MaxToolCallCount ||
+		defaultOptions.MaxElapsedSecond != int(lowProfile.Duration.Seconds()) {
+		t.Fatalf("expected production low defaults, got %+v", defaultOptions)
+	}
+
+	xHighOptions := virtualTurnOptions(agent.TurnOptions{TaskLevel: agent.TaskLevelXHigh})
+	xHighProfile := agent.TaskLevelProfileForLevel(agent.TaskLevelXHigh)
+	if xHighOptions.TaskLevel != xHighProfile.TaskLevel ||
+		xHighOptions.MaxElapsedSecond != int(xHighProfile.Duration.Seconds()) {
+		t.Fatalf("expected xhigh task budget, got %+v", xHighOptions)
+	}
+}
+
 func TestLanguageModelCallAssertionRejectsError(t *testing.T) {
 	errorValue := assertLanguageModelCallsSucceeded(VirtualTurnResult{
 		LanguageModelCallEvents: []VirtualLanguageModelCallEvent{{
@@ -987,6 +1005,51 @@ func virtualCapabilityResponseResult(t *testing.T, response string) (map[string]
 	return document.Result, document.Effects
 }
 
+func TestVirtualDocumentReadReturnsCanonicalWorkspaceContent(t *testing.T) {
+	workspacePath := t.TempDir()
+	documentsPath := filepath.Join(workspacePath, "documents")
+	if errorValue := os.MkdirAll(documentsPath, 0700); errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	markdownPath := filepath.Join(documentsPath, "review.md")
+	if errorValue := os.WriteFile(markdownPath, []byte("# 분기 결산\n상태: 초안"), 0600); errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	docxPath := filepath.Join(documentsPath, "review.docx")
+	writeDOCX(t, docxPath, map[string]string{
+		"[Content_Types].xml":          `<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>`,
+		"word/document.xml":            `<?xml version="1.0" encoding="UTF-8"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:t>분기 결산</w:t></w:r><w:r><w:t>검토 완료</w:t></w:r></w:p></w:body></w:document>`,
+		"word/_rels/document.xml.rels": `<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="test" Target="document.xml"/></Relationships>`,
+	})
+	service := virtualCapabilityService{workspacePath: workspacePath}
+
+	testCases := []struct {
+		path     string
+		contains []string
+	}{
+		{path: "/workspace/documents/review.md", contains: []string{"분기 결산", "상태: 초안"}},
+		{path: "/workspace/documents/review.docx", contains: []string{"분기 결산", "검토 완료"}},
+	}
+	for _, testCase := range testCases {
+		result, effects := virtualCapabilityResponseResult(t, service.response(
+			"document.read",
+			[]byte(`{"input":{"path":`+quote(testCase.path)+`}}`),
+		))
+		if result["status"] != "ok" || result["path"] != testCase.path || result["format"] != "markdown" || result["truncated"] != false {
+			t.Fatalf("unexpected canonical document result for %s: %+v", testCase.path, result)
+		}
+		content := stringValue(result["content"])
+		for _, fragment := range testCase.contains {
+			if !strings.Contains(content, fragment) {
+				t.Fatalf("document result for %s is missing %q: %+v", testCase.path, fragment, result)
+			}
+		}
+		if len(effects) != 0 {
+			t.Fatalf("document.read must remain read-only, got %+v", effects)
+		}
+	}
+}
+
 func writeCanonicalDOCX(t *testing.T, path string) {
 	writeDOCX(t, path, map[string]string{
 		"[Content_Types].xml":          `<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>`,
@@ -1106,6 +1169,22 @@ func TestFileWriteAcceptance(t *testing.T) {
 	}
 	if countEvents(turnResult.Events, "tool.terminal.run.requested") != 0 {
 		t.Fatalf("file.write result contract must avoid redundant terminal verification, got events: %s", summarizeEvents(turnResult.Events))
+	}
+}
+
+func TestDocumentCreateAcceptanceUsesLiveCanonicalTools(t *testing.T) {
+	scenario := DocumentCreateAcceptanceScenario(t.TempDir())
+	if len(scenario.Turns) != 1 || len(scenario.Turns[0].ActionResponses) != 0 {
+		t.Fatalf("expected one live-only document turn, got %+v", scenario.Turns)
+	}
+	if !slices.Equal(scenario.CapabilityToolNames, []string{"document.read"}) {
+		t.Fatalf("expected canonical document capability, got %v", scenario.CapabilityToolNames)
+	}
+	if !slices.Equal(scenario.Turns[0].ExpectedSelectedSkills, []string{"document"}) {
+		t.Fatalf("expected document skill selection, got %v", scenario.Turns[0].ExpectedSelectedSkills)
+	}
+	if scenario.Turns[0].ExpectedToolCallCounts["file.deliver"] != 1 {
+		t.Fatalf("expected one final document delivery, got %+v", scenario.Turns[0].ExpectedToolCallCounts)
 	}
 }
 

@@ -175,6 +175,31 @@ func FileWriteAcceptanceScenario(artifactDirectoryPath string) VirtualSessionSce
 	}
 }
 
+func DocumentCreateAcceptanceScenario(artifactDirectoryPath string) VirtualSessionScenario {
+	return VirtualSessionScenario{
+		Name:                  "document_create_acceptance",
+		ArtifactDirectoryPath: artifactDirectoryPath,
+		AllowedTools:          []string{"conversation.history", "memory.search", "terminal.run", "document.read", "file.write", "file.deliver"},
+		CapabilityToolNames:   []string{"document.read"},
+		InitialToolNames:      []string{"terminal.run", "document.read", "file.write", "file.deliver"},
+		Turns: []VirtualTurn{{
+			Prompt:                 "운영팀과 재무팀이 함께 검토할 '분기 결산 운영 검토'라는 짧은 DOCX 문서를 작성해서 이 DM에 첨부해줘. 검토 목적과 다음 단계를 간단히 적고, 현재 상태는 초안, 담당은 운영팀이라고 표시해줘.",
+			ExpectedSelectedSkills: []string{"document"},
+			ExpectedToolCalls:      []string{"file.write", "terminal.run", "file.deliver"},
+			ExpectedToolCallCounts: map[string]int{"file.deliver": 1},
+			ExpectedEventCounts: []VirtualEventCount{
+				{Name: "tool.file.deliver.result", BodyFragment: ".docx", Count: 1},
+			},
+			ExpectedAttachments: []string{".docx"},
+			ExpectedWorkspaceFiles: []VirtualWorkspaceFileExpectation{{
+				PathGlob: "private/people/*/documents/*.docx",
+			}},
+			ExpectedReplyFragments: []string{"분기 결산 운영 검토"},
+			ExpectedTaskStatus:     task.TaskStatusCompleted,
+		}},
+	}
+}
+
 func AttachmentMaterialReadScenario(artifactDirectoryPath string) VirtualSessionScenario {
 	attachment := connectors.InputAttachment{
 		Platform:    "mattermost",
