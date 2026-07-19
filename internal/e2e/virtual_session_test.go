@@ -545,7 +545,7 @@ func TestFailedAssertionReturnsObservedTurnResult(t *testing.T) {
 
 func TestVirtualTaskCapabilityPreservesLifecycleState(t *testing.T) {
 	service := virtualCapabilityService{}
-	addResponse := service.response("task.add", []byte(`{"input":{"title":"비용 테스트 회귀 확인"},"context":{}}`))
+	addResponse := service.response("task.add", []byte(`{"input":{"title":"비용 테스트 회귀 확인","goal":"회귀 방지","targetPersonHint":"예시","participantPersonHints":["샘플"]},"context":{}}`))
 	discoveryResponse := service.response("task.list", []byte(`{"input":{"query":"비용 테스트 회귀 확인"},"context":{}}`))
 	taskID := virtualTaskID(t, discoveryResponse)
 	updateResponse := service.response("task.update", []byte(fmt.Sprintf(`{"input":{"taskID":%q,"title":"비용 테스트 회귀 확인 완료 준비"},"context":{}}`, taskID)))
@@ -554,8 +554,30 @@ func TestVirtualTaskCapabilityPreservesLifecycleState(t *testing.T) {
 	deleteResponse := service.response("task.delete", []byte(fmt.Sprintf(`{"input":{"taskID":%q},"context":{"isApprovalContinuation":true}}`, taskID)))
 	emptyListResponse := service.response("task.list", []byte(`{"input":{},"context":{}}`))
 
-	if !strings.Contains(addResponse, `"taskID":"task-1"`) {
-		t.Fatalf("expected created task identity, got %s", addResponse)
+	var addDocument struct {
+		Result  map[string]any         `json:"result"`
+		Effects []agent.ResourceEffect `json:"effects"`
+	}
+	if errorValue := json.Unmarshal([]byte(addResponse), &addDocument); errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if addDocument.Result["taskID"] != "task-1" ||
+		addDocument.Result["content"] != "비용 테스트 회귀 확인" ||
+		addDocument.Result["goal"] != "회귀 방지" ||
+		addDocument.Result["ownerName"] != "예시" {
+		t.Fatalf("expected canonical created task result, got %s", addResponse)
+	}
+	if _, isFound := addDocument.Result["targetPersonHint"]; isFound {
+		t.Fatalf("task.add result must not expose input-only targetPersonHint: %s", addResponse)
+	}
+	if _, isFound := addDocument.Result["participantPersonHints"]; isFound {
+		t.Fatalf("task.add result must not expose input-only participantPersonHints: %s", addResponse)
+	}
+	if participantNames := stringSliceValue(addDocument.Result["participantNames"]); !slices.Equal(participantNames, []string{"샘플"}) {
+		t.Fatalf("expected canonical participant names, got %s", addResponse)
+	}
+	if len(addDocument.Effects) != 1 || addDocument.Effects[0] != (agent.ResourceEffect{ObjectType: "task", Effect: "created", ID: "task-1"}) {
+		t.Fatalf("expected canonical task.add effect, got %s", addResponse)
 	}
 	if !strings.Contains(updateResponse, `"content":"비용 테스트 회귀 확인 완료 준비"`) {
 		t.Fatalf("expected updated title, got %s", updateResponse)
