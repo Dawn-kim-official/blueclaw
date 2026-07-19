@@ -485,7 +485,7 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 		agentKernel.languageModel,
 		turnOptions,
 	)
-	result, errorValue := agentTurnRunner.RunTurn(taskBudget.totalContext, turnRequest)
+	result, errorValue := agentTurnRunner.RunTurn(taskBudget.callerContext(), turnRequest)
 	result.TurnRoute = turnDecision.Route
 	result.ToolNames = toolNamesForEvent(turnRequest.ToolSet)
 	if result.TaskRun.TaskRunID != "" {
@@ -875,6 +875,10 @@ func newTurnBudgetContext(parentContext context.Context, turnStartedAt time.Time
 func (turnBudget turnBudgetContext) cancel() {
 	turnBudget.cancelWork()
 	turnBudget.cancelTotal()
+}
+
+func (turnBudget turnBudgetContext) callerContext() context.Context {
+	return turnBudget.parentContext
 }
 
 func (turnBudget turnBudgetContext) didWorkExpire() bool {

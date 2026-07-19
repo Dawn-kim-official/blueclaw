@@ -1352,6 +1352,38 @@ func TestAgentKernelCallerCancellationIsNotMaxElapsed(t *testing.T) {
 	}
 }
 
+func TestTurnBudgetCallerContextExcludesInternalTotalDeadline(t *testing.T) {
+	turnBudget := newTurnBudgetContext(context.Background(), time.Now().Add(-2*time.Second), TurnOptions{MaxElapsedSecond: 1})
+	defer turnBudget.cancel()
+
+	if !errors.Is(turnBudget.totalContext.Err(), context.DeadlineExceeded) {
+		t.Fatal("expected the internal total deadline to expire")
+	}
+	if turnBudget.callerContext().Err() != nil {
+		t.Fatalf("expected the caller context to remain active, got %v", turnBudget.callerContext().Err())
+	}
+}
+
+func TestTurnBudgetCallerContextPreservesCallerCancellationAndDeadline(t *testing.T) {
+	cancelledContext, cancel := context.WithCancel(context.Background())
+	cancel()
+	cancelledBudget := newTurnBudgetContext(cancelledContext, time.Now(), TurnOptions{MaxElapsedSecond: 30})
+	defer cancelledBudget.cancel()
+
+	if !errors.Is(cancelledBudget.callerContext().Err(), context.Canceled) {
+		t.Fatalf("expected caller cancellation, got %v", cancelledBudget.callerContext().Err())
+	}
+
+	deadlineContext, cancelDeadline := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+	defer cancelDeadline()
+	deadlineBudget := newTurnBudgetContext(deadlineContext, time.Now(), TurnOptions{MaxElapsedSecond: 30})
+	defer deadlineBudget.cancel()
+
+	if !errors.Is(deadlineBudget.callerContext().Err(), context.DeadlineExceeded) {
+		t.Fatalf("expected caller deadline, got %v", deadlineBudget.callerContext().Err())
+	}
+}
+
 func TestAgentKernelXHighTaskKeepsHourBudgetWithLowExecutionModel(t *testing.T) {
 	agentKernel, _ := newKernelTestServices()
 	languageModel := &deadlineCapturingFinishLanguageModel{}
