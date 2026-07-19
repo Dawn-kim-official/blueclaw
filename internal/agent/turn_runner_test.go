@@ -1929,13 +1929,11 @@ func newTurnRunnerTestServices(languageModel llm.LanguageModelProvider, options 
 }
 
 type sequenceLanguageModel struct {
-	modelTier            string
-	contents             []string
-	resultVerifications  []string
-	textResponses        []string
-	requests             []llm.StructuredResponseRequest
-	verificationRequests []llm.StructuredResponseRequest
-	textPrompts          []string
+	modelTier     string
+	contents      []string
+	textResponses []string
+	requests      []llm.StructuredResponseRequest
+	textPrompts   []string
 }
 
 func recoveryDecisionDocument(whatFailed string, whatWasKnown string, nextAction string, userReplyIntent string) string {
@@ -1980,58 +1978,12 @@ func (languageModel *sequenceLanguageModel) GenerateStructuredResponse(_ context
 	if request.StructuredOutputSchema.Name == operationContractSchemaName {
 		return llm.StructuredResponse{Content: operationContractTestDocument(request.StructuredOutputSchema.Document)}, nil
 	}
-	if strings.TrimSpace(request.StructuredOutputSchema.Name) == "blueclaw_result_verifier" {
-		languageModel.verificationRequests = append(languageModel.verificationRequests, request)
-		index := len(languageModel.verificationRequests) - 1
-		if index < len(languageModel.resultVerifications) {
-			return llm.StructuredResponse{Content: languageModel.resultVerifications[index]}, nil
-		}
-		return llm.StructuredResponse{Content: defaultResultVerificationResponse(request)}, nil
-	}
 	languageModel.requests = append(languageModel.requests, request)
 	index := len(languageModel.requests) - 1
 	if index >= len(languageModel.contents) {
 		index = len(languageModel.contents) - 1
 	}
 	return llm.StructuredResponse{ModelTier: languageModel.modelTier, Content: languageModel.contents[index]}, nil
-}
-
-func defaultResultVerificationResponse(request llm.StructuredResponseRequest) string {
-	expectedResults := expectedResultsFromVerifierRequest(request)
-	results := []map[string]any{}
-	for _, expectedResult := range expectedResults {
-		results = append(results, map[string]any{
-			"id":                  expectedResult.ID,
-			"status":              "satisfied",
-			"reason":              "test default",
-			"citedObservationIDs": []string{},
-			"missingDescription":  "",
-			"suggestedNextTools":  []string{},
-		})
-	}
-	document, errorValue := json.Marshal(map[string]any{
-		"overallStatus": "satisfied",
-		"summary":       "test default",
-		"results":       results,
-	})
-	if errorValue != nil {
-		return `{"overallStatus":"satisfied","summary":"test default","results":[]}`
-	}
-	return string(document)
-}
-
-func expectedResultsFromVerifierRequest(request llm.StructuredResponseRequest) []ExpectedResult {
-	for _, message := range request.Messages {
-		content := strings.TrimSpace(message.Content)
-		if !strings.HasPrefix(content, "Expected results:\n") {
-			continue
-		}
-		var expectedResults []ExpectedResult
-		if json.Unmarshal([]byte(strings.TrimPrefix(content, "Expected results:\n")), &expectedResults) == nil {
-			return normalizeExpectedResults(expectedResults)
-		}
-	}
-	return nil
 }
 
 type structuredFailureTextRecoveryLanguageModel struct {
