@@ -283,7 +283,7 @@ func advanceAgentTask(state agentTaskState) agentTransition {
 				Kind: agentEffectContinue,
 				ToolCall: &ToolInvocation{
 					ToolName: FileDeliverToolName,
-					Input:    MarshalToolInput(map[string]any{"path": nextCompletionAttachmentPath(completionState)}),
+					Input:    completionArtifactDeliveryInput(state, completionState),
 				},
 			},
 		}
@@ -309,6 +309,43 @@ func advanceAgentTask(state agentTaskState) agentTransition {
 		request := BuildAgentActionRequest(state)
 		return agentTransition{State: state, Effect: agentEffect{Kind: agentEffectCallModel, ModelCall: &request}}
 	}
+}
+
+func completionArtifactDeliveryInput(state agentTaskState, completionState CompletionState) json.RawMessage {
+	defaultInput := MarshalToolInput(map[string]any{"path": nextCompletionAttachmentPath(completionState)})
+	requirement, isPending := firstPendingOperationRequirement(state.Request.OutcomeContract.OperationContract, state.Observations)
+	if !isPending || requirement.ToolName != FileDeliverToolName {
+		return defaultInput
+	}
+	requiredInput, errorValue := decodeJSONObject(requirement.RequiredInput)
+	if errorValue != nil {
+		return defaultInput
+	}
+	if operationInputSelectsDeliveryFile(requiredInput) {
+		return MarshalToolInput(requiredInput)
+	}
+	requiredInput["path"] = nextCompletionAttachmentPath(completionState)
+	return MarshalToolInput(requiredInput)
+}
+
+func operationInputSelectsDeliveryFile(requiredInput map[string]any) bool {
+	if path, isString := requiredInput["path"].(string); isString && strings.TrimSpace(path) != "" {
+		return true
+	}
+	files, isArray := requiredInput["files"].([]any)
+	if !isArray {
+		return false
+	}
+	for _, fileValue := range files {
+		file, isObject := fileValue.(map[string]any)
+		if !isObject {
+			continue
+		}
+		if path, isString := file["path"].(string); isString && strings.TrimSpace(path) != "" {
+			return true
+		}
+	}
+	return false
 }
 
 func nextCompletionAttachmentPath(state CompletionState) string {

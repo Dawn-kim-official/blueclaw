@@ -147,20 +147,25 @@ func FileWriteAcceptanceScenario(artifactDirectoryPath string) VirtualSessionSce
 		AllowedTools:          []string{"file.write", "file.deliver"},
 		InitialToolNames:      []string{"file.write", "file.deliver"},
 		Turns: []VirtualTurn{{
-			Prompt:                 "고객지원 FAQ 개편 작업용 JSON 메모를 만들어줘. 제목은 'FAQ 개편', 담당은 '고객지원팀', 상태는 '검토 중'으로 적고 잘 저장됐는지 확인해줘.",
+			Prompt:                 "고객지원 FAQ 개편 작업용 JSON 메모 파일을 만들어줘. 제목은 'FAQ 개편', 담당은 '고객지원팀', 상태는 '검토 중'으로 적고 잘 저장됐는지 확인한 다음 완성된 파일을 이 DM에 첨부해줘.",
 			RouterRequiredEvidence: []string{"file.write", "file.deliver"},
 			ActionResponses: []string{
 				actionCallTool("file.write", `{"path":"work/customer-support/faq-revision.json","content":"{\"title\":\"FAQ 개편\",\"owner\":\"고객지원팀\",\"status\":\"검토 중\"}\n"}`),
 				actionCallTool("file.deliver", `{"path":"work/customer-support/faq-revision.json"}`),
 				actionFinishMessage("JSON 메모 파일을 생성하고 첨부해 저장 결과를 확인했습니다.", "obs-002:file.deliver:0"),
 			},
-			ExpectedToolCalls:   []string{"file.write", "file.deliver"},
-			ExpectedAttachments: []string{".json"},
-			ExpectedWorkspaceFiles: []VirtualWorkspaceFileExpectation{{
-				PathGlob:          "private/people/person-1/work/customer-support/faq-revision.json",
+			ExpectedToolCalls:      []string{"file.write", "file.deliver"},
+			ExpectedToolCallCounts: map[string]int{"file.write": 1, "file.deliver": 1},
+			ExpectedAttachmentFiles: []VirtualAttachmentFileExpectation{{
+				Suffix:            ".json",
 				ContainsFragments: []string{"FAQ 개편", "고객지원팀", "검토 중"},
 			}},
-			ExpectedReplyFragments: []string{"확인"},
+			ExpectedEventCounts: []VirtualEventCount{
+				{Name: "tool.file.write.requested", BodyFragment: "FAQ 개편", Count: 1},
+				{Name: "tool.file.write.requested", BodyFragment: "고객지원팀", Count: 1},
+				{Name: "tool.file.write.requested", BodyFragment: "검토 중", Count: 1},
+			},
+			ExpectedReplyFragments: []string{"첨부"},
 			ForbiddenReplyFragments: []string{
 				"permission denied",
 				"권한",

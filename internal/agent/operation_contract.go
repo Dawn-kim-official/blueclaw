@@ -14,10 +14,9 @@ import (
 )
 
 const (
-	operationContractSchemaName       = "blueclaw_operation_contract"
-	operationContractReviewSchemaName = "blueclaw_operation_contract_review"
-	operationContractVersion          = 1
-	maximumOperationRequirementCount  = 64
+	operationContractSchemaName      = "blueclaw_operation_contract"
+	operationContractVersion         = 1
+	maximumOperationRequirementCount = 64
 )
 
 type operationContractDocument struct {
@@ -33,11 +32,6 @@ type operationDescriptorDocument struct {
 	Name              string          `json:"name"`
 	Description       string          `json:"description"`
 	InputIntentSchema json.RawMessage `json:"inputIntentSchema"`
-}
-
-type operationContractReviewDocument struct {
-	IsComplete bool   `json:"isComplete"`
-	Reason     string `json:"reason"`
 }
 
 func compileOperationRequirements(responseContext context.Context, languageModel llm.LanguageModelProvider, request AgentRequest, toolSet *ToolSet, contract OutcomeContract) (OutcomeContract, error) {
@@ -61,49 +55,35 @@ func compileOperationRequirements(responseContext context.Context, languageModel
 	if errorValue != nil {
 		return contract, errorValue
 	}
-	reviewReason := ""
-	for range 2 {
-		requirements, generationError := generateOperationRequirements(responseContext, languageModel, request, descriptors, toolSet, toolNames, reviewReason)
-		if generationError != nil {
-			return contract, generationError
-		}
-		review, reviewError := reviewOperationRequirements(responseContext, languageModel, request, descriptors, requirements)
-		if reviewError != nil {
-			return contract, reviewError
-		}
-		if review.IsComplete {
-			contract.OperationContract = &OperationContract{
-				Version:      operationContractVersion,
-				Requirements: requirements,
-			}
-			return normalizeOutcomeContract(contract), nil
-		}
-		reviewReason = firstNonEmptyString(strings.TrimSpace(review.Reason), "the candidate omitted or invented requested operation values")
+	requirements, errorValue := generateOperationRequirements(responseContext, languageModel, request, descriptors, toolSet, toolNames)
+	if errorValue != nil {
+		return contract, errorValue
 	}
-	return contract, fmt.Errorf("operation contract review failed: %s", reviewReason)
+	contract.OperationContract = &OperationContract{
+		Version:      operationContractVersion,
+		Requirements: requirements,
+	}
+	return normalizeOutcomeContract(contract), nil
 }
 
-func generateOperationRequirements(responseContext context.Context, languageModel llm.LanguageModelProvider, request AgentRequest, descriptors []operationDescriptorDocument, toolSet *ToolSet, toolNames []string, reviewReason string) ([]OperationRequirement, error) {
-	response, errorValue := languageModel.GenerateStructuredResponse(responseContext, operationContractRequest(request, descriptors, reviewReason))
+func generateOperationRequirements(responseContext context.Context, languageModel llm.LanguageModelProvider, request AgentRequest, descriptors []operationDescriptorDocument, toolSet *ToolSet, toolNames []string) ([]OperationRequirement, error) {
+	response, errorValue := languageModel.GenerateStructuredResponse(responseContext, operationContractRequest(request, descriptors, ""))
 	if errorValue != nil {
 		correctionReason, canCorrect := operationContractStructuredCorrectionReason(errorValue)
 		if !canCorrect {
 			return nil, fmt.Errorf("compile operation contract: %w", errorValue)
 		}
-		return correctOperationRequirements(responseContext, languageModel, request, descriptors, toolSet, toolNames, reviewReason, correctionReason)
+		return correctOperationRequirements(responseContext, languageModel, request, descriptors, toolSet, toolNames, correctionReason)
 	}
 	requirements, parseError := parseOperationRequirements(response.Content, toolSet, toolNames)
 	if parseError == nil {
 		return requirements, nil
 	}
 	correctionReason := "The previous candidate failed operation contract validation: " + parseError.Error()
-	return correctOperationRequirements(responseContext, languageModel, request, descriptors, toolSet, toolNames, reviewReason, correctionReason)
+	return correctOperationRequirements(responseContext, languageModel, request, descriptors, toolSet, toolNames, correctionReason)
 }
 
-func correctOperationRequirements(responseContext context.Context, languageModel llm.LanguageModelProvider, request AgentRequest, descriptors []operationDescriptorDocument, toolSet *ToolSet, toolNames []string, reviewReason string, correctionReason string) ([]OperationRequirement, error) {
-	if strings.TrimSpace(reviewReason) != "" {
-		correctionReason = reviewReason + "\n" + correctionReason
-	}
+func correctOperationRequirements(responseContext context.Context, languageModel llm.LanguageModelProvider, request AgentRequest, descriptors []operationDescriptorDocument, toolSet *ToolSet, toolNames []string, correctionReason string) ([]OperationRequirement, error) {
 	correctionRequest := operationContractRequest(request, descriptors, correctionReason)
 	correctedResponse, correctionError := languageModel.GenerateStructuredResponse(responseContext, correctionRequest)
 	if correctionError != nil {
@@ -141,7 +121,7 @@ func stateChangingRequiredToolNames(toolSet *ToolSet, toolNames []string) []stri
 	return stateChangingToolNames
 }
 
-func operationContractRequest(request AgentRequest, descriptors []operationDescriptorDocument, reviewReason string) llm.StructuredResponseRequest {
+func operationContractRequest(request AgentRequest, descriptors []operationDescriptorDocument, correctionReason string) llm.StructuredResponseRequest {
 	descriptorDocument, _ := json.Marshal(descriptors)
 	messages := []llm.Message{
 		{Role: "system", Content: operationContractInstruction()},
@@ -151,8 +131,8 @@ func operationContractRequest(request AgentRequest, descriptors []operationDescr
 	if visibleContext := buildVisibleContextDescription(request.VisibleContext); visibleContext != "" {
 		messages = append(messages, llm.Message{Role: "system", Content: visibleContext})
 	}
-	if strings.TrimSpace(reviewReason) != "" {
-		messages = append(messages, llm.Message{Role: "system", Content: "Correct the previous candidate. Independent review: " + strings.TrimSpace(reviewReason)})
+	if strings.TrimSpace(correctionReason) != "" {
+		messages = append(messages, llm.Message{Role: "system", Content: "Correct the previous candidate using this validation diagnostic: " + strings.TrimSpace(correctionReason)})
 	}
 	messages = append(messages, llm.Message{Role: "user", Content: request.Prompt})
 	return llm.StructuredResponseRequest{
@@ -168,6 +148,7 @@ func operationContractRequest(request AgentRequest, descriptors []operationDescr
 func operationContractInstruction() string {
 	return strings.Join([]string{
 		"Preserve explicit user values for the listed final state-changing operations.",
+		operationRequiredValueBoundaryInstruction(),
 		"Use visible context only when the latest user message directly refers to it.",
 		"Resolve relative dates from the runtime temporal context.",
 		"Do not invent defaults, estimates, identifiers, or helpful values.",
@@ -178,52 +159,13 @@ func operationContractInstruction() string {
 	}, "\n")
 }
 
-func reviewOperationRequirements(responseContext context.Context, languageModel llm.LanguageModelProvider, request AgentRequest, descriptors []operationDescriptorDocument, requirements []OperationRequirement) (operationContractReviewDocument, error) {
-	candidateDocument, _ := json.Marshal(operationRequirementDocuments(requirements))
-	descriptorDocument, _ := json.Marshal(descriptors)
-	messages := []llm.Message{
-		{Role: "system", Content: strings.Join([]string{
-			"Independently verify an operation contract against the user's request.",
-			"isComplete is true only when every explicitly supplied or directly normalized input value is preserved, no value was invented, every requested operation occurrence is present, and no unrelated operation was added.",
-			"Resolve relative dates from the runtime temporal context.",
-			"Return a concise correction reason when isComplete is false.",
-		}, "\n")},
-		{Role: "system", Content: buildTemporalContextDescription(request.TurnStartedAt)},
-		{Role: "system", Content: "Allowed operations:\n" + string(descriptorDocument)},
-		{Role: "system", Content: "Candidate operation contract:\n" + string(candidateDocument)},
-	}
-	if visibleContext := buildVisibleContextDescription(request.VisibleContext); visibleContext != "" {
-		messages = append(messages, llm.Message{Role: "system", Content: visibleContext})
-	}
-	messages = append(messages, llm.Message{Role: "user", Content: request.Prompt})
-	response, errorValue := languageModel.GenerateStructuredResponse(responseContext, llm.StructuredResponseRequest{
-		Messages: messages,
-		StructuredOutputSchema: llm.StructuredOutputSchema{
-			Name:               operationContractReviewSchemaName,
-			Document:           `{"type":"object","properties":{"isComplete":{"type":"boolean"},"reason":{"type":"string"}},"required":["isComplete","reason"],"additionalProperties":false}`,
-			IsStrictlyEnforced: true,
-		},
-	})
-	if errorValue != nil {
-		return operationContractReviewDocument{}, fmt.Errorf("review operation contract: %w", errorValue)
-	}
-	var review operationContractReviewDocument
-	if errorValue := json.Unmarshal([]byte(response.Content), &review); errorValue != nil {
-		return operationContractReviewDocument{}, fmt.Errorf("decode operation contract review: %w", errorValue)
-	}
-	review.Reason = strings.TrimSpace(review.Reason)
-	return review, nil
-}
-
-func operationRequirementDocuments(requirements []OperationRequirement) []operationRequirementDocument {
-	documents := make([]operationRequirementDocument, 0, len(requirements))
-	for _, requirement := range requirements {
-		documents = append(documents, operationRequirementDocument{
-			ToolName:       requirement.ToolName,
-			RequiredValues: append(json.RawMessage{}, requirement.RequiredInput...),
-		})
-	}
-	return documents
+func operationRequiredValueBoundaryInstruction() string {
+	return strings.Join([]string{
+		"A required value must be an invocation field whose value the user supplied for that same field, except for directly normalized dates and times.",
+		"Do not turn requested artifact facts into a generated content string or invent paths, filenames, titles, MIME types, identifiers, or wrapper objects.",
+		"A reference such as the completed file requires delivery but contributes no requiredValues unless the user named the exact file.",
+		"Do not copy an execution choice or an output reference from one operation into another operation's requiredValues.",
+	}, "\n")
 }
 
 func operationDescriptorDocuments(toolSet *ToolSet, toolNames []string) ([]operationDescriptorDocument, error) {

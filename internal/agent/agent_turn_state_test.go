@@ -161,6 +161,61 @@ func TestBuildAgentActionRequestIncludesNextPendingOperationRequirement(t *testi
 	}
 }
 
+func TestCompletionArtifactDeliveryInputUsesPendingOperationInput(t *testing.T) {
+	requiredInput := json.RawMessage(`{"filename":"report.json","files":[{"filename":"report.json","path":"report.json","title":"분기 보고"}]}`)
+	state := agentTaskState{
+		Request: AgentTurnRequest{OutcomeContract: OutcomeContract{OperationContract: &OperationContract{
+			Version: operationContractVersion,
+			Requirements: []OperationRequirement{{
+				RequirementID: "operation-1",
+				ToolID:        "kernel/file.deliver",
+				ToolName:      FileDeliverToolName,
+				InputMode:     OperationInputContainsExplicit,
+				RequiredInput: requiredInput,
+			}},
+		}}},
+	}
+	completionState := CompletionState{AttachmentPaths: []string{"/workspace/report.json"}}
+
+	input := completionArtifactDeliveryInput(state, completionState)
+
+	if string(input) != string(requiredInput) {
+		t.Fatalf("expected pending operation input %s, got %s", requiredInput, input)
+	}
+	observation := turnObservation{
+		ObservationID: "observation-1",
+		Action:        "continue",
+		Tool:          FileDeliverToolName,
+		ToolID:        "kernel/file.deliver",
+		ToolInput:     input,
+		Output:        ToolOutput{Content: "file attached"},
+	}
+	if !operationRequirementsSatisfied(state.Request.OutcomeContract.OperationContract, []turnObservation{observation}) {
+		t.Fatalf("expected nested delivery input to satisfy the pending operation: %s", input)
+	}
+}
+
+func TestCompletionArtifactDeliveryInputAddsDiscoveredPath(t *testing.T) {
+	state := agentTaskState{
+		Request: AgentTurnRequest{OutcomeContract: OutcomeContract{OperationContract: &OperationContract{
+			Version: operationContractVersion,
+			Requirements: []OperationRequirement{{
+				RequirementID: "operation-1",
+				ToolID:        "kernel/file.deliver",
+				ToolName:      FileDeliverToolName,
+				RequiredInput: json.RawMessage(`{"title":"분기 보고"}`),
+			}},
+		}}},
+	}
+	completionState := CompletionState{AttachmentPaths: []string{"/workspace/report.json"}}
+
+	input := completionArtifactDeliveryInput(state, completionState)
+
+	if string(input) != `{"path":"/workspace/report.json","title":"분기 보고"}` {
+		t.Fatalf("expected discovered path merged into pending input, got %s", input)
+	}
+}
+
 func TestDecideAgentActionNativeChatRejectsInvalidCallsWithoutStructuredFallback(t *testing.T) {
 	blankToolCallIDResponse := nativeAgentActionChatResponse("finish", `{}`)
 	blankToolCallIDResponse.Message.ToolCalls[0].ID = " "

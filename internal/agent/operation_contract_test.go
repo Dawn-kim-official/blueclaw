@@ -495,43 +495,24 @@ func TestOperationRequirementsAcceptExactRequestedInputForNormalAndElapsedComple
 	}
 }
 
-func TestCompileOperationRequirementsRepairsRejectedCandidateOnce(t *testing.T) {
-	languageModel := &operationContractLanguageModel{contents: []string{
-		`{"operations":[{"toolName":"task.add","requiredValues":{}}]}`,
-		`{"isComplete":false,"reason":"missing explicit title"}`,
-		`{"operations":[{"toolName":"task.add","requiredValues":{"title":"분기 결산 누락 확인"}}]}`,
-		`{"isComplete":true,"reason":""}`,
-	}}
-
-	contract, errorValue := compileOperationRequirements(
-		context.Background(),
-		languageModel,
-		AgentRequest{Prompt: "분기 결산 누락 확인 업무를 추가해줘"},
-		operationContractTestToolSet(),
-		OutcomeContract{RequiredEvidenceTools: []string{"task.add"}},
-	)
-
-	if errorValue != nil {
-		t.Fatalf("expected reviewed correction to pass: %v", errorValue)
-	}
-	if languageModel.calls != 4 {
-		t.Fatalf("expected compile, review, correction, review calls, got %d", languageModel.calls)
-	}
-	if !strings.Contains(joinedMessageContent(languageModel.requests[2].Messages), "missing explicit title") {
-		t.Fatal("expected independent review reason in the correction request")
-	}
-	if string(contract.OperationContract.Requirements[0].RequiredInput) != `{"title":"분기 결산 누락 확인"}` {
-		t.Fatalf("unexpected corrected operation contract %+v", contract.OperationContract)
+func TestOperationContractInstructionsUseInvocationValueBoundary(t *testing.T) {
+	instruction := operationContractInstruction()
+	for _, fragment := range []string{
+		"invocation field whose value the user supplied for that same field",
+		"Do not turn requested artifact facts into a generated content string",
+		"the completed file requires delivery but contributes no requiredValues",
+		"Do not copy an execution choice or an output reference",
+	} {
+		if !strings.Contains(instruction, fragment) {
+			t.Fatalf("expected operation instruction to contain %q, got %s", fragment, instruction)
+		}
 	}
 }
 
-func TestCompileOperationRequirementsCorrectsInvalidReviewedCandidate(t *testing.T) {
+func TestCompileOperationRequirementsCorrectsInvalidCandidate(t *testing.T) {
 	languageModel := &operationContractLanguageModel{contents: []string{
-		`{"operations":[{"toolName":"task.add","requiredValues":{}}]}`,
-		`{"isComplete":false,"reason":"missing explicit title"}`,
 		`{"operations":[{"toolName":"task.add","requiredValues":{"title":3}}]}`,
 		`{"operations":[{"toolName":"task.add","requiredValues":{"title":"분기 결산 누락 확인"}}]}`,
-		`{"isComplete":true,"reason":""}`,
 	}}
 
 	contract, errorValue := compileOperationRequirements(
@@ -543,14 +524,14 @@ func TestCompileOperationRequirementsCorrectsInvalidReviewedCandidate(t *testing
 	)
 
 	if errorValue != nil {
-		t.Fatalf("expected invalid correction candidate to receive typed correction: %v", errorValue)
+		t.Fatalf("expected invalid candidate to receive typed correction: %v", errorValue)
 	}
-	if languageModel.calls != 5 {
-		t.Fatalf("expected compile, review, invalid correction, typed correction, and review calls, got %d", languageModel.calls)
+	if languageModel.calls != 2 {
+		t.Fatalf("expected generation and correction calls, got %d", languageModel.calls)
 	}
-	correctionMessages := joinedMessageContent(languageModel.requests[3].Messages)
-	if !strings.Contains(correctionMessages, "missing explicit title") || !strings.Contains(correctionMessages, `want "string"`) {
-		t.Fatalf("expected review and validation diagnostics in correction request, got %s", correctionMessages)
+	correctionMessages := joinedMessageContent(languageModel.requests[1].Messages)
+	if !strings.Contains(correctionMessages, `want "string"`) {
+		t.Fatalf("expected validation diagnostics in correction request, got %s", correctionMessages)
 	}
 	if string(contract.OperationContract.Requirements[0].RequiredInput) != `{"title":"분기 결산 누락 확인"}` {
 		t.Fatalf("unexpected corrected operation contract %+v", contract.OperationContract)
@@ -572,7 +553,6 @@ func TestCompileOperationRequirementsCorrectsAuthoritativeStructuredOutputError(
 		contents: []string{
 			"",
 			`{"operations":[{"toolName":"task.add","requiredValues":{"title":"분기 결산 누락 확인"}}]}`,
-			`{"isComplete":true,"reason":""}`,
 		},
 		errorsByCall: map[int]error{0: correctionError},
 	}
@@ -588,8 +568,8 @@ func TestCompileOperationRequirementsCorrectsAuthoritativeStructuredOutputError(
 	if errorValue != nil {
 		t.Fatalf("expected authoritative structured error to receive typed correction: %v", errorValue)
 	}
-	if languageModel.calls != 3 {
-		t.Fatalf("expected failed generation, correction, and review calls, got %d", languageModel.calls)
+	if languageModel.calls != 2 {
+		t.Fatalf("expected failed generation and correction calls, got %d", languageModel.calls)
 	}
 	correctionMessages := joinedMessageContent(languageModel.requests[1].Messages)
 	if !strings.Contains(correctionMessages, "schema_validation") || !strings.Contains(correctionMessages, "operations[0].requiredValues.title") {
@@ -645,31 +625,9 @@ func TestCompileOperationRequirementsDoesNotRetryNonCorrectableError(t *testing.
 	}
 }
 
-func TestCompileOperationRequirementsFailsAfterRejectedCorrection(t *testing.T) {
-	languageModel := &operationContractLanguageModel{contents: []string{
-		`{"operations":[{"toolName":"task.add","requiredValues":{}}]}`,
-		`{"isComplete":false,"reason":"missing explicit title"}`,
-		`{"operations":[{"toolName":"task.add","requiredValues":{}}]}`,
-		`{"isComplete":false,"reason":"still missing explicit title"}`,
-	}}
-
-	_, errorValue := compileOperationRequirements(
-		context.Background(),
-		languageModel,
-		AgentRequest{Prompt: "분기 결산 누락 확인 업무를 추가해줘"},
-		operationContractTestToolSet(),
-		OutcomeContract{RequiredEvidenceTools: []string{"task.add"}},
-	)
-
-	if errorValue == nil || !strings.Contains(errorValue.Error(), "still missing explicit title") {
-		t.Fatalf("expected rejected correction to fail closed, got %v", errorValue)
-	}
-}
-
 func TestCompileOperationRequirementsPreservesRepeatedRequestedOperations(t *testing.T) {
 	languageModel := &operationContractLanguageModel{contents: []string{
 		`{"operations":[{"toolName":"task.add","requiredValues":{"title":"첫 번째 업무"}},{"toolName":"task.add","requiredValues":{"title":"두 번째 업무"}}]}`,
-		`{"isComplete":true,"reason":""}`,
 	}}
 
 	contract, errorValue := compileOperationRequirements(
