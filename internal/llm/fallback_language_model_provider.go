@@ -57,6 +57,31 @@ func (fallbackLanguageModelProvider FallbackLanguageModelProvider) GenerateStruc
 	return structuredResponse, nil
 }
 
+func (fallbackLanguageModelProvider FallbackLanguageModelProvider) GenerateChatCompletion(responseContext context.Context, request ChatCompletionRequest) (ChatCompletionResponse, error) {
+	primaryCompleter, hasPrimaryCompleter := ResolveTextChatCompleter(fallbackLanguageModelProvider.PrimaryProvider)
+	fallbackCompleter, hasFallbackCompleter := ResolveTextChatCompleter(fallbackLanguageModelProvider.FallbackProvider)
+	if !hasPrimaryCompleter {
+		if !hasFallbackCompleter {
+			return ChatCompletionResponse{}, errors.New("primary chat provider is not configured")
+		}
+		return fallbackCompleter.GenerateChatCompletion(responseContext, request)
+	}
+	response, errorValue := primaryCompleter.GenerateChatCompletion(responseContext, request)
+	if contextError := contextFailure(responseContext, errorValue); contextError != nil {
+		return response, contextError
+	}
+	if errorValue == nil || !hasFallbackCompleter {
+		return response, errorValue
+	}
+	fallbackLanguageModelProvider.logFallback("chat", errorValue)
+	fallbackResponse, fallbackError := fallbackCompleter.GenerateChatCompletion(responseContext, request)
+	if fallbackError != nil {
+		return ChatCompletionResponse{}, fallbackError
+	}
+	fallbackResponse.UsedFallback = true
+	return fallbackResponse, nil
+}
+
 func (fallbackLanguageModelProvider FallbackLanguageModelProvider) GenerateRecoveryChatCompletion(responseContext context.Context, request ChatCompletionRequest) (ChatCompletionResponse, error) {
 	primaryProvider, isPrimaryProvider := fallbackLanguageModelProvider.PrimaryProvider.(RecoveryChatCompleter)
 	if !isPrimaryProvider {
