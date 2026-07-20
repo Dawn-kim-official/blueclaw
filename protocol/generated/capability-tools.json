@@ -709,7 +709,7 @@
         "mode": "success",
         "targetKind": "task"
       },
-      "description": "Update explicit fields on an existing task. taskID must be copied from a task.list result; use task.list first when the ID is unknown. At least one mutable field is required.",
+      "description": "Update explicit fields on an existing task. taskHint is the exact task ID or exact task title from a task.list result, resolved server-side to the canonical task; use task.list first when neither is known. At least one mutable field is required.",
       "estimatedLatency": "medium",
       "idempotency": {
         "required": false,
@@ -842,10 +842,10 @@
             ],
             "type": "string"
           },
-          "taskID": {
-            "description": "Exact ID of the task to update, copied from a task.list result.",
+          "taskHint": {
+            "description": "Exact task ID or exact task title from a task.list result. Resolved server-side to the canonical task; if it does not uniquely resolve, the call fails with a candidates list of the matching tasks to retry against.",
+            "maxLength": 256,
             "minLength": 1,
-            "pattern": "^\\S(?:.*\\S)?$",
             "type": "string"
           },
           "title": {
@@ -858,7 +858,7 @@
           }
         },
         "required": [
-          "taskID"
+          "taskHint"
         ],
         "type": "object"
       },
@@ -1093,7 +1093,7 @@
         "mode": "success",
         "targetKind": "task"
       },
-      "description": "Permanently delete a task by the exact taskID from a task.list result. Use task.list first when the ID is unknown. Requires approval; this action is irreversible.",
+      "description": "Permanently delete a task. taskHint is the exact task ID or exact task title from a task.list result, resolved server-side to the canonical task; use task.list first when neither is known. Requires approval; this action is irreversible.",
       "estimatedLatency": "medium",
       "idempotency": {
         "required": false,
@@ -1110,15 +1110,15 @@
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "additionalProperties": false,
         "properties": {
-          "taskID": {
-            "description": "Exact ID of the task to delete, copied from a task.list result.",
+          "taskHint": {
+            "description": "Exact task ID or exact task title from a task.list result. Resolved server-side to the canonical task; if it does not uniquely resolve, the call fails with a candidates list of the matching tasks to retry against.",
+            "maxLength": 256,
             "minLength": 1,
-            "pattern": "^\\S(?:.*\\S)?$",
             "type": "string"
           }
         },
         "required": [
-          "taskID"
+          "taskHint"
         ],
         "type": "object"
       },

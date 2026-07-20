@@ -548,10 +548,10 @@ func TestVirtualTaskCapabilityPreservesLifecycleState(t *testing.T) {
 	addResponse := service.response("task.add", []byte(`{"input":{"title":"비용 테스트 회귀 확인","goal":"회귀 방지","targetPersonHint":"예시","participantPersonHints":["샘플"]},"context":{}}`))
 	discoveryResponse := service.response("task.list", []byte(`{"input":{"query":"비용 테스트 회귀 확인"},"context":{}}`))
 	taskID := virtualTaskID(t, discoveryResponse)
-	updateResponse := service.response("task.update", []byte(fmt.Sprintf(`{"input":{"taskID":%q,"title":"비용 테스트 회귀 확인 완료 준비"},"context":{}}`, taskID)))
+	updateResponse := service.response("task.update", []byte(fmt.Sprintf(`{"input":{"taskHint":%q,"title":"비용 테스트 회귀 확인 완료 준비"},"context":{}}`, taskID)))
 	listResponse := service.response("task.list", []byte(`{"input":{},"context":{}}`))
-	approvalResponse := service.response("task.delete", []byte(fmt.Sprintf(`{"input":{"taskID":%q},"context":{}}`, taskID)))
-	deleteResponse := service.response("task.delete", []byte(fmt.Sprintf(`{"input":{"taskID":%q},"context":{"isApprovalContinuation":true}}`, taskID)))
+	approvalResponse := service.response("task.delete", []byte(fmt.Sprintf(`{"input":{"taskHint":%q},"context":{}}`, taskID)))
+	deleteResponse := service.response("task.delete", []byte(fmt.Sprintf(`{"input":{"taskHint":%q},"context":{"isApprovalContinuation":true}}`, taskID)))
 	emptyListResponse := service.response("task.list", []byte(`{"input":{},"context":{}}`))
 
 	var addDocument struct {
@@ -621,11 +621,11 @@ func TestVirtualTaskMutationRejectsUnknownTaskID(t *testing.T) {
 	service.response("task.add", []byte(`{"input":{"title":"비용 테스트 회귀 확인"},"context":{}}`))
 
 	for _, response := range []string{
-		service.response("task.update", []byte(`{"input":{"taskID":"task-missing","title":"변경됨"},"context":{}}`)),
-		service.response("task.delete", []byte(`{"input":{"taskID":"task-missing"},"context":{"isApprovalContinuation":true}}`)),
+		service.response("task.update", []byte(`{"input":{"taskHint":"task-missing","title":"변경됨"},"context":{}}`)),
+		service.response("task.delete", []byte(`{"input":{"taskHint":"task-missing"},"context":{"isApprovalContinuation":true}}`)),
 	} {
 		if !strings.Contains(response, `"errorCode":"not_found"`) {
-			t.Fatalf("expected mutation without exact task ID to fail, got %s", response)
+			t.Fatalf("expected mutation without a resolvable taskHint to fail, got %s", response)
 		}
 	}
 }
@@ -1106,8 +1106,8 @@ func TestVirtualCapabilityCatalogUsesOperationSchemas(t *testing.T) {
 		t.Fatalf("expected two descriptors, got %+v", catalog.DeviceCapabilities)
 	}
 	for _, descriptor := range catalog.DeviceCapabilities {
-		if _, hasTaskID := descriptor.InputSchema.Properties["taskID"]; !hasTaskID || !slices.Contains(descriptor.InputSchema.Required, "taskID") {
-			t.Fatalf("%s input schema must require taskID", descriptor.Name)
+		if _, hasTaskHint := descriptor.InputSchema.Properties["taskHint"]; !hasTaskHint || !slices.Contains(descriptor.InputSchema.Required, "taskHint") {
+			t.Fatalf("%s input schema must require taskHint", descriptor.Name)
 		}
 		if _, hasQuery := descriptor.InputSchema.Properties["query"]; hasQuery {
 			t.Fatalf("%s input schema must not expose query", descriptor.Name)
@@ -1414,12 +1414,12 @@ func TestVirtualCalendarListHonorsWindowQueryAndLimit(t *testing.T) {
 	}
 }
 
-func TestVirtualTaskUpdateRequiresExactIDAndPatch(t *testing.T) {
+func TestVirtualTaskUpdateRequiresHintAndPatch(t *testing.T) {
 	service := virtualCapabilityService{}
 	service.taskResponse("task.add", []byte(`{"input":{"title":"고객지원 결산"}}`))
-	response := service.taskResponse("task.update", []byte(`{"input":{"taskID":"task-1"}}`))
+	response := service.taskResponse("task.update", []byte(`{"input":{"taskHint":"task-1"}}`))
 	if !strings.Contains(response, `"errorCode":"invalid_input"`) {
-		t.Fatalf("expected ID-only task update to fail, got %s", response)
+		t.Fatalf("expected hint-only task update to fail, got %s", response)
 	}
 }
 

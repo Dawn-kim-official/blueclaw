@@ -270,8 +270,12 @@ export const taskListInputSchema = z.strictObject({
   limit: z.number().describe('Maximum number of tasks to return. Defaults to 50.').optional(),
 });
 
+const taskHintSchema = z.string().min(1).max(256).describe(
+  'Exact task ID or exact task title from a task.list result. Resolved server-side to the canonical task; if it does not uniquely resolve, the call fails with a candidates list of the matching tasks to retry against.',
+);
+
 const taskUpdateObjectSchema = z.strictObject({
-  taskID: resourceIDSchema.describe('Exact ID of the task to update, copied from a task.list result.'),
+  taskHint: taskHintSchema,
   title: z.string().describe('New task title. Omit to leave the title unchanged.').optional(),
   goal: z.string().describe('Definition of done or success criterion for this task. Omit to leave unchanged.').optional(),
   status: workspaceTaskStatusSchema.describe('New task status. Omit to leave unchanged.').optional(),
@@ -289,10 +293,10 @@ export const taskUpdateInputSchema = taskUpdateObjectSchema
   .refine(hasMutationField, 'At least one task field must be updated.')
   .meta({ minProperties: 2 });
 
-export const taskUpdateInputIntentSchema = taskUpdateObjectSchema.omit({ taskID: true });
+export const taskUpdateInputIntentSchema = taskUpdateObjectSchema.omit({ taskHint: true });
 
 export const taskDeleteInputSchema = z.strictObject({
-  taskID: resourceIDSchema.describe('Exact ID of the task to delete, copied from a task.list result.'),
+  taskHint: taskHintSchema,
 });
 
 export const taskDeleteInputIntentSchema = z.strictObject({});
@@ -899,7 +903,7 @@ const taskToolDefinitions: CapabilityToolDefinition[] = [
     namespace: 'task',
     privacyClass: 'workspace_task',
     policyResource: 'tool:task.update',
-    description: 'Update explicit fields on an existing task. taskID must be copied from a task.list result; use task.list first when the ID is unknown. At least one mutable field is required.',
+    description: 'Update explicit fields on an existing task. taskHint is the exact task ID or exact task title from a task.list result, resolved server-side to the canonical task; use task.list first when neither is known. At least one mutable field is required.',
     version: '3',
     estimatedLatency: CapabilityEstimatedLatency.Medium,
     inputSchema: taskUpdateInputSchema,
@@ -921,7 +925,7 @@ const taskToolDefinitions: CapabilityToolDefinition[] = [
     namespace: 'task',
     privacyClass: 'workspace_task',
     policyResource: 'tool:task.delete',
-    description: 'Permanently delete a task by the exact taskID from a task.list result. Use task.list first when the ID is unknown. Requires approval; this action is irreversible.',
+    description: 'Permanently delete a task. taskHint is the exact task ID or exact task title from a task.list result, resolved server-side to the canonical task; use task.list first when neither is known. Requires approval; this action is irreversible.',
     version: '3',
     estimatedLatency: CapabilityEstimatedLatency.Medium,
     inputSchema: taskDeleteInputSchema,
