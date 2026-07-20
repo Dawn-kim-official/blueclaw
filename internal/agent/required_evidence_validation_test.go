@@ -263,3 +263,39 @@ func TestRequiredEvidencePreservesDeliveryAndSendSideEffects(t *testing.T) {
 		}
 	}
 }
+
+func TestUniqueSideEffectEvidenceCandidateResolvesSingleMutation(t *testing.T) {
+	toolSet := newTestToolSet([]string{"task.add", "task.list", "conversation.history"})
+
+	candidateName, isUnique := uniqueSideEffectEvidenceCandidate(toolSet, []string{"task.add", "task.list"}, nil)
+
+	if !isUnique || candidateName != "task.add" {
+		t.Fatalf("expected unique task.add candidate, got %q unique=%v", candidateName, isUnique)
+	}
+}
+
+func TestUniqueSideEffectEvidenceCandidateFallsBackToRegisteredNames(t *testing.T) {
+	toolSet := newTestToolSet([]string{"task.add", "task.list"})
+
+	candidateName, isUnique := uniqueSideEffectEvidenceCandidate(toolSet, nil, []string{"task.add", "task.list"})
+
+	if !isUnique || candidateName != "task.add" {
+		t.Fatalf("expected registered fallback to resolve task.add, got %q unique=%v", candidateName, isUnique)
+	}
+}
+
+func TestUniqueSideEffectEvidenceCandidateRejectsAmbiguousMutations(t *testing.T) {
+	toolSet := newTestToolSet([]string{"task.add", "task.update"})
+
+	if _, isUnique := uniqueSideEffectEvidenceCandidate(toolSet, []string{"task.add", "task.update"}, nil); isUnique {
+		t.Fatal("expected ambiguous mutation candidates to stay unresolved")
+	}
+}
+
+func TestUniqueSideEffectEvidenceCandidateRejectsReadOnlyPool(t *testing.T) {
+	toolSet := newTestToolSet([]string{"task.list", "conversation.history"})
+
+	if _, isUnique := uniqueSideEffectEvidenceCandidate(toolSet, []string{"task.list"}, []string{"conversation.history"}); isUnique {
+		t.Fatal("expected read-only candidates to stay unresolved")
+	}
+}

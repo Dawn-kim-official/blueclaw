@@ -20,8 +20,30 @@ type requiredEvidenceValidationReport struct {
 type requiredEvidenceReaskReport struct {
 	WasAttempted       bool     `json:"wasAttempted"`
 	DidRecoverEvidence bool     `json:"didRecoverEvidence"`
+	WasDeterministic   bool     `json:"wasDeterministic,omitempty"`
 	RecoveredEvidence  []string `json:"recoveredEvidence,omitempty"`
 	Reason             string   `json:"reason,omitempty"`
+}
+
+func uniqueSideEffectEvidenceCandidate(toolSet *ToolSet, candidates []string, registeredFallback []string) (string, bool) {
+	candidatePool := appendUniqueStrings(candidates)
+	if len(candidatePool) == 0 {
+		candidatePool = appendUniqueStrings(registeredFallback)
+	}
+	sideEffectCandidates := []string{}
+	for _, candidate := range candidatePool {
+		if !requiredEvidenceToolCanBeSatisfied(toolSet, candidate) {
+			continue
+		}
+		if !requiredEvidenceIncludesSideEffect(toolSet, []string{candidate}) {
+			continue
+		}
+		sideEffectCandidates = append(sideEffectCandidates, candidate)
+	}
+	if len(sideEffectCandidates) != 1 {
+		return "", false
+	}
+	return sideEffectCandidates[0], true
 }
 
 func validateRequiredEvidenceTools(toolSet *ToolSet, toolNames []string) requiredEvidenceValidationReport {
