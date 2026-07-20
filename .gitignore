@@ -4,3 +4,4 @@
 __pycache__/
 *.pyc
 default.profraw
+chatd/node_modules/
