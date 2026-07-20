@@ -255,7 +255,6 @@ func TestAgentKernelRejectsExecutableConsumeContradiction(t *testing.T) {
 		EstimatedMinutes:      1,
 		ResponseLanguage:      "ko",
 		Reason:                "사용자가 명시적으로 업무 등록을 요청함",
-		RequiredEvidenceTools: []string{"task.add"},
 		InitialToolNames:      []string{"task.add"},
 	}})
 
@@ -294,7 +293,6 @@ func TestAgentKernelDoesNotInvokeToolWhenOperationContractCompilationFails(t *te
 		TaskLevel:             TaskLevelLow,
 		EstimatedMinutes:      1,
 		ResponseLanguage:      "ko",
-		RequiredEvidenceTools: []string{"task.add"},
 		InitialToolNames:      []string{"task.add"},
 	}
 	languageModel := rejectingOperationContractLanguageModel{decision: decision}
@@ -391,62 +389,14 @@ func TestAgentKernelBlocksUnsupportedIntake(t *testing.T) {
 	}
 }
 
-func TestAgentKernelReasksAndRecoversInvalidRequiredEvidence(t *testing.T) {
-	agentKernel, taskRunService := newKernelTestServices()
-	intakeLanguageModel := &turnRouterDecisionLanguageModel{
-		initialDecision: TurnDecision{
-			Route:                 TurnRouteStartTask,
-			Classification:        IntakeClassificationBoundedTask,
-			TaskShape:             TaskShapeMaintenanceTask,
-			TaskLevel:             TaskLevelLow,
-			EstimatedMinutes:      1,
-			RequiredEvidenceTools: []string{"calendar.create"},
-			InitialToolNames:      []string{"calendar.add"},
-			ResponseLanguage:      "ko",
-			Reason:                "calendar event creation",
-		},
-		reaskDecision: TurnDecision{RequiredEvidenceTools: []string{"calendar.add"}},
-	}
-	agentKernel.UseIntakeLanguageModelProvider(intakeLanguageModel)
-	toolSet := newTestToolSet([]string{"calendar.add"})
-	registerTestTool(toolSet, ToolDefinition{Name: "calendar.add"}, func(context.Context, ToolInvocation) (ToolResult, error) {
-		return testToolSuccess(`{"created":true}`), nil
-	})
-	agentKernel.UseLanguageModelProvider(&sequenceLanguageModel{contents: []string{
-		`{"action":"continue","toolName":"calendar.add","toolInput":{}}`,
-		finishMessageWithEvidence("일정을 추가했습니다.", "obs-001", "calendar.add", 0),
-	}})
-	request := kernelTestRequest("7월 6일 오후 1시 스타트업월드컵 일정 추가")
-	request.ToolSet = toolSet
-
-	result, errorValue := agentKernel.RunAgentRequest(context.Background(), request)
-	if errorValue != nil {
-		t.Fatalf("expected invalid evidence to recover and proceed: %v", errorValue)
-	}
-	if result.TaskRun.Status == task.TaskStatusBlocked {
-		t.Fatalf("expected recovered evidence to proceed, got %q", result.TaskRun.Status)
-	}
-	if intakeLanguageModel.reaskCallCount != 1 {
-		t.Fatalf("expected one evidence re-ask, got %d", intakeLanguageModel.reaskCallCount)
-	}
-	taskEvents := taskRunService.ListTaskEvent(result.TaskRun.TaskRunID)
-	if !taskEventsContain(taskEvents, requiredEvidenceInvalidEventName, "calendar.create") {
-		t.Fatal("expected invalid evidence event to preserve the rejected tool")
-	}
-	if !taskEventsContain(taskEvents, requiredEvidenceReaskEventName, `"recoveredEvidence":["calendar.add"]`) {
-		t.Fatal("expected reask event to preserve the recovered canonical tool")
-	}
-}
-
 func TestAgentKernelPreservesActiveContractOnApprovalContinuation(t *testing.T) {
-	agentKernel, taskRunService := newKernelTestServices()
+	agentKernel, _ := newKernelTestServices()
 	agentKernel.UseIntakeLanguageModelProvider(intakeDecisionLanguageModel{decision: TurnDecision{
 		Route:                 TurnRouteContinueTask,
 		Classification:        IntakeClassificationBoundedTask,
 		TaskShape:             TaskShapeMaintenanceTask,
 		TaskLevel:             TaskLevelLow,
 		EstimatedMinutes:      1,
-		RequiredEvidenceTools: []string{"delete_website_artifact"},
 		InitialToolNames:      []string{"site.delete"},
 		ResponseLanguage:      "ko",
 		Reason:                "approval reply classified with hallucinated evidence",
@@ -499,10 +449,6 @@ func TestAgentKernelPreservesActiveContractOnApprovalContinuation(t *testing.T) 
 	}
 	if toolCallCount != 1 {
 		t.Fatalf("expected the approved capability call to run once, got %d", toolCallCount)
-	}
-	taskEvents := taskRunService.ListTaskEvent(result.TaskRun.TaskRunID)
-	if countTaskEvents(taskEvents, requiredEvidenceInvalidEventName) != 0 || countTaskEvents(taskEvents, requiredEvidenceReaskEventName) != 0 {
-		t.Fatal("expected router evidence hallucination not to alter the persisted approval contract")
 	}
 }
 
@@ -583,7 +529,6 @@ func TestSemanticRevisionStartsNewTaskRunAndOperationContract(t *testing.T) {
 		TaskShape:             TaskShapeMaintenanceTask,
 		TaskLevel:             TaskLevelLow,
 		EstimatedMinutes:      1,
-		RequiredEvidenceTools: []string{"task.add"},
 		InitialToolNames:      []string{"task.add"},
 		ResponseLanguage:      "ko",
 	}})
@@ -660,14 +605,13 @@ func TestInvalidPersistedActiveGoalBlocksBeforeToolHandler(t *testing.T) {
 
 func destructiveSiteDeleteDecision() TurnDecision {
 	return TurnDecision{
-		Route:                 TurnRouteStartTask,
-		Classification:        IntakeClassificationBoundedTask,
-		TaskShape:             TaskShapeApprovalGatedTask,
-		TaskLevel:             TaskLevelLow,
-		EstimatedMinutes:      1,
-		RequiredEvidenceTools: []string{"site.delete"},
-		InitialToolNames:      []string{"site.delete"},
-		ResponseLanguage:      "ko",
+		Route:            TurnRouteStartTask,
+		Classification:   IntakeClassificationBoundedTask,
+		TaskShape:        TaskShapeApprovalGatedTask,
+		TaskLevel:        TaskLevelLow,
+		EstimatedMinutes: 1,
+		InitialToolNames: []string{"site.delete"},
+		ResponseLanguage: "ko",
 	}
 }
 
@@ -675,13 +619,18 @@ func destructiveSiteDeleteExecutionPlan() string {
 	return `{"originalInstruction":"site-1 웹사이트를 삭제해줘","summary":"site-1 삭제","targets":["site-1"],"schedule":"","startAt":"","endAt":"","cadence":"","externalSend":false,"thirdPartyExternalSend":false,"repeated":false,"highFrequency":false,"destructive":true,"permissionChange":false,"publicDeploy":false,"paidAction":false,"missingInformation":[],"continuationInstruction":"승인 후 삭제"}`
 }
 
-func TestAgentKernelBlocksSideEffectWhenRequiredEvidenceRemainsMissing(t *testing.T) {
+func TestAgentKernelSideEffectTaskProceedsWithoutRouterPredictedEvidence(t *testing.T) {
 	agentKernel, _ := newKernelTestServices()
-	intakeLanguageModel := &turnRouterDecisionLanguageModel{
-		initialDecision: sideEffectMissingEvidenceDecision(),
-		reaskDecision:   sideEffectMissingEvidenceDecision(),
-	}
-	agentKernel.UseIntakeLanguageModelProvider(intakeLanguageModel)
+	agentKernel.UseIntakeLanguageModelProvider(intakeDecisionLanguageModel{decision: TurnDecision{
+		Route:            TurnRouteStartTask,
+		Classification:   IntakeClassificationBoundedTask,
+		TaskShape:        TaskShapeMaintenanceTask,
+		TaskLevel:        TaskLevelLow,
+		EstimatedMinutes: 1,
+		InitialToolNames: []string{TerminalRunToolName},
+		ResponseLanguage: "ko",
+		Reason:           "side effect tool planned without a predicted evidence name",
+	}})
 	toolCallCount := 0
 	toolSet := newTestToolSet([]string{TerminalRunToolName, "task.update"})
 	registerTestTool(toolSet, ToolDefinition{Name: TerminalRunToolName}, func(context.Context, ToolInvocation) (ToolResult, error) {
@@ -697,16 +646,13 @@ func TestAgentKernelBlocksSideEffectWhenRequiredEvidenceRemainsMissing(t *testin
 
 	result, errorValue := agentKernel.RunAgentRequest(context.Background(), request)
 	if errorValue != nil {
-		t.Fatalf("expected side-effect task to return a blocked result: %v", errorValue)
+		t.Fatalf("expected side-effect task without predicted evidence to proceed: %v", errorValue)
 	}
-	if result.TaskRun.Status != task.TaskStatusBlocked {
-		t.Fatalf("expected missing required evidence to fail closed, got %q", result.TaskRun.Status)
+	if result.TaskRun.Status == task.TaskStatusBlocked {
+		t.Fatalf("expected the intake to never block for missing evidence, got %q", result.TaskRun.Status)
 	}
-	if intakeLanguageModel.reaskCallCount != 1 {
-		t.Fatalf("expected exactly one evidence re-ask, got %d", intakeLanguageModel.reaskCallCount)
-	}
-	if toolCallCount != 0 {
-		t.Fatalf("expected no side effect without evidence, got %d calls", toolCallCount)
+	if toolCallCount != 1 {
+		t.Fatalf("expected the planned side effect to run once, got %d", toolCallCount)
 	}
 }
 
@@ -750,392 +696,6 @@ func persistedTurnRouterCallRecords(taskEvents []task.TaskEvent) []llmCallRecord
 	return records
 }
 
-type turnRouterDecisionLanguageModel struct {
-	initialDecision TurnDecision
-	reaskDecision   TurnDecision
-	reaskCallCount  int
-}
-
-func (model *turnRouterDecisionLanguageModel) GenerateResponse(context.Context, string) (string, error) {
-	return "", errors.New("intake model only serves structured routing")
-}
-
-func (model *turnRouterDecisionLanguageModel) GenerateStructuredResponse(_ context.Context, structuredResponseRequest llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
-	if structuredResponseRequest.StructuredOutputSchema.Name == operationContractSchemaName {
-		return llm.StructuredResponse{Content: operationContractTestDocument(structuredResponseRequest.StructuredOutputSchema.Document)}, nil
-	}
-	if structuredResponseRequest.StructuredOutputSchema.Name != "blueclaw_turn_router" {
-		return llm.StructuredResponse{Content: "{}"}, nil
-	}
-	decision := model.initialDecision
-	if turnRouterRequestIsRequiredEvidenceReask(structuredResponseRequest) {
-		model.reaskCallCount++
-		decision = model.reaskDecision
-	}
-	document, errorValue := json.Marshal(decision)
-	if errorValue != nil {
-		return llm.StructuredResponse{}, errorValue
-	}
-	return llm.StructuredResponse{Content: string(document)}, nil
-}
-
-func turnRouterRequestIsRequiredEvidenceReask(structuredResponseRequest llm.StructuredResponseRequest) bool {
-	for _, message := range structuredResponseRequest.Messages {
-		if strings.Contains(message.Content, requiredEvidenceReaskInstruction) {
-			return true
-		}
-	}
-	return false
-}
-
-func sideEffectMissingEvidenceDecision() TurnDecision {
-	return TurnDecision{
-		Route:            TurnRouteStartTask,
-		Classification:   IntakeClassificationBoundedTask,
-		TaskShape:        TaskShapeMaintenanceTask,
-		TaskLevel:        TaskLevelLow,
-		EstimatedMinutes: 1,
-		InitialToolNames: []string{TerminalRunToolName},
-		ResponseLanguage: "ko",
-		Reason:           "side effect tool planned without evidence",
-	}
-}
-
-func TestAgentKernelReasksAndRecoversRequiredEvidence(t *testing.T) {
-	agentKernel, taskRunService := newKernelTestServices()
-	intakeLanguageModel := &turnRouterDecisionLanguageModel{
-		initialDecision: sideEffectMissingEvidenceDecision(),
-		reaskDecision:   TurnDecision{RequiredEvidenceTools: []string{TerminalRunToolName}},
-	}
-	agentKernel.UseIntakeLanguageModelProvider(intakeLanguageModel)
-
-	toolCallCount := 0
-	toolSet := newTestToolSet([]string{TerminalRunToolName, "task.update"})
-	registerTestTool(toolSet, ToolDefinition{Name: TerminalRunToolName}, func(context.Context, ToolInvocation) (ToolResult, error) {
-		toolCallCount++
-		return testToolSuccess(`{"exitCode":0,"stdout":"done","stderr":"","timedOut":false}`), nil
-	})
-	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"continue","toolName":"terminal.run","toolInput":{"command":"do the side effect"}}`,
-		finishMessageWithEvidence("완료했습니다.", "obs-001", TerminalRunToolName, 0),
-	}}
-	agentKernel.UseLanguageModelProvider(languageModel)
-
-	request := kernelTestRequest("서버에 배포 스크립트 실행해줘")
-	request.ToolSet = toolSet
-
-	result, errorValue := agentKernel.RunAgentRequest(context.Background(), request)
-	if errorValue != nil {
-		t.Fatalf("expected re-ask recovery to run the task: %v", errorValue)
-	}
-	if result.TaskRun.Status == task.TaskStatusBlocked {
-		t.Fatalf("expected task to proceed after re-ask recovered evidence, got blocked")
-	}
-	if toolCallCount != 1 {
-		t.Fatalf("expected terminal.run to run once, got %d", toolCallCount)
-	}
-	if intakeLanguageModel.reaskCallCount != 1 {
-		t.Fatalf("expected exactly one re-ask call, got %d", intakeLanguageModel.reaskCallCount)
-	}
-	taskEvents := taskRunService.ListTaskEvent(result.TaskRun.TaskRunID)
-	if !taskEventsContain(taskEvents, requiredEvidenceReaskEventName, `"didRecoverEvidence":true`) {
-		t.Fatal("expected reask event reporting recovered evidence")
-	}
-	if !taskEventsContain(taskEvents, "agent.intake", TerminalRunToolName) {
-		t.Fatal("expected rebuilt intake decision to carry the recovered evidence")
-	}
-}
-
-func TestAgentKernelDeterministicallyResolvesUniqueRequiredEvidence(t *testing.T) {
-	agentKernel, taskRunService := newKernelTestServices()
-	intakeLanguageModel := &turnRouterDecisionLanguageModel{
-		initialDecision: sideEffectMissingEvidenceDecision(),
-		reaskDecision:   TurnDecision{RequiredEvidenceTools: []string{TerminalRunToolName}},
-	}
-	agentKernel.UseIntakeLanguageModelProvider(intakeLanguageModel)
-
-	toolCallCount := 0
-	toolSet := newTestToolSet([]string{TerminalRunToolName})
-	registerTestTool(toolSet, ToolDefinition{Name: TerminalRunToolName}, func(context.Context, ToolInvocation) (ToolResult, error) {
-		toolCallCount++
-		return testToolSuccess(`{"exitCode":0,"stdout":"done","stderr":"","timedOut":false}`), nil
-	})
-	agentKernel.UseLanguageModelProvider(&sequenceLanguageModel{contents: []string{
-		`{"action":"continue","toolName":"terminal.run","toolInput":{"command":"do the side effect"}}`,
-		finishMessageWithEvidence("완료했습니다.", "obs-001", TerminalRunToolName, 0),
-	}})
-
-	request := kernelTestRequest("서버에 배포 스크립트 실행해줘")
-	request.ToolSet = toolSet
-
-	result, errorValue := agentKernel.RunAgentRequest(context.Background(), request)
-	if errorValue != nil {
-		t.Fatalf("expected deterministic recovery to run the task: %v", errorValue)
-	}
-	if result.TaskRun.Status == task.TaskStatusBlocked {
-		t.Fatalf("expected task to proceed after deterministic recovery, got blocked")
-	}
-	if toolCallCount != 1 {
-		t.Fatalf("expected terminal.run to run once, got %d", toolCallCount)
-	}
-	if intakeLanguageModel.reaskCallCount != 0 {
-		t.Fatalf("expected no LLM re-ask when the evidence candidate pool is unambiguous, got %d", intakeLanguageModel.reaskCallCount)
-	}
-	taskEvents := taskRunService.ListTaskEvent(result.TaskRun.TaskRunID)
-	if !taskEventsContain(taskEvents, requiredEvidenceReaskEventName, `"wasDeterministic":true`) {
-		t.Fatal("expected reask event reporting deterministic recovery")
-	}
-	if !taskEventsContain(taskEvents, requiredEvidenceReaskEventName, TerminalRunToolName) {
-		t.Fatal("expected reask event to record the deterministically recovered tool")
-	}
-}
-
-func TestAgentKernelRecoversMaintenanceEvidenceWithoutInitialTool(t *testing.T) {
-	agentKernel, taskRunService := newKernelTestServices()
-	intakeLanguageModel := &turnRouterDecisionLanguageModel{
-		initialDecision: TurnDecision{
-			Route:            TurnRouteStartTask,
-			Classification:   IntakeClassificationBoundedTask,
-			TaskShape:        TaskShapeMaintenanceTask,
-			TaskLevel:        TaskLevelLow,
-			EstimatedMinutes: 1,
-			ResponseLanguage: "ko",
-			Reason:           "register requested work",
-		},
-		reaskDecision: TurnDecision{RequiredEvidenceTools: []string{"task.add"}},
-	}
-	agentKernel.UseIntakeLanguageModelProvider(intakeLanguageModel)
-
-	toolCallCount := 0
-	toolSet := newTestCapabilityToolSet([]string{"task.add", "task.update"})
-	registerTestTool(toolSet, ToolDefinition{Name: "task.add"}, func(context.Context, ToolInvocation) (ToolResult, error) {
-		toolCallCount++
-		return testToolSuccess(`{"taskID":"task-1","content":"신규 입사자 온보딩 문서 검토"}`), nil
-	})
-	agentKernel.UseLanguageModelProvider(&sequenceLanguageModel{contents: []string{
-		`{"action":"continue","toolName":"task.add","toolInput":{"prompt":"신규 입사자 온보딩 문서 검토"}}`,
-		finishMessageWithEvidence("업무를 등록했습니다.", "obs-001", "task.add", 0),
-	}})
-
-	request := kernelTestRequest("신규 입사자 온보딩 문서 검토하는 업무 하나 등록해줘")
-	request.ToolSet = toolSet
-	result, errorValue := agentKernel.RunAgentRequest(context.Background(), request)
-
-	if errorValue != nil {
-		t.Fatalf("expected maintenance evidence recovery to complete: %v", errorValue)
-	}
-	if result.TaskRun.Status != task.TaskStatusCompleted {
-		t.Fatalf("expected recovered maintenance task to complete, got %q", result.TaskRun.Status)
-	}
-	if intakeLanguageModel.reaskCallCount != 1 {
-		t.Fatalf("expected one evidence re-ask for maintenance work, got %d", intakeLanguageModel.reaskCallCount)
-	}
-	if toolCallCount != 1 {
-		t.Fatalf("expected recovered task.add to run once, got %d", toolCallCount)
-	}
-	if !taskEventsContain(taskRunService.ListTaskEvent(result.TaskRun.TaskRunID), requiredEvidenceReaskEventName, `"recoveredEvidence":["task.add"]`) {
-		t.Fatal("expected recovered maintenance evidence event")
-	}
-}
-
-func TestAgentKernelBlocksMaintenanceWithoutToolOrEvidence(t *testing.T) {
-	agentKernel, taskRunService := newKernelTestServices()
-	emptyDecision := TurnDecision{
-		Route:            TurnRouteStartTask,
-		Classification:   IntakeClassificationBoundedTask,
-		TaskShape:        TaskShapeMaintenanceTask,
-		TaskLevel:        TaskLevelLow,
-		EstimatedMinutes: 1,
-		ResponseLanguage: "ko",
-		Reason:           "maintenance mutation without evidence",
-	}
-	intakeLanguageModel := &turnRouterDecisionLanguageModel{
-		initialDecision: emptyDecision,
-		reaskDecision:   emptyDecision,
-	}
-	agentKernel.UseIntakeLanguageModelProvider(intakeLanguageModel)
-	agentKernel.UseLanguageModelProvider(&sequenceLanguageModel{contents: []string{"작업 계약을 확인하지 못했습니다."}})
-
-	result, errorValue := agentKernel.RunAgentRequest(context.Background(), kernelTestRequest("고객지원 업무 상태를 수정해줘"))
-
-	if errorValue != nil {
-		t.Fatalf("expected blocked maintenance result: %v", errorValue)
-	}
-	if result.TaskRun.Status != task.TaskStatusBlocked {
-		t.Fatalf("expected missing maintenance evidence to block, got %q", result.TaskRun.Status)
-	}
-	if intakeLanguageModel.reaskCallCount != 1 {
-		t.Fatalf("expected exactly one evidence re-ask, got %d", intakeLanguageModel.reaskCallCount)
-	}
-	if !taskEventsContain(taskRunService.ListTaskEvent(result.TaskRun.TaskRunID), requiredEvidenceReaskEventName, `"didRecoverEvidence":false`) {
-		t.Fatal("expected failed evidence re-ask event")
-	}
-}
-
-func TestAgentKernelRepairsReadOnlyEvidenceWithoutDroppingRouterTools(t *testing.T) {
-	agentKernel, taskRunService := newKernelTestServices()
-	intakeLanguageModel := &turnRouterDecisionLanguageModel{
-		initialDecision: TurnDecision{
-			Route:                 TurnRouteStartTask,
-			Classification:        IntakeClassificationBoundedTask,
-			TaskShape:             TaskShapeScheduledTask,
-			TaskLevel:             TaskLevelLow,
-			EstimatedMinutes:      1,
-			RequiredEvidenceTools: []string{"task.list"},
-			InitialToolNames:      []string{"file.read"},
-			ResponseLanguage:      "ko",
-			Reason:                "update requested work",
-		},
-		reaskDecision: TurnDecision{RequiredEvidenceTools: []string{"task.update"}},
-	}
-	agentKernel.UseIntakeLanguageModelProvider(intakeLanguageModel)
-
-	toolCallCount := 0
-	toolSet := newTestToolSet([]string{"file.read", "task.history", "task.update"})
-	registerTestTool(toolSet, ToolDefinition{Name: "task.update"}, func(context.Context, ToolInvocation) (ToolResult, error) {
-		toolCallCount++
-		return testToolSuccess(`{"taskID":"task-1","content":"고객지원 분기 결산 검토 완료","endDate":"2026-07-17"}`), nil
-	})
-	agentKernel.UseLanguageModelProvider(&sequenceLanguageModel{contents: []string{
-		`{"action":"continue","toolName":"task.update","toolInput":{"taskID":"task-1","content":"고객지원 분기 결산 검토 완료","endDate":"2026-07-17"}}`,
-		finishMessageWithEvidence("업무를 수정했습니다.", "obs-001", "task.update", 0),
-	}})
-
-	request := kernelTestRequest("고객지원 분기 결산 업무를 검토 완료로 바꾸고 마감일은 7월 17일로 유지해줘")
-	request.ToolSet = toolSet
-	result, errorValue := agentKernel.RunAgentRequest(context.Background(), request)
-
-	if errorValue != nil {
-		t.Fatalf("expected corrected task.update evidence to complete: %v", errorValue)
-	}
-	if result.TaskRun.Status != task.TaskStatusCompleted {
-		t.Fatalf("expected corrected task to complete, got %q", result.TaskRun.Status)
-	}
-	if intakeLanguageModel.reaskCallCount != 1 {
-		t.Fatalf("expected exactly one evidence re-ask, got %d", intakeLanguageModel.reaskCallCount)
-	}
-	if toolCallCount != 1 {
-		t.Fatalf("expected task.update to run once, got %d", toolCallCount)
-	}
-	taskEvents := taskRunService.ListTaskEvent(result.TaskRun.TaskRunID)
-	if !taskEventsContain(taskEvents, requiredEvidenceReaskEventName, `"recoveredEvidence":["task.update"]`) {
-		t.Fatal("expected reask event to record corrected task.update evidence")
-	}
-	if taskEventsContain(taskEvents, "agent.intake", "task.history") {
-		t.Fatal("expected corrected evidence to replace task.history")
-	}
-	if !taskEventsContain(taskEvents, "agent.intake", "task.update") {
-		t.Fatal("expected rebuilt intake decision to require task.update")
-	}
-	if !taskEventsContain(taskEvents, "agent.instructions_loaded", `"selectedToolNames":["file.read","task.update"]`) {
-		t.Fatal("expected the router tool and recovered evidence to remain in the active goal")
-	}
-}
-
-func TestAgentKernelDoesNotLetInvalidEvidenceChooseExecution(t *testing.T) {
-	agentKernel, taskRunService := newKernelTestServices()
-	intakeLanguageModel := &turnRouterDecisionLanguageModel{
-		initialDecision: TurnDecision{
-			Route:                 TurnRouteStartTask,
-			Classification:        IntakeClassificationBoundedTask,
-			TaskShape:             TaskShapeScheduledTask,
-			TaskLevel:             TaskLevelLow,
-			EstimatedMinutes:      1,
-			RequiredEvidenceTools: []string{"task.history"},
-			ResponseLanguage:      "ko",
-			Reason:                "deployment requested",
-		},
-		reaskDecision: TurnDecision{RequiredEvidenceTools: []string{"task.list"}},
-	}
-	agentKernel.UseIntakeLanguageModelProvider(intakeLanguageModel)
-
-	toolCallCount := 0
-	toolSet := newTestToolSet([]string{TerminalRunToolName, "task.list"})
-	registerTestTool(toolSet, ToolDefinition{Name: TerminalRunToolName}, func(context.Context, ToolInvocation) (ToolResult, error) {
-		toolCallCount++
-		return testToolSuccess(`{"exitCode":0,"stdout":"done","stderr":"","timedOut":false}`), nil
-	})
-	agentKernel.UseLanguageModelProvider(&sequenceLanguageModel{contents: []string{
-		`{"action":"continue","toolName":"terminal.run","toolInput":{"command":"do the side effect"}}`,
-		finishMessageWithEvidence("완료했습니다.", "obs-001", TerminalRunToolName, 0),
-	}})
-
-	request := kernelTestRequest("서버에 배포 스크립트 실행해줘")
-	request.ToolSet = toolSet
-	result, errorValue := agentKernel.RunAgentRequest(context.Background(), request)
-
-	if errorValue != nil {
-		t.Fatalf("expected task to block safely after rejecting read-only recovery: %v", errorValue)
-	}
-	if result.TaskRun.Status != task.TaskStatusBlocked {
-		t.Fatalf("expected invalid evidence recovery to fail closed, got %q", result.TaskRun.Status)
-	}
-	if toolCallCount != 0 {
-		t.Fatalf("expected no side effect after invalid evidence recovery, got %d calls", toolCallCount)
-	}
-	if intakeLanguageModel.reaskCallCount != 1 {
-		t.Fatalf("expected exactly one re-ask attempt, got %d", intakeLanguageModel.reaskCallCount)
-	}
-	taskEvents := taskRunService.ListTaskEvent(result.TaskRun.TaskRunID)
-	if taskEventsContain(taskEvents, requiredEvidenceReaskEventName, `"didRecoverEvidence":true`) {
-		t.Fatal("expected read-only task.list not to recover side-effect evidence")
-	}
-	if !taskEventsContain(taskEvents, requiredEvidenceReaskEventName, "no valid required evidence") {
-		t.Fatal("expected rejected read-only evidence reason")
-	}
-}
-
-func TestAgentKernelBlocksWhenEvidenceReaskRemainsEmpty(t *testing.T) {
-	agentKernel, taskRunService := newKernelTestServices()
-	intakeLanguageModel := &turnRouterDecisionLanguageModel{
-		initialDecision: sideEffectMissingEvidenceDecision(),
-		reaskDecision:   sideEffectMissingEvidenceDecision(),
-	}
-	agentKernel.UseIntakeLanguageModelProvider(intakeLanguageModel)
-	toolCallCount := 0
-	toolSet := newTestToolSet([]string{TerminalRunToolName, "task.update"})
-	registerTestTool(toolSet, ToolDefinition{Name: TerminalRunToolName}, func(context.Context, ToolInvocation) (ToolResult, error) {
-		toolCallCount++
-		return testToolSuccess(`{"exitCode":0,"stdout":"done","stderr":"","timedOut":false}`), nil
-	})
-	agentKernel.UseLanguageModelProvider(&sequenceLanguageModel{contents: []string{
-		`{"action":"continue","toolName":"terminal.run","toolInput":{"command":"do the side effect"}}`,
-		finishMessageWithEvidence("완료했습니다.", "obs-001", TerminalRunToolName, 0),
-	}})
-
-	request := kernelTestRequest("서버에 배포 스크립트 실행해줘")
-	request.ToolSet = toolSet
-
-	result, errorValue := agentKernel.RunAgentRequest(context.Background(), request)
-	if errorValue != nil {
-		t.Fatalf("expected task to return a blocked result: %v", errorValue)
-	}
-	if result.TaskRun.Status != task.TaskStatusBlocked {
-		t.Fatalf("expected empty evidence recovery to fail closed, got %q", result.TaskRun.Status)
-	}
-	if intakeLanguageModel.reaskCallCount != 1 {
-		t.Fatalf("expected exactly one re-ask attempt, got %d", intakeLanguageModel.reaskCallCount)
-	}
-	if toolCallCount != 0 {
-		t.Fatalf("expected no side effect without evidence, got %d calls", toolCallCount)
-	}
-	taskEvents := taskRunService.ListTaskEvent(result.TaskRun.TaskRunID)
-	if !taskEventsContain(taskEvents, requiredEvidenceReaskEventName, `"wasAttempted":true`) {
-		t.Fatal("expected reask event reporting the attempt")
-	}
-}
-
-func TestRequiredEvidenceMatchesSelectedCandidates(t *testing.T) {
-	if !requiredEvidenceMatchesCandidates([]string{"task.update"}, []string{"task.update"}) {
-		t.Fatal("expected exact selected evidence candidate to match")
-	}
-	if requiredEvidenceMatchesCandidates([]string{"task.list"}, []string{"task.update"}) {
-		t.Fatal("expected evidence outside selected candidates to be rejected")
-	}
-	if requiredEvidenceMatchesCandidates(nil, nil) {
-		t.Fatal("expected empty evidence to be rejected")
-	}
-}
 
 func TestAgentKernelGeneratesIntakeNoticeWhenRouterReplyMissing(t *testing.T) {
 	agentKernel, _ := newKernelTestServices()
@@ -1284,10 +844,15 @@ func TestSitePrototypeIntakePromotesToXHighLimits(t *testing.T) {
 		Namespace:       "site",
 		SideEffectClass: ToolSideEffectExternalPublish,
 	}})
-	intakeDecision := promoteArtifactTaskLevel(AgentRequest{ToolSet: siteToolSet}, IntakeDecision{
-		TaskLevel:             TaskLevelLow,
-		EstimatedMinutes:      1,
-		RequiredEvidenceTools: []string{"site.publish"},
+	request := AgentRequest{
+		ToolSet: siteToolSet,
+		ActiveGoal: ActiveGoal{
+			OutcomeContract: OutcomeContract{RequiredEvidenceTools: []string{"site.publish"}},
+		},
+	}
+	intakeDecision := promoteArtifactTaskLevel(request, IntakeDecision{
+		TaskLevel:        TaskLevelLow,
+		EstimatedMinutes: 1,
 	})
 
 	turnOptions := agentKernel.turnOptionsForIntakeDecision(intakeDecision)
