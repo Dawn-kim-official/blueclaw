@@ -701,6 +701,43 @@ func AmbientTaskCaptureAcceptanceScenario(artifactDirectoryPath string) VirtualS
 	}
 }
 
+func CompletionJudgeRecoveryAcceptanceScenario(artifactDirectoryPath string) VirtualSessionScenario {
+	return VirtualSessionScenario{
+		Name:                  "completion_judge_recovery_acceptance",
+		ArtifactDirectoryPath: artifactDirectoryPath,
+		Skills:                []agent.SkillInstruction{flowTaskSkill()},
+		AllowedTools:          []string{"conversation.history", "memory.search", "task.add", "task.list", "task.update"},
+		CapabilityToolNames:   []string{"task.add", "task.list", "task.update"},
+		InitialToolNames:      []string{"task.add"},
+		Turns: []VirtualTurn{{
+			Prompt:                 "분기 결산 누락 확인 업무를 7월 24일 마감으로 추가해줘",
+			RouterRequiredEvidence: []string{"task.add", "task.update"},
+			ActionResponses: []string{
+				actionInvokeCapabilityTool("task.add", `{"title":"분기 결산 누락 확인"}`),
+				actionFinishMessage("업무를 추가했습니다.", "obs-001:task.add:0"),
+				actionInvokeCapabilityTool("task.update", `{"taskID":"task-1","endDate":"2026-07-24"}`),
+				actionFinishMessage("마감일을 포함해 업무를 추가했습니다.", "obs-003:task.update:0"),
+			},
+			CompletionJudgeResponses: []string{
+				`{"satisfied":false,"missingWork":["마감일(endDate)이 누락되었습니다"],"reason":"업무에 요청된 마감일이 기록되지 않았습니다"}`,
+				`{"satisfied":true,"missingWork":[],"reason":"요청한 제목과 마감일이 모두 기록되었습니다"}`,
+			},
+			ExpectedToolCalls: []string{"task.add", "task.update"},
+			ExpectedToolCallCounts: map[string]int{
+				"task.add":    1,
+				"task.update": 1,
+			},
+			ExpectedEventCounts: []VirtualEventCount{
+				{Name: "completion_judge.verdict", BodyFragment: `"satisfied":false`, Count: 1},
+				{Name: "completion_judge.verdict", BodyFragment: `"satisfied":true`, Count: 1},
+				{Name: "agent.evidence_missing", BodyFragment: "마감일", Count: 1},
+				{Name: "agent.completion_required", BodyFragment: "마감일", Count: 1},
+			},
+			ExpectedTaskStatus: task.TaskStatusCompleted,
+		}},
+	}
+}
+
 func SkillLifecycleAcceptanceScenario(artifactDirectoryPath string) VirtualSessionScenario {
 	skillName := "memo-helper"
 	skillContent := userManagedSkillDocument(skillName)

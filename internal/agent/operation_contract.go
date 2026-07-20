@@ -455,16 +455,6 @@ func validateOperationContract(contract *OperationContract, toolSet *ToolSet, ex
 	return nil
 }
 
-func operationRequirementsSatisfied(contract *OperationContract, observations []turnObservation) bool {
-	if contract == nil {
-		return true
-	}
-	if contract.Version != operationContractVersion || len(contract.Requirements) == 0 {
-		return false
-	}
-	return matchedOperationRequirementCount(contract, observations) == len(contract.Requirements)
-}
-
 func firstPendingOperationRequirement(contract *OperationContract, observations []turnObservation) (OperationRequirement, bool) {
 	pendingRequirements := pendingOperationRequirements(contract, observations)
 	if len(pendingRequirements) == 0 {
