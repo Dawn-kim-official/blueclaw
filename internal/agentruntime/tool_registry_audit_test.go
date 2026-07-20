@@ -1,0 +1,96 @@
+package agentruntime
+
+import (
+	"context"
+	"encoding/json"
+	"testing"
+
+	"blueclaw/internal/agent"
+	"blueclaw/internal/capability"
+)
+
+func TestHashCapabilityDescriptorsIncludesBroadenedFields(t *testing.T) {
+	baseDescriptor := CapabilityToolDescriptor{
+		Name:            "task.add",
+		InputSchema:     json.RawMessage(`{"type":"object","properties":{},"additionalProperties":false}`),
+		SideEffectClass: agent.ToolSideEffectStateChange,
+		Idempotency:     CapabilityIdempotency{Supported: true, Scope: "operation"},
+	}
+	baseHash := hashCapabilityDescriptors([]CapabilityToolDescriptor{baseDescriptor})
+
+	testCases := []struct {
+		name   string
+		mutate func(CapabilityToolDescriptor) CapabilityToolDescriptor
+	}{
+		{name: "resultContract schema changes", mutate: func(descriptor CapabilityToolDescriptor) CapabilityToolDescriptor {
+			descriptor.ResultContract = &CapabilityToolResultContract{Schema: json.RawMessage(`{"type":"object","properties":{"taskID":{"type":"string"}},"additionalProperties":false}`)}
+			return descriptor
+		}},
+		{name: "sideEffectClass changes", mutate: func(descriptor CapabilityToolDescriptor) CapabilityToolDescriptor {
+			descriptor.SideEffectClass = agent.ToolSideEffectRead
+			return descriptor
+		}},
+		{name: "requiresApproval changes", mutate: func(descriptor CapabilityToolDescriptor) CapabilityToolDescriptor {
+			descriptor.RequiresApproval = true
+			return descriptor
+		}},
+		{name: "idempotency scope changes", mutate: func(descriptor CapabilityToolDescriptor) CapabilityToolDescriptor {
+			descriptor.Idempotency.Scope = "different"
+			return descriptor
+		}},
+	}
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			mutatedHash := hashCapabilityDescriptors([]CapabilityToolDescriptor{testCase.mutate(baseDescriptor)})
+			if mutatedHash == baseHash {
+				t.Fatalf("expected %s to change the descriptor hash", testCase.name)
+			}
+		})
+	}
+}
+
+func TestBuildToolRegistryAuditRunsLiveCheckForNonMessageCapabilityDescriptors(t *testing.T) {
+	toolCatalogBuilder := NewToolCatalogBuilder()
+	toolCatalogBuilder.UseTestCapabilityToolDescriptors(capability.Client{
+		Endpoint: "http://capability.local",
+		HTTPClient: &recordingHTTPClient{responseBody: `{"deviceCapabilities":[{
+			"name":"task.add",
+			"inputSchema":{"type":"object","properties":{},"additionalProperties":false},
+			"sideEffectClass":"state_change",
+			"idempotency":{"scope":"operation"}
+		}]}`},
+	}, []CapabilityToolDescriptor{{Name: "task.add"}})
+
+	audit, errorValue := toolCatalogBuilder.BuildToolRegistryAudit(context.Background(), agent.NewToolSet(nil))
+
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if audit.LiveCapabilityHash == "" {
+		t.Fatal("expected the live capability registry check to run for a non-message descriptor")
+	}
+}
+
+func TestBuildToolRegistryAuditSkipsLiveCheckWithoutCapabilityDescriptors(t *testing.T) {
+	toolCatalogBuilder := NewToolCatalogBuilder()
+
+	audit, errorValue := toolCatalogBuilder.BuildToolRegistryAudit(context.Background(), agent.NewToolSet(nil))
+
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if audit.LiveCapabilityHash != "" {
+		t.Fatalf("expected no live capability hash without configured capability descriptors, got %+v", audit)
+	}
+}
+
+func TestBuildToolRegistryAuditFailsClosedWhenLiveCapabilityRegistryIsUnavailable(t *testing.T) {
+	toolCatalogBuilder := NewToolCatalogBuilder()
+	toolCatalogBuilder.UseTestCapabilityToolDescriptors(capability.Client{}, []CapabilityToolDescriptor{{Name: "task.add"}})
+
+	_, errorValue := toolCatalogBuilder.BuildToolRegistryAudit(context.Background(), agent.NewToolSet(nil))
+
+	if errorValue == nil {
+		t.Fatal("expected an unavailable live capability registry to fail closed")
+	}
+}

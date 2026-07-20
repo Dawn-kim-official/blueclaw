@@ -6,11 +6,18 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
 	"slices"
 	"strings"
 
 	"github.com/google/jsonschema-go/jsonschema"
 )
+
+var canonicalToolNamePattern = regexp.MustCompile(`^[A-Za-z0-9_.-]{1,128}$`)
+
+func IsCanonicalToolName(name string) bool {
+	return canonicalToolNamePattern.MatchString(name)
+}
 
 const (
 	ToolVisibilityModel    = "visible"
@@ -341,6 +348,9 @@ func validateProviderTool(boundTool BoundTool) error {
 		if fieldValue == "" {
 			return errors.New(fieldName + " is required")
 		}
+	}
+	if !IsCanonicalToolName(toolDescriptor.Name) {
+		return errors.New("name must match ^[A-Za-z0-9_.-]{1,128}$")
 	}
 	if boundTool.Handler == nil {
 		return errors.New("handler is required")

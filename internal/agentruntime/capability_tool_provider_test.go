@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -196,9 +197,9 @@ func TestCapabilityToolProviderAllowsHiddenDescriptorWithoutResultContract(t *te
 	}
 }
 
-func TestCapabilityToolProviderRejectsMissingIdempotencyScope(t *testing.T) {
+func TestCapabilityToolProviderRejectsMissingIdempotencyScopeWhenSupported(t *testing.T) {
 	descriptor := completeTestCapabilityToolDescriptor(CapabilityToolDescriptor{Name: "task.add"})
-	descriptor.Idempotency.Scope = ""
+	descriptor.Idempotency = CapabilityIdempotency{Supported: true}
 	provider := capabilityToolProvider{
 		toolCatalogBuilder: NewToolCatalogBuilder(),
 		descriptors:        []CapabilityToolDescriptor{descriptor},
@@ -208,6 +209,24 @@ func TestCapabilityToolProviderRejectsMissingIdempotencyScope(t *testing.T) {
 
 	if errorValue == nil || !strings.Contains(errorValue.Error(), "idempotency.scope is required") {
 		t.Fatalf("expected missing idempotency scope rejection, got %v", errorValue)
+	}
+}
+
+func TestCapabilityToolProviderAllowsMissingIdempotencyScopeWhenIdempotencyIsNone(t *testing.T) {
+	descriptor := completeTestCapabilityToolDescriptor(CapabilityToolDescriptor{Name: "task.add"})
+	descriptor.Idempotency = CapabilityIdempotency{}
+	provider := capabilityToolProvider{
+		toolCatalogBuilder: NewToolCatalogBuilder(),
+		descriptors:        []CapabilityToolDescriptor{descriptor},
+	}
+	toolSet := agent.NewToolSet([]string{"task.add"})
+
+	if errorValue := toolSet.RegisterProvider(context.Background(), provider); errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	descriptorDefinition, isFound := toolSet.ToolDefinition("task.add")
+	if !isFound || descriptorDefinition.Idempotency != agent.ToolIdempotencyNone || descriptorDefinition.IdempotencyScope != "" {
+		t.Fatalf("expected registered tool with no idempotency scope, got %+v", descriptorDefinition)
 	}
 }
 
@@ -223,6 +242,23 @@ func TestCapabilityToolProviderRejectsScalarSchema(t *testing.T) {
 
 	if errorValue == nil || !strings.Contains(errorValue.Error(), "must describe objects") {
 		t.Fatalf("expected scalar schema rejection, got %v", errorValue)
+	}
+}
+
+func TestToolCatalogReportsEveryCapabilityQuarantine(t *testing.T) {
+	reportedProviders := []agent.QuarantinedToolProvider{}
+	toolCatalogBuilder := NewToolCatalogBuilder()
+	toolCatalogBuilder.UseCapabilityQuarantineReporter(func(quarantinedProvider agent.QuarantinedToolProvider) {
+		reportedProviders = append(reportedProviders, quarantinedProvider)
+	})
+	expectedProviders := []agent.QuarantinedToolProvider{
+		{ProviderID: "capabilityd", Reason: "tool name collides with a trusted provider: file.read"},
+	}
+
+	toolCatalogBuilder.reportCapabilityQuarantines(expectedProviders)
+
+	if !reflect.DeepEqual(reportedProviders, expectedProviders) {
+		t.Fatalf("expected every capability quarantine report, got %+v", reportedProviders)
 	}
 }
 

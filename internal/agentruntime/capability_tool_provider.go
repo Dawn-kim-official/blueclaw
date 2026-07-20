@@ -35,22 +35,24 @@ func (provider capabilityToolProvider) ListTools(context.Context) ([]agent.Bound
 
 func validateCapabilityToolDescriptor(descriptor CapabilityToolDescriptor) error {
 	requiredValues := map[string]string{
-		"name":              descriptor.Name,
-		"canonicalName":     descriptor.CanonicalName,
-		"namespace":         descriptor.Namespace,
-		"modelName":         descriptor.ModelName,
-		"modelVisibility":   descriptor.ModelVisibility,
-		"description":       descriptor.Description,
-		"privacyClass":      descriptor.PrivacyClass,
-		"policyResource":    descriptor.PolicyResource,
-		"sideEffectClass":   descriptor.SideEffectClass,
-		"availability":      descriptor.Availability.State,
-		"idempotency.scope": descriptor.Idempotency.Scope,
+		"name":            descriptor.Name,
+		"canonicalName":   descriptor.CanonicalName,
+		"namespace":       descriptor.Namespace,
+		"modelName":       descriptor.ModelName,
+		"modelVisibility": descriptor.ModelVisibility,
+		"description":     descriptor.Description,
+		"privacyClass":    descriptor.PrivacyClass,
+		"policyResource":  descriptor.PolicyResource,
+		"sideEffectClass": descriptor.SideEffectClass,
+		"availability":    descriptor.Availability.State,
 	}
 	for fieldName, fieldValue := range requiredValues {
 		if strings.TrimSpace(fieldValue) == "" {
 			return errors.New("capability descriptor " + fieldName + " is required")
 		}
+	}
+	if capabilityToolIdempotency(descriptor.Idempotency) != agent.ToolIdempotencyNone && strings.TrimSpace(descriptor.Idempotency.Scope) == "" {
+		return errors.New("capability descriptor idempotency.scope is required")
 	}
 	if descriptor.ModelVisibility != agent.ToolVisibilityModel && descriptor.ModelVisibility != agent.ToolVisibilityInternal && descriptor.ModelVisibility != agent.ToolVisibilityControl {
 		return errors.New("capability descriptor modelVisibility is invalid")

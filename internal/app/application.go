@@ -237,6 +237,9 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 	toolCatalogBuilder.UseMCPQuarantineReporter(func(quarantinedProvider agent.QuarantinedToolProvider) {
 		logMCPProviderQuarantine(logger, quarantinedProvider)
 	})
+	toolCatalogBuilder.UseCapabilityQuarantineReporter(func(quarantinedProvider agent.QuarantinedToolProvider) {
+		logCapabilityProviderQuarantine(logger, quarantinedProvider)
+	})
 	toolCatalogBuilder.UseCapabilityToolDescriptors(capabilityClient, capabilityToolDescriptors(runtimeConfiguration.Capabilities.ToolDescriptors))
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(deriveAllowedToolNamesByProfile(runtimeConfiguration), deriveAllowedToolNames(runtimeConfiguration))
 	toolCatalogBuilder.UseSkillSearch(skillRetriever, instructionBundleLoader)
@@ -457,6 +460,13 @@ func logMCPProviderQuarantine(logger *slog.Logger, quarantinedProvider agent.Qua
 		return
 	}
 	logger.Warn("mcp.provider.quarantined", "providerID", quarantinedProvider.ProviderID, "reason", quarantinedProvider.Reason)
+}
+
+func logCapabilityProviderQuarantine(logger *slog.Logger, quarantinedProvider agent.QuarantinedToolProvider) {
+	if logger == nil {
+		return
+	}
+	logger.Warn("capability.provider.quarantined", "providerID", quarantinedProvider.ProviderID, "reason", quarantinedProvider.Reason)
 }
 
 func deriveAgentTurnOptions(runtimeConfiguration config.RuntimeConfiguration) agent.TurnOptions {

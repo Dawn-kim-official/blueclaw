@@ -39,16 +39,33 @@ func buildActionSchemaFromToolDefinitions(toolDefinitions []ToolDefinition, allo
 	if allowQualityCriteria {
 		variants = append(variants, setQualityCriteriaActionSchema())
 	}
+	hasContinueVariant := false
 	for _, toolDefinition := range toolDefinitions {
 		if blockedToolNames[strings.TrimSpace(toolDefinition.Name)] {
 			continue
 		}
 		if variant, isValid := continueActionSchema(toolDefinition); isValid {
 			variants = append(variants, variant)
+			hasContinueVariant = true
 		}
 	}
 
-	return mustMarshalStructuredSchema(map[string]any{"oneOf": variants})
+	schema := map[string]any{"oneOf": variants}
+	if hasContinueVariant {
+		schema["$defs"] = actionSchemaSharedDefinitions()
+	}
+	return mustMarshalStructuredSchema(schema)
+}
+
+// nativeTerminalActionParameters extracts finish/fail/set_quality_criteria variants standalone, so only continue variants use this $defs block.
+func actionSchemaSharedDefinitions() map[string]any {
+	return map[string]any{
+		"executionStateUpdate": executionStateSchema(),
+	}
+}
+
+func executionStateUpdateRefSchema() map[string]any {
+	return map[string]any{"$ref": "#/$defs/executionStateUpdate"}
 }
 
 func finishActionSchema(hasFailureDebt bool) map[string]any {
@@ -149,7 +166,7 @@ func continueActionSchema(toolDefinition ToolDefinition) (map[string]any, bool) 
 		"goalSatisfied":        booleanSchema(),
 		"hasRemainingWork":     booleanSchema(),
 		"remainingWork":        stringSchema(),
-		"executionStateUpdate": executionStateSchema(),
+		"executionStateUpdate": executionStateUpdateRefSchema(),
 	}, "action", "toolName", "toolInput", "goalSatisfied", "hasRemainingWork", "executionStateUpdate")
 	if description := strings.TrimSpace(toolDefinition.Description); description != "" {
 		schema["description"] = description
