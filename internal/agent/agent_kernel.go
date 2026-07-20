@@ -362,7 +362,7 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 		return AgentTurnResult{}, errorValue
 	}
 	if confirmationPlan.Decision.RequiresClarification {
-		confirmationResult, pauseError := agentKernel.pauseForConfirmation(taskContext, request, confirmationPlan, OutcomeContract{}, confirmationEvidenceHints, selectedSkillNameList(instructionBundle.SkillDecisions))
+		confirmationResult, pauseError := agentKernel.pauseForConfirmation(taskContext, request, intakeDecision, confirmationPlan, OutcomeContract{}, confirmationEvidenceHints, selectedSkillNameList(instructionBundle.SkillDecisions))
 		if pauseError != nil && taskBudget.didWorkExpire() {
 			intakeRequest.ExistingTaskRunID = confirmationResult.TaskRun.TaskRunID
 			confirmationResult = agentKernel.completeIntakeElapsed(taskBudget.totalContext, intakeRequest, intakeDecision, turnOptions, routerCallLedger.records)
@@ -411,7 +411,7 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 		return result, blockError
 	}
 	if confirmationPlan.Decision.RequiresConfirmation {
-		confirmationResult, pauseError := agentKernel.pauseForConfirmation(taskContext, request, confirmationPlan, outcomeContract, confirmationEvidenceHints, selectedSkillNameList(instructionBundle.SkillDecisions))
+		confirmationResult, pauseError := agentKernel.pauseForConfirmation(taskContext, request, intakeDecision, confirmationPlan, outcomeContract, confirmationEvidenceHints, selectedSkillNameList(instructionBundle.SkillDecisions))
 		if pauseError != nil && taskBudget.didWorkExpire() {
 			intakeRequest.ExistingTaskRunID = confirmationResult.TaskRun.TaskRunID
 			confirmationResult = agentKernel.completeIntakeElapsed(taskBudget.totalContext, intakeRequest, intakeDecision, turnOptions, routerCallLedger.records)
@@ -717,10 +717,11 @@ func (agentKernel *AgentKernel) planConfirmationGate(responseContext context.Con
 	return confirmationGatePlan{ExecutionPlan: executionPlan, Decision: decision, HasExecutionPlan: true}, nil
 }
 
-func (agentKernel *AgentKernel) pauseForConfirmation(responseContext context.Context, request AgentRequest, plan confirmationGatePlan, outcomeContract OutcomeContract, evidenceHints []string, selectedSkills []string) (AgentTurnResult, error) {
+func (agentKernel *AgentKernel) pauseForConfirmation(responseContext context.Context, request AgentRequest, intakeDecision IntakeDecision, plan confirmationGatePlan, outcomeContract OutcomeContract, evidenceHints []string, selectedSkills []string) (AgentTurnResult, error) {
 	executionPlan := plan.ExecutionPlan
 	decision := plan.Decision
 	taskRun := agentKernel.createTaskRunForRequest(request)
+	agentKernel.AppendTaskEvent(taskRun.TaskRunID, "agent.intake", marshalEventBody(intakeDecision))
 	agentKernel.AppendTaskEvent(taskRun.TaskRunID, "confirmation.plan_created", marshalEventBody(executionPlan))
 	agentKernel.AppendTaskEvent(taskRun.TaskRunID, "confirmation.policy_decision", marshalEventBody(decision))
 

@@ -311,6 +311,45 @@ func TestTurnRouterRejectsInvalidEstimatedMinutes(t *testing.T) {
 	}
 }
 
+func TestWithRestoredIntakeStateOverlaysOnlyControlFields(t *testing.T) {
+	approvalSignal := ApprovalSignalApprove
+	control := TurnDecision{
+		Route:            TurnRouteContinueTask,
+		Approval:         &approvalSignal,
+		Classification:   IntakeClassificationBoundedTask,
+		TaskShape:        TaskShapeMaintenanceTask,
+		TaskLevel:        TaskLevelLow,
+		ResponseLanguage: "ko",
+		Reason:           "interactive_confirm",
+	}
+	restored := control.WithRestoredIntakeState(IntakeDecision{
+		Classification:        IntakeClassificationBoundedTask,
+		TaskShape:             TaskShapeApprovalGatedTask,
+		TaskLevel:             TaskLevelMedium,
+		EstimatedMinutes:      7,
+		RequiredEvidenceTools: []string{"task.delete"},
+		ResponseLanguage:      "en",
+		Reason:                "original intake",
+	})
+	if restored.EstimatedMinutes != 7 || restored.TaskLevel != TaskLevelMedium || restored.TaskShape != TaskShapeApprovalGatedTask {
+		t.Fatalf("expected persisted intake state restored, got %+v", restored)
+	}
+	if len(restored.RequiredEvidenceTools) != 1 || restored.RequiredEvidenceTools[0] != "task.delete" {
+		t.Fatalf("expected required evidence restored, got %+v", restored.RequiredEvidenceTools)
+	}
+	if restored.Route != TurnRouteContinueTask || restored.Approval == nil || *restored.Approval != ApprovalSignalApprove {
+		t.Fatalf("expected control route and approval preserved, got %+v", restored)
+	}
+	if restored.ResponseLanguage != "ko" || restored.Reason != "interactive_confirm" {
+		t.Fatalf("expected control language and reason preserved, got %+v", restored)
+	}
+
+	unrestored := control.WithRestoredIntakeState(IntakeDecision{})
+	if unrestored.EstimatedMinutes != 0 || unrestored.TaskLevel != TaskLevelLow {
+		t.Fatalf("expected missing intake to leave control decision unchanged, got %+v", unrestored)
+	}
+}
+
 func TestTaskIntakePlannerUsesStructuredModelDecision(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		`{"route":"start_task","classification":"bounded_task","taskShape":"research_task","level":"low","estimatedMinutes":1,"requestedOutputFormats":null,"reason":"bounded tool work","userFacingReply":""}`,
