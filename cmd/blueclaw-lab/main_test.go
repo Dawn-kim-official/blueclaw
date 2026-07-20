@@ -213,31 +213,31 @@ func TestRunVirtualSessionLiveLanguageModelUsesOpenRouterKeyFileAndFakeServer(t 
 	}
 }
 
-func TestCreateLiveLanguageModelSupportsSDKDWithoutOpenRouterCredentials(t *testing.T) {
+func TestCreateLiveLanguageModelSupportsLLMDWithoutOpenRouterCredentials(t *testing.T) {
 	t.Setenv("BLUECLAW_E2E_LLM_AUTH_KEY", "installation-key")
 	t.Setenv("OPENROUTER_API_KEY", "")
 	seed := int64(17)
 	temperature := 0.1
 	languageModel, errorValue := createLiveLanguageModel(virtualSessionArguments{
-		LanguageModelProvider: "sdkd",
-		LanguageModelEndpoint: "http://sdkd",
+		LanguageModelProvider: "llmd",
+		LanguageModelEndpoint: "http://llmd",
 		LanguageModelName:     "deepseek/deepseek-v4-flash",
 		ExecutionMode:         "remote",
 		Seed:                  &seed,
 		Temperature:           &temperature,
 	})
 	if errorValue != nil {
-		t.Fatalf("expected sdkd live model: %v", errorValue)
+		t.Fatalf("expected llmd live model: %v", errorValue)
 	}
-	sdkdClient, isSDKDClient := languageModel.(llm.SDKDClient)
-	if !isSDKDClient {
-		t.Fatalf("expected sdkd client, got %T", languageModel)
+	llmdClient, isLLMDClient := languageModel.(llm.LLMDClient)
+	if !isLLMDClient {
+		t.Fatalf("expected llmd client, got %T", languageModel)
 	}
-	if sdkdClient.AuthKey != "installation-key" || sdkdClient.ModelName != "deepseek/deepseek-v4-flash" {
-		t.Fatalf("unexpected sdkd live model configuration: %+v", sdkdClient)
+	if llmdClient.AuthKey != "installation-key" || llmdClient.ModelName != "deepseek/deepseek-v4-flash" {
+		t.Fatalf("unexpected llmd live model configuration: %+v", llmdClient)
 	}
-	if sdkdClient.GenerationOptions.Seed == nil || *sdkdClient.GenerationOptions.Seed != seed {
-		t.Fatalf("expected sdkd generation seed, got %+v", sdkdClient.GenerationOptions)
+	if llmdClient.GenerationOptions.Seed == nil || *llmdClient.GenerationOptions.Seed != seed {
+		t.Fatalf("expected llmd generation seed, got %+v", llmdClient.GenerationOptions)
 	}
 	expectedSchemaNames := []string{
 		"blueclaw_agent_turn_action",
@@ -247,14 +247,14 @@ func TestCreateLiveLanguageModelSupportsSDKDWithoutOpenRouterCredentials(t *test
 		"blueclaw_operation_contract",
 		"blueclaw_contract_skill_arbitration",
 	}
-	if !slices.Equal(sdkdClient.StructuredSchemaNames, expectedSchemaNames) {
-		t.Fatalf("expected authoritative SDKD schemas, got %#v", sdkdClient.StructuredSchemaNames)
+	if !slices.Equal(llmdClient.StructuredSchemaNames, expectedSchemaNames) {
+		t.Fatalf("expected authoritative LLMD schemas, got %#v", llmdClient.StructuredSchemaNames)
 	}
 }
 
 func TestParseVirtualSessionArgumentsLeavesEndpointOmitted(t *testing.T) {
 	t.Setenv("BLUECLAW_E2E_LLM_ENDPOINT", "")
-	arguments, errorValue := parseVirtualSessionArguments([]string{"--llm-provider", "sdkd"}, "task-lifecycle", t.TempDir())
+	arguments, errorValue := parseVirtualSessionArguments([]string{"--llm-provider", "llmd"}, "task-lifecycle", t.TempDir())
 	if errorValue != nil {
 		t.Fatalf("expected arguments to parse: %v", errorValue)
 	}
@@ -276,13 +276,13 @@ func TestCreateLiveLanguageModelUsesProviderConstructorDefaults(t *testing.T) {
 		t.Fatalf("expected capability constructor default endpoint, got %#v", capabilityModel)
 	}
 
-	sdkdModel, errorValue := createLiveLanguageModel(virtualSessionArguments{LanguageModelProvider: "sdkd"})
+	llmdModel, errorValue := createLiveLanguageModel(virtualSessionArguments{LanguageModelProvider: "llmd"})
 	if errorValue != nil {
-		t.Fatalf("expected sdkd model: %v", errorValue)
+		t.Fatalf("expected llmd model: %v", errorValue)
 	}
-	sdkdClient, isSDKDClient := sdkdModel.(llm.SDKDClient)
-	if !isSDKDClient || sdkdClient.Endpoint != "http://blueclaw-sdkd" {
-		t.Fatalf("expected sdkd constructor default endpoint, got %#v", sdkdModel)
+	llmdClient, isLLMDClient := llmdModel.(llm.LLMDClient)
+	if !isLLMDClient || llmdClient.Endpoint != "http://blueclaw-llmd" {
+		t.Fatalf("expected llmd constructor default endpoint, got %#v", llmdModel)
 	}
 }
 
@@ -308,26 +308,26 @@ func TestCreateLiveLanguageModelPreservesUnixSocketTransportWithOmittedEndpoint(
 		t.Fatalf("expected capability live client without timeout, got %s", httpClient.Timeout)
 	}
 
-	sdkdModel, errorValue := createLiveLanguageModel(virtualSessionArguments{
-		LanguageModelProvider: "sdkd",
+	llmdModel, errorValue := createLiveLanguageModel(virtualSessionArguments{
+		LanguageModelProvider: "llmd",
 		LanguageModelSocket:   arguments.LanguageModelSocket,
 	})
 	if errorValue != nil {
-		t.Fatalf("expected sdkd socket model: %v", errorValue)
+		t.Fatalf("expected llmd socket model: %v", errorValue)
 	}
-	sdkdClient := sdkdModel.(llm.SDKDClient)
-	if sdkdClient.Endpoint != "http://blueclaw-sdkd" || sdkdClient.HTTPClient == nil {
-		t.Fatalf("expected sdkd socket transport and default endpoint, got %#v", sdkdClient)
+	llmdClient := llmdModel.(llm.LLMDClient)
+	if llmdClient.Endpoint != "http://blueclaw-llmd" || llmdClient.HTTPClient == nil {
+		t.Fatalf("expected llmd socket transport and default endpoint, got %#v", llmdClient)
 	}
-	if httpClient, isHTTPClient := sdkdClient.HTTPClient.(*http.Client); !isHTTPClient || httpClient.Timeout != 0 {
-		t.Fatalf("expected SDKD live client without timeout, got %#v", sdkdClient.HTTPClient)
+	if httpClient, isHTTPClient := llmdClient.HTTPClient.(*http.Client); !isHTTPClient || httpClient.Timeout != 0 {
+		t.Fatalf("expected LLMD live client without timeout, got %#v", llmdClient.HTTPClient)
 	}
 }
 
 func TestCreateLiveLanguageModelPreservesExplicitEndpointOverrides(t *testing.T) {
 	t.Setenv("BLUECLAW_E2E_LLM_AUTH_KEY", "installation-key")
 	t.Setenv("OPENROUTER_API_KEY", "")
-	for _, provider := range []string{"capability", "sdkd"} {
+	for _, provider := range []string{"capability", "llmd"} {
 		languageModel, errorValue := createLiveLanguageModel(virtualSessionArguments{
 			LanguageModelProvider: provider,
 			LanguageModelEndpoint: "https://explicit-llm.example",
@@ -340,7 +340,7 @@ func TestCreateLiveLanguageModelPreservesExplicitEndpointOverrides(t *testing.T)
 		switch client := languageModel.(type) {
 		case llm.CapabilityLLMClient:
 			endpoint = client.CapabilityClient.Endpoint
-		case llm.SDKDClient:
+		case llm.LLMDClient:
 			endpoint = client.Endpoint
 		default:
 			t.Fatalf("unexpected %s model type %T", provider, languageModel)
@@ -370,7 +370,7 @@ func TestSaveVirtualSessionEvidenceRecordsRoutingMetadataWithoutSecrets(t *testi
 		}},
 	}
 	arguments := virtualSessionArguments{
-		LanguageModelProvider:    "sdkd",
+		LanguageModelProvider:    "llmd",
 		LanguageModelAuthKeyPath: "/tmp/secret-auth-key",
 		ExecutionMode:            "auto",
 	}
@@ -382,7 +382,7 @@ func TestSaveVirtualSessionEvidenceRecordsRoutingMetadataWithoutSecrets(t *testi
 		t.Fatalf("expected evidence file: %v", errorValue)
 	}
 	content := string(document)
-	for _, expectedText := range []string{"task-lifecycle", "failed", "blocked", "operation contract was invalid", "sdkd", "recovery_chat", "llama.cpp", "gemma", "device", "blueclaw_agent_turn_action", "blueclaw_agent_turn_finalizer", "blueclaw_turn_router", "blueclaw_recovery_decision", "blueclaw_operation_contract", "blueclaw_contract_skill_arbitration"} {
+	for _, expectedText := range []string{"task-lifecycle", "failed", "blocked", "operation contract was invalid", "llmd", "recovery_chat", "llama.cpp", "gemma", "device", "blueclaw_agent_turn_action", "blueclaw_agent_turn_finalizer", "blueclaw_turn_router", "blueclaw_recovery_decision", "blueclaw_operation_contract", "blueclaw_contract_skill_arbitration"} {
 		if !strings.Contains(content, expectedText) {
 			t.Fatalf("evidence missing %q: %s", expectedText, content)
 		}
@@ -471,14 +471,14 @@ func TestSaveVirtualSessionEvidenceUsesOrderedVirtualCallRecorderWithoutDuplicat
 				{
 					Kind:            "chat",
 					SchemaName:      "blueclaw_agent_turn_action",
-					Provider:        "sdkd",
+					Provider:        "llmd",
 					Model:           "low-model",
 					SelectedBackend: "device",
 					FinishReason:    "tool_calls",
 				},
 				{
 					Kind:            "chat",
-					Provider:        "sdkd",
+					Provider:        "llmd",
 					Model:           "low-model",
 					SelectedBackend: "device",
 					FinishReason:    "stop",
@@ -490,7 +490,7 @@ func TestSaveVirtualSessionEvidenceUsesOrderedVirtualCallRecorderWithoutDuplicat
 			}},
 		}},
 	}
-	if errorValue := saveVirtualSessionEvidence(virtualSessionArguments{LanguageModelProvider: "sdkd"}, result, nil); errorValue != nil {
+	if errorValue := saveVirtualSessionEvidence(virtualSessionArguments{LanguageModelProvider: "llmd"}, result, nil); errorValue != nil {
 		t.Fatalf("expected evidence to save: %v", errorValue)
 	}
 	document, errorValue := os.ReadFile(filepath.Join(artifactDirectoryPath, "llm-routing-evidence.json"))

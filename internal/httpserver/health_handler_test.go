@@ -16,7 +16,7 @@ func TestHealthReportsProtocolIdentityDrift(t *testing.T) {
 		Passed:    false,
 		CheckedAt: time.Now().UTC(),
 		FailureReasons: []string{
-			"sdkd: expected protocolVersion \"0.4.0\"",
+			"llmd: expected protocolVersion \"0.4.0\"",
 		},
 	}
 	handler := HealthHandler{ProtocolIdentity: protocolIdentityStatus}
@@ -57,7 +57,7 @@ func TestHealthRefreshesProtocolIdentityAfterStartup(t *testing.T) {
 
 	identityChecker := protocolidentity.NewChecker(protocolidentity.Configuration{
 		CapabilityEndpoint: server.URL,
-		SDKDBridgeEndpoint: server.URL,
+		LLMDBridgeEndpoint: server.URL,
 		HTTPClient:         server.Client(),
 	})
 	handler := HealthHandler{
@@ -75,7 +75,7 @@ func TestHealthRefreshesProtocolIdentityAfterStartup(t *testing.T) {
 	secondResponse := httptest.NewRecorder()
 	handler.HandleHealth(secondResponse, httptest.NewRequest(http.MethodGet, "/admin/api/health", nil))
 	result := healthProtocolIdentityResult(t, secondResponse)
-	if result.Passed || result.Capabilityd.Status != "drift" || result.SDKD.Status != "drift" {
+	if result.Passed || result.Capabilityd.Status != "drift" || result.LLMD.Status != "drift" {
 		t.Fatalf("expected health to report later protocol drift, got %+v", result)
 	}
 }

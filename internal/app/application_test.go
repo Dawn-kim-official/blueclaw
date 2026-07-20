@@ -177,8 +177,8 @@ func TestMaximumLowTierCapsIntakeFallbacks(t *testing.T) {
 	}
 }
 
-func TestResolveIntakeLanguageModelProviderUsesSDKDWhenSelected(t *testing.T) {
-	authKeyPath := filepath.Join(t.TempDir(), "sdkd.key")
+func TestResolveIntakeLanguageModelProviderUsesLLMDWhenSelected(t *testing.T) {
+	authKeyPath := filepath.Join(t.TempDir(), "llmd.key")
 	if errorValue := os.WriteFile(authKeyPath, []byte("installation-key"), 0o600); errorValue != nil {
 		t.Fatalf("expected auth key fixture: %v", errorValue)
 	}
@@ -186,59 +186,59 @@ func TestResolveIntakeLanguageModelProviderUsesSDKDWhenSelected(t *testing.T) {
 	runtimeConfiguration.Agent.Intake.Enabled = true
 	runtimeConfiguration.Agent.Intake.Model = "vendor/intake"
 	runtimeConfiguration.Agent.Intake.ExecutionMode = "companion"
-	runtimeConfiguration.LanguageModel.DefaultProvider = "sdkd"
-	runtimeConfiguration.LanguageModel.SDKD.AuthKeyPath = authKeyPath
+	runtimeConfiguration.LanguageModel.DefaultProvider = "llmd"
+	runtimeConfiguration.LanguageModel.LLMD.AuthKeyPath = authKeyPath
 
 	provider := resolveIntakeLanguageModelProvider(runtimeConfiguration, nil)
 	fallbackProvider, isFallbackProvider := provider.(llm.FallbackLanguageModelProvider)
 	if !isFallbackProvider {
 		t.Fatalf("expected fallback intake provider, got %T", provider)
 	}
-	primaryProvider, isSDKDPrimary := unwrapModelTier(fallbackProvider.PrimaryProvider).(llm.SDKDClient)
-	if !isSDKDPrimary {
-		t.Fatalf("expected SDKD intake primary provider, got %T", fallbackProvider.PrimaryProvider)
+	primaryProvider, isLLMDPrimary := unwrapModelTier(fallbackProvider.PrimaryProvider).(llm.LLMDClient)
+	if !isLLMDPrimary {
+		t.Fatalf("expected LLMD intake primary provider, got %T", fallbackProvider.PrimaryProvider)
 	}
 	if primaryProvider.ModelName != "vendor/intake" || primaryProvider.ExecutionMode != "companion" {
-		t.Fatalf("expected intake SDKD model and execution mode, got %q and %q", primaryProvider.ModelName, primaryProvider.ExecutionMode)
+		t.Fatalf("expected intake LLMD model and execution mode, got %q and %q", primaryProvider.ModelName, primaryProvider.ExecutionMode)
 	}
-	fallbackSDKDProvider, isSDKDFallback := unwrapModelTier(fallbackProvider.FallbackProvider).(llm.SDKDClient)
-	if !isSDKDFallback {
-		t.Fatalf("expected SDKD intake fallback provider, got %T", fallbackProvider.FallbackProvider)
+	fallbackLLMDProvider, isLLMDFallback := unwrapModelTier(fallbackProvider.FallbackProvider).(llm.LLMDClient)
+	if !isLLMDFallback {
+		t.Fatalf("expected LLMD intake fallback provider, got %T", fallbackProvider.FallbackProvider)
 	}
-	if fallbackSDKDProvider.ModelName != "vendor/high" || fallbackSDKDProvider.ExecutionMode != "companion" {
-		t.Fatalf("expected high SDKD fallback model and execution mode, got %q and %q", fallbackSDKDProvider.ModelName, fallbackSDKDProvider.ExecutionMode)
+	if fallbackLLMDProvider.ModelName != "vendor/high" || fallbackLLMDProvider.ExecutionMode != "companion" {
+		t.Fatalf("expected high LLMD fallback model and execution mode, got %q and %q", fallbackLLMDProvider.ModelName, fallbackLLMDProvider.ExecutionMode)
 	}
 }
 
-func TestMaximumLowTierCapsIntakeUsesSDKDWhenSelected(t *testing.T) {
-	authKeyPath := filepath.Join(t.TempDir(), "sdkd.key")
+func TestMaximumLowTierCapsIntakeUsesLLMDWhenSelected(t *testing.T) {
+	authKeyPath := filepath.Join(t.TempDir(), "llmd.key")
 	if errorValue := os.WriteFile(authKeyPath, []byte("installation-key"), 0o600); errorValue != nil {
 		t.Fatalf("expected auth key fixture: %v", errorValue)
 	}
 	runtimeConfiguration := configuredModelTierRuntime("low")
 	runtimeConfiguration.Agent.Intake.Enabled = true
 	runtimeConfiguration.Agent.Intake.ExecutionMode = "device"
-	runtimeConfiguration.LanguageModel.DefaultProvider = "sdkd"
-	runtimeConfiguration.LanguageModel.SDKD.AuthKeyPath = authKeyPath
+	runtimeConfiguration.LanguageModel.DefaultProvider = "llmd"
+	runtimeConfiguration.LanguageModel.LLMD.AuthKeyPath = authKeyPath
 
 	provider := resolveIntakeLanguageModelProvider(runtimeConfiguration, nil)
 	fallbackProvider, isFallbackProvider := provider.(llm.FallbackLanguageModelProvider)
 	if !isFallbackProvider {
 		t.Fatalf("expected capped fallback intake provider, got %T", provider)
 	}
-	primaryProvider, isSDKDPrimary := unwrapModelTier(fallbackProvider.PrimaryProvider).(llm.SDKDClient)
-	if !isSDKDPrimary {
-		t.Fatalf("expected capped SDKD intake primary provider, got %T", fallbackProvider.PrimaryProvider)
+	primaryProvider, isLLMDPrimary := unwrapModelTier(fallbackProvider.PrimaryProvider).(llm.LLMDClient)
+	if !isLLMDPrimary {
+		t.Fatalf("expected capped LLMD intake primary provider, got %T", fallbackProvider.PrimaryProvider)
 	}
 	if primaryProvider.ModelName != "vendor/low" || primaryProvider.ExecutionMode != "device" {
-		t.Fatalf("expected capped low SDKD model and execution mode, got %q and %q", primaryProvider.ModelName, primaryProvider.ExecutionMode)
+		t.Fatalf("expected capped low LLMD model and execution mode, got %q and %q", primaryProvider.ModelName, primaryProvider.ExecutionMode)
 	}
-	fallbackSDKDProvider, isSDKDFallback := unwrapModelTier(fallbackProvider.FallbackProvider).(llm.SDKDClient)
-	if !isSDKDFallback {
-		t.Fatalf("expected capped SDKD intake fallback provider, got %T", fallbackProvider.FallbackProvider)
+	fallbackLLMDProvider, isLLMDFallback := unwrapModelTier(fallbackProvider.FallbackProvider).(llm.LLMDClient)
+	if !isLLMDFallback {
+		t.Fatalf("expected capped LLMD intake fallback provider, got %T", fallbackProvider.FallbackProvider)
 	}
-	if fallbackSDKDProvider.ModelName != "vendor/xlow" || fallbackSDKDProvider.ExecutionMode != "device" {
-		t.Fatalf("expected capped xlow SDKD fallback model and execution mode, got %q and %q", fallbackSDKDProvider.ModelName, fallbackSDKDProvider.ExecutionMode)
+	if fallbackLLMDProvider.ModelName != "vendor/xlow" || fallbackLLMDProvider.ExecutionMode != "device" {
+		t.Fatalf("expected capped xlow LLMD fallback model and execution mode, got %q and %q", fallbackLLMDProvider.ModelName, fallbackLLMDProvider.ExecutionMode)
 	}
 }
 
@@ -511,7 +511,7 @@ func TestApplicationChecksProtocolIdentityOnceAndStoresResult(t *testing.T) {
 	runtimeConfiguration.Capabilities.Endpoint = server.URL
 	runtimeConfiguration.Capabilities.ProtocolVersion = protocolVersion
 	runtimeConfiguration.Capabilities.AggregateProtocolHash = aggregateProtocolHash
-	runtimeConfiguration.LanguageModel.SDKD.Endpoint = server.URL
+	runtimeConfiguration.LanguageModel.LLMD.Endpoint = server.URL
 	application := NewApplication(runtimeConfiguration, "")
 	application.protocolIdentityExpected = protocolidentity.Identity{
 		ProtocolVersion:       protocolVersion,
@@ -519,7 +519,7 @@ func TestApplicationChecksProtocolIdentityOnceAndStoresResult(t *testing.T) {
 	}
 	application.protocolIdentityChecker = protocolidentity.NewChecker(protocolidentity.Configuration{
 		CapabilityEndpoint: server.URL,
-		SDKDBridgeEndpoint: server.URL,
+		LLMDBridgeEndpoint: server.URL,
 		HTTPClient:         server.Client(),
 	})
 
@@ -530,7 +530,7 @@ func TestApplicationChecksProtocolIdentityOnceAndStoresResult(t *testing.T) {
 		t.Fatalf("expected repeated protocol identity check to reuse result: %v", errorValue)
 	}
 	if requestCount != 2 {
-		t.Fatalf("expected one capabilityd and one SDKD request, got %d", requestCount)
+		t.Fatalf("expected one capabilityd and one LLMD request, got %d", requestCount)
 	}
 	if !application.protocolIdentityStatus.Passed {
 		t.Fatalf("expected stored protocol identity result to pass: %+v", application.protocolIdentityStatus)
@@ -821,40 +821,40 @@ func TestResolveTaskTierLanguageModelProvidersKeepsBareLowWhenMediumMatchesLow(t
 	}
 }
 
-func TestResolveTaskTierLanguageModelProvidersUsesSDKDWhenSelected(t *testing.T) {
-	authKeyPath := filepath.Join(t.TempDir(), "sdkd.key")
+func TestResolveTaskTierLanguageModelProvidersUsesLLMDWhenSelected(t *testing.T) {
+	authKeyPath := filepath.Join(t.TempDir(), "llmd.key")
 	if errorValue := os.WriteFile(authKeyPath, []byte("installation-key"), 0o600); errorValue != nil {
 		t.Fatalf("expected auth key fixture: %v", errorValue)
 	}
 	runtimeConfiguration := config.RuntimeConfiguration{}
-	runtimeConfiguration.LanguageModel.DefaultProvider = "sdkd"
-	runtimeConfiguration.LanguageModel.SDKD.AuthKeyPath = authKeyPath
+	runtimeConfiguration.LanguageModel.DefaultProvider = "llmd"
+	runtimeConfiguration.LanguageModel.LLMD.AuthKeyPath = authKeyPath
 	providers := resolveTaskTierLanguageModelProviders(runtimeConfiguration, slog.New(slog.DiscardHandler))
 
 	lowProvider, isFallbackProvider := providers.Low.(llm.FallbackLanguageModelProvider)
 	if !isFallbackProvider {
 		t.Fatalf("expected low tier fallback provider, got %T", providers.Low)
 	}
-	if _, isSDKDClient := unwrapModelTier(lowProvider.PrimaryProvider).(llm.SDKDClient); !isSDKDClient {
-		t.Fatalf("expected sdkd low tier primary provider, got %T", lowProvider.PrimaryProvider)
+	if _, isLLMDClient := unwrapModelTier(lowProvider.PrimaryProvider).(llm.LLMDClient); !isLLMDClient {
+		t.Fatalf("expected llmd low tier primary provider, got %T", lowProvider.PrimaryProvider)
 	}
 }
 
-func TestResolveCappedTaskTierLanguageModelProvidersUsesSDKDWhenSelected(t *testing.T) {
-	authKeyPath := filepath.Join(t.TempDir(), "sdkd.key")
+func TestResolveCappedTaskTierLanguageModelProvidersUsesLLMDWhenSelected(t *testing.T) {
+	authKeyPath := filepath.Join(t.TempDir(), "llmd.key")
 	if errorValue := os.WriteFile(authKeyPath, []byte("installation-key"), 0o600); errorValue != nil {
 		t.Fatalf("expected auth key fixture: %v", errorValue)
 	}
 	runtimeConfiguration := configuredModelTierRuntime("low")
-	runtimeConfiguration.LanguageModel.DefaultProvider = "sdkd"
-	runtimeConfiguration.LanguageModel.SDKD.AuthKeyPath = authKeyPath
+	runtimeConfiguration.LanguageModel.DefaultProvider = "llmd"
+	runtimeConfiguration.LanguageModel.LLMD.AuthKeyPath = authKeyPath
 	providers := resolveTaskTierLanguageModelProviders(runtimeConfiguration, slog.New(slog.DiscardHandler))
 
 	lowProvider, isFallbackProvider := providers.Low.(llm.FallbackLanguageModelProvider)
 	if !isFallbackProvider {
 		t.Fatalf("expected capped low tier fallback provider, got %T", providers.Low)
 	}
-	if _, isSDKDClient := unwrapModelTier(lowProvider.PrimaryProvider).(llm.SDKDClient); !isSDKDClient {
-		t.Fatalf("expected capped sdkd low tier primary provider, got %T", lowProvider.PrimaryProvider)
+	if _, isLLMDClient := unwrapModelTier(lowProvider.PrimaryProvider).(llm.LLMDClient); !isLLMDClient {
+		t.Fatalf("expected capped llmd low tier primary provider, got %T", lowProvider.PrimaryProvider)
 	}
 }

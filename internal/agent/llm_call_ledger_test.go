@@ -46,14 +46,14 @@ func TestTurnRouterCallLedgerPreservesMissingModelTier(t *testing.T) {
 	}
 }
 
-func TestObserveLanguageModelRecordsSafeSDKDDiagnosticsAndRequestSizes(t *testing.T) {
+func TestObserveLanguageModelRecordsSafeLLMDDiagnosticsAndRequestSizes(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(responseWriter http.ResponseWriter, request *http.Request) {
 		responseWriter.WriteHeader(http.StatusUnprocessableEntity)
 		_, _ = responseWriter.Write([]byte(`{"error":{"code":"structured_output_invalid","allowLegacyFallback":false,"message":"PRIVATE_GENERATED_CONTENT","diagnostic":{"category":"finish_reason","finishReason":"length"}}}`))
 	}))
 	defer server.Close()
 	records := []llmCallRecord{}
-	client := llm.NewSDKDClient(llm.SDKDClientConfiguration{Endpoint: server.URL, AuthKey: "installation-key"})
+	client := llm.NewLLMDClient(llm.LLMDClientConfiguration{Endpoint: server.URL, AuthKey: "installation-key"})
 	observed := observeLanguageModel(client, func(record llmCallRecord) {
 		records = append(records, record)
 	})
@@ -64,7 +64,7 @@ func TestObserveLanguageModelRecordsSafeSDKDDiagnosticsAndRequestSizes(t *testin
 
 	_, errorValue := observed.GenerateStructuredResponse(context.Background(), request)
 	if errorValue == nil {
-		t.Fatal("expected SDKD structured error")
+		t.Fatal("expected LLMD structured error")
 	}
 	if len(records) != 1 {
 		t.Fatalf("expected one call record, got %+v", records)
@@ -85,13 +85,13 @@ func TestObserveLanguageModelRecordsSafeChatToolDiagnostics(t *testing.T) {
 	}))
 	defer server.Close()
 	records := []llmCallRecord{}
-	client := llm.NewSDKDClient(llm.SDKDClientConfiguration{Endpoint: server.URL, AuthKey: "installation-key"})
+	client := llm.NewLLMDClient(llm.LLMDClientConfiguration{Endpoint: server.URL, AuthKey: "installation-key"})
 	observed := observeLanguageModel(client, func(record llmCallRecord) {
 		records = append(records, record)
 	})
 	chatCompleter, isAvailable := llm.ResolveTextChatCompleter(observed)
 	if !isAvailable {
-		t.Fatal("expected observed SDKD Chat capability")
+		t.Fatal("expected observed LLMD Chat capability")
 	}
 
 	_, errorValue := chatCompleter.GenerateChatCompletion(context.Background(), nativeActionChatRequest())
@@ -151,14 +151,14 @@ func nativeActionChatRequest() llm.ChatCompletionRequest {
 
 func TestChatCallRecordPreservesActionRoutingMetadata(t *testing.T) {
 	record := chatCallRecord("chat", nativeActionChatRequest(), llm.ChatCompletionResponse{
-		ProviderName:    "sdkd",
+		ProviderName:    "llmd",
 		ModelName:       "low-model",
 		ModelTier:       "low",
 		SelectedBackend: "device",
 		FinishReason:    "tool_calls",
 		UsedFallback:    true,
 	}, time.Now(), nil)
-	if record.SchemaName != "blueclaw_agent_turn_action" || record.Provider != "sdkd" || record.Model != "low-model" || record.ModelTier != "low" || record.SelectedBackend != "device" || record.FinishReason != "tool_calls" || !record.UsedFallback {
+	if record.SchemaName != "blueclaw_agent_turn_action" || record.Provider != "llmd" || record.Model != "low-model" || record.ModelTier != "low" || record.SelectedBackend != "device" || record.FinishReason != "tool_calls" || !record.UsedFallback {
 		t.Fatalf("expected action routing metadata, got %+v", record)
 	}
 }

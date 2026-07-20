@@ -23,7 +23,7 @@ func NewConfiguredLanguageModelProviderForModel(runtimeConfiguration config.Runt
 	}
 
 	if strings.TrimSpace(runtimeConfiguration.LanguageModel.FallbackProvider) == "" {
-		return withConfiguredSDKDShadow(defaultProvider, runtimeConfiguration, modelName)
+		return withConfiguredLLMDShadow(defaultProvider, runtimeConfiguration, modelName)
 	}
 
 	return nil, errors.New("language model fallback is owned by InternKim capability runtime")
@@ -33,18 +33,18 @@ func providerByName(providerName string, runtimeConfiguration config.RuntimeConf
 	switch strings.TrimSpace(providerName) {
 	case "capabilityLLM", "capability", "":
 		return NewCapabilityLLMClientForModel(runtimeConfiguration, modelName), nil
-	case "sdkd":
-		return newSDKDClient(runtimeConfiguration, modelName)
+	case "llmd":
+		return newLLMDClient(runtimeConfiguration, modelName)
 	default:
 		return nil, errors.New("language model provider is not supported")
 	}
 }
 
-func withConfiguredSDKDShadow(primaryProvider LanguageModelProvider, runtimeConfiguration config.RuntimeConfiguration, modelName string) (LanguageModelProvider, error) {
-	if !runtimeConfiguration.LanguageModel.SDKD.ShadowEnabled || strings.TrimSpace(runtimeConfiguration.LanguageModel.DefaultProvider) == "sdkd" {
+func withConfiguredLLMDShadow(primaryProvider LanguageModelProvider, runtimeConfiguration config.RuntimeConfiguration, modelName string) (LanguageModelProvider, error) {
+	if !runtimeConfiguration.LanguageModel.LLMD.ShadowEnabled || strings.TrimSpace(runtimeConfiguration.LanguageModel.DefaultProvider) == "llmd" {
 		return primaryProvider, nil
 	}
-	shadowProvider, errorValue := newSDKDClient(runtimeConfiguration, modelName)
+	shadowProvider, errorValue := newLLMDClient(runtimeConfiguration, modelName)
 	if errorValue != nil {
 		return nil, errorValue
 	}
@@ -53,45 +53,45 @@ func withConfiguredSDKDShadow(primaryProvider LanguageModelProvider, runtimeConf
 		PrimaryProvider:       primaryProvider,
 		ShadowProvider:        shadowProvider,
 		Logger:                slog.Default(),
-		StructuredSchemaNames: configuredSDKDSchemaNames(runtimeConfiguration),
+		StructuredSchemaNames: configuredLLMDSchemaNames(runtimeConfiguration),
 	}), nil
 }
 
-func newSDKDClient(runtimeConfiguration config.RuntimeConfiguration, modelName string) (SDKDClient, error) {
-	sdkdConfiguration := runtimeConfiguration.LanguageModel.SDKD
+func newLLMDClient(runtimeConfiguration config.RuntimeConfiguration, modelName string) (LLMDClient, error) {
+	llmdConfiguration := runtimeConfiguration.LanguageModel.LLMD
 	authKey := ""
-	authKeyPath := strings.TrimSpace(sdkdConfiguration.AuthKeyPath)
-	if authKeyPath == "" && !isSDKDBridgeConfiguration(sdkdConfiguration) {
-		return SDKDClient{}, errors.New("sdkd auth key path is not configured")
+	authKeyPath := strings.TrimSpace(llmdConfiguration.AuthKeyPath)
+	if authKeyPath == "" && !isLLMDBridgeConfiguration(llmdConfiguration) {
+		return LLMDClient{}, errors.New("llmd auth key path is not configured")
 	}
 	if authKeyPath != "" {
 		authKeyDocument, errorValue := os.ReadFile(authKeyPath)
 		if errorValue != nil {
-			return SDKDClient{}, errorValue
+			return LLMDClient{}, errorValue
 		}
 		authKey = strings.TrimSpace(string(authKeyDocument))
 		if authKey == "" {
-			return SDKDClient{}, errors.New("sdkd auth key is empty")
+			return LLMDClient{}, errors.New("llmd auth key is empty")
 		}
 	}
 	capabilityProvider := NewCapabilityLLMClientForModel(runtimeConfiguration, modelName)
-	return NewSDKDClient(SDKDClientConfiguration{
-		Endpoint:                        sdkdConfiguration.Endpoint,
-		UnixSocketPath:                  sdkdConfiguration.UnixSocketPath,
+	return NewLLMDClient(LLMDClientConfiguration{
+		Endpoint:                        llmdConfiguration.Endpoint,
+		UnixSocketPath:                  llmdConfiguration.UnixSocketPath,
 		AuthKey:                         authKey,
 		ModelName:                       modelName,
-		ExecutionMode:                   firstNonEmptyModelName(sdkdConfiguration.ExecutionMode, runtimeConfiguration.LanguageModel.Capability.ExecutionMode),
-		LocalOnly:                       sdkdConfiguration.LocalOnly,
+		ExecutionMode:                   firstNonEmptyModelName(llmdConfiguration.ExecutionMode, runtimeConfiguration.LanguageModel.Capability.ExecutionMode),
+		LocalOnly:                       llmdConfiguration.LocalOnly,
 		TextProvider:                    capabilityProvider,
 		StructuredFallbackProvider:      capabilityProvider,
-		StructuredSchemaNames:           configuredSDKDSchemaNames(runtimeConfiguration),
-		IsStructuredOutputAuthoritative: strings.TrimSpace(runtimeConfiguration.LanguageModel.DefaultProvider) == "sdkd",
+		StructuredSchemaNames:           configuredLLMDSchemaNames(runtimeConfiguration),
+		IsStructuredOutputAuthoritative: strings.TrimSpace(runtimeConfiguration.LanguageModel.DefaultProvider) == "llmd",
 	}), nil
 }
 
-func isSDKDBridgeConfiguration(configuration config.LanguageModelSDKDConfiguration) bool {
+func isLLMDBridgeConfiguration(configuration config.LanguageModelLLMDConfiguration) bool {
 	normalizedEndpoint := strings.TrimRight(strings.TrimSpace(configuration.Endpoint), "/")
-	if normalizedEndpoint == sdkdLoopbackBridgeEndpoint {
+	if normalizedEndpoint == llmdLoopbackBridgeEndpoint {
 		return true
 	}
 	if strings.TrimSpace(configuration.UnixSocketPath) == "" {
@@ -103,20 +103,20 @@ func isSDKDBridgeConfiguration(configuration config.LanguageModelSDKDConfigurati
 	}
 	return parsedEndpoint.Scheme == "http" &&
 		parsedEndpoint.Host != "" &&
-		parsedEndpoint.Path == "/_internkim/sdkd" &&
+		parsedEndpoint.Path == "/_internkim/llmd" &&
 		parsedEndpoint.RawQuery == "" &&
 		parsedEndpoint.Fragment == ""
 }
 
-func configuredSDKDSchemaNames(runtimeConfiguration config.RuntimeConfiguration) []string {
-	configuredSchemaNames := runtimeConfiguration.LanguageModel.SDKD.StructuredSchemaNames
+func configuredLLMDSchemaNames(runtimeConfiguration config.RuntimeConfiguration) []string {
+	configuredSchemaNames := runtimeConfiguration.LanguageModel.LLMD.StructuredSchemaNames
 	if len(configuredSchemaNames) == 0 {
-		return DefaultSDKDStructuredSchemaNames()
+		return DefaultLLMDStructuredSchemaNames()
 	}
 	return append([]string{}, configuredSchemaNames...)
 }
 
-func DefaultSDKDStructuredSchemaNames() []string {
+func DefaultLLMDStructuredSchemaNames() []string {
 	return []string{
 		"blueclaw_agent_turn_action",
 		"blueclaw_agent_turn_finalizer",

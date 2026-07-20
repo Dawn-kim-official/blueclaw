@@ -12,11 +12,11 @@ import (
 	"strings"
 )
 
-const defaultSDKDEndpoint = "http://blueclaw-sdkd"
-const sdkdLoopbackBridgeEndpoint = "http://127.0.0.1:18081/_internkim/sdkd"
-const sdkdMaximumBodySize = 8 * 1024 * 1024
+const defaultLLMDEndpoint = "http://blueclaw-llmd"
+const llmdLoopbackBridgeEndpoint = "http://127.0.0.1:18081/_internkim/llmd"
+const llmdMaximumBodySize = 8 * 1024 * 1024
 
-type sdkdHTTPError struct {
+type llmdHTTPError struct {
 	StatusCode          int
 	Code                string
 	Message             string
@@ -24,7 +24,7 @@ type sdkdHTTPError struct {
 	Diagnostic          StructuredOutputDiagnostic
 }
 
-func (errorValue sdkdHTTPError) Error() string {
+func (errorValue llmdHTTPError) Error() string {
 	return errorValue.Message
 }
 
@@ -89,7 +89,7 @@ type StructuredOutputCorrection struct {
 	Diagnostic StructuredOutputDiagnostic
 }
 
-func (errorValue sdkdHTTPError) StructuredOutputCorrection() (StructuredOutputCorrection, bool) {
+func (errorValue llmdHTTPError) StructuredOutputCorrection() (StructuredOutputCorrection, bool) {
 	if errorValue.AllowLegacyFallback {
 		return StructuredOutputCorrection{}, false
 	}
@@ -130,26 +130,26 @@ func isCorrectableStructuredOutputCategory(category StructuredOutputDiagnosticCa
 }
 
 func StructuredOutputDiagnosticFromError(errorValue error) (StructuredOutputDiagnostic, bool) {
-	httpError, isHTTPError := asSDKDHTTPError(errorValue)
+	httpError, isHTTPError := asLLMDHTTPError(errorValue)
 	if !isHTTPError || httpError.Diagnostic.Category == "" {
 		return StructuredOutputDiagnostic{}, false
 	}
 	return httpError.Diagnostic, true
 }
 
-type sdkdTransportError struct {
+type llmdTransportError struct {
 	Cause error
 }
 
-func (errorValue sdkdTransportError) Error() string {
+func (errorValue llmdTransportError) Error() string {
 	return errorValue.Cause.Error()
 }
 
-func (errorValue sdkdTransportError) Unwrap() error {
+func (errorValue llmdTransportError) Unwrap() error {
 	return errorValue.Cause
 }
 
-type SDKDClientConfiguration struct {
+type LLMDClientConfiguration struct {
 	Endpoint                        string
 	UnixSocketPath                  string
 	AuthKey                         string
@@ -163,7 +163,7 @@ type SDKDClientConfiguration struct {
 	IsStructuredOutputAuthoritative bool
 }
 
-type SDKDClient struct {
+type LLMDClient struct {
 	Endpoint   string
 	HTTPClient interface {
 		Do(*http.Request) (*http.Response, error)
@@ -179,7 +179,7 @@ type SDKDClient struct {
 	IsStructuredOutputAuthoritative bool
 }
 
-type sdkdChatCompletionRequestDocument struct {
+type llmdChatCompletionRequestDocument struct {
 	Model             string                  `json:"model,omitempty"`
 	ExecutionMode     string                  `json:"executionMode"`
 	Context           *RequestContext         `json:"context,omitempty"`
@@ -190,10 +190,10 @@ type sdkdChatCompletionRequestDocument struct {
 	GenerationOptions *GenerationOptions      `json:"generationOptions,omitempty"`
 }
 
-func NewSDKDClient(configuration SDKDClientConfiguration) SDKDClient {
+func NewLLMDClient(configuration LLMDClientConfiguration) LLMDClient {
 	endpoint := strings.TrimRight(strings.TrimSpace(configuration.Endpoint), "/")
 	if endpoint == "" {
-		endpoint = defaultSDKDEndpoint
+		endpoint = defaultLLMDEndpoint
 	}
 	httpClient := &http.Client{}
 	if unixSocketPath := strings.TrimSpace(configuration.UnixSocketPath); unixSocketPath != "" {
@@ -203,7 +203,7 @@ func NewSDKDClient(configuration SDKDClientConfiguration) SDKDClient {
 			},
 		}
 	}
-	return SDKDClient{
+	return LLMDClient{
 		Endpoint:                        endpoint,
 		HTTPClient:                      httpClient,
 		AuthKey:                         strings.TrimSpace(configuration.AuthKey),
@@ -218,14 +218,14 @@ func NewSDKDClient(configuration SDKDClientConfiguration) SDKDClient {
 	}
 }
 
-func (client SDKDClient) GenerateResponse(responseContext context.Context, prompt string) (string, error) {
+func (client LLMDClient) GenerateResponse(responseContext context.Context, prompt string) (string, error) {
 	if client.TextProvider == nil {
-		return "", errors.New("sdkd text provider is not configured")
+		return "", errors.New("llmd text provider is not configured")
 	}
 	return client.TextProvider.GenerateResponse(responseContext, prompt)
 }
 
-func (client SDKDClient) GenerateRecoveryResponse(responseContext context.Context, prompt string) (string, error) {
+func (client LLMDClient) GenerateRecoveryResponse(responseContext context.Context, prompt string) (string, error) {
 	recoveryProvider, isRecoveryProvider := client.TextProvider.(RecoveryResponder)
 	if !isRecoveryProvider {
 		return client.GenerateResponse(responseContext, prompt)
@@ -233,7 +233,7 @@ func (client SDKDClient) GenerateRecoveryResponse(responseContext context.Contex
 	return recoveryProvider.GenerateRecoveryResponse(responseContext, prompt)
 }
 
-func (client SDKDClient) GenerateLocalRecoveryResponse(responseContext context.Context, prompt string) (string, error) {
+func (client LLMDClient) GenerateLocalRecoveryResponse(responseContext context.Context, prompt string) (string, error) {
 	localRecoveryProvider, isLocalRecoveryProvider := client.TextProvider.(LocalRecoveryResponder)
 	if !isLocalRecoveryProvider {
 		return client.GenerateResponse(responseContext, prompt)
@@ -241,33 +241,33 @@ func (client SDKDClient) GenerateLocalRecoveryResponse(responseContext context.C
 	return localRecoveryProvider.GenerateLocalRecoveryResponse(responseContext, prompt)
 }
 
-func (client SDKDClient) GenerateRecoveryChatCompletion(responseContext context.Context, request ChatCompletionRequest) (ChatCompletionResponse, error) {
+func (client LLMDClient) GenerateRecoveryChatCompletion(responseContext context.Context, request ChatCompletionRequest) (ChatCompletionResponse, error) {
 	if client.LocalOnly || client.executionMode() == "device" {
-		return client.generateSDKDRecoveryChatAttempt(responseContext, request, "device")
+		return client.generateLLMDRecoveryChatAttempt(responseContext, request, "device")
 	}
-	response, errorValue := client.generateSDKDRecoveryChatAttempt(responseContext, request, "auto")
+	response, errorValue := client.generateLLMDRecoveryChatAttempt(responseContext, request, "auto")
 	if errorValue == nil {
 		return response, nil
 	}
 	if contextError := responseContext.Err(); contextError != nil {
 		return response, contextError
 	}
-	if !shouldRetrySDKDRecovery(errorValue) {
+	if !shouldRetryLLMDRecovery(errorValue) {
 		return response, errorValue
 	}
-	return client.generateSDKDRecoveryChatAttempt(responseContext, request, "device")
+	return client.generateLLMDRecoveryChatAttempt(responseContext, request, "device")
 }
 
-func (client SDKDClient) GenerateLocalRecoveryChatCompletion(responseContext context.Context, request ChatCompletionRequest) (ChatCompletionResponse, error) {
-	return client.generateSDKDRecoveryChatAttempt(responseContext, request, "device")
+func (client LLMDClient) GenerateLocalRecoveryChatCompletion(responseContext context.Context, request ChatCompletionRequest) (ChatCompletionResponse, error) {
+	return client.generateLLMDRecoveryChatAttempt(responseContext, request, "device")
 }
 
-func (client SDKDClient) generateSDKDRecoveryChatAttempt(responseContext context.Context, request ChatCompletionRequest, executionMode string) (ChatCompletionResponse, error) {
+func (client LLMDClient) generateLLMDRecoveryChatAttempt(responseContext context.Context, request ChatCompletionRequest, executionMode string) (ChatCompletionResponse, error) {
 	attemptContext, cancelAttempt := recoveryAttemptContext(responseContext)
-	response, errorValue := client.generateSDKDChatCompletion(attemptContext, request, executionMode)
+	response, errorValue := client.generateLLMDChatCompletion(attemptContext, request, executionMode)
 	cancelAttempt()
 	if response.Transport == "" {
-		response.Transport = "sdkd"
+		response.Transport = "llmd"
 	}
 	if errorValue != nil {
 		return response, errorValue
@@ -279,18 +279,18 @@ func (client SDKDClient) generateSDKDRecoveryChatAttempt(responseContext context
 	return response, errorValue
 }
 
-func (client SDKDClient) GenerateStructuredResponse(responseContext context.Context, request StructuredResponseRequest) (StructuredResponse, error) {
-	if !client.usesSDKDForSchema(request.StructuredOutputSchema.Name) {
+func (client LLMDClient) GenerateStructuredResponse(responseContext context.Context, request StructuredResponseRequest) (StructuredResponse, error) {
+	if !client.usesLLMDForSchema(request.StructuredOutputSchema.Name) {
 		if client.LocalOnly || client.StructuredFallbackProvider == nil {
-			return StructuredResponse{}, errors.New("sdkd structured schema is not enabled")
+			return StructuredResponse{}, errors.New("llmd structured schema is not enabled")
 		}
 		response, errorValue := client.StructuredFallbackProvider.GenerateStructuredResponse(responseContext, request)
 		response.Transport = "capability"
 		return response, errorValue
 	}
-	response, errorValue := client.generateSDKDStructuredResponse(responseContext, request)
+	response, errorValue := client.generateLLMDStructuredResponse(responseContext, request)
 	if response.Transport == "" {
-		response.Transport = "sdkd"
+		response.Transport = "llmd"
 	}
 	if errorValue == nil || !client.canUseStructuredFallback(errorValue) {
 		return response, errorValue
@@ -304,29 +304,29 @@ func (client SDKDClient) GenerateStructuredResponse(responseContext context.Cont
 	return fallbackResponse, nil
 }
 
-func (client SDKDClient) canUseStructuredFallback(errorValue error) bool {
+func (client LLMDClient) canUseStructuredFallback(errorValue error) bool {
 	return !client.LocalOnly &&
 		!client.IsStructuredOutputAuthoritative &&
 		client.StructuredFallbackProvider != nil &&
-		canUseLegacySDKDFallback(errorValue)
+		canUseLegacyLLMDFallback(errorValue)
 }
 
-func (client SDKDClient) GenerateChatCompletion(responseContext context.Context, request ChatCompletionRequest) (ChatCompletionResponse, error) {
-	response, errorValue := client.generateSDKDChatCompletion(responseContext, request, client.executionMode())
+func (client LLMDClient) GenerateChatCompletion(responseContext context.Context, request ChatCompletionRequest) (ChatCompletionResponse, error) {
+	response, errorValue := client.generateLLMDChatCompletion(responseContext, request, client.executionMode())
 	if response.Transport == "" {
-		response.Transport = "sdkd"
+		response.Transport = "llmd"
 	}
 	return response, errorValue
 }
 
-func (client SDKDClient) generateSDKDChatCompletion(responseContext context.Context, request ChatCompletionRequest, executionMode string) (ChatCompletionResponse, error) {
+func (client LLMDClient) generateLLMDChatCompletion(responseContext context.Context, request ChatCompletionRequest, executionMode string) (ChatCompletionResponse, error) {
 	if client.HTTPClient == nil {
-		return ChatCompletionResponse{}, errors.New("sdkd http client is not configured")
+		return ChatCompletionResponse{}, errors.New("llmd http client is not configured")
 	}
-	if client.AuthKey == "" && client.Endpoint != sdkdLoopbackBridgeEndpoint {
-		return ChatCompletionResponse{}, errors.New("sdkd auth key is not configured")
+	if client.AuthKey == "" && client.Endpoint != llmdLoopbackBridgeEndpoint {
+		return ChatCompletionResponse{}, errors.New("llmd auth key is not configured")
 	}
-	requestDocument := sdkdChatCompletionRequestDocument{
+	requestDocument := llmdChatCompletionRequestDocument{
 		Model:             client.ModelName,
 		ExecutionMode:     executionMode,
 		Context:           requestContextPointer(responseContext),
@@ -340,59 +340,59 @@ func (client SDKDClient) generateSDKDChatCompletion(responseContext context.Cont
 	if errorValue := client.postJSON(responseContext, "/v1/llm/chat", requestDocument, &response); errorValue != nil {
 		return ChatCompletionResponse{}, errorValue
 	}
-	if errorValue := validateSDKDChatCompletionResponse(response, client.LocalOnly); errorValue != nil {
+	if errorValue := validateLLMDChatCompletionResponse(response, client.LocalOnly); errorValue != nil {
 		return ChatCompletionResponse{}, errorValue
 	}
 	if response.Message.ToolCalls == nil {
 		response.Message.ToolCalls = []ChatCompletionToolCall{}
 	}
-	response.Transport = "sdkd"
+	response.Transport = "llmd"
 	return response, nil
 }
 
-func validateSDKDChatCompletionResponse(response ChatCompletionResponse, isLocalOnly bool) error {
+func validateLLMDChatCompletionResponse(response ChatCompletionResponse, isLocalOnly bool) error {
 	if strings.TrimSpace(response.ProviderName) == "" || strings.TrimSpace(response.ModelName) == "" {
-		return errors.New("sdkd chat response provider and model are required")
+		return errors.New("llmd chat response provider and model are required")
 	}
 	if response.Message.Role != "assistant" {
-		return errors.New("sdkd chat response message role must be assistant")
+		return errors.New("llmd chat response message role must be assistant")
 	}
 	if response.SelectedBackend != "device" && response.SelectedBackend != "remote" {
-		return errors.New("sdkd chat response selected backend is invalid")
+		return errors.New("llmd chat response selected backend is invalid")
 	}
 	if isLocalOnly && response.SelectedBackend == "remote" {
-		return errors.New("sdkd remote chat response is forbidden in local-only mode")
+		return errors.New("llmd remote chat response is forbidden in local-only mode")
 	}
-	if !isSDKDChatCompletionFinishReason(response.FinishReason) {
-		return errors.New("sdkd chat response finish reason is invalid")
+	if !isLLMDChatCompletionFinishReason(response.FinishReason) {
+		return errors.New("llmd chat response finish reason is invalid")
 	}
 	if response.FinishReason == "tool_calls" && len(response.Message.ToolCalls) == 0 {
-		return errors.New("sdkd chat response tool_calls finish reason requires tool calls")
+		return errors.New("llmd chat response tool_calls finish reason requires tool calls")
 	}
 	seenToolCallIDs := make(map[string]struct{}, len(response.Message.ToolCalls))
 	for _, toolCall := range response.Message.ToolCalls {
 		normalizedToolCallID := strings.TrimSpace(toolCall.ID)
 		if normalizedToolCallID == "" {
-			return errors.New("sdkd chat response tool call id is required")
+			return errors.New("llmd chat response tool call id is required")
 		}
 		if _, isDuplicate := seenToolCallIDs[normalizedToolCallID]; isDuplicate {
-			return errors.New("sdkd chat response tool call id must be unique")
+			return errors.New("llmd chat response tool call id must be unique")
 		}
 		seenToolCallIDs[normalizedToolCallID] = struct{}{}
 		if toolCall.Type != "function" {
-			return errors.New("sdkd chat response tool call type is invalid")
+			return errors.New("llmd chat response tool call type is invalid")
 		}
 		if strings.TrimSpace(toolCall.Function.Name) == "" {
-			return errors.New("sdkd chat response tool call name is required")
+			return errors.New("llmd chat response tool call name is required")
 		}
 		if !isJSONDocumentObject(toolCall.Function.Arguments) {
-			return errors.New("sdkd chat response tool call arguments must be a JSON object")
+			return errors.New("llmd chat response tool call arguments must be a JSON object")
 		}
 	}
 	return nil
 }
 
-func isSDKDChatCompletionFinishReason(finishReason string) bool {
+func isLLMDChatCompletionFinishReason(finishReason string) bool {
 	switch finishReason {
 	case "stop", "length", "tool_calls", "content_filter", "error", "other", "unknown":
 		return true
@@ -409,12 +409,12 @@ func isJSONDocumentObject(document string) bool {
 	return parsedDocument != nil
 }
 
-func (client SDKDClient) generateSDKDStructuredResponse(responseContext context.Context, request StructuredResponseRequest) (StructuredResponse, error) {
+func (client LLMDClient) generateLLMDStructuredResponse(responseContext context.Context, request StructuredResponseRequest) (StructuredResponse, error) {
 	if client.HTTPClient == nil {
-		return StructuredResponse{}, errors.New("sdkd http client is not configured")
+		return StructuredResponse{}, errors.New("llmd http client is not configured")
 	}
-	if client.AuthKey == "" && client.Endpoint != sdkdLoopbackBridgeEndpoint {
-		return StructuredResponse{}, errors.New("sdkd auth key is not configured")
+	if client.AuthKey == "" && client.Endpoint != llmdLoopbackBridgeEndpoint {
+		return StructuredResponse{}, errors.New("llmd auth key is not configured")
 	}
 	requestDocument, errorValue := client.buildStructuredRequestDocument(responseContext, request)
 	if errorValue != nil {
@@ -424,11 +424,11 @@ func (client SDKDClient) generateSDKDStructuredResponse(responseContext context.
 	if errorValue = client.postJSON(responseContext, "/v1/llm/structured", requestDocument, &responseDocument); errorValue != nil {
 		return StructuredResponse{}, errorValue
 	}
-	if errorValue = validateSDKDStructuredResponse(responseDocument, client.LocalOnly); errorValue != nil {
+	if errorValue = validateLLMDStructuredResponse(responseDocument, client.LocalOnly); errorValue != nil {
 		return StructuredResponse{}, errorValue
 	}
 	return StructuredResponse{
-		Transport:       "sdkd",
+		Transport:       "llmd",
 		ProviderName:    strings.TrimSpace(responseDocument.ProviderName),
 		ModelName:       strings.TrimSpace(responseDocument.ModelName),
 		Content:         responseDocument.Content,
@@ -439,26 +439,26 @@ func (client SDKDClient) generateSDKDStructuredResponse(responseContext context.
 	}, nil
 }
 
-func validateSDKDStructuredResponse(response capabilityStructuredResponseDocument, isLocalOnly bool) error {
+func validateLLMDStructuredResponse(response capabilityStructuredResponseDocument, isLocalOnly bool) error {
 	if strings.TrimSpace(response.ProviderName) == "" || strings.TrimSpace(response.ModelName) == "" {
-		return errors.New("sdkd response provider and model are required")
+		return errors.New("llmd response provider and model are required")
 	}
 	if strings.TrimSpace(response.Content) == "" {
-		return errors.New("sdkd response content is required")
+		return errors.New("llmd response content is required")
 	}
 	if response.SelectedBackend != "device" && response.SelectedBackend != "remote" {
-		return errors.New("sdkd response selected backend is invalid")
+		return errors.New("llmd response selected backend is invalid")
 	}
 	if isLocalOnly && response.SelectedBackend == "remote" {
-		return errors.New("sdkd remote response is forbidden in local-only mode")
+		return errors.New("llmd remote response is forbidden in local-only mode")
 	}
 	if response.FinishReason != "stop" {
-		return errors.New("sdkd response did not finish successfully")
+		return errors.New("llmd response did not finish successfully")
 	}
 	return nil
 }
 
-func (client SDKDClient) usesSDKDForSchema(schemaName string) bool {
+func (client LLMDClient) usesLLMDForSchema(schemaName string) bool {
 	if len(client.StructuredSchemaNames) == 0 {
 		return true
 	}
@@ -470,7 +470,7 @@ func (client SDKDClient) usesSDKDForSchema(schemaName string) bool {
 	return false
 }
 
-func (client SDKDClient) buildStructuredRequestDocument(responseContext context.Context, request StructuredResponseRequest) (capabilityStructuredResponseRequestDocument, error) {
+func (client LLMDClient) buildStructuredRequestDocument(responseContext context.Context, request StructuredResponseRequest) (capabilityStructuredResponseRequestDocument, error) {
 	jsonSchemaDocument, errorValue := normalizeStructuredOutputSchema(request.StructuredOutputSchema)
 	if errorValue != nil {
 		return capabilityStructuredResponseRequestDocument{}, errorValue
@@ -490,13 +490,13 @@ func (client SDKDClient) buildStructuredRequestDocument(responseContext context.
 	}, nil
 }
 
-func (client SDKDClient) postJSON(responseContext context.Context, path string, requestDocument any, responseDocument any) error {
+func (client LLMDClient) postJSON(responseContext context.Context, path string, requestDocument any, responseDocument any) error {
 	requestBody, errorValue := json.Marshal(requestDocument)
 	if errorValue != nil {
 		return errorValue
 	}
-	if len(requestBody) > sdkdMaximumBodySize {
-		return errors.New("sdkd request exceeds 8 MiB")
+	if len(requestBody) > llmdMaximumBodySize {
+		return errors.New("llmd request exceeds 8 MiB")
 	}
 	httpRequest, errorValue := http.NewRequestWithContext(
 		responseContext,
@@ -513,15 +513,15 @@ func (client SDKDClient) postJSON(responseContext context.Context, path string, 
 	httpRequest.Header.Set("Content-Type", "application/json")
 	httpResponse, errorValue := client.HTTPClient.Do(httpRequest)
 	if errorValue != nil {
-		return sdkdTransportError{Cause: errorValue}
+		return llmdTransportError{Cause: errorValue}
 	}
 	defer httpResponse.Body.Close()
-	responseBody, errorValue := io.ReadAll(io.LimitReader(httpResponse.Body, sdkdMaximumBodySize+1))
+	responseBody, errorValue := io.ReadAll(io.LimitReader(httpResponse.Body, llmdMaximumBodySize+1))
 	if errorValue != nil {
-		return sdkdTransportError{Cause: errorValue}
+		return llmdTransportError{Cause: errorValue}
 	}
-	if len(responseBody) > sdkdMaximumBodySize {
-		return errors.New("sdkd response exceeds 8 MiB")
+	if len(responseBody) > llmdMaximumBodySize {
+		return errors.New("llmd response exceeds 8 MiB")
 	}
 	if httpResponse.StatusCode < http.StatusOK || httpResponse.StatusCode >= http.StatusMultipleChoices {
 		var errorDocument struct {
@@ -532,7 +532,7 @@ func (client SDKDClient) postJSON(responseContext context.Context, path string, 
 			} `json:"error"`
 		}
 		_ = json.Unmarshal(responseBody, &errorDocument)
-		return sdkdHTTPError{
+		return llmdHTTPError{
 			StatusCode:          httpResponse.StatusCode,
 			Code:                strings.TrimSpace(errorDocument.Error.Code),
 			Message:             strings.TrimSpace(string(responseBody)),
@@ -569,7 +569,7 @@ func parseStructuredOutputDiagnostic(document json.RawMessage) StructuredOutputD
 	if normalizedCategory != StructuredOutputDiagnosticFinishReason && normalizedFinishReason != "" {
 		return StructuredOutputDiagnostic{}
 	}
-	if normalizedFinishReason != "" && !isSDKDChatCompletionFinishReason(string(normalizedFinishReason)) {
+	if normalizedFinishReason != "" && !isLLMDChatCompletionFinishReason(string(normalizedFinishReason)) {
 		return StructuredOutputDiagnostic{}
 	}
 	if !isStructuredOutputDiagnosticToolName(normalizedToolName) ||
@@ -634,22 +634,22 @@ func isStructuredOutputDiagnosticCategory(category StructuredOutputDiagnosticCat
 	}
 }
 
-func canUseLegacySDKDFallback(errorValue error) bool {
-	if isSDKDTransportError(errorValue) {
+func canUseLegacyLLMDFallback(errorValue error) bool {
+	if isLLMDTransportError(errorValue) {
 		return true
 	}
-	httpError, isHTTPError := asSDKDHTTPError(errorValue)
+	httpError, isHTTPError := asLLMDHTTPError(errorValue)
 	return isHTTPError &&
 		httpError.AllowLegacyFallback &&
-		httpError.Code == "sdkd_bridge_unavailable" &&
+		httpError.Code == "llmd_bridge_unavailable" &&
 		httpError.StatusCode == http.StatusServiceUnavailable
 }
 
-func shouldRetrySDKDRecovery(errorValue error) bool {
-	if isSDKDTransportError(errorValue) {
+func shouldRetryLLMDRecovery(errorValue error) bool {
+	if isLLMDTransportError(errorValue) {
 		return true
 	}
-	httpError, isHTTPError := asSDKDHTTPError(errorValue)
+	httpError, isHTTPError := asLLMDHTTPError(errorValue)
 	if !isHTTPError || !httpError.AllowLegacyFallback {
 		return false
 	}
@@ -658,28 +658,28 @@ func shouldRetrySDKDRecovery(errorValue error) bool {
 		return httpError.StatusCode == http.StatusTooManyRequests
 	case "provider_unavailable":
 		return httpError.StatusCode >= http.StatusInternalServerError
-	case "sdkd_bridge_unavailable":
+	case "llmd_bridge_unavailable":
 		return httpError.StatusCode == http.StatusServiceUnavailable
 	default:
 		return false
 	}
 }
 
-func isSDKDTransportError(errorValue error) bool {
+func isLLMDTransportError(errorValue error) bool {
 	if errors.Is(errorValue, context.Canceled) || errors.Is(errorValue, context.DeadlineExceeded) {
 		return false
 	}
-	var transportError sdkdTransportError
+	var transportError llmdTransportError
 	return errors.As(errorValue, &transportError)
 }
 
-func asSDKDHTTPError(errorValue error) (sdkdHTTPError, bool) {
-	var httpError sdkdHTTPError
+func asLLMDHTTPError(errorValue error) (llmdHTTPError, bool) {
+	var httpError llmdHTTPError
 	isHTTPError := errors.As(errorValue, &httpError)
 	return httpError, isHTTPError
 }
 
-func (client SDKDClient) executionMode() string {
+func (client LLMDClient) executionMode() string {
 	if client.ExecutionMode == "" {
 		return "auto"
 	}

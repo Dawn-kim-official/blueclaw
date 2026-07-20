@@ -37,8 +37,8 @@ import {
 } from 'ai';
 import Ajv, { type ErrorObject } from 'ajv/dist/2020.js';
 
-import { SDKDAutoRoute, type SDKDConfiguration } from './configuration.ts';
-import { classifySDKDError, isRetryableProviderError, SDKDError } from './errors.ts';
+import { LLMDAutoRoute, type LLMDConfiguration } from './configuration.ts';
+import { classifyLLMDError, isRetryableProviderError, LLMDError } from './errors.ts';
 
 type ProviderRoute = {
   constraintMode?: StructuredOutputConstraintMode.NativeToolCall;
@@ -68,7 +68,7 @@ type DynamicToolSet = Record<string, DynamicTool>;
 type ChatProviderMetadata = NonNullable<ChatCompletionResponse['providerMetadata']>;
 
 export function createStructuredResponseGenerator(
-  configuration: SDKDConfiguration,
+  configuration: LLMDConfiguration,
   languageModelFactory: ProviderLanguageModelFactory = defaultLanguageModelFactory,
 ): StructuredResponseGenerator {
   return async (request, abortSignal) => {
@@ -86,13 +86,13 @@ export function createStructuredResponseGenerator(
         if (!isRetryableProviderError(errorValue)) break;
       }
     }
-    if (lastError !== undefined) throw classifySDKDError(lastError);
-    throw new SDKDError('configuration_invalid', 503, false, 'no configured language model route accepted the request');
+    if (lastError !== undefined) throw classifyLLMDError(lastError);
+    throw new LLMDError('configuration_invalid', 503, false, 'no configured language model route accepted the request');
   };
 }
 
 export function createChatCompletionGenerator(
-  configuration: SDKDConfiguration,
+  configuration: LLMDConfiguration,
   languageModelFactory: ProviderLanguageModelFactory = defaultLanguageModelFactory,
 ): ChatCompletionGenerator {
   return async (request, abortSignal) => {
@@ -109,14 +109,14 @@ export function createChatCompletionGenerator(
         if (!isRetryableProviderError(errorValue)) break;
       }
     }
-    if (lastError !== undefined) throw classifySDKDError(lastError);
-    throw new SDKDError('configuration_invalid', 503, false, 'no configured language model route accepted the request');
+    if (lastError !== undefined) throw classifyLLMDError(lastError);
+    throw new LLMDError('configuration_invalid', 503, false, 'no configured language model route accepted the request');
   };
 }
 
 function resolveProviderRoutes(
   request: ProviderRequest,
-  configuration: SDKDConfiguration,
+  configuration: LLMDConfiguration,
   languageModelFactory: ProviderLanguageModelFactory,
   requireStructuredOutputs = true,
 ): ProviderRoute[] {
@@ -124,14 +124,14 @@ function resolveProviderRoutes(
   if (request.executionMode === ExecutionMode.Device) return [createLlamaRoute(configuration, languageModelFactory, requireStructuredOutputs, parallelToolCalls)];
   if (request.executionMode === ExecutionMode.Remote) {
     if (configuration.localOnly) {
-      throw new SDKDError('policy_remote_disabled', 403, false, 'remote routing is disabled by local-only mode');
+      throw new LLMDError('policy_remote_disabled', 403, false, 'remote routing is disabled by local-only mode');
     }
     return [createOpenRouterRoute(request, configuration, languageModelFactory, parallelToolCalls)];
   }
   if (request.executionMode === ExecutionMode.Companion) throw new Error('companion language model routing is provided by InternKim');
   const routes = configuration.localOnly
     ? [optionalLlamaRoute(configuration, languageModelFactory, requireStructuredOutputs, parallelToolCalls)]
-    : configuration.autoRoute === SDKDAutoRoute.LocalFirst
+    : configuration.autoRoute === LLMDAutoRoute.LocalFirst
       ? [
           optionalLlamaRoute(configuration, languageModelFactory, requireStructuredOutputs, parallelToolCalls),
           optionalOpenRouterRoute(request, configuration, languageModelFactory, parallelToolCalls),
@@ -142,7 +142,7 @@ function resolveProviderRoutes(
         ];
   const configuredRoutes = routes.filter(route => route !== undefined);
   if (configuredRoutes.length === 0) {
-    throw new SDKDError('configuration_invalid', 503, false, 'auto routing requires an OpenRouter or llama.cpp configuration');
+    throw new LLMDError('configuration_invalid', 503, false, 'auto routing requires an OpenRouter or llama.cpp configuration');
   }
   return configuredRoutes;
 }
@@ -154,7 +154,7 @@ function parallelToolCallsForRoute(request: ProviderRequest, requireStructuredOu
 }
 
 function optionalLlamaRoute(
-  configuration: SDKDConfiguration,
+  configuration: LLMDConfiguration,
   languageModelFactory: ProviderLanguageModelFactory,
   requireStructuredOutputs = true,
   parallelToolCalls?: boolean,
@@ -168,7 +168,7 @@ function optionalLlamaRoute(
 
 function optionalOpenRouterRoute(
   request: ProviderRequest,
-  configuration: SDKDConfiguration,
+  configuration: LLMDConfiguration,
   languageModelFactory: ProviderLanguageModelFactory,
   parallelToolCalls?: boolean,
 ): ProviderRoute | undefined {
@@ -177,16 +177,16 @@ function optionalOpenRouterRoute(
 }
 
 function createLlamaRoute(
-  configuration: SDKDConfiguration,
+  configuration: LLMDConfiguration,
   languageModelFactory: ProviderLanguageModelFactory,
   requireStructuredOutputs = true,
   parallelToolCalls?: boolean,
 ): ProviderRoute {
   if (!configuration.llamaBaseURL || !configuration.llamaModel) {
-    throw new SDKDError('configuration_invalid', 503, false, 'device routing requires BLUECLAW_SDKD_LLAMA_BASE_URL and BLUECLAW_SDKD_LLAMA_MODEL');
+    throw new LLMDError('configuration_invalid', 503, false, 'device routing requires BLUECLAW_LLMD_LLAMA_BASE_URL and BLUECLAW_LLMD_LLAMA_MODEL');
   }
   if (requireStructuredOutputs && !configuration.llamaStructuredOutputsEnabled) {
-    throw new SDKDError('configuration_invalid', 503, false, 'device structured output routing requires explicit conformance enablement');
+    throw new LLMDError('configuration_invalid', 503, false, 'device structured output routing requires explicit conformance enablement');
   }
   return {
     constraintMode: StructuredOutputConstraintMode.NativeToolCall,
@@ -204,15 +204,15 @@ function createLlamaRoute(
 
 function createOpenRouterRoute(
   request: ProviderRequest,
-  configuration: SDKDConfiguration,
+  configuration: LLMDConfiguration,
   languageModelFactory: ProviderLanguageModelFactory,
   parallelToolCalls?: boolean,
 ): ProviderRoute {
   if (!configuration.openRouterAPIKey) {
-    throw new SDKDError('configuration_invalid', 503, false, 'remote routing requires OPENROUTER_API_KEY');
+    throw new LLMDError('configuration_invalid', 503, false, 'remote routing requires OPENROUTER_API_KEY');
   }
   const modelName = request.model?.trim();
-  if (!modelName) throw new SDKDError('request_invalid', 400, false, 'remote routing requires a model');
+  if (!modelName) throw new LLMDError('request_invalid', 400, false, 'remote routing requires a model');
   return {
     constraintMode: StructuredOutputConstraintMode.NativeToolCall,
     languageModel: languageModelFactory.createOpenRouterLanguageModel(
@@ -442,8 +442,8 @@ function serializeStructuredOutput(value: unknown): string {
   throw structuredOutputSerializationError();
 }
 
-function structuredOutputSerializationError(): SDKDError {
-  return new SDKDError(
+function structuredOutputSerializationError(): LLMDError {
+  return new LLMDError(
     'structured_output_invalid',
     422,
     false,
@@ -457,7 +457,7 @@ function requireStructuredOutputToolCall(
   toolName: string,
 ) {
   if (result.finishReason !== 'tool-calls') {
-    throw new SDKDError(
+    throw new LLMDError(
       'structured_output_invalid',
       422,
       false,
@@ -469,7 +469,7 @@ function requireStructuredOutputToolCall(
     );
   }
   if (result.toolCalls.length !== 1) {
-    throw new SDKDError(
+    throw new LLMDError(
       'structured_output_invalid',
       422,
       false,
@@ -479,7 +479,7 @@ function requireStructuredOutputToolCall(
   }
   const toolCall = result.toolCalls[0];
   if (toolCall === undefined || toolCall.toolName !== toolName) {
-    throw new SDKDError(
+    throw new LLMDError(
       'structured_output_invalid',
       422,
       false,
@@ -488,7 +488,7 @@ function requireStructuredOutputToolCall(
     );
   }
   if (toolCall.invalid) {
-    throw new SDKDError(
+    throw new LLMDError(
       'structured_output_invalid',
       422,
       false,
@@ -622,7 +622,7 @@ async function generateChatForRoute(
   for (const toolCall of result.toolCalls) {
     if (!toolCall.invalid) continue;
     const toolName = tools[toolCall.toolName] === undefined ? undefined : toolCall.toolName;
-    throw new SDKDError(
+    throw new LLMDError(
       'provider_response_invalid',
       502,
       false,
@@ -729,7 +729,7 @@ function isNamedToolChoice(
 
 function requireToolCallFinishReason(result: StructuredOutputToolResult, subject: string): void {
   if (result.finishReason === 'tool-calls') return;
-  throw new SDKDError(
+  throw new LLMDError(
     'structured_output_invalid',
     422,
     false,
@@ -741,8 +741,8 @@ function requireToolCallFinishReason(result: StructuredOutputToolResult, subject
   );
 }
 
-function toolCallContractError(message: string): SDKDError {
-  return new SDKDError(
+function toolCallContractError(message: string): LLMDError {
+  return new LLMDError(
     'structured_output_invalid',
     422,
     false,
@@ -756,7 +756,7 @@ function createChatTools(request: ChatCompletionRequest): DynamicToolSet {
   for (const tool of request.tools ?? []) {
     const parameters = tool.function.parameters;
     if (!isJSONSchema(parameters)) {
-      throw new SDKDError('request_invalid', 400, false, `tool ${tool.function.name} parameters must be a JSON schema object`);
+      throw new LLMDError('request_invalid', 400, false, `tool ${tool.function.name} parameters must be a JSON schema object`);
     }
     tools[tool.function.name] = {
       description: tool.function.description,
@@ -774,14 +774,14 @@ function convertToolChoice(toolChoice: unknown, toolNames: string[]): ToolChoice
   if (toolChoice === undefined || toolChoice === null) return undefined;
   if (toolChoice === 'auto' || toolChoice === 'none' || toolChoice === 'required') return toolChoice;
   if (!isRecord(toolChoice) || toolChoice.type !== 'function' || !isRecord(toolChoice.function)) {
-    throw new SDKDError('request_invalid', 400, false, 'tool choice must be auto, none, required, or a function choice');
+    throw new LLMDError('request_invalid', 400, false, 'tool choice must be auto, none, required, or a function choice');
   }
   const toolName = toolChoice.function.name;
   if (typeof toolName !== 'string' || toolName.trim() === '') {
-    throw new SDKDError('request_invalid', 400, false, 'tool choice function name is required');
+    throw new LLMDError('request_invalid', 400, false, 'tool choice function name is required');
   }
   if (!toolNames.includes(toolName)) {
-    throw new SDKDError('request_invalid', 400, false, `tool choice references unknown tool ${toolName}`);
+    throw new LLMDError('request_invalid', 400, false, `tool choice references unknown tool ${toolName}`);
   }
   return { type: 'tool', toolName };
 }
@@ -792,7 +792,7 @@ function convertChatMessages(request: ChatCompletionRequest): ModelMessage[] {
     if (message.role === 'user') return { role: 'user', content: message.content ?? '' };
     if (message.role === 'assistant') return assistantMessage(message);
     const toolName = toolNames.get(message.toolCallId ?? '');
-    if (!toolName) throw new SDKDError('request_invalid', 400, false, `tool result ${message.toolCallId ?? ''} has no matching tool call`);
+    if (!toolName) throw new LLMDError('request_invalid', 400, false, `tool result ${message.toolCallId ?? ''} has no matching tool call`);
     return {
       role: 'tool',
       content: [{
@@ -836,7 +836,7 @@ function toolResultOutput(content: string) {
 
 function parseToolArguments(argumentsText: string): unknown {
   const parsedArguments = parseJSONValue(argumentsText);
-  if (parsedArguments === undefined) throw new SDKDError('request_invalid', 400, false, 'tool call arguments must be valid JSON');
+  if (parsedArguments === undefined) throw new LLMDError('request_invalid', 400, false, 'tool call arguments must be valid JSON');
   return parsedArguments;
 }
 
@@ -887,9 +887,9 @@ function serializableProviderMetadata(providerMetadata: unknown): ChatProviderMe
     const serializedMetadata: unknown = JSON.parse(JSON.stringify(providerMetadata));
     if (isChatProviderMetadata(serializedMetadata)) return serializedMetadata;
   } catch {
-    throw new SDKDError('provider_response_invalid', 502, false, 'provider metadata is not serializable');
+    throw new LLMDError('provider_response_invalid', 502, false, 'provider metadata is not serializable');
   }
-  throw new SDKDError('provider_response_invalid', 502, false, 'provider metadata is not serializable');
+  throw new LLMDError('provider_response_invalid', 502, false, 'provider metadata is not serializable');
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -914,7 +914,7 @@ function isChatProviderMetadata(value: unknown): value is ChatProviderMetadata {
 
 function createValidatedJSONSchema(document: unknown) {
   if (!isJSONSchema(document)) {
-    throw new SDKDError('request_invalid', 400, false, 'JSON schema must be an object');
+    throw new LLMDError('request_invalid', 400, false, 'JSON schema must be an object');
   }
   const validationDocument = createClosedJSONSchema(document);
   const ajv = new Ajv({ allErrors: true, strict: false });
@@ -922,7 +922,7 @@ function createValidatedJSONSchema(document: unknown) {
   try {
     validator = ajv.compile(validationDocument);
   } catch (errorValue) {
-    throw new SDKDError('request_invalid', 400, false, errorValue instanceof Error ? errorValue.message : 'JSON schema is invalid');
+    throw new LLMDError('request_invalid', 400, false, errorValue instanceof Error ? errorValue.message : 'JSON schema is invalid');
   }
   return jsonSchema(document, {
     validate(value) {
@@ -938,7 +938,7 @@ function createValidatedJSONSchema(document: unknown) {
 
 function validateStructuredOutputRequest(request: StructuredResponseRequest): void {
   if (structuredOutputSchemaSchema.safeParse(request.structuredOutputSchema).success) return;
-  throw new SDKDError('request_invalid', 400, false, 'structured output schema request is invalid');
+  throw new LLMDError('request_invalid', 400, false, 'structured output schema request is invalid');
 }
 
 function removeOptionalNullProperties(value: unknown, schema: unknown): unknown {

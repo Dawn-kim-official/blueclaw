@@ -30,7 +30,7 @@ type Result struct {
 	Passed         bool           `json:"passed"`
 	Expected       Identity       `json:"expected"`
 	Capabilityd    EndpointStatus `json:"capabilityd"`
-	SDKD           EndpointStatus `json:"sdkd"`
+	LLMD           EndpointStatus `json:"llmd"`
 	FailureReasons []string       `json:"failureReasons,omitempty"`
 	CheckedAt      time.Time      `json:"checkedAt"`
 }
@@ -41,19 +41,19 @@ type HTTPDoer interface {
 
 type Configuration struct {
 	CapabilityEndpoint   string
-	SDKDBridgeEndpoint   string
+	LLMDBridgeEndpoint   string
 	Timeout              time.Duration
 	HTTPClient           HTTPDoer
 	CapabilityHTTPClient HTTPDoer
-	SDKDHTTPClient       HTTPDoer
+	LLMDHTTPClient       HTTPDoer
 }
 
 type Checker struct {
 	capabilityEndpoint   string
-	sdkdEndpoint         string
+	llmdEndpoint         string
 	timeout              time.Duration
 	capabilityHTTPClient HTTPDoer
-	sdkdHTTPClient       HTTPDoer
+	llmdHTTPClient       HTTPDoer
 }
 
 type identityResponse struct {
@@ -74,16 +74,16 @@ func NewChecker(configuration Configuration) Checker {
 	if capabilityHTTPClient == nil {
 		capabilityHTTPClient = defaultHTTPClient
 	}
-	sdkdHTTPClient := configuration.SDKDHTTPClient
-	if sdkdHTTPClient == nil {
-		sdkdHTTPClient = defaultHTTPClient
+	llmdHTTPClient := configuration.LLMDHTTPClient
+	if llmdHTTPClient == nil {
+		llmdHTTPClient = defaultHTTPClient
 	}
 	return Checker{
 		capabilityEndpoint:   strings.TrimRight(strings.TrimSpace(configuration.CapabilityEndpoint), "/"),
-		sdkdEndpoint:         strings.TrimRight(strings.TrimSpace(configuration.SDKDBridgeEndpoint), "/"),
+		llmdEndpoint:         strings.TrimRight(strings.TrimSpace(configuration.LLMDBridgeEndpoint), "/"),
 		timeout:              timeout,
 		capabilityHTTPClient: capabilityHTTPClient,
-		sdkdHTTPClient:       sdkdHTTPClient,
+		llmdHTTPClient:       llmdHTTPClient,
 	}
 }
 
@@ -108,17 +108,17 @@ func (checker Checker) Check(ctx context.Context, expected Identity) Result {
 	if errorValue := ValidateIdentity(expected); errorValue != nil {
 		result.FailureReasons = append(result.FailureReasons, "expected identity is invalid: "+errorValue.Error())
 		result.Capabilityd = unavailableStatus(errorValue)
-		result.SDKD = unavailableStatus(errorValue)
+		result.LLMD = unavailableStatus(errorValue)
 		return result
 	}
 	requestContext, cancel := context.WithTimeout(ctx, checker.timeout)
 	defer cancel()
 	result.Capabilityd = checker.checkEndpoint(requestContext, checker.capabilityEndpoint, "/v1/capabilities", expected, "", checker.capabilityHTTPClient)
-	result.SDKD = checker.checkEndpoint(requestContext, checker.sdkdEndpoint, "/health", expected, "ok", checker.sdkdHTTPClient)
+	result.LLMD = checker.checkEndpoint(requestContext, checker.llmdEndpoint, "/health", expected, "ok", checker.llmdHTTPClient)
 	result.FailureReasons = append(result.FailureReasons, endpointFailureReason("capabilityd", result.Capabilityd))
-	result.FailureReasons = append(result.FailureReasons, endpointFailureReason("sdkd", result.SDKD))
+	result.FailureReasons = append(result.FailureReasons, endpointFailureReason("llmd", result.LLMD))
 	result.FailureReasons = compactFailureReasons(result.FailureReasons)
-	result.Passed = result.Capabilityd.Passed && result.SDKD.Passed
+	result.Passed = result.Capabilityd.Passed && result.LLMD.Passed
 	return result
 }
 

@@ -219,15 +219,15 @@ Blueclaw uses a single secretless LLM provider named `capabilityLLM`. OpenRouter
 }
 ```
 
-The AI SDK runtime is under `sdkd/`. Selecting `sdkd` or enabling its shadow observer requires a private Unix socket and an installation auth key file. Chat generation and the six structured schemas below use SDKD. When `defaultProvider` is `sdkd`, structured output is authoritative and contract failures do not fall through to `capabilityLLM`.
+The AI SDK runtime is under `llmd/`. Selecting `llmd` or enabling its shadow observer requires a private Unix socket and an installation auth key file. Chat generation and the six structured schemas below use LLMD. When `defaultProvider` is `llmd`, structured output is authoritative and contract failures do not fall through to `capabilityLLM`.
 
 ```json
 {
   "languageModel": {
     "defaultProvider": "capabilityLLM",
-    "sdkd": {
-      "unixSocketPath": "/run/blueclaw-sdkd/sdkd.sock",
-      "authKeyPath": "/run/credentials/sdkd-auth-key",
+    "llmd": {
+      "unixSocketPath": "/run/blueclaw-llmd/llmd.sock",
+      "authKeyPath": "/run/credentials/llmd-auth-key",
       "executionMode": "auto",
       "timeoutSecond": 60,
       "shadowEnabled": false,

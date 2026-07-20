@@ -85,16 +85,16 @@ func TestTaskRunHandlerLaunchIgnoresClientCancellation(t *testing.T) {
 	}
 }
 
-func TestTaskRunHandlerUsesSDKDTopologyPresetWithoutIntakeCall(t *testing.T) {
+func TestTaskRunHandlerUsesLLMDTopologyPresetWithoutIntakeCall(t *testing.T) {
 	handler, taskRunService, taskEventService, languageModel := newPresetTaskRunHandler(true)
-	presetDecision, _, errorValue := handler.resolveTaskDecisionPreset(sdkdTopologyTaskDecisionPreset)
+	presetDecision, _, errorValue := handler.resolveTaskDecisionPreset(llmdTopologyTaskDecisionPreset)
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
 	if presetDecision.TaskLevel != agent.TaskLevelXLow {
 		t.Fatalf("expected xlow diagnostic task level, got %s", presetDecision.TaskLevel)
 	}
-	request := httptest.NewRequest(http.MethodPost, "/admin/api/task/run", strings.NewReader(`{"requesterPersonID":"person-1","prompt":"reply exactly","taskDecisionPreset":"sdkd_topology"}`))
+	request := httptest.NewRequest(http.MethodPost, "/admin/api/task/run", strings.NewReader(`{"requesterPersonID":"person-1","prompt":"reply exactly","taskDecisionPreset":"llmd_topology"}`))
 	responseRecorder := httptest.NewRecorder()
 
 	handler.HandleRunTask(responseRecorder, request)
@@ -131,7 +131,7 @@ func TestTaskRunHandlerRejectsTaskDecisionPresetOverrides(t *testing.T) {
 	for _, override := range overrides {
 		t.Run(override, func(t *testing.T) {
 			handler, taskRunService, _, _ := newPresetTaskRunHandler(true)
-			body := `{"requesterPersonID":"person-1","prompt":"reply exactly","taskDecisionPreset":"sdkd_topology",` + override + `}`
+			body := `{"requesterPersonID":"person-1","prompt":"reply exactly","taskDecisionPreset":"llmd_topology",` + override + `}`
 			request := httptest.NewRequest(http.MethodPost, "/admin/api/task/run", strings.NewReader(body))
 			responseRecorder := httptest.NewRecorder()
 
@@ -149,7 +149,7 @@ func TestTaskRunHandlerRejectsTaskDecisionPresetOverrides(t *testing.T) {
 
 func TestTaskRunHandlerRejectsDisabledTaskDecisionPresetBeforeLaunch(t *testing.T) {
 	handler, taskRunService, _, _ := newPresetTaskRunHandler(false)
-	request := httptest.NewRequest(http.MethodPost, "/admin/api/task/run", strings.NewReader(`{"requesterPersonID":"person-1","prompt":"reply exactly","taskDecisionPreset":"sdkd_topology"}`))
+	request := httptest.NewRequest(http.MethodPost, "/admin/api/task/run", strings.NewReader(`{"requesterPersonID":"person-1","prompt":"reply exactly","taskDecisionPreset":"llmd_topology"}`))
 	responseRecorder := httptest.NewRecorder()
 
 	handler.HandleRunTask(responseRecorder, request)
@@ -265,7 +265,7 @@ func newPresetTaskRunHandler(isPresetAllowed bool) (TaskRunHandler, *task.TaskRu
 	agentKernel.UseIntakeOptions(agent.IntakeOptions{IsEnabled: true, DefaultTaskLevel: agent.TaskLevelLow})
 	toolCatalogBuilder := agentruntime.NewToolCatalogBuilder()
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(map[string][]string{
-		sdkdTopologyDiagnosticProfileName: {"sdkd.diagnostic.no_tools"},
+		llmdTopologyDiagnosticProfileName: {"llmd.diagnostic.no_tools"},
 	}, nil)
 	identityService := identity.NewIdentityService(policy.PolicyProjection{
 		PersonAccessByPersonID: map[string]policy.PersonAccess{
