@@ -380,3 +380,72 @@ func TestFallbackLanguageModelProviderDoesNotFallbackAfterDeadline(t *testing.T)
 		t.Fatalf("expected no fallback calls after deadline, got response=%d structured=%d", responseCalls, structuredResponseCalls)
 	}
 }
+
+type chatLanguageModelProvider struct {
+	response  ChatCompletionResponse
+	error     error
+	chatCalls *int
+}
+
+func (provider chatLanguageModelProvider) GenerateResponse(context.Context, string) (string, error) {
+	return "", provider.error
+}
+
+func (provider chatLanguageModelProvider) GenerateStructuredResponse(context.Context, StructuredResponseRequest) (StructuredResponse, error) {
+	return StructuredResponse{}, provider.error
+}
+
+func (provider chatLanguageModelProvider) GenerateChatCompletion(context.Context, ChatCompletionRequest) (ChatCompletionResponse, error) {
+	if provider.chatCalls != nil {
+		(*provider.chatCalls)++
+	}
+	return provider.response, provider.error
+}
+
+func TestFallbackLanguageModelProviderUsesChatFallbackAfterPrimaryFailure(t *testing.T) {
+	primaryCalls := 0
+	fallbackCalls := 0
+	provider := FallbackLanguageModelProvider{
+		PrimaryProvider: chatLanguageModelProvider{
+			error:     errors.New("chat finish reason contract violated"),
+			chatCalls: &primaryCalls,
+		},
+		FallbackProvider: chatLanguageModelProvider{
+			response: ChatCompletionResponse{
+				FinishReason: "tool_calls",
+				Message:      ChatCompletionMessage{Role: "assistant", Content: "fallback chat"},
+			},
+			chatCalls: &fallbackCalls,
+		},
+	}
+
+	response, errorValue := provider.GenerateChatCompletion(context.Background(), ChatCompletionRequest{})
+	if errorValue != nil || response.Message.Content != "fallback chat" {
+		t.Fatalf("expected chat fallback, got %+v, %v", response, errorValue)
+	}
+	if !response.UsedFallback || primaryCalls != 1 || fallbackCalls != 1 {
+		t.Fatalf("expected one primary and one fallback chat call, got primary=%d fallback=%d response=%+v", primaryCalls, fallbackCalls, response)
+	}
+}
+
+func TestFallbackLanguageModelProviderDoesNotUseChatFallbackAfterCancellation(t *testing.T) {
+	primaryCalls := 0
+	fallbackCalls := 0
+	provider := FallbackLanguageModelProvider{
+		PrimaryProvider: chatLanguageModelProvider{
+			error:     context.Canceled,
+			chatCalls: &primaryCalls,
+		},
+		FallbackProvider: chatLanguageModelProvider{
+			response:  ChatCompletionResponse{Message: ChatCompletionMessage{Role: "assistant", Content: "fallback chat"}},
+			chatCalls: &fallbackCalls,
+		},
+	}
+	cancelledContext, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, errorValue := provider.GenerateChatCompletion(cancelledContext, ChatCompletionRequest{})
+	if errorValue == nil || fallbackCalls != 0 {
+		t.Fatalf("expected cancellation to stop without fallback, got error=%v fallbackCalls=%d", errorValue, fallbackCalls)
+	}
+}

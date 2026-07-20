@@ -26,7 +26,10 @@ func TestResolveTextChatCompleterPrefersAuthoritativeTextProvider(t *testing.T) 
 				PrimaryProvider:  primaryProvider,
 				FallbackProvider: fallbackProvider,
 			},
-			expected: primaryProvider,
+			expected: FallbackLanguageModelProvider{
+				PrimaryProvider:  primaryProvider,
+				FallbackProvider: fallbackProvider,
+			},
 		},
 		{
 			name: "fallback provider",
@@ -34,7 +37,10 @@ func TestResolveTextChatCompleterPrefersAuthoritativeTextProvider(t *testing.T) 
 				PrimaryProvider:  resolverLanguageModelProviderWithoutChat{},
 				FallbackProvider: fallbackProvider,
 			},
-			expected: fallbackProvider,
+			expected: FallbackLanguageModelProvider{
+				PrimaryProvider:  resolverLanguageModelProviderWithoutChat{},
+				FallbackProvider: fallbackProvider,
+			},
 		},
 		{
 			name: "vision text provider",
