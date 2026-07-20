@@ -683,7 +683,7 @@ func TestAgentKernelBlocksSideEffectWhenRequiredEvidenceRemainsMissing(t *testin
 	}
 	agentKernel.UseIntakeLanguageModelProvider(intakeLanguageModel)
 	toolCallCount := 0
-	toolSet := newTestToolSet([]string{TerminalRunToolName})
+	toolSet := newTestToolSet([]string{TerminalRunToolName, "task.update"})
 	registerTestTool(toolSet, ToolDefinition{Name: TerminalRunToolName}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		toolCallCount++
 		return testToolSuccess(`{"exitCode":0,"stdout":"done","stderr":"","timedOut":false}`), nil
@@ -810,7 +810,7 @@ func TestAgentKernelReasksAndRecoversRequiredEvidence(t *testing.T) {
 	agentKernel.UseIntakeLanguageModelProvider(intakeLanguageModel)
 
 	toolCallCount := 0
-	toolSet := newTestToolSet([]string{TerminalRunToolName})
+	toolSet := newTestToolSet([]string{TerminalRunToolName, "task.update"})
 	registerTestTool(toolSet, ToolDefinition{Name: TerminalRunToolName}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		toolCallCount++
 		return testToolSuccess(`{"exitCode":0,"stdout":"done","stderr":"","timedOut":false}`), nil
@@ -846,6 +846,50 @@ func TestAgentKernelReasksAndRecoversRequiredEvidence(t *testing.T) {
 	}
 }
 
+func TestAgentKernelDeterministicallyResolvesUniqueRequiredEvidence(t *testing.T) {
+	agentKernel, taskRunService := newKernelTestServices()
+	intakeLanguageModel := &turnRouterDecisionLanguageModel{
+		initialDecision: sideEffectMissingEvidenceDecision(),
+		reaskDecision:   TurnDecision{RequiredEvidenceTools: []string{TerminalRunToolName}},
+	}
+	agentKernel.UseIntakeLanguageModelProvider(intakeLanguageModel)
+
+	toolCallCount := 0
+	toolSet := newTestToolSet([]string{TerminalRunToolName})
+	registerTestTool(toolSet, ToolDefinition{Name: TerminalRunToolName}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		toolCallCount++
+		return testToolSuccess(`{"exitCode":0,"stdout":"done","stderr":"","timedOut":false}`), nil
+	})
+	agentKernel.UseLanguageModelProvider(&sequenceLanguageModel{contents: []string{
+		`{"action":"continue","toolName":"terminal.run","toolInput":{"command":"do the side effect"}}`,
+		finishMessageWithEvidence("완료했습니다.", "obs-001", TerminalRunToolName, 0),
+	}})
+
+	request := kernelTestRequest("서버에 배포 스크립트 실행해줘")
+	request.ToolSet = toolSet
+
+	result, errorValue := agentKernel.RunAgentRequest(context.Background(), request)
+	if errorValue != nil {
+		t.Fatalf("expected deterministic recovery to run the task: %v", errorValue)
+	}
+	if result.TaskRun.Status == task.TaskStatusBlocked {
+		t.Fatalf("expected task to proceed after deterministic recovery, got blocked")
+	}
+	if toolCallCount != 1 {
+		t.Fatalf("expected terminal.run to run once, got %d", toolCallCount)
+	}
+	if intakeLanguageModel.reaskCallCount != 0 {
+		t.Fatalf("expected no LLM re-ask when the evidence candidate pool is unambiguous, got %d", intakeLanguageModel.reaskCallCount)
+	}
+	taskEvents := taskRunService.ListTaskEvent(result.TaskRun.TaskRunID)
+	if !taskEventsContain(taskEvents, requiredEvidenceReaskEventName, `"wasDeterministic":true`) {
+		t.Fatal("expected reask event reporting deterministic recovery")
+	}
+	if !taskEventsContain(taskEvents, requiredEvidenceReaskEventName, TerminalRunToolName) {
+		t.Fatal("expected reask event to record the deterministically recovered tool")
+	}
+}
+
 func TestAgentKernelRecoversMaintenanceEvidenceWithoutInitialTool(t *testing.T) {
 	agentKernel, taskRunService := newKernelTestServices()
 	intakeLanguageModel := &turnRouterDecisionLanguageModel{
@@ -863,7 +907,7 @@ func TestAgentKernelRecoversMaintenanceEvidenceWithoutInitialTool(t *testing.T) 
 	agentKernel.UseIntakeLanguageModelProvider(intakeLanguageModel)
 
 	toolCallCount := 0
-	toolSet := newTestCapabilityToolSet([]string{"task.add"})
+	toolSet := newTestCapabilityToolSet([]string{"task.add", "task.update"})
 	registerTestTool(toolSet, ToolDefinition{Name: "task.add"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		toolCallCount++
 		return testToolSuccess(`{"taskID":"task-1","content":"신규 입사자 온보딩 문서 검토"}`), nil
@@ -1049,7 +1093,7 @@ func TestAgentKernelBlocksWhenEvidenceReaskRemainsEmpty(t *testing.T) {
 	}
 	agentKernel.UseIntakeLanguageModelProvider(intakeLanguageModel)
 	toolCallCount := 0
-	toolSet := newTestToolSet([]string{TerminalRunToolName})
+	toolSet := newTestToolSet([]string{TerminalRunToolName, "task.update"})
 	registerTestTool(toolSet, ToolDefinition{Name: TerminalRunToolName}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		toolCallCount++
 		return testToolSuccess(`{"exitCode":0,"stdout":"done","stderr":"","timedOut":false}`), nil

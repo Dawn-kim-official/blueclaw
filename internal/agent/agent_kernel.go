@@ -592,6 +592,20 @@ func (agentKernel *AgentKernel) completeTurnRouterFailure(responseContext contex
 }
 
 func (agentKernel *AgentKernel) reaskMissingRequiredEvidenceOnce(responseContext context.Context, request AgentRequest, intakeRequest AgentRequest, intakeDecision IntakeDecision, outcomeContract OutcomeContract, instructionBundle InstructionBundle, executionPlan ExecutionPlan, hasExecutionPlan bool, requiredAttachmentSuffixes []string, turnToolSet *ToolSet, routerLanguageModel llm.LanguageModelProvider, requiredEvidenceCandidates []string) (IntakeDecision, OutcomeContract, requiredEvidenceReaskReport) {
+	if candidateName, isUnique := uniqueSideEffectEvidenceCandidate(turnToolSet, requiredEvidenceCandidates, registeredEvidenceNamesForIntake(turnToolSet)); isUnique {
+		resolvedDecision := intakeDecision
+		resolvedDecision.RequiredEvidenceTools = appendUniqueStrings(resolvedDecision.RequiredEvidenceTools, candidateName)
+		rebuiltOutcomeContract := outcomeContractForRequest(request, resolvedDecision, instructionBundle, executionPlan, hasExecutionPlan, requiredAttachmentSuffixes)
+		evidenceValidationReport := validateRequiredEvidenceTools(turnToolSet, rebuiltOutcomeContract.RequiredEvidenceTools)
+		if !evidenceValidationReport.HasInvalidEvidence() && !requiredEvidenceMissingForSideEffect(resolvedDecision, rebuiltOutcomeContract, turnToolSet) {
+			return resolvedDecision, rebuiltOutcomeContract, requiredEvidenceReaskReport{
+				WasAttempted:       true,
+				DidRecoverEvidence: true,
+				WasDeterministic:   true,
+				RecoveredEvidence:  []string{candidateName},
+			}
+		}
+	}
 	turnRouter := NewTurnRouter(routerLanguageModel, agentKernel.intakeOptions)
 	reaskDecision, errorValue := turnRouter.ReaskRequiredEvidence(responseContext, intakeRequest, requiredEvidenceCandidates)
 	if errorValue != nil {
