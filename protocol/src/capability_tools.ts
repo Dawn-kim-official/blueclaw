@@ -271,7 +271,7 @@ export const taskListInputSchema = z.strictObject({
 });
 
 const taskHintSchema = z.string().min(1).max(256).describe(
-  'Exact task ID or exact task title from a task.list result. Resolved server-side to the canonical task; if it does not uniquely resolve, the call fails with a candidates list of the matching tasks to retry against.',
+  'Identifies the existing task to act on: its exact task ID or its exact CURRENT title as it appears in a task.list result. Never a new or intended title. Resolved server-side to the canonical task; if it does not uniquely resolve, the call fails with a candidates list of the matching tasks to retry against.',
 );
 
 const taskUpdateObjectSchema = z.strictObject({
