@@ -13,8 +13,8 @@ import {
 } from '@blueclaw/protocol';
 import { buildProtocolArtifacts } from '@blueclaw/protocol/artifacts';
 
-import type { SDKDConfiguration } from './configuration.ts';
-import { classifySDKDError } from './errors.ts';
+import type { LLMDConfiguration } from './configuration.ts';
+import { classifyLLMDError } from './errors.ts';
 import type { ChatCompletionGenerator, StructuredResponseGenerator } from './provider.ts';
 
 const protocolManifest = buildProtocolArtifacts().manifest;
@@ -25,12 +25,12 @@ const protocolIdentity = protocolIdentitySchema.parse({
 const healthResponseSchema = protocolIdentitySchema.extend({ status: z.literal('ok') });
 
 type HandlerDependencies = {
-  configuration: SDKDConfiguration;
+  configuration: LLMDConfiguration;
   generateStructuredResponse: StructuredResponseGenerator;
   generateChatCompletion?: ChatCompletionGenerator;
 };
 
-export function createSDKDHandler(dependencies: HandlerDependencies) {
+export function createLLMDHandler(dependencies: HandlerDependencies) {
   return async function handleRequest(request: Request): Promise<Response> {
     const url = new URL(request.url);
     if (request.method === 'GET' && url.pathname === '/health') {
@@ -58,8 +58,8 @@ export function createSDKDHandler(dependencies: HandlerDependencies) {
       }
       return Response.json(parsedResponse.data);
     } catch (errorValue) {
-      const sdkdError = classifySDKDError(errorValue);
-      return errorResponse(sdkdError.status, sdkdError.code, sdkdError.allowLegacyFallback, sdkdError.diagnostic);
+      const llmdError = classifyLLMDError(errorValue);
+      return errorResponse(llmdError.status, llmdError.code, llmdError.allowLegacyFallback, llmdError.diagnostic);
     }
   };
 }
@@ -74,8 +74,8 @@ async function handleChatRequest(value: unknown, abortSignal: AbortSignal, depen
     if (!parsedResponse.success) return errorResponse(502, 'provider_response_invalid', false);
     return Response.json(parsedResponse.data);
   } catch (errorValue) {
-    const sdkdError = classifySDKDError(errorValue);
-    return errorResponse(sdkdError.status, sdkdError.code, sdkdError.allowLegacyFallback, sdkdError.diagnostic);
+    const llmdError = classifyLLMDError(errorValue);
+    return errorResponse(llmdError.status, llmdError.code, llmdError.allowLegacyFallback, llmdError.diagnostic);
   }
 }
 

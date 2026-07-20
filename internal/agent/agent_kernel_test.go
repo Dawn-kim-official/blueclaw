@@ -1175,7 +1175,7 @@ func TestAgentKernelPersistsTurnRouterLLMCall(t *testing.T) {
 			Reason:           "direct answer",
 		},
 		response: llm.StructuredResponse{
-			ProviderName: "sdkd",
+			ProviderName: "llmd",
 			ModelName:    "router-model",
 			ModelTier:    "xlow",
 			Usage: llm.Usage{
@@ -1195,8 +1195,8 @@ func TestAgentKernelPersistsTurnRouterLLMCall(t *testing.T) {
 	if len(records) != 1 {
 		t.Fatalf("expected one persisted router call, got %+v", records)
 	}
-	if records[0].Provider != "sdkd" || records[0].Model != "router-model" || records[0].ModelTier != "xlow" || records[0].UsedFallback {
-		t.Fatalf("expected SDKD router metadata without fallback, got %+v", records[0])
+	if records[0].Provider != "llmd" || records[0].Model != "router-model" || records[0].ModelTier != "xlow" || records[0].UsedFallback {
+		t.Fatalf("expected LLMD router metadata without fallback, got %+v", records[0])
 	}
 	if records[0].PromptTokens != 11 || records[0].CompletionTokens != 7 || records[0].TotalTokens != 18 {
 		t.Fatalf("expected router token metadata, got %+v", records[0])
@@ -1207,7 +1207,7 @@ func TestAgentKernelPersistsTurnRouterFailureWithoutFallbackRoute(t *testing.T) 
 	agentKernel, taskRunService := newKernelTestServices()
 	agentKernel.UseIntakeLanguageModelProvider(&routerLedgerLanguageModel{
 		response: llm.StructuredResponse{
-			ProviderName: "sdkd",
+			ProviderName: "llmd",
 			ModelName:    "router-model",
 		},
 		errorValue: errors.New("router unavailable"),
@@ -1514,7 +1514,7 @@ func TestAgentKernelPreservesExactPrecomputedTaskLevel(t *testing.T) {
 		TaskLevel:          TaskLevelLow,
 		EstimatedMinutes:   1,
 		PriorTaskReference: PriorTaskReferenceNone,
-		Reason:             "SDKD topology diagnostic",
+		Reason:             "LLMD topology diagnostic",
 	}
 	request := kernelTestRequest("Create and publish a PDF website")
 	request.PrecomputedTurnDecision = &precomputedDecision

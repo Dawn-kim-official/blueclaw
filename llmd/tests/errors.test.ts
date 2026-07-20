@@ -3,12 +3,12 @@ import { JSONParseError, TypeValidationError } from 'ai';
 
 import { StructuredOutputDiagnosticCategory } from '@blueclaw/protocol';
 
-import { classifySDKDError } from '../src/errors.ts';
+import { classifyLLMDError } from '../src/errors.ts';
 
-describe('sdkd error diagnostics', () => {
+describe('llmd error diagnostics', () => {
   test('classifies JSON parsing without exposing generated content', () => {
     const generatedContent = 'private generated content';
-    const error = classifySDKDError(new JSONParseError({
+    const error = classifyLLMDError(new JSONParseError({
       text: generatedContent,
       cause: new SyntaxError('provider details'),
     }));
@@ -23,7 +23,7 @@ describe('sdkd error diagnostics', () => {
 
   test('classifies schema validation without exposing values or schema details', () => {
     const generatedValue = { private: 'generated value' };
-    const error = classifySDKDError(new TypeValidationError({
+    const error = classifyLLMDError(new TypeValidationError({
       value: generatedValue,
       cause: new Error('schema and tool details'),
     }));

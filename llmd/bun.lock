@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "@blueclaw/sdkd",
+      "name": "@blueclaw/llmd",
       "dependencies": {
         "@ai-sdk/openai-compatible": "2.0.59",
         "@ai-sdk/provider": "3.0.14",

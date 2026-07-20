@@ -7,10 +7,10 @@ import (
 	"time"
 )
 
-func TestShadowProviderReturnsPrimaryResponseAfterComparingSDKD(t *testing.T) {
-	primaryProvider := &sdkdTestLanguageModel{structuredResponse: StructuredResponse{ProviderName: "capabilityLLM", Content: `{"result":"primary"}`}}
+func TestShadowProviderReturnsPrimaryResponseAfterComparingLLMD(t *testing.T) {
+	primaryProvider := &llmdTestLanguageModel{structuredResponse: StructuredResponse{ProviderName: "capabilityLLM", Content: `{"result":"primary"}`}}
 	shadowCalled := make(chan struct{}, 1)
-	shadowProvider := &sdkdTestLanguageModel{
+	shadowProvider := &llmdTestLanguageModel{
 		structuredResponse: StructuredResponse{ProviderName: "openrouter", Content: `{"result":"shadow"}`},
 		structuredCalled:   shadowCalled,
 	}
@@ -40,8 +40,8 @@ func TestStructuredContentMatchesIgnoresJSONPropertyOrder(t *testing.T) {
 }
 
 func TestShadowProviderIgnoresShadowFailure(t *testing.T) {
-	primaryProvider := &sdkdTestLanguageModel{structuredResponse: StructuredResponse{Content: `{"ok":true}`}}
-	shadowProvider := &sdkdTestLanguageModel{structuredError: errors.New("shadow unavailable")}
+	primaryProvider := &llmdTestLanguageModel{structuredResponse: StructuredResponse{Content: `{"ok":true}`}}
+	shadowProvider := &llmdTestLanguageModel{structuredError: errors.New("shadow unavailable")}
 	provider := ShadowLanguageModelProvider{PrimaryProvider: primaryProvider, ShadowProvider: shadowProvider}
 
 	response, errorValue := provider.GenerateStructuredResponse(context.Background(), StructuredResponseRequest{})
@@ -51,8 +51,8 @@ func TestShadowProviderIgnoresShadowFailure(t *testing.T) {
 }
 
 func TestShadowProviderDoesNotShadowTextGeneration(t *testing.T) {
-	primaryProvider := &sdkdTestLanguageModel{textResponse: "primary"}
-	shadowProvider := &sdkdTestLanguageModel{textResponse: "shadow"}
+	primaryProvider := &llmdTestLanguageModel{textResponse: "primary"}
+	shadowProvider := &llmdTestLanguageModel{textResponse: "shadow"}
 	provider := ShadowLanguageModelProvider{PrimaryProvider: primaryProvider, ShadowProvider: shadowProvider}
 
 	response, errorValue := provider.GenerateResponse(context.Background(), "hello")
@@ -65,8 +65,8 @@ func TestShadowProviderDoesNotShadowTextGeneration(t *testing.T) {
 }
 
 func TestShadowProviderObservesOnlyConfiguredSchemas(t *testing.T) {
-	primaryProvider := &sdkdTestLanguageModel{structuredResponse: StructuredResponse{Content: `{"ok":true}`}}
-	shadowProvider := &sdkdTestLanguageModel{}
+	primaryProvider := &llmdTestLanguageModel{structuredResponse: StructuredResponse{Content: `{"ok":true}`}}
+	shadowProvider := &llmdTestLanguageModel{}
 	provider := ShadowLanguageModelProvider{
 		PrimaryProvider:       primaryProvider,
 		ShadowProvider:        shadowProvider,

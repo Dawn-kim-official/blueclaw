@@ -11,13 +11,13 @@ import (
 	"blueclaw/internal/llm"
 )
 
-func TestSDKDLiveLowCanonicalTerminalSchemaFromEnv(t *testing.T) {
-	socketPath := strings.TrimSpace(os.Getenv("BLUECLAW_SDKD_LIVE_SOCKET"))
-	authKey := strings.TrimSpace(os.Getenv("BLUECLAW_SDKD_LIVE_AUTH_KEY"))
+func TestLLMDLiveLowCanonicalTerminalSchemaFromEnv(t *testing.T) {
+	socketPath := strings.TrimSpace(os.Getenv("BLUECLAW_LLMD_LIVE_SOCKET"))
+	authKey := strings.TrimSpace(os.Getenv("BLUECLAW_LLMD_LIVE_AUTH_KEY"))
 	if socketPath == "" || authKey == "" {
-		t.Skip("BLUECLAW_SDKD_LIVE_SOCKET and BLUECLAW_SDKD_LIVE_AUTH_KEY are required")
+		t.Skip("BLUECLAW_LLMD_LIVE_SOCKET and BLUECLAW_LLMD_LIVE_AUTH_KEY are required")
 	}
-	client := llm.NewSDKDClient(llm.SDKDClientConfiguration{
+	client := llm.NewLLMDClient(llm.LLMDClientConfiguration{
 		UnixSocketPath: socketPath,
 		AuthKey:        authKey,
 		ModelName:      llm.ResolveModelTierNames(config.RuntimeConfiguration{}).Low,
@@ -27,7 +27,7 @@ func TestSDKDLiveLowCanonicalTerminalSchemaFromEnv(t *testing.T) {
 		SchemaName: "blueclaw_agent_turn_action",
 		Messages: []llm.ChatCompletionMessage{{
 			Role:    "user",
-			Content: "Call terminal.run with command printf sdkd-terminal-ok.",
+			Content: "Call terminal.run with command printf llmd-terminal-ok.",
 		}},
 		Tools: []llm.ChatCompletionTool{{
 			Type: "function",
@@ -41,7 +41,7 @@ func TestSDKDLiveLowCanonicalTerminalSchemaFromEnv(t *testing.T) {
 		ParallelToolCalls: false,
 	})
 	if errorValue != nil {
-		t.Fatalf("expected low SDKD terminal tool call: %v", errorValue)
+		t.Fatalf("expected low LLMD terminal tool call: %v", errorValue)
 	}
 	if response.FinishReason != "tool_calls" || len(response.Message.ToolCalls) != 1 {
 		t.Fatalf("expected one terminal tool call, got %+v", response)

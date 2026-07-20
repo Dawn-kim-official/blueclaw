@@ -14,7 +14,7 @@ import (
 const testProtocolVersion = "0.4.0"
 const testAggregateProtocolHash = "58ff1977989bacbf2db3fdce08fd57c9b52f344ca747a3322f4e60bdf6052a78"
 
-func TestCheckerRequiresExactIdentityFromCapabilitydAndSDKD(t *testing.T) {
+func TestCheckerRequiresExactIdentityFromCapabilitydAndLLMD(t *testing.T) {
 	identity := Identity{ProtocolVersion: testProtocolVersion, AggregateProtocolHash: testAggregateProtocolHash}
 	server := httptest.NewServer(http.HandlerFunc(func(responseWriter http.ResponseWriter, request *http.Request) {
 		responseWriter.Header().Set("Content-Type", "application/json")
@@ -26,12 +26,12 @@ func TestCheckerRequiresExactIdentityFromCapabilitydAndSDKD(t *testing.T) {
 	}))
 	defer server.Close()
 
-	result := NewChecker(Configuration{CapabilityEndpoint: server.URL, SDKDBridgeEndpoint: server.URL}).Check(context.Background(), identity)
+	result := NewChecker(Configuration{CapabilityEndpoint: server.URL, LLMDBridgeEndpoint: server.URL}).Check(context.Background(), identity)
 
-	if !result.Passed || !result.Capabilityd.Passed || !result.SDKD.Passed {
+	if !result.Passed || !result.Capabilityd.Passed || !result.LLMD.Passed {
 		t.Fatalf("expected protocol identity check to pass, got %+v", result)
 	}
-	if result.Capabilityd.Status != "ok" || result.SDKD.Status != "ok" {
+	if result.Capabilityd.Status != "ok" || result.LLMD.Status != "ok" {
 		t.Fatalf("expected endpoint statuses to be ok, got %+v", result)
 	}
 }
@@ -44,9 +44,9 @@ func TestCheckerReportsDriftWithoutDescriptorHashing(t *testing.T) {
 	}))
 	defer server.Close()
 
-	result := NewChecker(Configuration{CapabilityEndpoint: server.URL, SDKDBridgeEndpoint: server.URL}).Check(context.Background(), identity)
+	result := NewChecker(Configuration{CapabilityEndpoint: server.URL, LLMDBridgeEndpoint: server.URL}).Check(context.Background(), identity)
 
-	if result.Passed || result.Capabilityd.Status != "drift" || result.SDKD.Status != "drift" {
+	if result.Passed || result.Capabilityd.Status != "drift" || result.LLMD.Status != "drift" {
 		t.Fatalf("expected both endpoint identities to drift, got %+v", result)
 	}
 	if !strings.Contains(result.Capabilityd.Error, "protocolVersion") {
@@ -58,7 +58,7 @@ func TestCheckerReportsUnavailableEndpoint(t *testing.T) {
 	identity := Identity{ProtocolVersion: testProtocolVersion, AggregateProtocolHash: testAggregateProtocolHash}
 	result := NewChecker(Configuration{}).Check(context.Background(), identity)
 
-	if result.Passed || result.Capabilityd.Status != "unavailable" || result.SDKD.Status != "unavailable" {
+	if result.Passed || result.Capabilityd.Status != "unavailable" || result.LLMD.Status != "unavailable" {
 		t.Fatalf("expected unavailable endpoint status, got %+v", result)
 	}
 }
@@ -85,10 +85,10 @@ func TestCheckerUsesConfiguredCapabilityUnixTransport(t *testing.T) {
 	go capabilityServer.Serve(listener)
 	defer capabilityServer.Close()
 
-	sdkdServer := httptest.NewServer(http.HandlerFunc(func(responseWriter http.ResponseWriter, request *http.Request) {
+	llmdServer := httptest.NewServer(http.HandlerFunc(func(responseWriter http.ResponseWriter, request *http.Request) {
 		_, _ = responseWriter.Write([]byte(`{"status":"ok","protocolVersion":"0.4.0","aggregateProtocolHash":"58ff1977989bacbf2db3fdce08fd57c9b52f344ca747a3322f4e60bdf6052a78"}`))
 	}))
-	defer sdkdServer.Close()
+	defer llmdServer.Close()
 	capabilityHTTPClient := &http.Client{Transport: &http.Transport{
 		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
 			return (&net.Dialer{}).DialContext(ctx, "unix", socketPath)
@@ -97,9 +97,9 @@ func TestCheckerUsesConfiguredCapabilityUnixTransport(t *testing.T) {
 
 	result := NewChecker(Configuration{
 		CapabilityEndpoint:   "http://internkim-capability",
-		SDKDBridgeEndpoint:   sdkdServer.URL,
+		LLMDBridgeEndpoint:   llmdServer.URL,
 		CapabilityHTTPClient: capabilityHTTPClient,
-		SDKDHTTPClient:       sdkdServer.Client(),
+		LLMDHTTPClient:       llmdServer.Client(),
 	}).Check(context.Background(), identity)
 
 	if !result.Passed || !result.Capabilityd.Passed {
@@ -123,7 +123,7 @@ func TestValidateIdentityRejectsMissingAndInvalidValues(t *testing.T) {
 	}
 }
 
-func TestCheckerRejectsNonHealthySDKDStatus(t *testing.T) {
+func TestCheckerRejectsNonHealthyLLMDStatus(t *testing.T) {
 	identity := Identity{ProtocolVersion: testProtocolVersion, AggregateProtocolHash: testAggregateProtocolHash}
 	server := httptest.NewServer(http.HandlerFunc(func(responseWriter http.ResponseWriter, request *http.Request) {
 		status := ""
@@ -134,9 +134,9 @@ func TestCheckerRejectsNonHealthySDKDStatus(t *testing.T) {
 	}))
 	defer server.Close()
 
-	result := NewChecker(Configuration{CapabilityEndpoint: server.URL, SDKDBridgeEndpoint: server.URL}).Check(context.Background(), identity)
+	result := NewChecker(Configuration{CapabilityEndpoint: server.URL, LLMDBridgeEndpoint: server.URL}).Check(context.Background(), identity)
 
-	if result.Passed || !result.Capabilityd.Passed || result.SDKD.Passed || result.SDKD.Status != "unhealthy" {
-		t.Fatalf("expected non-healthy SDKD status rejection, got %+v", result)
+	if result.Passed || !result.Capabilityd.Passed || result.LLMD.Passed || result.LLMD.Status != "unhealthy" {
+		t.Fatalf("expected non-healthy LLMD status rejection, got %+v", result)
 	}
 }

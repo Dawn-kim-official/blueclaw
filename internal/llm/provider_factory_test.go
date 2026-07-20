@@ -116,89 +116,89 @@ func TestConfiguredProviderRejectsProductFallback(t *testing.T) {
 	}
 }
 
-func TestConfiguredProviderCreatesSDKDOnlyWhenSelected(t *testing.T) {
-	authKeyPath := filepath.Join(t.TempDir(), "sdkd.key")
+func TestConfiguredProviderCreatesLLMDOnlyWhenSelected(t *testing.T) {
+	authKeyPath := filepath.Join(t.TempDir(), "llmd.key")
 	if errorValue := os.WriteFile(authKeyPath, []byte("installation-key\n"), 0o600); errorValue != nil {
 		t.Fatalf("expected auth key fixture: %v", errorValue)
 	}
 	runtimeConfiguration := config.RuntimeConfiguration{}
-	runtimeConfiguration.LanguageModel.DefaultProvider = "sdkd"
+	runtimeConfiguration.LanguageModel.DefaultProvider = "llmd"
 	runtimeConfiguration.LanguageModel.Capability.Model = "deepseek/deepseek-v4-flash"
-	runtimeConfiguration.LanguageModel.SDKD.AuthKeyPath = authKeyPath
-	runtimeConfiguration.LanguageModel.SDKD.UnixSocketPath = "/run/blueclaw/sdkd.sock"
-	runtimeConfiguration.LanguageModel.SDKD.StructuredSchemaNames = []string{"blueclaw_turn_router", "blueclaw_agent_turn_action"}
+	runtimeConfiguration.LanguageModel.LLMD.AuthKeyPath = authKeyPath
+	runtimeConfiguration.LanguageModel.LLMD.UnixSocketPath = "/run/blueclaw/llmd.sock"
+	runtimeConfiguration.LanguageModel.LLMD.StructuredSchemaNames = []string{"blueclaw_turn_router", "blueclaw_agent_turn_action"}
 
 	languageModelProvider, errorValue := NewConfiguredLanguageModelProvider(runtimeConfiguration)
 	if errorValue != nil {
-		t.Fatalf("expected sdkd provider: %v", errorValue)
+		t.Fatalf("expected llmd provider: %v", errorValue)
 	}
-	sdkdClient, isSDKDClient := languageModelProvider.(SDKDClient)
-	if !isSDKDClient {
-		t.Fatalf("expected sdkd provider, got %T", languageModelProvider)
+	llmdClient, isLLMDClient := languageModelProvider.(LLMDClient)
+	if !isLLMDClient {
+		t.Fatalf("expected llmd provider, got %T", languageModelProvider)
 	}
-	if sdkdClient.AuthKey != "installation-key" || sdkdClient.ModelName != "deepseek/deepseek-v4-flash" {
-		t.Fatalf("unexpected sdkd client configuration: %+v", sdkdClient)
+	if llmdClient.AuthKey != "installation-key" || llmdClient.ModelName != "deepseek/deepseek-v4-flash" {
+		t.Fatalf("unexpected llmd client configuration: %+v", llmdClient)
 	}
-	if !sdkdClient.IsStructuredOutputAuthoritative {
-		t.Fatal("expected sdkd default provider to make structured fallback authoritative")
+	if !llmdClient.IsStructuredOutputAuthoritative {
+		t.Fatal("expected llmd default provider to make structured fallback authoritative")
 	}
-	if len(sdkdClient.StructuredSchemaNames) != 2 || sdkdClient.StructuredSchemaNames[0] != "blueclaw_turn_router" || sdkdClient.StructuredSchemaNames[1] != "blueclaw_agent_turn_action" {
-		t.Fatalf("expected configured SDKD schemas, got %v", sdkdClient.StructuredSchemaNames)
+	if len(llmdClient.StructuredSchemaNames) != 2 || llmdClient.StructuredSchemaNames[0] != "blueclaw_turn_router" || llmdClient.StructuredSchemaNames[1] != "blueclaw_agent_turn_action" {
+		t.Fatalf("expected configured LLMD schemas, got %v", llmdClient.StructuredSchemaNames)
 	}
 }
 
-func TestConfiguredProviderCreatesSDKDBridgeWithoutGuestCredential(t *testing.T) {
+func TestConfiguredProviderCreatesLLMDBridgeWithoutGuestCredential(t *testing.T) {
 	runtimeConfiguration := config.RuntimeConfiguration{}
-	runtimeConfiguration.LanguageModel.DefaultProvider = "sdkd"
+	runtimeConfiguration.LanguageModel.DefaultProvider = "llmd"
 	runtimeConfiguration.LanguageModel.Capability.Model = "deepseek/deepseek-v4-flash"
-	runtimeConfiguration.LanguageModel.SDKD.Endpoint = sdkdLoopbackBridgeEndpoint
+	runtimeConfiguration.LanguageModel.LLMD.Endpoint = llmdLoopbackBridgeEndpoint
 
 	languageModelProvider, errorValue := NewConfiguredLanguageModelProvider(runtimeConfiguration)
 	if errorValue != nil {
-		t.Fatalf("expected SDKD bridge provider: %v", errorValue)
+		t.Fatalf("expected LLMD bridge provider: %v", errorValue)
 	}
-	sdkdClient, isSDKDClient := languageModelProvider.(SDKDClient)
-	if !isSDKDClient || sdkdClient.AuthKey != "" || sdkdClient.Endpoint != runtimeConfiguration.LanguageModel.SDKD.Endpoint {
-		t.Fatalf("unexpected SDKD bridge client: %+v", languageModelProvider)
+	llmdClient, isLLMDClient := languageModelProvider.(LLMDClient)
+	if !isLLMDClient || llmdClient.AuthKey != "" || llmdClient.Endpoint != runtimeConfiguration.LanguageModel.LLMD.Endpoint {
+		t.Fatalf("unexpected LLMD bridge client: %+v", languageModelProvider)
 	}
 }
 
-func TestConfiguredProviderCreatesUnixSDKDBridgeWithoutCredential(t *testing.T) {
+func TestConfiguredProviderCreatesUnixLLMDBridgeWithoutCredential(t *testing.T) {
 	runtimeConfiguration := config.RuntimeConfiguration{}
-	runtimeConfiguration.LanguageModel.DefaultProvider = "sdkd"
+	runtimeConfiguration.LanguageModel.DefaultProvider = "llmd"
 	runtimeConfiguration.LanguageModel.Capability.Model = "xiaomi/mimo-v2.5"
-	runtimeConfiguration.LanguageModel.SDKD.Endpoint = "http://internkim/_internkim/sdkd"
-	runtimeConfiguration.LanguageModel.SDKD.UnixSocketPath = "/run/internkim/capability.sock"
+	runtimeConfiguration.LanguageModel.LLMD.Endpoint = "http://internkim/_internkim/llmd"
+	runtimeConfiguration.LanguageModel.LLMD.UnixSocketPath = "/run/internkim/capability.sock"
 
 	languageModelProvider, errorValue := NewConfiguredLanguageModelProvider(runtimeConfiguration)
 	if errorValue != nil {
-		t.Fatalf("expected Unix SDKD bridge provider: %v", errorValue)
+		t.Fatalf("expected Unix LLMD bridge provider: %v", errorValue)
 	}
-	sdkdClient, isSDKDClient := languageModelProvider.(SDKDClient)
-	if !isSDKDClient || sdkdClient.AuthKey != "" {
-		t.Fatalf("unexpected Unix SDKD bridge client: %+v", languageModelProvider)
+	llmdClient, isLLMDClient := languageModelProvider.(LLMDClient)
+	if !isLLMDClient || llmdClient.AuthKey != "" {
+		t.Fatalf("unexpected Unix LLMD bridge client: %+v", languageModelProvider)
 	}
 }
 
-func TestConfiguredProviderRejectsUnauthenticatedRemoteSDKDBridgePath(t *testing.T) {
+func TestConfiguredProviderRejectsUnauthenticatedRemoteLLMDBridgePath(t *testing.T) {
 	runtimeConfiguration := config.RuntimeConfiguration{}
-	runtimeConfiguration.LanguageModel.DefaultProvider = "sdkd"
-	runtimeConfiguration.LanguageModel.SDKD.Endpoint = "https://sdkd.example.com/_internkim/sdkd"
+	runtimeConfiguration.LanguageModel.DefaultProvider = "llmd"
+	runtimeConfiguration.LanguageModel.LLMD.Endpoint = "https://llmd.example.com/_internkim/llmd"
 
 	if _, errorValue := NewConfiguredLanguageModelProvider(runtimeConfiguration); errorValue == nil {
-		t.Fatal("expected remote SDKD bridge path without a Unix socket to require authentication")
+		t.Fatal("expected remote LLMD bridge path without a Unix socket to require authentication")
 	}
 }
 
-func TestConfiguredProviderWrapsCapabilityWithOptionalSDKDShadow(t *testing.T) {
-	authKeyPath := filepath.Join(t.TempDir(), "sdkd.key")
+func TestConfiguredProviderWrapsCapabilityWithOptionalLLMDShadow(t *testing.T) {
+	authKeyPath := filepath.Join(t.TempDir(), "llmd.key")
 	if errorValue := os.WriteFile(authKeyPath, []byte("installation-key"), 0o600); errorValue != nil {
 		t.Fatalf("expected auth key fixture: %v", errorValue)
 	}
 	runtimeConfiguration := config.RuntimeConfiguration{}
 	runtimeConfiguration.LanguageModel.DefaultProvider = "capabilityLLM"
-	runtimeConfiguration.LanguageModel.SDKD.AuthKeyPath = authKeyPath
-	runtimeConfiguration.LanguageModel.SDKD.ShadowEnabled = true
+	runtimeConfiguration.LanguageModel.LLMD.AuthKeyPath = authKeyPath
+	runtimeConfiguration.LanguageModel.LLMD.ShadowEnabled = true
 
 	languageModelProvider, errorValue := NewConfiguredLanguageModelProvider(runtimeConfiguration)
 	if errorValue != nil {
@@ -208,7 +208,7 @@ func TestConfiguredProviderWrapsCapabilityWithOptionalSDKDShadow(t *testing.T) {
 		shadowLanguageModelProvider() ShadowLanguageModelProvider
 	})
 	if !isShadowProvider {
-		t.Fatalf("expected optional sdkd shadow provider, got %T", languageModelProvider)
+		t.Fatalf("expected optional llmd shadow provider, got %T", languageModelProvider)
 	}
 	shadowProvider := shadowWrapper.shadowLanguageModelProvider()
 	if _, hasRecoveryChat := languageModelProvider.(RecoveryChatCompleter); !hasRecoveryChat {
@@ -220,8 +220,8 @@ func TestConfiguredProviderWrapsCapabilityWithOptionalSDKDShadow(t *testing.T) {
 	if _, hasTextChat := ResolveTextChatCompleter(languageModelProvider); !hasTextChat {
 		t.Fatal("expected configured shadow provider to preserve text chat")
 	}
-	sdkdClient, isSDKDClient := shadowProvider.ShadowProvider.(SDKDClient)
-	if !isSDKDClient || sdkdClient.StructuredFallbackProvider != nil || sdkdClient.IsStructuredOutputAuthoritative {
-		t.Fatalf("expected shadow SDKD without legacy fallback, got %+v", shadowProvider.ShadowProvider)
+	llmdClient, isLLMDClient := shadowProvider.ShadowProvider.(LLMDClient)
+	if !isLLMDClient || llmdClient.StructuredFallbackProvider != nil || llmdClient.IsStructuredOutputAuthoritative {
+		t.Fatalf("expected shadow LLMD without legacy fallback, got %+v", shadowProvider.ShadowProvider)
 	}
 }

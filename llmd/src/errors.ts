@@ -5,7 +5,7 @@ import {
 } from '@blueclaw/protocol';
 import { APICallError, JSONParseError, NoObjectGeneratedError, RetryError, TypeValidationError } from 'ai';
 
-export type SDKDErrorCode =
+export type LLMDErrorCode =
   | 'configuration_invalid'
   | 'policy_remote_disabled'
   | 'provider_rate_limited'
@@ -15,25 +15,25 @@ export type SDKDErrorCode =
   | 'request_invalid'
   | 'structured_output_invalid';
 
-export class SDKDError extends Error {
+export class LLMDError extends Error {
   constructor(
-    readonly code: SDKDErrorCode,
+    readonly code: LLMDErrorCode,
     readonly status: number,
     readonly allowLegacyFallback: boolean,
     message: string,
     readonly diagnostic?: StructuredOutputDiagnostic,
   ) {
     super(message);
-    this.name = 'SDKDError';
+    this.name = 'LLMDError';
   }
 }
 
-export function classifySDKDError(errorValue: unknown): SDKDError {
-  if (errorValue instanceof SDKDError) return errorValue;
+export function classifyLLMDError(errorValue: unknown): LLMDError {
+  if (errorValue instanceof LLMDError) return errorValue;
   if (errorValue instanceof DOMException && errorValue.name === 'AbortError') {
-    return new SDKDError('request_aborted', 499, false, errorValue.message);
+    return new LLMDError('request_aborted', 499, false, errorValue.message);
   }
-  if (RetryError.isInstance(errorValue)) return classifySDKDError(errorValue.lastError);
+  if (RetryError.isInstance(errorValue)) return classifyLLMDError(errorValue.lastError);
   if (NoObjectGeneratedError.isInstance(errorValue)) {
     return structuredOutputError(errorValue, diagnoseNoObjectGeneratedError(errorValue));
   }
@@ -46,18 +46,18 @@ export function classifySDKDError(errorValue: unknown): SDKDError {
   if (APICallError.isInstance(errorValue)) {
     const isRetryable = isRetryableProviderError(errorValue);
     if (isRetryable && errorValue.statusCode === 429) {
-      return new SDKDError('provider_rate_limited', 429, true, errorValue.message);
+      return new LLMDError('provider_rate_limited', 429, true, errorValue.message);
     }
     if (isRetryable) {
-      return new SDKDError('provider_unavailable', 503, true, errorValue.message);
+      return new LLMDError('provider_unavailable', 503, true, errorValue.message);
     }
-    return new SDKDError('provider_response_invalid', 502, false, errorValue.message);
+    return new LLMDError('provider_response_invalid', 502, false, errorValue.message);
   }
-  return new SDKDError('provider_response_invalid', 502, false, errorMessage(errorValue));
+  return new LLMDError('provider_response_invalid', 502, false, errorMessage(errorValue));
 }
 
-function structuredOutputError(errorValue: Error, diagnostic: StructuredOutputDiagnostic): SDKDError {
-  return new SDKDError('structured_output_invalid', 422, false, errorValue.message, diagnostic);
+function structuredOutputError(errorValue: Error, diagnostic: StructuredOutputDiagnostic): LLMDError {
+  return new LLMDError('structured_output_invalid', 422, false, errorValue.message, diagnostic);
 }
 
 function diagnoseNoObjectGeneratedError(errorValue: NoObjectGeneratedError): StructuredOutputDiagnostic {

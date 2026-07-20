@@ -116,7 +116,7 @@ func TestFallbackLanguageModelProviderUsesFallbackAfterPrimaryFailure(t *testing
 
 func TestFallbackLanguageModelProviderReturnsCorrectableStructuredErrorWithoutFallback(t *testing.T) {
 	var fallbackCalls int
-	primaryError := sdkdHTTPError{
+	primaryError := llmdHTTPError{
 		Code: "structured_output_invalid",
 		Diagnostic: StructuredOutputDiagnostic{
 			Category: StructuredOutputDiagnosticSchemaValidation,
@@ -136,7 +136,7 @@ func TestFallbackLanguageModelProviderReturnsCorrectableStructuredErrorWithoutFa
 
 	response, errorValue := provider.GenerateStructuredResponse(context.Background(), StructuredResponseRequest{})
 
-	var returnedError sdkdHTTPError
+	var returnedError llmdHTTPError
 	if response.Content != "" || !errors.As(errorValue, &returnedError) || returnedError.Code != primaryError.Code {
 		t.Fatalf("expected original correctable error, got %#v and %v", response, errorValue)
 	}
@@ -148,7 +148,7 @@ func TestFallbackLanguageModelProviderReturnsCorrectableStructuredErrorWithoutFa
 func TestFallbackLanguageModelProviderUsesFallbackForNonCorrectableLegacyError(t *testing.T) {
 	var fallbackCalls int
 	provider := FallbackLanguageModelProvider{
-		PrimaryProvider: staticLanguageModelProvider{error: sdkdHTTPError{
+		PrimaryProvider: staticLanguageModelProvider{error: llmdHTTPError{
 			Code:                "structured_output_invalid",
 			AllowLegacyFallback: true,
 			Diagnostic: StructuredOutputDiagnostic{
@@ -175,7 +175,7 @@ func TestFallbackLanguageModelProviderUsesFallbackAfterTransportFailure(t *testi
 	var fallbackCalls int
 	provider := FallbackLanguageModelProvider{
 		PrimaryProvider: staticLanguageModelProvider{
-			error: sdkdTransportError{Cause: errors.New("transport unavailable")},
+			error: llmdTransportError{Cause: errors.New("transport unavailable")},
 		},
 		FallbackProvider: staticLanguageModelProvider{
 			response:                StructuredResponse{Content: "fallback"},

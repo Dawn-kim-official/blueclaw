@@ -91,9 +91,9 @@
     "capability": {
       "executionMode": "auto"
     },
-    "sdkd": {
-      "unixSocketPath": "/run/blueclaw-sdkd/sdkd.sock",
-      "authKeyPath": "/run/credentials/sdkd-auth-key",
+    "llmd": {
+      "unixSocketPath": "/run/blueclaw-llmd/llmd.sock",
+      "authKeyPath": "/run/credentials/llmd-auth-key",
       "executionMode": "auto",
       "timeoutSecond": 60,
       "shadowEnabled": false,

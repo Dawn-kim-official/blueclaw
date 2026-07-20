@@ -140,11 +140,11 @@ func (provider ShadowLanguageModelProvider) logComparison(
 		return
 	}
 	if shadowError != nil {
-		provider.Logger.Warn("sdkd shadow structured response failed", "error", shadowError.Error())
+		provider.Logger.Warn("llmd shadow structured response failed", "error", shadowError.Error())
 		return
 	}
 	provider.Logger.Info(
-		"sdkd shadow structured response compared",
+		"llmd shadow structured response compared",
 		"primaryFailed", primaryError != nil,
 		"contentMatches", primaryError == nil && structuredContentMatches(primaryResponse.Content, shadowResponse.Content),
 		"shadowProvider", shadowResponse.ProviderName,
