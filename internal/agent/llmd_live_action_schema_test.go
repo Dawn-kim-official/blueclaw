@@ -11,11 +11,11 @@ import (
 	"blueclaw/internal/llm"
 )
 
-func TestSDKDLiveXLowCurrentAgentActionSchemaFromEnv(t *testing.T) {
-	socketPath := strings.TrimSpace(os.Getenv("BLUECLAW_SDKD_LIVE_SOCKET"))
-	authKey := strings.TrimSpace(os.Getenv("BLUECLAW_SDKD_LIVE_AUTH_KEY"))
+func TestLLMDLiveXLowCurrentAgentActionSchemaFromEnv(t *testing.T) {
+	socketPath := strings.TrimSpace(os.Getenv("BLUECLAW_LLMD_LIVE_SOCKET"))
+	authKey := strings.TrimSpace(os.Getenv("BLUECLAW_LLMD_LIVE_AUTH_KEY"))
 	if socketPath == "" || authKey == "" {
-		t.Skip("BLUECLAW_SDKD_LIVE_SOCKET and BLUECLAW_SDKD_LIVE_AUTH_KEY are required")
+		t.Skip("BLUECLAW_LLMD_LIVE_SOCKET and BLUECLAW_LLMD_LIVE_AUTH_KEY are required")
 	}
 	toolSet := NewToolSet([]string{TerminalRunToolName})
 	registerTestTool(toolSet, ToolDefinition{
@@ -26,10 +26,10 @@ func TestSDKDLiveXLowCurrentAgentActionSchemaFromEnv(t *testing.T) {
 		return testToolSuccess("not executed"), nil
 	})
 	request := BuildAgentActionRequest(agentTaskState{Request: AgentTurnRequest{
-		Prompt:  "Do not finish. Choose continue, call terminal.run, and set command to printf sdkd-schema-ok.",
+		Prompt:  "Do not finish. Choose continue, call terminal.run, and set command to printf llmd-schema-ok.",
 		ToolSet: toolSet,
 	}})
-	client := llm.NewSDKDClient(llm.SDKDClientConfiguration{
+	client := llm.NewLLMDClient(llm.LLMDClientConfiguration{
 		UnixSocketPath: socketPath,
 		AuthKey:        authKey,
 		ModelName:      llm.ResolveModelTierNames(config.RuntimeConfiguration{}).XLow,
@@ -37,13 +37,13 @@ func TestSDKDLiveXLowCurrentAgentActionSchemaFromEnv(t *testing.T) {
 	})
 	response, errorValue := client.GenerateStructuredResponse(context.Background(), request)
 	if errorValue != nil {
-		t.Fatalf("expected sdkd xlow response for current action schema: %v", errorValue)
+		t.Fatalf("expected llmd xlow response for current action schema: %v", errorValue)
 	}
 	action, errorValue := ParseAgentActionResponse(response)
 	if errorValue != nil {
-		t.Fatalf("expected parsable sdkd agent action, got %q: %v", response.Content, errorValue)
+		t.Fatalf("expected parsable llmd agent action, got %q: %v", response.Content, errorValue)
 	}
 	if action.Action != "continue" || action.ToolName != TerminalRunToolName {
-		t.Fatalf("expected sdkd terminal.run continue action, got %+v", action)
+		t.Fatalf("expected llmd terminal.run continue action, got %+v", action)
 	}
 }

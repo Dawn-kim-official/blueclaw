@@ -165,10 +165,10 @@ func parseVirtualSessionArguments(arguments []string, defaultScenarioName string
 	scenarioName := flagSet.String("scenario", defaultScenarioName, "virtual session scenario name")
 	scenarioFilePath := flagSet.String("scenario-file", "", "file-backed sequential virtual session scenario")
 	artifactDirectoryPath := flagSet.String("artifact-dir", defaultArtifactDirectoryPath, "virtual session artifact directory")
-	languageModelEndpoint := flagSet.String("llm-endpoint", os.Getenv("BLUECLAW_E2E_LLM_ENDPOINT"), "live LLM capability or SDKD endpoint")
+	languageModelEndpoint := flagSet.String("llm-endpoint", os.Getenv("BLUECLAW_E2E_LLM_ENDPOINT"), "live LLM capability or LLMD endpoint")
 	languageModelSocket := flagSet.String("llm-unix-socket", os.Getenv("BLUECLAW_E2E_LLM_UNIX_SOCKET"), "live LLM capability unix socket path")
-	languageModelProvider := flagSet.String("llm-provider", firstNonEmptyString(os.Getenv("BLUECLAW_E2E_LLM_PROVIDER"), "openrouter"), "live LLM provider: openrouter, capability, or sdkd")
-	languageModelAuthKeyPath := flagSet.String("llm-auth-key-path", os.Getenv("BLUECLAW_E2E_LLM_AUTH_KEY_PATH"), "sdkd installation auth key path")
+	languageModelProvider := flagSet.String("llm-provider", firstNonEmptyString(os.Getenv("BLUECLAW_E2E_LLM_PROVIDER"), "openrouter"), "live LLM provider: openrouter, capability, or llmd")
+	languageModelAuthKeyPath := flagSet.String("llm-auth-key-path", os.Getenv("BLUECLAW_E2E_LLM_AUTH_KEY_PATH"), "llmd installation auth key path")
 	languageModelName := flagSet.String("llm-model", firstNonEmptyString(os.Getenv("INTERNKIM_E2E_MODEL"), os.Getenv("BLUECLAW_E2E_LLM_MODEL")), "live LLM model override")
 	embeddingEndpoint := flagSet.String("embedding-endpoint", os.Getenv("BLUECLAW_E2E_EMBEDDING_ENDPOINT"), "local OpenAI-compatible embedding endpoint")
 	executionMode := flagSet.String("llm-execution-mode", firstNonEmptyString(os.Getenv("BLUECLAW_E2E_LLM_EXECUTION_MODE"), "auto"), "live LLM execution mode")
@@ -398,7 +398,7 @@ func saveVirtualSessionEvidence(arguments virtualSessionArguments, result e2e.Vi
 		ExecutionMode:         strings.TrimSpace(arguments.ExecutionMode),
 		MaximumModelTier:      strings.TrimSpace(arguments.MaximumModelTier),
 		RealModelTiers:        arguments.RealModelTiers,
-		StructuredSchemaNames: sdkdStructuredSchemaNames(arguments.LanguageModelProvider),
+		StructuredSchemaNames: llmdStructuredSchemaNames(arguments.LanguageModelProvider),
 		Calls:                 virtualSessionLanguageModelCalls(result),
 		TurnMetrics:           virtualSessionTurnMetrics(result),
 	}
@@ -497,11 +497,11 @@ func virtualSessionLanguageModelCalls(result e2e.VirtualSessionResult) []e2e.Vir
 	return calls
 }
 
-func sdkdStructuredSchemaNames(provider string) []string {
-	if strings.TrimSpace(strings.ToLower(provider)) != "sdkd" {
+func llmdStructuredSchemaNames(provider string) []string {
+	if strings.TrimSpace(strings.ToLower(provider)) != "llmd" {
 		return nil
 	}
-	return llm.DefaultSDKDStructuredSchemaNames()
+	return llm.DefaultLLMDStructuredSchemaNames()
 }
 
 func printVirtualTurnFailureEvents(turnNumber int, turnResult e2e.VirtualTurnResult) {
@@ -699,13 +699,13 @@ func createLiveLanguageModel(arguments virtualSessionArguments) (llm.LanguageMod
 			ModelName:     modelName,
 			ExecutionMode: arguments.ExecutionMode,
 		}, nil
-	case "sdkd":
-		authKey, errorValue := resolveSDKDAuthKey(arguments.LanguageModelAuthKeyPath)
+	case "llmd":
+		authKey, errorValue := resolveLLMDAuthKey(arguments.LanguageModelAuthKeyPath)
 		if errorValue != nil {
 			return nil, errorValue
 		}
 		structuredFallbackProvider := optionalLiveOpenRouterLanguageModel(arguments)
-		return llm.NewSDKDClient(llm.SDKDClientConfiguration{
+		return llm.NewLLMDClient(llm.LLMDClientConfiguration{
 			Endpoint:                   arguments.LanguageModelEndpoint,
 			UnixSocketPath:             arguments.LanguageModelSocket,
 			AuthKey:                    authKey,
@@ -714,10 +714,10 @@ func createLiveLanguageModel(arguments virtualSessionArguments) (llm.LanguageMod
 			GenerationOptions:          generationOptions,
 			TextProvider:               structuredFallbackProvider,
 			StructuredFallbackProvider: structuredFallbackProvider,
-			StructuredSchemaNames:      sdkdStructuredSchemaNames("sdkd"),
+			StructuredSchemaNames:      llmdStructuredSchemaNames("llmd"),
 		}), nil
 	default:
-		return nil, errors.New("live LLM provider must be openrouter, capability, or sdkd")
+		return nil, errors.New("live LLM provider must be openrouter, capability, or llmd")
 	}
 }
 
@@ -736,12 +736,12 @@ func optionalLiveOpenRouterLanguageModel(arguments virtualSessionArguments) llm.
 	}
 }
 
-func resolveSDKDAuthKey(authKeyPath string) (string, error) {
+func resolveLLMDAuthKey(authKeyPath string) (string, error) {
 	if authKey := strings.TrimSpace(os.Getenv("BLUECLAW_E2E_LLM_AUTH_KEY")); authKey != "" {
 		return authKey, nil
 	}
 	if strings.TrimSpace(authKeyPath) == "" {
-		return "", errors.New("sdkd live LLM provider requires BLUECLAW_E2E_LLM_AUTH_KEY or --llm-auth-key-path")
+		return "", errors.New("llmd live LLM provider requires BLUECLAW_E2E_LLM_AUTH_KEY or --llm-auth-key-path")
 	}
 	document, errorValue := os.ReadFile(authKeyPath)
 	if errorValue != nil {
@@ -749,7 +749,7 @@ func resolveSDKDAuthKey(authKeyPath string) (string, error) {
 	}
 	authKey := strings.TrimSpace(string(document))
 	if authKey == "" {
-		return "", errors.New("sdkd live LLM auth key is empty")
+		return "", errors.New("llmd live LLM auth key is empty")
 	}
 	return authKey, nil
 }

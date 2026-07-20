@@ -21,7 +21,7 @@ import {
 } from '@blueclaw/protocol';
 import { MockLanguageModelV3 } from 'ai/test';
 
-import { SDKDAutoRoute, type SDKDConfiguration } from '../src/configuration.ts';
+import { LLMDAutoRoute, type LLMDConfiguration } from '../src/configuration.ts';
 import {
   createChatCompletionGenerator,
   createStructuredResponseGenerator,
@@ -74,7 +74,7 @@ const chatRequest: ChatCompletionRequest = {
   generationOptions: { maxTokens: 128, seed: 7, temperature: 0 },
 };
 
-describe('sdkd provider adapter', () => {
+describe('llmd provider adapter', () => {
   test('accepts canonical generated document tool schemas', async () => {
     const descriptor = buildCapabilityToolCatalog('test').tools
       .find(tool => tool.name === DocumentToolName.Read);
@@ -85,7 +85,7 @@ describe('sdkd provider adapter', () => {
       input: '{"path":"/workspace/documents/review.docx"}',
     }]);
     const generateChatCompletion = createChatCompletionGenerator(
-      completeConfiguration(SDKDAutoRoute.RemoteFirst),
+      completeConfiguration(LLMDAutoRoute.RemoteFirst),
       languageModelFactory(fallbackModel, remoteModel),
     );
 
@@ -113,7 +113,7 @@ describe('sdkd provider adapter', () => {
     const llamaModel = successfulLanguageModel('unused-local-model', { ok: true });
     const remoteModel = chatLanguageModel('served-remote-model');
     const generateChatCompletion = createChatCompletionGenerator(
-      completeConfiguration(SDKDAutoRoute.RemoteFirst),
+      completeConfiguration(LLMDAutoRoute.RemoteFirst),
       languageModelFactory(llamaModel, remoteModel),
     );
 
@@ -152,7 +152,7 @@ describe('sdkd provider adapter', () => {
     const fallbackModel = chatLanguageModel('unused-local-model');
     const remoteModel = textLanguageModel('served-remote-model');
     const generateChatCompletion = createChatCompletionGenerator(
-      completeConfiguration(SDKDAutoRoute.RemoteFirst),
+      completeConfiguration(LLMDAutoRoute.RemoteFirst),
       languageModelFactory(fallbackModel, remoteModel),
     );
 
@@ -179,7 +179,7 @@ describe('sdkd provider adapter', () => {
       input: '{"key":"result"}',
     }]);
     const generateChatCompletion = createChatCompletionGenerator(
-      completeConfiguration(SDKDAutoRoute.RemoteFirst),
+      completeConfiguration(LLMDAutoRoute.RemoteFirst),
       languageModelFactory(fallbackModel, remoteModel),
     );
 
@@ -203,7 +203,7 @@ describe('sdkd provider adapter', () => {
       input: '{}',
     }]);
     const generateChatCompletion = createChatCompletionGenerator(
-      completeConfiguration(SDKDAutoRoute.RemoteFirst),
+      completeConfiguration(LLMDAutoRoute.RemoteFirst),
       languageModelFactory(fallbackModel, remoteModel),
     );
 
@@ -235,7 +235,7 @@ describe('sdkd provider adapter', () => {
     for (const remoteModel of invalidModels) {
       const fallbackModel = chatLanguageModel('unused-local-model');
       const generateChatCompletion = createChatCompletionGenerator(
-        completeConfiguration(SDKDAutoRoute.RemoteFirst),
+        completeConfiguration(LLMDAutoRoute.RemoteFirst),
         languageModelFactory(fallbackModel, remoteModel),
       );
 
@@ -254,7 +254,7 @@ describe('sdkd provider adapter', () => {
     const llamaModel = successfulLanguageModel('unused-local-model', { ok: true });
     const remoteModel = toolCallLanguageModel('served-remote-model', [{ toolName: 'task.add', input: '{' }]);
     const generateChatCompletion = createChatCompletionGenerator(
-      completeConfiguration(SDKDAutoRoute.RemoteFirst),
+      completeConfiguration(LLMDAutoRoute.RemoteFirst),
       languageModelFactory(llamaModel, remoteModel),
     );
 
@@ -290,7 +290,7 @@ describe('sdkd provider adapter', () => {
       '{"title":"repaired task"}',
     ]);
     const generateChatCompletion = createChatCompletionGenerator(
-      completeConfiguration(SDKDAutoRoute.RemoteFirst),
+      completeConfiguration(LLMDAutoRoute.RemoteFirst),
       languageModelFactory(llamaModel, remoteModel),
     );
 
@@ -318,7 +318,7 @@ describe('sdkd provider adapter', () => {
       '{"details":{"count":2}}',
     ]);
     const generateChatCompletion = createChatCompletionGenerator(
-      completeConfiguration(SDKDAutoRoute.RemoteFirst),
+      completeConfiguration(LLMDAutoRoute.RemoteFirst),
       languageModelFactory(llamaModel, remoteModel),
     );
 
@@ -343,7 +343,7 @@ describe('sdkd provider adapter', () => {
       { toolName: 'lookup', input: '{' },
     ]]);
     const generateChatCompletion = createChatCompletionGenerator(
-      completeConfiguration(SDKDAutoRoute.RemoteFirst),
+      completeConfiguration(LLMDAutoRoute.RemoteFirst),
       languageModelFactory(llamaModel, remoteModel),
     );
 
@@ -371,7 +371,7 @@ describe('sdkd provider adapter', () => {
       ],
     ]);
     const generateChatCompletion = createChatCompletionGenerator(
-      completeConfiguration(SDKDAutoRoute.RemoteFirst),
+      completeConfiguration(LLMDAutoRoute.RemoteFirst),
       languageModelFactory(llamaModel, remoteModel),
     );
 
@@ -393,7 +393,7 @@ describe('sdkd provider adapter', () => {
       { toolName: 'lookup', input: '{"key":"second"}' },
     ]]);
     const generateChatCompletion = createChatCompletionGenerator(
-      completeConfiguration(SDKDAutoRoute.RemoteFirst),
+      completeConfiguration(LLMDAutoRoute.RemoteFirst),
       languageModelFactory(llamaModel, remoteModel),
     );
 
@@ -419,7 +419,7 @@ describe('sdkd provider adapter', () => {
       '{"task":{"title":"ship","priority":2},"items":[{"name":"first","label":"primary"}],"optionalNote":"keep"}',
     ]);
     const generateChatCompletion = createChatCompletionGenerator(
-      completeConfiguration(SDKDAutoRoute.RemoteFirst),
+      completeConfiguration(LLMDAutoRoute.RemoteFirst),
       languageModelFactory(llamaModel, remoteModel),
     );
 
@@ -464,7 +464,7 @@ describe('sdkd provider adapter', () => {
       rows: [{ optionalLabel: null, requiredLabel: 'first', nullableLabel: null }],
     })]);
     const generateChatCompletion = createChatCompletionGenerator(
-      completeConfiguration(SDKDAutoRoute.RemoteFirst),
+      completeConfiguration(LLMDAutoRoute.RemoteFirst),
       languageModelFactory(llamaModel, remoteModel),
     );
 
@@ -493,7 +493,7 @@ describe('sdkd provider adapter', () => {
     const llamaModel = successfulLanguageModel('unused-local-model', { ok: true });
     const remoteModel = sequencedToolCallLanguageModel('served-remote-model', [invalidArguments, invalidArguments]);
     const generateChatCompletion = createChatCompletionGenerator(
-      completeConfiguration(SDKDAutoRoute.RemoteFirst),
+      completeConfiguration(LLMDAutoRoute.RemoteFirst),
       languageModelFactory(llamaModel, remoteModel),
     );
 
@@ -529,7 +529,7 @@ describe('sdkd provider adapter', () => {
       '{"task":{"title":"ship","unexpected":{"stillMalformed":true}},"items":[{"name":"first"}]}',
     ]);
     const generateChatCompletion = createChatCompletionGenerator(
-      completeConfiguration(SDKDAutoRoute.RemoteFirst),
+      completeConfiguration(LLMDAutoRoute.RemoteFirst),
       languageModelFactory(llamaModel, remoteModel),
     );
 
@@ -552,10 +552,10 @@ describe('sdkd provider adapter', () => {
     const llamaModel = successfulLanguageModel('unused-local-model', { ok: true });
     const remoteModel = sequencedToolCallLanguageModel('served-remote-model', [
       '{"metadata":{"source":"model"},"labels":{"team":"blueclaw"},"unexpected":true}',
-      '{"metadata":{"source":"model","extra":true},"labels":{"team":"blueclaw","owner":"sdkd"}}',
+      '{"metadata":{"source":"model","extra":true},"labels":{"team":"blueclaw","owner":"llmd"}}',
     ]);
     const generateChatCompletion = createChatCompletionGenerator(
-      completeConfiguration(SDKDAutoRoute.RemoteFirst),
+      completeConfiguration(LLMDAutoRoute.RemoteFirst),
       languageModelFactory(llamaModel, remoteModel),
     );
 
@@ -576,7 +576,7 @@ describe('sdkd provider adapter', () => {
     expect(repairPrompt).toContain('\\"additionalProperties\\":{\\"type\\":\\"string\\"}');
     expect(repairPrompt).toContain('\\"additionalProperties\\":false');
     expect(response.message.toolCalls?.[0]?.function.arguments).toBe(
-      '{"metadata":{"source":"model","extra":true},"labels":{"team":"blueclaw","owner":"sdkd"}}',
+      '{"metadata":{"source":"model","extra":true},"labels":{"team":"blueclaw","owner":"llmd"}}',
     );
   });
 
@@ -588,7 +588,7 @@ describe('sdkd provider adapter', () => {
       '{"details":{"count":"still-wrong"}}',
     ]);
     const generateChatCompletion = createChatCompletionGenerator(
-      completeConfiguration(SDKDAutoRoute.RemoteFirst),
+      completeConfiguration(LLMDAutoRoute.RemoteFirst),
       languageModelFactory(llamaModel, remoteModel),
     );
 
@@ -605,7 +605,7 @@ describe('sdkd provider adapter', () => {
     const llamaModel = chatLanguageModel('served-local-model');
     const remoteModel = successfulLanguageModel('unused-remote-model', { ok: true });
     const generateChatCompletion = createChatCompletionGenerator(
-      { ...completeConfiguration(SDKDAutoRoute.RemoteFirst), llamaStructuredOutputsEnabled: false },
+      { ...completeConfiguration(LLMDAutoRoute.RemoteFirst), llamaStructuredOutputsEnabled: false },
       languageModelFactory(llamaModel, remoteModel),
     );
 
@@ -621,7 +621,7 @@ describe('sdkd provider adapter', () => {
     const llamaModel = apiFailingLanguageModel('llama.cpp', true, routeAttempts);
     const remoteModel = chatLanguageModel('served-remote-model');
     const generateChatCompletion = createChatCompletionGenerator(
-      completeConfiguration(SDKDAutoRoute.LocalFirst),
+      completeConfiguration(LLMDAutoRoute.LocalFirst),
       languageModelFactory(llamaModel, remoteModel),
     );
 
@@ -636,7 +636,7 @@ describe('sdkd provider adapter', () => {
     const llamaModel = chatLanguageModel('served-local-model');
     const remoteModel = chatLanguageModel('unused-remote-model');
     const generateChatCompletion = createChatCompletionGenerator(
-      { ...completeConfiguration(SDKDAutoRoute.RemoteFirst), localOnly: true },
+      { ...completeConfiguration(LLMDAutoRoute.RemoteFirst), localOnly: true },
       languageModelFactory(llamaModel, remoteModel),
     );
 
@@ -653,7 +653,7 @@ describe('sdkd provider adapter', () => {
   test('writes parallel tool calls using the provider wire field', async () => {
     const requestBodies: Array<Record<string, unknown>> = [];
     const generateChatCompletion = createChatCompletionGenerator(
-      completeConfiguration(SDKDAutoRoute.RemoteFirst),
+      completeConfiguration(LLMDAutoRoute.RemoteFirst),
       wireLanguageModelFactory(requestBodies),
     );
 
@@ -670,7 +670,7 @@ describe('sdkd provider adapter', () => {
       parallelToolCalls: true,
     });
     const localOnlyGenerator = createChatCompletionGenerator(
-      { ...completeConfiguration(SDKDAutoRoute.RemoteFirst), localOnly: true },
+      { ...completeConfiguration(LLMDAutoRoute.RemoteFirst), localOnly: true },
       wireLanguageModelFactory(requestBodies),
     );
     await localOnlyGenerator({
@@ -692,7 +692,7 @@ describe('sdkd provider adapter', () => {
   test('disables parallel tool calls for structured routes and preserves chat values', async () => {
     const structuredCalls: ProviderFactoryCall[] = [];
     const generateStructuredResponse = createStructuredResponseGenerator(
-      completeConfiguration(SDKDAutoRoute.RemoteFirst),
+      completeConfiguration(LLMDAutoRoute.RemoteFirst),
       recordingLanguageModelFactory(
         successfulLanguageModel('device-model', { ok: true }),
         successfulLanguageModel('remote-model', { ok: true }),
@@ -710,7 +710,7 @@ describe('sdkd provider adapter', () => {
 
     const chatCalls: ProviderFactoryCall[] = [];
     const generateChatCompletion = createChatCompletionGenerator(
-      completeConfiguration(SDKDAutoRoute.RemoteFirst),
+      completeConfiguration(LLMDAutoRoute.RemoteFirst),
       recordingLanguageModelFactory(
         chatLanguageModel('device-model'),
         chatLanguageModel('remote-model'),
@@ -752,7 +752,7 @@ describe('sdkd provider adapter', () => {
     });
     const remoteModel = successfulLanguageModel('unused-remote-model', { ok: true });
     const generateChatCompletion = createChatCompletionGenerator(
-      completeConfiguration(SDKDAutoRoute.LocalFirst),
+      completeConfiguration(LLMDAutoRoute.LocalFirst),
       languageModelFactory(llamaModel, remoteModel),
     );
 
@@ -792,7 +792,7 @@ describe('sdkd provider adapter', () => {
     });
     const fallbackModel = successfulLanguageModel('unused-model', { ok: true });
     const generateChatCompletion = createChatCompletionGenerator(
-      completeConfiguration(SDKDAutoRoute.LocalFirst),
+      completeConfiguration(LLMDAutoRoute.LocalFirst),
       languageModelFactory(model, fallbackModel),
     );
 
@@ -830,7 +830,7 @@ describe('sdkd provider adapter', () => {
     });
     const remoteModel = successfulLanguageModel('unused-remote-model', { ok: true });
     const generateStructuredResponse = createStructuredResponseGenerator(
-      completeConfiguration(SDKDAutoRoute.LocalFirst),
+      completeConfiguration(LLMDAutoRoute.LocalFirst),
       languageModelFactory(llamaModel, remoteModel),
     );
 
@@ -851,7 +851,7 @@ describe('sdkd provider adapter', () => {
     abortController.abort();
     const model = successfulLanguageModel('unused-model', { ok: true });
     const generateStructuredResponse = createStructuredResponseGenerator(
-      { ...completeConfiguration(SDKDAutoRoute.RemoteFirst), llamaBaseURL: undefined, llamaModel: undefined, openRouterAPIKey: undefined },
+      { ...completeConfiguration(LLMDAutoRoute.RemoteFirst), llamaBaseURL: undefined, llamaModel: undefined, openRouterAPIKey: undefined },
       languageModelFactory(model, model),
     );
 
@@ -866,7 +866,7 @@ describe('sdkd provider adapter', () => {
     });
     const remoteModel = successfulLanguageModel('unused-remote-model', { ok: false });
     const generateStructuredResponse = createStructuredResponseGenerator(
-      completeConfiguration(SDKDAutoRoute.RemoteFirst),
+      completeConfiguration(LLMDAutoRoute.RemoteFirst),
       languageModelFactory(llamaModel, remoteModel),
     );
 
@@ -916,7 +916,7 @@ describe('sdkd provider adapter', () => {
       input: '{"state":"ready"}',
     }]);
     const generateStructuredResponse = createStructuredResponseGenerator(
-      completeConfiguration(SDKDAutoRoute.RemoteFirst),
+      completeConfiguration(LLMDAutoRoute.RemoteFirst),
       languageModelFactory(successfulLanguageModel('unused-local-model', { ok: false }), model),
     );
 
@@ -937,7 +937,7 @@ describe('sdkd provider adapter', () => {
       routeAttempts.push('openrouter');
     });
     const generateStructuredResponse = createStructuredResponseGenerator(
-      completeConfiguration(SDKDAutoRoute.LocalFirst),
+      completeConfiguration(LLMDAutoRoute.LocalFirst),
       languageModelFactory(llamaModel, remoteModel),
     );
 
@@ -956,7 +956,7 @@ describe('sdkd provider adapter', () => {
       routeAttempts.push('openrouter');
     });
     const generateStructuredResponse = createStructuredResponseGenerator(
-      completeConfiguration(SDKDAutoRoute.LocalFirst),
+      completeConfiguration(LLMDAutoRoute.LocalFirst),
       languageModelFactory(llamaModel, remoteModel),
     );
 
@@ -973,7 +973,7 @@ describe('sdkd provider adapter', () => {
       routeAttempts.push('openrouter');
     });
     const generateStructuredResponse = createStructuredResponseGenerator(
-      completeConfiguration(SDKDAutoRoute.LocalFirst),
+      completeConfiguration(LLMDAutoRoute.LocalFirst),
       languageModelFactory(llamaModel, remoteModel),
     );
 
@@ -988,7 +988,7 @@ describe('sdkd provider adapter', () => {
     const llamaModel = retryFailingLanguageModel('llama.cpp', false, routeAttempts);
     const remoteModel = successfulLanguageModel('unused-remote-model', { ok: true });
     const generateStructuredResponse = createStructuredResponseGenerator(
-      completeConfiguration(SDKDAutoRoute.LocalFirst),
+      completeConfiguration(LLMDAutoRoute.LocalFirst),
       languageModelFactory(llamaModel, remoteModel),
     );
 
@@ -1002,7 +1002,7 @@ describe('sdkd provider adapter', () => {
     const llamaModel = apiFailingLanguageModel('llama.cpp', false, routeAttempts);
     const remoteModel = successfulLanguageModel('unused-remote-model', { ok: true });
     const generateStructuredResponse = createStructuredResponseGenerator(
-      completeConfiguration(SDKDAutoRoute.LocalFirst),
+      completeConfiguration(LLMDAutoRoute.LocalFirst),
       languageModelFactory(llamaModel, remoteModel),
     );
 
@@ -1016,7 +1016,7 @@ describe('sdkd provider adapter', () => {
     const llamaModel = apiFailingLanguageModel('llama.cpp', false, routeAttempts, 500);
     const remoteModel = successfulLanguageModel('unused-remote-model', { ok: true });
     const generateStructuredResponse = createStructuredResponseGenerator(
-      completeConfiguration(SDKDAutoRoute.LocalFirst),
+      completeConfiguration(LLMDAutoRoute.LocalFirst),
       languageModelFactory(llamaModel, remoteModel),
     );
 
@@ -1038,7 +1038,7 @@ describe('sdkd provider adapter', () => {
     const llamaModel = successfulLanguageModel('unused-local-model', { ok: false });
     const remoteModel = successfulLanguageModel('served-remote-model', { ok: true });
     const generateStructuredResponse = createStructuredResponseGenerator(
-      completeConfiguration(SDKDAutoRoute.RemoteFirst),
+      completeConfiguration(LLMDAutoRoute.RemoteFirst),
       languageModelFactory(llamaModel, remoteModel),
     );
 
@@ -1052,7 +1052,7 @@ describe('sdkd provider adapter', () => {
   test('keeps auto and remote routing local in local-only mode', async () => {
     const llamaModel = successfulLanguageModel('local-model', { ok: true });
     const remoteModel = successfulLanguageModel('remote-model', { ok: true });
-    const configuration = { ...completeConfiguration(SDKDAutoRoute.RemoteFirst), localOnly: true };
+    const configuration = { ...completeConfiguration(LLMDAutoRoute.RemoteFirst), localOnly: true };
     const generateStructuredResponse = createStructuredResponseGenerator(
       configuration,
       languageModelFactory(llamaModel, remoteModel),
@@ -1071,7 +1071,7 @@ describe('sdkd provider adapter', () => {
     const invalidModel = successfulLanguageModel('invalid-model', { ok: 'not-a-boolean' });
     const fallbackModel = successfulLanguageModel('fallback-model', { ok: true });
     const generateStructuredResponse = createStructuredResponseGenerator(
-      completeConfiguration(SDKDAutoRoute.LocalFirst),
+      completeConfiguration(LLMDAutoRoute.LocalFirst),
       languageModelFactory(invalidModel, fallbackModel),
     );
 
@@ -1088,7 +1088,7 @@ describe('sdkd provider adapter', () => {
       input: '{',
     }]);
     const generateStructuredResponse = createStructuredResponseGenerator(
-      completeConfiguration(SDKDAutoRoute.LocalFirst),
+      completeConfiguration(LLMDAutoRoute.LocalFirst),
       languageModelFactory(model, successfulLanguageModel('unused-model', { ok: true })),
     );
 
@@ -1102,7 +1102,7 @@ describe('sdkd provider adapter', () => {
     const model = malformedThenValidLanguageModel('repaired-model', { ok: true });
     const fallbackModel = successfulLanguageModel('unused-model', { ok: false });
     const generateStructuredResponse = createStructuredResponseGenerator(
-      completeConfiguration(SDKDAutoRoute.LocalFirst),
+      completeConfiguration(LLMDAutoRoute.LocalFirst),
       languageModelFactory(model, fallbackModel),
     );
 
@@ -1126,7 +1126,7 @@ describe('sdkd provider adapter', () => {
     ]);
     const fallbackModel = successfulLanguageModel('unused-model', { ok: false });
     const generateStructuredResponse = createStructuredResponseGenerator(
-      completeConfiguration(SDKDAutoRoute.LocalFirst),
+      completeConfiguration(LLMDAutoRoute.LocalFirst),
       languageModelFactory(model, fallbackModel),
     );
 
@@ -1159,7 +1159,7 @@ describe('sdkd provider adapter', () => {
     ]);
     const fallbackModel = successfulLanguageModel('unused-model', { ok: true });
     const generateStructuredResponse = createStructuredResponseGenerator(
-      completeConfiguration(SDKDAutoRoute.LocalFirst),
+      completeConfiguration(LLMDAutoRoute.LocalFirst),
       languageModelFactory(model, fallbackModel),
     );
 
@@ -1182,7 +1182,7 @@ describe('sdkd provider adapter', () => {
     ]) {
       const model = toolCallLanguageModel('invalid-model', toolCalls);
       const generateStructuredResponse = createStructuredResponseGenerator(
-        completeConfiguration(SDKDAutoRoute.LocalFirst),
+        completeConfiguration(LLMDAutoRoute.LocalFirst),
         languageModelFactory(model, successfulLanguageModel('unused-model', { ok: true })),
       );
 
@@ -1221,7 +1221,7 @@ describe('sdkd provider adapter', () => {
     });
     const fallbackModel = successfulLanguageModel('unused-model', { ok: true });
     const generateStructuredResponse = createStructuredResponseGenerator(
-      completeConfiguration(SDKDAutoRoute.LocalFirst),
+      completeConfiguration(LLMDAutoRoute.LocalFirst),
       languageModelFactory(model, fallbackModel),
     );
 
@@ -1266,7 +1266,7 @@ describe('sdkd provider adapter', () => {
       qualityReview: [{ evidenceIDs: ['obs-1'] }],
     });
     const generateStructuredResponse = createStructuredResponseGenerator(
-      completeConfiguration(SDKDAutoRoute.LocalFirst),
+      completeConfiguration(LLMDAutoRoute.LocalFirst),
       languageModelFactory(invalidModel, fallbackModel),
     );
 
@@ -1274,7 +1274,7 @@ describe('sdkd provider adapter', () => {
     expect(fallbackModel.doGenerateCalls).toHaveLength(0);
 
     const generateValidStructuredResponse = createStructuredResponseGenerator(
-      completeConfiguration(SDKDAutoRoute.LocalFirst),
+      completeConfiguration(LLMDAutoRoute.LocalFirst),
       languageModelFactory(fallbackModel, invalidModel),
     );
     const response = await generateValidStructuredResponse(qualityReviewRequest);
@@ -1287,7 +1287,7 @@ describe('sdkd provider adapter', () => {
     const llamaModel = apiFailingLanguageModel('llama.cpp', true, routeAttempts);
     const remoteModel = apiFailingLanguageModel('openrouter', true, routeAttempts);
     const generateStructuredResponse = createStructuredResponseGenerator(
-      completeConfiguration(SDKDAutoRoute.LocalFirst),
+      completeConfiguration(LLMDAutoRoute.LocalFirst),
       languageModelFactory(llamaModel, remoteModel),
     );
 
@@ -1298,7 +1298,7 @@ describe('sdkd provider adapter', () => {
   test('fails before provider execution when the requested route is unavailable', async () => {
     const model = successfulLanguageModel('unused-model', { ok: true });
     const modelFactory = languageModelFactory(model, model);
-    const configuration = completeConfiguration(SDKDAutoRoute.RemoteFirst);
+    const configuration = completeConfiguration(LLMDAutoRoute.RemoteFirst);
     const noRouteConfiguration = { ...configuration, llamaBaseURL: undefined, llamaModel: undefined, openRouterAPIKey: undefined };
     const generateStructuredResponse = createStructuredResponseGenerator(noRouteConfiguration, modelFactory);
 
@@ -1315,7 +1315,7 @@ describe('sdkd provider adapter', () => {
   });
 });
 
-function completeConfiguration(autoRoute: SDKDAutoRoute): SDKDConfiguration {
+function completeConfiguration(autoRoute: LLMDAutoRoute): LLMDConfiguration {
   return {
     authKey: 'installation-key',
     autoRoute,
@@ -1326,7 +1326,7 @@ function completeConfiguration(autoRoute: SDKDAutoRoute): SDKDConfiguration {
     localOnly: false,
     openRouterAPIKey: 'remote-key',
     openRouterBaseURL: 'https://openrouter.invalid/api/v1',
-    socketPath: '/tmp/blueclaw-sdkd-provider-test.sock',
+    socketPath: '/tmp/blueclaw-llmd-provider-test.sock',
   };
 }
 

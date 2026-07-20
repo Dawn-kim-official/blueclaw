@@ -802,7 +802,7 @@ func TestCompileOperationRequirementsCorrectsAuthoritativeStructuredOutputError(
 	}
 	correctionMessages := joinedMessageContent(languageModel.requests[1].Messages)
 	if !strings.Contains(correctionMessages, "schema_validation") || !strings.Contains(correctionMessages, "operations[0].requiredValues.title") {
-		t.Fatalf("expected typed SDKD diagnostic in correction request, got %s", correctionMessages)
+		t.Fatalf("expected typed LLMD diagnostic in correction request, got %s", correctionMessages)
 	}
 	if string(contract.OperationContract.Requirements[0].RequiredInput) != `{"title":"분기 결산 누락 확인"}` {
 		t.Fatalf("unexpected corrected operation contract %+v", contract.OperationContract)

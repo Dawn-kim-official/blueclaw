@@ -188,10 +188,10 @@ type LanguageModelConfiguration struct {
 	DefaultProvider  string                               `json:"defaultProvider"`
 	FallbackProvider string                               `json:"fallbackProvider"`
 	Capability       LanguageModelCapabilityConfiguration `json:"capability"`
-	SDKD             LanguageModelSDKDConfiguration       `json:"sdkd"`
+	LLMD             LanguageModelLLMDConfiguration       `json:"llmd"`
 }
 
-type LanguageModelSDKDConfiguration struct {
+type LanguageModelLLMDConfiguration struct {
 	Endpoint              string   `json:"endpoint"`
 	UnixSocketPath        string   `json:"unixSocketPath"`
 	AuthKeyPath           string   `json:"authKeyPath"`

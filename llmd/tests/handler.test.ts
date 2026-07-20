@@ -18,18 +18,18 @@ import {
 } from '@blueclaw/protocol';
 import { buildProtocolArtifacts } from '@blueclaw/protocol/artifacts';
 
-import { SDKDAutoRoute, type SDKDConfiguration } from '../src/configuration.ts';
-import { SDKDError } from '../src/errors.ts';
-import { createSDKDHandler } from '../src/handler.ts';
+import { LLMDAutoRoute, type LLMDConfiguration } from '../src/configuration.ts';
+import { LLMDError } from '../src/errors.ts';
+import { createLLMDHandler } from '../src/handler.ts';
 
-const configuration: SDKDConfiguration = {
+const configuration: LLMDConfiguration = {
   authKey: 'installation-key',
-  autoRoute: SDKDAutoRoute.RemoteFirst,
+  autoRoute: LLMDAutoRoute.RemoteFirst,
   llamaAPIKey: 'local',
   llamaStructuredOutputsEnabled: false,
   localOnly: false,
   openRouterBaseURL: 'https://openrouter.ai/api/v1',
-  socketPath: '/tmp/blueclaw-sdkd-test.sock',
+  socketPath: '/tmp/blueclaw-llmd-test.sock',
 };
 
 const requestDocument: StructuredResponseRequest = {
@@ -67,10 +67,10 @@ const chatRequestDocument: ChatCompletionRequest = {
   parallelToolCalls: false,
 };
 
-describe('sdkd handler', () => {
+describe('llmd handler', () => {
   test('reports protocol health without provider credentials', async () => {
-    const handler = createSDKDHandler({ configuration, generateStructuredResponse: async () => responseDocument() });
-    const response = await handler(new Request('http://sdkd/health'));
+    const handler = createLLMDHandler({ configuration, generateStructuredResponse: async () => responseDocument() });
+    const response = await handler(new Request('http://llmd/health'));
     const body = await response.json();
     const protocolManifest = buildProtocolArtifacts().manifest;
 
@@ -90,7 +90,7 @@ describe('sdkd handler', () => {
   });
 
   test('requires the installation key', async () => {
-    const handler = createSDKDHandler({ configuration, generateStructuredResponse: async () => responseDocument() });
+    const handler = createLLMDHandler({ configuration, generateStructuredResponse: async () => responseDocument() });
     const response = await handler(structuredRequest());
 
     expect(response.status).toBe(401);
@@ -101,7 +101,7 @@ describe('sdkd handler', () => {
 
   test('validates ingress and egress contracts', async () => {
     let observedRequest: StructuredResponseRequest | undefined;
-    const handler = createSDKDHandler({
+    const handler = createLLMDHandler({
       configuration,
       generateStructuredResponse: async request => {
         observedRequest = request;
@@ -118,7 +118,7 @@ describe('sdkd handler', () => {
   test('passes the structured request abort signal to the generator', async () => {
     const abortController = new AbortController();
     let observedAbortSignal: AbortSignal | undefined;
-    const handler = createSDKDHandler({
+    const handler = createLLMDHandler({
       configuration,
       generateStructuredResponse: async (_request, abortSignal) => {
         observedAbortSignal = abortSignal;
@@ -133,7 +133,7 @@ describe('sdkd handler', () => {
   });
 
   test('classifies aborted structured generation without allowing fallback', async () => {
-    const handler = createSDKDHandler({
+    const handler = createLLMDHandler({
       configuration,
       generateStructuredResponse: async () => {
         throw new DOMException('The operation was aborted', 'AbortError');
@@ -149,10 +149,10 @@ describe('sdkd handler', () => {
   });
 
   test('preserves fallback policy in provider errors', async () => {
-    const retryableHandler = createSDKDHandler({
+    const retryableHandler = createLLMDHandler({
       configuration,
       generateStructuredResponse: async () => {
-        throw new SDKDError('provider_unavailable', 503, true, 'unavailable');
+        throw new LLMDError('provider_unavailable', 503, true, 'unavailable');
       },
     });
     const retryableResponse = await retryableHandler(structuredRequest('installation-key'));
@@ -162,10 +162,10 @@ describe('sdkd handler', () => {
       error: { code: 'provider_unavailable', allowLegacyFallback: true },
     });
 
-    const contractHandler = createSDKDHandler({
+    const contractHandler = createLLMDHandler({
       configuration,
       generateStructuredResponse: async () => {
-        throw new SDKDError('structured_output_invalid', 422, false, 'invalid');
+        throw new LLMDError('structured_output_invalid', 422, false, 'invalid');
       },
     });
     const contractResponse = await contractHandler(structuredRequest('installation-key'));
@@ -177,10 +177,10 @@ describe('sdkd handler', () => {
   });
 
   test('returns only closed structured output diagnostics', async () => {
-    const handler = createSDKDHandler({
+    const handler = createLLMDHandler({
       configuration,
       generateStructuredResponse: async () => {
-        throw new SDKDError(
+        throw new LLMDError(
           'structured_output_invalid',
           422,
           false,
@@ -204,14 +204,14 @@ describe('sdkd handler', () => {
 
   test('keeps contract and policy failures closed', async () => {
     const testCases = [
-      new SDKDError('structured_output_invalid', 422, false, 'schema invalid'),
-      new SDKDError('policy_remote_disabled', 403, false, 'remote disabled'),
-      new SDKDError('configuration_invalid', 400, false, 'configuration invalid'),
-      new SDKDError('request_invalid', 400, false, 'request invalid'),
+      new LLMDError('structured_output_invalid', 422, false, 'schema invalid'),
+      new LLMDError('policy_remote_disabled', 403, false, 'remote disabled'),
+      new LLMDError('configuration_invalid', 400, false, 'configuration invalid'),
+      new LLMDError('request_invalid', 400, false, 'request invalid'),
     ];
 
     for (const expectedError of testCases) {
-      const handler = createSDKDHandler({
+      const handler = createLLMDHandler({
         configuration,
         generateStructuredResponse: async () => {
           throw expectedError;
@@ -228,14 +228,14 @@ describe('sdkd handler', () => {
 
   test('rejects malformed protocol requests before provider execution', async () => {
     let callCount = 0;
-    const handler = createSDKDHandler({
+    const handler = createLLMDHandler({
       configuration,
       generateStructuredResponse: async () => {
         callCount += 1;
         return responseDocument();
       },
     });
-    const response = await handler(new Request('http://sdkd/v1/llm/structured', {
+    const response = await handler(new Request('http://llmd/v1/llm/structured', {
       method: 'POST',
       headers: { authorization: 'Bearer installation-key', 'content-type': 'application/json' },
       body: JSON.stringify({ executionMode: 'remote' }),
@@ -247,7 +247,7 @@ describe('sdkd handler', () => {
 
   test('rejects non-canonical structured output boundaries before provider execution', async () => {
     let callCount = 0;
-    const handler = createSDKDHandler({
+    const handler = createLLMDHandler({
       configuration,
       generateStructuredResponse: async () => {
         callCount += 1;
@@ -277,7 +277,7 @@ describe('sdkd handler', () => {
     ];
 
     for (const document of invalidDocuments) {
-      const response = await handler(new Request('http://sdkd/v1/llm/structured', {
+      const response = await handler(new Request('http://llmd/v1/llm/structured', {
         method: 'POST',
         headers: { authorization: 'Bearer installation-key', 'content-type': 'application/json' },
         body: JSON.stringify(document),
@@ -292,7 +292,7 @@ describe('sdkd handler', () => {
 
   test('validates chat ingress and egress contracts', async () => {
     let observedRequest: ChatCompletionRequest | undefined;
-    const handler = createSDKDHandler({
+    const handler = createLLMDHandler({
       configuration,
       generateStructuredResponse: async () => responseDocument(),
       generateChatCompletion: async request => {
@@ -310,7 +310,7 @@ describe('sdkd handler', () => {
   test('passes the chat request abort signal to the generator', async () => {
     const abortController = new AbortController();
     let observedAbortSignal: AbortSignal | undefined;
-    const handler = createSDKDHandler({
+    const handler = createLLMDHandler({
       configuration,
       generateStructuredResponse: async () => responseDocument(),
       generateChatCompletion: async (_request, abortSignal) => {
@@ -326,7 +326,7 @@ describe('sdkd handler', () => {
   });
 
   test('classifies aborted chat generation without allowing fallback', async () => {
-    const handler = createSDKDHandler({
+    const handler = createLLMDHandler({
       configuration,
       generateStructuredResponse: async () => responseDocument(),
       generateChatCompletion: async () => {
@@ -343,11 +343,11 @@ describe('sdkd handler', () => {
   });
 
   test('returns safe diagnostics for schema-invalid chat tool arguments', async () => {
-    const handler = createSDKDHandler({
+    const handler = createLLMDHandler({
       configuration,
       generateStructuredResponse: async () => responseDocument(),
       generateChatCompletion: async () => {
-        throw new SDKDError(
+        throw new LLMDError(
           'provider_response_invalid',
           502,
           false,
@@ -386,11 +386,11 @@ describe('sdkd handler', () => {
   });
 
   test('keeps chat tool choice contract failures closed', async () => {
-    const handler = createSDKDHandler({
+    const handler = createLLMDHandler({
       configuration,
       generateStructuredResponse: async () => responseDocument(),
       generateChatCompletion: async () => {
-        throw new SDKDError(
+        throw new LLMDError(
           'structured_output_invalid',
           422,
           false,
@@ -420,7 +420,7 @@ describe('sdkd handler', () => {
 
   test('rejects malformed chat requests before provider execution', async () => {
     let callCount = 0;
-    const handler = createSDKDHandler({
+    const handler = createLLMDHandler({
       configuration,
       generateStructuredResponse: async () => responseDocument(),
       generateChatCompletion: async () => {
@@ -428,7 +428,7 @@ describe('sdkd handler', () => {
         return chatResponseDocument();
       },
     });
-    const response = await handler(new Request('http://sdkd/v1/llm/chat', {
+    const response = await handler(new Request('http://llmd/v1/llm/chat', {
       method: 'POST',
       headers: { authorization: 'Bearer installation-key', 'content-type': 'application/json' },
       body: JSON.stringify({ executionMode: 'remote', messages: [] }),
@@ -440,7 +440,7 @@ describe('sdkd handler', () => {
 
   test('rejects chat identity collisions before provider execution', async () => {
     let callCount = 0;
-    const handler = createSDKDHandler({
+    const handler = createLLMDHandler({
       configuration,
       generateStructuredResponse: async () => responseDocument(),
       generateChatCompletion: async () => {
@@ -470,7 +470,7 @@ describe('sdkd handler', () => {
     };
 
     for (const requestDocument of [duplicateToolNameRequest, duplicateToolCallIDRequest]) {
-      const response = await handler(new Request('http://sdkd/v1/llm/chat', {
+      const response = await handler(new Request('http://llmd/v1/llm/chat', {
         method: 'POST',
         headers: { authorization: 'Bearer installation-key', 'content-type': 'application/json' },
         body: JSON.stringify(requestDocument),
@@ -481,7 +481,7 @@ describe('sdkd handler', () => {
   });
 
   test('rejects duplicate response tool call IDs at the egress boundary', async () => {
-    const handler = createSDKDHandler({
+    const handler = createLLMDHandler({
       configuration,
       generateStructuredResponse: async () => responseDocument(),
       generateChatCompletion: async () => ({
@@ -507,7 +507,7 @@ describe('sdkd handler', () => {
 function structuredRequest(authKey?: string, signal?: AbortSignal): Request {
   const headers: Record<string, string> = { 'content-type': 'application/json' };
   if (authKey) headers.authorization = `Bearer ${authKey}`;
-  return new Request('http://sdkd/v1/llm/structured', {
+  return new Request('http://llmd/v1/llm/structured', {
     method: 'POST',
     headers,
     body: JSON.stringify(requestDocument),
@@ -518,7 +518,7 @@ function structuredRequest(authKey?: string, signal?: AbortSignal): Request {
 function chatRequest(authKey?: string, signal?: AbortSignal): Request {
   const headers: Record<string, string> = { 'content-type': 'application/json' };
   if (authKey) headers.authorization = `Bearer ${authKey}`;
-  return new Request('http://sdkd/v1/llm/chat', {
+  return new Request('http://llmd/v1/llm/chat', {
     method: 'POST',
     headers,
     body: JSON.stringify(chatRequestDocument),

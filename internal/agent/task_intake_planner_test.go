@@ -1620,7 +1620,7 @@ func TestTurnRouterPreservesExactPrecomputedDecision(t *testing.T) {
 		TaskLevel:          TaskLevelLow,
 		EstimatedMinutes:   1,
 		PriorTaskReference: PriorTaskReferenceNone,
-		Reason:             "SDKD topology diagnostic",
+		Reason:             "LLMD topology diagnostic",
 	}
 	decision := mustPlanTurn(t, NewTurnRouter(nil, IntakeOptions{DefaultTaskLevel: TaskLevelHigh}), AgentRequest{
 		Prompt:                     "Create and publish a PDF website",
