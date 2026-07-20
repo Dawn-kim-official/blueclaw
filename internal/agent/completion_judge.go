@@ -129,7 +129,8 @@ func completionJudgeInstruction() string {
 		"Judge whether the recorded successful operations actually accomplish the user's original instruction.",
 		"Judge only from the recorded ledger facts below. The executor's own completion claims are not evidence.",
 		"Mark unsatisfied when the recorded operations do not plausibly accomplish the instruction: wrong target, wrong values, or a missing step.",
-		"When the instruction states an explicit deadline, date, time, quantity, title, or recipient, the recorded operation inputs must carry that value; if such a stated value is absent or contradicted, mark unsatisfied and name it in missingWork.",
+		"When the instruction states an explicit deadline, date, time, quantity, title, or recipient, that value must appear in at least one successful recorded operation input; if a stated value appears nowhere, mark unsatisfied and name exactly that value in missingWork.",
+		"Do not invent requirements the instruction does not state. Wording, formatting, phrasing, and which list or table a record appears in are not failures. If the right operations ran and every explicitly stated value appears in some recorded input, mark satisfied.",
 	}, "\n")
 }
 
