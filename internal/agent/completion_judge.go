@@ -75,8 +75,9 @@ func (agentTurnRunner *AgentTurnRunner) evaluateCompletionJudge(ctx context.Cont
 		return completionGateResult{IsSatisfied: true}
 	}
 	return completionGateResult{
-		Message:      completionJudgeUnsatisfiedMessage(verdict),
-		EvidenceKind: evidenceKindExpectedResult,
+		Message:        completionJudgeUnsatisfiedMessage(verdict),
+		EvidenceKind:   evidenceKindExpectedResult,
+		IsJudgeVerdict: true,
 	}
 }
 

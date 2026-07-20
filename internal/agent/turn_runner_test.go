@@ -216,6 +216,94 @@ func TestAgentTurnRunnerSendsCheckpointAndStillRunsTool(t *testing.T) {
 	}
 }
 
+type contextCancelingTurnLanguageModel struct {
+	cancel         context.CancelFunc
+	actionContents []string
+	requestIndex   int
+	judgeError     error
+}
+
+func (model *contextCancelingTurnLanguageModel) GenerateResponse(context.Context, string) (string, error) {
+	return "", nil
+}
+
+func (model *contextCancelingTurnLanguageModel) GenerateStructuredResponse(_ context.Context, request llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
+	if request.StructuredOutputSchema.Name == completionJudgeSchemaName {
+		model.cancel()
+		return llm.StructuredResponse{}, model.judgeError
+	}
+	content := ""
+	if model.requestIndex < len(model.actionContents) {
+		content = model.actionContents[model.requestIndex]
+	}
+	model.requestIndex++
+	return llm.StructuredResponse{Content: content}, nil
+}
+
+func (model *contextCancelingTurnLanguageModel) GenerateChatCompletion(_ context.Context, request llm.ChatCompletionRequest) (llm.ChatCompletionResponse, error) {
+	if request.SchemaName == completionReplySchemaName {
+		return llm.ChatCompletionResponse{
+			FinishReason: "stop",
+			Message:      llm.ChatCompletionMessage{Role: "assistant", Content: "오래된 작업을 삭제했습니다."},
+		}, nil
+	}
+	return llm.ChatCompletionResponse{
+		FinishReason: "tool_calls",
+		Message: llm.ChatCompletionMessage{
+			Role: "assistant",
+			ToolCalls: []llm.ChatCompletionToolCall{{
+				ID:   "call-1",
+				Type: "function",
+				Function: llm.ChatCompletionToolCallFunction{
+					Name:      "task.delete",
+					Arguments: `{"taskID":"task-1"}`,
+				},
+			}},
+		},
+	}, nil
+}
+
+func TestAgentTurnRunnerCompletesWhenCallerContextExpiresDuringCompletionJudge(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	languageModel := &contextCancelingTurnLanguageModel{
+		cancel: cancel,
+		actionContents: []string{
+			directToolAction("continue", "삭제할게요.", "task.delete", `{"taskID":"task-1"}`),
+		},
+		judgeError: context.DeadlineExceeded,
+	}
+	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 4})
+	toolDefinition := testToolDescriptor("task.delete")
+	toolDefinition.Completion = ToolCompletion{Mode: ToolCompletionObservation, Action: "delete", TargetKind: "task"}
+	toolRegistry := newTestToolSetWithDefinitions([]ToolDefinition{toolDefinition})
+
+	result, errorValue := services.runner.RunTurn(ctx, AgentTurnRequest{
+		RequesterPersonID:     "person-1",
+		ConversationID:        "conversation-1",
+		Prompt:                "오래된 작업을 삭제해줘",
+		ToolSet:               toolRegistry,
+		PinnedToolNames:       toolRegistry.ListToolNames(),
+		RequiredEvidenceTools: []string{"task.delete"},
+		OutcomeContract:       OutcomeContract{RequiredEvidenceTools: []string{"task.delete"}},
+	})
+
+	if errorValue != nil {
+		t.Fatalf("expected the turn to succeed despite the caller context expiring mid-judge-call: %v", errorValue)
+	}
+	if result.TaskRun.Status != task.TaskStatusCompleted {
+		t.Fatalf("expected the task to complete, got status %q (replySuppressed=%v) failureReason=%q", result.TaskRun.Status, result.ReplySuppressed, result.TaskRun.FailureReason)
+	}
+	if result.ReplySuppressed {
+		t.Fatal("expected the reply not to be suppressed once the completion gate and reply already exist")
+	}
+	if result.FinishMessage == "" {
+		t.Fatal("expected a non-empty finish message so the connector does not suppress it as missing_user_notice")
+	}
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "completion_judge.degraded", "") {
+		t.Fatal("expected a completion_judge.degraded event to be recorded")
+	}
+}
+
 func TestAgentTurnRunnerUsesPostEvidenceWordingAfterCheckpoint(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		directToolAction("continue", "추가할게요.", "task.add", `{"title":"고객지원 분기 결산","dueDate":"2026-07-17"}`),
