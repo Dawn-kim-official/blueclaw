@@ -233,7 +233,7 @@ const fetchWithFirstByteTimeout = Object.assign(
   (input: string | URL | Request, requestInit?: RequestInit): Promise<Response> => {
     const firstByteController = new AbortController();
     const firstByteTimer = setTimeout(
-      () => firstByteController.abort(new LLMDError('provider_unreachable', 502, true, `provider returned no response headers within ${firstByteTimeoutMs}ms`)),
+      () => firstByteController.abort(new LLMDError('provider_unavailable', 503, true, `provider returned no response headers within ${firstByteTimeoutMs}ms`)),
       firstByteTimeoutMs,
     );
     const callerSignal = requestInit?.signal;
