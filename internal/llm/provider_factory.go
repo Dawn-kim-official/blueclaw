@@ -106,6 +106,7 @@ func DefaultLLMDStructuredSchemaNames() []string {
 		"blueclaw_recovery_decision",
 		"blueclaw_operation_contract",
 		"blueclaw_contract_skill_arbitration",
+		"blueclaw_completion_judge",
 	}
 }
 
