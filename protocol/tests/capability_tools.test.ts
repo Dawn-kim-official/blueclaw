@@ -320,9 +320,9 @@ describe('canonical capability tools', () => {
 
   test('keeps runtime task identities out of user intent', () => {
     expect(taskUpdateInputIntentSchema.safeParse({ title: '분기 결산 검토' }).success).toBe(true);
-    expect(taskUpdateInputIntentSchema.safeParse({ taskID: 'task-1' }).success).toBe(false);
+    expect(taskUpdateInputIntentSchema.safeParse({ taskHint: 'task-1' }).success).toBe(false);
     expect(taskDeleteInputIntentSchema.safeParse({}).success).toBe(true);
-    expect(taskDeleteInputIntentSchema.safeParse({ taskID: 'task-1' }).success).toBe(false);
+    expect(taskDeleteInputIntentSchema.safeParse({ taskHint: 'task-1' }).success).toBe(false);
   });
 
   test('keeps calendar metadata and mutation contracts explicit', () => {
@@ -512,13 +512,13 @@ describe('canonical capability tools', () => {
       endDate: '2026-07-24',
     });
     expect(taskListInputSchema.safeParse({ query: '결산', scope: 'self' }).success).toBe(true);
-    expect(taskUpdateInputSchema.safeParse({ taskID: 'task-1', title: '수정된 제목' }).success).toBe(true);
-    expect(taskDeleteInputSchema.safeParse({ taskID: 'task-1' }).success).toBe(true);
+    expect(taskUpdateInputSchema.safeParse({ taskHint: 'task-1', title: '수정된 제목' }).success).toBe(true);
+    expect(taskDeleteInputSchema.safeParse({ taskHint: 'task-1' }).success).toBe(true);
 
     expect(taskAddInputSchema.safeParse({ content: '잘못된 별칭' }).success).toBe(false);
-    expect(taskUpdateInputSchema.safeParse({ taskID: 'task-1' }).success).toBe(false);
+    expect(taskUpdateInputSchema.safeParse({ taskHint: 'task-1' }).success).toBe(false);
     expect(taskUpdateInputSchema.safeParse({ query: '결산', content: '수정' }).success).toBe(false);
-    expect(taskDeleteInputSchema.safeParse({ taskID: 'task-1', query: '결산' }).success).toBe(false);
+    expect(taskDeleteInputSchema.safeParse({ taskHint: 'task-1', query: '결산' }).success).toBe(false);
   });
 
   test('validates calendar inputs with exact mutation identities', () => {

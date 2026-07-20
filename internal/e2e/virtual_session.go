@@ -1897,7 +1897,7 @@ func (service *virtualCapabilityService) taskResponse(toolName string, requestBo
 		if len(input) < 2 {
 			return virtualCapabilityInvalidInput(toolName, "at least one task field must be updated")
 		}
-		index := virtualCapabilityRecordIndexByID(service.tasks, input, "taskID")
+		index := virtualCapabilityRecordIndexByHint(service.tasks, input, "taskHint", "content")
 		if index < 0 {
 			return virtualCapabilityNotFound(toolName, "task")
 		}
@@ -1906,13 +1906,13 @@ func (service *virtualCapabilityService) taskResponse(toolName string, requestBo
 			values["content"] = title
 		}
 		delete(values, "title")
-		mergeVirtualCapabilityRecord(service.tasks[index].Values, values, "taskID")
+		mergeVirtualCapabilityRecord(service.tasks[index].Values, values, "taskHint")
 		return virtualCapabilityTaskSuccess(toolName, "updated", service.tasks[index].ID, "updated virtual task", service.tasks[index].Values)
 	default:
 		if virtualCapabilityRequestNeedsApproval(requestBody) {
 			return virtualCapabilityApprovalRequired(toolName)
 		}
-		index := virtualCapabilityRecordIndexByID(service.tasks, input, "taskID")
+		index := virtualCapabilityRecordIndexByHint(service.tasks, input, "taskHint", "content")
 		if index < 0 {
 			return virtualCapabilityNotFound(toolName, "task")
 		}
@@ -2222,6 +2222,30 @@ func virtualCapabilityRecordIndexByID(records []virtualCapabilityRecord, input m
 		if record.ID == requestedID {
 			return index
 		}
+	}
+	return -1
+}
+
+func virtualCapabilityRecordIndexByHint(records []virtualCapabilityRecord, input map[string]any, hintFieldName string, titleFieldName string) int {
+	hint := strings.TrimSpace(stringValue(input[hintFieldName]))
+	if hint == "" {
+		return -1
+	}
+	for index, record := range records {
+		if record.ID == hint {
+			return index
+		}
+	}
+	matchingIndex := -1
+	matchCount := 0
+	for index, record := range records {
+		if stringValue(record.Values[titleFieldName]) == hint {
+			matchingIndex = index
+			matchCount++
+		}
+	}
+	if matchCount == 1 {
+		return matchingIndex
 	}
 	return -1
 }
