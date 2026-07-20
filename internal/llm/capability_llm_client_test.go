@@ -547,3 +547,19 @@ func jsonCapabilityResponse(statusCode int, body string) *http.Response {
 		Header:     http.Header{"Content-Type": []string{"application/json"}},
 	}
 }
+
+func buildTestStructuredResponseRequest() StructuredResponseRequest {
+	return StructuredResponseRequest{
+		Messages: []Message{
+			{
+				Role:    "user",
+				Content: "say hello",
+			},
+		},
+		StructuredOutputSchema: StructuredOutputSchema{
+			Name:               "reply",
+			Document:           `{"type":"object","properties":{"reply":{"type":"string"}},"required":["reply"],"additionalProperties":false}`,
+			IsStrictlyEnforced: true,
+		},
+	}
+}
