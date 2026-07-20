@@ -2,7 +2,10 @@ package agent
 
 import (
 	"encoding/json"
+	"os"
 	"testing"
+
+	"github.com/google/jsonschema-go/jsonschema"
 )
 
 func TestActionSchemasRecursivelyCloseEveryObject(t *testing.T) {
@@ -36,6 +39,63 @@ func TestActionSchemasRecursivelyCloseEveryObject(t *testing.T) {
 			assertEveryObjectSchemaIsClosed(t, schemaValue)
 		})
 	}
+}
+
+const eightToolActionSchemaByteCeiling = 17500
+
+func TestActionSchemaSharedEnvelopeByteBudget(t *testing.T) {
+	toolDefinitions := eightToolCapabilityCatalogFixture(t)
+
+	schemaDocument := buildActionSchemaFromToolDefinitions(toolDefinitions, true, nil, false)
+
+	t.Logf("action schema byte length for an 8-tool catalog: %d", len(schemaDocument))
+	if len(schemaDocument) >= eightToolActionSchemaByteCeiling {
+		t.Fatalf("expected the deduplicated action schema to stay under %d bytes, got %d", eightToolActionSchemaByteCeiling, len(schemaDocument))
+	}
+	var compiledSchema jsonschema.Schema
+	if errorValue := json.Unmarshal([]byte(schemaDocument), &compiledSchema); errorValue != nil {
+		t.Fatalf("expected the action schema to parse with the santhosh jsonschema library, got %v", errorValue)
+	}
+	if _, errorValue := compiledSchema.Resolve(nil); errorValue != nil {
+		t.Fatalf("expected the action schema to resolve with the santhosh jsonschema library, got %v", errorValue)
+	}
+}
+
+func eightToolCapabilityCatalogFixture(t *testing.T) []ToolDefinition {
+	t.Helper()
+	document, errorValue := os.ReadFile("../../protocol/generated/capability-tools.json")
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	var catalog struct {
+		Tools []struct {
+			ModelName   string          `json:"modelName"`
+			Description string          `json:"description"`
+			InputSchema json.RawMessage `json:"inputSchema"`
+		} `json:"tools"`
+	}
+	if errorValue := json.Unmarshal(document, &catalog); errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	selectedToolNames := map[string]bool{
+		"task.add": true, "task.update": true, "message.send": true, "message.search": true,
+		"document.read": true, "image.read": true, "web.search": true, "site.create": true,
+	}
+	toolDefinitions := make([]ToolDefinition, 0, len(selectedToolNames))
+	for _, tool := range catalog.Tools {
+		if !selectedToolNames[tool.ModelName] {
+			continue
+		}
+		toolDefinitions = append(toolDefinitions, ToolDefinition{
+			Name:        tool.ModelName,
+			Description: tool.Description,
+			InputSchema: tool.InputSchema,
+		})
+	}
+	if len(toolDefinitions) != len(selectedToolNames) {
+		t.Fatalf("expected %d fixture tools, got %d", len(selectedToolNames), len(toolDefinitions))
+	}
+	return toolDefinitions
 }
 
 func assertEveryObjectSchemaIsClosed(t *testing.T, schemaValue any) {

@@ -27,25 +27,26 @@ type AttachmentMaterialResolver interface {
 }
 
 type ToolCatalogBuilder struct {
-	allowedToolNamesByProfile map[string][]string
-	defaultAllowedToolNames   []string
-	memoryService             *memory.MemoryService
-	pinnedMemoryStore         *memory.MarkdownStore
-	memoryUpdateQueue         memory.MemoryUpdateEnqueuer
-	mcpRegistry               *mcp.McpRegistry
-	capabilityClient          capability.Client
-	capabilityToolDescriptors []CapabilityToolDescriptor
-	terminalService           *security.TerminalSessionService
-	workspaceActorFactory     security.WorkspaceActorFactory
-	taskRunService            *task.TaskRunService
-	taskArtifactService       *task.TaskArtifactService
-	taskScheduleRepository    task.TaskScheduleRepository
-	taskWaitTokenRepository   task.TaskWaitTokenRepository
-	workspaceRootPath         string
-	skillChangeHandler        func(context.Context)
-	skillRetriever            agent.SkillRetriever
-	instructionBundleLoader   func() agent.InstructionBundle
-	mcpQuarantineReporter     func(agent.QuarantinedToolProvider)
+	allowedToolNamesByProfile    map[string][]string
+	defaultAllowedToolNames      []string
+	memoryService                *memory.MemoryService
+	pinnedMemoryStore            *memory.MarkdownStore
+	memoryUpdateQueue            memory.MemoryUpdateEnqueuer
+	mcpRegistry                  *mcp.McpRegistry
+	capabilityClient             capability.Client
+	capabilityToolDescriptors    []CapabilityToolDescriptor
+	terminalService              *security.TerminalSessionService
+	workspaceActorFactory        security.WorkspaceActorFactory
+	taskRunService               *task.TaskRunService
+	taskArtifactService          *task.TaskArtifactService
+	taskScheduleRepository       task.TaskScheduleRepository
+	taskWaitTokenRepository      task.TaskWaitTokenRepository
+	workspaceRootPath            string
+	skillChangeHandler           func(context.Context)
+	skillRetriever               agent.SkillRetriever
+	instructionBundleLoader      func() agent.InstructionBundle
+	mcpQuarantineReporter        func(agent.QuarantinedToolProvider)
+	capabilityQuarantineReporter func(agent.QuarantinedToolProvider)
 }
 
 type toolHandlerContext struct {
@@ -173,6 +174,10 @@ func (toolCatalogBuilder *ToolCatalogBuilder) UseMCPRegistry(mcpRegistry *mcp.Mc
 
 func (toolCatalogBuilder *ToolCatalogBuilder) UseMCPQuarantineReporter(reporter func(agent.QuarantinedToolProvider)) {
 	toolCatalogBuilder.mcpQuarantineReporter = reporter
+}
+
+func (toolCatalogBuilder *ToolCatalogBuilder) UseCapabilityQuarantineReporter(reporter func(agent.QuarantinedToolProvider)) {
+	toolCatalogBuilder.capabilityQuarantineReporter = reporter
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) UseCapabilityToolDescriptors(capabilityClient capability.Client, toolDescriptors []CapabilityToolDescriptor) {

@@ -50,8 +50,22 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerCapabilityTools(toolRegist
 		request:            request,
 		descriptors:        toolCatalogBuilder.capabilityToolDefinitions(),
 	}
-	if errorValue := toolRegistry.RegisterProvider(context.Background(), provider); errorValue != nil {
+	quarantinedProviders, errorValue := toolRegistry.RegisterProviders(context.Background(), []agent.ToolProviderRegistration{{
+		Provider: provider,
+		Trust:    agent.ToolProviderExternal,
+	}})
+	if errorValue != nil {
 		panic(errorValue)
+	}
+	toolCatalogBuilder.reportCapabilityQuarantines(quarantinedProviders)
+}
+
+func (toolCatalogBuilder *ToolCatalogBuilder) reportCapabilityQuarantines(quarantinedProviders []agent.QuarantinedToolProvider) {
+	if toolCatalogBuilder.capabilityQuarantineReporter == nil {
+		return
+	}
+	for _, quarantinedProvider := range quarantinedProviders {
+		toolCatalogBuilder.capabilityQuarantineReporter(quarantinedProvider)
 	}
 }
 
