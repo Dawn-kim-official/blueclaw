@@ -9,7 +9,33 @@ import (
 	"blueclaw/internal/capability"
 )
 
-var connectorTestCapabilityInputSchema = json.RawMessage(`{"type":"object","additionalProperties":{"type":["string","number","boolean","array","object","null"]}}`)
+var connectorTestCapabilityClosedSchema = json.RawMessage(`{"type":"object","properties":{},"additionalProperties":false}`)
+
+func connectorTestCapabilityInputSchemaForTool(toolName string) json.RawMessage {
+	switch toolName {
+	case "calendar.add":
+		return json.RawMessage(`{"type":"object","properties":{"title":{"type":"string"},"startISO":{"type":"string"},"endISO":{"type":"string"},"isAllDay":{"type":"boolean"}},"additionalProperties":false}`)
+	case "calendar.delete":
+		return json.RawMessage(`{"type":"object","properties":{"eventID":{"type":"string"},"userConfirmed":{"type":"boolean"}},"additionalProperties":false}`)
+	case "message.send":
+		return json.RawMessage(`{"type":"object","properties":{"targetType":{"type":"string"},"personHint":{"type":"string"},"message":{"type":"string"}},"additionalProperties":false}`)
+	default:
+		return connectorTestCapabilityClosedSchema
+	}
+}
+
+func connectorTestCapabilityResultSchemaForTool(toolName string) json.RawMessage {
+	switch toolName {
+	case "calendar.add", "calendar.delete":
+		return json.RawMessage(`{"type":"object","properties":{"eventID":{"type":"string"}},"additionalProperties":false}`)
+	case "message.send":
+		return json.RawMessage(`{"type":"object","properties":{"messageID":{"type":"string"}},"additionalProperties":false}`)
+	case "browser.snapshot":
+		return json.RawMessage(`{"type":"object","properties":{"url":{"type":"string"},"snapshotText":{"type":"string"},"devicePath":{"type":"string"},"filename":{"type":"string"},"contentType":{"type":"string"},"sizeBytes":{"type":"number"}},"additionalProperties":false}`)
+	default:
+		return connectorTestCapabilityClosedSchema
+	}
+}
 
 func (connectorRuntime *ConnectorRuntime) UseTestCapabilityTools(capabilityClient capability.Client, toolNames []string) {
 	descriptors := make([]agentruntime.CapabilityToolDescriptor, 0, len(toolNames))
@@ -29,9 +55,9 @@ func connectorTestCapabilityToolDescriptor(toolName string) agentruntime.Capabil
 		ModelVisibility: agent.ToolVisibilityModel,
 		Description:     "Test capability " + toolName,
 		PrivacyClass:    "test",
-		InputSchema:     connectorTestCapabilityInputSchema,
-		OutputSchema:    json.RawMessage(`{"type":"object","properties":{},"additionalProperties":false}`),
-		ResultContract:  &agentruntime.CapabilityToolResultContract{Schema: connectorTestCapabilityInputSchema},
+		InputSchema:     connectorTestCapabilityInputSchemaForTool(toolName),
+		OutputSchema:    connectorTestCapabilityResultSchemaForTool(toolName),
+		ResultContract:  &agentruntime.CapabilityToolResultContract{Schema: connectorTestCapabilityResultSchemaForTool(toolName)},
 		PolicyResource:  "tool:" + toolName,
 		SideEffectClass: sideEffectClass,
 		Availability:    agentruntime.CapabilityAvailability{State: "ok"},
@@ -45,6 +71,9 @@ func connectorTestCapabilityToolDescriptor(toolName string) agentruntime.Capabil
 	}
 	if sideEffectClass == agent.ToolSideEffectDestructive || sideEffectClass == agent.ToolSideEffectExternalSend {
 		descriptor.RequiresApproval = true
+	}
+	if agent.ToolDescriptorRequiresInputIntentSchema(agent.ToolDescriptor{Visibility: descriptor.ModelVisibility, SideEffectClass: descriptor.SideEffectClass}) {
+		descriptor.InputIntentSchema = json.RawMessage(`{"type":"object","properties":{},"additionalProperties":false}`)
 	}
 	return descriptor
 }
