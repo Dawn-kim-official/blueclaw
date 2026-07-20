@@ -227,11 +227,28 @@ function createOpenRouterRoute(
   };
 }
 
+const firstByteTimeoutMs = 90_000;
+
+const fetchWithFirstByteTimeout = Object.assign(
+  (input: string | URL | Request, requestInit?: RequestInit): Promise<Response> => {
+    const firstByteController = new AbortController();
+    const firstByteTimer = setTimeout(
+      () => firstByteController.abort(new LLMDError('provider_unreachable', 502, true, `provider returned no response headers within ${firstByteTimeoutMs}ms`)),
+      firstByteTimeoutMs,
+    );
+    const callerSignal = requestInit?.signal;
+    const signal = callerSignal ? AbortSignal.any([callerSignal, firstByteController.signal]) : firstByteController.signal;
+    return fetch(input, { ...requestInit, signal }).finally(() => clearTimeout(firstByteTimer));
+  },
+  { preconnect: fetch.preconnect },
+);
+
 const defaultLanguageModelFactory: ProviderLanguageModelFactory = {
   createLlamaLanguageModel(modelName, baseURL, apiKey, parallelToolCalls) {
     const provider = createOpenAICompatible({
       apiKey,
       baseURL,
+      fetch: fetchWithFirstByteTimeout,
       name: 'llama',
       supportsStructuredOutputs: true,
       transformRequestBody: parallelToolCalls === undefined
@@ -245,6 +262,7 @@ const defaultLanguageModelFactory: ProviderLanguageModelFactory = {
       apiKey,
       baseURL,
       compatibility: 'strict',
+      fetch: fetchWithFirstByteTimeout,
     });
     return provider.chat(modelName, parallelToolCalls === undefined ? undefined : { parallelToolCalls });
   },
