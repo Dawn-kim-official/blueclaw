@@ -22,6 +22,114 @@ func TestCompletionStateWaitsForModelWordingBeforeCompleting(t *testing.T) {
 	}
 }
 
+type contextExpiringJudgeLanguageModel struct {
+	cancel     context.CancelFunc
+	content    string
+	errorValue error
+}
+
+func (model *contextExpiringJudgeLanguageModel) GenerateResponse(context.Context, string) (string, error) {
+	return "", nil
+}
+
+func (model *contextExpiringJudgeLanguageModel) GenerateStructuredResponse(_ context.Context, _ llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
+	model.cancel()
+	return llm.StructuredResponse{Content: model.content}, model.errorValue
+}
+
+func completionGateSideEffectToolSetAndObservations() (*ToolSet, []turnObservation) {
+	toolSet := newTestToolSetWithDefinitions([]ToolDefinition{testToolDescriptor("task.delete")})
+	observations := []turnObservation{successfulSideEffectObservation("obs-001", "task.delete", `{"taskID":"task-1"}`, `{"deleted":true}`)}
+	return toolSet, observations
+}
+
+func TestFinalizeCompletionStateCompletesDespiteJudgeContextDeadlineExceeded(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	languageModel := &contextExpiringJudgeLanguageModel{cancel: cancel, errorValue: context.DeadlineExceeded}
+	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
+	toolSet, observations := completionGateSideEffectToolSetAndObservations()
+	request := AgentTurnRequest{
+		Prompt:          "오래된 작업을 삭제해줘",
+		ToolSet:         toolSet,
+		OutcomeContract: OutcomeContract{RequiredEvidenceTools: []string{"task.delete"}},
+	}
+	taskRun := services.taskRunService.CreateTaskRun("person-1", "conversation-1", request.Prompt)
+
+	transition := services.runner.finalizeCompletionState(ctx, taskRun.TaskRunID, "step-1", request, nil, observations, nil, nil, CompletionState{}, "오래된 작업을 삭제했습니다.")
+
+	if !transition.IsCompleted || !transition.DidTransition {
+		t.Fatalf("expected the turn to complete despite judge context expiry, got %+v", transition)
+	}
+	if transition.Result.TaskRun.Status != task.TaskStatusCompleted {
+		t.Fatalf("expected task run to be completed, got status %q", transition.Result.TaskRun.Status)
+	}
+	if !strings.Contains(transition.Result.FinishMessage, "오래된 작업을 삭제했습니다.") {
+		t.Fatalf("expected the generated reply to be preserved, got %q", transition.Result.FinishMessage)
+	}
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(taskRun.TaskRunID), "completion_judge.degraded", "") {
+		t.Fatal("expected a completion_judge.degraded event to be recorded")
+	}
+}
+
+func TestFinalizeCompletionStateDeliversBestEffortWhenJudgeUnsatisfiedAndBudgetExpired(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	languageModel := &contextExpiringJudgeLanguageModel{
+		cancel:  cancel,
+		content: `{"satisfied":false,"missingWork":["첨부 확인 누락"],"reason":"완료 확인 불가"}`,
+	}
+	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
+	toolSet, observations := completionGateSideEffectToolSetAndObservations()
+	request := AgentTurnRequest{
+		Prompt:          "오래된 작업을 삭제해줘",
+		ToolSet:         toolSet,
+		OutcomeContract: OutcomeContract{RequiredEvidenceTools: []string{"task.delete"}},
+	}
+	taskRun := services.taskRunService.CreateTaskRun("person-1", "conversation-1", request.Prompt)
+
+	transition := services.runner.finalizeCompletionState(ctx, taskRun.TaskRunID, "step-1", request, nil, observations, nil, nil, CompletionState{}, "오래된 작업을 삭제했습니다.")
+
+	if !transition.IsCompleted || !transition.DidTransition {
+		t.Fatalf("expected best-effort completion when the judge is unsatisfied and the budget is expired, got %+v", transition)
+	}
+	if transition.Result.TaskRun.Status != task.TaskStatusCompleted {
+		t.Fatalf("expected task run to be completed, got status %q", transition.Result.TaskRun.Status)
+	}
+	if !strings.Contains(transition.Result.FinishMessage, "오래된 작업을 삭제했습니다.") {
+		t.Fatalf("expected the original reply to be preserved, got %q", transition.Result.FinishMessage)
+	}
+	if !strings.Contains(transition.Result.FinishMessage, "완료 확인 불가") {
+		t.Fatalf("expected the judge's rejection reason appended as a caveat, got %q", transition.Result.FinishMessage)
+	}
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(taskRun.TaskRunID), "completion_judge.verdict", `"satisfied":false`) {
+		t.Fatal("expected a completion_judge.verdict event recording the unsatisfied verdict")
+	}
+}
+
+func TestFinalizeCompletionStateKeepsRetryingWhenJudgeUnsatisfiedAndBudgetRemains(t *testing.T) {
+	languageModel := &completionJudgeStubLanguageModel{response: llm.StructuredResponse{Content: `{"satisfied":false,"missingWork":["첨부 확인 누락"],"reason":"완료 확인 불가"}`}}
+	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
+	toolSet, observations := completionGateSideEffectToolSetAndObservations()
+	request := AgentTurnRequest{
+		Prompt:          "오래된 작업을 삭제해줘",
+		ToolSet:         toolSet,
+		OutcomeContract: OutcomeContract{RequiredEvidenceTools: []string{"task.delete"}},
+	}
+	taskRun := services.taskRunService.CreateTaskRun("person-1", "conversation-1", request.Prompt)
+
+	transition := services.runner.finalizeCompletionState(context.Background(), taskRun.TaskRunID, "step-1", request, nil, observations, nil, nil, CompletionState{}, "오래된 작업을 삭제했습니다.")
+
+	if transition.IsCompleted {
+		t.Fatalf("expected the turn to keep retrying when the judge is unsatisfied and the budget is not expired, got %+v", transition)
+	}
+	completedTaskRun, isFound := services.taskRunService.FindTaskRun(taskRun.TaskRunID)
+	if !isFound || completedTaskRun.Status == task.TaskStatusCompleted {
+		t.Fatalf("expected the task run to remain uncompleted, got %+v", completedTaskRun)
+	}
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(taskRun.TaskRunID), "agent.completion_state_rejected", "완료 확인 불가") {
+		t.Fatal("expected the unsatisfied judge verdict to reject completion and record the rejection reason")
+	}
+}
+
 func TestCompletionReplyPromptUsesOriginalInstructionForContinuation(t *testing.T) {
 	prompt := buildCompletionReplyPrompt(AgentTurnRequest{
 		Prompt: "승인",

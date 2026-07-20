@@ -451,11 +451,11 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 		transition := agentTurnRunner.applyCompletionState(workContext, taskRun.TaskRunID, stepID, request, toolUseRequirements, state.Observations, state.Attachments, state.QualityCriteria, state.LastModelMessage)
 		state.Observations = transition.Observations
 		state.Attachments = transition.Attachments
-		if workContext.Err() != nil {
-			return agentTurnRunner.cancelledTaskResultOrCurrent(taskRun.TaskRunID, state.Attachments), nil
-		}
 		if transition.IsCompleted {
 			return transition.Result, nil
+		}
+		if workContext.Err() != nil {
+			return agentTurnRunner.cancelledTaskResultOrCurrent(taskRun.TaskRunID, state.Attachments), nil
 		}
 		if transition.DidTransition {
 			agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusCompleted, "completion_state "+string(transition.Action), "")
@@ -517,6 +517,11 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 			completionGateResult := agentTurnRunner.validateCompletionGateWithJudge(workContext, taskRun.TaskRunID, request, toolUseRequirements, state.Observations, state.Attachments, state.QualityCriteria, actionDocument)
 			agentTurnRunner.appendValidityReview(taskRun.TaskRunID, "finish", completionGateResult.ValidityState)
 			if !completionGateResult.IsSatisfied {
+				if candidateReply := finishActionMessage(actionDocument); canDeliverBestEffortOnJudgeRejection(workContext, completionGateResult, candidateReply) {
+					agentTurnRunner.appendEvent(taskRun.TaskRunID, "agent.completion_state_best_effort", marshalEventBody(map[string]string{"reason": completionGateResult.Message}))
+					result := agentTurnRunner.completeTaskRunBestEffort(workContext, taskRun.TaskRunID, stepID, "finish", request, state.Observations, completionGateResult, appendCompletionGateCaveat(candidateReply, completionGateResult.Message))
+					return result, nil
+				}
 				observation := completionGateObservation(len(state.Observations)+1, completionGateResult)
 				observation = withCompletionGateRecoveryPacket(observation, completionGateResult)
 				state.Observations = append(state.Observations, observation)
