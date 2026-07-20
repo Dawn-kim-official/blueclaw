@@ -184,9 +184,6 @@ func contextFailure(responseContext context.Context, primaryError error) error {
 	if errors.Is(primaryError, context.Canceled) {
 		return context.Canceled
 	}
-	if errors.Is(primaryError, context.DeadlineExceeded) {
-		return context.DeadlineExceeded
-	}
 	return nil
 }
 

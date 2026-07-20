@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"time"
 	"log/slog"
 	"strings"
 	"testing"
@@ -447,5 +448,49 @@ func TestFallbackLanguageModelProviderDoesNotUseChatFallbackAfterCancellation(t 
 	_, errorValue := provider.GenerateChatCompletion(cancelledContext, ChatCompletionRequest{})
 	if errorValue == nil || fallbackCalls != 0 {
 		t.Fatalf("expected cancellation to stop without fallback, got error=%v fallbackCalls=%d", errorValue, fallbackCalls)
+	}
+}
+
+func TestFallbackLanguageModelProviderLaddersAfterProviderCallDeadline(t *testing.T) {
+	primaryCalls := 0
+	fallbackCalls := 0
+	provider := FallbackLanguageModelProvider{
+		PrimaryProvider: chatLanguageModelProvider{
+			error:     context.DeadlineExceeded,
+			chatCalls: &primaryCalls,
+		},
+		FallbackProvider: chatLanguageModelProvider{
+			response: ChatCompletionResponse{
+				FinishReason: "stop",
+				Message:      ChatCompletionMessage{Role: "assistant", Content: "escalated chat"},
+			},
+			chatCalls: &fallbackCalls,
+		},
+	}
+
+	response, errorValue := provider.GenerateChatCompletion(context.Background(), ChatCompletionRequest{})
+	if errorValue != nil || response.Message.Content != "escalated chat" {
+		t.Fatalf("expected provider call deadline to escalate to fallback tier, got %+v, %v", response, errorValue)
+	}
+	if !response.UsedFallback || primaryCalls != 1 || fallbackCalls != 1 {
+		t.Fatalf("expected one primary and one fallback call, got primary=%d fallback=%d", primaryCalls, fallbackCalls)
+	}
+}
+
+func TestFallbackLanguageModelProviderStopsWhenCallerBudgetExpired(t *testing.T) {
+	fallbackCalls := 0
+	provider := FallbackLanguageModelProvider{
+		PrimaryProvider: chatLanguageModelProvider{error: context.DeadlineExceeded},
+		FallbackProvider: chatLanguageModelProvider{
+			response:  ChatCompletionResponse{Message: ChatCompletionMessage{Role: "assistant", Content: "escalated chat"}},
+			chatCalls: &fallbackCalls,
+		},
+	}
+	expiredContext, cancel := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+	defer cancel()
+
+	_, errorValue := provider.GenerateChatCompletion(expiredContext, ChatCompletionRequest{})
+	if errorValue == nil || fallbackCalls != 0 {
+		t.Fatalf("expected expired caller budget to stop without fallback, got error=%v fallbackCalls=%d", errorValue, fallbackCalls)
 	}
 }
