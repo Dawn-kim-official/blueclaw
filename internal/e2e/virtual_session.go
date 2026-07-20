@@ -2559,12 +2559,11 @@ func scenarioTurnRouterResponse(scenario VirtualSessionScenario, virtualTurn Vir
 		"estimatedMinutes":       10,
 		"requestedOutputFormats": nil,
 		"expectedResults":        []any{},
-		"requiredEvidence":       requiredEvidence,
 		"siteRequestEvidence":    siteEvidence,
 		"responseLanguage":       "ko",
 		"reason":                 "scripted scenario default",
 		"userFacingReply":        "",
-		"initialToolNames":       scenario.InitialToolNames,
+		"initialToolNames":       appendUniqueScenarioToolNames(scenario.InitialToolNames, requiredEvidence),
 		"priorTaskReference":     "none",
 	}
 	if virtualTurnExpectsEvent(virtualTurn, "confirmation.reply_classified") {
@@ -2575,6 +2574,22 @@ func scenarioTurnRouterResponse(scenario VirtualSessionScenario, virtualTurn Vir
 		return `{"route":"start_task","classification":"bounded_task","taskShape":"maintenance_task","level":"low","estimatedMinutes":10,"requestedOutputFormats":null,"expectedResults":[],"requiredEvidence":[],"siteRequestEvidence":"","responseLanguage":"ko","reason":"scripted scenario default","userFacingReply":"","initialToolNames":[],"priorTaskReference":"none"}`
 	}
 	return string(encodedDocument)
+}
+
+func appendUniqueScenarioToolNames(toolNames []string, additionalToolNames []string) []string {
+	merged := append([]string{}, toolNames...)
+	seen := map[string]bool{}
+	for _, toolName := range merged {
+		seen[toolName] = true
+	}
+	for _, toolName := range additionalToolNames {
+		if toolName == "" || seen[toolName] {
+			continue
+		}
+		seen[toolName] = true
+		merged = append(merged, toolName)
+	}
+	return merged
 }
 
 func virtualTurnExpectsEvent(virtualTurn VirtualTurn, eventName string) bool {

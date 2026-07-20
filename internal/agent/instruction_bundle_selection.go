@@ -5,20 +5,6 @@ import (
 	"strings"
 )
 
-func applyInstructionBundleRequirements(decision IntakeDecision, instructionBundle InstructionBundle) IntakeDecision {
-	if decision.Classification != IntakeClassificationBoundedTask {
-		return decision
-	}
-	if instructionBundle.ContractSkillArbitrationFailed {
-		decision.RequiredEvidenceTools = nil
-	} else if instructionBundle.HasContractSkillArbitration {
-		decision.RequiredEvidenceTools = appendUniqueStrings(instructionBundle.RequiredEvidenceTools)
-	} else {
-		decision.RequiredEvidenceTools = appendUniqueStrings(decision.RequiredEvidenceTools)
-	}
-	return decision
-}
-
 func selectedSkillInstructionList(instructionBundle InstructionBundle) []SkillInstruction {
 	skillInstructionsByName := skillInstructionByName(instructionBundle.Skills)
 	skillInstructions := []SkillInstruction{}

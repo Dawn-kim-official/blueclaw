@@ -316,7 +316,6 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 	}
 	if !request.SkipSkillSelection {
 		instructionBundle, intakeDecision = agentKernel.selectInstructionBundleForResolvedRequest(taskContext, baseInstructionBundle, request, intakeDecision)
-		intakeDecision = applyInstructionBundleRequirements(intakeDecision, instructionBundle)
 	}
 	if instructionBundle.ContractSkillArbitrationFailed {
 		intakeDecision.Reason = "contract skill arbitration failed"
@@ -376,27 +375,8 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 	hasExecutionPlan := confirmationPlan.HasExecutionPlan
 	outcomeContract := outcomeContractForRequest(request, intakeDecision, instructionBundle, executionPlan, hasExecutionPlan, requiredAttachmentSuffixes)
 	outcomeContract = dischargeResolvedInputContract(request, turnDecision, outcomeContract)
-	isDeterministicResume := request.IsApprovalContinuation || request.IsRuntimeRestartResume
-	evidenceValidationReport := validateRequiredEvidenceTools(turnToolSet, outcomeContract.RequiredEvidenceTools)
-	hasUnresolvedContractEvidence := !isDeterministicResume && len(instructionBundle.RequiredEvidenceCandidates) > 0
-	var requiredEvidenceReask requiredEvidenceReaskReport
-	missingEvidenceReport := missingRequiredEvidenceReport(intakeDecision, outcomeContract, turnToolSet)
-	hasRequiredEvidenceIssue := evidenceValidationReport.HasInvalidEvidence() ||
-		strings.TrimSpace(missingEvidenceReport.Reason) != "" ||
-		hasUnresolvedContractEvidence
-	if !isDeterministicResume && hasRequiredEvidenceIssue {
-		intakeDecision, outcomeContract, requiredEvidenceReask = agentKernel.reaskMissingRequiredEvidenceOnce(taskContext, request, intakeRequest, intakeDecision, outcomeContract, instructionBundle, executionPlan, hasExecutionPlan, requiredAttachmentSuffixes, turnToolSet, routerLanguageModel, instructionBundle.RequiredEvidenceCandidates)
-	}
 	if result, didExpire := agentKernel.completeIntakeIfElapsed(taskBudget, intakeRequest, intakeDecision, turnDecision.Route, routerCallLedger.records); didExpire {
 		return result, nil
-	}
-	if hasRequiredEvidenceIssue && (isDeterministicResume || !requiredEvidenceReask.DidRecoverEvidence) {
-		intakeDecision.Reason = requiredEvidenceFailureReason(evidenceValidationReport, missingEvidenceReport, requiredEvidenceReask, hasUnresolvedContractEvidence)
-		intakeDecision.UserFacingReply = ""
-		result, blockError := agentKernel.completeIntakeOnlyRequest(taskContext, intakeRequest, intakeDecision, task.TaskStatusBlocked, routerCallLedger.records)
-		result.TurnRoute = turnDecision.Route
-		agentKernel.appendRequiredEvidenceEvents(result.TaskRun.TaskRunID, evidenceValidationReport, requiredEvidenceReask)
-		return result, blockError
 	}
 	requiredNextToolNames = requiredNextToolNamesForResolvedRequest(request.ActiveGoal, instructionBundle.RequiredNextTools, intakeDecision.InitialToolNames)
 	request.ActiveGoal.RequiredNextTools = requiredNextToolNames
@@ -495,7 +475,6 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 	if result.TaskRun.TaskRunID != "" {
 		agentKernel.appendTurnRouterCallRecords(result.TaskRun.TaskRunID, routerCallLedger.records)
 		agentKernel.AppendTaskEvent(result.TaskRun.TaskRunID, "agent.intake", marshalEventBody(intakeDecision))
-		agentKernel.appendRequiredEvidenceEvents(result.TaskRun.TaskRunID, evidenceValidationReport, requiredEvidenceReask)
 		agentKernel.appendGoalLifecycleEvent(result.TaskRun, turnRequest.ActiveGoal)
 	}
 	return result, errorValue
@@ -590,88 +569,9 @@ func (agentKernel *AgentKernel) completeTurnRouterFailure(responseContext contex
 	return result
 }
 
-func (agentKernel *AgentKernel) reaskMissingRequiredEvidenceOnce(responseContext context.Context, request AgentRequest, intakeRequest AgentRequest, intakeDecision IntakeDecision, outcomeContract OutcomeContract, instructionBundle InstructionBundle, executionPlan ExecutionPlan, hasExecutionPlan bool, requiredAttachmentSuffixes []string, turnToolSet *ToolSet, routerLanguageModel llm.LanguageModelProvider, requiredEvidenceCandidates []string) (IntakeDecision, OutcomeContract, requiredEvidenceReaskReport) {
-	if candidateName, isUnique := uniqueSideEffectEvidenceCandidate(turnToolSet, requiredEvidenceCandidates, registeredEvidenceNamesForIntake(turnToolSet)); isUnique {
-		resolvedDecision := intakeDecision
-		resolvedDecision.RequiredEvidenceTools = appendUniqueStrings(resolvedDecision.RequiredEvidenceTools, candidateName)
-		rebuiltOutcomeContract := outcomeContractForRequest(request, resolvedDecision, instructionBundle, executionPlan, hasExecutionPlan, requiredAttachmentSuffixes)
-		evidenceValidationReport := validateRequiredEvidenceTools(turnToolSet, rebuiltOutcomeContract.RequiredEvidenceTools)
-		if !evidenceValidationReport.HasInvalidEvidence() && !requiredEvidenceMissingForSideEffect(resolvedDecision, rebuiltOutcomeContract, turnToolSet) {
-			return resolvedDecision, rebuiltOutcomeContract, requiredEvidenceReaskReport{
-				WasAttempted:       true,
-				DidRecoverEvidence: true,
-				WasDeterministic:   true,
-				RecoveredEvidence:  []string{candidateName},
-			}
-		}
-	}
-	turnRouter := NewTurnRouter(routerLanguageModel, agentKernel.intakeOptions)
-	reaskDecision, errorValue := turnRouter.ReaskRequiredEvidence(responseContext, intakeRequest, requiredEvidenceCandidates)
-	if errorValue != nil {
-		return intakeDecision, outcomeContract, requiredEvidenceReaskReport{WasAttempted: true, Reason: errorValue.Error()}
-	}
-	reaskIntakeDecision := reaskDecision.IntakeDecision()
-	if !requiredEvidenceMatchesCandidates(reaskIntakeDecision.RequiredEvidenceTools, requiredEvidenceCandidates) {
-		return intakeDecision, outcomeContract, requiredEvidenceReaskReport{WasAttempted: true, Reason: "re-ask still returned no valid required evidence"}
-	}
-	intakeDecision.RequiredEvidenceTools = appendUniqueStrings(nil, reaskIntakeDecision.RequiredEvidenceTools...)
-	rebuiltOutcomeContract := outcomeContractForRequest(request, intakeDecision, instructionBundle, executionPlan, hasExecutionPlan, requiredAttachmentSuffixes)
-	evidenceValidationReport := validateRequiredEvidenceTools(turnToolSet, rebuiltOutcomeContract.RequiredEvidenceTools)
-	if evidenceValidationReport.HasInvalidEvidence() || requiredEvidenceMissingForSideEffect(intakeDecision, rebuiltOutcomeContract, turnToolSet) {
-		return intakeDecision, outcomeContract, requiredEvidenceReaskReport{WasAttempted: true, Reason: "re-ask still returned no valid required evidence"}
-	}
-	return intakeDecision, rebuiltOutcomeContract, requiredEvidenceReaskReport{
-		WasAttempted:       true,
-		DidRecoverEvidence: true,
-		RecoveredEvidence:  reaskIntakeDecision.RequiredEvidenceTools,
-	}
-}
-
-func requiredEvidenceFailureReason(validationReport requiredEvidenceValidationReport, missingReport requiredEvidenceValidationReport, reaskReport requiredEvidenceReaskReport, hasUnresolvedContractEvidence bool) string {
-	if validationReport.HasInvalidEvidence() {
-		return validationReport.Reason
-	}
-	if strings.TrimSpace(missingReport.Reason) != "" {
-		return missingReport.Reason
-	}
-	if strings.TrimSpace(reaskReport.Reason) != "" {
-		return reaskReport.Reason
-	}
-	if hasUnresolvedContractEvidence {
-		return "required evidence could not be resolved from the selected tool contract"
-	}
-	return "required evidence could not be validated"
-}
-
-func (agentKernel *AgentKernel) appendRequiredEvidenceEvents(taskRunID string, validationReport requiredEvidenceValidationReport, reaskReport requiredEvidenceReaskReport) {
-	if validationReport.HasInvalidEvidence() {
-		agentKernel.AppendTaskEvent(taskRunID, requiredEvidenceInvalidEventName, marshalEventBody(validationReport))
-	}
-	if reaskReport.WasAttempted {
-		agentKernel.AppendTaskEvent(taskRunID, requiredEvidenceReaskEventName, marshalEventBody(reaskReport))
-	}
-}
-
-func requiredEvidenceMatchesCandidates(requiredEvidenceTools []string, candidates []string) bool {
-	if len(requiredEvidenceTools) == 0 {
-		return false
-	}
-	if len(candidates) == 0 {
-		return true
-	}
-	allowedToolNames := stringSet(candidates)
-	for _, toolName := range requiredEvidenceTools {
-		if !allowedToolNames[toolName] {
-			return false
-		}
-	}
-	return true
-}
-
 func (agentKernel *AgentKernel) selectInstructionBundleForResolvedRequest(ctx context.Context, baseInstructionBundle InstructionBundle, request AgentRequest, intakeDecision IntakeDecision) (InstructionBundle, IntakeDecision) {
 	selectionRequest := request
 	selectionContract := selectionRequest.ActiveGoal.OutcomeContract
-	selectionContract.RequiredEvidenceTools = appendUniqueStrings(selectionContract.RequiredEvidenceTools, intakeDecision.RequiredEvidenceTools...)
 	selectionContract.RequiredAttachmentSuffixes = appendUniqueStrings(selectionContract.RequiredAttachmentSuffixes, attachmentSuffixesForRequestedOutputFormats(intakeDecision.RequestedOutputFormats)...)
 	selectionContract.ExpectedResults = appendExpectedResults(selectionContract.ExpectedResults, intakeDecision.ExpectedResults...)
 	if len(selectionContract.RequiredAttachmentSuffixes) > 0 {
@@ -997,7 +897,7 @@ func (agentKernel *AgentKernel) turnOptionsForIntakeDecision(intakeDecision Inta
 }
 
 func artifactTaskLevelFloor(request AgentRequest, intakeDecision IntakeDecision) TaskLevel {
-	if intakeDecisionHasSitePrototypeEvidence(request, intakeDecision) {
+	if requestHasSitePrototypeEvidence(request) {
 		return TaskLevelXHigh
 	}
 	if requestLooksLikeSlidesArtifactWork(request) || intakeDecisionRequestsVisualDeliverable(intakeDecision) {
@@ -1080,10 +980,7 @@ func restorePersistedToolSelection(request AgentRequest) AgentRequest {
 	return request
 }
 
-func intakeDecisionHasSitePrototypeEvidence(request AgentRequest, intakeDecision IntakeDecision) bool {
-	if requiredEvidenceIncludesNamespace(request.ToolSet, intakeDecision.RequiredEvidenceTools, "site") {
-		return true
-	}
+func requestHasSitePrototypeEvidence(request AgentRequest) bool {
 	return contractRequiresToolNamespace(request.ToolSet, request.ActiveGoal.OutcomeContract, "site")
 }
 

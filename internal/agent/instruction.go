@@ -15,7 +15,6 @@ type InstructionBundle struct {
 	SkillDecisions                 []SkillSelectionDecision `json:"skillDecisions,omitempty"`
 	RequiredNextTools              []string                 `json:"requiredNextTools,omitempty"`
 	RequiredEvidenceTools          []string                 `json:"requiredEvidenceTools,omitempty"`
-	RequiredEvidenceCandidates     []string                 `json:"requiredEvidenceCandidates,omitempty"`
 	HasContractSkillArbitration    bool                     `json:"hasContractSkillArbitration,omitempty"`
 	ContractSkillArbitrationFailed bool                     `json:"contractSkillArbitrationFailed,omitempty"`
 	RetrievalMode                  string                   `json:"retrievalMode,omitempty"`
