@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"time"
 
 	"blueclaw/internal/llm"
 	"blueclaw/internal/task"
@@ -36,15 +37,17 @@ type completionGateResult struct {
 	Attachments        []FileAttachment
 	ValidityState      ValidityState
 	SuggestedNextTools []string
+	IsJudgeVerdict     bool
 }
 
 const (
-	evidenceKindExpectedResult  = "expected_result_missing"
-	evidenceKindRequiredTool    = "required_tool_missing"
-	evidenceKindAttachment      = "attachment_missing"
-	evidenceKindAttachmentValid = "attachment_invalid"
-	evidenceKindReference       = "evidence_reference_invalid"
-	completionReplySchemaName   = "blueclaw_completion_reply"
+	evidenceKindExpectedResult   = "expected_result_missing"
+	evidenceKindRequiredTool     = "required_tool_missing"
+	evidenceKindAttachment       = "attachment_missing"
+	evidenceKindAttachmentValid  = "attachment_invalid"
+	evidenceKindReference        = "evidence_reference_invalid"
+	completionReplySchemaName    = "blueclaw_completion_reply"
+	completionPersistenceTimeout = 5 * time.Second
 )
 
 type completionTransition struct {
@@ -194,11 +197,12 @@ func (agentTurnRunner *AgentTurnRunner) finalizeCompletionState(ctx context.Cont
 	}
 	actionDocument := completionStateFinishDocument(state, modelWording)
 	completionGateResult := agentTurnRunner.validateCompletionGateWithJudge(ctx, taskRunID, request, requirements, observations, attachments, criteria, actionDocument)
-	if ctx.Err() != nil {
-		return completionTransition{Observations: observations, Attachments: attachments}
-	}
 	agentTurnRunner.appendValidityReview(taskRunID, "completion_state", completionGateResult.ValidityState)
 	if !completionGateResult.IsSatisfied {
+		if canDeliverBestEffortOnJudgeRejection(ctx, completionGateResult, modelWording) {
+			agentTurnRunner.appendEvent(taskRunID, "agent.completion_state_best_effort", marshalEventBody(map[string]string{"reason": completionGateResult.Message}))
+			return agentTurnRunner.finalizeCompletionTransition(ctx, taskRunID, taskStepID, request, observations, attachments, completionGateResult, appendCompletionGateCaveat(modelWording, completionGateResult.Message))
+		}
 		agentTurnRunner.appendEvent(taskRunID, "agent.completion_state_rejected", marshalEventBody(map[string]string{"reason": completionGateResult.Message}))
 		observation := newFailureObservation(nextObservationIDForObservations(observations), "policy", "", completionGateResult.Message, FailureInvalidInput, FailureCodes.InvalidInput, "completion_state")
 		observation = withCompletionGateRecoveryPacket(observation, completionGateResult)
@@ -212,19 +216,44 @@ func (agentTurnRunner *AgentTurnRunner) finalizeCompletionState(ctx context.Cont
 		"evidenceCount":   len(state.EvidenceReferences),
 		"evidence":        state.EvidenceReferences,
 	}))
-	reply := agentTurnRunner.prepareFinishMessageForPlatform(ctx, request, finishActionMessage(actionDocument))
-	if ctx.Err() != nil {
-		return completionTransition{Observations: observations, Attachments: attachments}
-	}
-	agentTurnRunner.saveStep(taskRunID, taskStepID, task.TaskStatusCompleted, "completion_state "+string(completionActionFinalizeWithEvidence), reply)
-	completedTaskRun, _ := agentTurnRunner.taskRunService.CompleteTaskRun(taskRunID, reply)
+	return agentTurnRunner.finalizeCompletionTransition(ctx, taskRunID, taskStepID, request, observations, attachments, completionGateResult, finishActionMessage(actionDocument))
+}
+
+func (agentTurnRunner *AgentTurnRunner) finalizeCompletionTransition(ctx context.Context, taskRunID string, taskStepID string, request AgentTurnRequest, observations []turnObservation, attachments []FileAttachment, completionGateResult completionGateResult, reply string) completionTransition {
+	result := agentTurnRunner.completeTaskRunBestEffort(ctx, taskRunID, taskStepID, "completion_state "+string(completionActionFinalizeWithEvidence), request, observations, completionGateResult, reply)
 	return completionTransition{
 		Observations:  observations,
 		Attachments:   appendUniqueAttachments(attachments, completionGateResult.Attachments),
-		Result:        AgentTurnResult{TaskRun: completedTaskRun, FinishMessage: reply, Attachments: completionGateResult.Attachments, RecoveryActions: recoveryActionsFromObservations(observations)},
+		Result:        result,
 		IsCompleted:   true,
 		DidTransition: true,
 		Action:        completionActionFinalizeWithEvidence,
+	}
+}
+
+func canDeliverBestEffortOnJudgeRejection(ctx context.Context, completionGateResult completionGateResult, reply string) bool {
+	return completionGateResult.IsJudgeVerdict && ctx.Err() != nil && strings.TrimSpace(reply) != ""
+}
+
+func appendCompletionGateCaveat(reply string, message string) string {
+	trimmedMessage := strings.TrimSpace(message)
+	if trimmedMessage == "" {
+		return strings.TrimSpace(reply)
+	}
+	return strings.TrimSpace(reply) + " Note: " + trimmedMessage
+}
+
+func (agentTurnRunner *AgentTurnRunner) completeTaskRunBestEffort(ctx context.Context, taskRunID string, taskStepID string, stepAction string, request AgentTurnRequest, observations []turnObservation, completionGateResult completionGateResult, reply string) AgentTurnResult {
+	detachedContext, cancelDetached := context.WithTimeout(context.WithoutCancel(ctx), completionPersistenceTimeout)
+	defer cancelDetached()
+	finalReply := agentTurnRunner.prepareFinishMessageForPlatform(detachedContext, request, reply)
+	agentTurnRunner.saveStep(taskRunID, taskStepID, task.TaskStatusCompleted, stepAction, finalReply)
+	completedTaskRun, _ := agentTurnRunner.taskRunService.CompleteTaskRun(taskRunID, finalReply)
+	return AgentTurnResult{
+		TaskRun:         completedTaskRun,
+		FinishMessage:   finalReply,
+		Attachments:     completionGateResult.Attachments,
+		RecoveryActions: recoveryActionsFromObservations(observations),
 	}
 }
 
