@@ -10,7 +10,6 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
-	"time"
 )
 
 const defaultLLMDEndpoint = "http://blueclaw-llmd"
@@ -280,12 +279,7 @@ func (client LLMDClient) generateLLMDRecoveryChatAttempt(responseContext context
 	return response, errorValue
 }
 
-const llmdStructuredCallTimeout = 180 * time.Second
-const llmdChatCallTimeout = 300 * time.Second
-
 func (client LLMDClient) GenerateStructuredResponse(responseContext context.Context, request StructuredResponseRequest) (StructuredResponse, error) {
-	responseContext, cancelCall := context.WithTimeout(responseContext, llmdStructuredCallTimeout)
-	defer cancelCall()
 	if !client.usesLLMDForSchema(request.StructuredOutputSchema.Name) {
 		if client.LocalOnly || client.StructuredFallbackProvider == nil {
 			return StructuredResponse{}, errors.New("llmd structured schema is not enabled")
@@ -318,8 +312,6 @@ func (client LLMDClient) canUseStructuredFallback(errorValue error) bool {
 }
 
 func (client LLMDClient) GenerateChatCompletion(responseContext context.Context, request ChatCompletionRequest) (ChatCompletionResponse, error) {
-	responseContext, cancelCall := context.WithTimeout(responseContext, llmdChatCallTimeout)
-	defer cancelCall()
 	response, errorValue := client.generateLLMDChatCompletion(responseContext, request, client.executionMode())
 	if response.Transport == "" {
 		response.Transport = "llmd"
