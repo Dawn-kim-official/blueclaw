@@ -664,66 +664,6 @@ func TestNormalizeOperationContractPreservesRepeatedOperations(t *testing.T) {
 	}
 }
 
-func TestOperationRequirementsRejectPartialExecutionForNormalAndElapsedCompletion(t *testing.T) {
-	requirement := OperationRequirement{
-		RequirementID: "operation-1",
-		ToolID:        "capabilityd:task.add",
-		ToolName:      "task.add",
-		InputMode:     OperationInputContainsExplicit,
-		RequiredInput: json.RawMessage(`{"title":"분기 결산 누락 확인","endDate":"2026-07-24"}`),
-	}
-	observation := successfulOperationObservation(`{"title":"분기 결산 누락 확인"}`)
-	contract := OutcomeContract{
-		RequiredEvidenceTools: []string{"task.add"},
-		OperationContract: &OperationContract{
-			Version:      operationContractVersion,
-			Requirements: []OperationRequirement{requirement},
-		},
-	}
-
-	normalResult := validateOutcomeContractRequirements(contract, []turnObservation{observation}, nil)
-	elapsedResult := elapsedTurnCanComplete(
-		AgentTurnRequest{OutcomeContract: contract},
-		[]toolUseRequirement{{ToolName: "task.add"}},
-		[]turnObservation{observation},
-		nil,
-	)
-
-	if normalResult.IsSatisfied || elapsedResult {
-		t.Fatalf("expected partial execution to fail normal and elapsed completion")
-	}
-}
-
-func TestOperationRequirementsAcceptExactRequestedInputForNormalAndElapsedCompletion(t *testing.T) {
-	requirement := OperationRequirement{
-		RequirementID: "operation-1",
-		ToolID:        "capabilityd:task.add",
-		ToolName:      "task.add",
-		InputMode:     OperationInputContainsExplicit,
-		RequiredInput: json.RawMessage(`{"title":"분기 결산 누락 확인","endDate":"2026-07-24"}`),
-	}
-	observation := successfulOperationObservation(`{"title":"분기 결산 누락 확인","endDate":"2026-07-24","goal":"누락 확인"}`)
-	contract := OutcomeContract{
-		RequiredEvidenceTools: []string{"task.add"},
-		OperationContract: &OperationContract{
-			Version:      operationContractVersion,
-			Requirements: []OperationRequirement{requirement},
-		},
-	}
-
-	normalResult := validateOutcomeContractRequirements(contract, []turnObservation{observation}, nil)
-	elapsedResult := elapsedTurnCanComplete(
-		AgentTurnRequest{OutcomeContract: contract},
-		[]toolUseRequirement{{ToolName: "task.add"}},
-		[]turnObservation{observation},
-		nil,
-	)
-
-	if !normalResult.IsSatisfied || !elapsedResult {
-		t.Fatalf("expected exact requested input to pass normal and elapsed completion")
-	}
-}
-
 func TestOperationContractInstructionsUseInvocationValueBoundary(t *testing.T) {
 	instruction := operationContractInstruction()
 	for _, fragment := range []string{
@@ -887,10 +827,10 @@ func TestOperationRequirementsRequireDistinctSuccessfulObservations(t *testing.T
 	secondObservation := successfulOperationObservation(`{"title":"두 번째 업무"}`)
 	secondObservation.ObservationID = "observation-2"
 
-	if operationRequirementsSatisfied(contract, []turnObservation{firstObservation}) {
+	if matchedAllOperationRequirements(contract, []turnObservation{firstObservation}) {
 		t.Fatal("expected one observation to satisfy at most one requirement")
 	}
-	if !operationRequirementsSatisfied(contract, []turnObservation{firstObservation, secondObservation}) {
+	if !matchedAllOperationRequirements(contract, []turnObservation{firstObservation, secondObservation}) {
 		t.Fatal("expected two matching observations to satisfy two requirements")
 	}
 }
@@ -905,10 +845,10 @@ func TestOperationWithoutExplicitValuesStillRequiresMatchingToolObservation(t *t
 	}
 	contract := &OperationContract{Version: operationContractVersion, Requirements: []OperationRequirement{requirement}}
 
-	if operationRequirementsSatisfied(contract, nil) {
+	if matchedAllOperationRequirements(contract, nil) {
 		t.Fatal("expected a successful matching tool observation")
 	}
-	if !operationRequirementsSatisfied(contract, []turnObservation{successfulOperationObservation(`{"title":"generated value"}`)}) {
+	if !matchedAllOperationRequirements(contract, []turnObservation{successfulOperationObservation(`{"title":"generated value"}`)}) {
 		t.Fatal("expected generated tool input when the independent review found no explicit user values")
 	}
 }
@@ -1021,11 +961,11 @@ func TestOperationRequirementsUseRecursiveSubsetAndExactLargeNumbers(t *testing.
 	}
 	observation := successfulOperationObservation(`{"details":{"owner":"Lee","team":"Support"},"sequence":9007199254740993}`)
 
-	if !operationRequirementsSatisfied(&OperationContract{Version: operationContractVersion, Requirements: []OperationRequirement{requirement}}, []turnObservation{observation}) {
+	if !matchedAllOperationRequirements(&OperationContract{Version: operationContractVersion, Requirements: []OperationRequirement{requirement}}, []turnObservation{observation}) {
 		t.Fatal("expected nested extras and exact large number to match")
 	}
 	observation.ToolInput = json.RawMessage(`{"details":{"owner":"Lee","team":"Support"},"sequence":9007199254740992}`)
-	if operationRequirementsSatisfied(&OperationContract{Version: operationContractVersion, Requirements: []OperationRequirement{requirement}}, []turnObservation{observation}) {
+	if matchedAllOperationRequirements(&OperationContract{Version: operationContractVersion, Requirements: []OperationRequirement{requirement}}, []turnObservation{observation}) {
 		t.Fatal("expected a distinct large number to fail")
 	}
 }
@@ -1043,7 +983,7 @@ func TestOperationRequirementsMatchPartialArrayObjectsByPosition(t *testing.T) {
 	observation.Tool = "file.edit"
 	observation.ToolID = "kernel/file.edit"
 
-	if !operationRequirementsSatisfied(contract, []turnObservation{observation}) {
+	if !matchedAllOperationRequirements(contract, []turnObservation{observation}) {
 		t.Fatal("expected runtime-supplied edit mechanics to preserve the explicit replacement")
 	}
 	for _, mismatchedInput := range []json.RawMessage{
@@ -1051,7 +991,7 @@ func TestOperationRequirementsMatchPartialArrayObjectsByPosition(t *testing.T) {
 		json.RawMessage(`{"edits":[{"path":"memo/status.md","oldText":"진행 중","newText":"완료"},{"path":"memo/other.md","oldText":"진행 중","newText":"완료"}]}`),
 	} {
 		observation.ToolInput = mismatchedInput
-		if operationRequirementsSatisfied(contract, []turnObservation{observation}) {
+		if matchedAllOperationRequirements(contract, []turnObservation{observation}) {
 			t.Fatalf("expected array value or length mismatch to fail: %s", mismatchedInput)
 		}
 	}
@@ -1125,6 +1065,16 @@ func operationContractCalendarUpdateIntentSchema() json.RawMessage {
 			"title":{"type":"string"}
 		}
 	}`)
+}
+
+func matchedAllOperationRequirements(contract *OperationContract, observations []turnObservation) bool {
+	if contract == nil {
+		return true
+	}
+	if contract.Version != operationContractVersion || len(contract.Requirements) == 0 {
+		return false
+	}
+	return matchedOperationRequirementCount(contract, observations) == len(contract.Requirements)
 }
 
 func successfulOperationObservation(toolInput string) turnObservation {

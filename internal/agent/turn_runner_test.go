@@ -1977,6 +1977,9 @@ func (languageModel *sequenceLanguageModel) GenerateStructuredResponse(_ context
 	if request.StructuredOutputSchema.Name == "blueclaw_contract_skill_arbitration" {
 		return llm.StructuredResponse{Content: contractSkillArbitrationTestDocument(request.StructuredOutputSchema.Document)}, nil
 	}
+	if request.StructuredOutputSchema.Name == completionJudgeSchemaName {
+		return llm.StructuredResponse{Content: defaultCompletionJudgeTestDocument()}, nil
+	}
 	languageModel.requests = append(languageModel.requests, request)
 	index := len(languageModel.requests) - 1
 	if index >= len(languageModel.contents) {
@@ -2006,6 +2009,15 @@ func contractSkillArbitrationTestDocument(schemaDocument string) string {
 		"expectedEvidence":      expectedEvidence,
 		"unmetPreconditions":    []string{},
 		"reason":                "test contract arbitration",
+	})
+	return string(document)
+}
+
+func defaultCompletionJudgeTestDocument() string {
+	document, _ := json.Marshal(map[string]any{
+		"satisfied":   true,
+		"missingWork": []string{},
+		"reason":      "scripted test default",
 	})
 	return string(document)
 }
