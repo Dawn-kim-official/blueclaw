@@ -2,7 +2,6 @@ package llm
 
 import (
 	"errors"
-	"log/slog"
 	"net/url"
 	"os"
 	"strings"
@@ -23,7 +22,7 @@ func NewConfiguredLanguageModelProviderForModel(runtimeConfiguration config.Runt
 	}
 
 	if strings.TrimSpace(runtimeConfiguration.LanguageModel.FallbackProvider) == "" {
-		return withConfiguredLLMDShadow(defaultProvider, runtimeConfiguration, modelName)
+		return defaultProvider, nil
 	}
 
 	return nil, errors.New("language model fallback is owned by InternKim capability runtime")
@@ -38,23 +37,6 @@ func providerByName(providerName string, runtimeConfiguration config.RuntimeConf
 	default:
 		return nil, errors.New("language model provider is not supported")
 	}
-}
-
-func withConfiguredLLMDShadow(primaryProvider LanguageModelProvider, runtimeConfiguration config.RuntimeConfiguration, modelName string) (LanguageModelProvider, error) {
-	if !runtimeConfiguration.LanguageModel.LLMD.ShadowEnabled || strings.TrimSpace(runtimeConfiguration.LanguageModel.DefaultProvider) == "llmd" {
-		return primaryProvider, nil
-	}
-	shadowProvider, errorValue := newLLMDClient(runtimeConfiguration, modelName)
-	if errorValue != nil {
-		return nil, errorValue
-	}
-	shadowProvider.StructuredFallbackProvider = nil
-	return withShadowRecoveryChatCapabilities(ShadowLanguageModelProvider{
-		PrimaryProvider:       primaryProvider,
-		ShadowProvider:        shadowProvider,
-		Logger:                slog.Default(),
-		StructuredSchemaNames: configuredLLMDSchemaNames(runtimeConfiguration),
-	}), nil
 }
 
 func newLLMDClient(runtimeConfiguration config.RuntimeConfiguration, modelName string) (LLMDClient, error) {
