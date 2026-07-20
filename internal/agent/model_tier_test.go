@@ -103,7 +103,11 @@ func TestArtifactTaskLevelFloorRaisesSiteAndSlidesToXHigh(t *testing.T) {
 		Namespace:       "site",
 		SideEffectClass: ToolSideEffectExternalPublish,
 	}})
-	siteFloor := artifactTaskLevelFloor(AgentRequest{ToolSet: siteToolSet}, IntakeDecision{RequiredEvidenceTools: []string{"site.publish"}})
+	siteRequest := AgentRequest{
+		ToolSet:    siteToolSet,
+		ActiveGoal: ActiveGoal{OutcomeContract: OutcomeContract{RequiredEvidenceTools: []string{"site.publish"}}},
+	}
+	siteFloor := artifactTaskLevelFloor(siteRequest, IntakeDecision{})
 	if siteFloor != TaskLevelXHigh {
 		t.Fatalf("expected site request to floor at xhigh, got %q", siteFloor)
 	}

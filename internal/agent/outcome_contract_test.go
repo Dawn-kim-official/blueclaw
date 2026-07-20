@@ -35,18 +35,21 @@ func TestSelectedEvidenceHintsComeFromSelectedSkills(t *testing.T) {
 	}
 }
 
-func TestOutcomeContractUsesIntakeRequiredEvidenceWithoutToolFallback(t *testing.T) {
+func TestOutcomeContractDerivesScheduleEvidenceFromSkillHint(t *testing.T) {
+	toolSet := newTestToolSetWithDefinitions([]ToolDefinition{
+		{Name: "task.add", Namespace: "task", SideEffectClass: ToolSideEffectStateChange},
+		{Name: "schedule.create", Namespace: "schedule", SideEffectClass: ToolSideEffectStateChange},
+	})
 	contract := outcomeContractForRequest(
 		AgentRequest{
 			Prompt:  "내일 오후 3시에 이 메시지 보내줘",
-			ToolSet: newTestToolSet([]string{"task.add", "schedule.create"}),
+			ToolSet: toolSet,
 		},
 		IntakeDecision{
-			Classification:        IntakeClassificationBoundedTask,
-			TaskShape:             TaskShapeScheduledTask,
-			RequiredEvidenceTools: []string{"schedule.create"},
+			Classification: IntakeClassificationBoundedTask,
+			TaskShape:      TaskShapeScheduledTask,
 		},
-		InstructionBundle{},
+		InstructionBundle{RequiredEvidenceTools: []string{"schedule.create"}},
 		ExecutionPlan{},
 		false,
 		nil,
@@ -56,7 +59,7 @@ func TestOutcomeContractUsesIntakeRequiredEvidenceWithoutToolFallback(t *testing
 		t.Fatalf("expected schedule.create required evidence, got %+v", contract.RequiredEvidenceTools)
 	}
 	if stringSliceContains(contract.RequiredEvidenceTools, "task.add") {
-		t.Fatalf("expected explicit required evidence not to add fallback evidence, got %+v", contract.RequiredEvidenceTools)
+		t.Fatalf("expected the skill-contract hint not to add fallback evidence, got %+v", contract.RequiredEvidenceTools)
 	}
 }
 
@@ -95,7 +98,6 @@ func TestAttachmentOutcomeTreatsWorkspaceFileWriteAsIntermediate(t *testing.T) {
 			Classification:         IntakeClassificationBoundedTask,
 			TaskShape:              TaskShapeMaintenanceTask,
 			RequestedOutputFormats: []string{"docx"},
-			RequiredEvidenceTools:  []string{FileWriteToolName, FileDeliverToolName},
 		},
 		InstructionBundle{},
 		ExecutionPlan{},
@@ -121,8 +123,7 @@ func TestOutcomeContractPreservesActiveGoalEvidence(t *testing.T) {
 			RequiredEvidenceTools: []string{"site.delete"},
 		}}},
 		IntakeDecision{
-			Classification:        IntakeClassificationBoundedTask,
-			RequiredEvidenceTools: []string{"file.delete"},
+			Classification: IntakeClassificationBoundedTask,
 		},
 		InstructionBundle{},
 		ExecutionPlan{},
@@ -159,7 +160,7 @@ func TestOutcomeContractDoesNotFallbackToScheduleCreateForScheduledTaskShape(t *
 func TestOutcomeContractCreatesExpectedResultsForSitePublish(t *testing.T) {
 	contract := outcomeContractForRequest(
 		AgentRequest{Prompt: "개인 홈페이지 만들어서 배포해줘"},
-		IntakeDecision{Classification: IntakeClassificationBoundedTask, TaskShape: TaskShapeMaintenanceTask, RequiredEvidenceTools: []string{"site.publish"}},
+		IntakeDecision{Classification: IntakeClassificationBoundedTask, TaskShape: TaskShapeMaintenanceTask},
 		InstructionBundle{},
 		ExecutionPlan{PublicDeploy: true},
 		true,
@@ -181,11 +182,10 @@ func TestOutcomeContractDoesNotRequirePublicLinkForSiteDelete(t *testing.T) {
 			ToolSet: newTestToolSet([]string{"site.delete"}),
 		},
 		IntakeDecision{
-			Classification:        IntakeClassificationBoundedTask,
-			TaskShape:             TaskShapeMaintenanceTask,
-			RequiredEvidenceTools: []string{"site.delete"},
+			Classification: IntakeClassificationBoundedTask,
+			TaskShape:      TaskShapeMaintenanceTask,
 		},
-		InstructionBundle{},
+		InstructionBundle{RequiredEvidenceTools: []string{"site.delete"}},
 		ExecutionPlan{},
 		false,
 		nil,
@@ -194,8 +194,8 @@ func TestOutcomeContractDoesNotRequirePublicLinkForSiteDelete(t *testing.T) {
 	if expectedResultsContain(contract.ExpectedResults, ExpectedResultTypeLink, "public URL") {
 		t.Fatalf("expected site delete not to require public link result, got %+v", contract.ExpectedResults)
 	}
-	if !stringSliceContains(contract.RequiredEvidenceTools, "site.delete") {
-		t.Fatalf("expected site.delete evidence to remain, got %+v", contract.RequiredEvidenceTools)
+	if !evidenceAnyOfContainsTool(contract.RequiredEvidenceAnyOf, "site.delete") {
+		t.Fatalf("expected site.delete evidence to be derived from the working set, got %+v", contract.RequiredEvidenceAnyOf)
 	}
 }
 
@@ -370,10 +370,15 @@ func TestOutcomeContractDoesNotTreatReplyInstructionAsExternalSend(t *testing.T)
 		},
 		RequiredEvidenceTools: []string{"message.send", "site.status", "site.publish"},
 	}
+	toolSet := newTestToolSetWithDefinitions([]ToolDefinition{
+		{Name: "message.send", Namespace: "message", SideEffectClass: ToolSideEffectExternalSend},
+		{Name: "site.status", Namespace: "site", SideEffectClass: ToolSideEffectRead},
+		{Name: "site.publish", Namespace: "site", SideEffectClass: ToolSideEffectExternalPublish},
+	})
 
 	contract := outcomeContractForRequest(
-		AgentRequest{Prompt: "개인 홈페이지를 만들어서 배포하고 URL만 알려줘"},
-		IntakeDecision{Classification: IntakeClassificationBoundedTask, RequiredEvidenceTools: []string{"site.publish"}},
+		AgentRequest{Prompt: "개인 홈페이지를 만들어서 배포하고 URL만 알려줘", ToolSet: toolSet},
+		IntakeDecision{Classification: IntakeClassificationBoundedTask},
 		instructionBundle,
 		ExecutionPlan{PublicDeploy: true},
 		true,
@@ -487,28 +492,6 @@ func TestOutcomeContractRequiresSendEvidenceForExternalSendPlan(t *testing.T) {
 	}
 }
 
-func TestOutcomeContractUsesIntakeSendEvidenceForExternalSend(t *testing.T) {
-	contract := outcomeContractForRequest(
-		AgentRequest{
-			Prompt:  "샘플에게 테스트라고 DM 보내줘",
-			ToolSet: testToolSet([]string{"message.send"}),
-		},
-		IntakeDecision{
-			Classification:        IntakeClassificationBoundedTask,
-			TaskShape:             TaskShapeMaintenanceTask,
-			RequiredEvidenceTools: []string{"message.send"},
-		},
-		InstructionBundle{},
-		ExecutionPlan{},
-		false,
-		nil,
-	)
-
-	if len(contract.RequiredEvidenceTools) != 1 || contract.RequiredEvidenceTools[0] != "message.send" {
-		t.Fatalf("expected intake required evidence to require message.send, got %+v", contract.RequiredEvidenceTools)
-	}
-}
-
 func TestOutcomeContractIgnoresIntakeSendEvidenceForCurrentConversationReply(t *testing.T) {
 	toolSet := newTestToolSetWithDefinitions([]ToolDefinition{{
 		Name:            "message.send",
@@ -521,9 +504,8 @@ func TestOutcomeContractIgnoresIntakeSendEvidenceForCurrentConversationReply(t *
 			ToolSet: toolSet,
 		},
 		IntakeDecision{
-			Classification:        IntakeClassificationBoundedTask,
-			TaskShape:             TaskShapeMaintenanceTask,
-			RequiredEvidenceTools: []string{"message.send"},
+			Classification: IntakeClassificationBoundedTask,
+			TaskShape:      TaskShapeMaintenanceTask,
 		},
 		InstructionBundle{},
 		ExecutionPlan{},
@@ -556,28 +538,6 @@ func TestOutcomeContractKeepsSendEvidenceForExternalSendContinuation(t *testing.
 
 	if !stringSliceContains(contract.RequiredEvidenceTools, "message.send") {
 		t.Fatalf("expected external send continuation to keep message.send, got %+v", contract.RequiredEvidenceTools)
-	}
-}
-
-func TestOutcomeContractUsesIntakeFlowTaskAddEvidence(t *testing.T) {
-	contract := outcomeContractForRequest(
-		AgentRequest{
-			Prompt:  "업무 등록해줘\n- 메일 페이지 앱 비밀번호 개선하기",
-			ToolSet: testToolSet([]string{"task.add", "task.list", "task.update"}),
-		},
-		IntakeDecision{
-			Classification:        IntakeClassificationBoundedTask,
-			TaskShape:             TaskShapeMaintenanceTask,
-			RequiredEvidenceTools: []string{"task.add"},
-		},
-		InstructionBundle{},
-		ExecutionPlan{},
-		false,
-		nil,
-	)
-
-	if len(contract.RequiredEvidenceTools) != 1 || contract.RequiredEvidenceTools[0] != "task.add" {
-		t.Fatalf("expected flow task add hard gate, got %+v", contract.RequiredEvidenceTools)
 	}
 }
 
@@ -617,7 +577,12 @@ func TestOutcomeContractDoesNotDeriveEvidenceFromPromptAndAvailableTools(t *test
 	}
 }
 
-func TestOutcomeContractSelectsOneFlowTaskEvidenceHintForCurrentOperation(t *testing.T) {
+func TestOutcomeContractDerivesSideEffectEvidenceAnyOfGroupForMaintenanceTask(t *testing.T) {
+	toolSet := newTestToolSetWithDefinitions([]ToolDefinition{
+		{Name: "task.add", Namespace: "task", SideEffectClass: ToolSideEffectStateChange},
+		{Name: "task.list", Namespace: "task", SideEffectClass: ToolSideEffectRead},
+		{Name: "task.update", Namespace: "task", SideEffectClass: ToolSideEffectStateChange},
+	})
 	instructionBundle := InstructionBundle{
 		Skills:                []SkillInstruction{{Name: "internkim-flow"}},
 		SkillDecisions:        []SkillSelectionDecision{{Name: "internkim-flow", Status: "selected"}},
@@ -625,18 +590,27 @@ func TestOutcomeContractSelectsOneFlowTaskEvidenceHintForCurrentOperation(t *tes
 	}
 	contract := outcomeContractForRequest(
 		AgentRequest{
-			Prompt:  "이번 주 업무 목록 보여줘",
-			ToolSet: testToolSet([]string{"task.add", "task.list", "task.update"}),
+			Prompt:  "새 업무 하나 등록해줘",
+			ToolSet: toolSet,
 		},
-		IntakeDecision{Classification: IntakeClassificationBoundedTask, TaskShape: TaskShapeMaintenanceTask, RequiredEvidenceTools: []string{"task.list"}},
+		IntakeDecision{Classification: IntakeClassificationBoundedTask, TaskShape: TaskShapeMaintenanceTask},
 		instructionBundle,
 		ExecutionPlan{},
 		false,
 		nil,
 	)
 
-	if len(contract.RequiredEvidenceTools) != 1 || contract.RequiredEvidenceTools[0] != "task.list" {
-		t.Fatalf("expected only task.list evidence for list operation, got %+v", contract.RequiredEvidenceTools)
+	if len(contract.RequiredEvidenceTools) != 0 {
+		t.Fatalf("expected no AND-required evidence from the working set derivation, got %+v", contract.RequiredEvidenceTools)
+	}
+	if len(contract.RequiredEvidenceAnyOf) != 1 {
+		t.Fatalf("expected exactly one derived any-of group, got %+v", contract.RequiredEvidenceAnyOf)
+	}
+	if !stringSliceContains(contract.RequiredEvidenceAnyOf[0], "task.add") || !stringSliceContains(contract.RequiredEvidenceAnyOf[0], "task.update") {
+		t.Fatalf("expected the side-effect working set tools in the derived group, got %+v", contract.RequiredEvidenceAnyOf[0])
+	}
+	if stringSliceContains(contract.RequiredEvidenceAnyOf[0], "task.list") {
+		t.Fatalf("expected the read-only working set tool to be excluded, got %+v", contract.RequiredEvidenceAnyOf[0])
 	}
 }
 

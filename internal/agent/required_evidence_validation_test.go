@@ -5,39 +5,15 @@ import (
 	"testing"
 )
 
-func TestValidateRequiredEvidencePreservesInvalidEvidence(t *testing.T) {
-	toolSet := newTestToolSet([]string{"calendar.add", "schedule.create"})
-
-	report := validateRequiredEvidenceTools(toolSet, []string{"calendar.create", "schedule.create"})
-
-	if !report.HasInvalidEvidence() {
-		t.Fatal("expected invalid evidence to be reported")
-	}
-	if len(report.InvalidEvidence) != 1 || report.InvalidEvidence[0] != "calendar.create" {
-		t.Fatalf("expected calendar.create invalid evidence, got %+v", report.InvalidEvidence)
-	}
-	if len(report.RequiredEvidence) != 2 {
-		t.Fatalf("expected original required evidence to be preserved, got %+v", report.RequiredEvidence)
-	}
-}
-
-func TestValidateRequiredEvidenceAcceptsDirectTool(t *testing.T) {
+func TestRequiredEvidenceToolCanBeSatisfiedAcceptsDirectTool(t *testing.T) {
 	toolSet := newTestToolSet([]string{"calendar.add"})
 
-	report := validateRequiredEvidenceTools(toolSet, []string{"calendar.add"})
-
-	if report.HasInvalidEvidence() {
-		t.Fatalf("expected direct calendar.add to be valid evidence, got %+v", report)
-	}
-	if report.EvidenceKinds["calendar.add"] != requiredEvidenceToolKindNativeTool {
-		t.Fatalf("expected native evidence kind, got %+v", report.EvidenceKinds)
-	}
-	if !toolSet.IsAllowed("calendar.add") {
-		t.Fatal("expected calendar.add to remain directly callable")
+	if !requiredEvidenceToolCanBeSatisfied(toolSet, "calendar.add") {
+		t.Fatal("expected directly callable calendar.add to be satisfiable")
 	}
 }
 
-func TestValidateRequiredEvidenceAcceptsRegisteredDirectTool(t *testing.T) {
+func TestRequiredEvidenceToolCanBeSatisfiedAcceptsRegisteredCapabilityOperation(t *testing.T) {
 	toolSet := NewToolSet([]string{TerminalRunToolName})
 	for _, toolName := range []string{TerminalRunToolName, "calendar.add"} {
 		currentToolName := toolName
@@ -46,20 +22,15 @@ func TestValidateRequiredEvidenceAcceptsRegisteredDirectTool(t *testing.T) {
 		})
 	}
 
-	report := validateRequiredEvidenceTools(toolSet, []string{"calendar.add"})
-
-	if report.HasInvalidEvidence() {
-		t.Fatalf("expected registered calendar.add to be valid evidence, got %+v", report)
-	}
-	if report.EvidenceKinds["calendar.add"] != requiredEvidenceToolKindCapabilityOperation {
-		t.Fatalf("expected direct capability operation evidence, got %+v", report.EvidenceKinds)
+	if !requiredEvidenceToolCanBeSatisfied(toolSet, "calendar.add") {
+		t.Fatal("expected registered capability operation calendar.add to be satisfiable")
 	}
 	if toolSet.IsAllowed("calendar.add") {
 		t.Fatal("expected calendar.add to remain hidden until selected")
 	}
 }
 
-func TestValidateRequiredEvidenceRejectsUnavailableDirectTool(t *testing.T) {
+func TestRequiredEvidenceToolCanBeSatisfiedRejectsUnavailableTool(t *testing.T) {
 	toolSet := NewToolSet([]string{TerminalRunToolName})
 	toolSet.RegisterBoundTool(BoundTool{
 		Definition:   ToolDefinition{Name: "calendar.add"},
@@ -69,14 +40,12 @@ func TestValidateRequiredEvidenceRejectsUnavailableDirectTool(t *testing.T) {
 		},
 	})
 
-	report := validateRequiredEvidenceTools(toolSet, []string{"calendar.add"})
-
-	if !report.HasInvalidEvidence() {
-		t.Fatal("expected unavailable calendar.add to be invalid")
+	if requiredEvidenceToolCanBeSatisfied(toolSet, "calendar.add") {
+		t.Fatal("expected an unavailable calendar.add to be unsatisfiable")
 	}
 }
 
-func TestValidateRequiredEvidenceRejectsDisallowedKernelTool(t *testing.T) {
+func TestRequiredEvidenceToolCanBeSatisfiedRejectsDisallowedKernelTool(t *testing.T) {
 	toolSet := NewToolSet([]string{"file.write"})
 	for _, toolName := range []string{"file.write", FileDeliverToolName} {
 		registerTestTool(toolSet, ToolDefinition{Name: toolName}, func(context.Context, ToolInvocation) (ToolResult, error) {
@@ -84,218 +53,50 @@ func TestValidateRequiredEvidenceRejectsDisallowedKernelTool(t *testing.T) {
 		})
 	}
 
-	report := validateRequiredEvidenceTools(toolSet, []string{FileDeliverToolName})
-
-	if !report.HasInvalidEvidence() {
-		t.Fatal("expected a disallowed kernel tool to be invalid required evidence")
+	if requiredEvidenceToolCanBeSatisfied(toolSet, FileDeliverToolName) {
+		t.Fatal("expected a disallowed kernel tool to be unsatisfiable")
 	}
 }
 
-func TestValidateRequiredEvidenceClassifiesNativeTool(t *testing.T) {
-	toolSet := newTestToolSet([]string{FileDeliverToolName})
+func TestRequiredEvidenceToolCanBeSatisfiedRejectsUnregisteredName(t *testing.T) {
+	toolSet := newTestToolSet([]string{"calendar.add", "schedule.create"})
 
-	report := validateRequiredEvidenceTools(toolSet, []string{FileDeliverToolName})
-
-	if report.HasInvalidEvidence() {
-		t.Fatalf("expected file.deliver to be valid native evidence, got %+v", report)
+	if requiredEvidenceToolCanBeSatisfied(toolSet, "calendar.create") {
+		t.Fatal("expected an unregistered tool name to be unsatisfiable")
 	}
-	if report.EvidenceKinds[FileDeliverToolName] != requiredEvidenceToolKindNativeTool {
-		t.Fatalf("expected native evidence kind, got %+v", report.EvidenceKinds)
+	if !requiredEvidenceToolCanBeSatisfied(toolSet, "schedule.create") {
+		t.Fatal("expected a registered tool name to remain satisfiable")
 	}
 }
 
-func TestValidateRequiredEvidenceRejectsLegacyDeliveryAlias(t *testing.T) {
-	toolSet := newTestToolSet([]string{FileDeliverToolName})
-
-	report := validateRequiredEvidenceTools(toolSet, []string{"file.attach"})
-
-	if !report.HasInvalidEvidence() {
-		t.Fatalf("expected file.attach alias to be invalid evidence, got %+v", report)
-	}
-}
-
-func TestRequiredEvidenceRequiresEvidenceForMaintenanceTask(t *testing.T) {
-	intakeDecision := IntakeDecision{
-		Classification: IntakeClassificationBoundedTask,
-		TaskShape:      TaskShapeMaintenanceTask,
-	}
-
-	isMissing := requiredEvidenceMissingForSideEffect(intakeDecision, OutcomeContract{}, newTestToolSet([]string{"task.add"}))
-
-	if !isMissing {
-		t.Fatal("expected maintenance task without evidence to require recovery")
-	}
-}
-
-func TestRequiredEvidenceRequiresEvidenceForApprovalGatedTask(t *testing.T) {
-	intakeDecision := IntakeDecision{
-		Classification: IntakeClassificationBoundedTask,
-		TaskShape:      TaskShapeApprovalGatedTask,
-	}
-
-	isMissing := requiredEvidenceMissingForSideEffect(intakeDecision, OutcomeContract{}, newTestToolSet([]string{"site.delete"}))
-
-	if !isMissing {
-		t.Fatal("expected approval-gated task without evidence to require recovery")
-	}
-}
-
-func TestRequiredEvidenceAllowsBrowserHandoffWithoutMutationEvidence(t *testing.T) {
-	intakeDecision := IntakeDecision{
-		Classification: IntakeClassificationBoundedTask,
-		TaskShape:      TaskShapeBrowserHandoffTask,
-	}
-
-	isMissing := requiredEvidenceMissingForSideEffect(intakeDecision, OutcomeContract{}, newTestToolSet([]string{"browser.open"}))
-
-	if isMissing {
-		t.Fatal("expected browser handoff not to imply a mutation")
-	}
-}
-
-func TestRequiredEvidenceNotMissingForReadOnlyResearchTask(t *testing.T) {
-	intakeDecision := IntakeDecision{
-		Classification:   IntakeClassificationBoundedTask,
-		TaskShape:        TaskShapeResearchTask,
-		InitialToolNames: []string{"web.search"},
-	}
-
-	isMissing := requiredEvidenceMissingForSideEffect(intakeDecision, OutcomeContract{}, newTestToolSet([]string{"web.search"}))
-
-	if isMissing {
-		t.Fatal("expected read-only research task not to require side-effect evidence")
-	}
-}
-
-func TestRequiredEvidenceRejectsReadOnlyMaintenanceEvidence(t *testing.T) {
-	intakeDecision := IntakeDecision{
-		Classification: IntakeClassificationBoundedTask,
-		TaskShape:      TaskShapeMaintenanceTask,
-	}
-	toolSet := newTestCapabilityToolSet([]string{"task.history", "task.update"})
-	outcomeContract := OutcomeContract{RequiredEvidenceTools: []string{"task.history"}}
-
-	isMissing := requiredEvidenceMissingForSideEffect(intakeDecision, outcomeContract, toolSet)
-
-	if !isMissing {
-		t.Fatal("expected read-only task.history not to prove maintenance mutation")
-	}
-}
-
-func TestRequiredEvidenceRejectsReadOnlyEvidenceForMaintenanceShape(t *testing.T) {
-	intakeDecision := IntakeDecision{
-		Classification:        IntakeClassificationBoundedTask,
-		TaskShape:             TaskShapeMaintenanceTask,
-		InitialToolNames:      []string{TerminalRunToolName},
-		RequiredEvidenceTools: []string{"task.list"},
-	}
-	toolSet := newTestCapabilityToolSet([]string{TerminalRunToolName, "task.list"})
-	outcomeContract := OutcomeContract{RequiredEvidenceTools: []string{"task.list"}}
-
-	if !requiredEvidenceMissingForSideEffect(intakeDecision, outcomeContract, toolSet) {
-		t.Fatal("expected task.list not to satisfy a maintenance mutation contract")
-	}
-}
-
-func TestRequiredEvidenceRequiresExplicitInitialSideEffectTool(t *testing.T) {
-	intakeDecision := IntakeDecision{
-		Classification:   IntakeClassificationBoundedTask,
-		TaskShape:        TaskShapeResearchTask,
-		InitialToolNames: []string{"task.update"},
-	}
-	toolSet := newTestCapabilityToolSet([]string{"task.history", "task.update"})
-
-	isMissing := requiredEvidenceMissingForSideEffect(intakeDecision, OutcomeContract{}, toolSet)
-
-	if !isMissing {
-		t.Fatal("expected an explicitly selected task.update tool to require side-effect evidence")
-	}
-}
-
-func TestRequiredEvidencePreservesReadOnlyResearchEvidence(t *testing.T) {
-	intakeDecision := IntakeDecision{
-		Classification: IntakeClassificationBoundedTask,
-		TaskShape:      TaskShapeResearchTask,
-	}
-	toolSet := newTestCapabilityToolSet([]string{"task.history"})
-	outcomeContract := OutcomeContract{RequiredEvidenceTools: []string{"task.history"}}
-
-	isMissing := requiredEvidenceMissingForSideEffect(intakeDecision, outcomeContract, toolSet)
-
-	if isMissing {
-		t.Fatal("expected task.history to remain valid evidence for read-only research")
-	}
-}
-
-func TestRequiredEvidenceRequiresSiteSideEffectAlongsideStatus(t *testing.T) {
-	intakeDecision := IntakeDecision{
-		Classification:        IntakeClassificationBoundedTask,
-		TaskShape:             TaskShapeMaintenanceTask,
-		RequiredEvidenceTools: []string{"site.status"},
-	}
+func TestWorkingSetSideEffectEvidenceGroup(t *testing.T) {
 	toolSet := newTestToolSetWithDefinitions([]ToolDefinition{
-		{Name: "site.status", Namespace: "site", SideEffectClass: ToolSideEffectRead},
-		{Name: "site.publish", Namespace: "site", SideEffectClass: ToolSideEffectExternalPublish},
+		{Name: "task.add", Namespace: "task", SideEffectClass: ToolSideEffectStateChange},
+		{Name: "task.list", Namespace: "task", SideEffectClass: ToolSideEffectRead},
+		{Name: "task.update", Namespace: "task", SideEffectClass: ToolSideEffectStateChange},
 	})
 
-	if !requiredEvidenceMissingForSideEffect(intakeDecision, OutcomeContract{RequiredEvidenceTools: []string{"site.status"}}, toolSet) {
-		t.Fatal("expected site.status alone not to prove a site side effect")
+	group := workingSetSideEffectEvidenceGroup(toolSet, []string{"task.add", "task.list", "task.update", "task.add", "unregistered.operation"})
+
+	if len(group) != 2 || !stringSliceContains(group, "task.add") || !stringSliceContains(group, "task.update") {
+		t.Fatalf("expected deduplicated side-effect tools only, got %+v", group)
 	}
-	if requiredEvidenceMissingForSideEffect(intakeDecision, OutcomeContract{RequiredEvidenceTools: []string{"site.publish", "site.status"}}, toolSet) {
-		t.Fatal("expected site.publish and site.status evidence to preserve the publish contract")
+	if stringSliceContains(group, "task.list") {
+		t.Fatalf("expected the read-only tool to be excluded, got %+v", group)
+	}
+	if stringSliceContains(group, "unregistered.operation") {
+		t.Fatalf("expected the unregistered tool to be excluded, got %+v", group)
 	}
 }
 
-func TestRequiredEvidencePreservesDeliveryAndSendSideEffects(t *testing.T) {
-	intakeDecision := IntakeDecision{
-		Classification: IntakeClassificationBoundedTask,
-		TaskShape:      TaskShapeMaintenanceTask,
-	}
-	toolSet := newTestCapabilityToolSet([]string{FileDeliverToolName, "message.send"})
-	registerTestTool(toolSet, ToolDefinition{Name: FileDeliverToolName, SideEffectClass: ToolSideEffectExternalWrite}, func(context.Context, ToolInvocation) (ToolResult, error) {
-		return testToolSuccess("ok"), nil
+func TestWorkingSetSideEffectEvidenceGroupEmptyWhenNoCandidatesAreDerivable(t *testing.T) {
+	toolSet := newTestToolSetWithDefinitions([]ToolDefinition{
+		{Name: "task.list", Namespace: "task", SideEffectClass: ToolSideEffectRead},
 	})
 
-	for _, toolName := range []string{FileDeliverToolName, "message.send"} {
-		outcomeContract := OutcomeContract{RequiredEvidenceTools: []string{toolName}}
-		if requiredEvidenceMissingForSideEffect(intakeDecision, outcomeContract, toolSet) {
-			t.Fatalf("expected %s to remain valid side-effect evidence", toolName)
-		}
-	}
-}
+	group := workingSetSideEffectEvidenceGroup(toolSet, []string{"task.list"})
 
-func TestUniqueSideEffectEvidenceCandidateResolvesSingleMutation(t *testing.T) {
-	toolSet := newTestToolSet([]string{"task.add", "task.list", "conversation.history"})
-
-	candidateName, isUnique := uniqueSideEffectEvidenceCandidate(toolSet, []string{"task.add", "task.list"}, nil)
-
-	if !isUnique || candidateName != "task.add" {
-		t.Fatalf("expected unique task.add candidate, got %q unique=%v", candidateName, isUnique)
-	}
-}
-
-func TestUniqueSideEffectEvidenceCandidateFallsBackToRegisteredNames(t *testing.T) {
-	toolSet := newTestToolSet([]string{"task.add", "task.list"})
-
-	candidateName, isUnique := uniqueSideEffectEvidenceCandidate(toolSet, nil, []string{"task.add", "task.list"})
-
-	if !isUnique || candidateName != "task.add" {
-		t.Fatalf("expected registered fallback to resolve task.add, got %q unique=%v", candidateName, isUnique)
-	}
-}
-
-func TestUniqueSideEffectEvidenceCandidateRejectsAmbiguousMutations(t *testing.T) {
-	toolSet := newTestToolSet([]string{"task.add", "task.update"})
-
-	if _, isUnique := uniqueSideEffectEvidenceCandidate(toolSet, []string{"task.add", "task.update"}, nil); isUnique {
-		t.Fatal("expected ambiguous mutation candidates to stay unresolved")
-	}
-}
-
-func TestUniqueSideEffectEvidenceCandidateRejectsReadOnlyPool(t *testing.T) {
-	toolSet := newTestToolSet([]string{"task.list", "conversation.history"})
-
-	if _, isUnique := uniqueSideEffectEvidenceCandidate(toolSet, []string{"task.list"}, []string{"conversation.history"}); isUnique {
-		t.Fatal("expected read-only candidates to stay unresolved")
+	if len(group) != 0 {
+		t.Fatalf("expected no derivable side-effect evidence, got %+v", group)
 	}
 }

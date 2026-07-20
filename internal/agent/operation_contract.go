@@ -82,7 +82,13 @@ func operationCandidateToolNames(contract OutcomeContract) []string {
 		}
 		return appendUniqueStrings(toolNames)
 	}
-	return appendUniqueStrings(contract.RequiredEvidenceTools)
+	toolNames := append([]string{}, contract.RequiredEvidenceTools...)
+	for _, toolNameGroup := range contract.RequiredEvidenceAnyOf {
+		if len(toolNameGroup) == 1 {
+			toolNames = append(toolNames, toolNameGroup...)
+		}
+	}
+	return appendUniqueStrings(toolNames)
 }
 
 func operationDescriptorsWithBindableIntent(descriptors []operationDescriptorDocument) []operationDescriptorDocument {
