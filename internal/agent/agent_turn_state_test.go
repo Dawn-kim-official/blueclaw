@@ -190,7 +190,7 @@ func TestCompletionArtifactDeliveryInputUsesPendingOperationInput(t *testing.T) 
 		ToolInput:     input,
 		Output:        ToolOutput{Content: "file attached"},
 	}
-	if !operationRequirementsSatisfied(state.Request.OutcomeContract.OperationContract, []turnObservation{observation}) {
+	if !matchedAllOperationRequirements(state.Request.OutcomeContract.OperationContract, []turnObservation{observation}) {
 		t.Fatalf("expected nested delivery input to satisfy the pending operation: %s", input)
 	}
 }

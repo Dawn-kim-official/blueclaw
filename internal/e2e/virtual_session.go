@@ -170,6 +170,7 @@ type VirtualTurn struct {
 	ContextMessages           []connectors.VisibleContextMessage
 	ContextMaterials          []connectors.InputAttachment
 	ActionResponses           []string
+	CompletionJudgeResponses  []string
 	RouterRequiredEvidence    []string
 	RouterTaskShape           agent.TaskShape
 	RouterSiteEvidence        string
@@ -2436,6 +2437,9 @@ func (harness *VirtualSessionHarness) Run(ctx context.Context) (VirtualSessionRe
 				harness.scriptedModel.EnqueueStructuredResponses("blueclaw_turn_router", scenarioTurnRouterResponse(harness.scenario, virtualTurn))
 			}
 			harness.scriptedModel.SetActionResponses(virtualTurn.ActionResponses...)
+			if len(virtualTurn.CompletionJudgeResponses) > 0 {
+				harness.scriptedModel.EnqueueStructuredResponses("blueclaw_completion_judge", virtualTurn.CompletionJudgeResponses...)
+			}
 		}
 		turnResult, errorValue := harness.runTurn(ctx, index, virtualTurn)
 		if errorValue != nil {
@@ -2470,6 +2474,7 @@ func actionScriptedLanguageModelForScenario(scenario VirtualSessionScenario) *ag
 
 func scenarioDefaultResponses(scenario VirtualSessionScenario) map[string]string {
 	defaultResponses := map[string]string{}
+	defaultResponses["blueclaw_completion_judge"] = `{"satisfied":true,"missingWork":[],"reason":"scripted default"}`
 	defaultResponses["blueclaw_addressing_classification"] = `{"target":"anyone","shouldRespond":false,"dutyMatch":false,"dutyName":"","dutyConfidence":0}`
 	if strings.TrimSpace(scenario.AddressingResponse) != "" {
 		defaultResponses["blueclaw_addressing_classification"] = strings.TrimSpace(scenario.AddressingResponse)

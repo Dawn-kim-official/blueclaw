@@ -1176,6 +1176,35 @@ func TestFileWriteAcceptance(t *testing.T) {
 	}
 }
 
+func TestCompletionJudgeRecoveryAcceptance(t *testing.T) {
+	result, errorValue := RunVirtualSession(context.Background(), CompletionJudgeRecoveryAcceptanceScenario(t.TempDir()))
+	if errorValue != nil {
+		t.Fatalf("expected completion judge recovery scenario to pass: %v", errorValue)
+	}
+	turnResult := result.TurnResults[0]
+	if turnResult.TaskStatus != task.TaskStatusCompleted {
+		t.Fatalf("expected completed turn after judge recovery, got %s", turnResult.TaskStatus)
+	}
+	if countRequestedToolCalls(turnResult.Events, "task.add") != 1 {
+		t.Fatalf("expected exactly one task.add, got events: %s", summarizeEvents(turnResult.Events))
+	}
+	if countRequestedToolCalls(turnResult.Events, "task.update") != 1 {
+		t.Fatalf("expected a corrective task.update after the unsatisfied verdict, got events: %s", summarizeEvents(turnResult.Events))
+	}
+	if countEvents(turnResult.Events, "completion_judge.verdict") != 2 {
+		t.Fatalf("expected two recorded completion judge verdicts, got events: %s", summarizeEvents(turnResult.Events))
+	}
+	if !eventsContain(turnResult.Events, "completion_judge.verdict", `"satisfied":false`) {
+		t.Fatalf("expected an unsatisfied verdict recorded, got events: %s", summarizeEvents(turnResult.Events))
+	}
+	if !eventsContain(turnResult.Events, "completion_judge.verdict", `"satisfied":true`) {
+		t.Fatalf("expected a satisfied verdict recorded, got events: %s", summarizeEvents(turnResult.Events))
+	}
+	if countEvents(turnResult.Events, "agent.evidence_missing") != 1 {
+		t.Fatalf("expected the unsatisfied judge verdict to reject the first finish attempt, got events: %s", summarizeEvents(turnResult.Events))
+	}
+}
+
 func TestDocumentCreateAcceptanceUsesLiveCanonicalTools(t *testing.T) {
 	scenario := DocumentCreateAcceptanceScenario(t.TempDir())
 	if len(scenario.Turns) != 1 || len(scenario.Turns[0].ActionResponses) != 0 {

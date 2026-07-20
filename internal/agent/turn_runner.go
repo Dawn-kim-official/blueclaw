@@ -514,7 +514,7 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 			agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusCompleted, "set_quality_criteria", marshalEventBody(map[string]any{"criteria": state.QualityCriteria}))
 			continue
 		case "finish":
-			completionGateResult := validateCompletionGateForRequestWithExpectedResults(request, toolUseRequirements, state.Observations, state.Attachments, state.QualityCriteria, actionDocument, agentTurnRunner.options.RecoveryBudget)
+			completionGateResult := agentTurnRunner.validateCompletionGateWithJudge(workContext, taskRun.TaskRunID, request, toolUseRequirements, state.Observations, state.Attachments, state.QualityCriteria, actionDocument)
 			agentTurnRunner.appendValidityReview(taskRun.TaskRunID, "finish", completionGateResult.ValidityState)
 			if !completionGateResult.IsSatisfied {
 				observation := completionGateObservation(len(state.Observations)+1, completionGateResult)
