@@ -1,6 +1,15 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
-import { MattermostAdapter } from "./adapter";
-import type { MattermostPost, MattermostUser } from "./types";
+import { afterEach, describe, expect, it, mock } from "bun:test";
+import { MattermostAdapter } from "../src/adapters/mattermost/adapter.ts";
+import type {
+	MattermostChannel,
+	MattermostPost,
+	MattermostUser,
+	MattermostWebSocketEvent,
+} from "../src/adapters/mattermost/types.ts";
+
+function adapterInternals<TInternals>(adapter: MattermostAdapter): TInternals {
+	return adapter as unknown as TInternals;
+}
 
 function createAdapter(withCallback = false) {
 	return new MattermostAdapter({
@@ -35,9 +44,11 @@ function createUser(overrides: Partial<MattermostUser> = {}): MattermostUser {
 	};
 }
 
+const originalFetch = globalThis.fetch;
+
 afterEach(() => {
-	vi.unstubAllGlobals();
-	vi.restoreAllMocks();
+	globalThis.fetch = originalFetch;
+	mock.restore();
 });
 
 describe("MattermostAdapter", () => {
@@ -65,18 +76,25 @@ describe("MattermostAdapter", () => {
 	});
 
 	it("marks mentions from websocket mention payloads", async () => {
-		const adapter = createAdapter() as MattermostAdapter & {
-			chat: { processMessage: ReturnType<typeof vi.fn> };
+		const adapter = createAdapter();
+		const processMessage = mock(
+			(
+				_adapter: unknown,
+				_threadId: string,
+				_messageFactory: () => Promise<{ isMention?: boolean }>,
+			) => undefined,
+		);
+		const internals = adapterInternals<{
+			chat: { processMessage: typeof processMessage };
 			botUserId: string;
 			users: Map<string, MattermostUser>;
-			handlePostedEvent: (payload: unknown) => Promise<void>;
-		};
-		const processMessage = vi.fn();
-		adapter.chat = { processMessage };
-		adapter.botUserId = "bot-user";
-		adapter.users.set("user-1", createUser());
+			handlePostedEvent(payload: MattermostWebSocketEvent): Promise<void>;
+		}>(adapter);
+		internals.chat = { processMessage };
+		internals.botUserId = "bot-user";
+		internals.users.set("user-1", createUser());
 
-		await adapter.handlePostedEvent({
+		await internals.handlePostedEvent({
 			data: {
 				post: JSON.stringify(createPost()),
 				mentions: JSON.stringify(["bot-user"]),
@@ -84,25 +102,26 @@ describe("MattermostAdapter", () => {
 		});
 
 		expect(processMessage).toHaveBeenCalledTimes(1);
-		const messageFactory = processMessage.mock.calls[0][2] as () => Promise<{
-			isMention?: boolean;
-		}>;
+		const callArray = processMessage.mock.calls[0];
+		if (!callArray) throw new Error("Expected processMessage to be called");
+		const messageFactory = callArray[2];
 		const message = await messageFactory();
 
 		expect(message.isMention).toBe(true);
 	});
 
 	it("accepts websocket embedded objects for edited posts", async () => {
-		const adapter = createAdapter() as MattermostAdapter & {
-			chat: { processMessage: ReturnType<typeof vi.fn> };
+		const adapter = createAdapter();
+		const processMessage = mock(() => undefined);
+		const internals = adapterInternals<{
+			chat: { processMessage: typeof processMessage };
 			users: Map<string, MattermostUser>;
-			handleWebSocketPayload: (payload: unknown) => Promise<void>;
-		};
-		const processMessage = vi.fn();
-		adapter.chat = { processMessage };
-		adapter.users.set("user-1", createUser());
+			handleWebSocketPayload(payload: MattermostWebSocketEvent): Promise<void>;
+		}>(adapter);
+		internals.chat = { processMessage };
+		internals.users.set("user-1", createUser());
 
-		await adapter.handleWebSocketPayload({
+		await internals.handleWebSocketPayload({
 			event: "post_edited",
 			data: {
 				post: createPost({ message: "edited" }),
@@ -113,26 +132,24 @@ describe("MattermostAdapter", () => {
 	});
 
 	it("parses binary websocket payloads", () => {
-		const adapter = createAdapter() as MattermostAdapter & {
-			parseWebSocketPayload: (data: unknown) => unknown;
-		};
+		const adapter = createAdapter();
+		const internals = adapterInternals<{
+			parseWebSocketPayload(data: unknown): MattermostWebSocketEvent | null;
+		}>(adapter);
 		const payload = { event: "posted", data: { post: JSON.stringify(createPost()) } };
 		const binary = new TextEncoder().encode(JSON.stringify(payload));
 
-		expect(adapter.parseWebSocketPayload(binary)).toEqual(payload);
+		expect(internals.parseWebSocketPayload(binary)).toEqual(payload);
 	});
 
 	it("returns null when fetchMessage gets a 404", async () => {
 		const adapter = createAdapter();
-		vi.stubGlobal(
-			"fetch",
-			vi.fn().mockResolvedValue(
-				new Response(JSON.stringify({ message: "missing" }), {
-					status: 404,
-					headers: { "Content-Type": "application/json" },
-				}),
-			),
-		);
+		globalThis.fetch = mock(async () =>
+			new Response(JSON.stringify({ message: "missing" }), {
+				status: 404,
+				headers: { "Content-Type": "application/json" },
+			}),
+		) as never;
 
 		const result = await adapter.fetchMessage(
 			adapter.encodeThreadId({ channelId: "channel-1", rootPostId: "root-1" }),
@@ -143,36 +160,37 @@ describe("MattermostAdapter", () => {
 	});
 
 	it("bounds user and channel caches", () => {
-		const adapter = createAdapter() as MattermostAdapter & {
+		const adapter = createAdapter();
+		const internals = adapterInternals<{
 			users: Map<string, MattermostUser>;
-			channels: Map<string, { id: string; name: string; type: "O" }>;
-			setCachedValue: <TKey, TValue>(
+			channels: Map<string, MattermostChannel>;
+			setCachedValue<TKey, TValue>(
 				cache: Map<TKey, TValue>,
 				key: TKey,
 				value: TValue,
 				maxSize: number,
-			) => void;
-		};
+			): void;
+		}>(adapter);
 
 		for (let index = 0; index < 3; index += 1) {
-			adapter.setCachedValue(
-				adapter.users,
+			internals.setCachedValue(
+				internals.users,
 				`user-${index}`,
 				createUser({ id: `user-${index}`, username: `user${index}` }),
 				2,
 			);
-			adapter.setCachedValue(
-				adapter.channels,
+			internals.setCachedValue(
+				internals.channels,
 				`channel-${index}`,
 				{ id: `channel-${index}`, name: `channel-${index}`, type: "O" },
 				2,
 			);
 		}
 
-		expect(adapter.users.size).toBe(2);
-		expect(adapter.channels.size).toBe(2);
-		expect(adapter.users.has("user-0")).toBe(false);
-		expect(adapter.channels.has("channel-0")).toBe(false);
+		expect(internals.users.size).toBe(2);
+		expect(internals.channels.size).toBe(2);
+		expect(internals.users.has("user-0")).toBe(false);
+		expect(internals.channels.has("channel-0")).toBe(false);
 	});
 });
 
@@ -209,26 +227,25 @@ describe("MattermostAdapter actions - card rendering", () => {
 			],
 		};
 
-		vi.stubGlobal(
-			"fetch",
-			vi.fn().mockResolvedValue(
-				new Response(
-					JSON.stringify(
-						createPost({
-							id: "new-post-1",
-							channel_id: "channel-1",
-							root_id: "root-1",
-						}),
-					),
-					{ status: 201, headers: { "Content-Type": "application/json" } },
+		globalThis.fetch = mock(async () =>
+			new Response(
+				JSON.stringify(
+					createPost({
+						id: "new-post-1",
+						channel_id: "channel-1",
+						root_id: "root-1",
+					}),
 				),
+				{ status: 201, headers: { "Content-Type": "application/json" } },
 			),
-		);
+		) as never;
 
 		const result = await adapter.postMessage(threadId, { card });
 		expect(result.id).toBe("new-post-1");
 
-		const fetchCall = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
+		const fetchMock = globalThis.fetch as any;
+		const fetchCall = fetchMock.mock.calls[0];
+		if (!fetchCall) throw new Error("Expected fetch to be called");
 		const body = JSON.parse(fetchCall[1].body as string);
 
 		expect(body.props.attachments).toHaveLength(1);
@@ -282,21 +299,18 @@ describe("MattermostAdapter actions - card rendering", () => {
 			],
 		};
 
-		vi.stubGlobal(
-			"fetch",
-			vi
-				.fn()
-				.mockResolvedValue(
-					new Response(
-						JSON.stringify(createPost({ id: "new-post-2", channel_id: "channel-1" })),
-						{ status: 201, headers: { "Content-Type": "application/json" } },
-					),
-				),
-		);
+		globalThis.fetch = mock(async () =>
+			new Response(
+				JSON.stringify(createPost({ id: "new-post-2", channel_id: "channel-1" })),
+				{ status: 201, headers: { "Content-Type": "application/json" } },
+			),
+		) as never;
 
 		await adapter.postMessage(threadId, { card });
 
-		const fetchCall = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
+		const fetchMock = globalThis.fetch as any;
+		const fetchCall = fetchMock.mock.calls[0];
+		if (!fetchCall) throw new Error("Expected fetch to be called");
 		const body = JSON.parse(fetchCall[1].body as string);
 
 		expect(body.props.attachments[0].actions).toHaveLength(1);
@@ -339,21 +353,18 @@ describe("MattermostAdapter actions - card rendering", () => {
 			],
 		};
 
-		vi.stubGlobal(
-			"fetch",
-			vi
-				.fn()
-				.mockResolvedValue(
-					new Response(
-						JSON.stringify(createPost({ id: "new-post-3", channel_id: "channel-1" })),
-						{ status: 201, headers: { "Content-Type": "application/json" } },
-					),
-				),
-		);
+		globalThis.fetch = mock(async () =>
+			new Response(
+				JSON.stringify(createPost({ id: "new-post-3", channel_id: "channel-1" })),
+				{ status: 201, headers: { "Content-Type": "application/json" } },
+			),
+		) as never;
 
 		await adapter.postMessage(threadId, { card });
 
-		const fetchCall = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
+		const fetchMock = globalThis.fetch as any;
+		const fetchCall = fetchMock.mock.calls[0];
+		if (!fetchCall) throw new Error("Expected fetch to be called");
 		const body = JSON.parse(fetchCall[1].body as string);
 
 		expect(body.props.attachments[0].actions).toHaveLength(2);
@@ -392,21 +403,18 @@ describe("MattermostAdapter actions - card rendering", () => {
 			],
 		};
 
-		vi.stubGlobal(
-			"fetch",
-			vi
-				.fn()
-				.mockResolvedValue(
-					new Response(
-						JSON.stringify(createPost({ id: "new-post-4", channel_id: "channel-1" })),
-						{ status: 201, headers: { "Content-Type": "application/json" } },
-					),
-				),
-		);
+		globalThis.fetch = mock(async () =>
+			new Response(
+				JSON.stringify(createPost({ id: "new-post-4", channel_id: "channel-1" })),
+				{ status: 201, headers: { "Content-Type": "application/json" } },
+			),
+		) as never;
 
 		await adapter.postMessage(threadId, { card });
 
-		const fetchCall = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
+		const fetchMock = globalThis.fetch as any;
+		const fetchCall = fetchMock.mock.calls[0];
+		if (!fetchCall) throw new Error("Expected fetch to be called");
 		const body = JSON.parse(fetchCall[1].body as string);
 
 		expect(body.props).toBeUndefined();
@@ -433,21 +441,18 @@ describe("MattermostAdapter actions - card rendering", () => {
 			],
 		};
 
-		vi.stubGlobal(
-			"fetch",
-			vi
-				.fn()
-				.mockResolvedValue(
-					new Response(
-						JSON.stringify(createPost({ id: "new-post-5", channel_id: "channel-1" })),
-						{ status: 201, headers: { "Content-Type": "application/json" } },
-					),
-				),
-		);
+		globalThis.fetch = mock(async () =>
+			new Response(
+				JSON.stringify(createPost({ id: "new-post-5", channel_id: "channel-1" })),
+				{ status: 201, headers: { "Content-Type": "application/json" } },
+			),
+		) as never;
 
 		await adapter.postMessage(threadId, { card });
 
-		const fetchCall = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
+		const fetchMock = globalThis.fetch as any;
+		const fetchCall = fetchMock.mock.calls[0];
+		if (!fetchCall) throw new Error("Expected fetch to be called");
 		const body = JSON.parse(fetchCall[1].body as string);
 
 		expect(body.props.attachments[0].actions[0].integration.context).toEqual({
@@ -459,34 +464,39 @@ describe("MattermostAdapter actions - card rendering", () => {
 
 describe("MattermostAdapter actions - webhook handling", () => {
 	it("processes button action callback via handleWebhook", async () => {
-		const adapter = createAdapter(true) as MattermostAdapter & {
-			chat: {
-				processAction: ReturnType<typeof vi.fn>;
-			};
+		const adapter = createAdapter(true);
+		const processAction = mock(
+			async (_event: {
+				actionId: string;
+				messageId: string;
+				user: { userId: string };
+				value?: string;
+				threadId: string;
+			}) => undefined,
+		);
+		const internals = adapterInternals<{
+			chat: { processAction: typeof processAction };
 			botUserId: string;
 			users: Map<string, MattermostUser>;
-		};
-		const processAction = vi.fn().mockResolvedValue(undefined);
-		adapter.chat = { processAction };
-		adapter.botUserId = "bot-user";
-		adapter.users.set("user-1", createUser());
+		}>(adapter);
+		internals.chat = { processAction };
+		internals.botUserId = "bot-user";
+		internals.users.set("user-1", createUser());
 
-		vi.stubGlobal(
-			"fetch",
-			vi.fn().mockResolvedValue(
-				new Response(
-					JSON.stringify(
-						createPost({
-							id: "post-1",
-							channel_id: "channel-1",
-							root_id: "root-1",
-						}),
-					),
-					{ status: 200, headers: { "Content-Type": "application/json" } },
+		globalThis.fetch = mock(async () =>
+			new Response(
+				JSON.stringify(
+					createPost({
+						id: "post-1",
+						channel_id: "channel-1",
+						root_id: "root-1",
+					}),
 				),
+				{ status: 200, headers: { "Content-Type": "application/json" } },
 			),
-		);
+		) as never;
 
+		const backgroundTasks: Promise<unknown>[] = [];
 		const response = await adapter.handleWebhook(
 			new Request("https://example.com/webhook", {
 				method: "POST",
@@ -501,12 +511,20 @@ describe("MattermostAdapter actions - webhook handling", () => {
 					},
 				}),
 			}),
+			{
+				waitUntil: (task) => {
+					backgroundTasks.push(task);
+				},
+			},
 		);
+		await Promise.all(backgroundTasks);
 
 		expect(response.status).toBe(200);
 		expect(processAction).toHaveBeenCalledTimes(1);
 
-		const event = processAction.mock.calls[0][0];
+		const callArray = processAction.mock.calls[0];
+		if (!callArray) throw new Error("Expected processAction to be called");
+		const event = callArray[0];
 		expect(event.actionId).toBe("approve");
 		expect(event.messageId).toBe("post-1");
 		expect(event.user.userId).toBe("user-1");
@@ -514,30 +532,33 @@ describe("MattermostAdapter actions - webhook handling", () => {
 	});
 
 	it("processes action with value from context", async () => {
-		const adapter = createAdapter(true) as MattermostAdapter & {
-			chat: {
-				processAction: ReturnType<typeof vi.fn>;
-			};
+		const adapter = createAdapter(true);
+		const processAction = mock(
+			async (_event: {
+				actionId: string;
+				messageId: string;
+				user: { userId: string };
+				value?: string;
+				threadId: string;
+			}) => undefined,
+		);
+		const internals = adapterInternals<{
+			chat: { processAction: typeof processAction };
 			botUserId: string;
 			users: Map<string, MattermostUser>;
-		};
-		const processAction = vi.fn().mockResolvedValue(undefined);
-		adapter.chat = { processAction };
-		adapter.botUserId = "bot-user";
-		adapter.users.set("user-1", createUser());
+		}>(adapter);
+		internals.chat = { processAction };
+		internals.botUserId = "bot-user";
+		internals.users.set("user-1", createUser());
 
-		vi.stubGlobal(
-			"fetch",
-			vi
-				.fn()
-				.mockResolvedValue(
-					new Response(
-						JSON.stringify(createPost({ id: "post-2", channel_id: "channel-1" })),
-						{ status: 200, headers: { "Content-Type": "application/json" } },
-					),
-				),
-		);
+		globalThis.fetch = mock(async () =>
+			new Response(
+				JSON.stringify(createPost({ id: "post-2", channel_id: "channel-1" })),
+				{ status: 200, headers: { "Content-Type": "application/json" } },
+			),
+		) as never;
 
+		const backgroundTasks: Promise<unknown>[] = [];
 		await adapter.handleWebhook(
 			new Request("https://example.com/webhook", {
 				method: "POST",
@@ -552,22 +573,29 @@ describe("MattermostAdapter actions - webhook handling", () => {
 					},
 				}),
 			}),
+			{
+				waitUntil: (task) => {
+					backgroundTasks.push(task);
+				},
+			},
 		);
+		await Promise.all(backgroundTasks);
 
-		expect(adapter.chat.processAction).toHaveBeenCalledTimes(1);
-		const event = adapter.chat.processAction.mock.calls[0][0];
+		expect(internals.chat.processAction).toHaveBeenCalledTimes(1);
+		const callArray = internals.chat.processAction.mock.calls[0];
+		if (!callArray) throw new Error("Expected processAction to be called");
+		const event = callArray[0];
 		expect(event.actionId).toBe("priority");
 		expect(event.value).toBe("high");
 	});
 
 	it("ignores webhook without action_id in context", async () => {
-		const adapter = createAdapter(true) as MattermostAdapter & {
-			chat: {
-				processAction: ReturnType<typeof vi.fn>;
-			};
-		};
-		const processAction = vi.fn();
-		adapter.chat = { processAction };
+		const adapter = createAdapter(true);
+		const processAction = mock(() => undefined);
+		const internals = adapterInternals<{
+			chat: { processAction: typeof processAction };
+		}>(adapter);
+		internals.chat = { processAction };
 
 		const response = await adapter.handleWebhook(
 			new Request("https://example.com/webhook", {
@@ -586,12 +614,11 @@ describe("MattermostAdapter actions - webhook handling", () => {
 	});
 
 	it("handles malformed webhook body gracefully", async () => {
-		const adapter = createAdapter(true) as MattermostAdapter & {
-			chat: {
-				processAction: ReturnType<typeof vi.fn>;
-			};
-		};
-		adapter.chat = { processAction: vi.fn() };
+		const adapter = createAdapter(true);
+		const internals = adapterInternals<{
+			chat: { processAction: ReturnType<typeof mock> };
+		}>(adapter);
+		internals.chat = { processAction: mock(() => undefined) };
 
 		const response = await adapter.handleWebhook(
 			new Request("https://example.com/webhook", {
@@ -639,38 +666,37 @@ describe("MattermostAdapter actions - edit with attachments", () => {
 
 		let fetchCallIndex = 0;
 
-		vi.stubGlobal(
-			"fetch",
-			vi.fn().mockImplementation(() => {
-				fetchCallIndex += 1;
+		globalThis.fetch = mock(() => {
+			fetchCallIndex += 1;
 
-				if (fetchCallIndex === 1) {
-					return Promise.resolve(
-						new Response(JSON.stringify(existingPost), {
-							status: 200,
-							headers: { "Content-Type": "application/json" },
-						}),
-					);
-				}
-
+			if (fetchCallIndex === 1) {
 				return Promise.resolve(
-					new Response(
-						JSON.stringify({
-							...existingPost,
-							message: "Updated",
-							props: { some_existing: "data", attachments: [{ title: "Updated" }] },
-						}),
-						{ status: 200, headers: { "Content-Type": "application/json" } },
-					),
+					new Response(JSON.stringify(existingPost), {
+						status: 200,
+						headers: { "Content-Type": "application/json" },
+					}),
 				);
-			}),
-		);
+			}
+
+			return Promise.resolve(
+				new Response(
+					JSON.stringify({
+						...existingPost,
+						message: "Updated",
+						props: { some_existing: "data", attachments: [{ title: "Updated" }] },
+					}),
+					{ status: 200, headers: { "Content-Type": "application/json" } },
+				),
+			);
+		}) as never;
 
 		const result = await adapter.editMessage(threadId, "post-10", { card });
 
 		expect(result.id).toBe("post-10");
 
-		const editCall = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[1];
+		const fetchMock = globalThis.fetch as any;
+		const editCall = fetchMock.mock.calls[1];
+		if (!editCall) throw new Error("Expected second fetch call");
 		const body = JSON.parse(editCall[1].body as string);
 
 		expect(body.props.some_existing).toBe("data");
