@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -399,16 +400,14 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 	}
 	requiredNextToolNames = requiredNextToolNamesForResolvedRequest(request.ActiveGoal, instructionBundle.RequiredNextTools, intakeDecision.InitialToolNames)
 	request.ActiveGoal.RequiredNextTools = requiredNextToolNames
-	outcomeContract, errorValue = compileOperationRequirements(taskContext, routerLanguageModel, request, turnToolSet, outcomeContract)
+	compiledOutcomeContract, errorValue := compileOperationRequirements(taskContext, routerLanguageModel, request, turnToolSet, outcomeContract)
 	if errorValue != nil {
 		if result, didExpire := agentKernel.completeIntakeIfElapsed(taskBudget, intakeRequest, intakeDecision, turnDecision.Route, routerCallLedger.records); didExpire {
 			return result, nil
 		}
-		intakeDecision.Reason = errorValue.Error()
-		intakeDecision.UserFacingReply = ""
-		result, blockError := agentKernel.completeIntakeOnlyRequest(taskContext, intakeRequest, intakeDecision, task.TaskStatusBlocked, routerCallLedger.records)
-		result.TurnRoute = turnDecision.Route
-		return result, blockError
+		slog.Warn("blueclaw.operation_contract.compile_degraded", slog.String("error", errorValue.Error()))
+	} else {
+		outcomeContract = compiledOutcomeContract
 	}
 	if confirmationPlan.Decision.RequiresConfirmation {
 		confirmationResult, pauseError := agentKernel.pauseForConfirmation(taskContext, request, intakeDecision, confirmationPlan, outcomeContract, confirmationEvidenceHints, selectedSkillNameList(instructionBundle.SkillDecisions))
