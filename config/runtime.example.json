@@ -96,7 +96,6 @@
       "authKeyPath": "/run/credentials/llmd-auth-key",
       "executionMode": "auto",
       "timeoutSecond": 60,
-      "shadowEnabled": false,
       "structuredSchemaNames": ["blueclaw_agent_turn_action", "blueclaw_agent_turn_finalizer", "blueclaw_turn_router", "blueclaw_recovery_decision", "blueclaw_operation_contract"]
     }
   },

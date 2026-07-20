@@ -49,13 +49,6 @@ func ResolveTextChatCompleter(provider LanguageModelProvider) (ChatCompleter, bo
 			return nil, false
 		}
 		return resolveVisionTextChatCompleter(provider.TextOnlyModel, provider.VisionModel)
-	case ShadowLanguageModelProvider:
-		return ResolveTextChatCompleter(provider.PrimaryProvider)
-	case *ShadowLanguageModelProvider:
-		if provider == nil {
-			return nil, false
-		}
-		return ResolveTextChatCompleter(provider.PrimaryProvider)
 	default:
 		return nil, false
 	}
@@ -99,13 +92,6 @@ func ResolveRecoveryChatCompleter(provider LanguageModelProvider) (RecoveryChatC
 			return nil, false
 		}
 		return resolveVisionRecoveryChatCompleter(provider.TextOnlyModel, provider.VisionModel)
-	case ShadowLanguageModelProvider:
-		return ResolveRecoveryChatCompleter(provider.PrimaryProvider)
-	case *ShadowLanguageModelProvider:
-		if provider == nil {
-			return nil, false
-		}
-		return ResolveRecoveryChatCompleter(provider.PrimaryProvider)
 	default:
 		return nil, false
 	}
@@ -149,13 +135,6 @@ func ResolveLocalRecoveryChatCompleter(provider LanguageModelProvider) (LocalRec
 			return nil, false
 		}
 		return resolveVisionLocalRecoveryChatCompleter(provider.TextOnlyModel, provider.VisionModel)
-	case ShadowLanguageModelProvider:
-		return ResolveLocalRecoveryChatCompleter(provider.PrimaryProvider)
-	case *ShadowLanguageModelProvider:
-		if provider == nil {
-			return nil, false
-		}
-		return ResolveLocalRecoveryChatCompleter(provider.PrimaryProvider)
 	default:
 		return nil, false
 	}

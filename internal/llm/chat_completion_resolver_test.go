@@ -9,7 +9,6 @@ func TestResolveTextChatCompleterPrefersAuthoritativeTextProvider(t *testing.T) 
 	primaryProvider := &resolverLanguageModelProvider{}
 	fallbackProvider := &resolverLanguageModelProvider{}
 	visionProvider := &resolverLanguageModelProvider{}
-	shadowProvider := &resolverLanguageModelProvider{}
 	tests := []struct {
 		name     string
 		provider LanguageModelProvider
@@ -57,14 +56,6 @@ func TestResolveTextChatCompleterPrefersAuthoritativeTextProvider(t *testing.T) 
 				VisionModel:   visionProvider,
 			},
 			expected: visionProvider,
-		},
-		{
-			name: "shadow primary provider",
-			provider: ShadowLanguageModelProvider{
-				PrimaryProvider: primaryProvider,
-				ShadowProvider:  shadowProvider,
-			},
-			expected: primaryProvider,
 		},
 	}
 

@@ -190,38 +190,3 @@ func TestConfiguredProviderRejectsUnauthenticatedRemoteLLMDBridgePath(t *testing
 	}
 }
 
-func TestConfiguredProviderWrapsCapabilityWithOptionalLLMDShadow(t *testing.T) {
-	authKeyPath := filepath.Join(t.TempDir(), "llmd.key")
-	if errorValue := os.WriteFile(authKeyPath, []byte("installation-key"), 0o600); errorValue != nil {
-		t.Fatalf("expected auth key fixture: %v", errorValue)
-	}
-	runtimeConfiguration := config.RuntimeConfiguration{}
-	runtimeConfiguration.LanguageModel.DefaultProvider = "capabilityLLM"
-	runtimeConfiguration.LanguageModel.LLMD.AuthKeyPath = authKeyPath
-	runtimeConfiguration.LanguageModel.LLMD.ShadowEnabled = true
-
-	languageModelProvider, errorValue := NewConfiguredLanguageModelProvider(runtimeConfiguration)
-	if errorValue != nil {
-		t.Fatalf("expected shadow provider: %v", errorValue)
-	}
-	shadowWrapper, isShadowProvider := languageModelProvider.(interface {
-		shadowLanguageModelProvider() ShadowLanguageModelProvider
-	})
-	if !isShadowProvider {
-		t.Fatalf("expected optional llmd shadow provider, got %T", languageModelProvider)
-	}
-	shadowProvider := shadowWrapper.shadowLanguageModelProvider()
-	if _, hasRecoveryChat := languageModelProvider.(RecoveryChatCompleter); !hasRecoveryChat {
-		t.Fatal("expected configured shadow provider to preserve recovery chat")
-	}
-	if _, hasLocalRecoveryChat := languageModelProvider.(LocalRecoveryChatCompleter); !hasLocalRecoveryChat {
-		t.Fatal("expected configured shadow provider to preserve local recovery chat")
-	}
-	if _, hasTextChat := ResolveTextChatCompleter(languageModelProvider); !hasTextChat {
-		t.Fatal("expected configured shadow provider to preserve text chat")
-	}
-	llmdClient, isLLMDClient := shadowProvider.ShadowProvider.(LLMDClient)
-	if !isLLMDClient || llmdClient.StructuredFallbackProvider != nil || llmdClient.IsStructuredOutputAuthoritative {
-		t.Fatalf("expected shadow LLMD without legacy fallback, got %+v", shadowProvider.ShadowProvider)
-	}
-}
