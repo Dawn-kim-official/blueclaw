@@ -535,27 +535,6 @@ func pendingOperationRequirementContext(contract *OperationContract, observation
 	return "Pending typed operation requirements. A contracted mutation must satisfy one still-unmatched requiredInput:\n" + string(document)
 }
 
-func pendingOperationInputMismatch(toolSet *ToolSet, contract *OperationContract, observations []turnObservation, toolName string, toolInput json.RawMessage) ([]OperationRequirement, bool) {
-	toolDefinition, isFound := toolDefinitionForName(toolSet, toolName)
-	if !isFound || !operationContractIncludesTool(contract, toolName) {
-		return nil, false
-	}
-	candidateObservation := turnObservation{
-		ObservationID: "candidate",
-		Action:        "continue",
-		Tool:          toolName,
-		ToolID:        toolDefinition.ID,
-		ToolInput:     copyJSONRawMessage(toolInput),
-	}
-	matchedCount := matchedOperationRequirementCount(contract, observations)
-	candidateObservations := append([]turnObservation{}, observations...)
-	candidateObservations = append(candidateObservations, candidateObservation)
-	candidateMatchedCount := matchedOperationRequirementCount(contract, candidateObservations)
-	if candidateMatchedCount > matchedCount {
-		return nil, false
-	}
-	return pendingOperationRequirements(contract, observations), true
-}
 
 func operationContractIncludesTool(contract *OperationContract, toolName string) bool {
 	if contract == nil || contract.Version != operationContractVersion {

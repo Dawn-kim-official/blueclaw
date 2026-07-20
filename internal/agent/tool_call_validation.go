@@ -75,37 +75,6 @@ func validateDescriptorToolInput(toolSet *ToolSet, toolName string, toolInput js
 	return errorValue
 }
 
-func (agentTurnRunner *AgentTurnRunner) rejectOperationContractInputMismatch(taskRunID string, stepID string, request AgentTurnRequest, state *agentTaskState, actionDocument turnActionDocument, stopForNoProgress func(string) (AgentTurnResult, bool)) toolCallActionOutcome {
-	pendingRequirements, isMismatch := pendingOperationInputMismatch(request.ToolSet, request.OutcomeContract.OperationContract, state.Observations, actionDocument.ToolName, actionDocument.ToolInput)
-	if !isMismatch {
-		return toolCallActionOutcome{}
-	}
-	content := operationContractInputMismatchContent(pendingRequirements, actionDocument)
-	observation := newFailureObservation(nextObservationIDForObservations(state.Observations), "continue", actionDocument.ToolName, content, FailureInvalidInput, FailureCodes.InvalidInput, "operation_contract")
-	observation.PolicyCode = "operation_contract_input_mismatch"
-	state.Observations = append(state.Observations, observation)
-	agentTurnRunner.appendEvent(taskRunID, "agent.operation_contract_input_rejected", marshalEventBody(observation))
-	agentTurnRunner.saveStep(taskRunID, stepID, task.TaskStatusCompleted, "operation_contract_input_rejected "+actionDocument.ToolName, content)
-	result, shouldStop := stopForNoProgress(stepID)
-	return noProgressToolCallActionOutcome(result, shouldStop)
-}
-
-func operationContractInputMismatchContent(pendingRequirements []OperationRequirement, actionDocument turnActionDocument) string {
-	document := struct {
-		Code                string                 `json:"code"`
-		PendingRequirements []OperationRequirement `json:"pendingRequirements"`
-		ActualToolName      string                 `json:"actualToolName"`
-		ActualToolInput     json.RawMessage        `json:"actualToolInput"`
-	}{
-		Code:                "operation_contract_input_mismatch",
-		PendingRequirements: append([]OperationRequirement{}, pendingRequirements...),
-		ActualToolName:      strings.TrimSpace(actionDocument.ToolName),
-		ActualToolInput:     copyJSONRawMessage(actionDocument.ToolInput),
-	}
-	content, _ := json.Marshal(document)
-	return string(content)
-}
-
 func (agentTurnRunner *AgentTurnRunner) rejectRepeatedToolCall(taskRunID string, stepID string, state *agentTaskState, actionDocument turnActionDocument, successfulToolCalls map[string]turnObservation, stopForNoProgress func(string) (AgentTurnResult, bool)) toolCallActionOutcome {
 	if observation, isRepeatedRead := repeatedFileReadObservation(state.Observations, actionDocument, nextObservationIDForObservations(state.Observations)); isRepeatedRead {
 		state.Observations = append(state.Observations, observation)

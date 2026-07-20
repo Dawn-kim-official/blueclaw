@@ -264,47 +264,6 @@ func TestCompileOperationRequirementsUsesPersistedOperationContractOnContinuatio
 	}
 }
 
-func TestEmptyIntentEvidenceToolCanRepeatBeforeCompletion(t *testing.T) {
-	toolSet := newTestToolSetWithDefinitions([]ToolDefinition{
-		{
-			ID:                "kernel:terminal.run",
-			Name:              TerminalRunToolName,
-			InputIntentSchema: json.RawMessage(`{"type":"object","properties":{},"additionalProperties":false}`),
-			SideEffectClass:   ToolSideEffectWorkspaceWrite,
-		},
-		{
-			ID:                "kernel:file.deliver",
-			Name:              FileDeliverToolName,
-			InputIntentSchema: json.RawMessage(`{"type":"object","properties":{},"additionalProperties":false}`),
-			SideEffectClass:   ToolSideEffectExternalWrite,
-		},
-	})
-	contract, errorValue := compileOperationRequirements(
-		context.Background(),
-		nil,
-		AgentRequest{},
-		toolSet,
-		OutcomeContract{RequiredEvidenceTools: []string{TerminalRunToolName, FileDeliverToolName}},
-	)
-	if errorValue != nil {
-		t.Fatal(errorValue)
-	}
-	if _, isMismatch := pendingOperationInputMismatch(
-		toolSet,
-		contract.OperationContract,
-		[]turnObservation{{
-			ObservationID: "observation-1",
-			Action:        "continue",
-			Tool:          TerminalRunToolName,
-			ToolID:        "kernel:terminal.run",
-			ToolInput:     json.RawMessage(`{"command":"write source"}`),
-		}},
-		TerminalRunToolName,
-		json.RawMessage(`{"command":"python export_document.py"}`),
-	); isMismatch {
-		t.Fatal("evidence-only terminal work must be repeatable until the artifact is ready")
-	}
-}
 
 func TestCompileOperationRequirementsIncludesDirectlyReferencedVisibleContext(t *testing.T) {
 	languageModel := &operationContractLanguageModel{contents: []string{
@@ -870,86 +829,8 @@ func TestTerminalOperationIntentRejectsGeneratedExecutionDetails(t *testing.T) {
 	}
 }
 
-func TestPendingOperationInputMismatchDoesNotBlockReadTools(t *testing.T) {
-	toolSet := newTestToolSetWithDefinitions([]ToolDefinition{
-		{ID: "kernel:file.read", Name: "file.read", SideEffectClass: ToolSideEffectRead},
-		{ID: "capabilityd:task.add", Name: "task.add", SideEffectClass: ToolSideEffectStateChange},
-	})
-	contract := &OperationContract{
-		Version: operationContractVersion,
-		Requirements: []OperationRequirement{{
-			RequirementID: "operation-1",
-			ToolID:        "capabilityd:task.add",
-			ToolName:      "task.add",
-			InputMode:     OperationInputContainsExplicit,
-			RequiredInput: json.RawMessage(`{"title":"업무"}`),
-		}},
-	}
 
-	_, isMismatch := pendingOperationInputMismatch(toolSet, contract, nil, "file.read", json.RawMessage(`{"path":"other.txt"}`))
 
-	if isMismatch {
-		t.Fatal("expected read and discovery tools to remain available outside the mutation guard")
-	}
-}
-
-func TestPendingOperationInputMismatchIgnoresDescriptorSideEffectDrift(t *testing.T) {
-	toolSet := newTestToolSetWithDefinitions([]ToolDefinition{{
-		ID:              "capabilityd:task.add",
-		Name:            "task.add",
-		SideEffectClass: ToolSideEffectRead,
-	}})
-	contract := &OperationContract{
-		Version: operationContractVersion,
-		Requirements: []OperationRequirement{{
-			RequirementID: "operation-1",
-			ToolID:        "capabilityd:task.add",
-			ToolName:      "task.add",
-			InputMode:     OperationInputContainsExplicit,
-			RequiredInput: json.RawMessage(`{"title":"업무"}`),
-		}},
-	}
-
-	pendingRequirements, isMismatch := pendingOperationInputMismatch(toolSet, contract, nil, "task.add", json.RawMessage(`{"title":"다른 업무"}`))
-
-	if !isMismatch || len(pendingRequirements) != 1 {
-		t.Fatalf("expected the validated contract to remain authoritative after descriptor metadata drift, got mismatch=%t pending=%+v", isMismatch, pendingRequirements)
-	}
-}
-
-func TestPendingOperationInputMismatchAllowsBipartiteReassignment(t *testing.T) {
-	toolSet := operationContractTestToolSet()
-	contract := &OperationContract{
-		Version: operationContractVersion,
-		Requirements: []OperationRequirement{
-			{
-				RequirementID: "operation-1",
-				ToolID:        "capabilityd:task.add",
-				ToolName:      "task.add",
-				InputMode:     OperationInputContainsExplicit,
-				RequiredInput: json.RawMessage(`{"title":"업무"}`),
-			},
-			{
-				RequirementID: "operation-2",
-				ToolID:        "capabilityd:task.add",
-				ToolName:      "task.add",
-				InputMode:     OperationInputContainsExplicit,
-				RequiredInput: json.RawMessage(`{"title":"업무","endDate":"2026-07-24"}`),
-			},
-		},
-	}
-	observations := []turnObservation{successfulOperationObservation(`{"title":"업무","goal":"보고","endDate":"2026-07-24"}`)}
-
-	_, isMismatch := pendingOperationInputMismatch(toolSet, contract, observations, "task.add", json.RawMessage(`{"title":"업무","goal":"보고","endDate":"2026-07-25"}`))
-	if isMismatch {
-		t.Fatal("expected the candidate to satisfy the shorter occurrence after maximum matching reassignment")
-	}
-
-	pendingRequirements, isMismatch := pendingOperationInputMismatch(toolSet, contract, observations, "task.add", json.RawMessage(`{"title":"다른 업무","goal":"보고","endDate":"2026-07-25"}`))
-	if !isMismatch || len(pendingRequirements) != 1 {
-		t.Fatalf("expected unrelated input to leave one unmatched occurrence, got mismatch=%t pending=%+v", isMismatch, pendingRequirements)
-	}
-}
 
 func TestOperationRequirementsUseRecursiveSubsetAndExactLargeNumbers(t *testing.T) {
 	requirement := OperationRequirement{

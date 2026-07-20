@@ -650,9 +650,6 @@ func (agentTurnRunner *AgentTurnRunner) handleToolCallAction(ctx context.Context
 	if outcome := agentTurnRunner.rejectMalformedToolCall(taskRunID, stepID, request, state, actionDocument, stopForNoProgress); outcome.WasHandled {
 		return outcome
 	}
-	if outcome := agentTurnRunner.rejectOperationContractInputMismatch(taskRunID, stepID, request, state, actionDocument, stopForNoProgress); outcome.WasHandled {
-		return outcome
-	}
 	if duplicateObservation, isDuplicate := repeatedSuccessfulCompletionCandidate(state, actionDocument, successfulToolCalls); isDuplicate {
 		finalizationRequirements, canFinalize := duplicateSuccessFinalizationRequirements(request.ToolSet, requirements, state.Observations, actionDocument)
 		if canFinalize {
