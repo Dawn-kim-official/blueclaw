@@ -187,7 +187,10 @@ export class MattermostAdapter implements Adapter<MattermostThreadId, Mattermost
 		const context = body.context as Record<string, unknown> | undefined;
 
 		if (context?.action_id) {
-			await this.handleActionCallback(body, options);
+			const callbackTask = this.handleActionCallback(body, options).catch((error) => {
+				this.logger.error("Mattermost action callback failed", error);
+			});
+			options?.waitUntil?.(callbackTask);
 		}
 
 		return new Response("OK", { status: 200 });
@@ -1112,21 +1115,11 @@ export class MattermostAdapter implements Adapter<MattermostThreadId, Mattermost
 		const postId = body.post_id as string;
 		const channelId = body.channel_id as string;
 
-		let threadId: string;
-
-		if (postId) {
-			const post = await this.getPost(postId).catch(() => undefined);
-
-			if (post) {
-				threadId = this.threadIdForPost(post);
-			} else {
-				threadId = this.encodeThreadId({ channelId });
-			}
-		} else {
-			threadId = this.encodeThreadId({ channelId });
-		}
-
-		const user = await this.getMattermostUser(userId).catch(() => undefined);
+		const [post, user] = await Promise.all([
+			postId ? this.getPost(postId).catch(() => undefined) : Promise.resolve(undefined),
+			this.getMattermostUser(userId).catch(() => undefined),
+		]);
+		const threadId = post ? this.threadIdForPost(post) : this.encodeThreadId({ channelId });
 
 		await this.chat.processAction(
 			{
@@ -1186,14 +1179,17 @@ export class MattermostAdapter implements Adapter<MattermostThreadId, Mattermost
 		const channelType = payload.data?.channel_type;
 
 		if (typeof channelType === "string" && this.isChannelType(channelType)) {
+			const cachedChannel = this.getCachedValue(this.channels, post.channel_id);
 			this.setCachedValue(
 				this.channels,
 				post.channel_id,
-				{
-					id: post.channel_id,
-					name: post.channel_id,
-					type: channelType,
-				},
+				cachedChannel
+					? { ...cachedChannel, type: channelType }
+					: {
+							id: post.channel_id,
+							name: post.channel_id,
+							type: channelType,
+						},
 				MAX_CHANNEL_CACHE_SIZE,
 			);
 		}
