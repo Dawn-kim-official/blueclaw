@@ -1131,7 +1131,8 @@ func (connectorRuntime *ConnectorRuntime) resolveConfirmationReply(ctx context.C
 		switch strings.TrimSpace(action) {
 		case "confirm":
 			approvalSignal := agent.ApprovalSignalApprove
-			return approval, agent.TurnDecision{Route: agent.TurnRouteContinueTask, Approval: &approvalSignal, Classification: agent.IntakeClassificationBoundedTask, TaskShape: agent.TaskShapeMaintenanceTask, TaskLevel: agent.TaskLevelLow, ResponseLanguage: responseLanguageForEvent(event), Reason: "interactive_confirm"}, true, nil
+			decision := agent.TurnDecision{Route: agent.TurnRouteContinueTask, Approval: &approvalSignal, Classification: agent.IntakeClassificationBoundedTask, TaskShape: agent.TaskShapeMaintenanceTask, TaskLevel: agent.TaskLevelLow, ResponseLanguage: responseLanguageForEvent(event), Reason: "interactive_confirm"}
+			return approval, connectorRuntime.withPersistedIntakeState(approval.TaskRun.TaskRunID, decision), true, nil
 		case "cancel":
 			approvalSignal := agent.ApprovalSignalReject
 			return approval, agent.TurnDecision{Route: agent.TurnRouteConsume, Approval: &approvalSignal, Classification: agent.IntakeClassificationQuickReply, TaskShape: agent.TaskShapeImmediateReply, TaskLevel: agent.TaskLevelXLow, ResponseLanguage: responseLanguageForEvent(event), Reason: "interactive_cancel"}, true, nil
@@ -1172,7 +1173,8 @@ func (connectorRuntime *ConnectorRuntime) resolveAskReply(ctx context.Context, p
 		return event, agent.TurnDecision{}, false, nil
 	}
 	if action, isFound := event.LegacyFields["askAction"].(string); isFound {
-		return resolveAskInteractiveReply(event, pendingInteraction, action), askInteractiveTurnDecision(event, pendingInteraction, action), true, nil
+		decision := connectorRuntime.withPersistedIntakeState(pendingInteraction.TaskRunID, askInteractiveTurnDecision(event, pendingInteraction, action))
+		return resolveAskInteractiveReply(event, pendingInteraction, action), decision, true, nil
 	}
 	if pendingInteraction.Kind == "ask_input" {
 		decision, errorValue := connectorRuntime.agentKernel.RouteTurn(ctx, agent.AgentRequest{
@@ -1195,7 +1197,7 @@ func (connectorRuntime *ConnectorRuntime) resolveAskReply(ctx context.Context, p
 		return event, agent.TurnDecision{}, false, nil
 	}
 	if choices, isFound := deterministicChoiceSelections(event.Prompt, pendingInteraction); isFound {
-		decision := agent.TurnDecision{
+		decision := connectorRuntime.withPersistedIntakeState(pendingInteraction.TaskRunID, agent.TurnDecision{
 			Route:            agent.TurnRouteContinueTask,
 			Classification:   agent.IntakeClassificationBoundedTask,
 			TaskShape:        agent.TaskShapeMaintenanceTask,
@@ -1203,7 +1205,7 @@ func (connectorRuntime *ConnectorRuntime) resolveAskReply(ctx context.Context, p
 			ResponseLanguage: responseLanguageForEvent(event),
 			Reason:           "deterministic_choice_selection",
 			Choices:          choices,
-		}
+		})
 		connectorRuntime.agentKernel.AppendTaskEvent(pendingInteraction.TaskRunID, "ask.reply_classified", marshalConnectorEventBody(map[string]any{
 			"messageID": event.MessageID,
 			"choices":   decision.Choices,
@@ -1919,6 +1921,14 @@ func outputFormatsFromAttachmentSuffixes(suffixes []string) []string {
 		}
 	}
 	return formats
+}
+
+func (connectorRuntime *ConnectorRuntime) withPersistedIntakeState(taskRunID string, decision agent.TurnDecision) agent.TurnDecision {
+	if decision.Route != agent.TurnRouteContinueTask {
+		return decision
+	}
+	taskEvents := connectorRuntime.agentKernel.ListTaskEvent(taskRunID)
+	return decision.WithRestoredIntakeState(latestIntakeDecision(taskEvents))
 }
 
 func latestIntakeDecision(taskEvents []task.TaskEvent) agent.IntakeDecision {

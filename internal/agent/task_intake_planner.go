@@ -226,6 +226,21 @@ func (turnDecision TurnDecision) IntakeDecision() IntakeDecision {
 	}
 }
 
+func (turnDecision TurnDecision) WithRestoredIntakeState(intakeDecision IntakeDecision) TurnDecision {
+	if intakeDecision.EstimatedMinutes < 1 {
+		return turnDecision
+	}
+	turnDecision.Classification = intakeDecision.Classification
+	turnDecision.TaskShape = intakeDecision.TaskShape
+	turnDecision.TaskLevel = intakeDecision.TaskLevel
+	turnDecision.EstimatedMinutes = intakeDecision.EstimatedMinutes
+	turnDecision.RequestedOutputFormats = append([]string{}, intakeDecision.RequestedOutputFormats...)
+	turnDecision.ExpectedResults = normalizeExpectedResults(intakeDecision.ExpectedResults)
+	turnDecision.RequiredEvidenceTools = appendUniqueStrings(intakeDecision.RequiredEvidenceTools)
+	turnDecision.InitialToolNames = append([]string{}, intakeDecision.InitialToolNames...)
+	return turnDecision
+}
+
 type TaskIntakePlanner struct {
 	languageModel llm.LanguageModelProvider
 	options       IntakeOptions
