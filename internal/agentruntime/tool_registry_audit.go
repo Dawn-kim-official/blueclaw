@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 
 	"blueclaw/internal/agent"
@@ -54,9 +55,13 @@ type capabilityRegistryResponse struct {
 }
 
 type capabilityRegistryDescriptor struct {
-	Name              string          `json:"name"`
-	InputSchema       json.RawMessage `json:"inputSchema,omitempty"`
-	InputIntentSchema json.RawMessage `json:"inputIntentSchema,omitempty"`
+	Name              string                        `json:"name"`
+	InputSchema       json.RawMessage               `json:"inputSchema,omitempty"`
+	InputIntentSchema json.RawMessage               `json:"inputIntentSchema,omitempty"`
+	ResultContract    *CapabilityToolResultContract `json:"resultContract,omitempty"`
+	SideEffectClass   string                        `json:"sideEffectClass,omitempty"`
+	RequiresApproval  bool                          `json:"requiresApproval,omitempty"`
+	Idempotency       CapabilityIdempotency         `json:"idempotency"`
 }
 
 type toolRegistryMismatchError struct {
@@ -89,7 +94,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) BuildToolRegistryAudit(ctx context
 
 	audit := ToolRegistryAudit{
 		ToolRegistryVersion:           toolRegistryVersion,
-		CapabilityDescriptorHash:      hashStrings(configuredNames),
+		CapabilityDescriptorHash:      hashCapabilityDescriptors(configuredDescriptors),
 		PlatformMessageDescriptorHash: hashCapabilityDescriptors(configuredPlatformMessageDescriptors),
 		AllowedToolHash:               hashStrings(allowedToolNames),
 		HasScheduleUpdate:             registryContainsString(allowedToolNames, "schedule.update"),
@@ -98,7 +103,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) BuildToolRegistryAudit(ctx context
 		HasOldPlatformDMInspect:       registryContainsString(configuredNames, "platform.dm.inspect"),
 	}
 
-	if !requiresLiveMessageRegistryCheck(configuredNames) {
+	if !requiresLiveCapabilityRegistryCheck(configuredDescriptors) {
 		return audit, nil
 	}
 
@@ -131,8 +136,8 @@ func capabilityDescriptorNames(toolDescriptors []CapabilityToolDescriptor) []str
 	return sortedUniqueRegistryStrings(toolNames)
 }
 
-func requiresLiveMessageRegistryCheck(toolNames []string) bool {
-	return registryContainsString(toolNames, "message.delete") || registryContainsAnyString(toolNames, oldPlatformMessageToolNames)
+func requiresLiveCapabilityRegistryCheck(configuredDescriptors []CapabilityToolDescriptor) bool {
+	return len(configuredDescriptors) > 0
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) liveCapabilityToolDescriptors(ctx context.Context) ([]CapabilityToolDescriptor, string, error) {
@@ -148,10 +153,14 @@ func (toolCatalogBuilder *ToolCatalogBuilder) liveCapabilityToolDescriptors(ctx 
 				Name:              toolName,
 				InputSchema:       append(json.RawMessage{}, descriptor.InputSchema...),
 				InputIntentSchema: append(json.RawMessage{}, descriptor.InputIntentSchema...),
+				ResultContract:    descriptor.ResultContract,
+				SideEffectClass:   strings.TrimSpace(descriptor.SideEffectClass),
+				RequiresApproval:  descriptor.RequiresApproval,
+				Idempotency:       descriptor.Idempotency,
 			})
 		}
 	}
-	return toolDescriptors, hashStrings(capabilityDescriptorNames(toolDescriptors)), nil
+	return toolDescriptors, hashCapabilityDescriptors(toolDescriptors), nil
 }
 
 func hasMessageRegistryMismatch(audit ToolRegistryAudit) bool {
@@ -189,9 +198,25 @@ func hashCapabilityDescriptors(toolDescriptors []CapabilityToolDescriptor) strin
 			toolName,
 			normalizedJSONSchemaString(toolDescriptor.InputSchema),
 			normalizedJSONSchemaString(toolDescriptor.InputIntentSchema),
+			normalizedCapabilityResultContractString(toolDescriptor.ResultContract),
+			strings.TrimSpace(toolDescriptor.SideEffectClass),
+			strconv.FormatBool(toolDescriptor.RequiresApproval),
+			capabilityToolIdempotency(toolDescriptor.Idempotency),
+			strings.TrimSpace(toolDescriptor.Idempotency.Scope),
 		}, "\t"))
 	}
 	return hashStrings(signatures)
+}
+
+func normalizedCapabilityResultContractString(contract *CapabilityToolResultContract) string {
+	if contract == nil {
+		return ""
+	}
+	document, errorValue := json.Marshal(contract)
+	if errorValue != nil {
+		return ""
+	}
+	return normalizedJSONSchemaString(document)
 }
 
 func normalizedJSONSchemaString(schema json.RawMessage) string {

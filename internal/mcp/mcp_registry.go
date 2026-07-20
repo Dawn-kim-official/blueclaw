@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"reflect"
-	"regexp"
 	"slices"
 	"strings"
 	"sync"
@@ -18,8 +17,6 @@ import (
 )
 
 const serverValidationTimeout = 3 * time.Second
-
-var canonicalToolNamePattern = regexp.MustCompile(`^[A-Za-z0-9_.-]{1,128}$`)
 
 type McpRegistry struct {
 	mutex            sync.RWMutex
@@ -178,9 +175,9 @@ func buildToolDefinition(serverName string, configuration config.MCPToolConfigur
 	qualifiedName := qualifiedToolName(namespace, toolName)
 	if toolName == "" ||
 		namespace == "" ||
-		!canonicalToolNamePattern.MatchString(toolName) ||
-		!canonicalToolNamePattern.MatchString(namespace) ||
-		!canonicalToolNamePattern.MatchString(qualifiedName) ||
+		!agent.IsCanonicalToolName(toolName) ||
+		!agent.IsCanonicalToolName(namespace) ||
+		!agent.IsCanonicalToolName(qualifiedName) ||
 		strings.TrimSpace(configuration.Description) == "" ||
 		configuration.Policy == nil ||
 		!isObjectSchema(configuration.InputSchema) ||

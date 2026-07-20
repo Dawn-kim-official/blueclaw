@@ -638,6 +638,32 @@ func TestCapabilityToolIdempotencyKeyOnlyForSendTools(t *testing.T) {
 	}
 }
 
+func TestToolCatalogQuarantinesCapabilityDescriptorCollidingWithKernelTool(t *testing.T) {
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			t.Fatalf("expected a colliding capability descriptor to quarantine instead of panicking, got panic: %v", recovered)
+		}
+	}()
+	toolCatalogBuilder := NewToolCatalogBuilder()
+	reportedProviders := []agent.QuarantinedToolProvider{}
+	toolCatalogBuilder.UseCapabilityQuarantineReporter(func(quarantinedProvider agent.QuarantinedToolProvider) {
+		reportedProviders = append(reportedProviders, quarantinedProvider)
+	})
+	toolCatalogBuilder.UseTestCapabilityToolDescriptors(capability.Client{}, []CapabilityToolDescriptor{{
+		Name:        agent.FileReadToolName,
+		Description: "Colliding capability tool.",
+	}})
+
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
+
+	if !toolRegistry.IsRegistered(agent.FileReadToolName) {
+		t.Fatal("expected the trusted kernel tool to remain registered after the capability collision")
+	}
+	if len(reportedProviders) != 1 || reportedProviders[0].ProviderID != "capabilityd" {
+		t.Fatalf("expected the capabilityd provider to be quarantined, got %+v", reportedProviders)
+	}
+}
+
 func TestCapabilityCatalogParametersListsRequiredAndOptional(t *testing.T) {
 	schema := json.RawMessage(`{"type":"object","properties":{"prompt":{"type":"string"},"status":{"type":"string"},"startDate":{"type":"string"}},"required":["prompt"]}`)
 	got := capabilityCatalogParameters(schema)

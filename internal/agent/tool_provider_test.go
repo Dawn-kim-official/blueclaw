@@ -102,6 +102,31 @@ func TestRegisterProviderRejectsMissingSchemaAtomically(t *testing.T) {
 	}
 }
 
+func TestRegisterProviderRejectsNonCanonicalToolName(t *testing.T) {
+	testCases := []struct {
+		name     string
+		toolName string
+	}{
+		{name: "contains a space", toolName: "task add"},
+		{name: "exceeds 128 characters", toolName: "task." + strings.Repeat("a", 128)},
+	}
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			providerTool := validProviderTool("capabilityd/task/"+testCase.toolName, "task", testCase.toolName)
+			toolSet := NewToolSet(nil)
+
+			errorValue := toolSet.RegisterProvider(context.Background(), testToolProvider{
+				providerID: "capabilityd",
+				tools:      []BoundTool{providerTool},
+			})
+
+			if errorValue == nil || !strings.Contains(errorValue.Error(), "name must match") {
+				t.Fatalf("expected canonical name rejection, got %v", errorValue)
+			}
+		})
+	}
+}
+
 func TestRegisterProviderRejectsModelVisibleToolWithoutResultContract(t *testing.T) {
 	providerTool := validProviderTool("capabilityd/task/task.add", "task", "task.add")
 	providerTool.Definition.ResultContract = nil
