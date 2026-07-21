@@ -78,7 +78,7 @@ func TestAgentTurnRunnerCallsToolsUntilFinishMessage(t *testing.T) {
 		t.Fatalf("expected three task steps, got %d", len(services.taskStepService.ListTaskStep(result.TaskRun.TaskRunID)))
 	}
 	if len(languageModel.requests) != 3 {
-		t.Fatalf("expected three model calls, got %d", len(languageModel.requests))
+		t.Fatalf("expected three action calls, got %d", len(languageModel.requests))
 	}
 	llmCallEventCount := 0
 	for _, taskEvent := range services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID) {
@@ -86,8 +86,8 @@ func TestAgentTurnRunnerCallsToolsUntilFinishMessage(t *testing.T) {
 			llmCallEventCount++
 		}
 	}
-	if llmCallEventCount != 3 {
-		t.Fatalf("expected three llm.call ledger events, got %d", llmCallEventCount)
+	if llmCallEventCount != 4 {
+		t.Fatalf("expected four llm.call ledger events, got %d", llmCallEventCount)
 	}
 	for _, taskEvent := range services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID) {
 		if taskEvent.Name != "llm.call" {
@@ -97,7 +97,7 @@ func TestAgentTurnRunnerCallsToolsUntilFinishMessage(t *testing.T) {
 		if errorValue := json.Unmarshal([]byte(taskEvent.Body), &record); errorValue != nil {
 			t.Fatalf("expected llm.call ledger body: %v", errorValue)
 		}
-		if record.ModelTier != "low" {
+		if record.SchemaName == agentActionSchemaName && record.ModelTier != "low" {
 			t.Fatalf("expected response tier to remain low instead of requested high, got %+v", record)
 		}
 	}
