@@ -169,6 +169,10 @@
     "slack": {},
     "signal": {
       "enabled": false
+    },
+    "chatd": {
+      "endpoint": "http://127.0.0.1:18090",
+      "enabledPlatforms": []
     }
   },
   "logging": {
