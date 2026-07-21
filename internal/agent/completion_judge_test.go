@@ -230,3 +230,19 @@ func TestValidateCompletionGateWithJudgeReturnsJudgeUnsatisfied(t *testing.T) {
 		t.Fatalf("expected exactly one judge call, got %d", len(languageModel.requests))
 	}
 }
+
+func TestCompletionGateRunsJudgeFromLedgerWhenContractIsEmpty(t *testing.T) {
+	languageModel := &completionJudgeStubLanguageModel{response: llm.StructuredResponse{Content: `{"satisfied":false,"missingWork":["endDate가 비어 있습니다"],"reason":"마감일 미설정"}`}}
+	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
+	request := AgentTurnRequest{Prompt: "업무 추가", ToolSet: completionJudgeTestToolSet()}
+	observations := []turnObservation{successfulSideEffectObservation("obs-001", "task.add", `{"title":"t"}`, `{"endDate":""}`)}
+
+	result := services.runner.validateCompletionGateWithJudge(context.Background(), "task-judge-ledger", request, nil, observations, nil, nil, completionJudgeFinishActionDocument())
+
+	if result.IsSatisfied {
+		t.Fatal("expected the ledger-triggered judge to reject the finish")
+	}
+	if !taskEventsContain(services.taskEventService.ListTaskEvent("task-judge-ledger"), "completion_judge.verdict", `"satisfied":false`) {
+		t.Fatal("expected a completion_judge.verdict event from the ledger-triggered judge")
+	}
+}
