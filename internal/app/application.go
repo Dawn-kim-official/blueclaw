@@ -974,8 +974,9 @@ func resolveTaskTierLanguageModelProviders(runtimeConfiguration config.RuntimeCo
 	}
 	tierNames := llm.ResolveModelTierNames(languageModelConfiguration)
 	maximumModelTier := normalizeMaximumModelTier(languageModelConfiguration.LanguageModel.Capability.MaximumModelTier)
+	minimumModelTier := normalizeMaximumModelTier(languageModelConfiguration.LanguageModel.Capability.MinimumModelTier)
 	if maximumModelTier != "" {
-		return resolveCappedTaskTierLanguageModelProviders(languageModelConfiguration, tierNames, maximumModelTier, logger)
+		return resolveCappedTaskTierLanguageModelProviders(languageModelConfiguration, tierNames, minimumModelTier, maximumModelTier, logger)
 	}
 	if logger != nil {
 		logger.Info("resolved task model tiers",
@@ -1134,7 +1135,7 @@ type cappedModelTierProviders struct {
 	max    llm.LanguageModelProvider
 }
 
-func resolveCappedTaskTierLanguageModelProviders(runtimeConfiguration config.RuntimeConfiguration, tierNames llm.ModelTierNames, maximumModelTier string, logger *slog.Logger) taskTierLanguageModelProviders {
+func resolveCappedTaskTierLanguageModelProviders(runtimeConfiguration config.RuntimeConfiguration, tierNames llm.ModelTierNames, minimumModelTier string, maximumModelTier string, logger *slog.Logger) taskTierLanguageModelProviders {
 	hasConfigurationError := false
 	providerFactory := func(modelName string) llm.LanguageModelProvider {
 		provider, errorValue := llm.NewConfiguredLanguageModelProviderForModel(runtimeConfiguration, modelName)
@@ -1155,12 +1156,12 @@ func resolveCappedTaskTierLanguageModelProviders(runtimeConfiguration config.Run
 		logger.Info("resolved capped task model tiers", "maximumModelTier", maximumModelTier, "xlow", tierNames.XLow, "lowVision", tierNames.Low)
 	}
 	return taskTierLanguageModelProviders{
-		Low:    providers.providerAtOrBelow("low", maximumModelTier),
-		XLow:   providers.providerAtOrBelow("xlow", maximumModelTier),
-		Medium: providers.providerAtOrBelow("medium", maximumModelTier),
-		High:   providers.providerAtOrBelow("high", maximumModelTier),
-		XHigh:  providers.providerAtOrBelow("xhigh", maximumModelTier),
-		Max:    providers.providerAtOrBelow("max", maximumModelTier),
+		Low:    providers.providerWithinBounds("low", minimumModelTier, maximumModelTier),
+		XLow:   providers.providerWithinBounds("xlow", minimumModelTier, maximumModelTier),
+		Medium: providers.providerWithinBounds("medium", minimumModelTier, maximumModelTier),
+		High:   providers.providerWithinBounds("high", minimumModelTier, maximumModelTier),
+		XHigh:  providers.providerWithinBounds("xhigh", minimumModelTier, maximumModelTier),
+		Max:    providers.providerWithinBounds("max", minimumModelTier, maximumModelTier),
 		Coding: providers.providerForTier(maximumModelTier),
 	}
 }
@@ -1184,11 +1185,15 @@ func descendingFallbackProvider(primaryProvider llm.LanguageModelProvider, fallb
 	}
 }
 
-func (providers cappedModelTierProviders) providerAtOrBelow(requestedTier string, maximumModelTier string) llm.LanguageModelProvider {
-	if modelTierRank(requestedTier) > modelTierRank(maximumModelTier) {
-		return providers.providerForTier(maximumModelTier)
+func (providers cappedModelTierProviders) providerWithinBounds(requestedTier string, minimumModelTier string, maximumModelTier string) llm.LanguageModelProvider {
+	boundedTier := requestedTier
+	if minimumModelTier != "" && modelTierRank(boundedTier) < modelTierRank(minimumModelTier) {
+		boundedTier = minimumModelTier
 	}
-	return providers.providerForTier(requestedTier)
+	if modelTierRank(boundedTier) > modelTierRank(maximumModelTier) {
+		boundedTier = maximumModelTier
+	}
+	return providers.providerForTier(boundedTier)
 }
 
 func (providers cappedModelTierProviders) providerForTier(modelTier string) llm.LanguageModelProvider {
