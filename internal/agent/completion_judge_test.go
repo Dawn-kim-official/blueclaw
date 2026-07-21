@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -72,7 +73,7 @@ func TestOutcomeContractHasSideEffectEvidenceFalseForReadOnlyTools(t *testing.T)
 	}
 }
 
-func TestCompletionJudgeLedgerIncludesOnlySuccessfulSideEffectObservations(t *testing.T) {
+func TestCompletionJudgeLedgerIncludesSuccessfulReadsAndWrites(t *testing.T) {
 	toolSet := completionJudgeTestToolSet()
 	observations := []turnObservation{
 		successfulSideEffectObservation("obs-001", "task.add", `{"title":"a"}`, "created"),
@@ -82,8 +83,25 @@ func TestCompletionJudgeLedgerIncludesOnlySuccessfulSideEffectObservations(t *te
 
 	ledger := completionJudgeLedger(toolSet, observations)
 
-	if len(ledger) != 1 || ledger[0].Tool != "task.add" {
-		t.Fatalf("expected only the successful task.add side-effect observation, got %+v", ledger)
+	if len(ledger) != 2 || ledger[0].Tool != "task.add" || ledger[1].Tool != "task.list" {
+		t.Fatalf("expected successful reads and writes without the failed call, got %+v", ledger)
+	}
+}
+
+func TestCompletionJudgeLedgerCapsAtMostRecentEntries(t *testing.T) {
+	toolSet := completionJudgeTestToolSet()
+	observations := []turnObservation{}
+	for index := 0; index < completionJudgeMaxLedgerEntries+5; index++ {
+		observations = append(observations, successfulSideEffectObservation("obs", "task.list", `{"page":`+strconv.Itoa(index)+`}`, "listed"))
+	}
+
+	ledger := completionJudgeLedger(toolSet, observations)
+
+	if len(ledger) != completionJudgeMaxLedgerEntries {
+		t.Fatalf("expected the ledger to cap at %d entries, got %d", completionJudgeMaxLedgerEntries, len(ledger))
+	}
+	if ledger[len(ledger)-1].Input != `{"page":`+strconv.Itoa(completionJudgeMaxLedgerEntries+4)+`}` {
+		t.Fatalf("expected the most recent observations to survive the cap, got %+v", ledger[len(ledger)-1])
 	}
 }
 

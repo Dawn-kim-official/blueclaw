@@ -69,34 +69,31 @@ func TestRequiredEvidenceToolCanBeSatisfiedRejectsUnregisteredName(t *testing.T)
 	}
 }
 
-func TestWorkingSetSideEffectEvidenceGroup(t *testing.T) {
+func TestWorkingSetEvidenceGroupKeepsReadsAndWrites(t *testing.T) {
 	toolSet := newTestToolSetWithDefinitions([]ToolDefinition{
 		{Name: "task.add", Namespace: "task", SideEffectClass: ToolSideEffectStateChange},
 		{Name: "task.list", Namespace: "task", SideEffectClass: ToolSideEffectRead},
 		{Name: "task.update", Namespace: "task", SideEffectClass: ToolSideEffectStateChange},
 	})
 
-	group := workingSetSideEffectEvidenceGroup(toolSet, []string{"task.add", "task.list", "task.update", "task.add", "unregistered.operation"})
+	group := workingSetEvidenceGroup(toolSet, []string{"task.add", "task.list", "task.update", "task.add", "unregistered.operation"})
 
-	if len(group) != 2 || !stringSliceContains(group, "task.add") || !stringSliceContains(group, "task.update") {
-		t.Fatalf("expected deduplicated side-effect tools only, got %+v", group)
-	}
-	if stringSliceContains(group, "task.list") {
-		t.Fatalf("expected the read-only tool to be excluded, got %+v", group)
+	if len(group) != 3 || !stringSliceContains(group, "task.add") || !stringSliceContains(group, "task.list") || !stringSliceContains(group, "task.update") {
+		t.Fatalf("expected deduplicated satisfiable tools including reads, got %+v", group)
 	}
 	if stringSliceContains(group, "unregistered.operation") {
 		t.Fatalf("expected the unregistered tool to be excluded, got %+v", group)
 	}
 }
 
-func TestWorkingSetSideEffectEvidenceGroupEmptyWhenNoCandidatesAreDerivable(t *testing.T) {
+func TestWorkingSetEvidenceGroupEmptyWhenNoCandidatesAreDerivable(t *testing.T) {
 	toolSet := newTestToolSetWithDefinitions([]ToolDefinition{
 		{Name: "task.list", Namespace: "task", SideEffectClass: ToolSideEffectRead},
 	})
 
-	group := workingSetSideEffectEvidenceGroup(toolSet, []string{"task.list"})
+	group := workingSetEvidenceGroup(toolSet, []string{"unregistered.operation"})
 
 	if len(group) != 0 {
-		t.Fatalf("expected no derivable side-effect evidence, got %+v", group)
+		t.Fatalf("expected no derivable evidence candidates, got %+v", group)
 	}
 }
