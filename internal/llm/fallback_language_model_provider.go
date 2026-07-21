@@ -48,12 +48,14 @@ func (fallbackLanguageModelProvider FallbackLanguageModelProvider) GenerateStruc
 	}
 
 	fallbackLanguageModelProvider.logFallback("structured", errorValue)
+	primaryFailureReason := errorValue.Error()
 	structuredResponse, errorValue = fallbackLanguageModelProvider.FallbackProvider.GenerateStructuredResponse(responseContext, structuredResponseRequest)
 	if errorValue != nil {
 		return StructuredResponse{}, errorValue
 	}
 
 	structuredResponse.UsedFallback = true
+	structuredResponse.FallbackReason = primaryFailureReason
 	return structuredResponse, nil
 }
 
@@ -79,6 +81,7 @@ func (fallbackLanguageModelProvider FallbackLanguageModelProvider) GenerateChatC
 		return ChatCompletionResponse{}, fallbackError
 	}
 	fallbackResponse.UsedFallback = true
+	fallbackResponse.FallbackReason = errorValue.Error()
 	return fallbackResponse, nil
 }
 
@@ -125,6 +128,7 @@ func (fallbackLanguageModelProvider FallbackLanguageModelProvider) GenerateRecov
 		return fallbackResponse, fallbackError
 	}
 	fallbackResponse.UsedFallback = true
+	fallbackResponse.FallbackReason = errorValue.Error()
 	return fallbackResponse, nil
 }
 
@@ -171,6 +175,7 @@ func (fallbackLanguageModelProvider FallbackLanguageModelProvider) GenerateLocal
 		return fallbackResponse, fallbackError
 	}
 	fallbackResponse.UsedFallback = true
+	fallbackResponse.FallbackReason = errorValue.Error()
 	return fallbackResponse, nil
 }
 

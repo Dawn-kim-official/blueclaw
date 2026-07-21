@@ -427,6 +427,9 @@ func TestFallbackLanguageModelProviderUsesChatFallbackAfterPrimaryFailure(t *tes
 	if !response.UsedFallback || primaryCalls != 1 || fallbackCalls != 1 {
 		t.Fatalf("expected one primary and one fallback chat call, got primary=%d fallback=%d response=%+v", primaryCalls, fallbackCalls, response)
 	}
+	if response.FallbackReason != "chat finish reason contract violated" {
+		t.Fatalf("expected the primary failure reason on the fallback response, got %q", response.FallbackReason)
+	}
 }
 
 func TestFallbackLanguageModelProviderDoesNotUseChatFallbackAfterCancellation(t *testing.T) {
