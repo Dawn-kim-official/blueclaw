@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
-import type { LanguageModelV3GenerateResult, LanguageModelV3Usage } from '@ai-sdk/provider';
+import type { LanguageModelV3GenerateResult, LanguageModelV3StreamPart, LanguageModelV3Usage } from '@ai-sdk/provider';
 import { APICallError, RetryError } from 'ai';
 import { createOpenRouter } from '@openrouter/ai-sdk-provider';
 import {
@@ -19,7 +19,7 @@ import {
   type ChatCompletionRequest,
   type StructuredResponseRequest,
 } from '@blueclaw/protocol';
-import { MockLanguageModelV3 } from 'ai/test';
+import { MockLanguageModelV3, simulateReadableStream } from 'ai/test';
 
 import { LLMDAutoRoute, type LLMDConfiguration } from '../src/configuration.ts';
 import {
@@ -105,8 +105,8 @@ describe('llmd provider adapter', () => {
     const response = await generateChatCompletion(request);
 
     expect(response.message.toolCalls?.[0]?.function.name).toBe(DocumentToolName.Read);
-    expect(remoteModel.doGenerateCalls).toHaveLength(1);
-    expect(fallbackModel.doGenerateCalls).toHaveLength(0);
+    expect(remoteModel.doStreamCalls).toHaveLength(1);
+    expect(fallbackModel.doStreamCalls).toHaveLength(0);
   });
 
   test('generates chat completions with native tools and provider metadata', async () => {
@@ -118,7 +118,7 @@ describe('llmd provider adapter', () => {
     );
 
     const response = await generateChatCompletion(chatRequest);
-    const call = remoteModel.doGenerateCalls[0];
+    const call = remoteModel.doStreamCalls[0];
 
     expect(response).toEqual({
       provider: 'openrouter',
@@ -145,7 +145,7 @@ describe('llmd provider adapter', () => {
     expect(call?.temperature).toBe(0);
     expect(JSON.stringify(call?.prompt)).toContain('call-1');
     expect(JSON.stringify(call?.prompt)).toContain('answer');
-    expect(llamaModel.doGenerateCalls).toHaveLength(0);
+    expect(llamaModel.doStreamCalls).toHaveLength(0);
   });
 
   test('rejects text when a tool call is required without fallback', async () => {
@@ -168,8 +168,8 @@ describe('llmd provider adapter', () => {
         finishReason: ChatCompletionFinishReason.Stop,
       },
     });
-    expect(remoteModel.doGenerateCalls).toHaveLength(1);
-    expect(fallbackModel.doGenerateCalls).toHaveLength(0);
+    expect(remoteModel.doStreamCalls).toHaveLength(1);
+    expect(fallbackModel.doStreamCalls).toHaveLength(0);
   });
 
   test('accepts the sole available tool when a tool call is required', async () => {
@@ -192,8 +192,8 @@ describe('llmd provider adapter', () => {
       name: 'lookup',
       arguments: '{"key":"result"}',
     });
-    expect(remoteModel.doGenerateCalls[0]?.toolChoice).toEqual({ type: 'tool', toolName: 'lookup' });
-    expect(fallbackModel.doGenerateCalls).toHaveLength(0);
+    expect(remoteModel.doStreamCalls[0]?.toolChoice).toEqual({ type: 'tool', toolName: 'lookup' });
+    expect(fallbackModel.doStreamCalls).toHaveLength(0);
   });
 
   test('rejects a different tool when the sole available tool is required', async () => {
@@ -218,8 +218,8 @@ describe('llmd provider adapter', () => {
         category: StructuredOutputDiagnosticCategory.ToolCallContract,
       },
     });
-    expect(remoteModel.doGenerateCalls).toHaveLength(1);
-    expect(fallbackModel.doGenerateCalls).toHaveLength(0);
+    expect(remoteModel.doStreamCalls).toHaveLength(1);
+    expect(fallbackModel.doStreamCalls).toHaveLength(0);
   });
 
   test('rejects named tool choice contract violations without fallback', async () => {
@@ -244,8 +244,8 @@ describe('llmd provider adapter', () => {
         status: 422,
         allowLegacyFallback: false,
       });
-      expect(remoteModel.doGenerateCalls).toHaveLength(1);
-      expect(fallbackModel.doGenerateCalls).toHaveLength(0);
+      expect(remoteModel.doStreamCalls).toHaveLength(1);
+      expect(fallbackModel.doStreamCalls).toHaveLength(0);
     }
   });
 
@@ -272,14 +272,16 @@ describe('llmd provider adapter', () => {
         },
       });
     }
-    expect(remoteModel.doGenerateCalls).toHaveLength(2);
-    expect(remoteModel.doGenerateCalls[1]?.tools?.map(tool => tool.name)).toEqual(['task.add']);
-    const repairPrompt = JSON.stringify(remoteModel.doGenerateCalls[1]?.prompt);
+    expect(remoteModel.doStreamCalls).toHaveLength(1);
+    expect(remoteModel.doGenerateCalls).toHaveLength(1);
+    expect(remoteModel.doGenerateCalls[0]?.tools?.map(tool => tool.name)).toEqual(['task.add']);
+    const repairPrompt = JSON.stringify(remoteModel.doGenerateCalls[0]?.prompt);
     expect(repairPrompt).toContain('Malformed arguments: {');
     expect(repairPrompt).toContain('Validation failure: tool arguments are not valid JSON');
     expect(repairPrompt).toContain('"input":{}');
     expect(repairPrompt).not.toContain('"input":"{"');
     expect(llamaModel.doGenerateCalls).toHaveLength(0);
+    expect(llamaModel.doStreamCalls).toHaveLength(0);
   });
 
   test('repairs malformed native tool arguments with the failed tool only', async () => {
@@ -300,14 +302,16 @@ describe('llmd provider adapter', () => {
       name: 'task.add',
       arguments: '{"title":"repaired task"}',
     });
-    expect(remoteModel.doGenerateCalls).toHaveLength(2);
-    expect(remoteModel.doGenerateCalls[0]?.tools?.map(tool => tool.name)).toEqual(['lookup', 'task.add']);
-    expect(remoteModel.doGenerateCalls[1]?.tools?.map(tool => tool.name)).toEqual(['task.add']);
-    const repairPrompt = JSON.stringify(remoteModel.doGenerateCalls[1]?.prompt);
+    expect(remoteModel.doStreamCalls).toHaveLength(1);
+    expect(remoteModel.doGenerateCalls).toHaveLength(1);
+    expect(remoteModel.doStreamCalls[0]?.tools?.map(tool => tool.name)).toEqual(['lookup', 'task.add']);
+    expect(remoteModel.doGenerateCalls[0]?.tools?.map(tool => tool.name)).toEqual(['task.add']);
+    const repairPrompt = JSON.stringify(remoteModel.doGenerateCalls[0]?.prompt);
     expect(repairPrompt).toContain('Malformed arguments: {');
     expect(repairPrompt).toContain('"input":{}');
     expect(repairPrompt).not.toContain('"input":"{"');
     expect(llamaModel.doGenerateCalls).toHaveLength(0);
+    expect(llamaModel.doStreamCalls).toHaveLength(0);
   });
 
   test('repairs nested invalid native tool arguments once on the same route', async () => {
@@ -325,15 +329,17 @@ describe('llmd provider adapter', () => {
     const response = await generateChatCompletion(request);
 
     expect(response.message.toolCalls?.[0]?.function.arguments).toBe('{"details":{"count":2}}');
-    expect(remoteModel.doGenerateCalls).toHaveLength(2);
-    expect(remoteModel.doGenerateCalls[1]?.toolChoice).toEqual({ type: 'tool', toolName: 'lookup' });
-    const repairPrompt = JSON.stringify(remoteModel.doGenerateCalls[1]?.prompt);
+    expect(remoteModel.doStreamCalls).toHaveLength(1);
+    expect(remoteModel.doGenerateCalls).toHaveLength(1);
+    expect(remoteModel.doGenerateCalls[0]?.toolChoice).toEqual({ type: 'tool', toolName: 'lookup' });
+    const repairPrompt = JSON.stringify(remoteModel.doGenerateCalls[0]?.prompt);
     expect(repairPrompt).toContain('"input":{"details":{"count":"wrong"}}');
     expect(repairPrompt).not.toContain('"input":"{');
     expect(repairPrompt).toContain(
       'Validation failure: data/details/count must be number',
     );
     expect(llamaModel.doGenerateCalls).toHaveLength(0);
+    expect(llamaModel.doStreamCalls).toHaveLength(0);
   });
 
   test('ignores invalid later tool calls when parallel tool calls are disabled', async () => {
@@ -354,8 +360,8 @@ describe('llmd provider adapter', () => {
       type: 'function',
       function: { name: 'lookup', arguments: '{"key":"first"}' },
     }]);
-    expect(remoteModel.doGenerateCalls).toHaveLength(1);
-    expect(llamaModel.doGenerateCalls).toHaveLength(0);
+    expect(remoteModel.doStreamCalls).toHaveLength(1);
+    expect(llamaModel.doStreamCalls).toHaveLength(0);
   });
 
   test('repairs only the invalid first tool call when parallel tool calls are disabled', async () => {
@@ -382,8 +388,10 @@ describe('llmd provider adapter', () => {
       type: 'function',
       function: { name: 'lookup', arguments: '{"key":"repaired"}' },
     }]);
-    expect(remoteModel.doGenerateCalls).toHaveLength(2);
+    expect(remoteModel.doStreamCalls).toHaveLength(1);
+    expect(remoteModel.doGenerateCalls).toHaveLength(1);
     expect(llamaModel.doGenerateCalls).toHaveLength(0);
+    expect(llamaModel.doStreamCalls).toHaveLength(0);
   });
 
   test('preserves all valid tool calls when parallel tool calls are enabled', async () => {
@@ -407,8 +415,8 @@ describe('llmd provider adapter', () => {
       '{"key":"first"}',
       '{"key":"second"}',
     ]);
-    expect(remoteModel.doGenerateCalls).toHaveLength(1);
-    expect(llamaModel.doGenerateCalls).toHaveLength(0);
+    expect(remoteModel.doStreamCalls).toHaveLength(1);
+    expect(llamaModel.doStreamCalls).toHaveLength(0);
   });
 
   test('repairs unknown native tool arguments once without changing the provider schema', async () => {
@@ -424,22 +432,24 @@ describe('llmd provider adapter', () => {
     );
 
     const response = await generateChatCompletion(request);
-    const providerTool = remoteModel.doGenerateCalls[0]?.tools?.[0];
+    const providerTool = remoteModel.doStreamCalls[0]?.tools?.[0];
     const providerSchema = providerTool?.type === 'function' ? providerTool.inputSchema : undefined;
 
     expect(response.message.toolCalls?.[0]?.function.arguments).toBe(
       '{"task":{"title":"ship","priority":2},"items":[{"name":"first","label":"primary"}],"optionalNote":"keep"}',
     );
-    expect(remoteModel.doGenerateCalls).toHaveLength(2);
+    expect(remoteModel.doStreamCalls).toHaveLength(1);
+    expect(remoteModel.doGenerateCalls).toHaveLength(1);
     expect(llamaModel.doGenerateCalls).toHaveLength(0);
+    expect(llamaModel.doStreamCalls).toHaveLength(0);
     expect(JSON.stringify(providerSchema)).toBe(JSON.stringify(request.tools?.[0]?.function.parameters));
-    const repairProviderTool = remoteModel.doGenerateCalls[1]?.tools?.[0];
+    const repairProviderTool = remoteModel.doGenerateCalls[0]?.tools?.[0];
     const repairProviderSchema = repairProviderTool?.type === 'function' ? repairProviderTool.inputSchema : undefined;
     expect(JSON.stringify(repairProviderSchema)).toBe(JSON.stringify(request.tools?.[0]?.function.parameters));
     expect(providerSchema).not.toHaveProperty('additionalProperties');
-    const repairPrompt = remoteModel.doGenerateCalls[1]?.prompt;
+    const repairPrompt = remoteModel.doGenerateCalls[0]?.prompt;
     expect(repairPrompt?.filter(message => message.role === 'user')).toEqual(
-      remoteModel.doGenerateCalls[0]?.prompt.filter(message => message.role === 'user'),
+      remoteModel.doStreamCalls[0]?.prompt.filter(message => message.role === 'user'),
     );
     expect(repairPrompt?.at(-2)?.role).toBe('assistant');
     expect(repairPrompt?.at(-1)?.role).toBe('tool');
@@ -476,8 +486,8 @@ describe('llmd provider adapter', () => {
       nested: { requiredCount: 2 },
       rows: [{ requiredLabel: 'first', nullableLabel: null }],
     }));
-    expect(remoteModel.doGenerateCalls).toHaveLength(1);
-    expect(llamaModel.doGenerateCalls).toHaveLength(0);
+    expect(remoteModel.doStreamCalls).toHaveLength(1);
+    expect(llamaModel.doStreamCalls).toHaveLength(0);
   });
 
   test('keeps required nulls, array elements, additional property values, and unknown keys for validation', async () => {
@@ -512,13 +522,15 @@ describe('llmd provider adapter', () => {
       },
     });
 
-    const repairPrompt = JSON.stringify(remoteModel.doGenerateCalls[1]?.prompt);
+    const repairPrompt = JSON.stringify(remoteModel.doGenerateCalls[0]?.prompt);
     expect(repairPrompt).toContain('data must NOT have additional properties');
     expect(repairPrompt).toContain('data/requiredText must be string');
     expect(repairPrompt).toContain('data/rows/0 must be object');
     expect(repairPrompt).toContain('data/metadata/extra must be string');
-    expect(remoteModel.doGenerateCalls).toHaveLength(2);
+    expect(remoteModel.doStreamCalls).toHaveLength(1);
+    expect(remoteModel.doGenerateCalls).toHaveLength(1);
     expect(llamaModel.doGenerateCalls).toHaveLength(0);
+    expect(llamaModel.doStreamCalls).toHaveLength(0);
   });
 
   test('fails closed for permanent unknown native tool arguments without an alternate route', async () => {
@@ -543,8 +555,10 @@ describe('llmd provider adapter', () => {
         repairStatus: StructuredOutputRepairStatus.Failed,
       },
     });
-    expect(remoteModel.doGenerateCalls).toHaveLength(2);
+    expect(remoteModel.doStreamCalls).toHaveLength(1);
+    expect(remoteModel.doGenerateCalls).toHaveLength(1);
     expect(llamaModel.doGenerateCalls).toHaveLength(0);
+    expect(llamaModel.doStreamCalls).toHaveLength(0);
   });
 
   test('preserves explicit open object properties while closing only omitted properties for repair', async () => {
@@ -561,11 +575,11 @@ describe('llmd provider adapter', () => {
 
     const response = await generateChatCompletion(request);
 
-    const providerTool = remoteModel.doGenerateCalls[0]?.tools?.[0];
+    const providerTool = remoteModel.doStreamCalls[0]?.tools?.[0];
     const providerSchema = providerTool?.type === 'function' ? providerTool.inputSchema : undefined;
-    const repairProviderTool = remoteModel.doGenerateCalls[1]?.tools?.[0];
+    const repairProviderTool = remoteModel.doGenerateCalls[0]?.tools?.[0];
     const repairProviderSchema = repairProviderTool?.type === 'function' ? repairProviderTool.inputSchema : undefined;
-    const repairPrompt = JSON.stringify(remoteModel.doGenerateCalls[1]?.prompt);
+    const repairPrompt = JSON.stringify(remoteModel.doGenerateCalls[0]?.prompt);
     expect(JSON.stringify(providerSchema)).toBe(JSON.stringify(request.tools?.[0]?.function.parameters));
     expect(JSON.stringify(repairProviderSchema)).toBe(JSON.stringify(request.tools?.[0]?.function.parameters));
     expect(repairPrompt).toContain('additionalProperties');
@@ -597,8 +611,10 @@ describe('llmd provider adapter', () => {
       allowLegacyFallback: false,
       diagnostic: { category: StructuredOutputDiagnosticCategory.SchemaValidation },
     });
-    expect(remoteModel.doGenerateCalls).toHaveLength(2);
+    expect(remoteModel.doStreamCalls).toHaveLength(1);
+    expect(remoteModel.doGenerateCalls).toHaveLength(1);
     expect(llamaModel.doGenerateCalls).toHaveLength(0);
+    expect(llamaModel.doStreamCalls).toHaveLength(0);
   });
 
   test('allows chat device routing without structured-output enablement', async () => {
@@ -612,8 +628,8 @@ describe('llmd provider adapter', () => {
     const response = await generateChatCompletion({ ...chatRequest, executionMode: ExecutionMode.Device });
 
     expect(response.selectedBackend).toBe(LanguageModelBackend.Device);
-    expect(llamaModel.doGenerateCalls).toHaveLength(1);
-    expect(remoteModel.doGenerateCalls).toHaveLength(0);
+    expect(llamaModel.doStreamCalls).toHaveLength(1);
+    expect(remoteModel.doStreamCalls).toHaveLength(0);
   });
 
   test('falls back for chat after a retryable provider failure', async () => {
@@ -629,7 +645,7 @@ describe('llmd provider adapter', () => {
 
     expect(routeAttempts).toEqual(['llama.cpp']);
     expect(response.selectedBackend).toBe(LanguageModelBackend.Remote);
-    expect(remoteModel.doGenerateCalls).toHaveLength(1);
+    expect(remoteModel.doStreamCalls).toHaveLength(1);
   });
 
   test('keeps automatic chat routing local in local-only mode', async () => {
@@ -643,8 +659,8 @@ describe('llmd provider adapter', () => {
     const response = await generateChatCompletion({ ...chatRequest, executionMode: ExecutionMode.Auto });
 
     expect(response.selectedBackend).toBe(LanguageModelBackend.Device);
-    expect(llamaModel.doGenerateCalls).toHaveLength(1);
-    expect(remoteModel.doGenerateCalls).toHaveLength(0);
+    expect(llamaModel.doStreamCalls).toHaveLength(1);
+    expect(remoteModel.doStreamCalls).toHaveLength(0);
     await expect(generateChatCompletion({ ...chatRequest, executionMode: ExecutionMode.Remote })).rejects.toThrow(
       'remote routing is disabled by local-only mode',
     );
@@ -735,19 +751,11 @@ describe('llmd provider adapter', () => {
       resolveStarted = resolve;
     });
     const llamaModel = new MockLanguageModelV3({
-      doGenerate: async options => {
+      doStream: async options => {
         routeAttempts.push('llama.cpp');
         expect(options.abortSignal).toBeDefined();
         resolveStarted?.();
-        return new Promise((_, reject) => {
-          if (options.abortSignal?.aborted) {
-            reject(new DOMException('The operation was aborted', 'AbortError'));
-            return;
-          }
-          options.abortSignal?.addEventListener('abort', () => {
-            reject(new DOMException('The operation was aborted', 'AbortError'));
-          }, { once: true });
-        });
+        return hangingStreamResult(options.abortSignal);
       },
     });
     const remoteModel = successfulLanguageModel('unused-remote-model', { ok: true });
@@ -763,6 +771,7 @@ describe('llmd provider adapter', () => {
     await expect(responsePromise).rejects.toThrow('aborted');
     expect(routeAttempts).toEqual(['llama.cpp']);
     expect(remoteModel.doGenerateCalls).toHaveLength(0);
+    expect(remoteModel.doStreamCalls).toHaveLength(0);
   });
 
   test('cancels chat repair without using a fallback route', async () => {
@@ -774,9 +783,12 @@ describe('llmd provider adapter', () => {
     });
     const model = new MockLanguageModelV3({
       modelId: 'repairing-model',
+      doStream: async () => {
+        generationCount += 1;
+        return streamResultFromGeneration(toolCallGeneration('repairing-model', 'lookup', '{"details":{"count":"wrong"}}'));
+      },
       doGenerate: async options => {
         generationCount += 1;
-        if (generationCount === 1) return toolCallGeneration('repairing-model', 'lookup', '{"details":{"count":"wrong"}}');
         expect(options.abortSignal).toBeDefined();
         resolveRepairStarted?.();
         return new Promise((_, reject) => {
@@ -813,19 +825,11 @@ describe('llmd provider adapter', () => {
       resolveStarted = resolve;
     });
     const llamaModel = new MockLanguageModelV3({
-      doGenerate: async options => {
+      doStream: async options => {
         routeAttempts.push('llama.cpp');
         expect(options.abortSignal).toBeDefined();
         resolveStarted?.();
-        return new Promise((_, reject) => {
-          if (options.abortSignal?.aborted) {
-            reject(new DOMException('The operation was aborted', 'AbortError'));
-            return;
-          }
-          options.abortSignal?.addEventListener('abort', () => {
-            reject(new DOMException('The operation was aborted', 'AbortError'));
-          }, { once: true });
-        });
+        return hangingStreamResult(options.abortSignal);
       },
     });
     const remoteModel = successfulLanguageModel('unused-remote-model', { ok: true });
@@ -844,6 +848,7 @@ describe('llmd provider adapter', () => {
     await expect(responsePromise).rejects.toThrow('aborted');
     expect(routeAttempts).toEqual(['llama.cpp']);
     expect(remoteModel.doGenerateCalls).toHaveLength(0);
+    expect(remoteModel.doStreamCalls).toHaveLength(0);
   });
 
   test('rejects pre-aborted structured requests before route resolution', async () => {
@@ -888,13 +893,13 @@ describe('llmd provider adapter', () => {
         reasoningTokens: 1,
       },
     });
-    expect(llamaModel.doGenerateCalls).toHaveLength(1);
-    expect(remoteModel.doGenerateCalls).toHaveLength(0);
-    expect(llamaModel.doGenerateCalls[0]?.tools?.map(tool => tool.name)).toEqual(['provider_test_output']);
-    expect(llamaModel.doGenerateCalls[0]?.toolChoice).toEqual({ type: 'tool', toolName: 'provider_test_output' });
-    expect(llamaModel.doGenerateCalls[0]?.maxOutputTokens).toBe(128);
-    expect(llamaModel.doGenerateCalls[0]?.seed).toBe(7);
-    expect(llamaModel.doGenerateCalls[0]?.temperature).toBe(0);
+    expect(llamaModel.doStreamCalls).toHaveLength(1);
+    expect(remoteModel.doStreamCalls).toHaveLength(0);
+    expect(llamaModel.doStreamCalls[0]?.tools?.map(tool => tool.name)).toEqual(['provider_test_output']);
+    expect(llamaModel.doStreamCalls[0]?.toolChoice).toEqual({ type: 'tool', toolName: 'provider_test_output' });
+    expect(llamaModel.doStreamCalls[0]?.maxOutputTokens).toBe(128);
+    expect(llamaModel.doStreamCalls[0]?.seed).toBe(7);
+    expect(llamaModel.doStreamCalls[0]?.temperature).toBe(0);
   });
 
   test('preserves closed dynamic enum schemas for structured output', async () => {
@@ -921,13 +926,13 @@ describe('llmd provider adapter', () => {
     );
 
     const response = await generateStructuredResponse(request);
-    const providerTool = model.doGenerateCalls[0]?.tools?.[0];
+    const providerTool = model.doStreamCalls[0]?.tools?.[0];
 
     expect(response.content).toBe('{"state":"ready"}');
     expect(JSON.stringify(providerTool?.type === 'function' ? providerTool.inputSchema : undefined)).toBe(
       JSON.stringify(request.structuredOutputSchema.document),
     );
-    expect(model.doGenerateCalls[0]?.toolChoice).toEqual({ type: 'tool', toolName: 'provider_enum_output' });
+    expect(model.doStreamCalls[0]?.toolChoice).toEqual({ type: 'tool', toolName: 'provider_enum_output' });
   });
 
   test('honors auto route order and falls back after a retryable provider failure', async () => {
@@ -1045,8 +1050,8 @@ describe('llmd provider adapter', () => {
     const response = await generateStructuredResponse(structuredRequest);
 
     expect(response.provider).toBe('openrouter');
-    expect(remoteModel.doGenerateCalls).toHaveLength(1);
-    expect(llamaModel.doGenerateCalls).toHaveLength(0);
+    expect(remoteModel.doStreamCalls).toHaveLength(1);
+    expect(llamaModel.doStreamCalls).toHaveLength(0);
   });
 
   test('keeps auto and remote routing local in local-only mode', async () => {
@@ -1109,13 +1114,15 @@ describe('llmd provider adapter', () => {
     const response = await generateStructuredResponse({ ...structuredRequest, executionMode: ExecutionMode.Device });
 
     expect(response.content).toBe('{"ok":true}');
-    expect(model.doGenerateCalls).toHaveLength(2);
+    expect(model.doStreamCalls).toHaveLength(1);
+    expect(model.doGenerateCalls).toHaveLength(1);
+    expect(model.doStreamCalls[0]?.toolChoice).toEqual({ type: 'tool', toolName: 'provider_test_output' });
     expect(model.doGenerateCalls[0]?.toolChoice).toEqual({ type: 'tool', toolName: 'provider_test_output' });
-    expect(model.doGenerateCalls[1]?.toolChoice).toEqual({ type: 'tool', toolName: 'provider_test_output' });
-    expect(model.doGenerateCalls[1]?.maxOutputTokens).toBe(128);
-    expect(model.doGenerateCalls[1]?.seed).toBe(7);
-    expect(model.doGenerateCalls[1]?.temperature).toBe(0);
+    expect(model.doGenerateCalls[0]?.maxOutputTokens).toBe(128);
+    expect(model.doGenerateCalls[0]?.seed).toBe(7);
+    expect(model.doGenerateCalls[0]?.temperature).toBe(0);
     expect(fallbackModel.doGenerateCalls).toHaveLength(0);
+    expect(fallbackModel.doStreamCalls).toHaveLength(0);
   });
 
   test('repairs structured output with the closed schema and validation category', async () => {
@@ -1133,13 +1140,14 @@ describe('llmd provider adapter', () => {
     const response = await generateStructuredResponse({ ...request, executionMode: ExecutionMode.Device });
 
     expect(response.content).toBe('{"details":{"count":2}}');
-    expect(model.doGenerateCalls).toHaveLength(2);
-    expect(model.doGenerateCalls[1]?.toolChoice).toEqual({ type: 'tool', toolName: 'provider_test_output' });
-    const providerTool = model.doGenerateCalls[0]?.tools?.[0];
+    expect(model.doStreamCalls).toHaveLength(1);
+    expect(model.doGenerateCalls).toHaveLength(1);
+    expect(model.doGenerateCalls[0]?.toolChoice).toEqual({ type: 'tool', toolName: 'provider_test_output' });
+    const providerTool = model.doStreamCalls[0]?.tools?.[0];
     const providerSchema = providerTool?.type === 'function' ? providerTool.inputSchema : undefined;
-    const repairProviderTool = model.doGenerateCalls[1]?.tools?.[0];
+    const repairProviderTool = model.doGenerateCalls[0]?.tools?.[0];
     const repairProviderSchema = repairProviderTool?.type === 'function' ? repairProviderTool.inputSchema : undefined;
-    const repairPrompt = model.doGenerateCalls[1]?.prompt;
+    const repairPrompt = model.doGenerateCalls[0]?.prompt;
     expect(JSON.stringify(providerSchema)).toBe(JSON.stringify(request.structuredOutputSchema.document));
     expect(JSON.stringify(repairProviderSchema)).toBe(JSON.stringify(request.structuredOutputSchema.document));
     expect(repairPrompt?.at(-2)?.role).toBe('assistant');
@@ -1150,6 +1158,7 @@ describe('llmd provider adapter', () => {
     expect(serializedRepairPrompt).toContain('\\"additionalProperties\\":false');
     expect((serializedRepairPrompt.match(/additionalProperties/g) ?? []).length).toBeGreaterThanOrEqual(2);
     expect(fallbackModel.doGenerateCalls).toHaveLength(0);
+    expect(fallbackModel.doStreamCalls).toHaveLength(0);
   });
 
   test('fails closed for permanently invalid structured output without an alternate route', async () => {
@@ -1167,8 +1176,10 @@ describe('llmd provider adapter', () => {
       code: 'structured_output_invalid',
       diagnostic: { category: StructuredOutputDiagnosticCategory.SchemaValidation },
     });
-    expect(model.doGenerateCalls).toHaveLength(2);
+    expect(model.doStreamCalls).toHaveLength(1);
+    expect(model.doGenerateCalls).toHaveLength(1);
     expect(fallbackModel.doGenerateCalls).toHaveLength(0);
+    expect(fallbackModel.doStreamCalls).toHaveLength(0);
   });
 
   test('rejects structured output without exactly one matching tool call', async () => {
@@ -1190,7 +1201,7 @@ describe('llmd provider adapter', () => {
         code: 'structured_output_invalid',
         diagnostic: { category: StructuredOutputDiagnosticCategory.ToolCallContract },
       });
-      expect(model.doGenerateCalls).toHaveLength(1);
+      expect(model.doStreamCalls).toHaveLength(1);
     }
   });
 
@@ -1203,9 +1214,12 @@ describe('llmd provider adapter', () => {
     });
     const model = new MockLanguageModelV3({
       modelId: 'repairing-model',
+      doStream: async () => {
+        generationCount += 1;
+        return streamResultFromGeneration(toolCallGeneration('repairing-model', 'provider_test_output', '{'));
+      },
       doGenerate: async options => {
         generationCount += 1;
-        if (generationCount === 1) return toolCallGeneration('repairing-model', 'provider_test_output', '{');
         expect(options.abortSignal).toBeDefined();
         resolveRepairStarted?.();
         return new Promise((_, reject) => {
@@ -1313,6 +1327,71 @@ describe('llmd provider adapter', () => {
     );
     expect(model.doGenerateCalls).toHaveLength(0);
   });
+
+  test('rejects a chat call whose stream stalls with no new chunks within the idle window', async () => {
+    const stalledModel = new MockLanguageModelV3({
+      modelId: 'stalled-model',
+      doStream: async options => hangingStreamResult(options.abortSignal),
+    });
+    const generateChatCompletion = createChatCompletionGenerator(
+      { ...completeConfiguration(LLMDAutoRoute.RemoteFirst), streamIdleTimeoutMs: 50 },
+      languageModelFactory(stalledModel, stalledModel),
+    );
+
+    const startTime = Date.now();
+    await expect(generateChatCompletion({ ...chatRequest, executionMode: ExecutionMode.Remote })).rejects.toMatchObject({
+      code: 'provider_unavailable',
+      status: 503,
+      allowLegacyFallback: true,
+    });
+    expect(Date.now() - startTime).toBeLessThan(2000);
+  });
+
+  test('rejects a structured call whose stream stalls with no new chunks within the idle window', async () => {
+    const stalledModel = new MockLanguageModelV3({
+      modelId: 'stalled-model',
+      doStream: async options => hangingStreamResult(options.abortSignal),
+    });
+    const generateStructuredResponse = createStructuredResponseGenerator(
+      { ...completeConfiguration(LLMDAutoRoute.RemoteFirst), streamIdleTimeoutMs: 50 },
+      languageModelFactory(stalledModel, stalledModel),
+    );
+
+    const startTime = Date.now();
+    await expect(generateStructuredResponse({ ...structuredRequest, executionMode: ExecutionMode.Remote })).rejects.toMatchObject({
+      code: 'provider_unavailable',
+      status: 503,
+      allowLegacyFallback: true,
+    });
+    expect(Date.now() - startTime).toBeLessThan(2000);
+  });
+
+  test('succeeds when a chat stream keeps producing chunks slower than the idle window allows in total', async () => {
+    const flowingParts: LanguageModelV3StreamPart[] = [
+      { type: 'stream-start', warnings: [] },
+      { type: 'response-metadata', modelId: 'flowing-model' },
+      { type: 'text-start', id: 'text-0' },
+      { type: 'text-delta', id: 'text-0', delta: 'The ' },
+      { type: 'text-delta', id: 'text-0', delta: 'answer ' },
+      { type: 'text-delta', id: 'text-0', delta: 'is ready.' },
+      { type: 'text-end', id: 'text-0' },
+      { type: 'tool-call', toolCallId: 'call-0', toolName: 'lookup', input: '{"key":"result"}' },
+      { type: 'finish', usage: defaultUsage(), finishReason: { unified: 'tool-calls', raw: 'tool_calls' } },
+    ];
+    const flowingModel = new MockLanguageModelV3({
+      modelId: 'flowing-model',
+      doStream: async () => ({ stream: simulateReadableStream({ chunks: flowingParts, chunkDelayInMs: 15 }) }),
+    });
+    const generateChatCompletion = createChatCompletionGenerator(
+      { ...completeConfiguration(LLMDAutoRoute.RemoteFirst), streamIdleTimeoutMs: 50 },
+      languageModelFactory(flowingModel, flowingModel),
+    );
+
+    const response = await generateChatCompletion({ ...chatRequest, executionMode: ExecutionMode.Remote });
+
+    expect(response.message.toolCalls?.[0]?.function).toEqual({ name: 'lookup', arguments: '{"key":"result"}' });
+    expect(flowingModel.doStreamCalls).toHaveLength(1);
+  });
 });
 
 function completeConfiguration(autoRoute: LLMDAutoRoute): LLMDConfiguration {
@@ -1362,6 +1441,19 @@ function recordingLanguageModelFactory(
   };
 }
 
+function wireStreamingChatCompletionBody(): string {
+  const chunks = [
+    { id: 'wire-test', choices: [{ index: 0, delta: { role: 'assistant', content: 'ok' }, finish_reason: null }] },
+    {
+      id: 'wire-test',
+      choices: [{ index: 0, delta: {}, finish_reason: 'stop' }],
+      usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+    },
+  ];
+  const dataLines = chunks.map(chunk => `data: ${JSON.stringify(chunk)}\n\n`);
+  return [...dataLines, 'data: [DONE]\n\n'].join('');
+}
+
 function wireLanguageModelFactory(requestBodies: Array<Record<string, unknown>>): ProviderLanguageModelFactory {
   const fetch = Object.assign(
     async (_input: string | URL | Request, init?: BunFetchRequestInit) => {
@@ -1370,11 +1462,7 @@ function wireLanguageModelFactory(requestBodies: Array<Record<string, unknown>>)
       const parsedBody: unknown = JSON.parse(body);
       if (!isRecord(parsedBody)) throw new Error('wire test request body must be an object');
       requestBodies.push(parsedBody);
-      return new Response(JSON.stringify({
-        id: 'wire-test',
-        choices: [{ index: 0, message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' }],
-        usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
-      }), { headers: { 'content-type': 'application/json' } });
+      return new Response(wireStreamingChatCompletionBody(), { headers: { 'content-type': 'text/event-stream' } });
     },
     { preconnect: globalThis.fetch.preconnect },
   );
@@ -1399,18 +1487,72 @@ function wireLanguageModelFactory(requestBodies: Array<Record<string, unknown>>)
   };
 }
 
+function streamPartsFromGenerateResult(result: LanguageModelV3GenerateResult): LanguageModelV3StreamPart[] {
+  const parts: LanguageModelV3StreamPart[] = [{ type: 'stream-start', warnings: result.warnings }];
+  if (result.response?.modelId !== undefined) parts.push({ type: 'response-metadata', modelId: result.response.modelId });
+  result.content.forEach((content, index) => {
+    if (content.type === 'text') {
+      const id = `text-${index}`;
+      parts.push({ type: 'text-start', id });
+      parts.push({ type: 'text-delta', id, delta: content.text });
+      parts.push({ type: 'text-end', id });
+      return;
+    }
+    if (content.type === 'tool-call') {
+      parts.push(content);
+      return;
+    }
+    throw new Error(`unsupported content type for stream test conversion: ${content.type}`);
+  });
+  parts.push({ type: 'finish', usage: result.usage, finishReason: result.finishReason, providerMetadata: result.providerMetadata });
+  return parts;
+}
+
+function streamResultFromGeneration(result: LanguageModelV3GenerateResult) {
+  return { stream: simulateReadableStream({ chunks: streamPartsFromGenerateResult(result) }) };
+}
+
+function hangingStreamResult(abortSignal: AbortSignal | undefined): { stream: ReadableStream<LanguageModelV3StreamPart> } {
+  return {
+    stream: new ReadableStream<LanguageModelV3StreamPart>({
+      start(controller) {
+        controller.enqueue({ type: 'stream-start', warnings: [] });
+      },
+      pull() {
+        return new Promise((_resolve, reject) => {
+          if (abortSignal?.aborted) {
+            reject(new DOMException('The operation was aborted', 'AbortError'));
+            return;
+          }
+          abortSignal?.addEventListener('abort', () => {
+            reject(new DOMException('The operation was aborted', 'AbortError'));
+          }, { once: true });
+        });
+      },
+    }),
+  };
+}
+
+function generationBackedLanguageModel(
+  modelID: string,
+  generate: () => LanguageModelV3GenerateResult,
+): MockLanguageModelV3 {
+  return new MockLanguageModelV3({
+    modelId: modelID,
+    doGenerate: async () => generate(),
+    doStream: async () => streamResultFromGeneration(generate()),
+  });
+}
+
 function successfulLanguageModel(
   modelID: string,
   output: unknown,
   usage: LanguageModelV3Usage = defaultUsage(),
   onGenerate: () => void = () => {},
 ): MockLanguageModelV3 {
-  return new MockLanguageModelV3({
-    modelId: modelID,
-    doGenerate: async () => {
-      onGenerate();
-      return successfulGeneration(modelID, output, usage);
-    },
+  return generationBackedLanguageModel(modelID, () => {
+    onGenerate();
+    return successfulGeneration(modelID, output, usage);
   });
 }
 
@@ -1418,21 +1560,18 @@ function toolCallLanguageModel(
   modelID: string,
   toolCalls: Array<{ toolName: string; input: string }>,
 ): MockLanguageModelV3 {
-  return new MockLanguageModelV3({
-    modelId: modelID,
-    doGenerate: async () => ({
-      content: toolCalls.map((toolCall, index) => ({
-        type: 'tool-call' as const,
-        toolCallId: `call-${index}`,
-        toolName: toolCall.toolName,
-        input: toolCall.input,
-      })),
-      finishReason: { unified: 'tool-calls', raw: 'tool_calls' },
-      usage: defaultUsage(),
-      response: { modelId: modelID },
-      warnings: [],
-    }),
-  });
+  return generationBackedLanguageModel(modelID, () => ({
+    content: toolCalls.map((toolCall, index) => ({
+      type: 'tool-call' as const,
+      toolCallId: `call-${index}`,
+      toolName: toolCall.toolName,
+      input: toolCall.input,
+    })),
+    finishReason: { unified: 'tool-calls', raw: 'tool_calls' },
+    usage: defaultUsage(),
+    response: { modelId: modelID },
+    warnings: [],
+  }));
 }
 
 function sequencedToolCallLanguageModel(modelID: string, inputs: string[]): MockLanguageModelV3 {
@@ -1441,13 +1580,10 @@ function sequencedToolCallLanguageModel(modelID: string, inputs: string[]): Mock
 
 function sequencedNamedToolCallLanguageModel(modelID: string, toolName: string, inputs: string[]): MockLanguageModelV3 {
   let generationCount = 0;
-  return new MockLanguageModelV3({
-    modelId: modelID,
-    doGenerate: async () => {
-      const input = inputs[Math.min(generationCount, inputs.length - 1)];
-      generationCount += 1;
-      return toolCallGeneration(modelID, toolName, input ?? '{}');
-    },
+  return generationBackedLanguageModel(modelID, () => {
+    const input = inputs[Math.min(generationCount, inputs.length - 1)];
+    generationCount += 1;
+    return toolCallGeneration(modelID, toolName, input ?? '{}');
   });
 }
 
@@ -1456,37 +1592,28 @@ function sequencedToolCallSetsLanguageModel(
   toolCallSets: Array<Array<{ toolName: string; input: string }>>,
 ): MockLanguageModelV3 {
   let generationCount = 0;
-  return new MockLanguageModelV3({
-    modelId: modelID,
-    doGenerate: async () => {
-      const toolCalls = toolCallSets[Math.min(generationCount, toolCallSets.length - 1)] ?? [];
-      generationCount += 1;
-      return toolCallsGeneration(modelID, toolCalls);
-    },
+  return generationBackedLanguageModel(modelID, () => {
+    const toolCalls = toolCallSets[Math.min(generationCount, toolCallSets.length - 1)] ?? [];
+    generationCount += 1;
+    return toolCallsGeneration(modelID, toolCalls);
   });
 }
 
 function sequencedStructuredToolCallLanguageModel(modelID: string, inputs: string[]): MockLanguageModelV3 {
   let generationCount = 0;
-  return new MockLanguageModelV3({
-    modelId: modelID,
-    doGenerate: async () => {
-      const input = inputs[Math.min(generationCount, inputs.length - 1)];
-      generationCount += 1;
-      return toolCallGeneration(modelID, 'provider_test_output', input ?? '{}');
-    },
+  return generationBackedLanguageModel(modelID, () => {
+    const input = inputs[Math.min(generationCount, inputs.length - 1)];
+    generationCount += 1;
+    return toolCallGeneration(modelID, 'provider_test_output', input ?? '{}');
   });
 }
 
 function malformedThenValidLanguageModel(modelID: string, output: unknown): MockLanguageModelV3 {
   let generationCount = 0;
-  return new MockLanguageModelV3({
-    modelId: modelID,
-    doGenerate: async () => {
-      generationCount += 1;
-      if (generationCount === 1) return toolCallGeneration(modelID, 'provider_test_output', '{');
-      return successfulGeneration(modelID, output, defaultUsage());
-    },
+  return generationBackedLanguageModel(modelID, () => {
+    generationCount += 1;
+    if (generationCount === 1) return toolCallGeneration(modelID, 'provider_test_output', '{');
+    return successfulGeneration(modelID, output, defaultUsage());
   });
 }
 
@@ -1514,35 +1641,29 @@ function toolCallsGeneration(
 }
 
 function chatLanguageModel(modelID: string): MockLanguageModelV3 {
-  return new MockLanguageModelV3({
-    modelId: modelID,
-    doGenerate: async () => ({
-      content: [{
-        type: 'tool-call',
-        toolCallId: 'call-2',
-        toolName: 'lookup',
-        input: '{"key":"result"}',
-      }],
-      finishReason: { unified: 'tool-calls', raw: 'tool_calls' },
-      usage: defaultUsage(),
-      response: { modelId: modelID, headers: { 'x-test': 'ok' } },
-      providerMetadata: { openrouter: { trace: 'test' } },
-      warnings: [],
-    }),
-  });
+  return generationBackedLanguageModel(modelID, () => ({
+    content: [{
+      type: 'tool-call',
+      toolCallId: 'call-2',
+      toolName: 'lookup',
+      input: '{"key":"result"}',
+    }],
+    finishReason: { unified: 'tool-calls', raw: 'tool_calls' },
+    usage: defaultUsage(),
+    response: { modelId: modelID, headers: { 'x-test': 'ok' } },
+    providerMetadata: { openrouter: { trace: 'test' } },
+    warnings: [],
+  }));
 }
 
 function textLanguageModel(modelID: string): MockLanguageModelV3 {
-  return new MockLanguageModelV3({
-    modelId: modelID,
-    doGenerate: async () => ({
-      content: [{ type: 'text', text: 'The answer is ready.' }],
-      finishReason: { unified: 'stop', raw: 'stop' },
-      usage: defaultUsage(),
-      response: { modelId: modelID },
-      warnings: [],
-    }),
-  });
+  return generationBackedLanguageModel(modelID, () => ({
+    content: [{ type: 'text', text: 'The answer is ready.' }],
+    finishReason: { unified: 'stop', raw: 'stop' },
+    usage: defaultUsage(),
+    response: { modelId: modelID },
+    warnings: [],
+  }));
 }
 
 function nestedChatRequest(): ChatCompletionRequest {
@@ -1735,15 +1856,17 @@ function retryFailingLanguageModel(
   routeAttempts: string[],
 ): MockLanguageModelV3 {
   const apiCallError = providerAPICallError(isRetryable);
+  const fail = () => {
+    routeAttempts.push(routeName);
+    throw new RetryError({
+      message: 'provider retries failed',
+      reason: isRetryable ? 'maxRetriesExceeded' : 'errorNotRetryable',
+      errors: [apiCallError],
+    });
+  };
   return new MockLanguageModelV3({
-    doGenerate: async () => {
-      routeAttempts.push(routeName);
-      throw new RetryError({
-        message: 'provider retries failed',
-        reason: isRetryable ? 'maxRetriesExceeded' : 'errorNotRetryable',
-        errors: [apiCallError],
-      });
-    },
+    doGenerate: async () => fail(),
+    doStream: async () => fail(),
   });
 }
 
@@ -1753,11 +1876,13 @@ function apiFailingLanguageModel(
   routeAttempts: string[],
   statusCode?: number,
 ): MockLanguageModelV3 {
+  const fail = () => {
+    routeAttempts.push(routeName);
+    throw providerAPICallError(isRetryable, statusCode);
+  };
   return new MockLanguageModelV3({
-    doGenerate: async () => {
-      routeAttempts.push(routeName);
-      throw providerAPICallError(isRetryable, statusCode);
-    },
+    doGenerate: async () => fail(),
+    doStream: async () => fail(),
   });
 }
 
