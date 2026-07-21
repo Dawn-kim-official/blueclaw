@@ -241,15 +241,15 @@ func TestAgentKernelPlacesVisibleContextBeforeMemoryAndPrompt(t *testing.T) {
 	if len(replyProvider.request.Messages) != 3 {
 		t.Fatalf("expected system, flattened context, prompt messages, got %d", len(replyProvider.request.Messages))
 	}
-	runtimeIndex := strings.Index(body, "Runtime:")
 	visibleIndex := strings.Index(body, "admin: A로 가자")
 	memoryIndex := strings.Index(body, "redundancy 없는 설계")
+	runtimeIndex := strings.Index(body, "Runtime:")
 	promptIndex := strings.LastIndex(body, "그래서 어떻게 할까?")
-	if runtimeIndex < 0 || visibleIndex < 0 || memoryIndex < 0 || promptIndex < 0 {
-		t.Fatalf("expected runtime, visible context, memory, and prompt, got %q", body)
+	if visibleIndex < 0 || memoryIndex < 0 || runtimeIndex < 0 || promptIndex < 0 {
+		t.Fatalf("expected visible context, memory, runtime, and prompt, got %q", body)
 	}
-	if !(runtimeIndex < visibleIndex && visibleIndex < memoryIndex && memoryIndex < promptIndex) {
-		t.Fatalf("expected runtime before visible context before memory before prompt, got %q", body)
+	if !(visibleIndex < memoryIndex && memoryIndex < runtimeIndex && runtimeIndex < promptIndex) {
+		t.Fatalf("expected visible context before memory before the volatile runtime timestamp before the final prompt, got %q", body)
 	}
 }
 

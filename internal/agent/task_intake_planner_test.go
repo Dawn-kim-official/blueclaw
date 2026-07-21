@@ -438,6 +438,64 @@ func TestIntakeToolDescriptionsKeepCallableToolsCompact(t *testing.T) {
 	}
 }
 
+func TestTurnRouterBuildMessagesKeepsStablePrefixClockInvariantAndOrdersVolatileLast(t *testing.T) {
+	toolRegistry := NewToolSet([]string{"calendar.list"})
+	registerTestTool(toolRegistry, ToolDefinition{Name: "calendar.list", Description: "List calendar events."}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return testToolSuccess("ok"), nil
+	})
+	turnRouter := NewTurnRouter(nil, IntakeOptions{IsEnabled: true})
+
+	baseRequest := AgentRequest{
+		Prompt:  "이번 주 회의 일정 알려줘",
+		ToolSet: toolRegistry,
+	}
+	earlyRequest := baseRequest
+	earlyRequest.TurnStartedAt = time.Date(2026, 5, 12, 8, 32, 27, 0, time.UTC)
+	lateRequest := baseRequest
+	lateRequest.TurnStartedAt = time.Date(2026, 5, 12, 21, 5, 59, 0, time.UTC)
+
+	earlyMessages := turnRouter.buildMessages(earlyRequest)
+	lateMessages := turnRouter.buildMessages(lateRequest)
+
+	if len(earlyMessages) != len(lateMessages) {
+		t.Fatalf("expected the same message count across different wall-clock times, got %d and %d", len(earlyMessages), len(lateMessages))
+	}
+
+	temporalIndex := -1
+	for index, message := range earlyMessages {
+		if strings.Contains(message.Content, "Runtime temporal context:") {
+			temporalIndex = index
+			break
+		}
+	}
+	if temporalIndex < 0 {
+		t.Fatalf("expected a temporal context message, got %+v", earlyMessages)
+	}
+	if temporalIndex != len(earlyMessages)-2 {
+		t.Fatalf("expected the temporal context message to be the last system message before the user message, got index %d of %d messages", temporalIndex, len(earlyMessages))
+	}
+	if earlyMessages[len(earlyMessages)-1].Role != "user" {
+		t.Fatalf("expected the final message to be the user message, got %+v", earlyMessages[len(earlyMessages)-1])
+	}
+
+	for index := 0; index < temporalIndex; index++ {
+		if earlyMessages[index].Content != lateMessages[index].Content {
+			t.Fatalf("expected stable prefix message %d to be clock invariant, got %q vs %q", index, earlyMessages[index].Content, lateMessages[index].Content)
+		}
+	}
+
+	toolDescriptionIndex := -1
+	for index, message := range earlyMessages {
+		if strings.Contains(message.Content, "Available tools:") {
+			toolDescriptionIndex = index
+			break
+		}
+	}
+	if toolDescriptionIndex < 0 || toolDescriptionIndex >= temporalIndex {
+		t.Fatalf("expected tool descriptions before the volatile temporal context, got tool description index %d and temporal index %d", toolDescriptionIndex, temporalIndex)
+	}
+}
+
 func TestTaskIntakePlannerExplainsTaskRecordSemantics(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		`{"route":"start_task","classification":"bounded_task","taskShape":"maintenance_task","level":"low","estimatedMinutes":1,"requestedOutputFormats":null,"expectedResults":[],"responseLanguage":"ko","reason":"add the requested task record","userFacingReply":"","initialToolNames":["task.add"],"priorTaskReference":"none"}`,

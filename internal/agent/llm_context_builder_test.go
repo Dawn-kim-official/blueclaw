@@ -35,7 +35,7 @@ func TestLLMContextBuilderIncludesRuntimeCalendarContext(t *testing.T) {
 		"Response language: ko",
 		"Current date: 2026-05-12",
 		"Current weekday: Tuesday",
-		"Current time: 2026-05-12T17:32:27+09:00",
+		"Current time: 17:32",
 		"Time zone: Asia/Seoul",
 	} {
 		if !strings.Contains(contextText, expected) {
@@ -73,13 +73,13 @@ func TestLLMContextBuilderFlattensConversationMemoryAndFailure(t *testing.T) {
 	})
 
 	expectedOrder := []string{
-		"Runtime:",
 		"Conversation:",
 		"admin: 이전 요청",
 		"Task:",
 		"왜 실패했어?",
 		"Memory:",
 		"구체적인 실패 이유",
+		"Runtime:",
 		"Progress ledger",
 		"Failure:",
 		"send_failed",
