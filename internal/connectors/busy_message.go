@@ -171,7 +171,7 @@ func (connectorRuntime *ConnectorRuntime) resumePausedTaskForSteer(
 	if errorValue != nil {
 		return busyMessageResult{}, errorValue
 	}
-	connectorResult, errorValue := connectorRuntime.dispatchTaskReply(withConnectorEvent(ctx, event), adapter.Name(), adapter, event, replyTarget, launchResult.TurnResult, sendReply)
+	connectorResult, errorValue := connectorRuntime.dispatchTaskReply(withConnectorEvent(ctx, event), adapter.Name(), adapter, event, replyTarget, launchResult.TurnResult, "", sendReply)
 	if errorValue != nil {
 		return busyMessageResult{}, errorValue
 	}

@@ -129,6 +129,15 @@ func (adapter CapabilityPlatformAdapter) AddReaction(ctx context.Context, target
 	}, nil)
 }
 
+func (adapter CapabilityPlatformAdapter) RemoveReaction(ctx context.Context, target ReactionTarget) error {
+	return adapter.post(ctx, "reaction.remove", capabilityReactionRequest{
+		ConversationID: strings.TrimSpace(target.ConversationID),
+		MessageID:      strings.TrimSpace(target.MessageID),
+		EmojiName:      strings.TrimSpace(target.EmojiName),
+		Reason:         strings.TrimSpace(target.Reason),
+	}, nil)
+}
+
 func (adapter CapabilityPlatformAdapter) SendReply(ctx context.Context, replyTarget ReplyTarget, reply OutboundReply) (string, error) {
 	var response capabilityReplyResponse
 	errorValue := adapter.post(ctx, "reply.send", capabilityReplyRequest{
