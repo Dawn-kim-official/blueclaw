@@ -1,0 +1,151 @@
+import type {
+	AskChoiceOptionDocument,
+	AskInteractionDocument,
+	AttachmentImportRequest,
+	HistoryFetchRequest,
+	IdentityResolveRequest,
+	InputAttachmentDocument,
+	InteractionResolveRequest,
+	ProgressRequest,
+	ReactionRequest,
+	ReplyAttachmentDocument,
+	ReplySendRequest,
+} from "./outbound-types.ts";
+
+function requireRecord(value: unknown, context: string): Record<string, unknown> {
+	if (typeof value !== "object" || value === null) {
+		throw new Error(`expected ${context} to be a JSON object`);
+	}
+	return value as Record<string, unknown>;
+}
+
+function requireString(record: Record<string, unknown>, field: string): string {
+	const value = record[field];
+	if (typeof value !== "string" || value.trim().length === 0) {
+		throw new Error(`missing required field ${field}`);
+	}
+	return value;
+}
+
+function optionalString(record: Record<string, unknown>, field: string): string | undefined {
+	const value = record[field];
+	return typeof value === "string" ? value : undefined;
+}
+
+function optionalNumber(record: Record<string, unknown>, field: string): number | undefined {
+	const value = record[field];
+	return typeof value === "number" ? value : undefined;
+}
+
+function optionalArray(record: Record<string, unknown>, field: string): unknown[] {
+	const value = record[field];
+	return Array.isArray(value) ? value : [];
+}
+
+function parseReplyAttachment(value: unknown): ReplyAttachmentDocument {
+	const record = requireRecord(value, "reply attachment");
+	return {
+		devicePath: optionalString(record, "devicePath"),
+		filename: optionalString(record, "filename"),
+		contentType: optionalString(record, "contentType"),
+		sizeBytes: optionalNumber(record, "sizeBytes"),
+		title: optionalString(record, "title"),
+		contentBase64: optionalString(record, "contentBase64"),
+	};
+}
+
+function parseAskChoiceOption(value: unknown): AskChoiceOptionDocument {
+	const record = requireRecord(value, "ask choice option");
+	return {
+		key: requireString(record, "key"),
+		label: requireString(record, "label"),
+		shortLabel: optionalString(record, "shortLabel"),
+		value: optionalString(record, "value"),
+	};
+}
+
+function parseAskInteraction(value: unknown): AskInteractionDocument {
+	const record = requireRecord(value, "interaction");
+	return {
+		interactionID: optionalString(record, "interactionID"),
+		taskRunID: optionalString(record, "taskRunID"),
+		kind: optionalString(record, "kind"),
+		message: optionalString(record, "message"),
+		question: optionalString(record, "question"),
+		options: optionalArray(record, "options").map(parseAskChoiceOption),
+		recommendedOptionKey: optionalString(record, "recommendedOptionKey"),
+		selectionMode: optionalString(record, "selectionMode"),
+		responseLanguage: optionalString(record, "responseLanguage"),
+		targetPlatformUserID: optionalString(record, "targetPlatformUserID"),
+	};
+}
+
+export function parseReplySendRequest(value: unknown): ReplySendRequest {
+	const record = requireRecord(value, "reply.send request");
+	const interactionValue = record.interaction;
+	return {
+		replyTargetID: requireString(record, "replyTargetID"),
+		message: requireString(record, "message"),
+		taskRunID: optionalString(record, "taskRunID"),
+		replyKind: optionalString(record, "replyKind"),
+		rawEventID: optionalString(record, "rawEventID"),
+		outboxID: optionalString(record, "outboxID"),
+		attachments: optionalArray(record, "attachments").map(parseReplyAttachment),
+		interaction: interactionValue === undefined ? undefined : parseAskInteraction(interactionValue),
+	};
+}
+
+export function parseProgressRequest(value: unknown): ProgressRequest {
+	const record = requireRecord(value, "progress request");
+	return { replyTargetID: requireString(record, "replyTargetID") };
+}
+
+export function parseReactionRequest(value: unknown): ReactionRequest {
+	const record = requireRecord(value, "reaction request");
+	return {
+		conversationID: optionalString(record, "conversationID"),
+		messageID: requireString(record, "messageID"),
+		emojiName: requireString(record, "emojiName"),
+		reason: optionalString(record, "reason"),
+	};
+}
+
+export function parseHistoryFetchRequest(value: unknown): HistoryFetchRequest {
+	const record = requireRecord(value, "history.fetch request");
+	return {
+		historyCursor: requireString(record, "historyCursor"),
+		limit: optionalNumber(record, "limit"),
+		direction: optionalString(record, "direction"),
+	};
+}
+
+export function parseInteractionResolveRequest(value: unknown): InteractionResolveRequest {
+	const record = requireRecord(value, "interaction.resolve request");
+	return { dispatchID: requireString(record, "dispatchID") };
+}
+
+function parseInputAttachment(value: unknown): InputAttachmentDocument {
+	const record = requireRecord(value, "input attachment");
+	return {
+		platform: optionalString(record, "platform"),
+		fileID: optionalString(record, "fileID"),
+		messageID: optionalString(record, "messageID"),
+		filename: optionalString(record, "filename"),
+		contentType: optionalString(record, "contentType"),
+		sizeBytes: optionalNumber(record, "sizeBytes"),
+	};
+}
+
+export function parseAttachmentImportRequest(value: unknown): AttachmentImportRequest {
+	const record = requireRecord(value, "attachments.import request");
+	return {
+		messageID: requireString(record, "messageID"),
+		targetDirectoryPath: requireString(record, "targetDirectoryPath"),
+		inputAttachments: optionalArray(record, "inputAttachments").map(parseInputAttachment),
+	};
+}
+
+export function parseIdentityResolveRequest(value: unknown): IdentityResolveRequest {
+	const record = requireRecord(value, "identity.resolve request");
+	return { senderID: requireString(record, "senderID") };
+}
