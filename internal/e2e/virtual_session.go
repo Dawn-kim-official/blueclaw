@@ -1960,7 +1960,7 @@ func (service *virtualCapabilityService) calendarResponse(toolName string, reque
 		if len(input) < 2 {
 			return virtualCapabilityInvalidInput(toolName, "at least one calendar event field must be updated")
 		}
-		index := virtualCapabilityRecordIndexByID(service.events, input, "eventID")
+		index := virtualCapabilityRecordIndexByHint(service.events, input, "eventHint", "title")
 		if index < 0 {
 			return virtualCapabilityNotFound(toolName, "calendar event")
 		}
@@ -1971,7 +1971,7 @@ func (service *virtualCapabilityService) calendarResponse(toolName string, reque
 		if virtualCapabilityRequestNeedsApproval(requestBody) {
 			return virtualCapabilityApprovalRequired(toolName)
 		}
-		index := virtualCapabilityRecordIndexByID(service.events, input, "eventID")
+		index := virtualCapabilityRecordIndexByHint(service.events, input, "eventHint", "title")
 		if index < 0 {
 			return virtualCapabilityNotFound(toolName, "calendar event")
 		}

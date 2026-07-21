@@ -32,8 +32,10 @@ import {
   buildCapabilityToolCatalog,
   calendarAddInputSchema,
   calendarDeleteInputSchema,
+  calendarDeleteInputIntentSchema,
   calendarListInputSchema,
   calendarUpdateInputSchema,
+  calendarUpdateInputIntentSchema,
   channelUpdateInputSchema,
   channelUpdateResultSchema,
   documentReadInputSchema,
@@ -350,6 +352,13 @@ describe('canonical capability tools', () => {
     expect(deleteTool?.requiresApproval).toBe(true);
   });
 
+  test('keeps runtime calendar identities out of user intent', () => {
+    expect(calendarUpdateInputIntentSchema.safeParse({ startISO: '2026-07-24T15:00:00+09:00' }).success).toBe(true);
+    expect(calendarUpdateInputIntentSchema.safeParse({ eventHint: 'event-1' }).success).toBe(false);
+    expect(calendarDeleteInputIntentSchema.safeParse({}).success).toBe(true);
+    expect(calendarDeleteInputIntentSchema.safeParse({ eventHint: 'event-1' }).success).toBe(false);
+  });
+
   test('validates shallow message and channel inputs', () => {
     expect(messageContextInputSchema.safeParse({}).success).toBe(true);
     expect(messageSearchInputSchema.safeParse({
@@ -529,13 +538,13 @@ describe('canonical capability tools', () => {
       people: ['support@example.com'],
     }).success).toBe(true);
     expect(calendarUpdateInputSchema.safeParse({
-      eventID: 'event-1',
+      eventHint: 'event-1',
       startISO: '2026-07-24T15:00:00+09:00',
     }).success).toBe(true);
-    expect(calendarDeleteInputSchema.safeParse({ eventID: 'event-1' }).success).toBe(true);
+    expect(calendarDeleteInputSchema.safeParse({ eventHint: 'event-1' }).success).toBe(true);
     expect(calendarListInputSchema.safeParse({ limit: 2 }).success).toBe(true);
 
-    expect(calendarUpdateInputSchema.safeParse({ eventID: 'event-1' }).success).toBe(false);
+    expect(calendarUpdateInputSchema.safeParse({ eventHint: 'event-1' }).success).toBe(false);
     expect(calendarAddInputSchema.safeParse({
       title: '고객지원 주간 점검',
       startISO: '2026-07-24T14:00:00+09:00',

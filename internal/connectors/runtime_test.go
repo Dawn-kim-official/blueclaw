@@ -2555,7 +2555,7 @@ func TestConnectorRuntimeClassifiesConfirmationReplyBeforeResumingPendingTask(t 
 			},
 		},
 		ActionResponses: []string{
-			`{"action":"continue","toolName":"calendar.delete","toolInput":{"eventID":"event-1","userConfirmed":true}}`,
+			`{"action":"continue","toolName":"calendar.delete","toolInput":{"eventHint":"event-1","userConfirmed":true}}`,
 			connectorFinishMessageWithEvidence("내일 휴가 일정을 캘린더에서 삭제했습니다.", "obs-001", "calendar.delete", 0),
 		},
 	})
@@ -2701,7 +2701,7 @@ func TestConnectorRuntimeRoutesShortConfirmationReplyThroughRouter(t *testing.T)
 			},
 		},
 		ActionResponses: []string{
-			`{"action":"continue","toolName":"calendar.delete","toolInput":{"eventID":"event-1","userConfirmed":true}}`,
+			`{"action":"continue","toolName":"calendar.delete","toolInput":{"eventHint":"event-1","userConfirmed":true}}`,
 			connectorFinishMessageWithEvidence("내일 휴가 일정을 캘린더에서 삭제했습니다.", "obs-001", "calendar.delete", 0),
 		},
 	})
@@ -3011,7 +3011,7 @@ func TestConnectorRuntimeInteractiveConfirmRestoresPersistedIntakeState(t *testi
 			},
 		},
 		ActionResponses: []string{
-			`{"action":"continue","toolName":"calendar.delete","toolInput":{"eventID":"event-1","userConfirmed":true}}`,
+			`{"action":"continue","toolName":"calendar.delete","toolInput":{"eventHint":"event-1","userConfirmed":true}}`,
 			connectorFinishMessageWithEvidence("내일 휴가 일정을 캘린더에서 삭제했습니다.", "obs-001", "calendar.delete", 0),
 		},
 	})
