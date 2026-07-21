@@ -230,3 +230,37 @@ func assertContextOrder(t *testing.T, contextText string, fragments []string) {
 		searchStart += index + len(fragment)
 	}
 }
+
+func TestRecordedEffectsContextListsSuccessfulSideEffects(t *testing.T) {
+	observations := []turnObservation{
+		{
+			ObservationID: "obs-001",
+			Tool:          "task.add",
+			Effects:       []ResourceEffect{{ObjectType: "task", Effect: "created", ID: "af8271"}},
+		},
+		{
+			ObservationID: "obs-002",
+			Tool:          "task.delete",
+			Failure:       &ToolFailure{Kind: FailureUnknown},
+			Effects:       []ResourceEffect{{ObjectType: "task", Effect: "deleted", ID: "dead01"}},
+		},
+	}
+
+	context := recordedEffectsContext(observations)
+
+	if !strings.Contains(context, "task created af8271 (task.add, obs-001)") {
+		t.Fatalf("expected created effect line, got %q", context)
+	}
+	if strings.Contains(context, "dead01") {
+		t.Fatalf("expected failed observation effects to be excluded, got %q", context)
+	}
+	if !strings.Contains(context, "fix or extend them instead of creating them again") {
+		t.Fatalf("expected amend guidance framing, got %q", context)
+	}
+}
+
+func TestRecordedEffectsContextEmptyWithoutEffects(t *testing.T) {
+	if context := recordedEffectsContext([]turnObservation{{ObservationID: "obs-001", Tool: "task.list"}}); context != "" {
+		t.Fatalf("expected empty context without effects, got %q", context)
+	}
+}
