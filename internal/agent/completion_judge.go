@@ -46,7 +46,8 @@ func (agentTurnRunner *AgentTurnRunner) validateCompletionGateWithJudge(ctx cont
 	if !completionGateResult.IsSatisfied || ctx.Err() != nil {
 		return completionGateResult
 	}
-	if !outcomeContractHasSideEffectEvidence(request.ToolSet, request.OutcomeContract) {
+	if !outcomeContractHasSideEffectEvidence(request.ToolSet, request.OutcomeContract) &&
+		len(completionJudgeLedger(request.ToolSet, observations)) == 0 {
 		return completionGateResult
 	}
 	if judgeResult := agentTurnRunner.evaluateCompletionJudge(ctx, taskRunID, request, observations); !judgeResult.IsSatisfied {
