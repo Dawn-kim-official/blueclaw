@@ -414,6 +414,15 @@ func failureDebtActionContractMessage(facts failureReportFacts) string {
 	}, "\n")
 }
 
+func isRecoveredFailureDebtResolution(failureResolution string) bool {
+	switch strings.TrimSpace(failureResolution) {
+	case failureResolutionRecoveredWithSuccess, failureResolutionNoToolFallback:
+		return true
+	default:
+		return false
+	}
+}
+
 func validateFailureReportAction(actionDocument turnActionDocument, facts failureReportFacts) completionGateResult {
 	if strings.TrimSpace(actionDocument.FailureResolution) != failureResolutionFailureReport {
 		return completionGateResult{Message: "FailureDebt failure reports require failureResolution=failure_report"}

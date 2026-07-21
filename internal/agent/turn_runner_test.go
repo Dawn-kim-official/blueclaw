@@ -785,6 +785,76 @@ func TestAgentTurnRunnerTerminalNoToolsRepairsInvalidOutputWithoutReopeningTools
 	assertTerminalNoToolsSchemasExcludeToolActions(t, languageModel.requests)
 }
 
+func TestAgentTurnRunnerTerminalNoToolsRejectsFinishWithoutFailureResolution(t *testing.T) {
+	languageModel := &sequenceLanguageModel{contents: []string{
+		directToolAction("continue", "", "math.calculate", `{"expression":"1+2/4"}`),
+		directToolAction("continue", "", "math.calculate", `{"expression":"2+2"}`),
+		finishMessageDocument("premature finish that omits failureResolution"),
+		noToolFallbackFinishMessageDocument("recovered after supplying a valid failureResolution."),
+	}}
+	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 6, RecoveryBudget: terminalNoToolRecoveryBudgetForTest()})
+	toolRegistry := newTestCapabilityToolSet([]string{"math.calculate"})
+	registerTestTool(toolRegistry, ToolDefinition{Name: "math.calculate"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return structuredFailureToolResult("exec: \"bc\": executable file not found in $PATH", "bc: command not found", "calculator_failed", "bc_execution", false, false), nil
+	})
+
+	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
+		RequesterPersonID: "person-1",
+		ConversationID:    "conversation-1",
+		Prompt:            "calculate it",
+		ToolSet:           toolRegistry,
+		PinnedToolNames:   toolRegistry.ListToolNames(),
+	})
+	if errorValue != nil {
+		t.Fatalf("expected terminal fallback result: %v", errorValue)
+	}
+	if result.FinishMessage != "recovered after supplying a valid failureResolution." {
+		t.Fatalf("expected the repaired finish to be delivered, got %q", result.FinishMessage)
+	}
+	if countStructuredRequestsByName(languageModel.requests, "blueclaw_agent_terminal_no_tools_action") != 2 {
+		t.Fatalf("expected one terminal repair request, got %+v", structuredRequestNames(languageModel.requests))
+	}
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.terminal_no_tools_rejected", "failureResolution to be recovered_with_success or no_tool_fallback") {
+		t.Fatal("expected a rejection event naming the missing failureResolution requirement")
+	}
+	assertTerminalNoToolsSchemasExcludeToolActions(t, languageModel.requests)
+}
+
+func TestAgentTurnRunnerTerminalNoToolsRejectsFailWithoutReason(t *testing.T) {
+	languageModel := &sequenceLanguageModel{contents: []string{
+		directToolAction("continue", "", "math.calculate", `{"expression":"1+2/4"}`),
+		directToolAction("continue", "", "math.calculate", `{"expression":"2+2"}`),
+		`{"action":"fail","goalStatus":"blocked","goalSatisfied":false}`,
+		failureReportDocument("Calculator execution is blocked because bc_execution returned operation_failed.", "math.calculate", "1+2/4", FailureCodes.OperationFailed.String(), "bc_execution", "bc: command not found"),
+	}}
+	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 6, RecoveryBudget: terminalNoToolRecoveryBudgetForTest()})
+	toolRegistry := newTestCapabilityToolSet([]string{"math.calculate"})
+	registerTestTool(toolRegistry, ToolDefinition{Name: "math.calculate"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return structuredFailureToolResult("exec: \"bc\": executable file not found in $PATH", "bc: command not found", "calculator_failed", "bc_execution", false, false), nil
+	})
+
+	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
+		RequesterPersonID: "person-1",
+		ConversationID:    "conversation-1",
+		Prompt:            "calculate it",
+		ToolSet:           toolRegistry,
+		PinnedToolNames:   toolRegistry.ListToolNames(),
+	})
+	if errorValue != nil {
+		t.Fatalf("expected terminal failure report result: %v", errorValue)
+	}
+	if result.TaskRun.Status != task.TaskStatusFailed {
+		t.Fatalf("expected failed task, got %s", result.TaskRun.Status)
+	}
+	if countStructuredRequestsByName(languageModel.requests, "blueclaw_agent_terminal_no_tools_action") != 2 {
+		t.Fatalf("expected one terminal repair request, got %+v", structuredRequestNames(languageModel.requests))
+	}
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.terminal_no_tools_rejected", "fail requires a non-empty reason") {
+		t.Fatal("expected a rejection event naming the missing reason")
+	}
+	assertTerminalNoToolsSchemasExcludeToolActions(t, languageModel.requests)
+}
+
 func TestAgentTurnRunnerCompletesBrowserOpenWithPostEvidenceReply(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		directToolAction("continue", "브라우저를 열었습니다. 완료했습니다.", "browser.open", `{"url":"https://www.google.com"}`),
@@ -1215,7 +1285,7 @@ func TestSlidesRequestWithCalendarContentDoesNotPinCalendarTools(t *testing.T) {
 }
 
 func TestAgentTurnRunnerPausesBeforeRequiresApprovalDirectTool(t *testing.T) {
-	heldInput := `{"eventID":"event-1"}`
+	heldInput := `{"eventHint":"event-1"}`
 	languageModel := &sequenceLanguageModel{contents: []string{
 		directToolAction("continue", "", "calendar.delete", heldInput),
 		`{"question":"이 일정을 삭제할까요?"}`,
@@ -2297,6 +2367,12 @@ func actionSchemaHasVariant(t *testing.T, schemaDocument string, actionName stri
 	return isFound
 }
 
+// findActionSchemaVariant supports two schema shapes: a root-level oneOf of
+// discriminated branches (the mid-turn action-loop schema, still built by
+// buildActionSchemaFromToolDefinitions) and a flat closed object whose "action"
+// property enumerates every allowed value (the finalizer and terminal-no-tools
+// schemas). For the flat shape, the whole document is treated as the single
+// candidate variant.
 func findActionSchemaVariant(t *testing.T, schemaDocument string, actionName string) (map[string]any, bool) {
 	t.Helper()
 	var schema struct {
@@ -2305,7 +2381,15 @@ func findActionSchemaVariant(t *testing.T, schemaDocument string, actionName str
 	if errorValue := json.Unmarshal([]byte(schemaDocument), &schema); errorValue != nil {
 		t.Fatalf("expected action schema json: %v", errorValue)
 	}
-	for _, variant := range schema.OneOf {
+	variants := schema.OneOf
+	if len(variants) == 0 {
+		var flatSchema map[string]any
+		if errorValue := json.Unmarshal([]byte(schemaDocument), &flatSchema); errorValue != nil {
+			t.Fatalf("expected action schema json: %v", errorValue)
+		}
+		variants = []map[string]any{flatSchema}
+	}
+	for _, variant := range variants {
 		properties := mapFromAny(variant["properties"])
 		actionProperty := mapFromAny(properties["action"])
 		if containsString(stringSliceFromAny(actionProperty["enum"]), actionName) {
