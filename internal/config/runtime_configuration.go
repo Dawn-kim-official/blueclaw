@@ -203,6 +203,7 @@ type LanguageModelLLMDConfiguration struct {
 type LanguageModelCapabilityConfiguration struct {
 	Model               string `json:"model"`
 	MaximumModelTier    string `json:"maximumModelTier,omitempty"`
+	MinimumModelTier    string `json:"minimumModelTier,omitempty"`
 	MaxModel            string `json:"maxModel"`
 	XHighModel          string `json:"xhighModel"`
 	HighModel           string `json:"highModel"`
