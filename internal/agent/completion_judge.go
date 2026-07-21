@@ -15,6 +15,7 @@ const (
 	completionJudgeReasonMaxLength      = 400
 	completionJudgeInputMaxLength       = 600
 	completionJudgeResultMaxLength      = 300
+	completionJudgeMaxLedgerEntries     = 20
 )
 
 type completionJudgeVerdict struct {
@@ -47,7 +48,7 @@ func (agentTurnRunner *AgentTurnRunner) validateCompletionGateWithJudge(ctx cont
 		return completionGateResult
 	}
 	if !outcomeContractHasSideEffectEvidence(request.ToolSet, request.OutcomeContract) &&
-		len(completionJudgeLedger(request.ToolSet, observations)) == 0 {
+		!observationsIncludeSideEffect(request.ToolSet, observations) {
 		return completionGateResult
 	}
 	if judgeResult := agentTurnRunner.evaluateCompletionJudge(ctx, taskRunID, request, observations); !judgeResult.IsSatisfied {
@@ -122,7 +123,7 @@ func completionJudgeMessages(request AgentTurnRequest, observations []turnObserv
 	if expectedResultsDescription := completionJudgeExpectedResultsDescription(request.OutcomeContract.ExpectedResults); expectedResultsDescription != "" {
 		messages = append(messages, llm.Message{Role: "system", Content: "Expected results:\n" + expectedResultsDescription})
 	}
-	messages = append(messages, llm.Message{Role: "user", Content: "Recorded successful side-effect operations this turn:\n" + completionJudgeLedgerDocument(request.ToolSet, observations)})
+	messages = append(messages, llm.Message{Role: "user", Content: "Recorded successful operations this turn, reads and state changes alike:\n" + completionJudgeLedgerDocument(request.ToolSet, observations)})
 	return messages
 }
 
@@ -160,10 +161,19 @@ func completionJudgeLedgerDocument(toolSet *ToolSet, observations []turnObservat
 	return string(document)
 }
 
+func observationsIncludeSideEffect(toolSet *ToolSet, observations []turnObservation) bool {
+	for _, observation := range observations {
+		if isSideEffectObservation(toolSet, observation) {
+			return true
+		}
+	}
+	return false
+}
+
 func completionJudgeLedger(toolSet *ToolSet, observations []turnObservation) []completionLedgerEntry {
 	ledger := []completionLedgerEntry{}
 	for _, observation := range observations {
-		if !isSideEffectObservation(toolSet, observation) {
+		if observation.Action != "continue" || observation.Failed() || strings.TrimSpace(observation.Tool) == "" {
 			continue
 		}
 		ledger = append(ledger, completionLedgerEntry{
@@ -171,6 +181,9 @@ func completionJudgeLedger(toolSet *ToolSet, observations []turnObservation) []c
 			Input:  truncateForLedger(string(observation.ToolInput), completionJudgeInputMaxLength),
 			Result: truncateForLedger(observation.ContentText(), completionJudgeResultMaxLength),
 		})
+	}
+	if len(ledger) > completionJudgeMaxLedgerEntries {
+		ledger = ledger[len(ledger)-completionJudgeMaxLedgerEntries:]
 	}
 	return ledger
 }

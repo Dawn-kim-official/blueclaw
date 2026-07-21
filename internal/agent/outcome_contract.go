@@ -259,9 +259,9 @@ func outcomeContractForRequest(request AgentRequest, intakeDecision IntakeDecisi
 	contract.RequiredEvidenceTools = appendUniqueStrings(contract.RequiredEvidenceTools, requiredSendEvidenceToolsForContract(request.ToolSet, contract)...)
 	if requestNeedsDerivedSideEffectEvidenceGroup(request.ToolSet, intakeDecision, contract) {
 		workingSetToolNames := appendUniqueStrings(selectedEvidenceHintTools(instructionBundle), intakeDecision.InitialToolNames...)
-		sideEffectGroup := workingSetSideEffectEvidenceGroup(request.ToolSet, workingSetToolNames)
-		if len(sideEffectGroup) > 0 {
-			contract.RequiredEvidenceAnyOf = append(contract.RequiredEvidenceAnyOf, sideEffectGroup)
+		evidenceGroup := workingSetEvidenceGroup(request.ToolSet, workingSetToolNames)
+		if len(evidenceGroup) > 0 {
+			contract.RequiredEvidenceAnyOf = append(contract.RequiredEvidenceAnyOf, evidenceGroup)
 		}
 	}
 	contract.RequiredEffects = appendOutcomeEffects(contract.RequiredEffects, requiredWorkflowEffectRequirementsForRequest(request)...)

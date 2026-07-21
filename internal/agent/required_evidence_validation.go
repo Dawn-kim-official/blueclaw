@@ -7,18 +7,15 @@ const (
 	requiredEvidenceToolKindNativeTool          = "native_tool"
 )
 
-func workingSetSideEffectEvidenceGroup(toolSet *ToolSet, candidateToolNames []string) []string {
-	sideEffectToolNames := []string{}
+func workingSetEvidenceGroup(toolSet *ToolSet, candidateToolNames []string) []string {
+	evidenceToolNames := []string{}
 	for _, toolName := range appendUniqueStrings(candidateToolNames) {
 		if !requiredEvidenceToolCanBeSatisfied(toolSet, toolName) {
 			continue
 		}
-		if !requiredEvidenceIncludesSideEffect(toolSet, []string{toolName}) {
-			continue
-		}
-		sideEffectToolNames = appendUniqueStrings(sideEffectToolNames, toolName)
+		evidenceToolNames = appendUniqueStrings(evidenceToolNames, toolName)
 	}
-	return sideEffectToolNames
+	return evidenceToolNames
 }
 
 func requiredEvidenceToolCanBeSatisfied(toolSet *ToolSet, toolName string) bool {
