@@ -1866,6 +1866,9 @@ func (agentTurnRunner *AgentTurnRunner) applyTerminalNoToolsAction(ctx context.C
 }
 
 func (agentTurnRunner *AgentTurnRunner) completeTerminalNoToolsFinish(ctx context.Context, taskRunID string, stepID string, request AgentTurnRequest, state *agentTaskState, actionDocument turnActionDocument) (AgentTurnResult, bool, string) {
+	if !isRecoveredFailureDebtResolution(actionDocument.FailureResolution) {
+		return AgentTurnResult{}, false, "finish requires failureResolution to be recovered_with_success or no_tool_fallback"
+	}
 	completionGateResult := validateCompletionGateForRequestWithExpectedResults(request, state.Requirements, state.Observations, state.Attachments, state.QualityCriteria, actionDocument, agentTurnRunner.options.RecoveryBudget)
 	agentTurnRunner.appendValidityReview(taskRunID, "terminal_no_tools_finish", completionGateResult.ValidityState)
 	if !completionGateResult.IsSatisfied {
@@ -1886,6 +1889,9 @@ func (agentTurnRunner *AgentTurnRunner) completeTerminalNoToolsFinish(ctx contex
 }
 
 func (agentTurnRunner *AgentTurnRunner) failTerminalNoToolsFailure(taskRunID string, stepID string, request AgentTurnRequest, state *agentTaskState, actionDocument turnActionDocument) (AgentTurnResult, bool, string) {
+	if strings.TrimSpace(actionDocument.Reason) == "" && strings.TrimSpace(actionDocument.Message) == "" {
+		return AgentTurnResult{}, false, "fail requires a non-empty reason"
+	}
 	facts := buildFailureReportFacts(state.Observations, agentTurnRunner.options.RecoveryBudget)
 	failureReportResult := validateFailureReportAction(actionDocument, facts)
 	if !failureReportResult.IsSatisfied {

@@ -61,6 +61,80 @@ func TestActionSchemaSharedEnvelopeByteBudget(t *testing.T) {
 	}
 }
 
+func legacyRootOneOfFinalizerSchema(hasFailureDebt bool) string {
+	return mustMarshalStructuredSchema(map[string]any{"oneOf": []any{finishActionSchema(hasFailureDebt), failActionSchema(hasFailureDebt)}})
+}
+
+func TestTerminalActionSchemasAreFlatAndSmallerThanTheLegacyRootOneOf(t *testing.T) {
+	cases := []struct {
+		name           string
+		hasFailureDebt bool
+		flatSchema     string
+		legacySchema   string
+	}{
+		{name: "finalizer", hasFailureDebt: false, flatSchema: finalizerActionSchema(), legacySchema: legacyRootOneOfFinalizerSchema(false)},
+		{name: "terminal no tools", hasFailureDebt: true, flatSchema: terminalNoToolsActionSchema(), legacySchema: legacyRootOneOfFinalizerSchema(true)},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			var flatDocument map[string]any
+			if errorValue := json.Unmarshal([]byte(testCase.flatSchema), &flatDocument); errorValue != nil {
+				t.Fatalf("expected flat schema json: %v", errorValue)
+			}
+			if _, hasOneOf := flatDocument["oneOf"]; hasOneOf {
+				t.Fatalf("expected a flat schema without a root oneOf, got %s", testCase.flatSchema)
+			}
+			if flatDocument["type"] != "object" {
+				t.Fatalf("expected a flat closed object schema, got %s", testCase.flatSchema)
+			}
+			if flatDocument["additionalProperties"] != false {
+				t.Fatalf("expected the flat schema to stay closed, got %s", testCase.flatSchema)
+			}
+			actionProperty := mapFromAny(mapFromAny(flatDocument["properties"])["action"])
+			for _, actionName := range []string{"finish", "fail"} {
+				if !containsString(stringSliceFromAny(actionProperty["enum"]), actionName) {
+					t.Fatalf("expected flat schema action enum to allow %q, got %+v", actionName, actionProperty)
+				}
+			}
+			t.Logf("%s schema bytes: legacy root oneOf=%d, flat=%d", testCase.name, len(testCase.legacySchema), len(testCase.flatSchema))
+			if len(testCase.flatSchema) >= len(testCase.legacySchema) {
+				t.Fatalf("expected the flat %s schema (%d bytes) to be smaller than the legacy root oneOf schema (%d bytes)", testCase.name, len(testCase.flatSchema), len(testCase.legacySchema))
+			}
+		})
+	}
+}
+
+func TestTerminalActionSchemasAcceptFinishAndFailDocuments(t *testing.T) {
+	finishDocument := `{"action":"finish","message":"done","goalStatus":"satisfied","goalSatisfied":true,"hasRemainingWork":false,"completionEvidenceIDs":[],"qualityReview":[]}`
+	failDocument := `{"action":"fail","message":"","reason":"blocked by captcha","goalStatus":"blocked","goalSatisfied":false}`
+	failWithDebtDocument := `{"action":"fail","message":"","reason":"blocked by captcha","goalStatus":"blocked","goalSatisfied":false,"failureResolution":"failure_report","usedFailureFacts":{"attempts":[{"toolName":"terminal.run","errorCode":"operation_failed","failureStage":"terminal_run","message":"blocked"}],"budgetState":"failure_report_required"}}`
+	finishWithDebtDocument := `{"action":"finish","message":"done from context","goalStatus":"satisfied","goalSatisfied":true,"hasRemainingWork":false,"completionEvidenceIDs":[],"qualityReview":[],"failureResolution":"no_tool_fallback"}`
+
+	assertDocumentValidatesAgainstSchema(t, finalizerActionSchema(), finishDocument)
+	assertDocumentValidatesAgainstSchema(t, finalizerActionSchema(), failDocument)
+	assertDocumentValidatesAgainstSchema(t, terminalNoToolsActionSchema(), finishWithDebtDocument)
+	assertDocumentValidatesAgainstSchema(t, terminalNoToolsActionSchema(), failWithDebtDocument)
+}
+
+func assertDocumentValidatesAgainstSchema(t *testing.T, schemaDocument string, instanceDocument string) {
+	t.Helper()
+	var compiledSchema jsonschema.Schema
+	if errorValue := json.Unmarshal([]byte(schemaDocument), &compiledSchema); errorValue != nil {
+		t.Fatalf("expected schema json: %v", errorValue)
+	}
+	resolvedSchema, errorValue := compiledSchema.Resolve(nil)
+	if errorValue != nil {
+		t.Fatalf("expected schema to resolve: %v", errorValue)
+	}
+	var instanceValue any
+	if errorValue := json.Unmarshal([]byte(instanceDocument), &instanceValue); errorValue != nil {
+		t.Fatalf("expected instance json: %v", errorValue)
+	}
+	if errorValue := resolvedSchema.Validate(instanceValue); errorValue != nil {
+		t.Fatalf("expected instance to validate against schema: %v\ninstance: %s\nschema: %s", errorValue, instanceDocument, schemaDocument)
+	}
+}
+
 func eightToolCapabilityCatalogFixture(t *testing.T) []ToolDefinition {
 	t.Helper()
 	document, errorValue := os.ReadFile("../../protocol/generated/capability-tools.json")
