@@ -76,6 +76,7 @@ func (builder LLMContextBuilder) Build(input LLMContextInput) string {
 		builder.artifactManifestContext(input.ArtifactManifest),
 		strings.TrimSpace(input.StepBudgetContext),
 		builder.progressContext(input),
+		recordedEffectsContext(input.Observations),
 		builder.observedResultProjectionContext(input),
 		builder.knownFileContext(input),
 		buildExecutionStateContext(input.ExecutionState, input.Observations),
@@ -210,6 +211,27 @@ func (builder LLMContextBuilder) taskContext(input LLMContextInput) string {
 		return ""
 	}
 	return "Task:\n" + strings.Join(sections, "\n\n")
+}
+
+func recordedEffectsContext(observations []turnObservation) string {
+	lines := []string{}
+	for _, observation := range observations {
+		if observation.Failure != nil {
+			continue
+		}
+		for _, effect := range observation.Effects {
+			target := firstNonEmptyString(effect.ID, effect.Path, effect.URL)
+			line := effect.ObjectType + " " + effect.Effect
+			if target != "" {
+				line += " " + target
+			}
+			lines = append(lines, "- "+line+" ("+observation.Tool+", "+observation.ObservationID+")")
+		}
+	}
+	if len(lines) == 0 {
+		return ""
+	}
+	return "State changes already recorded this task. These records exist; fix or extend them instead of creating them again:\n" + strings.Join(lines, "\n")
 }
 
 func (builder LLMContextBuilder) userPromptContext(scheduledRun ScheduledRunContext, prompt string) string {
