@@ -2591,8 +2591,8 @@ func TestTerminalStructuredRequestsCarryMaxTokensCap(t *testing.T) {
 		t.Fatalf("expected finalizer, terminal, and judge requests, got %+v", structuredRequestNames(capturedRequests))
 	}
 	for _, structuredRequest := range capturedRequests {
-		if structuredRequest.GenerationOptions.MaxTokens == nil || *structuredRequest.GenerationOptions.MaxTokens != defaultAgentActionMaxTokens {
-			t.Fatalf("expected %s request to cap maxTokens at %d", structuredRequest.StructuredOutputSchema.Name, defaultAgentActionMaxTokens)
+		if structuredRequest.GenerationOptions.MaxTokens == nil || *structuredRequest.GenerationOptions.MaxTokens != terminalStructuredMaxTokens {
+			t.Fatalf("expected %s request to cap maxTokens at %d", structuredRequest.StructuredOutputSchema.Name, terminalStructuredMaxTokens)
 		}
 	}
 }
