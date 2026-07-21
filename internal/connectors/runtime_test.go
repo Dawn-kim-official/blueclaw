@@ -3666,6 +3666,7 @@ type testAdapter struct {
 	historyContext                VisibleContext
 	sentReplies                   []testReply
 	reactions                     []ReactionTarget
+	removedReactions              []ReactionTarget
 	progressStarts                []ReplyTarget
 	progressStops                 []ReplyTarget
 	progressStopErrors            []error
@@ -3881,6 +3882,11 @@ func (adapter *testAdapter) AddReaction(_ context.Context, target ReactionTarget
 		return adapter.reactionError
 	}
 	adapter.reactions = append(adapter.reactions, target)
+	return nil
+}
+
+func (adapter *testAdapter) RemoveReaction(_ context.Context, target ReactionTarget) error {
+	adapter.removedReactions = append(adapter.removedReactions, target)
 	return nil
 }
 
@@ -4612,5 +4618,40 @@ func TestLatestActiveGoalFailsClosedOnMalformedNewestEvent(t *testing.T) {
 	}
 	if activeGoal.TaskRunID != "" {
 		t.Fatalf("expected no fallback to the older goal, got %+v", activeGoal)
+	}
+}
+
+func TestConnectorRuntimeAcknowledgesBotMentionAndClearsAckAfterReply(t *testing.T) {
+	languageModel := &addressingTestLanguageModel{addressingTarget: string(agent.AddressingTargetBot), reply: "ok"}
+	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
+	event := testChannelInboundEvent("message-1")
+	event.Context.Addressing.BotMentioned = true
+
+	result, errorValue := connectorRuntime.HandleInboundEvent(context.Background(), adapter, event)
+	if errorValue != nil {
+		t.Fatalf("expected bot mention to process: %v", errorValue)
+	}
+	if result.TaskRunID == "" || len(adapter.sentReplies) != 1 {
+		t.Fatalf("expected bot mention reply, got result=%+v replies=%d", result, len(adapter.sentReplies))
+	}
+	if len(adapter.reactions) != 1 || adapter.reactions[0].EmojiName != "eyes" || adapter.reactions[0].Reason != "engaged_ack" {
+		t.Fatalf("expected an immediate eyes acknowledgement reaction, got %+v", adapter.reactions)
+	}
+	if len(adapter.removedReactions) != 1 || adapter.removedReactions[0].EmojiName != "eyes" {
+		t.Fatalf("expected the eyes acknowledgement to be removed after the reply, got %+v", adapter.removedReactions)
+	}
+}
+
+func TestConnectorRuntimeSkipsEngagedAckForDirectMessages(t *testing.T) {
+	languageModel := &addressingTestLanguageModel{addressingTarget: string(agent.AddressingTargetBot), reply: "ok"}
+	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
+	event := testInboundEvent("message-direct-ack")
+
+	_, errorValue := connectorRuntime.HandleInboundEvent(context.Background(), adapter, event)
+	if errorValue != nil {
+		t.Fatalf("expected direct message to process: %v", errorValue)
+	}
+	if len(adapter.reactions) != 0 {
+		t.Fatalf("expected no acknowledgement reaction for a direct message, got %+v", adapter.reactions)
 	}
 }

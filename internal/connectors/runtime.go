@@ -317,6 +317,10 @@ type MessageReactionAdapter interface {
 	AddReaction(context.Context, ReactionTarget) error
 }
 
+type MessageReactionRemovalAdapter interface {
+	RemoveReaction(context.Context, ReactionTarget) error
+}
+
 type InteractionResolution struct {
 	Platform       string `json:"platform"`
 	ConversationID string `json:"conversationID"`
@@ -898,8 +902,10 @@ func (connectorRuntime *ConnectorRuntime) processInboundEventWithReplySender(ctx
 	personAccess := connectorRuntime.identityService.ResolvePersonAccess(personID)
 	requesterEmail := connectorRuntime.requesterEmailForEvent(personID, event)
 	taskWaitResolution := connectorRuntime.resolveInboundTaskWait(personID, platform, event)
+	engagedAckEmojiName := connectorRuntime.applyEngagedAckReaction(ctx, platform, adapter, event,
+		event.Context.Addressing.BotMentioned || taskWaitResolution.HasTaskWaitToken || taskWaitResolution.IsAmbiguous)
 	if taskWaitResolution.IsAmbiguous {
-		return connectorRuntime.handleAmbiguousTaskWait(ctx, platform, adapter, event, replyTarget, personID, requesterEmail, personAccess, taskWaitResolution, sendReply)
+		return connectorRuntime.handleAmbiguousTaskWait(ctx, platform, adapter, event, replyTarget, personID, requesterEmail, personAccess, taskWaitResolution, engagedAckEmojiName, sendReply)
 	}
 	pendingApproval, turnDecision, hasPendingConfirmation, errorValue := connectorRuntime.resolveConfirmationReply(ctx, platform, personID, event, taskWaitResolution)
 	if errorValue != nil {
@@ -954,9 +960,17 @@ func (connectorRuntime *ConnectorRuntime) processInboundEventWithReplySender(ctx
 		activeGoal = pendingApprovalActiveGoal(pendingApproval, event.Prompt)
 		hasActiveGoal = true
 	}
+	if engagedAckEmojiName == "" {
+		engagedAckEmojiName = connectorRuntime.applyEngagedAckReaction(ctx, platform, adapter, event,
+			isApprovalContinuation || hasPendingAskInteraction || hasActiveGoal)
+	}
 	event = connectorRuntime.withInitialVisibleContext(ctx, adapter, event)
 	addressingLaunch := connectorRuntime.resolveInboundEngagement(ctx, platform, event)
 	if addressingLaunch.ReactionEmoji != "" {
+		if engagedAckEmojiName != "" && engagedAckEmojiName != addressingLaunch.ReactionEmoji {
+			connectorRuntime.clearEngagedAckReaction(ctx, platform, adapter, event, engagedAckEmojiName)
+			engagedAckEmojiName = ""
+		}
 		connectorRuntime.addAddressingReaction(ctx, platform, adapter, event, addressingLaunch.ReactionEmoji)
 	}
 	if !addressingLaunch.ShouldLaunch {
@@ -1025,7 +1039,7 @@ func (connectorRuntime *ConnectorRuntime) processInboundEventWithReplySender(ctx
 	taskDuration := time.Since(taskStartedAt)
 	connectorRuntime.logger.Info("connector."+platform+".agent.completed", slog.String("messageID", event.MessageID), slog.String("taskRunID", taskRunID), slog.Int64("duration_ms", taskDuration.Milliseconds()))
 	connectorRuntime.appendTaskExecutionDuration(taskRunID, taskDuration)
-	return connectorRuntime.dispatchTaskReply(ctx, platform, adapter, event, replyTarget, turnResult, sendReply)
+	return connectorRuntime.dispatchTaskReply(ctx, platform, adapter, event, replyTarget, turnResult, engagedAckEmojiName, sendReply)
 }
 
 func (connectorRuntime *ConnectorRuntime) shouldDeferNewTaskLaunch(isApprovalContinuation bool, hasPendingAskInteraction bool, hasActiveGoal bool) bool {
@@ -1037,6 +1051,50 @@ func (connectorRuntime *ConnectorRuntime) shouldDeferNewTaskLaunch(isApprovalCon
 
 func shouldDeferQueuedConnectorEvent(result ConnectorRuntimeResult) bool {
 	return result.Ignored && result.Reason == "task_intake_quiesced"
+}
+
+const engagedAckReactionEmojiName = "eyes"
+
+func (connectorRuntime *ConnectorRuntime) applyEngagedAckReaction(ctx context.Context, platform string, adapter PlatformAdapter, event PlatformInboundEvent, isEngaged bool) string {
+	if !isEngaged || !isMultiPersonConversation(event) {
+		return ""
+	}
+	reactionAdapter, isSupported := adapter.(MessageReactionAdapter)
+	if !isSupported {
+		return ""
+	}
+	target := ReactionTarget{
+		Platform:       platform,
+		ConversationID: event.ConversationID,
+		MessageID:      event.MessageID,
+		EmojiName:      engagedAckReactionEmojiName,
+		Reason:         "engaged_ack",
+	}
+	if errorValue := reactionAdapter.AddReaction(ctx, target); errorValue != nil {
+		connectorRuntime.logger.Warn("connector."+platform+".reaction.failed", slog.String("messageID", event.MessageID), slog.String("emojiName", target.EmojiName), slog.String("error", errorValue.Error()))
+		return ""
+	}
+	return engagedAckReactionEmojiName
+}
+
+func (connectorRuntime *ConnectorRuntime) clearEngagedAckReaction(ctx context.Context, platform string, adapter PlatformAdapter, event PlatformInboundEvent, emojiName string) {
+	if strings.TrimSpace(emojiName) == "" {
+		return
+	}
+	removalAdapter, isSupported := adapter.(MessageReactionRemovalAdapter)
+	if !isSupported {
+		return
+	}
+	target := ReactionTarget{
+		Platform:       platform,
+		ConversationID: event.ConversationID,
+		MessageID:      event.MessageID,
+		EmojiName:      emojiName,
+		Reason:         "engaged_ack_cleared",
+	}
+	if errorValue := removalAdapter.RemoveReaction(ctx, target); errorValue != nil {
+		connectorRuntime.logger.Warn("connector."+platform+".reaction.remove_failed", slog.String("messageID", event.MessageID), slog.String("emojiName", emojiName), slog.String("error", errorValue.Error()))
+	}
 }
 
 func (connectorRuntime *ConnectorRuntime) addAddressingReaction(ctx context.Context, platform string, adapter PlatformAdapter, event PlatformInboundEvent, reactionEmojiName string) {
@@ -1633,6 +1691,7 @@ func (connectorRuntime *ConnectorRuntime) handleAmbiguousTaskWait(
 	requesterEmail string,
 	personAccess policy.PersonAccess,
 	taskWaitResolution inboundTaskWaitResolution,
+	engagedAckEmojiName string,
 	sendReply func(context.Context, ReplyTarget, OutboundReply) (string, error),
 ) (ConnectorRuntimeResult, error) {
 	turnDecision := ambiguousTaskWaitTurnDecision(taskWaitResolution.AmbiguousTaskWaits, responseLanguageForEvent(event))
@@ -1652,7 +1711,7 @@ func (connectorRuntime *ConnectorRuntime) handleAmbiguousTaskWait(
 	if errorValue != nil {
 		return ConnectorRuntimeResult{}, errorValue
 	}
-	return connectorRuntime.dispatchTaskReply(ctx, platform, adapter, event, replyTarget, launchResult.TurnResult, sendReply)
+	return connectorRuntime.dispatchTaskReply(ctx, platform, adapter, event, replyTarget, launchResult.TurnResult, engagedAckEmojiName, sendReply)
 }
 
 func ambiguousTaskWaitTurnDecision(taskWaitTokens []task.TaskWaitToken, responseLanguage string) agent.TurnDecision {

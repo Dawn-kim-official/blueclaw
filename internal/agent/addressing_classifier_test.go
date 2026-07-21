@@ -34,7 +34,7 @@ func TestAddressingClassificationSchemaIncludesReasonOnlyForDebug(t *testing.T) 
 func TestAddressingClassificationPromptGuidesTheFourOutcomes(t *testing.T) {
 	prompt := addressingClassificationPrompt(AddressingClassificationRequest{Prompt: "네 확인해볼게요"})
 
-	for _, fragment := range []string{"shouldRespond", "reactionEmoji", "react only", "이거 봐주세요", "고마워", "dutyMatch"} {
+	for _, fragment := range []string{"shouldRespond", "reactionEmoji", "react only", "default to \"\"", "Do not react to routine work chatter", "고마워", "dutyMatch"} {
 		if !strings.Contains(prompt, fragment) {
 			t.Fatalf("expected addressing prompt to contain %q, got %s", fragment, prompt)
 		}
