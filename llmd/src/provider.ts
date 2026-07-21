@@ -265,7 +265,7 @@ const defaultLanguageModelFactory: ProviderLanguageModelFactory = {
       fetch: fetchWithFirstByteTimeout,
     });
     return provider.chat(modelName, {
-      provider: { require_parameters: true },
+      provider: { order: ['deepinfra', 'parasail'], allow_fallbacks: true, require_parameters: true },
     });
   },
 };
