@@ -609,8 +609,8 @@ func TestOutcomeContractDerivesSideEffectEvidenceAnyOfGroupForMaintenanceTask(t 
 	if !stringSliceContains(contract.RequiredEvidenceAnyOf[0], "task.add") || !stringSliceContains(contract.RequiredEvidenceAnyOf[0], "task.update") {
 		t.Fatalf("expected the side-effect working set tools in the derived group, got %+v", contract.RequiredEvidenceAnyOf[0])
 	}
-	if stringSliceContains(contract.RequiredEvidenceAnyOf[0], "task.list") {
-		t.Fatalf("expected the read-only working set tool to be excluded, got %+v", contract.RequiredEvidenceAnyOf[0])
+	if !stringSliceContains(contract.RequiredEvidenceAnyOf[0], "task.list") {
+		t.Fatalf("expected the read tool to stay satisfiable so verification asks can finish on read evidence, got %+v", contract.RequiredEvidenceAnyOf[0])
 	}
 }
 
