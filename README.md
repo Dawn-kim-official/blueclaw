@@ -346,7 +346,7 @@ Still open:
 - `Final Step` runs no tool and must send the final reply, failure reply, or reaction that closes the Task.
 - Every `continue` action carries `nextStepPlan` with `objective`, `expectedTools`, `doneCriteria`, `risk`, and `workingSetReason`.
 - The next Step working set is built from core tools, selected skills, outcome requirements, recovery packets, and the previous `nextStepPlan.expectedTools`.
-- Tool schemas exposed to the model stay capped at 15 (`maxSchemaCallableToolCount` in `internal/agent/tool_exposure.go`). The runtime uses deterministic working sets when candidates fit and calls the compact tool selector only when the stage is ambiguous or exceeds the cap.
+- Extension tool schemas exposed to the model stay capped (`maxExtensionCallableToolCount` in `internal/agent/tool_exposure.go`); kernel tools are always included on top of that cap. The runtime uses deterministic working sets when candidates fit and calls the compact tool selector only when the stage is ambiguous or exceeds the cap.
 - Completion and recovery gates are independent from tool visibility. Draft/setup evidence such as site creation cannot finish a publish Task without required build, review, publish, and final status evidence.
 
 ## Status
