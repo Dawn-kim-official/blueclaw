@@ -148,6 +148,113 @@ describe('llmd provider adapter', () => {
     expect(llamaModel.doStreamCalls).toHaveLength(0);
   });
 
+  test('marks the sole leading system message with a cache control breakpoint', async () => {
+    const llamaModel = successfulLanguageModel('unused-local-model', { ok: true });
+    const remoteModel = chatLanguageModel('served-remote-model');
+    const generateChatCompletion = createChatCompletionGenerator(
+      completeConfiguration(LLMDAutoRoute.RemoteFirst),
+      languageModelFactory(llamaModel, remoteModel),
+    );
+
+    await generateChatCompletion(chatRequest);
+    const call = remoteModel.doStreamCalls[0];
+    const systemPromptMessages = (call?.prompt ?? []).filter(message => message.role === 'system');
+
+    expect(systemPromptMessages).toHaveLength(1);
+    expect(systemPromptMessages[0]).toMatchObject({
+      role: 'system',
+      content: 'You are concise.',
+      providerOptions: { openrouter: { cacheControl: { type: 'ephemeral' } } },
+    });
+  });
+
+  test('caches only the last leading system message and still delivers trailing system content', async () => {
+    const llamaModel = successfulLanguageModel('unused-local-model', { ok: true });
+    const remoteModel = chatLanguageModel('served-remote-model');
+    const generateChatCompletion = createChatCompletionGenerator(
+      completeConfiguration(LLMDAutoRoute.RemoteFirst),
+      languageModelFactory(llamaModel, remoteModel),
+    );
+
+    await generateChatCompletion({
+      ...chatRequest,
+      messages: [
+        { role: ChatCompletionMessageRole.System, content: 'Static base instruction.' },
+        { role: ChatCompletionMessageRole.System, content: 'Static context text.' },
+        { role: ChatCompletionMessageRole.User, content: 'Do the task.' },
+        { role: ChatCompletionMessageRole.System, content: 'Trailing volatile note.' },
+      ],
+    });
+    const call = remoteModel.doStreamCalls[0];
+    const systemPromptMessages = (call?.prompt ?? []).filter(message => message.role === 'system');
+
+    expect(systemPromptMessages).toHaveLength(3);
+    expect(systemPromptMessages[0]).toMatchObject({ content: 'Static base instruction.' });
+    expect(systemPromptMessages[0]?.providerOptions).toBeUndefined();
+    expect(systemPromptMessages[1]).toMatchObject({
+      content: 'Static context text.',
+      providerOptions: { openrouter: { cacheControl: { type: 'ephemeral' } } },
+    });
+    expect(systemPromptMessages[2]).toMatchObject({ content: 'Trailing volatile note.' });
+    expect(systemPromptMessages[2]?.providerOptions).toBeUndefined();
+  });
+
+  test('carries the structured route cache control breakpoint to the last leading system message', async () => {
+    const llamaModel = successfulLanguageModel('unused-local-model', { ok: true });
+    const remoteModel = sequencedStructuredToolCallLanguageModel('served-remote-model', ['{"ok":true}']);
+    const generateStructuredResponse = createStructuredResponseGenerator(
+      completeConfiguration(LLMDAutoRoute.RemoteFirst),
+      languageModelFactory(llamaModel, remoteModel),
+    );
+
+    await generateStructuredResponse({
+      ...structuredRequest,
+      messages: [
+        { role: LanguageModelMessageRole.System, content: 'Static base instruction.' },
+        { role: LanguageModelMessageRole.System, content: 'Static context text.' },
+        { role: LanguageModelMessageRole.User, content: 'Do the task.' },
+      ],
+    });
+    const call = remoteModel.doStreamCalls[0];
+    const systemPromptMessages = (call?.prompt ?? []).filter(message => message.role === 'system');
+
+    expect(systemPromptMessages).toHaveLength(2);
+    expect(systemPromptMessages[0]?.providerOptions).toBeUndefined();
+    expect(systemPromptMessages[1]).toMatchObject({
+      content: 'Static context text.',
+      providerOptions: { openrouter: { cacheControl: { type: 'ephemeral' } } },
+    });
+  });
+
+  test('writes the cache control breakpoint on the wire request to the intended message only', async () => {
+    const requestBodies: Array<Record<string, unknown>> = [];
+    const generateChatCompletion = createChatCompletionGenerator(
+      completeConfiguration(LLMDAutoRoute.RemoteFirst),
+      wireLanguageModelFactory(requestBodies),
+    );
+
+    await generateChatCompletion({
+      ...chatRequest,
+      executionMode: ExecutionMode.Remote,
+      messages: [
+        { role: ChatCompletionMessageRole.System, content: 'Static base instruction.' },
+        { role: ChatCompletionMessageRole.System, content: 'Static context text.' },
+        { role: ChatCompletionMessageRole.User, content: 'Do the task.' },
+      ],
+      tools: [],
+      toolChoice: 'auto',
+    });
+
+    expect(requestBodies).toHaveLength(1);
+    const wireMessages = requestBodies[0]?.messages;
+    if (!Array.isArray(wireMessages)) throw new Error('wire request messages must be an array');
+    const wireSystemMessages = wireMessages.filter(isWireSystemMessage);
+
+    expect(wireSystemMessages).toHaveLength(2);
+    expect(wireSystemMessages[0]?.content?.[0]?.cache_control).toBeUndefined();
+    expect(wireSystemMessages[1]?.content?.[0]?.cache_control).toEqual({ type: 'ephemeral' });
+  });
+
   test('rejects text when a tool call is required without fallback', async () => {
     const fallbackModel = chatLanguageModel('unused-local-model');
     const remoteModel = textLanguageModel('served-remote-model');
@@ -1952,4 +2059,10 @@ function defaultUsage(): LanguageModelV3Usage {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+type WireSystemMessage = { role: 'system'; content: Array<{ cache_control?: { type: string } }> };
+
+function isWireSystemMessage(value: unknown): value is WireSystemMessage {
+  return isRecord(value) && value.role === 'system' && Array.isArray(value.content);
 }

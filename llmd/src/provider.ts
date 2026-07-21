@@ -6,6 +6,7 @@ import type {
   LanguageModelV3GenerateResult,
   LanguageModelV3StreamPart,
   LanguageModelV3ToolCall,
+  SharedV3ProviderOptions,
 } from '@ai-sdk/provider';
 import { createOpenRouter } from '@openrouter/ai-sdk-provider';
 import {
@@ -34,6 +35,7 @@ import {
   streamText,
   type ToolChoice,
   type ModelMessage,
+  type SystemModelMessage,
   TypeValidationError,
   wrapLanguageModel,
 } from 'ai';
@@ -41,6 +43,10 @@ import Ajv, { type ErrorObject } from 'ajv/dist/2020.js';
 
 import { LLMDAutoRoute, type LLMDConfiguration } from './configuration.ts';
 import { classifyLLMDError, isRetryableProviderError, LLMDError } from './errors.ts';
+
+const providerCacheControlBreakpoint: SharedV3ProviderOptions = {
+  openrouter: { cacheControl: { type: 'ephemeral' } },
+};
 
 type ProviderRoute = {
   constraintMode?: StructuredOutputConstraintMode.NativeToolCall;
@@ -325,7 +331,7 @@ async function generateForRoute(
   const outputToolName = request.structuredOutputSchema.name;
   const tools = { [outputToolName]: { inputSchema: outputSchema } };
   const messages = convertConversationMessages(request);
-  const system = systemContent(request);
+  const system = systemMessages(request);
   let repairAttempted = false;
   let result;
   try {
@@ -387,7 +393,7 @@ type ToolRepairRequest = {
   toolName: string;
   toolCall: LanguageModelV3ToolCall;
   messages: ModelMessage[];
-  system: string | undefined;
+  system: SystemModelMessage[] | undefined;
   generationOptions: GenerationOptions | undefined;
   inputSchema: JSONSchema7;
   validationCategory: StructuredOutputDiagnosticCategory;
@@ -492,9 +498,9 @@ function validationFailureMessage(errorValue: unknown): string {
   return validationCause.message.trim() || 'tool arguments do not match the schema';
 }
 
-function repairSystem(system: string | undefined): string {
+function repairSystem(system: SystemModelMessage[] | undefined): SystemModelMessage[] {
   const instruction = 'Repair the previous tool call using the closed JSON schema in the repair prompt and return exactly one forced tool call.';
-  return system ? `${system}\n\n${instruction}` : instruction;
+  return [...(system ?? []), { role: 'system', content: instruction }];
 }
 
 function serializeStructuredOutput(value: unknown): string {
@@ -649,7 +655,7 @@ async function generateChatForRoute(
     request.parallelToolCalls,
   );
   const messages = convertChatMessages(request);
-  const system = systemContent(request);
+  const system = systemMessages(request);
   const chatRoute = routeForChatRequest(request, route, requestedToolChoice);
   let repairAttempted = false;
   const repairStatuses = new Map<string, StructuredOutputRepairStatus>();
@@ -1100,12 +1106,26 @@ function convertConversationMessages(request: StructuredResponseRequest): ModelM
   });
 }
 
-function systemContent(request: ProviderRequest): string | undefined {
-  const systemMessages = request.messages
-    .filter(message => message.role === 'system')
-    .map(systemMessageContent)
-    .filter(Boolean);
-  return systemMessages.length > 0 ? systemMessages.join('\n\n') : undefined;
+function systemMessages(request: ProviderRequest): SystemModelMessage[] | undefined {
+  const contents: string[] = [];
+  let cacheBreakpointIndex: number | undefined;
+  let isBeforeFirstNonSystemMessage = true;
+  for (const message of request.messages) {
+    if (message.role !== 'system') {
+      isBeforeFirstNonSystemMessage = false;
+      continue;
+    }
+    const content = systemMessageContent(message);
+    if (!content) continue;
+    contents.push(content);
+    if (isBeforeFirstNonSystemMessage) cacheBreakpointIndex = contents.length - 1;
+  }
+  if (contents.length === 0) return undefined;
+  return contents.map((content, index) => (
+    index === cacheBreakpointIndex
+      ? { role: 'system' as const, content, providerOptions: providerCacheControlBreakpoint }
+      : { role: 'system' as const, content }
+  ));
 }
 
 function systemMessageContent(message: ProviderRequest['messages'][number]): string {
