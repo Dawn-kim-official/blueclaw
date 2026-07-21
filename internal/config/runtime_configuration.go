@@ -276,6 +276,7 @@ type ConnectorConfiguration struct {
 	Mattermost MattermostConnectorConfiguration `json:"mattermost"`
 	Slack      SlackConnectorConfiguration      `json:"slack"`
 	Signal     SignalConnectorConfiguration     `json:"signal"`
+	Chatd      ChatdConnectorConfiguration      `json:"chatd"`
 }
 
 type MattermostConnectorConfiguration struct {
@@ -288,6 +289,12 @@ type SlackConnectorConfiguration struct {
 
 type SignalConnectorConfiguration struct {
 	Enabled bool `json:"enabled"`
+}
+
+type ChatdConnectorConfiguration struct {
+	Endpoint         string   `json:"endpoint,omitempty"`
+	TimeoutSecond    int      `json:"timeoutSecond,omitempty"`
+	EnabledPlatforms []string `json:"enabledPlatforms,omitempty"`
 }
 
 type LoggingConfiguration struct {

@@ -295,9 +295,10 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 	if database.SQL != nil {
 		connectorRuntime.UseEventRepository(postgres.NewRawEventRepository(database))
 	}
-	connectorRuntime.RegisterAdapter(connectors.NewCapabilityPlatformAdapter("mattermost", capabilityClient))
-	connectorRuntime.RegisterAdapter(connectors.NewCapabilityPlatformAdapter("slack", capabilityClient))
-	connectorRuntime.RegisterAdapter(connectors.NewCapabilityPlatformAdapter("signal", capabilityClient))
+	chatdClient := newChatdClient(runtimeConfiguration)
+	connectorRuntime.RegisterAdapter(newPlatformAdapter("mattermost", runtimeConfiguration, capabilityClient, chatdClient))
+	connectorRuntime.RegisterAdapter(newPlatformAdapter("slack", runtimeConfiguration, capabilityClient, chatdClient))
+	connectorRuntime.RegisterAdapter(newPlatformAdapter("signal", runtimeConfiguration, capabilityClient, chatdClient))
 	agentReplyStore := apiconnector.NewReplyStore()
 	connectorRuntime.RegisterAdapter(apiconnector.NewAdapter(identityService, agentReplyStore))
 	connectorEventHandler := httpserver.NewConnectorEventHandler(connectorRuntime)
@@ -910,6 +911,29 @@ func newCapabilityClient(runtimeConfiguration config.RuntimeConfiguration) capab
 		VSockPort:      runtimeConfiguration.Capabilities.VSockPort,
 		Timeout:        time.Duration(runtimeConfiguration.Capabilities.TimeoutSecond) * time.Second,
 	})
+}
+
+func newChatdClient(runtimeConfiguration config.RuntimeConfiguration) capability.Client {
+	return capability.NewClient(capability.Configuration{
+		Endpoint: firstNonEmptyString(runtimeConfiguration.Connectors.Chatd.Endpoint, connectors.DefaultChatdEndpoint),
+		Timeout:  time.Duration(runtimeConfiguration.Connectors.Chatd.TimeoutSecond) * time.Second,
+	})
+}
+
+func newPlatformAdapter(platform string, runtimeConfiguration config.RuntimeConfiguration, capabilityClient capability.Client, chatdClient capability.Client) connectors.PlatformAdapter {
+	if isChatdEnabledForPlatform(runtimeConfiguration.Connectors.Chatd, platform) {
+		return connectors.NewChatdPlatformAdapter(platform, chatdClient)
+	}
+	return connectors.NewCapabilityPlatformAdapter(platform, capabilityClient)
+}
+
+func isChatdEnabledForPlatform(chatdConfiguration config.ChatdConnectorConfiguration, platform string) bool {
+	for _, enabledPlatform := range chatdConfiguration.EnabledPlatforms {
+		if strings.EqualFold(strings.TrimSpace(enabledPlatform), platform) {
+			return true
+		}
+	}
+	return false
 }
 
 func skillIndexPath(runtimeConfiguration config.RuntimeConfiguration) string {
