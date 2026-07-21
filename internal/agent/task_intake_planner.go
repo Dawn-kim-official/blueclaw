@@ -427,10 +427,6 @@ func (turnRouter TurnRouter) buildMessages(request AgentRequest) []llm.Message {
 		},
 		{
 			Role:    "system",
-			Content: buildTemporalContextDescription(request.TurnStartedAt),
-		},
-		{
-			Role:    "system",
 			Content: toolDescriptions,
 		},
 	}
@@ -449,6 +445,7 @@ func (turnRouter TurnRouter) buildMessages(request AgentRequest) []llm.Message {
 	if routingContext := turnRoutingContextDescription(request); routingContext != "" {
 		messages = append(messages, llm.Message{Role: "system", Content: routingContext})
 	}
+	messages = append(messages, llm.Message{Role: "system", Content: buildTemporalContextDescription(request.TurnStartedAt)})
 	messages = append(messages, llm.Message{Role: "user", Content: request.Prompt})
 	return messages
 }
