@@ -109,6 +109,7 @@ func completionJudgeRequest(request AgentTurnRequest, observations []turnObserva
 			Document:           completionJudgeSchema(),
 			IsStrictlyEnforced: true,
 		},
+		GenerationOptions: agentActionGenerationOptions(llm.GenerationOptions{}),
 	}
 }
 
