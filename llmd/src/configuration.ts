@@ -26,6 +26,7 @@ const environmentSchema = z.object({
   BLUECLAW_LLMD_LOCAL_ONLY: z.enum(LLMDBooleanEnvironmentValue).default(LLMDBooleanEnvironmentValue.False),
   BLUECLAW_LLMD_OPENROUTER_BASE_URL: z.string().url().default('https://openrouter.ai/api/v1'),
   BLUECLAW_LLMD_SOCKET_PATH: z.string().min(1).default('/run/blueclaw-llmd/llmd.sock'),
+  BLUECLAW_LLMD_STREAM_IDLE_TIMEOUT_MS: z.coerce.number().int().positive().optional(),
   CREDENTIALS_DIRECTORY: z.string().min(1).optional(),
   OPENROUTER_API_KEY: z.string().min(1).optional(),
   OPENROUTER_API_KEY_PATH: z.string().min(1).optional(),
@@ -42,6 +43,7 @@ export type LLMDConfiguration = {
   openRouterAPIKey?: string;
   openRouterBaseURL: string;
   socketPath: string;
+  streamIdleTimeoutMs?: number;
 };
 
 export function loadLLMDConfiguration(environment: Record<string, string | undefined>): LLMDConfiguration {
@@ -67,6 +69,7 @@ export function loadLLMDConfiguration(environment: Record<string, string | undef
     ),
     openRouterBaseURL: parsedEnvironment.BLUECLAW_LLMD_OPENROUTER_BASE_URL,
     socketPath: parsedEnvironment.BLUECLAW_LLMD_SOCKET_PATH,
+    streamIdleTimeoutMs: parsedEnvironment.BLUECLAW_LLMD_STREAM_IDLE_TIMEOUT_MS,
   };
 }
 

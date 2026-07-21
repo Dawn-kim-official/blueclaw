@@ -4,6 +4,7 @@ import type {
   JSONValue,
   LanguageModelV3,
   LanguageModelV3GenerateResult,
+  LanguageModelV3StreamPart,
   LanguageModelV3ToolCall,
 } from '@ai-sdk/provider';
 import { createOpenRouter } from '@openrouter/ai-sdk-provider';
@@ -30,6 +31,7 @@ import {
   InvalidToolInputError,
   jsonSchema,
   JSONParseError,
+  streamText,
   type ToolChoice,
   type ModelMessage,
   TypeValidationError,
@@ -71,6 +73,7 @@ export function createStructuredResponseGenerator(
   configuration: LLMDConfiguration,
   languageModelFactory: ProviderLanguageModelFactory = defaultLanguageModelFactory,
 ): StructuredResponseGenerator {
+  const idleTimeoutMs = configuration.streamIdleTimeoutMs ?? defaultStreamIdleTimeoutMs;
   return async (request, abortSignal) => {
     throwIfAborted(abortSignal);
     validateStructuredOutputRequest(request);
@@ -79,7 +82,7 @@ export function createStructuredResponseGenerator(
     for (const route of routes) {
       throwIfAborted(abortSignal);
       try {
-        return await generateForRoute(request, route, abortSignal);
+        return await generateForRoute(request, route, idleTimeoutMs, abortSignal);
       } catch (errorValue) {
         lastError = errorValue;
         if (abortSignal?.aborted) throw errorValue;
@@ -95,6 +98,7 @@ export function createChatCompletionGenerator(
   configuration: LLMDConfiguration,
   languageModelFactory: ProviderLanguageModelFactory = defaultLanguageModelFactory,
 ): ChatCompletionGenerator {
+  const idleTimeoutMs = configuration.streamIdleTimeoutMs ?? defaultStreamIdleTimeoutMs;
   return async (request, abortSignal) => {
     throwIfAborted(abortSignal);
     const routes = resolveProviderRoutes(request, configuration, languageModelFactory, false);
@@ -102,7 +106,7 @@ export function createChatCompletionGenerator(
     for (const route of routes) {
       throwIfAborted(abortSignal);
       try {
-        return await generateChatForRoute(request, route, abortSignal);
+        return await generateChatForRoute(request, route, idleTimeoutMs, abortSignal);
       } catch (errorValue) {
         lastError = errorValue;
         if (abortSignal?.aborted) throw errorValue;
@@ -270,9 +274,51 @@ const defaultLanguageModelFactory: ProviderLanguageModelFactory = {
   },
 };
 
+const defaultStreamIdleTimeoutMs = 60_000;
+
+async function generateWithIdleTimeout(
+  options: Parameters<typeof streamText>[0],
+  idleTimeoutMs: number,
+  callerAbortSignal: AbortSignal | undefined,
+) {
+  const idleController = new AbortController();
+  const abortSignal = callerAbortSignal ? AbortSignal.any([callerAbortSignal, idleController.signal]) : idleController.signal;
+  const result = streamText({ ...options, abortSignal });
+  let idleTimer: ReturnType<typeof setTimeout> | undefined;
+  let capturedStreamError: unknown;
+  const resetIdleTimer = (): void => {
+    if (idleTimer !== undefined) clearTimeout(idleTimer);
+    idleTimer = setTimeout(() => idleController.abort(streamStalledError(idleTimeoutMs)), idleTimeoutMs);
+  };
+  resetIdleTimer();
+  try {
+    for await (const chunk of result.fullStream) {
+      if (chunk.type === 'error' && capturedStreamError === undefined) capturedStreamError = chunk.error;
+      resetIdleTimer();
+    }
+  } finally {
+    if (idleTimer !== undefined) clearTimeout(idleTimer);
+  }
+  if (capturedStreamError !== undefined) throw capturedStreamError;
+  const [text, toolCalls, totalUsage, finishReason, response, providerMetadata] = await Promise.all([
+    result.text,
+    result.toolCalls,
+    result.totalUsage,
+    result.finishReason,
+    result.response,
+    result.providerMetadata,
+  ]);
+  return { text, toolCalls, totalUsage, finishReason, response, providerMetadata };
+}
+
+function streamStalledError(idleTimeoutMs: number): LLMDError {
+  return new LLMDError('provider_unavailable', 503, true, `provider stream stalled for ${idleTimeoutMs}ms`);
+}
+
 async function generateForRoute(
   request: StructuredResponseRequest,
   route: ProviderRoute,
+  idleTimeoutMs: number,
   abortSignal?: AbortSignal,
 ): Promise<StructuredResponse> {
   const outputSchema = createValidatedJSONSchema(request.structuredOutputSchema.document);
@@ -283,7 +329,7 @@ async function generateForRoute(
   let repairAttempted = false;
   let result;
   try {
-    result = await generateText({
+    result = await generateWithIdleTimeout({
       model: route.languageModel,
       system,
       messages,
@@ -291,7 +337,6 @@ async function generateForRoute(
       toolChoice: { type: 'tool', toolName: outputToolName },
       maxOutputTokens: request.generationOptions?.maxTokens,
       maxRetries: 0,
-      abortSignal,
       experimental_repairToolCall: async ({ toolCall, error, inputSchema }) => {
         if (abortSignal?.aborted || repairAttempted || !InvalidToolInputError.isInstance(error) || toolCall.toolName !== outputToolName) return null;
         repairAttempted = true;
@@ -310,7 +355,7 @@ async function generateForRoute(
       },
       seed: request.generationOptions?.seed,
       temperature: request.generationOptions?.temperature,
-    });
+    }, idleTimeoutMs, abortSignal);
   } catch (errorValue) {
     if (abortSignal?.aborted) throwIfAborted(abortSignal);
     throw errorValue;
@@ -593,6 +638,7 @@ type StructuredOutputToolResult = {
 async function generateChatForRoute(
   request: ChatCompletionRequest,
   route: ProviderRoute,
+  idleTimeoutMs: number,
   abortSignal?: AbortSignal,
 ): Promise<ChatCompletionResponse> {
   const tools = createChatTools(request);
@@ -607,7 +653,7 @@ async function generateChatForRoute(
   const chatRoute = routeForChatRequest(request, route, requestedToolChoice);
   let repairAttempted = false;
   const repairStatuses = new Map<string, StructuredOutputRepairStatus>();
-  const result = await generateText({
+  const result = await generateWithIdleTimeout({
     model: chatRoute.languageModel,
     system,
     messages,
@@ -615,7 +661,6 @@ async function generateChatForRoute(
     toolChoice: providerChoice,
     maxOutputTokens: request.generationOptions?.maxTokens,
     maxRetries: 0,
-    abortSignal,
     experimental_repairToolCall: async ({ toolCall, error, inputSchema }) => {
       if (repairAttempted || !InvalidToolInputError.isInstance(error) || tools[toolCall.toolName] === undefined) return null;
       repairAttempted = true;
@@ -636,7 +681,7 @@ async function generateChatForRoute(
     },
     seed: request.generationOptions?.seed,
     temperature: request.generationOptions?.temperature,
-  });
+  }, idleTimeoutMs, abortSignal);
   throwIfAborted(abortSignal);
   requireChatToolChoice(result, requestedToolChoice, Object.keys(tools));
   for (const toolCall of result.toolCalls) {
@@ -702,8 +747,29 @@ function firstToolCallLanguageModel(languageModel: LanguageModelV3): LanguageMod
     middleware: {
       specificationVersion: 'v3',
       wrapGenerate: async ({ doGenerate }) => keepFirstToolCall(await doGenerate()),
+      wrapStream: async ({ doStream }) => {
+        const result = await doStream();
+        return { ...result, stream: keepFirstToolCallStream(result.stream) };
+      },
     },
   });
+}
+
+function keepFirstToolCallStream(
+  stream: ReadableStream<LanguageModelV3StreamPart>,
+): ReadableStream<LanguageModelV3StreamPart> {
+  let hasKeptToolCall = false;
+  return stream.pipeThrough(new TransformStream<LanguageModelV3StreamPart, LanguageModelV3StreamPart>({
+    transform(part, controller) {
+      if (part.type !== 'tool-call') {
+        controller.enqueue(part);
+        return;
+      }
+      if (hasKeptToolCall) return;
+      hasKeptToolCall = true;
+      controller.enqueue(part);
+    },
+  }));
 }
 
 function keepFirstToolCall(result: LanguageModelV3GenerateResult): LanguageModelV3GenerateResult {
