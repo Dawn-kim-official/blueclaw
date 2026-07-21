@@ -155,3 +155,17 @@ func mustToolDefinition(t *testing.T, toolSet *ToolSet, toolName string) ToolDef
 func finishDocument(message string) turnActionDocument {
 	return turnActionDocument{Action: "finish", Message: message}
 }
+
+func TestLinkExpectationWithoutLinkCapableToolDoesNotHardBlock(t *testing.T) {
+	toolSet := newTestToolSet([]string{"task.list"})
+	expectation := ExpectedResult{Type: ExpectedResultTypeLink, Required: true}
+
+	if message := missingExpectedResultDelivery(expectation, toolSet, nil, nil, "조회 결과입니다."); message != "" {
+		t.Fatalf("expected an unsatisfiable link expectation to defer to the judge, got %q", message)
+	}
+
+	linkToolSet := newTestToolSetWithDefinitions([]ToolDefinition{canonicalLinkToolDefinition("site.publish")})
+	if message := missingExpectedResultDelivery(expectation, linkToolSet, nil, nil, "만들었습니다."); message == "" {
+		t.Fatal("expected a link-capable working set to keep requiring the canonical link")
+	}
+}
