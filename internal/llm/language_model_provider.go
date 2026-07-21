@@ -74,6 +74,7 @@ type StructuredResponse struct {
 	FinishReason    string
 	ConstraintMode  string
 	UsedFallback    bool
+	FallbackReason  string
 	Usage           Usage
 }
 

@@ -27,6 +27,7 @@ type ChatCompletionResponse struct {
 	Message          ChatCompletionMessage `json:"message"`
 	Usage            Usage                 `json:"usage"`
 	UsedFallback     bool                  `json:"-"`
+	FallbackReason   string                `json:"-"`
 }
 
 type ChatCompletionMessage struct {
