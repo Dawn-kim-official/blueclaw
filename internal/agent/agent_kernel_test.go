@@ -1005,7 +1005,7 @@ func TestAgentKernelCallerCancellationIsNotMaxElapsed(t *testing.T) {
 }
 
 func TestTurnBudgetCallerContextExcludesInternalTotalDeadline(t *testing.T) {
-	turnBudget := newTurnBudgetContext(context.Background(), time.Now().Add(-2*time.Second), TurnOptions{MaxElapsedSecond: 1})
+	turnBudget := newTurnBudgetContext(context.Background(), time.Now().Add(-2*time.Second), false, time.Now(), TurnOptions{MaxElapsedSecond: 1})
 	defer turnBudget.cancel()
 
 	if !errors.Is(turnBudget.totalContext.Err(), context.DeadlineExceeded) {
@@ -1019,7 +1019,7 @@ func TestTurnBudgetCallerContextExcludesInternalTotalDeadline(t *testing.T) {
 func TestTurnBudgetCallerContextPreservesCallerCancellationAndDeadline(t *testing.T) {
 	cancelledContext, cancel := context.WithCancel(context.Background())
 	cancel()
-	cancelledBudget := newTurnBudgetContext(cancelledContext, time.Now(), TurnOptions{MaxElapsedSecond: 30})
+	cancelledBudget := newTurnBudgetContext(cancelledContext, time.Now(), false, time.Now(), TurnOptions{MaxElapsedSecond: 30})
 	defer cancelledBudget.cancel()
 
 	if !errors.Is(cancelledBudget.callerContext().Err(), context.Canceled) {
@@ -1028,11 +1028,62 @@ func TestTurnBudgetCallerContextPreservesCallerCancellationAndDeadline(t *testin
 
 	deadlineContext, cancelDeadline := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
 	defer cancelDeadline()
-	deadlineBudget := newTurnBudgetContext(deadlineContext, time.Now(), TurnOptions{MaxElapsedSecond: 30})
+	deadlineBudget := newTurnBudgetContext(deadlineContext, time.Now(), false, time.Now(), TurnOptions{MaxElapsedSecond: 30})
 	defer deadlineBudget.cancel()
 
 	if !errors.Is(deadlineBudget.callerContext().Err(), context.DeadlineExceeded) {
 		t.Fatalf("expected caller deadline, got %v", deadlineBudget.callerContext().Err())
+	}
+}
+
+func TestClampedTurnStartedAtReanchorsStaleNonResumeAnchor(t *testing.T) {
+	referenceNow := time.Now()
+	staleAnchor := referenceNow.Add(-nonResumeAnchorStaleAllowance - time.Second)
+
+	resolvedTurnStartedAt, didClampAnchor, originalTurnStartedAt := clampedTurnStartedAt(staleAnchor, false, referenceNow)
+
+	if !didClampAnchor {
+		t.Fatal("expected a stale non-resume anchor to be clamped")
+	}
+	if !resolvedTurnStartedAt.Equal(referenceNow) {
+		t.Fatalf("expected the clamped anchor to equal the reference now, got %v", resolvedTurnStartedAt)
+	}
+	if !originalTurnStartedAt.Equal(staleAnchor) {
+		t.Fatalf("expected the original anchor to be preserved for diagnostics, got %v", originalTurnStartedAt)
+	}
+}
+
+func TestClampedTurnStartedAtPreservesResumeAnchorRegardlessOfAge(t *testing.T) {
+	referenceNow := time.Now()
+	staleAnchor := referenceNow.Add(-nonResumeAnchorStaleAllowance - time.Hour)
+
+	resolvedTurnStartedAt, didClampAnchor, originalTurnStartedAt := clampedTurnStartedAt(staleAnchor, true, referenceNow)
+
+	if didClampAnchor {
+		t.Fatal("expected a runtime-restart resume to keep its restored anchor untouched")
+	}
+	if !resolvedTurnStartedAt.Equal(staleAnchor) {
+		t.Fatalf("expected the resume anchor to remain the restored value, got %v", resolvedTurnStartedAt)
+	}
+	if !originalTurnStartedAt.Equal(staleAnchor) {
+		t.Fatalf("expected the original anchor to match the resume anchor, got %v", originalTurnStartedAt)
+	}
+}
+
+func TestClampedTurnStartedAtLeavesFreshAnchorUntouched(t *testing.T) {
+	referenceNow := time.Now()
+	freshAnchor := referenceNow.Add(-time.Second)
+
+	resolvedTurnStartedAt, didClampAnchor, originalTurnStartedAt := clampedTurnStartedAt(freshAnchor, false, referenceNow)
+
+	if didClampAnchor {
+		t.Fatal("expected a fresh non-resume anchor to be left untouched")
+	}
+	if !resolvedTurnStartedAt.Equal(freshAnchor) {
+		t.Fatalf("expected the anchor to remain fresh, got %v", resolvedTurnStartedAt)
+	}
+	if !originalTurnStartedAt.Equal(freshAnchor) {
+		t.Fatalf("expected the original anchor to match the fresh anchor, got %v", originalTurnStartedAt)
 	}
 }
 
@@ -1067,7 +1118,7 @@ func TestAgentKernelXHighTaskKeepsHourBudgetWithLowExecutionModel(t *testing.T) 
 	}
 }
 
-func TestAgentKernelCountsIntakeTimeTowardTaskWorkDuration(t *testing.T) {
+func TestAgentKernelClampsStaleNonResumeAnchorInsteadOfInstantElapsing(t *testing.T) {
 	agentKernel, taskRunService := newKernelTestServices()
 	languageModel := &sequenceLanguageModel{contents: []string{finishMessageDocument("diagnostic done")}}
 	agentKernel.UseLanguageModelProvider(languageModel)
@@ -1088,16 +1139,20 @@ func TestAgentKernelCountsIntakeTimeTowardTaskWorkDuration(t *testing.T) {
 	result, errorValue := agentKernel.RunAgentRequest(context.Background(), request)
 
 	if errorValue != nil {
-		t.Fatalf("expected elapsed task result: %v", errorValue)
+		t.Fatalf("expected a completed task result: %v", errorValue)
 	}
-	if result.TaskRun.Status != task.TaskStatusBlocked || result.TaskRun.FailureReason != "max_elapsed" {
-		t.Fatalf("expected intake time to exhaust the task budget, got %+v", result.TaskRun)
+	if result.TaskRun.Status != task.TaskStatusCompleted {
+		t.Fatalf("expected the clamped anchor to let the task proceed to completion, got %+v", result.TaskRun)
 	}
-	if len(languageModel.requests) != 0 {
-		t.Fatalf("expected no task action after elapsed intake, got %d requests", len(languageModel.requests))
+	if len(languageModel.requests) == 0 {
+		t.Fatal("expected the task action model to run once the anchor was clamped")
 	}
-	if !taskEventsContain(taskRunService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.limit_stop", "max_elapsed") {
-		t.Fatal("expected persisted max_elapsed event")
+	taskEvents := taskRunService.ListTaskEvent(result.TaskRun.TaskRunID)
+	if taskEventsContain(taskEvents, "agent.limit_stop", "max_elapsed") {
+		t.Fatal("a clamped anchor must not still report an instant max_elapsed")
+	}
+	if !taskEventsContain(taskEvents, "agent.turn_anchor_clamped", "originalTurnStartedAtUnixMs") {
+		t.Fatal("expected a turn_anchor_clamped diagnostic event naming the stale original anchor")
 	}
 }
 
