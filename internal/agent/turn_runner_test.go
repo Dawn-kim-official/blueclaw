@@ -1427,6 +1427,69 @@ func TestAgentTurnRunnerApprovalRequiredPausesAndExecutesHeldCall(t *testing.T) 
 	}
 }
 
+func TestAgentTurnRunnerApprovalContinuationRequiresNewApprovalForDifferentHeldCallInput(t *testing.T) {
+	heldInputA := `{"taskID":"task-A"}`
+	heldInputB := `{"taskID":"task-B"}`
+	languageModel := &sequenceLanguageModel{contents: []string{
+		directToolAction("continue", "", "task.delete", heldInputA),
+		`{"question":"task-A를 삭제할까요?"}`,
+		directToolAction("continue", "", "task.list", `{}`),
+		directToolAction("continue", "", "task.delete", heldInputB),
+		`{"question":"task-B를 삭제할까요?"}`,
+	}}
+	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 6})
+	toolRegistry := newTestCapabilityToolSet([]string{"task.delete", "task.list"})
+	invokedDeleteInputs := []string{}
+	registerTestTool(toolRegistry, ToolDefinition{Name: "task.delete", RequiresApproval: true}, func(_ context.Context, invocation ToolInvocation) (ToolResult, error) {
+		invokedDeleteInputs = append(invokedDeleteInputs, string(invocation.Input))
+		return testToolSuccess(`{"status":"deleted"}`), nil
+	})
+
+	firstResult, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
+		RequesterPersonID: "person-1",
+		ConversationID:    "conversation-1",
+		Prompt:            "task-A 삭제해줘",
+		ResponseLanguage:  ResponseLanguageKorean,
+		ToolSet:           toolRegistry,
+		PinnedToolNames:   []string{"task.delete", "task.list"},
+		WorkspaceRootPath: t.TempDir(),
+	})
+	if errorValue != nil {
+		t.Fatalf("expected first turn to pause: %v", errorValue)
+	}
+	if firstResult.TaskRun.Status != task.TaskStatusWaitingApproval || len(invokedDeleteInputs) != 0 {
+		t.Fatalf("expected held delete before any execution, calls=%+v result=%+v", invokedDeleteInputs, firstResult)
+	}
+
+	secondResult, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
+		RequesterPersonID:      "person-1",
+		ExistingTaskRunID:      firstResult.TaskRun.TaskRunID,
+		IsApprovalContinuation: true,
+		ConversationID:         "conversation-1",
+		Prompt:                 "승인",
+		ResponseLanguage:       ResponseLanguageKorean,
+		ToolSet:                toolRegistry,
+		PinnedToolNames:        []string{"task.delete", "task.list"},
+		WorkspaceRootPath:      t.TempDir(),
+	})
+	if errorValue != nil {
+		t.Fatalf("expected approval continuation to pause again for the different held call: %v", errorValue)
+	}
+	if secondResult.TaskRun.Status != task.TaskStatusWaitingApproval {
+		t.Fatalf("expected a new approval pause for task-B, got %s events=%+v", secondResult.TaskRun.Status, services.taskEventService.ListTaskEvent(firstResult.TaskRun.TaskRunID))
+	}
+	if len(invokedDeleteInputs) != 1 || invokedDeleteInputs[0] != heldInputA {
+		t.Fatalf("expected only the verbatim held call for task-A to execute, got %+v", invokedDeleteInputs)
+	}
+	secondTurnEvents := services.taskEventService.ListTaskEvent(firstResult.TaskRun.TaskRunID)
+	if !taskEventsContain(secondTurnEvents, "approval.executed", "task-A") {
+		t.Fatalf("expected verbatim task-A execution recorded, events=%+v", secondTurnEvents)
+	}
+	if !taskEventsContain(secondTurnEvents, "approval.pending_call", heldInputB) {
+		t.Fatalf("expected a fresh approval hold for task-B, not a silent execution, events=%+v", secondTurnEvents)
+	}
+}
+
 func TestNextApprovalExecutionObservationIDUsesHighestExistingObservationID(t *testing.T) {
 	taskEvents := []task.TaskEvent{
 		{Name: "tool.site.status.result", Body: `{"observationID":"obs-001"}`},

@@ -73,6 +73,8 @@ func (agentTurnRunner *AgentTurnRunner) executeApprovedHeldCall(ctx context.Cont
 		return request, AgentTurnResult{}, false
 	}
 	request = requestWithHeldCallTool(request, heldCall.ToolName)
+	request.HadApprovedHeldCall = true
+	request.ApprovedHeldCallKey = canonicalToolCallKey(heldCall.ToolName, heldCall.ToolInput)
 	state.Request = request
 	actionDocument := turnActionDocument{
 		Action:    "continue",
@@ -87,6 +89,8 @@ func (agentTurnRunner *AgentTurnRunner) executeApprovedHeldCall(ctx context.Cont
 	observation := agentTurnRunner.invokeTool(ctx, executionToolSet, taskRunID, observationID, heldCall.ToolName, heldCall.ToolInput, request.WorkspaceRootPath, request.TurnStartedAt, request.ResponseLanguage, "")
 	agentTurnRunner.recordToolObservation(taskRunID, state, actionDocument, successfulToolCalls, observation, "")
 	agentTurnRunner.appendEvent(taskRunID, "approval.executed", marshalEventBody(approvalExecutedCall{ToolName: heldCall.ToolName, ToolInput: copyJSONRawMessage(heldCall.ToolInput)}))
+	request.ApprovedHeldCallKey = ""
+	state.Request = request
 	if pausedResult, isPaused := agentTurnRunner.pausedTaskResult(taskRunID, observation, state.Attachments); isPaused {
 		agentTurnRunner.saveStep(taskRunID, stepID, pausedResult.TaskRun.Status, "approval "+heldCall.ToolName, observation.ContentText())
 		return request, pausedResult, true
@@ -203,6 +207,25 @@ func toolCallRequiresRuntimeApproval(toolSet *ToolSet, actionDocument turnAction
 		ApprovalRequired bool `json:"approvalRequired"`
 	}
 	return json.Unmarshal(actionDocument.ToolInput, &input) == nil && input.ApprovalRequired
+}
+
+func isApprovedHeldCallVerbatimMatch(approvedHeldCallKey string, actionDocument turnActionDocument) bool {
+	trimmedApprovedHeldCallKey := strings.TrimSpace(approvedHeldCallKey)
+	if trimmedApprovedHeldCallKey == "" {
+		return false
+	}
+	return trimmedApprovedHeldCallKey == canonicalToolCallKey(actionDocument.ToolName, actionDocument.ToolInput)
+}
+
+// Task-intake-level continuations (no bound held call) keep the turn-wide exemption; runtime held-call continuations are exempt only for that exact verbatim call.
+func isExemptFromApprovalHold(request AgentTurnRequest, actionDocument turnActionDocument) bool {
+	if !request.IsApprovalContinuation {
+		return false
+	}
+	if !request.HadApprovedHeldCall {
+		return true
+	}
+	return isApprovedHeldCallVerbatimMatch(request.ApprovedHeldCallKey, actionDocument)
 }
 
 type approvalQuestionContextDocument struct {
