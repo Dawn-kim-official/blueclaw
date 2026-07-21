@@ -137,7 +137,7 @@ func buildTemporalContextDescription(turnStartedAt time.Time) string {
 		"Runtime temporal context:",
 		"Current date: " + localTime.Format("2006-01-02"),
 		"Current weekday: " + localTime.Weekday().String(),
-		"Current time: " + localTime.Format(time.RFC3339),
+		"Current time: " + localTime.Format("15:04"),
 		"Time zone: " + location.String(),
 		buildCurrentWeekDescription(localTime),
 		"Resolve relative dates such as today, tomorrow, next Friday, 오늘, 내일, and 다음 주 from this context before choosing tool inputs.",
