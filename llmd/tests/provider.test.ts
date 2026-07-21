@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'bun:test';
+import { describe, expect, spyOn, test } from 'bun:test';
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
 import type { LanguageModelV3GenerateResult, LanguageModelV3StreamPart, LanguageModelV3Usage } from '@ai-sdk/provider';
 import { APICallError, RetryError } from 'ai';
@@ -392,6 +392,34 @@ describe('llmd provider adapter', () => {
     expect(remoteModel.doGenerateCalls).toHaveLength(1);
     expect(llamaModel.doGenerateCalls).toHaveLength(0);
     expect(llamaModel.doStreamCalls).toHaveLength(0);
+  });
+
+  test('warns naming the dropped and kept tool calls when a generate call returns more than one', async () => {
+    const llamaModel = successfulLanguageModel('unused-local-model', { ok: true });
+    const remoteModel = sequencedToolCallSetsLanguageModel('served-remote-model', [
+      [{ toolName: 'lookup', input: '{' }],
+      [
+        { toolName: 'lookup', input: '{"key":"repaired"}' },
+        { toolName: 'task.add', input: '{"title":"draft"}' },
+      ],
+    ]);
+    const generateChatCompletion = createChatCompletionGenerator(
+      completeConfiguration(LLMDAutoRoute.RemoteFirst),
+      languageModelFactory(llamaModel, remoteModel),
+    );
+    const warnSpy = spyOn(console, 'warn').mockImplementation(() => {});
+    let warningMessage: unknown;
+
+    try {
+      await generateChatCompletion({ ...chatRequest, toolChoice: 'required' });
+      expect(warnSpy).toHaveBeenCalledTimes(1);
+      warningMessage = warnSpy.mock.calls[0]?.[0];
+    } finally {
+      warnSpy.mockRestore();
+    }
+
+    expect(warningMessage).toContain('task.add');
+    expect(warningMessage).toContain('lookup');
   });
 
   test('preserves all valid tool calls when parallel tool calls are enabled', async () => {

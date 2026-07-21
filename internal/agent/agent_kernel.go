@@ -14,7 +14,6 @@ import (
 
 type AgentKernel struct {
 	planCompiler            PlanCompiler
-	subagentDispatcher      SubagentDispatcher
 	taskRunService          *task.TaskRunService
 	taskStepService         *task.TaskStepService
 	taskArtifactService     *task.TaskArtifactService
@@ -38,7 +37,6 @@ type AgentKernel struct {
 func NewAgentKernel(taskRunService *task.TaskRunService, taskStepService *task.TaskStepService) *AgentKernel {
 	return &AgentKernel{
 		planCompiler:        PlanCompiler{},
-		subagentDispatcher:  SubagentDispatcher{},
 		taskRunService:      taskRunService,
 		taskStepService:     taskStepService,
 		taskArtifactService: task.NewTaskArtifactService(),
@@ -112,10 +110,6 @@ func (agentKernel *AgentKernel) RefreshSkillIndex(ctx context.Context, instructi
 		return
 	}
 	agentKernel.skillRetriever.Refresh(ctx, instructionBundle.Skills)
-}
-
-func (agentKernel *AgentKernel) HandleInboundMessage(requesterPersonID string, originConversationID string, prompt string) (task.TaskRun, error) {
-	return agentKernel.RunTask(requesterPersonID, originConversationID, prompt)
 }
 
 func (agentKernel *AgentKernel) AppendTaskEvent(taskRunID string, name string, body string) {
