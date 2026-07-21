@@ -70,3 +70,27 @@ func TestFailedTaskReplyPreservesModelWording(t *testing.T) {
 		t.Fatalf("expected connector to preserve failure wording, got %q", sentReply.Message)
 	}
 }
+
+func TestSuppressedReplyStillDeliversApprovalQuestion(t *testing.T) {
+	waitingApproval := agent.AgentTurnResult{
+		TaskRun:                task.TaskRun{TaskRunID: "task-approval", Status: task.TaskStatusWaitingApproval},
+		ReplySuppressionReason: "ambient_duty_no_reply",
+	}
+	if decision := decideTaskReply(waitingApproval, false); decision.Kind != taskReplyDecisionSendUserNotice {
+		t.Fatalf("expected a waiting-approval task to deliver its question despite suppression, got %+v", decision)
+	}
+	waitingInput := agent.AgentTurnResult{
+		TaskRun:                task.TaskRun{TaskRunID: "task-input", Status: task.TaskStatusWaitingUserInput},
+		ReplySuppressionReason: "ambient_duty_no_reply",
+	}
+	if decision := decideTaskReply(waitingInput, false); decision.Kind != taskReplyDecisionSendUserNotice {
+		t.Fatalf("expected a waiting-user-input task to deliver its question despite suppression, got %+v", decision)
+	}
+	completed := agent.AgentTurnResult{
+		TaskRun:                task.TaskRun{TaskRunID: "task-done", Status: task.TaskStatusCompleted},
+		ReplySuppressionReason: "ambient_duty_no_reply",
+	}
+	if decision := decideTaskReply(completed, false); decision.Kind != taskReplyDecisionSuppressRequested {
+		t.Fatalf("expected a completed ambient task to stay suppressed, got %+v", decision)
+	}
+}

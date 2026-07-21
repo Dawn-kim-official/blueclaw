@@ -28,7 +28,9 @@ func decideTaskReply(turnResult agent.AgentTurnResult, isCancelledBeforeSend boo
 	if turnResult.TurnRoute == agent.TurnRouteConsume {
 		return taskReplyDecision{Kind: taskReplyDecisionConsume}
 	}
-	if strings.TrimSpace(turnResult.ReplySuppressionReason) != "" {
+	if strings.TrimSpace(turnResult.ReplySuppressionReason) != "" &&
+		turnResult.TaskRun.Status != task.TaskStatusWaitingApproval &&
+		turnResult.TaskRun.Status != task.TaskStatusWaitingUserInput {
 		return taskReplyDecision{Kind: taskReplyDecisionSuppressRequested, Reason: strings.TrimSpace(turnResult.ReplySuppressionReason)}
 	}
 	if turnResult.TaskRun.Status == task.TaskStatusCancelled || isCancelledBeforeSend {
