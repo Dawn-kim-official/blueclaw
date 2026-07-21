@@ -2575,3 +2575,24 @@ func TestApprovalObservationUserFacingMessageReadsConfirmQuestion(t *testing.T) 
 		})
 	}
 }
+
+func TestTerminalStructuredRequestsCarryMaxTokensCap(t *testing.T) {
+	languageModel := &sequenceLanguageModel{contents: []string{
+		noToolFallbackFinishMessageDocument("done"),
+		noToolFallbackFinishMessageDocument("done"),
+	}}
+	services := newTurnRunnerTestServices(languageModel, TurnOptions{RecoveryBudget: defaultRecoveryBudget()})
+	request := AgentTurnRequest{ToolSet: newTestToolSet(nil)}
+	services.runner.finalizerAction(context.Background(), request, nil, ExecutionState{})
+	services.runner.terminalNoToolsAction(context.Background(), request, nil, ExecutionState{}, "")
+	capturedRequests := append([]llm.StructuredResponseRequest{}, languageModel.requests...)
+	capturedRequests = append(capturedRequests, completionJudgeRequest(request, nil))
+	if len(capturedRequests) != 3 {
+		t.Fatalf("expected finalizer, terminal, and judge requests, got %+v", structuredRequestNames(capturedRequests))
+	}
+	for _, structuredRequest := range capturedRequests {
+		if structuredRequest.GenerationOptions.MaxTokens == nil || *structuredRequest.GenerationOptions.MaxTokens != defaultAgentActionMaxTokens {
+			t.Fatalf("expected %s request to cap maxTokens at %d", structuredRequest.StructuredOutputSchema.Name, defaultAgentActionMaxTokens)
+		}
+	}
+}
