@@ -467,6 +467,138 @@ func TestAgentTurnRunnerDoesNotSendCheckpointForRejectedToolCall(t *testing.T) {
 	}
 }
 
+func TestDuplicateSuccessfulToolCallNarrowsNextActionSchemaToTerminalActions(t *testing.T) {
+	languageModel := &sequenceLanguageModel{contents: []string{
+		directToolAction("continue", "일정을 갱신합니다.", "calendar.update", `{"eventID":"evt-1","title":"Standup"}`),
+		directToolAction("continue", "다시 갱신합니다.", "calendar.update", `{"eventID":"evt-1","title":"Standup"}`),
+		finishMessageDocument("아직 확인 중입니다."),
+		`{"action":"finish","message":"완료했습니다.","goalStatus":"satisfied","goalSatisfied":true,"hasRemainingWork":false,"completionEvidenceIDs":["obs-001"],"qualityReview":[]}`,
+	}}
+	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 6})
+	toolRegistry := newTestCapabilityToolSet([]string{"calendar.update"})
+	registerTestTool(toolRegistry, ToolDefinition{
+		Name:            "calendar.update",
+		Namespace:       "calendar",
+		SideEffectClass: ToolSideEffectStateChange,
+		Completion:      ToolCompletion{Mode: ToolCompletionObservation, Action: "update_event", TargetKind: "event"},
+	}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return testToolSuccess("updated"), nil
+	})
+
+	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
+		RequesterPersonID: "person-1",
+		ConversationID:    "conversation-1",
+		Prompt:            "캘린더 일정을 갱신해줘",
+		ToolSet:           toolRegistry,
+		PinnedToolNames:   toolRegistry.ListToolNames(),
+	})
+	if errorValue != nil {
+		t.Fatalf("expected turn to succeed: %v", errorValue)
+	}
+	if result.FinishMessage != "완료했습니다." {
+		t.Fatalf("expected the cited follow-up finish to complete the task, got %+v", result)
+	}
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.duplicate_tool_call_rejected", "calendar.update") {
+		t.Fatal("expected duplicate rejection event")
+	}
+
+	actionRequests := []llm.StructuredResponseRequest{}
+	for _, request := range languageModel.requests {
+		if request.StructuredOutputSchema.Name == "blueclaw_agent_turn_action" {
+			actionRequests = append(actionRequests, request)
+		}
+	}
+	if len(actionRequests) != 3 {
+		t.Fatalf("expected three normal action-loop requests, got %d: %v", len(actionRequests), structuredRequestNames(languageModel.requests))
+	}
+	narrowedSchema := actionRequests[2].StructuredOutputSchema.Document
+	if actionSchemaHasVariant(t, narrowedSchema, "continue") {
+		t.Fatalf("expected the post-duplicate-rejection schema to drop continue/tool variants, got %s", narrowedSchema)
+	}
+	if !actionSchemaHasVariant(t, narrowedSchema, "finish") {
+		t.Fatalf("expected the post-duplicate-rejection schema to still offer finish, got %s", narrowedSchema)
+	}
+	if !actionSchemaHasVariant(t, narrowedSchema, "fail") {
+		t.Fatalf("expected the post-duplicate-rejection schema to still offer fail, got %s", narrowedSchema)
+	}
+
+	firstSchema := actionRequests[0].StructuredOutputSchema.Document
+	if !actionSchemaHasVariant(t, firstSchema, "continue") {
+		t.Fatalf("expected the initial schema to expose the tool palette, got %s", firstSchema)
+	}
+}
+
+func TestOverlappingRepeatedFileReadDoesNotNarrowNextActionSchema(t *testing.T) {
+	languageModel := &sequenceLanguageModel{contents: []string{
+		directToolAction("continue", "메모를 확인합니다.", FileReadToolName, `{"path":"notes.txt","startLine":1,"lineCount":200}`),
+		directToolAction("continue", "다시 확인합니다.", FileReadToolName, `{"path":"notes.txt","startLine":50,"lineCount":100}`),
+		finishMessageDocument("확인했습니다."),
+	}}
+	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 6})
+	toolRegistry := newTestCapabilityToolSet([]string{FileReadToolName})
+	registerTestTool(toolRegistry, ToolDefinition{
+		Name:            FileReadToolName,
+		SideEffectClass: ToolSideEffectRead,
+	}, func(_ context.Context, invocation ToolInvocation) (ToolResult, error) {
+		var input struct {
+			Path      string `json:"path"`
+			StartLine int    `json:"startLine"`
+			LineCount int    `json:"lineCount"`
+		}
+		_ = json.Unmarshal(invocation.Input, &input)
+		startLine := input.StartLine
+		if startLine <= 0 {
+			startLine = 1
+		}
+		lineCount := input.LineCount
+		if lineCount <= 0 {
+			lineCount = 200
+		}
+		content, _ := json.Marshal(map[string]any{
+			"path":      input.Path,
+			"startLine": startLine,
+			"endLine":   startLine + lineCount - 1,
+			"content":   "line content",
+		})
+		return testToolSuccess(string(content)), nil
+	})
+
+	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
+		RequesterPersonID: "person-1",
+		ConversationID:    "conversation-1",
+		Prompt:            "메모를 확인해줘",
+		ToolSet:           toolRegistry,
+		PinnedToolNames:   toolRegistry.ListToolNames(),
+	})
+	if errorValue != nil {
+		t.Fatalf("expected turn to succeed: %v", errorValue)
+	}
+	if result.FinishMessage != "확인했습니다." {
+		t.Fatalf("expected the finish reply, got %+v", result)
+	}
+	taskEvents := services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID)
+	if !taskEventsContain(taskEvents, "agent.file_read_cache_hit", "notes.txt") {
+		t.Fatal("expected a file read cache hit event for the overlapping re-read")
+	}
+	if countTaskEvents(taskEvents, "agent.duplicate_tool_call_rejected") != 0 {
+		t.Fatal("expected the repeated read not to be treated as a duplicate side-effect call")
+	}
+
+	actionRequests := []llm.StructuredResponseRequest{}
+	for _, request := range languageModel.requests {
+		if request.StructuredOutputSchema.Name == "blueclaw_agent_turn_action" {
+			actionRequests = append(actionRequests, request)
+		}
+	}
+	if len(actionRequests) != 3 {
+		t.Fatalf("expected three normal action-loop requests, got %d: %v", len(actionRequests), structuredRequestNames(languageModel.requests))
+	}
+	afterCacheHitSchema := actionRequests[2].StructuredOutputSchema.Document
+	if !actionSchemaHasVariant(t, afterCacheHitSchema, "continue") {
+		t.Fatalf("expected the schema after a read cache hit to keep the full tool palette, got %s", afterCacheHitSchema)
+	}
+}
+
 func TestAgentTurnRunnerInjectsInstructionPrompt(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		finishMessageDocument("done"),
