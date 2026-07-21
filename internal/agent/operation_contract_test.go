@@ -437,10 +437,10 @@ func TestOperationContractSeparatesDescriptorValidityFromInvocationCompleteness(
 	inputSchema := json.RawMessage(`{
 		"type":"object",
 		"additionalProperties":false,
-		"required":["eventID"],
+		"required":["eventHint"],
 		"minProperties":2,
 		"properties":{
-			"eventID":{"type":"string"},
+			"eventHint":{"type":"string"},
 			"title":{"type":"string"}
 		}
 	}`)
@@ -456,7 +456,7 @@ func TestOperationContractSeparatesDescriptorValidityFromInvocationCompleteness(
 	if _, errorValue := operationDescriptorDocuments(toolSet, []string{"calendar.update"}); errorValue != nil {
 		t.Fatalf("expected descriptor schema to resolve without a fake invocation: %v", errorValue)
 	}
-	for _, requiredValues := range []string{`{}`, `{"eventID":"event-1"}`, `{"title":"변경"}`} {
+	for _, requiredValues := range []string{`{}`, `{"eventHint":"event-1"}`, `{"title":"변경"}`} {
 		if _, errorValue := validateRequiredOperationInput(json.RawMessage(requiredValues), operationContractCalendarUpdateIntentSchema()); errorValue != nil {
 			t.Fatalf("expected partial explicit values %s to pass: %v", requiredValues, errorValue)
 		}
@@ -942,7 +942,7 @@ func operationContractCalendarUpdateIntentSchema() json.RawMessage {
 		"type":"object",
 		"additionalProperties":false,
 		"properties":{
-			"eventID":{"type":"string"},
+			"eventHint":{"type":"string"},
 			"title":{"type":"string"}
 		}
 	}`)
