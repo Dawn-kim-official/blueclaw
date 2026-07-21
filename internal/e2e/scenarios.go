@@ -530,7 +530,7 @@ func CalendarEventLifecycleAcceptanceScenario(artifactDirectoryPath string) Virt
 				Prompt:                 "그 일정을 내일 오후 2시로 바꿔줘",
 				RouterRequiredEvidence: []string{"calendar.update"},
 				ActionResponses: []string{
-					actionCallTool("calendar.update", `{"eventID":"calendar-event-001","title":"제품 회고","startISO":"2026-06-13T14:00:00+09:00","endISO":"2026-06-13T15:00:00+09:00","timeZone":"Asia/Seoul"}`),
+					actionCallTool("calendar.update", `{"eventHint":"calendar-event-001","title":"제품 회고","startISO":"2026-06-13T14:00:00+09:00","endISO":"2026-06-13T15:00:00+09:00","timeZone":"Asia/Seoul"}`),
 					actionFinishMessage("제품 회고 일정을 내일 오후 2시로 변경했습니다.", "obs-001:calendar.update:0"),
 				},
 				ExpectedEventCounts: []VirtualEventCount{
@@ -543,7 +543,7 @@ func CalendarEventLifecycleAcceptanceScenario(artifactDirectoryPath string) Virt
 				Prompt:                 "그 일정 삭제해줘",
 				RouterRequiredEvidence: []string{"calendar.delete"},
 				ActionResponses: []string{
-					actionInvokeCapabilityTool("calendar.delete", `{"eventID":"calendar-event-001"}`),
+					actionInvokeCapabilityTool("calendar.delete", `{"eventHint":"calendar-event-001"}`),
 					actionFinishMessage("제품 회고 일정을 삭제했습니다.", "obs-001:calendar.delete:0"),
 				},
 				ExpectedEventCounts: []VirtualEventCount{

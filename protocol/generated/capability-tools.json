@@ -1821,7 +1821,7 @@
         "mode": "success",
         "targetKind": "calendar"
       },
-      "description": "Update explicit fields on a calendar event. eventID must be copied from a calendar.list result, and at least one mutable field is required.",
+      "description": "Update explicit fields on a calendar event. eventHint is the exact event ID or exact event title from a calendar.list result, resolved server-side to the canonical event; use calendar.list first when neither is known. At least one mutable field is required.",
       "estimatedLatency": "medium",
       "idempotency": {
         "required": false,
@@ -1842,12 +1842,6 @@
           },
           "endISO": {
             "description": "New event end as ISO 8601 with timezone. Omit to leave unchanged.",
-            "type": "string"
-          },
-          "eventID": {
-            "description": "Exact event ID copied from a calendar.list result.",
-            "minLength": 1,
-            "pattern": "^\\S(?:.*\\S)?$",
             "type": "string"
           },
           "includeRequester": {
@@ -1914,10 +1908,10 @@
             "description": "New event end as ISO 8601 with timezone. Omit to leave unchanged.",
             "type": "string"
           },
-          "eventID": {
-            "description": "Exact event ID copied from a calendar.list result.",
+          "eventHint": {
+            "description": "Identifies the existing calendar event to act on: its exact event ID or its exact CURRENT title as it appears in a calendar.list result. Never a new or intended title. Resolved server-side; if it does not uniquely resolve, the call fails with a candidates list of matching events.",
+            "maxLength": 256,
             "minLength": 1,
-            "pattern": "^\\S(?:.*\\S)?$",
             "type": "string"
           },
           "includeRequester": {
@@ -1966,7 +1960,7 @@
           }
         },
         "required": [
-          "eventID"
+          "eventHint"
         ],
         "type": "object"
       },
@@ -2191,7 +2185,7 @@
         "mode": "success",
         "targetKind": "calendar"
       },
-      "description": "Permanently delete a calendar event by the exact eventID from a calendar.list result. Requires approval; this action is irreversible.",
+      "description": "Permanently delete a calendar event. eventHint is the exact event ID or exact event title from a calendar.list result, resolved server-side to the canonical event; use calendar.list first when neither is known. Requires approval; this action is irreversible.",
       "estimatedLatency": "medium",
       "idempotency": {
         "required": false,
@@ -2201,29 +2195,22 @@
       "inputIntentSchema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "additionalProperties": false,
-        "properties": {
-          "eventID": {
-            "description": "Exact event ID copied from a calendar.list result.",
-            "minLength": 1,
-            "pattern": "^\\S(?:.*\\S)?$",
-            "type": "string"
-          }
-        },
+        "properties": {},
         "type": "object"
       },
       "inputSchema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "additionalProperties": false,
         "properties": {
-          "eventID": {
-            "description": "Exact event ID copied from a calendar.list result.",
+          "eventHint": {
+            "description": "Identifies the existing calendar event to act on: its exact event ID or its exact CURRENT title as it appears in a calendar.list result. Never a new or intended title. Resolved server-side; if it does not uniquely resolve, the call fails with a candidates list of matching events.",
+            "maxLength": 256,
             "minLength": 1,
-            "pattern": "^\\S(?:.*\\S)?$",
             "type": "string"
           }
         },
         "required": [
-          "eventID"
+          "eventHint"
         ],
         "type": "object"
       },

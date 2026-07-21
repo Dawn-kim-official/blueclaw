@@ -16,7 +16,7 @@ func connectorTestCapabilityInputSchemaForTool(toolName string) json.RawMessage 
 	case "calendar.add":
 		return json.RawMessage(`{"type":"object","properties":{"title":{"type":"string"},"startISO":{"type":"string"},"endISO":{"type":"string"},"isAllDay":{"type":"boolean"}},"additionalProperties":false}`)
 	case "calendar.delete":
-		return json.RawMessage(`{"type":"object","properties":{"eventID":{"type":"string"},"userConfirmed":{"type":"boolean"}},"additionalProperties":false}`)
+		return json.RawMessage(`{"type":"object","properties":{"eventHint":{"type":"string"},"userConfirmed":{"type":"boolean"}},"additionalProperties":false}`)
 	case "message.send":
 		return json.RawMessage(`{"type":"object","properties":{"targetType":{"type":"string"},"personHint":{"type":"string"},"message":{"type":"string"}},"additionalProperties":false}`)
 	default:

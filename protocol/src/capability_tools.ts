@@ -375,8 +375,12 @@ export const calendarListInputSchema = z.strictObject({
   limit: z.number().positive().refine(Number.isInteger, 'Limit must be a whole number.').describe('Maximum number of events to return.').optional(),
 });
 
+const calendarEventHintSchema = z.string().min(1).max(256).describe(
+  'Identifies the existing calendar event to act on: its exact event ID or its exact CURRENT title as it appears in a calendar.list result. Never a new or intended title. Resolved server-side; if it does not uniquely resolve, the call fails with a candidates list of matching events.',
+);
+
 const calendarUpdateObjectSchema = z.strictObject({
-  eventID: resourceIDSchema.describe('Exact event ID copied from a calendar.list result.'),
+  eventHint: calendarEventHintSchema,
   ...calendarMutableFields,
 });
 
@@ -384,13 +388,13 @@ export const calendarUpdateInputSchema = calendarUpdateObjectSchema
   .refine(hasMutationField, 'At least one calendar event field must be updated.')
   .meta({ minProperties: 2 });
 
-export const calendarUpdateInputIntentSchema = calendarUpdateObjectSchema.partial();
+export const calendarUpdateInputIntentSchema = calendarUpdateObjectSchema.omit({ eventHint: true });
 
 export const calendarDeleteInputSchema = z.strictObject({
-  eventID: resourceIDSchema.describe('Exact event ID copied from a calendar.list result.'),
+  eventHint: calendarEventHintSchema,
 });
 
-export const calendarDeleteInputIntentSchema = calendarDeleteInputSchema.partial();
+export const calendarDeleteInputIntentSchema = z.strictObject({});
 
 export const calendarListResultSchema = z.strictObject({
   events: z.array(calendarEventResultSchema),
@@ -985,7 +989,7 @@ const calendarToolDefinitions: CapabilityToolDefinition[] = [
     namespace: 'calendar',
     privacyClass: 'workspace_calendar',
     policyResource: 'tool:calendar.update',
-    description: 'Update explicit fields on a calendar event. eventID must be copied from a calendar.list result, and at least one mutable field is required.',
+    description: 'Update explicit fields on a calendar event. eventHint is the exact event ID or exact event title from a calendar.list result, resolved server-side to the canonical event; use calendar.list first when neither is known. At least one mutable field is required.',
     version: '3',
     estimatedLatency: CapabilityEstimatedLatency.Medium,
     inputSchema: calendarUpdateInputSchema,
@@ -1007,7 +1011,7 @@ const calendarToolDefinitions: CapabilityToolDefinition[] = [
     namespace: 'calendar',
     privacyClass: 'workspace_calendar',
     policyResource: 'tool:calendar.delete',
-    description: 'Permanently delete a calendar event by the exact eventID from a calendar.list result. Requires approval; this action is irreversible.',
+    description: 'Permanently delete a calendar event. eventHint is the exact event ID or exact event title from a calendar.list result, resolved server-side to the canonical event; use calendar.list first when neither is known. Requires approval; this action is irreversible.',
     version: '2',
     estimatedLatency: CapabilityEstimatedLatency.Medium,
     inputSchema: calendarDeleteInputSchema,

@@ -233,7 +233,7 @@ type approvalQuestionActionInput struct {
 	TargetPath     string   `json:"targetPath"`
 	Slug           string   `json:"slug"`
 	SiteID         string   `json:"siteID"`
-	EventID        string   `json:"eventID"`
+	EventHint      string   `json:"eventHint"`
 	To             []string `json:"to"`
 	People         []string `json:"people"`
 }
@@ -316,7 +316,7 @@ func approvalQuestionActionDetails(input json.RawMessage) map[string]string {
 	approvalQuestionSetDetail(details, "approvalReason", document.ApprovalReason)
 	approvalQuestionSetDetail(details, "slug", document.Slug)
 	approvalQuestionSetDetail(details, "siteID", document.SiteID)
-	approvalQuestionSetDetail(details, "eventID", document.EventID)
+	approvalQuestionSetDetail(details, "eventHint", document.EventHint)
 	filePath := firstNonEmptyString(document.Path, document.DevicePath, document.TargetPath)
 	approvalQuestionSetDetail(details, "path", filePath)
 	if strings.TrimSpace(filePath) != "" {
