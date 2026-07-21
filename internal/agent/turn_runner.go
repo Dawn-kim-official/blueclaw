@@ -1833,6 +1833,7 @@ func (agentTurnRunner *AgentTurnRunner) finalizerAction(ctx context.Context, req
 			Document:           finalizerActionSchema(),
 			IsStrictlyEnforced: true,
 		},
+		GenerationOptions: agentActionGenerationOptions(agentTurnRunner.options.GenerationOptions),
 	})
 	if errorValue != nil {
 		return turnActionDocument{}, errorValue
@@ -1880,7 +1881,7 @@ func (agentTurnRunner *AgentTurnRunner) terminalNoToolsAction(ctx context.Contex
 			Document:           terminalNoToolsActionSchema(),
 			IsStrictlyEnforced: true,
 		},
-		GenerationOptions: agentTurnRunner.options.GenerationOptions,
+		GenerationOptions: agentActionGenerationOptions(agentTurnRunner.options.GenerationOptions),
 	})
 	if errorValue != nil {
 		return turnActionDocument{}, errorValue
