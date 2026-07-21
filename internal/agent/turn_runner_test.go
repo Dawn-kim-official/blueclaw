@@ -1468,7 +1468,7 @@ func TestAgentTurnRunnerFinalizesSatisfiedGoalAtIterationEffort(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		directToolAction("continue", "", "browser.screenshot", `{}`),
 		directToolAction("continue", "", "browser.screenshot", `{}`),
-		finishMessageWithEvidence("캡처했습니다.", "obs-003", "browser.screenshot", 0),
+		finishMessageWithEvidence("캡처했습니다.", "obs-002", "browser.screenshot", 0),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 2})
 	toolRegistry := newTestCapabilityToolSet([]string{"browser.screenshot"})
@@ -1507,7 +1507,7 @@ func TestAgentTurnRunnerFinalizesSatisfiedGoalAtIterationEffort(t *testing.T) {
 	if result.FinishMessage != "캡처했습니다." {
 		t.Fatalf("expected finalizer reply, got %q", result.FinishMessage)
 	}
-	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.finalizer_action", "obs-003") {
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.finalizer_action", "obs-002") {
 		t.Fatal("expected finalizer action with completion evidence")
 	}
 }
@@ -1804,7 +1804,7 @@ func TestAgentTurnRunnerEscalatesIterationLimitAfterDurableProgress(t *testing.T
 	if !taskEventsContain(taskEvents, "agent.budget_escalated", `"newTaskLevel":"low"`) {
 		t.Fatalf("expected budget escalation event, got %+v", taskEvents)
 	}
-	if !taskEventsContain(taskEvents, "agent.budget_escalated", `"qualifyingEventIDs":["obs-001","obs-003"]`) {
+	if !taskEventsContain(taskEvents, "agent.budget_escalated", `"qualifyingEventIDs":["obs-001","obs-002"]`) {
 		t.Fatalf("expected qualifying event IDs, got %+v", taskEvents)
 	}
 }
@@ -1938,7 +1938,7 @@ func TestAgentTurnRunnerCheckpointsAtMaxIterationCeiling(t *testing.T) {
 	if taskEventsContain(taskEvents, "agent.budget_escalated", "") {
 		t.Fatal("did not expect escalation past the max task level")
 	}
-	if !taskEventsContain(taskEvents, "agent.limit_checkpoint", `"qualifyingEventIDs":["obs-001","obs-003"]`) {
+	if !taskEventsContain(taskEvents, "agent.limit_checkpoint", `"qualifyingEventIDs":["obs-001","obs-002"]`) {
 		t.Fatalf("expected limit checkpoint event, got %+v", taskEvents)
 	}
 }
