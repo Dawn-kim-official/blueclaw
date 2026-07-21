@@ -52,7 +52,7 @@ func TestAgentTurnRunnerGeneratesFailureReplyAfterStructuredModelFailure(t *test
 func TestAgentTurnRunnerRepairsInvalidFailureReply(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		`{"action":"fail","reason":"pptx build failed"}`,
-		recoveryDecisionDocument("browser and slide build failed", "no PPTX attachment exists", "check presentation temporary directory handling", "explain the exact failed stages"),
+		recoveryDecisionDocument("check presentation temporary directory handling", "explain the exact failed stages"),
 	}, textResponses: []string{
 		"브라우저 연결 문제와 시스템 환경 오류가 있어 파일이 생성되지 않았습니다.",
 		"PPTX는 첨부되지 않았습니다. 브라우저 열기는 Companion 미연결로 실패했고, 슬라이드 빌드는 Marp 임시 HTML 생성 권한 문제로 중단되어 presentation 임시 디렉터리 설정 확인이 필요합니다.",
@@ -319,8 +319,6 @@ func (languageModel *blockingFailureWordingLanguageModel) GenerateStructuredResp
 	languageModel.requesterPersonID = llm.RequestContextFromContext(responseContext).RequesterPersonID
 	languageModel.decisionDeadline, _ = responseContext.Deadline()
 	return llm.StructuredResponse{Content: recoveryDecisionDocument(
-		"업무 추가 판단을 완료하지 못했다",
-		"사용자가 분기 결산 업무 등록을 요청했다",
 		"같은 요청을 다시 시도한다",
 		"업무를 추가하지 못한 사실과 재시도 방법을 설명한다",
 	)}, nil
@@ -413,7 +411,7 @@ func TestAgentTurnRunnerUsesNaturalCaptchaFailureReply(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		`{"action":"continue","toolName":"browser.snapshot","toolInput":{}}`,
 		`{"action":"fail","reason":"blocked_by_captcha"}`,
-		recoveryDecisionDocument("browser access was blocked", "captcha or bot detection was observed", "ask for another source or direct access", "explain that automated access was blocked"),
+		recoveryDecisionDocument("ask for another source or direct access", "explain that automated access was blocked"),
 	}, textResponses: []string{
 		"샘플 님, 날씨를 확인하려고 시도했지만 페이지가 자동화 접근을 막아서 정확한 확인을 끝내지 못했어요. 다른 출처를 주시면 거기서 다시 확인해볼게요.",
 	}}
@@ -467,7 +465,7 @@ func TestAgentTurnRunnerPreservesStructuredToolFailure(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		`{"action":"continue","toolName":"message.send","toolInput":{"targetType":"directMessage","personHint":"정국","message":"확인 부탁해"}}`,
 		failureReportDocument("recipient missing", "message.send", "정국", FailureCodes.NotFound.String(), "recipient_resolve", "approved active Mattermost recipient was not found"),
-		recoveryDecisionDocument("recipient lookup failed", "recipient_resolve/not_found was returned", "inspect candidate recipients before retrying", "report the exact failure stage and code"),
+		recoveryDecisionDocument("inspect candidate recipients before retrying", "report the exact failure stage and code"),
 	}, textResponses: []string{
 		"recipient_resolve/not_found 단계에서 수신자를 찾지 못해 DM을 보내지 못했습니다.",
 	}}
@@ -504,7 +502,7 @@ func TestAgentTurnRunnerDeliversSafeDegradedFailureReplyWithoutStageAndCode(t *t
 		contents: []string{
 			`{"action":"continue","toolName":"message.send","toolInput":{"targetType":"directMessage","personHint":"정국","message":"확인 부탁해"}}`,
 			failureReportDocument("recipient missing", "message.send", "정국", FailureCodes.NotFound.String(), "recipient_resolve", "approved active Mattermost recipient was not found"),
-			recoveryDecisionDocument("recipient lookup failed", "recipient_resolve/not_found was returned", "inspect candidate recipients before retrying", "report the exact failure stage and code"),
+			recoveryDecisionDocument("inspect candidate recipients before retrying", "report the exact failure stage and code"),
 		},
 		textResponses: []string{"요청을 처리하지 못했습니다."},
 	}
@@ -545,7 +543,7 @@ func TestAgentTurnRunnerAcceptsGeneratedStructuredFailureReplyWithStageAndCode(t
 		contents: []string{
 			`{"action":"continue","toolName":"message.send","toolInput":{"targetType":"directMessage","personHint":"정국","message":"확인 부탁해"}}`,
 			failureReportDocument("recipient missing", "message.send", "정국", FailureCodes.NotFound.String(), "recipient_resolve", "approved active Mattermost recipient was not found"),
-			recoveryDecisionDocument("recipient lookup failed", "recipient_resolve/not_found was returned", "inspect candidate recipients before retrying", "report the exact failure stage and code"),
+			recoveryDecisionDocument("inspect candidate recipients before retrying", "report the exact failure stage and code"),
 		},
 		textResponses: []string{generatedReply},
 	}

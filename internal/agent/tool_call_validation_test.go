@@ -211,7 +211,7 @@ func TestAgentTurnRunnerRejectsRepeatedFailedFingerprint(t *testing.T) {
 		`{"action":"continue","toolName":"message.context","toolInput":{}}`,
 		`{"action":"continue","toolName":"message.send","toolInput":{"targetType":"directMessage","personHint":"정국","message":"확인 부탁해"}}`,
 		failureReportDocument("mattermost still unavailable", "message.send", "정국", FailureCodes.Unavailable.String(), "mattermost_lookup", "temporary user lookup timeout"),
-		recoveryDecisionDocument("Mattermost lookup failed after retry", "mattermost_lookup/unavailable was returned twice", "check Mattermost availability before retrying", "report the failed stage and code"),
+		recoveryDecisionDocument("check Mattermost availability before retrying", "report the failed stage and code"),
 	}, textResponses: []string{
 		"mattermost_lookup/unavailable 단계에서 Mattermost 조회가 계속 실패해 DM을 보내지 못했습니다.",
 	}}
@@ -257,7 +257,7 @@ func TestAgentTurnRunnerRejectsUnsafeRepeatedExternalSend(t *testing.T) {
 		`{"action":"continue","toolName":"message.send","toolInput":{"targetType":"directMessage","personHint":"샘플","message":"확인 부탁해"}}`,
 		`{"action":"continue","toolName":"message.send","toolInput":{"targetType":"directMessage","personHint":"샘플","message":"확인 부탁해"}}`,
 		failureReportDocument("send failed", "message.send", "샘플", FailureCodes.OperationFailed.String(), "message_send", "Mattermost returned 503 after post create"),
-		recoveryDecisionDocument("message send failed", "message_send/operation_failed was returned", "inspect delivery state before retrying", "report the failed stage and avoid duplicate send claims"),
+		recoveryDecisionDocument("inspect delivery state before retrying", "report the failed stage and avoid duplicate send claims"),
 	}, textResponses: []string{
 		"message_send/operation_failed 단계에서 전송이 실패했습니다. 중복 전송 위험 때문에 같은 메시지를 다시 보내지는 않았습니다.",
 	}}
@@ -441,7 +441,7 @@ func TestAgentTurnRunnerStopsRepeatedMalformedToolInputByLimit(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		`{"action":"continue","toolName":"browser.fill","toolInput":{}}`,
 		`{"action":"continue","toolName":"browser.fill","toolInput":{}}`,
-		recoveryDecisionDocument("browser.fill input stayed malformed", "the tool was not invoked", "ask the model to retry with valid input", "explain that the run stopped before completion"),
+		recoveryDecisionDocument("ask the model to retry with valid input", "explain that the run stopped before completion"),
 	}, textResponses: []string{
 		"I could not finish the browser fill request before this run stopped. Please try again with the current page still open.",
 	}}

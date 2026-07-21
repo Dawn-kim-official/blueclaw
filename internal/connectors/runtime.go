@@ -1589,17 +1589,6 @@ func (connectorRuntime *ConnectorRuntime) findOpenTaskWait(find func() (task.Tas
 }
 
 func eventThreadRootID(event PlatformInboundEvent) string {
-	threadRootID := firstNonEmptyString(
-		legacyString(event.LegacyFields, "threadRootID"),
-		legacyString(event.LegacyFields, "thread_root_id"),
-		legacyString(event.LegacyFields, "rootMessageID"),
-		legacyString(event.LegacyFields, "rootMessageId"),
-		legacyString(event.LegacyFields, "rootID"),
-		legacyString(event.LegacyFields, "root_id"),
-	)
-	if threadRootID != "" {
-		return threadRootID
-	}
 	if eventIsThreadReply(event) {
 		return strings.TrimSpace(event.ReplyTargetID)
 	}
