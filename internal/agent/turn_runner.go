@@ -55,6 +55,8 @@ type AgentTurnRequest struct {
 	RequesterPlatformUserID    string
 	SourceReference            string
 	IsApprovalContinuation     bool
+	HadApprovedHeldCall        bool
+	ApprovedHeldCallKey        string
 	IsRuntimeRestartResume     bool
 	ExistingTaskRunID          string
 	OriginReplyTargetID        string
@@ -675,7 +677,7 @@ func (agentTurnRunner *AgentTurnRunner) handleToolCallAction(ctx context.Context
 	if outcome := agentTurnRunner.rejectUnavailableToolCall(taskRunID, stepID, request, state, actionDocument, stopForNoProgress); outcome.WasHandled {
 		return outcome
 	}
-	if !request.IsApprovalContinuation && toolCallRequiresRuntimeApproval(request.ToolSet, actionDocument) {
+	if toolCallRequiresRuntimeApproval(request.ToolSet, actionDocument) && !isExemptFromApprovalHold(request, actionDocument) {
 		return agentTurnRunner.requestHeldCallApproval(ctx, taskRunID, stepID, request, state, actionDocument)
 	}
 	state.ToolCallCount++
