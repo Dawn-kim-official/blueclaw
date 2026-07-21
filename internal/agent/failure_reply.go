@@ -36,8 +36,6 @@ type failureReplyStatus struct {
 }
 
 type recoveryDecision struct {
-	WhatFailed      string `json:"whatFailed"`
-	WhatWasKnown    string `json:"whatWasKnown"`
 	NextAction      string `json:"nextAction"`
 	UserReplyIntent string `json:"userReplyIntent"`
 }
@@ -91,8 +89,6 @@ func (agentTurnRunner *AgentTurnRunner) generateRecoveryDecision(recoveryContext
 }
 
 func normalizeRecoveryDecision(decision recoveryDecision) recoveryDecision {
-	decision.WhatFailed = strings.TrimSpace(decision.WhatFailed)
-	decision.WhatWasKnown = strings.TrimSpace(decision.WhatWasKnown)
 	decision.NextAction = strings.TrimSpace(decision.NextAction)
 	decision.UserReplyIntent = strings.TrimSpace(decision.UserReplyIntent)
 	return decision

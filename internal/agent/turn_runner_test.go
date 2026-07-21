@@ -2020,15 +2020,13 @@ type sequenceLanguageModel struct {
 	textPrompts   []string
 }
 
-func recoveryDecisionDocument(whatFailed string, whatWasKnown string, nextAction string, userReplyIntent string) string {
+func recoveryDecisionDocument(nextAction string, userReplyIntent string) string {
 	document, errorValue := json.Marshal(map[string]string{
-		"whatFailed":      whatFailed,
-		"whatWasKnown":    whatWasKnown,
 		"nextAction":      nextAction,
 		"userReplyIntent": userReplyIntent,
 	})
 	if errorValue != nil {
-		return `{"whatFailed":"failed","whatWasKnown":"unknown","nextAction":"retry","userReplyIntent":"report the failure"}`
+		return `{"nextAction":"retry","userReplyIntent":"report the failure"}`
 	}
 	return string(document)
 }

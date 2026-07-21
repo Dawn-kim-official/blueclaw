@@ -1908,8 +1908,6 @@ func (agentTurnRunner *AgentTurnRunner) failTerminalNoToolsFailure(taskRunID str
 
 func failureNoticeFromTerminalAction(request AgentTurnRequest, taskRunID string, reason string, observations []turnObservation, attachments []FileAttachment, executionState ExecutionState) (FailureNotice, FailureReport, string) {
 	decision := recoveryDecision{
-		WhatFailed:      latestFailedOperation(observations),
-		WhatWasKnown:    buildLimitObservationSummary(observations),
 		NextAction:      strings.TrimSpace(reason),
 		UserReplyIntent: strings.TrimSpace(reason),
 	}
