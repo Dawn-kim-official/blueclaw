@@ -15,6 +15,7 @@ import (
 )
 
 const defaultEmbeddingModelName = "embedding.create"
+const skillEmbeddingSearchTimeout = 15 * time.Second
 const skillSearchDocumentVersion = "skill-description-v2"
 const maxGeneratedSkillSearchQueries = 5
 
@@ -93,10 +94,12 @@ func (skillRetriever *EmbeddingSkillRetriever) Search(ctx context.Context, reque
 	if skillRetriever == nil || skillRetriever.EmbeddingProvider == nil {
 		return retrieveSkillsWithBM25QuerySet(request, skillInstructions, querySet, limit, "embedding_unavailable")
 	}
-	if errorValue := skillRetriever.refresh(ctx, skillInstructions); errorValue != nil {
+	embeddingContext, cancelEmbedding := context.WithTimeout(ctx, skillEmbeddingSearchTimeout)
+	defer cancelEmbedding()
+	if errorValue := skillRetriever.refresh(embeddingContext, skillInstructions); errorValue != nil {
 		return retrieveSkillsWithBM25QuerySet(request, skillInstructions, querySet, limit, "embedding_index_unavailable")
 	}
-	queryEmbeddings := skillRetriever.queryEmbeddings(ctx, querySet)
+	queryEmbeddings := skillRetriever.queryEmbeddings(embeddingContext, querySet)
 	if len(queryEmbeddings) == 0 {
 		return retrieveSkillsWithBM25QuerySet(request, skillInstructions, querySet, limit, "embedding_query_failed")
 	}
