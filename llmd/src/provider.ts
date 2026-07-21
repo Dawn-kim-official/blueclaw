@@ -264,7 +264,10 @@ const defaultLanguageModelFactory: ProviderLanguageModelFactory = {
       compatibility: 'strict',
       fetch: fetchWithFirstByteTimeout,
     });
-    return provider.chat(modelName, parallelToolCalls === undefined ? undefined : { parallelToolCalls });
+    return provider.chat(modelName, {
+      provider: { require_parameters: true },
+      ...(parallelToolCalls === undefined ? {} : { parallelToolCalls }),
+    });
   },
 };
 
