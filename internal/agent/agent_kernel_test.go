@@ -578,7 +578,7 @@ func TestSemanticRevisionStartsNewTaskRunAndOperationContract(t *testing.T) {
 func TestInvalidPersistedActiveGoalBlocksBeforeToolHandler(t *testing.T) {
 	agentKernel, _ := newKernelTestServices()
 	agentKernel.UseLanguageModelProvider(&sequenceLanguageModel{contents: []string{
-		recoveryDecisionDocument("active goal restore failed", "persisted state is invalid", "report the failure", "explain that the task could not safely resume"),
+		recoveryDecisionDocument("report the failure", "explain that the task could not safely resume"),
 	}})
 	toolCallCount := 0
 	toolSet := newTestCapabilityToolSet([]string{"task.add"})

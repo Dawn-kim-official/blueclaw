@@ -424,7 +424,7 @@ func TestAgentTurnRunnerRejectsRequiredFileWithoutAttachmentEvidence(t *testing.
 	languageModel := &sequenceLanguageModel{contents: []string{
 		finishMessageDocument("파일이 준비되었습니다."),
 		`{"action":"fail","reason":"attachment evidence missing"}`,
-		recoveryDecisionDocument("attachment evidence was missing", "no attachment was available", "ask the user to retry file generation", "explain that attachment evidence was missing"),
+		recoveryDecisionDocument("ask the user to retry file generation", "explain that attachment evidence was missing"),
 	}, textResponses: []string{
 		"첨부 파일을 만들거나 보냈다고 확인할 근거가 없어 여기서 멈췄어요. 파일이 필요하면 다시 시도해 주세요.",
 	}}
@@ -2088,7 +2088,7 @@ func TestAgentTurnRunnerStopsRepeatedMissingEvidenceState(t *testing.T) {
 			noToolFallbackFinishMessageDocument("텍스트로 대신 드립니다."),
 			noToolFallbackFinishMessageDocument("텍스트로 대신 드립니다."),
 			noToolFallbackFinishMessageDocument("텍스트로 대신 드립니다."),
-			recoveryDecisionDocument("file attachment missing", "deck build failed", "stop the repeated state", "report the missing artifact"),
+			recoveryDecisionDocument("stop the repeated state", "report the missing artifact"),
 		},
 		textResponses: []string{"PPTX 첨부를 완료하지 못했습니다. 빌드 실패 뒤에도 필수 첨부 증거가 없어 작업을 중단했습니다."},
 	}

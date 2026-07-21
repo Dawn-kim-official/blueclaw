@@ -299,9 +299,7 @@ func mustMarshalStructuredSchema(schema any) string {
 
 func recoveryDecisionSchema() string {
 	return mustMarshalStructuredSchema(closedObjectSchema(map[string]any{
-		"whatFailed":      stringSchema(),
-		"whatWasKnown":    stringSchema(),
 		"nextAction":      stringSchema(),
 		"userReplyIntent": stringSchema(),
-	}, "whatFailed", "whatWasKnown", "nextAction", "userReplyIntent"))
+	}, "nextAction", "userReplyIntent"))
 }
