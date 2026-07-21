@@ -49,65 +49,66 @@ type ContractToolWorkingSet struct {
 }
 
 type AgentTurnRequest struct {
-	RequesterPersonID          string
-	RequesterEmail             string
-	RequesterName              string
-	RequesterPlatformUserID    string
-	SourceReference            string
-	IsApprovalContinuation     bool
-	HadApprovedHeldCall        bool
-	ApprovedHeldCallKey        string
-	IsRuntimeRestartResume     bool
-	ExistingTaskRunID          string
-	OriginReplyTargetID        string
-	OriginIsThread             bool
-	Platform                   string
-	RequesterCallingName       string
-	RequesterHandle            string
-	RequesterCircles           []string
-	Company                    CompanyContext
-	ProfileName                string
-	ConversationID             string
-	ConversationType           string
-	Prompt                     string
-	InputParts                 []AgentPart
-	ResponseLanguage           string
-	VisibleContext             VisibleContext
-	MemoryFacts                []memory.MemoryFact
-	ToolSet                    *ToolSet
-	AvailableSkills            []SkillInstruction
-	PinnedToolNames            []string
-	PinnedSkillNames           []string
-	WorkspaceRootPath          string
-	WorkspaceDefaultPath       string
-	ActivePaths                []string
-	InstructionPrompt          string
-	InstructionSources         []InstructionSource
-	SkillDecisions             []SkillSelectionDecision
-	SkillRetrievalMode         string
-	SkillIndexStatus           string
-	SkillCandidateCount        int
-	SkillQueries               []string
-	ContractToolWorkingSet     ContractToolWorkingSet
-	RequiredEvidenceTools      []string
-	RequiredAttachmentSuffixes []string
-	OutcomeContract            OutcomeContract
-	ActiveGoal                 ActiveGoal
-	PriorTask                  PriorTaskContext
-	ScheduledRun               ScheduledRunContext
-	ToolExposure               ToolExposureEvent
-	PrecomputedTurnDecision    *TurnDecision
-	IsPrecomputedDecisionExact bool
-	SkipSkillSelection         bool
-	AmbientDuty                AmbientDutyContext
-	TaskShape                  TaskShape
-	TaskLevel                  TaskLevel
-	EstimatedMinutes           int
-	TurnStartedAt              time.Time
-	EffortStartedAt            time.Time
-	CheckpointSender           AgentCheckpointSender
-	StepBudgetContext          string
-	ArtifactManifest           []ArtifactManifestEntry
+	RequesterPersonID            string
+	RequesterEmail               string
+	RequesterName                string
+	RequesterPlatformUserID      string
+	SourceReference              string
+	IsApprovalContinuation       bool
+	HadApprovedHeldCall          bool
+	ApprovedHeldCallKey          string
+	IsRuntimeRestartResume       bool
+	ExistingTaskRunID            string
+	OriginReplyTargetID          string
+	OriginIsThread               bool
+	Platform                     string
+	RequesterCallingName         string
+	RequesterHandle              string
+	RequesterCircles             []string
+	Company                      CompanyContext
+	ProfileName                  string
+	ConversationID               string
+	ConversationType             string
+	Prompt                       string
+	InputParts                   []AgentPart
+	ResponseLanguage             string
+	VisibleContext               VisibleContext
+	MemoryFacts                  []memory.MemoryFact
+	ToolSet                      *ToolSet
+	AvailableSkills              []SkillInstruction
+	PinnedToolNames              []string
+	PinnedSkillNames             []string
+	WorkspaceRootPath            string
+	WorkspaceDefaultPath         string
+	ActivePaths                  []string
+	InstructionPrompt            string
+	InstructionSources           []InstructionSource
+	SkillDecisions               []SkillSelectionDecision
+	SkillRetrievalMode           string
+	SkillIndexStatus             string
+	SkillCandidateCount          int
+	SkillQueries                 []string
+	ContractToolWorkingSet       ContractToolWorkingSet
+	RequiredEvidenceTools        []string
+	RequiredAttachmentSuffixes   []string
+	OutcomeContract              OutcomeContract
+	ActiveGoal                   ActiveGoal
+	PriorTask                    PriorTaskContext
+	ScheduledRun                 ScheduledRunContext
+	ToolExposure                 ToolExposureEvent
+	PrecomputedTurnDecision      *TurnDecision
+	IsPrecomputedDecisionExact   bool
+	SkipSkillSelection           bool
+	AmbientDuty                  AmbientDutyContext
+	TaskShape                    TaskShape
+	TaskLevel                    TaskLevel
+	EstimatedMinutes             int
+	TurnStartedAt                time.Time
+	EffortStartedAt              time.Time
+	CheckpointSender             AgentCheckpointSender
+	StepBudgetContext            string
+	ArtifactManifest             []ArtifactManifestEntry
+	RestrictActionToTerminalOnly bool
 }
 
 type AgentTurnResult struct {
@@ -466,6 +467,7 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 			continue
 		}
 		iterationRequest := agentTurnRunner.requestForStep(workContext, request, state)
+		state.ShouldRestrictNextActionToTerminal = false
 		agentTurnRunner.appendEvent(taskRun.TaskRunID, "agent.step_working_set", marshalEventBody(map[string]any{
 			"step":     iteration,
 			"exposure": iterationRequest.ToolExposure,
@@ -659,15 +661,17 @@ func (agentTurnRunner *AgentTurnRunner) handleToolCallAction(ctx context.Context
 	if outcome := agentTurnRunner.rejectMalformedToolCall(taskRunID, stepID, request, state, actionDocument, stopForNoProgress); outcome.WasHandled {
 		return outcome
 	}
+	canFinalizeDuplicateDeterministically := false
 	if duplicateObservation, isDuplicate := repeatedSuccessfulCompletionCandidate(state, actionDocument, successfulToolCalls); isDuplicate {
 		finalizationRequirements, canFinalize := duplicateSuccessFinalizationRequirements(request.ToolSet, requirements, state.Observations, actionDocument)
+		canFinalizeDuplicateDeterministically = canFinalize
 		if canFinalize {
 			if result, isFinalized := agentTurnRunner.finalizeSatisfiedTurn(ctx, taskRunID, request, finalizationRequirements, state.Observations, state.QualityCriteria, state.ExecutionState, duplicateObservation.Tool); isFinalized {
 				return toolCallActionOutcome{Result: result, ShouldReturn: true, WasHandled: true}
 			}
 		}
 	}
-	if outcome := agentTurnRunner.rejectRepeatedToolCall(taskRunID, stepID, state, actionDocument, successfulToolCalls, stopForNoProgress); outcome.WasHandled {
+	if outcome := agentTurnRunner.rejectRepeatedToolCall(taskRunID, stepID, state, actionDocument, successfulToolCalls, canFinalizeDuplicateDeterministically, stopForNoProgress); outcome.WasHandled {
 		return outcome
 	}
 	recoveryStep, outcome := agentTurnRunner.prepareRecoveryAttempt(ctx, taskRunID, stepID, request, state, actionDocument, stopForNoProgress)
@@ -1023,6 +1027,7 @@ func (agentTurnRunner *AgentTurnRunner) requestForStep(_ context.Context, reques
 	iterationRequest.ToolSet = filteredToolSet
 	iterationRequest.ToolExposure = exposureEvent
 	iterationRequest.StepBudgetContext = agentTurnRunner.stepBudgetContext(state)
+	iterationRequest.RestrictActionToTerminalOnly = state.ShouldRestrictNextActionToTerminal
 	return iterationRequest
 }
 
