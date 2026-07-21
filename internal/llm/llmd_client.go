@@ -300,6 +300,7 @@ func (client LLMDClient) GenerateStructuredResponse(responseContext context.Cont
 		return StructuredResponse{}, fallbackError
 	}
 	fallbackResponse.UsedFallback = true
+	fallbackResponse.FallbackReason = errorValue.Error()
 	fallbackResponse.Transport = "capability"
 	return fallbackResponse, nil
 }

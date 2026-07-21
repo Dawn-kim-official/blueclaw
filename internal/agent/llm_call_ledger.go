@@ -26,6 +26,7 @@ type llmCallRecord struct {
 	SchemaBytes            int                                    `json:"schemaBytes,omitempty"`
 	ContentBytes           int                                    `json:"contentBytes"`
 	UsedFallback           bool                                   `json:"usedFallback,omitempty"`
+	FallbackReason         string                                 `json:"fallbackReason,omitempty"`
 	PromptTokens           int64                                  `json:"promptTokens,omitempty"`
 	CompletionTokens       int64                                  `json:"completionTokens,omitempty"`
 	TotalTokens            int64                                  `json:"totalTokens,omitempty"`
@@ -161,6 +162,7 @@ func (model observedLanguageModel) GenerateStructuredResponse(ctx context.Contex
 		SchemaBytes:           schemaBytes,
 		ContentBytes:          len(response.Content),
 		UsedFallback:          response.UsedFallback,
+		FallbackReason:        truncateText(compactWhitespace(response.FallbackReason), llmCallErrorMaximumCharacters),
 		PromptTokens:          response.Usage.PromptTokens,
 		CompletionTokens:      response.Usage.CompletionTokens,
 		TotalTokens:           response.Usage.TotalTokens,
@@ -279,6 +281,7 @@ func chatCallRecord(kind string, request llm.ChatCompletionRequest, response llm
 		PromptBytes:           chatRequestByteCount(request),
 		ContentBytes:          len(response.Message.Content),
 		UsedFallback:          response.UsedFallback,
+		FallbackReason:        truncateText(compactWhitespace(response.FallbackReason), llmCallErrorMaximumCharacters),
 		PromptTokens:          response.Usage.PromptTokens,
 		CompletionTokens:      response.Usage.CompletionTokens,
 		TotalTokens:           response.Usage.TotalTokens,
