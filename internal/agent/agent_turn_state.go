@@ -14,6 +14,7 @@ import (
 )
 
 const defaultAgentActionMaxTokens = 4096
+const terminalStructuredMaxTokens = 1600
 const maximumAgentActionCorrectionCount = 2
 
 type agentAction = turnActionDocument
@@ -432,6 +433,15 @@ func agentActionGenerationOptions(options llm.GenerationOptions) llm.GenerationO
 		return options
 	}
 	maxTokens := defaultAgentActionMaxTokens
+	options.MaxTokens = &maxTokens
+	return options
+}
+
+func terminalStructuredGenerationOptions(options llm.GenerationOptions) llm.GenerationOptions {
+	if options.MaxTokens != nil {
+		return options
+	}
+	maxTokens := terminalStructuredMaxTokens
 	options.MaxTokens = &maxTokens
 	return options
 }
