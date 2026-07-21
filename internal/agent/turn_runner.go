@@ -105,6 +105,8 @@ type AgentTurnRequest struct {
 	EstimatedMinutes             int
 	TurnStartedAt                time.Time
 	EffortStartedAt              time.Time
+	TurnAnchorClamped            bool
+	OriginalTurnStartedAt        time.Time
 	CheckpointSender             AgentCheckpointSender
 	StepBudgetContext            string
 	ArtifactManifest             []ArtifactManifestEntry
@@ -342,6 +344,14 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 	})
 
 	taskRun := agentTurnRunner.taskRunForRequest(request)
+	if request.TurnAnchorClamped {
+		agentTurnRunner.appendEvent(taskRun.TaskRunID, "agent.turn_anchor_clamped", marshalEventBody(map[string]any{
+			"phase":                       "execution",
+			"originalTurnStartedAtUnixMs": request.OriginalTurnStartedAt.UnixMilli(),
+			"clampedTurnStartedAtUnixMs":  request.TurnStartedAt.UnixMilli(),
+			"nowUnixMs":                   time.Now().UnixMilli(),
+		}))
+	}
 	agentTurnRunner.appendTaskSourceEvent(taskRun.TaskRunID, request.SourceReference)
 	observeRecord := func(record llmCallRecord) {
 		agentTurnRunner.appendEvent(taskRun.TaskRunID, "llm.call", marshalEventBody(record))

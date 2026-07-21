@@ -234,10 +234,11 @@ func (agentKernel *AgentKernel) RouteTurn(responseContext context.Context, reque
 }
 
 func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context, request AgentRequest) (AgentTurnResult, error) {
+	requestReceivedAt := time.Now()
 	routerCallLedger := &turnRouterCallLedger{}
 	request.ActiveGoal = normalizePersistedActiveGoal(request.ActiveGoal)
 	if request.TurnStartedAt.IsZero() {
-		request.TurnStartedAt = time.Now().Add(-2 * time.Second)
+		request.TurnStartedAt = requestReceivedAt.Add(-2 * time.Second)
 	}
 	request.ResponseLanguage = ResolveResponseLanguage(request.ResponseLanguage, request.VisibleContext.ResponseLanguage)
 	if strings.TrimSpace(request.ActiveGoal.RestoreError) != "" {
@@ -251,11 +252,11 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 	routerLanguageModel := routerCallLedger.languageModel(agentKernel.turnRouterLanguageModel())
 	turnRouter := NewTurnRouter(routerLanguageModel, agentKernel.intakeOptions)
 	preflightOptions := normalizeTurnOptions(agentKernel.turnOptions)
-	preflightBudget := newTurnBudgetContext(responseContext, request.TurnStartedAt, preflightOptions)
+	preflightBudget := newTurnBudgetContext(responseContext, request.TurnStartedAt, request.IsRuntimeRestartResume, requestReceivedAt, preflightOptions)
 	turnDecision, errorValue := turnRouter.Plan(preflightBudget.workContext, intakeRequest)
 	didPreflightExpire := request.PrecomputedTurnDecision == nil && preflightBudget.didWorkExpire()
 	if didPreflightExpire {
-		result := agentKernel.completeIntakeElapsed(preflightBudget.totalContext, intakeRequest, IntakeDecision{}, preflightOptions, routerCallLedger.records)
+		result := agentKernel.completeIntakeElapsed(preflightBudget, intakeRequest, IntakeDecision{}, routerCallLedger.records)
 		preflightBudget.cancel()
 		return result, nil
 	}
@@ -267,9 +268,10 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 	intakeDecision := turnDecision.IntakeDecision()
 	intakeDecision = promoteArtifactTaskLevelForRequest(intakeRequest, intakeDecision)
 	turnOptions := agentKernel.turnOptionsForIntakeDecision(intakeDecision)
-	taskBudget := newTurnBudgetContext(responseContext, request.TurnStartedAt, turnOptions)
+	taskBudget := newTurnBudgetContext(responseContext, request.TurnStartedAt, request.IsRuntimeRestartResume, requestReceivedAt, turnOptions)
 	defer taskBudget.cancel()
 	taskContext := taskBudget.workContext
+	request.TurnStartedAt = taskBudget.turnStartedAt
 	if result, didExpire := agentKernel.completeIntakeIfElapsed(taskBudget, intakeRequest, intakeDecision, turnDecision.Route, routerCallLedger.records); didExpire {
 		return result, nil
 	}
@@ -359,7 +361,7 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 		confirmationResult, pauseError := agentKernel.pauseForConfirmation(taskContext, request, intakeDecision, confirmationPlan, OutcomeContract{}, confirmationEvidenceHints, selectedSkillNameList(instructionBundle.SkillDecisions))
 		if pauseError != nil && taskBudget.didWorkExpire() {
 			intakeRequest.ExistingTaskRunID = confirmationResult.TaskRun.TaskRunID
-			confirmationResult = agentKernel.completeIntakeElapsed(taskBudget.totalContext, intakeRequest, intakeDecision, turnOptions, routerCallLedger.records)
+			confirmationResult = agentKernel.completeIntakeElapsed(taskBudget, intakeRequest, intakeDecision, routerCallLedger.records)
 			pauseError = nil
 		}
 		confirmationResult.TurnRoute = turnDecision.Route
@@ -387,7 +389,7 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 		confirmationResult, pauseError := agentKernel.pauseForConfirmation(taskContext, request, intakeDecision, confirmationPlan, outcomeContract, confirmationEvidenceHints, selectedSkillNameList(instructionBundle.SkillDecisions))
 		if pauseError != nil && taskBudget.didWorkExpire() {
 			intakeRequest.ExistingTaskRunID = confirmationResult.TaskRun.TaskRunID
-			confirmationResult = agentKernel.completeIntakeElapsed(taskBudget.totalContext, intakeRequest, intakeDecision, turnOptions, routerCallLedger.records)
+			confirmationResult = agentKernel.completeIntakeElapsed(taskBudget, intakeRequest, intakeDecision, routerCallLedger.records)
 			pauseError = nil
 		}
 		confirmationResult.TurnRoute = turnDecision.Route
@@ -453,6 +455,8 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 		EstimatedMinutes:           intakeDecision.EstimatedMinutes,
 		TurnStartedAt:              request.TurnStartedAt,
 		EffortStartedAt:            request.TurnStartedAt,
+		TurnAnchorClamped:          taskBudget.didClampAnchor,
+		OriginalTurnStartedAt:      taskBudget.originalTurnStartedAt,
 		CheckpointSender:           request.CheckpointSender,
 	}
 	agentTurnRunner := NewAgentTurnRunnerWithRecoveryModel(
@@ -777,24 +781,63 @@ func (agentKernel *AgentKernel) appendGoalLifecycleEvent(taskRun task.TaskRun, a
 }
 
 type turnBudgetContext struct {
-	parentContext context.Context
-	totalContext  context.Context
-	workContext   context.Context
-	cancelTotal   context.CancelFunc
-	cancelWork    context.CancelFunc
-	turnOptions   TurnOptions
+	parentContext         context.Context
+	totalContext          context.Context
+	workContext           context.Context
+	cancelTotal           context.CancelFunc
+	cancelWork            context.CancelFunc
+	turnOptions           TurnOptions
+	turnStartedAt         time.Time
+	workDeadline          time.Time
+	didClampAnchor        bool
+	originalTurnStartedAt time.Time
 }
 
-func newTurnBudgetContext(parentContext context.Context, turnStartedAt time.Time, turnOptions TurnOptions) turnBudgetContext {
-	if turnStartedAt.IsZero() || turnOptions.MaxElapsedSecond <= 0 {
+const nonResumeAnchorStaleAllowance = 2 * time.Minute
+
+func clampedTurnStartedAt(turnStartedAt time.Time, isRuntimeRestartResume bool, referenceNow time.Time) (resolvedTurnStartedAt time.Time, didClampAnchor bool, originalTurnStartedAt time.Time) {
+	if isRuntimeRestartResume || turnStartedAt.IsZero() {
+		return turnStartedAt, false, turnStartedAt
+	}
+	if referenceNow.Sub(turnStartedAt) <= nonResumeAnchorStaleAllowance {
+		return turnStartedAt, false, turnStartedAt
+	}
+	return referenceNow, true, turnStartedAt
+}
+
+func newTurnBudgetContext(parentContext context.Context, turnStartedAt time.Time, isRuntimeRestartResume bool, referenceNow time.Time, turnOptions TurnOptions) turnBudgetContext {
+	resolvedTurnStartedAt, didClampAnchor, originalTurnStartedAt := clampedTurnStartedAt(turnStartedAt, isRuntimeRestartResume, referenceNow)
+	if resolvedTurnStartedAt.IsZero() || turnOptions.MaxElapsedSecond <= 0 {
 		totalContext, cancelTotal := context.WithCancel(parentContext)
 		workContext, cancelWork := context.WithCancel(totalContext)
-		return turnBudgetContext{parentContext, totalContext, workContext, cancelTotal, cancelWork, turnOptions}
+		return turnBudgetContext{
+			parentContext:         parentContext,
+			totalContext:          totalContext,
+			workContext:           workContext,
+			cancelTotal:           cancelTotal,
+			cancelWork:            cancelWork,
+			turnOptions:           turnOptions,
+			turnStartedAt:         resolvedTurnStartedAt,
+			didClampAnchor:        didClampAnchor,
+			originalTurnStartedAt: originalTurnStartedAt,
+		}
 	}
 	totalDuration := time.Duration(turnOptions.MaxElapsedSecond) * time.Second
-	totalContext, cancelTotal := context.WithDeadline(parentContext, turnStartedAt.Add(totalDuration))
-	workContext, cancelWork := context.WithDeadline(totalContext, turnStartedAt.Add(workDurationWithinTotal(totalDuration)))
-	return turnBudgetContext{parentContext, totalContext, workContext, cancelTotal, cancelWork, turnOptions}
+	workDeadline := resolvedTurnStartedAt.Add(workDurationWithinTotal(totalDuration))
+	totalContext, cancelTotal := context.WithDeadline(parentContext, resolvedTurnStartedAt.Add(totalDuration))
+	workContext, cancelWork := context.WithDeadline(totalContext, workDeadline)
+	return turnBudgetContext{
+		parentContext:         parentContext,
+		totalContext:          totalContext,
+		workContext:           workContext,
+		cancelTotal:           cancelTotal,
+		cancelWork:            cancelWork,
+		turnOptions:           turnOptions,
+		turnStartedAt:         resolvedTurnStartedAt,
+		workDeadline:          workDeadline,
+		didClampAnchor:        didClampAnchor,
+		originalTurnStartedAt: originalTurnStartedAt,
+	}
 }
 
 func (turnBudget turnBudgetContext) cancel() {
@@ -814,25 +857,28 @@ func (agentKernel *AgentKernel) completeIntakeIfElapsed(turnBudget turnBudgetCon
 	if !turnBudget.didWorkExpire() {
 		return AgentTurnResult{}, false
 	}
-	result := agentKernel.completeIntakeElapsed(turnBudget.totalContext, request, intakeDecision, turnBudget.turnOptions, routerCallRecords)
+	result := agentKernel.completeIntakeElapsed(turnBudget, request, intakeDecision, routerCallRecords)
 	result.TurnRoute = turnRoute
 	return result, true
 }
 
-func (agentKernel *AgentKernel) completeIntakeElapsed(closingContext context.Context, request AgentRequest, intakeDecision IntakeDecision, turnOptions TurnOptions, routerCallRecords []llmCallRecord) AgentTurnResult {
+func (agentKernel *AgentKernel) completeIntakeElapsed(turnBudget turnBudgetContext, request AgentRequest, intakeDecision IntakeDecision, routerCallRecords []llmCallRecord) AgentTurnResult {
 	taskRun := agentKernel.taskRunForIntakeLimit(request)
 	agentKernel.appendTurnRouterCallRecords(taskRun.TaskRunID, routerCallRecords)
 	if intakeDecision.TaskLevel != "" {
 		agentKernel.AppendTaskEvent(taskRun.TaskRunID, "agent.intake", marshalEventBody(intakeDecision))
 	}
-	agentKernel.AppendTaskEvent(taskRun.TaskRunID, "agent.limit_stop", marshalEventBody(intakeLimitEventBody(turnOptions)))
+	agentKernel.AppendTaskEvent(taskRun.TaskRunID, "agent.limit_stop", marshalEventBody(intakeLimitEventBody(turnBudget)))
+	if turnBudget.didClampAnchor {
+		agentKernel.AppendTaskEvent(taskRun.TaskRunID, "agent.turn_anchor_clamped", marshalEventBody(turnAnchorClampedEventBody(turnBudget)))
+	}
 	blockedTaskRun, errorValue := agentKernel.taskRunService.PauseTaskRun(taskRun.TaskRunID, task.TaskStatusBlocked, "max_elapsed")
 	if errorValue != nil {
 		taskRun.Status = task.TaskStatusBlocked
 		taskRun.FailureReason = "max_elapsed"
 		blockedTaskRun = taskRun
 	}
-	failureNotice, noticeStatus := agentKernel.generateIntakeElapsedNotice(closingContext, request, taskRun.TaskRunID)
+	failureNotice, noticeStatus := agentKernel.generateIntakeElapsedNotice(turnBudget.totalContext, request, taskRun.TaskRunID)
 	replyStatus := limitReplyStatus{Source: noticeStatus.Source, Reason: noticeStatus.Reason, TextRecoveryError: noticeStatus.TextRecoveryError}
 	agentKernel.AppendTaskEvent(taskRun.TaskRunID, "agent.limit_reply", marshalEventBody(replyStatus))
 	blockedTaskRun = persistTaskRunResult(agentKernel.taskRunService, blockedTaskRun, failureNotice.SendableMessage())
@@ -867,8 +913,9 @@ func (agentKernel *AgentKernel) taskRunForIntakeLimit(request AgentRequest) task
 	return agentKernel.createTaskRunForRequest(request)
 }
 
-func intakeLimitEventBody(turnOptions TurnOptions) map[string]any {
-	return map[string]any{
+func intakeLimitEventBody(turnBudget turnBudgetContext) map[string]any {
+	turnOptions := turnBudget.turnOptions
+	body := map[string]any{
 		"phase":              "intake",
 		"taskLevel":          turnOptions.TaskLevel,
 		"maxIterationCount":  turnOptions.MaxIterationCount,
@@ -877,6 +924,28 @@ func intakeLimitEventBody(turnOptions TurnOptions) map[string]any {
 		"usedIterationCount": 0,
 		"usedToolCallCount":  0,
 		"limitStopReason":    "max_elapsed",
+		"anchorClamped":      turnBudget.didClampAnchor,
+		"nowUnixMs":          time.Now().UnixMilli(),
+	}
+	if !turnBudget.turnStartedAt.IsZero() {
+		body["turnStartedAtUnixMs"] = turnBudget.turnStartedAt.UnixMilli()
+	}
+	if !turnBudget.workDeadline.IsZero() {
+		body["workDeadlineUnixMs"] = turnBudget.workDeadline.UnixMilli()
+	}
+	if turnBudget.didClampAnchor {
+		body["originalTurnStartedAtUnixMs"] = turnBudget.originalTurnStartedAt.UnixMilli()
+	}
+	return body
+}
+
+func turnAnchorClampedEventBody(turnBudget turnBudgetContext) map[string]any {
+	return map[string]any{
+		"phase":                       "intake",
+		"maxElapsedSecond":            turnBudget.turnOptions.MaxElapsedSecond,
+		"originalTurnStartedAtUnixMs": turnBudget.originalTurnStartedAt.UnixMilli(),
+		"clampedTurnStartedAtUnixMs":  turnBudget.turnStartedAt.UnixMilli(),
+		"nowUnixMs":                   time.Now().UnixMilli(),
 	}
 }
 
