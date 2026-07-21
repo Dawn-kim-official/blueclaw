@@ -20,22 +20,23 @@ const maximumAgentActionCorrectionCount = 2
 type agentAction = turnActionDocument
 
 type agentTaskState struct {
-	TaskRunID                string
-	Status                   task.TaskStatus
-	Request                  AgentTurnRequest
-	Options                  TurnOptions
-	Observations             []turnObservation
-	QualityCriteria          []qualityCriterion
-	Attachments              []FileAttachment
-	ExecutionState           ExecutionState
-	ContextSummary           TaskContextSummary
-	IterationCount           int
-	ToolCallCount            int
-	TurnStartedAt            time.Time
-	PendingWait              *agentPendingWait
-	Requirements             []toolUseRequirement
-	LastModelMessage         string
-	CompletionIntentToolName string
+	TaskRunID                          string
+	Status                             task.TaskStatus
+	Request                            AgentTurnRequest
+	Options                            TurnOptions
+	Observations                       []turnObservation
+	QualityCriteria                    []qualityCriterion
+	Attachments                        []FileAttachment
+	ExecutionState                     ExecutionState
+	ContextSummary                     TaskContextSummary
+	IterationCount                     int
+	ToolCallCount                      int
+	TurnStartedAt                      time.Time
+	PendingWait                        *agentPendingWait
+	Requirements                       []toolUseRequirement
+	LastModelMessage                   string
+	CompletionIntentToolName           string
+	ShouldRestrictNextActionToTerminal bool
 }
 
 type agentPendingWait struct {
@@ -391,7 +392,7 @@ func buildAgentActionRequest(state agentTaskState, includeToolDescription bool) 
 	if requirements == nil {
 		requirements = deriveToolUseRequirements(state.Request)
 	}
-	modelToolSet := modelCallableToolSet(state.Request.ToolSet)
+	modelToolSet := modelCallableToolSet(state.Request.ToolSet, state.Request.RestrictActionToTerminalOnly)
 	blockedToolNames := blockedToolNamesForPreconditions(modelToolSet, requirements, state.Observations)
 	failureFacts := buildFailureReportFacts(state.Observations, state.Options.RecoveryBudget)
 	hasFailureDebt := len(failureFacts.Attempts) > 0
@@ -446,7 +447,10 @@ func terminalStructuredGenerationOptions(options llm.GenerationOptions) llm.Gene
 	return options
 }
 
-func modelCallableToolSet(toolSet *ToolSet) *ToolSet {
+func modelCallableToolSet(toolSet *ToolSet, restrictToTerminalActionsOnly bool) *ToolSet {
+	if restrictToTerminalActionsOnly {
+		return nil
+	}
 	return toolSet
 }
 
