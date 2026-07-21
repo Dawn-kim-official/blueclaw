@@ -281,12 +281,39 @@ func failureReportFactsSchema() map[string]any {
 	})
 }
 
+// terminalActionUnifiedSchema is a flat closed object rather than a root-level oneOf of finish/fail branches; branch-specific requirements are enforced in Go instead of JSON schema required fields.
+func terminalActionUnifiedSchema(hasFailureDebt bool) map[string]any {
+	failureResolutionValues := []string{"none", failureResolutionRecoveredWithSuccess, failureResolutionNoToolFallback}
+	requiredFields := []string{"action", "message"}
+	properties := map[string]any{
+		"action":                enumValuesStringSchema([]string{"finish", "fail"}),
+		"message":               stringSchema(),
+		"replyParts":            finishReplyPartArraySchema(),
+		"completionSummary":     stringSchema(),
+		"reason":                stringSchema(),
+		"goalStatus":            enumValuesStringSchema([]string{"satisfied", "blocked"}),
+		"goalSatisfied":         booleanSchema(),
+		"hasRemainingWork":      booleanSchema(),
+		"completionEvidenceIDs": stringArraySchema(0),
+		"qualityReview":         qualityReviewSchema(),
+		"remainingWork":         stringSchema(),
+		"executionStateUpdate":  executionStateSchema(),
+	}
+	if hasFailureDebt {
+		failureResolutionValues = []string{failureResolutionRecoveredWithSuccess, failureResolutionNoToolFallback, failureResolutionFailureReport}
+		properties["usedFailureFacts"] = failureReportFactsSchema()
+		requiredFields = append(requiredFields, "failureResolution")
+	}
+	properties["failureResolution"] = enumValuesStringSchema(failureResolutionValues)
+	return closedObjectSchema(properties, requiredFields...)
+}
+
 func finalizerActionSchema() string {
-	return mustMarshalStructuredSchema(map[string]any{"oneOf": []any{finishActionSchema(false), failActionSchema(false)}})
+	return mustMarshalStructuredSchema(terminalActionUnifiedSchema(false))
 }
 
 func terminalNoToolsActionSchema() string {
-	return mustMarshalStructuredSchema(map[string]any{"oneOf": []any{finishActionSchema(true), failActionSchema(true)}})
+	return mustMarshalStructuredSchema(terminalActionUnifiedSchema(true))
 }
 
 func mustMarshalStructuredSchema(schema any) string {
