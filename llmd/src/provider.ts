@@ -266,7 +266,6 @@ const defaultLanguageModelFactory: ProviderLanguageModelFactory = {
     });
     return provider.chat(modelName, {
       provider: { require_parameters: true },
-      ...(parallelToolCalls === undefined ? {} : { parallelToolCalls }),
     });
   },
 };
