@@ -52,6 +52,7 @@ func (connectorRuntime *ConnectorRuntime) dispatchTaskReply(
 	event PlatformInboundEvent,
 	replyTarget ReplyTarget,
 	turnResult agent.AgentTurnResult,
+	engagedAckEmojiName string,
 	sendReply func(context.Context, ReplyTarget, OutboundReply) (string, error),
 ) (ConnectorRuntimeResult, error) {
 	taskRunID := turnResult.TaskRun.TaskRunID
@@ -59,6 +60,9 @@ func (connectorRuntime *ConnectorRuntime) dispatchTaskReply(
 	switch decision.Kind {
 	case taskReplyDecisionConsume:
 		reason := connectorRuntime.addConsumeReaction(ctx, platform, adapter, event, taskRunID, turnResult.ReactionEmojiName)
+		if reason == "consume_reacted" && engagedAckEmojiName != "" && engagedAckEmojiName != consumeReactionEmojiName(turnResult.ReactionEmojiName) {
+			connectorRuntime.clearEngagedAckReaction(ctx, platform, adapter, event, engagedAckEmojiName)
+		}
 		if reason != "consume_reacted" && !isMultiPersonConversation(event) && strings.TrimSpace(turnResult.FinishMessage) != "" {
 			result, errorValue := connectorRuntime.sendCompletedTaskReply(ctx, platform, event, taskRunID, replyTarget, turnResult, sendReply)
 			if result.ReplyDispatchID != "" {
@@ -82,11 +86,16 @@ func (connectorRuntime *ConnectorRuntime) dispatchTaskReply(
 	case taskReplyDecisionSendUserNotice:
 		dispatchID, isSent := connectorRuntime.sendUserNoticeReply(ctx, platform, event, taskRunID, replyTarget, turnResult, sendReply)
 		if isSent {
+			connectorRuntime.clearEngagedAckReaction(ctx, platform, adapter, event, engagedAckEmojiName)
 			return ConnectorRuntimeResult{Handled: true, Platform: platform, TaskRunID: taskRunID, Reason: decision.Reason, ReplyDispatchID: dispatchID}, nil
 		}
 		return ConnectorRuntimeResult{Handled: true, Platform: platform, TaskRunID: taskRunID, Reason: decision.Reason}, nil
 	default:
-		return connectorRuntime.sendCompletedTaskReply(ctx, platform, event, taskRunID, replyTarget, turnResult, sendReply)
+		result, errorValue := connectorRuntime.sendCompletedTaskReply(ctx, platform, event, taskRunID, replyTarget, turnResult, sendReply)
+		if result.ReplyDispatchID != "" {
+			connectorRuntime.clearEngagedAckReaction(ctx, platform, adapter, event, engagedAckEmojiName)
+		}
+		return result, errorValue
 	}
 }
 
