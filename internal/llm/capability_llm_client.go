@@ -26,12 +26,10 @@ type capabilityStructuredResponseRequestDocument struct {
 }
 
 type capabilityTextResponseRequestDocument struct {
-	Model                 string          `json:"model,omitempty"`
-	ExecutionMode         string          `json:"executionMode"`
-	Context               *RequestContext `json:"context,omitempty"`
-	Messages              []Message       `json:"messages"`
-	RequireParameters     bool            `json:"requireParameters"`
-	EnableResponseHealing bool            `json:"enableResponseHealing"`
+	Model         string          `json:"model,omitempty"`
+	ExecutionMode string          `json:"executionMode"`
+	Context       *RequestContext `json:"context,omitempty"`
+	Messages      []Message       `json:"messages"`
 }
 
 type capabilityChatCompletionRequestDocument struct {

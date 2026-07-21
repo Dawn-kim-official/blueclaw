@@ -773,11 +773,17 @@ function keepFirstToolCallStream(
 }
 
 function keepFirstToolCall(result: LanguageModelV3GenerateResult): LanguageModelV3GenerateResult {
-  const firstToolCallIndex = result.content.findIndex(content => content.type === 'tool-call');
-  if (firstToolCallIndex < 0) return result;
+  const toolCalls = result.content.filter(
+    (content): content is LanguageModelV3ToolCall => content.type === 'tool-call',
+  );
+  const [keptToolCall, ...droppedToolCalls] = toolCalls;
+  if (keptToolCall === undefined || droppedToolCalls.length === 0) return result;
+  console.warn(
+    `llmd: parallel tool calls disabled, dropping ${droppedToolCalls.length} tool call(s) [${droppedToolCalls.map(toolCall => toolCall.toolName).join(', ')}] and keeping [${keptToolCall.toolName}]`,
+  );
   return {
     ...result,
-    content: result.content.filter((content, index) => content.type !== 'tool-call' || index === firstToolCallIndex),
+    content: result.content.filter(content => content.type !== 'tool-call' || content === keptToolCall),
   };
 }
 

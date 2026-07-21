@@ -5,10 +5,7 @@ import (
 	"strings"
 )
 
-const (
-	maxSchemaCallableToolCount    = 20
-	maxExtensionCallableToolCount = 10
-)
+const maxExtensionCallableToolCount = 10
 
 type toolExposureGroup struct {
 	Name    string
@@ -22,16 +19,14 @@ type droppedToolGroup struct {
 }
 
 type ToolExposureEvent struct {
-	SelectedToolIDs        []string           `json:"selectedToolIDs,omitempty"`
-	ValidSelectedToolIDs   []string           `json:"validSelectedToolIDs,omitempty"`
-	SelectionReason        string             `json:"selectionReason,omitempty"`
-	SelectionSource        string             `json:"selectionSource,omitempty"`
-	SelectionFailureReason string             `json:"selectionFailureReason,omitempty"`
-	UsedFallbackGroups     bool               `json:"usedFallbackGroups"`
-	ExposedToolIDs         []string           `json:"exposedToolIDs"`
-	SelectedSkillToolIDs   []string           `json:"selectedSkillToolIDs,omitempty"`
-	PinnedGroupToolIDs     []string           `json:"pinnedGroupToolIDs,omitempty"`
-	DroppedGroups          []droppedToolGroup `json:"droppedGroups,omitempty"`
+	ValidSelectedToolIDs []string           `json:"validSelectedToolIDs,omitempty"`
+	SelectionReason      string             `json:"selectionReason,omitempty"`
+	SelectionSource      string             `json:"selectionSource,omitempty"`
+	UsedFallbackGroups   bool               `json:"usedFallbackGroups"`
+	ExposedToolIDs       []string           `json:"exposedToolIDs"`
+	SelectedSkillToolIDs []string           `json:"selectedSkillToolIDs,omitempty"`
+	PinnedGroupToolIDs   []string           `json:"pinnedGroupToolIDs,omitempty"`
+	DroppedGroups        []droppedToolGroup `json:"droppedGroups,omitempty"`
 }
 
 func toolSetForAgentTurnWithExposure(toolSet *ToolSet, instructionBundle InstructionBundle, request AgentRequest, executionPlan ExecutionPlan, hasExecutionPlan bool, outcomeContract OutcomeContract, selectionEvent ToolExposureEvent, observations ...[]turnObservation) (*ToolSet, ToolExposureEvent) {
