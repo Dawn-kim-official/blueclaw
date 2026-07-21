@@ -441,9 +441,11 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 		state.Observations = agentTurnRunner.applyPendingSteeringEvents(taskRun.TaskRunID, state.Observations, appliedSteerEventIDs)
 		state.IterationCount = iteration - 1
 		if warning := agentTurnRunner.nextLimitPressureWarning(iteration-1, state.ToolCallCount, agentTurnRunner.turnElapsed(request.EffortStartedAt), len(state.Observations)+1, limitPressureWarnings); warning != nil {
-			state.Observations = append(state.Observations, warning.Observation)
+			if warning.Observation != nil {
+				state.Observations = append(state.Observations, *warning.Observation)
+			}
 			agentTurnRunner.appendEvent(taskRun.TaskRunID, "agent.limit_pressure", marshalEventBody(warning.EventBody))
-			limitPressureWarnings[warning.Level] = true
+			limitPressureWarnings[warning.Stage] = true
 		}
 		stepID := fmt.Sprintf("%s:turn-%03d", taskRun.TaskRunID, iteration)
 		agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusRunning, "agent turn iteration", "")
@@ -1011,11 +1013,26 @@ func (agentTurnRunner *AgentTurnRunner) requestForStep(_ context.Context, reques
 		ToolExposureEvent{},
 		state.Observations,
 	)
+	elapsed := agentTurnRunner.turnElapsed(request.EffortStartedAt)
+	if agentTurnRunner.limitPressureLevel(state.IterationCount, state.ToolCallCount, elapsed) == limitPressureStageNarrowPalette {
+		filteredToolSet = filteredToolSet.WithAllowedToolNames(wrapUpDeliveryToolNames(plannedRequest))
+	}
 	iterationRequest := plannedRequest
 	iterationRequest.ToolSet = filteredToolSet
 	iterationRequest.ToolExposure = exposureEvent
 	iterationRequest.StepBudgetContext = agentTurnRunner.stepBudgetContext(state)
 	return iterationRequest
+}
+
+func wrapUpDeliveryToolNames(request AgentTurnRequest) []string {
+	toolNames := []string{}
+	if expectedResultRequiresFileAttachment(request.OutcomeContract) {
+		toolNames = appendUniqueStrings(toolNames, availableFileDeliveryToolNames(request)...)
+	}
+	if externalSendCompletionEvidenceRequired(request) {
+		toolNames = appendUniqueStrings(toolNames, requiredSendToolNamesForRequest(request)...)
+	}
+	return toolNames
 }
 
 func (agentTurnRunner *AgentTurnRunner) stepBudgetContext(state agentTaskState) string {
@@ -1435,53 +1452,68 @@ func (agentTurnRunner *AgentTurnRunner) failTurnWithContext(ctx context.Context,
 	return result, nil
 }
 
+const (
+	limitPressureStageWrapUp        = "wrap_up"
+	limitPressureStageNarrowPalette = "narrow_palette"
+
+	wrapUpThresholdPercent        = 80
+	narrowPaletteThresholdPercent = 92
+
+	minimumRemainingCallEstimate = 1
+	maximumRemainingCallEstimate = 5
+	defaultRemainingCallEstimate = 2
+)
+
 type limitPressureWarning struct {
-	Level       string
-	Observation turnObservation
+	Stage       string
+	Observation *turnObservation
 	EventBody   map[string]any
 }
 
 func (agentTurnRunner *AgentTurnRunner) nextLimitPressureWarning(usedIterationCount int, usedToolCallCount int, elapsed time.Duration, observationIndex int, sentWarnings map[string]bool) *limitPressureWarning {
-	if sentWarnings["finalize"] {
+	if sentWarnings[limitPressureStageNarrowPalette] {
 		return nil
 	}
 	if agentTurnRunner.options.MaxIterationCount < 10 && agentTurnRunner.options.MaxToolCallCount < 5 {
 		return nil
 	}
-	level := agentTurnRunner.limitPressureLevel(usedIterationCount, usedToolCallCount, elapsed)
-	if level == "" || sentWarnings[level] {
+	stage := agentTurnRunner.limitPressureLevel(usedIterationCount, usedToolCallCount, elapsed)
+	if stage == "" || sentWarnings[stage] {
 		return nil
 	}
 	maxToolCallCount := maxToolCallCountWithRecovery(agentTurnRunner.options, nil)
 	maximumWorkDuration := agentTurnRunner.maximumWorkDuration()
-	message := limitPressureMessage(level, usedToolCallCount, maxToolCallCount, usedIterationCount, agentTurnRunner.options.MaxIterationCount, elapsed, maximumWorkDuration)
-	return &limitPressureWarning{
-		Level:       level,
-		Observation: newContentObservation(nextObservationID(observationIndex), "limit_pressure", "", message),
+	remainingCallEstimate := estimateRemainingToolCallCount(elapsed, maximumWorkDuration, usedToolCallCount)
+	warning := &limitPressureWarning{
+		Stage: stage,
 		EventBody: map[string]any{
-			"level":              level,
-			"taskLevel":          agentTurnRunner.options.TaskLevel,
-			"usedIterationCount": usedIterationCount,
-			"usedToolCallCount":  usedToolCallCount,
-			"maxIterationCount":  agentTurnRunner.options.MaxIterationCount,
-			"maxToolCallCount":   maxToolCallCount,
-			"elapsedSeconds":     int(elapsed.Seconds()),
-			"maxElapsedSeconds":  agentTurnRunner.options.MaxElapsedSecond,
-			"maxWorkSeconds":     int(maximumWorkDuration.Seconds()),
+			"stage":                 stage,
+			"remainingCallEstimate": remainingCallEstimate,
+			"taskLevel":             agentTurnRunner.options.TaskLevel,
+			"usedIterationCount":    usedIterationCount,
+			"usedToolCallCount":     usedToolCallCount,
+			"maxIterationCount":     agentTurnRunner.options.MaxIterationCount,
+			"maxToolCallCount":      maxToolCallCount,
+			"elapsedSeconds":        int(elapsed.Seconds()),
+			"maxElapsedSeconds":     agentTurnRunner.options.MaxElapsedSecond,
+			"maxWorkSeconds":        int(maximumWorkDuration.Seconds()),
 		},
 	}
+	if stage == limitPressureStageWrapUp {
+		message := wrapUpPressureMessage(remainingCallEstimate)
+		observation := newContentObservation(nextObservationID(observationIndex), "limit_pressure", "", message)
+		warning.Observation = &observation
+	}
+	return warning
 }
 
 func (agentTurnRunner *AgentTurnRunner) limitPressureLevel(usedIterationCount int, usedToolCallCount int, elapsed time.Duration) string {
 	maxElapsed := agentTurnRunner.maximumWorkDuration()
-	if limitUsageReached(usedIterationCount, agentTurnRunner.options.MaxIterationCount, 90) || limitUsageReached(usedToolCallCount, agentTurnRunner.options.MaxToolCallCount, 90) || elapsedUsageReached(elapsed, maxElapsed, 90) {
-		return "finalize"
+	if limitUsageReached(usedIterationCount, agentTurnRunner.options.MaxIterationCount, narrowPaletteThresholdPercent) || limitUsageReached(usedToolCallCount, agentTurnRunner.options.MaxToolCallCount, narrowPaletteThresholdPercent) || elapsedUsageReached(elapsed, maxElapsed, narrowPaletteThresholdPercent) {
+		return limitPressureStageNarrowPalette
 	}
-	if limitUsageReached(usedIterationCount, agentTurnRunner.options.MaxIterationCount, 75) || limitUsageReached(usedToolCallCount, agentTurnRunner.options.MaxToolCallCount, 75) || elapsedUsageReached(elapsed, maxElapsed, 75) {
-		return "consolidate"
-	}
-	if limitUsageReached(usedIterationCount, agentTurnRunner.options.MaxIterationCount, 50) || limitUsageReached(usedToolCallCount, agentTurnRunner.options.MaxToolCallCount, 50) || elapsedUsageReached(elapsed, maxElapsed, 50) {
-		return "budget"
+	if limitUsageReached(usedIterationCount, agentTurnRunner.options.MaxIterationCount, wrapUpThresholdPercent) || limitUsageReached(usedToolCallCount, agentTurnRunner.options.MaxToolCallCount, wrapUpThresholdPercent) || elapsedUsageReached(elapsed, maxElapsed, wrapUpThresholdPercent) {
+		return limitPressureStageWrapUp
 	}
 	return ""
 }
@@ -1504,18 +1536,33 @@ func limitUsageReached(usedCount int, maxCount int, thresholdPercent int) bool {
 	return usedCount*100 >= maxCount*thresholdPercent
 }
 
-func limitPressureMessage(level string, usedToolCallCount int, maxToolCallCount int, usedIterationCount int, maxIterationCount int, elapsed time.Duration, maxElapsed time.Duration) string {
-	budgetLine := fmt.Sprintf("Budget status: %d/%d tool calls used and %d/%d steps used.", usedToolCallCount, maxToolCallCount, usedIterationCount, maxIterationCount)
-	if maxElapsed > 0 {
-		budgetLine += fmt.Sprintf(" Time: %s/%s elapsed.", roundedSeconds(elapsed), roundedSeconds(maxElapsed))
+func estimateRemainingToolCallCount(elapsed time.Duration, maxElapsed time.Duration, completedToolCallCount int) int {
+	if elapsed <= 0 || maxElapsed <= 0 || completedToolCallCount <= 0 {
+		return defaultRemainingCallEstimate
 	}
-	if level == "finalize" {
-		return budgetLine + " The run is very close to its limit. Use only the shortest delivery path: build/render if still needed, then publish or deliver files, then final. Do not inspect more unless delivery is impossible without it. If a quality gate has not passed but a usable build exists, deliver the best build now with an honest note about its state instead of failing with nothing; offer a further improvement round in the final reply only when your recent attempts were still improving and you can name the concrete next fix, and otherwise say plainly that you have reached your limit with the current approach. If there is no deliverable to build, register or finish with whatever concrete result you already have now (for example task.add for clearly identified items, or finish) instead of continuing to search."
+	remainingDuration := maxElapsed - elapsed
+	if remainingDuration <= 0 {
+		return minimumRemainingCallEstimate
 	}
-	if level == "consolidate" {
-		return budgetLine + " Consolidate completed work, reuse existing observations, and prefer direct edit/build/publish or file delivery over additional inspection."
+	averageActionDuration := elapsed / time.Duration(completedToolCallCount)
+	if averageActionDuration <= 0 {
+		return defaultRemainingCallEstimate
 	}
-	return budgetLine + " Spend tool calls deliberately. Keep enough budget for final delivery and avoid exploratory reads unless they directly enable the next action."
+	estimate := int(remainingDuration / averageActionDuration)
+	if estimate < minimumRemainingCallEstimate {
+		return minimumRemainingCallEstimate
+	}
+	if estimate > maximumRemainingCallEstimate {
+		return maximumRemainingCallEstimate
+	}
+	return estimate
+}
+
+func wrapUpPressureMessage(remainingCallEstimate int) string {
+	return fmt.Sprintf(
+		"Budget check: roughly %d more tool calls fit in the remaining budget. Choose the shortest path to completion now: if a recorded successful observation already satisfies the request, call finish citing it; otherwise make the single most essential tool call, then finish. Do not start new exploration or re-verify work that is already recorded.",
+		remainingCallEstimate,
+	)
 }
 
 type limitFinalizationResult struct {

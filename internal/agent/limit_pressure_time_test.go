@@ -25,7 +25,7 @@ func newTimePressureRunner() *AgentTurnRunner {
 
 func TestLimitPressureLevelRisesWithElapsedWhileStepsAreLow(t *testing.T) {
 	runner := newTimePressureRunner()
-	maxElapsed := 40 * time.Minute
+	maxElapsed := runner.maximumWorkDuration()
 
 	cases := []struct {
 		elapsed time.Duration
@@ -33,9 +33,10 @@ func TestLimitPressureLevelRisesWithElapsedWhileStepsAreLow(t *testing.T) {
 	}{
 		{elapsed: 0, want: ""},
 		{elapsed: time.Duration(float64(maxElapsed) * 0.4), want: ""},
-		{elapsed: time.Duration(float64(maxElapsed) * 0.5), want: "budget"},
-		{elapsed: time.Duration(float64(maxElapsed) * 0.75), want: "consolidate"},
-		{elapsed: time.Duration(float64(maxElapsed) * 0.95), want: "finalize"},
+		{elapsed: time.Duration(float64(maxElapsed) * 0.75), want: ""},
+		{elapsed: time.Duration(float64(maxElapsed) * 0.8), want: limitPressureStageWrapUp},
+		{elapsed: time.Duration(float64(maxElapsed) * 0.9), want: limitPressureStageWrapUp},
+		{elapsed: time.Duration(float64(maxElapsed) * 0.95), want: limitPressureStageNarrowPalette},
 	}
 	for _, testCase := range cases {
 		level := runner.limitPressureLevel(1, 0, testCase.elapsed)
@@ -47,11 +48,11 @@ func TestLimitPressureLevelRisesWithElapsedWhileStepsAreLow(t *testing.T) {
 
 func TestLimitPressureLevelUsesMaxOfStepAndTime(t *testing.T) {
 	runner := newTimePressureRunner()
-	if level := runner.limitPressureLevel(68, 28, 0); level != "finalize" {
-		t.Fatalf("expected step pressure to still drive finalize, got %q", level)
+	if level := runner.limitPressureLevel(68, 28, 0); level != limitPressureStageNarrowPalette {
+		t.Fatalf("expected step pressure to still drive narrow_palette, got %q", level)
 	}
-	if level := runner.limitPressureLevel(1, 0, 39*time.Minute); level != "finalize" {
-		t.Fatalf("expected elapsed pressure to drive finalize, got %q", level)
+	if level := runner.limitPressureLevel(1, 0, 38*time.Minute); level != limitPressureStageNarrowPalette {
+		t.Fatalf("expected elapsed pressure to drive narrow_palette, got %q", level)
 	}
 }
 
@@ -599,32 +600,126 @@ func (languageModel *elapsedClosingLanguageModel) generateElapsedClosing(respons
 	}, nil
 }
 
-func TestLimitPressureMessageIncludesElapsedWhenBounded(t *testing.T) {
-	message := limitPressureMessage("budget", 2, 30, 1, 72, 20*time.Minute, 40*time.Minute)
-	if !strings.Contains(message, "Time: 20m0s/40m0s elapsed.") {
-		t.Fatalf("expected elapsed time in message, got %q", message)
+func TestEstimateRemainingToolCallCountUsesObservedAverageLatency(t *testing.T) {
+	cases := []struct {
+		name                   string
+		elapsed                time.Duration
+		maxElapsed             time.Duration
+		completedToolCallCount int
+		want                   int
+	}{
+		{name: "no history yet", elapsed: 0, maxElapsed: 10 * time.Minute, completedToolCallCount: 0, want: defaultRemainingCallEstimate},
+		{name: "no completed calls", elapsed: 5 * time.Minute, maxElapsed: 10 * time.Minute, completedToolCallCount: 0, want: defaultRemainingCallEstimate},
+		{name: "no elapsed limit", elapsed: 5 * time.Minute, maxElapsed: 0, completedToolCallCount: 5, want: defaultRemainingCallEstimate},
+		{name: "floors at one when budget nearly exhausted", elapsed: 39 * time.Minute, maxElapsed: 40 * time.Minute, completedToolCallCount: 20, want: minimumRemainingCallEstimate},
+		{name: "floors at one when budget already exhausted", elapsed: 41 * time.Minute, maxElapsed: 40 * time.Minute, completedToolCallCount: 20, want: minimumRemainingCallEstimate},
+		{name: "caps at five for a fast-running task", elapsed: time.Minute, maxElapsed: 40 * time.Minute, completedToolCallCount: 10, want: maximumRemainingCallEstimate},
+		{name: "computes from observed average pace", elapsed: 36 * time.Minute, maxElapsed: 40 * time.Minute, completedToolCallCount: 36, want: 4},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			estimate := estimateRemainingToolCallCount(testCase.elapsed, testCase.maxElapsed, testCase.completedToolCallCount)
+			if estimate != testCase.want {
+				t.Fatalf("expected estimate %d, got %d", testCase.want, estimate)
+			}
+		})
 	}
 }
 
-func TestLimitPressureMessageOmitsElapsedWhenUnbounded(t *testing.T) {
-	message := limitPressureMessage("budget", 2, 30, 1, 72, 0, 0)
-	if strings.Contains(message, "Time:") {
-		t.Fatalf("expected no time line when unbounded, got %q", message)
-	}
-}
-
-func TestLimitPressureWarningUsesTheWorkBudget(t *testing.T) {
+func TestLimitPressureWarningInjectsSingleWrapUpMessageAtEightyPercent(t *testing.T) {
 	runner := &AgentTurnRunner{options: TurnOptions{
 		MaxIterationCount: 72,
 		MaxToolCallCount:  30,
-		MaxElapsedSecond:  int((3 * time.Minute).Seconds()),
+		MaxElapsedSecond:  int((40 * time.Minute).Seconds()),
 	}}
-	warning := runner.nextLimitPressureWarning(1, 0, time.Minute, 1, map[string]bool{})
+	sentWarnings := map[string]bool{}
 
-	if warning == nil || warning.Level != "budget" {
-		t.Fatalf("expected budget warning at half the work budget, got %+v", warning)
+	belowThreshold := runner.nextLimitPressureWarning(1, 5, 30*time.Minute, 1, sentWarnings)
+	if belowThreshold != nil {
+		t.Fatalf("expected no warning below 80%% elapsed, got %+v", belowThreshold)
 	}
-	if !strings.Contains(warning.Observation.ContentText(), "Time: 1m0s/2m0s elapsed.") {
-		t.Fatalf("expected the warning to show the work budget, got %q", warning.Observation.ContentText())
+
+	warning := runner.nextLimitPressureWarning(1, 10, 34*time.Minute, 1, sentWarnings)
+	if warning == nil || warning.Stage != limitPressureStageWrapUp {
+		t.Fatalf("expected wrap_up warning at 80%% elapsed, got %+v", warning)
+	}
+	if warning.Observation == nil {
+		t.Fatal("expected the wrap_up stage to inject an observation")
+	}
+	if !strings.Contains(warning.Observation.ContentText(), "Budget check: roughly") {
+		t.Fatalf("expected the runtime-computed remaining call estimate in the message, got %q", warning.Observation.ContentText())
+	}
+	sentWarnings[warning.Stage] = true
+
+	repeat := runner.nextLimitPressureWarning(1, 11, 35*time.Minute, 1, sentWarnings)
+	if repeat != nil {
+		t.Fatalf("expected the wrap_up warning to fire only once, got %+v", repeat)
+	}
+}
+
+func TestLimitPressureWarningNarrowsPaletteWithoutTextAtNinetyTwoPercent(t *testing.T) {
+	runner := &AgentTurnRunner{options: TurnOptions{
+		MaxIterationCount: 72,
+		MaxToolCallCount:  30,
+		MaxElapsedSecond:  int((40 * time.Minute).Seconds()),
+	}}
+	sentWarnings := map[string]bool{limitPressureStageWrapUp: true}
+
+	warning := runner.nextLimitPressureWarning(1, 12, 38*time.Minute, 1, sentWarnings)
+	if warning == nil || warning.Stage != limitPressureStageNarrowPalette {
+		t.Fatalf("expected narrow_palette warning at 92%% elapsed, got %+v", warning)
+	}
+	if warning.Observation != nil {
+		t.Fatalf("expected no injected text at the narrow_palette stage, got %q", warning.Observation.ContentText())
+	}
+	if warning.EventBody["stage"] != limitPressureStageNarrowPalette {
+		t.Fatalf("expected the ledger event to record the stage, got %+v", warning.EventBody)
+	}
+	if _, hasEstimate := warning.EventBody["remainingCallEstimate"]; !hasEstimate {
+		t.Fatalf("expected the ledger event to record remainingCallEstimate, got %+v", warning.EventBody)
+	}
+}
+
+func TestRequestForStepNarrowsActionPaletteAtNinetyTwoPercentElapsed(t *testing.T) {
+	runner := &AgentTurnRunner{options: TurnOptions{
+		MaxIterationCount: 72,
+		MaxToolCallCount:  30,
+		MaxElapsedSecond:  int((40 * time.Minute).Seconds()),
+	}}
+	toolSet := newTestCapabilityToolSet([]string{"file.read", FileDeliverToolName})
+	request := AgentTurnRequest{
+		ToolSet:         toolSet,
+		PinnedToolNames: []string{"file.read", FileDeliverToolName},
+		OutcomeContract: OutcomeContract{ArtifactRequirement: ArtifactRequirementRequired},
+	}
+
+	belowNarrowStage := agentTaskState{IterationCount: 1, ToolCallCount: 5}
+	request.EffortStartedAt = time.Now().Add(-30 * time.Minute)
+	beforeNarrowing := runner.requestForStep(context.Background(), request, belowNarrowStage)
+	exploratoryToolNames := beforeNarrowing.ToolSet.ListToolNames()
+	if !stringSliceContains(exploratoryToolNames, "file.read") || !stringSliceContains(exploratoryToolNames, FileDeliverToolName) {
+		t.Fatalf("expected the full working set below the narrow stage, got %v", exploratoryToolNames)
+	}
+
+	atNarrowStage := agentTaskState{IterationCount: 1, ToolCallCount: 12}
+	request.EffortStartedAt = time.Now().Add(-38 * time.Minute)
+	afterNarrowing := runner.requestForStep(context.Background(), request, atNarrowStage)
+	narrowedToolNames := afterNarrowing.ToolSet.ListToolNames()
+	if stringSliceContains(narrowedToolNames, "file.read") {
+		t.Fatalf("expected exploration tools dropped at the narrow_palette stage, got %v", narrowedToolNames)
+	}
+	if !stringSliceContains(narrowedToolNames, FileDeliverToolName) {
+		t.Fatalf("expected the delivery-required tool retained at the narrow_palette stage, got %v", narrowedToolNames)
+	}
+
+	actionSchema := afterNarrowing.ToolSet.ActionSchema(false, nil, false)
+	if !strings.Contains(actionSchema, `"enum":["finish"]`) {
+		t.Fatalf("expected the finish action to remain available at the narrow_palette stage, got %s", actionSchema)
+	}
+	if !strings.Contains(actionSchema, `"enum":["fail"]`) {
+		t.Fatalf("expected the fail action to remain available at the narrow_palette stage, got %s", actionSchema)
+	}
+	if strings.Contains(actionSchema, `"file.read"`) {
+		t.Fatalf("expected no continue variant for the dropped exploration tool, got %s", actionSchema)
 	}
 }
