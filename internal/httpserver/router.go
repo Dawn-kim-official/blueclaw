@@ -93,5 +93,5 @@ func NewRouter(routerDependencies RouterDependencies) http.Handler {
 		multiplexer.Handle("/login/", TaskInboxHandler{RootDirectoryPath: "web/admin"})
 	}
 
-	return withRecovery(multiplexer)
+	return withRecovery(withOriginCheck(multiplexer))
 }
