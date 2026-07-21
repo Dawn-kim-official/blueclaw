@@ -18,14 +18,14 @@ func validateExpectedResultDelivery(request AgentTurnRequest, observations []tur
 		if !expectedResult.Required {
 			continue
 		}
-		if message := missingExpectedResultDelivery(expectedResult, observedURLs, attachments, finishMessage); message != "" {
+		if message := missingExpectedResultDelivery(expectedResult, request.ToolSet, observedURLs, attachments, finishMessage); message != "" {
 			return completionGateResult{Message: message, EvidenceKind: evidenceKindExpectedResult}
 		}
 	}
 	return completionGateResult{IsSatisfied: true, Attachments: attachments}
 }
 
-func missingExpectedResultDelivery(expectedResult ExpectedResult, observedURLs []string, attachments []FileAttachment, finishMessage string) string {
+func missingExpectedResultDelivery(expectedResult ExpectedResult, toolSet *ToolSet, observedURLs []string, attachments []FileAttachment, finishMessage string) string {
 	switch expectedResult.Type {
 	case ExpectedResultTypeFile:
 		if len(attachments) == 0 {
@@ -33,10 +33,13 @@ func missingExpectedResultDelivery(expectedResult ExpectedResult, observedURLs [
 		}
 	case ExpectedResultTypeLink:
 		if len(observedURLs) == 0 {
-			return "finish requires a canonical link result"
+			if toolSetProducesCanonicalLinks(toolSet) {
+				return "finish requires a canonical link result"
+			}
+			return ""
 		}
 		if !finishMessageContainsObservedURL(finishMessage, observedURLs) {
-			return missingObservedLinkReason(observedURLs)
+			return "final message must include this exact observed URL: " + strings.Join(observedURLs, " ")
 		}
 	case ExpectedResultTypeMessage:
 		if strings.TrimSpace(finishMessage) == "" {
@@ -44,6 +47,24 @@ func missingExpectedResultDelivery(expectedResult ExpectedResult, observedURLs [
 		}
 	}
 	return ""
+}
+
+func toolSetProducesCanonicalLinks(toolSet *ToolSet) bool {
+	if toolSet == nil {
+		return false
+	}
+	for _, toolName := range toolSet.ListToolNames() {
+		definition, isFound := toolSet.ToolDefinition(toolName)
+		if !isFound || definition.ResultContract == nil {
+			continue
+		}
+		for _, effectContract := range definition.ResultContract.Effects {
+			if strings.TrimSpace(effectContract.EffectIdentity) == "url" {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func canonicalExpectedResultURLs(request AgentTurnRequest, observations []turnObservation) []string {
@@ -76,13 +97,6 @@ func factMatchesAnyRequiredEffect(fact ObservedFact, requiredEffects []OutcomeEf
 		}
 	}
 	return false
-}
-
-func missingObservedLinkReason(observedURLs []string) string {
-	if len(observedURLs) == 0 {
-		return "final message does not include a canonical link result"
-	}
-	return "final message must include this exact observed URL: " + strings.Join(observedURLs, " ")
 }
 
 func finishMessageContainsObservedURL(finishMessage string, observedURLs []string) bool {
