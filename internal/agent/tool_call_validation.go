@@ -139,6 +139,11 @@ func repeatedSuccessfulToolObservation(state *agentTaskState, actionDocument tur
 }
 
 func repeatedSuccessfulCompletionCandidate(state *agentTaskState, actionDocument turnActionDocument, successfulToolCalls map[string]turnObservation) (turnObservation, bool) {
+	requestExpectsSideEffect := requiredEvidenceIncludesSideEffect(state.Request.ToolSet, state.Request.RequiredEvidenceTools) ||
+		outcomeContractHasSideEffectEvidence(state.Request.ToolSet, state.Request.OutcomeContract)
+	if requestExpectsSideEffect && !requiredEvidenceIncludesSideEffect(state.Request.ToolSet, []string{actionDocument.ToolName}) {
+		return turnObservation{}, false
+	}
 	toolInputKey := canonicalToolCallKey(actionDocument.ToolName, actionDocument.ToolInput)
 	observation, isDuplicate := successfulToolCalls[toolInputKey]
 	if !isDuplicate {
