@@ -89,20 +89,16 @@ func parseCompletionJudgeVerdict(content string) (completionJudgeVerdict, error)
 	return verdict, nil
 }
 
-const completionJudgeAmendInstruction = "Amend the records this turn already created instead of creating new ones: use the matching update operation with the record's exact current title or ID as the hint. Never repeat an add or create operation for work that is already recorded in this turn."
-
 func completionJudgeUnsatisfiedMessage(verdict completionJudgeVerdict) string {
 	reason := strings.TrimSpace(verdict.Reason)
+	if len(verdict.MissingWork) == 0 {
+		return reason
+	}
 	missingWorkText := strings.Join(verdict.MissingWork, "; ")
-	parts := []string{}
-	if reason != "" {
-		parts = append(parts, reason)
+	if reason == "" {
+		return missingWorkText
 	}
-	if missingWorkText != "" {
-		parts = append(parts, "Missing: "+missingWorkText)
-	}
-	parts = append(parts, completionJudgeAmendInstruction)
-	return strings.Join(parts, " ")
+	return reason + " Missing: " + missingWorkText
 }
 
 func completionJudgeRequest(request AgentTurnRequest, observations []turnObservation) llm.StructuredResponseRequest {
