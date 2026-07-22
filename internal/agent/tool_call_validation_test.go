@@ -203,6 +203,64 @@ func TestAgentTurnRunnerRejectsMessageSendWithoutExternalSendIntent(t *testing.T
 	}
 }
 
+func TestAgentTurnRunnerAllowsCurrentThreadSendWithoutExternalSendContract(t *testing.T) {
+	languageModel := &sequenceLanguageModel{contents: []string{
+		`{"action":"continue","toolName":"message.send","toolInput":{"targetType":"currentThread","message":"메모: 주간 고객지원 체크 완료"}}`,
+		finishMessageWithEvidence("이 대화에 메모를 남겼습니다.", "obs-001", "message.send", 0),
+	}}
+	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 3})
+	toolRegistry := newTestCapabilityToolSet([]string{"message.send"})
+	sendCallCount := 0
+	registerTestTool(toolRegistry, testExternalSendToolDefinition("message.send"), func(context.Context, ToolInvocation) (ToolResult, error) {
+		sendCallCount++
+		return testToolSuccess("sent"), nil
+	})
+
+	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
+		RequesterPersonID: "person-1",
+		ConversationID:    "conversation-1",
+		Prompt:            "이 대화에 메모 남겨줘",
+		ToolSet:           toolRegistry,
+		PinnedToolNames:   toolRegistry.ListToolNames(),
+	})
+	if errorValue != nil {
+		t.Fatalf("expected current-thread send turn to complete: %v", errorValue)
+	}
+	if sendCallCount != 1 {
+		t.Fatalf("expected the current-thread send to run without an external-send contract, got %d calls", sendCallCount)
+	}
+	if taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.external_send_intent_rejected", "") {
+		t.Fatal("a send into the current conversation must not be rejected as an external send")
+	}
+}
+
+func TestAgentTurnRunnerRejectsChannelSendWithoutExternalSendIntent(t *testing.T) {
+	languageModel := &sequenceLanguageModel{contents: []string{
+		`{"action":"continue","toolName":"message.send","toolInput":{"targetType":"channel","channelName":"announcements","message":"공지입니다."}}`,
+		noToolFallbackFinishMessageDocument("현재 대화에서 답변드립니다."),
+	}}
+	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 3})
+	toolRegistry := newTestCapabilityToolSet([]string{"message.send"})
+	registerTestTool(toolRegistry, testExternalSendToolDefinition("message.send"), func(context.Context, ToolInvocation) (ToolResult, error) {
+		t.Fatal("channel message.send must not run without external send intent")
+		return ToolResult{}, nil
+	})
+
+	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
+		RequesterPersonID: "person-1",
+		ConversationID:    "conversation-1",
+		Prompt:            "질문 있어요",
+		ToolSet:           toolRegistry,
+		PinnedToolNames:   toolRegistry.ListToolNames(),
+	})
+	if errorValue != nil {
+		t.Fatalf("expected turn to recover from rejected channel send: %v", errorValue)
+	}
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.external_send_intent_rejected", "finish.message") {
+		t.Fatal("expected external send intent rejection event for a channel target")
+	}
+}
+
 func TestAgentTurnRunnerRejectsRepeatedFailedFingerprint(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		`{"action":"continue","toolName":"message.send","toolInput":{"targetType":"directMessage","personHint":"샘플","message":"확인 부탁해"}}`,

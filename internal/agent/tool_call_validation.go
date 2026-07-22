@@ -619,11 +619,27 @@ func unrequestedPlatformMessageSendObservation(request AgentTurnRequest, actionD
 	if !isSendEvidenceTool(request.ToolSet, toolName) {
 		return turnObservation{}, false
 	}
+	if sendTargetsCurrentConversation(actionDocument.ToolInput) {
+		return turnObservation{}, false
+	}
 	if requestRequiresExternalSendTool(request, toolName) {
 		return turnObservation{}, false
 	}
 	message := toolName + " requires an exact external-send outcome contract. Answer in the current conversation with finish.message instead."
 	return newFailureObservation(observationID, "policy", toolName, message, FailurePolicyBlocked, FailureCodes.PolicyBlocked, "policy"), true
+}
+
+// A send into the conversation the requester is already in has the blast radius
+// of a normal reply, so it does not need an external-send outcome contract; the
+// runtime approval gate for message.send still applies.
+func sendTargetsCurrentConversation(toolInput json.RawMessage) bool {
+	var document struct {
+		TargetType string `json:"targetType"`
+	}
+	if len(toolInput) == 0 || json.Unmarshal(toolInput, &document) != nil {
+		return false
+	}
+	return strings.TrimSpace(document.TargetType) == "currentThread"
 }
 
 func requestRequiresExternalSendTool(request AgentTurnRequest, toolName string) bool {
