@@ -360,7 +360,7 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 		}))
 	}
 	if confirmationPlan.Decision.RequiresClarification {
-		confirmationResult, pauseError := agentKernel.pauseForConfirmation(taskContext, request, intakeDecision, confirmationPlan, OutcomeContract{}, confirmationEvidenceHints, selectedSkillNameList(instructionBundle.SkillDecisions))
+		confirmationResult, pauseError := agentKernel.pauseForClarification(taskContext, request, intakeDecision, confirmationPlan, OutcomeContract{}, confirmationEvidenceHints, selectedSkillNameList(instructionBundle.SkillDecisions))
 		if pauseError != nil && taskBudget.didWorkExpire() {
 			intakeRequest.ExistingTaskRunID = confirmationResult.TaskRun.TaskRunID
 			confirmationResult = agentKernel.completeIntakeElapsed(taskBudget, intakeRequest, intakeDecision, routerCallLedger.records)
@@ -378,16 +378,6 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 	}
 	requiredNextToolNames = requiredNextToolNamesForResolvedRequest(request.ActiveGoal, instructionBundle.RequiredNextTools, intakeDecision.InitialToolNames)
 	request.ActiveGoal.RequiredNextTools = requiredNextToolNames
-	if confirmationPlan.Decision.RequiresConfirmation {
-		confirmationResult, pauseError := agentKernel.pauseForConfirmation(taskContext, request, intakeDecision, confirmationPlan, outcomeContract, confirmationEvidenceHints, selectedSkillNameList(instructionBundle.SkillDecisions))
-		if pauseError != nil && taskBudget.didWorkExpire() {
-			intakeRequest.ExistingTaskRunID = confirmationResult.TaskRun.TaskRunID
-			confirmationResult = agentKernel.completeIntakeElapsed(taskBudget, intakeRequest, intakeDecision, routerCallLedger.records)
-			pauseError = nil
-		}
-		confirmationResult.TurnRoute = turnDecision.Route
-		return confirmationResult, pauseError
-	}
 	requiredEvidenceTools := outcomeContract.RequiredEvidenceTools
 	requiredAttachmentSuffixes = outcomeContract.RequiredAttachmentSuffixes
 	request.PinnedToolNames = pinnedToolNamesForResolvedRequest(
@@ -619,69 +609,35 @@ func (agentKernel *AgentKernel) planConfirmationGate(responseContext context.Con
 		return confirmationGatePlan{DegradedError: errorValue}, nil
 	}
 	decision := EvaluateConfirmationPolicy(executionPlan)
-	if !decision.RequiresConfirmation && !decision.RequiresClarification {
-		return confirmationGatePlan{ExecutionPlan: executionPlan, Decision: decision, HasExecutionPlan: true}, nil
-	}
 	return confirmationGatePlan{ExecutionPlan: executionPlan, Decision: decision, HasExecutionPlan: true}, nil
 }
 
-func (agentKernel *AgentKernel) pauseForConfirmation(responseContext context.Context, request AgentRequest, intakeDecision IntakeDecision, plan confirmationGatePlan, outcomeContract OutcomeContract, evidenceHints []string, selectedSkills []string) (AgentTurnResult, error) {
+func (agentKernel *AgentKernel) pauseForClarification(responseContext context.Context, request AgentRequest, intakeDecision IntakeDecision, plan confirmationGatePlan, outcomeContract OutcomeContract, evidenceHints []string, selectedSkills []string) (AgentTurnResult, error) {
 	executionPlan := plan.ExecutionPlan
 	decision := plan.Decision
 	taskRun := agentKernel.createTaskRunForRequest(request)
 	agentKernel.AppendTaskEvent(taskRun.TaskRunID, "agent.intake", marshalEventBody(intakeDecision))
 	agentKernel.AppendTaskEvent(taskRun.TaskRunID, "confirmation.plan_created", marshalEventBody(executionPlan))
 	agentKernel.AppendTaskEvent(taskRun.TaskRunID, "confirmation.policy_decision", marshalEventBody(decision))
-
-	if decision.RequiresClarification {
-		reply, errorValue := agentKernel.GenerateClarificationMessage(responseContext, request, executionPlan, decision)
-		if errorValue != nil {
-			return AgentTurnResult{TaskRun: taskRun}, errorValue
-		}
-		waitingTaskRun, errorValue := agentKernel.taskRunService.PauseTaskRun(taskRun.TaskRunID, task.TaskStatusWaitingUserInput, reply)
-		if errorValue != nil {
-			return AgentTurnResult{}, errorValue
-		}
-		waitingGoal := activeGoalFromExecutionPlan(taskRun.TaskRunID, executionPlan, ActiveGoalStatusWaitingUserInput, request.ToolSet, evidenceHints, nil)
-		waitingGoal.RequiredNextTools = appendUniqueStrings(request.ActiveGoal.RequiredNextTools)
-		waitingGoal.OutcomeContract = normalizeOutcomeContract(outcomeContract)
-		waitingGoal.SelectedToolNames = appendUniqueStrings(nil, request.PinnedToolNames...)
-		waitingGoal.SelectedSkillNames = appendUniqueStrings(nil, selectedSkills...)
-		agentKernel.AppendTaskEvent(taskRun.TaskRunID, "agent.goal.created", marshalEventBody(waitingGoal))
-		agentKernel.AppendTaskEvent(taskRun.TaskRunID, "agent.goal.waiting_user_input", marshalEventBody(waitingGoal))
-		agentKernel.AppendTaskEvent(taskRun.TaskRunID, "confirmation.clarification_requested", reply)
-		agentKernel.AppendTaskEvent(taskRun.TaskRunID, "ask.requested", marshalEventBody(map[string]string{
-			"kind":             "ask_input",
-			"question":         reply,
-			"message":          reply,
-			"responseLanguage": request.ResponseLanguage,
-		}))
-		return AgentTurnResult{TaskRun: waitingTaskRun, UserNotice: reply, ToolNames: toolNamesForEvent(request.ToolSet)}, nil
-	}
-
-	reply, errorValue := agentKernel.GenerateConfirmationMessage(responseContext, request, executionPlan, decision)
+	reply, errorValue := agentKernel.GenerateClarificationMessage(responseContext, request, executionPlan, decision)
 	if errorValue != nil {
 		return AgentTurnResult{TaskRun: taskRun}, errorValue
 	}
-	waitingTaskRun, errorValue := agentKernel.taskRunService.PauseTaskRun(taskRun.TaskRunID, task.TaskStatusWaitingApproval, reply)
+	waitingTaskRun, errorValue := agentKernel.taskRunService.PauseTaskRun(taskRun.TaskRunID, task.TaskStatusWaitingUserInput, reply)
 	if errorValue != nil {
 		return AgentTurnResult{}, errorValue
 	}
-	approvalGoal := activeGoalFromExecutionPlan(taskRun.TaskRunID, executionPlan, ActiveGoalStatusWaitingApproval, request.ToolSet, evidenceHints, nil)
-	approvalGoal.RequiredNextTools = appendUniqueStrings(request.ActiveGoal.RequiredNextTools)
-	approvalGoal.OutcomeContract = normalizeOutcomeContract(outcomeContract)
-	approvalGoal.SelectedToolNames = appendUniqueStrings(nil, request.PinnedToolNames...)
-	approvalGoal.SelectedSkillNames = appendUniqueStrings(nil, selectedSkills...)
-	agentKernel.AppendTaskEvent(taskRun.TaskRunID, "agent.goal.created", marshalEventBody(approvalGoal))
-	agentKernel.AppendTaskEvent(taskRun.TaskRunID, "agent.goal.waiting_approval", marshalEventBody(approvalGoal))
-	agentKernel.AppendTaskEvent(taskRun.TaskRunID, "confirmation.requested", marshalEventBody(map[string]string{
-		"message":                 reply,
-		"reason":                  decision.Reason,
-		"responseLanguage":        request.ResponseLanguage,
-		"continuationInstruction": executionPlan.ContinuationInstruction,
-	}))
+	waitingGoal := activeGoalFromExecutionPlan(taskRun.TaskRunID, executionPlan, ActiveGoalStatusWaitingUserInput, request.ToolSet, evidenceHints, nil)
+	waitingGoal.RequiredNextTools = appendUniqueStrings(request.ActiveGoal.RequiredNextTools)
+	waitingGoal.OutcomeContract = normalizeOutcomeContract(outcomeContract)
+	waitingGoal.SelectedToolNames = appendUniqueStrings(nil, request.PinnedToolNames...)
+	waitingGoal.SelectedSkillNames = appendUniqueStrings(nil, selectedSkills...)
+	agentKernel.AppendTaskEvent(taskRun.TaskRunID, "agent.goal.created", marshalEventBody(waitingGoal))
+	agentKernel.AppendTaskEvent(taskRun.TaskRunID, "agent.goal.waiting_user_input", marshalEventBody(waitingGoal))
+	agentKernel.AppendTaskEvent(taskRun.TaskRunID, "confirmation.clarification_requested", reply)
 	agentKernel.AppendTaskEvent(taskRun.TaskRunID, "ask.requested", marshalEventBody(map[string]string{
-		"kind":             "ask_confirm",
+		"kind":             "ask_input",
+		"question":         reply,
 		"message":          reply,
 		"responseLanguage": request.ResponseLanguage,
 	}))
