@@ -2151,20 +2151,20 @@ func TestVisibleContextSeparatesCurrentAndPreviousAttachments(t *testing.T) {
 			Platform:    "mattermost",
 			FileID:      "current-file",
 			MessageID:   "current-post",
-			Path:        "home/inbox/mattermost/current.html",
+			Path:        "~/inbox/mattermost/current.html",
 			IsAvailable: true,
 		}},
 		Materials: []InputAttachment{{
 			Platform:    "mattermost",
 			FileID:      "current-file",
 			MessageID:   "current-post",
-			Path:        "home/inbox/mattermost/current.html",
+			Path:        "~/inbox/mattermost/current.html",
 			IsAvailable: true,
 		}, {
 			Platform:    "mattermost",
 			FileID:      "previous-file",
 			MessageID:   "previous-post",
-			Path:        "home/inbox/mattermost/previous.html",
+			Path:        "~/inbox/mattermost/previous.html",
 			IsAvailable: true,
 		}},
 	}
@@ -2218,7 +2218,7 @@ func TestConnectorRuntimeAddsImportedImageAttachmentCatalog(t *testing.T) {
 		t.Fatalf("expected one attachment import request, got %+v", adapter.inputAttachmentImportRequests)
 	}
 	body := joinConnectorMessageContent(languageModel.request.Messages)
-	for _, expected := range []string{"Current attachments", "materialID=mattermost:file-1", "path=home/inbox/mattermost/direct-1/message-1/mascot.png", "availableTools=image.read"} {
+	for _, expected := range []string{"Current attachments", "materialID=mattermost:file-1", "path=~/inbox/mattermost/direct-1/message-1/mascot.png", "availableTools=image.read"} {
 		if !strings.Contains(body, expected) {
 			t.Fatalf("expected attachment catalog %q in model request, got %s", expected, body)
 		}
