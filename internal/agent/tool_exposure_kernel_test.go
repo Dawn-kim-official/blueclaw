@@ -185,9 +185,9 @@ func TestReconstructedEvidenceOnlyArbitrationPreservesEvidenceWorkingSet(t *test
 		ToolExposureEvent{},
 	)
 
-	expectedToolNames := append(kernelToolNamesForInstructionBundle(instructionBundleFromTurnRequest(request)), "task.add")
+	expectedToolNames := append(kernelToolNamesForInstructionBundle(instructionBundleFromTurnRequest(request)), flowToolNames...)
 	if !sameStringSet(filteredToolSet.ListToolNames(), expectedToolNames) {
-		t.Fatalf("expected reconstructed evidence working set, got %+v", filteredToolSet.ListToolNames())
+		t.Fatalf("expected reconstructed evidence working set with skill tools, got %+v", filteredToolSet.ListToolNames())
 	}
 }
 
