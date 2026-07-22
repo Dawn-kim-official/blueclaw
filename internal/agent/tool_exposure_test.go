@@ -3,6 +3,8 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"strings"
 	"testing"
 )
 
@@ -438,5 +440,25 @@ func TestDroppedExposureToolNamesFlattenGroups(t *testing.T) {
 
 	if !sameStringSet(toolNames, []string{"calendar.update", "task.update", "message.delete"}) {
 		t.Fatalf("expected flattened unique dropped names, got %+v", toolNames)
+	}
+}
+
+func TestAdditionalToolsContextListsPageWithSummaries(t *testing.T) {
+	toolSet := NewToolSet([]string{"calendar.update"})
+	registerTestTool(toolSet, ToolDefinition{Name: "calendar.update", Description: "Update a calendar event. Provide an eventHint."}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return testToolSuccess("ok"), nil
+	})
+	toolNames := []string{"calendar.update"}
+	for index := 0; index < additionalToolsContextPageSize; index++ {
+		toolNames = append(toolNames, fmt.Sprintf("filler.tool%02d", index))
+	}
+
+	rendered := (LLMContextBuilder{}).additionalToolsContext(LLMContextInput{AdditionalToolNames: toolNames, ToolSet: toolSet})
+
+	if !strings.Contains(rendered, "calendar.update — Update a calendar event") {
+		t.Fatalf("expected name with summary, got %s", rendered)
+	}
+	if !strings.Contains(rendered, "and 1 more") {
+		t.Fatalf("expected overflow page note, got %s", rendered)
 	}
 }

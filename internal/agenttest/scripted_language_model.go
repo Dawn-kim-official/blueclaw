@@ -307,7 +307,6 @@ func defaultContractSkillArbitrationResponse(request llm.StructuredResponseReque
 	return string(document), nil
 }
 
-
 func defaultSkillSearchQueriesResponse(request llm.StructuredResponseRequest) string {
 	prompt := ""
 	for index := len(request.Messages) - 1; index >= 0; index-- {

@@ -153,7 +153,7 @@ func activeGoalDescription(activeGoal ActiveGoal) string {
 	if errorValue != nil {
 		return ""
 	}
-	return "Active conversation goal:\n" + string(document) + "\nTreat the current user message as input to this goal unless it clearly starts a new unrelated request. Preserve the current user message as the latest user input; do not rewrite it."
+	return "Active conversation goal:\n" + string(document) + "\nTreat the current user message as input to this goal unless it clearly starts a new unrelated request. Preserve the current user message as the latest user input; do not rewrite it.\nrequiredNextTools and selectedToolNames are intake suggestions, not commands: when a listed tool contradicts what the user visibly asked for, use the tool that actually fulfills the request (load it with request_tools if it is not exposed)."
 }
 
 func normalizeOutcomeContract(contract OutcomeContract) OutcomeContract {
