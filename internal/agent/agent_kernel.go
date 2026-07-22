@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"log/slog"
 	"strings"
 	"time"
 
@@ -379,15 +378,6 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 	}
 	requiredNextToolNames = requiredNextToolNamesForResolvedRequest(request.ActiveGoal, instructionBundle.RequiredNextTools, intakeDecision.InitialToolNames)
 	request.ActiveGoal.RequiredNextTools = requiredNextToolNames
-	compiledOutcomeContract, errorValue := compileOperationRequirements(taskContext, routerLanguageModel, request, turnToolSet, outcomeContract)
-	if errorValue != nil {
-		if result, didExpire := agentKernel.completeIntakeIfElapsed(taskBudget, intakeRequest, intakeDecision, turnDecision.Route, routerCallLedger.records); didExpire {
-			return result, nil
-		}
-		slog.Warn("blueclaw.operation_contract.compile_degraded", slog.String("error", errorValue.Error()))
-	} else {
-		outcomeContract = compiledOutcomeContract
-	}
 	if confirmationPlan.Decision.RequiresConfirmation {
 		confirmationResult, pauseError := agentKernel.pauseForConfirmation(taskContext, request, intakeDecision, confirmationPlan, outcomeContract, confirmationEvidenceHints, selectedSkillNameList(instructionBundle.SkillDecisions))
 		if pauseError != nil && taskBudget.didWorkExpire() {

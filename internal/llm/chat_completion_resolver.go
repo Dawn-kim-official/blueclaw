@@ -18,6 +18,9 @@ func ResolveTextChatCompleter(provider LanguageModelProvider) (ChatCompleter, bo
 	if provider == nil {
 		return nil, false
 	}
+	if fallbackProvider, isFallback := textFallbackProvider(provider); isFallback {
+		return resolveFallbackTextChatCompleterWrapper(fallbackProvider)
+	}
 	if completer, isAvailable := provider.(ChatCompleter); isAvailable {
 		return completer, true
 	}
@@ -35,13 +38,6 @@ func ResolveTextChatCompleter(provider LanguageModelProvider) (ChatCompleter, bo
 	}
 
 	switch provider := provider.(type) {
-	case FallbackLanguageModelProvider:
-		return resolveFallbackTextChatCompleter(provider.PrimaryProvider, provider.FallbackProvider)
-	case *FallbackLanguageModelProvider:
-		if provider == nil {
-			return nil, false
-		}
-		return resolveFallbackTextChatCompleter(provider.PrimaryProvider, provider.FallbackProvider)
 	case VisionFallbackProvider:
 		return resolveVisionTextChatCompleter(provider.TextOnlyModel, provider.VisionModel)
 	case *VisionFallbackProvider:
@@ -52,6 +48,33 @@ func ResolveTextChatCompleter(provider LanguageModelProvider) (ChatCompleter, bo
 	default:
 		return nil, false
 	}
+}
+
+func textFallbackProvider(provider LanguageModelProvider) (FallbackLanguageModelProvider, bool) {
+	switch provider := provider.(type) {
+	case FallbackLanguageModelProvider:
+		return provider, true
+	case *FallbackLanguageModelProvider:
+		if provider == nil {
+			return FallbackLanguageModelProvider{}, false
+		}
+		return *provider, true
+	default:
+		return FallbackLanguageModelProvider{}, false
+	}
+}
+
+// resolveFallbackTextChatCompleterWrapper reports the wrapper itself as available only when at
+// least one of its primary or fallback providers genuinely supports chat completion, so callers
+// route through the wrapper's own primary-then-fallback GenerateChatCompletion at call time
+// instead of committing to a chat path neither side can serve.
+func resolveFallbackTextChatCompleterWrapper(provider FallbackLanguageModelProvider) (ChatCompleter, bool) {
+	_, hasPrimary := ResolveTextChatCompleter(provider.PrimaryProvider)
+	_, hasFallback := ResolveTextChatCompleter(provider.FallbackProvider)
+	if !hasPrimary && !hasFallback {
+		return nil, false
+	}
+	return provider, true
 }
 
 func ResolveRecoveryChatCompleter(provider LanguageModelProvider) (RecoveryChatCompleter, bool) {
@@ -138,13 +161,6 @@ func ResolveLocalRecoveryChatCompleter(provider LanguageModelProvider) (LocalRec
 	default:
 		return nil, false
 	}
-}
-
-func resolveFallbackTextChatCompleter(primaryProvider LanguageModelProvider, fallbackProvider LanguageModelProvider) (ChatCompleter, bool) {
-	if completer, isAvailable := ResolveTextChatCompleter(primaryProvider); isAvailable {
-		return completer, true
-	}
-	return ResolveTextChatCompleter(fallbackProvider)
 }
 
 func resolveVisionTextChatCompleter(textOnlyModel LanguageModelProvider, visionModel LanguageModelProvider) (ChatCompleter, bool) {
