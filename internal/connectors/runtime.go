@@ -365,6 +365,7 @@ type ConnectorRuntime struct {
 	taskIntakeGate          TaskIntakeGate
 	taskWaitTokenRepository task.TaskWaitTokenRepository
 	conversationLocks       map[string]*sync.Mutex
+	sentAttachmentSources   *sentAttachmentSourceStore
 	started                 bool
 	inboxHeartbeats         []time.Time
 	outboxHeartbeats        []time.Time
@@ -415,9 +416,10 @@ func NewConnectorRuntime(identityService *identity.IdentityService, agentKernel 
 		agentKernel:        agentKernel,
 		toolCatalogBuilder: toolCatalogBuilder,
 		logger:             logger,
-		adapterByPlatform:  map[string]PlatformAdapter{},
-		processedResults:   map[string]ConnectorRuntimeResult{},
-		conversationLocks:  map[string]*sync.Mutex{},
+		adapterByPlatform:     map[string]PlatformAdapter{},
+		processedResults:      map[string]ConnectorRuntimeResult{},
+		conversationLocks:     map[string]*sync.Mutex{},
+		sentAttachmentSources: newSentAttachmentSourceStore(),
 	}
 }
 
@@ -772,7 +774,11 @@ func (connectorRuntime *ConnectorRuntime) enqueueConnectorReply(ctx context.Cont
 		if errorValue != nil {
 			return "", errorValue
 		}
-		return adapter.SendReply(ctx, replyTarget, reply)
+		dispatchID, errorValue := adapter.SendReply(ctx, replyTarget, reply)
+		if errorValue == nil {
+			connectorRuntime.sentAttachmentSources.RecordReply(event.Platform, dispatchID, reply.Attachments)
+		}
+		return dispatchID, errorValue
 	}
 	outboxID, errorValue := outboxRepository.EnqueueConnectorReply(event, replyTarget, reply)
 	if errorValue == nil {
@@ -827,6 +833,7 @@ func (connectorRuntime *ConnectorRuntime) processQueuedConnectorReply(ctx contex
 		connectorRuntime.markQueuedConnectorReplyFailed(queuedReply, errorValue)
 		return
 	}
+	connectorRuntime.sentAttachmentSources.RecordReply(queuedReply.Platform, dispatchID, queuedReply.Reply.Attachments)
 	if errorValue := connectorRuntime.outboxRepository().MarkConnectorReplySent(queuedReply, dispatchID); errorValue != nil {
 		connectorRuntime.logger.Warn("connector."+queuedReply.Platform+".outbox.mark_sent_failed", slog.String("outboxID", queuedReply.OutboxID), slog.String("error", errorValue.Error()))
 	}
@@ -2873,9 +2880,10 @@ func connectorInputAttachmentKey(attachment InputAttachment) string {
 }
 
 type connectorAttachmentMaterialResolver struct {
-	adapter  PlatformAdapter
-	personID string
-	event    PlatformInboundEvent
+	adapter     PlatformAdapter
+	personID    string
+	event       PlatformInboundEvent
+	sentSources *sentAttachmentSourceStore
 }
 
 func (resolver connectorAttachmentMaterialResolver) ResolveAttachmentMaterial(ctx context.Context, materialID string) (agent.VisibleContextMaterial, error) {
@@ -2887,6 +2895,28 @@ func (resolver connectorAttachmentMaterialResolver) ResolveAttachmentMaterial(ct
 		return agent.VisibleContextMaterial{}, errors.New("attachment material is not visible in this conversation")
 	}
 	return resolver.importAttachmentMaterial(ctx, attachment)
+}
+
+func (resolver connectorAttachmentMaterialResolver) sentSourceMaterial(attachment InputAttachment) (agent.VisibleContextMaterial, bool) {
+	devicePath, isFound := resolver.sentSources.SourcePath(attachment.Platform, attachment.MessageID, attachment.Filename)
+	if !isFound {
+		return agent.VisibleContextMaterial{}, false
+	}
+	scope := connectorInputAttachmentScope(resolver.personID, resolver.event)
+	readablePath := connectorReadableAttachmentPath(devicePath, resolver.personID, scope)
+	if readablePath == devicePath {
+		return agent.VisibleContextMaterial{}, false
+	}
+	sourceAttachment := attachment
+	sourceAttachment.Path = readablePath
+	sourceAttachment.IsAvailable = true
+	sourceAttachment.ErrorCode = ""
+	sourceAttachment.Message = ""
+	materials := agentVisibleContextMaterials([]InputAttachment{sourceAttachment})
+	if len(materials) == 0 {
+		return agent.VisibleContextMaterial{}, false
+	}
+	return materials[0], true
 }
 
 func (resolver connectorAttachmentMaterialResolver) findAttachmentMaterial(ctx context.Context, materialID string) (InputAttachment, bool, error) {
@@ -2925,6 +2955,9 @@ func visibleContextAttachmentMaterials(visibleContext VisibleContext) []InputAtt
 }
 
 func (resolver connectorAttachmentMaterialResolver) importAttachmentMaterial(ctx context.Context, attachment InputAttachment) (agent.VisibleContextMaterial, error) {
+	if material, isResolved := resolver.sentSourceMaterial(attachment); isResolved {
+		return material, nil
+	}
 	importingAdapter, isSupported := resolver.adapter.(InputAttachmentImportingAdapter)
 	if isSupported && strings.TrimSpace(attachment.FileID) != "" {
 		material, errorValue := resolver.importAttachmentWithAdapter(ctx, importingAdapter, attachment)
@@ -3141,7 +3174,7 @@ func (connectorRuntime *ConnectorRuntime) buildTurnToolSet(adapter PlatformAdapt
 		Platform:                   adapter.Name(),
 		HistoryCursor:              event.Context.HistoryCursor,
 		HistoryProvider:            connectorHistoryProvider{adapter: adapter},
-		AttachmentMaterialResolver: connectorAttachmentMaterialResolver{adapter: adapter, personID: personID, event: event},
+		AttachmentMaterialResolver: connectorAttachmentMaterialResolver{adapter: adapter, personID: personID, event: event, sentSources: connectorRuntime.sentAttachmentSources},
 		PersonAccess:               personAccess,
 		MemoryNamespaces:           connectorRuntime.accessibleNamespaces(personID, personAccess, event),
 		AccessibleConversationIDs:  []string{event.ConversationID},
