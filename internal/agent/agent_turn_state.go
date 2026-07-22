@@ -465,6 +465,9 @@ func shouldExposeFailAction(state agentTaskState) bool {
 }
 
 func shouldExposeFinishAction(state agentTaskState, requirements []toolUseRequirement) bool {
+	if finishWasRejectedWithoutAnyToolEvidence(state.Observations) {
+		return false
+	}
 	if _, hasFailureDebt := activeFailureDebt(state.Observations); !hasFailureDebt {
 		return true
 	}
@@ -472,6 +475,18 @@ func shouldExposeFinishAction(state agentTaskState, requirements []toolUseRequir
 		return true
 	}
 	return len(requirements) == 0 || completionRequirementsHaveEvidence(state.Request.ToolSet, requirements, state.Observations)
+}
+
+func finishWasRejectedWithoutAnyToolEvidence(observations []turnObservation) bool {
+	if len(observations) == 0 {
+		return false
+	}
+	for _, observation := range observations {
+		if !observation.Failed() && strings.TrimSpace(observation.Tool) != "" {
+			return false
+		}
+	}
+	return observations[len(observations)-1].Action == "evidence_missing"
 }
 
 func actionSchemaForToolSet(toolSet *ToolSet, allowQualityCriteria bool, blockedToolNames map[string]bool, hasFailureDebt bool, allowFailValues ...bool) string {

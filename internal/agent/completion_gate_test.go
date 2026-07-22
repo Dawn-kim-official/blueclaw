@@ -2233,3 +2233,20 @@ func TestCompletionGateObservationStatesZeroToolRealityForFirstTurnFinish(t *tes
 		t.Fatalf("did not expect recorded-reality statement after a successful tool observation")
 	}
 }
+
+func TestFinishHiddenAfterEvidenceMissingRejectionWithoutToolEvidence(t *testing.T) {
+	rejection := completionGateObservation(1, completionGateResult{Message: "no evidence", EvidenceKind: "evidence_reference_invalid"}, nil)
+	if !finishWasRejectedWithoutAnyToolEvidence([]turnObservation{rejection}) {
+		t.Fatalf("expected finish hidden after gate rejection with zero tool evidence")
+	}
+	successfulTool := turnObservation{ObservationID: "obs-002", Action: "continue", Tool: "task.add"}
+	if finishWasRejectedWithoutAnyToolEvidence([]turnObservation{successfulTool, rejection}) {
+		t.Fatalf("expected finish exposed once a successful tool observation exists")
+	}
+	if finishWasRejectedWithoutAnyToolEvidence([]turnObservation{rejection, successfulTool}) {
+		t.Fatalf("expected finish exposed when the latest observation is not a gate rejection")
+	}
+	if finishWasRejectedWithoutAnyToolEvidence(nil) {
+		t.Fatalf("expected finish exposed with no observations")
+	}
+}
