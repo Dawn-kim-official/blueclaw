@@ -2,6 +2,8 @@ package agent
 
 import (
 	"context"
+	"fmt"
+	"os"
 	"strings"
 )
 
@@ -83,6 +85,9 @@ func selectInstructionBundleForRequestWithRetrieverAndRouter(ctx context.Context
 		}
 		selectedSkillInstructions = append(selectedSkillInstructions, skillInstruction)
 		sources = append(sources, skillInstruction.Source)
+	}
+	if os.Getenv("BLUECLAW_DEBUG_SKILL_SELECTION") != "" {
+		fmt.Printf("DBG2 mode=%s candidates=%d decisions=%+v\n", retrievalResult.RetrievalMode, len(candidateInstructions), skillDecisions)
 	}
 	skillDecisions = append(skillDecisions, blockedSkillSelectionDecisions(instructionBundle.Skills, skillDecisions, request, normalizedAgentProfileName(request.ProfileName))...)
 	requiredNextTools := validatedContractNextTools(contractArbitration, selectedSkillInstructions, request)
@@ -202,7 +207,7 @@ func shouldSkipArtifactSkillForNonArtifactRequest(skillInstruction SkillInstruct
 	if strings.TrimSpace(request.ActiveGoal.OutcomeContract.ArtifactRequirement) != ArtifactRequirementNone {
 		return false
 	}
-	return skillSupportsSiteArtifact(request.ToolSet, skillInstruction) || skillSupportsFileDelivery(skillInstruction)
+	return skillSupportsFileDelivery(skillInstruction)
 }
 
 func appendSkillInstructions(left []SkillInstruction, right ...SkillInstruction) []SkillInstruction {

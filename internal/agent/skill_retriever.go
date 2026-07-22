@@ -323,7 +323,7 @@ func directSkillNamesFromPrompt(prompt string) map[string]bool {
 }
 
 func isSkillAllowedForDirectRetrieval(skillInstruction SkillInstruction, request AgentRequest) bool {
-	return len(missingToolReferences(skillInstruction, request)) == 0
+	return !allToolReferencesMissing(skillInstruction, request)
 }
 
 func isSkillAllowedForAutomaticRetrieval(skillInstruction SkillInstruction, request AgentRequest) bool {

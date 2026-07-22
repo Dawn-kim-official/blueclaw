@@ -5,7 +5,7 @@ import "strings"
 type SkillSelector struct{}
 
 func (skillSelector SkillSelector) IsAvailable(skillInstruction SkillInstruction, request AgentRequest) bool {
-	return len(missingToolReferences(skillInstruction, request)) == 0
+	return !allToolReferencesMissing(skillInstruction, request)
 }
 
 func (skillSelector SkillSelector) ShouldInclude(skillInstruction SkillInstruction, request AgentRequest) bool {
@@ -19,11 +19,32 @@ func (skillSelector SkillSelector) Evaluate(skillInstruction SkillInstruction, r
 
 func skillAvailabilityDecision(skillInstruction SkillInstruction, request AgentRequest, profileName string) SkillSelectionDecision {
 	normalizedProfileName := firstNonEmptySkillSelectionString(profileName, "default")
-	missingReferences := missingToolReferences(skillInstruction, request)
-	if len(missingReferences) > 0 {
-		return skippedSkillDecision(skillInstruction, normalizedProfileName, "missing_tool_references", missingReferences)
+	if allToolReferencesMissing(skillInstruction, request) {
+		return skippedSkillDecision(skillInstruction, normalizedProfileName, "missing_tool_references", missingToolReferences(skillInstruction, request))
 	}
 	return skippedSkillDecision(skillInstruction, normalizedProfileName, "no_trigger_matched", nil)
+}
+
+func allToolReferencesMissing(skillInstruction SkillInstruction, request AgentRequest) bool {
+	referenceNames := SkillToolNames(skillInstruction)
+	if len(referenceNames) == 0 {
+		return false
+	}
+	consideredNames := []string{}
+	for _, referenceName := range referenceNames {
+		if !IsKernelToolName(referenceName) {
+			consideredNames = append(consideredNames, referenceName)
+		}
+	}
+	if len(consideredNames) == 0 {
+		consideredNames = referenceNames
+	}
+	for _, referenceName := range consideredNames {
+		if requestHasToolName(request, referenceName) {
+			return false
+		}
+	}
+	return true
 }
 
 func missingToolReferences(skillInstruction SkillInstruction, request AgentRequest) []string {
