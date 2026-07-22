@@ -211,9 +211,6 @@ func (toolCatalogBuilder *ToolCatalogBuilder) writeFileTool(toolContext context.
 	if isManagedSitePackageManifestPath(resolvedPath.VirtualPath) {
 		return managedSiteManifestProtectedFailure(resolvedPath.VirtualPath), nil
 	}
-	if isImmutableSkillPath(toolCatalogBuilder.workspaceRootPath, resolvedPath.ConcretePath) {
-		return agent.ToolFailureResult(agent.FailurePolicyBlocked, agent.FailureCodes.PolicyBlocked, "file_write", "file.write cannot modify built-in skill files"), nil
-	}
 	if !toolCatalogBuilder.canAccessWorkspacePath(handlerContext.request.PersonAccess, access.ActionWrite, resolvedPath.ConcretePath) {
 		return agent.ToolFailureResult(agent.FailurePermissionDenied, agent.FailureCodes.AccessDenied, "file_write", "current account cannot write this file"), nil
 	}
@@ -238,7 +235,11 @@ func terminalPathForResolvedPath(resolvedPath workspacepath.Path) string {
 	if strings.HasPrefix(resolvedPath.ConcretePath, "/workspace/") {
 		return resolvedPath.ConcretePath
 	}
-	return "~/" + strings.TrimPrefix(resolvedPath.VirtualPath, "~/")
+	virtualPath := strings.TrimPrefix(strings.TrimPrefix(resolvedPath.VirtualPath, "~/"), "home/")
+	if virtualPath == "" || virtualPath == "~" || virtualPath == "home" {
+		return "~"
+	}
+	return "~/" + virtualPath
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) deleteFileTool(toolContext context.Context, input fileDeleteToolInput, handlerContext toolHandlerContext) (agent.ToolResult, error) {
@@ -256,9 +257,6 @@ func (toolCatalogBuilder *ToolCatalogBuilder) deleteFileTool(toolContext context
 	}
 	if isManagedSitePackageManifestPath(resolvedPath.VirtualPath) {
 		return managedSiteManifestProtectedFailure(resolvedPath.VirtualPath), nil
-	}
-	if isImmutableSkillPath(toolCatalogBuilder.workspaceRootPath, resolvedPath.ConcretePath) {
-		return agent.ToolFailureResult(agent.FailurePolicyBlocked, agent.FailureCodes.PolicyBlocked, "file_delete", "file.delete cannot remove built-in skill files"), nil
 	}
 	if !toolCatalogBuilder.canAccessWorkspacePath(handlerContext.request.PersonAccess, access.ActionWrite, resolvedPath.ConcretePath) {
 		return agent.ToolFailureResult(agent.FailurePermissionDenied, agent.FailureCodes.AccessDenied, "file_delete", "current account cannot delete this file"), nil
@@ -1426,10 +1424,6 @@ func (toolCatalogBuilder *ToolCatalogBuilder) resolveEditableFilePath(toolContex
 	}
 	if isManagedSitePackageManifestPath(resolvedPath.VirtualPath) {
 		result := agent.ToolFailureResult(agent.FailurePolicyBlocked, agent.FailureCodes.PolicyBlocked, "file_edit", "the website scaffold capability manages this build manifest; edit DESIGN.md and app source files instead of app/package.json")
-		return ResolvedWorkspacePath{}, &result
-	}
-	if isImmutableSkillPath(toolCatalogBuilder.workspaceRootPath, resolvedPath.ConcretePath) {
-		result := agent.ToolFailureResult(agent.FailurePolicyBlocked, agent.FailureCodes.PolicyBlocked, "file_edit", "file.edit cannot modify built-in skill files")
 		return ResolvedWorkspacePath{}, &result
 	}
 	if !toolCatalogBuilder.canAccessWorkspacePath(handlerContext.request.PersonAccess, access.ActionRead, resolvedPath.ConcretePath) || !toolCatalogBuilder.canAccessWorkspacePath(handlerContext.request.PersonAccess, access.ActionWrite, resolvedPath.ConcretePath) {
