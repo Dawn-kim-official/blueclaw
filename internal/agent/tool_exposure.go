@@ -158,6 +158,14 @@ func selectToolGroups(groups []toolExposureGroup, limit int) ([]string, []droppe
 	return toolIDs, droppedGroups
 }
 
+func droppedExposureToolNames(exposure ToolExposureEvent) []string {
+	toolNames := []string{}
+	for _, droppedGroup := range exposure.DroppedGroups {
+		toolNames = appendUniqueStrings(toolNames, droppedGroup.ToolIDs...)
+	}
+	return toolNames
+}
+
 func toolSelectionSource(selectedSkillGroup toolExposureGroup, hasAuthoritativeWorkingSet bool) string {
 	if hasAuthoritativeWorkingSet {
 		return "contract_arbitration"

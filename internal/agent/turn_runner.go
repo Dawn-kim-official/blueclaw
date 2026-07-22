@@ -1079,7 +1079,25 @@ func (agentTurnRunner *AgentTurnRunner) stepBudgetContext(state agentTaskState) 
 func requestWithStepWorkingSetTools(request AgentTurnRequest, observations []turnObservation) AgentTurnRequest {
 	request.PinnedToolNames = appendUniqueStrings(request.PinnedToolNames, pendingFileDeliveryToolNames(request, observations)...)
 	request.PinnedToolNames = appendUniqueStrings(request.PinnedToolNames, observedSuggestedNextToolNames(observations)...)
+	request.PinnedToolNames = appendUniqueStrings(request.PinnedToolNames, requestedToolNamesFromObservations(observations)...)
 	return request
+}
+
+func requestedToolNamesFromObservations(observations []turnObservation) []string {
+	toolNames := []string{}
+	for _, observation := range observations {
+		if observation.Action != "continue" || observation.Failed() || !ToolNamesMatch(observation.Tool, RequestToolsToolName) {
+			continue
+		}
+		var output struct {
+			RequestedToolNames []string `json:"requestedToolNames"`
+		}
+		if json.Unmarshal(observation.Output.Data, &output) != nil {
+			continue
+		}
+		toolNames = appendUniqueStrings(toolNames, output.RequestedToolNames...)
+	}
+	return toolNames
 }
 
 func pendingFileDeliveryToolNames(request AgentTurnRequest, observations []turnObservation) []string {
