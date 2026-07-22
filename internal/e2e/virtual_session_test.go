@@ -1265,7 +1265,6 @@ func TestVirtualSessionAcceptsReactionOnlyTurn(t *testing.T) {
 			Prompt:           "참고로 공유합니다.",
 			ExpectedResponse: VirtualResponseReact,
 			ConversationType: "channel",
-			ActionResponses:  []string{actionFinishMessage("unused")},
 		}},
 	}
 
@@ -1336,12 +1335,13 @@ func TestCalendarEventLifecycleAcceptance(t *testing.T) {
 	if errorValue != nil {
 		t.Fatalf("expected calendar event lifecycle acceptance scenario to pass: %v", errorValue)
 	}
-	if len(result.TurnResults) != 3 {
-		t.Fatalf("expected three turn results, got %d", len(result.TurnResults))
+	if len(result.TurnResults) != 4 {
+		t.Fatalf("expected four turn results, got %d", len(result.TurnResults))
 	}
 	firstTurnResult := result.TurnResults[0]
 	secondTurnResult := result.TurnResults[1]
 	thirdTurnResult := result.TurnResults[2]
+	approvalTurnResult := result.TurnResults[3]
 	if countEventsWithFragment(firstTurnResult.Events, "tool.calendar.add.requested", "calendar.add") != 1 {
 		t.Fatalf("expected one calendar add request; events: %s", summarizeEvents(firstTurnResult.Events))
 	}
@@ -1356,6 +1356,9 @@ func TestCalendarEventLifecycleAcceptance(t *testing.T) {
 	}
 	if countEventsWithFragment(thirdTurnResult.Events, "tool.calendar.delete.requested", "calendar.delete") != 1 {
 		t.Fatalf("expected one calendar delete request; events: %s", summarizeEvents(thirdTurnResult.Events))
+	}
+	if !eventsContain(approvalTurnResult.Events, "approval.executed", "calendar.delete") {
+		t.Fatalf("expected approved calendar delete execution; events: %s", summarizeEvents(approvalTurnResult.Events))
 	}
 }
 
