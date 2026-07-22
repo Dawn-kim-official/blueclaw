@@ -706,7 +706,9 @@ func (agentTurnRunner *AgentTurnRunner) handleToolCallAction(ctx context.Context
 		}
 	}
 	state.Observations = agentTurnRunner.sendCheckpointMessage(effortContext, taskRunID, request, actionDocument, state.Observations)
-	state.LastModelMessage = ""
+	if strings.TrimSpace(actionDocument.Message) != "" {
+		state.LastModelMessage = ""
+	}
 	observationID := nextObservationIDForObservations(state.Observations)
 	observation := agentTurnRunner.invokeTool(effortContext, request.ToolSet, taskRunID, observationID, actionDocument.ToolName, actionDocument.ToolInput, request.WorkspaceRootPath, request.TurnStartedAt, request.ResponseLanguage, actionDocument.Message)
 	observation = agentTurnRunner.resolveCalendarDuplicate(effortContext, taskRunID, observationID, request, actionDocument, observation)
@@ -1733,6 +1735,13 @@ func completionPromptObservations(requirements []toolUseRequirement, observation
 			seenObservationIDs[observation.ObservationID] = true
 			matchingObservations = append(matchingObservations, observation)
 		}
+	}
+	for _, observation := range observations {
+		if observation.Failed() || strings.TrimSpace(observation.Tool) == "" || seenObservationIDs[observation.ObservationID] {
+			continue
+		}
+		seenObservationIDs[observation.ObservationID] = true
+		matchingObservations = append(matchingObservations, observation)
 	}
 	return matchingObservations
 }
