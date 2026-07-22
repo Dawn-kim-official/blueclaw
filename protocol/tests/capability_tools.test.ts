@@ -568,10 +568,10 @@ describe('canonical capability tools', () => {
       properties: {
         reminderLeadHours: {
           type: 'number',
-          enum: [1, 2, 3, 6, 12, 24, 48],
         },
       },
     });
+    expect(JSON.stringify(calendarAddTool?.inputSchema)).not.toContain('"enum":[1');
     expect(calendarUpdateTool?.inputSchema).toMatchObject({ minProperties: 2 });
   });
 

@@ -1241,16 +1241,7 @@
             "type": "array"
           },
           "reminderLeadHours": {
-            "description": "Reminder lead time in hours.",
-            "enum": [
-              1,
-              2,
-              3,
-              6,
-              12,
-              24,
-              48
-            ],
+            "description": "Reminder lead time in hours: 1, 2, 3, 6, 12, 24, or 48.",
             "type": "number"
           },
           "startISO": {
@@ -1304,16 +1295,7 @@
             "type": "array"
           },
           "reminderLeadHours": {
-            "description": "Reminder lead time in hours.",
-            "enum": [
-              1,
-              2,
-              3,
-              6,
-              12,
-              24,
-              48
-            ],
+            "description": "Reminder lead time in hours: 1, 2, 3, 6, 12, 24, or 48.",
             "type": "number"
           },
           "startISO": {
@@ -1394,15 +1376,6 @@
             "type": "array"
           },
           "reminderLeadHours": {
-            "enum": [
-              1,
-              2,
-              3,
-              6,
-              12,
-              24,
-              48
-            ],
             "type": "number"
           },
           "startISO": {
@@ -1500,15 +1473,6 @@
               "type": "array"
             },
             "reminderLeadHours": {
-              "enum": [
-                1,
-                2,
-                3,
-                6,
-                12,
-                24,
-                48
-              ],
               "type": "number"
             },
             "startISO": {
@@ -1645,15 +1609,6 @@
                   "type": "array"
                 },
                 "reminderLeadHours": {
-                  "enum": [
-                    1,
-                    2,
-                    3,
-                    6,
-                    12,
-                    24,
-                    48
-                  ],
                   "type": "number"
                 },
                 "startISO": {
@@ -1756,15 +1711,6 @@
                     "type": "array"
                   },
                   "reminderLeadHours": {
-                    "enum": [
-                      1,
-                      2,
-                      3,
-                      6,
-                      12,
-                      24,
-                      48
-                    ],
                     "type": "number"
                   },
                   "startISO": {
@@ -1864,16 +1810,7 @@
             "type": "array"
           },
           "reminderLeadHours": {
-            "description": "Reminder lead time in hours. Omit to leave unchanged.",
-            "enum": [
-              1,
-              2,
-              3,
-              6,
-              12,
-              24,
-              48
-            ],
+            "description": "Reminder lead time in hours: 1, 2, 3, 6, 12, 24, or 48. Omit to leave unchanged.",
             "type": "number"
           },
           "startISO": {
@@ -1934,16 +1871,7 @@
             "type": "array"
           },
           "reminderLeadHours": {
-            "description": "Reminder lead time in hours. Omit to leave unchanged.",
-            "enum": [
-              1,
-              2,
-              3,
-              6,
-              12,
-              24,
-              48
-            ],
+            "description": "Reminder lead time in hours: 1, 2, 3, 6, 12, 24, or 48. Omit to leave unchanged.",
             "type": "number"
           },
           "startISO": {
@@ -2022,15 +1950,6 @@
             "type": "array"
           },
           "reminderLeadHours": {
-            "enum": [
-              1,
-              2,
-              3,
-              6,
-              12,
-              24,
-              48
-            ],
             "type": "number"
           },
           "startISO": {
@@ -2128,15 +2047,6 @@
               "type": "array"
             },
             "reminderLeadHours": {
-              "enum": [
-                1,
-                2,
-                3,
-                6,
-                12,
-                24,
-                48
-              ],
               "type": "number"
             },
             "startISO": {
