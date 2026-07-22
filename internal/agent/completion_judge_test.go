@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"blueclaw/internal/llm"
 )
@@ -139,6 +140,20 @@ func TestCompletionJudgeMessagesIncludeOriginalInstructionAndExpectedResults(t *
 	}
 	if !strings.Contains(joined, "완료 확인") {
 		t.Fatalf("expected expected-result description in judge prompt, got %s", joined)
+	}
+}
+
+func TestCompletionJudgeMessagesIncludeTemporalContext(t *testing.T) {
+	turnStartedAt := time.Date(2026, 7, 23, 1, 43, 0, 0, time.UTC)
+	request := AgentTurnRequest{Prompt: "내일 일정 옮겨줘", TurnStartedAt: turnStartedAt}
+
+	joined := joinedMessageContent(completionJudgeMessages(request, nil))
+
+	if !strings.Contains(joined, "Runtime temporal context:") {
+		t.Fatalf("expected temporal context in judge prompt, got %s", joined)
+	}
+	if !strings.Contains(joined, buildTemporalContextDescription(turnStartedAt)) {
+		t.Fatalf("expected turn-start temporal description in judge prompt, got %s", joined)
 	}
 }
 

@@ -118,6 +118,7 @@ func completionJudgeRequest(request AgentTurnRequest, observations []turnObserva
 func completionJudgeMessages(request AgentTurnRequest, observations []turnObservation) []llm.Message {
 	messages := []llm.Message{
 		{Role: "system", Content: completionJudgeInstruction()},
+		{Role: "system", Content: buildTemporalContextDescription(request.TurnStartedAt)},
 		{Role: "system", Content: "Original instruction:\n" + completionJudgeOriginalInstruction(request)},
 	}
 	if expectedResultsDescription := completionJudgeExpectedResultsDescription(request.OutcomeContract.ExpectedResults); expectedResultsDescription != "" {
@@ -136,6 +137,7 @@ func completionJudgeInstruction() string {
 		"Judge only from the recorded ledger facts below. The executor's own completion claims are not evidence.",
 		"Mark unsatisfied when the recorded operations do not plausibly accomplish the instruction: wrong target, wrong values, or a missing step.",
 		"When the instruction states an explicit deadline, date, time, quantity, title, or recipient, that value must appear in at least one successful recorded operation input; if a stated value appears nowhere, mark unsatisfied and name exactly that value in missingWork.",
+		"Resolve relative dates such as today, tomorrow, 오늘, and 내일 only from the runtime temporal context below. Never guess the current date from ledger values.",
 		"Do not invent requirements the instruction does not state. Wording, formatting, phrasing, and which list or table a record appears in are not failures. If the right operations ran and every explicitly stated value appears in some recorded input, mark satisfied.",
 	}, "\n")
 }
