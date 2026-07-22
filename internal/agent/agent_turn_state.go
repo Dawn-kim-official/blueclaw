@@ -937,8 +937,58 @@ func nativeAgentActionTool(variant json.RawMessage) (llm.ChatCompletionTool, err
 	var description string
 	_ = json.Unmarshal(document["description"], &description)
 	return llm.ChatCompletionTool{Type: "function", Function: llm.ChatCompletionFunction{
-		Name: toolName, Description: description, Parameters: parameters,
+		Name: toolName, Description: description, Parameters: pruneOrphanRequiredFields(parameters),
 	}}, nil
+}
+
+func pruneOrphanRequiredFields(schemaDocument json.RawMessage) json.RawMessage {
+	var schema any
+	if json.Unmarshal(schemaDocument, &schema) != nil {
+		return schemaDocument
+	}
+	pruned, errorValue := json.Marshal(pruneOrphanRequiredValues(schema))
+	if errorValue != nil {
+		return schemaDocument
+	}
+	return pruned
+}
+
+func pruneOrphanRequiredValues(value any) any {
+	document, isDocument := value.(map[string]any)
+	if isDocument {
+		clone := map[string]any{}
+		for fieldName, fieldValue := range document {
+			clone[fieldName] = pruneOrphanRequiredValues(fieldValue)
+		}
+		requiredValues, hasRequired := clone["required"].([]any)
+		properties, hasProperties := clone["properties"].(map[string]any)
+		if hasRequired {
+			retained := make([]any, 0, len(requiredValues))
+			for _, requiredValue := range requiredValues {
+				name, isName := requiredValue.(string)
+				if isName && hasProperties {
+					if _, isDefined := properties[name]; isDefined {
+						retained = append(retained, requiredValue)
+					}
+				}
+			}
+			if len(retained) > 0 {
+				clone["required"] = retained
+			} else {
+				delete(clone, "required")
+			}
+		}
+		return clone
+	}
+	values, isValues := value.([]any)
+	if isValues {
+		clone := make([]any, 0, len(values))
+		for _, item := range values {
+			clone = append(clone, pruneOrphanRequiredValues(item))
+		}
+		return clone
+	}
+	return value
 }
 
 func singleSchemaEnumValue(document json.RawMessage) (string, error) {

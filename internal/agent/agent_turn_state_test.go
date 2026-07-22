@@ -1751,3 +1751,20 @@ func TestProducedSourcePathsRecoversSourceFilesFromDurableResults(t *testing.T) 
 		t.Fatalf("expected deduped non-failed source paths, got %+v", paths)
 	}
 }
+
+func TestPruneOrphanRequiredFieldsDropsUndefinedNames(t *testing.T) {
+	schemaDocument := json.RawMessage(`{"type":"object","properties":{"title":{"type":"string"}},"required":["title","missingField"],"nested":{"type":"object","required":["ghost"]}}`)
+	pruned := pruneOrphanRequiredFields(schemaDocument)
+	var schema map[string]any
+	if errorValue := json.Unmarshal(pruned, &schema); errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	required, _ := schema["required"].([]any)
+	if len(required) != 1 || required[0] != "title" {
+		t.Fatalf("expected only defined required fields, got %v", required)
+	}
+	nested, _ := schema["nested"].(map[string]any)
+	if _, hasRequired := nested["required"]; hasRequired {
+		t.Fatalf("expected orphan nested required removed, got %v", nested)
+	}
+}
