@@ -34,9 +34,10 @@ func (connectorRuntime *ConnectorRuntime) buildTaskLaunchRequest(turn Conversati
 		checkpointSender = nil
 	}
 	attachmentMaterialResolver := connectorAttachmentMaterialResolver{
-		adapter:  turn.Adapter,
-		personID: turn.RequesterPersonID,
-		event:    event,
+		adapter:     turn.Adapter,
+		personID:    turn.RequesterPersonID,
+		event:       event,
+		sentSources: connectorRuntime.sentAttachmentSources,
 	}
 	return agentruntime.TaskLaunchRequest{
 		Source:                     agentruntime.TaskLaunchSourceConnector,
