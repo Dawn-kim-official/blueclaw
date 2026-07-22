@@ -37,6 +37,7 @@ type agentTaskState struct {
 	LastModelMessage                   string
 	CompletionIntentToolName           string
 	ShouldRestrictNextActionToTerminal bool
+	DidNudgePlan                       bool
 }
 
 type agentPendingWait struct {

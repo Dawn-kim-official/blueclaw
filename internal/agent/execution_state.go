@@ -31,6 +31,10 @@ type PlanStep struct {
 
 const executionStateMaxPlanSteps = 12
 
+func NormalizePlan(goal string, steps []PlanStep) (string, []PlanStep) {
+	return truncateText(compactWhitespace(goal), 300), normalizePlanSteps(steps)
+}
+
 var planStepStatuses = map[string]bool{
 	"pending":     true,
 	"in_progress": true,

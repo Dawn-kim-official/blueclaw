@@ -123,6 +123,9 @@ func completionJudgeMessages(request AgentTurnRequest, observations []turnObserv
 	if expectedResultsDescription := completionJudgeExpectedResultsDescription(request.OutcomeContract.ExpectedResults); expectedResultsDescription != "" {
 		messages = append(messages, llm.Message{Role: "system", Content: "Expected results:\n" + expectedResultsDescription})
 	}
+	if planContext := completionJudgePlanContext(observations); planContext != "" {
+		messages = append(messages, llm.Message{Role: "system", Content: planContext})
+	}
 	messages = append(messages, llm.Message{Role: "user", Content: "Recorded successful operations this turn, reads and state changes alike:\n" + completionJudgeLedgerDocument(request.ToolSet, observations)})
 	return messages
 }
@@ -135,6 +138,18 @@ func completionJudgeInstruction() string {
 		"When the instruction states an explicit deadline, date, time, quantity, title, or recipient, that value must appear in at least one successful recorded operation input; if a stated value appears nowhere, mark unsatisfied and name exactly that value in missingWork.",
 		"Do not invent requirements the instruction does not state. Wording, formatting, phrasing, and which list or table a record appears in are not failures. If the right operations ran and every explicitly stated value appears in some recorded input, mark satisfied.",
 	}, "\n")
+}
+
+func completionJudgePlanContext(observations []turnObservation) string {
+	plan, hasPlan := latestPlanUpdate(observations)
+	if !hasPlan || len(plan.Steps) == 0 {
+		return ""
+	}
+	document, errorValue := json.Marshal(plan)
+	if errorValue != nil {
+		return ""
+	}
+	return "The model's own step plan is below as a checklist hint; the source of truth is the user's original request — verify every part of the request is satisfied.\n" + string(document)
 }
 
 func completionJudgeOriginalInstruction(request AgentTurnRequest) string {
