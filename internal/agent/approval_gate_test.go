@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 
 	"blueclaw/internal/task"
@@ -157,5 +158,21 @@ func TestExecuteApprovedHeldCallConsumesGrantAfterVerbatimExecution(t *testing.T
 	}
 	if state.Request.ApprovedHeldCallKey != "" {
 		t.Fatalf("expected the carried task state to reflect the consumed grant, got %q", state.Request.ApprovedHeldCallKey)
+	}
+}
+
+func TestCurrentThreadSendSkipsRuntimeApproval(t *testing.T) {
+	sendDefinition := testToolDescriptor("message.send")
+	sendDefinition.RequiresApproval = true
+	sendDefinition.SideEffectClass = ToolSideEffectExternalSend
+	toolSet := newTestToolSetWithDefinitions([]ToolDefinition{sendDefinition})
+
+	currentThreadCall := turnActionDocument{ToolName: "message.send", ToolInput: json.RawMessage(`{"targetType":"currentThread","message":"요약"}`)}
+	if toolCallRequiresRuntimeApproval(toolSet, currentThreadCall) {
+		t.Fatal("expected a current-thread send to run without approval, like a reply")
+	}
+	directMessageCall := turnActionDocument{ToolName: "message.send", ToolInput: json.RawMessage(`{"targetType":"directMessage","personHint":"우경","message":"안내"}`)}
+	if !toolCallRequiresRuntimeApproval(toolSet, directMessageCall) {
+		t.Fatal("expected an external send to keep requiring approval")
 	}
 }

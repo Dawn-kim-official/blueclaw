@@ -198,7 +198,7 @@ func toolCallRequiresRuntimeApproval(toolSet *ToolSet, actionDocument turnAction
 	}
 	definition, isFound := toolSet.ToolDefinition(trimmedToolName)
 	if isFound && definition.RequiresApproval {
-		return true
+		return !sendHasReplyBlastRadius(definition, actionDocument.ToolInput)
 	}
 	if trimmedToolName != TerminalRunToolName {
 		return false
@@ -207,6 +207,13 @@ func toolCallRequiresRuntimeApproval(toolSet *ToolSet, actionDocument turnAction
 		ApprovalRequired bool `json:"approvalRequired"`
 	}
 	return json.Unmarshal(actionDocument.ToolInput, &input) == nil && input.ApprovalRequired
+}
+
+// A declared send into the requester's current conversation has the blast
+// radius of a normal reply, so it runs without the approval pause.
+func sendHasReplyBlastRadius(definition ToolDefinition, toolInput json.RawMessage) bool {
+	return ToolDefinitionSideEffectClass(definition) == ToolSideEffectExternalSend &&
+		sendTargetsCurrentConversation(toolInput)
 }
 
 func isApprovedHeldCallVerbatimMatch(approvedHeldCallKey string, actionDocument turnActionDocument) bool {

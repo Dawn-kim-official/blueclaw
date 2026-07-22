@@ -19,12 +19,22 @@ func deriveToolUseRequirements(request AgentTurnRequest) []toolUseRequirement {
 func evidenceToolRequirements(request AgentTurnRequest) []toolUseRequirement {
 	requirements := []toolUseRequirement{}
 	seenToolName := map[string]bool{}
+	hasSideEffectAnchor := false
+	for _, toolName := range request.RequiredEvidenceTools {
+		if !evidenceToolIsReadOnly(request.ToolSet, strings.TrimSpace(toolName)) {
+			hasSideEffectAnchor = true
+			break
+		}
+	}
 	for _, toolName := range request.RequiredEvidenceTools {
 		trimmedToolName := strings.TrimSpace(toolName)
 		if trimmedToolName == "" || seenToolName[trimmedToolName] {
 			continue
 		}
 		seenToolName[trimmedToolName] = true
+		if hasSideEffectAnchor && evidenceToolIsReadOnly(request.ToolSet, trimmedToolName) {
+			continue
+		}
 		requirements = append(requirements, toolUseRequirement{
 			ToolName:                   trimmedToolName,
 			Reason:                     "selected workflow requires completion evidence",
@@ -34,6 +44,22 @@ func evidenceToolRequirements(request AgentTurnRequest) []toolUseRequirement {
 		})
 	}
 	return requirements
+}
+
+func evidenceToolIsReadOnly(toolSet *ToolSet, toolName string) bool {
+	if toolSet == nil {
+		return false
+	}
+	definition, isFound := toolSet.ToolDefinition(toolName)
+	if !isFound {
+		return false
+	}
+	switch ToolDefinitionSideEffectClass(definition) {
+	case ToolSideEffectRead, ToolSideEffectComputation:
+		return true
+	default:
+		return false
+	}
 }
 
 func requiredEvidenceToolNeedsSuccessfulSideEffect(toolSet *ToolSet, toolName string) bool {

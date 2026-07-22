@@ -119,3 +119,20 @@ func TestAttachmentRetryWithBrowserFailureContextDoesNotRequireBrowserEvidence(t
 		t.Fatalf("expected no browser evidence requirement for attachment follow-up, got %+v", requirements)
 	}
 }
+
+func TestEvidenceRequirementsSkipReadOnlyTools(t *testing.T) {
+	toolSet := newTestToolSetWithDefinitions([]ToolDefinition{
+		{Name: "message.search", SideEffectClass: ToolSideEffectRead},
+		{Name: "message.update", SideEffectClass: ToolSideEffectWorkspaceWrite},
+	})
+	request := AgentTurnRequest{
+		ToolSet:               toolSet,
+		RequiredEvidenceTools: []string{"message.search", "message.update"},
+	}
+
+	requirements := deriveToolUseRequirements(request)
+
+	if len(requirements) != 1 || requirements[0].ToolName != "message.update" {
+		t.Fatalf("expected only the side-effect tool to hard-gate completion, got %+v", requirements)
+	}
+}

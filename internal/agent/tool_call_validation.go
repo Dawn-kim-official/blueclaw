@@ -630,8 +630,8 @@ func unrequestedPlatformMessageSendObservation(request AgentTurnRequest, actionD
 }
 
 // A send into the conversation the requester is already in has the blast radius
-// of a normal reply, so it does not need an external-send outcome contract; the
-// runtime approval gate for message.send still applies.
+// of a normal reply, so it needs neither an external-send outcome contract nor
+// runtime approval.
 func sendTargetsCurrentConversation(toolInput json.RawMessage) bool {
 	var document struct {
 		TargetType string `json:"targetType"`
