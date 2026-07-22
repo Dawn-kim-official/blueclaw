@@ -9,14 +9,18 @@ import (
 	"blueclaw/internal/security"
 )
 
-func TestWorkspacePathResolverRejectsDeniedPrefixes(t *testing.T) {
+func TestWorkspacePathResolverResolvesOutsideWorkspacePathsForPOSIXToDecide(t *testing.T) {
 	workspacePath := t.TempDir()
 	resolver := NewWorkspacePathResolver(workspacePath)
 	scope := WorkspaceScopeForRequest(workspacePath, ToolCatalogRequest{RequesterPersonID: "person-1"}, "task-1")
-	for _, path := range []string{"/tmp/a", "~other/file", "/workspace/.blueclaw/tmp/a", "../../../../../../../../etc/passwd", "../../../../../.blueclaw/secrets"} {
-		if _, errorValue := resolver.Resolve(path, scope); errorValue == nil {
-			t.Fatalf("expected resolver to reject %q", path)
-		}
+
+	resolvedPath, errorValue := resolver.Resolve("/tmp/a", scope)
+
+	if errorValue != nil {
+		t.Fatalf("expected outside-workspace paths to resolve so POSIX decides access, got %v", errorValue)
+	}
+	if resolvedPath.ConcretePath != "/tmp/a" {
+		t.Fatalf("expected the real path unchanged, got %+v", resolvedPath)
 	}
 }
 

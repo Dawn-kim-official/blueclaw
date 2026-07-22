@@ -208,9 +208,6 @@ func (toolCatalogBuilder *ToolCatalogBuilder) writeFileTool(toolContext context.
 	if errorValue != nil {
 		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "file_write", errorValue.Error()), nil
 	}
-	if isManagedSitePackageManifestPath(resolvedPath.VirtualPath) {
-		return managedSiteManifestProtectedFailure(resolvedPath.VirtualPath), nil
-	}
 	if !toolCatalogBuilder.canAccessWorkspacePath(handlerContext.request.PersonAccess, access.ActionWrite, resolvedPath.ConcretePath) {
 		return agent.ToolFailureResult(agent.FailurePermissionDenied, agent.FailureCodes.AccessDenied, "file_write", "current account cannot write this file"), nil
 	}
@@ -254,9 +251,6 @@ func (toolCatalogBuilder *ToolCatalogBuilder) deleteFileTool(toolContext context
 	resolvedPath, errorValue := NewWorkspacePathResolver(toolCatalogBuilder.workspaceRootPath).Resolve(path, scope)
 	if errorValue != nil {
 		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "file_delete", errorValue.Error()), nil
-	}
-	if isManagedSitePackageManifestPath(resolvedPath.VirtualPath) {
-		return managedSiteManifestProtectedFailure(resolvedPath.VirtualPath), nil
 	}
 	if !toolCatalogBuilder.canAccessWorkspacePath(handlerContext.request.PersonAccess, access.ActionWrite, resolvedPath.ConcretePath) {
 		return agent.ToolFailureResult(agent.FailurePermissionDenied, agent.FailureCodes.AccessDenied, "file_delete", "current account cannot delete this file"), nil
@@ -1422,10 +1416,6 @@ func (toolCatalogBuilder *ToolCatalogBuilder) resolveEditableFilePath(toolContex
 		result := agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "file_edit", errorValue.Error())
 		return ResolvedWorkspacePath{}, &result
 	}
-	if isManagedSitePackageManifestPath(resolvedPath.VirtualPath) {
-		result := agent.ToolFailureResult(agent.FailurePolicyBlocked, agent.FailureCodes.PolicyBlocked, "file_edit", "the website scaffold capability manages this build manifest; edit DESIGN.md and app source files instead of app/package.json")
-		return ResolvedWorkspacePath{}, &result
-	}
 	if !toolCatalogBuilder.canAccessWorkspacePath(handlerContext.request.PersonAccess, access.ActionRead, resolvedPath.ConcretePath) || !toolCatalogBuilder.canAccessWorkspacePath(handlerContext.request.PersonAccess, access.ActionWrite, resolvedPath.ConcretePath) {
 		result := agent.ToolFailureResult(agent.FailurePermissionDenied, agent.FailureCodes.AccessDenied, "file_edit", "current account cannot edit this file")
 		return ResolvedWorkspacePath{}, &result
@@ -1491,43 +1481,6 @@ func fileExactEditFailure(stage string, path string, editIndex int, matchCount i
 		Reason:    "The oldText no longer matches the file on disk. Read the current file with file.read, copy the exact snippet, then retry a targeted file.edit. Do not rewrite the whole file — a targeted edit keeps the rest of the work and is far cheaper.",
 	}}
 	return result
-}
-
-func isManagedSitePackageManifestPath(virtualPath string) bool {
-	cleanPath := filepath.ToSlash(filepath.Clean(strings.TrimPrefix(strings.TrimSpace(virtualPath), "/workspace/")))
-	cleanPath = strings.TrimPrefix(cleanPath, "~/")
-	cleanPath = strings.TrimPrefix(cleanPath, "home/")
-	parts := strings.Split(cleanPath, "/")
-	if len(parts) == 4 &&
-		parts[0] == "sites" &&
-		parts[2] == "app" &&
-		parts[3] == "package.json" {
-		return true
-	}
-	return len(parts) == 5 &&
-		parts[0] == "sites" &&
-		parts[2] == "draft" &&
-		parts[3] == "app" &&
-		parts[4] == "package.json"
-}
-
-func managedSiteManifestProtectedFailure(path string) agent.ToolResult {
-	content := marshalToolResult(map[string]string{
-		"code":   "managed_manifest_protected",
-		"path":   strings.TrimSpace(path),
-		"detail": "the website scaffold capability manages this build manifest; edit DESIGN.md and app source files instead of overwriting app/package.json",
-	})
-	return agent.ToolResult{
-		Output: agent.ToolOutput{Content: content, Data: json.RawMessage(content)},
-		Failure: &agent.ToolFailure{
-			Kind:            agent.FailurePolicyBlocked,
-			Code:            "managed_manifest_protected",
-			Stage:           "file_write",
-			UserSafeSummary: content,
-			Retryable:       true,
-			SafeRetry:       true,
-		},
-	}
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) attachFileTool(toolContext context.Context, input fileAttachToolInput, handlerContext toolHandlerContext) (agent.ToolResult, error) {
