@@ -2457,10 +2457,8 @@ func (harness *VirtualSessionHarness) Run(ctx context.Context) (VirtualSessionRe
 	}
 	for index, virtualTurn := range harness.scenario.Turns {
 		if harness.scriptedModel != nil {
-			if strings.TrimSpace(virtualTurn.RouterApproval) != "" {
-				harness.scriptedModel.EnqueueStructuredResponses("blueclaw_turn_router", scenarioApprovalRouterResponse(virtualTurn.RouterApproval))
-			} else if len(virtualTurn.RouterRequiredEvidence) > 0 || virtualTurn.RouterTaskShape != "" || strings.TrimSpace(virtualTurn.RouterSiteEvidence) != "" || virtualTurnExpectsEvent(virtualTurn, "ask.requested") || virtualTurnExpectsEvent(virtualTurn, "ask.resolved") {
-				harness.scriptedModel.EnqueueStructuredResponses("blueclaw_turn_router", scenarioTurnRouterResponse(harness.scenario, virtualTurn))
+			for _, routerResponse := range scenarioRouterResponsesForTurn(harness.scenario, virtualTurn) {
+				harness.scriptedModel.EnqueueStructuredResponses("blueclaw_turn_router", routerResponse)
 			}
 			harness.scriptedModel.SetActionResponses(virtualTurn.ActionResponses...)
 			if len(virtualTurn.CompletionJudgeResponses) > 0 {
@@ -2476,6 +2474,14 @@ func (harness *VirtualSessionHarness) Run(ctx context.Context) (VirtualSessionRe
 		if errorValue := harness.assertTurnResult(virtualTurn, turnResult); errorValue != nil {
 			return result, fmt.Errorf("%s turn %d: %w", harness.scenario.Name, index+1, errorValue)
 		}
+		if harness.scriptedModel != nil {
+			if errorValue := assertScriptedControlCallsServed(turnResult.LanguageModelCallEvents); errorValue != nil {
+				return result, fmt.Errorf("%s turn %d: %w", harness.scenario.Name, index+1, errorValue)
+			}
+			if errorValue := assertNoScriptedResponseResidue(harness.scriptedModel); errorValue != nil {
+				return result, fmt.Errorf("%s turn %d: %w; events: %s", harness.scenario.Name, index+1, errorValue, summarizeEvents(turnResult.Events))
+			}
+		}
 		harness.rememberTurn(virtualTurn, turnResult)
 	}
 	result.TaskSchedules = harness.scheduleStore.TaskSchedules()
@@ -2486,21 +2492,30 @@ func actionScriptedLanguageModelForScenario(scenario VirtualSessionScenario) *ag
 	if scenario.DisableScriptedModel {
 		return nil
 	}
+	if !scenarioNeedsScriptedModel(scenario) {
+		return nil
+	}
+	return agenttest.NewScriptedLanguageModel(agenttest.ScriptedLanguageModelOptions{
+		ProviderName:             "virtual",
+		ModelName:                "scripted",
+		DefaultResponsesBySchema: scenarioDefaultResponses(scenario),
+	})
+}
+
+func scenarioNeedsScriptedModel(scenario VirtualSessionScenario) bool {
+	if strings.TrimSpace(scenario.AddressingResponse) != "" {
+		return true
+	}
 	for _, virtualTurn := range scenario.Turns {
 		if len(virtualTurn.ActionResponses) > 0 {
-			return agenttest.NewScriptedLanguageModel(agenttest.ScriptedLanguageModelOptions{
-				ProviderName:             "virtual",
-				ModelName:                "scripted",
-				DefaultResponsesBySchema: scenarioDefaultResponses(scenario),
-			})
+			return true
 		}
 	}
-	return nil
+	return false
 }
 
 func scenarioDefaultResponses(scenario VirtualSessionScenario) map[string]string {
 	defaultResponses := map[string]string{}
-	defaultResponses["blueclaw_completion_judge"] = `{"satisfied":true,"missingWork":[],"reason":"scripted default"}`
 	defaultResponses["blueclaw_addressing_classification"] = `{"target":"anyone","shouldRespond":false,"dutyMatch":false,"dutyName":"","dutyConfidence":0}`
 	if strings.TrimSpace(scenario.AddressingResponse) != "" {
 		defaultResponses["blueclaw_addressing_classification"] = strings.TrimSpace(scenario.AddressingResponse)
@@ -2518,11 +2533,46 @@ func scenarioDefaultResponses(scenario VirtualSessionScenario) map[string]string
 			defaultResponses["blueclaw_confirmation_message"] = string(document)
 		}
 	}
-	if len(scenario.InitialToolNames) == 0 && len(scenario.RouterRequiredEvidence) == 0 && scenario.RouterTaskShape == "" {
-		return defaultResponses
-	}
-	defaultResponses["blueclaw_turn_router"] = scenarioTurnRouterResponse(scenario, VirtualTurn{})
 	return defaultResponses
+}
+
+func scenarioRouterResponsesForTurn(scenario VirtualSessionScenario, virtualTurn VirtualTurn) []string {
+	if !virtualTurnReachesRouter(virtualTurn) {
+		return nil
+	}
+	if strings.TrimSpace(virtualTurn.RouterApproval) != "" {
+		return []string{scenarioApprovalRouterResponse(virtualTurn.RouterApproval)}
+	}
+	return []string{scenarioTurnRouterResponse(scenario, virtualTurn)}
+}
+
+func virtualTurnReachesRouter(virtualTurn VirtualTurn) bool {
+	switch normalizedResponseExpectation(virtualTurn.ExpectedResponse) {
+	case VirtualResponseIgnore, VirtualResponseIgnoreOrReact, VirtualResponseReact:
+		return false
+	}
+	return true
+}
+
+func assertScriptedControlCallsServed(callEvents []VirtualLanguageModelCallEvent) error {
+	for _, event := range callEvents {
+		if !event.IsError || event.WasCorrected {
+			continue
+		}
+		switch event.SchemaName {
+		case "blueclaw_turn_router", "blueclaw_completion_judge":
+			return fmt.Errorf("scripted %s call failed without an enqueued response: %s", event.SchemaName, event.Error)
+		}
+	}
+	return nil
+}
+
+func assertNoScriptedResponseResidue(scriptedModel *agenttest.ScriptedLanguageModel) error {
+	pendingCounts := scriptedModel.PendingResponseCounts()
+	if len(pendingCounts) == 0 {
+		return nil
+	}
+	return fmt.Errorf("scripted responses were left unconsumed after the turn: %v", pendingCounts)
 }
 
 func virtualEvidenceRequiresExternalSend(requiredEvidence []string) bool {
