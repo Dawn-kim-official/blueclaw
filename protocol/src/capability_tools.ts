@@ -196,8 +196,7 @@ const calendarReminderLeadHourValues: readonly number[] = [
 const workspaceTaskSizeSchema = z.enum(WorkspaceTaskSize);
 const workspaceTaskStatusSchema = z.enum(WorkspaceTaskStatus);
 const calendarReminderLeadHoursSchema = z.number()
-  .refine(value => calendarReminderLeadHourValues.includes(value))
-  .meta({ enum: calendarReminderLeadHourValues });
+  .refine(value => calendarReminderLeadHourValues.includes(value));
 
 const taskParticipantSchema = z.strictObject({
   personID: z.string().optional(),
@@ -349,7 +348,7 @@ const calendarMutableFields = {
   color: z.string().describe('New provider-supported color label. Omit to leave unchanged.').optional(),
   people: z.array(z.string()).describe('Replacement attendee hints such as names, @handles, or emails.').optional(),
   includeRequester: z.boolean().describe('Whether the requester should be included as an attendee.').optional(),
-  reminderLeadHours: calendarReminderLeadHoursSchema.describe('Reminder lead time in hours. Omit to leave unchanged.').optional(),
+  reminderLeadHours: calendarReminderLeadHoursSchema.describe('Reminder lead time in hours: 1, 2, 3, 6, 12, 24, or 48. Omit to leave unchanged.').optional(),
 };
 
 export const calendarAddInputSchema = z.strictObject({
@@ -363,7 +362,7 @@ export const calendarAddInputSchema = z.strictObject({
   color: z.string().describe('Optional provider-supported color label.').optional(),
   people: z.array(z.string()).describe('Attendee hints such as names, @handles, or emails.').optional(),
   includeRequester: z.boolean().describe('Set false when the requester is not an attendee. Defaults to true.').optional(),
-  reminderLeadHours: calendarReminderLeadHoursSchema.describe('Reminder lead time in hours.').optional(),
+  reminderLeadHours: calendarReminderLeadHoursSchema.describe('Reminder lead time in hours: 1, 2, 3, 6, 12, 24, or 48.').optional(),
 });
 
 export const calendarAddInputIntentSchema = calendarAddInputSchema.partial();
