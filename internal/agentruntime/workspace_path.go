@@ -139,7 +139,7 @@ func (resolver WorkspacePathResolver) resolveHome(value string, scope WorkspaceS
 		return ResolvedWorkspacePath{}, errors.New("only the requester home (~ or ~/<path>) is supported")
 	}
 	suffix := filepath.Clean(strings.TrimPrefix(value, "~/"))
-	return resolver.resolvedPath(filepath.Join(scope.RequesterRootPath, suffix), filepath.ToSlash(suffix), workspacePathKindWorkspace, false)
+	return resolver.resolvedPath(filepath.Join(scope.RequesterRootPath, suffix), "~/"+filepath.ToSlash(suffix), workspacePathKindWorkspace, false)
 }
 
 // The runtime renders private attachment paths to the model with a virtual home/
