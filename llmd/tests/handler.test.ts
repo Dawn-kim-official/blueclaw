@@ -129,7 +129,9 @@ describe('llmd handler', () => {
     const response = await handler(structuredRequest('installation-key', abortController.signal));
 
     expect(response.status).toBe(200);
-    expect(observedAbortSignal).toBe(abortController.signal);
+    expect(observedAbortSignal?.aborted).toBe(false);
+    abortController.abort();
+    expect(observedAbortSignal?.aborted).toBe(true);
   });
 
   test('classifies aborted structured generation without allowing fallback', async () => {
@@ -322,7 +324,9 @@ describe('llmd handler', () => {
     const response = await handler(chatRequest('installation-key', abortController.signal));
 
     expect(response.status).toBe(200);
-    expect(observedAbortSignal).toBe(abortController.signal);
+    expect(observedAbortSignal?.aborted).toBe(false);
+    abortController.abort();
+    expect(observedAbortSignal?.aborted).toBe(true);
   });
 
   test('classifies aborted chat generation without allowing fallback', async () => {

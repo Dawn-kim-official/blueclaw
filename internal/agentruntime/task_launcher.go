@@ -201,10 +201,10 @@ func (taskLauncher *TaskLauncher) Launch(ctx context.Context, request TaskLaunch
 	})
 	launchRecords = append(launchRecords, record)
 	if record.Error != "" {
-		if strings.TrimSpace(turnResult.TaskRun.TaskRunID) == "" {
-			return taskLauncher.completeLaunchFailure(ctx, request, normalizedProfileName, toolNames, record.StepName, launchRecords, errorFromStepRecord(record)), nil
+		if taskRunID := strings.TrimSpace(turnResult.TaskRun.TaskRunID); taskRunID != "" {
+			request.ExistingTaskRunID = taskRunID
 		}
-		return TaskLaunchResult{}, errorFromStepRecord(record)
+		return taskLauncher.completeLaunchFailure(ctx, request, normalizedProfileName, toolNames, record.StepName, launchRecords, errorFromStepRecord(record)), nil
 	}
 	launchedToolNames := turnResult.ToolNames
 	if len(launchedToolNames) == 0 {

@@ -30,6 +30,8 @@ type HandlerDependencies = {
   generateChatCompletion?: ChatCompletionGenerator;
 };
 
+const totalRequestTimeoutMs = 300_000;
+
 export function createLLMDHandler(dependencies: HandlerDependencies) {
   return async function handleRequest(request: Request): Promise<Response> {
     const url = new URL(request.url);
@@ -44,14 +46,15 @@ export function createLLMDHandler(dependencies: HandlerDependencies) {
 
     const requestDocument = await parseJSONBody(request);
     if (!requestDocument.success) return errorResponse(400, requestDocument.error);
+    const requestDeadlineSignal = AbortSignal.any([request.signal, AbortSignal.timeout(totalRequestTimeoutMs)]);
     if (url.pathname === '/v1/llm/chat') {
-      return handleChatRequest(requestDocument.value, request.signal, dependencies);
+      return handleChatRequest(requestDocument.value, requestDeadlineSignal, dependencies);
     }
     const parsedRequest = structuredResponseRequestSchema.safeParse(requestDocument.value);
     if (!parsedRequest.success) return errorResponse(400, 'invalid_structured_response_request');
 
     try {
-      const response = await dependencies.generateStructuredResponse(parsedRequest.data, request.signal);
+      const response = await dependencies.generateStructuredResponse(parsedRequest.data, requestDeadlineSignal);
       const parsedResponse = structuredResponseSchema.safeParse(response);
       if (!parsedResponse.success) {
         return errorResponse(502, 'provider_response_invalid', false);

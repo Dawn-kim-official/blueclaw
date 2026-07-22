@@ -355,6 +355,11 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 		}
 		return AgentTurnResult{}, errorValue
 	}
+	if confirmationPlan.DegradedError != nil {
+		agentKernel.AppendTaskEvent(strings.TrimSpace(request.ExistingTaskRunID), "agent.confirmation_plan_degraded", marshalEventBody(map[string]string{
+			"reason": "execution plan generation failed twice; continuing with the runtime tool approval gate: " + confirmationPlan.DegradedError.Error(),
+		}))
+	}
 	if confirmationPlan.Decision.RequiresClarification {
 		confirmationResult, pauseError := agentKernel.pauseForConfirmation(taskContext, request, intakeDecision, confirmationPlan, OutcomeContract{}, confirmationEvidenceHints, selectedSkillNameList(instructionBundle.SkillDecisions))
 		if pauseError != nil && taskBudget.didWorkExpire() {
@@ -606,6 +611,7 @@ type confirmationGatePlan struct {
 	ExecutionPlan    ExecutionPlan
 	Decision         ConfirmationPolicyDecision
 	HasExecutionPlan bool
+	DegradedError    error
 }
 
 func (agentKernel *AgentKernel) planConfirmationGate(responseContext context.Context, request AgentRequest, intakeDecision IntakeDecision, evidenceHints []string) (confirmationGatePlan, error) {
@@ -617,7 +623,10 @@ func (agentKernel *AgentKernel) planConfirmationGate(responseContext context.Con
 	}
 	executionPlan, errorValue := agentKernel.BuildExecutionPlan(responseContext, request, evidenceHints)
 	if errorValue != nil {
-		return confirmationGatePlan{}, errorValue
+		executionPlan, errorValue = agentKernel.BuildExecutionPlan(responseContext, request, evidenceHints)
+	}
+	if errorValue != nil {
+		return confirmationGatePlan{DegradedError: errorValue}, nil
 	}
 	decision := EvaluateConfirmationPolicy(executionPlan)
 	if !decision.RequiresConfirmation && !decision.RequiresClarification {
