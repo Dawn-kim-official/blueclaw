@@ -384,3 +384,21 @@ func TestEachRequiredEvidenceAlternativeGroupKeepsOneTool(t *testing.T) {
 		}
 	}
 }
+
+func TestAuthoritativeWorkingSetKeepsSelectedSkillTools(t *testing.T) {
+	toolSet := testToolSet(append(KernelToolNames(), "site.create", "site.status"))
+	instructionBundle := InstructionBundle{
+		HasContractSkillArbitration: true,
+		RequiredNextTools:           []string{"file.write"},
+		Skills:                      []SkillInstruction{{Name: "website", ToolReferences: []string{"site.create", "site.status"}}},
+		SkillDecisions:              []SkillSelectionDecision{{Name: "website", Status: "selected"}},
+	}
+
+	filteredToolSet, event := toolSetForAgentTurnWithExposure(toolSet, instructionBundle, AgentRequest{}, ExecutionPlan{}, false, OutcomeContract{}, ToolExposureEvent{})
+
+	for _, toolName := range []string{"site.create", "site.status"} {
+		if !filteredToolSet.IsAllowed(toolName) {
+			t.Fatalf("expected selected skill tool %s in authoritative working set, got %+v", toolName, event.ExposedToolIDs)
+		}
+	}
+}
