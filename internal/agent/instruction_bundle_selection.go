@@ -61,9 +61,6 @@ func selectInstructionBundleForRequestWithRetrieverAndRouter(ctx context.Context
 		skillDecision := skillDecisionForCandidate(skillInstruction, skillCandidate, normalizedAgentProfileName(request.ProfileName))
 		if hasContractArbitration {
 			skillDecision = skillDecisionForArbitratedCandidate(skillInstruction, skillCandidate, contractSelectedSkillNames, normalizedAgentProfileName(request.ProfileName))
-		} else if contractArbitrationResult.Status == contractSkillArbitrationFailed {
-			skillDecision = skippedSkillDecision(skillInstruction, normalizedAgentProfileName(request.ProfileName), "contract_skill_arbitration_failed", nil)
-			skillDecision.Score = skillCandidate.Score
 		}
 		if skillDecision.Status == "selected" {
 			availabilityDecision := skillAvailabilityDecision(skillInstruction, request, normalizedAgentProfileName(request.ProfileName))
