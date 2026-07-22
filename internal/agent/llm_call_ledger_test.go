@@ -532,3 +532,22 @@ func assertRecoveryChatRecords(t *testing.T, records []llmCallRecord, label stri
 		}
 	}
 }
+
+func TestChatCallRecordCountsNativeToolDefinitionBytes(t *testing.T) {
+	request := llm.ChatCompletionRequest{
+		Messages: []llm.ChatCompletionMessage{{Role: "user", Content: "hello"}},
+		Tools: []llm.ChatCompletionTool{
+			{Type: "function", Function: llm.ChatCompletionFunction{Name: "calendar.update", Parameters: json.RawMessage(`{"type":"object"}`)}},
+			{Type: "function", Function: llm.ChatCompletionFunction{Name: "task.add", Parameters: json.RawMessage(`{"type":"object"}`)}},
+		},
+	}
+
+	record := chatCallRecord("chat", request, llm.ChatCompletionResponse{}, time.Now(), nil)
+
+	if record.ToolCount != 2 {
+		t.Fatalf("expected two native tools recorded, got %d", record.ToolCount)
+	}
+	if record.ToolBytes <= 0 {
+		t.Fatalf("expected positive tool definition bytes, got %d", record.ToolBytes)
+	}
+}
