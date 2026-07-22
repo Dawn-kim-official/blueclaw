@@ -1643,7 +1643,7 @@ func TestSitePrototypeAcceptance(t *testing.T) {
 		t.Fatalf("expected site prototype acceptance scenario to pass: %v", errorValue)
 	}
 	turnResult := result.TurnResults[0]
-	if !eventsContain(turnResult.Events, "agent.instructions_loaded", "site-prototype") {
+	if !eventsContain(turnResult.Events, "agent.instructions_loaded", "website") {
 		t.Fatal("expected site-prototype skill to be selected")
 	}
 	if !eventsContain(turnResult.Events, "tool.site.publish.result", "publishedURL") {
