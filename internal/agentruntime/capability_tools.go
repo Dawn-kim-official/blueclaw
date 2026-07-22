@@ -645,6 +645,8 @@ func (toolCatalogBuilder *ToolCatalogBuilder) handleCapabilityToolSuccess(toolCo
 	switch strings.TrimSpace(toolName) {
 	case "site.create":
 		return toolCatalogBuilder.materializeSiteCreateResult(toolContext, request, result)
+	case "site.delete":
+		return toolCatalogBuilder.removeSiteProjectAfterDelete(toolContext, request, result)
 	default:
 		return nil, nil
 	}

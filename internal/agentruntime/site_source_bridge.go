@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"path/filepath"
 	"strings"
 
@@ -75,6 +76,34 @@ func (toolCatalogBuilder *ToolCatalogBuilder) materializeSiteCreateResult(toolCo
 		return toolFailure, nil
 	}
 	return nil, stripSiteSourceFilesFromResult(result)
+}
+
+func (toolCatalogBuilder *ToolCatalogBuilder) removeSiteProjectAfterDelete(toolContext context.Context, request ToolCatalogRequest, result *json.RawMessage) (*agent.ToolResult, error) {
+	var payload struct {
+		SiteID  string `json:"siteID"`
+		Deleted bool   `json:"deleted"`
+	}
+	if json.Unmarshal(*result, &payload) != nil || !payload.Deleted || strings.TrimSpace(payload.SiteID) == "" {
+		return nil, nil
+	}
+	resolvedPath, errorValue := toolCatalogBuilder.resolveCapabilityWorkspacePath(request, "home/sites/"+strings.TrimSpace(payload.SiteID))
+	if errorValue != nil {
+		return nil, nil
+	}
+	workspaceActor, actorFailure := toolCatalogBuilder.workspaceActorForRequest(toolContext, request)
+	if actorFailure != nil {
+		return nil, nil
+	}
+	commandRequest := security.CommandRequest{
+		ExecutableName:       "rm",
+		Arguments:            []string{"-rf", "--", resolvedPath.ConcretePath},
+		WorkingDirectoryPath: filepath.Dir(resolvedPath.ConcretePath),
+		ExecutionIdentity:    toolCatalogBuilder.executionIdentityForRequester(request),
+	}
+	if _, errorValue := workspaceActor.Run(toolContext, commandRequest); errorValue != nil {
+		slog.Warn("site.delete guest project cleanup failed", "path", resolvedPath.VirtualPath, "error", errorValue)
+	}
+	return nil, nil
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) prepareSiteSourceBundle(toolContext context.Context, request ToolCatalogRequest, toolInput json.RawMessage) (map[string]any, *agent.ToolResult, error) {
