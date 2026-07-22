@@ -261,7 +261,7 @@ func TestCompletionGateRejectsExternalSendFinishWithoutSendEvidence(t *testing.T
 	if len(result.SuggestedNextTools) != 1 || result.SuggestedNextTools[0] != "mail.message.send" {
 		t.Fatalf("expected suggested send tool, got %+v", result.SuggestedNextTools)
 	}
-	observation := withCompletionGateRecoveryPacket(completionGateObservation(1, result), result)
+	observation := withCompletionGateRecoveryPacket(completionGateObservation(1, result, nil), result)
 	if observation.RecoveryPacket == nil {
 		t.Fatal("expected recovery packet")
 	}
@@ -2218,5 +2218,18 @@ func TestAgentTurnRunnerDoesNotBlockTerminalBeforeRequiredFileWrite(t *testing.T
 	}
 	if taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.tool_precondition_blocked", "first required workspace file") {
 		t.Fatal("did not expect required file.write precondition block event")
+	}
+}
+
+func TestCompletionGateObservationStatesZeroToolRealityForFirstTurnFinish(t *testing.T) {
+	result := completionGateResult{Message: "completionEvidence references an unknown observation", EvidenceKind: "evidence_reference_invalid"}
+	observation := completionGateObservation(1, result, nil)
+	if !strings.Contains(observation.ContentText(), "ZERO successful tool observations") {
+		t.Fatalf("expected recorded-reality statement, got: %s", observation.ContentText())
+	}
+	successfulObservation := turnObservation{ObservationID: "obs-001", Action: "tool", Tool: "task.add"}
+	observationAfterTool := completionGateObservation(2, result, []turnObservation{successfulObservation})
+	if strings.Contains(observationAfterTool.ContentText(), "ZERO successful tool observations") {
+		t.Fatalf("did not expect recorded-reality statement after a successful tool observation")
 	}
 }
