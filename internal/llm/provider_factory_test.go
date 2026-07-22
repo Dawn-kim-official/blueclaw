@@ -189,4 +189,3 @@ func TestConfiguredProviderRejectsUnauthenticatedRemoteLLMDBridgePath(t *testing
 		t.Fatal("expected remote LLMD bridge path without a Unix socket to require authentication")
 	}
 }
-

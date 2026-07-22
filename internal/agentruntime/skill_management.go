@@ -402,23 +402,3 @@ func resourcePathPrefixes(resourcePaths []string) map[string]bool {
 func normalizedSkillDocument(content string) []byte {
 	return []byte(strings.TrimSpace(content) + "\n")
 }
-
-func isImmutableSkillPath(workspaceRootPath string, path string) bool {
-	cleanWorkspaceRootPath, errorValue := filepath.Abs(workspaceRootPath)
-	if errorValue != nil {
-		return false
-	}
-	cleanPath, errorValue := filepath.Abs(path)
-	if errorValue != nil {
-		return false
-	}
-	relativePath, errorValue := filepath.Rel(cleanWorkspaceRootPath, cleanPath)
-	if errorValue != nil {
-		return false
-	}
-	relativePath = filepath.ToSlash(filepath.Clean(relativePath))
-	return relativePath == "skills" ||
-		strings.HasPrefix(relativePath, "skills/") ||
-		relativePath == ".agents/skills/agent-browser" ||
-		strings.HasPrefix(relativePath, ".agents/skills/agent-browser/")
-}
