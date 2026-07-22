@@ -2250,3 +2250,11 @@ func TestFinishHiddenAfterEvidenceMissingRejectionWithoutToolEvidence(t *testing
 		t.Fatalf("expected finish exposed with no observations")
 	}
 }
+
+func TestFinishHiddenAfterAttachmentRejectionDespiteToolEvidence(t *testing.T) {
+	successfulRead := turnObservation{ObservationID: "obs-001", Action: "continue", Tool: "file.read"}
+	rejection := completionGateObservation(2, completionGateResult{Message: "attach the artifact", EvidenceKind: "attachment_missing"}, []turnObservation{successfulRead})
+	if !finishWasRejectedWithoutAnyToolEvidence([]turnObservation{successfulRead, rejection}) {
+		t.Fatalf("expected finish hidden after attachment rejection even with prior tool evidence")
+	}
+}

@@ -481,12 +481,20 @@ func finishWasRejectedWithoutAnyToolEvidence(observations []turnObservation) boo
 	if len(observations) == 0 {
 		return false
 	}
+	latestObservation := observations[len(observations)-1]
+	if latestObservation.Action != "evidence_missing" {
+		return false
+	}
+	switch latestObservation.PolicyCode {
+	case "attachment_missing", "attachment_invalid", "required_tool_missing":
+		return true
+	}
 	for _, observation := range observations {
 		if !observation.Failed() && strings.TrimSpace(observation.Tool) != "" {
 			return false
 		}
 	}
-	return observations[len(observations)-1].Action == "evidence_missing"
+	return true
 }
 
 func actionSchemaForToolSet(toolSet *ToolSet, allowQualityCriteria bool, blockedToolNames map[string]bool, hasFailureDebt bool, allowFailValues ...bool) string {
