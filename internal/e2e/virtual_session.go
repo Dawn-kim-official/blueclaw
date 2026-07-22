@@ -71,6 +71,7 @@ type VirtualSessionScenario struct {
 	RouterTaskLevel           string
 	CodingTierVisionFallback  bool
 	AddressingResponse        string
+	SkillSearchQueries        []string
 	RouterSiteEvidence        string
 	ScriptedExecutionPlan     *agent.ExecutionPlan
 	ScriptedConfirmationReply string
@@ -2533,7 +2534,25 @@ func scenarioDefaultResponses(scenario VirtualSessionScenario) map[string]string
 			defaultResponses["blueclaw_confirmation_message"] = string(document)
 		}
 	}
+	if response := scenarioSkillSearchQueriesResponse(scenario.SkillSearchQueries); response != "" {
+		defaultResponses["blueclaw_skill_search_queries"] = response
+	}
 	return defaultResponses
+}
+
+func scenarioSkillSearchQueriesResponse(queryDescriptions []string) string {
+	if len(queryDescriptions) == 0 {
+		return ""
+	}
+	queries := make([]map[string]string, 0, len(queryDescriptions))
+	for _, queryDescription := range queryDescriptions {
+		queries = append(queries, map[string]string{"description": queryDescription})
+	}
+	document, errorValue := json.Marshal(map[string]any{"queries": queries})
+	if errorValue != nil {
+		return ""
+	}
+	return string(document)
 }
 
 func scenarioRouterResponsesForTurn(scenario VirtualSessionScenario, virtualTurn VirtualTurn) []string {

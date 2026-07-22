@@ -1,14 +1,33 @@
 package e2e
 
 import (
+	"fmt"
+	"path/filepath"
+	"runtime"
+
 	"blueclaw/internal/agent"
 	"blueclaw/internal/agentruntime"
 	"blueclaw/internal/connectors"
+	"blueclaw/internal/skill"
 	"blueclaw/internal/task"
 )
 
 func actionInvokeCapabilityTool(toolName string, input string) string {
 	return actionCallTool(toolName, input)
+}
+
+func workspaceSkillInstruction(skillName string) agent.SkillInstruction {
+	skillBundle, errorValue := (skill.SkillLoader{}).LoadSkillBundle(rootWorkspaceSkillDirectoryPath(skillName))
+	if errorValue != nil {
+		panic(fmt.Errorf("load root workspace skill %q: %w", skillName, errorValue))
+	}
+	return skillInstructionFromBundle(skillBundle)
+}
+
+func rootWorkspaceSkillDirectoryPath(skillName string) string {
+	_, sourceFilePath, _, _ := runtime.Caller(0)
+	blueclawRootPath := filepath.Dir(filepath.Dir(filepath.Dir(sourceFilePath)))
+	return filepath.Join(blueclawRootPath, "..", "..", "assets", "blueclaw-workspace", "skills", skillName)
 }
 
 func completionJudgeSatisfiedResponse() string {
@@ -431,6 +450,7 @@ func GWSDisabledScenario(artifactDirectoryPath string) VirtualSessionScenario {
 func ScheduleCreateAcceptanceScenario(artifactDirectoryPath string) VirtualSessionScenario {
 	return VirtualSessionScenario{
 		Name:                   "schedule_create_acceptance",
+		SkillSearchQueries:     []string{"schedule a recurring interval reminder"},
 		ArtifactDirectoryPath:  artifactDirectoryPath,
 		Skills:                 []agent.SkillInstruction{scheduledTaskSkill()},
 		AllowedTools:           append(agent.KernelToolNames(), "schedule.create", "schedule.cancel"),
@@ -462,6 +482,7 @@ func ScheduleCreateAcceptanceScenario(artifactDirectoryPath string) VirtualSessi
 func ScheduleLifecycleAcceptanceScenario(artifactDirectoryPath string) VirtualSessionScenario {
 	return VirtualSessionScenario{
 		Name:                  "schedule_lifecycle_acceptance",
+		SkillSearchQueries:    []string{"schedule a recurring interval reminder"},
 		ArtifactDirectoryPath: artifactDirectoryPath,
 		Skills:                []agent.SkillInstruction{scheduledTaskSkill()},
 		AllowedTools:          append(agent.KernelToolNames(), "schedule.create", "schedule.update", "schedule.cancel"),
@@ -650,16 +671,7 @@ func AmbientDutyCalendarAcceptanceScenario(artifactDirectoryPath string) Virtual
 }
 
 func flowTaskSkill() agent.SkillInstruction {
-	return agent.SkillInstruction{
-		Name:           "flow",
-		Description:    "Add, update, and complete team work tasks, 업무, 할 일, status changes, and deadlines.",
-		Prompt:         "Use task.add to add a task for a person, task.list to find an existing task, and task.update to change status, details, or mark it complete.",
-		ToolReferences: []string{"task.add", "task.list", "task.update"},
-		Source: agent.InstructionSource{
-			Path:      "skills/flow/SKILL.md",
-			SkillName: "flow",
-		},
-	}
+	return workspaceSkillInstruction("internkim-flow")
 }
 
 func AmbientTaskCaptureAcceptanceScenario(artifactDirectoryPath string) VirtualSessionScenario {
@@ -966,6 +978,7 @@ func FailureExplanationAcceptanceScenario(artifactDirectoryPath string) VirtualS
 func OneTimeScheduleAcceptanceScenario(artifactDirectoryPath string) VirtualSessionScenario {
 	return VirtualSessionScenario{
 		Name:                  "one_time_schedule_acceptance",
+		SkillSearchQueries:    []string{"schedule a one-time reminder"},
 		ArtifactDirectoryPath: artifactDirectoryPath,
 		Skills:                []agent.SkillInstruction{scheduledTaskSkill()},
 		AllowedTools:          []string{"conversation.history", "memory.search", "schedule.create", "schedule.cancel"},
@@ -998,38 +1011,17 @@ Organize notes into concise memos with action items and owners.`
 }
 
 func calendarSkill() agent.SkillInstruction {
-	return agent.SkillInstruction{
-		Name:           "calendar",
-		Description:    "Read or write the workspace calendar with calendar capability operations. Use this whenever the user asks to add, find, update, cancel, delete, or check meetings, schedules, 일정, 캘린더, 미팅, 회의, 약속, or reminders, even if they do not explicitly say calendar.",
-		Prompt:         "Use calendar.add to create calendar events, calendar.update to edit event time or details, and calendar.delete to delete events.",
-		ToolReferences: []string{"calendar.add", "calendar.update", "calendar.delete"},
-		Source: agent.InstructionSource{
-			Path:      "skills/calendar/SKILL.md",
-			SkillName: "calendar",
-			ByteSize:  512,
-			SHA256:    "virtual-calendar",
-		},
-	}
+	return workspaceSkillInstruction("calendar")
 }
 
 func scheduledTaskSkill() agent.SkillInstruction {
-	return agent.SkillInstruction{
-		Name:           "scheduled-task",
-		Description:    "Create or cancel scheduled, recurring, and finite repeated reminders, messages, reports, and follow-up tasks such as 예약, 알림, 리마인드, 분마다, 매일, 매주, or 매월.",
-		Prompt:         "Use schedule.create to create schedules and schedule.update to revise active schedules. Put only the run-time work in taskInstruction. Put cadence and stop conditions in structured fields such as runAt, intervalSecond, cronExpression, expiresAt, and maxRunCount. Set repeatPolicy finite with expiresAt or maxRunCount for finite repeats; set repeatPolicy unbounded only when the user explicitly asks for no end. Do not claim background loops are unsupported when schedule.create is available.",
-		ToolReferences: []string{"schedule.create", "schedule.update", "schedule.cancel"},
-		Source: agent.InstructionSource{
-			Path:      "skills/scheduled-task/SKILL.md",
-			SkillName: "scheduled-task",
-			ByteSize:  512,
-			SHA256:    "virtual-scheduled-task",
-		},
-	}
+	return workspaceSkillInstruction("scheduled-task")
 }
 
 func SitePrototypeAcceptanceScenario(artifactDirectoryPath string) VirtualSessionScenario {
 	return VirtualSessionScenario{
 		Name:                   "site_prototype_acceptance",
+		SkillSearchQueries:     []string{"create and publish a website prototype"},
 		ArtifactDirectoryPath:  artifactDirectoryPath,
 		RouterRequiredEvidence: []string{"site.publish"},
 		RouterSiteEvidence:     "Local Fleet Studio",
@@ -1045,7 +1037,7 @@ func SitePrototypeAcceptanceScenario(artifactDirectoryPath string) VirtualSessio
 				actionFinishMessage("Local Fleet Studio 웹사이트 프로토타입을 배포했습니다: https://demo.device.intern.kim", "obs-002:site.publish:0"),
 			},
 			CompletionJudgeResponses: []string{completionJudgeSatisfiedResponse()},
-			ExpectedSelectedSkills:   []string{"site-prototype"},
+			ExpectedSelectedSkills:   []string{"website"},
 			ExpectedToolCallCounts:   map[string]int{"terminal.run": 0},
 			ExpectedEventCounts: []VirtualEventCount{
 				{Name: "tool.site.create.requested", BodyFragment: "site.create", Count: 1},
@@ -1087,7 +1079,7 @@ func SiteEditRedeployAcceptanceScenario(artifactDirectoryPath string) VirtualSes
 					actionFinishMessage("Deployed the Local Fleet Studio site: https://demo.device.intern.kim", "obs-002:site.publish:0"),
 				},
 				CompletionJudgeResponses: []string{completionJudgeSatisfiedResponse()},
-				ExpectedSelectedSkills:   []string{"site-prototype"},
+				ExpectedSelectedSkills:   []string{"website"},
 				ExpectedToolCallCounts:   map[string]int{"terminal.run": 0},
 				ExpectedEventCounts: []VirtualEventCount{
 					{Name: "tool.site.create.requested", BodyFragment: "site.create", Count: 1},
@@ -1172,6 +1164,7 @@ func SiteCustomStructureAcceptanceScenario(artifactDirectoryPath string) Virtual
 func SiteLifecycleAcceptanceScenario(artifactDirectoryPath string) VirtualSessionScenario {
 	return VirtualSessionScenario{
 		Name:                      "site_lifecycle_acceptance",
+		SkillSearchQueries:        []string{"create and publish a website prototype"},
 		ArtifactDirectoryPath:     artifactDirectoryPath,
 		RouterSiteEvidence:        "Local Fleet Studio",
 		Skills:                    []agent.SkillInstruction{sitePrototypeSkill()},
@@ -1192,7 +1185,7 @@ func SiteLifecycleAcceptanceScenario(artifactDirectoryPath string) VirtualSessio
 					actionFinishMessage("Local Fleet Studio 웹사이트를 배포했습니다: https://demo.device.intern.kim", "obs-003:site.publish:0"),
 				},
 				CompletionJudgeResponses: []string{completionJudgeSatisfiedResponse()},
-				ExpectedSelectedSkills:   []string{"site-prototype"},
+				ExpectedSelectedSkills:   []string{"website"},
 				ExpectedEventCounts: []VirtualEventCount{
 					{Name: "tool.site.create.requested", BodyFragment: "site.create", Count: 1},
 					{Name: "tool.site.publish.requested", BodyFragment: "site.publish", Count: 1},
@@ -1429,33 +1422,11 @@ func PlatformMessageEditAcceptanceScenario(artifactDirectoryPath string) Virtual
 }
 
 func presentationSkill() agent.SkillInstruction {
-	return agent.SkillInstruction{
-		Name:           "presentation",
-		Description:    "Create local presentation decks, 피피티, 파워포인트, 발표자료, PPTX, PDF, HTML, and notes attachments.",
-		Prompt:         "Write Stitch-compatible DESIGN.md and Marp presentation.md directly under artifacts/<deck-slug> from the user request. Treat presentation.md as the deck source of truth and iterate on it when needed. Use Paperlogy/Freesentation/Pretendard/Noto Sans KR font guidance, choose layouts from the content intent, include design-source: DESIGN.md, run NAME=<deck-slug> /workspace/skills/presentation/scripts/build.sh with workingDirectoryPath artifacts/<deck-slug> for a full deck or FORMATS=html NAME=<deck-slug> /workspace/skills/presentation/scripts/build.sh for html-only requests, then deliver generated files with file.deliver. Do not use Google Workspace unless a google tool is explicitly available.",
-		ToolReferences: []string{"file.write", "file.edit", "terminal.run", "file.deliver"},
-		Source: agent.InstructionSource{
-			Path:      "skills/presentation/SKILL.md",
-			SkillName: "presentation",
-			ByteSize:  512,
-			SHA256:    "virtual-presentation",
-		},
-	}
+	return workspaceSkillInstruction("presentation")
 }
 
 func sitePrototypeSkill() agent.SkillInstruction {
-	return agent.SkillInstruction{
-		Name:           "site-prototype",
-		Description:    "Create, preview, publish, update, inspect, or delete React and PocketBase 웹사이트, 사이트, web app, and website prototypes.",
-		Prompt:         "Create and publish website prototypes. For a new prototype, call site.create with a DNS-safe slug and title, write or edit source inside the returned site workspace, call terminal.run to build the app with bun, optionally call site.preview for review, then call site.publish with the siteID and a concise message. Never claim deployment succeeded until site.publish succeeds.",
-		ToolReferences: sitePrototypeToolNames(),
-		Source: agent.InstructionSource{
-			Path:      "skills/site-prototype/SKILL.md",
-			SkillName: "site-prototype",
-			ByteSize:  512,
-			SHA256:    "virtual-site-prototype",
-		},
-	}
+	return workspaceSkillInstruction("website")
 }
 
 func sitePrototypeToolNames() []string {
