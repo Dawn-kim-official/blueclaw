@@ -636,6 +636,10 @@ export const siteCreateResultSchema = z.strictObject({
   status: z.literal(SiteLifecycleStatus.Draft),
   sourceWorkspacePath: resourceIDSchema,
   appWorkspacePath: resourceIDSchema,
+  sourceFiles: z.array(z.strictObject({
+    path: z.string(),
+    content: z.string(),
+  })).optional(),
 });
 
 export const siteStatusResultSchema = z.strictObject({
