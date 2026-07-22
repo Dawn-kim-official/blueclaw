@@ -17,62 +17,16 @@ type intakeDecisionLanguageModel struct {
 	decision TurnDecision
 }
 
-type rejectingOperationContractLanguageModel struct {
-	decision TurnDecision
-}
-
 func (model intakeDecisionLanguageModel) GenerateResponse(context.Context, string) (string, error) {
 	return "", errors.New("intake model only serves structured routing")
 }
 
-func (model rejectingOperationContractLanguageModel) GenerateResponse(context.Context, string) (string, error) {
-	return "요청한 값을 안전하게 확정하지 못했습니다.", nil
-}
-
-func (model rejectingOperationContractLanguageModel) GenerateStructuredResponse(_ context.Context, request llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
-	if request.StructuredOutputSchema.Name == operationContractSchemaName {
-		return llm.StructuredResponse{Content: `{"operations":[{"toolName":"task.add","requiredValues":{"query":"분기 결산"}}]}`}, nil
-	}
+func (model intakeDecisionLanguageModel) GenerateStructuredResponse(context.Context, llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
 	document, errorValue := json.Marshal(model.decision)
 	if errorValue != nil {
 		return llm.StructuredResponse{}, errorValue
 	}
 	return llm.StructuredResponse{Content: string(document)}, nil
-}
-
-func (model intakeDecisionLanguageModel) GenerateStructuredResponse(_ context.Context, request llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
-	if request.StructuredOutputSchema.Name == operationContractSchemaName {
-		document := operationContractTestDocument(request.StructuredOutputSchema.Document)
-		return llm.StructuredResponse{Content: document}, nil
-	}
-	document, errorValue := json.Marshal(model.decision)
-	if errorValue != nil {
-		return llm.StructuredResponse{}, errorValue
-	}
-	return llm.StructuredResponse{Content: string(document)}, nil
-}
-
-func operationContractTestDocument(schemaDocument string) string {
-	var schema map[string]any
-	_ = json.Unmarshal([]byte(schemaDocument), &schema)
-	properties, _ := schema["properties"].(map[string]any)
-	operations, _ := properties["operations"].(map[string]any)
-	items, _ := operations["items"].(map[string]any)
-	itemSchemas := []any{items}
-	if oneOf, isUnion := items["oneOf"].([]any); isUnion {
-		itemSchemas = oneOf
-	}
-	operationDocuments := []map[string]any{}
-	for _, value := range itemSchemas {
-		itemSchema, _ := value.(map[string]any)
-		itemProperties, _ := itemSchema["properties"].(map[string]any)
-		toolName, _ := itemProperties["toolName"].(map[string]any)
-		toolNames, _ := toolName["enum"].([]any)
-		name, _ := toolNames[0].(string)
-		operationDocuments = append(operationDocuments, map[string]any{"toolName": name, "requiredValues": map[string]any{}})
-	}
-	document, _ := json.Marshal(map[string]any{"operations": operationDocuments})
-	return string(document)
 }
 
 func newKernelTestServices() (*AgentKernel, *task.TaskRunService) {
@@ -284,57 +238,6 @@ func TestAgentKernelRejectsExecutableConsumeContradiction(t *testing.T) {
 	}
 }
 
-func TestAgentKernelDoesNotInvokeToolWhenOperationContractCompilationFails(t *testing.T) {
-	agentKernel, _ := newKernelTestServices()
-	decision := TurnDecision{
-		Route:                 TurnRouteStartTask,
-		Classification:        IntakeClassificationBoundedTask,
-		TaskShape:             TaskShapeMaintenanceTask,
-		TaskLevel:             TaskLevelLow,
-		EstimatedMinutes:      1,
-		ResponseLanguage:      "ko",
-		InitialToolNames:      []string{"task.add"},
-	}
-	languageModel := rejectingOperationContractLanguageModel{decision: decision}
-	agentKernel.UseIntakeLanguageModelProvider(languageModel)
-	agentKernel.UseLanguageModelProvider(languageModel)
-	toolCallCount := 0
-	toolSet := newTestToolSetWithDefinitions([]ToolDefinition{{
-		ID:              "capabilityd:task.add",
-		Name:            "task.add",
-		InputSchema:     operationContractTaskInputSchema(),
-		OutputSchema:    json.RawMessage(`{"type":"object","properties":{}}`),
-		SideEffectClass: ToolSideEffectStateChange,
-	}})
-	registerTestTool(toolSet, ToolDefinition{
-		ID:              "capabilityd:task.add",
-		Name:            "task.add",
-		InputSchema:     operationContractTaskInputSchema(),
-		OutputSchema:    json.RawMessage(`{"type":"object","properties":{}}`),
-		SideEffectClass: ToolSideEffectStateChange,
-	}, func(context.Context, ToolInvocation) (ToolResult, error) {
-		toolCallCount++
-		return testToolSuccess("ok"), nil
-	})
-	request := kernelTestRequest("분기 결산 누락 확인 업무를 추가해줘")
-	request.ToolSet = toolSet
-
-	result, errorValue := agentKernel.RunAgentRequest(context.Background(), request)
-
-	if errorValue != nil {
-		t.Fatalf("expected fail-closed task result: %v", errorValue)
-	}
-	if result.TaskRun.Status != task.TaskStatusBlocked {
-		t.Fatalf("expected blocked task, got %s", result.TaskRun.Status)
-	}
-	if strings.TrimSpace(result.UserNotice) == "" {
-		t.Fatal("expected compiler failure to produce a user notice")
-	}
-	if toolCallCount != 0 {
-		t.Fatalf("expected no handler call, got %d", toolCallCount)
-	}
-}
-
 func TestAgentKernelPausesNeedsConfirmationDisambiguation(t *testing.T) {
 	agentKernel, _ := newKernelTestServices()
 	agentKernel.UseIntakeLanguageModelProvider(intakeDecisionLanguageModel{decision: TurnDecision{
@@ -418,7 +321,6 @@ func TestAgentKernelPreservesActiveContractOnApprovalContinuation(t *testing.T) 
 	request := kernelTestRequest("응 확인했어, 진행해줘")
 	request.ToolSet = toolSet
 	request.IsApprovalContinuation = true
-	siteDeleteDescriptor, _ := toolSet.ToolDefinition("site.delete")
 	request.ActiveGoal = ActiveGoal{
 		GoalID:              "goal-approval-continuation",
 		TaskRunID:           "task-approval-continuation",
@@ -427,16 +329,6 @@ func TestAgentKernelPreservesActiveContractOnApprovalContinuation(t *testing.T) 
 		Status:              ActiveGoalStatusActive,
 		OutcomeContract: OutcomeContract{
 			RequiredEvidenceTools: []string{"site.delete"},
-			OperationContract: &OperationContract{
-				Version: operationContractVersion,
-				Requirements: []OperationRequirement{{
-					RequirementID: "operation-1",
-					ToolID:        siteDeleteDescriptor.ID,
-					ToolName:      "site.delete",
-					InputMode:     OperationInputContainsExplicit,
-					RequiredInput: json.RawMessage(`{"siteID":"site-1"}`),
-				}},
-			},
 		},
 	}
 
@@ -449,43 +341,6 @@ func TestAgentKernelPreservesActiveContractOnApprovalContinuation(t *testing.T) 
 	}
 	if toolCallCount != 1 {
 		t.Fatalf("expected the approved capability call to run once, got %d", toolCallCount)
-	}
-}
-
-func TestAgentKernelCompilesOperationContractBeforeApprovalPause(t *testing.T) {
-	agentKernel, taskRunService := newKernelTestServices()
-	agentKernel.UseIntakeLanguageModelProvider(intakeDecisionLanguageModel{decision: destructiveSiteDeleteDecision()})
-	agentKernel.UseLanguageModelProvider(&sequenceLanguageModel{contents: []string{
-		destructiveSiteDeleteExecutionPlan(),
-		`{"reply":"site-1 웹사이트를 삭제할까요?"}`,
-	}})
-	siteDeleteDefinition := testToolDescriptor("site.delete")
-	toolSet := newTestToolSetWithDefinitions([]ToolDefinition{siteDeleteDefinition})
-	toolCallCount := 0
-	registerTestTool(toolSet, siteDeleteDefinition, func(context.Context, ToolInvocation) (ToolResult, error) {
-		toolCallCount++
-		return testToolSuccess(`{"deleted":true}`), nil
-	})
-	request := kernelTestRequest("site-1 웹사이트를 삭제해줘")
-	request.ToolSet = toolSet
-
-	result, errorValue := agentKernel.RunAgentRequest(context.Background(), request)
-
-	if errorValue != nil {
-		t.Fatalf("expected approval pause: %v", errorValue)
-	}
-	if result.TaskRun.Status != task.TaskStatusWaitingApproval {
-		t.Fatalf("expected waiting approval, got %s", result.TaskRun.Status)
-	}
-	if toolCallCount != 0 {
-		t.Fatalf("expected no side effect before approval, got %d calls", toolCallCount)
-	}
-	taskEvents := taskRunService.ListTaskEvent(result.TaskRun.TaskRunID)
-	if !taskEventsContain(taskEvents, "agent.goal.waiting_approval", `"operationContract":{"version":1`) {
-		t.Fatal("expected reviewed operation contract persisted before approval")
-	}
-	if !taskEventsContain(taskEvents, "agent.goal.waiting_approval", `"requiredNextTools":["site.delete"]`) {
-		t.Fatal("expected required next tools persisted before approval")
 	}
 }
 
@@ -521,7 +376,7 @@ func TestExistingTaskRunIDDoesNotAuthorizeConfirmationBypass(t *testing.T) {
 	}
 }
 
-func TestSemanticRevisionStartsNewTaskRunAndOperationContract(t *testing.T) {
+func TestSemanticRevisionStartsNewTaskRun(t *testing.T) {
 	agentKernel, taskRunService := newKernelTestServices()
 	agentKernel.UseIntakeLanguageModelProvider(intakeDecisionLanguageModel{decision: TurnDecision{
 		Route:                 TurnRouteReviseTask,
@@ -549,16 +404,6 @@ func TestSemanticRevisionStartsNewTaskRunAndOperationContract(t *testing.T) {
 		TaskRunID: existingTaskRun.TaskRunID,
 		OutcomeContract: OutcomeContract{
 			RequiredEvidenceTools: []string{"task.add"},
-			OperationContract: &OperationContract{
-				Version: operationContractVersion,
-				Requirements: []OperationRequirement{{
-					RequirementID: "operation-1",
-					ToolID:        taskAddDefinition.ID,
-					ToolName:      "task.add",
-					InputMode:     OperationInputContainsExplicit,
-					RequiredInput: json.RawMessage(`{"title":"기존 업무"}`),
-				}},
-			},
 		},
 	}
 

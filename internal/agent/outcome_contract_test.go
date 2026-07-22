@@ -1,7 +1,6 @@
 package agent
 
 import (
-	"context"
 	"encoding/json"
 	"reflect"
 	"strings"
@@ -104,16 +103,8 @@ func TestAttachmentOutcomeTreatsWorkspaceFileWriteAsIntermediate(t *testing.T) {
 		false,
 		[]string{".docx"},
 	)
-	compiledContract, errorValue := compileOperationRequirements(context.Background(), nil, AgentRequest{}, toolSet, contract)
-
-	if errorValue != nil {
-		t.Fatalf("expected no intermediate file operation contract, got %v", errorValue)
-	}
-	if !reflect.DeepEqual(compiledContract.RequiredEvidenceTools, []string{FileDeliverToolName}) {
-		t.Fatalf("expected delivery-only attachment evidence, got %v", compiledContract.RequiredEvidenceTools)
-	}
-	if compiledContract.OperationContract != nil {
-		t.Fatalf("expected no file.write operation contract, got %+v", compiledContract.OperationContract)
+	if !reflect.DeepEqual(contract.RequiredEvidenceTools, []string{FileDeliverToolName}) {
+		t.Fatalf("expected delivery-only attachment evidence, got %v", contract.RequiredEvidenceTools)
 	}
 }
 
@@ -301,13 +292,6 @@ func TestResolvedInputDischargesAskInputContract(t *testing.T) {
 			Required:        true,
 			AcceptanceHints: []string{AskInputToolName, "task.update"},
 		}},
-		OperationContract: &OperationContract{
-			Version: operationContractVersion,
-			Requirements: []OperationRequirement{
-				{RequirementID: "ask", ToolName: AskInputToolName},
-				{RequirementID: "update", ToolName: "task.update"},
-			},
-		},
 	}
 
 	resolvedContract := dischargeResolvedInputContract(request, TurnDecision{Route: TurnRouteContinueTask}, contract)
@@ -323,9 +307,6 @@ func TestResolvedInputDischargesAskInputContract(t *testing.T) {
 	}
 	if len(resolvedContract.RequiredEvidenceAnyOf) != 1 || !stringSliceContains(resolvedContract.RequiredEvidenceAnyOf[0], "task.update") {
 		t.Fatalf("expected unrelated evidence alternative to remain, got %+v", resolvedContract.RequiredEvidenceAnyOf)
-	}
-	if resolvedContract.OperationContract == nil || len(resolvedContract.OperationContract.Requirements) != 1 || resolvedContract.OperationContract.Requirements[0].ToolName != "task.update" {
-		t.Fatalf("expected unrelated operation requirement to remain, got %+v", resolvedContract.OperationContract)
 	}
 }
 

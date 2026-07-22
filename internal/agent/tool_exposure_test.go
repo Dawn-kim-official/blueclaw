@@ -2,7 +2,6 @@ package agent
 
 import (
 	"context"
-	"encoding/json"
 	"testing"
 )
 
@@ -320,26 +319,17 @@ func TestRequiredEvidenceWinsToolBudget(t *testing.T) {
 	}
 }
 
-func TestPendingOperationWinsExtensionToolBudget(t *testing.T) {
+func TestPendingRequiredToolWinsExtensionToolBudget(t *testing.T) {
 	selectedToolNames := []string{
 		"tool.01", "tool.02", "tool.03", "tool.04", "tool.05",
 		"tool.06", "tool.07", "tool.08", "tool.09", "tool.10", "tool.11",
 	}
 	toolSet := testToolSet(append(KernelToolNames(), selectedToolNames...))
 	instructionBundle := InstructionBundle{
-		Skills:         []SkillInstruction{{Name: "extension", ToolReferences: selectedToolNames}},
-		SkillDecisions: []SkillSelectionDecision{{Name: "extension", Status: "selected"}},
+		Skills:            []SkillInstruction{{Name: "extension", ToolReferences: selectedToolNames}},
+		SkillDecisions:    []SkillSelectionDecision{{Name: "extension", Status: "selected"}},
+		RequiredNextTools: []string{"tool.11"},
 	}
-	outcomeContract := OutcomeContract{OperationContract: &OperationContract{
-		Version: operationContractVersion,
-		Requirements: []OperationRequirement{{
-			RequirementID: "operation-1",
-			ToolID:        "test:tool.11",
-			ToolName:      "tool.11",
-			InputMode:     OperationInputNoExplicitValues,
-			RequiredInput: json.RawMessage(`{}`),
-		}},
-	}}
 
 	filteredToolSet, _ := toolSetForAgentTurnWithExposure(
 		toolSet,
@@ -347,7 +337,7 @@ func TestPendingOperationWinsExtensionToolBudget(t *testing.T) {
 		AgentRequest{},
 		ExecutionPlan{},
 		false,
-		outcomeContract,
+		OutcomeContract{},
 		ToolExposureEvent{},
 	)
 

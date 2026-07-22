@@ -314,20 +314,7 @@ func advanceAgentTask(state agentTaskState) agentTransition {
 }
 
 func completionArtifactDeliveryInput(state agentTaskState, completionState CompletionState) json.RawMessage {
-	defaultInput := MarshalToolInput(map[string]any{"path": nextCompletionAttachmentPath(completionState)})
-	requirement, isPending := firstPendingOperationRequirement(state.Request.OutcomeContract.OperationContract, state.Observations)
-	if !isPending || requirement.ToolName != FileDeliverToolName {
-		return defaultInput
-	}
-	requiredInput, errorValue := decodeJSONObject(requirement.RequiredInput)
-	if errorValue != nil {
-		return defaultInput
-	}
-	if operationInputSelectsDeliveryFile(requiredInput) {
-		return MarshalToolInput(requiredInput)
-	}
-	requiredInput["path"] = nextCompletionAttachmentPath(completionState)
-	return MarshalToolInput(requiredInput)
+	return MarshalToolInput(map[string]any{"path": nextCompletionAttachmentPath(completionState)})
 }
 
 func operationInputSelectsDeliveryFile(requiredInput map[string]any) bool {
@@ -409,9 +396,6 @@ func buildAgentActionRequest(state agentTaskState, includeToolDescription bool) 
 		toolDescription,
 		state.ExecutionState,
 	)
-	if operationRequirementContext := pendingOperationRequirementContext(state.Request.OutcomeContract.OperationContract, state.Observations); operationRequirementContext != "" {
-		messages = append(messages, llm.Message{Role: "system", Content: operationRequirementContext})
-	}
 	if hasFailureDebt {
 		messages = append(messages, llm.Message{
 			Role:    "system",
@@ -779,7 +763,6 @@ func firstPendingActionToolName(state agentTaskState) string {
 		return ""
 	}
 	return firstPendingRequiredToolName(
-		state.Request.OutcomeContract.OperationContract,
 		state.Request.ContractToolWorkingSet.RequiredNextTools,
 		state.Observations,
 	)

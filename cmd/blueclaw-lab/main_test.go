@@ -244,8 +244,8 @@ func TestCreateLiveLanguageModelSupportsLLMDWithoutOpenRouterCredentials(t *test
 		"blueclaw_agent_turn_finalizer",
 		"blueclaw_turn_router",
 		"blueclaw_recovery_decision",
-		"blueclaw_operation_contract",
 		"blueclaw_contract_skill_arbitration",
+		"blueclaw_completion_judge",
 	}
 	if !slices.Equal(llmdClient.StructuredSchemaNames, expectedSchemaNames) {
 		t.Fatalf("expected authoritative LLMD schemas, got %#v", llmdClient.StructuredSchemaNames)
@@ -382,7 +382,7 @@ func TestSaveVirtualSessionEvidenceRecordsRoutingMetadataWithoutSecrets(t *testi
 		t.Fatalf("expected evidence file: %v", errorValue)
 	}
 	content := string(document)
-	for _, expectedText := range []string{"task-lifecycle", "failed", "blocked", "operation contract was invalid", "llmd", "recovery_chat", "llama.cpp", "gemma", "device", "blueclaw_agent_turn_action", "blueclaw_agent_turn_finalizer", "blueclaw_turn_router", "blueclaw_recovery_decision", "blueclaw_operation_contract", "blueclaw_contract_skill_arbitration"} {
+	for _, expectedText := range []string{"task-lifecycle", "failed", "blocked", "operation contract was invalid", "llmd", "recovery_chat", "llama.cpp", "gemma", "device", "blueclaw_agent_turn_action", "blueclaw_agent_turn_finalizer", "blueclaw_turn_router", "blueclaw_recovery_decision", "blueclaw_contract_skill_arbitration", "blueclaw_completion_judge"} {
 		if !strings.Contains(content, expectedText) {
 			t.Fatalf("evidence missing %q: %s", expectedText, content)
 		}
@@ -524,8 +524,8 @@ func TestRunVirtualSessionLiveLanguageModelPrintsFailureSummary(t *testing.T) {
 		return runVirtualSession(context.Background(), arguments)
 	})
 
-	if errorValue != nil {
-		t.Fatalf("expected failure scenario to complete with user notice: %v\n%s", errorValue, output)
+	if errorValue == nil || !strings.Contains(errorValue.Error(), "task ended failed") {
+		t.Fatalf("expected the hardened harness to reject the failed task, got %v\n%s", errorValue, output)
 	}
 	if fakeServer.RequestCount() == 0 {
 		t.Fatal("expected fake OpenRouter server to receive at least one request")
@@ -603,10 +603,10 @@ func TestConfigureVirtualScenarioCodingUsesCeilingOnlyWhenConfigured(t *testing.
 	cappedScenario := e2e.VirtualSessionScenario{}
 	configureVirtualScenarioModelTiers(&cappedScenario, "high", providerFactory)
 	cappedModelNames := virtualProviderModelNames(cappedScenario.CodingLanguageModel)
-	if !slices.Contains(cappedModelNames, "google/gemini-3-flash-preview") {
+	if !slices.Contains(cappedModelNames, "google/gemini-3.5-flash-lite") {
 		t.Fatalf("expected coding provider to use high ceiling, got %v", cappedModelNames)
 	}
-	for _, forbiddenModelName := range []string{"z-ai/glm-5.2", "openai/gpt-5.6-luna", "google/gemini-3.5-flash"} {
+	for _, forbiddenModelName := range []string{"z-ai/glm-5.2", "google/gemini-3.6-flash"} {
 		if slices.Contains(cappedModelNames, forbiddenModelName) {
 			t.Fatalf("expected coding provider to stay at or below high, got %v", cappedModelNames)
 		}
