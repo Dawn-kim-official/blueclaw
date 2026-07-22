@@ -101,6 +101,37 @@ func TestWorkspacePathResolverMapsTemporaryDirectoryToRequesterDraft(t *testing.
 	}
 }
 
+func TestWorkspacePathResolverResolvesVirtualHomePrefixToRequesterRoot(t *testing.T) {
+	workspacePath := t.TempDir()
+	resolver := NewWorkspacePathResolver(workspacePath)
+	scope := WorkspaceScopeForRequest(workspacePath, ToolCatalogRequest{RequesterPersonID: "person-1"}, "task-1")
+	resolvedPath, errorValue := resolver.Resolve("home/inbox/mattermost/conv-1/check.json", scope)
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	expectedConcretePath := filepath.Join(workspacePath, "private", "people", "person-1", "inbox", "mattermost", "conv-1", "check.json")
+	if resolvedPath.ConcretePath != expectedConcretePath {
+		t.Fatalf("unexpected concrete path: %+v", resolvedPath)
+	}
+	if resolvedPath.VirtualPath != "home/inbox/mattermost/conv-1/check.json" {
+		t.Fatalf("unexpected virtual path: %+v", resolvedPath)
+	}
+	tildePath, errorValue := resolver.Resolve("~/inbox/mattermost/conv-1/check.json", scope)
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if tildePath.ConcretePath != resolvedPath.ConcretePath {
+		t.Fatalf("expected home/ and ~/ to name the same file, got %+v and %+v", resolvedPath, tildePath)
+	}
+	homeRoot, errorValue := resolver.Resolve("home", scope)
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if homeRoot.ConcretePath != filepath.Join(workspacePath, "private", "people", "person-1") {
+		t.Fatalf("unexpected home root: %+v", homeRoot)
+	}
+}
+
 func TestWorkspacePathResolverResolvesHomeRelativePathToRequesterRoot(t *testing.T) {
 	workspacePath := t.TempDir()
 	resolver := NewWorkspacePathResolver(workspacePath)
