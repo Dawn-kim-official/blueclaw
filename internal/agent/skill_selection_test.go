@@ -327,7 +327,7 @@ func TestSkillSelectorOnlyChecksSkillAvailability(t *testing.T) {
 	}
 }
 
-func TestSkillSelectorSkipsSkillWhenAllowedToolIsMissing(t *testing.T) {
+func TestSkillSelectorKeepsSkillWithPartiallyReachableTools(t *testing.T) {
 	skillSelector := SkillSelector{}
 	skillInstruction := SkillInstruction{
 		Name:           "presentation",
@@ -339,12 +339,29 @@ func TestSkillSelectorSkipsSkillWhenAllowedToolIsMissing(t *testing.T) {
 		ToolSet: testToolSet([]string{"terminal.run", "file.write"}),
 	}
 
-	decision := skillSelector.Evaluate(skillInstruction, request, "default")
-	if decision.Status == "selected" {
-		t.Fatal("expected presentation to be skipped without file.deliver")
+	if !skillSelector.IsAvailable(skillInstruction, request) {
+		t.Fatal("expected presentation to stay available with partially reachable tools")
 	}
-	if decision.Reason != "missing_tool_references" || len(decision.MissingToolReferences) != 1 || decision.MissingToolReferences[0] != "file.deliver" {
-		t.Fatalf("expected missing tool reason, got %+v", decision)
+	decision := skillSelector.Evaluate(skillInstruction, request, "default")
+	if decision.Reason == "missing_tool_references" {
+		t.Fatalf("expected partial reachability to keep the skill scorable, got %+v", decision)
+	}
+}
+
+func TestSkillSelectorSkipsSkillWhenEveryToolIsMissing(t *testing.T) {
+	skillSelector := SkillSelector{}
+	skillInstruction := SkillInstruction{
+		Name:           "mattermost",
+		ToolReferences: []string{"message.send", "message.update"},
+	}
+	request := AgentRequest{ToolSet: testToolSet([]string{"terminal.run"})}
+
+	if skillSelector.IsAvailable(skillInstruction, request) {
+		t.Fatal("expected the skill to be unavailable when no tool reference is reachable")
+	}
+	decision := skillSelector.Evaluate(skillInstruction, request, "default")
+	if decision.Reason != "missing_tool_references" || len(decision.MissingToolReferences) != 2 {
+		t.Fatalf("expected all references reported missing, got %+v", decision)
 	}
 }
 

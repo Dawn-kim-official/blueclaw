@@ -467,9 +467,9 @@ func callableToolDescriptionsForIntake(toolSet *ToolSet) []string {
 	if toolSet == nil {
 		return descriptions
 	}
-	for _, toolDefinition := range toolSet.ListToolDefinitions() {
+	for _, toolDefinition := range toolSet.ListRegisteredToolDefinitions() {
 		toolName := strings.TrimSpace(toolDefinition.Name)
-		if !toolIsModelCallable(toolName) {
+		if !toolIsModelCallable(toolName) || !requestToolSetCanReachTool(toolSet, toolName) {
 			continue
 		}
 		description := strings.TrimSpace(toolDefinition.Description)
