@@ -84,13 +84,31 @@ func TestBuildToolRegistryAuditSkipsLiveCheckWithoutCapabilityDescriptors(t *tes
 	}
 }
 
-func TestBuildToolRegistryAuditFailsClosedWhenLiveCapabilityRegistryIsUnavailable(t *testing.T) {
+func TestBuildToolRegistryAuditDegradesWhenLiveCapabilityRegistryIsUnavailable(t *testing.T) {
 	toolCatalogBuilder := NewToolCatalogBuilder()
 	toolCatalogBuilder.UseTestCapabilityToolDescriptors(capability.Client{}, []CapabilityToolDescriptor{{Name: "task.add"}})
 
-	_, errorValue := toolCatalogBuilder.BuildToolRegistryAudit(context.Background(), agent.NewToolSet(nil))
+	audit, errorValue := toolCatalogBuilder.BuildToolRegistryAudit(context.Background(), agent.NewToolSet(nil))
 
-	if errorValue == nil {
-		t.Fatal("expected an unavailable live capability registry to fail closed")
+	if errorValue != nil {
+		t.Fatalf("expected an unavailable live capability registry to degrade, got %v", errorValue)
+	}
+	if !audit.LiveRegistryUnavailable {
+		t.Fatalf("expected the audit to record live registry unavailability, got %+v", audit)
+	}
+}
+
+func TestBuildToolRegistryAuditServesCachedSnapshotWhenLiveFetchFails(t *testing.T) {
+	toolCatalogBuilder := NewToolCatalogBuilder()
+	toolCatalogBuilder.UseTestCapabilityToolDescriptors(capability.Client{}, []CapabilityToolDescriptor{{Name: "task.add"}})
+	toolCatalogBuilder.storeLiveCapabilitySnapshot([]CapabilityToolDescriptor{{Name: "task.add"}}, "snapshot-hash")
+
+	audit, errorValue := toolCatalogBuilder.BuildToolRegistryAudit(context.Background(), agent.NewToolSet(nil))
+
+	if errorValue != nil {
+		t.Fatalf("expected cached snapshot to serve the audit, got %v", errorValue)
+	}
+	if !audit.LiveRegistryServedFromCache || audit.LiveCapabilityHash != "snapshot-hash" {
+		t.Fatalf("expected the audit to use the cached snapshot, got %+v", audit)
 	}
 }
