@@ -558,6 +558,37 @@ func TestOutcomeContractDoesNotDeriveEvidenceFromPromptAndAvailableTools(t *test
 	}
 }
 
+func TestOutcomeContractDemotesIntakeInitialToolsToEvidenceHints(t *testing.T) {
+	toolSet := newTestToolSetWithDefinitions([]ToolDefinition{
+		{Name: "memory.remember", Namespace: "memory", SideEffectClass: ToolSideEffectStateChange},
+	})
+	contract := outcomeContractForRequest(
+		AgentRequest{
+			Prompt:  "이 대화 내용 기억해둬",
+			ToolSet: toolSet,
+		},
+		IntakeDecision{
+			Classification:   IntakeClassificationBoundedTask,
+			TaskShape:        TaskShapeMaintenanceTask,
+			InitialToolNames: []string{"memory.remember"},
+		},
+		InstructionBundle{},
+		ExecutionPlan{},
+		false,
+		nil,
+	)
+
+	if len(contract.RequiredEvidenceTools) != 0 {
+		t.Fatalf("expected intake initial tools not to become required evidence, got %+v", contract.RequiredEvidenceTools)
+	}
+	if len(contract.RequiredEvidenceAnyOf) != 0 {
+		t.Fatalf("expected intake initial tools not to become required any-of evidence, got %+v", contract.RequiredEvidenceAnyOf)
+	}
+	if !stringSliceContains(contract.SelectedEvidenceHints, "memory.remember") {
+		t.Fatalf("expected intake initial tools to be recorded as evidence hints, got %+v", contract.SelectedEvidenceHints)
+	}
+}
+
 func TestOutcomeContractDerivesSideEffectEvidenceAnyOfGroupForMaintenanceTask(t *testing.T) {
 	toolSet := newTestToolSetWithDefinitions([]ToolDefinition{
 		{Name: "task.add", Namespace: "task", SideEffectClass: ToolSideEffectStateChange},
