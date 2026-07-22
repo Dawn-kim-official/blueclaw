@@ -392,3 +392,21 @@ func TestAuthoritativeWorkingSetKeepsSelectedSkillTools(t *testing.T) {
 		}
 	}
 }
+
+func TestInterleaveToolNameListsKeepsEverySkillRepresented(t *testing.T) {
+	interleaved := interleaveToolNameLists([][]string{
+		{"task.add", "task.list", "task.update"},
+		{"calendar.add", "calendar.list"},
+		{"message.send"},
+	})
+
+	expected := []string{"task.add", "calendar.add", "message.send", "task.list", "calendar.list", "task.update"}
+	if len(interleaved) != len(expected) {
+		t.Fatalf("expected %v, got %v", expected, interleaved)
+	}
+	for index, toolName := range expected {
+		if interleaved[index] != toolName {
+			t.Fatalf("expected %v, got %v", expected, interleaved)
+		}
+	}
+}

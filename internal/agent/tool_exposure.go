@@ -109,11 +109,28 @@ func exposedGroupToolIDs(group toolExposureGroup, exposedToolIDs []string) []str
 }
 
 func selectedSkillToolNames(instructionBundle InstructionBundle) []string {
-	toolNames := []string{}
+	skillToolNameLists := [][]string{}
 	for _, skillInstruction := range selectedSkillInstructionList(instructionBundle) {
-		toolNames = appendUniqueStrings(toolNames, SkillToolNames(skillInstruction)...)
+		skillToolNameLists = append(skillToolNameLists, SkillToolNames(skillInstruction))
 	}
-	return toolNames
+	return interleaveToolNameLists(skillToolNameLists)
+}
+
+func interleaveToolNameLists(toolNameLists [][]string) []string {
+	toolNames := []string{}
+	for depth := 0; ; depth++ {
+		hasRemainingToolName := false
+		for _, toolNameList := range toolNameLists {
+			if depth >= len(toolNameList) {
+				continue
+			}
+			hasRemainingToolName = true
+			toolNames = appendUniqueStrings(toolNames, toolNameList[depth])
+		}
+		if !hasRemainingToolName {
+			return toolNames
+		}
+	}
 }
 
 func selectToolGroups(groups []toolExposureGroup, limit int) ([]string, []droppedToolGroup) {
