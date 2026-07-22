@@ -138,6 +138,7 @@ func completionJudgeInstruction() string {
 		"Mark unsatisfied when the recorded operations do not plausibly accomplish the instruction: wrong target, wrong values, or a missing step.",
 		"When the instruction states an explicit deadline, date, time, quantity, title, or recipient, that value must appear in at least one successful recorded operation input; if a stated value appears nowhere, mark unsatisfied and name exactly that value in missingWork.",
 		"Resolve relative dates such as today, tomorrow, 오늘, and 내일 only from the runtime temporal context below. Never guess the current date from ledger values.",
+		"Judge state changes by the recorded operation results. Items that merely appear inside another result's diagnostic fields, such as candidate lists in a search result, are not additional requirements unless the instruction itself names them.",
 		"Do not invent requirements the instruction does not state. Wording, formatting, phrasing, and which list or table a record appears in are not failures. If the right operations ran and every explicitly stated value appears in some recorded input, mark satisfied.",
 	}, "\n")
 }

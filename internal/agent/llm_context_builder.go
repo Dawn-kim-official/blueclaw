@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"fmt"
 	"strings"
 	"time"
 
@@ -90,12 +91,39 @@ func (builder LLMContextBuilder) Build(input LLMContextInput) string {
 	}), "\n\n")
 }
 
+const additionalToolsContextPageSize = 15
+
 func (builder LLMContextBuilder) additionalToolsContext(input LLMContextInput) string {
 	toolNames := appendUniqueStrings(input.AdditionalToolNames)
 	if len(toolNames) == 0 {
 		return ""
 	}
-	return "Additional tools exist but are not loaded: " + strings.Join(toolNames, ", ") + ". When the task needs one of them, call request_tools with the exact names first; the loaded tools become callable on your next step."
+	lines := []string{"Additional tools exist but are not loaded. When the task needs one, call request_tools with the exact names first; the loaded tools become callable on your next step."}
+	for _, toolName := range toolNames[:min(len(toolNames), additionalToolsContextPageSize)] {
+		lines = append(lines, "- "+toolName+additionalToolSummary(input.ToolSet, toolName))
+	}
+	if len(toolNames) > additionalToolsContextPageSize {
+		lines = append(lines, fmt.Sprintf("…and %d more; find them with skill.search or request them by exact name.", len(toolNames)-additionalToolsContextPageSize))
+	}
+	return strings.Join(lines, "\n")
+}
+
+func additionalToolSummary(toolSet *ToolSet, toolName string) string {
+	if toolSet == nil {
+		return ""
+	}
+	definition, isFound := toolSet.ToolDefinition(toolName)
+	if !isFound {
+		return ""
+	}
+	summary := strings.TrimSpace(definition.Description)
+	if sentenceEnd := strings.IndexAny(summary, ".;\n"); sentenceEnd > 0 {
+		summary = summary[:sentenceEnd]
+	}
+	if summary == "" {
+		return ""
+	}
+	return " — " + summary
 }
 
 func (builder LLMContextBuilder) requesterContext(input LLMContextInput) string {
