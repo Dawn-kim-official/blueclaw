@@ -549,6 +549,9 @@ export const channelUpdateResultSchema = z.strictObject({
 const siteSlugSchema = z.string()
   .min(1)
   .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, 'Site slug must use lowercase letters, numbers, and single hyphens.');
+const storedSiteSlugSchema = z.string()
+  .min(1)
+  .regex(/^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$/, 'Stored site slugs follow the admind acceptance pattern.');
 
 const siteContentSectionSchema = z.strictObject({
   title: z.string(),
@@ -631,7 +634,7 @@ export const siteDeleteInputIntentSchema = siteDeleteInputSchema.partial();
 
 export const siteCreateResultSchema = z.strictObject({
   siteID: resourceIDSchema,
-  slug: siteSlugSchema,
+  slug: storedSiteSlugSchema,
   title: z.string(),
   status: z.literal(SiteLifecycleStatus.Draft),
   sourceWorkspacePath: resourceIDSchema,
@@ -644,7 +647,7 @@ export const siteCreateResultSchema = z.strictObject({
 
 export const siteStatusResultSchema = z.strictObject({
   siteID: resourceIDSchema,
-  slug: siteSlugSchema,
+  slug: storedSiteSlugSchema,
   title: z.string(),
   status: z.enum(SiteLifecycleStatus),
   sourceWorkspacePath: resourceIDSchema,
