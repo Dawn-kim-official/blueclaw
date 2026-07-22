@@ -209,8 +209,6 @@ func toolCallRequiresRuntimeApproval(toolSet *ToolSet, actionDocument turnAction
 	return json.Unmarshal(actionDocument.ToolInput, &input) == nil && input.ApprovalRequired
 }
 
-// A declared send into the requester's current conversation has the blast
-// radius of a normal reply, so it runs without the approval pause.
 func sendHasReplyBlastRadius(definition ToolDefinition, toolInput json.RawMessage) bool {
 	return ToolDefinitionSideEffectClass(definition) == ToolSideEffectExternalSend &&
 		sendTargetsCurrentConversation(toolInput)
