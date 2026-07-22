@@ -969,7 +969,7 @@ Organize notes into concise memos with action items and owners.`
 func calendarSkill() agent.SkillInstruction {
 	return agent.SkillInstruction{
 		Name:           "calendar",
-		Description:    "Create, update, and delete calendar events, 일정, 달력, 캘린더, and meeting time changes.",
+		Description:    "Read or write the workspace calendar with calendar capability operations. Use this whenever the user asks to add, find, update, cancel, delete, or check meetings, schedules, 일정, 캘린더, 미팅, 회의, 약속, or reminders, even if they do not explicitly say calendar.",
 		Prompt:         "Use calendar.add to create calendar events, calendar.update to edit event time or details, and calendar.delete to delete events.",
 		ToolReferences: []string{"calendar.add", "calendar.update", "calendar.delete"},
 		Source: agent.InstructionSource{

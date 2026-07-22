@@ -277,10 +277,9 @@ func defaultContractSkillArbitrationResponse(request llm.StructuredResponseReque
 		return "", fmt.Errorf("decode contract skill arbitration schema: %w", errorValue)
 	}
 	skillNames := schema.Properties["selectedSkillNames"].Items.Enum
-	evidenceNames := schema.Properties["expectedEvidence"].Items.Enum
-	selectedSkillNames := append([]string{}, skillNames[:min(1, len(skillNames))]...)
-	rejectedSkillNames := append([]string{}, skillNames[len(selectedSkillNames):]...)
-	expectedEvidence := append([]string{}, evidenceNames[:min(1, len(evidenceNames))]...)
+	selectedSkillNames := append([]string{}, skillNames...)
+	rejectedSkillNames := []string{}
+	expectedEvidence := []string{}
 	document, errorValue := json.Marshal(map[string]any{
 		"selectedSkillNames":    selectedSkillNames,
 		"rejectedSkillNames":    rejectedSkillNames,
