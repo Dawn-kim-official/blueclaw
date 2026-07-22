@@ -249,13 +249,9 @@ func operationDescriptorDocuments(toolSet *ToolSet, toolNames []string) ([]opera
 }
 
 func operationContractSchema(descriptors []operationDescriptorDocument) string {
-	requirementSchemas := make([]any, 0, len(descriptors))
-	for _, descriptor := range descriptors {
-		requirementSchemas = append(requirementSchemas, operationRequirementSchema(descriptor))
-	}
-	itemSchema := requirementSchemas[0]
-	if len(requirementSchemas) > 1 {
-		itemSchema = map[string]any{"oneOf": requirementSchemas}
+	itemSchema := any(operationRequirementSchema(descriptors[0]))
+	if len(descriptors) > 1 {
+		itemSchema = flatOperationRequirementSchema(descriptors)
 	}
 	document := map[string]any{
 		"type":                 "object",
@@ -272,6 +268,25 @@ func operationContractSchema(descriptors []operationDescriptorDocument) string {
 	}
 	encodedDocument, _ := json.Marshal(document)
 	return string(encodedDocument)
+}
+
+func flatOperationRequirementSchema(descriptors []operationDescriptorDocument) map[string]any {
+	toolNames := make([]string, 0, len(descriptors))
+	for _, descriptor := range descriptors {
+		toolNames = append(toolNames, descriptor.Name)
+	}
+	return map[string]any{
+		"type":                 "object",
+		"additionalProperties": false,
+		"required":             []string{"toolName", "requiredValues"},
+		"properties": map[string]any{
+			"toolName": map[string]any{
+				"type": "string",
+				"enum": toolNames,
+			},
+			"requiredValues": map[string]any{"type": "object"},
+		},
+	}
 }
 
 func operationRequirementSchema(descriptor operationDescriptorDocument) map[string]any {
