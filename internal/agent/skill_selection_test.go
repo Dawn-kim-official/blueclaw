@@ -969,7 +969,7 @@ func TestContractSkillArbitrationCorrectsProseToExactCanonicalNames(t *testing.T
 	})
 }
 
-func TestContractSkillArbitrationFailureKeepsOnlyExplicitEvidenceAndKernelTools(t *testing.T) {
+func TestContractSkillArbitrationFailureDegradesToScoreSelection(t *testing.T) {
 	instructionBundle := InstructionBundle{
 		Prompt: "base",
 		Skills: []SkillInstruction{{
@@ -1008,17 +1008,11 @@ func TestContractSkillArbitrationFailureKeepsOnlyExplicitEvidenceAndKernelTools(
 		NewSkillSearchQueryRouter(languageModel),
 	)
 
-	if !skillDecisionHasReason(selectedBundle.SkillDecisions, "internkim-flow", "contract_skill_arbitration_failed") {
-		t.Fatalf("expected failed arbitration decision, got %+v", selectedBundle.SkillDecisions)
-	}
 	if !selectedBundle.ContractSkillArbitrationFailed {
 		t.Fatal("expected failed arbitration to remain explicit")
 	}
-	if skillDecisionHasStatus(selectedBundle.SkillDecisions, "internkim-flow", "selected") {
-		t.Fatalf("expected no selected skill after arbitration failure, got %+v", selectedBundle.SkillDecisions)
-	}
-	if strings.Contains(selectedBundle.Prompt, "Task workflow instructions") {
-		t.Fatalf("expected failed skill body to stay unloaded, got %q", selectedBundle.Prompt)
+	if !skillDecisionHasStatus(selectedBundle.SkillDecisions, "internkim-flow", "selected") {
+		t.Fatalf("expected score-selected skill after arbitration failure, got %+v", selectedBundle.SkillDecisions)
 	}
 
 	exposedToolSet, _ := toolSetForAgentTurnWithExposure(
@@ -1033,8 +1027,8 @@ func TestContractSkillArbitrationFailureKeepsOnlyExplicitEvidenceAndKernelTools(
 	if !exposedToolSet.IsAllowed(TerminalRunToolName) || !exposedToolSet.IsAllowed("task.add") {
 		t.Fatalf("expected kernel and explicit evidence tools, got %+v", exposedToolSet.ListToolNames())
 	}
-	if exposedToolSet.IsAllowed("task.list") {
-		t.Fatalf("expected unrelated skill tool to stay hidden, got %+v", exposedToolSet.ListToolNames())
+	if !exposedToolSet.IsAllowed("task.list") {
+		t.Fatalf("expected score-selected skill tools after degraded arbitration, got %+v", exposedToolSet.ListToolNames())
 	}
 }
 

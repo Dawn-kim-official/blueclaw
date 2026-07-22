@@ -314,11 +314,9 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 		instructionBundle, intakeDecision = agentKernel.selectInstructionBundleForResolvedRequest(taskContext, baseInstructionBundle, request, intakeDecision)
 	}
 	if instructionBundle.ContractSkillArbitrationFailed {
-		intakeDecision.Reason = "contract skill arbitration failed"
-		intakeDecision.UserFacingReply = ""
-		result, blockError := agentKernel.completeIntakeOnlyRequest(taskContext, intakeRequest, intakeDecision, task.TaskStatusBlocked, routerCallLedger.records)
-		result.TurnRoute = turnDecision.Route
-		return result, blockError
+		agentKernel.AppendTaskEvent(request.ExistingTaskRunID, "agent.contract_arbitration_degraded", marshalEventBody(map[string]string{
+			"reason": "contract skill arbitration failed; continuing with score-selected skills",
+		}))
 	}
 	if result, didExpire := agentKernel.completeIntakeIfElapsed(taskBudget, intakeRequest, intakeDecision, turnDecision.Route, routerCallLedger.records); didExpire {
 		return result, nil
