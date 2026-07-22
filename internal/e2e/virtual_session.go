@@ -2877,7 +2877,7 @@ func assertTurnResult(workspacePath string, virtualTurn VirtualTurn, turnResult 
 		return errorValue
 	}
 	for _, skillName := range virtualTurn.ExpectedSelectedSkills {
-		if !eventsContain(turnResult.Events, "agent.instructions_loaded", skillName) {
+		if !selectedSkillDecisionPresent(turnResult.Events, skillName) {
 			return fmt.Errorf("expected selected skill %q; events: %s", skillName, summarizeEvents(turnResult.Events))
 		}
 	}
@@ -3143,6 +3143,26 @@ func eventsContain(events []task.TaskEvent, name string, bodyFragment string) bo
 	for _, event := range events {
 		if event.Name == name && strings.Contains(event.Body, bodyFragment) {
 			return true
+		}
+	}
+	return false
+}
+
+func selectedSkillDecisionPresent(events []task.TaskEvent, skillName string) bool {
+	for _, event := range events {
+		if event.Name != "agent.instructions_loaded" {
+			continue
+		}
+		var body struct {
+			SkillDecisions []agent.SkillSelectionDecision `json:"skillDecisions"`
+		}
+		if json.Unmarshal([]byte(event.Body), &body) != nil {
+			continue
+		}
+		for _, skillDecision := range body.SkillDecisions {
+			if skillDecision.Name == skillName && skillDecision.Status == "selected" {
+				return true
+			}
 		}
 	}
 	return false
