@@ -98,6 +98,9 @@ func (resolver WorkspacePathResolver) Resolve(value string, scope WorkspaceScope
 	if strings.HasPrefix(trimmedPath, "~") {
 		return resolver.resolveHome(trimmedPath, scope)
 	}
+	if isVirtualHomePath(trimmedPath) {
+		return resolver.resolveVirtualHome(trimmedPath, scope)
+	}
 	if filepath.IsAbs(trimmedPath) {
 		return resolver.resolveAbsolute(trimmedPath, scope)
 	}
@@ -137,6 +140,22 @@ func (resolver WorkspacePathResolver) resolveHome(value string, scope WorkspaceS
 	}
 	suffix := filepath.Clean(strings.TrimPrefix(value, "~/"))
 	return resolver.resolvedPath(filepath.Join(scope.RequesterRootPath, suffix), filepath.ToSlash(suffix), workspacePathKindWorkspace, false)
+}
+
+// The runtime renders private attachment paths to the model with a virtual home/
+// prefix, so every path shape a tool result emits (home/<path>, ~/<path>, <path>)
+// must resolve to the same file under the requester's home in every tool.
+func isVirtualHomePath(value string) bool {
+	return value == "home" || strings.HasPrefix(value, "home/")
+}
+
+func (resolver WorkspacePathResolver) resolveVirtualHome(value string, scope WorkspaceScope) (ResolvedWorkspacePath, error) {
+	if value == "home" {
+		return resolver.resolvedPath(scope.RequesterRootPath, "home", workspacePathKindWorkspace, false)
+	}
+	suffix := filepath.Clean(strings.TrimPrefix(value, "home/"))
+	virtualPath := filepath.ToSlash(filepath.Join("home", suffix))
+	return resolver.resolvedPath(filepath.Join(scope.RequesterRootPath, suffix), virtualPath, workspacePathKindWorkspace, false)
 }
 
 // A relative path resolves against the requester's Linux home ($HOME), exactly as a

@@ -174,6 +174,54 @@ func TestFileToolsAcceptVirtualHomePathsWithoutLeakingHostPath(t *testing.T) {
 	}
 }
 
+func TestFileDeliverAcceptsVirtualHomePathReturnedByFileRead(t *testing.T) {
+	workspacePath := t.TempDir()
+	inboxFilePath := filepath.Join(workspacePath, "private", "people", "person-1", "inbox", "mattermost", "conv-1", "customer-support-weekly-check.json")
+	writeTestFile(t, inboxFilePath, `{"status":"ok"}`)
+
+	toolCatalogBuilder := newFileToolTestCatalogBuilder(workspacePath)
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
+		ProfileName:       "default",
+		RequesterPersonID: "person-1",
+		PersonAccess:      policy.PersonAccess{PersonID: "person-1", Circles: []string{"staff"}},
+	})
+
+	readResult, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+		ToolName: "file.read",
+		Input: agent.MarshalToolInput(map[string]string{
+			"path": "home/inbox/mattermost/conv-1/customer-support-weekly-check.json",
+		}),
+	})
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if readResult.Failed() {
+		t.Fatalf("expected file.read success for home/ path, got %s", readResult.ContentText())
+	}
+	var readDocument map[string]any
+	if errorValue := json.Unmarshal(readResult.Output.Data, &readDocument); errorValue != nil {
+		t.Fatalf("invalid file.read result data: %v", errorValue)
+	}
+	returnedPath, isString := readDocument["path"].(string)
+	if !isString || returnedPath == "" {
+		t.Fatalf("expected file.read to return a path, got %+v", readDocument)
+	}
+
+	deliverResult, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+		ToolName: agent.FileDeliverToolName,
+		Input:    agent.MarshalToolInput(map[string]string{"path": returnedPath}),
+	})
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if deliverResult.Failed() {
+		t.Fatalf("expected file.deliver to accept the exact path file.read returned (%q), got %s", returnedPath, deliverResult.ContentText())
+	}
+	if len(deliverResult.Attachments) != 1 || deliverResult.Attachments[0].Filename != "customer-support-weekly-check.json" {
+		t.Fatalf("expected the inbox file attachment, got %+v", deliverResult.Attachments)
+	}
+}
+
 func TestFileToolsRejectSiteSourceRelativePathBeforeTmpResolution(t *testing.T) {
 	workspacePath := t.TempDir()
 	toolCatalogBuilder := newFileToolTestCatalogBuilder(workspacePath)
