@@ -424,6 +424,10 @@ async function repairInvalidToolCall({ inputSchema, error, ...repairRequest }: T
 
 async function repairToolCall(repairRequest: ToolRepairRequest): Promise<LanguageModelV3ToolCall | null> {
   throwIfAborted(repairRequest.abortSignal);
+  const repairTimeoutSignal = AbortSignal.timeout(defaultStreamIdleTimeoutMs);
+  const repairAbortSignal = repairRequest.abortSignal
+    ? AbortSignal.any([repairRequest.abortSignal, repairTimeoutSignal])
+    : repairTimeoutSignal;
   try {
     const result = await generateText({
       model: repairRequest.route.languageModel,
@@ -433,7 +437,7 @@ async function repairToolCall(repairRequest: ToolRepairRequest): Promise<Languag
       toolChoice: { type: 'tool', toolName: repairRequest.toolName },
       maxOutputTokens: repairRequest.generationOptions?.maxTokens,
       maxRetries: 0,
-      abortSignal: repairRequest.abortSignal,
+      abortSignal: repairAbortSignal,
       seed: repairRequest.generationOptions?.seed,
       temperature: repairRequest.generationOptions?.temperature,
     });

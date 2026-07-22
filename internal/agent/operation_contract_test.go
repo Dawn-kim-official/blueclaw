@@ -409,20 +409,17 @@ func TestOperationContractSchemaValidatesToolSpecificValuesAndRepeatedOperations
 		t.Fatalf("expected repeated typed operations to pass: %v", errorValue)
 	}
 
-	invalidDocuments := []map[string]any{
-		{"operations": []any{
-			map[string]any{"toolName": "task.add", "requiredValues": map[string]any{"startTime": "2026-07-24T09:00:00+09:00"}},
-			map[string]any{"toolName": "calendar.add", "requiredValues": map[string]any{}},
-		}},
-		{"operations": []any{
-			map[string]any{"toolName": "task.add", "requiredValues": map[string]any{"size": "XL"}},
-			map[string]any{"toolName": "calendar.add", "requiredValues": map[string]any{}},
-		}},
+	unknownToolDocument := map[string]any{"operations": []any{
+		map[string]any{"toolName": "message.send", "requiredValues": map[string]any{}},
+	}}
+	if errorValue := resolvedSchema.Validate(unknownToolDocument); errorValue == nil {
+		t.Fatalf("expected an unknown tool name to fail schema validation: %+v", unknownToolDocument)
 	}
-	for _, document := range invalidDocuments {
-		if errorValue := resolvedSchema.Validate(document); errorValue == nil {
-			t.Fatalf("expected tool-specific schema validation to fail: %+v", document)
-		}
+	if strings.Contains(operationContractSchema([]operationDescriptorDocument{
+		operationContractSchemaTestDescriptor("task.add", json.RawMessage(`{"type":"object","properties":{"title":{"type":"string"}},"additionalProperties":false}`)),
+		operationContractSchemaTestDescriptor("calendar.add", json.RawMessage(`{"type":"object","properties":{"startTime":{"type":"string"}},"additionalProperties":false}`)),
+	}), "oneOf") {
+		t.Fatal("expected the multi-descriptor operation schema to stay portable without oneOf")
 	}
 }
 
