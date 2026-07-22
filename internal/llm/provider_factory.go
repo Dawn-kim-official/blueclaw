@@ -110,10 +110,6 @@ func DefaultLLMDStructuredSchemaNames() []string {
 	}
 }
 
-func newCapabilityLLMClient(runtimeConfiguration config.RuntimeConfiguration) CapabilityLLMClient {
-	return NewCapabilityLLMClientForModel(runtimeConfiguration, capabilityModelName(runtimeConfiguration))
-}
-
 func NewCapabilityLLMClientForModel(runtimeConfiguration config.RuntimeConfiguration, modelName string) CapabilityLLMClient {
 	return CapabilityLLMClient{
 		CapabilityClient: capability.NewClient(capability.Configuration{
