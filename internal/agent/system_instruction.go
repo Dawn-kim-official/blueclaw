@@ -18,6 +18,9 @@ func buildAgentSystemInstruction(request AgentTurnRequest) string {
 	} else {
 		instruction += " This is an ordinary task: use checkpoint messages sparingly, only when the work is getting long or user-visible direction changed."
 	}
+	if taskLevelRequiresPlan(request.TaskLevel) {
+		instruction += " This task is classified as multi-step: before your first state-changing tool call, record your goal and step plan with plan.update, and keep step statuses current as you work; the plan is your own working list and revising it is normal."
+	}
 	instruction += " " + responseLanguageInstruction(request.ResponseLanguage)
 	instruction += " Tool-free final replies are valid when the request only needs a direct answer. Opinions, casual recommendations, brainstorming, and answers available from common knowledge or visible conversation context are direct answers: finish immediately without skill.search and without ask.input. Ask for a preference only when the user's requested result genuinely depends on that missing preference. Do not use terminal.run just because the prompt contains an unfamiliar short token or verification string. For public URL lookup, current facts, mail, calendar, tasks, site operations, and other domain capabilities, use skill.search when instructions are missing, then call the selected direct tool."
 	instruction += " The action schema contains the exact tools callable in this step. Call domain operations directly by name with their typed parameters. ask.input appears only when the typed outcome contract or a structured tool failure requires user input. Do not request hidden tools, wait for the palette to expand, or run a Blueclaw tool name as a shell command. The runtime injects requester identity, approval, and delivery — never pass requester identity in input."

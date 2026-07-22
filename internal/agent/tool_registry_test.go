@@ -219,8 +219,8 @@ func TestActionSchemaUsesRegisteredTaskListSchema(t *testing.T) {
 func TestActionSchemaDoesNotInferInputSchemaFromToolName(t *testing.T) {
 	actionSchema := buildActionSchemaFromToolDefinitions([]ToolDefinition{{Name: "task.add"}}, false, nil, false)
 
-	if strings.Contains(actionSchema, `"prompt"`) || strings.Contains(actionSchema, `"title"`) {
-		t.Fatalf("expected missing descriptor schema to remain empty, got %s", actionSchema)
+	if strings.Contains(actionSchema, `"task.add"`) || strings.Contains(actionSchema, `"prompt"`) {
+		t.Fatalf("expected the schema-less tool to stay out of the action schema, got %s", actionSchema)
 	}
 }
 

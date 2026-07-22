@@ -102,3 +102,7 @@ func taskLevelWantsProgressCheckpoints(taskLevel TaskLevel) bool {
 func taskLevelWantsSingleFinalReply(taskLevel TaskLevel) bool {
 	return NormalizeTaskLevel(string(taskLevel)) == TaskLevelXLow
 }
+
+func taskLevelRequiresPlan(taskLevel TaskLevel) bool {
+	return taskLevelRank(taskLevel) >= taskLevelRank(TaskLevelMedium)
+}
