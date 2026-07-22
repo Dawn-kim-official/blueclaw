@@ -413,7 +413,7 @@ func TestTaskIntakePlannerUsesStructuredModelDecision(t *testing.T) {
 	}
 }
 
-func TestIntakeToolDescriptionsKeepCallableToolsCompact(t *testing.T) {
+func TestIntakeToolDescriptionsCoverReachableTools(t *testing.T) {
 	toolRegistry := NewToolSet([]string{"file.deliver"})
 	for _, toolDefinition := range []ToolDefinition{
 		{Name: "calendar.add", Description: "Create a calendar event with a long operation description."},
@@ -427,14 +427,14 @@ func TestIntakeToolDescriptionsKeepCallableToolsCompact(t *testing.T) {
 
 	descriptions := intakeToolDescriptions(toolRegistry)
 
-	if !strings.Contains(descriptions, "Available tools:\n- file.deliver: Deliver a file to the requester.") {
-		t.Fatalf("expected descriptions only for directly callable tools, got %q", descriptions)
+	if !strings.Contains(descriptions, "- file.deliver: Deliver a file to the requester.") {
+		t.Fatalf("expected the callable tool description, got %q", descriptions)
 	}
 	if strings.Contains(descriptions, "Registered requiredEvidence names") {
 		t.Fatalf("expected no completion-evidence name listing, got %q", descriptions)
 	}
-	if strings.Contains(descriptions, "calendar.add") {
-		t.Fatalf("expected the non-callable capability operation to stay out of intake tool descriptions, got %q", descriptions)
+	if !strings.Contains(descriptions, "- calendar.add: Create a calendar event with a long operation description.") {
+		t.Fatalf("expected reachable capability operations to carry descriptions at intake, got %q", descriptions)
 	}
 }
 
