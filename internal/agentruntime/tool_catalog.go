@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"blueclaw/internal/access"
 	"blueclaw/internal/agent"
@@ -47,6 +48,9 @@ type ToolCatalogBuilder struct {
 	instructionBundleLoader      func() agent.InstructionBundle
 	mcpQuarantineReporter        func(agent.QuarantinedToolProvider)
 	capabilityQuarantineReporter func(agent.QuarantinedToolProvider)
+	liveSnapshotMutex            sync.Mutex
+	liveSnapshotDescriptors      []CapabilityToolDescriptor
+	liveSnapshotHash             string
 }
 
 type toolHandlerContext struct {

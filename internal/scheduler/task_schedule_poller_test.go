@@ -419,11 +419,11 @@ func TestTaskSchedulePollerRejectsScheduledInteractionWithoutWaiting(t *testing.
 	if repository.succeeded != nil {
 		t.Fatalf("expected interactive scheduled task not to advance, got %+v", repository.succeeded)
 	}
-	if len(repository.expired) != 1 || strings.Contains(repository.expired[0].LastError, "waiting_approval") {
-		t.Fatalf("expected scheduled interaction to expire without waiting for approval, got expired=%+v failed=%+v", repository.expired, repository.failed)
+	if len(repository.failed) != 1 {
+		t.Fatalf("expected scheduled interaction to retry with backoff instead of waiting, got expired=%+v failed=%+v", repository.expired, repository.failed)
 	}
-	if len(repository.failed) != 0 {
-		t.Fatalf("expected terminal scheduled interaction not to retry, got %+v", repository.failed)
+	if len(repository.expired) != 0 {
+		t.Fatalf("expected the schedule to survive a single blocked run, got %+v", repository.expired)
 	}
 }
 
@@ -474,11 +474,11 @@ func TestTaskSchedulePollerDoesNotDeliverFailedTaskReply(t *testing.T) {
 	if len(deliveryRepository.replies) != 0 {
 		t.Fatalf("expected no failed task reply, got %+v", deliveryRepository.replies)
 	}
-	if len(repository.expired) != 1 || !strings.Contains(repository.expired[0].LastError, "failed") {
-		t.Fatalf("expected failed task status to expire schedule, got expired=%+v failed=%+v", repository.expired, repository.failed)
+	if len(repository.failed) != 1 || !strings.Contains(repository.failed[0], "failed") {
+		t.Fatalf("expected failed task status to retry with backoff, got expired=%+v failed=%+v", repository.expired, repository.failed)
 	}
-	if len(repository.failed) != 0 {
-		t.Fatalf("expected terminal task failure not to retry, got %+v", repository.failed)
+	if len(repository.expired) != 0 {
+		t.Fatalf("expected transient task failure not to expire the schedule, got %+v", repository.expired)
 	}
 }
 
@@ -734,4 +734,16 @@ func (languageModel staticPollerLanguageModel) GenerateStructuredResponse(_ cont
 		return llm.StructuredResponse{Content: languageModel.content}, nil
 	}
 	return llm.StructuredResponse{Content: `{"action":"finish","message":"` + languageModel.content + `","replyParts":[{"type":"text","text":"` + languageModel.content + `"}],"goalStatus":"satisfied","goalSatisfied":true,"completionEvidence":[],"qualityReview":[]}`}, nil
+}
+
+func TestRecordTaskScheduleFailureExpiresAfterRepeatedFailures(t *testing.T) {
+	taskSchedule := waitingTaskSchedule(time.Now().UTC())
+	taskSchedule.FailureCount = maxTaskScheduleFailureCount - 1
+	if !taskScheduleFailureIsTerminal(taskSchedule, errors.New("transient"), time.Now()) {
+		t.Fatal("expected the failure cap to expire the schedule")
+	}
+	taskSchedule.FailureCount = 0
+	if taskScheduleFailureIsTerminal(taskSchedule, errors.New("transient"), time.Now()) {
+		t.Fatal("expected a first transient failure to stay retryable")
+	}
 }
