@@ -200,6 +200,26 @@ func (languageModel *ScriptedLanguageModel) EnqueueStructuredResponses(schemaNam
 	languageModel.structuredResponsesBySchema[trimmedSchemaName] = append(languageModel.structuredResponsesBySchema[trimmedSchemaName], responses...)
 }
 
+func (languageModel *ScriptedLanguageModel) PendingResponseCounts() map[string]int {
+	languageModel.mutex.Lock()
+	defer languageModel.mutex.Unlock()
+	pendingCounts := map[string]int{}
+	if len(languageModel.actionResponses) > 0 {
+		pendingCounts["blueclaw_agent_turn_action"] = len(languageModel.actionResponses)
+	}
+	for schemaName, responses := range languageModel.structuredResponsesBySchema {
+		if len(responses) > 0 {
+			pendingCounts[schemaName] += len(responses)
+		}
+	}
+	for schemaName, responses := range languageModel.chatResponsesBySchema {
+		if len(responses) > 0 {
+			pendingCounts[schemaName] += len(responses)
+		}
+	}
+	return pendingCounts
+}
+
 func (languageModel *ScriptedLanguageModel) RequestCount() int {
 	languageModel.mutex.Lock()
 	defer languageModel.mutex.Unlock()
@@ -383,11 +403,9 @@ func copyResponseQueues(responseQueues map[string][]string) map[string][]string 
 
 func mergeDefaultResponses(defaultResponses map[string]string) map[string]string {
 	mergedResponses := map[string]string{
-		"blueclaw_skill_search_queries":        `{"queries":[]}`,
-		"blueclaw_turn_router":                 `{"route":"start_task","classification":"bounded_task","taskShape":"maintenance_task","level":"low","estimatedMinutes":1,"requestedOutputFormats":null,"responseLanguage":"ko","reason":"scripted test default","userFacingReply":""}`,
-		"blueclaw_execution_plan":              `{"originalInstruction":"scripted test request","summary":"scripted test request","targets":[],"schedule":"","startAt":"","endAt":"","cadence":"","externalSend":false,"thirdPartyExternalSend":false,"repeated":false,"highFrequency":false,"destructive":false,"permissionChange":false,"publicDeploy":false,"paidAction":false,"missingInformation":[],"continuationInstruction":"scripted test request"}`,
-		"blueclaw_confirmation_message":        `{"reply":"확인했습니다. 승인하면 진행하겠습니다."}`,
-		"blueclaw_confirmation_reply_decision": `{"decision":"approved","reason":"scripted test default approval"}`,
+		"blueclaw_skill_search_queries": `{"queries":[]}`,
+		"blueclaw_execution_plan":       `{"originalInstruction":"scripted test request","summary":"scripted test request","targets":[],"schedule":"","startAt":"","endAt":"","cadence":"","externalSend":false,"thirdPartyExternalSend":false,"repeated":false,"highFrequency":false,"destructive":false,"permissionChange":false,"publicDeploy":false,"paidAction":false,"missingInformation":[],"continuationInstruction":"scripted test request"}`,
+		"blueclaw_confirmation_message": `{"reply":"확인했습니다. 승인하면 진행하겠습니다."}`,
 	}
 	for schemaName, response := range defaultResponses {
 		mergedResponses[strings.TrimSpace(schemaName)] = response
