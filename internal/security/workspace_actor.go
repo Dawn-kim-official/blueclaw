@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"sync"
 	"time"
 
 	"blueclaw/internal/config"
@@ -135,8 +136,21 @@ type helperCapabilities struct {
 	Capabilities []string `json:"capabilities"`
 }
 
+var verifiedHelperFSSupportByPath sync.Map
+
 func ensureHelperSupportsFS(ctx context.Context, helperPath string, actorUser string) error {
-	executionContext, cancelFunction := context.WithTimeout(ctx, 5*time.Second)
+	if _, isVerified := verifiedHelperFSSupportByPath.Load(helperPath); isVerified {
+		return nil
+	}
+	if errorValue := probeHelperSupportsFS(ctx, helperPath, actorUser); errorValue != nil {
+		return errorValue
+	}
+	verifiedHelperFSSupportByPath.Store(helperPath, true)
+	return nil
+}
+
+func probeHelperSupportsFS(ctx context.Context, helperPath string, actorUser string) error {
+	executionContext, cancelFunction := context.WithTimeout(ctx, 15*time.Second)
 	defer cancelFunction()
 	command := exec.CommandContext(executionContext, helperPath, "capabilities")
 	output, errorValue := command.CombinedOutput()
