@@ -256,6 +256,7 @@ func TestPinnedDirectToolWinsSelectedSkillBudget(t *testing.T) {
 		"site.create", "site.preview", "artifact.review", "site.publish",
 		"site.status", "site.history", "site.diff", "site.logs",
 		"site.rollback", "site.unpublish", "site.restore", "site.delete",
+		"site.metrics", "site.backup", "site.scan", "site.verify", "site.export",
 		"file.read", "file.write", "file.edit", "terminal.run",
 	}
 	toolSet := testToolSet(append(KernelToolNames(), selectedToolNames...))
@@ -323,12 +324,13 @@ func TestPendingRequiredToolWinsExtensionToolBudget(t *testing.T) {
 	selectedToolNames := []string{
 		"tool.01", "tool.02", "tool.03", "tool.04", "tool.05",
 		"tool.06", "tool.07", "tool.08", "tool.09", "tool.10", "tool.11",
+		"tool.12", "tool.13", "tool.14", "tool.15", "tool.16",
 	}
 	toolSet := testToolSet(append(KernelToolNames(), selectedToolNames...))
 	instructionBundle := InstructionBundle{
 		Skills:            []SkillInstruction{{Name: "extension", ToolReferences: selectedToolNames}},
 		SkillDecisions:    []SkillSelectionDecision{{Name: "extension", Status: "selected"}},
-		RequiredNextTools: []string{"tool.11"},
+		RequiredNextTools: []string{"tool.16"},
 	}
 
 	filteredToolSet, _ := toolSetForAgentTurnWithExposure(
@@ -341,10 +343,10 @@ func TestPendingRequiredToolWinsExtensionToolBudget(t *testing.T) {
 		ToolExposureEvent{},
 	)
 
-	if !filteredToolSet.IsAllowed("tool.11") {
+	if !filteredToolSet.IsAllowed("tool.16") {
 		t.Fatalf("expected pending operation inside budget, got %+v", filteredToolSet.ListToolNames())
 	}
-	if filteredToolSet.IsAllowed("tool.10") {
+	if filteredToolSet.IsAllowed("tool.15") {
 		t.Fatalf("expected a non-pending extension to leave the budget, got %+v", filteredToolSet.ListToolNames())
 	}
 }
