@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"time"
 
@@ -24,6 +25,8 @@ type llmCallRecord struct {
 	LatencyMS              int64                                  `json:"latencyMs"`
 	PromptBytes            int                                    `json:"promptBytes"`
 	SchemaBytes            int                                    `json:"schemaBytes,omitempty"`
+	ToolCount              int                                    `json:"toolCount,omitempty"`
+	ToolBytes              int                                    `json:"toolBytes,omitempty"`
 	ContentBytes           int                                    `json:"contentBytes"`
 	UsedFallback           bool                                   `json:"usedFallback,omitempty"`
 	FallbackReason         string                                 `json:"fallbackReason,omitempty"`
@@ -279,6 +282,8 @@ func chatCallRecord(kind string, request llm.ChatCompletionRequest, response llm
 		FinishReason:          response.FinishReason,
 		LatencyMS:             time.Since(startedAt).Milliseconds(),
 		PromptBytes:           chatRequestByteCount(request),
+		ToolCount:             len(request.Tools),
+		ToolBytes:             chatRequestToolByteCount(request),
 		ContentBytes:          len(response.Message.Content),
 		UsedFallback:          response.UsedFallback,
 		FallbackReason:        truncateText(compactWhitespace(response.FallbackReason), llmCallErrorMaximumCharacters),
@@ -305,6 +310,18 @@ func chatRequestByteCount(request llm.ChatCompletionRequest) int {
 	byteCount := 0
 	for _, message := range request.Messages {
 		byteCount += len(message.Content)
+	}
+	return byteCount
+}
+
+func chatRequestToolByteCount(request llm.ChatCompletionRequest) int {
+	byteCount := 0
+	for _, tool := range request.Tools {
+		document, errorValue := json.Marshal(tool)
+		if errorValue != nil {
+			continue
+		}
+		byteCount += len(document)
 	}
 	return byteCount
 }
