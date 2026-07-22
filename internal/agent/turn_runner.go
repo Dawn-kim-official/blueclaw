@@ -1079,8 +1079,41 @@ func (agentTurnRunner *AgentTurnRunner) stepBudgetContext(state agentTaskState) 
 func requestWithStepWorkingSetTools(request AgentTurnRequest, observations []turnObservation) AgentTurnRequest {
 	request.PinnedToolNames = appendUniqueStrings(request.PinnedToolNames, pendingFileDeliveryToolNames(request, observations)...)
 	request.PinnedToolNames = appendUniqueStrings(request.PinnedToolNames, observedSuggestedNextToolNames(observations)...)
-	request.PinnedToolNames = appendUniqueStrings(request.PinnedToolNames, requestedToolNamesFromObservations(observations)...)
+	requestedToolNames := requestedToolNamesFromObservations(observations)
+	request.PinnedToolNames = appendUniqueStrings(request.PinnedToolNames, requestedToolNames...)
+	request.SkillDecisions = withOwningSkillDecisions(request.SkillDecisions, request.AvailableSkills, requestedToolNames)
 	return request
+}
+
+func withOwningSkillDecisions(decisions []SkillSelectionDecision, availableSkills []SkillInstruction, requestedToolNames []string) []SkillSelectionDecision {
+	if len(requestedToolNames) == 0 {
+		return decisions
+	}
+	selectedSkillNames := map[string]bool{}
+	for _, decision := range decisions {
+		if decision.Status == "selected" {
+			selectedSkillNames[decision.Name] = true
+		}
+	}
+	amendedDecisions := append([]SkillSelectionDecision{}, decisions...)
+	for _, skillInstruction := range availableSkills {
+		if selectedSkillNames[skillInstruction.Name] {
+			continue
+		}
+		for _, toolName := range SkillToolNames(skillInstruction) {
+			if !stringSliceContains(requestedToolNames, toolName) {
+				continue
+			}
+			amendedDecisions = append(amendedDecisions, SkillSelectionDecision{
+				Name:   skillInstruction.Name,
+				Status: "selected",
+				Reason: "owns requested tool " + toolName,
+			})
+			selectedSkillNames[skillInstruction.Name] = true
+			break
+		}
+	}
+	return amendedDecisions
 }
 
 func requestedToolNamesFromObservations(observations []turnObservation) []string {

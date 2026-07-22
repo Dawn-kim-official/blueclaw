@@ -462,3 +462,28 @@ func TestAdditionalToolsContextListsPageWithSummaries(t *testing.T) {
 		t.Fatalf("expected overflow page note, got %s", rendered)
 	}
 }
+
+func TestRequestedToolsAttachOwningSkillInstructions(t *testing.T) {
+	calendarSkill := SkillInstruction{Name: "calendar", ToolReferences: []string{"calendar.add", "calendar.update"}}
+	request := AgentTurnRequest{
+		AvailableSkills: []SkillInstruction{calendarSkill},
+		SkillDecisions:  []SkillSelectionDecision{{Name: "internkim-flow", Status: "selected"}},
+	}
+	observation := newContentObservation("obs-001", "continue", RequestToolsToolName, "")
+	observation.Output = ToolOutput{Data: json.RawMessage(`{"requestedToolNames":["calendar.update"]}`)}
+
+	amendedRequest := requestWithStepWorkingSetTools(request, []turnObservation{observation})
+
+	hasCalendarDecision := false
+	for _, decision := range amendedRequest.SkillDecisions {
+		if decision.Name == "calendar" && decision.Status == "selected" {
+			hasCalendarDecision = true
+		}
+	}
+	if !hasCalendarDecision {
+		t.Fatalf("expected the owning skill to be selected for its requested tool, got %+v", amendedRequest.SkillDecisions)
+	}
+	if len(request.SkillDecisions) != 1 {
+		t.Fatalf("expected the caller's decisions to stay untouched, got %+v", request.SkillDecisions)
+	}
+}
