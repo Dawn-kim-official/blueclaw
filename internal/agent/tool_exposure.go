@@ -5,7 +5,7 @@ import (
 	"strings"
 )
 
-const maxExtensionCallableToolCount = 10
+const maxExtensionCallableToolCount = 15
 
 type toolExposureGroup struct {
 	Name    string
