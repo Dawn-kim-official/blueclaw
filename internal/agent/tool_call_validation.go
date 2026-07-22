@@ -221,15 +221,22 @@ func repeatedFileReadObservation(observations []turnObservation, actionDocument 
 }
 
 func hasNewerFileMutationObservation(observations []turnObservation, path string) bool {
+	normalizedPath := tildeInsensitivePath(path)
 	for _, observation := range observations {
 		if observation.Failed() || !isFileMutationTool(observation.Tool) {
 			continue
 		}
-		if observationOutputPath(observation) == path {
-			return true
+		for _, mutatedPath := range observationMutatedPaths(observation) {
+			if tildeInsensitivePath(mutatedPath) == normalizedPath {
+				return true
+			}
 		}
 	}
 	return false
+}
+
+func tildeInsensitivePath(path string) string {
+	return strings.TrimPrefix(strings.TrimSpace(path), "~/")
 }
 
 func isFileMutationTool(toolName string) bool {
@@ -241,12 +248,25 @@ func isFileMutationTool(toolName string) bool {
 	}
 }
 
-func observationOutputPath(observation turnObservation) string {
+func observationMutatedPaths(observation turnObservation) []string {
 	payload := map[string]any{}
 	if json.Unmarshal([]byte(observation.ContentText()), &payload) != nil {
-		return ""
+		return nil
 	}
-	return strings.TrimSpace(stringField(payload, "path"))
+	paths := []string{}
+	if path := strings.TrimSpace(stringField(payload, "path")); path != "" {
+		paths = append(paths, path)
+	}
+	editedFiles, isList := payload["editedFiles"].([]any)
+	if !isList {
+		return paths
+	}
+	for _, editedFile := range editedFiles {
+		if path, isString := editedFile.(string); isString && strings.TrimSpace(path) != "" {
+			paths = append(paths, strings.TrimSpace(path))
+		}
+	}
+	return paths
 }
 
 func stalledReadRecoveryDirective(observations []turnObservation) string {

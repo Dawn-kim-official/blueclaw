@@ -172,8 +172,8 @@ func tokenListContainsSiteBuildOutput(tokens []string) bool {
 }
 
 func observationPath(observation turnObservation) string {
-	if path := observationOutputPath(observation); path != "" {
-		return path
+	if paths := observationMutatedPaths(observation); len(paths) > 0 {
+		return paths[0]
 	}
 	var payload map[string]any
 	_, canonicalInput, found := strings.Cut(observation.ToolInputKey, "\x00")

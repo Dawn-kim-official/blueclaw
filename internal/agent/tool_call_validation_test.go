@@ -731,6 +731,61 @@ func TestRepeatedFileReadObservationIgnoresCacheAfterFileWrite(t *testing.T) {
 	}
 }
 
+func TestRepeatedFileReadObservationIgnoresCacheAfterFileEdit(t *testing.T) {
+	path := "~/sites/site-1/draft/DESIGN.md"
+	observations := []turnObservation{
+		{
+			ObservationID: "obs-001",
+			Action:        "continue",
+			Tool:          FileReadToolName,
+			Output:        ToolOutput{Content: `{"path":"` + path + `","content":"TODO(design)","startLine":1,"endLine":20,"totalLines":20,"sizeBytes":1000}`},
+		},
+		{
+			ObservationID: "obs-002",
+			Action:        "continue",
+			Tool:          FileEditToolName,
+			Output:        ToolOutput{Content: `{"editCount":1,"editedFiles":["` + path + `"]}`},
+		},
+	}
+	actionDocument := turnActionDocument{
+		ToolName:  FileReadToolName,
+		ToolInput: json.RawMessage(`{"path":"` + path + `","startLine":1,"lineCount":20}`),
+	}
+
+	_, isRepeated := repeatedFileReadObservation(observations, actionDocument, "obs-003")
+
+	if isRepeated {
+		t.Fatal("expected file.read cache to be ignored after a newer file.edit")
+	}
+}
+
+func TestRepeatedFileReadObservationMatchesMutationPathAcrossTildeSpelling(t *testing.T) {
+	observations := []turnObservation{
+		{
+			ObservationID: "obs-001",
+			Action:        "continue",
+			Tool:          FileReadToolName,
+			Output:        ToolOutput{Content: `{"path":"~/documents/report.md","content":"old","startLine":1,"endLine":20,"totalLines":20,"sizeBytes":1000}`},
+		},
+		{
+			ObservationID: "obs-002",
+			Action:        "continue",
+			Tool:          FileWriteToolName,
+			Output:        ToolOutput{Content: `{"path":"documents/report.md","sizeBytes":1200}`},
+		},
+	}
+	actionDocument := turnActionDocument{
+		ToolName:  FileReadToolName,
+		ToolInput: json.RawMessage(`{"path":"~/documents/report.md","startLine":1,"lineCount":20}`),
+	}
+
+	_, isRepeated := repeatedFileReadObservation(observations, actionDocument, "obs-003")
+
+	if isRepeated {
+		t.Fatal("expected the bare mutation path to invalidate the tilde read cache")
+	}
+}
+
 func TestAgentTurnRunnerRejectsRepeatedScheduleCreateWithoutExecutingAgain(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		`{"action":"continue","toolName":"schedule.create","toolInput":{"taskInstruction":"현재 대화에 \"죄송합니다\"라고 보낸다.","kind":"interval","intervalSecond":60,"maxRunCount":10,"repeatPolicy":"finite","timeZone":"Asia/Seoul"}}`,
