@@ -770,6 +770,10 @@ func (toolCatalogBuilder *ToolCatalogBuilder) filePreviewFallbackPath(toolContex
 		result := agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "file_preview", "attachment material is an image; use image.read")
 		return "", &result, true
 	}
+	if previewResult, hasPreview := filePreviewResultFromVisibleMaterial(resolvedMaterial); hasPreview {
+		result := fileToolSuccess(previewResult)
+		return "", &result, true
+	}
 	return resolvedMaterial.Path, nil, true
 }
 
