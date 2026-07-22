@@ -27,3 +27,19 @@ func TestSkillSearchDegradesToBM25WhenEmbeddingBlocks(t *testing.T) {
 		t.Fatalf("expected BM25 degradation when embedding blocks, got %+v", result)
 	}
 }
+
+func TestSkillSearchDegradesToBM25WhenIndexLockIsHeld(t *testing.T) {
+	skillRetriever := NewEmbeddingSkillRetriever(blockingEmbeddingProvider{}, t.TempDir())
+	skillRetriever.mutex.Lock()
+	defer skillRetriever.mutex.Unlock()
+	searchContext, cancelSearch := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	defer cancelSearch()
+	startedAt := time.Now()
+	result := skillRetriever.Search(searchContext, AgentRequest{Prompt: "메모를 남겨줘"}, []SkillInstruction{{Name: "mattermost", Description: "메시지"}}, SkillSearchQuerySet{}, 3)
+	if result.RetrievalMode != "bm25_fallback" {
+		t.Fatalf("expected bm25 fallback while the lock is held, got %+v", result)
+	}
+	if time.Since(startedAt) > 5*time.Second {
+		t.Fatalf("expected fast fallback, took %s", time.Since(startedAt))
+	}
+}
