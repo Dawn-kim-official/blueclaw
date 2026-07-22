@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"math"
 	"os"
 	"path/filepath"
@@ -130,7 +131,9 @@ func (skillRetriever *EmbeddingSkillRetriever) Refresh(ctx context.Context, skil
 }
 
 func (skillRetriever *EmbeddingSkillRetriever) refresh(ctx context.Context, skillInstructions []SkillInstruction) error {
-	skillRetriever.mutex.Lock()
+	if !skillRetriever.lockBeforeDeadline(ctx) {
+		return errors.New("skill index refresh is already holding the lock")
+	}
 	defer skillRetriever.mutex.Unlock()
 	if !skillRetriever.isLoaded {
 		skillRetriever.documents = skillRetriever.readIndex()
@@ -165,6 +168,19 @@ func (skillRetriever *EmbeddingSkillRetriever) refresh(ctx context.Context, skil
 	}
 	skillRetriever.documents = nextDocuments
 	return skillRetriever.writeIndex(nextDocuments)
+}
+
+func (skillRetriever *EmbeddingSkillRetriever) lockBeforeDeadline(ctx context.Context) bool {
+	for {
+		if skillRetriever.mutex.TryLock() {
+			return true
+		}
+		select {
+		case <-ctx.Done():
+			return false
+		case <-time.After(50 * time.Millisecond):
+		}
+	}
 }
 
 func (skillRetriever *EmbeddingSkillRetriever) queryEmbeddings(ctx context.Context, querySet SkillSearchQuerySet) [][]float32 {
