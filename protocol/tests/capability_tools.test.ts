@@ -622,9 +622,11 @@ describe('canonical capability tools', () => {
       status: SiteLifecycleStatus.Draft,
       sourceWorkspacePath: '/workspace/circles/staff/sites/customer-support-quarterly/draft',
       appWorkspacePath: '/workspace/circles/staff/sites/customer-support-quarterly/draft/app',
+      sourceFiles: [{ path: 'app/public/site-content.json', content: '{}' }],
     };
+    const { sourceFiles: _createSourceFiles, ...statusBase } = createResult;
     const statusResult = {
-      ...createResult,
+      ...statusBase,
       workspaceHealth: 'healthy',
     };
     const previewResult = {
