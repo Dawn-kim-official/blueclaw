@@ -76,7 +76,7 @@ func TestWorkspacePathResolverExpandsHomeTildeToRequesterPrivateRoot(t *testing.
 	if resolvedPath.ConcretePath != expectedConcretePath {
 		t.Fatalf("unexpected concrete path: %+v", resolvedPath)
 	}
-	if resolvedPath.VirtualPath != "documents/회의록.md" {
+	if resolvedPath.VirtualPath != "~/documents/회의록.md" {
 		t.Fatalf("unexpected virtual path: %+v", resolvedPath)
 	}
 	homeRoot, errorValue := resolver.Resolve("~", scope)
