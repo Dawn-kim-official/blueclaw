@@ -228,9 +228,17 @@ func (toolCatalogBuilder *ToolCatalogBuilder) writeFileTool(toolContext context.
 		return actorToolFailure("write_file", "file_write", resolvedPath.VirtualPath, errorValue), nil
 	}
 	return fileToolSuccess(map[string]any{
-		"path":      resolvedPath.VirtualPath,
-		"sizeBytes": len(input.Content),
+		"path":         resolvedPath.VirtualPath,
+		"terminalPath": terminalPathForResolvedPath(resolvedPath),
+		"sizeBytes":    len(input.Content),
 	}), nil
+}
+
+func terminalPathForResolvedPath(resolvedPath workspacepath.Path) string {
+	if strings.HasPrefix(resolvedPath.ConcretePath, "/workspace/") {
+		return resolvedPath.ConcretePath
+	}
+	return "~/" + strings.TrimPrefix(resolvedPath.VirtualPath, "~/")
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) deleteFileTool(toolContext context.Context, input fileDeleteToolInput, handlerContext toolHandlerContext) (agent.ToolResult, error) {
