@@ -14,13 +14,47 @@ const terminalObservationTailMaxLines = 20
 const terminalObservationTailMaxCharacters = 2000
 
 type ExecutionState struct {
-	Goal           string   `json:"goal,omitempty"`
-	Workspace      string   `json:"workspace,omitempty"`
-	KnownFacts     []string `json:"knownFacts,omitempty"`
-	TriedAndFailed []string `json:"triedAndFailed,omitempty"`
-	CurrentBlocker string   `json:"currentBlocker,omitempty"`
-	NextPlan       string   `json:"nextPlan,omitempty"`
-	WasCompacted   bool     `json:"wasCompacted,omitempty"`
+	Goal           string     `json:"goal,omitempty"`
+	Workspace      string     `json:"workspace,omitempty"`
+	Steps          []PlanStep `json:"steps,omitempty"`
+	KnownFacts     []string   `json:"knownFacts,omitempty"`
+	TriedAndFailed []string   `json:"triedAndFailed,omitempty"`
+	CurrentBlocker string     `json:"currentBlocker,omitempty"`
+	NextPlan       string     `json:"nextPlan,omitempty"`
+	WasCompacted   bool       `json:"wasCompacted,omitempty"`
+}
+
+type PlanStep struct {
+	Title  string `json:"title"`
+	Status string `json:"status"`
+}
+
+const executionStateMaxPlanSteps = 12
+
+var planStepStatuses = map[string]bool{
+	"pending":     true,
+	"in_progress": true,
+	"done":        true,
+	"skipped":     true,
+}
+
+func normalizePlanSteps(steps []PlanStep) []PlanStep {
+	normalizedSteps := []PlanStep{}
+	for _, step := range steps {
+		title := truncateText(compactWhitespace(step.Title), 200)
+		status := strings.TrimSpace(step.Status)
+		if title == "" {
+			continue
+		}
+		if !planStepStatuses[status] {
+			status = "pending"
+		}
+		normalizedSteps = append(normalizedSteps, PlanStep{Title: title, Status: status})
+		if len(normalizedSteps) >= executionStateMaxPlanSteps {
+			break
+		}
+	}
+	return normalizedSteps
 }
 
 type TerminalObservationTail struct {
@@ -55,6 +89,7 @@ func normalizeExecutionState(state ExecutionState) ExecutionState {
 	state.Workspace = truncateText(compactWhitespace(state.Workspace), 160)
 	state.CurrentBlocker = truncateText(compactWhitespace(state.CurrentBlocker), 400)
 	state.NextPlan = truncateText(compactWhitespace(state.NextPlan), 400)
+	state.Steps = normalizePlanSteps(state.Steps)
 	state.KnownFacts = normalizeExecutionStateList(state.KnownFacts, executionStateMaxKnownFacts)
 	state.TriedAndFailed = normalizeExecutionStateList(state.TriedAndFailed, executionStateMaxTriedAndFailed)
 	if executionStateLength(state) <= executionStateMaxCharacters {
@@ -104,6 +139,7 @@ func executionStateIsEmpty(state ExecutionState) bool {
 	state = normalizeExecutionState(state)
 	return state.Goal == "" &&
 		state.Workspace == "" &&
+		len(state.Steps) == 0 &&
 		len(state.KnownFacts) == 0 &&
 		len(state.TriedAndFailed) == 0 &&
 		state.CurrentBlocker == "" &&
@@ -264,6 +300,7 @@ func executionStateSchema() map[string]any {
 		"properties": map[string]any{
 			"goal":           stringSchema(),
 			"workspace":      stringSchema(),
+			"steps":          planStepArraySchema(),
 			"knownFacts":     stringArraySchema(executionStateMaxKnownFacts),
 			"triedAndFailed": stringArraySchema(executionStateMaxTriedAndFailed),
 			"currentBlocker": stringSchema(),
@@ -278,4 +315,19 @@ func stringArraySchema(maxItems int) map[string]any {
 		"items": stringSchema(),
 	}
 	return schema
+}
+
+func planStepArraySchema() map[string]any {
+	return map[string]any{
+		"type": "array",
+		"items": map[string]any{
+			"type":                 "object",
+			"additionalProperties": false,
+			"required":             []string{"title", "status"},
+			"properties": map[string]any{
+				"title":  stringSchema(),
+				"status": map[string]any{"type": "string", "enum": []string{"pending", "in_progress", "done", "skipped"}},
+			},
+		},
+	}
 }
