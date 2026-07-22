@@ -185,7 +185,7 @@ func observationPath(observation turnObservation) string {
 
 func pathLooksLikeSiteWorkspace(path string) bool {
 	normalizedPath := strings.TrimSpace(filepathSlash(path))
-	return strings.Contains(normalizedPath, "/sites/") || strings.HasPrefix(normalizedPath, "home/sites/")
+	return strings.Contains(normalizedPath, "/sites/")
 }
 
 func pathLooksLikeSiteAppWorkspace(path string) bool {

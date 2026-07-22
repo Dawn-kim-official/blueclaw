@@ -86,7 +86,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) removeSiteProjectAfterDelete(toolC
 	if json.Unmarshal(*result, &payload) != nil || !payload.Deleted || strings.TrimSpace(payload.SiteID) == "" {
 		return nil, nil
 	}
-	resolvedPath, errorValue := toolCatalogBuilder.resolveCapabilityWorkspacePath(request, "home/sites/"+strings.TrimSpace(payload.SiteID))
+	resolvedPath, errorValue := toolCatalogBuilder.resolveCapabilityWorkspacePath(request, "~/sites/"+strings.TrimSpace(payload.SiteID))
 	if errorValue != nil {
 		return nil, nil
 	}
