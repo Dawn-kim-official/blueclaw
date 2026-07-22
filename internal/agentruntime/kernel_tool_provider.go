@@ -333,6 +333,20 @@ var kernelToolDescriptorSpecs = []kernelToolDescriptorSpec{
 		},
 	},
 	{
+		Name:            agent.RequestToolsToolName,
+		Namespace:       "tools",
+		PrivacyClass:    "workspace",
+		Visibility:      agent.ToolVisibilityModel,
+		PolicyResource:  "tool:request_tools",
+		SideEffectClass: agent.ToolSideEffectNone,
+		CompletionMode:  agent.ToolCompletionNone,
+		Idempotency:     agent.ToolIdempotencyNone,
+		OutputSchema:    requestToolsResultSchema,
+		ResultContract: &agent.ToolResultContract{
+			Schema: requestToolsResultSchema,
+		},
+	},
+	{
 		Name:            agent.ConversationHistoryToolName,
 		Namespace:       "conversation",
 		PrivacyClass:    "conversation",
@@ -477,6 +491,7 @@ func newKernelToolProvider(toolCatalogBuilder *ToolCatalogBuilder, handlerContex
 	toolCatalogBuilder.registerFileTools(handlerToolSet, handlerContext)
 	toolCatalogBuilder.registerSkillSearchTool(handlerToolSet, handlerContext, availableToolSet)
 	toolCatalogBuilder.registerPlanUpdateTool(handlerToolSet)
+	toolCatalogBuilder.registerRequestToolsTool(handlerToolSet)
 	return kernelToolProvider{handlerToolSet: handlerToolSet}
 }
 

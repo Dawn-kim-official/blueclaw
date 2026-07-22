@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 )
 
@@ -410,5 +411,32 @@ func TestInterleaveToolNameListsKeepsEverySkillRepresented(t *testing.T) {
 		if interleaved[index] != toolName {
 			t.Fatalf("expected %v, got %v", expected, interleaved)
 		}
+	}
+}
+
+func TestRequestedToolNamesFromObservationsPinsSuccessfulRequests(t *testing.T) {
+	successful := newContentObservation("obs-001", "continue", RequestToolsToolName, "")
+	successful.Output = ToolOutput{Data: json.RawMessage(`{"requestedToolNames":["calendar.update","message.delete"]}`)}
+	failed := newContentObservation("obs-002", "continue", RequestToolsToolName, "")
+	failed.Output = ToolOutput{Data: json.RawMessage(`{"requestedToolNames":["task.delete"]}`)}
+	failed.Failure = &ToolFailure{Kind: FailureInvalidInput}
+
+	toolNames := requestedToolNamesFromObservations([]turnObservation{successful, failed})
+
+	if !sameStringSet(toolNames, []string{"calendar.update", "message.delete"}) {
+		t.Fatalf("expected only successful requests to pin, got %+v", toolNames)
+	}
+}
+
+func TestDroppedExposureToolNamesFlattenGroups(t *testing.T) {
+	exposure := ToolExposureEvent{DroppedGroups: []droppedToolGroup{
+		{Name: "selected skills", ToolIDs: []string{"calendar.update", "task.update"}},
+		{Name: "evidence alternatives", ToolIDs: []string{"task.update", "message.delete"}},
+	}}
+
+	toolNames := droppedExposureToolNames(exposure)
+
+	if !sameStringSet(toolNames, []string{"calendar.update", "task.update", "message.delete"}) {
+		t.Fatalf("expected flattened unique dropped names, got %+v", toolNames)
 	}
 }

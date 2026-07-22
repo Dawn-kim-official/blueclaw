@@ -34,6 +34,7 @@ func BuildInjectedContextMessages(input InjectedContextInput) []llm.Message {
 		TurnStartedAt:        input.TurnStartedAt,
 		InstructionPrompt:    input.InstructionPrompt,
 		ToolDescription:      input.ToolDescription,
+		AdditionalToolNames:  droppedExposureToolNames(input.RuntimeRequest.ToolExposure),
 		WorkspaceContext: WorkspaceContext{
 			RootPath:          input.RuntimeRequest.WorkspaceRootPath,
 			DefaultPath:       input.RuntimeRequest.WorkspaceDefaultPath,
