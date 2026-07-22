@@ -1392,7 +1392,7 @@ func TestFileDeliverNotFoundIncludesCandidateFiles(t *testing.T) {
 	if errorValue := json.Unmarshal(deliverResult.Output.Data, &failureData); errorValue != nil {
 		t.Fatalf("expected structured failure data, got error %v for %s", errorValue, string(deliverResult.Output.Data))
 	}
-	expectedCandidatePath := "documents/Han River Ops 2026 Q2 Operations Review.docx"
+	expectedCandidatePath := "~/documents/Han River Ops 2026 Q2 Operations Review.docx"
 	found := false
 	for _, candidatePath := range failureData.CandidateFiles {
 		if candidatePath == expectedCandidatePath {
