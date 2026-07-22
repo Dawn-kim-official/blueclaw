@@ -715,13 +715,13 @@ func canWaiveRequirementWithNoToolFallback(requirement toolUseRequirement, faile
 	return !requirement.RequiresSideEffectEvidence
 }
 
-func completionGateObservation(index int, result completionGateResult) turnObservation {
+func completionGateObservation(index int, result completionGateResult, priorObservations []turnObservation) turnObservation {
 	message := strings.TrimSpace(result.Message)
 	evidenceKind := strings.TrimSpace(result.EvidenceKind)
 	if evidenceKind == "" {
 		return newFailureObservation(nextObservationID(index), "policy", "", message, FailureInvalidInput, FailureCodes.InvalidInput, "completion_gate")
 	}
-	content := evidenceMissingGuidance(evidenceKind, message)
+	content := evidenceMissingGuidance(evidenceKind, message) + observedRealityStatement(priorObservations)
 	observation := newFailureObservation(nextObservationID(index), "evidence_missing", "", message, FailureInvalidInput, FailureCodes.InvalidInput, evidenceKind)
 	observation = withObservationContent(observation, content)
 	observation.Summary = content
@@ -730,6 +730,19 @@ func completionGateObservation(index int, result completionGateResult) turnObser
 	observation.Failure.Retryable = true
 	observation.Failure.SafeRetry = true
 	return observation
+}
+
+func observedRealityStatement(observations []turnObservation) string {
+	successfulToolCount := 0
+	for _, observation := range observations {
+		if !observation.Failed() && strings.TrimSpace(observation.Tool) != "" {
+			successfulToolCount++
+		}
+	}
+	if successfulToolCount > 0 {
+		return ""
+	}
+	return " Recorded reality: this task has ZERO successful tool observations, so nothing has been created or modified. Any completion claim is false. Your next action must be the required tool call, not finish."
 }
 
 func invalidValidityPaths(state ValidityState) []string {
