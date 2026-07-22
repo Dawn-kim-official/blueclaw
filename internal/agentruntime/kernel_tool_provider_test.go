@@ -108,6 +108,7 @@ func TestLocalKernelToolNamesExcludeCapabilityBackedImageReader(t *testing.T) {
 		agent.FileEditToolName,
 		agent.FilePreviewToolName,
 		agent.PlanUpdateToolName,
+		agent.RequestToolsToolName,
 		agent.ConversationHistoryToolName,
 	}
 	if len(agent.KernelToolNames()) != len(expectedKernelToolNames)+1 {

@@ -17,6 +17,7 @@ const (
 	ImageReadToolName           = "image.read"
 	ConversationHistoryToolName = "conversation.history"
 	PlanUpdateToolName          = "plan.update"
+	RequestToolsToolName        = "request_tools"
 )
 
 func KernelToolNames() []string {
@@ -32,6 +33,7 @@ func KernelToolNames() []string {
 		ImageReadToolName,
 		ConversationHistoryToolName,
 		PlanUpdateToolName,
+		RequestToolsToolName,
 	}
 }
 

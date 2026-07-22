@@ -465,7 +465,6 @@ func expectedResultRequiresNamedTool(result ExpectedResult, toolName string) boo
 	return false
 }
 
-
 func removeToolName(toolNames []string, removedToolName string) []string {
 	values := []string{}
 	for _, toolName := range toolNames {

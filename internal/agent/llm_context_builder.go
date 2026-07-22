@@ -21,6 +21,7 @@ type LLMContextInput struct {
 	TurnStartedAt         time.Time
 	InstructionPrompt     string
 	ToolDescription       string
+	AdditionalToolNames   []string
 	WorkspaceContext      WorkspaceContext
 	VisibleContext        VisibleContext
 	MemoryFacts           []memory.MemoryFact
@@ -68,6 +69,7 @@ func (builder LLMContextBuilder) Build(input LLMContextInput) string {
 		builder.companyContext(input),
 		buildInstructionContext(input.InstructionPrompt),
 		strings.TrimSpace(input.ToolDescription),
+		builder.additionalToolsContext(input),
 		builder.workspaceContext(input.WorkspaceContext),
 		builder.conversationContext(input.VisibleContext),
 		builder.taskContext(input),
@@ -86,6 +88,14 @@ func (builder LLMContextBuilder) Build(input LLMContextInput) string {
 		builder.attachmentContext(input.Attachments),
 		strings.Join(nonEmptyStrings(input.ExtraSections), "\n\n"),
 	}), "\n\n")
+}
+
+func (builder LLMContextBuilder) additionalToolsContext(input LLMContextInput) string {
+	toolNames := appendUniqueStrings(input.AdditionalToolNames)
+	if len(toolNames) == 0 {
+		return ""
+	}
+	return "Additional tools exist but are not loaded: " + strings.Join(toolNames, ", ") + ". When the task needs one of them, call request_tools with the exact names first; the loaded tools become callable on your next step."
 }
 
 func (builder LLMContextBuilder) requesterContext(input LLMContextInput) string {
