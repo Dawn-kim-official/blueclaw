@@ -48,6 +48,8 @@ type ToolRegistryAudit struct {
 	LiveHasPlatformMessageDelete      bool   `json:"liveHasPlatformMessageDelete,omitempty"`
 	LiveHasOldMattermostPostDelete    bool   `json:"liveHasOldMattermostPostDelete,omitempty"`
 	LiveHasOldPlatformDMInspect       bool   `json:"liveHasOldPlatformDMInspect,omitempty"`
+	LiveRegistryUnavailable           bool   `json:"liveRegistryUnavailable,omitempty"`
+	LiveRegistryServedFromCache       bool   `json:"liveRegistryServedFromCache,omitempty"`
 }
 
 type capabilityRegistryResponse struct {
@@ -109,7 +111,15 @@ func (toolCatalogBuilder *ToolCatalogBuilder) BuildToolRegistryAudit(ctx context
 
 	liveDescriptors, liveHash, errorValue := toolCatalogBuilder.liveCapabilityToolDescriptors(ctx)
 	if errorValue != nil {
-		return audit, fmt.Errorf("runtime_registry_mismatch: live capability registry unavailable: %w", errorValue)
+		cachedDescriptors, cachedHash, hasCachedSnapshot := toolCatalogBuilder.cachedLiveCapabilitySnapshot()
+		if !hasCachedSnapshot {
+			audit.LiveRegistryUnavailable = true
+			return audit, nil
+		}
+		liveDescriptors, liveHash = cachedDescriptors, cachedHash
+		audit.LiveRegistryServedFromCache = true
+	} else {
+		toolCatalogBuilder.storeLiveCapabilitySnapshot(liveDescriptors, liveHash)
 	}
 	liveNames := capabilityDescriptorNames(liveDescriptors)
 	audit.LiveCapabilityHash = liveHash
@@ -272,4 +282,20 @@ func registryContainsString(values []string, expected string) bool {
 		}
 	}
 	return false
+}
+
+func (toolCatalogBuilder *ToolCatalogBuilder) cachedLiveCapabilitySnapshot() ([]CapabilityToolDescriptor, string, bool) {
+	toolCatalogBuilder.liveSnapshotMutex.Lock()
+	defer toolCatalogBuilder.liveSnapshotMutex.Unlock()
+	if toolCatalogBuilder.liveSnapshotHash == "" {
+		return nil, "", false
+	}
+	return append([]CapabilityToolDescriptor{}, toolCatalogBuilder.liveSnapshotDescriptors...), toolCatalogBuilder.liveSnapshotHash, true
+}
+
+func (toolCatalogBuilder *ToolCatalogBuilder) storeLiveCapabilitySnapshot(descriptors []CapabilityToolDescriptor, hash string) {
+	toolCatalogBuilder.liveSnapshotMutex.Lock()
+	defer toolCatalogBuilder.liveSnapshotMutex.Unlock()
+	toolCatalogBuilder.liveSnapshotDescriptors = append([]CapabilityToolDescriptor{}, descriptors...)
+	toolCatalogBuilder.liveSnapshotHash = hash
 }
