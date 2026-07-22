@@ -32,16 +32,15 @@ type ActiveGoal struct {
 }
 
 type OutcomeContract struct {
-	RequiredEvidenceTools      []string           `json:"requiredEvidenceTools,omitempty"`
-	RequiredEvidenceAnyOf      [][]string         `json:"requiredEvidenceAnyOf,omitempty"`
-	RequiredAttachmentSuffixes []string           `json:"requiredAttachmentSuffixes,omitempty"`
-	RequiredEffects            []OutcomeEffect    `json:"requiredEffects,omitempty"`
-	ExpectedResults            []ExpectedResult   `json:"expectedResults,omitempty"`
-	ArtifactRequirement        string             `json:"artifactRequirement,omitempty"`
-	SelectedEvidenceHints      []string           `json:"selectedEvidenceHints,omitempty"`
-	Source                     string             `json:"source,omitempty"`
+	RequiredEvidenceTools      []string         `json:"requiredEvidenceTools,omitempty"`
+	RequiredEvidenceAnyOf      [][]string       `json:"requiredEvidenceAnyOf,omitempty"`
+	RequiredAttachmentSuffixes []string         `json:"requiredAttachmentSuffixes,omitempty"`
+	RequiredEffects            []OutcomeEffect  `json:"requiredEffects,omitempty"`
+	ExpectedResults            []ExpectedResult `json:"expectedResults,omitempty"`
+	ArtifactRequirement        string           `json:"artifactRequirement,omitempty"`
+	SelectedEvidenceHints      []string         `json:"selectedEvidenceHints,omitempty"`
+	Source                     string           `json:"source,omitempty"`
 }
-
 
 type OutcomeEffect struct {
 	ObjectType         string   `json:"objectType"`
@@ -143,7 +142,6 @@ func normalizePersistedOutcomeEffects(effects []OutcomeEffect) []OutcomeEffect {
 	return normalizedEffects
 }
 
-
 func activeGoalDescription(activeGoal ActiveGoal) string {
 	if strings.TrimSpace(activeGoal.GoalID) == "" &&
 		strings.TrimSpace(activeGoal.TaskRunID) == "" &&
@@ -173,8 +171,6 @@ func normalizeOutcomeContract(contract OutcomeContract) OutcomeContract {
 	contract.Source = strings.TrimSpace(contract.Source)
 	return contract
 }
-
-
 
 func normalizeOutcomeEffects(effects []OutcomeEffect) []OutcomeEffect {
 	normalizedEffects := []OutcomeEffect{}

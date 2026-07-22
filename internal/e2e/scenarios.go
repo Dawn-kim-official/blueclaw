@@ -1299,17 +1299,20 @@ func DirectMessageSendConfirmAcceptanceScenario(artifactDirectoryPath string) Vi
 			MissingInformation:      []string{},
 			ContinuationInstruction: "우경이에게 오늘 오후 3시에 확인하자는 DM을 보낸다",
 		},
-		ScriptedConfirmationReply: "우경이에게 ‘오늘 오후 3시에 확인하자’고 DM을 보낼까요?",
-		AllowedTools:              append(agent.KernelToolNames(), "message.send"),
-		InitialToolNames:          []string{"message.send"},
+		AllowedTools:     append(agent.KernelToolNames(), "message.send"),
+		InitialToolNames: []string{"message.send"},
 		CapabilityToolDescriptors: []agentruntime.CapabilityToolDescriptor{{
 			Name:             "message.send",
 			RequiresApproval: true,
 		}},
 		Turns: []VirtualTurn{{
 			Prompt: "우경이한테 DM으로 오늘 오후 3시에 확인하자고 보내줘",
+			ActionResponses: []string{
+				actionCallTool("message.send", `{"targetType":"directMessage","personHint":"우경","message":"오늘 오후 3시에 확인하자"}`),
+			},
 			ExpectedEventCounts: []VirtualEventCount{
 				{Name: "tool.message.send.requested", BodyFragment: `"targetType":"directMessage"`, Count: 0},
+				{Name: "approval.pending_call", BodyFragment: `"message.send"`, Count: 1},
 				{Name: "agent.failure_debt_created", BodyFragment: "", Count: 0},
 			},
 			ExpectedEvents:         []string{"confirmation.requested"},
@@ -1319,7 +1322,6 @@ func DirectMessageSendConfirmAcceptanceScenario(artifactDirectoryPath string) Vi
 			Prompt:         "확인",
 			RouterApproval: "approve",
 			ActionResponses: []string{
-				actionCallTool("message.send", `{"targetType":"directMessage","personHint":"우경","message":"오늘 오후 3시에 확인하자"}`),
 				actionFinishMessage("우경이에게 DM을 보냈습니다.", "obs-001:message.send:0"),
 			},
 			CompletionJudgeResponses: []string{completionJudgeSatisfiedResponse()},
@@ -1327,6 +1329,7 @@ func DirectMessageSendConfirmAcceptanceScenario(artifactDirectoryPath string) Vi
 			ExpectedEventCounts: []VirtualEventCount{
 				{Name: "tool.message.send.requested", BodyFragment: `"targetType":"directMessage"`, Count: 1},
 				{Name: "tool.message.send.result", BodyFragment: "virtual-platform-message-001", Count: 1},
+				{Name: "approval.executed", BodyFragment: `"message.send"`, Count: 1},
 			},
 			ExpectedEvents:         []string{"confirmation.reply_classified"},
 			ExpectedModelContexts:  []string{"virtual-platform-message-001"},
@@ -1349,21 +1352,26 @@ func ChannelPostAcceptanceScenario(artifactDirectoryPath string) VirtualSessionS
 			MissingInformation:      []string{},
 			ContinuationInstruction: "announcements 채널에 오늘 5시 전체 공지 회의를 게시한다",
 		},
-		ScriptedConfirmationReply: "announcements 채널에 오늘 5시 전체 공지 회의를 게시할까요?",
 		AllowedTools:              append(agent.KernelToolNames(), "message.send"),
 		CapabilityToolNames:       []string{"message.send"},
 		InitialToolNames:          []string{"message.send"},
 		CapabilityToolDescriptors: []agentruntime.CapabilityToolDescriptor{{Name: "message.send", RequiresApproval: true}},
 		Turns: []VirtualTurn{{
-			Prompt:                 "announcements 채널에 오늘 5시에 전체 공지 회의 있다고 올려줘",
+			Prompt: "announcements 채널에 오늘 5시에 전체 공지 회의 있다고 올려줘",
+			ActionResponses: []string{
+				actionCallTool("message.send", `{"targetType":"channel","channelName":"announcements","message":"오늘 5시에 전체 공지 회의가 있습니다."}`),
+			},
+			ExpectedEventCounts: []VirtualEventCount{
+				{Name: "tool.message.send.requested", BodyFragment: `"targetType":"channel"`, Count: 0},
+				{Name: "approval.pending_call", BodyFragment: `"message.send"`, Count: 1},
+			},
 			ExpectedEvents:         []string{"confirmation.requested"},
-			ExpectedReplyFragments: []string{"announcements", "게시"},
+			ExpectedReplyFragments: []string{"announcements", "오늘 5시"},
 			ExpectedTaskStatus:     task.TaskStatusWaitingApproval,
 		}, {
 			Prompt:         "확인",
 			RouterApproval: "approve",
 			ActionResponses: []string{
-				actionCallTool("message.send", `{"targetType":"channel","channelName":"announcements","message":"오늘 5시에 전체 공지 회의가 있습니다."}`),
 				actionFinishMessage("announcements 채널에 공지를 올렸습니다.", "obs-001:message.send:0"),
 			},
 			CompletionJudgeResponses: []string{completionJudgeSatisfiedResponse()},
@@ -1372,6 +1380,7 @@ func ChannelPostAcceptanceScenario(artifactDirectoryPath string) VirtualSessionS
 				{Name: "tool.message.send.requested", BodyFragment: `"targetType":"channel"`, Count: 1},
 				{Name: "tool.message.send.requested", BodyFragment: `"channelName":"announcements"`, Count: 1},
 				{Name: "tool.message.send.requested", BodyFragment: `"targetType":"directMessage"`, Count: 0},
+				{Name: "approval.executed", BodyFragment: `"message.send"`, Count: 1},
 			},
 			ExpectedReplyFragments: []string{"채널", "올렸습니다"},
 		}},

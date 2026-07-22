@@ -71,13 +71,12 @@ type VirtualSessionScenario struct {
 	RouterTaskLevel           string
 	CodingTierVisionFallback  bool
 	AddressingResponse        string
-	SkillSearchQueries        []string
-	RouterSiteEvidence        string
-	ScriptedExecutionPlan     *agent.ExecutionPlan
-	ScriptedConfirmationReply string
-	TurnOptions               agent.TurnOptions
-	ProgressWriter            io.Writer
-	Turns                     []VirtualTurn
+	SkillSearchQueries    []string
+	RouterSiteEvidence    string
+	ScriptedExecutionPlan *agent.ExecutionPlan
+	TurnOptions           agent.TurnOptions
+	ProgressWriter        io.Writer
+	Turns                 []VirtualTurn
 }
 
 type VirtualSiteFixture struct {
@@ -2527,11 +2526,6 @@ func scenarioDefaultResponses(scenario VirtualSessionScenario) map[string]string
 	if scenario.ScriptedExecutionPlan != nil {
 		if document, errorValue := json.Marshal(scenario.ScriptedExecutionPlan); errorValue == nil {
 			defaultResponses["blueclaw_execution_plan"] = string(document)
-		}
-	}
-	if reply := strings.TrimSpace(scenario.ScriptedConfirmationReply); reply != "" {
-		if document, errorValue := json.Marshal(map[string]string{"reply": reply}); errorValue == nil {
-			defaultResponses["blueclaw_confirmation_message"] = string(document)
 		}
 	}
 	if response := scenarioSkillSearchQueriesResponse(scenario.SkillSearchQueries); response != "" {

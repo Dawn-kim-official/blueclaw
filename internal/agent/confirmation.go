@@ -108,10 +108,6 @@ func EvaluateConfirmationPolicy(executionPlan ExecutionPlan) ConfirmationPolicyD
 	return ConfirmationPolicyDecision{}
 }
 
-func (agentKernel *AgentKernel) GenerateConfirmationMessage(responseContext context.Context, request AgentRequest, executionPlan ExecutionPlan, decision ConfirmationPolicyDecision) (string, error) {
-	return agentKernel.generateConfirmationUserMessage(responseContext, request, executionPlan, decision, "confirmation")
-}
-
 func (agentKernel *AgentKernel) GenerateClarificationMessage(responseContext context.Context, request AgentRequest, executionPlan ExecutionPlan, decision ConfirmationPolicyDecision) (string, error) {
 	return agentKernel.generateConfirmationUserMessage(responseContext, request, executionPlan, decision, "clarification")
 }
