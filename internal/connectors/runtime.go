@@ -2840,10 +2840,10 @@ func connectorReadableAttachmentPath(path string, personID string, scope agentru
 	prefix := "/workspace/private/people/" + connectorSafePathSegment(personID)
 	trimmedPath := strings.TrimSpace(path)
 	if trimmedPath == prefix {
-		return "home"
+		return "~"
 	}
 	if strings.HasPrefix(trimmedPath, prefix+"/") {
-		return "home/" + strings.TrimPrefix(trimmedPath, prefix+"/")
+		return "~/" + strings.TrimPrefix(trimmedPath, prefix+"/")
 	}
 	return path
 }

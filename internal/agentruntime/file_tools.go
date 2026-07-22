@@ -443,7 +443,7 @@ func isSiteSourceRelativePath(path string) bool {
 
 func siteSourceRelativePathFailure(stage string, path string) agent.ToolResult {
 	cleanPath := filepath.ToSlash(filepath.Clean(strings.TrimSpace(path)))
-	return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, stage, "site source path "+cleanPath+" must be rooted at sourceWorkspacePath from the website status capability, for example /workspace/circles/staff/sites/<slug>/draft/"+cleanPath)
+	return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, stage, "site source path "+cleanPath+" must be rooted at sourceWorkspacePath from the website status capability, for example ~/sites/<siteID>/draft/"+cleanPath)
 }
 
 func fileReadResultMap(base map[string]any, readResult fileReadOutput) map[string]any {
@@ -1501,20 +1501,20 @@ func fileExactEditFailure(stage string, path string, editIndex int, matchCount i
 
 func isManagedSitePackageManifestPath(virtualPath string) bool {
 	cleanPath := filepath.ToSlash(filepath.Clean(strings.TrimPrefix(strings.TrimSpace(virtualPath), "/workspace/")))
+	cleanPath = strings.TrimPrefix(cleanPath, "~/")
+	cleanPath = strings.TrimPrefix(cleanPath, "home/")
 	parts := strings.Split(cleanPath, "/")
-	if len(parts) == 5 &&
-		parts[0] == "home" &&
-		parts[1] == "sites" &&
-		parts[3] == "app" &&
-		parts[4] == "package.json" {
+	if len(parts) == 4 &&
+		parts[0] == "sites" &&
+		parts[2] == "app" &&
+		parts[3] == "package.json" {
 		return true
 	}
-	return len(parts) == 6 &&
-		parts[0] == "home" &&
-		parts[1] == "sites" &&
-		parts[3] == "draft" &&
-		parts[4] == "app" &&
-		parts[5] == "package.json"
+	return len(parts) == 5 &&
+		parts[0] == "sites" &&
+		parts[2] == "draft" &&
+		parts[3] == "app" &&
+		parts[4] == "package.json"
 }
 
 func managedSiteManifestProtectedFailure(path string) agent.ToolResult {
