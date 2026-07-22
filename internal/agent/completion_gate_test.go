@@ -1593,6 +1593,69 @@ func TestAgentTurnRunnerUsesNoToolChatWhenCompletionEvidenceIsReady(t *testing.T
 	}
 }
 
+func TestRejectedFinishWordingSurvivesAttachmentRepair(t *testing.T) {
+	finishMessage := "보고서 이름은 '고객지원 주간 운영 점검', 상태는 '검토 중', 담당은 '운영팀'입니다."
+	languageModel := &sequenceLanguageModel{contents: []string{
+		`{"action":"continue","toolName":"file.write","toolInput":{"path":"report.json","content":"{\"status\":\"ready\"}"}}`,
+		`{"action":"finish","message":"` + finishMessage + `","replyParts":[{"type":"text","text":"` + finishMessage + `"}],"goalStatus":"satisfied","goalSatisfied":true,"completionEvidence":[{"observationID":"obs-001","toolName":"file.write"}]}`,
+		`{"action":"continue","toolName":"file.deliver","toolInput":{"files":[{"path":"report.json"}]}}`,
+	}}
+	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 6})
+	workspaceRootPath := t.TempDir()
+	artifactPath := filepath.Join(workspaceRootPath, "report.json")
+	toolSet := newTestToolSet([]string{"file.write", FileDeliverToolName})
+	registerTestTool(toolSet, ToolDefinition{Name: "file.write"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		if errorValue := os.WriteFile(artifactPath, []byte(`{"status":"ready"}`), 0600); errorValue != nil {
+			return ToolResult{}, errorValue
+		}
+		return ToolResult{Output: ToolOutput{Content: "file written"}}, nil
+	})
+	registerTestTool(toolSet, ToolDefinition{Name: FileDeliverToolName}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return ToolResult{
+			Output: ToolOutput{Content: "file attached"},
+			Attachments: []FileAttachment{{
+				DevicePath:  artifactPath,
+				Filename:    "report.json",
+				ContentType: "application/json",
+			}},
+		}, nil
+	})
+
+	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
+		RequesterPersonID:          "person-1",
+		ConversationID:             "conversation-1",
+		Prompt:                     "JSON 파일을 읽어서 보고서 이름, 상태, 담당을 확인해줘.",
+		ResponseLanguage:           "ko",
+		WorkspaceRootPath:          workspaceRootPath,
+		TurnStartedAt:              time.Now().Add(-time.Minute),
+		ToolSet:                    toolSet,
+		PinnedToolNames:            toolSet.ListToolNames(),
+		RequiredEvidenceTools:      []string{FileDeliverToolName},
+		RequiredAttachmentSuffixes: []string{".json"},
+		OutcomeContract: OutcomeContract{
+			RequiredEvidenceTools:      []string{FileDeliverToolName},
+			ArtifactRequirement:        ArtifactRequirementRequired,
+			RequiredAttachmentSuffixes: []string{".json"},
+			ExpectedResults: []ExpectedResult{{
+				ID:          "attached-file",
+				Type:        ExpectedResultTypeFile,
+				Description: "requested JSON file attached",
+				Required:    true,
+			}},
+		},
+	})
+
+	if errorValue != nil || result.TaskRun.Status != task.TaskStatusCompleted {
+		t.Fatalf("expected completed delivery repair, got result=%+v error=%v", result, errorValue)
+	}
+	if result.FinishMessage != finishMessage {
+		t.Fatalf("expected the rejected finish wording to be delivered verbatim, got %q", result.FinishMessage)
+	}
+	if len(result.Attachments) != 1 {
+		t.Fatalf("expected one delivered attachment, got %+v", result.Attachments)
+	}
+}
+
 type completionReplyLanguageModel struct {
 	actionCalls        int
 	completionRequests []llm.ChatCompletionRequest
