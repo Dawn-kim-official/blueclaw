@@ -159,42 +159,44 @@ const (
 )
 
 type VirtualTurn struct {
-	Prompt                    string
-	ExpectedResponse          VirtualResponseExpectation
-	ConversationType          string
-	ChannelID                 string
-	ChannelName               string
-	ReplyTargetID             string
-	Addressing                connectors.AddressingMetadata
-	InputAttachments          []connectors.InputAttachment
-	ContextMessages           []connectors.VisibleContextMessage
-	ContextMaterials          []connectors.InputAttachment
-	ActionResponses           []string
-	CompletionJudgeResponses  []string
-	RouterRequiredEvidence    []string
-	RouterTaskShape           agent.TaskShape
-	RouterSiteEvidence        string
-	RouterApproval            string
-	ExpectedSelectedSkills    []string
-	ExpectedToolCalls         []string
-	ExpectedAnyToolCalls      []string
-	ExpectedEvents            []string
-	ExpectedToolCallCounts    map[string]int
-	ExpectedEventCounts       []VirtualEventCount
-	ExpectedAttachments       []string
-	ExpectedAttachmentFiles   []VirtualAttachmentFileExpectation
-	ExpectedWorkspaceFiles    []VirtualWorkspaceFileExpectation
-	ForbiddenWorkspaceFiles   []string
-	ExpectedModelContexts     []string
-	ForbiddenModelContexts    []string
-	ExpectedReplyTargetID     string
-	ExpectedReplyFragments    []string
-	ForbiddenReplyFragments   []string
-	MinimumReplyLength        int
-	ExpectedSequence          []string
-	ExpectedCheckpointReplies []string
-	ForbiddenEvents           []string
-	ExpectedTaskStatus        task.TaskStatus
+	Prompt                       string
+	ExpectedResponse             VirtualResponseExpectation
+	ConversationType             string
+	ChannelID                    string
+	ChannelName                  string
+	ReplyTargetID                string
+	Addressing                   connectors.AddressingMetadata
+	InputAttachments             []connectors.InputAttachment
+	ContextMessages              []connectors.VisibleContextMessage
+	ContextMaterials             []connectors.InputAttachment
+	ActionResponses              []string
+	CompletionJudgeResponses     []string
+	RouterRequiredEvidence       []string
+	RouterTaskShape              agent.TaskShape
+	RouterSiteEvidence           string
+	RouterApproval               string
+	ExpectedSelectedSkills       []string
+	ExpectedToolCalls            []string
+	ExpectedAnyToolCalls         []string
+	ExpectedExposedTools         []string
+	ExpectedValidityReviewPassed bool
+	ExpectedEvents               []string
+	ExpectedToolCallCounts       map[string]int
+	ExpectedEventCounts          []VirtualEventCount
+	ExpectedAttachments          []string
+	ExpectedAttachmentFiles      []VirtualAttachmentFileExpectation
+	ExpectedWorkspaceFiles       []VirtualWorkspaceFileExpectation
+	ForbiddenWorkspaceFiles      []string
+	ExpectedModelContexts        []string
+	ForbiddenModelContexts       []string
+	ExpectedReplyTargetID        string
+	ExpectedReplyFragments       []string
+	ForbiddenReplyFragments      []string
+	MinimumReplyLength           int
+	ExpectedSequence             []string
+	ExpectedCheckpointReplies    []string
+	ForbiddenEvents              []string
+	ExpectedTaskStatus           task.TaskStatus
 }
 
 type VirtualEventCount struct {
@@ -2823,12 +2825,22 @@ func assertLooseTurnResult(virtualTurn VirtualTurn, turnResult VirtualTurnResult
 	return assertStructuralTurnExpectations(virtualTurn, turnResult)
 }
 
+func assertTaskDidNotFailUnexpectedly(virtualTurn VirtualTurn, turnResult VirtualTurnResult) error {
+	if strings.TrimSpace(string(virtualTurn.ExpectedTaskStatus)) != "" {
+		return nil
+	}
+	if turnResult.TaskRunID == "" || turnResult.TaskStatus != task.TaskStatusFailed {
+		return nil
+	}
+	return fmt.Errorf("task ended failed (failureReason=%q); set ExpectedTaskStatus explicitly to accept a failed task; events: %s", turnResult.FailureReason, summarizeEvents(turnResult.Events))
+}
+
 func informationalAssertionResults(virtualTurn VirtualTurn, turnResult VirtualTurnResult) []VirtualInformationalAssertion {
 	results := []VirtualInformationalAssertion{}
 	for _, toolName := range virtualTurn.ExpectedToolCalls {
 		results = append(results, VirtualInformationalAssertion{
 			Name:      "expected tool call " + toolName,
-			Satisfied: requestedToolCallPresent(turnResult.Events, toolName),
+			Satisfied: succeededToolCallPresent(turnResult.Events, toolName),
 			Detail:    toolName,
 		})
 	}
@@ -2847,7 +2859,10 @@ func informationalAssertionResults(virtualTurn VirtualTurn, turnResult VirtualTu
 		})
 	}
 	for toolName, expectedCount := range virtualTurn.ExpectedToolCallCounts {
-		actualCount := countRequestedToolCalls(turnResult.Events, toolName)
+		actualCount := countSucceededToolCalls(turnResult.Events, toolName)
+		if expectedCount == 0 {
+			actualCount = countRequestedToolCalls(turnResult.Events, toolName)
+		}
 		results = append(results, VirtualInformationalAssertion{
 			Name:      "expected tool call count " + toolName,
 			Satisfied: actualCount == expectedCount,
@@ -2882,8 +2897,8 @@ func assertTurnResult(workspacePath string, virtualTurn VirtualTurn, turnResult 
 		}
 	}
 	for _, toolName := range virtualTurn.ExpectedToolCalls {
-		if !requestedToolCallPresent(turnResult.Events, toolName) {
-			return fmt.Errorf("expected requested tool %q; events: %s", toolName, summarizeEvents(turnResult.Events))
+		if !succeededToolCallPresent(turnResult.Events, toolName) {
+			return fmt.Errorf("expected succeeded tool %q; events: %s", toolName, summarizeEvents(turnResult.Events))
 		}
 	}
 	if len(virtualTurn.ExpectedAnyToolCalls) > 0 {
@@ -2904,21 +2919,20 @@ func assertTurnResult(workspacePath string, virtualTurn VirtualTurn, turnResult 
 		}
 	}
 	for toolName, expectedCount := range virtualTurn.ExpectedToolCallCounts {
-		actualCount := countRequestedToolCalls(turnResult.Events, toolName)
-		if expectedCount == 0 && actualCount != 0 {
-			return fmt.Errorf("expected no requested %s calls, got %d; events: %s", toolName, actualCount, summarizeEvents(turnResult.Events))
+		if expectedCount == 0 {
+			if actualCount := countRequestedToolCalls(turnResult.Events, toolName); actualCount != 0 {
+				return fmt.Errorf("expected no requested %s calls, got %d; events: %s", toolName, actualCount, summarizeEvents(turnResult.Events))
+			}
+			continue
 		}
-		if expectedCount > 0 && actualCount == 0 {
-			return fmt.Errorf("expected a requested %s call; events: %s", toolName, summarizeEvents(turnResult.Events))
+		if actualCount := countSucceededToolCalls(turnResult.Events, toolName); actualCount != expectedCount {
+			return fmt.Errorf("expected %d succeeded %s calls, got %d; events: %s", expectedCount, toolName, actualCount, summarizeEvents(turnResult.Events))
 		}
 	}
 	for _, expectedEventCount := range virtualTurn.ExpectedEventCounts {
 		actualCount := countEventsWithFragment(turnResult.Events, expectedEventCount.Name, expectedEventCount.BodyFragment)
-		if expectedEventCount.Count == 0 && actualCount != 0 {
-			return fmt.Errorf("expected no events %s containing %q, got %d; events: %s", expectedEventCount.Name, expectedEventCount.BodyFragment, actualCount, summarizeEvents(turnResult.Events))
-		}
-		if expectedEventCount.Count > 0 && actualCount == 0 {
-			return fmt.Errorf("expected an event %s containing %q; events: %s", expectedEventCount.Name, expectedEventCount.BodyFragment, summarizeEvents(turnResult.Events))
+		if actualCount != expectedEventCount.Count {
+			return fmt.Errorf("expected %d events %s containing %q, got %d; events: %s", expectedEventCount.Count, expectedEventCount.Name, expectedEventCount.BodyFragment, actualCount, summarizeEvents(turnResult.Events))
 		}
 	}
 	for _, suffix := range virtualTurn.ExpectedAttachments {
@@ -3025,6 +3039,19 @@ func normalizedResponseExpectation(expectation VirtualResponseExpectation) Virtu
 }
 
 func assertStructuralTurnExpectations(virtualTurn VirtualTurn, turnResult VirtualTurnResult) error {
+	if errorValue := assertTaskDidNotFailUnexpectedly(virtualTurn, turnResult); errorValue != nil {
+		return errorValue
+	}
+	for _, toolName := range virtualTurn.ExpectedExposedTools {
+		if !exposedToolNamePresent(turnResult.Events, toolName) {
+			return fmt.Errorf("expected exposed tool %q in agent.instructions_loaded; events: %s", toolName, summarizeEvents(turnResult.Events))
+		}
+	}
+	if virtualTurn.ExpectedValidityReviewPassed {
+		if errorValue := assertValidityReviewPassed(turnResult.Events); errorValue != nil {
+			return errorValue
+		}
+	}
 	if errorValue := assertEventSubsequence(turnResult.Events, virtualTurn.ExpectedSequence); errorValue != nil {
 		return errorValue
 	}
@@ -3184,6 +3211,74 @@ func requestedToolCallPresent(events []task.TaskEvent, toolName string) bool {
 
 func countRequestedToolCalls(events []task.TaskEvent, toolName string) int {
 	return countEvents(events, "tool."+toolName+".requested")
+}
+
+func succeededToolCallPresent(events []task.TaskEvent, toolName string) bool {
+	return countSucceededToolCalls(events, toolName) > 0
+}
+
+func countSucceededToolCalls(events []task.TaskEvent, toolName string) int {
+	count := 0
+	for _, event := range events {
+		if event.Name != "tool."+toolName+".result" {
+			continue
+		}
+		var observation struct {
+			Failure json.RawMessage `json:"failure"`
+		}
+		if json.Unmarshal([]byte(event.Body), &observation) != nil {
+			continue
+		}
+		if len(observation.Failure) == 0 || string(observation.Failure) == "null" {
+			count++
+		}
+	}
+	return count
+}
+
+func exposedToolNamePresent(events []task.TaskEvent, toolName string) bool {
+	for _, event := range events {
+		if event.Name != "agent.instructions_loaded" {
+			continue
+		}
+		var body struct {
+			ExposedToolNames []string `json:"exposedToolNames"`
+		}
+		if json.Unmarshal([]byte(event.Body), &body) != nil {
+			continue
+		}
+		for _, exposedToolName := range body.ExposedToolNames {
+			if exposedToolName == toolName {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func assertValidityReviewPassed(events []task.TaskEvent) error {
+	lastReviewPassed := false
+	reviewCount := 0
+	for _, event := range events {
+		if event.Name != "agent.validity_review" {
+			continue
+		}
+		var body struct {
+			Passed bool `json:"passed"`
+		}
+		if json.Unmarshal([]byte(event.Body), &body) != nil {
+			return fmt.Errorf("agent.validity_review body is not valid JSON: %s", event.Body)
+		}
+		reviewCount++
+		lastReviewPassed = body.Passed
+	}
+	if reviewCount == 0 {
+		return fmt.Errorf("expected an agent.validity_review event; events: %s", summarizeEvents(events))
+	}
+	if !lastReviewPassed {
+		return fmt.Errorf("expected the final agent.validity_review to pass; events: %s", summarizeEvents(events))
+	}
+	return nil
 }
 
 func countEventsWithFragment(events []task.TaskEvent, name string, bodyFragment string) int {
