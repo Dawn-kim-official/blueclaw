@@ -202,14 +202,14 @@ func TestAgentKernelConsumeRouteSuppressesReply(t *testing.T) {
 func TestAgentKernelRejectsExecutableConsumeContradiction(t *testing.T) {
 	agentKernel, _ := newKernelTestServices()
 	agentKernel.UseIntakeLanguageModelProvider(intakeDecisionLanguageModel{decision: TurnDecision{
-		Route:                 TurnRouteConsume,
-		Classification:        IntakeClassificationBoundedTask,
-		TaskShape:             TaskShapeResearchTask,
-		TaskLevel:             TaskLevelLow,
-		EstimatedMinutes:      1,
-		ResponseLanguage:      "ko",
-		Reason:                "사용자가 명시적으로 업무 등록을 요청함",
-		InitialToolNames:      []string{"task.add"},
+		Route:            TurnRouteConsume,
+		Classification:   IntakeClassificationBoundedTask,
+		TaskShape:        TaskShapeResearchTask,
+		TaskLevel:        TaskLevelLow,
+		EstimatedMinutes: 1,
+		ResponseLanguage: "ko",
+		Reason:           "사용자가 명시적으로 업무 등록을 요청함",
+		InitialToolNames: []string{"task.add"},
 	}})
 
 	toolCallCount := 0
@@ -295,14 +295,14 @@ func TestAgentKernelBlocksUnsupportedIntake(t *testing.T) {
 func TestAgentKernelPreservesActiveContractOnApprovalContinuation(t *testing.T) {
 	agentKernel, _ := newKernelTestServices()
 	agentKernel.UseIntakeLanguageModelProvider(intakeDecisionLanguageModel{decision: TurnDecision{
-		Route:                 TurnRouteContinueTask,
-		Classification:        IntakeClassificationBoundedTask,
-		TaskShape:             TaskShapeMaintenanceTask,
-		TaskLevel:             TaskLevelLow,
-		EstimatedMinutes:      1,
-		InitialToolNames:      []string{"site.delete"},
-		ResponseLanguage:      "ko",
-		Reason:                "approval reply classified with hallucinated evidence",
+		Route:            TurnRouteContinueTask,
+		Classification:   IntakeClassificationBoundedTask,
+		TaskShape:        TaskShapeMaintenanceTask,
+		TaskLevel:        TaskLevelLow,
+		EstimatedMinutes: 1,
+		InitialToolNames: []string{"site.delete"},
+		ResponseLanguage: "ko",
+		Reason:           "approval reply classified with hallucinated evidence",
 	}})
 
 	toolCallCount := 0
@@ -349,9 +349,11 @@ func TestExistingTaskRunIDDoesNotAuthorizeConfirmationBypass(t *testing.T) {
 	agentKernel.UseIntakeLanguageModelProvider(intakeDecisionLanguageModel{decision: destructiveSiteDeleteDecision()})
 	agentKernel.UseLanguageModelProvider(&sequenceLanguageModel{contents: []string{
 		destructiveSiteDeleteExecutionPlan(),
-		`{"reply":"site-1 웹사이트를 삭제할까요?"}`,
+		`{"action":"continue","toolName":"site.delete","toolInput":{}}`,
+		`{"question":"site-1 웹사이트를 삭제할까요?"}`,
 	}})
 	siteDeleteDefinition := testToolDescriptor("site.delete")
+	siteDeleteDefinition.RequiresApproval = true
 	toolSet := newTestToolSetWithDefinitions([]ToolDefinition{siteDeleteDefinition})
 	toolCallCount := 0
 	registerTestTool(toolSet, siteDeleteDefinition, func(context.Context, ToolInvocation) (ToolResult, error) {
@@ -366,7 +368,7 @@ func TestExistingTaskRunIDDoesNotAuthorizeConfirmationBypass(t *testing.T) {
 	result, errorValue := agentKernel.RunAgentRequest(context.Background(), request)
 
 	if errorValue != nil {
-		t.Fatalf("expected confirmation gate: %v", errorValue)
+		t.Fatalf("expected runtime approval gate: %v", errorValue)
 	}
 	if result.TaskRun.Status != task.TaskStatusWaitingApproval {
 		t.Fatalf("expected existing task identity not to authorize execution, got %s", result.TaskRun.Status)
@@ -379,13 +381,13 @@ func TestExistingTaskRunIDDoesNotAuthorizeConfirmationBypass(t *testing.T) {
 func TestSemanticRevisionStartsNewTaskRun(t *testing.T) {
 	agentKernel, taskRunService := newKernelTestServices()
 	agentKernel.UseIntakeLanguageModelProvider(intakeDecisionLanguageModel{decision: TurnDecision{
-		Route:                 TurnRouteReviseTask,
-		Classification:        IntakeClassificationBoundedTask,
-		TaskShape:             TaskShapeMaintenanceTask,
-		TaskLevel:             TaskLevelLow,
-		EstimatedMinutes:      1,
-		InitialToolNames:      []string{"task.add"},
-		ResponseLanguage:      "ko",
+		Route:            TurnRouteReviseTask,
+		Classification:   IntakeClassificationBoundedTask,
+		TaskShape:        TaskShapeMaintenanceTask,
+		TaskLevel:        TaskLevelLow,
+		EstimatedMinutes: 1,
+		InitialToolNames: []string{"task.add"},
+		ResponseLanguage: "ko",
 	}})
 	agentKernel.UseLanguageModelProvider(&sequenceLanguageModel{contents: []string{
 		`{"action":"continue","toolName":"task.add","toolInput":{"title":"새 업무"}}`,
@@ -540,7 +542,6 @@ func persistedTurnRouterCallRecords(taskEvents []task.TaskEvent) []llmCallRecord
 	}
 	return records
 }
-
 
 func TestAgentKernelGeneratesIntakeNoticeWhenRouterReplyMissing(t *testing.T) {
 	agentKernel, _ := newKernelTestServices()
@@ -794,39 +795,6 @@ func TestAgentKernelSkillDeadlinePersistsOneBlockedTask(t *testing.T) {
 	taskEvents := taskRunService.ListTaskEvent(result.TaskRun.TaskRunID)
 	if taskEventNameCount(taskEvents, "agent.intake") != 1 || taskEventNameCount(taskEvents, "agent.limit_stop") != 1 || taskEventNameCount(taskEvents, "agent.goal.blocked") != 1 {
 		t.Fatalf("expected one intake, limit, and goal event, got %+v", taskEvents)
-	}
-}
-
-func TestAgentKernelConfirmationDeadlineSettlesCreatedTaskOnce(t *testing.T) {
-	agentKernel, taskRunService := newKernelTestServices()
-	agentKernel.UseIntakeLanguageModelProvider(intakeDecisionLanguageModel{decision: destructiveSiteDeleteDecision()})
-	languageModel := &confirmationBlockingLanguageModel{}
-	agentKernel.UseLanguageModelProvider(languageModel)
-	siteDeleteDefinition := testToolDescriptor("site.delete")
-	request := kernelTestRequest("site-1 웹사이트를 삭제해줘")
-	request.ToolSet = newTestToolSetWithDefinitions([]ToolDefinition{siteDeleteDefinition})
-	request.SkipSkillSelection = true
-	workDuration := workDurationWithinTotal(TaskLevelProfileForLevel(TaskLevelLow).Duration)
-	request.TurnStartedAt = time.Now().Add(-workDuration + 500*time.Millisecond)
-
-	result, errorValue := agentKernel.RunAgentRequest(context.Background(), request)
-
-	if errorValue != nil {
-		t.Fatalf("expected persisted max elapsed result: %v", errorValue)
-	}
-	taskRuns := taskRunService.ListTaskRunByPersonID(request.RequesterPersonID)
-	if len(taskRuns) != 1 || result.TaskRun.TaskRunID != taskRuns[0].TaskRunID {
-		t.Fatalf("expected confirmation task to settle in place, got %+v", taskRuns)
-	}
-	if result.TaskRun.Status != task.TaskStatusBlocked || result.TaskRun.FailureReason != "max_elapsed" {
-		t.Fatalf("expected blocked max elapsed task, got %+v", result.TaskRun)
-	}
-	if languageModel.confirmationCallCount != 1 {
-		t.Fatalf("expected one confirmation wording attempt, got %d", languageModel.confirmationCallCount)
-	}
-	taskEvents := taskRunService.ListTaskEvent(result.TaskRun.TaskRunID)
-	if taskEventNameCount(taskEvents, "agent.limit_stop") != 1 || taskEventNameCount(taskEvents, "agent.goal.blocked") != 1 {
-		t.Fatalf("expected one limit and goal event, got %+v", taskEvents)
 	}
 }
 
@@ -1106,26 +1074,6 @@ func (languageModel *deadlineCapturingFinishLanguageModel) GenerateResponse(cont
 func (languageModel *deadlineCapturingFinishLanguageModel) GenerateStructuredResponse(responseContext context.Context, _ llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
 	languageModel.deadline, _ = responseContext.Deadline()
 	return llm.StructuredResponse{Content: finishMessageDocument("완료했습니다.")}, nil
-}
-
-type confirmationBlockingLanguageModel struct {
-	confirmationCallCount int
-}
-
-func (languageModel *confirmationBlockingLanguageModel) GenerateResponse(context.Context, string) (string, error) {
-	return "", errors.New("language model only serves structured generation")
-}
-
-func (languageModel *confirmationBlockingLanguageModel) GenerateStructuredResponse(responseContext context.Context, request llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
-	if request.StructuredOutputSchema.Name == "blueclaw_execution_plan" {
-		return llm.StructuredResponse{Content: destructiveSiteDeleteExecutionPlan()}, nil
-	}
-	if request.StructuredOutputSchema.Name == "blueclaw_confirmation_message" {
-		languageModel.confirmationCallCount++
-		<-responseContext.Done()
-		return llm.StructuredResponse{}, responseContext.Err()
-	}
-	return llm.StructuredResponse{}, errors.New("unexpected structured request")
 }
 
 func taskEventNameCount(taskEvents []task.TaskEvent, eventName string) int {

@@ -86,4 +86,3 @@ func TestContractEvidenceRejectsReadWhenNextToolChangesState(t *testing.T) {
 		t.Fatalf("expected next tools to remain separate from evidence, got evidence=%v next=%v", result, nextTools)
 	}
 }
-
