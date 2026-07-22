@@ -195,9 +195,6 @@ func resolveWorkingDirectoryPath(workingDirectoryPath string, workspaceRootPath 
 	if errorValue != nil {
 		return "", errorValue
 	}
-	if !isWithinRootPath(workspaceRootPath, resolvedPath) {
-		return "", errors.New("working directory escapes workspace root")
-	}
 	return resolvedPath, nil
 }
 

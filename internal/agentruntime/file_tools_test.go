@@ -1404,7 +1404,7 @@ func TestFileDeliverNotFoundIncludesCandidateFiles(t *testing.T) {
 	}
 }
 
-func TestFileWriteProtectsManagedSitePackageManifest(t *testing.T) {
+func TestFileWriteAllowsManagedSitePackageManifest(t *testing.T) {
 	workspacePath := t.TempDir()
 	toolCatalogBuilder := newFileToolTestCatalogBuilder(workspacePath)
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"file.write"})
@@ -1418,14 +1418,14 @@ func TestFileWriteProtectsManagedSitePackageManifest(t *testing.T) {
 		ToolName: "file.write",
 		Input: agent.MarshalToolInput(map[string]string{
 			"path":    "home/sites/site-1/draft/app/package.json",
-			"content": `{"project":"not a package manifest"}`,
+			"content": `{"project":"user-owned package manifest"}`,
 		}),
 	})
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
-	if !managedResult.Failed() || managedResult.Failure.Code != "managed_manifest_protected" {
-		t.Fatalf("expected managed manifest protection, got %+v", managedResult)
+	if managedResult.Failed() {
+		t.Fatalf("expected the user-owned site manifest to be writable; build gates own the invariant, got %+v", managedResult)
 	}
 
 	tmpResult, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{

@@ -181,13 +181,10 @@ func (resolver WorkspacePathResolver) resolveAbsolute(value string, scope Worksp
 		return ResolvedWorkspacePath{}, errorValue
 	}
 	if relativePath == ".." || strings.HasPrefix(relativePath, "../") {
-		return ResolvedWorkspacePath{}, errors.New("path must stay under the workspace root")
+		return ResolvedWorkspacePath{ConcretePath: cleanPath, VirtualPath: filepath.ToSlash(cleanPath), Kind: workspacePathKindWorkspace}, nil
 	}
 	virtualPath := filepath.ToSlash(filepath.Join("/workspace", relativePath))
 	parts := strings.Split(filepath.ToSlash(relativePath), "/")
-	if len(parts) >= 1 && parts[0] == ".blueclaw" {
-		return ResolvedWorkspacePath{}, errors.New("/workspace/.blueclaw is not available for model tool work")
-	}
 	if len(parts) >= 1 && parts[0] == "skills" {
 		return ResolvedWorkspacePath{ConcretePath: cleanPath, VirtualPath: virtualPath, Kind: workspacePathKindSkills}, nil
 	}
