@@ -538,7 +538,7 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 					result := agentTurnRunner.completeTaskRunBestEffort(workContext, taskRun.TaskRunID, stepID, "finish", request, state.Observations, completionGateResult, appendCompletionGateCaveat(candidateReply, completionGateResult.Message))
 					return result, nil
 				}
-				observation := completionGateObservation(len(state.Observations)+1, completionGateResult)
+				observation := completionGateObservation(len(state.Observations)+1, completionGateResult, state.Observations)
 				observation = withCompletionGateRecoveryPacket(observation, completionGateResult)
 				state.Observations = append(state.Observations, observation)
 				agentTurnRunner.appendEvent(taskRun.TaskRunID, completionGateEventName(observation), marshalEventBody(observation))
@@ -588,7 +588,7 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 			}
 		case "fail":
 			if recoverableResult, shouldContinue := recoverableWorkflowFailResult(request, state.Observations); shouldContinue {
-				observation := completionGateObservation(len(state.Observations)+1, recoverableResult)
+				observation := completionGateObservation(len(state.Observations)+1, recoverableResult, state.Observations)
 				observation = withCompletionGateRecoveryPacket(observation, recoverableResult)
 				state.Observations = append(state.Observations, observation)
 				agentTurnRunner.appendEvent(taskRun.TaskRunID, "agent.recoverable_fail_rejected", marshalEventBody(observation))
@@ -606,7 +606,7 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 				facts := buildFailureReportFacts(state.Observations, agentTurnRunner.options.RecoveryBudget)
 				failureReportResult := validateFailureReportAction(actionDocument, facts)
 				if !failureReportResult.IsSatisfied {
-					observation := completionGateObservation(len(state.Observations)+1, failureReportResult)
+					observation := completionGateObservation(len(state.Observations)+1, failureReportResult, state.Observations)
 					state.Observations = append(state.Observations, observation)
 					agentTurnRunner.appendEvent(taskRun.TaskRunID, "agent.failure_report_rejected", marshalEventBody(observation))
 					agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusCompleted, "failure_report_rejected", observation.ContentText())
@@ -1991,7 +1991,7 @@ func failureNoticeFromTerminalAction(request AgentTurnRequest, taskRunID string,
 }
 
 func (agentTurnRunner *AgentTurnRunner) recordTerminalNoToolsRejection(taskRunID string, stepID string, state *agentTaskState, reason string) {
-	observation := completionGateObservation(len(state.Observations)+1, completionGateResult{Message: strings.TrimSpace(reason)})
+	observation := completionGateObservation(len(state.Observations)+1, completionGateResult{Message: strings.TrimSpace(reason)}, state.Observations)
 	state.Observations = append(state.Observations, observation)
 	agentTurnRunner.appendEvent(taskRunID, "agent.terminal_no_tools_rejected", marshalEventBody(observation))
 	agentTurnRunner.saveStep(taskRunID, stepID, task.TaskStatusCompleted, "terminal_no_tools_rejected", observation.ContentText())
