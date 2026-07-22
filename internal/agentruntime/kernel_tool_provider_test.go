@@ -107,13 +107,14 @@ func TestLocalKernelToolNamesExcludeCapabilityBackedImageReader(t *testing.T) {
 		agent.FileDeleteToolName,
 		agent.FileEditToolName,
 		agent.FilePreviewToolName,
+		agent.PlanUpdateToolName,
 		agent.ConversationHistoryToolName,
 	}
 	if len(agent.KernelToolNames()) != len(expectedKernelToolNames)+1 {
-		t.Fatalf("expected exactly 10 kernel tool names, got %+v", agent.KernelToolNames())
+		t.Fatalf("expected the kernel names to exceed local names by image.read only, got %+v", agent.KernelToolNames())
 	}
 	if len(localKernelToolNames()) != len(expectedKernelToolNames) {
-		t.Fatalf("expected nine locally bound kernel tools, got %+v", localKernelToolNames())
+		t.Fatalf("expected every locally bound kernel tool accounted for, got %+v", localKernelToolNames())
 	}
 	for index, toolName := range localKernelToolNames() {
 		if toolName != expectedKernelToolNames[index] {
