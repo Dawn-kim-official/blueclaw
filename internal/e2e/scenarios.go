@@ -28,7 +28,7 @@ func PresentationLocalMultiturnSuccessScenario(artifactDirectoryPath string) Vir
 				{Name: "tool.terminal.run.result", BodyFragment: "Slide render review", Count: 1},
 				{Name: "tool.file.deliver.result", BodyFragment: `"output"`, Count: 1},
 			},
-			ExpectedEvents:      []string{"agent.validity_review"},
+			ExpectedValidityReviewPassed: true,
 			ExpectedAttachments: []string{".pptx", ".pdf", ".html", "-notes.txt"},
 			ExpectedWorkspaceFiles: []VirtualWorkspaceFileExpectation{
 				{
@@ -231,10 +231,7 @@ func AttachmentMaterialReadScenario(artifactDirectoryPath string) VirtualSession
 			},
 			ExpectedToolCalls:      []string{"image.read"},
 			ExpectedToolCallCounts: map[string]int{"terminal.run": 0},
-			ExpectedEventCounts: []VirtualEventCount{
-				{Name: "agent.instructions_loaded", BodyFragment: "image.read", Count: 1},
-				{Name: "agent.instructions_loaded", BodyFragment: "document.read", Count: 1},
-			},
+			ExpectedExposedTools:   []string{"image.read", "document.read"},
 			ExpectedModelContexts: []string{
 				"materialID=mattermost:file-1",
 				"mascot.png",
@@ -911,10 +908,11 @@ func FailureExplanationAcceptanceScenario(artifactDirectoryPath string) VirtualS
 					actionCallTool("terminal.run", `{"command":"printf 'permission denied blocked_by_captcha' >&2; exit 126","workingDirectoryPath":"home","timeoutSecond":30}`),
 					actionFailMessage("terminal.run: permission denied"),
 				},
-				ExpectedToolCalls: []string{"terminal.run"},
+				ExpectedSequence: []string{"tool.terminal.run.requested", "tool.terminal.run.result"},
 				ExpectedEventCounts: []VirtualEventCount{
 					{Name: "tool.terminal.run.result", BodyFragment: "permission denied", Count: 1},
 				},
+				ExpectedTaskStatus: task.TaskStatusFailed,
 			},
 			{
 				Prompt:          "왜 실패했어?",

@@ -60,7 +60,7 @@ func TestDefaultToolPaletteUsesCanonicalNames(t *testing.T) {
 	}
 }
 
-func TestExpectedEventCountAllowsRepeatedReadResults(t *testing.T) {
+func TestExpectedEventCountRejectsRepeatedReadResults(t *testing.T) {
 	virtualTurn := VirtualTurn{
 		ExpectedEventCounts: []VirtualEventCount{{
 			Name:         "tool.task.list.result",
@@ -75,8 +75,9 @@ func TestExpectedEventCountAllowsRepeatedReadResults(t *testing.T) {
 			{Name: "tool.task.list.result", Body: `{"title":"customer task"}`},
 		},
 	}
-	if errorValue := assertTurnResult(t.TempDir(), virtualTurn, turnResult); errorValue != nil {
-		t.Fatalf("expected repeated matching events to satisfy the result assertion: %v", errorValue)
+	errorValue := assertTurnResult(t.TempDir(), virtualTurn, turnResult)
+	if errorValue == nil || !strings.Contains(errorValue.Error(), "expected 1 events") {
+		t.Fatalf("expected the exact event count assertion to reject the duplicate read, got %v", errorValue)
 	}
 	assertions := informationalAssertionResults(virtualTurn, turnResult)
 	if len(assertions) != 1 || assertions[0].Satisfied {
