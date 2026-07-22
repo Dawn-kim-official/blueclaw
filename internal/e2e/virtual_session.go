@@ -71,12 +71,12 @@ type VirtualSessionScenario struct {
 	RouterTaskLevel           string
 	CodingTierVisionFallback  bool
 	AddressingResponse        string
-	SkillSearchQueries    []string
-	RouterSiteEvidence    string
-	ScriptedExecutionPlan *agent.ExecutionPlan
-	TurnOptions           agent.TurnOptions
-	ProgressWriter        io.Writer
-	Turns                 []VirtualTurn
+	SkillSearchQueries        []string
+	RouterSiteEvidence        string
+	ScriptedExecutionPlan     *agent.ExecutionPlan
+	TurnOptions               agent.TurnOptions
+	ProgressWriter            io.Writer
+	Turns                     []VirtualTurn
 }
 
 type VirtualSiteFixture struct {

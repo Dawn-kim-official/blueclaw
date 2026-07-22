@@ -4,10 +4,10 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"time"
 	"log/slog"
 	"strings"
 	"testing"
+	"time"
 )
 
 type staticLanguageModelProvider struct {
