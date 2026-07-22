@@ -149,73 +149,6 @@ func TestBuildAgentActionRequestKeepsTextToolCatalogForStructuredFallback(t *tes
 	}
 }
 
-func TestBuildAgentActionRequestIncludesNextPendingOperationRequirement(t *testing.T) {
-	request := buildAgentActionRequest(nativeAgentActionContractState(), false)
-	messageContent := joinMessageContent(request.Messages)
-
-	if !strings.Contains(messageContent, "Pending typed operation requirements.") {
-		t.Fatalf("expected pending operation context, got %s", messageContent)
-	}
-	if !strings.Contains(messageContent, `"toolName":"file.write"`) || !strings.Contains(messageContent, `"requiredInput":{"path":"report.txt"}`) {
-		t.Fatalf("expected exact typed file.write input, got %s", messageContent)
-	}
-}
-
-func TestCompletionArtifactDeliveryInputUsesPendingOperationInput(t *testing.T) {
-	requiredInput := json.RawMessage(`{"filename":"report.json","files":[{"filename":"report.json","path":"report.json","title":"분기 보고"}]}`)
-	state := agentTaskState{
-		Request: AgentTurnRequest{OutcomeContract: OutcomeContract{OperationContract: &OperationContract{
-			Version: operationContractVersion,
-			Requirements: []OperationRequirement{{
-				RequirementID: "operation-1",
-				ToolID:        "kernel/file.deliver",
-				ToolName:      FileDeliverToolName,
-				InputMode:     OperationInputContainsExplicit,
-				RequiredInput: requiredInput,
-			}},
-		}}},
-	}
-	completionState := CompletionState{AttachmentPaths: []string{"/workspace/report.json"}}
-
-	input := completionArtifactDeliveryInput(state, completionState)
-
-	if string(input) != string(requiredInput) {
-		t.Fatalf("expected pending operation input %s, got %s", requiredInput, input)
-	}
-	observation := turnObservation{
-		ObservationID: "observation-1",
-		Action:        "continue",
-		Tool:          FileDeliverToolName,
-		ToolID:        "kernel/file.deliver",
-		ToolInput:     input,
-		Output:        ToolOutput{Content: "file attached"},
-	}
-	if !matchedAllOperationRequirements(state.Request.OutcomeContract.OperationContract, []turnObservation{observation}) {
-		t.Fatalf("expected nested delivery input to satisfy the pending operation: %s", input)
-	}
-}
-
-func TestCompletionArtifactDeliveryInputAddsDiscoveredPath(t *testing.T) {
-	state := agentTaskState{
-		Request: AgentTurnRequest{OutcomeContract: OutcomeContract{OperationContract: &OperationContract{
-			Version: operationContractVersion,
-			Requirements: []OperationRequirement{{
-				RequirementID: "operation-1",
-				ToolID:        "kernel/file.deliver",
-				ToolName:      FileDeliverToolName,
-				RequiredInput: json.RawMessage(`{"title":"분기 보고"}`),
-			}},
-		}}},
-	}
-	completionState := CompletionState{AttachmentPaths: []string{"/workspace/report.json"}}
-
-	input := completionArtifactDeliveryInput(state, completionState)
-
-	if string(input) != `{"path":"/workspace/report.json","title":"분기 보고"}` {
-		t.Fatalf("expected discovered path merged into pending input, got %s", input)
-	}
-}
-
 func TestDecideAgentActionNativeChatRejectsInvalidCallsWithoutStructuredFallback(t *testing.T) {
 	blankToolCallIDResponse := nativeAgentActionChatResponse("finish", `{}`)
 	blankToolCallIDResponse.Message.ToolCalls[0].ID = " "
@@ -473,20 +406,8 @@ func TestAgentActionFinishCorrectionUsesCompleteTypedState(t *testing.T) {
 }
 
 func TestAgentActionFinishCorrectionPrecedenceAndFailClosed(t *testing.T) {
-	t.Run("pending operation precedes finish", func(t *testing.T) {
-		state := nativeAgentActionCompletionReadyState()
-		state.Request.OutcomeContract.OperationContract.Requirements = append(
-			state.Request.OutcomeContract.OperationContract.Requirements,
-			taskAddOperationRequirement("operation-2", "second"),
-		)
-
-		assertRequiredAgentActionTool(t, finishReasonRetryRequest(t, state), "task.add")
-	})
-
-	t.Run("required next tool without input contract", func(t *testing.T) {
+	t.Run("required next tool precedes finish", func(t *testing.T) {
 		state := nativeAgentActionContractState()
-		state.Request.OutcomeContract.OperationContract = nil
-		state.Request.ContractToolWorkingSet.RequiredNextTools = []string{"file.write", TerminalRunToolName}
 
 		assertRequiredAgentActionTool(t, finishReasonRetryRequest(t, state), "file.write")
 	})
@@ -574,7 +495,7 @@ func TestDecideAgentActionNativeChatRetryFailsClosedWhenContractToolIsUnavailabl
 		Diagnostic: llm.StructuredOutputDiagnostic{Category: llm.StructuredOutputDiagnosticFinishReason, FinishReason: "stop"},
 	}}
 	state := nativeAgentActionContractState()
-	state.Request.OutcomeContract.OperationContract.Requirements[0].ToolName = "missing.tool"
+	state.Request.ContractToolWorkingSet.RequiredNextTools[0] = "missing.tool"
 	provider := nativeAgentActionLanguageModel{chatError: correctionError}
 
 	_, errorValue := DecideAgentAction(context.Background(), &provider, state)
@@ -587,43 +508,8 @@ func TestDecideAgentActionNativeChatRetryFailsClosedWhenContractToolIsUnavailabl
 	}
 }
 
-func TestFirstPendingActionToolNameRequiresDistinctObservations(t *testing.T) {
+func TestFirstPendingActionToolNameUsesRequiredNextTools(t *testing.T) {
 	state := nativeAgentActionContractState()
-	state.Request.OutcomeContract.OperationContract.Requirements = []OperationRequirement{
-		{
-			RequirementID: "operation-1",
-			ToolID:        "kernel:file.write",
-			ToolName:      "file.write",
-			InputMode:     OperationInputContainsExplicit,
-			RequiredInput: json.RawMessage(`{"path":"report.txt"}`),
-		},
-		{
-			RequirementID: "operation-2",
-			ToolID:        "kernel:file.write",
-			ToolName:      "file.write",
-			InputMode:     OperationInputContainsExplicit,
-			RequiredInput: json.RawMessage(`{"path":"report.txt"}`),
-		},
-	}
-	firstObservation := successfulContractObservation("observation-1", "file.write", "kernel:file.write", `{"path":"report.txt"}`)
-	state.Observations = []turnObservation{firstObservation}
-
-	if toolName := firstPendingActionToolName(state); toolName != "file.write" {
-		t.Fatalf("expected the repeated occurrence to remain pending, got %q", toolName)
-	}
-
-	secondObservation := firstObservation
-	secondObservation.ObservationID = "observation-2"
-	state.Observations = append(state.Observations, secondObservation)
-	if toolName := firstPendingActionToolName(state); toolName != "" {
-		t.Fatalf("expected two observations to satisfy two occurrences, got %q", toolName)
-	}
-}
-
-func TestFirstPendingActionToolNameUsesRequiredNextToolsWithoutInputContract(t *testing.T) {
-	state := nativeAgentActionContractState()
-	state.Request.OutcomeContract.OperationContract = nil
-	state.Request.ContractToolWorkingSet.RequiredNextTools = []string{"file.write", TerminalRunToolName}
 
 	if toolName := firstPendingActionToolName(state); toolName != "file.write" {
 		t.Fatalf("expected first required next tool, got %q", toolName)
@@ -640,7 +526,7 @@ func TestFirstPendingActionToolNameUsesRequiredNextToolsWithoutInputContract(t *
 			Failure:       &ToolFailure{Code: FailureCodes.OperationFailed.String()},
 		},
 	}
-	if toolName := firstPendingRequiredToolName(nil, state.Request.ContractToolWorkingSet.RequiredNextTools, state.Observations); toolName != TerminalRunToolName {
+	if toolName := firstPendingRequiredToolName(state.Request.ContractToolWorkingSet.RequiredNextTools, state.Observations); toolName != TerminalRunToolName {
 		t.Fatalf("expected out-of-order and failed observations not to advance the sequence, got %q", toolName)
 	}
 	if toolName := firstPendingActionToolName(state); toolName != "" {
@@ -872,25 +758,7 @@ func nativeAgentActionTestStateWithTools(toolNames ...string) agentTaskState {
 
 func nativeAgentActionContractState() agentTaskState {
 	state := nativeAgentActionTestStateWithTools("file.write", TerminalRunToolName)
-	state.Request.OutcomeContract.OperationContract = &OperationContract{
-		Version: operationContractVersion,
-		Requirements: []OperationRequirement{
-			{
-				RequirementID: "operation-1",
-				ToolID:        "kernel:file.write",
-				ToolName:      "file.write",
-				InputMode:     OperationInputContainsExplicit,
-				RequiredInput: json.RawMessage(`{"path":"report.txt"}`),
-			},
-			{
-				RequirementID: "operation-2",
-				ToolID:        "kernel:terminal.run",
-				ToolName:      TerminalRunToolName,
-				InputMode:     OperationInputNoExplicitValues,
-				RequiredInput: json.RawMessage(`{}`),
-			},
-		},
-	}
+	state.Request.ContractToolWorkingSet.RequiredNextTools = []string{"file.write", TerminalRunToolName}
 	return state
 }
 
@@ -923,12 +791,6 @@ func nativeAgentActionCompletionReadyState() agentTaskState {
 					ObjectType: "task",
 					Effect:     "created",
 				}},
-				OperationContract: &OperationContract{
-					Version: operationContractVersion,
-					Requirements: []OperationRequirement{
-						taskAddOperationRequirement("operation-1", "first"),
-					},
-				},
 			},
 		},
 		Observations: []turnObservation{{
@@ -940,16 +802,6 @@ func nativeAgentActionCompletionReadyState() agentTaskState {
 			Output:        ToolOutput{Content: "added", Data: json.RawMessage(`{"taskID":"task-1","created":true}`)},
 			Effects:       []ResourceEffect{{ObjectType: "task", Effect: "created", ID: "task-1"}},
 		}},
-	}
-}
-
-func taskAddOperationRequirement(requirementID string, title string) OperationRequirement {
-	return OperationRequirement{
-		RequirementID: requirementID,
-		ToolID:        "test:task.add",
-		ToolName:      "task.add",
-		InputMode:     OperationInputContainsExplicit,
-		RequiredInput: json.RawMessage(`{"title":"` + title + `"}`),
 	}
 }
 

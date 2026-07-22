@@ -325,7 +325,6 @@ func removeIntermediateAttachmentEvidence(toolSet *ToolSet, contract OutcomeCont
 	requiredEvidenceTools := []string{}
 	for _, toolName := range contract.RequiredEvidenceTools {
 		if toolProducesIntermediateAttachmentSource(toolSet, toolName) {
-			contract.OperationContract = removeOperationRequirementsForTool(contract.OperationContract, toolName)
 			continue
 		}
 		requiredEvidenceTools = appendUniqueStrings(requiredEvidenceTools, toolName)
@@ -427,7 +426,6 @@ func dischargeResolvedInputContract(request AgentRequest, turnDecision TurnDecis
 	contract.RequiredEvidenceAnyOf = removeToolNameGroups(contract.RequiredEvidenceAnyOf, AskInputToolName)
 	contract.SelectedEvidenceHints = removeToolName(contract.SelectedEvidenceHints, AskInputToolName)
 	contract.ExpectedResults = dischargeExpectedResultTool(contract.ExpectedResults, AskInputToolName)
-	contract.OperationContract = removeOperationRequirementsForTool(contract.OperationContract, AskInputToolName)
 	return normalizeOutcomeContract(contract)
 }
 
@@ -467,21 +465,6 @@ func expectedResultRequiresNamedTool(result ExpectedResult, toolName string) boo
 	return false
 }
 
-func removeOperationRequirementsForTool(contract *OperationContract, toolName string) *OperationContract {
-	if contract == nil {
-		return nil
-	}
-	requirements := []OperationRequirement{}
-	for _, requirement := range contract.Requirements {
-		if !ToolNamesMatch(requirement.ToolName, toolName) {
-			requirements = append(requirements, requirement)
-		}
-	}
-	if len(requirements) == 0 {
-		return nil
-	}
-	return &OperationContract{Version: contract.Version, Requirements: requirements}
-}
 
 func removeToolName(toolNames []string, removedToolName string) []string {
 	values := []string{}
@@ -519,7 +502,6 @@ func OutcomeContractHasRequirements(contract OutcomeContract) bool {
 	return len(contract.ExpectedResults) > 0 ||
 		len(contract.RequiredEvidenceTools) > 0 ||
 		len(contract.RequiredEvidenceAnyOf) > 0 ||
-		contract.OperationContract != nil ||
 		len(contract.RequiredAttachmentSuffixes) > 0 ||
 		len(contract.RequiredEffects) > 0 ||
 		(artifactRequirement != "" && artifactRequirement != ArtifactRequirementNone)
@@ -808,11 +790,6 @@ func outcomeContractRequiredToolNames(contract OutcomeContract) []string {
 	toolNames := append([]string{}, contract.RequiredEvidenceTools...)
 	for _, toolNameGroup := range contract.RequiredEvidenceAnyOf {
 		toolNames = append(toolNames, toolNameGroup...)
-	}
-	if contract.OperationContract != nil {
-		for _, requirement := range contract.OperationContract.Requirements {
-			toolNames = append(toolNames, requirement.ToolName)
-		}
 	}
 	return toolNames
 }

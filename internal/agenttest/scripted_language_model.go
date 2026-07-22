@@ -267,13 +267,6 @@ func (languageModel *ScriptedLanguageModel) GenerateStructuredResponse(_ context
 			}
 			return languageModel.structuredResponse(response), nil
 		}
-		if schemaName == "blueclaw_operation_contract" {
-			response, errorValue := defaultOperationContractResponse(request)
-			if errorValue != nil {
-				return llm.StructuredResponse{}, errorValue
-			}
-			return languageModel.structuredResponse(response), nil
-		}
 		if schemaName == "blueclaw_approval_question" {
 			return languageModel.structuredResponse(defaultApprovalQuestionResponse(request)), nil
 		}
@@ -314,33 +307,6 @@ func defaultContractSkillArbitrationResponse(request llm.StructuredResponseReque
 	return string(document), nil
 }
 
-func defaultOperationContractResponse(request llm.StructuredResponseRequest) (string, error) {
-	var schema map[string]any
-	if errorValue := json.Unmarshal([]byte(request.StructuredOutputSchema.Document), &schema); errorValue != nil {
-		return "", fmt.Errorf("decode operation contract schema: %w", errorValue)
-	}
-	properties, _ := schema["properties"].(map[string]any)
-	operationsSchema, _ := properties["operations"].(map[string]any)
-	items, _ := operationsSchema["items"].(map[string]any)
-	itemSchemas := []any{items}
-	if oneOf, isUnion := items["oneOf"].([]any); isUnion {
-		itemSchemas = oneOf
-	}
-	operations := make([]map[string]any, 0, len(itemSchemas))
-	for _, value := range itemSchemas {
-		itemSchema, _ := value.(map[string]any)
-		itemProperties, _ := itemSchema["properties"].(map[string]any)
-		toolNameSchema, _ := itemProperties["toolName"].(map[string]any)
-		toolNames, _ := toolNameSchema["enum"].([]any)
-		toolName, _ := toolNames[0].(string)
-		operations = append(operations, map[string]any{"toolName": toolName, "requiredValues": map[string]any{}})
-	}
-	document, errorValue := json.Marshal(map[string]any{"operations": operations})
-	if errorValue != nil {
-		return "", fmt.Errorf("encode operation contract fixture: %w", errorValue)
-	}
-	return string(document), nil
-}
 
 func defaultSkillSearchQueriesResponse(request llm.StructuredResponseRequest) string {
 	prompt := ""

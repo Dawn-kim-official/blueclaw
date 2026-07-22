@@ -40,7 +40,7 @@ func toolSetForAgentTurnWithExposure(toolSet *ToolSet, instructionBundle Instruc
 	interactionGroup := filterGroupTools(toolSet, toolExposureGroup{Name: "required interaction", ToolIDs: requiredInteractionToolNames(outcomeContract, recentObservations)})
 	recoveryToolNames := appendUniqueStrings(activeRecoveryToolNames(recentObservations), activeRecoveryPreconditionToolNames(toolSet, recentObservations)...)
 	recoveryGroup := filterGroupTools(toolSet, toolExposureGroup{Name: "recovery tools", ToolIDs: recoveryToolNames})
-	pendingToolName := firstPendingRequiredToolName(outcomeContract.OperationContract, instructionBundle.RequiredNextTools, recentObservations)
+	pendingToolName := firstPendingRequiredToolName(instructionBundle.RequiredNextTools, recentObservations)
 	pendingGroup := filterGroupTools(toolSet, toolExposureGroup{Name: "pending working-set tool", ToolIDs: []string{pendingToolName}})
 	requiredEvidenceGroup, evidenceAlternativesGroup := outcomeContractEvidenceGroups(toolSet, outcomeContract)
 	selectedSkillGroup := filterGroupTools(toolSet, toolExposureGroup{Name: "selected skills", ToolIDs: selectedSkillToolNames(instructionBundle)})
@@ -325,4 +325,22 @@ func visibleContextMaterialLooksLikeImage(material VisibleContextMaterial) bool 
 		strings.HasSuffix(filename, ".jpeg") ||
 		strings.HasSuffix(filename, ".gif") ||
 		strings.HasSuffix(filename, ".webp")
+}
+
+func firstPendingRequiredToolName(requiredNextToolNames []string, observations []turnObservation) string {
+	nextToolIndex := 0
+	requiredNextToolNames = appendUniqueStrings(requiredNextToolNames)
+	for _, observation := range observations {
+		if nextToolIndex >= len(requiredNextToolNames) {
+			break
+		}
+		if observation.Failed() || strings.TrimSpace(observation.Tool) != requiredNextToolNames[nextToolIndex] {
+			continue
+		}
+		nextToolIndex++
+	}
+	if nextToolIndex < len(requiredNextToolNames) {
+		return requiredNextToolNames[nextToolIndex]
+	}
+	return ""
 }

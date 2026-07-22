@@ -2322,9 +2322,6 @@ func (languageModel *sequenceLanguageModel) nextTextResponse(prompt string) stri
 }
 
 func (languageModel *sequenceLanguageModel) GenerateStructuredResponse(_ context.Context, request llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
-	if request.StructuredOutputSchema.Name == operationContractSchemaName {
-		return llm.StructuredResponse{Content: operationContractTestDocument(request.StructuredOutputSchema.Document)}, nil
-	}
 	if request.StructuredOutputSchema.Name == "blueclaw_contract_skill_arbitration" {
 		return llm.StructuredResponse{Content: contractSkillArbitrationTestDocument(request.StructuredOutputSchema.Document)}, nil
 	}

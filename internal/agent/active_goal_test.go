@@ -1,7 +1,6 @@
 package agent
 
 import (
-	"encoding/json"
 	"testing"
 )
 
@@ -23,16 +22,6 @@ func TestNormalizePersistedActiveGoalMigratesLegacyToolNames(t *testing.T) {
 				Effect:             "published",
 				SuggestedNextTools: []string{"site.promote"},
 			}},
-			OperationContract: &OperationContract{
-				Version: 1,
-				Requirements: []OperationRequirement{{
-					RequirementID: "operation-1",
-					ToolID:        "capabilityd:site.publish",
-					ToolName:      "site.promote",
-					InputMode:     OperationInputNoExplicitValues,
-					RequiredInput: json.RawMessage(`{}`),
-				}},
-			},
 		},
 	}
 
@@ -45,9 +34,6 @@ func TestNormalizePersistedActiveGoalMigratesLegacyToolNames(t *testing.T) {
 	assertSameStrings(t, normalizedGoal.OutcomeContract.SelectedEvidenceHints, []string{"site.publish"})
 	assertSameStrings(t, normalizedGoal.OutcomeContract.ExpectedResults[0].AcceptanceHints, []string{AskInputToolName})
 	assertSameStrings(t, normalizedGoal.OutcomeContract.RequiredEffects[0].SuggestedNextTools, []string{"site.publish"})
-	if normalizedGoal.OutcomeContract.OperationContract.Requirements[0].ToolName != "site.publish" {
-		t.Fatalf("expected persisted operation tool name to migrate, got %+v", normalizedGoal.OutcomeContract.OperationContract.Requirements[0])
-	}
 }
 
 func TestNormalizePersistedActiveGoalDoesNotMutateSource(t *testing.T) {
@@ -56,9 +42,6 @@ func TestNormalizePersistedActiveGoalDoesNotMutateSource(t *testing.T) {
 		SelectedToolNames: []string{"file.attach"},
 		OutcomeContract: OutcomeContract{
 			RequiredEvidenceTools: []string{"site.promote"},
-			OperationContract: &OperationContract{Requirements: []OperationRequirement{{
-				ToolName: "terminal.session",
-			}}},
 		},
 	}
 
@@ -67,9 +50,6 @@ func TestNormalizePersistedActiveGoalDoesNotMutateSource(t *testing.T) {
 	assertSameStrings(t, activeGoal.RequiredNextTools, []string{"site.promote"})
 	assertSameStrings(t, activeGoal.SelectedToolNames, []string{"file.attach"})
 	assertSameStrings(t, activeGoal.OutcomeContract.RequiredEvidenceTools, []string{"site.promote"})
-	if activeGoal.OutcomeContract.OperationContract.Requirements[0].ToolName != "terminal.session" {
-		t.Fatalf("expected source operation contract to remain unchanged, got %+v", activeGoal.OutcomeContract.OperationContract)
-	}
 }
 
 func TestNormalizeOutcomeContractRequiresDeliveryForRequiredFileResult(t *testing.T) {
