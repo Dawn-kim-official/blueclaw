@@ -403,7 +403,7 @@ func optionalSiteControlFileSuffixes() []string {
 
 func recommendedSiteControlWritePath(path string) string {
 	cleanPath := strings.Trim(filepath.ToSlash(strings.TrimSpace(path)), "/")
-	for _, prefix := range []string{"home/sites/", "workspace/circles/staff/sites/"} {
+	for _, prefix := range []string{"~/sites/", "home/sites/", "workspace/circles/staff/sites/"} {
 		if recommendedPath := recommendedSiteControlWritePathForPrefix(cleanPath, prefix); recommendedPath != "" {
 			return recommendedPath
 		}
