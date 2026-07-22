@@ -72,7 +72,7 @@ func registerMemoryTools(toolCatalogBuilder *ToolCatalogBuilder, toolRegistry *a
 	agent.RegisterToolFunction(toolRegistry, agent.ToolFunction[memoryRememberToolInput, agent.ToolResult]{
 		Definition: agent.ToolDefinition{
 			Name:        "memory.remember",
-			Description: "Store one durable fact, preference, or relationship for the current person or active circle; nothing is remembered unless this tool is called. Keep content a single compact standalone fact. Do not store secrets, one-off requests, transient task details, or small talk.",
+			Description: "Store one durable fact, preference, or relationship for the current person or active circle; nothing is remembered unless this tool is called. This is the assistant's private recall only: nothing becomes visible in any conversation. When the user asks to leave a note or message people can see, send a message instead. Keep content a single compact standalone fact. Do not store secrets, one-off requests, transient task details, or small talk.",
 			InputSchema: memoryRememberInputSchema,
 		},
 		Handler: func(toolContext context.Context, input memoryRememberToolInput) (agent.ToolResult, error) {
