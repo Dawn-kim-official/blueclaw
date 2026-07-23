@@ -116,13 +116,6 @@ func normalizedWorkspaceDirectoryPath(value string) string {
 	if trimmedPath == "" {
 		return "tmp"
 	}
-	cleanPath := filepath.Clean(trimmedPath)
-	if cleanPath == "/tmp" {
-		return "tmp"
-	}
-	if strings.HasPrefix(cleanPath, "/tmp/") {
-		return filepath.ToSlash(filepath.Join("tmp", strings.TrimPrefix(cleanPath, "/tmp/")))
-	}
 	return trimmedPath
 }
 

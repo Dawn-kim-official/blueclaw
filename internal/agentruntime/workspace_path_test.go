@@ -88,7 +88,7 @@ func TestWorkspacePathResolverExpandsHomeTildeToRequesterPrivateRoot(t *testing.
 	}
 }
 
-func TestWorkspacePathResolverMapsTemporaryDirectoryToRequesterDraft(t *testing.T) {
+func TestWorkspacePathResolverKeepsRealTemporaryDirectoryPaths(t *testing.T) {
 	workspacePath := t.TempDir()
 	resolver := NewWorkspacePathResolver(workspacePath)
 	scope := WorkspaceScopeForRequest(workspacePath, ToolCatalogRequest{RequesterPersonID: "person-1"}, "task-1")
@@ -96,12 +96,15 @@ func TestWorkspacePathResolverMapsTemporaryDirectoryToRequesterDraft(t *testing.
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
-	expectedConcretePath := filepath.Join(workspacePath, "private", "people", "person-1", "tmp", "capability")
-	if resolvedPath.ConcretePath != expectedConcretePath {
-		t.Fatalf("unexpected concrete path: %+v", resolvedPath)
+	if resolvedPath.ConcretePath != "/tmp/capability" {
+		t.Fatalf("expected the real /tmp path to resolve as-is, got %+v", resolvedPath)
 	}
-	if resolvedPath.VirtualPath != "tmp/capability" {
-		t.Fatalf("unexpected virtual path: %+v", resolvedPath)
+	defaultPath, errorValue := resolver.ResolveDirectory("", scope)
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if defaultPath.ConcretePath != filepath.Join(workspacePath, "private", "people", "person-1", "tmp") {
+		t.Fatalf("expected the empty directory default to stay the requester tmp, got %+v", defaultPath)
 	}
 }
 
