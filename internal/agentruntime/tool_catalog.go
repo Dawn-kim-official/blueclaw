@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"blueclaw/internal/access"
 	"blueclaw/internal/agent"
@@ -51,6 +52,9 @@ type ToolCatalogBuilder struct {
 	liveSnapshotMutex            sync.Mutex
 	liveSnapshotDescriptors      []CapabilityToolDescriptor
 	liveSnapshotHash             string
+	companionStatusMutex         sync.Mutex
+	companionStatusValue         string
+	companionStatusCheckedAt     time.Time
 }
 
 type toolHandlerContext struct {

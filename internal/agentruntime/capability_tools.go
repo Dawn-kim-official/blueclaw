@@ -48,7 +48,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerCapabilityTools(toolRegist
 	provider := capabilityToolProvider{
 		toolCatalogBuilder: toolCatalogBuilder,
 		request:            request,
-		descriptors:        toolCatalogBuilder.capabilityToolDefinitions(),
+		descriptors:        toolCatalogBuilder.reachableCapabilityToolDefinitions(),
 	}
 	quarantinedProviders, errorValue := toolRegistry.RegisterProviders(context.Background(), []agent.ToolProviderRegistration{{
 		Provider: provider,
