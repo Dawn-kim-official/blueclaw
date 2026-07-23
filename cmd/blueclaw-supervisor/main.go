@@ -98,7 +98,14 @@ func main() {
 	case <-time.After(200 * time.Millisecond):
 	}
 
-	<-interruptContext.Done()
+	select {
+	case <-supervisorService.GuestExited(guestInstance):
+		stopProxy()
+		stopListenerProxies()
+		_ = supervisorService.StopGuest(guestInstance)
+		log.Fatal("guest exited after becoming healthy; restarting the supervisor")
+	case <-interruptContext.Done():
+	}
 	prepareGuestShutdown(runtimeConfiguration.Firecracker.HostHTTPListenAddress)
 	stopProxy()
 	stopListenerProxies()
