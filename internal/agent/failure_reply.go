@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strconv"
 	"strings"
 
 	"blueclaw/internal/llm"
@@ -270,8 +271,13 @@ func requestRequiresFileAttachment(request AgentTurnRequest) bool {
 	return evidenceAnyOfContainsTool(request.OutcomeContract.RequiredEvidenceAnyOf, FileDeliverToolName)
 }
 
+const limitObservationSummaryLineBytes = 600
+const limitObservationSummaryTotalBytes = 4000
+
 func buildLimitObservationSummary(observations []turnObservation) string {
 	lines := []string{}
+	usedBytes := 0
+	droppedCount := 0
 	for _, observation := range observations {
 		if observation.Failed() {
 			continue
@@ -287,11 +293,16 @@ func buildLimitObservationSummary(observations []turnObservation) string {
 		if label == "" {
 			label = strings.TrimSpace(observation.Action)
 		}
-		lines = append(lines, "- "+label+": "+summary)
-		if len(lines) >= 8 {
-			lines = append(lines, "…and further successful observations not shown here.")
-			break
+		line := "- " + label + ": " + truncateForLedger(summary, limitObservationSummaryLineBytes)
+		if usedBytes+len(line) > limitObservationSummaryTotalBytes {
+			droppedCount++
+			continue
 		}
+		lines = append(lines, line)
+		usedBytes += len(line)
+	}
+	if droppedCount > 0 {
+		lines = append(lines, "…and "+strconv.Itoa(droppedCount)+" more successful observations not shown here.")
 	}
 	return strings.Join(lines, "\n")
 }
