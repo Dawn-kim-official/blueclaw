@@ -1114,7 +1114,7 @@ const messageToolDefinitions: CapabilityToolDefinition[] = [
     namespace: 'message',
     privacyClass: 'platform_message',
     policyResource: 'tool:message.delete',
-    description: 'Permanently delete exact Mattermost message IDs from message.search after approval.',
+    description: 'Permanently delete exact Mattermost message IDs from message.search after approval. List only the exact messages the user asked to remove; when several search matches quote or mention the same text, pick the one message that is the target itself, never the whole match list.',
     version: '2',
     estimatedLatency: CapabilityEstimatedLatency.Medium,
     inputSchema: messageDeleteInputSchema,
