@@ -271,8 +271,8 @@ func requestRequiresFileAttachment(request AgentTurnRequest) bool {
 	return evidenceAnyOfContainsTool(request.OutcomeContract.RequiredEvidenceAnyOf, FileDeliverToolName)
 }
 
-const limitObservationSummaryLineBytes = 600
-const limitObservationSummaryTotalBytes = 4000
+const limitObservationSummaryLineBytes = 2000
+const limitObservationSummaryTotalBytes = 20000
 
 func buildLimitObservationSummary(observations []turnObservation) string {
 	lines := []string{}
