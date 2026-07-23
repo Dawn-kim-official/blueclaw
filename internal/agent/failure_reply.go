@@ -289,6 +289,7 @@ func buildLimitObservationSummary(observations []turnObservation) string {
 		}
 		lines = append(lines, "- "+label+": "+summary)
 		if len(lines) >= 8 {
+			lines = append(lines, "…and further successful observations not shown here.")
 			break
 		}
 	}

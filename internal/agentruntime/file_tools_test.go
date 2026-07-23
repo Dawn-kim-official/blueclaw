@@ -1743,3 +1743,12 @@ func TestFileEditMatchFailureGuidanceSuggestsClosestLines(t *testing.T) {
 		t.Fatalf("edit-failure guidance must not nudge a full rewrite, got %q", guidance)
 	}
 }
+
+func TestFileEditMatchFailureGuidanceAnchorsOnDistinctiveLineNotDelimiters(t *testing.T) {
+	content := "---\nversion: alpha\nname: \"브릿지웍스 상담 안내\"\ncolors:\n  primary: \"#111111\"\n---\nbody text\n"
+	oldText := "---\nversion: alpha\nname: \"브릿지웍스 소상공인 상담 안내\"\ncolors:\n"
+	guidance := fileEditMatchFailureGuidance(content, oldText, 0)
+	if !strings.Contains(guidance, "name: \"브릿지웍스 상담 안내\"") || !strings.Contains(guidance, "colors:") {
+		t.Fatalf("expected a copyable context window around the distinctive line, got %q", guidance)
+	}
+}

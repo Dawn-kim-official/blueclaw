@@ -8,7 +8,6 @@ import (
 	"errors"
 	"mime"
 	"path/filepath"
-	"sort"
 	"strconv"
 	"strings"
 	"unicode/utf8"
@@ -1344,41 +1343,46 @@ func fileEditMatchFailureGuidance(content string, oldText string, matchCount int
 }
 
 func closestFileLines(content string, oldText string) string {
-	target := ""
-	for _, line := range strings.Split(oldText, "\n") {
-		if strings.TrimSpace(line) != "" {
-			target = strings.TrimSpace(line)
-			break
-		}
-	}
+	target := mostDistinctiveLine(oldText)
 	if target == "" {
 		return ""
 	}
-	type scoredLine struct {
-		line  string
-		score float64
-	}
-	scored := []scoredLine{}
-	for _, line := range strings.Split(content, "\n") {
+	contentLines := strings.Split(content, "\n")
+	bestIndex := -1
+	bestScore := 0.0
+	for index, line := range contentLines {
 		trimmed := strings.TrimSpace(line)
 		if trimmed == "" {
 			continue
 		}
-		if score := lineSimilarity(trimmed, target); score >= 0.6 {
-			scored = append(scored, scoredLine{line: line, score: score})
+		if score := lineSimilarity(trimmed, target); score >= 0.6 && score > bestScore {
+			bestScore = score
+			bestIndex = index
 		}
 	}
-	sort.SliceStable(scored, func(first int, second int) bool {
-		return scored[first].score > scored[second].score
-	})
-	closest := []string{}
-	for _, candidate := range scored {
-		closest = append(closest, candidate.line)
-		if len(closest) == 3 {
-			break
+	if bestIndex == -1 {
+		return ""
+	}
+	windowStart := bestIndex - 2
+	if windowStart < 0 {
+		windowStart = 0
+	}
+	windowEnd := bestIndex + 4
+	if windowEnd > len(contentLines) {
+		windowEnd = len(contentLines)
+	}
+	return strings.Join(contentLines[windowStart:windowEnd], "\n")
+}
+
+func mostDistinctiveLine(oldText string) string {
+	distinctive := ""
+	for _, line := range strings.Split(oldText, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if len(trimmed) > len(distinctive) {
+			distinctive = trimmed
 		}
 	}
-	return strings.Join(closest, "\n")
+	return distinctive
 }
 
 func lineSimilarity(first string, second string) float64 {
