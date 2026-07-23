@@ -169,7 +169,19 @@ func (connectorRuntime *ConnectorRuntime) resumePausedTaskForSteer(
 	launchRequest := connectorRuntime.interruptedTaskLaunchRequest(activeTaskRun, taskEvents, launchContext, event, adapter, userSteerTaskProfile(platform, activeTaskRun.TaskRunID), sendReply)
 	launchResult, errorValue := connectorRuntime.currentTaskLauncher().Launch(ctx, launchRequest)
 	if errorValue != nil {
-		return busyMessageResult{}, errorValue
+		failureTurnResult := connectorRuntime.agentKernel.CompleteLaunchFailure(ctx, agent.AgentTurnRequest{
+			RequesterPersonID: activeTaskRun.RequesterPersonID,
+			ExistingTaskRunID: activeTaskRun.TaskRunID,
+			Platform:          platform,
+			ConversationID:    event.ConversationID,
+			Prompt:            activeTaskRun.Prompt,
+			ResponseLanguage:  event.Context.ResponseLanguage,
+		}, "launch", "steer_resume", errorValue)
+		connectorResult, dispatchError := connectorRuntime.dispatchTaskReply(withConnectorEvent(ctx, event), adapter.Name(), adapter, event, replyTarget, failureTurnResult, "", sendReply)
+		if dispatchError != nil {
+			return busyMessageResult{}, dispatchError
+		}
+		return busyMessageResult{connectorResult: connectorResult, isHandled: true}, nil
 	}
 	connectorResult, errorValue := connectorRuntime.dispatchTaskReply(withConnectorEvent(ctx, event), adapter.Name(), adapter, event, replyTarget, launchResult.TurnResult, "", sendReply)
 	if errorValue != nil {

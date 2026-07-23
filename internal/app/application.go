@@ -60,6 +60,7 @@ type Application struct {
 	logRetentionCancel            context.CancelFunc
 	memoryUpdateCancel            context.CancelFunc
 	taskRetentionCancel           context.CancelFunc
+	staleTaskCancel               context.CancelFunc
 	taskSchedulePoller            *scheduler.TaskSchedulePoller
 	taskRetentionSweeper          *scheduler.TaskRetentionSweeper
 	memoryUpdateQueue             *memory.BackgroundMemoryUpdateQueue
@@ -1278,6 +1279,8 @@ func (application *Application) Start() error {
 	application.startTaskSchedulePoller()
 	application.runtimeLogger.Logger.Info("application.starting", "stage", "task_retention")
 	application.startTaskRetentionSweeper()
+	application.runtimeLogger.Logger.Info("application.starting", "stage", "stale_tasks")
+	application.startStaleTaskSweeper()
 	application.runtimeLogger.Logger.Info("application.starting", "stage", "listen")
 	listener, errorValue := net.Listen("tcp", application.httpServer.Addr)
 	if errorValue != nil {
@@ -1325,6 +1328,9 @@ func (application *Application) Shutdown(ctx context.Context) error {
 	}
 	if application.taskRetentionCancel != nil {
 		application.taskRetentionCancel()
+	}
+	if application.staleTaskCancel != nil {
+		application.staleTaskCancel()
 	}
 	if application.interruptedTaskResumeCancel != nil {
 		application.interruptedTaskResumeCancel()
@@ -1423,6 +1429,20 @@ func (application *Application) startTaskRetentionSweeper() {
 	application.taskRetentionCancel = cancel
 	interval := time.Duration(application.taskRetentionIntervalMinuteOrDefault()) * time.Minute
 	go application.taskRetentionSweeper.Start(ctx, interval)
+}
+
+func (application *Application) startStaleTaskSweeper() {
+	if application.taskRunService == nil || application.staleTaskCancel != nil {
+		return
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	application.staleTaskCancel = cancel
+	sweeper := scheduler.StaleTaskSweeper{
+		TaskRunService: application.taskRunService,
+		Notifier:       application.interruptedTaskResumer,
+		Logger:         application.runtimeLogger.Logger,
+	}
+	go sweeper.Start(ctx, 30*time.Minute)
 }
 
 func (application *Application) startInterruptedTaskAutoResume() {

@@ -509,7 +509,7 @@ func failureNoticeCompletedSummaryInstruction(report FailureReport) string {
 	if report.Phase != "limit" || strings.TrimSpace(report.CompletedSummary) == "" {
 		return ""
 	}
-	return "completedSummary in the compact failure context lists concrete partial findings already gathered before the limit was reached. Your reply must state those concrete findings for the user first; only mention the time/step limit as the reason work stopped. Do not promise automatic follow-up, since this run will not resume on its own."
+	return "completedSummary in the compact failure context lists concrete partial findings already gathered before the limit was reached. Your reply must state those concrete findings for the user first; only mention the time/step limit as the reason work stopped."
 }
 
 func buildFailureNoticePrompt(report FailureReport) string {
@@ -522,6 +522,7 @@ func buildFailureNoticePrompt(report FailureReport) string {
 		sections = append(sections, completedSummaryInstruction)
 	}
 	sections = append(sections,
+		"Never claim a retry or recovery is currently underway, and never promise the system will follow up on its own: nothing runs after this notice. Work continues only if the user replies or asks again.",
 		"Write one or two natural sentences.",
 		"Keep the notice under 600 Korean characters or an equivalent short length.",
 		"Preserve the safe meaning of the failure, but do not expose provider errors, stack traces, internal service URLs, internal filesystem paths, tokens, or serialized reply status.",
