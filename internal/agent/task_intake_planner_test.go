@@ -534,6 +534,25 @@ func TestTurnRouterNormalizesSideEffectEvidenceIntoExecutableWork(t *testing.T) 
 	}
 }
 
+func TestTurnRouterDropsHTMLFormatWhenSiteToolsAreSuggested(t *testing.T) {
+	languageModel := &sequenceLanguageModel{contents: []string{
+		`{"route":"start_task","classification":"bounded_task","taskShape":"maintenance_task","level":"medium","estimatedMinutes":20,"requestedOutputFormats":["html"],"expectedResults":[],"responseLanguage":"ko","reason":"create the site","userFacingReply":"","initialToolNames":["site.create","file.edit"],"priorTaskReference":"none"}`,
+	}}
+	turnRouter := NewTurnRouter(languageModel, IntakeOptions{IsEnabled: true})
+
+	decision, errorValue := turnRouter.Plan(context.Background(), AgentRequest{
+		Prompt:  "상담 안내 웹사이트를 초안으로 만들어줘",
+		ToolSet: newTestCapabilityToolSet([]string{"site.create", "file.edit"}),
+	})
+
+	if errorValue != nil {
+		t.Fatalf("expected normalized site decision: %v", errorValue)
+	}
+	if len(decision.RequestedOutputFormats) != 0 {
+		t.Fatalf("expected the site deliverable to drop the html file format, got %+v", decision.RequestedOutputFormats)
+	}
+}
+
 func TestTurnRouterKeepsReadOnlyEvidenceAsQuickReply(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		`{"route":"answer_question","classification":"quick_reply","taskShape":"immediate_reply","level":"low","estimatedMinutes":1,"requestedOutputFormats":[],"expectedResults":[],"responseLanguage":"ko","reason":"list tasks","userFacingReply":"","initialToolNames":["task.list"],"priorTaskReference":"none"}`,
