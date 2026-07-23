@@ -171,6 +171,10 @@ func TestCurrentThreadSendSkipsRuntimeApproval(t *testing.T) {
 	if toolCallRequiresRuntimeApproval(toolSet, currentThreadCall) {
 		t.Fatal("expected a current-thread send to run without approval, like a reply")
 	}
+	currentChannelCall := turnActionDocument{ToolName: "message.send", ToolInput: json.RawMessage(`{"targetType":"currentChannel","message":"메모"}`)}
+	if toolCallRequiresRuntimeApproval(toolSet, currentChannelCall) {
+		t.Fatal("expected a current-channel send to run without approval, like a reply")
+	}
 	directMessageCall := turnActionDocument{ToolName: "message.send", ToolInput: json.RawMessage(`{"targetType":"directMessage","personHint":"테스트","message":"안내"}`)}
 	if !toolCallRequiresRuntimeApproval(toolSet, directMessageCall) {
 		t.Fatal("expected an external send to keep requiring approval")
