@@ -529,8 +529,8 @@ func TestApplicationChecksProtocolIdentityOnceAndStoresResult(t *testing.T) {
 	if errorValue := application.checkProtocolIdentity(); errorValue != nil {
 		t.Fatalf("expected repeated protocol identity check to reuse result: %v", errorValue)
 	}
-	if requestCount != 2 {
-		t.Fatalf("expected one capabilityd and one LLMD request, got %d", requestCount)
+	if requestCount != 3 {
+		t.Fatalf("expected one companion-status seed, one capabilityd, and one LLMD request, got %d", requestCount)
 	}
 	if !application.protocolIdentityStatus.Passed {
 		t.Fatalf("expected stored protocol identity result to pass: %+v", application.protocolIdentityStatus)

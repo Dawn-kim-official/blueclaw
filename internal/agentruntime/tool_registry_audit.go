@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"blueclaw/internal/agent"
 )
@@ -53,6 +54,7 @@ type ToolRegistryAudit struct {
 }
 
 type capabilityRegistryResponse struct {
+	CompanionStatus    string                         `json:"companionStatus"`
 	DeviceCapabilities []capabilityRegistryDescriptor `json:"deviceCapabilities"`
 }
 
@@ -155,6 +157,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) liveCapabilityToolDescriptors(ctx 
 	if errorValue := toolCatalogBuilder.capabilityClient.GetJSON(ctx, "/v1/capabilities", &response); errorValue != nil {
 		return nil, "", errorValue
 	}
+	toolCatalogBuilder.UseCompanionStatus(response.CompanionStatus)
 	toolDescriptors := []CapabilityToolDescriptor{}
 	for _, descriptor := range response.DeviceCapabilities {
 		toolName := strings.TrimSpace(descriptor.Name)
@@ -282,6 +285,46 @@ func registryContainsString(values []string, expected string) bool {
 		}
 	}
 	return false
+}
+
+func (toolCatalogBuilder *ToolCatalogBuilder) reachableCapabilityToolDefinitions() []CapabilityToolDescriptor {
+	descriptors := toolCatalogBuilder.capabilityToolDefinitions()
+	if !containsBrowserDescriptor(descriptors) || toolCatalogBuilder.companionBrowserAvailable() {
+		return descriptors
+	}
+	reachableDescriptors := []CapabilityToolDescriptor{}
+	for _, descriptor := range descriptors {
+		if strings.HasPrefix(strings.TrimSpace(descriptor.Name), "browser.") {
+			continue
+		}
+		reachableDescriptors = append(reachableDescriptors, descriptor)
+	}
+	return reachableDescriptors
+}
+
+func containsBrowserDescriptor(descriptors []CapabilityToolDescriptor) bool {
+	for _, descriptor := range descriptors {
+		if strings.HasPrefix(strings.TrimSpace(descriptor.Name), "browser.") {
+			return true
+		}
+	}
+	return false
+}
+
+func (toolCatalogBuilder *ToolCatalogBuilder) companionBrowserAvailable() bool {
+	toolCatalogBuilder.companionStatusMutex.Lock()
+	defer toolCatalogBuilder.companionStatusMutex.Unlock()
+	if toolCatalogBuilder.companionStatusValue == "" {
+		return true
+	}
+	return toolCatalogBuilder.companionStatusValue == "available"
+}
+
+func (toolCatalogBuilder *ToolCatalogBuilder) UseCompanionStatus(companionStatus string) {
+	toolCatalogBuilder.companionStatusMutex.Lock()
+	defer toolCatalogBuilder.companionStatusMutex.Unlock()
+	toolCatalogBuilder.companionStatusValue = strings.TrimSpace(companionStatus)
+	toolCatalogBuilder.companionStatusCheckedAt = time.Now()
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) cachedLiveCapabilitySnapshot() ([]CapabilityToolDescriptor, string, bool) {
