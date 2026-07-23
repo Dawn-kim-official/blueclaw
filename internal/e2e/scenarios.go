@@ -1279,8 +1279,9 @@ func AskChoiceReplyAcceptanceScenario(artifactDirectoryPath string) VirtualSessi
 			ActionResponses: []string{
 				actionFinishMessage("두 번째로 진행하겠습니다."),
 			},
-			ExpectedEvents:         []string{"ask.resolved"},
-			ExpectedReplyFragments: []string{"두 번째"},
+			CompletionJudgeResponses: []string{completionJudgeSatisfiedResponse()},
+			ExpectedEvents:           []string{"ask.resolved"},
+			ExpectedReplyFragments:   []string{"두 번째"},
 		}},
 	}
 }
