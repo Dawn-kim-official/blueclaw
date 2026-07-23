@@ -200,6 +200,44 @@ func instructionBundleWithPinnedSkills(instructionBundle InstructionBundle, requ
 	return instructionBundle
 }
 
+func instructionBundleWithToolOwningSkills(instructionBundle InstructionBundle, request AgentRequest, suggestedToolNames []string) InstructionBundle {
+	if len(suggestedToolNames) == 0 {
+		return instructionBundle
+	}
+	selectedSkillName := selectedSkillNames(instructionBundle.SkillDecisions)
+	owningSkillInstructions := []SkillInstruction{}
+	for _, skillInstruction := range instructionBundle.Skills {
+		if selectedSkillName[skillInstruction.Name] {
+			continue
+		}
+		owningToolName := firstOwnedSuggestedToolName(skillInstruction, suggestedToolNames)
+		if owningToolName == "" {
+			continue
+		}
+		owningSkillInstructions = append(owningSkillInstructions, skillInstruction)
+		instructionBundle.SkillDecisions = append(instructionBundle.SkillDecisions, selectedSkillDecision(skillInstruction, normalizedAgentProfileName(request.ProfileName), "owns_suggested_tool "+owningToolName))
+		instructionBundle.Sources = append(instructionBundle.Sources, skillInstruction.Source)
+		selectedSkillName[skillInstruction.Name] = true
+	}
+	if len(owningSkillInstructions) == 0 {
+		return instructionBundle
+	}
+	instructionBundle.Prompt = strings.Join(nonEmptyStrings([]string{
+		instructionBundle.Prompt,
+		buildSelectedSkillInstructionPrompt(owningSkillInstructions),
+	}), "\n\n")
+	return instructionBundle
+}
+
+func firstOwnedSuggestedToolName(skillInstruction SkillInstruction, suggestedToolNames []string) string {
+	for _, toolName := range SkillToolNames(skillInstruction) {
+		if stringSliceContains(suggestedToolNames, toolName) {
+			return toolName
+		}
+	}
+	return ""
+}
+
 func shouldSkipArtifactSkillForNonArtifactRequest(skillInstruction SkillInstruction, skillCandidate SkillCandidate, request AgentRequest) bool {
 	if skillCandidate.Reason == "direct_skill_name" || strings.TrimSpace(skillCandidate.Name) == "" {
 		return false

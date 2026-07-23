@@ -567,7 +567,9 @@ func (agentKernel *AgentKernel) selectInstructionBundleForResolvedRequest(ctx co
 		agentKernel.skillRetriever,
 		NewSkillSearchQueryRouter(agentKernel.classificationLanguageModel()),
 	)
-	return instructionBundleWithPinnedSkills(instructionBundle, selectionRequest), intakeDecision
+	instructionBundle = instructionBundleWithPinnedSkills(instructionBundle, selectionRequest)
+	instructionBundle = instructionBundleWithToolOwningSkills(instructionBundle, selectionRequest, intakeDecision.InitialToolNames)
+	return instructionBundle, intakeDecision
 }
 
 func (agentKernel *AgentKernel) completeConsumedRequest(request AgentRequest, decision TurnDecision, routerCallRecords []llmCallRecord) (AgentTurnResult, error) {
