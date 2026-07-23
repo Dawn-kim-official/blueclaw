@@ -117,11 +117,11 @@ func TestCompletionJudgeLedgerTruncatesInputAndResult(t *testing.T) {
 	if len(ledger) != 1 {
 		t.Fatalf("expected one ledger entry, got %+v", ledger)
 	}
-	if len(ledger[0].Input) != completionJudgeInputMaxLength {
-		t.Fatalf("expected truncated input length %d, got %d", completionJudgeInputMaxLength, len(ledger[0].Input))
+	if !strings.HasPrefix(ledger[0].Input, `{"note":"aaa`) || !strings.Contains(ledger[0].Input, "…[display truncated; full ") {
+		t.Fatalf("expected truncated input with an explicit display marker, got %q", ledger[0].Input[len(ledger[0].Input)-80:])
 	}
-	if len(ledger[0].Result) != completionJudgeResultMaxLength {
-		t.Fatalf("expected truncated result length %d, got %d", completionJudgeResultMaxLength, len(ledger[0].Result))
+	if !strings.Contains(ledger[0].Result, "…[display truncated; full ") {
+		t.Fatalf("expected truncated result with an explicit display marker, got %q", ledger[0].Result)
 	}
 }
 
