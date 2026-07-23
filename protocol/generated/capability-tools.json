@@ -4589,7 +4589,7 @@
       "policyResource": "tool:site.delete",
       "privacyClass": "workspace_site",
       "requiresApproval": true,
-      "requiresUserPresence": true,
+      "requiresUserPresence": false,
       "resultContract": {
         "effects": [
           {

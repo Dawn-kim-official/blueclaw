@@ -1268,7 +1268,6 @@ const siteToolDefinitions: CapabilityToolDefinition[] = [
     },
     sideEffect: CapabilitySideEffect.Destructive,
     requiresApproval: true,
-    requiresUserPresence: true,
     completionEvidence: { mode: 'success', action: 'delete_site', targetKind: 'site' },
   },
 ];
