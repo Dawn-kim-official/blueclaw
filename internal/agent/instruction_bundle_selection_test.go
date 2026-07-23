@@ -86,3 +86,23 @@ func TestContractEvidenceRejectsReadWhenNextToolChangesState(t *testing.T) {
 		t.Fatalf("expected next tools to remain separate from evidence, got evidence=%v next=%v", result, nextTools)
 	}
 }
+
+func TestInstructionBundleWithToolOwningSkillsSelectsMissedOwner(t *testing.T) {
+	instructionBundle := InstructionBundle{
+		Skills: []SkillInstruction{
+			{Name: "web-search", ToolReferences: []string{"web.search"}},
+			{Name: "website", ToolReferences: []string{"site.create", "site.preview"}},
+		},
+		SkillDecisions: []SkillSelectionDecision{{Name: "web-search", Status: "selected", Reason: "embedding_similarity"}},
+	}
+
+	amendedBundle := instructionBundleWithToolOwningSkills(instructionBundle, AgentRequest{}, []string{"site.create", "file.edit"})
+
+	if !selectedSkillNames(amendedBundle.SkillDecisions)["website"] {
+		t.Fatalf("expected the skill owning a suggested tool to be selected, got %+v", amendedBundle.SkillDecisions)
+	}
+	unchangedBundle := instructionBundleWithToolOwningSkills(instructionBundle, AgentRequest{}, []string{"web.search"})
+	if selectedSkillNames(unchangedBundle.SkillDecisions)["website"] {
+		t.Fatalf("expected no owner selection without a suggested tool match, got %+v", unchangedBundle.SkillDecisions)
+	}
+}
