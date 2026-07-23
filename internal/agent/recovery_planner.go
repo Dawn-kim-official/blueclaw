@@ -212,10 +212,6 @@ func recoveryPreconditionSatisfied(precondition string, failedObservation turnOb
 			if observation.Tool == "file.write" || observation.Tool == "file.edit" {
 				return true
 			}
-		case "workspace_repaired":
-			if observation.Tool == "site.repair" || observation.Tool == "site.status" {
-				return true
-			}
 		case "dependency_changed":
 			if observation.Tool == "terminal.run" && observation.ToolInputKey != failedObservation.ToolInputKey {
 				return true
@@ -228,8 +224,6 @@ func recoveryPreconditionSatisfied(precondition string, failedObservation turnOb
 			if observation.Tool == "file.read" || observation.Tool == "site.status" {
 				return true
 			}
-		default:
-			return true
 		}
 	}
 	return false

@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"blueclaw/internal/access"
 	"blueclaw/internal/agent"
@@ -28,27 +29,32 @@ type AttachmentMaterialResolver interface {
 }
 
 type ToolCatalogBuilder struct {
-	allowedToolNamesByProfile      map[string][]string
-	fallbackAllowedToolNames       []string
-	memoryService                  *memory.MemoryService
-	pinnedMemoryStore              *memory.MarkdownStore
-	memoryUpdateQueue              memory.MemoryUpdateEnqueuer
-	mcpRegistry                    *mcp.McpRegistry
-	capabilityClient               capability.Client
-	capabilityToolNames            []string
-	capabilityToolDescriptors      []CapabilityToolDescriptor
-	liveCapabilityInputSchema      map[string]json.RawMessage
-	liveCapabilityInputSchemaMutex sync.RWMutex
-	terminalService                *security.TerminalSessionService
-	workspaceActorFactory          security.WorkspaceActorFactory
-	taskRunService                 *task.TaskRunService
-	taskArtifactService            *task.TaskArtifactService
-	taskScheduleRepository         task.TaskScheduleRepository
-	taskWaitTokenRepository        task.TaskWaitTokenRepository
-	workspaceRootPath              string
-	skillChangeHandler             func(context.Context)
-	skillRetriever                 agent.SkillRetriever
-	instructionBundleLoader        func() agent.InstructionBundle
+	allowedToolNamesByProfile    map[string][]string
+	defaultAllowedToolNames      []string
+	memoryService                *memory.MemoryService
+	pinnedMemoryStore            *memory.MarkdownStore
+	memoryUpdateQueue            memory.MemoryUpdateEnqueuer
+	mcpRegistry                  *mcp.McpRegistry
+	capabilityClient             capability.Client
+	capabilityToolDescriptors    []CapabilityToolDescriptor
+	terminalService              *security.TerminalSessionService
+	workspaceActorFactory        security.WorkspaceActorFactory
+	taskRunService               *task.TaskRunService
+	taskArtifactService          *task.TaskArtifactService
+	taskScheduleRepository       task.TaskScheduleRepository
+	taskWaitTokenRepository      task.TaskWaitTokenRepository
+	workspaceRootPath            string
+	skillChangeHandler           func(context.Context)
+	skillRetriever               agent.SkillRetriever
+	instructionBundleLoader      func() agent.InstructionBundle
+	mcpQuarantineReporter        func(agent.QuarantinedToolProvider)
+	capabilityQuarantineReporter func(agent.QuarantinedToolProvider)
+	liveSnapshotMutex            sync.Mutex
+	liveSnapshotDescriptors      []CapabilityToolDescriptor
+	liveSnapshotHash             string
+	companionStatusMutex         sync.Mutex
+	companionStatusValue         string
+	companionStatusCheckedAt     time.Time
 }
 
 type toolHandlerContext struct {
@@ -86,19 +92,65 @@ type ToolCatalogRequest struct {
 }
 
 type CapabilityToolDescriptor struct {
-	Name             string
-	Description      string
-	InputSchema      json.RawMessage
-	OutputSchema     json.RawMessage
-	PolicyResource   string
-	SideEffectClass  string
-	RequiresApproval bool
+	Name                 string
+	CanonicalName        string
+	Namespace            string
+	ModelName            string
+	ModelVisibility      string
+	Description          string
+	PrivacyClass         string
+	RequiresUserPresence bool
+	WorksOffline         bool
+	InputSchema          json.RawMessage
+	InputIntentSchema    json.RawMessage
+	OutputSchema         json.RawMessage
+	ResultContract       *CapabilityToolResultContract
+	PolicyResource       string
+	SideEffectClass      string
+	RequiresApproval     bool
+	CompletionEvidence   *CapabilityCompletionEvidence
+	Availability         CapabilityAvailability
+	Idempotency          CapabilityIdempotency
+}
+
+type CapabilityToolResultContract struct {
+	Schema            json.RawMessage                    `json:"schema"`
+	Effects           []CapabilityResourceEffectContract `json:"effects,omitempty"`
+	EvidenceCondition *CapabilityEvidenceCondition       `json:"evidenceCondition,omitempty"`
+}
+
+type CapabilityEvidenceCondition struct {
+	ResultField string          `json:"resultField"`
+	Equals      json.RawMessage `json:"equals"`
+}
+
+type CapabilityResourceEffectContract struct {
+	ObjectType     string `json:"objectType"`
+	Effect         string `json:"effect"`
+	ResultField    string `json:"resultField"`
+	EffectIdentity string `json:"effectIdentity"`
+}
+
+type CapabilityCompletionEvidence struct {
+	Mode       string
+	Action     string
+	TargetKind string
+}
+
+type CapabilityAvailability struct {
+	State  string
+	Reason string
+}
+
+type CapabilityIdempotency struct {
+	Supported bool
+	Required  bool
+	Scope     string
 }
 
 type historyToolInput struct {
 	HistoryCursor string `json:"historyCursor"`
 	Limit         int    `json:"limit"`
-	Direction     string `json:"direction"`
 }
 
 func NewToolCatalogBuilder() *ToolCatalogBuilder {
@@ -107,9 +159,9 @@ func NewToolCatalogBuilder() *ToolCatalogBuilder {
 	}
 }
 
-func (toolCatalogBuilder *ToolCatalogBuilder) UseAllowedToolNamesByProfile(allowedToolNamesByProfile map[string][]string, fallbackAllowedToolNames []string) {
+func (toolCatalogBuilder *ToolCatalogBuilder) UseAllowedToolNamesByProfile(allowedToolNamesByProfile map[string][]string, defaultAllowedToolNames []string) {
 	toolCatalogBuilder.allowedToolNamesByProfile = copyAllowedToolNamesByProfile(allowedToolNamesByProfile)
-	toolCatalogBuilder.fallbackAllowedToolNames = trimNonEmptyStrings(fallbackAllowedToolNames)
+	toolCatalogBuilder.defaultAllowedToolNames = trimNonEmptyStrings(defaultAllowedToolNames)
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) UseMemoryService(memoryService *memory.MemoryService) {
@@ -128,55 +180,17 @@ func (toolCatalogBuilder *ToolCatalogBuilder) UseMCPRegistry(mcpRegistry *mcp.Mc
 	toolCatalogBuilder.mcpRegistry = mcpRegistry
 }
 
-func (toolCatalogBuilder *ToolCatalogBuilder) UseCapabilityTools(capabilityClient capability.Client, toolNames []string) {
-	toolCatalogBuilder.capabilityClient = capabilityClient
-	toolCatalogBuilder.capabilityToolNames = trimNonEmptyStrings(toolNames)
+func (toolCatalogBuilder *ToolCatalogBuilder) UseMCPQuarantineReporter(reporter func(agent.QuarantinedToolProvider)) {
+	toolCatalogBuilder.mcpQuarantineReporter = reporter
+}
+
+func (toolCatalogBuilder *ToolCatalogBuilder) UseCapabilityQuarantineReporter(reporter func(agent.QuarantinedToolProvider)) {
+	toolCatalogBuilder.capabilityQuarantineReporter = reporter
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) UseCapabilityToolDescriptors(capabilityClient capability.Client, toolDescriptors []CapabilityToolDescriptor) {
 	toolCatalogBuilder.capabilityClient = capabilityClient
 	toolCatalogBuilder.capabilityToolDescriptors = copyCapabilityToolDescriptors(toolDescriptors)
-}
-
-func (toolCatalogBuilder *ToolCatalogBuilder) RefreshLiveCapabilityInputSchemas(ctx context.Context) {
-	toolCatalogBuilder.liveCapabilityInputSchemaMutex.RLock()
-	alreadyHealed := len(toolCatalogBuilder.liveCapabilityInputSchema) > 0
-	toolCatalogBuilder.liveCapabilityInputSchemaMutex.RUnlock()
-	if alreadyHealed {
-		return
-	}
-	liveDescriptors, _, errorValue := toolCatalogBuilder.liveCapabilityToolDescriptors(ctx)
-	if errorValue != nil {
-		return
-	}
-	inputSchemaByName := map[string]json.RawMessage{}
-	for _, descriptor := range liveDescriptors {
-		if len(descriptor.InputSchema) > 0 {
-			inputSchemaByName[descriptor.Name] = descriptor.InputSchema
-		}
-	}
-	if len(inputSchemaByName) == 0 {
-		return
-	}
-	toolCatalogBuilder.liveCapabilityInputSchemaMutex.Lock()
-	toolCatalogBuilder.liveCapabilityInputSchema = inputSchemaByName
-	toolCatalogBuilder.liveCapabilityInputSchemaMutex.Unlock()
-}
-
-func (toolCatalogBuilder *ToolCatalogBuilder) overlayLiveCapabilityInputSchemas(toolDescriptors []CapabilityToolDescriptor) {
-	toolCatalogBuilder.liveCapabilityInputSchemaMutex.RLock()
-	defer toolCatalogBuilder.liveCapabilityInputSchemaMutex.RUnlock()
-	if len(toolCatalogBuilder.liveCapabilityInputSchema) == 0 {
-		return
-	}
-	for index := range toolDescriptors {
-		if len(toolDescriptors[index].InputSchema) > 0 {
-			continue
-		}
-		if liveSchema, isFound := toolCatalogBuilder.liveCapabilityInputSchema[toolDescriptors[index].Name]; isFound {
-			toolDescriptors[index].InputSchema = liveSchema
-		}
-	}
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) UseTerminalService(terminalService *security.TerminalSessionService) {
@@ -233,13 +247,10 @@ func (toolCatalogBuilder *ToolCatalogBuilder) BuildToolSet(request ToolCatalogRe
 		request:           request,
 		conversationScope: toolCatalogBuilder.conversationScope(request),
 	}
-	toolCatalogBuilder.registerHistoryTool(toolSet, request)
-	toolCatalogBuilder.registerTaskHistoryTool(toolSet, request)
-	toolCatalogBuilder.registerMemoryTool(toolSet, request)
-	toolCatalogBuilder.registerBuiltInTools(toolSet, handlerContext)
-	toolCatalogBuilder.registerMCPTools(toolSet)
+	toolCatalogBuilder.registerLocalTools(toolSet, request, handlerContext)
+	toolCatalogBuilder.registerKernelTools(toolSet, handlerContext)
 	toolCatalogBuilder.registerCapabilityTools(toolSet, request)
-	toolCatalogBuilder.registerSkillSearchTool(toolSet, handlerContext, toolSet)
+	toolCatalogBuilder.registerMCPTools(toolSet, request)
 	return toolSet
 }
 
@@ -248,8 +259,8 @@ func (toolCatalogBuilder *ToolCatalogBuilder) allowedToolNames(profileName strin
 	if allowedToolNames, isFound := toolCatalogBuilder.allowedToolNamesByProfile[normalizedProfileName]; isFound {
 		return trimNonEmptyStrings(allowedToolNames)
 	}
-	if len(toolCatalogBuilder.fallbackAllowedToolNames) > 0 {
-		return trimNonEmptyStrings(toolCatalogBuilder.fallbackAllowedToolNames)
+	if len(toolCatalogBuilder.defaultAllowedToolNames) > 0 {
+		return trimNonEmptyStrings(toolCatalogBuilder.defaultAllowedToolNames)
 	}
 	return DefaultAllowedToolNames()
 }
@@ -266,6 +277,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerHistoryTool(toolRegistry *
 		Definition: agent.ToolDefinition{
 			Name:        "conversation.history",
 			Description: "Fetch earlier visible messages for this conversation using the opaque history cursor.",
+			InputSchema: conversationHistoryInputSchema,
 		},
 		Handler: func(toolContext context.Context, input historyToolInput) (agent.ToolResult, error) {
 			return fetchHistoryTool(toolContext, input, request)
@@ -291,18 +303,15 @@ func fetchHistoryTool(toolContext context.Context, input historyToolInput, reque
 	if errorValue != nil {
 		return agent.ToolResult{}, errorValue
 	}
-	return agent.ToolSuccess(marshalToolResult(visibleContext)), nil
+	document := json.RawMessage(marshalToolResult(projectConversationHistory(visibleContext)))
+	return agent.ToolSuccessData(string(document), document), nil
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) registerBuiltInTools(toolRegistry *agent.ToolSet, handlerContext toolHandlerContext) {
 	toolCatalogBuilder.registerMathTool(toolRegistry)
-	toolCatalogBuilder.registerTerminalTools(toolRegistry, handlerContext)
-	toolCatalogBuilder.registerBrowserHandoffTool(toolRegistry, handlerContext)
 	toolCatalogBuilder.registerAskInputTool(toolRegistry)
-	toolCatalogBuilder.registerFileTools(toolRegistry, handlerContext)
 	toolCatalogBuilder.registerScheduleTools(toolRegistry, handlerContext)
 	toolCatalogBuilder.registerSkillManagementTools(toolRegistry)
-	toolCatalogBuilder.registerDatabaseTools(toolRegistry, handlerContext)
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) workspaceActorForRequest(toolContext context.Context, request ToolCatalogRequest) (security.WorkspaceActor, *agent.ToolResult) {
@@ -512,7 +521,46 @@ func (toolCatalogBuilder *ToolCatalogBuilder) resolveAgentWorkspaceReferences(va
 	if strings.TrimSpace(value) == "" || toolCatalogBuilder.workspaceRootPath == "/workspace" {
 		return value
 	}
-	return strings.ReplaceAll(value, "/workspace", toolCatalogBuilder.workspaceRootPath)
+	const workspaceReference = "/workspace"
+	var result strings.Builder
+	remainingStart := 0
+	searchStart := 0
+	for {
+		relativeIndex := strings.Index(value[searchStart:], workspaceReference)
+		if relativeIndex < 0 {
+			break
+		}
+		referenceStart := searchStart + relativeIndex
+		referenceEnd := referenceStart + len(workspaceReference)
+		searchStart = referenceEnd
+		if !isWorkspaceReference(value, referenceStart, referenceEnd) {
+			continue
+		}
+		result.WriteString(value[remainingStart:referenceStart])
+		result.WriteString(toolCatalogBuilder.workspaceRootPath)
+		remainingStart = referenceEnd
+	}
+	if remainingStart == 0 {
+		return value
+	}
+	result.WriteString(value[remainingStart:])
+	return result.String()
+}
+
+func isWorkspaceReference(value string, referenceStart int, referenceEnd int) bool {
+	if referenceStart > 0 && isWorkspacePathCharacter(value[referenceStart-1]) {
+		return false
+	}
+	return referenceEnd == len(value) || !isWorkspacePathCharacter(value[referenceEnd])
+}
+
+func isWorkspacePathCharacter(value byte) bool {
+	return value >= 'a' && value <= 'z' ||
+		value >= 'A' && value <= 'Z' ||
+		value >= '0' && value <= '9' ||
+		value == '_' ||
+		value == '-' ||
+		value == '.'
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) resolveAgentWorkspaceEnvironment(environmentVariables map[string]string) map[string]string {
@@ -521,7 +569,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) resolveAgentWorkspaceEnvironment(e
 	}
 	resolvedEnvironmentVariables := map[string]string{}
 	for key, value := range environmentVariables {
-		resolvedEnvironmentVariables[key] = toolCatalogBuilder.resolveAgentWorkspaceReferences(value)
+		resolvedEnvironmentVariables[key] = toolCatalogBuilder.resolveAgentWorkspacePath(value)
 	}
 	return resolvedEnvironmentVariables
 }
@@ -558,6 +606,9 @@ func copyCapabilityToolDescriptors(toolDescriptors []CapabilityToolDescriptor) [
 			continue
 		}
 		toolDescriptor.Name = trimmedName
+		toolDescriptor.InputSchema = append(json.RawMessage{}, toolDescriptor.InputSchema...)
+		toolDescriptor.InputIntentSchema = append(json.RawMessage{}, toolDescriptor.InputIntentSchema...)
+		toolDescriptor.OutputSchema = append(json.RawMessage{}, toolDescriptor.OutputSchema...)
 		copiedToolDescriptors = append(copiedToolDescriptors, toolDescriptor)
 	}
 	return copiedToolDescriptors

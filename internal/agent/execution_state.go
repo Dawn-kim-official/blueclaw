@@ -14,13 +14,51 @@ const terminalObservationTailMaxLines = 20
 const terminalObservationTailMaxCharacters = 2000
 
 type ExecutionState struct {
-	Goal           string   `json:"goal,omitempty"`
-	Workspace      string   `json:"workspace,omitempty"`
-	KnownFacts     []string `json:"knownFacts,omitempty"`
-	TriedAndFailed []string `json:"triedAndFailed,omitempty"`
-	CurrentBlocker string   `json:"currentBlocker,omitempty"`
-	NextPlan       string   `json:"nextPlan,omitempty"`
-	WasCompacted   bool     `json:"wasCompacted,omitempty"`
+	Goal           string     `json:"goal,omitempty"`
+	Workspace      string     `json:"workspace,omitempty"`
+	Steps          []PlanStep `json:"steps,omitempty"`
+	KnownFacts     []string   `json:"knownFacts,omitempty"`
+	TriedAndFailed []string   `json:"triedAndFailed,omitempty"`
+	CurrentBlocker string     `json:"currentBlocker,omitempty"`
+	NextPlan       string     `json:"nextPlan,omitempty"`
+	WasCompacted   bool       `json:"wasCompacted,omitempty"`
+}
+
+type PlanStep struct {
+	Title  string `json:"title"`
+	Status string `json:"status"`
+}
+
+const executionStateMaxPlanSteps = 12
+
+func NormalizePlan(goal string, steps []PlanStep) (string, []PlanStep) {
+	return truncateText(compactWhitespace(goal), 300), normalizePlanSteps(steps)
+}
+
+var planStepStatuses = map[string]bool{
+	"pending":     true,
+	"in_progress": true,
+	"done":        true,
+	"skipped":     true,
+}
+
+func normalizePlanSteps(steps []PlanStep) []PlanStep {
+	normalizedSteps := []PlanStep{}
+	for _, step := range steps {
+		title := truncateText(compactWhitespace(step.Title), 200)
+		status := strings.TrimSpace(step.Status)
+		if title == "" {
+			continue
+		}
+		if !planStepStatuses[status] {
+			status = "pending"
+		}
+		normalizedSteps = append(normalizedSteps, PlanStep{Title: title, Status: status})
+		if len(normalizedSteps) >= executionStateMaxPlanSteps {
+			break
+		}
+	}
+	return normalizedSteps
 }
 
 type TerminalObservationTail struct {
@@ -44,7 +82,7 @@ type toolInteraction struct {
 	ObservationID      string
 	ToolName           string
 	Input              terminalObservationInputDocument
-	ResultContent      string
+	ResultData         json.RawMessage
 	FailureStage       string
 	ErrorCode          string
 	AttemptFingerprint string
@@ -55,6 +93,7 @@ func normalizeExecutionState(state ExecutionState) ExecutionState {
 	state.Workspace = truncateText(compactWhitespace(state.Workspace), 160)
 	state.CurrentBlocker = truncateText(compactWhitespace(state.CurrentBlocker), 400)
 	state.NextPlan = truncateText(compactWhitespace(state.NextPlan), 400)
+	state.Steps = normalizePlanSteps(state.Steps)
 	state.KnownFacts = normalizeExecutionStateList(state.KnownFacts, executionStateMaxKnownFacts)
 	state.TriedAndFailed = normalizeExecutionStateList(state.TriedAndFailed, executionStateMaxTriedAndFailed)
 	if executionStateLength(state) <= executionStateMaxCharacters {
@@ -104,6 +143,7 @@ func executionStateIsEmpty(state ExecutionState) bool {
 	state = normalizeExecutionState(state)
 	return state.Goal == "" &&
 		state.Workspace == "" &&
+		len(state.Steps) == 0 &&
 		len(state.KnownFacts) == 0 &&
 		len(state.TriedAndFailed) == 0 &&
 		state.CurrentBlocker == "" &&
@@ -176,16 +216,16 @@ func compactTerminalObservationTails(observations []turnObservation, limit int) 
 
 func terminalObservationTail(observation turnObservation) (TerminalObservationTail, bool) {
 	interaction := toolInteractionFromObservation(observation)
-	if interaction.ResultContent == "" && interaction.Input.Command == "" && interaction.Input.WorkingDirectory == "" {
+	if len(interaction.ResultData) == 0 && interaction.Input.Command == "" && interaction.Input.WorkingDirectory == "" {
 		return TerminalObservationTail{}, false
 	}
 	var result struct {
-		ExitCode int    `json:"exitCode"`
+		ExitCode *int   `json:"exitCode"`
 		Stdout   string `json:"stdout"`
 		Stderr   string `json:"stderr"`
 		TimedOut bool   `json:"timedOut"`
 	}
-	hasResult := json.Unmarshal([]byte(interaction.ResultContent), &result) == nil
+	hasResult := json.Unmarshal(interaction.ResultData, &result) == nil
 	tail := TerminalObservationTail{
 		ObservationID:      interaction.ObservationID,
 		ToolName:           interaction.ToolName,
@@ -196,14 +236,12 @@ func terminalObservationTail(observation turnObservation) (TerminalObservationTa
 		AttemptFingerprint: interaction.AttemptFingerprint,
 	}
 	if hasResult {
-		exitCode := result.ExitCode
-		tail.ExitCode = &exitCode
+		tail.ExitCode = result.ExitCode
 		tail.StdoutTail, tail.StdoutTruncated = tailLines(result.Stdout, terminalObservationTailMaxLines, terminalObservationTailMaxCharacters)
 		tail.StderrTail, tail.StderrTruncated = tailLines(result.Stderr, terminalObservationTailMaxLines, terminalObservationTailMaxCharacters)
 		tail.TimedOut = result.TimedOut
 		return tail, true
 	}
-	tail.StderrTail, tail.StderrTruncated = tailLines(interaction.ResultContent, terminalObservationTailMaxLines, terminalObservationTailMaxCharacters)
 	return tail, true
 }
 
@@ -212,7 +250,7 @@ func toolInteractionFromObservation(observation turnObservation) toolInteraction
 		ObservationID:      observation.ObservationID,
 		ToolName:           strings.TrimSpace(observation.Tool),
 		Input:              terminalObservationInput(observation.ToolInputKey),
-		ResultContent:      strings.TrimSpace(observation.ContentText()),
+		ResultData:         append(json.RawMessage{}, observation.Output.Data...),
 		FailureStage:       observation.FailureStage(),
 		ErrorCode:          observation.FailureCode(),
 		AttemptFingerprint: strings.TrimSpace(observation.AttemptFingerprint),
@@ -261,10 +299,12 @@ func tailLines(value string, maxLines int, maxCharacters int) ([]string, bool) {
 
 func executionStateSchema() map[string]any {
 	return map[string]any{
-		"type": "object",
+		"type":                 "object",
+		"additionalProperties": false,
 		"properties": map[string]any{
 			"goal":           stringSchema(),
 			"workspace":      stringSchema(),
+			"steps":          planStepArraySchema(),
 			"knownFacts":     stringArraySchema(executionStateMaxKnownFacts),
 			"triedAndFailed": stringArraySchema(executionStateMaxTriedAndFailed),
 			"currentBlocker": stringSchema(),
@@ -279,4 +319,19 @@ func stringArraySchema(maxItems int) map[string]any {
 		"items": stringSchema(),
 	}
 	return schema
+}
+
+func planStepArraySchema() map[string]any {
+	return map[string]any{
+		"type": "array",
+		"items": map[string]any{
+			"type":                 "object",
+			"additionalProperties": false,
+			"required":             []string{"title", "status"},
+			"properties": map[string]any{
+				"title":  stringSchema(),
+				"status": map[string]any{"type": "string", "enum": []string{"pending", "in_progress", "done", "skipped"}},
+			},
+		},
+	}
 }

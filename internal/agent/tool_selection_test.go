@@ -6,7 +6,7 @@ func TestApplyToolRequestNormalizesContinueActionToolNames(t *testing.T) {
 	request := AgentTurnRequest{ToolSet: testToolSet([]string{"file.deliver", "file.promote", "terminal.run"})}
 
 	updatedRequest, result := applyToolRequest(request, requestToolsArguments{
-		ToolNames: []string{"continue__file_attach", "continue__file_promote", "terminal.run"},
+		ToolNames: []string{"continue__file_deliver", "continue__file_promote", "terminal.run"},
 	})
 
 	if len(result.UnknownToolNames) != 0 {
@@ -19,6 +19,18 @@ func TestApplyToolRequestNormalizesContinueActionToolNames(t *testing.T) {
 		if !containsString(updatedRequest.PinnedToolNames, toolName) {
 			t.Fatalf("expected request to pin %s, got %+v", toolName, updatedRequest.PinnedToolNames)
 		}
+	}
+}
+
+func TestApplyToolRequestKeepsLegacyContinueActionToolNameUnknown(t *testing.T) {
+	request := AgentTurnRequest{ToolSet: testToolSet([]string{"file.deliver"})}
+
+	_, result := applyToolRequest(request, requestToolsArguments{
+		ToolNames: []string{"continue__file_attach"},
+	})
+
+	if !containsString(result.UnknownToolNames, "continue__file_attach") {
+		t.Fatalf("expected legacy synthetic tool to remain unknown, got %+v", result.UnknownToolNames)
 	}
 }
 

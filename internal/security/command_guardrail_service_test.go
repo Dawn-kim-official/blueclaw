@@ -1,7 +1,6 @@
 package security
 
 import (
-	"errors"
 	"os"
 	"os/user"
 	"path/filepath"
@@ -90,12 +89,16 @@ func TestCommandPlanUsesPOSIXHelperForExecutionIdentity(t *testing.T) {
 
 func TestSanitizeEnvironmentIgnoresRequesterPATH(t *testing.T) {
 	environmentVariables := sanitizeEnvironmentVariables(map[string]string{
-		"PATH": "/workspace/private/people/person-1/bin",
-		"HOME": "/workspace/private/people/person-1",
+		"PATH":                           "/workspace/private/people/person-1/bin",
+		"HOME":                           "/workspace/private/people/person-1",
+		"BLUECLAW_BUILTIN_SKILLS_PYTHON": "/opt/blueclaw/builtin-skills-venv/bin/python",
 	}, "/workspace")
 
 	if environmentVariables["PATH"] != CanonicalRuntimePATH {
 		t.Fatalf("expected requester PATH to be ignored, got %+v", environmentVariables)
+	}
+	if environmentVariables["BLUECLAW_BUILTIN_SKILLS_PYTHON"] != "/opt/blueclaw/builtin-skills-venv/bin/python" {
+		t.Fatalf("expected managed skills runtime to survive sanitization, got %+v", environmentVariables)
 	}
 }
 
@@ -156,42 +159,7 @@ func TestCommandPlanKeepsPrivateCWDInsideHelperArguments(t *testing.T) {
 	}
 }
 
-func TestCommandPathGuardrailErrorIncludesRecoveryDetails(t *testing.T) {
-	if os.Geteuid() == 0 {
-		t.Skip("root cannot build terminal command plans")
-	}
-
-	workspaceRootPath := t.TempDir()
-	commandGuardrailService := NewCommandGuardrailService(config.TerminalConfiguration{
-		Mode:                  "firecrackerGuest",
-		WorkspaceRootPath:     workspaceRootPath,
-		DeniedPathPrefixes:    []string{"/opt"},
-		AllowNetwork:          true,
-		AllowInteractiveShell: true,
-		TimeoutSecond:         3,
-	})
-
-	_, errorValue := commandGuardrailService.BuildCommandPlan(CommandRequest{
-		Command:              "/opt/blueclaw/builtin-skills-venv/bin/python --version",
-		WorkingDirectoryPath: workspaceRootPath,
-	})
-
-	var commandGuardrailError CommandGuardrailError
-	if !errors.As(errorValue, &commandGuardrailError) {
-		t.Fatalf("expected command guardrail error, got %v", errorValue)
-	}
-	for _, expectedText := range []string{
-		"command path targets a denied system path",
-		"/opt/blueclaw/builtin-skills-venv/bin/python",
-		workspaceRootPath,
-	} {
-		if !strings.Contains(commandGuardrailError.Error(), expectedText) {
-			t.Fatalf("expected guardrail error to contain %q, got %q", expectedText, commandGuardrailError.Error())
-		}
-	}
-}
-
-func TestCommandPathGuardrailIgnoresHereDocumentContentPaths(t *testing.T) {
+func TestCommandPlanDefersPathAccessToPOSIXPermissions(t *testing.T) {
 	if os.Geteuid() == 0 {
 		t.Skip("root cannot build terminal command plans")
 	}
@@ -205,43 +173,16 @@ func TestCommandPathGuardrailIgnoresHereDocumentContentPaths(t *testing.T) {
 		TimeoutSecond:         3,
 	})
 
-	_, errorValue := commandGuardrailService.BuildCommandPlan(CommandRequest{
-		Command: strings.Join([]string{
-			"cat <<'EOF' > index.html",
-			`<script type="module" src="/src/main.tsx"></script>`,
-			`<a href="/">Home</a>`,
-			"EOF",
-			"bun run build",
-		}, "\n"),
+	commandPlan, errorValue := commandGuardrailService.BuildCommandPlan(CommandRequest{
+		Command:              "cat /etc/passwd",
 		WorkingDirectoryPath: workspaceRootPath,
 	})
 
 	if errorValue != nil {
-		t.Fatalf("expected heredoc content paths to be ignored, got %v", errorValue)
+		t.Fatalf("expected operating system permissions to remain the path boundary: %v", errorValue)
 	}
-}
-
-func TestCommandGuardrailAllowsStandardDeviceRedirects(t *testing.T) {
-	if os.Geteuid() == 0 {
-		t.Skip("root cannot build terminal command plans")
-	}
-
-	workspaceRootPath := t.TempDir()
-	commandGuardrailService := NewCommandGuardrailService(config.TerminalConfiguration{
-		Mode:                  "firecrackerGuest",
-		WorkspaceRootPath:     workspaceRootPath,
-		AllowNetwork:          true,
-		AllowInteractiveShell: true,
-		TimeoutSecond:         3,
-	})
-
-	_, errorValue := commandGuardrailService.BuildCommandPlan(CommandRequest{
-		Command:              `find . -name "*.html" 2>/dev/null`,
-		WorkingDirectoryPath: workspaceRootPath,
-	})
-
-	if errorValue != nil {
-		t.Fatalf("expected standard device redirect to be allowed, got %v", errorValue)
+	if commandPlan.Stdin != "cat /etc/passwd" {
+		t.Fatalf("expected command to pass through unchanged, got %q", commandPlan.Stdin)
 	}
 }
 
@@ -262,8 +203,8 @@ func TestCommandGuardrailAllowsWorkspaceCapabilityCLIExecutable(t *testing.T) {
 		Mode:                  "firecrackerGuest",
 		WorkspaceRootPath:     workspaceRootPath,
 		AllowNetwork:          true,
-		AllowInteractiveShell:  true,
-		TimeoutSecond:          3,
+		AllowInteractiveShell: true,
+		TimeoutSecond:         3,
 	})
 
 	commandPlan, errorValue := commandGuardrailService.BuildCommandPlan(CommandRequest{
@@ -281,47 +222,5 @@ func TestCommandGuardrailAllowsWorkspaceCapabilityCLIExecutable(t *testing.T) {
 	}
 	if commandPlan.ExecutablePath != expectedCapabilityPath {
 		t.Fatalf("expected capability executable path, got %+v", commandPlan)
-	}
-}
-
-func TestStandardDeviceWhitelistRejectsBlockDevices(t *testing.T) {
-	if !isAllowedStandardDevicePath("/dev/null") {
-		t.Fatal("expected /dev/null to be allowed")
-	}
-	if isAllowedStandardDevicePath("/dev/sda") {
-		t.Fatal("expected /dev/sda to remain blocked")
-	}
-}
-
-func TestCommandPathGuardrailRejectsEscapingPathBeforeHereDocument(t *testing.T) {
-	if os.Geteuid() == 0 {
-		t.Skip("root cannot build terminal command plans")
-	}
-
-	workspaceRootPath := t.TempDir()
-	commandGuardrailService := NewCommandGuardrailService(config.TerminalConfiguration{
-		Mode:                  "firecrackerGuest",
-		WorkspaceRootPath:     workspaceRootPath,
-		DeniedPathPrefixes:    []string{"/opt"},
-		AllowNetwork:          true,
-		AllowInteractiveShell: true,
-		TimeoutSecond:         3,
-	})
-
-	_, errorValue := commandGuardrailService.BuildCommandPlan(CommandRequest{
-		Command: strings.Join([]string{
-			"cat /opt/blueclaw/state <<EOF",
-			"hello",
-			"EOF",
-		}, "\n"),
-		WorkingDirectoryPath: workspaceRootPath,
-	})
-
-	var commandGuardrailError CommandGuardrailError
-	if !errors.As(errorValue, &commandGuardrailError) {
-		t.Fatalf("expected command guardrail error, got %v", errorValue)
-	}
-	if !strings.Contains(commandGuardrailError.Error(), "/opt/blueclaw/state") {
-		t.Fatalf("expected escaping command path in error, got %q", commandGuardrailError.Error())
 	}
 }

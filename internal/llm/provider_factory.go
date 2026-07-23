@@ -2,6 +2,8 @@ package llm
 
 import (
 	"errors"
+	"net/url"
+	"os"
 	"strings"
 	"time"
 
@@ -10,7 +12,11 @@ import (
 )
 
 func NewConfiguredLanguageModelProvider(runtimeConfiguration config.RuntimeConfiguration) (LanguageModelProvider, error) {
-	defaultProvider, errorValue := providerByName(runtimeConfiguration.LanguageModel.DefaultProvider, runtimeConfiguration)
+	return NewConfiguredLanguageModelProviderForModel(runtimeConfiguration, capabilityModelName(runtimeConfiguration))
+}
+
+func NewConfiguredLanguageModelProviderForModel(runtimeConfiguration config.RuntimeConfiguration, modelName string) (LanguageModelProvider, error) {
+	defaultProvider, errorValue := providerByName(runtimeConfiguration.LanguageModel.DefaultProvider, runtimeConfiguration, modelName)
 	if errorValue != nil {
 		return nil, errorValue
 	}
@@ -22,17 +28,85 @@ func NewConfiguredLanguageModelProvider(runtimeConfiguration config.RuntimeConfi
 	return nil, errors.New("language model fallback is owned by InternKim capability runtime")
 }
 
-func providerByName(providerName string, runtimeConfiguration config.RuntimeConfiguration) (LanguageModelProvider, error) {
+func providerByName(providerName string, runtimeConfiguration config.RuntimeConfiguration, modelName string) (LanguageModelProvider, error) {
 	switch strings.TrimSpace(providerName) {
 	case "capabilityLLM", "capability", "":
-		return newCapabilityLLMClient(runtimeConfiguration), nil
+		return NewCapabilityLLMClientForModel(runtimeConfiguration, modelName), nil
+	case "llmd":
+		return newLLMDClient(runtimeConfiguration, modelName)
 	default:
 		return nil, errors.New("language model provider is not supported")
 	}
 }
 
-func newCapabilityLLMClient(runtimeConfiguration config.RuntimeConfiguration) CapabilityLLMClient {
-	return NewCapabilityLLMClientForModel(runtimeConfiguration, capabilityModelName(runtimeConfiguration))
+func newLLMDClient(runtimeConfiguration config.RuntimeConfiguration, modelName string) (LLMDClient, error) {
+	llmdConfiguration := runtimeConfiguration.LanguageModel.LLMD
+	authKey := ""
+	authKeyPath := strings.TrimSpace(llmdConfiguration.AuthKeyPath)
+	if authKeyPath == "" && !isLLMDBridgeConfiguration(llmdConfiguration) {
+		return LLMDClient{}, errors.New("llmd auth key path is not configured")
+	}
+	if authKeyPath != "" {
+		authKeyDocument, errorValue := os.ReadFile(authKeyPath)
+		if errorValue != nil {
+			return LLMDClient{}, errorValue
+		}
+		authKey = strings.TrimSpace(string(authKeyDocument))
+		if authKey == "" {
+			return LLMDClient{}, errors.New("llmd auth key is empty")
+		}
+	}
+	capabilityProvider := NewCapabilityLLMClientForModel(runtimeConfiguration, modelName)
+	return NewLLMDClient(LLMDClientConfiguration{
+		Endpoint:                        llmdConfiguration.Endpoint,
+		UnixSocketPath:                  llmdConfiguration.UnixSocketPath,
+		AuthKey:                         authKey,
+		ModelName:                       modelName,
+		ExecutionMode:                   firstNonEmptyModelName(llmdConfiguration.ExecutionMode, runtimeConfiguration.LanguageModel.Capability.ExecutionMode),
+		LocalOnly:                       llmdConfiguration.LocalOnly,
+		TextProvider:                    capabilityProvider,
+		StructuredFallbackProvider:      capabilityProvider,
+		StructuredSchemaNames:           configuredLLMDSchemaNames(runtimeConfiguration),
+		IsStructuredOutputAuthoritative: strings.TrimSpace(runtimeConfiguration.LanguageModel.DefaultProvider) == "llmd",
+	}), nil
+}
+
+func isLLMDBridgeConfiguration(configuration config.LanguageModelLLMDConfiguration) bool {
+	normalizedEndpoint := strings.TrimRight(strings.TrimSpace(configuration.Endpoint), "/")
+	if normalizedEndpoint == llmdLoopbackBridgeEndpoint {
+		return true
+	}
+	if strings.TrimSpace(configuration.UnixSocketPath) == "" {
+		return false
+	}
+	parsedEndpoint, errorValue := url.Parse(normalizedEndpoint)
+	if errorValue != nil {
+		return false
+	}
+	return parsedEndpoint.Scheme == "http" &&
+		parsedEndpoint.Host != "" &&
+		parsedEndpoint.Path == "/_internkim/llmd" &&
+		parsedEndpoint.RawQuery == "" &&
+		parsedEndpoint.Fragment == ""
+}
+
+func configuredLLMDSchemaNames(runtimeConfiguration config.RuntimeConfiguration) []string {
+	configuredSchemaNames := runtimeConfiguration.LanguageModel.LLMD.StructuredSchemaNames
+	if len(configuredSchemaNames) == 0 {
+		return DefaultLLMDStructuredSchemaNames()
+	}
+	return append([]string{}, configuredSchemaNames...)
+}
+
+func DefaultLLMDStructuredSchemaNames() []string {
+	return []string{
+		"blueclaw_agent_turn_action",
+		"blueclaw_agent_turn_finalizer",
+		"blueclaw_turn_router",
+		"blueclaw_recovery_decision",
+		"blueclaw_contract_skill_arbitration",
+		"blueclaw_completion_judge",
+	}
 }
 
 func NewCapabilityLLMClientForModel(runtimeConfiguration config.RuntimeConfiguration, modelName string) CapabilityLLMClient {
@@ -55,12 +129,12 @@ func capabilityModelName(runtimeConfiguration config.RuntimeConfiguration) strin
 }
 
 const (
-	defaultMaxModelName    = "google/gemini-3.5-flash"
-	defaultXHighModelName  = "openai/gpt-5.6-luna"
-	defaultHighModelName   = "google/gemini-3-flash-preview"
+	defaultMaxModelName    = "google/gemini-3.6-flash"
+	defaultXHighModelName  = "google/gemini-3.5-flash-lite"
+	defaultHighModelName   = "google/gemini-3.5-flash-lite"
 	defaultMediumModelName = "google/gemini-3.1-flash-lite"
 	defaultLowModelName    = "xiaomi/mimo-v2.5"
-	defaultXLowModelName   = "google/gemma-3-12b-it"
+	defaultXLowModelName   = "deepseek/deepseek-v4-flash"
 	defaultCodingModelName = "z-ai/glm-5.2"
 )
 

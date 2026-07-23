@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"time"
 
+	"blueclaw/internal/llm"
 	"blueclaw/internal/task"
 )
 
@@ -29,22 +31,23 @@ type qualityReviewItem struct {
 }
 
 type completionGateResult struct {
-	IsSatisfied          bool
-	Message              string
-	EvidenceKind         string
-	Attachments          []FileAttachment
-	ValidityState        ValidityState
-	ResultVerification   ResultVerification
-	ContractVerification ContractSatisfactionVerification
-	SuggestedNextTools   []string
+	IsSatisfied        bool
+	Message            string
+	EvidenceKind       string
+	Attachments        []FileAttachment
+	ValidityState      ValidityState
+	SuggestedNextTools []string
+	IsJudgeVerdict     bool
 }
 
 const (
-	evidenceKindExpectedResult  = "expected_result_missing"
-	evidenceKindRequiredTool    = "required_tool_missing"
-	evidenceKindAttachment      = "attachment_missing"
-	evidenceKindAttachmentValid = "attachment_invalid"
-	evidenceKindReference       = "evidence_reference_invalid"
+	evidenceKindExpectedResult   = "expected_result_missing"
+	evidenceKindRequiredTool     = "required_tool_missing"
+	evidenceKindAttachment       = "attachment_missing"
+	evidenceKindAttachmentValid  = "attachment_invalid"
+	evidenceKindReference        = "evidence_reference_invalid"
+	completionReplySchemaName    = "blueclaw_completion_reply"
+	completionPersistenceTimeout = 5 * time.Second
 )
 
 type completionTransition struct {
@@ -76,7 +79,7 @@ func (agentTurnRunner *AgentTurnRunner) applyCompletionState(ctx context.Context
 			return agentTurnRunner.attachCompletionArtifactsFromEffect(ctx, taskRunID, request, observations, attachments, state, *transition.Effect.ToolCall)
 		}
 	case agentEffectFinish:
-		return agentTurnRunner.finalizeCompletionState(taskRunID, taskStepID, request, requirements, observations, attachments, criteria, state, lastModelMessage)
+		return agentTurnRunner.finalizeCompletionState(ctx, taskRunID, taskStepID, request, requirements, observations, attachments, criteria, state, lastModelMessage)
 	case agentEffectNone:
 		if len(transition.State.Observations) > len(observations) {
 			return agentTurnRunner.blockInvalidCompletionArtifactsFromTransition(taskRunID, observations, attachments, state, transition)
@@ -100,7 +103,7 @@ func (agentTurnRunner *AgentTurnRunner) attachCompletionArtifacts(ctx context.Co
 
 func (agentTurnRunner *AgentTurnRunner) attachCompletionArtifactsFromEffect(ctx context.Context, taskRunID string, request AgentTurnRequest, observations []turnObservation, attachments []FileAttachment, state CompletionState, invocation ToolInvocation) completionTransition {
 	agentTurnRunner.appendValidityReview(taskRunID, "pre_attach", state.ValidityState)
-	observation := agentTurnRunner.invokeTool(ctx, request.ToolSet, taskRunID, nextObservationID(len(observations)+1), invocation.ToolName, invocation.Input, request.WorkspaceRootPath, request.TurnStartedAt, request.ResponseLanguage, "")
+	observation := agentTurnRunner.invokeTool(ctx, request.ToolSet, taskRunID, nextObservationIDForObservations(observations), invocation.ToolName, invocation.Input, request.WorkspaceRootPath, request.TurnStartedAt, request.ResponseLanguage, "")
 	if observation.Failed() {
 		observation = withObservationContent(observation, completionAttachmentFailureContent(observation.ContentText(), state.AttachmentPaths))
 		observation.RelatedPaths = appendUniqueStrings(state.AttachmentPaths)
@@ -121,7 +124,7 @@ func (agentTurnRunner *AgentTurnRunner) attachCompletionArtifactsFromEffect(ctx 
 }
 
 func (agentTurnRunner *AgentTurnRunner) blockInvalidCompletionArtifacts(taskRunID string, observations []turnObservation, attachments []FileAttachment, state CompletionState) completionTransition {
-	observation := newFailureObservation(nextObservationID(len(observations)+1), "policy", "", invalidCompletionArtifactObservationContent(state), FailureInvalidInput, FailureCodes.InvalidInput, "completion_state")
+	observation := newFailureObservation(nextObservationIDForObservations(observations), "policy", "", invalidCompletionArtifactObservationContent(state), FailureInvalidInput, FailureCodes.InvalidInput, "completion_state")
 	observation.PolicyCode = evidenceKindAttachmentValid
 	observation.RelatedPaths = appendUniqueStrings(completionValidityPaths(state))
 	observations = append(observations, observation)
@@ -172,17 +175,36 @@ func completionAttachmentFailureContent(content string, paths []string) string {
 	return trimmedContent + "\nrequested paths: " + strings.Join(paths, "\n")
 }
 
-func (agentTurnRunner *AgentTurnRunner) finalizeCompletionState(taskRunID string, taskStepID string, request AgentTurnRequest, requirements []toolUseRequirement, observations []turnObservation, attachments []FileAttachment, criteria []qualityCriterion, state CompletionState, lastModelMessage string) completionTransition {
-	modelWording := deliverableModelWording(lastModelMessage)
-	if request.IsApprovalContinuation && modelWording == "" {
+func (agentTurnRunner *AgentTurnRunner) finalizeCompletionState(ctx context.Context, taskRunID string, taskStepID string, request AgentTurnRequest, requirements []toolUseRequirement, observations []turnObservation, attachments []FileAttachment, criteria []qualityCriterion, state CompletionState, lastModelMessage string) completionTransition {
+	if ctx.Err() != nil {
 		return completionTransition{Observations: observations, Attachments: attachments}
 	}
+	modelWording := deliverableModelWording(lastModelMessage)
+	if modelWording == "" {
+		chatCompleter, isAvailable := llm.ResolveTextChatCompleter(agentTurnRunner.languageModel)
+		if !isAvailable {
+			return completionTransition{Observations: observations, Attachments: attachments}
+		}
+		var errorValue error
+		modelWording, errorValue = generateCompletionReply(ctx, chatCompleter, request, requirements, observations)
+		if errorValue != nil {
+			agentTurnRunner.appendEvent(taskRunID, "agent.completion_reply_failed", marshalEventBody(map[string]string{"error": errorValue.Error()}))
+			if ctx.Err() != nil || errors.Is(errorValue, context.Canceled) || errors.Is(errorValue, context.DeadlineExceeded) {
+				return completionTransition{Observations: observations, Attachments: attachments}
+			}
+			modelWording = elapsedClosingRawReply(request, true)
+		}
+	}
 	actionDocument := completionStateFinishDocument(state, modelWording)
-	completionGateResult := agentTurnRunner.validateCompletionGateForRequestWithExpectedResults(context.Background(), taskRunID, request, requirements, observations, attachments, criteria, actionDocument)
+	completionGateResult := agentTurnRunner.validateCompletionGateWithJudge(ctx, taskRunID, request, requirements, observations, attachments, criteria, actionDocument)
 	agentTurnRunner.appendValidityReview(taskRunID, "completion_state", completionGateResult.ValidityState)
 	if !completionGateResult.IsSatisfied {
+		if canDeliverBestEffortOnJudgeRejection(ctx, completionGateResult, modelWording) {
+			agentTurnRunner.appendEvent(taskRunID, "agent.completion_state_best_effort", marshalEventBody(map[string]string{"reason": completionGateResult.Message}))
+			return agentTurnRunner.finalizeCompletionTransition(ctx, taskRunID, taskStepID, request, observations, attachments, completionGateResult, appendCompletionGateCaveat(modelWording, completionGateResult.Message))
+		}
 		agentTurnRunner.appendEvent(taskRunID, "agent.completion_state_rejected", marshalEventBody(map[string]string{"reason": completionGateResult.Message}))
-		observation := newFailureObservation(nextObservationID(len(observations)+1), "policy", "", completionGateResult.Message, FailureInvalidInput, FailureCodes.InvalidInput, "completion_state")
+		observation := newFailureObservation(nextObservationIDForObservations(observations), "policy", "", completionGateResult.Message, FailureInvalidInput, FailureCodes.InvalidInput, "completion_state")
 		observation = withCompletionGateRecoveryPacket(observation, completionGateResult)
 		observations = append(observations, observation)
 		agentTurnRunner.appendEvent(taskRunID, "agent.completion_required", marshalEventBody(observation))
@@ -194,17 +216,76 @@ func (agentTurnRunner *AgentTurnRunner) finalizeCompletionState(taskRunID string
 		"evidenceCount":   len(state.EvidenceReferences),
 		"evidence":        state.EvidenceReferences,
 	}))
-	reply := agentTurnRunner.prepareFinishMessageForPlatform(request, finishActionMessage(actionDocument), completionGateResult.Attachments)
-	agentTurnRunner.saveStep(taskRunID, taskStepID, task.TaskStatusCompleted, "completion_state "+string(completionActionFinalizeWithEvidence), reply)
-	completedTaskRun, _ := agentTurnRunner.taskRunService.CompleteTaskRun(taskRunID, reply)
+	return agentTurnRunner.finalizeCompletionTransition(ctx, taskRunID, taskStepID, request, observations, attachments, completionGateResult, finishActionMessage(actionDocument))
+}
+
+func (agentTurnRunner *AgentTurnRunner) finalizeCompletionTransition(ctx context.Context, taskRunID string, taskStepID string, request AgentTurnRequest, observations []turnObservation, attachments []FileAttachment, completionGateResult completionGateResult, reply string) completionTransition {
+	result := agentTurnRunner.completeTaskRunBestEffort(ctx, taskRunID, taskStepID, "completion_state "+string(completionActionFinalizeWithEvidence), request, observations, completionGateResult, reply)
 	return completionTransition{
 		Observations:  observations,
 		Attachments:   appendUniqueAttachments(attachments, completionGateResult.Attachments),
-		Result:        AgentTurnResult{TaskRun: completedTaskRun, FinishMessage: reply, Attachments: completionGateResult.Attachments, RecoveryActions: recoveryActionsFromObservations(observations)},
+		Result:        result,
 		IsCompleted:   true,
 		DidTransition: true,
 		Action:        completionActionFinalizeWithEvidence,
 	}
+}
+
+func canDeliverBestEffortOnJudgeRejection(ctx context.Context, completionGateResult completionGateResult, reply string) bool {
+	return completionGateResult.IsJudgeVerdict && ctx.Err() != nil && strings.TrimSpace(reply) != ""
+}
+
+func appendCompletionGateCaveat(reply string, message string) string {
+	trimmedMessage := strings.TrimSpace(message)
+	if trimmedMessage == "" {
+		return strings.TrimSpace(reply)
+	}
+	return strings.TrimSpace(reply) + " Note: " + trimmedMessage
+}
+
+func (agentTurnRunner *AgentTurnRunner) completeTaskRunBestEffort(ctx context.Context, taskRunID string, taskStepID string, stepAction string, request AgentTurnRequest, observations []turnObservation, completionGateResult completionGateResult, reply string) AgentTurnResult {
+	detachedContext, cancelDetached := context.WithTimeout(context.WithoutCancel(ctx), completionPersistenceTimeout)
+	defer cancelDetached()
+	finalReply := agentTurnRunner.prepareFinishMessageForPlatform(detachedContext, request, reply)
+	agentTurnRunner.saveStep(taskRunID, taskStepID, task.TaskStatusCompleted, stepAction, finalReply)
+	completedTaskRun, completionError := agentTurnRunner.taskRunService.CompleteTaskRun(taskRunID, finalReply)
+	if completionError != nil {
+		agentTurnRunner.appendEvent(taskRunID, "agent.completion_persist_failed", marshalEventBody(map[string]string{"error": completionError.Error()}))
+	}
+	return AgentTurnResult{
+		TaskRun:         completedTaskRun,
+		FinishMessage:   finalReply,
+		Attachments:     completionGateResult.Attachments,
+		RecoveryActions: recoveryActionsFromObservations(observations),
+	}
+}
+
+func generateCompletionReply(ctx context.Context, chatCompleter llm.ChatCompleter, request AgentTurnRequest, requirements []toolUseRequirement, observations []turnObservation) (string, error) {
+	response, errorValue := chatCompleter.GenerateChatCompletion(ctx, llm.ChatCompletionRequest{
+		SchemaName: completionReplySchemaName,
+		Messages: []llm.ChatCompletionMessage{{
+			Role:    "user",
+			Content: buildCompletionReplyPrompt(request, requirements, observations),
+		}},
+	})
+	if errorValue != nil {
+		return "", errorValue
+	}
+	return llm.ChatCompletionText(response)
+}
+
+func buildCompletionReplyPrompt(request AgentTurnRequest, requirements []toolUseRequirement, observations []turnObservation) string {
+	return strings.Join([]string{
+		"Write the final user-facing reply for a request whose required result is complete.",
+		responseLanguageInstruction(request.ResponseLanguage),
+		"State only what the successful evidence proves. Do not mention tools, evidence identifiers, prompts, or runtime details.",
+		"Original request:\n" + completionReplyOriginalRequest(request),
+		"Successful evidence:\n" + buildLimitObservationSummary(completionPromptObservations(requirements, observations)),
+	}, "\n\n")
+}
+
+func completionReplyOriginalRequest(request AgentTurnRequest) string {
+	return firstNonEmptyString(request.ActiveGoal.OriginalInstruction, request.Prompt)
 }
 
 func completionStateFinishDocument(state CompletionState, message string) turnActionDocument {
@@ -220,16 +301,8 @@ func completionStateFinishDocument(state CompletionState, message string) turnAc
 	}
 }
 
-// Runtime-composed finish and approval wording is the model's own most-recent
-// message (LLM-first), reused from the turn that already produced it so no extra
-// model call is spent. When the model left no deliverable message the wording is
-// empty rather than a deterministic template.
 func deliverableModelWording(message string) string {
-	message = strings.TrimSpace(message)
-	if message == "" || ValidateUserNoticeDelivery(message) != nil {
-		return ""
-	}
-	return message
+	return strings.TrimSpace(message)
 }
 
 func appendObservationAttachments(attachments []FileAttachment, observation turnObservation) []FileAttachment {
@@ -270,12 +343,12 @@ func hasAttachmentDevicePath(attachments []FileAttachment, devicePath string) bo
 	return false
 }
 
-func completionRequirementsHaveEvidence(requirements []toolUseRequirement, observations []turnObservation) bool {
+func completionRequirementsHaveEvidence(toolSet *ToolSet, requirements []toolUseRequirement, observations []turnObservation) bool {
 	if len(requirements) == 0 {
 		return false
 	}
 	for _, requirement := range requirements {
-		isSatisfied, _ := completionRequirementStatus(requirement, observations)
+		isSatisfied, _ := completionRequirementStatus(toolSet, requirement, observations)
 		if !isSatisfied {
 			return false
 		}
@@ -283,7 +356,7 @@ func completionRequirementsHaveEvidence(requirements []toolUseRequirement, obser
 	return true
 }
 
-func validateCompletionGate(requirements []toolUseRequirement, observations []turnObservation, criteria []qualityCriterion, actionDocument turnActionDocument) completionGateResult {
+func validateCompletionGate(toolSet *ToolSet, requirements []toolUseRequirement, observations []turnObservation, criteria []qualityCriterion, actionDocument turnActionDocument) completionGateResult {
 	_ = criteria
 	if actionDocument.GoalSatisfied == nil || !*actionDocument.GoalSatisfied {
 		return completionGateResult{Message: "finish requires goalSatisfied=true"}
@@ -294,25 +367,20 @@ func validateCompletionGate(requirements []toolUseRequirement, observations []tu
 	if result := validateFinishDoesNotHideUnresolvedWork(observations, actionDocument); !result.IsSatisfied {
 		return result
 	}
-	if errorValue := validateObservedToolRequirements(requirements, observations); errorValue != nil {
+	if errorValue := validateObservedToolRequirements(toolSet, requirements, observations); errorValue != nil {
 		return completionGateResult{Message: errorValue.Error(), EvidenceKind: evidenceKindRequiredTool}
 	}
-	attachments, errorValue := validateCompletionEvidence(requirements, observations, actionDocument.CompletionEvidence)
+	attachments, errorValue := validateCompletionEvidence(toolSet, requirements, observations, actionDocument.CompletionEvidence)
 	if errorValue != nil {
 		return completionGateResult{Message: errorValue.Error(), EvidenceKind: evidenceKindReference}
 	}
-	if sendCompletionEvidenceRequiredForTools(requirements) && !hasSendCompletionEvidence(observations, actionDocument.CompletionEvidence) {
-		requiredSendToolNames := requiredSendToolNamesForRequirements(requirements)
+	if sendCompletionEvidenceRequiredForTools(toolSet, requirements) && !hasSendCompletionEvidence(toolSet, observations, actionDocument.CompletionEvidence) {
+		requiredSendToolNames := requiredSendToolNamesForRequirements(toolSet, requirements)
 		return completionGateResult{
 			Message:            sendCompletionEvidenceRequiredMessage(requiredSendToolNames),
 			EvidenceKind:       evidenceKindRequiredTool,
 			SuggestedNextTools: requiredSendToolNames,
 		}
-	}
-	finishMessage := finishActionMessage(actionDocument)
-	requiresAttachmentEvidence := len(attachments) > 0
-	if errorValue := ValidateFinishMessageDelivery(finishMessage, attachments, requiresAttachmentEvidence); errorValue != nil {
-		return completionGateResult{Message: errorValue.Error(), EvidenceKind: evidenceKindReference}
 	}
 	return completionGateResult{IsSatisfied: true, Attachments: attachments}
 }
@@ -329,93 +397,66 @@ func validateCompletionGateForRequest(request AgentTurnRequest, requirements []t
 	return validateCompletionGateForRequestWithRecoveryBudget(request, requirements, observations, criteria, actionDocument, defaultRecoveryBudget())
 }
 
-func (agentTurnRunner *AgentTurnRunner) validateCompletionGateForRequestWithExpectedResults(ctx context.Context, taskRunID string, request AgentTurnRequest, requirements []toolUseRequirement, observations []turnObservation, attachments []FileAttachment, criteria []qualityCriterion, actionDocument turnActionDocument) completionGateResult {
+func validateCompletionGateForRequestWithExpectedResults(request AgentTurnRequest, requirements []toolUseRequirement, observations []turnObservation, attachments []FileAttachment, criteria []qualityCriterion, actionDocument turnActionDocument, recoveryBudget RecoveryBudget) completionGateResult {
+	var result completionGateResult
 	if len(request.OutcomeContract.ExpectedResults) == 0 {
-		result := validateCompletionGateForRequestWithRecoveryBudget(request, requirements, observations, criteria, actionDocument, agentTurnRunner.options.RecoveryBudget)
-		if !result.IsSatisfied {
-			return result
-		}
-		return agentTurnRunner.verifyCompletionContract(ctx, taskRunID, request, observations, result.Attachments, actionDocument, result)
+		result = validateCompletionGateForRequestWithRecoveryBudget(request, requirements, observations, criteria, actionDocument, recoveryBudget)
+	} else {
+		result = validateExpectedResultCompletionGate(request, observations, criteria, actionDocument, recoveryBudget)
 	}
-	result := validateExpectedResultCompletionGate(request, observations, criteria, actionDocument, agentTurnRunner.options.RecoveryBudget)
 	if !result.IsSatisfied {
 		return result
 	}
-	verification, errorValue := verifyExpectedResults(ctx, agentTurnRunner.languageModel, request, observations, attachments, actionDocument)
-	if errorValue != nil {
-		result.IsSatisfied = false
-		result.Message = "expected result verification unavailable: " + errorValue.Error()
-		result.EvidenceKind = evidenceKindExpectedResult
-		agentTurnRunner.appendEvent(taskRunID, "agent.expected_result_verification_unavailable", marshalEventBody(map[string]string{"error": errorValue.Error()}))
-		return result
+	if contractResult := validateOutcomeContractRequirements(request.OutcomeContract, observations, result.Attachments); !contractResult.IsSatisfied {
+		return contractResult
 	}
-	result.ResultVerification = verification
-	agentTurnRunner.appendEvent(taskRunID, "agent.expected_result_verification", marshalEventBody(verification))
-	missingResults := blockingExpectedResultItems(request.OutcomeContract, verification, observations)
-	if len(missingResults) == 0 {
-		return agentTurnRunner.verifyCompletionContract(ctx, taskRunID, request, observations, result.Attachments, actionDocument, result)
-	}
-	result.IsSatisfied = false
-	result.Message = expectedResultGateMessage(missingResults)
-	result.EvidenceKind = evidenceKindExpectedResult
-	result.SuggestedNextTools = suggestedNextToolsForResultVerification(missingResults)
-	return result
+	return validateExpectedResultDelivery(request, observations, result.Attachments, actionDocument)
 }
 
-func (agentTurnRunner *AgentTurnRunner) verifyCompletionContract(ctx context.Context, taskRunID string, request AgentTurnRequest, observations []turnObservation, attachments []FileAttachment, actionDocument turnActionDocument, result completionGateResult) completionGateResult {
-	if !OutcomeContractHasRequirements(request.OutcomeContract) {
-		return result
-	}
-	if expectedResultsAndExactEvidenceSatisfyContract(request.OutcomeContract, observations) {
-		return result
-	}
-	verification, errorValue := verifyContractSatisfaction(ctx, agentTurnRunner.languageModel, request, observations, attachments, actionDocument)
-	if errorValue != nil {
-		result.IsSatisfied = false
-		result.Message = "contract verification unavailable: " + errorValue.Error()
-		result.EvidenceKind = evidenceKindExpectedResult
-		agentTurnRunner.appendEvent(taskRunID, "agent.contract_verification_unavailable", marshalEventBody(map[string]string{"error": errorValue.Error()}))
-		return result
-	}
-	result.ContractVerification = verification
-	agentTurnRunner.appendEvent(taskRunID, "agent.contract_satisfaction_verification", marshalEventBody(verification))
-	if verification.Satisfied {
-		return result
-	}
-	result.IsSatisfied = false
-	result.Message = contractVerificationGateMessage(verification)
-	result.EvidenceKind = evidenceKindExpectedResult
-	result.SuggestedNextTools = verification.SuggestedNextTools
-	result.Attachments = nil
-	return result
-}
-
-func expectedResultsAndExactEvidenceSatisfyContract(contract OutcomeContract, observations []turnObservation) bool {
+func validateOutcomeContractRequirements(contract OutcomeContract, observations []turnObservation, attachments []FileAttachment) completionGateResult {
 	contract = normalizeOutcomeContract(contract)
-	if len(contract.ExpectedResults) == 0 || contractRequiresSemanticVerification(contract) {
-		return false
-	}
 	for _, toolName := range contract.RequiredEvidenceTools {
-		if !hasSuccessfulToolObservationForTurn(observations, toolName) {
-			return false
+		if !hasSuccessfulEvidenceToolObservation(observations, toolName) {
+			return missingContractToolResult([]string{toolName})
 		}
 	}
-	return true
+	for _, toolNames := range contract.RequiredEvidenceAnyOf {
+		if !hasAnySuccessfulEvidenceToolObservation(observations, toolNames) {
+			return missingContractToolResult(toolNames)
+		}
+	}
+	if contractRequiresAttachment(contract) && len(attachments) == 0 {
+		return completionGateResult{Message: "finish requires a delivered file attachment", EvidenceKind: evidenceKindAttachment, SuggestedNextTools: []string{FileDeliverToolName}}
+	}
+	if missingSuffix := missingRequiredAttachmentSuffix(attachments, contract.RequiredAttachmentSuffixes); missingSuffix != "" {
+		return completionGateResult{Message: "required file attachment must include suffix " + missingSuffix, EvidenceKind: evidenceKindAttachmentValid, SuggestedNextTools: []string{FileDeliverToolName}}
+	}
+	return completionGateResult{IsSatisfied: true, Attachments: attachments}
 }
 
-func contractRequiresSemanticVerification(contract OutcomeContract) bool {
-	artifactRequirement := strings.TrimSpace(contract.ArtifactRequirement)
-	return len(contract.RequiredEvidenceAnyOf) > 0 ||
-		len(contract.RequiredAttachmentSuffixes) > 0 ||
-		len(contract.RequiredEffects) > 0 ||
-		len(contract.SelectedEvidenceHints) > 0 ||
-		strings.TrimSpace(contract.SiteEvidenceQuote) != "" ||
-		(artifactRequirement != "" && artifactRequirement != ArtifactRequirementNone)
+func hasAnySuccessfulEvidenceToolObservation(observations []turnObservation, toolNames []string) bool {
+	for _, toolName := range toolNames {
+		if hasSuccessfulEvidenceToolObservation(observations, toolName) {
+			return true
+		}
+	}
+	return false
 }
 
-func contractVerificationGateMessage(verification ContractSatisfactionVerification) string {
-	description := firstNonEmptyString(verification.MissingDescription, verification.Reason, "requested outcome is not backed by observed evidence")
-	return "finish does not satisfy task contract: " + strings.TrimSpace(description)
+func hasSuccessfulEvidenceToolObservation(observations []turnObservation, toolName string) bool {
+	return hasSuccessfulToolObservationForTurn(observations, toolName)
+}
+
+func missingContractToolResult(toolNames []string) completionGateResult {
+	return completionGateResult{
+		Message:            "finish requires successful evidence from one of these tools: " + strings.Join(toolNames, ", "),
+		EvidenceKind:       evidenceKindRequiredTool,
+		SuggestedNextTools: appendUniqueStrings(nil, toolNames...),
+	}
+}
+
+func contractRequiresAttachment(contract OutcomeContract) bool {
+	return strings.TrimSpace(contract.ArtifactRequirement) == ArtifactRequirementRequired || len(contract.RequiredAttachmentSuffixes) > 0
 }
 
 func validateExpectedResultCompletionGate(request AgentTurnRequest, observations []turnObservation, criteria []qualityCriterion, actionDocument turnActionDocument, recoveryBudget RecoveryBudget) completionGateResult {
@@ -429,11 +470,11 @@ func validateExpectedResultCompletionGate(request AgentTurnRequest, observations
 	if result := validateFinishDoesNotHideUnresolvedWork(observations, actionDocument); !result.IsSatisfied {
 		return result
 	}
-	attachments, errorValue := validateCompletionEvidence(nil, observations, actionDocument.CompletionEvidence)
+	attachments, errorValue := validateCompletionEvidence(request.ToolSet, nil, observations, actionDocument.CompletionEvidence)
 	if errorValue != nil {
 		return completionGateResult{Message: errorValue.Error(), EvidenceKind: evidenceKindReference}
 	}
-	if externalSendCompletionEvidenceRequired(request) && !outcomeContractRequiresPublicLinkOnly(request.OutcomeContract) && !hasSendCompletionEvidence(observations, actionDocument.CompletionEvidence) {
+	if externalSendCompletionEvidenceRequired(request) && !outcomeContractRequiresPublicLinkOnly(request.OutcomeContract) && !hasSendCompletionEvidence(request.ToolSet, observations, actionDocument.CompletionEvidence) {
 		requiredSendToolNames := requiredSendToolNamesForRequest(request)
 		return completionGateResult{
 			Message:            sendCompletionEvidenceRequiredMessage(requiredSendToolNames),
@@ -443,14 +484,16 @@ func validateExpectedResultCompletionGate(request AgentTurnRequest, observations
 	}
 	if expectedResultRequiresFileAttachment(request.OutcomeContract) && len(attachments) == 0 {
 		return completionGateResult{
-			Message:      "required file expected result must cite file.deliver completionEvidence",
-			EvidenceKind: evidenceKindAttachment,
+			Message:            "required file expected result must cite file.deliver completionEvidence",
+			EvidenceKind:       evidenceKindAttachment,
+			SuggestedNextTools: []string{FileDeliverToolName},
 		}
 	}
 	if missingSuffix := missingRequiredAttachmentSuffix(attachments, request.OutcomeContract.RequiredAttachmentSuffixes); len(attachments) > 0 && missingSuffix != "" {
 		return completionGateResult{
-			Message:      "required file expected result must include attachment suffix " + missingSuffix,
-			EvidenceKind: evidenceKindAttachmentValid,
+			Message:            "required file expected result must include attachment suffix " + missingSuffix,
+			EvidenceKind:       evidenceKindAttachmentValid,
+			SuggestedNextTools: []string{FileDeliverToolName},
 		}
 	}
 	if expectedResultRequiresTool(request.OutcomeContract, AskInputToolName) && !hasSuccessfulToolObservationForTurn(observations, AskInputToolName) {
@@ -459,11 +502,6 @@ func validateExpectedResultCompletionGate(request AgentTurnRequest, observations
 			EvidenceKind:       evidenceKindRequiredTool,
 			SuggestedNextTools: []string{AskInputToolName},
 		}
-	}
-	finishMessage := finishActionMessage(actionDocument)
-	requiresAttachmentEvidence := len(attachments) > 0
-	if errorValue := ValidateFinishMessageDelivery(finishMessage, attachments, requiresAttachmentEvidence); errorValue != nil {
-		return completionGateResult{Message: errorValue.Error(), EvidenceKind: evidenceKindReference}
 	}
 	if projectionResult := validateObservedResultProjection(request, observations, attachments, actionDocument); !projectionResult.IsSatisfied {
 		return projectionResult
@@ -513,32 +551,32 @@ func expectedResultRequiresTool(contract OutcomeContract, toolName string) bool 
 }
 
 func externalSendCompletionEvidenceRequired(request AgentTurnRequest) bool {
-	return contractRequiresSendTool(request.OutcomeContract) ||
-		sendToolNamesContain(request.RequiredEvidenceTools)
+	return contractRequiresSendTool(request.ToolSet, request.OutcomeContract) ||
+		sendToolNamesContain(request.ToolSet, request.RequiredEvidenceTools)
 }
 
-func sendCompletionEvidenceRequiredForTools(requirements []toolUseRequirement) bool {
+func sendCompletionEvidenceRequiredForTools(toolSet *ToolSet, requirements []toolUseRequirement) bool {
 	for _, requirement := range requirements {
-		if isSendEvidenceTool(requirement.ToolName) {
+		if isSendEvidenceTool(toolSet, requirement.ToolName) {
 			return true
 		}
 	}
 	return false
 }
 
-func sendToolNamesContain(toolNames []string) bool {
+func sendToolNamesContain(toolSet *ToolSet, toolNames []string) bool {
 	for _, toolName := range toolNames {
-		if isSendEvidenceTool(toolName) {
+		if isSendEvidenceTool(toolSet, toolName) {
 			return true
 		}
 	}
 	return false
 }
 
-func requiredSendToolNamesForRequirements(requirements []toolUseRequirement) []string {
+func requiredSendToolNamesForRequirements(toolSet *ToolSet, requirements []toolUseRequirement) []string {
 	toolNames := []string{}
 	for _, requirement := range requirements {
-		if isSendEvidenceTool(requirement.ToolName) {
+		if isSendEvidenceTool(toolSet, requirement.ToolName) {
 			toolNames = appendUniqueStrings(toolNames, requirement.ToolName)
 		}
 	}
@@ -546,15 +584,15 @@ func requiredSendToolNamesForRequirements(requirements []toolUseRequirement) []s
 }
 
 func requiredSendToolNamesForRequest(request AgentTurnRequest) []string {
-	toolNames := sendEvidenceToolsFromValues(request.RequiredEvidenceTools)
+	toolNames := sendEvidenceToolsFromValues(request.ToolSet, request.RequiredEvidenceTools)
 	if len(toolNames) > 0 {
 		return toolNames
 	}
-	toolNames = sendEvidenceToolsFromValues(outcomeContractRequiredToolNames(request.OutcomeContract))
+	toolNames = sendEvidenceToolsFromValues(request.ToolSet, outcomeContractRequiredToolNames(request.OutcomeContract))
 	if len(toolNames) > 0 {
 		return toolNames
 	}
-	toolNames = sendEvidenceToolsFromValues(request.OutcomeContract.SelectedEvidenceHints)
+	toolNames = sendEvidenceToolsFromValues(request.ToolSet, request.OutcomeContract.SelectedEvidenceHints)
 	if len(toolNames) > 0 {
 		return toolNames
 	}
@@ -572,19 +610,14 @@ func sendCompletionEvidenceRequiredMessage(toolNames []string) string {
 	return "finish requires completionEvidence from a successful send tool observation; call one of these tools to perform the actual send, then cite that observation: " + strings.Join(toolNames, ", ")
 }
 
-func hasSendCompletionEvidence(observations []turnObservation, references []completionEvidenceReference) bool {
+func hasSendCompletionEvidence(toolSet *ToolSet, observations []turnObservation, references []completionEvidenceReference) bool {
 	for _, reference := range references {
 		observation, isFound := findSuccessfulObservation(observations, reference)
-		if isFound && (isSendEvidenceTool(observation.Tool) || terminalObservationInvokedSendTool(observation)) {
+		if isFound && isSendEvidenceTool(toolSet, observation.Tool) {
 			return true
 		}
 	}
 	return false
-}
-
-func terminalObservationInvokedSendTool(observation turnObservation) bool {
-	toolName, _, isFound := terminalCapabilityResponse(observation)
-	return isFound && isSendEvidenceTool(toolName)
 }
 
 func hasSuccessfulToolObservationForTurn(observations []turnObservation, toolName string) bool {
@@ -602,11 +635,11 @@ func hasSuccessfulToolObservationForTurn(observations []turnObservation, toolNam
 
 func validateCompletionGateForRequestWithRecoveryBudget(request AgentTurnRequest, requirements []toolUseRequirement, observations []turnObservation, criteria []qualityCriterion, actionDocument turnActionDocument, recoveryBudget RecoveryBudget) completionGateResult {
 	requirements = requirementsWithFailureDebtWaiver(requirements, observations, actionDocument)
-	result := validateCompletionGate(requirements, observations, criteria, actionDocument)
+	result := validateCompletionGate(request.ToolSet, requirements, observations, criteria, actionDocument)
 	if !result.IsSatisfied {
 		return result
 	}
-	if externalSendCompletionEvidenceRequired(request) && !hasSendCompletionEvidence(observations, actionDocument.CompletionEvidence) {
+	if externalSendCompletionEvidenceRequired(request) && !hasSendCompletionEvidence(request.ToolSet, observations, actionDocument.CompletionEvidence) {
 		result.IsSatisfied = false
 		result.SuggestedNextTools = requiredSendToolNamesForRequest(request)
 		result.Message = sendCompletionEvidenceRequiredMessage(result.SuggestedNextTools)
@@ -656,15 +689,6 @@ func observedProjectionSuggestedTools(requirements []ProjectionMissingRequiremen
 	return toolNames
 }
 
-func expectedResultGateMessage(results []ResultVerificationItem) string {
-	parts := []string{}
-	for _, result := range results {
-		description := firstNonEmptyString(result.MissingDescription, result.Reason, result.ID)
-		parts = append(parts, strings.TrimSpace(result.ID)+": "+strings.TrimSpace(description))
-	}
-	return "finish is missing required expected result: " + strings.Join(parts, "; ")
-}
-
 func requirementsWithFailureDebtWaiver(requirements []toolUseRequirement, observations []turnObservation, actionDocument turnActionDocument) []toolUseRequirement {
 	if strings.TrimSpace(actionDocument.FailureResolution) != failureResolutionNoToolFallback {
 		return requirements
@@ -694,32 +718,34 @@ func canWaiveRequirementWithNoToolFallback(requirement toolUseRequirement, faile
 	return !requirement.RequiresSideEffectEvidence
 }
 
-func completionGateObservation(index int, result completionGateResult) turnObservation {
+func completionGateObservation(index int, result completionGateResult, priorObservations []turnObservation) turnObservation {
 	message := strings.TrimSpace(result.Message)
 	evidenceKind := strings.TrimSpace(result.EvidenceKind)
 	if evidenceKind == "" {
 		return newFailureObservation(nextObservationID(index), "policy", "", message, FailureInvalidInput, FailureCodes.InvalidInput, "completion_gate")
 	}
-	content := evidenceMissingGuidance(evidenceKind, message)
+	content := evidenceMissingGuidance(evidenceKind, message) + observedRealityStatement(priorObservations)
 	observation := newFailureObservation(nextObservationID(index), "evidence_missing", "", message, FailureInvalidInput, FailureCodes.InvalidInput, evidenceKind)
 	observation = withObservationContent(observation, content)
 	observation.Summary = content
 	observation.PolicyCode = evidenceKind
-	observation.RelatedResultIDs = missingResultIDs(result.ResultVerification)
 	observation.RelatedPaths = invalidValidityPaths(result.ValidityState)
 	observation.Failure.Retryable = true
 	observation.Failure.SafeRetry = true
 	return observation
 }
 
-func missingResultIDs(verification ResultVerification) []string {
-	resultIDs := []string{}
-	for _, item := range verification.Results {
-		if item.Status == "missing" || item.Status == "uncertain" {
-			resultIDs = appendUniqueStrings(resultIDs, item.ID)
+func observedRealityStatement(observations []turnObservation) string {
+	successfulToolCount := 0
+	for _, observation := range observations {
+		if !observation.Failed() && strings.TrimSpace(observation.Tool) != "" {
+			successfulToolCount++
 		}
 	}
-	return resultIDs
+	if successfulToolCount > 0 {
+		return ""
+	}
+	return " Recorded reality: this task has ZERO successful tool observations, so nothing has been created or modified. Any completion claim is false. Your next action must be the required tool call, not finish."
 }
 
 func invalidValidityPaths(state ValidityState) []string {
@@ -748,16 +774,7 @@ func withCompletionGateRecoveryPacket(observation turnObservation, result comple
 }
 
 func expectedResultRecoveryEvidence(result completionGateResult) []string {
-	if len(result.ResultVerification.Results) == 0 {
-		return []string{result.Message}
-	}
-	values := []string{}
-	for _, item := range result.ResultVerification.Results {
-		if item.Status == "missing" || item.Status == "uncertain" {
-			values = appendUniqueStrings(values, firstNonEmptyString(item.MissingDescription, item.Reason, item.ID))
-		}
-	}
-	return values
+	return []string{result.Message}
 }
 
 func completionGateEventName(observation turnObservation) string {
@@ -770,7 +787,7 @@ func completionGateEventName(observation turnObservation) string {
 func evidenceMissingGuidance(evidenceKind string, message string) string {
 	switch evidenceKind {
 	case "expected_result_missing":
-		return "The Task expected result is not complete yet. Produce or inspect the missing result, then finish after the expected result verifier can see it. " + message
+		return "The Task expected result is not complete yet. Produce or inspect the missing result, then finish with exact typed delivery evidence. " + message
 	case "required_tool_missing":
 		return "The final reply needs successful tool evidence before completion. Use the required tool if it has not run, or cite an existing successful observation. " + message
 	case "attachment_missing":
@@ -784,19 +801,20 @@ func evidenceMissingGuidance(evidenceKind string, message string) string {
 	}
 }
 
-func validateCompletionEvidence(requirements []toolUseRequirement, observations []turnObservation, references []completionEvidenceReference) ([]FileAttachment, error) {
+func validateCompletionEvidence(toolSet *ToolSet, requirements []toolUseRequirement, observations []turnObservation, references []completionEvidenceReference) ([]FileAttachment, error) {
 	if len(requirements) == 0 {
-		if errorValue := validateCompletionEvidenceReferences(observations, references); errorValue != nil {
+		if errorValue := validateCompletionEvidenceReferences(toolSet, observations, references); errorValue != nil {
 			return nil, errorValue
 		}
 		return collectReferenceDeliveryAttachments(observations, references), nil
 	}
 	attachments := collectReferenceDeliveryAttachments(observations, references)
+	eligibleReferences := completionEvidenceEligibleReferences(toolSet, observations, references)
 	for _, requirement := range requirements {
 		if !requirement.RequiresAttachment {
 			continue
 		}
-		matchingReferences := completionReferencesForRequirement(requirement, observations, references)
+		matchingReferences := completionReferencesForRequirement(requirement, observations, eligibleReferences)
 		if len(matchingReferences) == 0 {
 			return nil, errors.New("completionEvidence must cite successful observation for " + requirementLabel(requirement))
 		}
@@ -811,12 +829,23 @@ func validateCompletionEvidence(requirements []toolUseRequirement, observations 
 	return attachments, nil
 }
 
-func validateObservedToolRequirements(requirements []toolUseRequirement, observations []turnObservation) error {
+func completionEvidenceEligibleReferences(toolSet *ToolSet, observations []turnObservation, references []completionEvidenceReference) []completionEvidenceReference {
+	eligibleReferences := make([]completionEvidenceReference, 0, len(references))
+	for _, reference := range references {
+		observation, isFound := findSuccessfulObservation(observations, reference)
+		if isFound && observationSatisfiesEvidenceCondition(toolSet, observation) {
+			eligibleReferences = append(eligibleReferences, reference)
+		}
+	}
+	return eligibleReferences
+}
+
+func validateObservedToolRequirements(toolSet *ToolSet, requirements []toolUseRequirement, observations []turnObservation) error {
 	for _, requirement := range requirements {
 		if requirement.RequiresAttachment {
 			continue
 		}
-		isSatisfied, _ := completionRequirementStatus(requirement, observations)
+		isSatisfied, _ := completionRequirementStatus(toolSet, requirement, observations)
 		if !isSatisfied {
 			return errors.New("finish requires successful observation for " + requirementLabel(requirement))
 		}
@@ -855,9 +884,10 @@ func attachmentMatchesSuffix(attachment FileAttachment, suffix string) bool {
 	return strings.HasSuffix(attachment.Filename, suffix) || strings.HasSuffix(attachment.DevicePath, suffix)
 }
 
-func validateCompletionEvidenceReferences(observations []turnObservation, references []completionEvidenceReference) error {
+func validateCompletionEvidenceReferences(toolSet *ToolSet, observations []turnObservation, references []completionEvidenceReference) error {
 	for _, reference := range references {
-		if _, isFound := findSuccessfulObservation(observations, reference); !isFound {
+		observation, isFound := findSuccessfulObservation(observations, reference)
+		if !isFound || !observationSatisfiesEvidenceCondition(toolSet, observation) {
 			return errors.New("completionEvidence references an unknown or failed observation")
 		}
 	}
@@ -894,16 +924,10 @@ func matchingCompletionObservations(requirement toolUseRequirement, observations
 
 func requirementMatchesObservation(requirement toolUseRequirement, observation turnObservation) bool {
 	toolName := strings.TrimSpace(observation.Tool)
-	if strings.TrimSpace(requirement.ToolName) != "" {
-		if terminalObservationMatchesCapabilityTool(observation, requirement.ToolName) {
-			return true
-		}
-		return ToolNamesMatch(toolName, requirement.ToolName)
+	if strings.TrimSpace(requirement.ToolName) == "" {
+		return false
 	}
-	if strings.TrimSpace(requirement.ToolPrefix) != "" {
-		return strings.HasPrefix(toolName, strings.TrimSpace(requirement.ToolPrefix))
-	}
-	return false
+	return ToolNamesMatch(toolName, requirement.ToolName)
 }
 
 func findSuccessfulObservation(observations []turnObservation, reference completionEvidenceReference) (turnObservation, bool) {
@@ -914,7 +938,7 @@ func findSuccessfulObservation(observations []turnObservation, reference complet
 		if strings.TrimSpace(observation.ObservationID) != strings.TrimSpace(reference.ObservationID) {
 			continue
 		}
-		if strings.TrimSpace(reference.ToolName) != "" && !ToolNamesMatch(observation.Tool, reference.ToolName) && !terminalObservationMatchesCapabilityTool(observation, reference.ToolName) {
+		if strings.TrimSpace(reference.ToolName) != "" && !ToolNamesMatch(observation.Tool, reference.ToolName) {
 			continue
 		}
 		return observation, true
@@ -1000,8 +1024,5 @@ func appendUniqueAttachments(attachments []FileAttachment, candidates []FileAtta
 }
 
 func requirementLabel(requirement toolUseRequirement) string {
-	if strings.TrimSpace(requirement.ToolName) != "" {
-		return strings.TrimSpace(requirement.ToolName)
-	}
-	return strings.TrimSpace(requirement.ToolPrefix)
+	return strings.TrimSpace(requirement.ToolName)
 }

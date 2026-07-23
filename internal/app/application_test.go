@@ -17,18 +17,70 @@ import (
 	"testing"
 	"time"
 
+	"blueclaw/internal/agent"
 	"blueclaw/internal/config"
 	"blueclaw/internal/connectors"
 	"blueclaw/internal/llm"
+	"blueclaw/internal/mcp"
+	"blueclaw/internal/protocolidentity"
 	"blueclaw/internal/runtimecontrol"
 	"blueclaw/internal/task"
 )
+
+type applicationMCPRegistryCloser struct {
+	closeCount int
+	closeError error
+}
+
+func (closer *applicationMCPRegistryCloser) Close() error {
+	closer.closeCount++
+	return closer.closeError
+}
 
 func TestTaskIntakeControllerStartsUnquiesced(t *testing.T) {
 	controller := runtimecontrol.NewTaskIntakeController()
 
 	if controller.IsQuiesced() {
 		t.Fatal("fresh task intake controller must start unquiesced")
+	}
+}
+
+func TestCapabilityToolDescriptorsPreserveResultContracts(t *testing.T) {
+	inputIntentSchema := json.RawMessage(`{"type":"object","properties":{"title":{"type":"string"}},"additionalProperties":false}`)
+	descriptors := capabilityToolDescriptors([]config.CapabilityToolDescriptor{{
+		Name:              "task.add",
+		InputIntentSchema: inputIntentSchema,
+		ResultContract: &config.CapabilityToolResultContract{
+			Schema: json.RawMessage(`{"type":"object","properties":{"taskID":{"type":"string"}},"required":["taskID"],"additionalProperties":false}`),
+			Effects: []config.CapabilityResourceEffectContract{{
+				ObjectType:     "task",
+				Effect:         "created",
+				ResultField:    "taskID",
+				EffectIdentity: "id",
+			}},
+			EvidenceCondition: &config.EvidenceCondition{
+				ResultField: "taskID",
+				Equals:      json.RawMessage(`"task-1"`),
+			},
+		},
+	}})
+
+	if len(descriptors) != 1 || descriptors[0].ResultContract == nil {
+		t.Fatalf("expected mapped result contract, got %+v", descriptors)
+	}
+	if string(descriptors[0].InputIntentSchema) != string(inputIntentSchema) {
+		t.Fatalf("expected mapped input intent schema, got %s", descriptors[0].InputIntentSchema)
+	}
+	if len(descriptors[0].ResultContract.Effects) != 1 ||
+		descriptors[0].ResultContract.Effects[0].ObjectType != "task" ||
+		descriptors[0].ResultContract.Effects[0].Effect != "created" ||
+		descriptors[0].ResultContract.Effects[0].ResultField != "taskID" ||
+		descriptors[0].ResultContract.Effects[0].EffectIdentity != "id" {
+		t.Fatalf("expected mapped resource effect, got %+v", descriptors[0].ResultContract)
+	}
+	if descriptors[0].ResultContract.EvidenceCondition == nil ||
+		string(descriptors[0].ResultContract.EvidenceCondition.Equals) != `"task-1"` {
+		t.Fatalf("expected mapped evidence condition, got %+v", descriptors[0].ResultContract)
 	}
 }
 
@@ -55,16 +107,16 @@ func TestResolveIntakeLanguageModelProviderUsesReliableTaskTierModel(t *testing.
 	runtimeConfiguration.Agent.Intake.Enabled = true
 	runtimeConfiguration.Agent.Intake.ExecutionMode = "auto"
 
-	languageModelProvider := resolveIntakeLanguageModelProvider(runtimeConfiguration, newCapabilityClient(runtimeConfiguration), nil)
+	languageModelProvider := resolveIntakeLanguageModelProvider(runtimeConfiguration, nil)
 	fallbackLanguageModelProvider, isFallbackProvider := languageModelProvider.(llm.FallbackLanguageModelProvider)
 	if !isFallbackProvider {
 		t.Fatalf("expected fallback intake provider, got %T", languageModelProvider)
 	}
-	primaryClient, isPrimaryCapabilityClient := fallbackLanguageModelProvider.PrimaryProvider.(llm.CapabilityLLMClient)
+	primaryClient, isPrimaryCapabilityClient := unwrapModelTier(fallbackLanguageModelProvider.PrimaryProvider).(llm.CapabilityLLMClient)
 	if !isPrimaryCapabilityClient {
 		t.Fatalf("expected primary capability intake provider, got %T", fallbackLanguageModelProvider.PrimaryProvider)
 	}
-	fallbackClient, isFallbackCapabilityClient := fallbackLanguageModelProvider.FallbackProvider.(llm.CapabilityLLMClient)
+	fallbackClient, isFallbackCapabilityClient := unwrapModelTier(fallbackLanguageModelProvider.FallbackProvider).(llm.CapabilityLLMClient)
 	if !isFallbackCapabilityClient {
 		t.Fatalf("expected fallback capability intake provider, got %T", fallbackLanguageModelProvider.FallbackProvider)
 	}
@@ -85,12 +137,12 @@ func TestResolveIntakeLanguageModelProviderUsesExplicitModel(t *testing.T) {
 	runtimeConfiguration.Agent.Intake.Enabled = true
 	runtimeConfiguration.Agent.Intake.Model = "x-ai/grok-4.3"
 
-	languageModelProvider := resolveIntakeLanguageModelProvider(runtimeConfiguration, newCapabilityClient(runtimeConfiguration), nil)
+	languageModelProvider := resolveIntakeLanguageModelProvider(runtimeConfiguration, nil)
 	fallbackLanguageModelProvider, isFallbackProvider := languageModelProvider.(llm.FallbackLanguageModelProvider)
 	if !isFallbackProvider {
 		t.Fatalf("expected fallback intake provider, got %T", languageModelProvider)
 	}
-	primaryClient, isPrimaryCapabilityClient := fallbackLanguageModelProvider.PrimaryProvider.(llm.CapabilityLLMClient)
+	primaryClient, isPrimaryCapabilityClient := unwrapModelTier(fallbackLanguageModelProvider.PrimaryProvider).(llm.CapabilityLLMClient)
 	if !isPrimaryCapabilityClient {
 		t.Fatalf("expected primary capability intake provider, got %T", fallbackLanguageModelProvider.PrimaryProvider)
 	}
@@ -117,11 +169,76 @@ func TestMaximumXLowTierCapsTaskModelsAndUsesLowForImages(t *testing.T) {
 func TestMaximumLowTierCapsIntakeFallbacks(t *testing.T) {
 	runtimeConfiguration := configuredModelTierRuntime("low")
 	runtimeConfiguration.Agent.Intake.Enabled = true
-	provider := resolveIntakeLanguageModelProvider(runtimeConfiguration, newCapabilityClient(runtimeConfiguration), nil)
+	provider := resolveIntakeLanguageModelProvider(runtimeConfiguration, nil)
 
 	modelNames := languageModelProviderNames(provider)
 	if !reflect.DeepEqual(modelNames, []string{"vendor/low", "vendor/xlow"}) {
 		t.Fatalf("expected intake to stay at or below low, got %v", modelNames)
+	}
+}
+
+func TestResolveIntakeLanguageModelProviderUsesLLMDWhenSelected(t *testing.T) {
+	authKeyPath := filepath.Join(t.TempDir(), "llmd.key")
+	if errorValue := os.WriteFile(authKeyPath, []byte("installation-key"), 0o600); errorValue != nil {
+		t.Fatalf("expected auth key fixture: %v", errorValue)
+	}
+	runtimeConfiguration := configuredModelTierRuntime("")
+	runtimeConfiguration.Agent.Intake.Enabled = true
+	runtimeConfiguration.Agent.Intake.Model = "vendor/intake"
+	runtimeConfiguration.Agent.Intake.ExecutionMode = "companion"
+	runtimeConfiguration.LanguageModel.DefaultProvider = "llmd"
+	runtimeConfiguration.LanguageModel.LLMD.AuthKeyPath = authKeyPath
+
+	provider := resolveIntakeLanguageModelProvider(runtimeConfiguration, nil)
+	fallbackProvider, isFallbackProvider := provider.(llm.FallbackLanguageModelProvider)
+	if !isFallbackProvider {
+		t.Fatalf("expected fallback intake provider, got %T", provider)
+	}
+	primaryProvider, isLLMDPrimary := unwrapModelTier(fallbackProvider.PrimaryProvider).(llm.LLMDClient)
+	if !isLLMDPrimary {
+		t.Fatalf("expected LLMD intake primary provider, got %T", fallbackProvider.PrimaryProvider)
+	}
+	if primaryProvider.ModelName != "vendor/intake" || primaryProvider.ExecutionMode != "companion" {
+		t.Fatalf("expected intake LLMD model and execution mode, got %q and %q", primaryProvider.ModelName, primaryProvider.ExecutionMode)
+	}
+	fallbackLLMDProvider, isLLMDFallback := unwrapModelTier(fallbackProvider.FallbackProvider).(llm.LLMDClient)
+	if !isLLMDFallback {
+		t.Fatalf("expected LLMD intake fallback provider, got %T", fallbackProvider.FallbackProvider)
+	}
+	if fallbackLLMDProvider.ModelName != "vendor/high" || fallbackLLMDProvider.ExecutionMode != "companion" {
+		t.Fatalf("expected high LLMD fallback model and execution mode, got %q and %q", fallbackLLMDProvider.ModelName, fallbackLLMDProvider.ExecutionMode)
+	}
+}
+
+func TestMaximumLowTierCapsIntakeUsesLLMDWhenSelected(t *testing.T) {
+	authKeyPath := filepath.Join(t.TempDir(), "llmd.key")
+	if errorValue := os.WriteFile(authKeyPath, []byte("installation-key"), 0o600); errorValue != nil {
+		t.Fatalf("expected auth key fixture: %v", errorValue)
+	}
+	runtimeConfiguration := configuredModelTierRuntime("low")
+	runtimeConfiguration.Agent.Intake.Enabled = true
+	runtimeConfiguration.Agent.Intake.ExecutionMode = "device"
+	runtimeConfiguration.LanguageModel.DefaultProvider = "llmd"
+	runtimeConfiguration.LanguageModel.LLMD.AuthKeyPath = authKeyPath
+
+	provider := resolveIntakeLanguageModelProvider(runtimeConfiguration, nil)
+	fallbackProvider, isFallbackProvider := provider.(llm.FallbackLanguageModelProvider)
+	if !isFallbackProvider {
+		t.Fatalf("expected capped fallback intake provider, got %T", provider)
+	}
+	primaryProvider, isLLMDPrimary := unwrapModelTier(fallbackProvider.PrimaryProvider).(llm.LLMDClient)
+	if !isLLMDPrimary {
+		t.Fatalf("expected capped LLMD intake primary provider, got %T", fallbackProvider.PrimaryProvider)
+	}
+	if primaryProvider.ModelName != "vendor/low" || primaryProvider.ExecutionMode != "device" {
+		t.Fatalf("expected capped low LLMD model and execution mode, got %q and %q", primaryProvider.ModelName, primaryProvider.ExecutionMode)
+	}
+	fallbackLLMDProvider, isLLMDFallback := unwrapModelTier(fallbackProvider.FallbackProvider).(llm.LLMDClient)
+	if !isLLMDFallback {
+		t.Fatalf("expected capped LLMD intake fallback provider, got %T", fallbackProvider.FallbackProvider)
+	}
+	if fallbackLLMDProvider.ModelName != "vendor/xlow" || fallbackLLMDProvider.ExecutionMode != "device" {
+		t.Fatalf("expected capped xlow LLMD fallback model and execution mode, got %q and %q", fallbackLLMDProvider.ModelName, fallbackLLMDProvider.ExecutionMode)
 	}
 }
 
@@ -166,6 +283,12 @@ func languageModelProviderNames(provider llm.LanguageModelProvider) []string {
 }
 
 func collectLanguageModelProviderNames(provider llm.LanguageModelProvider, modelNames map[string]bool) {
+	if tieredProvider, isTieredProvider := provider.(interface {
+		UnderlyingProvider() llm.LanguageModelProvider
+	}); isTieredProvider {
+		collectLanguageModelProviderNames(tieredProvider.UnderlyingProvider(), modelNames)
+		return
+	}
 	switch typedProvider := provider.(type) {
 	case llm.CapabilityLLMClient:
 		modelNames[typedProvider.ModelName] = true
@@ -176,6 +299,15 @@ func collectLanguageModelProviderNames(provider llm.LanguageModelProvider, model
 		collectLanguageModelProviderNames(typedProvider.TextOnlyModel, modelNames)
 		collectLanguageModelProviderNames(typedProvider.VisionModel, modelNames)
 	}
+}
+
+func unwrapModelTier(provider llm.LanguageModelProvider) llm.LanguageModelProvider {
+	if tieredProvider, isTieredProvider := provider.(interface {
+		UnderlyingProvider() llm.LanguageModelProvider
+	}); isTieredProvider {
+		return tieredProvider.UnderlyingProvider()
+	}
+	return provider
 }
 
 func TestDeriveAgentTurnOptionsWiresContextWindowTokens(t *testing.T) {
@@ -257,7 +389,7 @@ Research helper body.
 	if len(instructionBundle.Skills) != 1 || instructionBundle.Skills[0].Name != "research-helper" {
 		t.Fatalf("expected added user skill to be discovered, got %+v", instructionBundle.Skills)
 	}
-	if instructionBundle.Skills[0].Description != "Help with research tasks and source lookup requests." || instructionBundle.Skills[0].WhenToUse != "" {
+	if instructionBundle.Skills[0].Description != "Help with research tasks and source lookup requests." {
 		t.Fatalf("expected standard skill fields, got %+v", instructionBundle.Skills[0])
 	}
 }
@@ -314,6 +446,94 @@ func TestNewApplicationAllowsSignalInternalIngress(t *testing.T) {
 
 	if application.startupError != nil {
 		t.Fatalf("expected signal internal ingress to be allowed: %v", application.startupError)
+	}
+}
+
+func TestApplicationShutdownClosesOwnedMCPRegistry(t *testing.T) {
+	runtimeConfiguration := config.RuntimeConfiguration{}
+	runtimeConfiguration.Logging.DirectoryPath = t.TempDir()
+	application := NewApplication(runtimeConfiguration, "")
+	expectedError := errors.New("close MCP registry")
+	registry := &applicationMCPRegistryCloser{closeError: expectedError}
+	application.mcpRegistry = registry
+
+	errorValue := application.Shutdown(context.Background())
+
+	if !errors.Is(errorValue, expectedError) {
+		t.Fatalf("expected MCP close error, got %v", errorValue)
+	}
+	if registry.closeCount != 1 {
+		t.Fatalf("expected MCP registry to close once, got %d", registry.closeCount)
+	}
+}
+
+func TestMCPQuarantineLogsPreserveStructuredIdentity(t *testing.T) {
+	var output bytes.Buffer
+	logger := slog.New(slog.NewJSONHandler(&output, nil))
+
+	logMCPServerQuarantines(logger, mcp.LoadReport{Quarantined: []mcp.QuarantinedServer{{
+		Name:   "workspace",
+		Reason: "server unavailable",
+	}}})
+	logMCPProviderQuarantine(logger, agent.QuarantinedToolProvider{
+		ProviderID: "mcp:workspace",
+		Reason:     "tool name collision",
+	})
+
+	logOutput := output.String()
+	for _, expectedText := range []string{
+		`"msg":"mcp.server.quarantined"`,
+		`"serverName":"workspace"`,
+		`"reason":"server unavailable"`,
+		`"msg":"mcp.provider.quarantined"`,
+		`"providerID":"mcp:workspace"`,
+		`"reason":"tool name collision"`,
+	} {
+		if !strings.Contains(logOutput, expectedText) {
+			t.Fatalf("expected structured log field %s in %s", expectedText, logOutput)
+		}
+	}
+}
+
+func TestApplicationChecksProtocolIdentityOnceAndStoresResult(t *testing.T) {
+	protocolVersion := "0.4.0"
+	aggregateProtocolHash := "58ff1977989bacbf2db3fdce08fd57c9b52f344ca747a3322f4e60bdf6052a78"
+	requestCount := 0
+	server := httptest.NewServer(http.HandlerFunc(func(responseWriter http.ResponseWriter, request *http.Request) {
+		requestCount++
+		responseWriter.Header().Set("Content-Type", "application/json")
+		_, _ = responseWriter.Write([]byte(`{"status":"ok","protocolVersion":"` + protocolVersion + `","aggregateProtocolHash":"` + aggregateProtocolHash + `"}`))
+	}))
+	defer server.Close()
+
+	runtimeConfiguration := config.RuntimeConfiguration{}
+	runtimeConfiguration.Logging.DirectoryPath = t.TempDir()
+	runtimeConfiguration.Capabilities.Endpoint = server.URL
+	runtimeConfiguration.Capabilities.ProtocolVersion = protocolVersion
+	runtimeConfiguration.Capabilities.AggregateProtocolHash = aggregateProtocolHash
+	runtimeConfiguration.LanguageModel.LLMD.Endpoint = server.URL
+	application := NewApplication(runtimeConfiguration, "")
+	application.protocolIdentityExpected = protocolidentity.Identity{
+		ProtocolVersion:       protocolVersion,
+		AggregateProtocolHash: aggregateProtocolHash,
+	}
+	application.protocolIdentityChecker = protocolidentity.NewChecker(protocolidentity.Configuration{
+		CapabilityEndpoint: server.URL,
+		LLMDBridgeEndpoint: server.URL,
+		HTTPClient:         server.Client(),
+	})
+
+	if errorValue := application.checkProtocolIdentity(); errorValue != nil {
+		t.Fatalf("expected protocol identity check to pass: %v", errorValue)
+	}
+	if errorValue := application.checkProtocolIdentity(); errorValue != nil {
+		t.Fatalf("expected repeated protocol identity check to reuse result: %v", errorValue)
+	}
+	if requestCount != 3 {
+		t.Fatalf("expected one companion-status seed, one capabilityd, and one LLMD request, got %d", requestCount)
+	}
+	if !application.protocolIdentityStatus.Passed {
+		t.Fatalf("expected stored protocol identity result to pass: %+v", application.protocolIdentityStatus)
 	}
 }
 
@@ -598,5 +818,43 @@ func TestResolveTaskTierLanguageModelProvidersKeepsBareLowWhenMediumMatchesLow(t
 
 	if _, isFallbackProvider := providers.Low.(llm.FallbackLanguageModelProvider); isFallbackProvider {
 		t.Fatal("expected bare low provider when the medium model equals the low model")
+	}
+}
+
+func TestResolveTaskTierLanguageModelProvidersUsesLLMDWhenSelected(t *testing.T) {
+	authKeyPath := filepath.Join(t.TempDir(), "llmd.key")
+	if errorValue := os.WriteFile(authKeyPath, []byte("installation-key"), 0o600); errorValue != nil {
+		t.Fatalf("expected auth key fixture: %v", errorValue)
+	}
+	runtimeConfiguration := config.RuntimeConfiguration{}
+	runtimeConfiguration.LanguageModel.DefaultProvider = "llmd"
+	runtimeConfiguration.LanguageModel.LLMD.AuthKeyPath = authKeyPath
+	providers := resolveTaskTierLanguageModelProviders(runtimeConfiguration, slog.New(slog.DiscardHandler))
+
+	lowProvider, isFallbackProvider := providers.Low.(llm.FallbackLanguageModelProvider)
+	if !isFallbackProvider {
+		t.Fatalf("expected low tier fallback provider, got %T", providers.Low)
+	}
+	if _, isLLMDClient := unwrapModelTier(lowProvider.PrimaryProvider).(llm.LLMDClient); !isLLMDClient {
+		t.Fatalf("expected llmd low tier primary provider, got %T", lowProvider.PrimaryProvider)
+	}
+}
+
+func TestResolveCappedTaskTierLanguageModelProvidersUsesLLMDWhenSelected(t *testing.T) {
+	authKeyPath := filepath.Join(t.TempDir(), "llmd.key")
+	if errorValue := os.WriteFile(authKeyPath, []byte("installation-key"), 0o600); errorValue != nil {
+		t.Fatalf("expected auth key fixture: %v", errorValue)
+	}
+	runtimeConfiguration := configuredModelTierRuntime("low")
+	runtimeConfiguration.LanguageModel.DefaultProvider = "llmd"
+	runtimeConfiguration.LanguageModel.LLMD.AuthKeyPath = authKeyPath
+	providers := resolveTaskTierLanguageModelProviders(runtimeConfiguration, slog.New(slog.DiscardHandler))
+
+	lowProvider, isFallbackProvider := providers.Low.(llm.FallbackLanguageModelProvider)
+	if !isFallbackProvider {
+		t.Fatalf("expected capped low tier fallback provider, got %T", providers.Low)
+	}
+	if _, isLLMDClient := unwrapModelTier(lowProvider.PrimaryProvider).(llm.LLMDClient); !isLLMDClient {
+		t.Fatalf("expected capped llmd low tier primary provider, got %T", lowProvider.PrimaryProvider)
 	}
 }

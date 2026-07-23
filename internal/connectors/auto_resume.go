@@ -57,7 +57,7 @@ func (connectorRuntime *ConnectorRuntime) ResumeInterruptedTaskRun(ctx context.C
 	if errorValue != nil {
 		return connectorRuntime.completeInterruptedTaskResumeLaunchFailure(ctx, taskRun, launchContext, event, replyTarget, adapter, sendReply, errorValue)
 	}
-	return connectorRuntime.dispatchTaskReply(withConnectorEvent(ctx, event), adapter.Name(), adapter, event, replyTarget, launchResult.TurnResult, sendReply)
+	return connectorRuntime.dispatchTaskReply(withConnectorEvent(ctx, event), adapter.Name(), adapter, event, replyTarget, launchResult.TurnResult, "", sendReply)
 }
 
 func (connectorRuntime *ConnectorRuntime) FailUnresumedInterruptedTaskRun(ctx context.Context, taskRun task.TaskRun, reason string) bool {
@@ -113,7 +113,7 @@ func (connectorRuntime *ConnectorRuntime) completeInterruptedTaskResumeLaunchFai
 		VisibleContext:         event.Context.ToAgentVisibleContext(),
 		ActiveGoal:             interruptedTaskActiveGoal(taskRun, connectorRuntime.agentKernel.ListTaskEvent(taskRun.TaskRunID), autoResumeTaskProfile(taskRun.TaskRunID).guidanceNote),
 	}, "launch", "auto_resume", errorValue)
-	return connectorRuntime.dispatchTaskReply(withConnectorEvent(ctx, event), adapter.Name(), adapter, event, replyTarget, turnResult, sendReply)
+	return connectorRuntime.dispatchTaskReply(withConnectorEvent(ctx, event), adapter.Name(), adapter, event, replyTarget, turnResult, "", sendReply)
 }
 
 func (connectorRuntime *ConnectorRuntime) interruptedTaskLaunchRequest(taskRun task.TaskRun, taskEvents []task.TaskEvent, launchContext interruptedTaskLaunchContext, event PlatformInboundEvent, adapter PlatformAdapter, profile taskResumeProfile, sendReply func(context.Context, ReplyTarget, OutboundReply) (string, error)) agentruntime.TaskLaunchRequest {
@@ -146,7 +146,7 @@ func (connectorRuntime *ConnectorRuntime) interruptedTaskLaunchRequest(taskRun t
 		MemoryNamespaces:           connectorRuntime.accessibleNamespaces(taskRun.RequesterPersonID, personAccess, event),
 		AccessibleConversationIDs:  []string{conversationID},
 		HistoryProvider:            connectorHistoryProvider{adapter: adapter},
-		AttachmentMaterialResolver: connectorAttachmentMaterialResolver{adapter: adapter, personID: taskRun.RequesterPersonID, event: event},
+		AttachmentMaterialResolver: connectorAttachmentMaterialResolver{adapter: adapter, personID: taskRun.RequesterPersonID, event: event, sentSources: connectorRuntime.sentAttachmentSources},
 		CheckpointSender:           connectorRuntime.checkpointSenderForTurn(launchContext.Platform, event, ReplyTarget{ConversationID: conversationID, ReplyTargetID: event.ReplyTargetID, DedupeKey: event.DedupeKey()}, sendReply),
 	}
 }
@@ -224,14 +224,15 @@ func userSteerTaskProfile(platform string, taskRunID string) taskResumeProfile {
 }
 
 func interruptedTaskTurnDecision(taskEvents []task.TaskEvent, responseLanguage string) *agent.TurnDecision {
-	return &agent.TurnDecision{
+	decision := agent.TurnDecision{
 		Route:            agent.TurnRouteContinueTask,
 		Classification:   agent.IntakeClassificationBoundedTask,
 		TaskShape:        agent.TaskShapeMaintenanceTask,
-		TaskLevel:        highestRecordedTaskLevel(taskEvents),
 		ResponseLanguage: responseLanguage,
 		Reason:           "runtime_restart_auto_resume",
-	}
+	}.WithRestoredIntakeState(latestIntakeDecision(taskEvents))
+	decision.TaskLevel = highestRecordedTaskLevel(taskEvents)
+	return &decision
 }
 
 func highestRecordedTaskLevel(taskEvents []task.TaskEvent) agent.TaskLevel {

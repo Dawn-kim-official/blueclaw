@@ -8,24 +8,29 @@ import (
 
 	"blueclaw/internal/connectors"
 	"blueclaw/internal/memory"
+	"blueclaw/internal/protocolidentity"
 	"blueclaw/internal/store/postgres"
 )
 
 type HealthHandler struct {
-	Database         postgres.Database
-	ConnectorRuntime *connectors.ConnectorRuntime
-	MemoryService    *memory.MemoryService
-	MaximumBacklog   int
+	Database                 postgres.Database
+	ConnectorRuntime         *connectors.ConnectorRuntime
+	MemoryService            *memory.MemoryService
+	MaximumBacklog           int
+	ProtocolIdentity         *protocolidentity.Result
+	ProtocolIdentityChecker  *protocolidentity.Checker
+	ProtocolIdentityExpected protocolidentity.Identity
 }
 
 type healthResponse struct {
-	Status         string                            `json:"status"`
-	Database       databaseHealth                    `json:"database"`
-	Connector      connectors.ConnectorRuntimeHealth `json:"connector"`
-	Memory         memory.MemoryHealth               `json:"memory"`
-	Backlog        postgres.ConnectorDeliveryBacklog `json:"backlog"`
-	FailureReasons []string                          `json:"failureReasons,omitempty"`
-	CheckedAt      time.Time                         `json:"checkedAt"`
+	Status           string                            `json:"status"`
+	Database         databaseHealth                    `json:"database"`
+	Connector        connectors.ConnectorRuntimeHealth `json:"connector"`
+	Memory           memory.MemoryHealth               `json:"memory"`
+	Backlog          postgres.ConnectorDeliveryBacklog `json:"backlog"`
+	ProtocolIdentity protocolidentity.Result           `json:"protocolIdentity"`
+	FailureReasons   []string                          `json:"failureReasons,omitempty"`
+	CheckedAt        time.Time                         `json:"checkedAt"`
 }
 
 type databaseHealth struct {
@@ -62,6 +67,11 @@ func (healthHandler HealthHandler) health(ctx context.Context) healthResponse {
 	}
 	if healthHandler.MemoryService != nil {
 		response.Memory = healthHandler.MemoryService.Health(ctx)
+	}
+	if healthHandler.ProtocolIdentityChecker != nil {
+		response.ProtocolIdentity = healthHandler.ProtocolIdentityChecker.Check(ctx, healthHandler.ProtocolIdentityExpected)
+	} else if healthHandler.ProtocolIdentity != nil {
+		response.ProtocolIdentity = *healthHandler.ProtocolIdentity
 	}
 	response.Database = healthHandler.databaseHealth(ctx)
 	if response.Database.SchemaValid {
@@ -114,6 +124,9 @@ func healthFailureReasons(response healthResponse) []string {
 	}
 	if response.Memory.Configured && !response.Memory.Reachable {
 		failureReasons = append(failureReasons, "graphiti memory is not reachable")
+	}
+	if !response.ProtocolIdentity.CheckedAt.IsZero() && !response.ProtocolIdentity.Passed {
+		failureReasons = append(failureReasons, "protocol identity is not valid")
 	}
 	return failureReasons
 }

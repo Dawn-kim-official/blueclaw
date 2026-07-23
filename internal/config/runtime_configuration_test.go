@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -15,11 +16,13 @@ func TestLoadRuntimeConfigurationIncludesFirecrackerAndBridge(t *testing.T) {
     "endpoint": "http://127.0.0.1:7781",
     "unixSocketPath": "/run/internkim/capability.sock",
     "timeoutSecond": 15,
-    "toolNames": ["google.search"],
+    "protocolVersion": "0.4.0",
+    "aggregateProtocolHash": "58ff1977989bacbf2db3fdce08fd57c9b52f344ca747a3322f4e60bdf6052a78",
     "toolDescriptors": [
       {
         "name": "browser.open",
         "inputSchema": {"type": "object"},
+        "inputIntentSchema": {"type": "object"},
         "sideEffectClass": "browser"
       },
       {
@@ -98,7 +101,21 @@ func TestLoadRuntimeConfigurationIncludesFirecrackerAndBridge(t *testing.T) {
       "name": "echo",
       "transport": "stdio",
       "command": "/bin/echo",
-      "toolNames": ["echo"]
+      "tools": [{
+        "name": "echo",
+        "namespace": "test",
+        "description": "Echo input",
+        "inputSchema": {"type": "object"},
+        "inputIntentSchema": {"type": "object"},
+        "policy": {
+          "privacyClass": "test",
+          "modelVisibility": "visible",
+          "policyResource": "tool:test.echo",
+          "sideEffectClass": "read",
+          "completionMode": "none",
+          "idempotency": "supported"
+        }
+      }]
     }
   ],
   "connectors": {
@@ -150,11 +167,20 @@ func TestLoadRuntimeConfigurationIncludesFirecrackerAndBridge(t *testing.T) {
 	if runtimeConfiguration.Capabilities.Endpoint != "http://127.0.0.1:7781" {
 		t.Fatalf("expected capability endpoint to match, got %q", runtimeConfiguration.Capabilities.Endpoint)
 	}
+	if runtimeConfiguration.Capabilities.ProtocolVersion != "0.4.0" {
+		t.Fatalf("expected protocol version to match, got %q", runtimeConfiguration.Capabilities.ProtocolVersion)
+	}
+	if runtimeConfiguration.Capabilities.AggregateProtocolHash != "58ff1977989bacbf2db3fdce08fd57c9b52f344ca747a3322f4e60bdf6052a78" {
+		t.Fatalf("expected aggregate protocol hash to match, got %q", runtimeConfiguration.Capabilities.AggregateProtocolHash)
+	}
 	if len(runtimeConfiguration.Capabilities.ToolDescriptors) != 2 {
 		t.Fatalf("expected capability descriptors to load, got %+v", runtimeConfiguration.Capabilities.ToolDescriptors)
 	}
 	if string(runtimeConfiguration.Capabilities.ToolDescriptors[0].InputSchema) != `{"type": "object"}` && string(runtimeConfiguration.Capabilities.ToolDescriptors[0].InputSchema) != `{"type":"object"}` {
 		t.Fatalf("expected descriptor input schema to load, got %s", runtimeConfiguration.Capabilities.ToolDescriptors[0].InputSchema)
+	}
+	if len(runtimeConfiguration.Capabilities.ToolDescriptors[0].InputIntentSchema) == 0 {
+		t.Fatal("expected descriptor input intent schema to load")
 	}
 	if !runtimeConfiguration.Capabilities.ToolDescriptors[1].RequiresApproval {
 		t.Fatalf("expected descriptor approval flag to load, got %+v", runtimeConfiguration.Capabilities.ToolDescriptors[1])
@@ -164,9 +190,6 @@ func TestLoadRuntimeConfigurationIncludesFirecrackerAndBridge(t *testing.T) {
 	}
 	if runtimeConfiguration.Capabilities.TimeoutSecond != 15 {
 		t.Fatalf("expected capability timeout to match, got %d", runtimeConfiguration.Capabilities.TimeoutSecond)
-	}
-	if runtimeConfiguration.Capabilities.ToolNames[0] != "google.search" {
-		t.Fatalf("expected capability tool names to match, got %+v", runtimeConfiguration.Capabilities.ToolNames)
 	}
 	if runtimeConfiguration.Connectors.Slack.BaseURL != "https://slack.com/api" {
 		t.Fatalf("expected slack base url to match, got %q", runtimeConfiguration.Connectors.Slack.BaseURL)
@@ -234,13 +257,44 @@ func TestLoadRuntimeConfigurationIncludesFirecrackerAndBridge(t *testing.T) {
 	if len(runtimeConfiguration.AgentProfiles) != 1 || runtimeConfiguration.AgentProfiles[0].AllowedToolNames[2] != "echo" {
 		t.Fatalf("expected agent profile tool allowlist to load, got %+v", runtimeConfiguration.AgentProfiles)
 	}
-	if len(runtimeConfiguration.MCPServers) != 1 || runtimeConfiguration.MCPServers[0].ToolNames[0] != "echo" {
-		t.Fatalf("expected mcp tool names to load, got %+v", runtimeConfiguration.MCPServers)
+	if len(runtimeConfiguration.MCPServers) != 1 || len(runtimeConfiguration.MCPServers[0].Tools) != 1 || runtimeConfiguration.MCPServers[0].Tools[0].Name != "echo" {
+		t.Fatalf("expected canonical MCP tools to load, got %+v", runtimeConfiguration.MCPServers)
+	}
+	if len(runtimeConfiguration.MCPServers[0].Tools[0].InputIntentSchema) == 0 {
+		t.Fatal("expected MCP input intent schema to load")
 	}
 	if runtimeConfiguration.Logging.RetentionDays != 7 {
 		t.Fatalf("expected log retention to match, got %d", runtimeConfiguration.Logging.RetentionDays)
 	}
 	if runtimeConfiguration.Scheduler.TaskSchedulePollIntervalSecond != 30 {
 		t.Fatalf("expected task schedule poll interval to match, got %d", runtimeConfiguration.Scheduler.TaskSchedulePollIntervalSecond)
+	}
+}
+
+func TestLoadRuntimeConfigurationRejectsMissingOrInvalidCapabilityProtocolIdentity(t *testing.T) {
+	testCases := []struct {
+		name             string
+		identityDocument string
+		errorFragment    string
+	}{
+		{name: "missing version", identityDocument: `"aggregateProtocolHash":"` + strings.Repeat("a", 64) + `"`, errorFragment: "protocolVersion must be"},
+		{name: "missing hash", identityDocument: `"protocolVersion":"0.4.0"`, errorFragment: "aggregateProtocolHash"},
+		{name: "invalid hash", identityDocument: `"protocolVersion":"0.4.0","aggregateProtocolHash":"not-a-hash"`, errorFragment: "aggregateProtocolHash"},
+		{name: "uppercase hash", identityDocument: `"protocolVersion":"0.4.0","aggregateProtocolHash":"` + strings.Repeat("A", 64) + `"`, errorFragment: "aggregateProtocolHash"},
+		{name: "padded version", identityDocument: `"protocolVersion":" 0.4.0","aggregateProtocolHash":"` + strings.Repeat("a", 64) + `"`, errorFragment: "protocolVersion must be"},
+		{name: "padded hash", identityDocument: `"protocolVersion":"0.4.0","aggregateProtocolHash":"` + strings.Repeat("a", 64) + ` "`, errorFragment: "aggregateProtocolHash"},
+	}
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			runtimeConfigurationPath := filepath.Join(t.TempDir(), "runtime.json")
+			document := `{"capabilities":{` + testCase.identityDocument + `}}`
+			if errorValue := os.WriteFile(runtimeConfigurationPath, []byte(document), 0o600); errorValue != nil {
+				t.Fatal(errorValue)
+			}
+			_, errorValue := LoadRuntimeConfiguration(runtimeConfigurationPath)
+			if errorValue == nil || !strings.Contains(errorValue.Error(), testCase.errorFragment) {
+				t.Fatalf("expected %q error, got %v", testCase.errorFragment, errorValue)
+			}
+		})
 	}
 }

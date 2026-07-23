@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"strings"
 	"time"
@@ -12,24 +13,31 @@ import (
 	"blueclaw/internal/task"
 )
 
+const defaultAgentActionMaxTokens = 4096
+const terminalStructuredMaxTokens = 1600
+const maximumAgentActionCorrectionCount = 2
+
 type agentAction = turnActionDocument
 
 type agentTaskState struct {
-	TaskRunID        string
-	Status           task.TaskStatus
-	Request          AgentTurnRequest
-	Options          TurnOptions
-	Observations     []turnObservation
-	QualityCriteria  []qualityCriterion
-	Attachments      []FileAttachment
-	ExecutionState   ExecutionState
-	ContextSummary   TaskContextSummary
-	IterationCount   int
-	ToolCallCount    int
-	TurnStartedAt    time.Time
-	PendingWait      *agentPendingWait
-	Requirements     []toolUseRequirement
-	LastModelMessage string
+	TaskRunID                          string
+	Status                             task.TaskStatus
+	Request                            AgentTurnRequest
+	Options                            TurnOptions
+	Observations                       []turnObservation
+	QualityCriteria                    []qualityCriterion
+	Attachments                        []FileAttachment
+	ExecutionState                     ExecutionState
+	ContextSummary                     TaskContextSummary
+	IterationCount                     int
+	ToolCallCount                      int
+	TurnStartedAt                      time.Time
+	PendingWait                        *agentPendingWait
+	Requirements                       []toolUseRequirement
+	LastModelMessage                   string
+	CompletionIntentToolName           string
+	ShouldRestrictNextActionToTerminal bool
+	DidNudgePlan                       bool
 }
 
 type agentPendingWait struct {
@@ -108,8 +116,8 @@ func buildInitialAgentTaskState(request AgentTurnRequest, options TurnOptions, t
 	}
 }
 
-func agentTaskStateForTurn(request AgentTurnRequest, options TurnOptions, taskRun task.TaskRun, events []task.TaskEvent) (agentTaskState, error) {
-	if !request.IsRuntimeRestartResume {
+func agentTaskStateForTurn(request AgentTurnRequest, options TurnOptions, taskRun task.TaskRun, events []task.TaskEvent, isPausedTaskResume bool) (agentTaskState, error) {
+	if !request.IsRuntimeRestartResume && !request.IsApprovalContinuation && !isPausedTaskResume {
 		state := buildInitialAgentTaskState(request, options, taskRun.TaskRunID)
 		state.Status = taskRun.Status
 		return state, nil
@@ -248,7 +256,7 @@ func isDurableDeliveryObservation(observation turnObservation) bool {
 		return true
 	}
 	switch strings.TrimSpace(observation.Tool) {
-	case "site.publish", "site.promote":
+	case "site.publish":
 		return true
 	default:
 		return false
@@ -278,7 +286,7 @@ func advanceAgentTask(state agentTaskState) agentTransition {
 				Kind: agentEffectContinue,
 				ToolCall: &ToolInvocation{
 					ToolName: FileDeliverToolName,
-					Input:    MarshalToolInput(map[string]any{"path": nextCompletionAttachmentPath(completionState)}),
+					Input:    completionArtifactDeliveryInput(state, completionState),
 				},
 			},
 		}
@@ -295,7 +303,7 @@ func advanceAgentTask(state agentTaskState) agentTransition {
 			},
 		}
 	case completionActionBlockedInvalidArtifact:
-		observation := newFailureObservation(nextObservationID(len(state.Observations)+1), "policy", "", invalidCompletionArtifactObservationContent(completionState), FailureInvalidInput, FailureCodes.InvalidInput, "completion_state")
+		observation := newFailureObservation(nextObservationIDForObservations(state.Observations), "policy", "", invalidCompletionArtifactObservationContent(completionState), FailureInvalidInput, FailureCodes.InvalidInput, "completion_state")
 		observation.PolicyCode = evidenceKindAttachmentValid
 		observation.RelatedPaths = appendUniqueStrings(completionValidityPaths(completionState))
 		state.Observations = append(state.Observations, observation)
@@ -304,6 +312,30 @@ func advanceAgentTask(state agentTaskState) agentTransition {
 		request := BuildAgentActionRequest(state)
 		return agentTransition{State: state, Effect: agentEffect{Kind: agentEffectCallModel, ModelCall: &request}}
 	}
+}
+
+func completionArtifactDeliveryInput(state agentTaskState, completionState CompletionState) json.RawMessage {
+	return MarshalToolInput(map[string]any{"path": nextCompletionAttachmentPath(completionState)})
+}
+
+func operationInputSelectsDeliveryFile(requiredInput map[string]any) bool {
+	if path, isString := requiredInput["path"].(string); isString && strings.TrimSpace(path) != "" {
+		return true
+	}
+	files, isArray := requiredInput["files"].([]any)
+	if !isArray {
+		return false
+	}
+	for _, fileValue := range files {
+		file, isObject := fileValue.(map[string]any)
+		if !isObject {
+			continue
+		}
+		if path, isString := file["path"].(string); isString && strings.TrimSpace(path) != "" {
+			return true
+		}
+	}
+	return false
 }
 
 func nextCompletionAttachmentPath(state CompletionState) string {
@@ -339,22 +371,30 @@ func nextCompletionAttachmentPaths(state CompletionState) []string {
 }
 
 func BuildAgentActionRequest(state agentTaskState) llm.StructuredResponseRequest {
+	return buildAgentActionRequest(state, true)
+}
+
+func buildAgentActionRequest(state agentTaskState, includeToolDescription bool) llm.StructuredResponseRequest {
 	allowQualityCriteria := len(state.QualityCriteria) == 0
 	requirements := state.Requirements
 	if requirements == nil {
 		requirements = deriveToolUseRequirements(state.Request)
 	}
-	modelToolSet := modelCallableToolSet(state.Request.ToolSet)
+	modelToolSet := modelCallableToolSet(state.Request.ToolSet, state.Request.RestrictActionToTerminalOnly)
 	blockedToolNames := blockedToolNamesForPreconditions(modelToolSet, requirements, state.Observations)
 	failureFacts := buildFailureReportFacts(state.Observations, state.Options.RecoveryBudget)
 	hasFailureDebt := len(failureFacts.Attempts) > 0
 	allowFail := shouldExposeFailAction(state)
 	allowFinish := shouldExposeFinishAction(state, requirements)
+	toolDescription := ""
+	if includeToolDescription {
+		toolDescription = buildAgentToolDescription(modelToolSet)
+	}
 	messages := (PromptAssembler{}).BuildTurnMessages(
 		state.Request,
 		state.Observations,
 		buildAgentSystemInstruction(state.Request),
-		buildAgentToolDescription(modelToolSet),
+		toolDescription,
 		state.ExecutionState,
 	)
 	if hasFailureDebt {
@@ -370,11 +410,32 @@ func BuildAgentActionRequest(state agentTaskState) llm.StructuredResponseRequest
 			Document:           actionSchemaForToolSet(modelToolSet, allowQualityCriteria, blockedToolNames, hasFailureDebt, allowFail, allowFinish),
 			IsStrictlyEnforced: true,
 		},
-		GenerationOptions: state.Options.GenerationOptions,
+		GenerationOptions: agentActionGenerationOptions(state.Options.GenerationOptions),
 	}
 }
 
-func modelCallableToolSet(toolSet *ToolSet) *ToolSet {
+func agentActionGenerationOptions(options llm.GenerationOptions) llm.GenerationOptions {
+	if options.MaxTokens != nil {
+		return options
+	}
+	maxTokens := defaultAgentActionMaxTokens
+	options.MaxTokens = &maxTokens
+	return options
+}
+
+func terminalStructuredGenerationOptions(options llm.GenerationOptions) llm.GenerationOptions {
+	if options.MaxTokens != nil {
+		return options
+	}
+	maxTokens := terminalStructuredMaxTokens
+	options.MaxTokens = &maxTokens
+	return options
+}
+
+func modelCallableToolSet(toolSet *ToolSet, restrictToTerminalActionsOnly bool) *ToolSet {
+	if restrictToTerminalActionsOnly {
+		return nil
+	}
 	return toolSet
 }
 
@@ -389,13 +450,36 @@ func shouldExposeFailAction(state agentTaskState) bool {
 }
 
 func shouldExposeFinishAction(state agentTaskState, requirements []toolUseRequirement) bool {
+	if finishWasRejectedWithoutAnyToolEvidence(state.Observations) {
+		return false
+	}
 	if _, hasFailureDebt := activeFailureDebt(state.Observations); !hasFailureDebt {
 		return true
 	}
 	if !evaluateRecoveryAllowance(state.Observations, state.Options.RecoveryBudget).CanRecover {
 		return true
 	}
-	return len(requirements) == 0 || completionRequirementsHaveEvidence(requirements, state.Observations)
+	return len(requirements) == 0 || completionRequirementsHaveEvidence(state.Request.ToolSet, requirements, state.Observations)
+}
+
+func finishWasRejectedWithoutAnyToolEvidence(observations []turnObservation) bool {
+	if len(observations) == 0 {
+		return false
+	}
+	latestObservation := observations[len(observations)-1]
+	if latestObservation.Action != "evidence_missing" {
+		return false
+	}
+	switch latestObservation.PolicyCode {
+	case "attachment_missing", "attachment_invalid", "required_tool_missing":
+		return true
+	}
+	for _, observation := range observations {
+		if !observation.Failed() && strings.TrimSpace(observation.Tool) != "" {
+			return false
+		}
+	}
+	return true
 }
 
 func actionSchemaForToolSet(toolSet *ToolSet, allowQualityCriteria bool, blockedToolNames map[string]bool, hasFailureDebt bool, allowFailValues ...bool) string {
@@ -441,7 +525,7 @@ func normalizeAgentActionResponseContent(content []byte) ([]byte, error) {
 }
 
 func agentActionResponseCandidate(document map[string]json.RawMessage) (string, int) {
-	actionNames := []string{"finish", "continue", "fail", "tool.request", "set_quality_criteria"}
+	actionNames := []string{"finish", "continue", "fail", "set_quality_criteria"}
 	candidateAction := ""
 	candidateCount := 0
 	for _, actionName := range actionNames {
@@ -482,7 +566,7 @@ func normalizeAgentActionResponseScalarContent(content []byte) ([]byte, error) {
 		return nil, errorValue
 	}
 	didChange := normalizeJSONStringBooleanField(document, "goalSatisfied")
-	for _, fieldName := range []string{"completionEvidenceIDs", "qualityCriteria", "toolNames", "skillNames", "requestTools", "requestSkills"} {
+	for _, fieldName := range []string{"completionEvidenceIDs", "qualityCriteria"} {
 		if normalizeJSONStringToArrayField(document, fieldName) {
 			didChange = true
 		}
@@ -543,6 +627,7 @@ func normalizeParsedAction(actionDocument turnActionDocument) turnActionDocument
 	switch action {
 	case "continue":
 		actionDocument.Action = "continue"
+		actionDocument.ToolName = strings.TrimSpace(actionDocument.ToolName)
 	case "finish":
 		actionDocument.Action = "finish"
 		actionDocument.ReplyParts = normalizeFinishReplyParts(actionDocument.ReplyParts)
@@ -598,11 +683,334 @@ func evidenceReferencesFromIDs(values []string) []completionEvidenceReference {
 }
 
 func DecideAgentAction(ctx context.Context, languageModel llm.LanguageModelProvider, state agentTaskState) (agentAction, error) {
-	structuredResponse, errorValue := languageModel.GenerateStructuredResponse(ctx, BuildAgentActionRequest(state))
+	if chatCompleter, isAvailable := llm.ResolveTextChatCompleter(languageModel); isAvailable {
+		chatRequestSource := buildAgentActionRequest(state, false)
+		if chatRequest, isRepresentable := buildAgentActionChatCompletionRequest(chatRequestSource); isRepresentable {
+			return decideAgentActionWithChat(ctx, chatCompleter, chatRequest, state)
+		}
+	}
+	structuredRequest := BuildAgentActionRequest(state)
+	structuredResponse, errorValue := languageModel.GenerateStructuredResponse(ctx, structuredRequest)
 	if errorValue != nil {
 		return turnActionDocument{}, errorValue
 	}
 	return ParseAgentActionResponse(structuredResponse)
+}
+
+func decideAgentActionWithChat(ctx context.Context, chatCompleter llm.ChatCompleter, request llm.ChatCompletionRequest, state agentTaskState) (agentAction, error) {
+	currentRequest := request
+	for correctionCount := 0; ; correctionCount++ {
+		response, errorValue := chatCompleter.GenerateChatCompletion(ctx, currentRequest)
+		if errorValue == nil {
+			return parseNativeAgentActionResponse(response, currentRequest.Tools)
+		}
+		if errors.Is(errorValue, context.Canceled) || errors.Is(errorValue, context.DeadlineExceeded) || ctx.Err() != nil {
+			return turnActionDocument{}, errorValue
+		}
+		if correctionCount >= maximumAgentActionCorrectionCount {
+			return turnActionDocument{}, errorValue
+		}
+		correction, isCorrectable := llm.StructuredOutputCorrectionFromError(errorValue)
+		if !isCorrectable {
+			return turnActionDocument{}, errorValue
+		}
+		retryRequest, canRetry := retryAgentActionChatCompletionRequest(currentRequest, correction, state)
+		if !canRetry {
+			return turnActionDocument{}, errorValue
+		}
+		currentRequest = retryRequest
+	}
+}
+
+func retryAgentActionChatCompletionRequest(request llm.ChatCompletionRequest, correction llm.StructuredOutputCorrection, state agentTaskState) (llm.ChatCompletionRequest, bool) {
+	retryRequest := request
+	retryRequest.Messages = append([]llm.ChatCompletionMessage{}, request.Messages...)
+	retryRequest.Messages = append(retryRequest.Messages, llm.ChatCompletionMessage{
+		Role:    "system",
+		Content: agentActionCorrectionMessage(correction),
+	})
+	toolName := strings.TrimSpace(correction.Diagnostic.ToolName)
+	if toolName == "" {
+		if correction.Diagnostic.Category != llm.StructuredOutputDiagnosticFinishReason ||
+			correction.Diagnostic.FinishReason != llm.StructuredOutputDiagnosticFinishStop {
+			return retryRequest, true
+		}
+		toolName = firstPendingActionToolName(state)
+		if toolName == "" && agentActionCompletionIsReady(state) {
+			toolName = "finish"
+		}
+		if toolName == "" {
+			return retryRequest, true
+		}
+	}
+	return restrictAgentActionChatCompletionRequest(retryRequest, toolName)
+}
+
+func restrictAgentActionChatCompletionRequest(request llm.ChatCompletionRequest, toolName string) (llm.ChatCompletionRequest, bool) {
+	for _, tool := range request.Tools {
+		if tool.Function.Name != toolName {
+			continue
+		}
+		request.Tools = []llm.ChatCompletionTool{tool}
+		request.ToolChoice = json.RawMessage(`"required"`)
+		request.ParallelToolCalls = false
+		return request, true
+	}
+	return llm.ChatCompletionRequest{}, false
+}
+
+func firstPendingActionToolName(state agentTaskState) string {
+	if _, hasFailureDebt := activeFailureDebt(state.Observations); hasFailureDebt {
+		return ""
+	}
+	return firstPendingRequiredToolName(
+		state.Request.ContractToolWorkingSet.RequiredNextTools,
+		state.Observations,
+	)
+}
+
+func agentActionCompletionIsReady(state agentTaskState) bool {
+	if agentActionCompletionIsBlocked(state) {
+		return false
+	}
+	requirements := state.Requirements
+	if requirements == nil {
+		requirements = deriveToolUseRequirements(state.Request)
+	}
+	completionState := buildCompletionState(state.Request, requirements, state.Observations)
+	if completionState.RecommendedAction != completionActionFinalizeWithEvidence {
+		return false
+	}
+	action := completionStateFinishDocument(completionState, "completion wording pending")
+	gateResult := validateAgentActionCompletionGate(state, requirements, action)
+	if !gateResult.IsSatisfied {
+		return false
+	}
+	return validateOutcomeContractRequirements(
+		state.Request.OutcomeContract,
+		state.Observations,
+		gateResult.Attachments,
+	).IsSatisfied
+}
+
+func validateAgentActionCompletionGate(state agentTaskState, requirements []toolUseRequirement, action turnActionDocument) completionGateResult {
+	if len(state.Request.OutcomeContract.ExpectedResults) > 0 {
+		return validateExpectedResultCompletionGate(
+			state.Request,
+			state.Observations,
+			state.QualityCriteria,
+			action,
+			state.Options.RecoveryBudget,
+		)
+	}
+	return validateCompletionGateForRequestWithRecoveryBudget(
+		state.Request,
+		requirements,
+		state.Observations,
+		state.QualityCriteria,
+		action,
+		state.Options.RecoveryBudget,
+	)
+}
+
+func agentActionCompletionIsBlocked(state agentTaskState) bool {
+	if state.PendingWait != nil {
+		return true
+	}
+	if hasPendingObservedSuggestedNextTool(state.Observations) {
+		return true
+	}
+	_, hasFailureDebt := activeFailureDebt(state.Observations)
+	return hasFailureDebt
+}
+
+func agentActionCorrectionMessage(correction llm.StructuredOutputCorrection) string {
+	diagnostic := correction.Diagnostic
+	messageParts := []string{
+		"The previous native action response was invalid.",
+		"Return exactly one valid tool call.",
+		"Diagnostic category: " + string(diagnostic.Category) + ".",
+	}
+	if diagnostic.ToolName != "" {
+		messageParts = append(messageParts, "Expected tool: "+diagnostic.ToolName+".")
+	}
+	if diagnostic.FinishReason != "" {
+		messageParts = append(messageParts, "Observed finish reason: "+string(diagnostic.FinishReason)+".")
+	}
+	for _, issue := range diagnostic.ValidationIssues {
+		messageParts = append(messageParts, "Validation issue: "+issue.FieldPath+" ("+string(issue.Code)+").")
+	}
+	return strings.Join(messageParts, " ")
+}
+
+func buildAgentActionChatCompletionRequest(structuredRequest llm.StructuredResponseRequest) (llm.ChatCompletionRequest, bool) {
+	messages := make([]llm.ChatCompletionMessage, 0, len(structuredRequest.Messages))
+	for _, message := range structuredRequest.Messages {
+		if len(message.Parts) > 0 {
+			return llm.ChatCompletionRequest{}, false
+		}
+		messages = append(messages, llm.ChatCompletionMessage{Role: message.Role, Content: message.Content})
+	}
+	tools, errorValue := nativeAgentActionTools(structuredRequest.StructuredOutputSchema.Document)
+	if errorValue != nil || len(tools) == 0 {
+		return llm.ChatCompletionRequest{}, false
+	}
+	return llm.ChatCompletionRequest{
+		SchemaName:        agentActionSchemaName,
+		Messages:          messages,
+		Tools:             tools,
+		ToolChoice:        json.RawMessage(`"required"`),
+		ParallelToolCalls: false,
+		GenerationOptions: structuredRequest.GenerationOptions,
+	}, true
+}
+
+func nativeAgentActionTools(schemaDocument string) ([]llm.ChatCompletionTool, error) {
+	var schema struct {
+		OneOf []json.RawMessage `json:"oneOf"`
+	}
+	if errorValue := json.Unmarshal([]byte(schemaDocument), &schema); errorValue != nil {
+		return nil, errorValue
+	}
+	tools := make([]llm.ChatCompletionTool, 0, len(schema.OneOf))
+	toolNames := map[string]bool{}
+	for _, variant := range schema.OneOf {
+		tool, errorValue := nativeAgentActionTool(variant)
+		if errorValue != nil {
+			return nil, errorValue
+		}
+		if toolNames[tool.Function.Name] {
+			return nil, fmt.Errorf("native agent action tool %q is duplicated", tool.Function.Name)
+		}
+		toolNames[tool.Function.Name] = true
+		tools = append(tools, tool)
+	}
+	return tools, nil
+}
+
+func nativeAgentActionTool(variant json.RawMessage) (llm.ChatCompletionTool, error) {
+	var document map[string]json.RawMessage
+	if errorValue := json.Unmarshal(variant, &document); errorValue != nil {
+		return llm.ChatCompletionTool{}, errorValue
+	}
+	var properties map[string]json.RawMessage
+	if errorValue := json.Unmarshal(document["properties"], &properties); errorValue != nil {
+		return llm.ChatCompletionTool{}, errors.New("native agent action variant has no properties")
+	}
+	actionName, errorValue := singleSchemaEnumValue(properties["action"])
+	if errorValue != nil {
+		return llm.ChatCompletionTool{}, errorValue
+	}
+	toolName := actionName
+	parameters := variant
+	switch {
+	case actionName == "continue":
+		toolName, errorValue = singleSchemaEnumValue(properties["toolName"])
+		parameters = properties["toolInput"]
+	case isNativeTerminalAction(actionName):
+		parameters, errorValue = nativeTerminalActionParameters(document)
+	default:
+		return llm.ChatCompletionTool{}, fmt.Errorf("native agent action %q is unsupported", actionName)
+	}
+	if errorValue != nil {
+		return llm.ChatCompletionTool{}, errorValue
+	}
+	if len(parameters) == 0 {
+		return llm.ChatCompletionTool{}, errors.New("native agent action parameters are empty")
+	}
+	var description string
+	_ = json.Unmarshal(document["description"], &description)
+	return llm.ChatCompletionTool{Type: "function", Function: llm.ChatCompletionFunction{
+		Name: toolName, Description: description, Parameters: parameters,
+	}}, nil
+}
+
+func singleSchemaEnumValue(document json.RawMessage) (string, error) {
+	var schema struct {
+		Enum []string `json:"enum"`
+	}
+	if json.Unmarshal(document, &schema) != nil || len(schema.Enum) != 1 || strings.TrimSpace(schema.Enum[0]) == "" {
+		return "", errors.New("native agent action discriminator must contain one value")
+	}
+	return schema.Enum[0], nil
+}
+
+func nativeTerminalActionParameters(document map[string]json.RawMessage) (json.RawMessage, error) {
+	var properties map[string]json.RawMessage
+	if errorValue := json.Unmarshal(document["properties"], &properties); errorValue != nil {
+		return nil, errorValue
+	}
+	delete(properties, "action")
+	propertiesDocument, errorValue := json.Marshal(properties)
+	if errorValue != nil {
+		return nil, errorValue
+	}
+	document["properties"] = propertiesDocument
+	var requiredFields []string
+	_ = json.Unmarshal(document["required"], &requiredFields)
+	retainedFields := make([]string, 0, len(requiredFields))
+	for _, fieldName := range requiredFields {
+		if fieldName != "action" {
+			retainedFields = append(retainedFields, fieldName)
+		}
+	}
+	requiredDocument, errorValue := json.Marshal(retainedFields)
+	if errorValue != nil {
+		return nil, errorValue
+	}
+	document["required"] = requiredDocument
+	return json.Marshal(document)
+}
+
+func parseNativeAgentActionResponse(response llm.ChatCompletionResponse, tools []llm.ChatCompletionTool) (agentAction, error) {
+	if response.FinishReason != "tool_calls" {
+		return turnActionDocument{}, fmt.Errorf("native agent action chat finish reason is %q", response.FinishReason)
+	}
+	if response.Message.Role != "assistant" {
+		return turnActionDocument{}, errors.New("native agent action chat message must be assistant")
+	}
+	if len(response.Message.ToolCalls) == 0 {
+		return turnActionDocument{}, errors.New("native agent action chat expected at least one tool call")
+	}
+	toolCall := response.Message.ToolCalls[0]
+	if strings.TrimSpace(toolCall.ID) == "" {
+		return turnActionDocument{}, errors.New("native agent action chat tool call ID is empty")
+	}
+	if toolCall.Type != "function" || !containsNativeAgentTool(tools, toolCall.Function.Name) {
+		return turnActionDocument{}, fmt.Errorf("native agent action chat returned unknown tool %q", toolCall.Function.Name)
+	}
+	input := json.RawMessage(toolCall.Function.Arguments)
+	var inputDocument map[string]json.RawMessage
+	if json.Unmarshal(input, &inputDocument) != nil || inputDocument == nil {
+		return turnActionDocument{}, fmt.Errorf("native agent action tool %q arguments must be an object", toolCall.Function.Name)
+	}
+	if !isNativeTerminalAction(toolCall.Function.Name) {
+		return turnActionDocument{Action: "continue", ToolName: toolCall.Function.Name, ToolInput: input}, nil
+	}
+	inputDocument["action"], _ = json.Marshal(toolCall.Function.Name)
+	normalizedInput, errorValue := json.Marshal(inputDocument)
+	if errorValue != nil {
+		return turnActionDocument{}, errorValue
+	}
+	return ParseAgentActionResponse(llm.StructuredResponse{Content: string(normalizedInput)})
+}
+
+func containsNativeAgentTool(tools []llm.ChatCompletionTool, toolName string) bool {
+	for _, tool := range tools {
+		if tool.Function.Name == toolName {
+			return true
+		}
+	}
+	return false
+}
+
+func isNativeTerminalAction(action string) bool {
+	switch strings.TrimSpace(action) {
+	case "finish", "fail", "set_quality_criteria":
+		return true
+	default:
+		return false
+	}
 }
 
 func applyAgentAction(state agentTaskState, action agentAction) (agentTaskState, error) {
@@ -623,7 +1031,7 @@ func applyToolResult(state agentTaskState, invocation ToolInvocation, result Too
 	result = normalizeToolFailureResult(invocation.ToolName, result)
 	toolInputKey := canonicalToolCallKey(invocation.ToolName, invocation.Input)
 	observation := turnObservation{
-		ObservationID:   nextObservationID(len(state.Observations) + 1),
+		ObservationID:   nextObservationIDForObservations(state.Observations),
 		Action:          "continue",
 		Tool:            strings.TrimSpace(invocation.ToolName),
 		Output:          result.Output,

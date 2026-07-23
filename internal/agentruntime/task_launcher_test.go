@@ -3,10 +3,12 @@ package agentruntime
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -26,7 +28,7 @@ import (
 func TestTaskLauncherCreatesAuditedAgentRun(t *testing.T) {
 	taskEventService := task.NewTaskEventService()
 	agentKernel := agent.NewAgentKernel(task.NewTaskRunService(taskEventService), task.NewTaskStepService())
-	agentKernel.UseLanguageModelProvider(staticRuntimeLanguageModel{content: runtimeFinishMessage("done")})
+	useRuntimeTestLanguageModel(agentKernel, runtimeFinishMessage("done"))
 	pinnedMemoryStore := memory.NewMarkdownStore(t.TempDir(), 1200)
 	if _, errorValue := pinnedMemoryStore.MergePersonMemory(context.Background(), "person-1", "사용자는 발표자료 생성을 자주 요청한다."); errorValue != nil {
 		t.Fatalf("expected pinned memory setup to succeed: %v", errorValue)
@@ -75,12 +77,41 @@ func TestTaskLauncherCreatesAuditedAgentRun(t *testing.T) {
 	}
 }
 
+func TestTaskLauncherPersistsAuthoritativeRouterFailure(t *testing.T) {
+	taskEventService := task.NewTaskEventService()
+	agentKernel := agent.NewAgentKernel(task.NewTaskRunService(taskEventService), task.NewTaskStepService())
+	agentKernel.UseLanguageModelProvider(authoredRuntimeFailureLanguageModel{reply: "요청을 분류하지 못해 작업을 시작하지 못했습니다. 다시 요청해 주세요."})
+	agentKernel.UseIntakeLanguageModelProvider(failingRuntimeRouterLanguageModel{errorValue: errors.New("router unavailable")})
+	agentKernel.UseIntakeOptions(agent.IntakeOptions{IsEnabled: true})
+
+	launchResult, errorValue := NewTaskLauncher(agentKernel, NewToolCatalogBuilder()).Launch(context.Background(), TaskLaunchRequest{
+		Source:            TaskLaunchSourceAdmin,
+		RequesterPersonID: "person-1",
+		ConversationID:    "admin:person-1",
+		Prompt:            "run admin task",
+		PersonAccess:      policy.PersonAccess{PersonID: "person-1", SecurityLevelRank: 100},
+	})
+	if errorValue != nil {
+		t.Fatalf("expected persisted router failure: %v", errorValue)
+	}
+	if launchResult.TurnResult.TaskRun.Status != task.TaskStatusFailed || launchResult.TurnResult.FailureNotice.Source != "generated" {
+		t.Fatalf("expected LLM-authored failed task, got %+v", launchResult.TurnResult)
+	}
+	taskEvents := taskEventService.ListTaskEvent(launchResult.TurnResult.TaskRun.TaskRunID)
+	if llmCallEvent := findTaskEvent(taskEvents, "llm.call"); !strings.Contains(llmCallEvent.Body, `"isError":true`) {
+		t.Fatalf("expected persisted router call error, got %+v", taskEvents)
+	}
+	if !containsTaskEvent(taskEvents, "agent.task_launched") {
+		t.Fatalf("expected launch audit for failed task, got %+v", taskEvents)
+	}
+}
+
 func TestTaskLauncherAuditsPlatformMessageRegistryFingerprint(t *testing.T) {
 	taskEventService := task.NewTaskEventService()
 	agentKernel := agent.NewAgentKernel(task.NewTaskRunService(taskEventService), task.NewTaskStepService())
-	agentKernel.UseLanguageModelProvider(staticRuntimeLanguageModel{content: runtimeFinishMessage("done")})
+	useRuntimeTestLanguageModel(agentKernel, runtimeFinishMessage("done"))
 	toolCatalogBuilder := NewToolCatalogBuilder()
-	toolCatalogBuilder.UseCapabilityToolDescriptors(capability.Client{
+	toolCatalogBuilder.UseTestCapabilityToolDescriptors(capability.Client{
 		Endpoint:   "http://capability.local",
 		HTTPClient: &recordingHTTPClient{responseBody: platformMessageLiveRegistryResponse(platformMessageDeleteCriteriaSchema())},
 	}, testPlatformMessageCapabilityDescriptors())
@@ -127,9 +158,9 @@ func TestTaskLauncherAuditsPlatformMessageRegistryFingerprint(t *testing.T) {
 func TestTaskLauncherAuditsPlatformMessageSchemaSkewWithoutBlocking(t *testing.T) {
 	taskEventService := task.NewTaskEventService()
 	agentKernel := agent.NewAgentKernel(task.NewTaskRunService(taskEventService), task.NewTaskStepService())
-	agentKernel.UseLanguageModelProvider(staticRuntimeLanguageModel{content: runtimeFinishMessage("done")})
+	useRuntimeTestLanguageModel(agentKernel, runtimeFinishMessage("done"))
 	toolCatalogBuilder := NewToolCatalogBuilder()
-	toolCatalogBuilder.UseCapabilityToolDescriptors(capability.Client{
+	toolCatalogBuilder.UseTestCapabilityToolDescriptors(capability.Client{
 		Endpoint:   "http://capability.local",
 		HTTPClient: &recordingHTTPClient{responseBody: platformMessageLiveRegistryResponse(platformMessageDeleteIDsOnlySchema())},
 	}, testPlatformMessageCapabilityDescriptors())
@@ -160,12 +191,27 @@ func TestTaskLauncherAuditsPlatformMessageSchemaSkewWithoutBlocking(t *testing.T
 	}
 }
 
+func TestPlatformMessageDescriptorHashIncludesInputIntentSchema(t *testing.T) {
+	baseDescriptor := CapabilityToolDescriptor{
+		Name:              "message.delete",
+		InputSchema:       platformMessageDeleteCriteriaSchema(),
+		InputIntentSchema: platformMessageDeleteIDsOnlySchema(),
+	}
+	changedDescriptor := baseDescriptor
+	changedDescriptor.InputIntentSchema = platformMessageEmptySchema()
+
+	if hashCapabilityDescriptors([]CapabilityToolDescriptor{baseDescriptor}) ==
+		hashCapabilityDescriptors([]CapabilityToolDescriptor{changedDescriptor}) {
+		t.Fatal("expected input intent schema drift to change the descriptor hash")
+	}
+}
+
 func TestTaskLauncherRejectsStaleMessageToolRegistryBeforeModelCall(t *testing.T) {
 	taskEventService := task.NewTaskEventService()
 	agentKernel := agent.NewAgentKernel(task.NewTaskRunService(taskEventService), task.NewTaskStepService())
-	agentKernel.UseLanguageModelProvider(staticRuntimeLanguageModel{content: runtimeFinishMessage("should not run")})
+	useRuntimeTestLanguageModel(agentKernel, runtimeFinishMessage("should not run"))
 	toolCatalogBuilder := NewToolCatalogBuilder()
-	toolCatalogBuilder.UseCapabilityToolDescriptors(capability.Client{
+	toolCatalogBuilder.UseTestCapabilityToolDescriptors(capability.Client{
 		Endpoint: "http://capability.local",
 		HTTPClient: &recordingHTTPClient{responseBody: `{"deviceCapabilities":[
 			{"name":"message.context"},
@@ -222,7 +268,7 @@ func TestTaskLauncherAddsStaffToRequesterAccess(t *testing.T) {
 func TestTaskLauncherProvisionsRequesterWorkspaceBeforeToolSet(t *testing.T) {
 	taskEventService := task.NewTaskEventService()
 	agentKernel := agent.NewAgentKernel(task.NewTaskRunService(taskEventService), task.NewTaskStepService())
-	agentKernel.UseLanguageModelProvider(staticRuntimeLanguageModel{content: runtimeFinishMessage("done")})
+	useRuntimeTestLanguageModel(agentKernel, runtimeFinishMessage("done"))
 	workspacePath := t.TempDir()
 	requesterHomePath := filepath.Join(workspacePath, "private", "people", "person-1")
 	provisioner := &recordingRequesterWorkspaceProvisioner{
@@ -292,7 +338,7 @@ func TestTaskLauncherProvisionsRequesterWorkspaceBeforeToolSet(t *testing.T) {
 func TestTaskLauncherAuditsPinnedMemoryFailureAndRunsWithoutMemory(t *testing.T) {
 	taskEventService := task.NewTaskEventService()
 	agentKernel := agent.NewAgentKernel(task.NewTaskRunService(taskEventService), task.NewTaskStepService())
-	agentKernel.UseLanguageModelProvider(staticRuntimeLanguageModel{content: runtimeFinishMessage("done")})
+	useRuntimeTestLanguageModel(agentKernel, runtimeFinishMessage("done"))
 	rootPath := t.TempDir()
 	if errorValue := os.WriteFile(filepath.Join(rootPath, "people"), []byte("not a directory"), 0600); errorValue != nil {
 		t.Fatalf("expected pinned memory failure setup to succeed: %v", errorValue)
@@ -325,9 +371,9 @@ func TestTaskLauncherAuditsPinnedMemoryFailureAndRunsWithoutMemory(t *testing.T)
 	}
 }
 
-func TestToolCatalogHidesHistoryWithoutProviderAndDeniedTools(t *testing.T) {
+func TestToolCatalogHidesHistoryAndQuarantinedMCPTools(t *testing.T) {
 	mcpRegistry := mcp.NewMcpRegistry()
-	mcpRegistry.LoadServerDefinition([]config.MCPServerConfiguration{
+	loadReport := mcpRegistry.LoadServerDefinition([]config.MCPServerConfiguration{
 		{
 			Name: "local-mcp",
 			Tools: []config.MCPToolConfiguration{
@@ -336,6 +382,9 @@ func TestToolCatalogHidesHistoryWithoutProviderAndDeniedTools(t *testing.T) {
 			},
 		},
 	})
+	if len(loadReport.Quarantined) != 1 {
+		t.Fatalf("expected invalid MCP server to be quarantined, got %+v", loadReport)
+	}
 	toolCatalogBuilder := NewToolCatalogBuilder()
 	toolCatalogBuilder.UseMCPRegistry(mcpRegistry)
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(map[string][]string{
@@ -347,8 +396,8 @@ func TestToolCatalogHidesHistoryWithoutProviderAndDeniedTools(t *testing.T) {
 	if containsString(toolNames, "conversation.history") {
 		t.Fatalf("expected history tool to be hidden without provider, got %+v", toolNames)
 	}
-	if !containsString(toolNames, "allowed.tool") {
-		t.Fatalf("expected allowed MCP tool, got %+v", toolNames)
+	if containsString(toolNames, "allowed.tool") {
+		t.Fatalf("expected quarantined MCP tool to stay hidden, got %+v", toolNames)
 	}
 	if containsString(toolNames, "blocked.tool") {
 		t.Fatalf("expected blocked MCP tool to be hidden, got %+v", toolNames)
@@ -381,114 +430,10 @@ func TestToolCatalogProfileFiltersBuiltInTerminalTools(t *testing.T) {
 	}
 }
 
-func TestBrowserHandoffOpenURLUsesCapabilityBridge(t *testing.T) {
-	httpClient := &recordingHTTPClient{}
-	taskEventService := task.NewTaskEventService()
-	taskRunService := task.NewTaskRunService(taskEventService)
-	taskRun := taskRunService.CreateTaskRun("person-1", "conversation-1", "open browser")
-
-	toolCatalogBuilder := NewToolCatalogBuilder()
-	toolCatalogBuilder.UseCapabilityTools(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, nil)
-	toolCatalogBuilder.UseTaskRunService(taskRunService)
-	toolCatalogBuilder.UseAllowedToolNamesByProfile(map[string][]string{
-		"default": {"browser_handoff.openURL"},
-	}, nil)
-	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
-		ProfileName:             "default",
-		RequesterPersonID:       "person-1",
-		RequesterName:           "Dongha",
-		RequesterEmail:          "dongha@example.com",
-		RequesterPlatformUserID: "mattermost-user-1",
-		ConversationID:          "conversation-1",
-		Platform:                "mattermost",
-	})
-
-	toolResult, errorValue := toolRegistry.Invoke(agent.WithTaskRunID(context.Background(), taskRun.TaskRunID), agent.ToolInvocation{
-		ToolName: "browser_handoff.openURL",
-		Input:    json.RawMessage(`{"url":"https://example.com/login"}`),
-	})
-
-	if errorValue != nil {
-		t.Fatalf("expected browser handoff result: %v", errorValue)
-	}
-	if toolResult.ContentText() != "opened" || toolResult.Failed() {
-		t.Fatalf("expected opened bridge response, got %+v", toolResult)
-	}
-	if httpClient.requestPath != "/v1/tools/browser.handoff/invoke" || !strings.Contains(httpClient.requestBody, "https://example.com/login") {
-		t.Fatalf("expected browser bridge request, got path=%s body=%s", httpClient.requestPath, httpClient.requestBody)
-	}
-	var requestDocument struct {
-		ExecutionMode        string `json:"executionMode"`
-		RequiresUserPresence bool   `json:"requiresUserPresence"`
-		Context              struct {
-			RequesterPersonID       string `json:"requesterPersonID"`
-			RequesterName           string `json:"requesterName"`
-			RequesterEmail          string `json:"requesterEmail"`
-			RequesterPlatformUserID string `json:"requesterPlatformUserID"`
-			ConversationID          string `json:"conversationID"`
-			Platform                string `json:"platform"`
-		} `json:"context"`
-	}
-	if errorValue := json.Unmarshal([]byte(httpClient.requestBody), &requestDocument); errorValue != nil {
-		t.Fatalf("expected browser bridge request json: %v", errorValue)
-	}
-	if requestDocument.ExecutionMode != "companion" || !requestDocument.RequiresUserPresence {
-		t.Fatalf("expected browser bridge to require companion user presence, got %s presence=%v body=%s", requestDocument.ExecutionMode, requestDocument.RequiresUserPresence, httpClient.requestBody)
-	}
-	if requestDocument.Context.RequesterPersonID != "person-1" || requestDocument.Context.RequesterPlatformUserID != "mattermost-user-1" {
-		t.Fatalf("expected requester identity in browser bridge request, got %+v", requestDocument.Context)
-	}
-	if !containsTaskEvent(taskEventService.ListTaskEvent(taskRun.TaskRunID), "browser_handoff.opened") {
-		t.Fatalf("expected browser handoff audit event")
-	}
-}
-
-func TestBrowserHandoffPausesTaskWhileWaitingForUser(t *testing.T) {
-	httpClient := &recordingHTTPClient{responseBody: `{"provider":"companion","toolName":"browser.handoff","status":"waiting_for_user","content":"브라우저에서 필요한 작업을 마친 뒤 완료 버튼을 눌러주세요.","result":{"state":"waiting_for_user","handoffID":"handoff-1","sessionID":"internkim","url":"https://example.com/login"}}`}
-	taskEventService := task.NewTaskEventService()
-	taskRunService := task.NewTaskRunService(taskEventService)
-	taskRun := taskRunService.CreateTaskRun("person-1", "conversation-1", "open browser")
-
-	toolCatalogBuilder := NewToolCatalogBuilder()
-	toolCatalogBuilder.UseCapabilityTools(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, nil)
-	toolCatalogBuilder.UseTaskRunService(taskRunService)
-	toolCatalogBuilder.UseAllowedToolNamesByProfile(map[string][]string{
-		"default": {"browser_handoff.openURL"},
-	}, nil)
-	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
-		ProfileName:             "default",
-		RequesterPersonID:       "person-1",
-		RequesterName:           "Dongha",
-		RequesterEmail:          "dongha@example.com",
-		RequesterPlatformUserID: "mattermost-user-1",
-		ConversationID:          "conversation-1",
-		Platform:                "mattermost",
-	})
-
-	toolResult, errorValue := toolRegistry.Invoke(agent.WithTaskRunID(context.Background(), taskRun.TaskRunID), agent.ToolInvocation{
-		ToolName: "browser_handoff.openURL",
-		Input:    json.RawMessage(`{"url":"https://example.com/login"}`),
-	})
-
-	if errorValue != nil {
-		t.Fatalf("expected browser handoff result: %v", errorValue)
-	}
-	if toolResult.Failed() {
-		t.Fatalf("expected waiting handoff not to be an error: %+v", toolResult)
-	}
-	pausedTaskRun, isFound := taskRunService.FindTaskRun(taskRun.TaskRunID)
-	if !isFound || pausedTaskRun.Status != task.TaskStatusWaitingUserInput {
-		t.Fatalf("expected waiting user input task, got found=%v task=%+v", isFound, pausedTaskRun)
-	}
-	if httpClient.requestPath != "/v1/tools/browser.handoff/invoke" {
-		t.Fatalf("expected browser handoff request, got path=%s", httpClient.requestPath)
-	}
-}
-
 func TestInteractiveBrowserCapabilityUsesCompanion(t *testing.T) {
 	httpClient := &recordingHTTPClient{}
 	toolCatalogBuilder := NewToolCatalogBuilder()
-	toolCatalogBuilder.UseCapabilityTools(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, []string{"browser.open"})
+	toolCatalogBuilder.UseTestCapabilityTools(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, []string{"browser.open"})
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(map[string][]string{
 		"default": {"browser.open"},
 	}, nil)
@@ -528,7 +473,7 @@ func TestInteractiveBrowserCapabilityUsesCompanion(t *testing.T) {
 func TestPublicBrowserCapabilityWithRequesterUsesCompanion(t *testing.T) {
 	httpClient := &recordingHTTPClient{}
 	toolCatalogBuilder := NewToolCatalogBuilder()
-	toolCatalogBuilder.UseCapabilityTools(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, []string{"browser.open"})
+	toolCatalogBuilder.UseTestCapabilityTools(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, []string{"browser.open"})
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(map[string][]string{
 		"default": {"browser.open"},
 	}, nil)
@@ -568,7 +513,7 @@ func TestPublicBrowserCapabilityWithRequesterUsesCompanion(t *testing.T) {
 func TestPrivateBrowserCapabilityUsesCompanion(t *testing.T) {
 	httpClient := &recordingHTTPClient{}
 	toolCatalogBuilder := NewToolCatalogBuilder()
-	toolCatalogBuilder.UseCapabilityTools(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, []string{"browser.open"})
+	toolCatalogBuilder.UseTestCapabilityTools(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, []string{"browser.open"})
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(map[string][]string{
 		"default": {"browser.open"},
 	}, nil)
@@ -601,7 +546,7 @@ func TestPrivateBrowserCapabilityUsesCompanion(t *testing.T) {
 func TestBrowserFollowUpWithSensitiveVisibleContextUsesCompanion(t *testing.T) {
 	httpClient := &recordingHTTPClient{}
 	toolCatalogBuilder := NewToolCatalogBuilder()
-	toolCatalogBuilder.UseCapabilityTools(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, []string{"browser.open"})
+	toolCatalogBuilder.UseTestCapabilityTools(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, []string{"browser.open"})
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(map[string][]string{
 		"default": {"browser.open"},
 	}, nil)
@@ -639,9 +584,9 @@ func TestBrowserFollowUpWithSensitiveVisibleContextUsesCompanion(t *testing.T) {
 }
 
 func TestCapabilityDenialPreservesRecoveryAction(t *testing.T) {
-	httpClient := &recordingHTTPClient{responseBody: `{"provider":"companion","toolName":"browser.open","status":"denied","content":"Companion이 연결되어 있지 않아 브라우저를 열 수 없습니다.","isError":true,"result":{"status":"denied","code":"not_connected","toolName":"browser.open","userReason":"Companion이 연결되어 있지 않아 브라우저를 열 수 없습니다.","recovery":{"kind":"companion_connect","delivery":"dm_preferred","downloadURL":"https://example.com/companion.dmg","connectCommand":"/connect"}}}`}
+	httpClient := &recordingHTTPClient{responseBody: `{"provider":"companion","selectedBackend":"companion","toolName":"browser.open","outcome":"denied","status":"denied","content":"Companion이 연결되어 있지 않아 브라우저를 열 수 없습니다.","isError":true,"result":{"status":"denied","code":"not_connected","toolName":"browser.open","userReason":"Companion이 연결되어 있지 않아 브라우저를 열 수 없습니다.","recovery":{"kind":"companion_connect","delivery":"dm_preferred","downloadURL":"https://example.com/companion.dmg","connectCommand":"/connect"}}}`}
 	toolCatalogBuilder := NewToolCatalogBuilder()
-	toolCatalogBuilder.UseCapabilityTools(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, []string{"browser.open"})
+	toolCatalogBuilder.UseTestCapabilityTools(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, []string{"browser.open"})
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(map[string][]string{
 		"default": {"browser.open"},
 	}, nil)
@@ -673,7 +618,7 @@ func TestCapabilityDenialPreservesRecoveryAction(t *testing.T) {
 func TestPublicBrowserCapabilityUsesCompanion(t *testing.T) {
 	httpClient := &recordingHTTPClient{}
 	toolCatalogBuilder := NewToolCatalogBuilder()
-	toolCatalogBuilder.UseCapabilityTools(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, []string{"browser.open"})
+	toolCatalogBuilder.UseTestCapabilityTools(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, []string{"browser.open"})
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(map[string][]string{
 		"default": {"browser.open"},
 	}, nil)
@@ -703,46 +648,15 @@ func TestPublicBrowserCapabilityUsesCompanion(t *testing.T) {
 	}
 }
 
-func TestBrowserHandoffOpenURLRecordsFailureWhenCompanionIsDisconnected(t *testing.T) {
-	httpClient := &recordingHTTPClient{responseBody: `{"content":"Companion is not connected, so the browser was not opened. Ask the user to run /connect before retrying.","status":"denied","isError":true}`}
-	taskEventService := task.NewTaskEventService()
-	taskRunService := task.NewTaskRunService(taskEventService)
-	taskRun := taskRunService.CreateTaskRun("person-1", "conversation-1", "open browser")
-
-	toolCatalogBuilder := NewToolCatalogBuilder()
-	toolCatalogBuilder.UseCapabilityTools(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, nil)
-	toolCatalogBuilder.UseTaskRunService(taskRunService)
-	toolCatalogBuilder.UseAllowedToolNamesByProfile(map[string][]string{
-		"default": {"browser_handoff.openURL"},
-	}, nil)
-	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default", RequesterPersonID: "person-1"})
-
-	toolResult, errorValue := toolRegistry.Invoke(agent.WithTaskRunID(context.Background(), taskRun.TaskRunID), agent.ToolInvocation{
-		ToolName: "browser_handoff.openURL",
-		Input:    json.RawMessage(`{"url":"https://example.com/login"}`),
-	})
-
-	if errorValue != nil {
-		t.Fatalf("expected browser handoff denial result: %v", errorValue)
-	}
-	if !toolResult.Failed() || !strings.Contains(toolResult.ContentText(), "/connect") {
-		t.Fatalf("expected /connect denial result, got %+v", toolResult)
-	}
-	taskEvents := taskEventService.ListTaskEvent(taskRun.TaskRunID)
-	if !containsTaskEvent(taskEvents, "browser_handoff.failed") || containsTaskEvent(taskEvents, "browser_handoff.opened") {
-		t.Fatalf("expected failed browser handoff audit event, got %+v", taskEvents)
-	}
-}
-
 func TestCapabilityDescriptorAppearsInToolSetAndInvokesBridge(t *testing.T) {
 	httpClient := &recordingHTTPClient{}
 	toolCatalogBuilder := NewToolCatalogBuilder()
-	toolCatalogBuilder.UseCapabilityToolDescriptors(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, []CapabilityToolDescriptor{{
+	toolCatalogBuilder.UseTestCapabilityToolDescriptors(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, []CapabilityToolDescriptor{{
 		Name:             "browser.open",
 		InputSchema:      json.RawMessage(`{"type":"object","properties":{"url":{"type":"string"}},"required":["url"],"additionalProperties":false}`),
-		OutputSchema:     json.RawMessage(`{"type":"object","properties":{"status":{"type":"string"}}}`),
+		OutputSchema:     json.RawMessage(`{"type":"object","properties":{"status":{"type":"string"}},"additionalProperties":false}`),
 		PolicyResource:   "tool:browser.open",
-		SideEffectClass:  "browser",
+		SideEffectClass:  agent.ToolSideEffectConnect,
 		RequiresApproval: true,
 	}})
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(map[string][]string{
@@ -752,8 +666,11 @@ func TestCapabilityDescriptorAppearsInToolSetAndInvokesBridge(t *testing.T) {
 
 	descriptions := toolRegistry.Descriptions()
 	actionSchema := toolRegistry.ActionSchema(false, nil, false)
-	if !strings.Contains(descriptions, `"url"`) || !strings.Contains(actionSchema, `"browser.open"`) {
-		t.Fatalf("expected descriptor schema in prompt and action schema, got prompt=%s schema=%s", descriptions, actionSchema)
+	if !strings.Contains(descriptions, "Test capability browser.open") || strings.Contains(descriptions, `"url"`) {
+		t.Fatalf("expected concise descriptor description without duplicated schema, got %s", descriptions)
+	}
+	if !strings.Contains(actionSchema, `"browser.open"`) || !strings.Contains(actionSchema, `"url"`) {
+		t.Fatalf("expected descriptor schema in the action schema, got %s", actionSchema)
 	}
 
 	toolResult, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
@@ -776,7 +693,7 @@ func TestCapabilityToolExecutionUsesResourceAccess(t *testing.T) {
 	}}
 	httpClient := &recordingHTTPClient{}
 	toolCatalogBuilder := NewToolCatalogBuilder()
-	toolCatalogBuilder.UseCapabilityTools(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, []string{"company.broadcast.send"})
+	toolCatalogBuilder.UseTestCapabilityTools(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, []string{"company.broadcast.send"})
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(map[string][]string{
 		"default": {"company.broadcast.send"},
 	}, nil)
@@ -837,7 +754,7 @@ func TestFlowTaskAddToolRequiresStaffCircle(t *testing.T) {
 	}}
 	httpClient := &recordingHTTPClient{}
 	toolCatalogBuilder := NewToolCatalogBuilder()
-	toolCatalogBuilder.UseCapabilityTools(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, []string{"task.add"})
+	toolCatalogBuilder.UseTestCapabilityTools(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, []string{"task.add"})
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(map[string][]string{
 		"default": {"task.add"},
 	}, nil)
@@ -851,7 +768,7 @@ func TestFlowTaskAddToolRequiresStaffCircle(t *testing.T) {
 	})
 	guestResult, errorValue := guestToolSet.Invoke(context.Background(), agent.ToolInvocation{
 		ToolName: "task.add",
-		Input:    json.RawMessage(`{"prompt":"10분 회의"}`),
+		Input:    json.RawMessage(`{"title":"10분 회의"}`),
 	})
 	if errorValue != nil {
 		t.Fatalf("expected denied tool result: %v", errorValue)
@@ -873,7 +790,7 @@ func TestFlowTaskAddToolRequiresStaffCircle(t *testing.T) {
 	})
 	staffResult, errorValue := staffToolSet.Invoke(context.Background(), agent.ToolInvocation{
 		ToolName: "task.add",
-		Input:    json.RawMessage(`{"prompt":"10분 회의"}`),
+		Input:    json.RawMessage(`{"title":"10분 회의"}`),
 	})
 	if errorValue != nil {
 		t.Fatalf("expected staff tool result: %v", errorValue)
@@ -901,7 +818,8 @@ func (httpClient *recordingHTTPClient) Do(request *http.Request) (*http.Response
 	httpClient.requestBody = string(body)
 	responseBody := httpClient.responseBody
 	if responseBody == "" {
-		responseBody = `{"content":"opened","status":"ok"}`
+		toolName := strings.TrimSuffix(strings.TrimPrefix(request.URL.Path, "/v1/tools/"), "/invoke")
+		responseBody = `{"provider":"internkim","selectedBackend":"device","toolName":` + strconv.Quote(toolName) + `,"outcome":"succeeded","content":"opened","status":"ok","result":{}}`
 	}
 	return &http.Response{
 		StatusCode: http.StatusOK,
@@ -912,6 +830,38 @@ func (httpClient *recordingHTTPClient) Do(request *http.Request) (*http.Response
 
 type staticRuntimeLanguageModel struct {
 	content string
+}
+
+type authoredRuntimeFailureLanguageModel struct {
+	reply string
+}
+
+func (languageModel authoredRuntimeFailureLanguageModel) GenerateResponse(context.Context, string) (string, error) {
+	return languageModel.reply, nil
+}
+
+func (languageModel authoredRuntimeFailureLanguageModel) GenerateStructuredResponse(context.Context, llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
+	return llm.StructuredResponse{}, errors.New("structured response is not expected")
+}
+
+func (languageModel authoredRuntimeFailureLanguageModel) GenerateRecoveryChatCompletion(context.Context, llm.ChatCompletionRequest) (llm.ChatCompletionResponse, error) {
+	return llm.ChatCompletionResponse{
+		FinishReason:    "stop",
+		SelectedBackend: "remote",
+		Message:         llm.ChatCompletionMessage{Role: "assistant", Content: languageModel.reply},
+	}, nil
+}
+
+type failingRuntimeRouterLanguageModel struct {
+	errorValue error
+}
+
+func (languageModel failingRuntimeRouterLanguageModel) GenerateResponse(context.Context, string) (string, error) {
+	return "", languageModel.errorValue
+}
+
+func (languageModel failingRuntimeRouterLanguageModel) GenerateStructuredResponse(context.Context, llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
+	return llm.StructuredResponse{}, languageModel.errorValue
 }
 
 func testPlatformMessageCapabilityDescriptors() []CapabilityToolDescriptor {
@@ -942,23 +892,37 @@ func platformMessageLiveRegistryResponse(deleteSchema json.RawMessage) string {
 }
 
 func platformMessageEmptySchema() json.RawMessage {
-	return json.RawMessage(`{"type":"object","properties":{}}`)
+	return json.RawMessage(`{"type":"object","properties":{},"additionalProperties":false}`)
 }
 
 func platformMessageDeleteCriteriaSchema() json.RawMessage {
-	return json.RawMessage(`{"type":"object","properties":{"messageIDs":{"type":"array","items":{"type":"string"}},"scope":{"type":"string"},"deliveryTarget":{"type":"object","properties":{"type":{"type":"string"},"personHint":{"type":"string"},"channelID":{"type":"string"},"channelName":{"type":"string"}}},"authoredBy":{"type":"string"},"query":{"type":"string"},"limit":{"type":"integer"}}}`)
+	return json.RawMessage(`{"type":"object","properties":{"messageIDs":{"type":"array","items":{"type":"string"}},"scope":{"type":"string"},"deliveryTarget":{"type":"object","properties":{"type":{"type":"string"},"personHint":{"type":"string"},"channelID":{"type":"string"},"channelName":{"type":"string"}},"additionalProperties":false},"authoredBy":{"type":"string"},"query":{"type":"string"},"limit":{"type":"integer"}},"additionalProperties":false}`)
 }
 
 func platformMessageDeleteIDsOnlySchema() json.RawMessage {
-	return json.RawMessage(`{"type":"object","properties":{"messageIDs":{"type":"array","items":{"type":"string"}}},"required":["messageIDs"]}`)
+	return json.RawMessage(`{"type":"object","properties":{"messageIDs":{"type":"array","items":{"type":"string"}}},"required":["messageIDs"],"additionalProperties":false}`)
 }
 
 func (languageModel staticRuntimeLanguageModel) GenerateResponse(context.Context, string) (string, error) {
 	return "", nil
 }
 
-func (languageModel staticRuntimeLanguageModel) GenerateStructuredResponse(context.Context, llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
+func (languageModel staticRuntimeLanguageModel) GenerateStructuredResponse(_ context.Context, request llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
+	if request.StructuredOutputSchema.Name == "blueclaw_turn_router" {
+		return llm.StructuredResponse{Content: runtimeTestTurnRouterResponse()}, nil
+	}
 	return llm.StructuredResponse{Content: languageModel.content}, nil
+}
+
+func useRuntimeTestLanguageModel(agentKernel *agent.AgentKernel, content string) {
+	languageModel := staticRuntimeLanguageModel{content: content}
+	agentKernel.UseLanguageModelProvider(languageModel)
+	agentKernel.UseIntakeLanguageModelProvider(languageModel)
+	agentKernel.UseIntakeOptions(agent.IntakeOptions{IsEnabled: true})
+}
+
+func runtimeTestTurnRouterResponse() string {
+	return `{"route":"answer_question","classification":"quick_reply","taskShape":"immediate_reply","level":"xlow","estimatedMinutes":1,"requestedOutputFormats":null,"responseLanguage":"ko","reason":"task launcher test default","userFacingReply":""}`
 }
 
 type staticHistoryProvider struct{}

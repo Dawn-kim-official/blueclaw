@@ -2,6 +2,8 @@ package agent
 
 import (
 	"context"
+	"errors"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -11,28 +13,139 @@ import (
 	"blueclaw/internal/task"
 )
 
-func TestAgentKernelGeneratesStructuredReply(t *testing.T) {
+func TestAgentKernelRejectsProviderWithoutChatCompletion(t *testing.T) {
 	taskEventService := task.NewTaskEventService()
 	taskRunService := task.NewTaskRunService(taskEventService)
 	taskStepService := task.NewTaskStepService()
 	agentKernel := NewAgentKernel(taskRunService, taskStepService)
-	agentKernel.UseLanguageModelProvider(staticReplyProvider{content: `{"reply":"hello from model"}`})
+	replyProvider := &structuredOnlyReplyProvider{}
+	agentKernel.UseLanguageModelProvider(replyProvider)
 
-	reply, errorValue := agentKernel.GenerateReply(context.Background(), "hello")
-	if errorValue != nil {
-		t.Fatalf("expected reply generation: %v", errorValue)
+	_, errorValue := agentKernel.GenerateReply(context.Background(), "hello")
+	if errorValue == nil || errorValue.Error() != "language model provider does not support chat completion" {
+		t.Fatalf("expected unavailable chat completion error, got %v", errorValue)
 	}
-	if reply != "hello from model" {
-		t.Fatalf("expected model reply, got %q", reply)
+	if replyProvider.structuredCallCount != 0 {
+		t.Fatalf("expected missing chat completion not to downgrade to structured generation, got %d calls", replyProvider.structuredCallCount)
 	}
 }
 
-func TestAgentKernelInjectsMemoryIntoStructuredReplyRequest(t *testing.T) {
+func TestAgentKernelGeneratesChatReplyWithoutTools(t *testing.T) {
 	taskEventService := task.NewTaskEventService()
 	taskRunService := task.NewTaskRunService(taskEventService)
 	taskStepService := task.NewTaskStepService()
 	agentKernel := NewAgentKernel(taskRunService, taskStepService)
-	replyProvider := &capturingReplyProvider{content: `{"reply":"remembered"}`}
+	replyProvider := &chatReplyProvider{
+		response: llm.ChatCompletionResponse{Message: llm.ChatCompletionMessage{Role: "assistant", Content: "  hello from chat  "}},
+	}
+	agentKernel.UseLanguageModelProvider(replyProvider)
+
+	reply, errorValue := agentKernel.GenerateReply(context.Background(), "hello")
+	if errorValue != nil {
+		t.Fatalf("expected chat reply generation: %v", errorValue)
+	}
+	if reply != "hello from chat" {
+		t.Fatalf("expected trimmed chat reply, got %q", reply)
+	}
+	if len(replyProvider.request.Tools) != 0 {
+		t.Fatalf("expected no chat tools, got %+v", replyProvider.request.Tools)
+	}
+	if replyProvider.request.SchemaName != "blueclaw_reply" {
+		t.Fatalf("expected blueclaw_reply schema name, got %q", replyProvider.request.SchemaName)
+	}
+	expectedMessages := chatMessages(buildReplyMessagesWithInstructions("hello", VisibleContext{}, nil, ""))
+	if !reflect.DeepEqual(replyProvider.request.Messages, expectedMessages) {
+		t.Fatalf("expected existing reply messages to be preserved, got %+v", replyProvider.request.Messages)
+	}
+	if replyProvider.structuredCallCount != 0 {
+		t.Fatalf("expected chat reply not to call structured generation, got %d calls", replyProvider.structuredCallCount)
+	}
+}
+
+func TestAgentKernelResolvesChatReplyThroughFallbackProvider(t *testing.T) {
+	taskEventService := task.NewTaskEventService()
+	taskRunService := task.NewTaskRunService(taskEventService)
+	taskStepService := task.NewTaskStepService()
+	agentKernel := NewAgentKernel(taskRunService, taskStepService)
+	replyProvider := &chatReplyProvider{
+		response: llm.ChatCompletionResponse{Message: llm.ChatCompletionMessage{Content: "fallback chat"}},
+	}
+	agentKernel.UseLanguageModelProvider(llm.FallbackLanguageModelProvider{
+		PrimaryProvider:  staticReplyProvider{content: `{"reply":"structured"}`},
+		FallbackProvider: replyProvider,
+	})
+
+	reply, errorValue := agentKernel.GenerateReply(context.Background(), "hello")
+	if errorValue != nil {
+		t.Fatalf("expected fallback chat reply generation: %v", errorValue)
+	}
+	if reply != "fallback chat" {
+		t.Fatalf("expected fallback chat reply, got %q", reply)
+	}
+}
+
+func TestAgentKernelRejectsEmptyChatReply(t *testing.T) {
+	taskEventService := task.NewTaskEventService()
+	taskRunService := task.NewTaskRunService(taskEventService)
+	taskStepService := task.NewTaskStepService()
+	agentKernel := NewAgentKernel(taskRunService, taskStepService)
+	replyProvider := &chatReplyProvider{
+		response: llm.ChatCompletionResponse{Message: llm.ChatCompletionMessage{Content: "  "}},
+	}
+	agentKernel.UseLanguageModelProvider(replyProvider)
+
+	_, errorValue := agentKernel.GenerateReply(context.Background(), "hello")
+	if errorValue == nil || errorValue.Error() != "language model reply is empty" {
+		t.Fatalf("expected empty chat reply error, got %v", errorValue)
+	}
+	if replyProvider.structuredCallCount != 0 {
+		t.Fatalf("expected empty chat reply not to use structured fallback, got %d calls", replyProvider.structuredCallCount)
+	}
+}
+
+func TestAgentKernelPropagatesChatErrorWithoutStructuredRetry(t *testing.T) {
+	taskEventService := task.NewTaskEventService()
+	taskRunService := task.NewTaskRunService(taskEventService)
+	taskStepService := task.NewTaskStepService()
+	agentKernel := NewAgentKernel(taskRunService, taskStepService)
+	chatError := errors.New("chat contract rejected")
+	replyProvider := &chatReplyProvider{chatError: chatError}
+	agentKernel.UseLanguageModelProvider(replyProvider)
+
+	_, errorValue := agentKernel.GenerateReply(context.Background(), "hello")
+	if !errors.Is(errorValue, chatError) {
+		t.Fatalf("expected chat error to propagate, got %v", errorValue)
+	}
+	if replyProvider.structuredCallCount != 0 {
+		t.Fatalf("expected chat contract error not to trigger structured retry, got %d calls", replyProvider.structuredCallCount)
+	}
+}
+
+func TestAgentKernelPreservesChatCancellationContext(t *testing.T) {
+	taskEventService := task.NewTaskEventService()
+	taskRunService := task.NewTaskRunService(taskEventService)
+	taskStepService := task.NewTaskStepService()
+	agentKernel := NewAgentKernel(taskRunService, taskStepService)
+	replyProvider := &chatReplyProvider{chatError: context.Canceled}
+	agentKernel.UseLanguageModelProvider(replyProvider)
+	responseContext, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, errorValue := agentKernel.GenerateReply(responseContext, "hello")
+	if !errors.Is(errorValue, context.Canceled) {
+		t.Fatalf("expected cancellation to propagate, got %v", errorValue)
+	}
+	if replyProvider.responseContext.Err() != context.Canceled {
+		t.Fatalf("expected canceled context to reach chat completer, got %v", replyProvider.responseContext.Err())
+	}
+}
+
+func TestAgentKernelInjectsMemoryIntoChatReplyRequest(t *testing.T) {
+	taskEventService := task.NewTaskEventService()
+	taskRunService := task.NewTaskRunService(taskEventService)
+	taskStepService := task.NewTaskStepService()
+	agentKernel := NewAgentKernel(taskRunService, taskStepService)
+	replyProvider := &capturingReplyProvider{content: "remembered"}
 	agentKernel.UseLanguageModelProvider(replyProvider)
 
 	_, errorValue := agentKernel.GenerateReplyWithMemory(
@@ -48,7 +161,7 @@ func TestAgentKernelInjectsMemoryIntoStructuredReplyRequest(t *testing.T) {
 		t.Fatalf("expected reply generation: %v", errorValue)
 	}
 
-	body := joinMessageContent(replyProvider.request.Messages)
+	body := joinChatMessageContent(replyProvider.request.Messages)
 	if len(replyProvider.request.Messages) != 3 {
 		t.Fatalf("expected system, flattened context, user messages, got %d", len(replyProvider.request.Messages))
 	}
@@ -65,7 +178,7 @@ func TestAgentKernelInjectsCompactAttributedMemorySummary(t *testing.T) {
 	taskRunService := task.NewTaskRunService(taskEventService)
 	taskStepService := task.NewTaskStepService()
 	agentKernel := NewAgentKernel(taskRunService, taskStepService)
-	replyProvider := &capturingReplyProvider{content: `{"reply":"remembered"}`}
+	replyProvider := &capturingReplyProvider{content: "remembered"}
 	agentKernel.UseLanguageModelProvider(replyProvider)
 	longContent := strings.Repeat("요약해야 하는 상세 메모리 ", 30) + "RAW_TAIL_SHOULD_NOT_APPEAR"
 
@@ -86,7 +199,7 @@ func TestAgentKernelInjectsCompactAttributedMemorySummary(t *testing.T) {
 		t.Fatalf("expected reply generation: %v", errorValue)
 	}
 
-	body := joinMessageContent(replyProvider.request.Messages)
+	body := joinChatMessageContent(replyProvider.request.Messages)
 	if !strings.Contains(body, "Relevant Blueclaw memory") {
 		t.Fatalf("expected compact memory heading, got %q", body)
 	}
@@ -103,7 +216,7 @@ func TestAgentKernelPlacesVisibleContextBeforeMemoryAndPrompt(t *testing.T) {
 	taskRunService := task.NewTaskRunService(taskEventService)
 	taskStepService := task.NewTaskStepService()
 	agentKernel := NewAgentKernel(taskRunService, taskStepService)
-	replyProvider := &capturingReplyProvider{content: `{"reply":"contextual"}`}
+	replyProvider := &capturingReplyProvider{content: "contextual"}
 	agentKernel.UseLanguageModelProvider(replyProvider)
 
 	_, errorValue := agentKernel.GenerateReplyWithContext(
@@ -124,24 +237,28 @@ func TestAgentKernelPlacesVisibleContextBeforeMemoryAndPrompt(t *testing.T) {
 		t.Fatalf("expected reply generation: %v", errorValue)
 	}
 
-	body := joinMessageContent(replyProvider.request.Messages)
+	body := joinChatMessageContent(replyProvider.request.Messages)
 	if len(replyProvider.request.Messages) != 3 {
 		t.Fatalf("expected system, flattened context, prompt messages, got %d", len(replyProvider.request.Messages))
 	}
-	runtimeIndex := strings.Index(body, "Runtime:")
 	visibleIndex := strings.Index(body, "admin: A로 가자")
 	memoryIndex := strings.Index(body, "redundancy 없는 설계")
+	runtimeIndex := strings.Index(body, "Runtime:")
 	promptIndex := strings.LastIndex(body, "그래서 어떻게 할까?")
-	if runtimeIndex < 0 || visibleIndex < 0 || memoryIndex < 0 || promptIndex < 0 {
-		t.Fatalf("expected runtime, visible context, memory, and prompt, got %q", body)
+	if visibleIndex < 0 || memoryIndex < 0 || runtimeIndex < 0 || promptIndex < 0 {
+		t.Fatalf("expected visible context, memory, runtime, and prompt, got %q", body)
 	}
-	if !(runtimeIndex < visibleIndex && visibleIndex < memoryIndex && memoryIndex < promptIndex) {
-		t.Fatalf("expected runtime before visible context before memory before prompt, got %q", body)
+	if !(visibleIndex < memoryIndex && memoryIndex < runtimeIndex && runtimeIndex < promptIndex) {
+		t.Fatalf("expected visible context before memory before the volatile runtime timestamp before the final prompt, got %q", body)
 	}
 }
 
 type staticReplyProvider struct {
 	content string
+}
+
+type structuredOnlyReplyProvider struct {
+	structuredCallCount int
 }
 
 func (replyProvider staticReplyProvider) GenerateResponse(responseContext context.Context, prompt string) (string, error) {
@@ -156,9 +273,49 @@ func (replyProvider staticReplyProvider) GenerateStructuredResponse(responseCont
 	return llm.StructuredResponse{Content: replyProvider.content}, nil
 }
 
+func (replyProvider *structuredOnlyReplyProvider) GenerateResponse(responseContext context.Context, prompt string) (string, error) {
+	_ = responseContext
+	_ = prompt
+	return "", nil
+}
+
+func (replyProvider *structuredOnlyReplyProvider) GenerateStructuredResponse(responseContext context.Context, structuredResponseRequest llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
+	_ = responseContext
+	_ = structuredResponseRequest
+	replyProvider.structuredCallCount++
+	return llm.StructuredResponse{}, nil
+}
+
 type capturingReplyProvider struct {
 	content string
-	request llm.StructuredResponseRequest
+	request llm.ChatCompletionRequest
+}
+
+type chatReplyProvider struct {
+	response            llm.ChatCompletionResponse
+	chatError           error
+	request             llm.ChatCompletionRequest
+	responseContext     context.Context
+	structuredCallCount int
+}
+
+func (replyProvider *chatReplyProvider) GenerateResponse(responseContext context.Context, prompt string) (string, error) {
+	_ = responseContext
+	_ = prompt
+	return "", nil
+}
+
+func (replyProvider *chatReplyProvider) GenerateStructuredResponse(responseContext context.Context, structuredResponseRequest llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
+	_ = responseContext
+	_ = structuredResponseRequest
+	replyProvider.structuredCallCount++
+	return llm.StructuredResponse{}, nil
+}
+
+func (replyProvider *chatReplyProvider) GenerateChatCompletion(responseContext context.Context, request llm.ChatCompletionRequest) (llm.ChatCompletionResponse, error) {
+	replyProvider.responseContext = responseContext
+	replyProvider.request = request
+	return replyProvider.response, replyProvider.chatError
 }
 
 func (replyProvider *capturingReplyProvider) GenerateResponse(responseContext context.Context, prompt string) (string, error) {
@@ -169,6 +326,25 @@ func (replyProvider *capturingReplyProvider) GenerateResponse(responseContext co
 
 func (replyProvider *capturingReplyProvider) GenerateStructuredResponse(responseContext context.Context, structuredResponseRequest llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
 	_ = responseContext
-	replyProvider.request = structuredResponseRequest
-	return llm.StructuredResponse{Content: replyProvider.content}, nil
+	_ = structuredResponseRequest
+	return llm.StructuredResponse{}, errors.New("structured reply generation is not supported")
+}
+
+func (replyProvider *capturingReplyProvider) GenerateChatCompletion(responseContext context.Context, request llm.ChatCompletionRequest) (llm.ChatCompletionResponse, error) {
+	_ = responseContext
+	replyProvider.request = request
+	return llm.ChatCompletionResponse{
+		Message: llm.ChatCompletionMessage{
+			Role:    "assistant",
+			Content: replyProvider.content,
+		},
+	}, nil
+}
+
+func joinChatMessageContent(messages []llm.ChatCompletionMessage) string {
+	content := make([]string, 0, len(messages))
+	for _, message := range messages {
+		content = append(content, message.Content)
+	}
+	return strings.Join(content, "\n")
 }

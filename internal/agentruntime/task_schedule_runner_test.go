@@ -16,7 +16,8 @@ func TestTaskScheduleRunnerLaunchesDueSchedule(t *testing.T) {
 	taskEventService := task.NewTaskEventService()
 	taskRunService := task.NewTaskRunService(taskEventService)
 	agentKernel := agent.NewAgentKernel(taskRunService, task.NewTaskStepService())
-	agentKernel.UseLanguageModelProvider(staticRuntimeLanguageModel{content: runtimeFinishMessage("scheduled done")})
+	languageModel := &capturingScheduleRuntimeLanguageModel{content: runtimeFinishMessage("scheduled done")}
+	useScheduledRuntimeLanguageModel(agentKernel, languageModel)
 	toolCatalogBuilder := NewToolCatalogBuilder()
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(map[string][]string{
 		"default": {"memory.search"},
@@ -69,7 +70,7 @@ func TestTaskScheduleRunnerAddsCronContextToLaunch(t *testing.T) {
 	taskRunService := task.NewTaskRunService(taskEventService)
 	agentKernel := agent.NewAgentKernel(taskRunService, task.NewTaskStepService())
 	languageModel := &capturingScheduleRuntimeLanguageModel{content: runtimeFinishMessage("scheduled done")}
-	agentKernel.UseLanguageModelProvider(languageModel)
+	useScheduledRuntimeLanguageModel(agentKernel, languageModel)
 	toolCatalogBuilder := NewToolCatalogBuilder()
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(map[string][]string{
 		"default": {"memory.search"},
@@ -115,6 +116,9 @@ func TestTaskScheduleRunnerAddsCronContextToLaunch(t *testing.T) {
 			t.Fatalf("expected launch request to include %q, got %s", expected, requestText)
 		}
 	}
+	if !hasStructuredRequest(languageModel.requests, "blueclaw_turn_router") {
+		t.Fatal("expected scheduled objective to use semantic routing")
+	}
 
 	taskLaunchEvent := findTaskEvent(taskEventService.ListTaskEvent(result.LaunchResult.TurnResult.TaskRun.TaskRunID), "agent.task_launched")
 	if !strings.Contains(taskLaunchEvent.Body, `"scheduledRun"`) || !strings.Contains(taskLaunchEvent.Body, `"scheduleID":"schedule-briefing"`) {
@@ -122,9 +126,50 @@ func TestTaskScheduleRunnerAddsCronContextToLaunch(t *testing.T) {
 	}
 }
 
+func TestTaskScheduleRunnerPreservesScheduledArtifactRouting(t *testing.T) {
+	taskEventService := task.NewTaskEventService()
+	taskRunService := task.NewTaskRunService(taskEventService)
+	agentKernel := agent.NewAgentKernel(taskRunService, task.NewTaskStepService())
+	languageModel := &capturingScheduleRuntimeLanguageModel{
+		content:       `{"action":"fail","reason":"artifact fixture stops after intake","goalStatus":"blocked","goalSatisfied":false}`,
+		routerContent: `{"route":"start_task","classification":"bounded_task","taskShape":"research_task","level":"high","estimatedMinutes":45,"requestedOutputFormats":["pptx"],"requestedOutputEvidence":"발표자료","expectedResults":[{"id":"presentation","type":"file","description":"PPTX 발표자료","required":true}],"requiredEvidence":["file.deliver"],"siteRequestEvidence":"","responseLanguage":"ko","reason":"scheduled presentation","userFacingReply":"","initialToolNames":["file.deliver"],"priorTaskReference":"none"}`,
+	}
+	useScheduledRuntimeLanguageModel(agentKernel, languageModel)
+	taskLauncher := NewTaskLauncher(agentKernel, NewToolCatalogBuilder())
+	runAt := time.Date(2026, 6, 16, 9, 0, 0, 0, time.UTC)
+
+	result, errorValue := NewTaskScheduleRunner(taskLauncher).RunIfDue(context.Background(), TaskScheduleRunRequest{
+		TaskSchedule: task.TaskSchedule{
+			TaskScheduleID:  "schedule-presentation",
+			CreatorPersonID: "person-1",
+			Prompt:          "이번 주 영업 현황을 발표자료로 정리해줘.",
+			Kind:            task.TaskScheduleKindOnce,
+			RunAt:           &runAt,
+			NextRunAt:       &runAt,
+		},
+		ReferenceTime: runAt,
+		PersonAccess:  policy.PersonAccess{PersonID: "person-1", SecurityLevelRank: 100},
+		WorkspaceID:   "workspace-1",
+	})
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+
+	taskEvents := taskEventService.ListTaskEvent(result.LaunchResult.TurnResult.TaskRun.TaskRunID)
+	intakeEvent := findTaskEvent(taskEvents, "agent.intake")
+	if !strings.Contains(intakeEvent.Body, `"level":"xhigh"`) || !strings.Contains(intakeEvent.Body, `"requestedOutputFormats":["pptx"]`) {
+		t.Fatalf("expected router artifact decision to retain formats and promote to xhigh, got %s", intakeEvent.Body)
+	}
+	goalEvent := findTaskEventByPrefix(taskEvents, "agent.goal.")
+	if !strings.Contains(goalEvent.Body, `"requiredAttachmentSuffixes":[".pptx"]`) || !strings.Contains(goalEvent.Body, `"id":"presentation"`) {
+		t.Fatalf("expected scheduled artifact outcome contract to survive routing, got %s", goalEvent.Body)
+	}
+}
+
 type capturingScheduleRuntimeLanguageModel struct {
-	content  string
-	requests []llm.StructuredResponseRequest
+	content       string
+	routerContent string
+	requests      []llm.StructuredResponseRequest
 }
 
 func (languageModel *capturingScheduleRuntimeLanguageModel) GenerateResponse(context.Context, string) (string, error) {
@@ -133,7 +178,45 @@ func (languageModel *capturingScheduleRuntimeLanguageModel) GenerateResponse(con
 
 func (languageModel *capturingScheduleRuntimeLanguageModel) GenerateStructuredResponse(_ context.Context, request llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
 	languageModel.requests = append(languageModel.requests, request)
+	if request.StructuredOutputSchema.Name == "blueclaw_turn_router" {
+		return llm.StructuredResponse{Content: firstScheduleRuntimeRouterResponse(languageModel.routerContent)}, nil
+	}
 	return llm.StructuredResponse{Content: languageModel.content}, nil
+}
+
+func scheduledRuntimeTurnRouterResponse() string {
+	return `{"route":"start_task","classification":"bounded_task","taskShape":"research_task","level":"medium","estimatedMinutes":10,"requestedOutputFormats":null,"expectedResults":[],"requiredEvidence":[],"siteRequestEvidence":"","responseLanguage":"ko","reason":"scheduled objective","userFacingReply":"","initialToolNames":[],"priorTaskReference":"none"}`
+}
+
+func firstScheduleRuntimeRouterResponse(routerContent string) string {
+	if strings.TrimSpace(routerContent) != "" {
+		return routerContent
+	}
+	return scheduledRuntimeTurnRouterResponse()
+}
+
+func useScheduledRuntimeLanguageModel(agentKernel *agent.AgentKernel, languageModel llm.LanguageModelProvider) {
+	agentKernel.UseLanguageModelProvider(languageModel)
+	agentKernel.UseIntakeLanguageModelProvider(languageModel)
+	agentKernel.UseIntakeOptions(agent.IntakeOptions{IsEnabled: true})
+}
+
+func hasStructuredRequest(requests []llm.StructuredResponseRequest, schemaName string) bool {
+	for _, request := range requests {
+		if request.StructuredOutputSchema.Name == schemaName {
+			return true
+		}
+	}
+	return false
+}
+
+func findTaskEventByPrefix(taskEvents []task.TaskEvent, namePrefix string) task.TaskEvent {
+	for _, taskEvent := range taskEvents {
+		if strings.HasPrefix(taskEvent.Name, namePrefix) {
+			return taskEvent
+		}
+	}
+	return task.TaskEvent{}
 }
 
 func structuredRequestMessagesText(requests []llm.StructuredResponseRequest) string {

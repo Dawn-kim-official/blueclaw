@@ -27,6 +27,63 @@ type memoryTaskScheduleRepository struct {
 	failed        []string
 }
 
+func TestResolveAgentWorkspaceReferencesUsesPathBoundaries(t *testing.T) {
+	workspaceRootPath := "/Users/lee/orca/workspaces/internkim/tool-test"
+	toolCatalogBuilder := NewToolCatalogBuilder()
+	toolCatalogBuilder.UseWorkspaceRootPath(workspaceRootPath)
+	testCases := []struct {
+		input    string
+		expected string
+	}{
+		{
+			input:    "python3 /workspace/skills/document/scripts/export.py",
+			expected: "python3 " + workspaceRootPath + "/skills/document/scripts/export.py",
+		},
+		{
+			input:    "cd '/workspace' && pwd",
+			expected: "cd '" + workspaceRootPath + "' && pwd",
+		},
+		{
+			input:    "WORKSPACE=/workspace",
+			expected: "WORKSPACE=" + workspaceRootPath,
+		},
+		{
+			input:    "cat " + workspaceRootPath + "/documents/report.md",
+			expected: "cat " + workspaceRootPath + "/documents/report.md",
+		},
+		{
+			input:    "cat /other/workspace/documents/report.md",
+			expected: "cat /other/workspace/documents/report.md",
+		},
+		{
+			input:    "echo /workspaceBackup",
+			expected: "echo /workspaceBackup",
+		},
+	}
+	for _, testCase := range testCases {
+		actual := toolCatalogBuilder.resolveAgentWorkspaceReferences(testCase.input)
+		if actual != testCase.expected {
+			t.Fatalf("expected %q, got %q", testCase.expected, actual)
+		}
+	}
+}
+
+func TestResolveAgentWorkspaceEnvironmentLeavesConcretePathsUnchanged(t *testing.T) {
+	workspaceRootPath := "/Users/lee/orca/workspaces/internkim/tool-test"
+	toolCatalogBuilder := NewToolCatalogBuilder()
+	toolCatalogBuilder.UseWorkspaceRootPath(workspaceRootPath)
+
+	resolved := toolCatalogBuilder.resolveAgentWorkspaceEnvironment(map[string]string{
+		"HOME":     workspaceRootPath + "/private/people/person-1",
+		"TOOL_DIR": "/workspace/tools",
+	})
+
+	if resolved["HOME"] != workspaceRootPath+"/private/people/person-1" ||
+		resolved["TOOL_DIR"] != workspaceRootPath+"/tools" {
+		t.Fatalf("expected exact concrete environment paths, got %+v", resolved)
+	}
+}
+
 type recordingMemoryUpdateQueue struct {
 	jobs []memory.MemoryUpdateJob
 }
@@ -220,12 +277,12 @@ func newFileToolTestCatalogBuilder(workspacePath string) *ToolCatalogBuilder {
 
 func newTerminalToolTestCatalogBuilder(workspacePath string) *ToolCatalogBuilder {
 	terminalService := security.NewTerminalSessionService(config.TerminalConfiguration{
-		WorkspaceRootPath:  workspacePath,
-		Mode:               "firecrackerGuest",
-		DeniedPathPrefixes: []string{"/opt"},
-		TimeoutSecond:      5,
-		OutputMaxBytes:     4096,
-		SessionMaxCount:    2,
+		WorkspaceRootPath:     workspacePath,
+		Mode:                  "firecrackerGuest",
+		TimeoutSecond:         5,
+		OutputMaxBytes:        4096,
+		SessionMaxCount:       2,
+		AllowInteractiveShell: true,
 	})
 	toolCatalogBuilder := NewToolCatalogBuilder()
 	toolCatalogBuilder.UseWorkspaceRootPath(workspacePath)
@@ -248,7 +305,6 @@ func internalTestToolNames() []string {
 		"skill.add",
 		"skill.remove",
 		"skill.search",
-		"task.history",
 		"terminal.run",
 	}
 }
@@ -291,8 +347,7 @@ func userSkillDocument(skillName string) string {
 	return `---
 name: ` + skillName + `
 description: Research source material and organize source lookups when the user asks for research help.
-allowed-tools:
-  - memory.search
+tool-references: memory.search
 ---
 Research helper handles source lookups.
 `

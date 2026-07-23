@@ -134,12 +134,8 @@ func skillSearchText(skillInstruction SkillInstruction) string {
 		skillInstruction.WhenToUse,
 		skillInstruction.Category,
 		strings.Join(skillInstruction.Tags, " "),
-		strings.Join(skillInstruction.Activation.Keywords, " "),
-		strings.Join(skillInstruction.Activation.ToolNames, " "),
-		strings.Join(skillInstruction.Activation.ToolPrefixes, " "),
-		strings.Join(skillInstruction.Completion.RequiredEvidenceTools, " "),
-		strings.Join(skillInstruction.Completion.RequiredAttachmentSuffixes, " "),
-		strings.Join(skillInstruction.AllowedTools, " "),
+		strings.Join(skillInstruction.TriggerHints, " "),
+		strings.Join(skillInstruction.ToolReferences, " "),
 	}
 	text := strings.Join(nonEmptyStrings(parts), " ")
 	if text != "" {

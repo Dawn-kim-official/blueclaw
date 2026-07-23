@@ -90,6 +90,19 @@
     "defaultProvider": "capabilityLLM",
     "capability": {
       "executionMode": "auto"
+    },
+    "llmd": {
+      "unixSocketPath": "/run/blueclaw-llmd/llmd.sock",
+      "authKeyPath": "/run/credentials/llmd-auth-key",
+      "executionMode": "auto",
+      "timeoutSecond": 60,
+      "structuredSchemaNames": [
+        "blueclaw_agent_turn_action",
+        "blueclaw_agent_turn_finalizer",
+        "blueclaw_turn_router",
+        "blueclaw_recovery_decision",
+        "blueclaw_operation_contract"
+      ]
     }
   },
   "firecracker": {
@@ -156,6 +169,10 @@
     "slack": {},
     "signal": {
       "enabled": false
+    },
+    "chatd": {
+      "endpoint": "http://127.0.0.1:18090",
+      "enabledPlatforms": []
     }
   },
   "logging": {
@@ -166,13 +183,13 @@
     {
       "name": "planner",
       "allowedToolNames": [
-        "mcp.workspace.list"
+        "workspace.list"
       ]
     },
     {
       "name": "researcher",
       "allowedToolNames": [
-        "mcp.workspace.read"
+        "workspace.read"
       ]
     }
   ],
@@ -180,86 +197,133 @@
     {
       "name": "workspace",
       "transport": "stdio",
-      "command": "blueclaw-mcp-workspace"
+      "command": "blueclaw-mcp-workspace",
+      "tools": [
+        {
+          "name": "list",
+          "namespace": "workspace",
+          "description": "List readable workspace files.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {},
+            "additionalProperties": false
+          },
+          "outputSchema": {
+            "type": "object",
+            "properties": {
+              "paths": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "uniqueItems": true
+              }
+            },
+            "required": [
+              "paths"
+            ],
+            "additionalProperties": false
+          },
+          "resultContract": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "paths": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "uniqueItems": true
+                }
+              },
+              "required": [
+                "paths"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "policy": {
+            "privacyClass": "workspace",
+            "requiresUserPresence": false,
+            "worksOffline": true,
+            "modelVisibility": "visible",
+            "policyResource": "tool:workspace.list",
+            "sideEffectClass": "read",
+            "requiresApproval": false,
+            "completionMode": "none",
+            "idempotency": "supported",
+            "idempotencyScope": "operation"
+          }
+        },
+        {
+          "name": "read",
+          "namespace": "workspace",
+          "description": "Read one workspace text file.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path"
+            ],
+            "additionalProperties": false
+          },
+          "outputSchema": {
+            "type": "object",
+            "properties": {
+              "path": {
+                "type": "string"
+              },
+              "content": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path",
+              "content"
+            ],
+            "additionalProperties": false
+          },
+          "resultContract": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string"
+                },
+                "content": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "path",
+                "content"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "policy": {
+            "privacyClass": "workspace",
+            "requiresUserPresence": false,
+            "worksOffline": true,
+            "modelVisibility": "visible",
+            "policyResource": "tool:workspace.read",
+            "sideEffectClass": "read",
+            "requiresApproval": false,
+            "completionMode": "none",
+            "idempotency": "supported",
+            "idempotencyScope": "operation"
+          }
+        }
+      ]
     }
   ],
   "terminal": {
     "mode": "firecrackerGuest",
     "workspaceRootPath": "/workspace",
-    "allowedExecutableNames": [
-      "bash",
-      "sh",
-      "git",
-      "glab",
-      "rg",
-      "find",
-      "ls",
-      "cat",
-      "sed",
-      "awk",
-      "grep",
-      "mkdir",
-      "touch",
-      "cp",
-      "mv",
-      "rm",
-      "tar",
-      "gzip",
-      "bun",
-      "go",
-      "capability"
-    ],
-    "deniedExecutableNames": [
-      "sudo",
-      "su",
-      "doas",
-      "pkexec",
-      "mount",
-      "umount",
-      "systemctl",
-      "service",
-      "apt",
-      "apt-get",
-      "dpkg",
-      "yum",
-      "dnf",
-      "apk",
-      "pacman",
-      "snap",
-      "flatpak",
-      "rpm",
-      "modprobe",
-      "insmod",
-      "shutdown",
-      "reboot",
-      "halt",
-      "poweroff",
-      "useradd",
-      "userdel",
-      "usermod",
-      "groupadd",
-      "groupdel",
-      "passwd",
-      "chpasswd",
-      "visudo",
-      "iptables",
-      "nft",
-      "sysctl"
-    ],
-    "deniedPathPrefixes": [
-      "/etc",
-      "/root",
-      "/boot",
-      "/sys",
-      "/proc",
-      "/dev",
-      "/run",
-      "/var/lib",
-      "/var/run",
-      "/usr",
-      "/opt",
-      "/srv"
-    ],
     "timeoutSecond": 120,
     "outputMaxBytes": 32768,
     "sessionMaxCount": 4,

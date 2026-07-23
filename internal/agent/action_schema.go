@@ -2,6 +2,7 @@ package agent
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 )
 
@@ -38,103 +39,98 @@ func buildActionSchemaFromToolDefinitions(toolDefinitions []ToolDefinition, allo
 	if allowQualityCriteria {
 		variants = append(variants, setQualityCriteriaActionSchema())
 	}
+	hasContinueVariant := false
 	for _, toolDefinition := range toolDefinitions {
 		if blockedToolNames[strings.TrimSpace(toolDefinition.Name)] {
 			continue
 		}
-		variants = append(variants, continueActionSchema(toolDefinition))
+		if variant, isValid := continueActionSchema(toolDefinition); isValid {
+			variants = append(variants, variant)
+			hasContinueVariant = true
+		}
 	}
 
-	document, errorValue := json.Marshal(map[string]any{"oneOf": variants})
-	if errorValue != nil {
-		return fallbackActionSchema()
+	schema := map[string]any{"oneOf": variants}
+	if hasContinueVariant {
+		schema["$defs"] = actionSchemaSharedDefinitions()
 	}
-	return string(document)
+	return mustMarshalStructuredSchema(schema)
+}
+
+// nativeTerminalActionParameters extracts finish/fail/set_quality_criteria variants standalone, so only continue variants use this $defs block.
+func actionSchemaSharedDefinitions() map[string]any {
+	return map[string]any{
+		"executionStateUpdate": executionStateSchema(),
+	}
+}
+
+func executionStateUpdateRefSchema() map[string]any {
+	return map[string]any{"$ref": "#/$defs/executionStateUpdate"}
 }
 
 func finishActionSchema(hasFailureDebt bool) map[string]any {
 	failureResolutionValues := []string{"none", "recovered_with_success", "no_tool_fallback"}
-	requiredFields := []string{"action", "message", "goalStatus", "goalSatisfied", "hasRemainingWork", "completionEvidenceIDs", "qualityReview", "executionStateUpdate"}
+	requiredFields := []string{"action", "message", "goalStatus", "goalSatisfied", "hasRemainingWork", "completionEvidenceIDs", "qualityReview"}
 	if hasFailureDebt {
 		failureResolutionValues = []string{"recovered_with_success", "no_tool_fallback"}
 		requiredFields = append(requiredFields, "failureResolution")
 	}
-	return map[string]any{
-		"type": "object",
-		"properties": map[string]any{
-			"action":                enumStringSchema("finish"),
-			"message":               stringSchema(),
-			"replyParts":            finishReplyPartArraySchema(),
-			"completionSummary":     stringSchema(),
-			"failureResolution":     enumValuesStringSchema(failureResolutionValues),
-			"goalStatus":            enumValuesStringSchema([]string{"satisfied"}),
-			"goalSatisfied":         booleanSchema(),
-			"hasRemainingWork":      booleanSchema(),
-			"completionEvidenceIDs": stringArraySchema(0),
-			"qualityReview":         qualityReviewSchema(),
-			"remainingWork":         stringSchema(),
-			"executionStateUpdate":  executionStateSchema(),
-		},
-		"required": requiredFields,
-	}
+	return closedObjectSchema(map[string]any{
+		"action":                enumStringSchema("finish"),
+		"message":               stringSchema(),
+		"replyParts":            finishReplyPartArraySchema(),
+		"completionSummary":     stringSchema(),
+		"failureResolution":     enumValuesStringSchema(failureResolutionValues),
+		"goalStatus":            enumValuesStringSchema([]string{"satisfied"}),
+		"goalSatisfied":         booleanSchema(),
+		"hasRemainingWork":      booleanSchema(),
+		"completionEvidenceIDs": stringArraySchema(0),
+		"qualityReview":         qualityReviewSchema(),
+		"remainingWork":         stringSchema(),
+		"executionStateUpdate":  executionStateSchema(),
+	}, requiredFields...)
 }
 
 func finishReplyPartArraySchema() map[string]any {
 	return map[string]any{
 		"type": "array",
-		"items": map[string]any{
-			"type": "object",
-			"properties": map[string]any{
-				"type": enumValuesStringSchema([]string{"text"}),
-				"text": stringSchema(),
-			},
-		},
+		"items": closedObjectSchema(map[string]any{
+			"type": enumValuesStringSchema([]string{"text"}),
+			"text": stringSchema(),
+		}),
 	}
 }
 
 func agentPartArraySchema() map[string]any {
 	return map[string]any{
 		"type": "array",
-		"items": map[string]any{
-			"type": "object",
-			"properties": map[string]any{
-				"type": enumValuesStringSchema([]string{"text", "image", "file"}),
-				"text": stringSchema(),
-				"image": map[string]any{
-					"type": "object",
-					"properties": map[string]any{
-						"mimeType": stringSchema(),
-						"path":     stringSchema(),
-						"filename": stringSchema(),
-					},
-				},
-				"file": map[string]any{
-					"type": "object",
-					"properties": map[string]any{
-						"path":        stringSchema(),
-						"filename":    stringSchema(),
-						"contentType": stringSchema(),
-					},
-				},
-			},
-		},
+		"items": closedObjectSchema(map[string]any{
+			"type": enumValuesStringSchema([]string{"text", "image", "file"}),
+			"text": stringSchema(),
+			"image": closedObjectSchema(map[string]any{
+				"mimeType": stringSchema(),
+				"path":     stringSchema(),
+				"filename": stringSchema(),
+			}),
+			"file": closedObjectSchema(map[string]any{
+				"path":        stringSchema(),
+				"filename":    stringSchema(),
+				"contentType": stringSchema(),
+			}),
+		}),
 	}
 }
 
 func setQualityCriteriaActionSchema() map[string]any {
-	return map[string]any{
-		"type": "object",
-		"properties": map[string]any{
-			"action":               enumStringSchema("set_quality_criteria"),
-			"qualityCriteria":      qualityCriteriaSchema(),
-			"reason":               stringSchema(),
-			"goalStatus":           enumValuesStringSchema([]string{"in_progress"}),
-			"goalSatisfied":        booleanSchema(),
-			"remainingWork":        stringSchema(),
-			"executionStateUpdate": executionStateSchema(),
-		},
-		"required": []string{"action", "qualityCriteria", "executionStateUpdate"},
-	}
+	return closedObjectSchema(map[string]any{
+		"action":               enumStringSchema("set_quality_criteria"),
+		"qualityCriteria":      qualityCriteriaSchema(),
+		"reason":               stringSchema(),
+		"goalStatus":           enumValuesStringSchema([]string{"in_progress"}),
+		"goalSatisfied":        booleanSchema(),
+		"remainingWork":        stringSchema(),
+		"executionStateUpdate": executionStateSchema(),
+	}, "action", "qualityCriteria", "executionStateUpdate")
 }
 
 func failActionSchema(hasFailureDebt bool) map[string]any {
@@ -152,49 +148,44 @@ func failActionSchema(hasFailureDebt bool) map[string]any {
 		properties["usedFailureFacts"] = failureReportFactsSchema()
 		requiredFields = append(requiredFields, "failureResolution", "usedFailureFacts")
 	}
-	return map[string]any{
-		"type":       "object",
-		"properties": properties,
-		"required":   requiredFields,
-	}
+	return closedObjectSchema(properties, requiredFields...)
 }
 
-func continueActionSchema(toolDefinition ToolDefinition) map[string]any {
-	schema := map[string]any{
-		"type": "object",
-		"properties": map[string]any{
-			"action":               enumStringSchema("continue"),
-			"toolName":             enumStringSchema(toolDefinition.Name),
-			"toolInput":            toolInputSchema(toolDefinition),
-			"message":              stringSchema(),
-			"reason":               stringSchema(),
-			"goalStatus":           enumValuesStringSchema([]string{"in_progress"}),
-			"goalSatisfied":        booleanSchema(),
-			"remainingWork":        stringSchema(),
-			"executionStateUpdate": executionStateSchema(),
-		},
-		"required": []string{"action", "toolName", "toolInput", "executionStateUpdate"},
+func continueActionSchema(toolDefinition ToolDefinition) (map[string]any, bool) {
+	inputSchema, isValid := toolInputSchema(toolDefinition)
+	if !isValid {
+		return nil, false
 	}
+	schema := closedObjectSchema(map[string]any{
+		"action":               enumStringSchema("continue"),
+		"toolName":             enumStringSchema(toolDefinition.Name),
+		"toolInput":            inputSchema,
+		"message":              stringSchema(),
+		"reason":               stringSchema(),
+		"goalStatus":           enumValuesStringSchema([]string{"in_progress"}),
+		"goalSatisfied":        booleanSchema(),
+		"hasRemainingWork":     booleanSchema(),
+		"remainingWork":        stringSchema(),
+		"executionStateUpdate": executionStateUpdateRefSchema(),
+	}, "action", "toolName", "toolInput", "goalSatisfied", "hasRemainingWork", "executionStateUpdate")
 	if description := strings.TrimSpace(toolDefinition.Description); description != "" {
 		schema["description"] = description
 	}
-	return schema
+	return schema, true
 }
 
-func toolInputSchema(toolDefinition ToolDefinition) any {
-	if len(toolDefinition.InputSchema) > 0 {
-		var schema any
-		if json.Unmarshal(toolDefinition.InputSchema, &schema) == nil {
-			return portableNestedSchema(schema)
-		}
+func toolInputSchema(toolDefinition ToolDefinition) (any, bool) {
+	if len(toolDefinition.InputSchema) == 0 {
+		return nil, false
 	}
-	if schema := specificToolInputSchema(toolDefinition.Name); len(schema) > 0 {
-		var document any
-		if json.Unmarshal(schema, &document) == nil {
-			return portableNestedSchema(document)
-		}
+	var schema map[string]any
+	if json.Unmarshal(toolDefinition.InputSchema, &schema) != nil {
+		return nil, false
 	}
-	return objectSchema()
+	if schema["type"] != "object" {
+		return nil, false
+	}
+	return portableNestedSchema(schema), true
 }
 
 func portableNestedSchema(value any) any {
@@ -226,37 +217,6 @@ func portableNestedSchema(value any) any {
 	return value
 }
 
-func specificToolInputSchema(toolName string) json.RawMessage {
-	switch strings.TrimSpace(toolName) {
-	case "browser.open":
-		return json.RawMessage(`{"type":"object","properties":{"url":{"type":"string"}},"required":["url"]}`)
-	case "browser.snapshot":
-		return json.RawMessage(`{"type":"object","properties":{"interactive":{"type":"boolean"}}}`)
-	case "browser.screenshot":
-		return json.RawMessage(`{"type":"object","properties":{"ttlSeconds":{"type":"number"}}}`)
-	case "browser.click":
-		return json.RawMessage(`{"type":"object","properties":{"target":{"type":"string"},"ref":{"type":"string"},"selector":{"type":"string"}}}`)
-	case "browser.fill":
-		return json.RawMessage(`{"type":"object","properties":{"target":{"type":"string"},"ref":{"type":"string"},"selector":{"type":"string"},"text":{"type":"string"}},"required":["text"]}`)
-	case "browser.select":
-		return json.RawMessage(`{"type":"object","properties":{"target":{"type":"string"},"ref":{"type":"string"},"selector":{"type":"string"},"value":{"type":"string"}},"required":["value"]}`)
-	case "browser.press":
-		return json.RawMessage(`{"type":"object","properties":{"key":{"type":"string"}},"required":["key"]}`)
-	case "browser.wait":
-		return json.RawMessage(`{"type":"object","properties":{"target":{"type":"string"},"ref":{"type":"string"},"selector":{"type":"string"},"milliseconds":{"type":"number"}}}`)
-	case "conversation.history":
-		return json.RawMessage(`{"type":"object","properties":{"historyCursor":{"type":"string"},"limit":{"type":"number"},"direction":{"type":"string"}}}`)
-	case "task.add":
-		return json.RawMessage(`{"type":"object","properties":{"prompt":{"type":"string"},"targetPersonHint":{"type":"string"},"weekCode":{"type":"string"}},"required":["prompt"]}`)
-	case "task.list":
-		return json.RawMessage(`{"type":"object","properties":{"query":{"type":"string"},"targetPersonHint":{"type":"string","description":"Leave EMPTY to list everyone's tasks. Set to one person's name — including the requester's own name for their own tasks — to list only that person."},"weekFrom":{"type":"number","description":"Relative week offset for the start of the range. 0 = this week (default), -1 = last week, -2 = two weeks ago. Omit for this week."},"weekTo":{"type":"number","description":"Relative week offset for the end of the range, default 0 (this week). For all time use a wide range such as weekFrom -520."},"status":{"type":"string"},"limit":{"type":"number"}}}`)
-	case "task.update":
-		return json.RawMessage(`{"type":"object","properties":{"taskID":{"type":"string"},"query":{"type":"string"},"targetPersonHint":{"type":"string"},"weekCode":{"type":"string"},"content":{"type":"string"},"goal":{"type":"string"},"status":{"type":"string"},"size":{"type":"string"},"category":{"type":"string"},"type":{"type":"string"},"startDate":{"type":"string"},"endDate":{"type":"string"},"flag":{"type":"number"},"requestReason":{"type":"string"},"decisionReason":{"type":"string"}}}`)
-	default:
-		return nil
-	}
-}
-
 func enumStringSchema(value string) map[string]any {
 	return map[string]any{"type": "string", "enum": []string{value}}
 }
@@ -273,8 +233,16 @@ func booleanSchema() map[string]any {
 	return map[string]any{"type": "boolean"}
 }
 
-func objectSchema() map[string]any {
-	return map[string]any{"type": "object", "properties": map[string]any{}}
+func closedObjectSchema(properties map[string]any, requiredFields ...string) map[string]any {
+	schema := map[string]any{
+		"type":                 "object",
+		"properties":           properties,
+		"additionalProperties": false,
+	}
+	if len(requiredFields) > 0 {
+		schema["required"] = requiredFields
+	}
+	return schema
 }
 
 func completionEvidenceSchema() map[string]any {
@@ -288,73 +256,77 @@ func qualityCriteriaSchema() map[string]any {
 func qualityReviewSchema() map[string]any {
 	return map[string]any{
 		"type": "array",
-		"items": map[string]any{
-			"type": "object",
-			"properties": map[string]any{
-				"id":          stringSchema(),
-				"passed":      booleanSchema(),
-				"evidenceIDs": completionEvidenceSchema(),
-				"notes":       stringSchema(),
-			},
-		},
+		"items": closedObjectSchema(map[string]any{
+			"id":          stringSchema(),
+			"passed":      booleanSchema(),
+			"evidenceIDs": completionEvidenceSchema(),
+			"notes":       stringSchema(),
+		}),
 	}
 }
 
 func failureReportFactsSchema() map[string]any {
-	return map[string]any{
-		"type": "object",
-		"properties": map[string]any{
-			"attempts": map[string]any{
-				"type": "array",
-				"items": map[string]any{
-					"type": "object",
-					"properties": map[string]any{
-						"toolName":     stringSchema(),
-						"inputSummary": stringSchema(),
-						"errorCode":    stringSchema(),
-						"failureStage": stringSchema(),
-						"message":      stringSchema(),
-					},
-				},
-			},
-			"budgetState": stringSchema(),
+	return closedObjectSchema(map[string]any{
+		"attempts": map[string]any{
+			"type": "array",
+			"items": closedObjectSchema(map[string]any{
+				"toolName":     stringSchema(),
+				"inputSummary": stringSchema(),
+				"errorCode":    stringSchema(),
+				"failureStage": stringSchema(),
+				"message":      stringSchema(),
+			}),
 		},
-	}
+		"budgetState": stringSchema(),
+	})
 }
 
-func fallbackActionSchema() string {
-	return `{"oneOf":[{"type":"object","properties":{"action":{"type":"string","enum":["finish"]},"message":{"type":"string"},"failureResolution":{"type":"string","enum":["none","recovered_with_success","no_tool_fallback"]},"goalStatus":{"type":"string","enum":["satisfied"]},"goalSatisfied":{"type":"boolean"},"hasRemainingWork":{"type":"boolean"},"completionEvidenceIDs":{"type":"array","items":{"type":"string"}},"qualityReview":{"type":"array"},"remainingWork":{"type":"string"}},"required":["action","message","goalStatus","goalSatisfied","hasRemainingWork","completionEvidenceIDs","qualityReview"]},{"type":"object","properties":{"action":{"type":"string","enum":["fail"]},"reason":{"type":"string"},"goalStatus":{"type":"string","enum":["blocked"]},"goalSatisfied":{"type":"boolean"},"remainingWork":{"type":"string"}},"required":["action","reason","goalStatus","goalSatisfied"]}]}`
+// terminalActionUnifiedSchema is a flat closed object rather than a root-level oneOf of finish/fail branches; branch-specific requirements are enforced in Go instead of JSON schema required fields.
+func terminalActionUnifiedSchema(hasFailureDebt bool) map[string]any {
+	failureResolutionValues := []string{"none", failureResolutionRecoveredWithSuccess, failureResolutionNoToolFallback}
+	requiredFields := []string{"action", "message"}
+	properties := map[string]any{
+		"action":                enumValuesStringSchema([]string{"finish", "fail"}),
+		"message":               stringSchema(),
+		"replyParts":            finishReplyPartArraySchema(),
+		"completionSummary":     stringSchema(),
+		"reason":                stringSchema(),
+		"goalStatus":            enumValuesStringSchema([]string{"satisfied", "blocked"}),
+		"goalSatisfied":         booleanSchema(),
+		"hasRemainingWork":      booleanSchema(),
+		"completionEvidenceIDs": stringArraySchema(0),
+		"qualityReview":         qualityReviewSchema(),
+		"remainingWork":         stringSchema(),
+		"executionStateUpdate":  executionStateSchema(),
+	}
+	if hasFailureDebt {
+		failureResolutionValues = []string{failureResolutionRecoveredWithSuccess, failureResolutionNoToolFallback, failureResolutionFailureReport}
+		properties["usedFailureFacts"] = failureReportFactsSchema()
+		requiredFields = append(requiredFields, "failureResolution")
+	}
+	properties["failureResolution"] = enumValuesStringSchema(failureResolutionValues)
+	return closedObjectSchema(properties, requiredFields...)
 }
 
 func finalizerActionSchema() string {
-	document, errorValue := json.Marshal(map[string]any{"oneOf": []any{finishActionSchema(false), failActionSchema(false)}})
-	if errorValue != nil {
-		return fallbackActionSchema()
-	}
-	return string(document)
+	return mustMarshalStructuredSchema(terminalActionUnifiedSchema(false))
 }
 
 func terminalNoToolsActionSchema() string {
-	document, errorValue := json.Marshal(map[string]any{"oneOf": []any{finishActionSchema(true), failActionSchema(true)}})
+	return mustMarshalStructuredSchema(terminalActionUnifiedSchema(true))
+}
+
+func mustMarshalStructuredSchema(schema any) string {
+	document, errorValue := json.Marshal(schema)
 	if errorValue != nil {
-		return fallbackActionSchema()
+		panic(fmt.Errorf("marshal structured schema: %w", errorValue))
 	}
 	return string(document)
 }
 
 func recoveryDecisionSchema() string {
-	document, errorValue := json.Marshal(map[string]any{
-		"type": "object",
-		"properties": map[string]any{
-			"whatFailed":      stringSchema(),
-			"whatWasKnown":    stringSchema(),
-			"nextAction":      stringSchema(),
-			"userReplyIntent": stringSchema(),
-		},
-		"required": []string{"whatFailed", "whatWasKnown", "nextAction", "userReplyIntent"},
-	})
-	if errorValue != nil {
-		return `{"type":"object"}`
-	}
-	return string(document)
+	return mustMarshalStructuredSchema(closedObjectSchema(map[string]any{
+		"nextAction":      stringSchema(),
+		"userReplyIntent": stringSchema(),
+	}, "nextAction", "userReplyIntent"))
 }

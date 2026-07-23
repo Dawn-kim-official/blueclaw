@@ -31,8 +31,28 @@ func TestMathCalculateToolEvaluatesArithmeticWithBC(t *testing.T) {
 	if errorValue := json.Unmarshal([]byte(result.ContentText()), &document); errorValue != nil {
 		t.Fatal(errorValue)
 	}
+	if len(result.Output.Data) == 0 {
+		t.Fatal("expected structured math result data")
+	}
 	if document["result"] != "20" {
 		t.Fatalf("expected result 20, got %+v", document)
+	}
+}
+
+func TestMathCalculateToolRejectsUnknownInput(t *testing.T) {
+	toolCatalogBuilder := NewToolCatalogBuilder()
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"math.calculate"})
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
+
+	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+		ToolName: "math.calculate",
+		Input:    agent.MarshalToolInput(map[string]any{"expression": "1+1", "unexpected": true}),
+	})
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if !result.Failed() || result.FailureStage() != "tool_input_schema" {
+		t.Fatalf("expected unknown math input to fail schema validation, got %+v", result)
 	}
 }
 

@@ -5,89 +5,95 @@ import (
 	"testing"
 )
 
-func TestValidateRequiredEvidencePreservesInvalidEvidence(t *testing.T) {
-	toolSet := newTestToolSet([]string{"calendar.add", "schedule.create"})
+func TestRequiredEvidenceToolCanBeSatisfiedAcceptsDirectTool(t *testing.T) {
+	toolSet := newTestToolSet([]string{"calendar.add"})
 
-	report := validateRequiredEvidenceTools(toolSet, []string{"calendar.create", "schedule.create"})
-
-	if !report.HasInvalidEvidence() {
-		t.Fatal("expected invalid evidence to be reported")
-	}
-	if len(report.InvalidEvidence) != 1 || report.InvalidEvidence[0] != "calendar.create" {
-		t.Fatalf("expected calendar.create invalid evidence, got %+v", report.InvalidEvidence)
-	}
-	if len(report.RequiredEvidence) != 2 {
-		t.Fatalf("expected original required evidence to be preserved, got %+v", report.RequiredEvidence)
+	if !requiredEvidenceToolCanBeSatisfied(toolSet, "calendar.add") {
+		t.Fatal("expected directly callable calendar.add to be satisfiable")
 	}
 }
 
-func TestValidateRequiredEvidenceAcceptsHiddenCapabilityOperationThroughInvoke(t *testing.T) {
-	toolSet := NewToolSet([]string{CapabilityInvokeToolName})
-	for _, toolName := range []string{CapabilityInvokeToolName, "calendar.add"} {
-		currentToolName := toolName
-		toolSet.RegisterTool(ToolDefinition{Name: currentToolName}, func(context.Context, ToolInvocation) (ToolResult, error) {
-			return ToolSuccess("ok"), nil
-		})
-	}
-
-	report := validateRequiredEvidenceTools(toolSet, []string{"calendar.add"})
-
-	if report.HasInvalidEvidence() {
-		t.Fatalf("expected hidden calendar.add to be valid capability evidence, got %+v", report)
-	}
-	if report.EvidenceKinds["calendar.add"] != requiredEvidenceToolKindCapabilityOperation {
-		t.Fatalf("expected capability evidence kind, got %+v", report.EvidenceKinds)
-	}
-	if toolSet.IsAllowed("calendar.add") {
-		t.Fatal("expected calendar.add to remain hidden from direct model calls")
-	}
-}
-
-func TestValidateRequiredEvidenceRejectsHiddenOperationWithoutCapabilityInvoke(t *testing.T) {
+func TestRequiredEvidenceToolCanBeSatisfiedAcceptsRegisteredCapabilityOperation(t *testing.T) {
 	toolSet := NewToolSet([]string{TerminalRunToolName})
 	for _, toolName := range []string{TerminalRunToolName, "calendar.add"} {
 		currentToolName := toolName
-		toolSet.RegisterTool(ToolDefinition{Name: currentToolName}, func(context.Context, ToolInvocation) (ToolResult, error) {
-			return ToolSuccess("ok"), nil
+		registerTestTool(toolSet, ToolDefinition{Name: currentToolName}, func(context.Context, ToolInvocation) (ToolResult, error) {
+			return testToolSuccess("ok"), nil
 		})
 	}
 
-	report := validateRequiredEvidenceTools(toolSet, []string{"calendar.add"})
-
-	if !report.HasInvalidEvidence() {
-		t.Fatal("expected hidden calendar.add to be invalid without capability.invoke")
+	if !requiredEvidenceToolCanBeSatisfied(toolSet, "calendar.add") {
+		t.Fatal("expected registered capability operation calendar.add to be satisfiable")
+	}
+	if toolSet.IsAllowed("calendar.add") {
+		t.Fatal("expected calendar.add to remain hidden until selected")
 	}
 }
 
-func TestValidateRequiredEvidenceClassifiesNativeTool(t *testing.T) {
-	toolSet := newTestToolSet([]string{FileDeliverToolName})
+func TestRequiredEvidenceToolCanBeSatisfiedRejectsUnavailableTool(t *testing.T) {
+	toolSet := NewToolSet([]string{TerminalRunToolName})
+	toolSet.RegisterBoundTool(BoundTool{
+		Definition:   ToolDefinition{Name: "calendar.add"},
+		Availability: ToolAvailability{Status: ToolAvailabilityDenied},
+		Handler: func(context.Context, ToolInvocation) (ToolResult, error) {
+			return testToolSuccess("ok"), nil
+		},
+	})
 
-	report := validateRequiredEvidenceTools(toolSet, []string{FileDeliverToolName})
-
-	if report.HasInvalidEvidence() {
-		t.Fatalf("expected file.deliver to be valid native evidence, got %+v", report)
-	}
-	if report.EvidenceKinds[FileDeliverToolName] != requiredEvidenceToolKindNativeTool {
-		t.Fatalf("expected native evidence kind, got %+v", report.EvidenceKinds)
-	}
-}
-
-func TestValidateRequiredEvidenceRejectsCapabilityInvokeAsEvidence(t *testing.T) {
-	toolSet := newTestToolSet([]string{CapabilityInvokeToolName, "calendar.add"})
-
-	report := validateRequiredEvidenceTools(toolSet, []string{CapabilityInvokeToolName})
-
-	if !report.HasInvalidEvidence() {
-		t.Fatal("expected capability.invoke evidence to be invalid")
+	if requiredEvidenceToolCanBeSatisfied(toolSet, "calendar.add") {
+		t.Fatal("expected an unavailable calendar.add to be unsatisfiable")
 	}
 }
 
-func TestValidateRequiredEvidenceAcceptsCanonicalDeliveryAlias(t *testing.T) {
-	toolSet := newTestToolSet([]string{FileDeliverToolName})
+func TestRequiredEvidenceToolCanBeSatisfiedRejectsDisallowedKernelTool(t *testing.T) {
+	toolSet := NewToolSet([]string{"file.write"})
+	for _, toolName := range []string{"file.write", FileDeliverToolName} {
+		registerTestTool(toolSet, ToolDefinition{Name: toolName}, func(context.Context, ToolInvocation) (ToolResult, error) {
+			return testToolSuccess("ok"), nil
+		})
+	}
 
-	report := validateRequiredEvidenceTools(toolSet, []string{FileAttachToolName})
+	if requiredEvidenceToolCanBeSatisfied(toolSet, FileDeliverToolName) {
+		t.Fatal("expected a disallowed kernel tool to be unsatisfiable")
+	}
+}
 
-	if report.HasInvalidEvidence() {
-		t.Fatalf("expected file.attach alias to match registered file.deliver evidence, got %+v", report)
+func TestRequiredEvidenceToolCanBeSatisfiedRejectsUnregisteredName(t *testing.T) {
+	toolSet := newTestToolSet([]string{"calendar.add", "schedule.create"})
+
+	if requiredEvidenceToolCanBeSatisfied(toolSet, "calendar.create") {
+		t.Fatal("expected an unregistered tool name to be unsatisfiable")
+	}
+	if !requiredEvidenceToolCanBeSatisfied(toolSet, "schedule.create") {
+		t.Fatal("expected a registered tool name to remain satisfiable")
+	}
+}
+
+func TestWorkingSetEvidenceGroupKeepsReadsAndWrites(t *testing.T) {
+	toolSet := newTestToolSetWithDefinitions([]ToolDefinition{
+		{Name: "task.add", Namespace: "task", SideEffectClass: ToolSideEffectStateChange},
+		{Name: "task.list", Namespace: "task", SideEffectClass: ToolSideEffectRead},
+		{Name: "task.update", Namespace: "task", SideEffectClass: ToolSideEffectStateChange},
+	})
+
+	group := workingSetEvidenceGroup(toolSet, []string{"task.add", "task.list", "task.update", "task.add", "unregistered.operation"})
+
+	if len(group) != 3 || !stringSliceContains(group, "task.add") || !stringSliceContains(group, "task.list") || !stringSliceContains(group, "task.update") {
+		t.Fatalf("expected deduplicated satisfiable tools including reads, got %+v", group)
+	}
+	if stringSliceContains(group, "unregistered.operation") {
+		t.Fatalf("expected the unregistered tool to be excluded, got %+v", group)
+	}
+}
+
+func TestWorkingSetEvidenceGroupEmptyWhenNoCandidatesAreDerivable(t *testing.T) {
+	toolSet := newTestToolSetWithDefinitions([]ToolDefinition{
+		{Name: "task.list", Namespace: "task", SideEffectClass: ToolSideEffectRead},
+	})
+
+	group := workingSetEvidenceGroup(toolSet, []string{"unregistered.operation"})
+
+	if len(group) != 0 {
+		t.Fatalf("expected no derivable evidence candidates, got %+v", group)
 	}
 }

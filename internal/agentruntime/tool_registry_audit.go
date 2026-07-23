@@ -7,7 +7,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
+	"time"
 
 	"blueclaw/internal/agent"
 )
@@ -47,15 +49,23 @@ type ToolRegistryAudit struct {
 	LiveHasPlatformMessageDelete      bool   `json:"liveHasPlatformMessageDelete,omitempty"`
 	LiveHasOldMattermostPostDelete    bool   `json:"liveHasOldMattermostPostDelete,omitempty"`
 	LiveHasOldPlatformDMInspect       bool   `json:"liveHasOldPlatformDMInspect,omitempty"`
+	LiveRegistryUnavailable           bool   `json:"liveRegistryUnavailable,omitempty"`
+	LiveRegistryServedFromCache       bool   `json:"liveRegistryServedFromCache,omitempty"`
 }
 
 type capabilityRegistryResponse struct {
+	CompanionStatus    string                         `json:"companionStatus"`
 	DeviceCapabilities []capabilityRegistryDescriptor `json:"deviceCapabilities"`
 }
 
 type capabilityRegistryDescriptor struct {
-	Name        string          `json:"name"`
-	InputSchema json.RawMessage `json:"inputSchema,omitempty"`
+	Name              string                        `json:"name"`
+	InputSchema       json.RawMessage               `json:"inputSchema,omitempty"`
+	InputIntentSchema json.RawMessage               `json:"inputIntentSchema,omitempty"`
+	ResultContract    *CapabilityToolResultContract `json:"resultContract,omitempty"`
+	SideEffectClass   string                        `json:"sideEffectClass,omitempty"`
+	RequiresApproval  bool                          `json:"requiresApproval,omitempty"`
+	Idempotency       CapabilityIdempotency         `json:"idempotency"`
 }
 
 type toolRegistryMismatchError struct {
@@ -88,7 +98,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) BuildToolRegistryAudit(ctx context
 
 	audit := ToolRegistryAudit{
 		ToolRegistryVersion:           toolRegistryVersion,
-		CapabilityDescriptorHash:      hashStrings(configuredNames),
+		CapabilityDescriptorHash:      hashCapabilityDescriptors(configuredDescriptors),
 		PlatformMessageDescriptorHash: hashCapabilityDescriptors(configuredPlatformMessageDescriptors),
 		AllowedToolHash:               hashStrings(allowedToolNames),
 		HasScheduleUpdate:             registryContainsString(allowedToolNames, "schedule.update"),
@@ -97,13 +107,21 @@ func (toolCatalogBuilder *ToolCatalogBuilder) BuildToolRegistryAudit(ctx context
 		HasOldPlatformDMInspect:       registryContainsString(configuredNames, "platform.dm.inspect"),
 	}
 
-	if !requiresLiveMessageRegistryCheck(configuredNames) {
+	if !requiresLiveCapabilityRegistryCheck(configuredDescriptors) {
 		return audit, nil
 	}
 
 	liveDescriptors, liveHash, errorValue := toolCatalogBuilder.liveCapabilityToolDescriptors(ctx)
 	if errorValue != nil {
-		return audit, fmt.Errorf("runtime_registry_mismatch: live capability registry unavailable: %w", errorValue)
+		cachedDescriptors, cachedHash, hasCachedSnapshot := toolCatalogBuilder.cachedLiveCapabilitySnapshot()
+		if !hasCachedSnapshot {
+			audit.LiveRegistryUnavailable = true
+			return audit, nil
+		}
+		liveDescriptors, liveHash = cachedDescriptors, cachedHash
+		audit.LiveRegistryServedFromCache = true
+	} else {
+		toolCatalogBuilder.storeLiveCapabilitySnapshot(liveDescriptors, liveHash)
 	}
 	liveNames := capabilityDescriptorNames(liveDescriptors)
 	audit.LiveCapabilityHash = liveHash
@@ -130,8 +148,8 @@ func capabilityDescriptorNames(toolDescriptors []CapabilityToolDescriptor) []str
 	return sortedUniqueRegistryStrings(toolNames)
 }
 
-func requiresLiveMessageRegistryCheck(toolNames []string) bool {
-	return registryContainsString(toolNames, "message.delete") || registryContainsAnyString(toolNames, oldPlatformMessageToolNames)
+func requiresLiveCapabilityRegistryCheck(configuredDescriptors []CapabilityToolDescriptor) bool {
+	return len(configuredDescriptors) > 0
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) liveCapabilityToolDescriptors(ctx context.Context) ([]CapabilityToolDescriptor, string, error) {
@@ -139,17 +157,23 @@ func (toolCatalogBuilder *ToolCatalogBuilder) liveCapabilityToolDescriptors(ctx 
 	if errorValue := toolCatalogBuilder.capabilityClient.GetJSON(ctx, "/v1/capabilities", &response); errorValue != nil {
 		return nil, "", errorValue
 	}
+	toolCatalogBuilder.UseCompanionStatus(response.CompanionStatus)
 	toolDescriptors := []CapabilityToolDescriptor{}
 	for _, descriptor := range response.DeviceCapabilities {
 		toolName := strings.TrimSpace(descriptor.Name)
 		if toolName != "" {
 			toolDescriptors = append(toolDescriptors, CapabilityToolDescriptor{
-				Name:        toolName,
-				InputSchema: append(json.RawMessage{}, descriptor.InputSchema...),
+				Name:              toolName,
+				InputSchema:       append(json.RawMessage{}, descriptor.InputSchema...),
+				InputIntentSchema: append(json.RawMessage{}, descriptor.InputIntentSchema...),
+				ResultContract:    descriptor.ResultContract,
+				SideEffectClass:   strings.TrimSpace(descriptor.SideEffectClass),
+				RequiresApproval:  descriptor.RequiresApproval,
+				Idempotency:       descriptor.Idempotency,
 			})
 		}
 	}
-	return toolDescriptors, hashStrings(capabilityDescriptorNames(toolDescriptors)), nil
+	return toolDescriptors, hashCapabilityDescriptors(toolDescriptors), nil
 }
 
 func hasMessageRegistryMismatch(audit ToolRegistryAudit) bool {
@@ -169,15 +193,11 @@ func platformMessageCapabilityDescriptors(toolDescriptors []CapabilityToolDescri
 	result := []CapabilityToolDescriptor{}
 	for _, toolDescriptor := range toolDescriptors {
 		toolName := strings.TrimSpace(toolDescriptor.Name)
-		if isPlatformMessageToolName(toolName) || registryContainsString(oldPlatformMessageToolNames, toolName) {
+		if strings.TrimSpace(toolDescriptor.Namespace) == "message" || registryContainsString(oldPlatformMessageToolNames, toolName) {
 			result = append(result, toolDescriptor)
 		}
 	}
 	return result
-}
-
-func isPlatformMessageToolName(toolName string) bool {
-	return strings.HasPrefix(strings.TrimSpace(toolName), "message.")
 }
 
 func hashCapabilityDescriptors(toolDescriptors []CapabilityToolDescriptor) string {
@@ -187,9 +207,29 @@ func hashCapabilityDescriptors(toolDescriptors []CapabilityToolDescriptor) strin
 		if toolName == "" {
 			continue
 		}
-		signatures = append(signatures, toolName+"\t"+normalizedJSONSchemaString(toolDescriptor.InputSchema))
+		signatures = append(signatures, strings.Join([]string{
+			toolName,
+			normalizedJSONSchemaString(toolDescriptor.InputSchema),
+			normalizedJSONSchemaString(toolDescriptor.InputIntentSchema),
+			normalizedCapabilityResultContractString(toolDescriptor.ResultContract),
+			strings.TrimSpace(toolDescriptor.SideEffectClass),
+			strconv.FormatBool(toolDescriptor.RequiresApproval),
+			capabilityToolIdempotency(toolDescriptor.Idempotency),
+			strings.TrimSpace(toolDescriptor.Idempotency.Scope),
+		}, "\t"))
 	}
 	return hashStrings(signatures)
+}
+
+func normalizedCapabilityResultContractString(contract *CapabilityToolResultContract) string {
+	if contract == nil {
+		return ""
+	}
+	document, errorValue := json.Marshal(contract)
+	if errorValue != nil {
+		return ""
+	}
+	return normalizedJSONSchemaString(document)
 }
 
 func normalizedJSONSchemaString(schema json.RawMessage) string {
@@ -245,4 +285,60 @@ func registryContainsString(values []string, expected string) bool {
 		}
 	}
 	return false
+}
+
+func (toolCatalogBuilder *ToolCatalogBuilder) reachableCapabilityToolDefinitions() []CapabilityToolDescriptor {
+	descriptors := toolCatalogBuilder.capabilityToolDefinitions()
+	if !containsBrowserDescriptor(descriptors) || toolCatalogBuilder.companionBrowserAvailable() {
+		return descriptors
+	}
+	reachableDescriptors := []CapabilityToolDescriptor{}
+	for _, descriptor := range descriptors {
+		if strings.HasPrefix(strings.TrimSpace(descriptor.Name), "browser.") {
+			continue
+		}
+		reachableDescriptors = append(reachableDescriptors, descriptor)
+	}
+	return reachableDescriptors
+}
+
+func containsBrowserDescriptor(descriptors []CapabilityToolDescriptor) bool {
+	for _, descriptor := range descriptors {
+		if strings.HasPrefix(strings.TrimSpace(descriptor.Name), "browser.") {
+			return true
+		}
+	}
+	return false
+}
+
+func (toolCatalogBuilder *ToolCatalogBuilder) companionBrowserAvailable() bool {
+	toolCatalogBuilder.companionStatusMutex.Lock()
+	defer toolCatalogBuilder.companionStatusMutex.Unlock()
+	if toolCatalogBuilder.companionStatusValue == "" {
+		return true
+	}
+	return toolCatalogBuilder.companionStatusValue == "available"
+}
+
+func (toolCatalogBuilder *ToolCatalogBuilder) UseCompanionStatus(companionStatus string) {
+	toolCatalogBuilder.companionStatusMutex.Lock()
+	defer toolCatalogBuilder.companionStatusMutex.Unlock()
+	toolCatalogBuilder.companionStatusValue = strings.TrimSpace(companionStatus)
+	toolCatalogBuilder.companionStatusCheckedAt = time.Now()
+}
+
+func (toolCatalogBuilder *ToolCatalogBuilder) cachedLiveCapabilitySnapshot() ([]CapabilityToolDescriptor, string, bool) {
+	toolCatalogBuilder.liveSnapshotMutex.Lock()
+	defer toolCatalogBuilder.liveSnapshotMutex.Unlock()
+	if toolCatalogBuilder.liveSnapshotHash == "" {
+		return nil, "", false
+	}
+	return append([]CapabilityToolDescriptor{}, toolCatalogBuilder.liveSnapshotDescriptors...), toolCatalogBuilder.liveSnapshotHash, true
+}
+
+func (toolCatalogBuilder *ToolCatalogBuilder) storeLiveCapabilitySnapshot(descriptors []CapabilityToolDescriptor, hash string) {
+	toolCatalogBuilder.liveSnapshotMutex.Lock()
+	defer toolCatalogBuilder.liveSnapshotMutex.Unlock()
+	toolCatalogBuilder.liveSnapshotDescriptors = append([]CapabilityToolDescriptor{}, descriptors...)
+	toolCatalogBuilder.liveSnapshotHash = hash
 }

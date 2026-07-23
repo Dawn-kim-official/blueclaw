@@ -1,0 +1,258 @@
+{
+  "agent-action": [
+    {
+      "action": "continue",
+      "toolInput": {
+        "path": "home/project/README.md"
+      },
+      "executionStateUpdate": {}
+    },
+    {
+      "action": "continue",
+      "toolName": "file.read",
+      "toolInput": {
+        "path": "home/project/README.md"
+      },
+      "requestTools": [
+        "file.read"
+      ],
+      "executionStateUpdate": {}
+    }
+  ],
+  "agent-message": [
+    {
+      "role": "user",
+      "parts": [
+        {
+          "type": "image"
+        }
+      ]
+    }
+  ],
+  "chat-completion-request": [
+    {
+      "executionMode": "server",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Hello"
+        }
+      ],
+      "parallelToolCalls": false
+    },
+    {
+      "executionMode": "auto",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Use a tool."
+        }
+      ],
+      "tools": [
+        {
+          "type": "function",
+          "function": {
+            "name": "lookup",
+            "parameters": {
+              "type": "object"
+            }
+          }
+        },
+        {
+          "type": "function",
+          "function": {
+            "name": " lookup ",
+            "parameters": {
+              "type": "object"
+            }
+          }
+        }
+      ],
+      "parallelToolCalls": false
+    },
+    {
+      "executionMode": "auto",
+      "messages": [
+        {
+          "role": "assistant",
+          "toolCalls": [
+            {
+              "id": "call-1",
+              "type": "function",
+              "function": {
+                "name": "lookup",
+                "arguments": "{}"
+              }
+            }
+          ]
+        },
+        {
+          "role": "assistant",
+          "toolCalls": [
+            {
+              "id": "call-1",
+              "type": "function",
+              "function": {
+                "name": "other",
+                "arguments": "{}"
+              }
+            }
+          ]
+        }
+      ],
+      "parallelToolCalls": false
+    },
+    {
+      "executionMode": "auto",
+      "messages": [
+        {
+          "role": "tool",
+          "toolCallId": " ",
+          "content": "result"
+        }
+      ],
+      "parallelToolCalls": false
+    }
+  ],
+  "chat-completion-response": [
+    {
+      "finishReason": "stop",
+      "provider": "",
+      "model": "model",
+      "message": {
+        "role": "assistant",
+        "content": "Hello"
+      },
+      "selectedBackend": "remote"
+    },
+    {
+      "finishReason": "stop",
+      "provider": "provider",
+      "model": "model",
+      "message": {
+        "role": "tool",
+        "content": "done"
+      },
+      "selectedBackend": "remote"
+    },
+    {
+      "finishReason": "tool_calls",
+      "provider": "provider",
+      "model": "model",
+      "message": {
+        "role": "assistant",
+        "content": ""
+      },
+      "selectedBackend": "remote"
+    },
+    {
+      "finishReason": "tool_calls",
+      "provider": "provider",
+      "model": "model",
+      "message": {
+        "role": "assistant",
+        "toolCalls": [
+          {
+            "id": " ",
+            "type": "function",
+            "function": {
+              "name": "lookup",
+              "arguments": "{}"
+            }
+          }
+        ]
+      },
+      "selectedBackend": "remote"
+    },
+    {
+      "finishReason": "tool_calls",
+      "provider": "provider",
+      "model": "model",
+      "message": {
+        "role": "assistant",
+        "toolCalls": [
+          {
+            "id": "call-1",
+            "type": "function",
+            "function": {
+              "name": "",
+              "arguments": "{}"
+            }
+          }
+        ]
+      },
+      "selectedBackend": "remote"
+    },
+    {
+      "finishReason": "tool_calls",
+      "provider": "provider",
+      "model": "model",
+      "message": {
+        "role": "assistant",
+        "toolCalls": [
+          {
+            "id": "call-1",
+            "type": "function",
+            "function": {
+              "name": "lookup",
+              "arguments": "[]"
+            }
+          }
+        ]
+      },
+      "selectedBackend": "remote"
+    },
+    {
+      "finishReason": "tool_calls",
+      "provider": "provider",
+      "model": "model",
+      "message": {
+        "role": "assistant",
+        "toolCalls": [
+          {
+            "id": "call-1",
+            "type": "function",
+            "function": {
+              "name": "lookup",
+              "arguments": "{}"
+            }
+          },
+          {
+            "id": "call-1",
+            "type": "function",
+            "function": {
+              "name": "other",
+              "arguments": "{}"
+            }
+          }
+        ]
+      },
+      "selectedBackend": "remote"
+    }
+  ],
+  "task-run": [
+    {
+      "taskRunID": "task-1",
+      "requesterPersonID": "person-1",
+      "originConversationID": "conversation-1",
+      "currentAgentProfileName": "default",
+      "status": "unknown",
+      "prompt": "Invalid status",
+      "result": "",
+      "failureReason": "",
+      "createdAt": "not-a-date",
+      "updatedAt": "2026-07-14T00:01:00Z"
+    }
+  ],
+  "tool-invoke-request": [
+    {
+      "toolName": "calendar.event.create",
+      "input": {},
+      "executionMode": "auto",
+      "requiresUserPresence": false,
+      "privacyClass": "organization",
+      "sessionID": "session-1",
+      "timeoutSecond": -1
+    }
+  ]
+}

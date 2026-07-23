@@ -9,14 +9,18 @@ import (
 	"blueclaw/internal/security"
 )
 
-func TestWorkspacePathResolverRejectsDeniedPrefixes(t *testing.T) {
+func TestWorkspacePathResolverResolvesOutsideWorkspacePathsForPOSIXToDecide(t *testing.T) {
 	workspacePath := t.TempDir()
 	resolver := NewWorkspacePathResolver(workspacePath)
 	scope := WorkspaceScopeForRequest(workspacePath, ToolCatalogRequest{RequesterPersonID: "person-1"}, "task-1")
-	for _, path := range []string{"/tmp/a", "~other/file", "/workspace/.blueclaw/tmp/a", "../../../../../../../../etc/passwd", "../../../../../.blueclaw/secrets"} {
-		if _, errorValue := resolver.Resolve(path, scope); errorValue == nil {
-			t.Fatalf("expected resolver to reject %q", path)
-		}
+
+	resolvedPath, errorValue := resolver.Resolve("/tmp/a", scope)
+
+	if errorValue != nil {
+		t.Fatalf("expected outside-workspace paths to resolve so POSIX decides access, got %v", errorValue)
+	}
+	if resolvedPath.ConcretePath != "/tmp/a" {
+		t.Fatalf("expected the real path unchanged, got %+v", resolvedPath)
 	}
 }
 
@@ -72,7 +76,7 @@ func TestWorkspacePathResolverExpandsHomeTildeToRequesterPrivateRoot(t *testing.
 	if resolvedPath.ConcretePath != expectedConcretePath {
 		t.Fatalf("unexpected concrete path: %+v", resolvedPath)
 	}
-	if resolvedPath.VirtualPath != "documents/회의록.md" {
+	if resolvedPath.VirtualPath != "~/documents/회의록.md" {
 		t.Fatalf("unexpected virtual path: %+v", resolvedPath)
 	}
 	homeRoot, errorValue := resolver.Resolve("~", scope)
@@ -84,7 +88,7 @@ func TestWorkspacePathResolverExpandsHomeTildeToRequesterPrivateRoot(t *testing.
 	}
 }
 
-func TestWorkspacePathResolverMapsTemporaryDirectoryToRequesterDraft(t *testing.T) {
+func TestWorkspacePathResolverKeepsRealTemporaryDirectoryPaths(t *testing.T) {
 	workspacePath := t.TempDir()
 	resolver := NewWorkspacePathResolver(workspacePath)
 	scope := WorkspaceScopeForRequest(workspacePath, ToolCatalogRequest{RequesterPersonID: "person-1"}, "task-1")
@@ -92,12 +96,46 @@ func TestWorkspacePathResolverMapsTemporaryDirectoryToRequesterDraft(t *testing.
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
-	expectedConcretePath := filepath.Join(workspacePath, "private", "people", "person-1", "tmp", "capability")
+	if resolvedPath.ConcretePath != "/tmp/capability" {
+		t.Fatalf("expected the real /tmp path to resolve as-is, got %+v", resolvedPath)
+	}
+	defaultPath, errorValue := resolver.ResolveDirectory("", scope)
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if defaultPath.ConcretePath != filepath.Join(workspacePath, "private", "people", "person-1", "tmp") {
+		t.Fatalf("expected the empty directory default to stay the requester tmp, got %+v", defaultPath)
+	}
+}
+
+func TestWorkspacePathResolverResolvesVirtualHomePrefixToRequesterRoot(t *testing.T) {
+	workspacePath := t.TempDir()
+	resolver := NewWorkspacePathResolver(workspacePath)
+	scope := WorkspaceScopeForRequest(workspacePath, ToolCatalogRequest{RequesterPersonID: "person-1"}, "task-1")
+	resolvedPath, errorValue := resolver.Resolve("home/inbox/mattermost/conv-1/check.json", scope)
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	expectedConcretePath := filepath.Join(workspacePath, "private", "people", "person-1", "inbox", "mattermost", "conv-1", "check.json")
 	if resolvedPath.ConcretePath != expectedConcretePath {
 		t.Fatalf("unexpected concrete path: %+v", resolvedPath)
 	}
-	if resolvedPath.VirtualPath != "tmp/capability" {
+	if resolvedPath.VirtualPath != "home/inbox/mattermost/conv-1/check.json" {
 		t.Fatalf("unexpected virtual path: %+v", resolvedPath)
+	}
+	tildePath, errorValue := resolver.Resolve("~/inbox/mattermost/conv-1/check.json", scope)
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if tildePath.ConcretePath != resolvedPath.ConcretePath {
+		t.Fatalf("expected home/ and ~/ to name the same file, got %+v and %+v", resolvedPath, tildePath)
+	}
+	homeRoot, errorValue := resolver.Resolve("home", scope)
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if homeRoot.ConcretePath != filepath.Join(workspacePath, "private", "people", "person-1") {
+		t.Fatalf("unexpected home root: %+v", homeRoot)
 	}
 }
 

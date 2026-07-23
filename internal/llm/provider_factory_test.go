@@ -1,6 +1,8 @@
 package llm
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"blueclaw/internal/config"
@@ -59,6 +61,9 @@ func TestResolveModelTierNamesUsesBuiltInDefaults(t *testing.T) {
 	if tierNames.Low != defaultLowModelName {
 		t.Fatalf("expected low default, got %q", tierNames.Low)
 	}
+	if tierNames.XLow != defaultXLowModelName {
+		t.Fatalf("expected xlow default, got %q", tierNames.XLow)
+	}
 }
 
 func TestResolveModelTierNamesIgnoresUntieredModelForTiers(t *testing.T) {
@@ -108,5 +113,79 @@ func TestConfiguredProviderRejectsProductFallback(t *testing.T) {
 	_, errorValue := NewConfiguredLanguageModelProvider(runtimeConfiguration)
 	if errorValue == nil {
 		t.Fatal("expected product fallback provider to be unsupported")
+	}
+}
+
+func TestConfiguredProviderCreatesLLMDOnlyWhenSelected(t *testing.T) {
+	authKeyPath := filepath.Join(t.TempDir(), "llmd.key")
+	if errorValue := os.WriteFile(authKeyPath, []byte("installation-key\n"), 0o600); errorValue != nil {
+		t.Fatalf("expected auth key fixture: %v", errorValue)
+	}
+	runtimeConfiguration := config.RuntimeConfiguration{}
+	runtimeConfiguration.LanguageModel.DefaultProvider = "llmd"
+	runtimeConfiguration.LanguageModel.Capability.Model = "deepseek/deepseek-v4-flash"
+	runtimeConfiguration.LanguageModel.LLMD.AuthKeyPath = authKeyPath
+	runtimeConfiguration.LanguageModel.LLMD.UnixSocketPath = "/run/blueclaw/llmd.sock"
+	runtimeConfiguration.LanguageModel.LLMD.StructuredSchemaNames = []string{"blueclaw_turn_router", "blueclaw_agent_turn_action"}
+
+	languageModelProvider, errorValue := NewConfiguredLanguageModelProvider(runtimeConfiguration)
+	if errorValue != nil {
+		t.Fatalf("expected llmd provider: %v", errorValue)
+	}
+	llmdClient, isLLMDClient := languageModelProvider.(LLMDClient)
+	if !isLLMDClient {
+		t.Fatalf("expected llmd provider, got %T", languageModelProvider)
+	}
+	if llmdClient.AuthKey != "installation-key" || llmdClient.ModelName != "deepseek/deepseek-v4-flash" {
+		t.Fatalf("unexpected llmd client configuration: %+v", llmdClient)
+	}
+	if !llmdClient.IsStructuredOutputAuthoritative {
+		t.Fatal("expected llmd default provider to make structured fallback authoritative")
+	}
+	if len(llmdClient.StructuredSchemaNames) != 2 || llmdClient.StructuredSchemaNames[0] != "blueclaw_turn_router" || llmdClient.StructuredSchemaNames[1] != "blueclaw_agent_turn_action" {
+		t.Fatalf("expected configured LLMD schemas, got %v", llmdClient.StructuredSchemaNames)
+	}
+}
+
+func TestConfiguredProviderCreatesLLMDBridgeWithoutGuestCredential(t *testing.T) {
+	runtimeConfiguration := config.RuntimeConfiguration{}
+	runtimeConfiguration.LanguageModel.DefaultProvider = "llmd"
+	runtimeConfiguration.LanguageModel.Capability.Model = "deepseek/deepseek-v4-flash"
+	runtimeConfiguration.LanguageModel.LLMD.Endpoint = llmdLoopbackBridgeEndpoint
+
+	languageModelProvider, errorValue := NewConfiguredLanguageModelProvider(runtimeConfiguration)
+	if errorValue != nil {
+		t.Fatalf("expected LLMD bridge provider: %v", errorValue)
+	}
+	llmdClient, isLLMDClient := languageModelProvider.(LLMDClient)
+	if !isLLMDClient || llmdClient.AuthKey != "" || llmdClient.Endpoint != runtimeConfiguration.LanguageModel.LLMD.Endpoint {
+		t.Fatalf("unexpected LLMD bridge client: %+v", languageModelProvider)
+	}
+}
+
+func TestConfiguredProviderCreatesUnixLLMDBridgeWithoutCredential(t *testing.T) {
+	runtimeConfiguration := config.RuntimeConfiguration{}
+	runtimeConfiguration.LanguageModel.DefaultProvider = "llmd"
+	runtimeConfiguration.LanguageModel.Capability.Model = "xiaomi/mimo-v2.5"
+	runtimeConfiguration.LanguageModel.LLMD.Endpoint = "http://internkim/_internkim/llmd"
+	runtimeConfiguration.LanguageModel.LLMD.UnixSocketPath = "/run/internkim/capability.sock"
+
+	languageModelProvider, errorValue := NewConfiguredLanguageModelProvider(runtimeConfiguration)
+	if errorValue != nil {
+		t.Fatalf("expected Unix LLMD bridge provider: %v", errorValue)
+	}
+	llmdClient, isLLMDClient := languageModelProvider.(LLMDClient)
+	if !isLLMDClient || llmdClient.AuthKey != "" {
+		t.Fatalf("unexpected Unix LLMD bridge client: %+v", languageModelProvider)
+	}
+}
+
+func TestConfiguredProviderRejectsUnauthenticatedRemoteLLMDBridgePath(t *testing.T) {
+	runtimeConfiguration := config.RuntimeConfiguration{}
+	runtimeConfiguration.LanguageModel.DefaultProvider = "llmd"
+	runtimeConfiguration.LanguageModel.LLMD.Endpoint = "https://llmd.example.com/_internkim/llmd"
+
+	if _, errorValue := NewConfiguredLanguageModelProvider(runtimeConfiguration); errorValue == nil {
+		t.Fatal("expected remote LLMD bridge path without a Unix socket to require authentication")
 	}
 }

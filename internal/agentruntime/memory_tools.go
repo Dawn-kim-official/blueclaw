@@ -19,19 +19,50 @@ type memoryRememberToolInput struct {
 	Content string `json:"content"`
 }
 
-type memorySearchToolOutput struct {
-	Facts        []memory.MemoryFact `json:"facts"`
-	SearchStatus string              `json:"searchStatus"`
-	Degraded     bool                `json:"degraded,omitempty"`
-	Sources      []string            `json:"sources,omitempty"`
+type memorySearchStatus string
+
+const (
+	memorySearchComplete memorySearchStatus = "complete"
+	memorySearchDegraded memorySearchStatus = "degraded"
+)
+
+type memorySearchSource string
+
+const (
+	memorySearchGraphSource  memorySearchSource = "graph_memory"
+	memorySearchPinnedSource memorySearchSource = "pinned_markdown"
+	memorySearchRecentSource memorySearchSource = "recent_memory"
+)
+
+type memorySearchFact struct {
+	FactID     string    `json:"factID"`
+	ScopeType  string    `json:"scopeType"`
+	Content    string    `json:"content"`
+	SourceKind string    `json:"sourceKind"`
+	ValidAt    time.Time `json:"validAt"`
+	Score      *float64  `json:"score,omitempty"`
 }
+
+type memorySearchToolOutput struct {
+	Facts        []memorySearchFact   `json:"facts"`
+	SearchStatus memorySearchStatus   `json:"searchStatus"`
+	Sources      []memorySearchSource `json:"sources"`
+}
+
+var (
+	memorySearchInputSchema         = json.RawMessage(`{"type":"object","properties":{"query":{"type":"string","minLength":1,"pattern":"\\S"}},"required":["query"],"additionalProperties":false}`)
+	memorySearchOutputSchema        = json.RawMessage(`{"type":"object","properties":{"facts":{"type":"array","items":{"type":"object","properties":{"factID":{"type":"string"},"scopeType":{"type":"string"},"content":{"type":"string"},"sourceKind":{"type":"string"},"validAt":{"type":"string","format":"date-time"},"score":{"type":"number"}},"required":["factID","scopeType","content","sourceKind","validAt"],"additionalProperties":false}},"searchStatus":{"type":"string","enum":["complete","degraded"]},"sources":{"type":"array","items":{"type":"string","enum":["graph_memory","pinned_markdown","recent_memory"]},"uniqueItems":true}},"required":["facts","searchStatus","sources"],"additionalProperties":false,"allOf":[{"if":{"properties":{"searchStatus":{"const":"complete"}},"required":["searchStatus"]},"then":{"properties":{"sources":{"type":"array","items":{"const":"graph_memory"},"minItems":1,"maxItems":1}}}},{"if":{"properties":{"searchStatus":{"const":"degraded"}},"required":["searchStatus"]},"then":{"properties":{"sources":{"type":"array","items":{"enum":["pinned_markdown","recent_memory"]},"minItems":1,"maxItems":2}}}}]}`)
+	memoryRememberInputSchema       = json.RawMessage(`{"type":"object","properties":{"content":{"type":"string","minLength":1,"maxLength":600,"pattern":"\\S"}},"required":["content"],"additionalProperties":false}`)
+	memoryRememberInputIntentSchema = json.RawMessage(`{"type":"object","properties":{"content":{"type":"string","minLength":1,"maxLength":600,"pattern":"\\S"}},"additionalProperties":false}`)
+	memoryRememberOutputSchema      = json.RawMessage(`{"type":"object","properties":{"accepted":{"type":"boolean"},"jobID":{"type":"string","pattern":"\\S"},"status":{"type":"string","enum":["persisted","queued_volatile","failed"]},"durability":{"type":"string","enum":["durable","volatile","none"]},"graphitiStatus":{"type":"string"},"markdownUpdated":{"type":"boolean"},"failureCode":{"type":"string"},"failureComponent":{"type":"string"}},"required":["accepted","jobID","status","durability"],"additionalProperties":false}`)
+)
 
 func registerMemoryTools(toolCatalogBuilder *ToolCatalogBuilder, toolRegistry *agent.ToolSet, request ToolCatalogRequest) {
 	agent.RegisterToolFunction(toolRegistry, agent.ToolFunction[memorySearchToolInput, agent.ToolResult]{
 		Definition: agent.ToolDefinition{
 			Name:        "memory.search",
-			Description: "Search Blueclaw graph memory allowed for this requester and conversation. Returns durable facts, preferences, and relationships by meaning, not exact rows; for exact queries, counts, or aggregates over records you stored in a table, use db.sql instead.",
-			InputSchema: json.RawMessage(`{"type":"object","properties":{"query":{"type":"string"}}}`),
+			Description: "Search Blueclaw graph memory allowed for this requester and conversation. Returns durable facts, preferences, and relationships by meaning, not exact rows.",
+			InputSchema: memorySearchInputSchema,
 		},
 		Handler: func(toolContext context.Context, input memorySearchToolInput) (agent.ToolResult, error) {
 			return toolCatalogBuilder.searchMemoryTool(toolContext, input, request)
@@ -41,8 +72,8 @@ func registerMemoryTools(toolCatalogBuilder *ToolCatalogBuilder, toolRegistry *a
 	agent.RegisterToolFunction(toolRegistry, agent.ToolFunction[memoryRememberToolInput, agent.ToolResult]{
 		Definition: agent.ToolDefinition{
 			Name:        "memory.remember",
-			Description: "Store one durable fact, preference, or relationship for the current person or active circle; nothing is remembered unless this tool is called. Keep content a single compact standalone fact. Do not store secrets, one-off requests, transient task details, or small talk; for structured records you query, count, or aggregate over many rows, store them with db.sql instead.",
-			InputSchema: json.RawMessage(`{"type":"object","properties":{"content":{"type":"string"}},"required":["content"]}`),
+			Description: "Store one durable fact, preference, or relationship for the current person or active circle; nothing is remembered unless this tool is called. This is the assistant's private recall only: nothing becomes visible in any conversation. When the user asks to leave a note or message people can see, send a message instead. Keep content a single compact standalone fact. Do not store secrets, one-off requests, transient task details, or small talk.",
+			InputSchema: memoryRememberInputSchema,
 		},
 		Handler: func(toolContext context.Context, input memoryRememberToolInput) (agent.ToolResult, error) {
 			return toolCatalogBuilder.rememberMemoryTool(toolContext, input, request)
@@ -52,11 +83,15 @@ func registerMemoryTools(toolCatalogBuilder *ToolCatalogBuilder, toolRegistry *a
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) searchMemoryTool(toolContext context.Context, input memorySearchToolInput, request ToolCatalogRequest) (agent.ToolResult, error) {
+	query := strings.TrimSpace(input.Query)
+	if query == "" {
+		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "memory_search", "memory.search query is required"), nil
+	}
 	if request.ActiveCircleConflict {
 		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.Conflict, "memory_search", "memory.search has multiple active circle candidates"), nil
 	}
 	memoryRequest := TaskMemoryRequest{
-		Query:                     firstNonEmptyString(input.Query, request.Prompt),
+		Query:                     query,
 		RequesterPersonID:         request.RequesterPersonID,
 		ConversationID:            request.ConversationID,
 		PersonAccess:              request.PersonAccess,
@@ -70,7 +105,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) searchMemoryTool(toolContext conte
 	if errorValue != nil {
 		return toolCatalogBuilder.searchFallbackMemoryTool(toolContext, memoryRequest)
 	}
-	return agent.ToolSuccess(marshalToolResult(memorySearchToolOutput{Facts: memoryFacts, SearchStatus: "complete"})), nil
+	return memorySearchSuccess(memoryFacts, memorySearchComplete, []memorySearchSource{memorySearchGraphSource}), nil
 }
 
 func memorySearchUnavailableResult() agent.ToolResult {
@@ -93,26 +128,49 @@ func (toolCatalogBuilder *ToolCatalogBuilder) searchFallbackMemoryTool(ctx conte
 	if len(memoryFacts) == 0 {
 		return memorySearchUnavailableResult(), nil
 	}
-	return agent.ToolSuccess(marshalToolResult(memorySearchToolOutput{
-		Facts:        memoryFacts,
-		SearchStatus: "degraded",
-		Degraded:     true,
-		Sources:      sources,
-	})), nil
+	return memorySearchSuccess(memoryFacts, memorySearchDegraded, sources), nil
 }
 
-func (toolCatalogBuilder *ToolCatalogBuilder) searchFallbackMemory(ctx context.Context, request TaskMemoryRequest) ([]memory.MemoryFact, []string) {
+func memorySearchSuccess(memoryFacts []memory.MemoryFact, searchStatus memorySearchStatus, sources []memorySearchSource) agent.ToolResult {
+	output := memorySearchToolOutput{
+		Facts:        projectMemorySearchFacts(memoryFacts),
+		SearchStatus: searchStatus,
+		Sources:      append([]memorySearchSource{}, sources...),
+	}
+	document := json.RawMessage(marshalToolResult(output))
+	return agent.ToolSuccessData(string(document), document)
+}
+
+func projectMemorySearchFacts(memoryFacts []memory.MemoryFact) []memorySearchFact {
+	projectedFacts := make([]memorySearchFact, 0, len(memoryFacts))
+	for _, memoryFact := range memoryFacts {
+		projectedFact := memorySearchFact{
+			FactID:     memoryFact.FactID,
+			ScopeType:  memoryFact.ScopeType,
+			Content:    memoryFact.Content,
+			SourceKind: memoryFact.SourceKind,
+			ValidAt:    memoryFact.ValidAt,
+		}
+		if memoryFact.Score != 0 {
+			projectedFact.Score = &memoryFact.Score
+		}
+		projectedFacts = append(projectedFacts, projectedFact)
+	}
+	return projectedFacts
+}
+
+func (toolCatalogBuilder *ToolCatalogBuilder) searchFallbackMemory(ctx context.Context, request TaskMemoryRequest) ([]memory.MemoryFact, []memorySearchSource) {
 	memoryFacts := []memory.MemoryFact{}
-	sources := []string{}
+	sources := []memorySearchSource{}
 	pinnedMemoryFacts, pinnedError := toolCatalogBuilder.loadPinnedFallbackMemory(ctx, request)
 	if pinnedError == nil && len(pinnedMemoryFacts) > 0 {
 		memoryFacts = append(memoryFacts, pinnedMemoryFacts...)
-		sources = append(sources, "pinned_markdown")
+		sources = append(sources, memorySearchPinnedSource)
 	}
 	localMemoryFacts, localError := toolCatalogBuilder.SearchLocalMemory(ctx, request)
 	if localError == nil && len(localMemoryFacts) > 0 {
 		memoryFacts = appendMemoryFacts(memoryFacts, localMemoryFacts)
-		sources = append(sources, "recent_memory")
+		sources = append(sources, memorySearchRecentSource)
 	}
 	return memoryFacts, sources
 }
@@ -224,7 +282,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) canPersistMemoryUpdate(job memory.
 func (toolCatalogBuilder *ToolCatalogBuilder) persistMemoryUpdateTool(ctx context.Context, job memory.MemoryUpdateJob) agent.ToolResult {
 	isUpdated, errorValue := toolCatalogBuilder.pinnedMemoryStore.MergePersonMemory(ctx, job.Namespace.ScopePersonID, job.Content)
 	if errorValue != nil {
-		return agent.ToolSuccess(marshalToolResult(failedMemoryUpdate(job.JobID, "markdown_write_failed", "markdown")))
+		return memoryRememberResult(failedMemoryUpdate(job.JobID, "markdown_write_failed", "markdown"))
 	}
 	job.SkipMarkdown = true
 	accepted := memory.MemoryUpdateAccepted{
@@ -236,23 +294,37 @@ func (toolCatalogBuilder *ToolCatalogBuilder) persistMemoryUpdateTool(ctx contex
 	}
 	if toolCatalogBuilder.memoryUpdateQueue == nil {
 		accepted.GraphitiStatus = "queue_unavailable"
-		return agent.ToolSuccess(marshalToolResult(accepted))
+		return memoryRememberResult(accepted)
 	}
 	graphitiAccepted, graphitiError := toolCatalogBuilder.memoryUpdateQueue.Enqueue(job)
 	accepted.JobID = firstNonEmptyString(graphitiAccepted.JobID, accepted.JobID)
 	accepted.GraphitiStatus = graphitiUpdateStatus(graphitiAccepted, graphitiError)
-	return agent.ToolSuccess(marshalToolResult(accepted))
+	return memoryRememberResult(accepted)
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) enqueueVolatileMemoryUpdateTool(job memory.MemoryUpdateJob) agent.ToolResult {
 	if toolCatalogBuilder.memoryUpdateQueue == nil {
-		return agent.ToolSuccess(marshalToolResult(failedMemoryUpdate(job.JobID, "queue_unavailable", "queue")))
+		return memoryRememberResult(failedMemoryUpdate(job.JobID, "queue_unavailable", "queue"))
 	}
 	accepted, errorValue := toolCatalogBuilder.memoryUpdateQueue.Enqueue(job)
 	if errorValue != nil {
-		return agent.ToolSuccess(marshalToolResult(failedMemoryUpdate(job.JobID, memoryUpdateFailureCode(errorValue), "queue")))
+		return memoryRememberResult(failedMemoryUpdate(job.JobID, memoryUpdateFailureCode(errorValue), "queue"))
 	}
-	return agent.ToolSuccess(marshalToolResult(queuedVolatileMemoryUpdate(accepted)))
+	return memoryRememberResult(queuedVolatileMemoryUpdate(accepted))
+}
+
+func memoryRememberResult(accepted memory.MemoryUpdateAccepted) agent.ToolResult {
+	document := json.RawMessage(marshalToolResult(accepted))
+	if !accepted.Accepted {
+		return agent.ToolFailureData(
+			agent.FailureExternalService,
+			agent.FailureCodes.OperationFailed,
+			firstNonEmptyString(accepted.FailureComponent, "memory_remember"),
+			"memory update was not accepted",
+			document,
+		)
+	}
+	return agent.ToolSuccessData(string(document), document)
 }
 
 func queuedVolatileMemoryUpdate(accepted memory.MemoryUpdateAccepted) memory.MemoryUpdateAccepted {

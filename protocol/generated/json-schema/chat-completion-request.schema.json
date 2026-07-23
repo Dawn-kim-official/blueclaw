@@ -1,0 +1,211 @@
+{
+  "$defs": {
+    "__schema0": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        },
+        {
+          "items": {
+            "$ref": "#/$defs/__schema0"
+          },
+          "type": "array"
+        },
+        {
+          "additionalProperties": {
+            "$ref": "#/$defs/__schema0"
+          },
+          "propertyNames": {
+            "type": "string"
+          },
+          "type": "object"
+        }
+      ]
+    }
+  },
+  "$id": "https://schemas.blueclaw.dev/0.4.0/chat-completion-request.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": {},
+  "properties": {
+    "context": {
+      "additionalProperties": {},
+      "properties": {
+        "conversationID": {
+          "type": "string"
+        },
+        "platform": {
+          "type": "string"
+        },
+        "requesterEmail": {
+          "type": "string"
+        },
+        "requesterName": {
+          "type": "string"
+        },
+        "requesterPersonID": {
+          "type": "string"
+        },
+        "requesterPlatformUserID": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "executionMode": {
+      "enum": [
+        "device",
+        "companion",
+        "remote",
+        "auto"
+      ],
+      "type": "string"
+    },
+    "generationOptions": {
+      "additionalProperties": {},
+      "properties": {
+        "maxTokens": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "seed": {
+          "maximum": 9007199254740991,
+          "minimum": -9007199254740991,
+          "type": "integer"
+        },
+        "temperature": {
+          "type": "number"
+        }
+      },
+      "type": "object"
+    },
+    "messages": {
+      "items": {
+        "additionalProperties": {},
+        "properties": {
+          "content": {
+            "type": "string"
+          },
+          "role": {
+            "enum": [
+              "system",
+              "user",
+              "assistant",
+              "tool"
+            ],
+            "type": "string"
+          },
+          "toolCallId": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "toolCalls": {
+            "items": {
+              "additionalProperties": {},
+              "properties": {
+                "function": {
+                  "additionalProperties": {},
+                  "properties": {
+                    "arguments": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "minLength": 1,
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "name",
+                    "arguments"
+                  ],
+                  "type": "object"
+                },
+                "id": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "type": {
+                  "const": "function",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "type",
+                "function"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "role"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "model": {
+      "type": "string"
+    },
+    "parallelToolCalls": {
+      "type": "boolean"
+    },
+    "toolChoice": {
+      "$ref": "#/$defs/__schema0"
+    },
+    "tools": {
+      "items": {
+        "additionalProperties": {},
+        "properties": {
+          "function": {
+            "additionalProperties": {},
+            "properties": {
+              "description": {
+                "type": "string"
+              },
+              "name": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "parameters": {
+                "$ref": "#/$defs/__schema0"
+              }
+            },
+            "required": [
+              "name",
+              "parameters"
+            ],
+            "type": "object"
+          },
+          "type": {
+            "const": "function",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "function"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "executionMode",
+    "messages",
+    "parallelToolCalls"
+  ],
+  "type": "object"
+}

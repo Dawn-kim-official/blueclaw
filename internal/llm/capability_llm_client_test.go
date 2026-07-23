@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"blueclaw/internal/capability"
 )
@@ -23,7 +24,7 @@ func TestCapabilityLLMClientSendsStructuredRequestWithoutAuthorization(t *testin
 		if errorValue != nil {
 			t.Fatalf("expected request document to decode: %v", errorValue)
 		}
-		return jsonCapabilityResponse(http.StatusOK, `{"provider":"capabilityLLM","model":"gemma-4-E4B-it","content":"{\"reply\":\"안녕하세요\"}","selectedBackend":"gpu"}`), nil
+		return jsonCapabilityResponse(http.StatusOK, `{"provider":"capabilityLLM","model":"gemma-4-E4B-it","content":"{\"reply\":\"안녕하세요\"}","selectedBackend":"gpu","constraintMode":"openai_json_schema"}`), nil
 	}}
 
 	client := CapabilityLLMClient{
@@ -61,11 +62,14 @@ func TestCapabilityLLMClientSendsStructuredRequestWithoutAuthorization(t *testin
 	if structuredResponse.ModelName != "gemma-4-E4B-it" {
 		t.Fatalf("expected model name from capability response, got %q", structuredResponse.ModelName)
 	}
+	if structuredResponse.ConstraintMode != "openai_json_schema" {
+		t.Fatalf("expected constraint mode from capability response, got %q", structuredResponse.ConstraintMode)
+	}
 }
 
 func TestCapabilityLLMClientRoundTripsUsage(t *testing.T) {
 	httpClient := fakeCapabilityHTTPClient{handler: func(request *http.Request) (*http.Response, error) {
-		return jsonCapabilityResponse(http.StatusOK, `{"provider":"capabilityLLM","model":"gemma-4-E4B-it","content":"{\"reply\":\"ok\"}","selectedBackend":"gpu","usage":{"promptTokens":123,"completionTokens":45,"totalTokens":168}}`), nil
+		return jsonCapabilityResponse(http.StatusOK, `{"provider":"capabilityLLM","model":"gemma-4-E4B-it","content":"{\"reply\":\"ok\"}","selectedBackend":"gpu","constraintMode":"openai_json_schema","usage":{"promptTokens":123,"completionTokens":45,"totalTokens":168}}`), nil
 	}}
 	client := CapabilityLLMClient{
 		CapabilityClient: capability.Client{
@@ -185,6 +189,9 @@ func TestCapabilityLLMClientGenerateResponseUsesTextEndpoint(t *testing.T) {
 }
 
 func TestCapabilityLLMClientGenerateChatCompletionSendsNativeToolRequest(t *testing.T) {
+	seed := int64(42)
+	temperature := 0.2
+	maxTokens := 192
 	var receivedDocument map[string]any
 	httpClient := fakeCapabilityHTTPClient{handler: func(request *http.Request) (*http.Response, error) {
 		if request.URL.Path != "/v1/llm/chat" {
@@ -220,6 +227,7 @@ func TestCapabilityLLMClientGenerateChatCompletionSendsNativeToolRequest(t *test
 		}},
 		ToolChoice:        json.RawMessage(`{"type":"function","function":{"name":"lookup"}}`),
 		ParallelToolCalls: true,
+		GenerationOptions: GenerationOptions{Seed: &seed, Temperature: &temperature, MaxTokens: &maxTokens},
 	})
 
 	if errorValue != nil {
@@ -241,6 +249,10 @@ func TestCapabilityLLMClientGenerateChatCompletionSendsNativeToolRequest(t *test
 	}
 	if receivedDocument["parallelToolCalls"] != true {
 		t.Fatalf("expected parallel tool calls to be forwarded, got %+v", receivedDocument)
+	}
+	generationOptions := receivedDocument["generationOptions"].(map[string]any)
+	if generationOptions["seed"] != float64(seed) || generationOptions["temperature"] != temperature || generationOptions["maxTokens"] != float64(maxTokens) {
+		t.Fatalf("expected generation options to be forwarded, got %+v", generationOptions)
 	}
 	if response.FinishReason != "tool_calls" {
 		t.Fatalf("expected tool_calls finish reason, got %q", response.FinishReason)
@@ -428,6 +440,98 @@ func TestCapabilityLLMClientLocalRecoveryResponseUsesDeviceExecutionMode(t *test
 	}
 }
 
+func TestCapabilityLLMClientRecoveryChatUsesAutoThenDeviceExecutionModes(t *testing.T) {
+	receivedExecutionModes := []string{}
+	requestContext := RequestContext{RequesterPersonID: "person-1", ConversationID: "conversation-1"}
+	httpClient := fakeCapabilityHTTPClient{handler: func(request *http.Request) (*http.Response, error) {
+		var receivedDocument capabilityChatCompletionRequestDocument
+		if errorValue := json.NewDecoder(request.Body).Decode(&receivedDocument); errorValue != nil {
+			t.Fatalf("expected chat request document to decode: %v", errorValue)
+		}
+		receivedExecutionModes = append(receivedExecutionModes, receivedDocument.ExecutionMode)
+		if receivedDocument.Context == nil || *receivedDocument.Context != requestContext {
+			t.Fatalf("expected requester context %+v, got %+v", requestContext, receivedDocument.Context)
+		}
+		if receivedDocument.ExecutionMode == "auto" {
+			return jsonCapabilityResponse(http.StatusBadGateway, "remote unavailable"), nil
+		}
+		return jsonCapabilityResponse(http.StatusOK, `{"finishReason":"stop","provider":"capabilityLLM","model":"gemma","message":{"role":"assistant","content":"device recovery chat"},"selectedBackend":"device"}`), nil
+	}}
+
+	client := CapabilityLLMClient{
+		CapabilityClient: capability.Client{Endpoint: "http://internkim-capability", HTTPClient: httpClient},
+		ModelName:        "gemma",
+		ExecutionMode:    "remote",
+	}
+	responseContext := ContextWithRequestContext(context.Background(), requestContext)
+	response, errorValue := client.GenerateRecoveryChatCompletion(responseContext, ChatCompletionRequest{
+		Messages: []ChatCompletionMessage{{Role: "user", Content: "hello"}},
+	})
+	if errorValue != nil || response.Message.Content != "device recovery chat" {
+		t.Fatalf("expected device recovery chat, got %+v, %v", response, errorValue)
+	}
+	if strings.Join(receivedExecutionModes, ",") != "auto,device" {
+		t.Fatalf("expected auto then device execution modes, got %+v", receivedExecutionModes)
+	}
+}
+
+func TestCapabilityLLMClientLocalRecoveryChatUsesDeviceExecutionMode(t *testing.T) {
+	var receivedDocument capabilityChatCompletionRequestDocument
+	httpClient := fakeCapabilityHTTPClient{handler: func(request *http.Request) (*http.Response, error) {
+		if errorValue := json.NewDecoder(request.Body).Decode(&receivedDocument); errorValue != nil {
+			t.Fatalf("expected chat request document to decode: %v", errorValue)
+		}
+		return jsonCapabilityResponse(http.StatusOK, `{"finishReason":"stop","provider":"capabilityLLM","model":"gemma","message":{"role":"assistant","content":"local recovery chat"},"selectedBackend":"device"}`), nil
+	}}
+	client := CapabilityLLMClient{
+		CapabilityClient: capability.Client{Endpoint: "http://internkim-capability", HTTPClient: httpClient},
+		ModelName:        "gemma",
+		ExecutionMode:    "remote",
+	}
+	response, errorValue := client.GenerateLocalRecoveryChatCompletion(context.Background(), ChatCompletionRequest{})
+	if errorValue != nil || response.Message.Content != "local recovery chat" {
+		t.Fatalf("expected local recovery chat, got %+v, %v", response, errorValue)
+	}
+	if receivedDocument.ExecutionMode != "device" {
+		t.Fatalf("expected device execution mode, got %q", receivedDocument.ExecutionMode)
+	}
+}
+
+func TestCapabilityLLMClientLocalRecoveryChatRejectsRemoteBackend(t *testing.T) {
+	httpClient := fakeCapabilityHTTPClient{handler: func(request *http.Request) (*http.Response, error) {
+		return jsonCapabilityResponse(http.StatusOK, `{"finishReason":"stop","provider":"openrouter","model":"remote-model","message":{"role":"assistant","content":"remote recovery chat"},"selectedBackend":"remote"}`), nil
+	}}
+	client := CapabilityLLMClient{
+		CapabilityClient: capability.Client{Endpoint: "http://internkim-capability", HTTPClient: httpClient},
+		ModelName:        "gemma",
+		ExecutionMode:    "remote",
+	}
+
+	_, errorValue := client.GenerateLocalRecoveryChatCompletion(context.Background(), ChatCompletionRequest{})
+	if errorValue == nil || errorValue.Error() != "device recovery chat returned a non-device backend" {
+		t.Fatalf("expected remote backend rejection, got %v", errorValue)
+	}
+}
+
+func TestRecoveryAttemptContextPreservesDeadlineAndRequester(t *testing.T) {
+	expectedDeadline := time.Now().Add(time.Minute)
+	requestContext := RequestContext{RequesterPersonID: "person-1", ConversationID: "conversation-1"}
+	responseContext := ContextWithRequestContext(context.Background(), requestContext)
+	responseContext, cancelResponse := context.WithDeadline(responseContext, expectedDeadline)
+	defer cancelResponse()
+
+	recoveryContext, cancelRecovery := recoveryAttemptContext(responseContext)
+	defer cancelRecovery()
+
+	actualDeadline, hasDeadline := recoveryContext.Deadline()
+	if !hasDeadline || !actualDeadline.Equal(expectedDeadline) {
+		t.Fatalf("expected recovery deadline %v, got %v", expectedDeadline, actualDeadline)
+	}
+	if actualRequestContext := RequestContextFromContext(recoveryContext); actualRequestContext != requestContext {
+		t.Fatalf("expected requester context %+v, got %+v", requestContext, actualRequestContext)
+	}
+}
+
 type fakeCapabilityHTTPClient struct {
 	handler func(*http.Request) (*http.Response, error)
 }
@@ -441,5 +545,21 @@ func jsonCapabilityResponse(statusCode int, body string) *http.Response {
 		StatusCode: statusCode,
 		Body:       io.NopCloser(strings.NewReader(body)),
 		Header:     http.Header{"Content-Type": []string{"application/json"}},
+	}
+}
+
+func buildTestStructuredResponseRequest() StructuredResponseRequest {
+	return StructuredResponseRequest{
+		Messages: []Message{
+			{
+				Role:    "user",
+				Content: "say hello",
+			},
+		},
+		StructuredOutputSchema: StructuredOutputSchema{
+			Name:               "reply",
+			Document:           `{"type":"object","properties":{"reply":{"type":"string"}},"required":["reply"],"additionalProperties":false}`,
+			IsStrictlyEnforced: true,
+		},
 	}
 }

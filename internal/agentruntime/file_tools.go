@@ -8,7 +8,6 @@ import (
 	"errors"
 	"mime"
 	"path/filepath"
-	"sort"
 	"strconv"
 	"strings"
 	"unicode/utf8"
@@ -31,6 +30,7 @@ const maximumFilePreviewBytes = 200 * 1024
 
 type fileReadToolInput struct {
 	Path           string `json:"path"`
+	FileHint       string `json:"fileHint"`
 	MaterialID     string `json:"materialID"`
 	MaxOutputBytes int    `json:"maxOutputBytes"`
 	StartLine      int    `json:"startLine"`
@@ -40,6 +40,7 @@ type fileReadToolInput struct {
 
 type filePreviewToolInput struct {
 	Path       string `json:"path"`
+	FileHint   string `json:"fileHint"`
 	MaterialID string `json:"materialID"`
 }
 
@@ -89,7 +90,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerFileTools(toolRegistry *ag
 				UseWhen:    "A new file must be created, or an existing file is being replaced wholesale.",
 				AvoidWhen:  "An existing file only needs a targeted change — use file.edit to keep the rest of the work instead of rewriting the whole file; or you only need to inspect files, append shell output, or run commands. Do not pass escaped newline sequences when writing multiline source.",
 			},
-			InputSchema: json.RawMessage(`{"type":"object","properties":{"path":{"type":"string","description":"Workspace path to create or overwrite."},"content":{"type":"string","description":"Complete file body as plain UTF-8 text. Use real line breaks for multiline files; this is the text that will be written exactly."}},"required":["path","content"]}`),
+			InputSchema: json.RawMessage(`{"type":"object","properties":{"path":{"type":"string","description":"Workspace path to create or overwrite."},"content":{"type":"string","description":"Complete file body as plain UTF-8 text. Use real line breaks for multiline files; this is the text that will be written exactly."}},"required":["path","content"],"additionalProperties":false}`),
 		},
 		Handler: func(toolContext context.Context, input fileWriteToolInput) (agent.ToolResult, error) {
 			return toolCatalogBuilder.writeFileTool(toolContext, input, handlerContext)
@@ -107,7 +108,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerFileTools(toolRegistry *ag
 				UseWhen:    "You need current file content before file.edit or file.write.",
 				AvoidWhen:  "The file is binary, an attached document needing conversion, or you already have the exact current text needed for an edit.",
 			},
-			InputSchema: json.RawMessage(`{"type":"object","properties":{"path":{"type":"string","description":"Workspace text file path to read."},"materialID":{"type":"string","description":"Attachment materialID from Current attachments or Previous attachments. Use file.preview first; file.read returns cached preview text if no exact workspace file is available."},"startLine":{"type":"integer","description":"Optional 1-based first line to return. Avoid for minified or few-line files; use startByte instead."},"lineCount":{"type":"integer","description":"Optional number of lines to return from startLine."},"startByte":{"type":"integer","description":"Optional 0-based byte offset for byte-range reads. Use this for minified or single-line files; continue from the nextByte value of the previous read until isEndOfFile is true."}}}`),
+			InputSchema: json.RawMessage(`{"type":"object","properties":{"path":{"type":"string","description":"Workspace text file path to read."},"fileHint":{"type":"string","description":"Exact fileHint from Current attachments or Previous attachments."},"materialID":{"type":"string","description":"Attachment materialID from Current attachments or Previous attachments. Use file.preview first; file.read returns cached preview text if no exact workspace file is available."},"startLine":{"type":"integer","description":"Optional 1-based first line to return. Avoid for minified or few-line files; use startByte instead."},"lineCount":{"type":"integer","description":"Optional number of lines to return from startLine."},"startByte":{"type":"integer","description":"Optional 0-based byte offset for byte-range reads. Use this for minified or single-line files; continue from the nextByte value of the previous read until isEndOfFile is true."}},"additionalProperties":false}`),
 		},
 		Handler: func(toolContext context.Context, input fileReadToolInput) (agent.ToolResult, error) {
 			return toolCatalogBuilder.readFileTool(toolContext, input, handlerContext)
@@ -125,7 +126,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerFileTools(toolRegistry *ag
 				UseWhen:    "The attachment catalog lists a materialID or path for an HTML, PDF, DOCX, PPTX, XLSX, text, or data file and you need to understand it.",
 				AvoidWhen:  "You need exact source lines for an edit; use file.read after previewing.",
 			},
-			InputSchema: json.RawMessage(`{"type":"object","properties":{"path":{"type":"string","description":"Workspace file path to preview. Use this when the attachment catalog has a readable path."},"materialID":{"type":"string","description":"Attachment materialID from Current attachments or Previous attachments. Use this when the catalog lists a materialID, especially if no readable path is available."}}}`),
+			InputSchema: json.RawMessage(`{"type":"object","properties":{"path":{"type":"string","description":"Workspace file path to preview. Use this when the attachment catalog has a readable path."},"fileHint":{"type":"string","description":"Exact fileHint from Current attachments or Previous attachments."},"materialID":{"type":"string","description":"Attachment materialID from Current attachments or Previous attachments. Use this when the catalog lists a materialID, especially if no readable path is available."}},"additionalProperties":false}`),
 		},
 		Handler: func(toolContext context.Context, input filePreviewToolInput) (agent.ToolResult, error) {
 			return toolCatalogBuilder.previewFileTool(toolContext, input, handlerContext)
@@ -143,7 +144,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerFileTools(toolRegistry *ag
 				UseWhen:    "An existing file needs one or more targeted changes and the current oldText snippets are known.",
 				AvoidWhen:  "The change creates a new file or replaces most of a file (use file.write), or oldText is missing or ambiguous (use file.read first).",
 			},
-			InputSchema: json.RawMessage(`{"type":"object","properties":{"edits":{"type":"array","items":{"type":"object","properties":{"path":{"type":"string","description":"Workspace text file path to modify."},"oldText":{"type":"string","description":"Exact existing text to replace; must appear exactly once when this edit is applied."},"newText":{"type":"string","description":"Replacement text."}},"required":["path","oldText","newText"]}}},"required":["edits"]}`),
+			InputSchema: json.RawMessage(`{"type":"object","properties":{"edits":{"type":"array","items":{"type":"object","properties":{"path":{"type":"string","description":"Workspace text file path to modify."},"oldText":{"type":"string","description":"Exact existing text to replace; must appear exactly once when this edit is applied."},"newText":{"type":"string","description":"Replacement text."}},"required":["path","oldText","newText"],"additionalProperties":false}}},"required":["edits"],"additionalProperties":false}`),
 		},
 		Handler: func(toolContext context.Context, input filePatchToolInput) (agent.ToolResult, error) {
 			return toolCatalogBuilder.patchFileTool(toolContext, input, handlerContext)
@@ -162,7 +163,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerFileTools(toolRegistry *ag
 				UseWhen:    "A workspace file the requester created or owns should be removed; resolve the path with the same form used to write it.",
 				AvoidWhen:  "You only need to overwrite a file (use file.write), the path is a directory, or it is a built-in resource.",
 			},
-			InputSchema: json.RawMessage(`{"type":"object","properties":{"path":{"type":"string","description":"Workspace file path to delete, in the same form as file.write (for example tmp/notes.txt)."}},"required":["path"]}`),
+			InputSchema: json.RawMessage(`{"type":"object","properties":{"path":{"type":"string","description":"Workspace file path to delete, in the same form as file.write (for example tmp/notes.txt)."}},"required":["path"],"additionalProperties":false}`),
 		},
 		Handler: func(toolContext context.Context, input fileDeleteToolInput) (agent.ToolResult, error) {
 			return toolCatalogBuilder.deleteFileTool(toolContext, input, handlerContext)
@@ -174,13 +175,20 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerFileTools(toolRegistry *ag
 			Name:            agent.FileDeliverToolName,
 			Description:     "Deliver one or more existing workspace files as final reply evidence.",
 			SideEffectClass: agent.ToolSideEffectStateChange,
-			InputSchema:     json.RawMessage(`{"type":"object","properties":{"path":{"type":"string","description":"Workspace path to one finished file."},"filename":{"type":"string","description":"Optional display filename."},"contentType":{"type":"string","description":"Optional MIME type."},"title":{"type":"string","description":"Optional attachment title."},"files":{"type":"array","description":"One or more finished workspace files to deliver in this single call.","items":{"type":"object","properties":{"path":{"type":"string","description":"Workspace path to an existing file."},"filename":{"type":"string","description":"Optional display filename."},"contentType":{"type":"string","description":"Optional MIME type."},"title":{"type":"string","description":"Optional attachment title."}},"required":["path"]}}}}`),
+			InputSchema:     json.RawMessage(`{"type":"object","properties":{"path":{"type":"string","description":"Workspace path to one finished file."},"filename":{"type":"string","description":"Optional display filename."},"contentType":{"type":"string","description":"Optional MIME type."},"title":{"type":"string","description":"Optional attachment title."},"files":{"type":"array","description":"One or more finished workspace files to deliver in this single call.","items":{"type":"object","properties":{"path":{"type":"string","description":"Workspace path to an existing file."},"filename":{"type":"string","description":"Optional display filename."},"contentType":{"type":"string","description":"Optional MIME type."},"title":{"type":"string","description":"Optional attachment title."}},"required":["path"],"additionalProperties":false}}},"additionalProperties":false}`),
 		},
 		Handler: func(toolContext context.Context, input fileAttachToolInput) (agent.ToolResult, error) {
 			return toolCatalogBuilder.attachFileTool(toolContext, input, handlerContext)
 		},
 		Result: agent.IdentityToolResult,
 	})
+}
+
+func fileToolSuccess(document map[string]any) agent.ToolResult {
+	content := marshalToolResult(document)
+	return agent.ToolResult{
+		Output: agent.ToolOutput{Content: content, Data: json.RawMessage(content)},
+	}
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) writeFileTool(toolContext context.Context, input fileWriteToolInput, handlerContext toolHandlerContext) (agent.ToolResult, error) {
@@ -199,12 +207,6 @@ func (toolCatalogBuilder *ToolCatalogBuilder) writeFileTool(toolContext context.
 	if errorValue != nil {
 		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "file_write", errorValue.Error()), nil
 	}
-	if isManagedSitePackageManifestPath(resolvedPath.VirtualPath) {
-		return managedSiteManifestProtectedFailure(resolvedPath.VirtualPath), nil
-	}
-	if isImmutableSkillPath(toolCatalogBuilder.workspaceRootPath, resolvedPath.ConcretePath) {
-		return agent.ToolFailureResult(agent.FailurePolicyBlocked, agent.FailureCodes.PolicyBlocked, "file_write", "file.write cannot modify built-in skill files"), nil
-	}
 	if !toolCatalogBuilder.canAccessWorkspacePath(handlerContext.request.PersonAccess, access.ActionWrite, resolvedPath.ConcretePath) {
 		return agent.ToolFailureResult(agent.FailurePermissionDenied, agent.FailureCodes.AccessDenied, "file_write", "current account cannot write this file"), nil
 	}
@@ -218,10 +220,22 @@ func (toolCatalogBuilder *ToolCatalogBuilder) writeFileTool(toolContext context.
 	if errorValue := workspaceActor.WriteFile(toolContext, resolvedPath, []byte(input.Content), workspaceFileCreateMode(resolvedPath)); errorValue != nil {
 		return actorToolFailure("write_file", "file_write", resolvedPath.VirtualPath, errorValue), nil
 	}
-	return agent.ToolSuccess(marshalToolResult(map[string]any{
-		"path":      resolvedPath.VirtualPath,
-		"sizeBytes": len(input.Content),
-	})), nil
+	return fileToolSuccess(map[string]any{
+		"path":         resolvedPath.VirtualPath,
+		"terminalPath": terminalPathForResolvedPath(resolvedPath),
+		"sizeBytes":    len(input.Content),
+	}), nil
+}
+
+func terminalPathForResolvedPath(resolvedPath workspacepath.Path) string {
+	if strings.HasPrefix(resolvedPath.ConcretePath, "/workspace/") {
+		return resolvedPath.ConcretePath
+	}
+	virtualPath := strings.TrimPrefix(strings.TrimPrefix(resolvedPath.VirtualPath, "~/"), "home/")
+	if virtualPath == "" || virtualPath == "~" || virtualPath == "home" {
+		return "~"
+	}
+	return "~/" + virtualPath
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) deleteFileTool(toolContext context.Context, input fileDeleteToolInput, handlerContext toolHandlerContext) (agent.ToolResult, error) {
@@ -236,12 +250,6 @@ func (toolCatalogBuilder *ToolCatalogBuilder) deleteFileTool(toolContext context
 	resolvedPath, errorValue := NewWorkspacePathResolver(toolCatalogBuilder.workspaceRootPath).Resolve(path, scope)
 	if errorValue != nil {
 		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "file_delete", errorValue.Error()), nil
-	}
-	if isManagedSitePackageManifestPath(resolvedPath.VirtualPath) {
-		return managedSiteManifestProtectedFailure(resolvedPath.VirtualPath), nil
-	}
-	if isImmutableSkillPath(toolCatalogBuilder.workspaceRootPath, resolvedPath.ConcretePath) {
-		return agent.ToolFailureResult(agent.FailurePolicyBlocked, agent.FailureCodes.PolicyBlocked, "file_delete", "file.delete cannot remove built-in skill files"), nil
 	}
 	if !toolCatalogBuilder.canAccessWorkspacePath(handlerContext.request.PersonAccess, access.ActionWrite, resolvedPath.ConcretePath) {
 		return agent.ToolFailureResult(agent.FailurePermissionDenied, agent.FailureCodes.AccessDenied, "file_delete", "current account cannot delete this file"), nil
@@ -263,16 +271,20 @@ func (toolCatalogBuilder *ToolCatalogBuilder) deleteFileTool(toolContext context
 	if _, errorValue := workspaceActor.Run(toolContext, commandRequest); errorValue != nil {
 		return actorToolFailure("remove_file", "file_delete", resolvedPath.VirtualPath, errorValue), nil
 	}
-	return agent.ToolSuccess(marshalToolResult(map[string]any{
+	return fileToolSuccess(map[string]any{
 		"path":    resolvedPath.VirtualPath,
 		"deleted": true,
-	})), nil
+	}), nil
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) readFileTool(toolContext context.Context, input fileReadToolInput, handlerContext toolHandlerContext) (agent.ToolResult, error) {
+	path, materialID, errorValue := resolveFileHintReference(handlerContext.request, input.Path, input.MaterialID, input.FileHint)
+	if errorValue != nil {
+		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "file_read", errorValue.Error()), nil
+	}
+	input.Path = path
+	input.MaterialID = materialID
 	scope := toolCatalogBuilder.workspaceScopeForToolContext(toolContext, handlerContext.request)
-	path := strings.TrimSpace(input.Path)
-	materialID := strings.TrimSpace(input.MaterialID)
 	if materialID != "" {
 		if result, isCached := cachedFileReadResultByMaterialID(handlerContext.request.InputParts, materialID, input); isCached {
 			return result, nil
@@ -334,13 +346,13 @@ func (toolCatalogBuilder *ToolCatalogBuilder) readFileTool(toolContext context.C
 		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "file_read", "file.read supports UTF-8 text files; use file.preview or a specialized document tool for binary files"), nil
 	}
 	readResult := fileReadResult(string(content), input, maxOutputBytes)
-	return agent.ToolSuccess(marshalToolResult(fileReadResultMap(map[string]any{
+	return fileToolSuccess(fileReadResultMap(map[string]any{
 		"path":              resolvedPath.VirtualPath,
 		"totalLinesKnown":   !isFileTruncated,
 		"originalSizeBytes": fileInformation.SizeBytes,
 		"sizeBytes":         fileInformation.SizeBytes,
 		"isTruncated":       isFileTruncated || readResult.IsTruncated,
-	}, readResult))), nil
+	}, readResult)), nil
 }
 
 func optionalSiteControlFileMissingResult(resolvedPath ResolvedWorkspacePath, input fileReadToolInput, maxOutputBytes int) agent.ToolResult {
@@ -358,7 +370,7 @@ func optionalSiteControlFileMissingResult(resolvedPath ResolvedWorkspacePath, in
 	if recommendedPath := recommendedSiteControlWritePath(resolvedPath.VirtualPath); recommendedPath != "" {
 		result["recommendedWritePath"] = recommendedPath
 	}
-	return agent.ToolSuccess(marshalToolResult(result))
+	return fileToolSuccess(result)
 }
 
 func isOptionalSiteControlFilePath(path string) bool {
@@ -382,7 +394,7 @@ func optionalSiteControlFileSuffixes() []string {
 
 func recommendedSiteControlWritePath(path string) string {
 	cleanPath := strings.Trim(filepath.ToSlash(strings.TrimSpace(path)), "/")
-	for _, prefix := range []string{"home/sites/", "workspace/circles/staff/sites/"} {
+	for _, prefix := range []string{"~/sites/", "home/sites/", "workspace/circles/staff/sites/"} {
 		if recommendedPath := recommendedSiteControlWritePathForPrefix(cleanPath, prefix); recommendedPath != "" {
 			return recommendedPath
 		}
@@ -422,7 +434,7 @@ func isSiteSourceRelativePath(path string) bool {
 
 func siteSourceRelativePathFailure(stage string, path string) agent.ToolResult {
 	cleanPath := filepath.ToSlash(filepath.Clean(strings.TrimSpace(path)))
-	return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, stage, "site source path "+cleanPath+" must be rooted at sourceWorkspacePath from the website status capability, for example /workspace/circles/staff/sites/<slug>/draft/"+cleanPath)
+	return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, stage, "site source path "+cleanPath+" must be rooted at sourceWorkspacePath from the website status capability, for example ~/sites/<siteID>/draft/"+cleanPath)
 }
 
 func fileReadResultMap(base map[string]any, readResult fileReadOutput) map[string]any {
@@ -464,7 +476,7 @@ func cachedFileReadResult(parts []agent.AgentPart, path string, input fileReadTo
 func cachedFileReadResultFromPreview(preview map[string]any, input fileReadToolInput) agent.ToolResult {
 	content := stringMapValue(preview, "markdownPreview")
 	readResult := fileReadResult(content, input, defaultFileReadMaximumBytes)
-	return agent.ToolSuccess(marshalToolResult(fileReadResultMap(map[string]any{
+	return fileToolSuccess(fileReadResultMap(map[string]any{
 		"path":              stringMapValue(preview, "path"),
 		"totalLinesKnown":   true,
 		"originalSizeBytes": int64MapValue(preview, "sizeBytes"),
@@ -472,7 +484,7 @@ func cachedFileReadResultFromPreview(preview map[string]any, input fileReadToolI
 		"isTruncated":       readResult.IsTruncated,
 		"source":            "attachmentPreview",
 		"isExactFileRead":   false,
-	}, readResult)))
+	}, readResult))
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) fileReadFallbackFromAttachmentMaterial(toolContext context.Context, path string, input fileReadToolInput, handlerContext toolHandlerContext) (agent.ToolResult, error, bool) {
@@ -648,9 +660,15 @@ func splitFileLines(content string) []string {
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) previewFileTool(toolContext context.Context, input filePreviewToolInput, handlerContext toolHandlerContext) (agent.ToolResult, error) {
+	path, materialID, errorValue := resolveFileHintReference(handlerContext.request, input.Path, input.MaterialID, input.FileHint)
+	if errorValue != nil {
+		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "file_preview", errorValue.Error()), nil
+	}
+	input.Path = path
+	input.MaterialID = materialID
 	scope := toolCatalogBuilder.workspaceScopeForToolContext(toolContext, handlerContext.request)
 	if cachedPreview, isCached := cachedFilePreviewResultForInput(handlerContext.request.InputParts, input); isCached {
-		return agent.ToolSuccess(marshalToolResult(cachedPreview)), nil
+		return fileToolSuccess(cachedPreview), nil
 	}
 	if materialPreview, isResolved := toolCatalogBuilder.filePreviewResolvedMaterial(toolContext, input, handlerContext.request); isResolved {
 		return materialPreview, nil
@@ -660,14 +678,14 @@ func (toolCatalogBuilder *ToolCatalogBuilder) previewFileTool(toolContext contex
 		return *materialFailure, nil
 	}
 	if cachedPreview, isCached := cachedFilePreviewResult(handlerContext.request.InputParts, previewPath); isCached {
-		return agent.ToolSuccess(marshalToolResult(cachedPreview)), nil
+		return fileToolSuccess(cachedPreview), nil
 	}
 	resolvedPath, failureResult, errorValue := toolCatalogBuilder.resolveReadableWorkspacePath(previewPath, scope, handlerContext.request, "file_preview")
 	if failureResult != nil || errorValue != nil {
 		return firstToolFailureResult(failureResult, errorValue, "file_preview"), nil
 	}
 	if cachedPreview, isCached := cachedFilePreviewResult(handlerContext.request.InputParts, resolvedPath.VirtualPath); isCached {
-		return agent.ToolSuccess(marshalToolResult(cachedPreview)), nil
+		return fileToolSuccess(cachedPreview), nil
 	}
 	workspaceActor, actorFailure := toolCatalogBuilder.workspaceActorForRequest(toolContext, handlerContext.request)
 	if actorFailure != nil {
@@ -687,7 +705,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) previewFileTool(toolContext contex
 	}
 	contentType := previewContentType(resolvedPath.VirtualPath)
 	if strings.HasPrefix(contentType, "image/") {
-		return agent.ToolSuccess(marshalToolResult(filePreviewResult(resolvedPath.VirtualPath, contentType, fileInformation.SizeBytes, "", "image", "use the image input part or image.read for visual inspection"))), nil
+		return fileToolSuccess(filePreviewResult(resolvedPath.VirtualPath, contentType, fileInformation.SizeBytes, "", "image", "use the image input part or image.read for visual inspection")), nil
 	}
 	if toolCatalogBuilder.capabilityClient.HTTPClient != nil {
 		if result, isConverted := toolCatalogBuilder.convertFilePreviewWithCapability(toolContext, handlerContext.request, resolvedPath.VirtualPath, contentType, fileInformation.SizeBytes); isConverted {
@@ -709,7 +727,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) filePreviewResolvedMaterial(toolCo
 		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "file_preview", "attachment material is an image; use image.read"), true
 	}
 	if result, hasPreview := filePreviewResultFromVisibleMaterial(material); hasPreview {
-		return agent.ToolSuccess(marshalToolResult(result)), true
+		return fileToolSuccess(result), true
 	}
 	return agent.ToolResult{}, false
 }
@@ -741,6 +759,10 @@ func (toolCatalogBuilder *ToolCatalogBuilder) filePreviewFallbackPath(toolContex
 	}
 	if attachmentMaterialLooksLikeImage(resolvedMaterial) {
 		result := agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "file_preview", "attachment material is an image; use image.read")
+		return "", &result, true
+	}
+	if previewResult, hasPreview := filePreviewResultFromVisibleMaterial(resolvedMaterial); hasPreview {
+		result := fileToolSuccess(previewResult)
 		return "", &result, true
 	}
 	return resolvedMaterial.Path, nil, true
@@ -944,7 +966,11 @@ func (toolCatalogBuilder *ToolCatalogBuilder) convertFilePreviewWithCapability(t
 		Result       json.RawMessage `json:"result"`
 	}
 	input := agent.MarshalToolInput(map[string]any{"path": path, "maxOutputBytes": maximumFilePreviewBytes})
-	errorValue := toolCatalogBuilder.capabilityClient.PostJSON(toolContext, "/v1/tools/document.read/invoke", capabilityToolRequest(toolContext, "document.read", request, input), &response)
+	requestDocument, errorValue := toolCatalogBuilder.capabilityRequestForOperation(toolContext, "document.read", request, input)
+	if errorValue != nil {
+		return agent.ToolResult{}, false
+	}
+	errorValue = toolCatalogBuilder.capabilityClient.PostJSON(toolContext, "/v1/tools/document.read/invoke", requestDocument, &response)
 	if errorValue != nil || response.IsError || response.Status == "error" || response.Status == "denied" {
 		return agent.ToolResult{}, false
 	}
@@ -964,14 +990,14 @@ func (toolCatalogBuilder *ToolCatalogBuilder) convertFilePreviewWithCapability(t
 	if strings.TrimSpace(document.Format) != "" {
 		result["previewFormat"] = strings.TrimSpace(document.Format)
 	}
-	return agent.ToolSuccess(marshalToolResult(result)), true
+	return fileToolSuccess(result), true
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) previewTextFile(toolContext context.Context, workspaceActor security.WorkspaceActor, path workspacepath.Path, contentType string, sizeBytes int64) agent.ToolResult {
 	document, errorValue := workspaceActor.ReadFile(toolContext, path, maximumFilePreviewBytes+1)
 	if errorValue != nil {
 		if sizeBytes > maximumFilePreviewBytes {
-			return agent.ToolSuccess(marshalToolResult(filePreviewResult(path.VirtualPath, contentType, sizeBytes, "", "unsupported", "file is too large for local text preview; use document.read/MarkItDown provider when available")))
+			return fileToolSuccess(filePreviewResult(path.VirtualPath, contentType, sizeBytes, "", "unsupported", "file is too large for local text preview; use document.read/MarkItDown provider when available"))
 		}
 		return actorToolFailure("read_file", "file_preview", path.VirtualPath, errorValue)
 	}
@@ -980,14 +1006,14 @@ func (toolCatalogBuilder *ToolCatalogBuilder) previewTextFile(toolContext contex
 		document = document[:maximumFilePreviewBytes]
 	}
 	if !utf8.Valid(document) || bytes.IndexByte(document, 0) >= 0 {
-		return agent.ToolSuccess(marshalToolResult(filePreviewResult(path.VirtualPath, contentType, sizeBytes, "", "unsupported", "file is not UTF-8 text and no MarkItDown preview is available")))
+		return fileToolSuccess(filePreviewResult(path.VirtualPath, contentType, sizeBytes, "", "unsupported", "file is not UTF-8 text and no MarkItDown preview is available"))
 	}
 	content, isContentTruncated := truncateTextByBytes(string(document), maximumFilePreviewBytes)
 	conversionStatus := "converted"
 	if isTruncated || isContentTruncated {
 		conversionStatus = "truncated"
 	}
-	return agent.ToolSuccess(marshalToolResult(filePreviewResult(path.VirtualPath, contentType, sizeBytes, content, conversionStatus, "")))
+	return fileToolSuccess(filePreviewResult(path.VirtualPath, contentType, sizeBytes, content, conversionStatus, ""))
 }
 
 func filePreviewResult(path string, contentType string, sizeBytes int64, markdownPreview string, conversionStatus string, conversionMessage string) map[string]any {
@@ -1045,10 +1071,11 @@ func (toolCatalogBuilder *ToolCatalogBuilder) patchFileTool(toolContext context.
 	if result := writePatchState(toolContext, workspaceActor, patchState); result != nil {
 		return *result, nil
 	}
-	return agent.ToolSuccess(marshalToolResult(map[string]any{
-		"editedFiles": patchState.virtualPaths(),
+	editedFiles := patchState.virtualPaths()
+	return fileToolSuccess(map[string]any{
+		"editedFiles": editedFiles,
 		"editCount":   len(input.Edits),
-	})), nil
+	}), nil
 }
 
 type filePatchState struct {
@@ -1316,41 +1343,46 @@ func fileEditMatchFailureGuidance(content string, oldText string, matchCount int
 }
 
 func closestFileLines(content string, oldText string) string {
-	target := ""
-	for _, line := range strings.Split(oldText, "\n") {
-		if strings.TrimSpace(line) != "" {
-			target = strings.TrimSpace(line)
-			break
-		}
-	}
+	target := mostDistinctiveLine(oldText)
 	if target == "" {
 		return ""
 	}
-	type scoredLine struct {
-		line  string
-		score float64
-	}
-	scored := []scoredLine{}
-	for _, line := range strings.Split(content, "\n") {
+	contentLines := strings.Split(content, "\n")
+	bestIndex := -1
+	bestScore := 0.0
+	for index, line := range contentLines {
 		trimmed := strings.TrimSpace(line)
 		if trimmed == "" {
 			continue
 		}
-		if score := lineSimilarity(trimmed, target); score >= 0.6 {
-			scored = append(scored, scoredLine{line: line, score: score})
+		if score := lineSimilarity(trimmed, target); score >= 0.6 && score > bestScore {
+			bestScore = score
+			bestIndex = index
 		}
 	}
-	sort.SliceStable(scored, func(first int, second int) bool {
-		return scored[first].score > scored[second].score
-	})
-	closest := []string{}
-	for _, candidate := range scored {
-		closest = append(closest, candidate.line)
-		if len(closest) == 3 {
-			break
+	if bestIndex == -1 {
+		return ""
+	}
+	windowStart := bestIndex - 2
+	if windowStart < 0 {
+		windowStart = 0
+	}
+	windowEnd := bestIndex + 4
+	if windowEnd > len(contentLines) {
+		windowEnd = len(contentLines)
+	}
+	return strings.Join(contentLines[windowStart:windowEnd], "\n")
+}
+
+func mostDistinctiveLine(oldText string) string {
+	distinctive := ""
+	for _, line := range strings.Split(oldText, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if len(trimmed) > len(distinctive) {
+			distinctive = trimmed
 		}
 	}
-	return strings.Join(closest, "\n")
+	return distinctive
 }
 
 func lineSimilarity(first string, second string) float64 {
@@ -1386,14 +1418,6 @@ func (toolCatalogBuilder *ToolCatalogBuilder) resolveEditableFilePath(toolContex
 	resolvedPath, errorValue := NewWorkspacePathResolver(toolCatalogBuilder.workspaceRootPath).Resolve(path, scope)
 	if errorValue != nil {
 		result := agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "file_edit", errorValue.Error())
-		return ResolvedWorkspacePath{}, &result
-	}
-	if isManagedSitePackageManifestPath(resolvedPath.VirtualPath) {
-		result := agent.ToolFailureResult(agent.FailurePolicyBlocked, agent.FailureCodes.PolicyBlocked, "file_edit", "the website scaffold capability manages this build manifest; edit DESIGN.md and app source files instead of app/package.json")
-		return ResolvedWorkspacePath{}, &result
-	}
-	if isImmutableSkillPath(toolCatalogBuilder.workspaceRootPath, resolvedPath.ConcretePath) {
-		result := agent.ToolFailureResult(agent.FailurePolicyBlocked, agent.FailureCodes.PolicyBlocked, "file_edit", "file.edit cannot modify built-in skill files")
 		return ResolvedWorkspacePath{}, &result
 	}
 	if !toolCatalogBuilder.canAccessWorkspacePath(handlerContext.request.PersonAccess, access.ActionRead, resolvedPath.ConcretePath) || !toolCatalogBuilder.canAccessWorkspacePath(handlerContext.request.PersonAccess, access.ActionWrite, resolvedPath.ConcretePath) {
@@ -1463,43 +1487,6 @@ func fileExactEditFailure(stage string, path string, editIndex int, matchCount i
 	return result
 }
 
-func isManagedSitePackageManifestPath(virtualPath string) bool {
-	cleanPath := filepath.ToSlash(filepath.Clean(strings.TrimPrefix(strings.TrimSpace(virtualPath), "/workspace/")))
-	parts := strings.Split(cleanPath, "/")
-	if len(parts) == 5 &&
-		parts[0] == "home" &&
-		parts[1] == "sites" &&
-		parts[3] == "app" &&
-		parts[4] == "package.json" {
-		return true
-	}
-	return len(parts) == 6 &&
-		parts[0] == "home" &&
-		parts[1] == "sites" &&
-		parts[3] == "draft" &&
-		parts[4] == "app" &&
-		parts[5] == "package.json"
-}
-
-func managedSiteManifestProtectedFailure(path string) agent.ToolResult {
-	content := marshalToolResult(map[string]string{
-		"code":   "managed_manifest_protected",
-		"path":   strings.TrimSpace(path),
-		"detail": "the website scaffold capability manages this build manifest; edit DESIGN.md and app source files instead of overwriting app/package.json",
-	})
-	return agent.ToolResult{
-		Output: agent.ToolOutput{Content: content, Data: json.RawMessage(content)},
-		Failure: &agent.ToolFailure{
-			Kind:            agent.FailurePolicyBlocked,
-			Code:            "managed_manifest_protected",
-			Stage:           "file_write",
-			UserSafeSummary: content,
-			Retryable:       true,
-			SafeRetry:       true,
-		},
-	}
-}
-
 func (toolCatalogBuilder *ToolCatalogBuilder) attachFileTool(toolContext context.Context, input fileAttachToolInput, handlerContext toolHandlerContext) (agent.ToolResult, error) {
 	scope := toolCatalogBuilder.workspaceScopeForToolContext(toolContext, handlerContext.request)
 	attachmentInputs := normalizeFileAttachInputs(input)
@@ -1507,6 +1494,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) attachFileTool(toolContext context
 		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "file_deliver", "files must contain at least one path"), nil
 	}
 	attachments := []agent.FileAttachment{}
+	deliveredPaths := []string{}
 	for _, attachmentInput := range attachmentInputs {
 		attachment, failureResult, errorValue := toolCatalogBuilder.fileAttachment(toolContext, attachmentInput, handlerContext, scope)
 		if failureResult != nil {
@@ -1516,10 +1504,15 @@ func (toolCatalogBuilder *ToolCatalogBuilder) attachFileTool(toolContext context
 			return agent.ToolFailureResult(agent.FailureExternalService, agent.FailureCodes.OperationFailed, "file_deliver", errorValue.Error()), nil
 		}
 		attachments = append(attachments, attachment)
+		deliveredPaths = append(deliveredPaths, attachment.DevicePath)
 	}
 	_ = toolContext
+	data := json.RawMessage(marshalToolResult(map[string]any{
+		"deliveredPaths":  deliveredPaths,
+		"attachmentCount": len(attachments),
+	}))
 	return agent.ToolResult{
-		Output:      agent.ToolOutput{Content: "files delivered"},
+		Output:      agent.ToolOutput{Content: "files delivered", Data: data},
 		Attachments: attachments,
 	}, nil
 }

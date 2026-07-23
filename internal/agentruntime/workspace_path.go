@@ -98,8 +98,8 @@ func (resolver WorkspacePathResolver) Resolve(value string, scope WorkspaceScope
 	if strings.HasPrefix(trimmedPath, "~") {
 		return resolver.resolveHome(trimmedPath, scope)
 	}
-	if isDeniedAbsoluteWorkspacePath(trimmedPath) {
-		return ResolvedWorkspacePath{}, errors.New("path is outside the supported workspace artifact contract")
+	if isVirtualHomePath(trimmedPath) {
+		return resolver.resolveVirtualHome(trimmedPath, scope)
 	}
 	if filepath.IsAbs(trimmedPath) {
 		return resolver.resolveAbsolute(trimmedPath, scope)
@@ -115,13 +115,6 @@ func normalizedWorkspaceDirectoryPath(value string) string {
 	trimmedPath := strings.TrimSpace(value)
 	if trimmedPath == "" {
 		return "tmp"
-	}
-	cleanPath := filepath.Clean(trimmedPath)
-	if cleanPath == "/tmp" {
-		return "tmp"
-	}
-	if strings.HasPrefix(cleanPath, "/tmp/") {
-		return filepath.ToSlash(filepath.Join("tmp", strings.TrimPrefix(cleanPath, "/tmp/")))
 	}
 	return trimmedPath
 }
@@ -139,7 +132,23 @@ func (resolver WorkspacePathResolver) resolveHome(value string, scope WorkspaceS
 		return ResolvedWorkspacePath{}, errors.New("only the requester home (~ or ~/<path>) is supported")
 	}
 	suffix := filepath.Clean(strings.TrimPrefix(value, "~/"))
-	return resolver.resolvedPath(filepath.Join(scope.RequesterRootPath, suffix), filepath.ToSlash(suffix), workspacePathKindWorkspace, false)
+	return resolver.resolvedPath(filepath.Join(scope.RequesterRootPath, suffix), "~/"+filepath.ToSlash(suffix), workspacePathKindWorkspace, false)
+}
+
+// The runtime renders private attachment paths to the model with a virtual home/
+// prefix, so every path shape a tool result emits (home/<path>, ~/<path>, <path>)
+// must resolve to the same file under the requester's home in every tool.
+func isVirtualHomePath(value string) bool {
+	return value == "home" || strings.HasPrefix(value, "home/")
+}
+
+func (resolver WorkspacePathResolver) resolveVirtualHome(value string, scope WorkspaceScope) (ResolvedWorkspacePath, error) {
+	if value == "home" {
+		return resolver.resolvedPath(scope.RequesterRootPath, "home", workspacePathKindWorkspace, false)
+	}
+	suffix := filepath.Clean(strings.TrimPrefix(value, "home/"))
+	virtualPath := filepath.ToSlash(filepath.Join("home", suffix))
+	return resolver.resolvedPath(filepath.Join(scope.RequesterRootPath, suffix), virtualPath, workspacePathKindWorkspace, false)
 }
 
 // A relative path resolves against the requester's Linux home ($HOME), exactly as a
@@ -165,13 +174,10 @@ func (resolver WorkspacePathResolver) resolveAbsolute(value string, scope Worksp
 		return ResolvedWorkspacePath{}, errorValue
 	}
 	if relativePath == ".." || strings.HasPrefix(relativePath, "../") {
-		return ResolvedWorkspacePath{}, errors.New("path must stay under the workspace root")
+		return ResolvedWorkspacePath{ConcretePath: cleanPath, VirtualPath: filepath.ToSlash(cleanPath), Kind: workspacePathKindWorkspace}, nil
 	}
 	virtualPath := filepath.ToSlash(filepath.Join("/workspace", relativePath))
 	parts := strings.Split(filepath.ToSlash(relativePath), "/")
-	if len(parts) >= 1 && parts[0] == ".blueclaw" {
-		return ResolvedWorkspacePath{}, errors.New("/workspace/.blueclaw is not available for model tool work")
-	}
 	if len(parts) >= 1 && parts[0] == "skills" {
 		return ResolvedWorkspacePath{ConcretePath: cleanPath, VirtualPath: virtualPath, Kind: workspacePathKindSkills}, nil
 	}
@@ -223,16 +229,6 @@ func (resolver WorkspacePathResolver) resolveAgentWorkspacePath(value string) st
 		return filepath.Join(resolver.WorkspaceRootPath, strings.TrimPrefix(trimmedPath, "/workspace/"))
 	}
 	return trimmedPath
-}
-
-func isDeniedAbsoluteWorkspacePath(path string) bool {
-	cleanPath := filepath.Clean(path)
-	return cleanPath == "/tmp" ||
-		strings.HasPrefix(cleanPath, "/tmp/") ||
-		cleanPath == "/opt" ||
-		strings.HasPrefix(cleanPath, "/opt/") ||
-		cleanPath == "/usr" ||
-		strings.HasPrefix(cleanPath, "/usr/")
 }
 
 func (scope WorkspaceScope) EnvironmentVariables() map[string]string {

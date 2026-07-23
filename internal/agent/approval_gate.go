@@ -52,7 +52,7 @@ func (agentTurnRunner *AgentTurnRunner) requestHeldCallApproval(ctx context.Cont
 		"responseLanguage":  request.ResponseLanguage,
 	}))
 	agentTurnRunner.appendEvent(taskRunID, "ask.requested", marshalEventBody(map[string]any{
-		"kind":             "confirm",
+		"kind":             "ask_confirm",
 		"message":          confirmation,
 		"reasonCode":       "external_send",
 		"reasonDetail":     "runtime approval gate for " + heldCall.ToolName,
@@ -73,6 +73,8 @@ func (agentTurnRunner *AgentTurnRunner) executeApprovedHeldCall(ctx context.Cont
 		return request, AgentTurnResult{}, false
 	}
 	request = requestWithHeldCallTool(request, heldCall.ToolName)
+	request.HadApprovedHeldCall = true
+	request.ApprovedHeldCallKey = canonicalToolCallKey(heldCall.ToolName, heldCall.ToolInput)
 	state.Request = request
 	actionDocument := turnActionDocument{
 		Action:    "continue",
@@ -83,15 +85,27 @@ func (agentTurnRunner *AgentTurnRunner) executeApprovedHeldCall(ctx context.Cont
 	agentTurnRunner.saveStep(taskRunID, stepID, task.TaskStatusRunning, "approval "+heldCall.ToolName, heldCall.Confirmation)
 	state.ToolCallCount++
 	observationID := nextApprovalExecutionObservationID(taskEvents)
-	observation := agentTurnRunner.invokeTool(ctx, request.ToolSet, taskRunID, observationID, heldCall.ToolName, heldCall.ToolInput, request.WorkspaceRootPath, request.TurnStartedAt, request.ResponseLanguage, "")
+	executionToolSet := toolSetWithApprovedHeldCall(request.ToolSet, heldCall.ToolName)
+	observation := agentTurnRunner.invokeTool(ctx, executionToolSet, taskRunID, observationID, heldCall.ToolName, heldCall.ToolInput, request.WorkspaceRootPath, request.TurnStartedAt, request.ResponseLanguage, "")
 	agentTurnRunner.recordToolObservation(taskRunID, state, actionDocument, successfulToolCalls, observation, "")
 	agentTurnRunner.appendEvent(taskRunID, "approval.executed", marshalEventBody(approvalExecutedCall{ToolName: heldCall.ToolName, ToolInput: copyJSONRawMessage(heldCall.ToolInput)}))
+	request.ApprovedHeldCallKey = ""
+	state.Request = request
 	if pausedResult, isPaused := agentTurnRunner.pausedTaskResult(taskRunID, observation, state.Attachments); isPaused {
 		agentTurnRunner.saveStep(taskRunID, stepID, pausedResult.TaskRun.Status, "approval "+heldCall.ToolName, observation.ContentText())
 		return request, pausedResult, true
 	}
 	agentTurnRunner.saveStep(taskRunID, stepID, task.TaskStatusCompleted, "approval "+heldCall.ToolName, observation.ContentText())
 	return request, AgentTurnResult{}, false
+}
+
+func toolSetWithApprovedHeldCall(toolSet *ToolSet, toolName string) *ToolSet {
+	trimmedToolName := strings.TrimSpace(toolName)
+	if toolSet == nil || !toolSet.IsRegistered(trimmedToolName) {
+		return toolSet
+	}
+	allowedToolNames := append(toolSet.ListToolNames(), trimmedToolName)
+	return toolSet.WithAllowedToolNames(appendUniqueStrings(allowedToolNames))
 }
 
 func nextApprovalExecutionObservationID(taskEvents []task.TaskEvent) string {
@@ -179,12 +193,12 @@ func approvalHeldCallExecutedAfter(taskEvents []task.TaskEvent, toolName string)
 
 func toolCallRequiresRuntimeApproval(toolSet *ToolSet, actionDocument turnActionDocument) bool {
 	trimmedToolName := strings.TrimSpace(actionDocument.ToolName)
-	if trimmedToolName == "" || trimmedToolName == CapabilityInvokeToolName {
+	if trimmedToolName == "" {
 		return false
 	}
 	definition, isFound := toolSet.ToolDefinition(trimmedToolName)
 	if isFound && definition.RequiresApproval {
-		return true
+		return !sendHasReplyBlastRadius(definition, actionDocument.ToolInput)
 	}
 	if trimmedToolName != TerminalRunToolName {
 		return false
@@ -193,6 +207,30 @@ func toolCallRequiresRuntimeApproval(toolSet *ToolSet, actionDocument turnAction
 		ApprovalRequired bool `json:"approvalRequired"`
 	}
 	return json.Unmarshal(actionDocument.ToolInput, &input) == nil && input.ApprovalRequired
+}
+
+func sendHasReplyBlastRadius(definition ToolDefinition, toolInput json.RawMessage) bool {
+	return ToolDefinitionSideEffectClass(definition) == ToolSideEffectExternalSend &&
+		sendTargetsCurrentConversation(toolInput)
+}
+
+func isApprovedHeldCallVerbatimMatch(approvedHeldCallKey string, actionDocument turnActionDocument) bool {
+	trimmedApprovedHeldCallKey := strings.TrimSpace(approvedHeldCallKey)
+	if trimmedApprovedHeldCallKey == "" {
+		return false
+	}
+	return trimmedApprovedHeldCallKey == canonicalToolCallKey(actionDocument.ToolName, actionDocument.ToolInput)
+}
+
+// Task-intake-level continuations (no bound held call) keep the turn-wide exemption; runtime held-call continuations are exempt only for that exact verbatim call.
+func isExemptFromApprovalHold(request AgentTurnRequest, actionDocument turnActionDocument) bool {
+	if !request.IsApprovalContinuation {
+		return false
+	}
+	if !request.HadApprovedHeldCall {
+		return true
+	}
+	return isApprovedHeldCallVerbatimMatch(request.ApprovedHeldCallKey, actionDocument)
 }
 
 type approvalQuestionContextDocument struct {
@@ -223,7 +261,7 @@ type approvalQuestionActionInput struct {
 	TargetPath     string   `json:"targetPath"`
 	Slug           string   `json:"slug"`
 	SiteID         string   `json:"siteID"`
-	EventID        string   `json:"eventID"`
+	EventHint      string   `json:"eventHint"`
 	To             []string `json:"to"`
 	People         []string `json:"people"`
 }
@@ -276,13 +314,12 @@ func (agentTurnRunner *AgentTurnRunner) generateHeldCallConfirmationWording(ctx 
 }
 
 func approvalQuestionContext(request AgentTurnRequest, actionDocument turnActionDocument, modelDraft string) approvalQuestionContextDocument {
-	operation, input := effectiveActionToolNameAndInput(actionDocument.ToolName, actionDocument.ToolInput)
 	return approvalQuestionContextDocument{
 		ResponseLanguage: strings.TrimSpace(request.ResponseLanguage),
 		OriginalRequest:  strings.TrimSpace(request.Prompt),
 		ModelDraft:       strings.TrimSpace(modelDraft),
-		Operation:        strings.TrimSpace(operation),
-		ActionDetails:    approvalQuestionActionDetails(input),
+		Operation:        strings.TrimSpace(actionDocument.ToolName),
+		ActionDetails:    approvalQuestionActionDetails(actionDocument.ToolInput),
 	}
 }
 
@@ -307,7 +344,7 @@ func approvalQuestionActionDetails(input json.RawMessage) map[string]string {
 	approvalQuestionSetDetail(details, "approvalReason", document.ApprovalReason)
 	approvalQuestionSetDetail(details, "slug", document.Slug)
 	approvalQuestionSetDetail(details, "siteID", document.SiteID)
-	approvalQuestionSetDetail(details, "eventID", document.EventID)
+	approvalQuestionSetDetail(details, "eventHint", document.EventHint)
 	filePath := firstNonEmptyString(document.Path, document.DevicePath, document.TargetPath)
 	approvalQuestionSetDetail(details, "path", filePath)
 	if strings.TrimSpace(filePath) != "" {

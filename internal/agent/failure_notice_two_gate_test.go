@@ -20,7 +20,7 @@ func (model fixedReplyLanguageModel) GenerateStructuredResponse(context.Context,
 	return llm.StructuredResponse{}, nil
 }
 
-func TestFailureNoticeFallsBackWhenReviewIsUnavailable(t *testing.T) {
+func TestFailureNoticeFallsBackWhenChatReviewIsUnavailable(t *testing.T) {
 	report := FailureReport{
 		Phase:            "stall",
 		StopReason:       "recovery_tool_budget_exhausted",
@@ -33,7 +33,7 @@ func TestFailureNoticeFallsBackWhenReviewIsUnavailable(t *testing.T) {
 	notice, status := generator.Generate(context.Background(), report)
 
 	if status.Source != "raw_error" {
-		t.Fatalf("expected raw_error without structured review, got %q (reason %q)", status.Source, status.Reason)
+		t.Fatalf("expected raw_error without Chat review, got %q (reason %q)", status.Source, status.Reason)
 	}
 	if notice.SendableMessage() == "" {
 		t.Fatal("expected a sendable raw failure notice")
@@ -58,10 +58,12 @@ func TestFailureNoticeFallsBackToRawErrorOnlyWhenDraftLeaks(t *testing.T) {
 	}
 }
 
-func TestFailureNoticeReviewRewritesFalseDeliveryClaim(t *testing.T) {
-	generator := FailureNoticeGenerator{LanguageModel: reviewingReplyLanguageModel{
-		reply:           "슬라이드 덱을 첨부했습니다. 확인해 주세요.",
-		structuredReply: `{"decision":"rewrite","message":"슬라이드 덱을 첨부하지 못했습니다. 다시 시도해 주세요.","reason":"candidate falsely claimed artifact delivery without attachments"}`,
+func TestFailureNoticeChatReviewRewritesFalseDeliveryClaim(t *testing.T) {
+	generator := FailureNoticeGenerator{LanguageModel: &recoveryChatNoticeProvider{
+		chatReplies: []string{
+			"슬라이드 덱을 첨부했습니다. 확인해 주세요.",
+			"슬라이드 덱을 첨부하지 못했습니다. 다시 시도해 주세요.",
+		},
 	}}
 
 	notice, status := generator.Generate(context.Background(), FailureReport{
@@ -73,21 +75,12 @@ func TestFailureNoticeReviewRewritesFalseDeliveryClaim(t *testing.T) {
 	})
 
 	if status.Source != "generated_review" || notice.Source != "generated_review" {
-		t.Fatalf("expected structured review rewrite, got notice=%+v status=%+v", notice, status)
+		t.Fatalf("expected Chat review rewrite, got notice=%+v status=%+v", notice, status)
 	}
 	if notice.SendableMessage() == "슬라이드 덱을 첨부했습니다. 확인해 주세요." {
-		t.Fatal("expected false delivery claim to be rewritten through structured review")
+		t.Fatal("expected false delivery claim to be rewritten through Chat review")
 	}
 	if !strings.Contains(notice.SendableMessage(), "첨부하지 못했습니다") {
 		t.Fatalf("expected reviewed failure notice, got %q", notice.SendableMessage())
-	}
-}
-
-func TestValidateUserNoticeDoesNotClassifyAttachmentWording(t *testing.T) {
-	if ValidateUserNoticeDelivery("slides.html을 완성하지 못했어요.") != nil {
-		t.Fatal("expected naming an unbuilt artifact to be allowed")
-	}
-	if errorValue := ValidateUserNoticeDelivery("slides.html을 첨부했습니다."); errorValue != nil {
-		t.Fatalf("expected delivery wording not to be classified by transport validation: %v", errorValue)
 	}
 }

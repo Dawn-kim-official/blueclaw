@@ -1,0 +1,573 @@
+{
+  "agent-action": [
+    {
+      "action": "continue",
+      "toolName": "file.read",
+      "toolInput": {
+        "path": "home/project/README.md"
+      },
+      "goalSatisfied": false,
+      "executionStateUpdate": {
+        "goal": "Inspect the project",
+        "workspace": "home/project",
+        "knownFacts": [
+          "README exists"
+        ],
+        "nextPlan": "Read the file"
+      }
+    }
+  ],
+  "agent-message": [
+    {
+      "role": "user",
+      "parts": [
+        {
+          "type": "text",
+          "text": "Review the attached report."
+        },
+        {
+          "type": "file",
+          "file": {
+            "path": "artifacts/reports/weekly.pdf",
+            "filename": "weekly.pdf",
+            "contentType": "application/pdf",
+            "sizeBytes": 2048,
+            "conversionStatus": "ready"
+          },
+          "source": {
+            "platform": "web",
+            "messageID": "message-1",
+            "fileID": "file-1"
+          },
+          "visibility": "llm"
+        }
+      ]
+    }
+  ],
+  "capability-descriptor": [
+    {
+      "name": "calendar.add",
+      "canonicalName": "calendar.add",
+      "namespace": "calendar",
+      "modelName": "calendar.add",
+      "modelVisibility": "visible",
+      "modelVisible": true,
+      "description": "Create a new calendar event",
+      "version": "1",
+      "privacyClass": "workspace_calendar",
+      "estimatedLatency": "medium",
+      "requiresUserPresence": false,
+      "worksOffline": false,
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string"
+          },
+          "startISO": {
+            "type": "string"
+          },
+          "endISO": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "title",
+          "startISO",
+          "endISO"
+        ],
+        "additionalProperties": false
+      },
+      "inputIntentSchema": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string"
+          },
+          "startISO": {
+            "type": "string"
+          },
+          "endISO": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      },
+      "inputSchemaStrict": true,
+      "outputSchemaStrict": true,
+      "policyResource": "tool:calendar.add",
+      "sideEffectClass": "workspace_write",
+      "sideEffect": "workspace_write",
+      "requiresApproval": false,
+      "completionEvidence": {
+        "mode": "success",
+        "action": "write_calendar",
+        "targetKind": "calendar"
+      },
+      "availability": {
+        "state": "ok"
+      },
+      "idempotency": {
+        "supported": false,
+        "required": false,
+        "scope": "operation"
+      }
+    }
+  ],
+  "capability-registry-response": [
+    {
+      "protocolVersion": "0.4.0",
+      "aggregateProtocolHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "localOnly": true,
+      "routingCandidates": null,
+      "capabilities": [
+        {
+          "name": "llm.structured",
+          "canonicalName": "llm.structured",
+          "namespace": "llm",
+          "modelName": "llm.structured",
+          "modelVisibility": "hidden",
+          "modelVisible": false,
+          "description": "Generate structured output",
+          "version": "1",
+          "privacyClass": "local_model",
+          "estimatedLatency": "medium",
+          "requiresUserPresence": false,
+          "worksOffline": true,
+          "inputSchema": {
+            "type": "object",
+            "properties": {},
+            "additionalProperties": false
+          },
+          "outputSchema": {
+            "type": "object",
+            "properties": {},
+            "additionalProperties": false
+          },
+          "inputSchemaStrict": true,
+          "outputSchemaStrict": true,
+          "policyResource": "tool:llm.structured",
+          "sideEffectClass": "computation",
+          "sideEffect": "computation",
+          "availability": {
+            "state": "ok"
+          },
+          "idempotency": {
+            "supported": false,
+            "required": false,
+            "scope": "operation"
+          }
+        }
+      ]
+    }
+  ],
+  "chat-completion-request": [
+    {
+      "model": "openrouter/auto",
+      "executionMode": "auto",
+      "context": {
+        "requesterPersonID": "person-1",
+        "conversationID": "conversation-1",
+        "platform": "web"
+      },
+      "messages": [
+        {
+          "role": "system",
+          "content": "Use the available tools when needed."
+        },
+        {
+          "role": "user",
+          "content": "What is the weather?"
+        },
+        {
+          "role": "assistant",
+          "toolCalls": [
+            {
+              "id": "call-1",
+              "type": "function",
+              "function": {
+                "name": "weather_lookup",
+                "arguments": "{\"city\":\"Seoul\"}"
+              }
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "content": "Sunny, 24C",
+          "toolCallId": "call-1"
+        }
+      ],
+      "tools": [
+        {
+          "type": "function",
+          "function": {
+            "name": "weather_lookup",
+            "description": "Look up current weather for a city",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "city": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "city"
+              ]
+            }
+          }
+        }
+      ],
+      "toolChoice": {
+        "type": "function",
+        "function": {
+          "name": "weather_lookup"
+        }
+      },
+      "parallelToolCalls": false,
+      "generationOptions": {
+        "seed": 41,
+        "temperature": 0,
+        "maxTokens": 256
+      }
+    }
+  ],
+  "chat-completion-response": [
+    {
+      "finishReason": "tool_calls",
+      "provider": "openrouter",
+      "model": "google/gemini-3.1-flash-lite",
+      "message": {
+        "role": "assistant",
+        "content": "",
+        "toolCalls": [
+          {
+            "id": "call-1",
+            "type": "function",
+            "function": {
+              "name": "weather_lookup",
+              "arguments": "{\"city\":\"Seoul\"}"
+            }
+          }
+        ]
+      },
+      "selectedBackend": "remote",
+      "usage": {
+        "promptTokens": 42,
+        "completionTokens": 8,
+        "totalTokens": 50
+      },
+      "providerMetadata": {
+        "requestID": "request-1",
+        "rawFinishReason": "tool_calls"
+      }
+    }
+  ],
+  "connector-runtime-result": [
+    {
+      "handled": true,
+      "platform": "web",
+      "duplicate": false,
+      "ignored": false,
+      "taskRunID": "task-1",
+      "replyDispatchID": "reply-1"
+    }
+  ],
+  "platform-auto-resume-event": [
+    {
+      "conversationID": "conversation-1",
+      "messageID": "resume-task-1",
+      "senderID": "system",
+      "replyTargetID": "message-1",
+      "prompt": "Resume the interrupted task",
+      "context": {
+        "messages": null,
+        "hasMoreBefore": false,
+        "historyCursor": ""
+      }
+    }
+  ],
+  "platform-inbound-event": [
+    {
+      "conversationID": "channel-1",
+      "messageID": "message-1",
+      "senderID": "user-1",
+      "replyTargetID": "message-1",
+      "prompt": "Summarize this document",
+      "inputParts": [
+        {
+          "type": "file",
+          "file": {
+            "path": "tmp/report/input.pdf",
+            "filename": "input.pdf",
+            "contentType": "application/pdf",
+            "sizeBytes": 4096
+          }
+        }
+      ],
+      "responseLanguage": "ko",
+      "context": {
+        "messages": [
+          {
+            "speaker": "김여명",
+            "text": "지난 대화",
+            "sentAt": "2026-07-14T00:00:00Z"
+          }
+        ],
+        "hasMoreBefore": false,
+        "historyCursor": "cursor-1",
+        "conversationType": "channel",
+        "channelID": "channel-1",
+        "channelName": "general",
+        "addressing": {
+          "botMentioned": true
+        }
+      },
+      "legacyFields": {
+        "sourceEventID": "event-1"
+      }
+    }
+  ],
+  "structured-response-request": [
+    {
+      "model": "openrouter/auto",
+      "executionMode": "auto",
+      "context": {
+        "requesterPersonID": "person-1",
+        "conversationID": "conversation-1",
+        "platform": "web"
+      },
+      "messages": [
+        {
+          "role": "user",
+          "content": "List my tasks"
+        }
+      ],
+      "structuredOutputSchema": {
+        "name": "task_list",
+        "document": {
+          "type": "object",
+          "properties": {
+            "items": {
+              "type": "array"
+            }
+          },
+          "required": [
+            "items"
+          ],
+          "additionalProperties": false
+        },
+        "isStrictlyEnforced": true
+      },
+      "generationOptions": {
+        "temperature": 0,
+        "maxTokens": 1024
+      }
+    }
+  ],
+  "structured-response": [
+    {
+      "provider": "openrouter",
+      "model": "google/gemini-3.1-flash-lite",
+      "content": "{\"items\":[]}",
+      "selectedBackend": "remote",
+      "finishReason": "stop",
+      "constraintMode": "openai_json_schema"
+    }
+  ],
+  "task-artifact": [
+    {
+      "taskArtifactID": "artifact-1",
+      "taskRunID": "task-1",
+      "name": "report.pdf",
+      "body": "{\"path\":\"artifacts/report.pdf\"}"
+    }
+  ],
+  "task-attempt": [
+    {
+      "taskAttemptID": "attempt-1",
+      "taskRunID": "task-1",
+      "runnerID": "runner-1",
+      "status": "running",
+      "startedAt": "2026-07-14T00:00:00Z",
+      "finishedAt": null
+    }
+  ],
+  "task-event": [
+    {
+      "taskEventID": "event-1",
+      "taskRunID": "task-1",
+      "name": "agent.llm_call",
+      "body": "{\"model\":\"mock\"}",
+      "createdAt": "2026-07-14T00:00:00Z"
+    }
+  ],
+  "task-run": [
+    {
+      "taskRunID": "task-1",
+      "requesterPersonID": "person-1",
+      "originConversationID": "conversation-1",
+      "originReplyTargetID": "message-1",
+      "originIsThread": true,
+      "currentAttemptID": "attempt-1",
+      "currentAgentProfileName": "default",
+      "status": "running",
+      "prompt": "Prepare the weekly report",
+      "result": "",
+      "failureReason": "",
+      "createdAt": "2026-07-14T00:00:00Z",
+      "updatedAt": "2026-07-14T00:01:00Z"
+    }
+  ],
+  "task-schedule-interval": [
+    {
+      "taskScheduleID": "schedule-interval",
+      "creatorPersonID": "person-1",
+      "name": "Hourly check",
+      "prompt": "Check the task",
+      "executionMode": "agent",
+      "agentProfileName": "default",
+      "platform": "web",
+      "conversationID": "conversation-1",
+      "replyTargetID": "message-1",
+      "timeZone": "Asia/Seoul",
+      "kind": "interval",
+      "runAt": null,
+      "intervalSecond": 3600,
+      "cronExpression": "",
+      "completedRunCount": 0,
+      "expiresAt": null,
+      "nextRunAt": "2026-07-14T01:00:00Z",
+      "lastRunAt": null,
+      "lastTaskRunID": "",
+      "leaseOwner": "",
+      "leasedUntil": null,
+      "failureCount": 0,
+      "lastError": "",
+      "nextAttemptAt": null,
+      "createdAt": "2026-07-14T00:00:00Z",
+      "updatedAt": "2026-07-14T00:00:00Z"
+    }
+  ],
+  "task-schedule-once": [
+    {
+      "taskScheduleID": "schedule-once",
+      "creatorPersonID": "person-1",
+      "name": "One-time reminder",
+      "prompt": "Send the reminder",
+      "executionMode": "agent",
+      "agentProfileName": "default",
+      "platform": "web",
+      "conversationID": "conversation-1",
+      "replyTargetID": "message-1",
+      "timeZone": "Asia/Seoul",
+      "kind": "once",
+      "runAt": "2026-07-15T00:00:00Z",
+      "intervalSecond": 0,
+      "cronExpression": "",
+      "completedRunCount": 0,
+      "expiresAt": null,
+      "nextRunAt": "2026-07-15T00:00:00Z",
+      "lastRunAt": null,
+      "lastTaskRunID": "",
+      "leaseOwner": "",
+      "leasedUntil": null,
+      "failureCount": 0,
+      "lastError": "",
+      "nextAttemptAt": null,
+      "createdAt": "2026-07-14T00:00:00Z",
+      "updatedAt": "2026-07-14T00:00:00Z"
+    }
+  ],
+  "task-schedule": [
+    {
+      "taskScheduleID": "schedule-1",
+      "creatorPersonID": "person-1",
+      "name": "Weekly report",
+      "prompt": "Prepare the weekly report",
+      "executionMode": "agent",
+      "agentProfileName": "default",
+      "platform": "web",
+      "conversationID": "conversation-1",
+      "replyTargetID": "message-1",
+      "timeZone": "Asia/Seoul",
+      "kind": "cron",
+      "runAt": null,
+      "intervalSecond": 0,
+      "cronExpression": "0 9 * * 1",
+      "completedRunCount": 0,
+      "expiresAt": null,
+      "nextRunAt": "2026-07-20T00:00:00Z",
+      "lastRunAt": null,
+      "lastTaskRunID": "",
+      "leaseOwner": "",
+      "leasedUntil": null,
+      "failureCount": 0,
+      "lastError": "",
+      "nextAttemptAt": null,
+      "createdAt": "2026-07-14T00:00:00Z",
+      "updatedAt": "2026-07-14T00:00:00Z"
+    }
+  ],
+  "tool-invoke-request": [
+    {
+      "toolName": "calendar.add",
+      "input": {
+        "title": "Weekly sync",
+        "startISO": "2026-07-15T09:00:00+09:00",
+        "endISO": "2026-07-15T10:00:00+09:00"
+      },
+      "idempotencyKey": "task-1:turn-2:call-1",
+      "context": {
+        "requesterPersonID": "person-1",
+        "requesterEmail": "lee@example.com",
+        "conversationID": "conversation-1",
+        "platform": "web"
+      },
+      "actor": {
+        "personID": "person-1",
+        "email": "lee@example.com",
+        "source": "task",
+        "scopes": [
+          "calendar.write"
+        ],
+        "isAdmin": false
+      },
+      "executionMode": "auto",
+      "requiresUserPresence": false,
+      "privacyClass": "organization",
+      "sessionID": "session-1",
+      "resourceScope": {
+        "kind": "calendar",
+        "value": "person-1"
+      },
+      "timeoutSecond": 30
+    }
+  ],
+  "tool-invoke-response": [
+    {
+      "provider": "internkim",
+      "selectedBackend": "device",
+      "toolName": "calendar.add",
+      "outcome": "succeeded",
+      "effects": [
+        {
+          "objectType": "calendar_event",
+          "effect": "created",
+          "id": "event-1"
+        }
+      ],
+      "status": "success",
+      "content": "{\"eventID\":\"event-1\"}",
+      "isError": false,
+      "result": {
+        "eventID": "event-1"
+      }
+    }
+  ]
+}

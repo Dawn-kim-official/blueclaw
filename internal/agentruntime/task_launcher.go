@@ -66,6 +66,9 @@ type TaskLaunchRequest struct {
 	PriorTask                  agent.PriorTaskContext
 	ScheduledRun               agent.ScheduledRunContext
 	PrecomputedTurnDecision    *agent.TurnDecision
+	IsPrecomputedDecisionExact bool
+	SkipSkillSelection         bool
+	UseEmptyToolCatalog        bool
 	AmbientDuty                agent.AmbientDutyContext
 	PinnedToolNames            []string
 	PinnedSkillNames           []string
@@ -174,7 +177,6 @@ func (taskLauncher *TaskLauncher) Launch(ctx context.Context, request TaskLaunch
 	if record.Error != "" {
 		return taskLauncher.completeLaunchFailure(ctx, request, normalizedProfileName, nil, record.StepName, launchRecords, errorFromStepRecord(record)), nil
 	}
-	taskLauncher.toolCatalogBuilder.RefreshLiveCapabilityInputSchemas(ctx)
 	toolSet, record := runLaunchStep(ctx, execution, buildToolSetLaunchStep{})
 	launchRecords = append(launchRecords, record)
 	toolNames := toolSet.ListToolNames()
@@ -199,10 +201,10 @@ func (taskLauncher *TaskLauncher) Launch(ctx context.Context, request TaskLaunch
 	})
 	launchRecords = append(launchRecords, record)
 	if record.Error != "" {
-		if strings.TrimSpace(turnResult.TaskRun.TaskRunID) == "" {
-			return taskLauncher.completeLaunchFailure(ctx, request, normalizedProfileName, toolNames, record.StepName, launchRecords, errorFromStepRecord(record)), nil
+		if taskRunID := strings.TrimSpace(turnResult.TaskRun.TaskRunID); taskRunID != "" {
+			request.ExistingTaskRunID = taskRunID
 		}
-		return TaskLaunchResult{}, errorFromStepRecord(record)
+		return taskLauncher.completeLaunchFailure(ctx, request, normalizedProfileName, toolNames, record.StepName, launchRecords, errorFromStepRecord(record)), nil
 	}
 	launchedToolNames := turnResult.ToolNames
 	if len(launchedToolNames) == 0 {
@@ -252,6 +254,9 @@ func (buildToolSetLaunchStep) Name() string {
 }
 
 func (buildToolSetLaunchStep) Run(_ context.Context, execution *taskLaunchExecution) (*agent.ToolSet, error) {
+	if execution.Request.UseEmptyToolCatalog {
+		return agent.NewToolSet(nil), nil
+	}
 	toolSet := execution.Launcher.toolCatalogBuilder.BuildToolSet(
 		execution.Launcher.toolCatalogRequestForLaunch(execution.Request, execution.NormalizedProfileName),
 	)
@@ -375,39 +380,41 @@ func (taskLauncher *TaskLauncher) completeLaunchFailure(ctx context.Context, req
 
 func (taskLauncher *TaskLauncher) agentTurnRequestForLaunch(request TaskLaunchRequest, profileName string, memoryFacts []memory.MemoryFact, toolSet *agent.ToolSet, conversationScope ConversationResourceScope) agent.AgentTurnRequest {
 	return agent.AgentTurnRequest{
-		RequesterPersonID:       request.RequesterPersonID,
-		RequesterEmail:          request.RequesterEmail,
-		RequesterName:           request.RequesterName,
-		RequesterPlatformUserID: request.RequesterPlatformUserID,
-		SourceReference:         request.SourceReference,
-		IsApprovalContinuation:  request.IsApprovalContinuation,
-		IsRuntimeRestartResume:  request.IsRuntimeRestartResume,
-		ExistingTaskRunID:       request.ExistingTaskRunID,
-		OriginReplyTargetID:     request.OriginReplyTargetID,
-		OriginIsThread:          request.OriginIsThread,
-		Platform:                request.Platform,
-		RequesterCallingName:    request.RequesterCallingName,
-		RequesterHandle:         request.RequesterHandle,
-		RequesterCircles:        append([]string{}, request.PersonAccess.Circles...),
-		ProfileName:             profileName,
-		ConversationID:          request.ConversationID,
-		ConversationType:        request.ConversationType,
-		Prompt:                  request.Prompt,
-		InputParts:              append([]agent.AgentPart{}, request.InputParts...),
-		ResponseLanguage:        request.ResponseLanguage,
-		VisibleContext:          request.VisibleContext,
-		ActiveGoal:              request.ActiveGoal,
-		PriorTask:               request.PriorTask,
-		ScheduledRun:            request.ScheduledRun,
-		PrecomputedTurnDecision: request.PrecomputedTurnDecision,
-		AmbientDuty:             request.AmbientDuty,
-		MemoryFacts:             memoryFacts,
-		ToolSet:                 toolSet,
-		PinnedToolNames:         append([]string{}, request.PinnedToolNames...),
-		PinnedSkillNames:        append([]string{}, request.PinnedSkillNames...),
-		WorkspaceRootPath:       taskLauncher.toolCatalogBuilder.WorkspaceRootPath(),
-		WorkspaceDefaultPath:    conversationScope.DefaultDirectoryPath,
-		CheckpointSender:        request.CheckpointSender,
+		RequesterPersonID:          request.RequesterPersonID,
+		RequesterEmail:             request.RequesterEmail,
+		RequesterName:              request.RequesterName,
+		RequesterPlatformUserID:    request.RequesterPlatformUserID,
+		SourceReference:            request.SourceReference,
+		IsApprovalContinuation:     request.IsApprovalContinuation,
+		IsRuntimeRestartResume:     request.IsRuntimeRestartResume,
+		ExistingTaskRunID:          request.ExistingTaskRunID,
+		OriginReplyTargetID:        request.OriginReplyTargetID,
+		OriginIsThread:             request.OriginIsThread,
+		Platform:                   request.Platform,
+		RequesterCallingName:       request.RequesterCallingName,
+		RequesterHandle:            request.RequesterHandle,
+		RequesterCircles:           append([]string{}, request.PersonAccess.Circles...),
+		ProfileName:                profileName,
+		ConversationID:             request.ConversationID,
+		ConversationType:           request.ConversationType,
+		Prompt:                     request.Prompt,
+		InputParts:                 append([]agent.AgentPart{}, request.InputParts...),
+		ResponseLanguage:           request.ResponseLanguage,
+		VisibleContext:             request.VisibleContext,
+		ActiveGoal:                 request.ActiveGoal,
+		PriorTask:                  request.PriorTask,
+		ScheduledRun:               request.ScheduledRun,
+		PrecomputedTurnDecision:    request.PrecomputedTurnDecision,
+		IsPrecomputedDecisionExact: request.IsPrecomputedDecisionExact,
+		SkipSkillSelection:         request.SkipSkillSelection,
+		AmbientDuty:                request.AmbientDuty,
+		MemoryFacts:                memoryFacts,
+		ToolSet:                    toolSet,
+		PinnedToolNames:            append([]string{}, request.PinnedToolNames...),
+		PinnedSkillNames:           append([]string{}, request.PinnedSkillNames...),
+		WorkspaceRootPath:          taskLauncher.toolCatalogBuilder.WorkspaceRootPath(),
+		WorkspaceDefaultPath:       conversationScope.DefaultDirectoryPath,
+		CheckpointSender:           request.CheckpointSender,
 	}
 }
 
