@@ -153,6 +153,18 @@ func (supervisorService *SupervisorService) RestartGuest(bootContext context.Con
 	return supervisorService.BootGuest(bootContext)
 }
 
+func (supervisorService *SupervisorService) GuestExited(guestInstance GuestInstance) <-chan struct{} {
+	supervisorService.mutex.RLock()
+	defer supervisorService.mutex.RUnlock()
+	exitState, isFound := supervisorService.exitByInstanceID[guestInstance.InstanceID]
+	if !isFound {
+		closedChannel := make(chan struct{})
+		close(closedChannel)
+		return closedChannel
+	}
+	return exitState.exited
+}
+
 func (supervisorService *SupervisorService) WaitForGuestHealth(healthContext context.Context, guestInstance GuestInstance) error {
 	healthCheckInterval := supervisorService.HealthCheckInterval
 	if healthCheckInterval <= 0 {
