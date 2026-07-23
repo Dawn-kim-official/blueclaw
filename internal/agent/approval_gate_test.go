@@ -161,6 +161,69 @@ func TestExecuteApprovedHeldCallConsumesGrantAfterVerbatimExecution(t *testing.T
 	}
 }
 
+func TestApprovalContinuationKeepsPrePauseObservations(t *testing.T) {
+	languageModel := &sequenceLanguageModel{contents: []string{
+		`{"action":"continue","toolName":"message.search","toolInput":{"queries":["고객지원 월간회의"]}}`,
+		`{"action":"continue","toolName":"message.delete","toolInput":{"messageIDs":["message-1"]}}`,
+		`{"question":"메모를 삭제할까요?"}`,
+		finishMessageDocument("메모를 삭제했습니다."),
+	}}
+	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 6})
+	toolRegistry := newTestCapabilityToolSet([]string{"message.search", "message.delete"})
+	searchCallCount := 0
+	registerTestTool(toolRegistry, ToolDefinition{Name: "message.search"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		searchCallCount++
+		return testToolSuccess(`{"messageIDs":["message-1"]}`), nil
+	})
+	deleteCallCount := 0
+	registerTestTool(toolRegistry, ToolDefinition{Name: "message.delete", RequiresApproval: true}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		deleteCallCount++
+		return testToolSuccess(`{"deletedMessageIDs":["message-1"]}`), nil
+	})
+
+	firstResult, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
+		RequesterPersonID:     "person-1",
+		ConversationID:        "conversation-1",
+		Prompt:                "고객지원 월간회의 메모를 찾아서 삭제해줘",
+		ResponseLanguage:      ResponseLanguageKorean,
+		ToolSet:               toolRegistry,
+		PinnedToolNames:       toolRegistry.ListToolNames(),
+		RequiredEvidenceTools: []string{"message.search", "message.delete"},
+		WorkspaceRootPath:     t.TempDir(),
+	})
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if firstResult.TaskRun.Status != task.TaskStatusWaitingApproval || searchCallCount != 1 || deleteCallCount != 0 {
+		t.Fatalf("expected search then held delete, got search=%d delete=%d result=%+v", searchCallCount, deleteCallCount, firstResult)
+	}
+
+	if _, errorValue := services.taskRunService.AdvanceTaskRun(firstResult.TaskRun.TaskRunID, "assistant"); errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	secondResult, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
+		RequesterPersonID:      "person-1",
+		ExistingTaskRunID:      firstResult.TaskRun.TaskRunID,
+		IsApprovalContinuation: true,
+		ConversationID:         "conversation-1",
+		Prompt:                 "승인",
+		ResponseLanguage:       ResponseLanguageKorean,
+		ToolSet:                toolRegistry,
+		PinnedToolNames:        toolRegistry.ListToolNames(),
+		RequiredEvidenceTools:  []string{"message.search", "message.delete"},
+		WorkspaceRootPath:      t.TempDir(),
+	})
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if secondResult.TaskRun.Status != task.TaskStatusCompleted {
+		t.Fatalf("expected the continuation to finish from restored evidence, got %+v", secondResult)
+	}
+	if searchCallCount != 1 || deleteCallCount != 1 {
+		t.Fatalf("expected the pre-pause search to survive the continuation, got search=%d delete=%d", searchCallCount, deleteCallCount)
+	}
+}
+
 func TestCurrentThreadSendSkipsRuntimeApproval(t *testing.T) {
 	sendDefinition := testToolDescriptor("message.send")
 	sendDefinition.RequiresApproval = true
