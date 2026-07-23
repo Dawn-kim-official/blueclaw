@@ -2,162 +2,25 @@ package agent
 
 import (
 	"context"
+	"fmt"
+	"os"
 	"strings"
 )
 
-func promoteIntakeDecisionForSelectedSkills(decision IntakeDecision, instructionBundle InstructionBundle, options IntakeOptions) IntakeDecision {
-	decision = applySkillTaskLevelFloor(decision, instructionBundle, options.SkillTaskLevelFloor)
-	decision.EstimatedMinutes = selectedSkillRecommendedMinutesFloor(decision.EstimatedMinutes, instructionBundle)
-	defaultTaskLevel := options.DefaultTaskLevel
-	if !canPromoteIntakeDecisionForSelectedSkills(decision) || !selectedSkillsNeedBoundedExecution(instructionBundle, decision.Classification) {
-		return decision
-	}
-	decision.Classification = IntakeClassificationBoundedTask
-	if decision.TaskShape == "" || decision.TaskShape == TaskShapeImmediateReply || decision.TaskShape == TaskShapeApprovalGatedTask || decision.UsedDeterministicFallback {
-		decision.TaskShape = taskShapeForSelectedSkills(instructionBundle)
-	}
-	decision.TaskLevel = LargerTaskLevel(decision.TaskLevel, defaultTaskLevel)
-	decision.Reason = "selected skill requires bounded completion evidence"
-	decision.UserFacingReply = ""
-	// The promotion itself came from a selected skill's completion contract, not from the
-	// intake model's own judgment, so that contract's evidence requirements have to become
-	// hard requirements here directly. Leaving them as advisory hints would let the finish
-	// gate accept a completion with no independent corroborating signal (e.g. a requested
-	// attachment suffix) to promote the hint on its own, defeating the whole promotion.
-	for _, skillInstruction := range selectedSkillInstructionList(instructionBundle) {
-		if !selectedSkillRequiresCompletionEvidence(skillInstruction) {
-			continue
-		}
-		decision.RequiredEvidenceTools = appendUniqueStrings(decision.RequiredEvidenceTools, skillInstruction.Completion.RequiredEvidenceTools...)
-		decision.RequestedOutputFormats = appendUniqueStrings(decision.RequestedOutputFormats, attachmentSuffixFormats(skillInstruction.Completion.RequiredAttachmentSuffixes)...)
-	}
-	return decision
-}
-
-// Some skills always warrant a stronger model than the generic skill floor,
-// regardless of the delivered output format. Presentation and website work is
-// visual deliverable work whose quality depends on the strongest tier, whether
-// it ships as PPTX, PDF, or HTML, so InternKim floors those skills at xhigh
-// here rather than inferring it from an output-file suffix downstream.
-var taskLevelFloorBySelectedSkillName = map[string]TaskLevel{
-	"presentation": TaskLevelXHigh,
-	"website":      TaskLevelXHigh,
-}
-
-func selectedSkillRecommendedMinutesFloor(estimatedMinutes int, instructionBundle InstructionBundle) int {
-	result := estimatedMinutes
-	for _, skillInstruction := range selectedSkillInstructionList(instructionBundle) {
-		if skillInstruction.RecommendedMinutes > result {
-			result = skillInstruction.RecommendedMinutes
-		}
-	}
-	return result
-}
-
-func applySkillTaskLevelFloor(decision IntakeDecision, instructionBundle InstructionBundle, defaultSkillFloor TaskLevel) IntakeDecision {
-	for _, skillInstruction := range selectedSkillInstructionList(instructionBundle) {
-		if !selectedSkillRequiresCompletionEvidence(skillInstruction) {
-			continue
-		}
-		if decision.Classification == IntakeClassificationQuickReply && !selectedSkillCanPromoteQuickReply(instructionBundle, skillInstruction.Name) {
-			continue
-		}
-		floor := defaultSkillFloor
-		if override, hasOverride := taskLevelFloorBySelectedSkillName[strings.ToLower(strings.TrimSpace(skillInstruction.Name))]; hasOverride {
-			floor = LargerTaskLevel(floor, override)
-		}
-		if floor == "" {
-			continue
-		}
-		decision.TaskLevel = LargerTaskLevel(decision.TaskLevel, floor)
-	}
-	return decision
-}
-
-func attachmentSuffixFormats(suffixes []string) []string {
-	formats := []string{}
-	for _, suffix := range suffixes {
-		formats = append(formats, strings.TrimPrefix(strings.ToLower(strings.TrimSpace(suffix)), "."))
-	}
-	return normalizeRequestedOutputFormats(formats)
-}
-
-func canPromoteIntakeDecisionForSelectedSkills(decision IntakeDecision) bool {
-	if decision.UsedDeterministicFallback {
-		return true
-	}
-	switch decision.Classification {
-	case IntakeClassificationQuickReply, IntakeClassificationNeedsConfirmation, IntakeClassificationUnsupported:
-		return true
-	default:
-		return false
-	}
-}
-
-func taskShapeForSelectedSkills(instructionBundle InstructionBundle) TaskShape {
-	for _, skillInstruction := range selectedSkillInstructionList(instructionBundle) {
-		if skillSupportsToolPrefix(skillInstruction, "schedule.") {
-			return TaskShapeScheduledTask
-		}
-	}
-	return TaskShapeResearchTask
-}
-
-func selectedSkillsNeedBoundedExecution(instructionBundle InstructionBundle, classification IntakeClassification) bool {
-	for _, skillInstruction := range selectedSkillInstructionList(instructionBundle) {
-		if classification == IntakeClassificationQuickReply {
-			if selectedSkillRequiresCompletionEvidence(skillInstruction) && selectedSkillCanPromoteQuickReply(instructionBundle, skillInstruction.Name) {
-				return true
-			}
-			continue
-		}
-		if selectedSkillRequiresCompletionEvidence(skillInstruction) {
-			return true
-		}
-		if artifactSkillCanRecoverIntakeRefusal(classification, SkillToolNames(skillInstruction)) {
-			return true
-		}
-	}
-	return false
-}
-
-func selectedSkillCanPromoteQuickReply(instructionBundle InstructionBundle, skillName string) bool {
-	for _, skillDecision := range instructionBundle.SkillDecisions {
-		if skillDecision.Name != skillName || skillDecision.Status != "selected" {
-			continue
-		}
-		return skillDecision.Reason != "bm25_fallback"
-	}
-	return false
-}
-
 func selectedSkillInstructionList(instructionBundle InstructionBundle) []SkillInstruction {
-	selectedSkillNames := selectedSkillNameSet(instructionBundle.SkillDecisions)
+	skillInstructionsByName := skillInstructionByName(instructionBundle.Skills)
 	skillInstructions := []SkillInstruction{}
-	for _, skillInstruction := range instructionBundle.Skills {
-		if selectedSkillNames[skillInstruction.Name] {
-			skillInstructions = append(skillInstructions, skillInstruction)
+	for _, skillDecision := range instructionBundle.SkillDecisions {
+		if skillDecision.Status != "selected" {
+			continue
 		}
+		skillInstruction, isFound := skillInstructionsByName[skillDecision.Name]
+		if !isFound {
+			continue
+		}
+		skillInstructions = append(skillInstructions, skillInstruction)
 	}
 	return skillInstructions
-}
-
-func selectedSkillRequiresCompletionEvidence(skillInstruction SkillInstruction) bool {
-	return len(skillInstruction.Completion.RequiredEvidenceTools) > 0 ||
-		len(skillInstruction.Completion.RequiredAttachmentSuffixes) > 0
-}
-
-func artifactSkillCanRecoverIntakeRefusal(classification IntakeClassification, allowedTools []string) bool {
-	if classification != IntakeClassificationUnsupported && classification != IntakeClassificationNeedsConfirmation {
-		return false
-	}
-	for _, toolName := range allowedTools {
-		switch strings.TrimSpace(toolName) {
-		case "terminal.run", "file.write", "file.edit", FileDeliverToolName:
-			return true
-		}
-	}
-	return false
 }
 
 func (agentKernel *AgentKernel) currentInstructionBundle() InstructionBundle {
@@ -188,7 +51,9 @@ func selectInstructionBundleForRequestWithRetrieverAndRouter(ctx context.Context
 	retrievalResult := retrieveSkillCandidates(ctx, request, instructionBundle.Skills, skillRetriever, querySet, hasStructuredQueries)
 	candidateByName := skillCandidateByName(retrievalResult.SelectedCandidates)
 	candidateInstructions := visibleCandidateSkillInstructions(candidateSkillInstructions(instructionBundle.Skills, retrievalResult.SelectedCandidates), candidateByName, request.RequesterCircles)
-	contractArbitration, hasContractArbitration := skillSearchQueryRouter.ArbitrateContractSkills(ctx, request, candidateInstructions, candidateByName)
+	contractArbitrationResult := skillSearchQueryRouter.ArbitrateContractSkills(ctx, request, candidateInstructions, candidateByName)
+	contractArbitration := contractArbitrationResult.Arbitration
+	hasContractArbitration := contractArbitrationResult.Status == contractSkillArbitrationSucceeded
 	contractSelectedSkillNames := stringSet(contractArbitration.SelectedSkillNames)
 	for _, skillInstruction := range candidateInstructions {
 		skillCandidate, isFound := candidateByName[skillInstruction.Name]
@@ -221,20 +86,93 @@ func selectInstructionBundleForRequestWithRetrieverAndRouter(ctx context.Context
 		selectedSkillInstructions = append(selectedSkillInstructions, skillInstruction)
 		sources = append(sources, skillInstruction.Source)
 	}
+	if os.Getenv("BLUECLAW_DEBUG_SKILL_SELECTION") != "" {
+		fmt.Printf("DBG2 mode=%s candidates=%d decisions=%+v\n", retrievalResult.RetrievalMode, len(candidateInstructions), skillDecisions)
+	}
 	skillDecisions = append(skillDecisions, blockedSkillSelectionDecisions(instructionBundle.Skills, skillDecisions, request, normalizedAgentProfileName(request.ProfileName))...)
+	requiredNextTools := validatedContractNextTools(contractArbitration, selectedSkillInstructions, request)
+	requiredEvidenceTools := validatedContractEvidenceTools(contractArbitration, selectedSkillInstructions, request)
 	prompts = append(prompts, buildCompactSkillIndexPrompt(candidateInstructions))
 	prompts = append(prompts, buildSelectedSkillInstructionPrompt(defaultSkillInstructions))
 	prompts = append(prompts, buildSelectedSkillInstructionPrompt(selectedSkillInstructions))
 	return InstructionBundle{
-		Prompt:         strings.Join(nonEmptyStrings(prompts), "\n\n"),
-		Sources:        sources,
-		Skills:         appendSkillInstructions(instructionBundle.Skills, defaultSkillInstructions...),
-		SkillDecisions: skillDecisions,
-		RetrievalMode:  retrievalResult.RetrievalMode,
-		IndexStatus:    retrievalResult.IndexStatus,
-		CandidateCount: len(candidateInstructions),
-		SkillQueries:   append([]string{}, retrievalResult.QueryDescriptions...),
+		Prompt:                         strings.Join(nonEmptyStrings(prompts), "\n\n"),
+		Sources:                        sources,
+		Skills:                         appendSkillInstructions(instructionBundle.Skills, defaultSkillInstructions...),
+		SkillDecisions:                 skillDecisions,
+		RequiredNextTools:              requiredNextTools,
+		RequiredEvidenceTools:          requiredEvidenceTools,
+		HasContractSkillArbitration:    hasContractArbitration,
+		ContractSkillArbitrationFailed: contractArbitrationResult.Status == contractSkillArbitrationFailed,
+		RetrievalMode:                  retrievalResult.RetrievalMode,
+		IndexStatus:                    retrievalResult.IndexStatus,
+		CandidateCount:                 len(candidateInstructions),
+		SkillQueries:                   append([]string{}, retrievalResult.QueryDescriptions...),
 	}
+}
+
+func validatedContractNextTools(arbitration contractSkillArbitration, selectedSkills []SkillInstruction, request AgentRequest) []string {
+	return validateArbitratedToolNames(arbitration.RequiredNextTools, selectedSkillNextToolNameSet(selectedSkills, request), request, false)
+}
+
+func validatedContractEvidenceTools(arbitration contractSkillArbitration, selectedSkills []SkillInstruction, request AgentRequest) []string {
+	selectedToolNames := selectedSkillEvidenceToolNameSet(selectedSkills, request)
+	requiresSideEffect := requiredEvidenceIncludesSideEffect(request.ToolSet, request.ActiveGoal.OutcomeContract.RequiredEvidenceTools) ||
+		arbitrationHasSelectedSideEffect(arbitration.RequiredNextTools, selectedToolNames, request)
+	return validateArbitratedToolNames(arbitration.ExpectedEvidence, selectedToolNames, request, requiresSideEffect)
+}
+
+func selectedSkillNextToolNameSet(selectedSkills []SkillInstruction, request AgentRequest) map[string]bool {
+	toolNames := selectedSkillToolNameSet(selectedSkills)
+	for _, toolName := range KernelToolNames() {
+		if requestHasToolName(request, toolName) {
+			toolNames[toolName] = true
+		}
+	}
+	return toolNames
+}
+
+func selectedSkillEvidenceToolNameSet(selectedSkills []SkillInstruction, request AgentRequest) map[string]bool {
+	toolNames := selectedSkillToolNameSet(selectedSkills)
+	for _, toolName := range request.ActiveGoal.OutcomeContract.RequiredEvidenceTools {
+		if requiredEvidenceToolCanBeSatisfied(request.ToolSet, toolName) {
+			toolNames[toolName] = true
+		}
+	}
+	return toolNames
+}
+
+func selectedSkillToolNameSet(selectedSkills []SkillInstruction) map[string]bool {
+	selectedToolNames := map[string]bool{}
+	for _, skillInstruction := range selectedSkills {
+		for _, toolName := range SkillToolNames(skillInstruction) {
+			selectedToolNames[toolName] = true
+		}
+	}
+	return selectedToolNames
+}
+
+func arbitrationHasSelectedSideEffect(toolNames []string, selectedToolNames map[string]bool, request AgentRequest) bool {
+	for _, toolName := range appendUniqueStrings(toolNames) {
+		if selectedToolNames[toolName] && requestHasToolName(request, toolName) && (IsArtifactDeliveryTool(toolName) || requiredEvidenceToolNeedsSuccessfulSideEffect(request.ToolSet, toolName)) {
+			return true
+		}
+	}
+	return false
+}
+
+func validateArbitratedToolNames(toolNames []string, selectedToolNames map[string]bool, request AgentRequest, requiresSideEffect bool) []string {
+	validatedToolNames := []string{}
+	for _, toolName := range appendUniqueStrings(toolNames) {
+		if !selectedToolNames[toolName] || !requestHasToolName(request, toolName) {
+			continue
+		}
+		if requiresSideEffect && !IsArtifactDeliveryTool(toolName) && !requiredEvidenceToolNeedsSuccessfulSideEffect(request.ToolSet, toolName) {
+			continue
+		}
+		validatedToolNames = append(validatedToolNames, toolName)
+	}
+	return validatedToolNames
 }
 
 func instructionBundleWithPinnedSkills(instructionBundle InstructionBundle, request AgentRequest) InstructionBundle {
@@ -262,6 +200,44 @@ func instructionBundleWithPinnedSkills(instructionBundle InstructionBundle, requ
 	return instructionBundle
 }
 
+func instructionBundleWithToolOwningSkills(instructionBundle InstructionBundle, request AgentRequest, suggestedToolNames []string) InstructionBundle {
+	if len(suggestedToolNames) == 0 {
+		return instructionBundle
+	}
+	selectedSkillName := selectedSkillNames(instructionBundle.SkillDecisions)
+	owningSkillInstructions := []SkillInstruction{}
+	for _, skillInstruction := range instructionBundle.Skills {
+		if selectedSkillName[skillInstruction.Name] {
+			continue
+		}
+		owningToolName := firstOwnedSuggestedToolName(skillInstruction, suggestedToolNames)
+		if owningToolName == "" {
+			continue
+		}
+		owningSkillInstructions = append(owningSkillInstructions, skillInstruction)
+		instructionBundle.SkillDecisions = append(instructionBundle.SkillDecisions, selectedSkillDecision(skillInstruction, normalizedAgentProfileName(request.ProfileName), "owns_suggested_tool "+owningToolName))
+		instructionBundle.Sources = append(instructionBundle.Sources, skillInstruction.Source)
+		selectedSkillName[skillInstruction.Name] = true
+	}
+	if len(owningSkillInstructions) == 0 {
+		return instructionBundle
+	}
+	instructionBundle.Prompt = strings.Join(nonEmptyStrings([]string{
+		instructionBundle.Prompt,
+		buildSelectedSkillInstructionPrompt(owningSkillInstructions),
+	}), "\n\n")
+	return instructionBundle
+}
+
+func firstOwnedSuggestedToolName(skillInstruction SkillInstruction, suggestedToolNames []string) string {
+	for _, toolName := range SkillToolNames(skillInstruction) {
+		if stringSliceContains(suggestedToolNames, toolName) {
+			return toolName
+		}
+	}
+	return ""
+}
+
 func shouldSkipArtifactSkillForNonArtifactRequest(skillInstruction SkillInstruction, skillCandidate SkillCandidate, request AgentRequest) bool {
 	if skillCandidate.Reason == "direct_skill_name" || strings.TrimSpace(skillCandidate.Name) == "" {
 		return false
@@ -269,7 +245,7 @@ func shouldSkipArtifactSkillForNonArtifactRequest(skillInstruction SkillInstruct
 	if strings.TrimSpace(request.ActiveGoal.OutcomeContract.ArtifactRequirement) != ArtifactRequirementNone {
 		return false
 	}
-	return skillSupportsSiteArtifact(skillInstruction) || skillSupportsFileDelivery(skillInstruction)
+	return skillSupportsFileDelivery(skillInstruction)
 }
 
 func appendSkillInstructions(left []SkillInstruction, right ...SkillInstruction) []SkillInstruction {
@@ -293,40 +269,11 @@ func appendSkillInstructions(left []SkillInstruction, right ...SkillInstruction)
 }
 
 func VisibleSkillInstructionsForRequester(skillInstructions []SkillInstruction, requesterCircles []string) []SkillInstruction {
-	visibleSkillInstructions := []SkillInstruction{}
-	for _, skillInstruction := range skillInstructions {
-		if skillHiddenFromRequester(skillInstruction, requesterCircles) {
-			continue
-		}
-		visibleSkillInstructions = append(visibleSkillInstructions, skillInstruction)
-	}
-	return visibleSkillInstructions
+	return append([]SkillInstruction{}, skillInstructions...)
 }
 
 func visibleCandidateSkillInstructions(skillInstructions []SkillInstruction, candidateByName map[string]SkillCandidate, requesterCircles []string) []SkillInstruction {
-	visibleSkillInstructions := []SkillInstruction{}
-	for _, skillInstruction := range skillInstructions {
-		skillCandidate, isCandidate := candidateByName[skillInstruction.Name]
-		isDirectRequest := isCandidate && skillCandidate.Reason == "direct_skill_name"
-		if skillHiddenFromRequester(skillInstruction, requesterCircles) && !isDirectRequest {
-			continue
-		}
-		visibleSkillInstructions = append(visibleSkillInstructions, skillInstruction)
-	}
-	return visibleSkillInstructions
-}
-
-func skillHiddenFromRequester(skillInstruction SkillInstruction, requesterCircles []string) bool {
-	hiddenCircleByName := map[string]bool{}
-	for _, circleID := range skillInstruction.HiddenFromCircles {
-		hiddenCircleByName[strings.ToLower(strings.TrimSpace(circleID))] = true
-	}
-	for _, circleID := range requesterCircles {
-		if hiddenCircleByName[strings.ToLower(strings.TrimSpace(circleID))] {
-			return true
-		}
-	}
-	return false
+	return append([]SkillInstruction{}, skillInstructions...)
 }
 
 func blockedSkillSelectionDecisions(skillInstructions []SkillInstruction, existingSkillDecisions []SkillSelectionDecision, request AgentRequest, profileName string) []SkillSelectionDecision {
@@ -339,9 +286,6 @@ func blockedSkillSelectionDecisions(skillInstructions []SkillInstruction, existi
 		if existingDecisionByName[skillInstruction.Name] {
 			continue
 		}
-		if skillHiddenFromRequester(skillInstruction, request.RequesterCircles) {
-			continue
-		}
 		skillDecision := skillAvailabilityDecision(skillInstruction, request, profileName)
 		if skillDecision.Status == "skipped" && skillDecision.Reason != "no_trigger_matched" {
 			blockedDecisions = append(blockedDecisions, skillDecision)
@@ -352,10 +296,7 @@ func blockedSkillSelectionDecisions(skillInstructions []SkillInstruction, existi
 
 func retrieveSkillCandidates(ctx context.Context, request AgentRequest, skillInstructions []SkillInstruction, skillRetriever SkillRetriever, querySet SkillSearchQuerySet, hasStructuredQueries bool) SkillRetrievalResult {
 	if hasStructuredQueries {
-		querySet = normalizeSkillSearchQuerySet(augmentSkillSearchQuerySetForArtifactContract(querySet, request))
-		if len(querySet.Queries) == 0 {
-			return SkillRetrievalResult{RetrievalMode: "structured_query", IndexStatus: "empty_query"}
-		}
+		querySet = skillRetrievalQuerySet(request, querySet)
 	}
 	var retrievalResult SkillRetrievalResult
 	if skillRetriever != nil {
@@ -364,14 +305,53 @@ func retrieveSkillCandidates(ctx context.Context, request AgentRequest, skillIns
 		} else {
 			retrievalResult = skillRetriever.Retrieve(ctx, request, skillInstructions, maxSkillIndexCandidateCount)
 		}
-		return retrievalResult
+	} else if hasStructuredQueries {
+		retrievalResult = retrieveSkillsWithBM25QuerySet(request, skillInstructions, querySet, maxSkillIndexCandidateCount, "embedding_unconfigured")
+	} else {
+		retrievalResult = retrieveSkillsWithBM25(request, skillInstructions, skillSelectionPrompt(request), maxSkillIndexCandidateCount, "embedding_unconfigured")
 	}
-	if hasStructuredQueries {
-		retrievalResult = retrieveSkillsWithBM25(request, skillInstructions, skillSearchQueryText(querySet), maxSkillIndexCandidateCount, "embedding_unconfigured")
-		return retrievalResult
+	return addRequiredEvidenceSkillCandidates(retrievalResult, request, skillInstructions, maxSkillIndexCandidateCount)
+}
+
+func addRequiredEvidenceSkillCandidates(result SkillRetrievalResult, request AgentRequest, skillInstructions []SkillInstruction, limit int) SkillRetrievalResult {
+	requiredToolNames := stringSet(outcomeContractRequiredToolNames(request.ActiveGoal.OutcomeContract))
+	existingCandidateNames := map[string]bool{}
+	for _, candidate := range result.SelectedCandidates {
+		existingCandidateNames[candidate.Name] = true
 	}
-	retrievalResult = retrieveSkillsWithBM25(request, skillInstructions, skillSelectionPrompt(request), maxSkillIndexCandidateCount, "embedding_unconfigured")
-	return retrievalResult
+	requiredCandidates := []SkillCandidate{}
+	for _, skillInstruction := range skillInstructions {
+		if existingCandidateNames[skillInstruction.Name] || !isSkillAllowedForAutomaticRetrieval(skillInstruction, request) {
+			continue
+		}
+		if !skillOwnsAnyTool(skillInstruction, requiredToolNames) {
+			continue
+		}
+		requiredCandidates = append(requiredCandidates, SkillCandidate{
+			Name:   skillInstruction.Name,
+			Score:  1,
+			Reason: "required_evidence_tool",
+			Source: skillInstruction.Source,
+		})
+	}
+	result.SelectedCandidates = limitSkillCandidates(append(requiredCandidates, result.SelectedCandidates...), limit)
+	result.CandidateCount = len(result.SelectedCandidates)
+	return result
+}
+
+func skillOwnsAnyTool(skillInstruction SkillInstruction, toolNames map[string]bool) bool {
+	for _, toolName := range SkillToolNames(skillInstruction) {
+		if toolNames[toolName] {
+			return true
+		}
+	}
+	return false
+}
+
+func skillRetrievalQuerySet(request AgentRequest, supplementalQueries SkillSearchQuerySet) SkillSearchQuerySet {
+	queries := []SkillSearchQuery{{Description: strings.TrimSpace(request.Prompt)}}
+	queries = append(queries, supplementalQueries.Queries...)
+	return normalizeSkillSearchQuerySet(SkillSearchQuerySet{Queries: queries})
 }
 
 func candidateSkillInstructions(skillInstructions []SkillInstruction, skillCandidates []SkillCandidate) []SkillInstruction {
@@ -432,31 +412,8 @@ func minimumSelectionScoreForCandidate(skillCandidate SkillCandidate) float64 {
 	return 0
 }
 
-func requestForSkillSelection(request AgentRequest) AgentRequest {
-	request.Prompt = skillSelectionPrompt(request)
-	return request
-}
-
 func skillSelectionPrompt(request AgentRequest) string {
-	prompt := strings.TrimSpace(request.Prompt)
-	if !shouldUseVisibleContextForSkillSelection(prompt) {
-		return prompt
-	}
-	contextLines := []string{}
-	for _, message := range request.VisibleContext.Messages {
-		text := strings.TrimSpace(message.Text)
-		if text != "" {
-			contextLines = append(contextLines, text)
-		}
-	}
-	if len(contextLines) == 0 {
-		return prompt
-	}
-	return strings.Join(nonEmptyStrings([]string{strings.Join(contextLines, "\n"), prompt}), "\n")
-}
-
-func shouldUseVisibleContextForSkillSelection(prompt string) bool {
-	return len([]rune(strings.TrimSpace(prompt))) <= 20
+	return strings.TrimSpace(request.Prompt)
 }
 
 func normalizedAgentProfileName(profileName string) string {
@@ -497,10 +454,28 @@ func buildSelectedSkillInstructionPrompt(skillInstructions []SkillInstruction) s
 	}
 	for _, skillInstruction := range skillInstructions {
 		if strings.TrimSpace(skillInstruction.Prompt) != "" {
-			parts = append(parts, strings.TrimSpace(skillInstruction.Prompt))
+			parts = append(parts, selectedSkillInstructionPrompt(skillInstruction))
 		}
 	}
 	return strings.Join(parts, "\n\n")
+}
+
+func selectedSkillInstructionPrompt(skillInstruction SkillInstruction) string {
+	return strings.Join([]string{
+		"Skill: " + strings.TrimSpace(skillInstruction.Name),
+		"Source: " + selectedSkillSourcePath(skillInstruction),
+		"Resolve relative scripts, references, and assets from the source directory.",
+		strings.TrimSpace(skillInstruction.Prompt),
+	}, "\n")
+}
+
+func selectedSkillSourcePath(skillInstruction SkillInstruction) string {
+	skillName := strings.TrimSpace(skillInstruction.Name)
+	sourcePath := "/" + strings.TrimPrefix(strings.ReplaceAll(strings.TrimSpace(skillInstruction.Source.Path), "\\", "/"), "/")
+	if strings.Contains(sourcePath, "/.agents/skills/") {
+		return "/workspace/.agents/skills/" + skillName + "/SKILL.md"
+	}
+	return "/workspace/skills/" + skillName + "/SKILL.md"
 }
 
 func nonEmptyStrings(values []string) []string {

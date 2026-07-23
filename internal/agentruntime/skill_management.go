@@ -54,13 +54,13 @@ var builtInSkillNames = map[string]bool{
 	"zipcode-search":                    true,
 }
 
-var standardSkillFrontmatterKeys = map[string]bool{
-	"allowed-tools": true,
-	"compatibility": true,
-	"description":   true,
-	"license":       true,
-	"metadata":      true,
-	"name":          true,
+var supportedSkillFrontmatterKeys = map[string]bool{
+	"compatibility":   true,
+	"description":     true,
+	"license":         true,
+	"metadata":        true,
+	"name":            true,
+	"tool-references": true,
 }
 
 type skillAddInput struct {
@@ -79,16 +79,33 @@ type skillAddResult struct {
 	Name          string   `json:"name"`
 	Path          string   `json:"path"`
 	Status        string   `json:"status"`
+	Written       bool     `json:"written"`
 	ResourcePaths []string `json:"resourcePaths"`
 	Warnings      []string `json:"warnings"`
 }
+
+type skillRemoveResult struct {
+	Name    string `json:"name"`
+	Path    string `json:"path"`
+	Status  string `json:"status"`
+	Removed bool   `json:"removed"`
+}
+
+var (
+	skillAddInputSchema          = json.RawMessage(`{"type":"object","properties":{"name":{"type":"string","minLength":1,"maxLength":64,"pattern":"^[a-z0-9][a-z0-9-]{0,63}$"},"content":{"type":"string","minLength":1,"pattern":"\\S"},"resources":{"type":"array","items":{"type":"object","properties":{"path":{"type":"string","minLength":1,"pattern":"\\S"},"content":{"type":"string"},"mode":{"type":"integer","minimum":0}},"required":["path","content"],"additionalProperties":false}}},"required":["name","content"],"additionalProperties":false}`)
+	skillAddInputIntentSchema    = json.RawMessage(`{"type":"object","properties":{"name":{"type":"string","minLength":1,"maxLength":64,"pattern":"^[a-z0-9][a-z0-9-]{0,63}$"},"content":{"type":"string","minLength":1,"pattern":"\\S"},"resources":{"type":"array","items":{"type":"object","properties":{"path":{"type":"string","minLength":1,"pattern":"\\S"},"content":{"type":"string"},"mode":{"type":"integer","minimum":0}},"additionalProperties":false}}},"additionalProperties":false}`)
+	skillAddResultSchema         = json.RawMessage(`{"type":"object","properties":{"name":{"type":"string","minLength":1,"pattern":"\\S"},"path":{"type":"string","minLength":1,"pattern":"\\S"},"status":{"type":"string","enum":["created","updated"]},"written":{"const":true},"resourcePaths":{"type":"array","items":{"type":"string","minLength":1,"pattern":"\\S"},"uniqueItems":true},"warnings":{"type":"array","items":{"type":"string"}}},"required":["name","path","status","written","resourcePaths","warnings"],"additionalProperties":false}`)
+	skillRemoveInputSchema       = json.RawMessage(`{"type":"object","properties":{"name":{"type":"string","minLength":1,"maxLength":64,"pattern":"^[a-z0-9][a-z0-9-]{0,63}$"}},"required":["name"],"additionalProperties":false}`)
+	skillRemoveInputIntentSchema = json.RawMessage(`{"type":"object","properties":{"name":{"type":"string","minLength":1,"maxLength":64,"pattern":"^[a-z0-9][a-z0-9-]{0,63}$"}},"additionalProperties":false}`)
+	skillRemoveResultSchema      = json.RawMessage(`{"type":"object","properties":{"name":{"type":"string","minLength":1,"pattern":"\\S"},"path":{"type":"string","minLength":1,"pattern":"\\S"},"status":{"const":"removed"},"removed":{"const":true}},"required":["name","path","status","removed"],"additionalProperties":false}`)
+)
 
 func (toolCatalogBuilder *ToolCatalogBuilder) registerSkillManagementTools(toolRegistry *agent.ToolSet) {
 	agent.RegisterToolFunction(toolRegistry, agent.ToolFunction[skillAddInput, agent.ToolResult]{
 		Definition: agent.ToolDefinition{
 			Name:        "skill.add",
 			Description: "Create or update a user-managed SKILL.md under /workspace/.agents/skills/<name>.",
-			InputSchema: json.RawMessage(`{"type":"object","properties":{"name":{"type":"string"},"content":{"type":"string"},"resources":{"type":"array","items":{"type":"object","properties":{"path":{"type":"string"},"content":{"type":"string"},"mode":{"type":"number"}},"required":["path","content"]}}},"required":["name","content"]}`),
+			InputSchema: skillAddInputSchema,
 		},
 		Handler: toolCatalogBuilder.addSkillTool,
 		Result:  agent.IdentityToolResult,
@@ -97,7 +114,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerSkillManagementTools(toolR
 		Definition: agent.ToolDefinition{
 			Name:        "skill.remove",
 			Description: "Remove a user-managed skill under /workspace/.agents/skills/<name>.",
-			InputSchema: json.RawMessage(`{"type":"object","properties":{"name":{"type":"string"}},"required":["name"]}`),
+			InputSchema: skillRemoveInputSchema,
 		},
 		Handler: toolCatalogBuilder.removeSkillTool,
 		Result:  agent.IdentityToolResult,
@@ -141,13 +158,15 @@ func (toolCatalogBuilder *ToolCatalogBuilder) addSkillTool(toolContext context.C
 		return agent.ToolResult{}, errorValue
 	}
 	toolCatalogBuilder.refreshSkills(toolContext)
-	return agent.ToolSuccess(marshalToolResult(skillAddResult{
+	resultDocument := json.RawMessage(marshalToolResult(skillAddResult{
 		Name:          skillName,
 		Path:          toolCatalogBuilder.agentWorkspacePath(filepath.Join(skillDirectoryPath, "SKILL.md")),
 		Status:        status,
+		Written:       true,
 		ResourcePaths: writtenResourcePaths,
 		Warnings:      warnings,
-	})), nil
+	}))
+	return agent.ToolSuccessData(string(resultDocument), resultDocument), nil
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) removeSkillTool(toolContext context.Context, input skillRemoveInput) (agent.ToolResult, error) {
@@ -170,11 +189,13 @@ func (toolCatalogBuilder *ToolCatalogBuilder) removeSkillTool(toolContext contex
 		return agent.ToolResult{}, errorValue
 	}
 	toolCatalogBuilder.refreshSkills(toolContext)
-	return agent.ToolSuccess(marshalToolResult(map[string]string{
-		"name":   skillName,
-		"path":   toolCatalogBuilder.agentWorkspacePath(skillDirectoryPath),
-		"status": "removed",
-	})), nil
+	resultDocument := json.RawMessage(marshalToolResult(skillRemoveResult{
+		Name:    skillName,
+		Path:    toolCatalogBuilder.agentWorkspacePath(skillDirectoryPath),
+		Status:  "removed",
+		Removed: true,
+	}))
+	return agent.ToolSuccessData(string(resultDocument), resultDocument), nil
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) userManagedSkillDirectoryPath(skillName string) string {
@@ -243,8 +264,8 @@ func validateSkillFrontmatter(content string) error {
 			continue
 		}
 		key, _, hasKey := strings.Cut(trimmedLine, ":")
-		if !hasKey || !standardSkillFrontmatterKeys[strings.TrimSpace(key)] {
-			return errors.New("skill frontmatter contains a non-standard field")
+		if !hasKey || !supportedSkillFrontmatterKeys[strings.TrimSpace(key)] {
+			return errors.New("skill frontmatter contains an unsupported field")
 		}
 	}
 	return nil
@@ -380,194 +401,4 @@ func resourcePathPrefixes(resourcePaths []string) map[string]bool {
 
 func normalizedSkillDocument(content string) []byte {
 	return []byte(strings.TrimSpace(content) + "\n")
-}
-
-func isImmutableSkillPath(workspaceRootPath string, path string) bool {
-	cleanWorkspaceRootPath, errorValue := filepath.Abs(workspaceRootPath)
-	if errorValue != nil {
-		return false
-	}
-	cleanPath, errorValue := filepath.Abs(path)
-	if errorValue != nil {
-		return false
-	}
-	relativePath, errorValue := filepath.Rel(cleanWorkspaceRootPath, cleanPath)
-	if errorValue != nil {
-		return false
-	}
-	relativePath = filepath.ToSlash(filepath.Clean(relativePath))
-	return relativePath == "skills" ||
-		strings.HasPrefix(relativePath, "skills/") ||
-		relativePath == ".agents/skills/agent-browser" ||
-		strings.HasPrefix(relativePath, ".agents/skills/agent-browser/")
-}
-
-type skillSearchToolInput struct {
-	Queries []agent.SkillSearchQuery `json:"queries"`
-	Limit   int                      `json:"limit"`
-	Name    string                   `json:"name"`
-}
-
-func (toolCatalogBuilder *ToolCatalogBuilder) registerSkillSearchTool(toolRegistry *agent.ToolSet, handlerContext toolHandlerContext, availableToolSet *agent.ToolSet) {
-	if toolCatalogBuilder.skillRetriever == nil || toolCatalogBuilder.instructionBundleLoader == nil {
-		return
-	}
-	agent.RegisterToolFunction(toolRegistry, agent.ToolFunction[skillSearchToolInput, agent.ToolResult]{
-		Definition: agent.ToolDefinition{
-			Name:        "skill.search",
-			Description: "Search available Blueclaw skills by concise skill-need descriptions. Call with no queries to list every available skill, for example when asked what you can do. Call with name to fetch one visible skill by exact name and include its full instructions in prompt.",
-			InputSchema: json.RawMessage(`{"type":"object","properties":{"queries":{"type":"array","items":{"type":"object","properties":{"description":{"type":"string"}},"required":["description"]}},"limit":{"type":"number"},"name":{"type":"string"}}}`),
-		},
-		Handler: func(toolContext context.Context, input skillSearchToolInput) (agent.ToolResult, error) {
-			return toolCatalogBuilder.searchSkills(toolContext, input, handlerContext, availableToolSet)
-		},
-		Result: agent.IdentityToolResult,
-	})
-}
-
-func (toolCatalogBuilder *ToolCatalogBuilder) searchSkills(toolContext context.Context, input skillSearchToolInput, handlerContext toolHandlerContext, availableToolSet *agent.ToolSet) (agent.ToolResult, error) {
-	instructionBundle := toolCatalogBuilder.instructionBundleLoader()
-	if strings.TrimSpace(input.Name) != "" {
-		return skillSearchNameLookupResult(instructionBundle.Skills, input.Name), nil
-	}
-	visibleSkillInstructions := agent.VisibleSkillInstructionsForRequester(instructionBundle.Skills, handlerContext.request.PersonAccess.Circles)
-	if !hasSkillSearchQuery(input.Queries) {
-		result := listAllSkills(visibleSkillInstructions)
-		return agent.ToolSuccess(marshalToolResult(result)), nil
-	}
-	limit := input.Limit
-	if limit <= 0 || limit > 8 {
-		limit = 5
-	}
-	agentRequest := agent.AgentRequest{
-		ProfileName:       handlerContext.request.ProfileName,
-		Prompt:            handlerContext.request.Prompt,
-		VisibleContext:    handlerContext.request.VisibleContext,
-		RequesterPersonID: handlerContext.request.RequesterPersonID,
-		RequesterName:     handlerContext.request.RequesterName,
-		ToolSet:           availableToolSet,
-	}
-	retrievalResult := toolCatalogBuilder.skillRetriever.Search(toolContext, agentRequest, visibleSkillInstructions, agent.SkillSearchQuerySet{Queries: input.Queries}, limit)
-	retrievalResult = includeExactSkillNameMatches(visibleSkillInstructions, input.Queries, retrievalResult)
-	result := skillSearchResult(visibleSkillInstructions, retrievalResult)
-	return agent.ToolSuccess(marshalToolResult(result)), nil
-}
-
-func hasSkillSearchQuery(queries []agent.SkillSearchQuery) bool {
-	for _, query := range queries {
-		if strings.TrimSpace(query.Description) != "" {
-			return true
-		}
-	}
-	return false
-}
-
-func listAllSkills(skillInstructions []agent.SkillInstruction) agent.SkillSearchResult {
-	items := make([]agent.SkillSearchResultItem, 0, len(skillInstructions))
-	for _, skillInstruction := range skillInstructions {
-		items = append(items, agent.SkillSearchResultItem{
-			Name:        skillInstruction.Name,
-			Description: skillInstruction.Description,
-			Score:       1,
-			Tools:       append([]string{}, skillInstruction.AllowedTools...),
-			SourcePath:  skillInstruction.Source.Path,
-			Completion:  skillInstruction.Completion,
-		})
-	}
-	return agent.SkillSearchResult{Skills: items}
-}
-
-func skillSearchNameLookupResult(skillInstructions []agent.SkillInstruction, name string) agent.ToolResult {
-	skillInstruction, isFound := findSkillInstructionByName(skillInstructions, name)
-	if !isFound {
-		return agent.ToolFailureResult(agent.FailureNotFound, agent.FailureCodes.NotFound, "skill_search", "visible skill was not found")
-	}
-	result := agent.SkillSearchResult{Skills: []agent.SkillSearchResultItem{{
-		Name:        skillInstruction.Name,
-		Description: skillInstruction.Description,
-		Prompt:      truncatedSkillSearchPrompt(skillInstruction.Prompt),
-		Score:       1,
-		Tools:       append([]string{}, skillInstruction.AllowedTools...),
-		SourcePath:  skillInstruction.Source.Path,
-		Completion:  skillInstruction.Completion,
-	}}}
-	return agent.ToolSuccess(marshalToolResult(result))
-}
-
-func findSkillInstructionByName(skillInstructions []agent.SkillInstruction, name string) (agent.SkillInstruction, bool) {
-	trimmedName := strings.TrimSpace(name)
-	for _, skillInstruction := range skillInstructions {
-		if strings.TrimSpace(skillInstruction.Name) == trimmedName {
-			return skillInstruction, true
-		}
-	}
-	for _, skillInstruction := range skillInstructions {
-		if strings.EqualFold(strings.TrimSpace(skillInstruction.Name), trimmedName) {
-			return skillInstruction, true
-		}
-	}
-	return agent.SkillInstruction{}, false
-}
-
-func truncatedSkillSearchPrompt(prompt string) string {
-	characters := []rune(prompt)
-	if len(characters) <= maximumSkillSearchPromptLength {
-		return prompt
-	}
-	return string(characters[:maximumSkillSearchPromptLength]) + "\n\n[skill.search truncated prompt at 20000 characters]"
-}
-
-func includeExactSkillNameMatches(skillInstructions []agent.SkillInstruction, queries []agent.SkillSearchQuery, retrievalResult agent.SkillRetrievalResult) agent.SkillRetrievalResult {
-	for _, query := range queries {
-		queryDescription := strings.TrimSpace(query.Description)
-		if queryDescription == "" {
-			continue
-		}
-		for _, skillInstruction := range skillInstructions {
-			if strings.TrimSpace(skillInstruction.Name) != queryDescription {
-				continue
-			}
-			retrievalResult.SelectedCandidates = prependSkillCandidate(retrievalResult.SelectedCandidates, agent.SkillCandidate{
-				Name:   skillInstruction.Name,
-				Score:  1,
-				Reason: "exact_name_match",
-				Source: skillInstruction.Source,
-			})
-		}
-	}
-	return retrievalResult
-}
-
-func prependSkillCandidate(candidates []agent.SkillCandidate, candidate agent.SkillCandidate) []agent.SkillCandidate {
-	result := []agent.SkillCandidate{candidate}
-	for _, existingCandidate := range candidates {
-		if strings.TrimSpace(existingCandidate.Name) == strings.TrimSpace(candidate.Name) {
-			continue
-		}
-		result = append(result, existingCandidate)
-	}
-	return result
-}
-
-func skillSearchResult(skillInstructions []agent.SkillInstruction, retrievalResult agent.SkillRetrievalResult) agent.SkillSearchResult {
-	skillInstructionByName := map[string]agent.SkillInstruction{}
-	for _, skillInstruction := range skillInstructions {
-		skillInstructionByName[skillInstruction.Name] = skillInstruction
-	}
-	items := []agent.SkillSearchResultItem{}
-	for _, candidate := range retrievalResult.SelectedCandidates {
-		skillInstruction, isFound := skillInstructionByName[candidate.Name]
-		if !isFound {
-			continue
-		}
-		items = append(items, agent.SkillSearchResultItem{
-			Name:        skillInstruction.Name,
-			Description: skillInstruction.Description,
-			Score:       candidate.Score,
-			Tools:       append([]string{}, skillInstruction.AllowedTools...),
-			SourcePath:  skillInstruction.Source.Path,
-			Completion:  skillInstruction.Completion,
-		})
-	}
-	return agent.SkillSearchResult{Skills: items}
 }

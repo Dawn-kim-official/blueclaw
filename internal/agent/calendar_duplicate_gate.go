@@ -51,10 +51,11 @@ func (agentTurnRunner *AgentTurnRunner) resolveCalendarDuplicate(ctx context.Con
 		existingEvent := candidates[0]
 		message := fmt.Sprintf("이미 같은 시각에 '%s' 일정이 등록돼 있어 새로 추가하지 않았습니다. 기존 일정(id=%s)을 그대로 유지합니다.", strings.TrimSpace(existingEvent.Title), strings.TrimSpace(existingEvent.ID))
 		toolInputKey := canonicalToolCallKey(actionDocument.ToolName, actionDocument.ToolInput)
-		return agentTurnRunner.saveToolObservation(ctx, taskRunID, observationID, actionDocument.ToolName, calendarAddOperation, toolInputKey, ToolSuccess(message), request.WorkspaceRootPath, request.TurnStartedAt, 0)
+		toolDefinition, _ := request.ToolSet.ToolDefinition(actionDocument.ToolName)
+		return agentTurnRunner.saveToolObservation(ctx, taskRunID, observationID, actionDocument.ToolName, toolDefinition.ID, actionDocument.ToolInput, calendarAddOperation, toolInputKey, ToolSuccess(message), request.WorkspaceRootPath, request.TurnStartedAt, 0)
 	}
-	forcedToolInput := calendarAddInputWithAllowDuplicate(actionDocument.ToolInput)
-	return agentTurnRunner.invokeTool(ctx, request.ToolSet, taskRunID, observationID, actionDocument.ToolName, forcedToolInput, request.WorkspaceRootPath, request.TurnStartedAt, request.ResponseLanguage, actionDocument.Message)
+	retryContext := WithToolConflictResolution(ctx, ToolConflictResolutionAllowDuplicate)
+	return agentTurnRunner.invokeTool(retryContext, request.ToolSet, taskRunID, observationID, actionDocument.ToolName, actionDocument.ToolInput, request.WorkspaceRootPath, request.TurnStartedAt, request.ResponseLanguage, actionDocument.Message)
 }
 
 func parseCalendarDuplicateCandidates(observation turnObservation) ([]calendarListedEvent, bool) {
@@ -86,31 +87,6 @@ func decodeCalendarAddInput(toolInput json.RawMessage) (calendarAddInput, bool) 
 		return calendarAddInput{}, false
 	}
 	return wrapper.Input, true
-}
-
-func calendarAddInputWithAllowDuplicate(toolInput json.RawMessage) json.RawMessage {
-	var wrapper map[string]json.RawMessage
-	if json.Unmarshal(toolInput, &wrapper) != nil {
-		return toolInput
-	}
-	var input map[string]any
-	if len(wrapper["input"]) > 0 {
-		json.Unmarshal(wrapper["input"], &input)
-	}
-	if input == nil {
-		input = map[string]any{}
-	}
-	input["allowDuplicate"] = true
-	inputBytes, errorValue := json.Marshal(input)
-	if errorValue != nil {
-		return toolInput
-	}
-	wrapper["input"] = inputBytes
-	forcedToolInput, errorValue := json.Marshal(wrapper)
-	if errorValue != nil {
-		return toolInput
-	}
-	return forcedToolInput
 }
 
 func (agentTurnRunner *AgentTurnRunner) judgeCalendarDuplicate(ctx context.Context, addInput calendarAddInput, existingEvents []calendarListedEvent) bool {

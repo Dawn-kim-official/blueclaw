@@ -35,7 +35,7 @@ func TestLLMContextBuilderIncludesRuntimeCalendarContext(t *testing.T) {
 		"Response language: ko",
 		"Current date: 2026-05-12",
 		"Current weekday: Tuesday",
-		"Current time: 2026-05-12T17:32:27+09:00",
+		"Current time: 17:32",
 		"Time zone: Asia/Seoul",
 	} {
 		if !strings.Contains(contextText, expected) {
@@ -73,13 +73,13 @@ func TestLLMContextBuilderFlattensConversationMemoryAndFailure(t *testing.T) {
 	})
 
 	expectedOrder := []string{
-		"Runtime:",
 		"Conversation:",
 		"admin: 이전 요청",
 		"Task:",
 		"왜 실패했어?",
 		"Memory:",
 		"구체적인 실패 이유",
+		"Runtime:",
 		"Progress ledger",
 		"Failure:",
 		"send_failed",
@@ -101,15 +101,19 @@ func TestLLMContextBuilderOmitsEmptyOptionalSections(t *testing.T) {
 }
 
 func TestLLMContextBuilderIncludesObservedResultProjection(t *testing.T) {
+	descriptor, observation := canonicalEffectObservation(
+		"calendar.add",
+		`{"eventID":"event-1"}`,
+		[]ResourceEffect{{ObjectType: "calendar_event", Effect: "scheduled", ID: "event-1"}},
+		[]ResourceEffectContract{{ObjectType: "calendar_event", Effect: "scheduled", ResultField: "eventID", EffectIdentity: "id"}},
+	)
 	contextText := (LLMContextBuilder{}).Build(LLMContextInput{
 		TurnStartedAt: time.Date(2026, time.May, 12, 8, 32, 27, 0, time.UTC),
-		Observations: []turnObservation{
-			newContentObservation("obs-001", "continue", "calendar.add", `{"id":"event-1","title":"미팅"}`),
-		},
-		ToolSet: newTestToolSet([]string{"calendar.add"}),
+		Observations:  []turnObservation{observation},
+		ToolSet:       newTestToolSetWithDefinitions([]ToolDefinition{descriptor}),
 	})
 
-	for _, expected := range []string{"Observed result projection", "calendar_event", "scheduled", "obs-001"} {
+	for _, expected := range []string{"Observed result projection", "calendar_event", "scheduled", observation.ObservationID} {
 		if !strings.Contains(contextText, expected) {
 			t.Fatalf("expected observed result context %q, got %s", expected, contextText)
 		}
@@ -224,5 +228,39 @@ func assertContextOrder(t *testing.T, contextText string, fragments []string) {
 			t.Fatalf("expected context fragment %q, got %s", fragment, contextText)
 		}
 		searchStart += index + len(fragment)
+	}
+}
+
+func TestRecordedEffectsContextListsSuccessfulSideEffects(t *testing.T) {
+	observations := []turnObservation{
+		{
+			ObservationID: "obs-001",
+			Tool:          "task.add",
+			Effects:       []ResourceEffect{{ObjectType: "task", Effect: "created", ID: "af8271"}},
+		},
+		{
+			ObservationID: "obs-002",
+			Tool:          "task.delete",
+			Failure:       &ToolFailure{Kind: FailureUnknown},
+			Effects:       []ResourceEffect{{ObjectType: "task", Effect: "deleted", ID: "dead01"}},
+		},
+	}
+
+	context := recordedEffectsContext(observations)
+
+	if !strings.Contains(context, "task created af8271 (task.add, obs-001)") {
+		t.Fatalf("expected created effect line, got %q", context)
+	}
+	if strings.Contains(context, "dead01") {
+		t.Fatalf("expected failed observation effects to be excluded, got %q", context)
+	}
+	if !strings.Contains(context, "fix or extend them instead of creating them again") {
+		t.Fatalf("expected amend guidance framing, got %q", context)
+	}
+}
+
+func TestRecordedEffectsContextEmptyWithoutEffects(t *testing.T) {
+	if context := recordedEffectsContext([]turnObservation{{ObservationID: "obs-001", Tool: "task.list"}}); context != "" {
+		t.Fatalf("expected empty context without effects, got %q", context)
 	}
 }

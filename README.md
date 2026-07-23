@@ -219,6 +219,25 @@ Blueclaw uses a single secretless LLM provider named `capabilityLLM`. OpenRouter
 }
 ```
 
+The AI SDK runtime is under `llmd/`. Selecting `llmd` requires a private Unix socket and an installation auth key file. Chat generation and the six structured schemas below use LLMD. When `defaultProvider` is `llmd`, structured output is authoritative and contract failures do not fall through to `capabilityLLM`.
+
+```json
+{
+  "languageModel": {
+    "defaultProvider": "capabilityLLM",
+    "llmd": {
+      "unixSocketPath": "/run/blueclaw-llmd/llmd.sock",
+      "authKeyPath": "/run/credentials/llmd-auth-key",
+      "executionMode": "auto",
+      "timeoutSecond": 60,
+      "structuredSchemaNames": ["blueclaw_agent_turn_action", "blueclaw_agent_turn_finalizer", "blueclaw_turn_router", "blueclaw_recovery_decision", "blueclaw_operation_contract"]
+    }
+  }
+}
+```
+
+The direct socket configuration is for native development and tests. Appliance packaging must keep provider credentials in a host service and proxy guest requests through the capability boundary; it is not enabled by this phase.
+
 - Blueclaw sends `model`, `executionMode`, `messages`, and `structuredOutputSchema` to `POST /v1/llm/structured`; product configs set `model` to `google/gemini-3.1-flash-lite`, `highModel` to `google/gemini-3-flash-preview`, and `contextWindowTokens` to `1048576`
 - Blueclaw routes per task complexity across three optional model tiers. High = `highModel` or `model` or `google/gemini-3-flash-preview`; medium = `mediumModel` or `x-ai/grok-4.3`; low = `lowModel` or `google/gemini-3.1-flash-lite`. Quick effort and simple/normal tasks use low, complex tasks use medium, deep/extended effort uses high; intake routing and failure/recovery wording always use low
 - Blueclaw never adds an `Authorization` header for LLM capability calls
@@ -226,6 +245,18 @@ Blueclaw uses a single secretless LLM provider named `capabilityLLM`. OpenRouter
 - `tools/blueclaw-litert-wrapper` is kept as an InternKim-side reference utility, not as a Blueclaw product runtime dependency
 - user-facing replies, approval wording, recovery direction, and failure reports are generated through the LLM path
 - if remote failure wording cannot be generated, Blueclaw tries local LLM wording and then falls back to a compact raw error summary for real task failures; full suppression is reserved for intentionally ignored runtime cases such as duplicates, cancellations, and self/bot messages
+
+## Protocol Contracts
+
+Cross-process agent, LLM, capability, task, and connector contracts are being consolidated under `protocol/`. Zod schemas are the source for deterministic JSON Schema artifacts, and shared fixtures verify that existing Go wire DTOs retain their behavior during the migration. The package is contract-only in the first phase; it does not alter provider routing, task execution, capability authorization, or connector delivery.
+
+```bash
+cd protocol
+bun install
+bun run generate
+bun run build
+bun test
+```
 
 ## Virtual Session E2E
 
@@ -240,7 +271,7 @@ Live virtual session tests call a real LLM provider and may spend money. They ar
 ```bash
 BLUECLAW_E2E_LIVE=1 \
 BLUECLAW_E2E_LLM_UNIX_SOCKET=/run/internkim/capability.sock \
-go test ./internal/e2e -run TestSlidesLocalMultiturnSuccessLive -count=1
+go test ./internal/e2e -run TestPresentationLocalMultiturnSuccessLive -count=1
 ```
 
 For inspectable artifacts, use the lab runner with the same explicit live flag:
@@ -315,7 +346,7 @@ Still open:
 - `Final Step` runs no tool and must send the final reply, failure reply, or reaction that closes the Task.
 - Every `continue` action carries `nextStepPlan` with `objective`, `expectedTools`, `doneCriteria`, `risk`, and `workingSetReason`.
 - The next Step working set is built from core tools, selected skills, outcome requirements, recovery packets, and the previous `nextStepPlan.expectedTools`.
-- Tool schemas exposed to the model stay capped at 15 (`maxSchemaCallableToolCount` in `internal/agent/tool_exposure.go`). The runtime uses deterministic working sets when candidates fit and calls the compact tool selector only when the stage is ambiguous or exceeds the cap.
+- Extension tool schemas exposed to the model stay capped (`maxExtensionCallableToolCount` in `internal/agent/tool_exposure.go`); kernel tools are always included on top of that cap. The runtime uses deterministic working sets when candidates fit and calls the compact tool selector only when the stage is ambiguous or exceeds the cap.
 - Completion and recovery gates are independent from tool visibility. Draft/setup evidence such as site creation cannot finish a publish Task without required build, review, publish, and final status evidence.
 
 ## Status
@@ -331,4 +362,4 @@ Still open:
 - `Firecracker` runs inside that Linux virtual machine
 - `Blueclaw` runs only inside the `Firecracker` guest
 - `Mattermost` stays outside the guest and inside the Linux virtual machine
-- the Linux/runtime gate runs through `./internkim dev replay --target container` and the Local Fleet (`./internkim dev fleet ...`); `Docker` is not part of this lab topology
+- deterministic runtime checks run through `./internkim dev simulate`; Linux/runtime checks run through `./internkim dev fleet run`; `Docker` is not part of this lab topology

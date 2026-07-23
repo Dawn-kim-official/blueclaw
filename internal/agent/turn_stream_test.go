@@ -8,7 +8,7 @@ import (
 )
 
 func continueWithMessageDocument(operationName string, message string) string {
-	return `{"action":"continue","toolName":"capability.invoke","toolInput":{"operation":"` + operationName + `","input":{}},"message":"` + message + `"}`
+	return `{"action":"continue","toolName":"` + operationName + `","toolInput":{},"message":"` + message + `"}`
 }
 
 func collectTurnEvents(events <-chan TurnEvent) []TurnEvent {
@@ -26,8 +26,8 @@ func TestStreamTurnEmitsOrderedEventsEndingWithFinal(t *testing.T) {
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{RecoveryBudget: exhaustedRecoveryBudgetForTest()})
 	toolRegistry := newTestCapabilityToolSet([]string{"alpha"})
-	toolRegistry.RegisterTool(ToolDefinition{Name: "alpha"}, func(context.Context, ToolInvocation) (ToolResult, error) {
-		return ToolSuccess("alpha result"), nil
+	registerTestTool(toolRegistry, ToolDefinition{Name: "alpha"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return testToolSuccess("alpha result"), nil
 	})
 
 	events := services.runner.StreamTurn(context.Background(), AgentTurnRequest{
@@ -91,8 +91,8 @@ func TestStreamTurnAbandonedConsumerDoesNotPanic(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: contents}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{RecoveryBudget: exhaustedRecoveryBudgetForTest()})
 	toolRegistry := newTestCapabilityToolSet([]string{"alpha"})
-	toolRegistry.RegisterTool(ToolDefinition{Name: "alpha"}, func(context.Context, ToolInvocation) (ToolResult, error) {
-		return ToolSuccess("alpha result"), nil
+	registerTestTool(toolRegistry, ToolDefinition{Name: "alpha"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return testToolSuccess("alpha result"), nil
 	})
 
 	events := services.runner.StreamTurn(context.Background(), AgentTurnRequest{
@@ -122,8 +122,8 @@ func turnRequestWithTool(services turnRunnerTestServices) AgentTurnRequest {
 
 func toolRegistryWithAlpha() *ToolSet {
 	toolRegistry := newTestCapabilityToolSet([]string{"alpha"})
-	toolRegistry.RegisterTool(ToolDefinition{Name: "alpha"}, func(context.Context, ToolInvocation) (ToolResult, error) {
-		return ToolSuccess("alpha result"), nil
+	registerTestTool(toolRegistry, ToolDefinition{Name: "alpha"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return testToolSuccess("alpha result"), nil
 	})
 	return toolRegistry
 }

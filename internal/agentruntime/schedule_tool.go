@@ -14,9 +14,7 @@ import (
 
 type scheduleCreateToolInput struct {
 	Name             string `json:"name"`
-	Prompt           string `json:"prompt"`
 	TaskInstruction  string `json:"taskInstruction"`
-	ExecutionMode    string `json:"executionMode"`
 	AgentProfileName string `json:"agentProfileName"`
 	Kind             string `json:"kind"`
 	RunAt            string `json:"runAt"`
@@ -29,8 +27,8 @@ type scheduleCreateToolInput struct {
 }
 
 type scheduleCancelToolInput struct {
-	Scope           string   `json:"scope"`
-	TaskScheduleIDs []string `json:"scheduleIDs"`
+	Scope       string   `json:"scope"`
+	ScheduleIDs []string `json:"scheduleIDs"`
 }
 
 type scheduleListToolInput struct {
@@ -39,9 +37,8 @@ type scheduleListToolInput struct {
 }
 
 type scheduleUpdateToolInput struct {
-	TaskScheduleID   string  `json:"scheduleID"`
+	ScheduleID       string  `json:"scheduleID"`
 	Name             *string `json:"name"`
-	Prompt           *string `json:"prompt"`
 	TaskInstruction  *string `json:"taskInstruction"`
 	AgentProfileName *string `json:"agentProfileName"`
 	Kind             *string `json:"kind"`
@@ -55,15 +52,16 @@ type scheduleUpdateToolInput struct {
 }
 
 type scheduleCancelOperationResult struct {
-	CancelledScheduleCount     int                 `json:"cancelledScheduleCount"`
-	CancelledTaskRunCount      int                 `json:"cancelledTaskRunCount"`
-	CancelledWaitCount         int                 `json:"cancelledWaitCount"`
-	EffectiveCancellationCount int                 `json:"effectiveCancellationCount"`
-	TaskSchedules              []task.TaskSchedule `json:"taskSchedules"`
+	CancelledScheduleIDs       []string `json:"cancelledScheduleIDs"`
+	CancelledScheduleCount     int      `json:"cancelledScheduleCount"`
+	CancelledTaskRunCount      int      `json:"cancelledTaskRunCount"`
+	CancelledWaitCount         int      `json:"cancelledWaitCount"`
+	EffectiveCancellationCount int      `json:"effectiveCancellationCount"`
+	Cancelled                  bool     `json:"cancelled"`
 }
 
 type scheduleCreateToolResult struct {
-	TaskScheduleID   string     `json:"taskScheduleID"`
+	ScheduleID       string     `json:"scheduleID"`
 	Name             string     `json:"name"`
 	TaskInstruction  string     `json:"taskInstruction"`
 	TimeZone         string     `json:"timeZone"`
@@ -84,15 +82,71 @@ type scheduleListToolOutput struct {
 }
 
 type scheduleListToolItem struct {
-	ScheduleID     string     `json:"scheduleID"`
-	Prompt         string     `json:"prompt"`
-	Description    string     `json:"description,omitempty"`
-	Cadence        string     `json:"cadence"`
-	CronExpression string     `json:"cronExpression,omitempty"`
-	RunAt          *time.Time `json:"runAt,omitempty"`
-	Status         string     `json:"status"`
-	NextRunAt      *time.Time `json:"nextRunAt,omitempty"`
-	LastRunAt      *time.Time `json:"lastRunAt,omitempty"`
+	ScheduleID      string     `json:"scheduleID"`
+	TaskInstruction string     `json:"taskInstruction"`
+	Description     string     `json:"description,omitempty"`
+	Cadence         string     `json:"cadence"`
+	CronExpression  string     `json:"cronExpression,omitempty"`
+	RunAt           *time.Time `json:"runAt,omitempty"`
+	Status          string     `json:"status"`
+	NextRunAt       *time.Time `json:"nextRunAt,omitempty"`
+	LastRunAt       *time.Time `json:"lastRunAt,omitempty"`
+}
+
+var (
+	errScheduleCancelScopeInvalid = errors.New("schedule cancellation scope is invalid")
+	errScheduleCancelIDsRequired  = errors.New("scheduleIDs are required for scheduleIDs scope")
+	errScheduleCancelIDsInvalid   = errors.New("scheduleIDs must be exact nonblank identifiers")
+	errScheduleKindInvalid        = errors.New("schedule kind is invalid")
+	errScheduleIDRequired         = errors.New("scheduleID must be an exact nonblank identifier")
+	errScheduleUpdateRequired     = errors.New("schedule.update requires at least one field to change")
+)
+
+func validateScheduleID(value string) error {
+	if value == "" || strings.TrimSpace(value) != value {
+		return errScheduleIDRequired
+	}
+	return nil
+}
+
+func validateScheduleCancelIDs(scope task.TaskScheduleCancelScope, scheduleIDs []string) error {
+	if scope != task.TaskScheduleCancelScopeScheduleIDs && len(scheduleIDs) > 0 {
+		return errScheduleCancelIDsInvalid
+	}
+	if scope == task.TaskScheduleCancelScopeScheduleIDs && len(scheduleIDs) == 0 {
+		return errScheduleCancelIDsRequired
+	}
+	seenScheduleIDs := map[string]bool{}
+	for _, scheduleID := range scheduleIDs {
+		if validateScheduleID(scheduleID) != nil || seenScheduleIDs[scheduleID] {
+			return errScheduleCancelIDsInvalid
+		}
+		seenScheduleIDs[scheduleID] = true
+	}
+	return nil
+}
+
+func validateScheduleUpdate(input scheduleUpdateToolInput) error {
+	if input.Name != nil || input.TaskInstruction != nil || input.AgentProfileName != nil ||
+		input.Kind != nil || input.RunAt != nil || input.ExpiresAt != nil ||
+		input.IntervalSecond != nil || input.CronExpression != nil ||
+		input.TimeZone != nil || input.MaxRunCount != nil || input.RepeatPolicy != nil {
+		return nil
+	}
+	return errScheduleUpdateRequired
+}
+
+func taskScheduleIDs(taskSchedules []task.TaskSchedule) []string {
+	scheduleIDs := make([]string, 0, len(taskSchedules))
+	for _, taskSchedule := range taskSchedules {
+		scheduleIDs = append(scheduleIDs, taskSchedule.TaskScheduleID)
+	}
+	return scheduleIDs
+}
+
+func scheduleListToolResult(output scheduleListToolOutput) agent.ToolResult {
+	document := json.RawMessage(marshalToolResult(output))
+	return agent.ToolSuccessData(string(document), document)
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) registerScheduleTools(toolRegistry *agent.ToolSet, handlerContext toolHandlerContext) {
@@ -101,11 +155,12 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerScheduleTools(toolRegistry
 			Definition: agent.ToolDefinition{
 				Name:        "schedule.list",
 				Description: "List active scheduled tasks created by the current requester. Use it to answer what reminders or recurring tasks are currently scheduled.",
-				InputSchema: json.RawMessage(`{"type":"object","properties":{"status":{"type":"string"},"limit":{"type":"integer"}}}`),
+				InputSchema: scheduleListInputSchema,
 			},
 			Handler: func(toolContext context.Context, input scheduleListToolInput) (scheduleListToolOutput, error) {
 				return toolCatalogBuilder.listScheduleTool(input, handlerContext)
 			},
+			Result: scheduleListToolResult,
 		})
 	}
 	if !handlerContext.request.IsScheduledRun {
@@ -113,7 +168,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerScheduleTools(toolRegistry
 			Definition: agent.ToolDefinition{
 				Name:        "schedule.create",
 				Description: "Create a scheduled task for the current requester and reply target. Put only the work to perform at run time in taskInstruction. Do not copy the original scheduling request into taskInstruction. Cadence and stop conditions must be represented only by kind, runAt, intervalSecond, cronExpression, expiresAt, and maxRunCount. For interval or cron schedules, set repeatPolicy to finite when the user gave an end condition and include expiresAt or maxRunCount; set repeatPolicy to unbounded only when the user explicitly wants no end.",
-				InputSchema: json.RawMessage(`{"type":"object","properties":{"name":{"type":"string"},"taskInstruction":{"type":"string"},"agentProfileName":{"type":"string"},"kind":{"type":"string","enum":["once","interval","cron"]},"runAt":{"type":"string"},"expiresAt":{"type":"string"},"intervalSecond":{"type":"number"},"cronExpression":{"type":"string"},"timeZone":{"type":"string"},"maxRunCount":{"type":"number"},"repeatPolicy":{"type":"string","enum":["finite","unbounded"]}},"required":["taskInstruction","kind"]}`),
+				InputSchema: scheduleCreateInputSchema,
 			},
 			Handler: func(toolContext context.Context, input scheduleCreateToolInput) (agent.ToolResult, error) {
 				return toolCatalogBuilder.createScheduleTool(toolContext, input, handlerContext)
@@ -124,7 +179,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerScheduleTools(toolRegistry
 			Definition: agent.ToolDefinition{
 				Name:        "schedule.update",
 				Description: "Update an active scheduled task created by the current requester. Provide scheduleID and only the scalar fields that should change. Keep only the work to perform at run time in taskInstruction; represent cadence and stop conditions only with kind, runAt, intervalSecond, cronExpression, expiresAt, maxRunCount, and repeatPolicy.",
-				InputSchema: json.RawMessage(`{"type":"object","properties":{"scheduleID":{"type":"string"},"name":{"type":"string"},"taskInstruction":{"type":"string"},"agentProfileName":{"type":"string"},"kind":{"type":"string","enum":["once","interval","cron"]},"runAt":{"type":"string"},"expiresAt":{"type":"string"},"intervalSecond":{"type":"number"},"cronExpression":{"type":"string"},"timeZone":{"type":"string"},"maxRunCount":{"type":"number"},"repeatPolicy":{"type":"string","enum":["finite","unbounded"]}},"required":["scheduleID"]}`),
+				InputSchema: scheduleUpdateInputSchema,
 			},
 			Handler: func(toolContext context.Context, input scheduleUpdateToolInput) (agent.ToolResult, error) {
 				return toolCatalogBuilder.updateScheduleTool(toolContext, input, handlerContext)
@@ -136,7 +191,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerScheduleTools(toolRegistry
 		Definition: agent.ToolDefinition{
 			Name:        "schedule.cancel",
 			Description: "Cancel active scheduled tasks and pending approval or user-input waits. Use scope mine for schedules created by the current requester. Use scope currentConversation when the user wants messages or reminders delivered to this conversation to stop, even if another person created that delivery schedule. Use scope scheduleIDs for explicit schedule IDs visible from prior tool results. Cancellation expires records instead of deleting audit history.",
-			InputSchema: json.RawMessage(`{"type":"object","properties":{"scope":{"type":"string","enum":["currentConversation","mine","scheduleIDs"]},"scheduleIDs":{"type":"array","items":{"type":"string"}}},"required":["scope"]}`),
+			InputSchema: scheduleCancelInputSchema,
 		},
 		Handler: func(toolContext context.Context, input scheduleCancelToolInput) (agent.ToolResult, error) {
 			return toolCatalogBuilder.cancelScheduleTool(toolContext, input, handlerContext)
@@ -191,8 +246,14 @@ func (toolCatalogBuilder *ToolCatalogBuilder) updateScheduleTool(toolContext con
 	if toolCatalogBuilder.taskScheduleRepository == nil {
 		return agent.ToolFailureResult(agent.FailureDependencyUnavailable, agent.FailureCodes.Unavailable, "schedule_update", "task schedule repository is unavailable"), nil
 	}
+	if errorValue := validateScheduleID(input.ScheduleID); errorValue != nil {
+		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "schedule_update", errorValue.Error()), nil
+	}
+	if errorValue := validateScheduleUpdate(input); errorValue != nil {
+		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "schedule_update", errorValue.Error()), nil
+	}
 	updateRequest := task.TaskScheduleUpdateRequest{
-		TaskScheduleID:    strings.TrimSpace(input.TaskScheduleID),
+		TaskScheduleID:    input.ScheduleID,
 		RequesterPersonID: strings.TrimSpace(handlerContext.request.RequesterPersonID),
 		UpdateTaskSchedule: func(existingTaskSchedule task.TaskSchedule) (task.TaskSchedule, error) {
 			return toolCatalogBuilder.buildUpdatedTaskSchedule(existingTaskSchedule, input)
@@ -219,12 +280,19 @@ func (toolCatalogBuilder *ToolCatalogBuilder) cancelScheduleTool(toolContext con
 	if toolCatalogBuilder.taskScheduleRepository == nil {
 		return agent.ToolFailureResult(agent.FailureDependencyUnavailable, agent.FailureCodes.Unavailable, "schedule_cancel", "task schedule repository is unavailable"), nil
 	}
+	scope, errorValue := parseScheduleCancelScope(input.Scope)
+	if errorValue != nil {
+		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "schedule_cancel", errorValue.Error()), nil
+	}
+	if errorValue := validateScheduleCancelIDs(scope, input.ScheduleIDs); errorValue != nil {
+		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "schedule_cancel", errorValue.Error()), nil
+	}
 	cancelledAt := time.Now().UTC()
 	cancelRequest := task.TaskScheduleCancelRequest{
-		Scope:             normalizeScheduleCancelScope(input.Scope),
+		Scope:             scope,
 		RequesterPersonID: strings.TrimSpace(handlerContext.request.RequesterPersonID),
 		ConversationID:    strings.TrimSpace(handlerContext.request.ConversationID),
-		TaskScheduleIDs:   trimNonEmptyStrings(input.TaskScheduleIDs),
+		TaskScheduleIDs:   append([]string{}, input.ScheduleIDs...),
 		CancelledAt:       cancelledAt,
 	}
 	result, errorValue := toolCatalogBuilder.cancelMatchingSchedules(cancelRequest, cancelledAt)
@@ -250,11 +318,12 @@ func (toolCatalogBuilder *ToolCatalogBuilder) cancelMatchingSchedules(cancelRequ
 	cancelledWaitCount := toolCatalogBuilder.cancelPendingWaits(cancelRequest, cancelledAt)
 	effectiveCancellationCount := len(result.TaskSchedules) + cancelledTaskRunCount + cancelledWaitCount
 	return scheduleCancelOperationResult{
+		CancelledScheduleIDs:       taskScheduleIDs(result.TaskSchedules),
 		CancelledScheduleCount:     len(result.TaskSchedules),
 		CancelledTaskRunCount:      cancelledTaskRunCount,
 		CancelledWaitCount:         cancelledWaitCount,
 		EffectiveCancellationCount: effectiveCancellationCount,
-		TaskSchedules:              result.TaskSchedules,
+		Cancelled:                  effectiveCancellationCount > 0,
 	}, nil
 }
 
@@ -305,9 +374,13 @@ func (toolCatalogBuilder *ToolCatalogBuilder) buildTaskSchedule(input scheduleCr
 	if errorValue := validateScheduleCreateContext(handlerContext.request); errorValue != nil {
 		return task.TaskSchedule{}, errorValue
 	}
-	taskInstruction := firstNonEmptyString(input.TaskInstruction, input.Prompt)
+	taskInstruction := strings.TrimSpace(input.TaskInstruction)
 	if taskInstruction == "" {
 		return task.TaskSchedule{}, errScheduleTaskInstructionRequired
+	}
+	kind, errorValue := parseTaskScheduleKind(input.Kind)
+	if errorValue != nil {
+		return task.TaskSchedule{}, errorValue
 	}
 	timeZone, errorValue := normalizeScheduleTimeZone(input.TimeZone)
 	if errorValue != nil {
@@ -325,7 +398,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) buildTaskSchedule(input scheduleCr
 		ConversationID:   strings.TrimSpace(handlerContext.request.ConversationID),
 		ReplyTargetID:    strings.TrimSpace(handlerContext.request.ReplyTargetID),
 		TimeZone:         timeZone,
-		Kind:             normalizeTaskScheduleKind(input),
+		Kind:             kind,
 		IntervalSecond:   input.IntervalSecond,
 		CronExpression:   strings.TrimSpace(input.CronExpression),
 		MaxRunCount:      input.MaxRunCount,
@@ -410,15 +483,15 @@ func filteredScheduleListItems(taskSchedules []task.TaskSchedule, statusFilter s
 
 func scheduleListToolItemFromSchedule(taskSchedule task.TaskSchedule, referenceTime time.Time) scheduleListToolItem {
 	return scheduleListToolItem{
-		ScheduleID:     taskSchedule.TaskScheduleID,
-		Prompt:         taskSchedule.Prompt,
-		Description:    taskSchedule.Name,
-		Cadence:        taskScheduleCadence(taskSchedule),
-		CronExpression: taskSchedule.CronExpression,
-		RunAt:          taskSchedule.RunAt,
-		Status:         taskScheduleStatus(taskSchedule, referenceTime),
-		NextRunAt:      taskSchedule.NextRunAt,
-		LastRunAt:      taskSchedule.LastRunAt,
+		ScheduleID:      taskSchedule.TaskScheduleID,
+		TaskInstruction: taskSchedule.Prompt,
+		Description:     taskSchedule.Name,
+		Cadence:         taskScheduleCadence(taskSchedule),
+		CronExpression:  taskSchedule.CronExpression,
+		RunAt:           taskSchedule.RunAt,
+		Status:          taskScheduleStatus(taskSchedule, referenceTime),
+		NextRunAt:       taskSchedule.NextRunAt,
+		LastRunAt:       taskSchedule.LastRunAt,
 	}
 }
 
@@ -445,7 +518,7 @@ func taskScheduleStatus(taskSchedule task.TaskSchedule, referenceTime time.Time)
 
 func scheduleCreateResultDocument(taskSchedule task.TaskSchedule) json.RawMessage {
 	return json.RawMessage(marshalToolResult(scheduleCreateToolResult{
-		TaskScheduleID:   taskSchedule.TaskScheduleID,
+		ScheduleID:       taskSchedule.TaskScheduleID,
 		Name:             taskSchedule.Name,
 		TaskInstruction:  taskSchedule.Prompt,
 		TimeZone:         taskSchedule.TimeZone,
@@ -462,29 +535,26 @@ func scheduleCreateResultDocument(taskSchedule task.TaskSchedule) json.RawMessag
 	}))
 }
 
-func normalizeScheduleCancelScope(value string) task.TaskScheduleCancelScope {
+func parseScheduleCancelScope(value string) (task.TaskScheduleCancelScope, error) {
 	switch strings.TrimSpace(value) {
 	case string(task.TaskScheduleCancelScopeCurrentConversation):
-		return task.TaskScheduleCancelScopeCurrentConversation
+		return task.TaskScheduleCancelScopeCurrentConversation, nil
+	case string(task.TaskScheduleCancelScopeMine):
+		return task.TaskScheduleCancelScopeMine, nil
 	case string(task.TaskScheduleCancelScopeScheduleIDs):
-		return task.TaskScheduleCancelScopeScheduleIDs
+		return task.TaskScheduleCancelScopeScheduleIDs, nil
 	default:
-		return task.TaskScheduleCancelScopeMine
-	}
-}
-
-func normalizeTaskScheduleExecutionMode(value string) task.TaskScheduleExecutionMode {
-	switch strings.TrimSpace(value) {
-	case string(task.TaskScheduleExecutionModeMessage):
-		return task.TaskScheduleExecutionModeMessage
-	default:
-		return task.TaskScheduleExecutionModeAgent
+		return "", errScheduleCancelScopeInvalid
 	}
 }
 
 func applyScheduleUpdateTiming(taskSchedule task.TaskSchedule, input scheduleUpdateToolInput, now time.Time) (task.TaskSchedule, error) {
 	if input.Kind != nil {
-		taskSchedule.Kind = normalizeTaskScheduleKind(scheduleCreateToolInput{Kind: *input.Kind})
+		kind, errorValue := parseTaskScheduleKind(*input.Kind)
+		if errorValue != nil {
+			return task.TaskSchedule{}, errorValue
+		}
+		taskSchedule.Kind = kind
 	}
 	if input.RunAt != nil {
 		if errorValue := applyScheduleRunAtPointer(&taskSchedule, *input.RunAt); errorValue != nil {
@@ -526,10 +596,7 @@ func normalizeUpdatedTaskScheduleKindFields(taskSchedule *task.TaskSchedule) {
 }
 
 func scheduleUpdateTaskInstruction(input scheduleUpdateToolInput) *string {
-	if input.TaskInstruction != nil {
-		return input.TaskInstruction
-	}
-	return input.Prompt
+	return input.TaskInstruction
 }
 
 func scheduleUpdateAsCreateInput(input scheduleUpdateToolInput) scheduleCreateToolInput {
@@ -598,22 +665,16 @@ func validateScheduleCreateContext(request ToolCatalogRequest) error {
 	return nil
 }
 
-func normalizeTaskScheduleKind(input scheduleCreateToolInput) task.TaskScheduleKind {
-	switch strings.TrimSpace(input.Kind) {
+func parseTaskScheduleKind(value string) (task.TaskScheduleKind, error) {
+	switch value {
 	case string(task.TaskScheduleKindOnce):
-		return task.TaskScheduleKindOnce
+		return task.TaskScheduleKindOnce, nil
 	case string(task.TaskScheduleKindInterval):
-		return task.TaskScheduleKindInterval
+		return task.TaskScheduleKindInterval, nil
 	case string(task.TaskScheduleKindCron):
-		return task.TaskScheduleKindCron
+		return task.TaskScheduleKindCron, nil
 	default:
-		if strings.TrimSpace(input.CronExpression) != "" {
-			return task.TaskScheduleKindCron
-		}
-		if input.IntervalSecond > 0 {
-			return task.TaskScheduleKindInterval
-		}
-		return task.TaskScheduleKindOnce
+		return "", errScheduleKindInvalid
 	}
 }
 
@@ -646,7 +707,13 @@ func applyScheduleRunAtPointer(taskSchedule *task.TaskSchedule, value string) er
 }
 
 func isScheduleToolValidationError(errorValue error) bool {
-	return errors.Is(errorValue, errScheduleTaskInstructionRequired) ||
+	return errors.Is(errorValue, errScheduleCancelScopeInvalid) ||
+		errors.Is(errorValue, errScheduleCancelIDsRequired) ||
+		errors.Is(errorValue, errScheduleCancelIDsInvalid) ||
+		errors.Is(errorValue, errScheduleKindInvalid) ||
+		errors.Is(errorValue, errScheduleIDRequired) ||
+		errors.Is(errorValue, errScheduleUpdateRequired) ||
+		errors.Is(errorValue, errScheduleTaskInstructionRequired) ||
 		errors.Is(errorValue, errScheduleTimeZoneInvalid) ||
 		errors.Is(errorValue, errScheduleRunAtInvalid) ||
 		errors.Is(errorValue, errScheduleInvalidExpiresAt) ||

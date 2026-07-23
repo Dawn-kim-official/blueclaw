@@ -43,6 +43,9 @@ func TestScheduleCreateToolStoresCurrentReplyTarget(t *testing.T) {
 	if result.Failed() {
 		t.Fatalf("expected schedule.create success, got %s", result.ContentText())
 	}
+	if len(result.Effects) != 1 || result.Effects[0].ObjectType != "schedule" || result.Effects[0].Effect != "created" || result.Effects[0].ID == "" {
+		t.Fatalf("expected exact schedule create effect, got %+v", result.Effects)
+	}
 	if len(repository.taskSchedules) != 1 {
 		t.Fatalf("expected one schedule, got %+v", repository.taskSchedules)
 	}
@@ -74,7 +77,7 @@ func TestScheduleListToolListsRequesterSchedulesOnly(t *testing.T) {
 	if len(output.Schedules) != 1 || output.Schedules[0].ScheduleID != "schedule-a" {
 		t.Fatalf("expected only requester schedules, got %+v", output.Schedules)
 	}
-	if output.Schedules[0].Prompt != "Check A" || output.Schedules[0].Cadence != "once" || output.Schedules[0].Status != "active" {
+	if output.Schedules[0].TaskInstruction != "Check A" || output.Schedules[0].Cadence != "once" || output.Schedules[0].Status != "active" {
 		t.Fatalf("expected schedule details, got %+v", output.Schedules[0])
 	}
 }
@@ -155,10 +158,149 @@ func TestScheduleCreateSchemaUsesTaskInstruction(t *testing.T) {
 	if !containsString(schema.Required, "taskInstruction") {
 		t.Fatalf("expected taskInstruction to be required, got %+v", schema.Required)
 	}
+	if !strings.Contains(string(toolDefinition.InputSchema), `"additionalProperties":false`) {
+		t.Fatalf("expected schedule.create schema to reject unknown fields, got %s", toolDefinition.InputSchema)
+	}
 	for _, hiddenField := range []string{"prompt", "message", "schedule", "executionMode"} {
 		if _, isFound := schema.Properties[hiddenField]; isFound {
 			t.Fatalf("expected %s to stay out of schedule.create model-facing schema, got %+v", hiddenField, schema.Properties)
 		}
+	}
+}
+
+func TestScheduleCreateRejectsLegacyPromptAndUnknownFields(t *testing.T) {
+	repository := &memoryTaskScheduleRepository{}
+	toolCatalogBuilder := NewToolCatalogBuilder()
+	toolCatalogBuilder.UseTaskScheduleRepository(repository)
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"schedule.create"})
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
+		ProfileName:       "default",
+		RequesterPersonID: "person-1",
+		Platform:          "mattermost",
+		ConversationID:    "channel-1",
+		ReplyTargetID:     "reply-1",
+	})
+
+	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+		ToolName: "schedule.create",
+		Input: agent.MarshalToolInput(map[string]any{
+			"prompt":         "legacy prompt",
+			"kind":           "interval",
+			"intervalSecond": 60,
+			"repeatPolicy":   "unbounded",
+		}),
+	})
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if !result.Failed() || len(repository.taskSchedules) != 0 {
+		t.Fatalf("expected legacy prompt input to fail without mutation, result=%+v schedules=%+v", result, repository.taskSchedules)
+	}
+}
+
+func TestScheduleCreateRejectsUnknownKindWithoutInference(t *testing.T) {
+	repository := &memoryTaskScheduleRepository{}
+	toolCatalogBuilder := NewToolCatalogBuilder()
+	toolCatalogBuilder.UseTaskScheduleRepository(repository)
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"schedule.create"})
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
+		ProfileName:       "default",
+		RequesterPersonID: "person-1",
+		Platform:          "mattermost",
+		ConversationID:    "channel-1",
+		ReplyTargetID:     "reply-1",
+	})
+
+	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+		ToolName: "schedule.create",
+		Input: agent.MarshalToolInput(map[string]any{
+			"taskInstruction": "inspect the status",
+			"kind":            "unexpected",
+			"cronExpression":  "0 9 * * *",
+			"repeatPolicy":    "unbounded",
+		}),
+	})
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if !result.Failed() || len(repository.taskSchedules) != 0 {
+		t.Fatalf("expected unknown kind to fail without inference, result=%+v schedules=%+v", result, repository.taskSchedules)
+	}
+}
+
+func TestScheduleUpdateRejectsNonExactScheduleID(t *testing.T) {
+	nextRunAt := time.Now().UTC().Add(time.Hour)
+	repository := &memoryTaskScheduleRepository{taskSchedules: []task.TaskSchedule{{
+		TaskScheduleID:  "schedule-owned",
+		CreatorPersonID: "person-1",
+		Prompt:          "inspect the status",
+		Kind:            task.TaskScheduleKindOnce,
+		NextRunAt:       &nextRunAt,
+		TimeZone:        "Asia/Seoul",
+	}}}
+	toolCatalogBuilder := NewToolCatalogBuilder()
+	toolCatalogBuilder.UseTaskScheduleRepository(repository)
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"schedule.update"})
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default", RequesterPersonID: "person-1"})
+
+	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+		ToolName: "schedule.update",
+		Input: agent.MarshalToolInput(map[string]any{
+			"scheduleID": " schedule-owned ",
+			"name":       "changed",
+		}),
+	})
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if !result.Failed() || repository.taskSchedules[0].Name == "changed" {
+		t.Fatalf("expected non-exact schedule ID to fail without mutation, result=%+v schedule=%+v", result, repository.taskSchedules[0])
+	}
+}
+
+func TestScheduleUpdateRequiresAChange(t *testing.T) {
+	nextRunAt := time.Now().UTC().Add(time.Hour)
+	repository := &memoryTaskScheduleRepository{taskSchedules: []task.TaskSchedule{{
+		TaskScheduleID:  "schedule-owned",
+		CreatorPersonID: "person-1",
+		Prompt:          "inspect the status",
+		Kind:            task.TaskScheduleKindOnce,
+		NextRunAt:       &nextRunAt,
+		TimeZone:        "Asia/Seoul",
+	}}}
+	toolCatalogBuilder := NewToolCatalogBuilder()
+	toolCatalogBuilder.UseTaskScheduleRepository(repository)
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"schedule.update"})
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default", RequesterPersonID: "person-1"})
+
+	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+		ToolName: "schedule.update",
+		Input:    agent.MarshalToolInput(map[string]any{"scheduleID": "schedule-owned"}),
+	})
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if !result.Failed() || repository.taskSchedules[0].Prompt != "inspect the status" {
+		t.Fatalf("expected empty update to fail without mutation, result=%+v schedule=%+v", result, repository.taskSchedules[0])
+	}
+}
+
+func TestScheduleCancelRejectsUnknownScopeWithoutMutation(t *testing.T) {
+	repository := &memoryTaskScheduleRepository{}
+	toolCatalogBuilder := NewToolCatalogBuilder()
+	toolCatalogBuilder.UseTaskScheduleRepository(repository)
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"schedule.cancel"})
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default", RequesterPersonID: "person-1"})
+
+	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+		ToolName: "schedule.cancel",
+		Input:    agent.MarshalToolInput(map[string]any{"scope": "unknown"}),
+	})
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if !result.Failed() {
+		t.Fatalf("expected unknown cancellation scope to fail, got %+v", result)
 	}
 }
 
@@ -288,9 +430,10 @@ func TestScheduleCreateToolStoresExpiresAtForBoundedRepeat(t *testing.T) {
 
 func TestScheduledToolSetKeepsOnlyAskInputAvailable(t *testing.T) {
 	toolCatalogBuilder := NewToolCatalogBuilder()
-	toolCatalogBuilder.UseCapabilityToolDescriptors(capability.Client{}, []CapabilityToolDescriptor{{
-		Name:        "user.confirm",
-		Description: "Ask the user to confirm",
+	toolCatalogBuilder.UseTestCapabilityToolDescriptors(capability.Client{}, []CapabilityToolDescriptor{{
+		Name:            "user.confirm",
+		Description:     "Ask the user to confirm",
+		ModelVisibility: agent.ToolVisibilityInternal,
 	}})
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"ask.input", "ask.confirm", "user.confirm", "schedule.create"})
 
@@ -358,7 +501,7 @@ func TestScheduleCancelToolCancelsRequesterSchedules(t *testing.T) {
 	if result.Failed() {
 		t.Fatalf("expected schedule.cancel success, got %s", result.ContentText())
 	}
-	if !strings.Contains(result.ContentText(), `"cancelledScheduleCount":1`) || !strings.Contains(result.ContentText(), `"cancelledWaitCount":1`) {
+	if !strings.Contains(result.ContentText(), `"cancelledScheduleIDs":["schedule-owned"]`) || !strings.Contains(result.ContentText(), `"cancelledScheduleCount":1`) || !strings.Contains(result.ContentText(), `"cancelledWaitCount":1`) || strings.Contains(result.ContentText(), `"taskSchedules"`) {
 		t.Fatalf("expected one schedule and one wait cancelled, got %s", result.ContentText())
 	}
 	ownedSchedule := repository.taskSchedules[1]
@@ -519,7 +662,10 @@ func TestScheduleUpdateToolUpdatesIntervalSchedule(t *testing.T) {
 	if updatedSchedule.IntervalSecond != 3600 || updatedSchedule.MaxRunCount != 5 || updatedSchedule.NextRunAt == nil {
 		t.Fatalf("expected interval update, got %+v", updatedSchedule)
 	}
-	if !strings.Contains(result.ContentText(), `"intervalSecond":3600`) || !strings.Contains(result.ContentText(), `"maxRunCount":5`) {
+	if len(result.Effects) != 1 || result.Effects[0].Effect != "updated" || result.Effects[0].ID != "schedule-owned" {
+		t.Fatalf("expected exact schedule update effect, got %+v", result.Effects)
+	}
+	if !strings.Contains(result.ContentText(), `"scheduleID":"schedule-owned"`) || !strings.Contains(result.ContentText(), `"intervalSecond":3600`) || !strings.Contains(result.ContentText(), `"maxRunCount":5`) {
 		t.Fatalf("expected updated interval result, got %s", result.ContentText())
 	}
 }
@@ -569,7 +715,10 @@ func TestScheduleUpdateToolUpdatesOneOffRunAt(t *testing.T) {
 	if updatedSchedule.IntervalSecond != 0 || updatedSchedule.MaxRunCount != 0 || updatedSchedule.NextRunAt == nil || !updatedSchedule.NextRunAt.Equal(runAt) {
 		t.Fatalf("expected one-off cadence fields, got %+v", updatedSchedule)
 	}
-	if !strings.Contains(result.ContentText(), `"kind":"once"`) || !strings.Contains(result.ContentText(), `"runAt"`) {
+	if len(result.Effects) != 1 || result.Effects[0].Effect != "updated" || result.Effects[0].ID != "schedule-owned" {
+		t.Fatalf("expected exact schedule update effect, got %+v", result.Effects)
+	}
+	if !strings.Contains(result.ContentText(), `"scheduleID":"schedule-owned"`) || !strings.Contains(result.ContentText(), `"kind":"once"`) || !strings.Contains(result.ContentText(), `"runAt"`) {
 		t.Fatalf("expected one-off result, got %s", result.ContentText())
 	}
 }

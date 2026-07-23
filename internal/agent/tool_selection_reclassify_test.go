@@ -35,8 +35,7 @@ func TestExternalSendReachesPinnedSendOperationsDirectlyOnceRequested(t *testing
 
 	filteredToolSet, _ := toolSetForAgentTurnWithExposure(toolSet, InstructionBundle{}, request, ExecutionPlan{}, false, OutcomeContract{}, ToolExposureEvent{})
 
-	// A prior tool.request pinned these send operations, so they join capability.invoke in the schema.
-	for _, toolName := range []string{CapabilityInvokeToolName, "message.send", "mail.message.send"} {
+	for _, toolName := range []string{"message.send", "mail.message.send"} {
 		if !filteredToolSet.IsAllowed(toolName) {
 			t.Fatalf("expected pinned tool %s to stay exposed, got %+v", toolName, filteredToolSet.ListToolNames())
 		}

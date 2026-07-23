@@ -1,0 +1,136 @@
+{
+  "$defs": {
+    "__schema0": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        },
+        {
+          "items": {
+            "$ref": "#/$defs/__schema0"
+          },
+          "type": "array"
+        },
+        {
+          "additionalProperties": {
+            "$ref": "#/$defs/__schema0"
+          },
+          "propertyNames": {
+            "type": "string"
+          },
+          "type": "object"
+        }
+      ]
+    }
+  },
+  "$id": "https://schemas.blueclaw.dev/0.4.0/tool-invoke-response.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "content": {
+      "type": "string"
+    },
+    "effects": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "contentType": {
+            "type": "string"
+          },
+          "durability": {
+            "type": "string"
+          },
+          "effect": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "filename": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "objectType": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "summary": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          },
+          "visibility": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "objectType",
+          "effect"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "errorCode": {
+      "type": "string"
+    },
+    "failureStage": {
+      "type": "string"
+    },
+    "isError": {
+      "type": "boolean"
+    },
+    "message": {
+      "type": "string"
+    },
+    "outcome": {
+      "enum": [
+        "succeeded",
+        "failed",
+        "denied"
+      ],
+      "type": "string"
+    },
+    "provider": {
+      "type": "string"
+    },
+    "result": {
+      "$ref": "#/$defs/__schema0"
+    },
+    "retryable": {
+      "type": "boolean"
+    },
+    "safeRetry": {
+      "type": "boolean"
+    },
+    "selectedBackend": {
+      "type": "string"
+    },
+    "status": {
+      "type": "string"
+    },
+    "toolName": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "provider",
+    "selectedBackend",
+    "toolName",
+    "result"
+  ],
+  "type": "object"
+}

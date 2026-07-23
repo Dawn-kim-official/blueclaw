@@ -26,12 +26,10 @@ type capabilityStructuredResponseRequestDocument struct {
 }
 
 type capabilityTextResponseRequestDocument struct {
-	Model                 string          `json:"model,omitempty"`
-	ExecutionMode         string          `json:"executionMode"`
-	Context               *RequestContext `json:"context,omitempty"`
-	Messages              []Message       `json:"messages"`
-	RequireParameters     bool            `json:"requireParameters"`
-	EnableResponseHealing bool            `json:"enableResponseHealing"`
+	Model         string          `json:"model,omitempty"`
+	ExecutionMode string          `json:"executionMode"`
+	Context       *RequestContext `json:"context,omitempty"`
+	Messages      []Message       `json:"messages"`
 }
 
 type capabilityChatCompletionRequestDocument struct {
@@ -42,6 +40,7 @@ type capabilityChatCompletionRequestDocument struct {
 	Tools             []ChatCompletionTool    `json:"tools,omitempty"`
 	ToolChoice        json.RawMessage         `json:"toolChoice,omitempty"`
 	ParallelToolCalls bool                    `json:"parallelToolCalls"`
+	GenerationOptions *GenerationOptions      `json:"generationOptions,omitempty"`
 }
 
 type capabilityStructuredOutputSchema struct {
@@ -55,6 +54,8 @@ type capabilityStructuredResponseDocument struct {
 	ModelName       string `json:"model"`
 	Content         string `json:"content"`
 	SelectedBackend string `json:"selectedBackend"`
+	FinishReason    string `json:"finishReason,omitempty"`
+	ConstraintMode  string `json:"constraintMode,omitempty"`
 	Usage           Usage  `json:"usage"`
 }
 
@@ -83,11 +84,46 @@ func (capabilityLLMClient CapabilityLLMClient) GenerateLocalRecoveryResponse(res
 	return capabilityLLMClient.generateResponse(deviceContext, prompt, "device")
 }
 
+func (capabilityLLMClient CapabilityLLMClient) GenerateRecoveryChatCompletion(responseContext context.Context, request ChatCompletionRequest) (ChatCompletionResponse, error) {
+	if capabilityLLMClient.executionMode() == "device" {
+		return capabilityLLMClient.generateRecoveryChatAttempt(responseContext, request, "device")
+	}
+	response, errorValue := capabilityLLMClient.generateRecoveryChatAttempt(responseContext, request, "auto")
+	if errorValue == nil {
+		return response, nil
+	}
+	if contextError := responseContext.Err(); contextError != nil {
+		return response, contextError
+	}
+	return capabilityLLMClient.generateRecoveryChatAttempt(responseContext, request, "device")
+}
+
+func (capabilityLLMClient CapabilityLLMClient) generateRecoveryChatAttempt(responseContext context.Context, request ChatCompletionRequest, executionMode string) (ChatCompletionResponse, error) {
+	autoContext, cancelAuto := recoveryAttemptContext(responseContext)
+	response, errorValue := capabilityLLMClient.generateChatCompletion(autoContext, request, executionMode)
+	cancelAuto()
+	if errorValue != nil {
+		return response, errorValue
+	}
+	if executionMode == "device" && response.SelectedBackend != "device" {
+		return response, errors.New("device recovery chat returned a non-device backend")
+	}
+	_, errorValue = RecoveryChatCompletionText(response)
+	return response, errorValue
+}
+
+func (capabilityLLMClient CapabilityLLMClient) GenerateLocalRecoveryChatCompletion(responseContext context.Context, request ChatCompletionRequest) (ChatCompletionResponse, error) {
+	return capabilityLLMClient.generateRecoveryChatAttempt(responseContext, request, "device")
+}
+
 func recoveryAttemptContext(responseContext context.Context) (context.Context, context.CancelFunc) {
 	baseContext := context.Background()
 	requestContext := RequestContextFromContext(responseContext)
 	if requestContext != (RequestContext{}) {
 		baseContext = ContextWithRequestContext(baseContext, requestContext)
+	}
+	if deadline, hasDeadline := responseContext.Deadline(); hasDeadline {
+		return context.WithDeadline(baseContext, deadline)
 	}
 	return context.WithCancel(baseContext)
 }
@@ -178,26 +214,35 @@ func (capabilityLLMClient CapabilityLLMClient) GenerateStructuredResponse(respon
 	}
 
 	return StructuredResponse{
-		ProviderName: providerName,
-		ModelName:    modelName,
-		Content:      responseDocument.Content,
-		Usage:        responseDocument.Usage,
+		Transport:       "capability",
+		ProviderName:    providerName,
+		ModelName:       modelName,
+		Content:         responseDocument.Content,
+		SelectedBackend: responseDocument.SelectedBackend,
+		FinishReason:    responseDocument.FinishReason,
+		ConstraintMode:  responseDocument.ConstraintMode,
+		Usage:           responseDocument.Usage,
 	}, nil
 }
 
 func (capabilityLLMClient CapabilityLLMClient) GenerateChatCompletion(responseContext context.Context, request ChatCompletionRequest) (ChatCompletionResponse, error) {
+	return capabilityLLMClient.generateChatCompletion(responseContext, request, capabilityLLMClient.executionMode())
+}
+
+func (capabilityLLMClient CapabilityLLMClient) generateChatCompletion(responseContext context.Context, request ChatCompletionRequest, executionMode string) (ChatCompletionResponse, error) {
 	if capabilityLLMClient.CapabilityClient.HTTPClient == nil {
 		return ChatCompletionResponse{}, errors.New("capability llm http client is not configured")
 	}
 
 	requestDocument := capabilityChatCompletionRequestDocument{
 		Model:             capabilityLLMClient.ModelName,
-		ExecutionMode:     capabilityLLMClient.executionMode(),
+		ExecutionMode:     executionMode,
 		Context:           requestContextPointer(responseContext),
 		Messages:          append([]ChatCompletionMessage{}, request.Messages...),
 		Tools:             append([]ChatCompletionTool{}, request.Tools...),
 		ToolChoice:        append(json.RawMessage{}, request.ToolChoice...),
 		ParallelToolCalls: request.ParallelToolCalls,
+		GenerationOptions: generationOptionsPointer(request.GenerationOptions),
 	}
 
 	var response ChatCompletionResponse
@@ -214,6 +259,7 @@ func (capabilityLLMClient CapabilityLLMClient) GenerateChatCompletion(responseCo
 	if response.Message.ToolCalls == nil {
 		response.Message.ToolCalls = []ChatCompletionToolCall{}
 	}
+	response.Transport = "capability"
 	return response, nil
 }
 

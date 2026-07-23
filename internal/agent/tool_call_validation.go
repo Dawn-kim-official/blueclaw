@@ -17,60 +17,75 @@ func (agentTurnRunner *AgentTurnRunner) rejectUnavailableToolCall(taskRunID stri
 		state.Observations = append(state.Observations, observation)
 		agentTurnRunner.saveStep(taskRunID, stepID, task.TaskStatusCompleted, "tool_unavailable "+actionDocument.ToolName, observation.ContentText())
 		result, shouldStop := stopForNoProgress(stepID)
-		return toolCallActionOutcome{Result: result, ShouldReturn: shouldStop, WasHandled: true}
+		return noProgressToolCallActionOutcome(result, shouldStop)
 	}
-	if observation, isRejected := unrequestedPlatformMessageSendObservation(request, actionDocument, nextObservationID(len(state.Observations)+1)); isRejected {
+	if observation, isRejected := unrequestedPlatformMessageSendObservation(request, actionDocument, nextObservationIDForObservations(state.Observations)); isRejected {
 		state.Observations = append(state.Observations, observation)
 		agentTurnRunner.appendEvent(taskRunID, "agent.external_send_intent_rejected", marshalEventBody(observation))
 		agentTurnRunner.saveStep(taskRunID, stepID, task.TaskStatusCompleted, "external_send_intent_rejected "+actionDocument.ToolName, observation.ContentText())
 		result, shouldStop := stopForNoProgress(stepID)
-		return toolCallActionOutcome{Result: result, ShouldReturn: shouldStop, WasHandled: true}
+		return noProgressToolCallActionOutcome(result, shouldStop)
 	}
-	if observation, isRejected := sitePublishPrerequisiteFailure(state.Observations, actionDocument, nextObservationID(len(state.Observations)+1)); isRejected {
+	if observation, isRejected := sitePublishPrerequisiteFailure(state.Observations, actionDocument, nextObservationIDForObservations(state.Observations)); isRejected {
 		state.Observations = append(state.Observations, observation)
 		agentTurnRunner.appendEvent(taskRunID, "agent.site_publish_prerequisite_rejected", marshalEventBody(observation))
 		agentTurnRunner.saveStep(taskRunID, stepID, task.TaskStatusCompleted, "site_publish_prerequisite_rejected", observation.ContentText())
 		result, shouldStop := stopForNoProgress(stepID)
-		return toolCallActionOutcome{Result: result, ShouldReturn: shouldStop, WasHandled: true}
+		return noProgressToolCallActionOutcome(result, shouldStop)
 	}
 	return toolCallActionOutcome{}
 }
 
 func (agentTurnRunner *AgentTurnRunner) rejectMalformedToolCall(taskRunID string, stepID string, request AgentTurnRequest, state *agentTaskState, actionDocument turnActionDocument, stopForNoProgress func(string) (AgentTurnResult, bool)) toolCallActionOutcome {
-	if validationError := validateBrowserToolInput(actionDocument.ToolName, actionDocument.ToolInput); validationError != nil {
-		observation := newFailureObservation(nextObservationID(len(state.Observations)+1), "continue", actionDocument.ToolName, validationError.Error(), FailureInvalidInput, FailureCodes.InvalidInput, "tool_input")
-		state.Observations = append(state.Observations, observation)
-		agentTurnRunner.appendEvent(taskRunID, "agent.tool_input_malformed", marshalEventBody(observation))
-		agentTurnRunner.saveStep(taskRunID, stepID, task.TaskStatusCompleted, "malformed_tool_input "+actionDocument.ToolName, observation.ContentText())
-		result, shouldStop := stopForNoProgress(stepID)
-		return toolCallActionOutcome{Result: result, ShouldReturn: shouldStop, WasHandled: true}
+	validationError, failureCode := malformedToolInputError(actionDocument, request.ToolSet)
+	if validationError == nil {
+		return toolCallActionOutcome{}
 	}
-	if validationError := validateTerminalToolInput(actionDocument.ToolName, actionDocument.ToolInput, request.ToolSet); validationError != nil {
-		failureCode := FailureCodes.InvalidInput
-		if isTerminalToolNameError(validationError) {
-			failureCode = FailureCodes.ToolNameInShell
-		}
-		observation := newFailureObservation(nextObservationID(len(state.Observations)+1), "continue", actionDocument.ToolName, validationError.Error(), FailureInvalidInput, failureCode, "tool_input")
-		state.Observations = append(state.Observations, observation)
-		agentTurnRunner.appendEvent(taskRunID, "agent.tool_input_malformed", marshalEventBody(observation))
-		agentTurnRunner.saveStep(taskRunID, stepID, task.TaskStatusCompleted, "malformed_tool_input "+actionDocument.ToolName, observation.ContentText())
-		result, shouldStop := stopForNoProgress(stepID)
-		return toolCallActionOutcome{Result: result, ShouldReturn: shouldStop, WasHandled: true}
-	}
-	return toolCallActionOutcome{}
+	observation := newFailureObservation(nextObservationIDForObservations(state.Observations), "continue", actionDocument.ToolName, validationError.Error(), FailureInvalidInput, failureCode, "tool_input")
+	state.Observations = append(state.Observations, observation)
+	agentTurnRunner.appendEvent(taskRunID, "agent.tool_input_malformed", marshalEventBody(observation))
+	agentTurnRunner.saveStep(taskRunID, stepID, task.TaskStatusCompleted, "malformed_tool_input "+actionDocument.ToolName, observation.ContentText())
+	result, shouldStop := stopForNoProgress(stepID)
+	return noProgressToolCallActionOutcome(result, shouldStop)
 }
 
-func (agentTurnRunner *AgentTurnRunner) rejectRepeatedToolCall(taskRunID string, stepID string, state *agentTaskState, actionDocument turnActionDocument, successfulToolCalls map[string]turnObservation, stopForNoProgress func(string) (AgentTurnResult, bool)) toolCallActionOutcome {
-	if observation, isRepeatedRead := repeatedFileReadObservation(state.Observations, actionDocument, nextObservationID(len(state.Observations)+1)); isRepeatedRead {
+func malformedToolInputError(actionDocument turnActionDocument, toolSet *ToolSet) (error, FailureCode) {
+	if validationError := validateDescriptorToolInput(toolSet, actionDocument.ToolName, actionDocument.ToolInput); validationError != nil {
+		return validationError, FailureCodes.InvalidInput
+	}
+	if validationError := validateBrowserToolInput(actionDocument.ToolName, actionDocument.ToolInput); validationError != nil {
+		return validationError, FailureCodes.InvalidInput
+	}
+	validationError := validateTerminalToolInput(actionDocument.ToolName, actionDocument.ToolInput, toolSet)
+	if validationError != nil && isTerminalToolNameError(validationError) {
+		return validationError, FailureCodes.ToolNameInShell
+	}
+	return validationError, FailureCodes.InvalidInput
+}
+
+func validateDescriptorToolInput(toolSet *ToolSet, toolName string, toolInput json.RawMessage) error {
+	if toolSet == nil {
+		return nil
+	}
+	toolDefinition, isFound := toolSet.ToolDefinition(toolName)
+	if !isFound {
+		return nil
+	}
+	_, errorValue := validateToolInput(toolDefinition.InputSchema, toolInput)
+	return errorValue
+}
+
+func (agentTurnRunner *AgentTurnRunner) rejectRepeatedToolCall(taskRunID string, stepID string, state *agentTaskState, actionDocument turnActionDocument, successfulToolCalls map[string]turnObservation, canFinalizeDuplicateDeterministically bool, stopForNoProgress func(string) (AgentTurnResult, bool)) toolCallActionOutcome {
+	if observation, isRepeatedRead := repeatedFileReadObservation(state.Observations, actionDocument, nextObservationIDForObservations(state.Observations)); isRepeatedRead {
 		state.Observations = append(state.Observations, observation)
 		agentTurnRunner.appendEvent(taskRunID, "agent.file_read_cache_hit", marshalEventBody(observation))
 		agentTurnRunner.saveStep(taskRunID, stepID, task.TaskStatusCompleted, "file_read_cache_hit", observation.ContentText())
 		result, shouldStop := stopForNoProgress(stepID)
-		return toolCallActionOutcome{Result: result, ShouldReturn: shouldStop, WasHandled: true}
+		return noProgressToolCallActionOutcome(result, shouldStop)
 	}
-	if sentObservation, wasSent := previousSuccessfulExternalSend(state.Observations, actionDocument.ToolName, actionDocument.ToolInput); wasSent {
+	if sentObservation, wasSent := previousSuccessfulExternalSend(state.Request.ToolSet, state.Observations, actionDocument.ToolName, actionDocument.ToolInput); wasSent {
 		observation := turnObservation{
-			ObservationID: nextObservationID(len(state.Observations) + 1),
+			ObservationID: nextObservationIDForObservations(state.Observations),
 			Action:        "policy",
 			Tool:          strings.TrimSpace(actionDocument.ToolName),
 			Output:        ToolOutput{Content: "This task already sent to that recipient as " + sentObservation.ObservationID + ". Do not send to the same recipient again. Send to a different recipient or use that observation for completionEvidence and finish."},
@@ -80,11 +95,11 @@ func (agentTurnRunner *AgentTurnRunner) rejectRepeatedToolCall(taskRunID string,
 		agentTurnRunner.appendEvent(taskRunID, "agent.external_send_repeat_rejected", marshalEventBody(observation))
 		agentTurnRunner.saveStep(taskRunID, stepID, task.TaskStatusCompleted, "external_send_repeat_rejected "+actionDocument.ToolName, observation.ContentText())
 		result, shouldStop := stopForNoProgress(stepID)
-		return toolCallActionOutcome{Result: result, ShouldReturn: shouldStop, WasHandled: true}
+		return noProgressToolCallActionOutcome(result, shouldStop)
 	}
 	if duplicateObservation, isDuplicate := repeatedSuccessfulToolObservation(state, actionDocument, successfulToolCalls); isDuplicate {
 		observation := turnObservation{
-			ObservationID: nextObservationID(len(state.Observations) + 1),
+			ObservationID: nextObservationIDForObservations(state.Observations),
 			Action:        "policy",
 			Tool:          strings.TrimSpace(actionDocument.ToolName),
 			Output:        ToolOutput{Content: "This exact tool call already succeeded as " + duplicateObservation.ObservationID + ". Use that observation for completionEvidence instead of running it again."},
@@ -93,8 +108,11 @@ func (agentTurnRunner *AgentTurnRunner) rejectRepeatedToolCall(taskRunID string,
 		state.Observations = append(state.Observations, observation)
 		agentTurnRunner.appendEvent(taskRunID, "agent.duplicate_tool_call_rejected", marshalEventBody(observation))
 		agentTurnRunner.saveStep(taskRunID, stepID, task.TaskStatusCompleted, "duplicate_tool_call "+actionDocument.ToolName, observation.ContentText())
+		if canFinalizeDuplicateDeterministically {
+			state.ShouldRestrictNextActionToTerminal = true
+		}
 		result, shouldStop := stopForNoProgress(stepID)
-		return toolCallActionOutcome{Result: result, ShouldReturn: shouldStop, WasHandled: true}
+		return noProgressToolCallActionOutcome(result, shouldStop)
 	}
 	if duplicateFailure, isDuplicateFailure := previousFailedToolInput(state.Observations, actionDocument.ToolName, actionDocument.ToolInput); isDuplicateFailure {
 		if len(requiredPreconditionsForObservation(duplicateFailure)) > 0 {
@@ -103,27 +121,32 @@ func (agentTurnRunner *AgentTurnRunner) rejectRepeatedToolCall(taskRunID string,
 			agentTurnRunner.appendEvent(taskRunID, "agent.recovery_choice_rejected", marshalEventBody(observation))
 			agentTurnRunner.saveStep(taskRunID, stepID, task.TaskStatusCompleted, "recovery_choice_rejected "+actionDocument.ToolName, observation.ContentText())
 			result, shouldStop := stopForNoProgress(stepID)
-			return toolCallActionOutcome{Result: result, ShouldReturn: shouldStop, WasHandled: true}
+			return noProgressToolCallActionOutcome(result, shouldStop)
 		}
 		observation := repeatedFailedAttemptObservation(len(state.Observations)+1, duplicateFailure, firstNonEmptyString(state.Request.ActiveGoal.OriginalInstruction, state.Request.Prompt))
 		state.Observations = append(state.Observations, observation)
 		agentTurnRunner.appendEvent(taskRunID, "agent.failed_fingerprint_rejected", marshalEventBody(observation))
 		agentTurnRunner.saveStep(taskRunID, stepID, task.TaskStatusCompleted, "failed_fingerprint_rejected "+actionDocument.ToolName, observation.ContentText())
 		result, shouldStop := stopForNoProgress(stepID)
-		return toolCallActionOutcome{Result: result, ShouldReturn: shouldStop, WasHandled: true}
+		return noProgressToolCallActionOutcome(result, shouldStop)
 	}
 	return toolCallActionOutcome{}
 }
 
 func repeatedSuccessfulToolObservation(state *agentTaskState, actionDocument turnActionDocument, successfulToolCalls map[string]turnObservation) (turnObservation, bool) {
 	observation, isDuplicate := repeatedSuccessfulCompletionCandidate(state, actionDocument, successfulToolCalls)
-	if !isDuplicate || !handlesDuplicateSuccessfulToolCall(actionDocument.ToolName, actionDocument.ToolInput) {
+	if !isDuplicate || !handlesDuplicateSuccessfulToolCall(state.Request.ToolSet, actionDocument.ToolName, actionDocument.ToolInput) {
 		return turnObservation{}, false
 	}
 	return observation, true
 }
 
 func repeatedSuccessfulCompletionCandidate(state *agentTaskState, actionDocument turnActionDocument, successfulToolCalls map[string]turnObservation) (turnObservation, bool) {
+	requestExpectsSideEffect := requiredEvidenceIncludesSideEffect(state.Request.ToolSet, state.Request.RequiredEvidenceTools) ||
+		outcomeContractHasSideEffectEvidence(state.Request.ToolSet, state.Request.OutcomeContract)
+	if requestExpectsSideEffect && !requiredEvidenceIncludesSideEffect(state.Request.ToolSet, []string{actionDocument.ToolName}) {
+		return turnObservation{}, false
+	}
 	toolInputKey := canonicalToolCallKey(actionDocument.ToolName, actionDocument.ToolInput)
 	observation, isDuplicate := successfulToolCalls[toolInputKey]
 	if !isDuplicate {
@@ -146,7 +169,7 @@ func previousSuccessfulToolInputObservation(observations []turnObservation, tool
 }
 
 func duplicateSuccessFinalizationRequirements(toolSet *ToolSet, requirements []toolUseRequirement, observations []turnObservation, actionDocument turnActionDocument) ([]toolUseRequirement, bool) {
-	if completionRequirementsHaveEvidence(requirements, observations) {
+	if completionRequirementsHaveEvidence(toolSet, requirements, observations) {
 		return requirements, true
 	}
 	strictRequirements := []toolUseRequirement{}
@@ -154,14 +177,13 @@ func duplicateSuccessFinalizationRequirements(toolSet *ToolSet, requirements []t
 		if !requirement.RequiresAttachment && !requirement.RequiresSideEffectEvidence {
 			continue
 		}
-		isSatisfied, _ := completionRequirementStatus(requirement, observations)
+		isSatisfied, _ := completionRequirementStatus(toolSet, requirement, observations)
 		if !isSatisfied {
 			return nil, false
 		}
 		strictRequirements = append(strictRequirements, requirement)
 	}
-	effectiveToolName, _ := effectiveActionToolNameAndInput(actionDocument.ToolName, actionDocument.ToolInput)
-	_, isFound := toolSet.ToolDefinition(effectiveToolName)
+	_, isFound := toolSet.ToolDefinition(actionDocument.ToolName)
 	return strictRequirements, isFound
 }
 
@@ -199,15 +221,22 @@ func repeatedFileReadObservation(observations []turnObservation, actionDocument 
 }
 
 func hasNewerFileMutationObservation(observations []turnObservation, path string) bool {
+	normalizedPath := tildeInsensitivePath(path)
 	for _, observation := range observations {
 		if observation.Failed() || !isFileMutationTool(observation.Tool) {
 			continue
 		}
-		if observationOutputPath(observation) == path {
-			return true
+		for _, mutatedPath := range observationMutatedPaths(observation) {
+			if tildeInsensitivePath(mutatedPath) == normalizedPath {
+				return true
+			}
 		}
 	}
 	return false
+}
+
+func tildeInsensitivePath(path string) string {
+	return strings.TrimPrefix(strings.TrimSpace(path), "~/")
 }
 
 func isFileMutationTool(toolName string) bool {
@@ -219,12 +248,25 @@ func isFileMutationTool(toolName string) bool {
 	}
 }
 
-func observationOutputPath(observation turnObservation) string {
+func observationMutatedPaths(observation turnObservation) []string {
 	payload := map[string]any{}
 	if json.Unmarshal([]byte(observation.ContentText()), &payload) != nil {
-		return ""
+		return nil
 	}
-	return strings.TrimSpace(stringField(payload, "path"))
+	paths := []string{}
+	if path := strings.TrimSpace(stringField(payload, "path")); path != "" {
+		paths = append(paths, path)
+	}
+	editedFiles, isList := payload["editedFiles"].([]any)
+	if !isList {
+		return paths
+	}
+	for _, editedFile := range editedFiles {
+		if path, isString := editedFile.(string); isString && strings.TrimSpace(path) != "" {
+			paths = append(paths, strings.TrimSpace(path))
+		}
+	}
+	return paths
 }
 
 func stalledReadRecoveryDirective(observations []turnObservation) string {
@@ -317,37 +359,7 @@ func parseFileReadRange(value string) (fileReadRange, bool) {
 	return fileReadRange{StartLine: startLine, EndLine: endLine}, true
 }
 
-func specificToolDescription(toolName string) string {
-	switch strings.TrimSpace(toolName) {
-	case "browser.open":
-		return `Open a web URL. Input: {"url":"https://www.google.com"}.`
-	case "browser.snapshot":
-		return `Read the current page. Returns url, title, snapshotText, and interactiveRefs such as @e1. Input: {}.`
-	case "browser.screenshot":
-		return `Capture the current page screenshot. Returns a temporary devicePath, not a local path. Input: {"ttlSeconds":86400}.`
-	case "browser.click":
-		return `Click an element by observe ref or selector. Input: {"target":"@e1"} or {"selector":"button[type=submit]"}.`
-	case "browser.fill":
-		return `Fill an input by observe ref or selector. Input: {"target":"@e1","text":"hello world"}.`
-	case "browser.select":
-		return `Select an option. Input: {"target":"@e1","value":"option"}.`
-	case "browser.press":
-		return `Press a key. Input: {"key":"Enter"}.`
-	case "browser.wait":
-		return `Wait for time or target. Input: {"milliseconds":1000} or {"target":"@e1"}.`
-	case "task.add":
-		return `Add a new Flow work item for the requester, or request new work for another person. Do not use this for editing, changing, completing, or updating an existing work item. Input: {"prompt":"기획안 전달","targetPersonHint":"lee"}.`
-	case "task.list":
-		return `List work items. Leave targetPersonHint EMPTY to list EVERYONE's tasks; set it to one person's name to list only that person. For "my tasks / what do I have", set targetPersonHint to the requester's own name. Weeks are relative integer offsets: weekFrom/weekTo where 0=this week (default), -1=last week; omit both for this week, set weekFrom for a range ending this week. Use before completing work when the matching task is uncertain. Input: {"targetPersonHint":"이동하","weekFrom":-1}.`
-	case "task.update":
-		return `Update or complete an existing Flow work item. Use this for edits, status changes, "수정", "변경", and "완료". Input: {"query":"10분 회의","content":"15분 회의"} or {"query":"10분 회의"} to mark it complete. Optional status values include "예정", "진행", "완료", "일시정지", "기각", and "중단".`
-	default:
-		return ""
-	}
-}
-
 func validateBrowserToolInput(toolName string, toolInput json.RawMessage) error {
-	toolName, toolInput = effectiveActionToolNameAndInput(toolName, toolInput)
 	switch strings.TrimSpace(toolName) {
 	case "browser.open":
 		return validateRequiredToolInputFields(toolName, toolInput, "url")
@@ -371,7 +383,7 @@ type terminalToolNameError struct {
 }
 
 func (errorValue terminalToolNameError) Error() string {
-	return errorValue.toolName + " is a Blueclaw tool, not a shell command. Use the fixed kernel tool schema directly, or use capability.invoke for domain capabilities."
+	return errorValue.toolName + " is a Blueclaw tool, not a shell command. Call it directly through the action schema."
 }
 
 func isTerminalToolNameError(errorValue error) bool {
@@ -489,13 +501,6 @@ func validateBrowserWaitInput(toolInput json.RawMessage) error {
 	return errors.New("missing required tool input for browser.wait: target or milliseconds")
 }
 
-func toolDefinitionInputSchema(toolDefinition ToolDefinition) json.RawMessage {
-	if len(toolDefinition.InputSchema) > 0 {
-		return toolDefinition.InputSchema
-	}
-	return specificToolInputSchema(toolDefinition.Name)
-}
-
 func validInputExampleSuffix(toolName string) string {
 	switch strings.TrimSpace(toolName) {
 	case "browser.open":
@@ -527,8 +532,7 @@ func parseToolInputDocument(toolName string, toolInput json.RawMessage) (map[str
 }
 
 func canonicalToolCallKey(toolName string, toolInput json.RawMessage) string {
-	effectiveToolName, effectiveToolInput := effectiveActionToolNameAndInput(toolName, toolInput)
-	return strings.TrimSpace(effectiveToolName) + "\x00" + canonicalToolInput(effectiveToolInput)
+	return strings.TrimSpace(toolName) + "\x00" + canonicalToolInput(toolInput)
 }
 
 func canonicalToolInput(toolInput json.RawMessage) string {
@@ -550,8 +554,7 @@ func canonicalToolInput(toolInput json.RawMessage) string {
 // from duplicate rejection once the workspace changed after the previous run —
 // a revise-then-rebuild loop legitimately repeats the same build command.
 func terminalRerunAfterWorkspaceMutation(actionDocument turnActionDocument, observations []turnObservation, duplicateObservation turnObservation) bool {
-	effectiveToolName, _ := effectiveActionToolNameAndInput(actionDocument.ToolName, actionDocument.ToolInput)
-	if strings.TrimSpace(effectiveToolName) != "terminal.run" {
+	if strings.TrimSpace(actionDocument.ToolName) != "terminal.run" {
 		return false
 	}
 	seenDuplicateObservation := false
@@ -570,17 +573,15 @@ func terminalRerunAfterWorkspaceMutation(actionDocument turnActionDocument, obse
 	return false
 }
 
-func handlesDuplicateSuccessfulToolCall(toolName string, toolInput json.RawMessage) bool {
-	effectiveToolName, _ := effectiveActionToolNameAndInput(toolName, toolInput)
-	if strings.TrimSpace(effectiveToolName) == "terminal.run" {
+func handlesDuplicateSuccessfulToolCall(toolSet *ToolSet, toolName string, toolInput json.RawMessage) bool {
+	if strings.TrimSpace(toolName) == "terminal.run" {
 		return true
 	}
-	return isOneShotCompletionEvidenceTool(effectiveToolName)
+	return isOneShotCompletionEvidenceTool(toolSet, toolName)
 }
 
-func previousSuccessfulExternalSend(observations []turnObservation, toolName string, toolInput json.RawMessage) (turnObservation, bool) {
-	toolName, toolInput = effectiveActionToolNameAndInput(toolName, toolInput)
-	if !isUnsafeRepeatSensitiveTool(toolName) {
+func previousSuccessfulExternalSend(toolSet *ToolSet, observations []turnObservation, toolName string, toolInput json.RawMessage) (turnObservation, bool) {
+	if !isSendEvidenceTool(toolSet, toolName) {
 		return turnObservation{}, false
 	}
 	currentRecipient := sendRecipientKey(toolInput)
@@ -624,15 +625,6 @@ func observationSendRecipientKey(observation turnObservation) string {
 	return sendRecipientKey(json.RawMessage(canonicalInput))
 }
 
-func isUnsafeRepeatSensitiveTool(toolName string) bool {
-	switch strings.TrimSpace(toolName) {
-	case "message.send", "mail.message.send", "google.gmail.send", "slack.message.send":
-		return true
-	default:
-		return false
-	}
-}
-
 func requiredEvidenceContains(requiredEvidenceTools []string, expectedToolName string) bool {
 	for _, toolName := range requiredEvidenceTools {
 		if ToolNamesMatch(toolName, expectedToolName) {
@@ -642,56 +634,54 @@ func requiredEvidenceContains(requiredEvidenceTools []string, expectedToolName s
 	return false
 }
 
-func requiredEvidenceHasPrefix(requiredEvidenceTools []string, prefix string) bool {
-	for _, toolName := range requiredEvidenceTools {
-		if strings.HasPrefix(strings.TrimSpace(toolName), prefix) {
-			return true
-		}
-	}
-	return false
-}
-
 func unrequestedPlatformMessageSendObservation(request AgentTurnRequest, actionDocument turnActionDocument, observationID string) (turnObservation, bool) {
-	toolName, toolInput := effectiveActionToolNameAndInput(actionDocument.ToolName, actionDocument.ToolInput)
-	if strings.TrimSpace(toolName) != "message.send" {
+	toolName := strings.TrimSpace(actionDocument.ToolName)
+	if !isSendEvidenceTool(request.ToolSet, toolName) {
 		return turnObservation{}, false
 	}
-	if requestRequiresPlatformMessageSend(request) {
+	if sendTargetsCurrentConversation(actionDocument.ToolInput) {
 		return turnObservation{}, false
 	}
-	deliveryType := platformMessageSendDeliveryType(toolInput)
-	message := "message.send is only for explicit platform delivery requests. The latest user message does not ask to send a separate platform message; answer in the current conversation with finish.message instead."
-	if deliveryType != "" {
-		message += " Requested targetType was " + deliveryType + "."
+	if requestRequiresExternalSendTool(request, toolName) {
+		return turnObservation{}, false
 	}
-	return newFailureObservation(observationID, "policy", strings.TrimSpace(toolName), message, FailurePolicyBlocked, FailureCodes.PolicyBlocked, "policy"), true
+	message := toolName + " requires an exact external-send outcome contract. Answer in the current conversation with finish.message instead."
+	return newFailureObservation(observationID, "policy", toolName, message, FailurePolicyBlocked, FailureCodes.PolicyBlocked, "policy"), true
 }
 
-func requestRequiresPlatformMessageSend(request AgentTurnRequest) bool {
-	if requiredEvidenceContains(request.RequiredEvidenceTools, "message.send") {
-		return true
-	}
-	for _, toolName := range outcomeContractRequiredToolNames(request.OutcomeContract) {
-		if ToolNamesMatch(toolName, "message.send") {
-			return true
-		}
-	}
-	for _, toolName := range outcomeContractRequiredToolNames(request.ActiveGoal.OutcomeContract) {
-		if ToolNamesMatch(toolName, "message.send") {
-			return true
-		}
-	}
-	return false
-}
-
-func platformMessageSendDeliveryType(toolInput json.RawMessage) string {
+// A send into the conversation the requester is already in has the blast radius
+// of a normal reply, so it needs neither an external-send outcome contract nor
+// runtime approval.
+func sendTargetsCurrentConversation(toolInput json.RawMessage) bool {
 	var document struct {
 		TargetType string `json:"targetType"`
 	}
 	if len(toolInput) == 0 || json.Unmarshal(toolInput, &document) != nil {
-		return ""
+		return false
 	}
-	return strings.TrimSpace(document.TargetType)
+	switch strings.TrimSpace(document.TargetType) {
+	case "currentThread", "currentChannel":
+		return true
+	default:
+		return false
+	}
+}
+
+func requestRequiresExternalSendTool(request AgentTurnRequest, toolName string) bool {
+	if requiredEvidenceContains(request.RequiredEvidenceTools, toolName) {
+		return true
+	}
+	for _, requiredToolName := range outcomeContractRequiredToolNames(request.OutcomeContract) {
+		if ToolNamesMatch(requiredToolName, toolName) {
+			return true
+		}
+	}
+	for _, requiredToolName := range outcomeContractRequiredToolNames(request.ActiveGoal.OutcomeContract) {
+		if ToolNamesMatch(requiredToolName, toolName) {
+			return true
+		}
+	}
+	return false
 }
 
 func isTerminalExecutionTool(toolName string) bool {
@@ -726,7 +716,7 @@ func (agentTurnRunner *AgentTurnRunner) recordUnavailableToolRequest(taskRunID s
 		"toolName":      trimmedToolName,
 		"input":         json.RawMessage(toolInput),
 	}))
-	return agentTurnRunner.saveToolObservation(context.Background(), taskRunID, observationID, trimmedToolName, effectiveObservationToolName(trimmedToolName, toolInput), toolInputKey, ToolFailureResult(FailurePolicyBlocked, FailureCodes.PolicyBlocked, "tool_availability", "tool is not allowed"), workspaceRootPath, minimumModifiedAt, 0)
+	return agentTurnRunner.saveToolObservation(context.Background(), taskRunID, observationID, trimmedToolName, "", toolInput, effectiveObservationToolName(trimmedToolName, toolInput), toolInputKey, ToolFailureResult(FailurePolicyBlocked, FailureCodes.PolicyBlocked, "tool_availability", "tool is not allowed"), workspaceRootPath, minimumModifiedAt, 0)
 }
 
 func stringValue(value any) string {

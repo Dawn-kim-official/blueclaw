@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"blueclaw/internal/agent"
 	"blueclaw/internal/agentruntime"
 	"blueclaw/internal/identity"
 	"blueclaw/internal/memory"
@@ -16,11 +17,12 @@ import (
 )
 
 type TaskRunHandler struct {
-	TaskLauncher    *agentruntime.TaskLauncher
-	IdentityService *identity.IdentityService
-	WorkspaceID     string
-	TaskRunService  *task.TaskRunService
-	TaskIntakeGate  TaskIntakeGate
+	TaskLauncher            *agentruntime.TaskLauncher
+	IdentityService         *identity.IdentityService
+	WorkspaceID             string
+	TaskRunService          *task.TaskRunService
+	TaskIntakeGate          TaskIntakeGate
+	AllowTaskDecisionPreset bool
 }
 
 type taskRunRequest struct {
@@ -33,7 +35,13 @@ type taskRunRequest struct {
 	Prompt               string   `json:"prompt"`
 	PinnedToolNames      []string `json:"pinnedToolNames"`
 	PinnedSkillNames     []string `json:"pinnedSkillNames"`
+	TaskDecisionPreset   string   `json:"taskDecisionPreset"`
 }
+
+const (
+	llmdTopologyTaskDecisionPreset    = "llmd_topology"
+	llmdTopologyDiagnosticProfileName = "llmd-diagnostic"
+)
 
 type taskRunCancelRequest struct {
 	TaskRunIDs                 []string `json:"taskRunIDs"`
@@ -69,26 +77,40 @@ func (taskRunHandler TaskRunHandler) HandleRunTask(responseWriter http.ResponseW
 		http.Error(responseWriter, "prompt is required", http.StatusBadRequest)
 		return
 	}
+	precomputedTurnDecision, statusCode, errorValue := taskRunHandler.resolveTaskDecisionPreset(runRequest.TaskDecisionPreset)
+	if errorValue != nil {
+		http.Error(responseWriter, errorValue.Error(), statusCode)
+		return
+	}
+	if precomputedTurnDecision != nil {
+		if hasTaskDecisionPresetOverrides(runRequest) {
+			http.Error(responseWriter, "task decision preset does not accept profile, tool, or skill overrides", http.StatusBadRequest)
+			return
+		}
+		runRequest.ProfileName = llmdTopologyDiagnosticProfileName
+	}
 	personAccess := taskRunHandler.IdentityService.ResolvePersonAccess(runRequest.RequesterPersonID)
 	conversationID := firstNonEmptyAdminString(runRequest.ConversationID, "admin:"+runRequest.RequesterPersonID)
-	launchContext, cancelLaunch := context.WithTimeout(context.Background(), 15*time.Minute)
-	defer cancelLaunch()
-	launchResult, errorValue := taskRunHandler.TaskLauncher.Launch(launchContext, agentruntime.TaskLaunchRequest{
-		Source:                    agentruntime.TaskLaunchSourceAdmin,
-		SourceReference:           "admin:" + runRequest.RequesterPersonID,
-		RequesterPersonID:         runRequest.RequesterPersonID,
-		RequesterName:             runRequest.RequesterName,
-		RequesterCallingName:      runRequest.RequesterCallingName,
-		RequesterHandle:           runRequest.RequesterHandle,
-		RequesterEmail:            taskRunHandler.IdentityService.ResolvePersonPrimaryEmail(runRequest.RequesterPersonID),
-		ProfileName:               runRequest.ProfileName,
-		ConversationID:            conversationID,
-		Prompt:                    runRequest.Prompt,
-		PinnedToolNames:           append([]string{}, runRequest.PinnedToolNames...),
-		PinnedSkillNames:          append([]string{}, runRequest.PinnedSkillNames...),
-		PersonAccess:              personAccess,
-		MemoryNamespaces:          taskRunHandler.memoryNamespaces(runRequest.RequesterPersonID, conversationID, personAccess),
-		AccessibleConversationIDs: []string{conversationID},
+	launchResult, errorValue := taskRunHandler.TaskLauncher.Launch(context.Background(), agentruntime.TaskLaunchRequest{
+		Source:                     agentruntime.TaskLaunchSourceAdmin,
+		SourceReference:            "admin:" + runRequest.RequesterPersonID,
+		RequesterPersonID:          runRequest.RequesterPersonID,
+		RequesterName:              runRequest.RequesterName,
+		RequesterCallingName:       runRequest.RequesterCallingName,
+		RequesterHandle:            runRequest.RequesterHandle,
+		RequesterEmail:             taskRunHandler.IdentityService.ResolvePersonPrimaryEmail(runRequest.RequesterPersonID),
+		ProfileName:                runRequest.ProfileName,
+		ConversationID:             conversationID,
+		Prompt:                     runRequest.Prompt,
+		PinnedToolNames:            append([]string{}, runRequest.PinnedToolNames...),
+		PinnedSkillNames:           append([]string{}, runRequest.PinnedSkillNames...),
+		PrecomputedTurnDecision:    precomputedTurnDecision,
+		IsPrecomputedDecisionExact: precomputedTurnDecision != nil,
+		SkipSkillSelection:         precomputedTurnDecision != nil,
+		UseEmptyToolCatalog:        precomputedTurnDecision != nil,
+		PersonAccess:               personAccess,
+		MemoryNamespaces:           taskRunHandler.memoryNamespaces(runRequest.RequesterPersonID, conversationID, personAccess),
+		AccessibleConversationIDs:  []string{conversationID},
 	})
 	if errorValue != nil {
 		http.Error(responseWriter, errorValue.Error(), http.StatusInternalServerError)
@@ -99,6 +121,34 @@ func (taskRunHandler TaskRunHandler) HandleRunTask(responseWriter http.ResponseW
 		"finishMessage": launchResult.TurnResult.FinishMessage,
 		"attachments":   launchResult.TurnResult.Attachments,
 	})
+}
+
+func hasTaskDecisionPresetOverrides(runRequest taskRunRequest) bool {
+	return strings.TrimSpace(runRequest.ProfileName) != "" ||
+		len(runRequest.PinnedToolNames) > 0 ||
+		len(runRequest.PinnedSkillNames) > 0
+}
+
+func (taskRunHandler TaskRunHandler) resolveTaskDecisionPreset(preset string) (*agent.TurnDecision, int, error) {
+	normalizedPreset := strings.TrimSpace(preset)
+	if normalizedPreset == "" {
+		return nil, 0, nil
+	}
+	if !taskRunHandler.AllowTaskDecisionPreset {
+		return nil, http.StatusForbidden, errors.New("task decision presets are disabled")
+	}
+	if normalizedPreset != llmdTopologyTaskDecisionPreset {
+		return nil, http.StatusBadRequest, errors.New("task decision preset is unsupported")
+	}
+	return &agent.TurnDecision{
+		Route:              agent.TurnRouteStartTask,
+		Classification:     agent.IntakeClassificationQuickReply,
+		TaskShape:          agent.TaskShapeImmediateReply,
+		TaskLevel:          agent.TaskLevelXLow,
+		EstimatedMinutes:   1,
+		PriorTaskReference: agent.PriorTaskReferenceNone,
+		Reason:             "llmd topology diagnostic",
+	}, 0, nil
 }
 
 func (taskRunHandler TaskRunHandler) HandleCancelTaskRun(responseWriter http.ResponseWriter, request *http.Request) {

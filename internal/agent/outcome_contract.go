@@ -6,113 +6,6 @@ import (
 	"blueclaw/internal/task"
 )
 
-const siteRequirementNormalizationEventName = "agent.site_requirement_normalized"
-
-type siteRequirementNormalizationReport struct {
-	Source                       string     `json:"source,omitempty"`
-	Reason                       string     `json:"reason,omitempty"`
-	SiteEvidenceQuote            string     `json:"siteEvidenceQuote,omitempty"`
-	DroppedExpectedResultIDs     []string   `json:"droppedExpectedResultIDs,omitempty"`
-	DroppedRequiredEvidenceTools []string   `json:"droppedRequiredEvidenceTools,omitempty"`
-	DroppedRequiredEvidenceAnyOf [][]string `json:"droppedRequiredEvidenceAnyOf,omitempty"`
-	DroppedSelectedEvidenceHints []string   `json:"droppedSelectedEvidenceHints,omitempty"`
-}
-
-func (report siteRequirementNormalizationReport) HasDrops() bool {
-	return len(report.DroppedExpectedResultIDs) > 0 ||
-		len(report.DroppedRequiredEvidenceTools) > 0 ||
-		len(report.DroppedRequiredEvidenceAnyOf) > 0 ||
-		len(report.DroppedSelectedEvidenceHints) > 0
-}
-
-func normalizeTurnDecisionSiteRequirement(request AgentRequest, decision TurnDecision) (TurnDecision, siteRequirementNormalizationReport) {
-	intakeDecision := decision.IntakeDecision()
-	intakeDecision, report := normalizeIntakeDecisionSiteRequirement(request.Prompt, intakeDecision, "intake")
-	decision.ExpectedResults = intakeDecision.ExpectedResults
-	decision.SiteRequestEvidence = intakeDecision.SiteRequestEvidence
-	if report.HasDrops() {
-		decision.InitialToolNames, _ = removeToolNamePrefix(decision.InitialToolNames, "site.")
-	}
-	return decision, report
-}
-
-func normalizeIntakeDecisionSiteRequirement(currentUserMessage string, decision IntakeDecision, source string) (IntakeDecision, siteRequirementNormalizationReport) {
-	decision.SiteRequestEvidence = strings.TrimSpace(decision.SiteRequestEvidence)
-	if !intakeDecisionRequiresSiteEvidence(decision) {
-		decision.SiteRequestEvidence = ""
-		return decision, siteRequirementNormalizationReport{}
-	}
-	if siteEvidenceQuoteMatchesMessage(decision.SiteRequestEvidence, currentUserMessage) {
-		return decision, siteRequirementNormalizationReport{}
-	}
-	report := siteRequirementNormalizationReport{
-		Source:            source,
-		Reason:            "site evidence quote does not verify against current user message",
-		SiteEvidenceQuote: decision.SiteRequestEvidence,
-	}
-	decision.ExpectedResults, report.DroppedExpectedResultIDs = removeSiteExpectedResults(decision.ExpectedResults)
-	decision.SiteRequestEvidence = ""
-	return decision, report
-}
-
-func intakeDecisionRequiresSiteEvidence(decision IntakeDecision) bool {
-	return strings.TrimSpace(decision.SiteRequestEvidence) != "" ||
-		requiredEvidenceHasPrefix(decision.RequiredEvidenceTools, "site.") ||
-		expectedResultsIncludeSiteRequirement(decision.ExpectedResults)
-}
-
-func normalizeActiveGoalSiteRequirement(activeGoal ActiveGoal, currentUserMessage string, isContinuation bool) (ActiveGoal, siteRequirementNormalizationReport) {
-	if !activeGoalRequiresSiteEvidence(activeGoal) {
-		return activeGoal, siteRequirementNormalizationReport{}
-	}
-	if isContinuation {
-		return activeGoal, siteRequirementNormalizationReport{}
-	}
-	if siteEvidenceQuoteMatchesMessage(activeGoal.OutcomeContract.SiteEvidenceQuote, activeGoal.OriginalInstruction) {
-		return activeGoal, siteRequirementNormalizationReport{}
-	}
-	if siteEvidenceQuoteMatchesMessage(activeGoal.OutcomeContract.SiteEvidenceQuote, currentUserMessage) {
-		return activeGoal, siteRequirementNormalizationReport{}
-	}
-	report := siteRequirementNormalizationReport{
-		Source:            "active_goal",
-		Reason:            "stored site evidence quote does not verify against original instruction or current user message",
-		SiteEvidenceQuote: activeGoal.OutcomeContract.SiteEvidenceQuote,
-	}
-	activeGoal.OutcomeContract, report = stripOutcomeContractSiteRequirements(activeGoal.OutcomeContract, report)
-	return activeGoal, report
-}
-
-func activeGoalRequiresSiteEvidence(activeGoal ActiveGoal) bool {
-	return outcomeContractHasSiteRequirement(activeGoal.OutcomeContract)
-}
-
-func outcomeContractHasSiteRequirement(contract OutcomeContract) bool {
-	return contractMentionsToolPrefix(contract, "site.") || expectedResultsIncludeSiteRequirement(contract.ExpectedResults)
-}
-
-func stripOutcomeContractSiteRequirements(contract OutcomeContract, report siteRequirementNormalizationReport) (OutcomeContract, siteRequirementNormalizationReport) {
-	contract.RequiredEvidenceTools, report.DroppedRequiredEvidenceTools = removeToolNamePrefix(contract.RequiredEvidenceTools, "site.")
-	contract.RequiredEvidenceAnyOf, report.DroppedRequiredEvidenceAnyOf = removeToolNamePrefixGroups(contract.RequiredEvidenceAnyOf, "site.")
-	contract.SelectedEvidenceHints, report.DroppedSelectedEvidenceHints = removeToolNamePrefix(contract.SelectedEvidenceHints, "site.")
-	contract.ExpectedResults, report.DroppedExpectedResultIDs = removeSiteExpectedResults(contract.ExpectedResults)
-	contract.SiteEvidenceQuote = ""
-	return normalizeOutcomeContract(contract), report
-}
-
-func removeSiteExpectedResults(results []ExpectedResult) ([]ExpectedResult, []string) {
-	filteredResults := []ExpectedResult{}
-	droppedResultIDs := []string{}
-	for _, result := range results {
-		if expectedResultIsSiteRequirement(result) {
-			droppedResultIDs = appendUniqueStrings(droppedResultIDs, firstNonEmptyString(result.ID, result.Description))
-			continue
-		}
-		filteredResults = append(filteredResults, result)
-	}
-	return normalizeExpectedResults(filteredResults), droppedResultIDs
-}
-
 func expectedResultsIncludeSiteRequirement(results []ExpectedResult) bool {
 	for _, result := range results {
 		if expectedResultIsSiteRequirement(result) {
@@ -126,55 +19,6 @@ func expectedResultIsSiteRequirement(result ExpectedResult) bool {
 	return strings.TrimSpace(result.ID) == "site-public-link"
 }
 
-func removeToolNamePrefix(toolNames []string, prefix string) ([]string, []string) {
-	filteredToolNames := []string{}
-	droppedToolNames := []string{}
-	for _, toolName := range toolNames {
-		trimmedToolName := strings.TrimSpace(toolName)
-		if strings.HasPrefix(trimmedToolName, prefix) {
-			droppedToolNames = appendUniqueStrings(droppedToolNames, trimmedToolName)
-			continue
-		}
-		filteredToolNames = appendUniqueStrings(filteredToolNames, trimmedToolName)
-	}
-	return filteredToolNames, droppedToolNames
-}
-
-func removeToolNamePrefixGroups(groups [][]string, prefix string) ([][]string, [][]string) {
-	filteredGroups := [][]string{}
-	droppedGroups := [][]string{}
-	for _, group := range groups {
-		filteredGroup, droppedGroup := removeToolNamePrefix(group, prefix)
-		if len(droppedGroup) > 0 {
-			droppedGroups = append(droppedGroups, droppedGroup)
-		}
-		if len(filteredGroup) > 0 {
-			filteredGroups = append(filteredGroups, filteredGroup)
-		}
-	}
-	return filteredGroups, droppedGroups
-}
-
-func siteEvidenceQuoteMatchesMessage(siteEvidenceQuote string, userMessage string) bool {
-	normalizedQuote := trimSiteEvidencePunctuation(normalizeSiteEvidenceText(siteEvidenceQuote))
-	normalizedMessage := normalizeSiteEvidenceText(userMessage)
-	if normalizedQuote == "" || normalizedMessage == "" {
-		return false
-	}
-	if strings.Contains(normalizedMessage, normalizedQuote) {
-		return true
-	}
-	return strings.Contains(trimSiteEvidencePunctuation(normalizedMessage), normalizedQuote)
-}
-
-func normalizeSiteEvidenceText(value string) string {
-	return strings.Join(strings.Fields(strings.TrimSpace(value)), " ")
-}
-
-func trimSiteEvidencePunctuation(value string) string {
-	return strings.Trim(value, " \t\n\r\"'`.,!?;:()[]{}<>“”‘’…。！？、，")
-}
-
 func shouldBuildExecutionPlanForConfirmation(request AgentRequest, intakeDecision IntakeDecision, requiredEvidenceTools []string) bool {
 	if intakeDecision.Classification != IntakeClassificationBoundedTask {
 		return false
@@ -185,21 +29,12 @@ func shouldBuildExecutionPlanForConfirmation(request AgentRequest, intakeDecisio
 	if intakeDecision.TaskShape == TaskShapeApprovalGatedTask {
 		return true
 	}
-	for _, toolName := range requiredEvidenceTools {
-		if confirmationRiskyEvidenceTool(toolName) {
+	for _, toolName := range appendUniqueStrings(requiredEvidenceTools, intakeDecision.InitialToolNames...) {
+		if isSendEvidenceTool(request.ToolSet, toolName) {
 			return true
 		}
 	}
 	return false
-}
-
-func confirmationRiskyEvidenceTool(toolName string) bool {
-	switch strings.TrimSpace(toolName) {
-	case "message.send", "mail.message.send", "google.gmail.send", "slack.message.send":
-		return true
-	default:
-		return false
-	}
 }
 
 func requestIsNonDestructiveSitePrototypePublish(request AgentRequest, requiredEvidenceTools []string) bool {
@@ -209,22 +44,15 @@ func requestIsNonDestructiveSitePrototypePublish(request AgentRequest, requiredE
 	if !requiredEvidenceContains(requiredEvidenceTools, "site.publish") && !hasTool(request.ToolSet, "site.publish") {
 		return false
 	}
-	if !requestLooksLikeSitePrototypeWork(request) {
+	if !contractRequiresToolNamespace(request.ToolSet, request.ActiveGoal.OutcomeContract, "site") &&
+		!requiredEvidenceIncludesNamespace(request.ToolSet, requiredEvidenceTools, "site") {
 		return false
 	}
 	return true
 }
 
 func requestLooksLikeSitePrototypeWork(request AgentRequest) bool {
-	return activeGoalRequiresToolPrefix(request.ActiveGoal, "site.") || activeGoalMentionsToolPrefix(request.ActiveGoal, "site.")
-}
-
-func requestLooksLikeCalendarWork(request AgentRequest) bool {
-	return activeGoalRequiresToolPrefix(request.ActiveGoal, "calendar.") || activeGoalMentionsToolPrefix(request.ActiveGoal, "calendar.")
-}
-
-func requestLooksLikeFlowTaskWork(request AgentRequest) bool {
-	return activeGoalRequiresToolPrefix(request.ActiveGoal, "task.") || activeGoalMentionsToolPrefix(request.ActiveGoal, "task.")
+	return contractRequiresToolNamespace(request.ToolSet, request.ActiveGoal.OutcomeContract, "site")
 }
 
 func requestLooksLikeSlidesArtifactWork(request AgentRequest) bool {
@@ -242,20 +70,29 @@ func intakeDecisionRequestsVisualDeliverable(intakeDecision IntakeDecision) bool
 	return false
 }
 
+func requestNeedsDerivedSideEffectEvidenceGroup(toolSet *ToolSet, intakeDecision IntakeDecision, contract OutcomeContract) bool {
+	switch intakeDecision.TaskShape {
+	case TaskShapeMaintenanceTask, TaskShapeScheduledTask, TaskShapeApprovalGatedTask:
+	default:
+		return false
+	}
+	return !requiredEvidenceIncludesSideEffect(toolSet, contract.RequiredEvidenceTools)
+}
+
 func toolSetForOutcomeReference(toolSet *ToolSet, request AgentRequest, executionPlan ExecutionPlan, hasExecutionPlan bool, outcomeContract OutcomeContract) *ToolSet {
 	if toolSet == nil {
 		return nil
 	}
 	allowedToolNames := []string{}
 	for _, toolName := range toolSet.ListToolNames() {
-		if shouldExposeToolForOutcome(toolName, request, executionPlan, hasExecutionPlan, outcomeContract) {
+		if shouldExposeToolForOutcome(toolSet, toolName, request, executionPlan, hasExecutionPlan, outcomeContract) {
 			allowedToolNames = append(allowedToolNames, toolName)
 		}
 	}
 	return toolSet.WithAllowedToolNames(allowedToolNames)
 }
 
-func shouldExposeToolForOutcome(toolName string, request AgentRequest, executionPlan ExecutionPlan, hasExecutionPlan bool, outcomeContract OutcomeContract) bool {
+func shouldExposeToolForOutcome(toolSet *ToolSet, toolName string, request AgentRequest, executionPlan ExecutionPlan, hasExecutionPlan bool, outcomeContract OutcomeContract) bool {
 	trimmedToolName := strings.TrimSpace(toolName)
 	if stringSliceContains(request.PinnedToolNames, trimmedToolName) {
 		return true
@@ -263,21 +100,21 @@ func shouldExposeToolForOutcome(toolName string, request AgentRequest, execution
 	if activeGoalRequiresTool(request.ActiveGoal, trimmedToolName) {
 		return true
 	}
-	if strings.HasPrefix(trimmedToolName, "site.") {
-		return outcomeAllowsSiteTools(request, executionPlan, hasExecutionPlan, outcomeContract)
+	if toolIsInNamespace(toolSet, trimmedToolName, "site") {
+		return outcomeAllowsSiteTools(toolSet, executionPlan, hasExecutionPlan, outcomeContract)
 	}
-	if isSendEvidenceTool(trimmedToolName) {
-		return outcomeAllowsExternalSendTools(request, executionPlan, hasExecutionPlan, outcomeContract)
+	if isSendEvidenceTool(toolSet, trimmedToolName) {
+		return outcomeAllowsExternalSendTools(toolSet, executionPlan, hasExecutionPlan, outcomeContract)
 	}
 	return true
 }
 
-func outcomeAllowsSiteTools(request AgentRequest, executionPlan ExecutionPlan, hasExecutionPlan bool, outcomeContract OutcomeContract) bool {
-	return contractRequiresToolPrefix(outcomeContract, "site.") || (hasExecutionPlan && executionPlan.PublicDeploy) || requestLooksLikeSitePrototypeWork(request)
+func outcomeAllowsSiteTools(toolSet *ToolSet, executionPlan ExecutionPlan, hasExecutionPlan bool, outcomeContract OutcomeContract) bool {
+	return contractRequiresToolNamespace(toolSet, outcomeContract, "site") || hasExecutionPlan && executionPlan.PublicDeploy
 }
 
-func outcomeAllowsExternalSendTools(request AgentRequest, executionPlan ExecutionPlan, hasExecutionPlan bool, outcomeContract OutcomeContract) bool {
-	return contractRequiresSendTool(outcomeContract) ||
+func outcomeAllowsExternalSendTools(toolSet *ToolSet, executionPlan ExecutionPlan, hasExecutionPlan bool, outcomeContract OutcomeContract) bool {
+	return contractRequiresSendTool(toolSet, outcomeContract) ||
 		(hasExecutionPlan && (executionPlan.ExternalSend || executionPlan.ThirdPartyExternalSend))
 }
 
@@ -286,7 +123,7 @@ func outcomeAllowsVisualArtifactReview(request AgentRequest, outcomeContract Out
 	return (artifactRequirement != "" && artifactRequirement != ArtifactRequirementNone) ||
 		expectedResultIncludesType(outcomeContract, ExpectedResultTypeFile) ||
 		expectedResultIncludesType(outcomeContract, ExpectedResultTypeLink) ||
-		requestLooksLikeSitePrototypeWork(request) ||
+		contractRequiresToolNamespace(request.ToolSet, request.ActiveGoal.OutcomeContract, "site") ||
 		requestLooksLikeSlidesArtifactWork(request)
 }
 
@@ -341,19 +178,11 @@ func genericBuiltInToolNames() []string {
 }
 
 func selectedEvidenceHintTools(instructionBundle InstructionBundle) []string {
-	toolNames := []string{}
-	selectedSkillNames := selectedSkillNameSet(instructionBundle.SkillDecisions)
-	for _, skillInstruction := range instructionBundle.Skills {
-		if !selectedSkillNames[skillInstruction.Name] {
-			continue
-		}
-		toolNames = append(toolNames, skillInstruction.Completion.RequiredEvidenceTools...)
-	}
-	return appendUniqueStrings(toolNames)
+	return appendUniqueStrings(instructionBundle.RequiredEvidenceTools)
 }
 
 func confirmationEvidenceHintsForRequest(request AgentRequest, intakeDecision IntakeDecision, evidenceHints []string) []string {
-	toolNames := appendUniqueStrings(nil, intakeDecision.RequiredEvidenceTools...)
+	toolNames := []string{}
 	for _, toolName := range evidenceHints {
 		if evidenceHintMatchesOutcome(toolName, request, intakeDecision, ExecutionPlan{}, false, nil) {
 			toolNames = appendUniqueStrings(toolNames, toolName)
@@ -397,10 +226,10 @@ func selectedEvidenceToolsForRequestContinuation(request AgentRequest, contract 
 			toolNames = appendUniqueStrings(toolNames, trimmedToolName)
 			continue
 		}
-		if isSendEvidenceTool(trimmedToolName) && !requestLooksLikeExternalSendContinuation(request, contract) {
+		if isSendEvidenceTool(request.ToolSet, trimmedToolName) && !requestLooksLikeExternalSendContinuation(request, contract) {
 			continue
 		}
-		if isSendEvidenceTool(trimmedToolName) {
+		if isSendEvidenceTool(request.ToolSet, trimmedToolName) {
 			toolNames = appendUniqueStrings(toolNames, trimmedToolName)
 		}
 	}
@@ -408,20 +237,15 @@ func selectedEvidenceToolsForRequestContinuation(request AgentRequest, contract 
 }
 
 func outcomeContractForRequest(request AgentRequest, intakeDecision IntakeDecision, instructionBundle InstructionBundle, executionPlan ExecutionPlan, hasExecutionPlan bool, requiredAttachmentSuffixes []string) OutcomeContract {
-	request.ActiveGoal, _ = normalizeActiveGoalSiteRequirement(request.ActiveGoal, request.Prompt, request.IsApprovalContinuation || request.IsRuntimeRestartResume)
 	requiredAttachmentSuffixes = attachmentSuffixesForOutcomeContract(requiredAttachmentSuffixes)
 	if OutcomeContractHasRequirements(request.ActiveGoal.OutcomeContract) {
 		contract := request.ActiveGoal.OutcomeContract
 		selectedEvidenceHints := selectedEvidenceHintTools(instructionBundle)
-		contract.RequiredEvidenceTools = appendUniqueStrings(contract.RequiredEvidenceTools, intakeDecision.RequiredEvidenceTools...)
 		contract.SelectedEvidenceHints = appendUniqueStrings(contract.SelectedEvidenceHints, selectedEvidenceHints...)
 		contract.SelectedEvidenceHints = filterStaleOutcomeHints(request, executionPlan, hasExecutionPlan, contract, contract.SelectedEvidenceHints)
 		contract.RequiredEvidenceTools = appendUniqueStrings(contract.RequiredEvidenceTools, selectedEvidenceToolsForRequestContinuation(request, contract, selectedEvidenceHints)...)
-		if len(intakeDecision.RequiredEvidenceTools) == 0 {
-			contract.RequiredEvidenceTools = appendUniqueStrings(contract.RequiredEvidenceTools, requiredSendEvidenceToolsForContract(contract)...)
-		}
+		contract.RequiredEvidenceTools = appendUniqueStrings(contract.RequiredEvidenceTools, requiredSendEvidenceToolsForContract(request.ToolSet, contract)...)
 		contract.RequiredEffects = appendOutcomeEffects(contract.RequiredEffects, requiredWorkflowEffectRequirementsForRequest(request)...)
-		contract.ExpectedResults = appendExpectedResults(contract.ExpectedResults, legacyExpectedResultsForContract(request, intakeDecision, executionPlan, hasExecutionPlan, contract)...)
 		if strings.TrimSpace(contract.ArtifactRequirement) == "" || contract.ArtifactRequirement == ArtifactRequirementNone {
 			contract.ArtifactRequirement = artifactRequirementForOutcomeContract(intakeDecision, contract)
 		}
@@ -431,33 +255,24 @@ func outcomeContractForRequest(request AgentRequest, intakeDecision IntakeDecisi
 		SelectedEvidenceHints:      appendUniqueStrings(outcomeContractToolNames(request.ActiveGoal.OutcomeContract), selectedEvidenceHintTools(instructionBundle)...),
 		RequiredAttachmentSuffixes: append([]string{}, requiredAttachmentSuffixes...),
 	}
-	if len(intakeDecision.RequiredEvidenceTools) > 0 {
-		contract.RequiredEvidenceTools = appendUniqueStrings(contract.RequiredEvidenceTools, intakeDecision.RequiredEvidenceTools...)
-	} else {
-		contract.RequiredEvidenceTools = outcomeEvidenceTools(request, intakeDecision, executionPlan, hasExecutionPlan, contract.SelectedEvidenceHints, requiredAttachmentSuffixes)
-		contract.RequiredEvidenceTools = appendUniqueStrings(contract.RequiredEvidenceTools, requiredSendEvidenceToolsForContract(contract)...)
+	contract.SelectedEvidenceHints = appendUniqueStrings(contract.SelectedEvidenceHints, workingSetEvidenceGroup(request.ToolSet, intakeDecision.InitialToolNames)...)
+	contract.RequiredEvidenceTools = outcomeEvidenceTools(request, intakeDecision, executionPlan, hasExecutionPlan, contract.SelectedEvidenceHints, requiredAttachmentSuffixes)
+	contract.RequiredEvidenceTools = appendUniqueStrings(contract.RequiredEvidenceTools, requiredSendEvidenceToolsForContract(request.ToolSet, contract)...)
+	if requestNeedsDerivedSideEffectEvidenceGroup(request.ToolSet, intakeDecision, contract) {
+		evidenceGroup := workingSetEvidenceGroup(request.ToolSet, selectedEvidenceHintTools(instructionBundle))
+		if len(evidenceGroup) > 0 {
+			contract.RequiredEvidenceAnyOf = append(contract.RequiredEvidenceAnyOf, evidenceGroup)
+		}
 	}
 	contract.RequiredEffects = appendOutcomeEffects(contract.RequiredEffects, requiredWorkflowEffectRequirementsForRequest(request)...)
 	contract.SelectedEvidenceHints = filterStaleOutcomeHints(request, executionPlan, hasExecutionPlan, contract, contract.SelectedEvidenceHints)
 	if len(requiredAttachmentSuffixes) > 0 {
 		contract.RequiredEvidenceTools = appendUniqueStrings(contract.RequiredEvidenceTools, FileDeliverToolName)
 	}
-	contract.ExpectedResults = expectedResultsForRequest(request, intakeDecision, executionPlan, hasExecutionPlan, contract.RequiredEvidenceTools, requiredAttachmentSuffixes)
+	contract.ExpectedResults = expectedResultsForRequest(intakeDecision, executionPlan, hasExecutionPlan, requiredAttachmentSuffixes)
 	contract.ArtifactRequirement = artifactRequirementForOutcomeContract(intakeDecision, contract)
-	contract.SiteEvidenceQuote = siteEvidenceQuoteForOutcomeContract(request, intakeDecision, executionPlan, hasExecutionPlan, contract)
 	contract.Source = outcomeContractSource(hasExecutionPlan, requiredAttachmentSuffixes)
 	return sanitizeOutcomeContractForRequest(request, executionPlan, hasExecutionPlan, contract)
-}
-
-func siteEvidenceQuoteForOutcomeContract(request AgentRequest, intakeDecision IntakeDecision, executionPlan ExecutionPlan, hasExecutionPlan bool, contract OutcomeContract) string {
-	if !requestExpectsPublicSiteResult(request, executionPlan, hasExecutionPlan, outcomeContractRequiredToolNames(contract)) {
-		return ""
-	}
-	siteEvidenceQuote := strings.TrimSpace(intakeDecision.SiteRequestEvidence)
-	if siteEvidenceQuoteMatchesMessage(siteEvidenceQuote, request.Prompt) {
-		return siteEvidenceQuote
-	}
-	return ""
 }
 
 func filterStaleOutcomeHints(request AgentRequest, executionPlan ExecutionPlan, hasExecutionPlan bool, contract OutcomeContract, toolNames []string) []string {
@@ -467,7 +282,7 @@ func filterStaleOutcomeHints(request AgentRequest, executionPlan ExecutionPlan, 
 		if trimmedToolName == "" {
 			continue
 		}
-		if strings.HasPrefix(trimmedToolName, "site.") && !outcomeAllowsSiteTools(request, executionPlan, hasExecutionPlan, contract) {
+		if toolIsInNamespace(request.ToolSet, trimmedToolName, "site") && !outcomeAllowsSiteTools(request.ToolSet, executionPlan, hasExecutionPlan, contract) {
 			continue
 		}
 		if trimmedToolName == "artifact.review" && !outcomeAllowsVisualArtifactReview(request, contract) {
@@ -482,26 +297,75 @@ func attachmentSuffixesForOutcomeContract(requiredAttachmentSuffixes []string) [
 	return append([]string{}, requiredAttachmentSuffixes...)
 }
 
-func requestExpectsSiteLinkResult(request AgentRequest, executionPlan ExecutionPlan, hasExecutionPlan bool) bool {
-	return requestLooksLikeSitePrototypeWork(request) || hasExecutionPlan && executionPlan.PublicDeploy
+func requestExpectsSiteLinkResult(executionPlan ExecutionPlan, hasExecutionPlan bool, contract OutcomeContract) bool {
+	return expectedResultIncludesType(contract, ExpectedResultTypeLink) || hasExecutionPlan && executionPlan.PublicDeploy
 }
 
 func sanitizeOutcomeContractForRequest(request AgentRequest, executionPlan ExecutionPlan, hasExecutionPlan bool, contract OutcomeContract) OutcomeContract {
 	contract = normalizeOutcomeContract(contract)
-	contract = normalizeOutcomeContractSiteRequirementForRequest(request, contract)
-	if requestExpectsSiteLinkResult(request, executionPlan, hasExecutionPlan) && !outcomeContractExpectsFileResult(contract) {
+	if outcomeContractExpectsFileResult(contract) {
+		contract = removeIntermediateAttachmentEvidence(request.ToolSet, contract)
+	}
+	if requestExpectsSiteLinkResult(executionPlan, hasExecutionPlan, contract) && !outcomeContractExpectsFileResult(contract) {
 		contract = removeImplicitSiteFileContract(contract)
 	}
 	if outcomeContractRequiresPublicLinkOnly(contract) {
 		contract.ArtifactRequirement = ArtifactRequirementNone
 	}
-	if outcomeContractRequiresPlatformMessageMaintenance(contract) {
+	if outcomeContractRequiresPlatformMessageMaintenance(request.ToolSet, contract) {
 		contract = removePlatformMessageSendContract(contract)
 	}
 	if !requestExpectsExternalSend(request, executionPlan, hasExecutionPlan) {
-		contract = removeExternalSendContract(contract)
+		contract = removeExternalSendContract(request.ToolSet, contract)
 	}
 	return normalizeOutcomeContract(contract)
+}
+
+func removeIntermediateAttachmentEvidence(toolSet *ToolSet, contract OutcomeContract) OutcomeContract {
+	requiredEvidenceTools := []string{}
+	for _, toolName := range contract.RequiredEvidenceTools {
+		if toolProducesIntermediateAttachmentSource(toolSet, toolName) {
+			continue
+		}
+		requiredEvidenceTools = appendUniqueStrings(requiredEvidenceTools, toolName)
+	}
+	contract.RequiredEvidenceTools = requiredEvidenceTools
+	filteredGroups := [][]string{}
+	for _, group := range contract.RequiredEvidenceAnyOf {
+		filteredGroup := []string{}
+		for _, toolName := range group {
+			if !toolProducesIntermediateAttachmentSource(toolSet, toolName) {
+				filteredGroup = appendUniqueStrings(filteredGroup, toolName)
+			}
+		}
+		if len(filteredGroup) > 0 {
+			filteredGroups = append(filteredGroups, filteredGroup)
+		}
+	}
+	contract.RequiredEvidenceAnyOf = filteredGroups
+	return contract
+}
+
+func toolProducesIntermediateAttachmentSource(toolSet *ToolSet, toolName string) bool {
+	toolDefinition, isFound := toolDefinitionForName(toolSet, toolName)
+	if !isFound {
+		return false
+	}
+	return toolDefinition.SideEffectClass == ToolSideEffectWorkspaceWrite &&
+		toolDefinition.Completion.TargetKind == "file" &&
+		!toolResultContractAttachesFile(toolDefinition.ResultContract)
+}
+
+func toolResultContractAttachesFile(resultContract *ToolResultContract) bool {
+	if resultContract == nil {
+		return false
+	}
+	for _, effect := range resultContract.Effects {
+		if effect.ObjectType == "file" && effect.Effect == "attached" {
+			return true
+		}
+	}
+	return false
 }
 
 func requestExpectsExternalSend(request AgentRequest, executionPlan ExecutionPlan, hasExecutionPlan bool) bool {
@@ -512,24 +376,6 @@ func requestExpectsExternalSend(request AgentRequest, executionPlan ExecutionPla
 	return executionPlan.ExternalSend || executionPlan.ThirdPartyExternalSend
 }
 
-func normalizeOutcomeContractSiteRequirementForRequest(request AgentRequest, contract OutcomeContract) OutcomeContract {
-	if !outcomeContractHasSiteRequirement(contract) {
-		return contract
-	}
-	if requiredEvidenceContains(outcomeContractRequiredToolNames(contract), "site.delete") {
-		return contract
-	}
-	activeGoal := ActiveGoal{
-		OriginalInstruction: request.ActiveGoal.OriginalInstruction,
-		OutcomeContract:     contract,
-	}
-	if strings.TrimSpace(activeGoal.OriginalInstruction) == "" {
-		activeGoal.OriginalInstruction = request.Prompt
-	}
-	activeGoal, _ = normalizeActiveGoalSiteRequirement(activeGoal, request.Prompt, request.IsApprovalContinuation || request.IsRuntimeRestartResume)
-	return activeGoal.OutcomeContract
-}
-
 func outcomeContractExpectsFileResult(contract OutcomeContract) bool {
 	return len(contract.RequiredAttachmentSuffixes) > 0 ||
 		evidenceToolsContainArtifactDelivery(contract.RequiredEvidenceTools) ||
@@ -537,9 +383,9 @@ func outcomeContractExpectsFileResult(contract OutcomeContract) bool {
 		expectedResultIncludesType(contract, ExpectedResultTypeFile)
 }
 
-func outcomeContractRequiresPlatformMessageMaintenance(contract OutcomeContract) bool {
+func outcomeContractRequiresPlatformMessageMaintenance(toolSet *ToolSet, contract OutcomeContract) bool {
 	for _, toolName := range outcomeContractToolNames(contract) {
-		if isPlatformMessageMaintenanceTool(toolName) {
+		if toolIsInNamespace(toolSet, toolName, "message") && !isSendEvidenceTool(toolSet, toolName) {
 			return true
 		}
 	}
@@ -553,9 +399,9 @@ func removePlatformMessageSendContract(contract OutcomeContract) OutcomeContract
 	return contract
 }
 
-func removeExternalSendContract(contract OutcomeContract) OutcomeContract {
+func removeExternalSendContract(toolSet *ToolSet, contract OutcomeContract) OutcomeContract {
 	for _, toolName := range outcomeContractToolNames(contract) {
-		if !isSendEvidenceTool(toolName) {
+		if !isSendEvidenceTool(toolSet, toolName) {
 			continue
 		}
 		contract.RequiredEvidenceTools = removeToolName(contract.RequiredEvidenceTools, toolName)
@@ -567,11 +413,56 @@ func removeExternalSendContract(contract OutcomeContract) OutcomeContract {
 func removeImplicitSiteFileContract(contract OutcomeContract) OutcomeContract {
 	contract.RequiredAttachmentSuffixes = nil
 	contract.RequiredEvidenceTools = removeToolName(contract.RequiredEvidenceTools, FileDeliverToolName)
-	contract.RequiredEvidenceTools = removeToolName(contract.RequiredEvidenceTools, FileAttachToolName)
 	contract.RequiredEvidenceAnyOf = removeToolNameGroups(contract.RequiredEvidenceAnyOf, FileDeliverToolName)
-	contract.RequiredEvidenceAnyOf = removeToolNameGroups(contract.RequiredEvidenceAnyOf, FileAttachToolName)
 	contract.ExpectedResults = removeExpectedResultsByType(contract.ExpectedResults, ExpectedResultTypeFile)
 	return contract
+}
+
+func dischargeResolvedInputContract(request AgentRequest, turnDecision TurnDecision, contract OutcomeContract) OutcomeContract {
+	if !resolvesActiveGoalInput(request, turnDecision) {
+		return contract
+	}
+	contract.RequiredEvidenceTools = removeToolName(contract.RequiredEvidenceTools, AskInputToolName)
+	contract.RequiredEvidenceAnyOf = removeToolNameGroups(contract.RequiredEvidenceAnyOf, AskInputToolName)
+	contract.SelectedEvidenceHints = removeToolName(contract.SelectedEvidenceHints, AskInputToolName)
+	contract.ExpectedResults = dischargeExpectedResultTool(contract.ExpectedResults, AskInputToolName)
+	return normalizeOutcomeContract(contract)
+}
+
+func resolvesActiveGoalInput(request AgentRequest, turnDecision TurnDecision) bool {
+	if request.ActiveGoal.Status != ActiveGoalStatusWaitingUserInput {
+		return false
+	}
+	taskRunID := strings.TrimSpace(request.ActiveGoal.TaskRunID)
+	if taskRunID == "" || taskRunID != strings.TrimSpace(request.ExistingTaskRunID) {
+		return false
+	}
+	return turnDecision.Route == TurnRouteContinueTask || turnDecision.Route == TurnRouteReviseTask
+}
+
+func dischargeExpectedResultTool(results []ExpectedResult, toolName string) []ExpectedResult {
+	filteredResults := []ExpectedResult{}
+	for _, result := range results {
+		if !expectedResultRequiresNamedTool(result, toolName) {
+			filteredResults = append(filteredResults, result)
+			continue
+		}
+		result.AcceptanceHints = removeToolName(result.AcceptanceHints, toolName)
+		if len(result.AcceptanceHints) == 0 {
+			continue
+		}
+		filteredResults = append(filteredResults, result)
+	}
+	return filteredResults
+}
+
+func expectedResultRequiresNamedTool(result ExpectedResult, toolName string) bool {
+	for _, hint := range result.AcceptanceHints {
+		if ToolNamesMatch(hint, toolName) {
+			return true
+		}
+	}
+	return false
 }
 
 func removeToolName(toolNames []string, removedToolName string) []string {
@@ -615,9 +506,9 @@ func OutcomeContractHasRequirements(contract OutcomeContract) bool {
 		(artifactRequirement != "" && artifactRequirement != ArtifactRequirementNone)
 }
 
-func expectedResultsForRequest(request AgentRequest, intakeDecision IntakeDecision, executionPlan ExecutionPlan, hasExecutionPlan bool, requiredEvidenceTools []string, requiredAttachmentSuffixes []string) []ExpectedResult {
+func expectedResultsForRequest(intakeDecision IntakeDecision, executionPlan ExecutionPlan, hasExecutionPlan bool, requiredAttachmentSuffixes []string) []ExpectedResult {
 	results := append([]ExpectedResult{}, intakeDecision.ExpectedResults...)
-	if requestExpectsPublicSiteResult(request, executionPlan, hasExecutionPlan, requiredEvidenceTools) {
+	if hasExecutionPlan && executionPlan.PublicDeploy {
 		results = append(results, ExpectedResult{
 			ID:          "site-public-link",
 			Type:        ExpectedResultTypeLink,
@@ -629,7 +520,7 @@ func expectedResultsForRequest(request AgentRequest, intakeDecision IntakeDecisi
 			},
 		})
 	}
-	if requestExpectsFileResult(requiredEvidenceTools, requiredAttachmentSuffixes) {
+	if len(requiredAttachmentSuffixes) > 0 {
 		results = append(results, ExpectedResult{
 			ID:              "attached-file",
 			Type:            ExpectedResultTypeFile,
@@ -648,35 +539,6 @@ func expectedResultsForRequest(request AgentRequest, intakeDecision IntakeDecisi
 		Required:    true,
 	})
 	return normalizeExpectedResults(results)
-}
-
-func legacyExpectedResultsForContract(request AgentRequest, intakeDecision IntakeDecision, executionPlan ExecutionPlan, hasExecutionPlan bool, contract OutcomeContract) []ExpectedResult {
-	return expectedResultsForRequest(request, intakeDecision, executionPlan, hasExecutionPlan, outcomeContractRequiredToolNames(contract), contract.RequiredAttachmentSuffixes)
-}
-
-func requestExpectsPublicSiteResult(request AgentRequest, executionPlan ExecutionPlan, hasExecutionPlan bool, requiredEvidenceTools []string) bool {
-	if requiredEvidenceContains(requiredEvidenceTools, "site.delete") {
-		return false
-	}
-	if requiredEvidenceContains(requiredEvidenceTools, "site.publish") {
-		return true
-	}
-	if hasExecutionPlan && executionPlan.PublicDeploy {
-		return true
-	}
-	return requestLooksLikeSitePrototypeWork(request)
-}
-
-func requestExpectsFileResult(requiredEvidenceTools []string, requiredAttachmentSuffixes []string) bool {
-	if len(requiredAttachmentSuffixes) > 0 {
-		return true
-	}
-	for _, toolName := range requiredEvidenceTools {
-		if IsArtifactDeliveryTool(toolName) {
-			return true
-		}
-	}
-	return false
 }
 
 func appendExpectedResults(results []ExpectedResult, additionalResults ...ExpectedResult) []ExpectedResult {
@@ -773,17 +635,17 @@ func outcomeEvidenceTools(request AgentRequest, intakeDecision IntakeDecision, e
 	return toolNames
 }
 
-func requiredSendEvidenceToolsForContract(contract OutcomeContract) []string {
-	if contractRequiresSendTool(contract) {
-		return sendEvidenceToolsFromValues(outcomeContractRequiredToolNames(contract))
+func requiredSendEvidenceToolsForContract(toolSet *ToolSet, contract OutcomeContract) []string {
+	if contractRequiresSendTool(toolSet, contract) {
+		return sendEvidenceToolsFromValues(toolSet, outcomeContractRequiredToolNames(contract))
 	}
 	return nil
 }
 
-func sendEvidenceToolsFromValues(values []string) []string {
+func sendEvidenceToolsFromValues(toolSet *ToolSet, values []string) []string {
 	toolNames := []string{}
 	for _, value := range values {
-		if isSendEvidenceTool(value) {
+		if isSendEvidenceTool(toolSet, value) {
 			toolNames = appendUniqueStrings(toolNames, value)
 		}
 	}
@@ -796,7 +658,7 @@ func availableSendEvidenceToolNames(toolSet *ToolSet) []string {
 	}
 	toolNames := []string{}
 	for _, toolName := range toolSet.ListToolNames() {
-		if isSendEvidenceTool(toolName) {
+		if isSendEvidenceTool(toolSet, toolName) {
 			toolNames = appendUniqueStrings(toolNames, toolName)
 		}
 	}
@@ -816,14 +678,14 @@ func evidenceHintMatchesOutcome(toolName string, request AgentRequest, intakeDec
 	if trimmedToolName == "" {
 		return false
 	}
-	if isSendEvidenceTool(trimmedToolName) {
+	if isSendEvidenceTool(request.ToolSet, trimmedToolName) {
 		return activeGoalRequiresTool(request.ActiveGoal, trimmedToolName) ||
 			(hasExecutionPlan && (executionPlan.ExternalSend || executionPlan.ThirdPartyExternalSend))
 	}
-	if isPlatformMessageMaintenanceTool(trimmedToolName) {
+	if toolIsInNamespace(request.ToolSet, trimmedToolName, "message") {
 		return intakeDecision.TaskShape == TaskShapeMaintenanceTask ||
 			activeGoalMentionsTool(request.ActiveGoal, trimmedToolName) ||
-			activeGoalMentionsToolPrefix(request.ActiveGoal, "message.")
+			contractRequiresToolNamespace(request.ToolSet, request.ActiveGoal.OutcomeContract, "message")
 	}
 	if activeGoalRequiresTool(request.ActiveGoal, trimmedToolName) {
 		return true
@@ -831,57 +693,60 @@ func evidenceHintMatchesOutcome(toolName string, request AgentRequest, intakeDec
 	if IsArtifactDeliveryTool(trimmedToolName) {
 		return len(requiredAttachmentSuffixes) > 0
 	}
-	if strings.HasPrefix(trimmedToolName, "site.") {
-		return (hasExecutionPlan && executionPlan.PublicDeploy) || requestLooksLikeSitePrototypeWork(request)
+	if toolIsInNamespace(request.ToolSet, trimmedToolName, "site") {
+		return hasExecutionPlan && executionPlan.PublicDeploy ||
+			contractRequiresToolNamespace(request.ToolSet, request.ActiveGoal.OutcomeContract, "site")
 	}
-	if strings.HasPrefix(trimmedToolName, "schedule.") {
+	if toolIsInNamespace(request.ToolSet, trimmedToolName, "schedule") {
 		return intakeDecision.TaskShape == TaskShapeScheduledTask
 	}
 	return false
 }
 
-func isSendEvidenceTool(toolName string) bool {
-	switch strings.TrimSpace(toolName) {
-	case "message.send", "mail.message.send", "google.gmail.send", "slack.message.send":
-		return true
-	default:
-		return false
-	}
+func isSendEvidenceTool(toolSet *ToolSet, toolName string) bool {
+	toolDefinition, isFound := toolDefinitionForName(toolSet, toolName)
+	return isFound && toolDefinition.SideEffectClass == ToolSideEffectExternalSend
 }
 
-func isPlatformMessageMaintenanceTool(toolName string) bool {
-	switch strings.TrimSpace(toolName) {
-	case "message.context", "message.search", "message.update", "message.delete":
-		return true
-	default:
-		return false
-	}
+func toolIsInNamespace(toolSet *ToolSet, toolName string, namespace string) bool {
+	toolDefinition, isFound := toolDefinitionForName(toolSet, toolName)
+	return isFound && toolDefinition.Namespace == strings.TrimSpace(namespace)
 }
 
-func contractRequiresSendTool(contract OutcomeContract) bool {
-	for _, toolName := range outcomeContractRequiredToolNames(contract) {
-		if isSendEvidenceTool(toolName) {
+func requiredEvidenceIncludesAnySideEffectClass(toolSet *ToolSet, toolNames []string, sideEffectClasses ...string) bool {
+	expectedSideEffectClasses := stringSet(sideEffectClasses)
+	for _, toolName := range toolNames {
+		toolDefinition, isFound := toolDefinitionForName(toolSet, toolName)
+		if isFound && expectedSideEffectClasses[ToolDefinitionSideEffectClass(toolDefinition)] {
 			return true
 		}
 	}
 	return false
 }
 
-func contractRequiresToolPrefix(contract OutcomeContract, prefix string) bool {
+func toolDefinitionForName(toolSet *ToolSet, toolName string) (ToolDefinition, bool) {
+	if toolSet == nil {
+		return ToolDefinition{}, false
+	}
+	return toolSet.ToolDefinition(strings.TrimSpace(toolName))
+}
+
+func contractRequiresToolNamespace(toolSet *ToolSet, contract OutcomeContract, namespace string) bool {
 	for _, toolName := range outcomeContractRequiredToolNames(contract) {
-		if strings.HasPrefix(strings.TrimSpace(toolName), prefix) {
+		if toolIsInNamespace(toolSet, toolName, namespace) {
 			return true
 		}
 	}
 	return false
 }
 
-func activeGoalMentionsToolPrefix(activeGoal ActiveGoal, prefix string) bool {
-	return contractMentionsToolPrefix(activeGoal.OutcomeContract, prefix)
-}
-
-func activeGoalRequiresToolPrefix(activeGoal ActiveGoal, prefix string) bool {
-	return contractRequiresToolPrefix(activeGoal.OutcomeContract, prefix)
+func contractRequiresSendTool(toolSet *ToolSet, contract OutcomeContract) bool {
+	for _, toolName := range outcomeContractRequiredToolNames(contract) {
+		if isSendEvidenceTool(toolSet, toolName) {
+			return true
+		}
+	}
+	return false
 }
 
 func activeGoalMentionsTool(activeGoal ActiveGoal, toolName string) bool {
@@ -911,20 +776,7 @@ func activeGoalRequiresTool(activeGoal ActiveGoal, toolName string) bool {
 }
 
 func requestLooksLikeExternalSendContinuation(request AgentRequest, contract OutcomeContract) bool {
-	return contractRequiresSendTool(contract) ||
-		activeGoalRequiresTool(request.ActiveGoal, "message.send") ||
-		activeGoalRequiresTool(request.ActiveGoal, "mail.message.send") ||
-		activeGoalRequiresTool(request.ActiveGoal, "google.gmail.send") ||
-		activeGoalRequiresTool(request.ActiveGoal, "slack.message.send")
-}
-
-func contractMentionsToolPrefix(contract OutcomeContract, prefix string) bool {
-	for _, toolName := range outcomeContractToolNames(contract) {
-		if strings.HasPrefix(strings.TrimSpace(toolName), prefix) {
-			return true
-		}
-	}
-	return false
+	return contractRequiresSendTool(request.ToolSet, contract)
 }
 
 func outcomeContractToolNames(contract OutcomeContract) []string {
@@ -957,6 +809,8 @@ func outcomeContractSource(hasExecutionPlan bool, requiredAttachmentSuffixes []s
 
 func activeGoalForTurn(request AgentRequest, outcomeContract OutcomeContract, executionPlan ExecutionPlan, hasExecutionPlan bool) ActiveGoal {
 	activeGoal := request.ActiveGoal
+	activeGoal.SelectedToolNames = appendUniqueStrings(activeGoal.SelectedToolNames, request.PinnedToolNames...)
+	activeGoal.SelectedSkillNames = appendUniqueStrings(activeGoal.SelectedSkillNames, request.PinnedSkillNames...)
 	activeGoal.OutcomeContract = normalizeOutcomeContract(outcomeContract)
 	if strings.TrimSpace(activeGoal.OriginalInstruction) == "" {
 		activeGoal.OriginalInstruction = strings.TrimSpace(request.Prompt)
@@ -972,9 +826,19 @@ func activeGoalForTurn(request AgentRequest, outcomeContract OutcomeContract, ex
 	return activeGoal
 }
 
-func activeGoalFromExecutionPlan(taskRunID string, executionPlan ExecutionPlan, status ActiveGoalStatus, evidenceHints []string, requiredAttachmentSuffixes []string) ActiveGoal {
+func selectedSkillNameList(skillDecisions []SkillSelectionDecision) []string {
+	selectedNames := []string{}
+	for _, skillDecision := range skillDecisions {
+		if skillDecision.Status == "selected" {
+			selectedNames = appendUniqueStrings(selectedNames, skillDecision.Name)
+		}
+	}
+	return selectedNames
+}
+
+func activeGoalFromExecutionPlan(taskRunID string, executionPlan ExecutionPlan, status ActiveGoalStatus, toolSet *ToolSet, evidenceHints []string, requiredAttachmentSuffixes []string) ActiveGoal {
 	outcomeContract := normalizeOutcomeContract(OutcomeContract{
-		RequiredEvidenceTools:      executionPlanEvidenceTools(executionPlan, evidenceHints),
+		RequiredEvidenceTools:      executionPlanEvidenceTools(toolSet, executionPlan, evidenceHints),
 		RequiredAttachmentSuffixes: append([]string{}, requiredAttachmentSuffixes...),
 		SelectedEvidenceHints:      append([]string{}, evidenceHints...),
 		Source:                     "execution_plan",
@@ -1030,13 +894,13 @@ func activeGoalEventNameForTaskStatus(status task.TaskStatus) string {
 	}
 }
 
-func executionPlanEvidenceTools(executionPlan ExecutionPlan, evidenceHints []string) []string {
+func executionPlanEvidenceTools(toolSet *ToolSet, executionPlan ExecutionPlan, evidenceHints []string) []string {
 	toolNames := []string{}
 	for _, toolName := range evidenceHints {
-		if isSendEvidenceTool(toolName) && (executionPlan.ExternalSend || executionPlan.ThirdPartyExternalSend) {
+		if isSendEvidenceTool(toolSet, toolName) && (executionPlan.ExternalSend || executionPlan.ThirdPartyExternalSend) {
 			toolNames = appendUniqueStrings(toolNames, toolName)
 		}
-		if strings.HasPrefix(strings.TrimSpace(toolName), "site.") && executionPlan.PublicDeploy {
+		if toolIsInNamespace(toolSet, toolName, "site") && executionPlan.PublicDeploy {
 			toolNames = appendUniqueStrings(toolNames, toolName)
 		}
 	}
@@ -1061,6 +925,8 @@ func attachmentSuffixesForRequestedOutputFormats(formats []string) []string {
 			suffixes = append(suffixes, ".xlsx")
 		case "csv":
 			suffixes = append(suffixes, ".csv")
+		case "json":
+			suffixes = append(suffixes, ".json")
 		}
 	}
 	return suffixes
@@ -1081,37 +947,6 @@ func appendUniqueStrings(values []string, candidates ...string) []string {
 		nextValues = append(nextValues, trimmedCandidate)
 	}
 	return nextValues
-}
-
-func selectedQualityAcceptanceGuidance(instructionBundle InstructionBundle) []string {
-	selectedSkillName := map[string]bool{}
-	for _, skillDecision := range instructionBundle.SkillDecisions {
-		if skillDecision.Status == "selected" {
-			selectedSkillName[skillDecision.Name] = true
-		}
-	}
-	guidance := []string{}
-	seenGuidance := map[string]bool{}
-	for _, skillInstruction := range instructionBundle.Skills {
-		if !selectedSkillName[skillInstruction.Name] {
-			continue
-		}
-		guidance = appendUniqueQualityGuidance(guidance, seenGuidance, skillInstruction.Quality.AcceptanceGuidance)
-		guidance = appendUniqueQualityGuidance(guidance, seenGuidance, skillInstruction.Quality.Rubric)
-	}
-	return guidance
-}
-
-func appendUniqueQualityGuidance(guidance []string, seenGuidance map[string]bool, values []string) []string {
-	for _, value := range values {
-		trimmedValue := strings.TrimSpace(value)
-		if trimmedValue == "" || seenGuidance[trimmedValue] {
-			continue
-		}
-		seenGuidance[trimmedValue] = true
-		guidance = append(guidance, trimmedValue)
-	}
-	return guidance
 }
 
 func expectedResultIncludesType(outcomeContract OutcomeContract, resultType string) bool {

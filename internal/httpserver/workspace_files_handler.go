@@ -47,13 +47,13 @@ func (handler WorkspaceFilesHandler) HandleList(responseWriter http.ResponseWrit
 		if directoryEntry.Name() == ".blueclaw" {
 			continue
 		}
-		information, errorValue := directoryEntry.Info()
+		information, errorValue := os.Stat(filepath.Join(hostPath, directoryEntry.Name()))
 		if errorValue != nil {
 			continue
 		}
 		entries = append(entries, workspaceFileEntry{
 			Name:        directoryEntry.Name(),
-			IsDirectory: directoryEntry.IsDir(),
+			IsDirectory: information.IsDir(),
 			Size:        information.Size(),
 			ModifiedAt:  information.ModTime().UTC().Format(time.RFC3339),
 		})

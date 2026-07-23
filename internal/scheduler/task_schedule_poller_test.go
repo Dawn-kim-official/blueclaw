@@ -17,6 +17,25 @@ import (
 	"blueclaw/internal/task"
 )
 
+func TestScheduledTaskReplyPreservesModelWording(t *testing.T) {
+	turnResult := agent.AgentTurnResult{
+		TaskRun:       task.TaskRun{TaskRunID: "task-1", Status: task.TaskStatusCompleted},
+		FinishMessage: "완료했습니다: sandbox:/mnt/data/report.pdf",
+		Attachments:   []agent.FileAttachment{{Filename: "report.pdf", DevicePath: "/workspace/private/people/p1/artifacts/report.pdf"}},
+	}
+
+	reply, errorValue := scheduledTaskReply(agentruntime.TaskScheduleRunResult{
+		LaunchResult: agentruntime.TaskLaunchResult{TurnResult: turnResult},
+	})
+
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if reply.Message != turnResult.FinishMessage || len(reply.Attachments) != 1 {
+		t.Fatalf("expected model wording and typed attachments to pass through, got %+v", reply)
+	}
+}
+
 func TestTaskSchedulePollerRunsDueScheduleAndEnqueuesReply(t *testing.T) {
 	runAt := time.Date(2026, 5, 6, 7, 0, 0, 0, time.UTC)
 	nextRunAt := runAt
@@ -400,11 +419,11 @@ func TestTaskSchedulePollerRejectsScheduledInteractionWithoutWaiting(t *testing.
 	if repository.succeeded != nil {
 		t.Fatalf("expected interactive scheduled task not to advance, got %+v", repository.succeeded)
 	}
-	if len(repository.expired) != 1 || strings.Contains(repository.expired[0].LastError, "waiting_approval") {
-		t.Fatalf("expected scheduled interaction to expire without waiting for approval, got expired=%+v failed=%+v", repository.expired, repository.failed)
+	if len(repository.failed) != 1 {
+		t.Fatalf("expected scheduled interaction to retry with backoff instead of waiting, got expired=%+v failed=%+v", repository.expired, repository.failed)
 	}
-	if len(repository.failed) != 0 {
-		t.Fatalf("expected terminal scheduled interaction not to retry, got %+v", repository.failed)
+	if len(repository.expired) != 0 {
+		t.Fatalf("expected the schedule to survive a single blocked run, got %+v", repository.expired)
 	}
 }
 
@@ -455,11 +474,11 @@ func TestTaskSchedulePollerDoesNotDeliverFailedTaskReply(t *testing.T) {
 	if len(deliveryRepository.replies) != 0 {
 		t.Fatalf("expected no failed task reply, got %+v", deliveryRepository.replies)
 	}
-	if len(repository.expired) != 1 || !strings.Contains(repository.expired[0].LastError, "failed") {
-		t.Fatalf("expected failed task status to expire schedule, got expired=%+v failed=%+v", repository.expired, repository.failed)
+	if len(repository.failed) != 1 || !strings.Contains(repository.failed[0], "failed") {
+		t.Fatalf("expected failed task status to retry with backoff, got expired=%+v failed=%+v", repository.expired, repository.failed)
 	}
-	if len(repository.failed) != 0 {
-		t.Fatalf("expected terminal task failure not to retry, got %+v", repository.failed)
+	if len(repository.expired) != 0 {
+		t.Fatalf("expected transient task failure not to expire the schedule, got %+v", repository.expired)
 	}
 }
 
@@ -669,7 +688,10 @@ func testTaskScheduleRunnerWithResponseCount(content string, generatedResponseCo
 	taskEventService := task.NewTaskEventService()
 	taskRunService := task.NewTaskRunService(taskEventService)
 	agentKernel := agent.NewAgentKernel(taskRunService, task.NewTaskStepService())
-	agentKernel.UseLanguageModelProvider(staticPollerLanguageModel{content: content, generatedResponseCount: generatedResponseCount})
+	languageModel := staticPollerLanguageModel{content: content, generatedResponseCount: generatedResponseCount}
+	agentKernel.UseLanguageModelProvider(languageModel)
+	agentKernel.UseIntakeLanguageModelProvider(languageModel)
+	agentKernel.UseIntakeOptions(agent.IntakeOptions{IsEnabled: true})
 	toolCatalogBuilder := agentruntime.NewToolCatalogBuilder()
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"ask.confirm"})
 	toolCatalogBuilder.UseTaskRunService(taskRunService)
@@ -701,12 +723,27 @@ func (languageModel staticPollerLanguageModel) GenerateResponse(context.Context,
 	return "", nil
 }
 
-func (languageModel staticPollerLanguageModel) GenerateStructuredResponse(context.Context, llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
+func (languageModel staticPollerLanguageModel) GenerateStructuredResponse(_ context.Context, request llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
 	if languageModel.generatedResponseCount != nil {
 		*languageModel.generatedResponseCount++
+	}
+	if request.StructuredOutputSchema.Name == "blueclaw_turn_router" {
+		return llm.StructuredResponse{Content: `{"route":"start_task","classification":"bounded_task","taskShape":"research_task","level":"medium","estimatedMinutes":10,"requestedOutputFormats":null,"expectedResults":[],"requiredEvidence":[],"siteRequestEvidence":"","responseLanguage":"ko","reason":"scheduled objective","userFacingReply":"","initialToolNames":[],"priorTaskReference":"none"}`}, nil
 	}
 	if strings.HasPrefix(languageModel.content, "{") {
 		return llm.StructuredResponse{Content: languageModel.content}, nil
 	}
 	return llm.StructuredResponse{Content: `{"action":"finish","message":"` + languageModel.content + `","replyParts":[{"type":"text","text":"` + languageModel.content + `"}],"goalStatus":"satisfied","goalSatisfied":true,"completionEvidence":[],"qualityReview":[]}`}, nil
+}
+
+func TestRecordTaskScheduleFailureExpiresAfterRepeatedFailures(t *testing.T) {
+	taskSchedule := waitingTaskSchedule(time.Now().UTC())
+	taskSchedule.FailureCount = maxTaskScheduleFailureCount - 1
+	if !taskScheduleFailureIsTerminal(taskSchedule, errors.New("transient"), time.Now()) {
+		t.Fatal("expected the failure cap to expire the schedule")
+	}
+	taskSchedule.FailureCount = 0
+	if taskScheduleFailureIsTerminal(taskSchedule, errors.New("transient"), time.Now()) {
+		t.Fatal("expected a first transient failure to stay retryable")
+	}
 }

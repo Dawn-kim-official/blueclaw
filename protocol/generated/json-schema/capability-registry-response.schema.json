@@ -1,0 +1,952 @@
+{
+  "$defs": {
+    "__schema0": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        },
+        {
+          "items": {
+            "$ref": "#/$defs/__schema0"
+          },
+          "type": "array"
+        },
+        {
+          "additionalProperties": {
+            "$ref": "#/$defs/__schema0"
+          },
+          "propertyNames": {
+            "type": "string"
+          },
+          "type": "object"
+        }
+      ]
+    },
+    "canonical-strict-object-json-schema": {
+      "allOf": [
+        {
+          "$dynamicAnchor": "canonicalClosedJSONSchemaValue0",
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            },
+            {
+              "items": {
+                "$dynamicRef": "#canonicalClosedJSONSchemaValue0"
+              },
+              "type": "array"
+            },
+            {
+              "additionalProperties": {
+                "$dynamicRef": "#canonicalClosedJSONSchemaValue0"
+              },
+              "allOf": [
+                {
+                  "if": {
+                    "properties": {
+                      "type": {
+                        "const": "object"
+                      }
+                    },
+                    "required": [
+                      "type"
+                    ]
+                  },
+                  "then": {
+                    "properties": {
+                      "additionalProperties": {
+                        "anyOf": [
+                          {
+                            "const": false
+                          },
+                          {
+                            "type": "object"
+                          }
+                        ]
+                      }
+                    },
+                    "required": [
+                      "additionalProperties"
+                    ]
+                  }
+                }
+              ],
+              "type": "object"
+            }
+          ]
+        },
+        {
+          "properties": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "const": false
+                },
+                {
+                  "type": "object"
+                }
+              ]
+            },
+            "type": {
+              "const": "object"
+            }
+          },
+          "required": [
+            "type",
+            "additionalProperties"
+          ],
+          "type": "object"
+        }
+      ]
+    }
+  },
+  "$id": "https://schemas.blueclaw.dev/0.4.0/capability-registry-response.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "aggregateProtocolHash": {
+      "pattern": "^[a-f0-9]{64}$",
+      "type": "string"
+    },
+    "capabilities": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "availability": {
+            "additionalProperties": false,
+            "properties": {
+              "reason": {
+                "type": "string"
+              },
+              "state": {
+                "enum": [
+                  "ok",
+                  "not_allowed",
+                  "not_connected",
+                  "not_ready"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "state"
+            ],
+            "type": "object"
+          },
+          "canonicalName": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "completionEvidence": {
+            "additionalProperties": false,
+            "properties": {
+              "action": {
+                "type": "string"
+              },
+              "mode": {
+                "type": "string"
+              },
+              "targetKind": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "description": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "estimatedLatency": {
+            "enum": [
+              "low",
+              "medium",
+              "high",
+              "interactive"
+            ],
+            "type": "string"
+          },
+          "idempotency": {
+            "additionalProperties": false,
+            "properties": {
+              "required": {
+                "type": "boolean"
+              },
+              "scope": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "supported": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "supported",
+              "required",
+              "scope"
+            ],
+            "type": "object"
+          },
+          "inputIntentSchema": {
+            "$ref": "#/$defs/canonical-strict-object-json-schema"
+          },
+          "inputSchema": {
+            "$ref": "#/$defs/canonical-strict-object-json-schema"
+          },
+          "inputSchemaStrict": {
+            "const": true,
+            "type": "boolean"
+          },
+          "modelName": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "modelVisibility": {
+            "enum": [
+              "visible",
+              "hidden"
+            ],
+            "type": "string"
+          },
+          "modelVisible": {
+            "type": "boolean"
+          },
+          "name": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "namespace": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "outputSchema": {
+            "$ref": "#/$defs/canonical-strict-object-json-schema"
+          },
+          "outputSchemaStrict": {
+            "const": true,
+            "type": "boolean"
+          },
+          "policyResource": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "privacyClass": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "requiresApproval": {
+            "type": "boolean"
+          },
+          "requiresUserPresence": {
+            "type": "boolean"
+          },
+          "resultContract": {
+            "additionalProperties": false,
+            "properties": {
+              "effects": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "effect": {
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "effectIdentity": {
+                      "enum": [
+                        "id",
+                        "path",
+                        "url"
+                      ],
+                      "type": "string"
+                    },
+                    "objectType": {
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "resultField": {
+                      "minLength": 1,
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "objectType",
+                    "effect",
+                    "resultField",
+                    "effectIdentity"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "evidenceCondition": {
+                "additionalProperties": false,
+                "properties": {
+                  "equals": {
+                    "$ref": "#/$defs/__schema0"
+                  },
+                  "resultField": {
+                    "minLength": 1,
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "resultField",
+                  "equals"
+                ],
+                "type": "object"
+              },
+              "schema": {
+                "$ref": "#/$defs/canonical-strict-object-json-schema"
+              }
+            },
+            "required": [
+              "schema"
+            ],
+            "type": "object"
+          },
+          "sideEffect": {
+            "enum": [
+              "approval",
+              "computation",
+              "connect",
+              "destructive",
+              "external_publish",
+              "external_send",
+              "external_write",
+              "local_file",
+              "platform_reply",
+              "read",
+              "site_publish",
+              "workspace_write"
+            ],
+            "type": "string"
+          },
+          "sideEffectClass": {
+            "enum": [
+              "approval",
+              "computation",
+              "connect",
+              "destructive",
+              "external_publish",
+              "external_send",
+              "external_write",
+              "local_file",
+              "platform_reply",
+              "read",
+              "site_publish",
+              "workspace_write"
+            ],
+            "type": "string"
+          },
+          "version": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "worksOffline": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "name",
+          "canonicalName",
+          "namespace",
+          "modelName",
+          "modelVisibility",
+          "modelVisible",
+          "description",
+          "version",
+          "privacyClass",
+          "estimatedLatency",
+          "requiresUserPresence",
+          "worksOffline",
+          "inputSchema",
+          "outputSchema",
+          "inputSchemaStrict",
+          "outputSchemaStrict",
+          "policyResource",
+          "sideEffectClass",
+          "sideEffect",
+          "availability",
+          "idempotency"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "companionCapabilities": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "availability": {
+            "additionalProperties": false,
+            "properties": {
+              "reason": {
+                "type": "string"
+              },
+              "state": {
+                "enum": [
+                  "ok",
+                  "not_allowed",
+                  "not_connected",
+                  "not_ready"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "state"
+            ],
+            "type": "object"
+          },
+          "canonicalName": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "completionEvidence": {
+            "additionalProperties": false,
+            "properties": {
+              "action": {
+                "type": "string"
+              },
+              "mode": {
+                "type": "string"
+              },
+              "targetKind": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "description": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "estimatedLatency": {
+            "enum": [
+              "low",
+              "medium",
+              "high",
+              "interactive"
+            ],
+            "type": "string"
+          },
+          "idempotency": {
+            "additionalProperties": false,
+            "properties": {
+              "required": {
+                "type": "boolean"
+              },
+              "scope": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "supported": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "supported",
+              "required",
+              "scope"
+            ],
+            "type": "object"
+          },
+          "inputIntentSchema": {
+            "$ref": "#/$defs/canonical-strict-object-json-schema"
+          },
+          "inputSchema": {
+            "$ref": "#/$defs/canonical-strict-object-json-schema"
+          },
+          "inputSchemaStrict": {
+            "const": true,
+            "type": "boolean"
+          },
+          "modelName": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "modelVisibility": {
+            "enum": [
+              "visible",
+              "hidden"
+            ],
+            "type": "string"
+          },
+          "modelVisible": {
+            "type": "boolean"
+          },
+          "name": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "namespace": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "outputSchema": {
+            "$ref": "#/$defs/canonical-strict-object-json-schema"
+          },
+          "outputSchemaStrict": {
+            "const": true,
+            "type": "boolean"
+          },
+          "policyResource": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "privacyClass": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "requiresApproval": {
+            "type": "boolean"
+          },
+          "requiresUserPresence": {
+            "type": "boolean"
+          },
+          "resultContract": {
+            "additionalProperties": false,
+            "properties": {
+              "effects": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "effect": {
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "effectIdentity": {
+                      "enum": [
+                        "id",
+                        "path",
+                        "url"
+                      ],
+                      "type": "string"
+                    },
+                    "objectType": {
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "resultField": {
+                      "minLength": 1,
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "objectType",
+                    "effect",
+                    "resultField",
+                    "effectIdentity"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "evidenceCondition": {
+                "additionalProperties": false,
+                "properties": {
+                  "equals": {
+                    "$ref": "#/$defs/__schema0"
+                  },
+                  "resultField": {
+                    "minLength": 1,
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "resultField",
+                  "equals"
+                ],
+                "type": "object"
+              },
+              "schema": {
+                "$ref": "#/$defs/canonical-strict-object-json-schema"
+              }
+            },
+            "required": [
+              "schema"
+            ],
+            "type": "object"
+          },
+          "sideEffect": {
+            "enum": [
+              "approval",
+              "computation",
+              "connect",
+              "destructive",
+              "external_publish",
+              "external_send",
+              "external_write",
+              "local_file",
+              "platform_reply",
+              "read",
+              "site_publish",
+              "workspace_write"
+            ],
+            "type": "string"
+          },
+          "sideEffectClass": {
+            "enum": [
+              "approval",
+              "computation",
+              "connect",
+              "destructive",
+              "external_publish",
+              "external_send",
+              "external_write",
+              "local_file",
+              "platform_reply",
+              "read",
+              "site_publish",
+              "workspace_write"
+            ],
+            "type": "string"
+          },
+          "version": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "worksOffline": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "name",
+          "canonicalName",
+          "namespace",
+          "modelName",
+          "modelVisibility",
+          "modelVisible",
+          "description",
+          "version",
+          "privacyClass",
+          "estimatedLatency",
+          "requiresUserPresence",
+          "worksOffline",
+          "inputSchema",
+          "outputSchema",
+          "inputSchemaStrict",
+          "outputSchemaStrict",
+          "policyResource",
+          "sideEffectClass",
+          "sideEffect",
+          "availability",
+          "idempotency"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "companionStatus": {
+      "type": "string"
+    },
+    "deviceCapabilities": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "availability": {
+            "additionalProperties": false,
+            "properties": {
+              "reason": {
+                "type": "string"
+              },
+              "state": {
+                "enum": [
+                  "ok",
+                  "not_allowed",
+                  "not_connected",
+                  "not_ready"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "state"
+            ],
+            "type": "object"
+          },
+          "canonicalName": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "completionEvidence": {
+            "additionalProperties": false,
+            "properties": {
+              "action": {
+                "type": "string"
+              },
+              "mode": {
+                "type": "string"
+              },
+              "targetKind": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "description": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "estimatedLatency": {
+            "enum": [
+              "low",
+              "medium",
+              "high",
+              "interactive"
+            ],
+            "type": "string"
+          },
+          "idempotency": {
+            "additionalProperties": false,
+            "properties": {
+              "required": {
+                "type": "boolean"
+              },
+              "scope": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "supported": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "supported",
+              "required",
+              "scope"
+            ],
+            "type": "object"
+          },
+          "inputIntentSchema": {
+            "$ref": "#/$defs/canonical-strict-object-json-schema"
+          },
+          "inputSchema": {
+            "$ref": "#/$defs/canonical-strict-object-json-schema"
+          },
+          "inputSchemaStrict": {
+            "const": true,
+            "type": "boolean"
+          },
+          "modelName": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "modelVisibility": {
+            "enum": [
+              "visible",
+              "hidden"
+            ],
+            "type": "string"
+          },
+          "modelVisible": {
+            "type": "boolean"
+          },
+          "name": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "namespace": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "outputSchema": {
+            "$ref": "#/$defs/canonical-strict-object-json-schema"
+          },
+          "outputSchemaStrict": {
+            "const": true,
+            "type": "boolean"
+          },
+          "policyResource": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "privacyClass": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "requiresApproval": {
+            "type": "boolean"
+          },
+          "requiresUserPresence": {
+            "type": "boolean"
+          },
+          "resultContract": {
+            "additionalProperties": false,
+            "properties": {
+              "effects": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "effect": {
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "effectIdentity": {
+                      "enum": [
+                        "id",
+                        "path",
+                        "url"
+                      ],
+                      "type": "string"
+                    },
+                    "objectType": {
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "resultField": {
+                      "minLength": 1,
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "objectType",
+                    "effect",
+                    "resultField",
+                    "effectIdentity"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "evidenceCondition": {
+                "additionalProperties": false,
+                "properties": {
+                  "equals": {
+                    "$ref": "#/$defs/__schema0"
+                  },
+                  "resultField": {
+                    "minLength": 1,
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "resultField",
+                  "equals"
+                ],
+                "type": "object"
+              },
+              "schema": {
+                "$ref": "#/$defs/canonical-strict-object-json-schema"
+              }
+            },
+            "required": [
+              "schema"
+            ],
+            "type": "object"
+          },
+          "sideEffect": {
+            "enum": [
+              "approval",
+              "computation",
+              "connect",
+              "destructive",
+              "external_publish",
+              "external_send",
+              "external_write",
+              "local_file",
+              "platform_reply",
+              "read",
+              "site_publish",
+              "workspace_write"
+            ],
+            "type": "string"
+          },
+          "sideEffectClass": {
+            "enum": [
+              "approval",
+              "computation",
+              "connect",
+              "destructive",
+              "external_publish",
+              "external_send",
+              "external_write",
+              "local_file",
+              "platform_reply",
+              "read",
+              "site_publish",
+              "workspace_write"
+            ],
+            "type": "string"
+          },
+          "version": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "worksOffline": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "name",
+          "canonicalName",
+          "namespace",
+          "modelName",
+          "modelVisibility",
+          "modelVisible",
+          "description",
+          "version",
+          "privacyClass",
+          "estimatedLatency",
+          "requiresUserPresence",
+          "worksOffline",
+          "inputSchema",
+          "outputSchema",
+          "inputSchemaStrict",
+          "outputSchemaStrict",
+          "policyResource",
+          "sideEffectClass",
+          "sideEffect",
+          "availability",
+          "idempotency"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "localOnly": {
+      "type": "boolean"
+    },
+    "protocolVersion": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "routingCandidates": {
+      "anyOf": [
+        {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "required": [
+    "protocolVersion",
+    "aggregateProtocolHash",
+    "localOnly",
+    "routingCandidates"
+  ],
+  "type": "object"
+}

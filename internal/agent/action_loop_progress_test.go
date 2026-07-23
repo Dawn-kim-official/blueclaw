@@ -1,6 +1,9 @@
 package agent
 
-import "testing"
+import (
+	"encoding/json"
+	"testing"
+)
 
 func repeatedTaskUpdateFailure(observationID string, taskInput string) turnObservation {
 	return turnObservation{
@@ -30,7 +33,6 @@ func TestEvaluateRecoveryAllowanceStopsRepeatedStructuralFailure(t2 *testing.T) 
 		t2.Fatalf("expected recovery to stop once the same failure signature recurred across cosmetic input changes, got %+v", thrice)
 	}
 }
-
 
 func TestProgressEventsCapsFailureProgressWithoutSuccess(t *testing.T) {
 	fingerprints := []string{"fp-a", "fp-b", "fp-c", "fp-d", "fp-e", "fp-f"}
@@ -107,52 +109,6 @@ func TestActionProgressTrackerResetsWhenProgressAppears(t *testing.T) {
 	}
 }
 
-func TestSelectToolsWithoutToolCallDoesNotCountAsProgress(t *testing.T) {
-	tracker := newActionProgressTracker(nil)
-	observations := []turnObservation{{
-		ObservationID: "obs-001",
-		Action:        "tool.request",
-		Output:        ToolOutput{Content: "selected"},
-	}}
-
-	first := tracker.evaluate(observations)
-	second := tracker.evaluate(append(observations, turnObservation{
-		ObservationID: "obs-002",
-		Action:        "tool.request",
-		Output:        ToolOutput{Content: "selected again"},
-	}))
-	third := tracker.evaluate(append(observations, turnObservation{
-		ObservationID: "obs-002",
-		Action:        "tool.request",
-		Output:        ToolOutput{Content: "selected again"},
-	}, turnObservation{
-		ObservationID: "obs-003",
-		Action:        "tool.request",
-		Output:        ToolOutput{Content: "selected a third time"},
-	}))
-
-	if first.HasProgress || second.HasProgress || !third.shouldStop() {
-		t.Fatalf("expected bare request_tools loop to stop without progress, got first=%+v second=%+v third=%+v", first, second, third)
-	}
-}
-
-func TestSelectToolsCountsAsProgressAfterSuccessfulToolCall(t *testing.T) {
-	observations := []turnObservation{{
-		ObservationID: "obs-001",
-		Action:        "tool.request",
-		Output:        ToolOutput{Content: "selected"},
-	}, {
-		ObservationID: "obs-002",
-		Action:        "continue",
-		Tool:          "site.create",
-		Output:        ToolOutput{Content: "created"},
-	}}
-
-	if progressEventCount(observations) != 2 {
-		t.Fatalf("expected request_tools and successful tool call to count, got %+v", progressEvents(observations))
-	}
-}
-
 func TestInspectionToolSuccessDoesNotCountAsLoopProgress(t *testing.T) {
 	observations := []turnObservation{{
 		ObservationID: "obs-001",
@@ -163,6 +119,42 @@ func TestInspectionToolSuccessDoesNotCountAsLoopProgress(t *testing.T) {
 
 	if progressEventCount(observations) != 0 {
 		t.Fatalf("expected inspection tool to not count as loop progress, got %+v", progressEvents(observations))
+	}
+}
+
+func TestTerminalProgressRequiresStructuredCompletion(t *testing.T) {
+	testCases := []struct {
+		name        string
+		data        json.RawMessage
+		failure     *ToolFailure
+		hasProgress bool
+	}{
+		{name: "completed command", data: json.RawMessage(`{"mode":"command","completed":true}`), hasProgress: true},
+		{name: "running session", data: json.RawMessage(`{"mode":"session_status","completed":false}`)},
+		{name: "session start", data: json.RawMessage(`{"mode":"session_start","completed":false}`)},
+		{name: "session write", data: json.RawMessage(`{"mode":"session_write","completed":false}`)},
+		{name: "session close", data: json.RawMessage(`{"mode":"session_close","completed":false}`)},
+		{name: "missing data"},
+		{name: "malformed data", data: json.RawMessage(`{`)},
+		{name: "failed command", data: json.RawMessage(`{"mode":"command","completed":true}`), failure: &ToolFailure{}},
+	}
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			observation := turnObservation{
+				ObservationID: "obs-001",
+				Action:        "continue",
+				Tool:          TerminalRunToolName,
+				Output: ToolOutput{
+					Content: `{"exitCode":0,"completed":true}`,
+					Data:    testCase.data,
+				},
+				Failure: testCase.failure,
+			}
+			_, hasProgress := qualifyingDurableProgressEvent(observation)
+			if hasProgress != testCase.hasProgress {
+				t.Fatalf("expected progress=%t, got %+v", testCase.hasProgress, observation)
+			}
+		})
 	}
 }
 

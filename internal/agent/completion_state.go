@@ -1,9 +1,11 @@
 package agent
 
 import (
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"sort"
 	"strconv"
 	"strings"
@@ -33,7 +35,6 @@ type CompletionState struct {
 
 type CompletionRequirementState struct {
 	ToolName        string   `json:"toolName,omitempty"`
-	ToolPrefix      string   `json:"toolPrefix,omitempty"`
 	Reason          string   `json:"reason,omitempty"`
 	Suffixes        []string `json:"suffixes,omitempty"`
 	MissingSuffixes []string `json:"missingSuffixes,omitempty"`
@@ -62,12 +63,12 @@ type CompletionAttachedEvidence struct {
 func buildCompletionState(request AgentTurnRequest, requirements []toolUseRequirement, observations []turnObservation) CompletionState {
 	state := CompletionState{
 		RecommendedAction: completionActionContinueWork,
-		Requirements:      completionRequirementStates(requirements, observations),
+		Requirements:      completionRequirementStates(request.ToolSet, requirements, observations),
 	}
 	if len(requirements) == 0 {
 		return state
 	}
-	state.EvidenceReferences = completionEvidenceReferences(requirements, observations)
+	state.EvidenceReferences = completionEvidenceReferences(request.ToolSet, requirements, observations)
 	state.AttachedEvidence = completionAttachedEvidence(observations, state.EvidenceReferences)
 	state.MissingRequirements = missingCompletionRequirements(state.Requirements)
 	state.ExistingArtifacts = newestRequiredWorkspaceArtifacts(request.WorkspaceRootPath, requiredFileAttachmentSuffixes(requirements), request.TurnStartedAt)
@@ -87,13 +88,12 @@ func completionValidityState(request AgentTurnRequest, state CompletionState) Va
 	return ValidityState{Passed: true}
 }
 
-func completionRequirementStates(requirements []toolUseRequirement, observations []turnObservation) []CompletionRequirementState {
+func completionRequirementStates(toolSet *ToolSet, requirements []toolUseRequirement, observations []turnObservation) []CompletionRequirementState {
 	states := []CompletionRequirementState{}
 	for _, requirement := range requirements {
-		isSatisfied, missingSuffixes := completionRequirementStatus(requirement, observations)
+		isSatisfied, missingSuffixes := completionRequirementStatus(toolSet, requirement, observations)
 		states = append(states, CompletionRequirementState{
 			ToolName:        strings.TrimSpace(requirement.ToolName),
-			ToolPrefix:      strings.TrimSpace(requirement.ToolPrefix),
 			Reason:          strings.TrimSpace(requirement.Reason),
 			Suffixes:        append([]string{}, requirement.AttachmentSuffixes...),
 			MissingSuffixes: missingSuffixes,
@@ -103,8 +103,8 @@ func completionRequirementStates(requirements []toolUseRequirement, observations
 	return states
 }
 
-func completionRequirementStatus(requirement toolUseRequirement, observations []turnObservation) (bool, []string) {
-	references := completionReferencesForRequirement(requirement, observations, successfulObservationReferences(observations))
+func completionRequirementStatus(toolSet *ToolSet, requirement toolUseRequirement, observations []turnObservation) (bool, []string) {
+	references := completionReferencesForRequirement(requirement, observations, successfulObservationReferences(toolSet, observations))
 	if len(references) == 0 {
 		return false, append([]string{}, requirement.AttachmentSuffixes...)
 	}
@@ -116,10 +116,10 @@ func completionRequirementStatus(requirement toolUseRequirement, observations []
 	return len(missingSuffixes) == 0, missingSuffixes
 }
 
-func completionEvidenceReferences(requirements []toolUseRequirement, observations []turnObservation) []completionEvidenceReference {
+func completionEvidenceReferences(toolSet *ToolSet, requirements []toolUseRequirement, observations []turnObservation) []completionEvidenceReference {
 	references := []completionEvidenceReference{}
 	seenReference := map[string]bool{}
-	successfulReferences := successfulObservationReferences(observations)
+	successfulReferences := successfulObservationReferences(toolSet, observations)
 	for _, requirement := range requirements {
 		matchingReferences := completionReferencesForRequirement(requirement, observations, successfulReferences)
 		if requirement.RequiresAttachment && len(requirement.AttachmentSuffixes) > 0 {
@@ -187,10 +187,10 @@ func attachmentIndexReferenceForSuffix(observation turnObservation, suffix strin
 	return completionEvidenceReference{}, false
 }
 
-func successfulObservationReferences(observations []turnObservation) []completionEvidenceReference {
+func successfulObservationReferences(toolSet *ToolSet, observations []turnObservation) []completionEvidenceReference {
 	references := []completionEvidenceReference{}
 	for _, observation := range observations {
-		if observation.Failed() || strings.TrimSpace(observation.Tool) == "" {
+		if observation.Failed() || strings.TrimSpace(observation.Tool) == "" || !observationSatisfiesEvidenceCondition(toolSet, observation) {
 			continue
 		}
 		references = append(references, completionEvidenceReference{
@@ -199,6 +199,34 @@ func successfulObservationReferences(observations []turnObservation) []completio
 		})
 	}
 	return references
+}
+
+func observationSatisfiesEvidenceCondition(toolSet *ToolSet, observation turnObservation) bool {
+	if toolSet == nil {
+		return true
+	}
+	toolDefinition, isFound := toolSet.ToolDefinition(observation.Tool)
+	if !isFound || toolDefinition.ResultContract == nil || toolDefinition.ResultContract.EvidenceCondition == nil {
+		return true
+	}
+	return resultSatisfiesEvidenceCondition(observation.Output.Data, *toolDefinition.ResultContract.EvidenceCondition)
+}
+
+func resultSatisfiesEvidenceCondition(result json.RawMessage, condition EvidenceCondition) bool {
+	var resultDocument map[string]json.RawMessage
+	if json.Unmarshal(result, &resultDocument) != nil {
+		return false
+	}
+	actualValue, isFound := resultDocument[strings.TrimSpace(condition.ResultField)]
+	if !isFound {
+		return false
+	}
+	var actual any
+	var expected any
+	if json.Unmarshal(actualValue, &actual) != nil || json.Unmarshal(condition.Equals, &expected) != nil {
+		return false
+	}
+	return reflect.DeepEqual(actual, expected)
 }
 
 func completionAttachedEvidence(observations []turnObservation, references []completionEvidenceReference) []CompletionAttachedEvidence {
@@ -236,18 +264,27 @@ func missingCompletionRequirements(requirements []CompletionRequirementState) []
 }
 
 func completionRequirementStateLabel(requirement CompletionRequirementState) string {
-	if requirement.ToolName != "" {
-		return requirement.ToolName
-	}
-	return requirement.ToolPrefix
+	return requirement.ToolName
 }
 
 func recommendedCompletionAction(request AgentTurnRequest, requirements []toolUseRequirement, observations []turnObservation, state CompletionState) completionRecommendedAction {
+	if _, hasFailureDebt := activeFailureDebt(observations); hasFailureDebt {
+		return completionActionContinueWork
+	}
 	if len(state.MissingRequirements) == 0 {
 		if requestOnlyOpensBrowser(request) {
 			return completionActionFinalizeWithEvidence
 		}
-		if satisfiedOneShotEvidenceRequirementsCanFinalize(requirements) {
+		if satisfiedOneShotEvidenceRequirementsCanFinalize(request.ToolSet, requirements) {
+			return completionActionFinalizeWithEvidence
+		}
+		if expectedResultRequiresFileAttachment(request.OutcomeContract) && len(state.AttachedEvidence) > 0 {
+			if !state.ValidityState.Passed {
+				if hasInvalidArtifactObservationForPaths(observations, completionValidityPaths(state)) {
+					return completionActionContinueWork
+				}
+				return completionActionBlockedInvalidArtifact
+			}
 			return completionActionFinalizeWithEvidence
 		}
 		if !allRequirementsAreFileAttachments(requirements) {
@@ -282,28 +319,24 @@ func recommendedCompletionAction(request AgentTurnRequest, requirements []toolUs
 	return completionActionContinueWork
 }
 
-func satisfiedOneShotEvidenceRequirementsCanFinalize(requirements []toolUseRequirement) bool {
+func satisfiedOneShotEvidenceRequirementsCanFinalize(toolSet *ToolSet, requirements []toolUseRequirement) bool {
 	if len(requirements) == 0 {
 		return false
 	}
 	for _, requirement := range requirements {
-		if requirement.RequiresAttachment || strings.TrimSpace(requirement.ToolPrefix) != "" || !isOneShotCompletionEvidenceTool(requirement.ToolName) {
-			return false
-		}
-		if isSendEvidenceTool(requirement.ToolName) {
+		if requirement.RequiresAttachment || !isOneShotCompletionEvidenceTool(toolSet, requirement.ToolName) {
 			return false
 		}
 	}
 	return true
 }
 
-func isOneShotCompletionEvidenceTool(toolName string) bool {
-	switch strings.TrimSpace(toolName) {
-	case "calendar.add", "calendar.update", "calendar.delete", "task.add", "task.update", "schedule.create", "schedule.update", "schedule.cancel", "google.calendar.event", "google.gmail.send":
-		return true
-	default:
+func isOneShotCompletionEvidenceTool(toolSet *ToolSet, toolName string) bool {
+	toolDefinition, isFound := toolDefinitionForName(toolSet, toolName)
+	if !isFound || toolDefinition.Completion.Mode != ToolCompletionObservation {
 		return false
 	}
+	return ToolDefinitionRequiresSideEffectEvidence(toolDefinition)
 }
 
 func buildAttachedEvidenceValidityState(workspaceRootPath string, attachedEvidence []CompletionAttachedEvidence, minimumModifiedAt time.Time) ValidityState {

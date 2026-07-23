@@ -3,6 +3,7 @@ package agenttest
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -12,6 +13,7 @@ import (
 
 type ScriptedLanguageModelOptions struct {
 	ActionResponses             []string
+	ChatResponsesBySchema       map[string][]string
 	StructuredResponsesBySchema map[string][]string
 	DefaultResponsesBySchema    map[string]string
 	ProviderName                string
@@ -21,6 +23,7 @@ type ScriptedLanguageModelOptions struct {
 type ScriptedLanguageModel struct {
 	mutex                       sync.Mutex
 	actionResponses             []string
+	chatResponsesBySchema       map[string][]string
 	structuredResponsesBySchema map[string][]string
 	defaultResponsesBySchema    map[string]string
 	requests                    []llm.StructuredResponseRequest
@@ -28,13 +31,146 @@ type ScriptedLanguageModel struct {
 	modelName                   string
 }
 
+type scriptedChatCompleter struct {
+	languageModel *ScriptedLanguageModel
+}
+
 func NewScriptedLanguageModel(options ScriptedLanguageModelOptions) *ScriptedLanguageModel {
 	return &ScriptedLanguageModel{
 		actionResponses:             append([]string{}, options.ActionResponses...),
+		chatResponsesBySchema:       copyResponseQueues(options.ChatResponsesBySchema),
 		structuredResponsesBySchema: copyResponseQueues(options.StructuredResponsesBySchema),
 		defaultResponsesBySchema:    mergeDefaultResponses(options.DefaultResponsesBySchema),
 		providerName:                firstNonEmpty(options.ProviderName, "test"),
 		modelName:                   firstNonEmpty(options.ModelName, "scripted"),
+	}
+}
+
+func (languageModel *ScriptedLanguageModel) TextChatCompleter() (llm.ChatCompleter, bool) {
+	languageModel.mutex.Lock()
+	defer languageModel.mutex.Unlock()
+	if len(languageModel.chatResponsesBySchema) == 0 {
+		return nil, false
+	}
+	return scriptedChatCompleter{languageModel: languageModel}, true
+}
+
+func (completer scriptedChatCompleter) GenerateChatCompletion(_ context.Context, request llm.ChatCompletionRequest) (llm.ChatCompletionResponse, error) {
+	languageModel := completer.languageModel
+	languageModel.mutex.Lock()
+	defer languageModel.mutex.Unlock()
+	schemaName := strings.TrimSpace(request.SchemaName)
+	languageModel.requests = append(languageModel.requests, structuredRequestFromChat(request))
+	if schemaName == "blueclaw_agent_turn_action" {
+		response, errorValue := languageModel.popActionResponse()
+		if errorValue != nil {
+			return llm.ChatCompletionResponse{}, errorValue
+		}
+		return languageModel.actionChatResponse(request, response)
+	}
+	responses := languageModel.chatResponsesBySchema[schemaName]
+	if len(responses) == 0 {
+		return llm.ChatCompletionResponse{}, fmt.Errorf("scripted language model has no %s chat response", request.SchemaName)
+	}
+	languageModel.chatResponsesBySchema[schemaName] = responses[1:]
+	return llm.ChatCompletionResponse{
+		FinishReason:    "stop",
+		ProviderName:    languageModel.providerName,
+		ModelName:       languageModel.modelName,
+		SelectedBackend: "device",
+		Message: llm.ChatCompletionMessage{
+			Role:    "assistant",
+			Content: responses[0],
+		},
+	}, nil
+}
+
+func (languageModel *ScriptedLanguageModel) actionChatResponse(request llm.ChatCompletionRequest, content string) (llm.ChatCompletionResponse, error) {
+	var actionDocument struct {
+		Action    string          `json:"action"`
+		ToolName  string          `json:"toolName"`
+		ToolInput json.RawMessage `json:"toolInput"`
+	}
+	if errorValue := json.Unmarshal([]byte(content), &actionDocument); errorValue != nil {
+		return llm.ChatCompletionResponse{}, errorValue
+	}
+	toolName := strings.TrimSpace(actionDocument.Action)
+	arguments := json.RawMessage(content)
+	if toolName == "continue" {
+		toolName = strings.TrimSpace(actionDocument.ToolName)
+		arguments = actionDocument.ToolInput
+	}
+	if toolName == "" || len(arguments) == 0 {
+		return llm.ChatCompletionResponse{}, errors.New("scripted agent action is incomplete")
+	}
+	if !chatRequestHasTool(request, toolName) {
+		return llm.ChatCompletionResponse{}, fmt.Errorf("scripted agent action tool %q is not exposed; available tools: %s", toolName, strings.Join(chatRequestToolNames(request), ", "))
+	}
+	arguments = removeActionDiscriminator(arguments)
+	return languageModel.toolCallResponse(toolName, arguments), nil
+}
+
+func chatRequestHasTool(request llm.ChatCompletionRequest, toolName string) bool {
+	for _, availableToolName := range chatRequestToolNames(request) {
+		if availableToolName == toolName {
+			return true
+		}
+	}
+	return false
+}
+
+func chatRequestToolNames(request llm.ChatCompletionRequest) []string {
+	toolNames := make([]string, 0, len(request.Tools))
+	for _, tool := range request.Tools {
+		toolNames = append(toolNames, tool.Function.Name)
+	}
+	return toolNames
+}
+
+func (languageModel *ScriptedLanguageModel) toolCallResponse(toolName string, arguments json.RawMessage) llm.ChatCompletionResponse {
+	return llm.ChatCompletionResponse{
+		FinishReason:    "tool_calls",
+		ProviderName:    languageModel.providerName,
+		ModelName:       languageModel.modelName,
+		SelectedBackend: "device",
+		Message: llm.ChatCompletionMessage{
+			Role: "assistant",
+			ToolCalls: []llm.ChatCompletionToolCall{{
+				ID:   "scripted-call",
+				Type: "function",
+				Function: llm.ChatCompletionToolCallFunction{
+					Name:      toolName,
+					Arguments: string(arguments),
+				},
+			}},
+		},
+	}
+}
+
+func removeActionDiscriminator(document json.RawMessage) json.RawMessage {
+	var values map[string]json.RawMessage
+	if json.Unmarshal(document, &values) != nil {
+		return document
+	}
+	delete(values, "action")
+	normalizedDocument, errorValue := json.Marshal(values)
+	if errorValue != nil {
+		return document
+	}
+	return normalizedDocument
+}
+
+func structuredRequestFromChat(request llm.ChatCompletionRequest) llm.StructuredResponseRequest {
+	messages := make([]llm.Message, 0, len(request.Messages))
+	for _, message := range request.Messages {
+		messages = append(messages, llm.Message{Role: message.Role, Content: message.Content})
+	}
+	return llm.StructuredResponseRequest{
+		Messages: messages,
+		StructuredOutputSchema: llm.StructuredOutputSchema{
+			Name: request.SchemaName,
+		},
+		GenerationOptions: request.GenerationOptions,
 	}
 }
 
@@ -62,6 +198,26 @@ func (languageModel *ScriptedLanguageModel) EnqueueStructuredResponses(schemaNam
 		return
 	}
 	languageModel.structuredResponsesBySchema[trimmedSchemaName] = append(languageModel.structuredResponsesBySchema[trimmedSchemaName], responses...)
+}
+
+func (languageModel *ScriptedLanguageModel) PendingResponseCounts() map[string]int {
+	languageModel.mutex.Lock()
+	defer languageModel.mutex.Unlock()
+	pendingCounts := map[string]int{}
+	if len(languageModel.actionResponses) > 0 {
+		pendingCounts["blueclaw_agent_turn_action"] = len(languageModel.actionResponses)
+	}
+	for schemaName, responses := range languageModel.structuredResponsesBySchema {
+		if len(responses) > 0 {
+			pendingCounts[schemaName] += len(responses)
+		}
+	}
+	for schemaName, responses := range languageModel.chatResponsesBySchema {
+		if len(responses) > 0 {
+			pendingCounts[schemaName] += len(responses)
+		}
+	}
+	return pendingCounts
 }
 
 func (languageModel *ScriptedLanguageModel) RequestCount() int {
@@ -104,11 +260,12 @@ func (languageModel *ScriptedLanguageModel) GenerateStructuredResponse(_ context
 	}
 	response := strings.TrimSpace(languageModel.defaultResponsesBySchema[schemaName])
 	if response == "" {
-		if schemaName == "blueclaw_result_verifier" {
-			return languageModel.structuredResponse(defaultResultVerificationResponse(request)), nil
-		}
-		if schemaName == "blueclaw_contract_verifier" {
-			return languageModel.structuredResponse(defaultContractVerificationResponse()), nil
+		if schemaName == "blueclaw_contract_skill_arbitration" {
+			response, errorValue := defaultContractSkillArbitrationResponse(request)
+			if errorValue != nil {
+				return llm.StructuredResponse{}, errorValue
+			}
+			return languageModel.structuredResponse(response), nil
 		}
 		if schemaName == "blueclaw_approval_question" {
 			return languageModel.structuredResponse(defaultApprovalQuestionResponse(request)), nil
@@ -119,6 +276,35 @@ func (languageModel *ScriptedLanguageModel) GenerateStructuredResponse(_ context
 		return languageModel.structuredResponse(defaultSkillSearchQueriesResponse(request)), nil
 	}
 	return languageModel.structuredResponse(response), nil
+}
+
+func defaultContractSkillArbitrationResponse(request llm.StructuredResponseRequest) (string, error) {
+	var schema struct {
+		Properties map[string]struct {
+			Items struct {
+				Enum []string `json:"enum"`
+			} `json:"items"`
+		} `json:"properties"`
+	}
+	if errorValue := json.Unmarshal([]byte(request.StructuredOutputSchema.Document), &schema); errorValue != nil {
+		return "", fmt.Errorf("decode contract skill arbitration schema: %w", errorValue)
+	}
+	skillNames := schema.Properties["selectedSkillNames"].Items.Enum
+	selectedSkillNames := append([]string{}, skillNames...)
+	rejectedSkillNames := []string{}
+	expectedEvidence := []string{}
+	document, errorValue := json.Marshal(map[string]any{
+		"selectedSkillNames":    selectedSkillNames,
+		"rejectedSkillNames":    rejectedSkillNames,
+		"requiredNextToolNames": []string{},
+		"expectedEvidence":      expectedEvidence,
+		"unmetPreconditions":    []string{},
+		"reason":                "scripted test default",
+	})
+	if errorValue != nil {
+		return "", fmt.Errorf("encode contract skill arbitration fixture: %w", errorValue)
+	}
+	return string(document), nil
 }
 
 func defaultSkillSearchQueriesResponse(request llm.StructuredResponseRequest) string {
@@ -182,43 +368,14 @@ func copyResponseQueues(responseQueues map[string][]string) map[string][]string 
 
 func mergeDefaultResponses(defaultResponses map[string]string) map[string]string {
 	mergedResponses := map[string]string{
-		"blueclaw_skill_search_queries":        `{"queries":[]}`,
-		"blueclaw_turn_router":                 `{"route":"start_task","classification":"bounded_task","taskShape":"maintenance_task","level":"low","requestedOutputFormats":null,"responseLanguage":"ko","reason":"scripted test default","userFacingReply":""}`,
-		"blueclaw_execution_plan":              `{"originalInstruction":"scripted test request","summary":"scripted test request","targets":[],"schedule":"","startAt":"","endAt":"","cadence":"","externalSend":false,"thirdPartyExternalSend":false,"repeated":false,"highFrequency":false,"destructive":false,"permissionChange":false,"publicDeploy":false,"paidAction":false,"missingInformation":[],"continuationInstruction":"scripted test request"}`,
-		"blueclaw_confirmation_message":        `{"reply":"확인했습니다. 승인하면 진행하겠습니다."}`,
-		"blueclaw_confirmation_reply_decision": `{"decision":"approved","reason":"scripted test default approval"}`,
+		"blueclaw_skill_search_queries": `{"queries":[]}`,
+		"blueclaw_execution_plan":       `{"originalInstruction":"scripted test request","summary":"scripted test request","targets":[],"schedule":"","startAt":"","endAt":"","cadence":"","externalSend":false,"thirdPartyExternalSend":false,"repeated":false,"highFrequency":false,"destructive":false,"permissionChange":false,"publicDeploy":false,"paidAction":false,"missingInformation":[],"continuationInstruction":"scripted test request"}`,
+		"blueclaw_confirmation_message": `{"reply":"확인했습니다. 승인하면 진행하겠습니다."}`,
 	}
 	for schemaName, response := range defaultResponses {
 		mergedResponses[strings.TrimSpace(schemaName)] = response
 	}
 	return mergedResponses
-}
-
-func defaultResultVerificationResponse(request llm.StructuredResponseRequest) string {
-	results := []map[string]any{}
-	for _, expectedResultID := range expectedResultIDsFromRequest(request) {
-		results = append(results, map[string]any{
-			"id":                  expectedResultID,
-			"status":              "satisfied",
-			"reason":              "scripted test default",
-			"citedObservationIDs": []string{},
-			"missingDescription":  "",
-			"suggestedNextTools":  []string{},
-		})
-	}
-	document, errorValue := json.Marshal(map[string]any{
-		"overallStatus": "satisfied",
-		"summary":       "scripted test default",
-		"results":       results,
-	})
-	if errorValue != nil {
-		return `{"overallStatus":"satisfied","summary":"scripted test default","results":[]}`
-	}
-	return string(document)
-}
-
-func defaultContractVerificationResponse() string {
-	return `{"satisfied":true,"reason":"scripted test default","missingDescription":"","suggestedNextTools":[]}`
 }
 
 type approvalQuestionContextDocument struct {
@@ -281,37 +438,6 @@ func approvalQuestionFromDraft(value string) string {
 		return strings.TrimSuffix(trimmedValue, "해줘") + "할까요?"
 	}
 	return trimmedValue + "?"
-}
-
-func expectedResultIDsFromRequest(request llm.StructuredResponseRequest) []string {
-	expectedResultDocument := expectedResultDocumentFromRequest(request)
-	if expectedResultDocument == "" {
-		return nil
-	}
-	var expectedResults []struct {
-		ID string `json:"id"`
-	}
-	if errorValue := json.Unmarshal([]byte(expectedResultDocument), &expectedResults); errorValue != nil {
-		return nil
-	}
-	ids := []string{}
-	for _, expectedResult := range expectedResults {
-		id := strings.TrimSpace(expectedResult.ID)
-		if id != "" {
-			ids = append(ids, id)
-		}
-	}
-	return ids
-}
-
-func expectedResultDocumentFromRequest(request llm.StructuredResponseRequest) string {
-	for _, message := range request.Messages {
-		content := strings.TrimSpace(message.Content)
-		if strings.HasPrefix(content, "Expected results:\n") {
-			return strings.TrimSpace(strings.TrimPrefix(content, "Expected results:\n"))
-		}
-	}
-	return ""
 }
 
 func stringMapValue(document map[string]any, key string) string {

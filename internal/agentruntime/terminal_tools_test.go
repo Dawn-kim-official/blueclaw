@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -35,6 +36,16 @@ func TestTerminalRunTranslatesAgentWorkspacePaths(t *testing.T) {
 	if result.Failed() {
 		t.Fatalf("expected terminal.run success, got %s", result.ContentText())
 	}
+	var resultDocument terminalCommandResultDocument
+	if errorValue := json.Unmarshal(result.Output.Data, &resultDocument); errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if resultDocument.Mode != terminalRunModeCommand || !resultDocument.Completed || resultDocument.ExitCode != 0 || resultDocument.TimedOut {
+		t.Fatalf("expected canonical completed command result, got %+v", resultDocument)
+	}
+	if len(result.Effects) != 0 {
+		t.Fatalf("expected terminal.run to avoid inferred resource effects, got %+v", result.Effects)
+	}
 	content, errorValue := os.ReadFile(filepath.Join(workspacePath, "private", "people", "person-1", "tmp", "deck", "build", "result.txt"))
 	if errorValue != nil {
 		t.Fatal(errorValue)
@@ -44,28 +55,133 @@ func TestTerminalRunTranslatesAgentWorkspacePaths(t *testing.T) {
 	}
 }
 
-func TestTerminalRunCommandRequestTreatsCommandWithArgumentsAsExecutable(t *testing.T) {
+func TestTerminalRunCommandRequestUsesCanonicalFields(t *testing.T) {
 	input := terminalRunToolInput{
-		Command: "/workspace/tools/capability",
-		Arguments: []string{
-			"/workspace/tools/capability",
-			"invoke",
-			"task.add",
-			`{"prompt":"test"}`,
-		},
+		Command:              "printf ok",
 		WorkingDirectoryPath: "/workspace",
+		TimeoutSecond:        30,
 	}
 
 	commandRequest := input.commandRequest()
-	if commandRequest.Command != "" {
-		t.Fatalf("expected shell command to be cleared, got %q", commandRequest.Command)
+	if commandRequest.Command != input.Command ||
+		commandRequest.WorkingDirectoryPath != input.WorkingDirectoryPath ||
+		commandRequest.TimeoutSecond != input.TimeoutSecond {
+		t.Fatalf("expected canonical command request, got %+v", commandRequest)
 	}
-	if commandRequest.ExecutableName != "/workspace/tools/capability" {
-		t.Fatalf("expected executable command, got %q", commandRequest.ExecutableName)
+}
+
+func TestTerminalRunRejectsInvalidInputShapes(t *testing.T) {
+	toolRegistry := newTerminalToolTestCatalogBuilder(t.TempDir()).BuildToolSet(ToolCatalogRequest{
+		ProfileName:       "default",
+		RequesterPersonID: "person-1",
+		PersonAccess:      policy.PersonAccess{PersonID: "person-1", Circles: []string{"staff"}},
+	})
+	testCases := []struct {
+		name  string
+		input json.RawMessage
+	}{
+		{name: "unknown field", input: json.RawMessage(`{"command":"true","unknown":true}`)},
+		{name: "fractional timeout", input: json.RawMessage(`{"command":"true","timeoutSecond":1.5}`)},
+		{name: "zero timeout", input: json.RawMessage(`{"command":"true","timeoutSecond":0}`)},
+		{name: "negative timeout", input: json.RawMessage(`{"command":"true","timeoutSecond":-1}`)},
+		{name: "missing command", input: json.RawMessage(`{}`)},
+		{name: "legacy mode", input: json.RawMessage(`{"mode":"command","command":"true"}`)},
+		{name: "legacy executable", input: json.RawMessage(`{"executableName":"true"}`)},
+		{name: "legacy arguments", input: json.RawMessage(`{"command":"true","arguments":["one"]}`)},
+		{name: "legacy stdin", input: json.RawMessage(`{"command":"true","stdin":"text"}`)},
+		{name: "legacy environment", input: json.RawMessage(`{"command":"true","environmentVariables":{"PATH":"/tmp"}}`)},
+		{name: "legacy session", input: json.RawMessage(`{"mode":"session_status","sessionID":"session-1"}`)},
+		{name: "approval without reason", input: json.RawMessage(`{"command":"true","approvalRequired":true}`)},
 	}
-	expectedArguments := []string{"invoke", "task.add", `{"prompt":"test"}`}
-	if strings.Join(commandRequest.Arguments, "\n") != strings.Join(expectedArguments, "\n") {
-		t.Fatalf("expected normalized arguments %+v, got %+v", expectedArguments, commandRequest.Arguments)
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+				ToolName: agent.TerminalRunToolName,
+				Input:    testCase.input,
+			})
+			if errorValue != nil {
+				t.Fatal(errorValue)
+			}
+			if !result.Failed() || result.FailureCode() != agent.FailureCodes.InvalidInput.String() {
+				t.Fatalf("expected invalid input failure, got %+v", result)
+			}
+		})
+	}
+}
+
+func TestTerminalRunAcceptsUnusedApprovalReason(t *testing.T) {
+	toolRegistry := newTerminalToolTestCatalogBuilder(t.TempDir()).BuildToolSet(ToolCatalogRequest{
+		ProfileName:       "default",
+		RequesterPersonID: "person-1",
+		PersonAccess:      policy.PersonAccess{PersonID: "person-1", Circles: []string{"staff"}},
+	})
+
+	result := invokeTerminalRunTestTool(t, toolRegistry, json.RawMessage(`{"command":"true","approvalRequired":false,"approvalReason":"No approval needed."}`))
+	var resultDocument terminalCommandResultDocument
+	decodeTerminalRunTestData(t, result, &resultDocument)
+	if !resultDocument.Completed {
+		t.Fatalf("expected harmless unused approval reason to remain executable, got %+v", resultDocument)
+	}
+}
+
+func TestTerminalRunAcceptsApprovalFieldsAfterTheApprovalGate(t *testing.T) {
+	toolRegistry := newTerminalToolTestCatalogBuilder(t.TempDir()).BuildToolSet(ToolCatalogRequest{
+		ProfileName:       "default",
+		RequesterPersonID: "person-1",
+		PersonAccess:      policy.PersonAccess{PersonID: "person-1", Circles: []string{"staff"}},
+	})
+
+	result := invokeTerminalRunTestTool(t, toolRegistry, json.RawMessage(`{"command":"true","approvalRequired":true,"approvalReason":"Publish the release."}`))
+	var resultDocument terminalCommandResultDocument
+	decodeTerminalRunTestData(t, result, &resultDocument)
+	if !resultDocument.Completed {
+		t.Fatalf("expected approved command shape to remain executable after the approval gate, got %+v", resultDocument)
+	}
+}
+
+func TestTerminalRunFailureHasCanonicalData(t *testing.T) {
+	toolRegistry := newTerminalToolTestCatalogBuilder(t.TempDir()).BuildToolSet(ToolCatalogRequest{
+		ProfileName:       "default",
+		RequesterPersonID: "person-1",
+		PersonAccess:      policy.PersonAccess{PersonID: "person-1", Circles: []string{"staff"}},
+	})
+
+	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+		ToolName: agent.TerminalRunToolName,
+		Input:    json.RawMessage(`{"command":"exit 7"}`),
+	})
+
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if !result.Failed() {
+		t.Fatalf("expected command failure, got %+v", result)
+	}
+	var resultDocument terminalCommandResultDocument
+	if errorValue := json.Unmarshal(result.Output.Data, &resultDocument); errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if resultDocument.Mode != terminalRunModeCommand || resultDocument.Completed || resultDocument.ExitCode != 7 {
+		t.Fatalf("expected canonical failed command result, got %+v", resultDocument)
+	}
+}
+
+func invokeTerminalRunTestTool(t *testing.T, toolRegistry *agent.ToolSet, input json.RawMessage) agent.ToolResult {
+	t.Helper()
+	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{ToolName: agent.TerminalRunToolName, Input: input})
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if result.Failed() {
+		t.Fatalf("expected terminal.run success, got %+v", result)
+	}
+	return result
+}
+
+func decodeTerminalRunTestData(t *testing.T, result agent.ToolResult, target any) {
+	t.Helper()
+	if errorValue := json.Unmarshal(result.Output.Data, target); errorValue != nil {
+		t.Fatal(errorValue)
 	}
 }
 
@@ -140,42 +256,6 @@ func TestTerminalRunAllowsServiceOwnedPathText(t *testing.T) {
 	}
 }
 
-func TestTerminalRunPathGuardrailFailureIsRecoverable(t *testing.T) {
-	workspacePath := t.TempDir()
-	toolCatalogBuilder := newTerminalToolTestCatalogBuilder(workspacePath)
-	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
-		ProfileName:       "default",
-		RequesterPersonID: "person-1",
-		PersonAccess:      policy.PersonAccess{PersonID: "person-1", Circles: []string{"staff"}},
-	})
-
-	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
-		ToolName: "terminal.run",
-		Input: agent.MarshalToolInput(map[string]any{
-			"command": "/opt/blueclaw/builtin-skills-venv/bin/python --version",
-		}),
-	})
-	if errorValue != nil {
-		t.Fatal(errorValue)
-	}
-	if !result.Failed() {
-		t.Fatalf("expected terminal.run path guardrail failure, got %+v", result)
-	}
-	if result.Failure.Code != agent.FailureCodes.InvalidInput.String() || result.Failure.Stage != "terminal_path_guardrail" {
-		t.Fatalf("expected recoverable invalid input failure, got %+v", result.Failure)
-	}
-	if !result.Failure.Retryable || !result.Failure.SafeRetry {
-		t.Fatalf("expected path guardrail failure to be retryable, got %+v", result.Failure)
-	}
-	for _, expectedText := range []string{
-		"/opt/blueclaw/builtin-skills-venv/bin/python",
-	} {
-		if !strings.Contains(result.ContentText(), expectedText) {
-			t.Fatalf("expected result to contain %q, got %q", expectedText, result.ContentText())
-		}
-	}
-}
-
 func TestTerminalRunDefaultsToPrivateScopeForDirectMessage(t *testing.T) {
 	workspacePath := t.TempDir()
 	toolCatalogBuilder := newTerminalToolTestCatalogBuilder(workspacePath)
@@ -213,6 +293,8 @@ func TestTerminalRunDefaultsToPrivateScopeForDirectMessage(t *testing.T) {
 
 func TestTerminalRunMaterializesRequesterRuntimeEnvironment(t *testing.T) {
 	workspacePath := t.TempDir()
+	builtinSkillsPythonPath := filepath.Join(t.TempDir(), "bin", "python")
+	t.Setenv("BLUECLAW_BUILTIN_SKILLS_PYTHON", builtinSkillsPythonPath)
 	toolCatalogBuilder := newTerminalToolTestCatalogBuilder(workspacePath)
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
 		ProfileName:       "default",
@@ -227,8 +309,7 @@ func TestTerminalRunMaterializesRequesterRuntimeEnvironment(t *testing.T) {
 	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
 		ToolName: "terminal.run",
 		Input: agent.MarshalToolInput(map[string]any{
-			"environmentVariables": map[string]string{"PATH": "/workspace/private/people/person-1/bin"},
-			"command":              `test -d "$TMPDIR" && test -d "$BUN_TMPDIR" && test -d "$BUN_INSTALL" && printf '%s\n%s\n%s\n%s\n%s' "$HOME" "$PATH" "$TMPDIR" "$BUN_TMPDIR" "$BUN_INSTALL"`,
+			"command": `test -d "$TMPDIR" && test -d "$BUN_TMPDIR" && test -d "$BUN_INSTALL" && printf '%s\n%s\n%s\n%s\n%s\n%s' "$HOME" "$PATH" "$TMPDIR" "$BUN_TMPDIR" "$BUN_INSTALL" "$BLUECLAW_BUILTIN_SKILLS_PYTHON"`,
 		}),
 	})
 	if errorValue != nil {
@@ -242,20 +323,26 @@ func TestTerminalRunMaterializesRequesterRuntimeEnvironment(t *testing.T) {
 		t.Fatal(errorValue)
 	}
 	requesterRootPath := filepath.Join(workspacePath, "private", "people", "person-1")
-	for _, expectedText := range []string{
+	expectedValues := []string{
 		requesterRootPath,
 		security.CanonicalRuntimePATH,
 		filepath.Join(requesterRootPath, "tmp", ".runtime", "tmp"),
 		filepath.Join(requesterRootPath, "tmp", ".runtime", "bun", "tmp"),
 		filepath.Join(requesterRootPath, "tmp", ".runtime", "bun", "install"),
-	} {
-		if !strings.Contains(commandResult.Stdout, expectedText) {
-			t.Fatalf("expected runtime environment path %s in stdout, got %q", expectedText, commandResult.Stdout)
+		builtinSkillsPythonPath,
+	}
+	actualValues := strings.Split(strings.TrimSpace(commandResult.Stdout), "\n")
+	if !slices.Equal(actualValues, expectedValues) {
+		t.Fatalf("expected exact runtime environment paths %v, got %v", expectedValues, actualValues)
+	}
+	for _, expectedText := range expectedValues {
+		if expectedText == requesterRootPath ||
+			expectedText == security.CanonicalRuntimePATH ||
+			expectedText == builtinSkillsPythonPath {
+			continue
 		}
-		if expectedText != requesterRootPath && expectedText != security.CanonicalRuntimePATH {
-			if _, errorValue := os.Stat(expectedText); errorValue != nil {
-				t.Fatalf("expected runtime environment directory %s: %v", expectedText, errorValue)
-			}
+		if _, errorValue := os.Stat(expectedText); errorValue != nil {
+			t.Fatalf("expected runtime environment directory %s: %v", expectedText, errorValue)
 		}
 	}
 }

@@ -18,33 +18,34 @@ func buildAgentSystemInstruction(request AgentTurnRequest) string {
 	} else {
 		instruction += " This is an ordinary task: use checkpoint messages sparingly, only when the work is getting long or user-visible direction changed."
 	}
+	if taskLevelRequiresPlan(request.TaskLevel) {
+		instruction += " This task is classified as multi-step: before your first state-changing tool call, record your goal and step plan with plan.update, and keep step statuses current as you work; the plan is your own working list and revising it is normal."
+	}
 	instruction += " " + responseLanguageInstruction(request.ResponseLanguage)
-	instruction += " Tool-free final replies are valid when the request only needs a direct answer. Opinions, casual recommendations, brainstorming, and answers available from common knowledge or visible conversation context are direct answers: finish immediately without skill.search and without ask.input. Ask for a preference only when the user's requested result genuinely depends on that missing preference. Do not use terminal.run just because the prompt contains an unfamiliar short token or verification string. For public URL lookup, current facts, mail, calendar, tasks, site operations, and other domain capabilities, use skill.search for instructions and the capability.invoke tool to run the operation."
-	instruction += " The compact model-callable tools are terminal.run, file.deliver, skill.search, capability.invoke, file.read, file.write, file.edit, file.preview, and image.read. ask.input appears only when the typed outcome contract or a structured tool failure requires user input. Do not request hidden tools, wait for the palette to expand, or run a Blueclaw tool name as a shell command. capability.invoke runs every domain operation: its description lists the available operations, and you call capability.invoke with operation set to one of them and input set to that operation's parameters. The runtime injects requester identity, approval, and delivery — never pass requester identity in input."
+	instruction += " Tool-free final replies are valid when the request only needs a direct answer. Opinions, casual recommendations, brainstorming, and answers available from common knowledge or visible conversation context are direct answers: finish immediately without skill.search and without ask.input. Ask for a preference only when the user's requested result genuinely depends on that missing preference. Do not use terminal.run just because the prompt contains an unfamiliar short token or verification string. For public URL lookup, current facts, mail, calendar, tasks, site operations, and other domain capabilities, use skill.search when instructions are missing, then call the selected direct tool."
+	instruction += " The action schema contains the exact tools callable in this step. Call domain operations directly by name with their typed parameters. ask.input appears only when the typed outcome contract or a structured tool failure requires user input. Do not request hidden tools, wait for the palette to expand, or run a Blueclaw tool name as a shell command. The runtime injects requester identity, approval, and delivery — never pass requester identity in input."
 	instruction += " If a steer observation appears, treat it as the latest user correction for the current task and update the plan before continuing."
+	instruction += " Never repeat an add or create operation for a record a successful observation in this task already created: one user request creates at most one record, and anything wrong or missing on it is fixed with the matching update operation, using the record's exact current title or ID as the hint."
 	instruction += " Treat retrieved skills as available capability references, not mandatory workflows. The current user message, ActiveGoal, and OutcomeContract decide the output type. Do not turn a document, plan, or text request into a website, DM, email, schedule, or other workflow just because a related skill or tool is listed."
 	instruction += " If the latest message only mentions you, such as @김인턴 or your bot handle, treat it as a request to respond to the recent visible conversation context. Do not ask what is needed when recent context already gives a topic; answer that topic directly or continue the immediately relevant thread. If recent context is truly empty or unrelated, then ask one brief clarifying question."
-	instruction += " The action schema intentionally stays fixed to the compact kernel each turn, so a domain tool being absent from the schema is expected and not proof you cannot do the task."
+	instruction += " Selected skills contribute their direct tools to the action schema while the compact kernel remains available within the provider tool budget."
 	if capabilityPhrase := capabilityDomainPhrase(request.AvailableSkills); capabilityPhrase != "" {
-		instruction += " Your available capabilities span " + capabilityPhrase + "; reach them through skills, bundled scripts, and capability.invoke."
+		instruction += " Your available capabilities span " + capabilityPhrase + "; reach them through selected direct tools, skills, and bundled scripts."
 	} else {
-		instruction += " Use skill.search and the capability.invoke operation list to discover available domain operations."
+		instruction += " Use skill.search to discover available domain operations and their direct tools."
 	}
-	instruction += " Before you tell the user you lack the capability, permission, access, or data — or before you ask them to provide a system, account, or roster you might already reach — first use skill.search and the capability.invoke operation list to discover the relevant operation, then actually try it. Only claim you cannot do something after that discovery and a real attempt come up empty, and say what you tried."
-	instruction += " When the user asks about you — what you can do, how you operate, or why something failed — answer from real data instead of guessing: skill.search with no queries lists every skill, skill.search by name returns full skill instructions, and the capability.invoke tool description lists the available operations. You run inside the Blueclaw task runtime: an intake router classifies each message before this loop, approvals pause tasks when needed, and schedules re-run tasks later. Your in-progress updates are sent as temporary messages visible only to the requester and disappear on refresh; only your final reply is posted as a permanent message. This is intentional — if the user asks where an earlier progress message of yours went, explain that progress notes are temporary and the final reply is the one that stays, rather than treating it as lost or denying you sent it."
+	instruction += " Before you tell the user you lack the capability, permission, access, or data — or before you ask them to provide a system, account, or roster you might already reach — first use skill.search to discover the relevant operation, then actually try its direct tool. Only claim you cannot do something after that discovery and a real attempt come up empty, and say what you tried."
+	instruction += " When the user asks about you — what you can do, how you operate, or why something failed — answer from real data instead of guessing: skill.search with no queries lists every skill, and skill.search by name returns full skill instructions. You run inside the Blueclaw task runtime: an intake router classifies each message before this loop, approvals pause tasks when needed, and schedules re-run tasks later. Your in-progress updates are sent as temporary messages visible only to the requester and disappear on refresh; only your final reply is posted as a permanent message. This is intentional — if the user asks where an earlier progress message of yours went, explain that progress notes are temporary and the final reply is the one that stays, rather than treating it as lost or denying you sent it."
 	instruction += " Ask the user only when their choice or free-form input is required. Never call ask.confirm. Invoke capability and file operations directly; the runtime evaluates structured approval policy and pauses before execution when approval is required. For terminal.run, set approvalRequired=true with an approvalReason only when your judgment is that the exact command requires the user's confirmation; otherwise omit it or set it false. Deleting a workspace file the user named follows the runtime approval path: find the file yourself (ls ~/documents) and call file.delete directly. Use ask.input for free-form missing information and for explicit choices: pass choices=[] for open input, or a non-empty choices array when the user should pick an option or type a different answer. Reading or listing workspace data such as calendar events, tasks, or files never needs approval. If no user input is pending, call finish or proceed directly."
 	instruction += " Chit-chat, jokes, and playful addressed remarks are still user messages. Do not silently ignore them. Reply briefly like a capable, good-humored coworker, without forced explanation, while staying appropriate for the workplace."
 	instruction += " For ask.input, put the exact question shown to the user in the action message field, written in the same language as the original user request — there is no separate userFacingMessage field."
 	instruction += " When a continue call invokes an operation that needs approval before it runs — sending a message or email to someone, or adding, updating, or deleting a calendar event — put a one-line confirmation of exactly what you will do (recipient and content, or the calendar change) in the action message field, in the user's language. Write it as a natural user-facing question such as \"우경에게 다음 내용을 보낼까요?\" instead of naming internal tools or operations. The runtime uses that message as the approval-question draft, so it must not be empty even on a simple task; this overrides the rule to keep continue.message empty."
 	instruction += " Send capabilities resolve recipient names internally, including partial names, usernames, and emails — pass the name the user gave as personHint without searching memory or the web for contact details, and never ask the user for account IDs or handles. Resolving the recipient is the send capability's own job: do not search for, disambiguate, or invent the recipient yourself before invoking it. The only valid source of recipient candidates is the capability's own recipient_ambiguous result, so do not call ask.input to pick a recipient unless that result actually returned recipient_ambiguous, and then offer exactly the candidates it returned as choices. Do not invent candidates or guess who the user meant before the capability reports back. On recipient_ambiguous pick the person with ask.input choices from the returned candidates; on recipient_not_found tell the user that name is not registered and ask only for the correct name."
-	instruction += " Privacy boundary applies to direct messages and channels, NOT to work tasks. Direct messages and channels are private: only read or post the requester's own DMs and the channels they belong to. Never read or post another person's private DMs, and never read or post in a channel the requester is not a member of; if asked, decline up front (only that person can see their own DMs, and only channel members can see a channel) and do not attempt the capability call. This applies to every requester including admins — admin status does not grant access to other people's DMs or channels through you, and the runtime also denies it, so attempting it only wastes a step. Work tasks are shared, not private: you may look up anyone's tasks. task.list lists EVERYONE's tasks when targetPersonHint is empty; set targetPersonHint to one person's name — including the requester's own name for their own tasks — to narrow to that person. Never tell the user you can only see their own tasks."
+	instruction += " Privacy boundary applies to direct messages and channels, NOT to work tasks. Direct messages and channels are private: only read or post the requester's own DMs and the channels they belong to. Never read or post another person's private DMs, and never read or post in a channel the requester is not a member of; if asked, decline up front (only that person can see their own DMs, and only channel members can see a channel) and do not attempt the capability call. This applies to every requester including admins — admin status does not grant access to other people's DMs or channels through you, and the runtime also denies it, so attempting it only wastes a step. Work tasks are shared, not private: you may look up anyone's tasks. task.list defaults to the requester's tasks. Set targetPersonHint for one specific person, or scope to all only when the user explicitly asks for workspace-wide tasks. Never tell the user you can only see their own tasks."
 	instruction += " If a tool call fails, it creates FailureDebt. Do not give up after one failed attempt. Do not finish until a later different recovery succeeds, or you can answer from current context without tools and set failureResolution=no_tool_fallback, or recovery budget is exhausted and you use fail. Never repeat the same failed tool input fingerprint; recovery must change the input, route/provider, tool, or fall back without tools. For artifact tasks, recover by checking which stage failed, reusing any existing source or built file, trying the next viable build/verify/attach route, and reporting failure only after delivery is genuinely blocked."
 	instruction += " For artifact work, set_quality_criteria and qualityReview are useful for your own acceptance criteria, but they are guidance and evidence, not a reason to withhold a usable artifact."
 	if request.IsApprovalContinuation {
 		instruction += " The user just approved the pending sensitive action in their latest message. The runtime has already performed that approved action before this model step. Review the resulting observation and finish; do not call the approved tool again and do not call ask.confirm again for the same action."
-	}
-	if len(request.QualityAcceptanceGuidance) > 0 {
-		instruction += " Quality guidance: " + strings.Join(request.QualityAcceptanceGuidance, " ")
 	}
 	if len(request.RequiredAttachmentSuffixes) > 0 {
 		instruction += " This task requires attached artifacts with these filename suffixes before finish: " + strings.Join(request.RequiredAttachmentSuffixes, ", ") + "."
@@ -80,7 +81,7 @@ func capabilityDomainPhrase(skills []SkillInstruction) string {
 	seenLabels := map[string]bool{}
 	labels := []string{}
 	for _, skill := range skills {
-		for _, toolName := range skill.AllowedTools {
+		for _, toolName := range skill.ToolReferences {
 			domain := strings.ToLower(strings.TrimSpace(toolName))
 			if separatorIndex := strings.Index(domain, "."); separatorIndex > 0 {
 				domain = domain[:separatorIndex]
@@ -108,7 +109,7 @@ func buildAmbientDutyInstruction(ambientDuty AmbientDutyContext) string {
 	if !ambientDuty.IsMatch {
 		return ""
 	}
-	return "Ambient duty context: the latest message was not addressed to you, but it matched standing duty " + ambientDuty.Name + ". Perform only that matched duty quietly. Preserve the named assignee, requester, subject, and due date or event time from the message. Before adding anything, check whether this conversation already produced a task or event for the same subject and person using the relevant capability.invoke list operation, and update that existing item instead of creating a duplicate. Never send a text reply, checkpoint, confirmation, or clarification. If required details are insufficient, do not create an item. Finish internally after the duty is complete. Do not perform external sends."
+	return "Ambient duty context: the latest message was not addressed to you, but it matched standing duty " + ambientDuty.Name + ". Perform only that matched duty quietly. Preserve the named assignee, requester, subject, and due date or event time from the message. Before adding anything, call the relevant direct list tool to check whether this conversation already produced a task or event for the same subject and person, and update that existing item instead of creating a duplicate. Never send a text reply, checkpoint, confirmation, or clarification. If required details are insufficient, do not create an item. Finish internally after the duty is complete. Do not perform external sends."
 }
 
 func (agentTurnRunner *AgentTurnRunner) buildToolDescription(toolRegistry *ToolSet) string {
@@ -124,25 +125,25 @@ func buildAgentToolDescription(toolRegistry *ToolSet) string {
 
 func (agentTurnRunner *AgentTurnRunner) appendInstructionEvent(taskRunID string, request AgentTurnRequest) {
 	body := map[string]any{
-		"profileName":               normalizedAgentProfileName(request.ProfileName),
-		"toolNames":                 toolNamesForEvent(request.ToolSet),
-		"registeredToolCount":       registeredToolCountForEvent(request.ToolSet),
-		"describedToolNames":        describedToolNamesForEvent(request.ToolSet),
-		"exposedToolNames":          toolNamesForEvent(request.ToolSet),
-		"hiddenDescribedToolNames":  hiddenDescribedToolNamesForEvent(request.ToolSet),
-		"selectedSkillAllowedTools": selectedSkillAllowedToolsForEvent(request),
-		"pinnedSkillAllowedTools":   pinnedSkillAllowedToolsForEvent(request),
-		"sourceCount":               len(request.InstructionSources),
-		"sources":                   request.InstructionSources,
-		"skillNames":                instructionSkillNames(request.InstructionSources),
-		"skillDecisions":            request.SkillDecisions,
-		"retrievalMode":             request.SkillRetrievalMode,
-		"indexStatus":               request.SkillIndexStatus,
-		"candidateCount":            request.SkillCandidateCount,
-		"skillQueries":              request.SkillQueries,
-		"activeGoal":                request.ActiveGoal,
-		"outcomeContract":           request.OutcomeContract,
-		"toolExposure":              request.ToolExposure,
+		"profileName":                 normalizedAgentProfileName(request.ProfileName),
+		"toolNames":                   toolNamesForEvent(request.ToolSet),
+		"registeredToolCount":         registeredToolCountForEvent(request.ToolSet),
+		"describedToolNames":          describedToolNamesForEvent(request.ToolSet),
+		"exposedToolNames":            toolNamesForEvent(request.ToolSet),
+		"hiddenDescribedToolNames":    hiddenDescribedToolNamesForEvent(request.ToolSet),
+		"selectedSkillToolReferences": selectedSkillToolReferencesForEvent(request),
+		"pinnedSkillToolReferences":   pinnedSkillToolReferencesForEvent(request),
+		"sourceCount":                 len(request.InstructionSources),
+		"sources":                     request.InstructionSources,
+		"skillNames":                  instructionSkillNames(request.InstructionSources),
+		"skillDecisions":              request.SkillDecisions,
+		"retrievalMode":               request.SkillRetrievalMode,
+		"indexStatus":                 request.SkillIndexStatus,
+		"candidateCount":              request.SkillCandidateCount,
+		"skillQueries":                request.SkillQueries,
+		"activeGoal":                  request.ActiveGoal,
+		"outcomeContract":             request.OutcomeContract,
+		"toolExposure":                request.ToolExposure,
 	}
 	if strings.TrimSpace(request.InstructionPrompt) == "" {
 		body["status"] = "empty"
@@ -180,16 +181,16 @@ func hiddenDescribedToolNamesForEvent(toolSet *ToolSet) []string {
 	return toolSet.ListHiddenDescribedToolNames()
 }
 
-func selectedSkillAllowedToolsForEvent(request AgentTurnRequest) map[string][]string {
+func selectedSkillToolReferencesForEvent(request AgentTurnRequest) map[string][]string {
 	selectedSkillNames := selectedSkillNames(request.SkillDecisions)
-	return allowedToolsBySkillNameForEvent(request.AvailableSkills, selectedSkillNames)
+	return toolReferencesBySkillNameForEvent(request.AvailableSkills, selectedSkillNames)
 }
 
-func pinnedSkillAllowedToolsForEvent(request AgentTurnRequest) map[string][]string {
-	return allowedToolsBySkillNameForEvent(request.AvailableSkills, stringSet(request.PinnedSkillNames))
+func pinnedSkillToolReferencesForEvent(request AgentTurnRequest) map[string][]string {
+	return toolReferencesBySkillNameForEvent(request.AvailableSkills, stringSet(request.PinnedSkillNames))
 }
 
-func allowedToolsBySkillNameForEvent(skillInstructions []SkillInstruction, skillNameByName map[string]bool) map[string][]string {
+func toolReferencesBySkillNameForEvent(skillInstructions []SkillInstruction, skillNameByName map[string]bool) map[string][]string {
 	result := map[string][]string{}
 	for _, skillInstruction := range skillInstructions {
 		if !skillNameByName[skillInstruction.Name] {

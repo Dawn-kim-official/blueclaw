@@ -42,7 +42,6 @@ type capabilityReplyRequest struct {
 	ReplyKind       string                      `json:"replyKind,omitempty"`
 	RawEventID      string                      `json:"rawEventID,omitempty"`
 	OutboxID        string                      `json:"outboxID,omitempty"`
-	EphemeralUserID string                      `json:"ephemeralUserID,omitempty"`
 	Attachments     []capabilityReplyAttachment `json:"attachments,omitempty"`
 	RecoveryActions []agent.RecoveryAction      `json:"recoveryActions,omitempty"`
 	FailureNotice   agent.FailureNotice         `json:"failureNotice,omitempty"`
@@ -130,6 +129,15 @@ func (adapter CapabilityPlatformAdapter) AddReaction(ctx context.Context, target
 	}, nil)
 }
 
+func (adapter CapabilityPlatformAdapter) RemoveReaction(ctx context.Context, target ReactionTarget) error {
+	return adapter.post(ctx, "reaction.remove", capabilityReactionRequest{
+		ConversationID: strings.TrimSpace(target.ConversationID),
+		MessageID:      strings.TrimSpace(target.MessageID),
+		EmojiName:      strings.TrimSpace(target.EmojiName),
+		Reason:         strings.TrimSpace(target.Reason),
+	}, nil)
+}
+
 func (adapter CapabilityPlatformAdapter) SendReply(ctx context.Context, replyTarget ReplyTarget, reply OutboundReply) (string, error) {
 	var response capabilityReplyResponse
 	errorValue := adapter.post(ctx, "reply.send", capabilityReplyRequest{
@@ -139,7 +147,6 @@ func (adapter CapabilityPlatformAdapter) SendReply(ctx context.Context, replyTar
 		ReplyKind:       reply.ReplyKind,
 		RawEventID:      reply.RawEventID,
 		OutboxID:        reply.OutboxID,
-		EphemeralUserID: reply.EphemeralUserID,
 		Attachments:     buildCapabilityReplyAttachments(reply.Attachments),
 		RecoveryActions: reply.RecoveryActions,
 		FailureNotice:   reply.FailureNotice,

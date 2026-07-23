@@ -2,6 +2,8 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -16,8 +18,8 @@ type echoToolOutput struct {
 
 func TestToolSetExcludesUnregisteredAllowedToolNames(t *testing.T) {
 	toolSet := NewToolSet([]string{"registered.tool", "missing.tool"})
-	toolSet.RegisterTool(ToolDefinition{Name: "registered.tool"}, func(context.Context, ToolInvocation) (ToolResult, error) {
-		return ToolSuccess("ok"), nil
+	registerTestTool(toolSet, ToolDefinition{Name: "registered.tool"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return testToolSuccess("ok"), nil
 	})
 
 	toolNames := toolSet.ListToolNames()
@@ -26,6 +28,44 @@ func TestToolSetExcludesUnregisteredAllowedToolNames(t *testing.T) {
 	}
 	if toolSet.IsAllowed("missing.tool") {
 		t.Fatal("expected unregistered allowed tool name to stay hidden")
+	}
+}
+
+func TestDirectToolRegistrationIsNotModelCallableWithoutResultContract(t *testing.T) {
+	toolSet := NewToolSet([]string{"internal.tool"})
+	if errorValue := toolSet.RegisterTool(ToolDefinition{Name: "internal.tool", Visibility: ToolVisibilityModel}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return testToolSuccess("ok"), nil
+	}); errorValue != nil {
+		t.Fatal(errorValue)
+	}
+
+	if !toolSet.IsRegistered("internal.tool") {
+		t.Fatal("expected direct tool registration to remain available internally")
+	}
+	if toolSet.IsAllowed("internal.tool") || toolSet.CanExpose("internal.tool") {
+		t.Fatal("expected direct tool without a result contract to stay off model surfaces")
+	}
+}
+
+func TestToolSetRejectsDuplicateToolNamesWithoutReplacingTheFirstHandler(t *testing.T) {
+	toolSet := NewToolSet([]string{"registered.tool"})
+	if errorValue := registerTestTool(toolSet, ToolDefinition{Name: "registered.tool"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return testToolSuccess("first"), nil
+	}); errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	errorValue := registerTestTool(toolSet, ToolDefinition{Name: "registered.tool"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return testToolSuccess("second"), nil
+	})
+	if errorValue == nil {
+		t.Fatal("expected duplicate registration to fail")
+	}
+	result, invocationError := toolSet.Invoke(context.Background(), ToolInvocation{ToolName: "registered.tool"})
+	if invocationError != nil {
+		t.Fatal(invocationError)
+	}
+	if result.ContentText() != "first" {
+		t.Fatalf("expected the original handler to remain registered, got %+v", result)
 	}
 }
 
@@ -55,11 +95,11 @@ func TestFailureCodeCollapsesUnknownCodesToOperationFailed(t *testing.T) {
 
 func TestToolSetDescriptionsAndActionSchemaOnlyShowExposedKernelTools(t *testing.T) {
 	toolSet := NewToolSet([]string{"visible.tool", "denied.tool"})
-	toolSet.RegisterTool(ToolDefinition{Name: "visible.tool", Description: "Visible"}, func(context.Context, ToolInvocation) (ToolResult, error) {
-		return ToolSuccess("ok"), nil
+	registerTestTool(toolSet, ToolDefinition{Name: "visible.tool", Description: "Visible", InputSchema: json.RawMessage(`{"type":"object","properties":{}}`)}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return testToolSuccess("ok"), nil
 	})
-	toolSet.RegisterTool(ToolDefinition{Name: "hidden.tool", Description: "Hidden"}, func(context.Context, ToolInvocation) (ToolResult, error) {
-		return ToolSuccess("ok"), nil
+	registerTestTool(toolSet, ToolDefinition{Name: "hidden.tool", Description: "Hidden"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return testToolSuccess("ok"), nil
 	})
 	toolSet.RegisterBoundTool(BoundTool{
 		Definition:   ToolDefinition{Name: "denied.tool", Description: "Denied"},
@@ -77,8 +117,7 @@ func TestToolSetDescriptionsAndActionSchemaOnlyShowExposedKernelTools(t *testing
 	if !strings.Contains(descriptions, "visible.tool") || !strings.Contains(actionSchema, "visible.tool") {
 		t.Fatalf("expected visible tool in prompt and schema, got prompt=%s schema=%s", descriptions, actionSchema)
 	}
-	// hidden.tool is registered but not allowed; domain operations reach the model
-	// only through capability.invoke now, so the catalog no longer lists them.
+	// hidden.tool is registered but not allowed, so the catalog no longer lists it.
 	if strings.Contains(descriptions, "hidden.tool") || strings.Contains(actionSchema, "hidden.tool") {
 		t.Fatalf("expected registered-but-not-allowed tool to stay out of both surfaces, got prompt=%s schema=%s", descriptions, actionSchema)
 	}
@@ -90,10 +129,32 @@ func TestToolSetDescriptionsAndActionSchemaOnlyShowExposedKernelTools(t *testing
 	}
 }
 
-func TestToolSetNeverExposesAskConfirmToTheModel(t *testing.T) {
+func TestToolSetDescriptionsUseDescriptorDescription(t *testing.T) {
+	toolSet := NewToolSet([]string{"task.update"})
+	registerTestTool(toolSet, ToolDefinition{
+		Name:        "task.update",
+		Description: "Update the task identified by exact taskID.",
+		InputSchema: json.RawMessage(`{"type":"object","properties":{"taskID":{"type":"string"}}}`),
+	}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return testToolSuccess("ok"), nil
+	})
+
+	descriptions := toolSet.Descriptions()
+	if !strings.Contains(descriptions, "exact taskID") || strings.Contains(descriptions, `"query"`) {
+		t.Fatalf("expected the descriptor to be the only description source, got %s", descriptions)
+	}
+}
+
+func TestToolSetDoesNotExposeControlToolsToTheModel(t *testing.T) {
 	toolSet := NewToolSet([]string{AskConfirmToolName})
-	toolSet.RegisterTool(ToolDefinition{Name: AskConfirmToolName, Description: "Confirm"}, func(context.Context, ToolInvocation) (ToolResult, error) {
-		return ToolSuccess("ok"), nil
+	registerTestTool(toolSet, ToolDefinition{
+		Name:         AskConfirmToolName,
+		Description:  "Confirm",
+		Visibility:   ToolVisibilityControl,
+		InputSchema:  json.RawMessage(`{"type":"object","properties":{}}`),
+		OutputSchema: json.RawMessage(`{"type":"object"}`),
+	}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return testToolSuccess("ok"), nil
 	})
 
 	descriptions := toolSet.Descriptions()
@@ -117,32 +178,68 @@ func TestFallbackActionSchemaDoesNotAllowToolCalls(t *testing.T) {
 	}
 }
 
-func TestFlowTaskUpdateActionSchemaAndCompletionEvidence(t *testing.T) {
-	actionSchema := buildActionSchemaFromToolDefinitions([]ToolDefinition{{Name: "task.update"}}, false, nil, false)
-	for _, fragment := range []string{"task.update", "taskID", "query", "content", "status", "endDate"} {
+func TestActionSchemaUsesRegisteredTaskUpdateSchema(t *testing.T) {
+	inputSchema := json.RawMessage(`{"type":"object","properties":{"taskID":{"type":"string"},"query":{"type":"string"},"title":{"type":"string"},"status":{"type":"string"},"endDate":{"type":"string"}}}`)
+	actionSchema := buildActionSchemaFromToolDefinitions([]ToolDefinition{{Name: "task.update", InputSchema: inputSchema}}, false, nil, false)
+	for _, fragment := range []string{"task.update", "taskID", "query", "title", "status", "endDate"} {
 		if !strings.Contains(actionSchema, fragment) {
 			t.Fatalf("expected action schema to include %q, got %s", fragment, actionSchema)
 		}
 	}
-	if !isOneShotCompletionEvidenceTool("task.update") {
+	if strings.Contains(actionSchema, `"content"`) {
+		t.Fatalf("expected action schema to omit removed content field, got %s", actionSchema)
+	}
+	toolSet := NewToolSet([]string{"task.update"})
+	registerTestTool(toolSet, ToolDefinition{
+		Name:            "task.update",
+		InputSchema:     inputSchema,
+		SideEffectClass: ToolSideEffectExternalWrite,
+		Completion:      ToolCompletion{Mode: ToolCompletionObservation},
+	}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return ToolResult{}, nil
+	})
+	if !isOneShotCompletionEvidenceTool(toolSet, "task.update") {
 		t.Fatal("expected task.update to count as one-shot completion evidence")
 	}
 }
 
-func TestDefaultToolSideEffectClass(t *testing.T) {
+func TestActionSchemaUsesRegisteredTaskListSchema(t *testing.T) {
+	inputSchema := json.RawMessage(`{"type":"object","properties":{"scope":{"type":"string","enum":["self","all"]},"targetPersonHint":{"type":"string"}}}`)
+	actionSchema := buildActionSchemaFromToolDefinitions([]ToolDefinition{{Name: "task.list", InputSchema: inputSchema}}, false, nil, false)
+	for _, fragment := range []string{`"scope"`, `"self"`, `"all"`, `"targetPersonHint"`} {
+		if !strings.Contains(actionSchema, fragment) {
+			t.Fatalf("expected task.list schema to include %s, got %s", fragment, actionSchema)
+		}
+	}
+	if strings.Contains(actionSchema, "everyone's tasks") {
+		t.Fatalf("expected task.list schema not to default to everyone, got %s", actionSchema)
+	}
+}
+
+func TestActionSchemaDoesNotInferInputSchemaFromToolName(t *testing.T) {
+	actionSchema := buildActionSchemaFromToolDefinitions([]ToolDefinition{{Name: "task.add"}}, false, nil, false)
+
+	if strings.Contains(actionSchema, `"task.add"`) || strings.Contains(actionSchema, `"prompt"`) {
+		t.Fatalf("expected the schema-less tool to stay out of the action schema, got %s", actionSchema)
+	}
+}
+
+func TestToolSideEffectClassUsesOnlyDescriptorMetadata(t *testing.T) {
 	tests := []struct {
 		toolName           string
+		sideEffectClass    string
 		expectedSideEffect string
 		requiresCompletion bool
 	}{
-		{toolName: "task.add", expectedSideEffect: ToolSideEffectStateChange, requiresCompletion: true},
-		{toolName: "task.list", expectedSideEffect: ToolSideEffectRead, requiresCompletion: false},
-		{toolName: "message.send", expectedSideEffect: ToolSideEffectExternalWrite, requiresCompletion: true},
-		{toolName: "math.calculate", expectedSideEffect: ToolSideEffectComputation, requiresCompletion: false},
+		{toolName: "task.add", sideEffectClass: ToolSideEffectStateChange, expectedSideEffect: ToolSideEffectStateChange, requiresCompletion: true},
+		{toolName: "task.list", sideEffectClass: ToolSideEffectRead, expectedSideEffect: ToolSideEffectRead, requiresCompletion: false},
+		{toolName: "message.send", sideEffectClass: ToolSideEffectExternalWrite, expectedSideEffect: ToolSideEffectExternalWrite, requiresCompletion: true},
+		{toolName: "math.calculate", sideEffectClass: ToolSideEffectComputation, expectedSideEffect: ToolSideEffectComputation, requiresCompletion: false},
+		{toolName: "looks.like.write", expectedSideEffect: "", requiresCompletion: false},
 	}
 
 	for _, test := range tests {
-		toolDefinition := ToolDefinition{Name: test.toolName}
+		toolDefinition := ToolDefinition{Name: test.toolName, SideEffectClass: test.sideEffectClass}
 		if actualSideEffect := ToolDefinitionSideEffectClass(toolDefinition); actualSideEffect != test.expectedSideEffect {
 			t.Fatalf("expected %s side effect for %s, got %s", test.expectedSideEffect, test.toolName, actualSideEffect)
 		}
@@ -154,11 +251,11 @@ func TestDefaultToolSideEffectClass(t *testing.T) {
 
 func TestToolSetKeepsDeclaredRecoverySideEffectBeforeDefault(t *testing.T) {
 	toolSet := NewToolSet([]string{"data.write"})
-	toolSet.RegisterTool(ToolDefinition{
+	registerTestTool(toolSet, ToolDefinition{
 		Name:         "data.write",
 		RecoveryCard: ToolRecoveryCard{SideEffect: ToolSideEffectRead},
 	}, func(context.Context, ToolInvocation) (ToolResult, error) {
-		return ToolSuccess("ok"), nil
+		return testToolSuccess("ok"), nil
 	})
 
 	toolDefinition, isFound := toolSet.ToolDefinition("data.write")
@@ -172,8 +269,8 @@ func TestToolSetKeepsDeclaredRecoverySideEffectBeforeDefault(t *testing.T) {
 
 func TestToolSetInvokeRejectsHiddenTool(t *testing.T) {
 	toolSet := NewToolSet([]string{"visible.tool"})
-	toolSet.RegisterTool(ToolDefinition{Name: "hidden.tool"}, func(context.Context, ToolInvocation) (ToolResult, error) {
-		return ToolSuccess("hidden"), nil
+	registerTestTool(toolSet, ToolDefinition{Name: "hidden.tool"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return testToolSuccess("hidden"), nil
 	})
 
 	result, errorValue := toolSet.Invoke(context.Background(), ToolInvocation{ToolName: "hidden.tool"})
@@ -185,12 +282,102 @@ func TestToolSetInvokeRejectsHiddenTool(t *testing.T) {
 	}
 }
 
+func TestToolSetValidatesDescriptorInputSchemaBeforeHandler(t *testing.T) {
+	toolSet := NewToolSet([]string{"site.publish"})
+	handlerCallCount := 0
+	registerTestTool(toolSet, ToolDefinition{
+		Name: "site.publish",
+		InputSchema: json.RawMessage(`{
+			"type":"object",
+			"properties":{
+				"siteID":{"type":"string","pattern":"^[a-z0-9-]+$"},
+				"revision":{"type":"integer","minimum":1}
+			},
+			"required":["siteID","revision"],
+			"additionalProperties":false
+		}`),
+	}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		handlerCallCount++
+		return testToolSuccess("published"), nil
+	})
+
+	invalidInputs := []json.RawMessage{
+		nil,
+		json.RawMessage(`{"siteID":"site-1"}`),
+		json.RawMessage(`{"siteID":"SITE 1","revision":1}`),
+		json.RawMessage(`{"siteID":"site-1","revision":0}`),
+		json.RawMessage(`{"siteID":"site-1","revision":"1"}`),
+		json.RawMessage(`{"siteID":"site-1","revision":1,"confirm":true}`),
+	}
+	for _, input := range invalidInputs {
+		result, errorValue := toolSet.Invoke(context.Background(), ToolInvocation{ToolName: "site.publish", Input: input})
+		if errorValue != nil {
+			t.Fatal(errorValue)
+		}
+		if !result.Failed() || result.Failure.Stage != "tool_input_schema" {
+			t.Fatalf("expected descriptor input rejection for %s, got %+v", string(input), result)
+		}
+	}
+	if handlerCallCount != 0 {
+		t.Fatalf("expected invalid inputs to stay outside the handler, got %d calls", handlerCallCount)
+	}
+
+	result, errorValue := toolSet.Invoke(context.Background(), ToolInvocation{
+		ToolName: "site.publish",
+		Input:    json.RawMessage(`{"siteID":"site-1","revision":1}`),
+	})
+	if errorValue != nil || result.Failed() {
+		t.Fatalf("expected valid descriptor input, got result=%+v error=%v", result, errorValue)
+	}
+	if handlerCallCount != 1 {
+		t.Fatalf("expected one valid handler call, got %d", handlerCallCount)
+	}
+}
+
+func TestProjectResourceEffectsSupportsCanonicalIdentityArrays(t *testing.T) {
+	contract := &ToolResultContract{
+		Schema: json.RawMessage(`{"type":"object","properties":{"paths":{"type":"array","items":{"type":"string"},"minItems":1,"uniqueItems":true}},"required":["paths"],"additionalProperties":false}`),
+		Effects: []ResourceEffectContract{{
+			ObjectType:     "file",
+			Effect:         "updated",
+			ResultField:    "paths",
+			EffectIdentity: "path",
+		}},
+	}
+	effects := ProjectResourceEffects(contract, json.RawMessage(`{"paths":[" /workspace/one.md ","/workspace/two.md"]}`))
+	expectedEffects := []ResourceEffect{
+		{ObjectType: "file", Effect: "updated", Path: "/workspace/one.md"},
+		{ObjectType: "file", Effect: "updated", Path: "/workspace/two.md"},
+	}
+	if !reflect.DeepEqual(effects, expectedEffects) {
+		t.Fatalf("expected canonical projected effects, got %+v", effects)
+	}
+	for _, result := range []json.RawMessage{
+		json.RawMessage(`{"paths":[]}`),
+		json.RawMessage(`{"paths":[""]}`),
+		json.RawMessage(`{"paths":["/workspace/one.md","/workspace/one.md"]}`),
+		json.RawMessage(`{"paths":[1]}`),
+	} {
+		if effects := ProjectResourceEffects(contract, result); effects != nil {
+			t.Fatalf("expected invalid identities to fail closed for %s, got %+v", result, effects)
+		}
+	}
+}
+
 func TestToolFunctionValidatesInputAndMarshalsOutput(t *testing.T) {
 	toolSet := NewToolSet([]string{"echo.tool"})
 	RegisterToolFunction(toolSet, ToolFunction[echoToolInput, echoToolOutput]{
-		Definition: ToolDefinition{Name: "echo.tool"},
+		Definition: ToolDefinition{
+			Name:           "echo.tool",
+			Visibility:     ToolVisibilityModel,
+			ResultContract: &ToolResultContract{Schema: json.RawMessage(`{"type":"object","properties":{"message":{"type":"string"}},"required":["message"],"additionalProperties":false}`)},
+		},
 		Handler: func(_ context.Context, input echoToolInput) (echoToolOutput, error) {
 			return echoToolOutput{Message: input.Message}, nil
+		},
+		Result: func(output echoToolOutput) ToolResult {
+			data := json.RawMessage(marshalTypedToolOutput(output))
+			return ToolSuccessData(string(data), data)
 		},
 	})
 
@@ -200,6 +387,14 @@ func TestToolFunctionValidatesInputAndMarshalsOutput(t *testing.T) {
 	}
 	if !malformedResult.Failed() || !strings.Contains(malformedResult.ContentText(), "tool input is not valid json") {
 		t.Fatalf("expected malformed input error, got %+v", malformedResult)
+	}
+
+	unknownFieldResult, errorValue := toolSet.Invoke(context.Background(), ToolInvocation{ToolName: "echo.tool", Input: []byte(`{"message":"hello","operation":"task.add"}`)})
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if !unknownFieldResult.Failed() || !strings.Contains(unknownFieldResult.ContentText(), "unknown field") {
+		t.Fatalf("expected unknown input field error, got %+v", unknownFieldResult)
 	}
 
 	result, errorValue := toolSet.Invoke(context.Background(), ToolInvocation{ToolName: "echo.tool", Input: MarshalToolInput(echoToolInput{Message: "hello"})})

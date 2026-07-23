@@ -14,7 +14,7 @@ import (
 
 func TestToolCatalogHidesPolicyDeniedCapabilityTools(t *testing.T) {
 	toolCatalogBuilder := NewToolCatalogBuilder()
-	toolCatalogBuilder.UseCapabilityToolDescriptors(capability.Client{}, []CapabilityToolDescriptor{{
+	toolCatalogBuilder.UseTestCapabilityToolDescriptors(capability.Client{}, []CapabilityToolDescriptor{{
 		Name:           "site.create",
 		Description:    "Create a site.",
 		PolicyResource: "tool:site.create",
@@ -38,9 +38,164 @@ func TestToolCatalogHidesPolicyDeniedCapabilityTools(t *testing.T) {
 	}
 }
 
+func TestToolCatalogKeepsCapabilityInputSchemaAuthoritative(t *testing.T) {
+	taskAddSchema := json.RawMessage(`{"type":"object","properties":{"title":{"type":"string"},"endDate":{"type":"string"}},"required":["title"],"additionalProperties":false}`)
+	toolCatalogBuilder := NewToolCatalogBuilder()
+	toolCatalogBuilder.UseTestCapabilityToolDescriptors(capability.Client{}, []CapabilityToolDescriptor{{
+		Name:        "task.add",
+		InputSchema: taskAddSchema,
+	}})
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"task.add"})
+
+	toolSet := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
+	actionSchema := toolSet.ActionSchema(false, nil, false)
+
+	if !strings.Contains(actionSchema, `"title"`) || !strings.Contains(actionSchema, `"endDate"`) {
+		t.Fatalf("expected registered task.add schema, got %s", actionSchema)
+	}
+	if strings.Contains(actionSchema, `"prompt"`) {
+		t.Fatalf("expected no inferred legacy task.add fields, got %s", actionSchema)
+	}
+}
+
+func TestCapabilityToolPreservesValidatedTaskResultEffects(t *testing.T) {
+	httpClient := &recordingHTTPClient{responseBody: `{
+		"provider":"internkim",
+		"selectedBackend":"device",
+		"toolName":"task.add",
+		"outcome":"succeeded",
+		"status":"ok",
+		"result":{"taskID":"task-1"},
+		"effects":[{"objectType":"task","effect":"created","id":"task-1"}]
+	}`}
+	toolCatalogBuilder := NewToolCatalogBuilder()
+	toolCatalogBuilder.UseTestCapabilityToolDescriptors(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, []CapabilityToolDescriptor{{
+		Name: "task.add",
+		ResultContract: &CapabilityToolResultContract{
+			Schema: json.RawMessage(`{"type":"object","properties":{"taskID":{"type":"string"}},"required":["taskID"],"additionalProperties":false}`),
+			Effects: []CapabilityResourceEffectContract{{
+				ObjectType:     "task",
+				Effect:         "created",
+				ResultField:    "taskID",
+				EffectIdentity: "id",
+			}},
+		},
+	}})
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"task.add"})
+	toolSet := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
+
+	result, errorValue := toolSet.Invoke(context.Background(), agent.ToolInvocation{
+		ToolName: "task.add",
+		Input:    json.RawMessage(`{}`),
+	})
+
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if result.Failed() || len(result.Effects) != 1 || result.Effects[0].ID != "task-1" {
+		t.Fatalf("expected validated task effect, got %+v", result)
+	}
+}
+
+func TestCapabilityToolRejectsMismatchedTaskResultIdentity(t *testing.T) {
+	httpClient := &recordingHTTPClient{responseBody: `{
+		"provider":"internkim",
+		"selectedBackend":"device",
+		"toolName":"task.update",
+		"outcome":"succeeded",
+		"status":"ok",
+		"result":{"taskID":"task-1"},
+		"effects":[{"objectType":"task","effect":"created","id":"task-1"}]
+	}`}
+	toolCatalogBuilder := NewToolCatalogBuilder()
+	toolCatalogBuilder.UseTestCapabilityToolDescriptors(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, []CapabilityToolDescriptor{{
+		Name:           "task.add",
+		ResultContract: &CapabilityToolResultContract{Schema: json.RawMessage(`{"type":"object","properties":{"taskID":{"type":"string"}},"required":["taskID"],"additionalProperties":false}`)},
+	}})
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"task.add"})
+	toolSet := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
+
+	result, errorValue := toolSet.Invoke(context.Background(), agent.ToolInvocation{ToolName: "task.add", Input: json.RawMessage(`{}`)})
+
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if !result.Failed() || result.FailureStage() != "capability_result_identity" {
+		t.Fatalf("expected identity failure, got %+v", result)
+	}
+}
+
+func TestCapabilityToolRejectsMismatchedIdentityWithoutResultContract(t *testing.T) {
+	httpClient := &recordingHTTPClient{responseBody: `{
+		"provider":"internkim",
+		"selectedBackend":"device",
+		"toolName":"task.update",
+		"outcome":"succeeded",
+		"status":"ok",
+		"result":{}
+	}`}
+	descriptor := completeTestCapabilityToolDescriptor(CapabilityToolDescriptor{Name: "task.add"})
+	descriptor.ResultContract = nil
+	toolCatalogBuilder := NewToolCatalogBuilder()
+	toolCatalogBuilder.capabilityClient = capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}
+
+	result, errorValue := toolCatalogBuilder.invokeCapabilityOperation(
+		context.Background(),
+		"task.add",
+		descriptor,
+		ToolCatalogRequest{},
+		json.RawMessage(`{}`),
+	)
+
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if !result.Failed() || result.FailureStage() != "capability_result_identity" {
+		t.Fatalf("expected identity failure without a result contract, got %+v", result)
+	}
+}
+
+func TestContractedCapabilityPreservesApprovalDenial(t *testing.T) {
+	httpClient := &recordingHTTPClient{responseBody: `{
+		"provider":"internkim",
+		"selectedBackend":"device",
+		"toolName":"task.delete",
+		"outcome":"denied",
+		"status":"denied",
+		"isError":true,
+		"errorCode":"approval_required",
+		"failureStage":"authorization",
+		"result":{"errorCode":"approval_required"}
+	}`}
+	toolCatalogBuilder := NewToolCatalogBuilder()
+	toolCatalogBuilder.UseTestCapabilityToolDescriptors(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, []CapabilityToolDescriptor{{
+		Name: "task.delete",
+		ResultContract: &CapabilityToolResultContract{
+			Schema: json.RawMessage(`{"type":"object","properties":{"taskID":{"type":"string"},"deleted":{"const":true}},"required":["taskID","deleted"],"additionalProperties":false}`),
+			Effects: []CapabilityResourceEffectContract{{
+				ObjectType:     "task",
+				Effect:         "deleted",
+				ResultField:    "taskID",
+				EffectIdentity: "id",
+			}},
+		},
+	}})
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"task.delete"})
+	toolSet := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
+
+	result, errorValue := toolSet.Invoke(context.Background(), agent.ToolInvocation{ToolName: "task.delete", Input: json.RawMessage(`{}`)})
+
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if !result.Failed() || result.FailureStage() != "authorization" || result.Failure == nil || !result.Failure.RequiresApproval {
+		t.Fatalf("expected approval denial, got %+v", result)
+	}
+}
+
 func TestPlatformDMSendAvailabilityDependsOnTrustedContext(t *testing.T) {
 	toolCatalogBuilder := NewToolCatalogBuilder()
-	toolCatalogBuilder.UseCapabilityToolDescriptors(capability.Client{}, []CapabilityToolDescriptor{{
+	toolCatalogBuilder.UseTestCapabilityToolDescriptors(capability.Client{}, []CapabilityToolDescriptor{{
 		Name:             "message.send",
 		Description:      "Send a direct message",
 		RequiresApproval: true,
@@ -66,7 +221,14 @@ func TestPlatformDMSendAvailabilityDependsOnTrustedContext(t *testing.T) {
 }
 
 func TestCapabilityToolRequestIncludesTrustedExecutionContext(t *testing.T) {
-	requestDocument := capabilityToolRequest(context.Background(), "message.send", ToolCatalogRequest{
+	descriptor := completeTestCapabilityToolDescriptor(CapabilityToolDescriptor{
+		Name:          "message.send",
+		CanonicalName: "message.send",
+		PrivacyClass:  "platform_message",
+		Idempotency:   CapabilityIdempotency{Supported: true, Scope: "operation"},
+	})
+	toolContext := agent.WithToolConflictResolution(context.Background(), agent.ToolConflictResolutionAllowDuplicate)
+	requestDocument := capabilityToolRequest(toolContext, descriptor, ToolCatalogRequest{
 		TaskSource:              TaskLaunchSourceScheduled,
 		IsScheduledRun:          true,
 		IsApprovalContinuation:  true,
@@ -76,7 +238,7 @@ func TestCapabilityToolRequestIncludesTrustedExecutionContext(t *testing.T) {
 		ConversationChannelID:   "channel-1",
 		ReplyTargetID:           "reply-target-1",
 		Platform:                "mattermost",
-	}, json.RawMessage(`{"targetType":"directMessage","personHint":"동하","message":"테스트"}`))
+	}, preparedCapabilityToolPayload{Input: json.RawMessage(`{"targetType":"directMessage","personHint":"동하","message":"테스트"}`)})
 	contextDocument, isFound := requestDocument["context"].(map[string]any)
 	if !isFound {
 		t.Fatalf("expected context document, got %+v", requestDocument)
@@ -87,38 +249,47 @@ func TestCapabilityToolRequestIncludesTrustedExecutionContext(t *testing.T) {
 	if contextDocument["replyTargetID"] != "reply-target-1" {
 		t.Fatalf("expected reply target in context, got %+v", contextDocument)
 	}
+	if contextDocument["conflictResolution"] != agent.ToolConflictResolutionAllowDuplicate {
+		t.Fatalf("expected typed conflict resolution in context, got %+v", contextDocument)
+	}
 }
 
-func TestImageReadResolvesAttachmentMaterialID(t *testing.T) {
+func TestCapabilityToolRequestSeparatesModelInputFromTransport(t *testing.T) {
+	input := json.RawMessage(`{"siteID":"site-1"}`)
+	transport := map[string]any{"siteSourceBundle": map[string]any{"workspacePath": "/workspace/site"}}
+	requestDocument := capabilityToolRequest(
+		context.Background(),
+		completeTestCapabilityToolDescriptor(CapabilityToolDescriptor{Name: "site.publish", CanonicalName: "site.publish"}),
+		ToolCatalogRequest{},
+		preparedCapabilityToolPayload{Input: input, Transport: transport},
+	)
+
+	if string(requestDocument["input"].(json.RawMessage)) != string(input) {
+		t.Fatalf("expected unchanged model input, got %+v", requestDocument["input"])
+	}
+	if requestDocument["transport"].(map[string]any)["siteSourceBundle"] == nil {
+		t.Fatalf("expected trusted transport payload, got %+v", requestDocument)
+	}
+}
+
+func TestImageReadUsesExactPathInput(t *testing.T) {
 	workspacePath := t.TempDir()
 	imagePath := filepath.Join(workspacePath, "circles", "staff", "inbox", "mattermost", "thread-1", "post-1", "mascot.png")
 	writeTestFile(t, imagePath, "image")
-	httpClient := &recordingHTTPClient{responseBody: `{"content":"image loaded","status":"ok","result":{"status":"ok"}}`}
+	httpClient := &recordingHTTPClient{responseBody: `{"provider":"internkim","selectedBackend":"device","toolName":"image.read","outcome":"succeeded","status":"ok","result":{"status":"ok","path":"/workspace/circles/staff/inbox/mattermost/thread-1/post-1/mascot.png","attachments":[{"devicePath":"/workspace/circles/staff/inbox/mattermost/thread-1/post-1/mascot.png","filename":"mascot.png","contentType":"image/png","sizeBytes":5,"contentBase64":"aW1hZ2U="}]}}`}
 	toolCatalogBuilder := newFileToolTestCatalogBuilder(workspacePath)
-	toolCatalogBuilder.UseCapabilityToolDescriptors(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, []CapabilityToolDescriptor{{
-		Name:           "image.read",
-		PolicyResource: "tool:image.read",
-		InputSchema:    json.RawMessage(`{"type":"object","properties":{"materialID":{"type":"string"},"path":{"type":"string"}}}`),
-	}})
+	toolCatalogBuilder.UseTestCapabilityToolDescriptors(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, []CapabilityToolDescriptor{canonicalReadDescriptor("image.read")})
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
 		ProfileName: "default",
 		PersonAccess: policy.PersonAccess{
 			PersonID: "person-1",
 			Circles:  []string{"staff"},
 		},
-		AttachmentMaterialResolver: staticAttachmentMaterialResolver{
-			material: agent.VisibleContextMaterial{
-				MaterialID:  "mattermost:file-1",
-				Filename:    "mascot.png",
-				ContentType: "image/png",
-				Path:        "/workspace/circles/staff/inbox/mattermost/thread-1/post-1/mascot.png",
-			},
-		},
 	})
 
 	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
 		ToolName: "image.read",
-		Input:    agent.MarshalToolInput(map[string]string{"materialID": "mattermost:file-1"}),
+		Input:    agent.MarshalToolInput(map[string]string{"path": "/workspace/circles/staff/inbox/mattermost/thread-1/post-1/mascot.png"}),
 	})
 
 	if errorValue != nil {
@@ -127,377 +298,369 @@ func TestImageReadResolvesAttachmentMaterialID(t *testing.T) {
 	if result.Failed() {
 		t.Fatalf("expected image.read success, got %s", result.ContentText())
 	}
-	if strings.Contains(httpClient.requestBody, "materialID") {
-		t.Fatalf("expected materialID to be resolved before capability call, got %s", httpClient.requestBody)
-	}
 	if !strings.Contains(httpClient.requestBody, `/workspace/circles/staff/inbox/mattermost/thread-1/post-1/mascot.png`) {
-		t.Fatalf("expected capability request to use material path, got %s", httpClient.requestBody)
+		t.Fatalf("expected capability request to use exact path, got %s", httpClient.requestBody)
 	}
 }
 
-func TestDocumentReadRejectsImageMaterialID(t *testing.T) {
+func TestCanonicalReadRejectsMaterialIDInput(t *testing.T) {
 	toolCatalogBuilder := newFileToolTestCatalogBuilder(t.TempDir())
-	toolCatalogBuilder.UseCapabilityToolDescriptors(capability.Client{}, []CapabilityToolDescriptor{{
-		Name:           "document.read",
-		PolicyResource: "tool:document.read",
-		InputSchema:    json.RawMessage(`{"type":"object","properties":{"materialID":{"type":"string"},"path":{"type":"string"}}}`),
-	}})
+	toolCatalogBuilder.UseTestCapabilityToolDescriptors(capability.Client{}, []CapabilityToolDescriptor{
+		canonicalReadDescriptor("document.read"),
+		canonicalReadDescriptor("image.read"),
+	})
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
 		ProfileName: "default",
 		PersonAccess: policy.PersonAccess{
 			PersonID: "person-1",
 			Circles:  []string{"staff"},
 		},
-		AttachmentMaterialResolver: staticAttachmentMaterialResolver{
-			material: agent.VisibleContextMaterial{
-				MaterialID:  "mattermost:file-1",
-				Filename:    "mascot.png",
-				ContentType: "image/png",
-				Path:        "/workspace/circles/staff/mascot.png",
-			},
-		},
 	})
 
-	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
-		ToolName: "document.read",
-		Input:    agent.MarshalToolInput(map[string]string{"materialID": "mattermost:file-1"}),
+	for _, toolName := range []string{"document.read", "image.read"} {
+		t.Run(toolName, func(t *testing.T) {
+			result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+				ToolName: toolName,
+				Input:    agent.MarshalToolInput(map[string]string{"materialID": "mattermost:file-1"}),
+			})
+			if errorValue != nil {
+				t.Fatal(errorValue)
+			}
+			if !result.Failed() || result.FailureStage() != "tool_input_schema" {
+				t.Fatalf("expected %s materialID rejection, got %+v", toolName, result)
+			}
+		})
+	}
+}
+
+func TestCanonicalReadDescriptorsExposePathOnlyInputAndResultContract(t *testing.T) {
+	toolCatalogBuilder := NewToolCatalogBuilder()
+	toolCatalogBuilder.UseTestCapabilityToolDescriptors(capability.Client{}, []CapabilityToolDescriptor{
+		canonicalReadDescriptor("document.read"),
+		canonicalReadDescriptor("image.read"),
 	})
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"document.read", "image.read"})
+	toolSet := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
+	actionSchema := toolSet.ActionSchema(false, nil, false)
+	if strings.Contains(actionSchema, "materialID") || !strings.Contains(actionSchema, "path") {
+		t.Fatalf("expected model action schema to expose exact path-only input, got %s", actionSchema)
+	}
+
+	for _, toolName := range []string{"document.read", "image.read"} {
+		t.Run(toolName, func(t *testing.T) {
+			descriptor, isFound := toolSet.ToolDefinition(toolName)
+			if !isFound {
+				t.Fatal("expected canonical read descriptor")
+			}
+			var inputSchema struct {
+				Properties map[string]json.RawMessage `json:"properties"`
+				Required   []string                   `json:"required"`
+			}
+			if errorValue := json.Unmarshal(descriptor.InputSchema, &inputSchema); errorValue != nil {
+				t.Fatal(errorValue)
+			}
+			if _, isMaterialID := inputSchema.Properties["materialID"]; isMaterialID {
+				t.Fatal("canonical read input must not expose materialID")
+			}
+			if len(inputSchema.Required) != 1 || inputSchema.Required[0] != "path" {
+				t.Fatalf("expected path-only required input, got %+v", inputSchema.Required)
+			}
+			if descriptor.ResultContract == nil || len(descriptor.ResultContract.Effects) != 0 {
+				t.Fatalf("expected canonical read result contract without effects, got %+v", descriptor.ResultContract)
+			}
+		})
+	}
+}
+
+func TestCanonicalReadRejectsIdentityAndResultSchemaDrift(t *testing.T) {
+	tests := []struct {
+		name         string
+		responseBody string
+		failureStage string
+	}{
+		{
+			name:         "missing provider",
+			responseBody: `{"provider":"","selectedBackend":"device","toolName":"document.read","outcome":"succeeded","status":"ok","result":{"status":"ok","path":"/workspace/report.md","format":"markdown","content":"report","warnings":[],"truncated":false}}`,
+			failureStage: "capability_result_identity",
+		},
+		{
+			name:         "missing backend",
+			responseBody: `{"provider":"internkim","selectedBackend":"","toolName":"document.read","outcome":"succeeded","status":"ok","result":{"status":"ok","path":"/workspace/report.md","format":"markdown","content":"report","warnings":[],"truncated":false}}`,
+			failureStage: "capability_result_identity",
+		},
+		{
+			name:         "wrong tool",
+			responseBody: `{"provider":"internkim","selectedBackend":"device","toolName":"image.read","outcome":"succeeded","status":"ok","result":{"status":"ok","path":"/workspace/report.md","format":"markdown","content":"report","warnings":[],"truncated":false}}`,
+			failureStage: "capability_result_identity",
+		},
+		{
+			name:         "wrong outcome",
+			responseBody: `{"provider":"internkim","selectedBackend":"device","toolName":"document.read","outcome":"failed","status":"ok","result":{"status":"ok","path":"/workspace/report.md","format":"markdown","content":"report","warnings":[],"truncated":false}}`,
+			failureStage: "capability_result_identity",
+		},
+		{
+			name:         "missing result field",
+			responseBody: `{"provider":"internkim","selectedBackend":"device","toolName":"document.read","outcome":"succeeded","status":"ok","result":{"status":"ok","path":"/workspace/report.md","format":"markdown","content":"report","warnings":[]}}`,
+			failureStage: "tool_result_contract",
+		},
+		{
+			name:         "missing result",
+			responseBody: `{"provider":"internkim","selectedBackend":"device","toolName":"document.read","outcome":"succeeded","status":"ok"}`,
+			failureStage: "tool_result_contract",
+		},
+		{
+			name:         "generic scalar result",
+			responseBody: `{"provider":"internkim","selectedBackend":"device","toolName":"document.read","outcome":"succeeded","status":"ok","result":"report"}`,
+			failureStage: "tool_result_contract",
+		},
+	}
+
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			httpClient := &recordingHTTPClient{responseBody: testCase.responseBody}
+			toolCatalogBuilder := NewToolCatalogBuilder()
+			toolCatalogBuilder.UseTestCapabilityToolDescriptors(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, []CapabilityToolDescriptor{canonicalReadDescriptor("document.read")})
+			toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"document.read"})
+			toolSet := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
+
+			result, errorValue := toolSet.Invoke(context.Background(), agent.ToolInvocation{ToolName: "document.read", Input: json.RawMessage(`{"path":"/workspace/report.md"}`)})
+
+			if errorValue != nil {
+				t.Fatal(errorValue)
+			}
+			if !result.Failed() || result.FailureStage() != testCase.failureStage {
+				t.Fatalf("expected %s, got %+v", testCase.failureStage, result)
+			}
+		})
+	}
+}
+
+func TestCanonicalReadRejectsEffects(t *testing.T) {
+	httpClient := &recordingHTTPClient{responseBody: `{"provider":"internkim","selectedBackend":"device","toolName":"document.read","outcome":"succeeded","status":"ok","result":{"status":"ok","path":"/workspace/report.md","format":"markdown","content":"report","warnings":[],"truncated":false},"effects":[{"objectType":"file","effect":"read","path":"/workspace/report.md"}]}`}
+	toolCatalogBuilder := NewToolCatalogBuilder()
+	toolCatalogBuilder.UseTestCapabilityToolDescriptors(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, []CapabilityToolDescriptor{canonicalReadDescriptor("document.read")})
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"document.read"})
+	toolSet := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
+
+	result, errorValue := toolSet.Invoke(context.Background(), agent.ToolInvocation{ToolName: "document.read", Input: json.RawMessage(`{"path":"/workspace/report.md"}`)})
 
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
-	if !result.Failed() || !strings.Contains(result.ContentText(), "use image.read") {
-		t.Fatalf("expected document.read material type error, got %s", result.ContentText())
+	if !result.Failed() || result.FailureStage() != "tool_result_contract" {
+		t.Fatalf("expected read effects rejection, got %+v", result)
+	}
+}
+
+func TestCanonicalWebSearchAcceptsNormalizedResultContract(t *testing.T) {
+	httpClient := &recordingHTTPClient{responseBody: `{"provider":"openrouter","selectedBackend":"remote","toolName":"web.search","outcome":"succeeded","status":"ok","result":{"provider":"openrouter","remoteLLMInvolved":true,"compatibility":"openrouter_server_tool_auto","query":"internkim","answer":"result","results":[{"title":"InternKim","url":"https://internkim.example","snippet":"An agent platform"}]}}`}
+	toolCatalogBuilder := NewToolCatalogBuilder()
+	toolCatalogBuilder.UseTestCapabilityToolDescriptors(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, []CapabilityToolDescriptor{canonicalWebSearchDescriptor()})
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"web.search"})
+	toolSet := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
+
+	result, errorValue := toolSet.Invoke(context.Background(), agent.ToolInvocation{ToolName: "web.search", Input: json.RawMessage(`{"query":"internkim"}`)})
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if result.Failed() {
+		t.Fatalf("expected normalized web search result, got %+v", result)
+	}
+}
+
+func TestCanonicalWebSearchRejectsReadEffects(t *testing.T) {
+	httpClient := &recordingHTTPClient{responseBody: `{"provider":"openrouter","selectedBackend":"remote","toolName":"web.search","outcome":"succeeded","status":"ok","result":{"provider":"openrouter","remoteLLMInvolved":true,"compatibility":"openrouter_server_tool_auto","query":"internkim","answer":"result","results":[]},"effects":[{"objectType":"web","effect":"read","url":"https://internkim.example"}]}`}
+	toolCatalogBuilder := NewToolCatalogBuilder()
+	toolCatalogBuilder.UseTestCapabilityToolDescriptors(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, []CapabilityToolDescriptor{canonicalWebSearchDescriptor()})
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"web.search"})
+	toolSet := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
+
+	result, errorValue := toolSet.Invoke(context.Background(), agent.ToolInvocation{ToolName: "web.search", Input: json.RawMessage(`{"query":"internkim"}`)})
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if !result.Failed() || result.FailureStage() != "tool_result_contract" {
+		t.Fatalf("expected web search effects rejection, got %+v", result)
+	}
+}
+
+func canonicalReadDescriptor(toolName string) CapabilityToolDescriptor {
+	resultSchema := `{"type":"object","additionalProperties":false,"properties":{"status":{"const":"ok","type":"string"},"path":{"minLength":1,"type":"string"},"format":{"const":"markdown","type":"string"},"content":{"type":"string"},"warnings":{"type":"array","items":{"type":"string"}},"truncated":{"type":"boolean"}},"required":["status","path","format","content","warnings","truncated"]}`
+	inputSchema := `{"type":"object","additionalProperties":false,"properties":{"path":{"minLength":1,"type":"string"}},"required":["path"]}`
+	if toolName == "image.read" {
+		resultSchema = `{"type":"object","additionalProperties":false,"properties":{"status":{"const":"ok","type":"string"},"path":{"minLength":1,"type":"string"},"attachments":{"type":"array","minItems":1,"items":{"type":"object","additionalProperties":false,"properties":{"devicePath":{"minLength":1,"type":"string"},"filename":{"minLength":1,"type":"string"},"contentType":{"minLength":1,"type":"string"},"sizeBytes":{"type":"integer","minimum":0},"contentBase64":{"minLength":1,"type":"string"}},"required":["devicePath","filename","contentType","sizeBytes","contentBase64"]}}},"required":["status","path","attachments"]}`
+	}
+	return CapabilityToolDescriptor{
+		Name:            toolName,
+		CanonicalName:   toolName,
+		Namespace:       strings.SplitN(toolName, ".", 2)[0],
+		ModelName:       toolName,
+		ModelVisibility: agent.ToolVisibilityModel,
+		Description:     "Canonical read test descriptor.",
+		PrivacyClass:    "workspace_document",
+		InputSchema:     json.RawMessage(inputSchema),
+		OutputSchema:    json.RawMessage(`{"type":"object","additionalProperties":false}`),
+		ResultContract:  &CapabilityToolResultContract{Schema: json.RawMessage(resultSchema)},
+		PolicyResource:  "tool:" + toolName,
+		SideEffectClass: "read",
+		Availability:    CapabilityAvailability{State: "ok"},
+		Idempotency:     CapabilityIdempotency{Scope: "operation"},
+	}
+}
+
+func canonicalWebSearchDescriptor() CapabilityToolDescriptor {
+	inputSchema := `{"type":"object","additionalProperties":false,"properties":{"query":{"type":"string"},"location":{"type":"string"},"language":{"type":"string"},"limit":{"type":"integer","minimum":1,"maximum":10},"allowedDomains":{"type":"array","items":{"type":"string"}},"excludedDomains":{"type":"array","items":{"type":"string"}}},"required":["query"]}`
+	resultSchema := `{"type":"object","additionalProperties":false,"properties":{"provider":{"type":"string"},"remoteLLMInvolved":{"type":"boolean"},"compatibility":{"type":"string"},"query":{"type":"string"},"answer":{"type":"string"},"results":{"type":"array","items":{"type":"object","additionalProperties":false,"properties":{"title":{"type":"string"},"url":{"type":"string"},"snippet":{"type":"string"},"source":{"type":"string"}},"required":["title","url","snippet"]}}},"required":["provider","remoteLLMInvolved","compatibility","query","answer","results"]}`
+	return CapabilityToolDescriptor{
+		Name:            "web.search",
+		CanonicalName:   "web.search",
+		Namespace:       "web",
+		ModelName:       "web.search",
+		ModelVisibility: agent.ToolVisibilityModel,
+		Description:     "Canonical web search test descriptor.",
+		PrivacyClass:    "public_web",
+		InputSchema:     json.RawMessage(inputSchema),
+		OutputSchema:    json.RawMessage(`{"type":"object","additionalProperties":false}`),
+		ResultContract:  &CapabilityToolResultContract{Schema: json.RawMessage(resultSchema)},
+		PolicyResource:  "tool:web.search",
+		SideEffectClass: "read",
+		Availability:    CapabilityAvailability{State: "ok"},
+		Idempotency:     CapabilityIdempotency{Scope: "operation"},
+	}
+}
+
+func TestImageGenerateRequiresRequesterWorkspaceWriteAccess(t *testing.T) {
+	tests := []struct {
+		name           string
+		path           string
+		circles        []string
+		isAllowed      bool
+		expectedResult string
+	}{
+		{
+			name:           "other person workspace",
+			path:           "/workspace/private/people/person-2/generated.png",
+			circles:        []string{"staff"},
+			expectedResult: "current account cannot write this file",
+		},
+		{
+			name:           "unauthorized circle workspace",
+			path:           "/workspace/circles/finance/generated.png",
+			circles:        []string{"staff"},
+			expectedResult: "current account cannot write this file",
+		},
+		{
+			name:      "requester workspace",
+			path:      "/workspace/private/people/person-1/generated.png",
+			circles:   []string{"staff"},
+			isAllowed: true,
+		},
+		{
+			name:      "authorized circle workspace",
+			path:      "/workspace/circles/finance/generated.png",
+			circles:   []string{"staff", "finance"},
+			isAllowed: true,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			workspacePath := t.TempDir()
+			httpClient := &recordingHTTPClient{responseBody: `{"provider":"internkim","selectedBackend":"device","toolName":"image.generate","outcome":"succeeded","content":"generated","status":"ok","result":{}}`}
+			toolCatalogBuilder := newFileToolTestCatalogBuilder(workspacePath)
+			toolCatalogBuilder.UseTestCapabilityToolDescriptors(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, []CapabilityToolDescriptor{{
+				Name:           "image.generate",
+				PolicyResource: "tool:image.generate",
+				InputSchema:    json.RawMessage(`{"type":"object","properties":{"prompt":{"type":"string"},"path":{"type":"string"}},"required":["prompt","path"],"additionalProperties":false}`),
+			}})
+			toolCatalogBuilder.UseAllowedToolNamesByProfile(map[string][]string{
+				"default": {"image.generate"},
+			}, nil)
+			toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
+				ProfileName:       "default",
+				RequesterPersonID: "person-1",
+				PersonAccess: policy.PersonAccess{
+					PersonID: "person-1",
+					Circles:  test.circles,
+				},
+			})
+
+			result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+				ToolName: "image.generate",
+				Input: agent.MarshalToolInput(map[string]string{
+					"prompt": "a generated test image",
+					"path":   test.path,
+				}),
+			})
+			if errorValue != nil {
+				t.Fatal(errorValue)
+			}
+			if test.isAllowed {
+				if result.Failed() {
+					t.Fatalf("expected image.generate success, got %s", result.ContentText())
+				}
+				if httpClient.requestPath != "/v1/tools/image.generate/invoke" || !strings.Contains(httpClient.requestBody, test.path) {
+					t.Fatalf("expected authorized image.generate bridge request, got path=%s body=%s", httpClient.requestPath, httpClient.requestBody)
+				}
+				return
+			}
+			if !result.Failed() || result.Failure == nil || result.Failure.Stage != "file_write_access" || !strings.Contains(result.ContentText(), test.expectedResult) {
+				t.Fatalf("expected image.generate denial, got %s", result.ContentText())
+			}
+			if httpClient.requestPath != "" {
+				t.Fatalf("expected denied image.generate not to reach capabilityd, got %s", httpClient.requestPath)
+			}
+		})
 	}
 }
 
 func TestCapabilityToolIdempotencyKeyOnlyForSendTools(t *testing.T) {
 	ctx := agent.WithObservationID(agent.WithTaskRunID(context.Background(), "run-1"), "obs-3")
-	sendKey := capabilityToolIdempotencyKey(ctx, "message.send")
+	sendDescriptor := CapabilityToolDescriptor{CanonicalName: "message.send", Idempotency: CapabilityIdempotency{Supported: true}}
+	readDescriptor := CapabilityToolDescriptor{CanonicalName: "web.search"}
+	sendKey := capabilityToolIdempotencyKey(ctx, sendDescriptor)
 	if sendKey == "" {
 		t.Fatal("expected idempotency key for send tool")
 	}
-	if again := capabilityToolIdempotencyKey(ctx, "message.send"); again != sendKey {
+	if again := capabilityToolIdempotencyKey(ctx, sendDescriptor); again != sendKey {
 		t.Fatalf("idempotency key not deterministic: %q vs %q", sendKey, again)
 	}
 	differentObservation := agent.WithObservationID(agent.WithTaskRunID(context.Background(), "run-1"), "obs-4")
-	if other := capabilityToolIdempotencyKey(differentObservation, "message.send"); other == sendKey {
+	if other := capabilityToolIdempotencyKey(differentObservation, sendDescriptor); other == sendKey {
 		t.Fatal("expected different observation to produce different key")
 	}
-	if nonSend := capabilityToolIdempotencyKey(ctx, "web.search"); nonSend != "" {
+	if nonSend := capabilityToolIdempotencyKey(ctx, readDescriptor); nonSend != "" {
 		t.Fatalf("expected no key for non-send tool, got %q", nonSend)
 	}
 	missing := agent.WithTaskRunID(context.Background(), "run-1")
-	if noObservation := capabilityToolIdempotencyKey(missing, "message.send"); noObservation != "" {
+	if noObservation := capabilityToolIdempotencyKey(missing, sendDescriptor); noObservation != "" {
 		t.Fatalf("expected no key without observation id, got %q", noObservation)
 	}
 }
 
-func TestCapabilityInvokeSchemaListsOperationEnumAndRequiresInput(t *testing.T) {
-	toolCatalogBuilder := NewToolCatalogBuilder()
-	toolCatalogBuilder.UseCapabilityToolDescriptors(capability.Client{Endpoint: "http://capability.local"}, []CapabilityToolDescriptor{{
-		Name:        "calendar.add",
-		InputSchema: json.RawMessage(`{"type":"object","properties":{"title":{"type":"string"}},"required":["title"]}`),
-	}, {
-		Name:        "task.add",
-		InputSchema: json.RawMessage(`{"type":"object","properties":{"prompt":{"type":"string"}},"required":["prompt"]}`),
-	}})
-	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
-
-	toolDefinition, isFound := toolRegistry.ToolDefinition(agent.CapabilityInvokeToolName)
-	if !isFound {
-		t.Fatal("expected capability.invoke tool definition")
-	}
-	var schema struct {
-		Properties map[string]struct {
-			Enum []string `json:"enum"`
-		} `json:"properties"`
-		Required []string `json:"required"`
-	}
-	if errorValue := json.Unmarshal(toolDefinition.InputSchema, &schema); errorValue != nil {
-		t.Fatalf("expected capability.invoke schema: %v", errorValue)
-	}
-	if !containsTestString(schema.Properties["operation"].Enum, "calendar.add") || !containsTestString(schema.Properties["operation"].Enum, "task.add") {
-		t.Fatalf("expected capability operations in enum, got %+v", schema.Properties["operation"].Enum)
-	}
-	if !containsTestString(schema.Required, "operation") || !containsTestString(schema.Required, "input") {
-		t.Fatalf("expected operation and input to be required, got %+v", schema.Required)
-	}
-}
-
-func TestCapabilityInvokeMissingRequiredFieldsIncludesDescriptorRecoveryHint(t *testing.T) {
-	httpClient := &recordingHTTPClient{responseBody: `{"content":"unexpected","status":"ok"}`}
-	toolCatalogBuilder := NewToolCatalogBuilder()
-	toolCatalogBuilder.UseCapabilityToolDescriptors(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, []CapabilityToolDescriptor{{
-		Name:        "calendar.add",
-		InputSchema: json.RawMessage(`{"type":"object","properties":{"title":{"type":"string"},"startISO":{"type":"string"},"endISO":{"type":"string"},"timeZone":{"type":"string"}},"required":["title","startISO","endISO"]}`),
-	}})
-	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
-
-	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
-		ToolName: agent.CapabilityInvokeToolName,
-		Input:    json.RawMessage(`{"operation":"calendar.add","input":{}}`),
-	})
-
-	if errorValue != nil {
-		t.Fatal(errorValue)
-	}
-	if !result.Failed() {
-		t.Fatalf("expected missing input failure, got %s", result.ContentText())
-	}
-	if httpClient.requestPath != "" {
-		t.Fatalf("missing input must fail before capabilityd call, got path %s", httpClient.requestPath)
-	}
-	if result.Failure == nil || len(result.Failure.RecoveryHints) != 1 {
-		t.Fatalf("expected recovery hint, got %+v", result.Failure)
-	}
-	recoveryHint := result.Failure.RecoveryHints[0]
-	for _, expected := range []string{"capability.invoke", "operation=calendar.add", "title string", "startISO string", "endISO string"} {
-		if !strings.Contains(recoveryHint.Action+" "+recoveryHint.Reason, expected) {
-			t.Fatalf("expected recovery hint to contain %q, got %+v", expected, recoveryHint)
+func TestToolCatalogQuarantinesCapabilityDescriptorCollidingWithKernelTool(t *testing.T) {
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			t.Fatalf("expected a colliding capability descriptor to quarantine instead of panicking, got panic: %v", recovered)
 		}
-	}
-	if !containsTestString(recoveryHint.ToolNames, agent.CapabilityInvokeToolName) {
-		t.Fatalf("expected capability.invoke recovery tool, got %+v", recoveryHint.ToolNames)
-	}
-}
-
-func TestCapabilityInvokeRejectsUnexpectedFieldsBeforeCapabilityCall(t *testing.T) {
-	httpClient := &recordingHTTPClient{responseBody: `{"content":"unexpected","status":"ok"}`}
+	}()
 	toolCatalogBuilder := NewToolCatalogBuilder()
-	toolCatalogBuilder.UseCapabilityToolDescriptors(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, []CapabilityToolDescriptor{{
-		Name:        "calendar.delete",
-		InputSchema: json.RawMessage(`{"type":"object","properties":{"eventID":{"type":"string"},"query":{"type":"string"}},"additionalProperties":false}`),
+	reportedProviders := []agent.QuarantinedToolProvider{}
+	toolCatalogBuilder.UseCapabilityQuarantineReporter(func(quarantinedProvider agent.QuarantinedToolProvider) {
+		reportedProviders = append(reportedProviders, quarantinedProvider)
+	})
+	toolCatalogBuilder.UseTestCapabilityToolDescriptors(capability.Client{}, []CapabilityToolDescriptor{{
+		Name:        agent.FileReadToolName,
+		Description: "Colliding capability tool.",
 	}})
+
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
 
-	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
-		ToolName: agent.CapabilityInvokeToolName,
-		Input:    json.RawMessage(`{"operation":"calendar.delete","input":"{\"path\":\"/calendar/events/비용 테스트 일정\"}"}`),
-	})
-
-	if errorValue != nil {
-		t.Fatal(errorValue)
+	if !toolRegistry.IsRegistered(agent.FileReadToolName) {
+		t.Fatal("expected the trusted kernel tool to remain registered after the capability collision")
 	}
-	if !result.Failed() || !strings.Contains(result.ContentText(), "does not accept these input fields: path") {
-		t.Fatalf("expected unexpected input failure, got %s", result.ContentText())
-	}
-	if !strings.Contains(result.ContentText(), "eventID, query") {
-		t.Fatalf("expected allowed fields in failure, got %s", result.ContentText())
-	}
-	if httpClient.requestPath != "" {
-		t.Fatalf("unexpected input must fail before capabilityd call, got path %s", httpClient.requestPath)
-	}
-	if result.Failure == nil || !result.Failure.Retryable || result.Failure.RetryPolicy != "different_input" {
-		t.Fatalf("expected retryable schema failure, got %+v", result.Failure)
-	}
-}
-
-func TestCapabilityInvokeMissingInputIncludesInputSkeleton(t *testing.T) {
-	httpClient := &recordingHTTPClient{responseBody: `{"content":"unexpected","status":"ok"}`}
-	toolCatalogBuilder := NewToolCatalogBuilder()
-	toolCatalogBuilder.UseCapabilityToolDescriptors(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, []CapabilityToolDescriptor{{
-		Name:        "site.create",
-		InputSchema: json.RawMessage(`{"type":"object","properties":{"slug":{"type":"string","description":"URL identifier"},"prompt":{"type":"string"}},"required":["slug","prompt"]}`),
-	}})
-	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
-
-	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
-		ToolName: agent.CapabilityInvokeToolName,
-		Input:    json.RawMessage(`{"operation":"site.create","input":{}}`),
-	})
-
-	if errorValue != nil {
-		t.Fatal(errorValue)
-	}
-	if !result.Failed() {
-		t.Fatalf("expected missing input failure, got %s", result.ContentText())
-	}
-	if httpClient.requestPath != "" {
-		t.Fatalf("missing input must fail before capabilityd call, got path %s", httpClient.requestPath)
-	}
-	if !strings.Contains(result.ContentText(), "inputSkeleton") {
-		t.Fatalf("expected failure message to point at inputSkeleton, got %s", result.ContentText())
-	}
-	var payload struct {
-		InputSkeleton map[string]string `json:"inputSkeleton"`
-	}
-	if errorValue := json.Unmarshal(result.Output.Data, &payload); errorValue != nil {
-		t.Fatalf("expected structured inputSkeleton data, got %s: %v", result.Output.Data, errorValue)
-	}
-	if payload.InputSkeleton["slug"] != "<string: URL identifier>" {
-		t.Fatalf("expected described placeholder for slug, got %+v", payload.InputSkeleton)
-	}
-	if payload.InputSkeleton["prompt"] != "<string>" {
-		t.Fatalf("expected typed placeholder for prompt, got %+v", payload.InputSkeleton)
-	}
-}
-
-func TestCapabilityInvokeRejectsMissingInputObject(t *testing.T) {
-	httpClient := &recordingHTTPClient{responseBody: `{"content":"unexpected","status":"ok"}`}
-	toolCatalogBuilder := NewToolCatalogBuilder()
-	toolCatalogBuilder.UseCapabilityToolDescriptors(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, []CapabilityToolDescriptor{{
-		Name:        "calendar.add",
-		InputSchema: json.RawMessage(`{"type":"object","properties":{"title":{"type":"string"}},"required":["title"]}`),
-	}})
-	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
-
-	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
-		ToolName: agent.CapabilityInvokeToolName,
-		Input:    json.RawMessage(`{"operation":"calendar.add"}`),
-	})
-
-	if errorValue != nil {
-		t.Fatal(errorValue)
-	}
-	if !result.Failed() || !strings.Contains(result.ContentText(), "requires input to be an object") {
-		t.Fatalf("expected missing input object failure, got %s", result.ContentText())
-	}
-	if httpClient.requestPath != "" {
-		t.Fatalf("missing input object must fail before capabilityd call, got path %s", httpClient.requestPath)
-	}
-}
-
-func TestNormalizeCapabilityInvokeInputUnwrapsStringifiedObject(t *testing.T) {
-	objectInput := json.RawMessage(`{"title":"x"}`)
-	if got := normalizeCapabilityInvokeInput(objectInput); string(got) != string(objectInput) {
-		t.Fatalf("expected object input unchanged, got %s", got)
-	}
-	stringifiedObjectInput := json.RawMessage(`"{\"title\":\"x\"}"`)
-	if got := normalizeCapabilityInvokeInput(stringifiedObjectInput); string(got) != `{"title":"x"}` {
-		t.Fatalf("expected stringified object unwrapped, got %s", got)
-	}
-	plainStringInput := json.RawMessage(`"not an object"`)
-	if got := normalizeCapabilityInvokeInput(plainStringInput); string(got) != string(plainStringInput) {
-		t.Fatalf("expected plain string unchanged, got %s", got)
-	}
-	numberInput := json.RawMessage(`42`)
-	if got := normalizeCapabilityInvokeInput(numberInput); string(got) != string(numberInput) {
-		t.Fatalf("expected number input unchanged, got %s", got)
-	}
-}
-
-func TestCapabilityInvokeAcceptsStringifiedJSONObjectInput(t *testing.T) {
-	httpClient := &recordingHTTPClient{responseBody: `{"content":"created","status":"ok"}`}
-	toolCatalogBuilder := NewToolCatalogBuilder()
-	toolCatalogBuilder.UseCapabilityToolDescriptors(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, []CapabilityToolDescriptor{{
-		Name:        "calendar.add",
-		InputSchema: json.RawMessage(`{"type":"object","properties":{"title":{"type":"string"}},"required":["title"]}`),
-	}})
-	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
-
-	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
-		ToolName: agent.CapabilityInvokeToolName,
-		Input:    json.RawMessage(`{"operation":"calendar.add","input":"{\"title\":\"party\"}"}`),
-	})
-
-	if errorValue != nil {
-		t.Fatal(errorValue)
-	}
-	if result.Failed() {
-		t.Fatalf("expected stringified object input to succeed, got %s", result.ContentText())
-	}
-	if httpClient.requestPath != "/v1/tools/calendar.add/invoke" {
-		t.Fatalf("expected capability call to reach calendar.add, got path=%s", httpClient.requestPath)
-	}
-}
-
-func TestCapabilityInvokeRejectsNonObjectInputWithHardenedFailure(t *testing.T) {
-	httpClient := &recordingHTTPClient{responseBody: `{"content":"unexpected","status":"ok"}`}
-	toolCatalogBuilder := NewToolCatalogBuilder()
-	toolCatalogBuilder.UseCapabilityToolDescriptors(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, []CapabilityToolDescriptor{{
-		Name:        "calendar.add",
-		InputSchema: json.RawMessage(`{"type":"object","properties":{"title":{"type":"string"}},"required":["title"]}`),
-	}})
-	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
-
-	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
-		ToolName: agent.CapabilityInvokeToolName,
-		Input:    json.RawMessage(`{"operation":"calendar.add","input":42}`),
-	})
-
-	if errorValue != nil {
-		t.Fatal(errorValue)
-	}
-	if !result.Failed() {
-		t.Fatalf("expected non-object input failure, got %s", result.ContentText())
-	}
-	if httpClient.requestPath != "" {
-		t.Fatalf("non-object input must fail before capabilityd call, got path %s", httpClient.requestPath)
-	}
-	if result.Failure == nil || !result.Failure.Retryable {
-		t.Fatalf("expected retryable failure, got %+v", result.Failure)
-	}
-	if len(result.Failure.RecoveryHints) == 0 {
-		t.Fatalf("expected recovery hints, got %+v", result.Failure)
-	}
-	recoveryHint := result.Failure.RecoveryHints[0]
-	if !strings.Contains(recoveryHint.Action+" "+recoveryHint.Reason, "calendar.add") {
-		t.Fatalf("expected recovery hint to mention operation, got %+v", recoveryHint)
-	}
-}
-
-func TestCapabilityInvokeUnknownOperationTakesPriorityOverInputShape(t *testing.T) {
-	toolCatalogBuilder := NewToolCatalogBuilder()
-	toolCatalogBuilder.UseCapabilityToolDescriptors(capability.Client{Endpoint: "http://capability.local"}, []CapabilityToolDescriptor{{
-		Name:        "calendar.add",
-		InputSchema: json.RawMessage(`{"type":"object","properties":{"title":{"type":"string"}},"required":["title"]}`),
-	}})
-	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
-
-	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
-		ToolName: agent.CapabilityInvokeToolName,
-		Input:    json.RawMessage(`{"operation":"calendar.remove","input":42}`),
-	})
-
-	if errorValue != nil {
-		t.Fatal(errorValue)
-	}
-	if !result.Failed() || !strings.Contains(result.ContentText(), "not a valid capability operation") {
-		t.Fatalf("expected unknown operation failure, got %s", result.ContentText())
-	}
-}
-
-func TestCapabilityInvokeSchemaOmitsPolicyDeniedOperation(t *testing.T) {
-	toolCatalogBuilder := NewToolCatalogBuilder()
-	toolCatalogBuilder.UseCapabilityToolDescriptors(capability.Client{Endpoint: "http://capability.local"}, []CapabilityToolDescriptor{{
-		Name:           "site.create",
-		PolicyResource: "tool:site.create",
-		InputSchema:    json.RawMessage(`{"type":"object","properties":{"slug":{"type":"string"}},"required":["slug"]}`),
-	}, {
-		Name:        "task.add",
-		InputSchema: json.RawMessage(`{"type":"object","properties":{"prompt":{"type":"string"}},"required":["prompt"]}`),
-	}})
-	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
-		ProfileName: "default",
-		PersonAccess: policy.PersonAccess{
-			PersonID: "person-1",
-			Circles:  []string{"staff"},
-			ResourceAccessRules: []policy.ResourceAccessPolicy{{
-				Resource: "tool:site.create",
-				Actions:  []string{"execute"},
-				Circles:  []string{"admin"},
-			}},
-		},
-	})
-
-	toolDefinition, isFound := toolRegistry.ToolDefinition(agent.CapabilityInvokeToolName)
-	if !isFound {
-		t.Fatal("expected capability.invoke tool definition")
-	}
-	var schema struct {
-		Properties map[string]struct {
-			Enum []string `json:"enum"`
-		} `json:"properties"`
-	}
-	if errorValue := json.Unmarshal(toolDefinition.InputSchema, &schema); errorValue != nil {
-		t.Fatalf("expected capability.invoke schema: %v", errorValue)
-	}
-	if containsTestString(schema.Properties["operation"].Enum, "site.create") {
-		t.Fatalf("expected policy-denied operation to be absent from enum, got %+v", schema.Properties["operation"].Enum)
-	}
-	if !containsTestString(schema.Properties["operation"].Enum, "task.add") {
-		t.Fatalf("expected allowed operation present in enum, got %+v", schema.Properties["operation"].Enum)
+	if len(reportedProviders) != 1 || reportedProviders[0].ProviderID != "capabilityd" {
+		t.Fatalf("expected the capabilityd provider to be quarantined, got %+v", reportedProviders)
 	}
 }
 
@@ -510,51 +673,5 @@ func TestCapabilityCatalogParametersListsRequiredAndOptional(t *testing.T) {
 	}
 	if capabilityCatalogParameters(nil) != "" {
 		t.Fatal("nil schema should yield no parameters")
-	}
-}
-
-func TestCapabilityInvokeSchemaDeclaresInputAsJSONEncodedString(t *testing.T) {
-	toolCatalogBuilder := NewToolCatalogBuilder()
-	toolCatalogBuilder.UseCapabilityToolDescriptors(capability.Client{Endpoint: "http://capability.local"}, []CapabilityToolDescriptor{{
-		Name:        "site.create",
-		InputSchema: json.RawMessage(`{"type":"object","properties":{"slug":{"type":"string"}},"required":["slug"]}`),
-	}})
-	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
-
-	toolDefinition, isFound := toolRegistry.ToolDefinition(agent.CapabilityInvokeToolName)
-	if !isFound {
-		t.Fatal("expected capability.invoke tool definition")
-	}
-	var schema struct {
-		Properties map[string]struct {
-			Type string `json:"type"`
-		} `json:"properties"`
-	}
-	if errorValue := json.Unmarshal(toolDefinition.InputSchema, &schema); errorValue != nil {
-		t.Fatalf("expected capability.invoke schema: %v", errorValue)
-	}
-	if schema.Properties["input"].Type != "string" {
-		t.Fatalf("expected input declared as a JSON-encoded string so strict structured output can fill it, got %q", schema.Properties["input"].Type)
-	}
-}
-
-func TestCapabilityInvokeWrapperExampleEncodesInputAsString(t *testing.T) {
-	example := capabilityInvokeWrapperExample("site.create", json.RawMessage(`{"type":"object","properties":{"slug":{"type":"string"}},"required":["slug"]}`), []string{"slug"})
-	var document struct {
-		Operation string `json:"operation"`
-		Input     string `json:"input"`
-	}
-	if errorValue := json.Unmarshal([]byte(example), &document); errorValue != nil {
-		t.Fatalf("expected wrapper example with string input, got %s: %v", example, errorValue)
-	}
-	if document.Operation != "site.create" {
-		t.Fatalf("expected operation site.create, got %q", document.Operation)
-	}
-	var input map[string]string
-	if errorValue := json.Unmarshal([]byte(document.Input), &input); errorValue != nil {
-		t.Fatalf("expected input to hold a JSON object, got %q: %v", document.Input, errorValue)
-	}
-	if input["slug"] == "" {
-		t.Fatalf("expected slug placeholder in example input, got %+v", input)
 	}
 }

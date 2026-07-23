@@ -2,6 +2,7 @@ package connectors
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"time"
 
@@ -27,7 +28,7 @@ func (connectorRuntime *ConnectorRuntime) handleBusyMessageIfNeeded(
 	if !isFound {
 		return connectorRuntime.handlePossibleFinishedTaskFollowUp(ctx, platform, event, replyTarget, personID, sendReply)
 	}
-	decision := connectorRuntime.agentKernel.RouteTurn(ctx, agent.AgentRequest{
+	decision, errorValue := connectorRuntime.agentKernel.RouteTurn(ctx, agent.AgentRequest{
 		RequesterPersonID: personID,
 		ConversationID:    event.ConversationID,
 		Prompt:            event.Prompt,
@@ -36,6 +37,9 @@ func (connectorRuntime *ConnectorRuntime) handleBusyMessageIfNeeded(
 		ActiveTask:        connectorRuntime.activeTaskContext(activeTaskRun),
 		TurnStartedAt:     time.Now(),
 	})
+	if errorValue != nil {
+		return busyMessageResult{}, errorValue
+	}
 	connectorRuntime.agentKernel.AppendTaskEvent(activeTaskRun.TaskRunID, "task.busy_message.routed", marshalConnectorEventBody(map[string]string{
 		"messageID":       event.MessageID,
 		"busyRoute":       string(decision.BusyRoute),
@@ -58,10 +62,7 @@ func (connectorRuntime *ConnectorRuntime) handleBusyMessageIfNeeded(
 	case agent.BusyRouteUnrelated:
 		return busyMessageResult{connectorResult: ConnectorRuntimeResult{Handled: true, Platform: platform, Ignored: true, Reason: "busy_unrelated"}, isHandled: true}, nil
 	default:
-		// An unrecognized/empty busyRoute means classification failed to commit to an
-		// answer; steering the active task is the least destructive fallback, since the
-		// alternative (falling through to new-task creation) spawns a duplicate task.
-		return connectorRuntime.handleBusySteerMessage(ctx, platform, event, replyTarget, activeTaskRun, decision, sendReply)
+		return busyMessageResult{}, errors.New("turn router returned an invalid busy route")
 	}
 }
 
@@ -170,7 +171,7 @@ func (connectorRuntime *ConnectorRuntime) resumePausedTaskForSteer(
 	if errorValue != nil {
 		return busyMessageResult{}, errorValue
 	}
-	connectorResult, errorValue := connectorRuntime.dispatchTaskReply(withConnectorEvent(ctx, event), adapter.Name(), adapter, event, replyTarget, launchResult.TurnResult, sendReply)
+	connectorResult, errorValue := connectorRuntime.dispatchTaskReply(withConnectorEvent(ctx, event), adapter.Name(), adapter, event, replyTarget, launchResult.TurnResult, "", sendReply)
 	if errorValue != nil {
 		return busyMessageResult{}, errorValue
 	}

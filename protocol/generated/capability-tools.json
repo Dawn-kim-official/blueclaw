@@ -1,0 +1,5799 @@
+{
+  "protocolVersion": "0.4.0",
+  "tools": [
+    {
+      "availability": {
+        "state": "ok"
+      },
+      "canonicalName": "task.add",
+      "completionEvidence": {
+        "action": "write_task",
+        "mode": "success",
+        "targetKind": "task"
+      },
+      "description": "Create a new workspace task with typed task fields. Use this to add a todo or assignment for the requester or another team member. Do not use this to update an existing task — use task.update.",
+      "estimatedLatency": "medium",
+      "idempotency": {
+        "required": false,
+        "scope": "operation",
+        "supported": false
+      },
+      "inputIntentSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "endDate": {
+            "description": "Due date in yyyy-mm-dd format. Resolve relative dates from the current date. Omit when the user did not specify one.",
+            "type": "string"
+          },
+          "goal": {
+            "description": "Definition of done or desired outcome. Omit when the title already states the complete outcome.",
+            "type": "string"
+          },
+          "participantPersonHints": {
+            "description": "Names, @handles, or emails of additional participants explicitly named by the user. The owner is included automatically.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "size": {
+            "description": "Effort size using the work-size rubric. Omit when the request does not support a useful estimate.",
+            "enum": [
+              "XS",
+              "S",
+              "M",
+              "L",
+              "XL",
+              "XXL"
+            ],
+            "type": "string"
+          },
+          "startDate": {
+            "description": "Date in YYYY-MM-DD format. Resolve relative dates from the current date. Omit when the user did not specify one.",
+            "type": "string"
+          },
+          "status": {
+            "description": "Initial task status. Defaults to 예정. The runtime may change delegated tasks to 요청.",
+            "enum": [
+              "예정",
+              "진행",
+              "완료",
+              "일시정지",
+              "기각",
+              "중단"
+            ],
+            "type": "string"
+          },
+          "targetPersonHint": {
+            "description": "Name or email of the person the task belongs to, e.g. 'Alice' or 'alice@example.com'. Leave empty to assign to the requester themselves.",
+            "type": "string"
+          },
+          "title": {
+            "description": "Concise task title. Preserve the user's exact title when they provide one; otherwise derive it directly from their request.",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "endDate": {
+            "description": "Due date in yyyy-mm-dd format. Resolve relative dates from the current date. Omit when the user did not specify one.",
+            "type": "string"
+          },
+          "goal": {
+            "description": "Definition of done or desired outcome. Omit when the title already states the complete outcome.",
+            "type": "string"
+          },
+          "participantPersonHints": {
+            "description": "Names, @handles, or emails of additional participants explicitly named by the user. The owner is included automatically.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "size": {
+            "description": "Effort size using the work-size rubric. Omit when the request does not support a useful estimate.",
+            "enum": [
+              "XS",
+              "S",
+              "M",
+              "L",
+              "XL",
+              "XXL"
+            ],
+            "type": "string"
+          },
+          "startDate": {
+            "description": "Date in YYYY-MM-DD format. Resolve relative dates from the current date. Omit when the user did not specify one.",
+            "type": "string"
+          },
+          "status": {
+            "description": "Initial task status. Defaults to 예정. The runtime may change delegated tasks to 요청.",
+            "enum": [
+              "예정",
+              "진행",
+              "완료",
+              "일시정지",
+              "기각",
+              "중단"
+            ],
+            "type": "string"
+          },
+          "targetPersonHint": {
+            "description": "Name or email of the person the task belongs to, e.g. 'Alice' or 'alice@example.com'. Leave empty to assign to the requester themselves.",
+            "type": "string"
+          },
+          "title": {
+            "description": "Concise task title. Preserve the user's exact title when they provide one; otherwise derive it directly from their request.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "title"
+        ],
+        "type": "object"
+      },
+      "inputSchemaStrict": true,
+      "modelName": "task.add",
+      "modelVisibility": "visible",
+      "modelVisible": true,
+      "name": "task.add",
+      "namespace": "task",
+      "outputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "business": {
+            "type": "string"
+          },
+          "content": {
+            "type": "string"
+          },
+          "decisionReason": {
+            "type": "string"
+          },
+          "endDate": {
+            "type": "string"
+          },
+          "flag": {
+            "maximum": 9007199254740991,
+            "minimum": -9007199254740991,
+            "type": "integer"
+          },
+          "goal": {
+            "type": "string"
+          },
+          "mattermostPostID": {
+            "type": "string"
+          },
+          "ownerID": {
+            "type": "string"
+          },
+          "ownerName": {
+            "type": "string"
+          },
+          "participantIDs": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "participantNames": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "participantPresentations": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "displayName": {
+                  "type": "string"
+                },
+                "email": {
+                  "type": "string"
+                },
+                "mattermostUsername": {
+                  "type": "string"
+                },
+                "mention": {
+                  "type": "string"
+                },
+                "personID": {
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "requestReason": {
+            "type": "string"
+          },
+          "size": {
+            "type": "string"
+          },
+          "startDate": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "taskID": {
+            "minLength": 1,
+            "pattern": "^\\S(?:.*\\S)?$",
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          },
+          "weekCode": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "taskID"
+        ],
+        "type": "object"
+      },
+      "outputSchemaStrict": true,
+      "policyResource": "tool:task.add",
+      "privacyClass": "workspace_task",
+      "requiresUserPresence": false,
+      "resultContract": {
+        "effects": [
+          {
+            "effect": "created",
+            "effectIdentity": "id",
+            "objectType": "task",
+            "resultField": "taskID"
+          }
+        ],
+        "schema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "additionalProperties": false,
+          "properties": {
+            "business": {
+              "type": "string"
+            },
+            "content": {
+              "type": "string"
+            },
+            "decisionReason": {
+              "type": "string"
+            },
+            "endDate": {
+              "type": "string"
+            },
+            "flag": {
+              "maximum": 9007199254740991,
+              "minimum": -9007199254740991,
+              "type": "integer"
+            },
+            "goal": {
+              "type": "string"
+            },
+            "mattermostPostID": {
+              "type": "string"
+            },
+            "ownerID": {
+              "type": "string"
+            },
+            "ownerName": {
+              "type": "string"
+            },
+            "participantIDs": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "participantNames": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "participantPresentations": {
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "displayName": {
+                    "type": "string"
+                  },
+                  "email": {
+                    "type": "string"
+                  },
+                  "mattermostUsername": {
+                    "type": "string"
+                  },
+                  "mention": {
+                    "type": "string"
+                  },
+                  "personID": {
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "requestReason": {
+              "type": "string"
+            },
+            "size": {
+              "type": "string"
+            },
+            "startDate": {
+              "type": "string"
+            },
+            "status": {
+              "type": "string"
+            },
+            "taskID": {
+              "minLength": 1,
+              "pattern": "^\\S(?:.*\\S)?$",
+              "type": "string"
+            },
+            "type": {
+              "type": "string"
+            },
+            "weekCode": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "taskID"
+          ],
+          "type": "object"
+        }
+      },
+      "sideEffect": "workspace_write",
+      "sideEffectClass": "workspace_write",
+      "version": "3",
+      "worksOffline": false
+    },
+    {
+      "availability": {
+        "state": "ok"
+      },
+      "canonicalName": "task.list",
+      "description": "List workspace tasks with optional filters. Use this to answer 'what tasks does X have', 'what is on my plate', or 'show incomplete items this week'. The default scope is the requester; set scope to all for the whole workspace.",
+      "estimatedLatency": "low",
+      "idempotency": {
+        "required": false,
+        "scope": "operation",
+        "supported": false
+      },
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "limit": {
+            "description": "Maximum number of tasks to return. Defaults to 50.",
+            "type": "number"
+          },
+          "query": {
+            "description": "Free-text keyword filter matched against task titles and content, e.g. 'budget'. Do not put dates, week codes, or person names here — use the dedicated fields instead.",
+            "type": "string"
+          },
+          "scope": {
+            "description": "Whose tasks to list when targetPersonHint is empty. Defaults to self. Use all only for an explicit workspace-wide request.",
+            "enum": [
+              "self",
+              "all"
+            ],
+            "type": "string"
+          },
+          "status": {
+            "description": "Filter by task status. Accepted values: '예정', '진행', '완료', '요청', '일시정지', '기각', '중단' (or English equivalents: 'planned', 'in_progress', 'done', 'requested', 'paused', 'rejected', 'cancelled'). Leave empty to return all statuses.",
+            "type": "string"
+          },
+          "targetPersonHint": {
+            "description": "Name or email of a specific person whose tasks to list. Leave empty to use scope.",
+            "type": "string"
+          },
+          "weekFrom": {
+            "description": "Start of the week range as an offset from this week: 0 this week, -1 last week, 1 next week. Omit both weekFrom and weekTo to list the current week; widen the range for other periods.",
+            "type": "number"
+          },
+          "weekTo": {
+            "description": "End of the week range as an offset from this week. Omit both weekFrom and weekTo to list the current week.",
+            "type": "number"
+          }
+        },
+        "type": "object"
+      },
+      "inputSchemaStrict": true,
+      "modelName": "task.list",
+      "modelVisibility": "visible",
+      "modelVisible": true,
+      "name": "task.list",
+      "namespace": "task",
+      "outputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "count": {
+            "maximum": 9007199254740991,
+            "minimum": -9007199254740991,
+            "type": "integer"
+          },
+          "ownerID": {
+            "type": "string"
+          },
+          "scope": {
+            "type": "string"
+          },
+          "statusFilter": {
+            "type": "string"
+          },
+          "tasks": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "business": {
+                  "type": "string"
+                },
+                "content": {
+                  "type": "string"
+                },
+                "decisionReason": {
+                  "type": "string"
+                },
+                "endDate": {
+                  "type": "string"
+                },
+                "flag": {
+                  "maximum": 9007199254740991,
+                  "minimum": -9007199254740991,
+                  "type": "integer"
+                },
+                "goal": {
+                  "type": "string"
+                },
+                "mattermostPostID": {
+                  "type": "string"
+                },
+                "ownerID": {
+                  "type": "string"
+                },
+                "ownerName": {
+                  "type": "string"
+                },
+                "participantIDs": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "participantNames": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "participantPresentations": {
+                  "items": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "displayName": {
+                        "type": "string"
+                      },
+                      "email": {
+                        "type": "string"
+                      },
+                      "mattermostUsername": {
+                        "type": "string"
+                      },
+                      "mention": {
+                        "type": "string"
+                      },
+                      "personID": {
+                        "type": "string"
+                      }
+                    },
+                    "type": "object"
+                  },
+                  "type": "array"
+                },
+                "requestReason": {
+                  "type": "string"
+                },
+                "size": {
+                  "type": "string"
+                },
+                "startDate": {
+                  "type": "string"
+                },
+                "status": {
+                  "type": "string"
+                },
+                "taskID": {
+                  "minLength": 1,
+                  "pattern": "^\\S(?:.*\\S)?$",
+                  "type": "string"
+                },
+                "type": {
+                  "type": "string"
+                },
+                "weekCode": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "taskID"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "weekFrom": {
+            "maximum": 9007199254740991,
+            "minimum": -9007199254740991,
+            "type": "integer"
+          },
+          "weekTo": {
+            "maximum": 9007199254740991,
+            "minimum": -9007199254740991,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "tasks",
+          "count",
+          "scope"
+        ],
+        "type": "object"
+      },
+      "outputSchemaStrict": true,
+      "policyResource": "tool:task.list",
+      "privacyClass": "workspace_task",
+      "requiresUserPresence": false,
+      "resultContract": {
+        "effects": [],
+        "schema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "additionalProperties": false,
+          "properties": {
+            "count": {
+              "maximum": 9007199254740991,
+              "minimum": -9007199254740991,
+              "type": "integer"
+            },
+            "ownerID": {
+              "type": "string"
+            },
+            "scope": {
+              "type": "string"
+            },
+            "statusFilter": {
+              "type": "string"
+            },
+            "tasks": {
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "business": {
+                    "type": "string"
+                  },
+                  "content": {
+                    "type": "string"
+                  },
+                  "decisionReason": {
+                    "type": "string"
+                  },
+                  "endDate": {
+                    "type": "string"
+                  },
+                  "flag": {
+                    "maximum": 9007199254740991,
+                    "minimum": -9007199254740991,
+                    "type": "integer"
+                  },
+                  "goal": {
+                    "type": "string"
+                  },
+                  "mattermostPostID": {
+                    "type": "string"
+                  },
+                  "ownerID": {
+                    "type": "string"
+                  },
+                  "ownerName": {
+                    "type": "string"
+                  },
+                  "participantIDs": {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "participantNames": {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "participantPresentations": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "displayName": {
+                          "type": "string"
+                        },
+                        "email": {
+                          "type": "string"
+                        },
+                        "mattermostUsername": {
+                          "type": "string"
+                        },
+                        "mention": {
+                          "type": "string"
+                        },
+                        "personID": {
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    },
+                    "type": "array"
+                  },
+                  "requestReason": {
+                    "type": "string"
+                  },
+                  "size": {
+                    "type": "string"
+                  },
+                  "startDate": {
+                    "type": "string"
+                  },
+                  "status": {
+                    "type": "string"
+                  },
+                  "taskID": {
+                    "minLength": 1,
+                    "pattern": "^\\S(?:.*\\S)?$",
+                    "type": "string"
+                  },
+                  "type": {
+                    "type": "string"
+                  },
+                  "weekCode": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "taskID"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "weekFrom": {
+              "maximum": 9007199254740991,
+              "minimum": -9007199254740991,
+              "type": "integer"
+            },
+            "weekTo": {
+              "maximum": 9007199254740991,
+              "minimum": -9007199254740991,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "tasks",
+            "count",
+            "scope"
+          ],
+          "type": "object"
+        }
+      },
+      "sideEffect": "read",
+      "sideEffectClass": "read",
+      "version": "2",
+      "worksOffline": false
+    },
+    {
+      "availability": {
+        "state": "ok"
+      },
+      "canonicalName": "task.update",
+      "completionEvidence": {
+        "action": "write_task",
+        "mode": "success",
+        "targetKind": "task"
+      },
+      "description": "Update explicit fields on an existing task. taskHint is the exact task ID or exact task title from a task.list result, resolved server-side to the canonical task; use task.list first when neither is known. At least one mutable field is required.",
+      "estimatedLatency": "medium",
+      "idempotency": {
+        "required": false,
+        "scope": "operation",
+        "supported": false
+      },
+      "inputIntentSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "category": {
+            "description": "Business category label for the task. Omit to leave unchanged.",
+            "type": "string"
+          },
+          "decisionReason": {
+            "description": "Reason for the approval or rejection decision. Omit to leave unchanged.",
+            "type": "string"
+          },
+          "endDate": {
+            "description": "Due date in yyyy-mm-dd format. Omit to leave unchanged.",
+            "type": "string"
+          },
+          "flag": {
+            "description": "Numeric flag bitmask for internal task classification. Omit to leave unchanged.",
+            "type": "number"
+          },
+          "goal": {
+            "description": "Definition of done or success criterion for this task. Omit to leave unchanged.",
+            "type": "string"
+          },
+          "requestReason": {
+            "description": "Reason for requesting this task. Omit to leave unchanged.",
+            "type": "string"
+          },
+          "size": {
+            "description": "Effort size estimate. Omit to leave unchanged.",
+            "enum": [
+              "XS",
+              "S",
+              "M",
+              "L",
+              "XL",
+              "XXL"
+            ],
+            "type": "string"
+          },
+          "startDate": {
+            "description": "Date in YYYY-MM-DD format. Omit to leave unchanged.",
+            "type": "string"
+          },
+          "status": {
+            "description": "New task status. Omit to leave unchanged.",
+            "enum": [
+              "예정",
+              "진행",
+              "완료",
+              "요청",
+              "일시정지",
+              "기각",
+              "중단"
+            ],
+            "type": "string"
+          },
+          "title": {
+            "description": "New task title. Omit to leave the title unchanged.",
+            "type": "string"
+          },
+          "type": {
+            "description": "Task type classification, e.g. 'task', 'milestone'. Omit to leave unchanged.",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "minProperties": 2,
+        "properties": {
+          "category": {
+            "description": "Business category label for the task. Omit to leave unchanged.",
+            "type": "string"
+          },
+          "decisionReason": {
+            "description": "Reason for the approval or rejection decision. Omit to leave unchanged.",
+            "type": "string"
+          },
+          "endDate": {
+            "description": "Due date in yyyy-mm-dd format. Omit to leave unchanged.",
+            "type": "string"
+          },
+          "flag": {
+            "description": "Numeric flag bitmask for internal task classification. Omit to leave unchanged.",
+            "type": "number"
+          },
+          "goal": {
+            "description": "Definition of done or success criterion for this task. Omit to leave unchanged.",
+            "type": "string"
+          },
+          "requestReason": {
+            "description": "Reason for requesting this task. Omit to leave unchanged.",
+            "type": "string"
+          },
+          "size": {
+            "description": "Effort size estimate. Omit to leave unchanged.",
+            "enum": [
+              "XS",
+              "S",
+              "M",
+              "L",
+              "XL",
+              "XXL"
+            ],
+            "type": "string"
+          },
+          "startDate": {
+            "description": "Date in YYYY-MM-DD format. Omit to leave unchanged.",
+            "type": "string"
+          },
+          "status": {
+            "description": "New task status. Omit to leave unchanged.",
+            "enum": [
+              "예정",
+              "진행",
+              "완료",
+              "요청",
+              "일시정지",
+              "기각",
+              "중단"
+            ],
+            "type": "string"
+          },
+          "taskHint": {
+            "description": "Identifies the existing task to act on: its exact task ID or its exact CURRENT title as it appears in a task.list result. Never a new or intended title. Resolved server-side to the canonical task; if it does not uniquely resolve, the call fails with a candidates list of the matching tasks to retry against.",
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "title": {
+            "description": "New task title. Omit to leave the title unchanged.",
+            "type": "string"
+          },
+          "type": {
+            "description": "Task type classification, e.g. 'task', 'milestone'. Omit to leave unchanged.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "taskHint"
+        ],
+        "type": "object"
+      },
+      "inputSchemaStrict": true,
+      "modelName": "task.update",
+      "modelVisibility": "visible",
+      "modelVisible": true,
+      "name": "task.update",
+      "namespace": "task",
+      "outputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "business": {
+            "type": "string"
+          },
+          "content": {
+            "type": "string"
+          },
+          "decisionReason": {
+            "type": "string"
+          },
+          "endDate": {
+            "type": "string"
+          },
+          "flag": {
+            "maximum": 9007199254740991,
+            "minimum": -9007199254740991,
+            "type": "integer"
+          },
+          "goal": {
+            "type": "string"
+          },
+          "mattermostPostID": {
+            "type": "string"
+          },
+          "ownerID": {
+            "type": "string"
+          },
+          "ownerName": {
+            "type": "string"
+          },
+          "participantIDs": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "participantNames": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "participantPresentations": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "displayName": {
+                  "type": "string"
+                },
+                "email": {
+                  "type": "string"
+                },
+                "mattermostUsername": {
+                  "type": "string"
+                },
+                "mention": {
+                  "type": "string"
+                },
+                "personID": {
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "requestReason": {
+            "type": "string"
+          },
+          "size": {
+            "type": "string"
+          },
+          "startDate": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "taskID": {
+            "minLength": 1,
+            "pattern": "^\\S(?:.*\\S)?$",
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          },
+          "weekCode": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "taskID"
+        ],
+        "type": "object"
+      },
+      "outputSchemaStrict": true,
+      "policyResource": "tool:task.update",
+      "privacyClass": "workspace_task",
+      "requiresUserPresence": false,
+      "resultContract": {
+        "effects": [
+          {
+            "effect": "updated",
+            "effectIdentity": "id",
+            "objectType": "task",
+            "resultField": "taskID"
+          }
+        ],
+        "schema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "additionalProperties": false,
+          "properties": {
+            "business": {
+              "type": "string"
+            },
+            "content": {
+              "type": "string"
+            },
+            "decisionReason": {
+              "type": "string"
+            },
+            "endDate": {
+              "type": "string"
+            },
+            "flag": {
+              "maximum": 9007199254740991,
+              "minimum": -9007199254740991,
+              "type": "integer"
+            },
+            "goal": {
+              "type": "string"
+            },
+            "mattermostPostID": {
+              "type": "string"
+            },
+            "ownerID": {
+              "type": "string"
+            },
+            "ownerName": {
+              "type": "string"
+            },
+            "participantIDs": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "participantNames": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "participantPresentations": {
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "displayName": {
+                    "type": "string"
+                  },
+                  "email": {
+                    "type": "string"
+                  },
+                  "mattermostUsername": {
+                    "type": "string"
+                  },
+                  "mention": {
+                    "type": "string"
+                  },
+                  "personID": {
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "requestReason": {
+              "type": "string"
+            },
+            "size": {
+              "type": "string"
+            },
+            "startDate": {
+              "type": "string"
+            },
+            "status": {
+              "type": "string"
+            },
+            "taskID": {
+              "minLength": 1,
+              "pattern": "^\\S(?:.*\\S)?$",
+              "type": "string"
+            },
+            "type": {
+              "type": "string"
+            },
+            "weekCode": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "taskID"
+          ],
+          "type": "object"
+        }
+      },
+      "sideEffect": "workspace_write",
+      "sideEffectClass": "workspace_write",
+      "version": "3",
+      "worksOffline": false
+    },
+    {
+      "availability": {
+        "state": "ok"
+      },
+      "canonicalName": "task.delete",
+      "completionEvidence": {
+        "action": "delete_task",
+        "mode": "success",
+        "targetKind": "task"
+      },
+      "description": "Permanently delete a task. taskHint is the exact task ID or exact task title from a task.list result, resolved server-side to the canonical task; use task.list first when neither is known. Requires approval; this action is irreversible.",
+      "estimatedLatency": "medium",
+      "idempotency": {
+        "required": false,
+        "scope": "operation",
+        "supported": false
+      },
+      "inputIntentSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {},
+        "type": "object"
+      },
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "taskHint": {
+            "description": "Identifies the existing task to act on: its exact task ID or its exact CURRENT title as it appears in a task.list result. Never a new or intended title. Resolved server-side to the canonical task; if it does not uniquely resolve, the call fails with a candidates list of the matching tasks to retry against.",
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "taskHint"
+        ],
+        "type": "object"
+      },
+      "inputSchemaStrict": true,
+      "modelName": "task.delete",
+      "modelVisibility": "visible",
+      "modelVisible": true,
+      "name": "task.delete",
+      "namespace": "task",
+      "outputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "deleted": {
+            "const": true,
+            "type": "boolean"
+          },
+          "taskID": {
+            "minLength": 1,
+            "pattern": "^\\S(?:.*\\S)?$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "taskID",
+          "deleted"
+        ],
+        "type": "object"
+      },
+      "outputSchemaStrict": true,
+      "policyResource": "tool:task.delete",
+      "privacyClass": "workspace_task",
+      "requiresApproval": true,
+      "requiresUserPresence": false,
+      "resultContract": {
+        "effects": [
+          {
+            "effect": "deleted",
+            "effectIdentity": "id",
+            "objectType": "task",
+            "resultField": "taskID"
+          }
+        ],
+        "schema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "additionalProperties": false,
+          "properties": {
+            "deleted": {
+              "const": true,
+              "type": "boolean"
+            },
+            "taskID": {
+              "minLength": 1,
+              "pattern": "^\\S(?:.*\\S)?$",
+              "type": "string"
+            }
+          },
+          "required": [
+            "taskID",
+            "deleted"
+          ],
+          "type": "object"
+        }
+      },
+      "sideEffect": "destructive",
+      "sideEffectClass": "destructive",
+      "version": "3",
+      "worksOffline": false
+    },
+    {
+      "availability": {
+        "state": "ok"
+      },
+      "canonicalName": "calendar.add",
+      "completionEvidence": {
+        "action": "write_calendar",
+        "mode": "success",
+        "targetKind": "calendar"
+      },
+      "description": "Create a calendar event with a concrete time range. Resolve natural-language dates and times before calling. Use calendar.update for an existing event.",
+      "estimatedLatency": "medium",
+      "idempotency": {
+        "required": false,
+        "scope": "operation",
+        "supported": false
+      },
+      "inputIntentSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "color": {
+            "description": "Optional provider-supported color label.",
+            "type": "string"
+          },
+          "description": {
+            "description": "Optional event notes or agenda visible to attendees.",
+            "type": "string"
+          },
+          "endISO": {
+            "description": "Event end as ISO 8601 with timezone. It must be after startISO.",
+            "type": "string"
+          },
+          "includeRequester": {
+            "description": "Set false when the requester is not an attendee. Defaults to true.",
+            "type": "boolean"
+          },
+          "isAllDay": {
+            "description": "Set true for an all-day event.",
+            "type": "boolean"
+          },
+          "location": {
+            "description": "Optional physical or virtual location.",
+            "type": "string"
+          },
+          "people": {
+            "description": "Attendee hints such as names, @handles, or emails.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "reminderLeadHours": {
+            "description": "Reminder lead time in hours: 1, 2, 3, 6, 12, 24, or 48.",
+            "type": "number"
+          },
+          "startISO": {
+            "description": "Event start as ISO 8601 with timezone. Resolve relative times before calling.",
+            "type": "string"
+          },
+          "timeZone": {
+            "description": "IANA timezone identifier. Defaults to the workspace timezone.",
+            "type": "string"
+          },
+          "title": {
+            "description": "Event title shown in the calendar.",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "color": {
+            "description": "Optional provider-supported color label.",
+            "type": "string"
+          },
+          "description": {
+            "description": "Optional event notes or agenda visible to attendees.",
+            "type": "string"
+          },
+          "endISO": {
+            "description": "Event end as ISO 8601 with timezone. It must be after startISO.",
+            "type": "string"
+          },
+          "includeRequester": {
+            "description": "Set false when the requester is not an attendee. Defaults to true.",
+            "type": "boolean"
+          },
+          "isAllDay": {
+            "description": "Set true for an all-day event.",
+            "type": "boolean"
+          },
+          "location": {
+            "description": "Optional physical or virtual location.",
+            "type": "string"
+          },
+          "people": {
+            "description": "Attendee hints such as names, @handles, or emails.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "reminderLeadHours": {
+            "description": "Reminder lead time in hours: 1, 2, 3, 6, 12, 24, or 48.",
+            "type": "number"
+          },
+          "startISO": {
+            "description": "Event start as ISO 8601 with timezone. Resolve relative times before calling.",
+            "type": "string"
+          },
+          "timeZone": {
+            "description": "IANA timezone identifier. Defaults to the workspace timezone.",
+            "type": "string"
+          },
+          "title": {
+            "description": "Event title shown in the calendar.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "title",
+          "startISO",
+          "endISO"
+        ],
+        "type": "object"
+      },
+      "inputSchemaStrict": true,
+      "modelName": "calendar.add",
+      "modelVisibility": "visible",
+      "modelVisible": true,
+      "name": "calendar.add",
+      "namespace": "calendar",
+      "outputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "color": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "endISO": {
+            "type": "string"
+          },
+          "eventID": {
+            "minLength": 1,
+            "pattern": "^\\S(?:.*\\S)?$",
+            "type": "string"
+          },
+          "isAllDay": {
+            "type": "boolean"
+          },
+          "location": {
+            "type": "string"
+          },
+          "participants": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "email": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "personID": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "name"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "people": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "reminderLeadHours": {
+            "type": "number"
+          },
+          "startISO": {
+            "type": "string"
+          },
+          "timeZone": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "eventID",
+          "title",
+          "description",
+          "location",
+          "startISO",
+          "endISO",
+          "timeZone",
+          "isAllDay",
+          "color",
+          "people",
+          "participants",
+          "reminderLeadHours",
+          "updatedAt"
+        ],
+        "type": "object"
+      },
+      "outputSchemaStrict": true,
+      "policyResource": "tool:calendar.add",
+      "privacyClass": "workspace_calendar",
+      "requiresUserPresence": false,
+      "resultContract": {
+        "effects": [
+          {
+            "effect": "created",
+            "effectIdentity": "id",
+            "objectType": "calendar",
+            "resultField": "eventID"
+          }
+        ],
+        "schema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "additionalProperties": false,
+          "properties": {
+            "color": {
+              "type": "string"
+            },
+            "description": {
+              "type": "string"
+            },
+            "endISO": {
+              "type": "string"
+            },
+            "eventID": {
+              "minLength": 1,
+              "pattern": "^\\S(?:.*\\S)?$",
+              "type": "string"
+            },
+            "isAllDay": {
+              "type": "boolean"
+            },
+            "location": {
+              "type": "string"
+            },
+            "participants": {
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "email": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "personID": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "name"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "people": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "reminderLeadHours": {
+              "type": "number"
+            },
+            "startISO": {
+              "type": "string"
+            },
+            "timeZone": {
+              "type": "string"
+            },
+            "title": {
+              "type": "string"
+            },
+            "updatedAt": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "eventID",
+            "title",
+            "description",
+            "location",
+            "startISO",
+            "endISO",
+            "timeZone",
+            "isAllDay",
+            "color",
+            "people",
+            "participants",
+            "reminderLeadHours",
+            "updatedAt"
+          ],
+          "type": "object"
+        }
+      },
+      "sideEffect": "workspace_write",
+      "sideEffectClass": "workspace_write",
+      "version": "2",
+      "worksOffline": false
+    },
+    {
+      "availability": {
+        "state": "ok"
+      },
+      "canonicalName": "calendar.list",
+      "description": "List calendar events in a concrete time window, optionally filtered by title, description, or location. Resolve natural-language dates to startISO and endISO before calling.",
+      "estimatedLatency": "low",
+      "idempotency": {
+        "required": false,
+        "scope": "operation",
+        "supported": false
+      },
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "endISO": {
+            "description": "Exclusive end of the time window as ISO 8601 with timezone.",
+            "type": "string"
+          },
+          "limit": {
+            "description": "Maximum number of events to return.",
+            "exclusiveMinimum": 0,
+            "type": "number"
+          },
+          "query": {
+            "description": "Optional free-text filter matched against event titles, descriptions, and locations.",
+            "type": "string"
+          },
+          "startISO": {
+            "description": "Inclusive start of the time window as ISO 8601 with timezone.",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "inputSchemaStrict": true,
+      "modelName": "calendar.list",
+      "modelVisibility": "visible",
+      "modelVisible": true,
+      "name": "calendar.list",
+      "namespace": "calendar",
+      "outputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "events": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "color": {
+                  "type": "string"
+                },
+                "description": {
+                  "type": "string"
+                },
+                "endISO": {
+                  "type": "string"
+                },
+                "eventID": {
+                  "minLength": 1,
+                  "pattern": "^\\S(?:.*\\S)?$",
+                  "type": "string"
+                },
+                "isAllDay": {
+                  "type": "boolean"
+                },
+                "location": {
+                  "type": "string"
+                },
+                "participants": {
+                  "items": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "email": {
+                        "type": "string"
+                      },
+                      "name": {
+                        "type": "string"
+                      },
+                      "personID": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "name"
+                    ],
+                    "type": "object"
+                  },
+                  "type": "array"
+                },
+                "people": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "reminderLeadHours": {
+                  "type": "number"
+                },
+                "startISO": {
+                  "type": "string"
+                },
+                "timeZone": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "updatedAt": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "eventID",
+                "title",
+                "description",
+                "location",
+                "startISO",
+                "endISO",
+                "timeZone",
+                "isAllDay",
+                "color",
+                "people",
+                "participants",
+                "reminderLeadHours",
+                "updatedAt"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "events"
+        ],
+        "type": "object"
+      },
+      "outputSchemaStrict": true,
+      "policyResource": "tool:calendar.list",
+      "privacyClass": "workspace_calendar",
+      "requiresUserPresence": false,
+      "resultContract": {
+        "effects": [],
+        "schema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "additionalProperties": false,
+          "properties": {
+            "events": {
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "color": {
+                    "type": "string"
+                  },
+                  "description": {
+                    "type": "string"
+                  },
+                  "endISO": {
+                    "type": "string"
+                  },
+                  "eventID": {
+                    "minLength": 1,
+                    "pattern": "^\\S(?:.*\\S)?$",
+                    "type": "string"
+                  },
+                  "isAllDay": {
+                    "type": "boolean"
+                  },
+                  "location": {
+                    "type": "string"
+                  },
+                  "participants": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "email": {
+                          "type": "string"
+                        },
+                        "name": {
+                          "type": "string"
+                        },
+                        "personID": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "name"
+                      ],
+                      "type": "object"
+                    },
+                    "type": "array"
+                  },
+                  "people": {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "reminderLeadHours": {
+                    "type": "number"
+                  },
+                  "startISO": {
+                    "type": "string"
+                  },
+                  "timeZone": {
+                    "type": "string"
+                  },
+                  "title": {
+                    "type": "string"
+                  },
+                  "updatedAt": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "eventID",
+                  "title",
+                  "description",
+                  "location",
+                  "startISO",
+                  "endISO",
+                  "timeZone",
+                  "isAllDay",
+                  "color",
+                  "people",
+                  "participants",
+                  "reminderLeadHours",
+                  "updatedAt"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "events"
+          ],
+          "type": "object"
+        }
+      },
+      "sideEffect": "read",
+      "sideEffectClass": "read",
+      "version": "2",
+      "worksOffline": false
+    },
+    {
+      "availability": {
+        "state": "ok"
+      },
+      "canonicalName": "calendar.update",
+      "completionEvidence": {
+        "action": "write_calendar",
+        "mode": "success",
+        "targetKind": "calendar"
+      },
+      "description": "Update explicit fields on a calendar event. eventHint is the exact event ID or exact event title from a calendar.list result, resolved server-side to the canonical event; use calendar.list first when neither is known. At least one mutable field is required.",
+      "estimatedLatency": "medium",
+      "idempotency": {
+        "required": false,
+        "scope": "operation",
+        "supported": false
+      },
+      "inputIntentSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "color": {
+            "description": "New provider-supported color label. Omit to leave unchanged.",
+            "type": "string"
+          },
+          "description": {
+            "description": "New event notes or agenda. Use an empty string to clear them.",
+            "type": "string"
+          },
+          "endISO": {
+            "description": "New event end as ISO 8601 with timezone. Omit to leave unchanged.",
+            "type": "string"
+          },
+          "includeRequester": {
+            "description": "Whether the requester should be included as an attendee.",
+            "type": "boolean"
+          },
+          "isAllDay": {
+            "description": "Whether the event is all day. Omit to leave unchanged.",
+            "type": "boolean"
+          },
+          "location": {
+            "description": "New physical or virtual location. Use an empty string to clear it.",
+            "type": "string"
+          },
+          "people": {
+            "description": "Replacement attendee hints such as names, @handles, or emails.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "reminderLeadHours": {
+            "description": "Reminder lead time in hours: 1, 2, 3, 6, 12, 24, or 48. Omit to leave unchanged.",
+            "type": "number"
+          },
+          "startISO": {
+            "description": "New event start as ISO 8601 with timezone. Omit to leave unchanged.",
+            "type": "string"
+          },
+          "timeZone": {
+            "description": "New IANA timezone identifier. Omit to leave unchanged.",
+            "type": "string"
+          },
+          "title": {
+            "description": "New event title. Omit to leave unchanged.",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "minProperties": 2,
+        "properties": {
+          "color": {
+            "description": "New provider-supported color label. Omit to leave unchanged.",
+            "type": "string"
+          },
+          "description": {
+            "description": "New event notes or agenda. Use an empty string to clear them.",
+            "type": "string"
+          },
+          "endISO": {
+            "description": "New event end as ISO 8601 with timezone. Omit to leave unchanged.",
+            "type": "string"
+          },
+          "eventHint": {
+            "description": "Identifies the existing calendar event to act on: its exact event ID or its exact CURRENT title as it appears in a calendar.list result. Never a new or intended title. Resolved server-side; if it does not uniquely resolve, the call fails with a candidates list of matching events.",
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "includeRequester": {
+            "description": "Whether the requester should be included as an attendee.",
+            "type": "boolean"
+          },
+          "isAllDay": {
+            "description": "Whether the event is all day. Omit to leave unchanged.",
+            "type": "boolean"
+          },
+          "location": {
+            "description": "New physical or virtual location. Use an empty string to clear it.",
+            "type": "string"
+          },
+          "people": {
+            "description": "Replacement attendee hints such as names, @handles, or emails.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "reminderLeadHours": {
+            "description": "Reminder lead time in hours: 1, 2, 3, 6, 12, 24, or 48. Omit to leave unchanged.",
+            "type": "number"
+          },
+          "startISO": {
+            "description": "New event start as ISO 8601 with timezone. Omit to leave unchanged.",
+            "type": "string"
+          },
+          "timeZone": {
+            "description": "New IANA timezone identifier. Omit to leave unchanged.",
+            "type": "string"
+          },
+          "title": {
+            "description": "New event title. Omit to leave unchanged.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "eventHint"
+        ],
+        "type": "object"
+      },
+      "inputSchemaStrict": true,
+      "modelName": "calendar.update",
+      "modelVisibility": "visible",
+      "modelVisible": true,
+      "name": "calendar.update",
+      "namespace": "calendar",
+      "outputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "color": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "endISO": {
+            "type": "string"
+          },
+          "eventID": {
+            "minLength": 1,
+            "pattern": "^\\S(?:.*\\S)?$",
+            "type": "string"
+          },
+          "isAllDay": {
+            "type": "boolean"
+          },
+          "location": {
+            "type": "string"
+          },
+          "participants": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "email": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "personID": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "name"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "people": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "reminderLeadHours": {
+            "type": "number"
+          },
+          "startISO": {
+            "type": "string"
+          },
+          "timeZone": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "eventID",
+          "title",
+          "description",
+          "location",
+          "startISO",
+          "endISO",
+          "timeZone",
+          "isAllDay",
+          "color",
+          "people",
+          "participants",
+          "reminderLeadHours",
+          "updatedAt"
+        ],
+        "type": "object"
+      },
+      "outputSchemaStrict": true,
+      "policyResource": "tool:calendar.update",
+      "privacyClass": "workspace_calendar",
+      "requiresUserPresence": false,
+      "resultContract": {
+        "effects": [
+          {
+            "effect": "updated",
+            "effectIdentity": "id",
+            "objectType": "calendar",
+            "resultField": "eventID"
+          }
+        ],
+        "schema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "additionalProperties": false,
+          "properties": {
+            "color": {
+              "type": "string"
+            },
+            "description": {
+              "type": "string"
+            },
+            "endISO": {
+              "type": "string"
+            },
+            "eventID": {
+              "minLength": 1,
+              "pattern": "^\\S(?:.*\\S)?$",
+              "type": "string"
+            },
+            "isAllDay": {
+              "type": "boolean"
+            },
+            "location": {
+              "type": "string"
+            },
+            "participants": {
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "email": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "personID": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "name"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "people": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "reminderLeadHours": {
+              "type": "number"
+            },
+            "startISO": {
+              "type": "string"
+            },
+            "timeZone": {
+              "type": "string"
+            },
+            "title": {
+              "type": "string"
+            },
+            "updatedAt": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "eventID",
+            "title",
+            "description",
+            "location",
+            "startISO",
+            "endISO",
+            "timeZone",
+            "isAllDay",
+            "color",
+            "people",
+            "participants",
+            "reminderLeadHours",
+            "updatedAt"
+          ],
+          "type": "object"
+        }
+      },
+      "sideEffect": "workspace_write",
+      "sideEffectClass": "workspace_write",
+      "version": "3",
+      "worksOffline": false
+    },
+    {
+      "availability": {
+        "state": "ok"
+      },
+      "canonicalName": "calendar.delete",
+      "completionEvidence": {
+        "action": "write_calendar",
+        "mode": "success",
+        "targetKind": "calendar"
+      },
+      "description": "Permanently delete a calendar event. eventHint is the exact event ID or exact event title from a calendar.list result, resolved server-side to the canonical event; use calendar.list first when neither is known. Requires approval; this action is irreversible.",
+      "estimatedLatency": "medium",
+      "idempotency": {
+        "required": false,
+        "scope": "operation",
+        "supported": false
+      },
+      "inputIntentSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {},
+        "type": "object"
+      },
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "eventHint": {
+            "description": "Identifies the existing calendar event to act on: its exact event ID or its exact CURRENT title as it appears in a calendar.list result. Never a new or intended title. Resolved server-side; if it does not uniquely resolve, the call fails with a candidates list of matching events.",
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "eventHint"
+        ],
+        "type": "object"
+      },
+      "inputSchemaStrict": true,
+      "modelName": "calendar.delete",
+      "modelVisibility": "visible",
+      "modelVisible": true,
+      "name": "calendar.delete",
+      "namespace": "calendar",
+      "outputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "deleted": {
+            "const": true,
+            "type": "boolean"
+          },
+          "eventID": {
+            "minLength": 1,
+            "pattern": "^\\S(?:.*\\S)?$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "eventID",
+          "deleted"
+        ],
+        "type": "object"
+      },
+      "outputSchemaStrict": true,
+      "policyResource": "tool:calendar.delete",
+      "privacyClass": "workspace_calendar",
+      "requiresApproval": true,
+      "requiresUserPresence": false,
+      "resultContract": {
+        "effects": [
+          {
+            "effect": "deleted",
+            "effectIdentity": "id",
+            "objectType": "calendar",
+            "resultField": "eventID"
+          }
+        ],
+        "schema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "additionalProperties": false,
+          "properties": {
+            "deleted": {
+              "const": true,
+              "type": "boolean"
+            },
+            "eventID": {
+              "minLength": 1,
+              "pattern": "^\\S(?:.*\\S)?$",
+              "type": "string"
+            }
+          },
+          "required": [
+            "eventID",
+            "deleted"
+          ],
+          "type": "object"
+        }
+      },
+      "sideEffect": "destructive",
+      "sideEffectClass": "destructive",
+      "version": "2",
+      "worksOffline": false
+    },
+    {
+      "availability": {
+        "state": "ok"
+      },
+      "canonicalName": "message.context",
+      "description": "Return the exact current Mattermost conversation, thread, requester, and bot identities.",
+      "estimatedLatency": "low",
+      "idempotency": {
+        "required": false,
+        "scope": "operation",
+        "supported": false
+      },
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {},
+        "type": "object"
+      },
+      "inputSchemaStrict": true,
+      "modelName": "message.context",
+      "modelVisibility": "visible",
+      "modelVisible": true,
+      "name": "message.context",
+      "namespace": "message",
+      "outputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "botUserID": {
+            "minLength": 1,
+            "pattern": "^\\S(?:.*\\S)?$",
+            "type": "string"
+          },
+          "botUsername": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "channelID": {
+            "type": "string"
+          },
+          "channelName": {
+            "type": "string"
+          },
+          "conversationID": {
+            "type": "string"
+          },
+          "conversationType": {
+            "type": "string"
+          },
+          "currentMessageID": {
+            "type": "string"
+          },
+          "platform": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "replyTargetID": {
+            "type": "string"
+          },
+          "requesterPersonID": {
+            "type": "string"
+          },
+          "requesterPlatformUserID": {
+            "type": "string"
+          },
+          "rootMessageID": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "platform",
+          "conversationID",
+          "conversationType",
+          "channelID",
+          "channelName",
+          "replyTargetID",
+          "rootMessageID",
+          "currentMessageID",
+          "requesterPersonID",
+          "requesterPlatformUserID",
+          "botUserID",
+          "botUsername"
+        ],
+        "type": "object"
+      },
+      "outputSchemaStrict": true,
+      "policyResource": "tool:message.context",
+      "privacyClass": "platform_message",
+      "requiresUserPresence": false,
+      "resultContract": {
+        "effects": [],
+        "schema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "additionalProperties": false,
+          "properties": {
+            "botUserID": {
+              "minLength": 1,
+              "pattern": "^\\S(?:.*\\S)?$",
+              "type": "string"
+            },
+            "botUsername": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "channelID": {
+              "type": "string"
+            },
+            "channelName": {
+              "type": "string"
+            },
+            "conversationID": {
+              "type": "string"
+            },
+            "conversationType": {
+              "type": "string"
+            },
+            "currentMessageID": {
+              "type": "string"
+            },
+            "platform": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "replyTargetID": {
+              "type": "string"
+            },
+            "requesterPersonID": {
+              "type": "string"
+            },
+            "requesterPlatformUserID": {
+              "type": "string"
+            },
+            "rootMessageID": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "platform",
+            "conversationID",
+            "conversationType",
+            "channelID",
+            "channelName",
+            "replyTargetID",
+            "rootMessageID",
+            "currentMessageID",
+            "requesterPersonID",
+            "requesterPlatformUserID",
+            "botUserID",
+            "botUsername"
+          ],
+          "type": "object"
+        }
+      },
+      "sideEffect": "read",
+      "sideEffectClass": "read",
+      "version": "2",
+      "worksOffline": false
+    },
+    {
+      "availability": {
+        "state": "ok"
+      },
+      "canonicalName": "message.search",
+      "description": "Search Mattermost messages in an exact conversation scope and return message IDs for later update or delete operations.",
+      "estimatedLatency": "low",
+      "idempotency": {
+        "required": false,
+        "scope": "operation",
+        "supported": false
+      },
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "authoredBy": {
+            "description": "Message author filter. Defaults to anyone.",
+            "enum": [
+              "assistant",
+              "requester",
+              "anyone"
+            ],
+            "type": "string"
+          },
+          "channelID": {
+            "description": "Exact channel ID from message.context or a prior result.",
+            "minLength": 1,
+            "pattern": "^\\S(?:.*\\S)?$",
+            "type": "string"
+          },
+          "channelName": {
+            "description": "Exact Mattermost channel name without the # prefix.",
+            "type": "string"
+          },
+          "cursor": {
+            "description": "Pagination cursor from a previous message.search result.",
+            "type": "string"
+          },
+          "limit": {
+            "description": "Maximum messages to return. Defaults to 20.",
+            "maximum": 25,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "personHint": {
+            "description": "Exact name, @handle, or email of the direct-message counterpart.",
+            "type": "string"
+          },
+          "queries": {
+            "description": "Keyword queries matched against message content.",
+            "items": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "scope": {
+            "description": "Where to search. Current conversation scopes use the active Mattermost context.",
+            "enum": [
+              "currentThread",
+              "currentChannel",
+              "directMessage",
+              "channel"
+            ],
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "inputSchemaStrict": true,
+      "modelName": "message.search",
+      "modelVisibility": "visible",
+      "modelVisible": true,
+      "name": "message.search",
+      "namespace": "message",
+      "outputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "authoredBy": {
+            "enum": [
+              "assistant",
+              "requester",
+              "anyone"
+            ],
+            "type": "string"
+          },
+          "candidates": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "authoredBy": {
+                  "enum": [
+                    "assistant",
+                    "requester",
+                    "anyone"
+                  ],
+                  "type": "string"
+                },
+                "channelID": {
+                  "minLength": 1,
+                  "pattern": "^\\S(?:.*\\S)?$",
+                  "type": "string"
+                },
+                "createdAt": {
+                  "maximum": 9007199254740991,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "deletable": {
+                  "type": "boolean"
+                },
+                "messageID": {
+                  "minLength": 1,
+                  "pattern": "^\\S(?:.*\\S)?$",
+                  "type": "string"
+                },
+                "preview": {
+                  "type": "string"
+                },
+                "protectedReason": {
+                  "type": "string"
+                },
+                "rootMessageID": {
+                  "minLength": 1,
+                  "pattern": "^\\S(?:.*\\S)?$",
+                  "type": "string"
+                },
+                "userID": {
+                  "minLength": 1,
+                  "pattern": "^\\S(?:.*\\S)?$",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "messageID",
+                "channelID",
+                "userID",
+                "authoredBy",
+                "createdAt",
+                "preview",
+                "deletable"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "hasMore": {
+            "type": "boolean"
+          },
+          "messageIDs": {
+            "items": {
+              "minLength": 1,
+              "pattern": "^\\S(?:.*\\S)?$",
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "nextCursor": {
+            "type": "string"
+          },
+          "queries": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "scope": {
+            "enum": [
+              "currentThread",
+              "currentChannel",
+              "directMessage",
+              "channel"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "scope",
+          "queries",
+          "authoredBy",
+          "messageIDs",
+          "candidates",
+          "hasMore"
+        ],
+        "type": "object"
+      },
+      "outputSchemaStrict": true,
+      "policyResource": "tool:message.search",
+      "privacyClass": "platform_message",
+      "requiresUserPresence": false,
+      "resultContract": {
+        "effects": [],
+        "schema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "additionalProperties": false,
+          "properties": {
+            "authoredBy": {
+              "enum": [
+                "assistant",
+                "requester",
+                "anyone"
+              ],
+              "type": "string"
+            },
+            "candidates": {
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "authoredBy": {
+                    "enum": [
+                      "assistant",
+                      "requester",
+                      "anyone"
+                    ],
+                    "type": "string"
+                  },
+                  "channelID": {
+                    "minLength": 1,
+                    "pattern": "^\\S(?:.*\\S)?$",
+                    "type": "string"
+                  },
+                  "createdAt": {
+                    "maximum": 9007199254740991,
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "deletable": {
+                    "type": "boolean"
+                  },
+                  "messageID": {
+                    "minLength": 1,
+                    "pattern": "^\\S(?:.*\\S)?$",
+                    "type": "string"
+                  },
+                  "preview": {
+                    "type": "string"
+                  },
+                  "protectedReason": {
+                    "type": "string"
+                  },
+                  "rootMessageID": {
+                    "minLength": 1,
+                    "pattern": "^\\S(?:.*\\S)?$",
+                    "type": "string"
+                  },
+                  "userID": {
+                    "minLength": 1,
+                    "pattern": "^\\S(?:.*\\S)?$",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "messageID",
+                  "channelID",
+                  "userID",
+                  "authoredBy",
+                  "createdAt",
+                  "preview",
+                  "deletable"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "hasMore": {
+              "type": "boolean"
+            },
+            "messageIDs": {
+              "items": {
+                "minLength": 1,
+                "pattern": "^\\S(?:.*\\S)?$",
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "nextCursor": {
+              "type": "string"
+            },
+            "queries": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "scope": {
+              "enum": [
+                "currentThread",
+                "currentChannel",
+                "directMessage",
+                "channel"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "scope",
+            "queries",
+            "authoredBy",
+            "messageIDs",
+            "candidates",
+            "hasMore"
+          ],
+          "type": "object"
+        }
+      },
+      "sideEffect": "read",
+      "sideEffectClass": "read",
+      "version": "2",
+      "worksOffline": false
+    },
+    {
+      "availability": {
+        "state": "ok"
+      },
+      "canonicalName": "message.send",
+      "completionEvidence": {
+        "action": "send_message",
+        "mode": "success",
+        "targetKind": "message"
+      },
+      "description": "Send a Mattermost message to a direct message, channel, or the current conversation after approval.",
+      "estimatedLatency": "medium",
+      "idempotency": {
+        "required": false,
+        "scope": "operation",
+        "supported": true
+      },
+      "inputIntentSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "channelID": {
+            "description": "Exact channel ID from message.context or a prior result.",
+            "minLength": 1,
+            "pattern": "^\\S(?:.*\\S)?$",
+            "type": "string"
+          },
+          "channelName": {
+            "description": "Exact Mattermost channel name without the # prefix.",
+            "type": "string"
+          },
+          "message": {
+            "minLength": 1,
+            "pattern": "\\S",
+            "type": "string"
+          },
+          "personHint": {
+            "description": "Name, @handle, or email of one direct-message recipient. Omit for a direct message to the requester themself.",
+            "type": "string"
+          },
+          "personHints": {
+            "description": "Direct-message recipients for one fan-out send.",
+            "items": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxItems": 50,
+            "type": "array"
+          },
+          "pin": {
+            "description": "Whether to pin the created message. Defaults to false.",
+            "type": "boolean"
+          },
+          "reason": {
+            "description": "Reason shown to the approver.",
+            "type": "string"
+          },
+          "targetType": {
+            "description": "Destination for the new message.",
+            "enum": [
+              "directMessage",
+              "currentThread",
+              "currentChannel",
+              "channel"
+            ],
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "channelID": {
+            "description": "Exact channel ID from message.context or a prior result.",
+            "minLength": 1,
+            "pattern": "^\\S(?:.*\\S)?$",
+            "type": "string"
+          },
+          "channelName": {
+            "description": "Exact Mattermost channel name without the # prefix.",
+            "type": "string"
+          },
+          "message": {
+            "minLength": 1,
+            "pattern": "\\S",
+            "type": "string"
+          },
+          "personHint": {
+            "description": "Name, @handle, or email of one direct-message recipient. Omit for a direct message to the requester themself.",
+            "type": "string"
+          },
+          "personHints": {
+            "description": "Direct-message recipients for one fan-out send.",
+            "items": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxItems": 50,
+            "type": "array"
+          },
+          "pin": {
+            "description": "Whether to pin the created message. Defaults to false.",
+            "type": "boolean"
+          },
+          "reason": {
+            "description": "Reason shown to the approver.",
+            "type": "string"
+          },
+          "targetType": {
+            "description": "Destination for the new message.",
+            "enum": [
+              "directMessage",
+              "currentThread",
+              "currentChannel",
+              "channel"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "targetType",
+          "message"
+        ],
+        "type": "object"
+      },
+      "inputSchemaStrict": true,
+      "modelName": "message.send",
+      "modelVisibility": "visible",
+      "modelVisible": true,
+      "name": "message.send",
+      "namespace": "message",
+      "outputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "deliveryStatus": {
+            "const": "sent",
+            "type": "string"
+          },
+          "failures": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "errorCode": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "message": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "messageID": {
+                  "type": "string"
+                },
+                "personHint": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "errorCode",
+                "message"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "messageIDs": {
+            "items": {
+              "minLength": 1,
+              "pattern": "^\\S(?:.*\\S)?$",
+              "type": "string"
+            },
+            "maxItems": 50,
+            "minItems": 1,
+            "type": "array",
+            "uniqueItems": true
+          }
+        },
+        "required": [
+          "messageIDs",
+          "deliveryStatus"
+        ],
+        "type": "object"
+      },
+      "outputSchemaStrict": true,
+      "policyResource": "tool:message.send",
+      "privacyClass": "platform_message",
+      "requiresApproval": true,
+      "requiresUserPresence": false,
+      "resultContract": {
+        "effects": [
+          {
+            "effect": "sent",
+            "effectIdentity": "id",
+            "objectType": "message",
+            "resultField": "messageIDs"
+          }
+        ],
+        "schema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "additionalProperties": false,
+          "properties": {
+            "deliveryStatus": {
+              "const": "sent",
+              "type": "string"
+            },
+            "failures": {
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "errorCode": {
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "message": {
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "messageID": {
+                    "type": "string"
+                  },
+                  "personHint": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "errorCode",
+                  "message"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "messageIDs": {
+              "items": {
+                "minLength": 1,
+                "pattern": "^\\S(?:.*\\S)?$",
+                "type": "string"
+              },
+              "maxItems": 50,
+              "minItems": 1,
+              "type": "array",
+              "uniqueItems": true
+            }
+          },
+          "required": [
+            "messageIDs",
+            "deliveryStatus"
+          ],
+          "type": "object"
+        }
+      },
+      "sideEffect": "external_send",
+      "sideEffectClass": "external_send",
+      "version": "2",
+      "worksOffline": false
+    },
+    {
+      "availability": {
+        "state": "ok"
+      },
+      "canonicalName": "message.update",
+      "completionEvidence": {
+        "action": "update_message",
+        "mode": "success",
+        "targetKind": "message"
+      },
+      "description": "Update the text or pinned state of the exact Mattermost message ID after approval.",
+      "estimatedLatency": "medium",
+      "idempotency": {
+        "required": false,
+        "scope": "operation",
+        "supported": false
+      },
+      "inputIntentSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "isPinned": {
+            "description": "Whether the message should be pinned.",
+            "type": "boolean"
+          },
+          "message": {
+            "minLength": 1,
+            "pattern": "\\S",
+            "type": "string"
+          },
+          "messageID": {
+            "description": "Exact message ID from message.search or message.send.",
+            "minLength": 1,
+            "pattern": "^\\S(?:.*\\S)?$",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "minProperties": 2,
+        "properties": {
+          "isPinned": {
+            "description": "Whether the message should be pinned.",
+            "type": "boolean"
+          },
+          "message": {
+            "minLength": 1,
+            "pattern": "\\S",
+            "type": "string"
+          },
+          "messageID": {
+            "description": "Exact message ID from message.search or message.send.",
+            "minLength": 1,
+            "pattern": "^\\S(?:.*\\S)?$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "messageID"
+        ],
+        "type": "object"
+      },
+      "inputSchemaStrict": true,
+      "modelName": "message.update",
+      "modelVisibility": "visible",
+      "modelVisible": true,
+      "name": "message.update",
+      "namespace": "message",
+      "outputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "deliveryStatus": {
+            "const": "updated",
+            "type": "string"
+          },
+          "isPinned": {
+            "type": "boolean"
+          },
+          "messageID": {
+            "minLength": 1,
+            "pattern": "^\\S(?:.*\\S)?$",
+            "type": "string"
+          },
+          "messageUpdated": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "messageID",
+          "deliveryStatus",
+          "messageUpdated"
+        ],
+        "type": "object"
+      },
+      "outputSchemaStrict": true,
+      "policyResource": "tool:message.update",
+      "privacyClass": "platform_message",
+      "requiresApproval": true,
+      "requiresUserPresence": false,
+      "resultContract": {
+        "effects": [
+          {
+            "effect": "updated",
+            "effectIdentity": "id",
+            "objectType": "message",
+            "resultField": "messageID"
+          }
+        ],
+        "schema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "additionalProperties": false,
+          "properties": {
+            "deliveryStatus": {
+              "const": "updated",
+              "type": "string"
+            },
+            "isPinned": {
+              "type": "boolean"
+            },
+            "messageID": {
+              "minLength": 1,
+              "pattern": "^\\S(?:.*\\S)?$",
+              "type": "string"
+            },
+            "messageUpdated": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "messageID",
+            "deliveryStatus",
+            "messageUpdated"
+          ],
+          "type": "object"
+        }
+      },
+      "sideEffect": "external_write",
+      "sideEffectClass": "external_write",
+      "version": "2",
+      "worksOffline": false
+    },
+    {
+      "availability": {
+        "state": "ok"
+      },
+      "canonicalName": "message.delete",
+      "completionEvidence": {
+        "action": "delete_message",
+        "mode": "success",
+        "targetKind": "message"
+      },
+      "description": "Permanently delete exact Mattermost message IDs from message.search after approval. List only the exact messages the user asked to remove; when several search matches quote or mention the same text, pick the one message that is the target itself, never the whole match list.",
+      "estimatedLatency": "medium",
+      "idempotency": {
+        "required": false,
+        "scope": "operation",
+        "supported": false
+      },
+      "inputIntentSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "messageIDs": {
+            "description": "Exact message IDs from message.search.",
+            "items": {
+              "minLength": 1,
+              "pattern": "^\\S(?:.*\\S)?$",
+              "type": "string"
+            },
+            "maxItems": 25,
+            "minItems": 1,
+            "type": "array",
+            "uniqueItems": true
+          }
+        },
+        "type": "object"
+      },
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "messageIDs": {
+            "description": "Exact message IDs from message.search.",
+            "items": {
+              "minLength": 1,
+              "pattern": "^\\S(?:.*\\S)?$",
+              "type": "string"
+            },
+            "maxItems": 25,
+            "minItems": 1,
+            "type": "array",
+            "uniqueItems": true
+          }
+        },
+        "required": [
+          "messageIDs"
+        ],
+        "type": "object"
+      },
+      "inputSchemaStrict": true,
+      "modelName": "message.delete",
+      "modelVisibility": "visible",
+      "modelVisible": true,
+      "name": "message.delete",
+      "namespace": "message",
+      "outputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "deliveryStatus": {
+            "const": "deleted",
+            "type": "string"
+          },
+          "failures": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "errorCode": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "message": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "messageID": {
+                  "type": "string"
+                },
+                "personHint": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "errorCode",
+                "message"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "messageIDs": {
+            "items": {
+              "minLength": 1,
+              "pattern": "^\\S(?:.*\\S)?$",
+              "type": "string"
+            },
+            "maxItems": 50,
+            "minItems": 1,
+            "type": "array",
+            "uniqueItems": true
+          }
+        },
+        "required": [
+          "messageIDs",
+          "deliveryStatus"
+        ],
+        "type": "object"
+      },
+      "outputSchemaStrict": true,
+      "policyResource": "tool:message.delete",
+      "privacyClass": "platform_message",
+      "requiresApproval": true,
+      "requiresUserPresence": false,
+      "resultContract": {
+        "effects": [
+          {
+            "effect": "deleted",
+            "effectIdentity": "id",
+            "objectType": "message",
+            "resultField": "messageIDs"
+          }
+        ],
+        "schema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "additionalProperties": false,
+          "properties": {
+            "deliveryStatus": {
+              "const": "deleted",
+              "type": "string"
+            },
+            "failures": {
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "errorCode": {
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "message": {
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "messageID": {
+                    "type": "string"
+                  },
+                  "personHint": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "errorCode",
+                  "message"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "messageIDs": {
+              "items": {
+                "minLength": 1,
+                "pattern": "^\\S(?:.*\\S)?$",
+                "type": "string"
+              },
+              "maxItems": 50,
+              "minItems": 1,
+              "type": "array",
+              "uniqueItems": true
+            }
+          },
+          "required": [
+            "messageIDs",
+            "deliveryStatus"
+          ],
+          "type": "object"
+        }
+      },
+      "sideEffect": "destructive",
+      "sideEffectClass": "destructive",
+      "version": "2",
+      "worksOffline": false
+    },
+    {
+      "availability": {
+        "state": "ok"
+      },
+      "canonicalName": "channel.update",
+      "completionEvidence": {
+        "action": "update_channel",
+        "mode": "success",
+        "targetKind": "channel"
+      },
+      "description": "Update an exact Mattermost channel display name, header, or membership after approval.",
+      "estimatedLatency": "medium",
+      "idempotency": {
+        "required": false,
+        "scope": "operation",
+        "supported": false
+      },
+      "inputIntentSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "channelID": {
+            "description": "Exact channel ID from message.context or a prior result.",
+            "minLength": 1,
+            "pattern": "^\\S(?:.*\\S)?$",
+            "type": "string"
+          },
+          "channelName": {
+            "description": "Exact Mattermost channel name without the # prefix.",
+            "minLength": 1,
+            "type": "string"
+          },
+          "displayName": {
+            "description": "New channel display name.",
+            "minLength": 1,
+            "type": "string"
+          },
+          "header": {
+            "description": "New channel header. Use an empty string to clear it.",
+            "type": "string"
+          },
+          "inviteeHints": {
+            "description": "Names, @handles, or emails of people to invite.",
+            "items": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object"
+      },
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "minProperties": 2,
+        "properties": {
+          "channelID": {
+            "description": "Exact channel ID from message.context or a prior result.",
+            "minLength": 1,
+            "pattern": "^\\S(?:.*\\S)?$",
+            "type": "string"
+          },
+          "channelName": {
+            "description": "Exact Mattermost channel name without the # prefix.",
+            "minLength": 1,
+            "type": "string"
+          },
+          "displayName": {
+            "description": "New channel display name.",
+            "minLength": 1,
+            "type": "string"
+          },
+          "header": {
+            "description": "New channel header. Use an empty string to clear it.",
+            "type": "string"
+          },
+          "inviteeHints": {
+            "description": "Names, @handles, or emails of people to invite.",
+            "items": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object"
+      },
+      "inputSchemaStrict": true,
+      "modelName": "channel.update",
+      "modelVisibility": "visible",
+      "modelVisible": true,
+      "name": "channel.update",
+      "namespace": "channel",
+      "outputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "channelID": {
+            "minLength": 1,
+            "pattern": "^\\S(?:.*\\S)?$",
+            "type": "string"
+          },
+          "invitedUserIDs": {
+            "items": {
+              "minLength": 1,
+              "pattern": "^\\S(?:.*\\S)?$",
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "updated": {
+            "const": true,
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "channelID",
+          "updated"
+        ],
+        "type": "object"
+      },
+      "outputSchemaStrict": true,
+      "policyResource": "tool:channel.update",
+      "privacyClass": "platform_message",
+      "requiresApproval": true,
+      "requiresUserPresence": false,
+      "resultContract": {
+        "effects": [
+          {
+            "effect": "updated",
+            "effectIdentity": "id",
+            "objectType": "channel",
+            "resultField": "channelID"
+          }
+        ],
+        "schema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "additionalProperties": false,
+          "properties": {
+            "channelID": {
+              "minLength": 1,
+              "pattern": "^\\S(?:.*\\S)?$",
+              "type": "string"
+            },
+            "invitedUserIDs": {
+              "items": {
+                "minLength": 1,
+                "pattern": "^\\S(?:.*\\S)?$",
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "updated": {
+              "const": true,
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "channelID",
+            "updated"
+          ],
+          "type": "object"
+        }
+      },
+      "sideEffect": "external_write",
+      "sideEffectClass": "external_write",
+      "version": "2",
+      "worksOffline": false
+    },
+    {
+      "availability": {
+        "state": "ok"
+      },
+      "canonicalName": "web.search",
+      "description": "Search the public web and return ranked result snippets. Use this when you need current information, facts, or links that are not already in context. Do not use for workspace data, calendar, mail, or tasks — those have dedicated tools.",
+      "estimatedLatency": "medium",
+      "idempotency": {
+        "required": false,
+        "scope": "operation",
+        "supported": false
+      },
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "allowedDomains": {
+            "items": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "excludedDomains": {
+            "items": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "language": {
+            "type": "string"
+          },
+          "limit": {
+            "maximum": 10,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "location": {
+            "type": "string"
+          },
+          "query": {
+            "minLength": 1,
+            "pattern": "\\S",
+            "type": "string"
+          }
+        },
+        "required": [
+          "query"
+        ],
+        "type": "object"
+      },
+      "inputSchemaStrict": true,
+      "modelName": "web.search",
+      "modelVisibility": "visible",
+      "modelVisible": true,
+      "name": "web.search",
+      "namespace": "web",
+      "outputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "answer": {
+            "type": "string"
+          },
+          "compatibility": {
+            "type": "string"
+          },
+          "provider": {
+            "type": "string"
+          },
+          "query": {
+            "type": "string"
+          },
+          "remoteLLMInvolved": {
+            "type": "boolean"
+          },
+          "results": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "snippet": {
+                  "type": "string"
+                },
+                "source": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "url": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "title",
+                "url",
+                "snippet"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "provider",
+          "remoteLLMInvolved",
+          "compatibility",
+          "query",
+          "answer",
+          "results"
+        ],
+        "type": "object"
+      },
+      "outputSchemaStrict": true,
+      "policyResource": "tool:web.search",
+      "privacyClass": "public_web",
+      "requiresUserPresence": false,
+      "resultContract": {
+        "effects": [],
+        "schema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "additionalProperties": false,
+          "properties": {
+            "answer": {
+              "type": "string"
+            },
+            "compatibility": {
+              "type": "string"
+            },
+            "provider": {
+              "type": "string"
+            },
+            "query": {
+              "type": "string"
+            },
+            "remoteLLMInvolved": {
+              "type": "boolean"
+            },
+            "results": {
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "snippet": {
+                    "type": "string"
+                  },
+                  "source": {
+                    "type": "string"
+                  },
+                  "title": {
+                    "type": "string"
+                  },
+                  "url": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "title",
+                  "url",
+                  "snippet"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "provider",
+            "remoteLLMInvolved",
+            "compatibility",
+            "query",
+            "answer",
+            "results"
+          ],
+          "type": "object"
+        }
+      },
+      "sideEffect": "read",
+      "sideEffectClass": "read",
+      "version": "1",
+      "worksOffline": false
+    },
+    {
+      "availability": {
+        "state": "ok"
+      },
+      "canonicalName": "site.create",
+      "completionEvidence": {
+        "action": "create_site",
+        "mode": "success",
+        "targetKind": "site"
+      },
+      "description": "Create a site workspace and return its exact siteID and sourceWorkspacePath. Use file.edit on that path for subsequent source changes.",
+      "estimatedLatency": "medium",
+      "idempotency": {
+        "required": false,
+        "scope": "operation",
+        "supported": false
+      },
+      "inputIntentSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "archetype": {
+            "type": "string"
+          },
+          "audience": {
+            "type": "string"
+          },
+          "content": {
+            "additionalProperties": false,
+            "properties": {
+              "heroActionHref": {
+                "type": "string"
+              },
+              "heroActionLabel": {
+                "type": "string"
+              },
+              "sections": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "body": {
+                      "type": "string"
+                    },
+                    "title": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                },
+                "minItems": 1,
+                "type": "array"
+              },
+              "siteName": {
+                "type": "string"
+              },
+              "tagline": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "description": {
+            "type": "string"
+          },
+          "designBrief": {
+            "type": "string"
+          },
+          "domainKeywords": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "idea": {
+            "type": "string"
+          },
+          "prompt": {
+            "type": "string"
+          },
+          "prototypeScope": {
+            "type": "string"
+          },
+          "purpose": {
+            "type": "string"
+          },
+          "slug": {
+            "minLength": 1,
+            "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "archetype": {
+            "description": "Site archetype, such as dashboard or landing-page.",
+            "type": "string"
+          },
+          "audience": {
+            "description": "Intended audience.",
+            "type": "string"
+          },
+          "content": {
+            "additionalProperties": false,
+            "description": "Structured content for a basic content site.",
+            "properties": {
+              "heroActionHref": {
+                "type": "string"
+              },
+              "heroActionLabel": {
+                "type": "string"
+              },
+              "sections": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "body": {
+                      "type": "string"
+                    },
+                    "title": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "title",
+                    "body"
+                  ],
+                  "type": "object"
+                },
+                "minItems": 1,
+                "type": "array"
+              },
+              "siteName": {
+                "type": "string"
+              },
+              "tagline": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "siteName",
+              "sections"
+            ],
+            "type": "object"
+          },
+          "description": {
+            "description": "Short public-facing description.",
+            "type": "string"
+          },
+          "designBrief": {
+            "description": "Visual style and layout guidance.",
+            "type": "string"
+          },
+          "domainKeywords": {
+            "description": "Domain terms that should inform the site.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "idea": {
+            "description": "Core concept or value proposition.",
+            "type": "string"
+          },
+          "prompt": {
+            "description": "Natural-language description of the site to build.",
+            "type": "string"
+          },
+          "prototypeScope": {
+            "description": "Scope limit for the initial implementation.",
+            "type": "string"
+          },
+          "purpose": {
+            "description": "Why the site exists and who it serves.",
+            "type": "string"
+          },
+          "slug": {
+            "description": "Unique URL-safe site identifier, such as team-dashboard.",
+            "minLength": 1,
+            "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+            "type": "string"
+          },
+          "title": {
+            "description": "Human-readable site name.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "slug"
+        ],
+        "type": "object"
+      },
+      "inputSchemaStrict": true,
+      "modelName": "site.create",
+      "modelVisibility": "visible",
+      "modelVisible": true,
+      "name": "site.create",
+      "namespace": "site",
+      "outputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "appWorkspacePath": {
+            "minLength": 1,
+            "pattern": "^\\S(?:.*\\S)?$",
+            "type": "string"
+          },
+          "siteID": {
+            "minLength": 1,
+            "pattern": "^\\S(?:.*\\S)?$",
+            "type": "string"
+          },
+          "slug": {
+            "minLength": 1,
+            "pattern": "^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$",
+            "type": "string"
+          },
+          "sourceFiles": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "content": {
+                  "type": "string"
+                },
+                "path": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "path",
+                "content"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "sourceWorkspacePath": {
+            "minLength": 1,
+            "pattern": "^\\S(?:.*\\S)?$",
+            "type": "string"
+          },
+          "status": {
+            "const": "draft",
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "siteID",
+          "slug",
+          "title",
+          "status",
+          "sourceWorkspacePath",
+          "appWorkspacePath"
+        ],
+        "type": "object"
+      },
+      "outputSchemaStrict": true,
+      "policyResource": "tool:site.create",
+      "privacyClass": "workspace_site",
+      "requiresUserPresence": false,
+      "resultContract": {
+        "effects": [
+          {
+            "effect": "created",
+            "effectIdentity": "id",
+            "objectType": "website",
+            "resultField": "siteID"
+          }
+        ],
+        "schema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "additionalProperties": false,
+          "properties": {
+            "appWorkspacePath": {
+              "minLength": 1,
+              "pattern": "^\\S(?:.*\\S)?$",
+              "type": "string"
+            },
+            "siteID": {
+              "minLength": 1,
+              "pattern": "^\\S(?:.*\\S)?$",
+              "type": "string"
+            },
+            "slug": {
+              "minLength": 1,
+              "pattern": "^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$",
+              "type": "string"
+            },
+            "sourceFiles": {
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "content": {
+                    "type": "string"
+                  },
+                  "path": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "path",
+                  "content"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "sourceWorkspacePath": {
+              "minLength": 1,
+              "pattern": "^\\S(?:.*\\S)?$",
+              "type": "string"
+            },
+            "status": {
+              "const": "draft",
+              "type": "string"
+            },
+            "title": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "siteID",
+            "slug",
+            "title",
+            "status",
+            "sourceWorkspacePath",
+            "appWorkspacePath"
+          ],
+          "type": "object"
+        }
+      },
+      "sideEffect": "workspace_write",
+      "sideEffectClass": "workspace_write",
+      "version": "2",
+      "worksOffline": false
+    },
+    {
+      "availability": {
+        "state": "ok"
+      },
+      "canonicalName": "site.status",
+      "description": "Read one site by exact siteID or slug and return its sourceWorkspacePath, lifecycle status, and published or preview URLs.",
+      "estimatedLatency": "low",
+      "idempotency": {
+        "required": false,
+        "scope": "operation",
+        "supported": false
+      },
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "checkLive": {
+            "description": "Probe the published URL in addition to reading persisted status.",
+            "type": "boolean"
+          },
+          "siteReference": {
+            "description": "Exact siteID or exact slug from the request or an earlier site result.",
+            "minLength": 1,
+            "pattern": "^\\S(?:.*\\S)?$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "siteReference"
+        ],
+        "type": "object"
+      },
+      "inputSchemaStrict": true,
+      "modelName": "site.status",
+      "modelVisibility": "visible",
+      "modelVisible": true,
+      "name": "site.status",
+      "namespace": "site",
+      "outputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "appWorkspacePath": {
+            "minLength": 1,
+            "pattern": "^\\S(?:.*\\S)?$",
+            "type": "string"
+          },
+          "lastError": {
+            "type": "string"
+          },
+          "liveHTTPStatus": {
+            "maximum": 9007199254740991,
+            "minimum": -9007199254740991,
+            "type": "integer"
+          },
+          "previewURL": {
+            "minLength": 1,
+            "pattern": "^\\S(?:.*\\S)?$",
+            "type": "string"
+          },
+          "publishedURL": {
+            "minLength": 1,
+            "pattern": "^\\S(?:.*\\S)?$",
+            "type": "string"
+          },
+          "siteID": {
+            "minLength": 1,
+            "pattern": "^\\S(?:.*\\S)?$",
+            "type": "string"
+          },
+          "slug": {
+            "minLength": 1,
+            "pattern": "^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$",
+            "type": "string"
+          },
+          "sourceWorkspacePath": {
+            "minLength": 1,
+            "pattern": "^\\S(?:.*\\S)?$",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "draft",
+              "publishing",
+              "published",
+              "unpublished",
+              "failed"
+            ],
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "type": "string"
+          },
+          "workspaceHealth": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "siteID",
+          "slug",
+          "title",
+          "status",
+          "sourceWorkspacePath"
+        ],
+        "type": "object"
+      },
+      "outputSchemaStrict": true,
+      "policyResource": "tool:site.status",
+      "privacyClass": "workspace_site",
+      "requiresUserPresence": false,
+      "resultContract": {
+        "effects": [],
+        "schema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "additionalProperties": false,
+          "properties": {
+            "appWorkspacePath": {
+              "minLength": 1,
+              "pattern": "^\\S(?:.*\\S)?$",
+              "type": "string"
+            },
+            "lastError": {
+              "type": "string"
+            },
+            "liveHTTPStatus": {
+              "maximum": 9007199254740991,
+              "minimum": -9007199254740991,
+              "type": "integer"
+            },
+            "previewURL": {
+              "minLength": 1,
+              "pattern": "^\\S(?:.*\\S)?$",
+              "type": "string"
+            },
+            "publishedURL": {
+              "minLength": 1,
+              "pattern": "^\\S(?:.*\\S)?$",
+              "type": "string"
+            },
+            "siteID": {
+              "minLength": 1,
+              "pattern": "^\\S(?:.*\\S)?$",
+              "type": "string"
+            },
+            "slug": {
+              "minLength": 1,
+              "pattern": "^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$",
+              "type": "string"
+            },
+            "sourceWorkspacePath": {
+              "minLength": 1,
+              "pattern": "^\\S(?:.*\\S)?$",
+              "type": "string"
+            },
+            "status": {
+              "enum": [
+                "draft",
+                "publishing",
+                "published",
+                "unpublished",
+                "failed"
+              ],
+              "type": "string"
+            },
+            "title": {
+              "type": "string"
+            },
+            "updatedAt": {
+              "type": "string"
+            },
+            "workspaceHealth": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "siteID",
+            "slug",
+            "title",
+            "status",
+            "sourceWorkspacePath"
+          ],
+          "type": "object"
+        }
+      },
+      "sideEffect": "read",
+      "sideEffectClass": "read",
+      "version": "2",
+      "worksOffline": false
+    },
+    {
+      "availability": {
+        "state": "ok"
+      },
+      "canonicalName": "site.preview",
+      "completionEvidence": {
+        "action": "preview_site",
+        "mode": "success",
+        "targetKind": "site"
+      },
+      "description": "Create a reviewable preview for the exact siteID after source changes have been made with file.edit.",
+      "estimatedLatency": "high",
+      "idempotency": {
+        "required": false,
+        "scope": "operation",
+        "supported": false
+      },
+      "inputIntentSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "previewID": {
+            "description": "Existing preview ID to refresh. Omit to create a new preview.",
+            "minLength": 1,
+            "pattern": "^\\S(?:.*\\S)?$",
+            "type": "string"
+          },
+          "siteID": {
+            "description": "Exact site ID from site.create or site.status.",
+            "minLength": 1,
+            "pattern": "^\\S(?:.*\\S)?$",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "previewID": {
+            "description": "Existing preview ID to refresh. Omit to create a new preview.",
+            "minLength": 1,
+            "pattern": "^\\S(?:.*\\S)?$",
+            "type": "string"
+          },
+          "siteID": {
+            "description": "Exact site ID from site.create or site.status.",
+            "minLength": 1,
+            "pattern": "^\\S(?:.*\\S)?$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "siteID"
+        ],
+        "type": "object"
+      },
+      "inputSchemaStrict": true,
+      "modelName": "site.preview",
+      "modelVisibility": "visible",
+      "modelVisible": true,
+      "name": "site.preview",
+      "namespace": "site",
+      "outputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "previewExpiresAt": {
+            "type": "string"
+          },
+          "previewID": {
+            "minLength": 1,
+            "pattern": "^\\S(?:.*\\S)?$",
+            "type": "string"
+          },
+          "previewURL": {
+            "minLength": 1,
+            "pattern": "^\\S(?:.*\\S)?$",
+            "type": "string"
+          },
+          "siteID": {
+            "minLength": 1,
+            "pattern": "^\\S(?:.*\\S)?$",
+            "type": "string"
+          },
+          "sourceWorkspacePath": {
+            "minLength": 1,
+            "pattern": "^\\S(?:.*\\S)?$",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "draft",
+              "publishing",
+              "published",
+              "unpublished",
+              "failed"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "siteID",
+          "status",
+          "sourceWorkspacePath",
+          "previewID",
+          "previewURL",
+          "previewExpiresAt"
+        ],
+        "type": "object"
+      },
+      "outputSchemaStrict": true,
+      "policyResource": "tool:site.preview",
+      "privacyClass": "workspace_site",
+      "requiresUserPresence": false,
+      "resultContract": {
+        "effects": [
+          {
+            "effect": "previewed",
+            "effectIdentity": "id",
+            "objectType": "website",
+            "resultField": "siteID"
+          }
+        ],
+        "schema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "additionalProperties": false,
+          "properties": {
+            "previewExpiresAt": {
+              "type": "string"
+            },
+            "previewID": {
+              "minLength": 1,
+              "pattern": "^\\S(?:.*\\S)?$",
+              "type": "string"
+            },
+            "previewURL": {
+              "minLength": 1,
+              "pattern": "^\\S(?:.*\\S)?$",
+              "type": "string"
+            },
+            "siteID": {
+              "minLength": 1,
+              "pattern": "^\\S(?:.*\\S)?$",
+              "type": "string"
+            },
+            "sourceWorkspacePath": {
+              "minLength": 1,
+              "pattern": "^\\S(?:.*\\S)?$",
+              "type": "string"
+            },
+            "status": {
+              "enum": [
+                "draft",
+                "publishing",
+                "published",
+                "unpublished",
+                "failed"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "siteID",
+            "status",
+            "sourceWorkspacePath",
+            "previewID",
+            "previewURL",
+            "previewExpiresAt"
+          ],
+          "type": "object"
+        }
+      },
+      "sideEffect": "external_publish",
+      "sideEffectClass": "external_publish",
+      "version": "2",
+      "worksOffline": false
+    },
+    {
+      "availability": {
+        "state": "ok"
+      },
+      "canonicalName": "site.publish",
+      "completionEvidence": {
+        "action": "publish_site",
+        "mode": "success",
+        "targetKind": "site"
+      },
+      "description": "Publish the exact siteID after editing and optional preview verification, returning the public URL and deployed version.",
+      "estimatedLatency": "high",
+      "idempotency": {
+        "required": false,
+        "scope": "operation",
+        "supported": false
+      },
+      "inputIntentSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "message": {
+            "description": "Short revision message describing the edits being published.",
+            "type": "string"
+          },
+          "previewID": {
+            "description": "Preview ID whose reviewed source should be published.",
+            "minLength": 1,
+            "pattern": "^\\S(?:.*\\S)?$",
+            "type": "string"
+          },
+          "siteID": {
+            "description": "Exact site ID from site.create or site.status.",
+            "minLength": 1,
+            "pattern": "^\\S(?:.*\\S)?$",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "message": {
+            "description": "Short revision message describing the edits being published.",
+            "type": "string"
+          },
+          "previewID": {
+            "description": "Preview ID whose reviewed source should be published.",
+            "minLength": 1,
+            "pattern": "^\\S(?:.*\\S)?$",
+            "type": "string"
+          },
+          "siteID": {
+            "description": "Exact site ID from site.create or site.status.",
+            "minLength": 1,
+            "pattern": "^\\S(?:.*\\S)?$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "siteID"
+        ],
+        "type": "object"
+      },
+      "inputSchemaStrict": true,
+      "modelName": "site.publish",
+      "modelVisibility": "visible",
+      "modelVisible": true,
+      "name": "site.publish",
+      "namespace": "site",
+      "outputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "currentVersionID": {
+            "minLength": 1,
+            "pattern": "^\\S(?:.*\\S)?$",
+            "type": "string"
+          },
+          "publishedURL": {
+            "minLength": 1,
+            "pattern": "^\\S(?:.*\\S)?$",
+            "type": "string"
+          },
+          "siteID": {
+            "minLength": 1,
+            "pattern": "^\\S(?:.*\\S)?$",
+            "type": "string"
+          },
+          "sourceSHA256": {
+            "pattern": "^[a-f0-9]{64}$",
+            "type": "string"
+          },
+          "sourceWorkspacePath": {
+            "minLength": 1,
+            "pattern": "^\\S(?:.*\\S)?$",
+            "type": "string"
+          },
+          "status": {
+            "const": "published",
+            "type": "string"
+          }
+        },
+        "required": [
+          "siteID",
+          "status",
+          "sourceWorkspacePath",
+          "sourceSHA256",
+          "publishedURL",
+          "currentVersionID"
+        ],
+        "type": "object"
+      },
+      "outputSchemaStrict": true,
+      "policyResource": "tool:site.publish",
+      "privacyClass": "workspace_site",
+      "requiresUserPresence": false,
+      "resultContract": {
+        "effects": [
+          {
+            "effect": "published",
+            "effectIdentity": "id",
+            "objectType": "website",
+            "resultField": "siteID"
+          },
+          {
+            "effect": "published",
+            "effectIdentity": "url",
+            "objectType": "website",
+            "resultField": "publishedURL"
+          }
+        ],
+        "schema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "additionalProperties": false,
+          "properties": {
+            "currentVersionID": {
+              "minLength": 1,
+              "pattern": "^\\S(?:.*\\S)?$",
+              "type": "string"
+            },
+            "publishedURL": {
+              "minLength": 1,
+              "pattern": "^\\S(?:.*\\S)?$",
+              "type": "string"
+            },
+            "siteID": {
+              "minLength": 1,
+              "pattern": "^\\S(?:.*\\S)?$",
+              "type": "string"
+            },
+            "sourceSHA256": {
+              "pattern": "^[a-f0-9]{64}$",
+              "type": "string"
+            },
+            "sourceWorkspacePath": {
+              "minLength": 1,
+              "pattern": "^\\S(?:.*\\S)?$",
+              "type": "string"
+            },
+            "status": {
+              "const": "published",
+              "type": "string"
+            }
+          },
+          "required": [
+            "siteID",
+            "status",
+            "sourceWorkspacePath",
+            "sourceSHA256",
+            "publishedURL",
+            "currentVersionID"
+          ],
+          "type": "object"
+        }
+      },
+      "sideEffect": "site_publish",
+      "sideEffectClass": "site_publish",
+      "version": "2",
+      "worksOffline": false
+    },
+    {
+      "availability": {
+        "state": "ok"
+      },
+      "canonicalName": "site.delete",
+      "completionEvidence": {
+        "action": "delete_site",
+        "mode": "success",
+        "targetKind": "site"
+      },
+      "description": "Permanently delete the exact siteID after explicit runtime approval.",
+      "estimatedLatency": "medium",
+      "idempotency": {
+        "required": false,
+        "scope": "operation",
+        "supported": false
+      },
+      "inputIntentSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "reason": {
+            "description": "Reason shown in the approval prompt.",
+            "type": "string"
+          },
+          "siteID": {
+            "description": "Exact site ID from site.status.",
+            "minLength": 1,
+            "pattern": "^\\S(?:.*\\S)?$",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "reason": {
+            "description": "Reason shown in the approval prompt.",
+            "type": "string"
+          },
+          "siteID": {
+            "description": "Exact site ID from site.status.",
+            "minLength": 1,
+            "pattern": "^\\S(?:.*\\S)?$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "siteID"
+        ],
+        "type": "object"
+      },
+      "inputSchemaStrict": true,
+      "modelName": "site.delete",
+      "modelVisibility": "visible",
+      "modelVisible": true,
+      "name": "site.delete",
+      "namespace": "site",
+      "outputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "deleted": {
+            "const": true,
+            "type": "boolean"
+          },
+          "siteID": {
+            "minLength": 1,
+            "pattern": "^\\S(?:.*\\S)?$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "siteID",
+          "deleted"
+        ],
+        "type": "object"
+      },
+      "outputSchemaStrict": true,
+      "policyResource": "tool:site.delete",
+      "privacyClass": "workspace_site",
+      "requiresApproval": true,
+      "requiresUserPresence": false,
+      "resultContract": {
+        "effects": [
+          {
+            "effect": "deleted",
+            "effectIdentity": "id",
+            "objectType": "website",
+            "resultField": "siteID"
+          }
+        ],
+        "schema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "additionalProperties": false,
+          "properties": {
+            "deleted": {
+              "const": true,
+              "type": "boolean"
+            },
+            "siteID": {
+              "minLength": 1,
+              "pattern": "^\\S(?:.*\\S)?$",
+              "type": "string"
+            }
+          },
+          "required": [
+            "siteID",
+            "deleted"
+          ],
+          "type": "object"
+        }
+      },
+      "sideEffect": "destructive",
+      "sideEffectClass": "destructive",
+      "version": "2",
+      "worksOffline": false
+    },
+    {
+      "availability": {
+        "state": "ok"
+      },
+      "canonicalName": "document.read",
+      "description": "Read a workspace document from an exact /workspace path and return Markdown content. Use image.read for image files.",
+      "estimatedLatency": "high",
+      "idempotency": {
+        "required": false,
+        "scope": "operation",
+        "supported": false
+      },
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "maxOutputBytes": {
+            "description": "Maximum Markdown bytes to return. Omit for the runtime default.",
+            "maximum": 1000000,
+            "minimum": 1024,
+            "type": "integer"
+          },
+          "maxPages": {
+            "description": "Maximum PDF pages to extract. Omit for the runtime default.",
+            "maximum": 500,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "path": {
+            "description": "Exact absolute /workspace path of the document to read.",
+            "minLength": 1,
+            "pattern": "^\\S(?:.*\\S)?$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "path"
+        ],
+        "type": "object"
+      },
+      "inputSchemaStrict": true,
+      "modelName": "document.read",
+      "modelVisibility": "visible",
+      "modelVisible": true,
+      "name": "document.read",
+      "namespace": "document",
+      "outputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "backend": {
+            "type": "string"
+          },
+          "content": {
+            "type": "string"
+          },
+          "format": {
+            "const": "markdown",
+            "type": "string"
+          },
+          "model": {
+            "type": "string"
+          },
+          "path": {
+            "minLength": 1,
+            "pattern": "^\\S(?:.*\\S)?$",
+            "type": "string"
+          },
+          "status": {
+            "const": "ok",
+            "type": "string"
+          },
+          "truncated": {
+            "type": "boolean"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "status",
+          "path",
+          "format",
+          "content",
+          "warnings",
+          "truncated"
+        ],
+        "type": "object"
+      },
+      "outputSchemaStrict": true,
+      "policyResource": "tool:document.read",
+      "privacyClass": "workspace_document",
+      "requiresUserPresence": false,
+      "resultContract": {
+        "effects": [],
+        "schema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "additionalProperties": false,
+          "properties": {
+            "backend": {
+              "type": "string"
+            },
+            "content": {
+              "type": "string"
+            },
+            "format": {
+              "const": "markdown",
+              "type": "string"
+            },
+            "model": {
+              "type": "string"
+            },
+            "path": {
+              "minLength": 1,
+              "pattern": "^\\S(?:.*\\S)?$",
+              "type": "string"
+            },
+            "status": {
+              "const": "ok",
+              "type": "string"
+            },
+            "truncated": {
+              "type": "boolean"
+            },
+            "warnings": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "status",
+            "path",
+            "format",
+            "content",
+            "warnings",
+            "truncated"
+          ],
+          "type": "object"
+        }
+      },
+      "sideEffect": "read",
+      "sideEffectClass": "read",
+      "version": "1",
+      "worksOffline": false
+    },
+    {
+      "availability": {
+        "state": "ok"
+      },
+      "canonicalName": "image.read",
+      "description": "Read a workspace image from an exact /workspace path and return a base64 attachment. Use document.read for document files.",
+      "estimatedLatency": "medium",
+      "idempotency": {
+        "required": false,
+        "scope": "operation",
+        "supported": false
+      },
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "path": {
+            "description": "Exact absolute /workspace path of the image to read.",
+            "minLength": 1,
+            "pattern": "^\\S(?:.*\\S)?$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "path"
+        ],
+        "type": "object"
+      },
+      "inputSchemaStrict": true,
+      "modelName": "image.read",
+      "modelVisibility": "visible",
+      "modelVisible": true,
+      "name": "image.read",
+      "namespace": "image",
+      "outputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "attachments": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "contentBase64": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "contentType": {
+                  "minLength": 1,
+                  "pattern": "^\\S(?:.*\\S)?$",
+                  "type": "string"
+                },
+                "devicePath": {
+                  "minLength": 1,
+                  "pattern": "^\\S(?:.*\\S)?$",
+                  "type": "string"
+                },
+                "filename": {
+                  "minLength": 1,
+                  "pattern": "^\\S(?:.*\\S)?$",
+                  "type": "string"
+                },
+                "sizeBytes": {
+                  "maximum": 9007199254740991,
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "devicePath",
+                "filename",
+                "contentType",
+                "sizeBytes",
+                "contentBase64"
+              ],
+              "type": "object"
+            },
+            "minItems": 1,
+            "type": "array"
+          },
+          "path": {
+            "minLength": 1,
+            "pattern": "^\\S(?:.*\\S)?$",
+            "type": "string"
+          },
+          "status": {
+            "const": "ok",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "path",
+          "attachments"
+        ],
+        "type": "object"
+      },
+      "outputSchemaStrict": true,
+      "policyResource": "tool:image.read",
+      "privacyClass": "workspace_document",
+      "requiresUserPresence": false,
+      "resultContract": {
+        "effects": [],
+        "schema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "additionalProperties": false,
+          "properties": {
+            "attachments": {
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "contentBase64": {
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "contentType": {
+                    "minLength": 1,
+                    "pattern": "^\\S(?:.*\\S)?$",
+                    "type": "string"
+                  },
+                  "devicePath": {
+                    "minLength": 1,
+                    "pattern": "^\\S(?:.*\\S)?$",
+                    "type": "string"
+                  },
+                  "filename": {
+                    "minLength": 1,
+                    "pattern": "^\\S(?:.*\\S)?$",
+                    "type": "string"
+                  },
+                  "sizeBytes": {
+                    "maximum": 9007199254740991,
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "devicePath",
+                  "filename",
+                  "contentType",
+                  "sizeBytes",
+                  "contentBase64"
+                ],
+                "type": "object"
+              },
+              "minItems": 1,
+              "type": "array"
+            },
+            "path": {
+              "minLength": 1,
+              "pattern": "^\\S(?:.*\\S)?$",
+              "type": "string"
+            },
+            "status": {
+              "const": "ok",
+              "type": "string"
+            }
+          },
+          "required": [
+            "status",
+            "path",
+            "attachments"
+          ],
+          "type": "object"
+        }
+      },
+      "sideEffect": "read",
+      "sideEffectClass": "read",
+      "version": "1",
+      "worksOffline": false
+    },
+    {
+      "availability": {
+        "state": "ok"
+      },
+      "canonicalName": "browser.open",
+      "description": "Open an exact HTTP or HTTPS URL in the available browser and return the resulting page identity and initial structure.",
+      "estimatedLatency": "interactive",
+      "idempotency": {
+        "required": false,
+        "scope": "operation",
+        "supported": false
+      },
+      "inputIntentSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "url": {
+            "description": "Absolute HTTP or HTTPS URL to open.",
+            "minLength": 1,
+            "pattern": "^\\S(?:.*\\S)?$",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "url": {
+            "description": "Absolute HTTP or HTTPS URL to open.",
+            "minLength": 1,
+            "pattern": "^\\S(?:.*\\S)?$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "url"
+        ],
+        "type": "object"
+      },
+      "inputSchemaStrict": true,
+      "modelName": "browser.open",
+      "modelVisibility": "visible",
+      "modelVisible": true,
+      "name": "browser.open",
+      "namespace": "browser",
+      "outputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "capturedAt": {
+            "minLength": 1,
+            "pattern": "^\\S(?:.*\\S)?$",
+            "type": "string"
+          },
+          "interactiveRefs": {
+            "items": {
+              "minLength": 1,
+              "pattern": "^\\S(?:.*\\S)?$",
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "requestedURL": {
+            "minLength": 1,
+            "pattern": "^\\S(?:.*\\S)?$",
+            "type": "string"
+          },
+          "snapshotText": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "url": {
+            "minLength": 1,
+            "pattern": "^\\S(?:.*\\S)?$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "url",
+          "requestedURL",
+          "capturedAt"
+        ],
+        "type": "object"
+      },
+      "outputSchemaStrict": true,
+      "policyResource": "tool:browser.open",
+      "privacyClass": "user_browser",
+      "requiresUserPresence": true,
+      "resultContract": {
+        "effects": [],
+        "schema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "additionalProperties": false,
+          "properties": {
+            "capturedAt": {
+              "minLength": 1,
+              "pattern": "^\\S(?:.*\\S)?$",
+              "type": "string"
+            },
+            "interactiveRefs": {
+              "items": {
+                "minLength": 1,
+                "pattern": "^\\S(?:.*\\S)?$",
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "requestedURL": {
+              "minLength": 1,
+              "pattern": "^\\S(?:.*\\S)?$",
+              "type": "string"
+            },
+            "snapshotText": {
+              "type": "string"
+            },
+            "title": {
+              "type": "string"
+            },
+            "url": {
+              "minLength": 1,
+              "pattern": "^\\S(?:.*\\S)?$",
+              "type": "string"
+            }
+          },
+          "required": [
+            "url",
+            "requestedURL",
+            "capturedAt"
+          ],
+          "type": "object"
+        }
+      },
+      "sideEffect": "connect",
+      "sideEffectClass": "connect",
+      "version": "2",
+      "worksOffline": false
+    },
+    {
+      "availability": {
+        "state": "ok"
+      },
+      "canonicalName": "browser.snapshot",
+      "description": "Read the current browser page structure and return stable interactive references for inspection and control.",
+      "estimatedLatency": "interactive",
+      "idempotency": {
+        "required": false,
+        "scope": "operation",
+        "supported": false
+      },
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {},
+        "type": "object"
+      },
+      "inputSchemaStrict": true,
+      "modelName": "browser.snapshot",
+      "modelVisibility": "visible",
+      "modelVisible": true,
+      "name": "browser.snapshot",
+      "namespace": "browser",
+      "outputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "capturedAt": {
+            "minLength": 1,
+            "pattern": "^\\S(?:.*\\S)?$",
+            "type": "string"
+          },
+          "hasMore": {
+            "type": "boolean"
+          },
+          "interactiveRefs": {
+            "items": {
+              "minLength": 1,
+              "pattern": "^\\S(?:.*\\S)?$",
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "snapshotText": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "url": {
+            "minLength": 1,
+            "pattern": "^\\S(?:.*\\S)?$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "snapshotText",
+          "interactiveRefs",
+          "hasMore",
+          "capturedAt"
+        ],
+        "type": "object"
+      },
+      "outputSchemaStrict": true,
+      "policyResource": "tool:browser.snapshot",
+      "privacyClass": "user_browser",
+      "requiresUserPresence": false,
+      "resultContract": {
+        "effects": [],
+        "schema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "additionalProperties": false,
+          "properties": {
+            "capturedAt": {
+              "minLength": 1,
+              "pattern": "^\\S(?:.*\\S)?$",
+              "type": "string"
+            },
+            "hasMore": {
+              "type": "boolean"
+            },
+            "interactiveRefs": {
+              "items": {
+                "minLength": 1,
+                "pattern": "^\\S(?:.*\\S)?$",
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "snapshotText": {
+              "type": "string"
+            },
+            "title": {
+              "type": "string"
+            },
+            "url": {
+              "minLength": 1,
+              "pattern": "^\\S(?:.*\\S)?$",
+              "type": "string"
+            }
+          },
+          "required": [
+            "snapshotText",
+            "interactiveRefs",
+            "hasMore",
+            "capturedAt"
+          ],
+          "type": "object"
+        }
+      },
+      "sideEffect": "read",
+      "sideEffectClass": "read",
+      "version": "2",
+      "worksOffline": false
+    },
+    {
+      "availability": {
+        "state": "ok"
+      },
+      "canonicalName": "browser.screenshot",
+      "description": "Capture the visible browser page and upload it to a temporary workspace-visible device path for visual review.",
+      "estimatedLatency": "interactive",
+      "idempotency": {
+        "required": false,
+        "scope": "operation",
+        "supported": false
+      },
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "ttlSeconds": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "inputSchemaStrict": true,
+      "modelName": "browser.screenshot",
+      "modelVisibility": "visible",
+      "modelVisible": true,
+      "name": "browser.screenshot",
+      "namespace": "browser",
+      "outputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "capturedAt": {
+            "minLength": 1,
+            "pattern": "^\\S(?:.*\\S)?$",
+            "type": "string"
+          },
+          "contentType": {
+            "minLength": 1,
+            "pattern": "^\\S(?:.*\\S)?$",
+            "type": "string"
+          },
+          "devicePath": {
+            "minLength": 1,
+            "pattern": "^\\S(?:.*\\S)?$",
+            "type": "string"
+          },
+          "expiresAt": {
+            "minLength": 1,
+            "pattern": "^\\S(?:.*\\S)?$",
+            "type": "string"
+          },
+          "fileID": {
+            "minLength": 1,
+            "pattern": "^\\S(?:.*\\S)?$",
+            "type": "string"
+          },
+          "filename": {
+            "minLength": 1,
+            "pattern": "^\\S(?:.*\\S)?$",
+            "type": "string"
+          },
+          "sizeBytes": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "fileID",
+          "filename",
+          "sizeBytes",
+          "contentType",
+          "devicePath",
+          "expiresAt",
+          "capturedAt"
+        ],
+        "type": "object"
+      },
+      "outputSchemaStrict": true,
+      "policyResource": "tool:browser.screenshot",
+      "privacyClass": "user_browser",
+      "requiresUserPresence": false,
+      "resultContract": {
+        "effects": [],
+        "schema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "additionalProperties": false,
+          "properties": {
+            "capturedAt": {
+              "minLength": 1,
+              "pattern": "^\\S(?:.*\\S)?$",
+              "type": "string"
+            },
+            "contentType": {
+              "minLength": 1,
+              "pattern": "^\\S(?:.*\\S)?$",
+              "type": "string"
+            },
+            "devicePath": {
+              "minLength": 1,
+              "pattern": "^\\S(?:.*\\S)?$",
+              "type": "string"
+            },
+            "expiresAt": {
+              "minLength": 1,
+              "pattern": "^\\S(?:.*\\S)?$",
+              "type": "string"
+            },
+            "fileID": {
+              "minLength": 1,
+              "pattern": "^\\S(?:.*\\S)?$",
+              "type": "string"
+            },
+            "filename": {
+              "minLength": 1,
+              "pattern": "^\\S(?:.*\\S)?$",
+              "type": "string"
+            },
+            "sizeBytes": {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "fileID",
+            "filename",
+            "sizeBytes",
+            "contentType",
+            "devicePath",
+            "expiresAt",
+            "capturedAt"
+          ],
+          "type": "object"
+        }
+      },
+      "sideEffect": "read",
+      "sideEffectClass": "read",
+      "version": "2",
+      "worksOffline": false
+    },
+    {
+      "availability": {
+        "state": "ok"
+      },
+      "canonicalName": "browser.click",
+      "description": "Click one exact target from the current browser snapshot and return the completed action.",
+      "estimatedLatency": "interactive",
+      "idempotency": {
+        "required": false,
+        "scope": "operation",
+        "supported": false
+      },
+      "inputIntentSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "ref": {
+            "minLength": 1,
+            "pattern": "^\\S(?:.*\\S)?$",
+            "type": "string"
+          },
+          "selector": {
+            "minLength": 1,
+            "pattern": "^\\S(?:.*\\S)?$",
+            "type": "string"
+          },
+          "target": {
+            "minLength": 1,
+            "pattern": "^\\S(?:.*\\S)?$",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "minProperties": 1,
+        "properties": {
+          "ref": {
+            "minLength": 1,
+            "pattern": "^\\S(?:.*\\S)?$",
+            "type": "string"
+          },
+          "selector": {
+            "minLength": 1,
+            "pattern": "^\\S(?:.*\\S)?$",
+            "type": "string"
+          },
+          "target": {
+            "minLength": 1,
+            "pattern": "^\\S(?:.*\\S)?$",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "inputSchemaStrict": true,
+      "modelName": "browser.click",
+      "modelVisibility": "visible",
+      "modelVisible": true,
+      "name": "browser.click",
+      "namespace": "browser",
+      "outputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "action": {
+            "const": "click",
+            "type": "string"
+          },
+          "capturedAt": {
+            "minLength": 1,
+            "pattern": "^\\S(?:.*\\S)?$",
+            "type": "string"
+          },
+          "ok": {
+            "const": true,
+            "type": "boolean"
+          },
+          "target": {
+            "minLength": 1,
+            "pattern": "^\\S(?:.*\\S)?$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ok",
+          "action",
+          "target",
+          "capturedAt"
+        ],
+        "type": "object"
+      },
+      "outputSchemaStrict": true,
+      "policyResource": "tool:browser.click",
+      "privacyClass": "user_browser",
+      "requiresUserPresence": false,
+      "resultContract": {
+        "effects": [],
+        "schema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "additionalProperties": false,
+          "properties": {
+            "action": {
+              "const": "click",
+              "type": "string"
+            },
+            "capturedAt": {
+              "minLength": 1,
+              "pattern": "^\\S(?:.*\\S)?$",
+              "type": "string"
+            },
+            "ok": {
+              "const": true,
+              "type": "boolean"
+            },
+            "target": {
+              "minLength": 1,
+              "pattern": "^\\S(?:.*\\S)?$",
+              "type": "string"
+            }
+          },
+          "required": [
+            "ok",
+            "action",
+            "target",
+            "capturedAt"
+          ],
+          "type": "object"
+        }
+      },
+      "sideEffect": "external_write",
+      "sideEffectClass": "external_write",
+      "version": "2",
+      "worksOffline": false
+    },
+    {
+      "availability": {
+        "state": "ok"
+      },
+      "canonicalName": "artifact.review",
+      "description": "Review rendered artifact screenshots against a concrete intent and rubric, returning typed visual issues and suggested fixes.",
+      "estimatedLatency": "high",
+      "idempotency": {
+        "required": false,
+        "scope": "operation",
+        "supported": false
+      },
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "artifactKind": {
+            "enum": [
+              "site",
+              "slides",
+              "pptx",
+              "docx",
+              "pdf"
+            ],
+            "type": "string"
+          },
+          "evidence": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "label": {
+                  "minLength": 1,
+                  "pattern": "^\\S(?:.*\\S)?$",
+                  "type": "string"
+                },
+                "mimeType": {
+                  "enum": [
+                    "image/png",
+                    "image/jpeg"
+                  ],
+                  "type": "string"
+                },
+                "path": {
+                  "minLength": 1,
+                  "pattern": "^\\S(?:.*\\S)?$",
+                  "type": "string"
+                },
+                "role": {
+                  "minLength": 1,
+                  "pattern": "^\\S(?:.*\\S)?$",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "role",
+                "path",
+                "mimeType",
+                "label"
+              ],
+              "type": "object"
+            },
+            "maxItems": 8,
+            "minItems": 1,
+            "type": "array"
+          },
+          "expectedText": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "target": {
+                  "minLength": 1,
+                  "pattern": "^\\S(?:.*\\S)?$",
+                  "type": "string"
+                },
+                "text": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "target",
+                "text"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "intent": {
+            "minLength": 1,
+            "pattern": "^\\S(?:.*\\S)?$",
+            "type": "string"
+          },
+          "previousIssues": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "category": {
+                  "enum": [
+                    "textFit",
+                    "layout",
+                    "visualHierarchy",
+                    "contentDensity",
+                    "templateSmell",
+                    "responsiveness",
+                    "renderFidelity"
+                  ],
+                  "type": "string"
+                },
+                "message": {
+                  "type": "string"
+                },
+                "severity": {
+                  "enum": [
+                    "blocking",
+                    "warning",
+                    "info"
+                  ],
+                  "type": "string"
+                },
+                "suggestedFix": {
+                  "type": "string"
+                },
+                "target": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "severity",
+                "category",
+                "target",
+                "message",
+                "suggestedFix"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "rubric": {
+            "minLength": 1,
+            "pattern": "^\\S(?:.*\\S)?$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "artifactKind",
+          "intent",
+          "rubric",
+          "evidence"
+        ],
+        "type": "object"
+      },
+      "inputSchemaStrict": true,
+      "modelName": "artifact.review",
+      "modelVisibility": "visible",
+      "modelVisible": true,
+      "name": "artifact.review",
+      "namespace": "artifact",
+      "outputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "acceptedWarnings": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "issues": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "category": {
+                  "enum": [
+                    "textFit",
+                    "layout",
+                    "visualHierarchy",
+                    "contentDensity",
+                    "templateSmell",
+                    "responsiveness",
+                    "renderFidelity"
+                  ],
+                  "type": "string"
+                },
+                "message": {
+                  "type": "string"
+                },
+                "severity": {
+                  "enum": [
+                    "blocking",
+                    "warning",
+                    "info"
+                  ],
+                  "type": "string"
+                },
+                "suggestedFix": {
+                  "type": "string"
+                },
+                "target": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "severity",
+                "category",
+                "target",
+                "message",
+                "suggestedFix"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "passed": {
+            "type": "boolean"
+          },
+          "summary": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "passed",
+          "issues",
+          "acceptedWarnings",
+          "summary"
+        ],
+        "type": "object"
+      },
+      "outputSchemaStrict": true,
+      "policyResource": "tool:artifact.review",
+      "privacyClass": "workspace_document",
+      "requiresUserPresence": false,
+      "resultContract": {
+        "effects": [],
+        "evidenceCondition": {
+          "equals": true,
+          "resultField": "passed"
+        },
+        "schema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "additionalProperties": false,
+          "properties": {
+            "acceptedWarnings": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "issues": {
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "category": {
+                    "enum": [
+                      "textFit",
+                      "layout",
+                      "visualHierarchy",
+                      "contentDensity",
+                      "templateSmell",
+                      "responsiveness",
+                      "renderFidelity"
+                    ],
+                    "type": "string"
+                  },
+                  "message": {
+                    "type": "string"
+                  },
+                  "severity": {
+                    "enum": [
+                      "blocking",
+                      "warning",
+                      "info"
+                    ],
+                    "type": "string"
+                  },
+                  "suggestedFix": {
+                    "type": "string"
+                  },
+                  "target": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "severity",
+                  "category",
+                  "target",
+                  "message",
+                  "suggestedFix"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "passed": {
+              "type": "boolean"
+            },
+            "summary": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "passed",
+            "issues",
+            "acceptedWarnings",
+            "summary"
+          ],
+          "type": "object"
+        }
+      },
+      "sideEffect": "read",
+      "sideEffectClass": "read",
+      "version": "2",
+      "worksOffline": false
+    }
+  ]
+}

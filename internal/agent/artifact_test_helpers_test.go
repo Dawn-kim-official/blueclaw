@@ -13,7 +13,7 @@ func writeValidPPTXTestFile(t *testing.T, path string) {
 		t.Fatal(errorValue)
 	}
 	zipWriter := zip.NewWriter(file)
-	for _, name := range []string{"[Content_Types].xml", "ppt/presentation.xml", "ppt/slides/slide1.xml", "ppt/slides/slide2.xml"} {
+	for _, name := range []string{"[Content_Types].xml", "_rels/.rels", "ppt/presentation.xml", "ppt/_rels/presentation.xml.rels", "ppt/slides/slide1.xml", "ppt/slides/slide2.xml"} {
 		writer, errorValue := zipWriter.Create(name)
 		if errorValue != nil {
 			t.Fatal(errorValue)
