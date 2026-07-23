@@ -273,7 +273,7 @@ func (actor POSIXHelperWorkspaceActor) executeFSWithResponse(ctx context.Context
 		return actorError(operation, "resolve_identity", actor.executionIdentity, path, ActorErrorCodeIdentityMissing, errorValue.Error())
 	}
 	arguments := fsHelperArguments(operation, resolvedIdentity, request)
-	executionContext, cancelFunction := context.WithTimeout(ctx, 30*time.Second)
+	executionContext, cancelFunction := context.WithTimeout(ctx, fsHelperOperationTimeout(operation))
 	defer cancelFunction()
 	command := exec.CommandContext(executionContext, actor.terminalConfiguration.POSIXHelperPath, arguments...)
 	if stdin != nil {
@@ -338,6 +338,13 @@ type fsResponse struct {
 	Mode          os.FileMode `json:"mode"`
 	ContentBase64 string      `json:"contentBase64"`
 	Format        string      `json:"format"`
+}
+
+func fsHelperOperationTimeout(operation string) time.Duration {
+	if operation == "bundle_directory" {
+		return 180 * time.Second
+	}
+	return 30 * time.Second
 }
 
 func fsHelperArguments(operation string, identity ExecutionIdentity, request fsRequest) []string {
