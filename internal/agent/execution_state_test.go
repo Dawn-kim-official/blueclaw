@@ -97,6 +97,23 @@ func TestTerminalObservationTailPreservesToolInteractionInputAndResult(t *testin
 	}
 }
 
+func TestTerminalObservationTailUsesStructuredData(t *testing.T) {
+	observation := terminalSuccessObservation("obs-004", "tmp/deck", "build.sh", "structured output")
+	observation.Output.Content = `{"exitCode":1,"stderr":"content must be ignored"}`
+
+	tail, ok := terminalObservationTail(observation)
+
+	if !ok {
+		t.Fatal("expected terminal tail")
+	}
+	if tail.ExitCode == nil || *tail.ExitCode != 0 || strings.Join(tail.StdoutTail, "\n") != "structured output" {
+		t.Fatalf("expected structured terminal data, got %+v", tail)
+	}
+	if len(tail.StderrTail) != 0 {
+		t.Fatalf("expected content text to be ignored, got %+v", tail.StderrTail)
+	}
+}
+
 func TestNormalizeExecutionStateEnforcesLimits(t *testing.T) {
 	state := ExecutionState{
 		KnownFacts:     []string{"a", "a", "b", "c", "d", "e", "f", "g", "h", "i"},
@@ -136,7 +153,7 @@ func terminalFailureObservation(observationID string, workingDirectoryPath strin
 		ObservationID:      observationID,
 		Action:             "continue",
 		Tool:               "terminal.run",
-		Output:             ToolOutput{Content: content},
+		Output:             ToolOutput{Content: "terminal command failed", Data: json.RawMessage(content)},
 		Failure:            &ToolFailure{Kind: FailureExternalService, Code: FailureCodes.OperationFailed.String(), Stage: "terminal_run", UserSafeSummary: content},
 		ToolInputKey:       canonicalToolCallKey("terminal.run", input),
 		AttemptFingerprint: attemptFingerprint(canonicalToolCallKey("terminal.run", input), FailureCodes.OperationFailed.String()),
@@ -158,7 +175,7 @@ func terminalSuccessObservation(observationID string, workingDirectoryPath strin
 		ObservationID: observationID,
 		Action:        "continue",
 		Tool:          "terminal.run",
-		Output:        ToolOutput{Content: content},
+		Output:        ToolOutput{Content: "terminal command completed", Data: json.RawMessage(content)},
 		ToolInputKey:  canonicalToolCallKey("terminal.run", input),
 	}
 }

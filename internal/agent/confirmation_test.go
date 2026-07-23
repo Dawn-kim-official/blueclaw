@@ -116,22 +116,22 @@ func TestDestructiveSiteManagementStillBuildsConfirmationPlan(t *testing.T) {
 
 func TestConfirmationMessageIncludesTemporalContextAndAvoidsInventedTiming(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"reply":"김인턴 구조 소개 웹사이트를 제작해 인터넷에 배포합니다. 승인하면 진행하겠습니다."}`,
+		`{"reply":"웹사이트 배포에 필요한 내용을 알려주세요."}`,
 	}}
 	kernel := NewAgentKernel(nil, nil)
 	kernel.UseLanguageModelProvider(languageModel)
 
-	_, errorValue := kernel.GenerateConfirmationMessage(context.Background(), AgentRequest{
+	_, errorValue := kernel.GenerateClarificationMessage(context.Background(), AgentRequest{
 		Prompt:           "김인턴 구조 소개 웹사이트 만들어서 배포해줘",
 		ResponseLanguage: "ko",
 		TurnStartedAt:    time.Date(2026, time.May, 17, 1, 2, 3, 0, time.UTC),
 	}, ExecutionPlan{
 		OriginalInstruction: "김인턴 구조 소개 웹사이트 만들어서 배포해줘",
 		Summary:             "김인턴 구조 소개 웹사이트를 제작해 배포합니다.",
-		PublicDeploy:        true,
-	}, ConfirmationPolicyDecision{RequiresConfirmation: true, Reason: "risky_side_effect"})
+		MissingInformation:  []string{"배포 대상 도메인"},
+	}, ConfirmationPolicyDecision{RequiresClarification: true, Reason: "missing_information"})
 	if errorValue != nil {
-		t.Fatalf("expected confirmation message: %v", errorValue)
+		t.Fatalf("expected clarification message: %v", errorValue)
 	}
 
 	if len(languageModel.requests) != 1 {

@@ -2,7 +2,6 @@ package agent
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -32,36 +31,39 @@ func (agentKernel *AgentKernel) GenerateReplyWithContext(responseContext context
 		return "", errors.New("language model provider is not configured")
 	}
 	instructionBundle := agentKernel.currentInstructionBundle()
+	messages := buildReplyMessagesWithInstructions(prompt, visibleContext, memoryFacts, instructionBundle.Prompt)
+	chatCompleter, isAvailable := llm.ResolveTextChatCompleter(agentKernel.languageModel)
+	if !isAvailable {
+		return "", errors.New("language model provider does not support chat completion")
+	}
+	return generateChatReply(responseContext, chatCompleter, messages)
+}
 
-	structuredResponse, errorValue := agentKernel.languageModel.GenerateStructuredResponse(
-		responseContext,
-		llm.StructuredResponseRequest{
-			Messages: buildReplyMessagesWithInstructions(prompt, visibleContext, memoryFacts, instructionBundle.Prompt),
-			StructuredOutputSchema: llm.StructuredOutputSchema{
-				Name:               "blueclaw_reply",
-				Document:           `{"type":"object","properties":{"reply":{"type":"string"}},"required":["reply"],"additionalProperties":false}`,
-				IsStrictlyEnforced: true,
-			},
-		},
-	)
+func generateChatReply(responseContext context.Context, chatCompleter llm.ChatCompleter, messages []llm.Message) (string, error) {
+	response, errorValue := chatCompleter.GenerateChatCompletion(responseContext, llm.ChatCompletionRequest{
+		SchemaName: "blueclaw_reply",
+		Messages:   chatMessages(messages),
+	})
 	if errorValue != nil {
 		return "", errorValue
 	}
 
-	var replyDocument struct {
-		Reply string `json:"reply"`
-	}
-	errorValue = json.Unmarshal([]byte(structuredResponse.Content), &replyDocument)
-	if errorValue != nil {
-		return "", errorValue
-	}
-
-	reply := strings.TrimSpace(replyDocument.Reply)
+	reply := strings.TrimSpace(response.Message.Content)
 	if reply == "" {
 		return "", errors.New("language model reply is empty")
 	}
-
 	return reply, nil
+}
+
+func chatMessages(messages []llm.Message) []llm.ChatCompletionMessage {
+	chatMessages := make([]llm.ChatCompletionMessage, 0, len(messages))
+	for _, message := range messages {
+		chatMessages = append(chatMessages, llm.ChatCompletionMessage{
+			Role:    message.Role,
+			Content: message.Content,
+		})
+	}
+	return chatMessages
 }
 
 type VisibleContext struct {

@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"fmt"
 	"strings"
 	"time"
 
@@ -21,6 +22,7 @@ type LLMContextInput struct {
 	TurnStartedAt         time.Time
 	InstructionPrompt     string
 	ToolDescription       string
+	AdditionalToolNames   []string
 	WorkspaceContext      WorkspaceContext
 	VisibleContext        VisibleContext
 	MemoryFacts           []memory.MemoryFact
@@ -66,16 +68,18 @@ func (builder LLMContextBuilder) Build(input LLMContextInput) string {
 	return strings.Join(nonEmptyStrings([]string{
 		builder.requesterContext(input),
 		builder.companyContext(input),
-		builder.runtimeContext(input),
 		buildInstructionContext(input.InstructionPrompt),
 		strings.TrimSpace(input.ToolDescription),
+		builder.additionalToolsContext(input),
 		builder.workspaceContext(input.WorkspaceContext),
 		builder.conversationContext(input.VisibleContext),
 		builder.taskContext(input),
 		builder.memoryContext(input),
+		builder.runtimeContext(input),
 		builder.artifactManifestContext(input.ArtifactManifest),
 		strings.TrimSpace(input.StepBudgetContext),
 		builder.progressContext(input),
+		recordedEffectsContext(input.Observations),
 		builder.observedResultProjectionContext(input),
 		builder.knownFileContext(input),
 		buildExecutionStateContext(input.ExecutionState, input.Observations),
@@ -85,6 +89,41 @@ func (builder LLMContextBuilder) Build(input LLMContextInput) string {
 		builder.attachmentContext(input.Attachments),
 		strings.Join(nonEmptyStrings(input.ExtraSections), "\n\n"),
 	}), "\n\n")
+}
+
+const additionalToolsContextPageSize = 15
+
+func (builder LLMContextBuilder) additionalToolsContext(input LLMContextInput) string {
+	toolNames := appendUniqueStrings(input.AdditionalToolNames)
+	if len(toolNames) == 0 {
+		return ""
+	}
+	lines := []string{"Additional tools exist but are not loaded. When the task needs one, call request_tools with the exact names first; the loaded tools become callable on your next step."}
+	for _, toolName := range toolNames[:min(len(toolNames), additionalToolsContextPageSize)] {
+		lines = append(lines, "- "+toolName+additionalToolSummary(input.ToolSet, toolName))
+	}
+	if len(toolNames) > additionalToolsContextPageSize {
+		lines = append(lines, fmt.Sprintf("…and %d more; find them with skill.search or request them by exact name.", len(toolNames)-additionalToolsContextPageSize))
+	}
+	return strings.Join(lines, "\n")
+}
+
+func additionalToolSummary(toolSet *ToolSet, toolName string) string {
+	if toolSet == nil {
+		return ""
+	}
+	definition, isFound := toolSet.ToolDefinition(toolName)
+	if !isFound {
+		return ""
+	}
+	summary := strings.TrimSpace(definition.Description)
+	if sentenceEnd := strings.IndexAny(summary, ".;\n"); sentenceEnd > 0 {
+		summary = summary[:sentenceEnd]
+	}
+	if summary == "" {
+		return ""
+	}
+	return " — " + summary
 }
 
 func (builder LLMContextBuilder) requesterContext(input LLMContextInput) string {
@@ -210,6 +249,27 @@ func (builder LLMContextBuilder) taskContext(input LLMContextInput) string {
 		return ""
 	}
 	return "Task:\n" + strings.Join(sections, "\n\n")
+}
+
+func recordedEffectsContext(observations []turnObservation) string {
+	lines := []string{}
+	for _, observation := range observations {
+		if observation.Failure != nil {
+			continue
+		}
+		for _, effect := range observation.Effects {
+			target := firstNonEmptyString(effect.ID, effect.Path, effect.URL)
+			line := effect.ObjectType + " " + effect.Effect
+			if target != "" {
+				line += " " + target
+			}
+			lines = append(lines, "- "+line+" ("+observation.Tool+", "+observation.ObservationID+")")
+		}
+	}
+	if len(lines) == 0 {
+		return ""
+	}
+	return "State changes already recorded this task. These records exist; fix or extend them instead of creating them again:\n" + strings.Join(lines, "\n")
 }
 
 func (builder LLMContextBuilder) userPromptContext(scheduledRun ScheduledRunContext, prompt string) string {

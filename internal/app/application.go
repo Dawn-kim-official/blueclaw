@@ -4,6 +4,8 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net"
 	"net/http"
@@ -11,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"blueclaw/internal/adminapi"
@@ -28,6 +31,7 @@ import (
 	"blueclaw/internal/mcp"
 	"blueclaw/internal/memory"
 	"blueclaw/internal/policy"
+	"blueclaw/internal/protocolidentity"
 	runtimelogging "blueclaw/internal/runtime"
 	"blueclaw/internal/runtimecontrol"
 	"blueclaw/internal/scheduler"
@@ -65,6 +69,17 @@ type Application struct {
 	languageModelDefaultProvider  string
 	languageModelFallbackProvider string
 	languageModelConfigured       bool
+	protocolIdentityChecker       protocolidentity.Checker
+	protocolIdentityExpected      protocolidentity.Identity
+	protocolIdentityStatus        *protocolidentity.Result
+	protocolIdentityCheckOnce     sync.Once
+	protocolIdentityCheckError    error
+	refreshSkillIndex             func(context.Context)
+	mcpRegistry                   mcpRegistryCloser
+}
+
+type mcpRegistryCloser interface {
+	Close() error
 }
 
 type interruptedTaskResumer interface {
@@ -174,6 +189,9 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 	)
 	skillRetriever.EmbeddingModel = embeddingClient.ModelName
 	agentKernel.UseSkillRetriever(skillRetriever)
+	refreshSkillIndex := func(ctx context.Context) {
+		agentKernel.RefreshSkillIndex(ctx, instructionBundleLoader())
+	}
 	agentKernel.UseCompanyProvider(func() agent.CompanyContext {
 		company := policyWatcher.CurrentPolicyDocument().Company
 		return agent.CompanyContext{
@@ -185,8 +203,7 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 			Website:        company.Website,
 		}
 	})
-	go agentKernel.RefreshSkillIndex(context.Background(), instructionBundleLoader())
-	intakeLanguageModelProvider := resolveIntakeLanguageModelProvider(runtimeConfiguration, capabilityClient, logger)
+	intakeLanguageModelProvider := resolveIntakeLanguageModelProvider(runtimeConfiguration, logger)
 	if intakeLanguageModelProvider != nil {
 		agentKernel.UseIntakeLanguageModelProvider(intakeLanguageModelProvider)
 	}
@@ -212,12 +229,19 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 	backupCoordinator := backup.NewCoordinator(buildBackupManifest(runtimeConfiguration, database))
 	taskIntakeController := runtimecontrol.NewTaskIntakeController()
 	mcpRegistry := mcp.NewMcpRegistry()
-	mcpRegistry.LoadServerDefinition(runtimeConfiguration.MCPServers)
+	mcpLoadReport := mcpRegistry.LoadServerDefinition(runtimeConfiguration.MCPServers)
+	logMCPServerQuarantines(logger, mcpLoadReport)
 	logger.Info("application.initializing", "stage", "tool_catalog")
 	toolCatalogBuilder := agentruntime.NewToolCatalogBuilder()
 	toolCatalogBuilder.UseMCPRegistry(mcpRegistry)
-	toolCatalogBuilder.UseCapabilityTools(capabilityClient, runtimeConfiguration.Capabilities.ToolNames)
+	toolCatalogBuilder.UseMCPQuarantineReporter(func(quarantinedProvider agent.QuarantinedToolProvider) {
+		logMCPProviderQuarantine(logger, quarantinedProvider)
+	})
+	toolCatalogBuilder.UseCapabilityQuarantineReporter(func(quarantinedProvider agent.QuarantinedToolProvider) {
+		logCapabilityProviderQuarantine(logger, quarantinedProvider)
+	})
 	toolCatalogBuilder.UseCapabilityToolDescriptors(capabilityClient, capabilityToolDescriptors(runtimeConfiguration.Capabilities.ToolDescriptors))
+	seedCompanionStatus(capabilityClient, toolCatalogBuilder)
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(deriveAllowedToolNamesByProfile(runtimeConfiguration), deriveAllowedToolNames(runtimeConfiguration))
 	toolCatalogBuilder.UseSkillSearch(skillRetriever, instructionBundleLoader)
 	toolCatalogBuilder.UseTerminalService(terminalService)
@@ -226,9 +250,7 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 	toolCatalogBuilder.UseTaskScheduleRepository(taskScheduleRepository)
 	toolCatalogBuilder.UseTaskWaitTokenRepository(taskWaitTokenRepository)
 	toolCatalogBuilder.UseWorkspaceRootPath(runtimeConfiguration.Terminal.WorkspaceRootPath)
-	toolCatalogBuilder.UseSkillChangeHandler(func(ctx context.Context) {
-		agentKernel.RefreshSkillIndex(ctx, instructionBundleLoader())
-	})
+	toolCatalogBuilder.UseSkillChangeHandler(refreshSkillIndex)
 	toolCatalogBuilder.UseMemoryService(memoryService)
 	toolCatalogBuilder.UsePinnedMemoryStore(pinnedMemoryStore)
 	toolCatalogBuilder.UseMemoryUpdateQueue(memoryUpdateQueue)
@@ -274,20 +296,36 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 	if database.SQL != nil {
 		connectorRuntime.UseEventRepository(postgres.NewRawEventRepository(database))
 	}
-	connectorRuntime.RegisterAdapter(connectors.NewCapabilityPlatformAdapter("mattermost", capabilityClient))
-	connectorRuntime.RegisterAdapter(connectors.NewCapabilityPlatformAdapter("slack", capabilityClient))
-	connectorRuntime.RegisterAdapter(connectors.NewCapabilityPlatformAdapter("signal", capabilityClient))
+	chatdClient := newChatdClient(runtimeConfiguration)
+	connectorRuntime.RegisterAdapter(newPlatformAdapter("mattermost", runtimeConfiguration, capabilityClient, chatdClient))
+	connectorRuntime.RegisterAdapter(newPlatformAdapter("slack", runtimeConfiguration, capabilityClient, chatdClient))
+	connectorRuntime.RegisterAdapter(newPlatformAdapter("signal", runtimeConfiguration, capabilityClient, chatdClient))
 	agentReplyStore := apiconnector.NewReplyStore()
 	connectorRuntime.RegisterAdapter(apiconnector.NewAdapter(identityService, agentReplyStore))
 	connectorEventHandler := httpserver.NewConnectorEventHandler(connectorRuntime)
 
 	logger.Info("application.initializing", "stage", "router")
+	protocolIdentityExpected := protocolidentity.Identity{
+		ProtocolVersion:       runtimeConfiguration.Capabilities.ProtocolVersion,
+		AggregateProtocolHash: runtimeConfiguration.Capabilities.AggregateProtocolHash,
+	}
+	protocolIdentityStatus := &protocolidentity.Result{Expected: protocolIdentityExpected}
+	protocolIdentityChecker := protocolidentity.NewChecker(protocolidentity.Configuration{
+		CapabilityEndpoint:   runtimeConfiguration.Capabilities.Endpoint,
+		LLMDBridgeEndpoint:   runtimeConfiguration.LanguageModel.LLMD.Endpoint,
+		Timeout:              time.Duration(runtimeConfiguration.Capabilities.TimeoutSecond) * time.Second,
+		CapabilityHTTPClient: capabilityClient.HTTPClient,
+		LLMDHTTPClient:       capabilityClient.HTTPClient,
+	})
 	router := httpserver.NewRouter(httpserver.RouterDependencies{
 		HealthHandler: httpserver.HealthHandler{
-			Database:         database,
-			ConnectorRuntime: connectorRuntime,
-			MemoryService:    memoryService,
-			MaximumBacklog:   1000,
+			Database:                 database,
+			ConnectorRuntime:         connectorRuntime,
+			MemoryService:            memoryService,
+			MaximumBacklog:           1000,
+			ProtocolIdentity:         protocolIdentityStatus,
+			ProtocolIdentityChecker:  &protocolIdentityChecker,
+			ProtocolIdentityExpected: protocolIdentityExpected,
 		},
 		WorkspaceFilesHandler: httpserver.WorkspaceFilesHandler{
 			WorkspaceRootPath: runtimeConfiguration.Terminal.WorkspaceRootPath,
@@ -324,11 +362,12 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 			IdentityService:  identityService,
 		},
 		TaskRunHandler: adminapi.TaskRunHandler{
-			TaskLauncher:    taskLauncher,
-			IdentityService: identityService,
-			WorkspaceID:     runtimeConfiguration.Memory.WorkspaceID,
-			TaskRunService:  taskRunService,
-			TaskIntakeGate:  taskIntakeController,
+			TaskLauncher:            taskLauncher,
+			IdentityService:         identityService,
+			WorkspaceID:             runtimeConfiguration.Memory.WorkspaceID,
+			TaskRunService:          taskRunService,
+			TaskIntakeGate:          taskIntakeController,
+			AllowTaskDecisionPreset: runtimeConfiguration.Agent.AllowAdminTaskDiagnostic,
 		},
 		QuiesceHandler: adminapi.QuiesceHandler{
 			Controller:     taskIntakeController,
@@ -401,7 +440,35 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 		languageModelDefaultProvider:  languageModelRuntimeConfiguration.LanguageModel.DefaultProvider,
 		languageModelFallbackProvider: languageModelRuntimeConfiguration.LanguageModel.FallbackProvider,
 		languageModelConfigured:       languageModelProvider != nil,
+		protocolIdentityChecker:       protocolIdentityChecker,
+		protocolIdentityExpected:      protocolIdentityExpected,
+		protocolIdentityStatus:        protocolIdentityStatus,
+		refreshSkillIndex:             refreshSkillIndex,
+		mcpRegistry:                   mcpRegistry,
 	}
+}
+
+func logMCPServerQuarantines(logger *slog.Logger, report mcp.LoadReport) {
+	if logger == nil {
+		return
+	}
+	for _, quarantinedServer := range report.Quarantined {
+		logger.Warn("mcp.server.quarantined", "serverName", quarantinedServer.Name, "reason", quarantinedServer.Reason)
+	}
+}
+
+func logMCPProviderQuarantine(logger *slog.Logger, quarantinedProvider agent.QuarantinedToolProvider) {
+	if logger == nil {
+		return
+	}
+	logger.Warn("mcp.provider.quarantined", "providerID", quarantinedProvider.ProviderID, "reason", quarantinedProvider.Reason)
+}
+
+func logCapabilityProviderQuarantine(logger *slog.Logger, quarantinedProvider agent.QuarantinedToolProvider) {
+	if logger == nil {
+		return
+	}
+	logger.Warn("capability.provider.quarantined", "providerID", quarantinedProvider.ProviderID, "reason", quarantinedProvider.Reason)
 }
 
 func deriveAgentTurnOptions(runtimeConfiguration config.RuntimeConfiguration) agent.TurnOptions {
@@ -560,26 +627,11 @@ func readSkillInstructions(rootPath string) []agent.SkillInstruction {
 				document, readError := os.ReadFile(filepath.Join(skillBundle.DirectoryPath, "SKILL.md"))
 				if readError == nil {
 					skillInstructions = append(skillInstructions, agent.SkillInstruction{
-						Name:                   skillBundle.Name,
-						Description:            skillBundle.Description,
-						WhenToUse:              skillBundle.WhenToUse,
-						Category:               skillBundle.Category,
-						Tags:                   append([]string{}, skillBundle.Tags...),
-						Prompt:                 strings.TrimSpace((skill.SkillPromptBuilder{}).BuildSkillPrompt([]skill.SkillBundle{skillBundle})),
-						Activation:             agent.SkillActivation(skillBundle.Activation),
-						Completion:             agent.SkillCompletion(skillBundle.Completion),
-						Quality:                agent.SkillQuality(skillBundle.Quality),
-						RecommendedMinutes:     skillBundle.RecommendedMinutes,
-						AllowedTools:           append([]string{}, skillBundle.AllowedTools...),
-						AllowedProfiles:        append([]string{}, skillBundle.AllowedProfiles...),
-						HiddenFromCircles:      append([]string{}, skillBundle.HiddenFromCircles...),
-						TriggerHints:           append([]string{}, skillBundle.TriggerHints...),
-						DisableModelInvocation: skillBundle.DisableModelInvocation,
-						Paths:                  append([]string{}, skillBundle.Paths...),
-						References:             append([]string{}, skillBundle.References...),
-						Scripts:                append([]string{}, skillBundle.Scripts...),
-						Assets:                 append([]string{}, skillBundle.Assets...),
-						Source:                 instructionSource(filepath.Join(skillBundle.DirectoryPath, "SKILL.md"), skillBundle.Name, document),
+						Name:           skillBundle.Name,
+						Description:    skillBundle.Description,
+						Prompt:         strings.TrimSpace((skill.SkillPromptBuilder{}).BuildSkillPrompt([]skill.SkillBundle{skillBundle})),
+						ToolReferences: skillBundle.ReferencedToolNames(),
+						Source:         instructionSource(filepath.Join(skillBundle.DirectoryPath, "SKILL.md"), skillBundle.Name, document),
 					})
 				}
 			}
@@ -676,6 +728,21 @@ func deriveAllowedToolNames(runtimeConfiguration config.RuntimeConfiguration) []
 	return allowedToolNames
 }
 
+func seedCompanionStatus(capabilityClient capability.Client, toolCatalogBuilder *agentruntime.ToolCatalogBuilder) {
+	if strings.TrimSpace(capabilityClient.Endpoint) == "" {
+		return
+	}
+	statusContext, cancelStatus := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancelStatus()
+	var response struct {
+		CompanionStatus string `json:"companionStatus"`
+	}
+	if errorValue := capabilityClient.GetJSON(statusContext, "/v1/capabilities", &response); errorValue != nil {
+		return
+	}
+	toolCatalogBuilder.UseCompanionStatus(response.CompanionStatus)
+}
+
 func capabilityToolDescriptors(toolDescriptors []config.CapabilityToolDescriptor) []agentruntime.CapabilityToolDescriptor {
 	catalogToolDescriptors := []agentruntime.CapabilityToolDescriptor{}
 	for _, toolDescriptor := range toolDescriptors {
@@ -684,33 +751,76 @@ func capabilityToolDescriptors(toolDescriptors []config.CapabilityToolDescriptor
 			continue
 		}
 		catalogToolDescriptors = append(catalogToolDescriptors, agentruntime.CapabilityToolDescriptor{
-			Name:             trimmedName,
-			Description:      capabilityToolDescription(toolDescriptor),
-			InputSchema:      toolDescriptor.InputSchema,
-			OutputSchema:     toolDescriptor.OutputSchema,
-			PolicyResource:   toolDescriptor.PolicyResource,
-			SideEffectClass:  toolDescriptor.SideEffectClass,
-			RequiresApproval: toolDescriptor.RequiresApproval,
+			Name:                 trimmedName,
+			CanonicalName:        toolDescriptor.CanonicalName,
+			Namespace:            toolDescriptor.Namespace,
+			ModelName:            toolDescriptor.ModelName,
+			ModelVisibility:      toolDescriptor.ModelVisibility,
+			Description:          strings.TrimSpace(toolDescriptor.Description),
+			PrivacyClass:         toolDescriptor.PrivacyClass,
+			RequiresUserPresence: toolDescriptor.RequiresUserPresence,
+			WorksOffline:         toolDescriptor.WorksOffline,
+			InputSchema:          toolDescriptor.InputSchema,
+			InputIntentSchema:    toolDescriptor.InputIntentSchema,
+			OutputSchema:         toolDescriptor.OutputSchema,
+			ResultContract:       capabilityToolResultContract(toolDescriptor.ResultContract),
+			PolicyResource:       toolDescriptor.PolicyResource,
+			SideEffectClass:      toolDescriptor.SideEffectClass,
+			RequiresApproval:     toolDescriptor.RequiresApproval,
+			CompletionEvidence:   capabilityCompletionEvidence(toolDescriptor.CompletionEvidence),
+			Availability: agentruntime.CapabilityAvailability{
+				State:  toolDescriptor.Availability.State,
+				Reason: toolDescriptor.Availability.Reason,
+			},
+			Idempotency: agentruntime.CapabilityIdempotency{
+				Supported: toolDescriptor.Idempotency.Supported,
+				Required:  toolDescriptor.Idempotency.Required,
+				Scope:     toolDescriptor.Idempotency.Scope,
+			},
 		})
 	}
 	return catalogToolDescriptors
 }
 
-func capabilityToolDescription(toolDescriptor config.CapabilityToolDescriptor) string {
-	if strings.TrimSpace(toolDescriptor.Description) != "" {
-		return strings.TrimSpace(toolDescriptor.Description)
+func capabilityToolResultContract(contract *config.CapabilityToolResultContract) *agentruntime.CapabilityToolResultContract {
+	if contract == nil {
+		return nil
 	}
-	if strings.TrimSpace(toolDescriptor.PrivacyClass) == "" && strings.TrimSpace(toolDescriptor.EstimatedLatency) == "" {
-		return ""
+	effects := make([]agentruntime.CapabilityResourceEffectContract, 0, len(contract.Effects))
+	for _, effectContract := range contract.Effects {
+		effects = append(effects, agentruntime.CapabilityResourceEffectContract{
+			ObjectType:     effectContract.ObjectType,
+			Effect:         effectContract.Effect,
+			ResultField:    effectContract.ResultField,
+			EffectIdentity: effectContract.EffectIdentity,
+		})
 	}
-	descriptionParts := []string{"Workspace capability tool"}
-	if strings.TrimSpace(toolDescriptor.PrivacyClass) != "" {
-		descriptionParts = append(descriptionParts, "privacy="+strings.TrimSpace(toolDescriptor.PrivacyClass))
+	return &agentruntime.CapabilityToolResultContract{
+		Schema:            contract.Schema,
+		Effects:           effects,
+		EvidenceCondition: capabilityEvidenceCondition(contract.EvidenceCondition),
 	}
-	if strings.TrimSpace(toolDescriptor.EstimatedLatency) != "" {
-		descriptionParts = append(descriptionParts, "latency="+strings.TrimSpace(toolDescriptor.EstimatedLatency))
+}
+
+func capabilityEvidenceCondition(condition *config.EvidenceCondition) *agentruntime.CapabilityEvidenceCondition {
+	if condition == nil {
+		return nil
 	}
-	return strings.Join(descriptionParts, ", ")
+	return &agentruntime.CapabilityEvidenceCondition{
+		ResultField: condition.ResultField,
+		Equals:      append(json.RawMessage{}, condition.Equals...),
+	}
+}
+
+func capabilityCompletionEvidence(completionEvidence *config.CapabilityCompletionEvidence) *agentruntime.CapabilityCompletionEvidence {
+	if completionEvidence == nil {
+		return nil
+	}
+	return &agentruntime.CapabilityCompletionEvidence{
+		Mode:       completionEvidence.Mode,
+		Action:     completionEvidence.Action,
+		TargetKind: completionEvidence.TargetKind,
+	}
 }
 
 func deriveAllowedToolNamesByProfile(runtimeConfiguration config.RuntimeConfiguration) map[string][]string {
@@ -819,6 +929,29 @@ func newCapabilityClient(runtimeConfiguration config.RuntimeConfiguration) capab
 	})
 }
 
+func newChatdClient(runtimeConfiguration config.RuntimeConfiguration) capability.Client {
+	return capability.NewClient(capability.Configuration{
+		Endpoint: firstNonEmptyString(runtimeConfiguration.Connectors.Chatd.Endpoint, connectors.DefaultChatdEndpoint),
+		Timeout:  time.Duration(runtimeConfiguration.Connectors.Chatd.TimeoutSecond) * time.Second,
+	})
+}
+
+func newPlatformAdapter(platform string, runtimeConfiguration config.RuntimeConfiguration, capabilityClient capability.Client, chatdClient capability.Client) connectors.PlatformAdapter {
+	if isChatdEnabledForPlatform(runtimeConfiguration.Connectors.Chatd, platform) {
+		return connectors.NewChatdPlatformAdapter(platform, chatdClient)
+	}
+	return connectors.NewCapabilityPlatformAdapter(platform, capabilityClient)
+}
+
+func isChatdEnabledForPlatform(chatdConfiguration config.ChatdConnectorConfiguration, platform string) bool {
+	for _, enabledPlatform := range chatdConfiguration.EnabledPlatforms {
+		if strings.EqualFold(strings.TrimSpace(enabledPlatform), platform) {
+			return true
+		}
+	}
+	return false
+}
+
 func skillIndexPath(runtimeConfiguration config.RuntimeConfiguration) string {
 	workspaceRootPath := firstNonEmptyString(runtimeConfiguration.Terminal.WorkspaceRootPath, "/workspace")
 	return filepath.Join(workspaceRootPath, ".blueclaw", "skill-index.json")
@@ -857,8 +990,9 @@ func resolveTaskTierLanguageModelProviders(runtimeConfiguration config.RuntimeCo
 	}
 	tierNames := llm.ResolveModelTierNames(languageModelConfiguration)
 	maximumModelTier := normalizeMaximumModelTier(languageModelConfiguration.LanguageModel.Capability.MaximumModelTier)
+	minimumModelTier := normalizeMaximumModelTier(languageModelConfiguration.LanguageModel.Capability.MinimumModelTier)
 	if maximumModelTier != "" {
-		return resolveCappedTaskTierLanguageModelProviders(languageModelConfiguration, tierNames, maximumModelTier, logger)
+		return resolveCappedTaskTierLanguageModelProviders(languageModelConfiguration, tierNames, minimumModelTier, maximumModelTier, logger)
 	}
 	if logger != nil {
 		logger.Info("resolved task model tiers",
@@ -870,13 +1004,27 @@ func resolveTaskTierLanguageModelProviders(runtimeConfiguration config.RuntimeCo
 			"xlow", tierNames.XLow,
 			"coding", tierNames.Coding)
 	}
-	lowModel := llm.NewCapabilityLLMClientForModel(languageModelConfiguration, tierNames.Low)
-	xLowModel := llm.NewCapabilityLLMClientForModel(languageModelConfiguration, tierNames.XLow)
-	mediumModel := llm.NewCapabilityLLMClientForModel(languageModelConfiguration, tierNames.Medium)
-	highModel := llm.NewCapabilityLLMClientForModel(languageModelConfiguration, tierNames.High)
-	xHighModel := llm.NewCapabilityLLMClientForModel(languageModelConfiguration, tierNames.XHigh)
-	maxModel := llm.NewCapabilityLLMClientForModel(languageModelConfiguration, tierNames.Max)
-	codingModel := llm.NewCapabilityLLMClientForModel(languageModelConfiguration, tierNames.Coding)
+	hasConfigurationError := false
+	configuredProvider := func(modelName string) llm.LanguageModelProvider {
+		provider, errorValue := llm.NewConfiguredLanguageModelProviderForModel(languageModelConfiguration, modelName)
+		if errorValue != nil {
+			hasConfigurationError = true
+			if logger != nil {
+				logger.Error("language model provider configuration failed", "model", modelName, "error", errorValue.Error())
+			}
+		}
+		return provider
+	}
+	lowModel := llm.WithModelTier(configuredProvider(tierNames.Low), "low")
+	xLowModel := llm.WithModelTier(configuredProvider(tierNames.XLow), "xlow")
+	mediumModel := llm.WithModelTier(configuredProvider(tierNames.Medium), "medium")
+	highModel := llm.WithModelTier(configuredProvider(tierNames.High), "high")
+	xHighModel := llm.WithModelTier(configuredProvider(tierNames.XHigh), "xhigh")
+	maxModel := llm.WithModelTier(configuredProvider(tierNames.Max), "max")
+	codingModel := llm.WithModelTier(configuredProvider(tierNames.Coding), "coding")
+	if hasConfigurationError {
+		return taskTierLanguageModelProviders{}
+	}
 
 	lowWithFallback := llm.LanguageModelProvider(lowModel)
 	if tierNames.Medium != tierNames.Low {
@@ -944,7 +1092,7 @@ func resolveTaskTierLanguageModelProviders(runtimeConfiguration config.RuntimeCo
 	}
 }
 
-func resolveIntakeLanguageModelProvider(runtimeConfiguration config.RuntimeConfiguration, capabilityClient capability.Client, logger *slog.Logger) llm.LanguageModelProvider {
+func resolveIntakeLanguageModelProvider(runtimeConfiguration config.RuntimeConfiguration, logger *slog.Logger) llm.LanguageModelProvider {
 	if !runtimeConfiguration.Agent.Intake.Enabled {
 		return nil
 	}
@@ -952,29 +1100,45 @@ func resolveIntakeLanguageModelProvider(runtimeConfiguration config.RuntimeConfi
 	if executionMode == "" {
 		executionMode = "auto"
 	}
-	tierNames := llm.ResolveModelTierNames(deriveLanguageModelRuntimeConfiguration(runtimeConfiguration))
-	maximumModelTier := normalizeMaximumModelTier(runtimeConfiguration.LanguageModel.Capability.MaximumModelTier)
-	if maximumModelTier != "" {
-		providerFactory := func(modelName string) llm.LanguageModelProvider {
-			return llm.CapabilityLLMClient{CapabilityClient: capabilityClient, ModelName: modelName, ExecutionMode: executionMode}
+	languageModelConfiguration := deriveLanguageModelRuntimeConfiguration(runtimeConfiguration)
+	languageModelConfiguration.LanguageModel.Capability.ExecutionMode = executionMode
+	languageModelConfiguration.LanguageModel.LLMD.ExecutionMode = executionMode
+	tierNames := llm.ResolveModelTierNames(languageModelConfiguration)
+	maximumModelTier := normalizeMaximumModelTier(languageModelConfiguration.LanguageModel.Capability.MaximumModelTier)
+	hasConfigurationError := false
+	configuredProvider := func(modelName string) llm.LanguageModelProvider {
+		provider, errorValue := llm.NewConfiguredLanguageModelProviderForModel(languageModelConfiguration, modelName)
+		if errorValue == nil {
+			return provider
 		}
-		return buildCappedModelTierProviders(tierNames, providerFactory, logger).providerForTier(maximumModelTier)
+		hasConfigurationError = true
+		if logger != nil {
+			logger.Error("language model provider configuration failed", "model", modelName, "error", errorValue.Error())
+		}
+		return nil
+	}
+	if maximumModelTier != "" {
+		providers := buildCappedModelTierProviders(tierNames, configuredProvider, logger)
+		if hasConfigurationError {
+			return nil
+		}
+		return providers.providerForTier(maximumModelTier)
 	}
 	primaryModelName := firstNonEmptyString(runtimeConfiguration.Agent.Intake.Model, tierNames.Medium)
+	primaryProvider := configuredProvider(primaryModelName)
+	if strings.TrimSpace(runtimeConfiguration.Agent.Intake.Model) == "" {
+		primaryProvider = llm.WithModelTier(primaryProvider, "medium")
+	}
+	fallbackProvider := llm.WithModelTier(configuredProvider(tierNames.High), "high")
+	if hasConfigurationError {
+		return nil
+	}
 	return llm.FallbackLanguageModelProvider{
-		PrimaryProvider: llm.CapabilityLLMClient{
-			CapabilityClient: capabilityClient,
-			ModelName:        primaryModelName,
-			ExecutionMode:    executionMode,
-		},
-		FallbackProvider: llm.CapabilityLLMClient{
-			CapabilityClient: capabilityClient,
-			ModelName:        tierNames.High,
-			ExecutionMode:    executionMode,
-		},
-		PrimaryLabel:  "intake",
-		FallbackLabel: "high",
-		Logger:        logger,
+		PrimaryProvider:  primaryProvider,
+		FallbackProvider: fallbackProvider,
+		PrimaryLabel:     "intake",
+		FallbackLabel:    "high",
+		Logger:           logger,
 	}
 }
 
@@ -987,34 +1151,46 @@ type cappedModelTierProviders struct {
 	max    llm.LanguageModelProvider
 }
 
-func resolveCappedTaskTierLanguageModelProviders(runtimeConfiguration config.RuntimeConfiguration, tierNames llm.ModelTierNames, maximumModelTier string, logger *slog.Logger) taskTierLanguageModelProviders {
+func resolveCappedTaskTierLanguageModelProviders(runtimeConfiguration config.RuntimeConfiguration, tierNames llm.ModelTierNames, minimumModelTier string, maximumModelTier string, logger *slog.Logger) taskTierLanguageModelProviders {
+	hasConfigurationError := false
 	providerFactory := func(modelName string) llm.LanguageModelProvider {
-		return llm.NewCapabilityLLMClientForModel(runtimeConfiguration, modelName)
+		provider, errorValue := llm.NewConfiguredLanguageModelProviderForModel(runtimeConfiguration, modelName)
+		if errorValue == nil {
+			return provider
+		}
+		hasConfigurationError = true
+		if logger != nil {
+			logger.Error("language model provider configuration failed", "model", modelName, "error", errorValue.Error())
+		}
+		return nil
 	}
 	providers := buildCappedModelTierProviders(tierNames, providerFactory, logger)
+	if hasConfigurationError {
+		return taskTierLanguageModelProviders{}
+	}
 	if logger != nil {
 		logger.Info("resolved capped task model tiers", "maximumModelTier", maximumModelTier, "xlow", tierNames.XLow, "lowVision", tierNames.Low)
 	}
 	return taskTierLanguageModelProviders{
-		Low:    providers.providerAtOrBelow("low", maximumModelTier),
-		XLow:   providers.providerAtOrBelow("xlow", maximumModelTier),
-		Medium: providers.providerAtOrBelow("medium", maximumModelTier),
-		High:   providers.providerAtOrBelow("high", maximumModelTier),
-		XHigh:  providers.providerAtOrBelow("xhigh", maximumModelTier),
-		Max:    providers.providerAtOrBelow("max", maximumModelTier),
+		Low:    providers.providerWithinBounds("low", minimumModelTier, maximumModelTier),
+		XLow:   providers.providerWithinBounds("xlow", minimumModelTier, maximumModelTier),
+		Medium: providers.providerWithinBounds("medium", minimumModelTier, maximumModelTier),
+		High:   providers.providerWithinBounds("high", minimumModelTier, maximumModelTier),
+		XHigh:  providers.providerWithinBounds("xhigh", minimumModelTier, maximumModelTier),
+		Max:    providers.providerWithinBounds("max", minimumModelTier, maximumModelTier),
 		Coding: providers.providerForTier(maximumModelTier),
 	}
 }
 
 func buildCappedModelTierProviders(tierNames llm.ModelTierNames, providerFactory func(string) llm.LanguageModelProvider, logger *slog.Logger) cappedModelTierProviders {
-	xLowModel := providerFactory(tierNames.XLow)
-	lowModel := providerFactory(tierNames.Low)
+	xLowModel := llm.WithModelTier(providerFactory(tierNames.XLow), "xlow")
+	lowModel := llm.WithModelTier(providerFactory(tierNames.Low), "low")
 	lowProvider := descendingFallbackProvider(lowModel, xLowModel, "low", "xlow", logger)
 	xLowProvider := llm.VisionFallbackProvider{TextOnlyModel: xLowModel, VisionModel: lowProvider}
-	mediumProvider := descendingFallbackProvider(providerFactory(tierNames.Medium), lowProvider, "medium", "low", logger)
-	highProvider := descendingFallbackProvider(providerFactory(tierNames.High), mediumProvider, "high", "medium", logger)
-	xHighProvider := descendingFallbackProvider(providerFactory(tierNames.XHigh), highProvider, "xhigh", "high", logger)
-	maxProvider := descendingFallbackProvider(providerFactory(tierNames.Max), xHighProvider, "max", "xhigh", logger)
+	mediumProvider := descendingFallbackProvider(llm.WithModelTier(providerFactory(tierNames.Medium), "medium"), lowProvider, "medium", "low", logger)
+	highProvider := descendingFallbackProvider(llm.WithModelTier(providerFactory(tierNames.High), "high"), mediumProvider, "high", "medium", logger)
+	xHighProvider := descendingFallbackProvider(llm.WithModelTier(providerFactory(tierNames.XHigh), "xhigh"), highProvider, "xhigh", "high", logger)
+	maxProvider := descendingFallbackProvider(llm.WithModelTier(providerFactory(tierNames.Max), "max"), xHighProvider, "max", "xhigh", logger)
 	return cappedModelTierProviders{xLow: xLowProvider, low: lowProvider, medium: mediumProvider, high: highProvider, xHigh: xHighProvider, max: maxProvider}
 }
 
@@ -1025,11 +1201,15 @@ func descendingFallbackProvider(primaryProvider llm.LanguageModelProvider, fallb
 	}
 }
 
-func (providers cappedModelTierProviders) providerAtOrBelow(requestedTier string, maximumModelTier string) llm.LanguageModelProvider {
-	if modelTierRank(requestedTier) > modelTierRank(maximumModelTier) {
-		return providers.providerForTier(maximumModelTier)
+func (providers cappedModelTierProviders) providerWithinBounds(requestedTier string, minimumModelTier string, maximumModelTier string) llm.LanguageModelProvider {
+	boundedTier := requestedTier
+	if minimumModelTier != "" && modelTierRank(boundedTier) < modelTierRank(minimumModelTier) {
+		boundedTier = minimumModelTier
 	}
-	return providers.providerForTier(requestedTier)
+	if modelTierRank(boundedTier) > modelTierRank(maximumModelTier) {
+		boundedTier = maximumModelTier
+	}
+	return providers.providerForTier(boundedTier)
 }
 
 func (providers cappedModelTierProviders) providerForTier(modelTier string) llm.LanguageModelProvider {
@@ -1069,7 +1249,9 @@ func modelTierRank(modelTier string) int {
 }
 
 func deriveLanguageModelRuntimeConfiguration(runtimeConfiguration config.RuntimeConfiguration) config.RuntimeConfiguration {
-	runtimeConfiguration.LanguageModel.DefaultProvider = "capabilityLLM"
+	if strings.TrimSpace(runtimeConfiguration.LanguageModel.DefaultProvider) == "" {
+		runtimeConfiguration.LanguageModel.DefaultProvider = "capabilityLLM"
+	}
 	runtimeConfiguration.LanguageModel.FallbackProvider = ""
 	return runtimeConfiguration
 }
@@ -1077,6 +1259,12 @@ func deriveLanguageModelRuntimeConfiguration(runtimeConfiguration config.Runtime
 func (application *Application) Start() error {
 	if application.startupError != nil {
 		return application.startupError
+	}
+	if errorValue := application.checkProtocolIdentity(); errorValue != nil {
+		return errorValue
+	}
+	if application.refreshSkillIndex != nil {
+		go application.refreshSkillIndex(context.Background())
 	}
 	application.runtimeLogger.Logger.Info("application.starting", "stage", "log_retention")
 	application.startLogRetentionLoop()
@@ -1114,6 +1302,17 @@ func (application *Application) Start() error {
 	return application.httpServer.Serve(listener)
 }
 
+func (application *Application) checkProtocolIdentity() error {
+	application.protocolIdentityCheckOnce.Do(func() {
+		result := application.protocolIdentityChecker.Check(context.Background(), application.protocolIdentityExpected)
+		*application.protocolIdentityStatus = result
+		if !result.Passed {
+			application.protocolIdentityCheckError = fmt.Errorf("protocol identity check failed: %s", strings.Join(result.FailureReasons, "; "))
+		}
+	})
+	return application.protocolIdentityCheckError
+}
+
 func (application *Application) Shutdown(ctx context.Context) error {
 	if application.connectorTransportCancel != nil {
 		application.connectorTransportCancel()
@@ -1137,15 +1336,26 @@ func (application *Application) Shutdown(ctx context.Context) error {
 		application.memoryUpdateCancel()
 	}
 	errorValue := application.httpServer.Shutdown(ctx)
+	mcpCloseError := application.closeMCPRegistry()
 	closeErrorValue := application.runtimeLogger.Close()
 	databaseCloseError := application.database.Close()
 	if errorValue != nil {
 		return errorValue
 	}
+	if mcpCloseError != nil {
+		return mcpCloseError
+	}
 	if closeErrorValue != nil {
 		return closeErrorValue
 	}
 	return databaseCloseError
+}
+
+func (application *Application) closeMCPRegistry() error {
+	if application.mcpRegistry == nil {
+		return nil
+	}
+	return application.mcpRegistry.Close()
 }
 
 func (application *Application) startConnectorRuntime() {

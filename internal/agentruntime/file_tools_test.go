@@ -12,9 +12,35 @@ import (
 	"unicode/utf8"
 
 	"blueclaw/internal/agent"
-	"blueclaw/internal/capability"
 	"blueclaw/internal/policy"
 )
+
+func assertFileResourceEffect(t *testing.T, result agent.ToolResult, objectType string, effect string, path string) {
+	t.Helper()
+	for _, resourceEffect := range result.Effects {
+		if resourceEffect.ObjectType == objectType && resourceEffect.Effect == effect && resourceEffect.Path == path {
+			return
+		}
+	}
+	t.Fatalf("missing %s %s effect for %s in %+v", objectType, effect, path, result.Effects)
+}
+
+func assertStringArrayResultField(t *testing.T, result agent.ToolResult, fieldName string, expected []string) {
+	t.Helper()
+	var document map[string]any
+	if errorValue := json.Unmarshal(result.Output.Data, &document); errorValue != nil {
+		t.Fatalf("invalid result data: %v", errorValue)
+	}
+	values, isArray := document[fieldName].([]any)
+	if !isArray || len(values) != len(expected) {
+		t.Fatalf("expected %s=%+v, got %+v", fieldName, expected, document[fieldName])
+	}
+	for index, expectedValue := range expected {
+		if values[index] != expectedValue {
+			t.Fatalf("expected %s[%d]=%q, got %+v", fieldName, index, expectedValue, values[index])
+		}
+	}
+}
 
 func TestFileAttachToolAttachesSinglePath(t *testing.T) {
 	workspacePath := t.TempDir()
@@ -49,6 +75,9 @@ func TestFileAttachToolAttachesSinglePath(t *testing.T) {
 	if result.Attachments[0].Filename != "deck.pptx" {
 		t.Fatalf("expected attachment filenames to match paths, got %+v", result.Attachments)
 	}
+	expectedPath := "/workspace/private/people/person-1/tmp/deck/deck.pptx"
+	assertFileResourceEffect(t, result, "file", "attached", expectedPath)
+	assertStringArrayResultField(t, result, "deliveredPaths", []string{expectedPath})
 }
 
 func TestFileAttachToolAttachesMultipleFiles(t *testing.T) {
@@ -85,6 +114,14 @@ func TestFileAttachToolAttachesMultipleFiles(t *testing.T) {
 	if result.Attachments[0].Filename != "deck.html" || result.Attachments[1].Filename != "deck.pptx" {
 		t.Fatalf("expected attachment filenames to match paths, got %+v", result.Attachments)
 	}
+	expectedPaths := []string{
+		"/workspace/private/people/person-1/artifacts/deck/deck.html",
+		"/workspace/private/people/person-1/artifacts/deck/deck.pptx",
+	}
+	assertStringArrayResultField(t, result, "deliveredPaths", expectedPaths)
+	for _, path := range expectedPaths {
+		assertFileResourceEffect(t, result, "file", "attached", path)
+	}
 }
 
 func TestFileToolsAcceptVirtualHomePathsWithoutLeakingHostPath(t *testing.T) {
@@ -112,6 +149,9 @@ func TestFileToolsAcceptVirtualHomePathsWithoutLeakingHostPath(t *testing.T) {
 	if strings.Contains(writeResult.ContentText(), workspacePath) {
 		t.Fatalf("expected file.write result not to expose host path, got %s", writeResult.ContentText())
 	}
+	expectedWrittenPath := "projects/deck/presentation.md"
+	assertFileResourceEffect(t, writeResult, "file", "created", expectedWrittenPath)
+	assertFileResourceEffect(t, writeResult, "workspace", "modified", expectedWrittenPath)
 	if _, errorValue := os.Stat(filepath.Join(workspacePath, "private", "people", "person-1", "projects", "deck", "presentation.md")); errorValue != nil {
 		t.Fatal(errorValue)
 	}
@@ -131,6 +171,54 @@ func TestFileToolsAcceptVirtualHomePathsWithoutLeakingHostPath(t *testing.T) {
 	expectedDevicePath := "/workspace/private/people/person-1/projects/deck/presentation.md"
 	if attachResult.Attachments[0].DevicePath != expectedDevicePath {
 		t.Fatalf("expected agent workspace device path, got %+v", attachResult.Attachments[0])
+	}
+}
+
+func TestFileDeliverAcceptsVirtualHomePathReturnedByFileRead(t *testing.T) {
+	workspacePath := t.TempDir()
+	inboxFilePath := filepath.Join(workspacePath, "private", "people", "person-1", "inbox", "mattermost", "conv-1", "customer-support-weekly-check.json")
+	writeTestFile(t, inboxFilePath, `{"status":"ok"}`)
+
+	toolCatalogBuilder := newFileToolTestCatalogBuilder(workspacePath)
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
+		ProfileName:       "default",
+		RequesterPersonID: "person-1",
+		PersonAccess:      policy.PersonAccess{PersonID: "person-1", Circles: []string{"staff"}},
+	})
+
+	readResult, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+		ToolName: "file.read",
+		Input: agent.MarshalToolInput(map[string]string{
+			"path": "home/inbox/mattermost/conv-1/customer-support-weekly-check.json",
+		}),
+	})
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if readResult.Failed() {
+		t.Fatalf("expected file.read success for home/ path, got %s", readResult.ContentText())
+	}
+	var readDocument map[string]any
+	if errorValue := json.Unmarshal(readResult.Output.Data, &readDocument); errorValue != nil {
+		t.Fatalf("invalid file.read result data: %v", errorValue)
+	}
+	returnedPath, isString := readDocument["path"].(string)
+	if !isString || returnedPath == "" {
+		t.Fatalf("expected file.read to return a path, got %+v", readDocument)
+	}
+
+	deliverResult, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+		ToolName: agent.FileDeliverToolName,
+		Input:    agent.MarshalToolInput(map[string]string{"path": returnedPath}),
+	})
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if deliverResult.Failed() {
+		t.Fatalf("expected file.deliver to accept the exact path file.read returned (%q), got %s", returnedPath, deliverResult.ContentText())
+	}
+	if len(deliverResult.Attachments) != 1 || deliverResult.Attachments[0].Filename != "customer-support-weekly-check.json" {
+		t.Fatalf("expected the inbox file attachment, got %+v", deliverResult.Attachments)
 	}
 }
 
@@ -753,6 +841,9 @@ func TestFileEditReplacesSingleExactMatch(t *testing.T) {
 	if string(document) != "const title = 'New';\n" {
 		t.Fatalf("expected exact replacement, got %q", string(document))
 	}
+	expectedEditedPath := "tmp/source.ts"
+	assertFileResourceEffect(t, editResult, "file", "updated", expectedEditedPath)
+	assertFileResourceEffect(t, editResult, "workspace", "modified", expectedEditedPath)
 }
 
 func TestFileEditRejectsAmbiguousExactMatch(t *testing.T) {
@@ -904,20 +995,14 @@ func TestFileToolsDenyCirclePathForNonMember(t *testing.T) {
 	}
 }
 
-func TestFileReadCapabilityDenyCirclePathForNonMember(t *testing.T) {
+func TestFileReadDeniesCirclePathForNonMember(t *testing.T) {
 	workspacePath := t.TempDir()
 	financeDirectoryPath := filepath.Join(workspacePath, "circles", "finance")
 	if errorValue := os.MkdirAll(financeDirectoryPath, 0700); errorValue != nil {
 		t.Fatal(errorValue)
 	}
 	writeTestFile(t, filepath.Join(financeDirectoryPath, "report.pdf"), "secret")
-	httpClient := &recordingHTTPClient{}
 	toolCatalogBuilder := newFileToolTestCatalogBuilder(workspacePath)
-	toolCatalogBuilder.UseCapabilityToolDescriptors(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, []CapabilityToolDescriptor{{
-		Name:           "file.read",
-		PolicyResource: "tool:file.read",
-		InputSchema:    json.RawMessage(`{"type":"object","properties":{"path":{"type":"string"}},"required":["path"],"additionalProperties":false}`),
-	}})
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
 		ProfileName:       "default",
 		RequesterPersonID: "person-1",
@@ -939,25 +1024,16 @@ func TestFileReadCapabilityDenyCirclePathForNonMember(t *testing.T) {
 	if !result.Failed() || !strings.Contains(result.ContentText(), "cannot read") {
 		t.Fatalf("expected read denial, got %+v", result)
 	}
-	if httpClient.requestPath != "" {
-		t.Fatalf("expected denied file.read not to call capability bridge, got path=%s", httpClient.requestPath)
-	}
 }
 
-func TestFileReadCapabilityAllowCirclePathForMember(t *testing.T) {
+func TestFileReadAllowsCirclePathForMember(t *testing.T) {
 	workspacePath := t.TempDir()
 	financeDirectoryPath := filepath.Join(workspacePath, "circles", "finance")
 	if errorValue := os.MkdirAll(financeDirectoryPath, 0700); errorValue != nil {
 		t.Fatal(errorValue)
 	}
 	writeTestFile(t, filepath.Join(financeDirectoryPath, "report.md"), "secret")
-	httpClient := &recordingHTTPClient{responseBody: `{"content":"# Report","status":"ok","result":{"content":"# Report"}}`}
 	toolCatalogBuilder := newFileToolTestCatalogBuilder(workspacePath)
-	toolCatalogBuilder.UseCapabilityToolDescriptors(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, []CapabilityToolDescriptor{{
-		Name:           "file.read",
-		PolicyResource: "tool:file.read",
-		InputSchema:    json.RawMessage(`{"type":"object","properties":{"path":{"type":"string"}},"required":["path"],"additionalProperties":false}`),
-	}})
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
 		ProfileName:       "default",
 		RequesterPersonID: "person-1",
@@ -978,9 +1054,6 @@ func TestFileReadCapabilityAllowCirclePathForMember(t *testing.T) {
 	}
 	if result.Failed() || !strings.Contains(result.ContentText(), `"content":"secret"`) {
 		t.Fatalf("expected file.read success, got %+v", result)
-	}
-	if httpClient.requestPath != "" {
-		t.Fatalf("expected built-in file.read not to call capability bridge, got path=%s body=%s", httpClient.requestPath, httpClient.requestBody)
 	}
 }
 
@@ -1319,7 +1392,7 @@ func TestFileDeliverNotFoundIncludesCandidateFiles(t *testing.T) {
 	if errorValue := json.Unmarshal(deliverResult.Output.Data, &failureData); errorValue != nil {
 		t.Fatalf("expected structured failure data, got error %v for %s", errorValue, string(deliverResult.Output.Data))
 	}
-	expectedCandidatePath := "documents/Han River Ops 2026 Q2 Operations Review.docx"
+	expectedCandidatePath := "~/documents/Han River Ops 2026 Q2 Operations Review.docx"
 	found := false
 	for _, candidatePath := range failureData.CandidateFiles {
 		if candidatePath == expectedCandidatePath {
@@ -1331,7 +1404,7 @@ func TestFileDeliverNotFoundIncludesCandidateFiles(t *testing.T) {
 	}
 }
 
-func TestFileWriteProtectsManagedSitePackageManifest(t *testing.T) {
+func TestFileWriteAllowsManagedSitePackageManifest(t *testing.T) {
 	workspacePath := t.TempDir()
 	toolCatalogBuilder := newFileToolTestCatalogBuilder(workspacePath)
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"file.write"})
@@ -1345,14 +1418,14 @@ func TestFileWriteProtectsManagedSitePackageManifest(t *testing.T) {
 		ToolName: "file.write",
 		Input: agent.MarshalToolInput(map[string]string{
 			"path":    "home/sites/site-1/draft/app/package.json",
-			"content": `{"project":"not a package manifest"}`,
+			"content": `{"project":"user-owned package manifest"}`,
 		}),
 	})
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
-	if !managedResult.Failed() || managedResult.Failure.Code != "managed_manifest_protected" {
-		t.Fatalf("expected managed manifest protection, got %+v", managedResult)
+	if managedResult.Failed() {
+		t.Fatalf("expected the user-owned site manifest to be writable; build gates own the invariant, got %+v", managedResult)
 	}
 
 	tmpResult, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
@@ -1389,7 +1462,6 @@ func TestFileWriteThroughWorkspaceActorTreatsContentAsData(t *testing.T) {
 		Input: agent.MarshalToolInput(map[string]any{
 			"path":    "tmp/deck/input.txt",
 			"content": content,
-			"mode":    0600,
 		}),
 	})
 	if errorValue != nil {
@@ -1513,7 +1585,7 @@ func TestFileWriteAndTerminalRunShareRequesterWorkspaceActorView(t *testing.T) {
 	}
 }
 
-func TestFileWriteIgnoresLegacyModeAndKeepsTaskDraftReadable(t *testing.T) {
+func TestFileWriteRejectsLegacyMode(t *testing.T) {
 	workspacePath := t.TempDir()
 	toolCatalogBuilder := newTerminalToolTestCatalogBuilder(workspacePath)
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
@@ -1538,34 +1610,8 @@ func TestFileWriteIgnoresLegacyModeAndKeepsTaskDraftReadable(t *testing.T) {
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
-	if writeResult.Failed() {
-		t.Fatalf("expected file.write success, got %s", writeResult.ContentText())
-	}
-
-	runResult, errorValue := toolRegistry.Invoke(toolContext, agent.ToolInvocation{
-		ToolName: "terminal.run",
-		Input: agent.MarshalToolInput(map[string]any{
-			"workingDirectoryPath": "tmp/docx-guide",
-			"command":              "cat document.json",
-		}),
-	})
-	if errorValue != nil {
-		t.Fatal(errorValue)
-	}
-	if runResult.Failed() {
-		t.Fatalf("expected terminal.run to read file.write output, got %s", runResult.ContentText())
-	}
-	if !strings.Contains(runResult.ContentText(), "readable") {
-		t.Fatalf("expected terminal output to include written content, got %s", runResult.ContentText())
-	}
-
-	documentPath := filepath.Join(workspacePath, "private", "people", "person-1", "tmp", "docx-guide", "document.json")
-	fileInformation, errorValue := os.Stat(documentPath)
-	if errorValue != nil {
-		t.Fatal(errorValue)
-	}
-	if fileInformation.Mode().Perm() != 0600 {
-		t.Fatalf("expected runtime default private mode 0600, got %04o", fileInformation.Mode().Perm())
+	if !writeResult.Failed() || writeResult.FailureStage() != "tool_input_schema" {
+		t.Fatalf("expected legacy mode to be rejected, got %+v", writeResult)
 	}
 }
 
@@ -1695,5 +1741,14 @@ func TestFileEditMatchFailureGuidanceSuggestsClosestLines(t *testing.T) {
 	}
 	if strings.Contains(guidance, "file.write") {
 		t.Fatalf("edit-failure guidance must not nudge a full rewrite, got %q", guidance)
+	}
+}
+
+func TestFileEditMatchFailureGuidanceAnchorsOnDistinctiveLineNotDelimiters(t *testing.T) {
+	content := "---\nversion: alpha\nname: \"브릿지웍스 상담 안내\"\ncolors:\n  primary: \"#111111\"\n---\nbody text\n"
+	oldText := "---\nversion: alpha\nname: \"브릿지웍스 소상공인 상담 안내\"\ncolors:\n"
+	guidance := fileEditMatchFailureGuidance(content, oldText, 0)
+	if !strings.Contains(guidance, "name: \"브릿지웍스 상담 안내\"") || !strings.Contains(guidance, "colors:") {
+		t.Fatalf("expected a copyable context window around the distinctive line, got %q", guidance)
 	}
 }

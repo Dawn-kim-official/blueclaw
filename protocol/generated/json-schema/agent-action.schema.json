@@ -1,0 +1,451 @@
+{
+  "$defs": {
+    "__schema0": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        },
+        {
+          "items": {
+            "$ref": "#/$defs/__schema0"
+          },
+          "type": "array"
+        },
+        {
+          "additionalProperties": {
+            "$ref": "#/$defs/__schema0"
+          },
+          "propertyNames": {
+            "type": "string"
+          },
+          "type": "object"
+        }
+      ]
+    }
+  },
+  "$id": "https://schemas.blueclaw.dev/0.4.0/agent-action.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "const": "continue",
+          "type": "string"
+        },
+        "executionStateUpdate": {
+          "additionalProperties": {},
+          "properties": {
+            "currentBlocker": {
+              "type": "string"
+            },
+            "goal": {
+              "type": "string"
+            },
+            "knownFacts": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "nextPlan": {
+              "type": "string"
+            },
+            "triedAndFailed": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "wasCompacted": {
+              "type": "boolean"
+            },
+            "workspace": {
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "goalSatisfied": {
+          "type": "boolean"
+        },
+        "goalStatus": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "reason": {
+          "type": "string"
+        },
+        "remainingWork": {
+          "type": "string"
+        },
+        "toolInput": {
+          "$ref": "#/$defs/__schema0"
+        },
+        "toolName": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "executionStateUpdate",
+        "action",
+        "toolName",
+        "toolInput"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "const": "set_quality_criteria",
+          "type": "string"
+        },
+        "executionStateUpdate": {
+          "additionalProperties": {},
+          "properties": {
+            "currentBlocker": {
+              "type": "string"
+            },
+            "goal": {
+              "type": "string"
+            },
+            "knownFacts": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "nextPlan": {
+              "type": "string"
+            },
+            "triedAndFailed": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "wasCompacted": {
+              "type": "boolean"
+            },
+            "workspace": {
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "goalSatisfied": {
+          "type": "boolean"
+        },
+        "goalStatus": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "qualityCriteria": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "reason": {
+          "type": "string"
+        },
+        "remainingWork": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "executionStateUpdate",
+        "action",
+        "qualityCriteria"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "const": "finish",
+          "type": "string"
+        },
+        "completionEvidence": {
+          "items": {
+            "additionalProperties": {},
+            "properties": {
+              "attachmentIndex": {
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "observationID": {
+                "type": "string"
+              },
+              "toolName": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "observationID",
+              "toolName"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "completionEvidenceIDs": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "completionSummary": {
+          "type": "string"
+        },
+        "executionStateUpdate": {
+          "additionalProperties": {},
+          "properties": {
+            "currentBlocker": {
+              "type": "string"
+            },
+            "goal": {
+              "type": "string"
+            },
+            "knownFacts": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "nextPlan": {
+              "type": "string"
+            },
+            "triedAndFailed": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "wasCompacted": {
+              "type": "boolean"
+            },
+            "workspace": {
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "failureResolution": {
+          "type": "string"
+        },
+        "goalSatisfied": {
+          "type": "boolean"
+        },
+        "goalStatus": {
+          "const": "satisfied",
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "qualityReview": {
+          "items": {
+            "additionalProperties": {},
+            "properties": {
+              "evidence": {
+                "items": {
+                  "additionalProperties": {},
+                  "properties": {
+                    "attachmentIndex": {
+                      "maximum": 9007199254740991,
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "observationID": {
+                      "type": "string"
+                    },
+                    "toolName": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "observationID",
+                    "toolName"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "evidenceIDs": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "id": {
+                "type": "string"
+              },
+              "notes": {
+                "type": "string"
+              },
+              "passed": {
+                "type": "boolean"
+              }
+            },
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "reason": {
+          "type": "string"
+        },
+        "remainingWork": {
+          "type": "string"
+        },
+        "replyParts": {
+          "items": {
+            "additionalProperties": {},
+            "properties": {
+              "text": {
+                "type": "string"
+              },
+              "type": {
+                "const": "text",
+                "type": "string"
+              }
+            },
+            "required": [
+              "text"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "message",
+        "goalStatus",
+        "goalSatisfied",
+        "executionStateUpdate",
+        "action",
+        "completionEvidenceIDs",
+        "qualityReview"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "const": "fail",
+          "type": "string"
+        },
+        "executionStateUpdate": {
+          "additionalProperties": {},
+          "properties": {
+            "currentBlocker": {
+              "type": "string"
+            },
+            "goal": {
+              "type": "string"
+            },
+            "knownFacts": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "nextPlan": {
+              "type": "string"
+            },
+            "triedAndFailed": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "wasCompacted": {
+              "type": "boolean"
+            },
+            "workspace": {
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "failureResolution": {
+          "type": "string"
+        },
+        "goalSatisfied": {
+          "type": "boolean"
+        },
+        "goalStatus": {
+          "const": "blocked",
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "reason": {
+          "type": "string"
+        },
+        "remainingWork": {
+          "type": "string"
+        },
+        "usedFailureFacts": {
+          "additionalProperties": {},
+          "properties": {
+            "attempts": {
+              "items": {
+                "additionalProperties": {},
+                "properties": {
+                  "errorCode": {
+                    "type": "string"
+                  },
+                  "failureStage": {
+                    "type": "string"
+                  },
+                  "inputSummary": {
+                    "type": "string"
+                  },
+                  "message": {
+                    "type": "string"
+                  },
+                  "toolName": {
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "budgetState": {
+              "type": "string"
+            }
+          },
+          "type": "object"
+        }
+      },
+      "required": [
+        "reason",
+        "goalStatus",
+        "goalSatisfied",
+        "executionStateUpdate",
+        "action"
+      ],
+      "type": "object"
+    }
+  ]
+}

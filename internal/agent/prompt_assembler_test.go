@@ -19,14 +19,109 @@ func TestPromptAssemblerIncludesTemporalContext(t *testing.T) {
 		"Runtime:",
 		"Current date: 2026-05-12",
 		"Current weekday: Tuesday",
-		"Current time: 2026-05-12T17:32:27+09:00",
+		"Current time: 17:32",
 		"Time zone: Asia/Seoul",
+		"Current week: Monday=2026-05-11, Tuesday=2026-05-12, Wednesday=2026-05-13, Thursday=2026-05-14, Friday=2026-05-15, Saturday=2026-05-16, Sunday=2026-05-17",
 		"Resolve relative dates",
 		"내일",
 	} {
 		if !strings.Contains(body, expected) {
 			t.Fatalf("expected temporal context %q, got %s", expected, body)
 		}
+	}
+}
+
+func TestBuildTurnMessagesKeepsStablePrefixClockInvariant(t *testing.T) {
+	baseRequest := AgentTurnRequest{
+		Prompt:               "이번 주 회의 일정 알려줘",
+		RequesterPersonID:    "person-1",
+		RequesterName:        "김테스트",
+		WorkspaceRootPath:    "/workspace",
+		WorkspaceDefaultPath: "/workspace/private/people/person-1",
+		ResponseLanguage:     "ko",
+	}
+	baseInstruction := buildAgentSystemInstruction(baseRequest)
+	toolDescription := "Available tool catalog:\n- calendar.list: List calendar events."
+
+	earlyRequest := baseRequest
+	earlyRequest.TurnStartedAt = time.Date(2026, 5, 12, 8, 32, 27, 0, time.UTC)
+	lateRequest := baseRequest
+	lateRequest.TurnStartedAt = time.Date(2026, 5, 12, 21, 5, 59, 0, time.UTC)
+
+	earlyMessages := (PromptAssembler{}).BuildTurnMessages(earlyRequest, nil, baseInstruction, toolDescription)
+	lateMessages := (PromptAssembler{}).BuildTurnMessages(lateRequest, nil, baseInstruction, toolDescription)
+
+	if len(earlyMessages) < 2 || len(lateMessages) < 2 {
+		t.Fatalf("expected a base instruction message and a context message, got %d and %d", len(earlyMessages), len(lateMessages))
+	}
+	if earlyMessages[0].Content != lateMessages[0].Content {
+		t.Fatalf("expected the base instruction message to be clock invariant")
+	}
+
+	earlyContext := earlyMessages[1].Content
+	lateContext := lateMessages[1].Content
+	earlyRuntimeIndex := strings.Index(earlyContext, "Runtime:")
+	lateRuntimeIndex := strings.Index(lateContext, "Runtime:")
+	if earlyRuntimeIndex < 0 || lateRuntimeIndex < 0 {
+		t.Fatalf("expected a Runtime section in the context message, got %s", earlyContext)
+	}
+	if earlyRuntimeIndex != lateRuntimeIndex {
+		t.Fatalf("expected the Runtime section to start at the same offset regardless of wall clock, got %d vs %d", earlyRuntimeIndex, lateRuntimeIndex)
+	}
+	if earlyContext[:earlyRuntimeIndex] != lateContext[:lateRuntimeIndex] {
+		t.Fatalf("expected the stable prefix before Runtime: to be byte-identical across different wall-clock times, got:\n%s\nvs\n%s", earlyContext[:earlyRuntimeIndex], lateContext[:lateRuntimeIndex])
+	}
+}
+
+func TestBuildTurnMessagesPlacesVolatileContentAfterStablePrefix(t *testing.T) {
+	request := AgentTurnRequest{
+		Prompt:            "사이트 만들어줘",
+		TurnStartedAt:     time.Date(2026, 5, 12, 8, 32, 27, 0, time.UTC),
+		StepBudgetContext: "Step budget:\nTool calls: 10/24 used, 14 remaining.",
+	}
+	messages := (PromptAssembler{}).BuildTurnMessages(request, nil, "base instruction", "Available tool catalog:\n- file.read: Read a file.")
+	if len(messages) < 2 {
+		t.Fatalf("expected a context message, got %d messages", len(messages))
+	}
+	contextText := messages[1].Content
+
+	toolDescriptionIndex := strings.Index(contextText, "Available tool catalog")
+	runtimeIndex := strings.Index(contextText, "Runtime:")
+	stepBudgetIndex := strings.Index(contextText, "Step budget:")
+
+	if toolDescriptionIndex < 0 || runtimeIndex < 0 || stepBudgetIndex < 0 {
+		t.Fatalf("expected tool description, runtime, and step budget sections, got %s", contextText)
+	}
+	if !(toolDescriptionIndex < runtimeIndex && runtimeIndex < stepBudgetIndex) {
+		t.Fatalf("expected the stable tool description before the volatile runtime and step budget context, got %s", contextText)
+	}
+}
+
+func TestBuildTemporalContextDescriptionAnchorsWeeksAcrossCalendarBoundaries(t *testing.T) {
+	testCases := []struct {
+		name      string
+		startedAt time.Time
+		expected  string
+	}{
+		{
+			name:      "month boundary",
+			startedAt: time.Date(2026, 7, 30, 12, 0, 0, 0, defaultTurnLocation()),
+			expected:  "Current week: Monday=2026-07-27, Tuesday=2026-07-28, Wednesday=2026-07-29, Thursday=2026-07-30, Friday=2026-07-31, Saturday=2026-08-01, Sunday=2026-08-02",
+		},
+		{
+			name:      "year boundary",
+			startedAt: time.Date(2026, 1, 1, 12, 0, 0, 0, defaultTurnLocation()),
+			expected:  "Current week: Monday=2025-12-29, Tuesday=2025-12-30, Wednesday=2025-12-31, Thursday=2026-01-01, Friday=2026-01-02, Saturday=2026-01-03, Sunday=2026-01-04",
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			description := buildTemporalContextDescription(testCase.startedAt)
+			if !strings.Contains(description, testCase.expected) {
+				t.Fatalf("expected week anchors %q, got %s", testCase.expected, description)
+			}
+		})
 	}
 }
 

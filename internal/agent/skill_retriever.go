@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"math"
 	"os"
 	"path/filepath"
@@ -15,6 +16,7 @@ import (
 )
 
 const defaultEmbeddingModelName = "embedding.create"
+const skillEmbeddingSearchTimeout = 15 * time.Second
 const skillSearchDocumentVersion = "skill-description-v2"
 const maxGeneratedSkillSearchQueries = 5
 
@@ -30,20 +32,6 @@ type SkillSearchQuery struct {
 
 type SkillSearchQuerySet struct {
 	Queries []SkillSearchQuery `json:"queries"`
-}
-
-type SkillSearchResult struct {
-	Skills []SkillSearchResultItem `json:"skills"`
-}
-
-type SkillSearchResultItem struct {
-	Name        string          `json:"name"`
-	Description string          `json:"description"`
-	Prompt      string          `json:"prompt,omitempty"`
-	Score       float64         `json:"score"`
-	Tools       []string        `json:"tools"`
-	SourcePath  string          `json:"sourcePath,omitempty"`
-	Completion  SkillCompletion `json:"completion,omitempty"`
 }
 
 type SkillRetrievalResult struct {
@@ -103,27 +91,22 @@ func (skillRetriever *EmbeddingSkillRetriever) Search(ctx context.Context, reque
 			SelectedCandidates: []SkillCandidate{directCandidate},
 		}
 	}
-	querySet = normalizeSkillSearchQuerySet(augmentSkillSearchQuerySetForArtifactContract(querySet, request))
-	queryText := skillSearchQueryText(querySet)
-	if len(querySet.Queries) == 0 {
-		return SkillRetrievalResult{
-			RetrievalMode: "structured_query",
-			IndexStatus:   "empty_query",
-		}
-	}
+	querySet = normalizeSkillSearchQuerySet(querySet)
 	if skillRetriever == nil || skillRetriever.EmbeddingProvider == nil {
-		return retrieveSkillsWithBM25(request, skillInstructions, queryText, limit, "embedding_unavailable")
+		return retrieveSkillsWithBM25QuerySet(request, skillInstructions, querySet, limit, "embedding_unavailable")
 	}
-	if errorValue := skillRetriever.refresh(ctx, skillInstructions); errorValue != nil {
-		return retrieveSkillsWithBM25(request, skillInstructions, queryText, limit, "embedding_index_unavailable")
+	embeddingContext, cancelEmbedding := context.WithTimeout(ctx, skillEmbeddingSearchTimeout)
+	defer cancelEmbedding()
+	if errorValue := skillRetriever.refresh(embeddingContext, skillInstructions); errorValue != nil {
+		return retrieveSkillsWithBM25QuerySet(request, skillInstructions, querySet, limit, "embedding_index_unavailable")
 	}
-	queryEmbeddings := skillRetriever.queryEmbeddings(ctx, querySet)
+	queryEmbeddings := skillRetriever.queryEmbeddings(embeddingContext, querySet)
 	if len(queryEmbeddings) == 0 {
-		return retrieveSkillsWithBM25(request, skillInstructions, queryText, limit, "embedding_query_failed")
+		return retrieveSkillsWithBM25QuerySet(request, skillInstructions, querySet, limit, "embedding_query_failed")
 	}
 	candidates, indexStatus := skillRetriever.embeddingCandidates(request, skillInstructions, queryEmbeddings, limit)
 	if indexStatus != "ready" {
-		return retrieveSkillsWithBM25(request, skillInstructions, queryText, limit, indexStatus)
+		return retrieveSkillsWithBM25QuerySet(request, skillInstructions, querySet, limit, indexStatus)
 	}
 	return SkillRetrievalResult{
 		RetrievalMode:      "embedding",
@@ -134,6 +117,12 @@ func (skillRetriever *EmbeddingSkillRetriever) Search(ctx context.Context, reque
 	}
 }
 
+func retrieveSkillsWithBM25QuerySet(request AgentRequest, skillInstructions []SkillInstruction, querySet SkillSearchQuerySet, limit int, indexStatus string) SkillRetrievalResult {
+	result := retrieveSkillsWithBM25(request, skillInstructions, skillSearchQueryText(querySet), limit, indexStatus)
+	result.QueryDescriptions = skillSearchQueryDescriptions(querySet)
+	return result
+}
+
 func (skillRetriever *EmbeddingSkillRetriever) Refresh(ctx context.Context, skillInstructions []SkillInstruction) {
 	if skillRetriever == nil || skillRetriever.EmbeddingProvider == nil {
 		return
@@ -142,7 +131,9 @@ func (skillRetriever *EmbeddingSkillRetriever) Refresh(ctx context.Context, skil
 }
 
 func (skillRetriever *EmbeddingSkillRetriever) refresh(ctx context.Context, skillInstructions []SkillInstruction) error {
-	skillRetriever.mutex.Lock()
+	if !skillRetriever.lockBeforeDeadline(ctx) {
+		return errors.New("skill index refresh is already holding the lock")
+	}
 	defer skillRetriever.mutex.Unlock()
 	if !skillRetriever.isLoaded {
 		skillRetriever.documents = skillRetriever.readIndex()
@@ -151,9 +142,6 @@ func (skillRetriever *EmbeddingSkillRetriever) refresh(ctx context.Context, skil
 	documentsByKey := skillSearchDocumentByKey(skillRetriever.documents)
 	nextDocuments := []SkillSearchDocument{}
 	for _, skillInstruction := range skillInstructions {
-		if skillInstruction.DisableModelInvocation {
-			continue
-		}
 		searchText := skillSearchText(skillInstruction)
 		if strings.TrimSpace(searchText) == "" {
 			continue
@@ -180,6 +168,19 @@ func (skillRetriever *EmbeddingSkillRetriever) refresh(ctx context.Context, skil
 	}
 	skillRetriever.documents = nextDocuments
 	return skillRetriever.writeIndex(nextDocuments)
+}
+
+func (skillRetriever *EmbeddingSkillRetriever) lockBeforeDeadline(ctx context.Context) bool {
+	for {
+		if skillRetriever.mutex.TryLock() {
+			return true
+		}
+		select {
+		case <-ctx.Done():
+			return false
+		case <-time.After(50 * time.Millisecond):
+		}
+	}
 }
 
 func (skillRetriever *EmbeddingSkillRetriever) queryEmbeddings(ctx context.Context, querySet SkillSearchQuerySet) [][]float32 {
@@ -322,11 +323,11 @@ func directSkillNamesFromPrompt(prompt string) map[string]bool {
 }
 
 func isSkillAllowedForDirectRetrieval(skillInstruction SkillInstruction, request AgentRequest) bool {
-	return skillProfileAllows(skillInstruction, normalizedAgentProfileName(request.ProfileName)) && len(missingAllowedTools(skillInstruction, request)) == 0
+	return !allToolReferencesMissing(skillInstruction, request)
 }
 
 func isSkillAllowedForAutomaticRetrieval(skillInstruction SkillInstruction, request AgentRequest) bool {
-	return !skillInstruction.DisableModelInvocation && isSkillAllowedForDirectRetrieval(skillInstruction, request) && skillPathsAllow(skillInstruction, request)
+	return isSkillAllowedForDirectRetrieval(skillInstruction, request)
 }
 
 func skillSearchDocumentByKey(searchDocuments []SkillSearchDocument) map[string]SkillSearchDocument {

@@ -11,11 +11,10 @@ import (
 )
 
 type taskControlSelection struct {
-	intent             agent.TaskControlIntent
-	reason             string
-	cancelledTaskRuns  []task.TaskRun
-	hasMultipleTargets bool
-	hasNoTarget        bool
+	intent            agent.TaskControlIntent
+	reason            string
+	cancelledTaskRuns []task.TaskRun
+	hasNoTarget       bool
 }
 
 func (connectorRuntime *ConnectorRuntime) handleTaskControlIfRequested(
@@ -81,7 +80,7 @@ func (connectorRuntime *ConnectorRuntime) applyTaskControlIntent(decision agent.
 	case agent.TaskControlIntentStop:
 		selection.cancelledTaskRuns = connectorRuntime.cancelLatestStopScopedTask(personID, event, selection.reason)
 	}
-	selection.hasNoTarget = len(selection.cancelledTaskRuns) == 0 && !selection.hasMultipleTargets
+	selection.hasNoTarget = len(selection.cancelledTaskRuns) == 0
 	return selection
 }
 
@@ -156,14 +155,8 @@ func (connectorRuntime *ConnectorRuntime) taskRunWasCancelled(taskRunID string) 
 	return isFound && taskRun.Status == task.TaskStatusCancelled
 }
 
-// shouldProcessBeforeConversationLock decides whether an inbound message should skip
-// waiting behind the per-conversation lock. Exact task-control/debug commands always
-// bypass; beyond that, a message gets the same treatment only when it looks like it
-// continues, corrects, cancels, or asks about a task the sender already has running here
-// -- otherwise the current task's execution could finish before the message is even
-// classified, silently turning a correction into a duplicate task.
 func (connectorRuntime *ConnectorRuntime) shouldProcessBeforeConversationLock(ctx context.Context, adapter PlatformAdapter, event PlatformInboundEvent) bool {
-	if exactTaskControlIntent(event.Prompt) != agent.TaskControlIntentNone || exactDebugControlRequested(event.Prompt) {
+	if exactTaskControlIntent(event.Prompt) != agent.TaskControlIntentNone {
 		return true
 	}
 	return connectorRuntime.looksLikeActiveTaskFollowUp(ctx, adapter, event)
@@ -211,12 +204,6 @@ func isTaskControlActiveStatus(status task.TaskStatus) bool {
 }
 
 func taskControlReply(selection taskControlSelection, responseLanguage string) string {
-	if selection.hasMultipleTargets {
-		if responseLanguage == "en" {
-			return "I found multiple running tasks. Use `/stop-all` to stop all of your current tasks."
-		}
-		return "진행 중인 작업이 여러 개입니다. 모두 멈추려면 `/stop-all`을 사용해 주세요."
-	}
 	if selection.hasNoTarget {
 		if responseLanguage == "en" {
 			return "There is no active task to stop right now."

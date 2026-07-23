@@ -10,9 +10,7 @@ func TestQualityReviewGuidanceDoesNotBlockCompletion(t *testing.T) {
 		CompletionEvidence: []completionEvidenceReference{},
 		QualityReview:      []qualityReviewItem{},
 	}
-	result := validateCompletionGateForRequest(AgentTurnRequest{
-		QualityAcceptanceGuidance: []string{"declare task quality criteria"},
-	}, nil, nil, nil, actionDocument)
+	result := validateCompletionGateForRequest(AgentTurnRequest{}, nil, nil, nil, actionDocument)
 
 	if !result.IsSatisfied {
 		t.Fatalf("expected quality guidance to stay advisory, got %s", result.Message)
@@ -97,7 +95,7 @@ func TestCompletionGateTreatsFailedDeclaredQualityCriterionAsReviewHint(t *testi
 	}
 }
 
-func TestCompletionGateRejectsSandboxArtifactLocator(t *testing.T) {
+func TestCompletionGateUsesTypedEvidenceInsteadOfParsingFinishMessage(t *testing.T) {
 	criteria := normalizeQualityCriteria([]string{"HTML artifact is attached."})
 	evidence := []completionEvidenceReference{{ObservationID: "obs-001", ToolName: "file.deliver", AttachmentIndex: intPointer(0)}}
 	actionDocument := turnActionDocument{
@@ -123,23 +121,18 @@ func TestCompletionGateRejectsSandboxArtifactLocator(t *testing.T) {
 		}},
 	}}
 
-	result := validateCompletionGateForRequest(AgentTurnRequest{
-		QualityAcceptanceGuidance: []string{"deliver the requested HTML"},
-	}, []toolUseRequirement{{
+	result := validateCompletionGateForRequest(AgentTurnRequest{}, []toolUseRequirement{{
 		ToolName:           "file.deliver",
 		RequiresAttachment: true,
 		AttachmentSuffixes: []string{".html"},
 	}}, observations, criteria, actionDocument)
 
-	if result.IsSatisfied {
-		t.Fatal("expected sandbox artifact locator to be rejected")
-	}
-	if result.Message == "" {
-		t.Fatal("expected rejection message")
+	if !result.IsSatisfied || len(result.Attachments) != 1 {
+		t.Fatalf("expected typed completion evidence to satisfy the gate, got %+v", result)
 	}
 }
 
-func TestCompletionGateRejectsUnattachedArtifactFilename(t *testing.T) {
+func TestCompletionGateDoesNotInferAttachmentsFromFinishMessage(t *testing.T) {
 	actionDocument := turnActionDocument{
 		Action:             "finish",
 		GoalStatus:         "satisfied",
@@ -164,8 +157,8 @@ func TestCompletionGateRejectsUnattachedArtifactFilename(t *testing.T) {
 		AttachmentSuffixes: []string{".html"},
 	}}, observations, nil, actionDocument)
 
-	if result.IsSatisfied {
-		t.Fatal("expected unattached artifact filename to be rejected")
+	if !result.IsSatisfied || len(result.Attachments) != 1 || result.Attachments[0].Filename != "hermes-analysis.html" {
+		t.Fatalf("expected cited attachment evidence to remain authoritative, got %+v", result)
 	}
 }
 

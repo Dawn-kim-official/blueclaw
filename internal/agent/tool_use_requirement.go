@@ -5,7 +5,6 @@ import (
 )
 
 type toolUseRequirement struct {
-	ToolPrefix                 string
 	ToolName                   string
 	Reason                     string
 	RequiresAttachment         bool
@@ -14,32 +13,28 @@ type toolUseRequirement struct {
 }
 
 func deriveToolUseRequirements(request AgentTurnRequest) []toolUseRequirement {
-	requirements := evidenceToolRequirements(request)
-	if directMessageEvidenceRequired(request) {
-		return requirements
-	}
-	if requestRequiresBrowserEvidence(request) {
-		requirements = append(requirements, toolUseRequirement{
-			ToolPrefix: "browser.",
-			Reason:     "the request asks for browser state or browser control",
-		})
-	}
-	return requirements
-}
-
-func directMessageEvidenceRequired(request AgentTurnRequest) bool {
-	return requiredEvidenceContains(request.RequiredEvidenceTools, "message.send")
+	return evidenceToolRequirements(request)
 }
 
 func evidenceToolRequirements(request AgentTurnRequest) []toolUseRequirement {
 	requirements := []toolUseRequirement{}
 	seenToolName := map[string]bool{}
+	hasSideEffectAnchor := false
+	for _, toolName := range request.RequiredEvidenceTools {
+		if !evidenceToolIsReadOnly(request.ToolSet, strings.TrimSpace(toolName)) {
+			hasSideEffectAnchor = true
+			break
+		}
+	}
 	for _, toolName := range request.RequiredEvidenceTools {
 		trimmedToolName := strings.TrimSpace(toolName)
 		if trimmedToolName == "" || seenToolName[trimmedToolName] {
 			continue
 		}
 		seenToolName[trimmedToolName] = true
+		if hasSideEffectAnchor && evidenceToolIsReadOnly(request.ToolSet, trimmedToolName) {
+			continue
+		}
 		requirements = append(requirements, toolUseRequirement{
 			ToolName:                   trimmedToolName,
 			Reason:                     "selected workflow requires completion evidence",
@@ -51,13 +46,28 @@ func evidenceToolRequirements(request AgentTurnRequest) []toolUseRequirement {
 	return requirements
 }
 
-func requiredEvidenceToolNeedsSuccessfulSideEffect(toolSet *ToolSet, toolName string) bool {
-	if toolSet != nil {
-		if toolDefinition, isFound := toolSet.ToolDefinition(toolName); isFound {
-			return ToolDefinitionRequiresSideEffectEvidence(toolDefinition)
-		}
+func evidenceToolIsReadOnly(toolSet *ToolSet, toolName string) bool {
+	if toolSet == nil {
+		return false
 	}
-	return ToolDefinitionRequiresSideEffectEvidence(ToolDefinition{Name: toolName})
+	definition, isFound := toolSet.ToolDefinition(toolName)
+	if !isFound {
+		return false
+	}
+	switch ToolDefinitionSideEffectClass(definition) {
+	case ToolSideEffectRead, ToolSideEffectComputation:
+		return true
+	default:
+		return false
+	}
+}
+
+func requiredEvidenceToolNeedsSuccessfulSideEffect(toolSet *ToolSet, toolName string) bool {
+	if toolSet == nil {
+		return false
+	}
+	toolDefinition, isFound := toolSet.ToolDefinition(toolName)
+	return isFound && ToolDefinitionRequiresSideEffectEvidence(toolDefinition)
 }
 
 func attachmentSuffixesForEvidenceTool(toolName string, suffixes []string) []string {
@@ -78,10 +88,7 @@ func attachmentSuffixesForEvidenceTool(toolName string, suffixes []string) []str
 }
 
 func requestRequiresBrowserEvidence(request AgentTurnRequest) bool {
-	if !hasToolPrefix(request.ToolSet, "browser.") {
-		return false
-	}
-	return request.TaskShape == TaskShapeBrowserHandoffTask || requiredEvidenceHasPrefix(request.RequiredEvidenceTools, "browser.")
+	return requiredEvidenceIncludesNamespace(request.ToolSet, request.RequiredEvidenceTools, "browser")
 }
 
 func requestOnlyOpensBrowser(request AgentTurnRequest) bool {

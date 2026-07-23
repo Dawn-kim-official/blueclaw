@@ -1,8 +1,11 @@
 package config
 
 import (
+	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"os"
+	"strings"
 )
 
 type RuntimeConfiguration struct {
@@ -23,29 +26,69 @@ type RuntimeConfiguration struct {
 }
 
 type CapabilityConfiguration struct {
-	Endpoint        string                     `json:"endpoint"`
-	Transport       string                     `json:"transport"`
-	UnixSocketPath  string                     `json:"unixSocketPath"`
-	TimeoutSecond   int                        `json:"timeoutSecond"`
-	VSockCID        uint32                     `json:"vsockCID"`
-	VSockPort       uint32                     `json:"vsockPort"`
-	ToolNames       []string                   `json:"toolNames"`
-	ToolDescriptors []CapabilityToolDescriptor `json:"toolDescriptors,omitempty"`
+	Endpoint              string                     `json:"endpoint"`
+	Transport             string                     `json:"transport"`
+	UnixSocketPath        string                     `json:"unixSocketPath"`
+	TimeoutSecond         int                        `json:"timeoutSecond"`
+	VSockCID              uint32                     `json:"vsockCID"`
+	VSockPort             uint32                     `json:"vsockPort"`
+	ProtocolVersion       string                     `json:"protocolVersion"`
+	AggregateProtocolHash string                     `json:"aggregateProtocolHash"`
+	ToolDescriptors       []CapabilityToolDescriptor `json:"toolDescriptors,omitempty"`
 }
 
 type CapabilityToolDescriptor struct {
-	Name                 string          `json:"name"`
-	Description          string          `json:"description,omitempty"`
-	Version              string          `json:"version,omitempty"`
-	PrivacyClass         string          `json:"privacyClass,omitempty"`
-	EstimatedLatency     string          `json:"estimatedLatency,omitempty"`
-	RequiresUserPresence bool            `json:"requiresUserPresence,omitempty"`
-	WorksOffline         bool            `json:"worksOffline,omitempty"`
-	InputSchema          json.RawMessage `json:"inputSchema,omitempty"`
-	OutputSchema         json.RawMessage `json:"outputSchema,omitempty"`
-	PolicyResource       string          `json:"policyResource,omitempty"`
-	SideEffectClass      string          `json:"sideEffectClass,omitempty"`
-	RequiresApproval     bool            `json:"requiresApproval,omitempty"`
+	Name                 string                        `json:"name"`
+	CanonicalName        string                        `json:"canonicalName"`
+	Namespace            string                        `json:"namespace"`
+	ModelName            string                        `json:"modelName"`
+	ModelVisibility      string                        `json:"modelVisibility"`
+	Description          string                        `json:"description,omitempty"`
+	Version              string                        `json:"version,omitempty"`
+	PrivacyClass         string                        `json:"privacyClass,omitempty"`
+	EstimatedLatency     string                        `json:"estimatedLatency,omitempty"`
+	RequiresUserPresence bool                          `json:"requiresUserPresence,omitempty"`
+	WorksOffline         bool                          `json:"worksOffline,omitempty"`
+	InputSchema          json.RawMessage               `json:"inputSchema,omitempty"`
+	InputIntentSchema    json.RawMessage               `json:"inputIntentSchema,omitempty"`
+	OutputSchema         json.RawMessage               `json:"outputSchema,omitempty"`
+	ResultContract       *CapabilityToolResultContract `json:"resultContract,omitempty"`
+	PolicyResource       string                        `json:"policyResource,omitempty"`
+	SideEffectClass      string                        `json:"sideEffectClass,omitempty"`
+	RequiresApproval     bool                          `json:"requiresApproval,omitempty"`
+	CompletionEvidence   *CapabilityCompletionEvidence `json:"completionEvidence,omitempty"`
+	Availability         CapabilityAvailability        `json:"availability"`
+	Idempotency          CapabilityIdempotency         `json:"idempotency"`
+}
+
+type CapabilityToolResultContract struct {
+	Schema            json.RawMessage                    `json:"schema"`
+	Effects           []CapabilityResourceEffectContract `json:"effects,omitempty"`
+	EvidenceCondition *EvidenceCondition                 `json:"evidenceCondition,omitempty"`
+}
+
+type CapabilityResourceEffectContract struct {
+	ObjectType     string `json:"objectType"`
+	Effect         string `json:"effect"`
+	ResultField    string `json:"resultField"`
+	EffectIdentity string `json:"effectIdentity"`
+}
+
+type CapabilityCompletionEvidence struct {
+	Mode       string `json:"mode,omitempty"`
+	Action     string `json:"action,omitempty"`
+	TargetKind string `json:"targetKind,omitempty"`
+}
+
+type CapabilityAvailability struct {
+	State  string `json:"state"`
+	Reason string `json:"reason,omitempty"`
+}
+
+type CapabilityIdempotency struct {
+	Supported bool   `json:"supported"`
+	Required  bool   `json:"required"`
+	Scope     string `json:"scope,omitempty"`
 }
 
 type AgentProfileConfiguration struct {
@@ -59,24 +102,62 @@ type MCPServerConfiguration struct {
 	Command   string                 `json:"command"`
 	Arguments []string               `json:"arguments"`
 	Endpoint  string                 `json:"endpoint"`
-	ToolNames []string               `json:"toolNames"`
 	Tools     []MCPToolConfiguration `json:"tools,omitempty"`
 }
 
 type MCPToolConfiguration struct {
-	Name        string          `json:"name"`
-	Description string          `json:"description"`
-	InputSchema json.RawMessage `json:"inputSchema,omitempty"`
+	Name              string                 `json:"name"`
+	Namespace         string                 `json:"namespace"`
+	Description       string                 `json:"description"`
+	InputSchema       json.RawMessage        `json:"inputSchema"`
+	InputIntentSchema json.RawMessage        `json:"inputIntentSchema,omitempty"`
+	OutputSchema      json.RawMessage        `json:"outputSchema"`
+	ResultContract    *MCPToolResultContract `json:"resultContract"`
+	Policy            *MCPToolPolicyMetadata `json:"policy"`
+}
+
+type MCPToolResultContract struct {
+	Schema            json.RawMessage             `json:"schema"`
+	Effects           []MCPResourceEffectContract `json:"effects,omitempty"`
+	EvidenceCondition *EvidenceCondition          `json:"evidenceCondition,omitempty"`
+}
+
+type EvidenceCondition struct {
+	ResultField string          `json:"resultField"`
+	Equals      json.RawMessage `json:"equals"`
+}
+
+type MCPResourceEffectContract struct {
+	ObjectType     string `json:"objectType"`
+	Effect         string `json:"effect"`
+	ResultField    string `json:"resultField"`
+	EffectIdentity string `json:"effectIdentity"`
+}
+
+type MCPToolPolicyMetadata struct {
+	PrivacyClass         string `json:"privacyClass"`
+	RequiresUserPresence bool   `json:"requiresUserPresence"`
+	WorksOffline         bool   `json:"worksOffline"`
+	ModelVisibility      string `json:"modelVisibility"`
+	PolicyResource       string `json:"policyResource"`
+	SideEffectClass      string `json:"sideEffectClass"`
+	RequiresApproval     bool   `json:"requiresApproval"`
+	CompletionMode       string `json:"completionMode"`
+	CompletionAction     string `json:"completionAction"`
+	CompletionTargetKind string `json:"completionTargetKind"`
+	Idempotency          string `json:"idempotency"`
+	IdempotencyScope     string `json:"idempotencyScope"`
 }
 
 type AgentConfiguration struct {
-	Intake               AgentIntakeConfiguration `json:"intake"`
-	DefaultTaskLevel     string                   `json:"defaultTaskLevel"`
-	SkillTaskLevelFloor  string                   `json:"skillTaskLevelFloor,omitempty"`
-	ToolResultMaxBytes   int                      `json:"toolResultMaxBytes"`
-	FailureRecovery      AgentFailureRecovery     `json:"failureRecovery"`
-	GenerationOptions    AgentGenerationOptions   `json:"generationOptions,omitempty"`
-	AdminTaskLinkBaseURL string                   `json:"adminTaskLinkBaseURL,omitempty"`
+	Intake                   AgentIntakeConfiguration `json:"intake"`
+	DefaultTaskLevel         string                   `json:"defaultTaskLevel"`
+	SkillTaskLevelFloor      string                   `json:"skillTaskLevelFloor,omitempty"`
+	ToolResultMaxBytes       int                      `json:"toolResultMaxBytes"`
+	FailureRecovery          AgentFailureRecovery     `json:"failureRecovery"`
+	GenerationOptions        AgentGenerationOptions   `json:"generationOptions,omitempty"`
+	AdminTaskLinkBaseURL     string                   `json:"adminTaskLinkBaseURL,omitempty"`
+	AllowAdminTaskDiagnostic bool                     `json:"allowAdminTaskDiagnostic"`
 }
 
 type AgentIntakeConfiguration struct {
@@ -107,11 +188,22 @@ type LanguageModelConfiguration struct {
 	DefaultProvider  string                               `json:"defaultProvider"`
 	FallbackProvider string                               `json:"fallbackProvider"`
 	Capability       LanguageModelCapabilityConfiguration `json:"capability"`
+	LLMD             LanguageModelLLMDConfiguration       `json:"llmd"`
+}
+
+type LanguageModelLLMDConfiguration struct {
+	Endpoint              string   `json:"endpoint"`
+	UnixSocketPath        string   `json:"unixSocketPath"`
+	AuthKeyPath           string   `json:"authKeyPath"`
+	ExecutionMode         string   `json:"executionMode"`
+	LocalOnly             bool     `json:"localOnly"`
+	StructuredSchemaNames []string `json:"structuredSchemaNames"`
 }
 
 type LanguageModelCapabilityConfiguration struct {
 	Model               string `json:"model"`
 	MaximumModelTier    string `json:"maximumModelTier,omitempty"`
+	MinimumModelTier    string `json:"minimumModelTier,omitempty"`
 	MaxModel            string `json:"maxModel"`
 	XHighModel          string `json:"xhighModel"`
 	HighModel           string `json:"highModel"`
@@ -185,6 +277,7 @@ type ConnectorConfiguration struct {
 	Mattermost MattermostConnectorConfiguration `json:"mattermost"`
 	Slack      SlackConnectorConfiguration      `json:"slack"`
 	Signal     SignalConnectorConfiguration     `json:"signal"`
+	Chatd      ChatdConnectorConfiguration      `json:"chatd"`
 }
 
 type MattermostConnectorConfiguration struct {
@@ -199,22 +292,27 @@ type SignalConnectorConfiguration struct {
 	Enabled bool `json:"enabled"`
 }
 
+type ChatdConnectorConfiguration struct {
+	Endpoint         string   `json:"endpoint,omitempty"`
+	TimeoutSecond    int      `json:"timeoutSecond,omitempty"`
+	EnabledPlatforms []string `json:"enabledPlatforms,omitempty"`
+}
+
 type LoggingConfiguration struct {
 	DirectoryPath string `json:"directoryPath"`
 	RetentionDays int    `json:"retentionDays"`
 }
 
 type TerminalConfiguration struct {
-	Mode                  string   `json:"mode"`
-	SandboxProvider       string   `json:"sandboxProvider"`
-	WorkspaceRootPath     string   `json:"workspaceRootPath"`
-	POSIXHelperPath       string   `json:"posixHelperPath"`
-	DeniedPathPrefixes    []string `json:"deniedPathPrefixes"`
-	TimeoutSecond         int      `json:"timeoutSecond"`
-	OutputMaxBytes        int      `json:"outputMaxBytes"`
-	SessionMaxCount       int      `json:"sessionMaxCount"`
-	AllowNetwork          bool     `json:"allowNetwork"`
-	AllowInteractiveShell bool     `json:"allowInteractiveShell"`
+	Mode                  string `json:"mode"`
+	SandboxProvider       string `json:"sandboxProvider"`
+	WorkspaceRootPath     string `json:"workspaceRootPath"`
+	POSIXHelperPath       string `json:"posixHelperPath"`
+	TimeoutSecond         int    `json:"timeoutSecond"`
+	OutputMaxBytes        int    `json:"outputMaxBytes"`
+	SessionMaxCount       int    `json:"sessionMaxCount"`
+	AllowNetwork          bool   `json:"allowNetwork"`
+	AllowInteractiveShell bool   `json:"allowInteractiveShell"`
 }
 
 type SchedulerConfiguration struct {
@@ -234,6 +332,25 @@ func LoadRuntimeConfiguration(path string) (RuntimeConfiguration, error) {
 	if errorValue != nil {
 		return RuntimeConfiguration{}, errorValue
 	}
+	if errorValue := validateCapabilityProtocolIdentity(&configuration.Capabilities); errorValue != nil {
+		return RuntimeConfiguration{}, errorValue
+	}
 
 	return configuration, nil
+}
+
+func validateCapabilityProtocolIdentity(configuration *CapabilityConfiguration) error {
+	if configuration.ProtocolVersion == "" || configuration.ProtocolVersion != strings.TrimSpace(configuration.ProtocolVersion) {
+		return fmt.Errorf("capabilities.protocolVersion must be a non-empty trimmed string")
+	}
+	if configuration.AggregateProtocolHash != strings.TrimSpace(configuration.AggregateProtocolHash) {
+		return fmt.Errorf("capabilities.aggregateProtocolHash must be a 64-character lowercase hexadecimal hash")
+	}
+	if len(configuration.AggregateProtocolHash) != 64 {
+		return fmt.Errorf("capabilities.aggregateProtocolHash must be a 64-character lowercase hexadecimal hash")
+	}
+	if _, errorValue := hex.DecodeString(configuration.AggregateProtocolHash); errorValue != nil || strings.ToLower(configuration.AggregateProtocolHash) != configuration.AggregateProtocolHash {
+		return fmt.Errorf("capabilities.aggregateProtocolHash must be a 64-character lowercase hexadecimal hash")
+	}
+	return nil
 }

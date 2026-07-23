@@ -211,10 +211,6 @@ func toolCanSatisfyRecoveryPrecondition(failedObservation turnObservation, toolN
 			if toolName == "file.write" || toolName == "file.edit" {
 				return true
 			}
-		case "workspace_repaired":
-			if toolName == "site.repair" {
-				return true
-			}
 		case siteBuiltRecoveryPrecondition:
 			if toolName == "terminal.run" {
 				return true
@@ -416,6 +412,15 @@ func failureDebtActionContractMessage(facts failureReportFacts) string {
 		"If you cannot answer directly and recovery budget is exhausted, return fail with failureResolution=failure_report and copy the relevant facts into usedFailureFacts.",
 		"FailureReportFacts:\n" + marshalEventBody(facts),
 	}, "\n")
+}
+
+func isRecoveredFailureDebtResolution(failureResolution string) bool {
+	switch strings.TrimSpace(failureResolution) {
+	case failureResolutionRecoveredWithSuccess, failureResolutionNoToolFallback:
+		return true
+	default:
+		return false
+	}
 }
 
 func validateFailureReportAction(actionDocument turnActionDocument, facts failureReportFacts) completionGateResult {

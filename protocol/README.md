@@ -1,0 +1,17 @@
+# Blueclaw Protocol
+
+This package defines Blueclaw cross-process contracts with Zod and produces deterministic JSON Schema artifacts.
+
+```bash
+bun install
+bun run generate
+bun run generate:check
+bun run build
+bun test
+```
+
+`src/` is the contract source and `bun.lock` pins generation. LLMD imports these schemas at runtime and validates both sides of its AI SDK boundary. Manifests, capability descriptors, and hashes are computed from Zod through the `@blueclaw/protocol/artifacts` export. `bun run generate` writes tracked release artifacts to `generated/`; `bun run generate:check` rejects stale or extra files.
+
+Breaking changes require a protocol version bump. Each fixture bundle maps a schema case name to one or more documents so TypeScript and Go tests share compatibility evidence without a directory of one-case files.
+
+Zod is the canonical cross-process contract. Go DTOs are runtime implementation types and must validate generated schemas at process boundaries as each contract migrates. Do not weaken Zod schemas to match permissive decoding.

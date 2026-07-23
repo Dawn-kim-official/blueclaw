@@ -8,7 +8,6 @@ import (
 	"strings"
 	"time"
 
-	"blueclaw/internal/agent"
 	"blueclaw/internal/agentruntime"
 	"blueclaw/internal/connectors"
 	"blueclaw/internal/policy"
@@ -123,6 +122,8 @@ func (taskSchedulePoller TaskSchedulePoller) RunDue(ctx context.Context, referen
 	return runCount, nil
 }
 
+const maxTaskScheduleFailureCount = 5
+
 func (taskSchedulePoller TaskSchedulePoller) recordTaskScheduleFailure(taskSchedule task.TaskSchedule, errorValue error, referenceTime time.Time) error {
 	if taskScheduleFailureIsTerminal(taskSchedule, errorValue, referenceTime) {
 		return taskSchedulePoller.TaskScheduleRepository.ExpireTaskSchedule(taskSchedule, errorValue.Error(), referenceTime)
@@ -130,7 +131,10 @@ func (taskSchedulePoller TaskSchedulePoller) recordTaskScheduleFailure(taskSched
 	return taskSchedulePoller.TaskScheduleRepository.MarkTaskScheduleFailed(taskSchedule, errorValue.Error(), referenceTime)
 }
 
-func taskScheduleFailureIsTerminal(_ task.TaskSchedule, errorValue error, _ time.Time) bool {
+func taskScheduleFailureIsTerminal(taskSchedule task.TaskSchedule, errorValue error, _ time.Time) bool {
+	if taskSchedule.FailureCount+1 >= maxTaskScheduleFailureCount {
+		return true
+	}
 	var terminalError taskScheduleTerminalError
 	return errors.As(errorValue, &terminalError)
 }
@@ -309,13 +313,14 @@ func scheduledTaskReply(result agentruntime.TaskScheduleRunResult) (connectors.O
 		if reason != "" {
 			reason = " reason=" + reason
 		}
-		return connectors.OutboundReply{}, taskScheduleTerminalError{message: "scheduled task did not complete: taskRunID=" + turnResult.TaskRun.TaskRunID + " status=" + string(turnResult.TaskRun.Status) + reason}
+		message := "scheduled task did not complete: taskRunID=" + turnResult.TaskRun.TaskRunID + " status=" + string(turnResult.TaskRun.Status) + reason
+		if taskStatusRequiresInteraction(turnResult.TaskRun.Status) {
+			return connectors.OutboundReply{}, taskScheduleTerminalError{message: message}
+		}
+		return connectors.OutboundReply{}, errors.New(message)
 	}
 	if reply == "" {
-		return connectors.OutboundReply{}, taskScheduleTerminalError{message: "scheduled task completed without a reply"}
-	}
-	if agent.FinishMessageContainsNonDeliverableArtifactLocator(reply) {
-		return connectors.OutboundReply{}, taskScheduleTerminalError{message: "scheduled task reply exposes non-deliverable artifact locator"}
+		return connectors.OutboundReply{}, errors.New("scheduled task completed without a reply")
 	}
 	return connectors.OutboundReply{Message: reply, TaskRunID: turnResult.TaskRun.TaskRunID, ReplyKind: "success", Attachments: turnResult.Attachments}, nil
 }
@@ -405,4 +410,8 @@ func (taskSchedulePoller TaskSchedulePoller) logger() *slog.Logger {
 		return taskSchedulePoller.Logger
 	}
 	return slog.Default()
+}
+
+func taskStatusRequiresInteraction(status task.TaskStatus) bool {
+	return status == task.TaskStatusWaitingApproval || status == task.TaskStatusWaitingUserInput
 }

@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -13,7 +14,10 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
+	"blueclaw/internal/agent"
+	"blueclaw/internal/capability"
 	"blueclaw/internal/e2e"
 	"blueclaw/internal/llm"
 	"blueclaw/internal/task"
@@ -41,6 +45,37 @@ func TestValidateStrictEmbeddingRetrievalRequiresReadyEmbeddingMode(t *testing.T
 	}}}}}
 	if errorValue := validateStrictEmbeddingRetrieval(directOnlyResult); errorValue == nil {
 		t.Fatal("expected direct-only retrieval to fail strict live embedding verification")
+	}
+}
+
+func TestBuildVirtualTurnMetricsRecordsEfficiencyWithoutThresholds(t *testing.T) {
+	turnResult := e2e.VirtualTurnResult{
+		TaskRunID: "task-1",
+		Events: []task.TaskEvent{
+			{Name: "agent.action"},
+			{Name: "agent.action"},
+			{Name: "tool.task.add.requested"},
+			{Name: "blueclaw.task.execution_duration", Body: `{"durationMs":4200}`},
+		},
+		LanguageModelCallEvents: []e2e.VirtualLanguageModelCallEvent{
+			{LatencyMS: 1200},
+			{LatencyMS: 800},
+		},
+		InformationalAssertions: []e2e.VirtualInformationalAssertion{{
+			Name:      "expected event count tool.result",
+			Satisfied: false,
+			Detail:    "expected=1 actual=2",
+		}},
+	}
+	metrics := buildVirtualTurnMetrics(3, turnResult)
+	if metrics.TurnNumber != 3 || metrics.TaskRunID != "task-1" || metrics.AgentStepCount != 2 || metrics.ToolCallCount != 1 {
+		t.Fatalf("unexpected step metrics: %+v", metrics)
+	}
+	if metrics.LanguageModelCallCount != 2 || metrics.LanguageModelLatencyMS != 2000 || metrics.TaskDurationMS != 4200 {
+		t.Fatalf("unexpected duration metrics: %+v", metrics)
+	}
+	if len(metrics.InformationalAssertions) != 1 || metrics.InformationalAssertions[0].Satisfied {
+		t.Fatalf("expected efficiency mismatch to remain informational: %+v", metrics.InformationalAssertions)
 	}
 }
 
@@ -138,9 +173,9 @@ func openRouterContentForSchema(schemaName string) string {
 	case "blueclaw_skill_search_queries":
 		return `{"queries":[]}`
 	case "blueclaw_turn_router":
-		return `{"route":"start_task","classification":"bounded_task","taskShape":"maintenance_task","level":"low","requestedOutputFormats":null,"siteRequestEvidence":"","responseLanguage":"ko","reason":"fake live router","userFacingReply":""}`
+		return `{"route":"answer_question","classification":"quick_reply","taskShape":"immediate_reply","level":"xlow","estimatedMinutes":1,"requestedOutputFormats":null,"requiredEvidence":[],"initialToolNames":[],"responseLanguage":"ko","reason":"fake live router","userFacingReply":"","priorTaskReference":"none"}`
 	case "blueclaw_agent_turn_action":
-		return `{"action":"finish","message":"fake live reply from OpenRouter","completionSummary":"fake live reply from OpenRouter","replyParts":[{"type":"text","text":"fake live reply from OpenRouter"}],"goalStatus":"satisfied","goalSatisfied":true,"completionEvidenceIDs":[],"qualityReview":[],"executionStateUpdate":{}}`
+		return `{"action":"finish","message":"fake live reply from OpenRouter","completionSummary":"fake live reply from OpenRouter","replyParts":[{"type":"text","text":"fake live reply from OpenRouter"}],"goalStatus":"satisfied","goalSatisfied":true,"hasRemainingWork":false,"completionEvidenceIDs":[],"qualityReview":[],"executionStateUpdate":{}}`
 	default:
 		return "fake recovery reply"
 	}
@@ -178,6 +213,308 @@ func TestRunVirtualSessionLiveLanguageModelUsesOpenRouterKeyFileAndFakeServer(t 
 	}
 }
 
+func TestCreateLiveLanguageModelSupportsLLMDWithoutOpenRouterCredentials(t *testing.T) {
+	t.Setenv("BLUECLAW_E2E_LLM_AUTH_KEY", "installation-key")
+	t.Setenv("OPENROUTER_API_KEY", "")
+	seed := int64(17)
+	temperature := 0.1
+	languageModel, errorValue := createLiveLanguageModel(virtualSessionArguments{
+		LanguageModelProvider: "llmd",
+		LanguageModelEndpoint: "http://llmd",
+		LanguageModelName:     "deepseek/deepseek-v4-flash",
+		ExecutionMode:         "remote",
+		Seed:                  &seed,
+		Temperature:           &temperature,
+	})
+	if errorValue != nil {
+		t.Fatalf("expected llmd live model: %v", errorValue)
+	}
+	llmdClient, isLLMDClient := languageModel.(llm.LLMDClient)
+	if !isLLMDClient {
+		t.Fatalf("expected llmd client, got %T", languageModel)
+	}
+	if llmdClient.AuthKey != "installation-key" || llmdClient.ModelName != "deepseek/deepseek-v4-flash" {
+		t.Fatalf("unexpected llmd live model configuration: %+v", llmdClient)
+	}
+	if llmdClient.GenerationOptions.Seed == nil || *llmdClient.GenerationOptions.Seed != seed {
+		t.Fatalf("expected llmd generation seed, got %+v", llmdClient.GenerationOptions)
+	}
+	expectedSchemaNames := []string{
+		"blueclaw_agent_turn_action",
+		"blueclaw_agent_turn_finalizer",
+		"blueclaw_turn_router",
+		"blueclaw_recovery_decision",
+		"blueclaw_contract_skill_arbitration",
+		"blueclaw_completion_judge",
+	}
+	if !slices.Equal(llmdClient.StructuredSchemaNames, expectedSchemaNames) {
+		t.Fatalf("expected authoritative LLMD schemas, got %#v", llmdClient.StructuredSchemaNames)
+	}
+}
+
+func TestParseVirtualSessionArgumentsLeavesEndpointOmitted(t *testing.T) {
+	t.Setenv("BLUECLAW_E2E_LLM_ENDPOINT", "")
+	arguments, errorValue := parseVirtualSessionArguments([]string{"--llm-provider", "llmd"}, "task-lifecycle", t.TempDir())
+	if errorValue != nil {
+		t.Fatalf("expected arguments to parse: %v", errorValue)
+	}
+	if arguments.LanguageModelEndpoint != "" {
+		t.Fatalf("expected omitted endpoint to remain empty, got %q", arguments.LanguageModelEndpoint)
+	}
+}
+
+func TestCreateLiveLanguageModelUsesProviderConstructorDefaults(t *testing.T) {
+	t.Setenv("BLUECLAW_E2E_LLM_AUTH_KEY", "installation-key")
+	t.Setenv("OPENROUTER_API_KEY", "")
+
+	capabilityModel, errorValue := createLiveLanguageModel(virtualSessionArguments{LanguageModelProvider: "capability"})
+	if errorValue != nil {
+		t.Fatalf("expected capability model: %v", errorValue)
+	}
+	capabilityClient, isCapabilityClient := capabilityModel.(llm.CapabilityLLMClient)
+	if !isCapabilityClient || capabilityClient.CapabilityClient.Endpoint != capability.DefaultEndpoint {
+		t.Fatalf("expected capability constructor default endpoint, got %#v", capabilityModel)
+	}
+
+	llmdModel, errorValue := createLiveLanguageModel(virtualSessionArguments{LanguageModelProvider: "llmd"})
+	if errorValue != nil {
+		t.Fatalf("expected llmd model: %v", errorValue)
+	}
+	llmdClient, isLLMDClient := llmdModel.(llm.LLMDClient)
+	if !isLLMDClient || llmdClient.Endpoint != "http://blueclaw-llmd" {
+		t.Fatalf("expected llmd constructor default endpoint, got %#v", llmdModel)
+	}
+}
+
+func TestCreateLiveLanguageModelPreservesUnixSocketTransportWithOmittedEndpoint(t *testing.T) {
+	t.Setenv("BLUECLAW_E2E_LLM_AUTH_KEY", "installation-key")
+	t.Setenv("OPENROUTER_API_KEY", "")
+	arguments := virtualSessionArguments{LanguageModelSocket: "/tmp/blueclaw-llm.sock"}
+
+	capabilityModel, errorValue := createLiveLanguageModel(virtualSessionArguments{
+		LanguageModelProvider: "capability",
+		LanguageModelSocket:   arguments.LanguageModelSocket,
+	})
+	if errorValue != nil {
+		t.Fatalf("expected capability socket model: %v", errorValue)
+	}
+	capabilityClient := capabilityModel.(llm.CapabilityLLMClient).CapabilityClient
+	if capabilityClient.Endpoint != "http://internkim-capability" {
+		t.Fatalf("expected capability socket endpoint, got %q", capabilityClient.Endpoint)
+	}
+	if httpClient, isHTTPClient := capabilityClient.HTTPClient.(*http.Client); !isHTTPClient || httpClient.Transport == nil {
+		t.Fatal("expected capability unix socket transport")
+	} else if httpClient.Timeout != 0 {
+		t.Fatalf("expected capability live client without timeout, got %s", httpClient.Timeout)
+	}
+
+	llmdModel, errorValue := createLiveLanguageModel(virtualSessionArguments{
+		LanguageModelProvider: "llmd",
+		LanguageModelSocket:   arguments.LanguageModelSocket,
+	})
+	if errorValue != nil {
+		t.Fatalf("expected llmd socket model: %v", errorValue)
+	}
+	llmdClient := llmdModel.(llm.LLMDClient)
+	if llmdClient.Endpoint != "http://blueclaw-llmd" || llmdClient.HTTPClient == nil {
+		t.Fatalf("expected llmd socket transport and default endpoint, got %#v", llmdClient)
+	}
+	if httpClient, isHTTPClient := llmdClient.HTTPClient.(*http.Client); !isHTTPClient || httpClient.Timeout != 0 {
+		t.Fatalf("expected LLMD live client without timeout, got %#v", llmdClient.HTTPClient)
+	}
+}
+
+func TestCreateLiveLanguageModelPreservesExplicitEndpointOverrides(t *testing.T) {
+	t.Setenv("BLUECLAW_E2E_LLM_AUTH_KEY", "installation-key")
+	t.Setenv("OPENROUTER_API_KEY", "")
+	for _, provider := range []string{"capability", "llmd"} {
+		languageModel, errorValue := createLiveLanguageModel(virtualSessionArguments{
+			LanguageModelProvider: provider,
+			LanguageModelEndpoint: "https://explicit-llm.example",
+			LanguageModelSocket:   "/tmp/blueclaw-llm.sock",
+		})
+		if errorValue != nil {
+			t.Fatalf("expected %s model: %v", provider, errorValue)
+		}
+		var endpoint string
+		switch client := languageModel.(type) {
+		case llm.CapabilityLLMClient:
+			endpoint = client.CapabilityClient.Endpoint
+		case llm.LLMDClient:
+			endpoint = client.Endpoint
+		default:
+			t.Fatalf("unexpected %s model type %T", provider, languageModel)
+		}
+		if endpoint != "https://explicit-llm.example" {
+			t.Fatalf("expected explicit endpoint for %s, got %q", provider, endpoint)
+		}
+	}
+}
+
+func TestSaveVirtualSessionEvidenceRecordsRoutingMetadataWithoutSecrets(t *testing.T) {
+	artifactDirectoryPath := t.TempDir()
+	result := e2e.VirtualSessionResult{
+		ScenarioName:          "task-lifecycle",
+		ArtifactDirectoryPath: artifactDirectoryPath,
+		TurnResults: []e2e.VirtualTurnResult{{
+			TaskStatus:    "blocked",
+			FailureReason: "operation contract was invalid",
+			LanguageModelCallEvents: []e2e.VirtualLanguageModelCallEvent{{
+				Kind:            "recovery_chat",
+				Provider:        "llama.cpp",
+				Model:           "gemma",
+				SelectedBackend: "device",
+				UsedFallback:    false,
+				FinishReason:    "stop",
+			}},
+		}},
+	}
+	arguments := virtualSessionArguments{
+		LanguageModelProvider:    "llmd",
+		LanguageModelAuthKeyPath: "/tmp/secret-auth-key",
+		ExecutionMode:            "auto",
+	}
+	if errorValue := saveVirtualSessionEvidence(arguments, result, nil); errorValue != nil {
+		t.Fatalf("expected evidence to save: %v", errorValue)
+	}
+	document, errorValue := os.ReadFile(filepath.Join(artifactDirectoryPath, "llm-routing-evidence.json"))
+	if errorValue != nil {
+		t.Fatalf("expected evidence file: %v", errorValue)
+	}
+	content := string(document)
+	for _, expectedText := range []string{"task-lifecycle", "failed", "blocked", "operation contract was invalid", "llmd", "recovery_chat", "llama.cpp", "gemma", "device", "blueclaw_agent_turn_action", "blueclaw_agent_turn_finalizer", "blueclaw_turn_router", "blueclaw_recovery_decision", "blueclaw_contract_skill_arbitration", "blueclaw_completion_judge"} {
+		if !strings.Contains(content, expectedText) {
+			t.Fatalf("evidence missing %q: %s", expectedText, content)
+		}
+	}
+	if strings.Contains(content, "secret-auth-key") {
+		t.Fatalf("evidence leaked authentication path: %s", content)
+	}
+	resultDocument, errorValue := os.ReadFile(filepath.Join(artifactDirectoryPath, "result.json"))
+	if errorValue != nil {
+		t.Fatalf("expected full result evidence file: %v", errorValue)
+	}
+	for _, expectedText := range []string{"task-lifecycle", "blocked", "operation contract was invalid"} {
+		if !strings.Contains(string(resultDocument), expectedText) {
+			t.Fatalf("result evidence missing %q: %s", expectedText, resultDocument)
+		}
+	}
+	if strings.Contains(string(resultDocument), "secret-auth-key") {
+		t.Fatalf("result evidence leaked authentication path: %s", resultDocument)
+	}
+}
+
+func TestSaveVirtualSessionEvidencePreservesFailureResult(t *testing.T) {
+	artifactDirectoryPath := t.TempDir()
+	result := e2e.VirtualSessionResult{
+		ScenarioName:          "file-write",
+		ArtifactDirectoryPath: artifactDirectoryPath,
+		TurnResults: []e2e.VirtualTurnResult{{
+			TaskRunID:  "task-1",
+			TaskStatus: task.TaskStatusCompleted,
+			Events: []task.TaskEvent{{
+				Name: "agent.operation_contract",
+				Body: `{"operations":[{"toolName":"file.deliver"}]}`,
+			}},
+		}},
+	}
+	runError := errors.New("strict assertion failed")
+
+	if errorValue := saveVirtualSessionEvidence(virtualSessionArguments{}, result, runError); errorValue != nil {
+		t.Fatalf("expected failure evidence to save: %v", errorValue)
+	}
+	document, errorValue := os.ReadFile(filepath.Join(artifactDirectoryPath, "result.json"))
+	if errorValue != nil {
+		t.Fatalf("expected result evidence: %v", errorValue)
+	}
+	var evidence virtualSessionResultEvidence
+	if errorValue := json.Unmarshal(document, &evidence); errorValue != nil {
+		t.Fatalf("expected result evidence JSON: %v", errorValue)
+	}
+	if evidence.Status != "failed" || evidence.RunError != runError.Error() {
+		t.Fatalf("expected failed run evidence, got %+v", evidence)
+	}
+	if len(evidence.Result.TurnResults) != 1 || len(evidence.Result.TurnResults[0].Events) != 1 {
+		t.Fatalf("expected task event evidence, got %+v", evidence.Result)
+	}
+}
+
+func TestVirtualSessionEvidenceStatusUsesFinalTaskOutcome(t *testing.T) {
+	testCases := []struct {
+		name           string
+		taskStatus     task.TaskStatus
+		runError       error
+		expectedStatus string
+	}{
+		{name: "completed", taskStatus: task.TaskStatusCompleted, expectedStatus: "succeeded"},
+		{name: "waiting", taskStatus: task.TaskStatusWaitingUserInput, expectedStatus: "incomplete"},
+		{name: "blocked", taskStatus: task.TaskStatusBlocked, expectedStatus: "failed"},
+		{name: "run error", taskStatus: task.TaskStatusCompleted, runError: errors.New("harness failed"), expectedStatus: "failed"},
+	}
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			result := e2e.VirtualSessionResult{TurnResults: []e2e.VirtualTurnResult{{TaskStatus: testCase.taskStatus}}}
+			if status := virtualSessionEvidenceStatus(result, testCase.runError); status != testCase.expectedStatus {
+				t.Fatalf("expected %s, got %s", testCase.expectedStatus, status)
+			}
+		})
+	}
+}
+
+func TestSaveVirtualSessionEvidenceUsesOrderedVirtualCallRecorderWithoutDuplicates(t *testing.T) {
+	artifactDirectoryPath := t.TempDir()
+	result := e2e.VirtualSessionResult{
+		ScenarioName:          "task-lifecycle",
+		ArtifactDirectoryPath: artifactDirectoryPath,
+		TurnResults: []e2e.VirtualTurnResult{{
+			LanguageModelCallEvents: []e2e.VirtualLanguageModelCallEvent{
+				{
+					Kind:            "chat",
+					SchemaName:      "blueclaw_agent_turn_action",
+					Provider:        "llmd",
+					Model:           "low-model",
+					SelectedBackend: "device",
+					FinishReason:    "tool_calls",
+				},
+				{
+					Kind:            "chat",
+					Provider:        "llmd",
+					Model:           "low-model",
+					SelectedBackend: "device",
+					FinishReason:    "stop",
+				},
+			},
+			Events: []task.TaskEvent{{
+				Name: "llm.call",
+				Body: `{"kind":"chat","schemaName":"duplicate-should-not-appear"}`,
+			}},
+		}},
+	}
+	if errorValue := saveVirtualSessionEvidence(virtualSessionArguments{LanguageModelProvider: "llmd"}, result, nil); errorValue != nil {
+		t.Fatalf("expected evidence to save: %v", errorValue)
+	}
+	document, errorValue := os.ReadFile(filepath.Join(artifactDirectoryPath, "llm-routing-evidence.json"))
+	if errorValue != nil {
+		t.Fatalf("expected evidence file: %v", errorValue)
+	}
+	var evidence virtualSessionEvidence
+	if errorValue := json.Unmarshal(document, &evidence); errorValue != nil {
+		t.Fatalf("expected evidence JSON: %v", errorValue)
+	}
+	if len(evidence.Calls) != 2 {
+		t.Fatalf("expected two ordered virtual calls without duplicates, got %+v", evidence.Calls)
+	}
+	if evidence.Calls[0].SchemaName != "blueclaw_agent_turn_action" || evidence.Calls[0].FinishReason != "tool_calls" {
+		t.Fatalf("expected action call first with metadata, got %+v", evidence.Calls)
+	}
+	if evidence.Calls[1].SchemaName != "" || evidence.Calls[1].FinishReason != "stop" {
+		t.Fatalf("expected plain chat second without schema, got %+v", evidence.Calls)
+	}
+	if strings.Contains(string(document), "duplicate-should-not-appear") {
+		t.Fatalf("persisted task event was incorrectly duplicated: %s", document)
+	}
+}
+
 func TestRunVirtualSessionLiveLanguageModelPrintsFailureSummary(t *testing.T) {
 	fakeServer := newFakeOpenRouterServer(http.StatusInternalServerError)
 	defer fakeServer.Close()
@@ -187,8 +524,8 @@ func TestRunVirtualSessionLiveLanguageModelPrintsFailureSummary(t *testing.T) {
 		return runVirtualSession(context.Background(), arguments)
 	})
 
-	if errorValue != nil {
-		t.Fatalf("expected failure scenario to complete with user notice: %v\n%s", errorValue, output)
+	if errorValue == nil || !strings.Contains(errorValue.Error(), "task ended failed") {
+		t.Fatalf("expected the hardened harness to reject the failed task, got %v\n%s", errorValue, output)
 	}
 	if fakeServer.RequestCount() == 0 {
 		t.Fatal("expected fake OpenRouter server to receive at least one request")
@@ -266,20 +603,135 @@ func TestConfigureVirtualScenarioCodingUsesCeilingOnlyWhenConfigured(t *testing.
 	cappedScenario := e2e.VirtualSessionScenario{}
 	configureVirtualScenarioModelTiers(&cappedScenario, "high", providerFactory)
 	cappedModelNames := virtualProviderModelNames(cappedScenario.CodingLanguageModel)
-	if !slices.Contains(cappedModelNames, "google/gemini-3-flash-preview") {
+	if !slices.Contains(cappedModelNames, "google/gemini-3.5-flash-lite") {
 		t.Fatalf("expected coding provider to use high ceiling, got %v", cappedModelNames)
 	}
-	for _, forbiddenModelName := range []string{"z-ai/glm-5.2", "openai/gpt-5.6-luna", "google/gemini-3.5-flash"} {
+	for _, forbiddenModelName := range []string{"z-ai/glm-5.2", "google/gemini-3.6-flash"} {
 		if slices.Contains(cappedModelNames, forbiddenModelName) {
 			t.Fatalf("expected coding provider to stay at or below high, got %v", cappedModelNames)
 		}
 	}
 }
 
+type virtualTierTestProvider struct {
+	modelName string
+}
+
+func (provider virtualTierTestProvider) GenerateResponse(context.Context, string) (string, error) {
+	return "reply", nil
+}
+
+func (provider virtualTierTestProvider) GenerateStructuredResponse(_ context.Context, request llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
+	content := openRouterContentForSchema(request.StructuredOutputSchema.Name)
+	if request.StructuredOutputSchema.Name == "blueclaw_turn_router" {
+		content = `{"route":"start_task","classification":"bounded_task","taskShape":"research_task","level":"xhigh","estimatedMinutes":60,"requestedOutputFormats":null,"requiredEvidence":[],"initialToolNames":[],"responseLanguage":"ko","reason":"xhigh integration test","userFacingReply":"","priorTaskReference":"none"}`
+	}
+	return llm.StructuredResponse{ModelName: provider.modelName, Content: content}, nil
+}
+
+func TestConfigureVirtualScenarioCappedProviderReportsCeilingTier(t *testing.T) {
+	providerFactory := func(modelName string) llm.LanguageModelProvider {
+		return virtualTierTestProvider{modelName: modelName}
+	}
+	scenario := e2e.VirtualSessionScenario{}
+	configureVirtualScenarioModelTiers(&scenario, "low", providerFactory)
+	response, errorValue := scenario.HighLanguageModel.GenerateStructuredResponse(context.Background(), llm.StructuredResponseRequest{})
+	if errorValue != nil {
+		t.Fatalf("expected capped high provider to succeed: %v", errorValue)
+	}
+	if response.ModelTier != "low" {
+		t.Fatalf("expected capped high provider to report low tier, got %+v", response)
+	}
+}
+
+func TestVirtualModelCeilingDoesNotReduceTaskWorkDuration(t *testing.T) {
+	providerFactory := func(modelName string) llm.LanguageModelProvider {
+		return virtualTierTestProvider{modelName: modelName}
+	}
+	scenario := e2e.VirtualSessionScenario{
+		Name:                     "xhigh_task_with_low_model_ceiling",
+		ArtifactDirectoryPath:    t.TempDir(),
+		DisableScriptedModel:     true,
+		UseLooseAssertions:       true,
+		FailOnLanguageModelError: true,
+		Turns: []e2e.VirtualTurn{{
+			Prompt:             "팀 운영 개선안을 검토하고 핵심 결론을 알려줘",
+			ExpectedTaskStatus: task.TaskStatusCompleted,
+		}},
+	}
+	configureVirtualScenarioModelTiers(&scenario, "low", providerFactory)
+
+	result, errorValue := e2e.RunVirtualSession(context.Background(), scenario)
+	if errorValue != nil {
+		t.Fatalf("expected capped xhigh virtual session to succeed: %v\n%+v", errorValue, result)
+	}
+	if len(result.TurnResults) != 1 {
+		t.Fatalf("expected one virtual turn, got %+v", result.TurnResults)
+	}
+	intakeTaskLevel := virtualTurnIntakeTaskLevel(t, result.TurnResults[0])
+	actionModelTier := virtualTurnActionModelTier(t, result.TurnResults[0])
+	workDuration := agent.TaskLevelProfileForLevel(intakeTaskLevel).Duration
+
+	if actionModelTier != "low" {
+		t.Fatalf("expected authoritative action call to use the low ceiling, got %q", actionModelTier)
+	}
+	if intakeTaskLevel != agent.TaskLevelXHigh {
+		t.Fatalf("expected authoritative intake task level xhigh, got %q", intakeTaskLevel)
+	}
+	if workDuration != time.Hour {
+		t.Fatalf("expected the selected xhigh task to retain a one-hour work duration, got %s", workDuration)
+	}
+}
+
+func virtualTurnIntakeTaskLevel(t *testing.T, turnResult e2e.VirtualTurnResult) agent.TaskLevel {
+	t.Helper()
+	for _, event := range turnResult.Events {
+		if event.Name != "agent.intake" {
+			continue
+		}
+		var intakeDecision struct {
+			TaskLevel agent.TaskLevel `json:"level"`
+		}
+		if errorValue := json.Unmarshal([]byte(event.Body), &intakeDecision); errorValue != nil {
+			t.Fatalf("expected valid agent.intake event: %v", errorValue)
+		}
+		return intakeDecision.TaskLevel
+	}
+	t.Fatalf("expected agent.intake event, got %+v", turnResult.Events)
+	return ""
+}
+
+func virtualTurnActionModelTier(t *testing.T, turnResult e2e.VirtualTurnResult) string {
+	t.Helper()
+	for _, event := range turnResult.Events {
+		if event.Name != "llm.call" {
+			continue
+		}
+		var languageModelCall struct {
+			SchemaName string `json:"schemaName"`
+			ModelTier  string `json:"modelTier"`
+		}
+		if errorValue := json.Unmarshal([]byte(event.Body), &languageModelCall); errorValue != nil {
+			t.Fatalf("expected valid llm.call event: %v", errorValue)
+		}
+		if languageModelCall.SchemaName == "blueclaw_agent_turn_action" {
+			return languageModelCall.ModelTier
+		}
+	}
+	t.Fatalf("expected authoritative action llm.call event, got %+v", turnResult.Events)
+	return ""
+}
+
 func virtualProviderModelNames(provider llm.LanguageModelProvider) []string {
 	modelNames := map[string]bool{}
 	var collect func(llm.LanguageModelProvider)
 	collect = func(currentProvider llm.LanguageModelProvider) {
+		if tieredProvider, isTieredProvider := currentProvider.(interface {
+			UnderlyingProvider() llm.LanguageModelProvider
+		}); isTieredProvider {
+			collect(tieredProvider.UnderlyingProvider())
+			return
+		}
 		switch typedProvider := currentProvider.(type) {
 		case llm.OpenRouterClient:
 			modelNames[typedProvider.ModelName] = true

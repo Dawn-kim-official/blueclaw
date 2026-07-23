@@ -23,8 +23,12 @@ type ActiveGoal struct {
 	CurrentObjective    string           `json:"currentObjective,omitempty"`
 	KnownContext        []string         `json:"knownContext,omitempty"`
 	MissingInformation  []string         `json:"missingInformation,omitempty"`
+	RequiredNextTools   []string         `json:"requiredNextTools,omitempty"`
+	SelectedToolNames   []string         `json:"selectedToolNames,omitempty"`
+	SelectedSkillNames  []string         `json:"selectedSkillNames,omitempty"`
 	OutcomeContract     OutcomeContract  `json:"outcomeContract,omitempty"`
 	Status              ActiveGoalStatus `json:"status,omitempty"`
+	RestoreError        string           `json:"-"`
 }
 
 type OutcomeContract struct {
@@ -35,7 +39,6 @@ type OutcomeContract struct {
 	ExpectedResults            []ExpectedResult `json:"expectedResults,omitempty"`
 	ArtifactRequirement        string           `json:"artifactRequirement,omitempty"`
 	SelectedEvidenceHints      []string         `json:"selectedEvidenceHints,omitempty"`
-	SiteEvidenceQuote          string           `json:"siteEvidenceQuote,omitempty"`
 	Source                     string           `json:"source,omitempty"`
 }
 
@@ -74,6 +77,71 @@ const (
 	ExpectedResultTypeLink    = "link"
 )
 
+func normalizePersistedActiveGoal(activeGoal ActiveGoal) ActiveGoal {
+	activeGoal.RequiredNextTools = normalizePersistedToolNames(activeGoal.RequiredNextTools)
+	activeGoal.SelectedToolNames = normalizePersistedToolNames(activeGoal.SelectedToolNames)
+	activeGoal.OutcomeContract = normalizePersistedOutcomeContract(activeGoal.OutcomeContract)
+	return activeGoal
+}
+
+func normalizePersistedOutcomeContract(contract OutcomeContract) OutcomeContract {
+	contract.RequiredEvidenceTools = normalizePersistedToolNames(contract.RequiredEvidenceTools)
+	contract.RequiredEvidenceAnyOf = normalizePersistedToolNameGroups(contract.RequiredEvidenceAnyOf)
+	contract.SelectedEvidenceHints = normalizePersistedToolNames(contract.SelectedEvidenceHints)
+	contract.ExpectedResults = normalizePersistedExpectedResults(contract.ExpectedResults)
+	contract.RequiredEffects = normalizePersistedOutcomeEffects(contract.RequiredEffects)
+	return normalizeOutcomeContract(contract)
+}
+
+func normalizePersistedToolNameGroups(groups [][]string) [][]string {
+	normalizedGroups := make([][]string, 0, len(groups))
+	for _, group := range groups {
+		normalizedGroups = append(normalizedGroups, normalizePersistedToolNames(group))
+	}
+	return normalizedGroups
+}
+
+func normalizePersistedToolNames(toolNames []string) []string {
+	normalizedToolNames := make([]string, 0, len(toolNames))
+	for _, toolName := range toolNames {
+		normalizedToolNames = appendUniqueStrings(normalizedToolNames, normalizePersistedToolName(toolName))
+	}
+	return normalizedToolNames
+}
+
+func normalizePersistedToolName(toolName string) string {
+	switch strings.TrimSpace(toolName) {
+	case "ask.choice":
+		return AskInputToolName
+	case "artifact.deliver", "file.attach":
+		return FileDeliverToolName
+	case "site.promote":
+		return "site.publish"
+	case "terminal.session":
+		return TerminalRunToolName
+	default:
+		return strings.TrimSpace(toolName)
+	}
+}
+
+func normalizePersistedExpectedResults(results []ExpectedResult) []ExpectedResult {
+	normalizedResults := make([]ExpectedResult, 0, len(results))
+	for _, result := range results {
+		result.AcceptanceHints = normalizePersistedToolNames(result.AcceptanceHints)
+		normalizedResults = append(normalizedResults, result)
+	}
+	return normalizedResults
+}
+
+func normalizePersistedOutcomeEffects(effects []OutcomeEffect) []OutcomeEffect {
+	normalizedEffects := make([]OutcomeEffect, 0, len(effects))
+	for _, effect := range effects {
+		effect.SuggestedNextTools = normalizePersistedToolNames(effect.SuggestedNextTools)
+		normalizedEffects = append(normalizedEffects, effect)
+	}
+	return normalizedEffects
+}
+
 func activeGoalDescription(activeGoal ActiveGoal) string {
 	if strings.TrimSpace(activeGoal.GoalID) == "" &&
 		strings.TrimSpace(activeGoal.TaskRunID) == "" &&
@@ -85,7 +153,7 @@ func activeGoalDescription(activeGoal ActiveGoal) string {
 	if errorValue != nil {
 		return ""
 	}
-	return "Active conversation goal:\n" + string(document) + "\nTreat the current user message as input to this goal unless it clearly starts a new unrelated request. Preserve the current user message as the latest user input; do not rewrite it."
+	return "Active conversation goal:\n" + string(document) + "\nTreat the current user message as input to this goal unless it clearly starts a new unrelated request. Preserve the current user message as the latest user input; do not rewrite it.\nrequiredNextTools and selectedToolNames are intake suggestions, not commands: when a listed tool contradicts what the user visibly asked for, use the tool that actually fulfills the request (load it with request_tools if it is not exposed)."
 }
 
 func normalizeOutcomeContract(contract OutcomeContract) OutcomeContract {
@@ -96,7 +164,10 @@ func normalizeOutcomeContract(contract OutcomeContract) OutcomeContract {
 	contract.RequiredEffects = normalizeOutcomeEffects(contract.RequiredEffects)
 	contract.ExpectedResults = normalizeExpectedResults(contract.ExpectedResults)
 	contract.ArtifactRequirement = normalizeArtifactRequirement(contract.ArtifactRequirement)
-	contract.SiteEvidenceQuote = strings.TrimSpace(contract.SiteEvidenceQuote)
+	if expectedResultRequiresFileAttachment(contract) {
+		contract.RequiredEvidenceTools = appendUniqueStrings(contract.RequiredEvidenceTools, FileDeliverToolName)
+		contract.ArtifactRequirement = ArtifactRequirementRequired
+	}
 	contract.Source = strings.TrimSpace(contract.Source)
 	return contract
 }

@@ -47,22 +47,6 @@ func TestNonMemoryUnavailableFailureDoesNotIncludeWebSearchRoute(t *testing.T) {
 	}
 }
 
-func TestTerminalPathGuardrailRecoveryGuidanceIncludesCorrectedWorkspaceRetry(t *testing.T) {
-	observation := newFailureObservation("obs-001", "continue", "terminal.run", "command path escapes workspace root", FailureInvalidInput, FailureCodes.InvalidInput, "terminal_path_guardrail")
-	guidance := recoveryGuidanceContent(observation, "")
-
-	for _, expectedText := range []string{
-		"retry terminal.run",
-		"~/documents",
-		"/workspace/skills/<skill>/scripts/skill_runtime.py",
-		"Do not call /opt/blueclaw",
-	} {
-		if !strings.Contains(guidance, expectedText) {
-			t.Fatalf("expected recovery guidance to contain %q, got %q", expectedText, guidance)
-		}
-	}
-}
-
 func TestMemoryInstructionsDescribeWebSearchRecoveryBoundary(t *testing.T) {
 	instructions := DefaultSkillInstructions()
 	if len(instructions) == 0 {
@@ -70,7 +54,7 @@ func TestMemoryInstructionsDescribeWebSearchRecoveryBoundary(t *testing.T) {
 	}
 	prompt := instructions[0].Prompt
 	for _, expectedText := range []string{
-		"capability.invoke for public web information",
+		"selected public web tool",
 		"public, current, or external",
 		"Do not use public web lookup to replace private person memory",
 	} {
@@ -102,8 +86,8 @@ func TestMemoryInstructionsRequireRememberForDurableUpdates(t *testing.T) {
 func TestSystemInstructionAllowsWebSearchAfterMemorySearchUnavailable(t *testing.T) {
 	instruction := buildAgentSystemInstruction(AgentTurnRequest{})
 	for _, expectedText := range []string{
-		"capability.invoke tool to run the operation",
-		"capability.invoke runs every domain operation",
+		"selected direct tool",
+		"action schema contains the exact tools callable",
 	} {
 		if !strings.Contains(instruction, expectedText) {
 			t.Fatalf("expected system instruction to contain %q, got %q", expectedText, instruction)

@@ -24,16 +24,13 @@ func progressEvents(observations []turnObservation) []progressEvent {
 	events := []progressEvent{}
 	seenFailures := map[string]bool{}
 	failureProgressSinceSuccess := 0
-	for index, observation := range observations {
+	for _, observation := range observations {
 		recordSuccess := func(event progressEvent) {
 			events = append(events, event)
 			failureProgressSinceSuccess = 0
 		}
 		if observation.Action == "set_quality_criteria" {
 			recordSuccess(progressEvent{Kind: "quality_criteria", Key: observation.ObservationID})
-		}
-		if observation.Action == "tool.request" && !observation.Failed() && hasSuccessfulToolCallAfter(observations, index) {
-			recordSuccess(progressEvent{Kind: "tool_palette_selected", Key: observation.ObservationID + ":" + observation.ContentText()})
 		}
 		if observation.Action == "continue" && !observation.Failed() && !isInspectionProgressTool(observation.Tool) {
 			recordSuccess(progressEvent{Kind: "tool_success", Key: observation.ObservationID + ":" + observation.Tool})
@@ -55,15 +52,6 @@ func progressEvents(observations []turnObservation) []progressEvent {
 		}
 	}
 	return events
-}
-
-func hasSuccessfulToolCallAfter(observations []turnObservation, index int) bool {
-	for _, observation := range observations[index+1:] {
-		if observation.Action == "continue" && strings.TrimSpace(observation.Tool) != "" && !observation.Failed() {
-			return true
-		}
-	}
-	return false
 }
 
 func progressEventCount(observations []turnObservation) int {
@@ -129,7 +117,7 @@ func qualifyingDurableProgressEvent(observation turnObservation) (qualifyingProg
 	case FileDeliverToolName:
 		return qualifyingProgressEvent{ObservationID: observation.ObservationID, Kind: "attachment", Tool: toolName}, true
 	case "terminal.run":
-		if terminalObservationExitCode(observation) == 0 {
+		if terminalObservationCompleted(observation) {
 			return qualifyingProgressEvent{ObservationID: observation.ObservationID, Kind: "terminal_success", Tool: toolName}, true
 		}
 	}
@@ -148,14 +136,14 @@ func isInspectionProgressTool(toolName string) bool {
 	}
 }
 
-func terminalObservationExitCode(observation turnObservation) int {
+func terminalObservationCompleted(observation turnObservation) bool {
 	var output struct {
-		ExitCode *int `json:"exitCode"`
+		Completed bool `json:"completed"`
 	}
-	if json.Unmarshal([]byte(observation.ContentText()), &output) != nil || output.ExitCode == nil {
-		return -1
+	if json.Unmarshal(observation.Output.Data, &output) != nil {
+		return false
 	}
-	return *output.ExitCode
+	return output.Completed
 }
 
 func qualifyingProgressEventIDs(events []qualifyingProgressEvent) []string {

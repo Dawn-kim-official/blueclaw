@@ -34,6 +34,7 @@ func BuildInjectedContextMessages(input InjectedContextInput) []llm.Message {
 		TurnStartedAt:        input.TurnStartedAt,
 		InstructionPrompt:    input.InstructionPrompt,
 		ToolDescription:      input.ToolDescription,
+		AdditionalToolNames:  droppedExposureToolNames(input.RuntimeRequest.ToolExposure),
 		WorkspaceContext: WorkspaceContext{
 			RootPath:          input.RuntimeRequest.WorkspaceRootPath,
 			DefaultPath:       input.RuntimeRequest.WorkspaceDefaultPath,
@@ -80,14 +81,6 @@ func (promptAssembler PromptAssembler) BuildTurnMessages(request AgentTurnReques
 	return messages
 }
 
-func (promptAssembler PromptAssembler) appendActiveGoalMessage(messages *[]llm.Message, activeGoal ActiveGoal) {
-	goalDescription := activeGoalDescription(activeGoal)
-	if goalDescription == "" {
-		return
-	}
-	*messages = append(*messages, llm.Message{Role: "system", Content: goalDescription})
-}
-
 func (promptAssembler PromptAssembler) BuildReplyMessages(prompt string, visibleContext VisibleContext, memoryContext string, instructionPrompt string) []llm.Message {
 	contextText := (LLMContextBuilder{}).Build(LLMContextInput{
 		UserPrompt:        prompt,
@@ -119,13 +112,6 @@ func userMessageFromPromptAndParts(prompt string, inputParts []AgentPart) llm.Me
 	return llm.Message{Role: "user", Parts: llmParts}
 }
 
-func (promptAssembler PromptAssembler) appendTemporalContextMessage(messages *[]llm.Message, turnStartedAt time.Time) {
-	*messages = append(*messages, llm.Message{
-		Role:    "system",
-		Content: buildTemporalContextDescription(turnStartedAt),
-	})
-}
-
 func buildTemporalContextDescription(turnStartedAt time.Time) string {
 	currentTime := turnStartedAt
 	if currentTime.IsZero() {
@@ -137,10 +123,22 @@ func buildTemporalContextDescription(turnStartedAt time.Time) string {
 		"Runtime temporal context:",
 		"Current date: " + localTime.Format("2006-01-02"),
 		"Current weekday: " + localTime.Weekday().String(),
-		"Current time: " + localTime.Format(time.RFC3339),
+		"Current time: " + localTime.Format("15:04"),
 		"Time zone: " + location.String(),
+		buildCurrentWeekDescription(localTime),
 		"Resolve relative dates such as today, tomorrow, next Friday, 오늘, 내일, and 다음 주 from this context before choosing tool inputs.",
 	}, "\n")
+}
+
+func buildCurrentWeekDescription(localTime time.Time) string {
+	daysSinceMonday := (int(localTime.Weekday()) + 6) % 7
+	monday := localTime.AddDate(0, 0, -daysSinceMonday)
+	weekdays := []string{"Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"}
+	anchors := make([]string, 0, len(weekdays))
+	for dayOffset, weekday := range weekdays {
+		anchors = append(anchors, weekday+"="+monday.AddDate(0, 0, dayOffset).Format("2006-01-02"))
+	}
+	return "Current week: " + strings.Join(anchors, ", ")
 }
 
 func buildInstructionContext(instructionPrompt string) string {
@@ -152,14 +150,6 @@ func buildInstructionContext(instructionPrompt string) string {
 
 func systemMessage(content string) llm.Message {
 	return llm.Message{Role: "system", Content: strings.TrimSpace(content)}
-}
-
-func toolResultContextMessage(observations []turnObservation) llm.Message {
-	message := toolResultImageContextMessage(observations)
-	if text := toolResultContextText(observations); text != "" {
-		message.Content = text
-	}
-	return message
 }
 
 func toolResultContextText(observations []turnObservation) string {
@@ -212,71 +202,6 @@ func temporalContextLocation() *time.Location {
 	return time.FixedZone("Asia/Seoul", 9*60*60)
 }
 
-func (promptAssembler PromptAssembler) appendInstructionMessages(messages *[]llm.Message, instructionPrompt string) {
-	instructionContext := buildInstructionContext(instructionPrompt)
-	if instructionContext == "" {
-		return
-	}
-	*messages = append(*messages, llm.Message{
-		Role:    "system",
-		Content: instructionContext,
-	})
-}
-
-func (promptAssembler PromptAssembler) appendToolMessage(messages *[]llm.Message, toolDescription string) {
-	if strings.TrimSpace(toolDescription) == "" {
-		return
-	}
-	*messages = append(*messages, llm.Message{
-		Role:    "system",
-		Content: strings.TrimSpace(toolDescription),
-	})
-}
-
-func (promptAssembler PromptAssembler) appendRuntimeContextMessage(messages *[]llm.Message, request AgentTurnRequest) {
-	runtimeContextDescription := buildRuntimeContextDescription(request)
-	if runtimeContextDescription == "" {
-		return
-	}
-	*messages = append(*messages, llm.Message{
-		Role:    "system",
-		Content: runtimeContextDescription,
-	})
-}
-
-func (promptAssembler PromptAssembler) appendSenderAddressingMessage(messages *[]llm.Message, senderAddressingDescription string) {
-	if strings.TrimSpace(senderAddressingDescription) == "" {
-		return
-	}
-	*messages = append(*messages, llm.Message{
-		Role:    "system",
-		Content: strings.TrimSpace(senderAddressingDescription),
-	})
-}
-
-func buildRuntimeContextDescription(request AgentTurnRequest) string {
-	if request.TurnStartedAt.IsZero() {
-		return ""
-	}
-	localTime := request.TurnStartedAt.In(defaultTurnLocation())
-	lines := []string{
-		"Runtime context:",
-		"Response language: " + ResolveResponseLanguage(request.ResponseLanguage),
-		"Current turn datetime: " + localTime.Format(time.RFC3339),
-		"Current turn date: " + localTime.Format("2006-01-02"),
-		"Current turn weekday: " + localTime.Weekday().String(),
-		"Default calendar timezone: " + defaultTurnLocation().String(),
-		"Resolve relative dates such as today, tomorrow, and this Tuesday from the current turn date before calling tools.",
-	}
-	if workspaceContext := buildWorkspaceContextDescription(request); workspaceContext != "" {
-		lines = append(lines, workspaceContext)
-	}
-	if stepBudgetContext := strings.TrimSpace(request.StepBudgetContext); stepBudgetContext != "" {
-		lines = append(lines, stepBudgetContext)
-	}
-	return strings.Join(lines, "\n")
-}
-
 func buildWorkspaceContextDescription(request AgentTurnRequest) string {
 	if strings.TrimSpace(request.WorkspaceDefaultPath) == "" {
 		return ""
@@ -298,43 +223,6 @@ func defaultTurnLocation() *time.Location {
 		return time.Local
 	}
 	return location
-}
-
-func (promptAssembler PromptAssembler) appendVisibleContextMessage(messages *[]llm.Message, visibleContext VisibleContext) {
-	visibleContextDescription := buildVisibleContextDescription(visibleContext)
-	if visibleContextDescription == "" {
-		return
-	}
-	*messages = append(*messages, llm.Message{Role: "system", Content: visibleContextDescription})
-}
-
-func (promptAssembler PromptAssembler) appendMemoryMessage(messages *[]llm.Message, memoryContext string) {
-	if strings.TrimSpace(memoryContext) == "" {
-		return
-	}
-	*messages = append(*messages, llm.Message{Role: "system", Content: memoryContext})
-}
-
-func (promptAssembler PromptAssembler) appendObservationMessage(messages *[]llm.Message, observations []turnObservation) {
-	observationContext := buildObservationContext(observations)
-	if observationContext == "" {
-		return
-	}
-	*messages = append(*messages, llm.Message{
-		Role:    "system",
-		Content: observationContext,
-	})
-}
-
-func (promptAssembler PromptAssembler) appendProgressMessage(messages *[]llm.Message, request AgentTurnRequest, observations []turnObservation) {
-	progressContext := buildProgressContext(request, observations)
-	if progressContext == "" {
-		return
-	}
-	*messages = append(*messages, llm.Message{
-		Role:    "system",
-		Content: progressContext,
-	})
 }
 
 func buildObservationContext(observations []turnObservation) string {

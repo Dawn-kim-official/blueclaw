@@ -74,6 +74,9 @@ func validateScenarioFile(scenarioFile virtualSessionScenarioFile) error {
 		if strings.TrimSpace(step.Prompt) == "" {
 			return fmt.Errorf("step %d prompt is required", stepIndex+1)
 		}
+		if len(step.ActionResponses) > 0 {
+			return fmt.Errorf("step %d actionResponses are not allowed in expensive scenarios", stepIndex+1)
+		}
 		if !isValidResponseExpectation(step.ExpectedResponse) {
 			return fmt.Errorf("step %d expectedResponse %q is invalid", stepIndex+1, step.ExpectedResponse)
 		}

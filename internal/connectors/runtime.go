@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -84,7 +85,6 @@ type OutboundReply struct {
 	ReplyKind       string                 `json:"replyKind,omitempty"`
 	RawEventID      string                 `json:"rawEventID,omitempty"`
 	OutboxID        string                 `json:"outboxID,omitempty"`
-	EphemeralUserID string                 `json:"ephemeralUserID,omitempty"`
 	Attachments     []agent.FileAttachment `json:"attachments,omitempty"`
 	RecoveryActions []agent.RecoveryAction `json:"recoveryActions,omitempty"`
 	FailureNotice   agent.FailureNotice    `json:"failureNotice,omitempty"`
@@ -97,7 +97,6 @@ type outboundReplyDocument struct {
 	ReplyKind       string                    `json:"replyKind,omitempty"`
 	RawEventID      string                    `json:"rawEventID,omitempty"`
 	OutboxID        string                    `json:"outboxID,omitempty"`
-	EphemeralUserID string                    `json:"ephemeralUserID,omitempty"`
 	Attachments     []outboundReplyAttachment `json:"attachments,omitempty"`
 	RecoveryActions []agent.RecoveryAction    `json:"recoveryActions,omitempty"`
 	FailureNotice   agent.FailureNotice       `json:"failureNotice,omitempty"`
@@ -140,7 +139,6 @@ func (reply OutboundReply) MarshalJSON() ([]byte, error) {
 		ReplyKind:       reply.ReplyKind,
 		RawEventID:      reply.RawEventID,
 		OutboxID:        reply.OutboxID,
-		EphemeralUserID: reply.EphemeralUserID,
 		Attachments:     outboundReplyAttachments(reply.Attachments),
 		RecoveryActions: reply.RecoveryActions,
 		FailureNotice:   reply.FailureNotice,
@@ -159,7 +157,6 @@ func (reply *OutboundReply) UnmarshalJSON(documentBytes []byte) error {
 	reply.ReplyKind = document.ReplyKind
 	reply.RawEventID = document.RawEventID
 	reply.OutboxID = document.OutboxID
-	reply.EphemeralUserID = document.EphemeralUserID
 	reply.Attachments = fileAttachmentsFromOutboundReplyAttachments(document.Attachments)
 	reply.RecoveryActions = append([]agent.RecoveryAction{}, document.RecoveryActions...)
 	reply.FailureNotice = document.FailureNotice
@@ -320,6 +317,10 @@ type MessageReactionAdapter interface {
 	AddReaction(context.Context, ReactionTarget) error
 }
 
+type MessageReactionRemovalAdapter interface {
+	RemoveReaction(context.Context, ReactionTarget) error
+}
+
 type InteractionResolution struct {
 	Platform       string `json:"platform"`
 	ConversationID string `json:"conversationID"`
@@ -352,7 +353,6 @@ type ConnectorRuntime struct {
 	taskLauncher         *agentruntime.TaskLauncher
 	toolCatalogBuilder   *agentruntime.ToolCatalogBuilder
 	memoryService        *memory.MemoryService
-	memoryRouter         *memory.GraphitiIngestionRouter
 	workspaceID          string
 	adminTaskLinkBaseURL string
 	logger               *slog.Logger
@@ -365,6 +365,7 @@ type ConnectorRuntime struct {
 	taskIntakeGate          TaskIntakeGate
 	taskWaitTokenRepository task.TaskWaitTokenRepository
 	conversationLocks       map[string]*sync.Mutex
+	sentAttachmentSources   *sentAttachmentSourceStore
 	started                 bool
 	inboxHeartbeats         []time.Time
 	outboxHeartbeats        []time.Time
@@ -415,9 +416,10 @@ func NewConnectorRuntime(identityService *identity.IdentityService, agentKernel 
 		agentKernel:        agentKernel,
 		toolCatalogBuilder: toolCatalogBuilder,
 		logger:             logger,
-		adapterByPlatform:  map[string]PlatformAdapter{},
-		processedResults:   map[string]ConnectorRuntimeResult{},
-		conversationLocks:  map[string]*sync.Mutex{},
+		adapterByPlatform:     map[string]PlatformAdapter{},
+		processedResults:      map[string]ConnectorRuntimeResult{},
+		conversationLocks:     map[string]*sync.Mutex{},
+		sentAttachmentSources: newSentAttachmentSourceStore(),
 	}
 }
 
@@ -431,10 +433,6 @@ func (connectorRuntime *ConnectorRuntime) RegisterAdapter(adapter PlatformAdapte
 func (connectorRuntime *ConnectorRuntime) UseMemoryService(memoryService *memory.MemoryService) {
 	connectorRuntime.memoryService = memoryService
 	connectorRuntime.toolCatalogBuilder.UseMemoryService(memoryService)
-}
-
-func (connectorRuntime *ConnectorRuntime) UseGraphitiIngestionRouter(memoryRouter *memory.GraphitiIngestionRouter) {
-	connectorRuntime.memoryRouter = memoryRouter
 }
 
 func (connectorRuntime *ConnectorRuntime) UseAdminTaskLinkBaseURL(adminTaskLinkBaseURL string) {
@@ -486,10 +484,6 @@ func (connectorRuntime *ConnectorRuntime) UseMCPRegistry(mcpRegistry *mcp.McpReg
 	connectorRuntime.toolCatalogBuilder.UseMCPRegistry(mcpRegistry)
 }
 
-func (connectorRuntime *ConnectorRuntime) UseCapabilityTools(capabilityClient capability.Client, toolNames []string) {
-	connectorRuntime.toolCatalogBuilder.UseCapabilityTools(capabilityClient, toolNames)
-}
-
 func (connectorRuntime *ConnectorRuntime) UseCapabilityToolDescriptors(capabilityClient capability.Client, toolDescriptors []agentruntime.CapabilityToolDescriptor) {
 	connectorRuntime.toolCatalogBuilder.UseCapabilityToolDescriptors(capabilityClient, toolDescriptors)
 }
@@ -506,8 +500,8 @@ func connectorRuntimeDefaultAllowedToolNames() []string {
 	return append([]string{"conversation.history"}, agentruntime.DefaultAllowedToolNames()...)
 }
 
-func (connectorRuntime *ConnectorRuntime) UseAllowedToolNamesByProfile(allowedToolNamesByProfile map[string][]string, fallbackAllowedToolNames []string) {
-	connectorRuntime.toolCatalogBuilder.UseAllowedToolNamesByProfile(allowedToolNamesByProfile, fallbackAllowedToolNames)
+func (connectorRuntime *ConnectorRuntime) UseAllowedToolNamesByProfile(allowedToolNamesByProfile map[string][]string, defaultAllowedToolNames []string) {
+	connectorRuntime.toolCatalogBuilder.UseAllowedToolNamesByProfile(allowedToolNamesByProfile, defaultAllowedToolNames)
 }
 
 func (connectorRuntime *ConnectorRuntime) UseTaskLauncher(taskLauncher *agentruntime.TaskLauncher) {
@@ -780,7 +774,11 @@ func (connectorRuntime *ConnectorRuntime) enqueueConnectorReply(ctx context.Cont
 		if errorValue != nil {
 			return "", errorValue
 		}
-		return adapter.SendReply(ctx, replyTarget, reply)
+		dispatchID, errorValue := adapter.SendReply(ctx, replyTarget, reply)
+		if errorValue == nil {
+			connectorRuntime.sentAttachmentSources.RecordReply(event.Platform, dispatchID, reply.Attachments)
+		}
+		return dispatchID, errorValue
 	}
 	outboxID, errorValue := outboxRepository.EnqueueConnectorReply(event, replyTarget, reply)
 	if errorValue == nil {
@@ -835,6 +833,7 @@ func (connectorRuntime *ConnectorRuntime) processQueuedConnectorReply(ctx contex
 		connectorRuntime.markQueuedConnectorReplyFailed(queuedReply, errorValue)
 		return
 	}
+	connectorRuntime.sentAttachmentSources.RecordReply(queuedReply.Platform, dispatchID, queuedReply.Reply.Attachments)
 	if errorValue := connectorRuntime.outboxRepository().MarkConnectorReplySent(queuedReply, dispatchID); errorValue != nil {
 		connectorRuntime.logger.Warn("connector."+queuedReply.Platform+".outbox.mark_sent_failed", slog.String("outboxID", queuedReply.OutboxID), slog.String("error", errorValue.Error()))
 	}
@@ -896,9 +895,6 @@ func (connectorRuntime *ConnectorRuntime) processInboundEventWithReplySender(ctx
 	if result, isHandled := connectorRuntime.handleTaskControlIfRequested(ctx, platform, adapter, event, replyTarget, personID, sendReply); isHandled {
 		return result, nil
 	}
-	if result, isHandled := connectorRuntime.handleDebugControlIfRequested(ctx, platform, event, replyTarget, personID, sendReply); isHandled {
-		return result, nil
-	}
 	stopProgress := func() {}
 	isProgressStarted := false
 	defer func() {
@@ -913,10 +909,15 @@ func (connectorRuntime *ConnectorRuntime) processInboundEventWithReplySender(ctx
 	personAccess := connectorRuntime.identityService.ResolvePersonAccess(personID)
 	requesterEmail := connectorRuntime.requesterEmailForEvent(personID, event)
 	taskWaitResolution := connectorRuntime.resolveInboundTaskWait(personID, platform, event)
+	engagedAckEmojiName := connectorRuntime.applyEngagedAckReaction(ctx, platform, adapter, event,
+		event.Context.Addressing.BotMentioned || taskWaitResolution.HasTaskWaitToken || taskWaitResolution.IsAmbiguous)
 	if taskWaitResolution.IsAmbiguous {
-		return connectorRuntime.handleAmbiguousTaskWait(ctx, platform, adapter, event, replyTarget, personID, requesterEmail, personAccess, taskWaitResolution, sendReply)
+		return connectorRuntime.handleAmbiguousTaskWait(ctx, platform, adapter, event, replyTarget, personID, requesterEmail, personAccess, taskWaitResolution, engagedAckEmojiName, sendReply)
 	}
-	pendingApproval, turnDecision, hasPendingConfirmation := connectorRuntime.resolveConfirmationReply(ctx, platform, personID, event, taskWaitResolution)
+	pendingApproval, turnDecision, hasPendingConfirmation, errorValue := connectorRuntime.resolveConfirmationReply(ctx, platform, personID, event, taskWaitResolution)
+	if errorValue != nil {
+		return ConnectorRuntimeResult{}, errorValue
+	}
 	isApprovalContinuation := hasPendingConfirmation && turnDecision.Approval != nil && *turnDecision.Approval == agent.ApprovalSignalApprove
 	if hasPendingConfirmation {
 		connectorRuntime.resolveAskInteractionMessage(ctx, adapter, event, pendingApproval.TaskRun.TaskRunID, AskInteraction{InteractionID: latestAskInteractionID(connectorRuntime.agentKernel.ListTaskEvent(pendingApproval.TaskRun.TaskRunID))})
@@ -939,7 +940,10 @@ func (connectorRuntime *ConnectorRuntime) processInboundEventWithReplySender(ctx
 	}
 	pendingAskInteraction, hasPendingAskInteraction := connectorRuntime.findPendingAskInteraction(personID, platform, event, taskWaitResolution)
 	previousPrompt := event.Prompt
-	event, askTurnDecision, hasAskTurnDecision := connectorRuntime.resolveAskReply(ctx, platform, personID, event, taskWaitResolution)
+	event, askTurnDecision, hasAskTurnDecision, errorValue := connectorRuntime.resolveAskReply(ctx, platform, personID, event, taskWaitResolution)
+	if errorValue != nil {
+		return ConnectorRuntimeResult{}, errorValue
+	}
 	didSupersedePendingAsk := false
 	if hasPendingAskInteraction && askReplySupersedesInteraction(askTurnDecision, hasAskTurnDecision) {
 		connectorRuntime.supersedePendingAskInteraction(event, pendingAskInteraction, askTurnDecision)
@@ -963,9 +967,17 @@ func (connectorRuntime *ConnectorRuntime) processInboundEventWithReplySender(ctx
 		activeGoal = pendingApprovalActiveGoal(pendingApproval, event.Prompt)
 		hasActiveGoal = true
 	}
+	if engagedAckEmojiName == "" {
+		engagedAckEmojiName = connectorRuntime.applyEngagedAckReaction(ctx, platform, adapter, event,
+			isApprovalContinuation || hasPendingAskInteraction || hasActiveGoal)
+	}
 	event = connectorRuntime.withInitialVisibleContext(ctx, adapter, event)
 	addressingLaunch := connectorRuntime.resolveInboundEngagement(ctx, platform, event)
 	if addressingLaunch.ReactionEmoji != "" {
+		if engagedAckEmojiName != "" && engagedAckEmojiName != addressingLaunch.ReactionEmoji {
+			connectorRuntime.clearEngagedAckReaction(ctx, platform, adapter, event, engagedAckEmojiName)
+			engagedAckEmojiName = ""
+		}
 		connectorRuntime.addAddressingReaction(ctx, platform, adapter, event, addressingLaunch.ReactionEmoji)
 	}
 	if !addressingLaunch.ShouldLaunch {
@@ -1034,7 +1046,7 @@ func (connectorRuntime *ConnectorRuntime) processInboundEventWithReplySender(ctx
 	taskDuration := time.Since(taskStartedAt)
 	connectorRuntime.logger.Info("connector."+platform+".agent.completed", slog.String("messageID", event.MessageID), slog.String("taskRunID", taskRunID), slog.Int64("duration_ms", taskDuration.Milliseconds()))
 	connectorRuntime.appendTaskExecutionDuration(taskRunID, taskDuration)
-	return connectorRuntime.dispatchTaskReply(ctx, platform, adapter, event, replyTarget, turnResult, sendReply)
+	return connectorRuntime.dispatchTaskReply(ctx, platform, adapter, event, replyTarget, turnResult, engagedAckEmojiName, sendReply)
 }
 
 func (connectorRuntime *ConnectorRuntime) shouldDeferNewTaskLaunch(isApprovalContinuation bool, hasPendingAskInteraction bool, hasActiveGoal bool) bool {
@@ -1046,6 +1058,50 @@ func (connectorRuntime *ConnectorRuntime) shouldDeferNewTaskLaunch(isApprovalCon
 
 func shouldDeferQueuedConnectorEvent(result ConnectorRuntimeResult) bool {
 	return result.Ignored && result.Reason == "task_intake_quiesced"
+}
+
+const engagedAckReactionEmojiName = "eyes"
+
+func (connectorRuntime *ConnectorRuntime) applyEngagedAckReaction(ctx context.Context, platform string, adapter PlatformAdapter, event PlatformInboundEvent, isEngaged bool) string {
+	if !isEngaged || !isMultiPersonConversation(event) {
+		return ""
+	}
+	reactionAdapter, isSupported := adapter.(MessageReactionAdapter)
+	if !isSupported {
+		return ""
+	}
+	target := ReactionTarget{
+		Platform:       platform,
+		ConversationID: event.ConversationID,
+		MessageID:      event.MessageID,
+		EmojiName:      engagedAckReactionEmojiName,
+		Reason:         "engaged_ack",
+	}
+	if errorValue := reactionAdapter.AddReaction(ctx, target); errorValue != nil {
+		connectorRuntime.logger.Warn("connector."+platform+".reaction.failed", slog.String("messageID", event.MessageID), slog.String("emojiName", target.EmojiName), slog.String("error", errorValue.Error()))
+		return ""
+	}
+	return engagedAckReactionEmojiName
+}
+
+func (connectorRuntime *ConnectorRuntime) clearEngagedAckReaction(ctx context.Context, platform string, adapter PlatformAdapter, event PlatformInboundEvent, emojiName string) {
+	if strings.TrimSpace(emojiName) == "" {
+		return
+	}
+	removalAdapter, isSupported := adapter.(MessageReactionRemovalAdapter)
+	if !isSupported {
+		return
+	}
+	target := ReactionTarget{
+		Platform:       platform,
+		ConversationID: event.ConversationID,
+		MessageID:      event.MessageID,
+		EmojiName:      emojiName,
+		Reason:         "engaged_ack_cleared",
+	}
+	if errorValue := removalAdapter.RemoveReaction(ctx, target); errorValue != nil {
+		connectorRuntime.logger.Warn("connector."+platform+".reaction.remove_failed", slog.String("messageID", event.MessageID), slog.String("emojiName", emojiName), slog.String("error", errorValue.Error()))
+	}
 }
 
 func (connectorRuntime *ConnectorRuntime) addAddressingReaction(ctx context.Context, platform string, adapter PlatformAdapter, event PlatformInboundEvent, reactionEmojiName string) {
@@ -1131,22 +1187,23 @@ func (connectorRuntime *ConnectorRuntime) shouldIgnoreOrphanAskAction(personID s
 	}
 }
 
-func (connectorRuntime *ConnectorRuntime) resolveConfirmationReply(ctx context.Context, platform string, personID string, event PlatformInboundEvent, taskWaitResolution inboundTaskWaitResolution) (pendingApproval, agent.TurnDecision, bool) {
+func (connectorRuntime *ConnectorRuntime) resolveConfirmationReply(ctx context.Context, platform string, personID string, event PlatformInboundEvent, taskWaitResolution inboundTaskWaitResolution) (pendingApproval, agent.TurnDecision, bool, error) {
 	approval, isFound := connectorRuntime.findPendingApproval(personID, platform, event, taskWaitResolution)
 	if !isFound {
-		return pendingApproval{}, agent.TurnDecision{}, false
+		return pendingApproval{}, agent.TurnDecision{}, false, nil
 	}
 	if action, isFound := event.LegacyFields["askAction"].(string); isFound {
 		switch strings.TrimSpace(action) {
 		case "confirm":
 			approvalSignal := agent.ApprovalSignalApprove
-			return approval, agent.TurnDecision{Route: agent.TurnRouteContinueTask, Approval: &approvalSignal, Classification: agent.IntakeClassificationBoundedTask, TaskShape: agent.TaskShapeMaintenanceTask, TaskLevel: agent.TaskLevelLow, ResponseLanguage: responseLanguageForEvent(event), Reason: "interactive_confirm"}, true
+			decision := agent.TurnDecision{Route: agent.TurnRouteContinueTask, Approval: &approvalSignal, Classification: agent.IntakeClassificationBoundedTask, TaskShape: agent.TaskShapeMaintenanceTask, TaskLevel: agent.TaskLevelLow, ResponseLanguage: responseLanguageForEvent(event), Reason: "interactive_confirm"}
+			return approval, connectorRuntime.withPersistedIntakeState(approval.TaskRun.TaskRunID, decision), true, nil
 		case "cancel":
 			approvalSignal := agent.ApprovalSignalReject
-			return approval, agent.TurnDecision{Route: agent.TurnRouteConsume, Approval: &approvalSignal, Classification: agent.IntakeClassificationQuickReply, TaskShape: agent.TaskShapeImmediateReply, TaskLevel: agent.TaskLevelXLow, ResponseLanguage: responseLanguageForEvent(event), Reason: "interactive_cancel"}, true
+			return approval, agent.TurnDecision{Route: agent.TurnRouteConsume, Approval: &approvalSignal, Classification: agent.IntakeClassificationQuickReply, TaskShape: agent.TaskShapeImmediateReply, TaskLevel: agent.TaskLevelXLow, ResponseLanguage: responseLanguageForEvent(event), Reason: "interactive_cancel"}, true, nil
 		}
 	}
-	decision := connectorRuntime.agentKernel.RouteTurn(ctx, agent.AgentRequest{
+	decision, errorValue := connectorRuntime.agentKernel.RouteTurn(ctx, agent.AgentRequest{
 		RequesterPersonID: personID,
 		ConversationID:    event.ConversationID,
 		Prompt:            event.Prompt,
@@ -1159,6 +1216,9 @@ func (connectorRuntime *ConnectorRuntime) resolveConfirmationReply(ctx context.C
 		},
 		TurnStartedAt: time.Now(),
 	})
+	if errorValue != nil {
+		return pendingApproval{}, agent.TurnDecision{}, false, errorValue
+	}
 	connectorRuntime.agentKernel.AppendTaskEvent(approval.TaskRun.TaskRunID, "confirmation.reply_classified", marshalConnectorEventBody(map[string]any{
 		"messageID":   event.MessageID,
 		"route":       decision.Route,
@@ -1169,37 +1229,40 @@ func (connectorRuntime *ConnectorRuntime) resolveConfirmationReply(ctx context.C
 	if decision.Approval != nil && *decision.Approval == agent.ApprovalSignalApprove {
 		connectorRuntime.logger.Info("connector."+platform+".confirmation.accepted", slog.String("messageID", event.MessageID), slog.String("taskRunID", approval.TaskRun.TaskRunID))
 	}
-	return approval, decision, true
+	return approval, decision, true, nil
 }
 
-func (connectorRuntime *ConnectorRuntime) resolveAskReply(ctx context.Context, platform string, personID string, event PlatformInboundEvent, taskWaitResolution inboundTaskWaitResolution) (PlatformInboundEvent, agent.TurnDecision, bool) {
+func (connectorRuntime *ConnectorRuntime) resolveAskReply(ctx context.Context, platform string, personID string, event PlatformInboundEvent, taskWaitResolution inboundTaskWaitResolution) (PlatformInboundEvent, agent.TurnDecision, bool, error) {
 	pendingInteraction, isFound := connectorRuntime.findPendingAskInteraction(personID, platform, event, taskWaitResolution)
 	if !isFound {
-		return event, agent.TurnDecision{}, false
+		return event, agent.TurnDecision{}, false, nil
 	}
 	if action, isFound := event.LegacyFields["askAction"].(string); isFound {
-		return resolveAskInteractiveReply(event, pendingInteraction, action), askInteractiveTurnDecision(event, pendingInteraction, action), true
+		decision := connectorRuntime.withPersistedIntakeState(pendingInteraction.TaskRunID, askInteractiveTurnDecision(event, pendingInteraction, action))
+		return resolveAskInteractiveReply(event, pendingInteraction, action), decision, true, nil
 	}
 	if pendingInteraction.Kind == "ask_input" {
-		decision := connectorRuntime.agentKernel.RouteTurn(ctx, agent.AgentRequest{
+		decision, errorValue := connectorRuntime.agentKernel.RouteTurn(ctx, agent.AgentRequest{
 			RequesterPersonID: personID,
 			ConversationID:    event.ConversationID,
 			Prompt:            event.Prompt,
 			ResponseLanguage:  responseLanguageForEvent(event),
 			VisibleContext:    event.Context.ToAgentVisibleContext(),
 			PendingInput: agent.PendingInputContext{
-				TaskRunID: pendingInteraction.TaskRunID,
-				Question:  pendingInteraction.Question,
+				TaskRunID:     pendingInteraction.TaskRunID,
+				Question:      pendingInteraction.Question,
+				SelectionMode: pendingInteraction.SelectionMode,
+				Options:       choiceReplyOptions(pendingInteraction.Options),
 			},
 			TurnStartedAt: time.Now(),
 		})
-		return event, decision, true
+		return event, decision, true, errorValue
 	}
 	if pendingInteraction.Kind != "ask_choice_single" && pendingInteraction.Kind != "ask_choice_multiple" {
-		return event, agent.TurnDecision{}, false
+		return event, agent.TurnDecision{}, false, nil
 	}
 	if choices, isFound := deterministicChoiceSelections(event.Prompt, pendingInteraction); isFound {
-		decision := agent.TurnDecision{
+		decision := connectorRuntime.withPersistedIntakeState(pendingInteraction.TaskRunID, agent.TurnDecision{
 			Route:            agent.TurnRouteContinueTask,
 			Classification:   agent.IntakeClassificationBoundedTask,
 			TaskShape:        agent.TaskShapeMaintenanceTask,
@@ -1207,7 +1270,7 @@ func (connectorRuntime *ConnectorRuntime) resolveAskReply(ctx context.Context, p
 			ResponseLanguage: responseLanguageForEvent(event),
 			Reason:           "deterministic_choice_selection",
 			Choices:          choices,
-		}
+		})
 		connectorRuntime.agentKernel.AppendTaskEvent(pendingInteraction.TaskRunID, "ask.reply_classified", marshalConnectorEventBody(map[string]any{
 			"messageID": event.MessageID,
 			"choices":   decision.Choices,
@@ -1215,9 +1278,9 @@ func (connectorRuntime *ConnectorRuntime) resolveAskReply(ctx context.Context, p
 			"reason":    decision.Reason,
 		}))
 		event.Prompt = resolvedChoicePrompt(pendingInteraction, decision.Choices)
-		return event, decision, true
+		return event, decision, true, nil
 	}
-	decision := connectorRuntime.agentKernel.RouteTurn(ctx, agent.AgentRequest{
+	decision, errorValue := connectorRuntime.agentKernel.RouteTurn(ctx, agent.AgentRequest{
 		RequesterPersonID: personID,
 		ConversationID:    event.ConversationID,
 		Prompt:            event.Prompt,
@@ -1231,6 +1294,9 @@ func (connectorRuntime *ConnectorRuntime) resolveAskReply(ctx context.Context, p
 		},
 		TurnStartedAt: time.Now(),
 	})
+	if errorValue != nil {
+		return event, agent.TurnDecision{}, false, errorValue
+	}
 	connectorRuntime.agentKernel.AppendTaskEvent(pendingInteraction.TaskRunID, "ask.reply_classified", marshalConnectorEventBody(map[string]any{
 		"messageID": event.MessageID,
 		"choices":   decision.Choices,
@@ -1238,10 +1304,10 @@ func (connectorRuntime *ConnectorRuntime) resolveAskReply(ctx context.Context, p
 		"reason":    decision.Reason,
 	}))
 	if len(decision.Choices) == 0 {
-		return event, decision, true
+		return event, decision, true, nil
 	}
 	event.Prompt = resolvedChoicePrompt(pendingInteraction, decision.Choices)
-	return event, decision, true
+	return event, decision, true, nil
 }
 
 func deterministicChoiceSelections(reply string, interaction AskInteraction) ([]string, bool) {
@@ -1414,11 +1480,6 @@ func askReplyConsumesInteraction(interaction AskInteraction, previousPrompt stri
 		return true
 	}
 	switch strings.TrimSpace(interaction.Kind) {
-	case "ask_choice_single", "ask_choice_multiple":
-		if len(decision.Choices) > 0 && strings.TrimSpace(event.Prompt) != strings.TrimSpace(previousPrompt) {
-			return true
-		}
-		return len(decision.Choices) == 0 && (decision.Route == agent.TurnRouteStartTask || decision.Route == agent.TurnRouteReviseTask)
 	case "ask_input":
 		return decision.Route == agent.TurnRouteContinueTask || decision.Route == agent.TurnRouteReviseTask || decision.Route == agent.TurnRouteStartTask
 	default:
@@ -1468,9 +1529,6 @@ func trimNonEmptyConnectorStrings(values []string) []string {
 }
 
 func (connectorRuntime *ConnectorRuntime) resolveAskInteractionMessage(ctx context.Context, adapter PlatformAdapter, event PlatformInboundEvent, taskRunID string, interaction AskInteraction) {
-	if strings.TrimSpace(interaction.TargetPlatformUserID) != "" {
-		return
-	}
 	if legacyBool(event.LegacyFields, "ephemeralAsk") {
 		return
 	}
@@ -1596,17 +1654,6 @@ func (connectorRuntime *ConnectorRuntime) findOpenTaskWait(find func() (task.Tas
 }
 
 func eventThreadRootID(event PlatformInboundEvent) string {
-	threadRootID := firstNonEmptyString(
-		legacyString(event.LegacyFields, "threadRootID"),
-		legacyString(event.LegacyFields, "thread_root_id"),
-		legacyString(event.LegacyFields, "rootMessageID"),
-		legacyString(event.LegacyFields, "rootMessageId"),
-		legacyString(event.LegacyFields, "rootID"),
-		legacyString(event.LegacyFields, "root_id"),
-	)
-	if threadRootID != "" {
-		return threadRootID
-	}
 	if eventIsThreadReply(event) {
 		return strings.TrimSpace(event.ReplyTargetID)
 	}
@@ -1651,6 +1698,7 @@ func (connectorRuntime *ConnectorRuntime) handleAmbiguousTaskWait(
 	requesterEmail string,
 	personAccess policy.PersonAccess,
 	taskWaitResolution inboundTaskWaitResolution,
+	engagedAckEmojiName string,
 	sendReply func(context.Context, ReplyTarget, OutboundReply) (string, error),
 ) (ConnectorRuntimeResult, error) {
 	turnDecision := ambiguousTaskWaitTurnDecision(taskWaitResolution.AmbiguousTaskWaits, responseLanguageForEvent(event))
@@ -1670,7 +1718,7 @@ func (connectorRuntime *ConnectorRuntime) handleAmbiguousTaskWait(
 	if errorValue != nil {
 		return ConnectorRuntimeResult{}, errorValue
 	}
-	return connectorRuntime.dispatchTaskReply(ctx, platform, adapter, event, replyTarget, launchResult.TurnResult, sendReply)
+	return connectorRuntime.dispatchTaskReply(ctx, platform, adapter, event, replyTarget, launchResult.TurnResult, engagedAckEmojiName, sendReply)
 }
 
 func ambiguousTaskWaitTurnDecision(taskWaitTokens []task.TaskWaitToken, responseLanguage string) agent.TurnDecision {
@@ -1679,6 +1727,7 @@ func ambiguousTaskWaitTurnDecision(taskWaitTokens []task.TaskWaitToken, response
 		Classification:         agent.IntakeClassificationNeedsConfirmation,
 		TaskShape:              agent.TaskShapeApprovalGatedTask,
 		TaskLevel:              agent.TaskLevelLow,
+		EstimatedMinutes:       1,
 		ResponseLanguage:       responseLanguage,
 		Reason:                 "ambiguous_wait_resolution",
 		ClarificationOptions:   taskWaitClarificationOptions(taskWaitTokens),
@@ -1929,6 +1978,14 @@ func outputFormatsFromAttachmentSuffixes(suffixes []string) []string {
 	return formats
 }
 
+func (connectorRuntime *ConnectorRuntime) withPersistedIntakeState(taskRunID string, decision agent.TurnDecision) agent.TurnDecision {
+	if decision.Route != agent.TurnRouteContinueTask {
+		return decision
+	}
+	taskEvents := connectorRuntime.agentKernel.ListTaskEvent(taskRunID)
+	return decision.WithRestoredIntakeState(latestIntakeDecision(taskEvents))
+}
+
 func latestIntakeDecision(taskEvents []task.TaskEvent) agent.IntakeDecision {
 	for index := len(taskEvents) - 1; index >= 0; index-- {
 		taskEvent := taskEvents[index]
@@ -2031,7 +2088,7 @@ func latestActiveGoal(taskEvents []task.TaskEvent) agent.ActiveGoal {
 		}
 		var activeGoal agent.ActiveGoal
 		if errorValue := json.Unmarshal([]byte(taskEvent.Body), &activeGoal); errorValue != nil {
-			continue
+			return agent.ActiveGoal{RestoreError: "latest active goal event is invalid: " + errorValue.Error()}
 		}
 		return activeGoal
 	}
@@ -2218,16 +2275,26 @@ func latestAskInteraction(taskRunID string, taskEvents []task.TaskEvent) (AskInt
 		if taskEvent.Name != "ask.requested" {
 			continue
 		}
-		var interaction AskInteraction
+		var interaction struct {
+			AskInteraction
+			Choices []string `json:"choices,omitempty"`
+		}
 		if errorValue := json.Unmarshal([]byte(taskEvent.Body), &interaction); errorValue != nil {
 			continue
 		}
-		interaction.TaskRunID = firstNonEmptyString(interaction.TaskRunID, taskRunID)
-		interaction.InteractionID = firstNonEmptyString(interaction.InteractionID, taskEvent.TaskEventID)
+		interaction.AskInteraction.TaskRunID = firstNonEmptyString(interaction.TaskRunID, taskRunID)
+		interaction.AskInteraction.InteractionID = firstNonEmptyString(interaction.InteractionID, taskEvent.TaskEventID)
 		if resolvedInteractionIDs[strings.TrimSpace(interaction.InteractionID)] {
 			continue
 		}
-		interaction.Kind = normalizedAskInteractionKind(interaction.Kind)
+		legacyKind := strings.TrimSpace(interaction.Kind)
+		interaction.AskInteraction.Kind = normalizedAskInteractionKind(legacyKind)
+		if len(interaction.Options) == 0 && len(interaction.Choices) > 0 {
+			interaction.AskInteraction.Options = askOptionsFromLegacyChoices(interaction.Choices)
+		}
+		if interaction.Kind == "ask_input" && strings.TrimSpace(interaction.SelectionMode) == "" && len(interaction.Options) > 0 {
+			interaction.AskInteraction.SelectionMode = askInputSelectionMode(legacyKind)
+		}
 		if strings.TrimSpace(interaction.Question) == "" {
 			interaction.Question = strings.TrimSpace(interaction.Message)
 		}
@@ -2235,7 +2302,7 @@ func latestAskInteraction(taskRunID string, taskEvents []task.TaskEvent) (AskInt
 			interaction.Message = strings.TrimSpace(interaction.Question)
 		}
 		if strings.TrimSpace(interaction.Kind) != "" {
-			return interaction, true
+			return interaction.AskInteraction, true
 		}
 	}
 	return AskInteraction{}, false
@@ -2291,14 +2358,37 @@ func legacyBool(fields map[string]interface{}, key string) bool {
 	return value
 }
 
+func askOptionsFromLegacyChoices(choices []string) []AskChoiceOption {
+	options := []AskChoiceOption{}
+	for index, choice := range choices {
+		trimmedChoice := strings.TrimSpace(choice)
+		if trimmedChoice == "" {
+			continue
+		}
+		options = append(options, AskChoiceOption{
+			Key:   strconv.Itoa(index + 1),
+			Label: trimmedChoice,
+			Value: trimmedChoice,
+		})
+	}
+	return options
+}
+
+func askInputSelectionMode(legacyKind string) string {
+	if strings.TrimSpace(legacyKind) == "choice_multiple" {
+		return "multiple"
+	}
+	return "single"
+}
+
 func normalizedAskInteractionKind(kind string) string {
 	switch strings.TrimSpace(kind) {
 	case "confirm":
 		return "ask_confirm"
 	case "choice_single":
-		return "ask_choice_single"
+		return "ask_input"
 	case "choice_multiple":
-		return "ask_choice_multiple"
+		return "ask_input"
 	case "input", "input_choice":
 		return "ask_input"
 	default:
@@ -2427,8 +2517,6 @@ func taskWaitKind(reply OutboundReply, taskRun task.TaskRun) string {
 	switch normalizedAskInteractionKind(reply.Interaction.Kind) {
 	case "ask_confirm":
 		return "approval"
-	case "ask_choice_single", "ask_choice_multiple":
-		return "choice"
 	case "ask_input":
 		return "input"
 	default:
@@ -2446,23 +2534,14 @@ func (connectorRuntime *ConnectorRuntime) appendConnectorReplyEvent(taskRunID st
 func (connectorRuntime *ConnectorRuntime) sendCheckpointReply(ctx context.Context, platform string, event PlatformInboundEvent, replyTarget ReplyTarget, checkpoint agent.AgentCheckpoint, sendReply func(context.Context, ReplyTarget, OutboundReply) (string, error)) error {
 	message := strings.TrimSpace(checkpoint.Message)
 	taskRunID := strings.TrimSpace(checkpoint.TaskRunID)
-	ephemeralUserID := strings.TrimSpace(event.SenderID)
-	if checkpoint.Durable {
-		ephemeralUserID = ""
-	}
 	reply := OutboundReply{
-		Message:         message,
-		TaskRunID:       taskRunID,
-		ReplyKind:       connectorReplyKindCheckpoint,
-		EphemeralUserID: ephemeralUserID,
+		Message:   message,
+		TaskRunID: taskRunID,
+		ReplyKind: connectorReplyKindCheckpoint,
 	}
 	if message == "" {
 		connectorRuntime.appendConnectorReplyEvent(taskRunID, "connector.reply.suppressed", connectorReplyEventBody(event, reply, "", "", "missing_checkpoint_message"))
 		return errors.New("missing checkpoint message")
-	}
-	if errorValue := agent.ValidateUserNoticeDelivery(message); errorValue != nil {
-		connectorRuntime.appendConnectorReplyEvent(taskRunID, "connector.reply.suppressed", connectorReplyEventBody(event, reply, "", "", "invalid_checkpoint_message"))
-		return errorValue
 	}
 	dispatchID, errorValue := sendReply(ctx, replyTarget, reply)
 	if errorValue != nil {
@@ -2482,11 +2561,6 @@ func (connectorRuntime *ConnectorRuntime) sendUserNoticeReply(ctx context.Contex
 	if missingReason != "" {
 		connectorRuntime.appendConnectorReplyEvent(taskRunID, "connector.reply.suppressed", connectorReplyEventBody(event, OutboundReply{TaskRunID: taskRunID, ReplyKind: connectorReplyKindUserNotice}, "", "", missingReason))
 		connectorRuntime.logger.Info("connector."+platform+".outbound.skipped", slog.String("messageID", event.MessageID), slog.String("taskRunID", taskRunID), slog.String("reason", missingReason))
-		return "", false
-	}
-	if errorValue := agent.ValidateUserNoticeDelivery(notice); errorValue != nil {
-		connectorRuntime.appendConnectorReplyEvent(taskRunID, "connector.reply.suppressed", connectorReplyEventBody(event, OutboundReply{TaskRunID: taskRunID, ReplyKind: connectorReplyKindUserNotice}, "", "", "invalid_user_notice"))
-		connectorRuntime.logger.Info("connector."+platform+".outbound.skipped", slog.String("messageID", event.MessageID), slog.String("taskRunID", taskRunID), slog.String("reason", "invalid_user_notice"), slog.String("error", errorValue.Error()))
 		return "", false
 	}
 	if taskStatusRequiresFailureNotice(turnResult.TaskRun.Status) {
@@ -2538,7 +2612,7 @@ func userNoticeReplyMessage(turnResult agent.AgentTurnResult) (string, agent.Fai
 		if message != "" {
 			return message, turnResult.FailureNotice, ""
 		}
-		if fallbackMessage := safeFailureUserNotice(turnResult.UserNotice); fallbackMessage != "" {
+		if fallbackMessage := strings.TrimSpace(turnResult.UserNotice); fallbackMessage != "" {
 			return fallbackMessage, turnResult.FailureNotice, ""
 		}
 		return "", turnResult.FailureNotice, "missing_failure_notice"
@@ -2548,17 +2622,6 @@ func userNoticeReplyMessage(turnResult agent.AgentTurnResult) (string, agent.Fai
 		return "", agent.FailureNotice{}, "missing_user_notice"
 	}
 	return message, agent.FailureNotice{}, ""
-}
-
-func safeFailureUserNotice(message string) string {
-	message = strings.TrimSpace(message)
-	if message == "" {
-		return ""
-	}
-	if agent.ValidateUserNoticeDelivery(message) != nil {
-		return ""
-	}
-	return message
 }
 
 func taskStatusRequiresFailureNotice(status task.TaskStatus) bool {
@@ -2784,10 +2847,10 @@ func connectorReadableAttachmentPath(path string, personID string, scope agentru
 	prefix := "/workspace/private/people/" + connectorSafePathSegment(personID)
 	trimmedPath := strings.TrimSpace(path)
 	if trimmedPath == prefix {
-		return "home"
+		return "~"
 	}
 	if strings.HasPrefix(trimmedPath, prefix+"/") {
-		return "home/" + strings.TrimPrefix(trimmedPath, prefix+"/")
+		return "~/" + strings.TrimPrefix(trimmedPath, prefix+"/")
 	}
 	return path
 }
@@ -2817,9 +2880,10 @@ func connectorInputAttachmentKey(attachment InputAttachment) string {
 }
 
 type connectorAttachmentMaterialResolver struct {
-	adapter  PlatformAdapter
-	personID string
-	event    PlatformInboundEvent
+	adapter     PlatformAdapter
+	personID    string
+	event       PlatformInboundEvent
+	sentSources *sentAttachmentSourceStore
 }
 
 func (resolver connectorAttachmentMaterialResolver) ResolveAttachmentMaterial(ctx context.Context, materialID string) (agent.VisibleContextMaterial, error) {
@@ -2831,6 +2895,28 @@ func (resolver connectorAttachmentMaterialResolver) ResolveAttachmentMaterial(ct
 		return agent.VisibleContextMaterial{}, errors.New("attachment material is not visible in this conversation")
 	}
 	return resolver.importAttachmentMaterial(ctx, attachment)
+}
+
+func (resolver connectorAttachmentMaterialResolver) sentSourceMaterial(attachment InputAttachment) (agent.VisibleContextMaterial, bool) {
+	devicePath, isFound := resolver.sentSources.SourcePath(attachment.Platform, attachment.MessageID, attachment.Filename)
+	if !isFound {
+		return agent.VisibleContextMaterial{}, false
+	}
+	scope := connectorInputAttachmentScope(resolver.personID, resolver.event)
+	readablePath := connectorReadableAttachmentPath(devicePath, resolver.personID, scope)
+	if readablePath == devicePath {
+		return agent.VisibleContextMaterial{}, false
+	}
+	sourceAttachment := attachment
+	sourceAttachment.Path = readablePath
+	sourceAttachment.IsAvailable = true
+	sourceAttachment.ErrorCode = ""
+	sourceAttachment.Message = ""
+	materials := agentVisibleContextMaterials([]InputAttachment{sourceAttachment})
+	if len(materials) == 0 {
+		return agent.VisibleContextMaterial{}, false
+	}
+	return materials[0], true
 }
 
 func (resolver connectorAttachmentMaterialResolver) findAttachmentMaterial(ctx context.Context, materialID string) (InputAttachment, bool, error) {
@@ -2869,6 +2955,9 @@ func visibleContextAttachmentMaterials(visibleContext VisibleContext) []InputAtt
 }
 
 func (resolver connectorAttachmentMaterialResolver) importAttachmentMaterial(ctx context.Context, attachment InputAttachment) (agent.VisibleContextMaterial, error) {
+	if material, isResolved := resolver.sentSourceMaterial(attachment); isResolved {
+		return material, nil
+	}
 	importingAdapter, isSupported := resolver.adapter.(InputAttachmentImportingAdapter)
 	if isSupported && strings.TrimSpace(attachment.FileID) != "" {
 		material, errorValue := resolver.importAttachmentWithAdapter(ctx, importingAdapter, attachment)
@@ -3085,7 +3174,7 @@ func (connectorRuntime *ConnectorRuntime) buildTurnToolSet(adapter PlatformAdapt
 		Platform:                   adapter.Name(),
 		HistoryCursor:              event.Context.HistoryCursor,
 		HistoryProvider:            connectorHistoryProvider{adapter: adapter},
-		AttachmentMaterialResolver: connectorAttachmentMaterialResolver{adapter: adapter, personID: personID, event: event},
+		AttachmentMaterialResolver: connectorAttachmentMaterialResolver{adapter: adapter, personID: personID, event: event, sentSources: connectorRuntime.sentAttachmentSources},
 		PersonAccess:               personAccess,
 		MemoryNamespaces:           connectorRuntime.accessibleNamespaces(personID, personAccess, event),
 		AccessibleConversationIDs:  []string{event.ConversationID},
@@ -3163,65 +3252,6 @@ func detachedConnectorContext(ctx context.Context) context.Context {
 		return context.Background()
 	}
 	return context.WithoutCancel(ctx)
-}
-
-func (connectorRuntime *ConnectorRuntime) ingestMemory(ctx context.Context, platform string, personID string, personAccess policy.PersonAccess, event PlatformInboundEvent, taskRunID string) {
-	if connectorRuntime.memoryService == nil || connectorRuntime.memoryRouter == nil {
-		return
-	}
-	defaultSecurityLevelRank := personAccess.SecurityLevelRank
-	defaultRequiredClasses := append([]string{}, personAccess.GrantedClasses...)
-	if channelPolicy, isFound := connectorRuntime.identityService.ResolveConversationPolicy(platform, event.ConversationID); isFound {
-		defaultSecurityLevelRank = channelPolicy.DefaultSecurityLevelRank
-		defaultRequiredClasses = append([]string{}, channelPolicy.DefaultRequiredClasses...)
-	}
-	route, errorValue := connectorRuntime.memoryRouter.Route(ctx, memory.GraphitiIngestionInput{
-		PersonID:                 personID,
-		Prompt:                   event.Prompt,
-		ConversationID:           event.ConversationID,
-		WorkspaceID:              connectorRuntime.workspaceID,
-		DefaultSecurityLevelRank: defaultSecurityLevelRank,
-		DefaultRequiredClasses:   defaultRequiredClasses,
-		IsPrivateConversation:    isPrivateConversationID(event.ConversationID),
-	})
-	if errorValue != nil {
-		connectorRuntime.logger.Warn("connector."+platform+".memory.ingestion_route_failed", slog.String("messageID", event.MessageID), slog.String("taskRunID", taskRunID), slog.String("error", errorValue.Error()))
-		connectorRuntime.agentKernel.AppendTaskEvent(taskRunID, "memory.ingestion_route_failed", errorValue.Error())
-		route = memory.GraphitiIngestionRoute{ShouldStore: true, Namespaces: connectorRuntime.accessibleNamespaces(personID, personAccess, event), Reason: "route_failed_fallback", Confidence: 0.25}
-	}
-	if !route.ShouldStore {
-		connectorRuntime.logger.Info("connector."+platform+".memory.ingestion_skipped", slog.String("messageID", event.MessageID), slog.String("taskRunID", taskRunID), slog.String("reason", route.Reason))
-		connectorRuntime.agentKernel.AppendTaskEvent(taskRunID, "memory.ingestion_skipped", marshalConnectorToolResult(route))
-		return
-	}
-
-	connectorRuntime.addMemoryEpisode(ctx, platform, personID, event, taskRunID, route.Namespaces)
-}
-
-func (connectorRuntime *ConnectorRuntime) addMemoryEpisode(ctx context.Context, platform string, personID string, event PlatformInboundEvent, taskRunID string, namespaces []memory.MemoryNamespace) {
-	episode := memory.MemoryEpisode{
-		EpisodeID:       event.DedupeKey(),
-		Platform:        platform,
-		MessageID:       event.MessageID,
-		ConversationID:  event.ConversationID,
-		SenderPersonID:  personID,
-		Prompt:          event.Prompt,
-		OccurredAt:      event.RawReceivedAt,
-		Namespaces:      namespaces,
-		Source:          "message",
-		SourceReference: event.ReplyTargetID,
-	}
-	if episode.OccurredAt.IsZero() {
-		episode.OccurredAt = time.Now().UTC()
-	}
-	result, errorValue := connectorRuntime.memoryService.AddEpisode(ctx, episode)
-	if errorValue != nil {
-		connectorRuntime.logger.Warn("connector."+platform+".memory.ingestion_failed", slog.String("messageID", event.MessageID), slog.String("taskRunID", taskRunID), slog.String("error", errorValue.Error()))
-		connectorRuntime.agentKernel.AppendTaskEvent(taskRunID, "memory.ingestion_failed", errorValue.Error())
-		return
-	}
-	connectorRuntime.logger.Info("connector."+platform+".memory.ingestion_succeeded", slog.String("messageID", event.MessageID), slog.String("taskRunID", taskRunID), slog.Int("namespaceCount", result.NamespaceCount))
-	connectorRuntime.agentKernel.AppendTaskEvent(taskRunID, "memory.ingestion_succeeded", marshalConnectorToolResult(result))
 }
 
 func (connectorRuntime *ConnectorRuntime) accessibleNamespaces(personID string, personAccess policy.PersonAccess, event PlatformInboundEvent) []memory.MemoryNamespace {
