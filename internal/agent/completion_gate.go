@@ -248,7 +248,10 @@ func (agentTurnRunner *AgentTurnRunner) completeTaskRunBestEffort(ctx context.Co
 	defer cancelDetached()
 	finalReply := agentTurnRunner.prepareFinishMessageForPlatform(detachedContext, request, reply)
 	agentTurnRunner.saveStep(taskRunID, taskStepID, task.TaskStatusCompleted, stepAction, finalReply)
-	completedTaskRun, _ := agentTurnRunner.taskRunService.CompleteTaskRun(taskRunID, finalReply)
+	completedTaskRun, completionError := agentTurnRunner.taskRunService.CompleteTaskRun(taskRunID, finalReply)
+	if completionError != nil {
+		agentTurnRunner.appendEvent(taskRunID, "agent.completion_persist_failed", marshalEventBody(map[string]string{"error": completionError.Error()}))
+	}
 	return AgentTurnResult{
 		TaskRun:         completedTaskRun,
 		FinishMessage:   finalReply,
