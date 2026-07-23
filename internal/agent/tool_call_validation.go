@@ -659,7 +659,12 @@ func sendTargetsCurrentConversation(toolInput json.RawMessage) bool {
 	if len(toolInput) == 0 || json.Unmarshal(toolInput, &document) != nil {
 		return false
 	}
-	return strings.TrimSpace(document.TargetType) == "currentThread"
+	switch strings.TrimSpace(document.TargetType) {
+	case "currentThread", "currentChannel":
+		return true
+	default:
+		return false
+	}
 }
 
 func requestRequiresExternalSendTool(request AgentTurnRequest, toolName string) bool {
