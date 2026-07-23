@@ -1067,3 +1067,60 @@ func TestRecordTaskRunResultRejectsUnknownTaskRun(t *testing.T) {
 		t.Fatal("recording a result for an unknown task run must fail")
 	}
 }
+
+func staleTestTaskRun(t *testing.T, taskRunService *TaskRunService, status TaskStatus, age time.Duration) TaskRun {
+	t.Helper()
+	taskRun := taskRunService.CreateTaskRun("person-1", "direct-1", "stale candidate")
+	if _, errorValue := taskRunService.AdvanceTaskRun(taskRun.TaskRunID, "assistant"); errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	pausedTaskRun, errorValue := taskRunService.PauseTaskRun(taskRun.TaskRunID, status, "test pause")
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	pausedTaskRun.UpdatedAt = time.Now().Add(-age)
+	taskRunService.taskRuns[pausedTaskRun.TaskRunID] = pausedTaskRun
+	return pausedTaskRun
+}
+
+func TestStaleUnattendedTaskRunReasonByStatusAndAge(t *testing.T) {
+	now := time.Now()
+	cases := []struct {
+		status TaskStatus
+		age    time.Duration
+		reason string
+	}{
+		{TaskStatusBlocked, 25 * time.Hour, "blocked_expired"},
+		{TaskStatusBlocked, time.Hour, ""},
+		{TaskStatusWaitingApproval, 73 * time.Hour, "waiting_expired"},
+		{TaskStatusWaitingApproval, 25 * time.Hour, ""},
+		{TaskStatusWaitingUserInput, 73 * time.Hour, "waiting_expired"},
+		{TaskStatusRunning, 100 * time.Hour, ""},
+		{TaskStatusFailed, 100 * time.Hour, ""},
+	}
+	for _, testCase := range cases {
+		taskRun := TaskRun{Status: testCase.status, UpdatedAt: now.Add(-testCase.age)}
+		if reason := StaleUnattendedTaskRunReason(taskRun, now); reason != testCase.reason {
+			t.Fatalf("status %s age %s: reason = %q, want %q", testCase.status, testCase.age, reason, testCase.reason)
+		}
+	}
+}
+
+func TestSelectStaleUnattendedTaskRunsOldestFirst(t *testing.T) {
+	taskRunService := NewTaskRunService(NewTaskEventService())
+	fresh := staleTestTaskRun(t, taskRunService, TaskStatusBlocked, time.Hour)
+	older := staleTestTaskRun(t, taskRunService, TaskStatusBlocked, 48*time.Hour)
+	oldest := staleTestTaskRun(t, taskRunService, TaskStatusWaitingApproval, 96*time.Hour)
+	selected := taskRunService.SelectStaleUnattendedTaskRuns(time.Now())
+	if len(selected) != 2 {
+		t.Fatalf("selected %d stale runs, want 2", len(selected))
+	}
+	if selected[0].TaskRunID != oldest.TaskRunID || selected[1].TaskRunID != older.TaskRunID {
+		t.Fatalf("unexpected order: %s, %s", selected[0].TaskRunID, selected[1].TaskRunID)
+	}
+	for _, taskRun := range selected {
+		if taskRun.TaskRunID == fresh.TaskRunID {
+			t.Fatal("fresh blocked run must not be selected")
+		}
+	}
+}

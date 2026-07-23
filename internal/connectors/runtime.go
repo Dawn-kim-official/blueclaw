@@ -1036,7 +1036,15 @@ func (connectorRuntime *ConnectorRuntime) processInboundEventWithReplySender(ctx
 	launchResult, errorValue := connectorRuntime.currentTaskLauncher().Launch(ctx, connectorRuntime.buildTaskLaunchRequest(conversationTurn))
 	if errorValue != nil {
 		connectorRuntime.logger.Error("connector."+platform+".agent.failed", slog.String("messageID", event.MessageID), slog.String("error", errorValue.Error()))
-		return ConnectorRuntimeResult{}, errorValue
+		failureTurnResult := connectorRuntime.agentKernel.CompleteLaunchFailure(ctx, agent.AgentTurnRequest{
+			RequesterPersonID: personID,
+			RequesterEmail:    requesterEmail,
+			Platform:          platform,
+			ConversationID:    event.ConversationID,
+			Prompt:            event.Prompt,
+			ResponseLanguage:  event.Context.ResponseLanguage,
+		}, "launch", "connector_launch", errorValue)
+		return connectorRuntime.dispatchTaskReply(ctx, platform, adapter, event, replyTarget, failureTurnResult, engagedAckEmojiName, sendReply)
 	}
 	turnResult := launchResult.TurnResult
 	if addressingLaunch.SuppressReply {
@@ -2614,6 +2622,12 @@ func userNoticeReplyMessage(turnResult agent.AgentTurnResult) (string, agent.Fai
 		}
 		if fallbackMessage := strings.TrimSpace(turnResult.UserNotice); fallbackMessage != "" {
 			return fallbackMessage, turnResult.FailureNotice, ""
+		}
+		if persistedResult := strings.TrimSpace(turnResult.TaskRun.Result); persistedResult != "" {
+			return persistedResult, turnResult.FailureNotice, ""
+		}
+		if rawReason := strings.TrimSpace(turnResult.TaskRun.FailureReason); rawReason != "" {
+			return rawReason, turnResult.FailureNotice, ""
 		}
 		return "", turnResult.FailureNotice, "missing_failure_notice"
 	}

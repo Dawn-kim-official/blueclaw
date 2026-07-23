@@ -687,6 +687,40 @@ func taskRunIsRuntimeOwned(taskRun TaskRun) bool {
 	return taskRun.Status == TaskStatusPlanned || taskRun.Status == TaskStatusRunning
 }
 
+const staleBlockedTaskRunAge = 24 * time.Hour
+const staleWaitingTaskRunAge = 72 * time.Hour
+
+func StaleUnattendedTaskRunReason(taskRun TaskRun, now time.Time) string {
+	switch taskRun.Status {
+	case TaskStatusBlocked:
+		if now.Sub(taskRun.UpdatedAt) > staleBlockedTaskRunAge {
+			return "blocked_expired"
+		}
+	case TaskStatusWaitingApproval, TaskStatusWaitingUserInput:
+		if now.Sub(taskRun.UpdatedAt) > staleWaitingTaskRunAge {
+			return "waiting_expired"
+		}
+	}
+	return ""
+}
+
+func (taskRunService *TaskRunService) SelectStaleUnattendedTaskRuns(now time.Time) []TaskRun {
+	if now.IsZero() {
+		now = time.Now()
+	}
+	taskRuns := []TaskRun{}
+	for _, taskRun := range taskRunService.ListTaskRun() {
+		if StaleUnattendedTaskRunReason(taskRun, now) == "" {
+			continue
+		}
+		taskRuns = append(taskRuns, taskRun)
+	}
+	sort.SliceStable(taskRuns, func(leftIndex int, rightIndex int) bool {
+		return taskRuns[leftIndex].UpdatedAt.Before(taskRuns[rightIndex].UpdatedAt)
+	})
+	return taskRuns
+}
+
 func (taskRunService *TaskRunService) interruptedTaskRunsEligibleForAutoResume(now time.Time) []TaskRun {
 	taskRuns := []TaskRun{}
 	for _, taskRun := range taskRunService.ListTaskRun() {
