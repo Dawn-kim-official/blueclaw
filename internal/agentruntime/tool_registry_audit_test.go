@@ -112,3 +112,23 @@ func TestBuildToolRegistryAuditServesCachedSnapshotWhenLiveFetchFails(t *testing
 		t.Fatalf("expected the audit to use the cached snapshot, got %+v", audit)
 	}
 }
+
+func TestReachableCapabilityToolDefinitionsGateBrowserOnCompanionStatus(t *testing.T) {
+	toolCatalogBuilder := NewToolCatalogBuilder()
+	toolCatalogBuilder.UseCapabilityToolDescriptors(capability.Client{}, []CapabilityToolDescriptor{
+		{Name: "browser.open"},
+		{Name: "message.send"},
+	})
+
+	toolCatalogBuilder.UseCompanionStatus("unavailable")
+	gatedNames := capabilityDescriptorNames(toolCatalogBuilder.reachableCapabilityToolDefinitions())
+	if registryContainsString(gatedNames, "browser.open") || !registryContainsString(gatedNames, "message.send") {
+		t.Fatalf("expected browser tools hidden while the companion is unavailable, got %v", gatedNames)
+	}
+
+	toolCatalogBuilder.UseCompanionStatus("available")
+	openNames := capabilityDescriptorNames(toolCatalogBuilder.reachableCapabilityToolDefinitions())
+	if !registryContainsString(openNames, "browser.open") {
+		t.Fatalf("expected browser tools back when the companion is available, got %v", openNames)
+	}
+}

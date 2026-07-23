@@ -241,6 +241,7 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 		logCapabilityProviderQuarantine(logger, quarantinedProvider)
 	})
 	toolCatalogBuilder.UseCapabilityToolDescriptors(capabilityClient, capabilityToolDescriptors(runtimeConfiguration.Capabilities.ToolDescriptors))
+	seedCompanionStatus(capabilityClient, toolCatalogBuilder)
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(deriveAllowedToolNamesByProfile(runtimeConfiguration), deriveAllowedToolNames(runtimeConfiguration))
 	toolCatalogBuilder.UseSkillSearch(skillRetriever, instructionBundleLoader)
 	toolCatalogBuilder.UseTerminalService(terminalService)
@@ -725,6 +726,21 @@ func deriveAllowedToolNames(runtimeConfiguration config.RuntimeConfiguration) []
 		allowedToolNames = append(allowedToolNames, allowedToolName)
 	}
 	return allowedToolNames
+}
+
+func seedCompanionStatus(capabilityClient capability.Client, toolCatalogBuilder *agentruntime.ToolCatalogBuilder) {
+	if strings.TrimSpace(capabilityClient.Endpoint) == "" {
+		return
+	}
+	statusContext, cancelStatus := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancelStatus()
+	var response struct {
+		CompanionStatus string `json:"companionStatus"`
+	}
+	if errorValue := capabilityClient.GetJSON(statusContext, "/v1/capabilities", &response); errorValue != nil {
+		return
+	}
+	toolCatalogBuilder.UseCompanionStatus(response.CompanionStatus)
 }
 
 func capabilityToolDescriptors(toolDescriptors []config.CapabilityToolDescriptor) []agentruntime.CapabilityToolDescriptor {
