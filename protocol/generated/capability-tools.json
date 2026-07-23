@@ -2697,7 +2697,7 @@
             "type": "string"
           },
           "personHint": {
-            "description": "Name, @handle, or email of one direct-message recipient.",
+            "description": "Name, @handle, or email of one direct-message recipient. Omit for a direct message to the requester themself.",
             "type": "string"
           },
           "personHints": {
@@ -2750,7 +2750,7 @@
             "type": "string"
           },
           "personHint": {
-            "description": "Name, @handle, or email of one direct-message recipient.",
+            "description": "Name, @handle, or email of one direct-message recipient. Omit for a direct message to the requester themself.",
             "type": "string"
           },
           "personHints": {

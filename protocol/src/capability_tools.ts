@@ -436,7 +436,7 @@ export const messageSendInputSchema = z.strictObject({
   message: z.string().min(1).regex(/\S/, 'Message must contain a non-whitespace character.'),
   channelName: z.string().describe('Exact Mattermost channel name without the # prefix.').optional(),
   channelID: resourceIDSchema.describe('Exact channel ID from message.context or a prior result.').optional(),
-  personHint: z.string().describe('Name, @handle, or email of one direct-message recipient.').optional(),
+  personHint: z.string().describe('Name, @handle, or email of one direct-message recipient. Omit for a direct message to the requester themself.').optional(),
   personHints: z.array(z.string().min(1)).max(50).describe('Direct-message recipients for one fan-out send.').optional(),
   pin: z.boolean().describe('Whether to pin the created message. Defaults to false.').optional(),
   reason: z.string().describe('Reason shown to the approver.').optional(),
