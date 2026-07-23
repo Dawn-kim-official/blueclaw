@@ -344,6 +344,7 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 	})
 
 	taskRun := agentTurnRunner.taskRunForRequest(request)
+	isPausedTaskResume := taskRun.Status == task.TaskStatusWaitingApproval || taskRun.Status == task.TaskStatusWaitingUserInput
 	if request.TurnAnchorClamped {
 		agentTurnRunner.appendEvent(taskRun.TaskRunID, "agent.turn_anchor_clamped", marshalEventBody(map[string]any{
 			"phase":                       "execution",
@@ -381,7 +382,7 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 	}
 	agentTurnRunner.appendInstructionEvent(taskRun.TaskRunID, request)
 
-	state, errorValue := agentTaskStateForTurn(request, agentTurnRunner.options, taskRun, agentTurnRunner.taskRunService.ListTaskEvent(taskRun.TaskRunID))
+	state, errorValue := agentTaskStateForTurn(request, agentTurnRunner.options, taskRun, agentTurnRunner.taskRunService.ListTaskEvent(taskRun.TaskRunID), isPausedTaskResume)
 	if errorValue != nil {
 		return agentTurnRunner.failLaunchStep(context.Background(), taskRun, request, "restore_state", errorValue), nil
 	}

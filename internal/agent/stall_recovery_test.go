@@ -261,7 +261,7 @@ func TestCleanRestartDiscardsPoisonedContextOnReSteerAfterStall(t *testing.T) {
 		t.Fatal("a user steer after a stall should trigger a clean restart")
 	}
 
-	state, errorValue := agentTaskStateForTurn(AgentTurnRequest{IsRuntimeRestartResume: true}, TurnOptions{}, task.TaskRun{TaskRunID: "task-1"}, poisoned)
+	state, errorValue := agentTaskStateForTurn(AgentTurnRequest{IsRuntimeRestartResume: true}, TurnOptions{}, task.TaskRun{TaskRunID: "task-1"}, poisoned, false)
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
@@ -282,7 +282,7 @@ func TestCleanRestartPreservesDurablePublishEvidence(t *testing.T) {
 		{Name: "agent.limit_stop", Body: "{}"},
 		{Name: "task.steer.requested", Body: "{}"},
 	}
-	state, _ := agentTaskStateForTurn(AgentTurnRequest{IsRuntimeRestartResume: true}, TurnOptions{}, task.TaskRun{TaskRunID: "task-2"}, events)
+	state, _ := agentTaskStateForTurn(AgentTurnRequest{IsRuntimeRestartResume: true}, TurnOptions{}, task.TaskRun{TaskRunID: "task-2"}, events, false)
 	hasPublish := false
 	for _, observation := range state.Observations {
 		if observation.Tool == "site.publish" {
@@ -304,7 +304,7 @@ func TestNonStalledResumeRestoresNormally(t *testing.T) {
 	if shouldCleanRestartRestoredTask(events) {
 		t.Fatal("a resume without a prior stall must not clean-restart")
 	}
-	state, _ := agentTaskStateForTurn(AgentTurnRequest{IsRuntimeRestartResume: true}, TurnOptions{}, task.TaskRun{TaskRunID: "task-3"}, events)
+	state, _ := agentTaskStateForTurn(AgentTurnRequest{IsRuntimeRestartResume: true}, TurnOptions{}, task.TaskRun{TaskRunID: "task-3"}, events, false)
 	if len(state.Observations) != 1 || state.Observations[0].Tool != "file.read" {
 		t.Fatalf("normal resume should restore observations, got %+v", state.Observations)
 	}
@@ -322,7 +322,7 @@ func TestCleanRestartScrubsPoisonedGoalContext(t *testing.T) {
 			KnownContext: []string{"Assess prior progress from the task event ledger and restored observations."},
 		},
 	}
-	state, errorValue := agentTaskStateForTurn(request, TurnOptions{}, task.TaskRun{TaskRunID: "task-1"}, events)
+	state, errorValue := agentTaskStateForTurn(request, TurnOptions{}, task.TaskRun{TaskRunID: "task-1"}, events, false)
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}

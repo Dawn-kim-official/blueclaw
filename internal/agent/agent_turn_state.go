@@ -116,8 +116,8 @@ func buildInitialAgentTaskState(request AgentTurnRequest, options TurnOptions, t
 	}
 }
 
-func agentTaskStateForTurn(request AgentTurnRequest, options TurnOptions, taskRun task.TaskRun, events []task.TaskEvent) (agentTaskState, error) {
-	if !request.IsRuntimeRestartResume && !request.IsApprovalContinuation {
+func agentTaskStateForTurn(request AgentTurnRequest, options TurnOptions, taskRun task.TaskRun, events []task.TaskEvent, isPausedTaskResume bool) (agentTaskState, error) {
+	if !request.IsRuntimeRestartResume && !request.IsApprovalContinuation && !isPausedTaskResume {
 		state := buildInitialAgentTaskState(request, options, taskRun.TaskRunID)
 		state.Status = taskRun.Status
 		return state, nil

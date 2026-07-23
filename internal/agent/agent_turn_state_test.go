@@ -1504,6 +1504,33 @@ func TestRestoreAgentTaskStateRestoresToolProgressOnly(t *testing.T) {
 	}
 }
 
+func TestWaitingTaskResumeRestoresObservationsWithoutFlags(t *testing.T) {
+	taskEventService := task.NewTaskEventService()
+	taskRunService := task.NewTaskRunService(taskEventService)
+	taskRun := taskRunService.CreateTaskRun("person-1", "conversation-1", "메모를 찾아서 알려줘")
+	runningTaskRun, errorValue := taskRunService.AdvanceTaskRun(taskRun.TaskRunID, "assistant")
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	taskRunService.AppendTaskEvent(runningTaskRun.TaskRunID, "tool.message.search.result", `{"observationID":"obs-001","action":"continue","tool":"message.search","content":"{\"messageIDs\":[\"message-1\"]}","isError":false}`)
+	waitingTaskRun, errorValue := taskRunService.PauseTaskRun(runningTaskRun.TaskRunID, task.TaskStatusWaitingUserInput, "ask input")
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+
+	state, errorValue := agentTaskStateForTurn(AgentTurnRequest{
+		Prompt:            "네 그거요",
+		ExistingTaskRunID: waitingTaskRun.TaskRunID,
+	}, TurnOptions{}, waitingTaskRun, taskRunService.ListTaskEvent(waitingTaskRun.TaskRunID), true)
+
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if len(state.Observations) != 1 || state.Observations[0].Tool != "message.search" {
+		t.Fatalf("expected the pre-pause observation to survive an input resume, got %+v", state.Observations)
+	}
+}
+
 func TestBlockedResumeRestoresPriorObservations(t *testing.T) {
 	taskEventService := task.NewTaskEventService()
 	taskRunService := task.NewTaskRunService(taskEventService)
@@ -1527,7 +1554,7 @@ func TestBlockedResumeRestoresPriorObservations(t *testing.T) {
 		Prompt:                 "continue",
 		ExistingTaskRunID:      resumedTaskRun.TaskRunID,
 		IsRuntimeRestartResume: true,
-	}, TurnOptions{}, resumedTaskRun, taskRunService.ListTaskEvent(resumedTaskRun.TaskRunID))
+	}, TurnOptions{}, resumedTaskRun, taskRunService.ListTaskEvent(resumedTaskRun.TaskRunID), false)
 
 	if errorValue != nil {
 		t.Fatal(errorValue)
