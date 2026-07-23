@@ -89,20 +89,25 @@ func TestCompletionJudgeLedgerIncludesSuccessfulReadsAndWrites(t *testing.T) {
 	}
 }
 
-func TestCompletionJudgeLedgerCapsAtMostRecentEntries(t *testing.T) {
+func TestCompletionJudgeLedgerBudgetsBytesAndNamesDroppedEntries(t *testing.T) {
 	toolSet := completionJudgeTestToolSet()
 	observations := []turnObservation{}
-	for index := 0; index < completionJudgeMaxLedgerEntries+5; index++ {
-		observations = append(observations, successfulSideEffectObservation("obs", "task.list", `{"page":`+strconv.Itoa(index)+`}`, "listed"))
+	observationCount := completionJudgeLedgerByteBudget/completionJudgeInputMaxLength + 4
+	for index := 0; index < observationCount; index++ {
+		bulkyInput := `{"page":` + strconv.Itoa(index) + `,"filler":"` + strings.Repeat("x", completionJudgeInputMaxLength-40) + `"}`
+		observations = append(observations, successfulSideEffectObservation("obs", "task.list", bulkyInput, "listed"))
 	}
 
 	ledger := completionJudgeLedger(toolSet, observations)
 
-	if len(ledger) != completionJudgeMaxLedgerEntries {
-		t.Fatalf("expected the ledger to cap at %d entries, got %d", completionJudgeMaxLedgerEntries, len(ledger))
+	if len(ledger) >= observationCount {
+		t.Fatalf("expected the byte budget to drop early entries, got %d of %d", len(ledger), observationCount)
 	}
-	if ledger[len(ledger)-1].Input != `{"page":`+strconv.Itoa(completionJudgeMaxLedgerEntries+4)+`}` {
-		t.Fatalf("expected the most recent observations to survive the cap, got %+v", ledger[len(ledger)-1])
+	if ledger[0].Tool != "earlier_operations" || !strings.Contains(ledger[0].Result, "not shown here") {
+		t.Fatalf("expected a marker naming the dropped entries, got %+v", ledger[0])
+	}
+	if !strings.Contains(ledger[len(ledger)-1].Input, `{"page":`+strconv.Itoa(observationCount-1)) {
+		t.Fatalf("expected the most recent observation to survive the budget, got %+v", ledger[len(ledger)-1])
 	}
 }
 

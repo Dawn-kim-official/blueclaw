@@ -16,7 +16,7 @@ const (
 	completionJudgeReasonMaxLength      = 400
 	completionJudgeInputMaxLength       = 2000
 	completionJudgeResultMaxLength      = 300
-	completionJudgeMaxLedgerEntries     = 20
+	completionJudgeLedgerByteBudget     = 24000
 )
 
 type completionJudgeVerdict struct {
@@ -202,10 +202,30 @@ func completionJudgeLedger(toolSet *ToolSet, observations []turnObservation) []c
 			Result: truncateForLedger(observation.ContentText(), completionJudgeResultMaxLength),
 		})
 	}
-	if len(ledger) > completionJudgeMaxLedgerEntries {
-		ledger = ledger[len(ledger)-completionJudgeMaxLedgerEntries:]
+	return newestLedgerEntriesWithinBudget(ledger, completionJudgeLedgerByteBudget)
+}
+
+func newestLedgerEntriesWithinBudget(ledger []completionLedgerEntry, byteBudget int) []completionLedgerEntry {
+	usedBytes := 0
+	keptFromIndex := len(ledger)
+	for entryIndex := len(ledger) - 1; entryIndex >= 0; entryIndex-- {
+		entry := ledger[entryIndex]
+		entryBytes := len(entry.Tool) + len(entry.Input) + len(entry.Result)
+		if usedBytes+entryBytes > byteBudget && keptFromIndex < len(ledger) {
+			break
+		}
+		usedBytes += entryBytes
+		keptFromIndex = entryIndex
 	}
-	return ledger
+	if keptFromIndex == 0 {
+		return ledger
+	}
+	kept := ledger[keptFromIndex:]
+	marker := completionLedgerEntry{
+		Tool:   "earlier_operations",
+		Result: "…" + strconv.Itoa(keptFromIndex) + " earlier successful operations were recorded and executed but are not shown here.",
+	}
+	return append([]completionLedgerEntry{marker}, kept...)
 }
 
 func isSideEffectObservation(toolSet *ToolSet, observation turnObservation) bool {
