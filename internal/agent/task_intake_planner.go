@@ -514,6 +514,7 @@ func (turnRouter TurnRouter) normalizeDecision(decision TurnDecision, request Ag
 	}
 	decision.TaskShape = normalizedTaskShape
 	decision.RequestedOutputFormats = normalizeRequestedOutputFormats(decision.RequestedOutputFormats)
+	decision = normalizeSiteDeliverableFormats(decision)
 	decision.ExpectedResults = normalizeExpectedResults(decision.ExpectedResults)
 	decision = normalizeTurnDecisionFileRequirement(decision)
 	decision = normalizeSideEffectTurnDecision(decision, request.ToolSet)
@@ -537,6 +538,30 @@ func (turnRouter TurnRouter) normalizeDecision(decision TurnDecision, request Ag
 	decision.Reason = strings.TrimSpace(decision.Reason)
 	decision.PriorTaskReference = normalizePriorTaskReference(decision.PriorTaskReference)
 	return decision, nil
+}
+
+func normalizeSiteDeliverableFormats(decision TurnDecision) TurnDecision {
+	if !decisionSuggestsSiteTool(decision) {
+		return decision
+	}
+	retainedFormats := []string{}
+	for _, format := range decision.RequestedOutputFormats {
+		if format == "html" {
+			continue
+		}
+		retainedFormats = append(retainedFormats, format)
+	}
+	decision.RequestedOutputFormats = retainedFormats
+	return decision
+}
+
+func decisionSuggestsSiteTool(decision TurnDecision) bool {
+	for _, toolName := range decision.InitialToolNames {
+		if strings.HasPrefix(strings.TrimSpace(toolName), "site.") {
+			return true
+		}
+	}
+	return false
 }
 
 func normalizeSideEffectTurnDecision(decision TurnDecision, toolSet *ToolSet) TurnDecision {
