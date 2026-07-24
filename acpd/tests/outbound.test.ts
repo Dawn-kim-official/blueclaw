@@ -200,3 +200,29 @@ describe('progress.stop', () => {
     expect(finished).toEqual([{ channelID: CHANNEL_UUID, stopReason: 'end_turn' }]);
   });
 });
+
+describe('history.fetch', () => {
+  test('maps channel messages to visible context with resolved speakers', async () => {
+    const recorded: Array<string[]> = [];
+    const runner = async (commandArguments: string[]) => {
+      recorded.push(commandArguments);
+      if (commandArguments[0] === 'messages') {
+        return JSON.stringify([
+          { id: 'e1', pubkey: SENDER_HEX, content: '근처라며 우리 위치 알아?', created_at: 1784900000, kind: 9, tags: [] },
+          { id: 'e2', pubkey: 'f'.repeat(64), content: '주소 정보가 필요합니다.', created_at: 1784900100, kind: 9, tags: [] },
+        ]);
+      }
+      return JSON.stringify([{ pubkey: SENDER_HEX, display_name: '이샘플' }]);
+    };
+    const { agent } = createAgentStub();
+    const handler = createOutboundHandler(runner, agent);
+
+    const response = await handler(postRequest('history.fetch', { historyCursor: `${CHANNEL_UUID}/${ANCHOR_EVENT_ID}`, limit: 10 }));
+    const body = (await response.json()) as { messages: Array<{ speaker: string; text: string }>; channelID: string };
+
+    expect(body.channelID).toBe(CHANNEL_UUID);
+    expect(body.messages).toHaveLength(2);
+    expect(body.messages[0]).toMatchObject({ speaker: '이샘플', text: '근처라며 우리 위치 알아?' });
+    expect(recorded[0]).toEqual(['messages', 'get', '--channel', CHANNEL_UUID, '--limit', '10']);
+  });
+});
