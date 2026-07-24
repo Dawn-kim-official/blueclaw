@@ -83,4 +83,41 @@ describe("buzz event mapping", () => {
 	test("firstTagValue reads the channel tag", () => {
 		expect(firstTagValue(createEvent(), "h")).toBe(CHANNEL_UUID);
 	});
+
+	test("reply-only tags resolve the parent as thread root", () => {
+		const tags = threadTagsOf(
+			createEvent({ tags: [["h", CHANNEL_UUID], ["e", ROOT_EVENT_ID, "", "reply"]] }),
+		);
+		expect(tags.rootEventId).toBe(ROOT_EVENT_ID);
+		expect(tags.parentEventId).toBe(ROOT_EVENT_ID);
+	});
+});
+
+describe("buzz history scope", () => {
+	test("fresh root messages use channel scope", () => {
+		const adapter = createAdapter();
+		const threadId = adapter.encodeThreadId({ channelId: CHANNEL_UUID, rootEventId: "e".repeat(64) });
+		expect(adapter.historyScopeThreadId(threadId, "e".repeat(64))).toBe(`buzz:${CHANNEL_UUID}`);
+	});
+
+	test("thread replies keep thread scope", () => {
+		const adapter = createAdapter();
+		const threadId = adapter.encodeThreadId({ channelId: CHANNEL_UUID, rootEventId: ROOT_EVENT_ID });
+		expect(adapter.historyScopeThreadId(threadId, "e".repeat(64))).toBe(threadId);
+	});
+});
+
+describe("buzz addressing", () => {
+	test("reads bot and other mentions from p tags", () => {
+		const adapter = createAdapter();
+		const addressing = adapter.addressingOf(
+			createEvent({ tags: [["h", CHANNEL_UUID], ["p", adapter.botPubkey], ["p", "d".repeat(64)]] }),
+		);
+		expect(addressing).toEqual({ botMentioned: true, otherPersonMentioned: true });
+	});
+
+	test("handles events without p tags", () => {
+		const adapter = createAdapter();
+		expect(adapter.addressingOf(createEvent())).toEqual({ botMentioned: false, otherPersonMentioned: false });
+	});
 });
