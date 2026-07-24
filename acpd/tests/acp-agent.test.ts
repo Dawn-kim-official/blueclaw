@@ -12,6 +12,8 @@ const configuration: AcpdConfiguration = {
   buzzCommand: 'buzz',
   listenPort: 18091,
   maximumTurnHoldSeconds: 3300,
+  accountEmailByPubkey: {},
+  accountLinksPath: undefined,
 };
 
 const originalFetch = globalThis.fetch;
