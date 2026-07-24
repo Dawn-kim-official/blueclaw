@@ -17,6 +17,22 @@ Always apply the code style preferences below. The only exception is when workin
 3. **Efficiency** - no redundant operations
 4. **Simplicity** - minimal code that solves the problem
 
+## Single Source of Truth
+
+- A shared vocabulary or contract (emoji names, enum options, capability
+  names, component lists) consumed by more than one role, package, or
+  service is defined exactly once; every consumer derives from that
+  definition. Hand-maintained parallel copies are a defect: they drift
+  (one list gains a value the other never sees) and every addition
+  requires touching N places.
+- When a consumer lives in another language and cannot import the
+  definition, add a conformance test that reads the canonical source and
+  fails on drift, instead of keeping a second hand-edited copy
+  (`chatd/tests/buzz-adapter.test.ts` reads
+  `internal/agent/reaction_emoji.go`).
+- On discovering duplicated sources of truth, merge them as part of the
+  change that touched them; do not extend a duplicate.
+
 ## LLM-First Runtime Policy
 
 - User-facing answers, failure explanations, approval wording, and recovery direction must go through the LLM.

@@ -51,7 +51,7 @@ type addressingClassificationDocument struct {
 	Reason         string           `json:"reason,omitempty"`
 }
 
-var addressingReactionEmojiOptions = []string{"", "white_check_mark", "eyes", "+1", "ok_hand", "pray", "heart", "tada", "clap", "raised_hands", "fire", "rocket", "sparkles", "100", "muscle", "wave"}
+var addressingReactionEmojiOptions = append([]string{""}, reactionEmojiNames...)
 
 func addressingReactionEmojiEnumJSON() string {
 	quoted := make([]string, 0, len(addressingReactionEmojiOptions))
