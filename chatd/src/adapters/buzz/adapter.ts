@@ -35,6 +35,19 @@ const GROUP_MEMBERS_KIND = 39002;
 const MEMBER_ADDED_NOTIFICATION_KIND = 44100;
 const MEMBER_REMOVED_NOTIFICATION_KIND = 44101;
 
+function pubkeyTagValuesOf(raw: unknown): string[] {
+	if (typeof raw !== "object" || raw === null || !("tags" in raw)) return [];
+	const { tags } = raw;
+	if (!Array.isArray(tags)) return [];
+	const pubkeys: string[] = [];
+	for (const tag of tags) {
+		if (Array.isArray(tag) && tag[0] === "p" && typeof tag[1] === "string") {
+			pubkeys.push(tag[1]);
+		}
+	}
+	return pubkeys;
+}
+
 class BuzzFormatConverter extends BaseFormatConverter {
 	toAst(platformText: string): Root {
 		return parseMarkdown(platformText);
@@ -74,8 +87,20 @@ export class BuzzAdapter implements Adapter<BuzzThreadId, BuzzEvent> {
 		return this.decodeThreadId(threadId).channelId;
 	}
 
-	historyThreadId(threadId: string): string {
-		return this.encodeThreadId({ channelId: this.decodeThreadId(threadId).channelId });
+	historyScopeThreadId(threadId: string, messageId: string): string {
+		const decoded = this.decodeThreadId(threadId);
+		if (!decoded.rootEventId || decoded.rootEventId === messageId || this.isDM(threadId)) {
+			return this.encodeThreadId({ channelId: decoded.channelId });
+		}
+		return threadId;
+	}
+
+	addressingOf(raw: unknown): { botMentioned: boolean; otherPersonMentioned: boolean } {
+		const mentionedPubkeys = pubkeyTagValuesOf(raw);
+		return {
+			botMentioned: mentionedPubkeys.includes(this.relay.pubkeyHex),
+			otherPersonMentioned: mentionedPubkeys.some((pubkey) => pubkey !== this.relay.pubkeyHex),
+		};
 	}
 
 	encodeThreadId(data: BuzzThreadId): string {

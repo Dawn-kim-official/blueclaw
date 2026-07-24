@@ -36,11 +36,13 @@ export function firstTagValue(event: BuzzEvent, tagName: string): string | undef
 export function threadTagsOf(event: BuzzEvent): { rootEventId?: string; parentEventId?: string } {
 	let rootEventId: string | undefined;
 	let parentEventId: string | undefined;
+	let firstEventId: string | undefined;
 	for (const tag of event.tags) {
 		if (tag[0] !== "e" || !tag[1]) continue;
+		firstEventId = firstEventId ?? tag[1];
 		if (tag[3] === "root") rootEventId = tag[1];
 		else if (tag[3] === "reply") parentEventId = tag[1];
-		else if (!rootEventId) rootEventId = tag[1];
 	}
+	rootEventId = rootEventId ?? parentEventId ?? firstEventId;
 	return { rootEventId, parentEventId: parentEventId ?? rootEventId };
 }
