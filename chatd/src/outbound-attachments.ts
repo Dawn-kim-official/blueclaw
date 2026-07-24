@@ -38,8 +38,8 @@ export async function importAttachmentToDirectory(
 }
 
 function fetchMattermostFile(configuration: ChatdConfiguration, fileID: string): Promise<Response> {
-	const baseUrl = configuration.mattermostBaseURL.replace(/\/$/, "");
+	const baseUrl = (configuration.mattermost?.baseURL ?? "").replace(/\/$/, "");
 	return fetch(`${baseUrl}/api/v4/files/${fileID}`, {
-		headers: { Authorization: `Bearer ${configuration.mattermostBotToken}` },
+		headers: { Authorization: `Bearer ${configuration.mattermost?.botToken ?? ""}` },
 	});
 }
