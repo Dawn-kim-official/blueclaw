@@ -68,10 +68,11 @@ type CapabilityToolResultContract struct {
 }
 
 type CapabilityResourceEffectContract struct {
-	ObjectType     string `json:"objectType"`
-	Effect         string `json:"effect"`
-	ResultField    string `json:"resultField"`
-	EffectIdentity string `json:"effectIdentity"`
+	ObjectType     string             `json:"objectType"`
+	Effect         string             `json:"effect"`
+	ResultField    string             `json:"resultField"`
+	EffectIdentity string             `json:"effectIdentity"`
+	When           *EvidenceCondition `json:"when,omitempty"`
 }
 
 type CapabilityCompletionEvidence struct {
