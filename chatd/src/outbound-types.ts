@@ -75,6 +75,30 @@ export interface HistoryFetchResponse {
 	conversationType?: string;
 }
 
+export interface ChannelEnsureRequest {
+	name: string;
+	displayName?: string;
+	description?: string;
+	topic?: string;
+}
+
+export interface ChannelEnsureResponse {
+	channelID: string;
+	replyTargetID: string;
+	created: boolean;
+}
+
+export interface MessageEditRequest {
+	replyTargetID: string;
+	messageID: string;
+	message: string;
+}
+
+export interface MessageDeleteRequest {
+	replyTargetID: string;
+	messageID: string;
+}
+
 export interface InteractionResolveRequest {
 	dispatchID: string;
 }

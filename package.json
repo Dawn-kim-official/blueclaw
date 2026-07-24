@@ -2,6 +2,7 @@
 	"name": "blueclaw",
 	"private": true,
 	"scripts": {
-		"test": "cd protocol && bun run test && cd ../llmd && bun run test && cd ../chatd && bun run test && cd ../admin && bun run test"
+		"test": "bun run typecheck && cd protocol && bun run test && cd ../llmd && bun run test && cd ../chatd && bun run test && cd ../admin && bun run test",
+		"typecheck": "cd protocol && bun run typecheck && cd ../llmd && bun run typecheck && cd ../chatd && bun run typecheck"
 	}
 }
