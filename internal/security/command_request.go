@@ -8,6 +8,7 @@ type CommandRequest struct {
 	WorkingDirectoryPath string            `json:"workingDirectoryPath"`
 	EnvironmentVariables map[string]string `json:"environmentVariables"`
 	TimeoutSecond        int               `json:"timeoutSecond"`
+	OutputMaximumBytes   int               `json:"outputMaximumBytes"`
 	IsInteractive        bool              `json:"isInteractive"`
 	IsPTY                bool              `json:"isPTY"`
 	ExecutionIdentity    ExecutionIdentity `json:"-"`

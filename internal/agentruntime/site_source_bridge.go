@@ -90,18 +90,14 @@ func (toolCatalogBuilder *ToolCatalogBuilder) removeSiteProjectAfterDelete(toolC
 	if errorValue != nil {
 		return nil, nil
 	}
-	workspaceActor, actorFailure := toolCatalogBuilder.workspaceActorForRequest(toolContext, request)
+	outcome, actorFailure := toolCatalogBuilder.runRequesterShell(toolContext, request, requesterShellCommand{
+		Command: "rm -rf -- " + shellSingleQuoted(resolvedPath.ConcretePath),
+	})
 	if actorFailure != nil {
 		return nil, nil
 	}
-	commandRequest := security.CommandRequest{
-		ExecutableName:       "rm",
-		Arguments:            []string{"-rf", "--", resolvedPath.ConcretePath},
-		WorkingDirectoryPath: filepath.Dir(resolvedPath.ConcretePath),
-		ExecutionIdentity:    toolCatalogBuilder.executionIdentityForRequester(request),
-	}
-	if _, errorValue := workspaceActor.Run(toolContext, commandRequest); errorValue != nil {
-		slog.Warn("site.delete guest project cleanup failed", "path", resolvedPath.VirtualPath, "error", errorValue)
+	if outcome.RunError != nil {
+		slog.Warn("site.delete guest project cleanup failed", "path", resolvedPath.VirtualPath, "error", outcome.RunError)
 	}
 	return nil, nil
 }

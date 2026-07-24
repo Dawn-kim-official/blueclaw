@@ -189,14 +189,14 @@ func TestFileDeliverAcceptsVirtualHomePathReturnedByFileRead(t *testing.T) {
 	readResult, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
 		ToolName: "file.read",
 		Input: agent.MarshalToolInput(map[string]string{
-			"path": "home/inbox/mattermost/conv-1/customer-support-weekly-check.json",
+			"path": "~/inbox/mattermost/conv-1/customer-support-weekly-check.json",
 		}),
 	})
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
 	if readResult.Failed() {
-		t.Fatalf("expected file.read success for home/ path, got %s", readResult.ContentText())
+		t.Fatalf("expected file.read success for ~/ path, got %s", readResult.ContentText())
 	}
 	var readDocument map[string]any
 	if errorValue := json.Unmarshal(readResult.Output.Data, &readDocument); errorValue != nil {
@@ -222,7 +222,7 @@ func TestFileDeliverAcceptsVirtualHomePathReturnedByFileRead(t *testing.T) {
 	}
 }
 
-func TestFileToolsRejectSiteSourceRelativePathBeforeTmpResolution(t *testing.T) {
+func TestFileReadResolvesSiteRelativePathNativelyAndFailsAsNotFound(t *testing.T) {
 	workspacePath := t.TempDir()
 	toolCatalogBuilder := newFileToolTestCatalogBuilder(workspacePath)
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
@@ -240,11 +240,8 @@ func TestFileToolsRejectSiteSourceRelativePathBeforeTmpResolution(t *testing.T) 
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
-	if !result.Failed() {
-		t.Fatalf("expected relative site path to fail before tmp resolution, got %s", result.ContentText())
-	}
-	if !strings.Contains(result.ContentText(), "sourceWorkspacePath") || strings.Contains(result.ContentText(), "tmp/app/src/App.tsx") {
-		t.Fatalf("expected sourceWorkspacePath guidance without tmp stat path, got %s", result.ContentText())
+	if !result.Failed() || result.FailureCode() != agent.FailureCodes.NotFound.String() {
+		t.Fatalf("expected native shell resolution to report the missing file as not_found without a Go-side path filter, got %+v", result)
 	}
 }
 
@@ -260,7 +257,7 @@ func TestFileReadTreatsMissingSiteControlFileAsOptionalState(t *testing.T) {
 	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
 		ToolName: "file.read",
 		Input: agent.MarshalToolInput(map[string]string{
-			"path": "home/sites/site-1/.internkim/artifact-brief.md",
+			"path": "~/sites/site-1/.internkim/artifact-brief.md",
 		}),
 	})
 	if errorValue != nil {
@@ -278,7 +275,7 @@ func TestFileReadTreatsMissingSiteControlFileAsOptionalState(t *testing.T) {
 	missingResult, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
 		ToolName: "file.read",
 		Input: agent.MarshalToolInput(map[string]string{
-			"path": "home/sites/site-1/app/src/App.tsx",
+			"path": "~/sites/site-1/app/src/App.tsx",
 		}),
 	})
 	if errorValue != nil {
@@ -950,7 +947,50 @@ func TestFilePatchValidationIsAllOrNothing(t *testing.T) {
 	assertTestFileContent(t, secondPath, "beta")
 }
 
-func TestFileToolsDenyCirclePathForNonMember(t *testing.T) {
+func withoutDirectoryAccess(t *testing.T, directoryPath string) {
+	t.Helper()
+	if errorValue := os.Chmod(directoryPath, 0000); errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	t.Cleanup(func() {
+		_ = os.Chmod(directoryPath, 0700)
+	})
+}
+
+func TestFileWriteFailsWithAccessDeniedWhenPOSIXDeniesCircleDirectory(t *testing.T) {
+	workspacePath := t.TempDir()
+	financeDirectoryPath := filepath.Join(workspacePath, "circles", "finance")
+	if errorValue := os.MkdirAll(financeDirectoryPath, 0700); errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	writeTestFile(t, filepath.Join(financeDirectoryPath, "report.md"), "secret")
+	withoutDirectoryAccess(t, financeDirectoryPath)
+	toolCatalogBuilder := newFileToolTestCatalogBuilder(workspacePath)
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
+		ProfileName:       "default",
+		RequesterPersonID: "person-1",
+		PersonAccess: policy.PersonAccess{
+			PersonID: "person-1",
+			Circles:  []string{"staff"},
+		},
+	})
+
+	writeResult, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+		ToolName: "file.write",
+		Input: agent.MarshalToolInput(map[string]string{
+			"path":    filepath.Join(financeDirectoryPath, "report.md"),
+			"content": "changed",
+		}),
+	})
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if !writeResult.Failed() || writeResult.FailureCode() != agent.FailureCodes.AccessDenied.String() {
+		t.Fatalf("expected the OS write denial to surface as access_denied, got %+v", writeResult)
+	}
+}
+
+func TestFileDeliverDeniesCirclePathForNonMember(t *testing.T) {
 	workspacePath := t.TempDir()
 	financeDirectoryPath := filepath.Join(workspacePath, "circles", "finance")
 	if errorValue := os.MkdirAll(financeDirectoryPath, 0700); errorValue != nil {
@@ -966,20 +1006,6 @@ func TestFileToolsDenyCirclePathForNonMember(t *testing.T) {
 			Circles:  []string{"staff"},
 		},
 	})
-
-	writeResult, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
-		ToolName: "file.write",
-		Input: agent.MarshalToolInput(map[string]string{
-			"path":    "/workspace/circles/finance/report.md",
-			"content": "changed",
-		}),
-	})
-	if errorValue != nil {
-		t.Fatal(errorValue)
-	}
-	if !writeResult.Failed() || !strings.Contains(writeResult.ContentText(), "cannot write") {
-		t.Fatalf("expected file.write denial, got %+v", writeResult)
-	}
 
 	attachResult, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
 		ToolName: agent.FileDeliverToolName,
@@ -995,13 +1021,14 @@ func TestFileToolsDenyCirclePathForNonMember(t *testing.T) {
 	}
 }
 
-func TestFileReadDeniesCirclePathForNonMember(t *testing.T) {
+func TestFileReadFailsWithAccessDeniedWhenPOSIXDeniesCircleDirectory(t *testing.T) {
 	workspacePath := t.TempDir()
 	financeDirectoryPath := filepath.Join(workspacePath, "circles", "finance")
 	if errorValue := os.MkdirAll(financeDirectoryPath, 0700); errorValue != nil {
 		t.Fatal(errorValue)
 	}
 	writeTestFile(t, filepath.Join(financeDirectoryPath, "report.pdf"), "secret")
+	withoutDirectoryAccess(t, financeDirectoryPath)
 	toolCatalogBuilder := newFileToolTestCatalogBuilder(workspacePath)
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
 		ProfileName:       "default",
@@ -1015,18 +1042,18 @@ func TestFileReadDeniesCirclePathForNonMember(t *testing.T) {
 	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
 		ToolName: "file.read",
 		Input: agent.MarshalToolInput(map[string]string{
-			"path": "/workspace/circles/finance/report.pdf",
+			"path": filepath.Join(financeDirectoryPath, "report.pdf"),
 		}),
 	})
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
-	if !result.Failed() || !strings.Contains(result.ContentText(), "cannot read") {
-		t.Fatalf("expected read denial, got %+v", result)
+	if !result.Failed() || result.FailureCode() != agent.FailureCodes.AccessDenied.String() {
+		t.Fatalf("expected the OS read denial to surface as access_denied, got %+v", result)
 	}
 }
 
-func TestFileReadAllowsCirclePathForMember(t *testing.T) {
+func TestFileReadAllowsCirclePathWhenPOSIXAllows(t *testing.T) {
 	workspacePath := t.TempDir()
 	financeDirectoryPath := filepath.Join(workspacePath, "circles", "finance")
 	if errorValue := os.MkdirAll(financeDirectoryPath, 0700); errorValue != nil {
@@ -1046,7 +1073,7 @@ func TestFileReadAllowsCirclePathForMember(t *testing.T) {
 	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
 		ToolName: "file.read",
 		Input: agent.MarshalToolInput(map[string]string{
-			"path": "/workspace/circles/finance/report.md",
+			"path": filepath.Join(financeDirectoryPath, "report.md"),
 		}),
 	})
 	if errorValue != nil {
@@ -1057,7 +1084,7 @@ func TestFileReadAllowsCirclePathForMember(t *testing.T) {
 	}
 }
 
-func TestFileToolsAllowCirclePathForMember(t *testing.T) {
+func TestFileWriteAllowsCirclePathWhenPOSIXAllows(t *testing.T) {
 	workspacePath := t.TempDir()
 	toolCatalogBuilder := newFileToolTestCatalogBuilder(workspacePath)
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
@@ -1072,7 +1099,7 @@ func TestFileToolsAllowCirclePathForMember(t *testing.T) {
 	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
 		ToolName: "file.write",
 		Input: agent.MarshalToolInput(map[string]string{
-			"path":    "/workspace/circles/finance/report.md",
+			"path":    filepath.Join(workspacePath, "circles", "finance", "report.md"),
 			"content": "finance",
 		}),
 	})
@@ -1082,6 +1109,7 @@ func TestFileToolsAllowCirclePathForMember(t *testing.T) {
 	if result.Failed() {
 		t.Fatalf("expected finance member write success, got %+v", result)
 	}
+	assertTestFileContent(t, filepath.Join(workspacePath, "circles", "finance", "report.md"), "finance")
 }
 
 func TestFileWriteDefaultsToPrivateScopeForDirectMessage(t *testing.T) {
@@ -1417,7 +1445,7 @@ func TestFileWriteAllowsManagedSitePackageManifest(t *testing.T) {
 	managedResult, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
 		ToolName: "file.write",
 		Input: agent.MarshalToolInput(map[string]string{
-			"path":    "home/sites/site-1/draft/app/package.json",
+			"path":    "~/sites/site-1/draft/app/package.json",
 			"content": `{"project":"user-owned package manifest"}`,
 		}),
 	})
@@ -1445,6 +1473,8 @@ func TestFileWriteAllowsManagedSitePackageManifest(t *testing.T) {
 
 func TestFileWriteThroughWorkspaceActorTreatsContentAsData(t *testing.T) {
 	workspacePath := t.TempDir()
+	previousMask := syscall.Umask(0077)
+	defer syscall.Umask(previousMask)
 	toolCatalogBuilder := newTerminalToolTestCatalogBuilder(workspacePath)
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
 		ProfileName:       "default",
@@ -1487,11 +1517,11 @@ func TestFileWriteThroughWorkspaceActorTreatsContentAsData(t *testing.T) {
 		t.Fatal(errorValue)
 	}
 	if fileInformation.Mode().Perm() != 0600 {
-		t.Fatalf("expected requester chmod mode 0600, got %v", fileInformation.Mode().Perm())
+		t.Fatalf("expected umask 077 to yield mode 0600, got %v", fileInformation.Mode().Perm())
 	}
 }
 
-func TestFileWriteUsesPrivateModesForTerminalFlow(t *testing.T) {
+func TestFileWriteRespectsRequesterUmaskLikeTerminalRun(t *testing.T) {
 	workspacePath := t.TempDir()
 	previousMask := syscall.Umask(0027)
 	defer syscall.Umask(previousMask)
@@ -1526,15 +1556,15 @@ func TestFileWriteUsesPrivateModesForTerminalFlow(t *testing.T) {
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
-	if directoryInformation.Mode().Perm() != 0700 {
-		t.Fatalf("expected private deck directory mode 0700, got mode %v", directoryInformation.Mode().Perm())
+	if directoryInformation.Mode().Perm() != 0750 {
+		t.Fatalf("expected umask 027 to yield directory mode 0750 exactly as terminal.run would, got mode %v", directoryInformation.Mode().Perm())
 	}
 	fileInformation, errorValue := os.Stat(filepath.Join(deckDirectoryPath, "input.txt"))
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
-	if fileInformation.Mode().Perm() != 0600 {
-		t.Fatalf("expected private file mode 0600 for requester terminal flow, got mode %v", fileInformation.Mode().Perm())
+	if fileInformation.Mode().Perm() != 0640 {
+		t.Fatalf("expected umask 027 to yield file mode 0640 exactly as terminal.run would, got mode %v", fileInformation.Mode().Perm())
 	}
 }
 

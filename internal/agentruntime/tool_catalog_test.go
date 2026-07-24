@@ -268,9 +268,14 @@ func assertTestFileContent(t *testing.T, path string, expectedContent string) {
 }
 
 func newFileToolTestCatalogBuilder(workspacePath string) *ToolCatalogBuilder {
+	terminalService := security.NewTerminalSessionService(config.TerminalConfiguration{
+		WorkspaceRootPath: workspacePath,
+		Mode:              "firecrackerGuest",
+		TimeoutSecond:     30,
+	})
 	toolCatalogBuilder := NewToolCatalogBuilder()
 	toolCatalogBuilder.UseWorkspaceRootPath(workspacePath)
-	toolCatalogBuilder.UseWorkspaceActorFactory(actortest.NewDirectWorkspaceActorFactory())
+	toolCatalogBuilder.UseWorkspaceActorFactory(actortest.NewDirectWorkspaceActorFactory(terminalService))
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, internalTestToolNames())
 	return toolCatalogBuilder
 }

@@ -2460,7 +2460,7 @@ func (harness *VirtualSessionHarness) Run(ctx context.Context) (VirtualSessionRe
 			for _, routerResponse := range scenarioRouterResponsesForTurn(harness.scenario, virtualTurn) {
 				harness.scriptedModel.EnqueueStructuredResponses("blueclaw_turn_router", routerResponse)
 			}
-			harness.scriptedModel.SetActionResponses(virtualTurn.ActionResponses...)
+			harness.scriptedModel.SetActionResponses(materializeScriptedWorkspacePaths(harness.workspacePath, virtualTurn.ActionResponses)...)
 			if len(virtualTurn.CompletionJudgeResponses) > 0 {
 				harness.scriptedModel.EnqueueStructuredResponses("blueclaw_completion_judge", virtualTurn.CompletionJudgeResponses...)
 			}
@@ -4027,6 +4027,58 @@ func actionFailMessage(reason string) string {
 
 func actionCallTool(toolName string, input string) string {
 	return `{"action":"continue","toolName":` + quote(toolName) + `,"toolInput":` + input + `}`
+}
+
+// Shell-native file tools resolve paths through the OS, so the harness rewrites the guest /workspace root onto its temporary host root.
+var shellNativeFileToolNames = map[string]bool{
+	"file.write":  true,
+	"file.read":   true,
+	"file.edit":   true,
+	"file.delete": true,
+}
+
+func materializeScriptedWorkspacePaths(workspaceRootPath string, actionResponses []string) []string {
+	materialized := make([]string, len(actionResponses))
+	for index, actionResponse := range actionResponses {
+		materialized[index] = materializeScriptedActionWorkspacePaths(workspaceRootPath, actionResponse)
+	}
+	return materialized
+}
+
+func materializeScriptedActionWorkspacePaths(workspaceRootPath string, actionResponse string) string {
+	var action map[string]any
+	if json.Unmarshal([]byte(actionResponse), &action) != nil {
+		return actionResponse
+	}
+	toolName, _ := action["toolName"].(string)
+	if !shellNativeFileToolNames[toolName] {
+		return actionResponse
+	}
+	toolInput, isObject := action["toolInput"].(map[string]any)
+	if !isObject {
+		return actionResponse
+	}
+	materializeWorkspacePathField(workspaceRootPath, toolInput)
+	if edits, isArray := toolInput["edits"].([]any); isArray {
+		for _, edit := range edits {
+			if editObject, isEditObject := edit.(map[string]any); isEditObject {
+				materializeWorkspacePathField(workspaceRootPath, editObject)
+			}
+		}
+	}
+	document, errorValue := json.Marshal(action)
+	if errorValue != nil {
+		return actionResponse
+	}
+	return string(document)
+}
+
+func materializeWorkspacePathField(workspaceRootPath string, document map[string]any) {
+	path, isString := document["path"].(string)
+	if !isString || !strings.HasPrefix(path, "/workspace/") {
+		return
+	}
+	document["path"] = workspaceRootPath + strings.TrimPrefix(path, "/workspace")
 }
 
 func actionCallToolWithMessage(toolName string, message string, input string) string {

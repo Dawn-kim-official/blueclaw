@@ -97,8 +97,9 @@ func (terminalSessionService *TerminalSessionService) RunCommand(ctx context.Con
 		command.Stdin = strings.NewReader(commandPlan.Stdin)
 	}
 
-	standardOutputBuffer := newOutputRingBuffer(terminalSessionService.outputMaxBytes())
-	standardErrorBuffer := newOutputRingBuffer(terminalSessionService.outputMaxBytes())
+	outputMaximumBytes := terminalSessionService.commandOutputMaxBytes(commandPlan)
+	standardOutputBuffer := newOutputRingBuffer(outputMaximumBytes)
+	standardErrorBuffer := newOutputRingBuffer(outputMaximumBytes)
 	command.Stdout = standardOutputBuffer
 	command.Stderr = standardErrorBuffer
 
@@ -112,8 +113,8 @@ func (terminalSessionService *TerminalSessionService) RunCommand(ctx context.Con
 		terminalSessionService.abandonUnreapableProcessGroup(command, runResult, scopeMarker)
 		return CommandResult{
 			ExitCode:      -1,
-			Stdout:        truncateString(standardOutputBuffer.String(), terminalSessionService.outputMaxBytes()),
-			Stderr:        truncateString(standardErrorBuffer.String(), terminalSessionService.outputMaxBytes()),
+			Stdout:        truncateString(standardOutputBuffer.String(), outputMaximumBytes),
+			Stderr:        truncateString(standardErrorBuffer.String(), outputMaximumBytes),
 			TimedOut:      true,
 			OutputTrimmed: terminalOutputWasTrimmed(standardOutputBuffer, standardErrorBuffer),
 		}, errors.New("command timed out")
@@ -122,8 +123,8 @@ func (terminalSessionService *TerminalSessionService) RunCommand(ctx context.Con
 		sweepEscapedCommandProcesses(scopeMarker)
 		return CommandResult{
 			ExitCode:      -1,
-			Stdout:        truncateString(standardOutputBuffer.String(), terminalSessionService.outputMaxBytes()),
-			Stderr:        truncateString(standardErrorBuffer.String(), terminalSessionService.outputMaxBytes()),
+			Stdout:        truncateString(standardOutputBuffer.String(), outputMaximumBytes),
+			Stderr:        truncateString(standardErrorBuffer.String(), outputMaximumBytes),
 			TimedOut:      true,
 			OutputTrimmed: terminalOutputWasTrimmed(standardOutputBuffer, standardErrorBuffer),
 		}, errors.New("command timed out")
@@ -141,16 +142,16 @@ func (terminalSessionService *TerminalSessionService) RunCommand(ctx context.Con
 		}
 		return CommandResult{
 			ExitCode:      exitCode,
-			Stdout:        truncateString(standardOutputBuffer.String(), terminalSessionService.outputMaxBytes()),
-			Stderr:        truncateString(standardError, terminalSessionService.outputMaxBytes()),
+			Stdout:        truncateString(standardOutputBuffer.String(), outputMaximumBytes),
+			Stderr:        truncateString(standardError, outputMaximumBytes),
 			OutputTrimmed: terminalOutputWasTrimmed(standardOutputBuffer, standardErrorBuffer),
 		}, errorValue
 	}
 
 	return CommandResult{
 		ExitCode:      exitCode,
-		Stdout:        truncateString(standardOutputBuffer.String(), terminalSessionService.outputMaxBytes()),
-		Stderr:        truncateString(standardErrorBuffer.String(), terminalSessionService.outputMaxBytes()),
+		Stdout:        truncateString(standardOutputBuffer.String(), outputMaximumBytes),
+		Stderr:        truncateString(standardErrorBuffer.String(), outputMaximumBytes),
 		OutputTrimmed: terminalOutputWasTrimmed(standardOutputBuffer, standardErrorBuffer),
 	}, nil
 }
@@ -460,6 +461,13 @@ func (terminalSessionService *TerminalSessionService) outputMaxBytes() int {
 		return 32768
 	}
 	return terminalSessionService.commandGuardrailService.terminalConfiguration.OutputMaxBytes
+}
+
+func (terminalSessionService *TerminalSessionService) commandOutputMaxBytes(commandPlan CommandPlan) int {
+	if commandPlan.OutputMaximumBytes > 0 {
+		return commandPlan.OutputMaximumBytes
+	}
+	return terminalSessionService.outputMaxBytes()
 }
 
 func mapEnvironmentVariables(environmentVariables map[string]string) []string {
