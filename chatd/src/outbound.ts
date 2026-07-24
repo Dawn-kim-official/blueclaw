@@ -234,7 +234,9 @@ async function handleHistoryFetch(
 	requestBody: unknown,
 ): Promise<HistoryFetchResponse> {
 	const requestDocument = parseHistoryFetchRequest(requestBody);
-	const { threadId, cursor } = decodeHistoryCursor(requestDocument.historyCursor);
+	const decoded = decodeHistoryCursor(requestDocument.historyCursor);
+	const cursor = decoded.cursor;
+	const threadId = adapter instanceof BuzzAdapter ? adapter.historyThreadId(decoded.threadId) : decoded.threadId;
 	const limit = requestDocument.limit && requestDocument.limit > 0 ? requestDocument.limit : 20;
 
 	const [historyResult, threadInfo] = await Promise.all([
