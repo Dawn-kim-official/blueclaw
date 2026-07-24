@@ -9,6 +9,7 @@ const SENDER_HEX = 'c'.repeat(64);
 const configuration: AcpdConfiguration = {
   blueclawEventsURL: 'http://127.0.0.1:8080/connectors/buzz/events',
   blueclawTaskCancelURL: 'http://127.0.0.1:8080/admin/api/task/cancel',
+  blueclawTaskEventsURL: 'http://127.0.0.1:8080/tasks/api/events',
   buzzCommand: 'buzz',
   listenPort: 18091,
   maximumTurnHoldSeconds: 3300,

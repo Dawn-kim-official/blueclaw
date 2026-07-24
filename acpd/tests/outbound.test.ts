@@ -8,15 +8,22 @@ const SENDER_HEX = 'c'.repeat(64);
 
 type RecordedCommand = { commandArguments: string[]; standardInput: string | undefined };
 
-function createAgentStub(): { agent: AcpAgent; relayed: Array<{ channelID: string; message: string; replyKind: string | undefined }> } {
+function createAgentStub(): {
+  agent: AcpAgent;
+  relayed: Array<{ channelID: string; message: string; replyKind: string | undefined }>;
+  finished: Array<{ channelID: string; stopReason: string }>;
+} {
   const relayed: Array<{ channelID: string; message: string; replyKind: string | undefined }> = [];
+  const finished: Array<{ channelID: string; stopReason: string }> = [];
   return {
     agent: {
       requestHandlers: {},
       notificationHandlers: {},
       relayOutboundReply: (channelID, message, replyKind) => relayed.push({ channelID, message, replyKind }),
+      finishTurnForChannel: (channelID, stopReason) => finished.push({ channelID, stopReason }),
     },
     relayed,
+    finished,
   };
 }
 
@@ -179,5 +186,19 @@ describe('identity.resolve links file', () => {
     const response = await handler(postRequest('identity.resolve', { senderID: SENDER_HEX }));
 
     expect(await response.json()).toEqual({ displayName: 'Alice Kim', email: 'env@dawn.example' });
+  });
+});
+
+
+describe('progress.stop', () => {
+  test('ends the turn for the reply target channel', async () => {
+    const { runner } = createRunnerStub('{}');
+    const { agent, finished } = createAgentStub();
+    const handler = createOutboundHandler(runner, agent);
+
+    const response = await handler(postRequest('progress.stop', { replyTargetID: `${CHANNEL_UUID}/${ANCHOR_EVENT_ID}` }));
+
+    expect(response.status).toBe(200);
+    expect(finished).toEqual([{ channelID: CHANNEL_UUID, stopReason: 'end_turn' }]);
   });
 });

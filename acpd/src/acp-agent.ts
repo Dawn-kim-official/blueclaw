@@ -1,11 +1,13 @@
 import type { AcpdConfiguration } from './configuration.ts';
 import { parseHarnessPrompt, type HarnessEvent, type HarnessPrompt } from './harness-prompt.ts';
 import type { NotificationHandler, RequestHandler } from './jsonrpc.ts';
+import { createTaskActivityPoller } from './task-activity.ts';
 
 export type AcpAgent = {
   requestHandlers: Record<string, RequestHandler>;
   notificationHandlers: Record<string, NotificationHandler>;
   relayOutboundReply: (channelID: string, message: string, replyKind: string | undefined) => void;
+  finishTurnForChannel: (channelID: string, stopReason: string) => void;
 };
 
 type AgentSession = {
@@ -62,12 +64,20 @@ export function createAcpAgent(
 
     const results = await forwardEvents(configuration, prompt);
     const acceptedResult = results.find((result) => !result.ignored && !result.duplicate);
-    session.lastTaskRunID = results.map((result) => result.taskRunID).filter(Boolean).at(-1) ?? session.lastTaskRunID;
+    const taskRunID = results.map((result) => result.taskRunID).filter(Boolean).at(-1);
+    session.lastTaskRunID = taskRunID ?? session.lastTaskRunID;
     if (!acceptedResult) {
       return { stopReason: 'end_turn' };
     }
 
-    return await holdTurnOpen(session, configuration.maximumTurnHoldSeconds);
+    const stopActivityPoller = taskRunID
+      ? createTaskActivityPoller(configuration.blueclawTaskEventsURL, taskRunID, (update) => {
+          notify('session/update', { sessionId: session.sessionID, update });
+        })
+      : undefined;
+    const turnResult = await holdTurnOpen(session, configuration.maximumTurnHoldSeconds);
+    stopActivityPoller?.();
+    return turnResult;
   }
 
   function handleSessionCancel(params: unknown): void {
@@ -94,6 +104,10 @@ export function createAcpAgent(
     }
   }
 
+  function finishTurnForChannel(channelID: string, stopReason: string): void {
+    sessionForChannel(channelID)?.finishActiveTurn?.(stopReason);
+  }
+
   return {
     requestHandlers: {
       initialize: handleInitialize,
@@ -104,6 +118,7 @@ export function createAcpAgent(
       'session/cancel': handleSessionCancel,
     },
     relayOutboundReply,
+    finishTurnForChannel,
   };
 }
 
