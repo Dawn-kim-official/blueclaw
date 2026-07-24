@@ -2715,7 +2715,7 @@ func TestTerminalStructuredRequestsCarryMaxTokensCap(t *testing.T) {
 	services.runner.finalizerAction(context.Background(), request, nil, ExecutionState{})
 	services.runner.terminalNoToolsAction(context.Background(), request, nil, ExecutionState{}, "")
 	capturedRequests := append([]llm.StructuredResponseRequest{}, languageModel.requests...)
-	capturedRequests = append(capturedRequests, completionJudgeRequest(request, nil))
+	capturedRequests = append(capturedRequests, completionJudgeRequest(request, nil, turnActionDocument{}))
 	if len(capturedRequests) != 3 {
 		t.Fatalf("expected finalizer, terminal, and judge requests, got %+v", structuredRequestNames(capturedRequests))
 	}
