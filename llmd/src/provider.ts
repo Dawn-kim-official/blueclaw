@@ -276,6 +276,7 @@ const defaultLanguageModelFactory: ProviderLanguageModelFactory = {
     });
     return provider.chat(modelName, {
       provider: { order: ['deepinfra', 'parasail'], allow_fallbacks: true, require_parameters: true },
+      usage: { include: true },
     });
   },
 };
@@ -376,14 +377,7 @@ async function generateForRoute(
     selectedBackend: route.selectedBackend,
     finishReason: 'stop',
     constraintMode: route.constraintMode,
-    usage: {
-      promptTokens: normalizeTokenCount(result.totalUsage.inputTokens),
-      completionTokens: normalizeTokenCount(result.totalUsage.outputTokens),
-      totalTokens: normalizeTokenCount(result.totalUsage.totalTokens),
-      cachedPromptTokens: optionalTokenCount(result.totalUsage.inputTokenDetails.cacheReadTokens),
-      cacheWriteTokens: optionalTokenCount(result.totalUsage.inputTokenDetails.cacheWriteTokens),
-      reasoningTokens: optionalTokenCount(result.totalUsage.outputTokenDetails.reasoningTokens),
-    },
+    usage: normalizeUsage(result.totalUsage, result.providerMetadata),
   };
 }
 
@@ -726,7 +720,7 @@ async function generateChatForRoute(
     },
     selectedBackend: route.selectedBackend,
     finishReason: normalizeChatFinishReason(result.finishReason),
-    usage: normalizeUsage(result.totalUsage),
+    usage: normalizeUsage(result.totalUsage, result.providerMetadata),
     providerMetadata: serializableProviderMetadata(result.providerMetadata),
   };
 }
@@ -972,7 +966,13 @@ type UsageDocument = {
   outputTokenDetails?: { reasoningTokens?: number };
 };
 
-function normalizeUsage(usage: UsageDocument) {
+type OpenRouterUsageAccountingDocument = {
+  cost?: number;
+  costDetails?: { upstreamInferenceCost: number };
+};
+
+function normalizeUsage(usage: UsageDocument, providerMetadata?: unknown) {
+  const accounting = openRouterUsageAccounting(providerMetadata);
   return {
     promptTokens: normalizeTokenCount(usage.inputTokens),
     completionTokens: normalizeTokenCount(usage.outputTokens),
@@ -980,7 +980,28 @@ function normalizeUsage(usage: UsageDocument) {
     cachedPromptTokens: optionalTokenCount(usage.inputTokenDetails?.cacheReadTokens),
     cacheWriteTokens: optionalTokenCount(usage.inputTokenDetails?.cacheWriteTokens),
     reasoningTokens: optionalTokenCount(usage.outputTokenDetails?.reasoningTokens),
+    costUSD: optionalCostUSD(accounting?.cost),
+    upstreamInferenceCostUSD: optionalCostUSD(accounting?.costDetails?.upstreamInferenceCost),
   };
+}
+
+function openRouterUsageAccounting(providerMetadata: unknown): OpenRouterUsageAccountingDocument | undefined {
+  if (!isRecord(providerMetadata)) return undefined;
+  const openRouterMetadata = providerMetadata.openrouter;
+  if (!isRecord(openRouterMetadata) || !isRecord(openRouterMetadata.usage)) return undefined;
+  const usage = openRouterMetadata.usage;
+  const costDetails = isRecord(usage.costDetails) ? usage.costDetails : undefined;
+  return {
+    cost: typeof usage.cost === 'number' ? usage.cost : undefined,
+    costDetails: typeof costDetails?.upstreamInferenceCost === 'number'
+      ? { upstreamInferenceCost: costDetails.upstreamInferenceCost }
+      : undefined,
+  };
+}
+
+function optionalCostUSD(value: number | undefined): number | undefined {
+  if (value === undefined || !Number.isFinite(value) || value <= 0) return undefined;
+  return value;
 }
 
 function serializableProviderMetadata(providerMetadata: unknown): ChatProviderMetadata | undefined {
