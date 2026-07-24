@@ -472,6 +472,27 @@ func (connectorRuntime *ConnectorRuntime) UseEventRepository(eventRepository Con
 	connectorRuntime.eventRepository = eventRepository
 }
 
+var ingressGateWaitBudget = 25 * time.Second
+var ingressGatePollInterval = 500 * time.Millisecond
+
+func (connectorRuntime *ConnectorRuntime) waitForIngressGate(ctx context.Context) bool {
+	if connectorRuntime.ingressGate == nil || !connectorRuntime.ingressGate.IsPaused() {
+		return true
+	}
+	deadline := time.Now().Add(ingressGateWaitBudget)
+	for time.Now().Before(deadline) {
+		select {
+		case <-ctx.Done():
+			return false
+		case <-time.After(ingressGatePollInterval):
+		}
+		if !connectorRuntime.ingressGate.IsPaused() {
+			return true
+		}
+	}
+	return false
+}
+
 func (connectorRuntime *ConnectorRuntime) UseIngressGate(ingressGate IngressGate) {
 	connectorRuntime.ingressGate = ingressGate
 }
@@ -572,7 +593,8 @@ func (connectorRuntime *ConnectorRuntime) HandleRealtimeEvent(ctx context.Contex
 
 func (connectorRuntime *ConnectorRuntime) HandleInboundEvent(ctx context.Context, adapter PlatformAdapter, event PlatformInboundEvent) (ConnectorRuntimeResult, error) {
 	event.Platform = adapter.Name()
-	if connectorRuntime.ingressGate != nil && connectorRuntime.ingressGate.IsPaused() {
+	if !connectorRuntime.waitForIngressGate(ctx) {
+		connectorRuntime.logger.Warn("connector."+adapter.Name()+".ingress.deferred", slog.String("messageID", event.MessageID), slog.String("reason", "backup_prepare_active"))
 		return ConnectorRuntimeResult{Handled: true, Platform: adapter.Name(), Ignored: true, Reason: "backup_prepare_active"}, nil
 	}
 	if strings.TrimSpace(event.MessageID) == "" {
