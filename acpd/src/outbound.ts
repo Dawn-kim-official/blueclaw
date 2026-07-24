@@ -6,6 +6,7 @@ import {
   sendChannelMessage,
   type BuzzCommandRunner,
 } from './buzz-cli.ts';
+import type { AcpdConfiguration } from './configuration.ts';
 
 const OUTBOUND_ROUTE_PATTERN = /^\/v1\/platform\/buzz\/([^/]+)$/;
 
@@ -18,6 +19,7 @@ type ReplyAttachmentDocument = {
 export function createOutboundHandler(
   runBuzzCommand: BuzzCommandRunner,
   agent: AcpAgent,
+  configuration: Pick<AcpdConfiguration, 'accountEmailByPubkey'> = { accountEmailByPubkey: {} },
 ): (request: Request) => Promise<Response> {
   const capabilityHandlers: Record<string, (requestDocument: Record<string, unknown>) => Promise<object>> = {
     'reply.send': handleReplySend,
@@ -46,7 +48,10 @@ export function createOutboundHandler(
   async function handleIdentityResolve(requestDocument: Record<string, unknown>): Promise<object> {
     const senderID = readString(requestDocument, 'senderID');
     if (!senderID) return {};
-    return await resolveUserProfile(runBuzzCommand, senderID);
+    const linkedEmail = configuration.accountEmailByPubkey[senderID.toLowerCase()];
+    const profile = await resolveUserProfile(runBuzzCommand, senderID).catch(() => ({}));
+    if (linkedEmail) return { ...profile, email: linkedEmail };
+    return profile;
   }
 
   async function handleHistoryFetch(requestDocument: Record<string, unknown>): Promise<object> {
