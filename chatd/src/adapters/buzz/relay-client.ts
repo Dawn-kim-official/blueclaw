@@ -10,13 +10,11 @@ export type BuzzRelayClient = {
 	subscribe: (filters: object[], onEvent: EventListener) => void;
 	query: (filter: object, timeoutMs?: number) => Promise<BuzzEvent[]>;
 	publish: (kind: number, content: string, tags: string[][]) => Promise<BuzzEvent>;
-	restGET: (path: string) => Promise<unknown>;
 };
 
 export function createBuzzRelayClient(relayURL: string, privateKeyHex: string, authTagJSON?: string): BuzzRelayClient {
 	const secretKey = hexToBytes(privateKeyHex);
 	const pubkeyHex = getPublicKey(secretKey);
-	const httpBaseURL = relayURL.replace(/^ws/, "http");
 
 	let websocket: WebSocket | null = null;
 	let isAuthed = false;
@@ -35,7 +33,10 @@ export function createBuzzRelayClient(relayURL: string, privateKeyHex: string, a
 		) as BuzzEvent;
 	}
 
+	const isDebugEnabled = Bun.env.BUZZ_RELAY_DEBUG === "1";
+
 	function send(frame: unknown[]): void {
+		if (isDebugEnabled) console.error("[buzz-relay] send", JSON.stringify(frame).slice(0, 160));
 		websocket?.send(JSON.stringify(frame));
 	}
 
@@ -68,6 +69,7 @@ export function createBuzzRelayClient(relayURL: string, privateKeyHex: string, a
 	}
 
 	function handleFrame(frame: unknown[]): void {
+		if (isDebugEnabled) console.error("[buzz-relay] recv", JSON.stringify(frame).slice(0, 160));
 		const [frameType, ...rest] = frame;
 		if (frameType === "AUTH" && typeof rest[0] === "string") {
 			const challenge = rest[0];
@@ -84,6 +86,9 @@ export function createBuzzRelayClient(relayURL: string, privateKeyHex: string, a
 			}
 			send(["AUTH", signEvent(22242, "", authTags)]);
 			isAuthed = true;
+			for (const [subscriptionID, subscription] of liveSubscriptions) {
+				send(["REQ", subscriptionID, ...subscription.filters]);
+			}
 			return;
 		}
 		if (frameType === "EVENT" && typeof rest[0] === "string") {
@@ -177,20 +182,6 @@ export function createBuzzRelayClient(relayURL: string, privateKeyHex: string, a
 				send(["EVENT", event]);
 			});
 			return event;
-		},
-		async restGET(path) {
-			const requestURL = httpBaseURL + path;
-			const authEvent = signEvent(27235, "", [
-				["u", requestURL],
-				["method", "GET"],
-			]);
-			const response = await fetch(requestURL, {
-				headers: { Authorization: `Nostr ${Buffer.from(JSON.stringify(authEvent)).toString("base64")}` },
-			});
-			if (!response.ok) {
-				throw new Error(`relay REST ${path} returned ${response.status}`);
-			}
-			return response.json();
 		},
 	};
 }
