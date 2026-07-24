@@ -11,10 +11,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"blueclaw/internal/access"
 	"blueclaw/internal/agent"
 	"blueclaw/internal/security"
-	"blueclaw/internal/workspacepath"
 )
 
 const siteSourceBundleMaximumBytes = 64 * 1024 * 1024
@@ -68,11 +66,8 @@ func (toolCatalogBuilder *ToolCatalogBuilder) materializeSiteCreateResult(toolCo
 	if actorFailure != nil {
 		return actorFailure, nil
 	}
-	sourceWorkspace, errorValue := toolCatalogBuilder.resolveWritableSiteWorkspace(request, payload.SourceWorkspacePath)
-	if errorValue != nil {
-		return nil, errorValue
-	}
-	if toolFailure := writeSiteSourceFiles(toolContext, workspaceActor, sourceWorkspace, payload.SourceFiles); toolFailure != nil {
+	sourceWorkspacePath := toolCatalogBuilder.nativeRequesterPath(request, payload.SourceWorkspacePath)
+	if toolFailure := writeSiteSourceFiles(toolContext, workspaceActor, sourceWorkspacePath, payload.SourceFiles); toolFailure != nil {
 		return toolFailure, nil
 	}
 	return nil, stripSiteSourceFilesFromResult(result)
@@ -86,18 +81,15 @@ func (toolCatalogBuilder *ToolCatalogBuilder) removeSiteProjectAfterDelete(toolC
 	if json.Unmarshal(*result, &payload) != nil || !payload.Deleted || strings.TrimSpace(payload.SiteID) == "" {
 		return nil, nil
 	}
-	resolvedPath, errorValue := toolCatalogBuilder.resolveCapabilityWorkspacePath(request, "~/sites/"+strings.TrimSpace(payload.SiteID))
-	if errorValue != nil {
-		return nil, nil
-	}
+	guestProjectPath := "~/sites/" + strings.TrimSpace(payload.SiteID)
 	outcome, actorFailure := toolCatalogBuilder.runRequesterShell(toolContext, request, requesterShellCommand{
-		Command: "rm -rf -- " + shellSingleQuoted(resolvedPath.ConcretePath),
+		Command: "rm -rf -- " + shellPathArgument(guestProjectPath),
 	})
 	if actorFailure != nil {
 		return nil, nil
 	}
 	if outcome.RunError != nil {
-		slog.Warn("site.delete guest project cleanup failed", "path", resolvedPath.VirtualPath, "error", outcome.RunError)
+		slog.Warn("site.delete guest project cleanup failed", "path", guestProjectPath, "error", outcome.RunError)
 	}
 	return nil, nil
 }
@@ -122,20 +114,14 @@ func (toolCatalogBuilder *ToolCatalogBuilder) prepareSiteSourceBundle(toolContex
 	if actorFailure != nil {
 		return nil, actorFailure, nil
 	}
-	resolvedSourcePath, errorValue := NewWorkspacePathResolver(toolCatalogBuilder.workspaceRootPath).Resolve(sourceWorkspacePath, WorkspaceScopeForRequest(toolCatalogBuilder.workspaceRootPath, request, ""))
-	if errorValue != nil {
-		return nil, nil, errorValue
-	}
-	if !toolCatalogBuilder.canAccessWorkspacePath(request.PersonAccess, access.ActionRead, resolvedSourcePath.ConcretePath) {
-		return nil, nil, errors.New("current account cannot publish this site workspace path")
-	}
-	sourceBundle, errorValue := workspaceActor.BundleDirectory(toolContext, workspacepath.Directory(resolvedSourcePath), security.WorkspaceActorBundleOptions{
+	sourcePath := toolCatalogBuilder.nativeRequesterPath(request, sourceWorkspacePath)
+	sourceBundle, errorValue := workspaceActor.BundleDirectory(toolContext, sourcePath, security.WorkspaceActorBundleOptions{
 		Format:       "tar.gz",
 		MaxBytes:     siteSourceBundleMaximumBytes,
 		ExcludeNames: siteSourceBundleExcludeNames(),
 	})
 	if errorValue != nil {
-		toolFailure := actorToolFailure("bundle_directory", "site_publish", resolvedSourcePath.VirtualPath, errorValue)
+		toolFailure := actorToolFailure("bundle_directory", "site_publish", sourceWorkspacePath, errorValue)
 		return nil, &toolFailure, nil
 	}
 	sourceSHA256, errorValue := siteSourceBundleSHA256(sourceBundle.ContentBase64)
@@ -143,7 +129,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) prepareSiteSourceBundle(toolContex
 		return nil, nil, errorValue
 	}
 	transport := siteSourceBundleTransport{
-		WorkspacePath: resolvedSourcePath.VirtualPath,
+		WorkspacePath: sourceWorkspacePath,
 		ContentBase64: sourceBundle.ContentBase64,
 		Format:        sourceBundle.Format,
 		SHA256:        sourceSHA256,
@@ -179,71 +165,63 @@ func (toolCatalogBuilder *ToolCatalogBuilder) resolveSitePublishSource(toolConte
 	return record, nil
 }
 
-func (toolCatalogBuilder *ToolCatalogBuilder) resolveWritableSiteWorkspace(request ToolCatalogRequest, path string) (workspacepath.Directory, error) {
-	resolvedPath, errorValue := NewWorkspacePathResolver(toolCatalogBuilder.workspaceRootPath).Resolve(path, WorkspaceScopeForRequest(toolCatalogBuilder.workspaceRootPath, request, ""))
-	if errorValue != nil {
-		return workspacepath.Directory{}, errorValue
-	}
-	if !toolCatalogBuilder.canAccessWorkspacePath(request.PersonAccess, access.ActionWrite, resolvedPath.ConcretePath) {
-		return workspacepath.Directory{}, errors.New("current account cannot write this site workspace path")
-	}
-	return workspacepath.Directory(resolvedPath), nil
-}
-
-func writeSiteSourceFiles(toolContext context.Context, workspaceActor security.WorkspaceActor, sourceWorkspace workspacepath.Directory, files []siteSourceFile) *agent.ToolResult {
-	if errorValue := workspaceActor.MkdirAll(toolContext, sourceWorkspace, workspaceDirectoryCreateMode(sourceWorkspace)); errorValue != nil {
-		toolFailure := actorToolFailure("mkdir_all", "site_create", sourceWorkspace.VirtualPath, errorValue)
+func writeSiteSourceFiles(toolContext context.Context, workspaceActor security.WorkspaceActor, sourceWorkspacePath string, files []siteSourceFile) *agent.ToolResult {
+	if errorValue := workspaceActor.MkdirAll(toolContext, sourceWorkspacePath); errorValue != nil {
+		toolFailure := actorToolFailure("mkdir_all", "site_create", sourceWorkspacePath, errorValue)
 		return &toolFailure
 	}
 	for _, file := range files {
-		path, errorValue := siteSourceFilePath(sourceWorkspace, file.Path)
+		path, errorValue := siteSourceFilePath(sourceWorkspacePath, file.Path)
 		if errorValue != nil {
 			return invalidSiteCapabilityResult("site.create", errorValue.Error())
 		}
 		if siteSourceFileAlreadyPresent(toolContext, workspaceActor, path) {
 			continue
 		}
-		if errorValue := workspaceActor.MkdirAll(toolContext, path.Parent(), workspaceDirectoryCreateMode(path.Parent())); errorValue != nil {
-			toolFailure := actorToolFailure("mkdir_all", "site_create", path.VirtualPath, errorValue)
+		if errorValue := workspaceActor.MkdirAll(toolContext, filepath.Dir(path)); errorValue != nil {
+			toolFailure := actorToolFailure("mkdir_all", "site_create", path, errorValue)
 			return &toolFailure
 		}
-		if errorValue := workspaceActor.WriteFile(toolContext, path, []byte(file.Content), workspaceFileCreateMode(path)); errorValue != nil {
-			toolFailure := actorToolFailure("write_file", "site_create", path.VirtualPath, errorValue)
+		if errorValue := workspaceActor.WriteFile(toolContext, path, []byte(file.Content)); errorValue != nil {
+			toolFailure := actorToolFailure("write_file", "site_create", path, errorValue)
 			return &toolFailure
 		}
 	}
 	return nil
 }
 
-func siteSourceFileAlreadyPresent(toolContext context.Context, workspaceActor security.WorkspaceActor, path workspacepath.Path) bool {
+func siteSourceFileAlreadyPresent(toolContext context.Context, workspaceActor security.WorkspaceActor, path string) bool {
 	information, errorValue := workspaceActor.Stat(toolContext, path)
 	return errorValue == nil && information.IsRegular
 }
 
-func siteSourceFilePath(sourceWorkspace workspacepath.Directory, relativePath string) (workspacepath.Path, error) {
+func siteSourceFilePath(sourceWorkspacePath string, relativePath string) (string, error) {
+	canonicalRelativePath, errorValue := canonicalSiteSourceRelativePath(relativePath)
+	if errorValue != nil {
+		return "", errorValue
+	}
+	return filepath.Join(sourceWorkspacePath, canonicalRelativePath), nil
+}
+
+func canonicalSiteSourceRelativePath(relativePath string) (string, error) {
 	cleanPath := filepath.Clean(strings.TrimSpace(relativePath))
 	if cleanPath == "." || filepath.IsAbs(cleanPath) || cleanPath == ".." || strings.HasPrefix(filepath.ToSlash(cleanPath), "../") {
-		return workspacepath.Path{}, errors.New("site.create sourceFiles paths must be relative to sourceWorkspacePath")
+		return "", errors.New("site.create sourceFiles paths must be relative to sourceWorkspacePath")
 	}
-	return workspacepath.Path{
-		ConcretePath:      filepath.Join(sourceWorkspace.ConcretePath, cleanPath),
-		VirtualPath:       filepath.ToSlash(filepath.Join(sourceWorkspace.VirtualPath, cleanPath)),
-		Kind:              sourceWorkspace.Kind,
-		IsDurableArtifact: sourceWorkspace.IsDurableArtifact,
-	}, nil
+	return cleanPath, nil
 }
 
 func validateSiteSourceFiles(files []siteSourceFile) error {
 	seenPaths := map[string]bool{}
 	for _, file := range files {
-		path, errorValue := siteSourceFilePath(workspacepath.Directory{}, file.Path)
+		canonicalRelativePath, errorValue := canonicalSiteSourceRelativePath(file.Path)
 		if errorValue != nil {
 			return errorValue
 		}
-		if seenPaths[path.VirtualPath] {
+		if seenPaths[canonicalRelativePath] {
 			return errors.New("site.create sourceFiles paths must be unique")
 		}
-		seenPaths[path.VirtualPath] = true
+		seenPaths[canonicalRelativePath] = true
 	}
 	return nil
 }

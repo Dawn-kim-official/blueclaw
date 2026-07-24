@@ -50,13 +50,13 @@ func helperInvocationCount(t *testing.T, invocationLogPath string) int {
 	return strings.Count(string(content), "run")
 }
 
-func TestEnsureHelperSupportsFSCachesSuccessfulProbePerHelperPath(t *testing.T) {
+func TestEnsureHelperSupportsExecAndFSCachesSuccessfulProbePerHelperPath(t *testing.T) {
 	directory := t.TempDir()
 	helperPath := filepath.Join(directory, "blueclaw-posix-helper")
 	invocationLogPath := filepath.Join(directory, "invocations.log")
-	writeFakeCapabilitiesHelper(t, helperPath, "#!/bin/sh\necho run >> "+invocationLogPath+"\nprintf '{\"version\":2,\"capabilities\":[\"fs\"]}'\n")
+	writeFakeCapabilitiesHelper(t, helperPath, "#!/bin/sh\necho run >> "+invocationLogPath+"\nprintf '{\"version\":2,\"capabilities\":[\"exec\",\"fs\"]}'\n")
 	for attempt := 0; attempt < 3; attempt++ {
-		if errorValue := ensureHelperSupportsFS(context.Background(), helperPath, "bc_person_test"); errorValue != nil {
+		if errorValue := ensureHelperSupportsExecAndFS(context.Background(), helperPath, "bc_person_test"); errorValue != nil {
 			t.Fatalf("expected capabilities probe to succeed, got %v", errorValue)
 		}
 	}
@@ -65,15 +65,15 @@ func TestEnsureHelperSupportsFSCachesSuccessfulProbePerHelperPath(t *testing.T) 
 	}
 }
 
-func TestEnsureHelperSupportsFSDoesNotCacheFailedProbe(t *testing.T) {
+func TestEnsureHelperSupportsExecAndFSDoesNotCacheFailedProbe(t *testing.T) {
 	directory := t.TempDir()
 	helperPath := filepath.Join(directory, "blueclaw-posix-helper")
 	writeFakeCapabilitiesHelper(t, helperPath, "#!/bin/sh\nexit 1\n")
-	if errorValue := ensureHelperSupportsFS(context.Background(), helperPath, "bc_person_test"); errorValue == nil {
+	if errorValue := ensureHelperSupportsExecAndFS(context.Background(), helperPath, "bc_person_test"); errorValue == nil {
 		t.Fatal("expected failing capabilities probe to return an error")
 	}
-	writeFakeCapabilitiesHelper(t, helperPath, "#!/bin/sh\nprintf '{\"version\":2,\"capabilities\":[\"fs\"]}'\n")
-	if errorValue := ensureHelperSupportsFS(context.Background(), helperPath, "bc_person_test"); errorValue != nil {
+	writeFakeCapabilitiesHelper(t, helperPath, "#!/bin/sh\nprintf '{\"version\":2,\"capabilities\":[\"exec\",\"fs\"]}'\n")
+	if errorValue := ensureHelperSupportsExecAndFS(context.Background(), helperPath, "bc_person_test"); errorValue != nil {
 		t.Fatalf("expected probe retry after failure to succeed, got %v", errorValue)
 	}
 }

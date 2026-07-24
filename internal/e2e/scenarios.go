@@ -949,7 +949,7 @@ func FailureExplanationAcceptanceScenario(artifactDirectoryPath string) VirtualS
 				Prompt:                 "Run the analysis.",
 				RouterRequiredEvidence: []string{"terminal.run"},
 				ActionResponses: []string{
-					actionCallTool("terminal.run", `{"command":"printf 'permission denied blocked_by_captcha' >&2; exit 126","workingDirectoryPath":"home","timeoutSecond":30}`),
+					actionCallTool("terminal.run", `{"command":"printf 'permission denied blocked_by_captcha' >&2; exit 126","workingDirectoryPath":"~","timeoutSecond":30}`),
 					actionFailMessage("terminal.run: permission denied"),
 				},
 				ExpectedSequence: []string{"tool.terminal.run.requested", "tool.terminal.run.result"},
