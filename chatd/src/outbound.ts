@@ -3,12 +3,16 @@ import { BuzzAdapter } from "./adapters/buzz/adapter.ts";
 import type { MattermostAdapter } from "./adapters/mattermost/adapter.ts";
 import type { ChatdConfiguration } from "./configuration.ts";
 import { importAttachmentToDirectory } from "./outbound-attachments.ts";
+import { supportsChannelProvisioning } from "./channels.ts";
 import { buildVisibleContext, decodeHistoryCursor } from "./visible-context.ts";
 import {
 	parseAttachmentImportRequest,
+	parseChannelEnsureRequest,
 	parseHistoryFetchRequest,
 	parseIdentityResolveRequest,
 	parseInteractionResolveRequest,
+	parseMessageDeleteRequest,
+	parseMessageEditRequest,
 	parseProgressRequest,
 	parseReactionRequest,
 	parseReplySendRequest,
@@ -16,6 +20,7 @@ import {
 import type {
 	AgentPartDocument,
 	AttachmentImportResponse,
+	ChannelEnsureResponse,
 	HistoryFetchResponse,
 	IdentityResolveResponse,
 	InputAttachmentDocument,
@@ -44,6 +49,9 @@ const capabilityHandlers: Record<string, CapabilityHandler> = {
 	"interaction.resolve": handleInteractionResolve,
 	"attachments.import": handleAttachmentsImport,
 	"identity.resolve": handleIdentityResolve,
+	"channel.ensure": handleChannelEnsure,
+	"message.edit": handleMessageEdit,
+	"message.delete": handleMessageDelete,
 };
 
 export function createOutboundHandler(
@@ -198,6 +206,42 @@ async function handleReactionRemove(
 ): Promise<Record<string, never>> {
 	const requestDocument = parseReactionRequest(requestBody);
 	await adapter.removeReaction("", requestDocument.messageID, requestDocument.emojiName);
+	return {};
+}
+
+async function handleChannelEnsure(
+	adapter: PlatformChatAdapter,
+	_configuration: ChatdConfiguration,
+	requestBody: unknown,
+): Promise<ChannelEnsureResponse> {
+	const requestDocument = parseChannelEnsureRequest(requestBody);
+	if (!supportsChannelProvisioning(adapter)) {
+		throw new Error(`platform ${adapter.name} cannot provision channels`);
+	}
+	return await adapter.ensureChannel(requestDocument);
+}
+
+async function handleMessageEdit(
+	adapter: PlatformChatAdapter,
+	_configuration: ChatdConfiguration,
+	requestBody: unknown,
+): Promise<ReplySendResponse> {
+	const requestDocument = parseMessageEditRequest(requestBody);
+	const result = await adapter.editMessage(
+		requestDocument.replyTargetID,
+		requestDocument.messageID,
+		requestDocument.message,
+	);
+	return { dispatchID: result.id };
+}
+
+async function handleMessageDelete(
+	adapter: PlatformChatAdapter,
+	_configuration: ChatdConfiguration,
+	requestBody: unknown,
+): Promise<Record<string, never>> {
+	const requestDocument = parseMessageDeleteRequest(requestBody);
+	await adapter.deleteMessage(requestDocument.replyTargetID, requestDocument.messageID);
 	return {};
 }
 

@@ -2,10 +2,13 @@ import type {
 	AskChoiceOptionDocument,
 	AskInteractionDocument,
 	AttachmentImportRequest,
+	ChannelEnsureRequest,
 	HistoryFetchRequest,
 	IdentityResolveRequest,
 	InputAttachmentDocument,
 	InteractionResolveRequest,
+	MessageDeleteRequest,
+	MessageEditRequest,
 	ProgressRequest,
 	ReactionRequest,
 	ReplyAttachmentDocument,
@@ -122,6 +125,33 @@ export function parseHistoryFetchRequest(value: unknown): HistoryFetchRequest {
 export function parseInteractionResolveRequest(value: unknown): InteractionResolveRequest {
 	const record = requireRecord(value, "interaction.resolve request");
 	return { dispatchID: requireString(record, "dispatchID") };
+}
+
+export function parseMessageEditRequest(value: unknown): MessageEditRequest {
+	const record = requireRecord(value, "message.edit request");
+	return {
+		replyTargetID: requireString(record, "replyTargetID"),
+		messageID: requireString(record, "messageID"),
+		message: requireString(record, "message"),
+	};
+}
+
+export function parseMessageDeleteRequest(value: unknown): MessageDeleteRequest {
+	const record = requireRecord(value, "message.delete request");
+	return {
+		replyTargetID: requireString(record, "replyTargetID"),
+		messageID: requireString(record, "messageID"),
+	};
+}
+
+export function parseChannelEnsureRequest(value: unknown): ChannelEnsureRequest {
+	const record = requireRecord(value, "channel.ensure request");
+	return {
+		name: requireString(record, "name"),
+		displayName: optionalString(record, "displayName"),
+		description: optionalString(record, "description"),
+		topic: optionalString(record, "topic"),
+	};
 }
 
 function parseInputAttachment(value: unknown): InputAttachmentDocument {
