@@ -25,11 +25,15 @@ function createAdapter(withCallback = false): MattermostAdapter {
 function createConfiguration(overrides: Partial<ChatdConfiguration> = {}): ChatdConfiguration {
 	return {
 		botUserName: "mattermost-bot",
-		mattermostBaseURL: "https://mattermost.example.com",
-		mattermostBotToken: "test-token",
-		actionCallbackURL: undefined,
+		blueclawBaseURL: "https://blueclaw.example.com",
 		blueclawIngressURL: "https://blueclaw.example.com/ingress",
 		listenPort: 18090,
+		mattermost: {
+			baseURL: "https://mattermost.example.com",
+			botToken: "test-token",
+			actionCallbackURL: undefined,
+		},
+		buzz: undefined,
 		...overrides,
 	};
 }
@@ -82,7 +86,7 @@ afterEach(() => {
 
 describe("createOutboundHandler routing", () => {
 	it("rejects non-POST requests", async () => {
-		const handler = createOutboundHandler(createAdapter(), createConfiguration());
+		const handler = createOutboundHandler({ mattermost: createAdapter() }, createConfiguration());
 		const response = await handler(
 			new Request("https://chatd.internal/v1/platform/mattermost/reply.send", { method: "GET" }),
 		);
@@ -90,7 +94,7 @@ describe("createOutboundHandler routing", () => {
 	});
 
 	it("404s for an unknown platform", async () => {
-		const handler = createOutboundHandler(createAdapter(), createConfiguration());
+		const handler = createOutboundHandler({ mattermost: createAdapter() }, createConfiguration());
 		const notMattermost = new Request("https://chatd.internal/v1/platform/slack/reply.send", {
 			method: "POST",
 			body: "{}",
@@ -100,13 +104,13 @@ describe("createOutboundHandler routing", () => {
 	});
 
 	it("404s for an unknown capability", async () => {
-		const handler = createOutboundHandler(createAdapter(), createConfiguration());
+		const handler = createOutboundHandler({ mattermost: createAdapter() }, createConfiguration());
 		const response = await handler(outboundRequest("not.a.capability", {}));
 		expect(response.status).toBe(404);
 	});
 
 	it("returns 502 with a message when the request body fails validation", async () => {
-		const handler = createOutboundHandler(createAdapter(), createConfiguration());
+		const handler = createOutboundHandler({ mattermost: createAdapter() }, createConfiguration());
 		const response = await handler(outboundRequest("reply.send", { message: "hello" }));
 		expect(response.status).toBe(502);
 		const body = (await response.json()) as { error: string };
@@ -120,7 +124,7 @@ describe("reply.send", () => {
 		globalThis.fetch = mock(async () =>
 			jsonResponse(201, createPost({ id: "new-post-1", channel_id: "channel-1" })),
 		) as never;
-		const handler = createOutboundHandler(adapter, createConfiguration());
+		const handler = createOutboundHandler({ mattermost: adapter }, createConfiguration());
 
 		const threadId = adapter.encodeThreadId({ channelId: "channel-1" });
 		const response = await handler(
@@ -139,7 +143,7 @@ describe("reply.send", () => {
 			requestBody = JSON.parse(init?.body as string);
 			return jsonResponse(201, createPost({ id: "new-post-2", channel_id: "channel-1" }));
 		}) as never;
-		const handler = createOutboundHandler(adapter, createConfiguration());
+		const handler = createOutboundHandler({ mattermost: adapter }, createConfiguration());
 
 		const threadId = adapter.encodeThreadId({ channelId: "channel-1" });
 		await handler(
@@ -175,7 +179,7 @@ describe("reply.send", () => {
 			}
 			return jsonResponse(201, createPost({ id: "new-post-3", channel_id: "channel-1" }));
 		}) as never;
-		const handler = createOutboundHandler(adapter, createConfiguration());
+		const handler = createOutboundHandler({ mattermost: adapter }, createConfiguration());
 
 		const threadId = adapter.encodeThreadId({ channelId: "channel-1" });
 		const response = await handler(
@@ -199,7 +203,7 @@ describe("progress.start and progress.stop", () => {
 			requestedUrl = String(input);
 			return jsonResponse(200, {});
 		}) as never;
-		const handler = createOutboundHandler(adapter, createConfiguration());
+		const handler = createOutboundHandler({ mattermost: adapter }, createConfiguration());
 
 		const threadId = adapter.encodeThreadId({ channelId: "channel-1" });
 		const response = await handler(outboundRequest("progress.start", { replyTargetID: threadId }));
@@ -212,7 +216,7 @@ describe("progress.start and progress.stop", () => {
 		const adapter = createAdapter();
 		const fetchMock = mock(async () => jsonResponse(200, {}));
 		globalThis.fetch = fetchMock as never;
-		const handler = createOutboundHandler(adapter, createConfiguration());
+		const handler = createOutboundHandler({ mattermost: adapter }, createConfiguration());
 
 		const response = await handler(outboundRequest("progress.stop", { replyTargetID: "irrelevant" }));
 
@@ -229,7 +233,7 @@ describe("reaction.add and reaction.remove", () => {
 			requestBody = JSON.parse(init?.body as string);
 			return jsonResponse(200, {});
 		}) as never;
-		const handler = createOutboundHandler(adapter, createConfiguration());
+		const handler = createOutboundHandler({ mattermost: adapter }, createConfiguration());
 
 		const response = await handler(
 			outboundRequest("reaction.add", { messageID: "post-1", emojiName: "white_check_mark" }),
@@ -247,7 +251,7 @@ describe("reaction.add and reaction.remove", () => {
 			requestedUrl = String(input);
 			return jsonResponse(204, {});
 		}) as never;
-		const handler = createOutboundHandler(adapter, createConfiguration());
+		const handler = createOutboundHandler({ mattermost: adapter }, createConfiguration());
 
 		const response = await handler(
 			outboundRequest("reaction.remove", { messageID: "post-1", emojiName: "white_check_mark" }),
@@ -271,7 +275,7 @@ describe("history.fetch", () => {
 			}
 			return jsonResponse(200, { id: "channel-1", name: "channel-1", type: "O" });
 		}) as never;
-		const handler = createOutboundHandler(adapter, createConfiguration());
+		const handler = createOutboundHandler({ mattermost: adapter }, createConfiguration());
 
 		const threadId = adapter.encodeThreadId({ channelId: "channel-1", rootPostId: "root-1" });
 		const response = await handler(outboundRequest("history.fetch", { historyCursor: threadId, limit: 10 }));
@@ -305,7 +309,7 @@ describe("interaction.resolve", () => {
 			}
 			return jsonResponse(404, {});
 		}) as never;
-		const handler = createOutboundHandler(adapter, createConfiguration());
+		const handler = createOutboundHandler({ mattermost: adapter }, createConfiguration());
 
 		const response = await handler(outboundRequest("interaction.resolve", { dispatchID: "post-10" }));
 
@@ -321,7 +325,7 @@ describe("attachments.import", () => {
 		const adapter = createAdapter();
 		globalThis.fetch = mock(async () => new Response("file contents", { status: 200 })) as never;
 		const targetDirectoryPath = await mkdtemp(path.join(tmpdir(), "chatd-outbound-"));
-		const handler = createOutboundHandler(adapter, createConfiguration());
+		const handler = createOutboundHandler({ mattermost: adapter }, createConfiguration());
 
 		try {
 			const response = await handler(
@@ -351,7 +355,7 @@ describe("attachments.import", () => {
 		const adapter = createAdapter();
 		globalThis.fetch = mock(async () => new Response("unused", { status: 200 })) as never;
 		const targetDirectoryPath = await mkdtemp(path.join(tmpdir(), "chatd-outbound-"));
-		const handler = createOutboundHandler(adapter, createConfiguration());
+		const handler = createOutboundHandler({ mattermost: adapter }, createConfiguration());
 
 		try {
 			const response = await handler(
@@ -379,7 +383,7 @@ describe("identity.resolve", () => {
 		globalThis.fetch = mock(async () =>
 			jsonResponse(200, createUser({ id: "user-1", username: "alice", first_name: "Alice" })),
 		) as never;
-		const handler = createOutboundHandler(adapter, createConfiguration());
+		const handler = createOutboundHandler({ mattermost: adapter }, createConfiguration());
 
 		const response = await handler(outboundRequest("identity.resolve", { senderID: "user-1" }));
 
@@ -391,7 +395,7 @@ describe("identity.resolve", () => {
 	it("returns an empty document when the user cannot be found", async () => {
 		const adapter = createAdapter();
 		globalThis.fetch = mock(async () => jsonResponse(404, { message: "missing" })) as never;
-		const handler = createOutboundHandler(adapter, createConfiguration());
+		const handler = createOutboundHandler({ mattermost: adapter }, createConfiguration());
 
 		const response = await handler(outboundRequest("identity.resolve", { senderID: "user-1" }));
 
