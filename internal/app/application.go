@@ -800,6 +800,7 @@ func capabilityToolResultContract(contract *config.CapabilityToolResultContract)
 			Effect:         effectContract.Effect,
 			ResultField:    effectContract.ResultField,
 			EffectIdentity: effectContract.EffectIdentity,
+			When:           capabilityEvidenceCondition(effectContract.When),
 		})
 	}
 	return &agentruntime.CapabilityToolResultContract{
