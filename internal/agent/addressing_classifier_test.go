@@ -83,7 +83,7 @@ func TestAddressingClassificationConstrainsReactionEmojiToAllowedSet(t *testing.
 	}
 
 	agentKernel.UseIntakeLanguageModelProvider(addressingStaticLanguageModel{
-		content: `{"target":"bot","shouldRespond":false,"reactionEmoji":"sparkles","dutyMatch":false,"dutyName":"","dutyConfidence":0}`,
+		content: `{"target":"bot","shouldRespond":false,"reactionEmoji":"banana","dutyMatch":false,"dutyName":"","dutyConfidence":0}`,
 	})
 	offListDecision, errorValue := agentKernel.ClassifyAddressing(context.Background(), AddressingClassificationRequest{Prompt: "이거 봐주세요"})
 	if errorValue != nil {
