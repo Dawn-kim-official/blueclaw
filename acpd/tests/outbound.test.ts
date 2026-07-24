@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import type { AcpAgent } from '../src/acp-agent.ts';
+import type { AcpAgentCore } from '../src/acp-agent.ts';
 import { createOutboundHandler, decodeReplyTarget } from '../src/outbound.ts';
 
 const CHANNEL_UUID = '8f14e45f-ea3c-4c2d-9d4b-1a2b3c4d5e6f';
@@ -9,7 +9,7 @@ const SENDER_HEX = 'c'.repeat(64);
 type RecordedCommand = { commandArguments: string[]; standardInput: string | undefined };
 
 function createAgentStub(): {
-  agent: AcpAgent;
+  agent: Pick<AcpAgentCore, 'relayOutboundReply' | 'finishTurnForChannel'>;
   relayed: Array<{ channelID: string; message: string; replyKind: string | undefined }>;
   finished: Array<{ channelID: string; stopReason: string }>;
 } {
@@ -17,8 +17,6 @@ function createAgentStub(): {
   const finished: Array<{ channelID: string; stopReason: string }> = [];
   return {
     agent: {
-      requestHandlers: {},
-      notificationHandlers: {},
       relayOutboundReply: (channelID, message, replyKind) => relayed.push({ channelID, message, replyKind }),
       finishTurnForChannel: (channelID, stopReason) => finished.push({ channelID, stopReason }),
     },
