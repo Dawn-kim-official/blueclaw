@@ -183,6 +183,7 @@ async function forwardEvent(
       senderID: event.senderHex,
       replyTargetID: `${channelID}/${replyAnchorEventID}`,
       prompt: event.content,
+      context: { messages: [], hasMoreBefore: true, historyCursor: channelID },
     }),
   });
   if (!response.ok) {
