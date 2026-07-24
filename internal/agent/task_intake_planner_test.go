@@ -2160,3 +2160,27 @@ func (failingLanguageModel) GenerateResponse(context.Context, string) (string, e
 func (failingLanguageModel) GenerateStructuredResponse(context.Context, llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
 	return llm.StructuredResponse{}, errors.New("model failed")
 }
+
+func TestNormalizeWebsiteDeliverableKindRoutesSiteNamespace(t *testing.T) {
+	decision := normalizeWebsiteDeliverableKind(TurnDecision{
+		DeliverableKind:  DeliverableKindWebsite,
+		InitialToolNames: []string{"file.write"},
+	})
+	if !decisionSuggestsSiteTool(decision) {
+		t.Fatalf("website deliverable must route the site namespace: %#v", decision.InitialToolNames)
+	}
+	unchanged := normalizeWebsiteDeliverableKind(TurnDecision{
+		DeliverableKind:  DeliverableKindDocument,
+		InitialToolNames: []string{"file.write"},
+	})
+	if decisionSuggestsSiteTool(unchanged) {
+		t.Fatalf("non-website deliverable must not gain site tools: %#v", unchanged.InitialToolNames)
+	}
+	alreadyRouted := normalizeWebsiteDeliverableKind(TurnDecision{
+		DeliverableKind:  DeliverableKindWebsite,
+		InitialToolNames: []string{"site.list"},
+	})
+	if len(alreadyRouted.InitialToolNames) != 1 {
+		t.Fatalf("existing site routing must stay untouched: %#v", alreadyRouted.InitialToolNames)
+	}
+}
