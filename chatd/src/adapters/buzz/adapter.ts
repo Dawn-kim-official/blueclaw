@@ -32,6 +32,8 @@ const REACTION_KIND = 7;
 const PROFILE_KIND = 0;
 const GROUP_METADATA_KIND = 39000;
 const GROUP_MEMBERS_KIND = 39002;
+const MEMBER_ADDED_NOTIFICATION_KIND = 44100;
+const MEMBER_REMOVED_NOTIFICATION_KIND = 44101;
 
 class BuzzFormatConverter extends BaseFormatConverter {
 	toAst(platformText: string): Root {
@@ -95,6 +97,22 @@ export class BuzzAdapter implements Adapter<BuzzThreadId, BuzzEvent> {
 		await this.relay.connect();
 		await this.refreshChannels();
 		this.subscribeToChannels();
+		this.subscribeToMembershipChanges();
+	}
+
+	private subscribeToMembershipChanges(): void {
+		this.relay.subscribe(
+			[
+				{
+					kinds: [MEMBER_ADDED_NOTIFICATION_KIND, MEMBER_REMOVED_NOTIFICATION_KIND],
+					"#p": [this.relay.pubkeyHex],
+					since: Math.floor(Date.now() / 1000),
+				},
+			],
+			() => {
+				void this.refreshChannels().then(() => this.subscribeToChannels());
+			},
+		);
 	}
 
 	async disconnect(): Promise<void> {
