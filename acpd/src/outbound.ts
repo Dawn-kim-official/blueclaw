@@ -1,4 +1,4 @@
-import type { AcpAgent } from './acp-agent.ts';
+import type { AcpAgentCore } from './acp-agent.ts';
 import {
   addMessageReaction,
   removeMessageReaction,
@@ -18,7 +18,7 @@ type ReplyAttachmentDocument = {
 
 export function createOutboundHandler(
   runBuzzCommand: BuzzCommandRunner,
-  agent: AcpAgent,
+  agent: Pick<AcpAgentCore, 'relayOutboundReply' | 'finishTurnForChannel'>,
   configuration: Pick<AcpdConfiguration, 'accountEmailByPubkey' | 'accountLinksPath'> = {
     accountEmailByPubkey: {},
     accountLinksPath: undefined,
