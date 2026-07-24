@@ -84,6 +84,7 @@ func NewRouter(routerDependencies RouterDependencies) http.Handler {
 		multiplexer.HandleFunc("POST /connectors/slack/events", routerDependencies.ConnectorEventHandler.HandleConnectorEvent("slack"))
 		multiplexer.HandleFunc("POST /connectors/signal/events", routerDependencies.ConnectorEventHandler.HandleConnectorEvent("signal"))
 		multiplexer.HandleFunc("POST /connectors/api/events", routerDependencies.ConnectorEventHandler.HandleConnectorEvent("api"))
+		multiplexer.HandleFunc("POST /connectors/buzz/events", routerDependencies.ConnectorEventHandler.HandleConnectorEvent("buzz"))
 	}
 
 	if _, errorValue := os.Stat("web/admin"); errorValue == nil {
