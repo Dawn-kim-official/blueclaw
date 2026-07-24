@@ -356,9 +356,9 @@ func TestAgentTurnRunnerRejectsUnavailableToolBeforeInvoke(t *testing.T) {
 		noToolFallbackFinishMessageDocument("I can answer without that unavailable tool."),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
-	toolRegistry := newTestToolSet([]string{"math.calculate"})
-	registerTestTool(toolRegistry, ToolDefinition{Name: "math.calculate"}, func(context.Context, ToolInvocation) (ToolResult, error) {
-		t.Fatal("unexpected math.calculate invocation")
+	toolRegistry := newTestToolSet([]string{"schedule.list"})
+	registerTestTool(toolRegistry, ToolDefinition{Name: "schedule.list"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		t.Fatal("unexpected schedule.list invocation")
 		return ToolResult{}, nil
 	})
 

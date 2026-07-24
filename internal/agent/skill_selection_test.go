@@ -200,7 +200,7 @@ func TestToolSetForAgentTurnExposesOnlyPinnedNonKernelTools(t *testing.T) {
 	fullToolSet := testToolSet([]string{
 		"conversation.history",
 		"memory.search",
-		"math.calculate",
+		"schedule.list",
 		"terminal.run",
 		"file.write",
 		"schedule.create",
@@ -224,7 +224,7 @@ func TestToolSetForAgentTurnExposesOnlyPinnedNonKernelTools(t *testing.T) {
 			t.Fatalf("expected tool %s to remain available, got %+v", toolName, filteredToolSet.ListToolNames())
 		}
 	}
-	for _, toolName := range []string{"memory.search", "math.calculate", "mail.message.search"} {
+	for _, toolName := range []string{"memory.search", "schedule.list", "mail.message.search"} {
 		if filteredToolSet.IsAllowed(toolName) {
 			t.Fatalf("expected unpinned non-kernel tool %s to be hidden, got %+v", toolName, filteredToolSet.ListToolNames())
 		}
@@ -282,7 +282,7 @@ func TestAgentKernelActionSchemaExposesTypedInitialTools(t *testing.T) {
 		}}
 	})
 	// The initial tool list contains direct typed tools; skill selection can add more direct tools later.
-	toolRegistry := newTestCapabilityToolSet([]string{"schedule.create", "mail.message.search", "math.calculate"})
+	toolRegistry := newTestCapabilityToolSet([]string{"schedule.create", "mail.message.search", "schedule.list"})
 	registerTestTool(toolRegistry, ToolDefinition{Name: AskInputToolName}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		return ToolResult{}, nil
 	})
@@ -306,7 +306,7 @@ func TestAgentKernelActionSchemaExposesTypedInitialTools(t *testing.T) {
 	if strings.Contains(actionSchema, AskInputToolName) {
 		t.Fatalf("expected ask.input to stay hidden without a typed interaction requirement, got %s", actionSchema)
 	}
-	for _, domainToolName := range []string{"mail.message.search", "math.calculate"} {
+	for _, domainToolName := range []string{"mail.message.search", "schedule.list"} {
 		if strings.Contains(actionSchema, `"toolName":{"enum":["`+domainToolName+`"`) {
 			t.Fatalf("expected unselected tool %s not to be directly callable, got %s", domainToolName, actionSchema)
 		}

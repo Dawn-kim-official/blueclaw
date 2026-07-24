@@ -234,7 +234,7 @@ func TestToolSideEffectClassUsesOnlyDescriptorMetadata(t *testing.T) {
 		{toolName: "task.add", sideEffectClass: ToolSideEffectStateChange, expectedSideEffect: ToolSideEffectStateChange, requiresCompletion: true},
 		{toolName: "task.list", sideEffectClass: ToolSideEffectRead, expectedSideEffect: ToolSideEffectRead, requiresCompletion: false},
 		{toolName: "message.send", sideEffectClass: ToolSideEffectExternalWrite, expectedSideEffect: ToolSideEffectExternalWrite, requiresCompletion: true},
-		{toolName: "math.calculate", sideEffectClass: ToolSideEffectComputation, expectedSideEffect: ToolSideEffectComputation, requiresCompletion: false},
+		{toolName: "llm.structured", sideEffectClass: ToolSideEffectComputation, expectedSideEffect: ToolSideEffectComputation, requiresCompletion: false},
 		{toolName: "looks.like.write", expectedSideEffect: "", requiresCompletion: false},
 	}
 

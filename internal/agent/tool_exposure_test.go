@@ -181,19 +181,19 @@ func TestImmediateReplyWithoutToolIntentExposesNoTools(t *testing.T) {
 }
 
 func TestImmediateReplyWithPinnedToolExposesFullKernel(t *testing.T) {
-	toolSet := testToolSet(append(KernelToolNames(), "math.calculate"))
+	toolSet := testToolSet(append(KernelToolNames(), "schedule.list"))
 
 	filteredToolSet, _ := toolSetForAgentTurnWithExposure(
 		toolSet,
 		InstructionBundle{},
-		AgentRequest{TaskShape: TaskShapeImmediateReply, PinnedToolNames: []string{"math.calculate"}},
+		AgentRequest{TaskShape: TaskShapeImmediateReply, PinnedToolNames: []string{"schedule.list"}},
 		ExecutionPlan{},
 		false,
 		OutcomeContract{},
 		ToolExposureEvent{},
 	)
 
-	expectedToolNames := append(append([]string{}, KernelToolNames()...), "math.calculate")
+	expectedToolNames := append(append([]string{}, KernelToolNames()...), "schedule.list")
 	if !sameStringSet(filteredToolSet.ListToolNames(), expectedToolNames) {
 		t.Fatalf("expected full kernel with the pinned tool, got %+v", filteredToolSet.ListToolNames())
 	}

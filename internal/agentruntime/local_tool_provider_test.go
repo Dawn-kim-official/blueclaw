@@ -12,45 +12,31 @@ import (
 func TestLocalToolProviderUsesCanonicalDescriptors(t *testing.T) {
 	toolCatalogBuilder := NewToolCatalogBuilder()
 	handlerToolSet := agent.NewToolSet(nil)
-	toolCatalogBuilder.registerMathTool(handlerToolSet)
 	toolCatalogBuilder.registerAskInputTool(handlerToolSet)
 
 	boundTools, errorValue := (localToolProvider{handlerToolSet: handlerToolSet}).ListTools(context.Background())
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
-	if len(boundTools) != 2 {
-		t.Fatalf("expected two local tools, got %d", len(boundTools))
+	if len(boundTools) != 1 {
+		t.Fatalf("expected one local tool, got %d", len(boundTools))
 	}
 
-	descriptors := map[string]agent.ToolDescriptor{}
-	for _, boundTool := range boundTools {
-		descriptors[boundTool.Definition.Name] = boundTool.Definition
+	inputDescriptor := boundTools[0].Definition
+	if inputDescriptor.Name != "ask.input" {
+		t.Fatalf("expected ask.input descriptor, got %+v", inputDescriptor)
 	}
-
-	mathDescriptor, isFound := descriptors["math.calculate"]
-	if !isFound {
-		t.Fatal("expected math.calculate descriptor")
+	if inputDescriptor.ID != "local/ask.input" || inputDescriptor.ProviderID != localToolProviderID || inputDescriptor.Namespace != "ask" || inputDescriptor.Visibility != agent.ToolVisibilityModel {
+		t.Fatalf("unexpected ask.input descriptor: %+v", inputDescriptor)
 	}
-	if mathDescriptor.ID != "local/math.calculate" || mathDescriptor.ProviderID != localToolProviderID || mathDescriptor.Namespace != "math" || mathDescriptor.Visibility != agent.ToolVisibilityModel {
-		t.Fatalf("unexpected math descriptor: %+v", mathDescriptor)
-	}
-	if mathDescriptor.PolicyResource != "tool:math.calculate" || mathDescriptor.SideEffectClass != agent.ToolSideEffectComputation || mathDescriptor.Completion.Mode != agent.ToolCompletionNone || mathDescriptor.Idempotency != agent.ToolIdempotencyNone {
-		t.Fatalf("unexpected math metadata: %+v", mathDescriptor)
-	}
-	if len(mathDescriptor.InputSchema) == 0 || len(mathDescriptor.OutputSchema) == 0 {
-		t.Fatal("expected math schemas")
-	}
-	if mathDescriptor.ResultContract == nil || len(mathDescriptor.ResultContract.Effects) != 0 {
-		t.Fatalf("expected math result contract without effects, got %+v", mathDescriptor.ResultContract)
-	}
-
-	inputDescriptor, isFound := descriptors["ask.input"]
-	if !isFound {
-		t.Fatal("expected ask.input descriptor")
+	if inputDescriptor.PolicyResource != "tool:ask.input" || inputDescriptor.Completion.Mode != agent.ToolCompletionNone || inputDescriptor.Idempotency != agent.ToolIdempotencyNone {
+		t.Fatalf("unexpected ask.input metadata: %+v", inputDescriptor)
 	}
 	if !inputDescriptor.RequiresUserPresence || inputDescriptor.SideEffectClass != agent.ToolSideEffectApproval {
-		t.Fatalf("unexpected ask.input metadata: %+v", inputDescriptor)
+		t.Fatalf("unexpected ask.input presence metadata: %+v", inputDescriptor)
+	}
+	if len(inputDescriptor.InputSchema) == 0 || len(inputDescriptor.OutputSchema) == 0 {
+		t.Fatal("expected ask.input schemas")
 	}
 	if inputDescriptor.ResultContract == nil || len(inputDescriptor.ResultContract.Effects) != 0 {
 		t.Fatalf("expected ask.input result contract without effects, got %+v", inputDescriptor.ResultContract)
