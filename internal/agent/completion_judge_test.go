@@ -50,6 +50,17 @@ func completionJudgeFinishActionDocument() turnActionDocument {
 	return turnActionDocument{Action: "finish", GoalStatus: "satisfied", GoalSatisfied: &goalSatisfied}
 }
 
+func TestCompletionJudgeMessagesCarryTheFinishReplyAsDelivered(t *testing.T) {
+	actionDocument := turnActionDocument{Action: "finish", Message: "배포 완료: https://sites.example/launch"}
+	joined := joinedMessageContent(completionJudgeMessages(AgentTurnRequest{Prompt: "publish the site and give me the link"}, nil, actionDocument))
+	if !strings.Contains(joined, "https://sites.example/launch") {
+		t.Fatalf("expected the finish reply text in the judge prompt, got %s", joined)
+	}
+	if !strings.Contains(joined, "delivers to the user") || !strings.Contains(joined, "never require a separate send or delivery operation") {
+		t.Fatalf("expected the delivered-reply framing in the judge prompt, got %s", joined)
+	}
+}
+
 func TestOutcomeContractHasSideEffectEvidenceForRequiredEvidenceTools(t *testing.T) {
 	toolSet := completionJudgeTestToolSet()
 	contract := OutcomeContract{RequiredEvidenceTools: []string{"task.add"}}
@@ -137,7 +148,7 @@ func TestCompletionJudgeMessagesIncludeOriginalInstructionAndExpectedResults(t *
 		OutcomeContract: OutcomeContract{ExpectedResults: []ExpectedResult{{Type: ExpectedResultTypeMessage, Description: "완료 확인", Required: true}}},
 	}
 
-	messages := completionJudgeMessages(request, nil)
+	messages := completionJudgeMessages(request, nil, completionJudgeFinishActionDocument())
 	joined := joinedMessageContent(messages)
 
 	if !strings.Contains(joined, "분기 결산 누락 확인 업무를 추가해줘") {
@@ -152,7 +163,7 @@ func TestCompletionJudgeMessagesIncludeTemporalContext(t *testing.T) {
 	turnStartedAt := time.Date(2026, 7, 23, 1, 43, 0, 0, time.UTC)
 	request := AgentTurnRequest{Prompt: "내일 일정 옮겨줘", TurnStartedAt: turnStartedAt}
 
-	joined := joinedMessageContent(completionJudgeMessages(request, nil))
+	joined := joinedMessageContent(completionJudgeMessages(request, nil, completionJudgeFinishActionDocument()))
 
 	if !strings.Contains(joined, "Runtime temporal context:") {
 		t.Fatalf("expected temporal context in judge prompt, got %s", joined)
@@ -167,7 +178,7 @@ func TestEvaluateCompletionJudgeFailsOpenOnProviderError(t *testing.T) {
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
 	request := AgentTurnRequest{Prompt: "task", OutcomeContract: OutcomeContract{RequiredEvidenceTools: []string{"task.add"}}}
 
-	result := services.runner.evaluateCompletionJudge(context.Background(), "task-judge-1", request, nil)
+	result := services.runner.evaluateCompletionJudge(context.Background(), "task-judge-1", request, nil, completionJudgeFinishActionDocument())
 
 	if !result.IsSatisfied {
 		t.Fatalf("expected fail-open satisfied result on provider error, got %+v", result)
@@ -182,7 +193,7 @@ func TestEvaluateCompletionJudgeFailsOpenOnMalformedContent(t *testing.T) {
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
 	request := AgentTurnRequest{Prompt: "task", OutcomeContract: OutcomeContract{RequiredEvidenceTools: []string{"task.add"}}}
 
-	result := services.runner.evaluateCompletionJudge(context.Background(), "task-judge-2", request, nil)
+	result := services.runner.evaluateCompletionJudge(context.Background(), "task-judge-2", request, nil, completionJudgeFinishActionDocument())
 
 	if !result.IsSatisfied {
 		t.Fatalf("expected fail-open satisfied result on malformed judge content, got %+v", result)
@@ -197,7 +208,7 @@ func TestEvaluateCompletionJudgeRecordsUnsatisfiedVerdictEvent(t *testing.T) {
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
 	request := AgentTurnRequest{Prompt: "task", OutcomeContract: OutcomeContract{RequiredEvidenceTools: []string{"task.add"}}}
 
-	result := services.runner.evaluateCompletionJudge(context.Background(), "task-judge-3", request, nil)
+	result := services.runner.evaluateCompletionJudge(context.Background(), "task-judge-3", request, nil, completionJudgeFinishActionDocument())
 
 	if result.IsSatisfied {
 		t.Fatal("expected an unsatisfied judge result")

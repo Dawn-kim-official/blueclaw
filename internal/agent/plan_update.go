@@ -2,8 +2,6 @@ package agent
 
 import (
 	"encoding/json"
-
-	"blueclaw/internal/task"
 )
 
 type planUpdateDocument struct {
@@ -36,23 +34,21 @@ func (agentTurnRunner *AgentTurnRunner) applyPlanUpdateObservation(taskRunID str
 	agentTurnRunner.appendEvent(taskRunID, "agent.execution_state", marshalEventBody(normalizeExecutionState(state.ExecutionState)))
 }
 
-func (agentTurnRunner *AgentTurnRunner) nudgePlanBeforeStateChange(taskRunID string, stepID string, request AgentTurnRequest, state *agentTaskState, actionDocument turnActionDocument) toolCallActionOutcome {
+func (agentTurnRunner *AgentTurnRunner) notePlanMissingBeforeStateChange(taskRunID string, request AgentTurnRequest, state *agentTaskState, actionDocument turnActionDocument) {
 	if state.DidNudgePlan || len(state.ExecutionState.Steps) > 0 || !taskLevelRequiresPlan(request.TaskLevel) {
-		return toolCallActionOutcome{}
+		return
 	}
 	if request.ToolSet == nil || !requestToolSetCanReachTool(request.ToolSet, PlanUpdateToolName) {
-		return toolCallActionOutcome{}
+		return
 	}
 	toolDefinition, isFound := request.ToolSet.ToolDefinition(actionDocument.ToolName)
 	if !isFound || !toolDefinitionIsStateChanging(toolDefinition) {
-		return toolCallActionOutcome{}
+		return
 	}
 	state.DidNudgePlan = true
-	observation := newContentObservation(nextObservationIDForObservations(state.Observations), "policy", actionDocument.ToolName, "Record your goal and step plan with plan.update before the first state-changing call on this multi-step task, then proceed.")
+	observation := newContentObservation(nextObservationIDForObservations(state.Observations), "policy", actionDocument.ToolName, "This multi-step task has no recorded plan yet. The current call proceeds; after it completes, record your goal and step plan with plan.update, then continue.")
 	state.Observations = append(state.Observations, observation)
 	agentTurnRunner.appendEvent(taskRunID, "agent.plan.nudged", marshalEventBody(observation))
-	agentTurnRunner.saveStep(taskRunID, stepID, task.TaskStatusCompleted, "plan_nudged "+observation.Tool, observation.ContentText())
-	return toolCallActionOutcome{WasHandled: true}
 }
 
 func toolDefinitionIsStateChanging(toolDefinition ToolDefinition) bool {

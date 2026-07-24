@@ -112,11 +112,8 @@ func TestNudgePlanFiresOnceForStateChangingToolWithoutPlan(t *testing.T) {
 	state := &agentTaskState{}
 	actionDocument := turnActionDocument{Action: "continue", ToolName: "task.add", ToolInput: json.RawMessage(`{}`)}
 
-	outcome := services.runner.nudgePlanBeforeStateChange("task-nudge-1", "step-1", request, state, actionDocument)
+	services.runner.notePlanMissingBeforeStateChange("task-nudge-1", request, state, actionDocument)
 
-	if !outcome.WasHandled || outcome.ShouldReturn {
-		t.Fatalf("expected the nudge to handle the call without returning, got %+v", outcome)
-	}
 	if !state.DidNudgePlan {
 		t.Fatal("expected DidNudgePlan to be set")
 	}
@@ -127,8 +124,8 @@ func TestNudgePlanFiresOnceForStateChangingToolWithoutPlan(t *testing.T) {
 		t.Fatal("expected agent.plan.nudged event")
 	}
 
-	secondOutcome := services.runner.nudgePlanBeforeStateChange("task-nudge-1", "step-2", request, state, actionDocument)
-	if secondOutcome.WasHandled {
+	services.runner.notePlanMissingBeforeStateChange("task-nudge-1", request, state, actionDocument)
+	if len(state.Observations) != 1 {
 		t.Fatal("expected the nudge to fire at most once per task")
 	}
 }
@@ -138,10 +135,10 @@ func TestNudgePlanDoesNotFireForReadTools(t *testing.T) {
 	state := &agentTaskState{}
 	actionDocument := turnActionDocument{Action: "continue", ToolName: "task.list", ToolInput: json.RawMessage(`{}`)}
 
-	outcome := services.runner.nudgePlanBeforeStateChange("task-nudge-2", "step-1", nudgeTestRequest(TaskLevelMedium), state, actionDocument)
+	services.runner.notePlanMissingBeforeStateChange("task-nudge-2", nudgeTestRequest(TaskLevelMedium), state, actionDocument)
 
-	if outcome.WasHandled || state.DidNudgePlan {
-		t.Fatalf("expected reads to stay free, got %+v", outcome)
+	if state.DidNudgePlan || len(state.Observations) != 0 {
+		t.Fatalf("expected reads to stay free, got %+v", state.Observations)
 	}
 }
 
@@ -150,8 +147,8 @@ func TestNudgePlanDoesNotFireBelowMediumLevel(t *testing.T) {
 	actionDocument := turnActionDocument{Action: "continue", ToolName: "task.add", ToolInput: json.RawMessage(`{}`)}
 	for _, taskLevel := range []TaskLevel{TaskLevelXLow, TaskLevelLow, ""} {
 		state := &agentTaskState{}
-		outcome := services.runner.nudgePlanBeforeStateChange("task-nudge-3", "step-1", nudgeTestRequest(taskLevel), state, actionDocument)
-		if outcome.WasHandled {
+		services.runner.notePlanMissingBeforeStateChange("task-nudge-3", nudgeTestRequest(taskLevel), state, actionDocument)
+		if state.DidNudgePlan || len(state.Observations) != 0 {
 			t.Fatalf("expected no nudge for level %q", taskLevel)
 		}
 	}
@@ -162,10 +159,10 @@ func TestNudgePlanDoesNotFireOnceStepsExist(t *testing.T) {
 	state := &agentTaskState{ExecutionState: ExecutionState{Steps: []PlanStep{{Title: "step", Status: "pending"}}}}
 	actionDocument := turnActionDocument{Action: "continue", ToolName: "task.add", ToolInput: json.RawMessage(`{}`)}
 
-	outcome := services.runner.nudgePlanBeforeStateChange("task-nudge-4", "step-1", nudgeTestRequest(TaskLevelHigh), state, actionDocument)
+	services.runner.notePlanMissingBeforeStateChange("task-nudge-4", nudgeTestRequest(TaskLevelHigh), state, actionDocument)
 
-	if outcome.WasHandled || state.DidNudgePlan {
-		t.Fatalf("expected no nudge once a plan exists, got %+v", outcome)
+	if state.DidNudgePlan || len(state.Observations) != 0 {
+		t.Fatalf("expected no nudge once a plan exists, got %+v", state.Observations)
 	}
 }
 
@@ -208,19 +205,55 @@ func TestRunTurnMergesPlanUpdateObservationIntoExecutionState(t *testing.T) {
 	}
 }
 
+func TestRunTurnExecutesTheStateChangingCallTheNudgeAnnotates(t *testing.T) {
+	languageModel := &sequenceLanguageModel{modelTier: "low", contents: []string{
+		`{"action":"continue","toolName":"task.add","toolInput":{}}`,
+		finishMessageDocument("done"),
+	}}
+	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 5})
+	toolSet := newTestToolSet([]string{"task.add", PlanUpdateToolName})
+	wasToolInvoked := false
+	registerTestTool(toolSet, testToolDescriptor("task.add"), func(_ context.Context, _ ToolInvocation) (ToolResult, error) {
+		wasToolInvoked = true
+		return ToolSuccessData(`{"taskID":"task-1"}`, json.RawMessage(`{"taskID":"task-1"}`)), nil
+	})
+
+	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
+		RequesterPersonID: "person-1",
+		ConversationID:    "conversation-1",
+		Prompt:            "do it",
+		TaskLevel:         TaskLevelMedium,
+		PinnedToolNames:   []string{"task.add"},
+		ToolSet:           toolSet,
+	})
+	if errorValue != nil {
+		t.Fatalf("expected turn to succeed: %v", errorValue)
+	}
+	if !hasTaskEvent(services, result.TaskRun.TaskRunID, "agent.plan.nudged") {
+		eventNames := []string{}
+		for _, event := range services.taskRunService.ListTaskEvent(result.TaskRun.TaskRunID) {
+			eventNames = append(eventNames, event.Name)
+		}
+		t.Fatalf("expected the plan nudge to fire for the first state-changing call, events: %v invoked: %v finish: %q", eventNames, wasToolInvoked, result.FinishMessage)
+	}
+	if !wasToolInvoked {
+		t.Fatal("expected the nudged state-changing call to execute anyway")
+	}
+}
+
 func TestCompletionJudgeMessagesIncludePlanChecklistHint(t *testing.T) {
 	observations := []turnObservation{
 		planUpdateSuccessObservation("obs-001", `{"goal":"ship","steps":[{"title":"build the deck","status":"done"}]}`),
 	}
 
-	messages := completionJudgeMessages(AgentTurnRequest{Prompt: "make a deck"}, observations)
+	messages := completionJudgeMessages(AgentTurnRequest{Prompt: "make a deck"}, observations, turnActionDocument{})
 	joined := joinedMessageContent(messages)
 
 	if !strings.Contains(joined, "checklist hint") || !strings.Contains(joined, "build the deck") {
 		t.Fatalf("expected plan checklist hint in judge prompt, got %s", joined)
 	}
 
-	messagesWithoutPlan := completionJudgeMessages(AgentTurnRequest{Prompt: "make a deck"}, nil)
+	messagesWithoutPlan := completionJudgeMessages(AgentTurnRequest{Prompt: "make a deck"}, nil, turnActionDocument{})
 	if strings.Contains(joinedMessageContent(messagesWithoutPlan), "checklist hint") {
 		t.Fatal("expected no plan hint without a plan.update observation")
 	}
@@ -237,9 +270,9 @@ func TestNudgePlanSkipsWhenPlanToolIsUnavailable(t *testing.T) {
 	state := &agentTaskState{}
 	actionDocument := turnActionDocument{Action: "continue", ToolName: "task.add", ToolInput: json.RawMessage(`{}`)}
 
-	outcome := services.runner.nudgePlanBeforeStateChange("task-nudge-2", "step-1", request, state, actionDocument)
+	services.runner.notePlanMissingBeforeStateChange("task-nudge-2", request, state, actionDocument)
 
-	if outcome.WasHandled || state.DidNudgePlan {
-		t.Fatalf("expected no nudge without a reachable plan tool, got %+v", outcome)
+	if state.DidNudgePlan || len(state.Observations) != 0 {
+		t.Fatalf("expected no nudge without a reachable plan tool, got %+v", state.Observations)
 	}
 }
