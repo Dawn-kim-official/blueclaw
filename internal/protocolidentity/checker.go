@@ -133,7 +133,11 @@ func (checker Checker) checkEndpoint(ctx context.Context, endpoint string, path 
 	}
 	if responseDocument.Identity != expected {
 		status.Status = "drift"
-		status.Error = fmt.Sprintf("expected protocolVersion %q and aggregateProtocolHash %q", expected.ProtocolVersion, expected.AggregateProtocolHash)
+		status.Error = fmt.Sprintf(
+			"expected protocolVersion %q and aggregateProtocolHash %q, received protocolVersion %q and aggregateProtocolHash %q",
+			expected.ProtocolVersion, expected.AggregateProtocolHash,
+			responseDocument.ProtocolVersion, responseDocument.AggregateProtocolHash,
+		)
 		return status
 	}
 	if requiredStatus != "" && responseDocument.Status != requiredStatus {

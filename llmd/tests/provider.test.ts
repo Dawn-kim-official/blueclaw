@@ -1037,6 +1037,24 @@ describe('llmd provider adapter', () => {
     expect(llamaModel.doStreamCalls[0]?.temperature).toBe(0);
   });
 
+  test('carries OpenRouter usage accounting cost into chat completion usage', async () => {
+    const remoteModel = usageAccountingChatLanguageModel('served-remote-model');
+    const generateChatCompletion = createChatCompletionGenerator(
+      completeConfiguration(LLMDAutoRoute.RemoteFirst),
+      languageModelFactory(successfulLanguageModel('unused-local-model', { ok: true }), remoteModel),
+    );
+
+    const response = await generateChatCompletion({ ...chatRequest, tools: undefined, toolChoice: undefined });
+
+    expect(response.usage).toEqual({
+      promptTokens: 10,
+      completionTokens: 5,
+      totalTokens: 15,
+      costUSD: 0.0042,
+      upstreamInferenceCostUSD: 0.0031,
+    });
+  });
+
   test('preserves closed dynamic enum schemas for structured output', async () => {
     const request: StructuredResponseRequest = {
       ...structuredRequest,
@@ -1787,6 +1805,21 @@ function chatLanguageModel(modelID: string): MockLanguageModelV3 {
     usage: defaultUsage(),
     response: { modelId: modelID, headers: { 'x-test': 'ok' } },
     providerMetadata: { openrouter: { trace: 'test' } },
+    warnings: [],
+  }));
+}
+
+function usageAccountingChatLanguageModel(modelID: string): MockLanguageModelV3 {
+  return generationBackedLanguageModel(modelID, () => ({
+    content: [{ type: 'text', text: 'The answer is ready.' }],
+    finishReason: { unified: 'stop', raw: 'stop' },
+    usage: defaultUsage(),
+    response: { modelId: modelID },
+    providerMetadata: {
+      openrouter: {
+        usage: { promptTokens: 10, completionTokens: 5, totalTokens: 15, cost: 0.0042, costDetails: { upstreamInferenceCost: 0.0031 } },
+      },
+    },
     warnings: [],
   }));
 }
