@@ -5,10 +5,12 @@ import { createMattermostAdapter } from './adapters/mattermost/index.ts';
 import { loadConfiguration } from './configuration.ts';
 import { createBridge } from './bridge.ts';
 import { createOutboundHandler } from './outbound.ts';
+import type { NormalizedPlatformAdapter } from './visible-context.ts';
 
 const configuration = loadConfiguration(process.env);
 
 const adapters: Record<string, Adapter> = {};
+const normalizedAdapters: Record<string, NormalizedPlatformAdapter> = {};
 if (configuration.mattermost) {
   adapters.mattermost = createMattermostAdapter({
     baseUrl: configuration.mattermost.baseURL,
@@ -17,13 +19,15 @@ if (configuration.mattermost) {
   });
 }
 if (configuration.buzz) {
-  adapters.buzz = createBuzzAdapter({
+  const buzzAdapter = createBuzzAdapter({
     relayURL: configuration.buzz.relayURL,
     privateKeyHex: configuration.buzz.privateKeyHex,
     botDisplayName: configuration.botUserName,
     accountLinksPath: configuration.buzz.accountLinksPath,
     authTagJSON: configuration.buzz.authTagJSON,
   });
+  adapters.buzz = buzzAdapter;
+  normalizedAdapters.buzz = buzzAdapter;
 }
 
 const chat = new Chat({
@@ -33,7 +37,7 @@ const chat = new Chat({
   adapters,
 });
 
-createBridge(chat, configuration);
+createBridge(chat, configuration, normalizedAdapters);
 
 await chat.initialize();
 

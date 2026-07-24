@@ -3,6 +3,7 @@ import { BuzzAdapter } from "./adapters/buzz/adapter.ts";
 import type { MattermostAdapter } from "./adapters/mattermost/adapter.ts";
 import type { ChatdConfiguration } from "./configuration.ts";
 import { importAttachmentToDirectory } from "./outbound-attachments.ts";
+import { buildVisibleContext, decodeHistoryCursor } from "./visible-context.ts";
 import {
 	parseAttachmentImportRequest,
 	parseHistoryFetchRequest,
@@ -21,7 +22,6 @@ import type {
 	ReplyAttachmentDocument,
 	ReplySendRequest,
 	ReplySendResponse,
-	VisibleContextMessageDocument,
 } from "./outbound-types.ts";
 
 type PlatformChatAdapter = MattermostAdapter | BuzzAdapter;
@@ -201,71 +201,21 @@ async function handleReactionRemove(
 	return {};
 }
 
-interface HistoryCursorState {
-	threadId: string;
-	cursor?: string;
-}
-
-function encodeHistoryCursor(state: HistoryCursorState): string {
-	return Buffer.from(JSON.stringify(state), "utf8").toString("base64url");
-}
-
-function decodeHistoryCursor(historyCursor: string): HistoryCursorState {
-	const decoded = parseJsonSafely<Partial<HistoryCursorState>>(
-		Buffer.from(historyCursor, "base64url").toString("utf8"),
-	);
-	if (decoded && typeof decoded.threadId === "string") {
-		return { threadId: decoded.threadId, cursor: typeof decoded.cursor === "string" ? decoded.cursor : undefined };
-	}
-	return { threadId: historyCursor };
-}
-
-function parseJsonSafely<T>(value: string): T | null {
-	try {
-		return JSON.parse(value) as T;
-	} catch {
-		return null;
-	}
-}
-
 async function handleHistoryFetch(
 	adapter: PlatformChatAdapter,
 	_configuration: ChatdConfiguration,
 	requestBody: unknown,
 ): Promise<HistoryFetchResponse> {
 	const requestDocument = parseHistoryFetchRequest(requestBody);
-	const decoded = decodeHistoryCursor(requestDocument.historyCursor);
-	const cursor = decoded.cursor;
-	const threadId = adapter instanceof BuzzAdapter ? adapter.historyThreadId(decoded.threadId) : decoded.threadId;
-	const limit = requestDocument.limit && requestDocument.limit > 0 ? requestDocument.limit : 20;
-
-	const [historyResult, threadInfo] = await Promise.all([
-		adapter.fetchMessages(threadId, { cursor, limit, direction: "backward" }),
-		adapter.fetchThread(threadId).catch(() => null),
-	]);
-
+	const { threadId, cursor } = decodeHistoryCursor(requestDocument.historyCursor);
+	const context = await buildVisibleContext(adapter, threadId, { cursor, limit: requestDocument.limit });
 	return {
-		messages: historyResult.messages.map(toVisibleContextMessage),
-		hasMoreBefore: Boolean(historyResult.nextCursor),
-		historyCursor: historyResult.nextCursor
-			? encodeHistoryCursor({ threadId, cursor: historyResult.nextCursor })
-			: requestDocument.historyCursor,
-		channelID: threadInfo?.channelId,
-		channelName: threadInfo?.channelName,
-		conversationType: threadInfo ? (threadInfo.isDM ? "direct" : "channel") : undefined,
-	};
-}
-
-function toVisibleContextMessage(message: {
-	author: { fullName: string; userName: string };
-	text: string;
-	metadata: { dateSent: Date };
-}): VisibleContextMessageDocument {
-	return {
-		speaker: message.author.fullName || message.author.userName,
-		speakerHandle: message.author.userName,
-		text: message.text,
-		sentAt: message.metadata.dateSent.toISOString(),
+		messages: context.messages,
+		hasMoreBefore: context.hasMoreBefore,
+		historyCursor: context.historyCursor,
+		channelID: context.channelID,
+		channelName: context.channelName,
+		conversationType: context.conversationType,
 	};
 }
 

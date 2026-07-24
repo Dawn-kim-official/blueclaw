@@ -1,6 +1,10 @@
 import type { Chat, Message, Thread } from 'chat';
-import { BUZZ_ADAPTER_NAME } from './adapters/buzz/types.ts';
 import type { ChatdConfiguration } from './configuration.ts';
+import {
+  buildVisibleContext,
+  emptyVisibleContext,
+  type NormalizedPlatformAdapter,
+} from './visible-context.ts';
 
 export type BridgeInboundEvent = {
   kind: 'direct_message' | 'mention' | 'channel_message' | 'action';
@@ -14,16 +18,26 @@ export type BridgeInboundEvent = {
   actionValue?: string;
 };
 
-export function createBridge(chat: Chat, configuration: ChatdConfiguration): void {
+export function createBridge(
+  chat: Chat,
+  configuration: ChatdConfiguration,
+  normalizedAdapters: Record<string, NormalizedPlatformAdapter>,
+): void {
   chat.onDirectMessage(async (thread, message) => {
-    await forwardMessage(configuration, 'direct_message', thread, message);
+    await forwardMessage(configuration, normalizedAdapters, 'direct_message', thread, message);
   });
   chat.onNewMention(async (thread, message) => {
     await thread.subscribe();
-    await forwardMessage(configuration, 'mention', thread, message);
+    await forwardMessage(configuration, normalizedAdapters, 'mention', thread, message);
   });
   chat.onSubscribedMessage(async (thread, message) => {
-    await forwardMessage(configuration, message.isMention ? 'mention' : 'channel_message', thread, message);
+    await forwardMessage(
+      configuration,
+      normalizedAdapters,
+      message.isMention ? 'mention' : 'channel_message',
+      thread,
+      message,
+    );
   });
   chat.onAction(async (event) => {
     await forwardLegacyEvent(configuration, {
@@ -46,13 +60,15 @@ function platformOfThread(threadID: string): string {
 
 async function forwardMessage(
   configuration: ChatdConfiguration,
+  normalizedAdapters: Record<string, NormalizedPlatformAdapter>,
   kind: BridgeInboundEvent['kind'],
   thread: Thread,
   message: Message,
 ): Promise<void> {
   const platform = platformOfThread(thread.id);
-  if (platform === BUZZ_ADAPTER_NAME) {
-    await forwardNormalizedEvent(configuration, platform, thread, message);
+  const adapter = normalizedAdapters[platform];
+  if (adapter) {
+    await forwardNormalizedEvent(configuration, adapter, platform, thread, message);
     return;
   }
   await forwardLegacyEvent(configuration, {
@@ -68,10 +84,17 @@ async function forwardMessage(
 
 async function forwardNormalizedEvent(
   configuration: ChatdConfiguration,
+  adapter: NormalizedPlatformAdapter,
   platform: string,
   thread: Thread,
   message: Message,
 ): Promise<void> {
+  const scopeThreadId = adapter.historyScopeThreadId(thread.id, message.id);
+  const context = await buildVisibleContext(adapter, scopeThreadId, {
+    beforeMessageId: message.id,
+    senderId: message.author.userId,
+  }).catch(() => emptyVisibleContext(scopeThreadId));
+  const addressing = adapter.addressingOf(message.raw);
   const response = await fetch(`${configuration.blueclawBaseURL}/connectors/${platform}/events`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -81,7 +104,13 @@ async function forwardNormalizedEvent(
       senderID: message.author.userId,
       replyTargetID: thread.id,
       prompt: message.text,
-      context: { messages: [], hasMoreBefore: true, historyCursor: thread.id },
+      context: {
+        ...context,
+        addressing: {
+          botMentioned: addressing.botMentioned || message.isMention === true,
+          otherPersonMentioned: addressing.otherPersonMentioned,
+        },
+      },
     }),
   });
   if (!response.ok) {
