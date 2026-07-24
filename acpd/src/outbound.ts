@@ -27,7 +27,7 @@ export function createOutboundHandler(
   const capabilityHandlers: Record<string, (requestDocument: Record<string, unknown>) => Promise<object>> = {
     'reply.send': handleReplySend,
     'progress.start': async () => ({}),
-    'progress.stop': async () => ({}),
+    'progress.stop': handleProgressStop,
     'identity.resolve': handleIdentityResolve,
     'history.fetch': handleHistoryFetch,
     'reaction.add': handleReactionAdd,
@@ -46,6 +46,12 @@ export function createOutboundHandler(
     const dispatchID = await sendChannelMessage(runBuzzCommand, channelID, message, replyAnchorEventID, filePaths);
     agent.relayOutboundReply(channelID, message, replyKind);
     return { dispatchID };
+  }
+
+  async function handleProgressStop(requestDocument: Record<string, unknown>): Promise<object> {
+    const { channelID } = decodeReplyTarget(readString(requestDocument, 'replyTargetID'));
+    if (channelID) agent.finishTurnForChannel(channelID, 'end_turn');
+    return {};
   }
 
   async function handleIdentityResolve(requestDocument: Record<string, unknown>): Promise<object> {

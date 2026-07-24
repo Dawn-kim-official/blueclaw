@@ -1,6 +1,7 @@
 export type AcpdConfiguration = {
   blueclawEventsURL: string;
   blueclawTaskCancelURL: string;
+  blueclawTaskEventsURL: string;
   buzzCommand: string;
   listenPort: number;
   maximumTurnHoldSeconds: number;
@@ -13,6 +14,7 @@ export function loadConfiguration(environment: Record<string, string | undefined
   return {
     blueclawEventsURL: `${blueclawBaseURL}/connectors/buzz/events`,
     blueclawTaskCancelURL: `${blueclawBaseURL}/admin/api/task/cancel`,
+    blueclawTaskEventsURL: `${blueclawBaseURL}/tasks/api/events`,
     buzzCommand: environment['ACPD_BUZZ_COMMAND']?.trim() || 'buzz',
     listenPort: parseListenPort(environment['ACPD_LISTEN_PORT']),
     maximumTurnHoldSeconds: parsePositiveInteger(environment['ACPD_MAXIMUM_TURN_HOLD_SECONDS'], 3300),
