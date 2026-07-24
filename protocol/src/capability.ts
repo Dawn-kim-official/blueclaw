@@ -43,8 +43,12 @@ function objectField(value: unknown, fieldName: string): unknown {
 
 function schemaRequiresEffectIdentityField(schema: unknown, fieldName: string): boolean {
   const requiredFields = objectField(schema, 'required');
-  const property = objectField(objectField(schema, 'properties'), fieldName);
   if (!Array.isArray(requiredFields) || !requiredFields.includes(fieldName)) return false;
+  return schemaDefinesEffectIdentityField(schema, fieldName);
+}
+
+function schemaDefinesEffectIdentityField(schema: unknown, fieldName: string): boolean {
+  const property = objectField(objectField(schema, 'properties'), fieldName);
   if (objectField(property, 'type') === 'string') return true;
   const minimumItems = objectField(property, 'minItems');
   return objectField(property, 'type') === 'array'
@@ -157,16 +161,17 @@ export const completionEvidenceDescriptorSchema = z.strictObject({
   targetKind: z.string().optional(),
 });
 
+export const evidenceConditionSchema = z.strictObject({
+  resultField: z.string().trim().min(1),
+  equals: jsonValueSchema,
+});
+
 export const resourceEffectContractSchema = z.strictObject({
   objectType: z.string().trim().min(1),
   effect: z.string().trim().min(1),
   resultField: z.string().trim().min(1),
   effectIdentity: z.enum(ResourceEffectIdentity),
-});
-
-export const evidenceConditionSchema = z.strictObject({
-  resultField: z.string().trim().min(1),
-  equals: jsonValueSchema,
+  when: evidenceConditionSchema.optional(),
 });
 
 export const resourceEffectSchema = z.strictObject({
@@ -194,8 +199,17 @@ export const toolResultContractSchema = z.strictObject({
     context.addIssue({ code: 'custom', message: 'effects must be unique' });
   }
   for (const effect of contract.effects ?? []) {
-    if (!schemaRequiresEffectIdentityField(contract.schema, effect.resultField)) {
-      context.addIssue({ code: 'custom', message: 'resultField must name a required string or nonempty unique string array property' });
+    if (effect.when === undefined) {
+      if (!schemaRequiresEffectIdentityField(contract.schema, effect.resultField)) {
+        context.addIssue({ code: 'custom', message: 'resultField must name a required string or nonempty unique string array property' });
+      }
+      continue;
+    }
+    if (!schemaDefinesEffectIdentityField(contract.schema, effect.resultField)) {
+      context.addIssue({ code: 'custom', message: 'conditional effect resultField must name a string or nonempty unique string array property' });
+    }
+    if (!schemaAcceptsEvidenceCondition(contract.schema, effect.when)) {
+      context.addIssue({ code: 'custom', message: 'effect when condition must match a required result property' });
     }
   }
   if (contract.evidenceCondition && !schemaAcceptsEvidenceCondition(contract.schema, contract.evidenceCondition)) {

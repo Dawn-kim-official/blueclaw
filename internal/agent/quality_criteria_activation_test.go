@@ -13,14 +13,14 @@ func TestOutcomeContractNeedsQualityCriteriaOnlyForArtifacts(t *testing.T) {
 		{name: "file result", contract: OutcomeContract{ExpectedResults: []ExpectedResult{{Type: ExpectedResultTypeFile}}}, expected: true},
 		{name: "link result", contract: OutcomeContract{ExpectedResults: []ExpectedResult{{Type: ExpectedResultTypeLink}}}, expected: true},
 		{name: "attachment", contract: OutcomeContract{RequiredAttachmentSuffixes: []string{".docx"}}, expected: true},
-		{name: "website", contract: OutcomeContract{RequiredEvidenceTools: []string{"site.publish"}}, expected: true},
+		{name: "website", contract: OutcomeContract{RequiredEvidenceTools: []string{"site.serve"}}, expected: true},
 	}
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
 			toolSet := newTestToolSetWithDefinitions([]ToolDefinition{
 				{Name: "task.add", Namespace: "task", SideEffectClass: ToolSideEffectWorkspaceWrite},
-				{Name: "site.publish", Namespace: "site", SideEffectClass: ToolSideEffectExternalPublish},
+				{Name: "site.serve", Namespace: "site", SideEffectClass: ToolSideEffectExternalPublish},
 			})
 			if actual := outcomeContractNeedsQualityCriteria(toolSet, testCase.contract); actual != testCase.expected {
 				t.Fatalf("expected %t, got %t", testCase.expected, actual)

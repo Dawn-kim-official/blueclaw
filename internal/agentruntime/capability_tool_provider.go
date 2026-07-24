@@ -145,6 +145,7 @@ func capabilityResultContract(contract *CapabilityToolResultContract) *agent.Too
 			Effect:         strings.TrimSpace(effectContract.Effect),
 			ResultField:    strings.TrimSpace(effectContract.ResultField),
 			EffectIdentity: strings.TrimSpace(effectContract.EffectIdentity),
+			When:           capabilityEvidenceCondition(effectContract.When),
 		})
 	}
 	return &agent.ToolResultContract{

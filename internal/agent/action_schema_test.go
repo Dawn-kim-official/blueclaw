@@ -153,7 +153,7 @@ func eightToolCapabilityCatalogFixture(t *testing.T) []ToolDefinition {
 	}
 	selectedToolNames := map[string]bool{
 		"task.add": true, "task.update": true, "message.send": true, "message.search": true,
-		"document.read": true, "image.read": true, "web.search": true, "site.create": true,
+		"document.read": true, "image.read": true, "web.search": true, "site.serve": true,
 	}
 	toolDefinitions := make([]ToolDefinition, 0, len(selectedToolNames))
 	for _, tool := range catalog.Tools {

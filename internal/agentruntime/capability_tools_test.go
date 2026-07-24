@@ -15,9 +15,9 @@ import (
 func TestToolCatalogHidesPolicyDeniedCapabilityTools(t *testing.T) {
 	toolCatalogBuilder := NewToolCatalogBuilder()
 	toolCatalogBuilder.UseTestCapabilityToolDescriptors(capability.Client{}, []CapabilityToolDescriptor{{
-		Name:           "site.create",
+		Name:           "site.serve",
 		Description:    "Create a site.",
-		PolicyResource: "tool:site.create",
+		PolicyResource: "tool:site.serve",
 		InputSchema:    json.RawMessage(`{"type":"object","properties":{"slug":{"type":"string"}},"required":["slug"],"additionalProperties":false}`),
 	}})
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
@@ -26,14 +26,14 @@ func TestToolCatalogHidesPolicyDeniedCapabilityTools(t *testing.T) {
 			PersonID: "person-1",
 			Circles:  []string{"staff"},
 			ResourceAccessRules: []policy.ResourceAccessPolicy{{
-				Resource: "tool:site.create",
+				Resource: "tool:site.serve",
 				Actions:  []string{"execute"},
 				Circles:  []string{"admin"},
 			}},
 		},
 	})
 
-	if strings.Contains(toolRegistry.Descriptions(), "site.create") {
+	if strings.Contains(toolRegistry.Descriptions(), "site.serve") {
 		t.Fatalf("expected denied site tool to be omitted from catalog, got %s", toolRegistry.Descriptions())
 	}
 }
@@ -259,7 +259,7 @@ func TestCapabilityToolRequestSeparatesModelInputFromTransport(t *testing.T) {
 	transport := map[string]any{"siteSourceBundle": map[string]any{"workspacePath": "/workspace/site"}}
 	requestDocument := capabilityToolRequest(
 		context.Background(),
-		completeTestCapabilityToolDescriptor(CapabilityToolDescriptor{Name: "site.publish", CanonicalName: "site.publish"}),
+		completeTestCapabilityToolDescriptor(CapabilityToolDescriptor{Name: "site.serve", CanonicalName: "site.serve"}),
 		ToolCatalogRequest{},
 		preparedCapabilityToolPayload{Input: input, Transport: transport},
 	)

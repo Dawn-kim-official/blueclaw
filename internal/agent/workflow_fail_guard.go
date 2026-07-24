@@ -24,13 +24,13 @@ func recoverableWorkflowNextTools(request AgentTurnRequest, observations []turnO
 	if !sitePublishIsRequired(request) {
 		return nil
 	}
-	sourceChangeIndex := latestSuccessfulToolIndex(observations, []string{"file.write", "file.edit", "site.create"})
+	sourceChangeIndex := latestSuccessfulToolIndex(observations, []string{"file.write", "file.edit"})
 	if sourceChangeIndex < 0 {
 		return nil
 	}
-	publishIndex := latestSuccessfulToolIndexAfter(observations, []string{"site.publish"}, sourceChangeIndex)
-	if publishIndex < 0 && request.ToolSet != nil && request.ToolSet.IsRegistered("site.publish") {
-		return []string{"site.publish"}
+	publishIndex := latestSuccessfulToolIndexAfter(observations, []string{"site.serve"}, sourceChangeIndex)
+	if publishIndex < 0 && request.ToolSet != nil && request.ToolSet.IsRegistered("site.serve") {
+		return []string{"site.serve"}
 	}
 	return nil
 }

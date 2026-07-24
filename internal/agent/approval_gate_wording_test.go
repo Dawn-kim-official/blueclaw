@@ -15,7 +15,7 @@ func TestHeldCallConfirmationWordingRewritesQuestionDraftThroughModel(t *testing
 	request := AgentTurnRequest{ResponseLanguage: "ko"}
 	actionDocument := turnActionDocument{
 		Message:  "테스트 웹사이트를 삭제할까요?",
-		ToolName: "site.delete",
+		ToolName: "site.unserve",
 	}
 
 	confirmation, errorValue := agentTurnRunner.heldCallConfirmationWording(context.Background(), request, actionDocument)
@@ -45,7 +45,7 @@ func TestHeldCallConfirmationWordingAsksModelForDeclarativeDraft(t *testing.T) {
 	}
 	actionDocument := turnActionDocument{
 		Message:   "'Local Fleet Studio' 테스트 웹사이트 삭제를 시작합니다.",
-		ToolName:  "site.delete",
+		ToolName:  "site.unserve",
 		ToolInput: json.RawMessage(`{"siteID":"site-1","slug":"local-fleet-studio"}`),
 	}
 
@@ -102,7 +102,7 @@ func TestHeldCallConfirmationWordingRejectsEmptyModelQuestion(t *testing.T) {
 	agentTurnRunner := &AgentTurnRunner{languageModel: languageModel}
 	request := AgentTurnRequest{ResponseLanguage: ResponseLanguageKorean}
 	actionDocument := turnActionDocument{
-		ToolName:  "site.delete",
+		ToolName:  "site.unserve",
 		ToolInput: json.RawMessage(`{"siteID":"site-1"}`),
 	}
 

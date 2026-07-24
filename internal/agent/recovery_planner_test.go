@@ -9,12 +9,12 @@ func TestRecoveryPacketDoesNotHardCodeToolAllowedList(t *testing.T) {
 	observation := turnObservation{
 		ObservationID: "obs-001",
 		Action:        "continue",
-		Tool:          "site.publish",
+		Tool:          "site.serve",
 		Output:        ToolOutput{Content: "site workspace must contain app/dist; build in Blueclaw before publishing"},
 		Failure: &ToolFailure{
 			Kind:            FailureExternalService,
 			Code:            FailureCodes.OperationFailed.String(),
-			Stage:           "site.publish",
+			Stage:           "site.serve",
 			UserSafeSummary: "site workspace must contain app/dist; build in Blueclaw before publishing",
 		},
 	}
@@ -58,8 +58,8 @@ func TestWorkspaceRecoveryRequiresTypedEvidence(t *testing.T) {
 	failedObservation := turnObservation{
 		ObservationID: "obs-001",
 		Action:        "continue",
-		Tool:          "site.publish",
-		ToolInputKey:  "site.publish\x00{\"siteID\":\"site-1\"}",
+		Tool:          "site.serve",
+		ToolInputKey:  "site.serve\x00{\"siteID\":\"site-1\"}",
 		Failure: &ToolFailure{
 			RequiredPreconditions: []string{"workspace_repaired"},
 			RecoveryHints:         []RecoveryHint{{ToolNames: []string{"file.edit"}}},
@@ -67,7 +67,7 @@ func TestWorkspaceRecoveryRequiresTypedEvidence(t *testing.T) {
 	}
 	observations := []turnObservation{
 		failedObservation,
-		newContentObservation("obs-002", "continue", "site.status", `{"siteID":"site-1","status":"failed"}`),
+		newContentObservation("obs-002", "continue", "site.list", `{"siteID":"site-1","status":"failed"}`),
 		newContentObservation("obs-003", "continue", "site.repair", `{"status":"ready"}`),
 	}
 

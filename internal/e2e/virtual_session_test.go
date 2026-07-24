@@ -3,6 +3,9 @@ package e2e
 import (
 	"archive/zip"
 	"context"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -657,78 +660,61 @@ func TestDOCXAttachmentValidationRejectsTextAndAcceptsCanonicalPackage(t *testin
 	}
 }
 
-func TestVirtualSitePublishRequiresValidSourceContent(t *testing.T) {
-	workspacePath := t.TempDir()
-	service := virtualCapabilityService{
-		workspacePath: workspacePath,
-		site: &virtualCapabilityRecord{
-			ID:                  "site-1",
-			Values:              map[string]any{"slug": "demo"},
-			SourceWorkspacePath: "/workspace/circles/staff/sites/demo/draft",
-		},
-	}
-	requestBody := []byte(`{"input":{"siteID":"site-1"}}`)
+func virtualServeRequestBody(input string) []byte {
+	content := []byte("virtual site bundle")
+	digest := sha256.Sum256(content)
+	return []byte(`{"input":` + input + `,"transport":{"siteSourceBundle":{"workspacePath":"~/sites/demo","contentBase64":"` +
+		base64.StdEncoding.EncodeToString(content) + `","format":"tar.gz","sha256":"` + hex.EncodeToString(digest[:]) + `"}}}`)
+}
 
-	response := service.response("site.publish", requestBody)
-	if !strings.Contains(response, `"status":"error"`) || service.sitePublished {
-		t.Fatalf("expected publish without source to fail closed, got %s", response)
-	}
+func TestVirtualSiteServeRequiresValidSourceBundle(t *testing.T) {
+	service := virtualCapabilityService{workspacePath: t.TempDir()}
+	input := `{"title":"Local Fleet Studio","sourceWorkspacePath":"~/sites/demo","mode":"publish"}`
 
-	sourcePath := filepath.Join(workspacePath, "circles", "staff", "sites", "demo", "draft", "app", "public")
-	if errorValue := os.MkdirAll(sourcePath, 0700); errorValue != nil {
-		t.Fatal(errorValue)
-	}
-	contentPath := filepath.Join(sourcePath, "site-content.json")
-	if errorValue := os.WriteFile(contentPath, []byte("not json"), 0600); errorValue != nil {
-		t.Fatal(errorValue)
-	}
-	response = service.response("site.publish", requestBody)
-	if !strings.Contains(response, `"status":"error"`) || service.sitePublished {
-		t.Fatalf("expected invalid source content to fail closed, got %s", response)
+	withoutBundle := service.response("site.serve", []byte(`{"input":`+input+`}`))
+	if !strings.Contains(withoutBundle, `"status":"error"`) || service.sitePublished {
+		t.Fatalf("expected serve without a source bundle to fail closed, got %s", withoutBundle)
 	}
 
-	if errorValue := os.WriteFile(contentPath, []byte(`{"siteName":"Virtual Site"}`), 0600); errorValue != nil {
-		t.Fatal(errorValue)
+	tamperedBundle := []byte(strings.Replace(string(virtualServeRequestBody(input)), `"sha256":"`, `"sha256":"0000`, 1))
+	tampered := service.response("site.serve", tamperedBundle)
+	if !strings.Contains(tampered, `"status":"error"`) || service.sitePublished {
+		t.Fatalf("expected serve with a tampered bundle hash to fail closed, got %s", tampered)
 	}
-	response = service.response("site.publish", requestBody)
-	if !strings.Contains(response, `"status":"ok"`) ||
+
+	response := service.response("site.serve", virtualServeRequestBody(input))
+	if !strings.Contains(response, `"status":"published"`) ||
+		!strings.Contains(response, `"slug":"local-fleet-studio"`) ||
+		!strings.Contains(response, `"mode":"publish"`) ||
 		!strings.Contains(response, `"sourceSHA256"`) ||
-		!strings.Contains(response, `"sourceWorkspacePath"`) ||
-		!strings.Contains(response, `"currentVersionID"`) ||
 		!strings.Contains(response, `"objectType":"website"`) ||
 		!strings.Contains(response, `"effect":"published"`) ||
-		!strings.Contains(response, `"url":"https://demo.device.intern.kim"`) {
-		t.Fatalf("expected valid source content to publish with metadata, got %s", response)
+		!strings.Contains(response, `"url":"https://local-fleet-studio.device.intern.kim"`) {
+		t.Fatalf("expected canonical serve publish result, got %s", response)
 	}
-	if strings.Contains(response, workspacePath) || strings.Contains(response, `"sourcePath"`) || strings.Contains(response, `"sourceSizeBytes"`) {
-		t.Fatalf("expected exact virtual publish result without host or legacy fields, got %s", response)
-	}
-
-	statusResponse := service.response("site.status", []byte(`{"input":{"siteReference":"site-1"}}`))
-	if !strings.Contains(statusResponse, `"sourceWorkspacePath":"/workspace/circles/staff/sites/demo/draft"`) ||
-		strings.Contains(statusResponse, `"workspacePath"`) {
-		t.Fatalf("expected canonical site status workspace fields, got %s", statusResponse)
+	if strings.Contains(response, `"effect":"previewed"`) || strings.Contains(response, `"id":"site-1"`) {
+		t.Fatalf("expected only the mode-conditional URL effect, got %s", response)
 	}
 
-	previewResponse := service.response("site.preview", requestBody)
-	if !strings.Contains(previewResponse, `"previewID":"site-preview-1"`) ||
-		!strings.Contains(previewResponse, `"previewURL":"https://preview-demo.device.intern.kim"`) ||
+	previewInput := `{"title":"Local Fleet Studio","sourceWorkspacePath":"~/sites/demo","mode":"preview","siteReference":"local-fleet-studio"}`
+	previewResponse := service.response("site.serve", virtualServeRequestBody(previewInput))
+	if !strings.Contains(previewResponse, `"status":"previewed"`) ||
+		!strings.Contains(previewResponse, `"previewURL":"https://local-fleet-studio.device.intern.kim/__preview/preview-1"`) ||
 		!strings.Contains(previewResponse, `"effect":"previewed"`) {
-		t.Fatalf("expected canonical site preview result, got %s", previewResponse)
+		t.Fatalf("expected canonical serve preview result, got %s", previewResponse)
 	}
 }
 
 func TestVirtualSiteOperationsNeverCreateMissingSites(t *testing.T) {
 	service := virtualCapabilityService{workspacePath: t.TempDir()}
-	requests := map[string]string{
-		"site.preview": `{"input":{"siteID":"site-1"}}`,
-		"site.publish": `{"input":{"siteID":"site-1"}}`,
-		"site.status":  `{"input":{"siteReference":"site-1"}}`,
-		"site.delete":  `{"input":{"siteID":"site-1"},"context":{"isApprovalContinuation":true}}`,
+	requests := map[string][]byte{
+		"site.serve":   virtualServeRequestBody(`{"title":"Ghost","sourceWorkspacePath":"~/sites/demo","mode":"publish","siteReference":"missing-site"}`),
+		"site.list":    []byte(`{"input":{"siteReference":"missing-site"}}`),
+		"site.unserve": []byte(`{"input":{"siteReference":"missing-site"},"context":{"isApprovalContinuation":true}}`),
 	}
 
 	for toolName, requestBody := range requests {
-		response := service.response(toolName, []byte(requestBody))
+		response := service.response(toolName, requestBody)
 		if !strings.Contains(response, `"errorCode":"not_found"`) {
 			t.Fatalf("expected %s to reject a missing site, got %s", toolName, response)
 		}
@@ -751,14 +737,14 @@ func TestVirtualSiteFixtureUsesExactIdentity(t *testing.T) {
 	}
 
 	for _, siteReference := range []string{"site-1", "demo"} {
-		response := service.response("site.status", []byte(`{"input":{"siteReference":"`+siteReference+`"}}`))
+		response := service.response("site.list", []byte(`{"input":{"siteReference":"`+siteReference+`"}}`))
 		if !strings.Contains(response, `"siteID":"site-1"`) || !strings.Contains(response, `"status":"published"`) {
 			t.Fatalf("expected fixture lookup by %s, got %s", siteReference, response)
 		}
 	}
-	response := service.response("site.publish", []byte(`{"input":{"siteID":"demo"}}`))
+	response := service.response("site.serve", virtualServeRequestBody(`{"title":"Local Fleet Studio","sourceWorkspacePath":"~/sites/demo","mode":"publish","siteReference":"other-site"}`))
 	if !strings.Contains(response, `"errorCode":"not_found"`) {
-		t.Fatalf("expected mutation by slug to fail exact ID lookup, got %s", response)
+		t.Fatalf("expected serve with an unknown reference to fail exact lookup, got %s", response)
 	}
 
 	for _, initialSite := range []*VirtualSiteFixture{
@@ -772,35 +758,21 @@ func TestVirtualSiteFixtureUsesExactIdentity(t *testing.T) {
 	}
 }
 
-func TestVirtualSiteToolsUseCanonicalFiveToolContracts(t *testing.T) {
-	expectedToolNames := []string{"site.create", "site.status", "site.preview", "site.publish", "site.delete"}
+func TestVirtualSiteToolsUseCanonicalThreeToolContracts(t *testing.T) {
+	expectedToolNames := []string{"site.serve", "site.list", "site.unserve"}
 	if toolNames := sitePrototypeCapabilityToolNames(); !slices.Equal(toolNames, expectedToolNames) {
 		t.Fatalf("expected canonical site tool surface, got %v", toolNames)
 	}
 
-	statusInputSchema := virtualCapabilityInputSchema("site.status")
-	var statusInputDocument struct {
-		Required []string `json:"required"`
-	}
-	if errorValue := json.Unmarshal([]byte(statusInputSchema), &statusInputDocument); errorValue != nil {
-		t.Fatal(errorValue)
-	}
-	if !slices.Equal(statusInputDocument.Required, []string{"siteReference"}) || strings.Contains(statusInputSchema, `"siteID"`) {
-		t.Fatalf("expected site.status to require only siteReference, got %s", statusInputSchema)
+	listInputSchema := virtualCapabilityInputSchema("site.list")
+	if strings.Contains(listInputSchema, `"siteID"`) || strings.Contains(listInputSchema, `"checkLive"`) {
+		t.Fatalf("expected site.list to accept only an optional siteReference, got %s", listInputSchema)
 	}
 
-	expectedEffects := map[string]string{
-		"site.create":  "created",
-		"site.preview": "previewed",
-		"site.publish": "published",
-		"site.delete":  "deleted",
-	}
 	expectedRequiredFields := map[string][]string{
-		"site.create":  {"siteID", "slug", "title", "status", "sourceWorkspacePath", "appWorkspacePath"},
-		"site.status":  {"siteID", "slug", "title", "status", "sourceWorkspacePath"},
-		"site.preview": {"siteID", "status", "sourceWorkspacePath", "previewID", "previewURL", "previewExpiresAt"},
-		"site.publish": {"siteID", "status", "sourceWorkspacePath", "sourceSHA256", "publishedURL", "currentVersionID"},
-		"site.delete":  {"siteID", "deleted"},
+		"site.serve":   {"siteID", "slug", "mode", "sourceSHA256"},
+		"site.list":    {"sites"},
+		"site.unserve": {"siteID", "slug", "unserved"},
 	}
 	for _, toolName := range expectedToolNames {
 		descriptor := virtualCapabilityToolDescriptor(toolName)
@@ -818,43 +790,45 @@ func TestVirtualSiteToolsUseCanonicalFiveToolContracts(t *testing.T) {
 			!slices.Equal(resultSchema.Required, expectedRequiredFields[toolName]) {
 			t.Fatalf("expected exact %s required result fields, got %s", toolName, contract.Schema)
 		}
-		expectedEffect := expectedEffects[toolName]
-		if expectedEffect == "" {
-			if len(contract.Effects) != 0 {
-				t.Fatalf("expected %s to have no effects, got %+v", toolName, contract.Effects)
-			}
-			continue
-		}
-		expectedEffectCount := 1
-		if toolName == "site.publish" {
-			expectedEffectCount = 2
-		}
-		if len(contract.Effects) != expectedEffectCount ||
-			contract.Effects[0].ObjectType != "website" ||
-			contract.Effects[0].Effect != expectedEffect ||
-			contract.Effects[0].ResultField != "siteID" ||
-			contract.Effects[0].EffectIdentity != "id" {
-			t.Fatalf("expected exact %s effect contract, got %+v", toolName, contract.Effects)
-		}
-		if toolName == "site.publish" &&
-			(contract.Effects[1].ObjectType != "website" ||
-				contract.Effects[1].Effect != expectedEffect ||
-				contract.Effects[1].ResultField != "publishedURL" ||
-				contract.Effects[1].EffectIdentity != "url") {
-			t.Fatalf("expected exact site.publish URL effect contract, got %+v", contract.Effects)
-		}
 	}
-	if descriptor := virtualCapabilityToolDescriptor("site.delete"); !descriptor.RequiresApproval {
-		t.Fatal("expected site.delete to require approval")
+
+	serveContract := virtualCapabilityToolResultContract("site.serve")
+	if len(serveContract.Effects) != 2 ||
+		serveContract.Effects[0].Effect != "previewed" ||
+		serveContract.Effects[0].ResultField != "previewURL" ||
+		serveContract.Effects[0].EffectIdentity != "url" ||
+		serveContract.Effects[0].When == nil ||
+		serveContract.Effects[0].When.ResultField != "mode" ||
+		string(serveContract.Effects[0].When.Equals) != `"preview"` ||
+		serveContract.Effects[1].Effect != "published" ||
+		serveContract.Effects[1].ResultField != "publishedURL" ||
+		serveContract.Effects[1].EffectIdentity != "url" ||
+		serveContract.Effects[1].When == nil ||
+		string(serveContract.Effects[1].When.Equals) != `"publish"` {
+		t.Fatalf("expected mode-conditional serve effects, got %+v", serveContract.Effects)
 	}
-	if descriptor := virtualCapabilityToolDescriptor("site.preview"); descriptor.SideEffectClass != agent.ToolSideEffectExternalPublish {
-		t.Fatalf("expected site.preview external publish semantics, got %+v", descriptor)
+	listContract := virtualCapabilityToolResultContract("site.list")
+	if len(listContract.Effects) != 0 {
+		t.Fatalf("expected site.list to have no effects, got %+v", listContract.Effects)
+	}
+	unserveContract := virtualCapabilityToolResultContract("site.unserve")
+	if len(unserveContract.Effects) != 1 ||
+		unserveContract.Effects[0].ObjectType != "website" ||
+		unserveContract.Effects[0].Effect != "deleted" ||
+		unserveContract.Effects[0].ResultField != "siteID" ||
+		unserveContract.Effects[0].EffectIdentity != "id" {
+		t.Fatalf("expected exact site.unserve effect contract, got %+v", unserveContract.Effects)
+	}
+
+	if descriptor := virtualCapabilityToolDescriptor("site.unserve"); !descriptor.RequiresApproval {
+		t.Fatal("expected site.unserve to require approval")
+	}
+	if descriptor := virtualCapabilityToolDescriptor("site.serve"); descriptor.SideEffectClass != agent.ToolSideEffectSitePublish {
+		t.Fatalf("expected site.serve site publish semantics, got %+v", descriptor)
 	}
 	expectedCompletionActions := map[string]string{
-		"site.create":  "create_site",
-		"site.preview": "preview_site",
-		"site.publish": "publish_site",
-		"site.delete":  "delete_site",
+		"site.serve":   "serve_site",
+		"site.unserve": "delete_site",
 	}
 	for toolName, action := range expectedCompletionActions {
 		descriptor := virtualCapabilityToolDescriptor(toolName)
@@ -865,7 +839,7 @@ func TestVirtualSiteToolsUseCanonicalFiveToolContracts(t *testing.T) {
 		}
 	}
 
-	for _, removedToolName := range []string{"site.history", "site.diff", "site.logs", "site.rollback", "site.unpublish", "site.restore", "site.repair"} {
+	for _, removedToolName := range []string{"site.create", "site.status", "site.preview", "site.publish", "site.delete", "site.history", "site.rollback", "site.repair"} {
 		if slices.Contains(sitePrototypeToolNames(), removedToolName) ||
 			slices.Contains(sitePrototypeCapabilityToolNames(), removedToolName) ||
 			virtualCapabilityToolResultContract(removedToolName) != nil {
@@ -1646,10 +1620,10 @@ func TestSitePrototypeAcceptance(t *testing.T) {
 	if !eventsContain(turnResult.Events, "agent.instructions_loaded", "website") {
 		t.Fatal("expected site-prototype skill to be selected")
 	}
-	if !eventsContain(turnResult.Events, "tool.site.publish.result", "publishedURL") {
+	if !eventsContain(turnResult.Events, "tool.site.serve.result", "publishedURL") {
 		t.Fatalf("expected site publish result to include a public URL; events: %s", summarizeEvents(turnResult.Events))
 	}
-	if !strings.Contains(turnResult.ModelContext, "site.create") || !strings.Contains(turnResult.ModelContext, "site.publish") {
+	if !strings.Contains(turnResult.ModelContext, "site.serve") || !strings.Contains(turnResult.ModelContext, "site.serve") {
 		t.Fatal("expected model context to document site app capabilities")
 	}
 }
@@ -1672,8 +1646,8 @@ func TestSiteEditRedeployAcceptance(t *testing.T) {
 	if countEventsWithFragment(secondTurnResult.Events, "tool.file.write.requested", "site-content.json") == 0 {
 		t.Fatalf("expected a content-only site-content.json edit in turn two; events: %s", summarizeEvents(secondTurnResult.Events))
 	}
-	if countEventsWithFragment(secondTurnResult.Events, "tool.site.publish.requested", "site.publish") == 0 {
-		t.Fatalf("expected site.publish capability invocation in turn two; events: %s", summarizeEvents(secondTurnResult.Events))
+	if countEventsWithFragment(secondTurnResult.Events, "tool.site.serve.requested", "site.serve") == 0 {
+		t.Fatalf("expected site.serve capability invocation in turn two; events: %s", summarizeEvents(secondTurnResult.Events))
 	}
 	if !strings.Contains(secondTurnResult.FinishMessage, "https://") {
 		t.Fatalf("expected final assistant message to contain a URL, got %q", secondTurnResult.FinishMessage)
@@ -1690,13 +1664,13 @@ func TestSiteCustomStructureAcceptance(t *testing.T) {
 		t.Fatalf("expected completed turn, got %s", turnResult.TaskStatus)
 	}
 	if !eventsContain(turnResult.Events, "agent.site_publish_prerequisite_rejected", "") {
-		t.Fatalf("expected the first site.publish attempt to be rejected by the prerequisite gate; events: %s", summarizeEvents(turnResult.Events))
+		t.Fatalf("expected the first site.serve attempt to be rejected by the prerequisite gate; events: %s", summarizeEvents(turnResult.Events))
 	}
 	if countEvents(turnResult.Events, "tool.terminal.run.requested") != 1 {
 		t.Fatalf("expected exactly one terminal.run build after the app/src change; events: %s", summarizeEvents(turnResult.Events))
 	}
-	if countEvents(turnResult.Events, "tool.site.publish.requested") != 1 {
-		t.Fatalf("expected site.publish to succeed only after the rebuild; events: %s", summarizeEvents(turnResult.Events))
+	if countEvents(turnResult.Events, "tool.site.serve.requested") != 1 {
+		t.Fatalf("expected site.serve to succeed only after the rebuild; events: %s", summarizeEvents(turnResult.Events))
 	}
 	if !strings.Contains(turnResult.FinishMessage, "https://") {
 		t.Fatalf("expected final assistant message to contain a URL, got %q", turnResult.FinishMessage)
@@ -1715,15 +1689,15 @@ func TestSiteLifecycleAcceptance(t *testing.T) {
 	if deleteRequestTurnResult.TaskStatus != task.TaskStatusWaitingApproval {
 		t.Fatalf("expected delete turn to wait for approval, got %s", deleteRequestTurnResult.TaskStatus)
 	}
-	if !eventsContain(deleteRequestTurnResult.Events, "approval.pending_call", "site.delete") {
-		t.Fatalf("expected pending site.delete approval; events: %s", summarizeEvents(deleteRequestTurnResult.Events))
+	if !eventsContain(deleteRequestTurnResult.Events, "approval.pending_call", "site.unserve") {
+		t.Fatalf("expected pending site.unserve approval; events: %s", summarizeEvents(deleteRequestTurnResult.Events))
 	}
 	deleteCompletionTurnResult := result.TurnResults[3]
 	if deleteCompletionTurnResult.TaskStatus != task.TaskStatusCompleted {
 		t.Fatalf("expected delete completion, got %s", deleteCompletionTurnResult.TaskStatus)
 	}
-	if !eventsContain(deleteCompletionTurnResult.Events, "tool.site.delete.result", "deleted") {
-		t.Fatalf("expected site.delete result; events: %s", summarizeEvents(deleteCompletionTurnResult.Events))
+	if !eventsContain(deleteCompletionTurnResult.Events, "tool.site.unserve.result", "deleted") {
+		t.Fatalf("expected site.unserve result; events: %s", summarizeEvents(deleteCompletionTurnResult.Events))
 	}
 }
 

@@ -49,10 +49,10 @@ func TestCanonicalExpectedResultURLsPreferRequiredEffectIdentity(t *testing.T) {
 		Output:        searchResult.Output,
 		Effects:       searchResult.Effects,
 	}
-	publishToolSet, publishObservation := canonicalLinkObservation("site.publish", "https://portfolio.example")
+	publishToolSet, publishObservation := canonicalLinkObservation("site.serve", "https://portfolio.example")
 	toolSet := newTestToolSetWithDefinitions([]ToolDefinition{
 		searchDefinition,
-		mustToolDefinition(t, publishToolSet, "site.publish"),
+		mustToolDefinition(t, publishToolSet, "site.serve"),
 	})
 	request := AgentTurnRequest{
 		ToolSet: toolSet,
@@ -68,7 +68,7 @@ func TestCanonicalExpectedResultURLsPreferRequiredEffectIdentity(t *testing.T) {
 }
 
 func TestExpectedResultDeliveryRequiresExactCanonicalURL(t *testing.T) {
-	toolSet, observation := canonicalLinkObservation("site.publish", "https://portfolio.example")
+	toolSet, observation := canonicalLinkObservation("site.serve", "https://portfolio.example")
 	request := AgentTurnRequest{
 		ToolSet: toolSet,
 		OutcomeContract: OutcomeContract{
@@ -164,7 +164,7 @@ func TestLinkExpectationWithoutLinkCapableToolDoesNotHardBlock(t *testing.T) {
 		t.Fatalf("expected an unsatisfiable link expectation to defer to the judge, got %q", message)
 	}
 
-	linkToolSet := newTestToolSetWithDefinitions([]ToolDefinition{canonicalLinkToolDefinition("site.publish")})
+	linkToolSet := newTestToolSetWithDefinitions([]ToolDefinition{canonicalLinkToolDefinition("site.serve")})
 	if message := missingExpectedResultDelivery(expectation, linkToolSet, nil, nil, "만들었습니다."); message == "" {
 		t.Fatal("expected a link-capable working set to keep requiring the canonical link")
 	}

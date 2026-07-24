@@ -15,7 +15,7 @@ func sitePublishPrerequisiteFailure(observations []turnObservation, actionDocume
 	if siteHasFreshBuild(observations) {
 		return turnObservation{}, false
 	}
-	message := "site.publish requires a fresh build only after a structural change under the site's app/src or scaffold/app config files. Content edits to app/public/site-content.json publish directly without a build. Since a build-requiring change was made, run terminal.run with workingDirectoryPath set to the site's appWorkspacePath and command \"bun scripts/build.ts\", then retry " + operationName + "."
+	message := "site.serve requires a fresh build only after a structural change under the site's app/src or app config files. Content edits to app/public/site-content.json serve directly without a build. Since a build-requiring change was made, run terminal.run with workingDirectoryPath set to the app directory inside the site's sourceWorkspacePath and command \"bun scripts/build.ts\", then retry " + operationName + "."
 	observation := newFailureObservation(observationID, "continue", operationName, message, FailureInvalidInput, FailureCodes.InvalidInput, "workflow_prerequisite")
 	observation.ToolInputKey = canonicalToolCallKey(actionDocument.ToolName, actionDocument.ToolInput)
 	observation.AttemptFingerprint = attemptFingerprint(observation.ToolInputKey, observation.FailureCode())
@@ -27,7 +27,7 @@ func sitePublishPrerequisiteFailure(observations []turnObservation, actionDocume
 
 func siteOperationRequiresFreshBuild(operationName string) bool {
 	switch strings.TrimSpace(operationName) {
-	case "site.publish", "site.preview":
+	case "site.serve":
 		return true
 	default:
 		return false

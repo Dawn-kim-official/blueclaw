@@ -17,7 +17,7 @@ func TestToolNamesMatchRequiresExactCanonicalIdentity(t *testing.T) {
 }
 
 func TestEffectiveObservationToolNamePreservesDirectToolNames(t *testing.T) {
-	if got := effectiveObservationToolName("site.publish", json.RawMessage(`{"siteID":"s1"}`)); got != "site.publish" {
+	if got := effectiveObservationToolName("site.serve", json.RawMessage(`{"siteID":"s1"}`)); got != "site.serve" {
 		t.Fatalf("expected direct tool name unchanged, got %q", got)
 	}
 	if got := effectiveObservationToolName(TerminalRunToolName, json.RawMessage(`{"command":"ls"}`)); got != TerminalRunToolName {

@@ -145,15 +145,15 @@ func TestAgentTurnRunnerEscalatesToolCallLimitAfterDurableProgress(t *testing.T)
 }
 
 func TestRedundantToolSelectionIsDetectedWithUseNowDirective(t *testing.T) {
-	toolSet := newTestToolSet([]string{"site.create", "site.status"})
+	toolSet := newTestToolSet([]string{"site.serve", "site.list"})
 	base := AgentTurnRequest{ToolSet: toolSet}
 
-	afterFirst, firstResult := applyToolRequest(base, requestToolsArguments{ToolNames: []string{"site.create", "site.status"}})
+	afterFirst, firstResult := applyToolRequest(base, requestToolsArguments{ToolNames: []string{"site.serve", "site.list"}})
 	if toolRequestResultFailed(firstResult) || len(afterFirst.PinnedToolNames) != 2 {
 		t.Fatal("first selection of new tools should add tools")
 	}
 
-	afterSecond, secondResult := applyToolRequest(afterFirst, requestToolsArguments{ToolNames: []string{"site.create", "site.status"}})
+	afterSecond, secondResult := applyToolRequest(afterFirst, requestToolsArguments{ToolNames: []string{"site.serve", "site.list"}})
 	if toolRequestResultFailed(secondResult) || len(afterSecond.PinnedToolNames) != len(afterFirst.PinnedToolNames) {
 		t.Fatal("re-selecting already-available tools should add nothing")
 	}
@@ -161,8 +161,8 @@ func TestRedundantToolSelectionIsDetectedWithUseNowDirective(t *testing.T) {
 
 func TestObservedSuggestedNextToolIgnoresUntrustedResultFields(t *testing.T) {
 	observations := []turnObservation{
-		newContentObservation("obs-001", "continue", "site.status", `{"workspaceHealthDetails":{"suggestedNextTool":"site.repair"}}`),
-		newContentObservation("obs-002", "continue", "site.status", `{"suggestedNextTools":["site.delete"]}`),
+		newContentObservation("obs-001", "continue", "site.list", `{"workspaceHealthDetails":{"suggestedNextTool":"site.repair"}}`),
+		newContentObservation("obs-002", "continue", "site.list", `{"suggestedNextTools":["site.unserve"]}`),
 	}
 
 	if _, isFound := latestObservedSuggestedNextTool(observations); isFound {
@@ -194,7 +194,7 @@ func TestTechnicalStallDoesNotPauseForUserInput(t *testing.T) {
 
 func TestRequestWorkingSetPinsObservedSuggestedNextTool(t *testing.T) {
 	request := AgentTurnRequest{}
-	observation := newContentObservation("obs-001", "continue", "site.status", `{"status":"failed"}`)
+	observation := newContentObservation("obs-001", "continue", "site.list", `{"status":"failed"}`)
 	observation.RecoveryPacket = &RecoveryPacket{AllowedTools: []string{"file.edit"}}
 
 	updatedRequest := requestWithStepWorkingSetTools(request, []turnObservation{observation})
@@ -205,7 +205,7 @@ func TestRequestWorkingSetPinsObservedSuggestedNextTool(t *testing.T) {
 
 func TestStalledTurnUsesSuggestedNextToolBeforeExit(t *testing.T) {
 	services := newTurnRunnerTestServices(&sequenceLanguageModel{}, TurnOptions{})
-	observation := newContentObservation("obs-001", "continue", "site.status", `{"status":"failed"}`)
+	observation := newContentObservation("obs-001", "continue", "site.list", `{"status":"failed"}`)
 	observation.RecoveryPacket = &RecoveryPacket{AllowedTools: []string{"file.edit"}}
 	state := &agentTaskState{
 		Request:      AgentTurnRequest{ToolSet: newTestToolSet([]string{"file.edit"})},
@@ -277,7 +277,7 @@ func TestCleanRestartDiscardsPoisonedContextOnReSteerAfterStall(t *testing.T) {
 
 func TestCleanRestartPreservesDurablePublishEvidence(t *testing.T) {
 	events := []task.TaskEvent{
-		toolResultTestEvent("tool.site.publish.result", "obs-010", "site.publish", `{"publishedURL":"https://x.intern.kim"}`, false),
+		toolResultTestEvent("tool.site.serve.result", "obs-010", "site.serve", `{"publishedURL":"https://x.intern.kim"}`, false),
 		toolResultTestEvent("tool.browser.open.result", "obs-011", "browser.open", "garbage", true),
 		{Name: "agent.limit_stop", Body: "{}"},
 		{Name: "task.steer.requested", Body: "{}"},
@@ -285,7 +285,7 @@ func TestCleanRestartPreservesDurablePublishEvidence(t *testing.T) {
 	state, _ := agentTaskStateForTurn(AgentTurnRequest{IsRuntimeRestartResume: true}, TurnOptions{}, task.TaskRun{TaskRunID: "task-2"}, events, false)
 	hasPublish := false
 	for _, observation := range state.Observations {
-		if observation.Tool == "site.publish" {
+		if observation.Tool == "site.serve" {
 			hasPublish = true
 		}
 		if observation.Tool == "browser.open" {

@@ -366,8 +366,8 @@ func TestRegisterProviderRejectsUnboundResultEffectIdentity(t *testing.T) {
 }
 
 func TestRegisterProviderAcceptsDistinctIdentitiesForOneEffect(t *testing.T) {
-	toolSet := NewToolSet([]string{"site.publish"})
-	providerTool := validProviderTool("capabilityd/site/site.publish", "site", "site.publish")
+	toolSet := NewToolSet([]string{"site.serve"})
+	providerTool := validProviderTool("capabilityd/site/site.serve", "site", "site.serve")
 	providerTool.Definition.ResultContract = &ToolResultContract{
 		Schema: json.RawMessage(`{"type":"object","properties":{"siteID":{"type":"string"},"publishedURL":{"type":"string"}},"required":["siteID","publishedURL"],"additionalProperties":false}`),
 		Effects: []ResourceEffectContract{

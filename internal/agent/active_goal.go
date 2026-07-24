@@ -115,8 +115,8 @@ func normalizePersistedToolName(toolName string) string {
 		return AskInputToolName
 	case "artifact.deliver", "file.attach":
 		return FileDeliverToolName
-	case "site.promote":
-		return "site.publish"
+	case "site.promote", "site.publish", "site.preview":
+		return "site.serve"
 	case "terminal.session":
 		return TerminalRunToolName
 	default:

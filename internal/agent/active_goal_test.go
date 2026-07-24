@@ -27,13 +27,13 @@ func TestNormalizePersistedActiveGoalMigratesLegacyToolNames(t *testing.T) {
 
 	normalizedGoal := normalizePersistedActiveGoal(activeGoal)
 
-	assertSameStrings(t, normalizedGoal.RequiredNextTools, []string{TerminalRunToolName, "site.publish"})
-	assertSameStrings(t, normalizedGoal.SelectedToolNames, []string{TerminalRunToolName, "site.publish"})
+	assertSameStrings(t, normalizedGoal.RequiredNextTools, []string{TerminalRunToolName, "site.serve"})
+	assertSameStrings(t, normalizedGoal.SelectedToolNames, []string{TerminalRunToolName, "site.serve"})
 	assertSameStrings(t, normalizedGoal.OutcomeContract.RequiredEvidenceTools, []string{FileDeliverToolName})
 	assertSameStrings(t, normalizedGoal.OutcomeContract.RequiredEvidenceAnyOf[0], []string{AskInputToolName, TerminalRunToolName})
-	assertSameStrings(t, normalizedGoal.OutcomeContract.SelectedEvidenceHints, []string{"site.publish"})
+	assertSameStrings(t, normalizedGoal.OutcomeContract.SelectedEvidenceHints, []string{"site.serve"})
 	assertSameStrings(t, normalizedGoal.OutcomeContract.ExpectedResults[0].AcceptanceHints, []string{AskInputToolName})
-	assertSameStrings(t, normalizedGoal.OutcomeContract.RequiredEffects[0].SuggestedNextTools, []string{"site.publish"})
+	assertSameStrings(t, normalizedGoal.OutcomeContract.RequiredEffects[0].SuggestedNextTools, []string{"site.serve"})
 }
 
 func TestNormalizePersistedActiveGoalDoesNotMutateSource(t *testing.T) {
