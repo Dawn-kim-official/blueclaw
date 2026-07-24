@@ -7,39 +7,16 @@ import (
 	"blueclaw/internal/connectors"
 )
 
-func TestNewAcpdClientDefaultsEndpointWhenUnconfigured(t *testing.T) {
-	client := newAcpdClient(config.RuntimeConfiguration{})
-
-	if client.Endpoint != connectors.DefaultAcpdEndpoint {
-		t.Fatalf("expected default acpd endpoint, got %q", client.Endpoint)
-	}
-}
-
-func TestNewAcpdClientUsesConfiguredEndpoint(t *testing.T) {
+func TestBuzzPlatformUsesChatdContract(t *testing.T) {
 	runtimeConfiguration := config.RuntimeConfiguration{}
-	runtimeConfiguration.Connectors.Buzz.Endpoint = "http://acpd.test"
+	runtimeConfiguration.Connectors.Chatd.Endpoint = "http://chatd.test"
 
-	client := newAcpdClient(runtimeConfiguration)
+	adapter := connectors.NewChatdPlatformAdapter("buzz", newChatdClient(runtimeConfiguration))
 
-	if client.Endpoint != "http://acpd.test" {
-		t.Fatalf("expected configured acpd endpoint, got %q", client.Endpoint)
+	if adapter.Name() != "buzz" {
+		t.Fatalf("expected buzz platform name, got %q", adapter.Name())
 	}
-}
-
-func TestNewBuzzPlatformAdapterUsesChatdContractAgainstAcpd(t *testing.T) {
-	runtimeConfiguration := config.RuntimeConfiguration{}
-	runtimeConfiguration.Connectors.Buzz.Endpoint = "http://acpd.test"
-
-	adapter := newBuzzPlatformAdapter(runtimeConfiguration)
-
-	chatdAdapter, isChatdAdapter := adapter.(connectors.ChatdPlatformAdapter)
-	if !isChatdAdapter {
-		t.Fatalf("expected chatd-contract adapter for buzz, got %T", adapter)
-	}
-	if chatdAdapter.Name() != "buzz" {
-		t.Fatalf("expected buzz platform name, got %q", chatdAdapter.Name())
-	}
-	if chatdAdapter.ChatdClient.Endpoint != "http://acpd.test" {
-		t.Fatalf("expected acpd endpoint on buzz adapter, got %q", chatdAdapter.ChatdClient.Endpoint)
+	if adapter.ChatdClient.Endpoint != "http://chatd.test" {
+		t.Fatalf("expected chatd endpoint on buzz adapter, got %q", adapter.ChatdClient.Endpoint)
 	}
 }
