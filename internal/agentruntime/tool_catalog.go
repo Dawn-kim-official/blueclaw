@@ -308,7 +308,6 @@ func fetchHistoryTool(toolContext context.Context, input historyToolInput, reque
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) registerBuiltInTools(toolRegistry *agent.ToolSet, handlerContext toolHandlerContext) {
-	toolCatalogBuilder.registerMathTool(toolRegistry)
 	toolCatalogBuilder.registerAskInputTool(toolRegistry)
 	toolCatalogBuilder.registerScheduleTools(toolRegistry, handlerContext)
 	toolCatalogBuilder.registerSkillManagementTools(toolRegistry)

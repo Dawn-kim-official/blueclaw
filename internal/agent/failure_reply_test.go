@@ -379,7 +379,7 @@ func TestAgentTurnRunnerUsesLocalRecoveryWhenRemoteAndRecoveryModelsFail(t *test
 func TestAgentTurnRunnerDoesNotUseDeterministicCapabilityFallbackWhenActionModelFails(t *testing.T) {
 	languageModel := failingRecoveryLanguageModel{errorValue: errors.New("structured action unavailable")}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 4})
-	toolRegistry := newTestToolSet([]string{"math.calculate", "file.write", "schedule.create"})
+	toolRegistry := newTestToolSet([]string{"schedule.list", "file.write", "schedule.create"})
 	for _, toolName := range toolRegistry.ListToolNames() {
 		currentToolName := toolName
 		registerTestTool(toolRegistry, ToolDefinition{Name: currentToolName}, func(context.Context, ToolInvocation) (ToolResult, error) {
@@ -402,7 +402,7 @@ func TestAgentTurnRunnerDoesNotUseDeterministicCapabilityFallbackWhenActionModel
 	if result.TaskRun.Status != task.TaskStatusFailed || result.ReplySuppressed || !strings.Contains(result.UserNotice, "structured action unavailable") {
 		t.Fatalf("expected raw failed task notice, got status=%s reply=%q suppressed=%v", result.TaskRun.Status, result.UserNotice, result.ReplySuppressed)
 	}
-	if taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.capability_fallback", "math.calculate") {
+	if taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.capability_fallback", "schedule.list") {
 		t.Fatal("expected no deterministic capability fallback event")
 	}
 }
@@ -444,15 +444,15 @@ func TestAgentTurnRunnerUsesNaturalCaptchaFailureReply(t *testing.T) {
 func TestFailureReportRejectsMissingUsedFailureFacts(t *testing.T) {
 	result := validateFailureReportAction(turnActionDocument{
 		Action:            "fail",
-		Reason:            "calculator failed",
+		Reason:            "schedule lookup failed",
 		FailureResolution: failureResolutionFailureReport,
 	}, failureReportFacts{
 		Attempts: []failureReportAttempt{{
-			ToolName:     "math.calculate",
-			InputSummary: "1+2/4",
+			ToolName:     "schedule.list",
+			InputSummary: "today",
 			ErrorCode:    FailureCodes.OperationFailed.String(),
-			FailureStage: "bc_execution",
-			Message:      "bc: command not found",
+			FailureStage: "schedule_lookup",
+			Message:      "schedule storage unavailable",
 		}},
 		BudgetState: "failure_report_required",
 	})
