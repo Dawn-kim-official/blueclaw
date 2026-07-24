@@ -179,3 +179,47 @@ describe('createAcpAgentCore', () => {
     expect(cancelRequest?.body).toMatchObject({ taskRunIDs: ['task-9'] });
   });
 });
+
+describe('inline processing race', () => {
+  test('a terminal reply arriving before ingress returns ends the turn immediately', async () => {
+    const core = createAcpAgentCore(configuration);
+    const connection = core.createConnection(() => {});
+    globalThis.fetch = (async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.includes('/connectors/')) {
+        core.relayOutboundReply(CHANNEL_UUID, '이미 답장했습니다', 'success');
+        return new Response(JSON.stringify({ handled: true, taskRunID: 'task-inline' }), { status: 200 });
+      }
+      return new Response('{}', { status: 200 });
+    }) as typeof fetch;
+    const sessionID = await createSession(connection);
+
+    const result = await connection.requestHandlers['session/prompt']?.({
+      sessionId: sessionID,
+      prompt: promptBlocksForEvent(),
+    });
+
+    expect(result).toEqual({ stopReason: 'end_turn' });
+  });
+
+  test('progress stop arriving before ingress returns also ends the turn', async () => {
+    const core = createAcpAgentCore(configuration);
+    const connection = core.createConnection(() => {});
+    globalThis.fetch = (async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.includes('/connectors/')) {
+        core.finishTurnForChannel(CHANNEL_UUID, 'end_turn');
+        return new Response(JSON.stringify({ handled: true, taskRunID: 'task-inline-2' }), { status: 200 });
+      }
+      return new Response('{}', { status: 200 });
+    }) as typeof fetch;
+    const sessionID = await createSession(connection);
+
+    const result = await connection.requestHandlers['session/prompt']?.({
+      sessionId: sessionID,
+      prompt: promptBlocksForEvent(),
+    });
+
+    expect(result).toEqual({ stopReason: 'end_turn' });
+  });
+});
