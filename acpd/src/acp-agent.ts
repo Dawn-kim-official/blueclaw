@@ -63,10 +63,9 @@ export function createAcpAgent(
     sessionIDByChannelID.set(prompt.channelID, session.sessionID);
 
     const results = await forwardEvents(configuration, prompt);
-    const acceptedResult = results.find((result) => !result.ignored && !result.duplicate);
     const taskRunID = results.map((result) => result.taskRunID).filter(Boolean).at(-1);
     session.lastTaskRunID = taskRunID ?? session.lastTaskRunID;
-    if (!acceptedResult) {
+    if (!taskRunID) {
       return { stopReason: 'end_turn' };
     }
 
