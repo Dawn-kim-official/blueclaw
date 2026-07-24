@@ -692,9 +692,7 @@ func (agentTurnRunner *AgentTurnRunner) handleToolCallAction(ctx context.Context
 	if outcome := agentTurnRunner.rejectUnavailableToolCall(taskRunID, stepID, request, state, actionDocument, stopForNoProgress); outcome.WasHandled {
 		return outcome
 	}
-	if outcome := agentTurnRunner.nudgePlanBeforeStateChange(taskRunID, stepID, request, state, actionDocument); outcome.WasHandled {
-		return outcome
-	}
+	agentTurnRunner.notePlanMissingBeforeStateChange(taskRunID, request, state, actionDocument)
 	if toolCallRequiresRuntimeApproval(request.ToolSet, actionDocument) && !isExemptFromApprovalHold(request, actionDocument) {
 		return agentTurnRunner.requestHeldCallApproval(ctx, taskRunID, stepID, request, state, actionDocument)
 	}

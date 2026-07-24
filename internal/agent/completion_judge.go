@@ -52,18 +52,18 @@ func (agentTurnRunner *AgentTurnRunner) validateCompletionGateWithJudge(ctx cont
 		!observationsIncludeSideEffect(request.ToolSet, observations) {
 		return completionGateResult
 	}
-	if judgeResult := agentTurnRunner.evaluateCompletionJudge(ctx, taskRunID, request, observations); !judgeResult.IsSatisfied {
+	if judgeResult := agentTurnRunner.evaluateCompletionJudge(ctx, taskRunID, request, observations, actionDocument); !judgeResult.IsSatisfied {
 		return judgeResult
 	}
 	return completionGateResult
 }
 
-func (agentTurnRunner *AgentTurnRunner) evaluateCompletionJudge(ctx context.Context, taskRunID string, request AgentTurnRequest, observations []turnObservation) completionGateResult {
+func (agentTurnRunner *AgentTurnRunner) evaluateCompletionJudge(ctx context.Context, taskRunID string, request AgentTurnRequest, observations []turnObservation, actionDocument turnActionDocument) completionGateResult {
 	if agentTurnRunner.languageModel == nil {
 		agentTurnRunner.appendEvent(taskRunID, "completion_judge.degraded", marshalEventBody(map[string]string{"error": "completion judge language model was not configured"}))
 		return completionGateResult{IsSatisfied: true}
 	}
-	response, errorValue := agentTurnRunner.languageModel.GenerateStructuredResponse(ctx, completionJudgeRequest(request, observations))
+	response, errorValue := agentTurnRunner.languageModel.GenerateStructuredResponse(ctx, completionJudgeRequest(request, observations, actionDocument))
 	if errorValue != nil {
 		agentTurnRunner.appendEvent(taskRunID, "completion_judge.degraded", marshalEventBody(map[string]string{"error": errorValue.Error()}))
 		return completionGateResult{IsSatisfied: true}
@@ -104,9 +104,9 @@ func completionJudgeUnsatisfiedMessage(verdict completionJudgeVerdict) string {
 	return reason + " Missing: " + missingWorkText
 }
 
-func completionJudgeRequest(request AgentTurnRequest, observations []turnObservation) llm.StructuredResponseRequest {
+func completionJudgeRequest(request AgentTurnRequest, observations []turnObservation, actionDocument turnActionDocument) llm.StructuredResponseRequest {
 	return llm.StructuredResponseRequest{
-		Messages: completionJudgeMessages(request, observations),
+		Messages: completionJudgeMessages(request, observations, actionDocument),
 		StructuredOutputSchema: llm.StructuredOutputSchema{
 			Name:               completionJudgeSchemaName,
 			Document:           completionJudgeSchema(),
@@ -116,7 +116,7 @@ func completionJudgeRequest(request AgentTurnRequest, observations []turnObserva
 	}
 }
 
-func completionJudgeMessages(request AgentTurnRequest, observations []turnObservation) []llm.Message {
+func completionJudgeMessages(request AgentTurnRequest, observations []turnObservation, actionDocument turnActionDocument) []llm.Message {
 	messages := []llm.Message{
 		{Role: "system", Content: completionJudgeInstruction()},
 		{Role: "system", Content: buildTemporalContextDescription(request.TurnStartedAt)},
@@ -124,6 +124,9 @@ func completionJudgeMessages(request AgentTurnRequest, observations []turnObserv
 	}
 	if expectedResultsDescription := completionJudgeExpectedResultsDescription(request.OutcomeContract.ExpectedResults); expectedResultsDescription != "" {
 		messages = append(messages, llm.Message{Role: "system", Content: "Expected results:\n" + expectedResultsDescription})
+	}
+	if finishReply := strings.TrimSpace(finishActionMessage(actionDocument)); finishReply != "" {
+		messages = append(messages, llm.Message{Role: "system", Content: "Finish reply that accepting this completion delivers to the user:\n" + truncateForLedger(finishReply, completionJudgeInputMaxLength)})
 	}
 	if planContext := completionJudgePlanContext(observations); planContext != "" {
 		messages = append(messages, llm.Message{Role: "system", Content: planContext})
@@ -136,6 +139,7 @@ func completionJudgeInstruction() string {
 	return strings.Join([]string{
 		"Judge whether the recorded successful operations actually accomplish the user's original instruction.",
 		"Judge only from the recorded ledger facts below. The executor's own completion claims are not evidence.",
+		"Accepting this completion delivers the finish reply to the user as the task's answer. Content the finish reply itself carries, such as links, results, and answers, is thereby delivered; never require a separate send or delivery operation for it. The reply's claims about operations it performed remain non-evidence and must match the ledger.",
 		"Mark unsatisfied when the recorded operations do not plausibly accomplish the instruction: wrong target, wrong values, or a missing step.",
 		"When the instruction states an explicit deadline, date, time, quantity, title, or recipient, that value must appear in at least one successful recorded operation input; if a stated value appears nowhere and no relevant entry is display-truncated, mark unsatisfied and name exactly that value in missingWork.",
 		"A ledger entry ending with a display-truncated marker was cut for this display only; the full content was recorded and executed. Content that would lie beyond the cut is unknown, not missing: never cite display truncation as missing work, an incomplete file, or cut-off content.",
