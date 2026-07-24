@@ -1,0 +1,7 @@
+{
+	"name": "blueclaw",
+	"private": true,
+	"scripts": {
+		"test": "cd protocol && bun run test && cd ../llmd && bun run test && cd ../chatd && bun run test && cd ../admin && bun run test"
+	}
+}

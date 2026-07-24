@@ -33,6 +33,13 @@ Always apply the code style preferences below. The only exception is when workin
 - On discovering duplicated sources of truth, merge them as part of the
   change that touched them; do not extend a duplicate.
 
+## Testing
+
+- TypeScript suites are per package: `bun run test` at the repository root
+  runs every package suite in its own process, and `cd <package> && bun run
+  test` runs one. Never run bare `bun test` at the repository root — it
+  blends isolated package processes into one and reports false failures.
+
 ## LLM-First Runtime Policy
 
 - User-facing answers, failure explanations, approval wording, and recovery direction must go through the LLM.
