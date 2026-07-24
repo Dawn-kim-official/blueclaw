@@ -47,6 +47,33 @@ export async function resolveUserProfile(
   return { displayName, email };
 }
 
+export type BuzzChannelMessage = {
+  eventID: string;
+  pubkey: string;
+  content: string;
+  createdAtSecond: number;
+};
+
+export async function fetchChannelMessages(
+  runBuzzCommand: BuzzCommandRunner,
+  channelID: string,
+  limit: number,
+): Promise<BuzzChannelMessage[]> {
+  const output = await runBuzzCommand(['messages', 'get', '--channel', channelID, '--limit', String(limit)]);
+  const documents = parseJSONSafely(output);
+  if (!Array.isArray(documents)) return [];
+  return documents
+    .filter(isRecord)
+    .map((document) => ({
+      eventID: typeof document['id'] === 'string' ? document['id'] : '',
+      pubkey: typeof document['pubkey'] === 'string' ? document['pubkey'].toLowerCase() : '',
+      content: typeof document['content'] === 'string' ? document['content'] : '',
+      createdAtSecond: typeof document['created_at'] === 'number' ? document['created_at'] : 0,
+    }))
+    .filter((message) => message.pubkey !== '' && message.content !== '')
+    .sort((first, second) => first.createdAtSecond - second.createdAtSecond);
+}
+
 export async function addMessageReaction(
   runBuzzCommand: BuzzCommandRunner,
   messageID: string,

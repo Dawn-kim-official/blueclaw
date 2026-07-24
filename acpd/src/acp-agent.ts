@@ -3,18 +3,23 @@ import { parseHarnessPrompt, type HarnessEvent, type HarnessPrompt } from './har
 import type { NotificationHandler, RequestHandler } from './jsonrpc.ts';
 import { createTaskActivityPoller } from './task-activity.ts';
 
-export type AcpAgent = {
+export type AcpAgentConnection = {
   requestHandlers: Record<string, RequestHandler>;
   notificationHandlers: Record<string, NotificationHandler>;
+};
+
+export type AcpAgentCore = {
+  createConnection: (notify: (method: string, params: unknown) => void) => AcpAgentConnection;
   relayOutboundReply: (channelID: string, message: string, replyKind: string | undefined) => void;
   finishTurnForChannel: (channelID: string, stopReason: string) => void;
 };
 
-type AgentSession = {
+type ChannelTurn = {
   sessionID: string;
-  channelID: string | undefined;
-  lastTaskRunID: string | undefined;
-  finishActiveTurn: ((stopReason: string) => void) | undefined;
+  taskRunID: string | undefined;
+  notify: (method: string, params: unknown) => void;
+  finish: ((stopReason: string) => void) | undefined;
+  terminalStopReason: string | undefined;
 };
 
 type IngressResult = {
@@ -23,115 +28,134 @@ type IngressResult = {
   taskRunID?: string;
 };
 
-export function createAcpAgent(
-  configuration: AcpdConfiguration,
-  notify: (method: string, params: unknown) => void,
-): AcpAgent {
-  const sessions = new Map<string, AgentSession>();
-  const sessionIDByChannelID = new Map<string, string>();
-
-  function sessionForChannel(channelID: string): AgentSession | undefined {
-    const sessionID = sessionIDByChannelID.get(channelID);
-    return sessionID ? sessions.get(sessionID) : undefined;
-  }
-
-  async function handleInitialize(): Promise<unknown> {
-    return { protocolVersion: 1, agentCapabilities: { loadSession: false }, authMethods: [] };
-  }
-
-  async function handleSessionNew(): Promise<unknown> {
-    const session: AgentSession = {
-      sessionID: crypto.randomUUID(),
-      channelID: undefined,
-      lastTaskRunID: undefined,
-      finishActiveTurn: undefined,
-    };
-    sessions.set(session.sessionID, session);
-    return { sessionId: session.sessionID };
-  }
-
-  async function handleSessionPrompt(params: unknown): Promise<unknown> {
-    const { sessionID, promptBlocks } = readPromptParams(params);
-    const session = sessions.get(sessionID);
-    if (!session) throw new Error(`unknown session ${sessionID}`);
-
-    const prompt = parseHarnessPrompt(promptBlocks);
-    if (!prompt.channelID || prompt.events.length === 0) {
-      return { stopReason: 'end_turn' };
-    }
-    session.channelID = prompt.channelID;
-    sessionIDByChannelID.set(prompt.channelID, session.sessionID);
-
-    const results = await forwardEvents(configuration, prompt);
-    const acceptedResult = results.find((result) => !result.ignored && !result.duplicate);
-    const taskRunID = results.map((result) => result.taskRunID).filter(Boolean).at(-1);
-    session.lastTaskRunID = taskRunID ?? session.lastTaskRunID;
-    if (!acceptedResult) {
-      return { stopReason: 'end_turn' };
-    }
-
-    const stopActivityPoller = taskRunID
-      ? createTaskActivityPoller(configuration.blueclawTaskEventsURL, taskRunID, (update) => {
-          notify('session/update', { sessionId: session.sessionID, update });
-        })
-      : undefined;
-    const turnResult = await holdTurnOpen(session, configuration.maximumTurnHoldSeconds);
-    stopActivityPoller?.();
-    return turnResult;
-  }
-
-  function handleSessionCancel(params: unknown): void {
-    const sessionID = readSessionID(params);
-    const session = sessionID ? sessions.get(sessionID) : undefined;
-    if (!session) return;
-    if (session.lastTaskRunID) {
-      void cancelBlueclawTask(configuration, session.lastTaskRunID);
-    }
-    session.finishActiveTurn?.('cancelled');
-  }
+export function createAcpAgentCore(configuration: AcpdConfiguration): AcpAgentCore {
+  const turnByChannel = new Map<string, ChannelTurn>();
 
   function relayOutboundReply(channelID: string, message: string, replyKind: string | undefined): void {
-    const session = sessionForChannel(channelID);
-    if (!session) return;
+    const turn = turnByChannel.get(channelID);
+    if (!turn) return;
     if (message.trim() !== '') {
-      notify('session/update', {
-        sessionId: session.sessionID,
+      turn.notify('session/update', {
+        sessionId: turn.sessionID,
         update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: message } },
       });
     }
     if (replyKind !== 'checkpoint') {
-      session.finishActiveTurn?.('end_turn');
+      concludeTurn(turn, 'end_turn');
     }
   }
 
   function finishTurnForChannel(channelID: string, stopReason: string): void {
-    sessionForChannel(channelID)?.finishActiveTurn?.(stopReason);
+    const turn = turnByChannel.get(channelID);
+    if (turn) concludeTurn(turn, stopReason);
   }
 
-  return {
-    requestHandlers: {
-      initialize: handleInitialize,
-      'session/new': handleSessionNew,
-      'session/prompt': handleSessionPrompt,
-    },
-    notificationHandlers: {
-      'session/cancel': handleSessionCancel,
-    },
-    relayOutboundReply,
-    finishTurnForChannel,
-  };
+  function concludeTurn(turn: ChannelTurn, stopReason: string): void {
+    turn.terminalStopReason = turn.terminalStopReason ?? stopReason;
+    turn.finish?.(stopReason);
+  }
+
+  function createConnection(notify: (method: string, params: unknown) => void): AcpAgentConnection {
+    const channelBySessionID = new Map<string, string>();
+
+    async function handleInitialize(): Promise<unknown> {
+      return { protocolVersion: 1, agentCapabilities: { loadSession: false }, authMethods: [] };
+    }
+
+    async function handleSessionNew(): Promise<unknown> {
+      const sessionID = crypto.randomUUID();
+      channelBySessionID.set(sessionID, '');
+      return { sessionId: sessionID };
+    }
+
+    async function handleSessionPrompt(params: unknown): Promise<unknown> {
+      const { sessionID, promptBlocks } = readPromptParams(params);
+      if (!channelBySessionID.has(sessionID)) throw new Error(`unknown session ${sessionID}`);
+
+      const prompt = parseHarnessPrompt(promptBlocks);
+      if (!prompt.channelID || prompt.events.length === 0) {
+        return { stopReason: 'end_turn' };
+      }
+      channelBySessionID.set(sessionID, prompt.channelID);
+
+      const pendingTurn: ChannelTurn = {
+        sessionID,
+        taskRunID: undefined,
+        notify,
+        finish: undefined,
+        terminalStopReason: undefined,
+      };
+      turnByChannel.set(prompt.channelID, pendingTurn);
+
+      let results: IngressResult[];
+      try {
+        results = await forwardEvents(configuration, prompt);
+      } catch (error) {
+        releaseTurn(turnByChannel, prompt.channelID, pendingTurn);
+        throw error;
+      }
+      const taskRunID = results.map((result) => result.taskRunID).filter(Boolean).at(-1);
+      pendingTurn.taskRunID = taskRunID;
+      if (!taskRunID || pendingTurn.terminalStopReason) {
+        releaseTurn(turnByChannel, prompt.channelID, pendingTurn);
+        return { stopReason: pendingTurn.terminalStopReason ?? 'end_turn' };
+      }
+
+      const stopActivityPoller = createTaskActivityPoller(configuration.blueclawTaskEventsURL, taskRunID, (update) => {
+        notify('session/update', { sessionId: sessionID, update });
+      });
+      const turnResult = await holdTurnOpen(turnByChannel, prompt.channelID, pendingTurn, configuration.maximumTurnHoldSeconds);
+      stopActivityPoller();
+      return turnResult;
+    }
+
+    function handleSessionCancel(params: unknown): void {
+      const sessionID = readSessionID(params);
+      const channelID = sessionID ? channelBySessionID.get(sessionID) : undefined;
+      const turn = channelID ? turnByChannel.get(channelID) : undefined;
+      if (!turn || turn.sessionID !== sessionID) return;
+      if (turn.taskRunID) {
+        void cancelBlueclawTask(configuration, turn.taskRunID);
+      }
+      concludeTurn(turn, 'cancelled');
+    }
+
+    return {
+      requestHandlers: {
+        initialize: handleInitialize,
+        'session/new': handleSessionNew,
+        'session/prompt': handleSessionPrompt,
+      },
+      notificationHandlers: {
+        'session/cancel': handleSessionCancel,
+      },
+    };
+  }
+
+  return { createConnection, relayOutboundReply, finishTurnForChannel };
 }
 
-function holdTurnOpen(session: AgentSession, maximumHoldSeconds: number): Promise<{ stopReason: string }> {
+function holdTurnOpen(
+  turnByChannel: Map<string, ChannelTurn>,
+  channelID: string,
+  turn: ChannelTurn,
+  maximumHoldSeconds: number,
+): Promise<{ stopReason: string }> {
   return new Promise((resolve) => {
     const timeoutHandle = setTimeout(() => finish('end_turn'), maximumHoldSeconds * 1000);
     function finish(stopReason: string): void {
       clearTimeout(timeoutHandle);
-      session.finishActiveTurn = undefined;
+      releaseTurn(turnByChannel, channelID, turn);
       resolve({ stopReason });
     }
-    session.finishActiveTurn = finish;
+    turn.finish = finish;
   });
+}
+
+function releaseTurn(turnByChannel: Map<string, ChannelTurn>, channelID: string, turn: ChannelTurn): void {
+  if (turnByChannel.get(channelID) === turn) {
+    turnByChannel.delete(channelID);
+  }
 }
 
 async function forwardEvents(configuration: AcpdConfiguration, prompt: HarnessPrompt): Promise<IngressResult[]> {
@@ -159,6 +183,7 @@ async function forwardEvent(
       senderID: event.senderHex,
       replyTargetID: `${channelID}/${replyAnchorEventID}`,
       prompt: event.content,
+      context: { messages: [], hasMoreBefore: true, historyCursor: channelID },
     }),
   });
   if (!response.ok) {

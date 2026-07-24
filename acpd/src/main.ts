@@ -1,25 +1,13 @@
-import { createAcpAgent } from './acp-agent.ts';
+import { unlinkSync } from 'node:fs';
+import { createAcpAgentCore } from './acp-agent.ts';
 import { createBuzzCommandRunner } from './buzz-cli.ts';
 import { loadConfiguration } from './configuration.ts';
-import { createJSONRPCPeer, pumpStandardInputLines } from './jsonrpc.ts';
+import { createJSONRPCPeer, type JSONRPCPeer } from './jsonrpc.ts';
 import { createOutboundHandler } from './outbound.ts';
 
 const configuration = loadConfiguration(process.env);
-const standardOutputWriter = Bun.stdout.writer();
-
-let peerNotify: (method: string, params: unknown) => void = () => {};
-const agent = createAcpAgent(configuration, (method, params) => peerNotify(method, params));
-const peer = createJSONRPCPeer(
-  (line) => {
-    standardOutputWriter.write(line + '\n');
-    standardOutputWriter.flush();
-  },
-  agent.requestHandlers,
-  agent.notificationHandlers,
-);
-peerNotify = peer.notify;
-
-const outboundHandler = createOutboundHandler(createBuzzCommandRunner(configuration), agent, configuration);
+const core = createAcpAgentCore(configuration);
+const outboundHandler = createOutboundHandler(createBuzzCommandRunner(configuration), core, configuration);
 
 Bun.serve({
   port: configuration.listenPort,
@@ -27,5 +15,48 @@ Bun.serve({
   fetch: outboundHandler,
 });
 
-await pumpStandardInputLines(peer.handleLine);
-process.exit(0);
+type ConnectionState = {
+  peer: JSONRPCPeer;
+  buffered: string;
+  decoder: TextDecoder;
+};
+
+try {
+  unlinkSync(configuration.socketPath);
+} catch {
+  void 0;
+}
+
+Bun.listen<ConnectionState>({
+  unix: configuration.socketPath,
+  socket: {
+    open(socket) {
+      const connection = core.createConnection((method, params) => {
+        socket.write(JSON.stringify({ jsonrpc: '2.0', method, params }) + '\n');
+      });
+      socket.data = {
+        peer: createJSONRPCPeer(
+          (line) => socket.write(line + '\n'),
+          connection.requestHandlers,
+          connection.notificationHandlers,
+        ),
+        buffered: '',
+        decoder: new TextDecoder(),
+      };
+    },
+    data(socket, chunk) {
+      const state = socket.data;
+      state.buffered += state.decoder.decode(chunk, { stream: true });
+      let newlineIndex = state.buffered.indexOf('\n');
+      while (newlineIndex >= 0) {
+        state.peer.handleLine(state.buffered.slice(0, newlineIndex));
+        state.buffered = state.buffered.slice(newlineIndex + 1);
+        newlineIndex = state.buffered.indexOf('\n');
+      }
+    },
+    close() {},
+    error() {},
+  },
+});
+
+console.error(`acpd listening on ${configuration.socketPath} and 127.0.0.1:${configuration.listenPort}`);
