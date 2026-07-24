@@ -108,11 +108,12 @@ describe("buzz history scope", () => {
 });
 
 describe("buzz reactions", () => {
-	test("maps platform emoji names used by blueclaw to unicode", () => {
+	test("maps every blueclaw reaction emoji name to unicode", () => {
 		const namesToExpected: Array<[string, string]> = [
 			["eyes", "👀"],
 			["white_check_mark", "✅"],
 			["+1", "👍"],
+			["thumbsup", "👍"],
 			["ok_hand", "👌"],
 			["pray", "🙏"],
 			["heart", "❤️"],
@@ -120,6 +121,18 @@ describe("buzz reactions", () => {
 			["clap", "👏"],
 			["raised_hands", "🙌"],
 			["fire", "🔥"],
+			["rocket", "🚀"],
+			["sparkles", "✨"],
+			["100", "💯"],
+			["muscle", "💪"],
+			["wave", "👋"],
+			["thinking_face", "🤔"],
+			["memo", "📝"],
+			["hourglass_flowing_sand", "⏳"],
+			["mag", "🔍"],
+			["bulb", "💡"],
+			["sob", "😭"],
+			["sweat_smile", "😅"],
 		];
 		for (const [name, expected] of namesToExpected) {
 			expect(reactionContentOf(name)).toBe(expected);

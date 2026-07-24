@@ -36,7 +36,13 @@ const GROUP_MEMBERS_KIND = 39002;
 const MEMBER_ADDED_NOTIFICATION_KIND = 44100;
 const MEMBER_REMOVED_NOTIFICATION_KIND = 44101;
 
-const reactionEmojiResolver = new EmojiResolver({ clap: { slack: "clap", gchat: "👏" } });
+const reactionEmojiResolver = new EmojiResolver({
+	clap: { slack: "clap", gchat: "👏" },
+	mag: { slack: "mag", gchat: "🔍" },
+	sweat_smile: { slack: "sweat_smile", gchat: "😅" },
+	wave: { slack: "wave", gchat: "👋" },
+	hourglass_flowing_sand: { slack: "hourglass_flowing_sand", gchat: "⏳" },
+});
 
 export function reactionContentOf(emojiName: string): string {
 	return reactionEmojiResolver.toGChat(reactionEmojiResolver.fromSlack(emojiName));

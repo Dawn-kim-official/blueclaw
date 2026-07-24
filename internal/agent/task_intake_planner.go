@@ -80,6 +80,8 @@ var allowedReactionEmojiNames = []string{
 	"sob",
 	"sweat_smile",
 	"wave",
+	"100",
+	"muscle",
 }
 
 type IntakeOptions struct {
