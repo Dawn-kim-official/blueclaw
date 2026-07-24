@@ -1,4 +1,5 @@
 import type { AdapterPostableMessage, CardElement, FileUpload } from "chat";
+import { BuzzAdapter } from "./adapters/buzz/adapter.ts";
 import type { MattermostAdapter } from "./adapters/mattermost/adapter.ts";
 import type { ChatdConfiguration } from "./configuration.ts";
 import { importAttachmentToDirectory } from "./outbound-attachments.ts";
@@ -23,8 +24,10 @@ import type {
 	VisibleContextMessageDocument,
 } from "./outbound-types.ts";
 
+type PlatformChatAdapter = MattermostAdapter | BuzzAdapter;
+
 type CapabilityHandler = (
-	adapter: MattermostAdapter,
+	adapter: PlatformChatAdapter,
 	configuration: ChatdConfiguration,
 	requestDocument: unknown,
 ) => Promise<object>;
@@ -44,7 +47,7 @@ const capabilityHandlers: Record<string, CapabilityHandler> = {
 };
 
 export function createOutboundHandler(
-	adapter: MattermostAdapter,
+	adapters: Record<string, PlatformChatAdapter>,
 	configuration: ChatdConfiguration,
 ): (request: Request) => Promise<Response> {
 	return async function handleOutboundRequest(request: Request): Promise<Response> {
@@ -58,7 +61,8 @@ export function createOutboundHandler(
 		}
 
 		const [, platform, capabilityName] = routeMatch;
-		if (platform !== "mattermost" || !capabilityName) {
+		const adapter = platform ? adapters[platform] : undefined;
+		if (!adapter || !capabilityName) {
 			return jsonResponse(404, { error: `unknown platform ${platform}` });
 		}
 
@@ -85,7 +89,7 @@ function jsonResponse(statusCode: number, body: object): Response {
 }
 
 async function handleReplySend(
-	adapter: MattermostAdapter,
+	adapter: PlatformChatAdapter,
 	_configuration: ChatdConfiguration,
 	requestBody: unknown,
 ): Promise<ReplySendResponse> {
@@ -164,7 +168,7 @@ async function readAttachmentBytes(attachment: ReplyAttachmentDocument): Promise
 }
 
 async function handleProgressStart(
-	adapter: MattermostAdapter,
+	adapter: PlatformChatAdapter,
 	_configuration: ChatdConfiguration,
 	requestBody: unknown,
 ): Promise<Record<string, never>> {
@@ -178,7 +182,7 @@ async function handleProgressStop(): Promise<Record<string, never>> {
 }
 
 async function handleReactionAdd(
-	adapter: MattermostAdapter,
+	adapter: PlatformChatAdapter,
 	_configuration: ChatdConfiguration,
 	requestBody: unknown,
 ): Promise<Record<string, never>> {
@@ -188,7 +192,7 @@ async function handleReactionAdd(
 }
 
 async function handleReactionRemove(
-	adapter: MattermostAdapter,
+	adapter: PlatformChatAdapter,
 	_configuration: ChatdConfiguration,
 	requestBody: unknown,
 ): Promise<Record<string, never>> {
@@ -225,7 +229,7 @@ function parseJsonSafely<T>(value: string): T | null {
 }
 
 async function handleHistoryFetch(
-	adapter: MattermostAdapter,
+	adapter: PlatformChatAdapter,
 	_configuration: ChatdConfiguration,
 	requestBody: unknown,
 ): Promise<HistoryFetchResponse> {
@@ -264,11 +268,14 @@ function toVisibleContextMessage(message: {
 }
 
 async function handleInteractionResolve(
-	adapter: MattermostAdapter,
+	adapter: PlatformChatAdapter,
 	_configuration: ChatdConfiguration,
 	requestBody: unknown,
 ): Promise<Record<string, never>> {
 	const requestDocument = parseInteractionResolveRequest(requestBody);
+	if (adapter instanceof BuzzAdapter || !adapter.fetchMessage) {
+		return {};
+	}
 	const existingMessage = await adapter.fetchMessage("", requestDocument.dispatchID);
 	if (!existingMessage) {
 		return {};
@@ -287,11 +294,14 @@ async function handleInteractionResolve(
 }
 
 async function handleAttachmentsImport(
-	adapter: MattermostAdapter,
+	adapter: PlatformChatAdapter,
 	configuration: ChatdConfiguration,
 	requestBody: unknown,
 ): Promise<AttachmentImportResponse> {
 	const requestDocument = parseAttachmentImportRequest(requestBody);
+	if (adapter instanceof BuzzAdapter) {
+		return { inputParts: [], inputAttachments: [] };
+	}
 	const importedAttachments = await Promise.all(
 		requestDocument.inputAttachments.map((attachment) =>
 			importAttachmentToDirectory(configuration, requestDocument.targetDirectoryPath, attachment),
@@ -329,14 +339,17 @@ function agentPartForAttachment(attachment: InputAttachmentDocument, messageID: 
 }
 
 async function handleIdentityResolve(
-	adapter: MattermostAdapter,
+	adapter: PlatformChatAdapter,
 	_configuration: ChatdConfiguration,
 	requestBody: unknown,
 ): Promise<IdentityResolveResponse> {
 	const requestDocument = parseIdentityResolveRequest(requestBody);
+	if (!adapter.getUser) {
+		return {};
+	}
 	const user = await adapter.getUser(requestDocument.senderID);
 	if (!user) {
 		return {};
 	}
-	return { displayName: user.fullName };
+	return { displayName: user.fullName, email: user.email };
 }

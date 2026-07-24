@@ -1,21 +1,84 @@
+export type MattermostConfiguration = {
+  baseURL: string;
+  botToken: string;
+  actionCallbackURL: string | undefined;
+};
+
+export type BuzzConfiguration = {
+  relayURL: string;
+  privateKeyHex: string;
+  accountLinksPath: string | undefined;
+  authTagJSON: string | undefined;
+};
+
 export type ChatdConfiguration = {
   botUserName: string;
-  mattermostBaseURL: string;
-  mattermostBotToken: string;
-  actionCallbackURL: string | undefined;
-  blueclawIngressURL: string;
+  blueclawBaseURL: string;
+  blueclawIngressURL: string | undefined;
   listenPort: number;
+  mattermost: MattermostConfiguration | undefined;
+  buzz: BuzzConfiguration | undefined;
 };
 
 export function loadConfiguration(environment: Record<string, string | undefined>): ChatdConfiguration {
-  return {
+  const configuration: ChatdConfiguration = {
     botUserName: requireValue(environment, 'CHATD_BOT_USER_NAME'),
-    mattermostBaseURL: requireValue(environment, 'CHATD_MATTERMOST_BASE_URL'),
-    mattermostBotToken: requireValue(environment, 'CHATD_MATTERMOST_BOT_TOKEN'),
-    actionCallbackURL: environment['CHATD_ACTION_CALLBACK_URL'],
-    blueclawIngressURL: requireValue(environment, 'CHATD_BLUECLAW_INGRESS_URL'),
+    blueclawBaseURL: trimTrailingSlash(
+      environment['CHATD_BLUECLAW_BASE_URL']?.trim() ||
+        deriveBaseURL(environment['CHATD_BLUECLAW_INGRESS_URL']) ||
+        'http://127.0.0.1:8080',
+    ),
+    blueclawIngressURL: environment['CHATD_BLUECLAW_INGRESS_URL']?.trim() || undefined,
     listenPort: parseListenPort(environment['CHATD_LISTEN_PORT']),
+    mattermost: loadMattermostConfiguration(environment),
+    buzz: loadBuzzConfiguration(environment),
   };
+  if (!configuration.mattermost && !configuration.buzz) {
+    throw new Error('chatd needs at least one platform: set CHATD_MATTERMOST_* or CHATD_BUZZ_* variables');
+  }
+  if (configuration.mattermost && !configuration.blueclawIngressURL) {
+    throw new Error('CHATD_BLUECLAW_INGRESS_URL is required when mattermost is enabled');
+  }
+  return configuration;
+}
+
+function loadMattermostConfiguration(environment: Record<string, string | undefined>): MattermostConfiguration | undefined {
+  const baseURL = environment['CHATD_MATTERMOST_BASE_URL']?.trim();
+  if (!baseURL) return undefined;
+  return {
+    baseURL,
+    botToken: requireValue(environment, 'CHATD_MATTERMOST_BOT_TOKEN'),
+    actionCallbackURL: environment['CHATD_ACTION_CALLBACK_URL'],
+  };
+}
+
+function loadBuzzConfiguration(environment: Record<string, string | undefined>): BuzzConfiguration | undefined {
+  const relayURL = environment['CHATD_BUZZ_RELAY_URL']?.trim();
+  if (!relayURL) return undefined;
+  const privateKeyHex = requireValue(environment, 'CHATD_BUZZ_PRIVATE_KEY').toLowerCase();
+  if (!/^[0-9a-f]{64}$/.test(privateKeyHex)) {
+    throw new Error('CHATD_BUZZ_PRIVATE_KEY must be 64 hex characters');
+  }
+  return {
+    relayURL,
+    privateKeyHex,
+    accountLinksPath: environment['CHATD_BUZZ_ACCOUNT_LINKS_PATH']?.trim() || undefined,
+    authTagJSON: environment['CHATD_BUZZ_AUTH_TAG']?.trim() || undefined,
+  };
+}
+
+function deriveBaseURL(ingressURL: string | undefined): string | undefined {
+  const trimmed = ingressURL?.trim();
+  if (!trimmed) return undefined;
+  try {
+    return new URL(trimmed).origin;
+  } catch {
+    return undefined;
+  }
+}
+
+function trimTrailingSlash(value: string): string {
+  return value.endsWith('/') ? value.slice(0, -1) : value;
 }
 
 function requireValue(environment: Record<string, string | undefined>, key: string): string {

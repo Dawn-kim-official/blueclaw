@@ -13,7 +13,6 @@ import (
 )
 
 const DefaultChatdEndpoint = "http://127.0.0.1:18090"
-const DefaultAcpdEndpoint = "http://127.0.0.1:18091"
 
 type ChatdPlatformAdapter struct {
 	PlatformName string
