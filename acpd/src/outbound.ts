@@ -6,6 +6,7 @@ import {
   sendChannelMessage,
   type BuzzCommandRunner,
 } from './buzz-cli.ts';
+import type { AcpdConfiguration } from './configuration.ts';
 
 const OUTBOUND_ROUTE_PATTERN = /^\/v1\/platform\/buzz\/([^/]+)$/;
 
@@ -18,6 +19,10 @@ type ReplyAttachmentDocument = {
 export function createOutboundHandler(
   runBuzzCommand: BuzzCommandRunner,
   agent: AcpAgent,
+  configuration: Pick<AcpdConfiguration, 'accountEmailByPubkey' | 'accountLinksPath'> = {
+    accountEmailByPubkey: {},
+    accountLinksPath: undefined,
+  },
 ): (request: Request) => Promise<Response> {
   const capabilityHandlers: Record<string, (requestDocument: Record<string, unknown>) => Promise<object>> = {
     'reply.send': handleReplySend,
@@ -46,7 +51,12 @@ export function createOutboundHandler(
   async function handleIdentityResolve(requestDocument: Record<string, unknown>): Promise<object> {
     const senderID = readString(requestDocument, 'senderID');
     if (!senderID) return {};
-    return await resolveUserProfile(runBuzzCommand, senderID);
+    const linkedEmail =
+      (await readLinkedEmailFromFile(configuration.accountLinksPath, senderID)) ??
+      configuration.accountEmailByPubkey[senderID.toLowerCase()];
+    const profile = await resolveUserProfile(runBuzzCommand, senderID).catch(() => ({}));
+    if (linkedEmail) return { ...profile, email: linkedEmail };
+    return profile;
   }
 
   async function handleHistoryFetch(requestDocument: Record<string, unknown>): Promise<object> {
@@ -86,6 +96,20 @@ export function createOutboundHandler(
       return jsonResponse(502, { error: error instanceof Error ? error.message : String(error) });
     }
   };
+}
+
+async function readLinkedEmailFromFile(accountLinksPath: string | undefined, senderID: string): Promise<string | undefined> {
+  if (!accountLinksPath) return undefined;
+  const linksFile = Bun.file(accountLinksPath);
+  if (!(await linksFile.exists())) return undefined;
+  try {
+    const links: unknown = await linksFile.json();
+    if (typeof links !== 'object' || links === null) return undefined;
+    const email = (links as Record<string, unknown>)[senderID.toLowerCase()];
+    return typeof email === 'string' && email.trim() !== '' ? email.trim().toLowerCase() : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 export function decodeReplyTarget(replyTargetID: string): { channelID: string | undefined; replyAnchorEventID: string | undefined } {

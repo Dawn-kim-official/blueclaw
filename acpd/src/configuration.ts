@@ -4,6 +4,8 @@ export type AcpdConfiguration = {
   buzzCommand: string;
   listenPort: number;
   maximumTurnHoldSeconds: number;
+  accountEmailByPubkey: Record<string, string>;
+  accountLinksPath: string | undefined;
 };
 
 export function loadConfiguration(environment: Record<string, string | undefined>): AcpdConfiguration {
@@ -14,7 +16,24 @@ export function loadConfiguration(environment: Record<string, string | undefined
     buzzCommand: environment['ACPD_BUZZ_COMMAND']?.trim() || 'buzz',
     listenPort: parseListenPort(environment['ACPD_LISTEN_PORT']),
     maximumTurnHoldSeconds: parsePositiveInteger(environment['ACPD_MAXIMUM_TURN_HOLD_SECONDS'], 3300),
+    accountEmailByPubkey: parseAccountLinks(environment['ACPD_ACCOUNT_LINKS']),
+    accountLinksPath: environment['ACPD_ACCOUNT_LINKS_PATH']?.trim() || undefined,
   };
+}
+
+function parseAccountLinks(value: string | undefined): Record<string, string> {
+  const accountEmailByPubkey: Record<string, string> = {};
+  for (const entry of (value ?? '').split(',')) {
+    const [pubkey, email] = entry.split('=');
+    const normalizedPubkey = pubkey?.trim().toLowerCase();
+    const normalizedEmail = email?.trim().toLowerCase();
+    if (!normalizedPubkey || !normalizedEmail) continue;
+    if (!/^[0-9a-f]{64}$/.test(normalizedPubkey)) {
+      throw new Error(`ACPD_ACCOUNT_LINKS pubkey must be 64-char hex: ${normalizedPubkey}`);
+    }
+    accountEmailByPubkey[normalizedPubkey] = normalizedEmail;
+  }
+  return accountEmailByPubkey;
 }
 
 function trimTrailingSlash(value: string): string {

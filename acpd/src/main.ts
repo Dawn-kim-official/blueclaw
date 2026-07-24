@@ -19,7 +19,7 @@ const peer = createJSONRPCPeer(
 );
 peerNotify = peer.notify;
 
-const outboundHandler = createOutboundHandler(createBuzzCommandRunner(configuration), agent);
+const outboundHandler = createOutboundHandler(createBuzzCommandRunner(configuration), agent, configuration);
 
 Bun.serve({
   port: configuration.listenPort,
