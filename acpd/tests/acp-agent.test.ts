@@ -104,6 +104,14 @@ describe('createAcpAgent', () => {
     });
   });
 
+  test('accepted prompt without a task run ends the turn without holding', async () => {
+    installFetchStub({ handled: true });
+    const agent = createAcpAgent(configuration, () => {});
+    const sessionID = await createSessionWithAgent(agent);
+    const result = await agent.requestHandlers['session/prompt']?.({ sessionId: sessionID, prompt: promptBlocksForEvent() });
+    expect(result).toEqual({ stopReason: 'end_turn' });
+  });
+
   test('ignored prompt ends the turn without holding', async () => {
     installFetchStub({ handled: true, ignored: true });
     const agent = createAcpAgent(configuration, () => {});
