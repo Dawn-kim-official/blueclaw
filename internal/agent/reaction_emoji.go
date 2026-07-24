@@ -4,7 +4,6 @@ var reactionEmojiNames = []string{
 	"white_check_mark",
 	"eyes",
 	"+1",
-	"thumbsup",
 	"ok_hand",
 	"pray",
 	"heart",

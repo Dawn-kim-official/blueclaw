@@ -1,6 +1,6 @@
 import {
 	BaseFormatConverter,
-	EmojiResolver,
+	defaultEmojiResolver,
 	Message,
 	parseMarkdown,
 	stringifyMarkdown,
@@ -16,6 +16,11 @@ import {
 	type UserInfo,
 	type WebhookOptions,
 } from "chat";
+import {
+	canonicalChannelName,
+	type ManagedChannel,
+	type ManagedChannelSpec,
+} from "../../channels.ts";
 import { createBuzzRelayClient, type BuzzRelayClient } from "./relay-client.ts";
 import {
 	BUZZ_ADAPTER_NAME,
@@ -33,19 +38,25 @@ const REACTION_KIND = 7;
 const PROFILE_KIND = 0;
 const GROUP_METADATA_KIND = 39000;
 const GROUP_MEMBERS_KIND = 39002;
+const CREATE_CHANNEL_KIND = 9007;
+const SET_TOPIC_KIND = 9002;
+const EDIT_MESSAGE_KIND = 40003;
+const DELETE_MESSAGE_KIND = 9005;
 const MEMBER_ADDED_NOTIFICATION_KIND = 44100;
 const MEMBER_REMOVED_NOTIFICATION_KIND = 44101;
 
-const reactionEmojiResolver = new EmojiResolver({
-	clap: { slack: "clap", gchat: "👏" },
-	mag: { slack: "mag", gchat: "🔍" },
-	sweat_smile: { slack: "sweat_smile", gchat: "😅" },
-	wave: { slack: "wave", gchat: "👋" },
-	hourglass_flowing_sand: { slack: "hourglass_flowing_sand", gchat: "⏳" },
-});
+const additionalReactionEmojiCharacters: Record<string, string> = {
+	clap: "\u{1F44F}",
+	mag: "\u{1F50D}",
+	sweat_smile: "\u{1F605}",
+	wave: "\u{1F44B}",
+	hourglass_flowing_sand: "\u{23F3}",
+};
 
 export function reactionContentOf(emojiName: string): string {
-	return reactionEmojiResolver.toGChat(reactionEmojiResolver.fromSlack(emojiName));
+	const additionalCharacter = additionalReactionEmojiCharacters[emojiName];
+	if (additionalCharacter) return additionalCharacter;
+	return defaultEmojiResolver.toGChat(defaultEmojiResolver.fromSlack(emojiName));
 }
 
 function pubkeyTagValuesOf(raw: unknown): string[] {
@@ -136,6 +147,52 @@ export class BuzzAdapter implements Adapter<BuzzThreadId, BuzzEvent> {
 		await this.refreshChannels();
 		this.subscribeToChannels();
 		this.subscribeToMembershipChanges();
+	}
+
+	async ensureChannel(spec: ManagedChannelSpec): Promise<ManagedChannel> {
+		const name = canonicalChannelName(spec.name);
+		const existingChannelId = await this.findChannelIdByName(name);
+		if (existingChannelId) {
+			return this.managedChannel(existingChannelId, false);
+		}
+		const channelId = crypto.randomUUID();
+		const tags: string[][] = [
+			["h", channelId],
+			["name", name],
+			["visibility", "open"],
+			["channel_type", "stream"],
+		];
+		if (spec.description) tags.push(["about", spec.description]);
+		await this.relay.publish(CREATE_CHANNEL_KIND, "", tags);
+		if (spec.topic) {
+			await this.relay.publish(SET_TOPIC_KIND, "", [
+				["h", channelId],
+				["topic", spec.topic],
+			]);
+		}
+		this.channelsById.set(channelId, { channelId, name, isDM: false });
+		this.subscribeToChannels();
+		return this.managedChannel(channelId, true);
+	}
+
+	private managedChannel(channelId: string, created: boolean): ManagedChannel {
+		return { channelID: channelId, replyTargetID: this.encodeThreadId({ channelId }), created };
+	}
+
+	private async findChannelIdByName(name: string): Promise<string | undefined> {
+		const metadataEvents = await this.relay.query({ kinds: [GROUP_METADATA_KIND], limit: 500 });
+		const latestByChannel = new Map<string, BuzzEvent>();
+		for (const event of metadataEvents) {
+			const channelId = firstTagValue(event, "d");
+			if (!channelId) continue;
+			const known = latestByChannel.get(channelId);
+			if (!known || event.created_at > known.created_at) latestByChannel.set(channelId, event);
+		}
+		for (const [channelId, event] of latestByChannel) {
+			if (firstTagValue(event, "archived") === "true") continue;
+			if (canonicalChannelName(firstTagValue(event, "name") ?? "") === name) return channelId;
+		}
+		return undefined;
 	}
 
 	private subscribeToMembershipChanges(): void {
@@ -296,12 +353,25 @@ export class BuzzAdapter implements Adapter<BuzzThreadId, BuzzEvent> {
 		return this.postMessage(this.encodeThreadId({ channelId }), message);
 	}
 
-	async editMessage(): Promise<RawMessage<BuzzEvent>> {
-		throw new Error("buzz message edits are not supported");
+	async editMessage(
+		threadId: string,
+		messageId: string,
+		message: AdapterPostableMessage,
+	): Promise<RawMessage<BuzzEvent>> {
+		const decoded = this.decodeThreadId(threadId);
+		const text = this.converter.renderPostable(message);
+		const event = await this.relay.publish(EDIT_MESSAGE_KIND, text, [
+			["h", decoded.channelId],
+			["e", messageId],
+		]);
+		return { id: messageId, threadId, raw: event };
 	}
 
-	async deleteMessage(): Promise<void> {
-		throw new Error("buzz message deletion is not supported");
+	async deleteMessage(threadId: string, messageId: string): Promise<void> {
+		await this.relay.publish(DELETE_MESSAGE_KIND, "", [
+			["h", this.decodeThreadId(threadId).channelId],
+			["e", messageId],
+		]);
 	}
 
 	async addReaction(threadId: string, messageId: string, emoji: string): Promise<void> {

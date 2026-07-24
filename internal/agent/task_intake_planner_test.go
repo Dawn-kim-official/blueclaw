@@ -818,7 +818,7 @@ func TestTurnRouterSchemaUsesContextDependentPendingFields(t *testing.T) {
 	if !strings.Contains(noPendingSchema, `"clarificationQuestion"`) || !strings.Contains(noPendingSchema, `"clarificationOptions"`) {
 		t.Fatalf("expected optional clarify fields in base schema, got %s", noPendingSchema)
 	}
-	for _, expectedEmojiName := range []string{`"reactionEmojiName"`, `"white_check_mark"`, `"thumbsup"`, `"tada"`, `"rocket"`, `"ok_hand"`, `"hourglass_flowing_sand"`, `"sparkles"`, `"wave"`} {
+	for _, expectedEmojiName := range []string{`"reactionEmojiName"`, `"white_check_mark"`, `"+1"`, `"tada"`, `"rocket"`, `"ok_hand"`, `"hourglass_flowing_sand"`, `"sparkles"`, `"wave"`} {
 		if !strings.Contains(noPendingSchema, expectedEmojiName) {
 			t.Fatalf("expected reaction emoji enum value %s in schema, got %s", expectedEmojiName, noPendingSchema)
 		}
