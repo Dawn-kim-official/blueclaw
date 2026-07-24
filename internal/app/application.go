@@ -303,6 +303,9 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 	connectorRuntime.RegisterAdapter(newPlatformAdapter("signal", runtimeConfiguration, capabilityClient, chatdClient))
 	agentReplyStore := apiconnector.NewReplyStore()
 	connectorRuntime.RegisterAdapter(apiconnector.NewAdapter(identityService, agentReplyStore))
+	if runtimeConfiguration.Connectors.Buzz.Enabled {
+		connectorRuntime.RegisterAdapter(newBuzzPlatformAdapter(runtimeConfiguration))
+	}
 	connectorEventHandler := httpserver.NewConnectorEventHandler(connectorRuntime)
 
 	logger.Info("application.initializing", "stage", "router")
@@ -417,6 +420,9 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 		connectors.NewHTTPWebhookTransport("mattermost-internal-ingress", "mattermost"),
 		connectors.NewHTTPWebhookTransport("slack-internal-ingress", "slack"),
 		connectors.NewHTTPWebhookTransport("signal-internal-ingress", "signal"),
+	}
+	if runtimeConfiguration.Connectors.Buzz.Enabled {
+		connectorTransports = append(connectorTransports, connectors.NewHTTPWebhookTransport("buzz-internal-ingress", "buzz"))
 	}
 
 	logger.Info("application.initializing", "stage", "ready")
@@ -935,6 +941,17 @@ func newChatdClient(runtimeConfiguration config.RuntimeConfiguration) capability
 		Endpoint: firstNonEmptyString(runtimeConfiguration.Connectors.Chatd.Endpoint, connectors.DefaultChatdEndpoint),
 		Timeout:  time.Duration(runtimeConfiguration.Connectors.Chatd.TimeoutSecond) * time.Second,
 	})
+}
+
+func newAcpdClient(runtimeConfiguration config.RuntimeConfiguration) capability.Client {
+	return capability.NewClient(capability.Configuration{
+		Endpoint: firstNonEmptyString(runtimeConfiguration.Connectors.Buzz.Endpoint, connectors.DefaultAcpdEndpoint),
+		Timeout:  time.Duration(runtimeConfiguration.Connectors.Buzz.TimeoutSecond) * time.Second,
+	})
+}
+
+func newBuzzPlatformAdapter(runtimeConfiguration config.RuntimeConfiguration) connectors.PlatformAdapter {
+	return connectors.NewChatdPlatformAdapter("buzz", newAcpdClient(runtimeConfiguration))
 }
 
 func newPlatformAdapter(platform string, runtimeConfiguration config.RuntimeConfiguration, capabilityClient capability.Client, chatdClient capability.Client) connectors.PlatformAdapter {
