@@ -1,5 +1,6 @@
 import {
 	BaseFormatConverter,
+	EmojiResolver,
 	Message,
 	parseMarkdown,
 	stringifyMarkdown,
@@ -34,6 +35,12 @@ const GROUP_METADATA_KIND = 39000;
 const GROUP_MEMBERS_KIND = 39002;
 const MEMBER_ADDED_NOTIFICATION_KIND = 44100;
 const MEMBER_REMOVED_NOTIFICATION_KIND = 44101;
+
+const reactionEmojiResolver = new EmojiResolver({ clap: { slack: "clap", gchat: "👏" } });
+
+export function reactionContentOf(emojiName: string): string {
+	return reactionEmojiResolver.toGChat(reactionEmojiResolver.fromSlack(emojiName));
+}
 
 function pubkeyTagValuesOf(raw: unknown): string[] {
 	if (typeof raw !== "object" || raw === null || !("tags" in raw)) return [];
@@ -296,7 +303,7 @@ export class BuzzAdapter implements Adapter<BuzzThreadId, BuzzEvent> {
 		if (threadId) {
 			tags.push(["h", this.decodeThreadId(threadId).channelId]);
 		}
-		await this.relay.publish(REACTION_KIND, String(emoji), tags);
+		await this.relay.publish(REACTION_KIND, reactionContentOf(String(emoji)), tags);
 	}
 
 	async removeReaction(): Promise<void> {}
