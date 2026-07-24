@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { BuzzAdapter } from "../src/adapters/buzz/adapter.ts";
+import { BuzzAdapter, reactionContentOf } from "../src/adapters/buzz/adapter.ts";
 import { firstTagValue, threadTagsOf, type BuzzEvent } from "../src/adapters/buzz/types.ts";
 
 const CHANNEL_UUID = "8f14e45f-ea3c-4c2d-9d4b-1a2b3c4d5e6f";
@@ -104,6 +104,30 @@ describe("buzz history scope", () => {
 		const adapter = createAdapter();
 		const threadId = adapter.encodeThreadId({ channelId: CHANNEL_UUID, rootEventId: ROOT_EVENT_ID });
 		expect(adapter.historyScopeThreadId(threadId, "e".repeat(64))).toBe(threadId);
+	});
+});
+
+describe("buzz reactions", () => {
+	test("maps platform emoji names used by blueclaw to unicode", () => {
+		const namesToExpected: Array<[string, string]> = [
+			["eyes", "👀"],
+			["white_check_mark", "✅"],
+			["+1", "👍"],
+			["ok_hand", "👌"],
+			["pray", "🙏"],
+			["heart", "❤️"],
+			["tada", "🎉"],
+			["clap", "👏"],
+			["raised_hands", "🙌"],
+			["fire", "🔥"],
+		];
+		for (const [name, expected] of namesToExpected) {
+			expect(reactionContentOf(name)).toBe(expected);
+		}
+	});
+
+	test("passes unicode reactions through unchanged", () => {
+		expect(reactionContentOf("👀")).toBe("👀");
 	});
 });
 
