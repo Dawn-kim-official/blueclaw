@@ -30,6 +30,8 @@ const STREAM_MESSAGE_KIND = 9;
 const TYPING_INDICATOR_KIND = 20002;
 const REACTION_KIND = 7;
 const PROFILE_KIND = 0;
+const GROUP_METADATA_KIND = 39000;
+const GROUP_MEMBERS_KIND = 39002;
 
 class BuzzFormatConverter extends BaseFormatConverter {
 	toAst(platformText: string): Root {
@@ -49,6 +51,7 @@ export class BuzzAdapter implements Adapter<BuzzThreadId, BuzzEvent> {
 	private readonly converter = new BuzzFormatConverter();
 	private chat: ChatInstance | null = null;
 	private channelsById = new Map<string, BuzzChannel>();
+	private subscribedChannelIds = new Set<string>();
 	private profileByPubkey = new Map<string, { name?: string; nip05?: string; picture?: string }>();
 
 	constructor(config: BuzzAdapterConfig) {
@@ -67,6 +70,10 @@ export class BuzzAdapter implements Adapter<BuzzThreadId, BuzzEvent> {
 
 	channelIdFromThreadId(threadId: string): string {
 		return this.decodeThreadId(threadId).channelId;
+	}
+
+	historyThreadId(threadId: string): string {
+		return this.encodeThreadId({ channelId: this.decodeThreadId(threadId).channelId });
 	}
 
 	encodeThreadId(data: BuzzThreadId): string {
@@ -99,31 +106,43 @@ export class BuzzAdapter implements Adapter<BuzzThreadId, BuzzEvent> {
 	}
 
 	private async refreshChannels(): Promise<void> {
-		const response = (await this.relay.restGET("/api/channels?member=true")) as
-			| Array<Record<string, unknown>>
-			| { channels?: Array<Record<string, unknown>> };
-		const rows = Array.isArray(response) ? response : (response.channels ?? []);
-		for (const row of rows) {
-			const channelId = String(row.channel_id ?? row.id ?? "");
+		const memberships = await this.relay.query({
+			kinds: [GROUP_MEMBERS_KIND],
+			"#p": [this.relay.pubkeyHex],
+		});
+		const channelIds = [
+			...new Set(memberships.map((event) => firstTagValue(event, "d")).filter((id): id is string => Boolean(id))),
+		];
+		if (channelIds.length === 0) return;
+		const metadataEvents = await this.relay.query({ kinds: [GROUP_METADATA_KIND], "#d": channelIds });
+		const latestMetadata = new Map<string, BuzzEvent>();
+		for (const event of metadataEvents) {
+			const channelId = firstTagValue(event, "d");
 			if (!channelId) continue;
-			const name = String(row.name ?? "");
+			const known = latestMetadata.get(channelId);
+			if (!known || event.created_at > known.created_at) latestMetadata.set(channelId, event);
+		}
+		for (const channelId of channelIds) {
+			const metadata = latestMetadata.get(channelId);
 			this.channelsById.set(channelId, {
 				channelId,
-				name,
-				isDM: String(row.channel_type ?? row.type ?? name).toLowerCase() === "dm",
+				name: metadata ? (firstTagValue(metadata, "name") ?? "") : "",
+				isDM: metadata ? firstTagValue(metadata, "t") === "dm" : false,
 			});
 		}
 	}
 
 	private subscribeToChannels(): void {
-		const channelIds = [...this.channelsById.keys()];
-		if (channelIds.length === 0) return;
-		this.relay.subscribe(
-			[{ kinds: [STREAM_MESSAGE_KIND], "#h": channelIds, since: Math.floor(Date.now() / 1000) }],
-			(event) => {
-				void this.dispatchIncomingEvent(event);
-			},
-		);
+		for (const channelId of this.channelsById.keys()) {
+			if (this.subscribedChannelIds.has(channelId)) continue;
+			this.subscribedChannelIds.add(channelId);
+			this.relay.subscribe(
+				[{ kinds: [STREAM_MESSAGE_KIND], "#h": [channelId], since: Math.floor(Date.now() / 1000) }],
+				(event) => {
+					void this.dispatchIncomingEvent(event);
+				},
+			);
+		}
 	}
 
 	private async dispatchIncomingEvent(event: BuzzEvent): Promise<void> {
