@@ -192,7 +192,6 @@ func fileToolSuccess(document map[string]any) agent.ToolResult {
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) writeFileTool(toolContext context.Context, input fileWriteToolInput, handlerContext toolHandlerContext) (agent.ToolResult, error) {
-	scope := toolCatalogBuilder.workspaceScopeForToolContext(toolContext, handlerContext.request)
 	path := strings.TrimSpace(input.Path)
 	if path == "" {
 		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "file_write", "path is required"), nil
@@ -200,79 +199,70 @@ func (toolCatalogBuilder *ToolCatalogBuilder) writeFileTool(toolContext context.
 	if input.Content == "" {
 		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "file_write", "content is required"), nil
 	}
-	if isSiteSourceRelativePath(path) {
-		return siteSourceRelativePathFailure("file_write", path), nil
-	}
-	resolvedPath, errorValue := NewWorkspacePathResolver(toolCatalogBuilder.workspaceRootPath).Resolve(path, scope)
-	if errorValue != nil {
-		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "file_write", errorValue.Error()), nil
-	}
-	if !toolCatalogBuilder.canAccessWorkspacePath(handlerContext.request.PersonAccess, access.ActionWrite, resolvedPath.ConcretePath) {
-		return agent.ToolFailureResult(agent.FailurePermissionDenied, agent.FailureCodes.AccessDenied, "file_write", "current account cannot write this file"), nil
-	}
-	workspaceActor, actorFailure := toolCatalogBuilder.workspaceActorForRequest(toolContext, handlerContext.request)
-	if actorFailure != nil {
-		return *actorFailure, nil
-	}
-	if errorValue := workspaceActor.MkdirAll(toolContext, resolvedPath.Parent(), workspaceDirectoryCreateMode(resolvedPath.Parent())); errorValue != nil {
-		return actorToolFailure("mkdir_all", "file_write", resolvedPath.VirtualPath, errorValue), nil
-	}
-	if errorValue := workspaceActor.WriteFile(toolContext, resolvedPath, []byte(input.Content), workspaceFileCreateMode(resolvedPath)); errorValue != nil {
-		return actorToolFailure("write_file", "file_write", resolvedPath.VirtualPath, errorValue), nil
+	if failureResult := toolCatalogBuilder.runRequesterFileWrite(toolContext, handlerContext, "file_write", path, input.Content); failureResult != nil {
+		return *failureResult, nil
 	}
 	return fileToolSuccess(map[string]any{
-		"path":         resolvedPath.VirtualPath,
-		"terminalPath": terminalPathForResolvedPath(resolvedPath),
-		"sizeBytes":    len(input.Content),
+		"path":      path,
+		"sizeBytes": len(input.Content),
 	}), nil
 }
 
-func terminalPathForResolvedPath(resolvedPath workspacepath.Path) string {
-	if strings.HasPrefix(resolvedPath.ConcretePath, "/workspace/") {
-		return resolvedPath.ConcretePath
+func (toolCatalogBuilder *ToolCatalogBuilder) runRequesterFileWrite(toolContext context.Context, handlerContext toolHandlerContext, stage string, path string, content string) *agent.ToolResult {
+	outcome, actorFailure := toolCatalogBuilder.runRequesterShell(toolContext, handlerContext.request, requesterShellCommand{
+		Command: fileWriteShellCommand(path),
+		Stdin:   content,
+	})
+	if actorFailure != nil {
+		return actorFailure
 	}
-	virtualPath := strings.TrimPrefix(strings.TrimPrefix(resolvedPath.VirtualPath, "~/"), "home/")
-	if virtualPath == "" || virtualPath == "~" || virtualPath == "home" {
-		return "~"
+	if outcome.RunError != nil {
+		result := outcome.toolFailure("write_file", stage, path)
+		return &result
 	}
-	return "~/" + virtualPath
+	return nil
+}
+
+func fileWriteShellCommand(path string) string {
+	pathArgument := shellPathArgument(path)
+	return `mkdir -p -- "$(dirname -- ` + pathArgument + `)" && cat > ` + pathArgument
+}
+
+func fileReadShellCommand(path string, readLimitBytes int) string {
+	pathArgument := shellPathArgument(path)
+	return "wc -c < " + pathArgument + " && head -c " + strconv.Itoa(readLimitBytes) + " < " + pathArgument
+}
+
+const fileReadShellOutputReserveBytes = 64
+
+func parseFileReadShellOutput(stdout string) (int64, string, bool) {
+	sizeLine, content, hasContent := strings.Cut(stdout, "\n")
+	sizeBytes, errorValue := strconv.ParseInt(strings.TrimSpace(sizeLine), 10, 64)
+	if errorValue != nil || sizeBytes < 0 {
+		return 0, "", false
+	}
+	if !hasContent {
+		return sizeBytes, "", true
+	}
+	return sizeBytes, content, true
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) deleteFileTool(toolContext context.Context, input fileDeleteToolInput, handlerContext toolHandlerContext) (agent.ToolResult, error) {
-	scope := toolCatalogBuilder.workspaceScopeForToolContext(toolContext, handlerContext.request)
 	path := strings.TrimSpace(input.Path)
 	if path == "" {
 		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "file_delete", "path is required"), nil
 	}
-	if isSiteSourceRelativePath(path) {
-		return siteSourceRelativePathFailure("file_delete", path), nil
-	}
-	resolvedPath, errorValue := NewWorkspacePathResolver(toolCatalogBuilder.workspaceRootPath).Resolve(path, scope)
-	if errorValue != nil {
-		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "file_delete", errorValue.Error()), nil
-	}
-	if !toolCatalogBuilder.canAccessWorkspacePath(handlerContext.request.PersonAccess, access.ActionWrite, resolvedPath.ConcretePath) {
-		return agent.ToolFailureResult(agent.FailurePermissionDenied, agent.FailureCodes.AccessDenied, "file_delete", "current account cannot delete this file"), nil
-	}
-	workspaceActor, actorFailure := toolCatalogBuilder.workspaceActorForRequest(toolContext, handlerContext.request)
+	outcome, actorFailure := toolCatalogBuilder.runRequesterShell(toolContext, handlerContext.request, requesterShellCommand{
+		Command: "rm -- " + shellPathArgument(path),
+	})
 	if actorFailure != nil {
 		return *actorFailure, nil
 	}
-	information, statErrorValue := workspaceActor.Stat(toolContext, resolvedPath)
-	if statErrorValue != nil || !information.IsRegular {
-		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "file_delete", "no file to delete at "+resolvedPath.VirtualPath), nil
-	}
-	commandRequest := security.CommandRequest{
-		ExecutableName:       "rm",
-		Arguments:            []string{"-f", "--", resolvedPath.ConcretePath},
-		WorkingDirectoryPath: resolvedPath.Parent().ConcretePath,
-		ExecutionIdentity:    toolCatalogBuilder.executionIdentityForRequester(handlerContext.request),
-	}
-	if _, errorValue := workspaceActor.Run(toolContext, commandRequest); errorValue != nil {
-		return actorToolFailure("remove_file", "file_delete", resolvedPath.VirtualPath, errorValue), nil
+	if outcome.RunError != nil {
+		return outcome.toolFailure("remove_file", "file_delete", path), nil
 	}
 	return fileToolSuccess(map[string]any{
-		"path":    resolvedPath.VirtualPath,
+		"path":    path,
 		"deleted": true,
 	}), nil
 }
@@ -284,7 +274,6 @@ func (toolCatalogBuilder *ToolCatalogBuilder) readFileTool(toolContext context.C
 	}
 	input.Path = path
 	input.MaterialID = materialID
-	scope := toolCatalogBuilder.workspaceScopeForToolContext(toolContext, handlerContext.request)
 	if materialID != "" {
 		if result, isCached := cachedFileReadResultByMaterialID(handlerContext.request.InputParts, materialID, input); isCached {
 			return result, nil
@@ -293,73 +282,62 @@ func (toolCatalogBuilder *ToolCatalogBuilder) readFileTool(toolContext context.C
 	if path == "" {
 		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "file_read", "path or materialID is required"), nil
 	}
-	if isSiteSourceRelativePath(path) {
-		return siteSourceRelativePathFailure("file_read", path), nil
-	}
-	resolvedPath, errorValue := NewWorkspacePathResolver(toolCatalogBuilder.workspaceRootPath).Resolve(path, scope)
-	if errorValue != nil {
-		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "file_read", errorValue.Error()), nil
-	}
-	if !toolCatalogBuilder.canAccessWorkspacePath(handlerContext.request.PersonAccess, access.ActionRead, resolvedPath.ConcretePath) {
-		return agent.ToolFailureResult(agent.FailurePermissionDenied, agent.FailureCodes.AccessDenied, "file_read", "current account cannot read this file"), nil
-	}
 	maxOutputBytes := input.MaxOutputBytes
 	if maxOutputBytes <= 0 || maxOutputBytes > maximumFileReadBytes {
 		maxOutputBytes = defaultFileReadMaximumBytes
-	}
-	workspaceActor, actorFailure := toolCatalogBuilder.workspaceActorForRequest(toolContext, handlerContext.request)
-	if actorFailure != nil {
-		return *actorFailure, nil
-	}
-	fileInformation, errorValue := workspaceActor.Stat(toolContext, resolvedPath)
-	if errorValue != nil {
-		if result, isCached := cachedFileReadResult(handlerContext.request.InputParts, path, input); isCached {
-			return result, nil
-		}
-		if result, fallbackError, isFound := toolCatalogBuilder.fileReadFallbackFromAttachmentMaterial(toolContext, resolvedPath.VirtualPath, input, handlerContext); isFound {
-			return result, fallbackError
-		}
-		if actorFailureCode(errorValue) == security.ActorErrorCodeNotFound && isOptionalSiteControlFilePath(resolvedPath.VirtualPath) {
-			return optionalSiteControlFileMissingResult(resolvedPath, input, maxOutputBytes), nil
-		}
-		return actorToolFailure("stat", "file_read", resolvedPath.VirtualPath, errorValue), nil
-	}
-	if !fileInformation.IsRegular {
-		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "file_read", "path is not a regular file"), nil
 	}
 	readMaximumBytes := maximumFileReadBytes
 	if maxOutputBytes > readMaximumBytes {
 		readMaximumBytes = maxOutputBytes
 	}
-	content, errorValue := workspaceActor.ReadFile(toolContext, resolvedPath, int64(readMaximumBytes+1))
-	if errorValue != nil {
-		if fileInformation.SizeBytes > int64(readMaximumBytes) {
-			return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "file_read", "file is too large for exact text read; use file.preview for document or attachment understanding"), nil
+	outcome, actorFailure := toolCatalogBuilder.runRequesterShell(toolContext, handlerContext.request, requesterShellCommand{
+		Command:            fileReadShellCommand(path, readMaximumBytes+1),
+		OutputMaximumBytes: readMaximumBytes + fileReadShellOutputReserveBytes,
+	})
+	if actorFailure != nil {
+		return *actorFailure, nil
+	}
+	if outcome.RunError != nil {
+		if result, isCached := cachedFileReadResult(handlerContext.request.InputParts, path, input); isCached {
+			return result, nil
 		}
-		return actorToolFailure("read_file", "file_read", resolvedPath.VirtualPath, errorValue), nil
+		if result, fallbackError, isFound := toolCatalogBuilder.fileReadFallbackFromAttachmentMaterial(toolContext, path, input, handlerContext); isFound {
+			return result, fallbackError
+		}
+		if outcome.failureCode() == security.ActorErrorCodeNotFound && isOptionalSiteControlFilePath(path) {
+			return optionalSiteControlFileMissingResult(path, input, maxOutputBytes), nil
+		}
+		return outcome.toolFailure("read_file", "file_read", path), nil
+	}
+	originalSizeBytes, content, isParsed := parseFileReadShellOutput(outcome.CommandResult.Stdout)
+	if !isParsed {
+		return agent.ToolFailureResult(agent.FailureExternalService, agent.FailureCodes.OperationFailed, "file_read", "file size probe returned unreadable output"), nil
+	}
+	if originalSizeBytes > int64(readMaximumBytes) {
+		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "file_read", "file is too large for exact text read; use file.preview for document or attachment understanding"), nil
 	}
 	isFileTruncated := len(content) > readMaximumBytes
 	if isFileTruncated {
 		content = content[:readMaximumBytes]
 	}
-	if !utf8.Valid(content) || bytes.IndexByte(content, 0) >= 0 {
+	if !utf8.ValidString(content) || strings.IndexByte(content, 0) >= 0 {
 		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "file_read", "file.read supports UTF-8 text files; use file.preview or a specialized document tool for binary files"), nil
 	}
-	readResult := fileReadResult(string(content), input, maxOutputBytes)
+	readResult := fileReadResult(content, input, maxOutputBytes)
 	return fileToolSuccess(fileReadResultMap(map[string]any{
-		"path":              resolvedPath.VirtualPath,
+		"path":              path,
 		"totalLinesKnown":   !isFileTruncated,
-		"originalSizeBytes": fileInformation.SizeBytes,
-		"sizeBytes":         fileInformation.SizeBytes,
+		"originalSizeBytes": originalSizeBytes,
+		"sizeBytes":         originalSizeBytes,
 		"isTruncated":       isFileTruncated || readResult.IsTruncated,
 	}, readResult)), nil
 }
 
-func optionalSiteControlFileMissingResult(resolvedPath ResolvedWorkspacePath, input fileReadToolInput, maxOutputBytes int) agent.ToolResult {
+func optionalSiteControlFileMissingResult(path string, input fileReadToolInput, maxOutputBytes int) agent.ToolResult {
 	readResult := fileReadResult("", input, maxOutputBytes)
 	readResult.ReadHint = "This site control file is optional and is not present yet. Create or update it before source edits if it is relevant to the current site workflow."
 	result := fileReadResultMap(map[string]any{
-		"path":              resolvedPath.VirtualPath,
+		"path":              path,
 		"exists":            false,
 		"optional":          true,
 		"totalLinesKnown":   true,
@@ -367,7 +345,7 @@ func optionalSiteControlFileMissingResult(resolvedPath ResolvedWorkspacePath, in
 		"sizeBytes":         0,
 		"isTruncated":       false,
 	}, readResult)
-	if recommendedPath := recommendedSiteControlWritePath(resolvedPath.VirtualPath); recommendedPath != "" {
+	if recommendedPath := recommendedSiteControlWritePath(path); recommendedPath != "" {
 		result["recommendedWritePath"] = recommendedPath
 	}
 	return fileToolSuccess(result)
@@ -418,23 +396,6 @@ func recommendedSiteControlWritePathForPrefix(path string, prefix string) string
 		return ""
 	}
 	return filepath.ToSlash(filepath.Join("/workspace", "circles", "staff", "sites", siteID, "draft", relativePath))
-}
-
-func isSiteSourceRelativePath(path string) bool {
-	cleanPath := filepath.ToSlash(filepath.Clean(strings.TrimSpace(path)))
-	return strings.HasPrefix(cleanPath, "app/src/") ||
-		strings.HasPrefix(cleanPath, "app/components/") ||
-		strings.HasPrefix(cleanPath, "app/lib/") ||
-		strings.HasPrefix(cleanPath, "app/public/") ||
-		cleanPath == "app/src/App.tsx" ||
-		cleanPath == "app/src/index.css" ||
-		cleanPath == "DESIGN.md" ||
-		strings.HasPrefix(cleanPath, ".internkim/")
-}
-
-func siteSourceRelativePathFailure(stage string, path string) agent.ToolResult {
-	cleanPath := filepath.ToSlash(filepath.Clean(strings.TrimSpace(path)))
-	return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, stage, "site source path "+cleanPath+" must be rooted at sourceWorkspacePath from the website status capability, for example ~/sites/<siteID>/draft/"+cleanPath)
 }
 
 func fileReadResultMap(base map[string]any, readResult fileReadOutput) map[string]any {
@@ -1058,22 +1019,17 @@ func (toolCatalogBuilder *ToolCatalogBuilder) patchFileTool(toolContext context.
 	if len(input.Edits) > 100 {
 		return fileExactEditFailure("file_edit", "", -1, len(input.Edits), "too many edits; split the patch into smaller groups"), nil
 	}
-	workspaceActor, actorFailure := toolCatalogBuilder.workspaceActorForRequest(toolContext, handlerContext.request)
-	if actorFailure != nil {
-		return *actorFailure, nil
-	}
 	patchState := newFilePatchState()
 	for editIndex, edit := range input.Edits {
-		if result := toolCatalogBuilder.validatePatchEdit(toolContext, handlerContext, workspaceActor, patchState, edit, editIndex); result != nil {
+		if result := toolCatalogBuilder.validatePatchEdit(toolContext, handlerContext, patchState, edit, editIndex); result != nil {
 			return *result, nil
 		}
 	}
-	if result := writePatchState(toolContext, workspaceActor, patchState); result != nil {
+	if result := toolCatalogBuilder.writePatchState(toolContext, handlerContext, patchState); result != nil {
 		return *result, nil
 	}
-	editedFiles := patchState.virtualPaths()
 	return fileToolSuccess(map[string]any{
-		"editedFiles": editedFiles,
+		"editedFiles": append([]string{}, patchState.pathOrder...),
 		"editCount":   len(input.Edits),
 	}), nil
 }
@@ -1081,7 +1037,6 @@ func (toolCatalogBuilder *ToolCatalogBuilder) patchFileTool(toolContext context.
 type filePatchState struct {
 	originalContents map[string]string
 	currentContents  map[string]string
-	resolvedPaths    map[string]ResolvedWorkspacePath
 	pathOrder        []string
 }
 
@@ -1089,39 +1044,29 @@ func newFilePatchState() *filePatchState {
 	return &filePatchState{
 		originalContents: map[string]string{},
 		currentContents:  map[string]string{},
-		resolvedPaths:    map[string]ResolvedWorkspacePath{},
 	}
 }
 
-func (patchState *filePatchState) virtualPaths() []string {
-	paths := []string{}
-	for _, key := range patchState.pathOrder {
-		paths = append(paths, patchState.resolvedPaths[key].VirtualPath)
-	}
-	return paths
-}
-
-func (toolCatalogBuilder *ToolCatalogBuilder) validatePatchEdit(toolContext context.Context, handlerContext toolHandlerContext, workspaceActor security.WorkspaceActor, patchState *filePatchState, edit filePatchEditInput, editIndex int) *agent.ToolResult {
-	if strings.TrimSpace(edit.Path) == "" {
+func (toolCatalogBuilder *ToolCatalogBuilder) validatePatchEdit(toolContext context.Context, handlerContext toolHandlerContext, patchState *filePatchState, edit filePatchEditInput, editIndex int) *agent.ToolResult {
+	path := strings.TrimSpace(edit.Path)
+	if path == "" {
 		result := fileExactEditFailure("file_edit", "", editIndex, 0, "path is required")
 		return &result
 	}
 	if edit.OldText == "" {
-		result := fileExactEditFailure("file_edit", strings.TrimSpace(edit.Path), editIndex, 0, "oldText is required")
+		result := fileExactEditFailure("file_edit", path, editIndex, 0, "oldText is required")
 		return &result
 	}
-	resolvedPath, result := toolCatalogBuilder.resolveEditableFilePath(toolContext, handlerContext, workspaceActor, strings.TrimSpace(edit.Path), patchState)
-	if result != nil {
+	if result := toolCatalogBuilder.loadEditableFile(toolContext, handlerContext, patchState, path); result != nil {
 		return result
 	}
-	key := resolvedPath.ConcretePath
-	currentContent := patchState.currentContents[key]
+	currentContent := patchState.currentContents[path]
 	updatedContent, matchCount, applied := applyExactOrTolerantEdit(currentContent, edit.OldText, edit.NewText)
 	if !applied {
-		result := fileExactEditFailure("file_edit", resolvedPath.VirtualPath, editIndex, matchCount, fileEditMatchFailureGuidance(currentContent, edit.OldText, matchCount))
+		result := fileExactEditFailure("file_edit", path, editIndex, matchCount, fileEditMatchFailureGuidance(currentContent, edit.OldText, matchCount))
 		return &result
 	}
-	patchState.currentContents[key] = updatedContent
+	patchState.currentContents[path] = updatedContent
 	return nil
 }
 
@@ -1409,62 +1354,55 @@ func characterBigrams(value string) map[string]bool {
 	return bigrams
 }
 
-func (toolCatalogBuilder *ToolCatalogBuilder) resolveEditableFilePath(toolContext context.Context, handlerContext toolHandlerContext, workspaceActor security.WorkspaceActor, path string, patchState *filePatchState) (ResolvedWorkspacePath, *agent.ToolResult) {
-	scope := toolCatalogBuilder.workspaceScopeForToolContext(toolContext, handlerContext.request)
-	if isSiteSourceRelativePath(path) {
-		result := siteSourceRelativePathFailure("file_edit", path)
-		return ResolvedWorkspacePath{}, &result
+func (toolCatalogBuilder *ToolCatalogBuilder) loadEditableFile(toolContext context.Context, handlerContext toolHandlerContext, patchState *filePatchState, path string) *agent.ToolResult {
+	if _, isLoaded := patchState.currentContents[path]; isLoaded {
+		return nil
 	}
-	resolvedPath, errorValue := NewWorkspacePathResolver(toolCatalogBuilder.workspaceRootPath).Resolve(path, scope)
-	if errorValue != nil {
-		result := agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "file_edit", errorValue.Error())
-		return ResolvedWorkspacePath{}, &result
+	outcome, actorFailure := toolCatalogBuilder.runRequesterShell(toolContext, handlerContext.request, requesterShellCommand{
+		Command:            fileReadShellCommand(path, maximumEditableTextFileBytes+1),
+		OutputMaximumBytes: maximumEditableTextFileBytes + fileReadShellOutputReserveBytes,
+	})
+	if actorFailure != nil {
+		return actorFailure
 	}
-	if !toolCatalogBuilder.canAccessWorkspacePath(handlerContext.request.PersonAccess, access.ActionRead, resolvedPath.ConcretePath) || !toolCatalogBuilder.canAccessWorkspacePath(handlerContext.request.PersonAccess, access.ActionWrite, resolvedPath.ConcretePath) {
-		result := agent.ToolFailureResult(agent.FailurePermissionDenied, agent.FailureCodes.AccessDenied, "file_edit", "current account cannot edit this file")
-		return ResolvedWorkspacePath{}, &result
+	if outcome.RunError != nil {
+		result := outcome.toolFailure("read_file", "file_edit", path)
+		return &result
 	}
-	if _, isLoaded := patchState.currentContents[resolvedPath.ConcretePath]; isLoaded {
-		return resolvedPath, nil
+	sizeBytes, content, isParsed := parseFileReadShellOutput(outcome.CommandResult.Stdout)
+	if !isParsed {
+		result := agent.ToolFailureResult(agent.FailureExternalService, agent.FailureCodes.OperationFailed, "file_edit", "file size probe returned unreadable output")
+		return &result
 	}
-	content, errorValue := workspaceActor.ReadFile(toolContext, resolvedPath, maximumEditableTextFileBytes+1)
-	if errorValue != nil {
-		result := actorToolFailure("read_file", "file_edit", resolvedPath.VirtualPath, errorValue)
-		return ResolvedWorkspacePath{}, &result
+	if sizeBytes > int64(maximumEditableTextFileBytes) || len(content) > maximumEditableTextFileBytes {
+		result := fileExactEditFailure("file_edit", path, -1, 0, "file is too large for exact edit; rewrite a smaller generated file or use a more specific workflow")
+		return &result
 	}
-	if len(content) > maximumEditableTextFileBytes {
-		result := fileExactEditFailure("file_edit", resolvedPath.VirtualPath, -1, 0, "file is too large for exact edit; rewrite a smaller generated file or use a more specific workflow")
-		return ResolvedWorkspacePath{}, &result
-	}
-	if !utf8.Valid(content) || bytes.IndexByte(content, 0) >= 0 {
+	if !utf8.ValidString(content) || strings.IndexByte(content, 0) >= 0 {
 		result := agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "file_edit", "file.edit supports UTF-8 text files; use a specialized document or artifact tool for binary files")
-		return ResolvedWorkspacePath{}, &result
+		return &result
 	}
-	patchState.originalContents[resolvedPath.ConcretePath] = string(content)
-	patchState.currentContents[resolvedPath.ConcretePath] = string(content)
-	patchState.resolvedPaths[resolvedPath.ConcretePath] = resolvedPath
-	patchState.pathOrder = append(patchState.pathOrder, resolvedPath.ConcretePath)
-	return resolvedPath, nil
+	patchState.originalContents[path] = content
+	patchState.currentContents[path] = content
+	patchState.pathOrder = append(patchState.pathOrder, path)
+	return nil
 }
 
-func writePatchState(toolContext context.Context, workspaceActor security.WorkspaceActor, patchState *filePatchState) *agent.ToolResult {
-	writtenKeys := []string{}
-	for _, key := range patchState.pathOrder {
-		resolvedPath := patchState.resolvedPaths[key]
-		if errorValue := workspaceActor.WriteFile(toolContext, resolvedPath, []byte(patchState.currentContents[key]), workspaceFileCreateMode(resolvedPath)); errorValue != nil {
-			rollbackPatchWrites(toolContext, workspaceActor, patchState, writtenKeys)
-			result := actorToolFailure("write_file", "file_edit", resolvedPath.VirtualPath, errorValue)
-			return &result
+func (toolCatalogBuilder *ToolCatalogBuilder) writePatchState(toolContext context.Context, handlerContext toolHandlerContext, patchState *filePatchState) *agent.ToolResult {
+	writtenPaths := []string{}
+	for _, path := range patchState.pathOrder {
+		if failureResult := toolCatalogBuilder.runRequesterFileWrite(toolContext, handlerContext, "file_edit", path, patchState.currentContents[path]); failureResult != nil {
+			toolCatalogBuilder.rollbackPatchWrites(toolContext, handlerContext, patchState, writtenPaths)
+			return failureResult
 		}
-		writtenKeys = append(writtenKeys, key)
+		writtenPaths = append(writtenPaths, path)
 	}
 	return nil
 }
 
-func rollbackPatchWrites(toolContext context.Context, workspaceActor security.WorkspaceActor, patchState *filePatchState, writtenKeys []string) {
-	for _, key := range writtenKeys {
-		resolvedPath := patchState.resolvedPaths[key]
-		_ = workspaceActor.WriteFile(toolContext, resolvedPath, []byte(patchState.originalContents[key]), workspaceFileCreateMode(resolvedPath))
+func (toolCatalogBuilder *ToolCatalogBuilder) rollbackPatchWrites(toolContext context.Context, handlerContext toolHandlerContext, patchState *filePatchState, writtenPaths []string) {
+	for _, path := range writtenPaths {
+		_ = toolCatalogBuilder.runRequesterFileWrite(toolContext, handlerContext, "file_edit", path, patchState.originalContents[path])
 	}
 }
 
@@ -1553,7 +1491,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) fileAttachment(toolContext context
 	}
 	fileInformation, errorValue := workspaceActor.Stat(toolContext, resolvedPath)
 	if errorValue != nil {
-		result := toolCatalogBuilder.fileDeliverStatFailure(toolContext, workspaceActor, handlerContext, scope, resolvedPath, errorValue)
+		result := toolCatalogBuilder.fileDeliverStatFailure(toolContext, handlerContext, scope, resolvedPath, errorValue)
 		return agent.FileAttachment{}, &result, nil
 	}
 	if !fileInformation.IsRegular {
@@ -1582,12 +1520,12 @@ const fileDeliverCandidateFileLimit = 8
 
 // A not_found stat failure otherwise forces the model to guess a corrected path across
 // several retries. Listing what actually exists nearby lets it recover in one step.
-func (toolCatalogBuilder *ToolCatalogBuilder) fileDeliverStatFailure(toolContext context.Context, workspaceActor security.WorkspaceActor, handlerContext toolHandlerContext, scope WorkspaceScope, resolvedPath ResolvedWorkspacePath, errorValue error) agent.ToolResult {
+func (toolCatalogBuilder *ToolCatalogBuilder) fileDeliverStatFailure(toolContext context.Context, handlerContext toolHandlerContext, scope WorkspaceScope, resolvedPath ResolvedWorkspacePath, errorValue error) agent.ToolResult {
 	result := actorToolFailure("stat", "file_deliver", resolvedPath.VirtualPath, errorValue)
 	if actorFailureCode(errorValue) != security.ActorErrorCodeNotFound {
 		return result
 	}
-	candidateFiles := toolCatalogBuilder.fileDeliverCandidateFiles(toolContext, workspaceActor, handlerContext, scope, resolvedPath)
+	candidateFiles := toolCatalogBuilder.fileDeliverCandidateFiles(toolContext, handlerContext, scope, resolvedPath)
 	if len(candidateFiles) == 0 {
 		return result
 	}
@@ -1597,11 +1535,10 @@ func (toolCatalogBuilder *ToolCatalogBuilder) fileDeliverStatFailure(toolContext
 	return result
 }
 
-func (toolCatalogBuilder *ToolCatalogBuilder) fileDeliverCandidateFiles(toolContext context.Context, workspaceActor security.WorkspaceActor, handlerContext toolHandlerContext, scope WorkspaceScope, resolvedPath ResolvedWorkspacePath) []string {
-	executionIdentity := toolCatalogBuilder.executionIdentityForRequester(handlerContext.request)
+func (toolCatalogBuilder *ToolCatalogBuilder) fileDeliverCandidateFiles(toolContext context.Context, handlerContext toolHandlerContext, scope WorkspaceScope, resolvedPath ResolvedWorkspacePath) []string {
 	candidateFiles := []string{}
 	for _, directory := range fileDeliverCandidateDirectories(toolCatalogBuilder.workspaceRootPath, scope, resolvedPath) {
-		for _, filename := range toolCatalogBuilder.directoryEntryNames(toolContext, workspaceActor, executionIdentity, directory.ConcretePath) {
+		for _, filename := range toolCatalogBuilder.directoryEntryNames(toolContext, handlerContext, directory.ConcretePath) {
 			candidatePath := filepath.ToSlash(filepath.Join(directory.VirtualPath, filename))
 			if stringSliceContains(candidateFiles, candidatePath) {
 				continue
@@ -1625,17 +1562,16 @@ func fileDeliverCandidateDirectories(workspaceRootPath string, scope WorkspaceSc
 	return directories
 }
 
-func (toolCatalogBuilder *ToolCatalogBuilder) directoryEntryNames(toolContext context.Context, workspaceActor security.WorkspaceActor, executionIdentity security.ExecutionIdentity, directoryConcretePath string) []string {
-	commandResult, errorValue := workspaceActor.Run(toolContext, security.CommandRequest{
-		Command:           "ls -1A -- " + shellSingleQuoted(directoryConcretePath),
-		ExecutionIdentity: executionIdentity,
-		TimeoutSecond:     5,
+func (toolCatalogBuilder *ToolCatalogBuilder) directoryEntryNames(toolContext context.Context, handlerContext toolHandlerContext, directoryConcretePath string) []string {
+	outcome, actorFailure := toolCatalogBuilder.runRequesterShell(toolContext, handlerContext.request, requesterShellCommand{
+		Command:       "ls -1A -- " + shellSingleQuoted(directoryConcretePath),
+		TimeoutSecond: 5,
 	})
-	if errorValue != nil || commandResult.ExitCode != 0 {
+	if actorFailure != nil || outcome.RunError != nil || outcome.CommandResult.ExitCode != 0 {
 		return nil
 	}
 	filenames := []string{}
-	for _, line := range strings.Split(commandResult.Stdout, "\n") {
+	for _, line := range strings.Split(outcome.CommandResult.Stdout, "\n") {
 		trimmedLine := strings.TrimSpace(line)
 		if trimmedLine != "" {
 			filenames = append(filenames, trimmedLine)

@@ -129,17 +129,19 @@ func TestFileToolsPreserveExplicitPathResolutionAndAccess(t *testing.T) {
 		t.Fatalf("expected explicit path to remain readable, got %s", readResult.ContentText())
 	}
 
+	otherPersonHomePath := filepath.Join(workspacePath, "private", "people", "person-2")
+	withoutDirectoryAccess(t, otherPersonHomePath)
 	accessResult, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
 		ToolName: "file.read",
 		Input: agent.MarshalToolInput(map[string]string{
-			"path": "/workspace/private/people/person-2/documents/secret.txt",
+			"path": otherPath,
 		}),
 	})
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
 	if !accessResult.Failed() || accessResult.FailureCode() != agent.FailureCodes.AccessDenied.String() {
-		t.Fatalf("expected explicit path access check to remain enforced, got %s", accessResult.ContentText())
+		t.Fatalf("expected the OS denial on the other person's home to surface as access_denied, got %s", accessResult.ContentText())
 	}
 }
 
