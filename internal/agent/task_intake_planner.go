@@ -167,6 +167,7 @@ type IntakeDecision struct {
 	TaskLevel              TaskLevel             `json:"level"`
 	EstimatedMinutes       int                   `json:"estimatedMinutes"`
 	RequestedOutputFormats []string              `json:"requestedOutputFormats"`
+	DeliverableKind        DeliverableKind       `json:"deliverableKind,omitempty"`
 	ExpectedResults        []ExpectedResult      `json:"expectedResults,omitempty"`
 	ResponseLanguage       string                `json:"responseLanguage"`
 	Reason                 string                `json:"reason"`
@@ -222,6 +223,7 @@ func (turnDecision TurnDecision) IntakeDecision() IntakeDecision {
 		TaskLevel:              NormalizeTaskLevel(string(turnDecision.TaskLevel)),
 		EstimatedMinutes:       turnDecision.EstimatedMinutes,
 		RequestedOutputFormats: append([]string{}, turnDecision.RequestedOutputFormats...),
+		DeliverableKind:        turnDecision.DeliverableKind,
 		ExpectedResults:        normalizeExpectedResults(turnDecision.ExpectedResults),
 		ResponseLanguage:       turnDecision.ResponseLanguage,
 		Reason:                 turnDecision.Reason,
