@@ -681,11 +681,11 @@ func TestActionSchemaRequiresFailureResolutionWhenRecoveryIsExhausted(t *testing
 		Observations: []turnObservation{{
 			ObservationID:      "obs-001",
 			Action:             "continue",
-			Tool:               "math.calculate",
-			Output:             ToolOutput{Content: "bc: command not found"},
-			Failure:            &ToolFailure{Kind: FailureExternalService, Code: FailureCodes.OperationFailed.String(), Stage: "bc_execution", UserSafeSummary: "bc: command not found"},
-			ToolInputKey:       "math.calculate\x00{\"expression\":\"1+2/4\"}",
-			AttemptFingerprint: "math.calculate\x00{\"expression\":\"1+2/4\"}\x00operation_failed",
+			Tool:               "schedule.list",
+			Output:             ToolOutput{Content: "schedule storage unavailable"},
+			Failure:            &ToolFailure{Kind: FailureExternalService, Code: FailureCodes.OperationFailed.String(), Stage: "schedule_lookup", UserSafeSummary: "schedule storage unavailable"},
+			ToolInputKey:       "schedule.list\x00{\"range\":\"today\"}",
+			AttemptFingerprint: "schedule.list\x00{\"range\":\"today\"}\x00operation_failed",
 		}},
 	})
 	schemaDocument := request.StructuredOutputSchema.Document
@@ -775,22 +775,22 @@ func TestActionSchemaHidesFailWhileRecoveryBudgetRemains(t *testing.T) {
 
 func TestAgentTurnRunnerBudgetExhaustedContinueTriggersSingleTerminalNoToolsCall(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		directToolAction("continue", "", "math.calculate", `{"expression":"1+2/4"}`),
-		directToolAction("continue", "", "math.calculate", `{"expression":"2+2"}`),
+		directToolAction("continue", "", "schedule.list", `{"range":"today"}`),
+		directToolAction("continue", "", "schedule.list", `{"range":"tomorrow"}`),
 		noToolFallbackFinishMessageDocument("I can still answer from the available context."),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 6, RecoveryBudget: terminalNoToolRecoveryBudgetForTest()})
 	toolCallCount := 0
-	toolRegistry := newTestCapabilityToolSet([]string{"math.calculate"})
-	registerTestTool(toolRegistry, ToolDefinition{Name: "math.calculate"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	toolRegistry := newTestCapabilityToolSet([]string{"schedule.list"})
+	registerTestTool(toolRegistry, ToolDefinition{Name: "schedule.list"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		toolCallCount++
-		return structuredFailureToolResult("exec: \"bc\": executable file not found in $PATH", "bc: command not found", "calculator_failed", "bc_execution", false, false), nil
+		return structuredFailureToolResult("schedule storage unavailable", "schedule storage unavailable", "schedule_lookup_failed", "schedule_lookup", false, false), nil
 	})
 
 	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
 		RequesterPersonID: "person-1",
 		ConversationID:    "conversation-1",
-		Prompt:            "calculate it",
+		Prompt:            "check my schedule",
 		ToolSet:           toolRegistry,
 		PinnedToolNames:   toolRegistry.ListToolNames(),
 	})
@@ -817,20 +817,20 @@ func TestAgentTurnRunnerBudgetExhaustedContinueTriggersSingleTerminalNoToolsCall
 
 func TestAgentTurnRunnerTerminalNoToolsAcceptsNoToolFallbackFinish(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"continue","toolName":"math.calculate","toolInput":{"expression":"1+2/4"}}`,
-		`{"action":"continue","toolName":"math.calculate","toolInput":{"expression":"2+2"}}`,
+		`{"action":"continue","toolName":"schedule.list","toolInput":{"range":"today"}}`,
+		`{"action":"continue","toolName":"schedule.list","toolInput":{"range":"tomorrow"}}`,
 		noToolFallbackFinishMessageDocument("The available context is enough to answer without another tool."),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 6, RecoveryBudget: terminalNoToolRecoveryBudgetForTest()})
-	toolRegistry := newTestToolSet([]string{"math.calculate"})
-	registerTestTool(toolRegistry, ToolDefinition{Name: "math.calculate"}, func(context.Context, ToolInvocation) (ToolResult, error) {
-		return structuredFailureToolResult("exec: \"bc\": executable file not found in $PATH", "bc: command not found", "calculator_failed", "bc_execution", false, false), nil
+	toolRegistry := newTestToolSet([]string{"schedule.list"})
+	registerTestTool(toolRegistry, ToolDefinition{Name: "schedule.list"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return structuredFailureToolResult("schedule storage unavailable", "schedule storage unavailable", "schedule_lookup_failed", "schedule_lookup", false, false), nil
 	})
 
 	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
 		RequesterPersonID: "person-1",
 		ConversationID:    "conversation-1",
-		Prompt:            "calculate it",
+		Prompt:            "check my schedule",
 		ToolSet:           toolRegistry,
 		PinnedToolNames:   toolRegistry.ListToolNames(),
 	})
@@ -845,20 +845,20 @@ func TestAgentTurnRunnerTerminalNoToolsAcceptsNoToolFallbackFinish(t *testing.T)
 
 func TestAgentTurnRunnerTerminalNoToolsAcceptsFailureReportFail(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		directToolAction("continue", "", "math.calculate", `{"expression":"1+2/4"}`),
-		directToolAction("continue", "", "math.calculate", `{"expression":"2+2"}`),
-		failureReportDocument("Calculator execution is blocked because bc_execution returned operation_failed.", "math.calculate", "1+2/4", FailureCodes.OperationFailed.String(), "bc_execution", "bc: command not found"),
+		directToolAction("continue", "", "schedule.list", `{"range":"today"}`),
+		directToolAction("continue", "", "schedule.list", `{"range":"tomorrow"}`),
+		failureReportDocument("Schedule lookup is blocked because schedule_lookup returned operation_failed.", "schedule.list", "today", FailureCodes.OperationFailed.String(), "schedule_lookup", "schedule storage unavailable"),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 6, RecoveryBudget: terminalNoToolRecoveryBudgetForTest()})
-	toolRegistry := newTestCapabilityToolSet([]string{"math.calculate"})
-	registerTestTool(toolRegistry, ToolDefinition{Name: "math.calculate"}, func(context.Context, ToolInvocation) (ToolResult, error) {
-		return structuredFailureToolResult("exec: \"bc\": executable file not found in $PATH", "bc: command not found", "calculator_failed", "bc_execution", false, false), nil
+	toolRegistry := newTestCapabilityToolSet([]string{"schedule.list"})
+	registerTestTool(toolRegistry, ToolDefinition{Name: "schedule.list"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return structuredFailureToolResult("schedule storage unavailable", "schedule storage unavailable", "schedule_lookup_failed", "schedule_lookup", false, false), nil
 	})
 
 	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
 		RequesterPersonID: "person-1",
 		ConversationID:    "conversation-1",
-		Prompt:            "calculate it",
+		Prompt:            "check my schedule",
 		ToolSet:           toolRegistry,
 		PinnedToolNames:   toolRegistry.ListToolNames(),
 	})
@@ -868,10 +868,10 @@ func TestAgentTurnRunnerTerminalNoToolsAcceptsFailureReportFail(t *testing.T) {
 	if result.TaskRun.Status != task.TaskStatusFailed {
 		t.Fatalf("expected failed task, got %s", result.TaskRun.Status)
 	}
-	if !strings.Contains(result.UserNotice, "bc_execution") {
+	if !strings.Contains(result.UserNotice, "schedule_lookup") {
 		t.Fatalf("expected failure report reason to be delivered, got %q", result.UserNotice)
 	}
-	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.failure_report_facts_used", "bc_execution") {
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.failure_report_facts_used", "schedule_lookup") {
 		t.Fatal("expected used failure facts event")
 	}
 	assertTerminalNoToolsSchemasExcludeToolActions(t, languageModel.requests)
@@ -879,23 +879,23 @@ func TestAgentTurnRunnerTerminalNoToolsAcceptsFailureReportFail(t *testing.T) {
 
 func TestAgentTurnRunnerTerminalNoToolsRepairsInvalidOutputWithoutReopeningTools(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		directToolAction("continue", "", "math.calculate", `{"expression":"1+2/4"}`),
-		directToolAction("continue", "", "math.calculate", `{"expression":"2+2"}`),
-		directToolAction("continue", "", "math.calculate", `{"expression":"3+3"}`),
+		directToolAction("continue", "", "schedule.list", `{"range":"today"}`),
+		directToolAction("continue", "", "schedule.list", `{"range":"tomorrow"}`),
+		directToolAction("continue", "", "schedule.list", `{"range":"this week"}`),
 		noToolFallbackFinishMessageDocument("I repaired the terminal answer without another tool."),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 6, RecoveryBudget: terminalNoToolRecoveryBudgetForTest()})
 	toolCallCount := 0
-	toolRegistry := newTestCapabilityToolSet([]string{"math.calculate"})
-	registerTestTool(toolRegistry, ToolDefinition{Name: "math.calculate"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	toolRegistry := newTestCapabilityToolSet([]string{"schedule.list"})
+	registerTestTool(toolRegistry, ToolDefinition{Name: "schedule.list"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		toolCallCount++
-		return structuredFailureToolResult("exec: \"bc\": executable file not found in $PATH", "bc: command not found", "calculator_failed", "bc_execution", false, false), nil
+		return structuredFailureToolResult("schedule storage unavailable", "schedule storage unavailable", "schedule_lookup_failed", "schedule_lookup", false, false), nil
 	})
 
 	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
 		RequesterPersonID: "person-1",
 		ConversationID:    "conversation-1",
-		Prompt:            "calculate it",
+		Prompt:            "check my schedule",
 		ToolSet:           toolRegistry,
 		PinnedToolNames:   toolRegistry.ListToolNames(),
 	})
@@ -919,21 +919,21 @@ func TestAgentTurnRunnerTerminalNoToolsRepairsInvalidOutputWithoutReopeningTools
 
 func TestAgentTurnRunnerTerminalNoToolsRejectsFinishWithoutFailureResolution(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		directToolAction("continue", "", "math.calculate", `{"expression":"1+2/4"}`),
-		directToolAction("continue", "", "math.calculate", `{"expression":"2+2"}`),
+		directToolAction("continue", "", "schedule.list", `{"range":"today"}`),
+		directToolAction("continue", "", "schedule.list", `{"range":"tomorrow"}`),
 		finishMessageDocument("premature finish that omits failureResolution"),
 		noToolFallbackFinishMessageDocument("recovered after supplying a valid failureResolution."),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 6, RecoveryBudget: terminalNoToolRecoveryBudgetForTest()})
-	toolRegistry := newTestCapabilityToolSet([]string{"math.calculate"})
-	registerTestTool(toolRegistry, ToolDefinition{Name: "math.calculate"}, func(context.Context, ToolInvocation) (ToolResult, error) {
-		return structuredFailureToolResult("exec: \"bc\": executable file not found in $PATH", "bc: command not found", "calculator_failed", "bc_execution", false, false), nil
+	toolRegistry := newTestCapabilityToolSet([]string{"schedule.list"})
+	registerTestTool(toolRegistry, ToolDefinition{Name: "schedule.list"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return structuredFailureToolResult("schedule storage unavailable", "schedule storage unavailable", "schedule_lookup_failed", "schedule_lookup", false, false), nil
 	})
 
 	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
 		RequesterPersonID: "person-1",
 		ConversationID:    "conversation-1",
-		Prompt:            "calculate it",
+		Prompt:            "check my schedule",
 		ToolSet:           toolRegistry,
 		PinnedToolNames:   toolRegistry.ListToolNames(),
 	})
@@ -954,21 +954,21 @@ func TestAgentTurnRunnerTerminalNoToolsRejectsFinishWithoutFailureResolution(t *
 
 func TestAgentTurnRunnerTerminalNoToolsRejectsFailWithoutReason(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		directToolAction("continue", "", "math.calculate", `{"expression":"1+2/4"}`),
-		directToolAction("continue", "", "math.calculate", `{"expression":"2+2"}`),
+		directToolAction("continue", "", "schedule.list", `{"range":"today"}`),
+		directToolAction("continue", "", "schedule.list", `{"range":"tomorrow"}`),
 		`{"action":"fail","goalStatus":"blocked","goalSatisfied":false}`,
-		failureReportDocument("Calculator execution is blocked because bc_execution returned operation_failed.", "math.calculate", "1+2/4", FailureCodes.OperationFailed.String(), "bc_execution", "bc: command not found"),
+		failureReportDocument("Schedule lookup is blocked because schedule_lookup returned operation_failed.", "schedule.list", "today", FailureCodes.OperationFailed.String(), "schedule_lookup", "schedule storage unavailable"),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 6, RecoveryBudget: terminalNoToolRecoveryBudgetForTest()})
-	toolRegistry := newTestCapabilityToolSet([]string{"math.calculate"})
-	registerTestTool(toolRegistry, ToolDefinition{Name: "math.calculate"}, func(context.Context, ToolInvocation) (ToolResult, error) {
-		return structuredFailureToolResult("exec: \"bc\": executable file not found in $PATH", "bc: command not found", "calculator_failed", "bc_execution", false, false), nil
+	toolRegistry := newTestCapabilityToolSet([]string{"schedule.list"})
+	registerTestTool(toolRegistry, ToolDefinition{Name: "schedule.list"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return structuredFailureToolResult("schedule storage unavailable", "schedule storage unavailable", "schedule_lookup_failed", "schedule_lookup", false, false), nil
 	})
 
 	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
 		RequesterPersonID: "person-1",
 		ConversationID:    "conversation-1",
-		Prompt:            "calculate it",
+		Prompt:            "check my schedule",
 		ToolSet:           toolRegistry,
 		PinnedToolNames:   toolRegistry.ListToolNames(),
 	})

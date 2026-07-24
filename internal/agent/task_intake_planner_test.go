@@ -1835,34 +1835,34 @@ func TestAgentKernelQuickReplyFailureDoesNotInventToolFailure(t *testing.T) {
 	}
 }
 
-func TestAgentKernelQuickReplyCanUseCalculatorTool(t *testing.T) {
+func TestAgentKernelQuickReplyCanUseInitialTool(t *testing.T) {
 	intakeLanguageModel := &sequenceLanguageModel{contents: []string{
-		`{"route":"start_task","classification":"quick_reply","taskShape":"immediate_reply","level":"xlow","estimatedMinutes":1,"requestedOutputFormats":null,"initialToolNames":["math.calculate"],"responseLanguage":"ko","reason":"calculation","userFacingReply":""}`,
+		`{"route":"start_task","classification":"quick_reply","taskShape":"immediate_reply","level":"xlow","estimatedMinutes":1,"requestedOutputFormats":null,"initialToolNames":["schedule.list"],"responseLanguage":"ko","reason":"schedule question","userFacingReply":""}`,
 	}}
 	replyLanguageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"continue","toolName":"math.calculate","toolInput":{"expression":"1+1"}}`,
-		finishMessageWithEvidence("2", "obs-001", "math.calculate", 0),
+		`{"action":"continue","toolName":"schedule.list","toolInput":{}}`,
+		finishMessageWithEvidence("오늘 등록된 일정은 없어요.", "obs-001", "schedule.list", 0),
 	}}
 	services := newKernelIntakeTestServices(replyLanguageModel, intakeLanguageModel)
-	toolRegistry := newTestCapabilityToolSet([]string{"math.calculate"})
-	registerTestTool(toolRegistry, ToolDefinition{Name: "math.calculate"}, func(context.Context, ToolInvocation) (ToolResult, error) {
-		return testToolSuccess(`{"expression":"1+1","result":"2"}`), nil
+	toolRegistry := newTestCapabilityToolSet([]string{"schedule.list"})
+	registerTestTool(toolRegistry, ToolDefinition{Name: "schedule.list"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return testToolSuccess(`{"schedules":[]}`), nil
 	})
 
 	result, errorValue := services.kernel.RunAgentRequest(context.Background(), AgentRequest{
 		RequesterPersonID: "person-1",
 		ConversationID:    "conversation-1",
-		Prompt:            "1+1=",
+		Prompt:            "오늘 일정 뭐 있어?",
 		ToolSet:           toolRegistry,
 	})
 	if errorValue != nil {
-		t.Fatalf("expected quick calculator reply: %v", errorValue)
+		t.Fatalf("expected quick initial-tool reply: %v", errorValue)
 	}
-	if result.FinishMessage != "2" {
-		t.Fatalf("expected calculator final reply, got %q", result.FinishMessage)
+	if result.FinishMessage != "오늘 등록된 일정은 없어요." {
+		t.Fatalf("expected initial-tool final reply, got %q", result.FinishMessage)
 	}
-	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "tool.math.calculate.result", "math.calculate") {
-		t.Fatal("expected calculator tool event")
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "tool.schedule.list.result", "schedule.list") {
+		t.Fatal("expected initial tool event")
 	}
 }
 

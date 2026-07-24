@@ -1151,30 +1151,30 @@ func TestAgentTurnRunnerRejectsCompletionEvidenceFromErrorObservation(t *testing
 
 func TestAgentTurnRunnerNoToolFallbackWaivesFailedRequiredEvidence(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"continue","toolName":"math.calculate","toolInput":{"expression":"1+2/4"}}`,
-		noToolFallbackFinishMessageDocument("1 + 2/4 = 1.5"),
+		`{"action":"continue","toolName":"schedule.list","toolInput":{"range":"today"}}`,
+		noToolFallbackFinishMessageDocument("Nothing in today's conversation mentioned a scheduled task."),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
-	toolRegistry := newTestCapabilityToolSet([]string{"math.calculate"})
-	registerTestTool(toolRegistry, ToolDefinition{Name: "math.calculate"}, func(context.Context, ToolInvocation) (ToolResult, error) {
-		return structuredFailureToolResult("exec: \"bc\": executable file not found in $PATH", "bc: command not found", "calculator_failed", "bc_execution", false, false), nil
+	toolRegistry := newTestCapabilityToolSet([]string{"schedule.list"})
+	registerTestTool(toolRegistry, ToolDefinition{Name: "schedule.list"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return structuredFailureToolResult("schedule storage unavailable", "schedule storage unavailable", "schedule_lookup_failed", "schedule_lookup", false, false), nil
 	})
 
 	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
 		RequesterPersonID:     "person-1",
 		ConversationID:        "conversation-1",
-		Prompt:                "1+2/4=",
+		Prompt:                "what is scheduled for today?",
 		ToolSet:               toolRegistry,
 		PinnedToolNames:       toolRegistry.ListToolNames(),
-		RequiredEvidenceTools: []string{"math.calculate"},
+		RequiredEvidenceTools: []string{"schedule.list"},
 	})
 	if errorValue != nil {
 		t.Fatalf("expected no-tool fallback to complete: %v", errorValue)
 	}
-	if result.FinishMessage != "1 + 2/4 = 1.5" {
+	if result.FinishMessage != "Nothing in today's conversation mentioned a scheduled task." {
 		t.Fatalf("expected direct fallback answer, got %q", result.FinishMessage)
 	}
-	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "tool.math.calculate.result", FailureCodes.OperationFailed.String()) {
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "tool.schedule.list.result", FailureCodes.OperationFailed.String()) {
 		t.Fatal("expected internal tool failure event to remain recorded")
 	}
 }
