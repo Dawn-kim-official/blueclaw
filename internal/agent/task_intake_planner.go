@@ -59,30 +59,7 @@ const (
 	ApprovalSignalUnclear ApprovalSignal = "unclear"
 )
 
-var allowedReactionEmojiNames = []string{
-	DefaultReactionEmojiName,
-	"thumbsup",
-	"eyes",
-	"tada",
-	"heart",
-	"pray",
-	"raised_hands",
-	"clap",
-	"thinking_face",
-	"rocket",
-	"ok_hand",
-	"memo",
-	"hourglass_flowing_sand",
-	"mag",
-	"bulb",
-	"sparkles",
-	"fire",
-	"sob",
-	"sweat_smile",
-	"wave",
-	"100",
-	"muscle",
-}
+var allowedReactionEmojiNames = reactionEmojiNames
 
 type IntakeOptions struct {
 	IsEnabled             bool
