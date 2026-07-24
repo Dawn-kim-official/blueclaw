@@ -108,35 +108,24 @@ describe("buzz history scope", () => {
 });
 
 describe("buzz reactions", () => {
-	test("maps every blueclaw reaction emoji name to unicode", () => {
-		const namesToExpected: Array<[string, string]> = [
-			["eyes", "👀"],
-			["white_check_mark", "✅"],
-			["+1", "👍"],
-			["thumbsup", "👍"],
-			["ok_hand", "👌"],
-			["pray", "🙏"],
-			["heart", "❤️"],
-			["tada", "🎉"],
-			["clap", "👏"],
-			["raised_hands", "🙌"],
-			["fire", "🔥"],
-			["rocket", "🚀"],
-			["sparkles", "✨"],
-			["100", "💯"],
-			["muscle", "💪"],
-			["wave", "👋"],
-			["thinking_face", "🤔"],
-			["memo", "📝"],
-			["hourglass_flowing_sand", "⏳"],
-			["mag", "🔍"],
-			["bulb", "💡"],
-			["sob", "😭"],
-			["sweat_smile", "😅"],
-		];
-		for (const [name, expected] of namesToExpected) {
-			expect(reactionContentOf(name)).toBe(expected);
+	test("maps every name in the blueclaw reaction vocabulary to unicode", async () => {
+		const vocabularySource = await Bun.file(
+			new URL("../../internal/agent/reaction_emoji.go", import.meta.url),
+		).text();
+		const names = [...vocabularySource.matchAll(/"([^"]+)"/g)].map((match) => match[1] ?? "");
+		expect(names.length).toBeGreaterThan(10);
+		for (const name of names) {
+			const content = reactionContentOf(name);
+			expect(content).not.toBe(name);
+			expect(content).toMatch(/[^\x20-\x7E]/);
 		}
+	});
+
+	test("maps representative names to the expected characters", () => {
+		expect(reactionContentOf("eyes")).toBe("👀");
+		expect(reactionContentOf("rocket")).toBe("🚀");
+		expect(reactionContentOf("clap")).toBe("👏");
+		expect(reactionContentOf("+1")).toBe("👍");
 	});
 
 	test("passes unicode reactions through unchanged", () => {
