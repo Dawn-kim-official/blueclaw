@@ -124,3 +124,60 @@ describe('createOutboundHandler', () => {
     expect(response.status).toBe(502);
   });
 });
+
+describe('identity.resolve account links', () => {
+  test('linked pubkey resolves to the linked email', async () => {
+    const { runner } = createRunnerStub(JSON.stringify([{ pubkey: SENDER_HEX, display_name: 'Alice Kim' }]));
+    const { agent } = createAgentStub();
+    const handler = createOutboundHandler(runner, agent, { accountEmailByPubkey: { [SENDER_HEX]: 'alice@dawn.example' }, accountLinksPath: undefined });
+
+    const response = await handler(postRequest('identity.resolve', { senderID: SENDER_HEX }));
+
+    expect(await response.json()).toEqual({ displayName: 'Alice Kim', email: 'alice@dawn.example' });
+  });
+
+  test('linked email wins even when the profile lookup fails', async () => {
+    const { agent } = createAgentStub();
+    const handler = createOutboundHandler(
+      async () => {
+        throw new Error('relay unreachable');
+      },
+      agent,
+      { accountEmailByPubkey: { [SENDER_HEX]: 'alice@dawn.example' }, accountLinksPath: undefined },
+    );
+
+    const response = await handler(postRequest('identity.resolve', { senderID: SENDER_HEX }));
+
+    expect(await response.json()).toEqual({ email: 'alice@dawn.example' });
+  });
+});
+
+describe('identity.resolve links file', () => {
+  test('links file entry resolves and wins over env links', async () => {
+    const linksPath = `/tmp/acpd-links-test-${crypto.randomUUID()}.json`;
+    await Bun.write(linksPath, JSON.stringify({ [SENDER_HEX]: 'file@dawn.example' }));
+    const { runner } = createRunnerStub(JSON.stringify([{ pubkey: SENDER_HEX, display_name: 'Alice Kim' }]));
+    const { agent } = createAgentStub();
+    const handler = createOutboundHandler(runner, agent, {
+      accountEmailByPubkey: { [SENDER_HEX]: 'env@dawn.example' },
+      accountLinksPath: linksPath,
+    });
+
+    const response = await handler(postRequest('identity.resolve', { senderID: SENDER_HEX }));
+
+    expect(await response.json()).toEqual({ displayName: 'Alice Kim', email: 'file@dawn.example' });
+  });
+
+  test('missing links file falls back to env links', async () => {
+    const { runner } = createRunnerStub(JSON.stringify([{ pubkey: SENDER_HEX, display_name: 'Alice Kim' }]));
+    const { agent } = createAgentStub();
+    const handler = createOutboundHandler(runner, agent, {
+      accountEmailByPubkey: { [SENDER_HEX]: 'env@dawn.example' },
+      accountLinksPath: '/tmp/acpd-links-missing.json',
+    });
+
+    const response = await handler(postRequest('identity.resolve', { senderID: SENDER_HEX }));
+
+    expect(await response.json()).toEqual({ displayName: 'Alice Kim', email: 'env@dawn.example' });
+  });
+});
