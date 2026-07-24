@@ -54,6 +54,7 @@ func (commandGuardrailService CommandGuardrailService) BuildCommandPlan(commandR
 		WorkingDirectoryPath: workingDirectoryPath,
 		EnvironmentVariables: sanitizeEnvironmentVariables(commandRequest.EnvironmentVariables, workspaceRootPath),
 		Timeout:              time.Duration(commandGuardrailService.timeoutSecond(commandRequest.TimeoutSecond)) * time.Second,
+		OutputMaximumBytes:   commandRequest.OutputMaximumBytes,
 		ExecutionIdentity:    commandRequest.ExecutionIdentity,
 	}
 
@@ -90,6 +91,7 @@ func (commandGuardrailService CommandGuardrailService) buildBashCommandPlan(comm
 		WorkingDirectoryPath: workingDirectoryPath,
 		EnvironmentVariables: sanitizeEnvironmentVariables(commandRequest.EnvironmentVariables, workspaceRootPath),
 		Timeout:              time.Duration(commandGuardrailService.timeoutSecond(commandRequest.TimeoutSecond)) * time.Second,
+		OutputMaximumBytes:   commandRequest.OutputMaximumBytes,
 		IsPTY:                commandRequest.IsPTY,
 		ExecutionIdentity:    commandRequest.ExecutionIdentity,
 	}

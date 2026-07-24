@@ -62,7 +62,6 @@ var (
 		"type":"object",
 		"properties":{
 			"path":{"type":"string","minLength":1},
-			"terminalPath":{"type":"string","description":"Absolute filesystem path for terminal.run commands. Quote it: paths may contain spaces."},
 			"sizeBytes":{"type":"integer","minimum":0}
 		},
 		"required":["path","sizeBytes"],

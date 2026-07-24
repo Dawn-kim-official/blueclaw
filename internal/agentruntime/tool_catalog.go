@@ -362,6 +362,9 @@ func actorToolFailure(operation string, stage string, virtualPath string, errorV
 	case security.ActorErrorCodeNotFound:
 		failureKind = agent.FailureNotFound
 		failureCode = agent.FailureCodes.NotFound
+	case security.ActorErrorCodeInvalidPath:
+		failureKind = agent.FailureInvalidInput
+		failureCode = agent.FailureCodes.InvalidInput
 	}
 	result := agent.ToolFailureWithOutput(failureKind, failureCode, stage, message, json.RawMessage(marshalToolResult(actorFailureDataFields(operation, stage, virtualPath, errorValue))))
 	result.Failure.Retryable = true
