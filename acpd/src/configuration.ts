@@ -4,6 +4,7 @@ export type AcpdConfiguration = {
   blueclawTaskEventsURL: string;
   buzzCommand: string;
   listenPort: number;
+  socketPath: string;
   maximumTurnHoldSeconds: number;
   accountEmailByPubkey: Record<string, string>;
   accountLinksPath: string | undefined;
@@ -17,6 +18,7 @@ export function loadConfiguration(environment: Record<string, string | undefined
     blueclawTaskEventsURL: `${blueclawBaseURL}/tasks/api/events`,
     buzzCommand: environment['ACPD_BUZZ_COMMAND']?.trim() || 'buzz',
     listenPort: parseListenPort(environment['ACPD_LISTEN_PORT']),
+    socketPath: environment['ACPD_SOCKET_PATH']?.trim() || '/tmp/blueclaw-acpd.sock',
     maximumTurnHoldSeconds: parsePositiveInteger(environment['ACPD_MAXIMUM_TURN_HOLD_SECONDS'], 3300),
     accountEmailByPubkey: parseAccountLinks(environment['ACPD_ACCOUNT_LINKS']),
     accountLinksPath: environment['ACPD_ACCOUNT_LINKS_PATH']?.trim() || undefined,
