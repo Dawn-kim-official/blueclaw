@@ -22,7 +22,6 @@ import (
 	"blueclaw/internal/security"
 	"blueclaw/internal/security/actortest"
 	"blueclaw/internal/task"
-	"blueclaw/internal/workspacepath"
 )
 
 func TestTaskLauncherCreatesAuditedAgentRun(t *testing.T) {
@@ -315,11 +314,8 @@ func TestTaskLauncherProvisionsRequesterWorkspaceBeforeToolSet(t *testing.T) {
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
-	requesterSitePath := workspacepath.Directory{
-		ConcretePath: filepath.Join(requesterHomePath, "sites", "site-1"),
-		VirtualPath:  "home/sites/site-1",
-	}
-	if errorValue := workspaceActor.MkdirAll(context.Background(), requesterSitePath, 0700); errorValue != nil {
+	requesterSitePath := filepath.Join(requesterHomePath, "sites", "site-1")
+	if errorValue := workspaceActor.MkdirAll(context.Background(), requesterSitePath); errorValue != nil {
 		t.Fatalf("expected requester actor mkdir to succeed after launch provisioning: %v", errorValue)
 	}
 	taskEvents := taskEventService.ListTaskEvent(launchResult.TurnResult.TaskRun.TaskRunID)

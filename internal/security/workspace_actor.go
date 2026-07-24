@@ -3,7 +3,6 @@ package security
 import (
 	"bytes"
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -16,7 +15,6 @@ import (
 
 	"blueclaw/internal/config"
 	"blueclaw/internal/policy"
-	"blueclaw/internal/workspacepath"
 )
 
 const (
@@ -30,15 +28,17 @@ const (
 	ActorErrorCodeUnsupportedOperation = "unsupported_operation"
 )
 
+const (
+	actorDirectoryCreateMode os.FileMode = 0o2770
+	actorFileCreateMode      os.FileMode = 0o660
+)
+
 type WorkspaceActor interface {
 	Run(context.Context, CommandRequest) (CommandResult, error)
-	StartInteractiveSession(CommandRequest) (string, error)
-	MkdirAll(context.Context, workspacepath.Directory, os.FileMode) error
-	WriteFile(context.Context, workspacepath.Path, []byte, os.FileMode) error
-	ReadFile(context.Context, workspacepath.Path, int64) ([]byte, error)
-	CopyFile(context.Context, workspacepath.Path, workspacepath.Path, os.FileMode, bool) error
-	BundleDirectory(context.Context, workspacepath.Directory, WorkspaceActorBundleOptions) (WorkspaceActorBundle, error)
-	Stat(context.Context, workspacepath.Path) (WorkspaceActorStat, error)
+	MkdirAll(context.Context, string) error
+	WriteFile(context.Context, string, []byte) error
+	BundleDirectory(context.Context, string, WorkspaceActorBundleOptions) (WorkspaceActorBundle, error)
+	Stat(context.Context, string) (WorkspaceActorStat, error)
 }
 
 type WorkspaceActorFactory interface {
@@ -60,11 +60,11 @@ type WorkspaceActorError struct {
 }
 
 type WorkspaceActorStat struct {
-	Path        workspacepath.Path `json:"path"`
-	IsRegular   bool               `json:"isRegular"`
-	IsDirectory bool               `json:"isDirectory"`
-	SizeBytes   int64              `json:"sizeBytes"`
-	Mode        os.FileMode        `json:"mode"`
+	Path        string      `json:"path"`
+	IsRegular   bool        `json:"isRegular"`
+	IsDirectory bool        `json:"isDirectory"`
+	SizeBytes   int64       `json:"sizeBytes"`
+	Mode        os.FileMode `json:"mode"`
 }
 
 type WorkspaceActorBundleOptions struct {
@@ -121,7 +121,7 @@ func (factory POSIXWorkspaceActorFactory) Requester(ctx context.Context, request
 	if factory.terminalService == nil || strings.TrimSpace(factory.terminalConfiguration.POSIXHelperPath) == "" {
 		return nil, WorkspaceActorError{Operation: "requester", Stage: "factory", ActorUser: identity.UserName, Code: ActorErrorCodeRuntimeUnavailable, Detail: "posix helper is required for requester workspace side effects"}
 	}
-	if errorValue := ensureHelperSupportsFS(ctx, factory.terminalConfiguration.POSIXHelperPath, identity.UserName); errorValue != nil {
+	if errorValue := ensureHelperSupportsExecAndFS(ctx, factory.terminalConfiguration.POSIXHelperPath, identity.UserName); errorValue != nil {
 		return nil, errorValue
 	}
 	return POSIXHelperWorkspaceActor{
@@ -136,20 +136,20 @@ type helperCapabilities struct {
 	Capabilities []string `json:"capabilities"`
 }
 
-var verifiedHelperFSSupportByPath sync.Map
+var verifiedHelperSupportByPath sync.Map
 
-func ensureHelperSupportsFS(ctx context.Context, helperPath string, actorUser string) error {
-	if _, isVerified := verifiedHelperFSSupportByPath.Load(helperPath); isVerified {
+func ensureHelperSupportsExecAndFS(ctx context.Context, helperPath string, actorUser string) error {
+	if _, isVerified := verifiedHelperSupportByPath.Load(helperPath); isVerified {
 		return nil
 	}
-	if errorValue := probeHelperSupportsFS(ctx, helperPath, actorUser); errorValue != nil {
+	if errorValue := probeHelperSupportsExecAndFS(ctx, helperPath, actorUser); errorValue != nil {
 		return errorValue
 	}
-	verifiedHelperFSSupportByPath.Store(helperPath, true)
+	verifiedHelperSupportByPath.Store(helperPath, true)
 	return nil
 }
 
-func probeHelperSupportsFS(ctx context.Context, helperPath string, actorUser string) error {
+func probeHelperSupportsExecAndFS(ctx context.Context, helperPath string, actorUser string) error {
 	executionContext, cancelFunction := context.WithTimeout(ctx, 15*time.Second)
 	defer cancelFunction()
 	command := exec.CommandContext(executionContext, helperPath, "capabilities")
@@ -164,8 +164,8 @@ func probeHelperSupportsFS(ctx context.Context, helperPath string, actorUser str
 	if errorValue := json.Unmarshal(output, &capabilities); errorValue != nil {
 		return WorkspaceActorError{Operation: "requester", Stage: "capabilities", ActorUser: actorUser, Code: ActorErrorCodeRuntimeUnavailable, Detail: helperFailureDetail(helperPath, "capabilities", errorValue.Error(), output)}
 	}
-	if capabilities.Version < 2 || !containsCapability(capabilities.Capabilities, "fs") {
-		return WorkspaceActorError{Operation: "requester", Stage: "capabilities", ActorUser: actorUser, Code: ActorErrorCodeRuntimeUnavailable, Detail: helperFailureDetail(helperPath, "capabilities", "posix helper does not support fs capability", output)}
+	if capabilities.Version < 2 || !containsCapability(capabilities.Capabilities, "exec") || !containsCapability(capabilities.Capabilities, "fs") {
+		return WorkspaceActorError{Operation: "requester", Stage: "capabilities", ActorUser: actorUser, Code: ActorErrorCodeRuntimeUnavailable, Detail: helperFailureDetail(helperPath, "capabilities", "posix helper does not support exec and fs capabilities", output)}
 	}
 	return nil
 }
@@ -184,57 +184,23 @@ func (actor POSIXHelperWorkspaceActor) Run(ctx context.Context, commandRequest C
 		commandRequest.ExecutionIdentity = actor.executionIdentity
 	}
 	if strings.TrimSpace(commandRequest.ExecutionIdentity.UserName) == "" {
-		return CommandResult{}, actorError("run", "identity", actor.executionIdentity, workspacepath.Path{}, ActorErrorCodeIdentityMissing, ActorErrorCodeIdentityMissing)
+		return CommandResult{}, actorError("run", "identity", actor.executionIdentity, "", ActorErrorCodeIdentityMissing, ActorErrorCodeIdentityMissing)
 	}
 	return actor.terminalService.RunCommand(ctx, commandRequest)
 }
 
-func (actor POSIXHelperWorkspaceActor) StartInteractiveSession(commandRequest CommandRequest) (string, error) {
-	if strings.TrimSpace(commandRequest.ExecutionIdentity.UserName) == "" {
-		commandRequest.ExecutionIdentity = actor.executionIdentity
-	}
-	if strings.TrimSpace(commandRequest.ExecutionIdentity.UserName) == "" {
-		return "", actorError("start_session", "identity", actor.executionIdentity, workspacepath.Path{}, ActorErrorCodeIdentityMissing, ActorErrorCodeIdentityMissing)
-	}
-	return actor.terminalService.StartInteractiveSession(commandRequest)
+func (actor POSIXHelperWorkspaceActor) MkdirAll(ctx context.Context, path string) error {
+	return actor.executeFS(ctx, "mkdir_all", path, fsRequest{Path: path, Mode: actorDirectoryCreateMode}, nil)
 }
 
-func (actor POSIXHelperWorkspaceActor) MkdirAll(ctx context.Context, directory workspacepath.Directory, mode os.FileMode) error {
-	path := workspacepath.Path(directory)
-	return actor.executeFS(ctx, "mkdir_all", path, fsRequest{Path: path.ConcretePath, Mode: modeBits(mode)}, nil)
+func (actor POSIXHelperWorkspaceActor) WriteFile(ctx context.Context, path string, content []byte) error {
+	return actor.executeFS(ctx, "write_file", path, fsRequest{Path: path, Mode: actorFileCreateMode}, bytes.NewReader(content))
 }
 
-func (actor POSIXHelperWorkspaceActor) WriteFile(ctx context.Context, path workspacepath.Path, content []byte, mode os.FileMode) error {
-	return actor.executeFS(ctx, "write_file", path, fsRequest{Path: path.ConcretePath, Mode: mode.Perm()}, bytes.NewReader(content))
-}
-
-func (actor POSIXHelperWorkspaceActor) ReadFile(ctx context.Context, path workspacepath.Path, maxBytes int64) ([]byte, error) {
-	var response fsResponse
-	errorValue := actor.executeFSWithResponse(ctx, "read_file", path, fsRequest{Path: path.ConcretePath, MaxBytes: maxBytes}, nil, &response)
-	if errorValue != nil {
-		return nil, errorValue
-	}
-	document, errorValue := base64.StdEncoding.DecodeString(response.ContentBase64)
-	if errorValue != nil {
-		return nil, actorError("read_file", "decode", actor.executionIdentity, path, ActorErrorCodeOperationFailed, errorValue.Error())
-	}
-	return document, nil
-}
-
-func (actor POSIXHelperWorkspaceActor) CopyFile(ctx context.Context, source workspacepath.Path, destination workspacepath.Path, mode os.FileMode, overwrite bool) error {
-	return actor.executeFS(ctx, "copy_file", destination, fsRequest{
-		Source:    source.ConcretePath,
-		Path:      destination.ConcretePath,
-		Mode:      mode.Perm(),
-		Overwrite: overwrite,
-	}, nil)
-}
-
-func (actor POSIXHelperWorkspaceActor) BundleDirectory(ctx context.Context, directory workspacepath.Directory, options WorkspaceActorBundleOptions) (WorkspaceActorBundle, error) {
-	path := workspacepath.Path(directory)
+func (actor POSIXHelperWorkspaceActor) BundleDirectory(ctx context.Context, path string, options WorkspaceActorBundleOptions) (WorkspaceActorBundle, error) {
 	var response fsResponse
 	errorValue := actor.executeFSWithResponse(ctx, "bundle_directory", path, fsRequest{
-		Path:         path.ConcretePath,
+		Path:         path,
 		MaxBytes:     options.MaxBytes,
 		ExcludeNames: options.ExcludeNames,
 	}, nil, &response)
@@ -248,9 +214,9 @@ func (actor POSIXHelperWorkspaceActor) BundleDirectory(ctx context.Context, dire
 	}, nil
 }
 
-func (actor POSIXHelperWorkspaceActor) Stat(ctx context.Context, path workspacepath.Path) (WorkspaceActorStat, error) {
+func (actor POSIXHelperWorkspaceActor) Stat(ctx context.Context, path string) (WorkspaceActorStat, error) {
 	var response fsResponse
-	errorValue := actor.executeFSWithResponse(ctx, "stat", path, fsRequest{Path: path.ConcretePath}, nil, &response)
+	errorValue := actor.executeFSWithResponse(ctx, "stat", path, fsRequest{Path: path}, nil, &response)
 	if errorValue != nil {
 		return WorkspaceActorStat{}, errorValue
 	}
@@ -263,11 +229,11 @@ func (actor POSIXHelperWorkspaceActor) Stat(ctx context.Context, path workspacep
 	}, nil
 }
 
-func (actor POSIXHelperWorkspaceActor) executeFS(ctx context.Context, operation string, path workspacepath.Path, request fsRequest, stdin io.Reader) error {
+func (actor POSIXHelperWorkspaceActor) executeFS(ctx context.Context, operation string, path string, request fsRequest, stdin io.Reader) error {
 	return actor.executeFSWithResponse(ctx, operation, path, request, stdin, nil)
 }
 
-func (actor POSIXHelperWorkspaceActor) executeFSWithResponse(ctx context.Context, operation string, path workspacepath.Path, request fsRequest, stdin io.Reader, response *fsResponse) error {
+func (actor POSIXHelperWorkspaceActor) executeFSWithResponse(ctx context.Context, operation string, path string, request fsRequest, stdin io.Reader, response *fsResponse) error {
 	resolvedIdentity, errorValue := ResolveExecutionIdentity(actor.executionIdentity)
 	if errorValue != nil {
 		return actorError(operation, "resolve_identity", actor.executionIdentity, path, ActorErrorCodeIdentityMissing, errorValue.Error())
@@ -376,14 +342,14 @@ func fsHelperArguments(operation string, identity ExecutionIdentity, request fsR
 	return arguments
 }
 
-func actorError(operation string, stage string, identity ExecutionIdentity, path workspacepath.Path, code string, detail string) WorkspaceActorError {
+func actorError(operation string, stage string, identity ExecutionIdentity, path string, code string, detail string) WorkspaceActorError {
 	return WorkspaceActorError{
 		Operation:   operation,
 		Stage:       stage,
 		ActorUser:   strings.TrimSpace(identity.UserName),
-		VirtualPath: strings.TrimSpace(path.VirtualPath),
+		VirtualPath: strings.TrimSpace(path),
 		Code:        firstNonEmptyString(code, ActorErrorCodeOperationFailed),
-		Detail:      firstNonEmptyString(redactWorkspacePathDetail(detail, path), "operation failed"),
+		Detail:      firstNonEmptyString(strings.TrimSpace(detail), "operation failed"),
 	}
 }
 
@@ -401,18 +367,6 @@ func actorErrorCodeForDetail(detail string) string {
 	default:
 		return ActorErrorCodeOperationFailed
 	}
-}
-
-func redactWorkspacePathDetail(detail string, path workspacepath.Path) string {
-	trimmedDetail := strings.TrimSpace(detail)
-	if strings.TrimSpace(path.ConcretePath) == "" || strings.TrimSpace(path.VirtualPath) == "" {
-		return trimmedDetail
-	}
-	return strings.ReplaceAll(trimmedDetail, path.ConcretePath, path.VirtualPath)
-}
-
-func modeBits(mode os.FileMode) os.FileMode {
-	return os.FileMode(uint32(mode) & 07777)
 }
 
 func IsActorNotFoundError(errorValue error) bool {

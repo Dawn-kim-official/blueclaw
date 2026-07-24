@@ -8,7 +8,7 @@ import (
 
 func TestStaffCanAccessStaffCircleFile(t *testing.T) {
 	personAccess := policy.PersonAccess{PersonID: "person-1", Circles: []string{"staff"}}
-	resource := ResourceForWorkspacePath("/workspace", "/workspace/circles/staff/notes.md")
+	resource := "file:circle:staff"
 
 	if !CanAccess(Request{PersonAccess: personAccess, Action: ActionWrite, Resource: resource}) {
 		t.Fatal("staff should write staff circle files")
@@ -17,7 +17,7 @@ func TestStaffCanAccessStaffCircleFile(t *testing.T) {
 
 func TestCircleMemberCanAccessCircleFile(t *testing.T) {
 	personAccess := policy.PersonAccess{PersonID: "person-1", Circles: []string{"staff", "finance"}}
-	resource := ResourceForWorkspacePath("/workspace", "/workspace/circles/finance/report.xlsx")
+	resource := "file:circle:finance"
 
 	if !CanAccess(Request{PersonAccess: personAccess, Action: ActionRead, Resource: resource}) {
 		t.Fatal("finance member should read finance circle files")
@@ -26,7 +26,7 @@ func TestCircleMemberCanAccessCircleFile(t *testing.T) {
 
 func TestCircleNonMemberCannotAccessCircleFile(t *testing.T) {
 	personAccess := policy.PersonAccess{PersonID: "person-1", Circles: []string{"staff"}}
-	resource := ResourceForWorkspacePath("/workspace", "/workspace/circles/finance/report.xlsx")
+	resource := "file:circle:finance"
 
 	if CanAccess(Request{PersonAccess: personAccess, Action: ActionRead, Resource: resource}) {
 		t.Fatal("finance non-member should not read finance circle files")
@@ -36,7 +36,7 @@ func TestCircleNonMemberCannotAccessCircleFile(t *testing.T) {
 func TestPrivateFileOnlyAllowsOwner(t *testing.T) {
 	ownerAccess := policy.PersonAccess{PersonID: "person-1", Circles: []string{"staff"}}
 	otherAccess := policy.PersonAccess{PersonID: "person-2", Circles: []string{"staff"}}
-	resource := ResourceForWorkspacePath("/workspace", "/workspace/private/people/person-1/dm.md")
+	resource := "file:private:person-1"
 
 	if !CanAccess(Request{PersonAccess: ownerAccess, Action: ActionRead, Resource: resource}) {
 		t.Fatal("private owner should read private files")

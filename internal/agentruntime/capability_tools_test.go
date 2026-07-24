@@ -529,37 +529,26 @@ func canonicalWebSearchDescriptor() CapabilityToolDescriptor {
 	}
 }
 
-func TestImageGenerateRequiresRequesterWorkspaceWriteAccess(t *testing.T) {
+func TestImageGenerateSendsRequesterWorkspacePathToBridge(t *testing.T) {
 	tests := []struct {
-		name           string
-		path           string
-		circles        []string
-		isAllowed      bool
-		expectedResult string
+		name         string
+		path         string
+		expectedPath string
 	}{
 		{
-			name:           "other person workspace",
-			path:           "/workspace/private/people/person-2/generated.png",
-			circles:        []string{"staff"},
-			expectedResult: "current account cannot write this file",
+			name:         "requester workspace",
+			path:         "/workspace/private/people/person-1/generated.png",
+			expectedPath: "/workspace/private/people/person-1/generated.png",
 		},
 		{
-			name:           "unauthorized circle workspace",
-			path:           "/workspace/circles/finance/generated.png",
-			circles:        []string{"staff"},
-			expectedResult: "current account cannot write this file",
+			name:         "circle workspace",
+			path:         "/workspace/circles/finance/generated.png",
+			expectedPath: "/workspace/circles/finance/generated.png",
 		},
 		{
-			name:      "requester workspace",
-			path:      "/workspace/private/people/person-1/generated.png",
-			circles:   []string{"staff"},
-			isAllowed: true,
-		},
-		{
-			name:      "authorized circle workspace",
-			path:      "/workspace/circles/finance/generated.png",
-			circles:   []string{"staff", "finance"},
-			isAllowed: true,
+			name:         "home relative path",
+			path:         "~/generated.png",
+			expectedPath: "/workspace/private/people/person-1/generated.png",
 		},
 	}
 
@@ -581,7 +570,7 @@ func TestImageGenerateRequiresRequesterWorkspaceWriteAccess(t *testing.T) {
 				RequesterPersonID: "person-1",
 				PersonAccess: policy.PersonAccess{
 					PersonID: "person-1",
-					Circles:  test.circles,
+					Circles:  []string{"staff"},
 				},
 			})
 
@@ -595,20 +584,11 @@ func TestImageGenerateRequiresRequesterWorkspaceWriteAccess(t *testing.T) {
 			if errorValue != nil {
 				t.Fatal(errorValue)
 			}
-			if test.isAllowed {
-				if result.Failed() {
-					t.Fatalf("expected image.generate success, got %s", result.ContentText())
-				}
-				if httpClient.requestPath != "/v1/tools/image.generate/invoke" || !strings.Contains(httpClient.requestBody, test.path) {
-					t.Fatalf("expected authorized image.generate bridge request, got path=%s body=%s", httpClient.requestPath, httpClient.requestBody)
-				}
-				return
+			if result.Failed() {
+				t.Fatalf("expected image.generate success, got %s", result.ContentText())
 			}
-			if !result.Failed() || result.Failure == nil || result.Failure.Stage != "file_write_access" || !strings.Contains(result.ContentText(), test.expectedResult) {
-				t.Fatalf("expected image.generate denial, got %s", result.ContentText())
-			}
-			if httpClient.requestPath != "" {
-				t.Fatalf("expected denied image.generate not to reach capabilityd, got %s", httpClient.requestPath)
+			if httpClient.requestPath != "/v1/tools/image.generate/invoke" || !strings.Contains(httpClient.requestBody, test.expectedPath) {
+				t.Fatalf("expected image.generate bridge request with %s, got path=%s body=%s", test.expectedPath, httpClient.requestPath, httpClient.requestBody)
 			}
 		})
 	}

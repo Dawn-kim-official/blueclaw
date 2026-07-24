@@ -10,7 +10,6 @@ import (
 	"sync"
 	"time"
 
-	"blueclaw/internal/access"
 	"blueclaw/internal/agent"
 	"blueclaw/internal/capability"
 	"blueclaw/internal/mcp"
@@ -454,53 +453,6 @@ func isWorkspaceManagedEnvironmentName(name string) bool {
 	default:
 		return false
 	}
-}
-
-func (toolCatalogBuilder *ToolCatalogBuilder) canAccessWorkspacePath(personAccess policy.PersonAccess, action string, path string) bool {
-	resource := access.ResourceForWorkspacePath(toolCatalogBuilder.workspaceRootPath, path)
-	return access.CanAccess(access.Request{
-		PersonAccess: personAccess,
-		Action:       action,
-		Resource:     resource,
-	})
-}
-
-func (toolCatalogBuilder *ToolCatalogBuilder) resolveWorkspaceFilePath(value string) (string, error) {
-	trimmedPath := toolCatalogBuilder.resolveAgentWorkspacePath(value)
-	if trimmedPath == "" {
-		return "", errors.New("path is required")
-	}
-	if !filepath.IsAbs(trimmedPath) {
-		trimmedPath = filepath.Join(toolCatalogBuilder.workspaceRootPath, trimmedPath)
-	}
-	cleanWorkspaceRootPath, errorValue := filepath.Abs(toolCatalogBuilder.workspaceRootPath)
-	if errorValue != nil {
-		return "", errorValue
-	}
-	cleanPath, errorValue := filepath.Abs(filepath.Clean(trimmedPath))
-	if errorValue != nil {
-		return "", errorValue
-	}
-	relativePath, errorValue := filepath.Rel(cleanWorkspaceRootPath, cleanPath)
-	if errorValue != nil {
-		return "", errorValue
-	}
-	if relativePath == ".." || strings.HasPrefix(relativePath, "../") {
-		return "", errors.New("path must stay under the workspace root")
-	}
-	return cleanPath, nil
-}
-
-func (toolCatalogBuilder *ToolCatalogBuilder) resolveWorkspaceFilePathForConversation(value string, conversationScope ConversationResourceScope) (string, error) {
-	trimmedPath := toolCatalogBuilder.resolveAgentWorkspacePath(value)
-	if trimmedPath == "" {
-		return "", errors.New("path is required")
-	}
-	if filepath.IsAbs(trimmedPath) {
-		return toolCatalogBuilder.resolveWorkspaceFilePath(trimmedPath)
-	}
-	defaultDirectoryPath := firstNonEmptyString(conversationScope.DefaultDirectoryPath, toolCatalogBuilder.workspaceRootPath)
-	return toolCatalogBuilder.resolveWorkspaceFilePath(filepath.Join(defaultDirectoryPath, trimmedPath))
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) resolveAgentWorkspacePath(value string) string {

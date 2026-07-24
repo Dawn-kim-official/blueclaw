@@ -55,7 +55,7 @@ func TestFilePreviewResolvesArtifactFileHint(t *testing.T) {
 		PersonAccess:      policy.PersonAccess{PersonID: "person-1", Circles: []string{"staff"}},
 		VisibleContext: agent.VisibleContext{Materials: []agent.VisibleContextMaterial{{
 			FileHint:    fileHint,
-			Path:        filepath.ToSlash(filepath.Join("/workspace", relativePath)),
+			Path:        filepath.Join(workspacePath, filepath.FromSlash(relativePath)),
 			Filename:    "report.md",
 			IsAvailable: true,
 		}}},
