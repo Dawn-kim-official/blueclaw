@@ -301,9 +301,7 @@ type ChatdConnectorConfiguration struct {
 }
 
 type BuzzConnectorConfiguration struct {
-	Enabled       bool   `json:"enabled,omitempty"`
-	Endpoint      string `json:"endpoint,omitempty"`
-	TimeoutSecond int    `json:"timeoutSecond,omitempty"`
+	Enabled bool `json:"enabled,omitempty"`
 }
 
 type LoggingConfiguration struct {

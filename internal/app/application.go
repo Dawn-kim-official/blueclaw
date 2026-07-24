@@ -304,7 +304,7 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 	agentReplyStore := apiconnector.NewReplyStore()
 	connectorRuntime.RegisterAdapter(apiconnector.NewAdapter(identityService, agentReplyStore))
 	if runtimeConfiguration.Connectors.Buzz.Enabled {
-		connectorRuntime.RegisterAdapter(newBuzzPlatformAdapter(runtimeConfiguration))
+		connectorRuntime.RegisterAdapter(connectors.NewChatdPlatformAdapter("buzz", chatdClient))
 	}
 	connectorEventHandler := httpserver.NewConnectorEventHandler(connectorRuntime)
 
@@ -944,16 +944,6 @@ func newChatdClient(runtimeConfiguration config.RuntimeConfiguration) capability
 	})
 }
 
-func newAcpdClient(runtimeConfiguration config.RuntimeConfiguration) capability.Client {
-	return capability.NewClient(capability.Configuration{
-		Endpoint: firstNonEmptyString(runtimeConfiguration.Connectors.Buzz.Endpoint, connectors.DefaultAcpdEndpoint),
-		Timeout:  time.Duration(runtimeConfiguration.Connectors.Buzz.TimeoutSecond) * time.Second,
-	})
-}
-
-func newBuzzPlatformAdapter(runtimeConfiguration config.RuntimeConfiguration) connectors.PlatformAdapter {
-	return connectors.NewChatdPlatformAdapter("buzz", newAcpdClient(runtimeConfiguration))
-}
 
 func newPlatformAdapter(platform string, runtimeConfiguration config.RuntimeConfiguration, capabilityClient capability.Client, chatdClient capability.Client) connectors.PlatformAdapter {
 	if isChatdEnabledForPlatform(runtimeConfiguration.Connectors.Chatd, platform) {

@@ -1,4 +1,5 @@
 import type { Chat, Message, Thread } from 'chat';
+import { BUZZ_ADAPTER_NAME } from './adapters/buzz/types.ts';
 import type { ChatdConfiguration } from './configuration.ts';
 
 export type BridgeInboundEvent = {
@@ -15,13 +16,17 @@ export type BridgeInboundEvent = {
 
 export function createBridge(chat: Chat, configuration: ChatdConfiguration): void {
   chat.onDirectMessage(async (thread, message) => {
-    await forwardEvent(configuration, inboundEvent('direct_message', thread, message));
+    await forwardMessage(configuration, 'direct_message', thread, message);
   });
   chat.onNewMention(async (thread, message) => {
-    await forwardEvent(configuration, inboundEvent('mention', thread, message));
+    await thread.subscribe();
+    await forwardMessage(configuration, 'mention', thread, message);
+  });
+  chat.onSubscribedMessage(async (thread, message) => {
+    await forwardMessage(configuration, message.isMention ? 'mention' : 'channel_message', thread, message);
   });
   chat.onAction(async (event) => {
-    await forwardEvent(configuration, {
+    await forwardLegacyEvent(configuration, {
       kind: 'action',
       platform: 'mattermost',
       threadID: event.threadId,
@@ -35,8 +40,22 @@ export function createBridge(chat: Chat, configuration: ChatdConfiguration): voi
   });
 }
 
-function inboundEvent(kind: BridgeInboundEvent['kind'], thread: Thread, message: Message): BridgeInboundEvent {
-  return {
+function platformOfThread(threadID: string): string {
+  return threadID.split(':')[0] ?? '';
+}
+
+async function forwardMessage(
+  configuration: ChatdConfiguration,
+  kind: BridgeInboundEvent['kind'],
+  thread: Thread,
+  message: Message,
+): Promise<void> {
+  const platform = platformOfThread(thread.id);
+  if (platform === BUZZ_ADAPTER_NAME) {
+    await forwardNormalizedEvent(configuration, platform, thread, message);
+    return;
+  }
+  await forwardLegacyEvent(configuration, {
     kind,
     platform: 'mattermost',
     threadID: thread.id,
@@ -44,10 +63,34 @@ function inboundEvent(kind: BridgeInboundEvent['kind'], thread: Thread, message:
     senderID: message.author.userId,
     senderUserName: message.author.userName,
     text: message.text,
-  };
+  });
 }
 
-async function forwardEvent(configuration: ChatdConfiguration, event: BridgeInboundEvent): Promise<void> {
+async function forwardNormalizedEvent(
+  configuration: ChatdConfiguration,
+  platform: string,
+  thread: Thread,
+  message: Message,
+): Promise<void> {
+  const response = await fetch(`${configuration.blueclawBaseURL}/connectors/${platform}/events`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      conversationID: thread.id,
+      messageID: message.id,
+      senderID: message.author.userId,
+      replyTargetID: thread.id,
+      prompt: message.text,
+      context: { messages: [], hasMoreBefore: true, historyCursor: thread.id },
+    }),
+  });
+  if (!response.ok) {
+    throw new Error(`blueclaw ${platform} ingress returned ${response.status}`);
+  }
+}
+
+async function forwardLegacyEvent(configuration: ChatdConfiguration, event: BridgeInboundEvent): Promise<void> {
+  if (!configuration.blueclawIngressURL) return;
   const response = await fetch(configuration.blueclawIngressURL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
