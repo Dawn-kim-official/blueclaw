@@ -51,7 +51,7 @@ type addressingClassificationDocument struct {
 	Reason         string           `json:"reason,omitempty"`
 }
 
-var addressingReactionEmojiOptions = []string{"", "white_check_mark", "eyes", "+1", "ok_hand", "pray", "heart", "tada", "clap", "raised_hands", "fire"}
+var addressingReactionEmojiOptions = []string{"", "white_check_mark", "eyes", "+1", "ok_hand", "pray", "heart", "tada", "clap", "raised_hands", "fire", "rocket", "sparkles", "100", "muscle", "wave"}
 
 func addressingReactionEmojiEnumJSON() string {
 	quoted := make([]string, 0, len(addressingReactionEmojiOptions))
@@ -138,7 +138,7 @@ func addressingClassificationPrompt(request AddressingClassificationRequest) str
 		"Decide how the assistant (InternKim, Korean name 김인턴) should handle the latest message in a group conversation. Return only the requested JSON; do not answer the user.",
 		"Make two independent decisions:",
 		"- shouldRespond: true when the assistant should write a reply. That includes a direct request, question, or instruction to the assistant; an answer to the assistant's own question; a message that makes the assistant the intended responder; AND social or playful messages directed at the assistant where a short in-kind reply keeps the conversation going (a joke, teasing, or a compliment aimed at the assistant — reply briefly and warmly). false otherwise.",
-		"- reactionEmoji: default to \"\". Choose an emoji from the allowed set only when a courteous coworker would naturally leave a reaction even though no reply is needed: a share or FYI addressed to the whole team (\"공유합니다\", \"참고하세요\", a link or file for everyone), news worth celebrating, or a joke posted for the room. Do not react to routine work chatter between other people, status exchanges between colleagues, personal thanks between two people, or any message that neither addresses nor includes the assistant; topic or wording alone is never a reason to react. When you do react, pick the emoji that fits: white_check_mark to acknowledge, +1 or ok_hand to approve, pray or heart for thanks aimed at the assistant, tada or clap or raised_hands to celebrate.",
+		"- reactionEmoji: default to \"\". Choose an emoji from the allowed set only when a courteous coworker would naturally leave a reaction even though no reply is needed: a share or FYI addressed to the whole team (\"공유합니다\", \"참고하세요\", a link or file for everyone), news worth celebrating, or a joke posted for the room. Do not react to routine work chatter between other people, status exchanges between colleagues, personal thanks between two people, or any message that neither addresses nor includes the assistant; topic or wording alone is never a reason to react. When you do react, pick the emoji that fits: white_check_mark to acknowledge, +1 or ok_hand to approve, pray or heart for thanks aimed at the assistant, tada or clap or raised_hands or sparkles to celebrate, rocket for a launch or shipped work, fire or 100 for impressive results, muscle to cheer effort on, wave for greetings.",
 		"Four outcomes: ignore (shouldRespond=false, reactionEmoji=\"\"); react only (false + emoji); respond (true + \"\"); react and respond (true + emoji). Ignore is the normal outcome for most channel traffic.",
 		"Guidance:",
 		"- Default to ignore for messages between other people, including their status updates, coordination, and thanks to each other.",
