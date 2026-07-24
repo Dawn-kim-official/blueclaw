@@ -1,7 +1,6 @@
 package access
 
 import (
-	"path/filepath"
 	"strings"
 
 	"blueclaw/internal/policy"
@@ -36,27 +35,6 @@ func CanAccess(request Request) bool {
 		return false
 	}
 	return canAccessPolicyResource(request.PersonAccess, action, resource)
-}
-
-func ResourceForWorkspacePath(workspaceRootPath string, path string) string {
-	relativePath := relativeWorkspacePath(workspaceRootPath, path)
-	parts := strings.Split(relativePath, "/")
-	if len(parts) == 0 {
-		return "file:workspace"
-	}
-	if parts[0] == ".blueclaw" {
-		return "file:internal"
-	}
-	if len(parts) >= 2 && parts[0] == "circles" {
-		return "file:circle:" + normalizeText(parts[1])
-	}
-	if len(parts) >= 3 && parts[0] == "private" && parts[1] == "people" {
-		return "file:private:" + strings.TrimSpace(parts[2])
-	}
-	if len(parts) >= 2 && parts[0] == "shared" && parts[1] == "public" {
-		return "file:public"
-	}
-	return "file:workspace"
 }
 
 func canAccessDerivedResource(personAccess policy.PersonAccess, action string, resource string) bool {
@@ -176,20 +154,4 @@ func normalizeCircles(values []string) []string {
 
 func normalizeText(value string) string {
 	return strings.ToLower(strings.TrimSpace(value))
-}
-
-func relativeWorkspacePath(workspaceRootPath string, path string) string {
-	cleanWorkspaceRootPath, errorValue := filepath.Abs(strings.TrimSpace(workspaceRootPath))
-	if errorValue != nil {
-		return filepath.ToSlash(filepath.Clean(path))
-	}
-	cleanPath, errorValue := filepath.Abs(filepath.Clean(path))
-	if errorValue != nil {
-		return filepath.ToSlash(filepath.Clean(path))
-	}
-	relativePath, errorValue := filepath.Rel(cleanWorkspaceRootPath, cleanPath)
-	if errorValue != nil || relativePath == "." || relativePath == ".." || strings.HasPrefix(relativePath, "../") {
-		return filepath.ToSlash(filepath.Clean(path))
-	}
-	return filepath.ToSlash(relativePath)
 }

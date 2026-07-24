@@ -285,9 +285,9 @@ func TestTerminalRunDefaultsToPrivateScopeForDirectMessage(t *testing.T) {
 	if errorValue := json.Unmarshal([]byte(result.ContentText()), &commandResult); errorValue != nil {
 		t.Fatal(errorValue)
 	}
-	expectedSuffix := filepath.Join("private", "people", "person-1", "tmp")
+	expectedSuffix := filepath.Join("private", "people", "person-1")
 	if !strings.HasSuffix(strings.TrimSpace(commandResult.Stdout), expectedSuffix) {
-		t.Fatalf("expected terminal cwd under %s, got %q", expectedSuffix, commandResult.Stdout)
+		t.Fatalf("expected terminal cwd at the requester home %s, got %q", expectedSuffix, commandResult.Stdout)
 	}
 }
 
@@ -407,8 +407,13 @@ func TestTerminalRunRelativeWorkingDirectoryUsesConversationDefault(t *testing.T
 	}
 }
 
-func TestTerminalRunDenyCircleWorkingDirectoryForNonMember(t *testing.T) {
+func TestTerminalRunFailsWhenPOSIXDeniesCircleWorkingDirectory(t *testing.T) {
 	workspacePath := t.TempDir()
+	financeDirectoryPath := filepath.Join(workspacePath, "circles", "finance")
+	if errorValue := os.MkdirAll(financeDirectoryPath, 0700); errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	withoutDirectoryAccess(t, financeDirectoryPath)
 	toolCatalogBuilder := newTerminalToolTestCatalogBuilder(workspacePath)
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
 		ProfileName: "default",
@@ -428,7 +433,7 @@ func TestTerminalRunDenyCircleWorkingDirectoryForNonMember(t *testing.T) {
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
-	if !result.Failed() || !strings.Contains(result.ContentText(), "cannot use this workspace path") {
-		t.Fatalf("expected terminal.run path denial, got %+v", result)
+	if !result.Failed() || !strings.Contains(strings.ToLower(result.ContentText()), "permission denied") {
+		t.Fatalf("expected the OS denial on the circle working directory to fail terminal.run, got %+v", result)
 	}
 }

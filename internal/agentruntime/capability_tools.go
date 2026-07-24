@@ -7,11 +7,13 @@ import (
 	"encoding/json"
 	"errors"
 	"net/url"
+	"path/filepath"
 	"sort"
 	"strings"
 
 	"blueclaw/internal/access"
 	"blueclaw/internal/agent"
+	"blueclaw/internal/security"
 )
 
 func capabilityToolIdempotencyKey(toolContext context.Context, descriptor CapabilityToolDescriptor) string {
@@ -102,13 +104,6 @@ func (toolCatalogBuilder *ToolCatalogBuilder) invokeCapabilityOperation(toolCont
 	toolInput := preparedPayload.Input
 	if missing := missingRequiredCapabilityInputFields(toolDescriptor.InputSchema, toolInput); len(missing) > 0 {
 		return capabilityMissingInputFailure(operation, toolDescriptor, missing), nil
-	}
-	if errorValue := toolCatalogBuilder.validateCapabilityToolInputAccess(operation, request, toolInput); errorValue != nil {
-		failureStage := "file_read_access"
-		if strings.TrimSpace(operation) == "image.generate" {
-			failureStage = "file_write_access"
-		}
-		return agent.ToolFailureResult(agent.FailurePermissionDenied, agent.FailureCodes.AccessDenied, failureStage, errorValue.Error()), nil
 	}
 	errorValue = toolCatalogBuilder.capabilityClient.PostJSON(toolContext, "/v1/tools/"+url.PathEscape(operation)+"/invoke", capabilityToolRequest(toolContext, toolDescriptor, request, preparedPayload), &response)
 	if errorValue != nil {
@@ -600,13 +595,6 @@ func capabilityToolNeedsWorkspacePath(toolName string) bool {
 	}
 }
 
-func capabilityToolWorkspacePathAction(toolName string) string {
-	if strings.TrimSpace(toolName) == "image.generate" {
-		return access.ActionWrite
-	}
-	return access.ActionRead
-}
-
 func (toolCatalogBuilder *ToolCatalogBuilder) resolveCapabilityWorkspacePathInput(toolContext context.Context, toolName string, request ToolCatalogRequest, toolInput json.RawMessage) (json.RawMessage, error) {
 	inputDocument := map[string]any{}
 	if len(toolInput) > 0 {
@@ -626,19 +614,37 @@ func (toolCatalogBuilder *ToolCatalogBuilder) resolveCapabilityWorkspacePathInpu
 		path = material.Path
 		delete(inputDocument, "materialID")
 	}
-	resolvedPath, errorValue := toolCatalogBuilder.resolveCapabilityWorkspacePath(request, path)
-	if errorValue != nil {
-		return nil, errorValue
+	if strings.TrimSpace(path) == "" {
+		return nil, errors.New("path is required")
 	}
-	if strings.TrimSpace(toolName) != "image.generate" && !toolCatalogBuilder.canAccessWorkspacePath(request.PersonAccess, access.ActionRead, resolvedPath.ConcretePath) {
-		return nil, errors.New("current account cannot read this file")
-	}
-	inputDocument["path"] = toolCatalogBuilder.agentWorkspacePath(resolvedPath.ConcretePath)
+	inputDocument["path"] = toolCatalogBuilder.capabilityBridgePath(request, path)
 	return json.Marshal(inputDocument)
 }
 
-func (toolCatalogBuilder *ToolCatalogBuilder) resolveCapabilityWorkspacePath(request ToolCatalogRequest, path string) (ResolvedWorkspacePath, error) {
-	return NewWorkspacePathResolver(toolCatalogBuilder.workspaceRootPath).Resolve(path, WorkspaceScopeForRequest(toolCatalogBuilder.workspaceRootPath, request, ""))
+func nativeBridgePath(path string, identity security.ExecutionIdentity) string {
+	trimmedPath := strings.TrimSpace(path)
+	if trimmedPath == "~" {
+		return identity.HomeDirectoryPath
+	}
+	if strings.HasPrefix(trimmedPath, "~/") {
+		return filepath.Join(identity.HomeDirectoryPath, strings.TrimPrefix(trimmedPath, "~/"))
+	}
+	if filepath.IsAbs(trimmedPath) {
+		return trimmedPath
+	}
+	return filepath.Join(identity.HomeDirectoryPath, trimmedPath)
+}
+
+func (toolCatalogBuilder *ToolCatalogBuilder) nativeRequesterPath(request ToolCatalogRequest, path string) string {
+	identity := toolCatalogBuilder.executionIdentityForRequester(request)
+	if strings.TrimSpace(identity.HomeDirectoryPath) == "" {
+		identity.HomeDirectoryPath = toolCatalogBuilder.workspaceRootPath
+	}
+	return nativeBridgePath(toolCatalogBuilder.resolveAgentWorkspacePath(path), identity)
+}
+
+func (toolCatalogBuilder *ToolCatalogBuilder) capabilityBridgePath(request ToolCatalogRequest, path string) string {
+	return toolCatalogBuilder.agentWorkspacePath(toolCatalogBuilder.nativeRequesterPath(request, path))
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) handleCapabilityToolSuccess(toolContext context.Context, toolName string, request ToolCatalogRequest, result *json.RawMessage) (*agent.ToolResult, error) {
@@ -650,25 +656,6 @@ func (toolCatalogBuilder *ToolCatalogBuilder) handleCapabilityToolSuccess(toolCo
 	default:
 		return nil, nil
 	}
-}
-
-func (toolCatalogBuilder *ToolCatalogBuilder) validateCapabilityToolInputAccess(toolName string, request ToolCatalogRequest, toolInput json.RawMessage) error {
-	if strings.TrimSpace(toolName) != "image.generate" {
-		return nil
-	}
-	inputDocument := map[string]any{}
-	if errorValue := json.Unmarshal(toolInput, &inputDocument); errorValue != nil {
-		return errorValue
-	}
-	path, _ := inputDocument["path"].(string)
-	resolvedPath, errorValue := toolCatalogBuilder.resolveCapabilityWorkspacePath(request, path)
-	if errorValue != nil {
-		return errorValue
-	}
-	if !toolCatalogBuilder.canAccessWorkspacePath(request.PersonAccess, capabilityToolWorkspacePathAction(toolName), resolvedPath.ConcretePath) {
-		return errors.New("current account cannot write this file")
-	}
-	return nil
 }
 
 func capabilityAttachments(result json.RawMessage) []agent.FileAttachment {

@@ -990,13 +990,14 @@ func TestFileWriteFailsWithAccessDeniedWhenPOSIXDeniesCircleDirectory(t *testing
 	}
 }
 
-func TestFileDeliverDeniesCirclePathForNonMember(t *testing.T) {
+func TestFileDeliverFailsWithAccessDeniedWhenPOSIXDeniesCircleDirectory(t *testing.T) {
 	workspacePath := t.TempDir()
 	financeDirectoryPath := filepath.Join(workspacePath, "circles", "finance")
 	if errorValue := os.MkdirAll(financeDirectoryPath, 0700); errorValue != nil {
 		t.Fatal(errorValue)
 	}
 	writeTestFile(t, filepath.Join(financeDirectoryPath, "report.md"), "secret")
+	withoutDirectoryAccess(t, financeDirectoryPath)
 	toolCatalogBuilder := newFileToolTestCatalogBuilder(workspacePath)
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
 		ProfileName:       "default",
@@ -1010,14 +1011,14 @@ func TestFileDeliverDeniesCirclePathForNonMember(t *testing.T) {
 	attachResult, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
 		ToolName: agent.FileDeliverToolName,
 		Input: agent.MarshalToolInput(map[string]string{
-			"path": "/workspace/circles/finance/report.md",
+			"path": filepath.Join(financeDirectoryPath, "report.md"),
 		}),
 	})
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
-	if !attachResult.Failed() || !strings.Contains(attachResult.ContentText(), "cannot read") {
-		t.Fatalf("expected file.deliver read denial, got %+v", attachResult)
+	if !attachResult.Failed() || attachResult.FailureCode() != agent.FailureCodes.AccessDenied.String() {
+		t.Fatalf("expected the OS read denial to surface as access_denied, got %+v", attachResult)
 	}
 }
 
@@ -1360,7 +1361,7 @@ func TestFileDeliverResolvesSamePathSpellingsAsTerminalWrite(t *testing.T) {
 	for _, path := range []string{
 		"~/documents/report.docx",
 		"documents/report.docx",
-		"/workspace/private/people/person-1/documents/report.docx",
+		filepath.Join(workspacePath, "private", "people", "person-1", "documents", "report.docx"),
 	} {
 		deliverResult, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
 			ToolName: agent.FileDeliverToolName,

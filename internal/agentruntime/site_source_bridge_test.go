@@ -8,24 +8,20 @@ import (
 	"testing"
 
 	"blueclaw/internal/capability"
-	"blueclaw/internal/workspacepath"
 )
 
 func TestSiteSourceFilePathRejectsPathsOutsideSourceWorkspace(t *testing.T) {
-	sourceWorkspace := workspacepath.Directory{
-		ConcretePath: "/workspace/circles/staff/sites/site-1/draft",
-		VirtualPath:  "/workspace/circles/staff/sites/site-1/draft",
-	}
+	sourceWorkspacePath := "/workspace/circles/staff/sites/site-1/draft"
 	for _, candidate := range []string{"", ".", "..", "../secret", "/workspace/other"} {
-		if _, errorValue := siteSourceFilePath(sourceWorkspace, candidate); errorValue == nil {
+		if _, errorValue := siteSourceFilePath(sourceWorkspacePath, candidate); errorValue == nil {
 			t.Fatalf("expected path %q to be rejected", candidate)
 		}
 	}
-	path, errorValue := siteSourceFilePath(sourceWorkspace, "app/src/App.tsx")
+	path, errorValue := siteSourceFilePath(sourceWorkspacePath, "app/src/App.tsx")
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
-	if path.VirtualPath != "/workspace/circles/staff/sites/site-1/draft/app/src/App.tsx" {
+	if path != "/workspace/circles/staff/sites/site-1/draft/app/src/App.tsx" {
 		t.Fatalf("unexpected source path: %+v", path)
 	}
 }

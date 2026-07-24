@@ -4031,10 +4031,12 @@ func actionCallTool(toolName string, input string) string {
 
 // Shell-native file tools resolve paths through the OS, so the harness rewrites the guest /workspace root onto its temporary host root.
 var shellNativeFileToolNames = map[string]bool{
-	"file.write":  true,
-	"file.read":   true,
-	"file.edit":   true,
-	"file.delete": true,
+	"file.write":   true,
+	"file.read":    true,
+	"file.edit":    true,
+	"file.delete":  true,
+	"file.preview": true,
+	"file.deliver": true,
 }
 
 func materializeScriptedWorkspacePaths(workspaceRootPath string, actionResponses []string) []string {
@@ -4059,10 +4061,14 @@ func materializeScriptedActionWorkspacePaths(workspaceRootPath string, actionRes
 		return actionResponse
 	}
 	materializeWorkspacePathField(workspaceRootPath, toolInput)
-	if edits, isArray := toolInput["edits"].([]any); isArray {
-		for _, edit := range edits {
-			if editObject, isEditObject := edit.(map[string]any); isEditObject {
-				materializeWorkspacePathField(workspaceRootPath, editObject)
+	for _, fieldName := range []string{"edits", "files"} {
+		entries, isArray := toolInput[fieldName].([]any)
+		if !isArray {
+			continue
+		}
+		for _, entry := range entries {
+			if entryObject, isEntryObject := entry.(map[string]any); isEntryObject {
+				materializeWorkspacePathField(workspaceRootPath, entryObject)
 			}
 		}
 	}

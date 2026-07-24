@@ -9,10 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"blueclaw/internal/access"
 	"blueclaw/internal/agent"
 	"blueclaw/internal/security"
-	"blueclaw/internal/workspacepath"
 )
 
 var terminalRunHeartbeatInterval = 60 * time.Second
@@ -59,18 +57,10 @@ func (toolCatalogBuilder *ToolCatalogBuilder) runTerminalTool(toolContext contex
 	if toolCatalogBuilder.terminalService == nil {
 		return agent.ToolFailureResult(agent.FailureDependencyUnavailable, agent.FailureCodes.Unavailable, "terminal_run", "terminal service is unavailable"), nil
 	}
-	scope := toolCatalogBuilder.workspaceScopeForToolContext(toolContext, handlerContext.request)
-	resolver := NewWorkspacePathResolver(toolCatalogBuilder.workspaceRootPath)
-	workingDirectory, errorValue := resolver.ResolveDirectory(input.WorkingDirectoryPath, scope)
-	if errorValue != nil {
-		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "terminal_working_directory", errorValue.Error()), nil
-	}
+	requesterHomePath := toolCatalogBuilder.requesterHomePath(handlerContext.request)
 	input.Command = toolCatalogBuilder.resolveAgentWorkspaceReferences(input.Command)
-	input.EnvironmentVariables = toolCatalogBuilder.terminalEnvironmentVariables(input.EnvironmentVariables, scope)
-	input.WorkingDirectoryPath = workingDirectory.ConcretePath
-	if !toolCatalogBuilder.canAccessWorkspacePath(handlerContext.request.PersonAccess, access.ActionWrite, input.WorkingDirectoryPath) {
-		return terminalWorkspaceAccessFailure(input.WorkingDirectoryPath), nil
-	}
+	input.EnvironmentVariables = toolCatalogBuilder.terminalEnvironmentVariables(input.EnvironmentVariables, requesterHomePath)
+	input.WorkingDirectoryPath = toolCatalogBuilder.terminalWorkingDirectoryPath(input.WorkingDirectoryPath, handlerContext.request, requesterHomePath)
 	actorStartedAt := time.Now()
 	workspaceActor, actorFailure := toolCatalogBuilder.workspaceActorForRequest(toolContext, handlerContext.request)
 	if actorFailure != nil {
@@ -78,12 +68,12 @@ func (toolCatalogBuilder *ToolCatalogBuilder) runTerminalTool(toolContext contex
 	}
 	slog.Info("terminal.run actor acquired", "durationMs", time.Since(actorStartedAt).Milliseconds())
 	workingDirectoryStartedAt := time.Now()
-	if errorValue := workspaceActor.MkdirAll(toolContext, workspacepath.Directory(workingDirectory), workspaceDirectoryCreateMode(workspacepath.Directory(workingDirectory))); errorValue != nil {
-		return actorToolFailure("mkdir_all", "terminal_working_directory", workingDirectory.VirtualPath, errorValue), nil
+	if errorValue := workspaceActor.MkdirAll(toolContext, input.WorkingDirectoryPath); errorValue != nil {
+		return actorToolFailure("mkdir_all", "terminal_working_directory", input.WorkingDirectoryPath, errorValue), nil
 	}
 	slog.Info("terminal.run working directory prepared", "durationMs", time.Since(workingDirectoryStartedAt).Milliseconds())
 	materializeStartedAt := time.Now()
-	if toolFailure := toolCatalogBuilder.materializeTerminalRuntimeDirectories(toolContext, workspaceActor, scope, input.EnvironmentVariables); toolFailure != nil {
+	if toolFailure := materializeTerminalRuntimeDirectories(toolContext, workspaceActor, requesterHomePath, input.EnvironmentVariables); toolFailure != nil {
 		return *toolFailure, nil
 	}
 	slog.Info("terminal.run runtime directories materialized", "durationMs", time.Since(materializeStartedAt).Milliseconds())
@@ -193,21 +183,6 @@ func terminalCommandHead(command string) string {
 	return string(commandRunes[:80])
 }
 
-func terminalWorkspaceAccessFailure(workingDirectoryPath string) agent.ToolResult {
-	message := "current account cannot use this workspace path: terminal workingDirectoryPath " + strings.TrimSpace(workingDirectoryPath) + "; recovery: use ~/documents for document work, then deliver accepted files with file.deliver"
-	document := json.RawMessage(marshalToolResult(map[string]any{
-		"failureClass":      "workspace_permission",
-		"path":              strings.TrimSpace(workingDirectoryPath),
-		"requiredAccess":    "write",
-		"suggestedNextTool": "terminal.run",
-		"message":           message,
-	}))
-	result := agent.ToolFailureWithOutput(agent.FailurePermissionDenied, agent.FailureCodes.AccessDenied, "workspace_permission", message, document)
-	result.Failure.Retryable = true
-	result.Failure.SafeRetry = true
-	return result
-}
-
 func terminalRuntimePathFailure(commandRequest security.CommandRequest, commandResult security.CommandResult, content string) *agent.ToolResult {
 	combinedText := strings.ToLower(commandResult.Stderr + "\n" + commandResult.Stdout + "\n" + content)
 	if !strings.Contains(combinedText, "not found in $path") && !strings.Contains(combinedText, "command not found") && !strings.Contains(combinedText, "executable file not found") {
@@ -229,8 +204,20 @@ func terminalRuntimePathFailure(commandRequest security.CommandRequest, commandR
 	return &result
 }
 
-func (toolCatalogBuilder *ToolCatalogBuilder) terminalEnvironmentVariables(environmentVariables map[string]string, scope WorkspaceScope) map[string]string {
-	mergedEnvironmentVariables := mergeWorkspaceEnvironment(environmentVariables, scope.EnvironmentVariables())
+func (toolCatalogBuilder *ToolCatalogBuilder) requesterHomePath(request ToolCatalogRequest) string {
+	identity := toolCatalogBuilder.executionIdentityForRequester(request)
+	return firstNonEmptyString(identity.HomeDirectoryPath, toolCatalogBuilder.workspaceRootPath)
+}
+
+func (toolCatalogBuilder *ToolCatalogBuilder) terminalWorkingDirectoryPath(value string, request ToolCatalogRequest, requesterHomePath string) string {
+	if strings.TrimSpace(value) == "" {
+		return requesterHomePath
+	}
+	return toolCatalogBuilder.nativeRequesterPath(request, value)
+}
+
+func (toolCatalogBuilder *ToolCatalogBuilder) terminalEnvironmentVariables(environmentVariables map[string]string, requesterHomePath string) map[string]string {
+	mergedEnvironmentVariables := mergeWorkspaceEnvironment(environmentVariables, requesterWorkspaceEnvironment(requesterHomePath, toolCatalogBuilder.workspaceRootPath))
 	if builtinSkillsPythonPath := strings.TrimSpace(os.Getenv("BLUECLAW_BUILTIN_SKILLS_PYTHON")); builtinSkillsPythonPath != "" {
 		mergedEnvironmentVariables["BLUECLAW_BUILTIN_SKILLS_PYTHON"] = builtinSkillsPythonPath
 	}
@@ -240,19 +227,44 @@ func (toolCatalogBuilder *ToolCatalogBuilder) terminalEnvironmentVariables(envir
 	return toolCatalogBuilder.resolveAgentWorkspaceEnvironment(mergedEnvironmentVariables)
 }
 
-func (toolCatalogBuilder *ToolCatalogBuilder) materializeTerminalRuntimeDirectories(ctx context.Context, workspaceActor security.WorkspaceActor, scope WorkspaceScope, environmentVariables map[string]string) *agent.ToolResult {
-	for _, directory := range terminalRuntimeDirectories(scope, environmentVariables) {
-		if errorValue := workspaceActor.MkdirAll(ctx, directory, workspaceDirectoryCreateMode(directory)); errorValue != nil {
-			result := actorToolFailure("mkdir_all", "terminal_runtime_environment", directory.VirtualPath, errorValue)
+func requesterWorkspaceEnvironment(requesterHomePath string, workspaceRootPath string) map[string]string {
+	requesterTmpPath := filepath.Join(requesterHomePath, "tmp")
+	runtimeRootPath := filepath.Join(requesterTmpPath, ".runtime")
+	bunRuntimeRootPath := filepath.Join(runtimeRootPath, "bun")
+	dependencyCachePath := filepath.Join(workspaceRootPath, "shared", "cache", "dependencies")
+	return map[string]string{
+		"BLUECLAW_REQUESTER_TMP":       requesterTmpPath,
+		"BLUECLAW_TASK_TMP":            requesterTmpPath,
+		"BLUECLAW_REQUESTER_ARTIFACTS": filepath.Join(requesterHomePath, "artifacts"),
+		"BLUECLAW_DEPENDENCY_CACHE":    dependencyCachePath,
+		"HOME":                         requesterHomePath,
+		"PATH":                         security.CanonicalRuntimePATH,
+		"TMPDIR":                       filepath.Join(runtimeRootPath, "tmp"),
+		"TMP":                          filepath.Join(runtimeRootPath, "tmp"),
+		"TEMP":                         filepath.Join(runtimeRootPath, "tmp"),
+		"XDG_CACHE_HOME":               filepath.Join(runtimeRootPath, "cache"),
+		"XDG_CONFIG_HOME":              filepath.Join(runtimeRootPath, "config"),
+		"XDG_RUNTIME_DIR":              filepath.Join(runtimeRootPath, "runtime"),
+		"BUN_TMPDIR":                   filepath.Join(bunRuntimeRootPath, "tmp"),
+		"BUN_INSTALL":                  filepath.Join(bunRuntimeRootPath, "install"),
+		"BUN_INSTALL_CACHE_DIR":        filepath.Join(dependencyCachePath, "bun"),
+		"npm_config_cache":             filepath.Join(runtimeRootPath, "npm"),
+	}
+}
+
+func materializeTerminalRuntimeDirectories(ctx context.Context, workspaceActor security.WorkspaceActor, requesterHomePath string, environmentVariables map[string]string) *agent.ToolResult {
+	for _, directoryPath := range terminalRuntimeDirectories(requesterHomePath, environmentVariables) {
+		if errorValue := workspaceActor.MkdirAll(ctx, directoryPath); errorValue != nil {
+			result := actorToolFailure("mkdir_all", "terminal_runtime_environment", directoryPath, errorValue)
 			return &result
 		}
 	}
 	return nil
 }
 
-func terminalRuntimeDirectories(scope WorkspaceScope, environmentVariables map[string]string) []workspacepath.Directory {
+func terminalRuntimeDirectories(requesterHomePath string, environmentVariables map[string]string) []string {
 	seenDirectoryPaths := map[string]bool{}
-	var directories []workspacepath.Directory
+	var directoryPaths []string
 	for _, name := range []string{
 		"TMPDIR",
 		"TMP",
@@ -266,38 +278,14 @@ func terminalRuntimeDirectories(scope WorkspaceScope, environmentVariables map[s
 		"npm_config_cache",
 	} {
 		directoryPath := filepath.Clean(strings.TrimSpace(environmentVariables[name]))
-		if directoryPath == "." || !strings.HasPrefix(directoryPath, filepath.Clean(scope.RequesterRootPath)+string(filepath.Separator)) {
+		if directoryPath == "." || !strings.HasPrefix(directoryPath, filepath.Clean(requesterHomePath)+string(filepath.Separator)) {
 			continue
 		}
 		if seenDirectoryPaths[directoryPath] {
 			continue
 		}
 		seenDirectoryPaths[directoryPath] = true
-		directories = append(directories, requesterOwnedRuntimeDirectory(scope, directoryPath))
+		directoryPaths = append(directoryPaths, directoryPath)
 	}
-	return directories
-}
-
-func requesterOwnedRuntimeDirectory(scope WorkspaceScope, directoryPath string) workspacepath.Directory {
-	virtualPath := filepath.ToSlash(directoryPath)
-	if relativePath, errorValue := filepath.Rel(scope.RequesterRootPath, directoryPath); errorValue == nil && relativePath != "." && !strings.HasPrefix(relativePath, "..") {
-		virtualPath = filepath.ToSlash(relativePath)
-	}
-	return workspacepath.Directory{
-		ConcretePath: directoryPath,
-		VirtualPath:  virtualPath,
-		Kind:         workspacepath.KindWorkspace,
-	}
-}
-
-func (toolCatalogBuilder *ToolCatalogBuilder) resolveTerminalWorkingDirectoryPath(value string, conversationScope ConversationResourceScope) string {
-	trimmedPath := toolCatalogBuilder.resolveAgentWorkspacePath(value)
-	defaultDirectoryPath := firstNonEmptyString(conversationScope.DefaultDirectoryPath, toolCatalogBuilder.workspaceRootPath)
-	if trimmedPath == "" {
-		return defaultDirectoryPath
-	}
-	if filepath.IsAbs(trimmedPath) {
-		return trimmedPath
-	}
-	return filepath.Join(defaultDirectoryPath, trimmedPath)
+	return directoryPaths
 }

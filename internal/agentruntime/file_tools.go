@@ -1,7 +1,6 @@
 package agentruntime
 
 import (
-	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -12,10 +11,8 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"blueclaw/internal/access"
 	"blueclaw/internal/agent"
 	"blueclaw/internal/security"
-	"blueclaw/internal/workspacepath"
 )
 
 const inlineAttachmentMaximumBytes = 25 * 1024 * 1024
@@ -467,7 +464,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) fileReadFallbackFromAttachmentMate
 	if preview, hasPreview := filePreviewResultFromVisibleMaterial(resolvedMaterial); hasPreview {
 		return cachedFileReadResultFromPreview(preview, input), nil, true
 	}
-	fallbackPath := strings.TrimSpace(resolvedMaterial.Path)
+	fallbackPath := toolCatalogBuilder.resolveAgentWorkspacePath(resolvedMaterial.Path)
 	if fallbackPath == "" || fallbackPath == strings.TrimSpace(path) {
 		return agent.ToolResult{}, nil, false
 	}
@@ -627,7 +624,6 @@ func (toolCatalogBuilder *ToolCatalogBuilder) previewFileTool(toolContext contex
 	}
 	input.Path = path
 	input.MaterialID = materialID
-	scope := toolCatalogBuilder.workspaceScopeForToolContext(toolContext, handlerContext.request)
 	if cachedPreview, isCached := cachedFilePreviewResultForInput(handlerContext.request.InputParts, input); isCached {
 		return fileToolSuccess(cachedPreview), nil
 	}
@@ -641,39 +637,39 @@ func (toolCatalogBuilder *ToolCatalogBuilder) previewFileTool(toolContext contex
 	if cachedPreview, isCached := cachedFilePreviewResult(handlerContext.request.InputParts, previewPath); isCached {
 		return fileToolSuccess(cachedPreview), nil
 	}
-	resolvedPath, failureResult, errorValue := toolCatalogBuilder.resolveReadableWorkspacePath(previewPath, scope, handlerContext.request, "file_preview")
-	if failureResult != nil || errorValue != nil {
-		return firstToolFailureResult(failureResult, errorValue, "file_preview"), nil
-	}
-	if cachedPreview, isCached := cachedFilePreviewResult(handlerContext.request.InputParts, resolvedPath.VirtualPath); isCached {
-		return fileToolSuccess(cachedPreview), nil
-	}
-	workspaceActor, actorFailure := toolCatalogBuilder.workspaceActorForRequest(toolContext, handlerContext.request)
+	outcome, actorFailure := toolCatalogBuilder.runRequesterShell(toolContext, handlerContext.request, requesterShellCommand{
+		Command:            fileReadShellCommand(previewPath, maximumFilePreviewBytes+1),
+		OutputMaximumBytes: maximumFilePreviewBytes + fileReadShellOutputReserveBytes,
+	})
 	if actorFailure != nil {
 		return *actorFailure, nil
 	}
-	fileInformation, errorValue := workspaceActor.Stat(toolContext, resolvedPath)
-	if errorValue != nil {
-		if fallbackPath, fallbackFailure, isFound := toolCatalogBuilder.filePreviewFallbackPath(toolContext, resolvedPath.VirtualPath, handlerContext.request); isFound {
+	if outcome.RunError != nil {
+		if fallbackPath, fallbackFailure, isFound := toolCatalogBuilder.filePreviewFallbackPath(toolContext, previewPath, handlerContext.request); isFound {
 			if fallbackFailure != nil {
 				return *fallbackFailure, nil
 			}
-			if strings.TrimSpace(fallbackPath) != "" && strings.TrimSpace(fallbackPath) != strings.TrimSpace(resolvedPath.VirtualPath) {
+			if strings.TrimSpace(fallbackPath) != "" && strings.TrimSpace(fallbackPath) != strings.TrimSpace(previewPath) {
 				return toolCatalogBuilder.previewFileTool(toolContext, filePreviewToolInput{Path: fallbackPath}, handlerContext)
 			}
 		}
-		return actorToolFailure("stat", "file_preview", resolvedPath.VirtualPath, errorValue), nil
+		return outcome.toolFailure("read_file", "file_preview", previewPath), nil
 	}
-	contentType := previewContentType(resolvedPath.VirtualPath)
+	sizeBytes, content, isParsed := parseFileReadShellOutput(outcome.CommandResult.Stdout)
+	if !isParsed {
+		return agent.ToolFailureResult(agent.FailureExternalService, agent.FailureCodes.OperationFailed, "file_preview", "file size probe returned unreadable output"), nil
+	}
+	contentType := previewContentType(previewPath)
 	if strings.HasPrefix(contentType, "image/") {
-		return fileToolSuccess(filePreviewResult(resolvedPath.VirtualPath, contentType, fileInformation.SizeBytes, "", "image", "use the image input part or image.read for visual inspection")), nil
+		return fileToolSuccess(filePreviewResult(previewPath, contentType, sizeBytes, "", "image", "use the image input part or image.read for visual inspection")), nil
 	}
 	if toolCatalogBuilder.capabilityClient.HTTPClient != nil {
-		if result, isConverted := toolCatalogBuilder.convertFilePreviewWithCapability(toolContext, handlerContext.request, resolvedPath.VirtualPath, contentType, fileInformation.SizeBytes); isConverted {
+		bridgePath := toolCatalogBuilder.capabilityBridgePath(handlerContext.request, previewPath)
+		if result, isConverted := toolCatalogBuilder.convertFilePreviewWithCapability(toolContext, handlerContext.request, previewPath, bridgePath, contentType, sizeBytes); isConverted {
 			return result, nil
 		}
 	}
-	return toolCatalogBuilder.previewTextFile(toolContext, workspaceActor, resolvedPath, contentType, fileInformation.SizeBytes), nil
+	return filePreviewFromShellContent(previewPath, contentType, sizeBytes, content), nil
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) filePreviewResolvedMaterial(toolContext context.Context, input filePreviewToolInput, request ToolCatalogRequest) (agent.ToolResult, bool) {
@@ -726,7 +722,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) filePreviewFallbackPath(toolContex
 		result := fileToolSuccess(previewResult)
 		return "", &result, true
 	}
-	return resolvedMaterial.Path, nil, true
+	return toolCatalogBuilder.resolveAgentWorkspacePath(resolvedMaterial.Path), nil, true
 }
 
 func visibleAttachmentMaterialForPath(visibleContext agent.VisibleContext, path string) (agent.VisibleContextMaterial, bool) {
@@ -819,7 +815,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) filePreviewPath(toolContext contex
 		result := agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "file_preview", "attachment material is an image; use image.read")
 		return "", &result
 	}
-	return material.Path, nil
+	return toolCatalogBuilder.resolveAgentWorkspacePath(material.Path), nil
 }
 
 func attachmentMaterialLooksLikeImage(material agent.VisibleContextMaterial) bool {
@@ -833,34 +829,6 @@ func attachmentMaterialLooksLikeImage(material agent.VisibleContextMaterial) boo
 		strings.HasSuffix(filename, ".jpeg") ||
 		strings.HasSuffix(filename, ".gif") ||
 		strings.HasSuffix(filename, ".webp")
-}
-
-func (toolCatalogBuilder *ToolCatalogBuilder) resolveReadableWorkspacePath(path string, scope WorkspaceScope, request ToolCatalogRequest, stage string) (workspacepath.Path, *agent.ToolResult, error) {
-	trimmedPath := strings.TrimSpace(path)
-	if trimmedPath == "" {
-		result := agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, stage, "path is required")
-		return workspacepath.Path{}, &result, nil
-	}
-	resolvedPath, errorValue := NewWorkspacePathResolver(toolCatalogBuilder.workspaceRootPath).Resolve(trimmedPath, scope)
-	if errorValue != nil {
-		result := agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, stage, errorValue.Error())
-		return workspacepath.Path{}, &result, nil
-	}
-	if !toolCatalogBuilder.canAccessWorkspacePath(request.PersonAccess, access.ActionRead, resolvedPath.ConcretePath) {
-		result := agent.ToolFailureResult(agent.FailurePermissionDenied, agent.FailureCodes.AccessDenied, stage, "current account cannot read this file")
-		return workspacepath.Path{}, &result, nil
-	}
-	return resolvedPath, nil, nil
-}
-
-func firstToolFailureResult(failureResult *agent.ToolResult, errorValue error, stage string) agent.ToolResult {
-	if failureResult != nil {
-		return *failureResult
-	}
-	if errorValue != nil {
-		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, stage, errorValue.Error())
-	}
-	return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, stage, "invalid file preview request")
 }
 
 func cachedFilePreviewResultForInput(parts []agent.AgentPart, input filePreviewToolInput) (map[string]any, bool) {
@@ -916,7 +884,7 @@ func agentPartMaterialID(part agent.AgentPart) string {
 	return firstNonEmptyString(strings.TrimSpace(part.Source.Platform), "attachment") + ":" + fileID
 }
 
-func (toolCatalogBuilder *ToolCatalogBuilder) convertFilePreviewWithCapability(toolContext context.Context, request ToolCatalogRequest, path string, contentType string, sizeBytes int64) (agent.ToolResult, bool) {
+func (toolCatalogBuilder *ToolCatalogBuilder) convertFilePreviewWithCapability(toolContext context.Context, request ToolCatalogRequest, path string, bridgePath string, contentType string, sizeBytes int64) (agent.ToolResult, bool) {
 	var response struct {
 		Content      string          `json:"content"`
 		IsError      bool            `json:"isError"`
@@ -926,7 +894,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) convertFilePreviewWithCapability(t
 		FailureStage string          `json:"failureStage"`
 		Result       json.RawMessage `json:"result"`
 	}
-	input := agent.MarshalToolInput(map[string]any{"path": path, "maxOutputBytes": maximumFilePreviewBytes})
+	input := agent.MarshalToolInput(map[string]any{"path": bridgePath, "maxOutputBytes": maximumFilePreviewBytes})
 	requestDocument, errorValue := toolCatalogBuilder.capabilityRequestForOperation(toolContext, "document.read", request, input)
 	if errorValue != nil {
 		return agent.ToolResult{}, false
@@ -954,27 +922,20 @@ func (toolCatalogBuilder *ToolCatalogBuilder) convertFilePreviewWithCapability(t
 	return fileToolSuccess(result), true
 }
 
-func (toolCatalogBuilder *ToolCatalogBuilder) previewTextFile(toolContext context.Context, workspaceActor security.WorkspaceActor, path workspacepath.Path, contentType string, sizeBytes int64) agent.ToolResult {
-	document, errorValue := workspaceActor.ReadFile(toolContext, path, maximumFilePreviewBytes+1)
-	if errorValue != nil {
-		if sizeBytes > maximumFilePreviewBytes {
-			return fileToolSuccess(filePreviewResult(path.VirtualPath, contentType, sizeBytes, "", "unsupported", "file is too large for local text preview; use document.read/MarkItDown provider when available"))
-		}
-		return actorToolFailure("read_file", "file_preview", path.VirtualPath, errorValue)
-	}
-	isTruncated := len(document) > maximumFilePreviewBytes
+func filePreviewFromShellContent(path string, contentType string, sizeBytes int64, content string) agent.ToolResult {
+	isTruncated := len(content) > maximumFilePreviewBytes
 	if isTruncated {
-		document = document[:maximumFilePreviewBytes]
+		content = content[:maximumFilePreviewBytes]
 	}
-	if !utf8.Valid(document) || bytes.IndexByte(document, 0) >= 0 {
-		return fileToolSuccess(filePreviewResult(path.VirtualPath, contentType, sizeBytes, "", "unsupported", "file is not UTF-8 text and no MarkItDown preview is available"))
+	if !utf8.ValidString(content) || strings.IndexByte(content, 0) >= 0 {
+		return fileToolSuccess(filePreviewResult(path, contentType, sizeBytes, "", "unsupported", "file is not UTF-8 text and no MarkItDown preview is available"))
 	}
-	content, isContentTruncated := truncateTextByBytes(string(document), maximumFilePreviewBytes)
+	windowedContent, isContentTruncated := truncateTextByBytes(content, maximumFilePreviewBytes)
 	conversionStatus := "converted"
 	if isTruncated || isContentTruncated {
 		conversionStatus = "truncated"
 	}
-	return fileToolSuccess(filePreviewResult(path.VirtualPath, contentType, sizeBytes, content, conversionStatus, ""))
+	return fileToolSuccess(filePreviewResult(path, contentType, sizeBytes, windowedContent, conversionStatus, ""))
 }
 
 func filePreviewResult(path string, contentType string, sizeBytes int64, markdownPreview string, conversionStatus string, conversionMessage string) map[string]any {
@@ -1426,7 +1387,6 @@ func fileExactEditFailure(stage string, path string, editIndex int, matchCount i
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) attachFileTool(toolContext context.Context, input fileAttachToolInput, handlerContext toolHandlerContext) (agent.ToolResult, error) {
-	scope := toolCatalogBuilder.workspaceScopeForToolContext(toolContext, handlerContext.request)
 	attachmentInputs := normalizeFileAttachInputs(input)
 	if len(attachmentInputs) == 0 {
 		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "file_deliver", "files must contain at least one path"), nil
@@ -1434,17 +1394,13 @@ func (toolCatalogBuilder *ToolCatalogBuilder) attachFileTool(toolContext context
 	attachments := []agent.FileAttachment{}
 	deliveredPaths := []string{}
 	for _, attachmentInput := range attachmentInputs {
-		attachment, failureResult, errorValue := toolCatalogBuilder.fileAttachment(toolContext, attachmentInput, handlerContext, scope)
+		attachment, failureResult := toolCatalogBuilder.fileAttachment(toolContext, attachmentInput, handlerContext)
 		if failureResult != nil {
 			return *failureResult, nil
-		}
-		if errorValue != nil {
-			return agent.ToolFailureResult(agent.FailureExternalService, agent.FailureCodes.OperationFailed, "file_deliver", errorValue.Error()), nil
 		}
 		attachments = append(attachments, attachment)
 		deliveredPaths = append(deliveredPaths, attachment.DevicePath)
 	}
-	_ = toolContext
 	data := json.RawMessage(marshalToolResult(map[string]any{
 		"deliveredPaths":  deliveredPaths,
 		"attachmentCount": len(attachments),
@@ -1470,76 +1426,70 @@ func normalizeFileAttachInputs(input fileAttachToolInput) []fileAttachFileInput 
 	}}
 }
 
-func (toolCatalogBuilder *ToolCatalogBuilder) fileAttachment(toolContext context.Context, input fileAttachFileInput, handlerContext toolHandlerContext, scope WorkspaceScope) (agent.FileAttachment, *agent.ToolResult, error) {
+func (toolCatalogBuilder *ToolCatalogBuilder) fileAttachment(toolContext context.Context, input fileAttachFileInput, handlerContext toolHandlerContext) (agent.FileAttachment, *agent.ToolResult) {
 	path := strings.TrimSpace(input.Path)
 	if path == "" {
 		result := agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "file_deliver", "delivery path is required")
-		return agent.FileAttachment{}, &result, nil
+		return agent.FileAttachment{}, &result
 	}
-	resolvedPath, errorValue := NewWorkspacePathResolver(toolCatalogBuilder.workspaceRootPath).Resolve(path, scope)
-	if errorValue != nil {
-		result := agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "file_deliver", errorValue.Error())
-		return agent.FileAttachment{}, &result, nil
-	}
-	if !toolCatalogBuilder.canAccessWorkspacePath(handlerContext.request.PersonAccess, access.ActionRead, resolvedPath.ConcretePath) {
-		result := agent.ToolFailureResult(agent.FailurePermissionDenied, agent.FailureCodes.AccessDenied, "file_deliver", "current account cannot read this file")
-		return agent.FileAttachment{}, &result, nil
-	}
-	workspaceActor, actorFailure := toolCatalogBuilder.workspaceActorForRequest(toolContext, handlerContext.request)
+	outcome, actorFailure := toolCatalogBuilder.runRequesterShell(toolContext, handlerContext.request, requesterShellCommand{
+		Command:            fileReadShellCommand(path, inlineAttachmentMaximumBytes+1),
+		OutputMaximumBytes: inlineAttachmentMaximumBytes + fileReadShellOutputReserveBytes,
+	})
 	if actorFailure != nil {
-		return agent.FileAttachment{}, actorFailure, nil
+		return agent.FileAttachment{}, actorFailure
 	}
-	fileInformation, errorValue := workspaceActor.Stat(toolContext, resolvedPath)
-	if errorValue != nil {
-		result := toolCatalogBuilder.fileDeliverStatFailure(toolContext, handlerContext, scope, resolvedPath, errorValue)
-		return agent.FileAttachment{}, &result, nil
+	if outcome.RunError != nil {
+		result := toolCatalogBuilder.fileDeliverReadFailure(toolContext, handlerContext, path, outcome)
+		return agent.FileAttachment{}, &result
 	}
-	if !fileInformation.IsRegular {
-		result := agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "file_deliver", "delivery path is not a regular file")
-		return agent.FileAttachment{}, &result, nil
+	sizeBytes, content, isParsed := parseFileReadShellOutput(outcome.CommandResult.Stdout)
+	if !isParsed {
+		result := agent.ToolFailureResult(agent.FailureExternalService, agent.FailureCodes.OperationFailed, "file_deliver", "file size probe returned unreadable output")
+		return agent.FileAttachment{}, &result
 	}
-	document, errorValue := workspaceActor.ReadFile(toolContext, resolvedPath, inlineAttachmentMaximumBytes)
-	if errorValue != nil {
-		result := actorToolFailure("read_file", "file_deliver", resolvedPath.VirtualPath, errorValue)
-		return agent.FileAttachment{}, &result, nil
+	if sizeBytes > inlineAttachmentMaximumBytes || len(content) > inlineAttachmentMaximumBytes {
+		result := agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "file_deliver", "file is too large to deliver as an inline attachment")
+		return agent.FileAttachment{}, &result
 	}
-	filename := attachmentFilename(input, resolvedPath.ConcretePath)
-	toolCatalogBuilder.persistDeliveredDocument(toolContext, workspaceActor, resolvedPath, filename, document, scope)
+	concretePath := toolCatalogBuilder.nativeRequesterPath(handlerContext.request, path)
+	filename := attachmentFilename(input, concretePath)
+	toolCatalogBuilder.persistDeliveredDocument(toolContext, handlerContext, path, filename, content)
 	contentType := firstNonEmptyString(input.ContentType, mime.TypeByExtension(filepath.Ext(filename)), "application/octet-stream")
 	return agent.FileAttachment{
-		DevicePath:    toolCatalogBuilder.agentWorkspacePath(resolvedPath.ConcretePath),
+		DevicePath:    toolCatalogBuilder.agentWorkspacePath(concretePath),
 		Filename:      filename,
 		ContentType:   contentType,
-		SizeBytes:     fileInformation.SizeBytes,
+		SizeBytes:     sizeBytes,
 		Title:         strings.TrimSpace(input.Title),
-		ContentBase64: base64.StdEncoding.EncodeToString(document),
-	}, nil, nil
+		ContentBase64: base64.StdEncoding.EncodeToString([]byte(content)),
+	}, nil
 }
 
 const fileDeliverCandidateFileLimit = 8
 
-// A not_found stat failure otherwise forces the model to guess a corrected path across
+// A not_found read failure otherwise forces the model to guess a corrected path across
 // several retries. Listing what actually exists nearby lets it recover in one step.
-func (toolCatalogBuilder *ToolCatalogBuilder) fileDeliverStatFailure(toolContext context.Context, handlerContext toolHandlerContext, scope WorkspaceScope, resolvedPath ResolvedWorkspacePath, errorValue error) agent.ToolResult {
-	result := actorToolFailure("stat", "file_deliver", resolvedPath.VirtualPath, errorValue)
-	if actorFailureCode(errorValue) != security.ActorErrorCodeNotFound {
+func (toolCatalogBuilder *ToolCatalogBuilder) fileDeliverReadFailure(toolContext context.Context, handlerContext toolHandlerContext, path string, outcome requesterShellOutcome) agent.ToolResult {
+	result := outcome.toolFailure("read_file", "file_deliver", path)
+	if outcome.failureCode() != security.ActorErrorCodeNotFound {
 		return result
 	}
-	candidateFiles := toolCatalogBuilder.fileDeliverCandidateFiles(toolContext, handlerContext, scope, resolvedPath)
+	candidateFiles := toolCatalogBuilder.fileDeliverCandidateFiles(toolContext, handlerContext, path)
 	if len(candidateFiles) == 0 {
 		return result
 	}
-	dataFields := actorFailureDataFields("stat", "file_deliver", resolvedPath.VirtualPath, errorValue)
+	dataFields := actorFailureDataFields("read_file", "file_deliver", path, outcome.actorError("read_file", path))
 	dataFields["candidateFiles"] = candidateFiles
 	result.Output.Data = json.RawMessage(marshalToolResult(dataFields))
 	return result
 }
 
-func (toolCatalogBuilder *ToolCatalogBuilder) fileDeliverCandidateFiles(toolContext context.Context, handlerContext toolHandlerContext, scope WorkspaceScope, resolvedPath ResolvedWorkspacePath) []string {
+func (toolCatalogBuilder *ToolCatalogBuilder) fileDeliverCandidateFiles(toolContext context.Context, handlerContext toolHandlerContext, path string) []string {
 	candidateFiles := []string{}
-	for _, directory := range fileDeliverCandidateDirectories(toolCatalogBuilder.workspaceRootPath, scope, resolvedPath) {
-		for _, filename := range toolCatalogBuilder.directoryEntryNames(toolContext, handlerContext, directory.ConcretePath) {
-			candidatePath := filepath.ToSlash(filepath.Join(directory.VirtualPath, filename))
+	for _, directoryPath := range toolCatalogBuilder.fileDeliverCandidateDirectories(handlerContext.request, path) {
+		for _, filename := range toolCatalogBuilder.directoryEntryNames(toolContext, handlerContext, directoryPath) {
+			candidatePath := filepath.ToSlash(filepath.Join(directoryPath, filename))
 			if stringSliceContains(candidateFiles, candidatePath) {
 				continue
 			}
@@ -1552,19 +1502,20 @@ func (toolCatalogBuilder *ToolCatalogBuilder) fileDeliverCandidateFiles(toolCont
 	return candidateFiles
 }
 
-func fileDeliverCandidateDirectories(workspaceRootPath string, scope WorkspaceScope, resolvedPath ResolvedWorkspacePath) []workspacepath.Directory {
-	requestedDirectory := resolvedPath.Parent()
-	directories := []workspacepath.Directory{requestedDirectory}
-	documentsDirectory, errorValue := NewWorkspacePathResolver(workspaceRootPath).ResolveDirectory("documents", scope)
-	if errorValue == nil && documentsDirectory.ConcretePath != requestedDirectory.ConcretePath {
-		directories = append(directories, workspacepath.Directory(documentsDirectory))
+const deliveredDocumentsDirectoryPath = "~/documents"
+
+func (toolCatalogBuilder *ToolCatalogBuilder) fileDeliverCandidateDirectories(request ToolCatalogRequest, path string) []string {
+	requestedDirectoryPath := filepath.ToSlash(filepath.Dir(strings.TrimSpace(path)))
+	directoryPaths := []string{requestedDirectoryPath}
+	if toolCatalogBuilder.nativeRequesterPath(request, deliveredDocumentsDirectoryPath) != toolCatalogBuilder.nativeRequesterPath(request, requestedDirectoryPath) {
+		directoryPaths = append(directoryPaths, deliveredDocumentsDirectoryPath)
 	}
-	return directories
+	return directoryPaths
 }
 
-func (toolCatalogBuilder *ToolCatalogBuilder) directoryEntryNames(toolContext context.Context, handlerContext toolHandlerContext, directoryConcretePath string) []string {
+func (toolCatalogBuilder *ToolCatalogBuilder) directoryEntryNames(toolContext context.Context, handlerContext toolHandlerContext, directoryPath string) []string {
 	outcome, actorFailure := toolCatalogBuilder.runRequesterShell(toolContext, handlerContext.request, requesterShellCommand{
-		Command:       "ls -1A -- " + shellSingleQuoted(directoryConcretePath),
+		Command:       "ls -1A -- " + shellPathArgument(directoryPath),
 		TimeoutSecond: 5,
 	})
 	if actorFailure != nil || outcome.RunError != nil || outcome.CommandResult.ExitCode != 0 {
@@ -1596,19 +1547,15 @@ func stringSliceContains(values []string, value string) bool {
 // A delivered document is copied into the requester's ~/documents so a later edit or
 // delete task finds it by name, independent of where the model built it. Best effort:
 // a copy failure never blocks the delivery itself.
-func (toolCatalogBuilder *ToolCatalogBuilder) persistDeliveredDocument(toolContext context.Context, workspaceActor security.WorkspaceActor, source ResolvedWorkspacePath, filename string, content []byte, scope WorkspaceScope) {
+func (toolCatalogBuilder *ToolCatalogBuilder) persistDeliveredDocument(toolContext context.Context, handlerContext toolHandlerContext, sourcePath string, filename string, content string) {
 	if !isPersistableDocumentFilename(filename) {
 		return
 	}
-	destination, errorValue := NewWorkspacePathResolver(toolCatalogBuilder.workspaceRootPath).Resolve(filepath.ToSlash(filepath.Join("documents", filename)), scope)
-	if errorValue != nil || destination.ConcretePath == source.ConcretePath {
+	destinationPath := deliveredDocumentsDirectoryPath + "/" + filename
+	if toolCatalogBuilder.nativeRequesterPath(handlerContext.request, destinationPath) == toolCatalogBuilder.nativeRequesterPath(handlerContext.request, sourcePath) {
 		return
 	}
-	parentDirectory := destination.Parent()
-	if errorValue := workspaceActor.MkdirAll(toolContext, parentDirectory, workspaceDirectoryCreateMode(parentDirectory)); errorValue != nil {
-		return
-	}
-	_ = workspaceActor.WriteFile(toolContext, destination, content, workspaceFileCreateMode(destination))
+	_ = toolCatalogBuilder.runRequesterFileWrite(toolContext, handlerContext, "file_deliver", destinationPath, content)
 }
 
 func isPersistableDocumentFilename(filename string) bool {
