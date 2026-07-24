@@ -124,3 +124,30 @@ describe('createOutboundHandler', () => {
     expect(response.status).toBe(502);
   });
 });
+
+describe('identity.resolve account links', () => {
+  test('linked pubkey resolves to the linked email', async () => {
+    const { runner } = createRunnerStub(JSON.stringify([{ pubkey: SENDER_HEX, display_name: 'Alice Kim' }]));
+    const { agent } = createAgentStub();
+    const handler = createOutboundHandler(runner, agent, { accountEmailByPubkey: { [SENDER_HEX]: 'alice@dawn.example' } });
+
+    const response = await handler(postRequest('identity.resolve', { senderID: SENDER_HEX }));
+
+    expect(await response.json()).toEqual({ displayName: 'Alice Kim', email: 'alice@dawn.example' });
+  });
+
+  test('linked email wins even when the profile lookup fails', async () => {
+    const { agent } = createAgentStub();
+    const handler = createOutboundHandler(
+      async () => {
+        throw new Error('relay unreachable');
+      },
+      agent,
+      { accountEmailByPubkey: { [SENDER_HEX]: 'alice@dawn.example' } },
+    );
+
+    const response = await handler(postRequest('identity.resolve', { senderID: SENDER_HEX }));
+
+    expect(await response.json()).toEqual({ email: 'alice@dawn.example' });
+  });
+});
