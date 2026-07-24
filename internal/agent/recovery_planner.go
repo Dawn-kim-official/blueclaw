@@ -221,7 +221,7 @@ func recoveryPreconditionSatisfied(precondition string, failedObservation turnOb
 				return true
 			}
 		case "inspected_failure":
-			if observation.Tool == "file.read" || observation.Tool == "site.status" {
+			if observation.Tool == "file.read" || observation.Tool == "site.list" {
 				return true
 			}
 		}

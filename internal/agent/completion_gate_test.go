@@ -343,9 +343,9 @@ func TestCompletionGateAcceptsExternalSendFinishWithSendEvidence(t *testing.T) {
 func TestCompletionGateAllowsSitePublishFinishWithoutStraySendEvidence(t *testing.T) {
 	goalSatisfied := true
 	request := AgentTurnRequest{
-		RequiredEvidenceTools: []string{"site.create", "site.publish", "message.send", "site.status"},
+		RequiredEvidenceTools: []string{"site.serve", "site.serve", "message.send", "site.list"},
 		OutcomeContract: OutcomeContract{
-			RequiredEvidenceTools: []string{"site.create", "site.publish", "message.send", "site.status"},
+			RequiredEvidenceTools: []string{"site.serve", "site.serve", "message.send", "site.list"},
 			ExpectedResults: []ExpectedResult{
 				{ID: "site-public-link", Type: ExpectedResultTypeLink, Description: "public site URL", Required: true},
 				{ID: "final-message", Type: ExpectedResultTypeMessage, Description: "final reply to the user", Required: true},
@@ -353,7 +353,7 @@ func TestCompletionGateAllowsSitePublishFinishWithoutStraySendEvidence(t *testin
 		},
 	}
 	observations := []turnObservation{
-		newContentObservation("obs-004", "continue", "site.publish", `{"siteID":"site-1","status":"published","publishedURL":"https://banchan-table.example.test"}`),
+		newContentObservation("obs-004", "continue", "site.serve", `{"siteID":"site-1","status":"published","publishedURL":"https://banchan-table.example.test"}`),
 	}
 	result := validateExpectedResultCompletionGate(
 		request,
@@ -372,7 +372,7 @@ func TestCompletionGateAllowsSitePublishFinishWithoutStraySendEvidence(t *testin
 	)
 
 	if !result.IsSatisfied {
-		t.Fatalf("expected site finish backed by a successful site.publish observation to pass without message.send evidence, got %q", result.Message)
+		t.Fatalf("expected site finish backed by a successful site.serve observation to pass without message.send evidence, got %q", result.Message)
 	}
 }
 
@@ -1343,12 +1343,12 @@ func TestAgentTurnRunnerRemovesQualityCriteriaActionAfterCriteriaAreSet(t *testi
 func TestAgentTurnRunnerDoesNotBlockFinishedExpectedResultForMissingQualityReview(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		`{"action":"set_quality_criteria","qualityCriteria":["visual review: review the artifact"],"goalStatus":"in_progress","goalSatisfied":false}`,
-		`{"action":"continue","toolName":"site.publish","toolInput":{"siteID":"site-1"},"nextStepPlan":{"objective":"finish with the public URL","expectedTools":[],"expectedNextResults":["public URL"],"doneCriteria":["public URL is available"],"risk":"none","workingSetReason":"publish satisfies the link expected result"}}`,
+		`{"action":"continue","toolName":"site.serve","toolInput":{"siteID":"site-1"},"nextStepPlan":{"objective":"finish with the public URL","expectedTools":[],"expectedNextResults":["public URL"],"doneCriteria":["public URL is available"],"risk":"none","workingSetReason":"publish satisfies the link expected result"}}`,
 		`{"action":"finish","message":"배포했습니다: https://portfolio.example","replyParts":[{"type":"text","text":"배포했습니다: https://portfolio.example"}],"goalStatus":"satisfied","goalSatisfied":true,"completionEvidenceIDs":["obs-002"]}`,
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 5})
-	toolRegistry := newTestCapabilityToolSet([]string{"site.publish"})
-	registerTestTool(toolRegistry, canonicalLinkToolDefinition("site.publish"), func(context.Context, ToolInvocation) (ToolResult, error) {
+	toolRegistry := newTestCapabilityToolSet([]string{"site.serve"})
+	registerTestTool(toolRegistry, canonicalLinkToolDefinition("site.serve"), func(context.Context, ToolInvocation) (ToolResult, error) {
 		return canonicalLinkToolResult("https://portfolio.example"), nil
 	})
 
@@ -1379,21 +1379,21 @@ func TestAgentTurnRunnerDoesNotBlockFinishedExpectedResultForMissingQualityRevie
 func TestAgentTurnRunnerCanonicalLinkGateBlocksEarlyFinish(t *testing.T) {
 	languageModel := &sequenceLanguageModel{
 		contents: []string{
-			`{"action":"continue","toolName":"site.create","toolInput":{"slug":"portfolio","title":"Portfolio"},"nextStepPlan":{"objective":"create draft","expectedTools":[],"expectedNextResults":["draft site project exists"],"doneCriteria":["draft exists"],"risk":"none","workingSetReason":"create prepares the project"}}`,
-			`{"action":"finish","message":"초안을 만들었습니다.","replyParts":[{"type":"text","text":"초안을 만들었습니다."}],"goalStatus":"satisfied","goalSatisfied":true,"completionEvidence":[{"observationID":"obs-001","toolName":"site.create"}]}`,
-			`{"action":"continue","toolName":"site.publish","toolInput":{"siteID":"site-1","message":"Publish"},"nextStepPlan":{"objective":"finish after public URL","expectedTools":[],"expectedNextResults":["public URL exists"],"doneCriteria":["public URL exists"],"risk":"none","workingSetReason":"publish should satisfy the expected result"}}`,
-			`{"action":"finish","message":"배포했습니다: https://portfolio.example","replyParts":[{"type":"text","text":"배포했습니다: https://portfolio.example"}],"goalStatus":"satisfied","goalSatisfied":true,"completionEvidence":[{"observationID":"obs-003","toolName":"site.publish"}]}`,
+			`{"action":"continue","toolName":"file.write","toolInput":{"path":"~/sites/portfolio/app/public/site-content.json","content":"{}"},"nextStepPlan":{"objective":"create draft","expectedTools":[],"expectedNextResults":["draft site project exists"],"doneCriteria":["draft exists"],"risk":"none","workingSetReason":"the draft prepares the project"}}`,
+			`{"action":"finish","message":"초안을 만들었습니다.","replyParts":[{"type":"text","text":"초안을 만들었습니다."}],"goalStatus":"satisfied","goalSatisfied":true,"completionEvidence":[{"observationID":"obs-001","toolName":"file.write"}]}`,
+			`{"action":"continue","toolName":"site.serve","toolInput":{"title":"Portfolio","sourceWorkspacePath":"~/sites/portfolio","mode":"publish"},"nextStepPlan":{"objective":"finish after public URL","expectedTools":[],"expectedNextResults":["public URL exists"],"doneCriteria":["public URL exists"],"risk":"none","workingSetReason":"serve should satisfy the expected result"}}`,
+			`{"action":"finish","message":"배포했습니다: https://portfolio.example","replyParts":[{"type":"text","text":"배포했습니다: https://portfolio.example"}],"goalStatus":"satisfied","goalSatisfied":true,"completionEvidence":[{"observationID":"obs-003","toolName":"site.serve"}]}`,
 		},
 	}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 6})
-	toolRegistry := newTestCapabilityToolSet([]string{"site.create", "site.publish"})
+	toolRegistry := newTestCapabilityToolSet([]string{"file.write", "site.serve"})
 	toolCalls := []string{}
-	registerTestTool(toolRegistry, ToolDefinition{Name: "site.create"}, func(context.Context, ToolInvocation) (ToolResult, error) {
-		toolCalls = append(toolCalls, "site.create")
-		return testToolSuccess(`{"siteID":"site-1","status":"draft"}`), nil
+	registerTestTool(toolRegistry, ToolDefinition{Name: "file.write"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		toolCalls = append(toolCalls, "file.write")
+		return testToolSuccess(`{"path":"~/sites/portfolio/app/public/site-content.json"}`), nil
 	})
-	registerTestTool(toolRegistry, canonicalLinkToolDefinition("site.publish"), func(context.Context, ToolInvocation) (ToolResult, error) {
-		toolCalls = append(toolCalls, "site.publish")
+	registerTestTool(toolRegistry, canonicalLinkToolDefinition("site.serve"), func(context.Context, ToolInvocation) (ToolResult, error) {
+		toolCalls = append(toolCalls, "site.serve")
 		return canonicalLinkToolResult("https://portfolio.example"), nil
 	})
 
@@ -1415,8 +1415,8 @@ func TestAgentTurnRunnerCanonicalLinkGateBlocksEarlyFinish(t *testing.T) {
 	if errorValue != nil {
 		t.Fatalf("expected run to complete after verifier-guided recovery: %v", errorValue)
 	}
-	if strings.Join(toolCalls, ",") != "site.create,site.publish" {
-		t.Fatalf("expected create then publish, got %+v", toolCalls)
+	if strings.Join(toolCalls, ",") != "file.write,site.serve" {
+		t.Fatalf("expected draft creation then serve, got %+v", toolCalls)
 	}
 	if result.TaskRun.Status != task.TaskStatusCompleted {
 		t.Fatalf("expected completed task, got %s", result.TaskRun.Status)
@@ -1767,13 +1767,13 @@ func TestCompletionGateRequiresOneSuccessfulToolFromEachEvidenceGroup(t *testing
 func TestAgentTurnRunnerExpectedResultsRequireTheirTypedToolEvidence(t *testing.T) {
 	languageModel := &sequenceLanguageModel{
 		contents: []string{
-			`{"action":"continue","toolName":"site.publish","toolInput":{"siteID":"site-1","message":"Publish"},"nextStepPlan":{"objective":"finish with public URL","expectedTools":[],"expectedNextResults":["public URL exists"],"doneCriteria":["public URL exists"],"risk":"none","workingSetReason":"publish should satisfy the expected result"}}`,
-			`{"action":"finish","message":"배포했습니다: https://portfolio.example","replyParts":[{"type":"text","text":"배포했습니다: https://portfolio.example"}],"goalStatus":"satisfied","goalSatisfied":true,"completionEvidence":[{"observationID":"obs-001","toolName":"site.publish"}]}`,
+			`{"action":"continue","toolName":"site.serve","toolInput":{"siteID":"site-1","message":"Publish"},"nextStepPlan":{"objective":"finish with public URL","expectedTools":[],"expectedNextResults":["public URL exists"],"doneCriteria":["public URL exists"],"risk":"none","workingSetReason":"publish should satisfy the expected result"}}`,
+			`{"action":"finish","message":"배포했습니다: https://portfolio.example","replyParts":[{"type":"text","text":"배포했습니다: https://portfolio.example"}],"goalStatus":"satisfied","goalSatisfied":true,"completionEvidence":[{"observationID":"obs-001","toolName":"site.serve"}]}`,
 		},
 	}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 4})
-	toolRegistry := newTestCapabilityToolSet([]string{"site.publish"})
-	registerTestTool(toolRegistry, canonicalLinkToolDefinition("site.publish"), func(context.Context, ToolInvocation) (ToolResult, error) {
+	toolRegistry := newTestCapabilityToolSet([]string{"site.serve"})
+	registerTestTool(toolRegistry, canonicalLinkToolDefinition("site.serve"), func(context.Context, ToolInvocation) (ToolResult, error) {
 		return canonicalLinkToolResult("https://portfolio.example"), nil
 	})
 	registerTestTool(toolRegistry, ToolDefinition{Name: FileDeliverToolName}, func(context.Context, ToolInvocation) (ToolResult, error) {
@@ -1787,9 +1787,9 @@ func TestAgentTurnRunnerExpectedResultsRequireTheirTypedToolEvidence(t *testing.
 		Prompt:                "개인 홈페이지 배포해줘",
 		ToolSet:               toolRegistry,
 		PinnedToolNames:       toolRegistry.ListToolNames(),
-		RequiredEvidenceTools: []string{"site.publish"},
+		RequiredEvidenceTools: []string{"site.serve"},
 		OutcomeContract: OutcomeContract{
-			RequiredEvidenceTools: []string{"site.publish"},
+			RequiredEvidenceTools: []string{"site.serve"},
 			ExpectedResults: []ExpectedResult{{
 				ID:          "site-public-link",
 				Type:        ExpectedResultTypeLink,

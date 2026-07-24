@@ -283,10 +283,10 @@ func TestToolSetInvokeRejectsHiddenTool(t *testing.T) {
 }
 
 func TestToolSetValidatesDescriptorInputSchemaBeforeHandler(t *testing.T) {
-	toolSet := NewToolSet([]string{"site.publish"})
+	toolSet := NewToolSet([]string{"site.serve"})
 	handlerCallCount := 0
 	registerTestTool(toolSet, ToolDefinition{
-		Name: "site.publish",
+		Name: "site.serve",
 		InputSchema: json.RawMessage(`{
 			"type":"object",
 			"properties":{
@@ -310,7 +310,7 @@ func TestToolSetValidatesDescriptorInputSchemaBeforeHandler(t *testing.T) {
 		json.RawMessage(`{"siteID":"site-1","revision":1,"confirm":true}`),
 	}
 	for _, input := range invalidInputs {
-		result, errorValue := toolSet.Invoke(context.Background(), ToolInvocation{ToolName: "site.publish", Input: input})
+		result, errorValue := toolSet.Invoke(context.Background(), ToolInvocation{ToolName: "site.serve", Input: input})
 		if errorValue != nil {
 			t.Fatal(errorValue)
 		}
@@ -323,7 +323,7 @@ func TestToolSetValidatesDescriptorInputSchemaBeforeHandler(t *testing.T) {
 	}
 
 	result, errorValue := toolSet.Invoke(context.Background(), ToolInvocation{
-		ToolName: "site.publish",
+		ToolName: "site.serve",
 		Input:    json.RawMessage(`{"siteID":"site-1","revision":1}`),
 	})
 	if errorValue != nil || result.Failed() {

@@ -40,14 +40,14 @@ func TestAgentTurnRunnerRecordsDeniedToolAsObservation(t *testing.T) {
 
 func TestAgentTurnRunnerRejectsMalformedInputBeforeApproval(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		directToolAction("continue", "", "site.delete", `{"siteID":42}`),
+		directToolAction("continue", "", "site.unserve", `{"siteID":42}`),
 		noToolFallbackFinishMessageDocument("삭제 요청 형식을 확인하지 못했습니다."),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 3})
-	toolRegistry := newTestCapabilityToolSet([]string{"site.delete"})
+	toolRegistry := newTestCapabilityToolSet([]string{"site.unserve"})
 	handlerCallCount := 0
 	registerTestTool(toolRegistry, ToolDefinition{
-		Name:             "site.delete",
+		Name:             "site.unserve",
 		RequiresApproval: true,
 		InputSchema: json.RawMessage(`{
 			"type":"object",
@@ -65,7 +65,7 @@ func TestAgentTurnRunnerRejectsMalformedInputBeforeApproval(t *testing.T) {
 		ConversationID:    "conversation-1",
 		Prompt:            "사이트를 삭제해줘",
 		ToolSet:           toolRegistry,
-		PinnedToolNames:   []string{"site.delete"},
+		PinnedToolNames:   []string{"site.unserve"},
 	})
 	if errorValue != nil {
 		t.Fatalf("expected malformed call recovery: %v", errorValue)
@@ -77,7 +77,7 @@ func TestAgentTurnRunnerRejectsMalformedInputBeforeApproval(t *testing.T) {
 		t.Fatalf("expected malformed input to stay outside the handler, got %d calls", handlerCallCount)
 	}
 	events := services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID)
-	if !taskEventsContain(events, "agent.tool_input_malformed", "site.delete") {
+	if !taskEventsContain(events, "agent.tool_input_malformed", "site.unserve") {
 		t.Fatalf("expected malformed input event, got %+v", events)
 	}
 	if taskEventsContain(events, "approval.pending_call", "") {
@@ -87,10 +87,10 @@ func TestAgentTurnRunnerRejectsMalformedInputBeforeApproval(t *testing.T) {
 
 func TestValidateTerminalToolInputRejectsRegisteredToolNameAsCommand(t *testing.T) {
 	toolRegistry := newTestToolSet([]string{"terminal.run"})
-	registerTestTool(toolRegistry, ToolDefinition{Name: "site.create"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	registerTestTool(toolRegistry, ToolDefinition{Name: "site.serve"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		return testToolSuccess("created"), nil
 	})
-	input := MarshalToolInput(map[string]any{"command": "site.create --slug demo"})
+	input := MarshalToolInput(map[string]any{"command": "site.serve --slug demo"})
 
 	errorValue := validateTerminalToolInput("terminal.run", input, toolRegistry)
 

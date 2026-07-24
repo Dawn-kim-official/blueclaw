@@ -73,18 +73,18 @@ func TestCompletionGateTreatsFailedDeclaredQualityCriterionAsReviewHint(t *testi
 		Action:             "finish",
 		GoalStatus:         "satisfied",
 		GoalSatisfied:      boolPointer(true),
-		CompletionEvidence: []completionEvidenceReference{{ObservationID: "obs-001", ToolName: "site.create"}},
+		CompletionEvidence: []completionEvidenceReference{{ObservationID: "obs-001", ToolName: "site.serve"}},
 		QualityReview: []qualityReviewItem{{
 			ID:       "business-plan-sample-is-complete",
 			Passed:   false,
-			Evidence: []completionEvidenceReference{{ObservationID: "obs-001", ToolName: "site.create"}},
+			Evidence: []completionEvidenceReference{{ObservationID: "obs-001", ToolName: "site.serve"}},
 		}},
 		Message: "완료했습니다.",
 	}
 	observations := []turnObservation{{
 		ObservationID: "obs-001",
 		Action:        "continue",
-		Tool:          "site.create",
+		Tool:          "site.serve",
 		Output:        ToolOutput{Content: `{"siteID":"site-1"}`},
 	}}
 

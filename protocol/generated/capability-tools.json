@@ -3610,14 +3610,14 @@
       "availability": {
         "state": "ok"
       },
-      "canonicalName": "site.create",
+      "canonicalName": "site.serve",
       "completionEvidence": {
-        "action": "create_site",
+        "action": "serve_site",
         "mode": "success",
         "targetKind": "site"
       },
-      "description": "Create a site workspace and return its exact siteID and sourceWorkspacePath. Use file.edit on that path for subsequent source changes.",
-      "estimatedLatency": "medium",
+      "description": "Serve a site project directory you built in the workspace: preview mode returns a temporary review URL, publish mode deploys to the public URL. First serve allocates the slug from the title; pass siteReference to update an existing served site.",
+      "estimatedLatency": "high",
       "idempotency": {
         "required": false,
         "scope": "operation",
@@ -3627,76 +3627,29 @@
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "additionalProperties": false,
         "properties": {
-          "archetype": {
+          "mode": {
+            "description": "Serve target: 'preview' for a temporary review URL, 'publish' for the public URL.",
+            "enum": [
+              "preview",
+              "publish"
+            ],
             "type": "string"
           },
-          "audience": {
-            "type": "string"
-          },
-          "content": {
-            "additionalProperties": false,
-            "properties": {
-              "heroActionHref": {
-                "type": "string"
-              },
-              "heroActionLabel": {
-                "type": "string"
-              },
-              "sections": {
-                "items": {
-                  "additionalProperties": false,
-                  "properties": {
-                    "body": {
-                      "type": "string"
-                    },
-                    "title": {
-                      "type": "string"
-                    }
-                  },
-                  "type": "object"
-                },
-                "minItems": 1,
-                "type": "array"
-              },
-              "siteName": {
-                "type": "string"
-              },
-              "tagline": {
-                "type": "string"
-              }
-            },
-            "type": "object"
-          },
-          "description": {
-            "type": "string"
-          },
-          "designBrief": {
-            "type": "string"
-          },
-          "domainKeywords": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array"
-          },
-          "idea": {
-            "type": "string"
-          },
-          "prompt": {
-            "type": "string"
-          },
-          "prototypeScope": {
-            "type": "string"
-          },
-          "purpose": {
-            "type": "string"
-          },
-          "slug": {
+          "siteReference": {
+            "description": "Exact slug or siteID of an EXISTING served site to update, from site.list or an earlier serve result. Omit on first serve so the server allocates a new slug.",
             "minLength": 1,
-            "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+            "pattern": "^\\S(?:.*\\S)?$",
+            "type": "string"
+          },
+          "sourceWorkspacePath": {
+            "description": "Exact workspace path of the site project root to serve — the directory containing DESIGN.md and app/, e.g. ~/sites/my-site.",
+            "minLength": 1,
+            "pattern": "^\\S(?:.*\\S)?$",
             "type": "string"
           },
           "title": {
+            "description": "Human-readable site title. The server derives and owns the URL slug from this title on first serve.",
+            "minLength": 1,
             "type": "string"
           }
         },
@@ -3706,115 +3659,62 @@
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "additionalProperties": false,
         "properties": {
-          "archetype": {
-            "description": "Site archetype, such as dashboard or landing-page.",
-            "type": "string"
-          },
-          "audience": {
-            "description": "Intended audience.",
-            "type": "string"
-          },
-          "content": {
-            "additionalProperties": false,
-            "description": "Structured content for a basic content site.",
-            "properties": {
-              "heroActionHref": {
-                "type": "string"
-              },
-              "heroActionLabel": {
-                "type": "string"
-              },
-              "sections": {
-                "items": {
-                  "additionalProperties": false,
-                  "properties": {
-                    "body": {
-                      "type": "string"
-                    },
-                    "title": {
-                      "type": "string"
-                    }
-                  },
-                  "required": [
-                    "title",
-                    "body"
-                  ],
-                  "type": "object"
-                },
-                "minItems": 1,
-                "type": "array"
-              },
-              "siteName": {
-                "type": "string"
-              },
-              "tagline": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "siteName",
-              "sections"
+          "mode": {
+            "description": "Serve target: 'preview' for a temporary review URL, 'publish' for the public URL.",
+            "enum": [
+              "preview",
+              "publish"
             ],
-            "type": "object"
-          },
-          "description": {
-            "description": "Short public-facing description.",
             "type": "string"
           },
-          "designBrief": {
-            "description": "Visual style and layout guidance.",
-            "type": "string"
-          },
-          "domainKeywords": {
-            "description": "Domain terms that should inform the site.",
-            "items": {
-              "type": "string"
-            },
-            "type": "array"
-          },
-          "idea": {
-            "description": "Core concept or value proposition.",
-            "type": "string"
-          },
-          "prompt": {
-            "description": "Natural-language description of the site to build.",
-            "type": "string"
-          },
-          "prototypeScope": {
-            "description": "Scope limit for the initial implementation.",
-            "type": "string"
-          },
-          "purpose": {
-            "description": "Why the site exists and who it serves.",
-            "type": "string"
-          },
-          "slug": {
-            "description": "Unique URL-safe site identifier, such as team-dashboard.",
+          "siteReference": {
+            "description": "Exact slug or siteID of an EXISTING served site to update, from site.list or an earlier serve result. Omit on first serve so the server allocates a new slug.",
             "minLength": 1,
-            "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+            "pattern": "^\\S(?:.*\\S)?$",
+            "type": "string"
+          },
+          "sourceWorkspacePath": {
+            "description": "Exact workspace path of the site project root to serve — the directory containing DESIGN.md and app/, e.g. ~/sites/my-site.",
+            "minLength": 1,
+            "pattern": "^\\S(?:.*\\S)?$",
             "type": "string"
           },
           "title": {
-            "description": "Human-readable site name.",
+            "description": "Human-readable site title. The server derives and owns the URL slug from this title on first serve.",
+            "minLength": 1,
             "type": "string"
           }
         },
         "required": [
-          "slug"
+          "title",
+          "sourceWorkspacePath",
+          "mode"
         ],
         "type": "object"
       },
       "inputSchemaStrict": true,
-      "modelName": "site.create",
+      "modelName": "site.serve",
       "modelVisibility": "visible",
       "modelVisible": true,
-      "name": "site.create",
+      "name": "site.serve",
       "namespace": "site",
       "outputSchema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "additionalProperties": false,
         "properties": {
-          "appWorkspacePath": {
+          "mode": {
+            "enum": [
+              "preview",
+              "publish"
+            ],
+            "type": "string"
+          },
+          "previewURL": {
+            "minLength": 1,
+            "pattern": "^\\S(?:.*\\S)?$",
+            "type": "string"
+          },
+          "publishedURL": {
             "minLength": 1,
             "pattern": "^\\S(?:.*\\S)?$",
             "type": "string"
@@ -3829,66 +3729,63 @@
             "pattern": "^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$",
             "type": "string"
           },
-          "sourceFiles": {
-            "items": {
-              "additionalProperties": false,
-              "properties": {
-                "content": {
-                  "type": "string"
-                },
-                "path": {
-                  "type": "string"
-                }
-              },
-              "required": [
-                "path",
-                "content"
-              ],
-              "type": "object"
-            },
-            "type": "array"
-          },
-          "sourceWorkspacePath": {
-            "minLength": 1,
-            "pattern": "^\\S(?:.*\\S)?$",
-            "type": "string"
-          },
-          "status": {
-            "const": "draft",
-            "type": "string"
-          },
-          "title": {
+          "sourceSHA256": {
+            "pattern": "^[a-f0-9]{64}$",
             "type": "string"
           }
         },
         "required": [
           "siteID",
           "slug",
-          "title",
-          "status",
-          "sourceWorkspacePath",
-          "appWorkspacePath"
+          "mode",
+          "sourceSHA256"
         ],
         "type": "object"
       },
       "outputSchemaStrict": true,
-      "policyResource": "tool:site.create",
+      "policyResource": "tool:site.serve",
       "privacyClass": "workspace_site",
       "requiresUserPresence": false,
       "resultContract": {
         "effects": [
           {
-            "effect": "created",
-            "effectIdentity": "id",
+            "effect": "previewed",
+            "effectIdentity": "url",
             "objectType": "website",
-            "resultField": "siteID"
+            "resultField": "previewURL",
+            "when": {
+              "equals": "preview",
+              "resultField": "mode"
+            }
+          },
+          {
+            "effect": "published",
+            "effectIdentity": "url",
+            "objectType": "website",
+            "resultField": "publishedURL",
+            "when": {
+              "equals": "publish",
+              "resultField": "mode"
+            }
           }
         ],
         "schema": {
           "$schema": "https://json-schema.org/draft/2020-12/schema",
           "additionalProperties": false,
           "properties": {
-            "appWorkspacePath": {
+            "mode": {
+              "enum": [
+                "preview",
+                "publish"
+              ],
+              "type": "string"
+            },
+            "previewURL": {
+              "minLength": 1,
+              "pattern": "^\\S(?:.*\\S)?$",
+              "type": "string"
+            },
+            "publishedURL": {
               "minLength": 1,
               "pattern": "^\\S(?:.*\\S)?$",
               "type": "string"
@@ -3903,60 +3800,31 @@
               "pattern": "^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$",
               "type": "string"
             },
-            "sourceFiles": {
-              "items": {
-                "additionalProperties": false,
-                "properties": {
-                  "content": {
-                    "type": "string"
-                  },
-                  "path": {
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "path",
-                  "content"
-                ],
-                "type": "object"
-              },
-              "type": "array"
-            },
-            "sourceWorkspacePath": {
-              "minLength": 1,
-              "pattern": "^\\S(?:.*\\S)?$",
-              "type": "string"
-            },
-            "status": {
-              "const": "draft",
-              "type": "string"
-            },
-            "title": {
+            "sourceSHA256": {
+              "pattern": "^[a-f0-9]{64}$",
               "type": "string"
             }
           },
           "required": [
             "siteID",
             "slug",
-            "title",
-            "status",
-            "sourceWorkspacePath",
-            "appWorkspacePath"
+            "mode",
+            "sourceSHA256"
           ],
           "type": "object"
         }
       },
-      "sideEffect": "workspace_write",
-      "sideEffectClass": "workspace_write",
-      "version": "2",
+      "sideEffect": "site_publish",
+      "sideEffectClass": "site_publish",
+      "version": "3",
       "worksOffline": false
     },
     {
       "availability": {
         "state": "ok"
       },
-      "canonicalName": "site.status",
-      "description": "Read one site by exact siteID or slug and return its sourceWorkspacePath, lifecycle status, and published or preview URLs.",
+      "canonicalName": "site.list",
+      "description": "List served sites with their exact siteID, slug, lifecycle status, and published URL. Pass siteReference to read one site.",
       "estimatedLatency": "low",
       "idempotency": {
         "required": false,
@@ -3967,12 +3835,189 @@
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "additionalProperties": false,
         "properties": {
-          "checkLive": {
-            "description": "Probe the published URL in addition to reading persisted status.",
-            "type": "boolean"
+          "siteReference": {
+            "description": "Exact slug or siteID to narrow the listing to one site. Omit to list every served site.",
+            "minLength": 1,
+            "pattern": "^\\S(?:.*\\S)?$",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "inputSchemaStrict": true,
+      "modelName": "site.list",
+      "modelVisibility": "visible",
+      "modelVisible": true,
+      "name": "site.list",
+      "namespace": "site",
+      "outputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "sites": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "publishedURL": {
+                  "minLength": 1,
+                  "pattern": "^\\S(?:.*\\S)?$",
+                  "type": "string"
+                },
+                "siteID": {
+                  "minLength": 1,
+                  "pattern": "^\\S(?:.*\\S)?$",
+                  "type": "string"
+                },
+                "slug": {
+                  "minLength": 1,
+                  "pattern": "^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$",
+                  "type": "string"
+                },
+                "status": {
+                  "enum": [
+                    "draft",
+                    "publishing",
+                    "published",
+                    "unpublished",
+                    "failed"
+                  ],
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "updatedAt": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "siteID",
+                "slug",
+                "title",
+                "status"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "sites"
+        ],
+        "type": "object"
+      },
+      "outputSchemaStrict": true,
+      "policyResource": "tool:site.list",
+      "privacyClass": "workspace_site",
+      "requiresUserPresence": false,
+      "resultContract": {
+        "effects": [],
+        "schema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "additionalProperties": false,
+          "properties": {
+            "sites": {
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "publishedURL": {
+                    "minLength": 1,
+                    "pattern": "^\\S(?:.*\\S)?$",
+                    "type": "string"
+                  },
+                  "siteID": {
+                    "minLength": 1,
+                    "pattern": "^\\S(?:.*\\S)?$",
+                    "type": "string"
+                  },
+                  "slug": {
+                    "minLength": 1,
+                    "pattern": "^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$",
+                    "type": "string"
+                  },
+                  "status": {
+                    "enum": [
+                      "draft",
+                      "publishing",
+                      "published",
+                      "unpublished",
+                      "failed"
+                    ],
+                    "type": "string"
+                  },
+                  "title": {
+                    "type": "string"
+                  },
+                  "updatedAt": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "siteID",
+                  "slug",
+                  "title",
+                  "status"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "sites"
+          ],
+          "type": "object"
+        }
+      },
+      "sideEffect": "read",
+      "sideEffectClass": "read",
+      "version": "3",
+      "worksOffline": false
+    },
+    {
+      "availability": {
+        "state": "ok"
+      },
+      "canonicalName": "site.unserve",
+      "completionEvidence": {
+        "action": "delete_site",
+        "mode": "success",
+        "targetKind": "site"
+      },
+      "description": "Take a served site down after explicit runtime approval: unpublishes it, frees its slug, and deletes the server-side record. Workspace source files are not touched.",
+      "estimatedLatency": "medium",
+      "idempotency": {
+        "required": false,
+        "scope": "operation",
+        "supported": false
+      },
+      "inputIntentSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "reason": {
+            "description": "Reason shown in the approval prompt.",
+            "type": "string"
           },
           "siteReference": {
-            "description": "Exact siteID or exact slug from the request or an earlier site result.",
+            "description": "Exact slug or siteID of the served site to take down, from site.list or an earlier serve result.",
+            "minLength": 1,
+            "pattern": "^\\S(?:.*\\S)?$",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "reason": {
+            "description": "Reason shown in the approval prompt.",
+            "type": "string"
+          },
+          "siteReference": {
+            "description": "Exact slug or siteID of the served site to take down, from site.list or an earlier serve result.",
             "minLength": 1,
             "pattern": "^\\S(?:.*\\S)?$",
             "type": "string"
@@ -3984,38 +4029,15 @@
         "type": "object"
       },
       "inputSchemaStrict": true,
-      "modelName": "site.status",
+      "modelName": "site.unserve",
       "modelVisibility": "visible",
       "modelVisible": true,
-      "name": "site.status",
+      "name": "site.unserve",
       "namespace": "site",
       "outputSchema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "additionalProperties": false,
         "properties": {
-          "appWorkspacePath": {
-            "minLength": 1,
-            "pattern": "^\\S(?:.*\\S)?$",
-            "type": "string"
-          },
-          "lastError": {
-            "type": "string"
-          },
-          "liveHTTPStatus": {
-            "maximum": 9007199254740991,
-            "minimum": -9007199254740991,
-            "type": "integer"
-          },
-          "previewURL": {
-            "minLength": 1,
-            "pattern": "^\\S(?:.*\\S)?$",
-            "type": "string"
-          },
-          "publishedURL": {
-            "minLength": 1,
-            "pattern": "^\\S(?:.*\\S)?$",
-            "type": "string"
-          },
           "siteID": {
             "minLength": 1,
             "pattern": "^\\S(?:.*\\S)?$",
@@ -4026,567 +4048,20 @@
             "pattern": "^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$",
             "type": "string"
           },
-          "sourceWorkspacePath": {
-            "minLength": 1,
-            "pattern": "^\\S(?:.*\\S)?$",
-            "type": "string"
-          },
-          "status": {
-            "enum": [
-              "draft",
-              "publishing",
-              "published",
-              "unpublished",
-              "failed"
-            ],
-            "type": "string"
-          },
-          "title": {
-            "type": "string"
-          },
-          "updatedAt": {
-            "type": "string"
-          },
-          "workspaceHealth": {
-            "type": "string"
+          "unserved": {
+            "const": true,
+            "type": "boolean"
           }
         },
         "required": [
           "siteID",
           "slug",
-          "title",
-          "status",
-          "sourceWorkspacePath"
+          "unserved"
         ],
         "type": "object"
       },
       "outputSchemaStrict": true,
-      "policyResource": "tool:site.status",
-      "privacyClass": "workspace_site",
-      "requiresUserPresence": false,
-      "resultContract": {
-        "effects": [],
-        "schema": {
-          "$schema": "https://json-schema.org/draft/2020-12/schema",
-          "additionalProperties": false,
-          "properties": {
-            "appWorkspacePath": {
-              "minLength": 1,
-              "pattern": "^\\S(?:.*\\S)?$",
-              "type": "string"
-            },
-            "lastError": {
-              "type": "string"
-            },
-            "liveHTTPStatus": {
-              "maximum": 9007199254740991,
-              "minimum": -9007199254740991,
-              "type": "integer"
-            },
-            "previewURL": {
-              "minLength": 1,
-              "pattern": "^\\S(?:.*\\S)?$",
-              "type": "string"
-            },
-            "publishedURL": {
-              "minLength": 1,
-              "pattern": "^\\S(?:.*\\S)?$",
-              "type": "string"
-            },
-            "siteID": {
-              "minLength": 1,
-              "pattern": "^\\S(?:.*\\S)?$",
-              "type": "string"
-            },
-            "slug": {
-              "minLength": 1,
-              "pattern": "^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$",
-              "type": "string"
-            },
-            "sourceWorkspacePath": {
-              "minLength": 1,
-              "pattern": "^\\S(?:.*\\S)?$",
-              "type": "string"
-            },
-            "status": {
-              "enum": [
-                "draft",
-                "publishing",
-                "published",
-                "unpublished",
-                "failed"
-              ],
-              "type": "string"
-            },
-            "title": {
-              "type": "string"
-            },
-            "updatedAt": {
-              "type": "string"
-            },
-            "workspaceHealth": {
-              "type": "string"
-            }
-          },
-          "required": [
-            "siteID",
-            "slug",
-            "title",
-            "status",
-            "sourceWorkspacePath"
-          ],
-          "type": "object"
-        }
-      },
-      "sideEffect": "read",
-      "sideEffectClass": "read",
-      "version": "2",
-      "worksOffline": false
-    },
-    {
-      "availability": {
-        "state": "ok"
-      },
-      "canonicalName": "site.preview",
-      "completionEvidence": {
-        "action": "preview_site",
-        "mode": "success",
-        "targetKind": "site"
-      },
-      "description": "Create a reviewable preview for the exact siteID after source changes have been made with file.edit.",
-      "estimatedLatency": "high",
-      "idempotency": {
-        "required": false,
-        "scope": "operation",
-        "supported": false
-      },
-      "inputIntentSchema": {
-        "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "additionalProperties": false,
-        "properties": {
-          "previewID": {
-            "description": "Existing preview ID to refresh. Omit to create a new preview.",
-            "minLength": 1,
-            "pattern": "^\\S(?:.*\\S)?$",
-            "type": "string"
-          },
-          "siteID": {
-            "description": "Exact site ID from site.create or site.status.",
-            "minLength": 1,
-            "pattern": "^\\S(?:.*\\S)?$",
-            "type": "string"
-          }
-        },
-        "type": "object"
-      },
-      "inputSchema": {
-        "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "additionalProperties": false,
-        "properties": {
-          "previewID": {
-            "description": "Existing preview ID to refresh. Omit to create a new preview.",
-            "minLength": 1,
-            "pattern": "^\\S(?:.*\\S)?$",
-            "type": "string"
-          },
-          "siteID": {
-            "description": "Exact site ID from site.create or site.status.",
-            "minLength": 1,
-            "pattern": "^\\S(?:.*\\S)?$",
-            "type": "string"
-          }
-        },
-        "required": [
-          "siteID"
-        ],
-        "type": "object"
-      },
-      "inputSchemaStrict": true,
-      "modelName": "site.preview",
-      "modelVisibility": "visible",
-      "modelVisible": true,
-      "name": "site.preview",
-      "namespace": "site",
-      "outputSchema": {
-        "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "additionalProperties": false,
-        "properties": {
-          "previewExpiresAt": {
-            "type": "string"
-          },
-          "previewID": {
-            "minLength": 1,
-            "pattern": "^\\S(?:.*\\S)?$",
-            "type": "string"
-          },
-          "previewURL": {
-            "minLength": 1,
-            "pattern": "^\\S(?:.*\\S)?$",
-            "type": "string"
-          },
-          "siteID": {
-            "minLength": 1,
-            "pattern": "^\\S(?:.*\\S)?$",
-            "type": "string"
-          },
-          "sourceWorkspacePath": {
-            "minLength": 1,
-            "pattern": "^\\S(?:.*\\S)?$",
-            "type": "string"
-          },
-          "status": {
-            "enum": [
-              "draft",
-              "publishing",
-              "published",
-              "unpublished",
-              "failed"
-            ],
-            "type": "string"
-          }
-        },
-        "required": [
-          "siteID",
-          "status",
-          "sourceWorkspacePath",
-          "previewID",
-          "previewURL",
-          "previewExpiresAt"
-        ],
-        "type": "object"
-      },
-      "outputSchemaStrict": true,
-      "policyResource": "tool:site.preview",
-      "privacyClass": "workspace_site",
-      "requiresUserPresence": false,
-      "resultContract": {
-        "effects": [
-          {
-            "effect": "previewed",
-            "effectIdentity": "id",
-            "objectType": "website",
-            "resultField": "siteID"
-          }
-        ],
-        "schema": {
-          "$schema": "https://json-schema.org/draft/2020-12/schema",
-          "additionalProperties": false,
-          "properties": {
-            "previewExpiresAt": {
-              "type": "string"
-            },
-            "previewID": {
-              "minLength": 1,
-              "pattern": "^\\S(?:.*\\S)?$",
-              "type": "string"
-            },
-            "previewURL": {
-              "minLength": 1,
-              "pattern": "^\\S(?:.*\\S)?$",
-              "type": "string"
-            },
-            "siteID": {
-              "minLength": 1,
-              "pattern": "^\\S(?:.*\\S)?$",
-              "type": "string"
-            },
-            "sourceWorkspacePath": {
-              "minLength": 1,
-              "pattern": "^\\S(?:.*\\S)?$",
-              "type": "string"
-            },
-            "status": {
-              "enum": [
-                "draft",
-                "publishing",
-                "published",
-                "unpublished",
-                "failed"
-              ],
-              "type": "string"
-            }
-          },
-          "required": [
-            "siteID",
-            "status",
-            "sourceWorkspacePath",
-            "previewID",
-            "previewURL",
-            "previewExpiresAt"
-          ],
-          "type": "object"
-        }
-      },
-      "sideEffect": "external_publish",
-      "sideEffectClass": "external_publish",
-      "version": "2",
-      "worksOffline": false
-    },
-    {
-      "availability": {
-        "state": "ok"
-      },
-      "canonicalName": "site.publish",
-      "completionEvidence": {
-        "action": "publish_site",
-        "mode": "success",
-        "targetKind": "site"
-      },
-      "description": "Publish the exact siteID after editing and optional preview verification, returning the public URL and deployed version.",
-      "estimatedLatency": "high",
-      "idempotency": {
-        "required": false,
-        "scope": "operation",
-        "supported": false
-      },
-      "inputIntentSchema": {
-        "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "additionalProperties": false,
-        "properties": {
-          "message": {
-            "description": "Short revision message describing the edits being published.",
-            "type": "string"
-          },
-          "previewID": {
-            "description": "Preview ID whose reviewed source should be published.",
-            "minLength": 1,
-            "pattern": "^\\S(?:.*\\S)?$",
-            "type": "string"
-          },
-          "siteID": {
-            "description": "Exact site ID from site.create or site.status.",
-            "minLength": 1,
-            "pattern": "^\\S(?:.*\\S)?$",
-            "type": "string"
-          }
-        },
-        "type": "object"
-      },
-      "inputSchema": {
-        "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "additionalProperties": false,
-        "properties": {
-          "message": {
-            "description": "Short revision message describing the edits being published.",
-            "type": "string"
-          },
-          "previewID": {
-            "description": "Preview ID whose reviewed source should be published.",
-            "minLength": 1,
-            "pattern": "^\\S(?:.*\\S)?$",
-            "type": "string"
-          },
-          "siteID": {
-            "description": "Exact site ID from site.create or site.status.",
-            "minLength": 1,
-            "pattern": "^\\S(?:.*\\S)?$",
-            "type": "string"
-          }
-        },
-        "required": [
-          "siteID"
-        ],
-        "type": "object"
-      },
-      "inputSchemaStrict": true,
-      "modelName": "site.publish",
-      "modelVisibility": "visible",
-      "modelVisible": true,
-      "name": "site.publish",
-      "namespace": "site",
-      "outputSchema": {
-        "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "additionalProperties": false,
-        "properties": {
-          "currentVersionID": {
-            "minLength": 1,
-            "pattern": "^\\S(?:.*\\S)?$",
-            "type": "string"
-          },
-          "publishedURL": {
-            "minLength": 1,
-            "pattern": "^\\S(?:.*\\S)?$",
-            "type": "string"
-          },
-          "siteID": {
-            "minLength": 1,
-            "pattern": "^\\S(?:.*\\S)?$",
-            "type": "string"
-          },
-          "sourceSHA256": {
-            "pattern": "^[a-f0-9]{64}$",
-            "type": "string"
-          },
-          "sourceWorkspacePath": {
-            "minLength": 1,
-            "pattern": "^\\S(?:.*\\S)?$",
-            "type": "string"
-          },
-          "status": {
-            "const": "published",
-            "type": "string"
-          }
-        },
-        "required": [
-          "siteID",
-          "status",
-          "sourceWorkspacePath",
-          "sourceSHA256",
-          "publishedURL",
-          "currentVersionID"
-        ],
-        "type": "object"
-      },
-      "outputSchemaStrict": true,
-      "policyResource": "tool:site.publish",
-      "privacyClass": "workspace_site",
-      "requiresUserPresence": false,
-      "resultContract": {
-        "effects": [
-          {
-            "effect": "published",
-            "effectIdentity": "id",
-            "objectType": "website",
-            "resultField": "siteID"
-          },
-          {
-            "effect": "published",
-            "effectIdentity": "url",
-            "objectType": "website",
-            "resultField": "publishedURL"
-          }
-        ],
-        "schema": {
-          "$schema": "https://json-schema.org/draft/2020-12/schema",
-          "additionalProperties": false,
-          "properties": {
-            "currentVersionID": {
-              "minLength": 1,
-              "pattern": "^\\S(?:.*\\S)?$",
-              "type": "string"
-            },
-            "publishedURL": {
-              "minLength": 1,
-              "pattern": "^\\S(?:.*\\S)?$",
-              "type": "string"
-            },
-            "siteID": {
-              "minLength": 1,
-              "pattern": "^\\S(?:.*\\S)?$",
-              "type": "string"
-            },
-            "sourceSHA256": {
-              "pattern": "^[a-f0-9]{64}$",
-              "type": "string"
-            },
-            "sourceWorkspacePath": {
-              "minLength": 1,
-              "pattern": "^\\S(?:.*\\S)?$",
-              "type": "string"
-            },
-            "status": {
-              "const": "published",
-              "type": "string"
-            }
-          },
-          "required": [
-            "siteID",
-            "status",
-            "sourceWorkspacePath",
-            "sourceSHA256",
-            "publishedURL",
-            "currentVersionID"
-          ],
-          "type": "object"
-        }
-      },
-      "sideEffect": "site_publish",
-      "sideEffectClass": "site_publish",
-      "version": "2",
-      "worksOffline": false
-    },
-    {
-      "availability": {
-        "state": "ok"
-      },
-      "canonicalName": "site.delete",
-      "completionEvidence": {
-        "action": "delete_site",
-        "mode": "success",
-        "targetKind": "site"
-      },
-      "description": "Permanently delete the exact siteID after explicit runtime approval.",
-      "estimatedLatency": "medium",
-      "idempotency": {
-        "required": false,
-        "scope": "operation",
-        "supported": false
-      },
-      "inputIntentSchema": {
-        "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "additionalProperties": false,
-        "properties": {
-          "reason": {
-            "description": "Reason shown in the approval prompt.",
-            "type": "string"
-          },
-          "siteID": {
-            "description": "Exact site ID from site.status.",
-            "minLength": 1,
-            "pattern": "^\\S(?:.*\\S)?$",
-            "type": "string"
-          }
-        },
-        "type": "object"
-      },
-      "inputSchema": {
-        "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "additionalProperties": false,
-        "properties": {
-          "reason": {
-            "description": "Reason shown in the approval prompt.",
-            "type": "string"
-          },
-          "siteID": {
-            "description": "Exact site ID from site.status.",
-            "minLength": 1,
-            "pattern": "^\\S(?:.*\\S)?$",
-            "type": "string"
-          }
-        },
-        "required": [
-          "siteID"
-        ],
-        "type": "object"
-      },
-      "inputSchemaStrict": true,
-      "modelName": "site.delete",
-      "modelVisibility": "visible",
-      "modelVisible": true,
-      "name": "site.delete",
-      "namespace": "site",
-      "outputSchema": {
-        "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "additionalProperties": false,
-        "properties": {
-          "deleted": {
-            "const": true,
-            "type": "boolean"
-          },
-          "siteID": {
-            "minLength": 1,
-            "pattern": "^\\S(?:.*\\S)?$",
-            "type": "string"
-          }
-        },
-        "required": [
-          "siteID",
-          "deleted"
-        ],
-        "type": "object"
-      },
-      "outputSchemaStrict": true,
-      "policyResource": "tool:site.delete",
+      "policyResource": "tool:site.unserve",
       "privacyClass": "workspace_site",
       "requiresApproval": true,
       "requiresUserPresence": false,
@@ -4603,26 +4078,32 @@
           "$schema": "https://json-schema.org/draft/2020-12/schema",
           "additionalProperties": false,
           "properties": {
-            "deleted": {
-              "const": true,
-              "type": "boolean"
-            },
             "siteID": {
               "minLength": 1,
               "pattern": "^\\S(?:.*\\S)?$",
               "type": "string"
+            },
+            "slug": {
+              "minLength": 1,
+              "pattern": "^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$",
+              "type": "string"
+            },
+            "unserved": {
+              "const": true,
+              "type": "boolean"
             }
           },
           "required": [
             "siteID",
-            "deleted"
+            "slug",
+            "unserved"
           ],
           "type": "object"
         }
       },
       "sideEffect": "destructive",
       "sideEffectClass": "destructive",
-      "version": "2",
+      "version": "3",
       "worksOffline": false
     },
     {

@@ -38,10 +38,10 @@ func shouldBuildExecutionPlanForConfirmation(request AgentRequest, intakeDecisio
 }
 
 func requestIsNonDestructiveSitePrototypePublish(request AgentRequest, requiredEvidenceTools []string) bool {
-	if !hasAllTools(request.ToolSet, []string{"site.create", "site.publish"}) {
+	if !hasAllTools(request.ToolSet, []string{"site.serve"}) {
 		return false
 	}
-	if !requiredEvidenceContains(requiredEvidenceTools, "site.publish") && !hasTool(request.ToolSet, "site.publish") {
+	if !requiredEvidenceContains(requiredEvidenceTools, "site.serve") && !hasTool(request.ToolSet, "site.serve") {
 		return false
 	}
 	if !contractRequiresToolNamespace(request.ToolSet, request.ActiveGoal.OutcomeContract, "site") &&

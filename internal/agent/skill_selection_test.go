@@ -101,8 +101,8 @@ func TestSelectInstructionBundleDoesNotUseTriggerHintOutsideRetrievalCandidates(
 				Name:           "site-prototype",
 				Description:    "Create and publish web prototypes.",
 				WhenToUse:      "Use for website prototype requests.",
-				Prompt:         "Use site.create, terminal.run, and site.publish.",
-				ToolReferences: []string{"terminal.run", "site.create", "site.publish"},
+				Prompt:         "Use site.serve, terminal.run, and site.serve.",
+				ToolReferences: []string{"terminal.run", "site.serve", "site.serve"},
 				Source:         InstructionSource{Path: "skills/site-prototype/SKILL.md", SkillName: "site-prototype"},
 			},
 		},
@@ -110,10 +110,10 @@ func TestSelectInstructionBundleDoesNotUseTriggerHintOutsideRetrievalCandidates(
 
 	selectedBundle := selectInstructionBundleForRequest(instructionBundle, AgentRequest{
 		Prompt:  "웹사이트 하나 만들어서 배포해봐",
-		ToolSet: testToolSet([]string{"terminal.run", "site.create", "site.publish"}),
+		ToolSet: testToolSet([]string{"terminal.run", "site.serve", "site.serve"}),
 	})
 
-	if strings.Contains(selectedBundle.Prompt, "Use site.create") {
+	if strings.Contains(selectedBundle.Prompt, "Use site.serve") {
 		t.Fatalf("expected trigger hint not to load full skill body, got %q", selectedBundle.Prompt)
 	}
 	for _, skillDecision := range selectedBundle.SkillDecisions {
@@ -128,15 +128,15 @@ func TestToolSetForAgentTurnExposesSelectedSkillToolsAlongsideKernel(t *testing.
 		"conversation.history",
 		"memory.search",
 		"terminal.run",
-		"site.create",
-		"site.publish",
+		"site.serve",
+		"site.serve",
 		"schedule.create",
 	})
 	instructionBundle := InstructionBundle{
 		Skills: []SkillInstruction{
 			{
 				Name:           "site-prototype",
-				ToolReferences: []string{"terminal.run", "site.create", "site.publish"},
+				ToolReferences: []string{"terminal.run", "site.serve", "site.serve"},
 			},
 			{
 				Name:           "scheduled-task",
@@ -159,7 +159,7 @@ func TestToolSetForAgentTurnExposesSelectedSkillToolsAlongsideKernel(t *testing.
 			t.Fatalf("expected unselected tool %s to stay hidden, got %+v", toolName, filteredToolSet.ListToolNames())
 		}
 	}
-	for _, toolName := range []string{"site.create", "site.publish"} {
+	for _, toolName := range []string{"site.serve", "site.serve"} {
 		if !filteredToolSet.IsAllowed(toolName) {
 			t.Fatalf("expected selected skill tool %s to be directly callable, got %+v", toolName, filteredToolSet.ListToolNames())
 		}
@@ -366,8 +366,8 @@ func TestSkillSelectorSkipsSkillWhenEveryToolIsMissing(t *testing.T) {
 }
 
 func TestSelectInstructionBundleKeepsSkillWhenDirectToolsAreAvailable(t *testing.T) {
-	toolSet := NewToolSet([]string{"terminal.run", "site.create", "site.publish"})
-	for _, toolName := range []string{"terminal.run", "site.create", "site.publish"} {
+	toolSet := NewToolSet([]string{"terminal.run", "site.serve", "site.serve"})
+	for _, toolName := range []string{"terminal.run", "site.serve", "site.serve"} {
 		currentToolName := toolName
 		registerTestTool(toolSet, ToolDefinition{Name: currentToolName}, func(context.Context, ToolInvocation) (ToolResult, error) {
 			return testToolSuccess("ok"), nil
@@ -377,7 +377,7 @@ func TestSelectInstructionBundleKeepsSkillWhenDirectToolsAreAvailable(t *testing
 		Name:           "site-prototype",
 		Description:    "Create and publish website prototypes.",
 		Prompt:         "SITE BODY",
-		ToolReferences: []string{"terminal.run", "site.create", "site.publish"},
+		ToolReferences: []string{"terminal.run", "site.serve", "site.serve"},
 	}}}
 	retriever := staticSkillRetriever{result: SkillRetrievalResult{
 		RetrievalMode: "test",
@@ -397,7 +397,7 @@ func TestSelectInstructionBundleKeepsSkillWhenDirectToolsAreAvailable(t *testing
 		t.Fatalf("expected directly callable site skill to be selected, got %+v", selectedBundle.SkillDecisions)
 	}
 	filteredToolSet := toolSetForAgentTurn(toolSet, selectedBundle, AgentRequest{Prompt: "김인턴 소개 웹사이트 만들어줘"}, ExecutionPlan{}, false, OutcomeContract{})
-	if !filteredToolSet.IsAllowed("site.create") || !filteredToolSet.IsAllowed("site.publish") {
+	if !filteredToolSet.IsAllowed("site.serve") || !filteredToolSet.IsAllowed("site.serve") {
 		t.Fatalf("expected selected skill tools to be directly callable, got %+v", filteredToolSet.ListToolNames())
 	}
 }
@@ -407,7 +407,7 @@ func TestSelectInstructionBundleSkipsSkillWhenDirectToolIsUnavailable(t *testing
 	registerTestTool(toolSet, ToolDefinition{Name: "terminal.run"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		return testToolSuccess("ok"), nil
 	})
-	for _, toolName := range []string{"site.create", "site.publish"} {
+	for _, toolName := range []string{"site.serve", "site.serve"} {
 		toolSet.RegisterBoundTool(BoundTool{
 			Definition:   ToolDefinition{Name: toolName},
 			Availability: ToolAvailability{Status: ToolAvailabilityUnavailable},
@@ -420,7 +420,7 @@ func TestSelectInstructionBundleSkipsSkillWhenDirectToolIsUnavailable(t *testing
 		Name:           "site-prototype",
 		Description:    "Create and publish website prototypes.",
 		Prompt:         "SITE BODY",
-		ToolReferences: []string{"terminal.run", "site.create", "site.publish"},
+		ToolReferences: []string{"terminal.run", "site.serve", "site.serve"},
 	}}}
 	retriever := staticSkillRetriever{result: SkillRetrievalResult{
 		RetrievalMode: "test",
@@ -781,7 +781,7 @@ func TestContractSkillArbitrationSelectsUsefulCandidateFromTopK(t *testing.T) {
 				Description:    "Create, update, build, and publish website prototypes with public URLs.",
 				WhenToUse:      "Use for website, homepage, web app, landing page, deploy, and publish requests.",
 				Prompt:         "Follow website build and publish workflow.",
-				ToolReferences: []string{"file.write", "terminal.run", "site.create", "site.build", "site.publish"},
+				ToolReferences: []string{"file.write", "terminal.run", "site.serve", "site.build", "site.serve"},
 				Source:         InstructionSource{Path: "skills/public-web-builder/SKILL.md", SkillName: "public-web-builder"},
 			},
 			{
@@ -814,9 +814,9 @@ func TestContractSkillArbitrationSelectsUsefulCandidateFromTopK(t *testing.T) {
 			"terminal.run",
 			"file.promote",
 			"file.deliver",
-			"site.create",
+			"site.serve",
 			"site.build",
-			"site.publish",
+			"site.serve",
 		}),
 		ActiveGoal: ActiveGoal{OutcomeContract: OutcomeContract{
 			RequiredEvidenceTools:      []string{"file.deliver"},
@@ -1100,7 +1100,7 @@ func TestSkillQueryRouterMessagesPrioritizeLatestRequest(t *testing.T) {
 			{Speaker: "user", Text: "example.com 스타일로 사업계획서 PPT 만들어줘."},
 		}},
 		ActiveGoal:    ActiveGoal{CurrentObjective: "example.com 발표 자료 생성"},
-		ToolSet:       testToolSet([]string{"site.create", "site.publish", "terminal.run"}),
+		ToolSet:       testToolSet([]string{"site.serve", "site.serve", "terminal.run"}),
 		TurnStartedAt: time.Date(2026, time.May, 17, 1, 2, 3, 0, time.UTC),
 	})
 
@@ -1127,8 +1127,8 @@ func TestStructuredSkillQueryRecordsLatestRequestWebsiteQueryWithStaleContext(t 
 		Skills: []SkillInstruction{{
 			Name:           "site-prototype",
 			Description:    "Create and publish website prototypes.",
-			Prompt:         "Use site.create and site.publish.",
-			ToolReferences: []string{"site.create", "site.publish"},
+			Prompt:         "Use site.serve and site.serve.",
+			ToolReferences: []string{"site.serve", "site.serve"},
 			Source:         InstructionSource{Path: "skills/site-prototype/SKILL.md", SkillName: "site-prototype"},
 		}},
 	}
@@ -1140,7 +1140,7 @@ func TestStructuredSkillQueryRecordsLatestRequestWebsiteQueryWithStaleContext(t 
 		VisibleContext: VisibleContext{Messages: []VisibleContextMessage{
 			{Speaker: "user", Text: "https://example.com 내용으로 사업계획서 PPT 만들어줘."},
 		}},
-		ToolSet: testToolSet([]string{"site.create", "site.publish"}),
+		ToolSet: testToolSet([]string{"site.serve", "site.serve"}),
 	}, retriever, router)
 
 	if len(selectedBundle.SkillQueries) != 2 || selectedBundle.SkillQueries[0] != "김인턴의 구조에 대해 웹사이트 하나 소개 형식으로 만들어줘." || !strings.Contains(selectedBundle.SkillQueries[1], "InternKim") {
@@ -1307,7 +1307,7 @@ func TestWebsiteSkillSurvivesWhenSkillIsFifthCandidate(t *testing.T) {
 			Name:           "site-prototype",
 			Description:    "Create and publish website prototypes.",
 			Prompt:         "SITE BODY",
-			ToolReferences: []string{"terminal.run", "site.create", "site.publish"},
+			ToolReferences: []string{"terminal.run", "site.serve", "site.serve"},
 			Source:         InstructionSource{Path: "skills/site-prototype/SKILL.md", SkillName: "site-prototype"},
 		},
 		{Name: "extra", Description: "Extra skill.", Prompt: "EXTRA BODY"},
@@ -1326,8 +1326,8 @@ func TestWebsiteSkillSurvivesWhenSkillIsFifthCandidate(t *testing.T) {
 		Prompt: "김인턴의 구조에 대해 웹사이트 하나 소개 형식으로 만들어줘.",
 		ToolSet: testToolSet([]string{
 			"terminal.run",
-			"site.create",
-			"site.publish",
+			"site.serve",
+			"site.serve",
 		}),
 	}, retriever)
 

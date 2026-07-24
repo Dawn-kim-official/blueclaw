@@ -52,7 +52,7 @@ func TestConfirmationPlanMessagesIncludeTemporalContextAndScheduleGuard(t *testi
 	messages := confirmationPlanMessages(AgentRequest{
 		Prompt:        "김인턴 구조 소개 웹사이트 만들어서 배포해줘",
 		TurnStartedAt: time.Date(2026, time.May, 17, 1, 2, 3, 0, time.UTC),
-	}, []string{"site.publish"})
+	}, []string{"site.serve"})
 
 	body := joinMessageContent(messages)
 	if !strings.Contains(body, "Current date: 2026-05-17") || !strings.Contains(body, "Current weekday: Sunday") {
@@ -64,7 +64,7 @@ func TestConfirmationPlanMessagesIncludeTemporalContextAndScheduleGuard(t *testi
 }
 
 func TestSitePrototypePublishDoesNotBuildConfirmationPlan(t *testing.T) {
-	toolSet := newTestToolSet([]string{"site.create", "site.publish", "terminal.run"})
+	toolSet := newTestToolSet([]string{"site.serve", "site.serve", "terminal.run"})
 	request := AgentRequest{
 		Prompt:  "김인턴 구조 소개 웹사이트 만들어서 배포해줘",
 		ToolSet: toolSet,
@@ -74,18 +74,18 @@ func TestSitePrototypePublishDoesNotBuildConfirmationPlan(t *testing.T) {
 		TaskShape:      TaskShapeMaintenanceTask,
 	}
 
-	if shouldBuildExecutionPlanForConfirmation(request, decision, []string{"site.create", "site.publish"}) {
+	if shouldBuildExecutionPlanForConfirmation(request, decision, []string{"site.serve", "site.serve"}) {
 		t.Fatal("site prototype publish is part of the normal create workflow and must not request approval")
 	}
 }
 
 func TestSitePrototypeContinuationDoesNotBuildConfirmationPlan(t *testing.T) {
-	toolSet := newTestToolSet([]string{"site.create", "site.publish", "terminal.run"})
+	toolSet := newTestToolSet([]string{"site.serve", "site.serve", "terminal.run"})
 	request := AgentRequest{
 		Prompt:  "다시 해봐 그럼 될 거야",
 		ToolSet: toolSet,
 		ActiveGoal: ActiveGoal{OutcomeContract: OutcomeContract{
-			SelectedEvidenceHints: []string{"site.create", "terminal.run", "site.publish"},
+			SelectedEvidenceHints: []string{"site.serve", "terminal.run", "site.serve"},
 		}},
 	}
 	decision := IntakeDecision{
@@ -93,13 +93,13 @@ func TestSitePrototypeContinuationDoesNotBuildConfirmationPlan(t *testing.T) {
 		TaskShape:      TaskShapeMaintenanceTask,
 	}
 
-	if shouldBuildExecutionPlanForConfirmation(request, decision, []string{"site.create", "site.publish"}) {
+	if shouldBuildExecutionPlanForConfirmation(request, decision, []string{"site.serve", "site.serve"}) {
 		t.Fatal("site prototype continuation must not request approval")
 	}
 }
 
 func TestDestructiveSiteManagementStillBuildsConfirmationPlan(t *testing.T) {
-	toolSet := newTestToolSet([]string{"site.create", "site.publish", "terminal.run"})
+	toolSet := newTestToolSet([]string{"site.serve", "site.serve", "terminal.run"})
 	request := AgentRequest{
 		Prompt:  "이 사이트 내려줘",
 		ToolSet: toolSet,
@@ -109,7 +109,7 @@ func TestDestructiveSiteManagementStillBuildsConfirmationPlan(t *testing.T) {
 		TaskShape:      TaskShapeApprovalGatedTask,
 	}
 
-	if !shouldBuildExecutionPlanForConfirmation(request, decision, []string{"site.publish"}) {
+	if !shouldBuildExecutionPlanForConfirmation(request, decision, []string{"site.serve"}) {
 		t.Fatal("destructive site management should still request confirmation")
 	}
 }

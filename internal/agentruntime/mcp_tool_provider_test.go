@@ -312,7 +312,7 @@ func TestMCPToolProviderValidatesStructuredSuccess(t *testing.T) {
 func TestMCPToolProviderProjectsExactResultEvidence(t *testing.T) {
 	resultSchema := json.RawMessage(`{"type":"object","properties":{"siteID":{"type":"string"}},"required":["siteID"],"additionalProperties":false}`)
 	definition := mcp.ToolDefinition{
-		Name:              "site.publish",
+		Name:              "site.serve",
 		Namespace:         "site",
 		ServerName:        "workspace",
 		Description:       "Publish a site",
@@ -331,7 +331,7 @@ func TestMCPToolProviderProjectsExactResultEvidence(t *testing.T) {
 		Policy: mcp.PolicyMetadata{
 			PrivacyClass:         "workspace",
 			ModelVisibility:      agent.ToolVisibilityModel,
-			PolicyResource:       "tool:site.publish",
+			PolicyResource:       "tool:site.serve",
 			SideEffectClass:      agent.ToolSideEffectExternalPublish,
 			CompletionMode:       agent.ToolCompletionObservation,
 			CompletionAction:     "publish_site",
@@ -345,12 +345,12 @@ func TestMCPToolProviderProjectsExactResultEvidence(t *testing.T) {
 		registry:    mcpToolProviderTestInvoker{output: `{"content":[],"structuredContent":{"siteID":"site-1"},"isError":false}`},
 		definitions: []mcp.ToolDefinition{definition},
 	}
-	toolSet := agent.NewToolSet([]string{"site.publish"})
+	toolSet := agent.NewToolSet([]string{"site.serve"})
 	if errorValue := toolSet.RegisterProvider(context.Background(), provider); errorValue != nil {
 		t.Fatal(errorValue)
 	}
 
-	result, errorValue := toolSet.Invoke(context.Background(), agent.ToolInvocation{ToolName: "site.publish", Input: json.RawMessage(`{}`)})
+	result, errorValue := toolSet.Invoke(context.Background(), agent.ToolInvocation{ToolName: "site.serve", Input: json.RawMessage(`{}`)})
 
 	if errorValue != nil {
 		t.Fatal(errorValue)

@@ -204,7 +204,7 @@ func modelVisibleToolResultSummary(ctx context.Context, languageModel llm.Langua
 
 func shouldUseSanitizedToolPresenter(toolName string) bool {
 	switch strings.TrimSpace(toolName) {
-	case "browser.snapshot", "browser.observe", "browser.screenshot", "file.pick", FileDeliverToolName, "file.read", "site.create", "site.publish", "site.status", "terminal.run":
+	case "browser.snapshot", "browser.observe", "browser.screenshot", "file.pick", FileDeliverToolName, "file.read", "site.serve", "site.list", "terminal.run":
 		return true
 	default:
 		return false
@@ -235,10 +235,10 @@ func sanitizedToolResultSummary(observation turnObservation) string {
 		return attachmentResultSummary("File attached", observation.Attachments)
 	case "file.read":
 		return summarizeFileReadObservation(observation)
-	case "site.create":
-		return siteToolResultSummary(observation, []string{"siteID", "slug", "title", "status", "workspacePath", "sourceWorkspacePath", "appWorkspacePath"})
-	case "site.publish", "site.status":
-		return siteToolResultSummary(observation, []string{"siteID", "slug", "title", "status", "publishedURL", "currentVersionID", "liveHTTPStatus", "qualityStatus", "qualityIssueCount"})
+	case "site.serve":
+		return summarizeSafeJSONFields(observation.ContentText(), []string{"siteID", "slug", "mode", "previewURL", "publishedURL", "sourceSHA256"})
+	case "site.list":
+		return summarizeSafeJSONFields(observation.ContentText(), []string{"sites", "siteID", "slug", "title", "status", "publishedURL", "updatedAt"})
 	case "terminal.run":
 		if summary := summarizeTerminalFailure(observation); summary != "" {
 			return summary
@@ -264,33 +264,6 @@ func attachmentResultSummary(prefix string, attachments []FileAttachment) string
 		parts = append(parts, strings.Join(nonEmptyStrings(values), "; "))
 	}
 	return strings.Join(parts, "\n")
-}
-
-func siteToolResultSummary(observation turnObservation, fieldNames []string) string {
-	if !siteObservationHasPublishedStatus(observation.ContentText()) {
-		fieldNames = withoutFieldName(fieldNames, "publishedURL")
-	}
-	return summarizeSafeJSONFields(observation.ContentText(), fieldNames)
-}
-
-func siteObservationHasPublishedStatus(content string) bool {
-	var document map[string]any
-	if json.Unmarshal([]byte(content), &document) != nil {
-		return false
-	}
-	status, isString := document["status"].(string)
-	return isString && strings.TrimSpace(status) == "published"
-}
-
-func withoutFieldName(fieldNames []string, removedFieldName string) []string {
-	filteredFieldNames := []string{}
-	for _, fieldName := range fieldNames {
-		if strings.TrimSpace(fieldName) == removedFieldName {
-			continue
-		}
-		filteredFieldNames = append(filteredFieldNames, fieldName)
-	}
-	return filteredFieldNames
 }
 
 func summarizeLongToolResult(ctx context.Context, languageModel llm.LanguageModelProvider, toolName string, content string) (string, error) {

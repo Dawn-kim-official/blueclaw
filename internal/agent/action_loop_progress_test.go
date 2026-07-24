@@ -113,7 +113,7 @@ func TestInspectionToolSuccessDoesNotCountAsLoopProgress(t *testing.T) {
 	observations := []turnObservation{{
 		ObservationID: "obs-001",
 		Action:        "continue",
-		Tool:          "site.status",
+		Tool:          "site.list",
 		Output:        ToolOutput{Content: `{"workspaceHealth":"missing_source"}`},
 	}}
 

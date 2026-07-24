@@ -6,95 +6,32 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
-
-	"blueclaw/internal/capability"
 )
 
-func TestSiteSourceFilePathRejectsPathsOutsideSourceWorkspace(t *testing.T) {
-	sourceWorkspacePath := "/workspace/circles/staff/sites/site-1/draft"
-	for _, candidate := range []string{"", ".", "..", "../secret", "/workspace/other"} {
-		if _, errorValue := siteSourceFilePath(sourceWorkspacePath, candidate); errorValue == nil {
-			t.Fatalf("expected path %q to be rejected", candidate)
+func TestSiteToolNeedsSourceBundleOnlyForServe(t *testing.T) {
+	if !siteToolNeedsSourceBundle("site.serve") || !siteToolNeedsSourceBundle(" site.serve ") {
+		t.Fatal("expected site.serve to require a source bundle")
+	}
+	for _, toolName := range []string{"site.list", "site.unserve", "file.write", ""} {
+		if siteToolNeedsSourceBundle(toolName) {
+			t.Fatalf("expected %q not to require a source bundle", toolName)
 		}
 	}
-	path, errorValue := siteSourceFilePath(sourceWorkspacePath, "app/src/App.tsx")
-	if errorValue != nil {
-		t.Fatal(errorValue)
-	}
-	if path != "/workspace/circles/staff/sites/site-1/draft/app/src/App.tsx" {
-		t.Fatalf("unexpected source path: %+v", path)
-	}
 }
 
-func TestValidateSiteSourceFilesRejectsDuplicateCanonicalPaths(t *testing.T) {
-	errorValue := validateSiteSourceFiles([]siteSourceFile{
-		{Path: "app/src/App.tsx"},
-		{Path: "app/src/../src/App.tsx"},
-	})
-	if errorValue == nil || !strings.Contains(errorValue.Error(), "unique") {
-		t.Fatalf("expected duplicate source path rejection, got %v", errorValue)
-	}
-}
-
-func TestMaterializeSiteCreateResultRejectsMalformedBridgePayload(t *testing.T) {
+func TestPrepareSiteSourceBundleRequiresSourceWorkspacePath(t *testing.T) {
 	toolCatalogBuilder := NewToolCatalogBuilder()
-	for _, result := range []json.RawMessage{
-		json.RawMessage(`{`),
-		json.RawMessage(`{"siteID":"site-1","sourceWorkspacePath":"/workspace/circles/staff/sites/site-1/draft"}`),
-		json.RawMessage(`{"siteID":"site-1","sourceWorkspacePath":"/workspace/circles/staff/sites/site-1/draft","sourceFiles":[{"path":"../secret","content":"value"}]}`),
+	for _, toolInput := range []json.RawMessage{
+		json.RawMessage(`{}`),
+		json.RawMessage(`{"title":"Demo","mode":"publish"}`),
+		json.RawMessage(`{"sourceWorkspacePath":"   "}`),
 	} {
-		toolFailure, errorValue := toolCatalogBuilder.materializeSiteCreateResult(context.Background(), ToolCatalogRequest{}, &result)
-		if errorValue != nil {
-			t.Fatal(errorValue)
+		_, toolFailure, errorValue := toolCatalogBuilder.prepareSiteSourceBundle(context.Background(), ToolCatalogRequest{}, toolInput)
+		if toolFailure != nil {
+			t.Fatalf("expected input validation error, got tool failure %+v", toolFailure)
 		}
-		if toolFailure == nil || !toolFailure.Failed() {
-			t.Fatalf("expected malformed bridge payload failure, got %+v", toolFailure)
-		}
-	}
-}
-
-func TestResolveSitePublishSourceUsesExactSiteID(t *testing.T) {
-	httpClient := &recordingHTTPClient{
-		responseBody: `{"result":{"siteID":"site-1","slug":"support","sourceWorkspacePath":"/workspace/circles/staff/sites/site-1/draft"}}`,
-	}
-	toolCatalogBuilder := NewToolCatalogBuilder()
-	toolCatalogBuilder.UseTestCapabilityToolDescriptors(
-		capability.Client{Endpoint: "http://capability", HTTPClient: httpClient},
-		[]CapabilityToolDescriptor{{Name: "site.status"}},
-	)
-
-	record, errorValue := toolCatalogBuilder.resolveSitePublishSource(context.Background(), ToolCatalogRequest{}, "site-1")
-	if errorValue != nil {
-		t.Fatal(errorValue)
-	}
-	if record.SiteID != "site-1" || record.SourceWorkspacePath != "/workspace/circles/staff/sites/site-1/draft" {
-		t.Fatalf("unexpected site source record: %+v", record)
-	}
-	var requestDocument struct {
-		Input map[string]any `json:"input"`
-	}
-	if errorValue := json.Unmarshal([]byte(httpClient.requestBody), &requestDocument); errorValue != nil {
-		t.Fatal(errorValue)
-	}
-	if len(requestDocument.Input) != 1 || requestDocument.Input["siteReference"] != "site-1" {
-		t.Fatalf("expected exact site reference lookup, got %s", httpClient.requestBody)
-	}
-}
-
-func TestResolveSitePublishSourceRejectsInvalidStatusResult(t *testing.T) {
-	for _, responseBody := range []string{
-		`{"result":`,
-		`{"result":{"siteID":"site-2","sourceWorkspacePath":"/workspace/circles/staff/sites/site-2/draft"}}`,
-		`{"result":{"siteID":"site-1"}}`,
-	} {
-		httpClient := &recordingHTTPClient{responseBody: responseBody}
-		toolCatalogBuilder := NewToolCatalogBuilder()
-		toolCatalogBuilder.UseTestCapabilityToolDescriptors(
-			capability.Client{Endpoint: "http://capability", HTTPClient: httpClient},
-			[]CapabilityToolDescriptor{{Name: "site.status"}},
-		)
-		if _, errorValue := toolCatalogBuilder.resolveSitePublishSource(context.Background(), ToolCatalogRequest{}, "site-1"); errorValue == nil {
-			t.Fatalf("expected invalid status result rejection for %s", responseBody)
+		if errorValue == nil || !strings.Contains(errorValue.Error(), "sourceWorkspacePath is required") {
+			t.Fatalf("expected sourceWorkspacePath requirement for %s, got %v", toolInput, errorValue)
 		}
 	}
 }

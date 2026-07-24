@@ -984,7 +984,7 @@ func (provider *structuredOnlyAgentActionLanguageModel) GenerateStructuredRespon
 func TestBuildAgentActionRequestPreservesNativeToolCallingWireShape(t *testing.T) {
 	seed := int64(77)
 	temperature := 0.4
-	toolSet := NewToolSet([]string{TerminalRunToolName, "site.publish"})
+	toolSet := NewToolSet([]string{TerminalRunToolName, "site.serve"})
 	registerTestTool(toolSet, ToolDefinition{
 		Name:        TerminalRunToolName,
 		Description: "Run a command.",
@@ -993,7 +993,7 @@ func TestBuildAgentActionRequestPreservesNativeToolCallingWireShape(t *testing.T
 		return testToolSuccess("ran"), nil
 	})
 	registerTestTool(toolSet, ToolDefinition{
-		Name:        "site.publish",
+		Name:        "site.serve",
 		Description: "Publish a site.",
 		InputSchema: json.RawMessage(`{"type":"object","properties":{"siteID":{"type":"string"}},"required":["siteID"],"additionalProperties":false}`),
 	}, func(context.Context, ToolInvocation) (ToolResult, error) {
@@ -1062,7 +1062,7 @@ func TestBuildAgentActionRequestPreservesNativeToolCallingWireShape(t *testing.T
 	if !strings.Contains(request.StructuredOutputSchema.Document, `"toolName":{"enum":["terminal.run"]`) {
 		t.Fatalf("expected kernel toolName enum to be preserved, got %s", request.StructuredOutputSchema.Document)
 	}
-	if !strings.Contains(request.StructuredOutputSchema.Document, `"toolName":{"enum":["site.publish"]`) {
+	if !strings.Contains(request.StructuredOutputSchema.Document, `"toolName":{"enum":["site.serve"]`) {
 		t.Fatalf("expected selected domain operation to remain in the model-facing schema, got %s", request.StructuredOutputSchema.Document)
 	}
 	if !strings.Contains(request.StructuredOutputSchema.Document, `"toolInput"`) {
@@ -1584,13 +1584,13 @@ func TestDecodeLegacyObservationNormalizesMemorySearchFailureCode(t *testing.T) 
 
 func TestUserResumeClearsInheritedFailureDebt(t *testing.T) {
 	observations := []turnObservation{
-		{ObservationID: "obs-001", Action: "continue", Tool: "site.create", Output: ToolOutput{Content: `{"siteID":"site-1"}`}},
+		{ObservationID: "obs-001", Action: "continue", Tool: "site.serve", Output: ToolOutput{Content: `{"siteID":"site-1"}`}},
 		{
 			ObservationID: "obs-002",
 			Action:        "continue",
-			Tool:          "site.publish",
+			Tool:          "site.serve",
 			Failure:       &ToolFailure{Code: FailureCodes.OperationFailed.String()},
-			ToolInputKey:  "site.publish\x00{\"siteID\":\"site-1\"}",
+			ToolInputKey:  "site.serve\x00{\"siteID\":\"site-1\"}",
 		},
 	}
 	if _, hasDebt := activeFailureDebt(observations); !hasDebt {

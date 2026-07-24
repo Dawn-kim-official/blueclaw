@@ -149,11 +149,14 @@ export enum ArtifactEvidenceMimeType {
 }
 
 export enum SiteToolName {
-  Create = 'site.create',
-  Status = 'site.status',
-  Preview = 'site.preview',
-  Publish = 'site.publish',
-  Delete = 'site.delete',
+  Serve = 'site.serve',
+  List = 'site.list',
+  Unserve = 'site.unserve',
+}
+
+export enum SiteServeMode {
+  Preview = 'preview',
+  Publish = 'publish',
 }
 
 export enum SiteLifecycleStatus {
@@ -546,141 +549,56 @@ export const channelUpdateResultSchema = z.strictObject({
   invitedUserIDs: z.array(resourceIDSchema).optional(),
 });
 
-const siteSlugSchema = z.string()
-  .min(1)
-  .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, 'Site slug must use lowercase letters, numbers, and single hyphens.');
 const storedSiteSlugSchema = z.string()
   .min(1)
   .regex(/^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$/, 'Stored site slugs follow the admind acceptance pattern.');
 
-const siteContentSectionSchema = z.strictObject({
-  title: z.string(),
-  body: z.string(),
+export const siteServeInputSchema = z.strictObject({
+  title: z.string().min(1).describe('Human-readable site title. The server derives and owns the URL slug from this title on first serve.'),
+  sourceWorkspacePath: resourceIDSchema.describe('Exact workspace path of the site project root to serve — the directory containing DESIGN.md and app/, e.g. ~/sites/my-site.'),
+  mode: z.enum(SiteServeMode).describe("Serve target: 'preview' for a temporary review URL, 'publish' for the public URL."),
+  siteReference: resourceIDSchema.describe('Exact slug or siteID of an EXISTING served site to update, from site.list or an earlier serve result. Omit on first serve so the server allocates a new slug.').optional(),
 });
 
-const siteContentSchema = z.strictObject({
-  siteName: z.string(),
-  tagline: z.string().optional(),
-  heroActionLabel: z.string().optional(),
-  heroActionHref: z.string().optional(),
-  sections: z.array(siteContentSectionSchema).min(1),
+export const siteServeInputIntentSchema = siteServeInputSchema.partial();
+
+export const siteListInputSchema = z.strictObject({
+  siteReference: resourceIDSchema.describe('Exact slug or siteID to narrow the listing to one site. Omit to list every served site.').optional(),
 });
 
-const siteContentSectionIntentSchema = siteContentSectionSchema.partial();
-const siteContentIntentSchema = z.strictObject({
-  siteName: z.string().optional(),
-  tagline: z.string().optional(),
-  heroActionLabel: z.string().optional(),
-  heroActionHref: z.string().optional(),
-  sections: z.array(siteContentSectionIntentSchema).min(1).optional(),
-});
-
-export const siteCreateInputSchema = z.strictObject({
-  slug: siteSlugSchema.describe('Unique URL-safe site identifier, such as team-dashboard.'),
-  title: z.string().describe('Human-readable site name.').optional(),
-  prompt: z.string().describe('Natural-language description of the site to build.').optional(),
-  designBrief: z.string().describe('Visual style and layout guidance.').optional(),
-  prototypeScope: z.string().describe('Scope limit for the initial implementation.').optional(),
-  description: z.string().describe('Short public-facing description.').optional(),
-  idea: z.string().describe('Core concept or value proposition.').optional(),
-  purpose: z.string().describe('Why the site exists and who it serves.').optional(),
-  audience: z.string().describe('Intended audience.').optional(),
-  archetype: z.string().describe('Site archetype, such as dashboard or landing-page.').optional(),
-  domainKeywords: z.array(z.string()).describe('Domain terms that should inform the site.').optional(),
-  content: siteContentSchema.describe('Structured content for a basic content site.').optional(),
-});
-
-export const siteCreateInputIntentSchema = z.strictObject({
-  slug: siteSlugSchema.optional(),
-  title: z.string().optional(),
-  prompt: z.string().optional(),
-  designBrief: z.string().optional(),
-  prototypeScope: z.string().optional(),
-  description: z.string().optional(),
-  idea: z.string().optional(),
-  purpose: z.string().optional(),
-  audience: z.string().optional(),
-  archetype: z.string().optional(),
-  domainKeywords: z.array(z.string()).optional(),
-  content: siteContentIntentSchema.optional(),
-});
-
-export const siteStatusInputSchema = z.strictObject({
-  siteReference: resourceIDSchema.describe('Exact siteID or exact slug from the request or an earlier site result.'),
-  checkLive: z.boolean().describe('Probe the published URL in addition to reading persisted status.').optional(),
-});
-
-export const sitePreviewInputSchema = z.strictObject({
-  siteID: resourceIDSchema.describe('Exact site ID from site.create or site.status.'),
-  previewID: resourceIDSchema.describe('Existing preview ID to refresh. Omit to create a new preview.').optional(),
-});
-
-export const sitePreviewInputIntentSchema = sitePreviewInputSchema.partial();
-
-export const sitePublishInputSchema = z.strictObject({
-  siteID: resourceIDSchema.describe('Exact site ID from site.create or site.status.'),
-  message: z.string().describe('Short revision message describing the edits being published.').optional(),
-  previewID: resourceIDSchema.describe('Preview ID whose reviewed source should be published.').optional(),
-});
-
-export const sitePublishInputIntentSchema = sitePublishInputSchema.partial();
-
-export const siteDeleteInputSchema = z.strictObject({
-  siteID: resourceIDSchema.describe('Exact site ID from site.status.'),
+export const siteUnserveInputSchema = z.strictObject({
+  siteReference: resourceIDSchema.describe('Exact slug or siteID of the served site to take down, from site.list or an earlier serve result.'),
   reason: z.string().describe('Reason shown in the approval prompt.').optional(),
 });
 
-export const siteDeleteInputIntentSchema = siteDeleteInputSchema.partial();
+export const siteUnserveInputIntentSchema = siteUnserveInputSchema.partial();
 
-export const siteCreateResultSchema = z.strictObject({
+export const siteServeResultSchema = z.strictObject({
   siteID: resourceIDSchema,
   slug: storedSiteSlugSchema,
-  title: z.string(),
-  status: z.literal(SiteLifecycleStatus.Draft),
-  sourceWorkspacePath: resourceIDSchema,
-  appWorkspacePath: resourceIDSchema,
-  sourceFiles: z.array(z.strictObject({
-    path: z.string(),
-    content: z.string(),
-  })).optional(),
-});
-
-export const siteStatusResultSchema = z.strictObject({
-  siteID: resourceIDSchema,
-  slug: storedSiteSlugSchema,
-  title: z.string(),
-  status: z.enum(SiteLifecycleStatus),
-  sourceWorkspacePath: resourceIDSchema,
-  appWorkspacePath: resourceIDSchema.optional(),
-  publishedURL: resourceIDSchema.optional(),
+  mode: z.enum(SiteServeMode),
   previewURL: resourceIDSchema.optional(),
-  workspaceHealth: z.string().optional(),
-  lastError: z.string().optional(),
-  updatedAt: z.string().optional(),
-  liveHTTPStatus: z.number().int().optional(),
-});
-
-export const sitePreviewResultSchema = z.strictObject({
-  siteID: resourceIDSchema,
-  status: z.enum(SiteLifecycleStatus),
-  sourceWorkspacePath: resourceIDSchema,
-  previewID: resourceIDSchema,
-  previewURL: resourceIDSchema,
-  previewExpiresAt: z.string(),
-});
-
-export const sitePublishResultSchema = z.strictObject({
-  siteID: resourceIDSchema,
-  status: z.literal(SiteLifecycleStatus.Published),
-  sourceWorkspacePath: resourceIDSchema,
+  publishedURL: resourceIDSchema.optional(),
   sourceSHA256: sha256Schema,
-  publishedURL: resourceIDSchema,
-  currentVersionID: resourceIDSchema,
 });
 
-export const siteDeleteResultSchema = z.strictObject({
+const siteListEntrySchema = z.strictObject({
   siteID: resourceIDSchema,
-  deleted: z.literal(true),
+  slug: storedSiteSlugSchema,
+  title: z.string(),
+  status: z.enum(SiteLifecycleStatus),
+  publishedURL: resourceIDSchema.optional(),
+  updatedAt: z.string().optional(),
+});
+
+export const siteListResultSchema = z.strictObject({
+  sites: z.array(siteListEntrySchema),
+});
+
+export const siteUnserveResultSchema = z.strictObject({
+  siteID: resourceIDSchema,
+  slug: storedSiteSlugSchema,
+  unserved: z.literal(true),
 });
 
 export const documentReadInputSchema = z.strictObject({
@@ -1162,103 +1080,61 @@ const channelToolDefinitions: CapabilityToolDefinition[] = [
 
 const siteToolDefinitions: CapabilityToolDefinition[] = [
   {
-    name: SiteToolName.Create,
+    name: SiteToolName.Serve,
     namespace: 'site',
     privacyClass: 'workspace_site',
-    policyResource: 'tool:site.create',
-    description: 'Create a site workspace and return its exact siteID and sourceWorkspacePath. Use file.edit on that path for subsequent source changes.',
-    version: '2',
-    estimatedLatency: CapabilityEstimatedLatency.Medium,
-    inputSchema: siteCreateInputSchema,
-    inputIntentSchema: siteCreateInputIntentSchema,
-    result: {
-      schema: siteCreateResultSchema,
-      effects: [{
-        objectType: 'website',
-        effect: ResourceMutationEffect.Created,
-        resultField: 'siteID',
-        effectIdentity: ResourceEffectIdentity.ID,
-      }],
-    },
-    sideEffect: CapabilitySideEffect.WorkspaceWrite,
-    completionEvidence: { mode: 'success', action: 'create_site', targetKind: 'site' },
-  },
-  {
-    name: SiteToolName.Status,
-    namespace: 'site',
-    privacyClass: 'workspace_site',
-    policyResource: 'tool:site.status',
-    description: 'Read one site by exact siteID or slug and return its sourceWorkspacePath, lifecycle status, and published or preview URLs.',
-    version: '2',
-    estimatedLatency: CapabilityEstimatedLatency.Low,
-    inputSchema: siteStatusInputSchema,
-    result: { schema: siteStatusResultSchema, effects: [] },
-    sideEffect: CapabilitySideEffect.Read,
-  },
-  {
-    name: SiteToolName.Preview,
-    namespace: 'site',
-    privacyClass: 'workspace_site',
-    policyResource: 'tool:site.preview',
-    description: 'Create a reviewable preview for the exact siteID after source changes have been made with file.edit.',
-    version: '2',
+    policyResource: 'tool:site.serve',
+    description: 'Serve a site project directory you built in the workspace: preview mode returns a temporary review URL, publish mode deploys to the public URL. First serve allocates the slug from the title; pass siteReference to update an existing served site.',
+    version: '3',
     estimatedLatency: CapabilityEstimatedLatency.High,
-    inputSchema: sitePreviewInputSchema,
-    inputIntentSchema: sitePreviewInputIntentSchema,
+    inputSchema: siteServeInputSchema,
+    inputIntentSchema: siteServeInputIntentSchema,
     result: {
-      schema: sitePreviewResultSchema,
-      effects: [{
-        objectType: 'website',
-        effect: ResourceMutationEffect.Previewed,
-        resultField: 'siteID',
-        effectIdentity: ResourceEffectIdentity.ID,
-      }],
-    },
-    sideEffect: CapabilitySideEffect.ExternalPublish,
-    completionEvidence: { mode: 'success', action: 'preview_site', targetKind: 'site' },
-  },
-  {
-    name: SiteToolName.Publish,
-    namespace: 'site',
-    privacyClass: 'workspace_site',
-    policyResource: 'tool:site.publish',
-    description: 'Publish the exact siteID after editing and optional preview verification, returning the public URL and deployed version.',
-    version: '2',
-    estimatedLatency: CapabilityEstimatedLatency.High,
-    inputSchema: sitePublishInputSchema,
-    inputIntentSchema: sitePublishInputIntentSchema,
-    result: {
-      schema: sitePublishResultSchema,
+      schema: siteServeResultSchema,
       effects: [
         {
           objectType: 'website',
-          effect: ResourceMutationEffect.Published,
-          resultField: 'siteID',
-          effectIdentity: ResourceEffectIdentity.ID,
+          effect: ResourceMutationEffect.Previewed,
+          resultField: 'previewURL',
+          effectIdentity: ResourceEffectIdentity.URL,
+          when: { resultField: 'mode', equals: SiteServeMode.Preview },
         },
         {
           objectType: 'website',
           effect: ResourceMutationEffect.Published,
           resultField: 'publishedURL',
           effectIdentity: ResourceEffectIdentity.URL,
+          when: { resultField: 'mode', equals: SiteServeMode.Publish },
         },
       ],
     },
     sideEffect: CapabilitySideEffect.SitePublish,
-    completionEvidence: { mode: 'success', action: 'publish_site', targetKind: 'site' },
+    completionEvidence: { mode: 'success', action: 'serve_site', targetKind: 'site' },
   },
   {
-    name: SiteToolName.Delete,
+    name: SiteToolName.List,
     namespace: 'site',
     privacyClass: 'workspace_site',
-    policyResource: 'tool:site.delete',
-    description: 'Permanently delete the exact siteID after explicit runtime approval.',
-    version: '2',
+    policyResource: 'tool:site.list',
+    description: 'List served sites with their exact siteID, slug, lifecycle status, and published URL. Pass siteReference to read one site.',
+    version: '3',
+    estimatedLatency: CapabilityEstimatedLatency.Low,
+    inputSchema: siteListInputSchema,
+    result: { schema: siteListResultSchema, effects: [] },
+    sideEffect: CapabilitySideEffect.Read,
+  },
+  {
+    name: SiteToolName.Unserve,
+    namespace: 'site',
+    privacyClass: 'workspace_site',
+    policyResource: 'tool:site.unserve',
+    description: 'Take a served site down after explicit runtime approval: unpublishes it, frees its slug, and deletes the server-side record. Workspace source files are not touched.',
+    version: '3',
     estimatedLatency: CapabilityEstimatedLatency.Medium,
-    inputSchema: siteDeleteInputSchema,
-    inputIntentSchema: siteDeleteInputIntentSchema,
+    inputSchema: siteUnserveInputSchema,
+    inputIntentSchema: siteUnserveInputIntentSchema,
     result: {
-      schema: siteDeleteResultSchema,
+      schema: siteUnserveResultSchema,
       effects: [{
         objectType: 'website',
         effect: ResourceMutationEffect.Deleted,
@@ -1426,16 +1302,12 @@ export type MessageUpdateResult = z.infer<typeof messageUpdateResultSchema>;
 export type MessageDeleteResult = z.infer<typeof messageDeleteResultSchema>;
 export type ChannelUpdateInput = z.infer<typeof channelUpdateInputSchema>;
 export type ChannelUpdateResult = z.infer<typeof channelUpdateResultSchema>;
-export type SiteCreateInput = z.infer<typeof siteCreateInputSchema>;
-export type SiteStatusInput = z.infer<typeof siteStatusInputSchema>;
-export type SitePreviewInput = z.infer<typeof sitePreviewInputSchema>;
-export type SitePublishInput = z.infer<typeof sitePublishInputSchema>;
-export type SiteDeleteInput = z.infer<typeof siteDeleteInputSchema>;
-export type SiteCreateResult = z.infer<typeof siteCreateResultSchema>;
-export type SiteStatusResult = z.infer<typeof siteStatusResultSchema>;
-export type SitePreviewResult = z.infer<typeof sitePreviewResultSchema>;
-export type SitePublishResult = z.infer<typeof sitePublishResultSchema>;
-export type SiteDeleteResult = z.infer<typeof siteDeleteResultSchema>;
+export type SiteServeInput = z.infer<typeof siteServeInputSchema>;
+export type SiteListInput = z.infer<typeof siteListInputSchema>;
+export type SiteUnserveInput = z.infer<typeof siteUnserveInputSchema>;
+export type SiteServeResult = z.infer<typeof siteServeResultSchema>;
+export type SiteListResult = z.infer<typeof siteListResultSchema>;
+export type SiteUnserveResult = z.infer<typeof siteUnserveResultSchema>;
 export type DocumentReadInput = z.infer<typeof documentReadInputSchema>;
 export type DocumentReadResult = z.infer<typeof documentReadResultSchema>;
 export type ImageReadInput = z.infer<typeof imageReadInputSchema>;

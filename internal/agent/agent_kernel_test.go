@@ -300,13 +300,13 @@ func TestAgentKernelPreservesActiveContractOnApprovalContinuation(t *testing.T) 
 		TaskShape:        TaskShapeMaintenanceTask,
 		TaskLevel:        TaskLevelLow,
 		EstimatedMinutes: 1,
-		InitialToolNames: []string{"site.delete"},
+		InitialToolNames: []string{"site.unserve"},
 		ResponseLanguage: "ko",
 		Reason:           "approval reply classified with hallucinated evidence",
 	}})
 
 	toolCallCount := 0
-	siteDeleteDefinition := testToolDescriptor("site.delete")
+	siteDeleteDefinition := testToolDescriptor("site.unserve")
 	siteDeleteDefinition.InputSchema = json.RawMessage(`{"type":"object","properties":{"siteID":{"type":"string"}},"required":["siteID"],"additionalProperties":false}`)
 	toolSet := newTestToolSetWithDefinitions([]ToolDefinition{siteDeleteDefinition})
 	registerTestTool(toolSet, siteDeleteDefinition, func(context.Context, ToolInvocation) (ToolResult, error) {
@@ -314,8 +314,8 @@ func TestAgentKernelPreservesActiveContractOnApprovalContinuation(t *testing.T) 
 		return testToolSuccess(`{"deleted":true}`), nil
 	})
 	agentKernel.UseLanguageModelProvider(&sequenceLanguageModel{contents: []string{
-		`{"action":"continue","toolName":"site.delete","toolInput":{"siteID":"site-1"}}`,
-		finishMessageWithEvidence("웹사이트를 삭제했습니다.", "obs-001", "site.delete", 0),
+		`{"action":"continue","toolName":"site.unserve","toolInput":{"siteID":"site-1"}}`,
+		finishMessageWithEvidence("웹사이트를 삭제했습니다.", "obs-001", "site.unserve", 0),
 	}})
 
 	request := kernelTestRequest("응 확인했어, 진행해줘")
@@ -325,10 +325,10 @@ func TestAgentKernelPreservesActiveContractOnApprovalContinuation(t *testing.T) 
 		GoalID:              "goal-approval-continuation",
 		TaskRunID:           "task-approval-continuation",
 		OriginalInstruction: "테스트 웹사이트를 삭제해줘",
-		CurrentObjective:    "site.delete 승인 후 실행",
+		CurrentObjective:    "site.unserve 승인 후 실행",
 		Status:              ActiveGoalStatusActive,
 		OutcomeContract: OutcomeContract{
-			RequiredEvidenceTools: []string{"site.delete"},
+			RequiredEvidenceTools: []string{"site.unserve"},
 		},
 	}
 
@@ -349,10 +349,10 @@ func TestExistingTaskRunIDDoesNotAuthorizeConfirmationBypass(t *testing.T) {
 	agentKernel.UseIntakeLanguageModelProvider(intakeDecisionLanguageModel{decision: destructiveSiteDeleteDecision()})
 	agentKernel.UseLanguageModelProvider(&sequenceLanguageModel{contents: []string{
 		destructiveSiteDeleteExecutionPlan(),
-		`{"action":"continue","toolName":"site.delete","toolInput":{}}`,
+		`{"action":"continue","toolName":"site.unserve","toolInput":{}}`,
 		`{"question":"site-1 웹사이트를 삭제할까요?"}`,
 	}})
-	siteDeleteDefinition := testToolDescriptor("site.delete")
+	siteDeleteDefinition := testToolDescriptor("site.unserve")
 	siteDeleteDefinition.RequiresApproval = true
 	toolSet := newTestToolSetWithDefinitions([]ToolDefinition{siteDeleteDefinition})
 	toolCallCount := 0
@@ -457,7 +457,7 @@ func destructiveSiteDeleteDecision() TurnDecision {
 		TaskShape:        TaskShapeApprovalGatedTask,
 		TaskLevel:        TaskLevelLow,
 		EstimatedMinutes: 1,
-		InitialToolNames: []string{"site.delete"},
+		InitialToolNames: []string{"site.unserve"},
 		ResponseLanguage: "ko",
 	}
 }
@@ -686,14 +686,14 @@ func TestAgentKernelPersistsTurnRouterFailureWithoutFallbackRoute(t *testing.T) 
 func TestSitePrototypeIntakePromotesToXHighLimits(t *testing.T) {
 	agentKernel, _ := newKernelTestServices()
 	siteToolSet := newTestToolSetWithDefinitions([]ToolDefinition{{
-		Name:            "site.publish",
+		Name:            "site.serve",
 		Namespace:       "site",
 		SideEffectClass: ToolSideEffectExternalPublish,
 	}})
 	request := AgentRequest{
 		ToolSet: siteToolSet,
 		ActiveGoal: ActiveGoal{
-			OutcomeContract: OutcomeContract{RequiredEvidenceTools: []string{"site.publish"}},
+			OutcomeContract: OutcomeContract{RequiredEvidenceTools: []string{"site.serve"}},
 		},
 	}
 	intakeDecision := promoteArtifactTaskLevel(request, IntakeDecision{

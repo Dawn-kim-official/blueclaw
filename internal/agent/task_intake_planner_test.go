@@ -536,13 +536,13 @@ func TestTurnRouterNormalizesSideEffectEvidenceIntoExecutableWork(t *testing.T) 
 
 func TestTurnRouterDropsHTMLFormatWhenSiteToolsAreSuggested(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"route":"start_task","classification":"bounded_task","taskShape":"maintenance_task","level":"medium","estimatedMinutes":20,"requestedOutputFormats":["html"],"expectedResults":[],"responseLanguage":"ko","reason":"create the site","userFacingReply":"","initialToolNames":["site.create","file.edit"],"priorTaskReference":"none"}`,
+		`{"route":"start_task","classification":"bounded_task","taskShape":"maintenance_task","level":"medium","estimatedMinutes":20,"requestedOutputFormats":["html"],"expectedResults":[],"responseLanguage":"ko","reason":"create the site","userFacingReply":"","initialToolNames":["site.serve","file.edit"],"priorTaskReference":"none"}`,
 	}}
 	turnRouter := NewTurnRouter(languageModel, IntakeOptions{IsEnabled: true})
 
 	decision, errorValue := turnRouter.Plan(context.Background(), AgentRequest{
 		Prompt:  "상담 안내 웹사이트를 초안으로 만들어줘",
-		ToolSet: newTestCapabilityToolSet([]string{"site.create", "file.edit"}),
+		ToolSet: newTestCapabilityToolSet([]string{"site.serve", "file.edit"}),
 	})
 
 	if errorValue != nil {
@@ -785,9 +785,9 @@ func TestTaskIntakePlannerUsesStructuredArtifactEnumForFileDelivery(t *testing.T
 
 func TestTaskIntakePlannerPreservesTypedOutputFormatsAndExpectedResults(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"route":"start_task","classification":"bounded_task","taskShape":"research_task","level":"medium","estimatedMinutes":1,"requestedOutputFormats":["pdf"],"expectedResults":[{"id":"result-1","type":"file","description":"PDF document","required":true},{"id":"site-public-link","type":"link","description":"public URL","required":true}],"responseLanguage":"ko","reason":"conflicted artifact kind","userFacingReply":"","initialToolNames":["site.status"],"priorTaskReference":"none"}`,
+		`{"route":"start_task","classification":"bounded_task","taskShape":"research_task","level":"medium","estimatedMinutes":1,"requestedOutputFormats":["pdf"],"expectedResults":[{"id":"result-1","type":"file","description":"PDF document","required":true},{"id":"site-public-link","type":"link","description":"public URL","required":true}],"responseLanguage":"ko","reason":"conflicted artifact kind","userFacingReply":"","initialToolNames":["site.list"],"priorTaskReference":"none"}`,
 	}}
-	toolRegistry := newTestToolSet([]string{"conversation.history", "file.read", "file.write", "terminal.run", "file.promote", "file.deliver", "site.status"})
+	toolRegistry := newTestToolSet([]string{"conversation.history", "file.read", "file.write", "terminal.run", "file.promote", "file.deliver", "site.list"})
 	planner := NewTaskIntakePlanner(languageModel, IntakeOptions{IsEnabled: true})
 
 	decision := mustPlanIntake(t, planner, AgentRequest{
@@ -801,7 +801,7 @@ func TestTaskIntakePlannerPreservesTypedOutputFormatsAndExpectedResults(t *testi
 	if len(decision.ExpectedResults) != 2 || !expectedResultsContain(decision.ExpectedResults, ExpectedResultTypeFile, "PDF document") || !expectedResultsContain(decision.ExpectedResults, ExpectedResultTypeLink, "public URL") {
 		t.Fatalf("expected typed expected results to remain, got %+v", decision.ExpectedResults)
 	}
-	if !slices.Contains(decision.InitialToolNames, "site.status") {
+	if !slices.Contains(decision.InitialToolNames, "site.list") {
 		t.Fatalf("expected typed initial site tool to remain, got %+v", decision.InitialToolNames)
 	}
 }
@@ -1519,9 +1519,9 @@ func TestAgentKernelRecoversLegacyPriorAttachmentContractFromIntakeOutput(t *tes
 func TestTaskIntakePlannerTreatsSupportedSitePrototypeConfirmationAsBoundedTask(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		`{"route":"clarify","classification":"needs_confirmation","taskShape":"approval_gated_task","level":"medium","estimatedMinutes":1,"requestedOutputFormats":null,"reason":"publishing needs approval","userFacingReply":"승인해주시겠어요?"}`,
-		`{"route":"start_task","classification":"bounded_task","taskShape":"maintenance_task","level":"medium","estimatedMinutes":15,"requestedOutputFormats":null,"responseLanguage":"ko","reason":"request is executable","userFacingReply":"","initialToolNames":["site.create"]}`,
+		`{"route":"start_task","classification":"bounded_task","taskShape":"maintenance_task","level":"medium","estimatedMinutes":15,"requestedOutputFormats":null,"responseLanguage":"ko","reason":"request is executable","userFacingReply":"","initialToolNames":["site.serve"]}`,
 	}}
-	toolRegistry := newTestToolSet([]string{"site.create", "site.publish"})
+	toolRegistry := newTestToolSet([]string{"site.serve", "site.serve"})
 	for _, toolName := range toolRegistry.ListToolNames() {
 		currentToolName := toolName
 		registerTestTool(toolRegistry, ToolDefinition{Name: currentToolName}, func(context.Context, ToolInvocation) (ToolResult, error) {
@@ -1555,7 +1555,7 @@ func TestTaskIntakePlannerIncludesTemporalContext(t *testing.T) {
 	_ = mustPlanIntake(t, planner, AgentRequest{
 		Prompt:        "김인턴 구조 웹사이트 만들어줘",
 		TurnStartedAt: time.Date(2026, time.May, 17, 1, 2, 3, 0, time.UTC),
-		ToolSet:       newTestToolSet([]string{"site.create", "site.publish"}),
+		ToolSet:       newTestToolSet([]string{"site.serve", "site.serve"}),
 	})
 
 	if len(languageModel.requests) != 1 {
