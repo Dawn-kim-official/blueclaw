@@ -1,6 +1,7 @@
 import type { AcpAgentCore } from './acp-agent.ts';
 import {
   addMessageReaction,
+  fetchChannelMessages,
   removeMessageReaction,
   resolveUserProfile,
   sendChannelMessage,
@@ -65,11 +66,41 @@ export function createOutboundHandler(
     return profile;
   }
 
+  const displayNameByPubkey = new Map<string, string>();
+
+  async function resolveSpeakerName(pubkey: string): Promise<string> {
+    const cached = displayNameByPubkey.get(pubkey);
+    if (cached) return cached;
+    const profile = await resolveUserProfile(runBuzzCommand, pubkey).catch(() => ({}) as { displayName?: string });
+    const displayName = profile.displayName ?? `npub…${pubkey.slice(-6)}`;
+    displayNameByPubkey.set(pubkey, displayName);
+    return displayName;
+  }
+
   async function handleHistoryFetch(requestDocument: Record<string, unknown>): Promise<object> {
+    const historyCursor = readString(requestDocument, 'historyCursor');
+    const requestedLimit = requestDocument['limit'];
+    const limit = typeof requestedLimit === 'number' && requestedLimit > 0 ? requestedLimit : 20;
+    const { channelID } = decodeReplyTarget(historyCursor);
+    if (!channelID) {
+      return { messages: [], hasMoreBefore: false, historyCursor };
+    }
+    const channelMessages = await fetchChannelMessages(runBuzzCommand, channelID, limit);
+    const messages = [];
+    for (const channelMessage of channelMessages) {
+      messages.push({
+        speaker: await resolveSpeakerName(channelMessage.pubkey),
+        speakerHandle: channelMessage.pubkey.slice(0, 8),
+        text: channelMessage.content,
+        sentAt: new Date(channelMessage.createdAtSecond * 1000).toISOString(),
+      });
+    }
     return {
-      messages: [],
+      messages,
       hasMoreBefore: false,
-      historyCursor: readString(requestDocument, 'historyCursor'),
+      historyCursor,
+      channelID,
+      conversationType: 'channel',
     };
   }
 
