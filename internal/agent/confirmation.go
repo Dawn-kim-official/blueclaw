@@ -219,6 +219,7 @@ func choiceReplyMessages(request ChoiceReplyRequest) []llm.Message {
 			"Return only the short option key from the enum. Do not return labels.",
 			"Return ambiguous when the reply could refer to more than one valid option or violates single/multiple selection.",
 			"Return unrelated when the reply is a separate request, not an answer to the choice question.",
+			"Do not invent ambiguity: casual wording, typos, or an ordinal number that clearly names exactly one listed option resolves to that option.",
 		}, "\n")},
 		{Role: "system", Content: (LLMContextBuilder{}).Build(LLMContextInput{})},
 		{Role: "user", Content: strings.Join([]string{
