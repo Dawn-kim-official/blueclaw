@@ -15,6 +15,7 @@ import {
   MessageTargetType,
   MessageToolName,
   SiteLifecycleStatus,
+  SiteServeMode,
   SiteToolName,
   WebToolName,
   WorkspaceTaskInitialStatus,
@@ -52,17 +53,13 @@ import {
   messageSendResultSchema,
   messageUpdateInputSchema,
   messageUpdateResultSchema,
-  siteCreateInputSchema,
-  siteCreateInputIntentSchema,
-  siteCreateResultSchema,
-  siteDeleteInputSchema,
-  siteDeleteResultSchema,
-  sitePreviewInputSchema,
-  sitePreviewResultSchema,
-  sitePublishInputSchema,
-  sitePublishResultSchema,
-  siteStatusInputSchema,
-  siteStatusResultSchema,
+  siteListInputSchema,
+  siteListResultSchema,
+  siteServeInputSchema,
+  siteServeInputIntentSchema,
+  siteServeResultSchema,
+  siteUnserveInputSchema,
+  siteUnserveResultSchema,
   taskAddInputSchema,
   taskDeleteInputSchema,
   taskDeleteInputIntentSchema,
@@ -100,11 +97,9 @@ describe('canonical capability tools', () => {
       MessageToolName.Delete,
       ChannelToolName.Update,
       WebToolName.Search,
-      SiteToolName.Create,
-      SiteToolName.Status,
-      SiteToolName.Preview,
-      SiteToolName.Publish,
-      SiteToolName.Delete,
+      SiteToolName.Serve,
+      SiteToolName.List,
+      SiteToolName.Unserve,
       DocumentToolName.Read,
       ImageToolName.Read,
       BrowserToolName.Open,
@@ -139,10 +134,8 @@ describe('canonical capability tools', () => {
       MessageToolName.Update,
       MessageToolName.Delete,
       ChannelToolName.Update,
-      SiteToolName.Create,
-      SiteToolName.Preview,
-      SiteToolName.Publish,
-      SiteToolName.Delete,
+      SiteToolName.Serve,
+      SiteToolName.Unserve,
       BrowserToolName.Open,
       BrowserToolName.Click,
     ]);
@@ -156,16 +149,8 @@ describe('canonical capability tools', () => {
       expect(intentSchema.safeParse({ unexpected: true }).success).toBe(false);
     }
 
-    expect(siteCreateInputIntentSchema.safeParse({
-      content: {
-        sections: [{ title: 'FAQ' }],
-      },
-    }).success).toBe(true);
-    expect(siteCreateInputIntentSchema.safeParse({
-      content: {
-        sections: [{ title: 'FAQ', unexpected: true }],
-      },
-    }).success).toBe(false);
+    expect(siteServeInputIntentSchema.safeParse({ title: 'Team Dashboard' }).success).toBe(true);
+    expect(siteServeInputIntentSchema.safeParse({ mode: 'publish', unexpected: true }).success).toBe(false);
   });
 
   test('defines exact web search inputs and normalized results', () => {
@@ -575,118 +560,115 @@ describe('canonical capability tools', () => {
     expect(calendarUpdateTool?.inputSchema).toMatchObject({ minProperties: 2 });
   });
 
-  test('keeps the site workflow explicit without a duplicate edit tool', () => {
+  test('keeps the hosting boundary to serve, list, and unserve', () => {
     const catalog = buildCapabilityToolCatalog(protocolVersion);
     const siteTools = catalog.tools.filter(tool => tool.namespace === 'site');
 
     expect(siteTools.map(tool => tool.name)).toEqual([
-      SiteToolName.Create,
-      SiteToolName.Status,
-      SiteToolName.Preview,
-      SiteToolName.Publish,
-      SiteToolName.Delete,
+      SiteToolName.Serve,
+      SiteToolName.List,
+      SiteToolName.Unserve,
     ]);
-    expect(catalog.tools.some(tool => tool.name === 'site.edit')).toBe(false);
     expect(siteTools.every(tool => tool.resultContract !== undefined)).toBe(true);
     expect(siteTools.every(tool => tool.resultContract?.schema.additionalProperties === false)).toBe(true);
   });
 
-  test('requires exact site identities for lifecycle mutations', () => {
-    expect(siteCreateInputSchema.safeParse({
-      slug: 'customer-support-quarterly',
+  test('requires exact site identities for hosting mutations', () => {
+    expect(siteServeInputSchema.safeParse({
       title: '고객지원 분기 결산',
-      prompt: '고객지원팀이 분기별 문의량과 미해결 이슈를 공유하는 한 페이지 사이트를 만들어줘.',
+      sourceWorkspacePath: '~/sites/customer-support-quarterly',
+      mode: SiteServeMode.Publish,
     }).success).toBe(true);
-    expect(siteStatusInputSchema.safeParse({ siteReference: 'customer-support-quarterly' }).success).toBe(true);
-    expect(siteStatusInputSchema.safeParse({ siteReference: 'site-1', checkLive: true }).success).toBe(true);
-    expect(sitePreviewInputSchema.safeParse({ siteID: 'site-1' }).success).toBe(true);
-    expect(sitePublishInputSchema.safeParse({ siteID: 'site-1', message: 'Update quarterly totals' }).success).toBe(true);
-    expect(siteDeleteInputSchema.safeParse({ siteID: 'site-1', reason: 'The campaign ended.' }).success).toBe(true);
+    expect(siteServeInputSchema.safeParse({
+      title: 'Customer Support Quarterly',
+      sourceWorkspacePath: '~/sites/customer-support-quarterly',
+      mode: SiteServeMode.Preview,
+      siteReference: 'customer-support-quarterly',
+    }).success).toBe(true);
+    expect(siteListInputSchema.safeParse({}).success).toBe(true);
+    expect(siteListInputSchema.safeParse({ siteReference: 'site-1' }).success).toBe(true);
+    expect(siteUnserveInputSchema.safeParse({ siteReference: 'site-1', reason: 'The campaign ended.' }).success).toBe(true);
 
-    expect(siteStatusInputSchema.safeParse({}).success).toBe(false);
-    expect(siteStatusInputSchema.safeParse({ siteReference: ' site-1 ' }).success).toBe(false);
-    expect(siteStatusInputSchema.safeParse({ siteID: 'site-1' }).success).toBe(false);
-    expect(siteStatusInputSchema.safeParse({ slug: 'customer-support-quarterly' }).success).toBe(false);
-    expect(sitePreviewInputSchema.safeParse({ slug: 'customer-support-quarterly' }).success).toBe(false);
-    expect(sitePublishInputSchema.safeParse({ slug: 'customer-support-quarterly' }).success).toBe(false);
-    expect(siteDeleteInputSchema.safeParse({}).success).toBe(false);
-    expect(siteDeleteInputSchema.safeParse({ siteID: 'site-1', userConfirmed: true }).success).toBe(false);
-    expect(siteDeleteInputSchema.safeParse({ siteID: 'site-1', slug: 'customer-support-quarterly' }).success).toBe(false);
+    expect(siteServeInputSchema.safeParse({ title: '', sourceWorkspacePath: '~/sites/a', mode: 'publish' }).success).toBe(false);
+    expect(siteServeInputSchema.safeParse({ title: 'A', mode: 'publish' }).success).toBe(false);
+    expect(siteServeInputSchema.safeParse({ title: 'A', sourceWorkspacePath: '~/sites/a' }).success).toBe(false);
+    expect(siteServeInputSchema.safeParse({ title: 'A', sourceWorkspacePath: '~/sites/a', mode: 'deploy' }).success).toBe(false);
+    expect(siteServeInputSchema.safeParse({ title: 'A', sourceWorkspacePath: '~/sites/a', mode: 'publish', slug: 'a' }).success).toBe(false);
+    expect(siteListInputSchema.safeParse({ siteReference: ' site-1 ' }).success).toBe(false);
+    expect(siteUnserveInputSchema.safeParse({}).success).toBe(false);
+    expect(siteUnserveInputSchema.safeParse({ siteID: 'site-1' }).success).toBe(false);
   });
 
   test('requires operation-specific site result shapes', () => {
-    const createResult = {
+    const previewServeResult = {
       siteID: 'site-1',
       slug: 'customer-support-quarterly',
-      title: '고객지원 분기 결산',
-      status: SiteLifecycleStatus.Draft,
-      sourceWorkspacePath: '/workspace/circles/staff/sites/customer-support-quarterly/draft',
-      appWorkspacePath: '/workspace/circles/staff/sites/customer-support-quarterly/draft/app',
-      sourceFiles: [{ path: 'app/public/site-content.json', content: '{}' }],
-    };
-    const { sourceFiles: _createSourceFiles, ...statusBase } = createResult;
-    const statusResult = {
-      ...statusBase,
-      workspaceHealth: 'healthy',
-    };
-    const previewResult = {
-      siteID: 'site-1',
-      status: SiteLifecycleStatus.Draft,
-      sourceWorkspacePath: createResult.sourceWorkspacePath,
-      previewID: 'preview-1',
-      previewURL: 'https://preview.example/site-1',
-      previewExpiresAt: '2026-07-19T12:00:00Z',
-    };
-    const publishResult = {
-      siteID: 'site-1',
-      status: SiteLifecycleStatus.Published,
-      sourceWorkspacePath: createResult.sourceWorkspacePath,
+      mode: SiteServeMode.Preview,
+      previewURL: 'https://customer-support-quarterly.example/__preview/preview-1',
       sourceSHA256: '254cc09182b94752e96474af9ba307f74dcfff4e8dfa5b0c4a76f97e634c1c28',
-      publishedURL: 'https://customer-support-quarterly.example',
-      currentVersionID: 'revision-1',
     };
-    const deleteResult = { siteID: 'site-1', deleted: true };
+    const publishServeResult = {
+      siteID: 'site-1',
+      slug: 'customer-support-quarterly',
+      mode: SiteServeMode.Publish,
+      publishedURL: 'https://customer-support-quarterly.example',
+      sourceSHA256: '254cc09182b94752e96474af9ba307f74dcfff4e8dfa5b0c4a76f97e634c1c28',
+    };
+    const listResult = {
+      sites: [{
+        siteID: 'site-1',
+        slug: 'customer-support-quarterly',
+        title: '고객지원 분기 결산',
+        status: SiteLifecycleStatus.Published,
+        publishedURL: 'https://customer-support-quarterly.example',
+        updatedAt: '2026-07-19T12:00:00Z',
+      }],
+    };
+    const unserveResult = { siteID: 'site-1', slug: 'customer-support-quarterly', unserved: true };
 
-    expect(siteCreateResultSchema.safeParse(createResult).success).toBe(true);
-    expect(siteStatusResultSchema.safeParse(statusResult).success).toBe(true);
-    expect(sitePreviewResultSchema.safeParse(previewResult).success).toBe(true);
-    expect(sitePublishResultSchema.safeParse(publishResult).success).toBe(true);
-    expect(siteDeleteResultSchema.safeParse(deleteResult).success).toBe(true);
+    expect(siteServeResultSchema.safeParse(previewServeResult).success).toBe(true);
+    expect(siteServeResultSchema.safeParse(publishServeResult).success).toBe(true);
+    expect(siteListResultSchema.safeParse(listResult).success).toBe(true);
+    expect(siteListResultSchema.safeParse({ sites: [] }).success).toBe(true);
+    expect(siteUnserveResultSchema.safeParse(unserveResult).success).toBe(true);
 
-    expect(siteCreateResultSchema.safeParse({ siteID: 'site-1', status: 'draft' }).success).toBe(false);
-    expect(siteCreateResultSchema.safeParse({ ...createResult, appWorkspacePath: undefined }).success).toBe(false);
-    expect(siteStatusResultSchema.safeParse({ ...statusResult, sourceWorkspacePath: undefined }).success).toBe(false);
-    expect(sitePreviewResultSchema.safeParse({ ...previewResult, previewURL: undefined }).success).toBe(false);
-    expect(sitePublishResultSchema.safeParse({ ...publishResult, publishedURL: undefined }).success).toBe(false);
-    expect(sitePublishResultSchema.safeParse({ ...publishResult, sourceSHA256: undefined }).success).toBe(false);
-    expect(siteDeleteResultSchema.safeParse({ siteID: 'site-1', status: 'deleted' }).success).toBe(false);
-    expect(sitePublishResultSchema.safeParse({ ...publishResult, extra: true }).success).toBe(false);
+    expect(siteServeResultSchema.safeParse({ ...publishServeResult, sourceSHA256: undefined }).success).toBe(false);
+    expect(siteServeResultSchema.safeParse({ ...publishServeResult, mode: undefined }).success).toBe(false);
+    expect(siteServeResultSchema.safeParse({ ...publishServeResult, slug: 'Invalid Slug' }).success).toBe(false);
+    expect(siteListResultSchema.safeParse({ sites: [{ siteID: 'site-1' }] }).success).toBe(false);
+    expect(siteUnserveResultSchema.safeParse({ siteID: 'site-1', slug: 'a', unserved: false }).success).toBe(false);
+    expect(siteServeResultSchema.safeParse({ ...publishServeResult, extra: true }).success).toBe(false);
   });
 
-  test('publishes exact site effects and delete completion evidence', () => {
+  test('publishes mode-conditional serve effects and unserve completion evidence', () => {
     const catalog = buildCapabilityToolCatalog(protocolVersion);
-    const createTool = catalog.tools.find(tool => tool.name === SiteToolName.Create);
-    const statusTool = catalog.tools.find(tool => tool.name === SiteToolName.Status);
-    const previewTool = catalog.tools.find(tool => tool.name === SiteToolName.Preview);
-    const publishTool = catalog.tools.find(tool => tool.name === SiteToolName.Publish);
-    const deleteTool = catalog.tools.find(tool => tool.name === SiteToolName.Delete);
+    const serveTool = catalog.tools.find(tool => tool.name === SiteToolName.Serve);
+    const listTool = catalog.tools.find(tool => tool.name === SiteToolName.List);
+    const unserveTool = catalog.tools.find(tool => tool.name === SiteToolName.Unserve);
 
-    expect(createTool?.resultContract?.effects).toEqual([
-      { objectType: 'website', effect: 'created', resultField: 'siteID', effectIdentity: ResourceEffectIdentity.ID },
+    expect(serveTool?.resultContract?.effects).toEqual([
+      {
+        objectType: 'website',
+        effect: 'previewed',
+        resultField: 'previewURL',
+        effectIdentity: ResourceEffectIdentity.URL,
+        when: { resultField: 'mode', equals: 'preview' },
+      },
+      {
+        objectType: 'website',
+        effect: 'published',
+        resultField: 'publishedURL',
+        effectIdentity: ResourceEffectIdentity.URL,
+        when: { resultField: 'mode', equals: 'publish' },
+      },
     ]);
-    expect(statusTool?.resultContract?.effects).toEqual([]);
-    expect(previewTool?.resultContract?.effects).toEqual([
-      { objectType: 'website', effect: 'previewed', resultField: 'siteID', effectIdentity: ResourceEffectIdentity.ID },
-    ]);
-    expect(publishTool?.resultContract?.effects).toEqual([
-      { objectType: 'website', effect: 'published', resultField: 'siteID', effectIdentity: ResourceEffectIdentity.ID },
-      { objectType: 'website', effect: 'published', resultField: 'publishedURL', effectIdentity: ResourceEffectIdentity.URL },
-    ]);
-    expect(deleteTool?.resultContract?.effects).toEqual([
+    expect(serveTool?.requiresApproval).toBeUndefined();
+    expect(listTool?.resultContract?.effects).toEqual([]);
+    expect(unserveTool?.resultContract?.effects).toEqual([
       { objectType: 'website', effect: 'deleted', resultField: 'siteID', effectIdentity: ResourceEffectIdentity.ID },
     ]);
-    expect(deleteTool?.requiresApproval).toBe(true);
-    expect(deleteTool?.completionEvidence).toEqual({
+    expect(unserveTool?.requiresApproval).toBe(true);
+    expect(unserveTool?.completionEvidence).toEqual({
       mode: 'success',
       action: 'delete_site',
       targetKind: 'site',

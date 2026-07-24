@@ -304,10 +304,8 @@ func summarizeObservationContent(observation turnObservation) string {
 		return summarizeSafeJSONFields(content, []string{"url", "title", "status", "ok"})
 	case "browser.click", "browser.fill", "browser.select", "browser.press", "browser.wait":
 		return summarizeSafeJSONFields(content, []string{"ok", "action", "target", "capturedAt"})
-	case "site.create":
-		return summarizeSafeJSONFields(content, []string{"siteID", "slug", "workspacePath", "sourceWorkspacePath", "publishedURL", "status", "title"})
-	case "site.publish":
-		return summarizeSafeJSONFields(content, []string{"publishedURL", "status", "siteID", "slug", "title"})
+	case "site.serve":
+		return summarizeSafeJSONFields(content, []string{"siteID", "slug", "mode", "previewURL", "publishedURL", "sourceSHA256"})
 	case "memory.search", "conversation.history":
 		return summarizeCollection(content)
 	default:

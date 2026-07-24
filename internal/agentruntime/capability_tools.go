@@ -113,15 +113,6 @@ func (toolCatalogBuilder *ToolCatalogBuilder) invokeCapabilityOperation(toolCont
 	if errorValue := validateCapabilityResultIdentity(operation, response.Provider, response.SelectedBackend, response.ToolName, response.Outcome, isError); errorValue != nil {
 		return agent.ToolFailureResult(agent.FailureExternalService, agent.FailureCodes.OperationFailed, "capability_result_identity", errorValue.Error()), nil
 	}
-	if !response.IsError && response.Status != "error" && response.Status != "denied" {
-		toolFailure, errorValue := toolCatalogBuilder.handleCapabilityToolSuccess(toolContext, operation, request, &response.Result)
-		if toolFailure != nil {
-			return *toolFailure, nil
-		}
-		if errorValue != nil {
-			return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "capability_result", errorValue.Error()), nil
-		}
-	}
 	content := strings.TrimSpace(response.Content)
 	if content == "" && len(response.Result) > 0 {
 		content = string(response.Result)
@@ -645,17 +636,6 @@ func (toolCatalogBuilder *ToolCatalogBuilder) nativeRequesterPath(request ToolCa
 
 func (toolCatalogBuilder *ToolCatalogBuilder) capabilityBridgePath(request ToolCatalogRequest, path string) string {
 	return toolCatalogBuilder.agentWorkspacePath(toolCatalogBuilder.nativeRequesterPath(request, path))
-}
-
-func (toolCatalogBuilder *ToolCatalogBuilder) handleCapabilityToolSuccess(toolContext context.Context, toolName string, request ToolCatalogRequest, result *json.RawMessage) (*agent.ToolResult, error) {
-	switch strings.TrimSpace(toolName) {
-	case "site.create":
-		return toolCatalogBuilder.materializeSiteCreateResult(toolContext, request, result)
-	case "site.delete":
-		return toolCatalogBuilder.removeSiteProjectAfterDelete(toolContext, request, result)
-	default:
-		return nil, nil
-	}
 }
 
 func capabilityAttachments(result json.RawMessage) []agent.FileAttachment {

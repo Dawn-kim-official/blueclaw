@@ -91,12 +91,12 @@ func TestInstructionBundleWithToolOwningSkillsSelectsMissedOwner(t *testing.T) {
 	instructionBundle := InstructionBundle{
 		Skills: []SkillInstruction{
 			{Name: "web-search", ToolReferences: []string{"web.search"}},
-			{Name: "website", ToolReferences: []string{"site.create", "site.preview"}},
+			{Name: "website", ToolReferences: []string{"site.serve", "site.serve"}},
 		},
 		SkillDecisions: []SkillSelectionDecision{{Name: "web-search", Status: "selected", Reason: "embedding_similarity"}},
 	}
 
-	amendedBundle := instructionBundleWithToolOwningSkills(instructionBundle, AgentRequest{}, []string{"site.create", "file.edit"})
+	amendedBundle := instructionBundleWithToolOwningSkills(instructionBundle, AgentRequest{}, []string{"site.serve", "file.edit"})
 
 	if !selectedSkillNames(amendedBundle.SkillDecisions)["website"] {
 		t.Fatalf("expected the skill owning a suggested tool to be selected, got %+v", amendedBundle.SkillDecisions)

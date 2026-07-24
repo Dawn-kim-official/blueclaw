@@ -99,13 +99,13 @@ func TestTaskLevelProfileForLevelMapsLimits(t *testing.T) {
 
 func TestArtifactTaskLevelFloorRaisesSiteAndSlidesToXHigh(t *testing.T) {
 	siteToolSet := newTestToolSetWithDefinitions([]ToolDefinition{{
-		Name:            "site.publish",
+		Name:            "site.serve",
 		Namespace:       "site",
 		SideEffectClass: ToolSideEffectExternalPublish,
 	}})
 	siteRequest := AgentRequest{
 		ToolSet:    siteToolSet,
-		ActiveGoal: ActiveGoal{OutcomeContract: OutcomeContract{RequiredEvidenceTools: []string{"site.publish"}}},
+		ActiveGoal: ActiveGoal{OutcomeContract: OutcomeContract{RequiredEvidenceTools: []string{"site.serve"}}},
 	}
 	siteFloor := artifactTaskLevelFloor(siteRequest, IntakeDecision{})
 	if siteFloor != TaskLevelXHigh {

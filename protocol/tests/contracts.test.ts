@@ -112,11 +112,11 @@ describe('closed protocol values', () => {
 
   test('keeps trusted site source transport outside model input', () => {
     const request = {
-      toolName: 'site.publish',
-      input: { siteID: 'site-1' },
+      toolName: 'site.serve',
+      input: { title: 'Site 1', sourceWorkspacePath: '~/sites/site-1', mode: 'publish' },
       transport: {
         siteSourceBundle: {
-          workspacePath: '/workspace/circles/staff/sites/site-1/draft',
+          workspacePath: '~/sites/site-1',
           contentBase64: 'YnVuZGxl',
           format: 'tar.gz',
           sha256: 'a'.repeat(64),

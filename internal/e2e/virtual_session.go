@@ -4,6 +4,7 @@ import (
 	"archive/zip"
 	"context"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"encoding/xml"
@@ -118,11 +119,9 @@ var virtualGeneratedResultContractToolNames = []string{
 	"calendar.update",
 	"calendar.delete",
 	"web.search",
-	"site.create",
-	"site.status",
-	"site.preview",
-	"site.publish",
-	"site.delete",
+	"site.serve",
+	"site.list",
+	"site.unserve",
 }
 
 var virtualCanonicalCapabilityToolDescriptorByName = mustLoadVirtualCanonicalCapabilityToolDescriptors()
@@ -1025,7 +1024,7 @@ func virtualCapabilityToolDescriptor(toolName string) agentruntime.CapabilityToo
 		ResultContract:    virtualCapabilityToolResultContract(toolName),
 		PolicyResource:    "tool:" + toolName,
 		SideEffectClass:   sideEffectClass,
-		RequiresApproval:  toolName == "site.delete",
+		RequiresApproval:  toolName == "site.unserve",
 		Availability:      agentruntime.CapabilityAvailability{State: "ok"},
 		Idempotency:       agentruntime.CapabilityIdempotency{Scope: "operation"},
 	}
@@ -1047,10 +1046,8 @@ func virtualGeneratedToolDescriptor(toolName string) (agentruntime.CapabilityToo
 
 func virtualCapabilityCompletionEvidence(toolName string, sideEffectClass string) *agentruntime.CapabilityCompletionEvidence {
 	siteActionByToolName := map[string]string{
-		"site.create":  "create_site",
-		"site.preview": "preview_site",
-		"site.publish": "publish_site",
-		"site.delete":  "delete_site",
+		"site.serve":   "serve_site",
+		"site.unserve": "delete_site",
 	}
 	if action := siteActionByToolName[toolName]; action != "" {
 		return &agentruntime.CapabilityCompletionEvidence{Mode: "success", Action: action, TargetKind: "site"}
@@ -1087,15 +1084,13 @@ func mergeVirtualCapabilityToolDescriptor(base agentruntime.CapabilityToolDescri
 
 func virtualCapabilitySideEffectClass(toolName string) string {
 	switch toolName {
-	case "web.search", "image.read", "document.read", "task.list", "calendar.list", "site.status":
+	case "web.search", "image.read", "document.read", "task.list", "calendar.list", "site.list":
 		return agent.ToolSideEffectRead
-	case "task.delete", "calendar.delete", "schedule.cancel", "site.delete", "message.delete":
+	case "task.delete", "calendar.delete", "schedule.cancel", "site.unserve", "message.delete":
 		return agent.ToolSideEffectDestructive
 	case "message.send":
 		return agent.ToolSideEffectExternalSend
-	case "site.preview":
-		return agent.ToolSideEffectExternalPublish
-	case "site.publish":
+	case "site.serve":
 		return agent.ToolSideEffectSitePublish
 	default:
 		return agent.ToolSideEffectWorkspaceWrite
@@ -1380,14 +1375,9 @@ func (service *virtualCapabilityService) loadInitialSite(initialSite *VirtualSit
 	if !virtualSiteSlugPattern.MatchString(initialSite.Slug) {
 		return errors.New("virtual initial site requires a DNS-safe slug")
 	}
-	sourceWorkspacePath, errorValue := virtualSiteSourcePathForSlug(initialSite.Slug)
-	if errorValue != nil {
-		return errorValue
-	}
 	service.site = &virtualCapabilityRecord{
-		ID:                  initialSite.SiteID,
-		Values:              map[string]any{"slug": initialSite.Slug, "title": initialSite.Title},
-		SourceWorkspacePath: sourceWorkspacePath,
+		ID:     initialSite.SiteID,
+		Values: map[string]any{"slug": initialSite.Slug, "title": initialSite.Title},
 	}
 	service.sitePublished = initialSite.IsPublished
 	return nil
@@ -1440,105 +1430,77 @@ func (service *virtualCapabilityService) response(toolName string, requestBody [
 		return service.taskResponse(toolName, requestBody)
 	case "calendar.add", "calendar.list", "calendar.update", "calendar.delete":
 		return service.calendarResponse(toolName, requestBody)
-	case "site.create":
+	case "site.serve":
+		input := virtualCapabilityInput(requestBody)
+		mode := stringValue(input["mode"])
+		if mode != "preview" && mode != "publish" {
+			return virtualCapabilityInvalidInput(toolName, `mode must be "preview" or "publish"`)
+		}
+		bundle, errorValue := virtualSiteServeBundle(requestBody)
+		if errorValue != nil {
+			return virtualCapabilityInvalidInput(toolName, errorValue.Error())
+		}
+		if reference := stringValue(input["siteReference"]); reference != "" {
+			if !service.hasVirtualSiteReference(requestBody) {
+				return virtualCapabilityNotFound(toolName, "site")
+			}
+		} else {
+			title := strings.TrimSpace(stringValue(input["title"]))
+			if title == "" {
+				return virtualCapabilityInvalidInput(toolName, "title is required for a first serve")
+			}
+			if service.site != nil {
+				return virtualCapabilityInvalidInput(toolName, "virtual site already exists; pass siteReference to update it")
+			}
+			service.site = &virtualCapabilityRecord{ID: "site-1", Values: map[string]any{"slug": virtualSiteSlugFromTitle(title), "title": title}}
+		}
+		slug := stringValue(service.site.Values["slug"])
+		result := map[string]any{
+			"siteID":       service.site.ID,
+			"slug":         slug,
+			"mode":         mode,
+			"sourceSHA256": bundle.SHA256,
+		}
+		if mode == "publish" {
+			service.sitePublished = true
+			result["publishedURL"] = "https://" + slug + ".device.example.test"
+		} else {
+			result["previewURL"] = "https://" + slug + ".device.example.test/__preview/preview-1"
+		}
+		return virtualSiteServeSuccess(toolName, mode, result)
+	case "site.list":
+		input := virtualCapabilityInput(requestBody)
+		if reference := stringValue(input["siteReference"]); reference != "" && !service.hasVirtualSiteReference(requestBody) {
+			return virtualCapabilityNotFound(toolName, "site")
+		}
+		sites := []map[string]any{}
 		if service.site != nil {
-			return virtualCapabilityInvalidInput(toolName, "virtual site already exists")
+			entry := map[string]any{
+				"siteID": service.site.ID,
+				"slug":   stringValue(service.site.Values["slug"]),
+				"title":  firstVirtualString(stringValue(service.site.Values["title"]), stringValue(service.site.Values["slug"])),
+				"status": "draft",
+			}
+			if service.sitePublished {
+				entry["status"] = "published"
+				entry["publishedURL"] = "https://" + stringValue(service.site.Values["slug"]) + ".device.example.test"
+			}
+			sites = append(sites, entry)
 		}
-		input := virtualCapabilityInput(requestBody)
-		sourceWorkspacePath, errorValue := virtualSiteSourcePathForSlug(stringValue(input["slug"]))
-		if errorValue != nil {
-			return virtualCapabilityInvalidInput(toolName, errorValue.Error())
-		}
-		title := firstVirtualString(stringValue(input["title"]), stringValue(input["slug"]))
-		input["title"] = title
-		service.site = &virtualCapabilityRecord{ID: "site-1", Values: input, SourceWorkspacePath: sourceWorkspacePath}
-		if errorValue := os.MkdirAll(filepath.Join(service.workspacePath, strings.TrimPrefix(sourceWorkspacePath, "/workspace/"), "app", "public"), 0o770); errorValue != nil {
-			return virtualCapabilityInvalidInput(toolName, "virtual site workspace creation failed")
-		}
-		result := map[string]any{
-			"siteID":              service.site.ID,
-			"slug":                stringValue(input["slug"]),
-			"title":               title,
-			"status":              "draft",
-			"sourceWorkspacePath": sourceWorkspacePath,
-			"appWorkspacePath":    filepath.ToSlash(filepath.Join(sourceWorkspacePath, "app")),
-			"sourceFiles":         json.RawMessage(virtualSiteCreateSourceFiles(requestBody)),
-		}
-		return virtualCapabilityWebsiteSuccess(toolName, "created", service.site.ID, result)
-	case "site.preview":
-		if !service.hasVirtualSiteID(requestBody) {
-			return virtualCapabilityNotFound(toolName, "site")
-		}
-		if _, errorValue := service.virtualSiteSourceMetadata(); errorValue != nil {
-			return virtualCapabilityInvalidInput(toolName, errorValue.Error())
-		}
-		input := virtualCapabilityInput(requestBody)
-		previewID := firstVirtualString(stringValue(input["previewID"]), "site-preview-1")
-		status := "draft"
-		if service.sitePublished {
-			status = "published"
-		}
-		result := map[string]any{
-			"siteID":              service.site.ID,
-			"status":              status,
-			"sourceWorkspacePath": service.site.SourceWorkspacePath,
-			"previewID":           previewID,
-			"previewURL":          "https://preview-demo.device.example.test",
-			"previewExpiresAt":    "2026-07-19T01:00:00Z",
-		}
-		return virtualCapabilityWebsiteSuccess(toolName, "previewed", service.site.ID, result)
-	case "site.publish":
-		if !service.hasVirtualSiteID(requestBody) {
-			return virtualCapabilityNotFound(toolName, "site")
-		}
-		sourceMetadata, errorValue := service.virtualSiteSourceMetadata()
-		if errorValue != nil {
-			return virtualCapabilityInvalidInput(toolName, errorValue.Error())
-		}
-		service.sitePublished = true
-		publishedResult := map[string]any{
-			"siteID":              service.site.ID,
-			"status":              "published",
-			"sourceWorkspacePath": service.site.SourceWorkspacePath,
-			"sourceSHA256":        sourceMetadata.SHA256,
-			"publishedURL":        "https://demo.device.example.test",
-			"currentVersionID":    "site-version-1",
-		}
-		return virtualCapabilityWebsiteSuccess(toolName, "published", service.site.ID, publishedResult)
-	case "site.status":
-		if !service.hasVirtualSiteReference(requestBody) {
-			return virtualCapabilityNotFound(toolName, "site")
-		}
-		status := "draft"
-		if service.sitePublished {
-			status = "published"
-		}
-		sourceWorkspacePath := service.site.SourceWorkspacePath
-		result := map[string]any{
-			"siteID":              service.site.ID,
-			"slug":                stringValue(service.site.Values["slug"]),
-			"title":               firstVirtualString(stringValue(service.site.Values["title"]), stringValue(service.site.Values["slug"])),
-			"status":              status,
-			"sourceWorkspacePath": sourceWorkspacePath,
-			"appWorkspacePath":    filepath.ToSlash(filepath.Join(sourceWorkspacePath, "app")),
-		}
-		return virtualCapabilitySuccess(toolName, virtualCapabilityJSON(result), result)
-	case "site.delete":
+		return virtualCapabilitySuccess(toolName, "listed virtual sites", map[string]any{"sites": sites})
+	case "site.unserve":
 		if virtualCapabilityRequestNeedsApproval(requestBody) {
 			return virtualCapabilityApprovalRequired(toolName)
 		}
-		if !service.hasVirtualSiteID(requestBody) {
+		if !service.hasVirtualSiteReference(requestBody) {
 			return virtualCapabilityNotFound(toolName, "site")
 		}
-		deletedSiteID := service.site.ID
-		sourceWorkspacePath := service.site.SourceWorkspacePath
+		unservedSiteID := service.site.ID
+		unservedSlug := stringValue(service.site.Values["slug"])
 		service.site = nil
 		service.sitePublished = false
-		if localPath, errorValue := virtualWorkspacePathToLocalPath(service.workspacePath, sourceWorkspacePath); errorValue == nil {
-			_ = os.RemoveAll(filepath.Dir(localPath))
-		}
-		result := map[string]any{"siteID": deletedSiteID, "deleted": true}
-		return virtualCapabilityWebsiteSuccess(toolName, "deleted", deletedSiteID, result)
+		result := map[string]any{"siteID": unservedSiteID, "slug": unservedSlug, "unserved": true}
+		return virtualCapabilityWebsiteSuccess(toolName, "deleted", unservedSiteID, result)
 	case "image.read":
 		path := stringValue(virtualCapabilityInput(requestBody)["path"])
 		result := map[string]any{"attachments": []map[string]any{{
@@ -1677,14 +1639,6 @@ func virtualMessageSearchResult(requestBody []byte) map[string]any {
 	}
 }
 
-func (service *virtualCapabilityService) hasVirtualSiteID(requestBody []byte) bool {
-	if service.site == nil {
-		return false
-	}
-	input := virtualCapabilityInput(requestBody)
-	return stringValue(input["siteID"]) == service.site.ID
-}
-
 func (service *virtualCapabilityService) hasVirtualSiteReference(requestBody []byte) bool {
 	if service.site == nil {
 		return false
@@ -1693,63 +1647,57 @@ func (service *virtualCapabilityService) hasVirtualSiteReference(requestBody []b
 	return siteReference == service.site.ID || siteReference == stringValue(service.site.Values["slug"])
 }
 
-func virtualSiteSourcePathForSlug(slug string) (string, error) {
-	trimmedSlug := strings.TrimSpace(slug)
-	if trimmedSlug == "" {
-		return "", errors.New("site slug is required for source workspace")
-	}
-	cleanSlug := filepath.Clean(trimmedSlug)
-	if cleanSlug != trimmedSlug || cleanSlug == "." || cleanSlug == ".." || strings.Contains(cleanSlug, string(os.PathSeparator)) {
-		return "", errors.New("site slug cannot contain path separators")
-	}
-	return filepath.ToSlash(filepath.Join("/workspace/circles/staff/sites", cleanSlug, "draft")), nil
-}
-
-type virtualSiteSourceMetadata struct {
-	VirtualPath string
-	SHA256      string
-	SizeBytes   int
-}
-
-func (service *virtualCapabilityService) virtualSiteSourceMetadata() (virtualSiteSourceMetadata, error) {
-	virtualSourceWorkspacePath := strings.TrimSpace(service.site.SourceWorkspacePath)
-	if virtualSourceWorkspacePath == "" {
-		return virtualSiteSourceMetadata{}, errors.New("site publish requires a stored source workspace")
-	}
-	_, errorValue := virtualWorkspacePathToLocalPath(service.workspacePath, virtualSourceWorkspacePath)
-	if errorValue != nil {
-		return virtualSiteSourceMetadata{}, errorValue
-	}
-	candidates := []struct {
-		virtualPath string
-		validate    func([]byte) bool
-	}{
-		{virtualPath: filepath.ToSlash(filepath.Join(virtualSourceWorkspacePath, "app", "dist", "index.html")), validate: isVirtualHTMLDocument},
-		{virtualPath: filepath.ToSlash(filepath.Join(virtualSourceWorkspacePath, "app", "public", "site-content.json")), validate: isVirtualSiteContentDocument},
-	}
-	for _, candidate := range candidates {
-		localPath, errorValue := virtualWorkspacePathToLocalPath(service.workspacePath, candidate.virtualPath)
-		if errorValue != nil {
-			return virtualSiteSourceMetadata{}, errorValue
-		}
-		content, errorValue := os.ReadFile(localPath)
-		if errors.Is(errorValue, os.ErrNotExist) {
+func virtualSiteSlugFromTitle(title string) string {
+	var builder strings.Builder
+	previousWasHyphen := true
+	for _, character := range strings.ToLower(strings.TrimSpace(title)) {
+		isAllowed := character >= 'a' && character <= 'z' || character >= '0' && character <= '9'
+		if isAllowed {
+			builder.WriteRune(character)
+			previousWasHyphen = false
 			continue
 		}
-		if errorValue != nil {
-			return virtualSiteSourceMetadata{}, fmt.Errorf("read site source: %w", errorValue)
+		if !previousWasHyphen {
+			builder.WriteByte('-')
+			previousWasHyphen = true
 		}
-		if len(content) == 0 || !candidate.validate(content) {
-			continue
-		}
-		digest := sha256.Sum256(content)
-		return virtualSiteSourceMetadata{
-			VirtualPath: candidate.virtualPath,
-			SHA256:      hex.EncodeToString(digest[:]),
-			SizeBytes:   len(content),
-		}, nil
 	}
-	return virtualSiteSourceMetadata{}, fmt.Errorf("site publish requires nonempty valid source under %s", filepath.ToSlash(filepath.Join(virtualSourceWorkspacePath, "app")))
+	slug := strings.Trim(builder.String(), "-")
+	if slug == "" {
+		return "site"
+	}
+	return slug
+}
+
+type virtualSiteSourceBundle struct {
+	WorkspacePath string `json:"workspacePath"`
+	ContentBase64 string `json:"contentBase64"`
+	Format        string `json:"format"`
+	SHA256        string `json:"sha256"`
+}
+
+func virtualSiteServeBundle(requestBody []byte) (virtualSiteSourceBundle, error) {
+	var requestDocument struct {
+		Transport struct {
+			SiteSourceBundle *virtualSiteSourceBundle `json:"siteSourceBundle"`
+		} `json:"transport"`
+	}
+	if json.Unmarshal(requestBody, &requestDocument) != nil || requestDocument.Transport.SiteSourceBundle == nil {
+		return virtualSiteSourceBundle{}, errors.New("site source bundle transport is required")
+	}
+	bundle := *requestDocument.Transport.SiteSourceBundle
+	if bundle.Format != "tar.gz" {
+		return virtualSiteSourceBundle{}, errors.New("site source bundle format must be tar.gz")
+	}
+	content, errorValue := base64.StdEncoding.DecodeString(bundle.ContentBase64)
+	if errorValue != nil || len(content) == 0 {
+		return virtualSiteSourceBundle{}, errors.New("site source bundle content is invalid")
+	}
+	digest := sha256.Sum256(content)
+	if hex.EncodeToString(digest[:]) != bundle.SHA256 {
+		return virtualSiteSourceBundle{}, errors.New("site source bundle SHA-256 does not match its content")
+	}
+	return bundle, nil
 }
 
 func virtualWorkspacePathToLocalPath(workspacePath string, virtualPath string) (string, error) {
@@ -1762,16 +1710,6 @@ func virtualWorkspacePathToLocalPath(workspacePath string, virtualPath string) (
 		return "", errors.New("site source path escapes the workspace")
 	}
 	return filepath.Join(workspacePath, relativePath), nil
-}
-
-func isVirtualHTMLDocument(content []byte) bool {
-	normalizedContent := strings.ToLower(string(content))
-	return strings.Contains(normalizedContent, "<html") && strings.Contains(normalizedContent, "</html>")
-}
-
-func isVirtualSiteContentDocument(content []byte) bool {
-	var document map[string]any
-	return json.Unmarshal(content, &document) == nil && len(document) > 0
 }
 
 func validateVirtualMessageSendInput(input map[string]any) error {
@@ -2333,21 +2271,34 @@ func virtualCapabilityChannelSuccess(toolName string, effect string, channelID s
 }
 
 func virtualCapabilityWebsiteSuccess(toolName string, effect string, siteID string, result any) string {
-	effects := []map[string]any{{"objectType": "website", "effect": effect, "id": siteID}}
-	if resultDocument, isObject := result.(map[string]any); isObject {
-		if publishedURL := strings.TrimSpace(stringValue(resultDocument["publishedURL"])); publishedURL != "" {
-			effects = append(effects, map[string]any{"objectType": "website", "effect": effect, "url": publishedURL})
-		}
+	return virtualCapabilityJSON(map[string]any{
+		"provider":        "virtual",
+		"selectedBackend": "device",
+		"toolName":        toolName,
+		"outcome":         "succeeded",
+		"status":          effect,
+		"content":         virtualCapabilityJSON(result),
+		"result":          result,
+		"effects":         []map[string]any{{"objectType": "website", "effect": effect, "id": siteID}},
+	})
+}
+
+func virtualSiteServeSuccess(toolName string, mode string, result map[string]any) string {
+	effect := "previewed"
+	urlField := "previewURL"
+	if mode == "publish" {
+		effect = "published"
+		urlField = "publishedURL"
 	}
 	return virtualCapabilityJSON(map[string]any{
 		"provider":        "virtual",
 		"selectedBackend": "device",
 		"toolName":        toolName,
 		"outcome":         "succeeded",
-		"status":          "ok",
+		"status":          effect,
 		"content":         virtualCapabilityJSON(result),
 		"result":          result,
-		"effects":         effects,
+		"effects":         []map[string]any{{"objectType": "website", "effect": effect, "url": stringValue(result[urlField])}},
 	})
 }
 
@@ -2390,22 +2341,6 @@ func stringValue(value any) string {
 		return ""
 	}
 	return text
-}
-
-func virtualSiteCreateSourceFiles(requestBody []byte) string {
-	var request struct {
-		Input struct {
-			Content json.RawMessage `json:"content"`
-		} `json:"input"`
-	}
-	if json.Unmarshal(requestBody, &request) != nil || len(request.Input.Content) == 0 {
-		return `[{"path":"app/public/site-content.json","content":"{}"}]`
-	}
-	encodedContent, errorValue := json.Marshal(string(request.Input.Content))
-	if errorValue != nil {
-		return `[{"path":"app/public/site-content.json","content":"{}"}]`
-	}
-	return `[{"path":"app/public/site-content.json","content":` + string(encodedContent) + `}]`
 }
 
 func jsonObjectOrEmpty(document []byte) string {

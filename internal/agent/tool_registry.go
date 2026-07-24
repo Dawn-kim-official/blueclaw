@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"reflect"
 	"sort"
 	"strings"
 
@@ -55,10 +56,11 @@ type EvidenceCondition struct {
 }
 
 type ResourceEffectContract struct {
-	ObjectType     string `json:"objectType"`
-	Effect         string `json:"effect"`
-	ResultField    string `json:"resultField"`
-	EffectIdentity string `json:"effectIdentity"`
+	ObjectType     string             `json:"objectType"`
+	Effect         string             `json:"effect"`
+	ResultField    string             `json:"resultField"`
+	EffectIdentity string             `json:"effectIdentity"`
+	When           *EvidenceCondition `json:"when,omitempty"`
 }
 
 type ResourceEffect struct {
@@ -788,6 +790,9 @@ func projectedResourceEffect(expectedEffect expectedResourceEffect) (ResourceEff
 func expectedResourceEffects(effectContracts []ResourceEffectContract, document map[string]any) ([]expectedResourceEffect, bool) {
 	expectedEffects := []expectedResourceEffect{}
 	for _, effectContract := range effectContracts {
+		if !effectConditionMatches(effectContract.When, document) {
+			continue
+		}
 		identities, isValid := resourceEffectIdentities(document[effectContract.ResultField])
 		if !isValid {
 			return nil, false
@@ -800,6 +805,21 @@ func expectedResourceEffects(effectContracts []ResourceEffectContract, document 
 		}
 	}
 	return expectedEffects, true
+}
+
+func effectConditionMatches(condition *EvidenceCondition, document map[string]any) bool {
+	if condition == nil {
+		return true
+	}
+	value, isPresent := document[condition.ResultField]
+	if !isPresent {
+		return false
+	}
+	var expectedValue any
+	if json.Unmarshal(condition.Equals, &expectedValue) != nil {
+		return false
+	}
+	return reflect.DeepEqual(value, expectedValue)
 }
 
 func resourceEffectIdentities(value any) ([]string, bool) {

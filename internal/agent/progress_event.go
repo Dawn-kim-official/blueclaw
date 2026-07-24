@@ -112,7 +112,7 @@ func qualifyingDurableProgressEvent(observation turnObservation) (qualifyingProg
 	switch toolName {
 	case "file.write", "file.edit":
 		return qualifyingProgressEvent{ObservationID: observation.ObservationID, Kind: "file_change", Tool: toolName}, true
-	case "site.publish":
+	case "site.serve":
 		return qualifyingProgressEvent{ObservationID: observation.ObservationID, Kind: "site_publish", Tool: toolName}, true
 	case FileDeliverToolName:
 		return qualifyingProgressEvent{ObservationID: observation.ObservationID, Kind: "attachment", Tool: toolName}, true
@@ -129,7 +129,7 @@ func qualifyingDurableProgressEvent(observation turnObservation) (qualifyingProg
 
 func isInspectionProgressTool(toolName string) bool {
 	switch strings.TrimSpace(toolName) {
-	case "file.read", "memory.search", "site.status", "conversation.history":
+	case "file.read", "memory.search", "site.list", "conversation.history":
 		return true
 	default:
 		return false

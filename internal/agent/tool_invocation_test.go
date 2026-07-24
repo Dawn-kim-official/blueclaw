@@ -92,9 +92,9 @@ func TestAgentTurnRunnerStoresLargeToolResultAsArtifact(t *testing.T) {
 }
 
 func TestModelVisibleToolResultSummaryKeepsPublishedSiteURL(t *testing.T) {
-	content := `{"siteID":"site-1","slug":"tangerine-hub","title":"맛있는 귤 사이트","status":"published","publishedURL":"https://tangerine-hub.example-device.example.test","description":"` + strings.Repeat("x", 4096) + `"}`
-	summary := modelVisibleToolResultSummary(context.Background(), nil, "site.publish", turnObservation{
-		Tool: "site.publish",
+	content := `{"siteID":"site-1","slug":"tangerine-hub","mode":"publish","publishedURL":"https://tangerine-hub.example-device.example.test","sourceSHA256":"` + strings.Repeat("a", 64) + `","description":"` + strings.Repeat("x", 4096) + `"}`
+	summary := modelVisibleToolResultSummary(context.Background(), nil, "site.serve", turnObservation{
+		Tool: "site.serve",
 		Output: ToolOutput{
 			Content: content,
 		},
@@ -108,19 +108,19 @@ func TestModelVisibleToolResultSummaryKeepsPublishedSiteURL(t *testing.T) {
 	}
 }
 
-func TestModelVisibleToolResultSummaryHidesDraftSiteCreateURL(t *testing.T) {
-	content := `{"siteID":"site-1","slug":"draft-site","title":"Draft","status":"draft","publishedURL":"https://draft-site.example-device.example.test","sourceWorkspacePath":"/workspace/circles/staff/sites/site-1/draft"}`
-	summary := modelVisibleToolResultSummary(context.Background(), nil, "site.create", turnObservation{
-		Tool: "site.create",
+func TestModelVisibleToolResultSummaryKeepsPreviewURLForPreviewServe(t *testing.T) {
+	content := `{"siteID":"site-1","slug":"draft-site","mode":"preview","previewURL":"https://draft-site.example-device.example.test/__preview/preview-1","sourceSHA256":"` + strings.Repeat("a", 64) + `"}`
+	summary := modelVisibleToolResultSummary(context.Background(), nil, "site.serve", turnObservation{
+		Tool: "site.serve",
 		Output: ToolOutput{
 			Content: content,
 		},
 	})
 
-	if strings.Contains(summary, "publishedURL") {
-		t.Fatalf("draft create summary must not expose publishedURL, got %q", summary)
+	if !strings.Contains(summary, "previewURL=https://draft-site.example-device.example.test/__preview/preview-1") {
+		t.Fatalf("expected exact previewURL in summary, got %q", summary)
 	}
-	if !strings.Contains(summary, "sourceWorkspacePath=/workspace/circles/staff/sites/site-1/draft") {
-		t.Fatalf("expected workspace path in summary, got %q", summary)
+	if strings.Contains(summary, "publishedURL") {
+		t.Fatalf("preview serve summary must not invent a publishedURL, got %q", summary)
 	}
 }

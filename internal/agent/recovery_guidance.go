@@ -119,8 +119,8 @@ func sitePublishPrerequisiteRecoveryGuidance(observation turnObservation) string
 		return ""
 	}
 	switch strings.TrimSpace(observation.Tool) {
-	case "site.publish", "site.preview":
-		return "Recovery route: for content-only changes, edit the site's app/public/site-content.json and publish directly, no build needed. A build is only required after a structural change under app/src or scaffold/app config files."
+	case "site.serve":
+		return "Recovery route: for content-only changes, edit the site's app/public/site-content.json and serve directly, no build needed. A build is only required after a structural change under app/src or app config files."
 	default:
 		return ""
 	}

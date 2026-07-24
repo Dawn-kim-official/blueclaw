@@ -4,8 +4,8 @@ import "testing"
 
 func TestToolExposureUsesKernelWithoutSelectedSkills(t *testing.T) {
 	toolSet := testToolSet(append(KernelToolNames(),
-		"site.create",
-		"site.publish",
+		"site.serve",
+		"site.serve",
 		"message.send",
 	))
 
@@ -22,7 +22,7 @@ func TestToolExposureUsesKernelWithoutSelectedSkills(t *testing.T) {
 	if got := filteredToolSet.ListToolNames(); !sameStringSet(got, KernelToolNames()) {
 		t.Fatalf("expected fixed kernel tools, got %+v", got)
 	}
-	for _, hiddenToolName := range []string{"site.create", "site.publish", "message.send"} {
+	for _, hiddenToolName := range []string{"site.serve", "site.serve", "message.send"} {
 		if filteredToolSet.IsAllowed(hiddenToolName) {
 			t.Fatalf("expected non-kernel tool %s to be hidden, got %+v", hiddenToolName, filteredToolSet.ListToolNames())
 		}

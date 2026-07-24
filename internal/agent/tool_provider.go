@@ -264,7 +264,7 @@ func normalizeProviderTool(providerID string, boundTool BoundTool) (BoundTool, e
 		}
 		toolDescriptor.ResultContract = &ToolResultContract{
 			Schema:            normalizedResultSchema,
-			Effects:           append([]ResourceEffectContract{}, toolDescriptor.ResultContract.Effects...),
+			Effects:           copyResourceEffectContracts(toolDescriptor.ResultContract.Effects),
 			EvidenceCondition: copyEvidenceCondition(toolDescriptor.ResultContract.EvidenceCondition),
 		}
 	}
@@ -470,8 +470,17 @@ func validateToolResultContract(contract *ToolResultContract) error {
 		if !isOneOf(strings.TrimSpace(effectContract.EffectIdentity), "id", "path", "url") {
 			return errors.New("resultContract effectIdentity is invalid")
 		}
-		if !schemaRequiresEffectIdentityField(contract.Schema, resultField) {
-			return errors.New("resultContract resultField must name a required string or nonempty unique string array property")
+		if effectContract.When == nil {
+			if !schemaRequiresEffectIdentityField(contract.Schema, resultField) {
+				return errors.New("resultContract resultField must name a required string or nonempty unique string array property")
+			}
+		} else {
+			if !schemaDefinesEffectIdentityField(contract.Schema, resultField) {
+				return errors.New("resultContract conditional effect resultField must name a string or nonempty unique string array property")
+			}
+			if errorValue := validateEvidenceCondition(contract.Schema, effectContract.When); errorValue != nil {
+				return errors.New("resultContract effect when condition is invalid: " + errorValue.Error())
+			}
 		}
 		effectKey := objectType + "\x00" + effect + "\x00" + strings.TrimSpace(effectContract.EffectIdentity)
 		if seenEffects[effectKey] {
@@ -490,6 +499,15 @@ func copyEvidenceCondition(condition *EvidenceCondition) *EvidenceCondition {
 		ResultField: strings.TrimSpace(condition.ResultField),
 		Equals:      append(json.RawMessage{}, condition.Equals...),
 	}
+}
+
+func copyResourceEffectContracts(effects []ResourceEffectContract) []ResourceEffectContract {
+	copiedEffects := make([]ResourceEffectContract, len(effects))
+	for index, effect := range effects {
+		effect.When = copyEvidenceCondition(effect.When)
+		copiedEffects[index] = effect
+	}
+	return copiedEffects
 }
 
 func validateEvidenceCondition(schema json.RawMessage, condition *EvidenceCondition) error {
@@ -524,8 +542,17 @@ func schemaAcceptsEvidenceValue(document json.RawMessage, fieldName string, valu
 
 func schemaRequiresEffectIdentityField(document json.RawMessage, fieldName string) bool {
 	var schema struct {
+		Required []string `json:"required"`
+	}
+	if json.Unmarshal(document, &schema) != nil || !slices.Contains(schema.Required, fieldName) {
+		return false
+	}
+	return schemaDefinesEffectIdentityField(document, fieldName)
+}
+
+func schemaDefinesEffectIdentityField(document json.RawMessage, fieldName string) bool {
+	var schema struct {
 		Properties map[string]json.RawMessage `json:"properties"`
-		Required   []string                   `json:"required"`
 	}
 	if json.Unmarshal(document, &schema) != nil {
 		return false
@@ -541,9 +568,8 @@ func schemaRequiresEffectIdentityField(document json.RawMessage, fieldName strin
 	if json.Unmarshal(schema.Properties[fieldName], &property) != nil {
 		return false
 	}
-	isIdentity := property.Type == "string" ||
+	return property.Type == "string" ||
 		property.Type == "array" && property.Items.Type == "string" && property.MinItems >= 1 && property.UniqueItems
-	return isIdentity && slices.Contains(schema.Required, fieldName)
 }
 
 func validateToolSchema(fieldName string, schema json.RawMessage, requiresObject bool) error {

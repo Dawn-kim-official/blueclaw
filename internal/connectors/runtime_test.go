@@ -1123,7 +1123,7 @@ func TestConnectorRuntimeDoesNotContinueFailedSiteOnlyGoal(t *testing.T) {
 		OriginalInstruction: taskRun.Prompt,
 		Status:              agent.ActiveGoalStatusBlocked,
 		OutcomeContract: agent.OutcomeContract{
-			RequiredEvidenceTools: []string{"site.publish"},
+			RequiredEvidenceTools: []string{"site.serve"},
 			ExpectedResults: []agent.ExpectedResult{{
 				ID:       "site-public-link",
 				Type:     agent.ExpectedResultTypeLink,
