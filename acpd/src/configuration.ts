@@ -5,6 +5,7 @@ export type AcpdConfiguration = {
   listenPort: number;
   maximumTurnHoldSeconds: number;
   accountEmailByPubkey: Record<string, string>;
+  accountLinksPath: string | undefined;
 };
 
 export function loadConfiguration(environment: Record<string, string | undefined>): AcpdConfiguration {
@@ -16,6 +17,7 @@ export function loadConfiguration(environment: Record<string, string | undefined
     listenPort: parseListenPort(environment['ACPD_LISTEN_PORT']),
     maximumTurnHoldSeconds: parsePositiveInteger(environment['ACPD_MAXIMUM_TURN_HOLD_SECONDS'], 3300),
     accountEmailByPubkey: parseAccountLinks(environment['ACPD_ACCOUNT_LINKS']),
+    accountLinksPath: environment['ACPD_ACCOUNT_LINKS_PATH']?.trim() || undefined,
   };
 }
 
