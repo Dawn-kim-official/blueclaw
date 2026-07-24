@@ -16,9 +16,10 @@ export type AcpAgentCore = {
 
 type ChannelTurn = {
   sessionID: string;
-  taskRunID: string;
+  taskRunID: string | undefined;
   notify: (method: string, params: unknown) => void;
-  finish: (stopReason: string) => void;
+  finish: ((stopReason: string) => void) | undefined;
+  terminalStopReason: string | undefined;
 };
 
 type IngressResult = {
@@ -40,12 +41,18 @@ export function createAcpAgentCore(configuration: AcpdConfiguration): AcpAgentCo
       });
     }
     if (replyKind !== 'checkpoint') {
-      turn.finish('end_turn');
+      concludeTurn(turn, 'end_turn');
     }
   }
 
   function finishTurnForChannel(channelID: string, stopReason: string): void {
-    turnByChannel.get(channelID)?.finish(stopReason);
+    const turn = turnByChannel.get(channelID);
+    if (turn) concludeTurn(turn, stopReason);
+  }
+
+  function concludeTurn(turn: ChannelTurn, stopReason: string): void {
+    turn.terminalStopReason = turn.terminalStopReason ?? stopReason;
+    turn.finish?.(stopReason);
   }
 
   function createConnection(notify: (method: string, params: unknown) => void): AcpAgentConnection {
@@ -71,16 +78,33 @@ export function createAcpAgentCore(configuration: AcpdConfiguration): AcpAgentCo
       }
       channelBySessionID.set(sessionID, prompt.channelID);
 
-      const results = await forwardEvents(configuration, prompt);
+      const pendingTurn: ChannelTurn = {
+        sessionID,
+        taskRunID: undefined,
+        notify,
+        finish: undefined,
+        terminalStopReason: undefined,
+      };
+      turnByChannel.set(prompt.channelID, pendingTurn);
+
+      let results: IngressResult[];
+      try {
+        results = await forwardEvents(configuration, prompt);
+      } catch (error) {
+        releaseTurn(turnByChannel, prompt.channelID, pendingTurn);
+        throw error;
+      }
       const taskRunID = results.map((result) => result.taskRunID).filter(Boolean).at(-1);
-      if (!taskRunID) {
-        return { stopReason: 'end_turn' };
+      pendingTurn.taskRunID = taskRunID;
+      if (!taskRunID || pendingTurn.terminalStopReason) {
+        releaseTurn(turnByChannel, prompt.channelID, pendingTurn);
+        return { stopReason: pendingTurn.terminalStopReason ?? 'end_turn' };
       }
 
       const stopActivityPoller = createTaskActivityPoller(configuration.blueclawTaskEventsURL, taskRunID, (update) => {
         notify('session/update', { sessionId: sessionID, update });
       });
-      const turnResult = await holdTurnOpen(turnByChannel, prompt.channelID, sessionID, taskRunID, notify, configuration.maximumTurnHoldSeconds);
+      const turnResult = await holdTurnOpen(turnByChannel, prompt.channelID, pendingTurn, configuration.maximumTurnHoldSeconds);
       stopActivityPoller();
       return turnResult;
     }
@@ -90,8 +114,10 @@ export function createAcpAgentCore(configuration: AcpdConfiguration): AcpAgentCo
       const channelID = sessionID ? channelBySessionID.get(sessionID) : undefined;
       const turn = channelID ? turnByChannel.get(channelID) : undefined;
       if (!turn || turn.sessionID !== sessionID) return;
-      void cancelBlueclawTask(configuration, turn.taskRunID);
-      turn.finish('cancelled');
+      if (turn.taskRunID) {
+        void cancelBlueclawTask(configuration, turn.taskRunID);
+      }
+      concludeTurn(turn, 'cancelled');
     }
 
     return {
@@ -112,22 +138,24 @@ export function createAcpAgentCore(configuration: AcpdConfiguration): AcpAgentCo
 function holdTurnOpen(
   turnByChannel: Map<string, ChannelTurn>,
   channelID: string,
-  sessionID: string,
-  taskRunID: string,
-  notify: (method: string, params: unknown) => void,
+  turn: ChannelTurn,
   maximumHoldSeconds: number,
 ): Promise<{ stopReason: string }> {
   return new Promise((resolve) => {
     const timeoutHandle = setTimeout(() => finish('end_turn'), maximumHoldSeconds * 1000);
     function finish(stopReason: string): void {
       clearTimeout(timeoutHandle);
-      if (turnByChannel.get(channelID)?.sessionID === sessionID) {
-        turnByChannel.delete(channelID);
-      }
+      releaseTurn(turnByChannel, channelID, turn);
       resolve({ stopReason });
     }
-    turnByChannel.set(channelID, { sessionID, taskRunID, notify, finish });
+    turn.finish = finish;
   });
+}
+
+function releaseTurn(turnByChannel: Map<string, ChannelTurn>, channelID: string, turn: ChannelTurn): void {
+  if (turnByChannel.get(channelID) === turn) {
+    turnByChannel.delete(channelID);
+  }
 }
 
 async function forwardEvents(configuration: AcpdConfiguration, prompt: HarnessPrompt): Promise<IngressResult[]> {
