@@ -146,6 +146,32 @@ func TestFallbackLanguageModelProviderReturnsCorrectableStructuredErrorWithoutFa
 	}
 }
 
+func TestFallbackLanguageModelProviderUsesFallbackForEmptyCompletion(t *testing.T) {
+	var fallbackCalls int
+	provider := FallbackLanguageModelProvider{
+		PrimaryProvider: staticLanguageModelProvider{error: llmdHTTPError{
+			Code: "structured_output_invalid",
+			Diagnostic: StructuredOutputDiagnostic{
+				Category:     StructuredOutputDiagnosticEmptyCompletion,
+				FinishReason: StructuredOutputDiagnosticFinishStop,
+			},
+		}},
+		FallbackProvider: staticLanguageModelProvider{
+			response:                StructuredResponse{Content: "fallback"},
+			structuredResponseCalls: &fallbackCalls,
+		},
+	}
+
+	response, errorValue := provider.GenerateStructuredResponse(context.Background(), StructuredResponseRequest{})
+
+	if errorValue != nil || response.Content != "fallback" || !response.UsedFallback {
+		t.Fatalf("expected an empty completion to fall back to the next tier, got %#v and %v", response, errorValue)
+	}
+	if fallbackCalls != 1 {
+		t.Fatalf("expected one fallback call, got %d", fallbackCalls)
+	}
+}
+
 func TestFallbackLanguageModelProviderUsesFallbackForNonCorrectableLegacyError(t *testing.T) {
 	var fallbackCalls int
 	provider := FallbackLanguageModelProvider{

@@ -33,6 +33,7 @@ type ChatCompletionResponse struct {
 type ChatCompletionMessage struct {
 	Role       string                   `json:"role"`
 	Content    string                   `json:"content,omitempty"`
+	Parts      []MessagePart            `json:"parts,omitempty"`
 	ToolCallID string                   `json:"toolCallId,omitempty"`
 	ToolCalls  []ChatCompletionToolCall `json:"toolCalls,omitempty"`
 }

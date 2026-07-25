@@ -279,6 +279,54 @@ describe('llmd provider adapter', () => {
     expect(fallbackModel.doStreamCalls).toHaveLength(0);
   });
 
+  test('reports an empty completion separately from a text finish reason', async () => {
+    const fallbackModel = chatLanguageModel('unused-local-model');
+    const remoteModel = emptyLanguageModel('served-remote-model');
+    const generateChatCompletion = createChatCompletionGenerator(
+      completeConfiguration(LLMDAutoRoute.RemoteFirst),
+      languageModelFactory(fallbackModel, remoteModel),
+    );
+
+    await expect(generateChatCompletion({
+      ...chatRequest,
+      toolChoice: 'required',
+    })).rejects.toMatchObject({
+      code: 'structured_output_invalid',
+      status: 422,
+      allowLegacyFallback: false,
+      diagnostic: {
+        category: StructuredOutputDiagnosticCategory.EmptyCompletion,
+        finishReason: ChatCompletionFinishReason.Stop,
+      },
+    });
+    expect(remoteModel.doStreamCalls).toHaveLength(1);
+  });
+
+  test('sends user image parts through the native chat path', async () => {
+    const fallbackModel = chatLanguageModel('unused-local-model');
+    const remoteModel = chatLanguageModel('served-remote-model');
+    const generateChatCompletion = createChatCompletionGenerator(
+      completeConfiguration(LLMDAutoRoute.RemoteFirst),
+      languageModelFactory(fallbackModel, remoteModel),
+    );
+
+    await generateChatCompletion({
+      ...chatRequest,
+      messages: [{
+        role: ChatCompletionMessageRole.User,
+        content: 'Read this image.',
+        parts: [{ type: 'image', mimeType: 'image/png', dataBase64: 'aGVsbG8=' }],
+      }],
+    });
+
+    const promptMessages = remoteModel.doStreamCalls[0]?.prompt ?? [];
+    const userMessage = promptMessages.find(message => message.role === 'user');
+    const userParts = Array.isArray(userMessage?.content) ? userMessage.content : [];
+    expect(userParts.map(part => part.type)).toEqual(['text', 'file']);
+    expect(userParts[0]).toMatchObject({ type: 'text', text: 'Read this image.' });
+    expect(userParts[1]).toMatchObject({ type: 'file', mediaType: 'image/png' });
+  });
+
   test('accepts the sole available tool when a tool call is required', async () => {
     const fallbackModel = chatLanguageModel('unused-local-model');
     const remoteModel = toolCallLanguageModel('served-remote-model', [{
@@ -1820,6 +1868,16 @@ function usageAccountingChatLanguageModel(modelID: string): MockLanguageModelV3 
         usage: { promptTokens: 10, completionTokens: 5, totalTokens: 15, cost: 0.0042, costDetails: { upstreamInferenceCost: 0.0031 } },
       },
     },
+    warnings: [],
+  }));
+}
+
+function emptyLanguageModel(modelID: string): MockLanguageModelV3 {
+  return generationBackedLanguageModel(modelID, () => ({
+    content: [],
+    finishReason: { unified: 'stop', raw: 'stop' },
+    usage: defaultUsage(),
+    response: { modelId: modelID },
     warnings: [],
   }));
 }

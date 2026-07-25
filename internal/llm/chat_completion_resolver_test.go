@@ -42,14 +42,6 @@ func TestResolveTextChatCompleterPrefersAuthoritativeTextProvider(t *testing.T) 
 			},
 		},
 		{
-			name: "vision text provider",
-			provider: VisionFallbackProvider{
-				TextOnlyModel: primaryProvider,
-				VisionModel:   visionProvider,
-			},
-			expected: primaryProvider,
-		},
-		{
 			name: "vision fallback provider",
 			provider: VisionFallbackProvider{
 				TextOnlyModel: resolverLanguageModelProviderWithoutChat{},
@@ -67,6 +59,52 @@ func TestResolveTextChatCompleterPrefersAuthoritativeTextProvider(t *testing.T) 
 			}
 		})
 	}
+}
+
+func TestResolveTextChatCompleterRoutesImageChatRequestsToTheVisionModel(t *testing.T) {
+	textOnlyModel := &countingChatProvider{name: "text-only"}
+	visionModel := &countingChatProvider{name: "vision"}
+	completer, isAvailable := ResolveTextChatCompleter(VisionFallbackProvider{
+		TextOnlyModel: textOnlyModel,
+		VisionModel:   visionModel,
+	})
+	if !isAvailable {
+		t.Fatal("expected a chat completer for the vision fallback provider")
+	}
+
+	textRequest := ChatCompletionRequest{Messages: []ChatCompletionMessage{{Role: "user", Content: "hello"}}}
+	imageRequest := ChatCompletionRequest{Messages: []ChatCompletionMessage{{
+		Role:  "user",
+		Parts: []MessagePart{{Type: "image", MimeType: "image/png", DataBase64: "aGVsbG8="}},
+	}}}
+	if _, errorValue := completer.GenerateChatCompletion(context.Background(), textRequest); errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if _, errorValue := completer.GenerateChatCompletion(context.Background(), imageRequest); errorValue != nil {
+		t.Fatal(errorValue)
+	}
+
+	if textOnlyModel.chatCalls != 1 || visionModel.chatCalls != 1 {
+		t.Fatalf("expected the text request on the text-only model and the image request on the vision model, got text-only=%d vision=%d", textOnlyModel.chatCalls, visionModel.chatCalls)
+	}
+}
+
+type countingChatProvider struct {
+	name      string
+	chatCalls int
+}
+
+func (provider *countingChatProvider) GenerateResponse(context.Context, string) (string, error) {
+	return "", nil
+}
+
+func (provider *countingChatProvider) GenerateStructuredResponse(context.Context, StructuredResponseRequest) (StructuredResponse, error) {
+	return StructuredResponse{}, nil
+}
+
+func (provider *countingChatProvider) GenerateChatCompletion(context.Context, ChatCompletionRequest) (ChatCompletionResponse, error) {
+	provider.chatCalls++
+	return ChatCompletionResponse{ModelName: provider.name}, nil
 }
 
 func TestResolveTextChatCompleterReportsUnavailableProvider(t *testing.T) {

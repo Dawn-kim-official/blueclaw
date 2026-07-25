@@ -1,5 +1,5 @@
 {
-  "aggregateHash": "be66a22737e85f93da503360505b6f6e33873fe228a0221764f985d26b5c532c",
+  "aggregateHash": "040f432393f9a21ee55d87fe7d42937b38773f930c5d23759dc1db8d0678afbf",
   "capabilityToolCatalog": {
     "fileName": "capability-tools.json",
     "hash": "1a0b3c680fbe24ebbf100a2a0d444352d00b45268d4f9f0db356d12fc754b8e2"
@@ -28,7 +28,7 @@
     },
     {
       "fileName": "chat-completion-request.schema.json",
-      "hash": "7779782ef6577d759f2786898918ba402e7aa337aeb4d0ba397fc6c7943099c2",
+      "hash": "094beafd4fb3fa2c1ff68824793d123e8ef2a5180cd8c0702ee6299e3738af87",
       "name": "chat-completion-request"
     },
     {
