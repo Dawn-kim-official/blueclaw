@@ -64,6 +64,7 @@ export interface VisibleContextMessageDocument {
 	speakerHandle?: string;
 	text: string;
 	sentAt?: string;
+	isBot?: boolean;
 }
 
 export interface HistoryFetchResponse {
@@ -86,6 +87,27 @@ export interface ChannelEnsureResponse {
 	channelID: string;
 	replyTargetID: string;
 	created: boolean;
+}
+
+export interface DirectMessageSendRequest {
+	userSecretHex: string;
+	message: string;
+}
+
+export interface DirectMessageSendResponse {
+	channelID: string;
+	replyTargetID: string;
+	messageID: string;
+}
+
+export interface DirectMessageEnsureRequest {
+	userSecretHex: string;
+}
+
+export interface DirectMessageEnsureResponse {
+	channelID: string;
+	replyTargetID: string;
+	historyCursor: string;
 }
 
 export interface MessageEditRequest {

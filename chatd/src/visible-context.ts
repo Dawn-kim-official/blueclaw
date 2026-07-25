@@ -10,6 +10,7 @@ export type VisibleContextMessageDocument = {
 	speakerHandle?: string;
 	text: string;
 	sentAt?: string;
+	isBot?: boolean;
 };
 
 export type VisibleContextSenderDocument = {
@@ -33,7 +34,7 @@ export type VisibleContextDocument = {
 type ContextMessage = {
 	id: string;
 	text: string;
-	author: { userId: string; userName: string; fullName: string };
+	author: { userId: string; userName: string; fullName: string; isBot?: boolean | "unknown" };
 	metadata: { dateSent: Date };
 };
 
@@ -129,6 +130,7 @@ function toVisibleContextMessage(message: ContextMessage): VisibleContextMessage
 		speakerHandle: message.author.userName,
 		text: message.text,
 		sentAt: message.metadata.dateSent.toISOString(),
+		isBot: message.author.isBot === true,
 	};
 }
 
