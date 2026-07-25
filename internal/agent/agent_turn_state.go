@@ -846,10 +846,11 @@ func agentActionCorrectionMessage(correction llm.StructuredOutputCorrection) str
 func buildAgentActionChatCompletionRequest(structuredRequest llm.StructuredResponseRequest) (llm.ChatCompletionRequest, bool) {
 	messages := make([]llm.ChatCompletionMessage, 0, len(structuredRequest.Messages))
 	for _, message := range structuredRequest.Messages {
-		if len(message.Parts) > 0 {
-			return llm.ChatCompletionRequest{}, false
-		}
-		messages = append(messages, llm.ChatCompletionMessage{Role: message.Role, Content: message.Content})
+		messages = append(messages, llm.ChatCompletionMessage{
+			Role:    message.Role,
+			Content: message.Content,
+			Parts:   append([]llm.MessagePart{}, message.Parts...),
+		})
 	}
 	tools, errorValue := nativeAgentActionTools(structuredRequest.StructuredOutputSchema.Document)
 	if errorValue != nil || len(tools) == 0 {

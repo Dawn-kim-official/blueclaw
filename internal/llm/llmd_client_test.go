@@ -44,6 +44,7 @@ func TestStructuredOutputCorrectionFromErrorAllowsOnlyAuthoritativeDiagnostics(t
 
 	nonCorrectableErrors := []error{
 		llmdHTTPError{Code: "provider_response_invalid", Diagnostic: StructuredOutputDiagnostic{Category: StructuredOutputDiagnosticSerialization}},
+		llmdHTTPError{Code: "structured_output_invalid", Diagnostic: StructuredOutputDiagnostic{Category: StructuredOutputDiagnosticEmptyCompletion, FinishReason: StructuredOutputDiagnosticFinishStop}},
 		llmdHTTPError{Code: "provider_response_invalid", AllowLegacyFallback: true, Diagnostic: StructuredOutputDiagnostic{Category: StructuredOutputDiagnosticJSONParse}},
 		llmdHTTPError{Code: "provider_api_error", Diagnostic: StructuredOutputDiagnostic{Category: StructuredOutputDiagnosticJSONParse}},
 		llmdTransportError{Cause: errors.New("transport failed")},

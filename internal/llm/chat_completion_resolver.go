@@ -164,10 +164,27 @@ func ResolveLocalRecoveryChatCompleter(provider LanguageModelProvider) (LocalRec
 }
 
 func resolveVisionTextChatCompleter(textOnlyModel LanguageModelProvider, visionModel LanguageModelProvider) (ChatCompleter, bool) {
-	if completer, isAvailable := ResolveTextChatCompleter(textOnlyModel); isAvailable {
-		return completer, true
+	textOnlyCompleter, hasTextOnlyCompleter := ResolveTextChatCompleter(textOnlyModel)
+	visionCompleter, hasVisionCompleter := ResolveTextChatCompleter(visionModel)
+	if !hasTextOnlyCompleter {
+		return visionCompleter, hasVisionCompleter
 	}
-	return ResolveTextChatCompleter(visionModel)
+	if !hasVisionCompleter {
+		return textOnlyCompleter, true
+	}
+	return visionChatCompleter{textOnlyCompleter: textOnlyCompleter, visionCompleter: visionCompleter}, true
+}
+
+type visionChatCompleter struct {
+	textOnlyCompleter ChatCompleter
+	visionCompleter   ChatCompleter
+}
+
+func (completer visionChatCompleter) GenerateChatCompletion(responseContext context.Context, request ChatCompletionRequest) (ChatCompletionResponse, error) {
+	if chatRequestContainsImage(request) {
+		return completer.visionCompleter.GenerateChatCompletion(responseContext, request)
+	}
+	return completer.textOnlyCompleter.GenerateChatCompletion(responseContext, request)
 }
 
 func resolveFallbackRecoveryChatCompleter(provider FallbackLanguageModelProvider) (RecoveryChatCompleter, bool) {

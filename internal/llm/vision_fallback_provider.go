@@ -20,10 +20,26 @@ func (provider VisionFallbackProvider) GenerateStructuredResponse(responseContex
 
 func requestContainsImage(request StructuredResponseRequest) bool {
 	for _, message := range request.Messages {
-		for _, part := range message.Parts {
-			if part.Type == "image" {
-				return true
-			}
+		if messagePartsContainImage(message.Parts) {
+			return true
+		}
+	}
+	return false
+}
+
+func chatRequestContainsImage(request ChatCompletionRequest) bool {
+	for _, message := range request.Messages {
+		if messagePartsContainImage(message.Parts) {
+			return true
+		}
+	}
+	return false
+}
+
+func messagePartsContainImage(parts []MessagePart) bool {
+	for _, part := range parts {
+		if part.Type == "image" {
+			return true
 		}
 	}
 	return false

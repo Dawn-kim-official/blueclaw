@@ -668,7 +668,7 @@ func TestDecideAgentActionNativeChatUsesFirstProviderOrderedCall(t *testing.T) {
 	}
 }
 
-func TestDecideAgentActionUsesStructuredProviderForMessageParts(t *testing.T) {
+func TestDecideAgentActionKeepsImagePartsOnNativeChatPath(t *testing.T) {
 	provider := nativeAgentActionLanguageModel{chatResponse: nativeAgentActionChatResponse("finish", `{}`)}
 	state := nativeAgentActionTestState()
 	state.Request.InputParts = []AgentPart{{
@@ -678,10 +678,21 @@ func TestDecideAgentActionUsesStructuredProviderForMessageParts(t *testing.T) {
 
 	action, errorValue := DecideAgentAction(context.Background(), &provider, state)
 	if errorValue != nil || action.Action != "finish" {
-		t.Fatalf("expected structured action for message parts, got %+v, %v", action, errorValue)
+		t.Fatalf("expected native action for message parts, got %+v, %v", action, errorValue)
 	}
-	if provider.chatCalls != 0 || provider.structuredCalls != 1 {
-		t.Fatalf("expected only one structured call for message parts, got chat=%d structured=%d", provider.chatCalls, provider.structuredCalls)
+	if provider.chatCalls != 1 || provider.structuredCalls != 0 {
+		t.Fatalf("expected one native call for message parts, got chat=%d structured=%d", provider.chatCalls, provider.structuredCalls)
+	}
+	imagePartCount := 0
+	for _, message := range provider.lastRequest.Messages {
+		for _, part := range message.Parts {
+			if part.Type == "image" && part.DataBase64 == "aGVsbG8=" && part.MimeType == "image/png" {
+				imagePartCount++
+			}
+		}
+	}
+	if imagePartCount != 1 {
+		t.Fatalf("expected the image part to reach the native chat request, got %d", imagePartCount)
 	}
 }
 
