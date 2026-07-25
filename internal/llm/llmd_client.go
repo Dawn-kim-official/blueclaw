@@ -45,6 +45,7 @@ const (
 	StructuredOutputDiagnosticJSONParse        StructuredOutputDiagnosticCategory = "json_parse"
 	StructuredOutputDiagnosticSchemaValidation StructuredOutputDiagnosticCategory = "schema_validation"
 	StructuredOutputDiagnosticFinishReason     StructuredOutputDiagnosticCategory = "finish_reason"
+	StructuredOutputDiagnosticEmptyCompletion  StructuredOutputDiagnosticCategory = "empty_completion"
 	StructuredOutputDiagnosticToolCallContract StructuredOutputDiagnosticCategory = "tool_call_contract"
 	StructuredOutputDiagnosticSerialization    StructuredOutputDiagnosticCategory = "serialization"
 )

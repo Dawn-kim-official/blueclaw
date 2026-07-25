@@ -526,6 +526,7 @@ function requireStructuredOutputToolCall(
   toolName: string,
 ) {
   if (result.finishReason !== 'tool-calls') {
+    if (isEmptyCompletion(result)) throw emptyCompletionError(result, 'structured output generation');
     throw new LLMDError(
       'structured_output_invalid',
       422,
@@ -635,6 +636,7 @@ function validationCode(keyword: string): StructuredOutputValidationCode {
 }
 
 type StructuredOutputToolResult = {
+  text: string;
   finishReason: string;
   toolCalls: Array<{ toolName: string; input: unknown; invalid?: boolean; error?: unknown }>;
 };
@@ -825,6 +827,7 @@ function isNamedToolChoice(
 
 function requireToolCallFinishReason(result: StructuredOutputToolResult, subject: string): void {
   if (result.finishReason === 'tool-calls') return;
+  if (isEmptyCompletion(result)) throw emptyCompletionError(result, subject);
   throw new LLMDError(
     'structured_output_invalid',
     422,
@@ -832,6 +835,23 @@ function requireToolCallFinishReason(result: StructuredOutputToolResult, subject
     `${subject} finished with ${result.finishReason}`,
     {
       category: StructuredOutputDiagnosticCategory.FinishReason,
+      finishReason: normalizeChatFinishReason(result.finishReason),
+    },
+  );
+}
+
+function isEmptyCompletion(result: StructuredOutputToolResult): boolean {
+  return result.text.trim() === '' && result.toolCalls.length === 0;
+}
+
+function emptyCompletionError(result: StructuredOutputToolResult, subject: string): LLMDError {
+  return new LLMDError(
+    'structured_output_invalid',
+    422,
+    false,
+    `${subject} returned no text and no tool call`,
+    {
+      category: StructuredOutputDiagnosticCategory.EmptyCompletion,
       finishReason: normalizeChatFinishReason(result.finishReason),
     },
   );
@@ -885,7 +905,7 @@ function convertToolChoice(toolChoice: unknown, toolNames: string[]): ToolChoice
 function convertChatMessages(request: ChatCompletionRequest): ModelMessage[] {
   const toolNames = toolNamesByCallID(request);
   return request.messages.filter(message => message.role !== 'system').map(message => {
-    if (message.role === 'user') return { role: 'user', content: message.content ?? '' };
+    if (message.role === 'user') return { role: 'user', content: userContent(message) };
     if (message.role === 'assistant') return assistantMessage(message);
     const toolName = toolNames.get(message.toolCallId ?? '');
     if (!toolName) throw new LLMDError('request_invalid', 400, false, `tool result ${message.toolCallId ?? ''} has no matching tool call`);
@@ -1164,7 +1184,12 @@ function systemMessageContent(message: ProviderRequest['messages'][number]): str
   return content.filter(Boolean).join('\n');
 }
 
-function userContent(message: StructuredResponseRequest['messages'][number]) {
+type MessageWithParts = {
+  content?: string | undefined;
+  parts?: StructuredResponseRequest['messages'][number]['parts'];
+};
+
+function userContent(message: MessageWithParts) {
   if (!message.parts || message.parts.length === 0) return message.content ?? '';
   const content = [];
   if (message.content) content.push({ type: 'text' as const, text: message.content });

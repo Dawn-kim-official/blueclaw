@@ -44,6 +44,7 @@ export enum StructuredOutputDiagnosticCategory {
   JSONParse = 'json_parse',
   SchemaValidation = 'schema_validation',
   FinishReason = 'finish_reason',
+  EmptyCompletion = 'empty_completion',
   ToolCallContract = 'tool_call_contract',
   Serialization = 'serialization',
 }
@@ -74,11 +75,15 @@ export const structuredOutputDiagnosticSchema = z.strictObject({
   validationIssues: z.array(structuredOutputValidationIssueSchema).max(8).optional(),
   repairStatus: z.enum(StructuredOutputRepairStatus).optional(),
 }).superRefine((diagnostic, context) => {
-  if (diagnostic.finishReason !== undefined && diagnostic.category !== StructuredOutputDiagnosticCategory.FinishReason) {
+  const finishReasonCategories: StructuredOutputDiagnosticCategory[] = [
+    StructuredOutputDiagnosticCategory.FinishReason,
+    StructuredOutputDiagnosticCategory.EmptyCompletion,
+  ];
+  if (diagnostic.finishReason !== undefined && !finishReasonCategories.includes(diagnostic.category)) {
     context.addIssue({
       code: 'custom',
       path: ['finishReason'],
-      message: 'finishReason is only valid for finish_reason diagnostics',
+      message: 'finishReason is only valid for finish_reason and empty_completion diagnostics',
     });
   }
   if (diagnostic.validationIssues !== undefined && diagnostic.category !== StructuredOutputDiagnosticCategory.SchemaValidation) {
@@ -134,6 +139,7 @@ export const chatCompletionToolCallSchema = z.looseObject({
 export const chatCompletionMessageSchema = z.looseObject({
   role: z.enum(ChatCompletionMessageRole),
   content: z.string().optional(),
+  parts: z.array(languageModelMessagePartSchema).optional(),
   toolCallId: z.string().trim().min(1).optional(),
   toolCalls: z.array(chatCompletionToolCallSchema).optional(),
 });
