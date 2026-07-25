@@ -10,6 +10,7 @@ export type BuzzRelayClient = {
 	subscribe: (filters: object[], onEvent: EventListener) => void;
 	query: (filter: object, timeoutMs?: number) => Promise<BuzzEvent[]>;
 	publish: (kind: number, content: string, tags: string[][]) => Promise<BuzzEvent>;
+	publishForAcknowledgement: (kind: number, content: string, tags: string[][]) => Promise<string>;
 };
 
 export function createBuzzRelayClient(relayURL: string, privateKeyHex: string, authTagJSON?: string): BuzzRelayClient {
@@ -23,7 +24,7 @@ export function createBuzzRelayClient(relayURL: string, privateKeyHex: string, a
 	let subscriptionSerial = 0;
 	const liveSubscriptions = new Map<string, { filters: object[]; onEvent: EventListener }>();
 	const pendingQueries = new Map<string, { events: BuzzEvent[]; resolve: (events: BuzzEvent[]) => void }>();
-	const pendingPublishes = new Map<string, { resolve: () => void; reject: (error: Error) => void }>();
+	const pendingPublishes = new Map<string, { resolve: (message: string) => void; reject: (error: Error) => void }>();
 	let openWaiters: Array<() => void> = [];
 
 	function signEvent(kind: number, content: string, tags: string[][]): BuzzEvent {
@@ -111,7 +112,7 @@ export function createBuzzRelayClient(relayURL: string, privateKeyHex: string, a
 			const publishWaiter = pendingPublishes.get(rest[0]);
 			if (!publishWaiter) return;
 			pendingPublishes.delete(rest[0]);
-			if (rest[1] === true) publishWaiter.resolve();
+			if (rest[1] === true) publishWaiter.resolve(typeof rest[2] === "string" ? rest[2] : "");
 			else publishWaiter.reject(new Error(`relay rejected event: ${String(rest[2] ?? "")}`));
 		}
 	}
@@ -162,28 +163,39 @@ export function createBuzzRelayClient(relayURL: string, privateKeyHex: string, a
 			});
 		},
 		async publish(kind, content, tags) {
-			await waitForOpen();
-			const event = signEvent(kind, content, tags);
-			await new Promise<void>((resolve, reject) => {
-				const timeoutHandle = setTimeout(() => {
-					pendingPublishes.delete(event.id);
-					reject(new Error("relay publish timed out"));
-				}, 8_000);
-				pendingPublishes.set(event.id, {
-					resolve: () => {
-						clearTimeout(timeoutHandle);
-						resolve();
-					},
-					reject: (error) => {
-						clearTimeout(timeoutHandle);
-						reject(error);
-					},
-				});
-				send(["EVENT", event]);
-			});
-			return event;
+			return (await publishAndAwaitAcknowledgement(kind, content, tags)).event;
+		},
+		async publishForAcknowledgement(kind, content, tags) {
+			return (await publishAndAwaitAcknowledgement(kind, content, tags)).acknowledgement;
 		},
 	};
+
+	async function publishAndAwaitAcknowledgement(
+		kind: number,
+		content: string,
+		tags: string[][],
+	): Promise<{ event: BuzzEvent; acknowledgement: string }> {
+		await waitForOpen();
+		const event = signEvent(kind, content, tags);
+		const acknowledgement = await new Promise<string>((resolve, reject) => {
+			const timeoutHandle = setTimeout(() => {
+				pendingPublishes.delete(event.id);
+				reject(new Error("relay publish timed out"));
+			}, 8_000);
+			pendingPublishes.set(event.id, {
+				resolve: (message) => {
+					clearTimeout(timeoutHandle);
+					resolve(message);
+				},
+				reject: (error) => {
+					clearTimeout(timeoutHandle);
+					reject(error);
+				},
+			});
+			send(["EVENT", event]);
+		});
+		return { event, acknowledgement };
+	}
 }
 
 function hexToBytes(hex: string): Uint8Array {

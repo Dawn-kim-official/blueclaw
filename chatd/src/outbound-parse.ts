@@ -3,6 +3,8 @@ import type {
 	AskInteractionDocument,
 	AttachmentImportRequest,
 	ChannelEnsureRequest,
+	DirectMessageEnsureRequest,
+	DirectMessageSendRequest,
 	HistoryFetchRequest,
 	IdentityResolveRequest,
 	InputAttachmentDocument,
@@ -142,6 +144,19 @@ export function parseMessageDeleteRequest(value: unknown): MessageDeleteRequest 
 		replyTargetID: requireString(record, "replyTargetID"),
 		messageID: requireString(record, "messageID"),
 	};
+}
+
+export function parseDirectMessageSendRequest(value: unknown): DirectMessageSendRequest {
+	const record = requireRecord(value, "dm.send request");
+	return {
+		userSecretHex: requireString(record, "userSecretHex"),
+		message: requireString(record, "message"),
+	};
+}
+
+export function parseDirectMessageEnsureRequest(value: unknown): DirectMessageEnsureRequest {
+	const record = requireRecord(value, "dm.ensure request");
+	return { userSecretHex: requireString(record, "userSecretHex") };
 }
 
 export function parseChannelEnsureRequest(value: unknown): ChannelEnsureRequest {
