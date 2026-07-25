@@ -211,10 +211,14 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 	logger.Info("application.initializing", "stage", "memory")
 	terminalService := security.NewTerminalSessionService(runtimeConfiguration.Terminal)
 	memoryService := &memory.MemoryService{}
-	memoryService.UseGraphStore(memory.NewGraphitiClient(
-		runtimeConfiguration.Memory.GraphitiEndpoint,
-		time.Duration(runtimeConfiguration.Memory.TimeoutSecond)*time.Second,
-	))
+	if strings.TrimSpace(runtimeConfiguration.Memory.GraphitiEndpoint) != "" {
+		memoryService.UseGraphStore(memory.NewGraphitiClient(
+			runtimeConfiguration.Memory.GraphitiEndpoint,
+			time.Duration(runtimeConfiguration.Memory.TimeoutSecond)*time.Second,
+		))
+	} else {
+		logger.Info("application.memory.graph_store_not_configured")
+	}
 	var memoryGraphReporter memory.GraphMemoryReporter
 	var memoryGraphMigrator memory.GraphMemoryMigrator
 	if database.SQL != nil {
