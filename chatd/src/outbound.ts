@@ -4,10 +4,14 @@ import type { MattermostAdapter } from "./adapters/mattermost/adapter.ts";
 import type { ChatdConfiguration } from "./configuration.ts";
 import { importAttachmentToDirectory } from "./outbound-attachments.ts";
 import { supportsChannelProvisioning } from "./channels.ts";
+import { ensureUserDirectMessageChannel, sendDirectMessageAsUser } from "./adapters/buzz/user-session.ts";
+import { encodeHistoryCursor } from "./visible-context.ts";
 import { buildVisibleContext, decodeHistoryCursor } from "./visible-context.ts";
 import {
 	parseAttachmentImportRequest,
 	parseChannelEnsureRequest,
+	parseDirectMessageEnsureRequest,
+	parseDirectMessageSendRequest,
 	parseHistoryFetchRequest,
 	parseIdentityResolveRequest,
 	parseInteractionResolveRequest,
@@ -21,6 +25,8 @@ import type {
 	AgentPartDocument,
 	AttachmentImportResponse,
 	ChannelEnsureResponse,
+	DirectMessageEnsureResponse,
+	DirectMessageSendResponse,
 	HistoryFetchResponse,
 	IdentityResolveResponse,
 	InputAttachmentDocument,
@@ -50,6 +56,8 @@ const capabilityHandlers: Record<string, CapabilityHandler> = {
 	"attachments.import": handleAttachmentsImport,
 	"identity.resolve": handleIdentityResolve,
 	"channel.ensure": handleChannelEnsure,
+	"dm.ensure": handleDirectMessageEnsure,
+	"dm.send": handleDirectMessageSend,
 	"message.edit": handleMessageEdit,
 	"message.delete": handleMessageDelete,
 };
@@ -207,6 +215,65 @@ async function handleReactionRemove(
 	const requestDocument = parseReactionRequest(requestBody);
 	await adapter.removeReaction("", requestDocument.messageID, requestDocument.emojiName);
 	return {};
+}
+
+function requireBuzzAdapterForDirectMessages(adapter: PlatformChatAdapter): BuzzAdapter {
+	if (!(adapter instanceof BuzzAdapter)) {
+		throw new Error(`platform ${adapter.name} does not support user direct messages`);
+	}
+	return adapter;
+}
+
+async function handleDirectMessageEnsure(
+	adapter: PlatformChatAdapter,
+	configuration: ChatdConfiguration,
+	requestBody: unknown,
+): Promise<DirectMessageEnsureResponse> {
+	const requestDocument = parseDirectMessageEnsureRequest(requestBody);
+	const buzzAdapter = requireBuzzAdapterForDirectMessages(adapter);
+	const channel = await ensureUserDirectMessageChannel(
+		requireBuzzRelayURL(configuration),
+		requestDocument.userSecretHex,
+		buzzAdapter.botPubkey,
+	);
+	const replyTargetID = buzzAdapter.encodeThreadId({ channelId: channel.channelID });
+	return {
+		channelID: channel.channelID,
+		replyTargetID,
+		historyCursor: encodeHistoryCursor({ threadId: replyTargetID }),
+	};
+}
+
+async function handleDirectMessageSend(
+	adapter: PlatformChatAdapter,
+	configuration: ChatdConfiguration,
+	requestBody: unknown,
+): Promise<DirectMessageSendResponse> {
+	const requestDocument = parseDirectMessageSendRequest(requestBody);
+	const buzzAdapter = requireBuzzAdapterForDirectMessages(adapter);
+	const relayURL = requireBuzzRelayURL(configuration);
+	const channel = await ensureUserDirectMessageChannel(
+		relayURL,
+		requestDocument.userSecretHex,
+		buzzAdapter.botPubkey,
+	);
+	const messageID = await sendDirectMessageAsUser({
+		relayURL,
+		userSecretHex: requestDocument.userSecretHex,
+		counterpartPubkeyHex: buzzAdapter.botPubkey,
+		message: requestDocument.message,
+	});
+	return {
+		channelID: channel.channelID,
+		replyTargetID: buzzAdapter.encodeThreadId({ channelId: channel.channelID }),
+		messageID,
+	};
+}
+
+function requireBuzzRelayURL(configuration: ChatdConfiguration): string {
+	const relayURL = configuration.buzz?.relayURL;
+	if (!relayURL) throw new Error("buzz relay is not configured");
+	return relayURL;
 }
 
 async function handleChannelEnsure(
