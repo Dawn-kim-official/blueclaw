@@ -11,8 +11,6 @@ import (
 	"time"
 )
 
-const DefaultGraphitiEndpoint = "http://127.0.0.1:7791"
-
 type GraphitiClient struct {
 	Endpoint   string
 	HTTPClient HTTPDoer
@@ -28,9 +26,6 @@ type graphitiSearchResponse struct {
 
 func NewGraphitiClient(endpoint string, timeout time.Duration) GraphitiClient {
 	cleanEndpoint := strings.TrimRight(strings.TrimSpace(endpoint), "/")
-	if cleanEndpoint == "" {
-		cleanEndpoint = DefaultGraphitiEndpoint
-	}
 	if timeout <= 0 {
 		timeout = 60 * time.Second
 	}
