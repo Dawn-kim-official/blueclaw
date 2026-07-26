@@ -36,6 +36,7 @@ export interface ReplySendRequest {
 	outboxID?: string;
 	attachments?: ReplyAttachmentDocument[];
 	interaction?: AskInteractionDocument;
+	isError?: boolean;
 }
 
 export interface ReplySendResponse {
@@ -92,6 +93,24 @@ export interface ChannelEnsureResponse {
 export interface DirectMessageSendRequest {
 	userSecretHex: string;
 	message: string;
+	attachments?: ReplyAttachmentDocument[];
+	channelId?: string;
+	replyToRootId?: string;
+}
+
+export interface ConversationsListRequest {
+	userSecretHex: string;
+}
+
+export interface ConversationDocument {
+	id: string;
+	name: string;
+	kind: "dm" | "group";
+	avatarURL?: string;
+}
+
+export interface ConversationsListResponse {
+	conversations: ConversationDocument[];
 }
 
 export interface DirectMessageSendResponse {
@@ -102,12 +121,21 @@ export interface DirectMessageSendResponse {
 
 export interface DirectMessageEnsureRequest {
 	userSecretHex: string;
+	channelId?: string;
+	counterpartPubkeyHex?: string;
+}
+
+export interface PeopleListResponse {
+	people: { id: string; name: string; avatarURL?: string }[];
 }
 
 export interface DirectMessageEnsureResponse {
 	channelID: string;
 	replyTargetID: string;
 	historyCursor: string;
+	userPubkeyHex: string;
+	botName?: string;
+	botAvatarURL?: string;
 }
 
 export interface MessageEditRequest {
