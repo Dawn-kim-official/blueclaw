@@ -97,7 +97,14 @@ export function parseReplySendRequest(value: unknown): ReplySendRequest {
 		outboxID: optionalString(record, "outboxID"),
 		attachments: optionalArray(record, "attachments").map(parseReplyAttachment),
 		interaction: interactionValue === undefined ? undefined : parseAskInteraction(interactionValue),
+		isError: hasFailureNotice(record.failureNotice),
 	};
+}
+
+function hasFailureNotice(value: unknown): boolean {
+	if (typeof value !== "object" || value === null) return false;
+	const message = (value as Record<string, unknown>).message;
+	return typeof message === "string" && message.trim().length > 0;
 }
 
 export function parseProgressRequest(value: unknown): ProgressRequest {
@@ -150,12 +157,29 @@ export function parseDirectMessageSendRequest(value: unknown): DirectMessageSend
 	const record = requireRecord(value, "dm.send request");
 	return {
 		userSecretHex: requireString(record, "userSecretHex"),
-		message: requireString(record, "message"),
+		message: optionalString(record, "message") ?? "",
+		attachments: optionalArray(record, "attachments").map(parseReplyAttachment),
+		channelId: optionalString(record, "channelId"),
+		replyToRootId: optionalString(record, "replyToRootId"),
 	};
 }
 
 export function parseDirectMessageEnsureRequest(value: unknown): DirectMessageEnsureRequest {
 	const record = requireRecord(value, "dm.ensure request");
+	return {
+		userSecretHex: requireString(record, "userSecretHex"),
+		channelId: optionalString(record, "channelId"),
+		counterpartPubkeyHex: optionalString(record, "counterpartPubkeyHex"),
+	};
+}
+
+export function parseConversationsListRequest(value: unknown): { userSecretHex: string } {
+	const record = requireRecord(value, "conversations.list request");
+	return { userSecretHex: requireString(record, "userSecretHex") };
+}
+
+export function parsePeopleListRequest(value: unknown): { userSecretHex: string } {
+	const record = requireRecord(value, "people.list request");
 	return { userSecretHex: requireString(record, "userSecretHex") };
 }
 

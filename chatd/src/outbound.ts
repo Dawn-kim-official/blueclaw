@@ -4,13 +4,21 @@ import type { MattermostAdapter } from "./adapters/mattermost/adapter.ts";
 import type { ChatdConfiguration } from "./configuration.ts";
 import { importAttachmentToDirectory } from "./outbound-attachments.ts";
 import { supportsChannelProvisioning } from "./channels.ts";
-import { ensureUserDirectMessageChannel, sendDirectMessageAsUser } from "./adapters/buzz/user-session.ts";
+import {
+	ensureUserDirectMessageChannel,
+	listUserConversations,
+	pubkeyFromSecret,
+	sendChannelMessageAsUser,
+	sendDirectMessageAsUser,
+} from "./adapters/buzz/user-session.ts";
 import { encodeHistoryCursor } from "./visible-context.ts";
 import { buildVisibleContext, decodeHistoryCursor } from "./visible-context.ts";
 import {
 	parseAttachmentImportRequest,
 	parseChannelEnsureRequest,
 	parseDirectMessageEnsureRequest,
+	parseConversationsListRequest,
+	parsePeopleListRequest,
 	parseDirectMessageSendRequest,
 	parseHistoryFetchRequest,
 	parseIdentityResolveRequest,
@@ -26,6 +34,8 @@ import type {
 	AttachmentImportResponse,
 	ChannelEnsureResponse,
 	DirectMessageEnsureResponse,
+	ConversationsListResponse,
+	PeopleListResponse,
 	DirectMessageSendResponse,
 	HistoryFetchResponse,
 	IdentityResolveResponse,
@@ -58,6 +68,8 @@ const capabilityHandlers: Record<string, CapabilityHandler> = {
 	"channel.ensure": handleChannelEnsure,
 	"dm.ensure": handleDirectMessageEnsure,
 	"dm.send": handleDirectMessageSend,
+	"conversations.list": handleConversationsList,
+	"people.list": handlePeopleList,
 	"message.edit": handleMessageEdit,
 	"message.delete": handleMessageDelete,
 };
@@ -112,7 +124,10 @@ async function handleReplySend(
 	const requestDocument = parseReplySendRequest(requestBody);
 	const fileUploads = await buildFileUploads(requestDocument.attachments ?? []);
 	const message = buildPostableMessage(requestDocument, fileUploads);
-	const result = await adapter.postMessage(requestDocument.replyTargetID, message);
+	const result =
+		requestDocument.isError && adapter instanceof BuzzAdapter
+			? await adapter.postMessage(requestDocument.replyTargetID, message, [["reply-kind", "error"]])
+			: await adapter.postMessage(requestDocument.replyTargetID, message);
 	return { dispatchID: result.id };
 }
 
@@ -231,17 +246,62 @@ async function handleDirectMessageEnsure(
 ): Promise<DirectMessageEnsureResponse> {
 	const requestDocument = parseDirectMessageEnsureRequest(requestBody);
 	const buzzAdapter = requireBuzzAdapterForDirectMessages(adapter);
+	if (requestDocument.channelId) {
+		const replyTargetID = buzzAdapter.encodeThreadId({ channelId: requestDocument.channelId });
+		return {
+			channelID: requestDocument.channelId,
+			replyTargetID,
+			historyCursor: encodeHistoryCursor({ threadId: replyTargetID }),
+			userPubkeyHex: pubkeyFromSecret(requestDocument.userSecretHex),
+		};
+	}
 	const channel = await ensureUserDirectMessageChannel(
 		requireBuzzRelayURL(configuration),
 		requestDocument.userSecretHex,
-		buzzAdapter.botPubkey,
+		requestDocument.counterpartPubkeyHex ?? buzzAdapter.botPubkey,
 	);
 	const replyTargetID = buzzAdapter.encodeThreadId({ channelId: channel.channelID });
+	const botUser = await buzzAdapter.getUser(buzzAdapter.botPubkey).catch(() => null);
 	return {
 		channelID: channel.channelID,
 		replyTargetID,
 		historyCursor: encodeHistoryCursor({ threadId: replyTargetID }),
+		userPubkeyHex: channel.userPubkeyHex,
+		botName: botUser?.fullName,
+		botAvatarURL: botUser?.avatarUrl,
 	};
+}
+
+async function handleConversationsList(
+	adapter: PlatformChatAdapter,
+	configuration: ChatdConfiguration,
+	requestBody: unknown,
+): Promise<ConversationsListResponse> {
+	const requestDocument = parseConversationsListRequest(requestBody);
+	requireBuzzAdapterForDirectMessages(adapter);
+	const conversations = await listUserConversations(
+		requireBuzzRelayURL(configuration),
+		requestDocument.userSecretHex,
+	);
+	return {
+		conversations: conversations.map((conversation) => ({
+			id: conversation.channelID,
+			name: conversation.name,
+			kind: conversation.isDM ? "dm" : "group",
+			avatarURL: conversation.avatarURL,
+		})),
+	};
+}
+
+async function handlePeopleList(
+	adapter: PlatformChatAdapter,
+	configuration: ChatdConfiguration,
+	requestBody: unknown,
+): Promise<PeopleListResponse> {
+	const requestDocument = parsePeopleListRequest(requestBody);
+	const buzzAdapter = requireBuzzAdapterForDirectMessages(adapter);
+	const people = await buzzAdapter.listPeople(pubkeyFromSecret(requestDocument.userSecretHex));
+	return { people };
 }
 
 async function handleDirectMessageSend(
@@ -252,6 +312,26 @@ async function handleDirectMessageSend(
 	const requestDocument = parseDirectMessageSendRequest(requestBody);
 	const buzzAdapter = requireBuzzAdapterForDirectMessages(adapter);
 	const relayURL = requireBuzzRelayURL(configuration);
+	const attachments = (requestDocument.attachments ?? []).map((attachment) => ({
+		contentBase64: attachment.contentBase64 ?? "",
+		filename: attachment.filename ?? "",
+		contentType: attachment.contentType ?? "application/octet-stream",
+	}));
+	if (requestDocument.channelId) {
+		const messageID = await sendChannelMessageAsUser({
+			relayURL,
+			userSecretHex: requestDocument.userSecretHex,
+			channelID: requestDocument.channelId,
+			message: requestDocument.message,
+			attachments,
+			replyToRootId: requestDocument.replyToRootId,
+		});
+		return {
+			channelID: requestDocument.channelId,
+			replyTargetID: buzzAdapter.encodeThreadId({ channelId: requestDocument.channelId }),
+			messageID,
+		};
+	}
 	const channel = await ensureUserDirectMessageChannel(
 		relayURL,
 		requestDocument.userSecretHex,
@@ -262,6 +342,7 @@ async function handleDirectMessageSend(
 		userSecretHex: requestDocument.userSecretHex,
 		counterpartPubkeyHex: buzzAdapter.botPubkey,
 		message: requestDocument.message,
+		attachments,
 	});
 	return {
 		channelID: channel.channelID,

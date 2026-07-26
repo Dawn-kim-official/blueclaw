@@ -5,12 +5,33 @@ export type AddressingDocument = {
 	otherPersonMentioned: boolean;
 };
 
+export type ReactionSummary = {
+	emoji: string;
+	count: number;
+	imageURL?: string;
+};
+
+export type MessageAttachmentDocument = {
+	kind: "image" | "file";
+	url: string;
+	filename?: string;
+	mimeType?: string;
+	sizeBytes?: number;
+};
+
 export type VisibleContextMessageDocument = {
+	id: string;
+	threadRootId?: string;
 	speaker: string;
 	speakerHandle?: string;
+	senderId?: string;
+	senderAvatarUrl?: string;
 	text: string;
 	sentAt?: string;
 	isBot?: boolean;
+	isError?: boolean;
+	reactions?: ReactionSummary[];
+	attachments?: MessageAttachmentDocument[];
 };
 
 export type VisibleContextSenderDocument = {
@@ -36,6 +57,8 @@ type ContextMessage = {
 	text: string;
 	author: { userId: string; userName: string; fullName: string; isBot?: boolean | "unknown" };
 	metadata: { dateSent: Date };
+	attachments?: Array<{ type?: string; url?: string; name?: string; mimeType?: string; size?: number }>;
+	raw?: unknown;
 };
 
 export type ContextCapableAdapter = {
@@ -46,6 +69,9 @@ export type ContextCapableAdapter = {
 	): Promise<{ messages: ContextMessage[]; nextCursor?: string }>;
 	fetchThread(threadId: string): Promise<ThreadInfo>;
 	getUser(userId: string): Promise<UserInfo | null>;
+	fetchReactions?(scopeThreadId: string): Promise<Map<string, ReactionSummary[]>>;
+	threadRootIdOf?(raw: unknown): string | undefined;
+	senderAvatarUrlOf?(senderId: string): string | undefined;
 };
 
 export type NormalizedPlatformAdapter = ContextCapableAdapter & {
@@ -88,10 +114,11 @@ export async function buildVisibleContext(
 	options: { beforeMessageId?: string; senderId?: string; cursor?: string; limit?: number } = {},
 ): Promise<VisibleContextDocument> {
 	const limit = options.limit && options.limit > 0 ? options.limit : DEFAULT_HISTORY_LIMIT;
-	const [fetchResult, threadInfo, senderInfo] = await Promise.all([
+	const [fetchResult, threadInfo, senderInfo, reactionsById] = await Promise.all([
 		adapter.fetchMessages(scopeThreadId, { cursor: options.cursor, limit: limit + 1, direction: "backward" }),
 		adapter.fetchThread(scopeThreadId).catch(() => null),
 		options.senderId ? adapter.getUser(options.senderId).catch(() => null) : Promise.resolve(null),
+		adapter.fetchReactions?.(scopeThreadId).catch(() => null) ?? Promise.resolve(null),
 	]);
 	let previousMessages = messagesBefore(fetchResult.messages, options.beforeMessageId);
 	const hasMoreBefore = Boolean(fetchResult.nextCursor) || previousMessages.length > limit;
@@ -99,7 +126,14 @@ export async function buildVisibleContext(
 		previousMessages = previousMessages.slice(-limit);
 	}
 	return {
-		messages: previousMessages.map(toVisibleContextMessage),
+		messages: previousMessages.map((message) =>
+			toVisibleContextMessage(
+				message,
+				reactionsById?.get(message.id),
+				adapter.threadRootIdOf?.(message.raw),
+				adapter.senderAvatarUrlOf?.(message.author.userId),
+			),
+		),
 		hasMoreBefore,
 		historyCursor: encodeHistoryCursor({ threadId: scopeThreadId, cursor: fetchResult.nextCursor }),
 		sender: senderInfo ? toContextSender(adapter.name, senderInfo) : undefined,
@@ -124,14 +158,48 @@ function messagesBefore(messages: ContextMessage[], beforeMessageId?: string): C
 	return messages.filter((message) => message.id !== beforeMessageId);
 }
 
-function toVisibleContextMessage(message: ContextMessage): VisibleContextMessageDocument {
+function toVisibleContextMessage(
+	message: ContextMessage,
+	reactions?: ReactionSummary[],
+	threadRootId?: string,
+	senderAvatarUrl?: string,
+): VisibleContextMessageDocument {
 	return {
+		id: message.id,
+		threadRootId: threadRootId && threadRootId !== message.id ? threadRootId : undefined,
 		speaker: message.author.fullName || message.author.userName,
 		speakerHandle: message.author.userName,
+		senderId: message.author.userId,
+		senderAvatarUrl,
 		text: message.text,
 		sentAt: message.metadata.dateSent.toISOString(),
 		isBot: message.author.isBot === true,
+		isError: isErrorMessage(message.raw),
+		reactions: reactions && reactions.length > 0 ? reactions : undefined,
+		attachments: attachmentsOf(message),
 	};
+}
+
+function isErrorMessage(raw: unknown): boolean {
+	if (typeof raw !== "object" || raw === null || !("tags" in raw)) return false;
+	const { tags } = raw as { tags?: unknown };
+	if (!Array.isArray(tags)) return false;
+	return tags.some((tag) => Array.isArray(tag) && tag[0] === "reply-kind" && tag[1] === "error");
+}
+
+function attachmentsOf(message: ContextMessage): MessageAttachmentDocument[] | undefined {
+	const documents: MessageAttachmentDocument[] = [];
+	for (const attachment of message.attachments ?? []) {
+		if (!attachment.url) continue;
+		documents.push({
+			kind: attachment.type === "image" ? "image" : "file",
+			url: attachment.url,
+			filename: attachment.name,
+			mimeType: attachment.mimeType,
+			sizeBytes: attachment.size,
+		});
+	}
+	return documents.length > 0 ? documents : undefined;
 }
 
 function toContextSender(platform: string, user: UserInfo): VisibleContextSenderDocument {

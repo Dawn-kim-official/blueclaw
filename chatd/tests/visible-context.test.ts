@@ -53,11 +53,14 @@ describe("buildVisibleContext", () => {
 			senderId: "user-c",
 		});
 		expect(context.messages.map((message) => message.text)).toEqual(["first", "second"]);
-		expect(context.messages[0]).toEqual({
+		expect(context.messages[0]).toMatchObject({
+			id: "a",
 			speaker: "Name a",
 			speakerHandle: "handle-a",
+			senderId: "user-a",
 			text: "first",
 			sentAt: new Date(100 * 1000).toISOString(),
+			isBot: false,
 		});
 		expect(context.sender).toEqual({
 			platform: "fake",
