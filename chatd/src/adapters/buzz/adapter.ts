@@ -6,6 +6,7 @@ import {
 	stringifyMarkdown,
 	type Adapter,
 	type AdapterPostableMessage,
+	type Attachment,
 	type Author,
 	type ChatInstance,
 	type FetchOptions,
@@ -31,6 +32,7 @@ import {
 	type BuzzEvent,
 	type BuzzThreadId,
 } from "./types.ts";
+import type { ReactionSummary } from "../../visible-context.ts";
 
 const STREAM_MESSAGE_KIND = 9;
 const TYPING_INDICATOR_KIND = 20002;
@@ -57,6 +59,65 @@ export function reactionContentOf(emojiName: string): string {
 	const additionalCharacter = additionalReactionEmojiCharacters[emojiName];
 	if (additionalCharacter) return additionalCharacter;
 	return defaultEmojiResolver.toGChat(defaultEmojiResolver.fromSlack(emojiName));
+}
+
+function attachmentsFromEvent(event: BuzzEvent): Attachment[] {
+	const filenamesByURL = filenamesFromBody(event.content);
+	const attachments: Attachment[] = [];
+	for (const tag of event.tags) {
+		if (tag[0] !== "imeta") continue;
+		const fields = imetaFieldsOf(tag);
+		if (!fields.url) continue;
+		const isImage = fields.mimeType?.startsWith("image/") ?? false;
+		attachments.push({
+			type: isImage ? "image" : "file",
+			url: fields.url,
+			mimeType: fields.mimeType,
+			size: fields.size,
+			name: filenamesByURL.get(fields.url) ?? basenameOf(fields.url),
+		});
+	}
+	return attachments;
+}
+
+function imetaFieldsOf(tag: string[]): { url?: string; mimeType?: string; size?: number } {
+	const fields: { url?: string; mimeType?: string; size?: number } = {};
+	for (const entry of tag.slice(1)) {
+		const separatorIndex = entry.indexOf(" ");
+		if (separatorIndex < 0) continue;
+		const key = entry.slice(0, separatorIndex);
+		const value = entry.slice(separatorIndex + 1);
+		if (key === "url") fields.url = value;
+		else if (key === "m") fields.mimeType = value;
+		else if (key === "size") fields.size = Number(value) || undefined;
+	}
+	return fields;
+}
+
+function filenamesFromBody(body: string): Map<string, string> {
+	const filenames = new Map<string, string>();
+	const pattern = /!?\[([^\]]*)\]\((\S+?)\)/g;
+	for (const match of body.matchAll(pattern)) {
+		const [, label, url] = match;
+		if (url && label) filenames.set(url, label);
+	}
+	return filenames;
+}
+
+function basenameOf(url: string): string {
+	const withoutQuery = url.split("?")[0] ?? url;
+	const segments = withoutQuery.split("/");
+	return segments[segments.length - 1] || "attachment";
+}
+
+function reactionDisplayOf(event: BuzzEvent): { emoji: string; imageURL?: string } {
+	const content = event.content.trim();
+	if (content.startsWith(":") && content.endsWith(":")) {
+		const shortcode = content.slice(1, -1);
+		const emojiTag = event.tags.find((tag) => tag[0] === "emoji" && tag[1] === shortcode);
+		return { emoji: content, imageURL: emojiTag?.[2] };
+	}
+	return { emoji: content };
 }
 
 function pubkeyTagValuesOf(raw: unknown): string[] {
@@ -117,6 +178,11 @@ export class BuzzAdapter implements Adapter<BuzzThreadId, BuzzEvent> {
 			return this.encodeThreadId({ channelId: decoded.channelId });
 		}
 		return threadId;
+	}
+
+	threadRootIdOf(raw: unknown): string | undefined {
+		if (typeof raw !== "object" || raw === null || !("tags" in raw)) return undefined;
+		return threadTagsOf(raw as BuzzEvent).rootEventId;
 	}
 
 	addressingOf(raw: unknown): { botMentioned: boolean; otherPersonMentioned: boolean } {
@@ -297,7 +363,7 @@ export class BuzzAdapter implements Adapter<BuzzThreadId, BuzzEvent> {
 			raw: event,
 			author: this.authorForPubkey(event.pubkey, profile),
 			metadata: { dateSent: new Date(event.created_at * 1000), edited: false },
-			attachments: [],
+			attachments: attachmentsFromEvent(event),
 		});
 	}
 
@@ -310,6 +376,10 @@ export class BuzzAdapter implements Adapter<BuzzThreadId, BuzzEvent> {
 			isBot: pubkey === this.relay.pubkeyHex,
 			isMe: pubkey === this.relay.pubkeyHex,
 		};
+	}
+
+	senderAvatarUrlOf(senderId: string): string | undefined {
+		return this.profileByPubkey.get(senderId)?.picture;
 	}
 
 	private async fetchProfile(pubkey: string): Promise<{ name?: string; nip05?: string; picture?: string }> {
@@ -338,13 +408,18 @@ export class BuzzAdapter implements Adapter<BuzzThreadId, BuzzEvent> {
 		return profile;
 	}
 
-	async postMessage(threadId: string, message: AdapterPostableMessage): Promise<RawMessage<BuzzEvent>> {
+	async postMessage(
+		threadId: string,
+		message: AdapterPostableMessage,
+		extraTags: string[][] = [],
+	): Promise<RawMessage<BuzzEvent>> {
 		const decoded = this.decodeThreadId(threadId);
 		const text = this.converter.renderPostable(message);
 		const tags: string[][] = [["h", decoded.channelId]];
 		if (decoded.rootEventId) {
 			tags.push(["e", decoded.rootEventId, "", "root"]);
 		}
+		tags.push(...extraTags);
 		const event = await this.relay.publish(STREAM_MESSAGE_KIND, text, tags);
 		return { id: event.id, threadId, raw: event };
 	}
@@ -414,6 +489,58 @@ export class BuzzAdapter implements Adapter<BuzzThreadId, BuzzEvent> {
 		return { messages, nextCursor: undefined };
 	}
 
+	async listPeople(excludePubkeyHex: string): Promise<{ id: string; name: string; avatarURL?: string }[]> {
+		const profileEvents = await this.relay.query({ kinds: [PROFILE_KIND], limit: 500 });
+		const latestByPubkey = new Map<string, BuzzEvent>();
+		for (const event of profileEvents) {
+			const known = latestByPubkey.get(event.pubkey);
+			if (!known || event.created_at > known.created_at) latestByPubkey.set(event.pubkey, event);
+		}
+		const people: { id: string; name: string; avatarURL?: string }[] = [];
+		for (const [pubkey, event] of latestByPubkey) {
+			if (pubkey === excludePubkeyHex || pubkey === this.relay.pubkeyHex) continue;
+			try {
+				const parsed = JSON.parse(event.content) as {
+					name?: string;
+					display_name?: string;
+					picture?: string;
+				};
+				const name = parsed.name ?? parsed.display_name;
+				if (!name) continue;
+				people.push({ id: pubkey, name, avatarURL: parsed.picture });
+			} catch {
+				continue;
+			}
+		}
+		return people.sort((first, second) => first.name.localeCompare(second.name));
+	}
+
+	async fetchReactions(scopeThreadId: string): Promise<Map<string, ReactionSummary[]>> {
+		const decoded = this.decodeThreadId(scopeThreadId);
+		const events = await this.relay.query({
+			kinds: [REACTION_KIND],
+			"#h": [decoded.channelId],
+			limit: 500,
+		});
+		const countsByMessage = new Map<string, Map<string, ReactionSummary>>();
+		for (const event of events) {
+			const targetId = firstTagValue(event, "e");
+			if (!targetId) continue;
+			const display = reactionDisplayOf(event);
+			if (!display.emoji) continue;
+			const perEmoji = countsByMessage.get(targetId) ?? new Map<string, ReactionSummary>();
+			const existing = perEmoji.get(display.emoji);
+			if (existing) existing.count += 1;
+			else perEmoji.set(display.emoji, { emoji: display.emoji, count: 1, imageURL: display.imageURL });
+			countsByMessage.set(targetId, perEmoji);
+		}
+		const summaries = new Map<string, ReactionSummary[]>();
+		for (const [targetId, perEmoji] of countsByMessage) {
+			summaries.set(targetId, [...perEmoji.values()]);
+		}
+		return summaries;
+	}
+
 	async fetchThread(threadId: string): Promise<ThreadInfo> {
 		const decoded = this.decodeThreadId(threadId);
 		const channel = this.channelsById.get(decoded.channelId);
@@ -439,6 +566,7 @@ export class BuzzAdapter implements Adapter<BuzzThreadId, BuzzEvent> {
 			userName: profile.name ?? userId.slice(0, 8),
 			fullName: profile.name ?? userId.slice(0, 8),
 			email: linkedEmail ?? profile.nip05,
+			avatarUrl: profile.picture,
 			isBot: userId === this.relay.pubkeyHex,
 		};
 	}
