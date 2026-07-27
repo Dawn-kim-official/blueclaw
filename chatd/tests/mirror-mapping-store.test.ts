@@ -58,6 +58,21 @@ describe('MappingStore over admind HTTP', () => {
 		expect(await store.messageByEvent('unknown', 'slack')).toBeNull();
 	});
 
+	test('resolves a person Buzz secret by email through admind', async () => {
+		const { fetch, calls } = stubFetch({ '/bridge/api/identity': { secretHex: 'abc123' } });
+		const store = new MappingStore('http://admind', fetch);
+		expect(await store.secretForEmail('a@dawn.kim')).toBe('abc123');
+		expect(calls[0]?.url ?? '').toContain('email=a%40dawn.kim');
+	});
+
+	test('resolves a Buzz channel id for an external channel through admind', async () => {
+		const { fetch, calls } = stubFetch({ '/bridge/api/channel/resolve': { buzzChannelId: 'bc-1' } });
+		const store = new MappingStore('http://admind', fetch);
+		expect(await store.buzzChannelForExternal('mattermost', 'chan-1')).toBe('bc-1');
+		expect(calls[0]?.method).toBe('POST');
+		expect(calls[0]?.body).toEqual({ platform: 'mattermost', externalChannelId: 'chan-1' });
+	});
+
 	test('throws on a non-ok response so callers do not treat errors as a miss', async () => {
 		const failing = (async () => new Response('boom', { status: 500 })) as unknown as typeof fetch;
 		const store = new MappingStore('http://admind', failing);
