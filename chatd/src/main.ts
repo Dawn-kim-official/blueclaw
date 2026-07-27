@@ -5,9 +5,29 @@ import { createMattermostAdapter } from './adapters/mattermost/index.ts';
 import { loadConfiguration } from './configuration.ts';
 import { createBridge } from './bridge.ts';
 import { createOutboundHandler } from './outbound.ts';
+import { createMirror, type MirrorWiring } from './mirror/wire.ts';
 import type { NormalizedPlatformAdapter } from './visible-context.ts';
 
 const configuration = loadConfiguration(process.env);
+
+const connectedPlatforms: string[] = [];
+if (configuration.mattermost) connectedPlatforms.push('mattermost');
+if (configuration.buzz) connectedPlatforms.push('buzz');
+
+let mirror: MirrorWiring | undefined;
+if (configuration.mirrorSeed && configuration.admindBaseURL && configuration.buzz) {
+  mirror = createMirror({
+    seed: configuration.mirrorSeed,
+    admindBaseURL: configuration.admindBaseURL,
+    connectedPlatforms,
+    buzz: { relayURL: configuration.buzz.relayURL, authTagJSON: configuration.buzz.authTagJSON },
+    mattermost:
+      configuration.mattermost?.adminToken
+        ? { baseURL: configuration.mattermost.baseURL, adminToken: configuration.mattermost.adminToken }
+        : undefined,
+    onError: (context, detail) => console.error('[mirror]', context, detail),
+  });
+}
 
 const adapters: Record<string, Adapter> = {};
 const normalizedAdapters: Record<string, NormalizedPlatformAdapter> = {};
@@ -16,6 +36,7 @@ if (configuration.mattermost) {
     baseUrl: configuration.mattermost.baseURL,
     botToken: configuration.mattermost.botToken,
     callbackUrl: configuration.mattermost.actionCallbackURL,
+    onMirrorInbound: mirror?.onMattermostInbound,
   });
 }
 if (configuration.buzz) {
@@ -25,6 +46,7 @@ if (configuration.buzz) {
     botDisplayName: configuration.botUserName,
     accountLinksPath: configuration.buzz.accountLinksPath,
     authTagJSON: configuration.buzz.authTagJSON,
+    onMirrorInbound: mirror?.onBuzzInbound,
   });
   adapters.buzz = buzzAdapter;
   normalizedAdapters.buzz = buzzAdapter;

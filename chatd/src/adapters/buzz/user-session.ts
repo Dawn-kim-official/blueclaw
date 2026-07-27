@@ -113,12 +113,14 @@ export async function sendChannelMessageAsUser(request: {
 	message: string;
 	attachments?: UserDirectMessageAttachment[];
 	replyToRootId?: string;
+	extraTags?: string[][];
+	authTagJSON?: string;
 }): Promise<string> {
 	const { body, mediaTags } = await buildMessageBody(request);
-	const relay = createBuzzRelayClient(request.relayURL, request.userSecretHex);
+	const relay = createBuzzRelayClient(request.relayURL, request.userSecretHex, request.authTagJSON);
 	try {
 		await relay.connect();
-		const tags: string[][] = [["h", request.channelID], ...mediaTags];
+		const tags: string[][] = [["h", request.channelID], ...mediaTags, ...(request.extraTags ?? [])];
 		if (request.replyToRootId) tags.push(["e", request.replyToRootId, "", "reply"]);
 		const event = await relay.publish(STREAM_MESSAGE_KIND, body, tags);
 		return event.id;
