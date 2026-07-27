@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { createMattermostPuppetPoster } from '../src/mirror/mattermost-puppet.ts';
+import { createMattermostGateway } from '../src/mirror/mattermost-puppet.ts';
 
 function stubFetch() {
 	const calls: Array<{ url: string; method: string; body: unknown }> = [];
@@ -26,13 +26,13 @@ function stubFetch() {
 describe('mattermost puppet poster', () => {
 	test('posts as the resolved user with a minted token and threads replies', async () => {
 		const { calls, fetchImpl } = stubFetch();
-		const poster = createMattermostPuppetPoster({
+		const gateway = createMattermostGateway({
 			baseURL: 'https://mm.example.com/',
 			adminToken: 'admin-tok',
 			fetchImpl,
 		});
 
-		const result = await poster({
+		const result = await gateway.post({
 			target: 'mattermost',
 			externalChannelId: 'chan-x',
 			text: 'mirrored',
@@ -48,9 +48,9 @@ describe('mattermost puppet poster', () => {
 
 	test('caches the user id and token across posts', async () => {
 		const { calls, fetchImpl } = stubFetch();
-		const poster = createMattermostPuppetPoster({ baseURL: 'https://mm.example.com', adminToken: 'admin-tok', fetchImpl });
+		const gateway = createMattermostGateway({ baseURL: 'https://mm.example.com', adminToken: 'admin-tok', fetchImpl });
 		const post = () =>
-			poster({ target: 'mattermost', externalChannelId: 'c', text: 't', senderName: 'A', senderEmail: 'a@example.com' });
+			gateway.post({ target: 'mattermost', externalChannelId: 'c', text: 't', senderName: 'A', senderEmail: 'a@example.com' });
 
 		await post();
 		await post();
@@ -62,9 +62,9 @@ describe('mattermost puppet poster', () => {
 
 	test('refuses to post when the sender has no linked email', async () => {
 		const { fetchImpl } = stubFetch();
-		const poster = createMattermostPuppetPoster({ baseURL: 'https://mm.example.com', adminToken: 'admin-tok', fetchImpl });
+		const gateway = createMattermostGateway({ baseURL: 'https://mm.example.com', adminToken: 'admin-tok', fetchImpl });
 		await expect(
-			poster({ target: 'mattermost', externalChannelId: 'c', text: 't', senderName: 'A' }),
+			gateway.post({ target: 'mattermost', externalChannelId: 'c', text: 't', senderName: 'A' }),
 		).rejects.toThrow('no linked email');
 	});
 });

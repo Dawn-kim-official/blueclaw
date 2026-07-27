@@ -10,9 +10,9 @@ import type { NormalizedPlatformAdapter } from './visible-context.ts';
 
 const configuration = loadConfiguration(process.env);
 
+// Peripheral platforms only; Buzz is the hub, not a fan-out target.
 const connectedPlatforms: string[] = [];
 if (configuration.mattermost) connectedPlatforms.push('mattermost');
-if (configuration.buzz) connectedPlatforms.push('buzz');
 
 let mirror: MirrorWiring | undefined;
 if (configuration.mirrorSeed && configuration.admindBaseURL && configuration.buzz) {
@@ -36,7 +36,7 @@ if (configuration.mattermost) {
     baseUrl: configuration.mattermost.baseURL,
     botToken: configuration.mattermost.botToken,
     callbackUrl: configuration.mattermost.actionCallbackURL,
-    onMirrorInbound: mirror?.onMattermostInbound,
+    mirror: mirror?.mattermost,
   });
 }
 if (configuration.buzz) {
@@ -46,7 +46,7 @@ if (configuration.buzz) {
     botDisplayName: configuration.botUserName,
     accountLinksPath: configuration.buzz.accountLinksPath,
     authTagJSON: configuration.buzz.authTagJSON,
-    onMirrorInbound: mirror?.onBuzzInbound,
+    mirror: mirror?.buzz,
   });
   adapters.buzz = buzzAdapter;
   normalizedAdapters.buzz = buzzAdapter;
