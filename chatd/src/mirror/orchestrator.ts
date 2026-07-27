@@ -35,6 +35,7 @@ export type InboundBuzzMessage = {
 	text: string;
 	origin: MessageOrigin | null;
 	senderName: string;
+	senderEmail?: string;
 	replyToBuzzEventId?: string;
 };
 
@@ -43,6 +44,7 @@ export type PlatformPost = {
 	externalChannelId: string;
 	text: string;
 	senderName: string;
+	senderEmail?: string;
 	replyToExternalId?: string;
 };
 
@@ -109,6 +111,7 @@ export class MirrorOrchestrator {
 				externalChannelId: channel.externalChannelId,
 				text: message.text,
 				senderName: message.senderName,
+				senderEmail: message.senderEmail,
 				replyToExternalId,
 			});
 			await this.mapping.recordMessage({

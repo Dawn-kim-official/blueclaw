@@ -27,6 +27,7 @@ export type BuzzAdapterConfig = {
 	botDisplayName: string;
 	accountLinksPath?: string;
 	authTagJSON?: string;
+	onMirrorInbound?: (message: import("../../mirror/inbound.ts").MirrorBuzzInbound) => void;
 };
 
 export function firstTagValue(event: BuzzEvent, tagName: string): string | undefined {

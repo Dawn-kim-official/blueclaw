@@ -1,4 +1,5 @@
 import type { Logger } from "chat";
+import type { MirrorPlatformInbound } from "../../mirror/inbound.ts";
 
 export interface MattermostAdapterConfig {
 	/** Mattermost server base URL, e.g. https://mattermost.example.com */
@@ -15,6 +16,8 @@ export interface MattermostAdapterConfig {
 	logger?: Logger;
 	/** Optional bot username override until /users/me resolves */
 	userName?: string;
+	/** Called for every non-bot inbound post so the mirror can replicate it. */
+	onMirrorInbound?: (message: MirrorPlatformInbound) => void;
 	/** Websocket connection behavior */
 	websocket?: {
 		/** Connect the websocket automatically during initialize. Defaults to true. */
@@ -86,6 +89,7 @@ export interface MattermostPost {
 export interface MattermostUser {
 	id: string;
 	username: string;
+	email?: string;
 	first_name?: string;
 	last_name?: string;
 	nickname?: string;
