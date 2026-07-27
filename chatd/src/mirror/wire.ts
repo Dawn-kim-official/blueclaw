@@ -1,17 +1,17 @@
-import { createBuzzPublisher } from './buzz-publisher.ts';
-import type { MirrorBuzzInbound, MirrorPlatformInbound } from './inbound.ts';
+import { createBuzzGateway } from './buzz-publisher.ts';
+import type { BuzzMirrorSink, PlatformMirrorSink } from './inbound.ts';
 import { MappingStore } from './mapping-store.ts';
-import { createMattermostPuppetPoster } from './mattermost-puppet.ts';
-import { MirrorOrchestrator, type PlatformPoster } from './orchestrator.ts';
+import { createMattermostGateway } from './mattermost-puppet.ts';
+import { MirrorOrchestrator, type PlatformGateway } from './orchestrator.ts';
 
 export type MirrorWiring = {
-	onMattermostInbound: (message: MirrorPlatformInbound) => void;
-	onBuzzInbound: (message: MirrorBuzzInbound) => void;
+	mattermost: PlatformMirrorSink;
+	buzz: BuzzMirrorSink;
 };
 
 // Assembles the star-topology mirror: an admind-backed mapping store, a per-user
-// Buzz publisher, and per-user platform posters, driven by the orchestrator. The
-// returned callbacks are handed to each adapter's inbound tap.
+// Buzz gateway, and per-user platform gateways, driven by the orchestrator. The
+// returned sinks are handed to each adapter's inbound tap.
 export function createMirror(options: {
 	seed: string;
 	admindBaseURL: string;
@@ -21,51 +21,78 @@ export function createMirror(options: {
 	onError?: (context: string, detail: unknown) => void;
 }): MirrorWiring {
 	const mapping = new MappingStore(options.admindBaseURL);
-	const posters: Record<string, PlatformPoster> = {};
+	const platforms: Record<string, PlatformGateway> = {};
 	if (options.mattermost) {
-		posters.mattermost = createMattermostPuppetPoster(options.mattermost);
+		platforms.mattermost = createMattermostGateway(options.mattermost);
 	}
 	const orchestrator = new MirrorOrchestrator(
 		options.seed,
 		mapping,
 		options.connectedPlatforms,
-		createBuzzPublisher(options.buzz.relayURL, options.buzz.authTagJSON),
-		posters,
+		createBuzzGateway(options.buzz.relayURL, options.buzz.authTagJSON),
+		platforms,
 	);
-	const report = (context: string, detail: unknown): void => options.onError?.(context, detail);
+	const run = (context: string, work: Promise<void>): void => {
+		void work.catch((error) => options.onError?.(context, error));
+	};
+	const skip = (context: string, detail: unknown): void => options.onError?.(context, detail);
+
 	return {
-		onMattermostInbound: (message) => {
-			if (!message.senderEmail) {
-				report('mattermost inbound skipped: sender has no linked email', message.externalId);
-				return;
-			}
-			void orchestrator
-				.onPlatformMessage({
+		mattermost: {
+			message(inbound) {
+				if (!inbound.senderEmail) return skip('mattermost message skipped: no linked email', inbound.externalId);
+				run('mattermost -> buzz message failed', orchestrator.onPlatformMessage({
 					platform: 'mattermost',
-					externalId: message.externalId,
-					externalChannelId: message.externalChannelId,
-					text: message.text,
-					sender: {
-						platform: 'mattermost',
-						platformUserId: message.senderPlatformUserId,
-						email: message.senderEmail,
-					},
-					replyToExternalId: message.replyToExternalId,
-				})
-				.catch((error) => report('mattermost -> buzz mirror failed', error));
+					externalId: inbound.externalId,
+					externalChannelId: inbound.externalChannelId,
+					text: inbound.text,
+					sender: { platform: 'mattermost', platformUserId: inbound.senderPlatformUserId, email: inbound.senderEmail },
+					replyToExternalId: inbound.replyToExternalId,
+				}));
+			},
+			edit(inbound) {
+				if (!inbound.senderEmail) return skip('mattermost edit skipped: no linked email', inbound.externalId);
+				run('mattermost -> buzz edit failed', orchestrator.onPlatformEdit({
+					platform: 'mattermost',
+					externalId: inbound.externalId,
+					externalChannelId: inbound.externalChannelId,
+					text: inbound.text,
+					sender: { platform: 'mattermost', platformUserId: inbound.senderPlatformUserId, email: inbound.senderEmail },
+				}));
+			},
+			remove(inbound) {
+				if (!inbound.senderEmail) return skip('mattermost delete skipped: no linked email', inbound.externalId);
+				run('mattermost -> buzz delete failed', orchestrator.onPlatformDelete({
+					platform: 'mattermost',
+					externalId: inbound.externalId,
+					externalChannelId: inbound.externalChannelId,
+					sender: { platform: 'mattermost', platformUserId: inbound.senderPlatformUserId, email: inbound.senderEmail },
+				}));
+			},
+			react(inbound) {
+				if (!inbound.senderEmail) return skip('mattermost reaction skipped: no linked email', inbound.externalId);
+				run('mattermost -> buzz reaction failed', orchestrator.onPlatformReaction({
+					platform: 'mattermost',
+					externalId: inbound.externalId,
+					externalChannelId: inbound.externalChannelId,
+					emoji: inbound.emoji,
+					sender: { platform: 'mattermost', platformUserId: inbound.senderPlatformUserId, email: inbound.senderEmail },
+				}));
+			},
 		},
-		onBuzzInbound: (message) => {
-			void orchestrator
-				.onBuzzMessage({
-					buzzEventId: message.buzzEventId,
-					buzzChannelId: message.buzzChannelId,
-					text: message.text,
-					origin: message.origin,
-					senderName: message.senderName,
-					senderEmail: message.senderEmail,
-					replyToBuzzEventId: message.replyToBuzzEventId,
-				})
-				.catch((error) => report('buzz -> platforms mirror failed', error));
+		buzz: {
+			message(inbound) {
+				run('buzz -> platforms message failed', orchestrator.onBuzzMessage(inbound));
+			},
+			edit(inbound) {
+				run('buzz -> platforms edit failed', orchestrator.onBuzzEdit(inbound));
+			},
+			remove(inbound) {
+				run('buzz -> platforms delete failed', orchestrator.onBuzzDelete(inbound));
+			},
+			react(inbound) {
+				run('buzz -> platforms reaction failed', orchestrator.onBuzzReaction(inbound));
+			},
 		},
 	};
 }

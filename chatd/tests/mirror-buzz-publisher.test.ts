@@ -1,15 +1,24 @@
 import { describe, expect, test } from 'bun:test';
-import { createBuzzPublisher } from '../src/mirror/buzz-publisher.ts';
+import { createBuzzGateway } from '../src/mirror/buzz-publisher.ts';
 
-describe('buzz publisher', () => {
+const noopSession = {
+	edit: async () => 'edit-event',
+	remove: async () => undefined,
+	react: async () => undefined,
+};
+
+describe('buzz gateway', () => {
 	test('publishes as the person with an origin tag and returns the event id', async () => {
 		const calls: Array<Record<string, unknown>> = [];
-		const publisher = createBuzzPublisher('wss://relay', 'auth-json', async (request) => {
-			calls.push(request as unknown as Record<string, unknown>);
-			return 'event-1';
+		const gateway = createBuzzGateway('wss://relay', 'auth-json', {
+			send: async (request) => {
+				calls.push(request as unknown as Record<string, unknown>);
+				return 'event-1';
+			},
+			...noopSession,
 		});
 
-		const result = await publisher({
+		const result = await gateway.publish({
 			userSecretHex: 'deadbeef',
 			buzzChannelId: 'chan-1',
 			text: 'hi',
