@@ -322,7 +322,38 @@ export class BuzzAdapter implements Adapter<BuzzThreadId, BuzzEvent> {
 					void this.dispatchIncomingEvent(event);
 				},
 			);
+			if (this.config.mirror) {
+				this.relay.subscribe(
+					[
+						{
+							kinds: [REACTION_KIND, EDIT_MESSAGE_KIND, DELETE_MESSAGE_KIND],
+							"#h": [channelId],
+							since: Math.floor(Date.now() / 1000),
+						},
+					],
+					(event) => this.emitMirrorControlEvent(event, channelId),
+				);
+			}
 		}
+	}
+
+	private emitMirrorControlEvent(event: BuzzEvent, channelId: string): void {
+		const mirror = this.config.mirror;
+		if (!mirror || event.pubkey === this.relay.pubkeyHex) return;
+		const targetEventId = firstTagValue(event, "e");
+		if (!targetEventId) return;
+		const origin = originOfTags(event.tags);
+		void this.linkedAccountEmail(event.pubkey)
+			.then((senderEmail) => {
+				if (event.kind === EDIT_MESSAGE_KIND) {
+					mirror.edit({ targetEventId, buzzChannelId: channelId, text: event.content, senderEmail, origin });
+				} else if (event.kind === DELETE_MESSAGE_KIND) {
+					mirror.remove({ targetEventId, buzzChannelId: channelId, senderEmail, origin });
+				} else if (event.kind === REACTION_KIND) {
+					mirror.react({ targetEventId, buzzChannelId: channelId, emoji: event.content, senderEmail, origin });
+				}
+			})
+			.catch(() => void 0);
 	}
 
 	private async dispatchIncomingEvent(event: BuzzEvent): Promise<void> {
@@ -339,12 +370,12 @@ export class BuzzAdapter implements Adapter<BuzzThreadId, BuzzEvent> {
 	}
 
 	private emitMirrorInbound(event: BuzzEvent, channelId: string): void {
-		const emit = this.config.onMirrorInbound;
-		if (!emit) return;
+		const mirror = this.config.mirror;
+		if (!mirror) return;
 		const { rootEventId } = threadTagsOf(event);
 		void Promise.all([this.fetchProfile(event.pubkey), this.linkedAccountEmail(event.pubkey)])
 			.then(([profile, email]) => {
-				emit({
+				mirror.message({
 					buzzEventId: event.id,
 					buzzChannelId: channelId,
 					text: event.content,

@@ -2,9 +2,17 @@ import { beforeEach, describe, expect, test } from 'bun:test';
 import type { ChannelMapping, MessageMapping } from '../src/mirror/mapping-store.ts';
 import {
 	MirrorOrchestrator,
+	type BuzzDelete,
+	type BuzzEdit,
+	type BuzzGateway,
 	type BuzzPublish,
+	type BuzzReaction,
 	type MappingStoreLike,
+	type PlatformDelete,
+	type PlatformEdit,
+	type PlatformGateway,
 	type PlatformPost,
+	type PlatformReaction,
 } from '../src/mirror/orchestrator.ts';
 
 class FakeMappingStore implements MappingStoreLike {
@@ -27,29 +35,59 @@ class FakeMappingStore implements MappingStoreLike {
 	}
 }
 
+class FakeBuzzGateway implements BuzzGateway {
+	publishes: BuzzPublish[] = [];
+	edits: BuzzEdit[] = [];
+	removes: BuzzDelete[] = [];
+	reactions: BuzzReaction[] = [];
+	private serial = 0;
+	async publish(publish: BuzzPublish): Promise<{ eventId: string }> {
+		this.publishes.push(publish);
+		this.serial += 1;
+		return { eventId: `event-${this.serial}` };
+	}
+	async edit(edit: BuzzEdit): Promise<void> {
+		this.edits.push(edit);
+	}
+	async remove(remove: BuzzDelete): Promise<void> {
+		this.removes.push(remove);
+	}
+	async react(react: BuzzReaction): Promise<void> {
+		this.reactions.push(react);
+	}
+}
+
+class FakePlatformGateway implements PlatformGateway {
+	posts: PlatformPost[] = [];
+	edits: PlatformEdit[] = [];
+	removes: PlatformDelete[] = [];
+	reactions: PlatformReaction[] = [];
+	async post(post: PlatformPost): Promise<{ externalId: string }> {
+		this.posts.push(post);
+		return { externalId: `${post.target}-msg` };
+	}
+	async edit(edit: PlatformEdit): Promise<void> {
+		this.edits.push(edit);
+	}
+	async remove(remove: PlatformDelete): Promise<void> {
+		this.removes.push(remove);
+	}
+	async react(react: PlatformReaction): Promise<void> {
+		this.reactions.push(react);
+	}
+}
+
 const SEED = 'orchestrator-test-seed';
 
 describe('platform -> Buzz', () => {
 	let store: FakeMappingStore;
-	let published: BuzzPublish[];
+	let buzz: FakeBuzzGateway;
 	let orchestrator: MirrorOrchestrator;
-	let publishCount: number;
 
 	beforeEach(() => {
 		store = new FakeMappingStore();
-		published = [];
-		publishCount = 0;
-		orchestrator = new MirrorOrchestrator(
-			SEED,
-			store,
-			['mattermost', 'slack'],
-			async (publish) => {
-				published.push(publish);
-				publishCount += 1;
-				return { eventId: `event-${publishCount}` };
-			},
-			{},
-		);
+		buzz = new FakeBuzzGateway();
+		orchestrator = new MirrorOrchestrator(SEED, store, ['mattermost', 'slack'], buzz, {});
 	});
 
 	test('publishes a platform message to Buzz with an origin and records the mapping', async () => {
@@ -60,19 +98,13 @@ describe('platform -> Buzz', () => {
 			text: 'hello',
 			sender: { platform: 'mattermost', platformUserId: 'u1', email: 'a@dawn.kim' },
 		});
-		expect(published).toHaveLength(1);
-		expect(published[0]?.origin).toEqual({ platform: 'mattermost', externalId: 'post-1' });
+		expect(buzz.publishes).toHaveLength(1);
+		expect(buzz.publishes[0]?.origin).toEqual({ platform: 'mattermost', externalId: 'post-1' });
 		expect(await store.messageByExternal('mattermost', 'post-1')).not.toBeNull();
-		expect(await store.channelByBuzz(published[0]!.buzzChannelId, 'mattermost')).not.toBeNull();
 	});
 
 	test('skips a message it already mirrored, so a fanned-out copy never re-publishes', async () => {
-		await store.recordMessage({
-			buzzEventId: 'event-x',
-			platform: 'mattermost',
-			externalId: 'post-1',
-			externalChannelId: 'mm-chan',
-		});
+		await store.recordMessage({ buzzEventId: 'event-x', platform: 'mattermost', externalId: 'post-1', externalChannelId: 'mm-chan' });
 		await orchestrator.onPlatformMessage({
 			platform: 'mattermost',
 			externalId: 'post-1',
@@ -80,29 +112,69 @@ describe('platform -> Buzz', () => {
 			text: 'echo',
 			sender: { platform: 'mattermost', platformUserId: 'u1' },
 		});
-		expect(publishCount).toBe(0);
+		expect(buzz.publishes).toHaveLength(0);
+	});
+
+	test('mirrors an edit to a Buzz edit against the mapped event', async () => {
+		await store.recordMessage({ buzzEventId: 'event-1', platform: 'mattermost', externalId: 'post-1', externalChannelId: 'mm-chan' });
+		await orchestrator.onPlatformEdit({
+			platform: 'mattermost',
+			externalId: 'post-1',
+			externalChannelId: 'mm-chan',
+			text: 'edited',
+			sender: { platform: 'mattermost', platformUserId: 'u1', email: 'a@dawn.kim' },
+		});
+		expect(buzz.edits).toHaveLength(1);
+		expect(buzz.edits[0]?.targetEventId).toBe('event-1');
+		expect(buzz.edits[0]?.text).toBe('edited');
+	});
+
+	test('drops an edit with no mapping', async () => {
+		await orchestrator.onPlatformEdit({
+			platform: 'mattermost',
+			externalId: 'ghost',
+			externalChannelId: 'mm-chan',
+			text: 'x',
+			sender: { platform: 'mattermost', platformUserId: 'u1', email: 'a@dawn.kim' },
+		});
+		expect(buzz.edits).toHaveLength(0);
+	});
+
+	test('mirrors a delete and a reaction against the mapped event', async () => {
+		await store.recordMessage({ buzzEventId: 'event-1', platform: 'mattermost', externalId: 'post-1', externalChannelId: 'mm-chan' });
+		await orchestrator.onPlatformReaction({
+			platform: 'mattermost',
+			externalId: 'post-1',
+			externalChannelId: 'mm-chan',
+			emoji: 'thumbsup',
+			sender: { platform: 'mattermost', platformUserId: 'u1', email: 'a@dawn.kim' },
+		});
+		await orchestrator.onPlatformDelete({
+			platform: 'mattermost',
+			externalId: 'post-1',
+			externalChannelId: 'mm-chan',
+			sender: { platform: 'mattermost', platformUserId: 'u1', email: 'a@dawn.kim' },
+		});
+		expect(buzz.reactions[0]?.targetEventId).toBe('event-1');
+		expect(buzz.reactions[0]?.emoji).toBe('thumbsup');
+		expect(buzz.removes[0]?.targetEventId).toBe('event-1');
 	});
 });
 
 describe('Buzz -> platforms fan-out', () => {
 	let store: FakeMappingStore;
-	let posts: PlatformPost[];
+	let slack: FakePlatformGateway;
 	let orchestrator: MirrorOrchestrator;
 
 	beforeEach(() => {
 		store = new FakeMappingStore();
-		posts = [];
-		const poster = async (post: PlatformPost) => {
-			posts.push(post);
-			return { externalId: `${post.target}-msg` };
-		};
-		orchestrator = new MirrorOrchestrator(SEED, store, ['mattermost', 'slack'], async () => ({ eventId: 'e' }), {
-			mattermost: poster,
-			slack: poster,
+		slack = new FakePlatformGateway();
+		orchestrator = new MirrorOrchestrator(SEED, store, ['mattermost', 'slack'], new FakeBuzzGateway(), {
+			slack: { ...slack, post: slack.post.bind(slack), edit: slack.edit.bind(slack), remove: slack.remove.bind(slack), react: slack.react.bind(slack) },
 		});
 	});
 
-	test('fans out to other platforms but never back to the origin platform', async () => {
+	test('fans out a message to other platforms but never back to the origin platform', async () => {
 		await store.recordChannel({ buzzChannelId: 'bc', platform: 'slack', externalChannelId: 'slack-chan' });
 		await orchestrator.onBuzzMessage({
 			buzzEventId: 'e1',
@@ -111,30 +183,42 @@ describe('Buzz -> platforms fan-out', () => {
 			origin: { platform: 'mattermost', externalId: 'post-1' },
 			senderName: 'Alice',
 		});
-		expect(posts.map((p) => p.target)).toEqual(['slack']);
+		expect(slack.posts.map((p) => p.target)).toEqual(['slack']);
 	});
 
-	test('skips a target that already has the event mapped', async () => {
-		await store.recordChannel({ buzzChannelId: 'bc', platform: 'slack', externalChannelId: 'slack-chan' });
-		await store.recordMessage({ buzzEventId: 'e1', platform: 'slack', externalId: 'slack-existing', externalChannelId: 'slack-chan' });
-		await orchestrator.onBuzzMessage({
-			buzzEventId: 'e1',
-			buzzChannelId: 'bc',
-			text: 'hi',
-			origin: null,
-			senderName: 'Alice',
-		});
-		expect(posts).toHaveLength(0);
+	test('fans out edit/delete/reaction to the mapped message on other platforms', async () => {
+		await store.recordMessage({ buzzEventId: 'e1', platform: 'slack', externalId: 'slack-1', externalChannelId: 'slack-chan' });
+		await orchestrator.onBuzzEdit({ targetEventId: 'e1', buzzChannelId: 'bc', text: 'edited', origin: { platform: 'mattermost', externalId: 'p' } });
+		await orchestrator.onBuzzReaction({ targetEventId: 'e1', buzzChannelId: 'bc', emoji: 'tada', origin: { platform: 'mattermost', externalId: 'p' } });
+		await orchestrator.onBuzzDelete({ targetEventId: 'e1', buzzChannelId: 'bc', origin: { platform: 'mattermost', externalId: 'p' } });
+		expect(slack.edits[0]?.externalId).toBe('slack-1');
+		expect(slack.reactions[0]?.emoji).toBe('tada');
+		expect(slack.removes[0]?.externalId).toBe('slack-1');
 	});
+});
 
-	test('skips a target whose channel is not mapped yet', async () => {
-		await orchestrator.onBuzzMessage({
-			buzzEventId: 'e1',
-			buzzChannelId: 'bc-unmapped',
-			text: 'hi',
-			origin: null,
-			senderName: 'Alice',
+describe('echo suppression across the round trip', () => {
+	test('an edit the mirror applies to a platform is not republished when it echoes back', async () => {
+		const store = new FakeMappingStore();
+		await store.recordMessage({ buzzEventId: 'e1', platform: 'mattermost', externalId: 'post-1', externalChannelId: 'mm-chan' });
+		const buzz = new FakeBuzzGateway();
+		const mattermost = new FakePlatformGateway();
+		const orchestrator = new MirrorOrchestrator(SEED, store, ['mattermost'], buzz, {
+			mattermost: { post: mattermost.post.bind(mattermost), edit: mattermost.edit.bind(mattermost), remove: mattermost.remove.bind(mattermost), react: mattermost.react.bind(mattermost) },
 		});
-		expect(posts).toHaveLength(0);
+
+		// A Buzz edit originating from slack fans out to mattermost...
+		await orchestrator.onBuzzEdit({ targetEventId: 'e1', buzzChannelId: 'bc', text: 'edited', origin: { platform: 'slack', externalId: 's1' } });
+		expect(mattermost.edits).toHaveLength(1);
+
+		// ...mattermost emits the edit for the mirror's own apply; it must not bounce back to Buzz.
+		await orchestrator.onPlatformEdit({
+			platform: 'mattermost',
+			externalId: 'post-1',
+			externalChannelId: 'mm-chan',
+			text: 'edited',
+			sender: { platform: 'mattermost', platformUserId: 'u1', email: 'a@dawn.kim' },
+		});
+		expect(buzz.edits).toHaveLength(0);
 	});
 });

@@ -10,6 +10,9 @@ export type UserDirectMessageAttachment = {
 };
 
 const STREAM_MESSAGE_KIND = 9;
+const EDIT_MESSAGE_KIND = 40003;
+const DELETE_MESSAGE_KIND = 9005;
+const REACTION_KIND = 7;
 const DM_OPEN_KIND = 41010;
 const GROUP_METADATA_KIND = 39000;
 const GROUP_MEMBERS_KIND = 39002;
@@ -124,6 +127,63 @@ export async function sendChannelMessageAsUser(request: {
 		if (request.replyToRootId) tags.push(["e", request.replyToRootId, "", "reply"]);
 		const event = await relay.publish(STREAM_MESSAGE_KIND, body, tags);
 		return event.id;
+	} finally {
+		relay.disconnect();
+	}
+}
+
+export async function editChannelMessageAsUser(request: {
+	relayURL: string;
+	userSecretHex: string;
+	channelID: string;
+	targetEventId: string;
+	message: string;
+	extraTags?: string[][];
+	authTagJSON?: string;
+}): Promise<string> {
+	const relay = createBuzzRelayClient(request.relayURL, request.userSecretHex, request.authTagJSON);
+	try {
+		await relay.connect();
+		const tags: string[][] = [["h", request.channelID], ["e", request.targetEventId], ...(request.extraTags ?? [])];
+		const event = await relay.publish(EDIT_MESSAGE_KIND, request.message, tags);
+		return event.id;
+	} finally {
+		relay.disconnect();
+	}
+}
+
+export async function deleteChannelMessageAsUser(request: {
+	relayURL: string;
+	userSecretHex: string;
+	channelID: string;
+	targetEventId: string;
+	extraTags?: string[][];
+	authTagJSON?: string;
+}): Promise<void> {
+	const relay = createBuzzRelayClient(request.relayURL, request.userSecretHex, request.authTagJSON);
+	try {
+		await relay.connect();
+		const tags: string[][] = [["h", request.channelID], ["e", request.targetEventId], ...(request.extraTags ?? [])];
+		await relay.publish(DELETE_MESSAGE_KIND, "", tags);
+	} finally {
+		relay.disconnect();
+	}
+}
+
+export async function addReactionAsUser(request: {
+	relayURL: string;
+	userSecretHex: string;
+	channelID: string;
+	targetEventId: string;
+	emoji: string;
+	extraTags?: string[][];
+	authTagJSON?: string;
+}): Promise<void> {
+	const relay = createBuzzRelayClient(request.relayURL, request.userSecretHex, request.authTagJSON);
+	try {
+		await relay.connect();
+		const tags: string[][] = [["e", request.targetEventId], ["h", request.channelID], ...(request.extraTags ?? [])];
+		await relay.publish(REACTION_KIND, request.emoji, tags);
 	} finally {
 		relay.disconnect();
 	}
