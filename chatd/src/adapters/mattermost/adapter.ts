@@ -1176,6 +1176,22 @@ export class MattermostAdapter implements Adapter<MattermostThreadId, Mattermost
 			return;
 		}
 
+		if (this.config.onMirrorInbound && payload.event === "posted") {
+			const emit = this.config.onMirrorInbound;
+			void this.getMattermostUser(post.user_id)
+				.then((user) => {
+					emit({
+						externalId: post.id,
+						externalChannelId: post.channel_id,
+						text: post.message ?? "",
+						senderPlatformUserId: post.user_id,
+						senderEmail: user.email,
+						replyToExternalId: post.root_id || undefined,
+					});
+				})
+				.catch((error) => this.logger.error("mirror inbound emit failed", error));
+		}
+
 		const channelType = payload.data?.channel_type;
 
 		if (typeof channelType === "string" && this.isChannelType(channelType)) {

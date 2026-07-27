@@ -33,6 +33,7 @@ import {
 	type BuzzThreadId,
 } from "./types.ts";
 import type { ReactionSummary } from "../../visible-context.ts";
+import { originOfTags } from "../../mirror/origin.ts";
 
 const STREAM_MESSAGE_KIND = 9;
 const TYPING_INDICATOR_KIND = 20002;
@@ -332,8 +333,29 @@ export class BuzzAdapter implements Adapter<BuzzThreadId, BuzzEvent> {
 			await this.refreshChannels();
 			this.subscribeToChannels();
 		}
+		this.emitMirrorInbound(event, channelId);
 		const threadId = this.threadIdForEvent(event);
 		await this.chat.processMessage(this, threadId, async () => await this.messageFromEvent(event));
+	}
+
+	private emitMirrorInbound(event: BuzzEvent, channelId: string): void {
+		const emit = this.config.onMirrorInbound;
+		if (!emit) return;
+		const { rootEventId } = threadTagsOf(event);
+		void Promise.all([this.fetchProfile(event.pubkey), this.linkedAccountEmail(event.pubkey)])
+			.then(([profile, email]) => {
+				emit({
+					buzzEventId: event.id,
+					buzzChannelId: channelId,
+					text: event.content,
+					senderPubkey: event.pubkey,
+					senderName: profile.name ?? `npub…${event.pubkey.slice(-6)}`,
+					senderEmail: email,
+					origin: originOfTags(event.tags),
+					replyToBuzzEventId: rootEventId && rootEventId !== event.id ? rootEventId : undefined,
+				});
+			})
+			.catch(() => void 0);
 	}
 
 	private threadIdForEvent(event: BuzzEvent): string {
