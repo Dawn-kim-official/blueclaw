@@ -38,6 +38,19 @@ export class MappingStore {
 		await this.post('/bridge/api/channel', mapping);
 	}
 
+	async secretForEmail(email: string): Promise<string> {
+		const document = await this.get<{ secretHex: string }>('/bridge/api/identity', { email });
+		return document.secretHex;
+	}
+
+	async buzzChannelForExternal(platform: string, externalChannelId: string): Promise<string> {
+		const document = await this.postJSON<{ buzzChannelId: string }>('/bridge/api/channel/resolve', {
+			platform,
+			externalChannelId,
+		});
+		return document.buzzChannelId;
+	}
+
 	async channelByExternal(platform: string, externalChannelId: string): Promise<ChannelMapping | null> {
 		return this.lookupChannel({ platform, externalChannelId });
 	}
@@ -65,6 +78,18 @@ export class MappingStore {
 		if (!response.ok) {
 			throw new Error(`bridge map ${path} returned ${response.status}`);
 		}
+	}
+
+	private async postJSON<T>(path: string, body: unknown): Promise<T> {
+		const response = await this.fetchImpl(`${this.baseURL}${path}`, {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify(body),
+		});
+		if (!response.ok) {
+			throw new Error(`bridge map ${path} returned ${response.status}`);
+		}
+		return (await response.json()) as T;
 	}
 
 	private async get<T>(path: string, params: Record<string, string>): Promise<T> {

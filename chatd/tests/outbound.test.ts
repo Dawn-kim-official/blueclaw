@@ -29,7 +29,6 @@ function createConfiguration(overrides: Partial<ChatdConfiguration> = {}): Chatd
 		blueclawIngressURL: "https://blueclaw.example.com/ingress",
 		admindBaseURL: undefined,
 		listenPort: 18090,
-		mirrorSeed: undefined,
 		mattermost: {
 			baseURL: "https://mattermost.example.com",
 			botToken: "test-token",

@@ -13,7 +13,6 @@ export type MirrorWiring = {
 // Buzz gateway, and per-user platform gateways, driven by the orchestrator. The
 // returned sinks are handed to each adapter's inbound tap.
 export function createMirror(options: {
-	seed: string;
 	admindBaseURL: string;
 	connectedPlatforms: string[];
 	buzz: { relayURL: string; authTagJSON?: string };
@@ -26,11 +25,11 @@ export function createMirror(options: {
 		platforms.mattermost = createMattermostGateway(options.mattermost);
 	}
 	const orchestrator = new MirrorOrchestrator(
-		options.seed,
 		mapping,
 		options.connectedPlatforms,
 		createBuzzGateway(options.buzz.relayURL, options.buzz.authTagJSON),
 		platforms,
+		mapping,
 	);
 	const run = (context: string, work: Promise<void>): void => {
 		void work.catch((error) => options.onError?.(context, error));
