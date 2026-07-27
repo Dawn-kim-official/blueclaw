@@ -1,14 +1,26 @@
 import { EchoSuppressor } from './echo-suppressor.ts';
-import { deriveBuzzChannelId, deriveBuzzSecret, type PlatformIdentity } from './identity.ts';
 import type { ChannelMapping, MessageMapping } from './mapping-store.ts';
 import { mirrorTargets, type MessageOrigin } from './origin.ts';
+
+export type PlatformIdentity = {
+	platform: string;
+	platformUserId: string;
+	email?: string;
+};
 
 export interface MappingStoreLike {
 	recordMessage(mapping: MessageMapping): Promise<void>;
 	messageByExternal(platform: string, externalId: string): Promise<MessageMapping | null>;
 	messageByEvent(buzzEventId: string, platform: string): Promise<MessageMapping | null>;
-	recordChannel(mapping: ChannelMapping): Promise<void>;
 	channelByBuzz(buzzChannelId: string, platform: string): Promise<ChannelMapping | null>;
+}
+
+// admind is the sole identity/channel authority (it holds the key seed). The
+// mirror never derives keys or channel ids itself; it resolves a person's Buzz
+// secret and a channel's Buzz id through admind, which pins them.
+export interface MirrorIdentity {
+	secretForEmail(email: string): Promise<string>;
+	buzzChannelForExternal(platform: string, externalChannelId: string): Promise<string>;
 }
 
 export type BuzzPublish = {
@@ -165,18 +177,19 @@ export type InboundBuzzReaction = {
 //   inbound event a platform emits for the mirror's own apply.
 export class MirrorOrchestrator {
 	constructor(
-		private readonly seed: string,
 		private readonly mapping: MappingStoreLike,
 		private readonly connectedPlatforms: readonly string[],
 		private readonly buzz: BuzzGateway,
 		private readonly platforms: Record<string, PlatformGateway>,
+		private readonly identity: MirrorIdentity,
 		private readonly echo: EchoSuppressor = new EchoSuppressor(),
 	) {}
 
 	async onPlatformMessage(message: InboundPlatformMessage): Promise<void> {
+		if (!message.sender.email) return;
 		if (await this.mapping.messageByExternal(message.platform, message.externalId)) return;
-		const buzzChannelId = deriveBuzzChannelId(this.seed, message.externalChannelId);
-		const userSecretHex = deriveBuzzSecret(this.seed, message.sender);
+		const buzzChannelId = await this.identity.buzzChannelForExternal(message.platform, message.externalChannelId);
+		const userSecretHex = await this.identity.secretForEmail(message.sender.email);
 		let replyToBuzzEventId: string | undefined;
 		if (message.replyToExternalId) {
 			const parent = await this.mapping.messageByExternal(message.platform, message.replyToExternalId);
@@ -195,20 +208,16 @@ export class MirrorOrchestrator {
 			externalId: message.externalId,
 			externalChannelId: message.externalChannelId,
 		});
-		await this.mapping.recordChannel({
-			buzzChannelId,
-			platform: message.platform,
-			externalChannelId: message.externalChannelId,
-		});
 	}
 
 	async onPlatformEdit(edit: InboundPlatformEdit): Promise<void> {
+		if (!edit.sender.email) return;
 		if (this.echo.consume(['platform', edit.platform, edit.externalId, 'edit', edit.text])) return;
 		const mapping = await this.mapping.messageByExternal(edit.platform, edit.externalId);
 		if (!mapping) return;
 		await this.buzz.edit({
-			userSecretHex: deriveBuzzSecret(this.seed, edit.sender),
-			buzzChannelId: deriveBuzzChannelId(this.seed, edit.externalChannelId),
+			userSecretHex: await this.identity.secretForEmail(edit.sender.email),
+			buzzChannelId: await this.identity.buzzChannelForExternal(edit.platform, edit.externalChannelId),
 			targetEventId: mapping.buzzEventId,
 			text: edit.text,
 			origin: { platform: edit.platform, externalId: edit.externalId },
@@ -216,24 +225,26 @@ export class MirrorOrchestrator {
 	}
 
 	async onPlatformDelete(remove: InboundPlatformDelete): Promise<void> {
+		if (!remove.sender.email) return;
 		if (this.echo.consume(['platform', remove.platform, remove.externalId, 'delete'])) return;
 		const mapping = await this.mapping.messageByExternal(remove.platform, remove.externalId);
 		if (!mapping) return;
 		await this.buzz.remove({
-			userSecretHex: deriveBuzzSecret(this.seed, remove.sender),
-			buzzChannelId: deriveBuzzChannelId(this.seed, remove.externalChannelId),
+			userSecretHex: await this.identity.secretForEmail(remove.sender.email),
+			buzzChannelId: await this.identity.buzzChannelForExternal(remove.platform, remove.externalChannelId),
 			targetEventId: mapping.buzzEventId,
 			origin: { platform: remove.platform, externalId: remove.externalId },
 		});
 	}
 
 	async onPlatformReaction(reaction: InboundPlatformReaction): Promise<void> {
-		if (this.echo.consume(['platform', reaction.platform, reaction.externalId, 'react', reaction.emoji, reaction.sender.email ?? ''])) return;
+		if (!reaction.sender.email) return;
+		if (this.echo.consume(['platform', reaction.platform, reaction.externalId, 'react', reaction.emoji, reaction.sender.email])) return;
 		const mapping = await this.mapping.messageByExternal(reaction.platform, reaction.externalId);
 		if (!mapping) return;
 		await this.buzz.react({
-			userSecretHex: deriveBuzzSecret(this.seed, reaction.sender),
-			buzzChannelId: deriveBuzzChannelId(this.seed, reaction.externalChannelId),
+			userSecretHex: await this.identity.secretForEmail(reaction.sender.email),
+			buzzChannelId: await this.identity.buzzChannelForExternal(reaction.platform, reaction.externalChannelId),
 			targetEventId: mapping.buzzEventId,
 			emoji: reaction.emoji,
 			origin: { platform: reaction.platform, externalId: reaction.externalId },

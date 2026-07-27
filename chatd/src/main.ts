@@ -15,9 +15,8 @@ const connectedPlatforms: string[] = [];
 if (configuration.mattermost) connectedPlatforms.push('mattermost');
 
 let mirror: MirrorWiring | undefined;
-if (configuration.mirrorSeed && configuration.admindBaseURL && configuration.buzz) {
+if (configuration.admindBaseURL && configuration.buzz) {
   mirror = createMirror({
-    seed: configuration.mirrorSeed,
     admindBaseURL: configuration.admindBaseURL,
     connectedPlatforms,
     buzz: { relayURL: configuration.buzz.relayURL, authTagJSON: configuration.buzz.authTagJSON },
