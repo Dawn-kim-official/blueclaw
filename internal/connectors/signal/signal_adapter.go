@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"blueclaw/internal/connectors"
-	"blueclaw/internal/identity"
+	"github.com/Dawn-kim-official/blueclaw/internal/connectors"
+	"github.com/Dawn-kim-official/blueclaw/internal/identity"
 )
 
 type Event struct {

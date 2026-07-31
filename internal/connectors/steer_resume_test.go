@@ -4,9 +4,9 @@ import (
 	"context"
 	"testing"
 
-	"blueclaw/internal/agent"
-	"blueclaw/internal/agenttest"
-	"blueclaw/internal/task"
+	"github.com/Dawn-kim-official/blueclaw/internal/agent"
+	"github.com/Dawn-kim-official/blueclaw/internal/agenttest"
+	"github.com/Dawn-kim-official/blueclaw/internal/task"
 )
 
 func TestUserSteerTaskProfileSourceReferenceResolvesRealPlatform(t *testing.T) {

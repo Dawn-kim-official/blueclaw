@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"blueclaw/internal/policy"
+	"github.com/Dawn-kim-official/blueclaw/internal/policy"
 )
 
 func TestInvitePersonRequiresPersonID(t *testing.T) {

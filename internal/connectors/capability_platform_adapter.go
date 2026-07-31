@@ -10,9 +10,9 @@ import (
 	"strings"
 	"time"
 
-	"blueclaw/internal/agent"
-	"blueclaw/internal/capability"
-	"blueclaw/internal/identity"
+	"github.com/Dawn-kim-official/blueclaw/internal/agent"
+	"github.com/Dawn-kim-official/blueclaw/internal/capability"
+	"github.com/Dawn-kim-official/blueclaw/internal/identity"
 )
 
 type CapabilityPlatformAdapter struct {

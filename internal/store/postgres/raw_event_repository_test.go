@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"blueclaw/internal/connectors"
+	"github.com/Dawn-kim-official/blueclaw/internal/connectors"
 )
 
 func TestConnectorReplyOutboxIDSeparatesCheckpointAndFinalReplies(t *testing.T) {

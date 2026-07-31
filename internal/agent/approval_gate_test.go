@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"blueclaw/internal/task"
+	"github.com/Dawn-kim-official/blueclaw/internal/task"
 )
 
 func TestTerminalRunModelApprovalPausesBeforeExecution(t *testing.T) {

@@ -3,8 +3,8 @@ package app
 import (
 	"testing"
 
-	"blueclaw/internal/config"
-	"blueclaw/internal/connectors"
+	"github.com/Dawn-kim-official/blueclaw/internal/config"
+	"github.com/Dawn-kim-official/blueclaw/internal/connectors"
 )
 
 func TestBuzzPlatformUsesChatdContract(t *testing.T) {

@@ -18,8 +18,8 @@ import (
 	"strings"
 	"syscall"
 
-	"blueclaw/internal/policy"
-	"blueclaw/internal/security"
+	"github.com/Dawn-kim-official/blueclaw/internal/policy"
+	"github.com/Dawn-kim-official/blueclaw/internal/security"
 )
 
 func main() {

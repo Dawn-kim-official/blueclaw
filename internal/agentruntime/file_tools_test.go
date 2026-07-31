@@ -11,8 +11,8 @@ import (
 	"testing"
 	"unicode/utf8"
 
-	"blueclaw/internal/agent"
-	"blueclaw/internal/policy"
+	"github.com/Dawn-kim-official/blueclaw/internal/agent"
+	"github.com/Dawn-kim-official/blueclaw/internal/policy"
 )
 
 func assertFileResourceEffect(t *testing.T, result agent.ToolResult, objectType string, effect string, path string) {

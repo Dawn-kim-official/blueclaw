@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"blueclaw/internal/task"
+	"github.com/Dawn-kim-official/blueclaw/internal/task"
 )
 
 func TestStalledOnRedundantInspectionDetectsCacheHit(t *testing.T) {

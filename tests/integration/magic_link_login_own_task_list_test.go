@@ -3,8 +3,8 @@ package integration
 import (
 	"testing"
 
-	"blueclaw/internal/auth"
-	"blueclaw/internal/task"
+	"github.com/Dawn-kim-official/blueclaw/internal/auth"
+	"github.com/Dawn-kim-official/blueclaw/internal/task"
 )
 
 func TestMagicLinkLoginOwnTaskList(t *testing.T) {

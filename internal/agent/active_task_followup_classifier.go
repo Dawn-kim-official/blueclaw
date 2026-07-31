@@ -6,7 +6,7 @@ import (
 	"errors"
 	"strings"
 
-	"blueclaw/internal/llm"
+	"github.com/Dawn-kim-official/blueclaw/internal/llm"
 )
 
 type ActiveTaskFollowUpClassificationRequest struct {

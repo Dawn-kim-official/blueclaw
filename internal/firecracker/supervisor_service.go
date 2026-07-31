@@ -14,7 +14,7 @@ import (
 	"sync"
 	"time"
 
-	"blueclaw/internal/config"
+	"github.com/Dawn-kim-official/blueclaw/internal/config"
 )
 
 type SupervisorService struct {

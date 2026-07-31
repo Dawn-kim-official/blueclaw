@@ -4,7 +4,7 @@ import (
 	"errors"
 	"time"
 
-	"blueclaw/internal/auth"
+	"github.com/Dawn-kim-official/blueclaw/internal/auth"
 )
 
 type TaskAuthService struct {

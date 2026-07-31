@@ -10,13 +10,13 @@ import (
 	"sync"
 	"time"
 
-	"blueclaw/internal/agent"
-	"blueclaw/internal/capability"
-	"blueclaw/internal/mcp"
-	"blueclaw/internal/memory"
-	"blueclaw/internal/policy"
-	"blueclaw/internal/security"
-	"blueclaw/internal/task"
+	"github.com/Dawn-kim-official/blueclaw/internal/agent"
+	"github.com/Dawn-kim-official/blueclaw/internal/capability"
+	"github.com/Dawn-kim-official/blueclaw/internal/mcp"
+	"github.com/Dawn-kim-official/blueclaw/internal/memory"
+	"github.com/Dawn-kim-official/blueclaw/internal/policy"
+	"github.com/Dawn-kim-official/blueclaw/internal/security"
+	"github.com/Dawn-kim-official/blueclaw/internal/task"
 )
 
 type HistoryProvider interface {

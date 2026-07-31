@@ -8,8 +8,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"blueclaw/internal/config"
-	"blueclaw/internal/policy"
+	"github.com/Dawn-kim-official/blueclaw/internal/config"
+	"github.com/Dawn-kim-official/blueclaw/internal/policy"
 )
 
 func TestPOSIXSynchronizerPassesComputedStateDocumentToHelper(t *testing.T) {

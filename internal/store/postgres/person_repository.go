@@ -5,7 +5,7 @@ import (
 	"database/sql"
 	"time"
 
-	"blueclaw/internal/policy"
+	"github.com/Dawn-kim-official/blueclaw/internal/policy"
 )
 
 type PersonRepository struct {

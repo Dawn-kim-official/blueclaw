@@ -9,9 +9,9 @@ import (
 	"strings"
 	"testing"
 
-	"blueclaw/internal/agent"
-	"blueclaw/internal/policy"
-	"blueclaw/internal/security"
+	"github.com/Dawn-kim-official/blueclaw/internal/agent"
+	"github.com/Dawn-kim-official/blueclaw/internal/policy"
+	"github.com/Dawn-kim-official/blueclaw/internal/security"
 )
 
 func TestTerminalRunTranslatesAgentWorkspacePaths(t *testing.T) {

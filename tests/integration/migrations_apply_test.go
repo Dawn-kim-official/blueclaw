@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"blueclaw/internal/store/postgres"
+	"github.com/Dawn-kim-official/blueclaw/internal/store/postgres"
 )
 
 func TestMigrationsApplyList(t *testing.T) {

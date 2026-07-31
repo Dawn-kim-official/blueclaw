@@ -7,9 +7,9 @@ import (
 	"strings"
 	"time"
 
-	"blueclaw/internal/agent"
-	"blueclaw/internal/memory"
-	"blueclaw/internal/policy"
+	"github.com/Dawn-kim-official/blueclaw/internal/agent"
+	"github.com/Dawn-kim-official/blueclaw/internal/memory"
+	"github.com/Dawn-kim-official/blueclaw/internal/policy"
 )
 
 type TaskLaunchSource string

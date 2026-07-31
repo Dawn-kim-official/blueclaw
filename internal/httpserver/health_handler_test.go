@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"blueclaw/internal/memory"
-	"blueclaw/internal/protocolidentity"
+	"github.com/Dawn-kim-official/blueclaw/internal/memory"
+	"github.com/Dawn-kim-official/blueclaw/internal/protocolidentity"
 )
 
 func TestHealthReportsProtocolIdentityDrift(t *testing.T) {

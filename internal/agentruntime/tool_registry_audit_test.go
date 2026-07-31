@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"testing"
 
-	"blueclaw/internal/agent"
-	"blueclaw/internal/capability"
+	"github.com/Dawn-kim-official/blueclaw/internal/agent"
+	"github.com/Dawn-kim-official/blueclaw/internal/capability"
 )
 
 func TestHashCapabilityDescriptorsIncludesBroadenedFields(t *testing.T) {

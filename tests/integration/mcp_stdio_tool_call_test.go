@@ -4,9 +4,9 @@ import (
 	"context"
 	"testing"
 
-	"blueclaw/internal/config"
-	"blueclaw/internal/mcp"
-	"blueclaw/tests/support"
+	"github.com/Dawn-kim-official/blueclaw/internal/config"
+	"github.com/Dawn-kim-official/blueclaw/internal/mcp"
+	"github.com/Dawn-kim-official/blueclaw/tests/support"
 )
 
 func TestMCPStdIOToolCall(t *testing.T) {

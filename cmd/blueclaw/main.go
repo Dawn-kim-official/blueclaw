@@ -4,8 +4,8 @@ import (
 	"flag"
 	"log"
 
-	"blueclaw/internal/app"
-	"blueclaw/internal/config"
+	"github.com/Dawn-kim-official/blueclaw/internal/app"
+	"github.com/Dawn-kim-official/blueclaw/internal/config"
 )
 
 func main() {

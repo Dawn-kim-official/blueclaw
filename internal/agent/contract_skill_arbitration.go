@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strings"
 
-	"blueclaw/internal/llm"
+	"github.com/Dawn-kim-official/blueclaw/internal/llm"
 )
 
 const maxContractSkillArbitrationCandidates = 8

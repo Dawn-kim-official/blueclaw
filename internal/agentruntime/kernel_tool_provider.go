@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"strings"
 
-	"blueclaw/internal/agent"
+	"github.com/Dawn-kim-official/blueclaw/internal/agent"
 )
 
 const kernelToolProviderID = "kernel"

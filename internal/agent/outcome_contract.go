@@ -3,7 +3,7 @@ package agent
 import (
 	"strings"
 
-	"blueclaw/internal/task"
+	"github.com/Dawn-kim-official/blueclaw/internal/task"
 )
 
 func expectedResultsIncludeSiteRequirement(results []ExpectedResult) bool {

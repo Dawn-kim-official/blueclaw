@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"blueclaw/internal/llm"
-	"blueclaw/internal/memory"
+	"github.com/Dawn-kim-official/blueclaw/internal/llm"
+	"github.com/Dawn-kim-official/blueclaw/internal/memory"
 )
 
 func formatContextTimestamp(sentAt time.Time) string {

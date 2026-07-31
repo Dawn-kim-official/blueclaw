@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"blueclaw/internal/connectors"
+	"github.com/Dawn-kim-official/blueclaw/internal/connectors"
 )
 
 func TestConnectorEventDiagnosticHandlerListsFilteredEvents(t *testing.T) {

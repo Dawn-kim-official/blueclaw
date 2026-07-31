@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"blueclaw/internal/agent"
-	"blueclaw/internal/policy"
+	"github.com/Dawn-kim-official/blueclaw/internal/agent"
+	"github.com/Dawn-kim-official/blueclaw/internal/policy"
 )
 
 func TestFileReadResolvesAttachmentFileHint(t *testing.T) {

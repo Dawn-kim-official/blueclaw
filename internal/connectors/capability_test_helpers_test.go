@@ -4,9 +4,9 @@ import (
 	"encoding/json"
 	"strings"
 
-	"blueclaw/internal/agent"
-	"blueclaw/internal/agentruntime"
-	"blueclaw/internal/capability"
+	"github.com/Dawn-kim-official/blueclaw/internal/agent"
+	"github.com/Dawn-kim-official/blueclaw/internal/agentruntime"
+	"github.com/Dawn-kim-official/blueclaw/internal/capability"
 )
 
 var connectorTestCapabilityClosedSchema = json.RawMessage(`{"type":"object","properties":{},"additionalProperties":false}`)

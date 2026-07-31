@@ -6,8 +6,8 @@ import (
 	"net/http"
 	"strings"
 
-	"blueclaw/internal/identity"
-	"blueclaw/internal/policy"
+	"github.com/Dawn-kim-official/blueclaw/internal/identity"
+	"github.com/Dawn-kim-official/blueclaw/internal/policy"
 )
 
 type PolicyHandler struct {

@@ -3,9 +3,9 @@ package app
 import (
 	"testing"
 
-	"blueclaw/internal/capability"
-	"blueclaw/internal/config"
-	"blueclaw/internal/connectors"
+	"github.com/Dawn-kim-official/blueclaw/internal/capability"
+	"github.com/Dawn-kim-official/blueclaw/internal/config"
+	"github.com/Dawn-kim-official/blueclaw/internal/connectors"
 )
 
 func TestNewPlatformAdapterDefaultsToCapability(t *testing.T) {

@@ -10,8 +10,8 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"blueclaw/internal/agent"
-	"blueclaw/internal/skill"
+	"github.com/Dawn-kim-official/blueclaw/internal/agent"
+	"github.com/Dawn-kim-official/blueclaw/internal/skill"
 )
 
 const maximumSkillNameLength = 64

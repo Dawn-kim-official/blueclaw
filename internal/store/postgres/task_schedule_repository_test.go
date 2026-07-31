@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"blueclaw/internal/task"
+	"github.com/Dawn-kim-official/blueclaw/internal/task"
 )
 
 type taskScheduleScannerStub struct {
