@@ -1173,6 +1173,7 @@ export class MattermostAdapter implements Adapter<MattermostThreadId, Mattermost
 		}
 
 		if (this.botUserId && post.user_id === this.botUserId) {
+			this.emitMirrorPost(post, payload.event);
 			return;
 		}
 
