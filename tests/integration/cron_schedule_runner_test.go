@@ -16,7 +16,7 @@ func TestCronScheduleRunsDailyResearchPromptAndAdvancesToNextDay(t *testing.T) {
 	taskEventService := task.NewTaskEventService()
 	taskRunService := task.NewTaskRunService(taskEventService)
 	agentKernel := agent.NewAgentKernel(taskRunService, task.NewTaskStepService())
-	agentKernel.UseLanguageModelProvider(staticScheduleLanguageModel{content: scheduleFinishMessage("Today's research surfaced three key changes.")})
+	useScheduleTestLanguageModel(agentKernel, staticScheduleLanguageModel{content: scheduleFinishMessage("Today's research surfaced three key changes.")})
 	toolCatalogBuilder := agentruntime.NewToolCatalogBuilder()
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(map[string][]string{
 		"default": {"memory.search"},
@@ -68,8 +68,21 @@ func (languageModel staticScheduleLanguageModel) GenerateResponse(context.Contex
 	return "", nil
 }
 
-func (languageModel staticScheduleLanguageModel) GenerateStructuredResponse(context.Context, llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
+func (languageModel staticScheduleLanguageModel) GenerateStructuredResponse(_ context.Context, request llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
+	if request.StructuredOutputSchema.Name == "blueclaw_turn_router" {
+		return llm.StructuredResponse{Content: scheduleTurnRouterResponse()}, nil
+	}
 	return llm.StructuredResponse{Content: languageModel.content}, nil
+}
+
+func scheduleTurnRouterResponse() string {
+	return `{"route":"answer_question","classification":"quick_reply","taskShape":"immediate_reply","level":"xlow","estimatedMinutes":1,"requestedOutputFormats":null,"responseLanguage":"ko","reason":"scheduled run","userFacingReply":""}`
+}
+
+func useScheduleTestLanguageModel(agentKernel *agent.AgentKernel, languageModel staticScheduleLanguageModel) {
+	agentKernel.UseLanguageModelProvider(languageModel)
+	agentKernel.UseIntakeLanguageModelProvider(languageModel)
+	agentKernel.UseIntakeOptions(agent.IntakeOptions{IsEnabled: true})
 }
 
 func scheduleFinishMessage(reply string) string {
