@@ -30,7 +30,9 @@ its surroundings.
 ## Testing
 
 - `go test ./...` covers the unit suites beside their sources and the
-  integration suite under `tests/`. Neither needs an external service.
+  integration suite under `tests/`. Nothing needs an external service; the
+  standalone boot check skips unless `BLUECLAW_TEST_POSTGRES_URL` names a
+  database, which CI supplies.
 - TypeScript suites are per package: `bun run test` at the repository root
   runs every package suite in its own process, and `cd <package> && bun run
   test` runs one. Never run bare `bun test` at the repository root — it
