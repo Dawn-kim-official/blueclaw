@@ -31,6 +31,8 @@ its surroundings.
 
 - `go test ./internal/...` is the unit suite. `go test ./tests/...` adds the
   integration suite, which starts a Postgres container.
+- Name Go package roots explicitly (`./cmd/... ./internal/...`). A bare `./...`
+  walks the Bun workspace symlinks under `llmd/node_modules` and fails.
 - TypeScript suites are per package: `bun run test` at the repository root
   runs every package suite in its own process, and `cd <package> && bun run
   test` runs one. Never run bare `bun test` at the repository root — it

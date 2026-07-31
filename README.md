@@ -53,7 +53,7 @@ See [docs/architecture.md](docs/architecture.md) for how these fit together.
 Go 1.26 and [Bun](https://bun.sh) 1.3 are the only prerequisites.
 
 ```bash
-go build ./...
+go build ./cmd/... ./internal/...
 go test ./internal/...
 ```
 
@@ -63,7 +63,8 @@ bun run test
 ```
 
 `go test ./tests/...` additionally runs the integration suite, which starts a
-Postgres container.
+Postgres container. Package roots are listed explicitly because `./...` also
+walks the Bun workspace symlinks under `llmd/node_modules`.
 
 ## Running
 
