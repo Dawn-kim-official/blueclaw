@@ -56,19 +56,32 @@ func newLLMDClient(runtimeConfiguration config.RuntimeConfiguration, modelName s
 			return LLMDClient{}, errors.New("llmd auth key is empty")
 		}
 	}
-	capabilityProvider := NewCapabilityLLMClientForModel(runtimeConfiguration, modelName)
-	return NewLLMDClient(LLMDClientConfiguration{
+	clientConfiguration := LLMDClientConfiguration{
 		Endpoint:                        llmdConfiguration.Endpoint,
 		UnixSocketPath:                  llmdConfiguration.UnixSocketPath,
 		AuthKey:                         authKey,
 		ModelName:                       modelName,
 		ExecutionMode:                   firstNonEmptyModelName(llmdConfiguration.ExecutionMode, runtimeConfiguration.LanguageModel.Capability.ExecutionMode),
 		LocalOnly:                       llmdConfiguration.LocalOnly,
-		TextProvider:                    capabilityProvider,
-		StructuredFallbackProvider:      capabilityProvider,
 		StructuredSchemaNames:           configuredLLMDSchemaNames(runtimeConfiguration),
 		IsStructuredOutputAuthoritative: strings.TrimSpace(runtimeConfiguration.LanguageModel.DefaultProvider) == "llmd",
-	}), nil
+	}
+	if HasCapabilityEndpoint(runtimeConfiguration) {
+		capabilityProvider := NewCapabilityLLMClientForModel(runtimeConfiguration, modelName)
+		clientConfiguration.TextProvider = capabilityProvider
+		clientConfiguration.StructuredFallbackProvider = capabilityProvider
+	}
+	return NewLLMDClient(clientConfiguration), nil
+}
+
+// HasCapabilityEndpoint reports whether an InternKim capability service is
+// reachable. Without one, llmd owns every model call itself.
+func HasCapabilityEndpoint(runtimeConfiguration config.RuntimeConfiguration) bool {
+	capabilities := runtimeConfiguration.Capabilities
+	if strings.TrimSpace(capabilities.Endpoint) != "" || strings.TrimSpace(capabilities.UnixSocketPath) != "" {
+		return true
+	}
+	return capabilities.VSockCID > 0 && capabilities.VSockPort > 0
 }
 
 func isLLMDBridgeConfiguration(configuration config.LanguageModelLLMDConfiguration) bool {
