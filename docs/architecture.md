@@ -349,12 +349,20 @@ Slack export permissions or plan limits.
 
 ## Development Lab
 
-The default lane is a single Apple Silicon macOS host acting as the main
-computer, with Apple `container` providing an ARM Ubuntu VM that stands in for
-the appliance, Firecracker inside that VM, and Blueclaw inside the Firecracker
-guest. Mattermost stays in the VM, outside the guest. Docker is not part of this
-topology.
+`cmd/blueclaw-lab` drives the rig this repository ships: an Apple Silicon macOS
+host acting as the main computer, a Tart ARM Ubuntu virtual machine standing in
+for the appliance, Firecracker inside that machine, and Blueclaw inside the
+Firecracker guest. Mattermost stays in the virtual machine, outside the guest.
+`config/lab.example.json` configures all three layers, and `lab/scripts/` holds
+the provisioning and connector scenario scripts.
 
-`lab/scripts/` holds the provisioning and scenario scripts this lane runs. They
-are driven by the private appliance repository's `internkim dev` commands and
-are included here so the guest-side contract is readable.
+```bash
+go run ./cmd/blueclaw-lab --configuration config/lab.example.json vm-up
+go run ./cmd/blueclaw-lab --configuration config/lab.example.json smoke-firecracker
+go run ./cmd/blueclaw-lab --configuration config/lab.example.json vm-down
+```
+
+The same binary runs `virtual-session`, which drives the agent loop without any
+virtual machine at all. The private appliance repository has its own fleet lane
+built on Apple `container`; it reuses `lab/scripts/` but none of the Tart setup
+above.
