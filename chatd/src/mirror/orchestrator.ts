@@ -187,6 +187,7 @@ export class MirrorOrchestrator {
 
 	async onPlatformMessage(message: InboundPlatformMessage): Promise<void> {
 		if (!message.sender.email) return;
+		if (this.echo.consume(['platform', message.platform, message.externalChannelId, 'create', message.text])) return;
 		if (await this.mapping.messageByExternal(message.platform, message.externalId)) return;
 		const buzzChannelId = await this.identity.buzzChannelForExternal(message.platform, message.externalChannelId);
 		const userSecretHex = await this.identity.secretForEmail(message.sender.email);
@@ -261,6 +262,7 @@ export class MirrorOrchestrator {
 				const parent = await this.mapping.messageByEvent(message.replyToBuzzEventId, target);
 				replyToExternalId = parent?.externalId;
 			}
+			this.echo.expect(['platform', target, channel.externalChannelId, 'create', message.text]);
 			const posted = await gateway.post({
 				target,
 				externalChannelId: channel.externalChannelId,
