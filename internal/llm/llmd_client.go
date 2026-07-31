@@ -220,10 +220,16 @@ func NewLLMDClient(configuration LLMDClientConfiguration) LLMDClient {
 }
 
 func (client LLMDClient) GenerateResponse(responseContext context.Context, prompt string) (string, error) {
-	if client.TextProvider == nil {
-		return "", errors.New("llmd text provider is not configured")
+	if client.TextProvider != nil {
+		return client.TextProvider.GenerateResponse(responseContext, prompt)
 	}
-	return client.TextProvider.GenerateResponse(responseContext, prompt)
+	response, errorValue := client.GenerateRecoveryChatCompletion(responseContext, ChatCompletionRequest{
+		Messages: []ChatCompletionMessage{{Role: "user", Content: prompt}},
+	})
+	if errorValue != nil {
+		return "", errorValue
+	}
+	return ChatCompletionText(response)
 }
 
 func (client LLMDClient) GenerateRecoveryResponse(responseContext context.Context, prompt string) (string, error) {
@@ -281,10 +287,7 @@ func (client LLMDClient) generateLLMDRecoveryChatAttempt(responseContext context
 }
 
 func (client LLMDClient) GenerateStructuredResponse(responseContext context.Context, request StructuredResponseRequest) (StructuredResponse, error) {
-	if !client.usesLLMDForSchema(request.StructuredOutputSchema.Name) {
-		if client.LocalOnly || client.StructuredFallbackProvider == nil {
-			return StructuredResponse{}, errors.New("llmd structured schema is not enabled")
-		}
+	if !client.usesLLMDForSchema(request.StructuredOutputSchema.Name) && !client.LocalOnly && client.StructuredFallbackProvider != nil {
 		response, errorValue := client.StructuredFallbackProvider.GenerateStructuredResponse(responseContext, request)
 		response.Transport = "capability"
 		return response, errorValue
