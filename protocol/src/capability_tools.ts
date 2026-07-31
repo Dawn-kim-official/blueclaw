@@ -318,6 +318,22 @@ export const taskDeleteResultSchema = z.strictObject({
   deleted: z.literal(true),
 });
 
+export const taskDefinitionsInputSchema = z.strictObject({});
+
+export const taskDefinitionsInputIntentSchema = z.strictObject({});
+
+const taskDefinitionLabelSchema = z.strictObject({
+  value: z.string(),
+  color: z.string().optional(),
+});
+
+export const taskDefinitionsResultSchema = z.strictObject({
+  businesses: z.array(taskDefinitionLabelSchema),
+  types: z.array(taskDefinitionLabelSchema),
+  sizes: z.array(z.string()),
+  statuses: z.array(z.string()),
+});
+
 const calendarParticipantResultSchema = z.strictObject({
   personID: z.string().optional(),
   name: z.string(),
@@ -824,6 +840,19 @@ const taskToolDefinitions: CapabilityToolDefinition[] = [
     estimatedLatency: CapabilityEstimatedLatency.Low,
     inputSchema: taskListInputSchema,
     result: { schema: taskListResultSchema, effects: [] },
+    sideEffect: CapabilitySideEffect.Read,
+  },
+  {
+    name: 'task.definitions',
+    namespace: 'task',
+    privacyClass: 'workspace_task',
+    policyResource: 'tool:task.definitions',
+    description: 'List the values a task field accepts in this workspace: businesses, task types, sizes, and statuses. Call this before task.add or task.update when the business or type is not already known to be registered, and before importing records from another system, because a value outside these lists is rejected.',
+    version: '1',
+    estimatedLatency: CapabilityEstimatedLatency.Low,
+    inputSchema: taskDefinitionsInputSchema,
+    inputIntentSchema: taskDefinitionsInputIntentSchema,
+    result: { schema: taskDefinitionsResultSchema, effects: [] },
     sideEffect: CapabilitySideEffect.Read,
   },
   {
