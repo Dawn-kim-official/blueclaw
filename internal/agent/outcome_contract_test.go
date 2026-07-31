@@ -13,7 +13,7 @@ func TestSelectedRequiredAttachmentSuffixesStayAdvisoryForSlides(t *testing.T) {
 		SkillDecisions: []SkillSelectionDecision{{Name: "presentation", Status: "selected"}},
 	}
 
-	suffixes := selectedRequiredAttachmentSuffixes(instructionBundle, "Hermes Agent 장단점 분석 6장 ppt 만들어줘. html만 주면 돼")
+	suffixes := selectedRequiredAttachmentSuffixes(instructionBundle, "Hermes Agent make a six-slide pros and cons deck, html is enough")
 
 	if len(suffixes) != 0 {
 		t.Fatalf("expected no hard suffix contract, got %+v", suffixes)
@@ -41,7 +41,7 @@ func TestOutcomeContractDerivesScheduleEvidenceFromSkillHint(t *testing.T) {
 	})
 	contract := outcomeContractForRequest(
 		AgentRequest{
-			Prompt:  "내일 오후 3시에 이 메시지 보내줘",
+			Prompt:  "send this message tomorrow at 3pm",
 			ToolSet: toolSet,
 		},
 		IntakeDecision{
@@ -130,7 +130,7 @@ func TestOutcomeContractPreservesActiveGoalEvidence(t *testing.T) {
 func TestOutcomeContractDoesNotFallbackToScheduleCreateForScheduledTaskShape(t *testing.T) {
 	contract := outcomeContractForRequest(
 		AgentRequest{
-			Prompt:  "내일 오후 3시에 이 메시지 보내줘",
+			Prompt:  "send this message tomorrow at 3pm",
 			ToolSet: newTestToolSet([]string{"schedule.create"}),
 		},
 		IntakeDecision{
@@ -150,7 +150,7 @@ func TestOutcomeContractDoesNotFallbackToScheduleCreateForScheduledTaskShape(t *
 
 func TestOutcomeContractCreatesExpectedResultsForSitePublish(t *testing.T) {
 	contract := outcomeContractForRequest(
-		AgentRequest{Prompt: "개인 홈페이지 만들어서 배포해줘"},
+		AgentRequest{Prompt: "build and deploy a personal homepage"},
 		IntakeDecision{Classification: IntakeClassificationBoundedTask, TaskShape: TaskShapeMaintenanceTask},
 		InstructionBundle{},
 		ExecutionPlan{PublicDeploy: true},
@@ -169,7 +169,7 @@ func TestOutcomeContractCreatesExpectedResultsForSitePublish(t *testing.T) {
 func TestOutcomeContractDoesNotRequirePublicLinkForSiteDelete(t *testing.T) {
 	contract := outcomeContractForRequest(
 		AgentRequest{
-			Prompt:  "방금 배포한 테스트 웹사이트를 삭제해줘",
+			Prompt:  "delete the test website that was just deployed",
 			ToolSet: newTestToolSet([]string{"site.unserve"}),
 		},
 		IntakeDecision{
@@ -193,7 +193,7 @@ func TestOutcomeContractDoesNotRequirePublicLinkForSiteDelete(t *testing.T) {
 func TestOutcomeContractRequiresCurrentEffectsForSiteModification(t *testing.T) {
 	contract := outcomeContractForRequest(
 		AgentRequest{
-			Prompt:  "예쁜 귤 웹사이트 퀄리티가 너무 낮아. 더 예쁘게 해줘.",
+			Prompt:  "the tangerine website looks far too rough, make it prettier.",
 			ToolSet: newTestToolSet([]string{"site.list", "file.edit", "site.serve"}),
 		},
 		IntakeDecision{Classification: IntakeClassificationBoundedTask, TaskShape: TaskShapeMaintenanceTask},
@@ -210,7 +210,7 @@ func TestOutcomeContractRequiresCurrentEffectsForSiteModification(t *testing.T) 
 
 func TestOutcomeContractCreatesExpectedResultsForRequestedFile(t *testing.T) {
 	contract := outcomeContractForRequest(
-		AgentRequest{Prompt: "pptx 파일 만들어줘"},
+		AgentRequest{Prompt: "pptx make the file"},
 		IntakeDecision{Classification: IntakeClassificationBoundedTask, RequestedOutputFormats: []string{".pptx"}},
 		InstructionBundle{},
 		ExecutionPlan{},
@@ -234,7 +234,7 @@ func TestOutcomeContractKeepsRequestedFileWhenSiteSkillOnlySelected(t *testing.T
 	}
 	contract := outcomeContractForRequest(
 		AgentRequest{
-			Prompt: "기업 문서 가이드를 docx로 만들어줘",
+			Prompt: "make the corporate document guide as a docx",
 			ToolSet: newTestToolSetWithDefinitions([]ToolDefinition{
 				{Name: "site.list", Namespace: "site", SideEffectClass: ToolSideEffectRead},
 				{Name: "site.serve", Namespace: "site", SideEffectClass: ToolSideEffectExternalPublish},
@@ -358,7 +358,7 @@ func TestOutcomeContractDoesNotTreatReplyInstructionAsExternalSend(t *testing.T)
 	})
 
 	contract := outcomeContractForRequest(
-		AgentRequest{Prompt: "개인 홈페이지를 만들어서 배포하고 URL만 알려줘", ToolSet: toolSet},
+		AgentRequest{Prompt: "build and deploy a personal homepage and just give me the URL", ToolSet: toolSet},
 		IntakeDecision{Classification: IntakeClassificationBoundedTask},
 		instructionBundle,
 		ExecutionPlan{PublicDeploy: true},
@@ -391,7 +391,7 @@ func TestOutcomeContractIgnoresSelectedDirectMessageForNonSendGoal(t *testing.T)
 	}
 	intakeDecision := IntakeDecision{Classification: IntakeClassificationBoundedTask, TaskShape: TaskShapeResearchTask}
 
-	contract := outcomeContractForRequest(AgentRequest{Prompt: "https://example.com 참고해서 사업계획서 작성해줘"}, intakeDecision, instructionBundle, ExecutionPlan{}, false, nil)
+	contract := outcomeContractForRequest(AgentRequest{Prompt: "https://example.com use it to write the business plan"}, intakeDecision, instructionBundle, ExecutionPlan{}, false, nil)
 
 	if len(contract.RequiredEvidenceTools) != 0 {
 		t.Fatalf("expected no DM hard gate for non-send goal, got %+v", contract.RequiredEvidenceTools)
@@ -408,7 +408,7 @@ func TestOutcomeContractDoesNotPromoteDirectMessageHintForAttachmentFollowUp(t *
 		RequiredEvidenceTools: []string{"message.send"},
 	}
 	request := AgentRequest{
-		Prompt: "다시 시도해보자",
+		Prompt: "let's try again",
 		VisibleContext: VisibleContext{
 			Materials: []VisibleContextMaterial{{
 				MaterialID:  "mattermost:file-1",
@@ -437,7 +437,7 @@ func TestOutcomeContractIgnoresMailKeywordForArtifactAttachmentGoal(t *testing.T
 	intakeDecision := IntakeDecision{Classification: IntakeClassificationBoundedTask, TaskShape: TaskShapeResearchTask}
 
 	contract := outcomeContractForRequest(
-		AgentRequest{Prompt: "메일, 일정, 브라우저 제어 능력을 소개하는 5장짜리 발표자료를 PPTX로 첨부해줘"},
+		AgentRequest{Prompt: "attach a five-slide PPTX introducing the mail, calendar, and browser control features"},
 		intakeDecision,
 		instructionBundle,
 		ExecutionPlan{},
@@ -466,7 +466,7 @@ func TestOutcomeContractRequiresSendEvidenceForExternalSendPlan(t *testing.T) {
 		Namespace:       "message",
 		SideEffectClass: ToolSideEffectExternalSend,
 	}})
-	contract := outcomeContractForRequest(AgentRequest{Prompt: "샘플에게 테스트라고 DM 보내줘", ToolSet: toolSet}, intakeDecision, instructionBundle, ExecutionPlan{ExternalSend: true, ThirdPartyExternalSend: true}, true, nil)
+	contract := outcomeContractForRequest(AgentRequest{Prompt: "send Dana a DM saying test", ToolSet: toolSet}, intakeDecision, instructionBundle, ExecutionPlan{ExternalSend: true, ThirdPartyExternalSend: true}, true, nil)
 
 	if len(contract.RequiredEvidenceTools) != 1 || contract.RequiredEvidenceTools[0] != "message.send" {
 		t.Fatalf("expected send hard gate for external send goal, got %+v", contract.RequiredEvidenceTools)
@@ -481,7 +481,7 @@ func TestOutcomeContractIgnoresIntakeSendEvidenceForCurrentConversationReply(t *
 	}})
 	contract := outcomeContractForRequest(
 		AgentRequest{
-			Prompt:  "안녕. 짧게 인사로 답해줘.",
+			Prompt:  "hi, answer with a short greeting.",
 			ToolSet: toolSet,
 		},
 		IntakeDecision{
@@ -502,9 +502,9 @@ func TestOutcomeContractIgnoresIntakeSendEvidenceForCurrentConversationReply(t *
 func TestOutcomeContractKeepsSendEvidenceForExternalSendContinuation(t *testing.T) {
 	contract := outcomeContractForRequest(
 		AgentRequest{
-			Prompt: "해",
+			Prompt: "do it",
 			ActiveGoal: ActiveGoal{
-				OriginalInstruction: "샘플에게 테스트라고 DM 보내줘",
+				OriginalInstruction: "send Dana a DM saying test",
 				OutcomeContract: OutcomeContract{
 					RequiredEvidenceTools: []string{"message.send"},
 				},
@@ -530,12 +530,12 @@ func TestOutcomeContractDoesNotDeriveEvidenceFromPromptAndAvailableTools(t *test
 	}{
 		{
 			name:      "flow task",
-			prompt:    "업무 등록해줘",
+			prompt:    "register the task",
 			toolNames: []string{"task.add"},
 		},
 		{
 			name:      "external send",
-			prompt:    "샘플에게 테스트라고 DM 보내줘",
+			prompt:    "send Dana a DM saying test",
 			toolNames: []string{"message.send"},
 		},
 	}
@@ -564,7 +564,7 @@ func TestOutcomeContractDemotesIntakeInitialToolsToEvidenceHints(t *testing.T) {
 	})
 	contract := outcomeContractForRequest(
 		AgentRequest{
-			Prompt:  "이 대화 내용 기억해둬",
+			Prompt:  "remember what was said in this conversation",
 			ToolSet: toolSet,
 		},
 		IntakeDecision{
@@ -602,7 +602,7 @@ func TestOutcomeContractDerivesSideEffectEvidenceAnyOfGroupForMaintenanceTask(t 
 	}
 	contract := outcomeContractForRequest(
 		AgentRequest{
-			Prompt:  "새 업무 하나 등록해줘",
+			Prompt:  "register one new task",
 			ToolSet: toolSet,
 		},
 		IntakeDecision{Classification: IntakeClassificationBoundedTask, TaskShape: TaskShapeMaintenanceTask},
@@ -640,7 +640,7 @@ func TestOutcomeReferenceToolSetHidesSendAndSiteToolsForDocumentGoal(t *testing.
 		SelectedEvidenceHints: []string{"site.serve", "site.serve", "message.send", "mail.message.send"},
 	}
 
-	filteredToolSet := toolSetForOutcomeReference(toolSet, AgentRequest{Prompt: "https://example.com 참고해서 사업계획서 작성해줘"}, ExecutionPlan{}, false, contract)
+	filteredToolSet := toolSetForOutcomeReference(toolSet, AgentRequest{Prompt: "https://example.com use it to write the business plan"}, ExecutionPlan{}, false, contract)
 
 	for _, toolName := range []string{"web.fetch", "file.write", "file.deliver"} {
 		if !filteredToolSet.IsAllowed(toolName) {
@@ -662,7 +662,7 @@ func TestAgentTurnToolSetExposesPinnedNonKernelTools(t *testing.T) {
 	}
 
 	filteredToolSet := toolSetForAgentTurn(toolSet, instructionBundle, AgentRequest{
-		Prompt:          "https://example.com 참고해서 ppt 만들어줘",
+		Prompt:          "https://example.com use it to make the deck",
 		PinnedToolNames: []string{"web.search", "web.fetch", "terminal.run", "file.write"},
 	}, ExecutionPlan{}, false, OutcomeContract{})
 
@@ -676,7 +676,7 @@ func TestAgentTurnToolSetExposesPinnedNonKernelTools(t *testing.T) {
 func TestOutcomeReferenceToolSetKeepsSiteToolsForSiteGoal(t *testing.T) {
 	toolSet := testToolSet([]string{"web.fetch", "site.serve", "site.serve"})
 
-	filteredToolSet := toolSetForOutcomeReference(toolSet, AgentRequest{Prompt: "웹사이트 하나 만들어서 배포해줘"}, ExecutionPlan{}, false, OutcomeContract{
+	filteredToolSet := toolSetForOutcomeReference(toolSet, AgentRequest{Prompt: "build and deploy a website"}, ExecutionPlan{}, false, OutcomeContract{
 		RequiredEvidenceTools: []string{"site.serve", "site.serve"},
 	})
 
@@ -690,8 +690,8 @@ func TestOutcomeReferenceToolSetKeepsSiteToolsForSiteGoal(t *testing.T) {
 func TestOutcomeReferenceToolSetKeepsActiveGoalEvidenceToolsForContinuation(t *testing.T) {
 	toolSet := testToolSet([]string{"web.fetch", "terminal.run", "site.serve", "site.serve"})
 	request := AgentRequest{
-		Prompt: "다시 해봐 그럼 될 거야",
-		ActiveGoal: ActiveGoal{OriginalInstruction: "웹사이트 하나 만들어서 배포해줘", OutcomeContract: OutcomeContract{
+		Prompt: "try again, it should work",
+		ActiveGoal: ActiveGoal{OriginalInstruction: "build and deploy a website", OutcomeContract: OutcomeContract{
 			SelectedEvidenceHints: []string{"site.serve", "terminal.run", "site.serve"},
 		}},
 	}
@@ -715,9 +715,9 @@ func TestAgentTurnToolSetHidesSiteToolsForActiveGoalContinuation(t *testing.T) {
 		SkillDecisions: []SkillSelectionDecision{{Name: "site-prototype", Status: "selected"}},
 	}
 	request := AgentRequest{
-		Prompt:          "다시 해봐 그럼 될 거야",
+		Prompt:          "try again, it should work",
 		PinnedToolNames: []string{"terminal.run", "site.serve", "site.serve"},
-		ActiveGoal: ActiveGoal{OriginalInstruction: "웹사이트 하나 만들어서 배포해줘", OutcomeContract: OutcomeContract{
+		ActiveGoal: ActiveGoal{OriginalInstruction: "build and deploy a website", OutcomeContract: OutcomeContract{
 			SelectedEvidenceHints: []string{"site.serve", "terminal.run", "site.serve"},
 		}},
 	}
@@ -743,9 +743,9 @@ func TestAgentTurnToolSetHidesSelectedSiteSkillToolsWhenActiveGoalWasAttachmentF
 		SkillDecisions: []SkillSelectionDecision{{Name: "site-prototype", Status: "selected"}},
 	}
 	request := AgentRequest{
-		Prompt:          "다시 해봐",
+		Prompt:          "try again",
 		PinnedToolNames: []string{"terminal.run", "site.serve", "site.serve"},
-		ActiveGoal: ActiveGoal{OriginalInstruction: "개인 홈페이지를 만들어서 배포해줘", OutcomeContract: OutcomeContract{
+		ActiveGoal: ActiveGoal{OriginalInstruction: "build and deploy a personal homepage", OutcomeContract: OutcomeContract{
 			RequiredEvidenceTools:      []string{"file.deliver"},
 			RequiredAttachmentSuffixes: []string{".html"},
 			SelectedEvidenceHints:      []string{"site.serve", "terminal.run", "site.serve"},
@@ -771,8 +771,8 @@ func TestOutcomeContractRequiresActiveGoalRequiredEvidenceForContinuation(t *tes
 		RequiredEvidenceTools: []string{"site.serve", "terminal.run", "site.serve"},
 	}
 	request := AgentRequest{
-		Prompt: "다시 해봐 그럼 될 거야",
-		ActiveGoal: ActiveGoal{OriginalInstruction: "웹사이트 하나 만들어서 배포해줘", OutcomeContract: OutcomeContract{
+		Prompt: "try again, it should work",
+		ActiveGoal: ActiveGoal{OriginalInstruction: "build and deploy a website", OutcomeContract: OutcomeContract{
 			RequiredEvidenceTools: []string{"site.serve", "site.serve"},
 			SelectedEvidenceHints: []string{"site.serve", "terminal.run", "site.serve"},
 		}},
@@ -789,7 +789,7 @@ func TestOutcomeContractRequiresActiveGoalRequiredEvidenceForContinuation(t *tes
 
 func TestOutcomeContractPreservesSiteGoalDuringApprovalContinuation(t *testing.T) {
 	request := AgentRequest{
-		Prompt:                 "확인",
+		Prompt:                 "check",
 		IsApprovalContinuation: true,
 		ActiveGoal: ActiveGoal{OutcomeContract: OutcomeContract{
 			RequiredEvidenceTools: []string{"site.unserve"},
@@ -814,10 +814,10 @@ func TestAgentTurnToolSetExposesSendToolForActiveSendContinuation(t *testing.T) 
 		SkillDecisions: []SkillSelectionDecision{{Name: "direct-message", Status: "selected"}},
 	}
 	request := AgentRequest{
-		Prompt:          "다시 해줘",
+		Prompt:          "do it again",
 		PinnedToolNames: []string{"message.send"},
 		ActiveGoal: ActiveGoal{
-			OriginalInstruction: "샘플에게 테스트라고 DM 보내줘",
+			OriginalInstruction: "send Dana a DM saying test",
 			OutcomeContract: OutcomeContract{
 				RequiredEvidenceTools: []string{"message.send"},
 				SelectedEvidenceHints: []string{"message.send"},
@@ -843,7 +843,7 @@ func TestAgentTurnToolSetHidesUnrequestedSendToolForAttachmentFollowUp(t *testin
 		SkillDecisions: []SkillSelectionDecision{{Name: "direct-message", Status: "selected"}},
 	}
 	request := AgentRequest{
-		Prompt:          "다시 시도해보자",
+		Prompt:          "let's try again",
 		PinnedToolNames: []string{"file.preview"},
 		VisibleContext: VisibleContext{
 			Materials: []VisibleContextMaterial{{
@@ -871,7 +871,7 @@ func TestAgentTurnToolSetHidesUnrequestedSendToolForAttachmentFollowUp(t *testin
 func TestOutcomeReferenceToolSetKeepsSendToolsForExplicitSendGoal(t *testing.T) {
 	toolSet := testToolSet([]string{"web.fetch", "message.send", "mail.message.send"})
 
-	filteredToolSet := toolSetForOutcomeReference(toolSet, AgentRequest{Prompt: "샘플에게 DM 보내줘"}, ExecutionPlan{}, false, OutcomeContract{RequiredEvidenceTools: []string{"message.send"}})
+	filteredToolSet := toolSetForOutcomeReference(toolSet, AgentRequest{Prompt: "send Dana a DM"}, ExecutionPlan{}, false, OutcomeContract{RequiredEvidenceTools: []string{"message.send"}})
 
 	if !filteredToolSet.IsAllowed("message.send") {
 		t.Fatalf("expected DM send to remain available, got %+v", filteredToolSet.ListToolNames())
@@ -880,7 +880,7 @@ func TestOutcomeReferenceToolSetKeepsSendToolsForExplicitSendGoal(t *testing.T) 
 
 func TestConfirmationHintsIgnoreUnrelatedSelectedSkillEvidence(t *testing.T) {
 	hints := confirmationEvidenceHintsForRequest(
-		AgentRequest{Prompt: "https://example.com 참고해서 사업계획서 작성해줘"},
+		AgentRequest{Prompt: "https://example.com use it to write the business plan"},
 		IntakeDecision{Classification: IntakeClassificationBoundedTask, TaskShape: TaskShapeResearchTask},
 		[]string{"site.serve", "message.send"},
 	)

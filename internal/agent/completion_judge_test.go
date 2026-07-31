@@ -51,7 +51,7 @@ func completionJudgeFinishActionDocument() turnActionDocument {
 }
 
 func TestCompletionJudgeMessagesCarryTheFinishReplyAsDelivered(t *testing.T) {
-	actionDocument := turnActionDocument{Action: "finish", Message: "배포 완료: https://sites.example/launch"}
+	actionDocument := turnActionDocument{Action: "finish", Message: "deploy complete: https://sites.example/launch"}
 	joined := joinedMessageContent(completionJudgeMessages(AgentTurnRequest{Prompt: "publish the site and give me the link"}, nil, actionDocument))
 	if !strings.Contains(joined, "https://sites.example/launch") {
 		t.Fatalf("expected the finish reply text in the judge prompt, got %s", joined)
@@ -144,24 +144,24 @@ func TestCompletionJudgeLedgerTruncatesInputAndResult(t *testing.T) {
 func TestCompletionJudgeMessagesIncludeOriginalInstructionAndExpectedResults(t *testing.T) {
 	request := AgentTurnRequest{
 		Prompt:          "fallback prompt",
-		ActiveGoal:      ActiveGoal{OriginalInstruction: "분기 결산 누락 확인 업무를 추가해줘"},
-		OutcomeContract: OutcomeContract{ExpectedResults: []ExpectedResult{{Type: ExpectedResultTypeMessage, Description: "완료 확인", Required: true}}},
+		ActiveGoal:      ActiveGoal{OriginalInstruction: "add a task to check the missing quarterly settlement"},
+		OutcomeContract: OutcomeContract{ExpectedResults: []ExpectedResult{{Type: ExpectedResultTypeMessage, Description: "completion check", Required: true}}},
 	}
 
 	messages := completionJudgeMessages(request, nil, completionJudgeFinishActionDocument())
 	joined := joinedMessageContent(messages)
 
-	if !strings.Contains(joined, "분기 결산 누락 확인 업무를 추가해줘") {
+	if !strings.Contains(joined, "add a task to check the missing quarterly settlement") {
 		t.Fatalf("expected original instruction in judge prompt, got %s", joined)
 	}
-	if !strings.Contains(joined, "완료 확인") {
+	if !strings.Contains(joined, "completion check") {
 		t.Fatalf("expected expected-result description in judge prompt, got %s", joined)
 	}
 }
 
 func TestCompletionJudgeMessagesIncludeTemporalContext(t *testing.T) {
 	turnStartedAt := time.Date(2026, 7, 23, 1, 43, 0, 0, time.UTC)
-	request := AgentTurnRequest{Prompt: "내일 일정 옮겨줘", TurnStartedAt: turnStartedAt}
+	request := AgentTurnRequest{Prompt: "move tomorrow's schedule", TurnStartedAt: turnStartedAt}
 
 	joined := joinedMessageContent(completionJudgeMessages(request, nil, completionJudgeFinishActionDocument()))
 
@@ -204,7 +204,7 @@ func TestEvaluateCompletionJudgeFailsOpenOnMalformedContent(t *testing.T) {
 }
 
 func TestEvaluateCompletionJudgeRecordsUnsatisfiedVerdictEvent(t *testing.T) {
-	languageModel := &completionJudgeStubLanguageModel{response: llm.StructuredResponse{Content: `{"satisfied":false,"missingWork":["endDate가 없습니다"],"reason":"마감일 누락"}`}}
+	languageModel := &completionJudgeStubLanguageModel{response: llm.StructuredResponse{Content: `{"satisfied":false,"missingWork":["endDate is missing"],"reason":"missing due date"}`}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
 	request := AgentTurnRequest{Prompt: "task", OutcomeContract: OutcomeContract{RequiredEvidenceTools: []string{"task.add"}}}
 
@@ -213,7 +213,7 @@ func TestEvaluateCompletionJudgeRecordsUnsatisfiedVerdictEvent(t *testing.T) {
 	if result.IsSatisfied {
 		t.Fatal("expected an unsatisfied judge result")
 	}
-	if !strings.Contains(result.Message, "마감일 누락") || !strings.Contains(result.Message, "endDate가 없습니다") {
+	if !strings.Contains(result.Message, "missing due date") || !strings.Contains(result.Message, "endDate is missing") {
 		t.Fatalf("expected reason and missing work in the gate message, got %q", result.Message)
 	}
 	if !taskEventsContain(services.taskEventService.ListTaskEvent("task-judge-3"), "completion_judge.verdict", `"satisfied":false`) {
@@ -261,14 +261,14 @@ func TestValidateCompletionGateWithJudgeSkipsJudgeWhenDeterministicGateFails(t *
 }
 
 func TestValidateCompletionGateWithJudgeReturnsJudgeUnsatisfied(t *testing.T) {
-	languageModel := &completionJudgeStubLanguageModel{response: llm.StructuredResponse{Content: `{"satisfied":false,"missingWork":["endDate가 없습니다"],"reason":"마감일 누락"}`}}
+	languageModel := &completionJudgeStubLanguageModel{response: llm.StructuredResponse{Content: `{"satisfied":false,"missingWork":["endDate is missing"],"reason":"missing due date"}`}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
 	request := AgentTurnRequest{
-		Prompt:          "분기 결산 누락 확인 업무를 7월 24일 마감으로 추가해줘",
+		Prompt:          "add a task to check the missing quarterly settlement, due July 24",
 		ToolSet:         completionJudgeTestToolSet(),
 		OutcomeContract: OutcomeContract{RequiredEvidenceTools: []string{"task.add"}},
 	}
-	observations := []turnObservation{successfulSideEffectObservation("obs-001", "task.add", `{"title":"분기 결산 누락 확인"}`, "created")}
+	observations := []turnObservation{successfulSideEffectObservation("obs-001", "task.add", `{"title":"missing quarterly settlement check"}`, "created")}
 
 	result := services.runner.validateCompletionGateWithJudge(context.Background(), "task-judge-6", request, nil, observations, nil, nil, completionJudgeFinishActionDocument())
 
@@ -281,9 +281,9 @@ func TestValidateCompletionGateWithJudgeReturnsJudgeUnsatisfied(t *testing.T) {
 }
 
 func TestCompletionGateRunsJudgeFromLedgerWhenContractIsEmpty(t *testing.T) {
-	languageModel := &completionJudgeStubLanguageModel{response: llm.StructuredResponse{Content: `{"satisfied":false,"missingWork":["endDate가 비어 있습니다"],"reason":"마감일 미설정"}`}}
+	languageModel := &completionJudgeStubLanguageModel{response: llm.StructuredResponse{Content: `{"satisfied":false,"missingWork":["endDate is empty"],"reason":"no due date set"}`}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
-	request := AgentTurnRequest{Prompt: "업무 추가", ToolSet: completionJudgeTestToolSet()}
+	request := AgentTurnRequest{Prompt: "add task", ToolSet: completionJudgeTestToolSet()}
 	observations := []turnObservation{successfulSideEffectObservation("obs-001", "task.add", `{"title":"t"}`, `{"endDate":""}`)}
 
 	result := services.runner.validateCompletionGateWithJudge(context.Background(), "task-judge-ledger", request, nil, observations, nil, nil, completionJudgeFinishActionDocument())

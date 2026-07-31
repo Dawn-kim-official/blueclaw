@@ -21,8 +21,8 @@ func collectTurnEvents(events <-chan TurnEvent) []TurnEvent {
 
 func TestStreamTurnEmitsOrderedEventsEndingWithFinal(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		continueWithMessageDocument("alpha", "첫 번째 답변"),
-		finishMessageDocument("마지막 답변"),
+		continueWithMessageDocument("alpha", "first reply"),
+		finishMessageDocument("last reply"),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{RecoveryBudget: exhaustedRecoveryBudgetForTest()})
 	toolRegistry := newTestCapabilityToolSet([]string{"alpha"})
@@ -52,21 +52,21 @@ func TestStreamTurnEmitsOrderedEventsEndingWithFinal(t *testing.T) {
 	if finalIndex != len(collected)-1 {
 		t.Fatalf("expected final event to be last, got index %d of %d", finalIndex, len(collected))
 	}
-	if collected[replyIndex].Message != "첫 번째 답변" {
+	if collected[replyIndex].Message != "first reply" {
 		t.Fatalf("expected reply message, got %q", collected[replyIndex].Message)
 	}
 	if collected[toolIndex].ToolName != "alpha" {
 		t.Fatalf("expected tool name alpha, got %q", collected[toolIndex].ToolName)
 	}
-	if collected[finalIndex].Result.FinishMessage != "마지막 답변" {
+	if collected[finalIndex].Result.FinishMessage != "last reply" {
 		t.Fatalf("expected final finish message, got %q", collected[finalIndex].Result.FinishMessage)
 	}
 }
 
 func TestStreamTurnPersistsSameEventsAsRunTurn(t *testing.T) {
 	script := []string{
-		continueWithMessageDocument("alpha", "진행 중"),
-		finishMessageDocument("완료"),
+		continueWithMessageDocument("alpha", "in progress"),
+		finishMessageDocument("done"),
 	}
 
 	runTurnServices := newTurnRunnerTestServices(&sequenceLanguageModel{contents: append([]string{}, script...)}, TurnOptions{RecoveryBudget: exhaustedRecoveryBudgetForTest()})
@@ -85,9 +85,9 @@ func TestStreamTurnPersistsSameEventsAsRunTurn(t *testing.T) {
 func TestStreamTurnAbandonedConsumerDoesNotPanic(t *testing.T) {
 	contents := []string{}
 	for index := 0; index < streamTurnEventBuffer*2; index++ {
-		contents = append(contents, continueWithMessageDocument("alpha", "답변"+string(rune('a'+index%26))))
+		contents = append(contents, continueWithMessageDocument("alpha", "reply"+string(rune('a'+index%26))))
 	}
-	contents = append(contents, finishMessageDocument("끝"))
+	contents = append(contents, finishMessageDocument("end"))
 	languageModel := &sequenceLanguageModel{contents: contents}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{RecoveryBudget: exhaustedRecoveryBudgetForTest()})
 	toolRegistry := newTestCapabilityToolSet([]string{"alpha"})

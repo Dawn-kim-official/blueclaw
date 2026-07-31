@@ -370,7 +370,7 @@ func mergeDefaultResponses(defaultResponses map[string]string) map[string]string
 	mergedResponses := map[string]string{
 		"blueclaw_skill_search_queries": `{"queries":[]}`,
 		"blueclaw_execution_plan":       `{"originalInstruction":"scripted test request","summary":"scripted test request","targets":[],"schedule":"","startAt":"","endAt":"","cadence":"","externalSend":false,"thirdPartyExternalSend":false,"repeated":false,"highFrequency":false,"destructive":false,"permissionChange":false,"publicDeploy":false,"paidAction":false,"missingInformation":[],"continuationInstruction":"scripted test request"}`,
-		"blueclaw_confirmation_message": `{"reply":"확인했습니다. 승인하면 진행하겠습니다."}`,
+		"blueclaw_confirmation_message": `{"reply":"Understood. I will proceed once it is approved."}`,
 	}
 	for schemaName, response := range defaultResponses {
 		mergedResponses[strings.TrimSpace(schemaName)] = response
@@ -392,14 +392,14 @@ func defaultApprovalQuestionResponse(request llm.StructuredResponseRequest) stri
 	question := defaultApprovalQuestionFromContext(contextDocument, target, content)
 	document, errorValue := json.Marshal(map[string]string{"question": question})
 	if errorValue != nil {
-		return `{"question":"승인할까요?"}`
+		return `{"question":"should this be approved?"}`
 	}
 	return string(document)
 }
 
 func defaultApprovalQuestionFromContext(contextDocument approvalQuestionContextDocument, target string, content string) string {
 	if target != "" && content != "" {
-		return target + "에게 다음 내용을 보낼까요?\n\n" + content
+		return target + "should this be sent to?\n\n" + content
 	}
 	if draftQuestion := approvalQuestionFromDraft(contextDocument.ModelDraft); draftQuestion != "" {
 		return draftQuestion
@@ -408,9 +408,9 @@ func defaultApprovalQuestionFromContext(contextDocument approvalQuestionContextD
 		return requestQuestion
 	}
 	if content != "" {
-		return content + "\n\n진행할까요?"
+		return content + "\n\nshould we proceed?"
 	}
-	return "승인할까요?"
+	return "should this be approved?"
 }
 
 func approvalQuestionContextFromRequest(request llm.StructuredResponseRequest) approvalQuestionContextDocument {
@@ -431,11 +431,11 @@ func approvalQuestionFromDraft(value string) string {
 	if strings.HasSuffix(trimmedValue, "?") || strings.HasSuffix(trimmedValue, "？") {
 		return trimmedValue
 	}
-	if strings.HasSuffix(trimmedValue, "합니다") {
-		return strings.TrimSuffix(trimmedValue, "합니다") + "할까요?"
+	if strings.HasSuffix(trimmedValue, "doing it") {
+		return strings.TrimSuffix(trimmedValue, "doing it") + "shall we?"
 	}
-	if strings.HasSuffix(trimmedValue, "해줘") {
-		return strings.TrimSuffix(trimmedValue, "해줘") + "할까요?"
+	if strings.HasSuffix(trimmedValue, "please do it") {
+		return strings.TrimSuffix(trimmedValue, "please do it") + "shall we?"
 	}
 	return trimmedValue + "?"
 }

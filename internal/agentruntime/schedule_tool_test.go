@@ -30,7 +30,7 @@ func TestScheduleCreateToolStoresCurrentReplyTarget(t *testing.T) {
 		ToolName: "schedule.create",
 		Input: agent.MarshalToolInput(map[string]any{
 			"name":            "daily research",
-			"taskInstruction": "중요한 업계 뉴스를 조사해서 알려줘.",
+			"taskInstruction": "research the important industry news and tell me.",
 			"kind":            "cron",
 			"cronExpression":  "0 7 * * *",
 			"repeatPolicy":    "unbounded",
@@ -53,7 +53,7 @@ func TestScheduleCreateToolStoresCurrentReplyTarget(t *testing.T) {
 	if taskSchedule.Platform != "mattermost" || taskSchedule.ConversationID != "channel-1" || taskSchedule.ReplyTargetID != "reply-target-1" {
 		t.Fatalf("expected current reply target to be stored, got %+v", taskSchedule)
 	}
-	if taskSchedule.Prompt != "중요한 업계 뉴스를 조사해서 알려줘." {
+	if taskSchedule.Prompt != "research the important industry news and tell me." {
 		t.Fatalf("expected stored task instruction without cadence, got %q", taskSchedule.Prompt)
 	}
 	if taskSchedule.ExecutionMode != task.TaskScheduleExecutionModeAgent {
@@ -320,7 +320,7 @@ func TestScheduleCreateToolStoresTaskInstructionAsAgentTask(t *testing.T) {
 	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
 		ToolName: "schedule.create",
 		Input: agent.MarshalToolInput(map[string]any{
-			"taskInstruction": "죄송합니다라고 말해줘.",
+			"taskInstruction": "say sorry.",
 			"kind":            "interval",
 			"intervalSecond":  60,
 			"maxRunCount":     10,
@@ -340,10 +340,10 @@ func TestScheduleCreateToolStoresTaskInstructionAsAgentTask(t *testing.T) {
 	if repository.taskSchedules[0].ExecutionMode != task.TaskScheduleExecutionModeAgent {
 		t.Fatalf("expected agent execution mode, got %+v", repository.taskSchedules[0])
 	}
-	if repository.taskSchedules[0].Prompt != "죄송합니다라고 말해줘." {
+	if repository.taskSchedules[0].Prompt != "say sorry." {
 		t.Fatalf("expected task instruction to be stored, got %+v", repository.taskSchedules[0])
 	}
-	if !strings.Contains(result.ContentText(), `"taskInstruction":"죄송합니다라고 말해줘."`) || strings.Contains(result.ContentText(), `"prompt"`) {
+	if !strings.Contains(result.ContentText(), `"taskInstruction":"say sorry."`) || strings.Contains(result.ContentText(), `"prompt"`) {
 		t.Fatalf("expected tool result to expose taskInstruction without prompt, got %s", result.ContentText())
 	}
 	if repository.taskSchedules[0].ExpiresAt != nil {
@@ -358,7 +358,7 @@ func TestScheduleCreateToolRejectsBoundedRepeatWithoutFiniteBound(t *testing.T) 
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"schedule.create"})
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
 		ProfileName:       "default",
-		Prompt:            "한 시간마다 노래 가사 한 줄을 오늘 18시까지만 보내줘",
+		Prompt:            "send one line of song lyrics every hour, only until 18:00 today",
 		RequesterPersonID: "person-1",
 		Platform:          "mattermost",
 		ConversationID:    "channel-1",
@@ -368,7 +368,7 @@ func TestScheduleCreateToolRejectsBoundedRepeatWithoutFiniteBound(t *testing.T) 
 	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
 		ToolName: "schedule.create",
 		Input: agent.MarshalToolInput(map[string]any{
-			"taskInstruction": "노래 가사 한 줄을 지어서 DM으로 보내세요.",
+			"taskInstruction": "write one line of song lyrics and send it as a DM.",
 			"kind":            "interval",
 			"intervalSecond":  3600,
 			"repeatPolicy":    "finite",
@@ -395,7 +395,7 @@ func TestScheduleCreateToolStoresExpiresAtForBoundedRepeat(t *testing.T) {
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"schedule.create"})
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
 		ProfileName:       "default",
-		Prompt:            "한 시간마다 노래 가사 한 줄을 오늘 18시까지만 보내줘",
+		Prompt:            "send one line of song lyrics every hour, only until 18:00 today",
 		RequesterPersonID: "person-1",
 		Platform:          "mattermost",
 		ConversationID:    "channel-1",
@@ -405,7 +405,7 @@ func TestScheduleCreateToolStoresExpiresAtForBoundedRepeat(t *testing.T) {
 	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
 		ToolName: "schedule.create",
 		Input: agent.MarshalToolInput(map[string]any{
-			"taskInstruction": "노래 가사 한 줄을 지어서 DM으로 보내세요.",
+			"taskInstruction": "write one line of song lyrics and send it as a DM.",
 			"kind":            "interval",
 			"intervalSecond":  3600,
 			"expiresAt":       expiresAt,
@@ -474,7 +474,7 @@ func TestScheduleCancelToolCancelsRequesterSchedules(t *testing.T) {
 		AgentProfileName: "default",
 	}}}
 	taskRunService := task.NewTaskRunService(task.NewTaskEventService())
-	waitingTaskRun := taskRunService.CreateTaskRun("person-1", "channel-1", "승인 필요")
+	waitingTaskRun := taskRunService.CreateTaskRun("person-1", "channel-1", "approval required")
 	if _, errorValue := taskRunService.PauseTaskRun(waitingTaskRun.TaskRunID, task.TaskStatusWaitingApproval, "approval"); errorValue != nil {
 		t.Fatal(errorValue)
 	}
@@ -626,7 +626,7 @@ func TestScheduleUpdateToolUpdatesIntervalSchedule(t *testing.T) {
 		TaskScheduleID:   "schedule-owned",
 		CreatorPersonID:  "person-1",
 		Name:             "status reminder",
-		Prompt:           "상태를 확인하세요.",
+		Prompt:           "check the status.",
 		Kind:             task.TaskScheduleKindInterval,
 		IntervalSecond:   1800,
 		MaxRunCount:      3,
@@ -677,7 +677,7 @@ func TestScheduleUpdateToolUpdatesOneOffRunAt(t *testing.T) {
 		TaskScheduleID:   "schedule-owned",
 		CreatorPersonID:  "person-1",
 		Name:             "status reminder",
-		Prompt:           "상태를 확인하세요.",
+		Prompt:           "check the status.",
 		Kind:             task.TaskScheduleKindInterval,
 		IntervalSecond:   1800,
 		MaxRunCount:      3,
@@ -756,7 +756,7 @@ func TestScheduleUpdateToolFailsForWrongOwnerID(t *testing.T) {
 		TaskScheduleID:   "schedule-other",
 		CreatorPersonID:  "person-2",
 		Name:             "status reminder",
-		Prompt:           "상태를 확인하세요.",
+		Prompt:           "check the status.",
 		Kind:             task.TaskScheduleKindInterval,
 		IntervalSecond:   1800,
 		MaxRunCount:      3,
@@ -800,7 +800,7 @@ func TestScheduleCreateToolRejectsIntervalWithoutExplicitCadence(t *testing.T) {
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"schedule.create"})
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
 		ProfileName:       "default",
-		Prompt:            "1분마다 \"1분 지났습니다\"라고 보내줘",
+		Prompt:            "every minute, send \"a minute has passed\"",
 		RequesterPersonID: "person-1",
 		Platform:          "mattermost",
 		ConversationID:    "channel-1",
@@ -810,7 +810,7 @@ func TestScheduleCreateToolRejectsIntervalWithoutExplicitCadence(t *testing.T) {
 	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
 		ToolName: "schedule.create",
 		Input: agent.MarshalToolInput(map[string]any{
-			"taskInstruction": "1분 지났습니다라고 말해줘.",
+			"taskInstruction": "1say that the minutes have passed.",
 			"kind":            "interval",
 			"timeZone":        "Asia/Seoul",
 			"maxRunCount":     10,
@@ -836,7 +836,7 @@ func TestScheduleCreateToolStoresMaxRunCount(t *testing.T) {
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"schedule.create"})
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
 		ProfileName:       "default",
-		Prompt:            `1분에 한 번씩 나한테 "죄송합니다" 10번 해봐`,
+		Prompt:            `every minute, say "sorry" to me ten times`,
 		RequesterPersonID: "person-1",
 		Platform:          "mattermost",
 		ConversationID:    "channel-1",
@@ -846,7 +846,7 @@ func TestScheduleCreateToolStoresMaxRunCount(t *testing.T) {
 	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
 		ToolName: "schedule.create",
 		Input: agent.MarshalToolInput(map[string]any{
-			"taskInstruction": "죄송합니다라고 말해줘.",
+			"taskInstruction": "say sorry.",
 			"kind":            "interval",
 			"intervalSecond":  60,
 			"maxRunCount":     10,
@@ -867,7 +867,7 @@ func TestScheduleCreateToolStoresMaxRunCount(t *testing.T) {
 	if repository.taskSchedules[0].MaxRunCount != 10 {
 		t.Fatalf("expected max run count 10, got %+v", repository.taskSchedules[0])
 	}
-	if repository.taskSchedules[0].Prompt != "죄송합니다라고 말해줘." {
+	if repository.taskSchedules[0].Prompt != "say sorry." {
 		t.Fatalf("expected task instruction without cadence or run count, got %+v", repository.taskSchedules[0])
 	}
 }
@@ -879,7 +879,7 @@ func TestScheduleCreateToolSeparatesRepeatFieldsFromTaskInstruction(t *testing.T
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"schedule.create"})
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
 		ProfileName:       "default",
-		Prompt:            `1분마다 세 번 안녕이라고 테스트이한테 보내`,
+		Prompt:            `every minute, send hello to Wendy three times`,
 		RequesterPersonID: "person-1",
 		Platform:          "mattermost",
 		ConversationID:    "channel-1",
@@ -889,7 +889,7 @@ func TestScheduleCreateToolSeparatesRepeatFieldsFromTaskInstruction(t *testing.T
 	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
 		ToolName: "schedule.create",
 		Input: agent.MarshalToolInput(map[string]any{
-			"taskInstruction": "테스트이에게 \"안녕\"이라고 보낸다.",
+			"taskInstruction": "send \"hello\" to Wendy.",
 			"kind":            "interval",
 			"intervalSecond":  60,
 			"maxRunCount":     3,
@@ -911,7 +911,7 @@ func TestScheduleCreateToolSeparatesRepeatFieldsFromTaskInstruction(t *testing.T
 	if taskSchedule.IntervalSecond != 60 || taskSchedule.MaxRunCount != 3 {
 		t.Fatalf("expected structured repeat fields, got %+v", taskSchedule)
 	}
-	if taskSchedule.Prompt != "테스트이에게 \"안녕\"이라고 보낸다." {
+	if taskSchedule.Prompt != "send \"hello\" to Wendy." {
 		t.Fatalf("expected only executable action in task instruction, got %q", taskSchedule.Prompt)
 	}
 }
@@ -921,7 +921,7 @@ func TestScheduleCancelToolCancelsActiveScheduledTaskRuns(t *testing.T) {
 	repository := &memoryTaskScheduleRepository{taskSchedules: []task.TaskSchedule{{
 		TaskScheduleID:  "schedule-1",
 		CreatorPersonID: "person-1",
-		Prompt:          "테스트",
+		Prompt:          "test",
 		Platform:        "mattermost",
 		ConversationID:  "channel-1",
 		ReplyTargetID:   "reply-target-1",
@@ -932,7 +932,7 @@ func TestScheduleCancelToolCancelsActiveScheduledTaskRuns(t *testing.T) {
 		ExpiresAt:       timePointer(runAt.Add(time.Hour)),
 	}}}
 	taskRunService := task.NewTaskRunService(task.NewTaskEventService())
-	taskRun := taskRunService.CreateTaskRun("person-1", "schedule:schedule-1", "테스트")
+	taskRun := taskRunService.CreateTaskRun("person-1", "schedule:schedule-1", "test")
 	if _, errorValue := taskRunService.AdvanceTaskRun(taskRun.TaskRunID, "assistant"); errorValue != nil {
 		t.Fatal(errorValue)
 	}
@@ -979,7 +979,7 @@ func TestScheduleCreateToolRejectsMissingReplyTarget(t *testing.T) {
 	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
 		ToolName: "schedule.create",
 		Input: agent.MarshalToolInput(map[string]any{
-			"taskInstruction": "오늘 일정을 보고 브리핑해줘.",
+			"taskInstruction": "check today's schedule and brief me.",
 			"kind":            "cron",
 			"cronExpression":  "0 7 * * *",
 		}),
@@ -998,7 +998,7 @@ func TestScheduleCreateExecutorRejectsScheduledRunContext(t *testing.T) {
 	toolCatalogBuilder.UseTaskScheduleRepository(&memoryTaskScheduleRepository{})
 
 	result, errorValue := toolCatalogBuilder.createScheduleTool(context.Background(), scheduleCreateToolInput{
-		TaskInstruction: "새 예약을 만들어줘.",
+		TaskInstruction: "create a new schedule.",
 		Kind:            "cron",
 		CronExpression:  "* * * * *",
 		RepeatPolicy:    "unbounded",
