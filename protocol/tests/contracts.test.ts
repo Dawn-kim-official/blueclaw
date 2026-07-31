@@ -75,7 +75,7 @@ describe('closed protocol values', () => {
     const request = {
       toolName: 'calendar.add',
       input: {
-        title: '고객지원 점검',
+        title: 'customer support check',
         startISO: '2026-07-24T14:00:00+09:00',
         endISO: '2026-07-24T15:00:00+09:00',
       },
