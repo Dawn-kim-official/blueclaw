@@ -58,18 +58,19 @@ Go 1.26 and [Bun](https://bun.sh) 1.3 build everything here. The optional
 memory sidecar under `tools/` is Python.
 
 ```bash
-go build ./cmd/... ./internal/...
-go test ./internal/...
+go build ./...
+go test ./...
 ```
 
 ```bash
-for package in protocol llmd chatd admin; do (cd $package && bun install); done
+bun install
 bun run test
 ```
 
-`go test ./tests/...` adds the integration suite. Package roots are listed
-explicitly because `./...` also walks the Bun workspace symlinks under
-`llmd/node_modules`.
+The four TypeScript packages are one Bun workspace, so a single `bun install` at
+the root covers all of them. `go test ./...` runs the unit suites next to their
+sources and the integration suite under `tests/`; neither needs an external
+service.
 
 ## Running
 

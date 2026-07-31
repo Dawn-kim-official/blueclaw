@@ -29,10 +29,8 @@ its surroundings.
 
 ## Testing
 
-- `go test ./internal/...` is the unit suite and `go test ./tests/...` is the
-  integration suite. Both run with no external services; CI runs both.
-- Name Go package roots explicitly (`./cmd/... ./internal/...`). A bare `./...`
-  walks the Bun workspace symlinks under `llmd/node_modules` and fails.
+- `go test ./...` covers the unit suites beside their sources and the
+  integration suite under `tests/`. Neither needs an external service.
 - TypeScript suites are per package: `bun run test` at the repository root
   runs every package suite in its own process, and `cd <package> && bun run
   test` runs one. Never run bare `bun test` at the repository root — it
