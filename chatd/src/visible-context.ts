@@ -1,3 +1,4 @@
+import { convertEmojiPlaceholders } from "chat";
 import type { FetchOptions, ThreadInfo, UserInfo } from "chat";
 
 export type AddressingDocument = {
@@ -171,7 +172,7 @@ function toVisibleContextMessage(
 		speakerHandle: message.author.userName,
 		senderId: message.author.userId,
 		senderAvatarUrl,
-		text: message.text,
+		text: convertEmojiPlaceholders(message.text, "gchat"),
 		sentAt: message.metadata.dateSent.toISOString(),
 		isBot: message.author.isBot === true,
 		isError: isErrorMessage(message.raw),
