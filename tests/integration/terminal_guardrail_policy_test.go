@@ -12,13 +12,10 @@ import (
 func TestTerminalGuardrailAllowsWorkspaceCommand(t *testing.T) {
 	workspaceRootPath := t.TempDir()
 	terminalConfiguration := config.TerminalConfiguration{
-		Mode:                   "native",
-		WorkspaceRootPath:      workspaceRootPath,
-		AllowedExecutableNames: []string{"echo"},
-		DeniedExecutableNames:  []string{"sudo"},
-		DeniedPathPrefixes:     []string{"/etc", "/root"},
-		TimeoutSecond:          10,
-		AllowNetwork:           true,
+		Mode:              "native",
+		WorkspaceRootPath: workspaceRootPath,
+		TimeoutSecond:     10,
+		AllowNetwork:      true,
 	}
 
 	terminalSessionService := security.NewTerminalSessionService(terminalConfiguration)
@@ -35,38 +32,32 @@ func TestTerminalGuardrailAllowsWorkspaceCommand(t *testing.T) {
 	}
 }
 
-func TestTerminalGuardrailDeniesSystemModificationExecutable(t *testing.T) {
+func TestTerminalGuardrailAllowsUnprivilegedExecutable(t *testing.T) {
 	workspaceRootPath := t.TempDir()
 	commandGuardrailService := security.NewCommandGuardrailService(config.TerminalConfiguration{
-		Mode:                   "native",
-		WorkspaceRootPath:      workspaceRootPath,
-		AllowedExecutableNames: []string{"echo"},
-		DeniedExecutableNames:  []string{"sudo"},
-		DeniedPathPrefixes:     []string{"/etc", "/root"},
-		TimeoutSecond:          10,
-		AllowNetwork:           true,
+		Mode:              "native",
+		WorkspaceRootPath: workspaceRootPath,
+		TimeoutSecond:     10,
+		AllowNetwork:      true,
 	})
 
 	_, errorValue := commandGuardrailService.BuildCommandPlan(security.CommandRequest{
-		ExecutableName:       "sudo",
-		Arguments:            []string{"echo", "x"},
+		ExecutableName:       "printf",
+		Arguments:            []string{"%s", "x"},
 		WorkingDirectoryPath: workspaceRootPath,
 	})
-	if errorValue == nil {
-		t.Fatal("expected sudo to be denied")
+	if errorValue != nil {
+		t.Fatalf("expected POSIX permissions to remain the executable boundary: %v", errorValue)
 	}
 }
 
-func TestTerminalGuardrailDeniesInlineEval(t *testing.T) {
+func TestTerminalGuardrailAllowsInlineEval(t *testing.T) {
 	workspaceRootPath := t.TempDir()
 	commandGuardrailService := security.NewCommandGuardrailService(config.TerminalConfiguration{
-		Mode:                   "native",
-		WorkspaceRootPath:      workspaceRootPath,
-		AllowedExecutableNames: []string{"python3"},
-		DeniedExecutableNames:  []string{},
-		DeniedPathPrefixes:     []string{"/etc", "/root"},
-		TimeoutSecond:          10,
-		AllowNetwork:           true,
+		Mode:              "native",
+		WorkspaceRootPath: workspaceRootPath,
+		TimeoutSecond:     10,
+		AllowNetwork:      true,
 	})
 
 	_, errorValue := commandGuardrailService.BuildCommandPlan(security.CommandRequest{
@@ -74,21 +65,18 @@ func TestTerminalGuardrailDeniesInlineEval(t *testing.T) {
 		Arguments:            []string{"-c", "print('x')"},
 		WorkingDirectoryPath: workspaceRootPath,
 	})
-	if errorValue == nil {
-		t.Fatal("expected inline eval to be denied")
+	if errorValue != nil {
+		t.Fatalf("expected inline eval to rely on POSIX and path permissions: %v", errorValue)
 	}
 }
 
-func TestTerminalGuardrailDeniesWorkspaceEscape(t *testing.T) {
+func TestTerminalGuardrailLeavesPathAccessToPOSIX(t *testing.T) {
 	workspaceRootPath := t.TempDir()
 	commandGuardrailService := security.NewCommandGuardrailService(config.TerminalConfiguration{
-		Mode:                   "native",
-		WorkspaceRootPath:      workspaceRootPath,
-		AllowedExecutableNames: []string{"cat"},
-		DeniedExecutableNames:  []string{},
-		DeniedPathPrefixes:     []string{"/etc", "/root"},
-		TimeoutSecond:          10,
-		AllowNetwork:           true,
+		Mode:              "native",
+		WorkspaceRootPath: workspaceRootPath,
+		TimeoutSecond:     10,
+		AllowNetwork:      true,
 	})
 
 	_, errorValue := commandGuardrailService.BuildCommandPlan(security.CommandRequest{
@@ -96,22 +84,19 @@ func TestTerminalGuardrailDeniesWorkspaceEscape(t *testing.T) {
 		Arguments:            []string{"/etc/passwd"},
 		WorkingDirectoryPath: workspaceRootPath,
 	})
-	if errorValue == nil {
-		t.Fatal("expected workspace escape to be denied")
+	if errorValue != nil {
+		t.Fatalf("expected the plan to build and file permissions to decide access: %v", errorValue)
 	}
 }
 
 func TestTerminalGuardrailDeniesUnsupportedSandboxProvider(t *testing.T) {
 	workspaceRootPath := t.TempDir()
 	commandGuardrailService := security.NewCommandGuardrailService(config.TerminalConfiguration{
-		Mode:                   "sandbox",
-		SandboxProvider:        "firecracker",
-		WorkspaceRootPath:      workspaceRootPath,
-		AllowedExecutableNames: []string{"echo"},
-		DeniedExecutableNames:  []string{},
-		DeniedPathPrefixes:     []string{"/etc", "/root"},
-		TimeoutSecond:          10,
-		AllowNetwork:           false,
+		Mode:              "sandbox",
+		SandboxProvider:   "firecracker",
+		WorkspaceRootPath: workspaceRootPath,
+		TimeoutSecond:     10,
+		AllowNetwork:      false,
 	})
 
 	_, errorValue := commandGuardrailService.BuildCommandPlan(security.CommandRequest{
