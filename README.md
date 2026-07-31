@@ -45,12 +45,17 @@ See [docs/architecture.md](docs/architecture.md) for how these fit together.
 | `chatd/` | Chat bridge and platform adapters (Mattermost, Buzz) |
 | `admin/` | Svelte admin and task console |
 | `migrations/` | Postgres schema, applied in order at boot |
+| `tests/` | Integration suite and its fixtures |
 | `lab/` | Provisioning and scenario scripts for the development VM |
 | `config/` | Example policy, runtime, and lab configuration |
+| `tools/` | Python sidecars, currently the Graphiti memory daemon |
+| `docs/` | Architecture notes |
+| `web/` | The admin console built from `admin/`, committed for packaging |
 
 ## Building
 
-Go 1.26 and [Bun](https://bun.sh) 1.3 are the only prerequisites.
+Go 1.26 and [Bun](https://bun.sh) 1.3 build everything here. The optional
+memory sidecar under `tools/` is Python.
 
 ```bash
 go build ./cmd/... ./internal/...

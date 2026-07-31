@@ -1,10 +1,10 @@
 # Blueclaw Lab
 
-This directory contains the local M4 Mac test rig assets for `blueclaw-lab`.
+This directory holds the local test rig assets for `blueclaw-lab`.
 
 The default topology is:
 
-- macOS host
+- Apple Silicon macOS host
 - Tart ARM Linux virtual machine
 - Firecracker inside the Linux virtual machine
 - Blueclaw inside the Firecracker guest
@@ -29,4 +29,7 @@ Connector scenarios should exercise the unified connector runtime rather than pl
 
 - `scenario-mattermost` covers Mattermost-style receive and reply paths
 - `scenario-slack` covers Slack Events API-style receive and Slack Web API-style reply paths
-- future Socket Mode or Signal receivers should be added as `ConnectorTransport` implementations without changing the connector core
+- further receivers, such as Socket Mode, should be added as `ConnectorTransport` implementations without changing the connector core
+
+`go run ./cmd/blueclaw-lab virtual-session` drives the agent loop without any
+virtual machine; see the repository README.
