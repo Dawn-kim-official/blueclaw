@@ -57,7 +57,7 @@ func TestAddressingClassificationOverridesHumanShouldRespond(t *testing.T) {
 		content: `{"target":"human","shouldRespond":true,"reactionEmoji":"","dutyMatch":false,"dutyName":"","dutyConfidence":0}`,
 	})
 
-	decision, errorValue := agentKernel.ClassifyAddressing(context.Background(), AddressingClassificationRequest{Prompt: "네 확인해볼게요"})
+	decision, errorValue := agentKernel.ClassifyAddressing(context.Background(), AddressingClassificationRequest{Prompt: "sure, I will check"})
 	if errorValue != nil {
 		t.Fatalf("expected addressing classification: %v", errorValue)
 	}
@@ -74,7 +74,7 @@ func TestAddressingClassificationConstrainsReactionEmojiToAllowedSet(t *testing.
 	agentKernel.UseIntakeLanguageModelProvider(addressingStaticLanguageModel{
 		content: `{"target":"bot","shouldRespond":false,"reactionEmoji":"eyes","dutyMatch":false,"dutyName":"","dutyConfidence":0}`,
 	})
-	decision, errorValue := agentKernel.ClassifyAddressing(context.Background(), AddressingClassificationRequest{Prompt: "이거 봐주세요"})
+	decision, errorValue := agentKernel.ClassifyAddressing(context.Background(), AddressingClassificationRequest{Prompt: "please take a look at this"})
 	if errorValue != nil {
 		t.Fatalf("expected addressing classification: %v", errorValue)
 	}
@@ -85,7 +85,7 @@ func TestAddressingClassificationConstrainsReactionEmojiToAllowedSet(t *testing.
 	agentKernel.UseIntakeLanguageModelProvider(addressingStaticLanguageModel{
 		content: `{"target":"bot","shouldRespond":false,"reactionEmoji":"banana","dutyMatch":false,"dutyName":"","dutyConfidence":0}`,
 	})
-	offListDecision, errorValue := agentKernel.ClassifyAddressing(context.Background(), AddressingClassificationRequest{Prompt: "이거 봐주세요"})
+	offListDecision, errorValue := agentKernel.ClassifyAddressing(context.Background(), AddressingClassificationRequest{Prompt: "please take a look at this"})
 	if errorValue != nil {
 		t.Fatalf("expected addressing classification: %v", errorValue)
 	}
@@ -100,7 +100,7 @@ func TestAddressingClassificationReturnsAmbientDutyFields(t *testing.T) {
 		content: `{"target":"anyone","shouldRespond":false,"reactionEmoji":"","dutyMatch":true,"dutyName":"calendar_upkeep","dutyConfidence":1.2}`,
 	})
 
-	decision, errorValue := agentKernel.ClassifyAddressing(context.Background(), AddressingClassificationRequest{Prompt: "오늘 5시 회의"})
+	decision, errorValue := agentKernel.ClassifyAddressing(context.Background(), AddressingClassificationRequest{Prompt: "meeting today at 5"})
 	if errorValue != nil {
 		t.Fatalf("expected addressing classification: %v", errorValue)
 	}

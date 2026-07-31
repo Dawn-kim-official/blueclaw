@@ -340,7 +340,7 @@ func TestLoadAgentInstructionPromptUsesAgentsAndSkills(t *testing.T) {
 	if errorValue := os.WriteFile(filepath.Join(workspacePath, "IDENTITY.md"), []byte("Use the runtime display name."), 0o600); errorValue != nil {
 		t.Fatalf("expected identity file: %v", errorValue)
 	}
-	if errorValue := os.WriteFile(filepath.Join(workspacePath, "BOT_PROFILE.yaml"), []byte("username: internkim\ndisplayName: 김인턴\nenglishDisplayName: Intern Kim\naliases:\n  - 인턴킴\npublicDescription: \"\"\nidentityExtension: Use the display name.\n"), 0o600); errorValue != nil {
+	if errorValue := os.WriteFile(filepath.Join(workspacePath, "BOT_PROFILE.yaml"), []byte("username: internkim\ndisplayName: internkim\nenglishDisplayName: Intern Kim\naliases:\n  - internkim\npublicDescription: \"\"\nidentityExtension: Use the display name.\n"), 0o600); errorValue != nil {
 		t.Fatalf("expected bot profile file: %v", errorValue)
 	}
 	if errorValue := os.WriteFile(filepath.Join(workspacePath, "SOUL.md"), []byte("Lead with the result."), 0o600); errorValue != nil {
@@ -356,7 +356,7 @@ func TestLoadAgentInstructionPromptUsesAgentsAndSkills(t *testing.T) {
 	runtimeConfiguration.Terminal.WorkspaceRootPath = workspacePath
 
 	instructionBundle := loadAgentInstructionBundle(runtimeConfiguration)
-	for _, expectedFragment := range []string{"Use the runtime display name.", "current displayName: 김인턴", "Use the display name.", "Lead with the result.", "Use agent-browser for web automation."} {
+	for _, expectedFragment := range []string{"Use the runtime display name.", "current displayName: internkim", "Use the display name.", "Lead with the result.", "Use agent-browser for web automation."} {
 		if !strings.Contains(instructionBundle.Prompt, expectedFragment) {
 			t.Fatalf("expected instruction prompt to contain %q, got %q", expectedFragment, instructionBundle.Prompt)
 		}

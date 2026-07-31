@@ -26,7 +26,7 @@ func TestScheduledTaskRunsAndDeliversThroughConnectorOutbox(t *testing.T) {
 		TaskScheduleID:   "schedule-daily-brief",
 		CreatorPersonID:  "person-1",
 		Name:             "daily brief",
-		Prompt:           "내 스케줄과 업계 뉴스를 보고 오늘 해야 할 일을 아침 7시에 알려줘.",
+		Prompt:           "look at my schedule and the industry news and tell me at 7am what to do today.",
 		AgentProfileName: "default",
 		Platform:         "fake",
 		ConversationID:   "direct-1",
@@ -37,8 +37,8 @@ func TestScheduledTaskRunsAndDeliversThroughConnectorOutbox(t *testing.T) {
 		NextRunAt:        &nextRunAt,
 	}}}
 	adapter := &scheduledDeliveryAdapter{}
-	connectorRuntime := newScheduledDeliveryConnectorRuntime(staticScheduleLanguageModel{content: scheduleFinishMessage("오늘은 두 가지를 먼저 처리하면 좋아요.")}, adapter, repository)
-	poller := newScheduledDeliveryPoller(staticScheduleLanguageModel{content: scheduleFinishMessage("오늘은 두 가지를 먼저 처리하면 좋아요.")}, repository)
+	connectorRuntime := newScheduledDeliveryConnectorRuntime(staticScheduleLanguageModel{content: scheduleFinishMessage("Two things are worth handling first today.")}, adapter, repository)
+	poller := newScheduledDeliveryPoller(staticScheduleLanguageModel{content: scheduleFinishMessage("Two things are worth handling first today.")}, repository)
 
 	runCount, errorValue := poller.RunDue(context.Background(), runAt, 1)
 	if errorValue != nil {
@@ -63,7 +63,7 @@ func TestScheduledTaskRunsAndDeliversThroughConnectorOutbox(t *testing.T) {
 	if len(adapter.sentReplies) != 1 {
 		t.Fatalf("expected exactly one outbound scheduled reply, got %+v", adapter.sentReplies)
 	}
-	if adapter.sentReplies[0].Message != "오늘은 두 가지를 먼저 처리하면 좋아요." {
+	if adapter.sentReplies[0].Message != "Two things are worth handling first today." {
 		t.Fatalf("expected scheduled reply body, got %+v", adapter.sentReplies)
 	}
 	if len(repository.sentReplies) != 1 {

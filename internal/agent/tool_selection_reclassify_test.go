@@ -28,7 +28,7 @@ func TestSelectToolsReclassifiesSkillNameThatIsRegisteredTool(t *testing.T) {
 func TestExternalSendReachesPinnedSendOperationsDirectlyOnceRequested(t *testing.T) {
 	toolSet := newTestCapabilityToolSet([]string{"message.send", "mail.message.send"})
 	request := AgentRequest{
-		Prompt:          "이샘플님께 DM 보내줘",
+		Prompt:          "send Dana Lee a DM",
 		PinnedToolNames: []string{"message.send", "mail.message.send"},
 		ToolSet:         toolSet,
 	}

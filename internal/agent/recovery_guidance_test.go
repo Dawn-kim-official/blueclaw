@@ -7,8 +7,8 @@ import (
 
 func TestAgentTurnRunnerAllowsCorrectedRetryAfterSafeFailure(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"continue","toolName":"message.send","toolInput":{"targetType":"directMessage","personHint":"샘플","message":"확인 부탁해"}}`,
-		`{"action":"continue","toolName":"message.send","toolInput":{"targetType":"directMessage","personHint":"이샘플","message":"확인 부탁해"}}`,
+		`{"action":"continue","toolName":"message.send","toolInput":{"targetType":"directMessage","personHint":"Dana","message":"please take a look"}}`,
+		`{"action":"continue","toolName":"message.send","toolInput":{"targetType":"directMessage","personHint":"Dana Lee","message":"please take a look"}}`,
 		finishMessageWithEvidence("sent", "obs-003", "message.send", 0),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{RecoveryAttemptLimit: 3})
@@ -68,7 +68,7 @@ func TestAgentTurnRunnerAllowsInspectionAfterAdjacentRecoveryBudgetExhausted(t *
 		`{"action":"continue","toolName":"site.build","toolInput":{"siteID":"site-1"}}`,
 		`{"action":"continue","toolName":"file.read","toolInput":{"path":"home/sites/site-1/draft/app/src/App.tsx"}}`,
 		`{"action":"continue","toolName":"file.edit","toolInput":{"path":"home/sites/site-1/draft/app/src/App.tsx","oldText":"broken","newText":"fixed"}}`,
-		finishMessageDocument("확인했습니다."),
+		finishMessageDocument("Checked."),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{
 		MaxIterationCount: 6,
@@ -111,7 +111,7 @@ func TestAgentTurnRunnerAllowsInspectionAfterAdjacentRecoveryBudgetExhausted(t *
 	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
 		RequesterPersonID: "person-1",
 		ConversationID:    "conversation-1",
-		Prompt:            "사이트 빌드 문제 확인해줘",
+		Prompt:            "look into the site build problem",
 		ToolSet:           toolRegistry,
 		PinnedToolNames:   []string{"site.build", "file.read", "file.edit"},
 	})

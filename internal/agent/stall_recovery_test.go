@@ -226,7 +226,7 @@ func TestStalledTurnUsesSuggestedNextToolBeforeExit(t *testing.T) {
 }
 
 func TestBrowserFailureRecoveryGuidanceRedirectsToWebFetch(t *testing.T) {
-	failedBrowser := newFailureObservation("obs-001", "continue", "browser.open", "Companion이 연결되어 있지 않아 브라우저를 열 수 없습니다.", FailureDependencyUnavailable, FailureCodes.Unavailable, "browser_open")
+	failedBrowser := newFailureObservation("obs-001", "continue", "browser.open", "Companion is not connected, so the browser cannot be opened.", FailureDependencyUnavailable, FailureCodes.Unavailable, "browser_open")
 	guidance := recoveryGuidanceContent(failedBrowser, "")
 	if !strings.Contains(guidance, "web.fetch") {
 		t.Fatalf("expected browser failure to steer toward web.fetch, got %q", guidance)

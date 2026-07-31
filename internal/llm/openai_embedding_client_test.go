@@ -14,7 +14,7 @@ func TestOpenAIEmbeddingClientUsesConfiguredModelWithoutTimeout(t *testing.T) {
 		if errorValue := json.NewDecoder(request.Body).Decode(&requestDocument); errorValue != nil {
 			t.Fatalf("decode request: %v", errorValue)
 		}
-		if requestDocument.Model != DefaultEmbeddingModelName || requestDocument.Input != "업무 검색" {
+		if requestDocument.Model != DefaultEmbeddingModelName || requestDocument.Input != "task search" {
 			t.Fatalf("request = %+v", requestDocument)
 		}
 		responseWriter.Header().Set("Content-Type", "application/json")
@@ -23,7 +23,7 @@ func TestOpenAIEmbeddingClientUsesConfiguredModelWithoutTimeout(t *testing.T) {
 	defer server.Close()
 
 	client := OpenAIEmbeddingClient{Endpoint: server.URL, ModelName: DefaultEmbeddingModelName}
-	embedding, errorValue := client.GenerateEmbedding(context.Background(), "업무 검색")
+	embedding, errorValue := client.GenerateEmbedding(context.Background(), "task search")
 
 	if errorValue != nil {
 		t.Fatalf("generate embedding: %v", errorValue)

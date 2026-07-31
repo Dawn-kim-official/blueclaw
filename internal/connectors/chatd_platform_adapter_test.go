@@ -17,7 +17,7 @@ func TestChatdPlatformAdapterParsesNormalizedHTTPEvent(t *testing.T) {
 	request := httptest.NewRequest(
 		http.MethodPost,
 		"/connectors/mattermost/events",
-		bytes.NewReader([]byte(`{"conversationID":"channel-1","messageID":"post-1","senderID":"user-1","replyTargetID":"reply-target-1","prompt":"안녕","context":{"messages":[{"speaker":"admin","text":"이전"}],"hasMoreBefore":true,"historyCursor":"cursor-1"}}`)),
+		bytes.NewReader([]byte(`{"conversationID":"channel-1","messageID":"post-1","senderID":"user-1","replyTargetID":"reply-target-1","prompt":"hello","context":{"messages":[{"speaker":"admin","text":"previous"}],"hasMoreBefore":true,"historyCursor":"cursor-1"}}`)),
 	)
 
 	parseResult, errorValue := adapter.ParseHTTPEvent(context.Background(), request)

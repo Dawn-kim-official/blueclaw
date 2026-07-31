@@ -78,7 +78,7 @@ func TestOpenRouterClientRetriesStructuredProseWithJSONInstruction(t *testing.T)
 	server := httptest.NewServer(http.HandlerFunc(func(responseWriter http.ResponseWriter, request *http.Request) {
 		requestDocuments = append(requestDocuments, decodeOpenRouterTestRequest(t, request))
 		if len(requestDocuments) == 1 {
-			writeOpenRouterTestContent(t, responseWriter, "회의록은 결정과 실행 과제를 담아야 합니다.", 2, 3)
+			writeOpenRouterTestContent(t, responseWriter, "Meeting notes should capture decisions and action items.", 2, 3)
 			return
 		}
 		writeOpenRouterTestContent(t, responseWriter, `{"reply":"ok"}`, 5, 7)
@@ -116,7 +116,7 @@ func TestOpenRouterClientRetriesStructuredProseWithJSONInstruction(t *testing.T)
 	if len(retryMessages) != 3 {
 		t.Fatalf("expected retry conversation messages, got %+v", retryMessages)
 	}
-	if retryMessages[1].Role != "assistant" || retryMessages[1].Content != "회의록은 결정과 실행 과제를 담아야 합니다." {
+	if retryMessages[1].Role != "assistant" || retryMessages[1].Content != "Meeting notes should capture decisions and action items." {
 		t.Fatalf("expected assistant prose in retry conversation, got %+v", retryMessages[1])
 	}
 	retryInstruction, isText := retryMessages[2].Content.(string)
