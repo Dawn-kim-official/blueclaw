@@ -13,14 +13,6 @@ func (agentTurnRunner *AgentTurnRunner) prepareRecoveryAttempt(ctx context.Conte
 		return "", toolCallActionOutcome{}
 	}
 	effectiveToolName := effectiveObservationToolName(actionDocument.ToolName, actionDocument.ToolInput)
-	if isAllowed, reason := recoveryChoiceIsAllowed(failureDebt, state.Observations, effectiveToolName); !isAllowed {
-		observation := recoveryChoiceRejectedObservation(len(state.Observations)+1, failureDebt.LatestFailure, reason)
-		state.Observations = append(state.Observations, observation)
-		agentTurnRunner.appendEvent(taskRunID, "agent.recovery_choice_rejected", marshalEventBody(observation))
-		agentTurnRunner.saveStep(taskRunID, stepID, task.TaskStatusCompleted, "recovery_choice_rejected "+effectiveToolName, observation.ContentText())
-		result, shouldStop := stopForNoProgress(stepID)
-		return "", noProgressToolCallActionOutcome(result, shouldStop)
-	}
 	recoveryStep := classifyRecoveryStep(failureDebt, effectiveToolName)
 	if !recoveryBudgetAllowsStep(state.Observations, agentTurnRunner.options.RecoveryBudget, recoveryStep) {
 		observation := recoveryBudgetExhaustedObservation(len(state.Observations)+1, failureDebt.LatestFailure, recoveryStep, firstNonEmptyString(request.ActiveGoal.OriginalInstruction, request.Prompt))
@@ -57,21 +49,6 @@ func recoveryGuidanceObservation(index int, observation turnObservation, origina
 		RecoveryPacket:       &packet,
 		RecoveryAttemptKey:   observation.RecoveryAttemptKey,
 		RecoveryAttemptSpent: observation.RecoveryAttemptSpent,
-	}
-}
-
-func recoveryChoiceRejectedObservation(index int, failedObservation turnObservation, reason string) turnObservation {
-	packet := buildRecoveryPacket(failedObservation)
-	content := "Invalid recovery choice. " + strings.TrimSpace(reason) + " " + recoveryPacketContent(packet)
-	return turnObservation{
-		ObservationID:  nextObservationID(index),
-		Action:         "policy",
-		Tool:           failedObservation.Tool,
-		Output:         ToolOutput{Content: content},
-		Summary:        content,
-		Failure:        &ToolFailure{Kind: FailurePolicyBlocked, Code: FailureCodes.PolicyBlocked.String(), Stage: "recovery_policy", UserSafeSummary: reason},
-		ToolInputKey:   failedObservation.ToolInputKey,
-		RecoveryPacket: &packet,
 	}
 }
 

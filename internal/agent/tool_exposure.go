@@ -38,7 +38,7 @@ func toolSetForAgentTurnWithExposure(toolSet *ToolSet, instructionBundle Instruc
 		recentObservations = observations[0]
 	}
 	interactionGroup := filterGroupTools(toolSet, toolExposureGroup{Name: "required interaction", ToolIDs: requiredInteractionToolNames(outcomeContract, recentObservations)})
-	recoveryToolNames := appendUniqueStrings(activeRecoveryToolNames(recentObservations), activeRecoveryPreconditionToolNames(toolSet, recentObservations)...)
+	recoveryToolNames := activeRecoveryToolNames(recentObservations)
 	recoveryGroup := filterGroupTools(toolSet, toolExposureGroup{Name: "recovery tools", ToolIDs: recoveryToolNames})
 	pendingToolName := firstPendingRequiredToolName(instructionBundle.RequiredNextTools, recentObservations)
 	pendingGroup := filterGroupTools(toolSet, toolExposureGroup{Name: "pending working-set tool", ToolIDs: []string{pendingToolName}})
@@ -264,20 +264,6 @@ func activeRecoveryToolNames(observations []turnObservation) []string {
 	}
 	if failureDebt.LatestFailure.RecoveryPacket != nil {
 		toolNames = appendUniqueStrings(toolNames, failureDebt.LatestFailure.RecoveryPacket.AllowedTools...)
-	}
-	return filterExhaustedRecoveryToolNames(toolNames, observations)
-}
-
-func activeRecoveryPreconditionToolNames(toolSet *ToolSet, observations []turnObservation) []string {
-	failureDebt, hasFailureDebt := activeFailureDebt(observations)
-	if !hasFailureDebt || toolSet == nil {
-		return nil
-	}
-	toolNames := []string{}
-	for _, toolName := range toolSet.ListToolNames() {
-		if toolCanSatisfyRecoveryPrecondition(failureDebt.LatestFailure, toolName) {
-			toolNames = append(toolNames, toolName)
-		}
 	}
 	return filterExhaustedRecoveryToolNames(toolNames, observations)
 }

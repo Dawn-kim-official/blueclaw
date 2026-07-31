@@ -108,14 +108,6 @@ func (agentTurnRunner *AgentTurnRunner) rejectRepeatedToolCall(taskRunID string,
 		return noProgressToolCallActionOutcome(result, shouldStop)
 	}
 	if duplicateFailure, isDuplicateFailure := previousFailedToolInput(state.Observations, actionDocument.ToolName, actionDocument.ToolInput); isDuplicateFailure {
-		if len(requiredPreconditionsForObservation(duplicateFailure)) > 0 {
-			observation := recoveryChoiceRejectedObservation(len(state.Observations)+1, duplicateFailure, "Retrying "+strings.TrimSpace(actionDocument.ToolName)+" requires evidence first: "+strings.Join(missingRecoveryPreconditions(duplicateFailure, state.Observations), ", "))
-			state.Observations = append(state.Observations, observation)
-			agentTurnRunner.appendEvent(taskRunID, "agent.recovery_choice_rejected", marshalEventBody(observation))
-			agentTurnRunner.saveStep(taskRunID, stepID, task.TaskStatusCompleted, "recovery_choice_rejected "+actionDocument.ToolName, observation.ContentText())
-			result, shouldStop := stopForNoProgress(stepID)
-			return noProgressToolCallActionOutcome(result, shouldStop)
-		}
 		observation := repeatedFailedAttemptObservation(len(state.Observations)+1, duplicateFailure, firstNonEmptyString(state.Request.ActiveGoal.OriginalInstruction, state.Request.Prompt))
 		state.Observations = append(state.Observations, observation)
 		agentTurnRunner.appendEvent(taskRunID, "agent.failed_fingerprint_rejected", marshalEventBody(observation))
