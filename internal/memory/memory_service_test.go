@@ -13,19 +13,19 @@ func TestMemoryServiceSeparatesUserWorkspaceAndConversationNamespaces(t *testing
 	memoryService.StoreMemoryFact(MemoryFact{
 		ScopeType:   ScopeTypeUser,
 		NamespaceID: "user:person-1",
-		Content:     "사용자의 이름은 민수다.",
+		Content:     "the user's name is Sam.",
 	})
 	memoryService.StoreMemoryFact(MemoryFact{
 		ScopeType:         ScopeTypeWorkspace,
 		NamespaceID:       WorkspaceNamespace("default", 50, []string{"finance"}).NamespaceID,
-		Content:           "회사 법인카드는 재무팀만 쓴다.",
+		Content:           "only the finance team uses the corporate card.",
 		SecurityLevelRank: 50,
 		RequiredClasses:   []string{"finance"},
 	})
 	memoryService.StoreMemoryFact(MemoryFact{
 		ScopeType:         ScopeTypeConversation,
 		NamespaceID:       ConversationNamespace("channel-1", 10, []string{"internal"}).NamespaceID,
-		Content:           "이 채널은 릴리즈 회의용이다.",
+		Content:           "this channel is for release meetings.",
 		SecurityLevelRank: 10,
 		RequiredClasses:   []string{"internal"},
 	})
@@ -60,7 +60,7 @@ func TestMemoryServiceSeparatesUserWorkspaceAndConversationNamespaces(t *testing
 	if errorValue != nil {
 		t.Fatalf("expected search to succeed: %v", errorValue)
 	}
-	if containsMemory(personTwoFacts, "사용자의 이름은 민수다.") {
+	if containsMemory(personTwoFacts, "the user's name is Sam.") {
 		t.Fatal("expected other user not to read person-1 user memory")
 	}
 
@@ -77,10 +77,10 @@ func TestMemoryServiceSeparatesUserWorkspaceAndConversationNamespaces(t *testing
 	if errorValue != nil {
 		t.Fatalf("expected search to succeed: %v", errorValue)
 	}
-	if containsMemory(lowAccessFacts, "회사 법인카드는 재무팀만 쓴다.") {
+	if containsMemory(lowAccessFacts, "only the finance team uses the corporate card.") {
 		t.Fatal("expected workspace memory to respect security classes")
 	}
-	if containsMemory(lowAccessFacts, "이 채널은 릴리즈 회의용이다.") {
+	if containsMemory(lowAccessFacts, "this channel is for release meetings.") {
 		t.Fatal("expected conversation memory to stay in its conversation")
 	}
 }
@@ -93,7 +93,7 @@ func TestMemoryServiceRanksAfterPolicyFiltering(t *testing.T) {
 		FactID:            "inaccessible",
 		ScopeType:         ScopeTypeWorkspace,
 		NamespaceID:       WorkspaceNamespace("default", 80, []string{"finance"}).NamespaceID,
-		Content:           "프로젝트 오로라 예산은 비공개다.",
+		Content:           "the Project Aurora budget is confidential.",
 		Score:             50,
 		SecurityLevelRank: 80,
 		RequiredClasses:   []string{"finance"},
@@ -103,7 +103,7 @@ func TestMemoryServiceRanksAfterPolicyFiltering(t *testing.T) {
 		FactID:      "query-match",
 		ScopeType:   ScopeTypeUser,
 		NamespaceID: UserNamespace("person-1").NamespaceID,
-		Content:     "사용자는 오로라 프로젝트를 우선한다.",
+		Content:     "the user prioritizes Project Aurora.",
 		Score:       0.1,
 		ValidAt:     olderTime,
 	})
@@ -111,7 +111,7 @@ func TestMemoryServiceRanksAfterPolicyFiltering(t *testing.T) {
 		FactID:      "high-score",
 		ScopeType:   ScopeTypeUser,
 		NamespaceID: UserNamespace("person-1").NamespaceID,
-		Content:     "사용자는 간결한 설계를 선호한다.",
+		Content:     "the user prefers a concise design.",
 		Score:       0.9,
 		ValidAt:     newerTime,
 	})
@@ -119,13 +119,13 @@ func TestMemoryServiceRanksAfterPolicyFiltering(t *testing.T) {
 		FactID:      "old-low-score",
 		ScopeType:   ScopeTypeUser,
 		NamespaceID: UserNamespace("person-1").NamespaceID,
-		Content:     "사용자는 월요일 오전 회의를 피한다.",
+		Content:     "the user avoids Monday morning meetings.",
 		Score:       0.2,
 		ValidAt:     olderTime,
 	})
 
 	memoryFacts, errorValue := memoryService.SearchMemory(context.Background(), MemorySearchRequest{
-		Query:                   "오로라 프로젝트",
+		Query:                   "Project Aurora",
 		ReaderPersonID:          "person-1",
 		ReaderSecurityLevelRank: 10,
 		ReaderGrantedClasses:    []string{"internal"},
@@ -148,7 +148,7 @@ func TestMemoryServiceRanksAfterPolicyFiltering(t *testing.T) {
 	if memoryFacts[1].FactID != "high-score" {
 		t.Fatalf("expected score-ranked fact second, got %+v", memoryFacts)
 	}
-	if containsMemory(memoryFacts, "프로젝트 오로라 예산은 비공개다.") {
+	if containsMemory(memoryFacts, "the Project Aurora budget is confidential.") {
 		t.Fatal("expected inaccessible high-score memory to be filtered before ranking")
 	}
 }
@@ -161,13 +161,13 @@ func TestMemoryServiceFiltersPrivateAndCircleResources(t *testing.T) {
 		FactID:      "private",
 		ScopeType:   ScopeTypePrivate,
 		NamespaceID: privateNamespace.NamespaceID,
-		Content:     "민수와 봇의 1:1 메모다.",
+		Content:     "a one-on-one note between Sam and the bot.",
 	})
 	memoryService.StoreMemoryFact(MemoryFact{
 		FactID:      "finance",
 		ScopeType:   ScopeTypeCircle,
 		NamespaceID: financeNamespace.NamespaceID,
-		Content:     "재무 circle 자료다.",
+		Content:     "finance circle material.",
 	})
 
 	ownerFacts, errorValue := memoryService.SearchMemory(context.Background(), MemorySearchRequest{
@@ -178,7 +178,7 @@ func TestMemoryServiceFiltersPrivateAndCircleResources(t *testing.T) {
 	if errorValue != nil {
 		t.Fatalf("expected search to succeed: %v", errorValue)
 	}
-	if !containsMemory(ownerFacts, "민수와 봇의 1:1 메모다.") || !containsMemory(ownerFacts, "재무 circle 자료다.") {
+	if !containsMemory(ownerFacts, "a one-on-one note between Sam and the bot.") || !containsMemory(ownerFacts, "finance circle material.") {
 		t.Fatalf("expected owner finance access, got %+v", ownerFacts)
 	}
 
@@ -190,10 +190,10 @@ func TestMemoryServiceFiltersPrivateAndCircleResources(t *testing.T) {
 	if errorValue != nil {
 		t.Fatalf("expected search to succeed: %v", errorValue)
 	}
-	if containsMemory(otherFacts, "민수와 봇의 1:1 메모다.") {
+	if containsMemory(otherFacts, "a one-on-one note between Sam and the bot.") {
 		t.Fatal("expected other person not to read private memory")
 	}
-	if containsMemory(otherFacts, "재무 circle 자료다.") {
+	if containsMemory(otherFacts, "finance circle material.") {
 		t.Fatal("expected finance non-member not to read finance memory")
 	}
 }
@@ -209,14 +209,14 @@ func TestMemoryServiceAppliesResourceAccessRulesBeforeRanking(t *testing.T) {
 		FactID:      "workspace-secret",
 		ScopeType:   ScopeTypeWorkspace,
 		NamespaceID: WorkspaceNamespace("default", 0, nil).NamespaceID,
-		Content:     "워크스페이스 공용 메모지만 rule로 막는다.",
+		Content:     "a workspace-wide note that a rule still blocks.",
 		Score:       100,
 	})
 	memoryService.StoreMemoryFact(MemoryFact{
 		FactID:      "private",
 		ScopeType:   ScopeTypePrivate,
 		NamespaceID: PrivatePersonNamespace("person-1").NamespaceID,
-		Content:     "낮은 점수의 개인 메모다.",
+		Content:     "a low-scoring personal note.",
 		Score:       1,
 	})
 
@@ -232,10 +232,10 @@ func TestMemoryServiceAppliesResourceAccessRulesBeforeRanking(t *testing.T) {
 	if errorValue != nil {
 		t.Fatalf("expected search to succeed: %v", errorValue)
 	}
-	if containsMemory(memoryFacts, "워크스페이스 공용 메모지만 rule로 막는다.") {
+	if containsMemory(memoryFacts, "a workspace-wide note that a rule still blocks.") {
 		t.Fatal("expected resource access rule to filter workspace memory before ranking")
 	}
-	if !containsMemory(memoryFacts, "낮은 점수의 개인 메모다.") {
+	if !containsMemory(memoryFacts, "a low-scoring personal note.") {
 		t.Fatalf("expected private memory to remain, got %+v", memoryFacts)
 	}
 }
@@ -247,7 +247,7 @@ func TestMemoryServiceRanksSourceKindAndDeduplicatesBeforeLimit(t *testing.T) {
 		FactID:      "episode",
 		ScopeType:   ScopeTypeUser,
 		NamespaceID: namespace.NamespaceID,
-		Content:     "사용자는 그래피티 메모리를 선호한다.",
+		Content:     "the user prefers graph memory.",
 		Score:       0.9,
 		SourceKind:  MemorySourceKindEpisode,
 	})
@@ -255,7 +255,7 @@ func TestMemoryServiceRanksSourceKindAndDeduplicatesBeforeLimit(t *testing.T) {
 		FactID:      "fact",
 		ScopeType:   ScopeTypeUser,
 		NamespaceID: namespace.NamespaceID,
-		Content:     "사용자는 그래피티 메모리를 선호한다.",
+		Content:     "the user prefers graph memory.",
 		Score:       0.8,
 		SourceKind:  MemorySourceKindFact,
 	})
@@ -263,13 +263,13 @@ func TestMemoryServiceRanksSourceKindAndDeduplicatesBeforeLimit(t *testing.T) {
 		FactID:      "node",
 		ScopeType:   ScopeTypeUser,
 		NamespaceID: namespace.NamespaceID,
-		Content:     "사용자는 간결한 설계를 선호한다.",
+		Content:     "the user prefers a concise design.",
 		Score:       0.85,
 		SourceKind:  MemorySourceKindNode,
 	})
 
 	memoryFacts, errorValue := memoryService.SearchMemory(context.Background(), MemorySearchRequest{
-		Query:          "그래피티 메모리",
+		Query:          "graph memory",
 		ReaderPersonID: "person-1",
 		Limit:          2,
 		Namespaces:     []MemoryNamespace{namespace},

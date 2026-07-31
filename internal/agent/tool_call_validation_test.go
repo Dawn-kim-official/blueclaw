@@ -41,7 +41,7 @@ func TestAgentTurnRunnerRecordsDeniedToolAsObservation(t *testing.T) {
 func TestAgentTurnRunnerRejectsMalformedInputBeforeApproval(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		directToolAction("continue", "", "site.unserve", `{"siteID":42}`),
-		noToolFallbackFinishMessageDocument("삭제 요청 형식을 확인하지 못했습니다."),
+		noToolFallbackFinishMessageDocument("could not read the delete request format."),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 3})
 	toolRegistry := newTestCapabilityToolSet([]string{"site.unserve"})
@@ -63,7 +63,7 @@ func TestAgentTurnRunnerRejectsMalformedInputBeforeApproval(t *testing.T) {
 	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
 		RequesterPersonID: "person-1",
 		ConversationID:    "conversation-1",
-		Prompt:            "사이트를 삭제해줘",
+		Prompt:            "delete the site",
 		ToolSet:           toolRegistry,
 		PinnedToolNames:   []string{"site.unserve"},
 	})
@@ -101,9 +101,9 @@ func TestValidateTerminalToolInputRejectsRegisteredToolNameAsCommand(t *testing.
 
 func TestAgentTurnRunnerRejectsSecondDMSendAfterSuccess(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"continue","toolName":"message.send","toolInput":{"targetType":"directMessage","personHint":"샘플","message":"첫 번째"}}`,
-		`{"action":"continue","toolName":"message.send","toolInput":{"targetType":"directMessage","personHint":"샘플","message":"두 번째"}}`,
-		finishMessageWithEvidence("첫 번째 메시지를 보냈습니다.", "obs-001", "message.send", 0),
+		`{"action":"continue","toolName":"message.send","toolInput":{"targetType":"directMessage","personHint":"Dana","message":"first"}}`,
+		`{"action":"continue","toolName":"message.send","toolInput":{"targetType":"directMessage","personHint":"Dana","message":"second"}}`,
+		finishMessageWithEvidence("Sent the first message.", "obs-001", "message.send", 0),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 5})
 	toolRegistry := newTestCapabilityToolSet([]string{"message.send"})
@@ -116,7 +116,7 @@ func TestAgentTurnRunnerRejectsSecondDMSendAfterSuccess(t *testing.T) {
 	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
 		RequesterPersonID:     "person-1",
 		ConversationID:        "conversation-1",
-		Prompt:                "샘플에게 DM 보내줘",
+		Prompt:                "send Dana a DM",
 		ToolSet:               toolRegistry,
 		PinnedToolNames:       toolRegistry.ListToolNames(),
 		RequiredEvidenceTools: []string{"message.send"},
@@ -139,9 +139,9 @@ func TestAgentTurnRunnerRejectsSecondDMSendAfterSuccess(t *testing.T) {
 
 func TestAgentTurnRunnerAllowsSendToDifferentRecipients(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"continue","toolName":"message.send","toolInput":{"targetType":"directMessage","personHint":"샘플","message":"확인 부탁해"}}`,
-		`{"action":"continue","toolName":"message.send","toolInput":{"targetType":"directMessage","personHint":"정국","message":"확인 부탁해"}}`,
-		finishMessageWithEvidence("샘플와 정국에게 DM을 보냈습니다.", "obs-001", "message.send", 0),
+		`{"action":"continue","toolName":"message.send","toolInput":{"targetType":"directMessage","personHint":"Dana","message":"please take a look"}}`,
+		`{"action":"continue","toolName":"message.send","toolInput":{"targetType":"directMessage","personHint":"Grace","message":"please take a look"}}`,
+		finishMessageWithEvidence("Sent a DM to Dana and Grace.", "obs-001", "message.send", 0),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 5})
 	toolRegistry := newTestCapabilityToolSet([]string{"message.send"})
@@ -154,7 +154,7 @@ func TestAgentTurnRunnerAllowsSendToDifferentRecipients(t *testing.T) {
 	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
 		RequesterPersonID:     "person-1",
 		ConversationID:        "conversation-1",
-		Prompt:                "샘플와 정국에게 DM 보내줘",
+		Prompt:                "send a DM to Dana and Grace",
 		ToolSet:               toolRegistry,
 		PinnedToolNames:       toolRegistry.ListToolNames(),
 		RequiredEvidenceTools: []string{"message.send"},
@@ -174,8 +174,8 @@ func TestAgentTurnRunnerAllowsSendToDifferentRecipients(t *testing.T) {
 
 func TestAgentTurnRunnerRejectsMessageSendWithoutExternalSendIntent(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"continue","toolName":"message.send","toolInput":{"targetType":"directMessage","personHint":"샘플","message":"휴게소 가도 돼요."}}`,
-		noToolFallbackFinishMessageDocument("휴게소 들러도 괜찮습니다."),
+		`{"action":"continue","toolName":"message.send","toolInput":{"targetType":"directMessage","personHint":"Dana","message":"can I stop at the rest area."}}`,
+		noToolFallbackFinishMessageDocument("stopping at the rest area is fine."),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 3})
 	toolRegistry := newTestCapabilityToolSet([]string{"message.send"})
@@ -187,14 +187,14 @@ func TestAgentTurnRunnerRejectsMessageSendWithoutExternalSendIntent(t *testing.T
 	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
 		RequesterPersonID: "person-1",
 		ConversationID:    "conversation-1",
-		Prompt:            "휴게소 가야해?",
+		Prompt:            "I need to stop at the rest area?",
 		ToolSet:           toolRegistry,
 		PinnedToolNames:   toolRegistry.ListToolNames(),
 	})
 	if errorValue != nil {
 		t.Fatalf("expected turn to recover from rejected message.send: %v", errorValue)
 	}
-	if result.FinishMessage != "휴게소 들러도 괜찮습니다." {
+	if result.FinishMessage != "stopping at the rest area is fine." {
 		t.Fatalf("expected final reply in current conversation, got %q", result.FinishMessage)
 	}
 	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.external_send_intent_rejected", "finish.message") {
@@ -204,8 +204,8 @@ func TestAgentTurnRunnerRejectsMessageSendWithoutExternalSendIntent(t *testing.T
 
 func TestAgentTurnRunnerAllowsCurrentThreadSendWithoutExternalSendContract(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"continue","toolName":"message.send","toolInput":{"targetType":"currentThread","message":"메모: 주간 고객지원 체크 완료"}}`,
-		finishMessageWithEvidence("이 대화에 메모를 남겼습니다.", "obs-001", "message.send", 0),
+		`{"action":"continue","toolName":"message.send","toolInput":{"targetType":"currentThread","message":"note: weekly customer support check done"}}`,
+		finishMessageWithEvidence("Left a note on this conversation.", "obs-001", "message.send", 0),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 3})
 	toolRegistry := newTestCapabilityToolSet([]string{"message.send"})
@@ -218,7 +218,7 @@ func TestAgentTurnRunnerAllowsCurrentThreadSendWithoutExternalSendContract(t *te
 	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
 		RequesterPersonID: "person-1",
 		ConversationID:    "conversation-1",
-		Prompt:            "이 대화에 메모 남겨줘",
+		Prompt:            "leave a note on this conversation",
 		ToolSet:           toolRegistry,
 		PinnedToolNames:   toolRegistry.ListToolNames(),
 	})
@@ -235,8 +235,8 @@ func TestAgentTurnRunnerAllowsCurrentThreadSendWithoutExternalSendContract(t *te
 
 func TestAgentTurnRunnerRejectsChannelSendWithoutExternalSendIntent(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"continue","toolName":"message.send","toolInput":{"targetType":"channel","channelName":"announcements","message":"공지입니다."}}`,
-		noToolFallbackFinishMessageDocument("현재 대화에서 답변드립니다."),
+		`{"action":"continue","toolName":"message.send","toolInput":{"targetType":"channel","channelName":"announcements","message":"this is an announcement."}}`,
+		noToolFallbackFinishMessageDocument("Answering in the current conversation."),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 3})
 	toolRegistry := newTestCapabilityToolSet([]string{"message.send"})
@@ -248,7 +248,7 @@ func TestAgentTurnRunnerRejectsChannelSendWithoutExternalSendIntent(t *testing.T
 	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
 		RequesterPersonID: "person-1",
 		ConversationID:    "conversation-1",
-		Prompt:            "질문 있어요",
+		Prompt:            "I have a question",
 		ToolSet:           toolRegistry,
 		PinnedToolNames:   toolRegistry.ListToolNames(),
 	})
@@ -262,15 +262,15 @@ func TestAgentTurnRunnerRejectsChannelSendWithoutExternalSendIntent(t *testing.T
 
 func TestAgentTurnRunnerRejectsRepeatedFailedFingerprint(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"continue","toolName":"message.send","toolInput":{"targetType":"directMessage","personHint":"샘플","message":"확인 부탁해"}}`,
-		`{"action":"continue","toolName":"message.send","toolInput":{"targetType":"directMessage","personHint":"샘플","message":"확인 부탁해"}}`,
+		`{"action":"continue","toolName":"message.send","toolInput":{"targetType":"directMessage","personHint":"Dana","message":"please take a look"}}`,
+		`{"action":"continue","toolName":"message.send","toolInput":{"targetType":"directMessage","personHint":"Dana","message":"please take a look"}}`,
 		`{"action":"continue","toolName":"message.context","toolInput":{}}`,
 		`{"action":"continue","toolName":"message.context","toolInput":{}}`,
-		`{"action":"continue","toolName":"message.send","toolInput":{"targetType":"directMessage","personHint":"정국","message":"확인 부탁해"}}`,
-		failureReportDocument("mattermost still unavailable", "message.send", "정국", FailureCodes.Unavailable.String(), "mattermost_lookup", "temporary user lookup timeout"),
+		`{"action":"continue","toolName":"message.send","toolInput":{"targetType":"directMessage","personHint":"Grace","message":"please take a look"}}`,
+		failureReportDocument("mattermost still unavailable", "message.send", "Grace", FailureCodes.Unavailable.String(), "mattermost_lookup", "temporary user lookup timeout"),
 		recoveryDecisionDocument("check Mattermost availability before retrying", "report the failed stage and code"),
 	}, textResponses: []string{
-		"mattermost_lookup/unavailable 단계에서 Mattermost 조회가 계속 실패해 DM을 보내지 못했습니다.",
+		"mattermost_lookup/unavailable stage kept failing to query Mattermost, so the DM was never sent.",
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 8, RecoveryAttemptLimit: 3})
 	toolRegistry := newTestCapabilityToolSet([]string{"message.send", "message.context"})
@@ -287,9 +287,9 @@ func TestAgentTurnRunnerRejectsRepeatedFailedFingerprint(t *testing.T) {
 
 	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
 		RequesterPersonID:     "person-1",
-		RequesterName:         "이샘플",
+		RequesterName:         "Dana Lee",
 		ConversationID:        "conversation-1",
-		Prompt:                "샘플에게 DM 보내줘",
+		Prompt:                "send Dana a DM",
 		ToolSet:               toolRegistry,
 		PinnedToolNames:       toolRegistry.ListToolNames(),
 		RequiredEvidenceTools: []string{"message.send"},
@@ -298,7 +298,7 @@ func TestAgentTurnRunnerRejectsRepeatedFailedFingerprint(t *testing.T) {
 	if errorValue != nil {
 		t.Fatalf("expected exhausted retry failure result: %v", errorValue)
 	}
-	if countStringOccurrences(sendInputs, `"personHint":"샘플"`) != 1 {
+	if countStringOccurrences(sendInputs, `"personHint":"Dana"`) != 1 {
 		t.Fatalf("expected repeated fingerprint to be rejected before invoke, got inputs %+v", sendInputs)
 	}
 	if !strings.Contains(result.UserNotice, "mattermost_lookup/unavailable") {
@@ -311,12 +311,12 @@ func TestAgentTurnRunnerRejectsRepeatedFailedFingerprint(t *testing.T) {
 
 func TestAgentTurnRunnerRejectsUnsafeRepeatedExternalSend(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"continue","toolName":"message.send","toolInput":{"targetType":"directMessage","personHint":"샘플","message":"확인 부탁해"}}`,
-		`{"action":"continue","toolName":"message.send","toolInput":{"targetType":"directMessage","personHint":"샘플","message":"확인 부탁해"}}`,
-		failureReportDocument("send failed", "message.send", "샘플", FailureCodes.OperationFailed.String(), "message_send", "Mattermost returned 503 after post create"),
+		`{"action":"continue","toolName":"message.send","toolInput":{"targetType":"directMessage","personHint":"Dana","message":"please take a look"}}`,
+		`{"action":"continue","toolName":"message.send","toolInput":{"targetType":"directMessage","personHint":"Dana","message":"please take a look"}}`,
+		failureReportDocument("send failed", "message.send", "Dana", FailureCodes.OperationFailed.String(), "message_send", "Mattermost returned 503 after post create"),
 		recoveryDecisionDocument("inspect delivery state before retrying", "report the failed stage and avoid duplicate send claims"),
 	}, textResponses: []string{
-		"message_send/operation_failed 단계에서 전송이 실패했습니다. 중복 전송 위험 때문에 같은 메시지를 다시 보내지는 않았습니다.",
+		"message_send/operation_failed stage failed to send. The same message was not sent again because of the duplicate delivery risk.",
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{RecoveryAttemptLimit: 2, RecoveryBudget: exhaustedRecoveryBudgetForTest()})
 	toolRegistry := newTestCapabilityToolSet([]string{"message.send", "message.context"})
@@ -328,9 +328,9 @@ func TestAgentTurnRunnerRejectsUnsafeRepeatedExternalSend(t *testing.T) {
 
 	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
 		RequesterPersonID:     "person-1",
-		RequesterName:         "이샘플",
+		RequesterName:         "Dana Lee",
 		ConversationID:        "conversation-1",
-		Prompt:                "샘플에게 DM 보내줘",
+		Prompt:                "send Dana a DM",
 		ToolSet:               toolRegistry,
 		PinnedToolNames:       toolRegistry.ListToolNames(),
 		RequiredEvidenceTools: []string{"message.send"},
@@ -403,7 +403,7 @@ func TestAgentTurnRunnerRejectsEmptyBrowserPressAfterFill(t *testing.T) {
 	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
 		RequesterPersonID: "person-1",
 		ConversationID:    "conversation-1",
-		Prompt:            "입력칸에 hello world라고 입력해줘",
+		Prompt:            "type hello world into the input box",
 		ToolSet:           toolRegistry,
 		PinnedToolNames:   toolRegistry.ListToolNames(),
 	})
@@ -431,7 +431,7 @@ func TestAgentTurnRunnerRejectsBrowserFillWithoutRequiredInput(t *testing.T) {
 	fillCallCount := 0
 	toolRegistry := newTestCapabilityToolSet([]string{"browser.snapshot", "browser.fill"})
 	registerTestTool(toolRegistry, ToolDefinition{Name: "browser.snapshot"}, func(context.Context, ToolInvocation) (ToolResult, error) {
-		return testToolSuccess(`{"snapshotText":"- textbox \"Google 검색\" [ref=e5]"}`), nil
+		return testToolSuccess(`{"snapshotText":"- textbox \"Google search\" [ref=e5]"}`), nil
 	})
 	registerTestTool(toolRegistry, ToolDefinition{Name: "browser.fill"}, func(_ context.Context, toolInvocation ToolInvocation) (ToolResult, error) {
 		fillCallCount++
@@ -441,7 +441,7 @@ func TestAgentTurnRunnerRejectsBrowserFillWithoutRequiredInput(t *testing.T) {
 	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
 		RequesterPersonID: "person-1",
 		ConversationID:    "conversation-1",
-		Prompt:            "입력칸에 hello world라고 입력해줘",
+		Prompt:            "type hello world into the input box",
 		ToolSet:           toolRegistry,
 		PinnedToolNames:   toolRegistry.ListToolNames(),
 	})
@@ -476,7 +476,7 @@ func TestAgentTurnRunnerRejectsEmptyGoogleNavigate(t *testing.T) {
 	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
 		RequesterPersonID: "person-1",
 		ConversationID:    "conversation-1",
-		Prompt:            "구글 서치바에 hello world라고 치고 스크린샷",
+		Prompt:            "type hello world into the Google search bar and screenshot it",
 		ToolSet:           toolRegistry,
 		PinnedToolNames:   toolRegistry.ListToolNames(),
 	})
@@ -570,7 +570,7 @@ func TestAgentTurnRunnerDoesNotChargeMalformedInputToToolEffort(t *testing.T) {
 
 func TestRepeatedSuccessfulCompletionCandidateUsesPersistedObservation(t *testing.T) {
 	toolSet := completionJudgeTestToolSet()
-	toolInput := json.RawMessage(`{"title":"결산 확인"}`)
+	toolInput := json.RawMessage(`{"title":"settlement check"}`)
 	toolInputKey := canonicalToolCallKey("task.add", toolInput)
 	state := &agentTaskState{Request: AgentTurnRequest{ToolSet: toolSet}, Observations: []turnObservation{{
 		ObservationID: "obs-001",
@@ -592,7 +592,7 @@ func TestRepeatedSuccessfulCompletionCandidateUsesPersistedObservation(t *testin
 
 func TestRepeatedSuccessfulReadIsNotACompletionCandidateWhenContractExpectsMutation(t *testing.T) {
 	toolSet := completionJudgeTestToolSet()
-	toolInput := json.RawMessage(`{"query":"결산"}`)
+	toolInput := json.RawMessage(`{"query":"settlement"}`)
 	toolInputKey := canonicalToolCallKey("task.list", toolInput)
 	state := &agentTaskState{Request: AgentTurnRequest{
 		ToolSet:         toolSet,
@@ -619,7 +619,7 @@ func TestAgentTurnRunnerRejectsRepeatedSuccessfulToolCall(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		`{"action":"continue","toolName":"terminal.run","toolInput":{"command":"marp --version"}}`,
 		`{"action":"continue","toolName":"terminal.run","toolInput":{"command":"marp --version"}}`,
-		finishMessageDocument("명령 실행은 완료됐습니다.\n\n@marp-team/marp-cli v4.3.1"),
+		finishMessageDocument("The command finished running.\n\n@marp-team/marp-cli v4.3.1"),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 4, MaxToolCallCount: 4})
 	toolCallCount := 0
@@ -632,7 +632,7 @@ func TestAgentTurnRunnerRejectsRepeatedSuccessfulToolCall(t *testing.T) {
 	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
 		RequesterPersonID: "person-1",
 		ConversationID:    "conversation-1",
-		Prompt:            "marp 버전 확인해줘",
+		Prompt:            "marp check the version",
 		ToolSet:           toolRegistry,
 		PinnedToolNames:   toolRegistry.ListToolNames(),
 	})
@@ -788,9 +788,9 @@ func TestRepeatedFileReadObservationMatchesMutationPathAcrossTildeSpelling(t *te
 
 func TestAgentTurnRunnerRejectsRepeatedScheduleCreateWithoutExecutingAgain(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"continue","toolName":"schedule.create","toolInput":{"taskInstruction":"현재 대화에 \"죄송합니다\"라고 보낸다.","kind":"interval","intervalSecond":60,"maxRunCount":10,"repeatPolicy":"finite","timeZone":"Asia/Seoul"}}`,
-		`{"action":"continue","toolName":"schedule.create","toolInput":{"timeZone":"Asia/Seoul","maxRunCount":10,"repeatPolicy":"finite","intervalSecond":60,"kind":"interval","taskInstruction":"현재 대화에 \"죄송합니다\"라고 보낸다."}}`,
-		finishMessageDocument("예약을 만들었습니다."),
+		`{"action":"continue","toolName":"schedule.create","toolInput":{"taskInstruction":"send \"sorry\" in the current conversation.","kind":"interval","intervalSecond":60,"maxRunCount":10,"repeatPolicy":"finite","timeZone":"Asia/Seoul"}}`,
+		`{"action":"continue","toolName":"schedule.create","toolInput":{"timeZone":"Asia/Seoul","maxRunCount":10,"repeatPolicy":"finite","intervalSecond":60,"kind":"interval","taskInstruction":"send \"sorry\" in the current conversation."}}`,
+		finishMessageDocument("Created the schedule."),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 4, MaxToolCallCount: 4})
 	toolCallCount := 0
@@ -802,13 +802,13 @@ func TestAgentTurnRunnerRejectsRepeatedScheduleCreateWithoutExecutingAgain(t *te
 		Completion:      ToolCompletion{Mode: ToolCompletionObservation, Action: "create_schedule", TargetKind: "schedule"},
 	}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		toolCallCount++
-		return testToolSuccess(`{"taskScheduleID":"schedule-1","taskInstruction":"현재 대화에 \"죄송합니다\"라고 보낸다.","kind":"interval","intervalSecond":60,"maxRunCount":10}`), nil
+		return testToolSuccess(`{"taskScheduleID":"schedule-1","taskInstruction":"send \"sorry\" in the current conversation.","kind":"interval","intervalSecond":60,"maxRunCount":10}`), nil
 	})
 
 	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
 		RequesterPersonID: "person-1",
 		ConversationID:    "conversation-1",
-		Prompt:            "1분에 한 번씩 나한테 죄송합니다 10번 해봐",
+		Prompt:            "every minute, say sorry to me ten times",
 		ToolSet:           toolRegistry,
 		PinnedToolNames:   toolRegistry.ListToolNames(),
 	})

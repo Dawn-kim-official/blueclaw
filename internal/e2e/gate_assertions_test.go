@@ -36,16 +36,16 @@ func TestAssertEventSubsequence(t *testing.T) {
 func TestAssertTurnResultGateFields(t *testing.T) {
 	passingResult := VirtualTurnResult{
 		TaskStatus:    task.TaskStatusCompleted,
-		FinishMessage: "최종 답변",
+		FinishMessage: "final reply",
 		Events: []task.TaskEvent{
 			gateNamedEvent("tool.alpha.requested"),
-			gateCheckpointEvent("작업 진행 중입니다"),
+			gateCheckpointEvent("The task is in progress"),
 			gateNamedEvent("tool.alpha.result"),
 		},
 	}
 	passingTurn := VirtualTurn{
 		ExpectedSequence:          []string{"tool.alpha.requested", "tool.alpha.result"},
-		ExpectedCheckpointReplies: []string{"진행 중"},
+		ExpectedCheckpointReplies: []string{"in progress"},
 		ForbiddenEvents:           []string{"agent.no_progress_loop_stopped"},
 		ExpectedTaskStatus:        task.TaskStatusCompleted,
 	}
@@ -54,7 +54,7 @@ func TestAssertTurnResultGateFields(t *testing.T) {
 	}
 
 	failureCases := map[string]VirtualTurn{
-		"checkpoint fragment missing": {ExpectedCheckpointReplies: []string{"존재하지 않는 문구"}},
+		"checkpoint fragment missing": {ExpectedCheckpointReplies: []string{"a phrase that does not exist"}},
 		"sequence order violated":     {ExpectedSequence: []string{"tool.alpha.result", "tool.alpha.requested"}},
 		"task status mismatch":        {ExpectedTaskStatus: task.TaskStatusBlocked},
 	}
@@ -74,11 +74,11 @@ func TestAssertTurnResultGateFields(t *testing.T) {
 func TestStreamProgressObserverFormatsReplyAndTool(t *testing.T) {
 	buffer := &bytes.Buffer{}
 	observe := streamProgressObserver(buffer)
-	observe(task.RawTurnEvent{Name: "agent.checkpoint.sent", Body: `{"toolName":"alpha","message":"진행 중"}`})
+	observe(task.RawTurnEvent{Name: "agent.checkpoint.sent", Body: `{"toolName":"alpha","message":"in progress"}`})
 	observe(task.RawTurnEvent{Name: "tool.web.search.requested", Body: "{}"})
 	observe(task.RawTurnEvent{Name: "tool.web.search.result", Body: "{}"})
 	output := buffer.String()
-	if !strings.Contains(output, "reply: 진행 중") {
+	if !strings.Contains(output, "reply: in progress") {
 		t.Fatalf("expected reply line, got %q", output)
 	}
 	if !strings.Contains(output, "tool: web.search") {
@@ -99,7 +99,7 @@ func TestCheckpointReplyMalformedBodyDoesNotPanic(t *testing.T) {
 func TestLooseModeStillEnforcesStructuralFields(t *testing.T) {
 	turnResult := VirtualTurnResult{
 		TaskStatus:    task.TaskStatusCompleted,
-		FinishMessage: "최종 답변",
+		FinishMessage: "final reply",
 		Events:        []task.TaskEvent{gateNamedEvent("agent.no_progress_loop_stopped")},
 	}
 	if errorValue := assertLooseTurnResult(VirtualTurn{}, turnResult); errorValue != nil {
