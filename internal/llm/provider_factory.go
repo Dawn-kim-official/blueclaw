@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"blueclaw/internal/capability"
-	"blueclaw/internal/config"
+	"github.com/Dawn-kim-official/blueclaw/internal/capability"
+	"github.com/Dawn-kim-official/blueclaw/internal/config"
 )
 
 func NewConfiguredLanguageModelProvider(runtimeConfiguration config.RuntimeConfiguration) (LanguageModelProvider, error) {

@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"blueclaw/internal/memory"
+	"github.com/Dawn-kim-official/blueclaw/internal/memory"
 )
 
 const memorySummaryContentLimit = 240

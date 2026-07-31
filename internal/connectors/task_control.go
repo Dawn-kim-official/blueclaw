@@ -6,8 +6,8 @@ import (
 	"log/slog"
 	"strings"
 
-	"blueclaw/internal/agent"
-	"blueclaw/internal/task"
+	"github.com/Dawn-kim-official/blueclaw/internal/agent"
+	"github.com/Dawn-kim-official/blueclaw/internal/task"
 )
 
 type taskControlSelection struct {

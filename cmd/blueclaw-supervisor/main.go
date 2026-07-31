@@ -13,8 +13,8 @@ import (
 	"syscall"
 	"time"
 
-	"blueclaw/internal/config"
-	"blueclaw/internal/firecracker"
+	"github.com/Dawn-kim-official/blueclaw/internal/config"
+	"github.com/Dawn-kim-official/blueclaw/internal/firecracker"
 )
 
 const guestHealthTimeout = 300 * time.Second

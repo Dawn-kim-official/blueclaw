@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"blueclaw/internal/config"
-	"blueclaw/internal/firecracker"
+	"github.com/Dawn-kim-official/blueclaw/internal/config"
+	"github.com/Dawn-kim-official/blueclaw/internal/firecracker"
 )
 
 type fakeGuestHealthClient struct{}

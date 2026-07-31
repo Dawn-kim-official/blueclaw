@@ -3,7 +3,7 @@ package integration
 import (
 	"testing"
 
-	"blueclaw/internal/agent"
+	"github.com/Dawn-kim-official/blueclaw/internal/agent"
 )
 
 func TestTaskPlanCompile(t *testing.T) {

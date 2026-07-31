@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"blueclaw/internal/backup"
+	"github.com/Dawn-kim-official/blueclaw/internal/backup"
 )
 
 type BackupHandler struct {

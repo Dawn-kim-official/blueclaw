@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"blueclaw/internal/llm"
+	"github.com/Dawn-kim-official/blueclaw/internal/llm"
 )
 
 func TestObserveLanguageModelRecordsStructuredCalls(t *testing.T) {

@@ -5,11 +5,11 @@ import (
 	"testing"
 	"time"
 
-	"blueclaw/internal/agent"
-	"blueclaw/internal/agentruntime"
-	"blueclaw/internal/llm"
-	"blueclaw/internal/policy"
-	"blueclaw/internal/task"
+	"github.com/Dawn-kim-official/blueclaw/internal/agent"
+	"github.com/Dawn-kim-official/blueclaw/internal/agentruntime"
+	"github.com/Dawn-kim-official/blueclaw/internal/llm"
+	"github.com/Dawn-kim-official/blueclaw/internal/policy"
+	"github.com/Dawn-kim-official/blueclaw/internal/task"
 )
 
 func TestCronScheduleRunsDailyResearchPromptAndAdvancesToNextDay(t *testing.T) {

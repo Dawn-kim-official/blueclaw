@@ -16,11 +16,11 @@ import (
 	"testing"
 	"time"
 
-	"blueclaw/internal/agent"
-	"blueclaw/internal/capability"
-	"blueclaw/internal/e2e"
-	"blueclaw/internal/llm"
-	"blueclaw/internal/task"
+	"github.com/Dawn-kim-official/blueclaw/internal/agent"
+	"github.com/Dawn-kim-official/blueclaw/internal/capability"
+	"github.com/Dawn-kim-official/blueclaw/internal/e2e"
+	"github.com/Dawn-kim-official/blueclaw/internal/llm"
+	"github.com/Dawn-kim-official/blueclaw/internal/task"
 )
 
 func TestValidateStrictEmbeddingRetrievalRequiresReadyEmbeddingMode(t *testing.T) {

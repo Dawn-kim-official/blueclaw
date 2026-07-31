@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"blueclaw/internal/llm"
-	"blueclaw/internal/task"
+	"github.com/Dawn-kim-official/blueclaw/internal/llm"
+	"github.com/Dawn-kim-official/blueclaw/internal/task"
 )
 
 func TestAgentTurnRunnerGeneratesFailureReplyAfterStructuredModelFailure(t *testing.T) {

@@ -6,8 +6,8 @@ import (
 	"strings"
 	"sync"
 
-	"blueclaw/internal/access"
-	"blueclaw/internal/policy"
+	"github.com/Dawn-kim-official/blueclaw/internal/access"
+	"github.com/Dawn-kim-official/blueclaw/internal/policy"
 )
 
 type GraphMemoryStore interface {

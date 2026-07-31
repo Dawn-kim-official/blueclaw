@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
-	"blueclaw/internal/agent"
-	"blueclaw/internal/capability"
-	"blueclaw/internal/task"
+	"github.com/Dawn-kim-official/blueclaw/internal/agent"
+	"github.com/Dawn-kim-official/blueclaw/internal/capability"
+	"github.com/Dawn-kim-official/blueclaw/internal/task"
 )
 
 func TestScheduleCreateToolStoresCurrentReplyTarget(t *testing.T) {

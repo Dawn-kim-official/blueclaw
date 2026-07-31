@@ -9,8 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"blueclaw/internal/agent"
-	"blueclaw/internal/agentruntime"
+	"github.com/Dawn-kim-official/blueclaw/internal/agent"
+	"github.com/Dawn-kim-official/blueclaw/internal/agentruntime"
 )
 
 type virtualSessionScenarioFile struct {

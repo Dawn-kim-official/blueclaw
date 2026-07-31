@@ -3,11 +3,11 @@ package integration
 import (
 	"context"
 
-	"blueclaw/internal/agent"
-	"blueclaw/internal/connectors"
-	"blueclaw/internal/identity"
-	"blueclaw/internal/llm"
-	"blueclaw/internal/task"
+	"github.com/Dawn-kim-official/blueclaw/internal/agent"
+	"github.com/Dawn-kim-official/blueclaw/internal/connectors"
+	"github.com/Dawn-kim-official/blueclaw/internal/identity"
+	"github.com/Dawn-kim-official/blueclaw/internal/llm"
+	"github.com/Dawn-kim-official/blueclaw/internal/task"
 )
 
 type integrationLanguageModel struct{}

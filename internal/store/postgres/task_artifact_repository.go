@@ -4,7 +4,7 @@ import (
 	"context"
 	"database/sql"
 
-	"blueclaw/internal/task"
+	"github.com/Dawn-kim-official/blueclaw/internal/task"
 )
 
 type TaskArtifactRepository struct {

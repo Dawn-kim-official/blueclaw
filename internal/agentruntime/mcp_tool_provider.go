@@ -6,9 +6,9 @@ import (
 	"sort"
 	"strings"
 
-	"blueclaw/internal/access"
-	"blueclaw/internal/agent"
-	"blueclaw/internal/mcp"
+	"github.com/Dawn-kim-official/blueclaw/internal/access"
+	"github.com/Dawn-kim-official/blueclaw/internal/agent"
+	"github.com/Dawn-kim-official/blueclaw/internal/mcp"
 )
 
 type mcpToolProvider struct {

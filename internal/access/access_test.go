@@ -3,7 +3,7 @@ package access
 import (
 	"testing"
 
-	"blueclaw/internal/policy"
+	"github.com/Dawn-kim-official/blueclaw/internal/policy"
 )
 
 func TestStaffCanAccessStaffCircleFile(t *testing.T) {

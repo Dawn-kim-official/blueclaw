@@ -8,7 +8,7 @@ import (
 	"strings"
 	"sync"
 
-	"blueclaw/internal/llm"
+	"github.com/Dawn-kim-official/blueclaw/internal/llm"
 )
 
 type ScriptedLanguageModelOptions struct {

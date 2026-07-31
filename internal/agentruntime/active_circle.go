@@ -5,7 +5,7 @@ import (
 	"sort"
 	"strings"
 
-	"blueclaw/internal/memory"
+	"github.com/Dawn-kim-official/blueclaw/internal/memory"
 )
 
 func withResolvedActiveCircle(request ToolCatalogRequest) ToolCatalogRequest {

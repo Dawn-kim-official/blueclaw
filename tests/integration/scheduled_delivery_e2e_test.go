@@ -9,14 +9,14 @@ import (
 	"testing"
 	"time"
 
-	"blueclaw/internal/agent"
-	"blueclaw/internal/agentruntime"
-	"blueclaw/internal/connectors"
-	"blueclaw/internal/identity"
-	"blueclaw/internal/llm"
-	"blueclaw/internal/policy"
-	"blueclaw/internal/scheduler"
-	"blueclaw/internal/task"
+	"github.com/Dawn-kim-official/blueclaw/internal/agent"
+	"github.com/Dawn-kim-official/blueclaw/internal/agentruntime"
+	"github.com/Dawn-kim-official/blueclaw/internal/connectors"
+	"github.com/Dawn-kim-official/blueclaw/internal/identity"
+	"github.com/Dawn-kim-official/blueclaw/internal/llm"
+	"github.com/Dawn-kim-official/blueclaw/internal/policy"
+	"github.com/Dawn-kim-official/blueclaw/internal/scheduler"
+	"github.com/Dawn-kim-official/blueclaw/internal/task"
 )
 
 func TestScheduledTaskRunsAndDeliversThroughConnectorOutbox(t *testing.T) {

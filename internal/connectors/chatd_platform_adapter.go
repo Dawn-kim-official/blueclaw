@@ -8,8 +8,8 @@ import (
 	"net/url"
 	"strings"
 
-	"blueclaw/internal/capability"
-	"blueclaw/internal/identity"
+	"github.com/Dawn-kim-official/blueclaw/internal/capability"
+	"github.com/Dawn-kim-official/blueclaw/internal/identity"
 )
 
 const DefaultChatdEndpoint = "http://127.0.0.1:18090"

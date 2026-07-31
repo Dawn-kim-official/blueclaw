@@ -3,7 +3,7 @@ package integration
 import (
 	"testing"
 
-	"blueclaw/internal/task"
+	"github.com/Dawn-kim-official/blueclaw/internal/task"
 )
 
 func TestCancelOwnTask(t *testing.T) {

@@ -3,7 +3,7 @@ package agentruntime
 import (
 	"testing"
 
-	"blueclaw/internal/policy"
+	"github.com/Dawn-kim-official/blueclaw/internal/policy"
 )
 
 func TestResolveActiveCircleIDUsesChannelOrMention(t *testing.T) {

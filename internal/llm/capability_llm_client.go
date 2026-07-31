@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"blueclaw/internal/capability"
+	"github.com/Dawn-kim-official/blueclaw/internal/capability"
 )
 
 type CapabilityLLMClient struct {

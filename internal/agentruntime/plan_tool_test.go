@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"blueclaw/internal/agent"
+	"github.com/Dawn-kim-official/blueclaw/internal/agent"
 )
 
 func invokePlanUpdateTool(t *testing.T, input string) json.RawMessage {

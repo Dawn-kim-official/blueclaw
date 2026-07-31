@@ -4,7 +4,7 @@ import (
 	"strings"
 	"sync"
 
-	"blueclaw/internal/agent"
+	"github.com/Dawn-kim-official/blueclaw/internal/agent"
 )
 
 const sentAttachmentSourceCapacity = 512

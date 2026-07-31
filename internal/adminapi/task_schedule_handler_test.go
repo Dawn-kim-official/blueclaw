@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"blueclaw/internal/task"
+	"github.com/Dawn-kim-official/blueclaw/internal/task"
 )
 
 func TestTaskScheduleHandlerReturnsSummary(t *testing.T) {

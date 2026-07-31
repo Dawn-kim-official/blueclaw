@@ -12,7 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"blueclaw/internal/security"
+	"github.com/Dawn-kim-official/blueclaw/internal/security"
 )
 
 type DirectWorkspaceActorFactory struct {

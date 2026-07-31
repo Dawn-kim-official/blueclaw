@@ -9,8 +9,8 @@ import (
 	"errors"
 	"strings"
 
-	"blueclaw/internal/agent"
-	"blueclaw/internal/security"
+	"github.com/Dawn-kim-official/blueclaw/internal/agent"
+	"github.com/Dawn-kim-official/blueclaw/internal/security"
 )
 
 const siteSourceBundleMaximumBytes = 64 * 1024 * 1024

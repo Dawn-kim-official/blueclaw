@@ -4,8 +4,8 @@ import (
 	"context"
 	"strings"
 
-	"blueclaw/internal/agent"
-	"blueclaw/internal/security"
+	"github.com/Dawn-kim-official/blueclaw/internal/agent"
+	"github.com/Dawn-kim-official/blueclaw/internal/security"
 )
 
 type requesterShellCommand struct {

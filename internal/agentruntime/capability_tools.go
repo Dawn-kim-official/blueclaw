@@ -11,9 +11,9 @@ import (
 	"sort"
 	"strings"
 
-	"blueclaw/internal/access"
-	"blueclaw/internal/agent"
-	"blueclaw/internal/security"
+	"github.com/Dawn-kim-official/blueclaw/internal/access"
+	"github.com/Dawn-kim-official/blueclaw/internal/agent"
+	"github.com/Dawn-kim-official/blueclaw/internal/security"
 )
 
 func capabilityToolIdempotencyKey(toolContext context.Context, descriptor CapabilityToolDescriptor) string {

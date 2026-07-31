@@ -8,8 +8,8 @@ import (
 	"strconv"
 	"strings"
 
-	"blueclaw/internal/identity"
-	"blueclaw/internal/task"
+	"github.com/Dawn-kim-official/blueclaw/internal/identity"
+	"github.com/Dawn-kim-official/blueclaw/internal/task"
 )
 
 type TaskMonitorHandler struct {

@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"blueclaw/internal/agent"
-	"blueclaw/internal/security"
+	"github.com/Dawn-kim-official/blueclaw/internal/agent"
+	"github.com/Dawn-kim-official/blueclaw/internal/security"
 )
 
 var terminalRunHeartbeatInterval = 60 * time.Second

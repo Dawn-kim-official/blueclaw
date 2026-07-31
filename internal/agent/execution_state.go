@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"strings"
 
-	"blueclaw/internal/task"
+	"github.com/Dawn-kim-official/blueclaw/internal/task"
 )
 
 const executionStateMaxCharacters = 2500

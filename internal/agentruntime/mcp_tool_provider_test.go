@@ -6,9 +6,9 @@ import (
 	"reflect"
 	"testing"
 
-	"blueclaw/internal/agent"
-	"blueclaw/internal/mcp"
-	"blueclaw/internal/policy"
+	"github.com/Dawn-kim-official/blueclaw/internal/agent"
+	"github.com/Dawn-kim-official/blueclaw/internal/mcp"
+	"github.com/Dawn-kim-official/blueclaw/internal/policy"
 )
 
 type mcpToolProviderTestInvoker struct {

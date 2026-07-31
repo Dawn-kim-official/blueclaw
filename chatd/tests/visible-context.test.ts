@@ -58,6 +58,7 @@ describe("buildVisibleContext", () => {
 			speakerHandle: "handle-a",
 			text: "first",
 			sentAt: new Date(100 * 1000).toISOString(),
+			isBot: false,
 		});
 		expect(context.sender).toEqual({
 			platform: "fake",

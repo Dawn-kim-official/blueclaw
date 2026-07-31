@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"blueclaw/internal/task"
+	"github.com/Dawn-kim-official/blueclaw/internal/task"
 )
 
 type QuiesceController interface {

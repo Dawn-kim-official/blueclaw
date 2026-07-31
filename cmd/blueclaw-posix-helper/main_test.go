@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"blueclaw/internal/security"
+	"github.com/Dawn-kim-official/blueclaw/internal/security"
 )
 
 func TestRunCapabilitiesReportsFilesystemSupport(t *testing.T) {

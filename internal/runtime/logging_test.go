@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"blueclaw/internal/config"
+	"github.com/Dawn-kim-official/blueclaw/internal/config"
 )
 
 func TestPersistentLoggerWritesJSONLogFile(t *testing.T) {
