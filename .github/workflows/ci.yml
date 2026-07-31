@@ -14,9 +14,9 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
-      - run: go build ./cmd/... ./internal/...
-      - run: go vet ./cmd/... ./internal/...
-      - run: go test ./internal/... ./tests/...
+      - run: go build ./...
+      - run: go vet ./...
+      - run: go test ./...
 
   typescript:
     runs-on: ubuntu-latest
@@ -24,11 +24,4 @@ jobs:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
       - run: bun install --frozen-lockfile
-        working-directory: protocol
-      - run: bun install --frozen-lockfile
-        working-directory: llmd
-      - run: bun install --frozen-lockfile
-        working-directory: chatd
-      - run: bun install --frozen-lockfile
-        working-directory: admin
       - run: bun run test
