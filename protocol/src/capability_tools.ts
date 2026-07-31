@@ -28,13 +28,13 @@ export enum WorkspaceTaskSize {
 }
 
 export enum WorkspaceTaskStatus {
-  Planned = '예정',
-  InProgress = '진행',
-  Completed = '완료',
-  Requested = '요청',
-  Paused = '일시정지',
-  Rejected = '기각',
-  Cancelled = '중단',
+  Planned = 'planned',
+  InProgress = 'in_progress',
+  Completed = 'completed',
+  Requested = 'requested',
+  Paused = 'paused',
+  Rejected = 'rejected',
+  Cancelled = 'cancelled',
 }
 
 export enum WorkspaceTaskInitialStatus {
@@ -240,7 +240,7 @@ export const taskAddInputSchema = z.strictObject({
     .describe('Effort size using the work-size rubric. Omit when the request does not support a useful estimate.')
     .optional(),
   status: z.enum(WorkspaceTaskInitialStatus)
-    .describe('Initial task status. Defaults to 예정. The runtime may change delegated tasks to 요청.')
+    .describe('Initial task status. Defaults to planned. The runtime may change delegated tasks to requested.')
     .optional(),
   startDate: z.string().describe(`${dateDescription} Resolve relative dates from the current date. Omit when the user did not specify one.`).optional(),
   endDate: z.string().describe(`Due ${dateDescription.toLowerCase()} Resolve relative dates from the current date. Omit when the user did not specify one.`).optional(),
@@ -267,7 +267,7 @@ export const taskListInputSchema = z.strictObject({
     .optional(),
   weekTo: z.number().describe('End of the week range as an offset from this week. Omit both weekFrom and weekTo to list the current week.').optional(),
   status: z.string()
-    .describe("Filter by task status. Accepted values: '예정', '진행', '완료', '요청', '일시정지', '기각', '중단' (or English equivalents: 'planned', 'in_progress', 'done', 'requested', 'paused', 'rejected', 'cancelled'). Leave empty to return all statuses.")
+    .describe("Filter by task status. Accepted values: 'planned', 'in_progress', 'completed', 'requested', 'paused', 'rejected', 'cancelled'. Leave empty to return all statuses.")
     .optional(),
   limit: z.number().describe('Maximum number of tasks to return. Defaults to 50.').optional(),
 });

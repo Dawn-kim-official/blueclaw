@@ -306,7 +306,7 @@ describe('canonical capability tools', () => {
   });
 
   test('keeps runtime task identities out of user intent', () => {
-    expect(taskUpdateInputIntentSchema.safeParse({ title: '분기 결산 검토' }).success).toBe(true);
+    expect(taskUpdateInputIntentSchema.safeParse({ title: 'quarterly settlement review' }).success).toBe(true);
     expect(taskUpdateInputIntentSchema.safeParse({ taskHint: 'task-1' }).success).toBe(false);
     expect(taskDeleteInputIntentSchema.safeParse({}).success).toBe(true);
     expect(taskDeleteInputIntentSchema.safeParse({ taskHint: 'task-1' }).success).toBe(false);
@@ -349,29 +349,29 @@ describe('canonical capability tools', () => {
     expect(messageSearchInputSchema.safeParse({
       scope: MessageSearchScope.CurrentChannel,
       authoredBy: MessageAuthor.Assistant,
-      queries: ['분기 결산'],
+      queries: ['quarterly settlement'],
       limit: 20,
     }).success).toBe(true);
     expect(messageSendInputSchema.safeParse({
       targetType: MessageTargetType.DirectMessage,
-      message: '분기 결산 자료를 확인해 주세요.',
+      message: 'please review the quarterly settlement material.',
       personHint: '@support-lead',
     }).success).toBe(true);
     expect(messageUpdateInputSchema.safeParse({
       messageID: 'message-1',
-      message: '수정된 분기 결산 안내입니다.',
+      message: 'this is the updated quarterly settlement notice.',
     }).success).toBe(true);
     expect(messageDeleteInputSchema.safeParse({
       messageIDs: ['message-1', 'message-2'],
     }).success).toBe(true);
     expect(channelUpdateInputSchema.safeParse({
       channelID: 'channel-1',
-      header: '고객지원 분기 결산 공유',
+      header: 'customer support quarterly settlement share',
       inviteeHints: ['@support-lead'],
     }).success).toBe(true);
 
     expect(messageContextInputSchema.safeParse({ scope: 'currentChannel' }).success).toBe(false);
-    expect(messageSearchInputSchema.safeParse({ query: '분기 결산' }).success).toBe(false);
+    expect(messageSearchInputSchema.safeParse({ query: 'quarterly settlement' }).success).toBe(false);
     expect(messageSearchInputSchema.safeParse({ limit: 26 }).success).toBe(false);
     expect(messageSendInputSchema.safeParse({
       targetType: MessageTargetType.CurrentChannel,
@@ -379,14 +379,14 @@ describe('canonical capability tools', () => {
     }).success).toBe(false);
     expect(messageSendInputSchema.safeParse({
       targetType: MessageTargetType.CurrentChannel,
-      message: '안내',
+      message: 'notice',
       deliveryTarget: { type: 'currentChannel' },
     }).success).toBe(false);
     expect(messageUpdateInputSchema.safeParse({ messageID: 'message-1' }).success).toBe(false);
     expect(messageDeleteInputSchema.safeParse({ messageIDs: [] }).success).toBe(false);
     expect(messageDeleteInputSchema.safeParse({ messageIDs: ['message-1', 'message-1'] }).success).toBe(false);
     expect(channelUpdateInputSchema.safeParse({ channelID: 'channel-1' }).success).toBe(false);
-    expect(channelUpdateInputSchema.safeParse({ header: '새 헤더' }).success).toBe(false);
+    expect(channelUpdateInputSchema.safeParse({ header: 'new header' }).success).toBe(false);
   });
 
   test('requires canonical message and channel result identities', () => {
@@ -406,7 +406,7 @@ describe('canonical capability tools', () => {
     };
     const searchResult = {
       scope: MessageSearchScope.CurrentChannel,
-      queries: ['분기 결산'],
+      queries: ['quarterly settlement'],
       authoredBy: MessageAuthor.Assistant,
       messageIDs: ['message-1'],
       candidates: [{
@@ -415,7 +415,7 @@ describe('canonical capability tools', () => {
         userID: 'bot-1',
         authoredBy: MessageAuthor.Assistant,
         createdAt: 1784422800000,
-        preview: '분기 결산 안내',
+        preview: 'quarterly settlement notice',
         deletable: true,
       }],
       hasMore: false,
@@ -495,29 +495,29 @@ describe('canonical capability tools', () => {
 
   test('validates task inputs without operation aliases', () => {
     expect(taskAddInputSchema.parse({
-      title: '고객지원 분기 결산 누락 항목 확인',
+      title: 'customer support quarterly settlement gap check',
       size: WorkspaceTaskSize.Small,
       status: WorkspaceTaskInitialStatus.Planned,
       endDate: '2026-07-24',
     })).toEqual({
-      title: '고객지원 분기 결산 누락 항목 확인',
+      title: 'customer support quarterly settlement gap check',
       size: WorkspaceTaskSize.Small,
       status: WorkspaceTaskInitialStatus.Planned,
       endDate: '2026-07-24',
     });
-    expect(taskListInputSchema.safeParse({ query: '결산', scope: 'self' }).success).toBe(true);
-    expect(taskUpdateInputSchema.safeParse({ taskHint: 'task-1', title: '수정된 제목' }).success).toBe(true);
+    expect(taskListInputSchema.safeParse({ query: 'settlement', scope: 'self' }).success).toBe(true);
+    expect(taskUpdateInputSchema.safeParse({ taskHint: 'task-1', title: 'updated title' }).success).toBe(true);
     expect(taskDeleteInputSchema.safeParse({ taskHint: 'task-1' }).success).toBe(true);
 
-    expect(taskAddInputSchema.safeParse({ content: '잘못된 별칭' }).success).toBe(false);
+    expect(taskAddInputSchema.safeParse({ content: 'invalid alias' }).success).toBe(false);
     expect(taskUpdateInputSchema.safeParse({ taskHint: 'task-1' }).success).toBe(false);
-    expect(taskUpdateInputSchema.safeParse({ query: '결산', content: '수정' }).success).toBe(false);
-    expect(taskDeleteInputSchema.safeParse({ taskHint: 'task-1', query: '결산' }).success).toBe(false);
+    expect(taskUpdateInputSchema.safeParse({ query: 'settlement', content: 'update' }).success).toBe(false);
+    expect(taskDeleteInputSchema.safeParse({ taskHint: 'task-1', query: 'settlement' }).success).toBe(false);
   });
 
   test('validates calendar inputs with exact mutation identities', () => {
     expect(calendarAddInputSchema.safeParse({
-      title: '고객지원 주간 점검',
+      title: 'customer support weekly check',
       startISO: '2026-07-24T14:00:00+09:00',
       endISO: '2026-07-24T15:00:00+09:00',
       people: ['support@example.com'],
@@ -531,13 +531,13 @@ describe('canonical capability tools', () => {
 
     expect(calendarUpdateInputSchema.safeParse({ eventHint: 'event-1' }).success).toBe(false);
     expect(calendarAddInputSchema.safeParse({
-      title: '고객지원 주간 점검',
+      title: 'customer support weekly check',
       startISO: '2026-07-24T14:00:00+09:00',
       endISO: '2026-07-24T15:00:00+09:00',
       reminderLeadHours: 4,
     }).success).toBe(false);
-    expect(calendarUpdateInputSchema.safeParse({ query: '주간 점검', title: '변경' }).success).toBe(false);
-    expect(calendarDeleteInputSchema.safeParse({ query: '주간 점검' }).success).toBe(false);
+    expect(calendarUpdateInputSchema.safeParse({ query: 'weekly check', title: 'change' }).success).toBe(false);
+    expect(calendarDeleteInputSchema.safeParse({ query: 'weekly check' }).success).toBe(false);
     expect(calendarListInputSchema.safeParse({ limit: 0 }).success).toBe(false);
     expect(calendarListInputSchema.safeParse({ limit: 1.5 }).success).toBe(false);
   });
@@ -575,7 +575,7 @@ describe('canonical capability tools', () => {
 
   test('requires exact site identities for hosting mutations', () => {
     expect(siteServeInputSchema.safeParse({
-      title: '고객지원 분기 결산',
+      title: 'customer support quarterly settlement',
       sourceWorkspacePath: '~/sites/customer-support-quarterly',
       mode: SiteServeMode.Publish,
     }).success).toBe(true);
@@ -618,7 +618,7 @@ describe('canonical capability tools', () => {
       sites: [{
         siteID: 'site-1',
         slug: 'customer-support-quarterly',
-        title: '고객지원 분기 결산',
+        title: 'customer support quarterly settlement',
         status: SiteLifecycleStatus.Published,
         publishedURL: 'https://customer-support-quarterly.example',
         updatedAt: '2026-07-19T12:00:00Z',
