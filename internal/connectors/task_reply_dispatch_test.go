@@ -27,7 +27,7 @@ func TestCompletedTaskReplyCarriesModelWordingAndNativeAttachments(t *testing.T)
 
 	turnResult := agent.AgentTurnResult{
 		TaskRun:       task.TaskRun{TaskRunID: "task-1", Status: task.TaskStatusCompleted},
-		FinishMessage: "완료했습니다: sandbox:/mnt/data/deck.pptx",
+		FinishMessage: "Done: sandbox:/mnt/data/deck.pptx",
 		Attachments:   []agent.FileAttachment{{Filename: "deck.pptx", DevicePath: "/workspace/private/people/p1/tmp/deck.pptx"}},
 	}
 
@@ -50,7 +50,7 @@ func TestFailedTaskReplyPreservesModelWording(t *testing.T) {
 		agent.NewAgentKernel(taskRunService, task.NewTaskStepService()),
 		slog.Default(),
 	)
-	message := "실패 내역은 file:///tmp/report.txt에서 확인했습니다."
+	message := "The failure details were read from file:///tmp/report.txt."
 	var sentReply OutboundReply
 	sendReply := func(_ context.Context, _ ReplyTarget, reply OutboundReply) (string, error) {
 		sentReply = reply

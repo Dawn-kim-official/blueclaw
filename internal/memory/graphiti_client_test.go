@@ -24,7 +24,7 @@ func TestGraphitiClientAddsEpisodeThroughSidecar(t *testing.T) {
 
 	result, errorValue := client.AddEpisode(context.Background(), MemoryEpisode{
 		EpisodeID:      "mattermost:dm-1:post-1",
-		Prompt:         "내 이름은 민수야",
+		Prompt:         "my name is Sam",
 		OccurredAt:     time.Now().UTC(),
 		Namespaces:     []MemoryNamespace{UserNamespace("person-1")},
 		SenderPersonID: "person-1",
@@ -47,12 +47,12 @@ func TestGraphitiClientSearchesFacts(t *testing.T) {
 			if request.URL.Path != "/v1/search" {
 				t.Fatalf("expected search endpoint, got %q", request.URL.Path)
 			}
-			return graphitiResponse(http.StatusOK, `{"facts":[{"factID":"fact-1","scopeType":"user","namespaceID":"user:person-1","content":"사용자의 이름은 민수다.","score":0.91}]}`), nil
+			return graphitiResponse(http.StatusOK, `{"facts":[{"factID":"fact-1","scopeType":"user","namespaceID":"user:person-1","content":"the user's name is Sam.","score":0.91}]}`), nil
 		}},
 	}
 
 	facts, errorValue := client.SearchFacts(context.Background(), MemorySearchRequest{
-		Query:      "내 이름 뭐야?",
+		Query:      "what is my name?",
 		Namespaces: []MemoryNamespace{UserNamespace("person-1")},
 	})
 	if errorValue != nil {
@@ -61,7 +61,7 @@ func TestGraphitiClientSearchesFacts(t *testing.T) {
 	if len(facts) != 1 {
 		t.Fatalf("expected one fact, got %d", len(facts))
 	}
-	if facts[0].Content != "사용자의 이름은 민수다." {
+	if facts[0].Content != "the user's name is Sam." {
 		t.Fatalf("expected fact content, got %q", facts[0].Content)
 	}
 }

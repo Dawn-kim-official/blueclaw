@@ -18,7 +18,7 @@ func TestSkillSearchDegradesToBM25WhenEmbeddingBlocks(t *testing.T) {
 	skillInstructions := []SkillInstruction{{Name: "calendar", Description: "calendar management", Prompt: "calendar skill"}}
 
 	startedAt := time.Now()
-	result := retriever.Search(context.Background(), AgentRequest{Prompt: "회의 잡아줘"}, skillInstructions, SkillSearchQuerySet{}, 3)
+	result := retriever.Search(context.Background(), AgentRequest{Prompt: "set up a meeting"}, skillInstructions, SkillSearchQuerySet{}, 3)
 
 	if elapsed := time.Since(startedAt); elapsed > skillEmbeddingSearchTimeout+5*time.Second {
 		t.Fatalf("expected the search to degrade within the timeout, took %s", elapsed)
@@ -35,7 +35,7 @@ func TestSkillSearchDegradesToBM25WhenIndexLockIsHeld(t *testing.T) {
 	searchContext, cancelSearch := context.WithTimeout(context.Background(), 300*time.Millisecond)
 	defer cancelSearch()
 	startedAt := time.Now()
-	result := skillRetriever.Search(searchContext, AgentRequest{Prompt: "메모를 남겨줘"}, []SkillInstruction{{Name: "mattermost", Description: "메시지"}}, SkillSearchQuerySet{}, 3)
+	result := skillRetriever.Search(searchContext, AgentRequest{Prompt: "leave a note"}, []SkillInstruction{{Name: "mattermost", Description: "message"}}, SkillSearchQuerySet{}, 3)
 	if result.RetrievalMode != "bm25_fallback" {
 		t.Fatalf("expected bm25 fallback while the lock is held, got %+v", result)
 	}

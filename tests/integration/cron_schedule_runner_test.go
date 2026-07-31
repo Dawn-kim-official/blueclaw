@@ -16,7 +16,7 @@ func TestCronScheduleRunsDailyResearchPromptAndAdvancesToNextDay(t *testing.T) {
 	taskEventService := task.NewTaskEventService()
 	taskRunService := task.NewTaskRunService(taskEventService)
 	agentKernel := agent.NewAgentKernel(taskRunService, task.NewTaskStepService())
-	agentKernel.UseLanguageModelProvider(staticScheduleLanguageModel{content: scheduleFinishMessage("오늘 조사한 핵심 변화는 세 가지입니다.")})
+	agentKernel.UseLanguageModelProvider(staticScheduleLanguageModel{content: scheduleFinishMessage("Today's research surfaced three key changes.")})
 	toolCatalogBuilder := agentruntime.NewToolCatalogBuilder()
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(map[string][]string{
 		"default": {"memory.search"},
@@ -29,7 +29,7 @@ func TestCronScheduleRunsDailyResearchPromptAndAdvancesToNextDay(t *testing.T) {
 			TaskScheduleID:   "schedule-daily-research",
 			CreatorPersonID:  "person-1",
 			Name:             "daily research brief",
-			Prompt:           "매일 업계 뉴스를 조사해서 아침 9시에 핵심만 알려줘.",
+			Prompt:           "research the industry news every day and give me the highlights at 9am.",
 			AgentProfileName: "default",
 			Kind:             task.TaskScheduleKindCron,
 			CronExpression:   "0 9 * * *",
@@ -45,7 +45,7 @@ func TestCronScheduleRunsDailyResearchPromptAndAdvancesToNextDay(t *testing.T) {
 	if !result.DidRun {
 		t.Fatal("expected due daily research schedule to run")
 	}
-	if result.LaunchResult.TurnResult.FinishMessage != "오늘 조사한 핵심 변화는 세 가지입니다." {
+	if result.LaunchResult.TurnResult.FinishMessage != "Today's research surfaced three key changes." {
 		t.Fatalf("expected daily research reply, got %q", result.LaunchResult.TurnResult.FinishMessage)
 	}
 	if result.TaskSchedule.LastTaskRunID == "" {

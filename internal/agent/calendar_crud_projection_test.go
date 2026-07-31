@@ -20,7 +20,7 @@ func TestCalendarFullCrudFinishIsBackedByObservedFacts(t *testing.T) {
 		nil,
 		turnActionDocument{
 			Action:        "finish",
-			Message:       "일정을 생성하고 수정한 뒤 삭제했습니다.",
+			Message:       "Created, updated, and then deleted the event.",
 			GoalSatisfied: &goalSatisfied,
 		},
 	)

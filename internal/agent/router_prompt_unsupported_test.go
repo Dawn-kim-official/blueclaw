@@ -12,7 +12,7 @@ import (
 // pushing the model to attempt anything plausibly doable.
 func TestRouterPromptReservesUnsupportedForImpossibleWork(t *testing.T) {
 	systemPrompt := ""
-	for _, message := range (TurnRouter{}).buildMessages(AgentRequest{Prompt: "이 파일로 발표자료 만들어줘"}) {
+	for _, message := range (TurnRouter{}).buildMessages(AgentRequest{Prompt: "turn this file into a deck"}) {
 		if message.Role == "system" {
 			systemPrompt += message.Content
 		}

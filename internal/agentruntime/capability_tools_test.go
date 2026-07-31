@@ -238,7 +238,7 @@ func TestCapabilityToolRequestIncludesTrustedExecutionContext(t *testing.T) {
 		ConversationChannelID:   "channel-1",
 		ReplyTargetID:           "reply-target-1",
 		Platform:                "mattermost",
-	}, preparedCapabilityToolPayload{Input: json.RawMessage(`{"targetType":"directMessage","personHint":"샘플","message":"테스트"}`)})
+	}, preparedCapabilityToolPayload{Input: json.RawMessage(`{"targetType":"directMessage","personHint":"Dana","message":"test"}`)})
 	contextDocument, isFound := requestDocument["context"].(map[string]any)
 	if !isFound {
 		t.Fatalf("expected context document, got %+v", requestDocument)

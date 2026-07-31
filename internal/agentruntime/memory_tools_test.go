@@ -66,7 +66,7 @@ func TestMemoryRememberToolLeavesMeaningToTheModel(t *testing.T) {
 
 	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
 		ToolName: "memory.remember",
-		Input:    agent.MarshalToolInput(map[string]string{"content": "고마워"}),
+		Input:    agent.MarshalToolInput(map[string]string{"content": "thanks"}),
 	})
 
 	if errorValue != nil {
@@ -75,7 +75,7 @@ func TestMemoryRememberToolLeavesMeaningToTheModel(t *testing.T) {
 	if result.Failed() {
 		t.Fatalf("expected explicit model tool call to remain authoritative, got %s", result.ContentText())
 	}
-	if len(queue.jobs) != 1 || queue.jobs[0].Content != "고마워" {
+	if len(queue.jobs) != 1 || queue.jobs[0].Content != "thanks" {
 		t.Fatalf("expected explicit content to be queued without phrase filtering, got %+v", queue.jobs)
 	}
 	if len(result.Effects) != 1 || result.Effects[0].ID != "job-1" {
@@ -97,7 +97,7 @@ func TestMemoryRememberToolRejectsInvalidBoundaryInput(t *testing.T) {
 		json.RawMessage(`{}`),
 		json.RawMessage(`{"content":"   "}`),
 		json.RawMessage(`{"content":"durable fact","reason":"model judgment"}`),
-		agent.MarshalToolInput(map[string]string{"content": strings.Repeat("가", memory.RememberContentRuneLimit+1)}),
+		agent.MarshalToolInput(map[string]string{"content": strings.Repeat("a", memory.RememberContentRuneLimit+1)}),
 	} {
 		result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
 			ToolName: "memory.remember",

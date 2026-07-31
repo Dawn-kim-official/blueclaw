@@ -108,7 +108,7 @@ func TestValidityStateAcceptsDeckWithoutIntentManifest(t *testing.T) {
 		t.Fatal(errorValue)
 	}
 	artifactPath := filepath.Join(artifactDirectoryPath, "hermes-analysis.html")
-	writeAgentTestFile(t, artifactPath, "<html><body>Hermes Agent 장단점 분석</body></html>")
+	writeAgentTestFile(t, artifactPath, "<html><body>Hermes Agent pros and cons analysis</body></html>")
 
 	validityState := buildArtifactValidityState([]CompletionArtifact{{
 		Suffix:       ".html",
