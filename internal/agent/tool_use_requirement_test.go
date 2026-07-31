@@ -6,7 +6,7 @@ func TestGoogleWorkspaceAvoidanceDoesNotRequireBrowserEvidence(t *testing.T) {
 	toolRegistry := newTestToolSet([]string{"browser.open", "browser.snapshot", "file.deliver"})
 
 	requirements := deriveToolUseRequirements(AgentTurnRequest{
-		Prompt:  "구글 워크스페이스는 쓰지 말고 Marp로 로컬 PPTX PDF HTML notes 파일을 첨부해줘.",
+		Prompt:  "do not use Google Workspace; attach local PPTX, PDF, HTML and notes files built with Marp.",
 		ToolSet: toolRegistry,
 	})
 
@@ -21,7 +21,7 @@ func TestGoogleSearchStillRequiresBrowserEvidence(t *testing.T) {
 	toolRegistry := newTestToolSet([]string{"browser.open", "browser.snapshot"})
 
 	requirements := deriveToolUseRequirements(AgentTurnRequest{
-		Prompt:                "구글에서 회사 정보를 검색해줘",
+		Prompt:                "search Google for the company information",
 		ToolSet:               toolRegistry,
 		TaskShape:             TaskShapeBrowserHandoffTask,
 		RequiredEvidenceTools: []string{"browser.snapshot"},
@@ -51,7 +51,7 @@ func TestDirectMessageUsesOnlyExplicitEvidence(t *testing.T) {
 	toolRegistry := newTestToolSet([]string{"browser.open", "browser.snapshot", "message.send"})
 
 	requirements := deriveToolUseRequirements(AgentTurnRequest{
-		Prompt:                "샘플에게 구글에서 검색해보라고 DM 보내줘",
+		Prompt:                "DM Dana and ask them to search on Google",
 		ToolSet:               toolRegistry,
 		RequiredEvidenceTools: []string{"message.send"},
 		SkillDecisions:        []SkillSelectionDecision{{Name: "direct-message", Status: "selected"}},
@@ -66,7 +66,7 @@ func TestSelectedDirectMessageSkillDoesNotRequireDirectMessageEvidence(t *testin
 	toolRegistry := newTestToolSet([]string{"message.send", "web.fetch"})
 
 	requirements := deriveToolUseRequirements(AgentTurnRequest{
-		Prompt:         "https://example.com 참고해서 사업계획서 작성해줘",
+		Prompt:         "https://example.com use it to write the business plan",
 		ToolSet:        toolRegistry,
 		SkillDecisions: []SkillSelectionDecision{{Name: "direct-message", Status: "selected"}},
 	})
@@ -80,13 +80,13 @@ func TestBrowserRetryWithVisibleContextRequiresBrowserEvidence(t *testing.T) {
 	toolRegistry := newTestToolSet([]string{"browser.open", "browser.snapshot"})
 
 	requirements := deriveToolUseRequirements(AgentTurnRequest{
-		Prompt:                "다시 열어봐",
+		Prompt:                "open it again",
 		ToolSet:               toolRegistry,
 		TaskShape:             TaskShapeBrowserHandoffTask,
 		RequiredEvidenceTools: []string{"browser.open"},
 		VisibleContext: VisibleContext{Messages: []VisibleContextMessage{
-			{Speaker: "사용자", Text: "구글 클라우드 콘솔에서 credential.json 받는 거 도와줘"},
-			{Speaker: "김인턴", Text: "Companion 브라우저 연결이 필요합니다."},
+			{Speaker: "user", Text: "help me get credential.json from the Google Cloud console"},
+			{Speaker: "internkim", Text: "The companion browser connection is required."},
 		}},
 	})
 
@@ -99,19 +99,19 @@ func TestAttachmentRetryWithBrowserFailureContextDoesNotRequireBrowserEvidence(t
 	toolRegistry := newTestToolSet([]string{"browser.open", "browser.snapshot", "file.preview", "file.read"})
 
 	requirements := deriveToolUseRequirements(AgentTurnRequest{
-		Prompt:  "다시 시도해보자",
+		Prompt:  "let's try again",
 		ToolSet: toolRegistry,
 		VisibleContext: VisibleContext{Messages: []VisibleContextMessage{
 			{
-				Speaker: "사용자",
-				Text:    "이 파일 내용 보고 개선점 말해줘",
+				Speaker: "user",
+				Text:    "read this file and tell me what to improve",
 				Materials: []VisibleContextMaterial{{
 					MaterialID:  "mattermost:file-1",
 					Path:        "home/inbox/mattermost/direct-1/post-1/page.html",
 					IsAvailable: true,
 				}},
 			},
-			{Speaker: "김인턴", Text: "Companion 브라우저 연결이 필요합니다."},
+			{Speaker: "internkim", Text: "The companion browser connection is required."},
 		}},
 	})
 

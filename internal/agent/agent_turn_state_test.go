@@ -1263,17 +1263,17 @@ func TestParseAgentActionResponseUsesReplyPartsForFinishMessage(t *testing.T) {
 }
 
 func TestParseAgentActionResponseNormalizesUntypedFinishReplyParts(t *testing.T) {
-	action, errorValue := ParseAgentActionResponse(llm.StructuredResponse{Content: `{"action":"finish","message":"직접 전달합니다.","replyParts":[{"type":"","text":"대기 중 입니다. 차후 첨부로 전달해드리겠습니다."}],"goalStatus":"satisfied","goalSatisfied":true,"completionEvidenceIDs":[],"qualityReview":[]}`})
+	action, errorValue := ParseAgentActionResponse(llm.StructuredResponse{Content: `{"action":"finish","message":"Delivering it directly.","replyParts":[{"type":"","text":"Still pending. It will be delivered as an attachment later."}],"goalStatus":"satisfied","goalSatisfied":true,"completionEvidenceIDs":[],"qualityReview":[]}`})
 	if errorValue != nil {
 		t.Fatalf("expected parsed action: %v", errorValue)
 	}
-	if finishActionMessage(action) != "대기 중 입니다. 차후 첨부로 전달해드리겠습니다." {
+	if finishActionMessage(action) != "Still pending. It will be delivered as an attachment later." {
 		t.Fatalf("expected untyped replyParts text to stay visible, got %+v", action)
 	}
 }
 
 func TestParseAgentActionResponseCoercesStringCompletionEvidenceIDs(t *testing.T) {
-	action, errorValue := ParseAgentActionResponse(llm.StructuredResponse{Content: `{"action":"finish","message":"완료했습니다.","goalStatus":"satisfied","goalSatisfied":true,"completionEvidenceIDs":"obs-005, obs-008","qualityReview":[]}`})
+	action, errorValue := ParseAgentActionResponse(llm.StructuredResponse{Content: `{"action":"finish","message":"Done.","goalStatus":"satisfied","goalSatisfied":true,"completionEvidenceIDs":"obs-005, obs-008","qualityReview":[]}`})
 	if errorValue != nil {
 		t.Fatalf("expected string completionEvidenceIDs to parse: %v", errorValue)
 	}
@@ -1358,14 +1358,14 @@ func TestParseAgentActionResponseNormalizesContinueToolCall(t *testing.T) {
 }
 
 func TestParseAgentActionResponsePreservesDirectToolName(t *testing.T) {
-	action, errorValue := ParseAgentActionResponse(llm.StructuredResponse{Content: `{"action":"continue","toolName":"task.add","toolInput":{"title":"분기 결산"}}`})
+	action, errorValue := ParseAgentActionResponse(llm.StructuredResponse{Content: `{"action":"continue","toolName":"task.add","toolInput":{"title":"quarterly settlement"}}`})
 	if errorValue != nil {
 		t.Fatalf("expected parsed action: %v", errorValue)
 	}
 	if action.ToolName != "task.add" {
 		t.Fatalf("expected direct tool name to stay task.add, got %+v", action)
 	}
-	if string(action.ToolInput) != `{"title":"분기 결산"}` {
+	if string(action.ToolInput) != `{"title":"quarterly settlement"}` {
 		t.Fatalf("expected direct tool input to be preserved, got %s", action.ToolInput)
 	}
 }
@@ -1431,7 +1431,7 @@ func TestAdvanceAgentTaskReturnsAttachExistingArtifactEffect(t *testing.T) {
 	})
 	state := agentTaskState{
 		Request: AgentTurnRequest{
-			Prompt:                     "HTML 파일 만들어줘",
+			Prompt:                     "HTML make the file",
 			ToolSet:                    toolSet,
 			WorkspaceRootPath:          workspaceRootPath,
 			RequiredEvidenceTools:      []string{FileDeliverToolName},
@@ -1518,7 +1518,7 @@ func TestRestoreAgentTaskStateRestoresToolProgressOnly(t *testing.T) {
 func TestWaitingTaskResumeRestoresObservationsWithoutFlags(t *testing.T) {
 	taskEventService := task.NewTaskEventService()
 	taskRunService := task.NewTaskRunService(taskEventService)
-	taskRun := taskRunService.CreateTaskRun("person-1", "conversation-1", "메모를 찾아서 알려줘")
+	taskRun := taskRunService.CreateTaskRun("person-1", "conversation-1", "find the note and tell me")
 	runningTaskRun, errorValue := taskRunService.AdvanceTaskRun(taskRun.TaskRunID, "assistant")
 	if errorValue != nil {
 		t.Fatal(errorValue)
@@ -1530,7 +1530,7 @@ func TestWaitingTaskResumeRestoresObservationsWithoutFlags(t *testing.T) {
 	}
 
 	state, errorValue := agentTaskStateForTurn(AgentTurnRequest{
-		Prompt:            "네 그거요",
+		Prompt:            "yes, that one",
 		ExistingTaskRunID: waitingTaskRun.TaskRunID,
 	}, TurnOptions{}, waitingTaskRun, taskRunService.ListTaskEvent(waitingTaskRun.TaskRunID), true)
 

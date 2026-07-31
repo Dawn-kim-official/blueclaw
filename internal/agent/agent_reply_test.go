@@ -150,10 +150,10 @@ func TestAgentKernelInjectsMemoryIntoChatReplyRequest(t *testing.T) {
 
 	_, errorValue := agentKernel.GenerateReplyWithMemory(
 		context.Background(),
-		"저번에 뭐 부탁했지?",
+		"what did I ask for last time?",
 		[]memory.MemoryFact{
 			{
-				Content: "사용자는 매터모스트 DM 답장 디버깅을 부탁했다.",
+				Content: "the user asked for help debugging Mattermost DM replies.",
 			},
 		},
 	)
@@ -168,7 +168,7 @@ func TestAgentKernelInjectsMemoryIntoChatReplyRequest(t *testing.T) {
 	if !strings.Contains(body, "Runtime:") || !strings.Contains(body, "Current weekday:") {
 		t.Fatalf("expected runtime context to be injected, got %q", body)
 	}
-	if !strings.Contains(body, "매터모스트 DM 답장 디버깅") {
+	if !strings.Contains(body, "debugging Mattermost DM replies") {
 		t.Fatalf("expected memory context to be injected, got %q", body)
 	}
 }
@@ -180,11 +180,11 @@ func TestAgentKernelInjectsCompactAttributedMemorySummary(t *testing.T) {
 	agentKernel := NewAgentKernel(taskRunService, taskStepService)
 	replyProvider := &capturingReplyProvider{content: "remembered"}
 	agentKernel.UseLanguageModelProvider(replyProvider)
-	longContent := strings.Repeat("요약해야 하는 상세 메모리 ", 30) + "RAW_TAIL_SHOULD_NOT_APPEAR"
+	longContent := strings.Repeat("a detailed memory that needs summarizing ", 30) + "RAW_TAIL_SHOULD_NOT_APPEAR"
 
 	_, errorValue := agentKernel.GenerateReplyWithMemory(
 		context.Background(),
-		"기억 참고해줘",
+		"use what you remember",
 		[]memory.MemoryFact{
 			{
 				ScopeType:       memory.ScopeTypeWorkspace,
@@ -221,16 +221,16 @@ func TestAgentKernelPlacesVisibleContextBeforeMemoryAndPrompt(t *testing.T) {
 
 	_, errorValue := agentKernel.GenerateReplyWithContext(
 		context.Background(),
-		"그래서 어떻게 할까?",
+		"so what should we do?",
 		VisibleContext{
 			Messages: []VisibleContextMessage{
-				{Speaker: "admin", Text: "A로 가자"},
+				{Speaker: "admin", Text: "let's go with A"},
 			},
 			HasMoreBefore: true,
 			HistoryCursor: "cursor-1",
 		},
 		[]memory.MemoryFact{
-			{Content: "사용자는 redundancy 없는 설계를 선호한다."},
+			{Content: "the user prefers a design without redundancy."},
 		},
 	)
 	if errorValue != nil {
@@ -241,10 +241,10 @@ func TestAgentKernelPlacesVisibleContextBeforeMemoryAndPrompt(t *testing.T) {
 	if len(replyProvider.request.Messages) != 3 {
 		t.Fatalf("expected system, flattened context, prompt messages, got %d", len(replyProvider.request.Messages))
 	}
-	visibleIndex := strings.Index(body, "admin: A로 가자")
-	memoryIndex := strings.Index(body, "redundancy 없는 설계")
+	visibleIndex := strings.Index(body, "admin: let's go with A")
+	memoryIndex := strings.Index(body, "a design without redundancy")
 	runtimeIndex := strings.Index(body, "Runtime:")
-	promptIndex := strings.LastIndex(body, "그래서 어떻게 할까?")
+	promptIndex := strings.LastIndex(body, "so what should we do?")
 	if visibleIndex < 0 || memoryIndex < 0 || runtimeIndex < 0 || promptIndex < 0 {
 		t.Fatalf("expected visible context, memory, runtime, and prompt, got %q", body)
 	}
