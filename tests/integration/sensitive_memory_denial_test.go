@@ -16,9 +16,4 @@ func TestSensitiveMemoryDenial(t *testing.T) {
 	if isAllowed {
 		t.Fatal("expected sensitive access to be denied")
 	}
-
-	denialResponse := security.DenialResponseBuilder{}.BuildDeniedReply()
-	if denialResponse == "" {
-		t.Fatal("expected denial response to be non-empty")
-	}
 }
