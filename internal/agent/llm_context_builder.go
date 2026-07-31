@@ -154,13 +154,13 @@ func (builder LLMContextBuilder) companyContext(input LLMContextInput) string {
 	if company.IsEmpty() {
 		return strings.Join([]string{
 			"Our company:",
-			"Not registered yet. The workspace has a company table for: name(상호), brandName, slogan, description, representative(대표), address, phone, email, bankAccount, legalAttributes(사업자등록번호 등), plus metric/record/document ledgers.",
+			"Not registered yet. The workspace has a company table for: name, brandName, slogan, description, representative, address, phone, email, bankAccount, legalAttributes such as the business registration number, plus metric/record/document ledgers.",
 			"When a task needs the company identity (documents, slides, mail, introductions) or the requester states company facts, proactively ask ONCE for the missing fields and store them with company.info.set; record numbers with company.metric.record and history with company.record.add.",
 		}, "\n")
 	}
 	identity := strings.TrimSpace(company.Name)
 	if brand := strings.TrimSpace(company.BrandName); brand != "" && brand != identity {
-		identity = strings.TrimSpace(identity + " (브랜드: " + brand + ")")
+		identity = strings.TrimSpace(identity + " (brand: " + brand + ")")
 	}
 	if slogan := strings.TrimSpace(company.Slogan); slogan != "" {
 		identity = strings.TrimSpace(identity + " — " + slogan)
@@ -170,7 +170,7 @@ func (builder LLMContextBuilder) companyContext(input LLMContextInput) string {
 		details = append(details, description)
 	}
 	if representative := strings.TrimSpace(company.Representative); representative != "" {
-		details = append(details, "대표 "+representative)
+		details = append(details, "represented by "+representative)
 	}
 	if website := strings.TrimSpace(company.Website); website != "" {
 		details = append(details, website)
@@ -180,8 +180,8 @@ func (builder LLMContextBuilder) companyContext(input LLMContextInput) string {
 		lines = append(lines, strings.Join(details, " · "))
 	}
 	lines = append(lines,
-		"This is the requester's company — '우리', '우리 회사' refer to it. Use this identity in any company-branded output (documents, slides, mail).",
-		"Full company data lives behind capability operations: company.info.get (profile, 사업자등록번호 etc.), company.metric.list (revenue/headcount time series), company.record.list (연혁·funding·products), company.document.list/search (issued documents).",
+		"This is the requester's company; first-person plural references such as \"we\" or \"our company\" refer to it. Use this identity in any company-branded output (documents, slides, mail).",
+		"Full company data lives behind capability operations: company.info.get (profile, business registration number, and so on), company.metric.list (revenue/headcount time series), company.record.list (history, funding, products), company.document.list/search (issued documents).",
 		"When the requester states a NEW or CHANGED company fact (headcount, revenue, address, funding, certification …), record it immediately — but never blindly append: first search existing rows for that year (company.metric.list with fromYear/toYear, or company.record.list for the category). Identical fact already stored → no write, just acknowledge. Existing row covers the same fact with different details → update it (same-period company.metric.record upsert / company.record.update). Nothing overlaps → add a new row. Profile changes go through company.info.set. Confirm what you stored in one line.")
 	return strings.Join(lines, "\n")
 }

@@ -49,7 +49,7 @@ func (agentTurnRunner *AgentTurnRunner) resolveCalendarDuplicate(ctx context.Con
 	}
 	if agentTurnRunner.judgeCalendarDuplicate(ctx, addInput, candidates) {
 		existingEvent := candidates[0]
-		message := fmt.Sprintf("이미 같은 시각에 '%s' 일정이 등록돼 있어 새로 추가하지 않았습니다. 기존 일정(id=%s)을 그대로 유지합니다.", strings.TrimSpace(existingEvent.Title), strings.TrimSpace(existingEvent.ID))
+		message := fmt.Sprintf("'%s' is already on the calendar at this time, so nothing was added. The existing event (id=%s) is unchanged.", strings.TrimSpace(existingEvent.Title), strings.TrimSpace(existingEvent.ID))
 		toolInputKey := canonicalToolCallKey(actionDocument.ToolName, actionDocument.ToolInput)
 		toolDefinition, _ := request.ToolSet.ToolDefinition(actionDocument.ToolName)
 		return agentTurnRunner.saveToolObservation(ctx, taskRunID, observationID, actionDocument.ToolName, toolDefinition.ID, actionDocument.ToolInput, calendarAddOperation, toolInputKey, ToolSuccess(message), request.WorkspaceRootPath, request.TurnStartedAt, 0)
@@ -117,15 +117,15 @@ func calendarDuplicateJudgeMessages(addInput calendarAddInput, existingEvents []
 		existingLines = append(existingLines, fmt.Sprintf("- id=%s | %s | %s ~ %s", strings.TrimSpace(event.ID), strings.TrimSpace(event.Title), event.StartISO, event.EndISO))
 	}
 	userContent := strings.Join([]string{
-		"새로 추가하려는 일정이 아래 기존 일정 중 하나와 동일한 일정인지 판단하세요.",
-		"이 후보들은 이미 같은 시각·같은 참석자로 확인된 일정입니다. 같은 모임을 가리키면 제목 표현이 조금 달라도 동일(isDuplicate=true)로 봅니다. 명백히 다른 모임이면 다른 일정(false)입니다.",
+		"Decide whether the new event below is the same event as one of the existing events.",
+		"Every candidate already matches on time and attendees. If they refer to the same gathering, treat them as duplicates (isDuplicate=true) even when the titles are worded differently. If it is clearly a different gathering, answer false.",
 		"",
-		fmt.Sprintf("새 일정: %s | %s ~ %s", strings.TrimSpace(addInput.Title), addInput.StartISO, addInput.EndISO),
-		"기존 일정:",
+		fmt.Sprintf("New event: %s | %s ~ %s", strings.TrimSpace(addInput.Title), addInput.StartISO, addInput.EndISO),
+		"Existing events:",
 		strings.Join(existingLines, "\n"),
 	}, "\n")
 	return []llm.Message{
-		{Role: "system", Content: "당신은 캘린더 중복 판단기입니다. 오직 구조화된 판단만 출력합니다."},
+		{Role: "system", Content: "You are a calendar duplicate judge. Output only the structured judgment."},
 		{Role: "user", Content: userContent},
 	}
 }
