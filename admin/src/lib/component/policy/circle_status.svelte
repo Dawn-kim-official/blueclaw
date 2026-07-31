@@ -30,7 +30,7 @@
         <strong>{circle.displayName || circle.circleID}</strong>
         · {circle.workspaceDirectoryPath || `/workspace/circles/${circle.circleID}`}
         {#if circle.isMattermostManaged}
-          · Mattermost에서 관리됨
+          · Managed in Mattermost
           {#if syncChannel?.channelName}
             · {syncChannel.channelName}
           {/if}

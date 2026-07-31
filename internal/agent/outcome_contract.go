@@ -512,7 +512,7 @@ func expectedResultsForRequest(intakeDecision IntakeDecision, executionPlan Exec
 		results = append(results, ExpectedResult{
 			ID:          "site-public-link",
 			Type:        ExpectedResultTypeLink,
-			Description: "사용자가 열 수 있는 public URL의 웹사이트 프로젝트 한 개",
+			Description: "One website project reachable at a public URL the user can open",
 			Required:    true,
 			AcceptanceHints: []string{
 				"URL must be visible in a successful tool result or final response.",
@@ -524,7 +524,7 @@ func expectedResultsForRequest(intakeDecision IntakeDecision, executionPlan Exec
 		results = append(results, ExpectedResult{
 			ID:              "attached-file",
 			Type:            ExpectedResultTypeFile,
-			Description:     "요청한 형식의 파일 한 개 이상이 사용자에게 첨부됨",
+			Description:     "At least one file in the requested format is attached for the user",
 			Required:        true,
 			AcceptanceHints: appendUniqueStrings(requiredAttachmentSuffixes),
 		})
@@ -535,7 +535,7 @@ func expectedResultsForRequest(intakeDecision IntakeDecision, executionPlan Exec
 	results = append(results, ExpectedResult{
 		ID:          "final-message",
 		Type:        ExpectedResultTypeMessage,
-		Description: "사용자에게 현재 Task 결과를 설명하는 최종 답변",
+		Description: "A final reply explaining the outcome of this task to the user",
 		Required:    true,
 	})
 	return normalizeExpectedResults(results)

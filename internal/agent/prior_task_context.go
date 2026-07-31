@@ -82,7 +82,7 @@ func outcomeContractFromPriorTask(priorTask PriorTaskContext) OutcomeContract {
 	contract.ExpectedResults = appendExpectedResults(contract.ExpectedResults, ExpectedResult{
 		ID:              "attached-file",
 		Type:            ExpectedResultTypeFile,
-		Description:     "요청한 형식의 파일 한 개 이상이 사용자에게 첨부됨",
+		Description:     "At least one file in the requested format is attached for the user",
 		Required:        true,
 		AcceptanceHints: appendUniqueStrings(requiredAttachmentSuffixes),
 	})

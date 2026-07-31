@@ -314,8 +314,8 @@
       "context": {
         "messages": [
           {
-            "speaker": "김여명",
-            "text": "지난 대화",
+            "speaker": "Dawn Kim",
+            "text": "previous conversation",
             "sentAt": "2026-07-14T00:00:00Z"
           }
         ],
