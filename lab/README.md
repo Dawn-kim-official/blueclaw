@@ -2,6 +2,13 @@
 
 This directory holds the local test rig assets for `blueclaw-lab`.
 
+This is the self-contained lane: it needs only this repository, so it is the
+way to bring up a full guest without the appliance tooling, which is not
+published. The appliance repository runs its own fleet lane on Apple
+`container`; that lane reuses `lab/scripts/` but none of the Tart setup below.
+Neither lane runs in CI — Tart and Firecracker cannot start on a hosted runner —
+so treat these commands as unverified by the build and report breakage.
+
 The default topology is:
 
 - Apple Silicon macOS host
