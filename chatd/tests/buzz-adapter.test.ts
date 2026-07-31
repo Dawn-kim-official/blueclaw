@@ -11,7 +11,7 @@ function createAdapter(): BuzzAdapter {
 	return new BuzzAdapter({
 		relayURL: "ws://localhost:3000",
 		privateKeyHex: AGENT_SECRET,
-		botDisplayName: "김인턴",
+		botDisplayName: "internkim",
 	});
 }
 
@@ -22,7 +22,7 @@ function createEvent(overrides: Partial<BuzzEvent> = {}): BuzzEvent {
 		created_at: 1784900000,
 		kind: 9,
 		tags: [["h", CHANNEL_UUID]],
-		content: "@김인턴 안녕",
+		content: "@internkim hello",
 		sig: "f".repeat(128),
 		...overrides,
 	};
@@ -66,7 +66,7 @@ describe("buzz event mapping", () => {
 	test("parseMessage maps a channel event into a Message", () => {
 		const adapter = createAdapter();
 		const message = adapter.parseMessage(createEvent());
-		expect(message.text).toBe("@김인턴 안녕");
+		expect(message.text).toBe("@internkim hello");
 		expect(message.author.userId).toBe(SENDER_HEX);
 		expect(message.threadId).toBe(`buzz:${CHANNEL_UUID}:${"e".repeat(64)}`);
 		expect(message.metadata.dateSent.toISOString()).toBe(new Date(1784900000 * 1000).toISOString());

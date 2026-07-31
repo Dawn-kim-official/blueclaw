@@ -81,12 +81,12 @@ func TestExpectedResultDeliveryRequiresExactCanonicalURL(t *testing.T) {
 		},
 	}
 
-	wrongURL := validateExpectedResultDelivery(request, []turnObservation{observation}, nil, finishDocument("배포했습니다: https://different.example"))
+	wrongURL := validateExpectedResultDelivery(request, []turnObservation{observation}, nil, finishDocument("Deployed it: https://different.example"))
 	if wrongURL.IsSatisfied || !strings.Contains(wrongURL.Message, "https://portfolio.example") {
 		t.Fatalf("expected exact observed URL requirement, got %+v", wrongURL)
 	}
 
-	exactURL := validateExpectedResultDelivery(request, []turnObservation{observation}, nil, finishDocument("배포했습니다: https://portfolio.example/"))
+	exactURL := validateExpectedResultDelivery(request, []turnObservation{observation}, nil, finishDocument("Deployed it: https://portfolio.example/"))
 	if !exactURL.IsSatisfied {
 		t.Fatalf("expected normalized exact URL to pass, got %+v", exactURL)
 	}
@@ -98,12 +98,12 @@ func TestExpectedResultDeliveryRequiresTypedFileAndMessage(t *testing.T) {
 		{ID: "final-message", Type: ExpectedResultTypeMessage, Description: "final user reply", Required: true},
 	}}}
 
-	missingFile := validateExpectedResultDelivery(request, nil, nil, finishDocument("파일을 준비했습니다."))
+	missingFile := validateExpectedResultDelivery(request, nil, nil, finishDocument("Prepared the file."))
 	if missingFile.IsSatisfied {
 		t.Fatal("expected missing typed attachment to block delivery")
 	}
 
-	ready := validateExpectedResultDelivery(request, nil, []FileAttachment{{Filename: "report.json"}}, finishDocument("파일을 첨부했습니다."))
+	ready := validateExpectedResultDelivery(request, nil, []FileAttachment{{Filename: "report.json"}}, finishDocument("Attached the file."))
 	if !ready.IsSatisfied {
 		t.Fatalf("expected typed attachment and message to pass, got %+v", ready)
 	}
@@ -160,12 +160,12 @@ func TestLinkExpectationWithoutLinkCapableToolDoesNotHardBlock(t *testing.T) {
 	toolSet := newTestToolSet([]string{"task.list"})
 	expectation := ExpectedResult{Type: ExpectedResultTypeLink, Required: true}
 
-	if message := missingExpectedResultDelivery(expectation, toolSet, nil, nil, "조회 결과입니다."); message != "" {
+	if message := missingExpectedResultDelivery(expectation, toolSet, nil, nil, "Here are the results."); message != "" {
 		t.Fatalf("expected an unsatisfiable link expectation to defer to the judge, got %q", message)
 	}
 
 	linkToolSet := newTestToolSetWithDefinitions([]ToolDefinition{canonicalLinkToolDefinition("site.serve")})
-	if message := missingExpectedResultDelivery(expectation, linkToolSet, nil, nil, "만들었습니다."); message == "" {
+	if message := missingExpectedResultDelivery(expectation, linkToolSet, nil, nil, "Created it."); message == "" {
 		t.Fatal("expected a link-capable working set to keep requiring the canonical link")
 	}
 }

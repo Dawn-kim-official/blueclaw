@@ -12,12 +12,12 @@ func TestConnectorReplyOutboxIDSeparatesCheckpointAndFinalReplies(t *testing.T) 
 	checkpointID := connectorReplyOutboxID(rawEventID, connectors.OutboundReply{
 		TaskRunID: "task-1",
 		ReplyKind: "checkpoint",
-		Message:   "작업 중입니다.",
+		Message:   "Working on it.",
 	})
 	finalID := connectorReplyOutboxID(rawEventID, connectors.OutboundReply{
 		TaskRunID: "task-1",
 		ReplyKind: "user_notice",
-		Message:   "작업이 실패했습니다.",
+		Message:   "The task failed.",
 	})
 
 	if checkpointID == finalID {

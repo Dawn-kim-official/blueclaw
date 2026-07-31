@@ -48,7 +48,7 @@ func TestTaskScheduleHandlerReturnsSummary(t *testing.T) {
 
 func TestTaskScheduleHandlerListsActiveSchedules(t *testing.T) {
 	nextRunAt := time.Date(2026, 6, 6, 3, 0, 0, 0, time.UTC)
-	longPrompt := strings.Repeat("예약 메시지 ", 40)
+	longPrompt := strings.Repeat("scheduled message ", 40)
 	repository := &taskScheduleListRepositoryStub{
 		taskSchedules: []task.TaskSchedule{{
 			TaskScheduleID:   "schedule-1",

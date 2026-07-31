@@ -40,7 +40,7 @@ func TestScanTaskScheduleIncludesRunLimit(t *testing.T) {
 		"schedule-1",
 		"person-1",
 		"limited reminder",
-		"죄송합니다라고 말해줘.",
+		"say sorry.",
 		"default",
 		"message",
 		"interval",

@@ -21,8 +21,8 @@ func TestLoadScenarioFileReadsSequentialStepsAndResolvesSkills(t *testing.T) {
   "capabilityToolNames": ["task.add", "task.delete"],
   "capabilityToolDescriptors": [{"name":"task.delete","requiresApproval":true}],
   "steps": [
-    {"prompt":"업무 추가","expectedResponse":"background_action","expectedToolCalls":["task.add"]},
-    {"prompt":"삭제 승인","expectedEvents":["approval.executed"]}
+    {"prompt":"add task","expectedResponse":"background_action","expectedToolCalls":["task.add"]},
+    {"prompt":"delete approved","expectedEvents":["approval.executed"]}
   ]
 }`
 	if errorValue := os.WriteFile(scenarioPath, []byte(document), 0o600); errorValue != nil {

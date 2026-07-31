@@ -10,7 +10,7 @@ func TestBuildVisibleContextDescriptionRendersTimestamp(t *testing.T) {
 	sentAt := time.Date(2026, 7, 10, 14, 3, 0, 0, defaultTurnLocation())
 	description := buildVisibleContextDescription(VisibleContext{
 		Messages: []VisibleContextMessage{
-			{Speaker: "테스트", SpeakerCallingName: "테스트", Text: "이 파일 정리해줘", SentAt: sentAt},
+			{Speaker: "Wendy", SpeakerCallingName: "Wendy", Text: "tidy up this file", SentAt: sentAt},
 		},
 	})
 	if !strings.Contains(description, "[07-10 14:03]") {
@@ -21,7 +21,7 @@ func TestBuildVisibleContextDescriptionRendersTimestamp(t *testing.T) {
 func TestBuildVisibleContextDescriptionOmitsZeroTimestamp(t *testing.T) {
 	description := buildVisibleContextDescription(VisibleContext{
 		Messages: []VisibleContextMessage{
-			{Speaker: "테스트", SpeakerCallingName: "테스트", Text: "안녕"},
+			{Speaker: "Wendy", SpeakerCallingName: "Wendy", Text: "hello"},
 		},
 	})
 	if strings.Contains(description, "[") {
@@ -32,11 +32,11 @@ func TestBuildVisibleContextDescriptionOmitsZeroTimestamp(t *testing.T) {
 func TestAddressingPromptCarriesMessageAndContextTime(t *testing.T) {
 	sentAt := time.Date(2026, 7, 10, 14, 3, 0, 0, defaultTurnLocation())
 	prompt := addressingClassificationPrompt(AddressingClassificationRequest{
-		Prompt:        "그리고 이것도",
+		Prompt:        "and this too",
 		MessageSentAt: sentAt.Add(30 * time.Second),
 		VisibleContext: VisibleContext{
 			Messages: []VisibleContextMessage{
-				{Speaker: "테스트", SpeakerCallingName: "테스트", Text: "정리해줘", SentAt: sentAt},
+				{Speaker: "Wendy", SpeakerCallingName: "Wendy", Text: "tidy it up", SentAt: sentAt},
 			},
 		},
 	})

@@ -11,8 +11,8 @@ import (
 func TestPendingApprovalActiveGoalIsActiveAndDirectsExecution(t *testing.T) {
 	approval := pendingApproval{
 		TaskRun:      task.TaskRun{TaskRunID: "task-1"},
-		IntentPrompt: "견본님께 DM 보내기",
-		ActiveGoal:   agent.ActiveGoal{CurrentObjective: "견본님께 캘린더 안내 DM 보내기"},
+		IntentPrompt: "send Chris a DM",
+		ActiveGoal:   agent.ActiveGoal{CurrentObjective: "send Chris a calendar reminder DM"},
 	}
 
 	goal := pendingApprovalActiveGoal(approval, "approved")
@@ -23,7 +23,7 @@ func TestPendingApprovalActiveGoalIsActiveAndDirectsExecution(t *testing.T) {
 	if !strings.Contains(goal.CurrentObjective, "do not call ask.confirm again") {
 		t.Fatalf("expected execution directive in objective, got %q", goal.CurrentObjective)
 	}
-	if !strings.Contains(goal.CurrentObjective, "견본님께 캘린더 안내 DM 보내기") {
+	if !strings.Contains(goal.CurrentObjective, "send Chris a calendar reminder DM") {
 		t.Fatalf("expected the original objective to be preserved, got %q", goal.CurrentObjective)
 	}
 }

@@ -20,7 +20,7 @@ func TestObservedResultProjectionAcceptsCalendarClaimWithCalendarFact(t *testing
 		nil,
 		turnActionDocument{
 			Action:        "finish",
-			Message:       "7월 13일 미팅을 오전 10시~11시로 등록했습니다.",
+			Message:       "Registered the July 13 meeting from 10 to 11am.",
 			GoalSatisfied: &goalSatisfied,
 		},
 	)
@@ -129,7 +129,7 @@ func TestObservedResultProjectionRequiresCurrentSiteModificationEffects(t *testi
 		nil,
 		turnActionDocument{
 			Action:        "finish",
-			Message:       "예쁜 귤 사이트는 이미 게시되어 있습니다: https://pretty-gyul.example",
+			Message:       "The tangerine site is already published: https://pretty-gyul.example",
 			GoalSatisfied: &goalSatisfied,
 		},
 	)
@@ -171,7 +171,7 @@ func TestObservedResultProjectionAcceptsCurrentSiteModificationEffects(t *testin
 		nil,
 		turnActionDocument{
 			Action:        "finish",
-			Message:       "더 예쁘게 수정해서 배포했습니다: https://pretty-gyul.example",
+			Message:       "Made it prettier and redeployed: https://pretty-gyul.example",
 			GoalSatisfied: &goalSatisfied,
 		},
 	)
@@ -199,7 +199,7 @@ func TestObservedResultProjectionDoesNotInferSiteReadEffectFromStatus(t *testing
 		nil,
 		turnActionDocument{
 			Action:        "finish",
-			Message:       "사이트 상태를 확인했습니다.",
+			Message:       "Checked the site status.",
 			GoalSatisfied: &goalSatisfied,
 		},
 	)
@@ -230,7 +230,7 @@ func TestObservedResultProjectionAllowsSiteDeleteEffect(t *testing.T) {
 		nil,
 		turnActionDocument{
 			Action:        "finish",
-			Message:       "사이트를 삭제했습니다.",
+			Message:       "Deleted the site.",
 			GoalSatisfied: &goalSatisfied,
 		},
 	)

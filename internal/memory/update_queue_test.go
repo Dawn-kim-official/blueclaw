@@ -5,7 +5,7 @@ import "testing"
 func TestMemoryEpisodeFromUpdateJobSetsUniqueMessageID(t *testing.T) {
 	job := PrepareMemoryUpdateJob(MemoryUpdateJob{
 		Namespace:      MemoryNamespace{NamespaceID: "user:person-1", ScopeType: ScopeTypeUser, ScopePersonID: "person-1"},
-		Content:        "샘플 님은 면보다 밥을 더 좋아합니다.",
+		Content:        "Dana prefers rice over noodles.",
 		Platform:       "mattermost",
 		SenderPersonID: "person-1",
 	})

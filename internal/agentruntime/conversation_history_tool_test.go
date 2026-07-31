@@ -28,7 +28,7 @@ func TestConversationHistoryUsesTrustedCursorAndCanonicalProjection(t *testing.T
 				Speaker:            "Requester",
 				SpeakerCallingName: "Lee",
 				SpeakerHandle:      "lee",
-				Text:               "지난 파일을 다시 확인해줘",
+				Text:               "check the previous file again",
 				SentAt:             time.Date(2026, 7, 19, 9, 30, 0, 0, time.UTC),
 				Materials: []agent.VisibleContextMaterial{{
 					FileHint:          "quarterly-report",

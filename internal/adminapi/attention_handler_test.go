@@ -41,7 +41,7 @@ func TestAttentionHandlerReturnsSilentDecision(t *testing.T) {
 }
 
 func TestAttentionHandlerReturnsMessageDecision(t *testing.T) {
-	handler := AttentionHandler{LanguageModel: &recordingAttentionLanguageModel{content: `{"status":"ATTENTION_MESSAGE","message":"확인이 필요해 보여요.","reason":"blocked"}`}}
+	handler := AttentionHandler{LanguageModel: &recordingAttentionLanguageModel{content: `{"status":"ATTENTION_MESSAGE","message":"This looks like it needs a check.","reason":"blocked"}`}}
 	request := httptest.NewRequest(http.MethodPost, "/admin/api/attention/run", strings.NewReader(`{
 		"jobID":"job-1",
 		"toolName":"browser.handoff",
@@ -61,7 +61,7 @@ func TestAttentionHandlerReturnsMessageDecision(t *testing.T) {
 	if responseRecorder.Code != http.StatusOK {
 		t.Fatalf("expected ok response, got %d: %s", responseRecorder.Code, responseRecorder.Body.String())
 	}
-	if !strings.Contains(responseRecorder.Body.String(), "ATTENTION_MESSAGE") || !strings.Contains(responseRecorder.Body.String(), "확인이 필요해 보여요.") {
+	if !strings.Contains(responseRecorder.Body.String(), "ATTENTION_MESSAGE") || !strings.Contains(responseRecorder.Body.String(), "This looks like it needs a check.") {
 		t.Fatalf("expected message response, got %s", responseRecorder.Body.String())
 	}
 }

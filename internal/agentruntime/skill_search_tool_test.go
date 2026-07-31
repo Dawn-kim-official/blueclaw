@@ -99,7 +99,7 @@ func TestSkillSearchSearchModeSlicesBoundedMatchesByRequestedLimit(t *testing.T)
 }
 
 func TestSkillSearchNameModeReturnsCanonicalPromptMetadata(t *testing.T) {
-	longPrompt := strings.Repeat("가", maximumSkillSearchPromptLength+1)
+	longPrompt := strings.Repeat("a", maximumSkillSearchPromptLength+1)
 	toolSet := canonicalSkillSearchToolSet(&recordingSkillSearchRetriever{}, []agent.SkillInstruction{{
 		Name:           "site-prototype",
 		Description:    "Create sites.",

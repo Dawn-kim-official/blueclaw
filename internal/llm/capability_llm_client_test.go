@@ -24,7 +24,7 @@ func TestCapabilityLLMClientSendsStructuredRequestWithoutAuthorization(t *testin
 		if errorValue != nil {
 			t.Fatalf("expected request document to decode: %v", errorValue)
 		}
-		return jsonCapabilityResponse(http.StatusOK, `{"provider":"capabilityLLM","model":"gemma-4-E4B-it","content":"{\"reply\":\"안녕하세요\"}","selectedBackend":"gpu","constraintMode":"openai_json_schema"}`), nil
+		return jsonCapabilityResponse(http.StatusOK, `{"provider":"capabilityLLM","model":"gemma-4-E4B-it","content":"{\"reply\":\"hello\"}","selectedBackend":"gpu","constraintMode":"openai_json_schema"}`), nil
 	}}
 
 	client := CapabilityLLMClient{
@@ -56,7 +56,7 @@ func TestCapabilityLLMClientSendsStructuredRequestWithoutAuthorization(t *testin
 	if receivedDocument.GenerationOptions != nil {
 		t.Fatalf("expected empty generation options to be omitted, got %+v", receivedDocument.GenerationOptions)
 	}
-	if structuredResponse.Content != `{"reply":"안녕하세요"}` {
+	if structuredResponse.Content != `{"reply":"hello"}` {
 		t.Fatalf("expected capability content to be returned, got %q", structuredResponse.Content)
 	}
 	if structuredResponse.ModelName != "gemma-4-E4B-it" {
