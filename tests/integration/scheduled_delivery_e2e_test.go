@@ -13,7 +13,6 @@ import (
 	"github.com/Dawn-kim-official/blueclaw/internal/agentruntime"
 	"github.com/Dawn-kim-official/blueclaw/internal/connectors"
 	"github.com/Dawn-kim-official/blueclaw/internal/identity"
-	"github.com/Dawn-kim-official/blueclaw/internal/llm"
 	"github.com/Dawn-kim-official/blueclaw/internal/policy"
 	"github.com/Dawn-kim-official/blueclaw/internal/scheduler"
 	"github.com/Dawn-kim-official/blueclaw/internal/task"
@@ -71,7 +70,7 @@ func TestScheduledTaskRunsAndDeliversThroughConnectorOutbox(t *testing.T) {
 	}
 }
 
-func newScheduledDeliveryConnectorRuntime(languageModel llm.LanguageModelProvider, adapter *scheduledDeliveryAdapter, repository *scheduledDeliveryRepository) *connectors.ConnectorRuntime {
+func newScheduledDeliveryConnectorRuntime(languageModel staticScheduleLanguageModel, adapter *scheduledDeliveryAdapter, repository *scheduledDeliveryRepository) *connectors.ConnectorRuntime {
 	identityService := identity.NewIdentityService(policy.PolicyProjection{
 		PersonIDByEmail: map[string]string{"person@example.com": "person-1"},
 		PersonAccessByPersonID: map[string]policy.PersonAccess{
@@ -80,17 +79,17 @@ func newScheduledDeliveryConnectorRuntime(languageModel llm.LanguageModelProvide
 	})
 	taskRunService := task.NewTaskRunService(task.NewTaskEventService())
 	agentKernel := agent.NewAgentKernel(taskRunService, task.NewTaskStepService())
-	agentKernel.UseLanguageModelProvider(languageModel)
+	useScheduleTestLanguageModel(agentKernel, languageModel)
 	connectorRuntime := connectors.NewConnectorRuntime(identityService, agentKernel, nil)
 	connectorRuntime.RegisterAdapter(adapter)
 	connectorRuntime.UseEventRepository(repository)
 	return connectorRuntime
 }
 
-func newScheduledDeliveryPoller(languageModel llm.LanguageModelProvider, repository *scheduledDeliveryRepository) scheduler.TaskSchedulePoller {
+func newScheduledDeliveryPoller(languageModel staticScheduleLanguageModel, repository *scheduledDeliveryRepository) scheduler.TaskSchedulePoller {
 	taskRunService := task.NewTaskRunService(task.NewTaskEventService())
 	agentKernel := agent.NewAgentKernel(taskRunService, task.NewTaskStepService())
-	agentKernel.UseLanguageModelProvider(languageModel)
+	useScheduleTestLanguageModel(agentKernel, languageModel)
 	toolCatalogBuilder := agentruntime.NewToolCatalogBuilder()
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(map[string][]string{
 		"default": {"memory.search"},

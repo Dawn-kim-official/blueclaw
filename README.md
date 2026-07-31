@@ -62,9 +62,9 @@ for package in protocol llmd chatd admin; do (cd $package && bun install); done
 bun run test
 ```
 
-`go test ./tests/...` additionally runs the integration suite, which starts a
-Postgres container. Package roots are listed explicitly because `./...` also
-walks the Bun workspace symlinks under `llmd/node_modules`.
+`go test ./tests/...` adds the integration suite. Package roots are listed
+explicitly because `./...` also walks the Bun workspace symlinks under
+`llmd/node_modules`.
 
 ## Running
 

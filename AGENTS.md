@@ -29,8 +29,8 @@ its surroundings.
 
 ## Testing
 
-- `go test ./internal/...` is the unit suite. `go test ./tests/...` adds the
-  integration suite, which starts a Postgres container.
+- `go test ./internal/...` is the unit suite and `go test ./tests/...` is the
+  integration suite. Both run with no external services; CI runs both.
 - Name Go package roots explicitly (`./cmd/... ./internal/...`). A bare `./...`
   walks the Bun workspace symlinks under `llmd/node_modules` and fails.
 - TypeScript suites are per package: `bun run test` at the repository root
