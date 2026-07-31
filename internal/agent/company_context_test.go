@@ -18,8 +18,8 @@ func TestCompanyContextRendersIdentityAndSelfUpdateRule(t *testing.T) {
 	})
 	for _, expected := range []string{
 		"Our company:",
-		"주식회사 여명거리 (브랜드: 김인턴) — AI 인턴을 모든 회사에",
-		"대표 김여명",
+		"주식회사 여명거리 (brand: 김인턴) — AI 인턴을 모든 회사에",
+		"represented by 김여명",
 		"company.info.get",
 		"company.metric.record",
 	} {

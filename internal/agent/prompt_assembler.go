@@ -126,7 +126,7 @@ func buildTemporalContextDescription(turnStartedAt time.Time) string {
 		"Current time: " + localTime.Format("15:04"),
 		"Time zone: " + location.String(),
 		buildCurrentWeekDescription(localTime),
-		"Resolve relative dates such as today, tomorrow, and next Friday from this context before choosing tool inputs.",
+		"Resolve relative dates such as today, tomorrow, next Friday, 오늘, 내일, and 다음 주 from this context before choosing tool inputs.",
 	}, "\n")
 }
 

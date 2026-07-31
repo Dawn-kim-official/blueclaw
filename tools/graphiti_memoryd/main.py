@@ -371,7 +371,7 @@ def extraction_instructions_for_namespace(namespace: dict[str, Any], sender_pers
         return (
             "For this user namespace, extract durable facts about Blueclaw user "
             + sender_person_id
-            + ". Treat first-person pronouns such as I, me, and my, in any language, as this same user. "
+            + ". Treat first-person pronouns such as I, me, my, 내, 나, 저, 제 as this same user. "
             + "If the user states their name or preferred name, create a fact that this Blueclaw user's name is that value."
         )
     if namespace.get("scopeType") == "workspace":
