@@ -26,13 +26,6 @@ func (agentTurnRunner *AgentTurnRunner) rejectUnavailableToolCall(taskRunID stri
 		result, shouldStop := stopForNoProgress(stepID)
 		return noProgressToolCallActionOutcome(result, shouldStop)
 	}
-	if observation, isRejected := sitePublishPrerequisiteFailure(state.Observations, actionDocument, nextObservationIDForObservations(state.Observations)); isRejected {
-		state.Observations = append(state.Observations, observation)
-		agentTurnRunner.appendEvent(taskRunID, "agent.site_publish_prerequisite_rejected", marshalEventBody(observation))
-		agentTurnRunner.saveStep(taskRunID, stepID, task.TaskStatusCompleted, "site_publish_prerequisite_rejected", observation.ContentText())
-		result, shouldStop := stopForNoProgress(stepID)
-		return noProgressToolCallActionOutcome(result, shouldStop)
-	}
 	return toolCallActionOutcome{}
 }
 

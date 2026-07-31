@@ -1663,14 +1663,17 @@ func TestSiteCustomStructureAcceptance(t *testing.T) {
 	if turnResult.TaskStatus != task.TaskStatusCompleted {
 		t.Fatalf("expected completed turn, got %s", turnResult.TaskStatus)
 	}
-	if !eventsContain(turnResult.Events, "agent.site_publish_prerequisite_rejected", "") {
-		t.Fatalf("expected the first site.serve attempt to be rejected by the prerequisite gate; events: %s", summarizeEvents(turnResult.Events))
+	if !eventsContain(turnResult.Events, "tool.site.serve.result", "app/dist") {
+		t.Fatalf("expected the first site.serve attempt to be rejected by the site owner for a missing build; events: %s", summarizeEvents(turnResult.Events))
 	}
 	if countEvents(turnResult.Events, "tool.terminal.run.requested") != 1 {
 		t.Fatalf("expected exactly one terminal.run build after the app/src change; events: %s", summarizeEvents(turnResult.Events))
 	}
-	if countEvents(turnResult.Events, "tool.site.serve.requested") != 1 {
-		t.Fatalf("expected site.serve to succeed only after the rebuild; events: %s", summarizeEvents(turnResult.Events))
+	if countEvents(turnResult.Events, "tool.site.serve.requested") != 2 {
+		t.Fatalf("expected site.serve to be attempted once before the build and once after; events: %s", summarizeEvents(turnResult.Events))
+	}
+	if !eventsContain(turnResult.Events, "tool.site.serve.result", "device.example.test") {
+		t.Fatalf("expected the rebuilt site.serve to publish; events: %s", summarizeEvents(turnResult.Events))
 	}
 	if !strings.Contains(turnResult.FinishMessage, "https://") {
 		t.Fatalf("expected final assistant message to contain a URL, got %q", turnResult.FinishMessage)

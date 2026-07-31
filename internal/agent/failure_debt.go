@@ -211,10 +211,6 @@ func toolCanSatisfyRecoveryPrecondition(failedObservation turnObservation, toolN
 			if toolName == "file.write" || toolName == "file.edit" {
 				return true
 			}
-		case siteBuiltRecoveryPrecondition:
-			if toolName == "terminal.run" {
-				return true
-			}
 		}
 	}
 	return false
