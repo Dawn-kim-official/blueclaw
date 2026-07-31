@@ -94,6 +94,12 @@ bun run src/main.ts
 ```
 
 Point `LLAMA_BASE_URL` at any OpenAI-compatible server; the name is historical.
+`http://127.0.0.1:11434/v1` is Ollama. The runtime asks for structured output
+through a forced tool call, and not every server enforces that choice — Ollama
+treats it as a hint, so a model may answer in prose and fail the turn. Small
+models also struggle with the larger runtime schemas, so treat a local model as
+a development convenience and expect to raise the parameter count before real
+work.
 For a hosted provider instead, set `OPENROUTER_API_KEY` and drop the local
 variables. `llmd/README.md` lists every setting.
 
