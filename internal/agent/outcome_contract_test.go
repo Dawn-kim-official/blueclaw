@@ -161,7 +161,7 @@ func TestOutcomeContractCreatesExpectedResultsForSitePublish(t *testing.T) {
 	if !expectedResultsContain(contract.ExpectedResults, ExpectedResultTypeLink, "public URL") {
 		t.Fatalf("expected site publish contract to require public link result, got %+v", contract.ExpectedResults)
 	}
-	if !expectedResultsContain(contract.ExpectedResults, ExpectedResultTypeMessage, "최종 답변") {
+	if !expectedResultsContain(contract.ExpectedResults, ExpectedResultTypeMessage, "final reply") {
 		t.Fatalf("expected site publish contract to include final message result, got %+v", contract.ExpectedResults)
 	}
 }
@@ -218,7 +218,7 @@ func TestOutcomeContractCreatesExpectedResultsForRequestedFile(t *testing.T) {
 		[]string{".pptx"},
 	)
 
-	if !expectedResultsContain(contract.ExpectedResults, ExpectedResultTypeFile, "파일") {
+	if !expectedResultsContain(contract.ExpectedResults, ExpectedResultTypeFile, "file in the requested format") {
 		t.Fatalf("expected file output contract, got %+v", contract.ExpectedResults)
 	}
 	if len(contract.ExpectedResults[0].AcceptanceHints) == 0 || contract.ExpectedResults[0].AcceptanceHints[0] != ".pptx" {
@@ -259,7 +259,7 @@ func TestOutcomeContractKeepsRequestedFileWhenSiteSkillOnlySelected(t *testing.T
 	if stringSliceContains(contract.SelectedEvidenceHints, "site.serve") {
 		t.Fatalf("expected selected site skill not to keep stale site hint, got %+v", contract.SelectedEvidenceHints)
 	}
-	if !expectedResultsContain(contract.ExpectedResults, ExpectedResultTypeFile, "파일") {
+	if !expectedResultsContain(contract.ExpectedResults, ExpectedResultTypeFile, "file in the requested format") {
 		t.Fatalf("expected file result for requested attachment, got %+v", contract.ExpectedResults)
 	}
 	if expectedResultsContain(contract.ExpectedResults, ExpectedResultTypeLink, "public URL") {

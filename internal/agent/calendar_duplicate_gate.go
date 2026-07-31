@@ -49,7 +49,7 @@ func (agentTurnRunner *AgentTurnRunner) resolveCalendarDuplicate(ctx context.Con
 	}
 	if agentTurnRunner.judgeCalendarDuplicate(ctx, addInput, candidates) {
 		existingEvent := candidates[0]
-		message := fmt.Sprintf("'%s' is already on the calendar at this time, so nothing was added. The existing event (id=%s) is unchanged.", strings.TrimSpace(existingEvent.Title), strings.TrimSpace(existingEvent.ID))
+		message := calendarDuplicateSkippedMessage(existingEvent, request.ResponseLanguage)
 		toolInputKey := canonicalToolCallKey(actionDocument.ToolName, actionDocument.ToolInput)
 		toolDefinition, _ := request.ToolSet.ToolDefinition(actionDocument.ToolName)
 		return agentTurnRunner.saveToolObservation(ctx, taskRunID, observationID, actionDocument.ToolName, toolDefinition.ID, actionDocument.ToolInput, calendarAddOperation, toolInputKey, ToolSuccess(message), request.WorkspaceRootPath, request.TurnStartedAt, 0)
@@ -109,6 +109,15 @@ func (agentTurnRunner *AgentTurnRunner) judgeCalendarDuplicate(ctx context.Conte
 		return false
 	}
 	return judgment.IsDuplicate
+}
+
+func calendarDuplicateSkippedMessage(existingEvent calendarListedEvent, responseLanguage string) string {
+	title := strings.TrimSpace(existingEvent.Title)
+	eventID := strings.TrimSpace(existingEvent.ID)
+	if strings.HasPrefix(strings.ToLower(ResolveResponseLanguage(responseLanguage)), "en") {
+		return fmt.Sprintf("'%s' is already on the calendar at this time, so nothing was added. The existing event (id=%s) is unchanged.", title, eventID)
+	}
+	return fmt.Sprintf("이미 같은 시각에 '%s' 일정이 등록돼 있어 새로 추가하지 않았습니다. 기존 일정(id=%s)을 그대로 유지합니다.", title, eventID)
 }
 
 func calendarDuplicateJudgeMessages(addInput calendarAddInput, existingEvents []calendarListedEvent) []llm.Message {

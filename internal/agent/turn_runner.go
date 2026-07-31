@@ -2170,7 +2170,7 @@ func elapsedClosingRawReply(request AgentTurnRequest, isCompleted bool) string {
 	if strings.HasPrefix(strings.ToLower(ResolveResponseLanguage(request.ResponseLanguage)), "en") {
 		return "The requested result was recorded, but the final response could not be generated."
 	}
-	return "The requested result was recorded, but the final reply could not be generated."
+	return "요청한 결과는 기록됐지만 최종 답변을 생성하지 못했습니다."
 }
 
 func (agentTurnRunner *AgentTurnRunner) replyFinalizationContext(parentContext context.Context, request AgentTurnRequest) (context.Context, context.CancelFunc) {
