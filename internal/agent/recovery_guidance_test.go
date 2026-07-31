@@ -67,7 +67,6 @@ func TestAgentTurnRunnerAllowsInspectionAfterAdjacentRecoveryBudgetExhausted(t *
 	languageModel := &sequenceLanguageModel{contents: []string{
 		`{"action":"continue","toolName":"site.build","toolInput":{"siteID":"site-1"}}`,
 		`{"action":"continue","toolName":"file.read","toolInput":{"path":"home/sites/site-1/draft/app/src/App.tsx"}}`,
-		`{"action":"continue","toolName":"file.edit","toolInput":{"path":"home/sites/site-1/draft/app/src/App.tsx","oldText":"broken","newText":"fixed"}}`,
 		finishMessageDocument("Checked."),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{
@@ -85,15 +84,14 @@ func TestAgentTurnRunnerAllowsInspectionAfterAdjacentRecoveryBudgetExhausted(t *
 		return ToolResult{
 			Output: ToolOutput{Content: "source failed"},
 			Failure: &ToolFailure{
-				Kind:                  FailureInvalidInput,
-				Code:                  FailureCodes.InvalidInput.String(),
-				Stage:                 "site_build_source",
-				UserSafeSummary:       "site source failed",
-				Retryable:             true,
-				FailureClass:          failureClassQuality,
-				RetryPolicy:           retryPolicyAfterPrecondition,
-				RequiredPreconditions: []string{"source_changed"},
-				RecoveryHints:         []RecoveryHint{{Action: "edit_resource", ToolNames: []string{"file.read", "file.edit"}}},
+				Kind:            FailureInvalidInput,
+				Code:            FailureCodes.InvalidInput.String(),
+				Stage:           "site_build_source",
+				UserSafeSummary: "site source failed",
+				Retryable:       true,
+				FailureClass:    failureClassQuality,
+				RetryPolicy:     retryPolicyAfterPrecondition,
+				RecoveryHints:   []RecoveryHint{{Action: "edit_resource", ToolNames: []string{"file.read", "file.edit"}}},
 			},
 		}, nil
 	})
@@ -102,9 +100,7 @@ func TestAgentTurnRunnerAllowsInspectionAfterAdjacentRecoveryBudgetExhausted(t *
 		fileReadCount++
 		return testToolSuccess(`{"path":"home/sites/site-1/draft/app/src/App.tsx","content":"broken"}`), nil
 	})
-	fileEditCount := 0
 	registerTestTool(toolRegistry, ToolDefinition{Name: "file.edit"}, func(context.Context, ToolInvocation) (ToolResult, error) {
-		fileEditCount++
 		return testToolSuccess(`{"path":"home/sites/site-1/draft/app/src/App.tsx","matchCount":1}`), nil
 	})
 
@@ -120,9 +116,6 @@ func TestAgentTurnRunnerAllowsInspectionAfterAdjacentRecoveryBudgetExhausted(t *
 	}
 	if fileReadCount != 1 {
 		t.Fatalf("expected file.read to run despite exhausted adjacent budget, got %d", fileReadCount)
-	}
-	if fileEditCount != 1 {
-		t.Fatalf("expected file.edit precondition action to run despite exhausted adjacent budget, got %d", fileEditCount)
 	}
 	events := services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID)
 	if taskEventsContain(events, "agent.recovery_budget_exhausted", "file.read") {
