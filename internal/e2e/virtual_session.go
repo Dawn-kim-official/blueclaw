@@ -1,7 +1,9 @@
 package e2e
 
 import (
+	"archive/tar"
 	"archive/zip"
+	"compress/gzip"
 	"context"
 	"crypto/sha256"
 	"encoding/base64"
@@ -1440,6 +1442,9 @@ func (service *virtualCapabilityService) response(toolName string, requestBody [
 		if errorValue != nil {
 			return virtualCapabilityInvalidInput(toolName, errorValue.Error())
 		}
+		if staleBuildMessage := virtualSiteStaleBuildMessage(bundle); staleBuildMessage != "" {
+			return virtualCapabilityInvalidInput(toolName, staleBuildMessage)
+		}
 		if reference := stringValue(input["siteReference"]); reference != "" {
 			if !service.hasVirtualSiteReference(requestBody) {
 				return virtualCapabilityNotFound(toolName, "site")
@@ -1674,6 +1679,89 @@ type virtualSiteSourceBundle struct {
 	ContentBase64 string `json:"contentBase64"`
 	Format        string `json:"format"`
 	SHA256        string `json:"sha256"`
+}
+
+func virtualSiteStaleBuildMessage(bundle virtualSiteSourceBundle) string {
+	entries, errorValue := virtualSiteBundleEntryTimes(bundle)
+	if errorValue != nil {
+		return ""
+	}
+	newestSourcePath := ""
+	newestSourceTime := time.Time{}
+	oldestBuildTime := time.Time{}
+	for path, modifiedAt := range entries {
+		switch {
+		case virtualSiteBundlePathIsBuildOutput(path):
+			if oldestBuildTime.IsZero() || modifiedAt.Before(oldestBuildTime) {
+				oldestBuildTime = modifiedAt
+			}
+		case virtualSiteBundlePathNeedsBuild(path):
+			if newestSourceTime.IsZero() || modifiedAt.After(newestSourceTime) {
+				newestSourceTime, newestSourcePath = modifiedAt, path
+			}
+		}
+	}
+	if newestSourcePath == "" {
+		return ""
+	}
+	if oldestBuildTime.IsZero() {
+		return "site workspace app/dist is missing: " + newestSourcePath + " is a structural source file, so a build (bun scripts/build.ts in the app workspace) is needed before serving"
+	}
+	if newestSourceTime.After(oldestBuildTime) {
+		return "site workspace app/dist is stale: " + newestSourcePath + " changed at " + newestSourceTime.UTC().Format(time.RFC3339) + " after the build at " + oldestBuildTime.UTC().Format(time.RFC3339) + "; rebuild with bun scripts/build.ts"
+	}
+	return ""
+}
+
+func virtualSiteBundleEntryTimes(bundle virtualSiteSourceBundle) (map[string]time.Time, error) {
+	content, errorValue := base64.StdEncoding.DecodeString(bundle.ContentBase64)
+	if errorValue != nil {
+		return nil, errorValue
+	}
+	gzipReader, errorValue := gzip.NewReader(strings.NewReader(string(content)))
+	if errorValue != nil {
+		return nil, errorValue
+	}
+	defer gzipReader.Close()
+	entries := map[string]time.Time{}
+	tarReader := tar.NewReader(gzipReader)
+	for {
+		header, readError := tarReader.Next()
+		if readError == io.EOF {
+			break
+		}
+		if readError != nil {
+			return nil, readError
+		}
+		if header.Typeflag != tar.TypeReg {
+			continue
+		}
+		entries[filepath.ToSlash(header.Name)] = header.ModTime
+	}
+	return entries, nil
+}
+
+func virtualSiteBundlePathNeedsBuild(bundlePath string) bool {
+	relativePath, isUnderApp := virtualSiteApplicationRelativePath(bundlePath)
+	if !isUnderApp {
+		return false
+	}
+	return !strings.HasPrefix(relativePath, "public/") && !strings.HasPrefix(relativePath, "dist/")
+}
+
+func virtualSiteBundlePathIsBuildOutput(bundlePath string) bool {
+	relativePath, isUnderApp := virtualSiteApplicationRelativePath(bundlePath)
+	return isUnderApp && strings.HasPrefix(relativePath, "dist/")
+}
+
+func virtualSiteApplicationRelativePath(bundlePath string) (string, bool) {
+	segments := strings.Split(strings.TrimPrefix(filepath.ToSlash(bundlePath), "./"), "/")
+	for index, segment := range segments {
+		if segment == "app" && index+1 < len(segments) {
+			return strings.Join(segments[index+1:], "/"), true
+		}
+	}
+	return "", false
 }
 
 func virtualSiteServeBundle(requestBody []byte) (virtualSiteSourceBundle, error) {
