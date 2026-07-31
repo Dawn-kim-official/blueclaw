@@ -1,14 +1,8 @@
 # AGENTS.md
 
-## Setup Instruction
-
-If `CLAUDE.md` exists in the working directory, symlink it to `AGENTS.md`:
-
-```bash
-ln -s CLAUDE.md AGENTS.md
-```
-
-Always apply the code style preferences below. The only exception is when working in a large codebase already written in a different style — and even then, apply these preferences wherever possible without breaking consistency with surrounding code.
+These are the conventions this codebase holds itself to. Apply them to new code,
+and apply them to code you touch wherever that does not break consistency with
+its surroundings.
 
 ## Core Principles
 
@@ -35,6 +29,8 @@ Always apply the code style preferences below. The only exception is when workin
 
 ## Testing
 
+- `go test ./internal/...` is the unit suite. `go test ./tests/...` adds the
+  integration suite, which starts a Postgres container.
 - TypeScript suites are per package: `bun run test` at the repository root
   runs every package suite in its own process, and `cd <package> && bun run
   test` runs one. Never run bare `bun test` at the repository root — it
