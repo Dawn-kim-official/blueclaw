@@ -412,10 +412,10 @@ func NewConnectorRuntime(identityService *identity.IdentityService, agentKernel 
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, connectorRuntimeDefaultAllowedToolNames())
 
 	return &ConnectorRuntime{
-		identityService:    identityService,
-		agentKernel:        agentKernel,
-		toolCatalogBuilder: toolCatalogBuilder,
-		logger:             logger,
+		identityService:       identityService,
+		agentKernel:           agentKernel,
+		toolCatalogBuilder:    toolCatalogBuilder,
+		logger:                logger,
 		adapterByPlatform:     map[string]PlatformAdapter{},
 		processedResults:      map[string]ConnectorRuntimeResult{},
 		conversationLocks:     map[string]*sync.Mutex{},

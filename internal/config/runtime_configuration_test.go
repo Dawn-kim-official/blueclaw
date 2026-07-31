@@ -287,7 +287,7 @@ func TestLoadRuntimeConfigurationRejectsMissingOrInvalidCapabilityProtocolIdenti
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
 			runtimeConfigurationPath := filepath.Join(t.TempDir(), "runtime.json")
-			document := `{"capabilities":{` + testCase.identityDocument + `}}`
+			document := `{"capabilities":{"endpoint":"http://internkim-capability",` + testCase.identityDocument + `}}`
 			if errorValue := os.WriteFile(runtimeConfigurationPath, []byte(document), 0o600); errorValue != nil {
 				t.Fatal(errorValue)
 			}
