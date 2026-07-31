@@ -3,7 +3,7 @@ package api
 import (
 	"sync"
 
-	"blueclaw/internal/connectors"
+	"github.com/Dawn-kim-official/blueclaw/internal/connectors"
 )
 
 const conversationReplyCapacity = 50

@@ -3,9 +3,9 @@ package connectors
 import (
 	"context"
 
-	"blueclaw/internal/agent"
-	"blueclaw/internal/agentruntime"
-	"blueclaw/internal/policy"
+	"github.com/Dawn-kim-official/blueclaw/internal/agent"
+	"github.com/Dawn-kim-official/blueclaw/internal/agentruntime"
+	"github.com/Dawn-kim-official/blueclaw/internal/policy"
 )
 
 type ConversationTurn struct {

@@ -5,11 +5,11 @@ import (
 	"path/filepath"
 	"runtime"
 
-	"blueclaw/internal/agent"
-	"blueclaw/internal/agentruntime"
-	"blueclaw/internal/connectors"
-	"blueclaw/internal/skill"
-	"blueclaw/internal/task"
+	"github.com/Dawn-kim-official/blueclaw/internal/agent"
+	"github.com/Dawn-kim-official/blueclaw/internal/agentruntime"
+	"github.com/Dawn-kim-official/blueclaw/internal/connectors"
+	"github.com/Dawn-kim-official/blueclaw/internal/skill"
+	"github.com/Dawn-kim-official/blueclaw/internal/task"
 )
 
 func actionInvokeCapabilityTool(toolName string, input string) string {

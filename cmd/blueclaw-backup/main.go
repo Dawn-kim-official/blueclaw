@@ -4,7 +4,7 @@ import (
 	"flag"
 	"log"
 
-	"blueclaw/internal/backup"
+	"github.com/Dawn-kim-official/blueclaw/internal/backup"
 )
 
 func main() {

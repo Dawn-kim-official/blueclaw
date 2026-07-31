@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"net/http"
 
-	"blueclaw/internal/task"
+	"github.com/Dawn-kim-official/blueclaw/internal/task"
 )
 
 type SSEHandler struct {

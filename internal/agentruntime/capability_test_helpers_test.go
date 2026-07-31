@@ -4,8 +4,8 @@ import (
 	"encoding/json"
 	"strings"
 
-	"blueclaw/internal/agent"
-	"blueclaw/internal/capability"
+	"github.com/Dawn-kim-official/blueclaw/internal/agent"
+	"github.com/Dawn-kim-official/blueclaw/internal/capability"
 )
 
 var testCapabilityInputSchema = json.RawMessage(`{"type":"object","properties":{},"additionalProperties":false}`)

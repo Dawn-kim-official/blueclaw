@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"blueclaw/internal/policy"
+	"github.com/Dawn-kim-official/blueclaw/internal/policy"
 )
 
 func TestMemoryServiceSeparatesUserWorkspaceAndConversationNamespaces(t *testing.T) {

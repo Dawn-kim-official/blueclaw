@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	"blueclaw/internal/llm"
+	"github.com/Dawn-kim-official/blueclaw/internal/llm"
 )
 
 type PromptAssembler struct{}

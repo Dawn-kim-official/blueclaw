@@ -5,8 +5,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"blueclaw/internal/backup"
-	"blueclaw/internal/restore"
+	"github.com/Dawn-kim-official/blueclaw/internal/backup"
+	"github.com/Dawn-kim-official/blueclaw/internal/restore"
 )
 
 func TestSnapshotBackupRestore(t *testing.T) {

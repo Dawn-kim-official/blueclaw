@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"blueclaw/internal/llm"
+	"github.com/Dawn-kim-official/blueclaw/internal/llm"
 )
 
 const llmCallErrorMaximumCharacters = 300

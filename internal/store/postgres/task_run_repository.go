@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"blueclaw/internal/task"
+	"github.com/Dawn-kim-official/blueclaw/internal/task"
 )
 
 type TaskRunRepository struct {

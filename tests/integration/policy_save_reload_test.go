@@ -4,7 +4,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"blueclaw/internal/policy"
+	"github.com/Dawn-kim-official/blueclaw/internal/policy"
 )
 
 func TestPolicySaveReload(t *testing.T) {

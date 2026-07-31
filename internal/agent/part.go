@@ -4,7 +4,7 @@ import (
 	"encoding/base64"
 	"strings"
 
-	"blueclaw/internal/llm"
+	"github.com/Dawn-kim-official/blueclaw/internal/llm"
 )
 
 const (

@@ -3,7 +3,7 @@ package agentruntime
 import (
 	"encoding/json"
 
-	"blueclaw/internal/agent"
+	"github.com/Dawn-kim-official/blueclaw/internal/agent"
 )
 
 var scheduleListInputSchema = json.RawMessage(`{

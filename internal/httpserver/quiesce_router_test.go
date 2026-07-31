@@ -6,9 +6,9 @@ import (
 	"strings"
 	"testing"
 
-	"blueclaw/internal/adminapi"
-	"blueclaw/internal/runtimecontrol"
-	"blueclaw/internal/task"
+	"github.com/Dawn-kim-official/blueclaw/internal/adminapi"
+	"github.com/Dawn-kim-official/blueclaw/internal/runtimecontrol"
+	"github.com/Dawn-kim-official/blueclaw/internal/task"
 )
 
 func TestRouterHandlesQuiesceEndpoint(t *testing.T) {

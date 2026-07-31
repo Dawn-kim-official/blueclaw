@@ -11,8 +11,8 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"blueclaw/internal/agent"
-	"blueclaw/internal/security"
+	"github.com/Dawn-kim-official/blueclaw/internal/agent"
+	"github.com/Dawn-kim-official/blueclaw/internal/security"
 )
 
 const inlineAttachmentMaximumBytes = 25 * 1024 * 1024

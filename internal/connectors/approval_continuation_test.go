@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"blueclaw/internal/agent"
-	"blueclaw/internal/task"
+	"github.com/Dawn-kim-official/blueclaw/internal/agent"
+	"github.com/Dawn-kim-official/blueclaw/internal/task"
 )
 
 func TestPendingApprovalActiveGoalIsActiveAndDirectsExecution(t *testing.T) {

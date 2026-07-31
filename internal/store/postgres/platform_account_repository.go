@@ -5,7 +5,7 @@ import (
 	"database/sql"
 	"time"
 
-	"blueclaw/internal/identity"
+	"github.com/Dawn-kim-official/blueclaw/internal/identity"
 )
 
 type PlatformAccountRepository struct {

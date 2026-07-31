@@ -17,7 +17,7 @@ import (
 	"syscall"
 	"time"
 
-	"blueclaw/internal/config"
+	"github.com/Dawn-kim-official/blueclaw/internal/config"
 
 	"github.com/creack/pty"
 )

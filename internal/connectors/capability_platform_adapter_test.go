@@ -10,8 +10,8 @@ import (
 	"strings"
 	"testing"
 
-	"blueclaw/internal/agent"
-	"blueclaw/internal/capability"
+	"github.com/Dawn-kim-official/blueclaw/internal/agent"
+	"github.com/Dawn-kim-official/blueclaw/internal/capability"
 )
 
 func TestCapabilityPlatformAdapterParsesNormalizedHTTPEvent(t *testing.T) {

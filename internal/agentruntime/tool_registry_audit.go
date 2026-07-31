@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"blueclaw/internal/agent"
+	"github.com/Dawn-kim-official/blueclaw/internal/agent"
 )
 
 const toolRegistryVersion = "platform-message-v1"

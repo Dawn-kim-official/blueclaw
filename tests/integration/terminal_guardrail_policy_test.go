@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"blueclaw/internal/config"
-	"blueclaw/internal/security"
+	"github.com/Dawn-kim-official/blueclaw/internal/config"
+	"github.com/Dawn-kim-official/blueclaw/internal/security"
 )
 
 func TestTerminalGuardrailAllowsWorkspaceCommand(t *testing.T) {

@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"blueclaw/internal/config"
+	"github.com/Dawn-kim-official/blueclaw/internal/config"
 )
 
 func TestConfiguredProviderUsesCapabilityLLMByDefault(t *testing.T) {

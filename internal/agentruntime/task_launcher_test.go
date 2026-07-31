@@ -12,16 +12,16 @@ import (
 	"strings"
 	"testing"
 
-	"blueclaw/internal/agent"
-	"blueclaw/internal/capability"
-	"blueclaw/internal/config"
-	"blueclaw/internal/llm"
-	"blueclaw/internal/mcp"
-	"blueclaw/internal/memory"
-	"blueclaw/internal/policy"
-	"blueclaw/internal/security"
-	"blueclaw/internal/security/actortest"
-	"blueclaw/internal/task"
+	"github.com/Dawn-kim-official/blueclaw/internal/agent"
+	"github.com/Dawn-kim-official/blueclaw/internal/capability"
+	"github.com/Dawn-kim-official/blueclaw/internal/config"
+	"github.com/Dawn-kim-official/blueclaw/internal/llm"
+	"github.com/Dawn-kim-official/blueclaw/internal/mcp"
+	"github.com/Dawn-kim-official/blueclaw/internal/memory"
+	"github.com/Dawn-kim-official/blueclaw/internal/policy"
+	"github.com/Dawn-kim-official/blueclaw/internal/security"
+	"github.com/Dawn-kim-official/blueclaw/internal/security/actortest"
+	"github.com/Dawn-kim-official/blueclaw/internal/task"
 )
 
 func TestTaskLauncherCreatesAuditedAgentRun(t *testing.T) {

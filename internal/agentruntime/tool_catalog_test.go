@@ -14,12 +14,12 @@ import (
 	"testing"
 	"time"
 
-	"blueclaw/internal/agent"
-	"blueclaw/internal/config"
-	"blueclaw/internal/memory"
-	"blueclaw/internal/security"
-	"blueclaw/internal/security/actortest"
-	"blueclaw/internal/task"
+	"github.com/Dawn-kim-official/blueclaw/internal/agent"
+	"github.com/Dawn-kim-official/blueclaw/internal/config"
+	"github.com/Dawn-kim-official/blueclaw/internal/memory"
+	"github.com/Dawn-kim-official/blueclaw/internal/security"
+	"github.com/Dawn-kim-official/blueclaw/internal/security/actortest"
+	"github.com/Dawn-kim-official/blueclaw/internal/task"
 )
 
 type memoryTaskScheduleRepository struct {

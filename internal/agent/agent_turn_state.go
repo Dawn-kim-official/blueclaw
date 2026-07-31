@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"blueclaw/internal/llm"
-	"blueclaw/internal/task"
+	"github.com/Dawn-kim-official/blueclaw/internal/llm"
+	"github.com/Dawn-kim-official/blueclaw/internal/task"
 )
 
 const defaultAgentActionMaxTokens = 4096

@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"blueclaw/internal/llm"
+	"github.com/Dawn-kim-official/blueclaw/internal/llm"
 )
 
 func TestAttentionHandlerReturnsSilentDecision(t *testing.T) {

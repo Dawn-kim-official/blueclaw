@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"blueclaw/internal/agent"
+	"github.com/Dawn-kim-official/blueclaw/internal/agent"
 )
 
 func TestSkillSearchToolUsesSharedRetriever(t *testing.T) {

@@ -17,14 +17,14 @@ import (
 	"testing"
 	"time"
 
-	"blueclaw/internal/agent"
-	"blueclaw/internal/config"
-	"blueclaw/internal/connectors"
-	"blueclaw/internal/llm"
-	"blueclaw/internal/mcp"
-	"blueclaw/internal/protocolidentity"
-	"blueclaw/internal/runtimecontrol"
-	"blueclaw/internal/task"
+	"github.com/Dawn-kim-official/blueclaw/internal/agent"
+	"github.com/Dawn-kim-official/blueclaw/internal/config"
+	"github.com/Dawn-kim-official/blueclaw/internal/connectors"
+	"github.com/Dawn-kim-official/blueclaw/internal/llm"
+	"github.com/Dawn-kim-official/blueclaw/internal/mcp"
+	"github.com/Dawn-kim-official/blueclaw/internal/protocolidentity"
+	"github.com/Dawn-kim-official/blueclaw/internal/runtimecontrol"
+	"github.com/Dawn-kim-official/blueclaw/internal/task"
 )
 
 type applicationMCPRegistryCloser struct {

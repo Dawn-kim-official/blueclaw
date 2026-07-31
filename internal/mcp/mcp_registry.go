@@ -11,8 +11,8 @@ import (
 	"sync"
 	"time"
 
-	"blueclaw/internal/agent"
-	"blueclaw/internal/config"
+	"github.com/Dawn-kim-official/blueclaw/internal/agent"
+	"github.com/Dawn-kim-official/blueclaw/internal/config"
 	"github.com/google/jsonschema-go/jsonschema"
 )
 

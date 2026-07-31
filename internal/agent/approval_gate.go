@@ -8,8 +8,8 @@ import (
 	"strconv"
 	"strings"
 
-	"blueclaw/internal/llm"
-	"blueclaw/internal/task"
+	"github.com/Dawn-kim-official/blueclaw/internal/llm"
+	"github.com/Dawn-kim-official/blueclaw/internal/task"
 )
 
 type approvalHeldCall struct {

@@ -6,10 +6,10 @@ import (
 	"net/http"
 	"time"
 
-	"blueclaw/internal/connectors"
-	"blueclaw/internal/memory"
-	"blueclaw/internal/protocolidentity"
-	"blueclaw/internal/store/postgres"
+	"github.com/Dawn-kim-official/blueclaw/internal/connectors"
+	"github.com/Dawn-kim-official/blueclaw/internal/memory"
+	"github.com/Dawn-kim-official/blueclaw/internal/protocolidentity"
+	"github.com/Dawn-kim-official/blueclaw/internal/store/postgres"
 )
 
 type HealthHandler struct {

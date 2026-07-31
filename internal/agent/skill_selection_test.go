@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"blueclaw/internal/llm"
+	"github.com/Dawn-kim-official/blueclaw/internal/llm"
 )
 
 func TestSelectInstructionBundleIncludesPresentationForKoreanPPTRequest(t *testing.T) {

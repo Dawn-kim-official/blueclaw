@@ -7,9 +7,9 @@ import (
 	"strings"
 	"testing"
 
-	"blueclaw/internal/identity"
-	"blueclaw/internal/policy"
-	"blueclaw/internal/task"
+	"github.com/Dawn-kim-official/blueclaw/internal/identity"
+	"github.com/Dawn-kim-official/blueclaw/internal/policy"
+	"github.com/Dawn-kim-official/blueclaw/internal/task"
 )
 
 func TestTaskMonitorHandlerFiltersAndLimitsTaskRunList(t *testing.T) {

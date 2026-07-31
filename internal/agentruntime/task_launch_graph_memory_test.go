@@ -6,10 +6,10 @@ import (
 	"strings"
 	"testing"
 
-	"blueclaw/internal/agent"
-	"blueclaw/internal/memory"
-	"blueclaw/internal/policy"
-	"blueclaw/internal/task"
+	"github.com/Dawn-kim-official/blueclaw/internal/agent"
+	"github.com/Dawn-kim-official/blueclaw/internal/memory"
+	"github.com/Dawn-kim-official/blueclaw/internal/policy"
+	"github.com/Dawn-kim-official/blueclaw/internal/task"
 )
 
 type staticGraphMemoryStore struct {

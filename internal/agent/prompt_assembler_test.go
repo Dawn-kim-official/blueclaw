@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"blueclaw/internal/llm"
+	"github.com/Dawn-kim-official/blueclaw/internal/llm"
 )
 
 func TestPromptAssemblerIncludesTemporalContext(t *testing.T) {

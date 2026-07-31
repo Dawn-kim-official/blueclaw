@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"blueclaw/internal/task"
+	"github.com/Dawn-kim-official/blueclaw/internal/task"
 )
 
 func continueWithMessageDocument(operationName string, message string) string {

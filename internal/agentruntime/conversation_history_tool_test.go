@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"blueclaw/internal/agent"
+	"github.com/Dawn-kim-official/blueclaw/internal/agent"
 )
 
 type recordingConversationHistoryProvider struct {

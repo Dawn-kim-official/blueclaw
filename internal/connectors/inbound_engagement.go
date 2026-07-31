@@ -5,7 +5,7 @@ import (
 	"log/slog"
 	"strings"
 
-	"blueclaw/internal/agent"
+	"github.com/Dawn-kim-official/blueclaw/internal/agent"
 )
 
 const ambientDutyLaunchConfidenceThreshold = 0.7

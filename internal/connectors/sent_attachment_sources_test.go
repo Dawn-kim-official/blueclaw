@@ -3,7 +3,7 @@ package connectors
 import (
 	"testing"
 
-	"blueclaw/internal/agent"
+	"github.com/Dawn-kim-official/blueclaw/internal/agent"
 )
 
 func directMessageResolverForPerson(personID string, store *sentAttachmentSourceStore) connectorAttachmentMaterialResolver {

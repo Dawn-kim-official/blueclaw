@@ -1,7 +1,10 @@
 .cache/
 .artifacts/
 .factory/
+.claude/
+.skill-env
 __pycache__/
 *.pyc
 default.profraw
-chatd/node_modules/
+.DS_Store
+node_modules/

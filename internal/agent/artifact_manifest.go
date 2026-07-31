@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"blueclaw/internal/task"
+	"github.com/Dawn-kim-official/blueclaw/internal/task"
 )
 
 const artifactManifestEntryLimit = 10

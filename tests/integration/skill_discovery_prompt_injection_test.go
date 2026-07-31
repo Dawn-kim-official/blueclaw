@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"blueclaw/internal/skill"
+	"github.com/Dawn-kim-official/blueclaw/internal/skill"
 )
 
 func TestSkillDiscoveryPromptInjection(t *testing.T) {
