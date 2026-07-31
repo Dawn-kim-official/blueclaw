@@ -32,9 +32,9 @@ func TestAddressingClassificationSchemaIncludesReasonOnlyForDebug(t *testing.T) 
 }
 
 func TestAddressingClassificationPromptGuidesTheFourOutcomes(t *testing.T) {
-	prompt := addressingClassificationPrompt(AddressingClassificationRequest{Prompt: "네 확인해볼게요"})
+	prompt := addressingClassificationPrompt(AddressingClassificationRequest{Prompt: "sounds good, will check"})
 
-	for _, fragment := range []string{"shouldRespond", "reactionEmoji", "react only", "default to \"\"", "Do not react to routine work chatter", "고마워", "dutyMatch"} {
+	for _, fragment := range []string{"shouldRespond", "reactionEmoji", "react only", "default to \"\"", "Do not react to routine work chatter", "a brief thanks", "dutyMatch"} {
 		if !strings.Contains(prompt, fragment) {
 			t.Fatalf("expected addressing prompt to contain %q, got %s", fragment, prompt)
 		}
@@ -42,9 +42,9 @@ func TestAddressingClassificationPromptGuidesTheFourOutcomes(t *testing.T) {
 }
 
 func TestAddressingClassificationPromptRespondsToBanterAndReactsToSharing(t *testing.T) {
-	prompt := addressingClassificationPrompt(AddressingClassificationRequest{Prompt: "@김인턴", BotMentioned: true})
+	prompt := addressingClassificationPrompt(AddressingClassificationRequest{Prompt: "@internkim", BotMentioned: true})
 
-	for _, fragment := range []string{"botMentioned: true", "역시 김인턴", "respond briefly and in kind", "공유합니다"} {
+	for _, fragment := range []string{"botMentioned: true", "praise, teasing, or jokes aimed at the assistant", "respond briefly and in kind", "a link or file posted for everyone"} {
 		if !strings.Contains(prompt, fragment) {
 			t.Fatalf("expected addressing prompt to contain %q, got %s", fragment, prompt)
 		}
