@@ -1342,6 +1342,15 @@ func (application *Application) checkProtocolIdentity() error {
 	return application.protocolIdentityCheckError
 }
 
+// Handler exposes the built HTTP surface so a caller can exercise the runtime
+// without binding a port.
+func (application *Application) Handler() http.Handler {
+	if application.httpServer == nil {
+		return nil
+	}
+	return application.httpServer.Handler
+}
+
 func (application *Application) Shutdown(ctx context.Context) error {
 	if application.connectorTransportCancel != nil {
 		application.connectorTransportCancel()
