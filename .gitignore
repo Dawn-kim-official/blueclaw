@@ -8,3 +8,4 @@ __pycache__/
 default.profraw
 .DS_Store
 node_modules/
+.svelte-kit/
