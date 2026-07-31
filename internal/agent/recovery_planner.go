@@ -79,9 +79,6 @@ func retryPolicyForObservation(observation turnObservation) string {
 	if observation.Failure != nil && strings.TrimSpace(observation.Failure.RetryPolicy) != "" {
 		return strings.TrimSpace(observation.Failure.RetryPolicy)
 	}
-	if len(requiredPreconditionsForObservation(observation)) > 0 {
-		return retryPolicyAfterPrecondition
-	}
 	switch failureClassForObservation(observation) {
 	case failureClassSchema, failureClassUserInput:
 		return retryPolicyDifferentInput
@@ -126,20 +123,12 @@ func recoveryForbiddenRepeats(observation turnObservation) []string {
 	if strings.TrimSpace(observation.Tool) == "" {
 		return nil
 	}
-	if len(requiredPreconditionsForObservation(observation)) == 0 {
-		return []string{"Do not repeat " + strings.TrimSpace(observation.Tool) + " with the same input fingerprint."}
-	}
-	return []string{"Do not repeat " + strings.TrimSpace(observation.Tool) + " until requiredPreconditions are satisfied."}
+	return []string{"Do not repeat " + strings.TrimSpace(observation.Tool) + " with the same input fingerprint."}
 }
 
 func recoveryEvidenceNeeded(observation turnObservation) []string {
 	evidence := []string{}
-	for _, precondition := range requiredPreconditionsForObservation(observation) {
-		evidence = append(evidence, precondition+" evidence")
-	}
-	if len(evidence) == 0 {
-		evidence = append(evidence, "different tool/input/route evidence")
-	}
+	evidence = append(evidence, "different tool/input/route evidence")
 	return appendUniqueRecoveryStrings(evidence)
 }
 
@@ -170,68 +159,6 @@ func recoveryMustDoNext(observation turnObservation, failureClass string) []stri
 	default:
 		return []string{"Change tool input, route, or use an adjacent tool before retrying."}
 	}
-}
-
-func requiredPreconditionsForObservation(observation turnObservation) []string {
-	if observation.Failure == nil {
-		return nil
-	}
-	return appendUniqueRecoveryStrings(observation.Failure.RequiredPreconditions)
-}
-
-func recoveryChoiceIsAllowed(failureDebt FailureDebt, observations []turnObservation, toolName string) (bool, string) {
-	failedObservation := failureDebt.LatestFailure
-	trimmedToolName := strings.TrimSpace(toolName)
-	if strings.TrimSpace(failedObservation.Tool) == trimmedToolName {
-		missingPreconditions := missingRecoveryPreconditions(failedObservation, observations)
-		if len(missingPreconditions) > 0 {
-			return false, "Retrying " + trimmedToolName + " requires evidence first: " + strings.Join(missingPreconditions, ", ")
-		}
-	}
-	return true, ""
-}
-
-func missingRecoveryPreconditions(failedObservation turnObservation, observations []turnObservation) []string {
-	missing := []string{}
-	for _, precondition := range requiredPreconditionsForObservation(failedObservation) {
-		if !recoveryPreconditionSatisfied(precondition, failedObservation, observations) {
-			missing = append(missing, precondition)
-		}
-	}
-	return missing
-}
-
-func recoveryPreconditionSatisfied(precondition string, failedObservation turnObservation, observations []turnObservation) bool {
-	normalizedPrecondition := strings.TrimSpace(precondition)
-	for _, observation := range observationsAfterFailure(failedObservation, observations) {
-		if observation.Failed() || observation.Action != "continue" {
-			continue
-		}
-		switch normalizedPrecondition {
-		case "source_changed":
-			if observation.Tool == "file.write" || observation.Tool == "file.edit" {
-				return true
-			}
-		case "dependency_changed":
-			if observation.Tool == "terminal.run" && observation.ToolInputKey != failedObservation.ToolInputKey {
-				return true
-			}
-		case "inspected_failure":
-			if observation.Tool == "file.read" || observation.Tool == "site.list" {
-				return true
-			}
-		}
-	}
-	return false
-}
-
-func observationsAfterFailure(failedObservation turnObservation, observations []turnObservation) []turnObservation {
-	for index, observation := range observations {
-		if observation.ObservationID == failedObservation.ObservationID {
-			return observations[index+1:]
-		}
-	}
-	return nil
 }
 
 func recoveryPacketContent(packet RecoveryPacket) string {
