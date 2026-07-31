@@ -37,6 +37,15 @@ type CapabilityConfiguration struct {
 	ToolDescriptors       []CapabilityToolDescriptor `json:"toolDescriptors,omitempty"`
 }
 
+// IsConfigured reports whether a capability service is reachable. Without one
+// Blueclaw runs standalone and the capability protocol identity is meaningless.
+func (configuration CapabilityConfiguration) IsConfigured() bool {
+	if strings.TrimSpace(configuration.Endpoint) != "" || strings.TrimSpace(configuration.UnixSocketPath) != "" {
+		return true
+	}
+	return configuration.VSockCID > 0 && configuration.VSockPort > 0
+}
+
 type CapabilityToolDescriptor struct {
 	Name                 string                        `json:"name"`
 	CanonicalName        string                        `json:"canonicalName"`
@@ -346,6 +355,9 @@ func LoadRuntimeConfiguration(path string) (RuntimeConfiguration, error) {
 }
 
 func validateCapabilityProtocolIdentity(configuration *CapabilityConfiguration) error {
+	if !configuration.IsConfigured() {
+		return nil
+	}
 	if configuration.ProtocolVersion == "" || configuration.ProtocolVersion != strings.TrimSpace(configuration.ProtocolVersion) {
 		return fmt.Errorf("capabilities.protocolVersion must be a non-empty trimmed string")
 	}

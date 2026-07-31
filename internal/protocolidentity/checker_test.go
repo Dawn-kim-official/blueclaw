@@ -56,10 +56,26 @@ func TestCheckerReportsDriftWithoutDescriptorHashing(t *testing.T) {
 
 func TestCheckerReportsUnavailableEndpoint(t *testing.T) {
 	identity := Identity{ProtocolVersion: testProtocolVersion, AggregateProtocolHash: testAggregateProtocolHash}
-	result := NewChecker(Configuration{}).Check(context.Background(), identity)
+	configuration := Configuration{
+		CapabilityEndpoint: "http://127.0.0.1:1",
+		LLMDBridgeEndpoint: "http://127.0.0.1:1",
+	}
+	result := NewChecker(configuration).Check(context.Background(), identity)
 
 	if result.Passed || result.Capabilityd.Status != "unavailable" || result.LLMD.Status != "unavailable" {
 		t.Fatalf("expected unavailable endpoint status, got %+v", result)
+	}
+}
+
+func TestCheckerSkipsProcessesThisDeploymentDoesNotRun(t *testing.T) {
+	identity := Identity{ProtocolVersion: testProtocolVersion, AggregateProtocolHash: testAggregateProtocolHash}
+	result := NewChecker(Configuration{}).Check(context.Background(), identity)
+
+	if !result.Passed {
+		t.Fatalf("expected a standalone deployment to pass with nothing configured, got %+v", result)
+	}
+	if result.Capabilityd.Status != "not_configured" || result.LLMD.Status != "not_configured" {
+		t.Fatalf("expected unconfigured endpoints to be reported as such, got %+v", result)
 	}
 }
 

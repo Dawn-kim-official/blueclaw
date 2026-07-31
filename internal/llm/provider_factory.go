@@ -77,11 +77,7 @@ func newLLMDClient(runtimeConfiguration config.RuntimeConfiguration, modelName s
 // HasCapabilityEndpoint reports whether an InternKim capability service is
 // reachable. Without one, llmd owns every model call itself.
 func HasCapabilityEndpoint(runtimeConfiguration config.RuntimeConfiguration) bool {
-	capabilities := runtimeConfiguration.Capabilities
-	if strings.TrimSpace(capabilities.Endpoint) != "" || strings.TrimSpace(capabilities.UnixSocketPath) != "" {
-		return true
-	}
-	return capabilities.VSockCID > 0 && capabilities.VSockPort > 0
+	return runtimeConfiguration.Capabilities.IsConfigured()
 }
 
 func isLLMDBridgeConfiguration(configuration config.LanguageModelLLMDConfiguration) bool {

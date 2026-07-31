@@ -1,0 +1,41 @@
+{
+  "baseURL": "http://127.0.0.1:8081",
+  "languageModel": {
+    "defaultProvider": "llmd",
+    "llmd": {
+      "unixSocketPath": "/run/blueclaw-llmd/llmd.sock",
+      "authKeyPath": "/run/blueclaw-llmd/auth-key",
+      "executionMode": "auto",
+      "timeoutSecond": 60
+    }
+  },
+  "database": {
+    "driver": "postgres",
+    "connectionString": "postgres://blueclaw:blueclaw@127.0.0.1:5432/blueclaw?sslmode=disable",
+    "migrationDirectoryPath": "migrations"
+  },
+  "agent": {
+    "intake": {
+      "enabled": true,
+      "executionMode": "auto"
+    },
+    "defaultEffortLevel": "standard"
+  },
+  "connectors": {},
+  "logging": {
+    "directoryPath": ".local/blueclaw/logs",
+    "retentionDays": 7
+  },
+  "terminal": {
+    "mode": "native",
+    "workspaceRootPath": ".local/blueclaw/workspace",
+    "timeoutSecond": 120,
+    "outputMaxBytes": 32768,
+    "sessionMaxCount": 4,
+    "allowNetwork": true
+  },
+  "scheduler": {
+    "retentionCheckIntervalMinute": 60,
+    "taskSchedulePollIntervalSecond": 30
+  }
+}

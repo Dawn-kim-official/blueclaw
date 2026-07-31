@@ -40,6 +40,7 @@ import (
 	"github.com/Dawn-kim-official/blueclaw/internal/store/postgres"
 	"github.com/Dawn-kim-official/blueclaw/internal/task"
 	"github.com/Dawn-kim-official/blueclaw/internal/userapi"
+	capabilitycatalog "github.com/Dawn-kim-official/blueclaw/protocol/generated"
 )
 
 const databaseInitializationTimeout = 240 * time.Second
@@ -313,17 +314,15 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 	connectorEventHandler := httpserver.NewConnectorEventHandler(connectorRuntime)
 
 	logger.Info("application.initializing", "stage", "router")
-	protocolIdentityExpected := protocolidentity.Identity{
-		ProtocolVersion:       runtimeConfiguration.Capabilities.ProtocolVersion,
-		AggregateProtocolHash: runtimeConfiguration.Capabilities.AggregateProtocolHash,
-	}
+	protocolIdentityExpected := expectedProtocolIdentity(runtimeConfiguration)
 	protocolIdentityStatus := &protocolidentity.Result{Expected: protocolIdentityExpected}
+	llmdIdentityEndpoint, llmdIdentityHTTPClient := llm.ProtocolIdentityTarget(runtimeConfiguration, capabilityClient.HTTPClient)
 	protocolIdentityChecker := protocolidentity.NewChecker(protocolidentity.Configuration{
 		CapabilityEndpoint:   runtimeConfiguration.Capabilities.Endpoint,
-		LLMDBridgeEndpoint:   runtimeConfiguration.LanguageModel.LLMD.Endpoint,
+		LLMDBridgeEndpoint:   llmdIdentityEndpoint,
 		Timeout:              time.Duration(runtimeConfiguration.Capabilities.TimeoutSecond) * time.Second,
 		CapabilityHTTPClient: capabilityClient.HTTPClient,
-		LLMDHTTPClient:       capabilityClient.HTTPClient,
+		LLMDHTTPClient:       llmdIdentityHTTPClient,
 	})
 	router := httpserver.NewRouter(httpserver.RouterDependencies{
 		HealthHandler: httpserver.HealthHandler{
@@ -948,7 +947,6 @@ func newChatdClient(runtimeConfiguration config.RuntimeConfiguration) capability
 	})
 }
 
-
 func newPlatformAdapter(platform string, runtimeConfiguration config.RuntimeConfiguration, capabilityClient capability.Client, chatdClient capability.Client) connectors.PlatformAdapter {
 	if isChatdEnabledForPlatform(runtimeConfiguration.Connectors.Chatd, platform) {
 		return connectors.NewChatdPlatformAdapter(platform, chatdClient)
@@ -1315,6 +1313,22 @@ func (application *Application) Start() error {
 	)
 	application.startInterruptedTaskAutoResume()
 	return application.httpServer.Serve(listener)
+}
+
+// expectedProtocolIdentity prefers what the appliance pinned, and otherwise
+// falls back to the contract this build was generated from.
+func expectedProtocolIdentity(runtimeConfiguration config.RuntimeConfiguration) protocolidentity.Identity {
+	if strings.TrimSpace(runtimeConfiguration.Capabilities.ProtocolVersion) != "" {
+		return protocolidentity.Identity{
+			ProtocolVersion:       runtimeConfiguration.Capabilities.ProtocolVersion,
+			AggregateProtocolHash: runtimeConfiguration.Capabilities.AggregateProtocolHash,
+		}
+	}
+	builtIdentity := capabilitycatalog.BuiltProtocolIdentity()
+	return protocolidentity.Identity{
+		ProtocolVersion:       builtIdentity.ProtocolVersion,
+		AggregateProtocolHash: builtIdentity.AggregateProtocolHash,
+	}
 }
 
 func (application *Application) checkProtocolIdentity() error {
