@@ -72,33 +72,70 @@ the root covers all of them. `go test ./...` runs the unit suites next to their
 sources and the integration suite under `tests/`; neither needs an external
 service.
 
-## Running
+## Running it yourself
 
-Blueclaw expects the appliance around it: a capability layer that holds the
-provider credentials, connector sidecars that own the platform tokens, and a
-workspace volume with the POSIX users its policy projects to. The provisioning
-and deployment tooling for that appliance is not part of this repository, so
-`go build` gives you a daemon that will start and immediately look for a
-capability socket it cannot find.
+Blueclaw runs standalone against your own model. You need Postgres and one
+OpenAI-compatible endpoint — Ollama, vLLM, LM Studio, OpenRouter, or anything
+else that speaks that API.
 
-The closest thing to a standalone run is the lab runner, which drives the full
-agent loop through a scenario and writes every request, response, tool call, and
-artifact to a directory you can inspect:
+**1. Start `llmd`, the model sidecar.** It holds the provider credentials, so it
+runs beside the daemon rather than inside it:
 
 ```bash
-go run ./cmd/blueclaw-lab virtual-session \
-  --scenario presentation \
-  --artifact-dir .artifacts/blueclaw-e2e \
-  --live-llm \
-  --llm-unix-socket /run/internkim/capability.sock
+cd llmd
+printf 'a-local-secret' > /tmp/llmd-auth
+BLUECLAW_LLMD_AUTH_KEY_PATH=/tmp/llmd-auth \
+BLUECLAW_LLMD_SOCKET_PATH=/tmp/llmd.sock \
+BLUECLAW_LLMD_LLAMA_BASE_URL=http://127.0.0.1:11434/v1 \
+BLUECLAW_LLMD_LLAMA_MODEL=your-model \
+BLUECLAW_LLMD_LLAMA_STRUCTURED_OUTPUTS_ENABLED=true \
+BLUECLAW_LLMD_LOCAL_ONLY=true \
+bun run src/main.ts
 ```
 
-It still needs a real provider behind that socket. Live runs spend money, so
-they are never enabled by configuration alone — the explicit `--live-llm` flag
-(or `BLUECLAW_E2E_LIVE=1`) is required, and the runner refuses to start without
-it. Scenario names are registered in `internal/e2e/virtual_session.go`.
+Point `LLAMA_BASE_URL` at any OpenAI-compatible server; the name is historical.
+For a hosted provider instead, set `OPENROUTER_API_KEY` and drop the local
+variables. `llmd/README.md` lists every setting.
 
-Configuration examples are in `config/`.
+**2. Start the daemon.** Copy `config/runtime.standalone.example.json`, set your
+Postgres connection string and the llmd socket and key paths, then:
+
+```bash
+go run ./cmd/blueclaw --runtime runtime.json --policy config/policy.example.json
+curl -s localhost:8081/admin/api/health | jq '.status, .protocolIdentity.passed'
+```
+
+A standalone deployment reports `capabilityd: not_configured` and checks only
+`llmd`. There is no capability service, so the calendar, task, mail, and site
+operations an appliance supplies are simply absent; everything else — the agent
+loop, skills, the terminal, and files — works.
+
+**3. Give it work.** The `api` connector needs no chat platform. Address a person
+from your policy by email:
+
+```bash
+curl -s -X POST localhost:8081/connectors/api/events -H 'content-type: application/json' \
+  -d '{"conversationID":"dm:api:you","messageID":"m1","senderID":"admin@example.com",
+       "replyTargetID":"dm:api:you","prompt":"Say hello in one short sentence."}'
+
+curl -s 'localhost:8081/agent/api/replies?conversationID=dm:api:you'
+```
+
+Every person in the policy projects to their own Linux user, so their files and
+commands run as them. That projection needs Linux; on macOS the daemon runs
+everything as itself.
+
+To watch a whole scenario instead, the lab runner drives the agent loop and
+writes every request, response, tool call, and artifact to a directory:
+
+```bash
+go run ./cmd/blueclaw-lab virtual-session --scenario presentation \
+  --artifact-dir .artifacts/blueclaw-e2e --live-llm --llm-unix-socket /tmp/llmd.sock
+```
+
+Live runs spend money, so they are never enabled by configuration alone; the
+explicit `--live-llm` flag (or `BLUECLAW_E2E_LIVE=1`) is required. Scenario
+names are registered in `internal/e2e/virtual_session.go`.
 
 ## Contributing
 
