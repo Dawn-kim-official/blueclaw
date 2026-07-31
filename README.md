@@ -106,6 +106,9 @@ codebase holds itself to — descriptive names over abbreviations, no explanator
 comments, one source of truth per shared contract — and CI runs the same build
 and test commands listed above.
 
+For a security problem, follow [SECURITY.md](SECURITY.md) instead of opening an
+issue.
+
 ## License
 
 MIT. See [LICENSE](LICENSE).
