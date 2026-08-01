@@ -727,8 +727,11 @@ async function generateChatForRoute(
   idleTimeoutMs: number,
   abortSignal?: AbortSignal,
 ): Promise<ChatCompletionResponse> {
-  const tools = createChatTools(request);
-  const requestedToolChoice = convertToolChoice(request.toolChoice, Object.keys(tools));
+  const { tools, wireNameByCanonicalName, canonicalNameByWireName } = createChatTools(request);
+  const requestedToolChoice = convertToolChoice(
+    providerToolChoiceRequest(request.toolChoice, wireNameByCanonicalName),
+    Object.keys(tools),
+  );
   const providerChoice = providerToolChoice(
     requestedToolChoice,
     Object.keys(tools),
@@ -736,7 +739,7 @@ async function generateChatForRoute(
   );
   const messages = convertChatMessages(request);
   const system = systemMessages(request);
-  const chatRoute = routeForChatRequest(request, route, requestedToolChoice);
+  const chatRoute = routeForChatRequest(request, route, requestedToolChoice, canonicalNameByWireName);
   let repairAttempted = false;
   const repairStatuses = new Map<string, StructuredOutputRepairStatus>();
   const result = await generateWithIdleTimeout({
@@ -769,10 +772,18 @@ async function generateChatForRoute(
     temperature: request.generationOptions?.temperature,
   }, idleTimeoutMs, abortSignal);
   throwIfAborted(abortSignal);
-  requireChatToolChoice(result, requestedToolChoice, Object.keys(tools));
+  const canonicalToolNames = [...wireNameByCanonicalName.keys()];
+  const canonicalResult = {
+    ...result,
+    toolCalls: result.toolCalls.map(toolCall => ({
+      ...toolCall,
+      toolName: canonicalNameByWireName.get(toolCall.toolName) ?? toolCall.toolName,
+    })),
+  };
+  requireChatToolChoice(canonicalResult, convertToolChoice(request.toolChoice, canonicalToolNames), canonicalToolNames);
   for (const toolCall of result.toolCalls) {
     if (!toolCall.invalid) continue;
-    const toolName = tools[toolCall.toolName] === undefined ? undefined : toolCall.toolName;
+    const toolName = tools[toolCall.toolName] === undefined ? undefined : canonicalNameByWireName.get(toolCall.toolName);
     throw new LLMDError(
       'provider_response_invalid',
       502,
@@ -795,7 +806,7 @@ async function generateChatForRoute(
         id: toolCall.toolCallId,
         type: 'function',
         function: {
-          name: toolCall.toolName,
+          name: canonicalNameByWireName.get(toolCall.toolName) ?? toolCall.toolName,
           arguments: JSON.stringify(toolCall.input) ?? '{}',
         },
       })),
@@ -822,17 +833,21 @@ function routeForChatRequest(
   request: ChatCompletionRequest,
   route: ProviderRoute,
   requestedToolChoice: ToolChoice<DynamicToolSet> | undefined,
+  canonicalNameByWireName: Map<string, string>,
 ): ProviderRoute {
   if (request.parallelToolCalls !== false || isNamedToolChoice(requestedToolChoice)) return route;
-  return { ...route, languageModel: firstToolCallLanguageModel(route.languageModel) };
+  return { ...route, languageModel: firstToolCallLanguageModel(route.languageModel, canonicalNameByWireName) };
 }
 
-function firstToolCallLanguageModel(languageModel: LanguageModelV3): LanguageModelV3 {
+function firstToolCallLanguageModel(
+  languageModel: LanguageModelV3,
+  canonicalNameByWireName: Map<string, string>,
+): LanguageModelV3 {
   return wrapLanguageModel({
     model: languageModel,
     middleware: {
       specificationVersion: 'v3',
-      wrapGenerate: async ({ doGenerate }) => keepFirstToolCall(await doGenerate()),
+      wrapGenerate: async ({ doGenerate }) => keepFirstToolCall(await doGenerate(), canonicalNameByWireName),
       wrapStream: async ({ doStream }) => {
         const result = await doStream();
         return { ...result, stream: keepFirstToolCallStream(result.stream) };
@@ -858,14 +873,19 @@ function keepFirstToolCallStream(
   }));
 }
 
-function keepFirstToolCall(result: LanguageModelV3GenerateResult): LanguageModelV3GenerateResult {
+function keepFirstToolCall(
+  result: LanguageModelV3GenerateResult,
+  canonicalNameByWireName: Map<string, string>,
+): LanguageModelV3GenerateResult {
   const toolCalls = result.content.filter(
     (content): content is LanguageModelV3ToolCall => content.type === 'tool-call',
   );
   const [keptToolCall, ...droppedToolCalls] = toolCalls;
   if (keptToolCall === undefined || droppedToolCalls.length === 0) return result;
+  const canonicalName = (toolCall: LanguageModelV3ToolCall) =>
+    canonicalNameByWireName.get(toolCall.toolName) ?? toolCall.toolName;
   console.warn(
-    `llmd: parallel tool calls disabled, dropping ${droppedToolCalls.length} tool call(s) [${droppedToolCalls.map(toolCall => toolCall.toolName).join(', ')}] and keeping [${keptToolCall.toolName}]`,
+    `llmd: parallel tool calls disabled, dropping ${droppedToolCalls.length} tool call(s) [${droppedToolCalls.map(canonicalName).join(', ')}] and keeping [${canonicalName(keptToolCall)}]`,
   );
   return {
     ...result,
@@ -947,23 +967,58 @@ function toolCallContractError(message: string): LLMDError {
   );
 }
 
-function createChatTools(request: ChatCompletionRequest): DynamicToolSet {
+const DISALLOWED_PROVIDER_TOOL_NAME_CHARACTER = /[^a-zA-Z0-9_-]/g;
+
+type ChatToolSet = {
+  tools: DynamicToolSet;
+  wireNameByCanonicalName: Map<string, string>;
+  canonicalNameByWireName: Map<string, string>;
+};
+
+// OpenAI-family endpoints accept function names matching ^[a-zA-Z0-9_-]+$ and
+// reject the entire request otherwise. Blueclaw tool names are namespace.name
+// and that dot is identity, so the source cannot rename them. Carry an exact
+// per-request map rather than guessing the way back from a sanitized name.
+function createChatTools(request: ChatCompletionRequest): ChatToolSet {
   const tools: DynamicToolSet = {};
+  const wireNameByCanonicalName = new Map<string, string>();
+  const canonicalNameByWireName = new Map<string, string>();
   for (const tool of request.tools ?? []) {
     const parameters = tool.function.parameters;
     if (!isJSONSchema(parameters)) {
       throw new LLMDError('request_invalid', 400, false, `tool ${tool.function.name} parameters must be a JSON schema object`);
     }
-    tools[tool.function.name] = {
+    const wireName = unusedProviderToolName(tool.function.name, canonicalNameByWireName);
+    wireNameByCanonicalName.set(tool.function.name, wireName);
+    canonicalNameByWireName.set(wireName, tool.function.name);
+    tools[wireName] = {
       description: tool.function.description,
       inputSchema: createValidatedJSONSchema(parameters),
     };
   }
-  return tools;
+  return { tools, wireNameByCanonicalName, canonicalNameByWireName };
+}
+
+function unusedProviderToolName(canonicalName: string, usedNames: Map<string, string>): string {
+  const sanitizedName = canonicalName.replace(DISALLOWED_PROVIDER_TOOL_NAME_CHARACTER, '_');
+  if (!usedNames.has(sanitizedName)) return sanitizedName;
+  for (let suffix = 2; ; suffix += 1) {
+    const candidateName = `${sanitizedName}_${suffix}`;
+    if (!usedNames.has(candidateName)) return candidateName;
+  }
 }
 
 function throwIfAborted(abortSignal: AbortSignal | undefined): void {
   if (abortSignal?.aborted) throw new DOMException('The operation was aborted', 'AbortError');
+}
+
+function providerToolChoiceRequest(toolChoice: unknown, wireNameByCanonicalName: Map<string, string>): unknown {
+  if (!isRecord(toolChoice) || toolChoice.type !== 'function' || !isRecord(toolChoice.function)) return toolChoice;
+  const canonicalName = toolChoice.function.name;
+  if (typeof canonicalName !== 'string') return toolChoice;
+  const wireName = wireNameByCanonicalName.get(canonicalName);
+  if (wireName === undefined) return toolChoice;
+  return { ...toolChoice, function: { ...toolChoice.function, name: wireName } };
 }
 
 function convertToolChoice(toolChoice: unknown, toolNames: string[]): ToolChoice<DynamicToolSet> | undefined {
