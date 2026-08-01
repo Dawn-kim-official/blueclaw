@@ -62,7 +62,7 @@ export function createLLMDHandler(dependencies: HandlerDependencies) {
       return Response.json(parsedResponse.data);
     } catch (errorValue) {
       const llmdError = classifyLLMDError(errorValue);
-      return errorResponse(llmdError.status, llmdError.code, llmdError.allowLegacyFallback, llmdError.diagnostic);
+      return errorResponse(llmdError.status, llmdError.code, llmdError.allowLegacyFallback, llmdError.diagnostic, llmdError.providerMessage);
     }
   };
 }
@@ -80,7 +80,7 @@ async function handleChatRequest(value: unknown, abortSignal: AbortSignal, depen
     return Response.json(parsedResponse.data);
   } catch (errorValue) {
     const llmdError = classifyLLMDError(errorValue);
-    return errorResponse(llmdError.status, llmdError.code, llmdError.allowLegacyFallback, llmdError.diagnostic);
+    return errorResponse(llmdError.status, llmdError.code, llmdError.allowLegacyFallback, llmdError.diagnostic, llmdError.providerMessage);
   }
 }
 
@@ -108,10 +108,14 @@ function errorResponse(
   code: string,
   allowLegacyFallback = false,
   diagnostic?: StructuredOutputDiagnostic,
+  providerMessage?: string,
 ): Response {
   const parsedDiagnostic = structuredOutputDiagnosticSchema.safeParse(diagnostic);
-  const error = parsedDiagnostic.success
-    ? { code, allowLegacyFallback, diagnostic: parsedDiagnostic.data }
-    : { code, allowLegacyFallback };
+  const error = {
+    code,
+    allowLegacyFallback,
+    ...(parsedDiagnostic.success ? { diagnostic: parsedDiagnostic.data } : {}),
+    ...(providerMessage ? { message: providerMessage } : {}),
+  };
   return Response.json({ error }, { status });
 }
