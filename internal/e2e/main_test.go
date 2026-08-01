@@ -1,20 +1,16 @@
 package e2e
 
 import (
-	"fmt"
-	"os"
 	"strings"
 	"testing"
 )
 
-// Blueclaw bundles the workspace skills that need only its own kernel. The rest
-// belong to the appliance whose capability tools they call, so a standalone
-// checkout cannot drive every scenario and the suite says which ones are absent
-// instead of failing on a missing file.
-func TestMain(mainTesting *testing.M) {
+// Scenarios that drive an appliance skill run its bundled scripts and assert on
+// their real output, so they need that appliance's workspace bundle beside this
+// checkout. The rest exercise the runtime itself and run anywhere.
+func requireWorkspaceSkills(scenarioTesting *testing.T) {
+	scenarioTesting.Helper()
 	if missingSkills := MissingScenarioSkills(); len(missingSkills) > 0 {
-		fmt.Printf("skipping the end-to-end scenarios: no workspace skill bundle for %s\n", strings.Join(missingSkills, ", "))
-		os.Exit(0)
+		scenarioTesting.Skipf("no workspace skill bundle for %s", strings.Join(missingSkills, ", "))
 	}
-	os.Exit(mainTesting.Run())
 }

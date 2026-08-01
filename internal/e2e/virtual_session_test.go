@@ -40,6 +40,7 @@ func (virtualStructuredOutputCorrectionTestError) StructuredOutputCorrection() (
 }
 
 func TestPresentationScenarioDoesNotScriptToolCalls(t *testing.T) {
+	requireWorkspaceSkills(t)
 	scenario := PresentationLocalMultiturnSuccessScenario(t.TempDir())
 	if len(scenario.Turns) != 1 {
 		t.Fatalf("expected one slides turn, got %d", len(scenario.Turns))
@@ -450,6 +451,7 @@ func (virtualChatErrorTestProvider) GenerateChatCompletion(context.Context, llm.
 }
 
 func TestPresentationLocalMultiturnSuccessLive(t *testing.T) {
+	requireWorkspaceSkills(t)
 	if !truthyEnvironmentValue(os.Getenv("BLUECLAW_E2E_LIVE")) {
 		t.Skip("set BLUECLAW_E2E_LIVE=1 to explicitly run costed live slides virtual session")
 	}
@@ -1121,6 +1123,7 @@ func TestWebSearchAcceptance(t *testing.T) {
 }
 
 func TestToolPermissionScenarioReturnsPlannedFallback(t *testing.T) {
+	requireWorkspaceSkills(t)
 	result, errorValue := RunVirtualSession(context.Background(), ToolPermissionHidesSkillScenario(t.TempDir()))
 	if errorValue != nil {
 		t.Fatalf("expected permission scenario to pass: %v", errorValue)
@@ -1152,6 +1155,7 @@ func TestFileWriteAcceptance(t *testing.T) {
 }
 
 func TestCompletionJudgeRecoveryAcceptance(t *testing.T) {
+	requireWorkspaceSkills(t)
 	result, errorValue := RunVirtualSession(context.Background(), CompletionJudgeRecoveryAcceptanceScenario(t.TempDir()))
 	if errorValue != nil {
 		t.Fatalf("expected completion judge recovery scenario to pass: %v", errorValue)
@@ -1181,6 +1185,7 @@ func TestCompletionJudgeRecoveryAcceptance(t *testing.T) {
 }
 
 func TestDocumentCreateAcceptanceUsesLiveCanonicalTools(t *testing.T) {
+	requireWorkspaceSkills(t)
 	scenario := DocumentCreateAcceptanceScenario(t.TempDir())
 	if len(scenario.Turns) != 1 || len(scenario.Turns[0].ActionResponses) != 0 {
 		t.Fatalf("expected one live-only document turn, got %+v", scenario.Turns)
@@ -1207,6 +1212,7 @@ func TestFileWriteAcceptanceRejectsWrongPersistedContent(t *testing.T) {
 }
 
 func TestAmbientTaskCaptureAcceptance(t *testing.T) {
+	requireWorkspaceSkills(t)
 	result, errorValue := RunVirtualSession(context.Background(), AmbientTaskCaptureAcceptanceScenario(t.TempDir()))
 	if errorValue != nil {
 		t.Fatalf("expected ambient task capture scenario to pass: %v", errorValue)
@@ -1263,6 +1269,7 @@ func TestGWSDisabled(t *testing.T) {
 }
 
 func TestScheduleCreateAcceptance(t *testing.T) {
+	requireWorkspaceSkills(t)
 	result, errorValue := RunVirtualSession(context.Background(), ScheduleCreateAcceptanceScenario(t.TempDir()))
 	if errorValue != nil {
 		t.Fatalf("expected schedule acceptance scenario to pass: %v", errorValue)
@@ -1278,6 +1285,7 @@ func TestScheduleCreateAcceptance(t *testing.T) {
 }
 
 func TestScheduleLifecycleAcceptance(t *testing.T) {
+	requireWorkspaceSkills(t)
 	result, errorValue := RunVirtualSession(context.Background(), ScheduleLifecycleAcceptanceScenario(t.TempDir()))
 	if errorValue != nil {
 		t.Fatalf("expected schedule lifecycle acceptance scenario to pass: %v", errorValue)
@@ -1305,6 +1313,7 @@ func TestScheduleLifecycleAcceptance(t *testing.T) {
 }
 
 func TestCalendarEventLifecycleAcceptance(t *testing.T) {
+	requireWorkspaceSkills(t)
 	result, errorValue := RunVirtualSession(context.Background(), CalendarEventLifecycleAcceptanceScenario(t.TempDir()))
 	if errorValue != nil {
 		t.Fatalf("expected calendar event lifecycle acceptance scenario to pass: %v", errorValue)
@@ -1449,6 +1458,7 @@ func TestVirtualCapabilityCatalogUsesRuntimeRegistryContract(t *testing.T) {
 }
 
 func TestAmbientDutyCalendarAcceptance(t *testing.T) {
+	requireWorkspaceSkills(t)
 	result, errorValue := RunVirtualSession(context.Background(), AmbientDutyCalendarAcceptanceScenario(t.TempDir()))
 	if errorValue != nil {
 		t.Fatalf("expected ambient duty calendar acceptance scenario to pass: %v", errorValue)
@@ -1491,6 +1501,7 @@ func TestSkillLifecycleAcceptance(t *testing.T) {
 }
 
 func TestCapabilityQuestionAcceptance(t *testing.T) {
+	requireWorkspaceSkills(t)
 	result, errorValue := RunVirtualSession(context.Background(), CapabilityQuestionAcceptanceScenario(t.TempDir()))
 	if errorValue != nil {
 		t.Fatalf("expected capability question acceptance scenario to pass: %v", errorValue)
@@ -1595,6 +1606,7 @@ func TestFailureExplanationAcceptance(t *testing.T) {
 }
 
 func TestOneTimeScheduleAcceptance(t *testing.T) {
+	requireWorkspaceSkills(t)
 	result, errorValue := RunVirtualSession(context.Background(), OneTimeScheduleAcceptanceScenario(t.TempDir()))
 	if errorValue != nil {
 		t.Fatalf("expected one-time schedule acceptance scenario to pass: %v", errorValue)
@@ -1612,6 +1624,7 @@ func TestOneTimeScheduleAcceptance(t *testing.T) {
 }
 
 func TestSitePrototypeAcceptance(t *testing.T) {
+	requireWorkspaceSkills(t)
 	result, errorValue := RunVirtualSession(context.Background(), SitePrototypeAcceptanceScenario(t.TempDir()))
 	if errorValue != nil {
 		t.Fatalf("expected site prototype acceptance scenario to pass: %v", errorValue)
@@ -1629,6 +1642,7 @@ func TestSitePrototypeAcceptance(t *testing.T) {
 }
 
 func TestSiteEditRedeployAcceptance(t *testing.T) {
+	requireWorkspaceSkills(t)
 	result, errorValue := RunVirtualSession(context.Background(), SiteEditRedeployAcceptanceScenario(t.TempDir()))
 	if errorValue != nil {
 		t.Fatalf("expected site edit redeploy acceptance scenario to pass: %v", errorValue)
@@ -1655,6 +1669,7 @@ func TestSiteEditRedeployAcceptance(t *testing.T) {
 }
 
 func TestSiteCustomStructureAcceptance(t *testing.T) {
+	requireWorkspaceSkills(t)
 	result, errorValue := RunVirtualSession(context.Background(), SiteCustomStructureAcceptanceScenario(t.TempDir()))
 	if errorValue != nil {
 		t.Fatalf("expected site custom structure acceptance scenario to pass: %v", errorValue)
@@ -1681,6 +1696,7 @@ func TestSiteCustomStructureAcceptance(t *testing.T) {
 }
 
 func TestSiteLifecycleAcceptance(t *testing.T) {
+	requireWorkspaceSkills(t)
 	result, errorValue := RunVirtualSession(context.Background(), SiteLifecycleAcceptanceScenario(t.TempDir()))
 	if errorValue != nil {
 		t.Fatalf("expected site lifecycle acceptance scenario to pass: %v", errorValue)
