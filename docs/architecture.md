@@ -230,11 +230,17 @@ path.
 
 ## Language Model Configuration
 
-Blueclaw uses a single secretless provider named `capabilityLLM`. Provider keys,
-local model runtimes, GPU selection, and fallback policy belong to the InternKim
-capability services. Blueclaw never adds an `Authorization` header, and sends
-`model`, `executionMode`, `messages`, and `structuredOutputSchema` to
-`POST /v1/llm/structured`.
+Model access reaches Blueclaw through `llmd`, the AI SDK sidecar, over a private
+Unix socket. Provider keys live there rather than in the daemon, so Blueclaw
+never adds an `Authorization` header of its own; it sends `model`,
+`executionMode`, `messages`, and `structuredOutputSchema` to
+`POST /v1/llm/structured` or `POST /v1/llm/chat`.
+
+A deployment may also declare a secretless provider named `capabilityLLM`, which
+hands model choice, local runtimes, GPU selection, and fallback policy to a
+capability service — that is how the InternKim appliance runs. It is optional:
+with no capability endpoint configured, Blueclaw uses `llmd` alone and reports
+`capabilityd: not_configured` in its health document.
 
 `executionMode` is `device`, `companion`, `remote`, or `auto`; InternKim decides
 what that maps to. A tool that needs the user's own browser or files resolves to
