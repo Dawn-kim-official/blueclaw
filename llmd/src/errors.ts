@@ -1,8 +1,10 @@
 import {
   ChatCompletionFinishReason,
   StructuredOutputDiagnosticCategory,
+  StructuredOutputValidationCode,
   type StructuredOutputDiagnostic,
 } from '@blueclaw/protocol';
+import type { ZodError, core } from 'zod';
 import { APICallError, JSONParseError, NoObjectGeneratedError, RetryError, TypeValidationError } from 'ai';
 
 export type LLMDErrorCode =
@@ -26,6 +28,35 @@ export class LLMDError extends Error {
     super(message);
     this.name = 'LLMDError';
   }
+}
+
+
+const VALIDATION_FIELD_SEGMENT = /^[A-Za-z0-9_.$~-]+$/;
+
+// A response we reject at our own boundary must say which field failed. Without
+// this the caller sees only provider_response_invalid and has to guess.
+export function diagnoseResponseValidation(errorValue: ZodError): StructuredOutputDiagnostic {
+  return {
+    category: StructuredOutputDiagnosticCategory.SchemaValidation,
+    validationIssues: errorValue.issues.slice(0, 8).map(describeValidationIssue),
+  };
+}
+
+function describeValidationIssue(issue: core.$ZodIssue): { fieldPath: string; code: StructuredOutputValidationCode } {
+  return { fieldPath: validationFieldPath(issue.path), code: validationIssueCode(issue) };
+}
+
+function validationFieldPath(path: readonly PropertyKey[]): string {
+  const segments = path
+    .map((segment) => String(segment))
+    .filter((segment) => VALIDATION_FIELD_SEGMENT.test(segment));
+  return `/${segments.join('/')}`;
+}
+
+function validationIssueCode(issue: core.$ZodIssue): StructuredOutputValidationCode {
+  if (issue.code === 'unrecognized_keys') return StructuredOutputValidationCode.AdditionalProperty;
+  if (issue.code !== 'invalid_type') return StructuredOutputValidationCode.Other;
+  return issue.input === undefined ? StructuredOutputValidationCode.Required : StructuredOutputValidationCode.Type;
 }
 
 export function classifyLLMDError(errorValue: unknown): LLMDError {
