@@ -24,6 +24,7 @@ export class LLMDError extends Error {
     readonly allowLegacyFallback: boolean,
     message: string,
     readonly diagnostic?: StructuredOutputDiagnostic,
+    readonly providerMessage?: string,
   ) {
     super(message);
     this.name = 'LLMDError';
@@ -59,6 +60,18 @@ function validationIssueCode(issue: core.$ZodIssue): StructuredOutputValidationC
   return issue.input === undefined ? StructuredOutputValidationCode.Required : StructuredOutputValidationCode.Type;
 }
 
+
+const MAXIMUM_PROVIDER_MESSAGE_LENGTH = 600;
+
+// The provider's own rejection text is transport diagnostics, not model output:
+// without it a caller sees provider_response_invalid and nothing else. Model
+// output travels the structured_output_invalid path and keeps its diagnostic.
+function providerDiagnosticMessage(message: string): string | undefined {
+  const trimmedMessage = message.trim();
+  if (trimmedMessage === '') return undefined;
+  return trimmedMessage.slice(0, MAXIMUM_PROVIDER_MESSAGE_LENGTH);
+}
+
 export function classifyLLMDError(errorValue: unknown): LLMDError {
   if (errorValue instanceof LLMDError) return errorValue;
   if (errorValue instanceof DOMException && errorValue.name === 'AbortError') {
@@ -82,9 +95,10 @@ export function classifyLLMDError(errorValue: unknown): LLMDError {
     if (isRetryable) {
       return new LLMDError('provider_unavailable', 503, true, errorValue.message);
     }
-    return new LLMDError('provider_response_invalid', 502, false, errorValue.message);
+    return new LLMDError('provider_response_invalid', 502, false, errorValue.message, undefined, providerDiagnosticMessage(errorValue.message));
   }
-  return new LLMDError('provider_response_invalid', 502, false, errorMessage(errorValue));
+  const message = errorMessage(errorValue);
+  return new LLMDError('provider_response_invalid', 502, false, message, undefined, providerDiagnosticMessage(message));
 }
 
 function structuredOutputError(errorValue: Error, diagnostic: StructuredOutputDiagnostic): LLMDError {
