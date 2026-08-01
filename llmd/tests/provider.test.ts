@@ -115,9 +115,9 @@ describe('llmd provider adapter', () => {
     expect(remoteAttempt).toBe(2);
   });
 
-  test('sanitizes tool names in the history it sends back', async () => {
+  test('carries canonical tool names through the history unchanged', async () => {
     const remoteModel = toolCallLanguageModel('served-remote-model', [{
-      toolName: 'mcp_local_task_add',
+      toolName: 'task_add',
       input: '{"title":"second turn"}',
     }]);
     const generateChatCompletion = createChatCompletionGenerator(
@@ -125,28 +125,23 @@ describe('llmd provider adapter', () => {
       languageModelFactory(chatLanguageModel('unused-local-model'), remoteModel),
     );
     const request = multipleToolChatRequest();
-    request.tools = request.tools?.map(tool => tool.function.name === 'task_add'
-      ? { ...tool, function: { ...tool.function, name: 'mcp.local.task_add' } }
-      : tool);
-    request.toolChoice = { type: 'function', function: { name: 'mcp.local.task_add' } };
     request.messages = [
       ...request.messages,
       {
         role: ChatCompletionMessageRole.Assistant,
         content: '',
-        toolCalls: [{ id: 'call-1', type: 'function', function: { name: 'mcp.local.task_add', arguments: '{"title":"first turn"}' } }],
+        toolCalls: [{ id: 'call-1', type: 'function', function: { name: 'task_add', arguments: '{"title":"first turn"}' } }],
       },
       { role: ChatCompletionMessageRole.Tool, toolCallId: 'call-1', content: 'created' },
     ];
 
-    await generateChatCompletion(request);
+    const response = await generateChatCompletion(request);
 
-    // OpenAI-family endpoints reject a dotted function name anywhere in the
-    // request, history included, so the earlier call and its result go out
-    // sanitized just like the declarations.
+    // Tool names are already provider-legal, so nothing rewrites them on the way
+    // out and nothing has to guess the way back on the way in.
     const sentPrompt = JSON.stringify(remoteModel.doStreamCalls[0]?.prompt);
-    expect(sentPrompt).toContain('mcp_local_task_add');
-    expect(sentPrompt).not.toContain('mcp.local.task_add');
+    expect(sentPrompt).toContain('task_add');
+    expect(response.message.toolCalls?.[0]?.function.name).toBe('task_add');
   });
 
   test('accepts canonical generated document tool schemas', async () => {
