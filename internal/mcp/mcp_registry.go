@@ -175,7 +175,7 @@ func buildToolDefinition(serverName string, configuration config.MCPToolConfigur
 	qualifiedName := qualifiedToolName(namespace, toolName)
 	if toolName == "" ||
 		namespace == "" ||
-		!toolcontract.IsCanonicalToolName(toolName) ||
+		!toolcontract.IsRemoteToolName(toolName) ||
 		!toolcontract.IsCanonicalToolName(namespace) ||
 		!toolcontract.IsCanonicalToolName(qualifiedName) ||
 		strings.TrimSpace(configuration.Description) == "" ||
@@ -425,11 +425,26 @@ func serverRemoteToolName(serverDefinition ServerDefinition, toolName string) st
 	return toolName
 }
 
+// A server names its own tools and may use characters our canonical grammar does
+// not allow. The remote name is kept verbatim for the call itself; the local name
+// it is registered under is normalized here, once, at the point it enters us.
 func qualifiedToolName(namespace string, toolName string) string {
-	if strings.HasPrefix(toolName, namespace+".") {
-		return toolName
+	localName := strings.TrimPrefix(toolName, namespace+".")
+	return namespace + "_" + canonicalToolNameSegment(localName)
+}
+
+func canonicalToolNameSegment(value string) string {
+	var builder strings.Builder
+	for _, character := range strings.TrimSpace(value) {
+		switch {
+		case character >= 'a' && character <= 'z', character >= 'A' && character <= 'Z',
+			character >= '0' && character <= '9':
+			builder.WriteRune(character)
+		default:
+			builder.WriteRune('_')
+		}
 	}
-	return namespace + "." + toolName
+	return builder.String()
 }
 
 func quarantine(name string, reason string) QuarantinedServer {

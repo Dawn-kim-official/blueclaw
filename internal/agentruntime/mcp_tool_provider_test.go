@@ -52,7 +52,7 @@ func TestMCPToolProviderMapsIsErrorToToolFailure(t *testing.T) {
 			output: `{"content":[],"isError":true}`,
 		},
 		definitions: []mcp.ToolDefinition{{
-			Name:           "workspace.echo",
+			Name:           "workspace_echo",
 			Namespace:      "workspace",
 			Description:    "Echo workspace text",
 			InputSchema:    json.RawMessage(`{"type":"object","properties":{},"additionalProperties":false}`),
@@ -88,7 +88,7 @@ func TestMCPToolProviderRejectsPolicyDeniedInvocation(t *testing.T) {
 			calls:  &invocationCount,
 		},
 		definitions: []mcp.ToolDefinition{{
-			Name:           "workspace.echo",
+			Name:           "workspace_echo",
 			Namespace:      "workspace",
 			Description:    "Echo workspace text",
 			InputSchema:    json.RawMessage(`{"type":"object","properties":{},"additionalProperties":false}`),
@@ -134,7 +134,7 @@ func TestMCPToolProviderUsesCanonicalDescriptor(t *testing.T) {
 	provider := mcpToolProvider{
 		serverName: "workspace",
 		definitions: []mcp.ToolDefinition{{
-			Name:           "workspace.echo",
+			Name:           "workspace_echo",
 			Namespace:      "workspace",
 			ServerName:     "workspace",
 			Description:    "Echo workspace text",
@@ -152,14 +152,14 @@ func TestMCPToolProviderUsesCanonicalDescriptor(t *testing.T) {
 			},
 		}},
 	}
-	toolSet := toolcontract.NewToolSet([]string{"workspace.echo"})
+	toolSet := toolcontract.NewToolSet([]string{"workspace_echo"})
 
 	errorValue := toolSet.RegisterProvider(context.Background(), provider)
 
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
-	descriptor, isFound := toolSet.ToolDefinition("workspace.echo")
+	descriptor, isFound := toolSet.ToolDefinition("workspace_echo")
 	if !isFound {
 		t.Fatal("expected MCP tool")
 	}
@@ -177,7 +177,7 @@ func TestMCPToolProviderUsesCanonicalDescriptor(t *testing.T) {
 
 func TestMCPToolProviderExcludesUserPresenceToolsFromScheduledRuns(t *testing.T) {
 	definition := mcp.ToolDefinition{
-		Name:           "workspace.echo",
+		Name:           "workspace_echo",
 		Namespace:      "workspace",
 		Description:    "Echo workspace text",
 		InputSchema:    json.RawMessage(`{"type":"object","properties":{},"additionalProperties":false}`),
@@ -199,12 +199,12 @@ func TestMCPToolProviderExcludesUserPresenceToolsFromScheduledRuns(t *testing.T)
 		definitions: []mcp.ToolDefinition{definition},
 		request:     ToolCatalogRequest{IsScheduledRun: true},
 	}
-	toolSet := toolcontract.NewToolSet([]string{"workspace.echo"})
+	toolSet := toolcontract.NewToolSet([]string{"workspace_echo"})
 
 	if errorValue := toolSet.RegisterProvider(context.Background(), provider); errorValue != nil {
 		t.Fatal(errorValue)
 	}
-	if toolSet.IsRegistered("workspace.echo") {
+	if toolSet.IsRegistered("workspace_echo") {
 		t.Fatal("scheduled runs must not register MCP tools that require user presence")
 	}
 
@@ -212,7 +212,7 @@ func TestMCPToolProviderExcludesUserPresenceToolsFromScheduledRuns(t *testing.T)
 	if errorValue := toolSet.RegisterProvider(context.Background(), provider); errorValue != nil {
 		t.Fatal(errorValue)
 	}
-	if !toolSet.IsRegistered("workspace.echo") {
+	if !toolSet.IsRegistered("workspace_echo") {
 		t.Fatal("interactive runs must register MCP tools that require user presence")
 	}
 }
@@ -267,7 +267,7 @@ func TestMCPToolProviderValidatesStructuredSuccess(t *testing.T) {
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
 			definition := mcp.ToolDefinition{
-				Name:           "workspace.echo",
+				Name:           "workspace_echo",
 				Namespace:      "workspace",
 				ServerName:     "workspace",
 				Description:    "Echo workspace text",
@@ -289,12 +289,12 @@ func TestMCPToolProviderValidatesStructuredSuccess(t *testing.T) {
 				registry:    mcpToolProviderTestInvoker{output: testCase.output},
 				definitions: []mcp.ToolDefinition{definition},
 			}
-			toolSet := toolcontract.NewToolSet([]string{"workspace.echo"})
+			toolSet := toolcontract.NewToolSet([]string{"workspace_echo"})
 			if errorValue := toolSet.RegisterProvider(context.Background(), provider); errorValue != nil {
 				t.Fatal(errorValue)
 			}
 
-			result, errorValue := toolSet.Invoke(context.Background(), toolcontract.ToolInvocation{ToolName: "workspace.echo", Input: json.RawMessage(`{}`)})
+			result, errorValue := toolSet.Invoke(context.Background(), toolcontract.ToolInvocation{ToolName: "workspace_echo", Input: json.RawMessage(`{}`)})
 
 			if errorValue != nil {
 				t.Fatal(errorValue)
@@ -365,7 +365,7 @@ func TestMCPToolProviderProjectsExactResultEvidence(t *testing.T) {
 func TestMCPToolProviderProjectsEveryArrayResultEffect(t *testing.T) {
 	resultSchema := json.RawMessage(`{"type":"object","properties":{"paths":{"type":"array","items":{"type":"string"},"minItems":1,"uniqueItems":true}},"required":["paths"],"additionalProperties":false}`)
 	definition := mcp.ToolDefinition{
-		Name:              "workspace.edit",
+		Name:              "workspace_edit",
 		Namespace:         "workspace",
 		ServerName:        "workspace",
 		Description:       "Edit workspace files",
@@ -396,11 +396,11 @@ func TestMCPToolProviderProjectsEveryArrayResultEffect(t *testing.T) {
 		registry:    mcpToolProviderTestInvoker{output: `{"content":[],"structuredContent":{"paths":["/workspace/one.md","/workspace/two.md"]},"isError":false}`},
 		definitions: []mcp.ToolDefinition{definition},
 	}
-	toolSet := toolcontract.NewToolSet([]string{"workspace.edit"})
+	toolSet := toolcontract.NewToolSet([]string{"workspace_edit"})
 	if errorValue := toolSet.RegisterProvider(context.Background(), provider); errorValue != nil {
 		t.Fatal(errorValue)
 	}
-	result, errorValue := toolSet.Invoke(context.Background(), toolcontract.ToolInvocation{ToolName: "workspace.edit", Input: json.RawMessage(`{}`)})
+	result, errorValue := toolSet.Invoke(context.Background(), toolcontract.ToolInvocation{ToolName: "workspace_edit", Input: json.RawMessage(`{}`)})
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}

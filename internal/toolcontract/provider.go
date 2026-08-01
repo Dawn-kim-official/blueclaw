@@ -13,7 +13,15 @@ import (
 	"github.com/google/jsonschema-go/jsonschema"
 )
 
-var canonicalToolNamePattern = regexp.MustCompile(`^[A-Za-z0-9_.-]{1,128}$`)
+var canonicalToolNamePattern = regexp.MustCompile(`^[A-Za-z0-9_]{1,128}$`)
+
+// A name that arrives from outside is not ours to shape; it is normalized into the
+// canonical grammar when it is registered, and kept verbatim for the remote call.
+var remoteToolNamePattern = regexp.MustCompile(`^[A-Za-z0-9_.\-/]{1,128}$`)
+
+func IsRemoteToolName(name string) bool {
+	return remoteToolNamePattern.MatchString(name)
+}
 
 func IsCanonicalToolName(name string) bool {
 	return canonicalToolNamePattern.MatchString(name)

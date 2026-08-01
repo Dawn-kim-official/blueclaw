@@ -71,31 +71,31 @@ func TestApprovalContinuationRestoresSelectedToolDecision(t *testing.T) {
 
 func TestFreshTaskPinsRouterInitialAndRequiredEvidenceTools(t *testing.T) {
 	pinnedToolNames := pinnedToolNamesForResolvedRequest(
-		[]string{"manual.tool"},
-		[]string{"manual.tool", "previous.tool"},
+		[]string{"manual_tool"},
+		[]string{"manual_tool", "previous.tool"},
 		[]string{"file_read"},
 		[]string{"task_add"},
 		true,
 	)
 
-	if !sameStringSet(pinnedToolNames, []string{"manual.tool", "file_read", "task_add"}) {
+	if !sameStringSet(pinnedToolNames, []string{"manual_tool", "file_read", "task_add"}) {
 		t.Fatalf("expected manual, router, and required evidence tools, got %+v", pinnedToolNames)
 	}
 	activeGoal := activeGoalForTurn(AgentRequest{PinnedToolNames: pinnedToolNames}, OutcomeContract{}, ExecutionPlan{}, false)
-	if !sameStringSet(activeGoal.SelectedToolNames, []string{"manual.tool", "file_read", "task_add"}) {
+	if !sameStringSet(activeGoal.SelectedToolNames, []string{"manual_tool", "file_read", "task_add"}) {
 		t.Fatalf("expected the typed working set to persist in active goal, got %+v", activeGoal.SelectedToolNames)
 	}
 }
 
 func TestFreshTaskKeepsRouterInitialToolsWithoutRequiredEvidence(t *testing.T) {
 	pinnedToolNames := pinnedToolNamesForResolvedRequest(
-		[]string{"manual.tool"},
-		[]string{"manual.tool", "previous.tool"},
+		[]string{"manual_tool"},
+		[]string{"manual_tool", "previous.tool"},
 		[]string{"file_read"},
 		nil,
 		true,
 	)
-	if !sameStringSet(pinnedToolNames, []string{"manual.tool", "file_read"}) {
+	if !sameStringSet(pinnedToolNames, []string{"manual_tool", "file_read"}) {
 		t.Fatalf("expected router fallback without required evidence, got %+v", pinnedToolNames)
 	}
 }
@@ -140,14 +140,14 @@ func TestRequiredNextToolsPreferPersistedThenArbitratedThenRouterOrder(t *testin
 
 func TestContinuationKeepsPersistedToolsAuthoritative(t *testing.T) {
 	pinnedToolNames := pinnedToolNamesForResolvedRequest(
-		[]string{"manual.tool"},
-		[]string{"manual.tool", "message_send"},
+		[]string{"manual_tool"},
+		[]string{"manual_tool", "message_send"},
 		[]string{"file_read"},
 		[]string{"task_add"},
 		false,
 	)
 
-	if !sameStringSet(pinnedToolNames, []string{"manual.tool", "message_send", "file_read"}) {
+	if !sameStringSet(pinnedToolNames, []string{"manual_tool", "message_send", "file_read"}) {
 		t.Fatalf("expected persisted and router continuation tools without arbitration replacement, got %+v", pinnedToolNames)
 	}
 }

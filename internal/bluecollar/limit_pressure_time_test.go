@@ -363,14 +363,14 @@ func TestAgentTurnRunnerPreservesCallerDeadlineBeforeEffortDeadline(t *testing.T
 }
 
 func TestAgentTurnRunnerCancelsToolCallAtExecutionEffortDeadline(t *testing.T) {
-	languageModel := newElapsedClosingLanguageModel("slow.tool", `{}`, "작업 시간이 끝나 진행 상황을 저장했습니다.")
+	languageModel := newElapsedClosingLanguageModel("slow_tool", `{}`, "작업 시간이 끝나 진행 상황을 저장했습니다.")
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxElapsedSecond: 1})
-	toolSet := newTestToolSet([]string{"slow.tool"})
+	toolSet := newTestToolSet([]string{"slow_tool"})
 	toolCancelled := make(chan struct{})
-	registerTestTool(toolSet, toolcontract.ToolDefinition{Name: "slow.tool"}, func(toolContext context.Context, _ toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
+	registerTestTool(toolSet, toolcontract.ToolDefinition{Name: "slow_tool"}, func(toolContext context.Context, _ toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
 		<-toolContext.Done()
 		close(toolCancelled)
-		return toolcontract.ToolFailureResult(toolcontract.FailureExternalService, toolcontract.FailureCodes.OperationFailed, "slow.tool", toolContext.Err().Error()), nil
+		return toolcontract.ToolFailureResult(toolcontract.FailureExternalService, toolcontract.FailureCodes.OperationFailed, "slow_tool", toolContext.Err().Error()), nil
 	})
 
 	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
@@ -436,7 +436,7 @@ func TestMaxIterationsClosingDefersToElapsedClosing(t *testing.T) {
 
 func TestMaxToolCallsClosingDefersToElapsedClosing(t *testing.T) {
 	languageModel := newElapsedClosingLanguageModel("", "", "작업 시간이 끝나 진행 상황을 저장했습니다.")
-	languageModel.actionToolNames = []string{"first.tool", "second.tool"}
+	languageModel.actionToolNames = []string{"first_tool", "second_tool"}
 	languageModel.actionToolInputs = []string{`{"value":"first"}`, `{"value":"second"}`}
 	languageModel.blockStructured = true
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{
@@ -444,11 +444,11 @@ func TestMaxToolCallsClosingDefersToElapsedClosing(t *testing.T) {
 		MaxToolCallCount:  1,
 		MaxElapsedSecond:  1,
 	})
-	toolSet := newTestCapabilityToolSet([]string{"first.tool", "second.tool"})
-	registerTestTool(toolSet, toolcontract.ToolDefinition{Name: "first.tool"}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
+	toolSet := newTestCapabilityToolSet([]string{"first_tool", "second_tool"})
+	registerTestTool(toolSet, toolcontract.ToolDefinition{Name: "first_tool"}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
 		return testToolSuccess(`{"status":"recorded"}`), nil
 	})
-	registerTestTool(toolSet, toolcontract.ToolDefinition{Name: "second.tool"}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
+	registerTestTool(toolSet, toolcontract.ToolDefinition{Name: "second_tool"}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
 		t.Fatal("expected the tool-call limit before second tool execution")
 		return toolcontract.ToolResult{}, nil
 	})

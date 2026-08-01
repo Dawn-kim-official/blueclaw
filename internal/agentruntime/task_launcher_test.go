@@ -373,8 +373,8 @@ func TestToolCatalogHidesHistoryAndQuarantinedMCPTools(t *testing.T) {
 		{
 			Name: "local-mcp",
 			Tools: []config.MCPToolConfiguration{
-				{Name: "allowed.tool", Description: "Allowed"},
-				{Name: "blocked.tool", Description: "Blocked"},
+				{Name: "allowed_tool", Description: "Allowed"},
+				{Name: "blocked_tool", Description: "Blocked"},
 			},
 		},
 	})
@@ -384,7 +384,7 @@ func TestToolCatalogHidesHistoryAndQuarantinedMCPTools(t *testing.T) {
 	toolCatalogBuilder := NewToolCatalogBuilder()
 	toolCatalogBuilder.UseMCPRegistry(mcpRegistry)
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(map[string][]string{
-		"default": {"allowed.tool", "memory_search"},
+		"default": {"allowed_tool", "memory_search"},
 	}, nil)
 
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
@@ -392,14 +392,14 @@ func TestToolCatalogHidesHistoryAndQuarantinedMCPTools(t *testing.T) {
 	if containsString(toolNames, "conversation_history") {
 		t.Fatalf("expected history tool to be hidden without provider, got %+v", toolNames)
 	}
-	if containsString(toolNames, "allowed.tool") {
+	if containsString(toolNames, "allowed_tool") {
 		t.Fatalf("expected quarantined MCP tool to stay hidden, got %+v", toolNames)
 	}
-	if containsString(toolNames, "blocked.tool") {
+	if containsString(toolNames, "blocked_tool") {
 		t.Fatalf("expected blocked MCP tool to be hidden, got %+v", toolNames)
 	}
 
-	toolResult, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{ToolName: "blocked.tool", Input: json.RawMessage(`{}`)})
+	toolResult, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{ToolName: "blocked_tool", Input: json.RawMessage(`{}`)})
 	if errorValue != nil {
 		t.Fatalf("expected denied tool as result: %v", errorValue)
 	}

@@ -32,7 +32,7 @@ func TestMcpRegistryBuildsSchemaAwareToolCatalog(t *testing.T) {
 		t.Fatalf("expected one tool definition, got %+v", toolDefinitions)
 	}
 	toolDefinition := toolDefinitions[0]
-	if toolDefinition.Name != "workspace.echo" || toolDefinition.Namespace != "workspace" || toolDefinition.ServerName != "local-tools" {
+	if toolDefinition.Name != "workspace_echo" || toolDefinition.Namespace != "workspace" || toolDefinition.ServerName != "local-tools" {
 		t.Fatalf("unexpected tool identity: %+v", toolDefinition)
 	}
 	if string(toolDefinition.InputSchema) != string(mcpInputSchema) {
@@ -51,7 +51,7 @@ func TestMcpRegistryBuildsSchemaAwareToolCatalog(t *testing.T) {
 		t.Fatalf("expected local policy overlay, got %+v", toolDefinition.Policy)
 	}
 
-	output, errorValue := mcpRegistry.InvokeTool(context.Background(), Invocation{ServerName: "local-tools", ToolName: "workspace.echo", Input: `{"text":"blueclaw"}`})
+	output, errorValue := mcpRegistry.InvokeTool(context.Background(), Invocation{ServerName: "local-tools", ToolName: "workspace_echo", Input: `{"text":"blueclaw"}`})
 	if errorValue != nil {
 		t.Fatalf("expected tool call, got %v", errorValue)
 	}
@@ -79,8 +79,8 @@ func TestRuntimeExampleDefinesCanonicalMCPTools(t *testing.T) {
 		t.Fatalf("expected valid example MCP metadata: %v", errorValue)
 	}
 	if len(serverDefinition.Tools) != 2 ||
-		serverDefinition.Tools[0].Name != "workspace.list" ||
-		serverDefinition.Tools[1].Name != "workspace.read" {
+		serverDefinition.Tools[0].Name != "workspace_list" ||
+		serverDefinition.Tools[1].Name != "workspace_read" {
 		t.Fatalf("unexpected example MCP tools: %+v", serverDefinition.Tools)
 	}
 }
@@ -230,7 +230,7 @@ func TestMcpServerDefinitionAlwaysQualifiesToolNames(t *testing.T) {
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
-	if serverDefinition.Tools[0].Name != "workspace.workspace" {
+	if serverDefinition.Tools[0].Name != "workspace_workspace" {
 		t.Fatalf("expected namespace-qualified tool name, got %q", serverDefinition.Tools[0].Name)
 	}
 }
@@ -322,7 +322,7 @@ func TestMcpRegistrySupportsStreamableHTTP(t *testing.T) {
 	if len(loadReport.Quarantined) != 0 {
 		t.Fatalf("expected trusted streamable http server, got %+v", loadReport.Quarantined)
 	}
-	output, errorValue := mcpRegistry.InvokeTool(context.Background(), Invocation{ServerName: "http-tools", ToolName: "workspace.echo", Input: `{"text":"blueclaw"}`})
+	output, errorValue := mcpRegistry.InvokeTool(context.Background(), Invocation{ServerName: "http-tools", ToolName: "workspace_echo", Input: `{"text":"blueclaw"}`})
 	if errorValue != nil {
 		t.Fatalf("expected streamable http tool call, got %v", errorValue)
 	}
@@ -396,7 +396,7 @@ func TestMcpRegistryPropagatesCallCancellation(t *testing.T) {
 	}
 	callContext, cancelCall := context.WithCancel(context.Background())
 	cancelCall()
-	_, errorValue := mcpRegistry.InvokeTool(callContext, Invocation{ServerName: "http-tools", ToolName: "workspace.echo", Input: `{}`})
+	_, errorValue := mcpRegistry.InvokeTool(callContext, Invocation{ServerName: "http-tools", ToolName: "workspace_echo", Input: `{}`})
 	if errorValue == nil {
 		t.Fatal("expected cancelled tool call")
 	}

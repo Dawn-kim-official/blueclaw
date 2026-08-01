@@ -1771,22 +1771,22 @@ func TestAgentKernelRunTurnPreservesCheckpointSender(t *testing.T) {
 
 func TestAgentKernelQuickReplyPromotesToolFailureToRecovery(t *testing.T) {
 	intakeLanguageModel := &sequenceLanguageModel{contents: []string{
-		`{"route":"start_task","classification":"quick_reply","taskShape":"immediate_reply","level":"xlow","estimatedMinutes":1,"requestedOutputFormats":null,"initialToolNames":["primary.lookup","backup.lookup"],"reason":"quick with useful tool","userFacingReply":""}`,
+		`{"route":"start_task","classification":"quick_reply","taskShape":"immediate_reply","level":"xlow","estimatedMinutes":1,"requestedOutputFormats":null,"initialToolNames":["primary_lookup","backup_lookup"],"reason":"quick with useful tool","userFacingReply":""}`,
 	}}
 	replyLanguageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"continue","toolName":"primary.lookup","toolInput":{"query":"hello"}}`,
-		`{"action":"continue","toolName":"backup.lookup","toolInput":{"query":"hello"}}`,
-		finishMessageWithEvidence("backup answer", "obs-003", "backup.lookup", 0),
+		`{"action":"continue","toolName":"primary_lookup","toolInput":{"query":"hello"}}`,
+		`{"action":"continue","toolName":"backup_lookup","toolInput":{"query":"hello"}}`,
+		finishMessageWithEvidence("backup answer", "obs-003", "backup_lookup", 0),
 	}}
 	services := newKernelIntakeTestServices(replyLanguageModel, intakeLanguageModel)
-	toolRegistry := newTestCapabilityToolSet([]string{"primary.lookup", "backup.lookup"})
+	toolRegistry := newTestCapabilityToolSet([]string{"primary_lookup", "backup_lookup"})
 	primaryCallCount := 0
 	backupCallCount := 0
-	registerTestTool(toolRegistry, toolcontract.ToolDefinition{Name: "primary.lookup", SideEffectClass: toolcontract.ToolSideEffectRead}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
+	registerTestTool(toolRegistry, toolcontract.ToolDefinition{Name: "primary_lookup", SideEffectClass: toolcontract.ToolSideEffectRead}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
 		primaryCallCount++
 		return toolcontract.ToolFailureResult(toolcontract.FailureExternalService, toolcontract.FailureCodes.OperationFailed, "primary_lookup", "primary lookup failed"), nil
 	})
-	registerTestTool(toolRegistry, toolcontract.ToolDefinition{Name: "backup.lookup", SideEffectClass: toolcontract.ToolSideEffectRead}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
+	registerTestTool(toolRegistry, toolcontract.ToolDefinition{Name: "backup_lookup", SideEffectClass: toolcontract.ToolSideEffectRead}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
 		backupCallCount++
 		return testToolSuccess("backup result"), nil
 	})

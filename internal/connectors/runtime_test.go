@@ -3350,15 +3350,15 @@ func structuredRequestsContainMessage(requests []llm.StructuredResponseRequest, 
 
 func TestConnectorRuntimeQuarantinesSchemaOnlyMCPConfiguration(t *testing.T) {
 	connectorRuntime, adapter := newTestConnectorRuntime(t, testLanguageModel{reply: "ok"})
-	connectorRuntime.UseAllowedToolNames([]string{"allowed.tool"})
+	connectorRuntime.UseAllowedToolNames([]string{"allowed_tool"})
 	mcpRegistry := mcp.NewMcpRegistry()
 	inputSchema := json.RawMessage(`{"type":"object","properties":{"query":{"type":"string"}},"required":["query"],"additionalProperties":false}`)
 	loadReport := mcpRegistry.LoadServerDefinition([]config.MCPServerConfiguration{
 		{
 			Name: "workspace-mcp",
 			Tools: []config.MCPToolConfiguration{
-				{Name: "allowed.tool", Description: "Allowed MCP tool", InputSchema: inputSchema},
-				{Name: "blocked.tool", Description: "Blocked MCP tool", InputSchema: inputSchema},
+				{Name: "allowed_tool", Description: "Allowed MCP tool", InputSchema: inputSchema},
+				{Name: "blocked_tool", Description: "Blocked MCP tool", InputSchema: inputSchema},
 			},
 		},
 	})
@@ -3368,11 +3368,11 @@ func TestConnectorRuntimeQuarantinesSchemaOnlyMCPConfiguration(t *testing.T) {
 	connectorRuntime.UseMCPRegistry(mcpRegistry)
 
 	toolRegistry := connectorRuntime.buildTurnToolSet(adapter, testInboundEvent("message-1"), "person-1", policy.PersonAccess{})
-	if _, isFound := findAgentToolDefinition(toolRegistry.ListToolDefinitions(), "allowed.tool"); isFound {
+	if _, isFound := findAgentToolDefinition(toolRegistry.ListToolDefinitions(), "allowed_tool"); isFound {
 		t.Fatalf("expected quarantined MCP tools to stay hidden, got %+v", toolRegistry.ListToolDefinitions())
 	}
 
-	toolResult, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{ToolName: "allowed.tool", Input: json.RawMessage(`{}`)})
+	toolResult, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{ToolName: "allowed_tool", Input: json.RawMessage(`{}`)})
 	if errorValue != nil {
 		t.Fatalf("expected policy denial as tool result: %v", errorValue)
 	}
