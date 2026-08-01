@@ -177,7 +177,6 @@ func isArtifactManifestPath(path string) bool {
 	}
 	return strings.HasPrefix(normalizedPath, "artifacts/") ||
 		strings.Contains(normalizedPath, "/artifacts/") ||
-		strings.HasPrefix(normalizedPath, "private/people/") && strings.Contains(normalizedPath, "/artifacts/") ||
 		strings.HasPrefix(normalizedPath, "/workspace/circles/") ||
 		strings.HasPrefix(normalizedPath, "circles/") ||
 		strings.HasPrefix(normalizedPath, "/workspace/shared/public/") ||

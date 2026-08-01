@@ -51,8 +51,7 @@ func hasConversationScopeInput(request ToolCatalogRequest) bool {
 	return strings.TrimSpace(request.ConversationID) != "" ||
 		strings.TrimSpace(request.ConversationType) != "" ||
 		strings.TrimSpace(request.ConversationChannelID) != "" ||
-		strings.TrimSpace(request.ConversationChannelName) != "" ||
-		strings.TrimSpace(request.RequesterPersonID) != ""
+		strings.TrimSpace(request.ConversationChannelName) != ""
 }
 
 func isPrivateConversation(request ToolCatalogRequest) bool {
