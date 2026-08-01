@@ -3,8 +3,8 @@ package connectors
 import (
 	"context"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/agent"
 	"github.com/Dawn-kim-official/blueclaw/internal/agentruntime"
+	"github.com/Dawn-kim-official/blueclaw/internal/bluecollar"
 	"github.com/Dawn-kim-official/blueclaw/internal/policy"
 )
 
@@ -17,12 +17,12 @@ type ConversationTurn struct {
 	RequesterEmail            string
 	PersonAccess              policy.PersonAccess
 	IsApprovalContinuation    bool
-	ActiveGoal                agent.ActiveGoal
+	ActiveGoal                bluecollar.ActiveGoal
 	HasActiveGoal             bool
-	PriorTask                 agent.PriorTaskContext
-	PrecomputedTurnDecision   *agent.TurnDecision
-	AmbientDuty               agent.AmbientDutyContext
-	CheckpointSender          agent.AgentCheckpointSender
+	PriorTask                 bluecollar.PriorTaskContext
+	PrecomputedTurnDecision   *bluecollar.TurnDecision
+	AmbientDuty               bluecollar.AmbientDutyContext
+	CheckpointSender          bluecollar.AgentCheckpointSender
 	AccessibleConversationIDs []string
 	IsBlockedContinuation     bool
 }
@@ -61,7 +61,7 @@ func (connectorRuntime *ConnectorRuntime) buildTaskLaunchRequest(turn Conversati
 		ConversationChannelName:    event.Context.ChannelName,
 		ReplyTargetID:              event.ReplyTargetID,
 		Prompt:                     event.Prompt,
-		InputParts:                 append([]agent.AgentPart{}, event.InputParts...),
+		InputParts:                 append([]bluecollar.AgentPart{}, event.InputParts...),
 		ResponseLanguage:           responseLanguageForEvent(event),
 		VisibleContext:             event.Context.ToAgentVisibleContext(),
 		ActiveGoal:                 activeGoalForLaunch(turn.ActiveGoal, turn.HasActiveGoal),
@@ -91,8 +91,8 @@ func existingGoalTaskRunIDFromTurn(turn ConversationTurn) string {
 	return ""
 }
 
-func (connectorRuntime *ConnectorRuntime) checkpointSenderForTurn(platform string, event PlatformInboundEvent, replyTarget ReplyTarget, sendReply func(context.Context, ReplyTarget, OutboundReply) (string, error)) agent.AgentCheckpointSender {
-	return func(checkpointContext context.Context, checkpoint agent.AgentCheckpoint) error {
+func (connectorRuntime *ConnectorRuntime) checkpointSenderForTurn(platform string, event PlatformInboundEvent, replyTarget ReplyTarget, sendReply func(context.Context, ReplyTarget, OutboundReply) (string, error)) bluecollar.AgentCheckpointSender {
+	return func(checkpointContext context.Context, checkpoint bluecollar.AgentCheckpoint) error {
 		return connectorRuntime.sendCheckpointReply(checkpointContext, platform, event, replyTarget, checkpoint, sendReply)
 	}
 }

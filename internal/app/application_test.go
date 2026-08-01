@@ -17,7 +17,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/agent"
+	"github.com/Dawn-kim-official/blueclaw/internal/bluecollar"
 	"github.com/Dawn-kim-official/blueclaw/internal/config"
 	"github.com/Dawn-kim-official/blueclaw/internal/connectors"
 	"github.com/Dawn-kim-official/blueclaw/internal/llm"
@@ -475,7 +475,7 @@ func TestMCPQuarantineLogsPreserveStructuredIdentity(t *testing.T) {
 		Name:   "workspace",
 		Reason: "server unavailable",
 	}}})
-	logMCPProviderQuarantine(logger, agent.QuarantinedToolProvider{
+	logMCPProviderQuarantine(logger, bluecollar.QuarantinedToolProvider{
 		ProviderID: "mcp:workspace",
 		Reason:     "tool name collision",
 	})

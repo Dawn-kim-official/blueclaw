@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/agent"
+	"github.com/Dawn-kim-official/blueclaw/internal/bluecollar"
 	"github.com/Dawn-kim-official/blueclaw/internal/task"
 )
 
@@ -12,12 +12,12 @@ func TestPendingApprovalActiveGoalIsActiveAndDirectsExecution(t *testing.T) {
 	approval := pendingApproval{
 		TaskRun:      task.TaskRun{TaskRunID: "task-1"},
 		IntentPrompt: "send Chris a DM",
-		ActiveGoal:   agent.ActiveGoal{CurrentObjective: "send Chris a calendar reminder DM"},
+		ActiveGoal:   bluecollar.ActiveGoal{CurrentObjective: "send Chris a calendar reminder DM"},
 	}
 
 	goal := pendingApprovalActiveGoal(approval, "approved")
 
-	if goal.Status != agent.ActiveGoalStatusActive {
+	if goal.Status != bluecollar.ActiveGoalStatusActive {
 		t.Fatalf("expected active goal status after approval, got %q", goal.Status)
 	}
 	if !strings.Contains(goal.CurrentObjective, "do not call ask.confirm again") {

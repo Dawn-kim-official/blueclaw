@@ -6,8 +6,8 @@ import (
 	"errors"
 	"strings"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/agent"
 	"github.com/Dawn-kim-official/blueclaw/internal/agentruntime"
+	"github.com/Dawn-kim-official/blueclaw/internal/bluecollar"
 	"github.com/Dawn-kim-official/blueclaw/internal/task"
 )
 
@@ -90,7 +90,7 @@ func (connectorRuntime *ConnectorRuntime) failUnresumedTaskWithoutReplyChannel(c
 		"reason": reason,
 		"detail": detail,
 	}))
-	connectorRuntime.agentKernel.CompleteLaunchFailure(ctx, agent.AgentTurnRequest{
+	connectorRuntime.agentKernel.CompleteLaunchFailure(ctx, bluecollar.AgentTurnRequest{
 		RequesterPersonID: taskRun.RequesterPersonID,
 		ExistingTaskRunID: taskRun.TaskRunID,
 		Prompt:            taskRun.Prompt,
@@ -98,7 +98,7 @@ func (connectorRuntime *ConnectorRuntime) failUnresumedTaskWithoutReplyChannel(c
 }
 
 func (connectorRuntime *ConnectorRuntime) completeInterruptedTaskResumeLaunchFailure(ctx context.Context, taskRun task.TaskRun, launchContext interruptedTaskLaunchContext, event PlatformInboundEvent, replyTarget ReplyTarget, adapter PlatformAdapter, sendReply func(context.Context, ReplyTarget, OutboundReply) (string, error), errorValue error) (ConnectorRuntimeResult, error) {
-	turnResult := connectorRuntime.agentKernel.CompleteLaunchFailure(ctx, agent.AgentTurnRequest{
+	turnResult := connectorRuntime.agentKernel.CompleteLaunchFailure(ctx, bluecollar.AgentTurnRequest{
 		RequesterPersonID:      taskRun.RequesterPersonID,
 		RequesterEmail:         connectorRuntime.identityService.ResolvePersonPrimaryEmail(taskRun.RequesterPersonID),
 		IsApprovalContinuation: true,
@@ -193,14 +193,14 @@ func interruptedTaskResumeEvent(taskRun task.TaskRun, launchContext interruptedT
 	}
 }
 
-func interruptedTaskActiveGoal(taskRun task.TaskRun, taskEvents []task.TaskEvent, guidanceNote string) agent.ActiveGoal {
+func interruptedTaskActiveGoal(taskRun task.TaskRun, taskEvents []task.TaskEvent, guidanceNote string) bluecollar.ActiveGoal {
 	activeGoal := latestActiveGoal(taskEvents)
 	activeGoal.GoalID = firstNonEmptyString(activeGoal.GoalID, taskRun.TaskRunID)
 	activeGoal.TaskRunID = firstNonEmptyString(activeGoal.TaskRunID, taskRun.TaskRunID)
 	activeGoal.OriginalInstruction = firstNonEmptyString(activeGoal.OriginalInstruction, taskRun.Prompt)
 	activeGoal.CurrentObjective = firstNonEmptyString(activeGoal.CurrentObjective, taskRun.Prompt)
 	activeGoal.KnownContext = append(activeGoal.KnownContext, guidanceNote)
-	activeGoal.Status = agent.ActiveGoalStatusActive
+	activeGoal.Status = bluecollar.ActiveGoalStatusActive
 	return activeGoal
 }
 
@@ -223,11 +223,11 @@ func userSteerTaskProfile(platform string, taskRunID string) taskResumeProfile {
 	}
 }
 
-func interruptedTaskTurnDecision(taskEvents []task.TaskEvent, responseLanguage string) *agent.TurnDecision {
-	decision := agent.TurnDecision{
-		Route:            agent.TurnRouteContinueTask,
-		Classification:   agent.IntakeClassificationBoundedTask,
-		TaskShape:        agent.TaskShapeMaintenanceTask,
+func interruptedTaskTurnDecision(taskEvents []task.TaskEvent, responseLanguage string) *bluecollar.TurnDecision {
+	decision := bluecollar.TurnDecision{
+		Route:            bluecollar.TurnRouteContinueTask,
+		Classification:   bluecollar.IntakeClassificationBoundedTask,
+		TaskShape:        bluecollar.TaskShapeMaintenanceTask,
 		ResponseLanguage: responseLanguage,
 		Reason:           "runtime_restart_auto_resume",
 	}.WithRestoredIntakeState(latestIntakeDecision(taskEvents))
@@ -235,8 +235,8 @@ func interruptedTaskTurnDecision(taskEvents []task.TaskEvent, responseLanguage s
 	return &decision
 }
 
-func highestRecordedTaskLevel(taskEvents []task.TaskEvent) agent.TaskLevel {
-	taskLevel := agent.TaskLevelLow
+func highestRecordedTaskLevel(taskEvents []task.TaskEvent) bluecollar.TaskLevel {
+	taskLevel := bluecollar.TaskLevelLow
 	for _, taskEvent := range taskEvents {
 		var body struct {
 			Level          string `json:"level"`
@@ -251,7 +251,7 @@ func highestRecordedTaskLevel(taskEvents []task.TaskEvent) agent.TaskLevel {
 				continue
 			}
 			for _, recordedLevel := range []string{body.Level, body.NewTaskLevel, body.EffortLevel, body.NewEffortLevel, body.TaskComplexity} {
-				taskLevel = agent.LargerTaskLevel(taskLevel, agent.NormalizeTaskLevel(recordedLevel))
+				taskLevel = bluecollar.LargerTaskLevel(taskLevel, bluecollar.NormalizeTaskLevel(recordedLevel))
 			}
 		}
 	}

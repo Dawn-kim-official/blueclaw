@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/agent"
+	"github.com/Dawn-kim-official/blueclaw/internal/bluecollar"
 	"github.com/Dawn-kim-official/blueclaw/internal/capability"
 	"github.com/Dawn-kim-official/blueclaw/internal/task"
 )
@@ -26,9 +26,9 @@ func TestScheduleCreateToolStoresCurrentReplyTarget(t *testing.T) {
 		ReplyTargetID:     "reply-target-1",
 	})
 
-	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+	result, errorValue := toolRegistry.Invoke(context.Background(), bluecollar.ToolInvocation{
 		ToolName: "schedule.create",
-		Input: agent.MarshalToolInput(map[string]any{
+		Input: bluecollar.MarshalToolInput(map[string]any{
 			"name":            "daily research",
 			"taskInstruction": "research the important industry news and tell me.",
 			"kind":            "cron",
@@ -127,9 +127,9 @@ func TestScheduleListToolRequiresRequesterPersonID(t *testing.T) {
 	repository := &memoryTaskScheduleRepository{}
 	toolRegistry := newScheduleListTestRegistry(repository, "")
 
-	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+	result, errorValue := toolRegistry.Invoke(context.Background(), bluecollar.ToolInvocation{
 		ToolName: "schedule.list",
-		Input:    agent.MarshalToolInput(map[string]any{}),
+		Input:    bluecollar.MarshalToolInput(map[string]any{}),
 	})
 
 	if errorValue != nil {
@@ -181,9 +181,9 @@ func TestScheduleCreateRejectsLegacyPromptAndUnknownFields(t *testing.T) {
 		ReplyTargetID:     "reply-1",
 	})
 
-	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+	result, errorValue := toolRegistry.Invoke(context.Background(), bluecollar.ToolInvocation{
 		ToolName: "schedule.create",
-		Input: agent.MarshalToolInput(map[string]any{
+		Input: bluecollar.MarshalToolInput(map[string]any{
 			"prompt":         "legacy prompt",
 			"kind":           "interval",
 			"intervalSecond": 60,
@@ -211,9 +211,9 @@ func TestScheduleCreateRejectsUnknownKindWithoutInference(t *testing.T) {
 		ReplyTargetID:     "reply-1",
 	})
 
-	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+	result, errorValue := toolRegistry.Invoke(context.Background(), bluecollar.ToolInvocation{
 		ToolName: "schedule.create",
-		Input: agent.MarshalToolInput(map[string]any{
+		Input: bluecollar.MarshalToolInput(map[string]any{
 			"taskInstruction": "inspect the status",
 			"kind":            "unexpected",
 			"cronExpression":  "0 9 * * *",
@@ -243,9 +243,9 @@ func TestScheduleUpdateRejectsNonExactScheduleID(t *testing.T) {
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"schedule.update"})
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default", RequesterPersonID: "person-1"})
 
-	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+	result, errorValue := toolRegistry.Invoke(context.Background(), bluecollar.ToolInvocation{
 		ToolName: "schedule.update",
-		Input: agent.MarshalToolInput(map[string]any{
+		Input: bluecollar.MarshalToolInput(map[string]any{
 			"scheduleID": " schedule-owned ",
 			"name":       "changed",
 		}),
@@ -273,9 +273,9 @@ func TestScheduleUpdateRequiresAChange(t *testing.T) {
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"schedule.update"})
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default", RequesterPersonID: "person-1"})
 
-	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+	result, errorValue := toolRegistry.Invoke(context.Background(), bluecollar.ToolInvocation{
 		ToolName: "schedule.update",
-		Input:    agent.MarshalToolInput(map[string]any{"scheduleID": "schedule-owned"}),
+		Input:    bluecollar.MarshalToolInput(map[string]any{"scheduleID": "schedule-owned"}),
 	})
 	if errorValue != nil {
 		t.Fatal(errorValue)
@@ -292,9 +292,9 @@ func TestScheduleCancelRejectsUnknownScopeWithoutMutation(t *testing.T) {
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"schedule.cancel"})
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default", RequesterPersonID: "person-1"})
 
-	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+	result, errorValue := toolRegistry.Invoke(context.Background(), bluecollar.ToolInvocation{
 		ToolName: "schedule.cancel",
-		Input:    agent.MarshalToolInput(map[string]any{"scope": "unknown"}),
+		Input:    bluecollar.MarshalToolInput(map[string]any{"scope": "unknown"}),
 	})
 	if errorValue != nil {
 		t.Fatal(errorValue)
@@ -317,9 +317,9 @@ func TestScheduleCreateToolStoresTaskInstructionAsAgentTask(t *testing.T) {
 		ReplyTargetID:     "reply-target-1",
 	})
 
-	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+	result, errorValue := toolRegistry.Invoke(context.Background(), bluecollar.ToolInvocation{
 		ToolName: "schedule.create",
-		Input: agent.MarshalToolInput(map[string]any{
+		Input: bluecollar.MarshalToolInput(map[string]any{
 			"taskInstruction": "say sorry.",
 			"kind":            "interval",
 			"intervalSecond":  60,
@@ -365,9 +365,9 @@ func TestScheduleCreateToolRejectsBoundedRepeatWithoutFiniteBound(t *testing.T) 
 		ReplyTargetID:     "reply-target-1",
 	})
 
-	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+	result, errorValue := toolRegistry.Invoke(context.Background(), bluecollar.ToolInvocation{
 		ToolName: "schedule.create",
-		Input: agent.MarshalToolInput(map[string]any{
+		Input: bluecollar.MarshalToolInput(map[string]any{
 			"taskInstruction": "write one line of song lyrics and send it as a DM.",
 			"kind":            "interval",
 			"intervalSecond":  3600,
@@ -402,9 +402,9 @@ func TestScheduleCreateToolStoresExpiresAtForBoundedRepeat(t *testing.T) {
 		ReplyTargetID:     "reply-target-1",
 	})
 
-	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+	result, errorValue := toolRegistry.Invoke(context.Background(), bluecollar.ToolInvocation{
 		ToolName: "schedule.create",
-		Input: agent.MarshalToolInput(map[string]any{
+		Input: bluecollar.MarshalToolInput(map[string]any{
 			"taskInstruction": "write one line of song lyrics and send it as a DM.",
 			"kind":            "interval",
 			"intervalSecond":  3600,
@@ -433,7 +433,7 @@ func TestScheduledToolSetKeepsOnlyAskInputAvailable(t *testing.T) {
 	toolCatalogBuilder.UseTestCapabilityToolDescriptors(capability.Client{}, []CapabilityToolDescriptor{{
 		Name:            "user.confirm",
 		Description:     "Ask the user to confirm",
-		ModelVisibility: agent.ToolVisibilityInternal,
+		ModelVisibility: bluecollar.ToolVisibilityInternal,
 	}})
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"ask.input", "ask.confirm", "user.confirm", "schedule.create"})
 
@@ -488,9 +488,9 @@ func TestScheduleCancelToolCancelsRequesterSchedules(t *testing.T) {
 		ConversationID:    "channel-1",
 	})
 
-	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+	result, errorValue := toolRegistry.Invoke(context.Background(), bluecollar.ToolInvocation{
 		ToolName: "schedule.cancel",
-		Input: agent.MarshalToolInput(map[string]any{
+		Input: bluecollar.MarshalToolInput(map[string]any{
 			"scope": "mine",
 		}),
 	})
@@ -556,9 +556,9 @@ func TestScheduleCancelToolCancelsCurrentConversationDeliverySchedules(t *testin
 		ConversationID:    "dm-recipient",
 	})
 
-	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+	result, errorValue := toolRegistry.Invoke(context.Background(), bluecollar.ToolInvocation{
 		ToolName: "schedule.cancel",
-		Input: agent.MarshalToolInput(map[string]any{
+		Input: bluecollar.MarshalToolInput(map[string]any{
 			"scope": "currentConversation",
 		}),
 	})
@@ -599,9 +599,9 @@ func TestScheduleCancelToolFailsWhenNothingMatched(t *testing.T) {
 		ConversationID:    "dm-1",
 	})
 
-	result, errorValue := toolRegistry.Invoke(agent.WithTaskRunID(context.Background(), taskRun.TaskRunID), agent.ToolInvocation{
+	result, errorValue := toolRegistry.Invoke(bluecollar.WithTaskRunID(context.Background(), taskRun.TaskRunID), bluecollar.ToolInvocation{
 		ToolName: "schedule.cancel",
-		Input: agent.MarshalToolInput(map[string]any{
+		Input: bluecollar.MarshalToolInput(map[string]any{
 			"scope": "currentConversation",
 		}),
 	})
@@ -609,7 +609,7 @@ func TestScheduleCancelToolFailsWhenNothingMatched(t *testing.T) {
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
-	if !result.Failed() || result.FailureCode() != agent.FailureCodes.NotFound.String() {
+	if !result.Failed() || result.FailureCode() != bluecollar.FailureCodes.NotFound.String() {
 		t.Fatalf("expected not found failure, got %s", result.ContentText())
 	}
 	if !strings.Contains(string(result.Output.Data), `"effectiveCancellationCount":0`) {
@@ -642,9 +642,9 @@ func TestScheduleUpdateToolUpdatesIntervalSchedule(t *testing.T) {
 		RequesterPersonID: "person-1",
 	})
 
-	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+	result, errorValue := toolRegistry.Invoke(context.Background(), bluecollar.ToolInvocation{
 		ToolName: "schedule.update",
-		Input: agent.MarshalToolInput(map[string]any{
+		Input: bluecollar.MarshalToolInput(map[string]any{
 			"scheduleID":     "schedule-owned",
 			"intervalSecond": 3600,
 			"maxRunCount":    5,
@@ -693,9 +693,9 @@ func TestScheduleUpdateToolUpdatesOneOffRunAt(t *testing.T) {
 		RequesterPersonID: "person-1",
 	})
 
-	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+	result, errorValue := toolRegistry.Invoke(context.Background(), bluecollar.ToolInvocation{
 		ToolName: "schedule.update",
-		Input: agent.MarshalToolInput(map[string]any{
+		Input: bluecollar.MarshalToolInput(map[string]any{
 			"scheduleID": "schedule-owned",
 			"kind":       "once",
 			"runAt":      runAt.Format(time.RFC3339),
@@ -732,9 +732,9 @@ func TestScheduleUpdateToolFailsForNonexistentID(t *testing.T) {
 		RequesterPersonID: "person-1",
 	})
 
-	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+	result, errorValue := toolRegistry.Invoke(context.Background(), bluecollar.ToolInvocation{
 		ToolName: "schedule.update",
-		Input: agent.MarshalToolInput(map[string]any{
+		Input: bluecollar.MarshalToolInput(map[string]any{
 			"scheduleID":     "schedule-missing",
 			"intervalSecond": 3600,
 			"maxRunCount":    5,
@@ -745,7 +745,7 @@ func TestScheduleUpdateToolFailsForNonexistentID(t *testing.T) {
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
-	if !result.Failed() || result.FailureCode() != agent.FailureCodes.NotFound.String() {
+	if !result.Failed() || result.FailureCode() != bluecollar.FailureCodes.NotFound.String() {
 		t.Fatalf("expected not found failure, got %s", result.ContentText())
 	}
 }
@@ -772,9 +772,9 @@ func TestScheduleUpdateToolFailsForWrongOwnerID(t *testing.T) {
 		RequesterPersonID: "person-1",
 	})
 
-	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+	result, errorValue := toolRegistry.Invoke(context.Background(), bluecollar.ToolInvocation{
 		ToolName: "schedule.update",
-		Input: agent.MarshalToolInput(map[string]any{
+		Input: bluecollar.MarshalToolInput(map[string]any{
 			"scheduleID":     "schedule-other",
 			"intervalSecond": 3600,
 			"maxRunCount":    5,
@@ -785,7 +785,7 @@ func TestScheduleUpdateToolFailsForWrongOwnerID(t *testing.T) {
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
-	if !result.Failed() || result.FailureCode() != agent.FailureCodes.NotFound.String() {
+	if !result.Failed() || result.FailureCode() != bluecollar.FailureCodes.NotFound.String() {
 		t.Fatalf("expected not found failure, got %s", result.ContentText())
 	}
 	if repository.taskSchedules[0].IntervalSecond != 1800 || repository.taskSchedules[0].MaxRunCount != 3 {
@@ -807,9 +807,9 @@ func TestScheduleCreateToolRejectsIntervalWithoutExplicitCadence(t *testing.T) {
 		ReplyTargetID:     "reply-target-1",
 	})
 
-	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+	result, errorValue := toolRegistry.Invoke(context.Background(), bluecollar.ToolInvocation{
 		ToolName: "schedule.create",
-		Input: agent.MarshalToolInput(map[string]any{
+		Input: bluecollar.MarshalToolInput(map[string]any{
 			"taskInstruction": "1say that the minutes have passed.",
 			"kind":            "interval",
 			"timeZone":        "Asia/Seoul",
@@ -843,9 +843,9 @@ func TestScheduleCreateToolStoresMaxRunCount(t *testing.T) {
 		ReplyTargetID:     "reply-target-1",
 	})
 
-	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+	result, errorValue := toolRegistry.Invoke(context.Background(), bluecollar.ToolInvocation{
 		ToolName: "schedule.create",
-		Input: agent.MarshalToolInput(map[string]any{
+		Input: bluecollar.MarshalToolInput(map[string]any{
 			"taskInstruction": "say sorry.",
 			"kind":            "interval",
 			"intervalSecond":  60,
@@ -886,9 +886,9 @@ func TestScheduleCreateToolSeparatesRepeatFieldsFromTaskInstruction(t *testing.T
 		ReplyTargetID:     "reply-target-1",
 	})
 
-	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+	result, errorValue := toolRegistry.Invoke(context.Background(), bluecollar.ToolInvocation{
 		ToolName: "schedule.create",
-		Input: agent.MarshalToolInput(map[string]any{
+		Input: bluecollar.MarshalToolInput(map[string]any{
 			"taskInstruction": "send \"hello\" to Wendy.",
 			"kind":            "interval",
 			"intervalSecond":  60,
@@ -948,9 +948,9 @@ func TestScheduleCancelToolCancelsActiveScheduledTaskRuns(t *testing.T) {
 		ReplyTargetID:     "reply-target-1",
 	})
 
-	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+	result, errorValue := toolRegistry.Invoke(context.Background(), bluecollar.ToolInvocation{
 		ToolName: "schedule.cancel",
-		Input:    agent.MarshalToolInput(map[string]any{"scope": "mine"}),
+		Input:    bluecollar.MarshalToolInput(map[string]any{"scope": "mine"}),
 	})
 
 	if errorValue != nil {
@@ -976,9 +976,9 @@ func TestScheduleCreateToolRejectsMissingReplyTarget(t *testing.T) {
 		ConversationID:    "channel-1",
 	})
 
-	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+	result, errorValue := toolRegistry.Invoke(context.Background(), bluecollar.ToolInvocation{
 		ToolName: "schedule.create",
-		Input: agent.MarshalToolInput(map[string]any{
+		Input: bluecollar.MarshalToolInput(map[string]any{
 			"taskInstruction": "check today's schedule and brief me.",
 			"kind":            "cron",
 			"cronExpression":  "0 7 * * *",
@@ -1018,7 +1018,7 @@ func TestScheduleCreateExecutorRejectsScheduledRunContext(t *testing.T) {
 	}
 }
 
-func newScheduleListTestRegistry(repository *memoryTaskScheduleRepository, requesterPersonID string) *agent.ToolSet {
+func newScheduleListTestRegistry(repository *memoryTaskScheduleRepository, requesterPersonID string) *bluecollar.ToolSet {
 	toolCatalogBuilder := NewToolCatalogBuilder()
 	toolCatalogBuilder.UseTaskScheduleRepository(repository)
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"schedule.list"})
@@ -1028,11 +1028,11 @@ func newScheduleListTestRegistry(repository *memoryTaskScheduleRepository, reque
 	})
 }
 
-func invokeScheduleList(t *testing.T, toolRegistry *agent.ToolSet, input map[string]any) scheduleListToolOutput {
+func invokeScheduleList(t *testing.T, toolRegistry *bluecollar.ToolSet, input map[string]any) scheduleListToolOutput {
 	t.Helper()
-	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+	result, errorValue := toolRegistry.Invoke(context.Background(), bluecollar.ToolInvocation{
 		ToolName: "schedule.list",
-		Input:    agent.MarshalToolInput(input),
+		Input:    bluecollar.MarshalToolInput(input),
 	})
 	if errorValue != nil {
 		t.Fatal(errorValue)

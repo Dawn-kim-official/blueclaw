@@ -12,7 +12,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/agent"
+	"github.com/Dawn-kim-official/blueclaw/internal/bluecollar"
 	"github.com/Dawn-kim-official/blueclaw/internal/capability"
 	"github.com/Dawn-kim-official/blueclaw/internal/config"
 	"github.com/Dawn-kim-official/blueclaw/internal/llm"
@@ -26,7 +26,7 @@ import (
 
 func TestTaskLauncherCreatesAuditedAgentRun(t *testing.T) {
 	taskEventService := task.NewTaskEventService()
-	agentKernel := agent.NewAgentKernel(task.NewTaskRunService(taskEventService), task.NewTaskStepService())
+	agentKernel := bluecollar.NewAgentKernel(task.NewTaskRunService(taskEventService), task.NewTaskStepService())
 	useRuntimeTestLanguageModel(agentKernel, runtimeFinishMessage("done"))
 	pinnedMemoryStore := memory.NewMarkdownStore(t.TempDir(), 1200)
 	if _, errorValue := pinnedMemoryStore.MergePersonMemory(context.Background(), "person-1", "사용자는 발표자료 생성을 자주 요청한다."); errorValue != nil {
@@ -78,10 +78,10 @@ func TestTaskLauncherCreatesAuditedAgentRun(t *testing.T) {
 
 func TestTaskLauncherPersistsAuthoritativeRouterFailure(t *testing.T) {
 	taskEventService := task.NewTaskEventService()
-	agentKernel := agent.NewAgentKernel(task.NewTaskRunService(taskEventService), task.NewTaskStepService())
+	agentKernel := bluecollar.NewAgentKernel(task.NewTaskRunService(taskEventService), task.NewTaskStepService())
 	agentKernel.UseLanguageModelProvider(authoredRuntimeFailureLanguageModel{reply: "요청을 분류하지 못해 작업을 시작하지 못했습니다. 다시 요청해 주세요."})
 	agentKernel.UseIntakeLanguageModelProvider(failingRuntimeRouterLanguageModel{errorValue: errors.New("router unavailable")})
-	agentKernel.UseIntakeOptions(agent.IntakeOptions{IsEnabled: true})
+	agentKernel.UseIntakeOptions(bluecollar.IntakeOptions{IsEnabled: true})
 
 	launchResult, errorValue := NewTaskLauncher(agentKernel, NewToolCatalogBuilder()).Launch(context.Background(), TaskLaunchRequest{
 		Source:            TaskLaunchSourceAdmin,
@@ -107,7 +107,7 @@ func TestTaskLauncherPersistsAuthoritativeRouterFailure(t *testing.T) {
 
 func TestTaskLauncherAuditsPlatformMessageRegistryFingerprint(t *testing.T) {
 	taskEventService := task.NewTaskEventService()
-	agentKernel := agent.NewAgentKernel(task.NewTaskRunService(taskEventService), task.NewTaskStepService())
+	agentKernel := bluecollar.NewAgentKernel(task.NewTaskRunService(taskEventService), task.NewTaskStepService())
 	useRuntimeTestLanguageModel(agentKernel, runtimeFinishMessage("done"))
 	toolCatalogBuilder := NewToolCatalogBuilder()
 	toolCatalogBuilder.UseTestCapabilityToolDescriptors(capability.Client{
@@ -156,7 +156,7 @@ func TestTaskLauncherAuditsPlatformMessageRegistryFingerprint(t *testing.T) {
 
 func TestTaskLauncherAuditsPlatformMessageSchemaSkewWithoutBlocking(t *testing.T) {
 	taskEventService := task.NewTaskEventService()
-	agentKernel := agent.NewAgentKernel(task.NewTaskRunService(taskEventService), task.NewTaskStepService())
+	agentKernel := bluecollar.NewAgentKernel(task.NewTaskRunService(taskEventService), task.NewTaskStepService())
 	useRuntimeTestLanguageModel(agentKernel, runtimeFinishMessage("done"))
 	toolCatalogBuilder := NewToolCatalogBuilder()
 	toolCatalogBuilder.UseTestCapabilityToolDescriptors(capability.Client{
@@ -207,7 +207,7 @@ func TestPlatformMessageDescriptorHashIncludesInputIntentSchema(t *testing.T) {
 
 func TestTaskLauncherRejectsStaleMessageToolRegistryBeforeModelCall(t *testing.T) {
 	taskEventService := task.NewTaskEventService()
-	agentKernel := agent.NewAgentKernel(task.NewTaskRunService(taskEventService), task.NewTaskStepService())
+	agentKernel := bluecollar.NewAgentKernel(task.NewTaskRunService(taskEventService), task.NewTaskStepService())
 	useRuntimeTestLanguageModel(agentKernel, runtimeFinishMessage("should not run"))
 	toolCatalogBuilder := NewToolCatalogBuilder()
 	toolCatalogBuilder.UseTestCapabilityToolDescriptors(capability.Client{
@@ -266,7 +266,7 @@ func TestTaskLauncherAddsStaffToRequesterAccess(t *testing.T) {
 
 func TestTaskLauncherProvisionsRequesterWorkspaceBeforeToolSet(t *testing.T) {
 	taskEventService := task.NewTaskEventService()
-	agentKernel := agent.NewAgentKernel(task.NewTaskRunService(taskEventService), task.NewTaskStepService())
+	agentKernel := bluecollar.NewAgentKernel(task.NewTaskRunService(taskEventService), task.NewTaskStepService())
 	useRuntimeTestLanguageModel(agentKernel, runtimeFinishMessage("done"))
 	workspacePath := t.TempDir()
 	requesterHomePath := filepath.Join(workspacePath, "private", "people", "person-1")
@@ -333,7 +333,7 @@ func TestTaskLauncherProvisionsRequesterWorkspaceBeforeToolSet(t *testing.T) {
 
 func TestTaskLauncherAuditsPinnedMemoryFailureAndRunsWithoutMemory(t *testing.T) {
 	taskEventService := task.NewTaskEventService()
-	agentKernel := agent.NewAgentKernel(task.NewTaskRunService(taskEventService), task.NewTaskStepService())
+	agentKernel := bluecollar.NewAgentKernel(task.NewTaskRunService(taskEventService), task.NewTaskStepService())
 	useRuntimeTestLanguageModel(agentKernel, runtimeFinishMessage("done"))
 	rootPath := t.TempDir()
 	if errorValue := os.WriteFile(filepath.Join(rootPath, "people"), []byte("not a directory"), 0600); errorValue != nil {
@@ -399,7 +399,7 @@ func TestToolCatalogHidesHistoryAndQuarantinedMCPTools(t *testing.T) {
 		t.Fatalf("expected blocked MCP tool to be hidden, got %+v", toolNames)
 	}
 
-	toolResult, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{ToolName: "blocked.tool", Input: json.RawMessage(`{}`)})
+	toolResult, errorValue := toolRegistry.Invoke(context.Background(), bluecollar.ToolInvocation{ToolName: "blocked.tool", Input: json.RawMessage(`{}`)})
 	if errorValue != nil {
 		t.Fatalf("expected denied tool as result: %v", errorValue)
 	}
@@ -442,7 +442,7 @@ func TestInteractiveBrowserCapabilityUsesCompanion(t *testing.T) {
 		Platform:                "mattermost",
 	})
 
-	toolResult, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+	toolResult, errorValue := toolRegistry.Invoke(context.Background(), bluecollar.ToolInvocation{
 		ToolName: "browser.open",
 		Input:    json.RawMessage(`{"url":"https://example.com"}`),
 	})
@@ -482,7 +482,7 @@ func TestPublicBrowserCapabilityWithRequesterUsesCompanion(t *testing.T) {
 		Platform:                "mattermost",
 	})
 
-	toolResult, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+	toolResult, errorValue := toolRegistry.Invoke(context.Background(), bluecollar.ToolInvocation{
 		ToolName: "browser.open",
 		Input:    json.RawMessage(`{"url":"https://example.com"}`),
 	})
@@ -515,7 +515,7 @@ func TestPrivateBrowserCapabilityUsesCompanion(t *testing.T) {
 	}, nil)
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
 
-	toolResult, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+	toolResult, errorValue := toolRegistry.Invoke(context.Background(), bluecollar.ToolInvocation{
 		ToolName: "browser.open",
 		Input:    json.RawMessage(`{"url":"http://127.0.0.1:3000"}`),
 	})
@@ -549,13 +549,13 @@ func TestBrowserFollowUpWithSensitiveVisibleContextUsesCompanion(t *testing.T) {
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
 		ProfileName: "default",
 		Prompt:      "다시 열어봐",
-		VisibleContext: agent.VisibleContext{Messages: []agent.VisibleContextMessage{
+		VisibleContext: bluecollar.VisibleContext{Messages: []bluecollar.VisibleContextMessage{
 			{Speaker: "사용자", Text: "구글 클라우드 콘솔에서 credential.json 받는 거 도와줘"},
 			{Speaker: "김인턴", Text: "Companion 브라우저 연결이 필요합니다."},
 		}},
 	})
 
-	toolResult, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+	toolResult, errorValue := toolRegistry.Invoke(context.Background(), bluecollar.ToolInvocation{
 		ToolName: "browser.open",
 		Input:    json.RawMessage(`{"url":"https://console.cloud.google.com/"}`),
 	})
@@ -591,7 +591,7 @@ func TestCapabilityDenialPreservesRecoveryAction(t *testing.T) {
 		Prompt:      "브라우저 열어줘",
 	})
 
-	toolResult, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+	toolResult, errorValue := toolRegistry.Invoke(context.Background(), bluecollar.ToolInvocation{
 		ToolName: "browser.open",
 		Input:    json.RawMessage(`{"url":"https://example.com"}`),
 	})
@@ -620,7 +620,7 @@ func TestPublicBrowserCapabilityUsesCompanion(t *testing.T) {
 	}, nil)
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
 
-	toolResult, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+	toolResult, errorValue := toolRegistry.Invoke(context.Background(), bluecollar.ToolInvocation{
 		ToolName: "browser.open",
 		Input:    json.RawMessage(`{"url":"https://example.com"}`),
 	})
@@ -652,7 +652,7 @@ func TestCapabilityDescriptorAppearsInToolSetAndInvokesBridge(t *testing.T) {
 		InputSchema:      json.RawMessage(`{"type":"object","properties":{"url":{"type":"string"}},"required":["url"],"additionalProperties":false}`),
 		OutputSchema:     json.RawMessage(`{"type":"object","properties":{"status":{"type":"string"}},"additionalProperties":false}`),
 		PolicyResource:   "tool:browser.open",
-		SideEffectClass:  agent.ToolSideEffectConnect,
+		SideEffectClass:  bluecollar.ToolSideEffectConnect,
 		RequiresApproval: true,
 	}})
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(map[string][]string{
@@ -669,7 +669,7 @@ func TestCapabilityDescriptorAppearsInToolSetAndInvokesBridge(t *testing.T) {
 		t.Fatalf("expected descriptor schema in the action schema, got %s", actionSchema)
 	}
 
-	toolResult, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+	toolResult, errorValue := toolRegistry.Invoke(context.Background(), bluecollar.ToolInvocation{
 		ToolName: "browser.open",
 		Input:    json.RawMessage(`{"url":"https://example.com"}`),
 	})
@@ -702,7 +702,7 @@ func TestCapabilityToolExecutionUsesResourceAccess(t *testing.T) {
 			ResourceAccessRules: resourceAccessRules,
 		},
 	})
-	staffResult, errorValue := staffToolSet.Invoke(context.Background(), agent.ToolInvocation{
+	staffResult, errorValue := staffToolSet.Invoke(context.Background(), bluecollar.ToolInvocation{
 		ToolName: "company.broadcast.send",
 		Input:    json.RawMessage(`{"message":"hello"}`),
 	})
@@ -727,7 +727,7 @@ func TestCapabilityToolExecutionUsesResourceAccess(t *testing.T) {
 			ResourceAccessRules: resourceAccessRules,
 		},
 	})
-	representativeResult, errorValue := representativeToolSet.Invoke(context.Background(), agent.ToolInvocation{
+	representativeResult, errorValue := representativeToolSet.Invoke(context.Background(), bluecollar.ToolInvocation{
 		ToolName: "company.broadcast.send",
 		Input:    json.RawMessage(`{"message":"hello"}`),
 	})
@@ -762,7 +762,7 @@ func TestFlowTaskAddToolRequiresStaffCircle(t *testing.T) {
 			ResourceAccessRules: resourceAccessRules,
 		},
 	})
-	guestResult, errorValue := guestToolSet.Invoke(context.Background(), agent.ToolInvocation{
+	guestResult, errorValue := guestToolSet.Invoke(context.Background(), bluecollar.ToolInvocation{
 		ToolName: "task.add",
 		Input:    json.RawMessage(`{"title":"10분 회의"}`),
 	})
@@ -784,7 +784,7 @@ func TestFlowTaskAddToolRequiresStaffCircle(t *testing.T) {
 			ResourceAccessRules: resourceAccessRules,
 		},
 	})
-	staffResult, errorValue := staffToolSet.Invoke(context.Background(), agent.ToolInvocation{
+	staffResult, errorValue := staffToolSet.Invoke(context.Background(), bluecollar.ToolInvocation{
 		ToolName: "task.add",
 		Input:    json.RawMessage(`{"title":"10분 회의"}`),
 	})
@@ -910,11 +910,11 @@ func (languageModel staticRuntimeLanguageModel) GenerateStructuredResponse(_ con
 	return llm.StructuredResponse{Content: languageModel.content}, nil
 }
 
-func useRuntimeTestLanguageModel(agentKernel *agent.AgentKernel, content string) {
+func useRuntimeTestLanguageModel(agentKernel *bluecollar.AgentKernel, content string) {
 	languageModel := staticRuntimeLanguageModel{content: content}
 	agentKernel.UseLanguageModelProvider(languageModel)
 	agentKernel.UseIntakeLanguageModelProvider(languageModel)
-	agentKernel.UseIntakeOptions(agent.IntakeOptions{IsEnabled: true})
+	agentKernel.UseIntakeOptions(bluecollar.IntakeOptions{IsEnabled: true})
 }
 
 func runtimeTestTurnRouterResponse() string {
@@ -923,8 +923,8 @@ func runtimeTestTurnRouterResponse() string {
 
 type staticHistoryProvider struct{}
 
-func (historyProvider staticHistoryProvider) FetchHistory(context.Context, string, int) (agent.VisibleContext, error) {
-	return agent.VisibleContext{}, nil
+func (historyProvider staticHistoryProvider) FetchHistory(context.Context, string, int) (bluecollar.VisibleContext, error) {
+	return bluecollar.VisibleContext{}, nil
 }
 
 type recordingRequesterWorkspaceProvisioner struct {

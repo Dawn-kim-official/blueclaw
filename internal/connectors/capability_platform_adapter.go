@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/agent"
+	"github.com/Dawn-kim-official/blueclaw/internal/bluecollar"
 	"github.com/Dawn-kim-official/blueclaw/internal/capability"
 	"github.com/Dawn-kim-official/blueclaw/internal/identity"
 )
@@ -43,8 +43,8 @@ type capabilityReplyRequest struct {
 	RawEventID      string                      `json:"rawEventID,omitempty"`
 	OutboxID        string                      `json:"outboxID,omitempty"`
 	Attachments     []capabilityReplyAttachment `json:"attachments,omitempty"`
-	RecoveryActions []agent.RecoveryAction      `json:"recoveryActions,omitempty"`
-	FailureNotice   agent.FailureNotice         `json:"failureNotice,omitempty"`
+	RecoveryActions []bluecollar.RecoveryAction `json:"recoveryActions,omitempty"`
+	FailureNotice   bluecollar.FailureNotice    `json:"failureNotice,omitempty"`
 	Interaction     *AskInteraction             `json:"interaction,omitempty"`
 }
 
@@ -164,7 +164,7 @@ func (adapter CapabilityPlatformAdapter) ResolveInteraction(ctx context.Context,
 	}, nil)
 }
 
-func buildCapabilityReplyAttachments(attachments []agent.FileAttachment) []capabilityReplyAttachment {
+func buildCapabilityReplyAttachments(attachments []bluecollar.FileAttachment) []capabilityReplyAttachment {
 	replyAttachments := []capabilityReplyAttachment{}
 	for _, attachment := range attachments {
 		replyAttachments = append(replyAttachments, capabilityReplyAttachment{

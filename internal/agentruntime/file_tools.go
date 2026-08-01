@@ -11,7 +11,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/agent"
+	"github.com/Dawn-kim-official/blueclaw/internal/bluecollar"
 	"github.com/Dawn-kim-official/blueclaw/internal/security"
 )
 
@@ -75,12 +75,12 @@ type fileAttachFileInput struct {
 	Title       string `json:"title"`
 }
 
-func (toolCatalogBuilder *ToolCatalogBuilder) registerFileTools(toolRegistry *agent.ToolSet, handlerContext toolHandlerContext) {
-	agent.RegisterToolFunction(toolRegistry, agent.ToolFunction[fileWriteToolInput, agent.ToolResult]{
-		Definition: agent.ToolDefinition{
+func (toolCatalogBuilder *ToolCatalogBuilder) registerFileTools(toolRegistry *bluecollar.ToolSet, handlerContext toolHandlerContext) {
+	bluecollar.RegisterToolFunction(toolRegistry, bluecollar.ToolFunction[fileWriteToolInput, bluecollar.ToolResult]{
+		Definition: bluecollar.ToolDefinition{
 			Name:        "file.write",
 			Description: "Overwrite one UTF-8 text file under the Blueclaw workspace. Treat content as the complete file body, like terminal redirection to a file: include the text exactly as it should appear in the file, with real line breaks for multiline source.",
-			RecoveryCard: agent.ToolRecoveryCard{
+			RecoveryCard: bluecollar.ToolRecoveryCard{
 				Does:       "Overwrites one workspace text file with the exact content string.",
 				Produces:   "A written source, document, script, or config file at the requested path.",
 				SideEffect: "workspace_write",
@@ -89,16 +89,16 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerFileTools(toolRegistry *ag
 			},
 			InputSchema: json.RawMessage(`{"type":"object","properties":{"path":{"type":"string","description":"Workspace path to create or overwrite."},"content":{"type":"string","description":"Complete file body as plain UTF-8 text. Use real line breaks for multiline files; this is the text that will be written exactly."}},"required":["path","content"],"additionalProperties":false}`),
 		},
-		Handler: func(toolContext context.Context, input fileWriteToolInput) (agent.ToolResult, error) {
+		Handler: func(toolContext context.Context, input fileWriteToolInput) (bluecollar.ToolResult, error) {
 			return toolCatalogBuilder.writeFileTool(toolContext, input, handlerContext)
 		},
-		Result: agent.IdentityToolResult,
+		Result: bluecollar.IdentityToolResult,
 	})
-	agent.RegisterToolFunction(toolRegistry, agent.ToolFunction[fileReadToolInput, agent.ToolResult]{
-		Definition: agent.ToolDefinition{
+	bluecollar.RegisterToolFunction(toolRegistry, bluecollar.ToolFunction[fileReadToolInput, bluecollar.ToolResult]{
+		Definition: bluecollar.ToolDefinition{
 			Name:        "file.read",
 			Description: "Read exact UTF-8 workspace text or a real file line range with honest size and truncation metadata. Use file.preview first for attached HTML, PDF, DOCX, PPTX, XLSX, or other documents.",
-			RecoveryCard: agent.ToolRecoveryCard{
+			RecoveryCard: bluecollar.ToolRecoveryCard{
 				Does:       "Reads a text file or requested line range from the actual workspace file; attachment materialID falls back to cached preview text.",
 				Produces:   "Text content plus path, line range, original size, returned size, line count if known, and truncation metadata.",
 				SideEffect: "read",
@@ -107,16 +107,16 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerFileTools(toolRegistry *ag
 			},
 			InputSchema: json.RawMessage(`{"type":"object","properties":{"path":{"type":"string","description":"Workspace text file path to read."},"fileHint":{"type":"string","description":"Exact fileHint from Current attachments or Previous attachments."},"materialID":{"type":"string","description":"Attachment materialID from Current attachments or Previous attachments. Use file.preview first; file.read returns cached preview text if no exact workspace file is available."},"startLine":{"type":"integer","description":"Optional 1-based first line to return. Avoid for minified or few-line files; use startByte instead."},"lineCount":{"type":"integer","description":"Optional number of lines to return from startLine."},"startByte":{"type":"integer","description":"Optional 0-based byte offset for byte-range reads. Use this for minified or single-line files; continue from the nextByte value of the previous read until isEndOfFile is true."}},"additionalProperties":false}`),
 		},
-		Handler: func(toolContext context.Context, input fileReadToolInput) (agent.ToolResult, error) {
+		Handler: func(toolContext context.Context, input fileReadToolInput) (bluecollar.ToolResult, error) {
 			return toolCatalogBuilder.readFileTool(toolContext, input, handlerContext)
 		},
-		Result: agent.IdentityToolResult,
+		Result: bluecollar.IdentityToolResult,
 	})
-	agent.RegisterToolFunction(toolRegistry, agent.ToolFunction[filePreviewToolInput, agent.ToolResult]{
-		Definition: agent.ToolDefinition{
+	bluecollar.RegisterToolFunction(toolRegistry, bluecollar.ToolFunction[filePreviewToolInput, bluecollar.ToolResult]{
+		Definition: bluecollar.ToolDefinition{
 			Name:        "file.preview",
 			Description: "Preview an attached or workspace file path from the conversation attachment catalog using cached AgentPart markdownPreview when available, or the existing document.read MarkItDown provider for convertible documents.",
-			RecoveryCard: agent.ToolRecoveryCard{
+			RecoveryCard: bluecollar.ToolRecoveryCard{
 				Does:       "Returns a document preview or file metadata without inventing content.",
 				Produces:   "Path, filename, content type, size, markdown preview, conversion status, and conversion message.",
 				SideEffect: "read",
@@ -125,16 +125,16 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerFileTools(toolRegistry *ag
 			},
 			InputSchema: json.RawMessage(`{"type":"object","properties":{"path":{"type":"string","description":"Workspace file path to preview. Use this when the attachment catalog has a readable path."},"fileHint":{"type":"string","description":"Exact fileHint from Current attachments or Previous attachments."},"materialID":{"type":"string","description":"Attachment materialID from Current attachments or Previous attachments. Use this when the catalog lists a materialID, especially if no readable path is available."}},"additionalProperties":false}`),
 		},
-		Handler: func(toolContext context.Context, input filePreviewToolInput) (agent.ToolResult, error) {
+		Handler: func(toolContext context.Context, input filePreviewToolInput) (bluecollar.ToolResult, error) {
 			return toolCatalogBuilder.previewFileTool(toolContext, input, handlerContext)
 		},
-		Result: agent.IdentityToolResult,
+		Result: bluecollar.IdentityToolResult,
 	})
-	agent.RegisterToolFunction(toolRegistry, agent.ToolFunction[filePatchToolInput, agent.ToolResult]{
-		Definition: agent.ToolDefinition{
+	bluecollar.RegisterToolFunction(toolRegistry, bluecollar.ToolFunction[filePatchToolInput, bluecollar.ToolResult]{
+		Definition: bluecollar.ToolDefinition{
 			Name:        "file.edit",
 			Description: "Apply one or more exact text replacements to workspace files as one atomic edit. Each oldText must appear exactly once where it is applied. This is the tool for every targeted change to an existing file: pass a single edit for one change, or group related changes into one call. Read the file first so each oldText matches exactly.",
-			RecoveryCard: agent.ToolRecoveryCard{
+			RecoveryCard: bluecollar.ToolRecoveryCard{
 				Does:       "Replaces exact oldText occurrences with newText across one or more workspace text files, all-or-nothing.",
 				Produces:   "Modified source, document, script, or config files with match metadata.",
 				SideEffect: "workspace_write",
@@ -143,17 +143,17 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerFileTools(toolRegistry *ag
 			},
 			InputSchema: json.RawMessage(`{"type":"object","properties":{"edits":{"type":"array","items":{"type":"object","properties":{"path":{"type":"string","description":"Workspace text file path to modify."},"oldText":{"type":"string","description":"Exact existing text to replace; must appear exactly once when this edit is applied."},"newText":{"type":"string","description":"Replacement text."}},"required":["path","oldText","newText"],"additionalProperties":false}}},"required":["edits"],"additionalProperties":false}`),
 		},
-		Handler: func(toolContext context.Context, input filePatchToolInput) (agent.ToolResult, error) {
+		Handler: func(toolContext context.Context, input filePatchToolInput) (bluecollar.ToolResult, error) {
 			return toolCatalogBuilder.patchFileTool(toolContext, input, handlerContext)
 		},
-		Result: agent.IdentityToolResult,
+		Result: bluecollar.IdentityToolResult,
 	})
-	agent.RegisterToolFunction(toolRegistry, agent.ToolFunction[fileDeleteToolInput, agent.ToolResult]{
-		Definition: agent.ToolDefinition{
+	bluecollar.RegisterToolFunction(toolRegistry, bluecollar.ToolFunction[fileDeleteToolInput, bluecollar.ToolResult]{
+		Definition: bluecollar.ToolDefinition{
 			Name:             "file.delete",
 			RequiresApproval: true,
 			Description:      "Delete one file from the Blueclaw workspace by its path. Use the same path form as file.write and file.read, for example ~/documents/notes.docx or ~/documents/report.pdf. The runtime pauses for the user's approval before the file is removed, so find the file yourself and call this directly — do not ask the user which file.",
-			RecoveryCard: agent.ToolRecoveryCard{
+			RecoveryCard: bluecollar.ToolRecoveryCard{
 				Does:       "Removes one workspace file at the requested path.",
 				Produces:   "Confirmation that the file no longer exists.",
 				SideEffect: "workspace_write",
@@ -162,39 +162,39 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerFileTools(toolRegistry *ag
 			},
 			InputSchema: json.RawMessage(`{"type":"object","properties":{"path":{"type":"string","description":"Workspace file path to delete, in the same form as file.write (for example tmp/notes.txt)."}},"required":["path"],"additionalProperties":false}`),
 		},
-		Handler: func(toolContext context.Context, input fileDeleteToolInput) (agent.ToolResult, error) {
+		Handler: func(toolContext context.Context, input fileDeleteToolInput) (bluecollar.ToolResult, error) {
 			return toolCatalogBuilder.deleteFileTool(toolContext, input, handlerContext)
 		},
-		Result: agent.IdentityToolResult,
+		Result: bluecollar.IdentityToolResult,
 	})
-	agent.RegisterToolFunction(toolRegistry, agent.ToolFunction[fileAttachToolInput, agent.ToolResult]{
-		Definition: agent.ToolDefinition{
-			Name:            agent.FileDeliverToolName,
+	bluecollar.RegisterToolFunction(toolRegistry, bluecollar.ToolFunction[fileAttachToolInput, bluecollar.ToolResult]{
+		Definition: bluecollar.ToolDefinition{
+			Name:            bluecollar.FileDeliverToolName,
 			Description:     "Deliver one or more existing workspace files as final reply evidence.",
-			SideEffectClass: agent.ToolSideEffectStateChange,
+			SideEffectClass: bluecollar.ToolSideEffectStateChange,
 			InputSchema:     json.RawMessage(`{"type":"object","properties":{"path":{"type":"string","description":"Workspace path to one finished file."},"filename":{"type":"string","description":"Optional display filename."},"contentType":{"type":"string","description":"Optional MIME type."},"title":{"type":"string","description":"Optional attachment title."},"files":{"type":"array","description":"One or more finished workspace files to deliver in this single call.","items":{"type":"object","properties":{"path":{"type":"string","description":"Workspace path to an existing file."},"filename":{"type":"string","description":"Optional display filename."},"contentType":{"type":"string","description":"Optional MIME type."},"title":{"type":"string","description":"Optional attachment title."}},"required":["path"],"additionalProperties":false}}},"additionalProperties":false}`),
 		},
-		Handler: func(toolContext context.Context, input fileAttachToolInput) (agent.ToolResult, error) {
+		Handler: func(toolContext context.Context, input fileAttachToolInput) (bluecollar.ToolResult, error) {
 			return toolCatalogBuilder.attachFileTool(toolContext, input, handlerContext)
 		},
-		Result: agent.IdentityToolResult,
+		Result: bluecollar.IdentityToolResult,
 	})
 }
 
-func fileToolSuccess(document map[string]any) agent.ToolResult {
+func fileToolSuccess(document map[string]any) bluecollar.ToolResult {
 	content := marshalToolResult(document)
-	return agent.ToolResult{
-		Output: agent.ToolOutput{Content: content, Data: json.RawMessage(content)},
+	return bluecollar.ToolResult{
+		Output: bluecollar.ToolOutput{Content: content, Data: json.RawMessage(content)},
 	}
 }
 
-func (toolCatalogBuilder *ToolCatalogBuilder) writeFileTool(toolContext context.Context, input fileWriteToolInput, handlerContext toolHandlerContext) (agent.ToolResult, error) {
+func (toolCatalogBuilder *ToolCatalogBuilder) writeFileTool(toolContext context.Context, input fileWriteToolInput, handlerContext toolHandlerContext) (bluecollar.ToolResult, error) {
 	path := strings.TrimSpace(input.Path)
 	if path == "" {
-		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "file_write", "path is required"), nil
+		return bluecollar.ToolFailureResult(bluecollar.FailureInvalidInput, bluecollar.FailureCodes.InvalidInput, "file_write", "path is required"), nil
 	}
 	if input.Content == "" {
-		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "file_write", "content is required"), nil
+		return bluecollar.ToolFailureResult(bluecollar.FailureInvalidInput, bluecollar.FailureCodes.InvalidInput, "file_write", "content is required"), nil
 	}
 	if failureResult := toolCatalogBuilder.runRequesterFileWrite(toolContext, handlerContext, "file_write", path, input.Content); failureResult != nil {
 		return *failureResult, nil
@@ -205,7 +205,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) writeFileTool(toolContext context.
 	}), nil
 }
 
-func (toolCatalogBuilder *ToolCatalogBuilder) runRequesterFileWrite(toolContext context.Context, handlerContext toolHandlerContext, stage string, path string, content string) *agent.ToolResult {
+func (toolCatalogBuilder *ToolCatalogBuilder) runRequesterFileWrite(toolContext context.Context, handlerContext toolHandlerContext, stage string, path string, content string) *bluecollar.ToolResult {
 	outcome, actorFailure := toolCatalogBuilder.runRequesterShell(toolContext, handlerContext.request, requesterShellCommand{
 		Command: fileWriteShellCommand(path),
 		Stdin:   content,
@@ -244,10 +244,10 @@ func parseFileReadShellOutput(stdout string) (int64, string, bool) {
 	return sizeBytes, content, true
 }
 
-func (toolCatalogBuilder *ToolCatalogBuilder) deleteFileTool(toolContext context.Context, input fileDeleteToolInput, handlerContext toolHandlerContext) (agent.ToolResult, error) {
+func (toolCatalogBuilder *ToolCatalogBuilder) deleteFileTool(toolContext context.Context, input fileDeleteToolInput, handlerContext toolHandlerContext) (bluecollar.ToolResult, error) {
 	path := strings.TrimSpace(input.Path)
 	if path == "" {
-		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "file_delete", "path is required"), nil
+		return bluecollar.ToolFailureResult(bluecollar.FailureInvalidInput, bluecollar.FailureCodes.InvalidInput, "file_delete", "path is required"), nil
 	}
 	outcome, actorFailure := toolCatalogBuilder.runRequesterShell(toolContext, handlerContext.request, requesterShellCommand{
 		Command: "rm -- " + shellPathArgument(path),
@@ -264,10 +264,10 @@ func (toolCatalogBuilder *ToolCatalogBuilder) deleteFileTool(toolContext context
 	}), nil
 }
 
-func (toolCatalogBuilder *ToolCatalogBuilder) readFileTool(toolContext context.Context, input fileReadToolInput, handlerContext toolHandlerContext) (agent.ToolResult, error) {
+func (toolCatalogBuilder *ToolCatalogBuilder) readFileTool(toolContext context.Context, input fileReadToolInput, handlerContext toolHandlerContext) (bluecollar.ToolResult, error) {
 	path, materialID, errorValue := resolveFileHintReference(handlerContext.request, input.Path, input.MaterialID, input.FileHint)
 	if errorValue != nil {
-		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "file_read", errorValue.Error()), nil
+		return bluecollar.ToolFailureResult(bluecollar.FailureInvalidInput, bluecollar.FailureCodes.InvalidInput, "file_read", errorValue.Error()), nil
 	}
 	input.Path = path
 	input.MaterialID = materialID
@@ -277,7 +277,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) readFileTool(toolContext context.C
 		}
 	}
 	if path == "" {
-		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "file_read", "path or materialID is required"), nil
+		return bluecollar.ToolFailureResult(bluecollar.FailureInvalidInput, bluecollar.FailureCodes.InvalidInput, "file_read", "path or materialID is required"), nil
 	}
 	maxOutputBytes := input.MaxOutputBytes
 	if maxOutputBytes <= 0 || maxOutputBytes > maximumFileReadBytes {
@@ -308,17 +308,17 @@ func (toolCatalogBuilder *ToolCatalogBuilder) readFileTool(toolContext context.C
 	}
 	originalSizeBytes, content, isParsed := parseFileReadShellOutput(outcome.CommandResult.Stdout)
 	if !isParsed {
-		return agent.ToolFailureResult(agent.FailureExternalService, agent.FailureCodes.OperationFailed, "file_read", "file size probe returned unreadable output"), nil
+		return bluecollar.ToolFailureResult(bluecollar.FailureExternalService, bluecollar.FailureCodes.OperationFailed, "file_read", "file size probe returned unreadable output"), nil
 	}
 	if originalSizeBytes > int64(readMaximumBytes) {
-		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "file_read", "file is too large for exact text read; use file.preview for document or attachment understanding"), nil
+		return bluecollar.ToolFailureResult(bluecollar.FailureInvalidInput, bluecollar.FailureCodes.InvalidInput, "file_read", "file is too large for exact text read; use file.preview for document or attachment understanding"), nil
 	}
 	isFileTruncated := len(content) > readMaximumBytes
 	if isFileTruncated {
 		content = content[:readMaximumBytes]
 	}
 	if !utf8.ValidString(content) || strings.IndexByte(content, 0) >= 0 {
-		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "file_read", "file.read supports UTF-8 text files; use file.preview or a specialized document tool for binary files"), nil
+		return bluecollar.ToolFailureResult(bluecollar.FailureInvalidInput, bluecollar.FailureCodes.InvalidInput, "file_read", "file.read supports UTF-8 text files; use file.preview or a specialized document tool for binary files"), nil
 	}
 	readResult := fileReadResult(content, input, maxOutputBytes)
 	return fileToolSuccess(fileReadResultMap(map[string]any{
@@ -330,7 +330,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) readFileTool(toolContext context.C
 	}, readResult)), nil
 }
 
-func optionalSiteControlFileMissingResult(path string, input fileReadToolInput, maxOutputBytes int) agent.ToolResult {
+func optionalSiteControlFileMissingResult(path string, input fileReadToolInput, maxOutputBytes int) bluecollar.ToolResult {
 	readResult := fileReadResult("", input, maxOutputBytes)
 	readResult.ReadHint = "This site control file is optional and is not present yet. Create or update it before source edits if it is relevant to the current site workflow."
 	result := fileReadResultMap(map[string]any{
@@ -415,23 +415,23 @@ func fileReadResultMap(base map[string]any, readResult fileReadOutput) map[strin
 	return base
 }
 
-func cachedFileReadResultByMaterialID(parts []agent.AgentPart, materialID string, input fileReadToolInput) (agent.ToolResult, bool) {
+func cachedFileReadResultByMaterialID(parts []bluecollar.AgentPart, materialID string, input fileReadToolInput) (bluecollar.ToolResult, bool) {
 	preview, isCached := cachedFilePreviewResultByMaterialID(parts, materialID)
 	if !isCached {
-		return agent.ToolResult{}, false
+		return bluecollar.ToolResult{}, false
 	}
 	return cachedFileReadResultFromPreview(preview, input), true
 }
 
-func cachedFileReadResult(parts []agent.AgentPart, path string, input fileReadToolInput) (agent.ToolResult, bool) {
+func cachedFileReadResult(parts []bluecollar.AgentPart, path string, input fileReadToolInput) (bluecollar.ToolResult, bool) {
 	preview, isCached := cachedFilePreviewResult(parts, path)
 	if !isCached {
-		return agent.ToolResult{}, false
+		return bluecollar.ToolResult{}, false
 	}
 	return cachedFileReadResultFromPreview(preview, input), true
 }
 
-func cachedFileReadResultFromPreview(preview map[string]any, input fileReadToolInput) agent.ToolResult {
+func cachedFileReadResultFromPreview(preview map[string]any, input fileReadToolInput) bluecollar.ToolResult {
 	content := stringMapValue(preview, "markdownPreview")
 	readResult := fileReadResult(content, input, defaultFileReadMaximumBytes)
 	return fileToolSuccess(fileReadResultMap(map[string]any{
@@ -445,28 +445,28 @@ func cachedFileReadResultFromPreview(preview map[string]any, input fileReadToolI
 	}, readResult))
 }
 
-func (toolCatalogBuilder *ToolCatalogBuilder) fileReadFallbackFromAttachmentMaterial(toolContext context.Context, path string, input fileReadToolInput, handlerContext toolHandlerContext) (agent.ToolResult, error, bool) {
+func (toolCatalogBuilder *ToolCatalogBuilder) fileReadFallbackFromAttachmentMaterial(toolContext context.Context, path string, input fileReadToolInput, handlerContext toolHandlerContext) (bluecollar.ToolResult, error, bool) {
 	material, isFound := visibleAttachmentMaterialForPath(handlerContext.request.VisibleContext, path)
 	if !isFound {
-		return agent.ToolResult{}, nil, false
+		return bluecollar.ToolResult{}, nil, false
 	}
 	materialID := strings.TrimSpace(material.MaterialID)
 	if materialID == "" {
-		return agent.ToolResult{}, nil, false
+		return bluecollar.ToolResult{}, nil, false
 	}
 	resolvedMaterial, errorValue := resolveReadableAttachmentMaterial(toolContext, handlerContext.request, materialID)
 	if errorValue != nil {
 		return attachmentResolutionFailure("file_read", errorValue), nil, true
 	}
 	if attachmentMaterialLooksLikeImage(resolvedMaterial) {
-		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "file_read", "attachment material is an image; use image.read"), nil, true
+		return bluecollar.ToolFailureResult(bluecollar.FailureInvalidInput, bluecollar.FailureCodes.InvalidInput, "file_read", "attachment material is an image; use image.read"), nil, true
 	}
 	if preview, hasPreview := filePreviewResultFromVisibleMaterial(resolvedMaterial); hasPreview {
 		return cachedFileReadResultFromPreview(preview, input), nil, true
 	}
 	fallbackPath := toolCatalogBuilder.resolveAgentWorkspacePath(resolvedMaterial.Path)
 	if fallbackPath == "" || fallbackPath == strings.TrimSpace(path) {
-		return agent.ToolResult{}, nil, false
+		return bluecollar.ToolResult{}, nil, false
 	}
 	fallbackInput := input
 	fallbackInput.Path = fallbackPath
@@ -617,10 +617,10 @@ func splitFileLines(content string) []string {
 	return strings.Split(normalizedContent, "\n")
 }
 
-func (toolCatalogBuilder *ToolCatalogBuilder) previewFileTool(toolContext context.Context, input filePreviewToolInput, handlerContext toolHandlerContext) (agent.ToolResult, error) {
+func (toolCatalogBuilder *ToolCatalogBuilder) previewFileTool(toolContext context.Context, input filePreviewToolInput, handlerContext toolHandlerContext) (bluecollar.ToolResult, error) {
 	path, materialID, errorValue := resolveFileHintReference(handlerContext.request, input.Path, input.MaterialID, input.FileHint)
 	if errorValue != nil {
-		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "file_preview", errorValue.Error()), nil
+		return bluecollar.ToolFailureResult(bluecollar.FailureInvalidInput, bluecollar.FailureCodes.InvalidInput, "file_preview", errorValue.Error()), nil
 	}
 	input.Path = path
 	input.MaterialID = materialID
@@ -657,7 +657,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) previewFileTool(toolContext contex
 	}
 	sizeBytes, content, isParsed := parseFileReadShellOutput(outcome.CommandResult.Stdout)
 	if !isParsed {
-		return agent.ToolFailureResult(agent.FailureExternalService, agent.FailureCodes.OperationFailed, "file_preview", "file size probe returned unreadable output"), nil
+		return bluecollar.ToolFailureResult(bluecollar.FailureExternalService, bluecollar.FailureCodes.OperationFailed, "file_preview", "file size probe returned unreadable output"), nil
 	}
 	contentType := previewContentType(previewPath)
 	if strings.HasPrefix(contentType, "image/") {
@@ -672,24 +672,24 @@ func (toolCatalogBuilder *ToolCatalogBuilder) previewFileTool(toolContext contex
 	return filePreviewFromShellContent(previewPath, contentType, sizeBytes, content), nil
 }
 
-func (toolCatalogBuilder *ToolCatalogBuilder) filePreviewResolvedMaterial(toolContext context.Context, input filePreviewToolInput, request ToolCatalogRequest) (agent.ToolResult, bool) {
+func (toolCatalogBuilder *ToolCatalogBuilder) filePreviewResolvedMaterial(toolContext context.Context, input filePreviewToolInput, request ToolCatalogRequest) (bluecollar.ToolResult, bool) {
 	if strings.TrimSpace(input.Path) != "" || strings.TrimSpace(input.MaterialID) == "" {
-		return agent.ToolResult{}, false
+		return bluecollar.ToolResult{}, false
 	}
 	material, errorValue := resolveReadableAttachmentMaterial(toolContext, request, input.MaterialID)
 	if errorValue != nil {
 		return attachmentResolutionFailure("file_preview", errorValue), true
 	}
 	if attachmentMaterialLooksLikeImage(material) {
-		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "file_preview", "attachment material is an image; use image.read"), true
+		return bluecollar.ToolFailureResult(bluecollar.FailureInvalidInput, bluecollar.FailureCodes.InvalidInput, "file_preview", "attachment material is an image; use image.read"), true
 	}
 	if result, hasPreview := filePreviewResultFromVisibleMaterial(material); hasPreview {
 		return fileToolSuccess(result), true
 	}
-	return agent.ToolResult{}, false
+	return bluecollar.ToolResult{}, false
 }
 
-func filePreviewResultFromVisibleMaterial(material agent.VisibleContextMaterial) (map[string]any, bool) {
+func filePreviewResultFromVisibleMaterial(material bluecollar.VisibleContextMaterial) (map[string]any, bool) {
 	preview := strings.TrimSpace(material.MarkdownPreview)
 	status := strings.TrimSpace(material.ConversionStatus)
 	message := strings.TrimSpace(material.ConversionMessage)
@@ -700,7 +700,7 @@ func filePreviewResultFromVisibleMaterial(material agent.VisibleContextMaterial)
 	return filePreviewResult(material.Path, contentType, material.SizeBytes, preview, status, message), true
 }
 
-func (toolCatalogBuilder *ToolCatalogBuilder) filePreviewFallbackPath(toolContext context.Context, path string, request ToolCatalogRequest) (string, *agent.ToolResult, bool) {
+func (toolCatalogBuilder *ToolCatalogBuilder) filePreviewFallbackPath(toolContext context.Context, path string, request ToolCatalogRequest) (string, *bluecollar.ToolResult, bool) {
 	material, isFound := visibleAttachmentMaterialForPath(request.VisibleContext, path)
 	if !isFound {
 		return "", nil, false
@@ -715,7 +715,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) filePreviewFallbackPath(toolContex
 		return "", &result, true
 	}
 	if attachmentMaterialLooksLikeImage(resolvedMaterial) {
-		result := agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "file_preview", "attachment material is an image; use image.read")
+		result := bluecollar.ToolFailureResult(bluecollar.FailureInvalidInput, bluecollar.FailureCodes.InvalidInput, "file_preview", "attachment material is an image; use image.read")
 		return "", &result, true
 	}
 	if previewResult, hasPreview := filePreviewResultFromVisibleMaterial(resolvedMaterial); hasPreview {
@@ -725,7 +725,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) filePreviewFallbackPath(toolContex
 	return toolCatalogBuilder.resolveAgentWorkspacePath(resolvedMaterial.Path), nil, true
 }
 
-func visibleAttachmentMaterialForPath(visibleContext agent.VisibleContext, path string) (agent.VisibleContextMaterial, bool) {
+func visibleAttachmentMaterialForPath(visibleContext bluecollar.VisibleContext, path string) (bluecollar.VisibleContextMaterial, bool) {
 	candidates := visibleAttachmentMaterials(visibleContext)
 	if material, isFound := visibleAttachmentMaterialWithExactPath(candidates, path); isFound {
 		return material, true
@@ -733,8 +733,8 @@ func visibleAttachmentMaterialForPath(visibleContext agent.VisibleContext, path 
 	return visibleAttachmentMaterialWithFilename(candidates, filepath.Base(strings.TrimSpace(path)))
 }
 
-func visibleAttachmentMaterials(visibleContext agent.VisibleContext) []agent.VisibleContextMaterial {
-	materials := append([]agent.VisibleContextMaterial{}, visibleContext.CurrentMaterials...)
+func visibleAttachmentMaterials(visibleContext bluecollar.VisibleContext) []bluecollar.VisibleContextMaterial {
+	materials := append([]bluecollar.VisibleContextMaterial{}, visibleContext.CurrentMaterials...)
 	materials = append(materials, visibleContext.Materials...)
 	for _, message := range visibleContext.Messages {
 		materials = append(materials, message.Materials...)
@@ -742,9 +742,9 @@ func visibleAttachmentMaterials(visibleContext agent.VisibleContext) []agent.Vis
 	return uniqueVisibleAttachmentMaterials(materials)
 }
 
-func uniqueVisibleAttachmentMaterials(materials []agent.VisibleContextMaterial) []agent.VisibleContextMaterial {
+func uniqueVisibleAttachmentMaterials(materials []bluecollar.VisibleContextMaterial) []bluecollar.VisibleContextMaterial {
 	seen := map[string]bool{}
-	result := make([]agent.VisibleContextMaterial, 0, len(materials))
+	result := make([]bluecollar.VisibleContextMaterial, 0, len(materials))
 	for _, material := range materials {
 		key := visibleAttachmentMaterialKey(material)
 		if key == "" || seen[key] {
@@ -756,7 +756,7 @@ func uniqueVisibleAttachmentMaterials(materials []agent.VisibleContextMaterial) 
 	return result
 }
 
-func visibleAttachmentMaterialKey(material agent.VisibleContextMaterial) string {
+func visibleAttachmentMaterialKey(material bluecollar.VisibleContextMaterial) string {
 	if materialID := strings.TrimSpace(material.MaterialID); materialID != "" {
 		return "material:" + materialID
 	}
@@ -769,41 +769,41 @@ func visibleAttachmentMaterialKey(material agent.VisibleContextMaterial) string 
 	return ""
 }
 
-func visibleAttachmentMaterialWithExactPath(materials []agent.VisibleContextMaterial, path string) (agent.VisibleContextMaterial, bool) {
+func visibleAttachmentMaterialWithExactPath(materials []bluecollar.VisibleContextMaterial, path string) (bluecollar.VisibleContextMaterial, bool) {
 	trimmedPath := strings.TrimSpace(path)
 	for _, material := range materials {
 		if strings.TrimSpace(material.Path) == trimmedPath {
 			return material, true
 		}
 	}
-	return agent.VisibleContextMaterial{}, false
+	return bluecollar.VisibleContextMaterial{}, false
 }
 
-func visibleAttachmentMaterialWithFilename(materials []agent.VisibleContextMaterial, filename string) (agent.VisibleContextMaterial, bool) {
+func visibleAttachmentMaterialWithFilename(materials []bluecollar.VisibleContextMaterial, filename string) (bluecollar.VisibleContextMaterial, bool) {
 	trimmedFilename := strings.TrimSpace(filename)
 	if trimmedFilename == "" || trimmedFilename == "." {
-		return agent.VisibleContextMaterial{}, false
+		return bluecollar.VisibleContextMaterial{}, false
 	}
-	matches := []agent.VisibleContextMaterial{}
+	matches := []bluecollar.VisibleContextMaterial{}
 	for _, material := range materials {
 		if strings.TrimSpace(material.Filename) == trimmedFilename || filepath.Base(strings.TrimSpace(material.Path)) == trimmedFilename {
 			matches = append(matches, material)
 		}
 	}
 	if len(matches) != 1 {
-		return agent.VisibleContextMaterial{}, false
+		return bluecollar.VisibleContextMaterial{}, false
 	}
 	return matches[0], true
 }
 
-func (toolCatalogBuilder *ToolCatalogBuilder) filePreviewPath(toolContext context.Context, input filePreviewToolInput, request ToolCatalogRequest) (string, *agent.ToolResult) {
+func (toolCatalogBuilder *ToolCatalogBuilder) filePreviewPath(toolContext context.Context, input filePreviewToolInput, request ToolCatalogRequest) (string, *bluecollar.ToolResult) {
 	path := strings.TrimSpace(input.Path)
 	materialID := strings.TrimSpace(input.MaterialID)
 	if path != "" {
 		return path, nil
 	}
 	if materialID == "" {
-		result := agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "file_preview", "path or materialID is required")
+		result := bluecollar.ToolFailureResult(bluecollar.FailureInvalidInput, bluecollar.FailureCodes.InvalidInput, "file_preview", "path or materialID is required")
 		return "", &result
 	}
 	material, errorValue := resolveReadableAttachmentMaterial(toolContext, request, materialID)
@@ -812,13 +812,13 @@ func (toolCatalogBuilder *ToolCatalogBuilder) filePreviewPath(toolContext contex
 		return "", &result
 	}
 	if attachmentMaterialLooksLikeImage(material) {
-		result := agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "file_preview", "attachment material is an image; use image.read")
+		result := bluecollar.ToolFailureResult(bluecollar.FailureInvalidInput, bluecollar.FailureCodes.InvalidInput, "file_preview", "attachment material is an image; use image.read")
 		return "", &result
 	}
 	return toolCatalogBuilder.resolveAgentWorkspacePath(material.Path), nil
 }
 
-func attachmentMaterialLooksLikeImage(material agent.VisibleContextMaterial) bool {
+func attachmentMaterialLooksLikeImage(material bluecollar.VisibleContextMaterial) bool {
 	contentType := strings.ToLower(strings.TrimSpace(material.ContentType))
 	if strings.HasPrefix(contentType, "image/") {
 		return true
@@ -831,14 +831,14 @@ func attachmentMaterialLooksLikeImage(material agent.VisibleContextMaterial) boo
 		strings.HasSuffix(filename, ".webp")
 }
 
-func cachedFilePreviewResultForInput(parts []agent.AgentPart, input filePreviewToolInput) (map[string]any, bool) {
+func cachedFilePreviewResultForInput(parts []bluecollar.AgentPart, input filePreviewToolInput) (map[string]any, bool) {
 	if materialID := strings.TrimSpace(input.MaterialID); materialID != "" {
 		return cachedFilePreviewResultByMaterialID(parts, materialID)
 	}
 	return cachedFilePreviewResult(parts, strings.TrimSpace(input.Path))
 }
 
-func cachedFilePreviewResultByMaterialID(parts []agent.AgentPart, materialID string) (map[string]any, bool) {
+func cachedFilePreviewResultByMaterialID(parts []bluecollar.AgentPart, materialID string) (map[string]any, bool) {
 	trimmedMaterialID := strings.TrimSpace(materialID)
 	for _, part := range parts {
 		if agentPartMaterialID(part) != trimmedMaterialID {
@@ -849,7 +849,7 @@ func cachedFilePreviewResultByMaterialID(parts []agent.AgentPart, materialID str
 	return nil, false
 }
 
-func cachedFilePreviewResult(parts []agent.AgentPart, path string) (map[string]any, bool) {
+func cachedFilePreviewResult(parts []bluecollar.AgentPart, path string) (map[string]any, bool) {
 	for _, part := range parts {
 		if part.File == nil || strings.TrimSpace(part.File.Path) != strings.TrimSpace(path) {
 			continue
@@ -859,7 +859,7 @@ func cachedFilePreviewResult(parts []agent.AgentPart, path string) (map[string]a
 	return nil, false
 }
 
-func cachedFilePreviewResultFromPart(part agent.AgentPart) (map[string]any, bool) {
+func cachedFilePreviewResultFromPart(part bluecollar.AgentPart) (map[string]any, bool) {
 	if part.File == nil {
 		return nil, false
 	}
@@ -876,7 +876,7 @@ func cachedFilePreviewResultFromPart(part agent.AgentPart) (map[string]any, bool
 	), true
 }
 
-func agentPartMaterialID(part agent.AgentPart) string {
+func agentPartMaterialID(part bluecollar.AgentPart) string {
 	fileID := strings.TrimSpace(part.Source.FileID)
 	if fileID == "" {
 		return ""
@@ -884,7 +884,7 @@ func agentPartMaterialID(part agent.AgentPart) string {
 	return firstNonEmptyString(strings.TrimSpace(part.Source.Platform), "attachment") + ":" + fileID
 }
 
-func (toolCatalogBuilder *ToolCatalogBuilder) convertFilePreviewWithCapability(toolContext context.Context, request ToolCatalogRequest, path string, bridgePath string, contentType string, sizeBytes int64) (agent.ToolResult, bool) {
+func (toolCatalogBuilder *ToolCatalogBuilder) convertFilePreviewWithCapability(toolContext context.Context, request ToolCatalogRequest, path string, bridgePath string, contentType string, sizeBytes int64) (bluecollar.ToolResult, bool) {
 	var response struct {
 		Content      string          `json:"content"`
 		IsError      bool            `json:"isError"`
@@ -894,14 +894,14 @@ func (toolCatalogBuilder *ToolCatalogBuilder) convertFilePreviewWithCapability(t
 		FailureStage string          `json:"failureStage"`
 		Result       json.RawMessage `json:"result"`
 	}
-	input := agent.MarshalToolInput(map[string]any{"path": bridgePath, "maxOutputBytes": maximumFilePreviewBytes})
+	input := bluecollar.MarshalToolInput(map[string]any{"path": bridgePath, "maxOutputBytes": maximumFilePreviewBytes})
 	requestDocument, errorValue := toolCatalogBuilder.capabilityRequestForOperation(toolContext, "document.read", request, input)
 	if errorValue != nil {
-		return agent.ToolResult{}, false
+		return bluecollar.ToolResult{}, false
 	}
 	errorValue = toolCatalogBuilder.capabilityClient.PostJSON(toolContext, "/v1/tools/document.read/invoke", requestDocument, &response)
 	if errorValue != nil || response.IsError || response.Status == "error" || response.Status == "denied" {
-		return agent.ToolResult{}, false
+		return bluecollar.ToolResult{}, false
 	}
 	var document struct {
 		Content   string `json:"content"`
@@ -922,7 +922,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) convertFilePreviewWithCapability(t
 	return fileToolSuccess(result), true
 }
 
-func filePreviewFromShellContent(path string, contentType string, sizeBytes int64, content string) agent.ToolResult {
+func filePreviewFromShellContent(path string, contentType string, sizeBytes int64, content string) bluecollar.ToolResult {
 	isTruncated := len(content) > maximumFilePreviewBytes
 	if isTruncated {
 		content = content[:maximumFilePreviewBytes]
@@ -973,7 +973,7 @@ func truncateTextByBytes(content string, maxBytes int) (string, bool) {
 	return string(truncatedDocument), true
 }
 
-func (toolCatalogBuilder *ToolCatalogBuilder) patchFileTool(toolContext context.Context, input filePatchToolInput, handlerContext toolHandlerContext) (agent.ToolResult, error) {
+func (toolCatalogBuilder *ToolCatalogBuilder) patchFileTool(toolContext context.Context, input filePatchToolInput, handlerContext toolHandlerContext) (bluecollar.ToolResult, error) {
 	if len(input.Edits) == 0 {
 		return fileExactEditFailure("file_edit", "", -1, 0, "edits is required"), nil
 	}
@@ -1008,7 +1008,7 @@ func newFilePatchState() *filePatchState {
 	}
 }
 
-func (toolCatalogBuilder *ToolCatalogBuilder) validatePatchEdit(toolContext context.Context, handlerContext toolHandlerContext, patchState *filePatchState, edit filePatchEditInput, editIndex int) *agent.ToolResult {
+func (toolCatalogBuilder *ToolCatalogBuilder) validatePatchEdit(toolContext context.Context, handlerContext toolHandlerContext, patchState *filePatchState, edit filePatchEditInput, editIndex int) *bluecollar.ToolResult {
 	path := strings.TrimSpace(edit.Path)
 	if path == "" {
 		result := fileExactEditFailure("file_edit", "", editIndex, 0, "path is required")
@@ -1315,7 +1315,7 @@ func characterBigrams(value string) map[string]bool {
 	return bigrams
 }
 
-func (toolCatalogBuilder *ToolCatalogBuilder) loadEditableFile(toolContext context.Context, handlerContext toolHandlerContext, patchState *filePatchState, path string) *agent.ToolResult {
+func (toolCatalogBuilder *ToolCatalogBuilder) loadEditableFile(toolContext context.Context, handlerContext toolHandlerContext, patchState *filePatchState, path string) *bluecollar.ToolResult {
 	if _, isLoaded := patchState.currentContents[path]; isLoaded {
 		return nil
 	}
@@ -1332,7 +1332,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) loadEditableFile(toolContext conte
 	}
 	sizeBytes, content, isParsed := parseFileReadShellOutput(outcome.CommandResult.Stdout)
 	if !isParsed {
-		result := agent.ToolFailureResult(agent.FailureExternalService, agent.FailureCodes.OperationFailed, "file_edit", "file size probe returned unreadable output")
+		result := bluecollar.ToolFailureResult(bluecollar.FailureExternalService, bluecollar.FailureCodes.OperationFailed, "file_edit", "file size probe returned unreadable output")
 		return &result
 	}
 	if sizeBytes > int64(maximumEditableTextFileBytes) || len(content) > maximumEditableTextFileBytes {
@@ -1340,7 +1340,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) loadEditableFile(toolContext conte
 		return &result
 	}
 	if !utf8.ValidString(content) || strings.IndexByte(content, 0) >= 0 {
-		result := agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "file_edit", "file.edit supports UTF-8 text files; use a specialized document or artifact tool for binary files")
+		result := bluecollar.ToolFailureResult(bluecollar.FailureInvalidInput, bluecollar.FailureCodes.InvalidInput, "file_edit", "file.edit supports UTF-8 text files; use a specialized document or artifact tool for binary files")
 		return &result
 	}
 	patchState.originalContents[path] = content
@@ -1349,7 +1349,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) loadEditableFile(toolContext conte
 	return nil
 }
 
-func (toolCatalogBuilder *ToolCatalogBuilder) writePatchState(toolContext context.Context, handlerContext toolHandlerContext, patchState *filePatchState) *agent.ToolResult {
+func (toolCatalogBuilder *ToolCatalogBuilder) writePatchState(toolContext context.Context, handlerContext toolHandlerContext, patchState *filePatchState) *bluecollar.ToolResult {
 	writtenPaths := []string{}
 	for _, path := range patchState.pathOrder {
 		if failureResult := toolCatalogBuilder.runRequesterFileWrite(toolContext, handlerContext, "file_edit", path, patchState.currentContents[path]); failureResult != nil {
@@ -1367,18 +1367,18 @@ func (toolCatalogBuilder *ToolCatalogBuilder) rollbackPatchWrites(toolContext co
 	}
 }
 
-func fileExactEditFailure(stage string, path string, editIndex int, matchCount int, guidance string) agent.ToolResult {
+func fileExactEditFailure(stage string, path string, editIndex int, matchCount int, guidance string) bluecollar.ToolResult {
 	content := marshalToolResult(map[string]any{
 		"path":       strings.TrimSpace(path),
 		"editIndex":  editIndex,
 		"matchCount": matchCount,
 		"guidance":   strings.TrimSpace(guidance),
 	})
-	result := agent.ToolFailureWithOutput(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, stage, content, json.RawMessage(content))
+	result := bluecollar.ToolFailureWithOutput(bluecollar.FailureInvalidInput, bluecollar.FailureCodes.InvalidInput, stage, content, json.RawMessage(content))
 	result.Failure.Retryable = true
 	result.Failure.SafeRetry = true
 	result.Failure.RetryPolicy = "different_input"
-	result.Failure.RecoveryHints = []agent.RecoveryHint{{
+	result.Failure.RecoveryHints = []bluecollar.RecoveryHint{{
 		Action:    "inspect_then_targeted_edit",
 		ToolNames: []string{"file.read", "file.edit"},
 		Reason:    "The oldText no longer matches the file on disk. Read the current file with file.read, copy the exact snippet, then retry a targeted file.edit. Do not rewrite the whole file — a targeted edit keeps the rest of the work and is far cheaper.",
@@ -1386,12 +1386,12 @@ func fileExactEditFailure(stage string, path string, editIndex int, matchCount i
 	return result
 }
 
-func (toolCatalogBuilder *ToolCatalogBuilder) attachFileTool(toolContext context.Context, input fileAttachToolInput, handlerContext toolHandlerContext) (agent.ToolResult, error) {
+func (toolCatalogBuilder *ToolCatalogBuilder) attachFileTool(toolContext context.Context, input fileAttachToolInput, handlerContext toolHandlerContext) (bluecollar.ToolResult, error) {
 	attachmentInputs := normalizeFileAttachInputs(input)
 	if len(attachmentInputs) == 0 {
-		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "file_deliver", "files must contain at least one path"), nil
+		return bluecollar.ToolFailureResult(bluecollar.FailureInvalidInput, bluecollar.FailureCodes.InvalidInput, "file_deliver", "files must contain at least one path"), nil
 	}
-	attachments := []agent.FileAttachment{}
+	attachments := []bluecollar.FileAttachment{}
 	deliveredPaths := []string{}
 	for _, attachmentInput := range attachmentInputs {
 		attachment, failureResult := toolCatalogBuilder.fileAttachment(toolContext, attachmentInput, handlerContext)
@@ -1405,8 +1405,8 @@ func (toolCatalogBuilder *ToolCatalogBuilder) attachFileTool(toolContext context
 		"deliveredPaths":  deliveredPaths,
 		"attachmentCount": len(attachments),
 	}))
-	return agent.ToolResult{
-		Output:      agent.ToolOutput{Content: "files delivered", Data: data},
+	return bluecollar.ToolResult{
+		Output:      bluecollar.ToolOutput{Content: "files delivered", Data: data},
 		Attachments: attachments,
 	}, nil
 }
@@ -1426,37 +1426,37 @@ func normalizeFileAttachInputs(input fileAttachToolInput) []fileAttachFileInput 
 	}}
 }
 
-func (toolCatalogBuilder *ToolCatalogBuilder) fileAttachment(toolContext context.Context, input fileAttachFileInput, handlerContext toolHandlerContext) (agent.FileAttachment, *agent.ToolResult) {
+func (toolCatalogBuilder *ToolCatalogBuilder) fileAttachment(toolContext context.Context, input fileAttachFileInput, handlerContext toolHandlerContext) (bluecollar.FileAttachment, *bluecollar.ToolResult) {
 	path := strings.TrimSpace(input.Path)
 	if path == "" {
-		result := agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "file_deliver", "delivery path is required")
-		return agent.FileAttachment{}, &result
+		result := bluecollar.ToolFailureResult(bluecollar.FailureInvalidInput, bluecollar.FailureCodes.InvalidInput, "file_deliver", "delivery path is required")
+		return bluecollar.FileAttachment{}, &result
 	}
 	outcome, actorFailure := toolCatalogBuilder.runRequesterShell(toolContext, handlerContext.request, requesterShellCommand{
 		Command:            fileReadShellCommand(path, inlineAttachmentMaximumBytes+1),
 		OutputMaximumBytes: inlineAttachmentMaximumBytes + fileReadShellOutputReserveBytes,
 	})
 	if actorFailure != nil {
-		return agent.FileAttachment{}, actorFailure
+		return bluecollar.FileAttachment{}, actorFailure
 	}
 	if outcome.RunError != nil {
 		result := toolCatalogBuilder.fileDeliverReadFailure(toolContext, handlerContext, path, outcome)
-		return agent.FileAttachment{}, &result
+		return bluecollar.FileAttachment{}, &result
 	}
 	sizeBytes, content, isParsed := parseFileReadShellOutput(outcome.CommandResult.Stdout)
 	if !isParsed {
-		result := agent.ToolFailureResult(agent.FailureExternalService, agent.FailureCodes.OperationFailed, "file_deliver", "file size probe returned unreadable output")
-		return agent.FileAttachment{}, &result
+		result := bluecollar.ToolFailureResult(bluecollar.FailureExternalService, bluecollar.FailureCodes.OperationFailed, "file_deliver", "file size probe returned unreadable output")
+		return bluecollar.FileAttachment{}, &result
 	}
 	if sizeBytes > inlineAttachmentMaximumBytes || len(content) > inlineAttachmentMaximumBytes {
-		result := agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "file_deliver", "file is too large to deliver as an inline attachment")
-		return agent.FileAttachment{}, &result
+		result := bluecollar.ToolFailureResult(bluecollar.FailureInvalidInput, bluecollar.FailureCodes.InvalidInput, "file_deliver", "file is too large to deliver as an inline attachment")
+		return bluecollar.FileAttachment{}, &result
 	}
 	concretePath := toolCatalogBuilder.nativeRequesterPath(handlerContext.request, path)
 	filename := attachmentFilename(input, concretePath)
 	toolCatalogBuilder.persistDeliveredDocument(toolContext, handlerContext, path, filename, content)
 	contentType := firstNonEmptyString(input.ContentType, mime.TypeByExtension(filepath.Ext(filename)), "application/octet-stream")
-	return agent.FileAttachment{
+	return bluecollar.FileAttachment{
 		DevicePath:    toolCatalogBuilder.agentWorkspacePath(concretePath),
 		Filename:      filename,
 		ContentType:   contentType,
@@ -1470,7 +1470,7 @@ const fileDeliverCandidateFileLimit = 8
 
 // A not_found read failure otherwise forces the model to guess a corrected path across
 // several retries. Listing what actually exists nearby lets it recover in one step.
-func (toolCatalogBuilder *ToolCatalogBuilder) fileDeliverReadFailure(toolContext context.Context, handlerContext toolHandlerContext, path string, outcome requesterShellOutcome) agent.ToolResult {
+func (toolCatalogBuilder *ToolCatalogBuilder) fileDeliverReadFailure(toolContext context.Context, handlerContext toolHandlerContext, path string, outcome requesterShellOutcome) bluecollar.ToolResult {
 	result := outcome.toolFailure("read_file", "file_deliver", path)
 	if outcome.failureCode() != security.ActorErrorCodeNotFound {
 		return result
@@ -1574,26 +1574,26 @@ func attachmentFilename(input fileAttachFileInput, resolvedPath string) string {
 	return filepath.Base(resolvedPath)
 }
 
-func attachmentResolutionFailure(stage string, errorValue error) agent.ToolResult {
+func attachmentResolutionFailure(stage string, errorValue error) bluecollar.ToolResult {
 	summary := strings.TrimSpace(errorValue.Error()) + ". This attachment reference is not openable in the current conversation. If it is a file you created or saved earlier, it persists as a workspace file: find it by name (for example `ls ~/documents`) and open that workspace path with file.read or file.preview, or edit it with your document skill's script. Only if no such workspace file exists, summarize from the conversation or tell the user it could not be opened."
-	return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, stage, summary)
+	return bluecollar.ToolFailureResult(bluecollar.FailureInvalidInput, bluecollar.FailureCodes.InvalidInput, stage, summary)
 }
 
-func resolveReadableAttachmentMaterial(toolContext context.Context, request ToolCatalogRequest, materialID string) (agent.VisibleContextMaterial, error) {
+func resolveReadableAttachmentMaterial(toolContext context.Context, request ToolCatalogRequest, materialID string) (bluecollar.VisibleContextMaterial, error) {
 	if request.AttachmentMaterialResolver == nil {
-		return agent.VisibleContextMaterial{}, errors.New("attachment material resolver is unavailable")
+		return bluecollar.VisibleContextMaterial{}, errors.New("attachment material resolver is unavailable")
 	}
 	material, errorValue := request.AttachmentMaterialResolver.ResolveAttachmentMaterial(toolContext, materialID)
 	if errorValue != nil {
-		return agent.VisibleContextMaterial{}, errorValue
+		return bluecollar.VisibleContextMaterial{}, errorValue
 	}
 	if strings.TrimSpace(material.Path) == "" {
-		return agent.VisibleContextMaterial{}, errors.New("attachment material has no readable workspace path")
+		return bluecollar.VisibleContextMaterial{}, errors.New("attachment material has no readable workspace path")
 	}
 	return material, nil
 }
 
-func validateAttachmentMaterialTool(toolName string, material agent.VisibleContextMaterial) error {
+func validateAttachmentMaterialTool(toolName string, material bluecollar.VisibleContextMaterial) error {
 	contentType := strings.ToLower(strings.TrimSpace(material.ContentType))
 	switch strings.TrimSpace(toolName) {
 	case "image.read":

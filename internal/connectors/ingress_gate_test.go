@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/agent"
+	"github.com/Dawn-kim-official/blueclaw/internal/bluecollar"
 	"github.com/Dawn-kim-official/blueclaw/internal/identity"
 	"github.com/Dawn-kim-official/blueclaw/internal/policy"
 	"github.com/Dawn-kim-official/blueclaw/internal/task"
@@ -17,7 +17,7 @@ func newIngressGateTestRuntime(gate IngressGate) (*ConnectorRuntime, *task.TaskR
 	identityService := identity.NewIdentityService(policy.PolicyProjection{})
 	taskEventService := task.NewTaskEventService()
 	taskRunService := task.NewTaskRunService(taskEventService)
-	agentKernel := agent.NewAgentKernel(taskRunService, task.NewTaskStepService())
+	agentKernel := bluecollar.NewAgentKernel(taskRunService, task.NewTaskStepService())
 	connectorRuntime := NewConnectorRuntime(identityService, agentKernel, slog.Default())
 	connectorRuntime.UseIngressGate(gate)
 	return connectorRuntime, taskRunService

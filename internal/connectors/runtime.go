@@ -12,8 +12,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/agent"
 	"github.com/Dawn-kim-official/blueclaw/internal/agentruntime"
+	"github.com/Dawn-kim-official/blueclaw/internal/bluecollar"
 	"github.com/Dawn-kim-official/blueclaw/internal/capability"
 	"github.com/Dawn-kim-official/blueclaw/internal/identity"
 	"github.com/Dawn-kim-official/blueclaw/internal/mcp"
@@ -58,7 +58,7 @@ type PlatformInboundEvent struct {
 	SenderID         string                 `json:"senderID"`
 	ReplyTargetID    string                 `json:"replyTargetID"`
 	Prompt           string                 `json:"prompt"`
-	InputParts       []agent.AgentPart      `json:"inputParts,omitempty"`
+	InputParts       []bluecollar.AgentPart `json:"inputParts,omitempty"`
 	ResponseLanguage string                 `json:"responseLanguage,omitempty"`
 	Context          VisibleContext         `json:"context"`
 	RawReceivedAt    time.Time              `json:"-"`
@@ -80,27 +80,27 @@ type ReactionTarget struct {
 }
 
 type OutboundReply struct {
-	Message         string                 `json:"message"`
-	TaskRunID       string                 `json:"taskRunID,omitempty"`
-	ReplyKind       string                 `json:"replyKind,omitempty"`
-	RawEventID      string                 `json:"rawEventID,omitempty"`
-	OutboxID        string                 `json:"outboxID,omitempty"`
-	Attachments     []agent.FileAttachment `json:"attachments,omitempty"`
-	RecoveryActions []agent.RecoveryAction `json:"recoveryActions,omitempty"`
-	FailureNotice   agent.FailureNotice    `json:"failureNotice,omitempty"`
-	Interaction     *AskInteraction        `json:"interaction,omitempty"`
+	Message         string                      `json:"message"`
+	TaskRunID       string                      `json:"taskRunID,omitempty"`
+	ReplyKind       string                      `json:"replyKind,omitempty"`
+	RawEventID      string                      `json:"rawEventID,omitempty"`
+	OutboxID        string                      `json:"outboxID,omitempty"`
+	Attachments     []bluecollar.FileAttachment `json:"attachments,omitempty"`
+	RecoveryActions []bluecollar.RecoveryAction `json:"recoveryActions,omitempty"`
+	FailureNotice   bluecollar.FailureNotice    `json:"failureNotice,omitempty"`
+	Interaction     *AskInteraction             `json:"interaction,omitempty"`
 }
 
 type outboundReplyDocument struct {
-	Message         string                    `json:"message"`
-	TaskRunID       string                    `json:"taskRunID,omitempty"`
-	ReplyKind       string                    `json:"replyKind,omitempty"`
-	RawEventID      string                    `json:"rawEventID,omitempty"`
-	OutboxID        string                    `json:"outboxID,omitempty"`
-	Attachments     []outboundReplyAttachment `json:"attachments,omitempty"`
-	RecoveryActions []agent.RecoveryAction    `json:"recoveryActions,omitempty"`
-	FailureNotice   agent.FailureNotice       `json:"failureNotice,omitempty"`
-	Interaction     *AskInteraction           `json:"interaction,omitempty"`
+	Message         string                      `json:"message"`
+	TaskRunID       string                      `json:"taskRunID,omitempty"`
+	ReplyKind       string                      `json:"replyKind,omitempty"`
+	RawEventID      string                      `json:"rawEventID,omitempty"`
+	OutboxID        string                      `json:"outboxID,omitempty"`
+	Attachments     []outboundReplyAttachment   `json:"attachments,omitempty"`
+	RecoveryActions []bluecollar.RecoveryAction `json:"recoveryActions,omitempty"`
+	FailureNotice   bluecollar.FailureNotice    `json:"failureNotice,omitempty"`
+	Interaction     *AskInteraction             `json:"interaction,omitempty"`
 }
 
 type outboundReplyAttachment struct {
@@ -158,13 +158,13 @@ func (reply *OutboundReply) UnmarshalJSON(documentBytes []byte) error {
 	reply.RawEventID = document.RawEventID
 	reply.OutboxID = document.OutboxID
 	reply.Attachments = fileAttachmentsFromOutboundReplyAttachments(document.Attachments)
-	reply.RecoveryActions = append([]agent.RecoveryAction{}, document.RecoveryActions...)
+	reply.RecoveryActions = append([]bluecollar.RecoveryAction{}, document.RecoveryActions...)
 	reply.FailureNotice = document.FailureNotice
 	reply.Interaction = document.Interaction
 	return nil
 }
 
-func outboundReplyAttachments(attachments []agent.FileAttachment) []outboundReplyAttachment {
+func outboundReplyAttachments(attachments []bluecollar.FileAttachment) []outboundReplyAttachment {
 	replyAttachments := []outboundReplyAttachment{}
 	for _, attachment := range attachments {
 		replyAttachments = append(replyAttachments, outboundReplyAttachment{
@@ -179,10 +179,10 @@ func outboundReplyAttachments(attachments []agent.FileAttachment) []outboundRepl
 	return replyAttachments
 }
 
-func fileAttachmentsFromOutboundReplyAttachments(attachments []outboundReplyAttachment) []agent.FileAttachment {
-	fileAttachments := []agent.FileAttachment{}
+func fileAttachmentsFromOutboundReplyAttachments(attachments []outboundReplyAttachment) []bluecollar.FileAttachment {
+	fileAttachments := []bluecollar.FileAttachment{}
 	for _, attachment := range attachments {
-		fileAttachments = append(fileAttachments, agent.FileAttachment{
+		fileAttachments = append(fileAttachments, bluecollar.FileAttachment{
 			DevicePath:    attachment.DevicePath,
 			Filename:      attachment.Filename,
 			ContentType:   attachment.ContentType,
@@ -309,8 +309,8 @@ type InputAttachmentImportRequest struct {
 }
 
 type InputAttachmentImportResult struct {
-	InputParts       []agent.AgentPart `json:"inputParts,omitempty"`
-	InputAttachments []InputAttachment `json:"inputAttachments,omitempty"`
+	InputParts       []bluecollar.AgentPart `json:"inputParts,omitempty"`
+	InputAttachments []InputAttachment      `json:"inputAttachments,omitempty"`
 }
 
 type MessageReactionAdapter interface {
@@ -349,7 +349,7 @@ const connectorReplyKindPermissionNotice = "permission_notice"
 
 type ConnectorRuntime struct {
 	identityService      *identity.IdentityService
-	agentKernel          *agent.AgentKernel
+	agentKernel          *bluecollar.AgentKernel
 	taskLauncher         *agentruntime.TaskLauncher
 	toolCatalogBuilder   *agentruntime.ToolCatalogBuilder
 	memoryService        *memory.MemoryService
@@ -393,7 +393,7 @@ type pendingApproval struct {
 	ApprovalQuestion        string
 	ResponseLanguage        string
 	ContinuationInstruction string
-	ActiveGoal              agent.ActiveGoal
+	ActiveGoal              bluecollar.ActiveGoal
 }
 
 type inboundTaskWaitResolution struct {
@@ -404,7 +404,7 @@ type inboundTaskWaitResolution struct {
 	Reason             string
 }
 
-func NewConnectorRuntime(identityService *identity.IdentityService, agentKernel *agent.AgentKernel, logger *slog.Logger) *ConnectorRuntime {
+func NewConnectorRuntime(identityService *identity.IdentityService, agentKernel *bluecollar.AgentKernel, logger *slog.Logger) *ConnectorRuntime {
 	if logger == nil {
 		logger = slog.Default()
 	}
@@ -940,15 +940,15 @@ func (connectorRuntime *ConnectorRuntime) processInboundEventWithReplySender(ctx
 	if errorValue != nil {
 		return ConnectorRuntimeResult{}, errorValue
 	}
-	isApprovalContinuation := hasPendingConfirmation && turnDecision.Approval != nil && *turnDecision.Approval == agent.ApprovalSignalApprove
+	isApprovalContinuation := hasPendingConfirmation && turnDecision.Approval != nil && *turnDecision.Approval == bluecollar.ApprovalSignalApprove
 	if hasPendingConfirmation {
 		connectorRuntime.resolveAskInteractionMessage(ctx, adapter, event, pendingApproval.TaskRun.TaskRunID, AskInteraction{InteractionID: latestAskInteractionID(connectorRuntime.agentKernel.ListTaskEvent(pendingApproval.TaskRun.TaskRunID))})
 		connectorRuntime.resolveTaskWaitToken(taskWaitResolution)
 	}
 	if hasPendingConfirmation && !isApprovalContinuation && shouldStopAfterPendingConfirmation(turnDecision) {
-		return connectorRuntime.handleRejectedConfirmation(ctx, platform, adapter, event, replyTarget, pendingApproval, agent.ConfirmationReplyDecision{Decision: string(agent.ApprovalSignalReject), Reason: turnDecision.Reason}, sendReply)
+		return connectorRuntime.handleRejectedConfirmation(ctx, platform, adapter, event, replyTarget, pendingApproval, bluecollar.ConfirmationReplyDecision{Decision: string(bluecollar.ApprovalSignalReject), Reason: turnDecision.Reason}, sendReply)
 	}
-	if hasPendingConfirmation && !isApprovalContinuation && turnDecision.Route == agent.TurnRouteAnswerQuestion {
+	if hasPendingConfirmation && !isApprovalContinuation && turnDecision.Route == bluecollar.TurnRouteAnswerQuestion {
 		return connectorRuntime.handlePendingConfirmationQuestion(ctx, platform, adapter, event, replyTarget, pendingApproval, turnDecision, sendReply)
 	}
 	didSupersedePendingConfirmation := false
@@ -980,8 +980,8 @@ func (connectorRuntime *ConnectorRuntime) processInboundEventWithReplySender(ctx
 		connectorRuntime.resolveTaskWaitToken(taskWaitResolution)
 	}
 	activeGoal, hasActiveGoal := connectorRuntime.findActiveGoal(personID, platform, event, taskWaitResolution)
-	if !isApprovalContinuation && hasActiveGoal && turnDecision.Route == agent.TurnRouteStartTask {
-		activeGoal = agent.ActiveGoal{}
+	if !isApprovalContinuation && hasActiveGoal && turnDecision.Route == bluecollar.TurnRouteStartTask {
+		activeGoal = bluecollar.ActiveGoal{}
 		hasActiveGoal = false
 	}
 	if isApprovalContinuation {
@@ -1020,7 +1020,7 @@ func (connectorRuntime *ConnectorRuntime) processInboundEventWithReplySender(ctx
 			return busyResult.connectorResult, nil
 		}
 		if busyResult.clearActiveGoal {
-			activeGoal = agent.ActiveGoal{}
+			activeGoal = bluecollar.ActiveGoal{}
 			hasActiveGoal = false
 		}
 	}
@@ -1029,7 +1029,7 @@ func (connectorRuntime *ConnectorRuntime) processInboundEventWithReplySender(ctx
 		isProgressStarted = true
 	}
 	event = connectorRuntime.withAttachmentMaterials(ctx, adapter, event, personID)
-	priorTask := agent.PriorTaskContext{}
+	priorTask := bluecollar.PriorTaskContext{}
 	if !isApprovalContinuation && !hasPendingAskInteraction && !hasActiveGoal {
 		priorTask, _ = connectorRuntime.findPriorTaskContext(personID, event)
 	}
@@ -1053,12 +1053,12 @@ func (connectorRuntime *ConnectorRuntime) processInboundEventWithReplySender(ctx
 		AmbientDuty:               addressingLaunch.AmbientDuty,
 		CheckpointSender:          connectorRuntime.checkpointSenderForTurn(platform, event, replyTarget, sendReply),
 		AccessibleConversationIDs: []string{event.ConversationID},
-		IsBlockedContinuation:     activeGoal.Status == agent.ActiveGoalStatusBlocked && hasActiveGoal,
+		IsBlockedContinuation:     activeGoal.Status == bluecollar.ActiveGoalStatusBlocked && hasActiveGoal,
 	}
 	launchResult, errorValue := connectorRuntime.currentTaskLauncher().Launch(ctx, connectorRuntime.buildTaskLaunchRequest(conversationTurn))
 	if errorValue != nil {
 		connectorRuntime.logger.Error("connector."+platform+".agent.failed", slog.String("messageID", event.MessageID), slog.String("error", errorValue.Error()))
-		failureTurnResult := connectorRuntime.agentKernel.CompleteLaunchFailure(ctx, agent.AgentTurnRequest{
+		failureTurnResult := connectorRuntime.agentKernel.CompleteLaunchFailure(ctx, bluecollar.AgentTurnRequest{
 			RequesterPersonID: personID,
 			RequesterEmail:    requesterEmail,
 			Platform:          platform,
@@ -1187,7 +1187,7 @@ func (connectorRuntime *ConnectorRuntime) addConsumeReaction(ctx context.Context
 func consumeReactionEmojiName(reactionEmojiName string) string {
 	reactionEmojiName = strings.TrimSpace(reactionEmojiName)
 	if reactionEmojiName == "" {
-		return agent.DefaultReactionEmojiName
+		return bluecollar.DefaultReactionEmojiName
 	}
 	return reactionEmojiName
 }
@@ -1217,29 +1217,29 @@ func (connectorRuntime *ConnectorRuntime) shouldIgnoreOrphanAskAction(personID s
 	}
 }
 
-func (connectorRuntime *ConnectorRuntime) resolveConfirmationReply(ctx context.Context, platform string, personID string, event PlatformInboundEvent, taskWaitResolution inboundTaskWaitResolution) (pendingApproval, agent.TurnDecision, bool, error) {
+func (connectorRuntime *ConnectorRuntime) resolveConfirmationReply(ctx context.Context, platform string, personID string, event PlatformInboundEvent, taskWaitResolution inboundTaskWaitResolution) (pendingApproval, bluecollar.TurnDecision, bool, error) {
 	approval, isFound := connectorRuntime.findPendingApproval(personID, platform, event, taskWaitResolution)
 	if !isFound {
-		return pendingApproval{}, agent.TurnDecision{}, false, nil
+		return pendingApproval{}, bluecollar.TurnDecision{}, false, nil
 	}
 	if action, isFound := event.LegacyFields["askAction"].(string); isFound {
 		switch strings.TrimSpace(action) {
 		case "confirm":
-			approvalSignal := agent.ApprovalSignalApprove
-			decision := agent.TurnDecision{Route: agent.TurnRouteContinueTask, Approval: &approvalSignal, Classification: agent.IntakeClassificationBoundedTask, TaskShape: agent.TaskShapeMaintenanceTask, TaskLevel: agent.TaskLevelLow, ResponseLanguage: responseLanguageForEvent(event), Reason: "interactive_confirm"}
+			approvalSignal := bluecollar.ApprovalSignalApprove
+			decision := bluecollar.TurnDecision{Route: bluecollar.TurnRouteContinueTask, Approval: &approvalSignal, Classification: bluecollar.IntakeClassificationBoundedTask, TaskShape: bluecollar.TaskShapeMaintenanceTask, TaskLevel: bluecollar.TaskLevelLow, ResponseLanguage: responseLanguageForEvent(event), Reason: "interactive_confirm"}
 			return approval, connectorRuntime.withPersistedIntakeState(approval.TaskRun.TaskRunID, decision), true, nil
 		case "cancel":
-			approvalSignal := agent.ApprovalSignalReject
-			return approval, agent.TurnDecision{Route: agent.TurnRouteConsume, Approval: &approvalSignal, Classification: agent.IntakeClassificationQuickReply, TaskShape: agent.TaskShapeImmediateReply, TaskLevel: agent.TaskLevelXLow, ResponseLanguage: responseLanguageForEvent(event), Reason: "interactive_cancel"}, true, nil
+			approvalSignal := bluecollar.ApprovalSignalReject
+			return approval, bluecollar.TurnDecision{Route: bluecollar.TurnRouteConsume, Approval: &approvalSignal, Classification: bluecollar.IntakeClassificationQuickReply, TaskShape: bluecollar.TaskShapeImmediateReply, TaskLevel: bluecollar.TaskLevelXLow, ResponseLanguage: responseLanguageForEvent(event), Reason: "interactive_cancel"}, true, nil
 		}
 	}
-	decision, errorValue := connectorRuntime.agentKernel.RouteTurn(ctx, agent.AgentRequest{
+	decision, errorValue := connectorRuntime.agentKernel.RouteTurn(ctx, bluecollar.AgentRequest{
 		RequesterPersonID: personID,
 		ConversationID:    event.ConversationID,
 		Prompt:            event.Prompt,
 		ResponseLanguage:  responseLanguageForEvent(event),
 		VisibleContext:    event.Context.ToAgentVisibleContext(),
-		PendingConfirmation: agent.PendingConfirmationContext{
+		PendingConfirmation: bluecollar.PendingConfirmationContext{
 			TaskRunID: approval.TaskRun.TaskRunID,
 			Prompt:    approval.IntentPrompt,
 			Question:  approval.ApprovalQuestion,
@@ -1247,7 +1247,7 @@ func (connectorRuntime *ConnectorRuntime) resolveConfirmationReply(ctx context.C
 		TurnStartedAt: time.Now(),
 	})
 	if errorValue != nil {
-		return pendingApproval{}, agent.TurnDecision{}, false, errorValue
+		return pendingApproval{}, bluecollar.TurnDecision{}, false, errorValue
 	}
 	connectorRuntime.agentKernel.AppendTaskEvent(approval.TaskRun.TaskRunID, "confirmation.reply_classified", marshalConnectorEventBody(map[string]any{
 		"messageID":   event.MessageID,
@@ -1256,29 +1256,29 @@ func (connectorRuntime *ConnectorRuntime) resolveConfirmationReply(ctx context.C
 		"reason":      decision.Reason,
 		"replyPrompt": strings.TrimSpace(event.Prompt),
 	}))
-	if decision.Approval != nil && *decision.Approval == agent.ApprovalSignalApprove {
+	if decision.Approval != nil && *decision.Approval == bluecollar.ApprovalSignalApprove {
 		connectorRuntime.logger.Info("connector."+platform+".confirmation.accepted", slog.String("messageID", event.MessageID), slog.String("taskRunID", approval.TaskRun.TaskRunID))
 	}
 	return approval, decision, true, nil
 }
 
-func (connectorRuntime *ConnectorRuntime) resolveAskReply(ctx context.Context, platform string, personID string, event PlatformInboundEvent, taskWaitResolution inboundTaskWaitResolution) (PlatformInboundEvent, agent.TurnDecision, bool, error) {
+func (connectorRuntime *ConnectorRuntime) resolveAskReply(ctx context.Context, platform string, personID string, event PlatformInboundEvent, taskWaitResolution inboundTaskWaitResolution) (PlatformInboundEvent, bluecollar.TurnDecision, bool, error) {
 	pendingInteraction, isFound := connectorRuntime.findPendingAskInteraction(personID, platform, event, taskWaitResolution)
 	if !isFound {
-		return event, agent.TurnDecision{}, false, nil
+		return event, bluecollar.TurnDecision{}, false, nil
 	}
 	if action, isFound := event.LegacyFields["askAction"].(string); isFound {
 		decision := connectorRuntime.withPersistedIntakeState(pendingInteraction.TaskRunID, askInteractiveTurnDecision(event, pendingInteraction, action))
 		return resolveAskInteractiveReply(event, pendingInteraction, action), decision, true, nil
 	}
 	if pendingInteraction.Kind == "ask_input" {
-		decision, errorValue := connectorRuntime.agentKernel.RouteTurn(ctx, agent.AgentRequest{
+		decision, errorValue := connectorRuntime.agentKernel.RouteTurn(ctx, bluecollar.AgentRequest{
 			RequesterPersonID: personID,
 			ConversationID:    event.ConversationID,
 			Prompt:            event.Prompt,
 			ResponseLanguage:  responseLanguageForEvent(event),
 			VisibleContext:    event.Context.ToAgentVisibleContext(),
-			PendingInput: agent.PendingInputContext{
+			PendingInput: bluecollar.PendingInputContext{
 				TaskRunID:     pendingInteraction.TaskRunID,
 				Question:      pendingInteraction.Question,
 				SelectionMode: pendingInteraction.SelectionMode,
@@ -1289,14 +1289,14 @@ func (connectorRuntime *ConnectorRuntime) resolveAskReply(ctx context.Context, p
 		return event, decision, true, errorValue
 	}
 	if pendingInteraction.Kind != "ask_choice_single" && pendingInteraction.Kind != "ask_choice_multiple" {
-		return event, agent.TurnDecision{}, false, nil
+		return event, bluecollar.TurnDecision{}, false, nil
 	}
 	if choices, isFound := deterministicChoiceSelections(event.Prompt, pendingInteraction); isFound {
-		decision := connectorRuntime.withPersistedIntakeState(pendingInteraction.TaskRunID, agent.TurnDecision{
-			Route:            agent.TurnRouteContinueTask,
-			Classification:   agent.IntakeClassificationBoundedTask,
-			TaskShape:        agent.TaskShapeMaintenanceTask,
-			TaskLevel:        agent.TaskLevelLow,
+		decision := connectorRuntime.withPersistedIntakeState(pendingInteraction.TaskRunID, bluecollar.TurnDecision{
+			Route:            bluecollar.TurnRouteContinueTask,
+			Classification:   bluecollar.IntakeClassificationBoundedTask,
+			TaskShape:        bluecollar.TaskShapeMaintenanceTask,
+			TaskLevel:        bluecollar.TaskLevelLow,
 			ResponseLanguage: responseLanguageForEvent(event),
 			Reason:           "deterministic_choice_selection",
 			Choices:          choices,
@@ -1310,13 +1310,13 @@ func (connectorRuntime *ConnectorRuntime) resolveAskReply(ctx context.Context, p
 		event.Prompt = resolvedChoicePrompt(pendingInteraction, decision.Choices)
 		return event, decision, true, nil
 	}
-	decision, errorValue := connectorRuntime.agentKernel.RouteTurn(ctx, agent.AgentRequest{
+	decision, errorValue := connectorRuntime.agentKernel.RouteTurn(ctx, bluecollar.AgentRequest{
 		RequesterPersonID: personID,
 		ConversationID:    event.ConversationID,
 		Prompt:            event.Prompt,
 		ResponseLanguage:  responseLanguageForEvent(event),
 		VisibleContext:    event.Context.ToAgentVisibleContext(),
-		PendingChoice: agent.PendingChoiceContext{
+		PendingChoice: bluecollar.PendingChoiceContext{
 			TaskRunID:     pendingInteraction.TaskRunID,
 			Question:      pendingInteraction.Question,
 			SelectionMode: pendingInteraction.SelectionMode,
@@ -1325,7 +1325,7 @@ func (connectorRuntime *ConnectorRuntime) resolveAskReply(ctx context.Context, p
 		TurnStartedAt: time.Now(),
 	})
 	if errorValue != nil {
-		return event, agent.TurnDecision{}, false, errorValue
+		return event, bluecollar.TurnDecision{}, false, errorValue
 	}
 	connectorRuntime.agentKernel.AppendTaskEvent(pendingInteraction.TaskRunID, "ask.reply_classified", marshalConnectorEventBody(map[string]any{
 		"messageID": event.MessageID,
@@ -1400,18 +1400,18 @@ func choiceKeyForSelectionToken(token string, options []AskChoiceOption) string 
 	return ""
 }
 
-func askInteractiveTurnDecision(event PlatformInboundEvent, interaction AskInteraction, action string) agent.TurnDecision {
+func askInteractiveTurnDecision(event PlatformInboundEvent, interaction AskInteraction, action string) bluecollar.TurnDecision {
 	switch strings.TrimSpace(action) {
 	case "choice":
-		return agent.TurnDecision{Route: agent.TurnRouteContinueTask, Classification: agent.IntakeClassificationBoundedTask, TaskShape: agent.TaskShapeMaintenanceTask, TaskLevel: agent.TaskLevelLow, ResponseLanguage: responseLanguageForEvent(event), Reason: "interactive_choice", Choices: []string{strings.TrimSpace(legacyString(event.LegacyFields, "choiceKey"))}}
+		return bluecollar.TurnDecision{Route: bluecollar.TurnRouteContinueTask, Classification: bluecollar.IntakeClassificationBoundedTask, TaskShape: bluecollar.TaskShapeMaintenanceTask, TaskLevel: bluecollar.TaskLevelLow, ResponseLanguage: responseLanguageForEvent(event), Reason: "interactive_choice", Choices: []string{strings.TrimSpace(legacyString(event.LegacyFields, "choiceKey"))}}
 	case "confirm":
-		approvalSignal := agent.ApprovalSignalApprove
-		return agent.TurnDecision{Route: agent.TurnRouteContinueTask, Approval: &approvalSignal, Classification: agent.IntakeClassificationBoundedTask, TaskShape: agent.TaskShapeMaintenanceTask, TaskLevel: agent.TaskLevelLow, ResponseLanguage: responseLanguageForEvent(event), Reason: "interactive_confirm"}
+		approvalSignal := bluecollar.ApprovalSignalApprove
+		return bluecollar.TurnDecision{Route: bluecollar.TurnRouteContinueTask, Approval: &approvalSignal, Classification: bluecollar.IntakeClassificationBoundedTask, TaskShape: bluecollar.TaskShapeMaintenanceTask, TaskLevel: bluecollar.TaskLevelLow, ResponseLanguage: responseLanguageForEvent(event), Reason: "interactive_confirm"}
 	case "cancel":
-		approvalSignal := agent.ApprovalSignalReject
-		return agent.TurnDecision{Route: agent.TurnRouteConsume, Approval: &approvalSignal, Classification: agent.IntakeClassificationQuickReply, TaskShape: agent.TaskShapeImmediateReply, TaskLevel: agent.TaskLevelXLow, ResponseLanguage: responseLanguageForEvent(event), Reason: "interactive_cancel"}
+		approvalSignal := bluecollar.ApprovalSignalReject
+		return bluecollar.TurnDecision{Route: bluecollar.TurnRouteConsume, Approval: &approvalSignal, Classification: bluecollar.IntakeClassificationQuickReply, TaskShape: bluecollar.TaskShapeImmediateReply, TaskLevel: bluecollar.TaskLevelXLow, ResponseLanguage: responseLanguageForEvent(event), Reason: "interactive_cancel"}
 	default:
-		return agent.TurnDecision{}
+		return bluecollar.TurnDecision{}
 	}
 }
 
@@ -1428,10 +1428,10 @@ func resolveAskInteractiveReply(event PlatformInboundEvent, interaction AskInter
 	return event
 }
 
-func choiceReplyOptions(options []AskChoiceOption) []agent.ChoiceReplyOption {
-	replyOptions := []agent.ChoiceReplyOption{}
+func choiceReplyOptions(options []AskChoiceOption) []bluecollar.ChoiceReplyOption {
+	replyOptions := []bluecollar.ChoiceReplyOption{}
 	for _, option := range options {
-		replyOptions = append(replyOptions, agent.ChoiceReplyOption{
+		replyOptions = append(replyOptions, bluecollar.ChoiceReplyOption{
 			Key:        strings.TrimSpace(option.Key),
 			Label:      strings.TrimSpace(option.Label),
 			ShortLabel: strings.TrimSpace(option.ShortLabel),
@@ -1453,19 +1453,19 @@ func resolvedChoiceKeyPrompt(interaction AskInteraction, choiceKey string) strin
 	return "User selected: " + resolvedChoiceKeyText(interaction, choiceKey)
 }
 
-func shouldStopAfterPendingConfirmation(decision agent.TurnDecision) bool {
-	if decision.Approval != nil && *decision.Approval == agent.ApprovalSignalApprove {
+func shouldStopAfterPendingConfirmation(decision bluecollar.TurnDecision) bool {
+	if decision.Approval != nil && *decision.Approval == bluecollar.ApprovalSignalApprove {
 		return false
 	}
 	switch decision.Route {
-	case agent.TurnRouteAnswerQuestion, agent.TurnRouteStartTask, agent.TurnRouteReviseTask:
+	case bluecollar.TurnRouteAnswerQuestion, bluecollar.TurnRouteStartTask, bluecollar.TurnRouteReviseTask:
 		return false
 	default:
 		return true
 	}
 }
 
-func precomputedTurnDecisionForLaunch(confirmationDecision agent.TurnDecision, hasConfirmationDecision bool, askDecision agent.TurnDecision, hasAskDecision bool) *agent.TurnDecision {
+func precomputedTurnDecisionForLaunch(confirmationDecision bluecollar.TurnDecision, hasConfirmationDecision bool, askDecision bluecollar.TurnDecision, hasAskDecision bool) *bluecollar.TurnDecision {
 	if hasConfirmationDecision {
 		return &confirmationDecision
 	}
@@ -1475,7 +1475,7 @@ func precomputedTurnDecisionForLaunch(confirmationDecision agent.TurnDecision, h
 	return nil
 }
 
-func (connectorRuntime *ConnectorRuntime) cancelPendingConfirmation(event PlatformInboundEvent, approval pendingApproval, decision agent.TurnDecision) {
+func (connectorRuntime *ConnectorRuntime) cancelPendingConfirmation(event PlatformInboundEvent, approval pendingApproval, decision bluecollar.TurnDecision) {
 	_, _ = connectorRuntime.agentKernel.CancelTask(approval.TaskRun.TaskRunID, approval.TaskRun.RequesterPersonID, "confirmation.replaced")
 	connectorRuntime.agentKernel.AppendTaskEvent(approval.TaskRun.TaskRunID, "confirmation.replaced", marshalConnectorEventBody(map[string]string{
 		"messageID": event.MessageID,
@@ -1502,7 +1502,7 @@ func resolvedChoiceKeyText(interaction AskInteraction, choiceKey string) string 
 	return normalizedChoiceKey
 }
 
-func askReplyConsumesInteraction(interaction AskInteraction, previousPrompt string, event PlatformInboundEvent, decision agent.TurnDecision, hasDecision bool) bool {
+func askReplyConsumesInteraction(interaction AskInteraction, previousPrompt string, event PlatformInboundEvent, decision bluecollar.TurnDecision, hasDecision bool) bool {
 	if !hasDecision {
 		return false
 	}
@@ -1511,17 +1511,17 @@ func askReplyConsumesInteraction(interaction AskInteraction, previousPrompt stri
 	}
 	switch strings.TrimSpace(interaction.Kind) {
 	case "ask_input":
-		return decision.Route == agent.TurnRouteContinueTask || decision.Route == agent.TurnRouteReviseTask || decision.Route == agent.TurnRouteStartTask
+		return decision.Route == bluecollar.TurnRouteContinueTask || decision.Route == bluecollar.TurnRouteReviseTask || decision.Route == bluecollar.TurnRouteStartTask
 	default:
 		return strings.TrimSpace(event.Prompt) != strings.TrimSpace(previousPrompt)
 	}
 }
 
-func askReplySupersedesInteraction(decision agent.TurnDecision, hasDecision bool) bool {
-	return hasDecision && decision.Route == agent.TurnRouteStartTask
+func askReplySupersedesInteraction(decision bluecollar.TurnDecision, hasDecision bool) bool {
+	return hasDecision && decision.Route == bluecollar.TurnRouteStartTask
 }
 
-func (connectorRuntime *ConnectorRuntime) supersedePendingAskInteraction(event PlatformInboundEvent, interaction AskInteraction, decision agent.TurnDecision) {
+func (connectorRuntime *ConnectorRuntime) supersedePendingAskInteraction(event PlatformInboundEvent, interaction AskInteraction, decision bluecollar.TurnDecision) {
 	taskRun, isFound := connectorRuntime.agentKernel.FindTaskRun(interaction.TaskRunID)
 	if isFound {
 		_, _ = connectorRuntime.agentKernel.CancelTask(taskRun.TaskRunID, taskRun.RequesterPersonID, "superseded_by_new_message")
@@ -1536,7 +1536,7 @@ func (connectorRuntime *ConnectorRuntime) supersedePendingAskInteraction(event P
 	}))
 }
 
-func (connectorRuntime *ConnectorRuntime) appendAskResolvedEvent(interaction AskInteraction, event PlatformInboundEvent, decision agent.TurnDecision) {
+func (connectorRuntime *ConnectorRuntime) appendAskResolvedEvent(interaction AskInteraction, event PlatformInboundEvent, decision bluecollar.TurnDecision) {
 	connectorRuntime.agentKernel.AppendTaskEvent(interaction.TaskRunID, "ask.resolved", marshalConnectorEventBody(map[string]any{
 		"interactionID": strings.TrimSpace(interaction.InteractionID),
 		"kind":          strings.TrimSpace(interaction.Kind),
@@ -1751,29 +1751,29 @@ func (connectorRuntime *ConnectorRuntime) handleAmbiguousTaskWait(
 	return connectorRuntime.dispatchTaskReply(ctx, platform, adapter, event, replyTarget, launchResult.TurnResult, engagedAckEmojiName, sendReply)
 }
 
-func ambiguousTaskWaitTurnDecision(taskWaitTokens []task.TaskWaitToken, responseLanguage string) agent.TurnDecision {
-	return agent.TurnDecision{
-		Route:                  agent.TurnRouteClarify,
-		Classification:         agent.IntakeClassificationNeedsConfirmation,
-		TaskShape:              agent.TaskShapeApprovalGatedTask,
-		TaskLevel:              agent.TaskLevelLow,
+func ambiguousTaskWaitTurnDecision(taskWaitTokens []task.TaskWaitToken, responseLanguage string) bluecollar.TurnDecision {
+	return bluecollar.TurnDecision{
+		Route:                  bluecollar.TurnRouteClarify,
+		Classification:         bluecollar.IntakeClassificationNeedsConfirmation,
+		TaskShape:              bluecollar.TaskShapeApprovalGatedTask,
+		TaskLevel:              bluecollar.TaskLevelLow,
 		EstimatedMinutes:       1,
 		ResponseLanguage:       responseLanguage,
 		Reason:                 "ambiguous_wait_resolution",
 		ClarificationOptions:   taskWaitClarificationOptions(taskWaitTokens),
-		ExpectedResults:        []agent.ExpectedResult{{ID: "wait-disambiguation", Type: "message", Description: "ask.choice", Required: true, AcceptanceHints: []string{"ask.choice"}}},
+		ExpectedResults:        []bluecollar.ExpectedResult{{ID: "wait-disambiguation", Type: "message", Description: "ask.choice", Required: true, AcceptanceHints: []string{"ask.choice"}}},
 		RequestedOutputFormats: nil,
 	}
 }
 
-func taskWaitClarificationOptions(taskWaitTokens []task.TaskWaitToken) []agent.ClarificationOption {
-	options := []agent.ClarificationOption{}
+func taskWaitClarificationOptions(taskWaitTokens []task.TaskWaitToken) []bluecollar.ClarificationOption {
+	options := []bluecollar.ClarificationOption{}
 	for index, taskWaitToken := range taskWaitTokens {
 		taskRunLabel := strings.TrimSpace(taskWaitToken.TaskRunID)
 		if len(taskRunLabel) > 8 {
 			taskRunLabel = taskRunLabel[:8]
 		}
-		options = append(options, agent.ClarificationOption{
+		options = append(options, bluecollar.ClarificationOption{
 			Key:   string(rune('A' + index)),
 			Label: taskRunLabel,
 			Value: taskWaitToken.WaitID,
@@ -1872,7 +1872,7 @@ func (connectorRuntime *ConnectorRuntime) pendingApprovalForTaskRun(selectedTask
 	}
 }
 
-func (connectorRuntime *ConnectorRuntime) findActiveGoal(personID string, _ string, event PlatformInboundEvent, taskWaitResolution inboundTaskWaitResolution) (agent.ActiveGoal, bool) {
+func (connectorRuntime *ConnectorRuntime) findActiveGoal(personID string, _ string, event PlatformInboundEvent, taskWaitResolution inboundTaskWaitResolution) (bluecollar.ActiveGoal, bool) {
 	if taskWaitResolution.HasTaskWaitToken {
 		return connectorRuntime.findActiveGoalByTaskRunID(taskWaitResolution.TaskWaitToken.TaskRunID)
 	}
@@ -1897,27 +1897,27 @@ func (connectorRuntime *ConnectorRuntime) findActiveGoal(personID string, _ stri
 		isSelected = true
 	}
 	if !isSelected {
-		return agent.ActiveGoal{}, false
+		return bluecollar.ActiveGoal{}, false
 	}
 	return connectorRuntime.activeGoalForTaskRun(selectedTaskRun), true
 }
 
-func (connectorRuntime *ConnectorRuntime) findActiveGoalByTaskRunID(taskRunID string) (agent.ActiveGoal, bool) {
+func (connectorRuntime *ConnectorRuntime) findActiveGoalByTaskRunID(taskRunID string) (bluecollar.ActiveGoal, bool) {
 	taskRun, isFound := connectorRuntime.agentKernel.FindTaskRun(taskRunID)
 	if !isFound {
-		return agent.ActiveGoal{}, false
+		return bluecollar.ActiveGoal{}, false
 	}
 	taskEvents := connectorRuntime.agentKernel.ListTaskEvent(taskRun.TaskRunID)
 	if !taskRunCanContinueGoal(taskRun, taskEvents) {
-		return agent.ActiveGoal{}, false
+		return bluecollar.ActiveGoal{}, false
 	}
 	return connectorRuntime.activeGoalForTaskRun(taskRun), true
 }
 
-func (connectorRuntime *ConnectorRuntime) findPriorTaskContext(personID string, event PlatformInboundEvent) (agent.PriorTaskContext, bool) {
+func (connectorRuntime *ConnectorRuntime) findPriorTaskContext(personID string, event PlatformInboundEvent) (bluecollar.PriorTaskContext, bool) {
 	taskRuns := connectorRuntime.agentKernel.ListTaskRunByPersonID(personID)
 	var selectedTaskRun task.TaskRun
-	var selectedContext agent.PriorTaskContext
+	var selectedContext bluecollar.PriorTaskContext
 	isSelected := false
 	for _, taskRun := range taskRuns {
 		if !taskRunCanProvidePriorContext(taskRun) {
@@ -1944,7 +1944,7 @@ func (connectorRuntime *ConnectorRuntime) findPriorTaskContext(personID string, 
 	return selectedContext, isSelected
 }
 
-func (connectorRuntime *ConnectorRuntime) activeGoalForTaskRun(selectedTaskRun task.TaskRun) agent.ActiveGoal {
+func (connectorRuntime *ConnectorRuntime) activeGoalForTaskRun(selectedTaskRun task.TaskRun) bluecollar.ActiveGoal {
 	taskEvents := connectorRuntime.agentKernel.ListTaskEvent(selectedTaskRun.TaskRunID)
 	activeGoal := latestActiveGoal(taskEvents)
 	if strings.TrimSpace(activeGoal.TaskRunID) == "" {
@@ -1980,12 +1980,12 @@ func taskRunMatchesReplyTarget(taskRun task.TaskRun, event PlatformInboundEvent)
 	return taskReplyTargetID == ""
 }
 
-func priorTaskContextForTaskRun(taskRun task.TaskRun, taskEvents []task.TaskEvent) agent.PriorTaskContext {
+func priorTaskContextForTaskRun(taskRun task.TaskRun, taskEvents []task.TaskEvent) bluecollar.PriorTaskContext {
 	activeGoal := latestActiveGoal(taskEvents)
 	intakeDecision := latestIntakeDecision(taskEvents)
 	requestedOutputFormats := appendUniqueConnectorStrings([]string{}, intakeDecision.RequestedOutputFormats...)
 	requestedOutputFormats = appendUniqueConnectorStrings(requestedOutputFormats, outputFormatsFromAttachmentSuffixes(activeGoal.OutcomeContract.RequiredAttachmentSuffixes)...)
-	return agent.PriorTaskContext{
+	return bluecollar.PriorTaskContext{
 		TaskRunID:              strings.TrimSpace(taskRun.TaskRunID),
 		Status:                 string(taskRun.Status),
 		Prompt:                 strings.TrimSpace(taskRun.Prompt),
@@ -2008,27 +2008,27 @@ func outputFormatsFromAttachmentSuffixes(suffixes []string) []string {
 	return formats
 }
 
-func (connectorRuntime *ConnectorRuntime) withPersistedIntakeState(taskRunID string, decision agent.TurnDecision) agent.TurnDecision {
-	if decision.Route != agent.TurnRouteContinueTask {
+func (connectorRuntime *ConnectorRuntime) withPersistedIntakeState(taskRunID string, decision bluecollar.TurnDecision) bluecollar.TurnDecision {
+	if decision.Route != bluecollar.TurnRouteContinueTask {
 		return decision
 	}
 	taskEvents := connectorRuntime.agentKernel.ListTaskEvent(taskRunID)
 	return decision.WithRestoredIntakeState(latestIntakeDecision(taskEvents))
 }
 
-func latestIntakeDecision(taskEvents []task.TaskEvent) agent.IntakeDecision {
+func latestIntakeDecision(taskEvents []task.TaskEvent) bluecollar.IntakeDecision {
 	for index := len(taskEvents) - 1; index >= 0; index-- {
 		taskEvent := taskEvents[index]
 		if taskEvent.Name != "agent.intake" {
 			continue
 		}
-		var decision agent.IntakeDecision
+		var decision bluecollar.IntakeDecision
 		if errorValue := json.Unmarshal([]byte(taskEvent.Body), &decision); errorValue != nil {
 			continue
 		}
 		return decision
 	}
-	return agent.IntakeDecision{}
+	return bluecollar.IntakeDecision{}
 }
 
 func appendUniqueConnectorStrings(values []string, candidates ...string) []string {
@@ -2074,7 +2074,7 @@ func taskRunHasRecoverableArtifactDelivery(taskEvents []task.TaskEvent) bool {
 	return outcomeContractRequiresFileAttachment(activeGoal.OutcomeContract)
 }
 
-func outcomeContractRequiresFileAttachment(contract agent.OutcomeContract) bool {
+func outcomeContractRequiresFileAttachment(contract bluecollar.OutcomeContract) bool {
 	if len(contract.RequiredAttachmentSuffixes) > 0 {
 		return true
 	}
@@ -2085,11 +2085,11 @@ func outcomeContractRequiresFileAttachment(contract agent.OutcomeContract) bool 
 		return true
 	}
 	for _, result := range contract.ExpectedResults {
-		if result.Required && result.Type == agent.ExpectedResultTypeFile {
+		if result.Required && result.Type == bluecollar.ExpectedResultTypeFile {
 			return true
 		}
 	}
-	return contract.ArtifactRequirement == agent.ArtifactRequirementRequired && agent.OutcomeContractHasRequirements(contract)
+	return contract.ArtifactRequirement == bluecollar.ArtifactRequirementRequired && bluecollar.OutcomeContractHasRequirements(contract)
 }
 
 func toolNamesContain(toolNames []string, expectedToolName string) bool {
@@ -2110,60 +2110,60 @@ func toolNameGroupsContain(toolNameGroups [][]string, expectedToolName string) b
 	return false
 }
 
-func latestActiveGoal(taskEvents []task.TaskEvent) agent.ActiveGoal {
+func latestActiveGoal(taskEvents []task.TaskEvent) bluecollar.ActiveGoal {
 	for index := len(taskEvents) - 1; index >= 0; index-- {
 		taskEvent := taskEvents[index]
 		if !strings.HasPrefix(taskEvent.Name, "agent.goal.") {
 			continue
 		}
-		var activeGoal agent.ActiveGoal
+		var activeGoal bluecollar.ActiveGoal
 		if errorValue := json.Unmarshal([]byte(taskEvent.Body), &activeGoal); errorValue != nil {
-			return agent.ActiveGoal{RestoreError: "latest active goal event is invalid: " + errorValue.Error()}
+			return bluecollar.ActiveGoal{RestoreError: "latest active goal event is invalid: " + errorValue.Error()}
 		}
 		return activeGoal
 	}
 	return activeGoalFromConfirmationPlan(taskEvents)
 }
 
-func activeGoalFromConfirmationPlan(taskEvents []task.TaskEvent) agent.ActiveGoal {
+func activeGoalFromConfirmationPlan(taskEvents []task.TaskEvent) bluecollar.ActiveGoal {
 	for index := len(taskEvents) - 1; index >= 0; index-- {
 		taskEvent := taskEvents[index]
 		if taskEvent.Name != "confirmation.plan_created" {
 			continue
 		}
-		var executionPlan agent.ExecutionPlan
+		var executionPlan bluecollar.ExecutionPlan
 		if errorValue := json.Unmarshal([]byte(taskEvent.Body), &executionPlan); errorValue != nil {
 			continue
 		}
-		return agent.ActiveGoal{
+		return bluecollar.ActiveGoal{
 			OriginalInstruction: strings.TrimSpace(executionPlan.OriginalInstruction),
 			CurrentObjective:    strings.TrimSpace(executionPlan.Summary),
 			MissingInformation:  append([]string{}, executionPlan.MissingInformation...),
-			Status:              agent.ActiveGoalStatusWaitingUserInput,
+			Status:              bluecollar.ActiveGoalStatusWaitingUserInput,
 		}
 	}
-	return agent.ActiveGoal{}
+	return bluecollar.ActiveGoal{}
 }
 
-func activeGoalStatusForTaskRun(taskRun task.TaskRun) agent.ActiveGoalStatus {
+func activeGoalStatusForTaskRun(taskRun task.TaskRun) bluecollar.ActiveGoalStatus {
 	switch taskRun.Status {
 	case task.TaskStatusWaitingApproval:
-		return agent.ActiveGoalStatusWaitingApproval
+		return bluecollar.ActiveGoalStatusWaitingApproval
 	case task.TaskStatusWaitingUserInput:
-		return agent.ActiveGoalStatusWaitingUserInput
+		return bluecollar.ActiveGoalStatusWaitingUserInput
 	case task.TaskStatusBlocked:
-		return agent.ActiveGoalStatusBlocked
+		return bluecollar.ActiveGoalStatusBlocked
 	default:
-		return agent.ActiveGoalStatusActive
+		return bluecollar.ActiveGoalStatusActive
 	}
 }
 
 func approvedContinuationEvent(event PlatformInboundEvent, approval pendingApproval) PlatformInboundEvent {
-	event.ResponseLanguage = agent.ResolveResponseLanguage(event.ResponseLanguage, approval.ResponseLanguage)
+	event.ResponseLanguage = bluecollar.ResolveResponseLanguage(event.ResponseLanguage, approval.ResponseLanguage)
 	return event
 }
 
-func pendingApprovalActiveGoal(approval pendingApproval, approvalReply string) agent.ActiveGoal {
+func pendingApprovalActiveGoal(approval pendingApproval, approvalReply string) bluecollar.ActiveGoal {
 	activeGoal := approval.ActiveGoal
 	activeGoal.GoalID = firstNonEmptyString(activeGoal.GoalID, approval.TaskRun.TaskRunID)
 	activeGoal.TaskRunID = firstNonEmptyString(activeGoal.TaskRunID, approval.TaskRun.TaskRunID)
@@ -2172,13 +2172,13 @@ func pendingApprovalActiveGoal(approval pendingApproval, approvalReply string) a
 	executionDirective := "The user already approved this action; perform it now and do not call ask.confirm again."
 	activeGoal.CurrentObjective = strings.TrimSpace(approvedAction + " " + executionDirective)
 	activeGoal.KnownContext = append(activeGoal.KnownContext, "The user approved the pending action in the latest message: "+strings.TrimSpace(approvalReply))
-	activeGoal.Status = agent.ActiveGoalStatusActive
+	activeGoal.Status = bluecollar.ActiveGoalStatusActive
 	return activeGoal
 }
 
-func activeGoalForLaunch(activeGoal agent.ActiveGoal, hasActiveGoal bool) agent.ActiveGoal {
+func activeGoalForLaunch(activeGoal bluecollar.ActiveGoal, hasActiveGoal bool) bluecollar.ActiveGoal {
 	if !hasActiveGoal {
-		return agent.ActiveGoal{}
+		return bluecollar.ActiveGoal{}
 	}
 	return activeGoal
 }
@@ -2190,7 +2190,7 @@ func pendingConfirmationTaskRunID(approval pendingApproval, isApprovalContinuati
 	return strings.TrimSpace(approval.TaskRun.TaskRunID)
 }
 
-func existingGoalTaskRunID(approval pendingApproval, isApprovalContinuation bool, activeGoal agent.ActiveGoal, hasActiveGoal bool) string {
+func existingGoalTaskRunID(approval pendingApproval, isApprovalContinuation bool, activeGoal bluecollar.ActiveGoal, hasActiveGoal bool) string {
 	if isApprovalContinuation {
 		return pendingConfirmationTaskRunID(approval, true)
 	}
@@ -2200,7 +2200,7 @@ func existingGoalTaskRunID(approval pendingApproval, isApprovalContinuation bool
 	return strings.TrimSpace(activeGoal.TaskRunID)
 }
 
-func (connectorRuntime *ConnectorRuntime) handleRejectedConfirmation(ctx context.Context, platform string, adapter PlatformAdapter, event PlatformInboundEvent, replyTarget ReplyTarget, approval pendingApproval, decision agent.ConfirmationReplyDecision, sendReply func(context.Context, ReplyTarget, OutboundReply) (string, error)) (ConnectorRuntimeResult, error) {
+func (connectorRuntime *ConnectorRuntime) handleRejectedConfirmation(ctx context.Context, platform string, adapter PlatformAdapter, event PlatformInboundEvent, replyTarget ReplyTarget, approval pendingApproval, decision bluecollar.ConfirmationReplyDecision, sendReply func(context.Context, ReplyTarget, OutboundReply) (string, error)) (ConnectorRuntimeResult, error) {
 	_, _ = connectorRuntime.agentKernel.CancelTask(approval.TaskRun.TaskRunID, approval.TaskRun.RequesterPersonID, "confirmation.rejected")
 	connectorRuntime.agentKernel.AppendTaskEvent(approval.TaskRun.TaskRunID, "confirmation.rejected", marshalConnectorEventBody(map[string]string{
 		"messageID": event.MessageID,
@@ -2220,7 +2220,7 @@ func (connectorRuntime *ConnectorRuntime) handleRejectedConfirmation(ctx context
 	return ConnectorRuntimeResult{Handled: true, Platform: platform, TaskRunID: approval.TaskRun.TaskRunID, Reason: "confirmation_rejected", ReplyDispatchID: dispatchID}, nil
 }
 
-func (connectorRuntime *ConnectorRuntime) handlePendingConfirmationQuestion(ctx context.Context, platform string, adapter PlatformAdapter, event PlatformInboundEvent, replyTarget ReplyTarget, approval pendingApproval, decision agent.TurnDecision, sendReply func(context.Context, ReplyTarget, OutboundReply) (string, error)) (ConnectorRuntimeResult, error) {
+func (connectorRuntime *ConnectorRuntime) handlePendingConfirmationQuestion(ctx context.Context, platform string, adapter PlatformAdapter, event PlatformInboundEvent, replyTarget ReplyTarget, approval pendingApproval, decision bluecollar.TurnDecision, sendReply func(context.Context, ReplyTarget, OutboundReply) (string, error)) (ConnectorRuntimeResult, error) {
 	connectorRuntime.cancelPendingConfirmation(event, approval, decision)
 	reply, errorValue := connectorRuntime.agentKernel.GenerateReplyWithContext(ctx, event.Prompt, event.Context.ToAgentVisibleContext(), nil)
 	if errorValue != nil {
@@ -2245,7 +2245,7 @@ func rejectedConfirmationReplyPrompt(reply string, responseLanguage string) stri
 }
 
 func connectorResponseLanguageInstruction(responseLanguage string) string {
-	if agent.ResolveResponseLanguage(responseLanguage) == agent.ResponseLanguageEnglish {
+	if bluecollar.ResolveResponseLanguage(responseLanguage) == bluecollar.ResponseLanguageEnglish {
 		return "Write in English."
 	}
 	return "Write in Korean."
@@ -2284,7 +2284,7 @@ func latestApprovalResponseLanguage(taskEvents []task.TaskEvent) string {
 		if errorValue := json.Unmarshal([]byte(taskEvent.Body), &approvalRequest); errorValue != nil {
 			continue
 		}
-		if responseLanguage := agent.NormalizeResponseLanguage(approvalRequest.ResponseLanguage); responseLanguage != "" {
+		if responseLanguage := bluecollar.NormalizeResponseLanguage(approvalRequest.ResponseLanguage); responseLanguage != "" {
 			return responseLanguage
 		}
 	}
@@ -2561,7 +2561,7 @@ func (connectorRuntime *ConnectorRuntime) appendConnectorReplyEvent(taskRunID st
 	connectorRuntime.agentKernel.AppendTaskEvent(taskRunID, name, marshalConnectorEventBody(body))
 }
 
-func (connectorRuntime *ConnectorRuntime) sendCheckpointReply(ctx context.Context, platform string, event PlatformInboundEvent, replyTarget ReplyTarget, checkpoint agent.AgentCheckpoint, sendReply func(context.Context, ReplyTarget, OutboundReply) (string, error)) error {
+func (connectorRuntime *ConnectorRuntime) sendCheckpointReply(ctx context.Context, platform string, event PlatformInboundEvent, replyTarget ReplyTarget, checkpoint bluecollar.AgentCheckpoint, sendReply func(context.Context, ReplyTarget, OutboundReply) (string, error)) error {
 	message := strings.TrimSpace(checkpoint.Message)
 	taskRunID := strings.TrimSpace(checkpoint.TaskRunID)
 	reply := OutboundReply{
@@ -2586,7 +2586,7 @@ func (connectorRuntime *ConnectorRuntime) sendCheckpointReply(ctx context.Contex
 	return nil
 }
 
-func (connectorRuntime *ConnectorRuntime) sendUserNoticeReply(ctx context.Context, platform string, event PlatformInboundEvent, taskRunID string, replyTarget ReplyTarget, turnResult agent.AgentTurnResult, sendReply func(context.Context, ReplyTarget, OutboundReply) (string, error)) (string, bool) {
+func (connectorRuntime *ConnectorRuntime) sendUserNoticeReply(ctx context.Context, platform string, event PlatformInboundEvent, taskRunID string, replyTarget ReplyTarget, turnResult bluecollar.AgentTurnResult, sendReply func(context.Context, ReplyTarget, OutboundReply) (string, error)) (string, bool) {
 	notice, failureNotice, missingReason := userNoticeReplyMessage(turnResult)
 	if missingReason != "" {
 		connectorRuntime.appendConnectorReplyEvent(taskRunID, "connector.reply.suppressed", connectorReplyEventBody(event, OutboundReply{TaskRunID: taskRunID, ReplyKind: connectorReplyKindUserNotice}, "", "", missingReason))
@@ -2636,7 +2636,7 @@ func failureRunFooter(taskRunID string, adminTaskLinkBaseURL string) string {
 	return footer
 }
 
-func userNoticeReplyMessage(turnResult agent.AgentTurnResult) (string, agent.FailureNotice, string) {
+func userNoticeReplyMessage(turnResult bluecollar.AgentTurnResult) (string, bluecollar.FailureNotice, string) {
 	if taskStatusRequiresFailureNotice(turnResult.TaskRun.Status) {
 		message := turnResult.FailureNotice.SendableMessage()
 		if message != "" {
@@ -2655,9 +2655,9 @@ func userNoticeReplyMessage(turnResult agent.AgentTurnResult) (string, agent.Fai
 	}
 	message := strings.TrimSpace(turnResult.UserNotice)
 	if message == "" {
-		return "", agent.FailureNotice{}, "missing_user_notice"
+		return "", bluecollar.FailureNotice{}, "missing_user_notice"
 	}
-	return message, agent.FailureNotice{}, ""
+	return message, bluecollar.FailureNotice{}, ""
 }
 
 func taskStatusRequiresFailureNotice(status task.TaskStatus) bool {
@@ -2672,8 +2672,8 @@ func optionalAskInteraction(interaction AskInteraction, targetPlatformUserID str
 	return &interaction
 }
 
-func recoveryActionsForEvent(recoveryActions []agent.RecoveryAction, event PlatformInboundEvent) []agent.RecoveryAction {
-	enrichedRecoveryActions := []agent.RecoveryAction{}
+func recoveryActionsForEvent(recoveryActions []bluecollar.RecoveryAction, event PlatformInboundEvent) []bluecollar.RecoveryAction {
+	enrichedRecoveryActions := []bluecollar.RecoveryAction{}
 	for _, recoveryAction := range recoveryActions {
 		if strings.TrimSpace(recoveryAction.Kind) == "" {
 			continue
@@ -2795,7 +2795,7 @@ func connectorImportedAttachmentByKey(importedAttachments []InputAttachment) map
 	return importedByKey
 }
 
-func connectorCurrentInputParts(parts []agent.AgentPart, event PlatformInboundEvent) []agent.AgentPart {
+func connectorCurrentInputParts(parts []bluecollar.AgentPart, event PlatformInboundEvent) []bluecollar.AgentPart {
 	currentFileIDs := map[string]bool{}
 	for _, attachment := range event.Context.InputAttachments {
 		fileID := strings.TrimSpace(attachment.FileID)
@@ -2803,7 +2803,7 @@ func connectorCurrentInputParts(parts []agent.AgentPart, event PlatformInboundEv
 			currentFileIDs[fileID] = true
 		}
 	}
-	currentParts := []agent.AgentPart{}
+	currentParts := []bluecollar.AgentPart{}
 	for _, part := range parts {
 		if connectorIsCurrentInputPart(part, event, currentFileIDs) {
 			currentParts = append(currentParts, part)
@@ -2812,7 +2812,7 @@ func connectorCurrentInputParts(parts []agent.AgentPart, event PlatformInboundEv
 	return currentParts
 }
 
-func connectorIsCurrentInputPart(part agent.AgentPart, event PlatformInboundEvent, currentFileIDs map[string]bool) bool {
+func connectorIsCurrentInputPart(part bluecollar.AgentPart, event PlatformInboundEvent, currentFileIDs map[string]bool) bool {
 	if strings.TrimSpace(part.Source.MessageID) != "" && strings.TrimSpace(part.Source.MessageID) == strings.TrimSpace(event.MessageID) {
 		return true
 	}
@@ -2858,8 +2858,8 @@ func connectorReadableInputAttachments(attachments []InputAttachment, personID s
 	return result
 }
 
-func connectorReadableAgentParts(parts []agent.AgentPart, personID string, scope agentruntime.ConversationResourceScope) []agent.AgentPart {
-	result := make([]agent.AgentPart, 0, len(parts))
+func connectorReadableAgentParts(parts []bluecollar.AgentPart, personID string, scope agentruntime.ConversationResourceScope) []bluecollar.AgentPart {
+	result := make([]bluecollar.AgentPart, 0, len(parts))
 	for _, part := range parts {
 		if part.File != nil {
 			file := *part.File
@@ -2922,26 +2922,26 @@ type connectorAttachmentMaterialResolver struct {
 	sentSources *sentAttachmentSourceStore
 }
 
-func (resolver connectorAttachmentMaterialResolver) ResolveAttachmentMaterial(ctx context.Context, materialID string) (agent.VisibleContextMaterial, error) {
+func (resolver connectorAttachmentMaterialResolver) ResolveAttachmentMaterial(ctx context.Context, materialID string) (bluecollar.VisibleContextMaterial, error) {
 	attachment, isFound, errorValue := resolver.findAttachmentMaterial(ctx, materialID)
 	if errorValue != nil {
-		return agent.VisibleContextMaterial{}, errorValue
+		return bluecollar.VisibleContextMaterial{}, errorValue
 	}
 	if !isFound {
-		return agent.VisibleContextMaterial{}, errors.New("attachment material is not visible in this conversation")
+		return bluecollar.VisibleContextMaterial{}, errors.New("attachment material is not visible in this conversation")
 	}
 	return resolver.importAttachmentMaterial(ctx, attachment)
 }
 
-func (resolver connectorAttachmentMaterialResolver) sentSourceMaterial(attachment InputAttachment) (agent.VisibleContextMaterial, bool) {
+func (resolver connectorAttachmentMaterialResolver) sentSourceMaterial(attachment InputAttachment) (bluecollar.VisibleContextMaterial, bool) {
 	devicePath, isFound := resolver.sentSources.SourcePath(attachment.Platform, attachment.MessageID, attachment.Filename)
 	if !isFound {
-		return agent.VisibleContextMaterial{}, false
+		return bluecollar.VisibleContextMaterial{}, false
 	}
 	scope := connectorInputAttachmentScope(resolver.personID, resolver.event)
 	readablePath := connectorReadableAttachmentPath(devicePath, resolver.personID, scope)
 	if readablePath == devicePath {
-		return agent.VisibleContextMaterial{}, false
+		return bluecollar.VisibleContextMaterial{}, false
 	}
 	sourceAttachment := attachment
 	sourceAttachment.Path = readablePath
@@ -2950,7 +2950,7 @@ func (resolver connectorAttachmentMaterialResolver) sentSourceMaterial(attachmen
 	sourceAttachment.Message = ""
 	materials := agentVisibleContextMaterials([]InputAttachment{sourceAttachment})
 	if len(materials) == 0 {
-		return agent.VisibleContextMaterial{}, false
+		return bluecollar.VisibleContextMaterial{}, false
 	}
 	return materials[0], true
 }
@@ -2990,7 +2990,7 @@ func visibleContextAttachmentMaterials(visibleContext VisibleContext) []InputAtt
 	return connectorUniqueInputAttachments(attachments)
 }
 
-func (resolver connectorAttachmentMaterialResolver) importAttachmentMaterial(ctx context.Context, attachment InputAttachment) (agent.VisibleContextMaterial, error) {
+func (resolver connectorAttachmentMaterialResolver) importAttachmentMaterial(ctx context.Context, attachment InputAttachment) (bluecollar.VisibleContextMaterial, error) {
 	if material, isResolved := resolver.sentSourceMaterial(attachment); isResolved {
 		return material, nil
 	}
@@ -3001,19 +3001,19 @@ func (resolver connectorAttachmentMaterialResolver) importAttachmentMaterial(ctx
 			return material, nil
 		}
 		if strings.TrimSpace(attachment.Path) == "" || strings.TrimSpace(attachment.ErrorCode) != "" {
-			return agent.VisibleContextMaterial{}, errorValue
+			return bluecollar.VisibleContextMaterial{}, errorValue
 		}
 	}
 	if strings.TrimSpace(attachment.Path) != "" && strings.TrimSpace(attachment.ErrorCode) == "" {
 		return connectorAttachmentToAgentMaterial(resolver.personID, resolver.event, attachment), nil
 	}
 	if !isSupported {
-		return agent.VisibleContextMaterial{}, errors.New("attachment import is unavailable for this platform")
+		return bluecollar.VisibleContextMaterial{}, errors.New("attachment import is unavailable for this platform")
 	}
 	return resolver.importAttachmentWithAdapter(ctx, importingAdapter, attachment)
 }
 
-func (resolver connectorAttachmentMaterialResolver) importAttachmentWithAdapter(ctx context.Context, importingAdapter InputAttachmentImportingAdapter, attachment InputAttachment) (agent.VisibleContextMaterial, error) {
+func (resolver connectorAttachmentMaterialResolver) importAttachmentWithAdapter(ctx context.Context, importingAdapter InputAttachmentImportingAdapter, attachment InputAttachment) (bluecollar.VisibleContextMaterial, error) {
 	scope := connectorInputAttachmentScope(resolver.personID, resolver.event)
 	messageID := firstNonEmptyString(attachment.MessageID, resolver.event.MessageID)
 	result, errorValue := importingAdapter.ImportInputAttachments(ctx, InputAttachmentImportRequest{
@@ -3022,20 +3022,20 @@ func (resolver connectorAttachmentMaterialResolver) importAttachmentWithAdapter(
 		InputAttachments:    []InputAttachment{attachment},
 	})
 	if errorValue != nil {
-		return agent.VisibleContextMaterial{}, errorValue
+		return bluecollar.VisibleContextMaterial{}, errorValue
 	}
 	if len(result.InputAttachments) == 0 {
-		return agent.VisibleContextMaterial{}, errors.New("attachment import returned no material")
+		return bluecollar.VisibleContextMaterial{}, errors.New("attachment import returned no material")
 	}
 	importedAttachment := connectorReadableInputAttachments(result.InputAttachments, resolver.personID, scope)[0]
 	if strings.TrimSpace(importedAttachment.Path) == "" {
-		return agent.VisibleContextMaterial{}, errors.New("attachment import returned no readable path")
+		return bluecollar.VisibleContextMaterial{}, errors.New("attachment import returned no readable path")
 	}
 	material := agentVisibleContextMaterials([]InputAttachment{importedAttachment})[0]
 	return connectorMaterialWithPreview(material, result.InputParts), nil
 }
 
-func connectorMaterialWithPreview(material agent.VisibleContextMaterial, parts []agent.AgentPart) agent.VisibleContextMaterial {
+func connectorMaterialWithPreview(material bluecollar.VisibleContextMaterial, parts []bluecollar.AgentPart) bluecollar.VisibleContextMaterial {
 	materialID := strings.TrimSpace(material.MaterialID)
 	path := strings.TrimSpace(material.Path)
 	for _, part := range parts {
@@ -3056,7 +3056,7 @@ func connectorMaterialWithPreview(material agent.VisibleContextMaterial, parts [
 	return material
 }
 
-func connectorAgentPartMaterialID(part agent.AgentPart) string {
+func connectorAgentPartMaterialID(part bluecollar.AgentPart) string {
 	fileID := strings.TrimSpace(part.Source.FileID)
 	platform := firstNonEmptyString(strings.TrimSpace(part.Source.Platform), "attachment")
 	if fileID != "" {
@@ -3068,12 +3068,12 @@ func connectorAgentPartMaterialID(part agent.AgentPart) string {
 	return ""
 }
 
-func connectorAttachmentToAgentMaterial(personID string, event PlatformInboundEvent, attachment InputAttachment) agent.VisibleContextMaterial {
+func connectorAttachmentToAgentMaterial(personID string, event PlatformInboundEvent, attachment InputAttachment) bluecollar.VisibleContextMaterial {
 	scope := connectorInputAttachmentScope(personID, event)
 	readableAttachments := connectorReadableInputAttachments([]InputAttachment{attachment}, personID, scope)
 	materials := agentVisibleContextMaterials(readableAttachments)
 	if len(materials) == 0 {
-		return agent.VisibleContextMaterial{}
+		return bluecollar.VisibleContextMaterial{}
 	}
 	return materials[0]
 }
@@ -3193,7 +3193,7 @@ func latestTime(values []time.Time) time.Time {
 	return latest
 }
 
-func (connectorRuntime *ConnectorRuntime) buildTurnToolSet(adapter PlatformAdapter, event PlatformInboundEvent, personID string, personAccess policy.PersonAccess) *agent.ToolSet {
+func (connectorRuntime *ConnectorRuntime) buildTurnToolSet(adapter PlatformAdapter, event PlatformInboundEvent, personID string, personAccess policy.PersonAccess) *bluecollar.ToolSet {
 	requesterEmail := connectorRuntime.requesterEmailForEvent(personID, event)
 	return connectorRuntime.toolCatalogBuilder.BuildToolSet(agentruntime.ToolCatalogRequest{
 		ProfileName:                "default",
@@ -3214,7 +3214,7 @@ func (connectorRuntime *ConnectorRuntime) buildTurnToolSet(adapter PlatformAdapt
 		PersonAccess:               personAccess,
 		MemoryNamespaces:           connectorRuntime.accessibleNamespaces(personID, personAccess, event),
 		AccessibleConversationIDs:  []string{event.ConversationID},
-		InputParts:                 append([]agent.AgentPart{}, event.InputParts...),
+		InputParts:                 append([]bluecollar.AgentPart{}, event.InputParts...),
 	})
 }
 
@@ -3246,10 +3246,10 @@ type connectorHistoryProvider struct {
 	adapter PlatformAdapter
 }
 
-func (historyProvider connectorHistoryProvider) FetchHistory(ctx context.Context, historyCursor string, limit int) (agent.VisibleContext, error) {
+func (historyProvider connectorHistoryProvider) FetchHistory(ctx context.Context, historyCursor string, limit int) (bluecollar.VisibleContext, error) {
 	visibleContext, errorValue := historyProvider.adapter.FetchHistory(ctx, historyCursor, limit)
 	if errorValue != nil {
-		return agent.VisibleContext{}, errorValue
+		return bluecollar.VisibleContext{}, errorValue
 	}
 	return visibleContext.ToAgentVisibleContext(), nil
 }
@@ -3572,10 +3572,10 @@ func (event *PlatformInboundEvent) UnmarshalJSON(document []byte) error {
 	return nil
 }
 
-func (visibleContext VisibleContext) ToAgentVisibleContext() agent.VisibleContext {
-	messages := make([]agent.VisibleContextMessage, 0, len(visibleContext.Messages))
+func (visibleContext VisibleContext) ToAgentVisibleContext() bluecollar.VisibleContext {
+	messages := make([]bluecollar.VisibleContextMessage, 0, len(visibleContext.Messages))
 	for _, message := range visibleContext.Messages {
-		messages = append(messages, agent.VisibleContextMessage{
+		messages = append(messages, bluecollar.VisibleContextMessage{
 			Speaker:            message.Speaker,
 			SpeakerCallingName: message.SpeakerCallingName,
 			SpeakerHandle:      message.SpeakerHandle,
@@ -3586,7 +3586,7 @@ func (visibleContext VisibleContext) ToAgentVisibleContext() agent.VisibleContex
 	}
 
 	currentMaterials := agentVisibleContextMaterials(visibleContext.InputAttachments)
-	return agent.VisibleContext{
+	return bluecollar.VisibleContext{
 		Messages:         messages,
 		CurrentMaterials: currentMaterials,
 		Materials:        agentPreviousVisibleContextMaterials(visibleContext.Materials, currentMaterials),
@@ -3596,7 +3596,7 @@ func (visibleContext VisibleContext) ToAgentVisibleContext() agent.VisibleContex
 	}
 }
 
-func agentPreviousVisibleContextMaterials(attachments []InputAttachment, currentMaterials []agent.VisibleContextMaterial) []agent.VisibleContextMaterial {
+func agentPreviousVisibleContextMaterials(attachments []InputAttachment, currentMaterials []bluecollar.VisibleContextMaterial) []bluecollar.VisibleContextMaterial {
 	currentMaterialIDs := map[string]bool{}
 	for _, material := range currentMaterials {
 		currentMaterialID := strings.TrimSpace(material.MaterialID)
@@ -3604,7 +3604,7 @@ func agentPreviousVisibleContextMaterials(attachments []InputAttachment, current
 			currentMaterialIDs[currentMaterialID] = true
 		}
 	}
-	materials := []agent.VisibleContextMaterial{}
+	materials := []bluecollar.VisibleContextMaterial{}
 	for _, material := range agentVisibleContextMaterials(attachments) {
 		if currentMaterialIDs[strings.TrimSpace(material.MaterialID)] {
 			continue
@@ -3614,13 +3614,13 @@ func agentPreviousVisibleContextMaterials(attachments []InputAttachment, current
 	return materials
 }
 
-func agentVisibleContextMaterials(attachments []InputAttachment) []agent.VisibleContextMaterial {
-	materials := make([]agent.VisibleContextMaterial, 0, len(attachments))
+func agentVisibleContextMaterials(attachments []InputAttachment) []bluecollar.VisibleContextMaterial {
+	materials := make([]bluecollar.VisibleContextMaterial, 0, len(attachments))
 	for _, attachment := range attachments {
 		if strings.TrimSpace(attachment.FileID) == "" && strings.TrimSpace(attachment.Path) == "" {
 			continue
 		}
-		materials = append(materials, agent.VisibleContextMaterial{
+		materials = append(materials, bluecollar.VisibleContextMaterial{
 			FileHint:    attachmentFileHint(attachment),
 			MaterialID:  attachmentMaterialID(attachment),
 			Platform:    attachment.Platform,
@@ -3650,7 +3650,7 @@ func attachmentMaterialID(attachment InputAttachment) string {
 }
 
 func responseLanguageForEvent(event PlatformInboundEvent) string {
-	return agent.ResolveResponseLanguage(event.ResponseLanguage, event.Context.ResponseLanguage)
+	return bluecollar.ResolveResponseLanguage(event.ResponseLanguage, event.Context.ResponseLanguage)
 }
 
 func stringField(fields map[string]interface{}, name string) string {

@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/agent"
+	"github.com/Dawn-kim-official/blueclaw/internal/bluecollar"
 	"github.com/Dawn-kim-official/blueclaw/internal/policy"
 )
 
@@ -22,16 +22,16 @@ func TestFileReadResolvesAttachmentFileHint(t *testing.T) {
 		ProfileName:       "default",
 		RequesterPersonID: "person-1",
 		PersonAccess:      policy.PersonAccess{PersonID: "person-1", Circles: []string{"staff"}},
-		VisibleContext: agent.VisibleContext{CurrentMaterials: []agent.VisibleContextMaterial{{
+		VisibleContext: bluecollar.VisibleContext{CurrentMaterials: []bluecollar.VisibleContextMaterial{{
 			FileHint:   "attachment:mattermost:file-1",
 			MaterialID: "mattermost:file-1",
 			Path:       relativePath,
 		}}},
 	})
 
-	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+	result, errorValue := toolRegistry.Invoke(context.Background(), bluecollar.ToolInvocation{
 		ToolName: "file.read",
-		Input: agent.MarshalToolInput(map[string]string{
+		Input: bluecollar.MarshalToolInput(map[string]string{
 			"fileHint": "attachment:mattermost:file-1",
 		}),
 	})
@@ -53,7 +53,7 @@ func TestFilePreviewResolvesArtifactFileHint(t *testing.T) {
 		ProfileName:       "default",
 		RequesterPersonID: "person-1",
 		PersonAccess:      policy.PersonAccess{PersonID: "person-1", Circles: []string{"staff"}},
-		VisibleContext: agent.VisibleContext{Materials: []agent.VisibleContextMaterial{{
+		VisibleContext: bluecollar.VisibleContext{Materials: []bluecollar.VisibleContextMaterial{{
 			FileHint:    fileHint,
 			Path:        filepath.Join(workspacePath, filepath.FromSlash(relativePath)),
 			Filename:    "report.md",
@@ -61,9 +61,9 @@ func TestFilePreviewResolvesArtifactFileHint(t *testing.T) {
 		}}},
 	})
 
-	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+	result, errorValue := toolRegistry.Invoke(context.Background(), bluecollar.ToolInvocation{
 		ToolName: "file.preview",
-		Input: agent.MarshalToolInput(map[string]string{
+		Input: bluecollar.MarshalToolInput(map[string]string{
 			"fileHint": fileHint,
 		}),
 	})
@@ -87,9 +87,9 @@ func TestFileHintRejectsUnknownAndForgedValues(t *testing.T) {
 		"attachment:mattermost:forged",
 		"artifact:task-run-1:%2Fworkspace%2Fprivate%2Fpeople%2Fperson-1%2Fsecret.txt",
 	} {
-		result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+		result, errorValue := toolRegistry.Invoke(context.Background(), bluecollar.ToolInvocation{
 			ToolName: "file.read",
-			Input: agent.MarshalToolInput(map[string]string{
+			Input: bluecollar.MarshalToolInput(map[string]string{
 				"fileHint": fileHint,
 			}),
 		})
@@ -115,9 +115,9 @@ func TestFileToolsPreserveExplicitPathResolutionAndAccess(t *testing.T) {
 		PersonAccess:      policy.PersonAccess{PersonID: "person-1", Circles: []string{"staff"}},
 	})
 
-	readResult, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+	readResult, errorValue := toolRegistry.Invoke(context.Background(), bluecollar.ToolInvocation{
 		ToolName: "file.read",
-		Input: agent.MarshalToolInput(map[string]string{
+		Input: bluecollar.MarshalToolInput(map[string]string{
 			"path":     "documents/notes.txt",
 			"fileHint": "attachment:mattermost:forged",
 		}),
@@ -131,16 +131,16 @@ func TestFileToolsPreserveExplicitPathResolutionAndAccess(t *testing.T) {
 
 	otherPersonHomePath := filepath.Join(workspacePath, "private", "people", "person-2")
 	withoutDirectoryAccess(t, otherPersonHomePath)
-	accessResult, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+	accessResult, errorValue := toolRegistry.Invoke(context.Background(), bluecollar.ToolInvocation{
 		ToolName: "file.read",
-		Input: agent.MarshalToolInput(map[string]string{
+		Input: bluecollar.MarshalToolInput(map[string]string{
 			"path": otherPath,
 		}),
 	})
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
-	if !accessResult.Failed() || accessResult.FailureCode() != agent.FailureCodes.AccessDenied.String() {
+	if !accessResult.Failed() || accessResult.FailureCode() != bluecollar.FailureCodes.AccessDenied.String() {
 		t.Fatalf("expected the OS denial on the other person's home to surface as access_denied, got %s", accessResult.ContentText())
 	}
 }
@@ -165,9 +165,9 @@ func TestFileToolSchemasExposeFileHint(t *testing.T) {
 }
 
 func TestFileHintResolverUsesVisibleCurrentAndPreviousMaterials(t *testing.T) {
-	request := ToolCatalogRequest{VisibleContext: agent.VisibleContext{
-		CurrentMaterials: []agent.VisibleContextMaterial{{FileHint: "attachment:current", Path: "current.txt"}},
-		Materials:        []agent.VisibleContextMaterial{{FileHint: "attachment:previous", Path: "previous.txt"}},
+	request := ToolCatalogRequest{VisibleContext: bluecollar.VisibleContext{
+		CurrentMaterials: []bluecollar.VisibleContextMaterial{{FileHint: "attachment:current", Path: "current.txt"}},
+		Materials:        []bluecollar.VisibleContextMaterial{{FileHint: "attachment:previous", Path: "previous.txt"}},
 	}}
 	for _, testCase := range []struct {
 		fileHint string
@@ -184,7 +184,7 @@ func TestFileHintResolverUsesVisibleCurrentAndPreviousMaterials(t *testing.T) {
 }
 
 func TestFileHintResolverDoesNotDecodePaths(t *testing.T) {
-	request := ToolCatalogRequest{VisibleContext: agent.VisibleContext{Materials: []agent.VisibleContextMaterial{{
+	request := ToolCatalogRequest{VisibleContext: bluecollar.VisibleContext{Materials: []bluecollar.VisibleContextMaterial{{
 		FileHint: "artifact:task-run-1:report%2Ffinal.md",
 		Path:     "artifacts/report.md",
 	}}}}
@@ -202,7 +202,7 @@ func TestFileHintResolverPreservesExplicitMaterialID(t *testing.T) {
 }
 
 func TestFileHintResolverDoesNotRequireFileExistence(t *testing.T) {
-	request := ToolCatalogRequest{VisibleContext: agent.VisibleContext{CurrentMaterials: []agent.VisibleContextMaterial{{
+	request := ToolCatalogRequest{VisibleContext: bluecollar.VisibleContext{CurrentMaterials: []bluecollar.VisibleContextMaterial{{
 		FileHint: "attachment:mattermost:missing",
 		Path:     "inbox/missing.txt",
 	}}}}

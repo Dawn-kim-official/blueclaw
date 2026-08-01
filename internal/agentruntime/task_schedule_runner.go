@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/agent"
+	"github.com/Dawn-kim-official/blueclaw/internal/bluecollar"
 	"github.com/Dawn-kim-official/blueclaw/internal/memory"
 	"github.com/Dawn-kim-official/blueclaw/internal/policy"
 	"github.com/Dawn-kim-official/blueclaw/internal/task"
@@ -87,9 +87,9 @@ func scheduledMemoryNamespaces(taskSchedule task.TaskSchedule, personAccess poli
 	}
 }
 
-func scheduledRunContext(taskSchedule task.TaskSchedule, referenceTime time.Time) agent.ScheduledRunContext {
+func scheduledRunContext(taskSchedule task.TaskSchedule, referenceTime time.Time) bluecollar.ScheduledRunContext {
 	timeZone := taskScheduleTimeZone(taskSchedule)
-	return agent.ScheduledRunContext{
+	return bluecollar.ScheduledRunContext{
 		ScheduleID:        strings.TrimSpace(taskSchedule.TaskScheduleID),
 		Name:              strings.TrimSpace(taskSchedule.Name),
 		Kind:              string(taskSchedule.Kind),

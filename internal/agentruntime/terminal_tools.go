@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/agent"
+	"github.com/Dawn-kim-official/blueclaw/internal/bluecollar"
 	"github.com/Dawn-kim-official/blueclaw/internal/security"
 )
 
@@ -23,12 +23,12 @@ func (input terminalRunToolInput) commandRequest() security.CommandRequest {
 	}
 }
 
-func (toolCatalogBuilder *ToolCatalogBuilder) registerTerminalTools(toolRegistry *agent.ToolSet, handlerContext toolHandlerContext) {
-	agent.RegisterToolFunction(toolRegistry, agent.ToolFunction[terminalRunToolInput, agent.ToolResult]{
-		Definition: agent.ToolDefinition{
+func (toolCatalogBuilder *ToolCatalogBuilder) registerTerminalTools(toolRegistry *bluecollar.ToolSet, handlerContext toolHandlerContext) {
+	bluecollar.RegisterToolFunction(toolRegistry, bluecollar.ToolFunction[terminalRunToolInput, bluecollar.ToolResult]{
+		Definition: bluecollar.ToolDefinition{
 			Name:        "terminal.run",
 			Description: "Run one command inside the requester workspace.",
-			RecoveryCard: agent.ToolRecoveryCard{
+			RecoveryCard: bluecollar.ToolRecoveryCard{
 				Does:       "Runs workspace commands, build scripts, render checks, or tests.",
 				Produces:   "Command stdout, stderr, exit status, and runtime diagnostics.",
 				SideEffect: "workspace_write",
@@ -37,25 +37,25 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerTerminalTools(toolRegistry
 			},
 			InputSchema: terminalRunInputSchema,
 		},
-		Handler: func(toolContext context.Context, input terminalRunToolInput) (agent.ToolResult, error) {
+		Handler: func(toolContext context.Context, input terminalRunToolInput) (bluecollar.ToolResult, error) {
 			return toolCatalogBuilder.runTerminalRunTool(toolContext, input, handlerContext)
 		},
-		Result: agent.IdentityToolResult,
+		Result: bluecollar.IdentityToolResult,
 	})
 }
 
-func (toolCatalogBuilder *ToolCatalogBuilder) runTerminalRunTool(toolContext context.Context, input terminalRunToolInput, handlerContext toolHandlerContext) (agent.ToolResult, error) {
+func (toolCatalogBuilder *ToolCatalogBuilder) runTerminalRunTool(toolContext context.Context, input terminalRunToolInput, handlerContext toolHandlerContext) (bluecollar.ToolResult, error) {
 	if errorValue := validateTerminalRunInput(input); errorValue != nil {
-		result := agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "terminal_run", errorValue.Error())
+		result := bluecollar.ToolFailureResult(bluecollar.FailureInvalidInput, bluecollar.FailureCodes.InvalidInput, "terminal_run", errorValue.Error())
 		return normalizedTerminalRunFailure(result), nil
 	}
 	result, errorValue := toolCatalogBuilder.runTerminalTool(toolContext, input.commandRequest(), handlerContext)
 	return normalizedTerminalRunFailure(result), errorValue
 }
 
-func (toolCatalogBuilder *ToolCatalogBuilder) runTerminalTool(toolContext context.Context, input security.CommandRequest, handlerContext toolHandlerContext) (agent.ToolResult, error) {
+func (toolCatalogBuilder *ToolCatalogBuilder) runTerminalTool(toolContext context.Context, input security.CommandRequest, handlerContext toolHandlerContext) (bluecollar.ToolResult, error) {
 	if toolCatalogBuilder.terminalService == nil {
-		return agent.ToolFailureResult(agent.FailureDependencyUnavailable, agent.FailureCodes.Unavailable, "terminal_run", "terminal service is unavailable"), nil
+		return bluecollar.ToolFailureResult(bluecollar.FailureDependencyUnavailable, bluecollar.FailureCodes.Unavailable, "terminal_run", "terminal service is unavailable"), nil
 	}
 	requesterHomePath := toolCatalogBuilder.requesterHomePath(handlerContext.request)
 	input.Command = toolCatalogBuilder.resolveAgentWorkspaceReferences(input.Command)
@@ -90,11 +90,11 @@ func (toolCatalogBuilder *ToolCatalogBuilder) runTerminalTool(toolContext contex
 		}
 		document := terminalCommandResult(commandResult, false)
 		content = marshalToolResult(document)
-		return agent.ToolFailureWithOutput(agent.FailureExternalService, agent.FailureCodes.OperationFailed, "terminal_run", content, json.RawMessage(content)), nil
+		return bluecollar.ToolFailureWithOutput(bluecollar.FailureExternalService, bluecollar.FailureCodes.OperationFailed, "terminal_run", content, json.RawMessage(content)), nil
 	}
 	document := terminalCommandResult(commandResult, true)
 	content = marshalToolResult(document)
-	return agent.ToolSuccessData(content, json.RawMessage(content)), nil
+	return bluecollar.ToolSuccessData(content, json.RawMessage(content)), nil
 }
 
 func terminalCommandResult(commandResult security.CommandResult, isCompleted bool) terminalCommandResultDocument {
@@ -109,7 +109,7 @@ func terminalCommandResult(commandResult security.CommandResult, isCompleted boo
 	}
 }
 
-func normalizedTerminalRunFailure(result agent.ToolResult) agent.ToolResult {
+func normalizedTerminalRunFailure(result bluecollar.ToolResult) bluecollar.ToolResult {
 	if !result.Failed() {
 		return result
 	}
@@ -122,13 +122,13 @@ func normalizedTerminalRunFailure(result agent.ToolResult) agent.ToolResult {
 	return result
 }
 
-func terminalFailureDocument(result agent.ToolResult) map[string]any {
+func terminalFailureDocument(result bluecollar.ToolResult) map[string]any {
 	document := map[string]any{}
 	_ = json.Unmarshal(result.Output.Data, &document)
 	return document
 }
 
-func completeTerminalCommandFailureDocument(document map[string]any, result agent.ToolResult) {
+func completeTerminalCommandFailureDocument(document map[string]any, result bluecollar.ToolResult) {
 	setTerminalFailureDefault(document, "exitCode", -1)
 	setTerminalFailureDefault(document, "stdout", "")
 	setTerminalFailureDefault(document, "stderr", terminalFailureSummary(result))
@@ -142,7 +142,7 @@ func setTerminalFailureDefault(document map[string]any, fieldName string, value 
 	}
 }
 
-func terminalFailureSummary(result agent.ToolResult) string {
+func terminalFailureSummary(result bluecollar.ToolResult) string {
 	if result.Failure != nil && strings.TrimSpace(result.Failure.UserSafeSummary) != "" {
 		return strings.TrimSpace(result.Failure.UserSafeSummary)
 	}
@@ -150,7 +150,7 @@ func terminalFailureSummary(result agent.ToolResult) string {
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) startTerminalRunHeartbeat(toolContext context.Context, command string) func() {
-	taskRunID := agent.TaskRunIDFromContext(toolContext)
+	taskRunID := bluecollar.TaskRunIDFromContext(toolContext)
 	if taskRunID == "" || toolCatalogBuilder.taskRunService == nil {
 		return func() {}
 	}
@@ -183,7 +183,7 @@ func terminalCommandHead(command string) string {
 	return string(commandRunes[:80])
 }
 
-func terminalRuntimePathFailure(commandRequest security.CommandRequest, commandResult security.CommandResult, content string) *agent.ToolResult {
+func terminalRuntimePathFailure(commandRequest security.CommandRequest, commandResult security.CommandResult, content string) *bluecollar.ToolResult {
 	combinedText := strings.ToLower(commandResult.Stderr + "\n" + commandResult.Stdout + "\n" + content)
 	if !strings.Contains(combinedText, "not found in $path") && !strings.Contains(combinedText, "command not found") && !strings.Contains(combinedText, "executable file not found") {
 		return nil
@@ -198,7 +198,7 @@ func terminalRuntimePathFailure(commandRequest security.CommandRequest, commandR
 		"commandResult":     commandResult,
 		"recommendedAction": "Fix Blueclaw runtime PATH propagation; do not change site source or ask the user to use external hosting.",
 	}))
-	result := agent.ToolFailureWithOutput(agent.FailureDependencyUnavailable, agent.FailureCode("terminal_runtime_path"), "terminal_runtime_path", "terminal runtime PATH did not expose a managed executable", document)
+	result := bluecollar.ToolFailureWithOutput(bluecollar.FailureDependencyUnavailable, bluecollar.FailureCode("terminal_runtime_path"), "terminal_runtime_path", "terminal runtime PATH did not expose a managed executable", document)
 	result.Failure.Retryable = true
 	result.Failure.SafeRetry = false
 	return &result
@@ -252,7 +252,7 @@ func requesterWorkspaceEnvironment(requesterHomePath string, workspaceRootPath s
 	}
 }
 
-func materializeTerminalRuntimeDirectories(ctx context.Context, workspaceActor security.WorkspaceActor, requesterHomePath string, environmentVariables map[string]string) *agent.ToolResult {
+func materializeTerminalRuntimeDirectories(ctx context.Context, workspaceActor security.WorkspaceActor, requesterHomePath string, environmentVariables map[string]string) *bluecollar.ToolResult {
 	for _, directoryPath := range terminalRuntimeDirectories(requesterHomePath, environmentVariables) {
 		if errorValue := workspaceActor.MkdirAll(ctx, directoryPath); errorValue != nil {
 			result := actorToolFailure("mkdir_all", "terminal_runtime_environment", directoryPath, errorValue)

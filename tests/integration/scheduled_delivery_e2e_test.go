@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/agent"
 	"github.com/Dawn-kim-official/blueclaw/internal/agentruntime"
+	"github.com/Dawn-kim-official/blueclaw/internal/bluecollar"
 	"github.com/Dawn-kim-official/blueclaw/internal/connectors"
 	"github.com/Dawn-kim-official/blueclaw/internal/identity"
 	"github.com/Dawn-kim-official/blueclaw/internal/policy"
@@ -78,7 +78,7 @@ func newScheduledDeliveryConnectorRuntime(languageModel staticScheduleLanguageMo
 		},
 	})
 	taskRunService := task.NewTaskRunService(task.NewTaskEventService())
-	agentKernel := agent.NewAgentKernel(taskRunService, task.NewTaskStepService())
+	agentKernel := bluecollar.NewAgentKernel(taskRunService, task.NewTaskStepService())
 	useScheduleTestLanguageModel(agentKernel, languageModel)
 	connectorRuntime := connectors.NewConnectorRuntime(identityService, agentKernel, nil)
 	connectorRuntime.RegisterAdapter(adapter)
@@ -88,7 +88,7 @@ func newScheduledDeliveryConnectorRuntime(languageModel staticScheduleLanguageMo
 
 func newScheduledDeliveryPoller(languageModel staticScheduleLanguageModel, repository *scheduledDeliveryRepository) scheduler.TaskSchedulePoller {
 	taskRunService := task.NewTaskRunService(task.NewTaskEventService())
-	agentKernel := agent.NewAgentKernel(taskRunService, task.NewTaskStepService())
+	agentKernel := bluecollar.NewAgentKernel(taskRunService, task.NewTaskStepService())
 	useScheduleTestLanguageModel(agentKernel, languageModel)
 	toolCatalogBuilder := agentruntime.NewToolCatalogBuilder()
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(map[string][]string{

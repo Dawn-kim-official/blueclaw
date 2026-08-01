@@ -5,7 +5,7 @@ import (
 	"log/slog"
 	"strings"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/agent"
+	"github.com/Dawn-kim-official/blueclaw/internal/bluecollar"
 )
 
 const ambientDutyLaunchConfidenceThreshold = 0.7
@@ -15,7 +15,7 @@ type inboundEngagementDecision struct {
 	SuppressReply bool
 	ReactionEmoji string
 	IgnoreReason  string
-	AmbientDuty   agent.AmbientDutyContext
+	AmbientDuty   bluecollar.AmbientDutyContext
 }
 
 func shouldIgnoreUninvitedAddressing(event PlatformInboundEvent) bool {
@@ -30,7 +30,7 @@ func (connectorRuntime *ConnectorRuntime) resolveInboundEngagement(ctx context.C
 	if event.Context.AttachmentsOnly && !botMentioned {
 		return inboundEngagementDecision{IgnoreReason: "attachments_only_uninvited"}
 	}
-	addressingDecision, errorValue := connectorRuntime.agentKernel.ClassifyAddressing(ctx, agent.AddressingClassificationRequest{
+	addressingDecision, errorValue := connectorRuntime.agentKernel.ClassifyAddressing(ctx, bluecollar.AddressingClassificationRequest{
 		Prompt:           event.Prompt,
 		BotMentioned:     botMentioned,
 		MessageSentAt:    event.RawReceivedAt,
@@ -71,11 +71,11 @@ func isMultiPersonConversation(event PlatformInboundEvent) bool {
 	return true
 }
 
-func ambientDutyContextFromAddressingDecision(decision agent.AddressingDecision) agent.AmbientDutyContext {
+func ambientDutyContextFromAddressingDecision(decision bluecollar.AddressingDecision) bluecollar.AmbientDutyContext {
 	if !decision.DutyMatch || decision.DutyConfidence < ambientDutyLaunchConfidenceThreshold {
-		return agent.AmbientDutyContext{}
+		return bluecollar.AmbientDutyContext{}
 	}
-	return (agent.AmbientDutyContext{
+	return (bluecollar.AmbientDutyContext{
 		IsMatch:    true,
 		Name:       decision.DutyName,
 		Confidence: decision.DutyConfidence,

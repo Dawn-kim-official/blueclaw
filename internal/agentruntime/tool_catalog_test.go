@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/agent"
+	"github.com/Dawn-kim-official/blueclaw/internal/bluecollar"
 	"github.com/Dawn-kim-official/blueclaw/internal/config"
 	"github.com/Dawn-kim-official/blueclaw/internal/memory"
 	"github.com/Dawn-kim-official/blueclaw/internal/security"
@@ -314,13 +314,13 @@ func internalTestToolNames() []string {
 	}
 }
 
-func findToolDefinition(toolDefinitions []agent.ToolDefinition, toolName string) (agent.ToolDefinition, bool) {
+func findToolDefinition(toolDefinitions []bluecollar.ToolDefinition, toolName string) (bluecollar.ToolDefinition, bool) {
 	for _, toolDefinition := range toolDefinitions {
 		if toolDefinition.Name == toolName {
 			return toolDefinition, true
 		}
 	}
-	return agent.ToolDefinition{}, false
+	return bluecollar.ToolDefinition{}, false
 }
 
 func siteSourceBundlePaths(t *testing.T, bundleBase64 string) []string {
@@ -377,27 +377,27 @@ func containsTestString(values []string, target string) bool {
 }
 
 type staticAttachmentMaterialResolver struct {
-	material agent.VisibleContextMaterial
+	material bluecollar.VisibleContextMaterial
 }
 
-func (resolver staticAttachmentMaterialResolver) ResolveAttachmentMaterial(context.Context, string) (agent.VisibleContextMaterial, error) {
+func (resolver staticAttachmentMaterialResolver) ResolveAttachmentMaterial(context.Context, string) (bluecollar.VisibleContextMaterial, error) {
 	return resolver.material, nil
 }
 
 type skillSearchTestRetriever struct{}
 
-func (skillSearchTestRetriever) Retrieve(context.Context, agent.AgentRequest, []agent.SkillInstruction, int) agent.SkillRetrievalResult {
-	return agent.SkillRetrievalResult{}
+func (skillSearchTestRetriever) Retrieve(context.Context, bluecollar.AgentRequest, []bluecollar.SkillInstruction, int) bluecollar.SkillRetrievalResult {
+	return bluecollar.SkillRetrievalResult{}
 }
 
-func (skillSearchTestRetriever) Search(_ context.Context, _ agent.AgentRequest, _ []agent.SkillInstruction, querySet agent.SkillSearchQuerySet, _ int) agent.SkillRetrievalResult {
+func (skillSearchTestRetriever) Search(_ context.Context, _ bluecollar.AgentRequest, _ []bluecollar.SkillInstruction, querySet bluecollar.SkillSearchQuerySet, _ int) bluecollar.SkillRetrievalResult {
 	if len(querySet.Queries) == 0 {
-		return agent.SkillRetrievalResult{}
+		return bluecollar.SkillRetrievalResult{}
 	}
-	return agent.SkillRetrievalResult{
+	return bluecollar.SkillRetrievalResult{
 		RetrievalMode: "embedding",
 		IndexStatus:   "ready",
-		SelectedCandidates: []agent.SkillCandidate{{
+		SelectedCandidates: []bluecollar.SkillCandidate{{
 			Name:   "mail",
 			Score:  0.91,
 			Reason: "embedding_similarity",
@@ -405,4 +405,4 @@ func (skillSearchTestRetriever) Search(_ context.Context, _ agent.AgentRequest, 
 	}
 }
 
-func (skillSearchTestRetriever) Refresh(context.Context, []agent.SkillInstruction) {}
+func (skillSearchTestRetriever) Refresh(context.Context, []bluecollar.SkillInstruction) {}

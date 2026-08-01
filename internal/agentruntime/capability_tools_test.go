@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/agent"
+	"github.com/Dawn-kim-official/blueclaw/internal/bluecollar"
 	"github.com/Dawn-kim-official/blueclaw/internal/capability"
 	"github.com/Dawn-kim-official/blueclaw/internal/policy"
 )
@@ -84,7 +84,7 @@ func TestCapabilityToolPreservesValidatedTaskResultEffects(t *testing.T) {
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"task.add"})
 	toolSet := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
 
-	result, errorValue := toolSet.Invoke(context.Background(), agent.ToolInvocation{
+	result, errorValue := toolSet.Invoke(context.Background(), bluecollar.ToolInvocation{
 		ToolName: "task.add",
 		Input:    json.RawMessage(`{}`),
 	})
@@ -115,7 +115,7 @@ func TestCapabilityToolRejectsMismatchedTaskResultIdentity(t *testing.T) {
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"task.add"})
 	toolSet := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
 
-	result, errorValue := toolSet.Invoke(context.Background(), agent.ToolInvocation{ToolName: "task.add", Input: json.RawMessage(`{}`)})
+	result, errorValue := toolSet.Invoke(context.Background(), bluecollar.ToolInvocation{ToolName: "task.add", Input: json.RawMessage(`{}`)})
 
 	if errorValue != nil {
 		t.Fatal(errorValue)
@@ -183,7 +183,7 @@ func TestContractedCapabilityPreservesApprovalDenial(t *testing.T) {
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"task.delete"})
 	toolSet := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
 
-	result, errorValue := toolSet.Invoke(context.Background(), agent.ToolInvocation{ToolName: "task.delete", Input: json.RawMessage(`{}`)})
+	result, errorValue := toolSet.Invoke(context.Background(), bluecollar.ToolInvocation{ToolName: "task.delete", Input: json.RawMessage(`{}`)})
 
 	if errorValue != nil {
 		t.Fatal(errorValue)
@@ -227,7 +227,7 @@ func TestCapabilityToolRequestIncludesTrustedExecutionContext(t *testing.T) {
 		PrivacyClass:  "platform_message",
 		Idempotency:   CapabilityIdempotency{Supported: true, Scope: "operation"},
 	})
-	toolContext := agent.WithToolConflictResolution(context.Background(), agent.ToolConflictResolutionAllowDuplicate)
+	toolContext := bluecollar.WithToolConflictResolution(context.Background(), bluecollar.ToolConflictResolutionAllowDuplicate)
 	requestDocument := capabilityToolRequest(toolContext, descriptor, ToolCatalogRequest{
 		TaskSource:              TaskLaunchSourceScheduled,
 		IsScheduledRun:          true,
@@ -249,7 +249,7 @@ func TestCapabilityToolRequestIncludesTrustedExecutionContext(t *testing.T) {
 	if contextDocument["replyTargetID"] != "reply-target-1" {
 		t.Fatalf("expected reply target in context, got %+v", contextDocument)
 	}
-	if contextDocument["conflictResolution"] != agent.ToolConflictResolutionAllowDuplicate {
+	if contextDocument["conflictResolution"] != bluecollar.ToolConflictResolutionAllowDuplicate {
 		t.Fatalf("expected typed conflict resolution in context, got %+v", contextDocument)
 	}
 }
@@ -287,9 +287,9 @@ func TestImageReadUsesExactPathInput(t *testing.T) {
 		},
 	})
 
-	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+	result, errorValue := toolRegistry.Invoke(context.Background(), bluecollar.ToolInvocation{
 		ToolName: "image.read",
-		Input:    agent.MarshalToolInput(map[string]string{"path": "/workspace/circles/staff/inbox/mattermost/thread-1/post-1/mascot.png"}),
+		Input:    bluecollar.MarshalToolInput(map[string]string{"path": "/workspace/circles/staff/inbox/mattermost/thread-1/post-1/mascot.png"}),
 	})
 
 	if errorValue != nil {
@@ -319,9 +319,9 @@ func TestCanonicalReadRejectsMaterialIDInput(t *testing.T) {
 
 	for _, toolName := range []string{"document.read", "image.read"} {
 		t.Run(toolName, func(t *testing.T) {
-			result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+			result, errorValue := toolRegistry.Invoke(context.Background(), bluecollar.ToolInvocation{
 				ToolName: toolName,
-				Input:    agent.MarshalToolInput(map[string]string{"materialID": "mattermost:file-1"}),
+				Input:    bluecollar.MarshalToolInput(map[string]string{"materialID": "mattermost:file-1"}),
 			})
 			if errorValue != nil {
 				t.Fatal(errorValue)
@@ -423,7 +423,7 @@ func TestCanonicalReadRejectsIdentityAndResultSchemaDrift(t *testing.T) {
 			toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"document.read"})
 			toolSet := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
 
-			result, errorValue := toolSet.Invoke(context.Background(), agent.ToolInvocation{ToolName: "document.read", Input: json.RawMessage(`{"path":"/workspace/report.md"}`)})
+			result, errorValue := toolSet.Invoke(context.Background(), bluecollar.ToolInvocation{ToolName: "document.read", Input: json.RawMessage(`{"path":"/workspace/report.md"}`)})
 
 			if errorValue != nil {
 				t.Fatal(errorValue)
@@ -442,7 +442,7 @@ func TestCanonicalReadRejectsEffects(t *testing.T) {
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"document.read"})
 	toolSet := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
 
-	result, errorValue := toolSet.Invoke(context.Background(), agent.ToolInvocation{ToolName: "document.read", Input: json.RawMessage(`{"path":"/workspace/report.md"}`)})
+	result, errorValue := toolSet.Invoke(context.Background(), bluecollar.ToolInvocation{ToolName: "document.read", Input: json.RawMessage(`{"path":"/workspace/report.md"}`)})
 
 	if errorValue != nil {
 		t.Fatal(errorValue)
@@ -459,7 +459,7 @@ func TestCanonicalWebSearchAcceptsNormalizedResultContract(t *testing.T) {
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"web.search"})
 	toolSet := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
 
-	result, errorValue := toolSet.Invoke(context.Background(), agent.ToolInvocation{ToolName: "web.search", Input: json.RawMessage(`{"query":"internkim"}`)})
+	result, errorValue := toolSet.Invoke(context.Background(), bluecollar.ToolInvocation{ToolName: "web.search", Input: json.RawMessage(`{"query":"internkim"}`)})
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
@@ -475,7 +475,7 @@ func TestCanonicalWebSearchRejectsReadEffects(t *testing.T) {
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"web.search"})
 	toolSet := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
 
-	result, errorValue := toolSet.Invoke(context.Background(), agent.ToolInvocation{ToolName: "web.search", Input: json.RawMessage(`{"query":"internkim"}`)})
+	result, errorValue := toolSet.Invoke(context.Background(), bluecollar.ToolInvocation{ToolName: "web.search", Input: json.RawMessage(`{"query":"internkim"}`)})
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
@@ -495,7 +495,7 @@ func canonicalReadDescriptor(toolName string) CapabilityToolDescriptor {
 		CanonicalName:   toolName,
 		Namespace:       strings.SplitN(toolName, ".", 2)[0],
 		ModelName:       toolName,
-		ModelVisibility: agent.ToolVisibilityModel,
+		ModelVisibility: bluecollar.ToolVisibilityModel,
 		Description:     "Canonical read test descriptor.",
 		PrivacyClass:    "workspace_document",
 		InputSchema:     json.RawMessage(inputSchema),
@@ -516,7 +516,7 @@ func canonicalWebSearchDescriptor() CapabilityToolDescriptor {
 		CanonicalName:   "web.search",
 		Namespace:       "web",
 		ModelName:       "web.search",
-		ModelVisibility: agent.ToolVisibilityModel,
+		ModelVisibility: bluecollar.ToolVisibilityModel,
 		Description:     "Canonical web search test descriptor.",
 		PrivacyClass:    "public_web",
 		InputSchema:     json.RawMessage(inputSchema),
@@ -574,9 +574,9 @@ func TestImageGenerateSendsRequesterWorkspacePathToBridge(t *testing.T) {
 				},
 			})
 
-			result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+			result, errorValue := toolRegistry.Invoke(context.Background(), bluecollar.ToolInvocation{
 				ToolName: "image.generate",
-				Input: agent.MarshalToolInput(map[string]string{
+				Input: bluecollar.MarshalToolInput(map[string]string{
 					"prompt": "a generated test image",
 					"path":   test.path,
 				}),
@@ -595,7 +595,7 @@ func TestImageGenerateSendsRequesterWorkspacePathToBridge(t *testing.T) {
 }
 
 func TestCapabilityToolIdempotencyKeyOnlyForSendTools(t *testing.T) {
-	ctx := agent.WithObservationID(agent.WithTaskRunID(context.Background(), "run-1"), "obs-3")
+	ctx := bluecollar.WithObservationID(bluecollar.WithTaskRunID(context.Background(), "run-1"), "obs-3")
 	sendDescriptor := CapabilityToolDescriptor{CanonicalName: "message.send", Idempotency: CapabilityIdempotency{Supported: true}}
 	readDescriptor := CapabilityToolDescriptor{CanonicalName: "web.search"}
 	sendKey := capabilityToolIdempotencyKey(ctx, sendDescriptor)
@@ -605,14 +605,14 @@ func TestCapabilityToolIdempotencyKeyOnlyForSendTools(t *testing.T) {
 	if again := capabilityToolIdempotencyKey(ctx, sendDescriptor); again != sendKey {
 		t.Fatalf("idempotency key not deterministic: %q vs %q", sendKey, again)
 	}
-	differentObservation := agent.WithObservationID(agent.WithTaskRunID(context.Background(), "run-1"), "obs-4")
+	differentObservation := bluecollar.WithObservationID(bluecollar.WithTaskRunID(context.Background(), "run-1"), "obs-4")
 	if other := capabilityToolIdempotencyKey(differentObservation, sendDescriptor); other == sendKey {
 		t.Fatal("expected different observation to produce different key")
 	}
 	if nonSend := capabilityToolIdempotencyKey(ctx, readDescriptor); nonSend != "" {
 		t.Fatalf("expected no key for non-send tool, got %q", nonSend)
 	}
-	missing := agent.WithTaskRunID(context.Background(), "run-1")
+	missing := bluecollar.WithTaskRunID(context.Background(), "run-1")
 	if noObservation := capabilityToolIdempotencyKey(missing, sendDescriptor); noObservation != "" {
 		t.Fatalf("expected no key without observation id, got %q", noObservation)
 	}
@@ -625,18 +625,18 @@ func TestToolCatalogQuarantinesCapabilityDescriptorCollidingWithKernelTool(t *te
 		}
 	}()
 	toolCatalogBuilder := NewToolCatalogBuilder()
-	reportedProviders := []agent.QuarantinedToolProvider{}
-	toolCatalogBuilder.UseCapabilityQuarantineReporter(func(quarantinedProvider agent.QuarantinedToolProvider) {
+	reportedProviders := []bluecollar.QuarantinedToolProvider{}
+	toolCatalogBuilder.UseCapabilityQuarantineReporter(func(quarantinedProvider bluecollar.QuarantinedToolProvider) {
 		reportedProviders = append(reportedProviders, quarantinedProvider)
 	})
 	toolCatalogBuilder.UseTestCapabilityToolDescriptors(capability.Client{}, []CapabilityToolDescriptor{{
-		Name:        agent.FileReadToolName,
+		Name:        bluecollar.FileReadToolName,
 		Description: "Colliding capability tool.",
 	}})
 
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
 
-	if !toolRegistry.IsRegistered(agent.FileReadToolName) {
+	if !toolRegistry.IsRegistered(bluecollar.FileReadToolName) {
 		t.Fatal("expected the trusted kernel tool to remain registered after the capability collision")
 	}
 	if len(reportedProviders) != 1 || reportedProviders[0].ProviderID != "capabilityd" {

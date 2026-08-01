@@ -5,15 +5,15 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/agent"
+	"github.com/Dawn-kim-official/blueclaw/internal/bluecollar"
 )
 
 func invokePlanUpdateTool(t *testing.T, input string) json.RawMessage {
 	t.Helper()
-	toolRegistry := agent.NewToolSet(nil)
+	toolRegistry := bluecollar.NewToolSet(nil)
 	NewToolCatalogBuilder().registerPlanUpdateTool(toolRegistry)
-	result, errorValue := toolRegistry.InvokeInternal(context.Background(), agent.ToolInvocation{
-		ToolName: agent.PlanUpdateToolName,
+	result, errorValue := toolRegistry.InvokeInternal(context.Background(), bluecollar.ToolInvocation{
+		ToolName: bluecollar.PlanUpdateToolName,
 		Input:    json.RawMessage(input),
 	})
 	if errorValue != nil {
@@ -29,8 +29,8 @@ func TestPlanUpdateToolEchoesNormalizedPlan(t *testing.T) {
 	data := invokePlanUpdateTool(t, `{"goal":"  ship   the report ","steps":[{"title":"  gather   data ","status":"done"},{"title":"write summary","status":"in_progress"},{"title":"   ","status":"pending"}]}`)
 
 	var output struct {
-		Goal  string           `json:"goal"`
-		Steps []agent.PlanStep `json:"steps"`
+		Goal  string                `json:"goal"`
+		Steps []bluecollar.PlanStep `json:"steps"`
 	}
 	if errorValue := json.Unmarshal(data, &output); errorValue != nil {
 		t.Fatal(errorValue)
@@ -50,10 +50,10 @@ func TestPlanUpdateToolEchoesNormalizedPlan(t *testing.T) {
 }
 
 func TestPlanUpdateToolRejectsUnknownStatusAtTheSchemaBoundary(t *testing.T) {
-	toolRegistry := agent.NewToolSet(nil)
+	toolRegistry := bluecollar.NewToolSet(nil)
 	NewToolCatalogBuilder().registerPlanUpdateTool(toolRegistry)
-	result, errorValue := toolRegistry.InvokeInternal(context.Background(), agent.ToolInvocation{
-		ToolName: agent.PlanUpdateToolName,
+	result, errorValue := toolRegistry.InvokeInternal(context.Background(), bluecollar.ToolInvocation{
+		ToolName: bluecollar.PlanUpdateToolName,
 		Input:    json.RawMessage(`{"steps":[{"title":"x","status":"weird"}]}`),
 	})
 	if errorValue != nil {
@@ -75,20 +75,20 @@ func TestPlanUpdateToolDescriptorIsRegisteredInKernelPalette(t *testing.T) {
 	toolCatalogBuilder := NewToolCatalogBuilder()
 	provider := newKernelToolProvider(toolCatalogBuilder, toolHandlerContext{
 		request: ToolCatalogRequest{HistoryProvider: kernelHistoryProvider{}},
-	}, agent.NewToolSet(nil))
+	}, bluecollar.NewToolSet(nil))
 
 	boundTools, errorValue := provider.ListTools(context.Background())
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
 	for _, boundTool := range boundTools {
-		if boundTool.Definition.Name != agent.PlanUpdateToolName {
+		if boundTool.Definition.Name != bluecollar.PlanUpdateToolName {
 			continue
 		}
-		if boundTool.Definition.SideEffectClass != agent.ToolSideEffectNone {
+		if boundTool.Definition.SideEffectClass != bluecollar.ToolSideEffectNone {
 			t.Fatalf("expected a side-effect-free plan tool, got %+v", boundTool.Definition)
 		}
-		if boundTool.Definition.Completion.Mode != agent.ToolCompletionNone {
+		if boundTool.Definition.Completion.Mode != bluecollar.ToolCompletionNone {
 			t.Fatalf("expected completion mode none, got %+v", boundTool.Definition.Completion)
 		}
 		return

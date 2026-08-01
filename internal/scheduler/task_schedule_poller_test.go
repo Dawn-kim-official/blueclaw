@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/agent"
 	"github.com/Dawn-kim-official/blueclaw/internal/agentruntime"
+	"github.com/Dawn-kim-official/blueclaw/internal/bluecollar"
 	"github.com/Dawn-kim-official/blueclaw/internal/connectors"
 	"github.com/Dawn-kim-official/blueclaw/internal/llm"
 	"github.com/Dawn-kim-official/blueclaw/internal/policy"
@@ -18,10 +18,10 @@ import (
 )
 
 func TestScheduledTaskReplyPreservesModelWording(t *testing.T) {
-	turnResult := agent.AgentTurnResult{
+	turnResult := bluecollar.AgentTurnResult{
 		TaskRun:       task.TaskRun{TaskRunID: "task-1", Status: task.TaskStatusCompleted},
 		FinishMessage: "완료했습니다: sandbox:/mnt/data/report.pdf",
-		Attachments:   []agent.FileAttachment{{Filename: "report.pdf", DevicePath: "/workspace/private/people/p1/artifacts/report.pdf"}},
+		Attachments:   []bluecollar.FileAttachment{{Filename: "report.pdf", DevicePath: "/workspace/private/people/p1/artifacts/report.pdf"}},
 	}
 
 	reply, errorValue := scheduledTaskReply(agentruntime.TaskScheduleRunResult{
@@ -687,11 +687,11 @@ func testTaskScheduleRunner(content string) agentruntime.TaskScheduleRunner {
 func testTaskScheduleRunnerWithResponseCount(content string, generatedResponseCount *int) agentruntime.TaskScheduleRunner {
 	taskEventService := task.NewTaskEventService()
 	taskRunService := task.NewTaskRunService(taskEventService)
-	agentKernel := agent.NewAgentKernel(taskRunService, task.NewTaskStepService())
+	agentKernel := bluecollar.NewAgentKernel(taskRunService, task.NewTaskStepService())
 	languageModel := staticPollerLanguageModel{content: content, generatedResponseCount: generatedResponseCount}
 	agentKernel.UseLanguageModelProvider(languageModel)
 	agentKernel.UseIntakeLanguageModelProvider(languageModel)
-	agentKernel.UseIntakeOptions(agent.IntakeOptions{IsEnabled: true})
+	agentKernel.UseIntakeOptions(bluecollar.IntakeOptions{IsEnabled: true})
 	toolCatalogBuilder := agentruntime.NewToolCatalogBuilder()
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"ask.confirm"})
 	toolCatalogBuilder.UseTaskRunService(taskRunService)
