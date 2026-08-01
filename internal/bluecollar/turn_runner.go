@@ -9,7 +9,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/llm"
 	"github.com/Dawn-kim-official/blueclaw/internal/model"
 	"github.com/Dawn-kim-official/blueclaw/internal/task"
 )
@@ -2132,7 +2131,7 @@ func (agentTurnRunner *AgentTurnRunner) generateElapsedClosingReply(ctx context.
 	if isCompleted {
 		prompt = buildElapsedCompletionPrompt(request, requirements, observations)
 	}
-	chatCompleter, isAvailable := llm.ResolveTextChatCompleter(agentTurnRunner.languageModel)
+	chatCompleter, isAvailable := model.ResolveTextChatCompleter(agentTurnRunner.languageModel)
 	if !isAvailable {
 		return elapsedClosingRawReply(request, isCompleted), limitReplyStatus{Source: "raw_error", Reason: "chat_unavailable"}
 	}

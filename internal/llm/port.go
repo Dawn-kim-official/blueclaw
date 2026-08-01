@@ -3,6 +3,9 @@ package llm
 import "github.com/Dawn-kim-official/blueclaw/internal/model"
 
 type (
+	ChatCompleterAccessor              = model.ChatCompleterAccessor
+	RecoveryChatCompleterAccessor      = model.RecoveryChatCompleterAccessor
+	LocalRecoveryChatCompleterAccessor = model.LocalRecoveryChatCompleterAccessor
 	ChatCompletionRequest              = model.ChatCompletionRequest
 	ChatCompletionResponse             = model.ChatCompletionResponse
 	ChatCompletionMessage              = model.ChatCompletionMessage
@@ -57,6 +60,9 @@ const (
 )
 
 var (
+	ResolveTextChatCompleter            = model.ResolveTextChatCompleter
+	ResolveRecoveryChatCompleter        = model.ResolveRecoveryChatCompleter
+	ResolveLocalRecoveryChatCompleter   = model.ResolveLocalRecoveryChatCompleter
 	ChatCompletionText                  = model.ChatCompletionText
 	RecoveryChatCompletionText          = model.RecoveryChatCompletionText
 	ContextWithRequestContext           = model.ContextWithRequestContext

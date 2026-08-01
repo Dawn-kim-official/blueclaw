@@ -7,7 +7,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/llm"
 	"github.com/Dawn-kim-official/blueclaw/internal/model"
 )
 
@@ -32,7 +31,7 @@ func (agentKernel *AgentKernel) GenerateReplyWithContext(responseContext context
 	}
 	instructionBundle := agentKernel.currentInstructionBundle()
 	messages := buildReplyMessagesWithInstructions(prompt, visibleContext, memoryFacts, instructionBundle.Prompt)
-	chatCompleter, isAvailable := llm.ResolveTextChatCompleter(agentKernel.languageModel)
+	chatCompleter, isAvailable := model.ResolveTextChatCompleter(agentKernel.languageModel)
 	if !isAvailable {
 		return "", errors.New("language model provider does not support chat completion")
 	}

@@ -8,7 +8,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/llm"
 	"github.com/Dawn-kim-official/blueclaw/internal/model"
 )
 
@@ -278,7 +277,7 @@ func (generator FailureNoticeGenerator) generateLocalRecoveryText(ctx context.Co
 }
 
 func generateRecoveryChatText(ctx context.Context, provider model.LanguageModelProvider, schemaName string, prompt string) (string, error, bool) {
-	recoveryProvider, isAvailable := llm.ResolveRecoveryChatCompleter(provider)
+	recoveryProvider, isAvailable := model.ResolveRecoveryChatCompleter(provider)
 	if !isAvailable {
 		return "", nil, false
 	}
@@ -291,7 +290,7 @@ func generateRecoveryChatText(ctx context.Context, provider model.LanguageModelP
 }
 
 func generateLocalRecoveryChatText(ctx context.Context, provider model.LanguageModelProvider, schemaName string, prompt string) (string, error, bool) {
-	localRecoveryProvider, isAvailable := llm.ResolveLocalRecoveryChatCompleter(provider)
+	localRecoveryProvider, isAvailable := model.ResolveLocalRecoveryChatCompleter(provider)
 	if !isAvailable {
 		return "", nil, false
 	}
