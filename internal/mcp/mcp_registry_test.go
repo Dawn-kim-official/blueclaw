@@ -277,15 +277,6 @@ func TestMcpServerDefinitionRequiresExactOutputContract(t *testing.T) {
 	}
 }
 
-func TestMcpServerDefinitionRejectsIncompleteObservationMetadata(t *testing.T) {
-	configuration := canonicalServerConfiguration(os.Args[0], "echo")
-	configuration.Tools[0].Policy.CompletionMode = "observation"
-
-	if _, errorValue := buildServerDefinition(configuration); errorValue == nil {
-		t.Fatal("expected incomplete observation metadata to fail")
-	}
-}
-
 func TestMcpServerDefinitionRejectsUnknownCompletionMode(t *testing.T) {
 	configuration := canonicalServerConfiguration(os.Args[0], "echo")
 	configuration.Tools[0].Policy.CompletionMode = "unknown"

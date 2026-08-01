@@ -64,7 +64,7 @@ func TestTerminalCompletionRequiresCompletedResult(t *testing.T) {
 		InputSchema:     json.RawMessage(`{"type":"object","additionalProperties":false}`),
 		OutputSchema:    json.RawMessage(`{"type":"object","properties":{"completed":{"type":"boolean"}},"required":["completed"],"additionalProperties":true}`),
 		SideEffectClass: ToolSideEffectWorkspaceWrite,
-		Completion:      ToolCompletion{Mode: ToolCompletionObservation, Action: "run_command", TargetKind: "workspace"},
+		Completion:      ToolCompletion{Mode: ToolCompletionObservation},
 		ResultContract: &ToolResultContract{
 			Schema: json.RawMessage(`{"type":"object","properties":{"completed":{"type":"boolean"}},"required":["completed"],"additionalProperties":true}`),
 			EvidenceCondition: &EvidenceCondition{

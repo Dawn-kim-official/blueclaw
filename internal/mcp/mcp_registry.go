@@ -332,8 +332,6 @@ func policyMetadata(policy config.MCPToolPolicyMetadata) PolicyMetadata {
 		SideEffectClass:      policy.SideEffectClass,
 		RequiresApproval:     policy.RequiresApproval,
 		CompletionMode:       policy.CompletionMode,
-		CompletionAction:     policy.CompletionAction,
-		CompletionTargetKind: policy.CompletionTargetKind,
 		Idempotency:          policy.Idempotency,
 		IdempotencyScope:     policy.IdempotencyScope,
 	}
@@ -351,9 +349,6 @@ func validPolicyMetadata(policy config.MCPToolPolicyMetadata) bool {
 	}
 	completionMode := strings.TrimSpace(policy.CompletionMode)
 	if completionMode != "none" && completionMode != "observation" {
-		return false
-	}
-	if completionMode == "observation" && (strings.TrimSpace(policy.CompletionAction) == "" || strings.TrimSpace(policy.CompletionTargetKind) == "") {
 		return false
 	}
 	return true

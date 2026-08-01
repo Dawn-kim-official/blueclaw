@@ -83,9 +83,6 @@ func validateCapabilityToolDescriptor(descriptor CapabilityToolDescriptor) error
 		if descriptor.CompletionEvidence.Mode != "success" {
 			return errors.New("capability descriptor completion evidence mode is invalid")
 		}
-		if strings.TrimSpace(descriptor.CompletionEvidence.Action) == "" || strings.TrimSpace(descriptor.CompletionEvidence.TargetKind) == "" {
-			return errors.New("capability descriptor completion evidence action and targetKind are required")
-		}
 	}
 	return nil
 }
@@ -176,11 +173,7 @@ func capabilityToolCompletion(evidence *CapabilityCompletionEvidence) agent.Tool
 	if evidence == nil {
 		return agent.ToolCompletion{Mode: agent.ToolCompletionNone}
 	}
-	return agent.ToolCompletion{
-		Mode:       agent.ToolCompletionObservation,
-		Action:     strings.TrimSpace(evidence.Action),
-		TargetKind: strings.TrimSpace(evidence.TargetKind),
-	}
+	return agent.ToolCompletion{Mode: agent.ToolCompletionObservation}
 }
 
 func capabilityToolIdempotency(idempotency CapabilityIdempotency) string {

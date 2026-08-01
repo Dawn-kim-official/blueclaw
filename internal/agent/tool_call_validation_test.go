@@ -799,7 +799,7 @@ func TestAgentTurnRunnerRejectsRepeatedScheduleCreateWithoutExecutingAgain(t *te
 		Name:            "schedule.create",
 		Namespace:       "schedule",
 		SideEffectClass: ToolSideEffectStateChange,
-		Completion:      ToolCompletion{Mode: ToolCompletionObservation, Action: "create_schedule", TargetKind: "schedule"},
+		Completion:      ToolCompletion{Mode: ToolCompletionObservation},
 	}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		toolCallCount++
 		return testToolSuccess(`{"taskScheduleID":"schedule-1","taskInstruction":"send \"sorry\" in the current conversation.","kind":"interval","intervalSecond":60,"maxRunCount":10}`), nil

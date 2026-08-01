@@ -62,9 +62,7 @@ func (provider mcpToolProvider) boundTool(definition mcp.ToolDefinition) agent.B
 			SideEffectClass:      definition.Policy.SideEffectClass,
 			RequiresApproval:     definition.Policy.RequiresApproval,
 			Completion: agent.ToolCompletion{
-				Mode:       definition.Policy.CompletionMode,
-				Action:     definition.Policy.CompletionAction,
-				TargetKind: definition.Policy.CompletionTargetKind,
+				Mode: definition.Policy.CompletionMode,
 			},
 			Idempotency:      definition.Policy.Idempotency,
 			IdempotencyScope: definition.Policy.IdempotencyScope,

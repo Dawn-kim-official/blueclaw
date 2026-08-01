@@ -274,7 +274,7 @@ func TestAgentTurnRunnerCompletesWhenCallerContextExpiresDuringCompletionJudge(t
 	}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 4})
 	toolDefinition := testToolDescriptor("task.delete")
-	toolDefinition.Completion = ToolCompletion{Mode: ToolCompletionObservation, Action: "delete", TargetKind: "task"}
+	toolDefinition.Completion = ToolCompletion{Mode: ToolCompletionObservation}
 	toolRegistry := newTestToolSetWithDefinitions([]ToolDefinition{toolDefinition})
 
 	result, errorValue := services.runner.RunTurn(ctx, AgentTurnRequest{
@@ -436,7 +436,7 @@ func TestAgentTurnRunnerDoesNotSendCheckpointForRejectedToolCall(t *testing.T) {
 		Name:            "schedule.create",
 		Namespace:       "schedule",
 		SideEffectClass: ToolSideEffectStateChange,
-		Completion:      ToolCompletion{Mode: ToolCompletionObservation, Action: "create_schedule", TargetKind: "schedule"},
+		Completion:      ToolCompletion{Mode: ToolCompletionObservation},
 	}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		return testToolSuccess("alpha result"), nil
 	})
@@ -480,7 +480,7 @@ func TestDuplicateSuccessfulToolCallNarrowsNextActionSchemaToTerminalActions(t *
 		Name:            "calendar.update",
 		Namespace:       "calendar",
 		SideEffectClass: ToolSideEffectStateChange,
-		Completion:      ToolCompletion{Mode: ToolCompletionObservation, Action: "update_event", TargetKind: "event"},
+		Completion:      ToolCompletion{Mode: ToolCompletionObservation},
 	}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		return testToolSuccess("updated"), nil
 	})
@@ -1174,7 +1174,7 @@ func TestAgentTurnRunnerSiteLoopBuildsReviewsPublishesBeforeFinish(t *testing.T)
 		Name:            "site.serve",
 		Namespace:       "site",
 		SideEffectClass: ToolSideEffectExternalPublish,
-		Completion:      ToolCompletion{Mode: ToolCompletionObservation, Action: "publish_site", TargetKind: "site"},
+		Completion:      ToolCompletion{Mode: ToolCompletionObservation},
 	}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		toolCalls = append(toolCalls, "site.serve")
 		if !hasBuildQuality {
@@ -1342,7 +1342,7 @@ func TestAgentTurnRunnerRejectsFailAfterSiteSourceWriteBeforeBuildPublish(t *tes
 		Name:            "site.serve",
 		Namespace:       "site",
 		SideEffectClass: ToolSideEffectExternalPublish,
-		Completion:      ToolCompletion{Mode: ToolCompletionObservation, Action: "publish_site", TargetKind: "site"},
+		Completion:      ToolCompletion{Mode: ToolCompletionObservation},
 	}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		toolCalls = append(toolCalls, "site.serve")
 		return testToolSuccess(`{"siteID":"site-1","publishedURL":"https://pretty.example"}`), nil

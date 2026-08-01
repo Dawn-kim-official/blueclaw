@@ -106,7 +106,7 @@ func registerTestTool(toolSet *ToolSet, definition ToolDefinition, handler ToolH
 func testExternalSendToolDefinition(toolName string) ToolDefinition {
 	definition := testToolDescriptor(toolName)
 	definition.SideEffectClass = ToolSideEffectExternalSend
-	definition.Completion = ToolCompletion{Mode: ToolCompletionObservation, Action: "send_message", TargetKind: "message"}
+	definition.Completion = ToolCompletion{Mode: ToolCompletionObservation}
 	return definition
 }
 
