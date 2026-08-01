@@ -132,6 +132,7 @@ func runTask(options runOptions) (TaskResult, error) {
 	agentKernel.UseLanguageModelProvider(languageModel)
 	agentKernel.UseTaskTierLanguageModels(languageModel, languageModel, languageModel, languageModel, languageModel, languageModel)
 	agentKernel.UseIntakeLanguageModelProvider(languageModel)
+	agentKernel.UseIntakeOptions(bluecollar.IntakeOptions{IsEnabled: true, DefaultTaskLevel: bluecollar.TaskLevelLow})
 
 	terminalService := security.NewTerminalSessionService(config.TerminalConfiguration{
 		Mode:                  "native",
