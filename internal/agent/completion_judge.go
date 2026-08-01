@@ -136,10 +136,9 @@ func completionJudgeMessages(request AgentTurnRequest, observations []turnObserv
 	return messages
 }
 
-// The ledger records every delivery ever attempted, including ones a later
-// delivery replaced. Only the runtime knows which files the person actually
-// receives, so state it rather than letting the judge infer it from history and
-// fail a superseded delivery the executor already corrected.
+// The ledger records deliveries as individual operations, leaving the judge to
+// reconstruct the resulting attachment set from history. Only the runtime knows
+// that set, so state it instead of having the judge infer it.
 func completionJudgeAttachmentDescription(attachments []FileAttachment) string {
 	if len(attachments) == 0 {
 		return "Files this completion attaches for the user: none."
@@ -149,9 +148,9 @@ func completionJudgeAttachmentDescription(attachments []FileAttachment) string {
 		filenames = append(filenames, firstNonEmptyString(attachment.Filename, attachment.DevicePath))
 	}
 	return strings.Join([]string{
-		"Files this completion attaches for the user, superseded deliveries already removed:",
+		"Files this completion attaches for the user:",
 		strings.Join(filenames, "\n"),
-		"Judge attachment requirements against exactly this list. An earlier delivery that is absent here was replaced and is not attached.",
+		"Judge attachment requirements against exactly this list.",
 	}, "\n")
 }
 
