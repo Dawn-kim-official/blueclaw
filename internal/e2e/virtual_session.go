@@ -38,7 +38,6 @@ import (
 	"github.com/Dawn-kim-official/blueclaw/internal/memory"
 	"github.com/Dawn-kim-official/blueclaw/internal/policy"
 	"github.com/Dawn-kim-official/blueclaw/internal/security"
-	"github.com/Dawn-kim-official/blueclaw/internal/security/actortest"
 	"github.com/Dawn-kim-official/blueclaw/internal/skill"
 	"github.com/Dawn-kim-official/blueclaw/internal/task"
 	capabilitycatalog "github.com/Dawn-kim-official/blueclaw/protocol/generated"
@@ -825,7 +824,7 @@ func NewVirtualSessionHarness(scenario VirtualSessionScenario) (*VirtualSessionH
 	runtime.UseAllowedToolNames(allowedToolsOrDefault(scenario.AllowedTools))
 	terminalService := security.NewTerminalSessionService(terminalConfiguration(workspacePath))
 	runtime.UseTerminalService(terminalService)
-	runtime.UseWorkspaceActorFactory(actortest.NewDirectWorkspaceActorFactory(terminalService))
+	runtime.UseWorkspaceActorFactory(security.NewDirectWorkspaceActorFactory(terminalService))
 	runtime.UseTaskRunService(taskRunService)
 	scheduleStore := &virtualTaskScheduleRepository{}
 	runtime.UseTaskScheduleRepository(scheduleStore)
@@ -957,7 +956,7 @@ func virtualToolCatalogBuilder(
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, allowedToolsOrDefault(scenario.AllowedTools))
 	toolCatalogBuilder.UseWorkspaceRootPath(workspacePath)
 	toolCatalogBuilder.UseTerminalService(terminalService)
-	toolCatalogBuilder.UseWorkspaceActorFactory(actortest.NewDirectWorkspaceActorFactory(terminalService))
+	toolCatalogBuilder.UseWorkspaceActorFactory(security.NewDirectWorkspaceActorFactory(terminalService))
 	toolCatalogBuilder.UseTaskRunService(taskRunService)
 	toolCatalogBuilder.UseTaskScheduleRepository(scheduleStore)
 	toolCatalogBuilder.UseMemoryService(memoryService)

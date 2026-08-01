@@ -21,7 +21,6 @@ import (
 	"github.com/Dawn-kim-official/blueclaw/internal/memory"
 	"github.com/Dawn-kim-official/blueclaw/internal/policy"
 	"github.com/Dawn-kim-official/blueclaw/internal/security"
-	"github.com/Dawn-kim-official/blueclaw/internal/security/actortest"
 	"github.com/Dawn-kim-official/blueclaw/internal/task"
 )
 
@@ -308,7 +307,7 @@ func TestTaskLauncherProvisionsRequesterWorkspaceBeforeToolSet(t *testing.T) {
 	if provisioner.callCount != 1 {
 		t.Fatalf("expected one requester provisioning call, got %d", provisioner.callCount)
 	}
-	workspaceActor, errorValue := actortest.NewDirectWorkspaceActorFactory().Requester(context.Background(), security.WorkspaceActorRequest{
+	workspaceActor, errorValue := security.NewDirectWorkspaceActorFactory().Requester(context.Background(), security.WorkspaceActorRequest{
 		WorkspaceRootPath: workspacePath,
 		PersonAccess:      policy.PersonAccess{PersonID: "person-1"},
 	})

@@ -19,7 +19,6 @@ import (
 	"github.com/Dawn-kim-official/blueclaw/internal/config"
 	"github.com/Dawn-kim-official/blueclaw/internal/memory"
 	"github.com/Dawn-kim-official/blueclaw/internal/security"
-	"github.com/Dawn-kim-official/blueclaw/internal/security/actortest"
 	"github.com/Dawn-kim-official/blueclaw/internal/task"
 )
 
@@ -276,7 +275,7 @@ func newFileToolTestCatalogBuilder(workspacePath string) *ToolCatalogBuilder {
 	})
 	toolCatalogBuilder := NewToolCatalogBuilder()
 	toolCatalogBuilder.UseWorkspaceRootPath(workspacePath)
-	toolCatalogBuilder.UseWorkspaceActorFactory(actortest.NewDirectWorkspaceActorFactory(terminalService))
+	toolCatalogBuilder.UseWorkspaceActorFactory(security.NewDirectWorkspaceActorFactory(terminalService))
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, internalTestToolNames())
 	return toolCatalogBuilder
 }
@@ -293,7 +292,7 @@ func newTerminalToolTestCatalogBuilder(workspacePath string) *ToolCatalogBuilder
 	toolCatalogBuilder := NewToolCatalogBuilder()
 	toolCatalogBuilder.UseWorkspaceRootPath(workspacePath)
 	toolCatalogBuilder.UseTerminalService(terminalService)
-	toolCatalogBuilder.UseWorkspaceActorFactory(actortest.NewDirectWorkspaceActorFactory(terminalService))
+	toolCatalogBuilder.UseWorkspaceActorFactory(security.NewDirectWorkspaceActorFactory(terminalService))
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, internalTestToolNames())
 	return toolCatalogBuilder
 }
