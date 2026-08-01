@@ -1,3 +1,6 @@
+//go:build appliance
+
+// These checks read the appliance presentation skill bundle directly.
 package e2e
 
 import (
