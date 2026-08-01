@@ -17,10 +17,10 @@ import (
 	"time"
 
 	"github.com/Dawn-kim-official/blueclaw/internal/adminapi"
-	"github.com/Dawn-kim-official/blueclaw/internal/agent"
 	"github.com/Dawn-kim-official/blueclaw/internal/agentruntime"
 	"github.com/Dawn-kim-official/blueclaw/internal/auth"
 	"github.com/Dawn-kim-official/blueclaw/internal/backup"
+	"github.com/Dawn-kim-official/blueclaw/internal/bluecollar"
 	"github.com/Dawn-kim-official/blueclaw/internal/capability"
 	"github.com/Dawn-kim-official/blueclaw/internal/config"
 	"github.com/Dawn-kim-official/blueclaw/internal/connectors"
@@ -162,11 +162,11 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 	sessionService := auth.NewSessionService()
 	taskAuthService := task.NewTaskAuthService(magicLinkService, sessionService, taskRunService)
 	logger.Info("application.initializing", "stage", "agent_kernel")
-	agentKernel := agent.NewAgentKernel(taskRunService, taskStepService)
+	agentKernel := bluecollar.NewAgentKernel(taskRunService, taskStepService)
 	agentKernel.UseTaskArtifactService(taskArtifactService)
 	agentKernel.UseTurnOptions(deriveAgentTurnOptions(runtimeConfiguration))
 	agentKernel.UseIntakeOptions(deriveAgentIntakeOptions(runtimeConfiguration))
-	instructionBundleLoader := func() agent.InstructionBundle {
+	instructionBundleLoader := func() bluecollar.InstructionBundle {
 		return loadAgentInstructionBundle(runtimeConfiguration)
 	}
 	agentKernel.UseInstructionBundleLoader(instructionBundleLoader)
@@ -185,7 +185,7 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 		ModelName:        llm.DefaultEmbeddingModelName,
 		ExecutionMode:    firstNonEmptyString(runtimeConfiguration.LanguageModel.Capability.ExecutionMode, "auto"),
 	}
-	skillRetriever := agent.NewEmbeddingSkillRetriever(
+	skillRetriever := bluecollar.NewEmbeddingSkillRetriever(
 		embeddingClient,
 		skillIndexPath(runtimeConfiguration),
 	)
@@ -194,9 +194,9 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 	refreshSkillIndex := func(ctx context.Context) {
 		agentKernel.RefreshSkillIndex(ctx, instructionBundleLoader())
 	}
-	agentKernel.UseCompanyProvider(func() agent.CompanyContext {
+	agentKernel.UseCompanyProvider(func() bluecollar.CompanyContext {
 		company := policyWatcher.CurrentPolicyDocument().Company
-		return agent.CompanyContext{
+		return bluecollar.CompanyContext{
 			Name:           company.Name,
 			BrandName:      company.BrandName,
 			Slogan:         company.Slogan,
@@ -240,10 +240,10 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 	logger.Info("application.initializing", "stage", "tool_catalog")
 	toolCatalogBuilder := agentruntime.NewToolCatalogBuilder()
 	toolCatalogBuilder.UseMCPRegistry(mcpRegistry)
-	toolCatalogBuilder.UseMCPQuarantineReporter(func(quarantinedProvider agent.QuarantinedToolProvider) {
+	toolCatalogBuilder.UseMCPQuarantineReporter(func(quarantinedProvider bluecollar.QuarantinedToolProvider) {
 		logMCPProviderQuarantine(logger, quarantinedProvider)
 	})
-	toolCatalogBuilder.UseCapabilityQuarantineReporter(func(quarantinedProvider agent.QuarantinedToolProvider) {
+	toolCatalogBuilder.UseCapabilityQuarantineReporter(func(quarantinedProvider bluecollar.QuarantinedToolProvider) {
 		logCapabilityProviderQuarantine(logger, quarantinedProvider)
 	})
 	toolCatalogBuilder.UseCapabilityToolDescriptors(capabilityClient, capabilityToolDescriptors(runtimeConfiguration.Capabilities.ToolDescriptors))
@@ -467,23 +467,23 @@ func logMCPServerQuarantines(logger *slog.Logger, report mcp.LoadReport) {
 	}
 }
 
-func logMCPProviderQuarantine(logger *slog.Logger, quarantinedProvider agent.QuarantinedToolProvider) {
+func logMCPProviderQuarantine(logger *slog.Logger, quarantinedProvider bluecollar.QuarantinedToolProvider) {
 	if logger == nil {
 		return
 	}
 	logger.Warn("mcp.provider.quarantined", "providerID", quarantinedProvider.ProviderID, "reason", quarantinedProvider.Reason)
 }
 
-func logCapabilityProviderQuarantine(logger *slog.Logger, quarantinedProvider agent.QuarantinedToolProvider) {
+func logCapabilityProviderQuarantine(logger *slog.Logger, quarantinedProvider bluecollar.QuarantinedToolProvider) {
 	if logger == nil {
 		return
 	}
 	logger.Warn("capability.provider.quarantined", "providerID", quarantinedProvider.ProviderID, "reason", quarantinedProvider.Reason)
 }
 
-func deriveAgentTurnOptions(runtimeConfiguration config.RuntimeConfiguration) agent.TurnOptions {
-	taskLevelProfile := agent.TaskLevelProfileForLevel(agent.NormalizeTaskLevel(runtimeConfiguration.Agent.DefaultTaskLevel))
-	return agent.TurnOptions{
+func deriveAgentTurnOptions(runtimeConfiguration config.RuntimeConfiguration) bluecollar.TurnOptions {
+	taskLevelProfile := bluecollar.TaskLevelProfileForLevel(bluecollar.NormalizeTaskLevel(runtimeConfiguration.Agent.DefaultTaskLevel))
+	return bluecollar.TurnOptions{
 		MaxIterationCount:   taskLevelProfile.MaxIterationCount,
 		MaxToolCallCount:    taskLevelProfile.MaxToolCallCount,
 		MaxElapsedSecond:    int(taskLevelProfile.Duration.Seconds()),
@@ -494,7 +494,7 @@ func deriveAgentTurnOptions(runtimeConfiguration config.RuntimeConfiguration) ag
 			Seed:        runtimeConfiguration.Agent.GenerationOptions.Seed,
 			Temperature: runtimeConfiguration.Agent.GenerationOptions.Temperature,
 		},
-		RecoveryBudget: agent.RecoveryBudget{
+		RecoveryBudget: bluecollar.RecoveryBudget{
 			CorrectedRetry: runtimeConfiguration.Agent.FailureRecovery.RecoveryBudget.CorrectedRetry,
 			AlternateRoute: runtimeConfiguration.Agent.FailureRecovery.RecoveryBudget.AlternateRoute,
 			AdjacentTool:   runtimeConfiguration.Agent.FailureRecovery.RecoveryBudget.AdjacentTool,
@@ -503,11 +503,11 @@ func deriveAgentTurnOptions(runtimeConfiguration config.RuntimeConfiguration) ag
 	}
 }
 
-func deriveAgentIntakeOptions(runtimeConfiguration config.RuntimeConfiguration) agent.IntakeOptions {
-	return agent.IntakeOptions{
+func deriveAgentIntakeOptions(runtimeConfiguration config.RuntimeConfiguration) bluecollar.IntakeOptions {
+	return bluecollar.IntakeOptions{
 		IsEnabled:           runtimeConfiguration.Agent.Intake.Enabled,
-		DefaultTaskLevel:    agent.NormalizeTaskLevel(runtimeConfiguration.Agent.DefaultTaskLevel),
-		SkillTaskLevelFloor: agent.NormalizeTaskLevel(runtimeConfiguration.Agent.SkillTaskLevelFloor),
+		DefaultTaskLevel:    bluecollar.NormalizeTaskLevel(runtimeConfiguration.Agent.DefaultTaskLevel),
+		SkillTaskLevelFloor: bluecollar.NormalizeTaskLevel(runtimeConfiguration.Agent.SkillTaskLevelFloor),
 	}
 }
 
@@ -515,10 +515,10 @@ func loadAgentInstructionPrompt(runtimeConfiguration config.RuntimeConfiguration
 	return loadAgentInstructionBundle(runtimeConfiguration).Prompt
 }
 
-func loadAgentInstructionBundle(runtimeConfiguration config.RuntimeConfiguration) agent.InstructionBundle {
+func loadAgentInstructionBundle(runtimeConfiguration config.RuntimeConfiguration) bluecollar.InstructionBundle {
 	parts := []string{}
-	sources := []agent.InstructionSource{}
-	skillInstructions := []agent.SkillInstruction{}
+	sources := []bluecollar.InstructionSource{}
+	skillInstructions := []bluecollar.SkillInstruction{}
 	includedSkillByName := map[string]bool{}
 	for _, rootPath := range instructionRootPaths(runtimeConfiguration) {
 		for _, instructionDocument := range readInstructionDocuments(rootPath) {
@@ -541,13 +541,13 @@ func loadAgentInstructionBundle(runtimeConfiguration config.RuntimeConfiguration
 		}
 	}
 	if !includedSkillByName["agent-browser"] {
-		sources = append(sources, agent.InstructionSource{
+		sources = append(sources, bluecollar.InstructionSource{
 			Path:      ".agents/skills/agent-browser/SKILL.md",
 			SkillName: "agent-browser",
 			Missing:   true,
 		})
 	}
-	return agent.InstructionBundle{
+	return bluecollar.InstructionBundle{
 		Prompt:  strings.Join(parts, "\n\n"),
 		Sources: sources,
 		Skills:  skillInstructions,
@@ -594,7 +594,7 @@ func instructionRootPaths(runtimeConfiguration config.RuntimeConfiguration) []st
 
 type instructionDocument struct {
 	Prompt string
-	Source agent.InstructionSource
+	Source bluecollar.InstructionSource
 }
 
 func readInstructionDocuments(rootPath string) []instructionDocument {
@@ -616,7 +616,7 @@ func readInstructionDocuments(rootPath string) []instructionDocument {
 	return documents
 }
 
-func readLegacyInstructionDocument(rootPath string) (string, agent.InstructionSource) {
+func readLegacyInstructionDocument(rootPath string) (string, bluecollar.InstructionSource) {
 	for _, fileName := range []string{"AGENTS.md", "CLAUDE.md"} {
 		path := filepath.Join(rootPath, fileName)
 		document, errorValue := os.ReadFile(path)
@@ -624,11 +624,11 @@ func readLegacyInstructionDocument(rootPath string) (string, agent.InstructionSo
 			return strings.TrimSpace(string(document)), instructionSource(path, "", document)
 		}
 	}
-	return "", agent.InstructionSource{}
+	return "", bluecollar.InstructionSource{}
 }
 
-func readSkillInstructions(rootPath string) []agent.SkillInstruction {
-	skillInstructions := []agent.SkillInstruction{}
+func readSkillInstructions(rootPath string) []bluecollar.SkillInstruction {
+	skillInstructions := []bluecollar.SkillInstruction{}
 	skillRegistry := skill.NewSkillRegistry()
 	for _, relativePath := range []string{filepath.Join(".agents", "skills"), "skills"} {
 		discoveredSkillBundles, errorValue := skillRegistry.DiscoverSkill(filepath.Join(rootPath, relativePath))
@@ -636,7 +636,7 @@ func readSkillInstructions(rootPath string) []agent.SkillInstruction {
 			for _, skillBundle := range discoveredSkillBundles {
 				document, readError := os.ReadFile(filepath.Join(skillBundle.DirectoryPath, "SKILL.md"))
 				if readError == nil {
-					skillInstructions = append(skillInstructions, agent.SkillInstruction{
+					skillInstructions = append(skillInstructions, bluecollar.SkillInstruction{
 						Name:           skillBundle.Name,
 						Description:    skillBundle.Description,
 						Prompt:         strings.TrimSpace((skill.SkillPromptBuilder{}).BuildSkillPrompt([]skill.SkillBundle{skillBundle})),
@@ -708,9 +708,9 @@ func firstNonEmptyString(values ...string) string {
 	return ""
 }
 
-func instructionSource(path string, skillName string, document []byte) agent.InstructionSource {
+func instructionSource(path string, skillName string, document []byte) bluecollar.InstructionSource {
 	hash := sha256.Sum256(document)
-	return agent.InstructionSource{
+	return bluecollar.InstructionSource{
 		Path:      path,
 		SkillName: skillName,
 		ByteSize:  len(document),
@@ -720,13 +720,13 @@ func instructionSource(path string, skillName string, document []byte) agent.Ins
 
 func deriveAllowedToolNames(runtimeConfiguration config.RuntimeConfiguration) []string {
 	allowedToolNameByName := map[string]bool{}
-	for _, toolName := range agent.KernelToolNames() {
+	for _, toolName := range bluecollar.KernelToolNames() {
 		allowedToolNameByName[toolName] = true
 	}
 	for _, agentProfile := range runtimeConfiguration.AgentProfiles {
 		for _, allowedToolName := range agentProfile.AllowedToolNames {
 			trimmedToolName := strings.TrimSpace(allowedToolName)
-			if agent.IsKernelToolName(trimmedToolName) {
+			if bluecollar.IsKernelToolName(trimmedToolName) {
 				allowedToolNameByName[trimmedToolName] = true
 			}
 		}
@@ -847,10 +847,10 @@ func deriveAllowedToolNamesByProfile(runtimeConfiguration config.RuntimeConfigur
 }
 
 func appendDefaultBuiltInToolNames(toolNames []string) []string {
-	result := agent.KernelToolNames()
+	result := bluecollar.KernelToolNames()
 	for _, toolName := range toolNames {
 		trimmedToolName := strings.TrimSpace(toolName)
-		if agent.IsKernelToolName(trimmedToolName) && !containsString(result, trimmedToolName) {
+		if bluecollar.IsKernelToolName(trimmedToolName) && !containsString(result, trimmedToolName) {
 			result = append(result, trimmedToolName)
 		}
 	}

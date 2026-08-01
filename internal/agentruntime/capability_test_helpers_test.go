@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"strings"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/agent"
+	"github.com/Dawn-kim-official/blueclaw/internal/bluecollar"
 	"github.com/Dawn-kim-official/blueclaw/internal/capability"
 )
 
@@ -74,7 +74,7 @@ func completeTestCapabilityToolDescriptor(descriptor CapabilityToolDescriptor) C
 	}
 	descriptor.PolicyResource = firstNonEmptyString(descriptor.PolicyResource, "tool:"+descriptor.CanonicalName)
 	descriptor.SideEffectClass = firstNonEmptyString(descriptor.SideEffectClass, "read")
-	if agent.ToolDescriptorRequiresInputIntentSchema(agent.ToolDescriptor{
+	if bluecollar.ToolDescriptorRequiresInputIntentSchema(bluecollar.ToolDescriptor{
 		Visibility:      descriptor.ModelVisibility,
 		SideEffectClass: descriptor.SideEffectClass,
 	}) {

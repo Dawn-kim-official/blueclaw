@@ -12,9 +12,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/agent"
 	"github.com/Dawn-kim-official/blueclaw/internal/agentruntime"
 	"github.com/Dawn-kim-official/blueclaw/internal/agenttest"
+	"github.com/Dawn-kim-official/blueclaw/internal/bluecollar"
 	"github.com/Dawn-kim-official/blueclaw/internal/capability"
 	"github.com/Dawn-kim-official/blueclaw/internal/config"
 	"github.com/Dawn-kim-official/blueclaw/internal/identity"
@@ -681,7 +681,7 @@ func TestConnectorRuntimeBusyStatusDoesNotCreateNewTask(t *testing.T) {
 	})
 	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
 	connectorRuntime.agentKernel.UseIntakeLanguageModelProvider(languageModel)
-	connectorRuntime.agentKernel.UseIntakeOptions(agent.IntakeOptions{IsEnabled: true})
+	connectorRuntime.agentKernel.UseIntakeOptions(bluecollar.IntakeOptions{IsEnabled: true})
 	activeTaskRun, errorValue := connectorRuntime.agentKernel.RunTask("person-1", "direct-1", "보고서 작성")
 	if errorValue != nil {
 		t.Fatal(errorValue)
@@ -774,7 +774,7 @@ func TestConnectorRuntimeBusySteerAppendsInstructionWithoutNewTask(t *testing.T)
 	})
 	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
 	connectorRuntime.agentKernel.UseIntakeLanguageModelProvider(languageModel)
-	connectorRuntime.agentKernel.UseIntakeOptions(agent.IntakeOptions{IsEnabled: true})
+	connectorRuntime.agentKernel.UseIntakeOptions(bluecollar.IntakeOptions{IsEnabled: true})
 	activeTaskRun, errorValue := connectorRuntime.agentKernel.RunTask("person-1", "direct-1", "PDF 보고서 작성")
 	if errorValue != nil {
 		t.Fatal(errorValue)
@@ -817,7 +817,7 @@ func TestConnectorRuntimeBusyCancelStopsActiveTaskWithoutNewTask(t *testing.T) {
 	})
 	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
 	connectorRuntime.agentKernel.UseIntakeLanguageModelProvider(languageModel)
-	connectorRuntime.agentKernel.UseIntakeOptions(agent.IntakeOptions{IsEnabled: true})
+	connectorRuntime.agentKernel.UseIntakeOptions(bluecollar.IntakeOptions{IsEnabled: true})
 	activeTaskRun, errorValue := connectorRuntime.agentKernel.RunTask("person-1", "direct-1", "긴 작업")
 	if errorValue != nil {
 		t.Fatal(errorValue)
@@ -936,7 +936,7 @@ func TestConnectorRuntimeBusyReplaceCancelsActiveTaskAndStartsNewTask(t *testing
 	})
 	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
 	connectorRuntime.agentKernel.UseIntakeLanguageModelProvider(languageModel)
-	connectorRuntime.agentKernel.UseIntakeOptions(agent.IntakeOptions{IsEnabled: true})
+	connectorRuntime.agentKernel.UseIntakeOptions(bluecollar.IntakeOptions{IsEnabled: true})
 	activeTaskRun, errorValue := connectorRuntime.agentKernel.RunTask("person-1", "direct-1", "기존 작업")
 	if errorValue != nil {
 		t.Fatal(errorValue)
@@ -976,7 +976,7 @@ func TestConnectorRuntimeBusyNewTaskSupersedesActiveTaskAndStartsNewTask(t *test
 	})
 	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
 	connectorRuntime.agentKernel.UseIntakeLanguageModelProvider(languageModel)
-	connectorRuntime.agentKernel.UseIntakeOptions(agent.IntakeOptions{IsEnabled: true})
+	connectorRuntime.agentKernel.UseIntakeOptions(bluecollar.IntakeOptions{IsEnabled: true})
 	activeTaskRun, errorValue := connectorRuntime.agentKernel.RunTask("person-1", "direct-1", "경산 영남대 근처 맛집 추천")
 	if errorValue != nil {
 		t.Fatal(errorValue)
@@ -1007,19 +1007,19 @@ func TestConnectorRuntimeBusyNewTaskSupersedesActiveTaskAndStartsNewTask(t *test
 func TestConnectorRuntimeDoesNotContinueFailedRecoverableArtifactGoal(t *testing.T) {
 	connectorRuntime, _, taskRunService, _ := newWaitRoutingTestConnectorRuntime(t, testLanguageModel{reply: "unused"})
 	taskRun := taskRunService.CreateTaskRunWithOrigin("person-1", task.TaskRunOrigin{ConversationID: "direct-1", ReplyTargetID: "origin-reply-target"}, "기업 문서 가이드를 docx로 만들어줘")
-	appendConnectorActiveGoal(t, taskRunService, taskRun, agent.ActiveGoal{
+	appendConnectorActiveGoal(t, taskRunService, taskRun, bluecollar.ActiveGoal{
 		TaskRunID:           taskRun.TaskRunID,
 		OriginalInstruction: taskRun.Prompt,
-		Status:              agent.ActiveGoalStatusBlocked,
-		OutcomeContract: agent.OutcomeContract{
+		Status:              bluecollar.ActiveGoalStatusBlocked,
+		OutcomeContract: bluecollar.OutcomeContract{
 			RequiredEvidenceTools:      []string{"file.attach"},
 			RequiredAttachmentSuffixes: []string{".docx"},
-			ExpectedResults: []agent.ExpectedResult{{
+			ExpectedResults: []bluecollar.ExpectedResult{{
 				ID:       "attached-file",
-				Type:     agent.ExpectedResultTypeFile,
+				Type:     bluecollar.ExpectedResultTypeFile,
 				Required: true,
 			}},
-			ArtifactRequirement: agent.ArtifactRequirementRequired,
+			ArtifactRequirement: bluecollar.ArtifactRequirementRequired,
 		},
 	})
 	if _, errorValue := taskRunService.FailTaskRun(taskRun.TaskRunID, "file attach failed"); errorValue != nil {
@@ -1038,23 +1038,23 @@ func TestConnectorRuntimeDoesNotContinueFailedRecoverableArtifactGoal(t *testing
 func TestConnectorRuntimeFindsPriorTaskContextForFailedArtifactGoal(t *testing.T) {
 	connectorRuntime, _, taskRunService, _ := newWaitRoutingTestConnectorRuntime(t, testLanguageModel{reply: "unused"})
 	taskRun := taskRunService.CreateTaskRunWithOrigin("person-1", task.TaskRunOrigin{ConversationID: "direct-1", ReplyTargetID: "reply-target-1"}, "기업 문서 가이드를 docx로 만들어줘")
-	appendConnectorActiveGoal(t, taskRunService, taskRun, agent.ActiveGoal{
+	appendConnectorActiveGoal(t, taskRunService, taskRun, bluecollar.ActiveGoal{
 		TaskRunID:           taskRun.TaskRunID,
 		OriginalInstruction: taskRun.Prompt,
-		Status:              agent.ActiveGoalStatusBlocked,
-		OutcomeContract: agent.OutcomeContract{
+		Status:              bluecollar.ActiveGoalStatusBlocked,
+		OutcomeContract: bluecollar.OutcomeContract{
 			RequiredEvidenceTools:      []string{"file.attach"},
 			RequiredAttachmentSuffixes: []string{".docx"},
-			ExpectedResults: []agent.ExpectedResult{{
+			ExpectedResults: []bluecollar.ExpectedResult{{
 				ID:          "attached-file",
-				Type:        agent.ExpectedResultTypeFile,
+				Type:        bluecollar.ExpectedResultTypeFile,
 				Description: "docx file attached to the current conversation",
 				Required:    true,
 			}},
-			ArtifactRequirement: agent.ArtifactRequirementRequired,
+			ArtifactRequirement: bluecollar.ArtifactRequirementRequired,
 		},
 	})
-	intakeEvent, errorValue := json.Marshal(agent.IntakeDecision{
+	intakeEvent, errorValue := json.Marshal(bluecollar.IntakeDecision{
 		RequestedOutputFormats: []string{"docx"},
 	})
 	if errorValue != nil {
@@ -1075,7 +1075,7 @@ func TestConnectorRuntimeFindsPriorTaskContextForFailedArtifactGoal(t *testing.T
 	if priorTaskContext.TaskRunID != taskRun.TaskRunID {
 		t.Fatalf("expected prior task run %q, got %+v", taskRun.TaskRunID, priorTaskContext)
 	}
-	if !agent.OutcomeContractHasRequirements(priorTaskContext.OutcomeContract) {
+	if !bluecollar.OutcomeContractHasRequirements(priorTaskContext.OutcomeContract) {
 		t.Fatalf("expected recoverable outcome contract, got %+v", priorTaskContext.OutcomeContract)
 	}
 	if !slices.Contains(priorTaskContext.OutcomeContract.RequiredEvidenceTools, "file.attach") {
@@ -1118,18 +1118,18 @@ func TestConnectorRuntimeProvidesRecentPriorTaskContextWithoutTextInference(t *t
 func TestConnectorRuntimeDoesNotContinueFailedSiteOnlyGoal(t *testing.T) {
 	connectorRuntime, _, taskRunService, _ := newWaitRoutingTestConnectorRuntime(t, testLanguageModel{reply: "unused"})
 	taskRun := taskRunService.CreateTaskRunWithOrigin("person-1", task.TaskRunOrigin{ConversationID: "direct-1", ReplyTargetID: "origin-reply-target"}, "웹사이트 만들어줘")
-	appendConnectorActiveGoal(t, taskRunService, taskRun, agent.ActiveGoal{
+	appendConnectorActiveGoal(t, taskRunService, taskRun, bluecollar.ActiveGoal{
 		TaskRunID:           taskRun.TaskRunID,
 		OriginalInstruction: taskRun.Prompt,
-		Status:              agent.ActiveGoalStatusBlocked,
-		OutcomeContract: agent.OutcomeContract{
+		Status:              bluecollar.ActiveGoalStatusBlocked,
+		OutcomeContract: bluecollar.OutcomeContract{
 			RequiredEvidenceTools: []string{"site.serve"},
-			ExpectedResults: []agent.ExpectedResult{{
+			ExpectedResults: []bluecollar.ExpectedResult{{
 				ID:       "site-public-link",
-				Type:     agent.ExpectedResultTypeLink,
+				Type:     bluecollar.ExpectedResultTypeLink,
 				Required: true,
 			}},
-			ArtifactRequirement: agent.ArtifactRequirementNone,
+			ArtifactRequirement: bluecollar.ArtifactRequirementNone,
 		},
 	})
 	if _, errorValue := taskRunService.FailTaskRun(taskRun.TaskRunID, "publish failed"); errorValue != nil {
@@ -1150,7 +1150,7 @@ func TestOutboundReplyJSONPreservesInlineAttachmentPayload(t *testing.T) {
 		Message:   "attached",
 		TaskRunID: "task-1",
 		ReplyKind: connectorReplyKindSuccess,
-		Attachments: []agent.FileAttachment{{
+		Attachments: []bluecollar.FileAttachment{{
 			DevicePath:    "/workspace/deck.pptx",
 			Filename:      "deck.pptx",
 			ContentType:   "application/vnd.openxmlformats-officedocument.presentationml.presentation",
@@ -1207,7 +1207,7 @@ func TestOutboundReplyJSONPreservesFailureNotice(t *testing.T) {
 		Message:   "작업을 완료하지 못했습니다. 접근 권한을 확인한 뒤 다시 시도해 주세요.",
 		TaskRunID: "task-1",
 		ReplyKind: connectorReplyKindUserNotice,
-		FailureNotice: agent.FailureNotice{
+		FailureNotice: bluecollar.FailureNotice{
 			Message:           "작업을 완료하지 못했습니다. 접근 권한을 확인한 뒤 다시 시도해 주세요.",
 			Source:            "generated",
 			Language:          "ko",
@@ -1276,7 +1276,7 @@ func TestConnectorRuntimeRequesterEmailFallsBackToVisibleSenderEmail(t *testing.
 		},
 	})
 	taskEventService := task.NewTaskEventService()
-	agentKernel := agent.NewAgentKernel(task.NewTaskRunService(taskEventService), task.NewTaskStepService())
+	agentKernel := bluecollar.NewAgentKernel(task.NewTaskRunService(taskEventService), task.NewTaskStepService())
 	connectorRuntime := NewConnectorRuntime(identityService, agentKernel, nil)
 	event := testInboundEvent("message-1")
 	event.Context.Sender.Email = "Sender@Example.com"
@@ -1296,7 +1296,7 @@ func TestConnectorRuntimeRequesterEmailPrefersPolicyPrimaryEmail(t *testing.T) {
 		},
 	})
 	taskEventService := task.NewTaskEventService()
-	agentKernel := agent.NewAgentKernel(task.NewTaskRunService(taskEventService), task.NewTaskStepService())
+	agentKernel := bluecollar.NewAgentKernel(task.NewTaskRunService(taskEventService), task.NewTaskStepService())
 	connectorRuntime := NewConnectorRuntime(identityService, agentKernel, nil)
 	event := testInboundEvent("message-1")
 	event.Context.Sender.Email = "sender@example.com"
@@ -1309,7 +1309,7 @@ func TestConnectorRuntimeRequesterEmailPrefersPolicyPrimaryEmail(t *testing.T) {
 }
 
 func TestConnectorRuntimeSkipsAddressingClassifierForDirectMessage(t *testing.T) {
-	languageModel := &addressingTestLanguageModel{addressingTarget: string(agent.AddressingTargetHuman), reply: "ok"}
+	languageModel := &addressingTestLanguageModel{addressingTarget: string(bluecollar.AddressingTargetHuman), reply: "ok"}
 	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
 	event := testInboundEvent("message-1")
 	event.Context.ConversationType = "D"
@@ -1337,7 +1337,7 @@ func TestConnectorRuntimeReactsToConsumedAddressedMessageWithoutReply(t *testing
 	})
 	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
 	connectorRuntime.agentKernel.UseIntakeLanguageModelProvider(languageModel)
-	connectorRuntime.agentKernel.UseIntakeOptions(agent.IntakeOptions{IsEnabled: true})
+	connectorRuntime.agentKernel.UseIntakeOptions(bluecollar.IntakeOptions{IsEnabled: true})
 	event := testInboundEvent("message-consume")
 
 	result, errorValue := connectorRuntime.HandleInboundEvent(context.Background(), adapter, event)
@@ -1373,7 +1373,7 @@ func TestConnectorRuntimeDirectConsumeFallsBackToReplyWhenReactionFails(t *testi
 	})
 	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
 	connectorRuntime.agentKernel.UseIntakeLanguageModelProvider(languageModel)
-	connectorRuntime.agentKernel.UseIntakeOptions(agent.IntakeOptions{IsEnabled: true})
+	connectorRuntime.agentKernel.UseIntakeOptions(bluecollar.IntakeOptions{IsEnabled: true})
 	adapter.reactionError = errors.New("reaction failed")
 	event := testInboundEvent("message-direct-consume")
 	event.Context.ConversationType = "D"
@@ -1404,7 +1404,7 @@ func TestConnectorRuntimeDirectConsumeFallsBackWithoutReactionAdapter(t *testing
 	})
 	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
 	connectorRuntime.agentKernel.UseIntakeLanguageModelProvider(languageModel)
-	connectorRuntime.agentKernel.UseIntakeOptions(agent.IntakeOptions{IsEnabled: true})
+	connectorRuntime.agentKernel.UseIntakeOptions(bluecollar.IntakeOptions{IsEnabled: true})
 	event := testInboundEvent("message-direct-consume")
 	event.Context.ConversationType = "D"
 
@@ -1428,7 +1428,7 @@ func TestConnectorRuntimeConsumeWithoutReactionAdapterDoesNotReply(t *testing.T)
 	})
 	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
 	connectorRuntime.agentKernel.UseIntakeLanguageModelProvider(languageModel)
-	connectorRuntime.agentKernel.UseIntakeOptions(agent.IntakeOptions{IsEnabled: true})
+	connectorRuntime.agentKernel.UseIntakeOptions(bluecollar.IntakeOptions{IsEnabled: true})
 	noReactionAdapter := testAdapterWithoutReaction{adapter: adapter}
 
 	result, errorValue := connectorRuntime.HandleInboundEvent(context.Background(), noReactionAdapter, testInboundEvent("message-consume"))
@@ -1454,7 +1454,7 @@ func TestConnectorRuntimeReactionFailureDoesNotSendFallbackReply(t *testing.T) {
 	})
 	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
 	connectorRuntime.agentKernel.UseIntakeLanguageModelProvider(languageModel)
-	connectorRuntime.agentKernel.UseIntakeOptions(agent.IntakeOptions{IsEnabled: true})
+	connectorRuntime.agentKernel.UseIntakeOptions(bluecollar.IntakeOptions{IsEnabled: true})
 	adapter.reactionError = errors.New("reaction failed")
 
 	result, errorValue := connectorRuntime.HandleInboundEvent(context.Background(), adapter, testInboundEvent("message-consume"))
@@ -1557,7 +1557,7 @@ func TestLatestAskInteractionReturnsNewAskAfterEarlierResolution(t *testing.T) {
 }
 
 func TestConnectorRuntimeProcessesBotMentionThroughAddressingClassifier(t *testing.T) {
-	languageModel := &addressingTestLanguageModel{addressingTarget: string(agent.AddressingTargetBot), reply: "ok"}
+	languageModel := &addressingTestLanguageModel{addressingTarget: string(bluecollar.AddressingTargetBot), reply: "ok"}
 	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
 	event := testChannelInboundEvent("message-1")
 	event.Context.Addressing.BotMentioned = true
@@ -1576,7 +1576,7 @@ func TestConnectorRuntimeProcessesBotMentionThroughAddressingClassifier(t *testi
 }
 
 func TestConnectorRuntimeIgnoresOtherPersonMentionWithoutDuty(t *testing.T) {
-	languageModel := &addressingTestLanguageModel{addressingTarget: string(agent.AddressingTargetHuman), reply: "unused"}
+	languageModel := &addressingTestLanguageModel{addressingTarget: string(bluecollar.AddressingTargetHuman), reply: "unused"}
 	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
 	event := testChannelInboundEvent("message-1")
 	event.Context.Addressing.OtherPersonMentioned = true
@@ -1601,7 +1601,7 @@ func TestConnectorRuntimeIgnoresOtherPersonMentionWithoutDuty(t *testing.T) {
 }
 
 func TestConnectorRuntimeProcessesAssistantRequestedAmbiguousChannelMessage(t *testing.T) {
-	languageModel := &addressingTestLanguageModel{addressingTarget: string(agent.AddressingTargetBot), reply: "ok"}
+	languageModel := &addressingTestLanguageModel{addressingTarget: string(bluecollar.AddressingTargetBot), reply: "ok"}
 	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
 
 	result, errorValue := connectorRuntime.HandleInboundEvent(context.Background(), adapter, testChannelInboundEvent("message-1"))
@@ -1618,8 +1618,8 @@ func TestConnectorRuntimeProcessesAssistantRequestedAmbiguousChannelMessage(t *t
 }
 
 func TestConnectorRuntimeUsesIntakeLanguageModelForAddressingClassifier(t *testing.T) {
-	replyLanguageModel := &addressingTestLanguageModel{addressingTarget: string(agent.AddressingTargetHuman), reply: "ok"}
-	intakeLanguageModel := &addressingTestLanguageModel{addressingTarget: string(agent.AddressingTargetBot), reply: "unused"}
+	replyLanguageModel := &addressingTestLanguageModel{addressingTarget: string(bluecollar.AddressingTargetHuman), reply: "ok"}
+	intakeLanguageModel := &addressingTestLanguageModel{addressingTarget: string(bluecollar.AddressingTargetBot), reply: "unused"}
 	connectorRuntime, adapter := newTestConnectorRuntime(t, replyLanguageModel)
 	connectorRuntime.agentKernel.UseIntakeLanguageModelProvider(intakeLanguageModel)
 
@@ -1645,10 +1645,10 @@ func TestConnectorRuntimeIgnoresNonAssistantAddressingClasses(t *testing.T) {
 		addressingTarget string
 		reason           string
 	}{
-		{name: "human", addressingTarget: string(agent.AddressingTargetHuman), reason: "addressing_human dutyMatch=false"},
-		{name: "anyone", addressingTarget: string(agent.AddressingTargetAnyone), reason: "addressing_anyone dutyMatch=false"},
-		{name: "none", addressingTarget: string(agent.AddressingTargetNone), reason: "addressing_none dutyMatch=false"},
-		{name: "unclear", addressingTarget: string(agent.AddressingTargetUnclear), reason: "addressing_unclear dutyMatch=false"},
+		{name: "human", addressingTarget: string(bluecollar.AddressingTargetHuman), reason: "addressing_human dutyMatch=false"},
+		{name: "anyone", addressingTarget: string(bluecollar.AddressingTargetAnyone), reason: "addressing_anyone dutyMatch=false"},
+		{name: "none", addressingTarget: string(bluecollar.AddressingTargetNone), reason: "addressing_none dutyMatch=false"},
+		{name: "unclear", addressingTarget: string(bluecollar.AddressingTargetUnclear), reason: "addressing_unclear dutyMatch=false"},
 	}
 
 	for _, test := range tests {
@@ -1716,7 +1716,7 @@ func TestConnectorRuntimeDoesNotFilterUserNoticeAttachmentClaimText(t *testing.T
 		event,
 		"task-1",
 		ReplyTarget{ConversationID: "direct-1", ReplyTargetID: "reply-target-1"},
-		agent.AgentTurnResult{UserNotice: "파일을 생성해 첨부했습니다."},
+		bluecollar.AgentTurnResult{UserNotice: "파일을 생성해 첨부했습니다."},
 		func(_ context.Context, _ ReplyTarget, reply OutboundReply) (string, error) {
 			sentReplies = append(sentReplies, reply)
 			return "dispatch-1", nil
@@ -1744,7 +1744,7 @@ func TestConnectorRuntimeSendsAskUserNoticeForTargetUser(t *testing.T) {
 		event,
 		"task-1",
 		ReplyTarget{ConversationID: "direct-1", ReplyTargetID: "reply-target-1"},
-		agent.AgentTurnResult{UserNotice: "제목은 어떻게 할까요?"},
+		bluecollar.AgentTurnResult{UserNotice: "제목은 어떻게 할까요?"},
 		func(_ context.Context, _ ReplyTarget, reply OutboundReply) (string, error) {
 			sentReplies = append(sentReplies, reply)
 			return "dispatch-1", nil
@@ -1773,7 +1773,7 @@ func TestConnectorRuntimePassesThroughUserNoticeWithoutContentFiltering(t *testi
 		event,
 		"task-1",
 		ReplyTarget{ConversationID: "direct-1", ReplyTargetID: "reply-target-1"},
-		agent.AgentTurnResult{UserNotice: "작업 결과는 sandbox:/mnt/data/Hermes_Agent_Slide_Part1.html에 있습니다."},
+		bluecollar.AgentTurnResult{UserNotice: "작업 결과는 sandbox:/mnt/data/Hermes_Agent_Slide_Part1.html에 있습니다."},
 		func(_ context.Context, _ ReplyTarget, reply OutboundReply) (string, error) {
 			sentReplies = append(sentReplies, reply)
 			return "dispatch-1", nil
@@ -1799,7 +1799,7 @@ func TestConnectorRuntimeSendsSafeUserNoticeForBlockedTask(t *testing.T) {
 		event,
 		"task-1",
 		ReplyTarget{ConversationID: "direct-1", ReplyTargetID: "reply-target-1"},
-		agent.AgentTurnResult{UserNotice: "PPTX를 만들지 못했습니다. 다시 시도해 주세요."},
+		bluecollar.AgentTurnResult{UserNotice: "PPTX를 만들지 못했습니다. 다시 시도해 주세요."},
 		func(_ context.Context, _ ReplyTarget, reply OutboundReply) (string, error) {
 			sentReplies = append(sentReplies, reply)
 			return "dispatch-1", nil
@@ -1828,10 +1828,10 @@ func TestConnectorRuntimeSendsFailureNoticeForBlockedTask(t *testing.T) {
 		event,
 		"task-1",
 		ReplyTarget{ConversationID: "direct-1", ReplyTargetID: "reply-target-1"},
-		agent.AgentTurnResult{
+		bluecollar.AgentTurnResult{
 			TaskRun:    task.TaskRun{Status: task.TaskStatusBlocked},
 			UserNotice: "replyStatus: raw internal diagnostic",
-			FailureNotice: agent.FailureNotice{
+			FailureNotice: bluecollar.FailureNotice{
 				Message:           "작업을 완료하지 못했습니다. 접근 권한을 확인한 뒤 다시 시도해 주세요.",
 				Source:            "generated",
 				Language:          "ko",
@@ -1868,9 +1868,9 @@ func TestConnectorRuntimeFailureFooterLinksAdminTaskWhenConfigured(t *testing.T)
 		event,
 		"a1b2c3d4e5f6",
 		ReplyTarget{ConversationID: "direct-1", ReplyTargetID: "reply-target-1"},
-		agent.AgentTurnResult{
+		bluecollar.AgentTurnResult{
 			TaskRun: task.TaskRun{Status: task.TaskStatusFailed},
-			FailureNotice: agent.FailureNotice{
+			FailureNotice: bluecollar.FailureNotice{
 				Message:    "작업을 완료하지 못했습니다.",
 				Source:     "generated",
 				Language:   "ko",
@@ -1902,7 +1902,7 @@ func TestConnectorRuntimeWaitingNoticeHasNoRunFooter(t *testing.T) {
 		event,
 		"task-1",
 		ReplyTarget{ConversationID: "direct-1", ReplyTargetID: "reply-target-1"},
-		agent.AgentTurnResult{
+		bluecollar.AgentTurnResult{
 			TaskRun:    task.TaskRun{Status: task.TaskStatusWaitingUserInput},
 			UserNotice: "범위를 알려주시면 진행할게요.",
 		},
@@ -1931,7 +1931,7 @@ func TestConnectorRuntimeSendsSafeUserNoticeWhenFailureNoticeMissing(t *testing.
 		event,
 		"task-1",
 		ReplyTarget{ConversationID: "direct-1", ReplyTargetID: "reply-target-1"},
-		agent.AgentTurnResult{
+		bluecollar.AgentTurnResult{
 			TaskRun:    task.TaskRun{Status: task.TaskStatusBlocked},
 			UserNotice: "메시지 삭제 작업을 완료하지 못했습니다.",
 		},
@@ -1960,7 +1960,7 @@ func TestConnectorRuntimeSendsGenericFailureNoticeWhenFailureReplyMissing(t *tes
 		event,
 		"task-1",
 		ReplyTarget{ConversationID: "direct-1", ReplyTargetID: "reply-target-1"},
-		agent.AgentTurnResult{
+		bluecollar.AgentTurnResult{
 			TaskRun: task.TaskRun{Status: task.TaskStatusFailed},
 		},
 		func(_ context.Context, _ ReplyTarget, reply OutboundReply) (string, error) {
@@ -1989,9 +1989,9 @@ func TestConnectorRuntimeAddsSenderToRecoveryActions(t *testing.T) {
 		event,
 		"task-1",
 		ReplyTarget{ConversationID: "direct-1", ReplyTargetID: "reply-target-1"},
-		agent.AgentTurnResult{
+		bluecollar.AgentTurnResult{
 			UserNotice: "Companion 연결이 필요합니다.",
-			RecoveryActions: []agent.RecoveryAction{{
+			RecoveryActions: []bluecollar.RecoveryAction{{
 				Kind:           "companion_connect",
 				Delivery:       "dm_preferred",
 				DownloadURL:    "https://example.com/companion.dmg",
@@ -2183,14 +2183,14 @@ func TestConnectorRuntimeAddsImportedImageAttachmentCatalog(t *testing.T) {
 	languageModel := &recordingLanguageModel{reply: "이미지 확인"}
 	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
 	adapter.inputAttachmentImportResult = InputAttachmentImportResult{
-		InputParts: []agent.AgentPart{{
-			Type: agent.AgentPartTypeImage,
-			Image: &agent.AgentImagePart{
+		InputParts: []bluecollar.AgentPart{{
+			Type: bluecollar.AgentPartTypeImage,
+			Image: &bluecollar.AgentImagePart{
 				MimeType:   "image/png",
 				DataBase64: "aW1hZ2U=",
 				Filename:   "mascot.png",
 			},
-			Source: agent.AgentPartSource{
+			Source: bluecollar.AgentPartSource{
 				Platform:  "mattermost",
 				FileID:    "file-1",
 				MessageID: "message-1",
@@ -2237,14 +2237,14 @@ func TestConnectorRuntimeKeepsHistoryImageAttachmentCatalogOnly(t *testing.T) {
 	languageModel := &recordingLanguageModel{reply: "이미지 확인"}
 	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
 	adapter.inputAttachmentImportResult = InputAttachmentImportResult{
-		InputParts: []agent.AgentPart{{
-			Type: agent.AgentPartTypeImage,
-			Image: &agent.AgentImagePart{
+		InputParts: []bluecollar.AgentPart{{
+			Type: bluecollar.AgentPartTypeImage,
+			Image: &bluecollar.AgentImagePart{
 				MimeType:   "image/png",
 				DataBase64: "aW1hZ2U=",
 				Filename:   "mascot.png",
 			},
-			Source: agent.AgentPartSource{
+			Source: bluecollar.AgentPartSource{
 				Platform:  "mattermost",
 				FileID:    "file-1",
 				MessageID: "message-1",
@@ -2561,7 +2561,7 @@ func TestConnectorRuntimeClassifiesConfirmationReplyBeforeResumingPendingTask(t 
 	})
 	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
 	connectorRuntime.agentKernel.UseIntakeLanguageModelProvider(languageModel)
-	connectorRuntime.agentKernel.UseIntakeOptions(agent.IntakeOptions{IsEnabled: true})
+	connectorRuntime.agentKernel.UseIntakeOptions(bluecollar.IntakeOptions{IsEnabled: true})
 	useTestConnectorSkill(connectorRuntime, connectorCalendarSkill())
 	connectorRuntime.UseAllowedToolNames([]string{"conversation.history", "memory.search", "ask.confirm", "calendar.add", "calendar.delete"})
 	connectorRuntime.UseTestCapabilityTools(capability.Client{
@@ -2645,7 +2645,7 @@ func TestConnectorRuntimeClassifiesNaturalLanguageConfirmationRejection(t *testi
 	})
 	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
 	connectorRuntime.agentKernel.UseIntakeLanguageModelProvider(languageModel)
-	connectorRuntime.agentKernel.UseIntakeOptions(agent.IntakeOptions{IsEnabled: true})
+	connectorRuntime.agentKernel.UseIntakeOptions(bluecollar.IntakeOptions{IsEnabled: true})
 	useTestConnectorSkill(connectorRuntime, connectorCalendarSkill())
 	connectorRuntime.UseAllowedToolNames([]string{"conversation.history", "memory.search", "ask.confirm", "calendar.delete"})
 	connectorRuntime.UseTestCapabilityTools(capability.Client{
@@ -2710,7 +2710,7 @@ func TestConnectorRuntimeRoutesShortConfirmationReplyThroughRouter(t *testing.T)
 	})
 	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
 	connectorRuntime.agentKernel.UseIntakeLanguageModelProvider(languageModel)
-	connectorRuntime.agentKernel.UseIntakeOptions(agent.IntakeOptions{IsEnabled: true})
+	connectorRuntime.agentKernel.UseIntakeOptions(bluecollar.IntakeOptions{IsEnabled: true})
 	useTestConnectorSkill(connectorRuntime, connectorCalendarSkill())
 	connectorRuntime.UseAllowedToolNames([]string{"conversation.history", "memory.search", "ask.confirm", "calendar.add", "calendar.delete"})
 	connectorRuntime.UseTestCapabilityTools(capability.Client{
@@ -2779,7 +2779,7 @@ func TestConnectorRuntimeAnswersPendingConfirmationQuestionWithoutLaunching(t *t
 	})
 	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
 	connectorRuntime.agentKernel.UseIntakeLanguageModelProvider(languageModel)
-	connectorRuntime.agentKernel.UseIntakeOptions(agent.IntakeOptions{IsEnabled: true})
+	connectorRuntime.agentKernel.UseIntakeOptions(bluecollar.IntakeOptions{IsEnabled: true})
 	useTestConnectorSkill(connectorRuntime, connectorCalendarSkill())
 	connectorRuntime.UseAllowedToolNames([]string{"conversation.history", "memory.search", "ask.confirm", "calendar.delete"})
 	connectorRuntime.UseTestCapabilityTools(capability.Client{
@@ -2847,7 +2847,7 @@ func TestConnectorRuntimeRoutesPendingConfirmationRevisionAsNewTask(t *testing.T
 	})
 	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
 	connectorRuntime.agentKernel.UseIntakeLanguageModelProvider(languageModel)
-	connectorRuntime.agentKernel.UseIntakeOptions(agent.IntakeOptions{IsEnabled: true})
+	connectorRuntime.agentKernel.UseIntakeOptions(bluecollar.IntakeOptions{IsEnabled: true})
 	useTestConnectorSkill(connectorRuntime, connectorCalendarSkill())
 	connectorRuntime.UseAllowedToolNames([]string{"conversation.history", "memory.search", "ask.confirm", "calendar.delete", "message.search", "message.delete"})
 	connectorRuntime.UseTestCapabilityTools(capability.Client{
@@ -2904,10 +2904,10 @@ func TestAskReplyConsumesInputRevision(t *testing.T) {
 	}
 	event := testInboundEvent("message-2")
 	event.Prompt = "아니 새로 이걸 해줘"
-	decision := agent.TurnDecision{
-		Route:          agent.TurnRouteStartTask,
-		Classification: agent.IntakeClassificationBoundedTask,
-		TaskShape:      agent.TaskShapeMaintenanceTask,
+	decision := bluecollar.TurnDecision{
+		Route:          bluecollar.TurnRouteStartTask,
+		Classification: bluecollar.IntakeClassificationBoundedTask,
+		TaskShape:      bluecollar.TaskShapeMaintenanceTask,
 		Choices:        nil,
 	}
 
@@ -2962,7 +2962,7 @@ func TestConnectorRuntimeConsumesInteractiveConfirmationCancel(t *testing.T) {
 	})
 	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
 	connectorRuntime.agentKernel.UseIntakeLanguageModelProvider(languageModel)
-	connectorRuntime.agentKernel.UseIntakeOptions(agent.IntakeOptions{IsEnabled: true})
+	connectorRuntime.agentKernel.UseIntakeOptions(bluecollar.IntakeOptions{IsEnabled: true})
 	useTestConnectorSkill(connectorRuntime, connectorCalendarSkill())
 	connectorRuntime.UseAllowedToolNames([]string{"conversation.history", "memory.search", "ask.confirm", "calendar.delete"})
 	connectorRuntime.UseTestCapabilityTools(capability.Client{
@@ -3029,7 +3029,7 @@ func TestConnectorRuntimeInteractiveConfirmRestoresPersistedIntakeState(t *testi
 	})
 	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
 	connectorRuntime.agentKernel.UseIntakeLanguageModelProvider(languageModel)
-	connectorRuntime.agentKernel.UseIntakeOptions(agent.IntakeOptions{IsEnabled: true})
+	connectorRuntime.agentKernel.UseIntakeOptions(bluecollar.IntakeOptions{IsEnabled: true})
 	useTestConnectorSkill(connectorRuntime, connectorCalendarSkill())
 	connectorRuntime.UseAllowedToolNames([]string{"conversation.history", "memory.search", "ask.confirm", "calendar.add", "calendar.delete"})
 	connectorRuntime.UseTestCapabilityTools(capability.Client{
@@ -3091,7 +3091,7 @@ func TestConnectorRuntimeConsumesBareConfirmationReplyWithoutPendingTask(t *test
 	})
 	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
 	connectorRuntime.agentKernel.UseIntakeLanguageModelProvider(languageModel)
-	connectorRuntime.agentKernel.UseIntakeOptions(agent.IntakeOptions{IsEnabled: true})
+	connectorRuntime.agentKernel.UseIntakeOptions(bluecollar.IntakeOptions{IsEnabled: true})
 
 	event := testInboundEvent("message-approved")
 	event.Prompt = "approved"
@@ -3134,13 +3134,13 @@ func TestConnectorRuntimeContinuesWaitingUserInputGoal(t *testing.T) {
 	})
 	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
 	connectorRuntime.agentKernel.UseIntakeLanguageModelProvider(languageModel)
-	connectorRuntime.agentKernel.UseIntakeOptions(agent.IntakeOptions{IsEnabled: true})
-	useTestConnectorSkill(connectorRuntime, agent.SkillInstruction{
+	connectorRuntime.agentKernel.UseIntakeOptions(bluecollar.IntakeOptions{IsEnabled: true})
+	useTestConnectorSkill(connectorRuntime, bluecollar.SkillInstruction{
 		Name:           "direct-message",
 		Description:    "사업계획서 작성과 메시지 전송 후보.",
 		Prompt:         "Use message.send only for explicit DM delivery.",
 		ToolReferences: []string{"message.send"},
-		Source:         agent.InstructionSource{Path: "skills/direct-message/SKILL.md", SkillName: "direct-message"},
+		Source:         bluecollar.InstructionSource{Path: "skills/direct-message/SKILL.md", SkillName: "direct-message"},
 	})
 	connectorRuntime.UseAllowedToolNames([]string{"conversation.history", "memory.search", "ask.confirm", "message.send"})
 	connectorRuntime.UseTestCapabilityTools(capability.Client{
@@ -3205,8 +3205,8 @@ func TestConnectorRuntimeStartsNewTaskForClearNewRequest(t *testing.T) {
 	})
 	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
 	connectorRuntime.agentKernel.UseIntakeLanguageModelProvider(languageModel)
-	connectorRuntime.agentKernel.UseIntakeOptions(agent.IntakeOptions{IsEnabled: true})
-	useTestConnectorSkill(connectorRuntime, agent.SkillInstruction{
+	connectorRuntime.agentKernel.UseIntakeOptions(bluecollar.IntakeOptions{IsEnabled: true})
+	useTestConnectorSkill(connectorRuntime, bluecollar.SkillInstruction{
 		Name:           "direct-message",
 		Description:    "DM 후보.",
 		ToolReferences: []string{"message.send"},
@@ -3250,7 +3250,7 @@ func TestConnectorRuntimeAddsCalendarEventWithoutApproval(t *testing.T) {
 	})
 	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
 	connectorRuntime.agentKernel.UseIntakeLanguageModelProvider(languageModel)
-	connectorRuntime.agentKernel.UseIntakeOptions(agent.IntakeOptions{IsEnabled: true})
+	connectorRuntime.agentKernel.UseIntakeOptions(bluecollar.IntakeOptions{IsEnabled: true})
 	useTestConnectorSkill(connectorRuntime, connectorCalendarSkill())
 	connectorRuntime.UseAllowedToolNames([]string{"conversation.history", "memory.search", "ask.confirm", "calendar.add", "calendar.delete"})
 	connectorRuntime.UseTestCapabilityTools(capability.Client{
@@ -3371,7 +3371,7 @@ func TestConnectorRuntimeQuarantinesSchemaOnlyMCPConfiguration(t *testing.T) {
 		t.Fatalf("expected quarantined MCP tools to stay hidden, got %+v", toolRegistry.ListToolDefinitions())
 	}
 
-	toolResult, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{ToolName: "allowed.tool", Input: json.RawMessage(`{}`)})
+	toolResult, errorValue := toolRegistry.Invoke(context.Background(), bluecollar.ToolInvocation{ToolName: "allowed.tool", Input: json.RawMessage(`{}`)})
 	if errorValue != nil {
 		t.Fatalf("expected policy denial as tool result: %v", errorValue)
 	}
@@ -3498,7 +3498,7 @@ func TestConnectorRuntimeSendsCheckpointReplyKind(t *testing.T) {
 	event := testInboundEvent("message-checkpoint")
 	replyTarget := ReplyTarget{ConversationID: event.ConversationID, ReplyTargetID: event.ReplyTargetID}
 
-	errorValue := connectorRuntime.sendCheckpointReply(context.Background(), adapter.Name(), event, replyTarget, agent.AgentCheckpoint{
+	errorValue := connectorRuntime.sendCheckpointReply(context.Background(), adapter.Name(), event, replyTarget, bluecollar.AgentCheckpoint{
 		TaskRunID: "task-1",
 		Message:   "작업 중입니다.",
 		ToolName:  "terminal.run",
@@ -3692,9 +3692,9 @@ type testReply struct {
 	message         string
 	taskRunID       string
 	replyKind       string
-	attachments     []agent.FileAttachment
-	recoveryActions []agent.RecoveryAction
-	failureNotice   agent.FailureNotice
+	attachments     []bluecollar.FileAttachment
+	recoveryActions []bluecollar.RecoveryAction
+	failureNotice   bluecollar.FailureNotice
 }
 
 type testConnectorQueueRepository struct {
@@ -4033,7 +4033,7 @@ func (languageModel *addressingTestLanguageModel) GenerateStructuredResponse(_ c
 		if languageModel.addressingError != nil {
 			return llm.StructuredResponse{}, languageModel.addressingError
 		}
-		return llm.StructuredResponse{Content: `{"target":` + strconv.Quote(languageModel.addressingTarget) + `,"shouldRespond":` + strconv.FormatBool(languageModel.addressingTarget == string(agent.AddressingTargetBot)) + `,"reactionEmoji":` + strconv.Quote(languageModel.reactionEmoji) + `,"dutyMatch":` + strconv.FormatBool(languageModel.dutyMatch) + `,"dutyName":` + strconv.Quote(languageModel.dutyName) + `,"dutyConfidence":` + strconv.FormatFloat(languageModel.dutyConfidence, 'f', -1, 64) + `}`}, nil
+		return llm.StructuredResponse{Content: `{"target":` + strconv.Quote(languageModel.addressingTarget) + `,"shouldRespond":` + strconv.FormatBool(languageModel.addressingTarget == string(bluecollar.AddressingTargetBot)) + `,"reactionEmoji":` + strconv.Quote(languageModel.reactionEmoji) + `,"dutyMatch":` + strconv.FormatBool(languageModel.dutyMatch) + `,"dutyName":` + strconv.Quote(languageModel.dutyName) + `,"dutyConfidence":` + strconv.FormatFloat(languageModel.dutyConfidence, 'f', -1, 64) + `}`}, nil
 	}
 	if request.StructuredOutputSchema.Name == "blueclaw_turn_router" {
 		return llm.StructuredResponse{Content: connectorDefaultTurnRouterResponse()}, nil
@@ -4221,13 +4221,13 @@ func connectorFirstRequestBySchema(requests []llm.StructuredResponseRequest, sch
 	return llm.StructuredResponseRequest{}, false
 }
 
-func findAgentToolDefinition(toolDefinitions []agent.ToolDefinition, toolName string) (agent.ToolDefinition, bool) {
+func findAgentToolDefinition(toolDefinitions []bluecollar.ToolDefinition, toolName string) (bluecollar.ToolDefinition, bool) {
 	for _, toolDefinition := range toolDefinitions {
 		if toolDefinition.Name == toolName {
 			return toolDefinition, true
 		}
 	}
-	return agent.ToolDefinition{}, false
+	return bluecollar.ToolDefinition{}, false
 }
 
 func connectorFinishMessage(reply string) string {
@@ -4242,7 +4242,7 @@ func connectorFinishMessageWithEvidence(reply string, observationID string, tool
 	return `{"action":"finish","message":` + strconv.Quote(reply) + `,"completionSummary":` + strconv.Quote(reply) + `,"replyParts":[{"type":"text","text":` + strconv.Quote(reply) + `}],"goalStatus":"satisfied","goalSatisfied":true,"completionEvidence":[{"observationID":` + strconv.Quote(observationID) + `,"toolName":` + strconv.Quote(toolName) + `,"attachmentIndex":` + strconv.Itoa(attachmentIndex) + `}]}`
 }
 
-func appendConnectorActiveGoal(t *testing.T, taskRunService *task.TaskRunService, taskRun task.TaskRun, activeGoal agent.ActiveGoal) {
+func appendConnectorActiveGoal(t *testing.T, taskRunService *task.TaskRunService, taskRun task.TaskRun, activeGoal bluecollar.ActiveGoal) {
 	t.Helper()
 
 	document, errorValue := json.Marshal(activeGoal)
@@ -4263,10 +4263,10 @@ func newTestConnectorRuntime(t *testing.T, languageModel llm.LanguageModelProvid
 	})
 	taskEventService := task.NewTaskEventService()
 	taskRunService := task.NewTaskRunService(taskEventService)
-	agentKernel := agent.NewAgentKernel(taskRunService, task.NewTaskStepService())
+	agentKernel := bluecollar.NewAgentKernel(taskRunService, task.NewTaskStepService())
 	agentKernel.UseLanguageModelProvider(languageModel)
 	agentKernel.UseIntakeLanguageModelProvider(languageModel)
-	agentKernel.UseIntakeOptions(agent.IntakeOptions{IsEnabled: true})
+	agentKernel.UseIntakeOptions(bluecollar.IntakeOptions{IsEnabled: true})
 
 	connectorRuntime := NewConnectorRuntime(identityService, agentKernel, nil)
 	connectorRuntime.UseTaskRunService(taskRunService)
@@ -4286,10 +4286,10 @@ func newWaitRoutingTestConnectorRuntime(t *testing.T, languageModel llm.Language
 	})
 	taskEventService := task.NewTaskEventService()
 	taskRunService := task.NewTaskRunService(taskEventService)
-	agentKernel := agent.NewAgentKernel(taskRunService, task.NewTaskStepService())
+	agentKernel := bluecollar.NewAgentKernel(taskRunService, task.NewTaskStepService())
 	agentKernel.UseLanguageModelProvider(languageModel)
 	agentKernel.UseIntakeLanguageModelProvider(languageModel)
-	agentKernel.UseIntakeOptions(agent.IntakeOptions{IsEnabled: true})
+	agentKernel.UseIntakeOptions(bluecollar.IntakeOptions{IsEnabled: true})
 	taskWaitRepository := task.NewInMemoryTaskWaitTokenRepository()
 
 	connectorRuntime := NewConnectorRuntime(identityService, agentKernel, nil)
@@ -4372,10 +4372,10 @@ func newRepositoryBackedTestConnectorRuntime(t *testing.T, languageModel llm.Lan
 	taskEventService := task.NewTaskEventService()
 	taskRunService := task.NewTaskRunService(taskEventService)
 	taskRunService.UseRepository(taskRunRepository)
-	agentKernel := agent.NewAgentKernel(taskRunService, task.NewTaskStepService())
+	agentKernel := bluecollar.NewAgentKernel(taskRunService, task.NewTaskStepService())
 	agentKernel.UseLanguageModelProvider(languageModel)
 	agentKernel.UseIntakeLanguageModelProvider(languageModel)
-	agentKernel.UseIntakeOptions(agent.IntakeOptions{IsEnabled: true})
+	agentKernel.UseIntakeOptions(bluecollar.IntakeOptions{IsEnabled: true})
 
 	connectorRuntime := NewConnectorRuntime(identityService, agentKernel, nil)
 	connectorRuntime.UseTaskRunService(taskRunService)
@@ -4494,40 +4494,40 @@ func (repository *testTaskRunRepository) DeleteTaskRunsBefore(time.Time, []strin
 	return nil, nil
 }
 
-func useTestConnectorSkill(connectorRuntime *ConnectorRuntime, skillInstruction agent.SkillInstruction) {
-	connectorRuntime.agentKernel.UseSkillRetriever(agent.NewEmbeddingSkillRetriever(nil, ""))
-	connectorRuntime.agentKernel.UseInstructionBundleLoader(func() agent.InstructionBundle {
-		return agent.InstructionBundle{Skills: []agent.SkillInstruction{skillInstruction}}
+func useTestConnectorSkill(connectorRuntime *ConnectorRuntime, skillInstruction bluecollar.SkillInstruction) {
+	connectorRuntime.agentKernel.UseSkillRetriever(bluecollar.NewEmbeddingSkillRetriever(nil, ""))
+	connectorRuntime.agentKernel.UseInstructionBundleLoader(func() bluecollar.InstructionBundle {
+		return bluecollar.InstructionBundle{Skills: []bluecollar.SkillInstruction{skillInstruction}}
 	})
 }
 
-func connectorScheduledTaskSkill() agent.SkillInstruction {
-	return agent.SkillInstruction{
+func connectorScheduledTaskSkill() bluecollar.SkillInstruction {
+	return bluecollar.SkillInstruction{
 		Name:           "scheduled-task",
 		Description:    "Create scheduled tasks, reminders, 매일, 예약, 알림, and recurring work.",
 		Prompt:         "Use schedule.create with taskInstruction for only the work to perform at run time. Put cadence and stop conditions in structured fields such as runAt, intervalSecond, cronExpression, expiresAt, and maxRunCount.",
 		ToolReferences: []string{"schedule.create"},
-		Source:         agent.InstructionSource{Path: "skills/scheduled-task/SKILL.md", SkillName: "scheduled-task"},
+		Source:         bluecollar.InstructionSource{Path: "skills/scheduled-task/SKILL.md", SkillName: "scheduled-task"},
 	}
 }
 
-func connectorCalendarSkill() agent.SkillInstruction {
-	return agent.SkillInstruction{
+func connectorCalendarSkill() bluecollar.SkillInstruction {
+	return bluecollar.SkillInstruction{
 		Name:           "calendar",
 		Description:    "Create or list calendar events, 일정, 달력, 캘린더, and 휴가.",
 		Prompt:         "Use calendar.add to create calendar events without approval. Use calendar.delete only after approval.",
 		ToolReferences: []string{"calendar.add", "calendar.delete"},
-		Source:         agent.InstructionSource{Path: "skills/calendar/SKILL.md", SkillName: "calendar"},
+		Source:         bluecollar.InstructionSource{Path: "skills/calendar/SKILL.md", SkillName: "calendar"},
 	}
 }
 
-func connectorBrowserSnapshotSkill() agent.SkillInstruction {
-	return agent.SkillInstruction{
+func connectorBrowserSnapshotSkill() bluecollar.SkillInstruction {
+	return bluecollar.SkillInstruction{
 		Name:           "browser-snapshot",
 		Description:    "Observe browser pages, snapshots, screenshots, 브라우저, and 화면 확인.",
 		Prompt:         "Use browser.snapshot to observe the current browser state.",
 		ToolReferences: []string{"browser.snapshot"},
-		Source:         agent.InstructionSource{Path: "skills/browser-snapshot/SKILL.md", SkillName: "browser-snapshot"},
+		Source:         bluecollar.InstructionSource{Path: "skills/browser-snapshot/SKILL.md", SkillName: "browser-snapshot"},
 	}
 }
 
@@ -4589,7 +4589,7 @@ func TestResolveInboundEngagementIgnoresUninvitedAttachmentsOnly(t *testing.T) {
 }
 
 func TestResolveInboundEngagementReactOnly(t *testing.T) {
-	languageModel := &addressingTestLanguageModel{addressingTarget: string(agent.AddressingTargetAnyone), reactionEmoji: "eyes"}
+	languageModel := &addressingTestLanguageModel{addressingTarget: string(bluecollar.AddressingTargetAnyone), reactionEmoji: "eyes"}
 	connectorRuntime, _ := newTestConnectorRuntime(t, languageModel)
 	event := testChannelInboundEvent("message-1")
 
@@ -4603,7 +4603,7 @@ func TestResolveInboundEngagementReactOnly(t *testing.T) {
 }
 
 func TestResolveInboundEngagementReactAndRespond(t *testing.T) {
-	languageModel := &addressingTestLanguageModel{addressingTarget: string(agent.AddressingTargetBot), reactionEmoji: "+1"}
+	languageModel := &addressingTestLanguageModel{addressingTarget: string(bluecollar.AddressingTargetBot), reactionEmoji: "+1"}
 	connectorRuntime, _ := newTestConnectorRuntime(t, languageModel)
 	event := testChannelInboundEvent("message-1")
 
@@ -4614,9 +4614,9 @@ func TestResolveInboundEngagementReactAndRespond(t *testing.T) {
 }
 
 func TestLatestActiveGoalFailsClosedOnMalformedNewestEvent(t *testing.T) {
-	validGoalDocument, _ := json.Marshal(agent.ActiveGoal{
+	validGoalDocument, _ := json.Marshal(bluecollar.ActiveGoal{
 		TaskRunID: "old-task",
-		Status:    agent.ActiveGoalStatusActive,
+		Status:    bluecollar.ActiveGoalStatusActive,
 	})
 	taskEvents := []task.TaskEvent{
 		{Name: "agent.goal.active", Body: string(validGoalDocument)},
@@ -4634,7 +4634,7 @@ func TestLatestActiveGoalFailsClosedOnMalformedNewestEvent(t *testing.T) {
 }
 
 func TestConnectorRuntimeAcknowledgesBotMentionAndClearsAckAfterReply(t *testing.T) {
-	languageModel := &addressingTestLanguageModel{addressingTarget: string(agent.AddressingTargetBot), reply: "ok"}
+	languageModel := &addressingTestLanguageModel{addressingTarget: string(bluecollar.AddressingTargetBot), reply: "ok"}
 	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
 	event := testChannelInboundEvent("message-1")
 	event.Context.Addressing.BotMentioned = true
@@ -4655,7 +4655,7 @@ func TestConnectorRuntimeAcknowledgesBotMentionAndClearsAckAfterReply(t *testing
 }
 
 func TestConnectorRuntimeSkipsEngagedAckForDirectMessages(t *testing.T) {
-	languageModel := &addressingTestLanguageModel{addressingTarget: string(agent.AddressingTargetBot), reply: "ok"}
+	languageModel := &addressingTestLanguageModel{addressingTarget: string(bluecollar.AddressingTargetBot), reply: "ok"}
 	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
 	event := testInboundEvent("message-direct-ack")
 

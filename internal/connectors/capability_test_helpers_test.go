@@ -4,8 +4,8 @@ import (
 	"encoding/json"
 	"strings"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/agent"
 	"github.com/Dawn-kim-official/blueclaw/internal/agentruntime"
+	"github.com/Dawn-kim-official/blueclaw/internal/bluecollar"
 	"github.com/Dawn-kim-official/blueclaw/internal/capability"
 )
 
@@ -52,7 +52,7 @@ func connectorTestCapabilityToolDescriptor(toolName string) agentruntime.Capabil
 		CanonicalName:   toolName,
 		Namespace:       connectorTestCapabilityNamespace(toolName),
 		ModelName:       toolName,
-		ModelVisibility: agent.ToolVisibilityModel,
+		ModelVisibility: bluecollar.ToolVisibilityModel,
 		Description:     "Test capability " + toolName,
 		PrivacyClass:    "test",
 		InputSchema:     connectorTestCapabilityInputSchemaForTool(toolName),
@@ -66,13 +66,13 @@ func connectorTestCapabilityToolDescriptor(toolName string) agentruntime.Capabil
 	if toolName == "browser.snapshot" {
 		descriptor.PrivacyClass = "user_browser"
 	}
-	if sideEffectClass != agent.ToolSideEffectRead {
+	if sideEffectClass != bluecollar.ToolSideEffectRead {
 		descriptor.CompletionEvidence = &agentruntime.CapabilityCompletionEvidence{Mode: "success", Action: toolName, TargetKind: descriptor.Namespace}
 	}
-	if sideEffectClass == agent.ToolSideEffectDestructive || sideEffectClass == agent.ToolSideEffectExternalSend {
+	if sideEffectClass == bluecollar.ToolSideEffectDestructive || sideEffectClass == bluecollar.ToolSideEffectExternalSend {
 		descriptor.RequiresApproval = true
 	}
-	if agent.ToolDescriptorRequiresInputIntentSchema(agent.ToolDescriptor{Visibility: descriptor.ModelVisibility, SideEffectClass: descriptor.SideEffectClass}) {
+	if bluecollar.ToolDescriptorRequiresInputIntentSchema(bluecollar.ToolDescriptor{Visibility: descriptor.ModelVisibility, SideEffectClass: descriptor.SideEffectClass}) {
 		descriptor.InputIntentSchema = json.RawMessage(`{"type":"object","properties":{},"additionalProperties":false}`)
 	}
 	return descriptor
@@ -81,13 +81,13 @@ func connectorTestCapabilityToolDescriptor(toolName string) agentruntime.Capabil
 func connectorTestCapabilitySideEffect(toolName string) string {
 	switch toolName {
 	case "browser.snapshot":
-		return agent.ToolSideEffectRead
+		return bluecollar.ToolSideEffectRead
 	case "calendar.delete":
-		return agent.ToolSideEffectDestructive
+		return bluecollar.ToolSideEffectDestructive
 	case "message.send":
-		return agent.ToolSideEffectExternalSend
+		return bluecollar.ToolSideEffectExternalSend
 	default:
-		return agent.ToolSideEffectWorkspaceWrite
+		return bluecollar.ToolSideEffectWorkspaceWrite
 	}
 }
 

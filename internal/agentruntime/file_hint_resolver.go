@@ -4,7 +4,7 @@ import (
 	"errors"
 	"strings"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/agent"
+	"github.com/Dawn-kim-official/blueclaw/internal/bluecollar"
 )
 
 func resolveFileHintReference(request ToolCatalogRequest, path string, materialID string, fileHint string) (string, string, error) {
@@ -26,15 +26,15 @@ func resolveFileHintReference(request ToolCatalogRequest, path string, materialI
 	return resolvedPath, resolvedMaterialID, nil
 }
 
-func visibleAttachmentMaterialForFileHint(visibleContext agent.VisibleContext, fileHint string) (agent.VisibleContextMaterial, bool) {
+func visibleAttachmentMaterialForFileHint(visibleContext bluecollar.VisibleContext, fileHint string) (bluecollar.VisibleContextMaterial, bool) {
 	trimmedFileHint := strings.TrimSpace(fileHint)
 	if trimmedFileHint == "" {
-		return agent.VisibleContextMaterial{}, false
+		return bluecollar.VisibleContextMaterial{}, false
 	}
 	for _, material := range visibleAttachmentMaterials(visibleContext) {
 		if strings.TrimSpace(material.FileHint) == trimmedFileHint {
 			return material, true
 		}
 	}
-	return agent.VisibleContextMaterial{}, false
+	return bluecollar.VisibleContextMaterial{}, false
 }

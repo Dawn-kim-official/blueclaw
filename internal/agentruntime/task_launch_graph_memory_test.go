@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/agent"
+	"github.com/Dawn-kim-official/blueclaw/internal/bluecollar"
 	"github.com/Dawn-kim-official/blueclaw/internal/memory"
 	"github.com/Dawn-kim-official/blueclaw/internal/policy"
 	"github.com/Dawn-kim-official/blueclaw/internal/task"
@@ -26,7 +26,7 @@ func (store staticGraphMemoryStore) SearchFacts(context.Context, memory.MemorySe
 
 func TestTaskLauncherInjectsGraphMemoryAtLaunch(t *testing.T) {
 	taskEventService := task.NewTaskEventService()
-	agentKernel := agent.NewAgentKernel(task.NewTaskRunService(taskEventService), task.NewTaskStepService())
+	agentKernel := bluecollar.NewAgentKernel(task.NewTaskRunService(taskEventService), task.NewTaskStepService())
 	useRuntimeTestLanguageModel(agentKernel, runtimeFinishMessage("done"))
 	pinnedMemoryStore := memory.NewMarkdownStore(t.TempDir(), 1200)
 	if _, errorValue := pinnedMemoryStore.MergePersonMemory(context.Background(), "person-1", "The user prefers terse release notes."); errorValue != nil {
@@ -74,7 +74,7 @@ func TestTaskLauncherInjectsGraphMemoryAtLaunch(t *testing.T) {
 
 func TestTaskLauncherKeepsPinnedMemoryWhenGraphSearchFails(t *testing.T) {
 	taskEventService := task.NewTaskEventService()
-	agentKernel := agent.NewAgentKernel(task.NewTaskRunService(taskEventService), task.NewTaskStepService())
+	agentKernel := bluecollar.NewAgentKernel(task.NewTaskRunService(taskEventService), task.NewTaskStepService())
 	useRuntimeTestLanguageModel(agentKernel, runtimeFinishMessage("done"))
 	pinnedMemoryStore := memory.NewMarkdownStore(t.TempDir(), 1200)
 	if _, errorValue := pinnedMemoryStore.MergePersonMemory(context.Background(), "person-1", "The user prefers terse release notes."); errorValue != nil {

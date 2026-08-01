@@ -6,16 +6,16 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/agent"
+	"github.com/Dawn-kim-official/blueclaw/internal/bluecollar"
 )
 
 type recordingConversationHistoryProvider struct {
 	historyCursor  string
 	limit          int
-	visibleContext agent.VisibleContext
+	visibleContext bluecollar.VisibleContext
 }
 
-func (provider *recordingConversationHistoryProvider) FetchHistory(_ context.Context, historyCursor string, limit int) (agent.VisibleContext, error) {
+func (provider *recordingConversationHistoryProvider) FetchHistory(_ context.Context, historyCursor string, limit int) (bluecollar.VisibleContext, error) {
 	provider.historyCursor = historyCursor
 	provider.limit = limit
 	return provider.visibleContext, nil
@@ -23,14 +23,14 @@ func (provider *recordingConversationHistoryProvider) FetchHistory(_ context.Con
 
 func TestConversationHistoryUsesTrustedCursorAndCanonicalProjection(t *testing.T) {
 	historyProvider := &recordingConversationHistoryProvider{
-		visibleContext: agent.VisibleContext{
-			Messages: []agent.VisibleContextMessage{{
+		visibleContext: bluecollar.VisibleContext{
+			Messages: []bluecollar.VisibleContextMessage{{
 				Speaker:            "Requester",
 				SpeakerCallingName: "Lee",
 				SpeakerHandle:      "lee",
 				Text:               "check the previous file again",
 				SentAt:             time.Date(2026, 7, 19, 9, 30, 0, 0, time.UTC),
-				Materials: []agent.VisibleContextMaterial{{
+				Materials: []bluecollar.VisibleContextMaterial{{
 					FileHint:          "quarterly-report",
 					MaterialID:        "internal-material-id",
 					Platform:          "mattermost",
@@ -51,8 +51,8 @@ func TestConversationHistoryUsesTrustedCursorAndCanonicalProjection(t *testing.T
 	}
 	toolSet := conversationHistoryToolSet(historyProvider, "trusted-cursor")
 
-	result, errorValue := toolSet.Invoke(context.Background(), agent.ToolInvocation{
-		ToolName: agent.ConversationHistoryToolName,
+	result, errorValue := toolSet.Invoke(context.Background(), bluecollar.ToolInvocation{
+		ToolName: bluecollar.ConversationHistoryToolName,
 		Input:    json.RawMessage(`{}`),
 	})
 
@@ -84,12 +84,12 @@ func TestConversationHistoryUsesTrustedCursorAndCanonicalProjection(t *testing.T
 
 func TestConversationHistoryNormalizesNilArrays(t *testing.T) {
 	historyProvider := &recordingConversationHistoryProvider{
-		visibleContext: agent.VisibleContext{HistoryCursor: "next-cursor"},
+		visibleContext: bluecollar.VisibleContext{HistoryCursor: "next-cursor"},
 	}
 	toolSet := conversationHistoryToolSet(historyProvider, "trusted-cursor")
 
-	result, errorValue := toolSet.Invoke(context.Background(), agent.ToolInvocation{
-		ToolName: agent.ConversationHistoryToolName,
+	result, errorValue := toolSet.Invoke(context.Background(), bluecollar.ToolInvocation{
+		ToolName: bluecollar.ConversationHistoryToolName,
 		Input:    json.RawMessage(`{}`),
 	})
 
@@ -123,8 +123,8 @@ func TestConversationHistoryRejectsNonCanonicalInput(t *testing.T) {
 			historyProvider := &recordingConversationHistoryProvider{}
 			toolSet := conversationHistoryToolSet(historyProvider, "trusted-cursor")
 
-			result, errorValue := toolSet.Invoke(context.Background(), agent.ToolInvocation{
-				ToolName: agent.ConversationHistoryToolName,
+			result, errorValue := toolSet.Invoke(context.Background(), bluecollar.ToolInvocation{
+				ToolName: bluecollar.ConversationHistoryToolName,
 				Input:    input,
 			})
 
@@ -143,12 +143,12 @@ func TestConversationHistoryRejectsNonCanonicalInput(t *testing.T) {
 
 func TestConversationHistoryAcceptsExplicitCursorAndLimit(t *testing.T) {
 	historyProvider := &recordingConversationHistoryProvider{
-		visibleContext: agent.VisibleContext{HistoryCursor: "next-cursor"},
+		visibleContext: bluecollar.VisibleContext{HistoryCursor: "next-cursor"},
 	}
 	toolSet := conversationHistoryToolSet(historyProvider, "trusted-cursor")
 
-	result, errorValue := toolSet.Invoke(context.Background(), agent.ToolInvocation{
-		ToolName: agent.ConversationHistoryToolName,
+	result, errorValue := toolSet.Invoke(context.Background(), bluecollar.ToolInvocation{
+		ToolName: bluecollar.ConversationHistoryToolName,
 		Input:    json.RawMessage(`{"historyCursor":"explicit-cursor","limit":50}`),
 	})
 
@@ -164,22 +164,22 @@ func TestConversationHistoryAcceptsExplicitCursorAndLimit(t *testing.T) {
 }
 
 func TestConversationHistoryResultContractRejectsMalformedOutput(t *testing.T) {
-	handlerToolSet := agent.NewToolSet(nil)
-	handlerToolSet.RegisterTool(agent.ToolDefinition{
-		Name:        agent.ConversationHistoryToolName,
+	handlerToolSet := bluecollar.NewToolSet(nil)
+	handlerToolSet.RegisterTool(bluecollar.ToolDefinition{
+		Name:        bluecollar.ConversationHistoryToolName,
 		Description: "Fetch earlier visible messages.",
 		InputSchema: conversationHistoryInputSchema,
-	}, func(context.Context, agent.ToolInvocation) (agent.ToolResult, error) {
+	}, func(context.Context, bluecollar.ToolInvocation) (bluecollar.ToolResult, error) {
 		document := json.RawMessage(`{"messages":null,"hasMoreBefore":false,"historyCursor":"cursor"}`)
-		return agent.ToolSuccessData(string(document), document), nil
+		return bluecollar.ToolSuccessData(string(document), document), nil
 	})
-	toolSet := agent.NewToolSet([]string{agent.ConversationHistoryToolName})
+	toolSet := bluecollar.NewToolSet([]string{bluecollar.ConversationHistoryToolName})
 	if errorValue := toolSet.RegisterProvider(context.Background(), kernelToolProvider{handlerToolSet: handlerToolSet}); errorValue != nil {
 		t.Fatal(errorValue)
 	}
 
-	result, errorValue := toolSet.Invoke(context.Background(), agent.ToolInvocation{
-		ToolName: agent.ConversationHistoryToolName,
+	result, errorValue := toolSet.Invoke(context.Background(), bluecollar.ToolInvocation{
+		ToolName: bluecollar.ConversationHistoryToolName,
 		Input:    json.RawMessage(`{}`),
 	})
 
@@ -191,9 +191,9 @@ func TestConversationHistoryResultContractRejectsMalformedOutput(t *testing.T) {
 	}
 }
 
-func conversationHistoryToolSet(historyProvider HistoryProvider, historyCursor string) *agent.ToolSet {
+func conversationHistoryToolSet(historyProvider HistoryProvider, historyCursor string) *bluecollar.ToolSet {
 	toolCatalogBuilder := NewToolCatalogBuilder()
-	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{agent.ConversationHistoryToolName})
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{bluecollar.ConversationHistoryToolName})
 	return toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
 		ProfileName:     "default",
 		HistoryCursor:   historyCursor,

@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/agent"
+	"github.com/Dawn-kim-official/blueclaw/internal/bluecollar"
 )
 
 var conversationHistoryInputSchema = json.RawMessage(`{
@@ -90,7 +90,7 @@ type conversationHistoryMaterial struct {
 	ConversionMessage string `json:"conversionMessage,omitempty"`
 }
 
-func projectConversationHistory(visibleContext agent.VisibleContext) conversationHistoryToolOutput {
+func projectConversationHistory(visibleContext bluecollar.VisibleContext) conversationHistoryToolOutput {
 	messages := make([]conversationHistoryMessage, 0, len(visibleContext.Messages))
 	for _, message := range visibleContext.Messages {
 		messages = append(messages, projectConversationHistoryMessage(message))
@@ -102,7 +102,7 @@ func projectConversationHistory(visibleContext agent.VisibleContext) conversatio
 	}
 }
 
-func projectConversationHistoryMessage(message agent.VisibleContextMessage) conversationHistoryMessage {
+func projectConversationHistoryMessage(message bluecollar.VisibleContextMessage) conversationHistoryMessage {
 	materials := make([]conversationHistoryMaterial, 0, len(message.Materials))
 	for _, material := range message.Materials {
 		materials = append(materials, projectConversationHistoryMaterial(material))
@@ -117,7 +117,7 @@ func projectConversationHistoryMessage(message agent.VisibleContextMessage) conv
 	}
 }
 
-func projectConversationHistoryMaterial(material agent.VisibleContextMaterial) conversationHistoryMaterial {
+func projectConversationHistoryMaterial(material bluecollar.VisibleContextMaterial) conversationHistoryMaterial {
 	return conversationHistoryMaterial{
 		FileHint:          material.FileHint,
 		Filename:          material.Filename,

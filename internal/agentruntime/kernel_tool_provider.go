@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/agent"
+	"github.com/Dawn-kim-official/blueclaw/internal/bluecollar"
 )
 
 const kernelToolProviderID = "kernel"
@@ -24,7 +24,7 @@ type kernelToolDescriptorSpec struct {
 	Idempotency       string
 	InputIntentSchema json.RawMessage
 	OutputSchema      json.RawMessage
-	ResultContract    *agent.ToolResultContract
+	ResultContract    *bluecollar.ToolResultContract
 }
 
 var (
@@ -144,38 +144,38 @@ var (
 
 var kernelToolDescriptorSpecs = []kernelToolDescriptorSpec{
 	{
-		Name:              agent.TerminalRunToolName,
+		Name:              bluecollar.TerminalRunToolName,
 		Namespace:         "terminal",
 		PrivacyClass:      "workspace",
-		Visibility:        agent.ToolVisibilityModel,
+		Visibility:        bluecollar.ToolVisibilityModel,
 		PolicyResource:    "tool:terminal.run",
-		SideEffectClass:   agent.ToolSideEffectWorkspaceWrite,
-		CompletionMode:    agent.ToolCompletionObservation,
-		Idempotency:       agent.ToolIdempotencyNone,
+		SideEffectClass:   bluecollar.ToolSideEffectWorkspaceWrite,
+		CompletionMode:    bluecollar.ToolCompletionObservation,
+		Idempotency:       bluecollar.ToolIdempotencyNone,
 		InputIntentSchema: terminalRunInputIntentSchema,
 		OutputSchema:      terminalRunResultSchema,
-		ResultContract: &agent.ToolResultContract{
+		ResultContract: &bluecollar.ToolResultContract{
 			Schema: terminalRunResultSchema,
-			EvidenceCondition: &agent.EvidenceCondition{
+			EvidenceCondition: &bluecollar.EvidenceCondition{
 				ResultField: "completed",
 				Equals:      json.RawMessage(`true`),
 			},
 		},
 	},
 	{
-		Name:              agent.FileDeliverToolName,
+		Name:              bluecollar.FileDeliverToolName,
 		Namespace:         "file",
 		PrivacyClass:      "workspace",
-		Visibility:        agent.ToolVisibilityModel,
+		Visibility:        bluecollar.ToolVisibilityModel,
 		PolicyResource:    "tool:file.deliver",
-		SideEffectClass:   agent.ToolSideEffectExternalWrite,
-		CompletionMode:    agent.ToolCompletionObservation,
-		Idempotency:       agent.ToolIdempotencyNone,
+		SideEffectClass:   bluecollar.ToolSideEffectExternalWrite,
+		CompletionMode:    bluecollar.ToolCompletionObservation,
+		Idempotency:       bluecollar.ToolIdempotencyNone,
 		InputIntentSchema: fileDeliverInputIntentSchema,
 		OutputSchema:      fileDeliverResultSchema,
-		ResultContract: &agent.ToolResultContract{
+		ResultContract: &bluecollar.ToolResultContract{
 			Schema: fileDeliverResultSchema,
-			Effects: []agent.ResourceEffectContract{{
+			Effects: []bluecollar.ResourceEffectContract{{
 				ObjectType:     "file",
 				Effect:         "attached",
 				ResultField:    "deliveredPaths",
@@ -184,47 +184,47 @@ var kernelToolDescriptorSpecs = []kernelToolDescriptorSpec{
 		},
 	},
 	{
-		Name:            agent.SkillSearchToolName,
+		Name:            bluecollar.SkillSearchToolName,
 		Namespace:       "skill",
 		PrivacyClass:    "workspace",
-		Visibility:      agent.ToolVisibilityModel,
+		Visibility:      bluecollar.ToolVisibilityModel,
 		PolicyResource:  "tool:skill.search",
-		SideEffectClass: agent.ToolSideEffectRead,
-		CompletionMode:  agent.ToolCompletionNone,
-		Idempotency:     agent.ToolIdempotencyNone,
+		SideEffectClass: bluecollar.ToolSideEffectRead,
+		CompletionMode:  bluecollar.ToolCompletionNone,
+		Idempotency:     bluecollar.ToolIdempotencyNone,
 		OutputSchema:    skillSearchResultSchema,
-		ResultContract: &agent.ToolResultContract{
+		ResultContract: &bluecollar.ToolResultContract{
 			Schema: skillSearchResultSchema,
 		},
 	},
 	{
-		Name:            agent.FileReadToolName,
+		Name:            bluecollar.FileReadToolName,
 		Namespace:       "file",
 		PrivacyClass:    "workspace",
-		Visibility:      agent.ToolVisibilityModel,
+		Visibility:      bluecollar.ToolVisibilityModel,
 		PolicyResource:  "tool:file.read",
-		SideEffectClass: agent.ToolSideEffectRead,
-		CompletionMode:  agent.ToolCompletionNone,
-		Idempotency:     agent.ToolIdempotencyNone,
+		SideEffectClass: bluecollar.ToolSideEffectRead,
+		CompletionMode:  bluecollar.ToolCompletionNone,
+		Idempotency:     bluecollar.ToolIdempotencyNone,
 		OutputSchema:    fileReadResultSchema,
-		ResultContract: &agent.ToolResultContract{
+		ResultContract: &bluecollar.ToolResultContract{
 			Schema: fileReadResultSchema,
 		},
 	},
 	{
-		Name:              agent.FileWriteToolName,
+		Name:              bluecollar.FileWriteToolName,
 		Namespace:         "file",
 		PrivacyClass:      "workspace",
-		Visibility:        agent.ToolVisibilityModel,
+		Visibility:        bluecollar.ToolVisibilityModel,
 		PolicyResource:    "tool:file.write",
-		SideEffectClass:   agent.ToolSideEffectWorkspaceWrite,
-		CompletionMode:    agent.ToolCompletionObservation,
-		Idempotency:       agent.ToolIdempotencyNone,
+		SideEffectClass:   bluecollar.ToolSideEffectWorkspaceWrite,
+		CompletionMode:    bluecollar.ToolCompletionObservation,
+		Idempotency:       bluecollar.ToolIdempotencyNone,
 		InputIntentSchema: fileWriteInputIntentSchema,
 		OutputSchema:      fileWriteResultSchema,
-		ResultContract: &agent.ToolResultContract{
+		ResultContract: &bluecollar.ToolResultContract{
 			Schema: fileWriteResultSchema,
-			Effects: []agent.ResourceEffectContract{
+			Effects: []bluecollar.ResourceEffectContract{
 				{
 					ObjectType:     "file",
 					Effect:         "created",
@@ -241,20 +241,20 @@ var kernelToolDescriptorSpecs = []kernelToolDescriptorSpec{
 		},
 	},
 	{
-		Name:              agent.FileDeleteToolName,
+		Name:              bluecollar.FileDeleteToolName,
 		Namespace:         "file",
 		PrivacyClass:      "workspace",
-		Visibility:        agent.ToolVisibilityModel,
+		Visibility:        bluecollar.ToolVisibilityModel,
 		PolicyResource:    "tool:file.delete",
-		SideEffectClass:   agent.ToolSideEffectDestructive,
+		SideEffectClass:   bluecollar.ToolSideEffectDestructive,
 		RequiresApproval:  true,
-		CompletionMode:    agent.ToolCompletionObservation,
-		Idempotency:       agent.ToolIdempotencyNone,
+		CompletionMode:    bluecollar.ToolCompletionObservation,
+		Idempotency:       bluecollar.ToolIdempotencyNone,
 		InputIntentSchema: fileDeleteInputIntentSchema,
 		OutputSchema:      fileDeleteResultSchema,
-		ResultContract: &agent.ToolResultContract{
+		ResultContract: &bluecollar.ToolResultContract{
 			Schema: fileDeleteResultSchema,
-			Effects: []agent.ResourceEffectContract{{
+			Effects: []bluecollar.ResourceEffectContract{{
 				ObjectType:     "file",
 				Effect:         "deleted",
 				ResultField:    "path",
@@ -263,19 +263,19 @@ var kernelToolDescriptorSpecs = []kernelToolDescriptorSpec{
 		},
 	},
 	{
-		Name:              agent.FileEditToolName,
+		Name:              bluecollar.FileEditToolName,
 		Namespace:         "file",
 		PrivacyClass:      "workspace",
-		Visibility:        agent.ToolVisibilityModel,
+		Visibility:        bluecollar.ToolVisibilityModel,
 		PolicyResource:    "tool:file.edit",
-		SideEffectClass:   agent.ToolSideEffectWorkspaceWrite,
-		CompletionMode:    agent.ToolCompletionObservation,
-		Idempotency:       agent.ToolIdempotencyNone,
+		SideEffectClass:   bluecollar.ToolSideEffectWorkspaceWrite,
+		CompletionMode:    bluecollar.ToolCompletionObservation,
+		Idempotency:       bluecollar.ToolIdempotencyNone,
 		InputIntentSchema: fileEditInputIntentSchema,
 		OutputSchema:      fileEditResultSchema,
-		ResultContract: &agent.ToolResultContract{
+		ResultContract: &bluecollar.ToolResultContract{
 			Schema: fileEditResultSchema,
-			Effects: []agent.ResourceEffectContract{
+			Effects: []bluecollar.ResourceEffectContract{
 				{
 					ObjectType:     "file",
 					Effect:         "updated",
@@ -292,79 +292,79 @@ var kernelToolDescriptorSpecs = []kernelToolDescriptorSpec{
 		},
 	},
 	{
-		Name:            agent.FilePreviewToolName,
+		Name:            bluecollar.FilePreviewToolName,
 		Namespace:       "file",
 		PrivacyClass:    "workspace",
-		Visibility:      agent.ToolVisibilityModel,
+		Visibility:      bluecollar.ToolVisibilityModel,
 		PolicyResource:  "tool:file.preview",
-		SideEffectClass: agent.ToolSideEffectRead,
-		CompletionMode:  agent.ToolCompletionNone,
-		Idempotency:     agent.ToolIdempotencyNone,
+		SideEffectClass: bluecollar.ToolSideEffectRead,
+		CompletionMode:  bluecollar.ToolCompletionNone,
+		Idempotency:     bluecollar.ToolIdempotencyNone,
 		OutputSchema:    filePreviewResultSchema,
-		ResultContract: &agent.ToolResultContract{
+		ResultContract: &bluecollar.ToolResultContract{
 			Schema: filePreviewResultSchema,
 		},
 	},
 	{
-		Name:            agent.PlanUpdateToolName,
+		Name:            bluecollar.PlanUpdateToolName,
 		Namespace:       "plan",
 		PrivacyClass:    "workspace",
-		Visibility:      agent.ToolVisibilityModel,
+		Visibility:      bluecollar.ToolVisibilityModel,
 		PolicyResource:  "tool:plan.update",
-		SideEffectClass: agent.ToolSideEffectNone,
-		CompletionMode:  agent.ToolCompletionNone,
-		Idempotency:     agent.ToolIdempotencyNone,
+		SideEffectClass: bluecollar.ToolSideEffectNone,
+		CompletionMode:  bluecollar.ToolCompletionNone,
+		Idempotency:     bluecollar.ToolIdempotencyNone,
 		OutputSchema:    planUpdateResultSchema,
-		ResultContract: &agent.ToolResultContract{
+		ResultContract: &bluecollar.ToolResultContract{
 			Schema: planUpdateResultSchema,
 		},
 	},
 	{
-		Name:            agent.RequestToolsToolName,
+		Name:            bluecollar.RequestToolsToolName,
 		Namespace:       "tools",
 		PrivacyClass:    "workspace",
-		Visibility:      agent.ToolVisibilityModel,
+		Visibility:      bluecollar.ToolVisibilityModel,
 		PolicyResource:  "tool:request_tools",
-		SideEffectClass: agent.ToolSideEffectNone,
-		CompletionMode:  agent.ToolCompletionNone,
-		Idempotency:     agent.ToolIdempotencyNone,
+		SideEffectClass: bluecollar.ToolSideEffectNone,
+		CompletionMode:  bluecollar.ToolCompletionNone,
+		Idempotency:     bluecollar.ToolIdempotencyNone,
 		OutputSchema:    requestToolsResultSchema,
-		ResultContract: &agent.ToolResultContract{
+		ResultContract: &bluecollar.ToolResultContract{
 			Schema: requestToolsResultSchema,
 		},
 	},
 	{
-		Name:            agent.ConversationHistoryToolName,
+		Name:            bluecollar.ConversationHistoryToolName,
 		Namespace:       "conversation",
 		PrivacyClass:    "conversation",
-		Visibility:      agent.ToolVisibilityModel,
+		Visibility:      bluecollar.ToolVisibilityModel,
 		PolicyResource:  "tool:conversation.history",
-		SideEffectClass: agent.ToolSideEffectRead,
-		CompletionMode:  agent.ToolCompletionNone,
-		Idempotency:     agent.ToolIdempotencyNone,
+		SideEffectClass: bluecollar.ToolSideEffectRead,
+		CompletionMode:  bluecollar.ToolCompletionNone,
+		Idempotency:     bluecollar.ToolIdempotencyNone,
 		OutputSchema:    conversationHistoryResultSchema,
-		ResultContract: &agent.ToolResultContract{
+		ResultContract: &bluecollar.ToolResultContract{
 			Schema: conversationHistoryResultSchema,
 		},
 	},
 }
 
 type kernelToolProvider struct {
-	handlerToolSet *agent.ToolSet
+	handlerToolSet *bluecollar.ToolSet
 }
 
 func (provider kernelToolProvider) ProviderID() string {
 	return kernelToolProviderID
 }
 
-func (provider kernelToolProvider) ListTools(context.Context) ([]agent.BoundTool, error) {
+func (provider kernelToolProvider) ListTools(context.Context) ([]bluecollar.BoundTool, error) {
 	registeredToolNames := provider.handlerToolSet.ListRegisteredToolNames()
 	for _, toolName := range registeredToolNames {
 		if _, isFound := kernelToolDescriptorSpecForName(toolName); !isFound {
 			return nil, fmt.Errorf("kernel provider registered unexpected tool %s", toolName)
 		}
 	}
-	boundTools := make([]agent.BoundTool, 0, len(registeredToolNames))
+	boundTools := make([]bluecollar.BoundTool, 0, len(registeredToolNames))
 	for _, toolName := range localKernelToolNames() {
 		toolDefinition, isFound := provider.handlerToolSet.ToolDefinition(toolName)
 		if !isFound {
@@ -379,23 +379,23 @@ func (provider kernelToolProvider) ListTools(context.Context) ([]agent.BoundTool
 	return boundTools, nil
 }
 
-func (provider kernelToolProvider) boundTool(toolDefinition agent.ToolDefinition) (agent.BoundTool, error) {
+func (provider kernelToolProvider) boundTool(toolDefinition bluecollar.ToolDefinition) (bluecollar.BoundTool, error) {
 	canonicalDefinition, errorValue := canonicalKernelToolDescriptor(toolDefinition)
 	if errorValue != nil {
-		return agent.BoundTool{}, errorValue
+		return bluecollar.BoundTool{}, errorValue
 	}
-	return agent.BoundTool{
+	return bluecollar.BoundTool{
 		Definition: canonicalDefinition,
-		Availability: agent.ToolAvailability{
-			Status: agent.ToolAvailabilityAvailable,
+		Availability: bluecollar.ToolAvailability{
+			Status: bluecollar.ToolAvailabilityAvailable,
 		},
-		Handler: func(toolContext context.Context, invocation agent.ToolInvocation) (agent.ToolResult, error) {
+		Handler: func(toolContext context.Context, invocation bluecollar.ToolInvocation) (bluecollar.ToolResult, error) {
 			invocation.ToolName = canonicalDefinition.Name
 			result, errorValue := provider.handlerToolSet.InvokeInternal(toolContext, invocation)
 			if errorValue != nil || result.Failed() {
 				return result, errorValue
 			}
-			result.Effects = agent.ProjectResourceEffects(canonicalDefinition.ResultContract, result.Output.Data)
+			result.Effects = bluecollar.ProjectResourceEffects(canonicalDefinition.ResultContract, result.Output.Data)
 			return result, nil
 		},
 	}, nil
@@ -418,16 +418,16 @@ func kernelToolDescriptorSpecForName(toolName string) (kernelToolDescriptorSpec,
 	return kernelToolDescriptorSpec{}, false
 }
 
-func canonicalKernelToolDescriptor(toolDefinition agent.ToolDefinition) (agent.ToolDefinition, error) {
+func canonicalKernelToolDescriptor(toolDefinition bluecollar.ToolDefinition) (bluecollar.ToolDefinition, error) {
 	descriptorSpec, isFound := kernelToolDescriptorSpecForName(toolDefinition.Name)
 	if !isFound {
-		return agent.ToolDefinition{}, errors.New("kernel descriptor is not registered: " + strings.TrimSpace(toolDefinition.Name))
+		return bluecollar.ToolDefinition{}, errors.New("kernel descriptor is not registered: " + strings.TrimSpace(toolDefinition.Name))
 	}
 	if descriptorSpec.Namespace == "" || descriptorSpec.PrivacyClass == "" || descriptorSpec.Visibility == "" || descriptorSpec.PolicyResource == "" || descriptorSpec.SideEffectClass == "" || descriptorSpec.CompletionMode == "" || descriptorSpec.Idempotency == "" || len(descriptorSpec.OutputSchema) == 0 {
-		return agent.ToolDefinition{}, errors.New("kernel descriptor is incomplete: " + descriptorSpec.Name)
+		return bluecollar.ToolDefinition{}, errors.New("kernel descriptor is incomplete: " + descriptorSpec.Name)
 	}
 	if strings.TrimSpace(toolDefinition.Description) == "" || len(toolDefinition.InputSchema) == 0 {
-		return agent.ToolDefinition{}, errors.New("kernel handler definition is incomplete: " + descriptorSpec.Name)
+		return bluecollar.ToolDefinition{}, errors.New("kernel handler definition is incomplete: " + descriptorSpec.Name)
 	}
 	toolDefinition.ID = kernelToolProviderID + "/" + descriptorSpec.Name
 	toolDefinition.ProviderID = kernelToolProviderID
@@ -438,7 +438,7 @@ func canonicalKernelToolDescriptor(toolDefinition agent.ToolDefinition) (agent.T
 	toolDefinition.PolicyResource = descriptorSpec.PolicyResource
 	toolDefinition.SideEffectClass = descriptorSpec.SideEffectClass
 	toolDefinition.RequiresApproval = descriptorSpec.RequiresApproval
-	toolDefinition.Completion = agent.ToolCompletion{Mode: descriptorSpec.CompletionMode}
+	toolDefinition.Completion = bluecollar.ToolCompletion{Mode: descriptorSpec.CompletionMode}
 	toolDefinition.Idempotency = descriptorSpec.Idempotency
 	toolDefinition.InputIntentSchema = append(json.RawMessage{}, descriptorSpec.InputIntentSchema...)
 	toolDefinition.OutputSchema = append(json.RawMessage{}, descriptorSpec.OutputSchema...)
@@ -446,29 +446,29 @@ func canonicalKernelToolDescriptor(toolDefinition agent.ToolDefinition) (agent.T
 	return toolDefinition, nil
 }
 
-func copyKernelToolResultContract(contract *agent.ToolResultContract) *agent.ToolResultContract {
+func copyKernelToolResultContract(contract *bluecollar.ToolResultContract) *bluecollar.ToolResultContract {
 	if contract == nil {
 		return nil
 	}
-	return &agent.ToolResultContract{
+	return &bluecollar.ToolResultContract{
 		Schema:            append(json.RawMessage{}, contract.Schema...),
-		Effects:           append([]agent.ResourceEffectContract{}, contract.Effects...),
+		Effects:           append([]bluecollar.ResourceEffectContract{}, contract.Effects...),
 		EvidenceCondition: copyKernelEvidenceCondition(contract.EvidenceCondition),
 	}
 }
 
-func copyKernelEvidenceCondition(condition *agent.EvidenceCondition) *agent.EvidenceCondition {
+func copyKernelEvidenceCondition(condition *bluecollar.EvidenceCondition) *bluecollar.EvidenceCondition {
 	if condition == nil {
 		return nil
 	}
-	return &agent.EvidenceCondition{
+	return &bluecollar.EvidenceCondition{
 		ResultField: condition.ResultField,
 		Equals:      append(json.RawMessage{}, condition.Equals...),
 	}
 }
 
-func newKernelToolProvider(toolCatalogBuilder *ToolCatalogBuilder, handlerContext toolHandlerContext, availableToolSet *agent.ToolSet) kernelToolProvider {
-	handlerToolSet := agent.NewToolSet(nil)
+func newKernelToolProvider(toolCatalogBuilder *ToolCatalogBuilder, handlerContext toolHandlerContext, availableToolSet *bluecollar.ToolSet) kernelToolProvider {
+	handlerToolSet := bluecollar.NewToolSet(nil)
 	toolCatalogBuilder.registerHistoryTool(handlerToolSet, handlerContext.request)
 	toolCatalogBuilder.registerTerminalTools(handlerToolSet, handlerContext)
 	toolCatalogBuilder.registerFileTools(handlerToolSet, handlerContext)
@@ -478,7 +478,7 @@ func newKernelToolProvider(toolCatalogBuilder *ToolCatalogBuilder, handlerContex
 	return kernelToolProvider{handlerToolSet: handlerToolSet}
 }
 
-func (toolCatalogBuilder *ToolCatalogBuilder) registerKernelTools(toolSet *agent.ToolSet, handlerContext toolHandlerContext) {
+func (toolCatalogBuilder *ToolCatalogBuilder) registerKernelTools(toolSet *bluecollar.ToolSet, handlerContext toolHandlerContext) {
 	provider := newKernelToolProvider(toolCatalogBuilder, handlerContext, toolSet)
 	if errorValue := toolSet.RegisterProvider(context.Background(), provider); errorValue != nil {
 		panic(fmt.Errorf("register trusted kernel tool provider: %w", errorValue))

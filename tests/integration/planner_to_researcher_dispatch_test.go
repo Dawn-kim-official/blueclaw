@@ -3,7 +3,7 @@ package integration
 import (
 	"testing"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/agent"
+	"github.com/Dawn-kim-official/blueclaw/internal/bluecollar"
 	"github.com/Dawn-kim-official/blueclaw/internal/task"
 )
 
@@ -11,7 +11,7 @@ func TestPlannerToResearcherDispatch(t *testing.T) {
 	taskEventService := task.NewTaskEventService()
 	taskStepService := task.NewTaskStepService()
 	taskRunService := task.NewTaskRunService(taskEventService)
-	agentKernel := agent.NewAgentKernel(taskRunService, taskStepService)
+	agentKernel := bluecollar.NewAgentKernel(taskRunService, taskStepService)
 
 	taskRun, errorValue := agentKernel.RunTask("person-1", "conversation-1", "draft a policy summary")
 	if errorValue != nil {

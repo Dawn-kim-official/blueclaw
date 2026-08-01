@@ -4,7 +4,7 @@ import (
 	"context"
 	"strings"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/agent"
+	"github.com/Dawn-kim-official/blueclaw/internal/bluecollar"
 	"github.com/Dawn-kim-official/blueclaw/internal/security"
 )
 
@@ -21,7 +21,7 @@ type requesterShellOutcome struct {
 	RunError          error
 }
 
-func (toolCatalogBuilder *ToolCatalogBuilder) runRequesterShell(toolContext context.Context, request ToolCatalogRequest, shellCommand requesterShellCommand) (requesterShellOutcome, *agent.ToolResult) {
+func (toolCatalogBuilder *ToolCatalogBuilder) runRequesterShell(toolContext context.Context, request ToolCatalogRequest, shellCommand requesterShellCommand) (requesterShellOutcome, *bluecollar.ToolResult) {
 	workspaceActor, actorFailure := toolCatalogBuilder.workspaceActorForRequest(toolContext, request)
 	if actorFailure != nil {
 		return requesterShellOutcome{}, actorFailure
@@ -63,7 +63,7 @@ func shellPathArgument(path string) string {
 	return shellSingleQuoted(path)
 }
 
-func (outcome requesterShellOutcome) toolFailure(operation string, stage string, path string) agent.ToolResult {
+func (outcome requesterShellOutcome) toolFailure(operation string, stage string, path string) bluecollar.ToolResult {
 	return actorToolFailure(operation, stage, path, outcome.actorError(operation, path))
 }
 

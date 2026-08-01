@@ -7,34 +7,35 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/agent"
+	"github.com/Dawn-kim-official/blueclaw/internal/bluecollar"
 )
 
 type recordingSkillSearchRetriever struct {
-	instructions []agent.SkillInstruction
+	instructions []bluecollar.SkillInstruction
 	limit        int
-	candidates   []agent.SkillCandidate
+	candidates   []bluecollar.SkillCandidate
 }
 
-func (retriever *recordingSkillSearchRetriever) Retrieve(context.Context, agent.AgentRequest, []agent.SkillInstruction, int) agent.SkillRetrievalResult {
-	return agent.SkillRetrievalResult{}
+func (retriever *recordingSkillSearchRetriever) Retrieve(context.Context, bluecollar.AgentRequest, []bluecollar.SkillInstruction, int) bluecollar.SkillRetrievalResult {
+	return bluecollar.SkillRetrievalResult{}
 }
 
-func (retriever *recordingSkillSearchRetriever) Search(_ context.Context, _ agent.AgentRequest, instructions []agent.SkillInstruction, _ agent.SkillSearchQuerySet, limit int) agent.SkillRetrievalResult {
-	retriever.instructions = append([]agent.SkillInstruction{}, instructions...)
+func (retriever *recordingSkillSearchRetriever) Search(_ context.Context, _ bluecollar.AgentRequest, instructions []bluecollar.SkillInstruction, _ bluecollar.SkillSearchQuerySet, limit int) bluecollar.SkillRetrievalResult {
+	retriever.instructions = append([]bluecollar.SkillInstruction{}, instructions...)
 	retriever.limit = limit
-	return agent.SkillRetrievalResult{
+	return bluecollar.SkillRetrievalResult{
 		CandidateCount:     len(retriever.candidates),
-		SelectedCandidates: append([]agent.SkillCandidate{}, retriever.candidates...),
+		SelectedCandidates: append([]bluecollar.SkillCandidate{}, retriever.candidates...),
 	}
 }
 
-func (retriever *recordingSkillSearchRetriever) Refresh(context.Context, []agent.SkillInstruction) {}
+func (retriever *recordingSkillSearchRetriever) Refresh(context.Context, []bluecollar.SkillInstruction) {
+}
 
 func TestSkillSearchListModeIsBoundedAndStructured(t *testing.T) {
-	instructions := make([]agent.SkillInstruction, 0, 25)
+	instructions := make([]bluecollar.SkillInstruction, 0, 25)
 	for index := 0; index < 25; index++ {
-		instructions = append(instructions, agent.SkillInstruction{
+		instructions = append(instructions, bluecollar.SkillInstruction{
 			Name:        fmt.Sprintf("skill-%02d", index),
 			Description: fmt.Sprintf("Skill %02d", index),
 		})
@@ -57,12 +58,12 @@ func TestSkillSearchListModeIsBoundedAndStructured(t *testing.T) {
 }
 
 func TestSkillSearchSearchModeCapsRetrieverAndPublicResults(t *testing.T) {
-	instructions := make([]agent.SkillInstruction, 0, 10)
-	candidates := make([]agent.SkillCandidate, 0, 10)
+	instructions := make([]bluecollar.SkillInstruction, 0, 10)
+	candidates := make([]bluecollar.SkillCandidate, 0, 10)
 	for index := 0; index < 10; index++ {
 		name := fmt.Sprintf("skill-%02d", index)
-		instructions = append(instructions, agent.SkillInstruction{Name: name, Description: name})
-		candidates = append(candidates, agent.SkillCandidate{Name: name, Score: float64(10 - index)})
+		instructions = append(instructions, bluecollar.SkillInstruction{Name: name, Description: name})
+		candidates = append(candidates, bluecollar.SkillCandidate{Name: name, Score: float64(10 - index)})
 	}
 	retriever := &recordingSkillSearchRetriever{candidates: candidates}
 	toolSet := canonicalSkillSearchToolSet(retriever, instructions)
@@ -81,12 +82,12 @@ func TestSkillSearchSearchModeCapsRetrieverAndPublicResults(t *testing.T) {
 }
 
 func TestSkillSearchSearchModeSlicesBoundedMatchesByRequestedLimit(t *testing.T) {
-	instructions := make([]agent.SkillInstruction, 0, 10)
-	candidates := make([]agent.SkillCandidate, 0, 10)
+	instructions := make([]bluecollar.SkillInstruction, 0, 10)
+	candidates := make([]bluecollar.SkillCandidate, 0, 10)
 	for index := 0; index < 10; index++ {
 		name := fmt.Sprintf("skill-%02d", index)
-		instructions = append(instructions, agent.SkillInstruction{Name: name, Description: name})
-		candidates = append(candidates, agent.SkillCandidate{Name: name, Score: float64(10 - index)})
+		instructions = append(instructions, bluecollar.SkillInstruction{Name: name, Description: name})
+		candidates = append(candidates, bluecollar.SkillCandidate{Name: name, Score: float64(10 - index)})
 	}
 	retriever := &recordingSkillSearchRetriever{candidates: candidates}
 	toolSet := canonicalSkillSearchToolSet(retriever, instructions)
@@ -100,12 +101,12 @@ func TestSkillSearchSearchModeSlicesBoundedMatchesByRequestedLimit(t *testing.T)
 
 func TestSkillSearchNameModeReturnsCanonicalPromptMetadata(t *testing.T) {
 	longPrompt := strings.Repeat("a", maximumSkillSearchPromptLength+1)
-	toolSet := canonicalSkillSearchToolSet(&recordingSkillSearchRetriever{}, []agent.SkillInstruction{{
+	toolSet := canonicalSkillSearchToolSet(&recordingSkillSearchRetriever{}, []bluecollar.SkillInstruction{{
 		Name:           "site-prototype",
 		Description:    "Create sites.",
 		Prompt:         longPrompt,
 		ToolReferences: []string{"file.read"},
-		Source:         agent.InstructionSource{Path: "/host/private/workspace/skills/site-prototype/SKILL.md"},
+		Source:         bluecollar.InstructionSource{Path: "/host/private/workspace/skills/site-prototype/SKILL.md"},
 	}})
 
 	result := invokeSkillSearch(t, toolSet, json.RawMessage(`{"name":"SITE-PROTOTYPE"}`))
@@ -141,8 +142,8 @@ func TestSkillSearchRejectsConflictingAndMalformedInputs(t *testing.T) {
 		t.Run(string(input), func(t *testing.T) {
 			toolSet := canonicalSkillSearchToolSet(&recordingSkillSearchRetriever{}, nil)
 
-			result, errorValue := toolSet.Invoke(context.Background(), agent.ToolInvocation{
-				ToolName: agent.SkillSearchToolName,
+			result, errorValue := toolSet.Invoke(context.Background(), bluecollar.ToolInvocation{
+				ToolName: bluecollar.SkillSearchToolName,
 				Input:    input,
 			})
 
@@ -157,11 +158,11 @@ func TestSkillSearchRejectsConflictingAndMalformedInputs(t *testing.T) {
 }
 
 func TestSkillSearchFiltersUnavailableToolReferencesBeforeEveryMode(t *testing.T) {
-	instructions := []agent.SkillInstruction{
+	instructions := []bluecollar.SkillInstruction{
 		{Name: "available", Description: "Available skill.", ToolReferences: []string{"file.read"}},
 		{Name: "unavailable", Description: "Unavailable skill.", ToolReferences: []string{"missing.tool"}},
 	}
-	retriever := &recordingSkillSearchRetriever{candidates: []agent.SkillCandidate{
+	retriever := &recordingSkillSearchRetriever{candidates: []bluecollar.SkillCandidate{
 		{Name: "unavailable", Score: 1},
 		{Name: "available", Score: 0.5},
 	}}
@@ -180,33 +181,33 @@ func TestSkillSearchFiltersUnavailableToolReferencesBeforeEveryMode(t *testing.T
 		t.Fatalf("expected unavailable candidate and exact injection blocked, got %+v", searchResult)
 	}
 
-	result, errorValue := toolSet.Invoke(context.Background(), agent.ToolInvocation{
-		ToolName: agent.SkillSearchToolName,
+	result, errorValue := toolSet.Invoke(context.Background(), bluecollar.ToolInvocation{
+		ToolName: bluecollar.SkillSearchToolName,
 		Input:    json.RawMessage(`{"name":"unavailable"}`),
 	})
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
-	if !result.Failed() || result.FailureCode() != agent.FailureCodes.NotFound.String() {
+	if !result.Failed() || result.FailureCode() != bluecollar.FailureCodes.NotFound.String() {
 		t.Fatalf("expected unavailable exact lookup to fail closed, got %+v", result)
 	}
 }
 
 func TestSkillSearchNameModeRejectsCaseInsensitiveNameCollision(t *testing.T) {
-	toolSet := canonicalSkillSearchToolSet(&recordingSkillSearchRetriever{}, []agent.SkillInstruction{
+	toolSet := canonicalSkillSearchToolSet(&recordingSkillSearchRetriever{}, []bluecollar.SkillInstruction{
 		{Name: "mail", Description: "First."},
 		{Name: "MAIL", Description: "Second."},
 	})
 
-	result, errorValue := toolSet.Invoke(context.Background(), agent.ToolInvocation{
-		ToolName: agent.SkillSearchToolName,
+	result, errorValue := toolSet.Invoke(context.Background(), bluecollar.ToolInvocation{
+		ToolName: bluecollar.SkillSearchToolName,
 		Input:    json.RawMessage(`{"name":"Mail"}`),
 	})
 
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
-	if !result.Failed() || result.FailureCode() != agent.FailureCodes.NotFound.String() {
+	if !result.Failed() || result.FailureCode() != bluecollar.FailureCodes.NotFound.String() {
 		t.Fatalf("expected ambiguous exact name to fail closed, got %+v", result)
 	}
 }
@@ -219,21 +220,21 @@ func TestSkillSearchResultContractRejectsMalformedOutput(t *testing.T) {
 	}
 	for _, document := range testCases {
 		t.Run(string(document), func(t *testing.T) {
-			handlerToolSet := agent.NewToolSet(nil)
-			handlerToolSet.RegisterTool(agent.ToolDefinition{
-				Name:        agent.SkillSearchToolName,
+			handlerToolSet := bluecollar.NewToolSet(nil)
+			handlerToolSet.RegisterTool(bluecollar.ToolDefinition{
+				Name:        bluecollar.SkillSearchToolName,
 				Description: "Search available skills.",
 				InputSchema: skillSearchInputSchema,
-			}, func(context.Context, agent.ToolInvocation) (agent.ToolResult, error) {
-				return agent.ToolSuccessData(string(document), document), nil
+			}, func(context.Context, bluecollar.ToolInvocation) (bluecollar.ToolResult, error) {
+				return bluecollar.ToolSuccessData(string(document), document), nil
 			})
-			toolSet := agent.NewToolSet([]string{agent.SkillSearchToolName})
+			toolSet := bluecollar.NewToolSet([]string{bluecollar.SkillSearchToolName})
 			if errorValue := toolSet.RegisterProvider(context.Background(), kernelToolProvider{handlerToolSet: handlerToolSet}); errorValue != nil {
 				t.Fatal(errorValue)
 			}
 
-			result, errorValue := toolSet.Invoke(context.Background(), agent.ToolInvocation{
-				ToolName: agent.SkillSearchToolName,
+			result, errorValue := toolSet.Invoke(context.Background(), bluecollar.ToolInvocation{
+				ToolName: bluecollar.SkillSearchToolName,
 				Input:    json.RawMessage(`{}`),
 			})
 
@@ -247,18 +248,18 @@ func TestSkillSearchResultContractRejectsMalformedOutput(t *testing.T) {
 	}
 }
 
-func canonicalSkillSearchToolSet(retriever agent.SkillRetriever, instructions []agent.SkillInstruction) *agent.ToolSet {
+func canonicalSkillSearchToolSet(retriever bluecollar.SkillRetriever, instructions []bluecollar.SkillInstruction) *bluecollar.ToolSet {
 	toolCatalogBuilder := NewToolCatalogBuilder()
-	toolCatalogBuilder.UseSkillSearch(retriever, func() agent.InstructionBundle {
-		return agent.InstructionBundle{Skills: instructions}
+	toolCatalogBuilder.UseSkillSearch(retriever, func() bluecollar.InstructionBundle {
+		return bluecollar.InstructionBundle{Skills: instructions}
 	})
 	return toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
 }
 
-func invokeSkillSearch(t *testing.T, toolSet *agent.ToolSet, input json.RawMessage) skillSearchToolOutput {
+func invokeSkillSearch(t *testing.T, toolSet *bluecollar.ToolSet, input json.RawMessage) skillSearchToolOutput {
 	t.Helper()
-	result, errorValue := toolSet.Invoke(context.Background(), agent.ToolInvocation{
-		ToolName: agent.SkillSearchToolName,
+	result, errorValue := toolSet.Invoke(context.Background(), bluecollar.ToolInvocation{
+		ToolName: bluecollar.SkillSearchToolName,
 		Input:    input,
 	})
 	if errorValue != nil {

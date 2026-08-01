@@ -6,7 +6,7 @@ import (
 	"errors"
 	"strings"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/agent"
+	"github.com/Dawn-kim-official/blueclaw/internal/bluecollar"
 )
 
 type capabilityToolProvider struct {
@@ -19,8 +19,8 @@ func (provider capabilityToolProvider) ProviderID() string {
 	return "capabilityd"
 }
 
-func (provider capabilityToolProvider) ListTools(context.Context) ([]agent.BoundTool, error) {
-	boundTools := make([]agent.BoundTool, 0, len(provider.descriptors))
+func (provider capabilityToolProvider) ListTools(context.Context) ([]bluecollar.BoundTool, error) {
+	boundTools := make([]bluecollar.BoundTool, 0, len(provider.descriptors))
 	for _, descriptor := range provider.descriptors {
 		if errorValue := validateCapabilityToolDescriptor(descriptor); errorValue != nil {
 			return nil, errorValue
@@ -51,20 +51,20 @@ func validateCapabilityToolDescriptor(descriptor CapabilityToolDescriptor) error
 			return errors.New("capability descriptor " + fieldName + " is required")
 		}
 	}
-	if capabilityToolIdempotency(descriptor.Idempotency) != agent.ToolIdempotencyNone && strings.TrimSpace(descriptor.Idempotency.Scope) == "" {
+	if capabilityToolIdempotency(descriptor.Idempotency) != bluecollar.ToolIdempotencyNone && strings.TrimSpace(descriptor.Idempotency.Scope) == "" {
 		return errors.New("capability descriptor idempotency.scope is required")
 	}
-	if descriptor.ModelVisibility != agent.ToolVisibilityModel && descriptor.ModelVisibility != agent.ToolVisibilityInternal && descriptor.ModelVisibility != agent.ToolVisibilityControl {
+	if descriptor.ModelVisibility != bluecollar.ToolVisibilityModel && descriptor.ModelVisibility != bluecollar.ToolVisibilityInternal && descriptor.ModelVisibility != bluecollar.ToolVisibilityControl {
 		return errors.New("capability descriptor modelVisibility is invalid")
 	}
-	if descriptor.ModelVisibility == agent.ToolVisibilityModel && descriptor.ResultContract == nil {
+	if descriptor.ModelVisibility == bluecollar.ToolVisibilityModel && descriptor.ResultContract == nil {
 		return errors.New("capability descriptor resultContract is required for model-visible tools")
 	}
-	toolDescriptor := agent.ToolDescriptor{
+	toolDescriptor := bluecollar.ToolDescriptor{
 		Visibility:      descriptor.ModelVisibility,
 		SideEffectClass: descriptor.SideEffectClass,
 	}
-	if agent.ToolDescriptorRequiresInputIntentSchema(toolDescriptor) && !validCapabilityObjectSchema(descriptor.InputIntentSchema) {
+	if bluecollar.ToolDescriptorRequiresInputIntentSchema(toolDescriptor) && !validCapabilityObjectSchema(descriptor.InputIntentSchema) {
 		return errors.New("capability descriptor inputIntentSchema is required for model-visible state-changing tools")
 	}
 	if len(descriptor.InputIntentSchema) > 0 && !validCapabilityObjectSchema(descriptor.InputIntentSchema) {
@@ -94,10 +94,10 @@ func validCapabilityObjectSchema(schema json.RawMessage) bool {
 	return len(schema) > 0 && json.Unmarshal(schema, &document) == nil && document.Type == "object"
 }
 
-func (provider capabilityToolProvider) boundTool(descriptor CapabilityToolDescriptor) agent.BoundTool {
+func (provider capabilityToolProvider) boundTool(descriptor CapabilityToolDescriptor) bluecollar.BoundTool {
 	operation := strings.TrimSpace(descriptor.CanonicalName)
-	return agent.BoundTool{
-		Definition: agent.ToolDescriptor{
+	return bluecollar.BoundTool{
+		Definition: bluecollar.ToolDescriptor{
 			ID:                   "capabilityd/" + strings.TrimSpace(descriptor.CanonicalName),
 			ProviderID:           provider.ProviderID(),
 			Namespace:            strings.TrimSpace(descriptor.Namespace),
@@ -119,7 +119,7 @@ func (provider capabilityToolProvider) boundTool(descriptor CapabilityToolDescri
 			IdempotencyScope:     strings.TrimSpace(descriptor.Idempotency.Scope),
 		},
 		Availability: capabilityToolAvailability(descriptor, provider.request),
-		Handler: func(toolContext context.Context, invocation agent.ToolInvocation) (agent.ToolResult, error) {
+		Handler: func(toolContext context.Context, invocation bluecollar.ToolInvocation) (bluecollar.ToolResult, error) {
 			return provider.toolCatalogBuilder.invokeCapabilityOperation(
 				toolContext,
 				operation,
@@ -131,13 +131,13 @@ func (provider capabilityToolProvider) boundTool(descriptor CapabilityToolDescri
 	}
 }
 
-func capabilityResultContract(contract *CapabilityToolResultContract) *agent.ToolResultContract {
+func capabilityResultContract(contract *CapabilityToolResultContract) *bluecollar.ToolResultContract {
 	if contract == nil {
 		return nil
 	}
-	effects := make([]agent.ResourceEffectContract, 0, len(contract.Effects))
+	effects := make([]bluecollar.ResourceEffectContract, 0, len(contract.Effects))
 	for _, effectContract := range contract.Effects {
-		effects = append(effects, agent.ResourceEffectContract{
+		effects = append(effects, bluecollar.ResourceEffectContract{
 			ObjectType:     strings.TrimSpace(effectContract.ObjectType),
 			Effect:         strings.TrimSpace(effectContract.Effect),
 			ResultField:    strings.TrimSpace(effectContract.ResultField),
@@ -145,43 +145,43 @@ func capabilityResultContract(contract *CapabilityToolResultContract) *agent.Too
 			When:           capabilityEvidenceCondition(effectContract.When),
 		})
 	}
-	return &agent.ToolResultContract{
+	return &bluecollar.ToolResultContract{
 		Schema:            contract.Schema,
 		Effects:           effects,
 		EvidenceCondition: capabilityEvidenceCondition(contract.EvidenceCondition),
 	}
 }
 
-func capabilityEvidenceCondition(condition *CapabilityEvidenceCondition) *agent.EvidenceCondition {
+func capabilityEvidenceCondition(condition *CapabilityEvidenceCondition) *bluecollar.EvidenceCondition {
 	if condition == nil {
 		return nil
 	}
-	return &agent.EvidenceCondition{
+	return &bluecollar.EvidenceCondition{
 		ResultField: strings.TrimSpace(condition.ResultField),
 		Equals:      append(json.RawMessage{}, condition.Equals...),
 	}
 }
 
 func capabilityDescriptorIsRegistered(descriptor CapabilityToolDescriptor, request ToolCatalogRequest) bool {
-	if strings.TrimSpace(descriptor.ModelVisibility) != agent.ToolVisibilityModel {
+	if strings.TrimSpace(descriptor.ModelVisibility) != bluecollar.ToolVisibilityModel {
 		return false
 	}
 	return !request.IsScheduledRun || !descriptor.RequiresUserPresence
 }
 
-func capabilityToolCompletion(evidence *CapabilityCompletionEvidence) agent.ToolCompletion {
+func capabilityToolCompletion(evidence *CapabilityCompletionEvidence) bluecollar.ToolCompletion {
 	if evidence == nil {
-		return agent.ToolCompletion{Mode: agent.ToolCompletionNone}
+		return bluecollar.ToolCompletion{Mode: bluecollar.ToolCompletionNone}
 	}
-	return agent.ToolCompletion{Mode: agent.ToolCompletionObservation}
+	return bluecollar.ToolCompletion{Mode: bluecollar.ToolCompletionObservation}
 }
 
 func capabilityToolIdempotency(idempotency CapabilityIdempotency) string {
 	if idempotency.Required {
-		return agent.ToolIdempotencyRequired
+		return bluecollar.ToolIdempotencyRequired
 	}
 	if idempotency.Supported {
-		return agent.ToolIdempotencySupported
+		return bluecollar.ToolIdempotencySupported
 	}
-	return agent.ToolIdempotencyNone
+	return bluecollar.ToolIdempotencyNone
 }

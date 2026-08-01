@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/agent"
+	"github.com/Dawn-kim-official/blueclaw/internal/bluecollar"
 )
 
 var planUpdateInputSchema = json.RawMessage(`{
@@ -50,27 +50,27 @@ var planUpdateResultSchema = json.RawMessage(`{
 }`)
 
 type planUpdateToolInput struct {
-	Goal  string           `json:"goal"`
-	Steps []agent.PlanStep `json:"steps"`
+	Goal  string                `json:"goal"`
+	Steps []bluecollar.PlanStep `json:"steps"`
 }
 
 type planUpdateToolOutput struct {
-	Goal  string           `json:"goal,omitempty"`
-	Steps []agent.PlanStep `json:"steps"`
+	Goal  string                `json:"goal,omitempty"`
+	Steps []bluecollar.PlanStep `json:"steps"`
 }
 
-func (toolCatalogBuilder *ToolCatalogBuilder) registerPlanUpdateTool(toolRegistry *agent.ToolSet) {
-	agent.RegisterToolFunction(toolRegistry, agent.ToolFunction[planUpdateToolInput, agent.ToolResult]{
-		Definition: agent.ToolDefinition{
-			Name:        agent.PlanUpdateToolName,
+func (toolCatalogBuilder *ToolCatalogBuilder) registerPlanUpdateTool(toolRegistry *bluecollar.ToolSet) {
+	bluecollar.RegisterToolFunction(toolRegistry, bluecollar.ToolFunction[planUpdateToolInput, bluecollar.ToolResult]{
+		Definition: bluecollar.ToolDefinition{
+			Name:        bluecollar.PlanUpdateToolName,
 			Description: "Record or update your goal and step plan for this task. Send the FULL current list every time (it replaces the previous plan). Keep statuses current as you work; revising the plan is normal and never an error.",
 			InputSchema: planUpdateInputSchema,
 		},
-		Handler: func(_ context.Context, input planUpdateToolInput) (agent.ToolResult, error) {
-			goal, steps := agent.NormalizePlan(input.Goal, input.Steps)
+		Handler: func(_ context.Context, input planUpdateToolInput) (bluecollar.ToolResult, error) {
+			goal, steps := bluecollar.NormalizePlan(input.Goal, input.Steps)
 			document := json.RawMessage(marshalToolResult(planUpdateToolOutput{Goal: goal, Steps: steps}))
-			return agent.ToolSuccessData(string(document), document), nil
+			return bluecollar.ToolSuccessData(string(document), document), nil
 		},
-		Result: agent.IdentityToolResult,
+		Result: bluecollar.IdentityToolResult,
 	})
 }

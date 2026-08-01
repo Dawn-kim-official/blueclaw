@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/agent"
+	"github.com/Dawn-kim-official/blueclaw/internal/bluecollar"
 	"github.com/Dawn-kim-official/blueclaw/internal/llm"
 	"github.com/Dawn-kim-official/blueclaw/internal/policy"
 	"github.com/Dawn-kim-official/blueclaw/internal/task"
@@ -15,7 +15,7 @@ import (
 func TestTaskScheduleRunnerLaunchesDueSchedule(t *testing.T) {
 	taskEventService := task.NewTaskEventService()
 	taskRunService := task.NewTaskRunService(taskEventService)
-	agentKernel := agent.NewAgentKernel(taskRunService, task.NewTaskStepService())
+	agentKernel := bluecollar.NewAgentKernel(taskRunService, task.NewTaskStepService())
 	languageModel := &capturingScheduleRuntimeLanguageModel{content: runtimeFinishMessage("scheduled done")}
 	useScheduledRuntimeLanguageModel(agentKernel, languageModel)
 	toolCatalogBuilder := NewToolCatalogBuilder()
@@ -68,7 +68,7 @@ func TestTaskScheduleRunnerLaunchesDueSchedule(t *testing.T) {
 func TestTaskScheduleRunnerAddsCronContextToLaunch(t *testing.T) {
 	taskEventService := task.NewTaskEventService()
 	taskRunService := task.NewTaskRunService(taskEventService)
-	agentKernel := agent.NewAgentKernel(taskRunService, task.NewTaskStepService())
+	agentKernel := bluecollar.NewAgentKernel(taskRunService, task.NewTaskStepService())
 	languageModel := &capturingScheduleRuntimeLanguageModel{content: runtimeFinishMessage("scheduled done")}
 	useScheduledRuntimeLanguageModel(agentKernel, languageModel)
 	toolCatalogBuilder := NewToolCatalogBuilder()
@@ -129,7 +129,7 @@ func TestTaskScheduleRunnerAddsCronContextToLaunch(t *testing.T) {
 func TestTaskScheduleRunnerPreservesScheduledArtifactRouting(t *testing.T) {
 	taskEventService := task.NewTaskEventService()
 	taskRunService := task.NewTaskRunService(taskEventService)
-	agentKernel := agent.NewAgentKernel(taskRunService, task.NewTaskStepService())
+	agentKernel := bluecollar.NewAgentKernel(taskRunService, task.NewTaskStepService())
 	languageModel := &capturingScheduleRuntimeLanguageModel{
 		content:       `{"action":"fail","reason":"artifact fixture stops after intake","goalStatus":"blocked","goalSatisfied":false}`,
 		routerContent: `{"route":"start_task","classification":"bounded_task","taskShape":"research_task","level":"high","estimatedMinutes":45,"requestedOutputFormats":["pptx"],"requestedOutputEvidence":"발표자료","expectedResults":[{"id":"presentation","type":"file","description":"PPTX 발표자료","required":true}],"requiredEvidence":["file.deliver"],"siteRequestEvidence":"","responseLanguage":"ko","reason":"scheduled presentation","userFacingReply":"","initialToolNames":["file.deliver"],"priorTaskReference":"none"}`,
@@ -195,10 +195,10 @@ func firstScheduleRuntimeRouterResponse(routerContent string) string {
 	return scheduledRuntimeTurnRouterResponse()
 }
 
-func useScheduledRuntimeLanguageModel(agentKernel *agent.AgentKernel, languageModel llm.LanguageModelProvider) {
+func useScheduledRuntimeLanguageModel(agentKernel *bluecollar.AgentKernel, languageModel llm.LanguageModelProvider) {
 	agentKernel.UseLanguageModelProvider(languageModel)
 	agentKernel.UseIntakeLanguageModelProvider(languageModel)
-	agentKernel.UseIntakeOptions(agent.IntakeOptions{IsEnabled: true})
+	agentKernel.UseIntakeOptions(bluecollar.IntakeOptions{IsEnabled: true})
 }
 
 func hasStructuredRequest(requests []llm.StructuredResponseRequest, schemaName string) bool {

@@ -3,7 +3,7 @@ package integration
 import (
 	"context"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/agent"
+	"github.com/Dawn-kim-official/blueclaw/internal/bluecollar"
 	"github.com/Dawn-kim-official/blueclaw/internal/connectors"
 	"github.com/Dawn-kim-official/blueclaw/internal/identity"
 	"github.com/Dawn-kim-official/blueclaw/internal/llm"
@@ -22,7 +22,7 @@ func (languageModel integrationLanguageModel) GenerateStructuredResponse(context
 
 func newIntegrationConnectorRuntime(identityService *identity.IdentityService) *connectors.ConnectorRuntime {
 	taskEventService := task.NewTaskEventService()
-	agentKernel := agent.NewAgentKernel(task.NewTaskRunService(taskEventService), task.NewTaskStepService())
+	agentKernel := bluecollar.NewAgentKernel(task.NewTaskRunService(taskEventService), task.NewTaskStepService())
 	agentKernel.UseLanguageModelProvider(integrationLanguageModel{})
 
 	connectorRuntime := connectors.NewConnectorRuntime(identityService, agentKernel, nil)

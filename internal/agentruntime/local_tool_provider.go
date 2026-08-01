@@ -7,13 +7,13 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/agent"
+	"github.com/Dawn-kim-official/blueclaw/internal/bluecollar"
 )
 
 const localToolProviderID = "local"
 
 type localToolProvider struct {
-	handlerToolSet *agent.ToolSet
+	handlerToolSet *bluecollar.ToolSet
 }
 
 type localToolDescriptorSpec struct {
@@ -26,14 +26,14 @@ type localToolDescriptorSpec struct {
 	WorksOffline         bool
 	InputIntentSchema    json.RawMessage
 	OutputSchema         json.RawMessage
-	ResultContract       *agent.ToolResultContract
+	ResultContract       *bluecollar.ToolResultContract
 	Visibility           string
 	PolicyResource       string
 	SideEffectClass      string
 	RequiresApproval     bool
-	Completion           agent.ToolCompletion
+	Completion           bluecollar.ToolCompletion
 	Idempotency          string
-	Availability         agent.ToolAvailability
+	Availability         bluecollar.ToolAvailability
 }
 
 var localToolDescriptorSpecs = []localToolDescriptorSpec{
@@ -44,12 +44,12 @@ var localToolDescriptorSpecs = []localToolDescriptorSpec{
 		Name:            "memory.search",
 		PrivacyClass:    "workspace_memory",
 		OutputSchema:    memorySearchOutputSchema,
-		ResultContract:  &agent.ToolResultContract{Schema: memorySearchOutputSchema},
-		Visibility:      agent.ToolVisibilityModel,
+		ResultContract:  &bluecollar.ToolResultContract{Schema: memorySearchOutputSchema},
+		Visibility:      bluecollar.ToolVisibilityModel,
 		PolicyResource:  "tool:memory.search",
-		SideEffectClass: agent.ToolSideEffectRead,
-		Completion:      agent.ToolCompletion{Mode: agent.ToolCompletionNone},
-		Idempotency:     agent.ToolIdempotencyNone,
+		SideEffectClass: bluecollar.ToolSideEffectRead,
+		Completion:      bluecollar.ToolCompletion{Mode: bluecollar.ToolCompletionNone},
+		Idempotency:     bluecollar.ToolIdempotencyNone,
 		Availability:    localToolAvailable,
 	},
 	{
@@ -59,25 +59,25 @@ var localToolDescriptorSpecs = []localToolDescriptorSpec{
 		Name:         "memory.remember",
 		PrivacyClass: "workspace_memory",
 		OutputSchema: memoryRememberOutputSchema,
-		ResultContract: &agent.ToolResultContract{
+		ResultContract: &bluecollar.ToolResultContract{
 			Schema: memoryRememberOutputSchema,
-			Effects: []agent.ResourceEffectContract{{
+			Effects: []bluecollar.ResourceEffectContract{{
 				ObjectType:     "memory_update",
 				Effect:         "accepted",
 				ResultField:    "jobID",
 				EffectIdentity: "id",
 			}},
-			EvidenceCondition: &agent.EvidenceCondition{
+			EvidenceCondition: &bluecollar.EvidenceCondition{
 				ResultField: "accepted",
 				Equals:      json.RawMessage(`true`),
 			},
 		},
-		Visibility:        agent.ToolVisibilityModel,
+		Visibility:        bluecollar.ToolVisibilityModel,
 		PolicyResource:    "tool:memory.remember",
-		SideEffectClass:   agent.ToolSideEffectStateChange,
+		SideEffectClass:   bluecollar.ToolSideEffectStateChange,
 		InputIntentSchema: memoryRememberInputIntentSchema,
-		Completion:        agent.ToolCompletion{Mode: agent.ToolCompletionObservation},
-		Idempotency:       agent.ToolIdempotencyNone,
+		Completion:        bluecollar.ToolCompletion{Mode: bluecollar.ToolCompletionObservation},
+		Idempotency:       bluecollar.ToolIdempotencyNone,
 		Availability:      localToolAvailable,
 	},
 	{
@@ -89,13 +89,13 @@ var localToolDescriptorSpecs = []localToolDescriptorSpec{
 		RequiresUserPresence: true,
 		WorksOffline:         true,
 		OutputSchema:         askInputResultSchema,
-		ResultContract:       &agent.ToolResultContract{Schema: askInputResultSchema},
-		Visibility:           agent.ToolVisibilityModel,
+		ResultContract:       &bluecollar.ToolResultContract{Schema: askInputResultSchema},
+		Visibility:           bluecollar.ToolVisibilityModel,
 		PolicyResource:       "tool:ask.input",
-		SideEffectClass:      agent.ToolSideEffectApproval,
+		SideEffectClass:      bluecollar.ToolSideEffectApproval,
 		InputIntentSchema:    askInputIntentSchema,
-		Completion:           agent.ToolCompletion{Mode: agent.ToolCompletionNone},
-		Idempotency:          agent.ToolIdempotencyNone,
+		Completion:           bluecollar.ToolCompletion{Mode: bluecollar.ToolCompletionNone},
+		Idempotency:          bluecollar.ToolIdempotencyNone,
 		Availability:         localToolAvailable,
 	},
 	{
@@ -106,11 +106,11 @@ var localToolDescriptorSpecs = []localToolDescriptorSpec{
 		PrivacyClass:    "workspace_schedule",
 		OutputSchema:    scheduleListOutputSchema,
 		ResultContract:  scheduleListResultContract(),
-		Visibility:      agent.ToolVisibilityModel,
+		Visibility:      bluecollar.ToolVisibilityModel,
 		PolicyResource:  "tool:schedule.list",
-		SideEffectClass: agent.ToolSideEffectRead,
-		Completion:      agent.ToolCompletion{Mode: agent.ToolCompletionNone},
-		Idempotency:     agent.ToolIdempotencyNone,
+		SideEffectClass: bluecollar.ToolSideEffectRead,
+		Completion:      bluecollar.ToolCompletion{Mode: bluecollar.ToolCompletionNone},
+		Idempotency:     bluecollar.ToolIdempotencyNone,
 		Availability:    localToolAvailable,
 	},
 	{
@@ -121,12 +121,12 @@ var localToolDescriptorSpecs = []localToolDescriptorSpec{
 		PrivacyClass:      "workspace_schedule",
 		OutputSchema:      scheduleMutationResultSchema,
 		ResultContract:    scheduleMutationResultContract("created"),
-		Visibility:        agent.ToolVisibilityModel,
+		Visibility:        bluecollar.ToolVisibilityModel,
 		PolicyResource:    "tool:schedule.create",
-		SideEffectClass:   agent.ToolSideEffectStateChange,
+		SideEffectClass:   bluecollar.ToolSideEffectStateChange,
 		InputIntentSchema: scheduleCreateInputIntentSchema,
-		Completion:        agent.ToolCompletion{Mode: agent.ToolCompletionObservation},
-		Idempotency:       agent.ToolIdempotencyNone,
+		Completion:        bluecollar.ToolCompletion{Mode: bluecollar.ToolCompletionObservation},
+		Idempotency:       bluecollar.ToolIdempotencyNone,
 		Availability:      localToolAvailable,
 	},
 	{
@@ -137,12 +137,12 @@ var localToolDescriptorSpecs = []localToolDescriptorSpec{
 		PrivacyClass:      "workspace_schedule",
 		OutputSchema:      scheduleMutationResultSchema,
 		ResultContract:    scheduleMutationResultContract("updated"),
-		Visibility:        agent.ToolVisibilityModel,
+		Visibility:        bluecollar.ToolVisibilityModel,
 		PolicyResource:    "tool:schedule.update",
-		SideEffectClass:   agent.ToolSideEffectStateChange,
+		SideEffectClass:   bluecollar.ToolSideEffectStateChange,
 		InputIntentSchema: scheduleUpdateInputIntentSchema,
-		Completion:        agent.ToolCompletion{Mode: agent.ToolCompletionObservation},
-		Idempotency:       agent.ToolIdempotencyNone,
+		Completion:        bluecollar.ToolCompletion{Mode: bluecollar.ToolCompletionObservation},
+		Idempotency:       bluecollar.ToolIdempotencyNone,
 		Availability:      localToolAvailable,
 	},
 	{
@@ -153,12 +153,12 @@ var localToolDescriptorSpecs = []localToolDescriptorSpec{
 		PrivacyClass:      "workspace_schedule",
 		OutputSchema:      scheduleCancelResultSchema,
 		ResultContract:    scheduleCancelResultContract(),
-		Visibility:        agent.ToolVisibilityModel,
+		Visibility:        bluecollar.ToolVisibilityModel,
 		PolicyResource:    "tool:schedule.cancel",
-		SideEffectClass:   agent.ToolSideEffectStateChange,
+		SideEffectClass:   bluecollar.ToolSideEffectStateChange,
 		InputIntentSchema: scheduleCancelInputIntentSchema,
-		Completion:        agent.ToolCompletion{Mode: agent.ToolCompletionObservation},
-		Idempotency:       agent.ToolIdempotencyNone,
+		Completion:        bluecollar.ToolCompletion{Mode: bluecollar.ToolCompletionObservation},
+		Idempotency:       bluecollar.ToolIdempotencyNone,
 		Availability:      localToolAvailable,
 	},
 	{
@@ -168,25 +168,25 @@ var localToolDescriptorSpecs = []localToolDescriptorSpec{
 		Name:         "skill.add",
 		PrivacyClass: "workspace_skill",
 		OutputSchema: skillAddResultSchema,
-		ResultContract: &agent.ToolResultContract{
+		ResultContract: &bluecollar.ToolResultContract{
 			Schema: skillAddResultSchema,
-			Effects: []agent.ResourceEffectContract{{
+			Effects: []bluecollar.ResourceEffectContract{{
 				ObjectType:     "skill",
 				Effect:         "written",
 				ResultField:    "path",
 				EffectIdentity: "path",
 			}},
-			EvidenceCondition: &agent.EvidenceCondition{
+			EvidenceCondition: &bluecollar.EvidenceCondition{
 				ResultField: "written",
 				Equals:      json.RawMessage(`true`),
 			},
 		},
-		Visibility:        agent.ToolVisibilityModel,
+		Visibility:        bluecollar.ToolVisibilityModel,
 		PolicyResource:    "tool:skill.add",
-		SideEffectClass:   agent.ToolSideEffectWorkspaceWrite,
+		SideEffectClass:   bluecollar.ToolSideEffectWorkspaceWrite,
 		InputIntentSchema: skillAddInputIntentSchema,
-		Completion:        agent.ToolCompletion{Mode: agent.ToolCompletionObservation},
-		Idempotency:       agent.ToolIdempotencyNone,
+		Completion:        bluecollar.ToolCompletion{Mode: bluecollar.ToolCompletionObservation},
+		Idempotency:       bluecollar.ToolIdempotencyNone,
 		Availability:      localToolAvailable,
 	},
 	{
@@ -196,42 +196,42 @@ var localToolDescriptorSpecs = []localToolDescriptorSpec{
 		Name:         "skill.remove",
 		PrivacyClass: "workspace_skill",
 		OutputSchema: skillRemoveResultSchema,
-		ResultContract: &agent.ToolResultContract{
+		ResultContract: &bluecollar.ToolResultContract{
 			Schema: skillRemoveResultSchema,
-			Effects: []agent.ResourceEffectContract{{
+			Effects: []bluecollar.ResourceEffectContract{{
 				ObjectType:     "skill",
 				Effect:         "removed",
 				ResultField:    "path",
 				EffectIdentity: "path",
 			}},
-			EvidenceCondition: &agent.EvidenceCondition{
+			EvidenceCondition: &bluecollar.EvidenceCondition{
 				ResultField: "removed",
 				Equals:      json.RawMessage(`true`),
 			},
 		},
-		Visibility:        agent.ToolVisibilityModel,
+		Visibility:        bluecollar.ToolVisibilityModel,
 		PolicyResource:    "tool:skill.remove",
-		SideEffectClass:   agent.ToolSideEffectDestructive,
+		SideEffectClass:   bluecollar.ToolSideEffectDestructive,
 		InputIntentSchema: skillRemoveInputIntentSchema,
-		Completion:        agent.ToolCompletion{Mode: agent.ToolCompletionObservation},
-		Idempotency:       agent.ToolIdempotencyNone,
+		Completion:        bluecollar.ToolCompletion{Mode: bluecollar.ToolCompletionObservation},
+		Idempotency:       bluecollar.ToolIdempotencyNone,
 		Availability:      localToolAvailable,
 	},
 }
 
 var (
-	localToolAvailable = agent.ToolAvailability{Status: agent.ToolAvailabilityAvailable}
+	localToolAvailable = bluecollar.ToolAvailability{Status: bluecollar.ToolAvailabilityAvailable}
 )
 
 func (provider localToolProvider) ProviderID() string {
 	return localToolProviderID
 }
 
-func (provider localToolProvider) ListTools(context.Context) ([]agent.BoundTool, error) {
+func (provider localToolProvider) ListTools(context.Context) ([]bluecollar.BoundTool, error) {
 	if provider.handlerToolSet == nil {
 		return nil, errors.New("local tool registry is unavailable")
 	}
-	boundTools := make([]agent.BoundTool, 0, len(provider.handlerToolSet.ListRegisteredToolNames()))
+	boundTools := make([]bluecollar.BoundTool, 0, len(provider.handlerToolSet.ListRegisteredToolNames()))
 	for _, toolName := range provider.handlerToolSet.ListRegisteredToolNames() {
 		spec, found := localToolDescriptorSpecForName(toolName)
 		if !found {
@@ -249,10 +249,10 @@ func (provider localToolProvider) ListTools(context.Context) ([]agent.BoundTool,
 	return boundTools, nil
 }
 
-func (provider localToolProvider) boundTool(spec localToolDescriptorSpec, handlerDefinition agent.ToolDefinition) agent.BoundTool {
+func (provider localToolProvider) boundTool(spec localToolDescriptorSpec, handlerDefinition bluecollar.ToolDefinition) bluecollar.BoundTool {
 	toolName := spec.Name
-	return agent.BoundTool{
-		Definition: agent.ToolDescriptor{
+	return bluecollar.BoundTool{
+		Definition: bluecollar.ToolDescriptor{
 			ID:                   spec.ID,
 			ProviderID:           spec.ProviderID,
 			Namespace:            spec.Namespace,
@@ -273,11 +273,11 @@ func (provider localToolProvider) boundTool(spec localToolDescriptorSpec, handle
 			Idempotency:          spec.Idempotency,
 		},
 		Availability: spec.Availability,
-		Handler: func(toolContext context.Context, invocation agent.ToolInvocation) (agent.ToolResult, error) {
+		Handler: func(toolContext context.Context, invocation bluecollar.ToolInvocation) (bluecollar.ToolResult, error) {
 			invocation.ToolName = toolName
 			result, errorValue := provider.handlerToolSet.InvokeInternal(toolContext, invocation)
 			if errorValue == nil && !result.Failed() {
-				result.Effects = agent.ProjectResourceEffects(spec.ResultContract, result.Output.Data)
+				result.Effects = bluecollar.ProjectResourceEffects(spec.ResultContract, result.Output.Data)
 			}
 			return result, errorValue
 		},
@@ -307,14 +307,14 @@ func validateLocalToolDescriptorSpec(spec localToolDescriptorSpec) error {
 	if strings.TrimSpace(spec.Completion.Mode) == "" || len(spec.OutputSchema) == 0 || strings.TrimSpace(spec.Availability.Status) == "" {
 		return errors.New("completion, output schema, and availability metadata are required")
 	}
-	if spec.Visibility == agent.ToolVisibilityModel && spec.ResultContract == nil {
+	if spec.Visibility == bluecollar.ToolVisibilityModel && spec.ResultContract == nil {
 		return errors.New("model-visible result contract is required")
 	}
 	return nil
 }
 
-func (toolCatalogBuilder *ToolCatalogBuilder) registerLocalTools(toolSet *agent.ToolSet, request ToolCatalogRequest, handlerContext toolHandlerContext) {
-	handlerToolSet := agent.NewToolSet(nil)
+func (toolCatalogBuilder *ToolCatalogBuilder) registerLocalTools(toolSet *bluecollar.ToolSet, request ToolCatalogRequest, handlerContext toolHandlerContext) {
+	handlerToolSet := bluecollar.NewToolSet(nil)
 	toolCatalogBuilder.registerMemoryTool(handlerToolSet, request)
 	toolCatalogBuilder.registerBuiltInTools(handlerToolSet, handlerContext)
 	provider := localToolProvider{handlerToolSet: handlerToolSet}

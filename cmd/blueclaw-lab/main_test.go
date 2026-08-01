@@ -16,7 +16,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/agent"
+	"github.com/Dawn-kim-official/blueclaw/internal/bluecollar"
 	"github.com/Dawn-kim-official/blueclaw/internal/capability"
 	"github.com/Dawn-kim-official/blueclaw/internal/e2e"
 	"github.com/Dawn-kim-official/blueclaw/internal/llm"
@@ -670,12 +670,12 @@ func TestVirtualModelCeilingDoesNotReduceTaskWorkDuration(t *testing.T) {
 	}
 	intakeTaskLevel := virtualTurnIntakeTaskLevel(t, result.TurnResults[0])
 	actionModelTier := virtualTurnActionModelTier(t, result.TurnResults[0])
-	workDuration := agent.TaskLevelProfileForLevel(intakeTaskLevel).Duration
+	workDuration := bluecollar.TaskLevelProfileForLevel(intakeTaskLevel).Duration
 
 	if actionModelTier != "low" {
 		t.Fatalf("expected authoritative action call to use the low ceiling, got %q", actionModelTier)
 	}
-	if intakeTaskLevel != agent.TaskLevelXHigh {
+	if intakeTaskLevel != bluecollar.TaskLevelXHigh {
 		t.Fatalf("expected authoritative intake task level xhigh, got %q", intakeTaskLevel)
 	}
 	if workDuration != time.Hour {
@@ -683,14 +683,14 @@ func TestVirtualModelCeilingDoesNotReduceTaskWorkDuration(t *testing.T) {
 	}
 }
 
-func virtualTurnIntakeTaskLevel(t *testing.T, turnResult e2e.VirtualTurnResult) agent.TaskLevel {
+func virtualTurnIntakeTaskLevel(t *testing.T, turnResult e2e.VirtualTurnResult) bluecollar.TaskLevel {
 	t.Helper()
 	for _, event := range turnResult.Events {
 		if event.Name != "agent.intake" {
 			continue
 		}
 		var intakeDecision struct {
-			TaskLevel agent.TaskLevel `json:"level"`
+			TaskLevel bluecollar.TaskLevel `json:"level"`
 		}
 		if errorValue := json.Unmarshal([]byte(event.Body), &intakeDecision); errorValue != nil {
 			t.Fatalf("expected valid agent.intake event: %v", errorValue)

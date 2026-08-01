@@ -11,7 +11,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/agent"
+	"github.com/Dawn-kim-official/blueclaw/internal/bluecollar"
 	"github.com/Dawn-kim-official/blueclaw/internal/config"
 	"github.com/google/jsonschema-go/jsonschema"
 )
@@ -175,9 +175,9 @@ func buildToolDefinition(serverName string, configuration config.MCPToolConfigur
 	qualifiedName := qualifiedToolName(namespace, toolName)
 	if toolName == "" ||
 		namespace == "" ||
-		!agent.IsCanonicalToolName(toolName) ||
-		!agent.IsCanonicalToolName(namespace) ||
-		!agent.IsCanonicalToolName(qualifiedName) ||
+		!bluecollar.IsCanonicalToolName(toolName) ||
+		!bluecollar.IsCanonicalToolName(namespace) ||
+		!bluecollar.IsCanonicalToolName(qualifiedName) ||
 		strings.TrimSpace(configuration.Description) == "" ||
 		configuration.Policy == nil ||
 		!isObjectSchema(configuration.InputSchema) ||
@@ -187,7 +187,7 @@ func buildToolDefinition(serverName string, configuration config.MCPToolConfigur
 	if !validPolicyMetadata(*configuration.Policy) {
 		return ToolDefinition{}, errors.New("mcp tool metadata is incomplete")
 	}
-	if agent.ToolDescriptorRequiresInputIntentSchema(agent.ToolDescriptor{
+	if bluecollar.ToolDescriptorRequiresInputIntentSchema(bluecollar.ToolDescriptor{
 		Visibility:      strings.TrimSpace(configuration.Policy.ModelVisibility),
 		SideEffectClass: strings.TrimSpace(configuration.Policy.SideEffectClass),
 	}) && !isObjectSchema(configuration.InputIntentSchema) {

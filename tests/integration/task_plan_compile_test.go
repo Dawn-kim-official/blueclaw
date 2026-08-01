@@ -3,11 +3,11 @@ package integration
 import (
 	"testing"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/agent"
+	"github.com/Dawn-kim-official/blueclaw/internal/bluecollar"
 )
 
 func TestTaskPlanCompile(t *testing.T) {
-	planCompiler := agent.PlanCompiler{}
+	planCompiler := bluecollar.PlanCompiler{}
 	taskPlan, errorValue := planCompiler.CompilePlan("research payroll policy")
 	if errorValue != nil {
 		t.Fatalf("expected task plan to compile: %v", errorValue)

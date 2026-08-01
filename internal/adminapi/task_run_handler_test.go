@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/agent"
 	"github.com/Dawn-kim-official/blueclaw/internal/agentruntime"
+	"github.com/Dawn-kim-official/blueclaw/internal/bluecollar"
 	"github.com/Dawn-kim-official/blueclaw/internal/identity"
 	"github.com/Dawn-kim-official/blueclaw/internal/llm"
 	"github.com/Dawn-kim-official/blueclaw/internal/policy"
@@ -18,7 +18,7 @@ import (
 
 func TestTaskRunHandlerLaunchesAdminTask(t *testing.T) {
 	taskEventService := task.NewTaskEventService()
-	agentKernel := agent.NewAgentKernel(task.NewTaskRunService(taskEventService), task.NewTaskStepService())
+	agentKernel := bluecollar.NewAgentKernel(task.NewTaskRunService(taskEventService), task.NewTaskStepService())
 	languageModel := staticAdminLanguageModel{content: `{"action":"finish","goalStatus":"satisfied","goalSatisfied":true,"completionEvidence":[],"message":"admin done"}`}
 	useAdminTaskLanguageModel(agentKernel, languageModel)
 	toolCatalogBuilder := agentruntime.NewToolCatalogBuilder()
@@ -51,7 +51,7 @@ func TestTaskRunHandlerLaunchesAdminTask(t *testing.T) {
 
 func TestTaskRunHandlerLaunchIgnoresClientCancellation(t *testing.T) {
 	taskEventService := task.NewTaskEventService()
-	agentKernel := agent.NewAgentKernel(task.NewTaskRunService(taskEventService), task.NewTaskStepService())
+	agentKernel := bluecollar.NewAgentKernel(task.NewTaskRunService(taskEventService), task.NewTaskStepService())
 	languageModel := contextAwareAdminLanguageModel{content: `{"action":"finish","goalStatus":"satisfied","goalSatisfied":true,"completionEvidence":[],"message":"admin done"}`}
 	useAdminTaskLanguageModel(agentKernel, languageModel)
 	toolCatalogBuilder := agentruntime.NewToolCatalogBuilder()
@@ -91,7 +91,7 @@ func TestTaskRunHandlerUsesLLMDTopologyPresetWithoutIntakeCall(t *testing.T) {
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
-	if presetDecision.TaskLevel != agent.TaskLevelXLow {
+	if presetDecision.TaskLevel != bluecollar.TaskLevelXLow {
 		t.Fatalf("expected xlow diagnostic task level, got %s", presetDecision.TaskLevel)
 	}
 	request := httptest.NewRequest(http.MethodPost, "/admin/api/task/run", strings.NewReader(`{"requesterPersonID":"person-1","prompt":"reply exactly","taskDecisionPreset":"llmd_topology"}`))
@@ -258,11 +258,11 @@ func (languageModel *schemaRecordingAdminLanguageModel) schemaDocumentContains(f
 func newPresetTaskRunHandler(isPresetAllowed bool) (TaskRunHandler, *task.TaskRunService, *task.TaskEventService, *schemaRecordingAdminLanguageModel) {
 	taskEventService := task.NewTaskEventService()
 	taskRunService := task.NewTaskRunService(taskEventService)
-	agentKernel := agent.NewAgentKernel(taskRunService, task.NewTaskStepService())
+	agentKernel := bluecollar.NewAgentKernel(taskRunService, task.NewTaskStepService())
 	languageModel := &schemaRecordingAdminLanguageModel{}
 	agentKernel.UseLanguageModelProvider(languageModel)
 	agentKernel.UseIntakeLanguageModelProvider(languageModel)
-	agentKernel.UseIntakeOptions(agent.IntakeOptions{IsEnabled: true, DefaultTaskLevel: agent.TaskLevelLow})
+	agentKernel.UseIntakeOptions(bluecollar.IntakeOptions{IsEnabled: true, DefaultTaskLevel: bluecollar.TaskLevelLow})
 	toolCatalogBuilder := agentruntime.NewToolCatalogBuilder()
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(map[string][]string{
 		llmdTopologyDiagnosticProfileName: {"llmd.diagnostic.no_tools"},
@@ -301,10 +301,10 @@ func (languageModel staticAdminLanguageModel) GenerateStructuredResponse(_ conte
 	return llm.StructuredResponse{Content: languageModel.content}, nil
 }
 
-func useAdminTaskLanguageModel(agentKernel *agent.AgentKernel, languageModel llm.LanguageModelProvider) {
+func useAdminTaskLanguageModel(agentKernel *bluecollar.AgentKernel, languageModel llm.LanguageModelProvider) {
 	agentKernel.UseLanguageModelProvider(languageModel)
 	agentKernel.UseIntakeLanguageModelProvider(languageModel)
-	agentKernel.UseIntakeOptions(agent.IntakeOptions{IsEnabled: true})
+	agentKernel.UseIntakeOptions(bluecollar.IntakeOptions{IsEnabled: true})
 }
 
 func adminTaskTurnRouterResponse() string {

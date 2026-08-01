@@ -6,7 +6,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/agent"
+	"github.com/Dawn-kim-official/blueclaw/internal/bluecollar"
 	"github.com/Dawn-kim-official/blueclaw/internal/mcp"
 	"github.com/Dawn-kim-official/blueclaw/internal/policy"
 )
@@ -60,21 +60,21 @@ func TestMCPToolProviderMapsIsErrorToToolFailure(t *testing.T) {
 			ResultContract: mcpProviderResultContract(),
 			Policy: mcp.PolicyMetadata{
 				PrivacyClass:     "workspace",
-				ModelVisibility:  agent.ToolVisibilityModel,
+				ModelVisibility:  bluecollar.ToolVisibilityModel,
 				PolicyResource:   "tool:workspace.echo",
-				SideEffectClass:  agent.ToolSideEffectRead,
-				CompletionMode:   agent.ToolCompletionNone,
-				Idempotency:      agent.ToolIdempotencySupported,
+				SideEffectClass:  bluecollar.ToolSideEffectRead,
+				CompletionMode:   bluecollar.ToolCompletionNone,
+				Idempotency:      bluecollar.ToolIdempotencySupported,
 				IdempotencyScope: "operation",
 			},
 		}},
 	}
 
-	result, errorValue := provider.boundTool(provider.definitions[0]).Handler(context.Background(), agent.ToolInvocation{Input: json.RawMessage(`{}`)})
+	result, errorValue := provider.boundTool(provider.definitions[0]).Handler(context.Background(), bluecollar.ToolInvocation{Input: json.RawMessage(`{}`)})
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
-	if !result.Failed() || result.Failure.Code != agent.FailureCodes.OperationFailed.String() {
+	if !result.Failed() || result.Failure.Code != bluecollar.FailureCodes.OperationFailed.String() {
 		t.Fatalf("expected failed MCP result, got %+v", result)
 	}
 }
@@ -96,11 +96,11 @@ func TestMCPToolProviderRejectsPolicyDeniedInvocation(t *testing.T) {
 			ResultContract: mcpProviderResultContract(),
 			Policy: mcp.PolicyMetadata{
 				PrivacyClass:     "workspace",
-				ModelVisibility:  agent.ToolVisibilityModel,
+				ModelVisibility:  bluecollar.ToolVisibilityModel,
 				PolicyResource:   "tool:workspace.echo",
-				SideEffectClass:  agent.ToolSideEffectRead,
-				CompletionMode:   agent.ToolCompletionNone,
-				Idempotency:      agent.ToolIdempotencySupported,
+				SideEffectClass:  bluecollar.ToolSideEffectRead,
+				CompletionMode:   bluecollar.ToolCompletionNone,
+				Idempotency:      bluecollar.ToolIdempotencySupported,
 				IdempotencyScope: "operation",
 			},
 		}},
@@ -117,12 +117,12 @@ func TestMCPToolProviderRejectsPolicyDeniedInvocation(t *testing.T) {
 		},
 	}
 
-	result, errorValue := provider.boundTool(provider.definitions[0]).Handler(context.Background(), agent.ToolInvocation{Input: json.RawMessage(`{}`)})
+	result, errorValue := provider.boundTool(provider.definitions[0]).Handler(context.Background(), bluecollar.ToolInvocation{Input: json.RawMessage(`{}`)})
 
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
-	if !result.Failed() || result.Failure == nil || result.Failure.Kind != agent.FailurePermissionDenied || result.FailureCode() != agent.FailureCodes.AccessDenied.String() || result.FailureStage() != "capability_access" {
+	if !result.Failed() || result.Failure == nil || result.Failure.Kind != bluecollar.FailurePermissionDenied || result.FailureCode() != bluecollar.FailureCodes.AccessDenied.String() || result.FailureStage() != "capability_access" {
 		t.Fatalf("expected capability permission failure, got %+v", result)
 	}
 	if invocationCount != 0 {
@@ -143,16 +143,16 @@ func TestMCPToolProviderUsesCanonicalDescriptor(t *testing.T) {
 			ResultContract: mcpProviderResultContract(),
 			Policy: mcp.PolicyMetadata{
 				PrivacyClass:     "workspace",
-				ModelVisibility:  agent.ToolVisibilityModel,
+				ModelVisibility:  bluecollar.ToolVisibilityModel,
 				PolicyResource:   "tool:workspace.echo",
-				SideEffectClass:  agent.ToolSideEffectRead,
-				CompletionMode:   agent.ToolCompletionNone,
-				Idempotency:      agent.ToolIdempotencySupported,
+				SideEffectClass:  bluecollar.ToolSideEffectRead,
+				CompletionMode:   bluecollar.ToolCompletionNone,
+				Idempotency:      bluecollar.ToolIdempotencySupported,
 				IdempotencyScope: "operation",
 			},
 		}},
 	}
-	toolSet := agent.NewToolSet([]string{"workspace.echo"})
+	toolSet := bluecollar.NewToolSet([]string{"workspace.echo"})
 
 	errorValue := toolSet.RegisterProvider(context.Background(), provider)
 
@@ -170,7 +170,7 @@ func TestMCPToolProviderUsesCanonicalDescriptor(t *testing.T) {
 		descriptor.ResultContract == nil ||
 		!equalJSONSchema(descriptor.ResultContract.Schema, mcpProviderOutputSchema) ||
 		descriptor.IdempotencyScope != "operation" ||
-		descriptor.Visibility != agent.ToolVisibilityModel {
+		descriptor.Visibility != bluecollar.ToolVisibilityModel {
 		t.Fatalf("expected complete MCP descriptor: %+v", descriptor)
 	}
 }
@@ -186,11 +186,11 @@ func TestMCPToolProviderExcludesUserPresenceToolsFromScheduledRuns(t *testing.T)
 		Policy: mcp.PolicyMetadata{
 			PrivacyClass:         "workspace",
 			RequiresUserPresence: true,
-			ModelVisibility:      agent.ToolVisibilityModel,
+			ModelVisibility:      bluecollar.ToolVisibilityModel,
 			PolicyResource:       "tool:workspace.echo",
-			SideEffectClass:      agent.ToolSideEffectRead,
-			CompletionMode:       agent.ToolCompletionNone,
-			Idempotency:          agent.ToolIdempotencySupported,
+			SideEffectClass:      bluecollar.ToolSideEffectRead,
+			CompletionMode:       bluecollar.ToolCompletionNone,
+			Idempotency:          bluecollar.ToolIdempotencySupported,
 			IdempotencyScope:     "operation",
 		},
 	}
@@ -199,7 +199,7 @@ func TestMCPToolProviderExcludesUserPresenceToolsFromScheduledRuns(t *testing.T)
 		definitions: []mcp.ToolDefinition{definition},
 		request:     ToolCatalogRequest{IsScheduledRun: true},
 	}
-	toolSet := agent.NewToolSet([]string{"workspace.echo"})
+	toolSet := bluecollar.NewToolSet([]string{"workspace.echo"})
 
 	if errorValue := toolSet.RegisterProvider(context.Background(), provider); errorValue != nil {
 		t.Fatal(errorValue)
@@ -218,12 +218,12 @@ func TestMCPToolProviderExcludesUserPresenceToolsFromScheduledRuns(t *testing.T)
 }
 
 func TestToolCatalogReportsEveryMCPQuarantine(t *testing.T) {
-	reportedProviders := []agent.QuarantinedToolProvider{}
+	reportedProviders := []bluecollar.QuarantinedToolProvider{}
 	toolCatalogBuilder := NewToolCatalogBuilder()
-	toolCatalogBuilder.UseMCPQuarantineReporter(func(quarantinedProvider agent.QuarantinedToolProvider) {
+	toolCatalogBuilder.UseMCPQuarantineReporter(func(quarantinedProvider bluecollar.QuarantinedToolProvider) {
 		reportedProviders = append(reportedProviders, quarantinedProvider)
 	})
-	expectedProviders := []agent.QuarantinedToolProvider{
+	expectedProviders := []bluecollar.QuarantinedToolProvider{
 		{ProviderID: "mcp:first", Reason: "invalid metadata"},
 		{ProviderID: "mcp:second", Reason: "tool name collision"},
 	}
@@ -276,11 +276,11 @@ func TestMCPToolProviderValidatesStructuredSuccess(t *testing.T) {
 				ResultContract: mcpProviderResultContract(),
 				Policy: mcp.PolicyMetadata{
 					PrivacyClass:     "workspace",
-					ModelVisibility:  agent.ToolVisibilityModel,
+					ModelVisibility:  bluecollar.ToolVisibilityModel,
 					PolicyResource:   "tool:workspace.echo",
-					SideEffectClass:  agent.ToolSideEffectRead,
-					CompletionMode:   agent.ToolCompletionNone,
-					Idempotency:      agent.ToolIdempotencySupported,
+					SideEffectClass:  bluecollar.ToolSideEffectRead,
+					CompletionMode:   bluecollar.ToolCompletionNone,
+					Idempotency:      bluecollar.ToolIdempotencySupported,
 					IdempotencyScope: "operation",
 				},
 			}
@@ -289,12 +289,12 @@ func TestMCPToolProviderValidatesStructuredSuccess(t *testing.T) {
 				registry:    mcpToolProviderTestInvoker{output: testCase.output},
 				definitions: []mcp.ToolDefinition{definition},
 			}
-			toolSet := agent.NewToolSet([]string{"workspace.echo"})
+			toolSet := bluecollar.NewToolSet([]string{"workspace.echo"})
 			if errorValue := toolSet.RegisterProvider(context.Background(), provider); errorValue != nil {
 				t.Fatal(errorValue)
 			}
 
-			result, errorValue := toolSet.Invoke(context.Background(), agent.ToolInvocation{ToolName: "workspace.echo", Input: json.RawMessage(`{}`)})
+			result, errorValue := toolSet.Invoke(context.Background(), bluecollar.ToolInvocation{ToolName: "workspace.echo", Input: json.RawMessage(`{}`)})
 
 			if errorValue != nil {
 				t.Fatal(errorValue)
@@ -330,11 +330,11 @@ func TestMCPToolProviderProjectsExactResultEvidence(t *testing.T) {
 		},
 		Policy: mcp.PolicyMetadata{
 			PrivacyClass:     "workspace",
-			ModelVisibility:  agent.ToolVisibilityModel,
+			ModelVisibility:  bluecollar.ToolVisibilityModel,
 			PolicyResource:   "tool:site.serve",
-			SideEffectClass:  agent.ToolSideEffectExternalPublish,
-			CompletionMode:   agent.ToolCompletionObservation,
-			Idempotency:      agent.ToolIdempotencySupported,
+			SideEffectClass:  bluecollar.ToolSideEffectExternalPublish,
+			CompletionMode:   bluecollar.ToolCompletionObservation,
+			Idempotency:      bluecollar.ToolIdempotencySupported,
 			IdempotencyScope: "operation",
 		},
 	}
@@ -343,17 +343,17 @@ func TestMCPToolProviderProjectsExactResultEvidence(t *testing.T) {
 		registry:    mcpToolProviderTestInvoker{output: `{"content":[],"structuredContent":{"siteID":"site-1"},"isError":false}`},
 		definitions: []mcp.ToolDefinition{definition},
 	}
-	toolSet := agent.NewToolSet([]string{"site.serve"})
+	toolSet := bluecollar.NewToolSet([]string{"site.serve"})
 	if errorValue := toolSet.RegisterProvider(context.Background(), provider); errorValue != nil {
 		t.Fatal(errorValue)
 	}
 
-	result, errorValue := toolSet.Invoke(context.Background(), agent.ToolInvocation{ToolName: "site.serve", Input: json.RawMessage(`{}`)})
+	result, errorValue := toolSet.Invoke(context.Background(), bluecollar.ToolInvocation{ToolName: "site.serve", Input: json.RawMessage(`{}`)})
 
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
-	if result.Failed() || !reflect.DeepEqual(result.Effects, []agent.ResourceEffect{{
+	if result.Failed() || !reflect.DeepEqual(result.Effects, []bluecollar.ResourceEffect{{
 		ObjectType: "site",
 		Effect:     "published",
 		ID:         "site-1",
@@ -383,11 +383,11 @@ func TestMCPToolProviderProjectsEveryArrayResultEffect(t *testing.T) {
 		},
 		Policy: mcp.PolicyMetadata{
 			PrivacyClass:     "workspace",
-			ModelVisibility:  agent.ToolVisibilityModel,
+			ModelVisibility:  bluecollar.ToolVisibilityModel,
 			PolicyResource:   "tool:workspace.edit",
-			SideEffectClass:  agent.ToolSideEffectWorkspaceWrite,
-			CompletionMode:   agent.ToolCompletionNone,
-			Idempotency:      agent.ToolIdempotencySupported,
+			SideEffectClass:  bluecollar.ToolSideEffectWorkspaceWrite,
+			CompletionMode:   bluecollar.ToolCompletionNone,
+			Idempotency:      bluecollar.ToolIdempotencySupported,
 			IdempotencyScope: "operation",
 		},
 	}
@@ -396,15 +396,15 @@ func TestMCPToolProviderProjectsEveryArrayResultEffect(t *testing.T) {
 		registry:    mcpToolProviderTestInvoker{output: `{"content":[],"structuredContent":{"paths":["/workspace/one.md","/workspace/two.md"]},"isError":false}`},
 		definitions: []mcp.ToolDefinition{definition},
 	}
-	toolSet := agent.NewToolSet([]string{"workspace.edit"})
+	toolSet := bluecollar.NewToolSet([]string{"workspace.edit"})
 	if errorValue := toolSet.RegisterProvider(context.Background(), provider); errorValue != nil {
 		t.Fatal(errorValue)
 	}
-	result, errorValue := toolSet.Invoke(context.Background(), agent.ToolInvocation{ToolName: "workspace.edit", Input: json.RawMessage(`{}`)})
+	result, errorValue := toolSet.Invoke(context.Background(), bluecollar.ToolInvocation{ToolName: "workspace.edit", Input: json.RawMessage(`{}`)})
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
-	expectedEffects := []agent.ResourceEffect{
+	expectedEffects := []bluecollar.ResourceEffect{
 		{ObjectType: "file", Effect: "updated", Path: "/workspace/one.md"},
 		{ObjectType: "file", Effect: "updated", Path: "/workspace/two.md"},
 	}
@@ -414,9 +414,9 @@ func TestMCPToolProviderProjectsEveryArrayResultEffect(t *testing.T) {
 }
 
 func TestMCPToolProviderCollisionQuarantinesExternalServer(t *testing.T) {
-	toolSet := agent.NewToolSet([]string{"file.read"})
-	toolSet.RegisterTool(agent.ToolDefinition{Name: "file.read"}, func(context.Context, agent.ToolInvocation) (agent.ToolResult, error) {
-		return agent.ToolSuccess("ok"), nil
+	toolSet := bluecollar.NewToolSet([]string{"file.read"})
+	toolSet.RegisterTool(bluecollar.ToolDefinition{Name: "file.read"}, func(context.Context, bluecollar.ToolInvocation) (bluecollar.ToolResult, error) {
+		return bluecollar.ToolSuccess("ok"), nil
 	})
 	provider := mcpToolProvider{
 		serverName: "collision",
@@ -430,19 +430,19 @@ func TestMCPToolProviderCollisionQuarantinesExternalServer(t *testing.T) {
 			ResultContract: mcpProviderResultContract(),
 			Policy: mcp.PolicyMetadata{
 				PrivacyClass:     "workspace",
-				ModelVisibility:  agent.ToolVisibilityModel,
+				ModelVisibility:  bluecollar.ToolVisibilityModel,
 				PolicyResource:   "tool:file.read",
-				SideEffectClass:  agent.ToolSideEffectRead,
-				CompletionMode:   agent.ToolCompletionNone,
-				Idempotency:      agent.ToolIdempotencySupported,
+				SideEffectClass:  bluecollar.ToolSideEffectRead,
+				CompletionMode:   bluecollar.ToolCompletionNone,
+				Idempotency:      bluecollar.ToolIdempotencySupported,
 				IdempotencyScope: "operation",
 			},
 		}},
 	}
 
-	quarantinedProviders, errorValue := toolSet.RegisterProviders(context.Background(), []agent.ToolProviderRegistration{{
+	quarantinedProviders, errorValue := toolSet.RegisterProviders(context.Background(), []bluecollar.ToolProviderRegistration{{
 		Provider: provider,
-		Trust:    agent.ToolProviderExternal,
+		Trust:    bluecollar.ToolProviderExternal,
 	}})
 
 	if errorValue != nil {

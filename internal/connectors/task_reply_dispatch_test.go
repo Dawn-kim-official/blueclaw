@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/agent"
+	"github.com/Dawn-kim-official/blueclaw/internal/bluecollar"
 	"github.com/Dawn-kim-official/blueclaw/internal/identity"
 	"github.com/Dawn-kim-official/blueclaw/internal/policy"
 	"github.com/Dawn-kim-official/blueclaw/internal/task"
@@ -16,7 +16,7 @@ func TestCompletedTaskReplyCarriesModelWordingAndNativeAttachments(t *testing.T)
 	identityService := identity.NewIdentityService(policy.PolicyProjection{})
 	taskEventService := task.NewTaskEventService()
 	taskRunService := task.NewTaskRunService(taskEventService)
-	agentKernel := agent.NewAgentKernel(taskRunService, task.NewTaskStepService())
+	agentKernel := bluecollar.NewAgentKernel(taskRunService, task.NewTaskStepService())
 	connectorRuntime := NewConnectorRuntime(identityService, agentKernel, slog.Default())
 
 	var sentReply OutboundReply
@@ -25,10 +25,10 @@ func TestCompletedTaskReplyCarriesModelWordingAndNativeAttachments(t *testing.T)
 		return "dispatch-1", nil
 	}
 
-	turnResult := agent.AgentTurnResult{
+	turnResult := bluecollar.AgentTurnResult{
 		TaskRun:       task.TaskRun{TaskRunID: "task-1", Status: task.TaskStatusCompleted},
 		FinishMessage: "Done: sandbox:/mnt/data/deck.pptx",
-		Attachments:   []agent.FileAttachment{{Filename: "deck.pptx", DevicePath: "/workspace/private/people/p1/tmp/deck.pptx"}},
+		Attachments:   []bluecollar.FileAttachment{{Filename: "deck.pptx", DevicePath: "/workspace/private/people/p1/tmp/deck.pptx"}},
 	}
 
 	_, errorValue := connectorRuntime.dispatchTaskReply(context.Background(), "mattermost", &testAdapter{}, PlatformInboundEvent{SenderID: "sender-1"}, ReplyTarget{}, turnResult, "", sendReply)
@@ -47,7 +47,7 @@ func TestFailedTaskReplyPreservesModelWording(t *testing.T) {
 	taskRunService := task.NewTaskRunService(task.NewTaskEventService())
 	connectorRuntime := NewConnectorRuntime(
 		identity.NewIdentityService(policy.PolicyProjection{}),
-		agent.NewAgentKernel(taskRunService, task.NewTaskStepService()),
+		bluecollar.NewAgentKernel(taskRunService, task.NewTaskStepService()),
 		slog.Default(),
 	)
 	message := "The failure details were read from file:///tmp/report.txt."
@@ -56,7 +56,7 @@ func TestFailedTaskReplyPreservesModelWording(t *testing.T) {
 		sentReply = reply
 		return "dispatch-1", nil
 	}
-	turnResult := agent.AgentTurnResult{
+	turnResult := bluecollar.AgentTurnResult{
 		TaskRun:    task.TaskRun{TaskRunID: "task-1", Status: task.TaskStatusFailed},
 		UserNotice: message,
 	}
@@ -72,21 +72,21 @@ func TestFailedTaskReplyPreservesModelWording(t *testing.T) {
 }
 
 func TestSuppressedReplyStillDeliversApprovalQuestion(t *testing.T) {
-	waitingApproval := agent.AgentTurnResult{
+	waitingApproval := bluecollar.AgentTurnResult{
 		TaskRun:                task.TaskRun{TaskRunID: "task-approval", Status: task.TaskStatusWaitingApproval},
 		ReplySuppressionReason: "ambient_duty_no_reply",
 	}
 	if decision := decideTaskReply(waitingApproval, false); decision.Kind != taskReplyDecisionSendUserNotice {
 		t.Fatalf("expected a waiting-approval task to deliver its question despite suppression, got %+v", decision)
 	}
-	waitingInput := agent.AgentTurnResult{
+	waitingInput := bluecollar.AgentTurnResult{
 		TaskRun:                task.TaskRun{TaskRunID: "task-input", Status: task.TaskStatusWaitingUserInput},
 		ReplySuppressionReason: "ambient_duty_no_reply",
 	}
 	if decision := decideTaskReply(waitingInput, false); decision.Kind != taskReplyDecisionSendUserNotice {
 		t.Fatalf("expected a waiting-user-input task to deliver its question despite suppression, got %+v", decision)
 	}
-	completed := agent.AgentTurnResult{
+	completed := bluecollar.AgentTurnResult{
 		TaskRun:                task.TaskRun{TaskRunID: "task-done", Status: task.TaskStatusCompleted},
 		ReplySuppressionReason: "ambient_duty_no_reply",
 	}

@@ -26,9 +26,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/agent"
 	"github.com/Dawn-kim-official/blueclaw/internal/agentruntime"
 	"github.com/Dawn-kim-official/blueclaw/internal/agenttest"
+	"github.com/Dawn-kim-official/blueclaw/internal/bluecollar"
 	"github.com/Dawn-kim-official/blueclaw/internal/capability"
 	"github.com/Dawn-kim-official/blueclaw/internal/config"
 	"github.com/Dawn-kim-official/blueclaw/internal/connectors"
@@ -62,7 +62,7 @@ type VirtualSessionScenario struct {
 	UseLooseAssertions        bool
 	FailOnLanguageModelError  bool
 	SkillDirectoryPaths       []string
-	Skills                    []agent.SkillInstruction
+	Skills                    []bluecollar.SkillInstruction
 	AllowedTools              []string
 	CapabilityToolNames       []string
 	CapabilityToolDescriptors []agentruntime.CapabilityToolDescriptor
@@ -70,14 +70,14 @@ type VirtualSessionScenario struct {
 	InitialMemory             []memory.MemoryFact
 	InitialSite               *VirtualSiteFixture
 	RouterRequiredEvidence    []string
-	RouterTaskShape           agent.TaskShape
+	RouterTaskShape           bluecollar.TaskShape
 	RouterTaskLevel           string
 	CodingTierVisionFallback  bool
 	AddressingResponse        string
 	SkillSearchQueries        []string
 	RouterSiteEvidence        string
-	ScriptedExecutionPlan     *agent.ExecutionPlan
-	TurnOptions               agent.TurnOptions
+	ScriptedExecutionPlan     *bluecollar.ExecutionPlan
+	TurnOptions               bluecollar.TurnOptions
 	ProgressWriter            io.Writer
 	Turns                     []VirtualTurn
 }
@@ -173,7 +173,7 @@ type VirtualTurn struct {
 	ActionResponses              []string
 	CompletionJudgeResponses     []string
 	RouterRequiredEvidence       []string
-	RouterTaskShape              agent.TaskShape
+	RouterTaskShape              bluecollar.TaskShape
 	RouterSiteEvidence           string
 	RouterApproval               string
 	ExpectedSelectedSkills       []string
@@ -236,7 +236,7 @@ type VirtualTurnResult struct {
 	FailureReason           string
 	FinishMessage           string
 	ReplyTargetID           string
-	Attachments             []agent.FileAttachment
+	Attachments             []bluecollar.FileAttachment
 	Events                  []task.TaskEvent
 	LanguageModelCallEvents []VirtualLanguageModelCallEvent
 	InformationalAssertions []VirtualInformationalAssertion
@@ -795,7 +795,7 @@ func NewVirtualSessionHarness(scenario VirtualSessionScenario) (*VirtualSessionH
 	maxLanguageModel := observedVirtualLanguageModelOrDefault(scenario.MaxLanguageModel, languageModel, observationStore)
 	codingLanguageModel := observedVirtualLanguageModelOrDefault(scenario.CodingLanguageModel, languageModel, observationStore)
 	intakeLanguageModel := observedVirtualLanguageModelOrDefault(scenario.IntakeLanguageModel, languageModel, observationStore)
-	agentKernel := agent.NewAgentKernel(taskRunService, taskStepService)
+	agentKernel := bluecollar.NewAgentKernel(taskRunService, taskStepService)
 	agentKernel.UseTaskArtifactService(taskArtifactService)
 	agentKernel.UseLanguageModelProvider(lowLanguageModel)
 	agentKernel.UseTaskTierLanguageModels(maxLanguageModel, xHighLanguageModel, highLanguageModel, mediumLanguageModel, xLowLanguageModel, codingLanguageModel)
@@ -807,10 +807,10 @@ func NewVirtualSessionHarness(scenario VirtualSessionScenario) (*VirtualSessionH
 		agentKernel.UseTaskTierLanguageModels(languageModel, languageModel, languageModel, languageModel, languageModel, codingTaskLanguageModel)
 	}
 	agentKernel.UseIntakeLanguageModelProvider(intakeLanguageModel)
-	agentKernel.UseIntakeOptions(agent.IntakeOptions{IsEnabled: true, DefaultTaskLevel: agent.TaskLevelLow})
+	agentKernel.UseIntakeOptions(bluecollar.IntakeOptions{IsEnabled: true, DefaultTaskLevel: bluecollar.TaskLevelLow})
 	agentKernel.UseTurnOptions(virtualTurnOptions(scenario.TurnOptions))
 	instructionBundleLoader := virtualInstructionBundleLoader(skillInstructions, workspacePath)
-	skillRetriever := agent.NewEmbeddingSkillRetriever(scenario.EmbeddingProvider, "")
+	skillRetriever := bluecollar.NewEmbeddingSkillRetriever(scenario.EmbeddingProvider, "")
 	skillRetriever.EmbeddingModel = scenario.EmbeddingModel
 	agentKernel.UseInstructionBundleLoader(instructionBundleLoader)
 	agentKernel.UseSkillRetriever(skillRetriever)
@@ -886,9 +886,9 @@ func observedVirtualLanguageModelOrDefault(provider llm.LanguageModelProvider, d
 	return newVirtualObservedLanguageModelWithStore(provider, store)
 }
 
-func virtualTurnOptions(scenarioOptions agent.TurnOptions) agent.TurnOptions {
-	taskLevelProfile := agent.TaskLevelProfileForLevel(scenarioOptions.TaskLevel)
-	turnOptions := agent.TurnOptions{
+func virtualTurnOptions(scenarioOptions bluecollar.TurnOptions) bluecollar.TurnOptions {
+	taskLevelProfile := bluecollar.TaskLevelProfileForLevel(scenarioOptions.TaskLevel)
+	turnOptions := bluecollar.TurnOptions{
 		TaskLevel:         taskLevelProfile.TaskLevel,
 		MaxIterationCount: taskLevelProfile.MaxIterationCount,
 		MaxToolCallCount:  taskLevelProfile.MaxToolCallCount,
@@ -906,27 +906,27 @@ func virtualTurnOptions(scenarioOptions agent.TurnOptions) agent.TurnOptions {
 	if scenarioOptions.RecoveryAttemptLimit != 0 {
 		turnOptions.RecoveryAttemptLimit = scenarioOptions.RecoveryAttemptLimit
 	}
-	if scenarioOptions.RecoveryBudget != (agent.RecoveryBudget{}) {
+	if scenarioOptions.RecoveryBudget != (bluecollar.RecoveryBudget{}) {
 		turnOptions.RecoveryBudget = scenarioOptions.RecoveryBudget
 	}
 	return turnOptions
 }
 
-func virtualInstructionBundleLoader(baseSkillInstructions []agent.SkillInstruction, workspacePath string) func() agent.InstructionBundle {
-	return func() agent.InstructionBundle {
-		skillInstructions := append([]agent.SkillInstruction{}, baseSkillInstructions...)
+func virtualInstructionBundleLoader(baseSkillInstructions []bluecollar.SkillInstruction, workspacePath string) func() bluecollar.InstructionBundle {
+	return func() bluecollar.InstructionBundle {
+		skillInstructions := append([]bluecollar.SkillInstruction{}, baseSkillInstructions...)
 		skillInstructions = append(skillInstructions, loadVirtualUserManagedSkills(workspacePath)...)
-		return agent.InstructionBundle{Skills: skillInstructions}
+		return bluecollar.InstructionBundle{Skills: skillInstructions}
 	}
 }
 
-func loadVirtualUserManagedSkills(workspacePath string) []agent.SkillInstruction {
+func loadVirtualUserManagedSkills(workspacePath string) []bluecollar.SkillInstruction {
 	userManagedSkillRootPath := filepath.Join(workspacePath, ".agents", "skills")
 	entries, errorValue := os.ReadDir(userManagedSkillRootPath)
 	if errorValue != nil {
 		return nil
 	}
-	skillInstructions := []agent.SkillInstruction{}
+	skillInstructions := []bluecollar.SkillInstruction{}
 	for _, entry := range entries {
 		if !entry.IsDir() {
 			continue
@@ -948,9 +948,9 @@ func virtualToolCatalogBuilder(
 	terminalService *security.TerminalSessionService,
 	memoryService *memory.MemoryService,
 	capabilityClient capability.Client,
-	skillRetriever agent.SkillRetriever,
-	instructionBundleLoader func() agent.InstructionBundle,
-	agentKernel *agent.AgentKernel,
+	skillRetriever bluecollar.SkillRetriever,
+	instructionBundleLoader func() bluecollar.InstructionBundle,
+	agentKernel *bluecollar.AgentKernel,
 ) *agentruntime.ToolCatalogBuilder {
 	toolCatalogBuilder := agentruntime.NewToolCatalogBuilder()
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, allowedToolsOrDefault(scenario.AllowedTools))
@@ -1017,7 +1017,7 @@ func virtualCapabilityToolDescriptor(toolName string) agentruntime.CapabilityToo
 		CanonicalName:     toolName,
 		Namespace:         virtualCapabilityNamespace(toolName),
 		ModelName:         toolName,
-		ModelVisibility:   agent.ToolVisibilityModel,
+		ModelVisibility:   bluecollar.ToolVisibilityModel,
 		Description:       "Virtual capability " + toolName,
 		PrivacyClass:      "test",
 		InputSchema:       json.RawMessage(virtualCapabilityInputSchema(toolName)),
@@ -1054,7 +1054,7 @@ func virtualCapabilityCompletionEvidence(toolName string, sideEffectClass string
 	if action := siteActionByToolName[toolName]; action != "" {
 		return &agentruntime.CapabilityCompletionEvidence{Mode: "success", Action: action, TargetKind: "site"}
 	}
-	if sideEffectClass == agent.ToolSideEffectRead {
+	if sideEffectClass == bluecollar.ToolSideEffectRead {
 		return nil
 	}
 	return &agentruntime.CapabilityCompletionEvidence{Mode: "success", Action: toolName, TargetKind: virtualCapabilityNamespace(toolName)}
@@ -1087,15 +1087,15 @@ func mergeVirtualCapabilityToolDescriptor(base agentruntime.CapabilityToolDescri
 func virtualCapabilitySideEffectClass(toolName string) string {
 	switch toolName {
 	case "web.search", "image.read", "document.read", "task.list", "calendar.list", "site.list":
-		return agent.ToolSideEffectRead
+		return bluecollar.ToolSideEffectRead
 	case "task.delete", "calendar.delete", "schedule.cancel", "site.unserve", "message.delete":
-		return agent.ToolSideEffectDestructive
+		return bluecollar.ToolSideEffectDestructive
 	case "message.send":
-		return agent.ToolSideEffectExternalSend
+		return bluecollar.ToolSideEffectExternalSend
 	case "site.serve":
-		return agent.ToolSideEffectSitePublish
+		return bluecollar.ToolSideEffectSitePublish
 	default:
-		return agent.ToolSideEffectWorkspaceWrite
+		return bluecollar.ToolSideEffectWorkspaceWrite
 	}
 }
 
@@ -1124,8 +1124,8 @@ func firstVirtualSchema(values ...json.RawMessage) json.RawMessage {
 	return nil
 }
 
-func loadVirtualSkillInstructions(scenario VirtualSessionScenario, workspacePath string) ([]agent.SkillInstruction, error) {
-	skillInstructions := append([]agent.SkillInstruction{}, scenario.Skills...)
+func loadVirtualSkillInstructions(scenario VirtualSessionScenario, workspacePath string) ([]bluecollar.SkillInstruction, error) {
+	skillInstructions := append([]bluecollar.SkillInstruction{}, scenario.Skills...)
 	for _, sourceDirectoryPath := range scenario.SkillDirectoryPaths {
 		trimmedSourceDirectoryPath := strings.TrimSpace(sourceDirectoryPath)
 		if trimmedSourceDirectoryPath == "" {
@@ -1144,13 +1144,13 @@ func loadVirtualSkillInstructions(scenario VirtualSessionScenario, workspacePath
 	return skillInstructions, nil
 }
 
-func skillInstructionFromBundle(skillBundle skill.SkillBundle) agent.SkillInstruction {
-	return agent.SkillInstruction{
+func skillInstructionFromBundle(skillBundle skill.SkillBundle) bluecollar.SkillInstruction {
+	return bluecollar.SkillInstruction{
 		Name:           skillBundle.Name,
 		Description:    skillBundle.Description,
 		Prompt:         skillBundle.Instruction,
 		ToolReferences: skillBundle.ReferencedToolNames(),
-		Source: agent.InstructionSource{
+		Source: bluecollar.InstructionSource{
 			Path:      filepath.Join(skillBundle.DirectoryPath, "SKILL.md"),
 			SkillName: skillBundle.Name,
 			ByteSize:  fileSize(filepath.Join(skillBundle.DirectoryPath, "SKILL.md")),
@@ -2459,7 +2459,7 @@ func streamProgressObserver(writer io.Writer) func(task.RawTurnEvent) {
 	return func(rawTurnEvent task.RawTurnEvent) {
 		switch {
 		case rawTurnEvent.Name == "agent.checkpoint.sent":
-			fmt.Fprintf(writer, "  ↳ reply: %s\n", agent.CheckpointReplyMessage(rawTurnEvent.Body))
+			fmt.Fprintf(writer, "  ↳ reply: %s\n", bluecollar.CheckpointReplyMessage(rawTurnEvent.Body))
 		case strings.HasPrefix(rawTurnEvent.Name, "tool.") && strings.HasSuffix(rawTurnEvent.Name, ".requested"):
 			fmt.Fprintf(writer, "  ↳ tool: %s\n", strings.TrimSuffix(strings.TrimPrefix(rawTurnEvent.Name, "tool."), ".requested"))
 		}
@@ -2641,9 +2641,9 @@ func scenarioApprovalRouterResponse(approval string) string {
 }
 
 func scenarioTurnRouterResponse(scenario VirtualSessionScenario, virtualTurn VirtualTurn) string {
-	taskLevel := agent.NormalizeTaskLevel(scenario.RouterTaskLevel)
+	taskLevel := bluecollar.NormalizeTaskLevel(scenario.RouterTaskLevel)
 	if taskLevel == "" {
-		taskLevel = agent.TaskLevelLow
+		taskLevel = bluecollar.TaskLevelLow
 	}
 	requiredEvidence := scenario.RouterRequiredEvidence
 	if len(virtualTurn.RouterRequiredEvidence) > 0 {
@@ -2654,10 +2654,10 @@ func scenarioTurnRouterResponse(scenario VirtualSessionScenario, virtualTurn Vir
 		taskShape = virtualTurn.RouterTaskShape
 	}
 	if taskShape == "" {
-		taskShape = agent.TaskShapeMaintenanceTask
+		taskShape = bluecollar.TaskShapeMaintenanceTask
 	}
 	classification := "bounded_task"
-	if taskShape == agent.TaskShapeImmediateReply {
+	if taskShape == bluecollar.TaskShapeImmediateReply {
 		classification = "quick_reply"
 	}
 	siteEvidence := scenario.RouterSiteEvidence
@@ -3179,7 +3179,7 @@ func checkpointReplyMessages(events []task.TaskEvent) []string {
 		if event.Name != "agent.checkpoint.sent" {
 			continue
 		}
-		message := agent.CheckpointReplyMessage(event.Body)
+		message := bluecollar.CheckpointReplyMessage(event.Body)
 		if message != "" {
 			messages = append(messages, message)
 		}
@@ -3267,7 +3267,7 @@ func selectedSkillDecisionPresent(events []task.TaskEvent, skillName string) boo
 			continue
 		}
 		var body struct {
-			SkillDecisions []agent.SkillSelectionDecision `json:"skillDecisions"`
+			SkillDecisions []bluecollar.SkillSelectionDecision `json:"skillDecisions"`
 		}
 		if json.Unmarshal([]byte(event.Body), &body) != nil {
 			continue
@@ -3381,16 +3381,16 @@ func countEventsWithFragment(events []task.TaskEvent, name string, bodyFragment 
 	return count
 }
 
-func findAttachmentWithSuffix(attachments []agent.FileAttachment, suffix string) (agent.FileAttachment, bool) {
+func findAttachmentWithSuffix(attachments []bluecollar.FileAttachment, suffix string) (bluecollar.FileAttachment, bool) {
 	for _, attachment := range attachments {
 		if strings.HasSuffix(attachment.Filename, suffix) || strings.HasSuffix(attachment.DevicePath, suffix) {
 			return attachment, true
 		}
 	}
-	return agent.FileAttachment{}, false
+	return bluecollar.FileAttachment{}, false
 }
 
-func validateAttachmentContent(workspacePath string, attachment agent.FileAttachment, suffix string) error {
+func validateAttachmentContent(workspacePath string, attachment bluecollar.FileAttachment, suffix string) error {
 	path := localAttachmentPath(workspacePath, attachment)
 	switch suffix {
 	case ".docx":
@@ -3408,7 +3408,7 @@ func validateAttachmentContent(workspacePath string, attachment agent.FileAttach
 	}
 }
 
-func validateAttachmentFileExpectation(workspacePath string, attachments []agent.FileAttachment, expectation VirtualAttachmentFileExpectation) error {
+func validateAttachmentFileExpectation(workspacePath string, attachments []bluecollar.FileAttachment, expectation VirtualAttachmentFileExpectation) error {
 	attachment, isFound := findAttachmentWithSuffix(attachments, expectation.Suffix)
 	if !isFound {
 		return fmt.Errorf("expected attachment suffix %q, got %+v", expectation.Suffix, attachments)
@@ -3425,7 +3425,7 @@ func validateAttachmentFileExpectation(workspacePath string, attachments []agent
 	return nil
 }
 
-func localAttachmentPath(workspacePath string, attachment agent.FileAttachment) string {
+func localAttachmentPath(workspacePath string, attachment bluecollar.FileAttachment) string {
 	devicePath := strings.TrimSpace(attachment.DevicePath)
 	if devicePath == "/workspace" {
 		return workspacePath
@@ -3436,7 +3436,7 @@ func localAttachmentPath(workspacePath string, attachment agent.FileAttachment) 
 	return devicePath
 }
 
-func validatePPTXAttachment(path string, attachment agent.FileAttachment) error {
+func validatePPTXAttachment(path string, attachment bluecollar.FileAttachment) error {
 	reader, errorValue := zip.OpenReader(path)
 	if errorValue != nil {
 		return fmt.Errorf("attachment %s is not a valid pptx zip: %w", attachment.DevicePath, errorValue)
@@ -3461,7 +3461,7 @@ func validatePPTXAttachment(path string, attachment agent.FileAttachment) error 
 	return nil
 }
 
-func validateDOCXAttachment(path string, attachment agent.FileAttachment) error {
+func validateDOCXAttachment(path string, attachment bluecollar.FileAttachment) error {
 	reader, errorValue := zip.OpenReader(path)
 	if errorValue != nil {
 		return fmt.Errorf("attachment %s is not a valid docx zip: %w", attachment.DevicePath, errorValue)
@@ -3789,21 +3789,21 @@ func virtualAttachmentContent(attachment connectors.InputAttachment) []byte {
 	return []byte("virtual-file")
 }
 
-func virtualInputParts(attachments []connectors.InputAttachment) []agent.AgentPart {
-	parts := []agent.AgentPart{}
+func virtualInputParts(attachments []connectors.InputAttachment) []bluecollar.AgentPart {
+	parts := []bluecollar.AgentPart{}
 	for _, attachment := range attachments {
 		if !strings.HasPrefix(strings.ToLower(strings.TrimSpace(attachment.ContentType)), "image/") {
 			continue
 		}
-		parts = append(parts, agent.AgentPart{
-			Type: agent.AgentPartTypeImage,
-			Image: &agent.AgentImagePart{
+		parts = append(parts, bluecollar.AgentPart{
+			Type: bluecollar.AgentPartTypeImage,
+			Image: &bluecollar.AgentImagePart{
 				MimeType:   attachment.ContentType,
 				DataBase64: "dmlydHVhbC1pbWFnZQ==",
 				Path:       attachment.Path,
 				Filename:   attachment.Filename,
 			},
-			Source: agent.AgentPartSource{
+			Source: bluecollar.AgentPartSource{
 				Platform:  attachment.Platform,
 				MessageID: attachment.MessageID,
 				FileID:    attachment.FileID,

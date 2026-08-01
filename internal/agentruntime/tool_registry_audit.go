@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/agent"
+	"github.com/Dawn-kim-official/blueclaw/internal/bluecollar"
 )
 
 const toolRegistryVersion = "platform-message-v1"
@@ -87,7 +87,7 @@ func (errorValue toolRegistryMismatchError) Error() string {
 	)
 }
 
-func (toolCatalogBuilder *ToolCatalogBuilder) BuildToolRegistryAudit(ctx context.Context, toolSet *agent.ToolSet) (ToolRegistryAudit, error) {
+func (toolCatalogBuilder *ToolCatalogBuilder) BuildToolRegistryAudit(ctx context.Context, toolSet *bluecollar.ToolSet) (ToolRegistryAudit, error) {
 	configuredDescriptors := toolCatalogBuilder.capabilityToolDefinitions()
 	configuredNames := capabilityDescriptorNames(configuredDescriptors)
 	configuredPlatformMessageDescriptors := platformMessageCapabilityDescriptors(configuredDescriptors)

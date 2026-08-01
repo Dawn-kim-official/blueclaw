@@ -9,7 +9,7 @@ import (
 	"errors"
 	"strings"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/agent"
+	"github.com/Dawn-kim-official/blueclaw/internal/bluecollar"
 	"github.com/Dawn-kim-official/blueclaw/internal/security"
 )
 
@@ -30,7 +30,7 @@ type siteSourceBundleTransport struct {
 	SHA256        string `json:"sha256"`
 }
 
-func (toolCatalogBuilder *ToolCatalogBuilder) prepareSiteSourceBundle(toolContext context.Context, request ToolCatalogRequest, toolInput json.RawMessage) (map[string]any, *agent.ToolResult, error) {
+func (toolCatalogBuilder *ToolCatalogBuilder) prepareSiteSourceBundle(toolContext context.Context, request ToolCatalogRequest, toolInput json.RawMessage) (map[string]any, *bluecollar.ToolResult, error) {
 	inputDocument := map[string]any{}
 	if len(toolInput) > 0 {
 		if errorValue := json.Unmarshal(toolInput, &inputDocument); errorValue != nil {
