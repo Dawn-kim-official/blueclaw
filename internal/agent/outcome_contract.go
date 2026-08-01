@@ -352,8 +352,20 @@ func toolProducesIntermediateAttachmentSource(toolSet *ToolSet, toolName string)
 		return false
 	}
 	return toolDefinition.SideEffectClass == ToolSideEffectWorkspaceWrite &&
-		toolDefinition.Completion.TargetKind == "file" &&
+		toolResultContractDeclaresFile(toolDefinition.ResultContract) &&
 		!toolResultContractAttachesFile(toolDefinition.ResultContract)
+}
+
+func toolResultContractDeclaresFile(resultContract *ToolResultContract) bool {
+	if resultContract == nil {
+		return false
+	}
+	for _, effect := range resultContract.Effects {
+		if effect.ObjectType == "file" {
+			return true
+		}
+	}
+	return false
 }
 
 func toolResultContractAttachesFile(resultContract *ToolResultContract) bool {
