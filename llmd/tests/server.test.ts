@@ -3,7 +3,7 @@ import { mkdtemp, rm, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
-import { LLMDAutoRoute, type LLMDConfiguration } from '../src/configuration.ts';
+import { LLMDStructuredOutputMode, LLMDAutoRoute, type LLMDConfiguration } from '../src/configuration.ts';
 import { startLLMDServer, stopLLMDServer } from '../src/server.ts';
 
 const temporaryDirectories: string[] = [];
@@ -53,6 +53,7 @@ function testConfiguration(socketPath: string): LLMDConfiguration {
     autoRoute: LLMDAutoRoute.RemoteFirst,
     llamaAPIKey: 'local',
     llamaStructuredOutputsEnabled: false,
+    structuredOutputMode: LLMDStructuredOutputMode.Native,
     localOnly: false,
     openRouterBaseURL: 'https://openrouter.ai/api/v1',
     socketPath,

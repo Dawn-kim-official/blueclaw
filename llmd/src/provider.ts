@@ -32,6 +32,7 @@ import {
   InvalidToolInputError,
   jsonSchema,
   JSONParseError,
+  Output,
   streamText,
   type ToolChoice,
   type ModelMessage,
@@ -41,7 +42,7 @@ import {
 } from 'ai';
 import Ajv, { type ErrorObject } from 'ajv/dist/2020.js';
 
-import { LLMDAutoRoute, type LLMDConfiguration } from './configuration.ts';
+import { LLMDAutoRoute, LLMDStructuredOutputMode, type LLMDConfiguration } from './configuration.ts';
 import { classifyLLMDError, isRetryableProviderError, LLMDError } from './errors.ts';
 
 const providerCacheControlBreakpoint: SharedV3ProviderOptions = {
@@ -49,7 +50,7 @@ const providerCacheControlBreakpoint: SharedV3ProviderOptions = {
 };
 
 type ProviderRoute = {
-  constraintMode?: StructuredOutputConstraintMode.NativeToolCall;
+  constraintMode?: StructuredOutputConstraintMode;
   languageModel: LanguageModelV3;
   modelName: string;
   providerName: 'llama.cpp' | 'openrouter';
@@ -88,7 +89,7 @@ export function createStructuredResponseGenerator(
     for (const route of routes) {
       throwIfAborted(abortSignal);
       try {
-        return await generateForRoute(request, route, idleTimeoutMs, abortSignal);
+        return await generateStructuredForRoute(request, route, idleTimeoutMs, abortSignal);
       } catch (errorValue) {
         lastError = errorValue;
         if (abortSignal?.aborted) throw errorValue;
@@ -186,6 +187,13 @@ function optionalOpenRouterRoute(
   return createOpenRouterRoute(request, configuration, languageModelFactory, parallelToolCalls);
 }
 
+function structuredConstraintMode(configuration: LLMDConfiguration): StructuredOutputConstraintMode {
+  return configuration.structuredOutputMode === LLMDStructuredOutputMode.ToolCall
+    ? StructuredOutputConstraintMode.NativeToolCall
+    : StructuredOutputConstraintMode.OpenAIJSONSchema;
+}
+
+
 function createLlamaRoute(
   configuration: LLMDConfiguration,
   languageModelFactory: ProviderLanguageModelFactory,
@@ -199,7 +207,7 @@ function createLlamaRoute(
     throw new LLMDError('configuration_invalid', 503, false, 'device structured output routing requires explicit conformance enablement');
   }
   return {
-    constraintMode: StructuredOutputConstraintMode.NativeToolCall,
+    constraintMode: structuredConstraintMode(configuration),
     languageModel: languageModelFactory.createLlamaLanguageModel(
       configuration.llamaModel,
       configuration.llamaBaseURL,
@@ -224,7 +232,7 @@ function createOpenRouterRoute(
   const modelName = request.model?.trim();
   if (!modelName) throw new LLMDError('request_invalid', 400, false, 'remote routing requires a model');
   return {
-    constraintMode: StructuredOutputConstraintMode.NativeToolCall,
+    constraintMode: structuredConstraintMode(configuration),
     languageModel: languageModelFactory.createOpenRouterLanguageModel(
       modelName,
       configuration.openRouterBaseURL,
@@ -315,11 +323,83 @@ async function generateWithIdleTimeout(
     result.response,
     result.providerMetadata,
   ]);
-  return { text, toolCalls, totalUsage, finishReason, response, providerMetadata };
+  const structuredOutput = options.experimental_output === undefined ? undefined : await result.output;
+  return { text, toolCalls, totalUsage, finishReason, response, providerMetadata, structuredOutput };
 }
 
 function streamStalledError(idleTimeoutMs: number): LLMDError {
   return new LLMDError('provider_unavailable', 503, true, `provider stream stalled for ${idleTimeoutMs}ms`);
+}
+
+// Prefer the provider's own JSON schema constraint, and fall back to a forced
+// tool call for providers or models that reject it.
+async function generateStructuredForRoute(
+  request: StructuredResponseRequest,
+  route: ProviderRoute,
+  idleTimeoutMs: number,
+  abortSignal?: AbortSignal,
+): Promise<StructuredResponse> {
+  if (route.constraintMode !== StructuredOutputConstraintMode.OpenAIJSONSchema) {
+    return generateForRoute(request, route, idleTimeoutMs, abortSignal);
+  }
+  try {
+    return await generateNativeStructuredForRoute(request, route, idleTimeoutMs, abortSignal);
+  } catch (errorValue) {
+    if (abortSignal?.aborted) throw errorValue;
+    if (!rejectsNativeStructuredOutput(errorValue)) throw errorValue;
+    return generateForRoute(request, { ...route, constraintMode: StructuredOutputConstraintMode.NativeToolCall }, idleTimeoutMs, abortSignal);
+  }
+}
+
+// A provider that advertises structured outputs can still refuse a particular
+// schema or model; that refusal arrives as a request-shaped provider error.
+function rejectsNativeStructuredOutput(errorValue: unknown): boolean {
+  const message = errorValue instanceof Error ? errorValue.message.toLowerCase() : '';
+  return message.includes('response_format') || message.includes('json_schema') || message.includes('structured output');
+}
+
+// A provider that constrains generation to a JSON schema needs no tool: the
+// model answers with the object. Only providers without that capability have to
+// be squeezed through a forced tool call.
+async function generateNativeStructuredForRoute(
+  request: StructuredResponseRequest,
+  route: ProviderRoute,
+  idleTimeoutMs: number,
+  abortSignal?: AbortSignal,
+): Promise<StructuredResponse> {
+  const outputSchema = createValidatedJSONSchema(request.structuredOutputSchema.document);
+  const result = await generateWithIdleTimeout({
+    model: route.languageModel,
+    system: systemMessages(request),
+    messages: convertConversationMessages(request),
+    experimental_output: Output.object({ schema: outputSchema }),
+    maxOutputTokens: request.generationOptions?.maxTokens,
+    maxRetries: 0,
+    seed: request.generationOptions?.seed,
+    temperature: request.generationOptions?.temperature,
+  }, idleTimeoutMs, abortSignal);
+  throwIfAborted(abortSignal);
+  if (result.structuredOutput === undefined) {
+    throw new LLMDError(
+      'structured_output_invalid',
+      422,
+      false,
+      'structured output generation returned no object',
+      {
+        category: StructuredOutputDiagnosticCategory.EmptyCompletion,
+        finishReason: normalizeChatFinishReason(result.finishReason),
+      },
+    );
+  }
+  return {
+    provider: route.providerName,
+    model: result.response.modelId || route.modelName,
+    content: serializeStructuredOutput(result.structuredOutput),
+    selectedBackend: route.selectedBackend,
+    finishReason: 'stop',
+    constraintMode: StructuredOutputConstraintMode.OpenAIJSONSchema,
+    usage: normalizeUsage(result.totalUsage, result.providerMetadata),
+  };
 }
 
 async function generateForRoute(

@@ -18,7 +18,7 @@ import {
 } from '@blueclaw/protocol';
 import { buildProtocolArtifacts } from '@blueclaw/protocol/artifacts';
 
-import { LLMDAutoRoute, type LLMDConfiguration } from '../src/configuration.ts';
+import { LLMDStructuredOutputMode, LLMDAutoRoute, type LLMDConfiguration } from '../src/configuration.ts';
 import { LLMDError } from '../src/errors.ts';
 import { createLLMDHandler } from '../src/handler.ts';
 
@@ -27,6 +27,7 @@ const configuration: LLMDConfiguration = {
   autoRoute: LLMDAutoRoute.RemoteFirst,
   llamaAPIKey: 'local',
   llamaStructuredOutputsEnabled: false,
+  structuredOutputMode: LLMDStructuredOutputMode.Native,
   localOnly: false,
   openRouterBaseURL: 'https://openrouter.ai/api/v1',
   socketPath: '/tmp/blueclaw-llmd-test.sock',
