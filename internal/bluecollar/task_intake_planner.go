@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/llm"
+	"github.com/Dawn-kim-official/blueclaw/internal/model"
 )
 
 type IntakeClassification string
@@ -229,12 +229,12 @@ func (turnDecision TurnDecision) WithRestoredIntakeState(intakeDecision IntakeDe
 }
 
 type TaskIntakePlanner struct {
-	languageModel llm.LanguageModelProvider
+	languageModel model.LanguageModelProvider
 	options       IntakeOptions
 }
 
 type TurnRouter struct {
-	languageModel llm.LanguageModelProvider
+	languageModel model.LanguageModelProvider
 	options       IntakeOptions
 }
 
@@ -259,14 +259,14 @@ const turnRouterSystemPrompt = "You are Blueclaw's channel-agnostic turn router 
 var ErrTurnRouterDisabled = errors.New("turn router disabled")
 var ErrTurnRouterLanguageModelUnavailable = errors.New("turn router language model unavailable")
 
-func NewTaskIntakePlanner(languageModel llm.LanguageModelProvider, options IntakeOptions) TaskIntakePlanner {
+func NewTaskIntakePlanner(languageModel model.LanguageModelProvider, options IntakeOptions) TaskIntakePlanner {
 	return TaskIntakePlanner{
 		languageModel: languageModel,
 		options:       normalizeIntakeOptions(options),
 	}
 }
 
-func NewTurnRouter(languageModel llm.LanguageModelProvider, options IntakeOptions) TurnRouter {
+func NewTurnRouter(languageModel model.LanguageModelProvider, options IntakeOptions) TurnRouter {
 	return TurnRouter{
 		languageModel: languageModel,
 		options:       normalizeIntakeOptions(options),
@@ -321,7 +321,7 @@ func (turnRouter TurnRouter) planWithLanguageModel(ctx context.Context, request 
 	return turnRouter.planWithMessages(ctx, request, turnRouter.buildMessages(request))
 }
 
-func (turnRouter TurnRouter) planWithMessages(ctx context.Context, request AgentRequest, messages []llm.Message) (TurnDecision, error) {
+func (turnRouter TurnRouter) planWithMessages(ctx context.Context, request AgentRequest, messages []model.Message) (TurnDecision, error) {
 	structuredResponse, errorValue := turnRouter.generateStructuredResponse(ctx, turnRouterRequest(request, messages))
 	if errorValue != nil {
 		return TurnDecision{}, errorValue
@@ -335,33 +335,33 @@ func (turnRouter TurnRouter) planWithMessages(ctx context.Context, request Agent
 	return turnDecision, nil
 }
 
-func (turnRouter TurnRouter) generateStructuredResponse(ctx context.Context, request llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
+func (turnRouter TurnRouter) generateStructuredResponse(ctx context.Context, request model.StructuredResponseRequest) (model.StructuredResponse, error) {
 	structuredResponse, errorValue := turnRouter.languageModel.GenerateStructuredResponse(ctx, request)
 	if errorValue == nil {
 		return structuredResponse, nil
 	}
 	if errors.Is(errorValue, context.Canceled) || errors.Is(errorValue, context.DeadlineExceeded) || ctx.Err() != nil {
-		return llm.StructuredResponse{}, errorValue
+		return model.StructuredResponse{}, errorValue
 	}
-	correction, isCorrectable := llm.StructuredOutputCorrectionFromError(errorValue)
+	correction, isCorrectable := model.StructuredOutputCorrectionFromError(errorValue)
 	if !isCorrectable {
-		return llm.StructuredResponse{}, errorValue
+		return model.StructuredResponse{}, errorValue
 	}
 	correctionRequest := request
-	correctionRequest.Messages = append([]llm.Message{}, request.Messages...)
-	correctionRequest.Messages = append(correctionRequest.Messages, llm.Message{
+	correctionRequest.Messages = append([]model.Message{}, request.Messages...)
+	correctionRequest.Messages = append(correctionRequest.Messages, model.Message{
 		Role:    "system",
 		Content: turnRouterCorrectionInstruction(correction),
 	})
 	return turnRouter.languageModel.GenerateStructuredResponse(ctx, correctionRequest)
 }
 
-func turnRouterRequest(request AgentRequest, messages []llm.Message) llm.StructuredResponseRequest {
+func turnRouterRequest(request AgentRequest, messages []model.Message) model.StructuredResponseRequest {
 	maxTokens := turnRouterMaxTokens
-	return llm.StructuredResponseRequest{
+	return model.StructuredResponseRequest{
 		Messages:          messages,
-		GenerationOptions: llm.GenerationOptions{MaxTokens: &maxTokens},
-		StructuredOutputSchema: llm.StructuredOutputSchema{
+		GenerationOptions: model.GenerationOptions{MaxTokens: &maxTokens},
+		StructuredOutputSchema: model.StructuredOutputSchema{
 			Name:               "blueclaw_turn_router",
 			Document:           turnRouterSchema(request),
 			IsStrictlyEnforced: true,
@@ -369,7 +369,7 @@ func turnRouterRequest(request AgentRequest, messages []llm.Message) llm.Structu
 	}
 }
 
-func turnRouterCorrectionInstruction(correction llm.StructuredOutputCorrection) string {
+func turnRouterCorrectionInstruction(correction model.StructuredOutputCorrection) string {
 	messageParts := []string{
 		"The previous response did not match the required structured output.",
 		"Regenerate the complete response against the same schema.",
@@ -391,8 +391,8 @@ func (turnRouter TurnRouter) reviewClarificationDecision(ctx context.Context, re
 		return TurnDecision{}, errorValue
 	}
 	messages := append(turnRouter.buildMessages(request),
-		llm.Message{Role: "assistant", Content: string(document)},
-		llm.Message{Role: "user", Content: clarificationReviewInstruction},
+		model.Message{Role: "assistant", Content: string(document)},
+		model.Message{Role: "user", Content: clarificationReviewInstruction},
 	)
 	return turnRouter.planWithMessages(ctx, request, messages)
 }
@@ -407,12 +407,12 @@ func clarificationDecisionNeedsReview(decision TurnDecision) bool {
 		len(decision.InitialToolNames) > 0
 }
 
-func (turnRouter TurnRouter) buildMessages(request AgentRequest) []llm.Message {
+func (turnRouter TurnRouter) buildMessages(request AgentRequest) []model.Message {
 	toolDescriptions := "No tools are available."
 	if request.ToolSet != nil && len(request.ToolSet.ListToolNames()) > 0 {
 		toolDescriptions = intakeToolDescriptions(request.ToolSet)
 	}
-	messages := []llm.Message{
+	messages := []model.Message{
 		{
 			Role:    "system",
 			Content: turnRouterSystemPrompt,
@@ -435,22 +435,22 @@ func (turnRouter TurnRouter) buildMessages(request AgentRequest) []llm.Message {
 		},
 	}
 	if contextDescription := buildVisibleContextDescription(request.VisibleContext); contextDescription != "" {
-		messages = append(messages, llm.Message{Role: "system", Content: contextDescription})
+		messages = append(messages, model.Message{Role: "system", Content: contextDescription})
 	}
 	if goalDescription := activeGoalDescription(request.ActiveGoal); goalDescription != "" {
-		messages = append(messages, llm.Message{Role: "system", Content: goalDescription})
+		messages = append(messages, model.Message{Role: "system", Content: goalDescription})
 	}
 	if priorTaskDescription := priorTaskContextDescription(request.PriorTask); priorTaskDescription != "" {
-		messages = append(messages, llm.Message{Role: "system", Content: priorTaskDescription})
+		messages = append(messages, model.Message{Role: "system", Content: priorTaskDescription})
 	}
 	if scheduledRunDescription := (LLMContextBuilder{}).scheduledRunContext(request.ScheduledRun); scheduledRunDescription != "" {
-		messages = append(messages, llm.Message{Role: "system", Content: scheduledRunDescription})
+		messages = append(messages, model.Message{Role: "system", Content: scheduledRunDescription})
 	}
 	if routingContext := turnRoutingContextDescription(request); routingContext != "" {
-		messages = append(messages, llm.Message{Role: "system", Content: routingContext})
+		messages = append(messages, model.Message{Role: "system", Content: routingContext})
 	}
-	messages = append(messages, llm.Message{Role: "system", Content: buildTemporalContextDescription(request.TurnStartedAt)})
-	messages = append(messages, llm.Message{Role: "user", Content: request.Prompt})
+	messages = append(messages, model.Message{Role: "system", Content: buildTemporalContextDescription(request.TurnStartedAt)})
+	messages = append(messages, model.Message{Role: "user", Content: request.Prompt})
 	return messages
 }
 

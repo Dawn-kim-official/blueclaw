@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/llm"
+	"github.com/Dawn-kim-official/blueclaw/internal/model"
 	"github.com/Dawn-kim-official/blueclaw/internal/task"
 )
 
@@ -224,38 +224,38 @@ type contextCancelingTurnLanguageModel struct {
 	judgeError     error
 }
 
-func (model *contextCancelingTurnLanguageModel) GenerateResponse(context.Context, string) (string, error) {
+func (languageModel *contextCancelingTurnLanguageModel) GenerateResponse(context.Context, string) (string, error) {
 	return "", nil
 }
 
-func (model *contextCancelingTurnLanguageModel) GenerateStructuredResponse(_ context.Context, request llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
+func (languageModel *contextCancelingTurnLanguageModel) GenerateStructuredResponse(_ context.Context, request model.StructuredResponseRequest) (model.StructuredResponse, error) {
 	if request.StructuredOutputSchema.Name == completionJudgeSchemaName {
-		model.cancel()
-		return llm.StructuredResponse{}, model.judgeError
+		languageModel.cancel()
+		return model.StructuredResponse{}, languageModel.judgeError
 	}
 	content := ""
-	if model.requestIndex < len(model.actionContents) {
-		content = model.actionContents[model.requestIndex]
+	if languageModel.requestIndex < len(languageModel.actionContents) {
+		content = languageModel.actionContents[languageModel.requestIndex]
 	}
-	model.requestIndex++
-	return llm.StructuredResponse{Content: content}, nil
+	languageModel.requestIndex++
+	return model.StructuredResponse{Content: content}, nil
 }
 
-func (model *contextCancelingTurnLanguageModel) GenerateChatCompletion(_ context.Context, request llm.ChatCompletionRequest) (llm.ChatCompletionResponse, error) {
+func (languageModel *contextCancelingTurnLanguageModel) GenerateChatCompletion(_ context.Context, request model.ChatCompletionRequest) (model.ChatCompletionResponse, error) {
 	if request.SchemaName == completionReplySchemaName {
-		return llm.ChatCompletionResponse{
+		return model.ChatCompletionResponse{
 			FinishReason: "stop",
-			Message:      llm.ChatCompletionMessage{Role: "assistant", Content: "오래된 작업을 삭제했습니다."},
+			Message:      model.ChatCompletionMessage{Role: "assistant", Content: "오래된 작업을 삭제했습니다."},
 		}, nil
 	}
-	return llm.ChatCompletionResponse{
+	return model.ChatCompletionResponse{
 		FinishReason: "tool_calls",
-		Message: llm.ChatCompletionMessage{
+		Message: model.ChatCompletionMessage{
 			Role: "assistant",
-			ToolCalls: []llm.ChatCompletionToolCall{{
+			ToolCalls: []model.ChatCompletionToolCall{{
 				ID:   "call-1",
 				Type: "function",
-				Function: llm.ChatCompletionToolCallFunction{
+				Function: model.ChatCompletionToolCallFunction{
 					Name:      "task.delete",
 					Arguments: `{"taskID":"task-1"}`,
 				},
@@ -503,7 +503,7 @@ func TestDuplicateSuccessfulToolCallNarrowsNextActionSchemaToTerminalActions(t *
 		t.Fatal("expected duplicate rejection event")
 	}
 
-	actionRequests := []llm.StructuredResponseRequest{}
+	actionRequests := []model.StructuredResponseRequest{}
 	for _, request := range languageModel.requests {
 		if request.StructuredOutputSchema.Name == "blueclaw_agent_turn_action" {
 			actionRequests = append(actionRequests, request)
@@ -585,7 +585,7 @@ func TestOverlappingRepeatedFileReadDoesNotNarrowNextActionSchema(t *testing.T) 
 		t.Fatal("expected the repeated read not to be treated as a duplicate side-effect call")
 	}
 
-	actionRequests := []llm.StructuredResponseRequest{}
+	actionRequests := []model.StructuredResponseRequest{}
 	for _, request := range languageModel.requests {
 		if request.StructuredOutputSchema.Name == "blueclaw_agent_turn_action" {
 			actionRequests = append(actionRequests, request)
@@ -693,7 +693,7 @@ func TestActionSchemaRequiresFailureResolutionWhenRecoveryIsExhausted(t *testing
 	if !strings.Contains(schemaDocument, `"failureResolution"`) || !strings.Contains(schemaDocument, `"usedFailureFacts"`) {
 		t.Fatalf("expected debt-aware schema, got %s", schemaDocument)
 	}
-	if !structuredRequestsContain([]llm.StructuredResponseRequest{request}, "FailureReportFacts") {
+	if !structuredRequestsContain([]model.StructuredResponseRequest{request}, "FailureReportFacts") {
 		t.Fatal("expected debt-aware request to inject FailureReportFacts")
 	}
 	finishMessageVariant := actionSchemaVariant(t, schemaDocument, "finish")
@@ -2264,7 +2264,7 @@ func directToolAction(action string, message string, toolName string, input stri
 	return document
 }
 
-func newTurnRunnerTestServices(languageModel llm.LanguageModelProvider, options TurnOptions) turnRunnerTestServices {
+func newTurnRunnerTestServices(languageModel model.LanguageModelProvider, options TurnOptions) turnRunnerTestServices {
 	taskEventService := task.NewTaskEventService()
 	taskStepService := task.NewTaskStepService()
 	taskArtifactService := task.NewTaskArtifactService()
@@ -2282,7 +2282,7 @@ type sequenceLanguageModel struct {
 	modelTier     string
 	contents      []string
 	textResponses []string
-	requests      []llm.StructuredResponseRequest
+	requests      []model.StructuredResponseRequest
 	textPrompts   []string
 }
 
@@ -2301,15 +2301,15 @@ func (languageModel *sequenceLanguageModel) GenerateResponse(_ context.Context, 
 	return languageModel.nextTextResponse(prompt), nil
 }
 
-func (languageModel *sequenceLanguageModel) GenerateRecoveryChatCompletion(_ context.Context, request llm.ChatCompletionRequest) (llm.ChatCompletionResponse, error) {
+func (languageModel *sequenceLanguageModel) GenerateRecoveryChatCompletion(_ context.Context, request model.ChatCompletionRequest) (model.ChatCompletionResponse, error) {
 	prompt := ""
 	if len(request.Messages) > 0 {
 		prompt = request.Messages[len(request.Messages)-1].Content
 	}
-	return llm.ChatCompletionResponse{
+	return model.ChatCompletionResponse{
 		FinishReason:    "stop",
 		SelectedBackend: "remote",
-		Message:         llm.ChatCompletionMessage{Role: "assistant", Content: languageModel.nextTextResponse(prompt)},
+		Message:         model.ChatCompletionMessage{Role: "assistant", Content: languageModel.nextTextResponse(prompt)},
 	}, nil
 }
 
@@ -2322,19 +2322,19 @@ func (languageModel *sequenceLanguageModel) nextTextResponse(prompt string) stri
 	return languageModel.textResponses[index]
 }
 
-func (languageModel *sequenceLanguageModel) GenerateStructuredResponse(_ context.Context, request llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
+func (languageModel *sequenceLanguageModel) GenerateStructuredResponse(_ context.Context, request model.StructuredResponseRequest) (model.StructuredResponse, error) {
 	if request.StructuredOutputSchema.Name == "blueclaw_contract_skill_arbitration" {
-		return llm.StructuredResponse{Content: contractSkillArbitrationTestDocument(request.StructuredOutputSchema.Document)}, nil
+		return model.StructuredResponse{Content: contractSkillArbitrationTestDocument(request.StructuredOutputSchema.Document)}, nil
 	}
 	if request.StructuredOutputSchema.Name == completionJudgeSchemaName {
-		return llm.StructuredResponse{Content: defaultCompletionJudgeTestDocument()}, nil
+		return model.StructuredResponse{Content: defaultCompletionJudgeTestDocument()}, nil
 	}
 	languageModel.requests = append(languageModel.requests, request)
 	index := len(languageModel.requests) - 1
 	if index >= len(languageModel.contents) {
 		index = len(languageModel.contents) - 1
 	}
-	return llm.StructuredResponse{ModelTier: languageModel.modelTier, Content: languageModel.contents[index]}, nil
+	return model.StructuredResponse{ModelTier: languageModel.modelTier, Content: languageModel.contents[index]}, nil
 }
 
 func contractSkillArbitrationTestDocument(schemaDocument string) string {
@@ -2396,20 +2396,20 @@ func (languageModel *structuredFailureTextRecoveryLanguageModel) GenerateRespons
 	return languageModel.reply, nil
 }
 
-func (languageModel *structuredFailureTextRecoveryLanguageModel) GenerateStructuredResponse(context.Context, llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
-	return llm.StructuredResponse{}, languageModel.errorValue
+func (languageModel *structuredFailureTextRecoveryLanguageModel) GenerateStructuredResponse(context.Context, model.StructuredResponseRequest) (model.StructuredResponse, error) {
+	return model.StructuredResponse{}, languageModel.errorValue
 }
 
-func (languageModel *structuredFailureTextRecoveryLanguageModel) GenerateRecoveryChatCompletion(_ context.Context, request llm.ChatCompletionRequest) (llm.ChatCompletionResponse, error) {
+func (languageModel *structuredFailureTextRecoveryLanguageModel) GenerateRecoveryChatCompletion(_ context.Context, request model.ChatCompletionRequest) (model.ChatCompletionResponse, error) {
 	prompt := ""
 	if len(request.Messages) > 0 {
 		prompt = request.Messages[len(request.Messages)-1].Content
 	}
 	languageModel.textPrompts = append(languageModel.textPrompts, prompt)
-	return llm.ChatCompletionResponse{
+	return model.ChatCompletionResponse{
 		FinishReason:    "stop",
 		SelectedBackend: "remote",
-		Message:         llm.ChatCompletionMessage{Role: "assistant", Content: languageModel.reply},
+		Message:         model.ChatCompletionMessage{Role: "assistant", Content: languageModel.reply},
 	}, nil
 }
 
@@ -2421,8 +2421,8 @@ func (languageModel failingRecoveryLanguageModel) GenerateResponse(context.Conte
 	return "", languageModel.errorValue
 }
 
-func (languageModel failingRecoveryLanguageModel) GenerateStructuredResponse(context.Context, llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
-	return llm.StructuredResponse{}, languageModel.errorValue
+func (languageModel failingRecoveryLanguageModel) GenerateStructuredResponse(context.Context, model.StructuredResponseRequest) (model.StructuredResponse, error) {
+	return model.StructuredResponse{}, languageModel.errorValue
 }
 
 type localRecoveryFallbackLanguageModel struct {
@@ -2437,8 +2437,8 @@ func (languageModel localRecoveryFallbackLanguageModel) GenerateResponse(context
 	return "", languageModel.errorValue
 }
 
-func (languageModel localRecoveryFallbackLanguageModel) GenerateStructuredResponse(context.Context, llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
-	return llm.StructuredResponse{}, languageModel.errorValue
+func (languageModel localRecoveryFallbackLanguageModel) GenerateStructuredResponse(context.Context, model.StructuredResponseRequest) (model.StructuredResponse, error) {
+	return model.StructuredResponse{}, languageModel.errorValue
 }
 
 func (languageModel *localRecoveryFallbackLanguageModel) GenerateRecoveryResponse(context.Context, string) (string, error) {
@@ -2455,23 +2455,23 @@ func (languageModel *localRecoveryFallbackLanguageModel) GenerateLocalRecoveryRe
 	return languageModel.localReply, nil
 }
 
-func (languageModel *localRecoveryFallbackLanguageModel) GenerateRecoveryChatCompletion(context.Context, llm.ChatCompletionRequest) (llm.ChatCompletionResponse, error) {
-	return llm.ChatCompletionResponse{}, languageModel.errorValue
+func (languageModel *localRecoveryFallbackLanguageModel) GenerateRecoveryChatCompletion(context.Context, model.ChatCompletionRequest) (model.ChatCompletionResponse, error) {
+	return model.ChatCompletionResponse{}, languageModel.errorValue
 }
 
-func (languageModel *localRecoveryFallbackLanguageModel) GenerateLocalRecoveryChatCompletion(_ context.Context, request llm.ChatCompletionRequest) (llm.ChatCompletionResponse, error) {
+func (languageModel *localRecoveryFallbackLanguageModel) GenerateLocalRecoveryChatCompletion(_ context.Context, request model.ChatCompletionRequest) (model.ChatCompletionResponse, error) {
 	prompt := ""
 	if len(request.Messages) > 0 {
 		prompt = request.Messages[len(request.Messages)-1].Content
 	}
 	languageModel.localPrompts = append(languageModel.localPrompts, prompt)
 	if languageModel.localError != nil {
-		return llm.ChatCompletionResponse{}, languageModel.localError
+		return model.ChatCompletionResponse{}, languageModel.localError
 	}
-	return llm.ChatCompletionResponse{
+	return model.ChatCompletionResponse{
 		FinishReason:    "stop",
 		SelectedBackend: "device",
-		Message:         llm.ChatCompletionMessage{Role: "assistant", Content: languageModel.localReply},
+		Message:         model.ChatCompletionMessage{Role: "assistant", Content: languageModel.localReply},
 	}, nil
 }
 
@@ -2494,7 +2494,7 @@ func countTaskEvents(taskEvents []task.TaskEvent, name string) int {
 	return count
 }
 
-func messagesContain(messages []llm.Message, fragment string) bool {
+func messagesContain(messages []model.Message, fragment string) bool {
 	for _, message := range messages {
 		if strings.Contains(message.Content, fragment) {
 			return true
@@ -2503,7 +2503,7 @@ func messagesContain(messages []llm.Message, fragment string) bool {
 	return false
 }
 
-func countStructuredRequestsByName(requests []llm.StructuredResponseRequest, name string) int {
+func countStructuredRequestsByName(requests []model.StructuredResponseRequest, name string) int {
 	count := 0
 	for _, request := range requests {
 		if request.StructuredOutputSchema.Name == name {
@@ -2513,7 +2513,7 @@ func countStructuredRequestsByName(requests []llm.StructuredResponseRequest, nam
 	return count
 }
 
-func structuredRequestNames(requests []llm.StructuredResponseRequest) []string {
+func structuredRequestNames(requests []model.StructuredResponseRequest) []string {
 	names := []string{}
 	for _, request := range requests {
 		names = append(names, request.StructuredOutputSchema.Name)
@@ -2521,7 +2521,7 @@ func structuredRequestNames(requests []llm.StructuredResponseRequest) []string {
 	return names
 }
 
-func assertTerminalNoToolsSchemasExcludeToolActions(t *testing.T, requests []llm.StructuredResponseRequest) {
+func assertTerminalNoToolsSchemasExcludeToolActions(t *testing.T, requests []model.StructuredResponseRequest) {
 	t.Helper()
 	for _, request := range requests {
 		if request.StructuredOutputSchema.Name != "blueclaw_agent_terminal_no_tools_action" {
@@ -2536,7 +2536,7 @@ func assertTerminalNoToolsSchemasExcludeToolActions(t *testing.T, requests []llm
 	}
 }
 
-func structuredRequestsContain(requests []llm.StructuredResponseRequest, fragment string) bool {
+func structuredRequestsContain(requests []model.StructuredResponseRequest, fragment string) bool {
 	for _, request := range requests {
 		if messagesContain(request.Messages, fragment) {
 			return true
@@ -2715,7 +2715,7 @@ func TestTerminalStructuredRequestsCarryMaxTokensCap(t *testing.T) {
 	request := AgentTurnRequest{ToolSet: newTestToolSet(nil)}
 	services.runner.finalizerAction(context.Background(), request, nil, ExecutionState{})
 	services.runner.terminalNoToolsAction(context.Background(), request, nil, ExecutionState{}, "")
-	capturedRequests := append([]llm.StructuredResponseRequest{}, languageModel.requests...)
+	capturedRequests := append([]model.StructuredResponseRequest{}, languageModel.requests...)
 	capturedRequests = append(capturedRequests, completionJudgeRequest(request, nil, nil, turnActionDocument{}))
 	if len(capturedRequests) != 3 {
 		t.Fatalf("expected finalizer, terminal, and judge requests, got %+v", structuredRequestNames(capturedRequests))

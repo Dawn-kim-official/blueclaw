@@ -7,7 +7,7 @@ import (
 	"github.com/Dawn-kim-official/blueclaw/internal/toolcontract"
 	"strings"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/llm"
+	"github.com/Dawn-kim-official/blueclaw/internal/model"
 )
 
 const maxContractSkillArbitrationCandidates = 8
@@ -70,7 +70,7 @@ func (skillSearchQueryRouter SkillSearchQueryRouter) ArbitrateContractSkills(ctx
 		if errorValue == nil {
 			return contractSkillArbitrationResult{Arbitration: arbitration, Status: contractSkillArbitrationSucceeded}
 		}
-		messages = append(messages, llm.Message{
+		messages = append(messages, model.Message{
 			Role:    "system",
 			Content: "The previous candidate was invalid. Return only exact enum values from the schema. Validation: " + errorValue.Error(),
 		})
@@ -78,10 +78,10 @@ func (skillSearchQueryRouter SkillSearchQueryRouter) ArbitrateContractSkills(ctx
 	return contractSkillArbitrationResult{Status: contractSkillArbitrationFailed}
 }
 
-func (skillSearchQueryRouter SkillSearchQueryRouter) generateContractSkillArbitration(ctx context.Context, messages []llm.Message, schema string) (contractSkillArbitration, error) {
-	response, errorValue := skillSearchQueryRouter.languageModel.GenerateStructuredResponse(ctx, llm.StructuredResponseRequest{
+func (skillSearchQueryRouter SkillSearchQueryRouter) generateContractSkillArbitration(ctx context.Context, messages []model.Message, schema string) (contractSkillArbitration, error) {
+	response, errorValue := skillSearchQueryRouter.languageModel.GenerateStructuredResponse(ctx, model.StructuredResponseRequest{
 		Messages: messages,
-		StructuredOutputSchema: llm.StructuredOutputSchema{
+		StructuredOutputSchema: model.StructuredOutputSchema{
 			Name:               "blueclaw_contract_skill_arbitration",
 			Document:           schema,
 			IsStrictlyEnforced: true,
@@ -227,8 +227,8 @@ func requestHasOutcomeContractForSkillArbitration(request AgentRequest) bool {
 	return false
 }
 
-func contractSkillArbitrationMessages(request AgentRequest, candidates []SkillInstruction, candidateByName map[string]SkillCandidate) []llm.Message {
-	messages := []llm.Message{{
+func contractSkillArbitrationMessages(request AgentRequest, candidates []SkillInstruction, candidateByName map[string]SkillCandidate) []model.Message {
+	messages := []model.Message{{
 		Role: "system",
 		Content: strings.Join([]string{
 			"You decide which already retrieved SKILL.md candidates should be loaded for the current outcome contract.",
@@ -246,16 +246,16 @@ func contractSkillArbitrationMessages(request AgentRequest, candidates []SkillIn
 		Content: "Outcome contract: " + outcomeContractJSON(request.ActiveGoal.OutcomeContract),
 	}}
 	if goalDescription := activeGoalDescription(request.ActiveGoal); goalDescription != "" {
-		messages = append(messages, llm.Message{Role: "system", Content: goalDescription})
+		messages = append(messages, model.Message{Role: "system", Content: goalDescription})
 	}
 	if contextDescription := buildVisibleContextDescription(request.VisibleContext); contextDescription != "" {
-		messages = append(messages, llm.Message{Role: "system", Content: contextDescription})
+		messages = append(messages, model.Message{Role: "system", Content: contextDescription})
 	}
-	messages = append(messages, llm.Message{
+	messages = append(messages, model.Message{
 		Role:    "system",
 		Content: "Candidate skills: " + contractSkillCandidateCardsJSON(candidates, candidateByName),
 	})
-	messages = append(messages, llm.Message{Role: "user", Content: request.Prompt})
+	messages = append(messages, model.Message{Role: "user", Content: request.Prompt})
 	return messages
 }
 

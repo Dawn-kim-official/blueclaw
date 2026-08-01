@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/llm"
+	"github.com/Dawn-kim-official/blueclaw/internal/model"
 )
 
 const recoveryDecisionMaxTokens = 1600
@@ -54,7 +54,7 @@ func (agentTurnRunner *AgentTurnRunner) appendUnavailableReplyEvents(taskRunID s
 
 func (agentTurnRunner *AgentTurnRunner) generateRecoveryDecision(recoveryContext context.Context, request AgentTurnRequest, failureReason string, observations []turnObservation, attachments []toolcontract.FileAttachment, executionState ExecutionState, phase string) (recoveryDecision, error) {
 	maxTokens := recoveryDecisionMaxTokens
-	messages := []llm.Message{{
+	messages := []model.Message{{
 		Role: "system",
 		Content: strings.Join([]string{
 			"You decide how Blueclaw should recover or report after an internal run could not complete.",
@@ -68,14 +68,14 @@ func (agentTurnRunner *AgentTurnRunner) generateRecoveryDecision(recoveryContext
 		Role:    "user",
 		Content: buildRecoveryDecisionPrompt(request, failureReason, observations, attachments, executionState, phase),
 	}}
-	structuredResponse, errorValue := agentTurnRunner.recoveryLanguageModel.GenerateStructuredResponse(recoveryContext, llm.StructuredResponseRequest{
+	structuredResponse, errorValue := agentTurnRunner.recoveryLanguageModel.GenerateStructuredResponse(recoveryContext, model.StructuredResponseRequest{
 		Messages: messages,
-		StructuredOutputSchema: llm.StructuredOutputSchema{
+		StructuredOutputSchema: model.StructuredOutputSchema{
 			Name:               "blueclaw_recovery_decision",
 			Document:           recoveryDecisionSchema(),
 			IsStrictlyEnforced: true,
 		},
-		GenerationOptions: llm.GenerationOptions{MaxTokens: &maxTokens},
+		GenerationOptions: model.GenerationOptions{MaxTokens: &maxTokens},
 	})
 	if errorValue != nil {
 		return recoveryDecision{}, errorValue
@@ -211,7 +211,7 @@ func (agentTurnRunner *AgentTurnRunner) generateFinishMessageCompressionText(rec
 			return reply, contextError
 		}
 	}
-	recoveryProvider, isRecoveryProvider := agentTurnRunner.recoveryLanguageModel.(llm.RecoveryResponder)
+	recoveryProvider, isRecoveryProvider := agentTurnRunner.recoveryLanguageModel.(model.RecoveryResponder)
 	if isRecoveryProvider {
 		recoveryReply, recoveryError := recoveryProvider.GenerateRecoveryResponse(recoveryContext, prompt)
 		recoveryReply = strings.TrimSpace(recoveryReply)

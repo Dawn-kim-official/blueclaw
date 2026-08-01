@@ -6,19 +6,19 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/llm"
+	"github.com/Dawn-kim-official/blueclaw/internal/model"
 )
 
 type labeledLanguageModel struct {
 	label string
 }
 
-func (model labeledLanguageModel) GenerateResponse(context.Context, string) (string, error) {
-	return model.label, nil
+func (languageModel labeledLanguageModel) GenerateResponse(context.Context, string) (string, error) {
+	return languageModel.label, nil
 }
 
-func (model labeledLanguageModel) GenerateStructuredResponse(context.Context, llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
-	return llm.StructuredResponse{ModelName: model.label}, nil
+func (languageModel labeledLanguageModel) GenerateStructuredResponse(context.Context, model.StructuredResponseRequest) (model.StructuredResponse, error) {
+	return model.StructuredResponse{ModelName: languageModel.label}, nil
 }
 
 func TestNormalizeTaskLevelMapsLegacyAndCanonicalValues(t *testing.T) {

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/Dawn-kim-official/blueclaw/internal/llm"
+	"github.com/Dawn-kim-official/blueclaw/internal/model"
 	"github.com/Dawn-kim-official/blueclaw/internal/task"
 )
 
@@ -261,10 +262,10 @@ func (agentTurnRunner *AgentTurnRunner) completeTaskRunBestEffort(ctx context.Co
 	}
 }
 
-func generateCompletionReply(ctx context.Context, chatCompleter llm.ChatCompleter, request AgentTurnRequest, requirements []toolUseRequirement, observations []turnObservation) (string, error) {
-	response, errorValue := chatCompleter.GenerateChatCompletion(ctx, llm.ChatCompletionRequest{
+func generateCompletionReply(ctx context.Context, chatCompleter model.ChatCompleter, request AgentTurnRequest, requirements []toolUseRequirement, observations []turnObservation) (string, error) {
+	response, errorValue := chatCompleter.GenerateChatCompletion(ctx, model.ChatCompletionRequest{
 		SchemaName: completionReplySchemaName,
-		Messages: []llm.ChatCompletionMessage{{
+		Messages: []model.ChatCompletionMessage{{
 			Role:    "user",
 			Content: buildCompletionReplyPrompt(request, requirements, observations),
 		}},
@@ -272,7 +273,7 @@ func generateCompletionReply(ctx context.Context, chatCompleter llm.ChatComplete
 	if errorValue != nil {
 		return "", errorValue
 	}
-	return llm.ChatCompletionText(response)
+	return model.ChatCompletionText(response)
 }
 
 func buildCompletionReplyPrompt(request AgentTurnRequest, requirements []toolUseRequirement, observations []turnObservation) string {

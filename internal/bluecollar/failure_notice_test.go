@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/Dawn-kim-official/blueclaw/internal/llm"
+	"github.com/Dawn-kim-official/blueclaw/internal/model"
 )
 
 func TestFailureNoticeSendabilityDoesNotParseModelWording(t *testing.T) {
@@ -27,26 +28,26 @@ type recoveryChatNoticeProvider struct {
 	legacyError      error
 	chatCalls        int
 	legacyCalls      int
-	chatRequests     []llm.ChatCompletionRequest
+	chatRequests     []model.ChatCompletionRequest
 }
 
 type recoveryChatNoticeAccessor struct {
-	provider llm.LanguageModelProvider
+	provider model.LanguageModelProvider
 }
 
 func (accessor recoveryChatNoticeAccessor) GenerateResponse(ctx context.Context, prompt string) (string, error) {
 	return accessor.provider.GenerateResponse(ctx, prompt)
 }
 
-func (accessor recoveryChatNoticeAccessor) GenerateStructuredResponse(ctx context.Context, request llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
+func (accessor recoveryChatNoticeAccessor) GenerateStructuredResponse(ctx context.Context, request model.StructuredResponseRequest) (model.StructuredResponse, error) {
 	return accessor.provider.GenerateStructuredResponse(ctx, request)
 }
 
-func (accessor recoveryChatNoticeAccessor) RecoveryChatCompleter() (llm.RecoveryChatCompleter, bool) {
+func (accessor recoveryChatNoticeAccessor) RecoveryChatCompleter() (model.RecoveryChatCompleter, bool) {
 	return llm.ResolveRecoveryChatCompleter(accessor.provider)
 }
 
-func (accessor recoveryChatNoticeAccessor) LocalRecoveryChatCompleter() (llm.LocalRecoveryChatCompleter, bool) {
+func (accessor recoveryChatNoticeAccessor) LocalRecoveryChatCompleter() (model.LocalRecoveryChatCompleter, bool) {
 	return llm.ResolveLocalRecoveryChatCompleter(accessor.provider)
 }
 
@@ -55,8 +56,8 @@ func (provider *recoveryChatNoticeProvider) GenerateResponse(context.Context, st
 	return provider.legacyReply, provider.legacyError
 }
 
-func (provider *recoveryChatNoticeProvider) GenerateStructuredResponse(context.Context, llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
-	return llm.StructuredResponse{}, nil
+func (provider *recoveryChatNoticeProvider) GenerateStructuredResponse(context.Context, model.StructuredResponseRequest) (model.StructuredResponse, error) {
+	return model.StructuredResponse{}, nil
 }
 
 func (provider *recoveryChatNoticeProvider) GenerateRecoveryResponse(context.Context, string) (string, error) {
@@ -69,7 +70,7 @@ func (provider *recoveryChatNoticeProvider) GenerateLocalRecoveryResponse(contex
 	return provider.legacyReply, provider.legacyError
 }
 
-func (provider *recoveryChatNoticeProvider) GenerateRecoveryChatCompletion(_ context.Context, request llm.ChatCompletionRequest) (llm.ChatCompletionResponse, error) {
+func (provider *recoveryChatNoticeProvider) GenerateRecoveryChatCompletion(_ context.Context, request model.ChatCompletionRequest) (model.ChatCompletionResponse, error) {
 	provider.chatRequests = append(provider.chatRequests, request)
 	reply := provider.chatReply
 	if provider.chatCalls < len(provider.chatReplies) {
@@ -80,14 +81,14 @@ func (provider *recoveryChatNoticeProvider) GenerateRecoveryChatCompletion(_ con
 	if finishReason == "" {
 		finishReason = "stop"
 	}
-	return llm.ChatCompletionResponse{
+	return model.ChatCompletionResponse{
 		FinishReason:    finishReason,
 		SelectedBackend: "remote",
-		Message:         llm.ChatCompletionMessage{Role: "assistant", Content: reply},
+		Message:         model.ChatCompletionMessage{Role: "assistant", Content: reply},
 	}, provider.chatError
 }
 
-func (provider *recoveryChatNoticeProvider) GenerateLocalRecoveryChatCompletion(_ context.Context, request llm.ChatCompletionRequest) (llm.ChatCompletionResponse, error) {
+func (provider *recoveryChatNoticeProvider) GenerateLocalRecoveryChatCompletion(_ context.Context, request model.ChatCompletionRequest) (model.ChatCompletionResponse, error) {
 	provider.chatRequests = append(provider.chatRequests, request)
 	reply := provider.chatReply
 	if provider.chatCalls < len(provider.chatReplies) {
@@ -98,10 +99,10 @@ func (provider *recoveryChatNoticeProvider) GenerateLocalRecoveryChatCompletion(
 	if finishReason == "" {
 		finishReason = "stop"
 	}
-	return llm.ChatCompletionResponse{
+	return model.ChatCompletionResponse{
 		FinishReason:    finishReason,
 		SelectedBackend: "device",
-		Message:         llm.ChatCompletionMessage{Role: "assistant", Content: reply},
+		Message:         model.ChatCompletionMessage{Role: "assistant", Content: reply},
 	}, provider.chatError
 }
 
@@ -337,19 +338,19 @@ type staticReplyLanguageModel struct {
 	reply string
 }
 
-func (model staticReplyLanguageModel) GenerateResponse(context.Context, string) (string, error) {
-	return model.reply, nil
+func (languageModel staticReplyLanguageModel) GenerateResponse(context.Context, string) (string, error) {
+	return languageModel.reply, nil
 }
 
-func (model staticReplyLanguageModel) GenerateStructuredResponse(context.Context, llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
-	return llm.StructuredResponse{}, errors.New("structured response unsupported")
+func (languageModel staticReplyLanguageModel) GenerateStructuredResponse(context.Context, model.StructuredResponseRequest) (model.StructuredResponse, error) {
+	return model.StructuredResponse{}, errors.New("structured response unsupported")
 }
 
-func (model staticReplyLanguageModel) GenerateRecoveryChatCompletion(context.Context, llm.ChatCompletionRequest) (llm.ChatCompletionResponse, error) {
-	return llm.ChatCompletionResponse{
+func (languageModel staticReplyLanguageModel) GenerateRecoveryChatCompletion(context.Context, model.ChatCompletionRequest) (model.ChatCompletionResponse, error) {
+	return model.ChatCompletionResponse{
 		FinishReason:    "stop",
 		SelectedBackend: "remote",
-		Message:         llm.ChatCompletionMessage{Role: "assistant", Content: model.reply},
+		Message:         model.ChatCompletionMessage{Role: "assistant", Content: languageModel.reply},
 	}, nil
 }
 

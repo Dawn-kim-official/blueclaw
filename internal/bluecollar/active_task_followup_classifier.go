@@ -6,7 +6,7 @@ import (
 	"errors"
 	"strings"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/llm"
+	"github.com/Dawn-kim-official/blueclaw/internal/model"
 )
 
 type ActiveTaskFollowUpClassificationRequest struct {
@@ -29,7 +29,7 @@ func (agentKernel *AgentKernel) ClassifyActiveTaskFollowUp(ctx context.Context, 
 	if languageModel == nil {
 		return false, errors.New("language model is not configured")
 	}
-	structuredResponse, errorValue := languageModel.GenerateStructuredResponse(ctx, llm.StructuredResponseRequest{
+	structuredResponse, errorValue := languageModel.GenerateStructuredResponse(ctx, model.StructuredResponseRequest{
 		Messages:               activeTaskFollowUpClassificationMessages(request),
 		StructuredOutputSchema: activeTaskFollowUpClassificationSchema(),
 	})
@@ -43,8 +43,8 @@ func (agentKernel *AgentKernel) ClassifyActiveTaskFollowUp(ctx context.Context, 
 	return document.RelatesToActiveTask, nil
 }
 
-func activeTaskFollowUpClassificationMessages(request ActiveTaskFollowUpClassificationRequest) []llm.Message {
-	return []llm.Message{
+func activeTaskFollowUpClassificationMessages(request ActiveTaskFollowUpClassificationRequest) []model.Message {
+	return []model.Message{
 		{
 			Role:    "system",
 			Content: "Decide whether the latest user message continues, corrects, cancels, or asks about the task already in progress, versus a self-contained new and unrelated request. Return only the requested JSON.",
@@ -60,8 +60,8 @@ func activeTaskFollowUpClassificationMessages(request ActiveTaskFollowUpClassifi
 	}
 }
 
-func activeTaskFollowUpClassificationSchema() llm.StructuredOutputSchema {
-	return llm.StructuredOutputSchema{
+func activeTaskFollowUpClassificationSchema() model.StructuredOutputSchema {
+	return model.StructuredOutputSchema{
 		Name:               "blueclaw_active_task_followup",
 		Document:           `{"type":"object","properties":{"relatesToActiveTask":{"type":"boolean"}},"required":["relatesToActiveTask"],"additionalProperties":false}`,
 		IsStrictlyEnforced: true,

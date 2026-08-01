@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/Dawn-kim-official/blueclaw/internal/llm"
+	"github.com/Dawn-kim-official/blueclaw/internal/model"
 )
 
 func TestTaskContextCompactionTriggersOnlyOverBudget(t *testing.T) {
@@ -127,7 +128,7 @@ func numberedContextSummaryObservations(count int, contentSize int, markerPrefix
 	return observations
 }
 
-func structuredRequestText(request llm.StructuredResponseRequest) string {
+func structuredRequestText(request model.StructuredResponseRequest) string {
 	parts := []string{request.StructuredOutputSchema.Name}
 	for _, message := range request.Messages {
 		parts = append(parts, message.Role, message.Content)
@@ -139,17 +140,17 @@ func structuredRequestText(request llm.StructuredResponseRequest) string {
 }
 
 type truncatingSummaryLanguageModel struct {
-	requests []llm.StructuredResponseRequest
+	requests []model.StructuredResponseRequest
 }
 
 func (languageModel *truncatingSummaryLanguageModel) GenerateResponse(context.Context, string) (string, error) {
 	return "", nil
 }
 
-func (languageModel *truncatingSummaryLanguageModel) GenerateStructuredResponse(_ context.Context, request llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
+func (languageModel *truncatingSummaryLanguageModel) GenerateStructuredResponse(_ context.Context, request model.StructuredResponseRequest) (model.StructuredResponse, error) {
 	languageModel.requests = append(languageModel.requests, request)
 	if request.StructuredOutputSchema.Name == "blueclaw_task_context_summary" {
-		return llm.StructuredResponse{}, llm.StructuredOutputTruncatedError{FinishReason: "length", ContentBytes: 128}
+		return model.StructuredResponse{}, llm.StructuredOutputTruncatedError{FinishReason: "length", ContentBytes: 128}
 	}
-	return llm.StructuredResponse{Content: finishMessageDocument("done")}, nil
+	return model.StructuredResponse{Content: finishMessageDocument("done")}, nil
 }

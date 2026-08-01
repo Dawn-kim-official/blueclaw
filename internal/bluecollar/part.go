@@ -5,7 +5,7 @@ import (
 	"github.com/Dawn-kim-official/blueclaw/internal/toolcontract"
 	"strings"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/llm"
+	"github.com/Dawn-kim-official/blueclaw/internal/model"
 )
 
 const (
@@ -91,13 +91,13 @@ func FileAttachmentAgentPart(attachment toolcontract.FileAttachment, source Agen
 	}
 }
 
-func AgentPartsToLLMParts(parts []AgentPart) []llm.MessagePart {
-	result := []llm.MessagePart{}
+func AgentPartsToLLMParts(parts []AgentPart) []model.MessagePart {
+	result := []model.MessagePart{}
 	for _, part := range parts {
 		switch strings.TrimSpace(part.Type) {
 		case AgentPartTypeText:
 			if strings.TrimSpace(part.Text) != "" {
-				result = append(result, llm.MessagePart{Type: "text", Text: strings.TrimSpace(part.Text)})
+				result = append(result, model.MessagePart{Type: "text", Text: strings.TrimSpace(part.Text)})
 			}
 		case AgentPartTypeImage:
 			imagePart := agentImageToLLMPart(part)
@@ -105,29 +105,29 @@ func AgentPartsToLLMParts(parts []AgentPart) []llm.MessagePart {
 				result = append(result, imagePart)
 			}
 			if fileText := agentFileContextText(part); fileText != "" {
-				result = append(result, llm.MessagePart{Type: "text", Text: fileText})
+				result = append(result, model.MessagePart{Type: "text", Text: fileText})
 			}
 		case AgentPartTypeFile:
 			if fileText := agentFileContextText(part); fileText != "" {
-				result = append(result, llm.MessagePart{Type: "text", Text: fileText})
+				result = append(result, model.MessagePart{Type: "text", Text: fileText})
 			}
 		}
 	}
 	return result
 }
 
-func agentImageToLLMPart(part AgentPart) llm.MessagePart {
+func agentImageToLLMPart(part AgentPart) model.MessagePart {
 	if part.Image == nil {
-		return llm.MessagePart{}
+		return model.MessagePart{}
 	}
 	dataBase64 := strings.TrimSpace(part.Image.DataBase64)
 	if dataBase64 == "" && strings.TrimSpace(part.Image.Path) != "" {
-		return llm.MessagePart{}
+		return model.MessagePart{}
 	}
 	if _, errorValue := base64.StdEncoding.DecodeString(dataBase64); errorValue != nil {
-		return llm.MessagePart{}
+		return model.MessagePart{}
 	}
-	return llm.MessagePart{
+	return model.MessagePart{
 		Type:       "image",
 		MimeType:   strings.TrimSpace(part.Image.MimeType),
 		DataBase64: dataBase64,

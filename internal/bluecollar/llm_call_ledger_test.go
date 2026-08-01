@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/Dawn-kim-official/blueclaw/internal/llm"
+	"github.com/Dawn-kim-official/blueclaw/internal/model"
 )
 
 func TestObserveLanguageModelRecordsStructuredCalls(t *testing.T) {
@@ -19,9 +20,9 @@ func TestObserveLanguageModelRecordsStructuredCalls(t *testing.T) {
 		records = append(records, record)
 	})
 
-	_, errorValue := observed.GenerateStructuredResponse(context.Background(), llm.StructuredResponseRequest{
-		Messages:               []llm.Message{{Role: "user", Content: "hello"}},
-		StructuredOutputSchema: llm.StructuredOutputSchema{Name: "blueclaw_agent_turn_action"},
+	_, errorValue := observed.GenerateStructuredResponse(context.Background(), model.StructuredResponseRequest{
+		Messages:               []model.Message{{Role: "user", Content: "hello"}},
+		StructuredOutputSchema: model.StructuredOutputSchema{Name: "blueclaw_agent_turn_action"},
 	})
 	if errorValue != nil {
 		t.Fatalf("expected structured call: %v", errorValue)
@@ -57,9 +58,9 @@ func TestObserveLanguageModelRecordsSafeLLMDDiagnosticsAndRequestSizes(t *testin
 	observed := observeLanguageModel(client, func(record llmCallRecord) {
 		records = append(records, record)
 	})
-	request := llm.StructuredResponseRequest{
-		Messages:               []llm.Message{{Role: "user", Content: "hello"}},
-		StructuredOutputSchema: llm.StructuredOutputSchema{Name: "test", Document: `{"type":"object"}`},
+	request := model.StructuredResponseRequest{
+		Messages:               []model.Message{{Role: "user", Content: "hello"}},
+		StructuredOutputSchema: model.StructuredOutputSchema{Name: "test", Document: `{"type":"object"}`},
 	}
 
 	_, errorValue := observed.GenerateStructuredResponse(context.Background(), request)
@@ -100,12 +101,12 @@ func TestObserveLanguageModelRecordsSafeChatToolDiagnostics(t *testing.T) {
 		t.Fatalf("expected one failed Chat record, error=%v records=%+v", errorValue, records)
 	}
 	record := records[0]
-	if record.DiagnosticCategory != llm.StructuredOutputDiagnosticSchemaValidation ||
+	if record.DiagnosticCategory != model.StructuredOutputDiagnosticSchemaValidation ||
 		record.DiagnosticToolName != "task.add" ||
-		record.DiagnosticRepairStatus != llm.StructuredOutputRepairFailed ||
+		record.DiagnosticRepairStatus != model.StructuredOutputRepairFailed ||
 		len(record.DiagnosticIssues) != 1 ||
 		record.DiagnosticIssues[0].FieldPath != "/prompt" ||
-		record.DiagnosticIssues[0].Code != llm.StructuredOutputValidationRequired ||
+		record.DiagnosticIssues[0].Code != model.StructuredOutputValidationRequired ||
 		record.Error != "" {
 		t.Fatalf("expected content-free Chat diagnostic fields, got %+v", record)
 	}
@@ -127,7 +128,7 @@ func TestObserveLanguageModelRecordsExplicitChatSchemaOnly(t *testing.T) {
 	if _, errorValue := chatCompleter.GenerateChatCompletion(context.Background(), nativeActionChatRequest()); errorValue != nil {
 		t.Fatalf("expected action chat completion: %v", errorValue)
 	}
-	if _, errorValue := chatCompleter.GenerateChatCompletion(context.Background(), llm.ChatCompletionRequest{}); errorValue != nil {
+	if _, errorValue := chatCompleter.GenerateChatCompletion(context.Background(), model.ChatCompletionRequest{}); errorValue != nil {
 		t.Fatalf("expected plain chat completion: %v", errorValue)
 	}
 	if len(records) != 2 {
@@ -138,19 +139,19 @@ func TestObserveLanguageModelRecordsExplicitChatSchemaOnly(t *testing.T) {
 	}
 }
 
-func nativeActionChatRequest() llm.ChatCompletionRequest {
-	return llm.ChatCompletionRequest{
+func nativeActionChatRequest() model.ChatCompletionRequest {
+	return model.ChatCompletionRequest{
 		SchemaName: agentActionSchemaName,
-		Tools: []llm.ChatCompletionTool{{
+		Tools: []model.ChatCompletionTool{{
 			Type:     "function",
-			Function: llm.ChatCompletionFunction{Name: "blueclaw_agent_turn_action"},
+			Function: model.ChatCompletionFunction{Name: "blueclaw_agent_turn_action"},
 		}},
 		ToolChoice: json.RawMessage(`{"type":"function","function":{"name":"blueclaw_agent_turn_action"}}`),
 	}
 }
 
 func TestChatCallRecordPreservesActionRoutingMetadata(t *testing.T) {
-	record := chatCallRecord("chat", nativeActionChatRequest(), llm.ChatCompletionResponse{
+	record := chatCallRecord("chat", nativeActionChatRequest(), model.ChatCompletionResponse{
 		ProviderName:    "llmd",
 		ModelName:       "low-model",
 		ModelTier:       "low",
@@ -169,9 +170,9 @@ func TestObserveLanguageModelRecordsTokenCounts(t *testing.T) {
 		records = append(records, record)
 	})
 
-	_, errorValue := observed.GenerateStructuredResponse(context.Background(), llm.StructuredResponseRequest{
-		Messages:               []llm.Message{{Role: "user", Content: "hello"}},
-		StructuredOutputSchema: llm.StructuredOutputSchema{Name: "test_schema"},
+	_, errorValue := observed.GenerateStructuredResponse(context.Background(), model.StructuredResponseRequest{
+		Messages:               []model.Message{{Role: "user", Content: "hello"}},
+		StructuredOutputSchema: model.StructuredOutputSchema{Name: "test_schema"},
 	})
 	if errorValue != nil {
 		t.Fatalf("expected structured call: %v", errorValue)
@@ -196,10 +197,10 @@ func (tokenReportingProvider) GenerateResponse(context.Context, string) (string,
 	return "", nil
 }
 
-func (tokenReportingProvider) GenerateStructuredResponse(context.Context, llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
-	return llm.StructuredResponse{
+func (tokenReportingProvider) GenerateStructuredResponse(context.Context, model.StructuredResponseRequest) (model.StructuredResponse, error) {
+	return model.StructuredResponse{
 		Content: "{}",
-		Usage:   llm.Usage{PromptTokens: 10, CompletionTokens: 5, TotalTokens: 15},
+		Usage:   model.Usage{PromptTokens: 10, CompletionTokens: 5, TotalTokens: 15},
 	}, nil
 }
 
@@ -223,15 +224,15 @@ func TestObserveLanguageModelProvidesObservedChatCapability(t *testing.T) {
 	observed := observeLanguageModel(recoveryCapableTestModel{}, func(record llmCallRecord) {
 		records = append(records, record)
 	})
-	if _, isDirectChat := observed.(llm.ChatCompleter); isDirectChat {
+	if _, isDirectChat := observed.(model.ChatCompleter); isDirectChat {
 		t.Fatal("expected observer to expose ChatCompleter only through the optional accessor")
 	}
 	chatCompleter, isAvailable := llm.ResolveTextChatCompleter(observed)
 	if !isAvailable {
 		t.Fatal("expected observed chat capability")
 	}
-	response, errorValue := chatCompleter.GenerateChatCompletion(context.Background(), llm.ChatCompletionRequest{
-		Messages: []llm.ChatCompletionMessage{{Role: "user", Content: "reply"}},
+	response, errorValue := chatCompleter.GenerateChatCompletion(context.Background(), model.ChatCompletionRequest{
+		Messages: []model.ChatCompletionMessage{{Role: "user", Content: "reply"}},
 	})
 	if errorValue != nil || response.Message.Content != "chat reply" {
 		t.Fatalf("expected chat response, got %+v %v", response, errorValue)
@@ -248,7 +249,7 @@ func TestObserveLanguageModelResolvesNestedChatAccessors(t *testing.T) {
 	if !isAvailable {
 		t.Fatal("expected nested observed chat capability")
 	}
-	response, errorValue := chatCompleter.GenerateChatCompletion(context.Background(), llm.ChatCompletionRequest{})
+	response, errorValue := chatCompleter.GenerateChatCompletion(context.Background(), model.ChatCompletionRequest{})
 	if errorValue != nil || response.Message.Content != "chat reply" {
 		t.Fatalf("expected nested chat response, got %+v %v", response, errorValue)
 	}
@@ -263,8 +264,8 @@ func TestObserveLanguageModelRecordsChatErrorsAndMetadata(t *testing.T) {
 	if !isAvailable {
 		t.Fatal("expected observed chat capability")
 	}
-	_, errorValue := chatCompleter.GenerateChatCompletion(context.Background(), llm.ChatCompletionRequest{
-		Messages: []llm.ChatCompletionMessage{{Role: "user", Content: "reply"}},
+	_, errorValue := chatCompleter.GenerateChatCompletion(context.Background(), model.ChatCompletionRequest{
+		Messages: []model.ChatCompletionMessage{{Role: "user", Content: "reply"}},
 	})
 	if errorValue == nil {
 		t.Fatal("expected chat error")
@@ -283,7 +284,7 @@ func TestObserveLanguageModelRecordsRecoveryChatErrorsAndMetadata(t *testing.T) 
 	if !isAvailable {
 		t.Fatal("expected observed recovery chat capability")
 	}
-	_, errorValue := recoveryProvider.GenerateRecoveryChatCompletion(context.Background(), llm.ChatCompletionRequest{})
+	_, errorValue := recoveryProvider.GenerateRecoveryChatCompletion(context.Background(), model.ChatCompletionRequest{})
 	if errorValue == nil {
 		t.Fatal("expected recovery chat error")
 	}
@@ -295,16 +296,16 @@ func TestObserveLanguageModelRecordsRecoveryChatErrorsAndMetadata(t *testing.T) 
 func TestObserveLanguageModelPreservesMissingRecoveryCapability(t *testing.T) {
 	observed := observeLanguageModel(staticReplyProvider{content: "ok"}, func(llmCallRecord) {})
 
-	if _, hasRecovery := observed.(llm.RecoveryResponder); hasRecovery {
+	if _, hasRecovery := observed.(model.RecoveryResponder); hasRecovery {
 		t.Fatal("expected wrapper without recovery capability for plain provider")
 	}
-	if _, hasLocalRecovery := observed.(llm.LocalRecoveryResponder); hasLocalRecovery {
+	if _, hasLocalRecovery := observed.(model.LocalRecoveryResponder); hasLocalRecovery {
 		t.Fatal("expected wrapper without local recovery capability for plain provider")
 	}
-	if _, hasRecoveryChat := observed.(llm.RecoveryChatCompleter); hasRecoveryChat {
+	if _, hasRecoveryChat := observed.(model.RecoveryChatCompleter); hasRecoveryChat {
 		t.Fatal("expected wrapper without recovery chat capability for plain provider")
 	}
-	if _, hasLocalRecoveryChat := observed.(llm.LocalRecoveryChatCompleter); hasLocalRecoveryChat {
+	if _, hasLocalRecoveryChat := observed.(model.LocalRecoveryChatCompleter); hasLocalRecoveryChat {
 		t.Fatal("expected wrapper without local recovery chat capability for plain provider")
 	}
 	if _, isAvailable := llm.ResolveRecoveryChatCompleter(observed); isAvailable {
@@ -328,16 +329,16 @@ func (legacyRecoveryTestModel) GenerateLocalRecoveryResponse(context.Context, st
 func TestObserveLanguageModelDoesNotInventChatCapability(t *testing.T) {
 	observed := observeLanguageModel(legacyRecoveryTestModel{}, func(llmCallRecord) {})
 
-	if _, hasRecovery := observed.(llm.RecoveryResponder); !hasRecovery {
+	if _, hasRecovery := observed.(model.RecoveryResponder); !hasRecovery {
 		t.Fatal("expected recovery capability to be preserved")
 	}
-	if _, hasLocalRecovery := observed.(llm.LocalRecoveryResponder); !hasLocalRecovery {
+	if _, hasLocalRecovery := observed.(model.LocalRecoveryResponder); !hasLocalRecovery {
 		t.Fatal("expected local recovery capability to be preserved")
 	}
-	if _, hasRecoveryChat := observed.(llm.RecoveryChatCompleter); hasRecoveryChat {
+	if _, hasRecoveryChat := observed.(model.RecoveryChatCompleter); hasRecoveryChat {
 		t.Fatal("expected wrapper not to invent recovery chat capability")
 	}
-	if _, hasLocalRecoveryChat := observed.(llm.LocalRecoveryChatCompleter); hasLocalRecoveryChat {
+	if _, hasLocalRecoveryChat := observed.(model.LocalRecoveryChatCompleter); hasLocalRecoveryChat {
 		t.Fatal("expected wrapper not to invent local recovery chat capability")
 	}
 	if _, isAvailable := llm.ResolveRecoveryChatCompleter(observed); isAvailable {
@@ -360,34 +361,34 @@ func (recoveryCapableTestModel) GenerateLocalRecoveryResponse(context.Context, s
 	return "", errors.New("local recovery unavailable")
 }
 
-func (recoveryCapableTestModel) GenerateRecoveryChatCompletion(context.Context, llm.ChatCompletionRequest) (llm.ChatCompletionResponse, error) {
-	return llm.ChatCompletionResponse{
+func (recoveryCapableTestModel) GenerateRecoveryChatCompletion(context.Context, model.ChatCompletionRequest) (model.ChatCompletionResponse, error) {
+	return model.ChatCompletionResponse{
 		FinishReason:    "stop",
 		ProviderName:    "chat-provider",
 		ModelName:       "chat-model",
 		SelectedBackend: "remote",
-		Message:         llm.ChatCompletionMessage{Role: "assistant", Content: "chat recovered"},
-		Usage:           llm.Usage{PromptTokens: 2, CompletionTokens: 3, TotalTokens: 5},
+		Message:         model.ChatCompletionMessage{Role: "assistant", Content: "chat recovered"},
+		Usage:           model.Usage{PromptTokens: 2, CompletionTokens: 3, TotalTokens: 5},
 	}, nil
 }
 
-func (recoveryCapableTestModel) GenerateLocalRecoveryChatCompletion(context.Context, llm.ChatCompletionRequest) (llm.ChatCompletionResponse, error) {
-	return llm.ChatCompletionResponse{
+func (recoveryCapableTestModel) GenerateLocalRecoveryChatCompletion(context.Context, model.ChatCompletionRequest) (model.ChatCompletionResponse, error) {
+	return model.ChatCompletionResponse{
 		FinishReason:    "stop",
 		ProviderName:    "local-chat-provider",
 		ModelName:       "local-chat-model",
 		SelectedBackend: "device",
-		Message:         llm.ChatCompletionMessage{Role: "assistant", Content: "local chat recovered"},
+		Message:         model.ChatCompletionMessage{Role: "assistant", Content: "local chat recovered"},
 	}, nil
 }
 
-func (recoveryCapableTestModel) GenerateChatCompletion(context.Context, llm.ChatCompletionRequest) (llm.ChatCompletionResponse, error) {
-	return llm.ChatCompletionResponse{
+func (recoveryCapableTestModel) GenerateChatCompletion(context.Context, model.ChatCompletionRequest) (model.ChatCompletionResponse, error) {
+	return model.ChatCompletionResponse{
 		FinishReason:    "stop",
 		ProviderName:    "chat-provider",
 		ModelName:       "chat-model",
 		SelectedBackend: "remote",
-		Message:         llm.ChatCompletionMessage{Role: "assistant", Content: "chat reply"},
+		Message:         model.ChatCompletionMessage{Role: "assistant", Content: "chat reply"},
 	}, nil
 }
 
@@ -397,12 +398,12 @@ func (chatErrorTestModel) GenerateResponse(context.Context, string) (string, err
 	return "", nil
 }
 
-func (chatErrorTestModel) GenerateStructuredResponse(context.Context, llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
-	return llm.StructuredResponse{}, nil
+func (chatErrorTestModel) GenerateStructuredResponse(context.Context, model.StructuredResponseRequest) (model.StructuredResponse, error) {
+	return model.StructuredResponse{}, nil
 }
 
-func (chatErrorTestModel) GenerateChatCompletion(context.Context, llm.ChatCompletionRequest) (llm.ChatCompletionResponse, error) {
-	return llm.ChatCompletionResponse{
+func (chatErrorTestModel) GenerateChatCompletion(context.Context, model.ChatCompletionRequest) (model.ChatCompletionResponse, error) {
+	return model.ChatCompletionResponse{
 		FinishReason:    "error",
 		ProviderName:    "chat-provider",
 		ModelName:       "chat-model",
@@ -411,8 +412,8 @@ func (chatErrorTestModel) GenerateChatCompletion(context.Context, llm.ChatComple
 	}, errors.New("chat failed")
 }
 
-func (chatErrorTestModel) GenerateRecoveryChatCompletion(context.Context, llm.ChatCompletionRequest) (llm.ChatCompletionResponse, error) {
-	return llm.ChatCompletionResponse{
+func (chatErrorTestModel) GenerateRecoveryChatCompletion(context.Context, model.ChatCompletionRequest) (model.ChatCompletionResponse, error) {
+	return model.ChatCompletionResponse{
 		FinishReason:    "error",
 		ProviderName:    "recovery-provider",
 		ModelName:       "recovery-model",
@@ -422,19 +423,19 @@ func (chatErrorTestModel) GenerateRecoveryChatCompletion(context.Context, llm.Ch
 }
 
 type nestedChatAccessorTestModel struct {
-	provider llm.LanguageModelProvider
+	provider model.LanguageModelProvider
 }
 
-func (model nestedChatAccessorTestModel) GenerateResponse(ctx context.Context, prompt string) (string, error) {
-	return model.provider.GenerateResponse(ctx, prompt)
+func (languageModel nestedChatAccessorTestModel) GenerateResponse(ctx context.Context, prompt string) (string, error) {
+	return languageModel.provider.GenerateResponse(ctx, prompt)
 }
 
-func (model nestedChatAccessorTestModel) GenerateStructuredResponse(ctx context.Context, request llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
-	return model.provider.GenerateStructuredResponse(ctx, request)
+func (languageModel nestedChatAccessorTestModel) GenerateStructuredResponse(ctx context.Context, request model.StructuredResponseRequest) (model.StructuredResponse, error) {
+	return languageModel.provider.GenerateStructuredResponse(ctx, request)
 }
 
-func (model nestedChatAccessorTestModel) TextChatCompleter() (llm.ChatCompleter, bool) {
-	return llm.ResolveTextChatCompleter(model.provider)
+func (languageModel nestedChatAccessorTestModel) TextChatCompleter() (model.ChatCompleter, bool) {
+	return llm.ResolveTextChatCompleter(languageModel.provider)
 }
 
 func TestObserveLanguageModelKeepsRecoveryCapabilityAndRecords(t *testing.T) {
@@ -443,7 +444,7 @@ func TestObserveLanguageModelKeepsRecoveryCapabilityAndRecords(t *testing.T) {
 		records = append(records, record)
 	})
 
-	recoveryProvider, hasRecovery := observed.(llm.RecoveryResponder)
+	recoveryProvider, hasRecovery := observed.(model.RecoveryResponder)
 	if !hasRecovery {
 		t.Fatal("expected recovery capability to be preserved")
 	}
@@ -475,8 +476,8 @@ func TestObserveLanguageModelKeepsRecoveryChatCapabilityAndRecords(t *testing.T)
 	if !hasRecoveryChat {
 		t.Fatal("expected recovery chat capability to be preserved")
 	}
-	response, errorValue := recoveryProvider.GenerateRecoveryChatCompletion(context.Background(), llm.ChatCompletionRequest{
-		Messages: []llm.ChatCompletionMessage{{Role: "user", Content: "prompt"}},
+	response, errorValue := recoveryProvider.GenerateRecoveryChatCompletion(context.Background(), model.ChatCompletionRequest{
+		Messages: []model.ChatCompletionMessage{{Role: "user", Content: "prompt"}},
 	})
 	if errorValue != nil || response.Message.Content != "chat recovered" {
 		t.Fatalf("expected recovery chat passthrough, got %+v %v", response, errorValue)
@@ -507,7 +508,7 @@ func TestObserveLanguageModelPreservesNestedRecoveryChatCapabilities(t *testing.
 	if !hasLocalRecoveryChat {
 		t.Fatal("expected nested local recovery chat capability")
 	}
-	request := llm.ChatCompletionRequest{Messages: []llm.ChatCompletionMessage{{Role: "user", Content: "prompt"}}}
+	request := model.ChatCompletionRequest{Messages: []model.ChatCompletionMessage{{Role: "user", Content: "prompt"}}}
 	if _, errorValue := recoveryProvider.GenerateRecoveryChatCompletion(context.Background(), request); errorValue != nil {
 		t.Fatalf("expected nested recovery chat response: %v", errorValue)
 	}
@@ -534,15 +535,15 @@ func assertRecoveryChatRecords(t *testing.T, records []llmCallRecord, label stri
 }
 
 func TestChatCallRecordCountsNativeToolDefinitionBytes(t *testing.T) {
-	request := llm.ChatCompletionRequest{
-		Messages: []llm.ChatCompletionMessage{{Role: "user", Content: "hello"}},
-		Tools: []llm.ChatCompletionTool{
-			{Type: "function", Function: llm.ChatCompletionFunction{Name: "calendar.update", Parameters: json.RawMessage(`{"type":"object"}`)}},
-			{Type: "function", Function: llm.ChatCompletionFunction{Name: "task.add", Parameters: json.RawMessage(`{"type":"object"}`)}},
+	request := model.ChatCompletionRequest{
+		Messages: []model.ChatCompletionMessage{{Role: "user", Content: "hello"}},
+		Tools: []model.ChatCompletionTool{
+			{Type: "function", Function: model.ChatCompletionFunction{Name: "calendar.update", Parameters: json.RawMessage(`{"type":"object"}`)}},
+			{Type: "function", Function: model.ChatCompletionFunction{Name: "task.add", Parameters: json.RawMessage(`{"type":"object"}`)}},
 		},
 	}
 
-	record := chatCallRecord("chat", request, llm.ChatCompletionResponse{}, time.Now(), nil)
+	record := chatCallRecord("chat", request, model.ChatCompletionResponse{}, time.Now(), nil)
 
 	if record.ToolCount != 2 {
 		t.Fatalf("expected two native tools recorded, got %d", record.ToolCount)

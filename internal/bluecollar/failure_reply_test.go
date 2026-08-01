@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/llm"
+	"github.com/Dawn-kim-official/blueclaw/internal/model"
 	"github.com/Dawn-kim-official/blueclaw/internal/task"
 )
 
@@ -81,7 +81,7 @@ func TestAgentTurnRunnerRepairsInvalidFailureReply(t *testing.T) {
 	assertRecoveryDecisionTokenBudget(t, languageModel.requests)
 }
 
-func assertRecoveryDecisionTokenBudget(t *testing.T, requests []llm.StructuredResponseRequest) {
+func assertRecoveryDecisionTokenBudget(t *testing.T, requests []model.StructuredResponseRequest) {
 	t.Helper()
 	for _, request := range requests {
 		if request.StructuredOutputSchema.Name != "blueclaw_recovery_decision" {
@@ -312,20 +312,20 @@ func (languageModel *blockingFailureWordingLanguageModel) GenerateResponse(conte
 	return "", errors.New("legacy recovery should not run after cancellation")
 }
 
-func (languageModel *blockingFailureWordingLanguageModel) GenerateStructuredResponse(responseContext context.Context, _ llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
+func (languageModel *blockingFailureWordingLanguageModel) GenerateStructuredResponse(responseContext context.Context, _ model.StructuredResponseRequest) (model.StructuredResponse, error) {
 	languageModel.structuredCalls++
 	if languageModel.failFirstStructuredCall && languageModel.structuredCalls == 1 {
-		return llm.StructuredResponse{}, errors.New("action schema validation failed")
+		return model.StructuredResponse{}, errors.New("action schema validation failed")
 	}
-	languageModel.requesterPersonID = llm.RequestContextFromContext(responseContext).RequesterPersonID
+	languageModel.requesterPersonID = model.RequestContextFromContext(responseContext).RequesterPersonID
 	languageModel.decisionDeadline, _ = responseContext.Deadline()
-	return llm.StructuredResponse{Content: recoveryDecisionDocument(
+	return model.StructuredResponse{Content: recoveryDecisionDocument(
 		"같은 요청을 다시 시도한다",
 		"업무를 추가하지 못한 사실과 재시도 방법을 설명한다",
 	)}, nil
 }
 
-func (languageModel *blockingFailureWordingLanguageModel) GenerateRecoveryChatCompletion(responseContext context.Context, _ llm.ChatCompletionRequest) (llm.ChatCompletionResponse, error) {
+func (languageModel *blockingFailureWordingLanguageModel) GenerateRecoveryChatCompletion(responseContext context.Context, _ model.ChatCompletionRequest) (model.ChatCompletionResponse, error) {
 	languageModel.recoveryChatCalls++
 	languageModel.recoveryChatDeadline, _ = responseContext.Deadline()
 	if languageModel.recoveryChatStarted != nil {
@@ -334,17 +334,17 @@ func (languageModel *blockingFailureWordingLanguageModel) GenerateRecoveryChatCo
 	if languageModel.recoveryChatRelease != nil {
 		select {
 		case <-languageModel.recoveryChatRelease:
-			return llm.ChatCompletionResponse{
+			return model.ChatCompletionResponse{
 				FinishReason:    "stop",
 				SelectedBackend: "remote",
-				Message:         llm.ChatCompletionMessage{Role: "assistant", Content: languageModel.recoveryChatReply},
+				Message:         model.ChatCompletionMessage{Role: "assistant", Content: languageModel.recoveryChatReply},
 			}, nil
 		case <-responseContext.Done():
-			return llm.ChatCompletionResponse{}, responseContext.Err()
+			return model.ChatCompletionResponse{}, responseContext.Err()
 		}
 	}
 	<-responseContext.Done()
-	return llm.ChatCompletionResponse{}, responseContext.Err()
+	return model.ChatCompletionResponse{}, responseContext.Err()
 }
 
 func TestAgentTurnRunnerUsesLocalRecoveryWhenRemoteAndRecoveryModelsFail(t *testing.T) {

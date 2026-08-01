@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/llm"
+	"github.com/Dawn-kim-official/blueclaw/internal/model"
 )
 
 func TestPromptAssemblerIncludesTemporalContext(t *testing.T) {
@@ -442,7 +442,7 @@ func TestPromptAssemblerCompressesLongObservationHistory(t *testing.T) {
 	}
 }
 
-func joinMessageContent(messages []llm.Message) string {
+func joinMessageContent(messages []model.Message) string {
 	parts := []string{}
 	for _, message := range messages {
 		parts = append(parts, message.Content)
@@ -455,7 +455,7 @@ func joinMessageContent(messages []llm.Message) string {
 	return strings.Join(parts, "\n")
 }
 
-func messagesContainImagePart(messages []llm.Message) bool {
+func messagesContainImagePart(messages []model.Message) bool {
 	for _, message := range messages {
 		for _, part := range message.Parts {
 			if part.Type == "image" && part.MimeType == "image/png" && part.DataBase64 == "aW1hZ2U=" {
@@ -466,7 +466,7 @@ func messagesContainImagePart(messages []llm.Message) bool {
 	return false
 }
 
-func messagesContainUserImagePart(messages []llm.Message) bool {
+func messagesContainUserImagePart(messages []model.Message) bool {
 	for _, message := range messages {
 		if message.Role != "user" {
 			continue

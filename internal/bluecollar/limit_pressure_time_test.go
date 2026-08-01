@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/llm"
+	"github.com/Dawn-kim-official/blueclaw/internal/model"
 	"github.com/Dawn-kim-official/blueclaw/internal/task"
 )
 
@@ -500,9 +500,9 @@ func (deadlineBlockingLanguageModel) GenerateResponse(responseContext context.Co
 	return "", responseContext.Err()
 }
 
-func (deadlineBlockingLanguageModel) GenerateStructuredResponse(responseContext context.Context, _ llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
+func (deadlineBlockingLanguageModel) GenerateStructuredResponse(responseContext context.Context, _ model.StructuredResponseRequest) (model.StructuredResponse, error) {
 	<-responseContext.Done()
-	return llm.StructuredResponse{}, responseContext.Err()
+	return model.StructuredResponse{}, responseContext.Err()
 }
 
 type elapsedClosingLanguageModel struct {
@@ -518,7 +518,7 @@ type elapsedClosingLanguageModel struct {
 	observeTaskStatus  func() task.TaskStatus
 	statusAtClosing    task.TaskStatus
 	closingHasDeadline bool
-	closingRequest     llm.ChatCompletionRequest
+	closingRequest     model.ChatCompletionRequest
 	actionCalls        int
 	closingCalls       int
 	structuredCalls    int
@@ -538,47 +538,47 @@ func (languageModel *elapsedClosingLanguageModel) GenerateResponse(context.Conte
 	return "", errors.New("legacy response path is not allowed")
 }
 
-func (languageModel *elapsedClosingLanguageModel) GenerateStructuredResponse(responseContext context.Context, _ llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
+func (languageModel *elapsedClosingLanguageModel) GenerateStructuredResponse(responseContext context.Context, _ model.StructuredResponseRequest) (model.StructuredResponse, error) {
 	languageModel.structuredCalls++
 	if languageModel.blockStructured {
 		<-responseContext.Done()
-		return llm.StructuredResponse{}, responseContext.Err()
+		return model.StructuredResponse{}, responseContext.Err()
 	}
-	return llm.StructuredResponse{}, errors.New("structured path is not allowed after elapsed cutoff")
+	return model.StructuredResponse{}, errors.New("structured path is not allowed after elapsed cutoff")
 }
 
-func (languageModel *elapsedClosingLanguageModel) GenerateChatCompletion(responseContext context.Context, request llm.ChatCompletionRequest) (llm.ChatCompletionResponse, error) {
+func (languageModel *elapsedClosingLanguageModel) GenerateChatCompletion(responseContext context.Context, request model.ChatCompletionRequest) (model.ChatCompletionResponse, error) {
 	if request.SchemaName == elapsedReplySchemaName {
 		return languageModel.generateElapsedClosing(responseContext, request)
 	}
 	if request.SchemaName != agentActionSchemaName {
-		return llm.ChatCompletionResponse{}, errors.New("unexpected chat schema")
+		return model.ChatCompletionResponse{}, errors.New("unexpected chat schema")
 	}
 	languageModel.actionCalls++
 	actionIndex := languageModel.actionCalls - 1
 	if actionIndex < len(languageModel.actionToolNames) {
-		return llm.ChatCompletionResponse{
+		return model.ChatCompletionResponse{
 			FinishReason: "tool_calls",
-			Message: llm.ChatCompletionMessage{
+			Message: model.ChatCompletionMessage{
 				Role:      "assistant",
-				ToolCalls: []llm.ChatCompletionToolCall{nativeAgentActionToolCall(languageModel.actionToolNames[actionIndex], languageModel.actionToolInputs[actionIndex])},
+				ToolCalls: []model.ChatCompletionToolCall{nativeAgentActionToolCall(languageModel.actionToolNames[actionIndex], languageModel.actionToolInputs[actionIndex])},
 			},
 		}, nil
 	}
 	if languageModel.actionCalls == 1 && languageModel.actionToolName != "" {
-		return llm.ChatCompletionResponse{
+		return model.ChatCompletionResponse{
 			FinishReason: "tool_calls",
-			Message: llm.ChatCompletionMessage{
+			Message: model.ChatCompletionMessage{
 				Role:      "assistant",
-				ToolCalls: []llm.ChatCompletionToolCall{nativeAgentActionToolCall(languageModel.actionToolName, languageModel.actionToolInput)},
+				ToolCalls: []model.ChatCompletionToolCall{nativeAgentActionToolCall(languageModel.actionToolName, languageModel.actionToolInput)},
 			},
 		}, nil
 	}
 	<-responseContext.Done()
-	return llm.ChatCompletionResponse{}, responseContext.Err()
+	return model.ChatCompletionResponse{}, responseContext.Err()
 }
 
-func (languageModel *elapsedClosingLanguageModel) generateElapsedClosing(responseContext context.Context, request llm.ChatCompletionRequest) (llm.ChatCompletionResponse, error) {
+func (languageModel *elapsedClosingLanguageModel) generateElapsedClosing(responseContext context.Context, request model.ChatCompletionRequest) (model.ChatCompletionResponse, error) {
 	languageModel.closingCalls++
 	languageModel.closingRequest = request
 	_, languageModel.closingHasDeadline = responseContext.Deadline()
@@ -590,14 +590,14 @@ func (languageModel *elapsedClosingLanguageModel) generateElapsedClosing(respons
 	}
 	if languageModel.blockClosing {
 		<-responseContext.Done()
-		return llm.ChatCompletionResponse{}, responseContext.Err()
+		return model.ChatCompletionResponse{}, responseContext.Err()
 	}
 	if languageModel.closingError != nil {
-		return llm.ChatCompletionResponse{}, languageModel.closingError
+		return model.ChatCompletionResponse{}, languageModel.closingError
 	}
-	return llm.ChatCompletionResponse{
+	return model.ChatCompletionResponse{
 		FinishReason: "stop",
-		Message:      llm.ChatCompletionMessage{Role: "assistant", Content: languageModel.closingReply},
+		Message:      model.ChatCompletionMessage{Role: "assistant", Content: languageModel.closingReply},
 	}, nil
 }
 

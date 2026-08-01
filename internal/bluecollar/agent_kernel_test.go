@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/llm"
+	"github.com/Dawn-kim-official/blueclaw/internal/model"
 	"github.com/Dawn-kim-official/blueclaw/internal/task"
 )
 
@@ -18,16 +18,16 @@ type intakeDecisionLanguageModel struct {
 	decision TurnDecision
 }
 
-func (model intakeDecisionLanguageModel) GenerateResponse(context.Context, string) (string, error) {
+func (languageModel intakeDecisionLanguageModel) GenerateResponse(context.Context, string) (string, error) {
 	return "", errors.New("intake model only serves structured routing")
 }
 
-func (model intakeDecisionLanguageModel) GenerateStructuredResponse(context.Context, llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
-	document, errorValue := json.Marshal(model.decision)
+func (languageModel intakeDecisionLanguageModel) GenerateStructuredResponse(context.Context, model.StructuredResponseRequest) (model.StructuredResponse, error) {
+	document, errorValue := json.Marshal(languageModel.decision)
 	if errorValue != nil {
-		return llm.StructuredResponse{}, errorValue
+		return model.StructuredResponse{}, errorValue
 	}
-	return llm.StructuredResponse{Content: string(document)}, nil
+	return model.StructuredResponse{Content: string(document)}, nil
 }
 
 func newKernelTestServices() (*AgentKernel, *task.TaskRunService) {
@@ -506,26 +506,26 @@ func TestAgentKernelSideEffectTaskProceedsWithoutRouterPredictedEvidence(t *test
 
 type routerLedgerLanguageModel struct {
 	decision   TurnDecision
-	response   llm.StructuredResponse
+	response   model.StructuredResponse
 	errorValue error
 }
 
-func (model *routerLedgerLanguageModel) GenerateResponse(context.Context, string) (string, error) {
+func (languageModel *routerLedgerLanguageModel) GenerateResponse(context.Context, string) (string, error) {
 	return "", errors.New("router model only serves structured routing")
 }
 
-func (model *routerLedgerLanguageModel) GenerateStructuredResponse(_ context.Context, request llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
+func (languageModel *routerLedgerLanguageModel) GenerateStructuredResponse(_ context.Context, request model.StructuredResponseRequest) (model.StructuredResponse, error) {
 	if request.StructuredOutputSchema.Name != turnRouterSchemaName {
-		return llm.StructuredResponse{Content: "{}"}, nil
+		return model.StructuredResponse{Content: "{}"}, nil
 	}
-	if model.errorValue != nil {
-		return model.response, model.errorValue
+	if languageModel.errorValue != nil {
+		return languageModel.response, languageModel.errorValue
 	}
-	document, errorValue := json.Marshal(model.decision)
+	document, errorValue := json.Marshal(languageModel.decision)
 	if errorValue != nil {
-		return llm.StructuredResponse{}, errorValue
+		return model.StructuredResponse{}, errorValue
 	}
-	response := model.response
+	response := languageModel.response
 	response.Content = string(document)
 	return response, nil
 }
@@ -625,11 +625,11 @@ func TestAgentKernelPersistsTurnRouterLLMCall(t *testing.T) {
 			ResponseLanguage: "ko",
 			Reason:           "direct answer",
 		},
-		response: llm.StructuredResponse{
+		response: model.StructuredResponse{
 			ProviderName: "llmd",
 			ModelName:    "router-model",
 			ModelTier:    "xlow",
-			Usage: llm.Usage{
+			Usage: model.Usage{
 				PromptTokens:     11,
 				CompletionTokens: 7,
 				TotalTokens:      18,
@@ -657,7 +657,7 @@ func TestAgentKernelPersistsTurnRouterLLMCall(t *testing.T) {
 func TestAgentKernelPersistsTurnRouterFailureWithoutFallbackRoute(t *testing.T) {
 	agentKernel, taskRunService := newKernelTestServices()
 	agentKernel.UseIntakeLanguageModelProvider(&routerLedgerLanguageModel{
-		response: llm.StructuredResponse{
+		response: model.StructuredResponse{
 			ProviderName: "llmd",
 			ModelName:    "router-model",
 		},
@@ -1040,9 +1040,9 @@ func (deadlineBlockingRouterLanguageModel) GenerateResponse(context.Context, str
 	return "", errors.New("router model only serves structured routing")
 }
 
-func (deadlineBlockingRouterLanguageModel) GenerateStructuredResponse(responseContext context.Context, _ llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
+func (deadlineBlockingRouterLanguageModel) GenerateStructuredResponse(responseContext context.Context, _ model.StructuredResponseRequest) (model.StructuredResponse, error) {
 	<-responseContext.Done()
-	return llm.StructuredResponse{}, responseContext.Err()
+	return model.StructuredResponse{}, responseContext.Err()
 }
 
 type routerThenBlockingLanguageModel struct {
@@ -1054,14 +1054,14 @@ func (languageModel *routerThenBlockingLanguageModel) GenerateResponse(context.C
 	return "", errors.New("language model only serves structured generation")
 }
 
-func (languageModel *routerThenBlockingLanguageModel) GenerateStructuredResponse(responseContext context.Context, request llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
+func (languageModel *routerThenBlockingLanguageModel) GenerateStructuredResponse(responseContext context.Context, request model.StructuredResponseRequest) (model.StructuredResponse, error) {
 	if request.StructuredOutputSchema.Name == turnRouterSchemaName {
 		document, errorValue := json.Marshal(languageModel.decision)
-		return llm.StructuredResponse{Content: string(document)}, errorValue
+		return model.StructuredResponse{Content: string(document)}, errorValue
 	}
 	languageModel.postRouterCallCount++
 	<-responseContext.Done()
-	return llm.StructuredResponse{}, responseContext.Err()
+	return model.StructuredResponse{}, responseContext.Err()
 }
 
 type deadlineCapturingFinishLanguageModel struct {
@@ -1072,9 +1072,9 @@ func (languageModel *deadlineCapturingFinishLanguageModel) GenerateResponse(cont
 	return "", errors.New("language model only serves structured generation")
 }
 
-func (languageModel *deadlineCapturingFinishLanguageModel) GenerateStructuredResponse(responseContext context.Context, _ llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
+func (languageModel *deadlineCapturingFinishLanguageModel) GenerateStructuredResponse(responseContext context.Context, _ model.StructuredResponseRequest) (model.StructuredResponse, error) {
 	languageModel.deadline, _ = responseContext.Deadline()
-	return llm.StructuredResponse{Content: finishMessageDocument("완료했습니다.")}, nil
+	return model.StructuredResponse{Content: finishMessageDocument("완료했습니다.")}, nil
 }
 
 func taskEventNameCount(taskEvents []task.TaskEvent, eventName string) int {

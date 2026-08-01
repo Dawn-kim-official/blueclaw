@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/llm"
+	"github.com/Dawn-kim-official/blueclaw/internal/model"
 )
 
 type ExecutionPlan struct {
@@ -67,9 +67,9 @@ func (agentKernel *AgentKernel) BuildExecutionPlan(responseContext context.Conte
 	}
 	structuredResponse, errorValue := agentKernel.languageModel.GenerateStructuredResponse(
 		responseContext,
-		llm.StructuredResponseRequest{
+		model.StructuredResponseRequest{
 			Messages: confirmationPlanMessages(request, requiredEvidenceTools),
-			StructuredOutputSchema: llm.StructuredOutputSchema{
+			StructuredOutputSchema: model.StructuredOutputSchema{
 				Name:               "blueclaw_execution_plan",
 				Document:           executionPlanSchema(),
 				IsStrictlyEnforced: true,
@@ -120,8 +120,8 @@ func (agentKernel *AgentKernel) generateConfirmationUserMessage(responseContext 
 	decisionDocument, _ := json.Marshal(decision)
 	structuredResponse, errorValue := agentKernel.languageModel.GenerateStructuredResponse(
 		responseContext,
-		llm.StructuredResponseRequest{
-			Messages: []llm.Message{
+		model.StructuredResponseRequest{
+			Messages: []model.Message{
 				{Role: "system", Content: "Write one concise user-facing message for Blueclaw. Do not expose JSON, task IDs, or internal tool names."},
 				{Role: "system", Content: responseLanguageInstruction(request.ResponseLanguage)},
 				{Role: "system", Content: buildTemporalContextDescription(request.TurnStartedAt)},
@@ -133,7 +133,7 @@ func (agentKernel *AgentKernel) generateConfirmationUserMessage(responseContext 
 					"Policy decision: " + string(decisionDocument),
 				}, "\n")},
 			},
-			StructuredOutputSchema: llm.StructuredOutputSchema{
+			StructuredOutputSchema: model.StructuredOutputSchema{
 				Name:               "blueclaw_confirmation_message",
 				Document:           `{"type":"object","properties":{"reply":{"type":"string"}},"required":["reply"],"additionalProperties":false}`,
 				IsStrictlyEnforced: true,
@@ -162,9 +162,9 @@ func (agentKernel *AgentKernel) ResolveChoiceReply(responseContext context.Conte
 	}
 	structuredResponse, errorValue := agentKernel.languageModel.GenerateStructuredResponse(
 		responseContext,
-		llm.StructuredResponseRequest{
+		model.StructuredResponseRequest{
 			Messages: choiceReplyMessages(request),
-			StructuredOutputSchema: llm.StructuredOutputSchema{
+			StructuredOutputSchema: model.StructuredOutputSchema{
 				Name:               "blueclaw_choice_reply_decision",
 				Document:           choiceReplySchema(request),
 				IsStrictlyEnforced: true,
@@ -184,7 +184,7 @@ func (agentKernel *AgentKernel) ResolveChoiceReply(responseContext context.Conte
 	return decision, nil
 }
 
-func confirmationPlanMessages(request AgentRequest, evidenceHints []string) []llm.Message {
+func confirmationPlanMessages(request AgentRequest, evidenceHints []string) []model.Message {
 	contextText := (LLMContextBuilder{}).Build(LLMContextInput{
 		ResponseLanguage: request.ResponseLanguage,
 		UserPrompt:       request.Prompt,
@@ -193,7 +193,7 @@ func confirmationPlanMessages(request AgentRequest, evidenceHints []string) []ll
 		ActiveGoal:       request.ActiveGoal,
 		ExtraSections:    []string{"Selected skill evidence hints, not requirements: " + strings.Join(evidenceHints, ", ")},
 	})
-	return []llm.Message{
+	return []model.Message{
 		{Role: "system", Content: strings.Join([]string{
 			"You create a structured execution plan before Blueclaw performs risky or recurring work.",
 			"Classify side effects accurately. External sends include DM, email, Slack, Mattermost, and messages to people or channels.",
@@ -208,12 +208,12 @@ func confirmationPlanMessages(request AgentRequest, evidenceHints []string) []ll
 	}
 }
 
-func choiceReplyMessages(request ChoiceReplyRequest) []llm.Message {
+func choiceReplyMessages(request ChoiceReplyRequest) []model.Message {
 	optionLines := []string{}
 	for index, option := range request.Options {
 		optionLines = append(optionLines, strings.TrimSpace(option.Key)+" / "+strconv.Itoa(index+1)+". "+strings.TrimSpace(option.Label))
 	}
-	return []llm.Message{
+	return []model.Message{
 		{Role: "system", Content: strings.Join([]string{
 			"Resolve the latest user reply against a pending choice question.",
 			"Return only the short option key from the enum. Do not return labels.",

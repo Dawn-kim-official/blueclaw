@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/llm"
+	"github.com/Dawn-kim-official/blueclaw/internal/model"
 )
 
 func TestBuildAgentActionRequestIncludesExecutionStateAndTerminalTail(t *testing.T) {
@@ -190,7 +190,7 @@ func longTerminalOutput(finalLine string) string {
 	return strings.Join(lines, "\n")
 }
 
-func messagesText(messages []llm.Message) string {
+func messagesText(messages []model.Message) string {
 	parts := []string{}
 	for _, message := range messages {
 		parts = append(parts, message.Content)

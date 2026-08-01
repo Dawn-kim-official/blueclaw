@@ -6,7 +6,7 @@ import (
 	"github.com/Dawn-kim-official/blueclaw/internal/toolcontract"
 	"strings"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/llm"
+	"github.com/Dawn-kim-official/blueclaw/internal/model"
 	"github.com/Dawn-kim-official/blueclaw/internal/task"
 )
 
@@ -213,20 +213,20 @@ func completionEvidenceObservationIDs(events []task.TaskEvent) map[string]bool {
 
 func (agentTurnRunner *AgentTurnRunner) generateTaskContextSummary(ctx context.Context, request AgentTurnRequest, currentSummary TaskContextSummary, observations []turnObservation) (TaskContextSummary, bool) {
 	maxTokens := taskContextSummaryMaxTokens
-	structuredResponse, errorValue := agentTurnRunner.languageModel.GenerateStructuredResponse(ctx, llm.StructuredResponseRequest{
-		Messages: []llm.Message{{
+	structuredResponse, errorValue := agentTurnRunner.languageModel.GenerateStructuredResponse(ctx, model.StructuredResponseRequest{
+		Messages: []model.Message{{
 			Role:    "system",
 			Content: taskContextSummaryInstruction(),
 		}, {
 			Role:    "user",
 			Content: taskContextSummaryInput(request, currentSummary, observations),
 		}},
-		StructuredOutputSchema: llm.StructuredOutputSchema{
+		StructuredOutputSchema: model.StructuredOutputSchema{
 			Name:               "blueclaw_task_context_summary",
 			Document:           taskContextSummarySchema(),
 			IsStrictlyEnforced: true,
 		},
-		GenerationOptions: llm.GenerationOptions{MaxTokens: &maxTokens},
+		GenerationOptions: model.GenerationOptions{MaxTokens: &maxTokens},
 	})
 	if errorValue != nil {
 		return TaskContextSummary{}, false
@@ -293,7 +293,7 @@ func normalizeTaskContextSummaryList(values []string, limit int) []string {
 	return normalizedValues
 }
 
-func estimatePromptTokenCount(messages []llm.Message) int {
+func estimatePromptTokenCount(messages []model.Message) int {
 	byteCount := 0
 	for _, message := range messages {
 		byteCount += len(message.Role) + len(message.Content)

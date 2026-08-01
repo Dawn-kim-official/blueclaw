@@ -5,14 +5,14 @@ import (
 	"encoding/json"
 	"strings"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/llm"
+	"github.com/Dawn-kim-official/blueclaw/internal/model"
 )
 
 type SkillSearchQueryRouter struct {
-	languageModel llm.LanguageModelProvider
+	languageModel model.LanguageModelProvider
 }
 
-func NewSkillSearchQueryRouter(languageModel llm.LanguageModelProvider) SkillSearchQueryRouter {
+func NewSkillSearchQueryRouter(languageModel model.LanguageModelProvider) SkillSearchQueryRouter {
 	return SkillSearchQueryRouter{languageModel: languageModel}
 }
 
@@ -20,9 +20,9 @@ func (skillSearchQueryRouter SkillSearchQueryRouter) Build(ctx context.Context, 
 	if skillSearchQueryRouter.languageModel == nil {
 		return SkillSearchQuerySet{}, false
 	}
-	structuredResponse, errorValue := skillSearchQueryRouter.languageModel.GenerateStructuredResponse(ctx, llm.StructuredResponseRequest{
+	structuredResponse, errorValue := skillSearchQueryRouter.languageModel.GenerateStructuredResponse(ctx, model.StructuredResponseRequest{
 		Messages: skillSearchQueryRouter.buildMessages(request),
-		StructuredOutputSchema: llm.StructuredOutputSchema{
+		StructuredOutputSchema: model.StructuredOutputSchema{
 			Name:               "blueclaw_skill_search_queries",
 			Document:           `{"type":"object","properties":{"queries":{"type":"array","minItems":0,"maxItems":5,"items":{"type":"object","properties":{"description":{"type":"string"}},"required":["description"],"additionalProperties":false}}},"required":["queries"],"additionalProperties":false}`,
 			IsStrictlyEnforced: true,
@@ -46,8 +46,8 @@ func (skillSearchQueryRouter SkillSearchQueryRouter) Build(ctx context.Context, 
 	return normalizeSkillSearchQuerySet(querySet), true
 }
 
-func (skillSearchQueryRouter SkillSearchQueryRouter) buildMessages(request AgentRequest) []llm.Message {
-	messages := []llm.Message{
+func (skillSearchQueryRouter SkillSearchQueryRouter) buildMessages(request AgentRequest) []model.Message {
+	messages := []model.Message{
 		{
 			Role:    "system",
 			Content: "You convert the user's latest request into zero to five short skill search descriptions. The latest user request is authoritative. Use prior conversation only when it is needed to understand what the latest request means. If the latest request naturally continues prior work, carry forward only relevant topic, constraints, and output expectations. If the latest request is self-contained or changes topic or output type, do not carry forward stale subjects, websites, tools, or artifact formats. The first query should restate the latest request's main task, including its topic and deliverable when present. Return an empty queries array when no skill or external tool capability is needed. Each description must be a concise action-oriented sentence in English. Do not include workflow instructions, safety policy, tool arguments, or final answers.",
@@ -62,12 +62,12 @@ func (skillSearchQueryRouter SkillSearchQueryRouter) buildMessages(request Agent
 		},
 	}
 	if contextDescription := buildVisibleContextDescription(request.VisibleContext); contextDescription != "" {
-		messages = append(messages, llm.Message{Role: "system", Content: contextDescription})
+		messages = append(messages, model.Message{Role: "system", Content: contextDescription})
 	}
 	if goalDescription := activeGoalDescription(request.ActiveGoal); goalDescription != "" {
-		messages = append(messages, llm.Message{Role: "system", Content: goalDescription})
+		messages = append(messages, model.Message{Role: "system", Content: goalDescription})
 	}
-	messages = append(messages, llm.Message{Role: "user", Content: request.Prompt})
+	messages = append(messages, model.Message{Role: "user", Content: request.Prompt})
 	return messages
 }
 

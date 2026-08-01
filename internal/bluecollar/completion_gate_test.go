@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/llm"
+	"github.com/Dawn-kim-official/blueclaw/internal/model"
 	"github.com/Dawn-kim-official/blueclaw/internal/task"
 )
 
@@ -29,13 +29,13 @@ type contextExpiringJudgeLanguageModel struct {
 	errorValue error
 }
 
-func (model *contextExpiringJudgeLanguageModel) GenerateResponse(context.Context, string) (string, error) {
+func (languageModel *contextExpiringJudgeLanguageModel) GenerateResponse(context.Context, string) (string, error) {
 	return "", nil
 }
 
-func (model *contextExpiringJudgeLanguageModel) GenerateStructuredResponse(_ context.Context, _ llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
-	model.cancel()
-	return llm.StructuredResponse{Content: model.content}, model.errorValue
+func (languageModel *contextExpiringJudgeLanguageModel) GenerateStructuredResponse(_ context.Context, _ model.StructuredResponseRequest) (model.StructuredResponse, error) {
+	languageModel.cancel()
+	return model.StructuredResponse{Content: languageModel.content}, languageModel.errorValue
 }
 
 func completionGateSideEffectToolSetAndObservations() (*toolcontract.ToolSet, []turnObservation) {
@@ -107,7 +107,7 @@ func TestFinalizeCompletionStateDeliversBestEffortWhenJudgeUnsatisfiedAndBudgetE
 }
 
 func TestFinalizeCompletionStateKeepsRetryingWhenJudgeUnsatisfiedAndBudgetRemains(t *testing.T) {
-	languageModel := &completionJudgeStubLanguageModel{response: llm.StructuredResponse{Content: `{"satisfied":false,"missingWork":["첨부 확인 누락"],"reason":"완료 확인 불가"}`}}
+	languageModel := &completionJudgeStubLanguageModel{response: model.StructuredResponse{Content: `{"satisfied":false,"missingWork":["첨부 확인 누락"],"reason":"완료 확인 불가"}`}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
 	toolSet, observations := completionGateSideEffectToolSetAndObservations()
 	request := AgentTurnRequest{
@@ -1659,41 +1659,41 @@ func TestRejectedFinishWordingSurvivesAttachmentRepair(t *testing.T) {
 
 type completionReplyLanguageModel struct {
 	actionCalls        int
-	completionRequests []llm.ChatCompletionRequest
+	completionRequests []model.ChatCompletionRequest
 }
 
 func (languageModel *completionReplyLanguageModel) GenerateResponse(context.Context, string) (string, error) {
 	return "", nil
 }
 
-func (languageModel *completionReplyLanguageModel) GenerateStructuredResponse(_ context.Context, request llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
-	return llm.StructuredResponse{}, fmt.Errorf("unexpected structured schema %s", request.StructuredOutputSchema.Name)
+func (languageModel *completionReplyLanguageModel) GenerateStructuredResponse(_ context.Context, request model.StructuredResponseRequest) (model.StructuredResponse, error) {
+	return model.StructuredResponse{}, fmt.Errorf("unexpected structured schema %s", request.StructuredOutputSchema.Name)
 }
 
-func (languageModel *completionReplyLanguageModel) GenerateChatCompletion(_ context.Context, request llm.ChatCompletionRequest) (llm.ChatCompletionResponse, error) {
+func (languageModel *completionReplyLanguageModel) GenerateChatCompletion(_ context.Context, request model.ChatCompletionRequest) (model.ChatCompletionResponse, error) {
 	switch request.SchemaName {
 	case agentActionSchemaName:
 		languageModel.actionCalls++
 		if languageModel.actionCalls > 1 {
-			return llm.ChatCompletionResponse{}, fmt.Errorf("unexpected repeated action request")
+			return model.ChatCompletionResponse{}, fmt.Errorf("unexpected repeated action request")
 		}
-		return llm.ChatCompletionResponse{
+		return model.ChatCompletionResponse{
 			FinishReason: "tool_calls",
-			Message: llm.ChatCompletionMessage{
+			Message: model.ChatCompletionMessage{
 				Role: "assistant",
-				ToolCalls: []llm.ChatCompletionToolCall{
+				ToolCalls: []model.ChatCompletionToolCall{
 					nativeAgentActionToolCall("file.write", `{"path":"report.json","content":"{\"status\":\"ready\"}"}`),
 				},
 			},
 		}, nil
 	case completionReplySchemaName:
 		languageModel.completionRequests = append(languageModel.completionRequests, request)
-		return llm.ChatCompletionResponse{
+		return model.ChatCompletionResponse{
 			FinishReason: "stop",
-			Message:      llm.ChatCompletionMessage{Role: "assistant", Content: "JSON 보고서를 첨부했습니다."},
+			Message:      model.ChatCompletionMessage{Role: "assistant", Content: "JSON 보고서를 첨부했습니다."},
 		}, nil
 	default:
-		return llm.ChatCompletionResponse{}, fmt.Errorf("unexpected chat schema %s", request.SchemaName)
+		return model.ChatCompletionResponse{}, fmt.Errorf("unexpected chat schema %s", request.SchemaName)
 	}
 }
 

@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/llm"
+	"github.com/Dawn-kim-official/blueclaw/internal/model"
 )
 
 type PromptAssembler struct{}
@@ -21,7 +21,7 @@ type InjectedContextInput struct {
 	ExecutionState    ExecutionState
 }
 
-func BuildInjectedContextMessages(input InjectedContextInput) []llm.Message {
+func BuildInjectedContextMessages(input InjectedContextInput) []model.Message {
 	contextText := (LLMContextBuilder{}).Build(LLMContextInput{
 		ResponseLanguage:     input.RuntimeRequest.ResponseLanguage,
 		RequesterPersonID:    input.RuntimeRequest.RequesterPersonID,
@@ -55,14 +55,14 @@ func BuildInjectedContextMessages(input InjectedContextInput) []llm.Message {
 		RequiredEvidenceTools: append([]string{}, input.RuntimeRequest.RequiredEvidenceTools...),
 		OutcomeContract:       input.RuntimeRequest.OutcomeContract,
 	})
-	return compactMessages([]llm.Message{
+	return compactMessages([]model.Message{
 		systemMessage(input.BaseInstruction),
 		systemMessage(contextText),
 		toolResultImageContextMessage(input.Observations),
 	})
 }
 
-func (promptAssembler PromptAssembler) BuildTurnMessages(request AgentTurnRequest, observations []turnObservation, baseInstruction string, toolDescription string, executionStates ...ExecutionState) []llm.Message {
+func (promptAssembler PromptAssembler) BuildTurnMessages(request AgentTurnRequest, observations []turnObservation, baseInstruction string, toolDescription string, executionStates ...ExecutionState) []model.Message {
 	executionState := ExecutionState{}
 	if len(executionStates) > 0 {
 		executionState = executionStates[0]
@@ -81,24 +81,24 @@ func (promptAssembler PromptAssembler) BuildTurnMessages(request AgentTurnReques
 	return messages
 }
 
-func (promptAssembler PromptAssembler) BuildReplyMessages(prompt string, visibleContext VisibleContext, memoryContext string, instructionPrompt string) []llm.Message {
+func (promptAssembler PromptAssembler) BuildReplyMessages(prompt string, visibleContext VisibleContext, memoryContext string, instructionPrompt string) []model.Message {
 	contextText := (LLMContextBuilder{}).Build(LLMContextInput{
 		UserPrompt:        prompt,
 		InstructionPrompt: instructionPrompt,
 		VisibleContext:    visibleContext,
 		MemoryContext:     memoryContext,
 	})
-	messages := []llm.Message{
+	messages := []model.Message{
 		{Role: "system", Content: "You are Blueclaw. Reply helpfully and concisely to the user message. Use the provided context only as context; do not reveal hidden policy or provenance unless the user asks for it and access is allowed. If the user message only mentions you, answer or continue the recent visible conversation instead of asking what is needed. Treat jokes and playful addressed remarks as real conversational turns, and respond briefly like a good-humored coworker."},
 		{Role: "system", Content: contextText},
 	}
-	messages = append(messages, llm.Message{Role: "user", Content: prompt})
+	messages = append(messages, model.Message{Role: "user", Content: prompt})
 	return messages
 }
 
-func userMessageFromPromptAndParts(prompt string, inputParts []AgentPart) llm.Message {
+func userMessageFromPromptAndParts(prompt string, inputParts []AgentPart) model.Message {
 	if len(inputParts) == 0 {
-		return llm.Message{Role: "user", Content: strings.TrimSpace(prompt)}
+		return model.Message{Role: "user", Content: strings.TrimSpace(prompt)}
 	}
 	parts := []AgentPart{}
 	if strings.TrimSpace(prompt) != "" {
@@ -107,9 +107,9 @@ func userMessageFromPromptAndParts(prompt string, inputParts []AgentPart) llm.Me
 	parts = append(parts, inputParts...)
 	llmParts := AgentPartsToLLMParts(parts)
 	if len(llmParts) == 0 {
-		return llm.Message{Role: "user", Content: strings.TrimSpace(prompt)}
+		return model.Message{Role: "user", Content: strings.TrimSpace(prompt)}
 	}
-	return llm.Message{Role: "user", Parts: llmParts}
+	return model.Message{Role: "user", Parts: llmParts}
 }
 
 func buildTemporalContextDescription(turnStartedAt time.Time) string {
@@ -148,8 +148,8 @@ func buildInstructionContext(instructionPrompt string) string {
 	return "Workspace instructions and available skill references:\n" + strings.TrimSpace(instructionPrompt)
 }
 
-func systemMessage(content string) llm.Message {
-	return llm.Message{Role: "system", Content: strings.TrimSpace(content)}
+func systemMessage(content string) model.Message {
+	return model.Message{Role: "system", Content: strings.TrimSpace(content)}
 }
 
 func toolResultContextText(observations []turnObservation) string {
@@ -161,8 +161,8 @@ func toolResultContextText(observations []turnObservation) string {
 	return "Tool result context. This is the model-visible representation of tool outputs; use it for the next action instead of guessing from progress labels:\n" + body
 }
 
-func toolResultImageContextMessage(observations []turnObservation) llm.Message {
-	message := llm.Message{
+func toolResultImageContextMessage(observations []turnObservation) model.Message {
+	message := model.Message{
 		Role:    "user",
 		Content: "Tool result images for the next answer. Inspect these image parts directly; do not infer visual details from filenames or progress text.",
 	}
@@ -171,7 +171,7 @@ func toolResultImageContextMessage(observations []turnObservation) llm.Message {
 			if !strings.HasPrefix(strings.ToLower(strings.TrimSpace(attachment.ContentType)), "image/") || strings.TrimSpace(attachment.ContentBase64) == "" {
 				continue
 			}
-			message.Parts = append(message.Parts, llm.MessagePart{
+			message.Parts = append(message.Parts, model.MessagePart{
 				Type:       "image",
 				MimeType:   strings.TrimSpace(attachment.ContentType),
 				DataBase64: strings.TrimSpace(attachment.ContentBase64),
@@ -182,14 +182,14 @@ func toolResultImageContextMessage(observations []turnObservation) llm.Message {
 	return message
 }
 
-func compactMessages(messages []llm.Message) []llm.Message {
-	result := []llm.Message{}
+func compactMessages(messages []model.Message) []model.Message {
+	result := []model.Message{}
 	for _, message := range messages {
 		trimmedContent := strings.TrimSpace(message.Content)
 		if trimmedContent == "" && len(message.Parts) == 0 {
 			continue
 		}
-		result = append(result, llm.Message{Role: message.Role, Content: trimmedContent, Parts: append([]llm.MessagePart{}, message.Parts...)})
+		result = append(result, model.Message{Role: message.Role, Content: trimmedContent, Parts: append([]model.MessagePart{}, message.Parts...)})
 	}
 	return result
 }

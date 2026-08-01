@@ -5,19 +5,19 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/llm"
+	"github.com/Dawn-kim-official/blueclaw/internal/model"
 )
 
 type fixedReplyLanguageModel struct {
 	reply string
 }
 
-func (model fixedReplyLanguageModel) GenerateResponse(context.Context, string) (string, error) {
-	return model.reply, nil
+func (languageModel fixedReplyLanguageModel) GenerateResponse(context.Context, string) (string, error) {
+	return languageModel.reply, nil
 }
 
-func (model fixedReplyLanguageModel) GenerateStructuredResponse(context.Context, llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
-	return llm.StructuredResponse{}, nil
+func (languageModel fixedReplyLanguageModel) GenerateStructuredResponse(context.Context, model.StructuredResponseRequest) (model.StructuredResponse, error) {
+	return model.StructuredResponse{}, nil
 }
 
 func TestFailureNoticeFallsBackWhenChatReviewIsUnavailable(t *testing.T) {

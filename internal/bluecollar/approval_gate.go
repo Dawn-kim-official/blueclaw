@@ -9,7 +9,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/llm"
+	"github.com/Dawn-kim-official/blueclaw/internal/model"
 	"github.com/Dawn-kim-official/blueclaw/internal/task"
 )
 
@@ -281,8 +281,8 @@ func (agentTurnRunner *AgentTurnRunner) generateHeldCallConfirmationWording(ctx 
 	if errorValue != nil {
 		return "", errorValue
 	}
-	structuredResponse, errorValue := agentTurnRunner.languageModel.GenerateStructuredResponse(ctx, llm.StructuredResponseRequest{
-		Messages: []llm.Message{
+	structuredResponse, errorValue := agentTurnRunner.languageModel.GenerateStructuredResponse(ctx, model.StructuredResponseRequest{
+		Messages: []model.Message{
 			{Role: "system", Content: strings.Join([]string{
 				"Write exactly one concise user-facing approval question for Blueclaw.",
 				"The question asks whether to perform the pending action.",
@@ -294,7 +294,7 @@ func (agentTurnRunner *AgentTurnRunner) generateHeldCallConfirmationWording(ctx 
 			{Role: "system", Content: responseLanguageInstruction(request.ResponseLanguage)},
 			{Role: "user", Content: string(contextDocumentBytes)},
 		},
-		StructuredOutputSchema: llm.StructuredOutputSchema{
+		StructuredOutputSchema: model.StructuredOutputSchema{
 			Name:               "blueclaw_approval_question",
 			Document:           `{"type":"object","properties":{"question":{"type":"string"}},"required":["question"],"additionalProperties":false}`,
 			IsStrictlyEnforced: true,
