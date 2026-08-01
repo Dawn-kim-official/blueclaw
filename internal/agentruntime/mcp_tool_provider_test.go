@@ -61,7 +61,7 @@ func TestMCPToolProviderMapsIsErrorToToolFailure(t *testing.T) {
 			Policy: mcp.PolicyMetadata{
 				PrivacyClass:     "workspace",
 				ModelVisibility:  toolcontract.ToolVisibilityModel,
-				PolicyResource:   "tool:workspace.echo",
+				PolicyResource:   "tool:workspace_echo",
 				SideEffectClass:  toolcontract.ToolSideEffectRead,
 				CompletionMode:   toolcontract.ToolCompletionNone,
 				Idempotency:      toolcontract.ToolIdempotencySupported,
@@ -97,7 +97,7 @@ func TestMCPToolProviderRejectsPolicyDeniedInvocation(t *testing.T) {
 			Policy: mcp.PolicyMetadata{
 				PrivacyClass:     "workspace",
 				ModelVisibility:  toolcontract.ToolVisibilityModel,
-				PolicyResource:   "tool:workspace.echo",
+				PolicyResource:   "tool:workspace_echo",
 				SideEffectClass:  toolcontract.ToolSideEffectRead,
 				CompletionMode:   toolcontract.ToolCompletionNone,
 				Idempotency:      toolcontract.ToolIdempotencySupported,
@@ -109,7 +109,7 @@ func TestMCPToolProviderRejectsPolicyDeniedInvocation(t *testing.T) {
 				PersonID: "person-1",
 				Circles:  []string{"staff"},
 				ResourceAccessRules: []policy.ResourceAccessPolicy{{
-					Resource: "tool:workspace.echo",
+					Resource: "tool:workspace_echo",
 					Actions:  []string{"execute"},
 					Circles:  []string{"admin"},
 				}},
@@ -144,7 +144,7 @@ func TestMCPToolProviderUsesCanonicalDescriptor(t *testing.T) {
 			Policy: mcp.PolicyMetadata{
 				PrivacyClass:     "workspace",
 				ModelVisibility:  toolcontract.ToolVisibilityModel,
-				PolicyResource:   "tool:workspace.echo",
+				PolicyResource:   "tool:workspace_echo",
 				SideEffectClass:  toolcontract.ToolSideEffectRead,
 				CompletionMode:   toolcontract.ToolCompletionNone,
 				Idempotency:      toolcontract.ToolIdempotencySupported,
@@ -163,7 +163,7 @@ func TestMCPToolProviderUsesCanonicalDescriptor(t *testing.T) {
 	if !isFound {
 		t.Fatal("expected MCP tool")
 	}
-	if descriptor.ID != "mcp/workspace/workspace.echo" || descriptor.ProviderID != "mcp:workspace" {
+	if descriptor.ID != "mcp/workspace/workspace_echo" || descriptor.ProviderID != "mcp:workspace" {
 		t.Fatalf("unexpected identity: %+v", descriptor)
 	}
 	if !equalJSONSchema(descriptor.OutputSchema, mcpProviderOutputSchema) ||
@@ -187,7 +187,7 @@ func TestMCPToolProviderExcludesUserPresenceToolsFromScheduledRuns(t *testing.T)
 			PrivacyClass:         "workspace",
 			RequiresUserPresence: true,
 			ModelVisibility:      toolcontract.ToolVisibilityModel,
-			PolicyResource:       "tool:workspace.echo",
+			PolicyResource:       "tool:workspace_echo",
 			SideEffectClass:      toolcontract.ToolSideEffectRead,
 			CompletionMode:       toolcontract.ToolCompletionNone,
 			Idempotency:          toolcontract.ToolIdempotencySupported,
@@ -277,7 +277,7 @@ func TestMCPToolProviderValidatesStructuredSuccess(t *testing.T) {
 				Policy: mcp.PolicyMetadata{
 					PrivacyClass:     "workspace",
 					ModelVisibility:  toolcontract.ToolVisibilityModel,
-					PolicyResource:   "tool:workspace.echo",
+					PolicyResource:   "tool:workspace_echo",
 					SideEffectClass:  toolcontract.ToolSideEffectRead,
 					CompletionMode:   toolcontract.ToolCompletionNone,
 					Idempotency:      toolcontract.ToolIdempotencySupported,

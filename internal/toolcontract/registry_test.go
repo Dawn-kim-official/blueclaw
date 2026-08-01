@@ -17,7 +17,7 @@ type echoToolOutput struct {
 }
 
 func TestToolSetExcludesUnregisteredAllowedToolNames(t *testing.T) {
-	toolSet := NewToolSet([]string{"registered_tool", "missing.tool"})
+	toolSet := NewToolSet([]string{"registered_tool", "missing_tool"})
 	registerTestTool(toolSet, ToolDefinition{Name: "registered_tool"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		return testToolSuccess("ok"), nil
 	})
@@ -153,7 +153,7 @@ func TestToolSetKeepsDeclaredRecoverySideEffectBeforeDefault(t *testing.T) {
 }
 
 func TestToolSetInvokeRejectsHiddenTool(t *testing.T) {
-	toolSet := NewToolSet([]string{"visible.tool"})
+	toolSet := NewToolSet([]string{"visible_tool"})
 	registerTestTool(toolSet, ToolDefinition{Name: "hidden_tool"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		return testToolSuccess("hidden"), nil
 	})
