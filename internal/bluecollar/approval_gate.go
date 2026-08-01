@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/Dawn-kim-official/blueclaw/internal/toolcontract"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -99,7 +100,7 @@ func (agentTurnRunner *AgentTurnRunner) executeApprovedHeldCall(ctx context.Cont
 	return request, AgentTurnResult{}, false
 }
 
-func toolSetWithApprovedHeldCall(toolSet *ToolSet, toolName string) *ToolSet {
+func toolSetWithApprovedHeldCall(toolSet *toolcontract.ToolSet, toolName string) *toolcontract.ToolSet {
 	trimmedToolName := strings.TrimSpace(toolName)
 	if toolSet == nil || !toolSet.IsRegistered(trimmedToolName) {
 		return toolSet
@@ -191,7 +192,7 @@ func approvalHeldCallExecutedAfter(taskEvents []task.TaskEvent, toolName string)
 	return false
 }
 
-func toolCallRequiresRuntimeApproval(toolSet *ToolSet, actionDocument turnActionDocument) bool {
+func toolCallRequiresRuntimeApproval(toolSet *toolcontract.ToolSet, actionDocument turnActionDocument) bool {
 	trimmedToolName := strings.TrimSpace(actionDocument.ToolName)
 	if trimmedToolName == "" {
 		return false
@@ -200,7 +201,7 @@ func toolCallRequiresRuntimeApproval(toolSet *ToolSet, actionDocument turnAction
 	if isFound && definition.RequiresApproval {
 		return !sendHasReplyBlastRadius(definition, actionDocument.ToolInput)
 	}
-	if trimmedToolName != TerminalRunToolName {
+	if trimmedToolName != toolcontract.TerminalRunToolName {
 		return false
 	}
 	var input struct {
@@ -209,8 +210,8 @@ func toolCallRequiresRuntimeApproval(toolSet *ToolSet, actionDocument turnAction
 	return json.Unmarshal(actionDocument.ToolInput, &input) == nil && input.ApprovalRequired
 }
 
-func sendHasReplyBlastRadius(definition ToolDefinition, toolInput json.RawMessage) bool {
-	return ToolDefinitionSideEffectClass(definition) == ToolSideEffectExternalSend &&
+func sendHasReplyBlastRadius(definition toolcontract.ToolDefinition, toolInput json.RawMessage) bool {
+	return toolcontract.ToolDefinitionSideEffectClass(definition) == toolcontract.ToolSideEffectExternalSend &&
 		sendTargetsCurrentConversation(toolInput)
 }
 

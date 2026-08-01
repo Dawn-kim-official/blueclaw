@@ -3,6 +3,7 @@ package bluecollar
 import (
 	"context"
 	"encoding/json"
+	"github.com/Dawn-kim-official/blueclaw/internal/toolcontract"
 	"strconv"
 	"strings"
 
@@ -31,7 +32,7 @@ type completionLedgerEntry struct {
 	Result string `json:"result"`
 }
 
-func outcomeContractHasSideEffectEvidence(toolSet *ToolSet, contract OutcomeContract) bool {
+func outcomeContractHasSideEffectEvidence(toolSet *toolcontract.ToolSet, contract OutcomeContract) bool {
 	if requiredEvidenceIncludesSideEffect(toolSet, contract.RequiredEvidenceTools) {
 		return true
 	}
@@ -43,7 +44,7 @@ func outcomeContractHasSideEffectEvidence(toolSet *ToolSet, contract OutcomeCont
 	return false
 }
 
-func (agentTurnRunner *AgentTurnRunner) validateCompletionGateWithJudge(ctx context.Context, taskRunID string, request AgentTurnRequest, requirements []toolUseRequirement, observations []turnObservation, attachments []FileAttachment, criteria []qualityCriterion, actionDocument turnActionDocument) completionGateResult {
+func (agentTurnRunner *AgentTurnRunner) validateCompletionGateWithJudge(ctx context.Context, taskRunID string, request AgentTurnRequest, requirements []toolUseRequirement, observations []turnObservation, attachments []toolcontract.FileAttachment, criteria []qualityCriterion, actionDocument turnActionDocument) completionGateResult {
 	completionGateResult := validateCompletionGateForRequestWithExpectedResults(request, requirements, observations, attachments, criteria, actionDocument, agentTurnRunner.options.RecoveryBudget)
 	if !completionGateResult.IsSatisfied || ctx.Err() != nil {
 		return completionGateResult
@@ -58,7 +59,7 @@ func (agentTurnRunner *AgentTurnRunner) validateCompletionGateWithJudge(ctx cont
 	return completionGateResult
 }
 
-func (agentTurnRunner *AgentTurnRunner) evaluateCompletionJudge(ctx context.Context, taskRunID string, request AgentTurnRequest, observations []turnObservation, attachments []FileAttachment, actionDocument turnActionDocument) completionGateResult {
+func (agentTurnRunner *AgentTurnRunner) evaluateCompletionJudge(ctx context.Context, taskRunID string, request AgentTurnRequest, observations []turnObservation, attachments []toolcontract.FileAttachment, actionDocument turnActionDocument) completionGateResult {
 	if agentTurnRunner.languageModel == nil {
 		agentTurnRunner.appendEvent(taskRunID, "completion_judge.degraded", marshalEventBody(map[string]string{"error": "completion judge language model was not configured"}))
 		return completionGateResult{IsSatisfied: true}
@@ -104,7 +105,7 @@ func completionJudgeUnsatisfiedMessage(verdict completionJudgeVerdict) string {
 	return reason + " Missing: " + missingWorkText
 }
 
-func completionJudgeRequest(request AgentTurnRequest, observations []turnObservation, attachments []FileAttachment, actionDocument turnActionDocument) llm.StructuredResponseRequest {
+func completionJudgeRequest(request AgentTurnRequest, observations []turnObservation, attachments []toolcontract.FileAttachment, actionDocument turnActionDocument) llm.StructuredResponseRequest {
 	return llm.StructuredResponseRequest{
 		Messages: completionJudgeMessages(request, observations, attachments, actionDocument),
 		StructuredOutputSchema: llm.StructuredOutputSchema{
@@ -116,7 +117,7 @@ func completionJudgeRequest(request AgentTurnRequest, observations []turnObserva
 	}
 }
 
-func completionJudgeMessages(request AgentTurnRequest, observations []turnObservation, attachments []FileAttachment, actionDocument turnActionDocument) []llm.Message {
+func completionJudgeMessages(request AgentTurnRequest, observations []turnObservation, attachments []toolcontract.FileAttachment, actionDocument turnActionDocument) []llm.Message {
 	messages := []llm.Message{
 		{Role: "system", Content: completionJudgeInstruction()},
 		{Role: "system", Content: buildTemporalContextDescription(request.TurnStartedAt)},
@@ -140,7 +141,7 @@ func completionJudgeMessages(request AgentTurnRequest, observations []turnObserv
 // completion cites are actually sent. Judging attachment requirements against
 // the ledger therefore fails a turn for files the person never receives, and
 // passes one whose cited file is not the deliverable. State the sent set.
-func completionJudgeAttachmentDescription(attachments []FileAttachment) string {
+func completionJudgeAttachmentDescription(attachments []toolcontract.FileAttachment) string {
 	if len(attachments) == 0 {
 		return "Files this completion attaches for the user: none."
 	}
@@ -158,7 +159,7 @@ func completionJudgeAttachmentDescription(attachments []FileAttachment) string {
 // The attachments a finish sends are the ones its completion evidence cites,
 // resolved the same way the gate resolves them, so the judge and the delivery
 // never disagree about what the person receives.
-func deliveredCompletionAttachments(observations []turnObservation, actionDocument turnActionDocument) []FileAttachment {
+func deliveredCompletionAttachments(observations []turnObservation, actionDocument turnActionDocument) []toolcontract.FileAttachment {
 	return collectReferenceDeliveryAttachments(observations, actionDocument.CompletionEvidence)
 }
 
@@ -204,7 +205,7 @@ func completionJudgeExpectedResultsDescription(expectedResults []ExpectedResult)
 	return string(document)
 }
 
-func completionJudgeLedgerDocument(toolSet *ToolSet, observations []turnObservation) string {
+func completionJudgeLedgerDocument(toolSet *toolcontract.ToolSet, observations []turnObservation) string {
 	document, errorValue := json.Marshal(completionJudgeLedger(toolSet, observations))
 	if errorValue != nil {
 		return "[]"
@@ -212,7 +213,7 @@ func completionJudgeLedgerDocument(toolSet *ToolSet, observations []turnObservat
 	return string(document)
 }
 
-func observationsIncludeSideEffect(toolSet *ToolSet, observations []turnObservation) bool {
+func observationsIncludeSideEffect(toolSet *toolcontract.ToolSet, observations []turnObservation) bool {
 	for _, observation := range observations {
 		if isSideEffectObservation(toolSet, observation) {
 			return true
@@ -221,7 +222,7 @@ func observationsIncludeSideEffect(toolSet *ToolSet, observations []turnObservat
 	return false
 }
 
-func completionJudgeLedger(toolSet *ToolSet, observations []turnObservation) []completionLedgerEntry {
+func completionJudgeLedger(toolSet *toolcontract.ToolSet, observations []turnObservation) []completionLedgerEntry {
 	ledger := []completionLedgerEntry{}
 	for _, observation := range observations {
 		if observation.Action != "continue" || observation.Failed() || strings.TrimSpace(observation.Tool) == "" {
@@ -259,12 +260,12 @@ func newestLedgerEntriesWithinBudget(ledger []completionLedgerEntry, byteBudget 
 	return append([]completionLedgerEntry{marker}, kept...)
 }
 
-func isSideEffectObservation(toolSet *ToolSet, observation turnObservation) bool {
+func isSideEffectObservation(toolSet *toolcontract.ToolSet, observation turnObservation) bool {
 	toolName := strings.TrimSpace(observation.Tool)
 	if toolName == "" || observation.Failed() {
 		return false
 	}
-	return IsArtifactDeliveryTool(toolName) || requiredEvidenceToolNeedsSuccessfulSideEffect(toolSet, toolName)
+	return toolcontract.IsArtifactDeliveryTool(toolName) || requiredEvidenceToolNeedsSuccessfulSideEffect(toolSet, toolName)
 }
 
 func truncateForLedger(value string, maxLength int) string {

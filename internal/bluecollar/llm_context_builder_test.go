@@ -1,6 +1,7 @@
 package bluecollar
 
 import (
+	"github.com/Dawn-kim-official/blueclaw/internal/toolcontract"
 	"strings"
 	"testing"
 	"time"
@@ -58,7 +59,7 @@ func TestLLMContextBuilderFlattensConversationMemoryAndFailure(t *testing.T) {
 		Observations: []turnObservation{{
 			ObservationID: "obs-1",
 			Tool:          "message.send",
-			Failure: &ToolFailure{
+			Failure: &toolcontract.ToolFailure{
 				Code:            "send_failed",
 				Stage:           "message_send",
 				UserSafeSummary: "Mattermost returned 503",
@@ -104,13 +105,13 @@ func TestLLMContextBuilderIncludesObservedResultProjection(t *testing.T) {
 	descriptor, observation := canonicalEffectObservation(
 		"calendar.add",
 		`{"eventID":"event-1"}`,
-		[]ResourceEffect{{ObjectType: "calendar_event", Effect: "scheduled", ID: "event-1"}},
-		[]ResourceEffectContract{{ObjectType: "calendar_event", Effect: "scheduled", ResultField: "eventID", EffectIdentity: "id"}},
+		[]toolcontract.ResourceEffect{{ObjectType: "calendar_event", Effect: "scheduled", ID: "event-1"}},
+		[]toolcontract.ResourceEffectContract{{ObjectType: "calendar_event", Effect: "scheduled", ResultField: "eventID", EffectIdentity: "id"}},
 	)
 	contextText := (LLMContextBuilder{}).Build(LLMContextInput{
 		TurnStartedAt: time.Date(2026, time.May, 12, 8, 32, 27, 0, time.UTC),
 		Observations:  []turnObservation{observation},
-		ToolSet:       newTestToolSetWithDefinitions([]ToolDefinition{descriptor}),
+		ToolSet:       newTestToolSetWithDefinitions([]toolcontract.ToolDefinition{descriptor}),
 	})
 
 	for _, expected := range []string{"Observed result projection", "calendar_event", "scheduled", observation.ObservationID} {
@@ -236,13 +237,13 @@ func TestRecordedEffectsContextListsSuccessfulSideEffects(t *testing.T) {
 		{
 			ObservationID: "obs-001",
 			Tool:          "task.add",
-			Effects:       []ResourceEffect{{ObjectType: "task", Effect: "created", ID: "af8271"}},
+			Effects:       []toolcontract.ResourceEffect{{ObjectType: "task", Effect: "created", ID: "af8271"}},
 		},
 		{
 			ObservationID: "obs-002",
 			Tool:          "task.delete",
-			Failure:       &ToolFailure{Kind: FailureUnknown},
-			Effects:       []ResourceEffect{{ObjectType: "task", Effect: "deleted", ID: "dead01"}},
+			Failure:       &toolcontract.ToolFailure{Kind: toolcontract.FailureUnknown},
+			Effects:       []toolcontract.ResourceEffect{{ObjectType: "task", Effect: "deleted", ID: "dead01"}},
 		},
 	}
 

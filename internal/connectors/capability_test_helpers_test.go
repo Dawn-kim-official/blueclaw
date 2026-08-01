@@ -2,10 +2,10 @@ package connectors
 
 import (
 	"encoding/json"
+	"github.com/Dawn-kim-official/blueclaw/internal/toolcontract"
 	"strings"
 
 	"github.com/Dawn-kim-official/blueclaw/internal/agentruntime"
-	"github.com/Dawn-kim-official/blueclaw/internal/bluecollar"
 	"github.com/Dawn-kim-official/blueclaw/internal/capability"
 )
 
@@ -52,7 +52,7 @@ func connectorTestCapabilityToolDescriptor(toolName string) agentruntime.Capabil
 		CanonicalName:   toolName,
 		Namespace:       connectorTestCapabilityNamespace(toolName),
 		ModelName:       toolName,
-		ModelVisibility: bluecollar.ToolVisibilityModel,
+		ModelVisibility: toolcontract.ToolVisibilityModel,
 		Description:     "Test capability " + toolName,
 		PrivacyClass:    "test",
 		InputSchema:     connectorTestCapabilityInputSchemaForTool(toolName),
@@ -66,13 +66,13 @@ func connectorTestCapabilityToolDescriptor(toolName string) agentruntime.Capabil
 	if toolName == "browser.snapshot" {
 		descriptor.PrivacyClass = "user_browser"
 	}
-	if sideEffectClass != bluecollar.ToolSideEffectRead {
+	if sideEffectClass != toolcontract.ToolSideEffectRead {
 		descriptor.CompletionEvidence = &agentruntime.CapabilityCompletionEvidence{Mode: "success", Action: toolName, TargetKind: descriptor.Namespace}
 	}
-	if sideEffectClass == bluecollar.ToolSideEffectDestructive || sideEffectClass == bluecollar.ToolSideEffectExternalSend {
+	if sideEffectClass == toolcontract.ToolSideEffectDestructive || sideEffectClass == toolcontract.ToolSideEffectExternalSend {
 		descriptor.RequiresApproval = true
 	}
-	if bluecollar.ToolDescriptorRequiresInputIntentSchema(bluecollar.ToolDescriptor{Visibility: descriptor.ModelVisibility, SideEffectClass: descriptor.SideEffectClass}) {
+	if toolcontract.ToolDescriptorRequiresInputIntentSchema(toolcontract.ToolDescriptor{Visibility: descriptor.ModelVisibility, SideEffectClass: descriptor.SideEffectClass}) {
 		descriptor.InputIntentSchema = json.RawMessage(`{"type":"object","properties":{},"additionalProperties":false}`)
 	}
 	return descriptor
@@ -81,13 +81,13 @@ func connectorTestCapabilityToolDescriptor(toolName string) agentruntime.Capabil
 func connectorTestCapabilitySideEffect(toolName string) string {
 	switch toolName {
 	case "browser.snapshot":
-		return bluecollar.ToolSideEffectRead
+		return toolcontract.ToolSideEffectRead
 	case "calendar.delete":
-		return bluecollar.ToolSideEffectDestructive
+		return toolcontract.ToolSideEffectDestructive
 	case "message.send":
-		return bluecollar.ToolSideEffectExternalSend
+		return toolcontract.ToolSideEffectExternalSend
 	default:
-		return bluecollar.ToolSideEffectWorkspaceWrite
+		return toolcontract.ToolSideEffectWorkspaceWrite
 	}
 }
 

@@ -1,5 +1,7 @@
 package bluecollar
 
+import ()
+
 import "testing"
 
 func TestSelectToolsReclassifiesSkillNameThatIsRegisteredTool(t *testing.T) {

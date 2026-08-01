@@ -2,6 +2,7 @@ package bluecollar
 
 import (
 	"context"
+	"github.com/Dawn-kim-official/blueclaw/internal/toolcontract"
 	"testing"
 
 	"github.com/Dawn-kim-official/blueclaw/internal/task"
@@ -26,7 +27,7 @@ func TestStreamTurnEmitsOrderedEventsEndingWithFinal(t *testing.T) {
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{RecoveryBudget: exhaustedRecoveryBudgetForTest()})
 	toolRegistry := newTestCapabilityToolSet([]string{"alpha"})
-	registerTestTool(toolRegistry, ToolDefinition{Name: "alpha"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	registerTestTool(toolRegistry, toolcontract.ToolDefinition{Name: "alpha"}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
 		return testToolSuccess("alpha result"), nil
 	})
 
@@ -91,7 +92,7 @@ func TestStreamTurnAbandonedConsumerDoesNotPanic(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: contents}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{RecoveryBudget: exhaustedRecoveryBudgetForTest()})
 	toolRegistry := newTestCapabilityToolSet([]string{"alpha"})
-	registerTestTool(toolRegistry, ToolDefinition{Name: "alpha"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	registerTestTool(toolRegistry, toolcontract.ToolDefinition{Name: "alpha"}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
 		return testToolSuccess("alpha result"), nil
 	})
 
@@ -120,9 +121,9 @@ func turnRequestWithTool(services turnRunnerTestServices) AgentTurnRequest {
 	}
 }
 
-func toolRegistryWithAlpha() *ToolSet {
+func toolRegistryWithAlpha() *toolcontract.ToolSet {
 	toolRegistry := newTestCapabilityToolSet([]string{"alpha"})
-	registerTestTool(toolRegistry, ToolDefinition{Name: "alpha"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	registerTestTool(toolRegistry, toolcontract.ToolDefinition{Name: "alpha"}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
 		return testToolSuccess("alpha result"), nil
 	})
 	return toolRegistry

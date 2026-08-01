@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/Dawn-kim-official/blueclaw/internal/toolcontract"
 	"strings"
 
 	"github.com/Dawn-kim-official/blueclaw/internal/llm"
@@ -52,7 +53,7 @@ func (agentTurnRunner *AgentTurnRunner) resolveCalendarDuplicate(ctx context.Con
 		message := calendarDuplicateSkippedMessage(existingEvent, request.ResponseLanguage)
 		toolInputKey := canonicalToolCallKey(actionDocument.ToolName, actionDocument.ToolInput)
 		toolDefinition, _ := request.ToolSet.ToolDefinition(actionDocument.ToolName)
-		return agentTurnRunner.saveToolObservation(ctx, taskRunID, observationID, actionDocument.ToolName, toolDefinition.ID, actionDocument.ToolInput, calendarAddOperation, toolInputKey, ToolSuccess(message), request.WorkspaceRootPath, request.TurnStartedAt, 0)
+		return agentTurnRunner.saveToolObservation(ctx, taskRunID, observationID, actionDocument.ToolName, toolDefinition.ID, actionDocument.ToolInput, calendarAddOperation, toolInputKey, toolcontract.ToolSuccess(message), request.WorkspaceRootPath, request.TurnStartedAt, 0)
 	}
 	retryContext := WithToolConflictResolution(ctx, ToolConflictResolutionAllowDuplicate)
 	return agentTurnRunner.invokeTool(retryContext, request.ToolSet, taskRunID, observationID, actionDocument.ToolName, actionDocument.ToolInput, request.WorkspaceRootPath, request.TurnStartedAt, request.ResponseLanguage, actionDocument.Message)

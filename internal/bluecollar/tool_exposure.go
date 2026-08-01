@@ -2,6 +2,7 @@ package bluecollar
 
 import (
 	"encoding/json"
+	"github.com/Dawn-kim-official/blueclaw/internal/toolcontract"
 	"strings"
 )
 
@@ -29,7 +30,7 @@ type ToolExposureEvent struct {
 	DroppedGroups        []droppedToolGroup `json:"droppedGroups,omitempty"`
 }
 
-func toolSetForAgentTurnWithExposure(toolSet *ToolSet, instructionBundle InstructionBundle, request AgentRequest, executionPlan ExecutionPlan, hasExecutionPlan bool, outcomeContract OutcomeContract, selectionEvent ToolExposureEvent, observations ...[]turnObservation) (*ToolSet, ToolExposureEvent) {
+func toolSetForAgentTurnWithExposure(toolSet *toolcontract.ToolSet, instructionBundle InstructionBundle, request AgentRequest, executionPlan ExecutionPlan, hasExecutionPlan bool, outcomeContract OutcomeContract, selectionEvent ToolExposureEvent, observations ...[]turnObservation) (*toolcontract.ToolSet, ToolExposureEvent) {
 	if toolSet == nil {
 		return nil, selectionEvent
 	}
@@ -72,18 +73,18 @@ func toolSetForAgentTurnWithExposure(toolSet *ToolSet, instructionBundle Instruc
 
 func kernelToolNamesForInstructionBundle(instructionBundle InstructionBundle) []string {
 	if len(selectedSkillInstructionList(instructionBundle)) == 0 {
-		return KernelToolNames()
+		return toolcontract.KernelToolNames()
 	}
 	toolNames := []string{}
-	for _, toolName := range KernelToolNames() {
-		if toolName != SkillSearchToolName {
+	for _, toolName := range toolcontract.KernelToolNames() {
+		if toolName != toolcontract.SkillSearchToolName {
 			toolNames = append(toolNames, toolName)
 		}
 	}
 	return toolNames
 }
 
-func outcomeContractEvidenceGroups(toolSet *ToolSet, outcomeContract OutcomeContract) (toolExposureGroup, toolExposureGroup) {
+func outcomeContractEvidenceGroups(toolSet *toolcontract.ToolSet, outcomeContract OutcomeContract) (toolExposureGroup, toolExposureGroup) {
 	requiredToolNames := appendUniqueStrings(outcomeContract.RequiredEvidenceTools)
 	alternativeToolNames := []string{}
 	for _, toolNameGroup := range outcomeContract.RequiredEvidenceAnyOf {
@@ -191,7 +192,7 @@ func extensionToolGroups(groups []toolExposureGroup) []toolExposureGroup {
 	for _, group := range groups {
 		toolIDs := []string{}
 		for _, toolID := range group.ToolIDs {
-			if !IsKernelToolName(toolID) {
+			if !toolcontract.IsKernelToolName(toolID) {
 				toolIDs = appendUniqueStrings(toolIDs, toolID)
 			}
 		}
@@ -213,12 +214,12 @@ func requestNeedsToolAccess(request AgentRequest, groups []toolExposureGroup) bo
 }
 
 func requiredInteractionToolNames(outcomeContract OutcomeContract, observations []turnObservation) []string {
-	if expectedResultRequiresTool(outcomeContract, AskInputToolName) {
-		return []string{AskInputToolName}
+	if expectedResultRequiresTool(outcomeContract, toolcontract.AskInputToolName) {
+		return []string{toolcontract.AskInputToolName}
 	}
 	for _, toolName := range activeRecoveryToolNames(observations) {
-		if toolName == AskInputToolName {
-			return []string{AskInputToolName}
+		if toolName == toolcontract.AskInputToolName {
+			return []string{toolcontract.AskInputToolName}
 		}
 	}
 	return nil
@@ -231,12 +232,12 @@ func exposedToolIDsForFiltering(exposedToolIDs []string) []string {
 	return []string{"__blueclaw_no_callable_tools__"}
 }
 
-func toolSetForAgentTurn(toolSet *ToolSet, instructionBundle InstructionBundle, request AgentRequest, executionPlan ExecutionPlan, hasExecutionPlan bool, outcomeContract OutcomeContract) *ToolSet {
+func toolSetForAgentTurn(toolSet *toolcontract.ToolSet, instructionBundle InstructionBundle, request AgentRequest, executionPlan ExecutionPlan, hasExecutionPlan bool, outcomeContract OutcomeContract) *toolcontract.ToolSet {
 	filteredToolSet, _ := toolSetForAgentTurnWithExposure(toolSet, instructionBundle, request, executionPlan, hasExecutionPlan, outcomeContract, ToolExposureEvent{})
 	return filteredToolSet
 }
 
-func filterGroupTools(toolSet *ToolSet, group toolExposureGroup) toolExposureGroup {
+func filterGroupTools(toolSet *toolcontract.ToolSet, group toolExposureGroup) toolExposureGroup {
 	filteredToolIDs := []string{}
 	for _, toolID := range group.ToolIDs {
 		trimmedToolID := strings.TrimSpace(toolID)

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/Dawn-kim-official/blueclaw/internal/toolcontract"
 	"io"
 	"net/http"
 	"slices"
@@ -1150,7 +1151,7 @@ func TestOutboundReplyJSONPreservesInlineAttachmentPayload(t *testing.T) {
 		Message:   "attached",
 		TaskRunID: "task-1",
 		ReplyKind: connectorReplyKindSuccess,
-		Attachments: []bluecollar.FileAttachment{{
+		Attachments: []toolcontract.FileAttachment{{
 			DevicePath:    "/workspace/deck.pptx",
 			Filename:      "deck.pptx",
 			ContentType:   "application/vnd.openxmlformats-officedocument.presentationml.presentation",
@@ -1991,7 +1992,7 @@ func TestConnectorRuntimeAddsSenderToRecoveryActions(t *testing.T) {
 		ReplyTarget{ConversationID: "direct-1", ReplyTargetID: "reply-target-1"},
 		bluecollar.AgentTurnResult{
 			UserNotice: "Companion 연결이 필요합니다.",
-			RecoveryActions: []bluecollar.RecoveryAction{{
+			RecoveryActions: []toolcontract.RecoveryAction{{
 				Kind:           "companion_connect",
 				Delivery:       "dm_preferred",
 				DownloadURL:    "https://example.com/companion.dmg",
@@ -3371,7 +3372,7 @@ func TestConnectorRuntimeQuarantinesSchemaOnlyMCPConfiguration(t *testing.T) {
 		t.Fatalf("expected quarantined MCP tools to stay hidden, got %+v", toolRegistry.ListToolDefinitions())
 	}
 
-	toolResult, errorValue := toolRegistry.Invoke(context.Background(), bluecollar.ToolInvocation{ToolName: "allowed.tool", Input: json.RawMessage(`{}`)})
+	toolResult, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{ToolName: "allowed.tool", Input: json.RawMessage(`{}`)})
 	if errorValue != nil {
 		t.Fatalf("expected policy denial as tool result: %v", errorValue)
 	}
@@ -3692,8 +3693,8 @@ type testReply struct {
 	message         string
 	taskRunID       string
 	replyKind       string
-	attachments     []bluecollar.FileAttachment
-	recoveryActions []bluecollar.RecoveryAction
+	attachments     []toolcontract.FileAttachment
+	recoveryActions []toolcontract.RecoveryAction
 	failureNotice   bluecollar.FailureNotice
 }
 
@@ -4221,13 +4222,13 @@ func connectorFirstRequestBySchema(requests []llm.StructuredResponseRequest, sch
 	return llm.StructuredResponseRequest{}, false
 }
 
-func findAgentToolDefinition(toolDefinitions []bluecollar.ToolDefinition, toolName string) (bluecollar.ToolDefinition, bool) {
+func findAgentToolDefinition(toolDefinitions []toolcontract.ToolDefinition, toolName string) (toolcontract.ToolDefinition, bool) {
 	for _, toolDefinition := range toolDefinitions {
 		if toolDefinition.Name == toolName {
 			return toolDefinition, true
 		}
 	}
-	return bluecollar.ToolDefinition{}, false
+	return toolcontract.ToolDefinition{}, false
 }
 
 func connectorFinishMessage(reply string) string {

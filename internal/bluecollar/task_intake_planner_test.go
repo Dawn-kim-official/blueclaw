@@ -3,6 +3,7 @@ package bluecollar
 import (
 	"context"
 	"errors"
+	"github.com/Dawn-kim-official/blueclaw/internal/toolcontract"
 	"slices"
 	"strings"
 	"testing"
@@ -334,8 +335,8 @@ func TestTaskIntakePlannerUsesStructuredModelDecision(t *testing.T) {
 		`{"route":"start_task","classification":"bounded_task","taskShape":"research_task","level":"low","estimatedMinutes":1,"requestedOutputFormats":null,"reason":"bounded tool work","userFacingReply":""}`,
 	}}
 	toolRegistry := newTestToolSet([]string{"memory.search"})
-	registerTestTool(toolRegistry, ToolDefinition{Name: "memory.search"}, func(context.Context, ToolInvocation) (ToolResult, error) {
-		return ToolResult{}, nil
+	registerTestTool(toolRegistry, toolcontract.ToolDefinition{Name: "memory.search"}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
+		return toolcontract.ToolResult{}, nil
 	})
 	planner := NewTaskIntakePlanner(languageModel, IntakeOptions{
 		IsEnabled:        true,
@@ -414,13 +415,13 @@ func TestTaskIntakePlannerUsesStructuredModelDecision(t *testing.T) {
 }
 
 func TestIntakeToolDescriptionsCoverReachableTools(t *testing.T) {
-	toolRegistry := NewToolSet([]string{"file.deliver"})
-	for _, toolDefinition := range []ToolDefinition{
+	toolRegistry := toolcontract.NewToolSet([]string{"file.deliver"})
+	for _, toolDefinition := range []toolcontract.ToolDefinition{
 		{Name: "calendar.add", Description: "Create a calendar event with a long operation description."},
 		{Name: "file.deliver", Description: "Deliver a file to the requester."},
 	} {
 		definition := toolDefinition
-		registerTestTool(toolRegistry, definition, func(context.Context, ToolInvocation) (ToolResult, error) {
+		registerTestTool(toolRegistry, definition, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
 			return testToolSuccess("ok"), nil
 		})
 	}
@@ -439,8 +440,8 @@ func TestIntakeToolDescriptionsCoverReachableTools(t *testing.T) {
 }
 
 func TestTurnRouterBuildMessagesKeepsStablePrefixClockInvariantAndOrdersVolatileLast(t *testing.T) {
-	toolRegistry := NewToolSet([]string{"calendar.list"})
-	registerTestTool(toolRegistry, ToolDefinition{Name: "calendar.list", Description: "List calendar events."}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	toolRegistry := toolcontract.NewToolSet([]string{"calendar.list"})
+	registerTestTool(toolRegistry, toolcontract.ToolDefinition{Name: "calendar.list", Description: "List calendar events."}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
 		return testToolSuccess("ok"), nil
 	})
 	turnRouter := NewTurnRouter(nil, IntakeOptions{IsEnabled: true})
@@ -676,7 +677,7 @@ func TestTaskIntakePlannerKeepsTypedFileContract(t *testing.T) {
 	if !expectedResultIncludesType(OutcomeContract{ExpectedResults: decision.ExpectedResults}, ExpectedResultTypeFile) {
 		t.Fatalf("expected typed file result to remain, got %+v", decision.ExpectedResults)
 	}
-	if !containsString(decision.InitialToolNames, FileDeliverToolName) {
+	if !containsString(decision.InitialToolNames, toolcontract.FileDeliverToolName) {
 		t.Fatalf("expected typed file delivery tool to remain in initial tools, got initial=%+v", decision.InitialToolNames)
 	}
 }
@@ -686,7 +687,7 @@ func TestTaskIntakePlannerKeepsGroundedRequestedOutputFormat(t *testing.T) {
 		`{"route":"start_task","classification":"bounded_task","taskShape":"research_task","level":"medium","estimatedMinutes":1,"requestedOutputFormats":["html"],"expectedResults":[{"id":"attached-file","type":"file","description":"attach HTML","required":true}],"responseLanguage":"ko","reason":"presentation","userFacingReply":"","initialToolNames":["file.deliver"],"priorTaskReference":"none"}`,
 	}}
 	planner := NewTaskIntakePlanner(languageModel, IntakeOptions{IsEnabled: true})
-	toolRegistry := newTestToolSet([]string{FileDeliverToolName})
+	toolRegistry := newTestToolSet([]string{toolcontract.FileDeliverToolName})
 
 	decision := mustPlanIntake(t, planner, AgentRequest{Prompt: "HTML 발표자료를 만들어줘", ToolSet: toolRegistry})
 
@@ -1181,7 +1182,7 @@ func TestTaskIntakePlannerDoesNotOverrideScheduleRefusalWithoutSelectedSkill(t *
 		`{"route":"give_up","classification":"unsupported","taskShape":"immediate_reply","level":"medium","estimatedMinutes":1,"requestedOutputFormats":null,"reason":"background loops are unsupported","userFacingReply":"지원하지 않습니다."}`,
 	}}
 	toolRegistry := newTestToolSet([]string{"schedule.create"})
-	registerTestTool(toolRegistry, ToolDefinition{Name: "schedule.create"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	registerTestTool(toolRegistry, toolcontract.ToolDefinition{Name: "schedule.create"}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
 		return testToolSuccess("scheduled"), nil
 	})
 	planner := NewTaskIntakePlanner(languageModel, IntakeOptions{
@@ -1266,10 +1267,10 @@ func TestAgentKernelSelectsArtifactSkillOnceAfterRouting(t *testing.T) {
 		}}}
 	})
 	toolRegistry := newTestToolSet([]string{"terminal.run", "file.write", "file.promote", "file.deliver"})
-	registerTestTool(toolRegistry, ToolDefinition{Name: "file.deliver"}, func(context.Context, ToolInvocation) (ToolResult, error) {
-		return ToolResult{
-			Output: ToolOutput{Content: "file attached"},
-			Attachments: []FileAttachment{{
+	registerTestTool(toolRegistry, toolcontract.ToolDefinition{Name: "file.deliver"}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
+		return toolcontract.ToolResult{
+			Output: toolcontract.ToolOutput{Content: "file attached"},
+			Attachments: []toolcontract.FileAttachment{{
 				DevicePath: "/workspace/private/people/person-1/artifacts/deck/deck.pptx",
 				Filename:   "deck.pptx",
 			}},
@@ -1301,7 +1302,7 @@ func TestAgentKernelSelectsArtifactSkillOnceAfterRouting(t *testing.T) {
 		t.Fatalf("expected one routed skill request, got %d", len(skillRetriever.requests))
 	}
 	selectionContract := skillRetriever.requests[0].ActiveGoal.OutcomeContract
-	if !stringSliceContains(selectionContract.RequiredEvidenceTools, FileDeliverToolName) || !stringSliceContains(selectionContract.RequiredAttachmentSuffixes, ".pptx") || selectionContract.ArtifactRequirement != ArtifactRequirementRequired {
+	if !stringSliceContains(selectionContract.RequiredEvidenceTools, toolcontract.FileDeliverToolName) || !stringSliceContains(selectionContract.RequiredAttachmentSuffixes, ".pptx") || selectionContract.ArtifactRequirement != ArtifactRequirementRequired {
 		t.Fatalf("expected routed artifact contract during skill selection, got %+v", selectionContract)
 	}
 	skillQueryCount := 0
@@ -1366,10 +1367,10 @@ func TestAgentKernelPreservesUnsupportedArtifactWithoutSelectedSkill(t *testing.
 	}}
 	services := newKernelIntakeTestServices(replyLanguageModel, intakeLanguageModel)
 	toolRegistry := newTestToolSet([]string{"terminal.run", "file.write", "file.promote", "file.deliver"})
-	registerTestTool(toolRegistry, ToolDefinition{Name: "file.deliver"}, func(context.Context, ToolInvocation) (ToolResult, error) {
-		return ToolResult{
-			Output: ToolOutput{Content: "file attached"},
-			Attachments: []FileAttachment{{
+	registerTestTool(toolRegistry, toolcontract.ToolDefinition{Name: "file.deliver"}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
+		return toolcontract.ToolResult{
+			Output: toolcontract.ToolOutput{Content: "file attached"},
+			Attachments: []toolcontract.FileAttachment{{
 				DevicePath: "/workspace/private/people/person-1/artifacts/deck/deck.pptx",
 				Filename:   "deck.pptx",
 			}},
@@ -1407,10 +1408,10 @@ func TestAgentKernelRecoversPriorTaskAttachmentContract(t *testing.T) {
 	}}
 	services := newKernelIntakeTestServices(replyLanguageModel, intakeLanguageModel)
 	toolRegistry := newTestToolSet([]string{"file.deliver"})
-	registerTestTool(toolRegistry, ToolDefinition{Name: "file.deliver"}, func(context.Context, ToolInvocation) (ToolResult, error) {
-		return ToolResult{
-			Output: ToolOutput{Content: "file attached"},
-			Attachments: []FileAttachment{{
+	registerTestTool(toolRegistry, toolcontract.ToolDefinition{Name: "file.deliver"}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
+		return toolcontract.ToolResult{
+			Output: toolcontract.ToolOutput{Content: "file attached"},
+			Attachments: []toolcontract.FileAttachment{{
 				DevicePath: "/workspace/private/people/person-1/artifacts/company-guide/company-guide.docx",
 				Filename:   "company-guide.docx",
 			}},
@@ -1474,10 +1475,10 @@ func TestAgentKernelRecoversLegacyPriorAttachmentContractFromIntakeOutput(t *tes
 	}}
 	services := newKernelIntakeTestServices(replyLanguageModel, intakeLanguageModel)
 	toolRegistry := newTestToolSet([]string{"conversation.history", "file.read", "file.write", "terminal.run", "file.promote", "file.deliver"})
-	registerTestTool(toolRegistry, ToolDefinition{Name: "file.deliver"}, func(context.Context, ToolInvocation) (ToolResult, error) {
-		return ToolResult{
-			Output: ToolOutput{Content: "file attached"},
-			Attachments: []FileAttachment{{
+	registerTestTool(toolRegistry, toolcontract.ToolDefinition{Name: "file.deliver"}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
+		return toolcontract.ToolResult{
+			Output: toolcontract.ToolOutput{Content: "file attached"},
+			Attachments: []toolcontract.FileAttachment{{
 				DevicePath: "/workspace/private/people/person-1/artifacts/company-guide/company-guide.docx",
 				Filename:   "company-guide.docx",
 			}},
@@ -1524,7 +1525,7 @@ func TestTaskIntakePlannerTreatsSupportedSitePrototypeConfirmationAsBoundedTask(
 	toolRegistry := newTestToolSet([]string{"site.serve", "site.serve"})
 	for _, toolName := range toolRegistry.ListToolNames() {
 		currentToolName := toolName
-		registerTestTool(toolRegistry, ToolDefinition{Name: currentToolName}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		registerTestTool(toolRegistry, toolcontract.ToolDefinition{Name: currentToolName}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
 			return testToolSuccess("ok"), nil
 		})
 	}
@@ -1628,7 +1629,7 @@ func TestAgentKernelUsesIntakeBeforeRunningTools(t *testing.T) {
 	}}
 	services := newKernelIntakeTestServices(replyLanguageModel, intakeLanguageModel)
 	toolRegistry := newTestToolSet([]string{"expensive"})
-	registerTestTool(toolRegistry, ToolDefinition{Name: "expensive"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	registerTestTool(toolRegistry, toolcontract.ToolDefinition{Name: "expensive"}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
 		return testToolSuccess("expensive result"), nil
 	})
 
@@ -1668,7 +1669,7 @@ func TestAgentKernelCreatesChoiceAskForClarificationOptions(t *testing.T) {
 		RequesterPersonID: "person-1",
 		ConversationID:    "conversation-1",
 		Prompt:            "소개 자료 만들어줘",
-		ToolSet:           newTestToolSet([]string{AskInputToolName}),
+		ToolSet:           newTestToolSet([]string{toolcontract.AskInputToolName}),
 	})
 	if errorValue != nil {
 		t.Fatalf("expected clarify result: %v", errorValue)
@@ -1701,7 +1702,7 @@ func TestAgentKernelQuickReplyAllowsToolFreeReplyWithoutAskInput(t *testing.T) {
 	}}
 	services := newKernelIntakeTestServices(replyLanguageModel, intakeLanguageModel)
 	toolRegistry := newTestToolSet([]string{"expensive", "ask.input"})
-	registerTestTool(toolRegistry, ToolDefinition{Name: "expensive"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	registerTestTool(toolRegistry, toolcontract.ToolDefinition{Name: "expensive"}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
 		return testToolSuccess("expensive result"), nil
 	})
 
@@ -1721,7 +1722,7 @@ func TestAgentKernelQuickReplyAllowsToolFreeReplyWithoutAskInput(t *testing.T) {
 		t.Fatalf("expected one direct reply request, got %d", len(replyLanguageModel.requests))
 	}
 	actionSchema := string(replyLanguageModel.requests[0].StructuredOutputSchema.Document)
-	if strings.Contains(actionSchema, AskInputToolName) {
+	if strings.Contains(actionSchema, toolcontract.AskInputToolName) {
 		t.Fatalf("expected quick reply schema to hide ask.input without typed interaction, got %s", actionSchema)
 	}
 	if !strings.Contains(strings.Join(result.ToolNames, ","), "expensive") {
@@ -1739,7 +1740,7 @@ func TestAgentKernelRunTurnPreservesCheckpointSender(t *testing.T) {
 	}}
 	services := newKernelIntakeTestServices(replyLanguageModel, intakeLanguageModel)
 	toolRegistry := newTestCapabilityToolSet([]string{"alpha"})
-	registerTestTool(toolRegistry, ToolDefinition{Name: "alpha"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	registerTestTool(toolRegistry, toolcontract.ToolDefinition{Name: "alpha"}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
 		return testToolSuccess("alpha result"), nil
 	})
 	checkpoints := []AgentCheckpoint{}
@@ -1781,11 +1782,11 @@ func TestAgentKernelQuickReplyPromotesToolFailureToRecovery(t *testing.T) {
 	toolRegistry := newTestCapabilityToolSet([]string{"primary.lookup", "backup.lookup"})
 	primaryCallCount := 0
 	backupCallCount := 0
-	registerTestTool(toolRegistry, ToolDefinition{Name: "primary.lookup", SideEffectClass: ToolSideEffectRead}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	registerTestTool(toolRegistry, toolcontract.ToolDefinition{Name: "primary.lookup", SideEffectClass: toolcontract.ToolSideEffectRead}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
 		primaryCallCount++
-		return ToolFailureResult(FailureExternalService, FailureCodes.OperationFailed, "primary_lookup", "primary lookup failed"), nil
+		return toolcontract.ToolFailureResult(toolcontract.FailureExternalService, toolcontract.FailureCodes.OperationFailed, "primary_lookup", "primary lookup failed"), nil
 	})
-	registerTestTool(toolRegistry, ToolDefinition{Name: "backup.lookup", SideEffectClass: ToolSideEffectRead}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	registerTestTool(toolRegistry, toolcontract.ToolDefinition{Name: "backup.lookup", SideEffectClass: toolcontract.ToolSideEffectRead}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
 		backupCallCount++
 		return testToolSuccess("backup result"), nil
 	})
@@ -1845,7 +1846,7 @@ func TestAgentKernelQuickReplyCanUseInitialTool(t *testing.T) {
 	}}
 	services := newKernelIntakeTestServices(replyLanguageModel, intakeLanguageModel)
 	toolRegistry := newTestCapabilityToolSet([]string{"schedule.list"})
-	registerTestTool(toolRegistry, ToolDefinition{Name: "schedule.list"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	registerTestTool(toolRegistry, toolcontract.ToolDefinition{Name: "schedule.list"}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
 		return testToolSuccess(`{"schedules":[]}`), nil
 	})
 
@@ -1876,14 +1877,14 @@ func TestAgentKernelQuickReplyUsesAskInputForExplicitChoiceRequest(t *testing.T)
 	}}
 	services := newKernelIntakeTestServices(replyLanguageModel, intakeLanguageModel)
 	toolRegistry := newTestToolSet([]string{"ask.input"})
-	registerTestTool(toolRegistry, ToolDefinition{Name: "ask.input"}, func(toolContext context.Context, invocation ToolInvocation) (ToolResult, error) {
+	registerTestTool(toolRegistry, toolcontract.ToolDefinition{Name: "ask.input"}, func(toolContext context.Context, invocation toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
 		taskRunID := TaskRunIDFromContext(toolContext)
 		if taskRunID == "" {
-			return ToolFailureResult(FailureInvalidInput, FailureCodes.InvalidInput, "ask_choice", "missing task run"), nil
+			return toolcontract.ToolFailureResult(toolcontract.FailureInvalidInput, toolcontract.FailureCodes.InvalidInput, "ask_choice", "missing task run"), nil
 		}
 		_, errorValue := services.taskRunService.PauseTaskRun(taskRunID, task.TaskStatusWaitingUserInput, "아래 세 가지 중 하나를 선택해 주세요.")
 		if errorValue != nil {
-			return ToolFailureResult(FailureExternalService, FailureCodes.OperationFailed, "ask_choice", errorValue.Error()), nil
+			return toolcontract.ToolFailureResult(toolcontract.FailureExternalService, toolcontract.FailureCodes.OperationFailed, "ask_choice", errorValue.Error()), nil
 		}
 		services.taskRunService.AppendTaskEvent(taskRunID, "ask.requested", string(invocation.Input))
 		return testToolSuccess(`{"kind":"choice_single","question":"아래 세 가지 중 하나를 선택해 주세요."}`), nil
@@ -1938,11 +1939,11 @@ func TestAgentKernelPreservesQuickReplyAfterSkillSelection(t *testing.T) {
 	toolRegistry := newTestToolSet([]string{"terminal.run", "file.write", "file.deliver"})
 	for _, toolName := range toolRegistry.ListToolNames() {
 		currentToolName := toolName
-		registerTestTool(toolRegistry, ToolDefinition{Name: currentToolName}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		registerTestTool(toolRegistry, toolcontract.ToolDefinition{Name: currentToolName}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
 			if currentToolName == "file.deliver" {
-				return ToolResult{
-					Output: ToolOutput{Content: "attached"},
-					Attachments: []FileAttachment{{
+				return toolcontract.ToolResult{
+					Output: toolcontract.ToolOutput{Content: "attached"},
+					Attachments: []toolcontract.FileAttachment{{
 						DevicePath: "artifacts/deck/deck.pptx",
 						Filename:   "deck.pptx",
 					}},
@@ -1992,10 +1993,10 @@ func TestAgentKernelUsesStructuredOutputFormatsForAttachmentRequirements(t *test
 		}}}
 	})
 	toolRegistry := newTestToolSet([]string{"file.deliver"})
-	registerTestTool(toolRegistry, ToolDefinition{Name: "file.deliver"}, func(context.Context, ToolInvocation) (ToolResult, error) {
-		return ToolResult{
-			Output: ToolOutput{Content: "file attached"},
-			Attachments: []FileAttachment{{
+	registerTestTool(toolRegistry, toolcontract.ToolDefinition{Name: "file.deliver"}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
+		return toolcontract.ToolResult{
+			Output: toolcontract.ToolOutput{Content: "file attached"},
+			Attachments: []toolcontract.FileAttachment{{
 				DevicePath: "artifacts/deck/deck.html",
 				Filename:   "deck.html",
 				SizeBytes:  12,

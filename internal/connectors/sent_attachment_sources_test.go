@@ -1,9 +1,8 @@
 package connectors
 
 import (
+	"github.com/Dawn-kim-official/blueclaw/internal/toolcontract"
 	"testing"
-
-	"github.com/Dawn-kim-official/blueclaw/internal/bluecollar"
 )
 
 func directMessageResolverForPerson(personID string, store *sentAttachmentSourceStore) connectorAttachmentMaterialResolver {
@@ -20,7 +19,7 @@ func directMessageResolverForPerson(personID string, store *sentAttachmentSource
 
 func TestSentSourceMaterialResolvesDeliveredAttachmentToItsWorkspaceSource(t *testing.T) {
 	store := newSentAttachmentSourceStore()
-	store.RecordReply("mattermost", "post-1", []bluecollar.FileAttachment{{
+	store.RecordReply("mattermost", "post-1", []toolcontract.FileAttachment{{
 		DevicePath: "/workspace/private/people/person-1/customer-support-weekly-check.json",
 		Filename:   "customer-support-weekly-check.json",
 	}})
@@ -43,7 +42,7 @@ func TestSentSourceMaterialResolvesDeliveredAttachmentToItsWorkspaceSource(t *te
 
 func TestSentSourceMaterialKeepsImportForOtherOwnersAndUnknownAttachments(t *testing.T) {
 	store := newSentAttachmentSourceStore()
-	store.RecordReply("mattermost", "post-1", []bluecollar.FileAttachment{{
+	store.RecordReply("mattermost", "post-1", []toolcontract.FileAttachment{{
 		DevicePath: "/workspace/private/people/person-2/report.json",
 		Filename:   "report.json",
 	}})
@@ -63,7 +62,7 @@ func TestSentSourceMaterialKeepsImportForOtherOwnersAndUnknownAttachments(t *tes
 
 func TestRecordReplySkipsAmbiguousFilenames(t *testing.T) {
 	store := newSentAttachmentSourceStore()
-	store.RecordReply("mattermost", "post-1", []bluecollar.FileAttachment{
+	store.RecordReply("mattermost", "post-1", []toolcontract.FileAttachment{
 		{DevicePath: "/workspace/private/people/person-1/a/report.json", Filename: "report.json"},
 		{DevicePath: "/workspace/private/people/person-1/b/report.json", Filename: "report.json"},
 	})

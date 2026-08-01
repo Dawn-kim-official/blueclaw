@@ -2,6 +2,7 @@ package bluecollar
 
 import (
 	"encoding/json"
+	"github.com/Dawn-kim-official/blueclaw/internal/toolcontract"
 	"os"
 	"testing"
 
@@ -9,7 +10,7 @@ import (
 )
 
 func TestActionSchemasRecursivelyCloseEveryObject(t *testing.T) {
-	toolDefinitions := []ToolDefinition{{
+	toolDefinitions := []toolcontract.ToolDefinition{{
 		Name: "test.create",
 		InputSchema: json.RawMessage(`{
 			"type":"object",
@@ -135,7 +136,7 @@ func assertDocumentValidatesAgainstSchema(t *testing.T, schemaDocument string, i
 	}
 }
 
-func eightToolCapabilityCatalogFixture(t *testing.T) []ToolDefinition {
+func eightToolCapabilityCatalogFixture(t *testing.T) []toolcontract.ToolDefinition {
 	t.Helper()
 	document, errorValue := os.ReadFile("../../protocol/generated/capability-tools.json")
 	if errorValue != nil {
@@ -155,12 +156,12 @@ func eightToolCapabilityCatalogFixture(t *testing.T) []ToolDefinition {
 		"task.add": true, "task.update": true, "message.send": true, "message.search": true,
 		"document.read": true, "image.read": true, "web.search": true, "site.serve": true,
 	}
-	toolDefinitions := make([]ToolDefinition, 0, len(selectedToolNames))
+	toolDefinitions := make([]toolcontract.ToolDefinition, 0, len(selectedToolNames))
 	for _, tool := range catalog.Tools {
 		if !selectedToolNames[tool.ModelName] {
 			continue
 		}
-		toolDefinitions = append(toolDefinitions, ToolDefinition{
+		toolDefinitions = append(toolDefinitions, toolcontract.ToolDefinition{
 			Name:        tool.ModelName,
 			Description: tool.Description,
 			InputSchema: tool.InputSchema,
@@ -180,7 +181,7 @@ func assertEveryObjectSchemaIsClosed(t *testing.T, schemaValue any) {
 			assertEveryObjectSchemaIsClosed(t, item)
 		}
 	case map[string]any:
-		if schemaTypeIncludesObject(typedValue["type"]) && typedValue["additionalProperties"] != false {
+		if toolcontract.SchemaTypeIncludesObject(typedValue["type"]) && typedValue["additionalProperties"] != false {
 			t.Fatalf("expected object schema to be explicitly closed: %+v", typedValue)
 		}
 		for _, child := range typedValue {

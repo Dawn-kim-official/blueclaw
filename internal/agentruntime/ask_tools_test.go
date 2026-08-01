@@ -3,6 +3,7 @@ package agentruntime
 import (
 	"context"
 	"encoding/json"
+	"github.com/Dawn-kim-official/blueclaw/internal/toolcontract"
 	"testing"
 
 	"github.com/Dawn-kim-official/blueclaw/internal/bluecollar"
@@ -18,9 +19,9 @@ func TestAskInputUsesTypedQuestionAndResultData(t *testing.T) {
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
 
 	toolContext := bluecollar.WithUserFacingMessage(bluecollar.WithTaskRunID(context.Background(), taskRun.TaskRunID), "Context question must not replace input")
-	result, errorValue := toolRegistry.Invoke(toolContext, bluecollar.ToolInvocation{
+	result, errorValue := toolRegistry.Invoke(toolContext, toolcontract.ToolInvocation{
 		ToolName: "ask.input",
-		Input: bluecollar.MarshalToolInput(map[string]any{
+		Input: toolcontract.MarshalToolInput(map[string]any{
 			"question": "Which report should I use?",
 			"choices":  []string{"First", "Second"},
 		}),
@@ -45,9 +46,9 @@ func TestAskInputRejectsUnknownInput(t *testing.T) {
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"ask.input"})
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
 
-	result, errorValue := toolRegistry.Invoke(context.Background(), bluecollar.ToolInvocation{
+	result, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
 		ToolName: "ask.input",
-		Input:    bluecollar.MarshalToolInput(map[string]any{"question": "Continue?", "extra": true}),
+		Input:    toolcontract.MarshalToolInput(map[string]any{"question": "Continue?", "extra": true}),
 	})
 	if errorValue != nil {
 		t.Fatal(errorValue)

@@ -2,6 +2,7 @@ package bluecollar
 
 import (
 	"encoding/json"
+	"github.com/Dawn-kim-official/blueclaw/internal/toolcontract"
 )
 
 type planUpdateDocument struct {
@@ -10,7 +11,7 @@ type planUpdateDocument struct {
 }
 
 func planUpdateFromObservation(observation turnObservation) (planUpdateDocument, bool) {
-	if observation.Action != "continue" || observation.Failed() || !ToolNamesMatch(observation.Tool, PlanUpdateToolName) {
+	if observation.Action != "continue" || observation.Failed() || !toolcontract.ToolNamesMatch(observation.Tool, toolcontract.PlanUpdateToolName) {
 		return planUpdateDocument{}, false
 	}
 	var document planUpdateDocument
@@ -38,7 +39,7 @@ func (agentTurnRunner *AgentTurnRunner) notePlanMissingBeforeStateChange(taskRun
 	if state.DidNudgePlan || len(state.ExecutionState.Steps) > 0 || !taskLevelRequiresPlan(request.TaskLevel) {
 		return
 	}
-	if request.ToolSet == nil || !requestToolSetCanReachTool(request.ToolSet, PlanUpdateToolName) {
+	if request.ToolSet == nil || !requestToolSetCanReachTool(request.ToolSet, toolcontract.PlanUpdateToolName) {
 		return
 	}
 	toolDefinition, isFound := request.ToolSet.ToolDefinition(actionDocument.ToolName)
@@ -51,9 +52,9 @@ func (agentTurnRunner *AgentTurnRunner) notePlanMissingBeforeStateChange(taskRun
 	agentTurnRunner.appendEvent(taskRunID, "agent.plan.nudged", marshalEventBody(observation))
 }
 
-func toolDefinitionIsStateChanging(toolDefinition ToolDefinition) bool {
-	switch ToolDefinitionSideEffectClass(toolDefinition) {
-	case "", ToolSideEffectNone, ToolSideEffectRead, ToolSideEffectComputation, ToolSideEffectApproval:
+func toolDefinitionIsStateChanging(toolDefinition toolcontract.ToolDefinition) bool {
+	switch toolcontract.ToolDefinitionSideEffectClass(toolDefinition) {
+	case "", toolcontract.ToolSideEffectNone, toolcontract.ToolSideEffectRead, toolcontract.ToolSideEffectComputation, toolcontract.ToolSideEffectApproval:
 		return false
 	default:
 		return true

@@ -1,5 +1,9 @@
 package bluecollar
 
+import (
+	"github.com/Dawn-kim-official/blueclaw/internal/toolcontract"
+)
+
 import "strings"
 
 func recoverableWorkflowFailResult(request AgentTurnRequest, observations []turnObservation) (completionGateResult, bool) {
@@ -39,13 +43,13 @@ func recoverableFileDeliveryNextTools(request AgentTurnRequest, observations []t
 	if !turnRequestLooksLikeFileDeliveryWork(request) {
 		return nil
 	}
-	if latestSuccessfulToolIndex(observations, []string{FileDeliverToolName}) >= 0 {
+	if latestSuccessfulToolIndex(observations, []string{toolcontract.FileDeliverToolName}) >= 0 {
 		return nil
 	}
 	if latestSuccessfulToolIndex(observations, []string{"file.write", "file.edit", "terminal.run"}) < 0 {
 		return nil
 	}
-	return availableWorkflowTools(request.ToolSet, []string{"terminal.run", FileDeliverToolName})
+	return availableWorkflowTools(request.ToolSet, []string{"terminal.run", toolcontract.FileDeliverToolName})
 }
 
 func turnRequestLooksLikeSitePrototypeWork(request AgentTurnRequest) bool {
@@ -55,19 +59,19 @@ func turnRequestLooksLikeSitePrototypeWork(request AgentTurnRequest) bool {
 }
 
 func sitePublishIsRequired(request AgentTurnRequest) bool {
-	return requiredEvidenceIncludesAnySideEffectClass(request.ToolSet, request.RequiredEvidenceTools, ToolSideEffectExternalPublish, ToolSideEffectSitePublish) ||
-		requiredEvidenceIncludesAnySideEffectClass(request.ToolSet, request.OutcomeContract.RequiredEvidenceTools, ToolSideEffectExternalPublish, ToolSideEffectSitePublish) ||
+	return requiredEvidenceIncludesAnySideEffectClass(request.ToolSet, request.RequiredEvidenceTools, toolcontract.ToolSideEffectExternalPublish, toolcontract.ToolSideEffectSitePublish) ||
+		requiredEvidenceIncludesAnySideEffectClass(request.ToolSet, request.OutcomeContract.RequiredEvidenceTools, toolcontract.ToolSideEffectExternalPublish, toolcontract.ToolSideEffectSitePublish) ||
 		expectedResultsIncludeSiteRequirement(request.OutcomeContract.ExpectedResults)
 }
 
 func turnRequestLooksLikeFileDeliveryWork(request AgentTurnRequest) bool {
 	return len(request.RequiredAttachmentSuffixes) > 0 ||
 		len(request.OutcomeContract.RequiredAttachmentSuffixes) > 0 ||
-		requiredEvidenceContains(request.RequiredEvidenceTools, FileDeliverToolName) ||
-		requiredEvidenceContains(request.OutcomeContract.RequiredEvidenceTools, FileDeliverToolName)
+		requiredEvidenceContains(request.RequiredEvidenceTools, toolcontract.FileDeliverToolName) ||
+		requiredEvidenceContains(request.OutcomeContract.RequiredEvidenceTools, toolcontract.FileDeliverToolName)
 }
 
-func availableWorkflowTools(toolSet *ToolSet, toolNames []string) []string {
+func availableWorkflowTools(toolSet *toolcontract.ToolSet, toolNames []string) []string {
 	tools := []string{}
 	for _, toolName := range toolNames {
 		if toolAvailableForAction(toolSet, toolName) {

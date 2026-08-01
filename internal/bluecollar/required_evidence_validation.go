@@ -1,5 +1,9 @@
 package bluecollar
 
+import (
+	"github.com/Dawn-kim-official/blueclaw/internal/toolcontract"
+)
+
 import "strings"
 
 const (
@@ -7,7 +11,7 @@ const (
 	requiredEvidenceToolKindNativeTool          = "native_tool"
 )
 
-func workingSetEvidenceGroup(toolSet *ToolSet, candidateToolNames []string) []string {
+func workingSetEvidenceGroup(toolSet *toolcontract.ToolSet, candidateToolNames []string) []string {
 	evidenceToolNames := []string{}
 	for _, toolName := range appendUniqueStrings(candidateToolNames) {
 		if !requiredEvidenceToolCanBeSatisfied(toolSet, toolName) {
@@ -18,12 +22,12 @@ func workingSetEvidenceGroup(toolSet *ToolSet, candidateToolNames []string) []st
 	return evidenceToolNames
 }
 
-func requiredEvidenceToolCanBeSatisfied(toolSet *ToolSet, toolName string) bool {
+func requiredEvidenceToolCanBeSatisfied(toolSet *toolcontract.ToolSet, toolName string) bool {
 	_, isValid := requiredEvidenceToolKind(toolSet, toolName)
 	return isValid
 }
 
-func requiredEvidenceToolKind(toolSet *ToolSet, toolName string) (string, bool) {
+func requiredEvidenceToolKind(toolSet *toolcontract.ToolSet, toolName string) (string, bool) {
 	trimmedToolName := strings.TrimSpace(toolName)
 	if trimmedToolName == "" {
 		return "", false
@@ -44,16 +48,16 @@ func requiredEvidenceToolKind(toolSet *ToolSet, toolName string) (string, bool) 
 	return "", false
 }
 
-func requiredEvidenceRegisteredToolName(toolSet *ToolSet, toolName string) (string, bool) {
+func requiredEvidenceRegisteredToolName(toolSet *toolcontract.ToolSet, toolName string) (string, bool) {
 	trimmedToolName := strings.TrimSpace(toolName)
 	return trimmedToolName, toolSet.IsRegistered(trimmedToolName)
 }
 
-func requiredEvidenceToolIsCapabilityOperation(toolSet *ToolSet, toolName string) bool {
-	return !IsKernelToolName(toolName) && toolSet.CanExpose(toolName)
+func requiredEvidenceToolIsCapabilityOperation(toolSet *toolcontract.ToolSet, toolName string) bool {
+	return !toolcontract.IsKernelToolName(toolName) && toolSet.CanExpose(toolName)
 }
 
-func requiredEvidenceIncludesNamespace(toolSet *ToolSet, toolNames []string, namespace string) bool {
+func requiredEvidenceIncludesNamespace(toolSet *toolcontract.ToolSet, toolNames []string, namespace string) bool {
 	for _, toolName := range toolNames {
 		if toolIsInNamespace(toolSet, toolName, namespace) {
 			return true
@@ -62,9 +66,9 @@ func requiredEvidenceIncludesNamespace(toolSet *ToolSet, toolNames []string, nam
 	return false
 }
 
-func requiredEvidenceIncludesSideEffect(toolSet *ToolSet, toolNames []string) bool {
+func requiredEvidenceIncludesSideEffect(toolSet *toolcontract.ToolSet, toolNames []string) bool {
 	for _, toolName := range toolNames {
-		if IsArtifactDeliveryTool(toolName) || requiredEvidenceToolNeedsSuccessfulSideEffect(toolSet, toolName) {
+		if toolcontract.IsArtifactDeliveryTool(toolName) || requiredEvidenceToolNeedsSuccessfulSideEffect(toolSet, toolName) {
 			return true
 		}
 	}

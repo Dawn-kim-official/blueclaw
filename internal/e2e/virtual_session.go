@@ -12,6 +12,7 @@ import (
 	"encoding/xml"
 	"errors"
 	"fmt"
+	"github.com/Dawn-kim-official/blueclaw/internal/toolcontract"
 	"io"
 	"log/slog"
 	"math"
@@ -236,7 +237,7 @@ type VirtualTurnResult struct {
 	FailureReason           string
 	FinishMessage           string
 	ReplyTargetID           string
-	Attachments             []bluecollar.FileAttachment
+	Attachments             []toolcontract.FileAttachment
 	Events                  []task.TaskEvent
 	LanguageModelCallEvents []VirtualLanguageModelCallEvent
 	InformationalAssertions []VirtualInformationalAssertion
@@ -1017,7 +1018,7 @@ func virtualCapabilityToolDescriptor(toolName string) agentruntime.CapabilityToo
 		CanonicalName:     toolName,
 		Namespace:         virtualCapabilityNamespace(toolName),
 		ModelName:         toolName,
-		ModelVisibility:   bluecollar.ToolVisibilityModel,
+		ModelVisibility:   toolcontract.ToolVisibilityModel,
 		Description:       "Virtual capability " + toolName,
 		PrivacyClass:      "test",
 		InputSchema:       json.RawMessage(virtualCapabilityInputSchema(toolName)),
@@ -1054,7 +1055,7 @@ func virtualCapabilityCompletionEvidence(toolName string, sideEffectClass string
 	if action := siteActionByToolName[toolName]; action != "" {
 		return &agentruntime.CapabilityCompletionEvidence{Mode: "success", Action: action, TargetKind: "site"}
 	}
-	if sideEffectClass == bluecollar.ToolSideEffectRead {
+	if sideEffectClass == toolcontract.ToolSideEffectRead {
 		return nil
 	}
 	return &agentruntime.CapabilityCompletionEvidence{Mode: "success", Action: toolName, TargetKind: virtualCapabilityNamespace(toolName)}
@@ -1087,15 +1088,15 @@ func mergeVirtualCapabilityToolDescriptor(base agentruntime.CapabilityToolDescri
 func virtualCapabilitySideEffectClass(toolName string) string {
 	switch toolName {
 	case "web.search", "image.read", "document.read", "task.list", "calendar.list", "site.list":
-		return bluecollar.ToolSideEffectRead
+		return toolcontract.ToolSideEffectRead
 	case "task.delete", "calendar.delete", "schedule.cancel", "site.unserve", "message.delete":
-		return bluecollar.ToolSideEffectDestructive
+		return toolcontract.ToolSideEffectDestructive
 	case "message.send":
-		return bluecollar.ToolSideEffectExternalSend
+		return toolcontract.ToolSideEffectExternalSend
 	case "site.serve":
-		return bluecollar.ToolSideEffectSitePublish
+		return toolcontract.ToolSideEffectSitePublish
 	default:
-		return bluecollar.ToolSideEffectWorkspaceWrite
+		return toolcontract.ToolSideEffectWorkspaceWrite
 	}
 }
 
@@ -3381,16 +3382,16 @@ func countEventsWithFragment(events []task.TaskEvent, name string, bodyFragment 
 	return count
 }
 
-func findAttachmentWithSuffix(attachments []bluecollar.FileAttachment, suffix string) (bluecollar.FileAttachment, bool) {
+func findAttachmentWithSuffix(attachments []toolcontract.FileAttachment, suffix string) (toolcontract.FileAttachment, bool) {
 	for _, attachment := range attachments {
 		if strings.HasSuffix(attachment.Filename, suffix) || strings.HasSuffix(attachment.DevicePath, suffix) {
 			return attachment, true
 		}
 	}
-	return bluecollar.FileAttachment{}, false
+	return toolcontract.FileAttachment{}, false
 }
 
-func validateAttachmentContent(workspacePath string, attachment bluecollar.FileAttachment, suffix string) error {
+func validateAttachmentContent(workspacePath string, attachment toolcontract.FileAttachment, suffix string) error {
 	path := localAttachmentPath(workspacePath, attachment)
 	switch suffix {
 	case ".docx":
@@ -3408,7 +3409,7 @@ func validateAttachmentContent(workspacePath string, attachment bluecollar.FileA
 	}
 }
 
-func validateAttachmentFileExpectation(workspacePath string, attachments []bluecollar.FileAttachment, expectation VirtualAttachmentFileExpectation) error {
+func validateAttachmentFileExpectation(workspacePath string, attachments []toolcontract.FileAttachment, expectation VirtualAttachmentFileExpectation) error {
 	attachment, isFound := findAttachmentWithSuffix(attachments, expectation.Suffix)
 	if !isFound {
 		return fmt.Errorf("expected attachment suffix %q, got %+v", expectation.Suffix, attachments)
@@ -3425,7 +3426,7 @@ func validateAttachmentFileExpectation(workspacePath string, attachments []bluec
 	return nil
 }
 
-func localAttachmentPath(workspacePath string, attachment bluecollar.FileAttachment) string {
+func localAttachmentPath(workspacePath string, attachment toolcontract.FileAttachment) string {
 	devicePath := strings.TrimSpace(attachment.DevicePath)
 	if devicePath == "/workspace" {
 		return workspacePath
@@ -3436,7 +3437,7 @@ func localAttachmentPath(workspacePath string, attachment bluecollar.FileAttachm
 	return devicePath
 }
 
-func validatePPTXAttachment(path string, attachment bluecollar.FileAttachment) error {
+func validatePPTXAttachment(path string, attachment toolcontract.FileAttachment) error {
 	reader, errorValue := zip.OpenReader(path)
 	if errorValue != nil {
 		return fmt.Errorf("attachment %s is not a valid pptx zip: %w", attachment.DevicePath, errorValue)
@@ -3461,7 +3462,7 @@ func validatePPTXAttachment(path string, attachment bluecollar.FileAttachment) e
 	return nil
 }
 
-func validateDOCXAttachment(path string, attachment bluecollar.FileAttachment) error {
+func validateDOCXAttachment(path string, attachment toolcontract.FileAttachment) error {
 	reader, errorValue := zip.OpenReader(path)
 	if errorValue != nil {
 		return fmt.Errorf("attachment %s is not a valid docx zip: %w", attachment.DevicePath, errorValue)

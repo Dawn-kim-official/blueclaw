@@ -1,9 +1,13 @@
 package bluecollar
 
+import (
+	"github.com/Dawn-kim-official/blueclaw/internal/toolcontract"
+)
+
 import "testing"
 
 func TestRecoverableWorkflowNextToolsSuggestsFileDeliveryAfterSourceProgress(t *testing.T) {
-	toolSet := newTestToolSet([]string{"terminal.run", FileDeliverToolName})
+	toolSet := newTestToolSet([]string{"terminal.run", toolcontract.FileDeliverToolName})
 	request := AgentTurnRequest{
 		RequiredAttachmentSuffixes: []string{".docx"},
 		ToolSet:                    toolSet,
@@ -12,7 +16,7 @@ func TestRecoverableWorkflowNextToolsSuggestsFileDeliveryAfterSourceProgress(t *
 
 	nextTools := recoverableWorkflowNextTools(request, observations)
 
-	for _, toolName := range []string{"terminal.run", FileDeliverToolName} {
+	for _, toolName := range []string{"terminal.run", toolcontract.FileDeliverToolName} {
 		if !containsString(nextTools, toolName) {
 			t.Fatalf("expected file delivery recovery tools to include %s, got %+v", toolName, nextTools)
 		}
@@ -20,12 +24,12 @@ func TestRecoverableWorkflowNextToolsSuggestsFileDeliveryAfterSourceProgress(t *
 }
 
 func TestRecoverableWorkflowNextToolsStopsAfterDeliver(t *testing.T) {
-	toolSet := newTestToolSet([]string{"terminal.run", FileDeliverToolName})
+	toolSet := newTestToolSet([]string{"terminal.run", toolcontract.FileDeliverToolName})
 	request := AgentTurnRequest{
 		RequiredAttachmentSuffixes: []string{".docx"},
 		ToolSet:                    toolSet,
 	}
-	observations := []turnObservation{successfulWorkflowObservation(FileDeliverToolName)}
+	observations := []turnObservation{successfulWorkflowObservation(toolcontract.FileDeliverToolName)}
 
 	nextTools := recoverableWorkflowNextTools(request, observations)
 

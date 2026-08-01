@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/Dawn-kim-official/blueclaw/internal/toolcontract"
 	"strconv"
 	"strings"
 	"time"
@@ -34,7 +35,7 @@ func (agentTurnRunner *AgentTurnRunner) rejectMalformedToolCall(taskRunID string
 	if validationError == nil {
 		return toolCallActionOutcome{}
 	}
-	observation := newFailureObservation(nextObservationIDForObservations(state.Observations), "continue", actionDocument.ToolName, validationError.Error(), FailureInvalidInput, failureCode, "tool_input")
+	observation := newFailureObservation(nextObservationIDForObservations(state.Observations), "continue", actionDocument.ToolName, validationError.Error(), toolcontract.FailureInvalidInput, failureCode, "tool_input")
 	state.Observations = append(state.Observations, observation)
 	agentTurnRunner.appendEvent(taskRunID, "agent.tool_input_malformed", marshalEventBody(observation))
 	agentTurnRunner.saveStep(taskRunID, stepID, task.TaskStatusCompleted, "malformed_tool_input "+actionDocument.ToolName, observation.ContentText())
@@ -42,21 +43,21 @@ func (agentTurnRunner *AgentTurnRunner) rejectMalformedToolCall(taskRunID string
 	return noProgressToolCallActionOutcome(result, shouldStop)
 }
 
-func malformedToolInputError(actionDocument turnActionDocument, toolSet *ToolSet) (error, FailureCode) {
+func malformedToolInputError(actionDocument turnActionDocument, toolSet *toolcontract.ToolSet) (error, toolcontract.FailureCode) {
 	if validationError := validateDescriptorToolInput(toolSet, actionDocument.ToolName, actionDocument.ToolInput); validationError != nil {
-		return validationError, FailureCodes.InvalidInput
+		return validationError, toolcontract.FailureCodes.InvalidInput
 	}
 	if validationError := validateBrowserToolInput(actionDocument.ToolName, actionDocument.ToolInput); validationError != nil {
-		return validationError, FailureCodes.InvalidInput
+		return validationError, toolcontract.FailureCodes.InvalidInput
 	}
 	validationError := validateTerminalToolInput(actionDocument.ToolName, actionDocument.ToolInput, toolSet)
 	if validationError != nil && isTerminalToolNameError(validationError) {
-		return validationError, FailureCodes.ToolNameInShell
+		return validationError, toolcontract.FailureCodes.ToolNameInShell
 	}
-	return validationError, FailureCodes.InvalidInput
+	return validationError, toolcontract.FailureCodes.InvalidInput
 }
 
-func validateDescriptorToolInput(toolSet *ToolSet, toolName string, toolInput json.RawMessage) error {
+func validateDescriptorToolInput(toolSet *toolcontract.ToolSet, toolName string, toolInput json.RawMessage) error {
 	if toolSet == nil {
 		return nil
 	}
@@ -64,7 +65,7 @@ func validateDescriptorToolInput(toolSet *ToolSet, toolName string, toolInput js
 	if !isFound {
 		return nil
 	}
-	_, errorValue := validateToolInput(toolDefinition.InputSchema, toolInput)
+	_, errorValue := toolcontract.ValidateToolInput(toolDefinition.InputSchema, toolInput)
 	return errorValue
 }
 
@@ -81,8 +82,8 @@ func (agentTurnRunner *AgentTurnRunner) rejectRepeatedToolCall(taskRunID string,
 			ObservationID: nextObservationIDForObservations(state.Observations),
 			Action:        "policy",
 			Tool:          strings.TrimSpace(actionDocument.ToolName),
-			Output:        ToolOutput{Content: "This task already sent to that recipient as " + sentObservation.ObservationID + ". Do not send to the same recipient again. Send to a different recipient or use that observation for completionEvidence and finish."},
-			Failure:       &ToolFailure{Kind: FailurePolicyBlocked, Code: FailureCodes.PolicyBlocked.String(), Stage: "policy", UserSafeSummary: "This task already sent to that recipient."},
+			Output:        toolcontract.ToolOutput{Content: "This task already sent to that recipient as " + sentObservation.ObservationID + ". Do not send to the same recipient again. Send to a different recipient or use that observation for completionEvidence and finish."},
+			Failure:       &toolcontract.ToolFailure{Kind: toolcontract.FailurePolicyBlocked, Code: toolcontract.FailureCodes.PolicyBlocked.String(), Stage: "policy", UserSafeSummary: "This task already sent to that recipient."},
 		}
 		state.Observations = append(state.Observations, observation)
 		agentTurnRunner.appendEvent(taskRunID, "agent.external_send_repeat_rejected", marshalEventBody(observation))
@@ -95,8 +96,8 @@ func (agentTurnRunner *AgentTurnRunner) rejectRepeatedToolCall(taskRunID string,
 			ObservationID: nextObservationIDForObservations(state.Observations),
 			Action:        "policy",
 			Tool:          strings.TrimSpace(actionDocument.ToolName),
-			Output:        ToolOutput{Content: "This exact tool call already succeeded as " + duplicateObservation.ObservationID + ". Use that observation for completionEvidence instead of running it again."},
-			Failure:       &ToolFailure{Kind: FailurePolicyBlocked, Code: FailureCodes.PolicyBlocked.String(), Stage: "policy", UserSafeSummary: "This exact tool call already succeeded."},
+			Output:        toolcontract.ToolOutput{Content: "This exact tool call already succeeded as " + duplicateObservation.ObservationID + ". Use that observation for completionEvidence instead of running it again."},
+			Failure:       &toolcontract.ToolFailure{Kind: toolcontract.FailurePolicyBlocked, Code: toolcontract.FailureCodes.PolicyBlocked.String(), Stage: "policy", UserSafeSummary: "This exact tool call already succeeded."},
 		}
 		state.Observations = append(state.Observations, observation)
 		agentTurnRunner.appendEvent(taskRunID, "agent.duplicate_tool_call_rejected", marshalEventBody(observation))
@@ -153,7 +154,7 @@ func previousSuccessfulToolInputObservation(observations []turnObservation, tool
 	return turnObservation{}, false
 }
 
-func duplicateSuccessFinalizationRequirements(toolSet *ToolSet, requirements []toolUseRequirement, observations []turnObservation, actionDocument turnActionDocument) ([]toolUseRequirement, bool) {
+func duplicateSuccessFinalizationRequirements(toolSet *toolcontract.ToolSet, requirements []toolUseRequirement, observations []turnObservation, actionDocument turnActionDocument) ([]toolUseRequirement, bool) {
 	if completionRequirementsHaveEvidence(toolSet, requirements, observations) {
 		return requirements, true
 	}
@@ -226,7 +227,7 @@ func tildeInsensitivePath(path string) string {
 
 func isFileMutationTool(toolName string) bool {
 	switch strings.TrimSpace(toolName) {
-	case FileWriteToolName, FileEditToolName:
+	case toolcontract.FileWriteToolName, toolcontract.FileEditToolName:
 		return true
 	default:
 		return false
@@ -376,7 +377,7 @@ func isTerminalToolNameError(errorValue error) bool {
 	return errors.As(errorValue, &typedError)
 }
 
-func validateTerminalToolInput(toolName string, toolInput json.RawMessage, toolSets ...*ToolSet) error {
+func validateTerminalToolInput(toolName string, toolInput json.RawMessage, toolSets ...*toolcontract.ToolSet) error {
 	if !isTerminalExecutionTool(toolName) {
 		return nil
 	}
@@ -388,14 +389,14 @@ func validateTerminalToolInput(toolName string, toolInput json.RawMessage, toolS
 	if command == "" {
 		return nil
 	}
-	var toolSet *ToolSet
+	var toolSet *toolcontract.ToolSet
 	if len(toolSets) > 0 {
 		toolSet = toolSets[0]
 	}
 	if commandToolName := firstTerminalCommandToken(command); toolSet != nil && toolSet.IsRegistered(commandToolName) {
 		return terminalToolNameError{toolName: commandToolName}
 	}
-	for _, toolAlias := range []string{FileDeliverToolName, "set_quality_criteria", "finish"} {
+	for _, toolAlias := range []string{toolcontract.FileDeliverToolName, "set_quality_criteria", "finish"} {
 		if strings.Contains(command, toolAlias) {
 			return errors.New(strings.TrimSpace(toolName) + " command cannot call Blueclaw action " + toolAlias + "; call that action directly instead")
 		}
@@ -558,14 +559,14 @@ func terminalRerunAfterWorkspaceMutation(actionDocument turnActionDocument, obse
 	return false
 }
 
-func handlesDuplicateSuccessfulToolCall(toolSet *ToolSet, toolName string, toolInput json.RawMessage) bool {
+func handlesDuplicateSuccessfulToolCall(toolSet *toolcontract.ToolSet, toolName string, toolInput json.RawMessage) bool {
 	if strings.TrimSpace(toolName) == "terminal.run" {
 		return true
 	}
 	return isOneShotCompletionEvidenceTool(toolSet, toolName)
 }
 
-func previousSuccessfulExternalSend(toolSet *ToolSet, observations []turnObservation, toolName string, toolInput json.RawMessage) (turnObservation, bool) {
+func previousSuccessfulExternalSend(toolSet *toolcontract.ToolSet, observations []turnObservation, toolName string, toolInput json.RawMessage) (turnObservation, bool) {
 	if !isSendEvidenceTool(toolSet, toolName) {
 		return turnObservation{}, false
 	}
@@ -612,7 +613,7 @@ func observationSendRecipientKey(observation turnObservation) string {
 
 func requiredEvidenceContains(requiredEvidenceTools []string, expectedToolName string) bool {
 	for _, toolName := range requiredEvidenceTools {
-		if ToolNamesMatch(toolName, expectedToolName) {
+		if toolcontract.ToolNamesMatch(toolName, expectedToolName) {
 			return true
 		}
 	}
@@ -631,7 +632,7 @@ func unrequestedPlatformMessageSendObservation(request AgentTurnRequest, actionD
 		return turnObservation{}, false
 	}
 	message := toolName + " requires an exact external-send outcome contract. Answer in the current conversation with finish.message instead."
-	return newFailureObservation(observationID, "policy", toolName, message, FailurePolicyBlocked, FailureCodes.PolicyBlocked, "policy"), true
+	return newFailureObservation(observationID, "policy", toolName, message, toolcontract.FailurePolicyBlocked, toolcontract.FailureCodes.PolicyBlocked, "policy"), true
 }
 
 // A send into the conversation the requester is already in has the blast radius
@@ -657,12 +658,12 @@ func requestRequiresExternalSendTool(request AgentTurnRequest, toolName string) 
 		return true
 	}
 	for _, requiredToolName := range outcomeContractRequiredToolNames(request.OutcomeContract) {
-		if ToolNamesMatch(requiredToolName, toolName) {
+		if toolcontract.ToolNamesMatch(requiredToolName, toolName) {
 			return true
 		}
 	}
 	for _, requiredToolName := range outcomeContractRequiredToolNames(request.ActiveGoal.OutcomeContract) {
-		if ToolNamesMatch(requiredToolName, toolName) {
+		if toolcontract.ToolNamesMatch(requiredToolName, toolName) {
 			return true
 		}
 	}
@@ -678,11 +679,11 @@ func isTerminalExecutionTool(toolName string) bool {
 	}
 }
 
-func blockedToolNamesForPreconditions(toolRegistry *ToolSet, requirements []toolUseRequirement, observations []turnObservation) map[string]bool {
+func blockedToolNamesForPreconditions(toolRegistry *toolcontract.ToolSet, requirements []toolUseRequirement, observations []turnObservation) map[string]bool {
 	return map[string]bool{}
 }
 
-func toolAvailableForAction(toolRegistry *ToolSet, toolName string) bool {
+func toolAvailableForAction(toolRegistry *toolcontract.ToolSet, toolName string) bool {
 	if toolRegistry == nil {
 		return false
 	}
@@ -701,7 +702,7 @@ func (agentTurnRunner *AgentTurnRunner) recordUnavailableToolRequest(taskRunID s
 		"toolName":      trimmedToolName,
 		"input":         json.RawMessage(toolInput),
 	}))
-	return agentTurnRunner.saveToolObservation(context.Background(), taskRunID, observationID, trimmedToolName, "", toolInput, effectiveObservationToolName(trimmedToolName, toolInput), toolInputKey, ToolFailureResult(FailurePolicyBlocked, FailureCodes.PolicyBlocked, "tool_availability", "tool is not allowed"), workspaceRootPath, minimumModifiedAt, 0)
+	return agentTurnRunner.saveToolObservation(context.Background(), taskRunID, observationID, trimmedToolName, "", toolInput, effectiveObservationToolName(trimmedToolName, toolInput), toolInputKey, toolcontract.ToolFailureResult(toolcontract.FailurePolicyBlocked, toolcontract.FailureCodes.PolicyBlocked, "tool_availability", "tool is not allowed"), workspaceRootPath, minimumModifiedAt, 0)
 }
 
 func stringValue(value any) string {

@@ -1,5 +1,9 @@
 package bluecollar
 
+import (
+	"github.com/Dawn-kim-official/blueclaw/internal/toolcontract"
+)
+
 import "testing"
 
 func TestActiveFailureDebtKeepsDebtAfterInspectionToolWithoutRecoveryStep(t *testing.T) {
@@ -8,14 +12,14 @@ func TestActiveFailureDebtKeepsDebtAfterInspectionToolWithoutRecoveryStep(t *tes
 			ObservationID: "obs-001",
 			Action:        "continue",
 			Tool:          "site.serve",
-			Failure:       &ToolFailure{Code: FailureCodes.OperationFailed.String()},
+			Failure:       &toolcontract.ToolFailure{Code: toolcontract.FailureCodes.OperationFailed.String()},
 			ToolInputKey:  "site.serve\x00{\"siteReference\":\"site-1\"}",
 		},
 		{
 			ObservationID: "obs-002",
 			Action:        "continue",
 			Tool:          "site.list",
-			Output:        ToolOutput{Content: `{"siteID":"site-1","status":"failed","publishedURL":"https://portfolio.example"}`},
+			Output:        toolcontract.ToolOutput{Content: `{"siteID":"site-1","status":"failed","publishedURL":"https://portfolio.example"}`},
 		},
 	})
 
@@ -30,7 +34,7 @@ func TestActiveFailureDebtIgnoresMissingOptionalSiteControlFile(t *testing.T) {
 			ObservationID: "obs-001",
 			Action:        "continue",
 			Tool:          "file.read",
-			Failure:       &ToolFailure{Code: FailureCodes.NotFound.String()},
+			Failure:       &toolcontract.ToolFailure{Code: toolcontract.FailureCodes.NotFound.String()},
 			ToolInputKey:  "file.read\x00{\"path\":\"home/sites/site-1/.internkim/artifact-brief.md\"}",
 		},
 	})

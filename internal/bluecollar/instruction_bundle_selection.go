@@ -3,6 +3,7 @@ package bluecollar
 import (
 	"context"
 	"fmt"
+	"github.com/Dawn-kim-official/blueclaw/internal/toolcontract"
 	"os"
 	"strings"
 )
@@ -124,7 +125,7 @@ func validatedContractEvidenceTools(arbitration contractSkillArbitration, select
 
 func selectedSkillNextToolNameSet(selectedSkills []SkillInstruction, request AgentRequest) map[string]bool {
 	toolNames := selectedSkillToolNameSet(selectedSkills)
-	for _, toolName := range KernelToolNames() {
+	for _, toolName := range toolcontract.KernelToolNames() {
 		if requestHasToolName(request, toolName) {
 			toolNames[toolName] = true
 		}
@@ -154,7 +155,7 @@ func selectedSkillToolNameSet(selectedSkills []SkillInstruction) map[string]bool
 
 func arbitrationHasSelectedSideEffect(toolNames []string, selectedToolNames map[string]bool, request AgentRequest) bool {
 	for _, toolName := range appendUniqueStrings(toolNames) {
-		if selectedToolNames[toolName] && requestHasToolName(request, toolName) && (IsArtifactDeliveryTool(toolName) || requiredEvidenceToolNeedsSuccessfulSideEffect(request.ToolSet, toolName)) {
+		if selectedToolNames[toolName] && requestHasToolName(request, toolName) && (toolcontract.IsArtifactDeliveryTool(toolName) || requiredEvidenceToolNeedsSuccessfulSideEffect(request.ToolSet, toolName)) {
 			return true
 		}
 	}
@@ -167,7 +168,7 @@ func validateArbitratedToolNames(toolNames []string, selectedToolNames map[strin
 		if !selectedToolNames[toolName] || !requestHasToolName(request, toolName) {
 			continue
 		}
-		if requiresSideEffect && !IsArtifactDeliveryTool(toolName) && !requiredEvidenceToolNeedsSuccessfulSideEffect(request.ToolSet, toolName) {
+		if requiresSideEffect && !toolcontract.IsArtifactDeliveryTool(toolName) && !requiredEvidenceToolNeedsSuccessfulSideEffect(request.ToolSet, toolName) {
 			continue
 		}
 		validatedToolNames = append(validatedToolNames, toolName)

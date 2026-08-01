@@ -2,6 +2,7 @@ package bluecollar
 
 import (
 	"encoding/json"
+	"github.com/Dawn-kim-official/blueclaw/internal/toolcontract"
 	"strings"
 )
 
@@ -78,7 +79,7 @@ func outcomeContractFromPriorTask(priorTask PriorTaskContext) OutcomeContract {
 		return contract
 	}
 	contract.RequiredAttachmentSuffixes = appendUniqueStrings(contract.RequiredAttachmentSuffixes, requiredAttachmentSuffixes...)
-	contract.RequiredEvidenceTools = appendUniqueStrings(contract.RequiredEvidenceTools, FileDeliverToolName)
+	contract.RequiredEvidenceTools = appendUniqueStrings(contract.RequiredEvidenceTools, toolcontract.FileDeliverToolName)
 	contract.ExpectedResults = appendExpectedResults(contract.ExpectedResults, ExpectedResult{
 		ID:              "attached-file",
 		Type:            ExpectedResultTypeFile,

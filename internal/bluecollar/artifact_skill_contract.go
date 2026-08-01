@@ -1,5 +1,9 @@
 package bluecollar
 
+import (
+	"github.com/Dawn-kim-official/blueclaw/internal/toolcontract"
+)
+
 import "strings"
 
 const artifactContractKindFile = "file"
@@ -67,12 +71,12 @@ func outcomeContractHasSiteEffect(contract OutcomeContract) bool {
 	return false
 }
 
-func skillSupportsSiteArtifact(toolSet *ToolSet, skillInstruction SkillInstruction) bool {
+func skillSupportsSiteArtifact(toolSet *toolcontract.ToolSet, skillInstruction SkillInstruction) bool {
 	return requiredEvidenceIncludesNamespace(toolSet, SkillToolNames(skillInstruction), "site")
 }
 
 func skillSupportsFileDelivery(skillInstruction SkillInstruction) bool {
-	return skillHasToolName(skillInstruction, FileDeliverToolName)
+	return skillHasToolName(skillInstruction, toolcontract.FileDeliverToolName)
 }
 
 func skillHasToolName(skillInstruction SkillInstruction, toolName string) bool {

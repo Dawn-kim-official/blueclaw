@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/Dawn-kim-official/blueclaw/internal/toolcontract"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -167,9 +168,9 @@ func TestToolSetForAgentTurnExposesSelectedSkillToolsAlongsideKernel(t *testing.
 }
 
 func TestSelectedFlowSkillExposesRegisteredDirectToolsFromKernelPalette(t *testing.T) {
-	toolSet := NewToolSet(KernelToolNames())
-	for _, toolName := range append(KernelToolNames(), "task.add", "task.list", "task.update", "task.delete") {
-		registerTestTool(toolSet, ToolDefinition{Name: toolName}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	toolSet := toolcontract.NewToolSet(toolcontract.KernelToolNames())
+	for _, toolName := range append(toolcontract.KernelToolNames(), "task.add", "task.list", "task.update", "task.delete") {
+		registerTestTool(toolSet, toolcontract.ToolDefinition{Name: toolName}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
 			return testToolSuccess("ok"), nil
 		})
 	}
@@ -283,8 +284,8 @@ func TestAgentKernelActionSchemaExposesTypedInitialTools(t *testing.T) {
 	})
 	// The initial tool list contains direct typed tools; skill selection can add more direct tools later.
 	toolRegistry := newTestCapabilityToolSet([]string{"schedule.create", "mail.message.search", "schedule.list"})
-	registerTestTool(toolRegistry, ToolDefinition{Name: AskInputToolName}, func(context.Context, ToolInvocation) (ToolResult, error) {
-		return ToolResult{}, nil
+	registerTestTool(toolRegistry, toolcontract.ToolDefinition{Name: toolcontract.AskInputToolName}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
+		return toolcontract.ToolResult{}, nil
 	})
 
 	_, errorValue := services.kernel.RunAgentRequest(context.Background(), AgentRequest{
@@ -303,7 +304,7 @@ func TestAgentKernelActionSchemaExposesTypedInitialTools(t *testing.T) {
 	if !strings.Contains(actionSchema, `"toolName":{"enum":["schedule.create"]`) {
 		t.Fatalf("expected direct initial schedule.create in action schema, got %s", actionSchema)
 	}
-	if strings.Contains(actionSchema, AskInputToolName) {
+	if strings.Contains(actionSchema, toolcontract.AskInputToolName) {
 		t.Fatalf("expected ask.input to stay hidden without a typed interaction requirement, got %s", actionSchema)
 	}
 	for _, domainToolName := range []string{"mail.message.search", "schedule.list"} {
@@ -366,10 +367,10 @@ func TestSkillSelectorSkipsSkillWhenEveryToolIsMissing(t *testing.T) {
 }
 
 func TestSelectInstructionBundleKeepsSkillWhenDirectToolsAreAvailable(t *testing.T) {
-	toolSet := NewToolSet([]string{"terminal.run", "site.serve", "site.serve"})
+	toolSet := toolcontract.NewToolSet([]string{"terminal.run", "site.serve", "site.serve"})
 	for _, toolName := range []string{"terminal.run", "site.serve", "site.serve"} {
 		currentToolName := toolName
-		registerTestTool(toolSet, ToolDefinition{Name: currentToolName}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		registerTestTool(toolSet, toolcontract.ToolDefinition{Name: currentToolName}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
 			return testToolSuccess("ok"), nil
 		})
 	}
@@ -403,15 +404,15 @@ func TestSelectInstructionBundleKeepsSkillWhenDirectToolsAreAvailable(t *testing
 }
 
 func TestSelectInstructionBundleSkipsSkillWhenDirectToolIsUnavailable(t *testing.T) {
-	toolSet := NewToolSet([]string{"terminal.run"})
-	registerTestTool(toolSet, ToolDefinition{Name: "terminal.run"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	toolSet := toolcontract.NewToolSet([]string{"terminal.run"})
+	registerTestTool(toolSet, toolcontract.ToolDefinition{Name: "terminal.run"}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
 		return testToolSuccess("ok"), nil
 	})
 	for _, toolName := range []string{"site.serve", "site.serve"} {
-		toolSet.RegisterBoundTool(BoundTool{
-			Definition:   ToolDefinition{Name: toolName},
-			Availability: ToolAvailability{Status: ToolAvailabilityUnavailable},
-			Handler: func(context.Context, ToolInvocation) (ToolResult, error) {
+		toolSet.RegisterBoundTool(toolcontract.BoundTool{
+			Definition:   toolcontract.ToolDefinition{Name: toolName},
+			Availability: toolcontract.ToolAvailability{Status: toolcontract.ToolAvailabilityUnavailable},
+			Handler: func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
 				return testToolSuccess("ok"), nil
 			},
 		})
@@ -949,9 +950,9 @@ func TestContractSkillArbitrationCorrectsProseToExactCanonicalNames(t *testing.T
 		ToolReferences: []string{"document.read"},
 	}}
 	request := AgentRequest{
-		ToolSet: testToolSet([]string{"document.read", TerminalRunToolName, FileWriteToolName, FileDeliverToolName}),
+		ToolSet: testToolSet([]string{"document.read", toolcontract.TerminalRunToolName, toolcontract.FileWriteToolName, toolcontract.FileDeliverToolName}),
 		ActiveGoal: ActiveGoal{OutcomeContract: OutcomeContract{
-			RequiredEvidenceTools: []string{FileWriteToolName, FileDeliverToolName},
+			RequiredEvidenceTools: []string{toolcontract.FileWriteToolName, toolcontract.FileDeliverToolName},
 		}},
 	}
 	languageModel := &contractArbitrationSequenceLanguageModel{contents: []string{
@@ -1000,7 +1001,7 @@ func TestContractSkillArbitrationFailureDegradesToScoreSelection(t *testing.T) {
 		"blueclaw_skill_search_queries":       `{"queries":[{"description":"Create a company task."}]}`,
 		"blueclaw_contract_skill_arbitration": `{}`,
 	}}
-	toolSet := testToolSet([]string{TerminalRunToolName, "task.add", "task.list"})
+	toolSet := testToolSet([]string{toolcontract.TerminalRunToolName, "task.add", "task.list"})
 	outcomeContract := OutcomeContract{RequiredEvidenceTools: []string{"task.add"}}
 	request := AgentRequest{
 		Prompt:     "고객지원 분기 결산 누락 항목 확인 업무를 추가해줘",
@@ -1041,7 +1042,7 @@ func TestContractSkillArbitrationFailureDegradesToScoreSelection(t *testing.T) {
 		outcomeContract,
 		ToolExposureEvent{},
 	)
-	if !exposedToolSet.IsAllowed(TerminalRunToolName) || !exposedToolSet.IsAllowed("task.add") {
+	if !exposedToolSet.IsAllowed(toolcontract.TerminalRunToolName) || !exposedToolSet.IsAllowed("task.add") {
 		t.Fatalf("expected kernel and explicit evidence tools, got %+v", exposedToolSet.ListToolNames())
 	}
 	if !exposedToolSet.IsAllowed("task.list") {
@@ -1616,11 +1617,11 @@ func structuredRequestSchemaNames(requests []llm.StructuredResponseRequest) []st
 	return names
 }
 
-func testToolSet(toolNames []string) *ToolSet {
+func testToolSet(toolNames []string) *toolcontract.ToolSet {
 	toolRegistry := newTestToolSet(toolNames)
 	for _, toolName := range toolNames {
-		registerTestTool(toolRegistry, ToolDefinition{Name: toolName}, func(context.Context, ToolInvocation) (ToolResult, error) {
-			return ToolResult{}, nil
+		registerTestTool(toolRegistry, toolcontract.ToolDefinition{Name: toolName}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
+			return toolcontract.ToolResult{}, nil
 		})
 	}
 	return toolRegistry

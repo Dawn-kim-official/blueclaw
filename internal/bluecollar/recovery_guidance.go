@@ -2,6 +2,7 @@ package bluecollar
 
 import (
 	"context"
+	"github.com/Dawn-kim-official/blueclaw/internal/toolcontract"
 	"strings"
 
 	"github.com/Dawn-kim-official/blueclaw/internal/task"
@@ -42,7 +43,7 @@ func recoveryGuidanceObservation(index int, observation turnObservation, origina
 		ObservationID:        nextObservationID(index),
 		Action:               "recovery_guidance",
 		Tool:                 observation.Tool,
-		Output:               ToolOutput{Content: content},
+		Output:               toolcontract.ToolOutput{Content: content},
 		Summary:              content,
 		Failure:              observation.Failure,
 		ToolInputKey:         observation.ToolInputKey,
@@ -109,7 +110,7 @@ func (recoveryRoute RecoveryRoute) Guidance() string {
 }
 
 func recoveryRoutesForObservation(observation turnObservation) []RecoveryRoute {
-	if strings.TrimSpace(observation.Tool) != "memory.search" || observation.FailureCode() != FailureCodes.Unavailable.String() {
+	if strings.TrimSpace(observation.Tool) != "memory.search" || observation.FailureCode() != toolcontract.FailureCodes.Unavailable.String() {
 		return nil
 	}
 	return []RecoveryRoute{{

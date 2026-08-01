@@ -1,6 +1,7 @@
 package bluecollar
 
 import (
+	"github.com/Dawn-kim-official/blueclaw/internal/toolcontract"
 	"strings"
 	"testing"
 	"time"
@@ -244,7 +245,7 @@ func TestPromptAssemblerIncludesKnownFileContextSnippet(t *testing.T) {
 		ObservationID: "obs-001",
 		Action:        "continue",
 		Tool:          "file.read",
-		Output:        ToolOutput{Content: `{"path":"tmp/source.ts","content":"export const title = \"Known\"","startLine":1,"endLine":1,"totalLines":1,"totalLinesKnown":true,"originalSizeBytes":28,"returnedBytes":28,"isTruncated":false}`},
+		Output:        toolcontract.ToolOutput{Content: `{"path":"tmp/source.ts","content":"export const title = \"Known\"","startLine":1,"endLine":1,"totalLines":1,"totalLinesKnown":true,"originalSizeBytes":28,"returnedBytes":28,"isTruncated":false}`},
 	}}
 
 	messages := (PromptAssembler{}).BuildTurnMessages(AgentTurnRequest{
@@ -264,7 +265,7 @@ func TestPromptAssemblerOmitsRawBrowserSnapshotOutput(t *testing.T) {
 		ObservationID: "obs-001",
 		Action:        "continue",
 		Tool:          "browser.snapshot",
-		Output:        ToolOutput{Content: `{"url":"https://example.com","title":"Example","snapshotText":"VISIBLE START ` + strings.Repeat("raw-page-text ", 500) + ` SECRET_COOKIE_VALUE","interactiveRefs":["@e1","@e2"],"profilePath":"/Users/me/Profile","cdpURL":"ws://localhost:9222"}`},
+		Output:        toolcontract.ToolOutput{Content: `{"url":"https://example.com","title":"Example","snapshotText":"VISIBLE START ` + strings.Repeat("raw-page-text ", 500) + ` SECRET_COOKIE_VALUE","interactiveRefs":["@e1","@e2"],"profilePath":"/Users/me/Profile","cdpURL":"ws://localhost:9222"}`},
 	}}
 
 	messages := (PromptAssembler{}).BuildTurnMessages(AgentTurnRequest{
@@ -286,7 +287,7 @@ func TestPromptAssemblerIncludesRawToolResultSummary(t *testing.T) {
 		ObservationID: "obs-001",
 		Action:        "continue",
 		Tool:          "web.fetch",
-		Output:        ToolOutput{Content: fetchResult},
+		Output:        toolcontract.ToolOutput{Content: fetchResult},
 		Summary:       fetchResult,
 	}}
 
@@ -304,7 +305,7 @@ func TestPromptAssemblerIncludesCheckpointMessages(t *testing.T) {
 	observations := []turnObservation{{
 		ObservationID: "obs-001",
 		Action:        "checkpoint",
-		Output:        ToolOutput{Content: `{"message":"사이트 스캐폴드를 만들고 있습니다.","status":"sent"}`},
+		Output:        toolcontract.ToolOutput{Content: `{"message":"사이트 스캐폴드를 만들고 있습니다.","status":"sent"}`},
 		Summary:       "사이트 스캐폴드를 만들고 있습니다.",
 	}}
 
@@ -372,7 +373,7 @@ func TestPromptAssemblerDoesNotExposeAttachmentDevicePath(t *testing.T) {
 		ObservationID: "obs-001",
 		Action:        "continue",
 		Tool:          "browser.screenshot",
-		Output:        ToolOutput{Content: `{"devicePath":"/tmp/internkim-companion-files/screen.png","filename":"screen.png","contentType":"image/png"}`},
+		Output:        toolcontract.ToolOutput{Content: `{"devicePath":"/tmp/internkim-companion-files/screen.png","filename":"screen.png","contentType":"image/png"}`},
 		Summary:       "Screenshot captured. Use the imageRefs for visual inspection.",
 		ImageRefs: []ToolResultImageRef{{
 			ObservationID:   "obs-001",
@@ -380,7 +381,7 @@ func TestPromptAssemblerDoesNotExposeAttachmentDevicePath(t *testing.T) {
 			MimeType:        "image/png",
 			Filename:        "screen.png",
 		}},
-		Attachments: []FileAttachment{{
+		Attachments: []toolcontract.FileAttachment{{
 			DevicePath:    "/tmp/internkim-companion-files/screen.png",
 			Filename:      "screen.png",
 			ContentType:   "image/png",
@@ -415,14 +416,14 @@ func TestPromptAssemblerCompressesLongObservationHistory(t *testing.T) {
 			ObservationID: "obs-" + strings.Repeat("0", 2) + string(rune('a'+index)),
 			Action:        "continue",
 			Tool:          "browser.snapshot",
-			Output:        ToolOutput{Content: `{"snapshotText":"` + strings.Repeat("very-long-page-output ", 200) + `","interactiveRefs":["@old"]}`},
+			Output:        toolcontract.ToolOutput{Content: `{"snapshotText":"` + strings.Repeat("very-long-page-output ", 200) + `","interactiveRefs":["@old"]}`},
 		})
 	}
 	observations = append(observations, turnObservation{
 		ObservationID: "obs-latest",
 		Action:        "continue",
 		Tool:          "browser.snapshot",
-		Output:        ToolOutput{Content: `{"snapshotText":"latest form","interactiveRefs":["@latestSearch","@latestButton"]}`},
+		Output:        toolcontract.ToolOutput{Content: `{"snapshotText":"latest form","interactiveRefs":["@latestSearch","@latestButton"]}`},
 	})
 
 	messages := (PromptAssembler{}).BuildTurnMessages(AgentTurnRequest{

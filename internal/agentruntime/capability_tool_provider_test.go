@@ -3,12 +3,11 @@ package agentruntime
 import (
 	"context"
 	"encoding/json"
+	"github.com/Dawn-kim-official/blueclaw/internal/toolcontract"
 	"os"
 	"reflect"
 	"strings"
 	"testing"
-
-	"github.com/Dawn-kim-official/blueclaw/internal/bluecollar"
 )
 
 func TestCapabilityToolProviderRegistersGeneratedCatalogAtExternalBoundary(t *testing.T) {
@@ -30,11 +29,11 @@ func TestCapabilityToolProviderRegistersGeneratedCatalogAtExternalBoundary(t *te
 		toolCatalogBuilder: NewToolCatalogBuilder(),
 		descriptors:        catalog.Tools,
 	}
-	toolSet := bluecollar.NewToolSet(toolNames)
+	toolSet := toolcontract.NewToolSet(toolNames)
 
-	quarantinedProviders, errorValue := toolSet.RegisterProviders(context.Background(), []bluecollar.ToolProviderRegistration{{
+	quarantinedProviders, errorValue := toolSet.RegisterProviders(context.Background(), []toolcontract.ToolProviderRegistration{{
 		Provider: provider,
-		Trust:    bluecollar.ToolProviderExternal,
+		Trust:    toolcontract.ToolProviderExternal,
 	}})
 
 	if errorValue != nil {
@@ -57,7 +56,7 @@ func TestCapabilityToolProviderRegistersCanonicalDescriptor(t *testing.T) {
 			CanonicalName:     "task.add",
 			Namespace:         "task",
 			ModelName:         "task.add",
-			ModelVisibility:   bluecollar.ToolVisibilityModel,
+			ModelVisibility:   toolcontract.ToolVisibilityModel,
 			Description:       "Create a task.",
 			PrivacyClass:      "workspace_task",
 			InputSchema:       json.RawMessage(`{"type":"object","properties":{"title":{"type":"string"}},"required":["title"],"additionalProperties":false}`),
@@ -71,13 +70,13 @@ func TestCapabilityToolProviderRegistersCanonicalDescriptor(t *testing.T) {
 				},
 			},
 			PolicyResource:     "tool:task.add",
-			SideEffectClass:    bluecollar.ToolSideEffectWorkspaceWrite,
+			SideEffectClass:    toolcontract.ToolSideEffectWorkspaceWrite,
 			CompletionEvidence: &CapabilityCompletionEvidence{Mode: "success", Action: "write_task", TargetKind: "task"},
 			Availability:       CapabilityAvailability{State: "ok"},
 			Idempotency:        CapabilityIdempotency{Scope: "operation"},
 		}},
 	}
-	toolSet := bluecollar.NewToolSet([]string{"task.add"})
+	toolSet := toolcontract.NewToolSet([]string{"task.add"})
 
 	if errorValue := toolSet.RegisterProvider(context.Background(), provider); errorValue != nil {
 		t.Fatal(errorValue)
@@ -86,7 +85,7 @@ func TestCapabilityToolProviderRegistersCanonicalDescriptor(t *testing.T) {
 	if !isFound {
 		t.Fatal("expected task.add")
 	}
-	if descriptor.ID != "capabilityd/task.add" || descriptor.ProviderID != "capabilityd" || descriptor.Completion.Mode != bluecollar.ToolCompletionObservation || descriptor.IdempotencyScope != "operation" {
+	if descriptor.ID != "capabilityd/task.add" || descriptor.ProviderID != "capabilityd" || descriptor.Completion.Mode != toolcontract.ToolCompletionObservation || descriptor.IdempotencyScope != "operation" {
 		t.Fatalf("unexpected descriptor: %+v", descriptor)
 	}
 	if descriptor.ResultContract == nil || descriptor.ResultContract.EvidenceCondition == nil ||
@@ -105,7 +104,7 @@ func TestCapabilityToolProviderPreservesCanonicalReadResultContract(t *testing.T
 		request:            ToolCatalogRequest{},
 		descriptors:        []CapabilityToolDescriptor{canonicalReadDescriptor("document.read")},
 	}
-	toolSet := bluecollar.NewToolSet([]string{"document.read"})
+	toolSet := toolcontract.NewToolSet([]string{"document.read"})
 
 	if errorValue := toolSet.RegisterProvider(context.Background(), provider); errorValue != nil {
 		t.Fatal(errorValue)
@@ -128,7 +127,7 @@ func TestCapabilityToolProviderRejectsIncompleteDescriptor(t *testing.T) {
 		descriptors:        []CapabilityToolDescriptor{{Name: "task.add"}},
 	}
 
-	errorValue := bluecollar.NewToolSet(nil).RegisterProvider(context.Background(), provider)
+	errorValue := toolcontract.NewToolSet(nil).RegisterProvider(context.Background(), provider)
 
 	if errorValue == nil || !strings.Contains(errorValue.Error(), "required") {
 		t.Fatalf("expected fail-closed descriptor validation, got %v", errorValue)
@@ -147,7 +146,7 @@ func TestCapabilityToolProviderRejectsMissingOrMalformedStateChangingInputIntent
 		t.Run(testCase.name, func(t *testing.T) {
 			descriptor := completeTestCapabilityToolDescriptor(CapabilityToolDescriptor{
 				Name:            "task.add",
-				SideEffectClass: bluecollar.ToolSideEffectStateChange,
+				SideEffectClass: toolcontract.ToolSideEffectStateChange,
 			})
 			descriptor.InputIntentSchema = testCase.inputIntentSchema
 
@@ -167,7 +166,7 @@ func TestCapabilityToolProviderRejectsModelVisibleDescriptorWithoutResultContrac
 		toolCatalogBuilder: NewToolCatalogBuilder(),
 		descriptors:        []CapabilityToolDescriptor{descriptor},
 	}
-	toolSet := bluecollar.NewToolSet([]string{"task.add"})
+	toolSet := toolcontract.NewToolSet([]string{"task.add"})
 
 	errorValue := toolSet.RegisterProvider(context.Background(), provider)
 
@@ -181,13 +180,13 @@ func TestCapabilityToolProviderRejectsModelVisibleDescriptorWithoutResultContrac
 
 func TestCapabilityToolProviderAllowsHiddenDescriptorWithoutResultContract(t *testing.T) {
 	descriptor := completeTestCapabilityToolDescriptor(CapabilityToolDescriptor{Name: "task.history"})
-	descriptor.ModelVisibility = bluecollar.ToolVisibilityInternal
+	descriptor.ModelVisibility = toolcontract.ToolVisibilityInternal
 	descriptor.ResultContract = nil
 	provider := capabilityToolProvider{
 		toolCatalogBuilder: NewToolCatalogBuilder(),
 		descriptors:        []CapabilityToolDescriptor{descriptor},
 	}
-	toolSet := bluecollar.NewToolSet([]string{"task.history"})
+	toolSet := toolcontract.NewToolSet([]string{"task.history"})
 
 	if errorValue := toolSet.RegisterProvider(context.Background(), provider); errorValue != nil {
 		t.Fatal(errorValue)
@@ -205,7 +204,7 @@ func TestCapabilityToolProviderRejectsMissingIdempotencyScopeWhenSupported(t *te
 		descriptors:        []CapabilityToolDescriptor{descriptor},
 	}
 
-	errorValue := bluecollar.NewToolSet(nil).RegisterProvider(context.Background(), provider)
+	errorValue := toolcontract.NewToolSet(nil).RegisterProvider(context.Background(), provider)
 
 	if errorValue == nil || !strings.Contains(errorValue.Error(), "idempotency.scope is required") {
 		t.Fatalf("expected missing idempotency scope rejection, got %v", errorValue)
@@ -219,13 +218,13 @@ func TestCapabilityToolProviderAllowsMissingIdempotencyScopeWhenIdempotencyIsNon
 		toolCatalogBuilder: NewToolCatalogBuilder(),
 		descriptors:        []CapabilityToolDescriptor{descriptor},
 	}
-	toolSet := bluecollar.NewToolSet([]string{"task.add"})
+	toolSet := toolcontract.NewToolSet([]string{"task.add"})
 
 	if errorValue := toolSet.RegisterProvider(context.Background(), provider); errorValue != nil {
 		t.Fatal(errorValue)
 	}
 	descriptorDefinition, isFound := toolSet.ToolDefinition("task.add")
-	if !isFound || descriptorDefinition.Idempotency != bluecollar.ToolIdempotencyNone || descriptorDefinition.IdempotencyScope != "" {
+	if !isFound || descriptorDefinition.Idempotency != toolcontract.ToolIdempotencyNone || descriptorDefinition.IdempotencyScope != "" {
 		t.Fatalf("expected registered tool with no idempotency scope, got %+v", descriptorDefinition)
 	}
 }
@@ -238,7 +237,7 @@ func TestCapabilityToolProviderRejectsScalarSchema(t *testing.T) {
 		descriptors:        []CapabilityToolDescriptor{descriptor},
 	}
 
-	errorValue := bluecollar.NewToolSet(nil).RegisterProvider(context.Background(), provider)
+	errorValue := toolcontract.NewToolSet(nil).RegisterProvider(context.Background(), provider)
 
 	if errorValue == nil || !strings.Contains(errorValue.Error(), "must describe objects") {
 		t.Fatalf("expected scalar schema rejection, got %v", errorValue)
@@ -246,12 +245,12 @@ func TestCapabilityToolProviderRejectsScalarSchema(t *testing.T) {
 }
 
 func TestToolCatalogReportsEveryCapabilityQuarantine(t *testing.T) {
-	reportedProviders := []bluecollar.QuarantinedToolProvider{}
+	reportedProviders := []toolcontract.QuarantinedToolProvider{}
 	toolCatalogBuilder := NewToolCatalogBuilder()
-	toolCatalogBuilder.UseCapabilityQuarantineReporter(func(quarantinedProvider bluecollar.QuarantinedToolProvider) {
+	toolCatalogBuilder.UseCapabilityQuarantineReporter(func(quarantinedProvider toolcontract.QuarantinedToolProvider) {
 		reportedProviders = append(reportedProviders, quarantinedProvider)
 	})
-	expectedProviders := []bluecollar.QuarantinedToolProvider{
+	expectedProviders := []toolcontract.QuarantinedToolProvider{
 		{ProviderID: "capabilityd", Reason: "tool name collides with a trusted provider: file.read"},
 	}
 
@@ -270,7 +269,7 @@ func TestCapabilityToolProviderRejectsUnknownCompletionEvidenceMode(t *testing.T
 		descriptors:        []CapabilityToolDescriptor{descriptor},
 	}
 
-	errorValue := bluecollar.NewToolSet(nil).RegisterProvider(context.Background(), provider)
+	errorValue := toolcontract.NewToolSet(nil).RegisterProvider(context.Background(), provider)
 
 	if errorValue == nil || !strings.Contains(errorValue.Error(), "completion evidence mode is invalid") {
 		t.Fatalf("expected unknown completion evidence mode rejection, got %v", errorValue)

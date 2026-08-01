@@ -2,6 +2,7 @@ package bluecollar
 
 import (
 	"encoding/json"
+	"github.com/Dawn-kim-official/blueclaw/internal/toolcontract"
 	"strings"
 )
 
@@ -43,8 +44,8 @@ func buildRecoveryPacket(observation turnObservation) RecoveryPacket {
 		if strings.TrimSpace(failure.RetryPolicy) != "" {
 			packet.RetryPolicy = strings.TrimSpace(failure.RetryPolicy)
 		}
-		packet.AffectedResources = append([]AffectedResource{}, failure.AffectedResources...)
-		packet.DiagnosticArtifacts = append([]DiagnosticArtifact{}, failure.DiagnosticArtifacts...)
+		packet.AffectedResources = append([]toolcontract.AffectedResource{}, failure.AffectedResources...)
+		packet.DiagnosticArtifacts = append([]toolcontract.DiagnosticArtifact{}, failure.DiagnosticArtifacts...)
 		for _, recoveryHint := range failure.RecoveryHints {
 			packet.AllowedTools = appendUniqueRecoveryStrings(append(packet.AllowedTools, recoveryHint.ToolNames...))
 		}
@@ -60,15 +61,15 @@ func failureClassForObservation(observation turnObservation) string {
 		return failureClassUnknown
 	}
 	switch observation.Failure.Kind {
-	case FailureDependencyUnavailable:
+	case toolcontract.FailureDependencyUnavailable:
 		return failureClassDependency
-	case FailurePermissionDenied, FailurePolicyBlocked:
+	case toolcontract.FailurePermissionDenied, toolcontract.FailurePolicyBlocked:
 		return failureClassPermission
-	case FailureInvalidInput:
+	case toolcontract.FailureInvalidInput:
 		return failureClassSchema
-	case FailureRateLimited:
+	case toolcontract.FailureRateLimited:
 		return failureClassProviderLimit
-	case FailureInteractionRequired:
+	case toolcontract.FailureInteractionRequired:
 		return failureClassInteraction
 	default:
 		return failureClassUnknown

@@ -2,6 +2,7 @@ package bluecollar
 
 import (
 	"encoding/json"
+	"github.com/Dawn-kim-official/blueclaw/internal/toolcontract"
 	"strconv"
 	"strings"
 	"testing"
@@ -145,7 +146,7 @@ func terminalFailureObservation(observationID string, workingDirectoryPath strin
 		"stderr":   stderr,
 		"timedOut": false,
 	})
-	input := MarshalToolInput(map[string]any{
+	input := toolcontract.MarshalToolInput(map[string]any{
 		"workingDirectoryPath": workingDirectoryPath,
 		"command":              command,
 	})
@@ -153,10 +154,10 @@ func terminalFailureObservation(observationID string, workingDirectoryPath strin
 		ObservationID:      observationID,
 		Action:             "continue",
 		Tool:               "terminal.run",
-		Output:             ToolOutput{Content: "terminal command failed", Data: json.RawMessage(content)},
-		Failure:            &ToolFailure{Kind: FailureExternalService, Code: FailureCodes.OperationFailed.String(), Stage: "terminal_run", UserSafeSummary: content},
+		Output:             toolcontract.ToolOutput{Content: "terminal command failed", Data: json.RawMessage(content)},
+		Failure:            &toolcontract.ToolFailure{Kind: toolcontract.FailureExternalService, Code: toolcontract.FailureCodes.OperationFailed.String(), Stage: "terminal_run", UserSafeSummary: content},
 		ToolInputKey:       canonicalToolCallKey("terminal.run", input),
-		AttemptFingerprint: attemptFingerprint(canonicalToolCallKey("terminal.run", input), FailureCodes.OperationFailed.String()),
+		AttemptFingerprint: attemptFingerprint(canonicalToolCallKey("terminal.run", input), toolcontract.FailureCodes.OperationFailed.String()),
 	}
 }
 
@@ -167,7 +168,7 @@ func terminalSuccessObservation(observationID string, workingDirectoryPath strin
 		"stderr":   "",
 		"timedOut": false,
 	})
-	input := MarshalToolInput(map[string]any{
+	input := toolcontract.MarshalToolInput(map[string]any{
 		"workingDirectoryPath": workingDirectoryPath,
 		"command":              command,
 	})
@@ -175,7 +176,7 @@ func terminalSuccessObservation(observationID string, workingDirectoryPath strin
 		ObservationID: observationID,
 		Action:        "continue",
 		Tool:          "terminal.run",
-		Output:        ToolOutput{Content: "terminal command completed", Data: json.RawMessage(content)},
+		Output:        toolcontract.ToolOutput{Content: "terminal command completed", Data: json.RawMessage(content)},
 		ToolInputKey:  canonicalToolCallKey("terminal.run", input),
 	}
 }
@@ -198,7 +199,7 @@ func messagesText(messages []llm.Message) string {
 }
 
 func TestExecutionStateSchemaIsPresentOnToolCalls(t *testing.T) {
-	schemaDocument := buildActionSchemaFromToolDefinitions([]ToolDefinition{{Name: "terminal.run"}}, false, nil, false)
+	schemaDocument := buildActionSchemaFromToolDefinitions([]toolcontract.ToolDefinition{{Name: "terminal.run"}}, false, nil, false)
 	var schema struct {
 		OneOf []map[string]any `json:"oneOf"`
 	}

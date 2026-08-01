@@ -2,6 +2,7 @@ package bluecollar
 
 import (
 	"encoding/json"
+	"github.com/Dawn-kim-official/blueclaw/internal/toolcontract"
 	"strconv"
 	"strings"
 )
@@ -112,13 +113,13 @@ func normalizePersistedToolNames(toolNames []string) []string {
 func normalizePersistedToolName(toolName string) string {
 	switch strings.TrimSpace(toolName) {
 	case "ask.choice":
-		return AskInputToolName
+		return toolcontract.AskInputToolName
 	case "artifact.deliver", "file.attach":
-		return FileDeliverToolName
+		return toolcontract.FileDeliverToolName
 	case "site.promote", "site.publish", "site.preview":
 		return "site.serve"
 	case "terminal.session":
-		return TerminalRunToolName
+		return toolcontract.TerminalRunToolName
 	default:
 		return strings.TrimSpace(toolName)
 	}
@@ -165,7 +166,7 @@ func normalizeOutcomeContract(contract OutcomeContract) OutcomeContract {
 	contract.ExpectedResults = normalizeExpectedResults(contract.ExpectedResults)
 	contract.ArtifactRequirement = normalizeArtifactRequirement(contract.ArtifactRequirement)
 	if expectedResultRequiresFileAttachment(contract) {
-		contract.RequiredEvidenceTools = appendUniqueStrings(contract.RequiredEvidenceTools, FileDeliverToolName)
+		contract.RequiredEvidenceTools = appendUniqueStrings(contract.RequiredEvidenceTools, toolcontract.FileDeliverToolName)
 		contract.ArtifactRequirement = ArtifactRequirementRequired
 	}
 	contract.Source = strings.TrimSpace(contract.Source)

@@ -3,6 +3,7 @@ package bluecollar
 import (
 	"context"
 	"encoding/json"
+	"github.com/Dawn-kim-official/blueclaw/internal/toolcontract"
 	"testing"
 
 	"github.com/Dawn-kim-official/blueclaw/internal/task"
@@ -16,9 +17,9 @@ func TestTerminalRunModelApprovalPausesBeforeExecution(t *testing.T) {
 		finishMessageDocument("릴리스를 게시했습니다."),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 4})
-	toolSet := newTestToolSet([]string{TerminalRunToolName})
+	toolSet := newTestToolSet([]string{toolcontract.TerminalRunToolName})
 	invokedInputs := []string{}
-	registerTestTool(toolSet, ToolDefinition{Name: TerminalRunToolName}, func(_ context.Context, invocation ToolInvocation) (ToolResult, error) {
+	registerTestTool(toolSet, toolcontract.ToolDefinition{Name: toolcontract.TerminalRunToolName}, func(_ context.Context, invocation toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
 		invokedInputs = append(invokedInputs, string(invocation.Input))
 		return testToolSuccess(`{"status":"published"}`), nil
 	})
@@ -112,7 +113,7 @@ func TestExecuteApprovedHeldCallConsumesGrantAfterVerbatimExecution(t *testing.T
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 4})
 	toolRegistry := newTestCapabilityToolSet([]string{"task.delete"})
 	invokedInputs := []string{}
-	registerTestTool(toolRegistry, ToolDefinition{Name: "task.delete", RequiresApproval: true}, func(_ context.Context, invocation ToolInvocation) (ToolResult, error) {
+	registerTestTool(toolRegistry, toolcontract.ToolDefinition{Name: "task.delete", RequiresApproval: true}, func(_ context.Context, invocation toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
 		invokedInputs = append(invokedInputs, string(invocation.Input))
 		return testToolSuccess(`{"status":"deleted"}`), nil
 	})
@@ -171,12 +172,12 @@ func TestApprovalContinuationKeepsPrePauseObservations(t *testing.T) {
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 6})
 	toolRegistry := newTestCapabilityToolSet([]string{"message.search", "message.delete"})
 	searchCallCount := 0
-	registerTestTool(toolRegistry, ToolDefinition{Name: "message.search"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	registerTestTool(toolRegistry, toolcontract.ToolDefinition{Name: "message.search"}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
 		searchCallCount++
 		return testToolSuccess(`{"messageIDs":["message-1"]}`), nil
 	})
 	deleteCallCount := 0
-	registerTestTool(toolRegistry, ToolDefinition{Name: "message.delete", RequiresApproval: true}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	registerTestTool(toolRegistry, toolcontract.ToolDefinition{Name: "message.delete", RequiresApproval: true}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
 		deleteCallCount++
 		return testToolSuccess(`{"deletedMessageIDs":["message-1"]}`), nil
 	})
@@ -227,8 +228,8 @@ func TestApprovalContinuationKeepsPrePauseObservations(t *testing.T) {
 func TestCurrentThreadSendSkipsRuntimeApproval(t *testing.T) {
 	sendDefinition := testToolDescriptor("message.send")
 	sendDefinition.RequiresApproval = true
-	sendDefinition.SideEffectClass = ToolSideEffectExternalSend
-	toolSet := newTestToolSetWithDefinitions([]ToolDefinition{sendDefinition})
+	sendDefinition.SideEffectClass = toolcontract.ToolSideEffectExternalSend
+	toolSet := newTestToolSetWithDefinitions([]toolcontract.ToolDefinition{sendDefinition})
 
 	currentThreadCall := turnActionDocument{ToolName: "message.send", ToolInput: json.RawMessage(`{"targetType":"currentThread","message":"요약"}`)}
 	if toolCallRequiresRuntimeApproval(toolSet, currentThreadCall) {

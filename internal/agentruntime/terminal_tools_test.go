@@ -3,13 +3,13 @@ package agentruntime
 import (
 	"context"
 	"encoding/json"
+	"github.com/Dawn-kim-official/blueclaw/internal/toolcontract"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/bluecollar"
 	"github.com/Dawn-kim-official/blueclaw/internal/policy"
 	"github.com/Dawn-kim-official/blueclaw/internal/security"
 )
@@ -23,9 +23,9 @@ func TestTerminalRunTranslatesAgentWorkspacePaths(t *testing.T) {
 		PersonAccess:      policy.PersonAccess{PersonID: "person-1", Circles: []string{"staff"}},
 	})
 
-	result, errorValue := toolRegistry.Invoke(context.Background(), bluecollar.ToolInvocation{
+	result, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
 		ToolName: "terminal.run",
-		Input: bluecollar.MarshalToolInput(map[string]any{
+		Input: toolcontract.MarshalToolInput(map[string]any{
 			"command":              "mkdir -p build && printf ok > build/result.txt",
 			"workingDirectoryPath": "tmp/deck",
 		}),
@@ -95,14 +95,14 @@ func TestTerminalRunRejectsInvalidInputShapes(t *testing.T) {
 	}
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			result, errorValue := toolRegistry.Invoke(context.Background(), bluecollar.ToolInvocation{
-				ToolName: bluecollar.TerminalRunToolName,
+			result, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
+				ToolName: toolcontract.TerminalRunToolName,
 				Input:    testCase.input,
 			})
 			if errorValue != nil {
 				t.Fatal(errorValue)
 			}
-			if !result.Failed() || result.FailureCode() != bluecollar.FailureCodes.InvalidInput.String() {
+			if !result.Failed() || result.FailureCode() != toolcontract.FailureCodes.InvalidInput.String() {
 				t.Fatalf("expected invalid input failure, got %+v", result)
 			}
 		})
@@ -146,8 +146,8 @@ func TestTerminalRunFailureHasCanonicalData(t *testing.T) {
 		PersonAccess:      policy.PersonAccess{PersonID: "person-1", Circles: []string{"staff"}},
 	})
 
-	result, errorValue := toolRegistry.Invoke(context.Background(), bluecollar.ToolInvocation{
-		ToolName: bluecollar.TerminalRunToolName,
+	result, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
+		ToolName: toolcontract.TerminalRunToolName,
 		Input:    json.RawMessage(`{"command":"exit 7"}`),
 	})
 
@@ -166,9 +166,9 @@ func TestTerminalRunFailureHasCanonicalData(t *testing.T) {
 	}
 }
 
-func invokeTerminalRunTestTool(t *testing.T, toolRegistry *bluecollar.ToolSet, input json.RawMessage) bluecollar.ToolResult {
+func invokeTerminalRunTestTool(t *testing.T, toolRegistry *toolcontract.ToolSet, input json.RawMessage) toolcontract.ToolResult {
 	t.Helper()
-	result, errorValue := toolRegistry.Invoke(context.Background(), bluecollar.ToolInvocation{ToolName: bluecollar.TerminalRunToolName, Input: input})
+	result, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{ToolName: toolcontract.TerminalRunToolName, Input: input})
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
@@ -178,7 +178,7 @@ func invokeTerminalRunTestTool(t *testing.T, toolRegistry *bluecollar.ToolSet, i
 	return result
 }
 
-func decodeTerminalRunTestData(t *testing.T, result bluecollar.ToolResult, target any) {
+func decodeTerminalRunTestData(t *testing.T, result toolcontract.ToolResult, target any) {
 	t.Helper()
 	if errorValue := json.Unmarshal(result.Output.Data, target); errorValue != nil {
 		t.Fatal(errorValue)
@@ -194,9 +194,9 @@ func TestTerminalRunAllowsStderrRedirection(t *testing.T) {
 		PersonAccess:      policy.PersonAccess{PersonID: "person-1", Circles: []string{"staff"}},
 	})
 
-	result, errorValue := toolRegistry.Invoke(context.Background(), bluecollar.ToolInvocation{
+	result, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
 		ToolName: "terminal.run",
-		Input: bluecollar.MarshalToolInput(map[string]any{
+		Input: toolcontract.MarshalToolInput(map[string]any{
 			"command":              "printf ok 2>&1",
 			"workingDirectoryPath": "tmp/deck",
 		}),
@@ -218,9 +218,9 @@ func TestTerminalRunAllowsSourceFileWrite(t *testing.T) {
 		PersonAccess:      policy.PersonAccess{PersonID: "person-1", Circles: []string{"staff"}},
 	})
 
-	result, errorValue := toolRegistry.Invoke(context.Background(), bluecollar.ToolInvocation{
+	result, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
 		ToolName: "terminal.run",
-		Input: bluecollar.MarshalToolInput(map[string]any{
+		Input: toolcontract.MarshalToolInput(map[string]any{
 			"command":              "printf 'export default function App(){}' > App.tsx",
 			"workingDirectoryPath": "tmp/deck",
 		}),
@@ -242,9 +242,9 @@ func TestTerminalRunAllowsServiceOwnedPathText(t *testing.T) {
 		PersonAccess:      policy.PersonAccess{PersonID: "person-1", Circles: []string{"staff"}},
 	})
 
-	result, errorValue := toolRegistry.Invoke(context.Background(), bluecollar.ToolInvocation{
+	result, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
 		ToolName: "terminal.run",
-		Input: bluecollar.MarshalToolInput(map[string]any{
+		Input: toolcontract.MarshalToolInput(map[string]any{
 			"command": "printf '%s' /workspace/.blueclaw/tmp/deck",
 		}),
 	})
@@ -269,9 +269,9 @@ func TestTerminalRunDefaultsToPrivateScopeForDirectMessage(t *testing.T) {
 		},
 	})
 
-	result, errorValue := toolRegistry.Invoke(context.Background(), bluecollar.ToolInvocation{
+	result, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
 		ToolName: "terminal.run",
-		Input: bluecollar.MarshalToolInput(map[string]any{
+		Input: toolcontract.MarshalToolInput(map[string]any{
 			"command": "pwd",
 		}),
 	})
@@ -306,9 +306,9 @@ func TestTerminalRunMaterializesRequesterRuntimeEnvironment(t *testing.T) {
 		},
 	})
 
-	result, errorValue := toolRegistry.Invoke(context.Background(), bluecollar.ToolInvocation{
+	result, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
 		ToolName: "terminal.run",
-		Input: bluecollar.MarshalToolInput(map[string]any{
+		Input: toolcontract.MarshalToolInput(map[string]any{
 			"command": `test -d "$TMPDIR" && test -d "$BUN_TMPDIR" && test -d "$BUN_INSTALL" && printf '%s\n%s\n%s\n%s\n%s\n%s' "$HOME" "$PATH" "$TMPDIR" "$BUN_TMPDIR" "$BUN_INSTALL" "$BLUECLAW_BUILTIN_SKILLS_PYTHON"`,
 		}),
 	})
@@ -360,9 +360,9 @@ func TestTerminalRunRelativeWorkingDirectoryUsesConversationDefault(t *testing.T
 		},
 	})
 
-	writeResult, errorValue := toolRegistry.Invoke(context.Background(), bluecollar.ToolInvocation{
+	writeResult, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
 		ToolName: "file.write",
-		Input: bluecollar.MarshalToolInput(map[string]string{
+		Input: toolcontract.MarshalToolInput(map[string]string{
 			"path":    "tmp/deck/input.txt",
 			"content": "ok",
 		}),
@@ -374,9 +374,9 @@ func TestTerminalRunRelativeWorkingDirectoryUsesConversationDefault(t *testing.T
 		t.Fatalf("expected file.write success, got %s", writeResult.ContentText())
 	}
 
-	result, errorValue := toolRegistry.Invoke(context.Background(), bluecollar.ToolInvocation{
+	result, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
 		ToolName: "terminal.run",
-		Input: bluecollar.MarshalToolInput(map[string]any{
+		Input: toolcontract.MarshalToolInput(map[string]any{
 			"command":              "pwd && cat input.txt && printf built > result.txt",
 			"workingDirectoryPath": "tmp/deck",
 		}),
@@ -423,9 +423,9 @@ func TestTerminalRunFailsWhenPOSIXDeniesCircleWorkingDirectory(t *testing.T) {
 		},
 	})
 
-	result, errorValue := toolRegistry.Invoke(context.Background(), bluecollar.ToolInvocation{
+	result, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
 		ToolName: "terminal.run",
-		Input: bluecollar.MarshalToolInput(map[string]any{
+		Input: toolcontract.MarshalToolInput(map[string]any{
 			"command":              "printf no",
 			"workingDirectoryPath": "/workspace/circles/finance",
 		}),

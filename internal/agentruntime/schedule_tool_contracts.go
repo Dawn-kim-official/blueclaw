@@ -2,8 +2,7 @@ package agentruntime
 
 import (
 	"encoding/json"
-
-	"github.com/Dawn-kim-official/blueclaw/internal/bluecollar"
+	"github.com/Dawn-kim-official/blueclaw/internal/toolcontract"
 )
 
 var scheduleListInputSchema = json.RawMessage(`{
@@ -214,14 +213,14 @@ var scheduleCancelResultSchema = json.RawMessage(`{
 	"additionalProperties": false
 }`)
 
-func scheduleListResultContract() *bluecollar.ToolResultContract {
-	return &bluecollar.ToolResultContract{Schema: scheduleListOutputSchema}
+func scheduleListResultContract() *toolcontract.ToolResultContract {
+	return &toolcontract.ToolResultContract{Schema: scheduleListOutputSchema}
 }
 
-func scheduleMutationResultContract(effect string) *bluecollar.ToolResultContract {
-	return &bluecollar.ToolResultContract{
+func scheduleMutationResultContract(effect string) *toolcontract.ToolResultContract {
+	return &toolcontract.ToolResultContract{
 		Schema: scheduleMutationResultSchema,
-		Effects: []bluecollar.ResourceEffectContract{{
+		Effects: []toolcontract.ResourceEffectContract{{
 			ObjectType:     "schedule",
 			Effect:         effect,
 			ResultField:    "scheduleID",
@@ -230,10 +229,10 @@ func scheduleMutationResultContract(effect string) *bluecollar.ToolResultContrac
 	}
 }
 
-func scheduleCancelResultContract() *bluecollar.ToolResultContract {
-	return &bluecollar.ToolResultContract{
+func scheduleCancelResultContract() *toolcontract.ToolResultContract {
+	return &toolcontract.ToolResultContract{
 		Schema: scheduleCancelResultSchema,
-		EvidenceCondition: &bluecollar.EvidenceCondition{
+		EvidenceCondition: &toolcontract.EvidenceCondition{
 			ResultField: "cancelled",
 			Equals:      json.RawMessage(`true`),
 		},

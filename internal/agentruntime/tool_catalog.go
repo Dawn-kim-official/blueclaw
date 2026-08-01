@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/Dawn-kim-official/blueclaw/internal/toolcontract"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -46,8 +47,8 @@ type ToolCatalogBuilder struct {
 	skillChangeHandler           func(context.Context)
 	skillRetriever               bluecollar.SkillRetriever
 	instructionBundleLoader      func() bluecollar.InstructionBundle
-	mcpQuarantineReporter        func(bluecollar.QuarantinedToolProvider)
-	capabilityQuarantineReporter func(bluecollar.QuarantinedToolProvider)
+	mcpQuarantineReporter        func(toolcontract.QuarantinedToolProvider)
+	capabilityQuarantineReporter func(toolcontract.QuarantinedToolProvider)
 	liveSnapshotMutex            sync.Mutex
 	liveSnapshotDescriptors      []CapabilityToolDescriptor
 	liveSnapshotHash             string
@@ -180,11 +181,11 @@ func (toolCatalogBuilder *ToolCatalogBuilder) UseMCPRegistry(mcpRegistry *mcp.Mc
 	toolCatalogBuilder.mcpRegistry = mcpRegistry
 }
 
-func (toolCatalogBuilder *ToolCatalogBuilder) UseMCPQuarantineReporter(reporter func(bluecollar.QuarantinedToolProvider)) {
+func (toolCatalogBuilder *ToolCatalogBuilder) UseMCPQuarantineReporter(reporter func(toolcontract.QuarantinedToolProvider)) {
 	toolCatalogBuilder.mcpQuarantineReporter = reporter
 }
 
-func (toolCatalogBuilder *ToolCatalogBuilder) UseCapabilityQuarantineReporter(reporter func(bluecollar.QuarantinedToolProvider)) {
+func (toolCatalogBuilder *ToolCatalogBuilder) UseCapabilityQuarantineReporter(reporter func(toolcontract.QuarantinedToolProvider)) {
 	toolCatalogBuilder.capabilityQuarantineReporter = reporter
 }
 
@@ -240,9 +241,9 @@ func (toolCatalogBuilder *ToolCatalogBuilder) WorkspaceRootPath() string {
 	return strings.TrimSpace(toolCatalogBuilder.workspaceRootPath)
 }
 
-func (toolCatalogBuilder *ToolCatalogBuilder) BuildToolSet(request ToolCatalogRequest) *bluecollar.ToolSet {
+func (toolCatalogBuilder *ToolCatalogBuilder) BuildToolSet(request ToolCatalogRequest) *toolcontract.ToolSet {
 	request = withResolvedActiveCircle(request)
-	toolSet := bluecollar.NewToolSet(toolCatalogBuilder.allowedToolNames(request.ProfileName))
+	toolSet := toolcontract.NewToolSet(toolCatalogBuilder.allowedToolNames(request.ProfileName))
 	handlerContext := toolHandlerContext{
 		request:           request,
 		conversationScope: toolCatalogBuilder.conversationScope(request),
@@ -266,34 +267,34 @@ func (toolCatalogBuilder *ToolCatalogBuilder) allowedToolNames(profileName strin
 }
 
 func DefaultAllowedToolNames() []string {
-	return append(bluecollar.KernelToolNames(), bluecollar.AskInputToolName)
+	return append(toolcontract.KernelToolNames(), toolcontract.AskInputToolName)
 }
 
-func (toolCatalogBuilder *ToolCatalogBuilder) registerHistoryTool(toolRegistry *bluecollar.ToolSet, request ToolCatalogRequest) {
+func (toolCatalogBuilder *ToolCatalogBuilder) registerHistoryTool(toolRegistry *toolcontract.ToolSet, request ToolCatalogRequest) {
 	if request.HistoryProvider == nil {
 		return
 	}
-	bluecollar.RegisterToolFunction(toolRegistry, bluecollar.ToolFunction[historyToolInput, bluecollar.ToolResult]{
-		Definition: bluecollar.ToolDefinition{
+	toolcontract.RegisterToolFunction(toolRegistry, toolcontract.ToolFunction[historyToolInput, toolcontract.ToolResult]{
+		Definition: toolcontract.ToolDefinition{
 			Name:        "conversation.history",
 			Description: "Fetch earlier visible messages for this conversation using the opaque history cursor.",
 			InputSchema: conversationHistoryInputSchema,
 		},
-		Handler: func(toolContext context.Context, input historyToolInput) (bluecollar.ToolResult, error) {
+		Handler: func(toolContext context.Context, input historyToolInput) (toolcontract.ToolResult, error) {
 			return fetchHistoryTool(toolContext, input, request)
 		},
-		Result: bluecollar.IdentityToolResult,
+		Result: toolcontract.IdentityToolResult,
 	})
 }
 
-func (toolCatalogBuilder *ToolCatalogBuilder) registerMemoryTool(toolRegistry *bluecollar.ToolSet, request ToolCatalogRequest) {
+func (toolCatalogBuilder *ToolCatalogBuilder) registerMemoryTool(toolRegistry *toolcontract.ToolSet, request ToolCatalogRequest) {
 	registerMemoryTools(toolCatalogBuilder, toolRegistry, request)
 }
 
-func fetchHistoryTool(toolContext context.Context, input historyToolInput, request ToolCatalogRequest) (bluecollar.ToolResult, error) {
+func fetchHistoryTool(toolContext context.Context, input historyToolInput, request ToolCatalogRequest) (toolcontract.ToolResult, error) {
 	historyCursor := firstNonEmptyString(input.HistoryCursor, request.HistoryCursor)
 	if historyCursor == "" {
-		return bluecollar.ToolFailureResult(bluecollar.FailureInvalidInput, bluecollar.FailureCodes.InvalidInput, "conversation_history", "history cursor is unavailable"), nil
+		return toolcontract.ToolFailureResult(toolcontract.FailureInvalidInput, toolcontract.FailureCodes.InvalidInput, "conversation_history", "history cursor is unavailable"), nil
 	}
 	limit := input.Limit
 	if limit <= 0 || limit > 50 {
@@ -301,19 +302,19 @@ func fetchHistoryTool(toolContext context.Context, input historyToolInput, reque
 	}
 	visibleContext, errorValue := request.HistoryProvider.FetchHistory(toolContext, historyCursor, limit)
 	if errorValue != nil {
-		return bluecollar.ToolResult{}, errorValue
+		return toolcontract.ToolResult{}, errorValue
 	}
 	document := json.RawMessage(marshalToolResult(projectConversationHistory(visibleContext)))
-	return bluecollar.ToolSuccessData(string(document), document), nil
+	return toolcontract.ToolSuccessData(string(document), document), nil
 }
 
-func (toolCatalogBuilder *ToolCatalogBuilder) registerBuiltInTools(toolRegistry *bluecollar.ToolSet, handlerContext toolHandlerContext) {
+func (toolCatalogBuilder *ToolCatalogBuilder) registerBuiltInTools(toolRegistry *toolcontract.ToolSet, handlerContext toolHandlerContext) {
 	toolCatalogBuilder.registerAskInputTool(toolRegistry)
 	toolCatalogBuilder.registerScheduleTools(toolRegistry, handlerContext)
 	toolCatalogBuilder.registerSkillManagementTools(toolRegistry)
 }
 
-func (toolCatalogBuilder *ToolCatalogBuilder) workspaceActorForRequest(toolContext context.Context, request ToolCatalogRequest) (security.WorkspaceActor, *bluecollar.ToolResult) {
+func (toolCatalogBuilder *ToolCatalogBuilder) workspaceActorForRequest(toolContext context.Context, request ToolCatalogRequest) (security.WorkspaceActor, *toolcontract.ToolResult) {
 	if toolCatalogBuilder.workspaceActorFactory == nil {
 		result := actorToolFailure("requester", "actor_runtime", "", security.WorkspaceActorError{
 			Operation: "requester",
@@ -350,22 +351,22 @@ func (toolCatalogBuilder *ToolCatalogBuilder) executionIdentityForRequester(requ
 	return security.ExecutionIdentityForPersonAccess(personAccess, toolCatalogBuilder.workspaceRootPath)
 }
 
-func actorToolFailure(operation string, stage string, virtualPath string, errorValue error) bluecollar.ToolResult {
+func actorToolFailure(operation string, stage string, virtualPath string, errorValue error) toolcontract.ToolResult {
 	message := actorFailureMessage(operation, virtualPath, errorValue)
-	failureKind := bluecollar.FailureExternalService
-	failureCode := bluecollar.FailureCodes.OperationFailed
+	failureKind := toolcontract.FailureExternalService
+	failureCode := toolcontract.FailureCodes.OperationFailed
 	switch actorFailureCode(errorValue) {
 	case security.ActorErrorCodePermissionDenied:
-		failureKind = bluecollar.FailurePermissionDenied
-		failureCode = bluecollar.FailureCodes.AccessDenied
+		failureKind = toolcontract.FailurePermissionDenied
+		failureCode = toolcontract.FailureCodes.AccessDenied
 	case security.ActorErrorCodeNotFound:
-		failureKind = bluecollar.FailureNotFound
-		failureCode = bluecollar.FailureCodes.NotFound
+		failureKind = toolcontract.FailureNotFound
+		failureCode = toolcontract.FailureCodes.NotFound
 	case security.ActorErrorCodeInvalidPath:
-		failureKind = bluecollar.FailureInvalidInput
-		failureCode = bluecollar.FailureCodes.InvalidInput
+		failureKind = toolcontract.FailureInvalidInput
+		failureCode = toolcontract.FailureCodes.InvalidInput
 	}
-	result := bluecollar.ToolFailureWithOutput(failureKind, failureCode, stage, message, json.RawMessage(marshalToolResult(actorFailureDataFields(operation, stage, virtualPath, errorValue))))
+	result := toolcontract.ToolFailureWithOutput(failureKind, failureCode, stage, message, json.RawMessage(marshalToolResult(actorFailureDataFields(operation, stage, virtualPath, errorValue))))
 	result.Failure.Retryable = true
 	result.Failure.SafeRetry = true
 	return result

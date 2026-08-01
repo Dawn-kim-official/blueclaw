@@ -1,5 +1,9 @@
 package bluecollar
 
+import (
+	"github.com/Dawn-kim-official/blueclaw/internal/toolcontract"
+)
+
 import "strings"
 
 type requestToolsArguments struct {
@@ -33,7 +37,7 @@ func applyToolRequest(request AgentTurnRequest, requestArguments requestToolsArg
 	return request, result
 }
 
-func normalizeRequestedToolNames(toolNames []string, toolSet *ToolSet) []string {
+func normalizeRequestedToolNames(toolNames []string, toolSet *toolcontract.ToolSet) []string {
 	normalizedToolNames := []string{}
 	for _, toolName := range toolNames {
 		normalizedToolNames = appendUniqueStrings(normalizedToolNames, normalizeRequestedToolName(toolName, toolSet))
@@ -41,7 +45,7 @@ func normalizeRequestedToolNames(toolNames []string, toolSet *ToolSet) []string 
 	return normalizedToolNames
 }
 
-func normalizeRequestedToolName(toolName string, toolSet *ToolSet) string {
+func normalizeRequestedToolName(toolName string, toolSet *toolcontract.ToolSet) string {
 	trimmedToolName := strings.TrimSpace(toolName)
 	if trimmedToolName == "" {
 		return ""
@@ -55,7 +59,7 @@ func normalizeRequestedToolName(toolName string, toolSet *ToolSet) string {
 	return trimmedToolName
 }
 
-func normalizeContinueActionToolName(toolName string, toolSet *ToolSet) (string, bool) {
+func normalizeContinueActionToolName(toolName string, toolSet *toolcontract.ToolSet) (string, bool) {
 	if toolSet == nil {
 		return "", false
 	}

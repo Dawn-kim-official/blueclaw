@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/Dawn-kim-official/blueclaw/internal/toolcontract"
 	"slices"
 	"strings"
 	"testing"
@@ -116,14 +117,14 @@ func TestRequiredNextToolsPreferPersistedThenArbitratedThenRouterOrder(t *testin
 		},
 		{
 			name:              "arbitrated workflow",
-			arbitratedTools:   []string{"file.write", TerminalRunToolName, FileDeliverToolName},
-			routerTools:       []string{"file.write", FileDeliverToolName},
-			expectedToolNames: []string{"file.write", TerminalRunToolName, FileDeliverToolName},
+			arbitratedTools:   []string{"file.write", toolcontract.TerminalRunToolName, toolcontract.FileDeliverToolName},
+			routerTools:       []string{"file.write", toolcontract.FileDeliverToolName},
+			expectedToolNames: []string{"file.write", toolcontract.TerminalRunToolName, toolcontract.FileDeliverToolName},
 		},
 		{
 			name:              "router fallback",
-			routerTools:       []string{"file.write", FileDeliverToolName},
-			expectedToolNames: []string{"file.write", FileDeliverToolName},
+			routerTools:       []string{"file.write", toolcontract.FileDeliverToolName},
+			expectedToolNames: []string{"file.write", toolcontract.FileDeliverToolName},
 		},
 	}
 
@@ -214,7 +215,7 @@ func TestAgentKernelRejectsExecutableConsumeContradiction(t *testing.T) {
 
 	toolCallCount := 0
 	toolSet := newTestCapabilityToolSet([]string{"task.add", "task.list", "task.update"})
-	registerTestTool(toolSet, ToolDefinition{Name: "task.add"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	registerTestTool(toolSet, toolcontract.ToolDefinition{Name: "task.add"}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
 		toolCallCount++
 		return testToolSuccess(`{"taskID":"task-1","content":"메일 페이지 앱 비밀번호 개선"}`), nil
 	})
@@ -308,8 +309,8 @@ func TestAgentKernelPreservesActiveContractOnApprovalContinuation(t *testing.T) 
 	toolCallCount := 0
 	siteDeleteDefinition := testToolDescriptor("site.unserve")
 	siteDeleteDefinition.InputSchema = json.RawMessage(`{"type":"object","properties":{"siteID":{"type":"string"}},"required":["siteID"],"additionalProperties":false}`)
-	toolSet := newTestToolSetWithDefinitions([]ToolDefinition{siteDeleteDefinition})
-	registerTestTool(toolSet, siteDeleteDefinition, func(context.Context, ToolInvocation) (ToolResult, error) {
+	toolSet := newTestToolSetWithDefinitions([]toolcontract.ToolDefinition{siteDeleteDefinition})
+	registerTestTool(toolSet, siteDeleteDefinition, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
 		toolCallCount++
 		return testToolSuccess(`{"deleted":true}`), nil
 	})
@@ -354,9 +355,9 @@ func TestExistingTaskRunIDDoesNotAuthorizeConfirmationBypass(t *testing.T) {
 	}})
 	siteDeleteDefinition := testToolDescriptor("site.unserve")
 	siteDeleteDefinition.RequiresApproval = true
-	toolSet := newTestToolSetWithDefinitions([]ToolDefinition{siteDeleteDefinition})
+	toolSet := newTestToolSetWithDefinitions([]toolcontract.ToolDefinition{siteDeleteDefinition})
 	toolCallCount := 0
-	registerTestTool(toolSet, siteDeleteDefinition, func(context.Context, ToolInvocation) (ToolResult, error) {
+	registerTestTool(toolSet, siteDeleteDefinition, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
 		toolCallCount++
 		return testToolSuccess(`{"deleted":true}`), nil
 	})
@@ -394,8 +395,8 @@ func TestSemanticRevisionStartsNewTaskRun(t *testing.T) {
 		finishMessageWithEvidence("새 업무를 추가했습니다.", "obs-001", "task.add", 0),
 	}})
 	taskAddDefinition := testToolDescriptor("task.add")
-	toolSet := newTestToolSetWithDefinitions([]ToolDefinition{taskAddDefinition})
-	registerTestTool(toolSet, taskAddDefinition, func(context.Context, ToolInvocation) (ToolResult, error) {
+	toolSet := newTestToolSetWithDefinitions([]toolcontract.ToolDefinition{taskAddDefinition})
+	registerTestTool(toolSet, taskAddDefinition, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
 		return testToolSuccess(`{"taskID":"new-task"}`), nil
 	})
 	existingTaskRun := taskRunService.CreateTaskRun("person-1", "conversation-1", "기존 업무")
@@ -429,7 +430,7 @@ func TestInvalidPersistedActiveGoalBlocksBeforeToolHandler(t *testing.T) {
 	}})
 	toolCallCount := 0
 	toolSet := newTestCapabilityToolSet([]string{"task.add"})
-	registerTestTool(toolSet, testToolDescriptor("task.add"), func(context.Context, ToolInvocation) (ToolResult, error) {
+	registerTestTool(toolSet, testToolDescriptor("task.add"), func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
 		toolCallCount++
 		return testToolSuccess(`{"taskID":"unexpected"}`), nil
 	})
@@ -474,19 +475,19 @@ func TestAgentKernelSideEffectTaskProceedsWithoutRouterPredictedEvidence(t *test
 		TaskShape:        TaskShapeMaintenanceTask,
 		TaskLevel:        TaskLevelLow,
 		EstimatedMinutes: 1,
-		InitialToolNames: []string{TerminalRunToolName},
+		InitialToolNames: []string{toolcontract.TerminalRunToolName},
 		ResponseLanguage: "ko",
 		Reason:           "side effect tool planned without a predicted evidence name",
 	}})
 	toolCallCount := 0
-	toolSet := newTestToolSet([]string{TerminalRunToolName, "task.update"})
-	registerTestTool(toolSet, ToolDefinition{Name: TerminalRunToolName}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	toolSet := newTestToolSet([]string{toolcontract.TerminalRunToolName, "task.update"})
+	registerTestTool(toolSet, toolcontract.ToolDefinition{Name: toolcontract.TerminalRunToolName}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
 		toolCallCount++
 		return testToolSuccess(`{"exitCode":0,"stdout":"done","stderr":"","timedOut":false}`), nil
 	})
 	agentKernel.UseLanguageModelProvider(&sequenceLanguageModel{contents: []string{
 		`{"action":"continue","toolName":"terminal.run","toolInput":{"command":"do the side effect"}}`,
-		finishMessageWithEvidence("완료했습니다.", "obs-001", TerminalRunToolName, 0),
+		finishMessageWithEvidence("완료했습니다.", "obs-001", toolcontract.TerminalRunToolName, 0),
 	}})
 	request := kernelTestRequest("서버에 배포 스크립트 실행해줘")
 	request.ToolSet = toolSet
@@ -685,10 +686,10 @@ func TestAgentKernelPersistsTurnRouterFailureWithoutFallbackRoute(t *testing.T) 
 
 func TestSitePrototypeIntakePromotesToXHighLimits(t *testing.T) {
 	agentKernel, _ := newKernelTestServices()
-	siteToolSet := newTestToolSetWithDefinitions([]ToolDefinition{{
+	siteToolSet := newTestToolSetWithDefinitions([]toolcontract.ToolDefinition{{
 		Name:            "site.serve",
 		Namespace:       "site",
-		SideEffectClass: ToolSideEffectExternalPublish,
+		SideEffectClass: toolcontract.ToolSideEffectExternalPublish,
 	}})
 	request := AgentRequest{
 		ToolSet: siteToolSet,

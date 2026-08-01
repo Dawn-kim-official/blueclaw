@@ -1,5 +1,9 @@
 package bluecollar
 
+import (
+	"github.com/Dawn-kim-official/blueclaw/internal/toolcontract"
+)
+
 import "testing"
 
 func TestCalendarFullCrudFinishIsBackedByObservedFacts(t *testing.T) {
@@ -9,7 +13,7 @@ func TestCalendarFullCrudFinishIsBackedByObservedFacts(t *testing.T) {
 	deleteDescriptor, deleteObservation := calendarEffectObservation("calendar.delete", "deleted")
 	projection := buildObservedResultProjection(
 		AgentTurnRequest{
-			ToolSet: newTestToolSetWithDefinitions([]ToolDefinition{addDescriptor, updateDescriptor, deleteDescriptor}),
+			ToolSet: newTestToolSetWithDefinitions([]toolcontract.ToolDefinition{addDescriptor, updateDescriptor, deleteDescriptor}),
 			OutcomeContract: OutcomeContract{RequiredEffects: []OutcomeEffect{
 				{ObjectType: "calendar_event", Effect: "scheduled"},
 				{ObjectType: "calendar_event", Effect: "updated"},
@@ -29,11 +33,11 @@ func TestCalendarFullCrudFinishIsBackedByObservedFacts(t *testing.T) {
 	}
 }
 
-func calendarEffectObservation(toolName string, effect string) (ToolDefinition, turnObservation) {
+func calendarEffectObservation(toolName string, effect string) (toolcontract.ToolDefinition, turnObservation) {
 	return canonicalEffectObservation(
 		toolName,
 		`{"eventID":"tool-a"}`,
-		[]ResourceEffect{{ObjectType: "calendar_event", Effect: effect, ID: "tool-a"}},
-		[]ResourceEffectContract{{ObjectType: "calendar_event", Effect: effect, ResultField: "eventID", EffectIdentity: "id"}},
+		[]toolcontract.ResourceEffect{{ObjectType: "calendar_event", Effect: effect, ID: "tool-a"}},
+		[]toolcontract.ResourceEffectContract{{ObjectType: "calendar_event", Effect: effect, ResultField: "eventID", EffectIdentity: "id"}},
 	)
 }

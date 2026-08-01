@@ -3,8 +3,7 @@ package agentruntime
 import (
 	"context"
 	"encoding/json"
-
-	"github.com/Dawn-kim-official/blueclaw/internal/bluecollar"
+	"github.com/Dawn-kim-official/blueclaw/internal/toolcontract"
 )
 
 var requestToolsInputSchema = json.RawMessage(`{
@@ -37,17 +36,17 @@ type requestToolsToolOutput struct {
 	RequestedToolNames []string `json:"requestedToolNames"`
 }
 
-func (toolCatalogBuilder *ToolCatalogBuilder) registerRequestToolsTool(toolRegistry *bluecollar.ToolSet) {
-	bluecollar.RegisterToolFunction(toolRegistry, bluecollar.ToolFunction[requestToolsToolInput, bluecollar.ToolResult]{
-		Definition: bluecollar.ToolDefinition{
-			Name:        bluecollar.RequestToolsToolName,
+func (toolCatalogBuilder *ToolCatalogBuilder) registerRequestToolsTool(toolRegistry *toolcontract.ToolSet) {
+	toolcontract.RegisterToolFunction(toolRegistry, toolcontract.ToolFunction[requestToolsToolInput, toolcontract.ToolResult]{
+		Definition: toolcontract.ToolDefinition{
+			Name:        toolcontract.RequestToolsToolName,
 			Description: "Load additional tools into your palette by exact name. Use only names from the additional-available-tools list in your instructions; the loaded tools become callable on your next step.",
 			InputSchema: requestToolsInputSchema,
 		},
-		Handler: func(_ context.Context, input requestToolsToolInput) (bluecollar.ToolResult, error) {
+		Handler: func(_ context.Context, input requestToolsToolInput) (toolcontract.ToolResult, error) {
 			document := json.RawMessage(marshalToolResult(requestToolsToolOutput{RequestedToolNames: input.ToolNames}))
-			return bluecollar.ToolSuccessData(string(document), document), nil
+			return toolcontract.ToolSuccessData(string(document), document), nil
 		},
-		Result: bluecollar.IdentityToolResult,
+		Result: toolcontract.IdentityToolResult,
 	})
 }

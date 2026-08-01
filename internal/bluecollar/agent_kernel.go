@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/Dawn-kim-official/blueclaw/internal/toolcontract"
 	"strings"
 	"time"
 
@@ -556,7 +557,7 @@ func (agentKernel *AgentKernel) selectInstructionBundleForResolvedRequest(ctx co
 	selectionContract.RequiredAttachmentSuffixes = appendUniqueStrings(selectionContract.RequiredAttachmentSuffixes, attachmentSuffixesForRequestedOutputFormats(intakeDecision.RequestedOutputFormats)...)
 	selectionContract.ExpectedResults = appendExpectedResults(selectionContract.ExpectedResults, intakeDecision.ExpectedResults...)
 	if len(selectionContract.RequiredAttachmentSuffixes) > 0 {
-		selectionContract.RequiredEvidenceTools = appendUniqueStrings(selectionContract.RequiredEvidenceTools, FileDeliverToolName)
+		selectionContract.RequiredEvidenceTools = appendUniqueStrings(selectionContract.RequiredEvidenceTools, toolcontract.FileDeliverToolName)
 		selectionContract.ArtifactRequirement = ArtifactRequirementRequired
 	}
 	selectionRequest.ActiveGoal.OutcomeContract = normalizeOutcomeContract(selectionContract)

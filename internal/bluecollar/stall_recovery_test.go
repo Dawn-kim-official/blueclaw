@@ -3,6 +3,7 @@ package bluecollar
 import (
 	"context"
 	"encoding/json"
+	"github.com/Dawn-kim-official/blueclaw/internal/toolcontract"
 	"strings"
 	"testing"
 
@@ -23,7 +24,7 @@ func TestStalledOnRedundantInspectionDetectsCacheHit(t *testing.T) {
 }
 
 func TestStalledRecoveryDirectiveNamesFailedToolAndForbidsAsking(t *testing.T) {
-	failedBuild := newFailureObservation("obs-001", "continue", "site.build", "compile error", FailureExternalService, FailureCodes.OperationFailed, "tool")
+	failedBuild := newFailureObservation("obs-001", "continue", "site.build", "compile error", toolcontract.FailureExternalService, toolcontract.FailureCodes.OperationFailed, "tool")
 	failedBuild.ToolInputKey = "site.build:lunch"
 	directive := stalledRecoveryDirectiveObservation("obs-099", FailureDebt{LatestFailure: failedBuild})
 	if !strings.Contains(directive.Summary, "site.build") {
@@ -37,7 +38,7 @@ func TestStalledRecoveryDirectiveNamesFailedToolAndForbidsAsking(t *testing.T) {
 func TestContinueStalledRecoveryNudgesReadLoopThenBounds(t *testing.T) {
 	services := newTurnRunnerTestServices(&sequenceLanguageModel{}, TurnOptions{})
 	taskRunID := "task-stall-recovery"
-	failedBuild := newFailureObservation("obs-001", "continue", "site.build", "compile error", FailureExternalService, FailureCodes.OperationFailed, "tool")
+	failedBuild := newFailureObservation("obs-001", "continue", "site.build", "compile error", toolcontract.FailureExternalService, toolcontract.FailureCodes.OperationFailed, "tool")
 	failedBuild.ToolInputKey = "site.build:lunch"
 	state := &agentTaskState{Observations: []turnObservation{failedBuild}}
 	tracker := newActionProgressTracker(state.Observations)
@@ -75,7 +76,7 @@ func TestStallRecoveryBudgetRefreshesAfterRealProgress(t *testing.T) {
 		ObservationID: "obs-progress",
 		Action:        "continue",
 		Tool:          "file.write",
-		Output:        ToolOutput{Content: `{"path":"app.tsx"}`},
+		Output:        toolcontract.ToolOutput{Content: `{"path":"app.tsx"}`},
 	}}
 	evaluation := tracker.evaluate(progressObservations)
 
@@ -89,7 +90,7 @@ func TestStallRecoveryBudgetRefreshesAfterRealProgress(t *testing.T) {
 
 func TestContinueStalledRecoverySkipsFinishStall(t *testing.T) {
 	services := newTurnRunnerTestServices(&sequenceLanguageModel{}, TurnOptions{})
-	failedBuild := newFailureObservation("obs-001", "continue", "terminal.run", "EACCES", FailureExternalService, FailureCodes.OperationFailed, "tool")
+	failedBuild := newFailureObservation("obs-001", "continue", "terminal.run", "EACCES", toolcontract.FailureExternalService, toolcontract.FailureCodes.OperationFailed, "tool")
 	failedBuild.ToolInputKey = "terminal.run:build"
 	state := &agentTaskState{Observations: []turnObservation{
 		failedBuild,
@@ -117,10 +118,10 @@ func TestAgentTurnRunnerEscalatesToolCallLimitAfterDurableProgress(t *testing.T)
 		MaxToolCallCount:  2,
 	})
 	toolRegistry := newHybridKernelCapabilityToolSet([]string{"file.write"}, []string{"site.build"})
-	registerTestTool(toolRegistry, ToolDefinition{Name: "file.write"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	registerTestTool(toolRegistry, toolcontract.ToolDefinition{Name: "file.write"}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
 		return testToolSuccess(`{"path":"tmp/app/index.html"}`), nil
 	})
-	registerTestTool(toolRegistry, ToolDefinition{Name: "site.build"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	registerTestTool(toolRegistry, toolcontract.ToolDefinition{Name: "site.build"}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
 		return testToolSuccess(`{"status":"built"}`), nil
 	})
 
@@ -184,7 +185,7 @@ func TestObservedSuggestedNextToolReadsRecoveryPacketAllowedTools(t *testing.T) 
 
 func TestTechnicalStallDoesNotPauseForUserInput(t *testing.T) {
 	services := newTurnRunnerTestServices(&sequenceLanguageModel{}, TurnOptions{})
-	failedBuild := newFailureObservation("obs-001", "continue", "site.build", "quality gate failed", FailureExternalService, FailureCodes.InvalidInput, "site_build_delivery")
+	failedBuild := newFailureObservation("obs-001", "continue", "site.build", "quality gate failed", toolcontract.FailureExternalService, toolcontract.FailureCodes.InvalidInput, "site_build_delivery")
 	failedBuild.ToolInputKey = "site.build:site-1"
 
 	if services.runner.shouldPauseForStalledRecovery("task-technical-stall", []turnObservation{failedBuild}) {
@@ -226,12 +227,12 @@ func TestStalledTurnUsesSuggestedNextToolBeforeExit(t *testing.T) {
 }
 
 func TestBrowserFailureRecoveryGuidanceRedirectsToWebFetch(t *testing.T) {
-	failedBrowser := newFailureObservation("obs-001", "continue", "browser.open", "Companion is not connected, so the browser cannot be opened.", FailureDependencyUnavailable, FailureCodes.Unavailable, "browser_open")
+	failedBrowser := newFailureObservation("obs-001", "continue", "browser.open", "Companion is not connected, so the browser cannot be opened.", toolcontract.FailureDependencyUnavailable, toolcontract.FailureCodes.Unavailable, "browser_open")
 	guidance := recoveryGuidanceContent(failedBrowser, "")
 	if !strings.Contains(guidance, "web.fetch") {
 		t.Fatalf("expected browser failure to steer toward web.fetch, got %q", guidance)
 	}
-	nonBrowser := newFailureObservation("obs-002", "continue", "terminal.run", "boom", FailureExternalService, FailureCodes.OperationFailed, "terminal_run")
+	nonBrowser := newFailureObservation("obs-002", "continue", "terminal.run", "boom", toolcontract.FailureExternalService, toolcontract.FailureCodes.OperationFailed, "terminal_run")
 	if strings.Contains(recoveryGuidanceContent(nonBrowser, ""), "browser capability operations run on the user's Companion") {
 		t.Fatal("expected non-browser failures not to get browser guidance")
 	}

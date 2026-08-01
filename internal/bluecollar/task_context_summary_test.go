@@ -2,6 +2,7 @@ package bluecollar
 
 import (
 	"context"
+	"github.com/Dawn-kim-official/blueclaw/internal/toolcontract"
 	"strings"
 	"testing"
 
@@ -70,7 +71,7 @@ func TestTaskContextCompactionReplacesOldPromptObservationsOnly(t *testing.T) {
 
 func TestTaskContextCompactionPinsActiveFailureDebt(t *testing.T) {
 	observations := numberedContextSummaryObservations(5, 2000, "OLD_MARKER")
-	failureObservation := newFailureObservation("obs-006", "continue", "terminal.run", "ACTIVE_FAILURE_MARKER", FailureUnknown, FailureCodes.OperationFailed, "terminal_run")
+	failureObservation := newFailureObservation("obs-006", "continue", "terminal.run", "ACTIVE_FAILURE_MARKER", toolcontract.FailureUnknown, toolcontract.FailureCodes.OperationFailed, "terminal_run")
 	failureObservation.ToolInputKey = "terminal.run\x00failed"
 	observations = append(observations, failureObservation)
 	for index := 7; index <= 18; index++ {

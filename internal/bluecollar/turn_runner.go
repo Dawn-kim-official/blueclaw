@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/Dawn-kim-official/blueclaw/internal/toolcontract"
 	"strings"
 	"time"
 
@@ -74,7 +75,7 @@ type AgentTurnRequest struct {
 	ResponseLanguage             string
 	VisibleContext               VisibleContext
 	MemoryFacts                  []memory.MemoryFact
-	ToolSet                      *ToolSet
+	ToolSet                      *toolcontract.ToolSet
 	AvailableSkills              []SkillInstruction
 	PinnedToolNames              []string
 	PinnedSkillNames             []string
@@ -122,8 +123,8 @@ type AgentTurnResult struct {
 	FailureNotice          FailureNotice
 	ReplySuppressed        bool
 	ReplySuppressionReason string
-	Attachments            []FileAttachment
-	RecoveryActions        []RecoveryAction
+	Attachments            []toolcontract.FileAttachment
+	RecoveryActions        []toolcontract.RecoveryAction
 	ToolNames              []string
 }
 
@@ -159,28 +160,28 @@ type turnActionDocument struct {
 }
 
 type turnObservation struct {
-	ObservationID        string               `json:"observationID"`
-	Action               string               `json:"action"`
-	Tool                 string               `json:"tool,omitempty"`
-	ToolID               string               `json:"toolID,omitempty"`
-	ToolInput            json.RawMessage      `json:"toolInput,omitempty"`
-	Output               ToolOutput           `json:"output,omitempty"`
-	Effects              []ResourceEffect     `json:"effects,omitempty"`
-	Failure              *ToolFailure         `json:"failure,omitempty"`
-	Summary              string               `json:"summary,omitempty"`
-	ImageRefs            []ToolResultImageRef `json:"imageRefs,omitempty"`
-	ToolInputKey         string               `json:"toolInputKey,omitempty"`
-	AttemptFingerprint   string               `json:"attemptFingerprint,omitempty"`
-	RecoveryAttemptKey   string               `json:"recoveryAttemptKey,omitempty"`
-	RecoveryStep         string               `json:"recoveryStep,omitempty"`
-	RecoveryAttemptSpent bool                 `json:"recoveryAttemptSpent,omitempty"`
-	PolicyCode           string               `json:"policyCode,omitempty"`
-	RelatedResultIDs     []string             `json:"relatedResultIDs,omitempty"`
-	RelatedPaths         []string             `json:"relatedPaths,omitempty"`
-	RecoveryPacket       *RecoveryPacket      `json:"recoveryPacket,omitempty"`
-	Attachments          []FileAttachment     `json:"attachments,omitempty"`
-	RecoveryActions      []RecoveryAction     `json:"recoveryActions,omitempty"`
-	DurationMS           int64                `json:"durationMs"`
+	ObservationID        string                        `json:"observationID"`
+	Action               string                        `json:"action"`
+	Tool                 string                        `json:"tool,omitempty"`
+	ToolID               string                        `json:"toolID,omitempty"`
+	ToolInput            json.RawMessage               `json:"toolInput,omitempty"`
+	Output               toolcontract.ToolOutput       `json:"output,omitempty"`
+	Effects              []toolcontract.ResourceEffect `json:"effects,omitempty"`
+	Failure              *toolcontract.ToolFailure     `json:"failure,omitempty"`
+	Summary              string                        `json:"summary,omitempty"`
+	ImageRefs            []ToolResultImageRef          `json:"imageRefs,omitempty"`
+	ToolInputKey         string                        `json:"toolInputKey,omitempty"`
+	AttemptFingerprint   string                        `json:"attemptFingerprint,omitempty"`
+	RecoveryAttemptKey   string                        `json:"recoveryAttemptKey,omitempty"`
+	RecoveryStep         string                        `json:"recoveryStep,omitempty"`
+	RecoveryAttemptSpent bool                          `json:"recoveryAttemptSpent,omitempty"`
+	PolicyCode           string                        `json:"policyCode,omitempty"`
+	RelatedResultIDs     []string                      `json:"relatedResultIDs,omitempty"`
+	RelatedPaths         []string                      `json:"relatedPaths,omitempty"`
+	RecoveryPacket       *RecoveryPacket               `json:"recoveryPacket,omitempty"`
+	Attachments          []toolcontract.FileAttachment `json:"attachments,omitempty"`
+	RecoveryActions      []toolcontract.RecoveryAction `json:"recoveryActions,omitempty"`
+	DurationMS           int64                         `json:"durationMs"`
 }
 
 type toolCallActionOutcome struct {
@@ -245,15 +246,15 @@ func newContentObservation(observationID string, action string, tool string, con
 		ObservationID: observationID,
 		Action:        strings.TrimSpace(action),
 		Tool:          strings.TrimSpace(tool),
-		Output:        ToolOutput{Content: strings.TrimSpace(content)},
+		Output:        toolcontract.ToolOutput{Content: strings.TrimSpace(content)},
 	}
 }
 
-func newFailureObservation(observationID string, action string, tool string, content string, kind FailureKind, code FailureCode, stage string) turnObservation {
+func newFailureObservation(observationID string, action string, tool string, content string, kind toolcontract.FailureKind, code toolcontract.FailureCode, stage string) turnObservation {
 	observation := newContentObservation(observationID, action, tool, content)
-	observation.Failure = &ToolFailure{
-		Kind:            normalizeFailureKind(kind),
-		Code:            CanonicalFailureCode(code),
+	observation.Failure = &toolcontract.ToolFailure{
+		Kind:            toolcontract.NormalizeFailureKind(kind),
+		Code:            toolcontract.CanonicalFailureCode(code),
 		Stage:           strings.TrimSpace(stage),
 		UserSafeSummary: strings.TrimSpace(content),
 	}
@@ -522,7 +523,7 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 			observation := turnObservation{
 				ObservationID: nextObservationIDForObservations(state.Observations),
 				Action:        "set_quality_criteria",
-				Output:        ToolOutput{Content: marshalEventBody(map[string]any{"criteria": state.QualityCriteria})},
+				Output:        toolcontract.ToolOutput{Content: marshalEventBody(map[string]any{"criteria": state.QualityCriteria})},
 			}
 			state.Observations = append(state.Observations, observation)
 			agentTurnRunner.appendEvent(taskRun.TaskRunID, "agent.quality_criteria", marshalEventBody(map[string]any{
@@ -625,7 +626,7 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 			agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusFailed, "fail", reason)
 			return agentTurnRunner.finalizeIfSatisfiedOrFail(taskContext, request, reason, &state, iteration)
 		default:
-			observation := newFailureObservation(nextObservationIDForObservations(state.Observations), "invalid_action", "", "unknown action: "+actionDocument.Action, FailureInvalidInput, FailureCodes.InvalidInput, "action_parse")
+			observation := newFailureObservation(nextObservationIDForObservations(state.Observations), "invalid_action", "", "unknown action: "+actionDocument.Action, toolcontract.FailureInvalidInput, toolcontract.FailureCodes.InvalidInput, "action_parse")
 			state.Observations = append(state.Observations, observation)
 			agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusCompleted, "invalid_action", observation.ContentText())
 			if result, shouldStop := stopForNoProgress(stepID); shouldStop {
@@ -822,7 +823,7 @@ func (agentTurnRunner *AgentTurnRunner) appendTaskSourceEvent(taskRunID string, 
 	}))
 }
 
-func (agentTurnRunner *AgentTurnRunner) pausedTaskResult(taskRunID string, observation turnObservation, attachments []FileAttachment) (AgentTurnResult, bool) {
+func (agentTurnRunner *AgentTurnRunner) pausedTaskResult(taskRunID string, observation turnObservation, attachments []toolcontract.FileAttachment) (AgentTurnResult, bool) {
 	taskRun, isFound := agentTurnRunner.taskRunService.FindTaskRun(taskRunID)
 	if !isFound || !isWaitingForUser(taskRun.Status) {
 		return AgentTurnResult{}, false
@@ -838,7 +839,7 @@ func (agentTurnRunner *AgentTurnRunner) pausedTaskResult(taskRunID string, obser
 	return AgentTurnResult{TaskRun: taskRun, UserNotice: reply, Attachments: attachments, RecoveryActions: observation.RecoveryActions}, true
 }
 
-func (agentTurnRunner *AgentTurnRunner) cancelledTaskResult(taskRunID string, attachments []FileAttachment) (AgentTurnResult, bool) {
+func (agentTurnRunner *AgentTurnRunner) cancelledTaskResult(taskRunID string, attachments []toolcontract.FileAttachment) (AgentTurnResult, bool) {
 	taskRun, isFound := agentTurnRunner.taskRunService.FindTaskRun(taskRunID)
 	if !isFound || taskRun.Status != task.TaskStatusCancelled {
 		return AgentTurnResult{}, false
@@ -847,7 +848,7 @@ func (agentTurnRunner *AgentTurnRunner) cancelledTaskResult(taskRunID string, at
 	return AgentTurnResult{TaskRun: taskRun, ReplySuppressed: true, Attachments: attachments}, true
 }
 
-func (agentTurnRunner *AgentTurnRunner) cancelledTaskResultOrCurrent(taskRunID string, attachments []FileAttachment) AgentTurnResult {
+func (agentTurnRunner *AgentTurnRunner) cancelledTaskResultOrCurrent(taskRunID string, attachments []toolcontract.FileAttachment) AgentTurnResult {
 	if result, isCancelled := agentTurnRunner.cancelledTaskResult(taskRunID, attachments); isCancelled {
 		return result
 	}
@@ -1010,7 +1011,7 @@ func (agentTurnRunner *AgentTurnRunner) nextAction(ctx context.Context, taskRunI
 	return actionDocument, nil
 }
 
-func outcomeContractNeedsQualityCriteria(toolSet *ToolSet, contract OutcomeContract) bool {
+func outcomeContractNeedsQualityCriteria(toolSet *toolcontract.ToolSet, contract OutcomeContract) bool {
 	artifactRequirement := strings.TrimSpace(contract.ArtifactRequirement)
 	if artifactRequirement != "" && artifactRequirement != ArtifactRequirementNone {
 		return true
@@ -1120,7 +1121,7 @@ func withOwningSkillDecisions(decisions []SkillSelectionDecision, availableSkill
 func requestedToolNamesFromObservations(observations []turnObservation) []string {
 	toolNames := []string{}
 	for _, observation := range observations {
-		if observation.Action != "continue" || observation.Failed() || !ToolNamesMatch(observation.Tool, RequestToolsToolName) {
+		if observation.Action != "continue" || observation.Failed() || !toolcontract.ToolNamesMatch(observation.Tool, toolcontract.RequestToolsToolName) {
 			continue
 		}
 		var output struct {
@@ -1142,7 +1143,7 @@ func pendingFileDeliveryToolNames(request AgentTurnRequest, observations []turnO
 }
 
 func availableFileDeliveryToolNames(request AgentTurnRequest) []string {
-	toolNames := []string{TerminalRunToolName, FileDeliverToolName, SkillSearchToolName}
+	toolNames := []string{toolcontract.TerminalRunToolName, toolcontract.FileDeliverToolName, toolcontract.SkillSearchToolName}
 	if request.ToolSet == nil {
 		return toolNames
 	}
@@ -1151,7 +1152,7 @@ func availableFileDeliveryToolNames(request AgentTurnRequest) []string {
 
 func hasSuccessfulArtifactDeliveryObservation(observations []turnObservation) bool {
 	for _, observation := range observations {
-		if !observation.Failed() && IsArtifactDeliveryTool(observation.Tool) {
+		if !observation.Failed() && toolcontract.IsArtifactDeliveryTool(observation.Tool) {
 			return true
 		}
 	}
@@ -1505,11 +1506,11 @@ func (agentTurnRunner *AgentTurnRunner) finalizeIfSatisfiedOrFail(ctx context.Co
 	return agentTurnRunner.failTurnWithContext(ctx, state.TaskRunID, request, reason, finalization.Observations, finalization.Attachments, state.ExecutionState)
 }
 
-func (agentTurnRunner *AgentTurnRunner) failTurn(taskRunID string, request AgentTurnRequest, reason string, observations []turnObservation, attachments []FileAttachment, executionState ExecutionState) (AgentTurnResult, error) {
+func (agentTurnRunner *AgentTurnRunner) failTurn(taskRunID string, request AgentTurnRequest, reason string, observations []turnObservation, attachments []toolcontract.FileAttachment, executionState ExecutionState) (AgentTurnResult, error) {
 	return agentTurnRunner.failTurnWithContext(context.Background(), taskRunID, request, reason, observations, attachments, executionState)
 }
 
-func (agentTurnRunner *AgentTurnRunner) failTurnWithContext(ctx context.Context, taskRunID string, request AgentTurnRequest, reason string, observations []turnObservation, attachments []FileAttachment, executionState ExecutionState) (AgentTurnResult, error) {
+func (agentTurnRunner *AgentTurnRunner) failTurnWithContext(ctx context.Context, taskRunID string, request AgentTurnRequest, reason string, observations []turnObservation, attachments []toolcontract.FileAttachment, executionState ExecutionState) (AgentTurnResult, error) {
 	failureNotice, replyStatus, hasReply := agentTurnRunner.generateFailureNotice(ctx, taskRunID, request, reason, observations, attachments, executionState)
 	agentTurnRunner.appendEvent(taskRunID, "agent.failure_reply", marshalEventBody(replyStatus))
 	reply := failureNotice.SendableMessage()
@@ -1642,10 +1643,10 @@ type limitFinalizationResult struct {
 	Result       AgentTurnResult
 	IsCompleted  bool
 	Observations []turnObservation
-	Attachments  []FileAttachment
+	Attachments  []toolcontract.FileAttachment
 }
 
-func (agentTurnRunner *AgentTurnRunner) finalizeOrStopForLimit(ctx context.Context, taskRunID string, request AgentTurnRequest, reason string, requirements []toolUseRequirement, observations []turnObservation, attachments []FileAttachment, criteria []qualityCriterion, executionState ExecutionState, usedIterationCount int, usedToolCallCount int) (AgentTurnResult, error) {
+func (agentTurnRunner *AgentTurnRunner) finalizeOrStopForLimit(ctx context.Context, taskRunID string, request AgentTurnRequest, reason string, requirements []toolUseRequirement, observations []turnObservation, attachments []toolcontract.FileAttachment, criteria []qualityCriterion, executionState ExecutionState, usedIterationCount int, usedToolCallCount int) (AgentTurnResult, error) {
 	finalization := agentTurnRunner.finalizeLimitIfPossible(ctx, taskRunID, request, requirements, observations, attachments, criteria, executionState)
 	if finalization.IsCompleted {
 		return finalization.Result, nil
@@ -1653,7 +1654,7 @@ func (agentTurnRunner *AgentTurnRunner) finalizeOrStopForLimit(ctx context.Conte
 	return agentTurnRunner.stopForLimit(ctx, taskRunID, request, reason, finalization.Observations, finalization.Attachments, executionState, usedIterationCount, usedToolCallCount)
 }
 
-func (agentTurnRunner *AgentTurnRunner) finalizeLimitIfPossible(ctx context.Context, taskRunID string, request AgentTurnRequest, requirements []toolUseRequirement, observations []turnObservation, attachments []FileAttachment, criteria []qualityCriterion, executionState ExecutionState) limitFinalizationResult {
+func (agentTurnRunner *AgentTurnRunner) finalizeLimitIfPossible(ctx context.Context, taskRunID string, request AgentTurnRequest, requirements []toolUseRequirement, observations []turnObservation, attachments []toolcontract.FileAttachment, criteria []qualityCriterion, executionState ExecutionState) limitFinalizationResult {
 	if ctx.Err() == nil {
 		transition := agentTurnRunner.applyCompletionState(ctx, taskRunID, taskRunID+":completion", request, requirements, observations, attachments, criteria, "")
 		if transition.IsCompleted {
@@ -1676,7 +1677,7 @@ func (agentTurnRunner *AgentTurnRunner) finalizeLimitIfPossible(ctx context.Cont
 	return limitFinalizationResult{Observations: observations, Attachments: attachments}
 }
 
-func (agentTurnRunner *AgentTurnRunner) finalizeEscalateOrStopForLimit(ctx context.Context, taskRunID string, request AgentTurnRequest, reason string, requirements []toolUseRequirement, observations []turnObservation, attachments []FileAttachment, criteria []qualityCriterion, executionState ExecutionState, usedIterationCount int, usedToolCallCount int) (AgentTurnResult, bool, error) {
+func (agentTurnRunner *AgentTurnRunner) finalizeEscalateOrStopForLimit(ctx context.Context, taskRunID string, request AgentTurnRequest, reason string, requirements []toolUseRequirement, observations []turnObservation, attachments []toolcontract.FileAttachment, criteria []qualityCriterion, executionState ExecutionState, usedIterationCount int, usedToolCallCount int) (AgentTurnResult, bool, error) {
 	finalization := agentTurnRunner.finalizeLimitIfPossible(ctx, taskRunID, request, requirements, observations, attachments, criteria, executionState)
 	if finalization.IsCompleted {
 		return finalization.Result, false, nil
@@ -1697,13 +1698,13 @@ func (agentTurnRunner *AgentTurnRunner) finalizeEscalateOrStopForLimit(ctx conte
 	return AgentTurnResult{}, true, nil
 }
 
-func elapsedCompletionRequirements(requirements []toolUseRequirement, observations []turnObservation, completionIntentToolName string, toolSet *ToolSet) []toolUseRequirement {
+func elapsedCompletionRequirements(requirements []toolUseRequirement, observations []turnObservation, completionIntentToolName string, toolSet *toolcontract.ToolSet) []toolUseRequirement {
 	if len(requirements) > 0 {
 		return requirements
 	}
 	toolName := strings.TrimSpace(completionIntentToolName)
 	toolDefinition, isFound := toolSet.ToolDefinition(toolName)
-	if toolName == "" || !isFound || ToolDefinitionSideEffectClass(toolDefinition) != ToolSideEffectRead {
+	if toolName == "" || !isFound || toolcontract.ToolDefinitionSideEffectClass(toolDefinition) != toolcontract.ToolSideEffectRead {
 		return nil
 	}
 	completionRequirement := toolUseRequirement{ToolName: toolName}
@@ -1894,7 +1895,7 @@ func completionEvidenceIncludesSuccessfulTool(observations []turnObservation, re
 	}
 	for _, reference := range references {
 		observation, isFound := findSuccessfulObservation(observations, reference)
-		if isFound && ToolNamesMatch(observation.Tool, trimmedToolName) {
+		if isFound && toolcontract.ToolNamesMatch(observation.Tool, trimmedToolName) {
 			return true
 		}
 	}
@@ -2043,7 +2044,7 @@ func (agentTurnRunner *AgentTurnRunner) failTerminalNoToolsFailure(taskRunID str
 	return AgentTurnResult{TaskRun: failedTaskRun, UserNotice: reply, FailureNotice: notice, RecoveryActions: recoveryActionsFromObservations(state.Observations)}, true, ""
 }
 
-func failureNoticeFromTerminalAction(request AgentTurnRequest, taskRunID string, reason string, observations []turnObservation, attachments []FileAttachment, executionState ExecutionState) (FailureNotice, FailureReport, string) {
+func failureNoticeFromTerminalAction(request AgentTurnRequest, taskRunID string, reason string, observations []turnObservation, attachments []toolcontract.FileAttachment, executionState ExecutionState) (FailureNotice, FailureReport, string) {
 	decision := recoveryDecision{
 		NextAction:      strings.TrimSpace(reason),
 		UserReplyIntent: strings.TrimSpace(reason),
@@ -2063,7 +2064,7 @@ func (agentTurnRunner *AgentTurnRunner) recordTerminalNoToolsRejection(taskRunID
 	agentTurnRunner.saveStep(taskRunID, stepID, task.TaskStatusCompleted, "terminal_no_tools_rejected", observation.ContentText())
 }
 
-func (agentTurnRunner *AgentTurnRunner) stopForElapsedLimit(ctx context.Context, taskRunID string, request AgentTurnRequest, requirements []toolUseRequirement, observations []turnObservation, attachments []FileAttachment, executionState ExecutionState, usedIterationCount int, usedToolCallCount int) (AgentTurnResult, error) {
+func (agentTurnRunner *AgentTurnRunner) stopForElapsedLimit(ctx context.Context, taskRunID string, request AgentTurnRequest, requirements []toolUseRequirement, observations []turnObservation, attachments []toolcontract.FileAttachment, executionState ExecutionState, usedIterationCount int, usedToolCallCount int) (AgentTurnResult, error) {
 	taskRun, isCompleted := agentTurnRunner.settleElapsedTaskRun(taskRunID, request, requirements, observations, attachments, usedIterationCount, usedToolCallCount)
 	reply, replyStatus := agentTurnRunner.generateElapsedClosingReply(ctx, request, requirements, observations, attachments, executionState, isCompleted)
 	agentTurnRunner.appendEvent(taskRunID, "agent.limit_reply", marshalEventBody(replyStatus))
@@ -2092,7 +2093,7 @@ func (agentTurnRunner *AgentTurnRunner) stopForElapsedLimit(ctx context.Context,
 	return AgentTurnResult{TaskRun: taskRun, UserNotice: reply, FailureNotice: failureNotice, RecoveryActions: recoveryActionsFromObservations(observations)}, nil
 }
 
-func (agentTurnRunner *AgentTurnRunner) settleElapsedTaskRun(taskRunID string, request AgentTurnRequest, requirements []toolUseRequirement, observations []turnObservation, attachments []FileAttachment, usedIterationCount int, usedToolCallCount int) (task.TaskRun, bool) {
+func (agentTurnRunner *AgentTurnRunner) settleElapsedTaskRun(taskRunID string, request AgentTurnRequest, requirements []toolUseRequirement, observations []turnObservation, attachments []toolcontract.FileAttachment, usedIterationCount int, usedToolCallCount int) (task.TaskRun, bool) {
 	agentTurnRunner.appendEvent(taskRunID, "agent.limit_stop", marshalEventBody(agentTurnRunner.limitStopEventBody("max_elapsed", observations, attachments, usedIterationCount, usedToolCallCount)))
 	if !elapsedTurnCanComplete(request, requirements, observations, attachments) {
 		blockedTaskRun, _ := agentTurnRunner.taskRunService.PauseTaskRun(taskRunID, task.TaskStatusBlocked, "max_elapsed")
@@ -2110,7 +2111,7 @@ func (agentTurnRunner *AgentTurnRunner) settleElapsedTaskRun(taskRunID string, r
 	return completedTaskRun, true
 }
 
-func elapsedTurnCanComplete(request AgentTurnRequest, requirements []toolUseRequirement, observations []turnObservation, attachments []FileAttachment) bool {
+func elapsedTurnCanComplete(request AgentTurnRequest, requirements []toolUseRequirement, observations []turnObservation, attachments []toolcontract.FileAttachment) bool {
 	if !completionRequirementsHaveEvidence(request.ToolSet, requirements, observations) {
 		return false
 	}
@@ -2126,7 +2127,7 @@ func elapsedTurnCanComplete(request AgentTurnRequest, requirements []toolUseRequ
 	return buildAttachmentValidityState(request.WorkspaceRootPath, attachments).Passed
 }
 
-func (agentTurnRunner *AgentTurnRunner) generateElapsedClosingReply(ctx context.Context, request AgentTurnRequest, requirements []toolUseRequirement, observations []turnObservation, attachments []FileAttachment, executionState ExecutionState, isCompleted bool) (string, limitReplyStatus) {
+func (agentTurnRunner *AgentTurnRunner) generateElapsedClosingReply(ctx context.Context, request AgentTurnRequest, requirements []toolUseRequirement, observations []turnObservation, attachments []toolcontract.FileAttachment, executionState ExecutionState, isCompleted bool) (string, limitReplyStatus) {
 	prompt := buildElapsedBlockedPrompt(request, observations, attachments, executionState)
 	if isCompleted {
 		prompt = buildElapsedCompletionPrompt(request, requirements, observations)
@@ -2158,7 +2159,7 @@ func (agentTurnRunner *AgentTurnRunner) generateElapsedClosingReply(ctx context.
 	}
 }
 
-func buildElapsedBlockedPrompt(request AgentTurnRequest, observations []turnObservation, attachments []FileAttachment, executionState ExecutionState) string {
+func buildElapsedBlockedPrompt(request AgentTurnRequest, observations []turnObservation, attachments []toolcontract.FileAttachment, executionState ExecutionState) string {
 	report := buildFailureReport(request, "", "limit", "max_elapsed", observations, attachments, executionState, recoveryDecision{})
 	return buildFailureNoticePrompt(report)
 }
@@ -2177,13 +2178,13 @@ func (agentTurnRunner *AgentTurnRunner) replyFinalizationContext(parentContext c
 	return recoveryFinalizationContextWithParent(parentContext, request)
 }
 
-func (agentTurnRunner *AgentTurnRunner) pauseForLimit(taskRunID string, reason string, observations []turnObservation, attachments []FileAttachment, usedIterationCount int, usedToolCallCount int) task.TaskRun {
+func (agentTurnRunner *AgentTurnRunner) pauseForLimit(taskRunID string, reason string, observations []turnObservation, attachments []toolcontract.FileAttachment, usedIterationCount int, usedToolCallCount int) task.TaskRun {
 	agentTurnRunner.appendEvent(taskRunID, "agent.limit_stop", marshalEventBody(agentTurnRunner.limitStopEventBody(reason, observations, attachments, usedIterationCount, usedToolCallCount)))
 	blockedTaskRun, _ := agentTurnRunner.taskRunService.PauseTaskRun(taskRunID, task.TaskStatusBlocked, reason)
 	return blockedTaskRun
 }
 
-func (agentTurnRunner *AgentTurnRunner) limitStopEventBody(reason string, observations []turnObservation, attachments []FileAttachment, usedIterationCount int, usedToolCallCount int) map[string]any {
+func (agentTurnRunner *AgentTurnRunner) limitStopEventBody(reason string, observations []turnObservation, attachments []toolcontract.FileAttachment, usedIterationCount int, usedToolCallCount int) map[string]any {
 	return map[string]any{
 		"taskLevel":          agentTurnRunner.options.TaskLevel,
 		"maxIterationCount":  agentTurnRunner.options.MaxIterationCount,
@@ -2200,7 +2201,7 @@ func (agentTurnRunner *AgentTurnRunner) limitStopEventBody(reason string, observ
 	}
 }
 
-func (agentTurnRunner *AgentTurnRunner) stopForLimit(ctx context.Context, taskRunID string, request AgentTurnRequest, reason string, observations []turnObservation, attachments []FileAttachment, executionState ExecutionState, usedIterationCount int, usedToolCallCount int) (AgentTurnResult, error) {
+func (agentTurnRunner *AgentTurnRunner) stopForLimit(ctx context.Context, taskRunID string, request AgentTurnRequest, reason string, observations []turnObservation, attachments []toolcontract.FileAttachment, executionState ExecutionState, usedIterationCount int, usedToolCallCount int) (AgentTurnResult, error) {
 	blockedTaskRun := agentTurnRunner.pauseForLimit(taskRunID, reason, observations, attachments, usedIterationCount, usedToolCallCount)
 	failureNotice, replyStatus, hasReply := agentTurnRunner.generateLimitReachedNotice(ctx, taskRunID, request, reason, observations, nil, executionState)
 	agentTurnRunner.appendEvent(taskRunID, "agent.limit_reply", marshalEventBody(replyStatus))

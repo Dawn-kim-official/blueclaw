@@ -2,6 +2,7 @@ package connectors
 
 import (
 	"context"
+	"github.com/Dawn-kim-official/blueclaw/internal/toolcontract"
 	"log/slog"
 	"strings"
 	"testing"
@@ -28,7 +29,7 @@ func TestCompletedTaskReplyCarriesModelWordingAndNativeAttachments(t *testing.T)
 	turnResult := bluecollar.AgentTurnResult{
 		TaskRun:       task.TaskRun{TaskRunID: "task-1", Status: task.TaskStatusCompleted},
 		FinishMessage: "Done: sandbox:/mnt/data/deck.pptx",
-		Attachments:   []bluecollar.FileAttachment{{Filename: "deck.pptx", DevicePath: "/workspace/private/people/p1/tmp/deck.pptx"}},
+		Attachments:   []toolcontract.FileAttachment{{Filename: "deck.pptx", DevicePath: "/workspace/private/people/p1/tmp/deck.pptx"}},
 	}
 
 	_, errorValue := connectorRuntime.dispatchTaskReply(context.Background(), "mattermost", &testAdapter{}, PlatformInboundEvent{SenderID: "sender-1"}, ReplyTarget{}, turnResult, "", sendReply)

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/Dawn-kim-official/blueclaw/internal/toolcontract"
 	"os"
 	"path/filepath"
 	"slices"
@@ -75,7 +76,7 @@ func TestDecideAgentActionNativeChatOmitsTextToolCatalog(t *testing.T) {
 	if strings.Contains(chatMessageContent(provider.lastRequest.Messages), "Available tool catalog") {
 		t.Fatalf("expected native chat messages to omit textual tool catalog, got %s", chatMessageContent(provider.lastRequest.Messages))
 	}
-	if nativeChatTool(t, provider.lastRequest.Tools, TerminalRunToolName).Function.Name != TerminalRunToolName {
+	if nativeChatTool(t, provider.lastRequest.Tools, toolcontract.TerminalRunToolName).Function.Name != toolcontract.TerminalRunToolName {
 		t.Fatalf("expected native chat to preserve direct typed tool, got %+v", provider.lastRequest.Tools)
 	}
 }
@@ -98,7 +99,7 @@ func TestBuildAgentActionChatRequestExposesDirectToolsAndTerminalControls(t *tes
 	if len(chatRequest.Tools) != 4 {
 		t.Fatalf("expected one callable tool and three terminal controls, got %+v", chatRequest.Tools)
 	}
-	tool := nativeChatTool(t, chatRequest.Tools, TerminalRunToolName)
+	tool := nativeChatTool(t, chatRequest.Tools, toolcontract.TerminalRunToolName)
 	if tool.Type != "function" {
 		t.Fatalf("expected function tool, got %+v", tool)
 	}
@@ -158,9 +159,9 @@ func TestDecideAgentActionNativeChatRejectsInvalidCallsWithoutStructuredFallback
 	}{
 		{name: "empty calls", response: llm.ChatCompletionResponse{FinishReason: "tool_calls", Message: llm.ChatCompletionMessage{Role: "assistant"}}},
 		{name: "unknown tool", response: nativeAgentActionChatResponse("unknown", `{}`)},
-		{name: "malformed arguments", response: nativeAgentActionChatResponse(TerminalRunToolName, "{invalid")},
-		{name: "non-object arguments", response: nativeAgentActionChatResponse(TerminalRunToolName, `[]`)},
-		{name: "empty arguments", response: nativeAgentActionChatResponse(TerminalRunToolName, "")},
+		{name: "malformed arguments", response: nativeAgentActionChatResponse(toolcontract.TerminalRunToolName, "{invalid")},
+		{name: "non-object arguments", response: nativeAgentActionChatResponse(toolcontract.TerminalRunToolName, `[]`)},
+		{name: "empty arguments", response: nativeAgentActionChatResponse(toolcontract.TerminalRunToolName, "")},
 		{name: "blank tool call ID", response: blankToolCallIDResponse},
 	}
 
@@ -180,12 +181,12 @@ func TestDecideAgentActionNativeChatRejectsInvalidCallsWithoutStructuredFallback
 
 func TestDecideAgentActionNativeChatRecoversTaskAddAndInvokesItOnce(t *testing.T) {
 	executionCount := 0
-	toolSet := NewToolSet([]string{"task.add"})
-	registerTestTool(toolSet, ToolDefinition{
+	toolSet := toolcontract.NewToolSet([]string{"task.add"})
+	registerTestTool(toolSet, toolcontract.ToolDefinition{
 		Name:        "task.add",
 		Description: "Add a task.",
 		InputSchema: json.RawMessage(`{"type":"object","properties":{"title":{"type":"string"}},"required":["title"],"additionalProperties":false}`),
-	}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
 		executionCount++
 		return testToolSuccess("added"), nil
 	})
@@ -213,7 +214,7 @@ func TestDecideAgentActionNativeChatRecoversTaskAddAndInvokesItOnce(t *testing.T
 	if action.Action != "continue" || action.ToolName != "task.add" || string(action.ToolInput) != `{"title":"plan review"}` {
 		t.Fatalf("expected parsed task.add action, got %+v", action)
 	}
-	result, invokeError := state.Request.ToolSet.Invoke(context.Background(), ToolInvocation{ToolName: action.ToolName, Input: action.ToolInput})
+	result, invokeError := state.Request.ToolSet.Invoke(context.Background(), toolcontract.ToolInvocation{ToolName: action.ToolName, Input: action.ToolInput})
 	if invokeError != nil || result.Failure != nil {
 		t.Fatalf("expected task.add invocation, got %+v, %v", result, invokeError)
 	}
@@ -241,7 +242,7 @@ func TestDecideAgentActionNativeChatRetryRequiresExactDiagnosticTool(t *testing.
 			nativeAgentActionChatResponse("task.add", `{"title":"plan review"}`),
 		},
 	}
-	state := nativeAgentActionTestStateWithTools("task.add", TerminalRunToolName)
+	state := nativeAgentActionTestStateWithTools("task.add", toolcontract.TerminalRunToolName)
 
 	_, errorValue := DecideAgentAction(context.Background(), &provider, state)
 	if errorValue != nil {
@@ -284,9 +285,9 @@ func TestDecideAgentActionNativeChatRetryRequiresSinglePendingContractTool(t *te
 				Tool:          "file.write",
 				ToolID:        "kernel:file.write",
 				ToolInput:     json.RawMessage(`{"path":"report.txt"}`),
-				Output:        ToolOutput{Content: "written"},
+				Output:        toolcontract.ToolOutput{Content: "written"},
 			}},
-			expectedToolName: TerminalRunToolName,
+			expectedToolName: toolcontract.TerminalRunToolName,
 		},
 	}
 
@@ -369,7 +370,7 @@ func TestAgentActionFinishCorrectionUsesCompleteTypedState(t *testing.T) {
 		{
 			name: "failed evidence",
 			updateState: func(state *agentTaskState) {
-				state.Observations[0].Failure = &ToolFailure{Code: FailureCodes.OperationFailed.String()}
+				state.Observations[0].Failure = &toolcontract.ToolFailure{Code: toolcontract.FailureCodes.OperationFailed.String()}
 			},
 		},
 		{
@@ -380,7 +381,7 @@ func TestAgentActionFinishCorrectionUsesCompleteTypedState(t *testing.T) {
 					Action:        "continue",
 					Tool:          "task.add",
 					ToolInputKey:  "task.add\x00{}",
-					Failure:       &ToolFailure{Code: FailureCodes.OperationFailed.String()},
+					Failure:       &toolcontract.ToolFailure{Code: toolcontract.FailureCodes.OperationFailed.String()},
 				})
 			},
 		},
@@ -444,7 +445,7 @@ func TestDecideAgentActionNativeChatRetryPreservesModelChoiceOutsidePendingContr
 			updateState: func(state agentTaskState) agentTaskState {
 				state.Observations = []turnObservation{
 					successfulContractObservation("observation-1", "file.write", "kernel:file.write", `{"path":"report.txt"}`),
-					successfulContractObservation("observation-2", TerminalRunToolName, "kernel:terminal.run", `{"command":"wc report.txt"}`),
+					successfulContractObservation("observation-2", toolcontract.TerminalRunToolName, "kernel:terminal.run", `{"command":"wc report.txt"}`),
 				}
 				return state
 			},
@@ -458,7 +459,7 @@ func TestDecideAgentActionNativeChatRetryPreservesModelChoiceOutsidePendingContr
 					Action:        "continue",
 					Tool:          "file.write",
 					ToolInputKey:  "file.write\x00{}",
-					Failure:       &ToolFailure{Code: "write_failed"},
+					Failure:       &toolcontract.ToolFailure{Code: "write_failed"},
 				}}
 				return state
 			},
@@ -516,17 +517,17 @@ func TestFirstPendingActionToolNameUsesRequiredNextTools(t *testing.T) {
 	}
 
 	state.Observations = []turnObservation{
-		successfulContractObservation("observation-1", TerminalRunToolName, "kernel:terminal.run", `{"command":"ls"}`),
+		successfulContractObservation("observation-1", toolcontract.TerminalRunToolName, "kernel:terminal.run", `{"command":"ls"}`),
 		successfulContractObservation("observation-2", "file.write", "kernel:file.write", `{"path":"report.txt"}`),
 		{
 			ObservationID: "observation-3",
 			Action:        "continue",
-			Tool:          TerminalRunToolName,
-			ToolInputKey:  TerminalRunToolName + "\x00{}",
-			Failure:       &ToolFailure{Code: FailureCodes.OperationFailed.String()},
+			Tool:          toolcontract.TerminalRunToolName,
+			ToolInputKey:  toolcontract.TerminalRunToolName + "\x00{}",
+			Failure:       &toolcontract.ToolFailure{Code: toolcontract.FailureCodes.OperationFailed.String()},
 		},
 	}
-	if toolName := firstPendingRequiredToolName(state.Request.ContractToolWorkingSet.RequiredNextTools, state.Observations); toolName != TerminalRunToolName {
+	if toolName := firstPendingRequiredToolName(state.Request.ContractToolWorkingSet.RequiredNextTools, state.Observations); toolName != toolcontract.TerminalRunToolName {
 		t.Fatalf("expected out-of-order and failed observations not to advance the sequence, got %q", toolName)
 	}
 	if toolName := firstPendingActionToolName(state); toolName != "" {
@@ -618,7 +619,7 @@ func TestDecideAgentActionNativeChatStopsCorrectionLoopOnCancellation(t *testing
 		Code: "provider_response_invalid",
 		Diagnostic: llm.StructuredOutputDiagnostic{
 			Category: llm.StructuredOutputDiagnosticToolCallContract,
-			ToolName: TerminalRunToolName,
+			ToolName: toolcontract.TerminalRunToolName,
 		},
 	}}
 	provider := nativeAgentActionLanguageModel{chatErrors: []error{correctionError, context.Canceled, nil}}
@@ -660,7 +661,7 @@ func TestDecideAgentActionNativeChatUsesFirstProviderOrderedCall(t *testing.T) {
 	if errorValue != nil {
 		t.Fatalf("expected native action: %v", errorValue)
 	}
-	if action.Action != "continue" || action.ToolName != TerminalRunToolName || string(action.ToolInput) != `{"command":"pwd"}` {
+	if action.Action != "continue" || action.ToolName != toolcontract.TerminalRunToolName || string(action.ToolInput) != `{"command":"pwd"}` {
 		t.Fatalf("expected first provider-ordered tool call, got %+v", action)
 	}
 	if provider.chatCalls != 1 || provider.structuredCalls != 0 {
@@ -742,25 +743,25 @@ func TestDecideAgentActionUsesStructuredProviderWithoutChatCapability(t *testing
 }
 
 func nativeAgentActionTestState() agentTaskState {
-	toolSet := NewToolSet([]string{TerminalRunToolName})
-	registerTestTool(toolSet, ToolDefinition{
-		Name:        TerminalRunToolName,
+	toolSet := toolcontract.NewToolSet([]string{toolcontract.TerminalRunToolName})
+	registerTestTool(toolSet, toolcontract.ToolDefinition{
+		Name:        toolcontract.TerminalRunToolName,
 		Description: "Run a command.",
 		InputSchema: json.RawMessage(`{"type":"object","properties":{"command":{"type":"string"}},"required":["command"],"additionalProperties":false}`),
-	}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
 		return testToolSuccess("ran"), nil
 	})
 	return agentTaskState{Request: AgentTurnRequest{Prompt: "run command", ToolSet: toolSet}}
 }
 
 func nativeAgentActionTestStateWithTools(toolNames ...string) agentTaskState {
-	toolSet := NewToolSet(toolNames)
+	toolSet := toolcontract.NewToolSet(toolNames)
 	for _, toolName := range toolNames {
-		registerTestTool(toolSet, ToolDefinition{
+		registerTestTool(toolSet, toolcontract.ToolDefinition{
 			Name:        toolName,
 			Description: "Test tool.",
 			InputSchema: json.RawMessage(`{"type":"object","properties":{},"additionalProperties":false}`),
-		}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
 			return testToolSuccess("ok"), nil
 		})
 	}
@@ -768,29 +769,29 @@ func nativeAgentActionTestStateWithTools(toolNames ...string) agentTaskState {
 }
 
 func nativeAgentActionContractState() agentTaskState {
-	state := nativeAgentActionTestStateWithTools("file.write", TerminalRunToolName)
-	state.Request.ContractToolWorkingSet.RequiredNextTools = []string{"file.write", TerminalRunToolName}
+	state := nativeAgentActionTestStateWithTools("file.write", toolcontract.TerminalRunToolName)
+	state.Request.ContractToolWorkingSet.RequiredNextTools = []string{"file.write", toolcontract.TerminalRunToolName}
 	return state
 }
 
 func nativeAgentActionCompletionReadyState() agentTaskState {
 	toolDefinition := testToolDescriptor("task.add")
-	toolDefinition.SideEffectClass = ToolSideEffectStateChange
-	toolDefinition.Completion = ToolCompletion{Mode: ToolCompletionObservation}
-	toolDefinition.ResultContract = &ToolResultContract{
+	toolDefinition.SideEffectClass = toolcontract.ToolSideEffectStateChange
+	toolDefinition.Completion = toolcontract.ToolCompletion{Mode: toolcontract.ToolCompletionObservation}
+	toolDefinition.ResultContract = &toolcontract.ToolResultContract{
 		Schema: json.RawMessage(`{"type":"object","properties":{"taskID":{"type":"string"},"created":{"type":"boolean"}},"required":["taskID","created"],"additionalProperties":false}`),
-		Effects: []ResourceEffectContract{{
+		Effects: []toolcontract.ResourceEffectContract{{
 			ObjectType:     "task",
 			Effect:         "created",
 			ResultField:    "taskID",
 			EffectIdentity: "id",
 		}},
-		EvidenceCondition: &EvidenceCondition{
+		EvidenceCondition: &toolcontract.EvidenceCondition{
 			ResultField: "created",
 			Equals:      json.RawMessage(`true`),
 		},
 	}
-	toolSet := newTestToolSetWithDefinitions([]ToolDefinition{toolDefinition})
+	toolSet := newTestToolSetWithDefinitions([]toolcontract.ToolDefinition{toolDefinition})
 	return agentTaskState{
 		Request: AgentTurnRequest{
 			Prompt:                "add task",
@@ -810,8 +811,8 @@ func nativeAgentActionCompletionReadyState() agentTaskState {
 			Tool:          "task.add",
 			ToolID:        toolDefinition.ID,
 			ToolInput:     json.RawMessage(`{"title":"first"}`),
-			Output:        ToolOutput{Content: "added", Data: json.RawMessage(`{"taskID":"task-1","created":true}`)},
-			Effects:       []ResourceEffect{{ObjectType: "task", Effect: "created", ID: "task-1"}},
+			Output:        toolcontract.ToolOutput{Content: "added", Data: json.RawMessage(`{"taskID":"task-1","created":true}`)},
+			Effects:       []toolcontract.ResourceEffect{{ObjectType: "task", Effect: "created", ID: "task-1"}},
 		}},
 	}
 }
@@ -863,7 +864,7 @@ func successfulContractObservation(observationID string, toolName string, toolID
 		Tool:          toolName,
 		ToolID:        toolID,
 		ToolInput:     json.RawMessage(toolInput),
-		Output:        ToolOutput{Content: "succeeded"},
+		Output:        toolcontract.ToolOutput{Content: "succeeded"},
 	}
 }
 
@@ -883,7 +884,7 @@ func nativeAgentActionMultipleCallsResponse() llm.ChatCompletionResponse {
 		Message: llm.ChatCompletionMessage{
 			Role: "assistant",
 			ToolCalls: []llm.ChatCompletionToolCall{
-				nativeAgentActionToolCall(TerminalRunToolName, `{"command":"pwd"}`),
+				nativeAgentActionToolCall(toolcontract.TerminalRunToolName, `{"command":"pwd"}`),
 				nativeAgentActionToolCall("finish", `{}`),
 			},
 		},
@@ -995,19 +996,19 @@ func (provider *structuredOnlyAgentActionLanguageModel) GenerateStructuredRespon
 func TestBuildAgentActionRequestPreservesNativeToolCallingWireShape(t *testing.T) {
 	seed := int64(77)
 	temperature := 0.4
-	toolSet := NewToolSet([]string{TerminalRunToolName, "site.serve"})
-	registerTestTool(toolSet, ToolDefinition{
-		Name:        TerminalRunToolName,
+	toolSet := toolcontract.NewToolSet([]string{toolcontract.TerminalRunToolName, "site.serve"})
+	registerTestTool(toolSet, toolcontract.ToolDefinition{
+		Name:        toolcontract.TerminalRunToolName,
 		Description: "Run a command.",
 		InputSchema: json.RawMessage(`{"type":"object","properties":{"command":{"type":"string"}},"required":["command"],"additionalProperties":false}`),
-	}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
 		return testToolSuccess("ran"), nil
 	})
-	registerTestTool(toolSet, ToolDefinition{
+	registerTestTool(toolSet, toolcontract.ToolDefinition{
 		Name:        "site.serve",
 		Description: "Publish a site.",
 		InputSchema: json.RawMessage(`{"type":"object","properties":{"siteID":{"type":"string"}},"required":["siteID"],"additionalProperties":false}`),
-	}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
 		return testToolSuccess("published"), nil
 	})
 	state := agentTaskState{
@@ -1122,11 +1123,11 @@ func TestBuildAgentActionRequestPreservesNativeToolCallingWireShape(t *testing.T
 }
 
 func TestBuildAgentActionRequestPreservesTypedInteractionTool(t *testing.T) {
-	toolSet := NewToolSet([]string{AskInputToolName})
-	registerTestTool(toolSet, ToolDefinition{
-		Name:        AskInputToolName,
+	toolSet := toolcontract.NewToolSet([]string{toolcontract.AskInputToolName})
+	registerTestTool(toolSet, toolcontract.ToolDefinition{
+		Name:        toolcontract.AskInputToolName,
 		InputSchema: json.RawMessage(`{"type":"object","properties":{"question":{"type":"string"}},"required":["question"]}`),
-	}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
 		return testToolSuccess("waiting"), nil
 	})
 
@@ -1138,7 +1139,7 @@ func TestBuildAgentActionRequestPreservesTypedInteractionTool(t *testing.T) {
 }
 
 func TestDirectActionSchemaPreservesToolRequiredFields(t *testing.T) {
-	schemaDocument := buildActionSchemaFromToolDefinitions([]ToolDefinition{{
+	schemaDocument := buildActionSchemaFromToolDefinitions([]toolcontract.ToolDefinition{{
 		Name:        "calendar.add",
 		InputSchema: json.RawMessage(`{"type":"object","properties":{"title":{"type":"string"}},"required":["title"]}`),
 	}}, false, nil, false, false)
@@ -1153,7 +1154,7 @@ func TestDirectActionSchemaPreservesToolRequiredFields(t *testing.T) {
 }
 
 func TestActionSchemaOmitsToolsWithoutAnObjectInputSchema(t *testing.T) {
-	schemaDocument := buildActionSchemaFromToolDefinitions([]ToolDefinition{
+	schemaDocument := buildActionSchemaFromToolDefinitions([]toolcontract.ToolDefinition{
 		{Name: "missing.schema"},
 		{Name: "invalid.schema", InputSchema: json.RawMessage(`{"type":`)},
 		{Name: "scalar.schema", InputSchema: json.RawMessage(`{"type":"string"}`)},
@@ -1175,7 +1176,7 @@ func TestActionSchemaOmitsToolsWithoutAnObjectInputSchema(t *testing.T) {
 }
 
 func TestActionSchemaPreservesRequiredFieldsOnArrayOfNestedObjects(t *testing.T) {
-	schemaDocument := buildActionSchemaFromToolDefinitions([]ToolDefinition{{
+	schemaDocument := buildActionSchemaFromToolDefinitions([]toolcontract.ToolDefinition{{
 		Name:        "calendar.add",
 		InputSchema: json.RawMessage(`{"type":"object","properties":{"items":{"type":"array","items":{"type":"object","properties":{"name":{"type":"string"}},"required":["name"]}}},"required":["items"]}`),
 	}}, false, nil, false, false)
@@ -1199,8 +1200,8 @@ func TestActionSchemaPreservesRequiredFieldsOnArrayOfNestedObjects(t *testing.T)
 func TestBuildAgentActionRequestGenerationOptionsDoNotChangeSchema(t *testing.T) {
 	seed := int64(88)
 	temperature := 0.5
-	toolSet := NewToolSet([]string{"browser.open"})
-	registerTestTool(toolSet, ToolDefinition{Name: "browser.open"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	toolSet := toolcontract.NewToolSet([]string{"browser.open"})
+	registerTestTool(toolSet, toolcontract.ToolDefinition{Name: "browser.open"}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
 		return testToolSuccess("opened"), nil
 	})
 	state := agentTaskState{
@@ -1379,16 +1380,16 @@ func TestParseAgentActionResponseRejectsMalformedJSON(t *testing.T) {
 
 func TestApplyToolResultAppendsObservationDeterministically(t *testing.T) {
 	state := agentTaskState{}
-	result := ToolResult{
-		Output: ToolOutput{Content: "attached"},
-		Attachments: []FileAttachment{{
+	result := toolcontract.ToolResult{
+		Output: toolcontract.ToolOutput{Content: "attached"},
+		Attachments: []toolcontract.FileAttachment{{
 			DevicePath:  "/tmp/file.html",
 			Filename:    "file.html",
 			ContentType: "text/html",
 		}},
 	}
 
-	nextState := applyToolResult(state, ToolInvocation{ToolName: "file.deliver", Input: json.RawMessage(`{"path":"file.html"}`)}, result)
+	nextState := applyToolResult(state, toolcontract.ToolInvocation{ToolName: "file.deliver", Input: json.RawMessage(`{"path":"file.html"}`)}, result)
 
 	if len(nextState.Observations) != 1 {
 		t.Fatalf("expected one observation, got %+v", nextState.Observations)
@@ -1425,8 +1426,8 @@ func TestAdvanceAgentTaskReturnsAttachExistingArtifactEffect(t *testing.T) {
 	if errorValue := os.WriteFile(artifactPath, []byte("<html></html>"), 0o600); errorValue != nil {
 		t.Fatal(errorValue)
 	}
-	toolSet := NewToolSet([]string{FileDeliverToolName})
-	registerTestTool(toolSet, ToolDefinition{Name: FileDeliverToolName}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	toolSet := toolcontract.NewToolSet([]string{toolcontract.FileDeliverToolName})
+	registerTestTool(toolSet, toolcontract.ToolDefinition{Name: toolcontract.FileDeliverToolName}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
 		return testToolSuccess("delivered"), nil
 	})
 	state := agentTaskState{
@@ -1434,12 +1435,12 @@ func TestAdvanceAgentTaskReturnsAttachExistingArtifactEffect(t *testing.T) {
 			Prompt:                     "HTML make the file",
 			ToolSet:                    toolSet,
 			WorkspaceRootPath:          workspaceRootPath,
-			RequiredEvidenceTools:      []string{FileDeliverToolName},
+			RequiredEvidenceTools:      []string{toolcontract.FileDeliverToolName},
 			RequiredAttachmentSuffixes: []string{".html"},
 			TurnStartedAt:              time.Now().Add(-time.Second),
 		},
 		Requirements: []toolUseRequirement{{
-			ToolName:           FileDeliverToolName,
+			ToolName:           toolcontract.FileDeliverToolName,
 			RequiresAttachment: true,
 			AttachmentSuffixes: []string{".html"},
 		}},
@@ -1450,7 +1451,7 @@ func TestAdvanceAgentTaskReturnsAttachExistingArtifactEffect(t *testing.T) {
 	if transition.Effect.Kind != agentEffectContinue {
 		t.Fatalf("expected file delivery effect, got %+v", transition.Effect)
 	}
-	if transition.Effect.ToolCall == nil || transition.Effect.ToolCall.ToolName != FileDeliverToolName {
+	if transition.Effect.ToolCall == nil || transition.Effect.ToolCall.ToolName != toolcontract.FileDeliverToolName {
 		t.Fatalf("expected file.deliver tool call, got %+v", transition.Effect.ToolCall)
 	}
 	if !strings.Contains(string(transition.Effect.ToolCall.Input), artifactPath) {
@@ -1464,11 +1465,11 @@ func TestAdvanceAgentTaskReturnsFinishMessageEffectForSatisfiedBrowserOpen(t *te
 			Prompt:    "open browser",
 			TaskShape: TaskShapeBrowserHandoffTask,
 			TaskLevel: TaskLevelXLow,
-			ToolSet: newTestToolSetWithDefinitions([]ToolDefinition{{
+			ToolSet: newTestToolSetWithDefinitions([]toolcontract.ToolDefinition{{
 				Name:            "browser.open",
 				Namespace:       "browser",
-				SideEffectClass: ToolSideEffectConnect,
-				Completion:      ToolCompletion{Mode: ToolCompletionObservation},
+				SideEffectClass: toolcontract.ToolSideEffectConnect,
+				Completion:      toolcontract.ToolCompletion{Mode: toolcontract.ToolCompletionObservation},
 			}}),
 			RequiredEvidenceTools: []string{"browser.open"},
 		},
@@ -1479,7 +1480,7 @@ func TestAdvanceAgentTaskReturnsFinishMessageEffectForSatisfiedBrowserOpen(t *te
 			ObservationID: "obs-001",
 			Action:        "continue",
 			Tool:          "browser.open",
-			Output:        ToolOutput{Content: "opened"},
+			Output:        toolcontract.ToolOutput{Content: "opened"},
 		}},
 	}
 
@@ -1576,7 +1577,7 @@ func TestBlockedResumeRestoresPriorObservations(t *testing.T) {
 	if state.ToolCallCount != 2 {
 		t.Fatalf("expected restored tool call count, got %d", state.ToolCallCount)
 	}
-	state = applyToolResult(state, ToolInvocation{ToolName: "file.write", Input: json.RawMessage(`{"path":"app.txt","content":"next"}`)}, testToolSuccess("wrote next"))
+	state = applyToolResult(state, toolcontract.ToolInvocation{ToolName: "file.write", Input: json.RawMessage(`{"path":"app.txt","content":"next"}`)}, testToolSuccess("wrote next"))
 	if state.Observations[2].ObservationID != "obs-004" {
 		t.Fatalf("expected observation IDs to continue after the highest restored ID, got %+v", state.Observations)
 	}
@@ -1588,19 +1589,19 @@ func TestDecodeLegacyObservationNormalizesMemorySearchFailureCode(t *testing.T) 
 		t.Fatal(errorValue)
 	}
 
-	if !observation.Failed() || observation.FailureCode() != FailureCodes.Unavailable.String() {
+	if !observation.Failed() || observation.FailureCode() != toolcontract.FailureCodes.Unavailable.String() {
 		t.Fatalf("expected canonical memory search failure, got %+v", observation)
 	}
 }
 
 func TestUserResumeClearsInheritedFailureDebt(t *testing.T) {
 	observations := []turnObservation{
-		{ObservationID: "obs-001", Action: "continue", Tool: "site.serve", Output: ToolOutput{Content: `{"siteID":"site-1"}`}},
+		{ObservationID: "obs-001", Action: "continue", Tool: "site.serve", Output: toolcontract.ToolOutput{Content: `{"siteID":"site-1"}`}},
 		{
 			ObservationID: "obs-002",
 			Action:        "continue",
 			Tool:          "site.serve",
-			Failure:       &ToolFailure{Code: FailureCodes.OperationFailed.String()},
+			Failure:       &toolcontract.ToolFailure{Code: toolcontract.FailureCodes.OperationFailed.String()},
 			ToolInputKey:  "site.serve\x00{\"siteID\":\"site-1\"}",
 		},
 	}

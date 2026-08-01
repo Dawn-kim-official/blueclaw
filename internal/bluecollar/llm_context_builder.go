@@ -2,6 +2,7 @@ package bluecollar
 
 import (
 	"fmt"
+	"github.com/Dawn-kim-official/blueclaw/internal/toolcontract"
 	"strings"
 	"time"
 
@@ -37,8 +38,8 @@ type LLMContextInput struct {
 	Observations          []turnObservation
 	ExecutionState        ExecutionState
 	FailureFacts          failureReportFacts
-	Attachments           []FileAttachment
-	ToolSet               *ToolSet
+	Attachments           []toolcontract.FileAttachment
+	ToolSet               *toolcontract.ToolSet
 	RequiredEvidenceTools []string
 	OutcomeContract       OutcomeContract
 	ExtraSections         []string
@@ -108,7 +109,7 @@ func (builder LLMContextBuilder) additionalToolsContext(input LLMContextInput) s
 	return strings.Join(lines, "\n")
 }
 
-func additionalToolSummary(toolSet *ToolSet, toolName string) string {
+func additionalToolSummary(toolSet *toolcontract.ToolSet, toolName string) string {
 	if toolSet == nil {
 		return ""
 	}
@@ -377,7 +378,7 @@ func (builder LLMContextBuilder) failureObservationContext(observations []turnOb
 	return ""
 }
 
-func (builder LLMContextBuilder) attachmentContext(attachments []FileAttachment) string {
+func (builder LLMContextBuilder) attachmentContext(attachments []toolcontract.FileAttachment) string {
 	if summary := buildLimitAttachmentSummary(attachments); summary != "" {
 		return "Attachments:\n" + summary
 	}

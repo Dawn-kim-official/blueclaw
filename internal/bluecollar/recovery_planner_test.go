@@ -1,6 +1,7 @@
 package bluecollar
 
 import (
+	"github.com/Dawn-kim-official/blueclaw/internal/toolcontract"
 	"strings"
 	"testing"
 )
@@ -10,10 +11,10 @@ func TestRecoveryPacketDoesNotHardCodeToolAllowedList(t *testing.T) {
 		ObservationID: "obs-001",
 		Action:        "continue",
 		Tool:          "site.serve",
-		Output:        ToolOutput{Content: "site workspace must contain app/dist; build in Blueclaw before publishing"},
-		Failure: &ToolFailure{
-			Kind:            FailureExternalService,
-			Code:            FailureCodes.OperationFailed.String(),
+		Output:        toolcontract.ToolOutput{Content: "site workspace must contain app/dist; build in Blueclaw before publishing"},
+		Failure: &toolcontract.ToolFailure{
+			Kind:            toolcontract.FailureExternalService,
+			Code:            toolcontract.FailureCodes.OperationFailed.String(),
 			Stage:           "site.serve",
 			UserSafeSummary: "site workspace must contain app/dist; build in Blueclaw before publishing",
 		},
@@ -35,9 +36,9 @@ func TestRecoveryPacketSchemaFailureRetriesSameToolWithFixedInput(t *testing.T) 
 		Action:        "continue",
 		Tool:          "ask.confirm",
 		ToolInputKey:  "ask.confirm\x00{}",
-		Failure: &ToolFailure{
-			Kind:            FailureInvalidInput,
-			Code:            FailureCodes.InvalidInput.String(),
+		Failure: &toolcontract.ToolFailure{
+			Kind:            toolcontract.FailureInvalidInput,
+			Code:            toolcontract.FailureCodes.InvalidInput.String(),
 			Stage:           "ask_confirm",
 			UserSafeSummary: "ask.confirm requires userFacingMessage",
 		},
@@ -60,8 +61,8 @@ func TestRecoveryPacketKeepsTypedHintTools(t *testing.T) {
 		Action:        "continue",
 		Tool:          "site.serve",
 		ToolInputKey:  "site.serve\x00{\"siteID\":\"site-1\"}",
-		Failure: &ToolFailure{
-			RecoveryHints: []RecoveryHint{{ToolNames: []string{"file.edit"}}},
+		Failure: &toolcontract.ToolFailure{
+			RecoveryHints: []toolcontract.RecoveryHint{{ToolNames: []string{"file.edit"}}},
 		},
 	}
 

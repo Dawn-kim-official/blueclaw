@@ -2,6 +2,7 @@ package bluecollar
 
 import (
 	"encoding/json"
+	"github.com/Dawn-kim-official/blueclaw/internal/toolcontract"
 	"reflect"
 	"strings"
 	"testing"
@@ -35,9 +36,9 @@ func TestSelectedEvidenceHintsComeFromSelectedSkills(t *testing.T) {
 }
 
 func TestOutcomeContractDerivesScheduleEvidenceFromSkillHint(t *testing.T) {
-	toolSet := newTestToolSetWithDefinitions([]ToolDefinition{
-		{Name: "task.add", Namespace: "task", SideEffectClass: ToolSideEffectStateChange},
-		{Name: "schedule.create", Namespace: "schedule", SideEffectClass: ToolSideEffectStateChange},
+	toolSet := newTestToolSetWithDefinitions([]toolcontract.ToolDefinition{
+		{Name: "task.add", Namespace: "task", SideEffectClass: toolcontract.ToolSideEffectStateChange},
+		{Name: "schedule.create", Namespace: "schedule", SideEffectClass: toolcontract.ToolSideEffectStateChange},
 	})
 	contract := outcomeContractForRequest(
 		AgentRequest{
@@ -63,31 +64,31 @@ func TestOutcomeContractDerivesScheduleEvidenceFromSkillHint(t *testing.T) {
 }
 
 func TestAttachmentOutcomeTreatsWorkspaceFileWriteAsIntermediate(t *testing.T) {
-	fileWrite := testToolDescriptor(FileWriteToolName)
-	fileWrite.SideEffectClass = ToolSideEffectWorkspaceWrite
-	fileWrite.Completion = ToolCompletion{Mode: ToolCompletionObservation}
+	fileWrite := testToolDescriptor(toolcontract.FileWriteToolName)
+	fileWrite.SideEffectClass = toolcontract.ToolSideEffectWorkspaceWrite
+	fileWrite.Completion = toolcontract.ToolCompletion{Mode: toolcontract.ToolCompletionObservation}
 	fileWrite.OutputSchema = json.RawMessage(`{"type":"object","properties":{"path":{"type":"string"}},"required":["path"],"additionalProperties":false}`)
 	fileWrite.ResultContract.Schema = fileWrite.OutputSchema
-	fileWrite.ResultContract.Effects = []ResourceEffectContract{{
+	fileWrite.ResultContract.Effects = []toolcontract.ResourceEffectContract{{
 		ObjectType:     "file",
 		Effect:         "created",
 		ResultField:    "path",
 		EffectIdentity: "path",
 	}}
-	fileDeliver := testToolDescriptor(FileDeliverToolName)
-	fileDeliver.SideEffectClass = ToolSideEffectExternalWrite
-	fileDeliver.Completion = ToolCompletion{Mode: ToolCompletionObservation}
+	fileDeliver := testToolDescriptor(toolcontract.FileDeliverToolName)
+	fileDeliver.SideEffectClass = toolcontract.ToolSideEffectExternalWrite
+	fileDeliver.Completion = toolcontract.ToolCompletion{Mode: toolcontract.ToolCompletionObservation}
 	fileDeliver.InputIntentSchema = json.RawMessage(`{"type":"object","properties":{},"additionalProperties":false}`)
 	fileDeliver.OutputSchema = json.RawMessage(`{"type":"object","properties":{"deliveredPaths":{"type":"array","items":{"type":"string"}}},"required":["deliveredPaths"],"additionalProperties":false}`)
 	fileDeliver.ResultContract.Schema = fileDeliver.OutputSchema
-	fileDeliver.ResultContract.Effects = []ResourceEffectContract{{
+	fileDeliver.ResultContract.Effects = []toolcontract.ResourceEffectContract{{
 		ObjectType:     "file",
 		Effect:         "attached",
 		ResultField:    "deliveredPaths",
 		EffectIdentity: "path",
 	}}
-	toolSet := newTestToolSetWithDefinitions([]ToolDefinition{fileWrite, fileDeliver})
-	if !toolProducesIntermediateAttachmentSource(toolSet, FileWriteToolName) {
+	toolSet := newTestToolSetWithDefinitions([]toolcontract.ToolDefinition{fileWrite, fileDeliver})
+	if !toolProducesIntermediateAttachmentSource(toolSet, toolcontract.FileWriteToolName) {
 		t.Fatal("expected file.write descriptor to represent an intermediate attachment source")
 	}
 
@@ -103,7 +104,7 @@ func TestAttachmentOutcomeTreatsWorkspaceFileWriteAsIntermediate(t *testing.T) {
 		false,
 		[]string{".docx"},
 	)
-	if !reflect.DeepEqual(contract.RequiredEvidenceTools, []string{FileDeliverToolName}) {
+	if !reflect.DeepEqual(contract.RequiredEvidenceTools, []string{toolcontract.FileDeliverToolName}) {
 		t.Fatalf("expected delivery-only attachment evidence, got %v", contract.RequiredEvidenceTools)
 	}
 }
@@ -235,9 +236,9 @@ func TestOutcomeContractKeepsRequestedFileWhenSiteSkillOnlySelected(t *testing.T
 	contract := outcomeContractForRequest(
 		AgentRequest{
 			Prompt: "make the corporate document guide as a docx",
-			ToolSet: newTestToolSetWithDefinitions([]ToolDefinition{
-				{Name: "site.list", Namespace: "site", SideEffectClass: ToolSideEffectRead},
-				{Name: "site.serve", Namespace: "site", SideEffectClass: ToolSideEffectExternalPublish},
+			ToolSet: newTestToolSetWithDefinitions([]toolcontract.ToolDefinition{
+				{Name: "site.list", Namespace: "site", SideEffectClass: toolcontract.ToolSideEffectRead},
+				{Name: "site.serve", Namespace: "site", SideEffectClass: toolcontract.ToolSideEffectExternalPublish},
 			}),
 		},
 		IntakeDecision{Classification: IntakeClassificationBoundedTask, RequestedOutputFormats: []string{".docx"}},
@@ -276,28 +277,28 @@ func TestResolvedInputDischargesAskInputContract(t *testing.T) {
 		},
 	}
 	contract := OutcomeContract{
-		RequiredEvidenceTools: []string{AskInputToolName, "task.update"},
-		RequiredEvidenceAnyOf: [][]string{{AskInputToolName, "task.update"}},
-		SelectedEvidenceHints: []string{AskInputToolName},
+		RequiredEvidenceTools: []string{toolcontract.AskInputToolName, "task.update"},
+		RequiredEvidenceAnyOf: [][]string{{toolcontract.AskInputToolName, "task.update"}},
+		SelectedEvidenceHints: []string{toolcontract.AskInputToolName},
 		ExpectedResults: []ExpectedResult{{
 			ID:              "choice",
 			Type:            ExpectedResultTypeMessage,
 			Description:     "user choice",
 			Required:        true,
-			AcceptanceHints: []string{AskInputToolName},
+			AcceptanceHints: []string{toolcontract.AskInputToolName},
 		}, {
 			ID:              "choice-update",
 			Type:            ExpectedResultTypeMessage,
 			Description:     "user choice applied",
 			Required:        true,
-			AcceptanceHints: []string{AskInputToolName, "task.update"},
+			AcceptanceHints: []string{toolcontract.AskInputToolName, "task.update"},
 		}},
 	}
 
 	resolvedContract := dischargeResolvedInputContract(request, TurnDecision{Route: TurnRouteContinueTask}, contract)
 
-	if stringSliceContains(resolvedContract.RequiredEvidenceTools, AskInputToolName) ||
-		stringSliceContains(resolvedContract.SelectedEvidenceHints, AskInputToolName) {
+	if stringSliceContains(resolvedContract.RequiredEvidenceTools, toolcontract.AskInputToolName) ||
+		stringSliceContains(resolvedContract.SelectedEvidenceHints, toolcontract.AskInputToolName) {
 		t.Fatalf("expected resolved ask.input requirements to be discharged, got %+v", resolvedContract)
 	}
 	if len(resolvedContract.ExpectedResults) != 1 ||
@@ -312,13 +313,13 @@ func TestResolvedInputDischargesAskInputContract(t *testing.T) {
 
 func TestUnresolvedInputKeepsAskInputContract(t *testing.T) {
 	contract := OutcomeContract{
-		RequiredEvidenceTools: []string{AskInputToolName},
+		RequiredEvidenceTools: []string{toolcontract.AskInputToolName},
 		ExpectedResults: []ExpectedResult{{
 			ID:              "choice",
 			Type:            ExpectedResultTypeMessage,
 			Description:     "user choice",
 			Required:        true,
-			AcceptanceHints: []string{AskInputToolName},
+			AcceptanceHints: []string{toolcontract.AskInputToolName},
 		}},
 	}
 	request := AgentRequest{
@@ -331,13 +332,13 @@ func TestUnresolvedInputKeepsAskInputContract(t *testing.T) {
 
 	for _, turnDecision := range []TurnDecision{{Route: TurnRouteStartTask}, {Route: TurnRouteAnswerQuestion}} {
 		unresolvedContract := dischargeResolvedInputContract(request, turnDecision, contract)
-		if !stringSliceContains(unresolvedContract.RequiredEvidenceTools, AskInputToolName) || len(unresolvedContract.ExpectedResults) != 1 {
+		if !stringSliceContains(unresolvedContract.RequiredEvidenceTools, toolcontract.AskInputToolName) || len(unresolvedContract.ExpectedResults) != 1 {
 			t.Fatalf("expected route %s to preserve ask.input contract, got %+v", turnDecision.Route, unresolvedContract)
 		}
 	}
 	request.ExistingTaskRunID = "task-2"
 	mismatchedContract := dischargeResolvedInputContract(request, TurnDecision{Route: TurnRouteContinueTask}, contract)
-	if !stringSliceContains(mismatchedContract.RequiredEvidenceTools, AskInputToolName) {
+	if !stringSliceContains(mismatchedContract.RequiredEvidenceTools, toolcontract.AskInputToolName) {
 		t.Fatal("expected another task's continuation not to discharge ask.input")
 	}
 }
@@ -351,10 +352,10 @@ func TestOutcomeContractDoesNotTreatReplyInstructionAsExternalSend(t *testing.T)
 		},
 		RequiredEvidenceTools: []string{"message.send", "site.list", "site.serve"},
 	}
-	toolSet := newTestToolSetWithDefinitions([]ToolDefinition{
-		{Name: "message.send", Namespace: "message", SideEffectClass: ToolSideEffectExternalSend},
-		{Name: "site.list", Namespace: "site", SideEffectClass: ToolSideEffectRead},
-		{Name: "site.serve", Namespace: "site", SideEffectClass: ToolSideEffectExternalPublish},
+	toolSet := newTestToolSetWithDefinitions([]toolcontract.ToolDefinition{
+		{Name: "message.send", Namespace: "message", SideEffectClass: toolcontract.ToolSideEffectExternalSend},
+		{Name: "site.list", Namespace: "site", SideEffectClass: toolcontract.ToolSideEffectRead},
+		{Name: "site.serve", Namespace: "site", SideEffectClass: toolcontract.ToolSideEffectExternalPublish},
 	})
 
 	contract := outcomeContractForRequest(
@@ -461,10 +462,10 @@ func TestOutcomeContractRequiresSendEvidenceForExternalSendPlan(t *testing.T) {
 	}
 	intakeDecision := IntakeDecision{Classification: IntakeClassificationBoundedTask, TaskShape: TaskShapeMaintenanceTask}
 
-	toolSet := newTestToolSetWithDefinitions([]ToolDefinition{{
+	toolSet := newTestToolSetWithDefinitions([]toolcontract.ToolDefinition{{
 		Name:            "message.send",
 		Namespace:       "message",
-		SideEffectClass: ToolSideEffectExternalSend,
+		SideEffectClass: toolcontract.ToolSideEffectExternalSend,
 	}})
 	contract := outcomeContractForRequest(AgentRequest{Prompt: "send Dana a DM saying test", ToolSet: toolSet}, intakeDecision, instructionBundle, ExecutionPlan{ExternalSend: true, ThirdPartyExternalSend: true}, true, nil)
 
@@ -474,10 +475,10 @@ func TestOutcomeContractRequiresSendEvidenceForExternalSendPlan(t *testing.T) {
 }
 
 func TestOutcomeContractIgnoresIntakeSendEvidenceForCurrentConversationReply(t *testing.T) {
-	toolSet := newTestToolSetWithDefinitions([]ToolDefinition{{
+	toolSet := newTestToolSetWithDefinitions([]toolcontract.ToolDefinition{{
 		Name:            "message.send",
 		Namespace:       "message",
-		SideEffectClass: ToolSideEffectExternalSend,
+		SideEffectClass: toolcontract.ToolSideEffectExternalSend,
 	}})
 	contract := outcomeContractForRequest(
 		AgentRequest{
@@ -559,8 +560,8 @@ func TestOutcomeContractDoesNotDeriveEvidenceFromPromptAndAvailableTools(t *test
 }
 
 func TestOutcomeContractDemotesIntakeInitialToolsToEvidenceHints(t *testing.T) {
-	toolSet := newTestToolSetWithDefinitions([]ToolDefinition{
-		{Name: "memory.remember", Namespace: "memory", SideEffectClass: ToolSideEffectStateChange},
+	toolSet := newTestToolSetWithDefinitions([]toolcontract.ToolDefinition{
+		{Name: "memory.remember", Namespace: "memory", SideEffectClass: toolcontract.ToolSideEffectStateChange},
 	})
 	contract := outcomeContractForRequest(
 		AgentRequest{
@@ -590,10 +591,10 @@ func TestOutcomeContractDemotesIntakeInitialToolsToEvidenceHints(t *testing.T) {
 }
 
 func TestOutcomeContractDerivesSideEffectEvidenceAnyOfGroupForMaintenanceTask(t *testing.T) {
-	toolSet := newTestToolSetWithDefinitions([]ToolDefinition{
-		{Name: "task.add", Namespace: "task", SideEffectClass: ToolSideEffectStateChange},
-		{Name: "task.list", Namespace: "task", SideEffectClass: ToolSideEffectRead},
-		{Name: "task.update", Namespace: "task", SideEffectClass: ToolSideEffectStateChange},
+	toolSet := newTestToolSetWithDefinitions([]toolcontract.ToolDefinition{
+		{Name: "task.add", Namespace: "task", SideEffectClass: toolcontract.ToolSideEffectStateChange},
+		{Name: "task.list", Namespace: "task", SideEffectClass: toolcontract.ToolSideEffectRead},
+		{Name: "task.update", Namespace: "task", SideEffectClass: toolcontract.ToolSideEffectStateChange},
 	})
 	instructionBundle := InstructionBundle{
 		Skills:                []SkillInstruction{{Name: "internkim-flow"}},
@@ -627,14 +628,14 @@ func TestOutcomeContractDerivesSideEffectEvidenceAnyOfGroupForMaintenanceTask(t 
 }
 
 func TestOutcomeReferenceToolSetHidesSendAndSiteToolsForDocumentGoal(t *testing.T) {
-	toolSet := newTestToolSetWithDefinitions([]ToolDefinition{
-		{Name: "web.fetch", Namespace: "web", SideEffectClass: ToolSideEffectRead},
-		{Name: "file.write", Namespace: "file", SideEffectClass: ToolSideEffectWorkspaceWrite},
-		{Name: "file.deliver", Namespace: "file", SideEffectClass: ToolSideEffectExternalWrite},
-		{Name: "site.serve", Namespace: "site", SideEffectClass: ToolSideEffectExternalWrite},
-		{Name: "site.serve", Namespace: "site", SideEffectClass: ToolSideEffectExternalPublish},
-		{Name: "message.send", Namespace: "message", SideEffectClass: ToolSideEffectExternalSend},
-		{Name: "mail.message.send", Namespace: "mail", SideEffectClass: ToolSideEffectExternalSend},
+	toolSet := newTestToolSetWithDefinitions([]toolcontract.ToolDefinition{
+		{Name: "web.fetch", Namespace: "web", SideEffectClass: toolcontract.ToolSideEffectRead},
+		{Name: "file.write", Namespace: "file", SideEffectClass: toolcontract.ToolSideEffectWorkspaceWrite},
+		{Name: "file.deliver", Namespace: "file", SideEffectClass: toolcontract.ToolSideEffectExternalWrite},
+		{Name: "site.serve", Namespace: "site", SideEffectClass: toolcontract.ToolSideEffectExternalWrite},
+		{Name: "site.serve", Namespace: "site", SideEffectClass: toolcontract.ToolSideEffectExternalPublish},
+		{Name: "message.send", Namespace: "message", SideEffectClass: toolcontract.ToolSideEffectExternalSend},
+		{Name: "mail.message.send", Namespace: "mail", SideEffectClass: toolcontract.ToolSideEffectExternalSend},
 	})
 	contract := OutcomeContract{
 		SelectedEvidenceHints: []string{"site.serve", "site.serve", "message.send", "mail.message.send"},

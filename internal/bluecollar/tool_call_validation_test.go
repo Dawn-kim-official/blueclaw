@@ -3,6 +3,7 @@ package bluecollar
 import (
 	"context"
 	"encoding/json"
+	"github.com/Dawn-kim-official/blueclaw/internal/toolcontract"
 	"strings"
 	"testing"
 
@@ -16,7 +17,7 @@ func TestAgentTurnRunnerRecordsDeniedToolAsObservation(t *testing.T) {
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
 	toolRegistry := newTestToolSet([]string{"allowed"})
-	registerTestTool(toolRegistry, ToolDefinition{Name: "forbidden"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	registerTestTool(toolRegistry, toolcontract.ToolDefinition{Name: "forbidden"}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
 		return testToolSuccess("should not run"), nil
 	})
 
@@ -33,7 +34,7 @@ func TestAgentTurnRunnerRecordsDeniedToolAsObservation(t *testing.T) {
 	if result.FinishMessage != "recovered" {
 		t.Fatalf("expected recovered reply, got %q", result.FinishMessage)
 	}
-	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "tool.forbidden.result", FailureCodes.PolicyBlocked.String()) {
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "tool.forbidden.result", toolcontract.FailureCodes.PolicyBlocked.String()) {
 		t.Fatal("expected denied tool result event")
 	}
 }
@@ -46,7 +47,7 @@ func TestAgentTurnRunnerRejectsMalformedInputBeforeApproval(t *testing.T) {
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 3})
 	toolRegistry := newTestCapabilityToolSet([]string{"site.unserve"})
 	handlerCallCount := 0
-	registerTestTool(toolRegistry, ToolDefinition{
+	registerTestTool(toolRegistry, toolcontract.ToolDefinition{
 		Name:             "site.unserve",
 		RequiresApproval: true,
 		InputSchema: json.RawMessage(`{
@@ -55,7 +56,7 @@ func TestAgentTurnRunnerRejectsMalformedInputBeforeApproval(t *testing.T) {
 			"required":["siteID"],
 			"additionalProperties":false
 		}`),
-	}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
 		handlerCallCount++
 		return testToolSuccess("deleted"), nil
 	})
@@ -87,10 +88,10 @@ func TestAgentTurnRunnerRejectsMalformedInputBeforeApproval(t *testing.T) {
 
 func TestValidateTerminalToolInputRejectsRegisteredToolNameAsCommand(t *testing.T) {
 	toolRegistry := newTestToolSet([]string{"terminal.run"})
-	registerTestTool(toolRegistry, ToolDefinition{Name: "site.serve"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	registerTestTool(toolRegistry, toolcontract.ToolDefinition{Name: "site.serve"}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
 		return testToolSuccess("created"), nil
 	})
-	input := MarshalToolInput(map[string]any{"command": "site.serve --slug demo"})
+	input := toolcontract.MarshalToolInput(map[string]any{"command": "site.serve --slug demo"})
 
 	errorValue := validateTerminalToolInput("terminal.run", input, toolRegistry)
 
@@ -108,7 +109,7 @@ func TestAgentTurnRunnerRejectsSecondDMSendAfterSuccess(t *testing.T) {
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 5})
 	toolRegistry := newTestCapabilityToolSet([]string{"message.send"})
 	sendCallCount := 0
-	registerTestTool(toolRegistry, testExternalSendToolDefinition("message.send"), func(context.Context, ToolInvocation) (ToolResult, error) {
+	registerTestTool(toolRegistry, testExternalSendToolDefinition("message.send"), func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
 		sendCallCount++
 		return testToolSuccess("sent"), nil
 	})
@@ -146,7 +147,7 @@ func TestAgentTurnRunnerAllowsSendToDifferentRecipients(t *testing.T) {
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 5})
 	toolRegistry := newTestCapabilityToolSet([]string{"message.send"})
 	sendCallCount := 0
-	registerTestTool(toolRegistry, testExternalSendToolDefinition("message.send"), func(context.Context, ToolInvocation) (ToolResult, error) {
+	registerTestTool(toolRegistry, testExternalSendToolDefinition("message.send"), func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
 		sendCallCount++
 		return testToolSuccess("sent"), nil
 	})
@@ -179,9 +180,9 @@ func TestAgentTurnRunnerRejectsMessageSendWithoutExternalSendIntent(t *testing.T
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 3})
 	toolRegistry := newTestCapabilityToolSet([]string{"message.send"})
-	registerTestTool(toolRegistry, testExternalSendToolDefinition("message.send"), func(context.Context, ToolInvocation) (ToolResult, error) {
+	registerTestTool(toolRegistry, testExternalSendToolDefinition("message.send"), func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
 		t.Fatal("message.send must not run without external send intent")
-		return ToolResult{}, nil
+		return toolcontract.ToolResult{}, nil
 	})
 
 	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
@@ -210,7 +211,7 @@ func TestAgentTurnRunnerAllowsCurrentThreadSendWithoutExternalSendContract(t *te
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 3})
 	toolRegistry := newTestCapabilityToolSet([]string{"message.send"})
 	sendCallCount := 0
-	registerTestTool(toolRegistry, testExternalSendToolDefinition("message.send"), func(context.Context, ToolInvocation) (ToolResult, error) {
+	registerTestTool(toolRegistry, testExternalSendToolDefinition("message.send"), func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
 		sendCallCount++
 		return testToolSuccess("sent"), nil
 	})
@@ -240,9 +241,9 @@ func TestAgentTurnRunnerRejectsChannelSendWithoutExternalSendIntent(t *testing.T
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 3})
 	toolRegistry := newTestCapabilityToolSet([]string{"message.send"})
-	registerTestTool(toolRegistry, testExternalSendToolDefinition("message.send"), func(context.Context, ToolInvocation) (ToolResult, error) {
+	registerTestTool(toolRegistry, testExternalSendToolDefinition("message.send"), func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
 		t.Fatal("channel message.send must not run without external send intent")
-		return ToolResult{}, nil
+		return toolcontract.ToolResult{}, nil
 	})
 
 	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
@@ -267,7 +268,7 @@ func TestAgentTurnRunnerRejectsRepeatedFailedFingerprint(t *testing.T) {
 		`{"action":"continue","toolName":"message.context","toolInput":{}}`,
 		`{"action":"continue","toolName":"message.context","toolInput":{}}`,
 		`{"action":"continue","toolName":"message.send","toolInput":{"targetType":"directMessage","personHint":"Grace","message":"please take a look"}}`,
-		failureReportDocument("mattermost still unavailable", "message.send", "Grace", FailureCodes.Unavailable.String(), "mattermost_lookup", "temporary user lookup timeout"),
+		failureReportDocument("mattermost still unavailable", "message.send", "Grace", toolcontract.FailureCodes.Unavailable.String(), "mattermost_lookup", "temporary user lookup timeout"),
 		recoveryDecisionDocument("check Mattermost availability before retrying", "report the failed stage and code"),
 	}, textResponses: []string{
 		"mattermost_lookup/unavailable stage kept failing to query Mattermost, so the DM was never sent.",
@@ -276,12 +277,12 @@ func TestAgentTurnRunnerRejectsRepeatedFailedFingerprint(t *testing.T) {
 	toolRegistry := newTestCapabilityToolSet([]string{"message.send", "message.context"})
 	callCount := 0
 	sendInputs := []string{}
-	registerTestTool(toolRegistry, testExternalSendToolDefinition("message.send"), func(_ context.Context, invocation ToolInvocation) (ToolResult, error) {
+	registerTestTool(toolRegistry, testExternalSendToolDefinition("message.send"), func(_ context.Context, invocation toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
 		callCount++
 		sendInputs = append(sendInputs, string(invocation.Input))
 		return structuredFailureToolResult("temporary user lookup timeout", "temporary user lookup timeout", "mattermost_unavailable", "mattermost_lookup", true, true), nil
 	})
-	registerTestTool(toolRegistry, ToolDefinition{Name: "message.context"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	registerTestTool(toolRegistry, toolcontract.ToolDefinition{Name: "message.context"}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
 		return structuredFailureToolResult("mattermost still unavailable", "mattermost still unavailable", "mattermost_unavailable", "mattermost_lookup", true, true), nil
 	})
 
@@ -313,7 +314,7 @@ func TestAgentTurnRunnerRejectsUnsafeRepeatedExternalSend(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		`{"action":"continue","toolName":"message.send","toolInput":{"targetType":"directMessage","personHint":"Dana","message":"please take a look"}}`,
 		`{"action":"continue","toolName":"message.send","toolInput":{"targetType":"directMessage","personHint":"Dana","message":"please take a look"}}`,
-		failureReportDocument("send failed", "message.send", "Dana", FailureCodes.OperationFailed.String(), "message_send", "Mattermost returned 503 after post create"),
+		failureReportDocument("send failed", "message.send", "Dana", toolcontract.FailureCodes.OperationFailed.String(), "message_send", "Mattermost returned 503 after post create"),
 		recoveryDecisionDocument("inspect delivery state before retrying", "report the failed stage and avoid duplicate send claims"),
 	}, textResponses: []string{
 		"message_send/operation_failed stage failed to send. The same message was not sent again because of the duplicate delivery risk.",
@@ -321,7 +322,7 @@ func TestAgentTurnRunnerRejectsUnsafeRepeatedExternalSend(t *testing.T) {
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{RecoveryAttemptLimit: 2, RecoveryBudget: exhaustedRecoveryBudgetForTest()})
 	toolRegistry := newTestCapabilityToolSet([]string{"message.send", "message.context"})
 	callCount := 0
-	registerTestTool(toolRegistry, testExternalSendToolDefinition("message.send"), func(context.Context, ToolInvocation) (ToolResult, error) {
+	registerTestTool(toolRegistry, testExternalSendToolDefinition("message.send"), func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
 		callCount++
 		return structuredFailureToolResult("Mattermost returned 503 after post create", "Mattermost returned 503 after post create", "send_failed", "message_send", true, false), nil
 	})
@@ -357,9 +358,9 @@ func TestAgentTurnRunnerRejectsUnavailableToolBeforeInvoke(t *testing.T) {
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
 	toolRegistry := newTestToolSet([]string{"schedule.list"})
-	registerTestTool(toolRegistry, ToolDefinition{Name: "schedule.list"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	registerTestTool(toolRegistry, toolcontract.ToolDefinition{Name: "schedule.list"}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
 		t.Fatal("unexpected schedule.list invocation")
-		return ToolResult{}, nil
+		return toolcontract.ToolResult{}, nil
 	})
 
 	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
@@ -378,7 +379,7 @@ func TestAgentTurnRunnerRejectsUnavailableToolBeforeInvoke(t *testing.T) {
 	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "tool.calculation_tool.requested", "calculation_tool") {
 		t.Fatal("expected unavailable tool request event")
 	}
-	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "tool.calculation_tool.result", FailureCodes.PolicyBlocked.String()) {
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "tool.calculation_tool.result", toolcontract.FailureCodes.PolicyBlocked.String()) {
 		t.Fatal("expected unavailable tool result event")
 	}
 }
@@ -392,10 +393,10 @@ func TestAgentTurnRunnerRejectsEmptyBrowserPressAfterFill(t *testing.T) {
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
 	pressCallCount := 0
 	toolRegistry := newTestCapabilityToolSet([]string{"browser.fill", "browser.press"})
-	registerTestTool(toolRegistry, ToolDefinition{Name: "browser.fill"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	registerTestTool(toolRegistry, toolcontract.ToolDefinition{Name: "browser.fill"}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
 		return testToolSuccess(`{"ok":true}`), nil
 	})
-	registerTestTool(toolRegistry, ToolDefinition{Name: "browser.press"}, func(_ context.Context, toolInvocation ToolInvocation) (ToolResult, error) {
+	registerTestTool(toolRegistry, toolcontract.ToolDefinition{Name: "browser.press"}, func(_ context.Context, toolInvocation toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
 		pressCallCount++
 		return testToolSuccess(`{"ok":true}`), nil
 	})
@@ -430,10 +431,10 @@ func TestAgentTurnRunnerRejectsBrowserFillWithoutRequiredInput(t *testing.T) {
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
 	fillCallCount := 0
 	toolRegistry := newTestCapabilityToolSet([]string{"browser.snapshot", "browser.fill"})
-	registerTestTool(toolRegistry, ToolDefinition{Name: "browser.snapshot"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	registerTestTool(toolRegistry, toolcontract.ToolDefinition{Name: "browser.snapshot"}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
 		return testToolSuccess(`{"snapshotText":"- textbox \"Google search\" [ref=e5]"}`), nil
 	})
-	registerTestTool(toolRegistry, ToolDefinition{Name: "browser.fill"}, func(_ context.Context, toolInvocation ToolInvocation) (ToolResult, error) {
+	registerTestTool(toolRegistry, toolcontract.ToolDefinition{Name: "browser.fill"}, func(_ context.Context, toolInvocation toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
 		fillCallCount++
 		return testToolSuccess(`{"ok":true}`), nil
 	})
@@ -468,7 +469,7 @@ func TestAgentTurnRunnerRejectsEmptyGoogleNavigate(t *testing.T) {
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
 	navigateCallCount := 0
 	toolRegistry := newTestCapabilityToolSet([]string{"browser.open"})
-	registerTestTool(toolRegistry, ToolDefinition{Name: "browser.open"}, func(_ context.Context, toolInvocation ToolInvocation) (ToolResult, error) {
+	registerTestTool(toolRegistry, toolcontract.ToolDefinition{Name: "browser.open"}, func(_ context.Context, toolInvocation toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
 		navigateCallCount++
 		return testToolSuccess(`{"url":"https://www.google.com"}`), nil
 	})
@@ -505,7 +506,7 @@ func TestAgentTurnRunnerStopsRepeatedMalformedToolInputByLimit(t *testing.T) {
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 40})
 	fillCallCount := 0
 	toolRegistry := newTestToolSet([]string{"browser.fill"})
-	registerTestTool(toolRegistry, ToolDefinition{Name: "browser.fill"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	registerTestTool(toolRegistry, toolcontract.ToolDefinition{Name: "browser.fill"}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
 		fillCallCount++
 		return testToolSuccess(`{"ok":true}`), nil
 	})
@@ -540,13 +541,13 @@ func TestAgentTurnRunnerDoesNotChargeMalformedInputToToolEffort(t *testing.T) {
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 4, MaxToolCallCount: 2})
 	toolRegistry := newTestToolSet([]string{"browser.fill", "alpha", "beta"})
-	registerTestTool(toolRegistry, ToolDefinition{Name: "browser.fill"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	registerTestTool(toolRegistry, toolcontract.ToolDefinition{Name: "browser.fill"}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
 		return testToolSuccess(`{"ok":true}`), nil
 	})
-	registerTestTool(toolRegistry, ToolDefinition{Name: "alpha"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	registerTestTool(toolRegistry, toolcontract.ToolDefinition{Name: "alpha"}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
 		return testToolSuccess("alpha result"), nil
 	})
-	registerTestTool(toolRegistry, ToolDefinition{Name: "beta"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	registerTestTool(toolRegistry, toolcontract.ToolDefinition{Name: "beta"}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
 		return testToolSuccess("beta result"), nil
 	})
 
@@ -577,7 +578,7 @@ func TestRepeatedSuccessfulCompletionCandidateUsesPersistedObservation(t *testin
 		Action:        "continue",
 		Tool:          "task.add",
 		ToolInputKey:  toolInputKey,
-		Output:        ToolOutput{Content: `{"taskID":"a1"}`},
+		Output:        toolcontract.ToolOutput{Content: `{"taskID":"a1"}`},
 	}}}
 
 	observation, isFound := repeatedSuccessfulCompletionCandidate(state, turnActionDocument{
@@ -602,7 +603,7 @@ func TestRepeatedSuccessfulReadIsNotACompletionCandidateWhenContractExpectsMutat
 		Action:        "continue",
 		Tool:          "task.list",
 		ToolInputKey:  toolInputKey,
-		Output:        ToolOutput{Content: `{"tasks":[]}`},
+		Output:        toolcontract.ToolOutput{Content: `{"tasks":[]}`},
 	}}}
 
 	_, isFound := repeatedSuccessfulCompletionCandidate(state, turnActionDocument{
@@ -624,7 +625,7 @@ func TestAgentTurnRunnerRejectsRepeatedSuccessfulToolCall(t *testing.T) {
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 4, MaxToolCallCount: 4})
 	toolCallCount := 0
 	toolRegistry := newTestToolSet([]string{"terminal.run"})
-	registerTestTool(toolRegistry, ToolDefinition{Name: "terminal.run"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	registerTestTool(toolRegistry, toolcontract.ToolDefinition{Name: "terminal.run"}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
 		toolCallCount++
 		return testToolSuccess(`{"exitCode":0,"stdout":"@marp-team/marp-cli v4.3.1\n","stderr":"","timedOut":false}`), nil
 	})
@@ -658,7 +659,7 @@ func TestRepeatedFileReadObservationReturnsCachedCoveredRange(t *testing.T) {
 		ObservationID: "obs-001",
 		Action:        "continue",
 		Tool:          "file.read",
-		Output:        ToolOutput{Content: `{"path":"home/sites/site-1/draft/app/src/prototype-data.ts","content":"export const PROFILE = {}","startLine":1,"endLine":162,"totalLines":162,"sizeBytes":1000}`},
+		Output:        toolcontract.ToolOutput{Content: `{"path":"home/sites/site-1/draft/app/src/prototype-data.ts","content":"export const PROFILE = {}","startLine":1,"endLine":162,"totalLines":162,"sizeBytes":1000}`},
 	}}
 	actionDocument := turnActionDocument{
 		ToolName:  "file.read",
@@ -683,7 +684,7 @@ func TestRepeatedFileReadObservationReturnsCachedOverlappingRange(t *testing.T) 
 		ObservationID: "obs-001",
 		Action:        "continue",
 		Tool:          "file.read",
-		Output:        ToolOutput{Content: `{"path":"home/sites/site-1/draft/app/src/prototype-data.ts","content":"export const PROFILE = {}","startLine":1,"endLine":120,"totalLines":180,"sizeBytes":1000}`},
+		Output:        toolcontract.ToolOutput{Content: `{"path":"home/sites/site-1/draft/app/src/prototype-data.ts","content":"export const PROFILE = {}","startLine":1,"endLine":120,"totalLines":180,"sizeBytes":1000}`},
 	}}
 	actionDocument := turnActionDocument{
 		ToolName:  "file.read",
@@ -709,18 +710,18 @@ func TestRepeatedFileReadObservationIgnoresCacheAfterFileWrite(t *testing.T) {
 		{
 			ObservationID: "obs-001",
 			Action:        "continue",
-			Tool:          FileReadToolName,
-			Output:        ToolOutput{Content: `{"path":"` + path + `","content":"old","startLine":1,"endLine":20,"totalLines":20,"sizeBytes":1000}`},
+			Tool:          toolcontract.FileReadToolName,
+			Output:        toolcontract.ToolOutput{Content: `{"path":"` + path + `","content":"old","startLine":1,"endLine":20,"totalLines":20,"sizeBytes":1000}`},
 		},
 		{
 			ObservationID: "obs-002",
 			Action:        "continue",
-			Tool:          FileWriteToolName,
-			Output:        ToolOutput{Content: `{"path":"` + path + `","sizeBytes":1200}`},
+			Tool:          toolcontract.FileWriteToolName,
+			Output:        toolcontract.ToolOutput{Content: `{"path":"` + path + `","sizeBytes":1200}`},
 		},
 	}
 	actionDocument := turnActionDocument{
-		ToolName:  FileReadToolName,
+		ToolName:  toolcontract.FileReadToolName,
 		ToolInput: json.RawMessage(`{"path":"` + path + `","startLine":1,"lineCount":20}`),
 	}
 
@@ -737,18 +738,18 @@ func TestRepeatedFileReadObservationIgnoresCacheAfterFileEdit(t *testing.T) {
 		{
 			ObservationID: "obs-001",
 			Action:        "continue",
-			Tool:          FileReadToolName,
-			Output:        ToolOutput{Content: `{"path":"` + path + `","content":"TODO(design)","startLine":1,"endLine":20,"totalLines":20,"sizeBytes":1000}`},
+			Tool:          toolcontract.FileReadToolName,
+			Output:        toolcontract.ToolOutput{Content: `{"path":"` + path + `","content":"TODO(design)","startLine":1,"endLine":20,"totalLines":20,"sizeBytes":1000}`},
 		},
 		{
 			ObservationID: "obs-002",
 			Action:        "continue",
-			Tool:          FileEditToolName,
-			Output:        ToolOutput{Content: `{"editCount":1,"editedFiles":["` + path + `"]}`},
+			Tool:          toolcontract.FileEditToolName,
+			Output:        toolcontract.ToolOutput{Content: `{"editCount":1,"editedFiles":["` + path + `"]}`},
 		},
 	}
 	actionDocument := turnActionDocument{
-		ToolName:  FileReadToolName,
+		ToolName:  toolcontract.FileReadToolName,
 		ToolInput: json.RawMessage(`{"path":"` + path + `","startLine":1,"lineCount":20}`),
 	}
 
@@ -764,18 +765,18 @@ func TestRepeatedFileReadObservationMatchesMutationPathAcrossTildeSpelling(t *te
 		{
 			ObservationID: "obs-001",
 			Action:        "continue",
-			Tool:          FileReadToolName,
-			Output:        ToolOutput{Content: `{"path":"~/documents/report.md","content":"old","startLine":1,"endLine":20,"totalLines":20,"sizeBytes":1000}`},
+			Tool:          toolcontract.FileReadToolName,
+			Output:        toolcontract.ToolOutput{Content: `{"path":"~/documents/report.md","content":"old","startLine":1,"endLine":20,"totalLines":20,"sizeBytes":1000}`},
 		},
 		{
 			ObservationID: "obs-002",
 			Action:        "continue",
-			Tool:          FileWriteToolName,
-			Output:        ToolOutput{Content: `{"path":"documents/report.md","sizeBytes":1200}`},
+			Tool:          toolcontract.FileWriteToolName,
+			Output:        toolcontract.ToolOutput{Content: `{"path":"documents/report.md","sizeBytes":1200}`},
 		},
 	}
 	actionDocument := turnActionDocument{
-		ToolName:  FileReadToolName,
+		ToolName:  toolcontract.FileReadToolName,
 		ToolInput: json.RawMessage(`{"path":"~/documents/report.md","startLine":1,"lineCount":20}`),
 	}
 
@@ -795,12 +796,12 @@ func TestAgentTurnRunnerRejectsRepeatedScheduleCreateWithoutExecutingAgain(t *te
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 4, MaxToolCallCount: 4})
 	toolCallCount := 0
 	toolRegistry := newTestCapabilityToolSet([]string{"schedule.create"})
-	registerTestTool(toolRegistry, ToolDefinition{
+	registerTestTool(toolRegistry, toolcontract.ToolDefinition{
 		Name:            "schedule.create",
 		Namespace:       "schedule",
-		SideEffectClass: ToolSideEffectStateChange,
-		Completion:      ToolCompletion{Mode: ToolCompletionObservation},
-	}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		SideEffectClass: toolcontract.ToolSideEffectStateChange,
+		Completion:      toolcontract.ToolCompletion{Mode: toolcontract.ToolCompletionObservation},
+	}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
 		toolCallCount++
 		return testToolSuccess(`{"taskScheduleID":"schedule-1","taskInstruction":"send \"sorry\" in the current conversation.","kind":"interval","intervalSecond":60,"maxRunCount":10}`), nil
 	})

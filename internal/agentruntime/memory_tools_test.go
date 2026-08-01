@@ -4,11 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/Dawn-kim-official/blueclaw/internal/toolcontract"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/bluecollar"
 	"github.com/Dawn-kim-official/blueclaw/internal/memory"
 	"github.com/Dawn-kim-official/blueclaw/internal/policy"
 )
@@ -27,9 +27,9 @@ func TestMemoryRememberToolEnqueuesPersonMemory(t *testing.T) {
 		MemoryNamespaces:  []memory.MemoryNamespace{memory.UserNamespace("person-1")},
 	})
 
-	result, errorValue := toolRegistry.Invoke(context.Background(), bluecollar.ToolInvocation{
+	result, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
 		ToolName: "memory.remember",
-		Input:    bluecollar.MarshalToolInput(map[string]string{"content": "Call the user master."}),
+		Input:    toolcontract.MarshalToolInput(map[string]string{"content": "Call the user master."}),
 	})
 
 	if errorValue != nil {
@@ -64,9 +64,9 @@ func TestMemoryRememberToolLeavesMeaningToTheModel(t *testing.T) {
 		MemoryNamespaces:  []memory.MemoryNamespace{memory.UserNamespace("person-1")},
 	})
 
-	result, errorValue := toolRegistry.Invoke(context.Background(), bluecollar.ToolInvocation{
+	result, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
 		ToolName: "memory.remember",
-		Input:    bluecollar.MarshalToolInput(map[string]string{"content": "thanks"}),
+		Input:    toolcontract.MarshalToolInput(map[string]string{"content": "thanks"}),
 	})
 
 	if errorValue != nil {
@@ -97,9 +97,9 @@ func TestMemoryRememberToolRejectsInvalidBoundaryInput(t *testing.T) {
 		json.RawMessage(`{}`),
 		json.RawMessage(`{"content":"   "}`),
 		json.RawMessage(`{"content":"durable fact","reason":"model judgment"}`),
-		bluecollar.MarshalToolInput(map[string]string{"content": strings.Repeat("a", memory.RememberContentRuneLimit+1)}),
+		toolcontract.MarshalToolInput(map[string]string{"content": strings.Repeat("a", memory.RememberContentRuneLimit+1)}),
 	} {
-		result, errorValue := toolRegistry.Invoke(context.Background(), bluecollar.ToolInvocation{
+		result, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
 			ToolName: "memory.remember",
 			Input:    input,
 		})
@@ -121,15 +121,15 @@ func TestMemoryRememberToolReportsQueueFailure(t *testing.T) {
 		MemoryNamespaces:  []memory.MemoryNamespace{memory.UserNamespace("person-1")},
 	})
 
-	result, errorValue := toolRegistry.Invoke(context.Background(), bluecollar.ToolInvocation{
+	result, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
 		ToolName: "memory.remember",
-		Input:    bluecollar.MarshalToolInput(map[string]string{"content": "The requester prefers short reports."}),
+		Input:    toolcontract.MarshalToolInput(map[string]string{"content": "The requester prefers short reports."}),
 	})
 
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
-	if !result.Failed() || result.FailureCode() != bluecollar.FailureCodes.OperationFailed.String() {
+	if !result.Failed() || result.FailureCode() != toolcontract.FailureCodes.OperationFailed.String() {
 		t.Fatalf("expected queue failure to remain a failed observation, got %+v", result)
 	}
 	document := decodeMemoryUpdateAccepted(t, string(result.Output.Data))
@@ -151,9 +151,9 @@ func TestMemoryRememberToolRejectsInaccessibleActiveCircle(t *testing.T) {
 		MemoryNamespaces:  []memory.MemoryNamespace{memory.CircleNamespace("default", "staff")},
 	})
 
-	result, errorValue := toolRegistry.Invoke(context.Background(), bluecollar.ToolInvocation{
+	result, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
 		ToolName: "memory.remember",
-		Input:    bluecollar.MarshalToolInput(map[string]string{"content": "Shared circle fact."}),
+		Input:    toolcontract.MarshalToolInput(map[string]string{"content": "Shared circle fact."}),
 	})
 
 	if errorValue != nil {
@@ -180,9 +180,9 @@ func TestMemoryRememberToolEnqueuesCircleMemoryForActiveCircle(t *testing.T) {
 		MemoryNamespaces:  []memory.MemoryNamespace{memory.CircleNamespace("default", "hr-compensation")},
 	})
 
-	result, errorValue := toolRegistry.Invoke(context.Background(), bluecollar.ToolInvocation{
+	result, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
 		ToolName: "memory.remember",
-		Input:    bluecollar.MarshalToolInput(map[string]string{"content": "Compensation data belongs to HR."}),
+		Input:    toolcontract.MarshalToolInput(map[string]string{"content": "Compensation data belongs to HR."}),
 	})
 
 	if errorValue != nil {
@@ -212,9 +212,9 @@ func TestMemoryRememberToolRejectsMultipleActiveCircleCandidates(t *testing.T) {
 		PersonAccess:            policy.PersonAccess{Circles: []string{"staff", "admin", "hr-compensation"}},
 	})
 
-	result, errorValue := toolRegistry.Invoke(context.Background(), bluecollar.ToolInvocation{
+	result, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
 		ToolName: "memory.remember",
-		Input:    bluecollar.MarshalToolInput(map[string]string{"content": "Shared fact."}),
+		Input:    toolcontract.MarshalToolInput(map[string]string{"content": "Shared fact."}),
 	})
 
 	if errorValue != nil {
@@ -266,9 +266,9 @@ func TestMemorySearchUsesPersonAndActiveCircleNamespaces(t *testing.T) {
 		},
 	})
 
-	result, errorValue := toolRegistry.Invoke(context.Background(), bluecollar.ToolInvocation{
+	result, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
 		ToolName: "memory.search",
-		Input:    bluecollar.MarshalToolInput(map[string]string{"query": "memory"}),
+		Input:    toolcontract.MarshalToolInput(map[string]string{"query": "memory"}),
 	})
 
 	if errorValue != nil {
@@ -295,16 +295,16 @@ func TestMemorySearchRequiresExplicitNonblankQuery(t *testing.T) {
 
 	for _, input := range []json.RawMessage{
 		json.RawMessage(`{}`),
-		bluecollar.MarshalToolInput(map[string]string{"query": " \t "}),
+		toolcontract.MarshalToolInput(map[string]string{"query": " \t "}),
 	} {
-		result, errorValue := toolRegistry.Invoke(context.Background(), bluecollar.ToolInvocation{
+		result, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
 			ToolName: "memory.search",
 			Input:    input,
 		})
 		if errorValue != nil {
 			t.Fatal(errorValue)
 		}
-		if !result.Failed() || result.FailureCode() != bluecollar.FailureCodes.InvalidInput.String() {
+		if !result.Failed() || result.FailureCode() != toolcontract.FailureCodes.InvalidInput.String() {
 			t.Fatalf("expected explicit query rejection, got %+v", result)
 		}
 	}
@@ -336,9 +336,9 @@ func TestMemorySearchProjectsCompleteGraphResult(t *testing.T) {
 		MemoryNamespaces:  []memory.MemoryNamespace{namespace},
 	})
 
-	result, errorValue := toolRegistry.Invoke(context.Background(), bluecollar.ToolInvocation{
+	result, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
 		ToolName: "memory.search",
-		Input:    bluecollar.MarshalToolInput(map[string]string{"query": "reports"}),
+		Input:    toolcontract.MarshalToolInput(map[string]string{"query": "reports"}),
 	})
 
 	if errorValue != nil {
@@ -369,9 +369,9 @@ func TestMemorySearchNormalizesEmptyGraphResult(t *testing.T) {
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"memory.search"})
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
 
-	result, errorValue := toolRegistry.Invoke(context.Background(), bluecollar.ToolInvocation{
+	result, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
 		ToolName: "memory.search",
-		Input:    bluecollar.MarshalToolInput(map[string]string{"query": "missing"}),
+		Input:    toolcontract.MarshalToolInput(map[string]string{"query": "missing"}),
 	})
 
 	if errorValue != nil {
@@ -402,9 +402,9 @@ func TestMemorySearchReturnsRecoverableToolErrorWhenGraphitiFails(t *testing.T) 
 		MemoryNamespaces:  []memory.MemoryNamespace{memory.UserNamespace("person-1")},
 	})
 
-	result, errorValue := toolRegistry.Invoke(context.Background(), bluecollar.ToolInvocation{
+	result, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
 		ToolName: "memory.search",
-		Input:    bluecollar.MarshalToolInput(map[string]string{"query": "Graphiti release notes"}),
+		Input:    toolcontract.MarshalToolInput(map[string]string{"query": "Graphiti release notes"}),
 	})
 
 	if errorValue != nil {
@@ -413,7 +413,7 @@ func TestMemorySearchReturnsRecoverableToolErrorWhenGraphitiFails(t *testing.T) 
 	if !result.Failed() {
 		t.Fatalf("expected recoverable memory.search tool error, got %+v", result)
 	}
-	if result.FailureCode() != bluecollar.FailureCodes.Unavailable.String() || result.FailureStage() != "graphiti_search" {
+	if result.FailureCode() != toolcontract.FailureCodes.Unavailable.String() || result.FailureStage() != "graphiti_search" {
 		t.Fatalf("expected structured memory search failure, got %+v", result)
 	}
 	if strings.Contains(result.ContentText(), "web.search") {
@@ -450,9 +450,9 @@ func TestMemorySearchDegradedWithPinnedFallback(t *testing.T) {
 		MemoryNamespaces:  []memory.MemoryNamespace{memory.UserNamespace("person-1")},
 	})
 
-	result, errorValue := toolRegistry.Invoke(context.Background(), bluecollar.ToolInvocation{
+	result, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
 		ToolName: "memory.search",
-		Input:    bluecollar.MarshalToolInput(map[string]string{"query": "release notes"}),
+		Input:    toolcontract.MarshalToolInput(map[string]string{"query": "release notes"}),
 	})
 
 	if errorValue != nil {
@@ -490,9 +490,9 @@ func TestMemorySearchReturnsUnavailableWhenFallbackEmpty(t *testing.T) {
 		MemoryNamespaces:  []memory.MemoryNamespace{memory.UserNamespace("person-1")},
 	})
 
-	result, errorValue := toolRegistry.Invoke(context.Background(), bluecollar.ToolInvocation{
+	result, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
 		ToolName: "memory.search",
-		Input:    bluecollar.MarshalToolInput(map[string]string{"query": "missing"}),
+		Input:    toolcontract.MarshalToolInput(map[string]string{"query": "missing"}),
 	})
 
 	if errorValue != nil {
@@ -501,7 +501,7 @@ func TestMemorySearchReturnsUnavailableWhenFallbackEmpty(t *testing.T) {
 	if !result.Failed() {
 		t.Fatalf("expected unavailable memory.search result, got %s", result.ContentText())
 	}
-	if result.FailureCode() != bluecollar.FailureCodes.Unavailable.String() {
+	if result.FailureCode() != toolcontract.FailureCodes.Unavailable.String() {
 		t.Fatalf("expected unavailable failure code, got %+v", result.Failure)
 	}
 }
@@ -530,9 +530,9 @@ func TestMemorySearchPinnedFallbackScopesRequesterNamespace(t *testing.T) {
 		},
 	})
 
-	result, errorValue := toolRegistry.Invoke(context.Background(), bluecollar.ToolInvocation{
+	result, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
 		ToolName: "memory.search",
-		Input:    bluecollar.MarshalToolInput(map[string]string{"query": "plans"}),
+		Input:    toolcontract.MarshalToolInput(map[string]string{"query": "plans"}),
 	})
 
 	if errorValue != nil {
@@ -564,9 +564,9 @@ func TestMemoryRememberToolPersistsMarkdownBeforeQueue(t *testing.T) {
 		MemoryNamespaces:  []memory.MemoryNamespace{memory.UserNamespace("person-1")},
 	})
 
-	result, errorValue := toolRegistry.Invoke(context.Background(), bluecollar.ToolInvocation{
+	result, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
 		ToolName: "memory.remember",
-		Input:    bluecollar.MarshalToolInput(map[string]string{"content": "The user prefers markdown memory."}),
+		Input:    toolcontract.MarshalToolInput(map[string]string{"content": "The user prefers markdown memory."}),
 	})
 
 	if errorValue != nil {

@@ -3,6 +3,7 @@ package agentruntime
 import (
 	"context"
 	"encoding/json"
+	"github.com/Dawn-kim-official/blueclaw/internal/toolcontract"
 
 	"github.com/Dawn-kim-official/blueclaw/internal/bluecollar"
 )
@@ -59,18 +60,18 @@ type planUpdateToolOutput struct {
 	Steps []bluecollar.PlanStep `json:"steps"`
 }
 
-func (toolCatalogBuilder *ToolCatalogBuilder) registerPlanUpdateTool(toolRegistry *bluecollar.ToolSet) {
-	bluecollar.RegisterToolFunction(toolRegistry, bluecollar.ToolFunction[planUpdateToolInput, bluecollar.ToolResult]{
-		Definition: bluecollar.ToolDefinition{
-			Name:        bluecollar.PlanUpdateToolName,
+func (toolCatalogBuilder *ToolCatalogBuilder) registerPlanUpdateTool(toolRegistry *toolcontract.ToolSet) {
+	toolcontract.RegisterToolFunction(toolRegistry, toolcontract.ToolFunction[planUpdateToolInput, toolcontract.ToolResult]{
+		Definition: toolcontract.ToolDefinition{
+			Name:        toolcontract.PlanUpdateToolName,
 			Description: "Record or update your goal and step plan for this task. Send the FULL current list every time (it replaces the previous plan). Keep statuses current as you work; revising the plan is normal and never an error.",
 			InputSchema: planUpdateInputSchema,
 		},
-		Handler: func(_ context.Context, input planUpdateToolInput) (bluecollar.ToolResult, error) {
+		Handler: func(_ context.Context, input planUpdateToolInput) (toolcontract.ToolResult, error) {
 			goal, steps := bluecollar.NormalizePlan(input.Goal, input.Steps)
 			document := json.RawMessage(marshalToolResult(planUpdateToolOutput{Goal: goal, Steps: steps}))
-			return bluecollar.ToolSuccessData(string(document), document), nil
+			return toolcontract.ToolSuccessData(string(document), document), nil
 		},
-		Result: bluecollar.IdentityToolResult,
+		Result: toolcontract.IdentityToolResult,
 	})
 }

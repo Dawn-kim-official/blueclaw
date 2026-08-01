@@ -2,6 +2,7 @@ package bluecollar
 
 import (
 	"encoding/json"
+	"github.com/Dawn-kim-official/blueclaw/internal/toolcontract"
 	"path/filepath"
 	"strings"
 )
@@ -23,16 +24,16 @@ type FailureDebt struct {
 }
 
 type RecoveryPacket struct {
-	WhatFailed          string               `json:"whatFailed"`
-	WhyLikely           string               `json:"whyLikely,omitempty"`
-	MustDoNext          []string             `json:"mustDoNext,omitempty"`
-	AllowedTools        []string             `json:"allowedTools,omitempty"`
-	ForbiddenRepeats    []string             `json:"forbiddenRepeats,omitempty"`
-	EvidenceNeeded      []string             `json:"evidenceNeeded,omitempty"`
-	FailureClass        string               `json:"failureClass,omitempty"`
-	RetryPolicy         string               `json:"retryPolicy,omitempty"`
-	AffectedResources   []AffectedResource   `json:"affectedResources,omitempty"`
-	DiagnosticArtifacts []DiagnosticArtifact `json:"diagnosticArtifacts,omitempty"`
+	WhatFailed          string                            `json:"whatFailed"`
+	WhyLikely           string                            `json:"whyLikely,omitempty"`
+	MustDoNext          []string                          `json:"mustDoNext,omitempty"`
+	AllowedTools        []string                          `json:"allowedTools,omitempty"`
+	ForbiddenRepeats    []string                          `json:"forbiddenRepeats,omitempty"`
+	EvidenceNeeded      []string                          `json:"evidenceNeeded,omitempty"`
+	FailureClass        string                            `json:"failureClass,omitempty"`
+	RetryPolicy         string                            `json:"retryPolicy,omitempty"`
+	AffectedResources   []toolcontract.AffectedResource   `json:"affectedResources,omitempty"`
+	DiagnosticArtifacts []toolcontract.DiagnosticArtifact `json:"diagnosticArtifacts,omitempty"`
 }
 
 type attemptLedgerEntry struct {
@@ -120,7 +121,7 @@ func failureObservationDoesNotCreateDebt(observation turnObservation) bool {
 	if strings.TrimSpace(observation.Tool) != "file.read" {
 		return false
 	}
-	if observation.FailureCode() != FailureCodes.NotFound.String() {
+	if observation.FailureCode() != toolcontract.FailureCodes.NotFound.String() {
 		return false
 	}
 	return optionalSiteControlFileToolInputKey(observation.ToolInputKey)
@@ -160,7 +161,7 @@ func attemptFingerprint(toolInputKey string, errorCode string) string {
 	normalizedToolInputKey := strings.TrimSpace(toolInputKey)
 	normalizedErrorCode := strings.TrimSpace(errorCode)
 	if normalizedErrorCode == "" {
-		normalizedErrorCode = FailureCodes.OperationFailed.String()
+		normalizedErrorCode = toolcontract.FailureCodes.OperationFailed.String()
 	}
 	if normalizedToolInputKey == "" {
 		return normalizedErrorCode
@@ -333,7 +334,7 @@ func buildFailureReportFacts(observations []turnObservation, budget RecoveryBudg
 		facts.Attempts = append(facts.Attempts, failureReportAttempt{
 			ToolName:     strings.TrimSpace(observation.Tool),
 			InputSummary: failureReportInputSummary(observation.ToolInputKey),
-			ErrorCode:    firstNonEmptyString(observation.FailureCode(), FailureCodes.OperationFailed.String()),
+			ErrorCode:    firstNonEmptyString(observation.FailureCode(), toolcontract.FailureCodes.OperationFailed.String()),
 			FailureStage: firstNonEmptyString(observation.FailureStage(), strings.TrimSpace(observation.Tool)),
 			Message:      failureReportMessage(observation),
 		})
@@ -446,7 +447,7 @@ func usedFailureFactsContainAttempt(attempts []failureReportAttempt, expectedAtt
 	return false
 }
 
-func recoveryToolBudgetExhaustedForRequest(observations []turnObservation, toolSet *ToolSet, budget RecoveryBudget, failureDebt FailureDebt) bool {
+func recoveryToolBudgetExhaustedForRequest(observations []turnObservation, toolSet *toolcontract.ToolSet, budget RecoveryBudget, failureDebt FailureDebt) bool {
 	if failureRecoveryIsTerminal(failureDebt.LatestFailure) {
 		return true
 	}
@@ -468,10 +469,10 @@ func recoveryToolBudgetExhaustedForRequest(observations []turnObservation, toolS
 }
 
 func failureRecoveryIsTerminal(observation turnObservation) bool {
-	return observation.Failure != nil && observation.Failure.Kind == FailureInteractionRequired
+	return observation.Failure != nil && observation.Failure.Kind == toolcontract.FailureInteractionRequired
 }
 
-func alternateRouteToolIsAvailable(toolSet *ToolSet, failedToolName string) bool {
+func alternateRouteToolIsAvailable(toolSet *toolcontract.ToolSet, failedToolName string) bool {
 	if toolSet == nil {
 		return false
 	}
@@ -484,7 +485,7 @@ func alternateRouteToolIsAvailable(toolSet *ToolSet, failedToolName string) bool
 	return false
 }
 
-func adjacentRecoveryToolIsAvailable(toolSet *ToolSet, failedToolName string) bool {
+func adjacentRecoveryToolIsAvailable(toolSet *toolcontract.ToolSet, failedToolName string) bool {
 	if toolSet == nil {
 		return false
 	}

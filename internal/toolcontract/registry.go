@@ -1,4 +1,4 @@
-package bluecollar
+package toolcontract
 
 import (
 	"bytes"
@@ -268,7 +268,7 @@ func ToolFailureResult(kind FailureKind, code FailureCode, stage string, summary
 	return ToolResult{
 		Output: ToolOutput{Content: summary},
 		Failure: &ToolFailure{
-			Kind:            normalizeFailureKind(kind),
+			Kind:            NormalizeFailureKind(kind),
 			Code:            CanonicalFailureCode(code),
 			Stage:           strings.TrimSpace(stage),
 			UserSafeSummary: strings.TrimSpace(summary),
@@ -329,7 +329,7 @@ func (toolResult ToolResult) UserSafeFailureSummary() string {
 	return strings.TrimSpace(toolResult.Failure.UserSafeSummary)
 }
 
-func normalizeFailureKind(kind FailureKind) FailureKind {
+func NormalizeFailureKind(kind FailureKind) FailureKind {
 	if strings.TrimSpace(string(kind)) == "" {
 		return FailureUnknown
 	}
@@ -648,7 +648,7 @@ func (toolSet *ToolSet) invokeRegistered(ctx context.Context, toolInvocation Too
 		return ToolFailureResult(FailureNotFound, FailureCodes.NotFound, "tool_registry", "tool is not registered"), nil
 	}
 	toolInvocation.ToolName = toolName
-	toolInput, errorValue := validateToolInput(boundTool.Definition.InputSchema, toolInvocation.Input)
+	toolInput, errorValue := ValidateToolInput(boundTool.Definition.InputSchema, toolInvocation.Input)
 	if errorValue != nil {
 		return ToolFailureResult(FailureInvalidInput, FailureCodes.InvalidInput, "tool_input_schema", errorValue.Error()), nil
 	}
@@ -663,13 +663,13 @@ func (toolSet *ToolSet) invokeRegistered(ctx context.Context, toolInvocation Too
 		}
 		return result, nil
 	}
-	if errorValue := validateSuccessfulToolResult(*boundTool.Definition.ResultContract, result); errorValue != nil {
+	if errorValue := ValidateSuccessfulToolResult(*boundTool.Definition.ResultContract, result); errorValue != nil {
 		return ToolFailureResult(FailureExternalService, FailureCodes.OperationFailed, "tool_result_contract", errorValue.Error()), nil
 	}
 	return result, nil
 }
 
-func validateToolInput(schemaDocument json.RawMessage, inputDocument json.RawMessage) (json.RawMessage, error) {
+func ValidateToolInput(schemaDocument json.RawMessage, inputDocument json.RawMessage) (json.RawMessage, error) {
 	if len(bytes.TrimSpace(schemaDocument)) == 0 {
 		return inputDocument, nil
 	}
@@ -695,7 +695,7 @@ func validateToolInput(schemaDocument json.RawMessage, inputDocument json.RawMes
 	return normalizedInput, nil
 }
 
-func validateSuccessfulToolResult(contract ToolResultContract, result ToolResult) error {
+func ValidateSuccessfulToolResult(contract ToolResultContract, result ToolResult) error {
 	var resultDocument any
 	if errorValue := json.Unmarshal(result.Output.Data, &resultDocument); errorValue != nil {
 		return errors.New("tool result is not valid JSON")
@@ -1053,4 +1053,13 @@ func marshalTypedToolOutput(value any) string {
 		return ""
 	}
 	return string(document)
+}
+
+// AllowTestReplacement lets a test re-register a tool the runtime would
+// otherwise refuse to overwrite. The loop lives in another package now, so its
+// tests need a way in that does not open the field to production code.
+func (toolSet *ToolSet) AllowTestReplacement() {
+	if toolSet != nil {
+		toolSet.allowsTestReplacement = true
+	}
 }

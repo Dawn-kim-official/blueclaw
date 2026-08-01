@@ -1,13 +1,14 @@
 package bluecollar
 
 import (
+	"github.com/Dawn-kim-official/blueclaw/internal/toolcontract"
 	"regexp"
 	"strings"
 )
 
 var observedURLPattern = regexp.MustCompile(`https?://[^\s"'<>]+`)
 
-func validateExpectedResultDelivery(request AgentTurnRequest, observations []turnObservation, attachments []FileAttachment, actionDocument turnActionDocument) completionGateResult {
+func validateExpectedResultDelivery(request AgentTurnRequest, observations []turnObservation, attachments []toolcontract.FileAttachment, actionDocument turnActionDocument) completionGateResult {
 	expectedResults := normalizeExpectedResults(request.OutcomeContract.ExpectedResults)
 	if len(expectedResults) == 0 {
 		return completionGateResult{IsSatisfied: true, Attachments: attachments}
@@ -25,7 +26,7 @@ func validateExpectedResultDelivery(request AgentTurnRequest, observations []tur
 	return completionGateResult{IsSatisfied: true, Attachments: attachments}
 }
 
-func missingExpectedResultDelivery(expectedResult ExpectedResult, toolSet *ToolSet, observedURLs []string, attachments []FileAttachment, finishMessage string) string {
+func missingExpectedResultDelivery(expectedResult ExpectedResult, toolSet *toolcontract.ToolSet, observedURLs []string, attachments []toolcontract.FileAttachment, finishMessage string) string {
 	switch expectedResult.Type {
 	case ExpectedResultTypeFile:
 		if len(attachments) == 0 {
@@ -49,7 +50,7 @@ func missingExpectedResultDelivery(expectedResult ExpectedResult, toolSet *ToolS
 	return ""
 }
 
-func toolSetProducesCanonicalLinks(toolSet *ToolSet) bool {
+func toolSetProducesCanonicalLinks(toolSet *toolcontract.ToolSet) bool {
 	if toolSet == nil {
 		return false
 	}

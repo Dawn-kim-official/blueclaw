@@ -3,6 +3,7 @@ package bluecollar
 import (
 	"context"
 	"encoding/json"
+	"github.com/Dawn-kim-official/blueclaw/internal/toolcontract"
 	"strings"
 
 	"github.com/Dawn-kim-official/blueclaw/internal/llm"
@@ -156,7 +157,7 @@ func summaryObservation(summary TaskContextSummary) turnObservation {
 	return turnObservation{
 		ObservationID: strings.TrimSpace(summary.ObservationID),
 		Action:        "context_summary",
-		Output:        ToolOutput{Content: content},
+		Output:        toolcontract.ToolOutput{Content: content},
 		Summary:       "Compacted task context through " + strings.TrimSpace(summary.CompactedThroughObservationID) + ": " + content,
 	}
 }

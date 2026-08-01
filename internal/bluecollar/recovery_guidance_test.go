@@ -2,6 +2,7 @@ package bluecollar
 
 import (
 	"context"
+	"github.com/Dawn-kim-official/blueclaw/internal/toolcontract"
 	"testing"
 )
 
@@ -14,7 +15,7 @@ func TestAgentTurnRunnerAllowsCorrectedRetryAfterSafeFailure(t *testing.T) {
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{RecoveryAttemptLimit: 3})
 	toolRegistry := newTestCapabilityToolSet([]string{"message.send"})
 	callCount := 0
-	registerTestTool(toolRegistry, ToolDefinition{Name: "message.send"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	registerTestTool(toolRegistry, toolcontract.ToolDefinition{Name: "message.send"}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
 		callCount++
 		if callCount == 1 {
 			return structuredFailureToolResult("temporary user lookup timeout", "temporary user lookup timeout", "mattermost_unavailable", "mattermost_lookup", true, true), nil
@@ -46,7 +47,7 @@ func TestAgentTurnRunnerAllowsCorrectedRetryAfterSafeFailure(t *testing.T) {
 }
 
 func TestRecoveryAttemptCountOnlyIncludesSpentInterventions(t *testing.T) {
-	failure := newFailureObservation("obs-001", "continue", "message.send", "failed", FailureExternalService, FailureCodes.OperationFailed, "message_send")
+	failure := newFailureObservation("obs-001", "continue", "message.send", "failed", toolcontract.FailureExternalService, toolcontract.FailureCodes.OperationFailed, "message_send")
 	passiveGuidance := recoveryGuidanceObservation(2, failure, "")
 	spentGuidance := recoveryGuidanceObservation(3, failure, "")
 	spentGuidance.RecoveryAttemptSpent = true
@@ -80,27 +81,27 @@ func TestAgentTurnRunnerAllowsInspectionAfterAdjacentRecoveryBudgetExhausted(t *
 		},
 	})
 	toolRegistry := newHybridKernelCapabilityToolSet([]string{"file.read", "file.edit"}, []string{"site.build"})
-	registerTestTool(toolRegistry, ToolDefinition{Name: "site.build"}, func(context.Context, ToolInvocation) (ToolResult, error) {
-		return ToolResult{
-			Output: ToolOutput{Content: "source failed"},
-			Failure: &ToolFailure{
-				Kind:            FailureInvalidInput,
-				Code:            FailureCodes.InvalidInput.String(),
+	registerTestTool(toolRegistry, toolcontract.ToolDefinition{Name: "site.build"}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
+		return toolcontract.ToolResult{
+			Output: toolcontract.ToolOutput{Content: "source failed"},
+			Failure: &toolcontract.ToolFailure{
+				Kind:            toolcontract.FailureInvalidInput,
+				Code:            toolcontract.FailureCodes.InvalidInput.String(),
 				Stage:           "site_build_source",
 				UserSafeSummary: "site source failed",
 				Retryable:       true,
 				FailureClass:    failureClassQuality,
 				RetryPolicy:     retryPolicyAfterPrecondition,
-				RecoveryHints:   []RecoveryHint{{Action: "edit_resource", ToolNames: []string{"file.read", "file.edit"}}},
+				RecoveryHints:   []toolcontract.RecoveryHint{{Action: "edit_resource", ToolNames: []string{"file.read", "file.edit"}}},
 			},
 		}, nil
 	})
 	fileReadCount := 0
-	registerTestTool(toolRegistry, ToolDefinition{Name: "file.read"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	registerTestTool(toolRegistry, toolcontract.ToolDefinition{Name: "file.read"}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
 		fileReadCount++
 		return testToolSuccess(`{"path":"home/sites/site-1/draft/app/src/App.tsx","content":"broken"}`), nil
 	})
-	registerTestTool(toolRegistry, ToolDefinition{Name: "file.edit"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	registerTestTool(toolRegistry, toolcontract.ToolDefinition{Name: "file.edit"}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
 		return testToolSuccess(`{"path":"home/sites/site-1/draft/app/src/App.tsx","matchCount":1}`), nil
 	})
 

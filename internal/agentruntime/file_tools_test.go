@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/Dawn-kim-official/blueclaw/internal/toolcontract"
 	"os"
 	"path/filepath"
 	"strings"
@@ -15,7 +16,7 @@ import (
 	"github.com/Dawn-kim-official/blueclaw/internal/policy"
 )
 
-func assertFileResourceEffect(t *testing.T, result bluecollar.ToolResult, objectType string, effect string, path string) {
+func assertFileResourceEffect(t *testing.T, result toolcontract.ToolResult, objectType string, effect string, path string) {
 	t.Helper()
 	for _, resourceEffect := range result.Effects {
 		if resourceEffect.ObjectType == objectType && resourceEffect.Effect == effect && resourceEffect.Path == path {
@@ -25,7 +26,7 @@ func assertFileResourceEffect(t *testing.T, result bluecollar.ToolResult, object
 	t.Fatalf("missing %s %s effect for %s in %+v", objectType, effect, path, result.Effects)
 }
 
-func assertStringArrayResultField(t *testing.T, result bluecollar.ToolResult, fieldName string, expected []string) {
+func assertStringArrayResultField(t *testing.T, result toolcontract.ToolResult, fieldName string, expected []string) {
 	t.Helper()
 	var document map[string]any
 	if errorValue := json.Unmarshal(result.Output.Data, &document); errorValue != nil {
@@ -57,9 +58,9 @@ func TestFileAttachToolAttachesSinglePath(t *testing.T) {
 		PersonAccess:      policy.PersonAccess{PersonID: "person-1", Circles: []string{"staff"}},
 	})
 
-	result, errorValue := toolRegistry.Invoke(context.Background(), bluecollar.ToolInvocation{
-		ToolName: bluecollar.FileDeliverToolName,
-		Input: bluecollar.MarshalToolInput(map[string]any{
+	result, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
+		ToolName: toolcontract.FileDeliverToolName,
+		Input: toolcontract.MarshalToolInput(map[string]any{
 			"path": "tmp/deck/deck.pptx",
 		}),
 	})
@@ -93,9 +94,9 @@ func TestFileAttachToolAttachesMultipleFiles(t *testing.T) {
 		PersonAccess:      policy.PersonAccess{PersonID: "person-1", Circles: []string{"staff"}},
 	})
 
-	result, errorValue := toolRegistry.Invoke(context.Background(), bluecollar.ToolInvocation{
-		ToolName: bluecollar.FileDeliverToolName,
-		Input: bluecollar.MarshalToolInput(map[string]any{
+	result, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
+		ToolName: toolcontract.FileDeliverToolName,
+		Input: toolcontract.MarshalToolInput(map[string]any{
 			"files": []map[string]string{
 				{"path": "artifacts/deck/deck.html", "contentType": "text/html"},
 				{"path": "artifacts/deck/deck.pptx", "contentType": "application/vnd.openxmlformats-officedocument.presentationml.presentation"},
@@ -133,9 +134,9 @@ func TestFileToolsAcceptVirtualHomePathsWithoutLeakingHostPath(t *testing.T) {
 		PersonAccess:      policy.PersonAccess{PersonID: "person-1", Circles: []string{"staff"}},
 	})
 
-	writeResult, errorValue := toolRegistry.Invoke(context.Background(), bluecollar.ToolInvocation{
+	writeResult, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
 		ToolName: "file.write",
-		Input: bluecollar.MarshalToolInput(map[string]string{
+		Input: toolcontract.MarshalToolInput(map[string]string{
 			"path":    "projects/deck/presentation.md",
 			"content": "# Deck",
 		}),
@@ -156,9 +157,9 @@ func TestFileToolsAcceptVirtualHomePathsWithoutLeakingHostPath(t *testing.T) {
 		t.Fatal(errorValue)
 	}
 
-	attachResult, errorValue := toolRegistry.Invoke(context.Background(), bluecollar.ToolInvocation{
-		ToolName: bluecollar.FileDeliverToolName,
-		Input: bluecollar.MarshalToolInput(map[string]string{
+	attachResult, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
+		ToolName: toolcontract.FileDeliverToolName,
+		Input: toolcontract.MarshalToolInput(map[string]string{
 			"path": "projects/deck/presentation.md",
 		}),
 	})
@@ -186,9 +187,9 @@ func TestFileDeliverAcceptsVirtualHomePathReturnedByFileRead(t *testing.T) {
 		PersonAccess:      policy.PersonAccess{PersonID: "person-1", Circles: []string{"staff"}},
 	})
 
-	readResult, errorValue := toolRegistry.Invoke(context.Background(), bluecollar.ToolInvocation{
+	readResult, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
 		ToolName: "file.read",
-		Input: bluecollar.MarshalToolInput(map[string]string{
+		Input: toolcontract.MarshalToolInput(map[string]string{
 			"path": "~/inbox/mattermost/conv-1/customer-support-weekly-check.json",
 		}),
 	})
@@ -207,9 +208,9 @@ func TestFileDeliverAcceptsVirtualHomePathReturnedByFileRead(t *testing.T) {
 		t.Fatalf("expected file.read to return a path, got %+v", readDocument)
 	}
 
-	deliverResult, errorValue := toolRegistry.Invoke(context.Background(), bluecollar.ToolInvocation{
-		ToolName: bluecollar.FileDeliverToolName,
-		Input:    bluecollar.MarshalToolInput(map[string]string{"path": returnedPath}),
+	deliverResult, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
+		ToolName: toolcontract.FileDeliverToolName,
+		Input:    toolcontract.MarshalToolInput(map[string]string{"path": returnedPath}),
 	})
 	if errorValue != nil {
 		t.Fatal(errorValue)
@@ -231,16 +232,16 @@ func TestFileReadResolvesSiteRelativePathNativelyAndFailsAsNotFound(t *testing.T
 		PersonAccess:      policy.PersonAccess{PersonID: "person-1", Circles: []string{"staff"}},
 	})
 
-	result, errorValue := toolRegistry.Invoke(context.Background(), bluecollar.ToolInvocation{
+	result, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
 		ToolName: "file.read",
-		Input: bluecollar.MarshalToolInput(map[string]string{
+		Input: toolcontract.MarshalToolInput(map[string]string{
 			"path": "app/src/App.tsx",
 		}),
 	})
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
-	if !result.Failed() || result.FailureCode() != bluecollar.FailureCodes.NotFound.String() {
+	if !result.Failed() || result.FailureCode() != toolcontract.FailureCodes.NotFound.String() {
 		t.Fatalf("expected native shell resolution to report the missing file as not_found without a Go-side path filter, got %+v", result)
 	}
 }
@@ -254,9 +255,9 @@ func TestFileReadTreatsMissingSiteControlFileAsOptionalState(t *testing.T) {
 		PersonAccess:      policy.PersonAccess{PersonID: "person-1", Circles: []string{"staff"}},
 	})
 
-	result, errorValue := toolRegistry.Invoke(context.Background(), bluecollar.ToolInvocation{
+	result, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
 		ToolName: "file.read",
-		Input: bluecollar.MarshalToolInput(map[string]string{
+		Input: toolcontract.MarshalToolInput(map[string]string{
 			"path": "~/sites/site-1/.internkim/artifact-brief.md",
 		}),
 	})
@@ -272,16 +273,16 @@ func TestFileReadTreatsMissingSiteControlFileAsOptionalState(t *testing.T) {
 		t.Fatalf("expected optional missing control-file payload, got %s", result.ContentText())
 	}
 
-	missingResult, errorValue := toolRegistry.Invoke(context.Background(), bluecollar.ToolInvocation{
+	missingResult, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
 		ToolName: "file.read",
-		Input: bluecollar.MarshalToolInput(map[string]string{
+		Input: toolcontract.MarshalToolInput(map[string]string{
 			"path": "~/sites/site-1/app/src/App.tsx",
 		}),
 	})
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
-	if !missingResult.Failed() || missingResult.FailureCode() != bluecollar.FailureCodes.NotFound.String() {
+	if !missingResult.Failed() || missingResult.FailureCode() != toolcontract.FailureCodes.NotFound.String() {
 		t.Fatalf("expected ordinary missing file.read to fail as not_found, got %+v", missingResult)
 	}
 }
@@ -295,9 +296,9 @@ func TestFileWriteAcceptsPortablePathAndContent(t *testing.T) {
 		PersonAccess:      policy.PersonAccess{PersonID: "person-1", Circles: []string{"staff"}},
 	})
 
-	writeResult, errorValue := toolRegistry.Invoke(context.Background(), bluecollar.ToolInvocation{
+	writeResult, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
 		ToolName: "file.write",
-		Input: bluecollar.MarshalToolInput(map[string]any{
+		Input: toolcontract.MarshalToolInput(map[string]any{
 			"path":    "projects/site/index.html",
 			"content": "<html>ready</html>",
 		}),
@@ -402,9 +403,9 @@ func TestFileReadReturnsLineRangeMetadata(t *testing.T) {
 		PersonAccess:      policy.PersonAccess{PersonID: "person-1", Circles: []string{"staff"}},
 	})
 
-	readResult, errorValue := toolRegistry.Invoke(context.Background(), bluecollar.ToolInvocation{
+	readResult, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
 		ToolName: "file.read",
-		Input: bluecollar.MarshalToolInput(map[string]any{
+		Input: toolcontract.MarshalToolInput(map[string]any{
 			"path":      "tmp/source.ts",
 			"startLine": 2,
 			"lineCount": 2,
@@ -444,9 +445,9 @@ func TestFileReadReturnsRangeAfterOldPrefixLimit(t *testing.T) {
 		PersonAccess:      policy.PersonAccess{PersonID: "person-1", Circles: []string{"staff"}},
 	})
 
-	readResult, errorValue := toolRegistry.Invoke(context.Background(), bluecollar.ToolInvocation{
+	readResult, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
 		ToolName: "file.read",
-		Input: bluecollar.MarshalToolInput(map[string]any{
+		Input: toolcontract.MarshalToolInput(map[string]any{
 			"path":      "tmp/large-source.txt",
 			"startLine": 2501,
 			"lineCount": 1,
@@ -474,9 +475,9 @@ func TestFilePreviewReturnsTextPreview(t *testing.T) {
 		PersonAccess:      policy.PersonAccess{PersonID: "person-1", Circles: []string{"staff"}},
 	})
 
-	previewResult, errorValue := toolRegistry.Invoke(context.Background(), bluecollar.ToolInvocation{
+	previewResult, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
 		ToolName: "file.preview",
-		Input:    bluecollar.MarshalToolInput(map[string]any{"path": "tmp/source.html"}),
+		Input:    toolcontract.MarshalToolInput(map[string]any{"path": "tmp/source.html"}),
 	})
 	if errorValue != nil {
 		t.Fatal(errorValue)
@@ -511,9 +512,9 @@ func TestFilePreviewUsesCachedAttachmentPreview(t *testing.T) {
 		}},
 	})
 
-	previewResult, errorValue := toolRegistry.Invoke(context.Background(), bluecollar.ToolInvocation{
+	previewResult, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
 		ToolName: "file.preview",
-		Input:    bluecollar.MarshalToolInput(map[string]any{"path": "/workspace/private/people/person-1/inbox/mattermost/post-1/report.pdf"}),
+		Input:    toolcontract.MarshalToolInput(map[string]any{"path": "/workspace/private/people/person-1/inbox/mattermost/post-1/report.pdf"}),
 	})
 	if errorValue != nil {
 		t.Fatal(errorValue)
@@ -551,9 +552,9 @@ func TestFilePreviewUsesCachedAttachmentPreviewByMaterialID(t *testing.T) {
 		}},
 	})
 
-	previewResult, errorValue := toolRegistry.Invoke(context.Background(), bluecollar.ToolInvocation{
+	previewResult, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
 		ToolName: "file.preview",
-		Input:    bluecollar.MarshalToolInput(map[string]any{"materialID": "mattermost:file-1"}),
+		Input:    toolcontract.MarshalToolInput(map[string]any{"materialID": "mattermost:file-1"}),
 	})
 
 	if errorValue != nil {
@@ -592,9 +593,9 @@ func TestFileReadUsesCachedAttachmentPreviewWhenMaterialFileIsNotMounted(t *test
 		}},
 	})
 
-	readResult, errorValue := toolRegistry.Invoke(context.Background(), bluecollar.ToolInvocation{
+	readResult, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
 		ToolName: "file.read",
-		Input: bluecollar.MarshalToolInput(map[string]any{
+		Input: toolcontract.MarshalToolInput(map[string]any{
 			"path":      "home/inbox/mattermost/post-1/report.html",
 			"startLine": 3,
 			"lineCount": 1,
@@ -630,9 +631,9 @@ func TestFilePreviewResolvesAttachmentMaterialID(t *testing.T) {
 		},
 	})
 
-	previewResult, errorValue := toolRegistry.Invoke(context.Background(), bluecollar.ToolInvocation{
+	previewResult, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
 		ToolName: "file.preview",
-		Input:    bluecollar.MarshalToolInput(map[string]any{"materialID": "mattermost:file-1"}),
+		Input:    toolcontract.MarshalToolInput(map[string]any{"materialID": "mattermost:file-1"}),
 	})
 
 	if errorValue != nil {
@@ -673,9 +674,9 @@ func TestFilePreviewFallsBackFromStaleAttachmentPathToMaterialID(t *testing.T) {
 		},
 	})
 
-	previewResult, errorValue := toolRegistry.Invoke(context.Background(), bluecollar.ToolInvocation{
+	previewResult, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
 		ToolName: "file.preview",
-		Input:    bluecollar.MarshalToolInput(map[string]any{"path": "inbox/mattermost/thread-1/post-1/report.html"}),
+		Input:    toolcontract.MarshalToolInput(map[string]any{"path": "inbox/mattermost/thread-1/post-1/report.html"}),
 	})
 
 	if errorValue != nil {
@@ -716,9 +717,9 @@ func TestFileReadFallsBackFromStaleAttachmentPathToMaterialID(t *testing.T) {
 		},
 	})
 
-	readResult, errorValue := toolRegistry.Invoke(context.Background(), bluecollar.ToolInvocation{
+	readResult, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
 		ToolName: "file.read",
-		Input:    bluecollar.MarshalToolInput(map[string]any{"path": "inbox/mattermost/thread-1/post-1/kim-intern-automation.html"}),
+		Input:    toolcontract.MarshalToolInput(map[string]any{"path": "inbox/mattermost/thread-1/post-1/kim-intern-automation.html"}),
 	})
 
 	if errorValue != nil {
@@ -757,9 +758,9 @@ func TestFileReadRejectsImageAttachmentMaterialFallback(t *testing.T) {
 		},
 	})
 
-	readResult, errorValue := toolRegistry.Invoke(context.Background(), bluecollar.ToolInvocation{
+	readResult, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
 		ToolName: "file.read",
-		Input:    bluecollar.MarshalToolInput(map[string]any{"path": "home/inbox/mattermost/thread-1/post-1/mascot.png"}),
+		Input:    toolcontract.MarshalToolInput(map[string]any{"path": "home/inbox/mattermost/thread-1/post-1/mascot.png"}),
 	})
 
 	if errorValue != nil {
@@ -790,9 +791,9 @@ func TestFilePreviewUsesResolvedAttachmentPreviewWithoutWorkspaceStat(t *testing
 		},
 	})
 
-	previewResult, errorValue := toolRegistry.Invoke(context.Background(), bluecollar.ToolInvocation{
+	previewResult, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
 		ToolName: "file.preview",
-		Input:    bluecollar.MarshalToolInput(map[string]any{"materialID": "mattermost:file-1"}),
+		Input:    toolcontract.MarshalToolInput(map[string]any{"materialID": "mattermost:file-1"}),
 	})
 
 	if errorValue != nil {
@@ -817,9 +818,9 @@ func TestFileEditReplacesSingleExactMatch(t *testing.T) {
 		PersonAccess:      policy.PersonAccess{PersonID: "person-1", Circles: []string{"staff"}},
 	})
 
-	editResult, errorValue := toolRegistry.Invoke(context.Background(), bluecollar.ToolInvocation{
+	editResult, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
 		ToolName: "file.edit",
-		Input: bluecollar.MarshalToolInput(map[string]any{
+		Input: toolcontract.MarshalToolInput(map[string]any{
 			"edits": []map[string]string{
 				{"path": "tmp/source.ts", "oldText": "Old", "newText": "New"},
 			},
@@ -854,9 +855,9 @@ func TestFileEditRejectsAmbiguousExactMatch(t *testing.T) {
 		PersonAccess:      policy.PersonAccess{PersonID: "person-1", Circles: []string{"staff"}},
 	})
 
-	editResult, errorValue := toolRegistry.Invoke(context.Background(), bluecollar.ToolInvocation{
+	editResult, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
 		ToolName: "file.edit",
-		Input: bluecollar.MarshalToolInput(map[string]any{
+		Input: toolcontract.MarshalToolInput(map[string]any{
 			"edits": []map[string]string{
 				{"path": "tmp/source.ts", "oldText": "same", "newText": "changed"},
 			},
@@ -893,9 +894,9 @@ func TestFilePatchAppliesMultipleExactEdits(t *testing.T) {
 		PersonAccess:      policy.PersonAccess{PersonID: "person-1", Circles: []string{"staff"}},
 	})
 
-	patchResult, errorValue := toolRegistry.Invoke(context.Background(), bluecollar.ToolInvocation{
+	patchResult, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
 		ToolName: "file.edit",
-		Input: bluecollar.MarshalToolInput(map[string]any{
+		Input: toolcontract.MarshalToolInput(map[string]any{
 			"edits": []map[string]string{
 				{"path": "tmp/one.ts", "oldText": "alpha", "newText": "ALPHA"},
 				{"path": "tmp/two.ts", "oldText": "beta", "newText": "BETA"},
@@ -925,9 +926,9 @@ func TestFilePatchValidationIsAllOrNothing(t *testing.T) {
 		PersonAccess:      policy.PersonAccess{PersonID: "person-1", Circles: []string{"staff"}},
 	})
 
-	patchResult, errorValue := toolRegistry.Invoke(context.Background(), bluecollar.ToolInvocation{
+	patchResult, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
 		ToolName: "file.edit",
-		Input: bluecollar.MarshalToolInput(map[string]any{
+		Input: toolcontract.MarshalToolInput(map[string]any{
 			"edits": []map[string]string{
 				{"path": "tmp/one.ts", "oldText": "alpha", "newText": "ALPHA"},
 				{"path": "tmp/two.ts", "oldText": "missing", "newText": "BETA"},
@@ -975,9 +976,9 @@ func TestFileWriteFailsWithAccessDeniedWhenPOSIXDeniesCircleDirectory(t *testing
 		},
 	})
 
-	writeResult, errorValue := toolRegistry.Invoke(context.Background(), bluecollar.ToolInvocation{
+	writeResult, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
 		ToolName: "file.write",
-		Input: bluecollar.MarshalToolInput(map[string]string{
+		Input: toolcontract.MarshalToolInput(map[string]string{
 			"path":    filepath.Join(financeDirectoryPath, "report.md"),
 			"content": "changed",
 		}),
@@ -985,7 +986,7 @@ func TestFileWriteFailsWithAccessDeniedWhenPOSIXDeniesCircleDirectory(t *testing
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
-	if !writeResult.Failed() || writeResult.FailureCode() != bluecollar.FailureCodes.AccessDenied.String() {
+	if !writeResult.Failed() || writeResult.FailureCode() != toolcontract.FailureCodes.AccessDenied.String() {
 		t.Fatalf("expected the OS write denial to surface as access_denied, got %+v", writeResult)
 	}
 }
@@ -1008,16 +1009,16 @@ func TestFileDeliverFailsWithAccessDeniedWhenPOSIXDeniesCircleDirectory(t *testi
 		},
 	})
 
-	attachResult, errorValue := toolRegistry.Invoke(context.Background(), bluecollar.ToolInvocation{
-		ToolName: bluecollar.FileDeliverToolName,
-		Input: bluecollar.MarshalToolInput(map[string]string{
+	attachResult, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
+		ToolName: toolcontract.FileDeliverToolName,
+		Input: toolcontract.MarshalToolInput(map[string]string{
 			"path": filepath.Join(financeDirectoryPath, "report.md"),
 		}),
 	})
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
-	if !attachResult.Failed() || attachResult.FailureCode() != bluecollar.FailureCodes.AccessDenied.String() {
+	if !attachResult.Failed() || attachResult.FailureCode() != toolcontract.FailureCodes.AccessDenied.String() {
 		t.Fatalf("expected the OS read denial to surface as access_denied, got %+v", attachResult)
 	}
 }
@@ -1040,16 +1041,16 @@ func TestFileReadFailsWithAccessDeniedWhenPOSIXDeniesCircleDirectory(t *testing.
 		},
 	})
 
-	result, errorValue := toolRegistry.Invoke(context.Background(), bluecollar.ToolInvocation{
+	result, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
 		ToolName: "file.read",
-		Input: bluecollar.MarshalToolInput(map[string]string{
+		Input: toolcontract.MarshalToolInput(map[string]string{
 			"path": filepath.Join(financeDirectoryPath, "report.pdf"),
 		}),
 	})
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
-	if !result.Failed() || result.FailureCode() != bluecollar.FailureCodes.AccessDenied.String() {
+	if !result.Failed() || result.FailureCode() != toolcontract.FailureCodes.AccessDenied.String() {
 		t.Fatalf("expected the OS read denial to surface as access_denied, got %+v", result)
 	}
 }
@@ -1071,9 +1072,9 @@ func TestFileReadAllowsCirclePathWhenPOSIXAllows(t *testing.T) {
 		},
 	})
 
-	result, errorValue := toolRegistry.Invoke(context.Background(), bluecollar.ToolInvocation{
+	result, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
 		ToolName: "file.read",
-		Input: bluecollar.MarshalToolInput(map[string]string{
+		Input: toolcontract.MarshalToolInput(map[string]string{
 			"path": filepath.Join(financeDirectoryPath, "report.md"),
 		}),
 	})
@@ -1097,9 +1098,9 @@ func TestFileWriteAllowsCirclePathWhenPOSIXAllows(t *testing.T) {
 		},
 	})
 
-	result, errorValue := toolRegistry.Invoke(context.Background(), bluecollar.ToolInvocation{
+	result, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
 		ToolName: "file.write",
-		Input: bluecollar.MarshalToolInput(map[string]string{
+		Input: toolcontract.MarshalToolInput(map[string]string{
 			"path":    filepath.Join(workspacePath, "circles", "finance", "report.md"),
 			"content": "finance",
 		}),
@@ -1126,9 +1127,9 @@ func TestFileWriteDefaultsToPrivateScopeForDirectMessage(t *testing.T) {
 		},
 	})
 
-	result, errorValue := toolRegistry.Invoke(context.Background(), bluecollar.ToolInvocation{
+	result, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
 		ToolName: "file.write",
-		Input: bluecollar.MarshalToolInput(map[string]string{
+		Input: toolcontract.MarshalToolInput(map[string]string{
 			"path":    "notes.md",
 			"content": "private",
 		}),
@@ -1164,9 +1165,9 @@ func TestFileWriteDefaultsToCircleScopeForCircleChannel(t *testing.T) {
 		},
 	})
 
-	result, errorValue := toolRegistry.Invoke(context.Background(), bluecollar.ToolInvocation{
+	result, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
 		ToolName: "file.write",
-		Input: bluecollar.MarshalToolInput(map[string]string{
+		Input: toolcontract.MarshalToolInput(map[string]string{
 			"path":    "report.md",
 			"content": "finance",
 		}),
@@ -1199,9 +1200,9 @@ func TestFileWriteDefaultsToStaffScopeForGeneralChannel(t *testing.T) {
 		},
 	})
 
-	result, errorValue := toolRegistry.Invoke(context.Background(), bluecollar.ToolInvocation{
+	result, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
 		ToolName: "file.write",
-		Input: bluecollar.MarshalToolInput(map[string]string{
+		Input: toolcontract.MarshalToolInput(map[string]string{
 			"path":    "status.md",
 			"content": "staff",
 		}),
@@ -1236,9 +1237,9 @@ func TestFileAttachDefaultsToPrivateScopeForDirectMessage(t *testing.T) {
 		},
 	})
 
-	result, errorValue := toolRegistry.Invoke(context.Background(), bluecollar.ToolInvocation{
-		ToolName: bluecollar.FileDeliverToolName,
-		Input: bluecollar.MarshalToolInput(map[string]string{
+	result, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
+		ToolName: toolcontract.FileDeliverToolName,
+		Input: toolcontract.MarshalToolInput(map[string]string{
 			"path": "notes.md",
 		}),
 	})
@@ -1268,9 +1269,9 @@ func TestFileDeliverPersistsDocumentToDocuments(t *testing.T) {
 		PersonAccess:      policy.PersonAccess{PersonID: "person-1", Circles: []string{"staff"}},
 	})
 
-	result, errorValue := toolRegistry.Invoke(context.Background(), bluecollar.ToolInvocation{
-		ToolName: bluecollar.FileDeliverToolName,
-		Input:    bluecollar.MarshalToolInput(map[string]string{"path": "tmp/deck/report.docx"}),
+	result, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
+		ToolName: toolcontract.FileDeliverToolName,
+		Input:    toolcontract.MarshalToolInput(map[string]string{"path": "tmp/deck/report.docx"}),
 	})
 	if errorValue != nil {
 		t.Fatal(errorValue)
@@ -1297,9 +1298,9 @@ func TestFileDeliverCanDeliverDraftOutput(t *testing.T) {
 		},
 	})
 
-	writeResult, errorValue := toolRegistry.Invoke(context.Background(), bluecollar.ToolInvocation{
+	writeResult, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
 		ToolName: "file.write",
-		Input: bluecollar.MarshalToolInput(map[string]string{
+		Input: toolcontract.MarshalToolInput(map[string]string{
 			"path":    "tmp/deck/build/deck.pptx",
 			"content": "pptx",
 		}),
@@ -1310,9 +1311,9 @@ func TestFileDeliverCanDeliverDraftOutput(t *testing.T) {
 	if writeResult.Failed() {
 		t.Fatalf("expected file.write success, got %s", writeResult.ContentText())
 	}
-	deliverResult, errorValue := toolRegistry.Invoke(context.Background(), bluecollar.ToolInvocation{
-		ToolName: bluecollar.FileDeliverToolName,
-		Input: bluecollar.MarshalToolInput(map[string]any{
+	deliverResult, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
+		ToolName: toolcontract.FileDeliverToolName,
+		Input: toolcontract.MarshalToolInput(map[string]any{
 			"path": "tmp/deck/build/deck.pptx",
 		}),
 	})
@@ -1344,9 +1345,9 @@ func TestFileDeliverResolvesSamePathSpellingsAsTerminalWrite(t *testing.T) {
 		},
 	})
 
-	runResult, errorValue := toolRegistry.Invoke(context.Background(), bluecollar.ToolInvocation{
+	runResult, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
 		ToolName: "terminal.run",
-		Input: bluecollar.MarshalToolInput(map[string]any{
+		Input: toolcontract.MarshalToolInput(map[string]any{
 			"command": "mkdir -p ~/documents && printf docx-bytes > ~/documents/report.docx",
 		}),
 	})
@@ -1363,9 +1364,9 @@ func TestFileDeliverResolvesSamePathSpellingsAsTerminalWrite(t *testing.T) {
 		"documents/report.docx",
 		filepath.Join(workspacePath, "private", "people", "person-1", "documents", "report.docx"),
 	} {
-		deliverResult, errorValue := toolRegistry.Invoke(context.Background(), bluecollar.ToolInvocation{
-			ToolName: bluecollar.FileDeliverToolName,
-			Input:    bluecollar.MarshalToolInput(map[string]string{"path": path}),
+		deliverResult, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
+			ToolName: toolcontract.FileDeliverToolName,
+			Input:    toolcontract.MarshalToolInput(map[string]string{"path": path}),
 		})
 		if errorValue != nil {
 			t.Fatal(errorValue)
@@ -1392,9 +1393,9 @@ func TestFileDeliverNotFoundIncludesCandidateFiles(t *testing.T) {
 		},
 	})
 
-	runResult, errorValue := toolRegistry.Invoke(context.Background(), bluecollar.ToolInvocation{
+	runResult, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
 		ToolName: "terminal.run",
-		Input: bluecollar.MarshalToolInput(map[string]any{
+		Input: toolcontract.MarshalToolInput(map[string]any{
 			"command": "mkdir -p ~/documents && printf docx-bytes > ~/documents/'Han River Ops 2026 Q2 Operations Review.docx'",
 		}),
 	})
@@ -1405,9 +1406,9 @@ func TestFileDeliverNotFoundIncludesCandidateFiles(t *testing.T) {
 		t.Fatalf("expected terminal.run success, got %s", runResult.ContentText())
 	}
 
-	deliverResult, errorValue := toolRegistry.Invoke(context.Background(), bluecollar.ToolInvocation{
-		ToolName: bluecollar.FileDeliverToolName,
-		Input:    bluecollar.MarshalToolInput(map[string]string{"path": "~/documents/Q2 Operations Review.docx"}),
+	deliverResult, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
+		ToolName: toolcontract.FileDeliverToolName,
+		Input:    toolcontract.MarshalToolInput(map[string]string{"path": "~/documents/Q2 Operations Review.docx"}),
 	})
 	if errorValue != nil {
 		t.Fatal(errorValue)
@@ -1443,9 +1444,9 @@ func TestFileWriteAllowsManagedSitePackageManifest(t *testing.T) {
 		PersonAccess:      policy.PersonAccess{PersonID: "person-1", Circles: []string{"staff"}},
 	})
 
-	managedResult, errorValue := toolRegistry.Invoke(context.Background(), bluecollar.ToolInvocation{
+	managedResult, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
 		ToolName: "file.write",
-		Input: bluecollar.MarshalToolInput(map[string]string{
+		Input: toolcontract.MarshalToolInput(map[string]string{
 			"path":    "~/sites/site-1/draft/app/package.json",
 			"content": `{"project":"user-owned package manifest"}`,
 		}),
@@ -1457,9 +1458,9 @@ func TestFileWriteAllowsManagedSitePackageManifest(t *testing.T) {
 		t.Fatalf("expected the user-owned site manifest to be writable; build gates own the invariant, got %+v", managedResult)
 	}
 
-	tmpResult, errorValue := toolRegistry.Invoke(context.Background(), bluecollar.ToolInvocation{
+	tmpResult, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
 		ToolName: "file.write",
-		Input: bluecollar.MarshalToolInput(map[string]string{
+		Input: toolcontract.MarshalToolInput(map[string]string{
 			"path":    "tmp/demo/package.json",
 			"content": `{"project":"freeform package file"}`,
 		}),
@@ -1488,9 +1489,9 @@ func TestFileWriteThroughWorkspaceActorTreatsContentAsData(t *testing.T) {
 	})
 
 	content := "hello\n$(touch should-not-exist)\n"
-	writeResult, errorValue := toolRegistry.Invoke(context.Background(), bluecollar.ToolInvocation{
+	writeResult, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
 		ToolName: "file.write",
-		Input: bluecollar.MarshalToolInput(map[string]any{
+		Input: toolcontract.MarshalToolInput(map[string]any{
 			"path":    "tmp/deck/input.txt",
 			"content": content,
 		}),
@@ -1538,9 +1539,9 @@ func TestFileWriteRespectsRequesterUmaskLikeTerminalRun(t *testing.T) {
 		},
 	})
 
-	writeResult, errorValue := toolRegistry.Invoke(context.Background(), bluecollar.ToolInvocation{
+	writeResult, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
 		ToolName: "file.write",
-		Input: bluecollar.MarshalToolInput(map[string]string{
+		Input: toolcontract.MarshalToolInput(map[string]string{
 			"path":    "tmp/deck/input.txt",
 			"content": "ok",
 		}),
@@ -1582,9 +1583,9 @@ func TestFileWriteAndTerminalRunShareRequesterWorkspaceActorView(t *testing.T) {
 		},
 	})
 
-	writeResult, errorValue := toolRegistry.Invoke(context.Background(), bluecollar.ToolInvocation{
+	writeResult, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
 		ToolName: "file.write",
-		Input: bluecollar.MarshalToolInput(map[string]string{
+		Input: toolcontract.MarshalToolInput(map[string]string{
 			"path":    "tmp/deck/input.txt",
 			"content": "same workspace",
 		}),
@@ -1596,9 +1597,9 @@ func TestFileWriteAndTerminalRunShareRequesterWorkspaceActorView(t *testing.T) {
 		t.Fatalf("expected file.write success, got %s", writeResult.ContentText())
 	}
 
-	runResult, errorValue := toolRegistry.Invoke(context.Background(), bluecollar.ToolInvocation{
+	runResult, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
 		ToolName: "terminal.run",
-		Input: bluecollar.MarshalToolInput(map[string]any{
+		Input: toolcontract.MarshalToolInput(map[string]any{
 			"workingDirectoryPath": "tmp/deck",
 			"command":              "mkdir -p build && cat input.txt > build/output.txt",
 		}),
@@ -1630,9 +1631,9 @@ func TestFileWriteRejectsLegacyMode(t *testing.T) {
 	})
 	toolContext := bluecollar.WithTaskRunID(context.Background(), "run-mode-regression")
 
-	writeResult, errorValue := toolRegistry.Invoke(toolContext, bluecollar.ToolInvocation{
+	writeResult, errorValue := toolRegistry.Invoke(toolContext, toolcontract.ToolInvocation{
 		ToolName: "file.write",
-		Input: bluecollar.MarshalToolInput(map[string]any{
+		Input: toolcontract.MarshalToolInput(map[string]any{
 			"path":    "tmp/docx-guide/document.json",
 			"content": `{"title":"readable"}`,
 			"mode":    644,
@@ -1651,9 +1652,9 @@ func TestFileWriteWithoutRequesterIdentityDoesNotFallbackToServiceUser(t *testin
 	toolCatalogBuilder := newFileToolTestCatalogBuilder(workspacePath)
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
 
-	result, errorValue := toolRegistry.Invoke(context.Background(), bluecollar.ToolInvocation{
+	result, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
 		ToolName: "file.write",
-		Input: bluecollar.MarshalToolInput(map[string]string{
+		Input: toolcontract.MarshalToolInput(map[string]string{
 			"path":    "tmp/deck/input.txt",
 			"content": "no service fallback",
 		}),
@@ -1678,9 +1679,9 @@ func TestFileWriteRejectsBuiltInSkillPaths(t *testing.T) {
 		"/workspace/skills/.internkim-skills-manifest.json",
 		"/workspace/.agents/skills/agent-browser/SKILL.md",
 	} {
-		result, errorValue := toolRegistry.Invoke(context.Background(), bluecollar.ToolInvocation{
+		result, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
 			ToolName: "file.write",
-			Input: bluecollar.MarshalToolInput(map[string]string{
+			Input: toolcontract.MarshalToolInput(map[string]string{
 				"path":    path,
 				"content": "no",
 			}),

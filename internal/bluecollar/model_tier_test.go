@@ -2,6 +2,7 @@ package bluecollar
 
 import (
 	"context"
+	"github.com/Dawn-kim-official/blueclaw/internal/toolcontract"
 	"testing"
 	"time"
 
@@ -98,10 +99,10 @@ func TestTaskLevelProfileForLevelMapsLimits(t *testing.T) {
 }
 
 func TestArtifactTaskLevelFloorRaisesSiteAndSlidesToXHigh(t *testing.T) {
-	siteToolSet := newTestToolSetWithDefinitions([]ToolDefinition{{
+	siteToolSet := newTestToolSetWithDefinitions([]toolcontract.ToolDefinition{{
 		Name:            "site.serve",
 		Namespace:       "site",
-		SideEffectClass: ToolSideEffectExternalPublish,
+		SideEffectClass: toolcontract.ToolSideEffectExternalPublish,
 	}})
 	siteRequest := AgentRequest{
 		ToolSet:    siteToolSet,

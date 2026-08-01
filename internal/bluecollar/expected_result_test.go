@@ -2,6 +2,7 @@ package bluecollar
 
 import (
 	"encoding/json"
+	"github.com/Dawn-kim-official/blueclaw/internal/toolcontract"
 	"strings"
 	"testing"
 )
@@ -11,7 +12,7 @@ func TestCanonicalExpectedResultURLsIgnoreUncontractedOutput(t *testing.T) {
 	observations := []turnObservation{{
 		ObservationID: "obs-001",
 		Tool:          "external.publish",
-		Output: ToolOutput{
+		Output: toolcontract.ToolOutput{
 			Content: `{"publicURL":"https://portfolio.example"}`,
 			Data:    json.RawMessage(`{}`),
 		},
@@ -50,7 +51,7 @@ func TestCanonicalExpectedResultURLsPreferRequiredEffectIdentity(t *testing.T) {
 		Effects:       searchResult.Effects,
 	}
 	publishToolSet, publishObservation := canonicalLinkObservation("site.serve", "https://portfolio.example")
-	toolSet := newTestToolSetWithDefinitions([]ToolDefinition{
+	toolSet := newTestToolSetWithDefinitions([]toolcontract.ToolDefinition{
 		searchDefinition,
 		mustToolDefinition(t, publishToolSet, "site.serve"),
 	})
@@ -103,16 +104,16 @@ func TestExpectedResultDeliveryRequiresTypedFileAndMessage(t *testing.T) {
 		t.Fatal("expected missing typed attachment to block delivery")
 	}
 
-	ready := validateExpectedResultDelivery(request, nil, []FileAttachment{{Filename: "report.json"}}, finishDocument("Attached the file."))
+	ready := validateExpectedResultDelivery(request, nil, []toolcontract.FileAttachment{{Filename: "report.json"}}, finishDocument("Attached the file."))
 	if !ready.IsSatisfied {
 		t.Fatalf("expected typed attachment and message to pass, got %+v", ready)
 	}
 }
 
-func canonicalLinkObservation(toolName string, publicURL string) (*ToolSet, turnObservation) {
+func canonicalLinkObservation(toolName string, publicURL string) (*toolcontract.ToolSet, turnObservation) {
 	descriptor := canonicalLinkToolDefinition(toolName)
 	result := canonicalLinkToolResult(publicURL)
-	return newTestToolSetWithDefinitions([]ToolDefinition{descriptor}), turnObservation{
+	return newTestToolSetWithDefinitions([]toolcontract.ToolDefinition{descriptor}), turnObservation{
 		ObservationID: "obs-001",
 		Tool:          toolName,
 		Output:        result.Output,
@@ -120,12 +121,12 @@ func canonicalLinkObservation(toolName string, publicURL string) (*ToolSet, turn
 	}
 }
 
-func canonicalLinkToolDefinition(toolName string) ToolDefinition {
+func canonicalLinkToolDefinition(toolName string) toolcontract.ToolDefinition {
 	descriptor := testToolDescriptor(toolName)
 	descriptor.OutputSchema = json.RawMessage(`{"type":"object","properties":{"publicURL":{"type":"string"}},"required":["publicURL"],"additionalProperties":false}`)
-	descriptor.ResultContract = &ToolResultContract{
+	descriptor.ResultContract = &toolcontract.ToolResultContract{
 		Schema: json.RawMessage(`{"type":"object","properties":{"publicURL":{"type":"string"}},"required":["publicURL"],"additionalProperties":false}`),
-		Effects: []ResourceEffectContract{{
+		Effects: []toolcontract.ResourceEffectContract{{
 			ObjectType:     "website",
 			Effect:         "published",
 			ResultField:    "publicURL",
@@ -135,15 +136,15 @@ func canonicalLinkToolDefinition(toolName string) ToolDefinition {
 	return descriptor
 }
 
-func canonicalLinkToolResult(publicURL string) ToolResult {
+func canonicalLinkToolResult(publicURL string) toolcontract.ToolResult {
 	outputData := json.RawMessage(marshalEventBody(map[string]string{"publicURL": publicURL}))
-	return ToolResult{
-		Output:  ToolOutput{Content: string(outputData), Data: outputData},
-		Effects: []ResourceEffect{{ObjectType: "website", Effect: "published", URL: publicURL}},
+	return toolcontract.ToolResult{
+		Output:  toolcontract.ToolOutput{Content: string(outputData), Data: outputData},
+		Effects: []toolcontract.ResourceEffect{{ObjectType: "website", Effect: "published", URL: publicURL}},
 	}
 }
 
-func mustToolDefinition(t *testing.T, toolSet *ToolSet, toolName string) ToolDefinition {
+func mustToolDefinition(t *testing.T, toolSet *toolcontract.ToolSet, toolName string) toolcontract.ToolDefinition {
 	t.Helper()
 	definition, isFound := toolSet.ToolDefinition(toolName)
 	if !isFound {
@@ -164,7 +165,7 @@ func TestLinkExpectationWithoutLinkCapableToolDoesNotHardBlock(t *testing.T) {
 		t.Fatalf("expected an unsatisfiable link expectation to defer to the judge, got %q", message)
 	}
 
-	linkToolSet := newTestToolSetWithDefinitions([]ToolDefinition{canonicalLinkToolDefinition("site.serve")})
+	linkToolSet := newTestToolSetWithDefinitions([]toolcontract.ToolDefinition{canonicalLinkToolDefinition("site.serve")})
 	if message := missingExpectedResultDelivery(expectation, linkToolSet, nil, nil, "Created it."); message == "" {
 		t.Fatal("expected a link-capable working set to keep requiring the canonical link")
 	}

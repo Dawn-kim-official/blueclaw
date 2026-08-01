@@ -3,6 +3,7 @@ package bluecollar
 import (
 	"context"
 	"encoding/json"
+	"github.com/Dawn-kim-official/blueclaw/internal/toolcontract"
 	"os"
 	"strings"
 	"testing"
@@ -17,12 +18,12 @@ func TestLLMDLiveXLowCurrentAgentActionSchemaFromEnv(t *testing.T) {
 	if socketPath == "" || authKey == "" {
 		t.Skip("BLUECLAW_LLMD_LIVE_SOCKET and BLUECLAW_LLMD_LIVE_AUTH_KEY are required")
 	}
-	toolSet := NewToolSet([]string{TerminalRunToolName})
-	registerTestTool(toolSet, ToolDefinition{
-		Name:        TerminalRunToolName,
+	toolSet := toolcontract.NewToolSet([]string{toolcontract.TerminalRunToolName})
+	registerTestTool(toolSet, toolcontract.ToolDefinition{
+		Name:        toolcontract.TerminalRunToolName,
 		Description: "Run a terminal command.",
 		InputSchema: json.RawMessage(`{"type":"object","properties":{"command":{"type":"string"}},"required":["command"],"additionalProperties":false}`),
-	}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
 		return testToolSuccess("not executed"), nil
 	})
 	request := BuildAgentActionRequest(agentTaskState{Request: AgentTurnRequest{
@@ -43,7 +44,7 @@ func TestLLMDLiveXLowCurrentAgentActionSchemaFromEnv(t *testing.T) {
 	if errorValue != nil {
 		t.Fatalf("expected parsable llmd agent action, got %q: %v", response.Content, errorValue)
 	}
-	if action.Action != "continue" || action.ToolName != TerminalRunToolName {
+	if action.Action != "continue" || action.ToolName != toolcontract.TerminalRunToolName {
 		t.Fatalf("expected llmd terminal.run continue action, got %+v", action)
 	}
 }

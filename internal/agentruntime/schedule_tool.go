@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/Dawn-kim-official/blueclaw/internal/toolcontract"
 	"strconv"
 	"strings"
 	"time"
@@ -144,15 +145,15 @@ func taskScheduleIDs(taskSchedules []task.TaskSchedule) []string {
 	return scheduleIDs
 }
 
-func scheduleListToolResult(output scheduleListToolOutput) bluecollar.ToolResult {
+func scheduleListToolResult(output scheduleListToolOutput) toolcontract.ToolResult {
 	document := json.RawMessage(marshalToolResult(output))
-	return bluecollar.ToolSuccessData(string(document), document)
+	return toolcontract.ToolSuccessData(string(document), document)
 }
 
-func (toolCatalogBuilder *ToolCatalogBuilder) registerScheduleTools(toolRegistry *bluecollar.ToolSet, handlerContext toolHandlerContext) {
+func (toolCatalogBuilder *ToolCatalogBuilder) registerScheduleTools(toolRegistry *toolcontract.ToolSet, handlerContext toolHandlerContext) {
 	if toolCatalogBuilder.taskScheduleRepository != nil && strings.TrimSpace(handlerContext.request.RequesterPersonID) != "" {
-		bluecollar.RegisterToolFunction(toolRegistry, bluecollar.ToolFunction[scheduleListToolInput, scheduleListToolOutput]{
-			Definition: bluecollar.ToolDefinition{
+		toolcontract.RegisterToolFunction(toolRegistry, toolcontract.ToolFunction[scheduleListToolInput, scheduleListToolOutput]{
+			Definition: toolcontract.ToolDefinition{
 				Name:        "schedule.list",
 				Description: "List active scheduled tasks created by the current requester. Use it to answer what reminders or recurring tasks are currently scheduled.",
 				InputSchema: scheduleListInputSchema,
@@ -164,39 +165,39 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerScheduleTools(toolRegistry
 		})
 	}
 	if !handlerContext.request.IsScheduledRun {
-		bluecollar.RegisterToolFunction(toolRegistry, bluecollar.ToolFunction[scheduleCreateToolInput, bluecollar.ToolResult]{
-			Definition: bluecollar.ToolDefinition{
+		toolcontract.RegisterToolFunction(toolRegistry, toolcontract.ToolFunction[scheduleCreateToolInput, toolcontract.ToolResult]{
+			Definition: toolcontract.ToolDefinition{
 				Name:        "schedule.create",
 				Description: "Create a scheduled task for the current requester and reply target. Put only the work to perform at run time in taskInstruction. Do not copy the original scheduling request into taskInstruction. Cadence and stop conditions must be represented only by kind, runAt, intervalSecond, cronExpression, expiresAt, and maxRunCount. For interval or cron schedules, set repeatPolicy to finite when the user gave an end condition and include expiresAt or maxRunCount; set repeatPolicy to unbounded only when the user explicitly wants no end.",
 				InputSchema: scheduleCreateInputSchema,
 			},
-			Handler: func(toolContext context.Context, input scheduleCreateToolInput) (bluecollar.ToolResult, error) {
+			Handler: func(toolContext context.Context, input scheduleCreateToolInput) (toolcontract.ToolResult, error) {
 				return toolCatalogBuilder.createScheduleTool(toolContext, input, handlerContext)
 			},
-			Result: bluecollar.IdentityToolResult,
+			Result: toolcontract.IdentityToolResult,
 		})
-		bluecollar.RegisterToolFunction(toolRegistry, bluecollar.ToolFunction[scheduleUpdateToolInput, bluecollar.ToolResult]{
-			Definition: bluecollar.ToolDefinition{
+		toolcontract.RegisterToolFunction(toolRegistry, toolcontract.ToolFunction[scheduleUpdateToolInput, toolcontract.ToolResult]{
+			Definition: toolcontract.ToolDefinition{
 				Name:        "schedule.update",
 				Description: "Update an active scheduled task created by the current requester. Provide scheduleID and only the scalar fields that should change. Keep only the work to perform at run time in taskInstruction; represent cadence and stop conditions only with kind, runAt, intervalSecond, cronExpression, expiresAt, maxRunCount, and repeatPolicy.",
 				InputSchema: scheduleUpdateInputSchema,
 			},
-			Handler: func(toolContext context.Context, input scheduleUpdateToolInput) (bluecollar.ToolResult, error) {
+			Handler: func(toolContext context.Context, input scheduleUpdateToolInput) (toolcontract.ToolResult, error) {
 				return toolCatalogBuilder.updateScheduleTool(toolContext, input, handlerContext)
 			},
-			Result: bluecollar.IdentityToolResult,
+			Result: toolcontract.IdentityToolResult,
 		})
 	}
-	bluecollar.RegisterToolFunction(toolRegistry, bluecollar.ToolFunction[scheduleCancelToolInput, bluecollar.ToolResult]{
-		Definition: bluecollar.ToolDefinition{
+	toolcontract.RegisterToolFunction(toolRegistry, toolcontract.ToolFunction[scheduleCancelToolInput, toolcontract.ToolResult]{
+		Definition: toolcontract.ToolDefinition{
 			Name:        "schedule.cancel",
 			Description: "Cancel active scheduled tasks and pending approval or user-input waits. Use scope mine for schedules created by the current requester. Use scope currentConversation when the user wants messages or reminders delivered to this conversation to stop, even if another person created that delivery schedule. Use scope scheduleIDs for explicit schedule IDs visible from prior tool results. Cancellation expires records instead of deleting audit history.",
 			InputSchema: scheduleCancelInputSchema,
 		},
-		Handler: func(toolContext context.Context, input scheduleCancelToolInput) (bluecollar.ToolResult, error) {
+		Handler: func(toolContext context.Context, input scheduleCancelToolInput) (toolcontract.ToolResult, error) {
 			return toolCatalogBuilder.cancelScheduleTool(toolContext, input, handlerContext)
 		},
-		Result: bluecollar.IdentityToolResult,
+		Result: toolcontract.IdentityToolResult,
 	})
 }
 
@@ -217,40 +218,40 @@ func (toolCatalogBuilder *ToolCatalogBuilder) listScheduleTool(input scheduleLis
 	}, nil
 }
 
-func (toolCatalogBuilder *ToolCatalogBuilder) createScheduleTool(toolContext context.Context, input scheduleCreateToolInput, handlerContext toolHandlerContext) (bluecollar.ToolResult, error) {
+func (toolCatalogBuilder *ToolCatalogBuilder) createScheduleTool(toolContext context.Context, input scheduleCreateToolInput, handlerContext toolHandlerContext) (toolcontract.ToolResult, error) {
 	if toolCatalogBuilder.taskScheduleRepository == nil {
-		return bluecollar.ToolFailureResult(bluecollar.FailureDependencyUnavailable, bluecollar.FailureCodes.Unavailable, "schedule_create", "task schedule repository is unavailable"), nil
+		return toolcontract.ToolFailureResult(toolcontract.FailureDependencyUnavailable, toolcontract.FailureCodes.Unavailable, "schedule_create", "task schedule repository is unavailable"), nil
 	}
 	taskSchedule, errorValue := toolCatalogBuilder.buildTaskSchedule(input, handlerContext)
 	if errorValue != nil {
-		return bluecollar.ToolFailureResult(bluecollar.FailureInvalidInput, bluecollar.FailureCodes.InvalidInput, "schedule_create", errorValue.Error()), nil
+		return toolcontract.ToolFailureResult(toolcontract.FailureInvalidInput, toolcontract.FailureCodes.InvalidInput, "schedule_create", errorValue.Error()), nil
 	}
 	initializedTaskSchedule, errorValue := (task.TaskScheduler{}).InitializeTaskSchedule(taskSchedule, time.Now().UTC())
 	if errorValue != nil {
-		return bluecollar.ToolFailureResult(bluecollar.FailureInvalidInput, bluecollar.FailureCodes.InvalidInput, "schedule_create", "invalid task schedule"), nil
+		return toolcontract.ToolFailureResult(toolcontract.FailureInvalidInput, toolcontract.FailureCodes.InvalidInput, "schedule_create", "invalid task schedule"), nil
 	}
 	if initializedTaskSchedule.NextRunAt == nil {
-		return bluecollar.ToolFailureResult(bluecollar.FailureInvalidInput, bluecollar.FailureCodes.InvalidInput, "schedule_create", "task schedule has no future run"), nil
+		return toolcontract.ToolFailureResult(toolcontract.FailureInvalidInput, toolcontract.FailureCodes.InvalidInput, "schedule_create", "task schedule has no future run"), nil
 	}
 	if errorValue := toolCatalogBuilder.taskScheduleRepository.UpsertTaskSchedule(initializedTaskSchedule); errorValue != nil {
-		return bluecollar.ToolResult{}, errorValue
+		return toolcontract.ToolResult{}, errorValue
 	}
 	resultDocument := scheduleCreateResultDocument(initializedTaskSchedule)
 	if taskRunID := bluecollar.TaskRunIDFromContext(toolContext); taskRunID != "" && toolCatalogBuilder.taskRunService != nil {
 		toolCatalogBuilder.taskRunService.AppendTaskEvent(taskRunID, "schedule.created", string(resultDocument))
 	}
-	return bluecollar.ToolSuccessData(string(resultDocument), resultDocument), nil
+	return toolcontract.ToolSuccessData(string(resultDocument), resultDocument), nil
 }
 
-func (toolCatalogBuilder *ToolCatalogBuilder) updateScheduleTool(toolContext context.Context, input scheduleUpdateToolInput, handlerContext toolHandlerContext) (bluecollar.ToolResult, error) {
+func (toolCatalogBuilder *ToolCatalogBuilder) updateScheduleTool(toolContext context.Context, input scheduleUpdateToolInput, handlerContext toolHandlerContext) (toolcontract.ToolResult, error) {
 	if toolCatalogBuilder.taskScheduleRepository == nil {
-		return bluecollar.ToolFailureResult(bluecollar.FailureDependencyUnavailable, bluecollar.FailureCodes.Unavailable, "schedule_update", "task schedule repository is unavailable"), nil
+		return toolcontract.ToolFailureResult(toolcontract.FailureDependencyUnavailable, toolcontract.FailureCodes.Unavailable, "schedule_update", "task schedule repository is unavailable"), nil
 	}
 	if errorValue := validateScheduleID(input.ScheduleID); errorValue != nil {
-		return bluecollar.ToolFailureResult(bluecollar.FailureInvalidInput, bluecollar.FailureCodes.InvalidInput, "schedule_update", errorValue.Error()), nil
+		return toolcontract.ToolFailureResult(toolcontract.FailureInvalidInput, toolcontract.FailureCodes.InvalidInput, "schedule_update", errorValue.Error()), nil
 	}
 	if errorValue := validateScheduleUpdate(input); errorValue != nil {
-		return bluecollar.ToolFailureResult(bluecollar.FailureInvalidInput, bluecollar.FailureCodes.InvalidInput, "schedule_update", errorValue.Error()), nil
+		return toolcontract.ToolFailureResult(toolcontract.FailureInvalidInput, toolcontract.FailureCodes.InvalidInput, "schedule_update", errorValue.Error()), nil
 	}
 	updateRequest := task.TaskScheduleUpdateRequest{
 		TaskScheduleID:    input.ScheduleID,
@@ -262,30 +263,30 @@ func (toolCatalogBuilder *ToolCatalogBuilder) updateScheduleTool(toolContext con
 	result, errorValue := toolCatalogBuilder.taskScheduleRepository.UpdateTaskSchedule(updateRequest)
 	if errorValue != nil {
 		if isScheduleToolValidationError(errorValue) {
-			return bluecollar.ToolFailureResult(bluecollar.FailureInvalidInput, bluecollar.FailureCodes.InvalidInput, "schedule_update", errorValue.Error()), nil
+			return toolcontract.ToolFailureResult(toolcontract.FailureInvalidInput, toolcontract.FailureCodes.InvalidInput, "schedule_update", errorValue.Error()), nil
 		}
-		return bluecollar.ToolResult{}, errorValue
+		return toolcontract.ToolResult{}, errorValue
 	}
 	if !result.IsFound {
-		return bluecollar.ToolFailureResult(bluecollar.FailureNotFound, bluecollar.FailureCodes.NotFound, "schedule_update", "active schedule was not found for the current requester"), nil
+		return toolcontract.ToolFailureResult(toolcontract.FailureNotFound, toolcontract.FailureCodes.NotFound, "schedule_update", "active schedule was not found for the current requester"), nil
 	}
 	resultDocument := scheduleCreateResultDocument(result.TaskSchedule)
 	if taskRunID := bluecollar.TaskRunIDFromContext(toolContext); taskRunID != "" && toolCatalogBuilder.taskRunService != nil {
 		toolCatalogBuilder.taskRunService.AppendTaskEvent(taskRunID, "schedule.updated", string(resultDocument))
 	}
-	return bluecollar.ToolSuccessData(string(resultDocument), resultDocument), nil
+	return toolcontract.ToolSuccessData(string(resultDocument), resultDocument), nil
 }
 
-func (toolCatalogBuilder *ToolCatalogBuilder) cancelScheduleTool(toolContext context.Context, input scheduleCancelToolInput, handlerContext toolHandlerContext) (bluecollar.ToolResult, error) {
+func (toolCatalogBuilder *ToolCatalogBuilder) cancelScheduleTool(toolContext context.Context, input scheduleCancelToolInput, handlerContext toolHandlerContext) (toolcontract.ToolResult, error) {
 	if toolCatalogBuilder.taskScheduleRepository == nil {
-		return bluecollar.ToolFailureResult(bluecollar.FailureDependencyUnavailable, bluecollar.FailureCodes.Unavailable, "schedule_cancel", "task schedule repository is unavailable"), nil
+		return toolcontract.ToolFailureResult(toolcontract.FailureDependencyUnavailable, toolcontract.FailureCodes.Unavailable, "schedule_cancel", "task schedule repository is unavailable"), nil
 	}
 	scope, errorValue := parseScheduleCancelScope(input.Scope)
 	if errorValue != nil {
-		return bluecollar.ToolFailureResult(bluecollar.FailureInvalidInput, bluecollar.FailureCodes.InvalidInput, "schedule_cancel", errorValue.Error()), nil
+		return toolcontract.ToolFailureResult(toolcontract.FailureInvalidInput, toolcontract.FailureCodes.InvalidInput, "schedule_cancel", errorValue.Error()), nil
 	}
 	if errorValue := validateScheduleCancelIDs(scope, input.ScheduleIDs); errorValue != nil {
-		return bluecollar.ToolFailureResult(bluecollar.FailureInvalidInput, bluecollar.FailureCodes.InvalidInput, "schedule_cancel", errorValue.Error()), nil
+		return toolcontract.ToolFailureResult(toolcontract.FailureInvalidInput, toolcontract.FailureCodes.InvalidInput, "schedule_cancel", errorValue.Error()), nil
 	}
 	cancelledAt := time.Now().UTC()
 	cancelRequest := task.TaskScheduleCancelRequest{
@@ -297,16 +298,16 @@ func (toolCatalogBuilder *ToolCatalogBuilder) cancelScheduleTool(toolContext con
 	}
 	result, errorValue := toolCatalogBuilder.cancelMatchingSchedules(cancelRequest, cancelledAt)
 	if errorValue != nil {
-		return bluecollar.ToolResult{}, errorValue
+		return toolcontract.ToolResult{}, errorValue
 	}
 	resultDocument := json.RawMessage(marshalToolResult(result))
 	if result.EffectiveCancellationCount == 0 {
-		return bluecollar.ToolFailureData(bluecollar.FailureNotFound, bluecollar.FailureCodes.NotFound, "schedule_cancel", "no active schedules or pending scheduled work matched the cancellation request", resultDocument), nil
+		return toolcontract.ToolFailureData(toolcontract.FailureNotFound, toolcontract.FailureCodes.NotFound, "schedule_cancel", "no active schedules or pending scheduled work matched the cancellation request", resultDocument), nil
 	}
 	if taskRunID := bluecollar.TaskRunIDFromContext(toolContext); taskRunID != "" && toolCatalogBuilder.taskRunService != nil {
 		toolCatalogBuilder.taskRunService.AppendTaskEvent(taskRunID, "schedule.cancelled", string(resultDocument))
 	}
-	return bluecollar.ToolSuccessData(string(resultDocument), resultDocument), nil
+	return toolcontract.ToolSuccessData(string(resultDocument), resultDocument), nil
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) cancelMatchingSchedules(cancelRequest task.TaskScheduleCancelRequest, cancelledAt time.Time) (scheduleCancelOperationResult, error) {

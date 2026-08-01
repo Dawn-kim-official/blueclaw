@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"github.com/Dawn-kim-official/blueclaw/internal/toolcontract"
 	"log/slog"
 	"net"
 	"net/http"
@@ -240,10 +241,10 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 	logger.Info("application.initializing", "stage", "tool_catalog")
 	toolCatalogBuilder := agentruntime.NewToolCatalogBuilder()
 	toolCatalogBuilder.UseMCPRegistry(mcpRegistry)
-	toolCatalogBuilder.UseMCPQuarantineReporter(func(quarantinedProvider bluecollar.QuarantinedToolProvider) {
+	toolCatalogBuilder.UseMCPQuarantineReporter(func(quarantinedProvider toolcontract.QuarantinedToolProvider) {
 		logMCPProviderQuarantine(logger, quarantinedProvider)
 	})
-	toolCatalogBuilder.UseCapabilityQuarantineReporter(func(quarantinedProvider bluecollar.QuarantinedToolProvider) {
+	toolCatalogBuilder.UseCapabilityQuarantineReporter(func(quarantinedProvider toolcontract.QuarantinedToolProvider) {
 		logCapabilityProviderQuarantine(logger, quarantinedProvider)
 	})
 	toolCatalogBuilder.UseCapabilityToolDescriptors(capabilityClient, capabilityToolDescriptors(runtimeConfiguration.Capabilities.ToolDescriptors))
@@ -467,14 +468,14 @@ func logMCPServerQuarantines(logger *slog.Logger, report mcp.LoadReport) {
 	}
 }
 
-func logMCPProviderQuarantine(logger *slog.Logger, quarantinedProvider bluecollar.QuarantinedToolProvider) {
+func logMCPProviderQuarantine(logger *slog.Logger, quarantinedProvider toolcontract.QuarantinedToolProvider) {
 	if logger == nil {
 		return
 	}
 	logger.Warn("mcp.provider.quarantined", "providerID", quarantinedProvider.ProviderID, "reason", quarantinedProvider.Reason)
 }
 
-func logCapabilityProviderQuarantine(logger *slog.Logger, quarantinedProvider bluecollar.QuarantinedToolProvider) {
+func logCapabilityProviderQuarantine(logger *slog.Logger, quarantinedProvider toolcontract.QuarantinedToolProvider) {
 	if logger == nil {
 		return
 	}
@@ -720,13 +721,13 @@ func instructionSource(path string, skillName string, document []byte) bluecolla
 
 func deriveAllowedToolNames(runtimeConfiguration config.RuntimeConfiguration) []string {
 	allowedToolNameByName := map[string]bool{}
-	for _, toolName := range bluecollar.KernelToolNames() {
+	for _, toolName := range toolcontract.KernelToolNames() {
 		allowedToolNameByName[toolName] = true
 	}
 	for _, agentProfile := range runtimeConfiguration.AgentProfiles {
 		for _, allowedToolName := range agentProfile.AllowedToolNames {
 			trimmedToolName := strings.TrimSpace(allowedToolName)
-			if bluecollar.IsKernelToolName(trimmedToolName) {
+			if toolcontract.IsKernelToolName(trimmedToolName) {
 				allowedToolNameByName[trimmedToolName] = true
 			}
 		}
@@ -847,10 +848,10 @@ func deriveAllowedToolNamesByProfile(runtimeConfiguration config.RuntimeConfigur
 }
 
 func appendDefaultBuiltInToolNames(toolNames []string) []string {
-	result := bluecollar.KernelToolNames()
+	result := toolcontract.KernelToolNames()
 	for _, toolName := range toolNames {
 		trimmedToolName := strings.TrimSpace(toolName)
-		if bluecollar.IsKernelToolName(trimmedToolName) && !containsString(result, trimmedToolName) {
+		if toolcontract.IsKernelToolName(trimmedToolName) && !containsString(result, trimmedToolName) {
 			result = append(result, trimmedToolName)
 		}
 	}

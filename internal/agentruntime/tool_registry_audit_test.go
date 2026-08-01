@@ -3,9 +3,9 @@ package agentruntime
 import (
 	"context"
 	"encoding/json"
+	"github.com/Dawn-kim-official/blueclaw/internal/toolcontract"
 	"testing"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/bluecollar"
 	"github.com/Dawn-kim-official/blueclaw/internal/capability"
 )
 
@@ -13,7 +13,7 @@ func TestHashCapabilityDescriptorsIncludesBroadenedFields(t *testing.T) {
 	baseDescriptor := CapabilityToolDescriptor{
 		Name:            "task.add",
 		InputSchema:     json.RawMessage(`{"type":"object","properties":{},"additionalProperties":false}`),
-		SideEffectClass: bluecollar.ToolSideEffectStateChange,
+		SideEffectClass: toolcontract.ToolSideEffectStateChange,
 		Idempotency:     CapabilityIdempotency{Supported: true, Scope: "operation"},
 	}
 	baseHash := hashCapabilityDescriptors([]CapabilityToolDescriptor{baseDescriptor})
@@ -27,7 +27,7 @@ func TestHashCapabilityDescriptorsIncludesBroadenedFields(t *testing.T) {
 			return descriptor
 		}},
 		{name: "sideEffectClass changes", mutate: func(descriptor CapabilityToolDescriptor) CapabilityToolDescriptor {
-			descriptor.SideEffectClass = bluecollar.ToolSideEffectRead
+			descriptor.SideEffectClass = toolcontract.ToolSideEffectRead
 			return descriptor
 		}},
 		{name: "requiresApproval changes", mutate: func(descriptor CapabilityToolDescriptor) CapabilityToolDescriptor {
@@ -61,7 +61,7 @@ func TestBuildToolRegistryAuditRunsLiveCheckForNonMessageCapabilityDescriptors(t
 		}]}`},
 	}, []CapabilityToolDescriptor{{Name: "task.add"}})
 
-	audit, errorValue := toolCatalogBuilder.BuildToolRegistryAudit(context.Background(), bluecollar.NewToolSet(nil))
+	audit, errorValue := toolCatalogBuilder.BuildToolRegistryAudit(context.Background(), toolcontract.NewToolSet(nil))
 
 	if errorValue != nil {
 		t.Fatal(errorValue)
@@ -74,7 +74,7 @@ func TestBuildToolRegistryAuditRunsLiveCheckForNonMessageCapabilityDescriptors(t
 func TestBuildToolRegistryAuditSkipsLiveCheckWithoutCapabilityDescriptors(t *testing.T) {
 	toolCatalogBuilder := NewToolCatalogBuilder()
 
-	audit, errorValue := toolCatalogBuilder.BuildToolRegistryAudit(context.Background(), bluecollar.NewToolSet(nil))
+	audit, errorValue := toolCatalogBuilder.BuildToolRegistryAudit(context.Background(), toolcontract.NewToolSet(nil))
 
 	if errorValue != nil {
 		t.Fatal(errorValue)
@@ -88,7 +88,7 @@ func TestBuildToolRegistryAuditDegradesWhenLiveCapabilityRegistryIsUnavailable(t
 	toolCatalogBuilder := NewToolCatalogBuilder()
 	toolCatalogBuilder.UseTestCapabilityToolDescriptors(capability.Client{}, []CapabilityToolDescriptor{{Name: "task.add"}})
 
-	audit, errorValue := toolCatalogBuilder.BuildToolRegistryAudit(context.Background(), bluecollar.NewToolSet(nil))
+	audit, errorValue := toolCatalogBuilder.BuildToolRegistryAudit(context.Background(), toolcontract.NewToolSet(nil))
 
 	if errorValue != nil {
 		t.Fatalf("expected an unavailable live capability registry to degrade, got %v", errorValue)
@@ -103,7 +103,7 @@ func TestBuildToolRegistryAuditServesCachedSnapshotWhenLiveFetchFails(t *testing
 	toolCatalogBuilder.UseTestCapabilityToolDescriptors(capability.Client{}, []CapabilityToolDescriptor{{Name: "task.add"}})
 	toolCatalogBuilder.storeLiveCapabilitySnapshot([]CapabilityToolDescriptor{{Name: "task.add"}}, "snapshot-hash")
 
-	audit, errorValue := toolCatalogBuilder.BuildToolRegistryAudit(context.Background(), bluecollar.NewToolSet(nil))
+	audit, errorValue := toolCatalogBuilder.BuildToolRegistryAudit(context.Background(), toolcontract.NewToolSet(nil))
 
 	if errorValue != nil {
 		t.Fatalf("expected cached snapshot to serve the audit, got %v", errorValue)

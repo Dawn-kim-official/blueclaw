@@ -4,6 +4,7 @@ import (
 	"archive/zip"
 	"bytes"
 	"encoding/base64"
+	"github.com/Dawn-kim-official/blueclaw/internal/toolcontract"
 	"os"
 	"path/filepath"
 	"testing"
@@ -28,7 +29,7 @@ func TestValidityStateAcceptsReadableNonEmptyArtifact(t *testing.T) {
 
 func TestValidityStateRejectsPlainTextDOCX(t *testing.T) {
 	document := []byte("plain text renamed as docx")
-	validityState := buildAttachmentValidityState(t.TempDir(), []FileAttachment{{
+	validityState := buildAttachmentValidityState(t.TempDir(), []toolcontract.FileAttachment{{
 		DevicePath:    "/workspace/private/people/person-1/documents/report.docx",
 		Filename:      "report.docx",
 		SizeBytes:     int64(len(document)),
@@ -45,7 +46,7 @@ func TestValidityStateRejectsPlainTextDOCX(t *testing.T) {
 
 func TestValidityStateAcceptsMinimalDOCX(t *testing.T) {
 	document := minimalDOCX(t)
-	validityState := buildAttachmentValidityState(t.TempDir(), []FileAttachment{{
+	validityState := buildAttachmentValidityState(t.TempDir(), []toolcontract.FileAttachment{{
 		DevicePath:    "/workspace/private/people/person-1/documents/report.docx",
 		Filename:      "report.docx",
 		SizeBytes:     int64(len(document)),
@@ -123,7 +124,7 @@ func TestValidityStateAcceptsDeckWithoutIntentManifest(t *testing.T) {
 }
 
 func TestAttachmentValidityUsesPayloadBeforePrivatePathStat(t *testing.T) {
-	validityState := buildAttachmentValidityState(t.TempDir(), []FileAttachment{{
+	validityState := buildAttachmentValidityState(t.TempDir(), []toolcontract.FileAttachment{{
 		DevicePath:    "/workspace/private/people/person-1/artifacts/deck/result.txt",
 		Filename:      "result.txt",
 		SizeBytes:     6,

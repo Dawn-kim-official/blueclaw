@@ -3,6 +3,7 @@ package agentruntime
 import (
 	"context"
 	"encoding/json"
+	"github.com/Dawn-kim-official/blueclaw/internal/toolcontract"
 	"slices"
 	"testing"
 
@@ -19,7 +20,7 @@ func TestKernelToolProviderUsesCanonicalDescriptors(t *testing.T) {
 	toolCatalogBuilder := NewToolCatalogBuilder()
 	provider := newKernelToolProvider(toolCatalogBuilder, toolHandlerContext{
 		request: ToolCatalogRequest{HistoryProvider: kernelHistoryProvider{}},
-	}, bluecollar.NewToolSet(nil))
+	}, toolcontract.NewToolSet(nil))
 
 	boundTools, errorValue := provider.ListTools(context.Background())
 	if errorValue != nil {
@@ -31,7 +32,7 @@ func TestKernelToolProviderUsesCanonicalDescriptors(t *testing.T) {
 
 	expectedToolNames := map[string]bool{}
 	for _, toolName := range localKernelToolNames() {
-		if toolName != bluecollar.SkillSearchToolName {
+		if toolName != toolcontract.SkillSearchToolName {
 			expectedToolNames[toolName] = true
 		}
 	}
@@ -80,11 +81,11 @@ func TestKernelToolProviderUsesCanonicalDescriptors(t *testing.T) {
 func TestKernelToolProviderPassesExplicitSchemaValidation(t *testing.T) {
 	provider := newKernelToolProvider(NewToolCatalogBuilder(), toolHandlerContext{
 		request: ToolCatalogRequest{HistoryProvider: kernelHistoryProvider{}},
-	}, bluecollar.NewToolSet(nil))
-	toolSet := bluecollar.NewToolSet(nil)
-	quarantinedProviders, errorValue := toolSet.RegisterProviders(context.Background(), []bluecollar.ToolProviderRegistration{{
+	}, toolcontract.NewToolSet(nil))
+	toolSet := toolcontract.NewToolSet(nil)
+	quarantinedProviders, errorValue := toolSet.RegisterProviders(context.Background(), []toolcontract.ToolProviderRegistration{{
 		Provider: provider,
-		Trust:    bluecollar.ToolProviderExternal,
+		Trust:    toolcontract.ToolProviderExternal,
 	}})
 	if errorValue != nil {
 		t.Fatal(errorValue)
@@ -99,20 +100,20 @@ func TestKernelToolProviderPassesExplicitSchemaValidation(t *testing.T) {
 
 func TestLocalKernelToolNamesExcludeCapabilityBackedImageReader(t *testing.T) {
 	expectedKernelToolNames := []string{
-		bluecollar.TerminalRunToolName,
-		bluecollar.FileDeliverToolName,
-		bluecollar.SkillSearchToolName,
-		bluecollar.FileReadToolName,
-		bluecollar.FileWriteToolName,
-		bluecollar.FileDeleteToolName,
-		bluecollar.FileEditToolName,
-		bluecollar.FilePreviewToolName,
-		bluecollar.PlanUpdateToolName,
-		bluecollar.RequestToolsToolName,
-		bluecollar.ConversationHistoryToolName,
+		toolcontract.TerminalRunToolName,
+		toolcontract.FileDeliverToolName,
+		toolcontract.SkillSearchToolName,
+		toolcontract.FileReadToolName,
+		toolcontract.FileWriteToolName,
+		toolcontract.FileDeleteToolName,
+		toolcontract.FileEditToolName,
+		toolcontract.FilePreviewToolName,
+		toolcontract.PlanUpdateToolName,
+		toolcontract.RequestToolsToolName,
+		toolcontract.ConversationHistoryToolName,
 	}
-	if len(bluecollar.KernelToolNames()) != len(expectedKernelToolNames)+1 {
-		t.Fatalf("expected the kernel names to exceed local names by image.read only, got %+v", bluecollar.KernelToolNames())
+	if len(toolcontract.KernelToolNames()) != len(expectedKernelToolNames)+1 {
+		t.Fatalf("expected the kernel names to exceed local names by image.read only, got %+v", toolcontract.KernelToolNames())
 	}
 	if len(localKernelToolNames()) != len(expectedKernelToolNames) {
 		t.Fatalf("expected every locally bound kernel tool accounted for, got %+v", localKernelToolNames())
@@ -127,20 +128,20 @@ func TestLocalKernelToolNamesExcludeCapabilityBackedImageReader(t *testing.T) {
 func TestKernelToolsHaveCanonicalResultContracts(t *testing.T) {
 	provider := newKernelToolProvider(NewToolCatalogBuilder(), toolHandlerContext{
 		request: ToolCatalogRequest{HistoryProvider: kernelHistoryProvider{}},
-	}, bluecollar.NewToolSet(nil))
+	}, toolcontract.NewToolSet(nil))
 	boundTools, errorValue := provider.ListTools(context.Background())
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
 	expectedEffectCounts := map[string]int{
-		bluecollar.TerminalRunToolName:         0,
-		bluecollar.FileReadToolName:            0,
-		bluecollar.FileWriteToolName:           2,
-		bluecollar.FileDeleteToolName:          1,
-		bluecollar.FileEditToolName:            2,
-		bluecollar.FilePreviewToolName:         0,
-		bluecollar.FileDeliverToolName:         1,
-		bluecollar.ConversationHistoryToolName: 0,
+		toolcontract.TerminalRunToolName:         0,
+		toolcontract.FileReadToolName:            0,
+		toolcontract.FileWriteToolName:           2,
+		toolcontract.FileDeleteToolName:          1,
+		toolcontract.FileEditToolName:            2,
+		toolcontract.FilePreviewToolName:         0,
+		toolcontract.FileDeliverToolName:         1,
+		toolcontract.ConversationHistoryToolName: 0,
 	}
 	for _, boundTool := range boundTools {
 		expectedEffectCount, isContractedTool := expectedEffectCounts[boundTool.Definition.Name]
@@ -165,14 +166,14 @@ func TestKernelToolsHaveCanonicalResultContracts(t *testing.T) {
 }
 
 func TestTerminalRunDescriptorUsesStrictCanonicalContract(t *testing.T) {
-	provider := newKernelToolProvider(NewToolCatalogBuilder(), toolHandlerContext{}, bluecollar.NewToolSet(nil))
+	provider := newKernelToolProvider(NewToolCatalogBuilder(), toolHandlerContext{}, toolcontract.NewToolSet(nil))
 	boundTools, errorValue := provider.ListTools(context.Background())
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
-	var definition bluecollar.ToolDefinition
+	var definition toolcontract.ToolDefinition
 	for _, boundTool := range boundTools {
-		if boundTool.Definition.Name == bluecollar.TerminalRunToolName {
+		if boundTool.Definition.Name == toolcontract.TerminalRunToolName {
 			definition = boundTool.Definition
 			break
 		}
@@ -227,13 +228,13 @@ func TestTerminalRunDescriptorUsesStrictCanonicalContract(t *testing.T) {
 }
 
 func TestFileDeliverDescriptorKeepsGeneratedArtifactOutsideOperationIntent(t *testing.T) {
-	provider := newKernelToolProvider(NewToolCatalogBuilder(), toolHandlerContext{}, bluecollar.NewToolSet(nil))
+	provider := newKernelToolProvider(NewToolCatalogBuilder(), toolHandlerContext{}, toolcontract.NewToolSet(nil))
 	boundTools, errorValue := provider.ListTools(context.Background())
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
 	for _, boundTool := range boundTools {
-		if boundTool.Definition.Name != bluecollar.FileDeliverToolName {
+		if boundTool.Definition.Name != toolcontract.FileDeliverToolName {
 			continue
 		}
 		var inputIntentSchema map[string]any
@@ -253,21 +254,21 @@ func TestKernelToolProviderProjectsEveryResultPathEffect(t *testing.T) {
 	testCases := []struct {
 		toolName       string
 		data           json.RawMessage
-		expectedEffect []bluecollar.ResourceEffect
+		expectedEffect []toolcontract.ResourceEffect
 	}{
 		{
-			toolName: bluecollar.FileDeleteToolName,
+			toolName: toolcontract.FileDeleteToolName,
 			data:     json.RawMessage(`{"path":"tmp/obsolete.txt","deleted":true}`),
-			expectedEffect: []bluecollar.ResourceEffect{{
+			expectedEffect: []toolcontract.ResourceEffect{{
 				ObjectType: "file",
 				Effect:     "deleted",
 				Path:       "tmp/obsolete.txt",
 			}},
 		},
 		{
-			toolName: bluecollar.FileEditToolName,
+			toolName: toolcontract.FileEditToolName,
 			data:     json.RawMessage(`{"editedFiles":["tmp/first.md","tmp/second.md"],"editCount":2}`),
-			expectedEffect: []bluecollar.ResourceEffect{
+			expectedEffect: []toolcontract.ResourceEffect{
 				{ObjectType: "file", Effect: "updated", Path: "tmp/first.md"},
 				{ObjectType: "file", Effect: "updated", Path: "tmp/second.md"},
 				{ObjectType: "workspace", Effect: "modified", Path: "tmp/first.md"},
@@ -277,13 +278,13 @@ func TestKernelToolProviderProjectsEveryResultPathEffect(t *testing.T) {
 	}
 	for _, testCase := range testCases {
 		t.Run(testCase.toolName, func(t *testing.T) {
-			handlerToolSet := bluecollar.NewToolSet(nil)
-			handlerToolSet.RegisterTool(bluecollar.ToolDefinition{
+			handlerToolSet := toolcontract.NewToolSet(nil)
+			handlerToolSet.RegisterTool(toolcontract.ToolDefinition{
 				Name:        testCase.toolName,
 				Description: "test handler",
 				InputSchema: json.RawMessage(`{"type":"object"}`),
-			}, func(context.Context, bluecollar.ToolInvocation) (bluecollar.ToolResult, error) {
-				return bluecollar.ToolSuccessData(string(testCase.data), testCase.data), nil
+			}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
+				return toolcontract.ToolSuccessData(string(testCase.data), testCase.data), nil
 			})
 			provider := kernelToolProvider{handlerToolSet: handlerToolSet}
 			handlerDefinition, isFound := handlerToolSet.ToolDefinition(testCase.toolName)
@@ -295,7 +296,7 @@ func TestKernelToolProviderProjectsEveryResultPathEffect(t *testing.T) {
 				t.Fatal(errorValue)
 			}
 
-			result, errorValue := boundTool.Handler(context.Background(), bluecollar.ToolInvocation{
+			result, errorValue := boundTool.Handler(context.Background(), toolcontract.ToolInvocation{
 				ToolName: testCase.toolName,
 				Input:    json.RawMessage(`{}`),
 			})

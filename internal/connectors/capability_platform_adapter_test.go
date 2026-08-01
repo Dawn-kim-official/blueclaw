@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"github.com/Dawn-kim-official/blueclaw/internal/toolcontract"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -260,7 +261,7 @@ func TestCapabilityPlatformAdapterUsesCapabilityEndpointsWithoutAuthorization(t 
 	}
 	dispatchID, errorValue := adapter.SendReply(context.Background(), replyTarget, OutboundReply{
 		Message: "hello",
-		Attachments: []bluecollar.FileAttachment{{
+		Attachments: []toolcontract.FileAttachment{{
 			DevicePath: "/tmp/internkim-companion-files/screen.png",
 			Filename:   "screen.png",
 		}},

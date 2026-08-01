@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/Dawn-kim-official/blueclaw/internal/toolcontract"
 	"strings"
 	"testing"
 
@@ -142,8 +143,8 @@ func TestSkillSearchRejectsConflictingAndMalformedInputs(t *testing.T) {
 		t.Run(string(input), func(t *testing.T) {
 			toolSet := canonicalSkillSearchToolSet(&recordingSkillSearchRetriever{}, nil)
 
-			result, errorValue := toolSet.Invoke(context.Background(), bluecollar.ToolInvocation{
-				ToolName: bluecollar.SkillSearchToolName,
+			result, errorValue := toolSet.Invoke(context.Background(), toolcontract.ToolInvocation{
+				ToolName: toolcontract.SkillSearchToolName,
 				Input:    input,
 			})
 
@@ -181,14 +182,14 @@ func TestSkillSearchFiltersUnavailableToolReferencesBeforeEveryMode(t *testing.T
 		t.Fatalf("expected unavailable candidate and exact injection blocked, got %+v", searchResult)
 	}
 
-	result, errorValue := toolSet.Invoke(context.Background(), bluecollar.ToolInvocation{
-		ToolName: bluecollar.SkillSearchToolName,
+	result, errorValue := toolSet.Invoke(context.Background(), toolcontract.ToolInvocation{
+		ToolName: toolcontract.SkillSearchToolName,
 		Input:    json.RawMessage(`{"name":"unavailable"}`),
 	})
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
-	if !result.Failed() || result.FailureCode() != bluecollar.FailureCodes.NotFound.String() {
+	if !result.Failed() || result.FailureCode() != toolcontract.FailureCodes.NotFound.String() {
 		t.Fatalf("expected unavailable exact lookup to fail closed, got %+v", result)
 	}
 }
@@ -199,15 +200,15 @@ func TestSkillSearchNameModeRejectsCaseInsensitiveNameCollision(t *testing.T) {
 		{Name: "MAIL", Description: "Second."},
 	})
 
-	result, errorValue := toolSet.Invoke(context.Background(), bluecollar.ToolInvocation{
-		ToolName: bluecollar.SkillSearchToolName,
+	result, errorValue := toolSet.Invoke(context.Background(), toolcontract.ToolInvocation{
+		ToolName: toolcontract.SkillSearchToolName,
 		Input:    json.RawMessage(`{"name":"Mail"}`),
 	})
 
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
-	if !result.Failed() || result.FailureCode() != bluecollar.FailureCodes.NotFound.String() {
+	if !result.Failed() || result.FailureCode() != toolcontract.FailureCodes.NotFound.String() {
 		t.Fatalf("expected ambiguous exact name to fail closed, got %+v", result)
 	}
 }
@@ -220,21 +221,21 @@ func TestSkillSearchResultContractRejectsMalformedOutput(t *testing.T) {
 	}
 	for _, document := range testCases {
 		t.Run(string(document), func(t *testing.T) {
-			handlerToolSet := bluecollar.NewToolSet(nil)
-			handlerToolSet.RegisterTool(bluecollar.ToolDefinition{
-				Name:        bluecollar.SkillSearchToolName,
+			handlerToolSet := toolcontract.NewToolSet(nil)
+			handlerToolSet.RegisterTool(toolcontract.ToolDefinition{
+				Name:        toolcontract.SkillSearchToolName,
 				Description: "Search available skills.",
 				InputSchema: skillSearchInputSchema,
-			}, func(context.Context, bluecollar.ToolInvocation) (bluecollar.ToolResult, error) {
-				return bluecollar.ToolSuccessData(string(document), document), nil
+			}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
+				return toolcontract.ToolSuccessData(string(document), document), nil
 			})
-			toolSet := bluecollar.NewToolSet([]string{bluecollar.SkillSearchToolName})
+			toolSet := toolcontract.NewToolSet([]string{toolcontract.SkillSearchToolName})
 			if errorValue := toolSet.RegisterProvider(context.Background(), kernelToolProvider{handlerToolSet: handlerToolSet}); errorValue != nil {
 				t.Fatal(errorValue)
 			}
 
-			result, errorValue := toolSet.Invoke(context.Background(), bluecollar.ToolInvocation{
-				ToolName: bluecollar.SkillSearchToolName,
+			result, errorValue := toolSet.Invoke(context.Background(), toolcontract.ToolInvocation{
+				ToolName: toolcontract.SkillSearchToolName,
 				Input:    json.RawMessage(`{}`),
 			})
 
@@ -248,7 +249,7 @@ func TestSkillSearchResultContractRejectsMalformedOutput(t *testing.T) {
 	}
 }
 
-func canonicalSkillSearchToolSet(retriever bluecollar.SkillRetriever, instructions []bluecollar.SkillInstruction) *bluecollar.ToolSet {
+func canonicalSkillSearchToolSet(retriever bluecollar.SkillRetriever, instructions []bluecollar.SkillInstruction) *toolcontract.ToolSet {
 	toolCatalogBuilder := NewToolCatalogBuilder()
 	toolCatalogBuilder.UseSkillSearch(retriever, func() bluecollar.InstructionBundle {
 		return bluecollar.InstructionBundle{Skills: instructions}
@@ -256,10 +257,10 @@ func canonicalSkillSearchToolSet(retriever bluecollar.SkillRetriever, instructio
 	return toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
 }
 
-func invokeSkillSearch(t *testing.T, toolSet *bluecollar.ToolSet, input json.RawMessage) skillSearchToolOutput {
+func invokeSkillSearch(t *testing.T, toolSet *toolcontract.ToolSet, input json.RawMessage) skillSearchToolOutput {
 	t.Helper()
-	result, errorValue := toolSet.Invoke(context.Background(), bluecollar.ToolInvocation{
-		ToolName: bluecollar.SkillSearchToolName,
+	result, errorValue := toolSet.Invoke(context.Background(), toolcontract.ToolInvocation{
+		ToolName: toolcontract.SkillSearchToolName,
 		Input:    input,
 	})
 	if errorValue != nil {
