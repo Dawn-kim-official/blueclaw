@@ -3,6 +3,7 @@ package agentruntime
 import (
 	"context"
 	"encoding/json"
+	"github.com/Dawn-kim-official/blueclaw/internal/toolcontract"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -29,9 +30,9 @@ func TestFileReadResolvesAttachmentFileHint(t *testing.T) {
 		}}},
 	})
 
-	result, errorValue := toolRegistry.Invoke(context.Background(), bluecollar.ToolInvocation{
+	result, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
 		ToolName: "file.read",
-		Input: bluecollar.MarshalToolInput(map[string]string{
+		Input: toolcontract.MarshalToolInput(map[string]string{
 			"fileHint": "attachment:mattermost:file-1",
 		}),
 	})
@@ -61,9 +62,9 @@ func TestFilePreviewResolvesArtifactFileHint(t *testing.T) {
 		}}},
 	})
 
-	result, errorValue := toolRegistry.Invoke(context.Background(), bluecollar.ToolInvocation{
+	result, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
 		ToolName: "file.preview",
-		Input: bluecollar.MarshalToolInput(map[string]string{
+		Input: toolcontract.MarshalToolInput(map[string]string{
 			"fileHint": fileHint,
 		}),
 	})
@@ -87,9 +88,9 @@ func TestFileHintRejectsUnknownAndForgedValues(t *testing.T) {
 		"attachment:mattermost:forged",
 		"artifact:task-run-1:%2Fworkspace%2Fprivate%2Fpeople%2Fperson-1%2Fsecret.txt",
 	} {
-		result, errorValue := toolRegistry.Invoke(context.Background(), bluecollar.ToolInvocation{
+		result, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
 			ToolName: "file.read",
-			Input: bluecollar.MarshalToolInput(map[string]string{
+			Input: toolcontract.MarshalToolInput(map[string]string{
 				"fileHint": fileHint,
 			}),
 		})
@@ -115,9 +116,9 @@ func TestFileToolsPreserveExplicitPathResolutionAndAccess(t *testing.T) {
 		PersonAccess:      policy.PersonAccess{PersonID: "person-1", Circles: []string{"staff"}},
 	})
 
-	readResult, errorValue := toolRegistry.Invoke(context.Background(), bluecollar.ToolInvocation{
+	readResult, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
 		ToolName: "file.read",
-		Input: bluecollar.MarshalToolInput(map[string]string{
+		Input: toolcontract.MarshalToolInput(map[string]string{
 			"path":     "documents/notes.txt",
 			"fileHint": "attachment:mattermost:forged",
 		}),
@@ -131,16 +132,16 @@ func TestFileToolsPreserveExplicitPathResolutionAndAccess(t *testing.T) {
 
 	otherPersonHomePath := filepath.Join(workspacePath, "private", "people", "person-2")
 	withoutDirectoryAccess(t, otherPersonHomePath)
-	accessResult, errorValue := toolRegistry.Invoke(context.Background(), bluecollar.ToolInvocation{
+	accessResult, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
 		ToolName: "file.read",
-		Input: bluecollar.MarshalToolInput(map[string]string{
+		Input: toolcontract.MarshalToolInput(map[string]string{
 			"path": otherPath,
 		}),
 	})
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
-	if !accessResult.Failed() || accessResult.FailureCode() != bluecollar.FailureCodes.AccessDenied.String() {
+	if !accessResult.Failed() || accessResult.FailureCode() != toolcontract.FailureCodes.AccessDenied.String() {
 		t.Fatalf("expected the OS denial on the other person's home to surface as access_denied, got %s", accessResult.ContentText())
 	}
 }

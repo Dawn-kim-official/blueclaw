@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/Dawn-kim-official/blueclaw/internal/toolcontract"
 	"io"
 	"net/http"
 	"net/url"
@@ -36,16 +37,16 @@ type capabilityReactionRequest struct {
 }
 
 type capabilityReplyRequest struct {
-	ReplyTargetID   string                      `json:"replyTargetID"`
-	Message         string                      `json:"message"`
-	TaskRunID       string                      `json:"taskRunID,omitempty"`
-	ReplyKind       string                      `json:"replyKind,omitempty"`
-	RawEventID      string                      `json:"rawEventID,omitempty"`
-	OutboxID        string                      `json:"outboxID,omitempty"`
-	Attachments     []capabilityReplyAttachment `json:"attachments,omitempty"`
-	RecoveryActions []bluecollar.RecoveryAction `json:"recoveryActions,omitempty"`
-	FailureNotice   bluecollar.FailureNotice    `json:"failureNotice,omitempty"`
-	Interaction     *AskInteraction             `json:"interaction,omitempty"`
+	ReplyTargetID   string                        `json:"replyTargetID"`
+	Message         string                        `json:"message"`
+	TaskRunID       string                        `json:"taskRunID,omitempty"`
+	ReplyKind       string                        `json:"replyKind,omitempty"`
+	RawEventID      string                        `json:"rawEventID,omitempty"`
+	OutboxID        string                        `json:"outboxID,omitempty"`
+	Attachments     []capabilityReplyAttachment   `json:"attachments,omitempty"`
+	RecoveryActions []toolcontract.RecoveryAction `json:"recoveryActions,omitempty"`
+	FailureNotice   bluecollar.FailureNotice      `json:"failureNotice,omitempty"`
+	Interaction     *AskInteraction               `json:"interaction,omitempty"`
 }
 
 type capabilityReplyAttachment struct {
@@ -164,7 +165,7 @@ func (adapter CapabilityPlatformAdapter) ResolveInteraction(ctx context.Context,
 	}, nil)
 }
 
-func buildCapabilityReplyAttachments(attachments []bluecollar.FileAttachment) []capabilityReplyAttachment {
+func buildCapabilityReplyAttachments(attachments []toolcontract.FileAttachment) []capabilityReplyAttachment {
 	replyAttachments := []capabilityReplyAttachment{}
 	for _, attachment := range attachments {
 		replyAttachments = append(replyAttachments, capabilityReplyAttachment{

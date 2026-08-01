@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/Dawn-kim-official/blueclaw/internal/toolcontract"
 	"strconv"
 	"strings"
 	"testing"
@@ -27,8 +28,8 @@ func (model *completionJudgeStubLanguageModel) GenerateStructuredResponse(_ cont
 	return model.response, model.errorValue
 }
 
-func completionJudgeTestToolSet() *ToolSet {
-	return newTestToolSetWithDefinitions([]ToolDefinition{
+func completionJudgeTestToolSet() *toolcontract.ToolSet {
+	return newTestToolSetWithDefinitions([]toolcontract.ToolDefinition{
 		testToolDescriptor("task.add"),
 		testToolDescriptor("task.list"),
 	})
@@ -41,7 +42,7 @@ func successfulSideEffectObservation(observationID string, toolName string, tool
 		Tool:          toolName,
 		ToolID:        "test:" + toolName,
 		ToolInput:     json.RawMessage(toolInput),
-		Output:        ToolOutput{Content: resultContent},
+		Output:        toolcontract.ToolOutput{Content: resultContent},
 	}
 }
 
@@ -90,7 +91,7 @@ func TestCompletionJudgeLedgerIncludesSuccessfulReadsAndWrites(t *testing.T) {
 	observations := []turnObservation{
 		successfulSideEffectObservation("obs-001", "task.add", `{"title":"a"}`, "created"),
 		successfulSideEffectObservation("obs-002", "task.list", `{}`, "listed"),
-		{ObservationID: "obs-003", Tool: "task.add", ToolID: "test:task.add", Failure: &ToolFailure{}},
+		{ObservationID: "obs-003", Tool: "task.add", ToolID: "test:task.add", Failure: &toolcontract.ToolFailure{}},
 	}
 
 	ledger := completionJudgeLedger(toolSet, observations)

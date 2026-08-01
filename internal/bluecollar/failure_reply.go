@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/Dawn-kim-official/blueclaw/internal/toolcontract"
 	"strconv"
 	"strings"
 
@@ -51,7 +52,7 @@ func (agentTurnRunner *AgentTurnRunner) appendUnavailableReplyEvents(taskRunID s
 	agentTurnRunner.appendEvent(taskRunID, "agent.llm_unavailable", marshalEventBody(body))
 }
 
-func (agentTurnRunner *AgentTurnRunner) generateRecoveryDecision(recoveryContext context.Context, request AgentTurnRequest, failureReason string, observations []turnObservation, attachments []FileAttachment, executionState ExecutionState, phase string) (recoveryDecision, error) {
+func (agentTurnRunner *AgentTurnRunner) generateRecoveryDecision(recoveryContext context.Context, request AgentTurnRequest, failureReason string, observations []turnObservation, attachments []toolcontract.FileAttachment, executionState ExecutionState, phase string) (recoveryDecision, error) {
 	maxTokens := recoveryDecisionMaxTokens
 	messages := []llm.Message{{
 		Role: "system",
@@ -96,7 +97,7 @@ func normalizeRecoveryDecision(decision recoveryDecision) recoveryDecision {
 	return decision
 }
 
-func (agentTurnRunner *AgentTurnRunner) generateFailureNotice(parentContext context.Context, taskRunID string, request AgentTurnRequest, failureReason string, observations []turnObservation, attachments []FileAttachment, executionState ExecutionState) (FailureNotice, failureReplyStatus, bool) {
+func (agentTurnRunner *AgentTurnRunner) generateFailureNotice(parentContext context.Context, taskRunID string, request AgentTurnRequest, failureReason string, observations []turnObservation, attachments []toolcontract.FileAttachment, executionState ExecutionState) (FailureNotice, failureReplyStatus, bool) {
 	recoveryContext, cancelRecovery := agentTurnRunner.replyFinalizationContext(parentContext, request)
 	defer cancelRecovery()
 	decision, decisionError := agentTurnRunner.generateRecoveryDecision(recoveryContext, request, failureReason, observations, attachments, executionState, "failure")
@@ -125,7 +126,7 @@ func failureReportEventBody(phase string, report FailureReport, generation Failu
 	}
 }
 
-func (agentTurnRunner *AgentTurnRunner) generateStallPauseNotice(parentContext context.Context, taskRunID string, request AgentTurnRequest, stallReason string, observations []turnObservation, attachments []FileAttachment, executionState ExecutionState) (FailureNotice, failureReplyStatus, bool) {
+func (agentTurnRunner *AgentTurnRunner) generateStallPauseNotice(parentContext context.Context, taskRunID string, request AgentTurnRequest, stallReason string, observations []turnObservation, attachments []toolcontract.FileAttachment, executionState ExecutionState) (FailureNotice, failureReplyStatus, bool) {
 	recoveryContext, cancelRecovery := agentTurnRunner.replyFinalizationContext(parentContext, request)
 	defer cancelRecovery()
 	decision, decisionError := agentTurnRunner.generateRecoveryDecision(recoveryContext, request, stallReason, observations, attachments, executionState, "stall")
@@ -152,7 +153,7 @@ func stallNoticeCanReachUser(notice FailureNotice, source string) bool {
 	return notice.SendableMessage() != ""
 }
 
-func (agentTurnRunner *AgentTurnRunner) generateLimitReachedNotice(parentContext context.Context, taskRunID string, request AgentTurnRequest, stopReason string, observations []turnObservation, attachments []FileAttachment, executionState ExecutionState) (FailureNotice, limitReplyStatus, bool) {
+func (agentTurnRunner *AgentTurnRunner) generateLimitReachedNotice(parentContext context.Context, taskRunID string, request AgentTurnRequest, stopReason string, observations []turnObservation, attachments []toolcontract.FileAttachment, executionState ExecutionState) (FailureNotice, limitReplyStatus, bool) {
 	recoveryContext, cancelRecovery := agentTurnRunner.replyFinalizationContext(parentContext, request)
 	defer cancelRecovery()
 	decision, decisionError := agentTurnRunner.generateRecoveryDecision(recoveryContext, request, stopReason, observations, attachments, executionState, "limit")
@@ -223,7 +224,7 @@ func (agentTurnRunner *AgentTurnRunner) generateFinishMessageCompressionText(rec
 	return strings.TrimSpace(reply), errorValue
 }
 
-func buildRecoveryDecisionPrompt(request AgentTurnRequest, failureReason string, observations []turnObservation, attachments []FileAttachment, executionState ExecutionState, phase string) string {
+func buildRecoveryDecisionPrompt(request AgentTurnRequest, failureReason string, observations []turnObservation, attachments []toolcontract.FileAttachment, executionState ExecutionState, phase string) string {
 	sections := []string{
 		"Phase: " + strings.TrimSpace(phase),
 	}
@@ -237,7 +238,7 @@ func buildRecoveryDecisionPrompt(request AgentTurnRequest, failureReason string,
 	}), "\n\n")
 }
 
-func failurePromptContext(request AgentTurnRequest, observations []turnObservation, attachments []FileAttachment, executionState ExecutionState) string {
+func failurePromptContext(request AgentTurnRequest, observations []turnObservation, attachments []toolcontract.FileAttachment, executionState ExecutionState) string {
 	return (LLMContextBuilder{}).Build(LLMContextInput{
 		ResponseLanguage:  request.ResponseLanguage,
 		UserPrompt:        request.Prompt,
@@ -266,10 +267,10 @@ func requestRequiresFileAttachment(request AgentTurnRequest) bool {
 	if len(request.RequiredAttachmentSuffixes) > 0 {
 		return true
 	}
-	if requiredEvidenceContains(request.RequiredEvidenceTools, FileDeliverToolName) {
+	if requiredEvidenceContains(request.RequiredEvidenceTools, toolcontract.FileDeliverToolName) {
 		return true
 	}
-	return evidenceAnyOfContainsTool(request.OutcomeContract.RequiredEvidenceAnyOf, FileDeliverToolName)
+	return evidenceAnyOfContainsTool(request.OutcomeContract.RequiredEvidenceAnyOf, toolcontract.FileDeliverToolName)
 }
 
 const limitObservationSummaryLineBytes = 2000
@@ -336,7 +337,7 @@ func buildFailureObservationSummary(observations []turnObservation) string {
 	return strings.Join(lines, "\n")
 }
 
-func buildLimitAttachmentSummary(attachments []FileAttachment) string {
+func buildLimitAttachmentSummary(attachments []toolcontract.FileAttachment) string {
 	lines := []string{}
 	for _, attachment := range attachments {
 		filename := strings.TrimSpace(attachment.Filename)

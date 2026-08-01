@@ -3,6 +3,7 @@ package bluecollar
 import (
 	"context"
 	"encoding/json"
+	"github.com/Dawn-kim-official/blueclaw/internal/toolcontract"
 	"os"
 	"strings"
 	"testing"
@@ -20,12 +21,12 @@ func TestOpenRouterLiveLowTierCurrentAgentActionSchemaFromEnv(t *testing.T) {
 		t.Skip("OPENROUTER_API_KEY is required for the low-tier action schema test")
 	}
 
-	toolSet := NewToolSet([]string{TerminalRunToolName})
-	registerTestTool(toolSet, ToolDefinition{
-		Name:        TerminalRunToolName,
+	toolSet := toolcontract.NewToolSet([]string{toolcontract.TerminalRunToolName})
+	registerTestTool(toolSet, toolcontract.ToolDefinition{
+		Name:        toolcontract.TerminalRunToolName,
 		Description: "Run a terminal command.",
 		InputSchema: json.RawMessage(`{"type":"object","properties":{"command":{"type":"string"}},"required":["command"],"additionalProperties":false}`),
-	}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
 		return testToolSuccess("not executed"), nil
 	})
 	request := BuildAgentActionRequest(agentTaskState{Request: AgentTurnRequest{
@@ -47,7 +48,7 @@ func TestOpenRouterLiveLowTierCurrentAgentActionSchemaFromEnv(t *testing.T) {
 	if errorValue != nil {
 		t.Fatalf("expected parsable agent action, got %q: %v", response.Content, errorValue)
 	}
-	if action.Action != "continue" || action.ToolName != TerminalRunToolName {
+	if action.Action != "continue" || action.ToolName != toolcontract.TerminalRunToolName {
 		t.Fatalf("expected terminal.run continue action, got %+v", action)
 	}
 	var toolInput struct {

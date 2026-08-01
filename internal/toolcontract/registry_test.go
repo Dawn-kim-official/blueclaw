@@ -1,4 +1,4 @@
-package bluecollar
+package toolcontract
 
 import (
 	"context"
@@ -93,42 +93,6 @@ func TestFailureCodeCollapsesUnknownCodesToOperationFailed(t *testing.T) {
 	}
 }
 
-func TestToolSetDescriptionsAndActionSchemaOnlyShowExposedKernelTools(t *testing.T) {
-	toolSet := NewToolSet([]string{"visible.tool", "denied.tool"})
-	registerTestTool(toolSet, ToolDefinition{Name: "visible.tool", Description: "Visible", InputSchema: json.RawMessage(`{"type":"object","properties":{}}`)}, func(context.Context, ToolInvocation) (ToolResult, error) {
-		return testToolSuccess("ok"), nil
-	})
-	registerTestTool(toolSet, ToolDefinition{Name: "hidden.tool", Description: "Hidden"}, func(context.Context, ToolInvocation) (ToolResult, error) {
-		return testToolSuccess("ok"), nil
-	})
-	toolSet.RegisterBoundTool(BoundTool{
-		Definition:   ToolDefinition{Name: "denied.tool", Description: "Denied"},
-		Availability: ToolAvailability{Status: ToolAvailabilityDenied, Reason: "policy"},
-		Handler: func(context.Context, ToolInvocation) (ToolResult, error) {
-			return ToolFailureResult(FailurePolicyBlocked, FailureCodes.PolicyBlocked, "policy", "denied"), nil
-		},
-	})
-
-	descriptions := toolSet.Descriptions()
-	actionSchema := toolSet.ActionSchema(false, nil, false)
-	if !strings.Contains(descriptions, "Available tool catalog") {
-		t.Fatalf("expected tool prompt to frame tools as optional, got prompt=%s", descriptions)
-	}
-	if !strings.Contains(descriptions, "visible.tool") || !strings.Contains(actionSchema, "visible.tool") {
-		t.Fatalf("expected visible tool in prompt and schema, got prompt=%s schema=%s", descriptions, actionSchema)
-	}
-	// hidden.tool is registered but not allowed, so the catalog no longer lists it.
-	if strings.Contains(descriptions, "hidden.tool") || strings.Contains(actionSchema, "hidden.tool") {
-		t.Fatalf("expected registered-but-not-allowed tool to stay out of both surfaces, got prompt=%s schema=%s", descriptions, actionSchema)
-	}
-	if strings.Contains(descriptions, "denied.tool") || strings.Contains(actionSchema, "denied.tool") {
-		t.Fatalf("expected denied tool to stay hidden, got prompt=%s schema=%s", descriptions, actionSchema)
-	}
-	if hiddenToolNames := toolSet.ListHiddenDescribedToolNames(); len(hiddenToolNames) != 0 {
-		t.Fatalf("expected no hidden described tools now that the catalog only shows exposed kernel tools, got %+v", hiddenToolNames)
-	}
-}
-
 func TestToolSetDescriptionsUseDescriptorDescription(t *testing.T) {
 	toolSet := NewToolSet([]string{"task.update"})
 	registerTestTool(toolSet, ToolDefinition{
@@ -142,85 +106,6 @@ func TestToolSetDescriptionsUseDescriptorDescription(t *testing.T) {
 	descriptions := toolSet.Descriptions()
 	if !strings.Contains(descriptions, "exact taskID") || strings.Contains(descriptions, `"query"`) {
 		t.Fatalf("expected the descriptor to be the only description source, got %s", descriptions)
-	}
-}
-
-func TestToolSetDoesNotExposeControlToolsToTheModel(t *testing.T) {
-	toolSet := NewToolSet([]string{AskConfirmToolName})
-	registerTestTool(toolSet, ToolDefinition{
-		Name:         AskConfirmToolName,
-		Description:  "Confirm",
-		Visibility:   ToolVisibilityControl,
-		InputSchema:  json.RawMessage(`{"type":"object","properties":{}}`),
-		OutputSchema: json.RawMessage(`{"type":"object"}`),
-	}, func(context.Context, ToolInvocation) (ToolResult, error) {
-		return testToolSuccess("ok"), nil
-	})
-
-	descriptions := toolSet.Descriptions()
-	actionSchema := toolSet.ActionSchema(false, nil, false)
-
-	if !toolSet.IsRegistered(AskConfirmToolName) {
-		t.Fatal("expected runtime registration to remain observable")
-	}
-	if toolSet.IsAllowed(AskConfirmToolName) || toolSet.CanExpose(AskConfirmToolName) {
-		t.Fatalf("expected ask.confirm to be unavailable to the model, names=%+v", toolSet.ListToolNames())
-	}
-	if strings.Contains(descriptions, AskConfirmToolName) || strings.Contains(actionSchema, AskConfirmToolName) {
-		t.Fatalf("expected ask.confirm to be absent from model surfaces, prompt=%s schema=%s", descriptions, actionSchema)
-	}
-}
-
-func TestFallbackActionSchemaDoesNotAllowToolCalls(t *testing.T) {
-	actionSchema := buildActionSchemaFromToolDefinitions(nil, false, nil, false)
-	if strings.Contains(actionSchema, "continue") {
-		t.Fatalf("expected fallback schema to omit continue, got %s", actionSchema)
-	}
-}
-
-func TestActionSchemaUsesRegisteredTaskUpdateSchema(t *testing.T) {
-	inputSchema := json.RawMessage(`{"type":"object","properties":{"taskID":{"type":"string"},"query":{"type":"string"},"title":{"type":"string"},"status":{"type":"string"},"endDate":{"type":"string"}}}`)
-	actionSchema := buildActionSchemaFromToolDefinitions([]ToolDefinition{{Name: "task.update", InputSchema: inputSchema}}, false, nil, false)
-	for _, fragment := range []string{"task.update", "taskID", "query", "title", "status", "endDate"} {
-		if !strings.Contains(actionSchema, fragment) {
-			t.Fatalf("expected action schema to include %q, got %s", fragment, actionSchema)
-		}
-	}
-	if strings.Contains(actionSchema, `"content"`) {
-		t.Fatalf("expected action schema to omit removed content field, got %s", actionSchema)
-	}
-	toolSet := NewToolSet([]string{"task.update"})
-	registerTestTool(toolSet, ToolDefinition{
-		Name:            "task.update",
-		InputSchema:     inputSchema,
-		SideEffectClass: ToolSideEffectExternalWrite,
-		Completion:      ToolCompletion{Mode: ToolCompletionObservation},
-	}, func(context.Context, ToolInvocation) (ToolResult, error) {
-		return ToolResult{}, nil
-	})
-	if !isOneShotCompletionEvidenceTool(toolSet, "task.update") {
-		t.Fatal("expected task.update to count as one-shot completion evidence")
-	}
-}
-
-func TestActionSchemaUsesRegisteredTaskListSchema(t *testing.T) {
-	inputSchema := json.RawMessage(`{"type":"object","properties":{"scope":{"type":"string","enum":["self","all"]},"targetPersonHint":{"type":"string"}}}`)
-	actionSchema := buildActionSchemaFromToolDefinitions([]ToolDefinition{{Name: "task.list", InputSchema: inputSchema}}, false, nil, false)
-	for _, fragment := range []string{`"scope"`, `"self"`, `"all"`, `"targetPersonHint"`} {
-		if !strings.Contains(actionSchema, fragment) {
-			t.Fatalf("expected task.list schema to include %s, got %s", fragment, actionSchema)
-		}
-	}
-	if strings.Contains(actionSchema, "everyone's tasks") {
-		t.Fatalf("expected task.list schema not to default to everyone, got %s", actionSchema)
-	}
-}
-
-func TestActionSchemaDoesNotInferInputSchemaFromToolName(t *testing.T) {
-	actionSchema := buildActionSchemaFromToolDefinitions([]ToolDefinition{{Name: "task.add"}}, false, nil, false)
-
-	if strings.Contains(actionSchema, `"task.add"`) || strings.Contains(actionSchema, `"prompt"`) {
-		t.Fatalf("expected the schema-less tool to stay out of the action schema, got %s", actionSchema)
 	}
 }
 
@@ -404,4 +289,30 @@ func TestToolFunctionValidatesInputAndMarshalsOutput(t *testing.T) {
 	if result.ContentText() != `{"message":"hello"}` {
 		t.Fatalf("expected structured output json, got %+v", result)
 	}
+}
+
+func registerTestTool(toolSet *ToolSet, definition ToolDefinition, handler ToolHandler) error {
+	if definition.Visibility == "" {
+		definition.Visibility = ToolVisibilityModel
+	}
+	if definition.Visibility == ToolVisibilityModel && definition.ResultContract == nil {
+		definition.ResultContract = testToolResultContract()
+	}
+	return toolSet.RegisterTool(definition, func(toolContext context.Context, invocation ToolInvocation) (ToolResult, error) {
+		result, errorValue := handler(toolContext, invocation)
+		if errorValue == nil && !result.Failed() && len(result.Output.Data) == 0 {
+			result.Output.Data = json.RawMessage(`{}`)
+		}
+		return result, errorValue
+	})
+}
+
+func testToolResultContract() *ToolResultContract {
+	return &ToolResultContract{
+		Schema: json.RawMessage(`{"type":"object","properties":{},"additionalProperties":false}`),
+	}
+}
+
+func testToolSuccess(content string) ToolResult {
+	return ToolSuccessData(content, json.RawMessage(`{}`))
 }

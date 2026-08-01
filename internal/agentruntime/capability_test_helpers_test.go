@@ -2,9 +2,9 @@ package agentruntime
 
 import (
 	"encoding/json"
+	"github.com/Dawn-kim-official/blueclaw/internal/toolcontract"
 	"strings"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/bluecollar"
 	"github.com/Dawn-kim-official/blueclaw/internal/capability"
 )
 
@@ -74,7 +74,7 @@ func completeTestCapabilityToolDescriptor(descriptor CapabilityToolDescriptor) C
 	}
 	descriptor.PolicyResource = firstNonEmptyString(descriptor.PolicyResource, "tool:"+descriptor.CanonicalName)
 	descriptor.SideEffectClass = firstNonEmptyString(descriptor.SideEffectClass, "read")
-	if bluecollar.ToolDescriptorRequiresInputIntentSchema(bluecollar.ToolDescriptor{
+	if toolcontract.ToolDescriptorRequiresInputIntentSchema(toolcontract.ToolDescriptor{
 		Visibility:      descriptor.ModelVisibility,
 		SideEffectClass: descriptor.SideEffectClass,
 	}) {

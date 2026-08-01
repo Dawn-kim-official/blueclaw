@@ -3,6 +3,7 @@ package agentruntime
 import (
 	"context"
 	"errors"
+	"github.com/Dawn-kim-official/blueclaw/internal/toolcontract"
 	"path/filepath"
 	"strings"
 	"time"
@@ -253,9 +254,9 @@ func (buildToolSetLaunchStep) Name() string {
 	return "build_tool_set"
 }
 
-func (buildToolSetLaunchStep) Run(_ context.Context, execution *taskLaunchExecution) (*bluecollar.ToolSet, error) {
+func (buildToolSetLaunchStep) Run(_ context.Context, execution *taskLaunchExecution) (*toolcontract.ToolSet, error) {
 	if execution.Request.UseEmptyToolCatalog {
-		return bluecollar.NewToolSet(nil), nil
+		return toolcontract.NewToolSet(nil), nil
 	}
 	toolSet := execution.Launcher.toolCatalogBuilder.BuildToolSet(
 		execution.Launcher.toolCatalogRequestForLaunch(execution.Request, execution.NormalizedProfileName),
@@ -276,7 +277,7 @@ func ambientCaptureAllowedToolNames() []string {
 }
 
 type auditToolRegistryLaunchStep struct {
-	ToolSet *bluecollar.ToolSet
+	ToolSet *toolcontract.ToolSet
 }
 
 func (auditToolRegistryLaunchStep) Name() string {
@@ -335,7 +336,7 @@ func searchLaunchGraphMemory(ctx context.Context, execution *taskLaunchExecution
 
 type runTurnLaunchStep struct {
 	MemoryFacts       []memory.MemoryFact
-	ToolSet           *bluecollar.ToolSet
+	ToolSet           *toolcontract.ToolSet
 	ConversationScope ConversationResourceScope
 }
 
@@ -378,7 +379,7 @@ func (taskLauncher *TaskLauncher) completeLaunchFailure(ctx context.Context, req
 	}
 }
 
-func (taskLauncher *TaskLauncher) agentTurnRequestForLaunch(request TaskLaunchRequest, profileName string, memoryFacts []memory.MemoryFact, toolSet *bluecollar.ToolSet, conversationScope ConversationResourceScope) bluecollar.AgentTurnRequest {
+func (taskLauncher *TaskLauncher) agentTurnRequestForLaunch(request TaskLaunchRequest, profileName string, memoryFacts []memory.MemoryFact, toolSet *toolcontract.ToolSet, conversationScope ConversationResourceScope) bluecollar.AgentTurnRequest {
 	return bluecollar.AgentTurnRequest{
 		RequesterPersonID:          request.RequesterPersonID,
 		RequesterEmail:             request.RequesterEmail,

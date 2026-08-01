@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"github.com/Dawn-kim-official/blueclaw/internal/toolcontract"
 	"io"
 	"os"
 	"path/filepath"
@@ -314,13 +315,13 @@ func internalTestToolNames() []string {
 	}
 }
 
-func findToolDefinition(toolDefinitions []bluecollar.ToolDefinition, toolName string) (bluecollar.ToolDefinition, bool) {
+func findToolDefinition(toolDefinitions []toolcontract.ToolDefinition, toolName string) (toolcontract.ToolDefinition, bool) {
 	for _, toolDefinition := range toolDefinitions {
 		if toolDefinition.Name == toolName {
 			return toolDefinition, true
 		}
 	}
-	return bluecollar.ToolDefinition{}, false
+	return toolcontract.ToolDefinition{}, false
 }
 
 func siteSourceBundlePaths(t *testing.T, bundleBase64 string) []string {

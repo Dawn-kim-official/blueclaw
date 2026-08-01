@@ -3,6 +3,7 @@ package agentruntime
 import (
 	"context"
 	"encoding/json"
+	"github.com/Dawn-kim-official/blueclaw/internal/toolcontract"
 	"testing"
 	"time"
 
@@ -51,8 +52,8 @@ func TestConversationHistoryUsesTrustedCursorAndCanonicalProjection(t *testing.T
 	}
 	toolSet := conversationHistoryToolSet(historyProvider, "trusted-cursor")
 
-	result, errorValue := toolSet.Invoke(context.Background(), bluecollar.ToolInvocation{
-		ToolName: bluecollar.ConversationHistoryToolName,
+	result, errorValue := toolSet.Invoke(context.Background(), toolcontract.ToolInvocation{
+		ToolName: toolcontract.ConversationHistoryToolName,
 		Input:    json.RawMessage(`{}`),
 	})
 
@@ -88,8 +89,8 @@ func TestConversationHistoryNormalizesNilArrays(t *testing.T) {
 	}
 	toolSet := conversationHistoryToolSet(historyProvider, "trusted-cursor")
 
-	result, errorValue := toolSet.Invoke(context.Background(), bluecollar.ToolInvocation{
-		ToolName: bluecollar.ConversationHistoryToolName,
+	result, errorValue := toolSet.Invoke(context.Background(), toolcontract.ToolInvocation{
+		ToolName: toolcontract.ConversationHistoryToolName,
 		Input:    json.RawMessage(`{}`),
 	})
 
@@ -123,8 +124,8 @@ func TestConversationHistoryRejectsNonCanonicalInput(t *testing.T) {
 			historyProvider := &recordingConversationHistoryProvider{}
 			toolSet := conversationHistoryToolSet(historyProvider, "trusted-cursor")
 
-			result, errorValue := toolSet.Invoke(context.Background(), bluecollar.ToolInvocation{
-				ToolName: bluecollar.ConversationHistoryToolName,
+			result, errorValue := toolSet.Invoke(context.Background(), toolcontract.ToolInvocation{
+				ToolName: toolcontract.ConversationHistoryToolName,
 				Input:    input,
 			})
 
@@ -147,8 +148,8 @@ func TestConversationHistoryAcceptsExplicitCursorAndLimit(t *testing.T) {
 	}
 	toolSet := conversationHistoryToolSet(historyProvider, "trusted-cursor")
 
-	result, errorValue := toolSet.Invoke(context.Background(), bluecollar.ToolInvocation{
-		ToolName: bluecollar.ConversationHistoryToolName,
+	result, errorValue := toolSet.Invoke(context.Background(), toolcontract.ToolInvocation{
+		ToolName: toolcontract.ConversationHistoryToolName,
 		Input:    json.RawMessage(`{"historyCursor":"explicit-cursor","limit":50}`),
 	})
 
@@ -164,22 +165,22 @@ func TestConversationHistoryAcceptsExplicitCursorAndLimit(t *testing.T) {
 }
 
 func TestConversationHistoryResultContractRejectsMalformedOutput(t *testing.T) {
-	handlerToolSet := bluecollar.NewToolSet(nil)
-	handlerToolSet.RegisterTool(bluecollar.ToolDefinition{
-		Name:        bluecollar.ConversationHistoryToolName,
+	handlerToolSet := toolcontract.NewToolSet(nil)
+	handlerToolSet.RegisterTool(toolcontract.ToolDefinition{
+		Name:        toolcontract.ConversationHistoryToolName,
 		Description: "Fetch earlier visible messages.",
 		InputSchema: conversationHistoryInputSchema,
-	}, func(context.Context, bluecollar.ToolInvocation) (bluecollar.ToolResult, error) {
+	}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
 		document := json.RawMessage(`{"messages":null,"hasMoreBefore":false,"historyCursor":"cursor"}`)
-		return bluecollar.ToolSuccessData(string(document), document), nil
+		return toolcontract.ToolSuccessData(string(document), document), nil
 	})
-	toolSet := bluecollar.NewToolSet([]string{bluecollar.ConversationHistoryToolName})
+	toolSet := toolcontract.NewToolSet([]string{toolcontract.ConversationHistoryToolName})
 	if errorValue := toolSet.RegisterProvider(context.Background(), kernelToolProvider{handlerToolSet: handlerToolSet}); errorValue != nil {
 		t.Fatal(errorValue)
 	}
 
-	result, errorValue := toolSet.Invoke(context.Background(), bluecollar.ToolInvocation{
-		ToolName: bluecollar.ConversationHistoryToolName,
+	result, errorValue := toolSet.Invoke(context.Background(), toolcontract.ToolInvocation{
+		ToolName: toolcontract.ConversationHistoryToolName,
 		Input:    json.RawMessage(`{}`),
 	})
 
@@ -191,9 +192,9 @@ func TestConversationHistoryResultContractRejectsMalformedOutput(t *testing.T) {
 	}
 }
 
-func conversationHistoryToolSet(historyProvider HistoryProvider, historyCursor string) *bluecollar.ToolSet {
+func conversationHistoryToolSet(historyProvider HistoryProvider, historyCursor string) *toolcontract.ToolSet {
 	toolCatalogBuilder := NewToolCatalogBuilder()
-	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{bluecollar.ConversationHistoryToolName})
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{toolcontract.ConversationHistoryToolName})
 	return toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
 		ProfileName:     "default",
 		HistoryCursor:   historyCursor,

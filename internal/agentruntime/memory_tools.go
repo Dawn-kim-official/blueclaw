@@ -3,10 +3,10 @@ package agentruntime
 import (
 	"context"
 	"encoding/json"
+	"github.com/Dawn-kim-official/blueclaw/internal/toolcontract"
 	"strings"
 	"time"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/bluecollar"
 	"github.com/Dawn-kim-official/blueclaw/internal/memory"
 	"github.com/Dawn-kim-official/blueclaw/internal/policy"
 )
@@ -57,38 +57,38 @@ var (
 	memoryRememberOutputSchema      = json.RawMessage(`{"type":"object","properties":{"accepted":{"type":"boolean"},"jobID":{"type":"string","pattern":"\\S"},"status":{"type":"string","enum":["persisted","queued_volatile","failed"]},"durability":{"type":"string","enum":["durable","volatile","none"]},"graphitiStatus":{"type":"string"},"markdownUpdated":{"type":"boolean"},"failureCode":{"type":"string"},"failureComponent":{"type":"string"}},"required":["accepted","jobID","status","durability"],"additionalProperties":false}`)
 )
 
-func registerMemoryTools(toolCatalogBuilder *ToolCatalogBuilder, toolRegistry *bluecollar.ToolSet, request ToolCatalogRequest) {
-	bluecollar.RegisterToolFunction(toolRegistry, bluecollar.ToolFunction[memorySearchToolInput, bluecollar.ToolResult]{
-		Definition: bluecollar.ToolDefinition{
+func registerMemoryTools(toolCatalogBuilder *ToolCatalogBuilder, toolRegistry *toolcontract.ToolSet, request ToolCatalogRequest) {
+	toolcontract.RegisterToolFunction(toolRegistry, toolcontract.ToolFunction[memorySearchToolInput, toolcontract.ToolResult]{
+		Definition: toolcontract.ToolDefinition{
 			Name:        "memory.search",
 			Description: "Search Blueclaw graph memory allowed for this requester and conversation. Returns durable facts, preferences, and relationships by meaning, not exact rows.",
 			InputSchema: memorySearchInputSchema,
 		},
-		Handler: func(toolContext context.Context, input memorySearchToolInput) (bluecollar.ToolResult, error) {
+		Handler: func(toolContext context.Context, input memorySearchToolInput) (toolcontract.ToolResult, error) {
 			return toolCatalogBuilder.searchMemoryTool(toolContext, input, request)
 		},
-		Result: bluecollar.IdentityToolResult,
+		Result: toolcontract.IdentityToolResult,
 	})
-	bluecollar.RegisterToolFunction(toolRegistry, bluecollar.ToolFunction[memoryRememberToolInput, bluecollar.ToolResult]{
-		Definition: bluecollar.ToolDefinition{
+	toolcontract.RegisterToolFunction(toolRegistry, toolcontract.ToolFunction[memoryRememberToolInput, toolcontract.ToolResult]{
+		Definition: toolcontract.ToolDefinition{
 			Name:        "memory.remember",
 			Description: "Store one durable fact, preference, or relationship for the current person or active circle; nothing is remembered unless this tool is called. This is the assistant's private recall only: nothing becomes visible in any conversation. When the user asks to leave a note or message people can see, send a message instead. Keep content a single compact standalone fact. Do not store secrets, one-off requests, transient task details, or small talk.",
 			InputSchema: memoryRememberInputSchema,
 		},
-		Handler: func(toolContext context.Context, input memoryRememberToolInput) (bluecollar.ToolResult, error) {
+		Handler: func(toolContext context.Context, input memoryRememberToolInput) (toolcontract.ToolResult, error) {
 			return toolCatalogBuilder.rememberMemoryTool(toolContext, input, request)
 		},
-		Result: bluecollar.IdentityToolResult,
+		Result: toolcontract.IdentityToolResult,
 	})
 }
 
-func (toolCatalogBuilder *ToolCatalogBuilder) searchMemoryTool(toolContext context.Context, input memorySearchToolInput, request ToolCatalogRequest) (bluecollar.ToolResult, error) {
+func (toolCatalogBuilder *ToolCatalogBuilder) searchMemoryTool(toolContext context.Context, input memorySearchToolInput, request ToolCatalogRequest) (toolcontract.ToolResult, error) {
 	query := strings.TrimSpace(input.Query)
 	if query == "" {
-		return bluecollar.ToolFailureResult(bluecollar.FailureInvalidInput, bluecollar.FailureCodes.InvalidInput, "memory_search", "memory.search query is required"), nil
+		return toolcontract.ToolFailureResult(toolcontract.FailureInvalidInput, toolcontract.FailureCodes.InvalidInput, "memory_search", "memory.search query is required"), nil
 	}
 	if request.ActiveCircleConflict {
-		return bluecollar.ToolFailureResult(bluecollar.FailureInvalidInput, bluecollar.FailureCodes.Conflict, "memory_search", "memory.search has multiple active circle candidates"), nil
+		return toolcontract.ToolFailureResult(toolcontract.FailureInvalidInput, toolcontract.FailureCodes.Conflict, "memory_search", "memory.search has multiple active circle candidates"), nil
 	}
 	memoryRequest := TaskMemoryRequest{
 		Query:                     query,
@@ -108,13 +108,13 @@ func (toolCatalogBuilder *ToolCatalogBuilder) searchMemoryTool(toolContext conte
 	return memorySearchSuccess(memoryFacts, memorySearchComplete, []memorySearchSource{memorySearchGraphSource}), nil
 }
 
-func memorySearchUnavailableResult() bluecollar.ToolResult {
+func memorySearchUnavailableResult() toolcontract.ToolResult {
 	message := "Persistent memory search is unavailable."
-	return bluecollar.ToolResult{
-		Output: bluecollar.ToolOutput{Content: message},
-		Failure: &bluecollar.ToolFailure{
-			Kind:            bluecollar.FailureDependencyUnavailable,
-			Code:            bluecollar.FailureCodes.Unavailable.String(),
+	return toolcontract.ToolResult{
+		Output: toolcontract.ToolOutput{Content: message},
+		Failure: &toolcontract.ToolFailure{
+			Kind:            toolcontract.FailureDependencyUnavailable,
+			Code:            toolcontract.FailureCodes.Unavailable.String(),
 			Stage:           "graphiti_search",
 			UserSafeSummary: message,
 			Retryable:       true,
@@ -123,7 +123,7 @@ func memorySearchUnavailableResult() bluecollar.ToolResult {
 	}
 }
 
-func (toolCatalogBuilder *ToolCatalogBuilder) searchFallbackMemoryTool(ctx context.Context, request TaskMemoryRequest) (bluecollar.ToolResult, error) {
+func (toolCatalogBuilder *ToolCatalogBuilder) searchFallbackMemoryTool(ctx context.Context, request TaskMemoryRequest) (toolcontract.ToolResult, error) {
 	memoryFacts, sources := toolCatalogBuilder.searchFallbackMemory(ctx, request)
 	if len(memoryFacts) == 0 {
 		return memorySearchUnavailableResult(), nil
@@ -131,14 +131,14 @@ func (toolCatalogBuilder *ToolCatalogBuilder) searchFallbackMemoryTool(ctx conte
 	return memorySearchSuccess(memoryFacts, memorySearchDegraded, sources), nil
 }
 
-func memorySearchSuccess(memoryFacts []memory.MemoryFact, searchStatus memorySearchStatus, sources []memorySearchSource) bluecollar.ToolResult {
+func memorySearchSuccess(memoryFacts []memory.MemoryFact, searchStatus memorySearchStatus, sources []memorySearchSource) toolcontract.ToolResult {
 	output := memorySearchToolOutput{
 		Facts:        projectMemorySearchFacts(memoryFacts),
 		SearchStatus: searchStatus,
 		Sources:      append([]memorySearchSource{}, sources...),
 	}
 	document := json.RawMessage(marshalToolResult(output))
-	return bluecollar.ToolSuccessData(string(document), document)
+	return toolcontract.ToolSuccessData(string(document), document)
 }
 
 func projectMemorySearchFacts(memoryFacts []memory.MemoryFact) []memorySearchFact {
@@ -246,17 +246,17 @@ func (toolCatalogBuilder *ToolCatalogBuilder) loadPinnedFallbackMemory(ctx conte
 	return toolCatalogBuilder.pinnedMemoryStore.LoadPinnedMemoryForNamespaces(ctx, request.MemoryNamespaces)
 }
 
-func (toolCatalogBuilder *ToolCatalogBuilder) rememberMemoryTool(toolContext context.Context, input memoryRememberToolInput, request ToolCatalogRequest) (bluecollar.ToolResult, error) {
+func (toolCatalogBuilder *ToolCatalogBuilder) rememberMemoryTool(toolContext context.Context, input memoryRememberToolInput, request ToolCatalogRequest) (toolcontract.ToolResult, error) {
 	content := strings.TrimSpace(input.Content)
 	if gateMessage := memory.RememberContentGateMessage(content); gateMessage != "" {
-		return bluecollar.ToolFailureResult(bluecollar.FailureInvalidInput, bluecollar.FailureCodes.InvalidInput, "memory_remember", gateMessage), nil
+		return toolcontract.ToolFailureResult(toolcontract.FailureInvalidInput, toolcontract.FailureCodes.InvalidInput, "memory_remember", gateMessage), nil
 	}
 	if request.ActiveCircleConflict {
-		return bluecollar.ToolFailureResult(bluecollar.FailureInvalidInput, bluecollar.FailureCodes.Conflict, "memory_remember", "memory.remember has multiple active circle candidates"), nil
+		return toolcontract.ToolFailureResult(toolcontract.FailureInvalidInput, toolcontract.FailureCodes.Conflict, "memory_remember", "memory.remember has multiple active circle candidates"), nil
 	}
 	namespace, errorMessage := resolveRememberMemoryNamespace(request)
 	if errorMessage != "" {
-		return bluecollar.ToolFailureResult(bluecollar.FailurePermissionDenied, bluecollar.FailureCodes.AccessDenied, "memory_remember", errorMessage), nil
+		return toolcontract.ToolFailureResult(toolcontract.FailurePermissionDenied, toolcontract.FailureCodes.AccessDenied, "memory_remember", errorMessage), nil
 	}
 	job := memory.PrepareMemoryUpdateJob(memory.MemoryUpdateJob{
 		Namespace:       namespace,
@@ -279,7 +279,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) canPersistMemoryUpdate(job memory.
 		strings.TrimSpace(job.Namespace.ScopePersonID) != ""
 }
 
-func (toolCatalogBuilder *ToolCatalogBuilder) persistMemoryUpdateTool(ctx context.Context, job memory.MemoryUpdateJob) bluecollar.ToolResult {
+func (toolCatalogBuilder *ToolCatalogBuilder) persistMemoryUpdateTool(ctx context.Context, job memory.MemoryUpdateJob) toolcontract.ToolResult {
 	isUpdated, errorValue := toolCatalogBuilder.pinnedMemoryStore.MergePersonMemory(ctx, job.Namespace.ScopePersonID, job.Content)
 	if errorValue != nil {
 		return memoryRememberResult(failedMemoryUpdate(job.JobID, "markdown_write_failed", "markdown"))
@@ -302,7 +302,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) persistMemoryUpdateTool(ctx contex
 	return memoryRememberResult(accepted)
 }
 
-func (toolCatalogBuilder *ToolCatalogBuilder) enqueueVolatileMemoryUpdateTool(job memory.MemoryUpdateJob) bluecollar.ToolResult {
+func (toolCatalogBuilder *ToolCatalogBuilder) enqueueVolatileMemoryUpdateTool(job memory.MemoryUpdateJob) toolcontract.ToolResult {
 	if toolCatalogBuilder.memoryUpdateQueue == nil {
 		return memoryRememberResult(failedMemoryUpdate(job.JobID, "queue_unavailable", "queue"))
 	}
@@ -313,18 +313,18 @@ func (toolCatalogBuilder *ToolCatalogBuilder) enqueueVolatileMemoryUpdateTool(jo
 	return memoryRememberResult(queuedVolatileMemoryUpdate(accepted))
 }
 
-func memoryRememberResult(accepted memory.MemoryUpdateAccepted) bluecollar.ToolResult {
+func memoryRememberResult(accepted memory.MemoryUpdateAccepted) toolcontract.ToolResult {
 	document := json.RawMessage(marshalToolResult(accepted))
 	if !accepted.Accepted {
-		return bluecollar.ToolFailureData(
-			bluecollar.FailureExternalService,
-			bluecollar.FailureCodes.OperationFailed,
+		return toolcontract.ToolFailureData(
+			toolcontract.FailureExternalService,
+			toolcontract.FailureCodes.OperationFailed,
 			firstNonEmptyString(accepted.FailureComponent, "memory_remember"),
 			"memory update was not accepted",
 			document,
 		)
 	}
-	return bluecollar.ToolSuccessData(string(document), document)
+	return toolcontract.ToolSuccessData(string(document), document)
 }
 
 func queuedVolatileMemoryUpdate(accepted memory.MemoryUpdateAccepted) memory.MemoryUpdateAccepted {

@@ -3,6 +3,7 @@ package bluecollar
 import (
 	"context"
 	"encoding/json"
+	"github.com/Dawn-kim-official/blueclaw/internal/toolcontract"
 	"strings"
 	"testing"
 )
@@ -11,8 +12,8 @@ func planUpdateSuccessObservation(observationID string, planDocument string) tur
 	return turnObservation{
 		ObservationID: observationID,
 		Action:        "continue",
-		Tool:          PlanUpdateToolName,
-		Output:        ToolOutput{Content: planDocument, Data: json.RawMessage(planDocument)},
+		Tool:          toolcontract.PlanUpdateToolName,
+		Output:        toolcontract.ToolOutput{Content: planDocument, Data: json.RawMessage(planDocument)},
 	}
 }
 
@@ -81,7 +82,7 @@ func TestApplyPlanUpdateObservationIgnoresFailedAndForeignObservations(t *testin
 	services := newTurnRunnerTestServices(&completionJudgeStubLanguageModel{}, TurnOptions{})
 	state := &agentTaskState{}
 	failedObservation := planUpdateSuccessObservation("obs-001", `{"steps":[{"title":"x","status":"pending"}]}`)
-	failedObservation.Failure = &ToolFailure{Kind: FailureUnknown}
+	failedObservation.Failure = &toolcontract.ToolFailure{Kind: toolcontract.FailureUnknown}
 	foreignObservation := successfulSideEffectObservation("obs-002", "task.add", `{}`, "created")
 
 	services.runner.applyPlanUpdateObservation("task-plan-3", state, failedObservation)
@@ -98,10 +99,10 @@ func TestApplyPlanUpdateObservationIgnoresFailedAndForeignObservations(t *testin
 func nudgeTestRequest(taskLevel TaskLevel) AgentTurnRequest {
 	return AgentTurnRequest{
 		TaskLevel: taskLevel,
-		ToolSet: newTestToolSetWithDefinitions([]ToolDefinition{
+		ToolSet: newTestToolSetWithDefinitions([]toolcontract.ToolDefinition{
 			testToolDescriptor("task.add"),
 			testToolDescriptor("task.list"),
-			testToolDescriptor(PlanUpdateToolName),
+			testToolDescriptor(toolcontract.PlanUpdateToolName),
 		}),
 	}
 }
@@ -172,16 +173,16 @@ func TestRunTurnMergesPlanUpdateObservationIntoExecutionState(t *testing.T) {
 		finishMessageDocument("done"),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 5})
-	toolRegistry := newTestToolSet([]string{PlanUpdateToolName})
-	planResultContract := &ToolResultContract{Schema: json.RawMessage(`{"type":"object"}`)}
-	registerTestTool(toolRegistry, ToolDefinition{Name: PlanUpdateToolName, SideEffectClass: ToolSideEffectNone, ResultContract: planResultContract}, func(_ context.Context, invocation ToolInvocation) (ToolResult, error) {
+	toolRegistry := newTestToolSet([]string{toolcontract.PlanUpdateToolName})
+	planResultContract := &toolcontract.ToolResultContract{Schema: json.RawMessage(`{"type":"object"}`)}
+	registerTestTool(toolRegistry, toolcontract.ToolDefinition{Name: toolcontract.PlanUpdateToolName, SideEffectClass: toolcontract.ToolSideEffectNone, ResultContract: planResultContract}, func(_ context.Context, invocation toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
 		var input planUpdateDocument
 		if errorValue := json.Unmarshal(invocation.Input, &input); errorValue != nil {
-			return ToolResult{}, errorValue
+			return toolcontract.ToolResult{}, errorValue
 		}
 		input.Goal, input.Steps = NormalizePlan(input.Goal, input.Steps)
 		document := marshalEventBody(input)
-		return ToolSuccessData(document, json.RawMessage(document)), nil
+		return toolcontract.ToolSuccessData(document, json.RawMessage(document)), nil
 	})
 
 	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
@@ -211,11 +212,11 @@ func TestRunTurnExecutesTheStateChangingCallTheNudgeAnnotates(t *testing.T) {
 		finishMessageDocument("done"),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 5})
-	toolSet := newTestToolSet([]string{"task.add", PlanUpdateToolName})
+	toolSet := newTestToolSet([]string{"task.add", toolcontract.PlanUpdateToolName})
 	wasToolInvoked := false
-	registerTestTool(toolSet, testToolDescriptor("task.add"), func(_ context.Context, _ ToolInvocation) (ToolResult, error) {
+	registerTestTool(toolSet, testToolDescriptor("task.add"), func(_ context.Context, _ toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
 		wasToolInvoked = true
-		return ToolSuccessData(`{"taskID":"task-1"}`, json.RawMessage(`{"taskID":"task-1"}`)), nil
+		return toolcontract.ToolSuccessData(`{"taskID":"task-1"}`, json.RawMessage(`{"taskID":"task-1"}`)), nil
 	})
 
 	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
@@ -263,7 +264,7 @@ func TestNudgePlanSkipsWhenPlanToolIsUnavailable(t *testing.T) {
 	services := newTurnRunnerTestServices(&completionJudgeStubLanguageModel{}, TurnOptions{})
 	request := AgentTurnRequest{
 		TaskLevel: TaskLevelMedium,
-		ToolSet: newTestToolSetWithDefinitions([]ToolDefinition{
+		ToolSet: newTestToolSetWithDefinitions([]toolcontract.ToolDefinition{
 			testToolDescriptor("task.add"),
 		}),
 	}

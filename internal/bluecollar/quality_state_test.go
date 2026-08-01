@@ -1,5 +1,9 @@
 package bluecollar
 
+import (
+	"github.com/Dawn-kim-official/blueclaw/internal/toolcontract"
+)
+
 import "testing"
 
 func TestQualityReviewGuidanceDoesNotBlockCompletion(t *testing.T) {
@@ -28,7 +32,7 @@ func TestQualityReviewRequiresPassingEvidence(t *testing.T) {
 		ObservationID: "obs-001",
 		Action:        "continue",
 		Tool:          "terminal.run",
-		Output:        ToolOutput{Content: "ok"},
+		Output:        toolcontract.ToolOutput{Content: "ok"},
 	}}
 
 	if errorValue := validateQualityReview(criteria, review, observations); errorValue != nil {
@@ -47,7 +51,7 @@ func TestQualityReviewRejectsFailedCriterion(t *testing.T) {
 		ObservationID: "obs-001",
 		Action:        "continue",
 		Tool:          "file.deliver",
-		Output:        ToolOutput{Content: "file attached"},
+		Output:        toolcontract.ToolOutput{Content: "file attached"},
 	}}
 
 	if errorValue := validateQualityReview(criteria, review, observations); errorValue == nil {
@@ -85,7 +89,7 @@ func TestCompletionGateTreatsFailedDeclaredQualityCriterionAsReviewHint(t *testi
 		ObservationID: "obs-001",
 		Action:        "continue",
 		Tool:          "site.serve",
-		Output:        ToolOutput{Content: `{"siteID":"site-1"}`},
+		Output:        toolcontract.ToolOutput{Content: `{"siteID":"site-1"}`},
 	}}
 
 	result := validateCompletionGateForRequest(AgentTurnRequest{}, nil, observations, criteria, actionDocument)
@@ -114,8 +118,8 @@ func TestCompletionGateUsesTypedEvidenceInsteadOfParsingFinishMessage(t *testing
 		ObservationID: "obs-001",
 		Action:        "continue",
 		Tool:          "file.deliver",
-		Output:        ToolOutput{Content: "file attached"},
-		Attachments: []FileAttachment{{
+		Output:        toolcontract.ToolOutput{Content: "file attached"},
+		Attachments: []toolcontract.FileAttachment{{
 			Filename:   "hermes-analysis.html",
 			DevicePath: "/root/.blueclaw/workspace/hermes-analysis.html",
 		}},
@@ -144,8 +148,8 @@ func TestCompletionGateDoesNotInferAttachmentsFromFinishMessage(t *testing.T) {
 		ObservationID: "obs-001",
 		Action:        "continue",
 		Tool:          "file.deliver",
-		Output:        ToolOutput{Content: "file attached"},
-		Attachments: []FileAttachment{{
+		Output:        toolcontract.ToolOutput{Content: "file attached"},
+		Attachments: []toolcontract.FileAttachment{{
 			Filename:   "hermes-analysis.html",
 			DevicePath: "/root/.blueclaw/workspace/hermes-analysis.html",
 		}},

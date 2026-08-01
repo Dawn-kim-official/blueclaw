@@ -4,13 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/Dawn-kim-official/blueclaw/internal/toolcontract"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
 	"unicode/utf8"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/bluecollar"
 	"github.com/Dawn-kim-official/blueclaw/internal/skill"
 )
 
@@ -100,24 +100,24 @@ var (
 	skillRemoveResultSchema      = json.RawMessage(`{"type":"object","properties":{"name":{"type":"string","minLength":1,"pattern":"\\S"},"path":{"type":"string","minLength":1,"pattern":"\\S"},"status":{"const":"removed"},"removed":{"const":true}},"required":["name","path","status","removed"],"additionalProperties":false}`)
 )
 
-func (toolCatalogBuilder *ToolCatalogBuilder) registerSkillManagementTools(toolRegistry *bluecollar.ToolSet) {
-	bluecollar.RegisterToolFunction(toolRegistry, bluecollar.ToolFunction[skillAddInput, bluecollar.ToolResult]{
-		Definition: bluecollar.ToolDefinition{
+func (toolCatalogBuilder *ToolCatalogBuilder) registerSkillManagementTools(toolRegistry *toolcontract.ToolSet) {
+	toolcontract.RegisterToolFunction(toolRegistry, toolcontract.ToolFunction[skillAddInput, toolcontract.ToolResult]{
+		Definition: toolcontract.ToolDefinition{
 			Name:        "skill.add",
 			Description: "Create or update a user-managed SKILL.md under /workspace/.agents/skills/<name>.",
 			InputSchema: skillAddInputSchema,
 		},
 		Handler: toolCatalogBuilder.addSkillTool,
-		Result:  bluecollar.IdentityToolResult,
+		Result:  toolcontract.IdentityToolResult,
 	})
-	bluecollar.RegisterToolFunction(toolRegistry, bluecollar.ToolFunction[skillRemoveInput, bluecollar.ToolResult]{
-		Definition: bluecollar.ToolDefinition{
+	toolcontract.RegisterToolFunction(toolRegistry, toolcontract.ToolFunction[skillRemoveInput, toolcontract.ToolResult]{
+		Definition: toolcontract.ToolDefinition{
 			Name:        "skill.remove",
 			Description: "Remove a user-managed skill under /workspace/.agents/skills/<name>.",
 			InputSchema: skillRemoveInputSchema,
 		},
 		Handler: toolCatalogBuilder.removeSkillTool,
-		Result:  bluecollar.IdentityToolResult,
+		Result:  toolcontract.IdentityToolResult,
 	})
 }
 
@@ -125,21 +125,21 @@ type skillRemoveInput struct {
 	Name string `json:"name"`
 }
 
-func (toolCatalogBuilder *ToolCatalogBuilder) addSkillTool(toolContext context.Context, input skillAddInput) (bluecollar.ToolResult, error) {
+func (toolCatalogBuilder *ToolCatalogBuilder) addSkillTool(toolContext context.Context, input skillAddInput) (toolcontract.ToolResult, error) {
 	if toolCatalogBuilder.isProductionServiceOwnedSkillWorkspace() {
-		return bluecollar.ToolFailureResult(bluecollar.FailurePermissionDenied, bluecollar.FailureCodes.AccessDenied, "actor_permission_denied", "skill.add cannot modify the service-owned skill workspace; use a requester-writable skill workspace"), nil
+		return toolcontract.ToolFailureResult(toolcontract.FailurePermissionDenied, toolcontract.FailureCodes.AccessDenied, "actor_permission_denied", "skill.add cannot modify the service-owned skill workspace; use a requester-writable skill workspace"), nil
 	}
 	skillName := strings.TrimSpace(input.Name)
 	if errorValue := validateUserManagedSkillName(skillName); errorValue != nil {
-		return bluecollar.ToolFailureResult(bluecollar.FailureInvalidInput, bluecollar.FailureCodes.InvalidInput, "skill_add", errorValue.Error()), nil
+		return toolcontract.ToolFailureResult(toolcontract.FailureInvalidInput, toolcontract.FailureCodes.InvalidInput, "skill_add", errorValue.Error()), nil
 	}
 	skillBundle, warnings, errorValue := validateSkillDocument(skillName, input.Content)
 	if errorValue != nil {
-		return bluecollar.ToolFailureResult(bluecollar.FailureInvalidInput, bluecollar.FailureCodes.InvalidInput, "skill_add", errorValue.Error()), nil
+		return toolcontract.ToolFailureResult(toolcontract.FailureInvalidInput, toolcontract.FailureCodes.InvalidInput, "skill_add", errorValue.Error()), nil
 	}
 	resourcePaths, errorValue := validateSkillResources(input.Resources)
 	if errorValue != nil {
-		return bluecollar.ToolFailureResult(bluecollar.FailureInvalidInput, bluecollar.FailureCodes.InvalidInput, "skill_add", errorValue.Error()), nil
+		return toolcontract.ToolFailureResult(toolcontract.FailureInvalidInput, toolcontract.FailureCodes.InvalidInput, "skill_add", errorValue.Error()), nil
 	}
 	warnings = append(warnings, skillResourceWarnings(skillBundle.Instruction, resourcePaths)...)
 	skillDirectoryPath := toolCatalogBuilder.userManagedSkillDirectoryPath(skillName)
@@ -148,14 +148,14 @@ func (toolCatalogBuilder *ToolCatalogBuilder) addSkillTool(toolContext context.C
 		status = "created"
 	}
 	if errorValue := os.MkdirAll(skillDirectoryPath, 0700); errorValue != nil {
-		return bluecollar.ToolResult{}, errorValue
+		return toolcontract.ToolResult{}, errorValue
 	}
 	if errorValue := os.WriteFile(filepath.Join(skillDirectoryPath, "SKILL.md"), normalizedSkillDocument(input.Content), 0600); errorValue != nil {
-		return bluecollar.ToolResult{}, errorValue
+		return toolcontract.ToolResult{}, errorValue
 	}
 	writtenResourcePaths, errorValue := toolCatalogBuilder.writeSkillResources(skillDirectoryPath, input.Resources)
 	if errorValue != nil {
-		return bluecollar.ToolResult{}, errorValue
+		return toolcontract.ToolResult{}, errorValue
 	}
 	toolCatalogBuilder.refreshSkills(toolContext)
 	resultDocument := json.RawMessage(marshalToolResult(skillAddResult{
@@ -166,27 +166,27 @@ func (toolCatalogBuilder *ToolCatalogBuilder) addSkillTool(toolContext context.C
 		ResourcePaths: writtenResourcePaths,
 		Warnings:      warnings,
 	}))
-	return bluecollar.ToolSuccessData(string(resultDocument), resultDocument), nil
+	return toolcontract.ToolSuccessData(string(resultDocument), resultDocument), nil
 }
 
-func (toolCatalogBuilder *ToolCatalogBuilder) removeSkillTool(toolContext context.Context, input skillRemoveInput) (bluecollar.ToolResult, error) {
+func (toolCatalogBuilder *ToolCatalogBuilder) removeSkillTool(toolContext context.Context, input skillRemoveInput) (toolcontract.ToolResult, error) {
 	if toolCatalogBuilder.isProductionServiceOwnedSkillWorkspace() {
-		return bluecollar.ToolFailureResult(bluecollar.FailurePermissionDenied, bluecollar.FailureCodes.AccessDenied, "actor_permission_denied", "skill.remove cannot modify the service-owned skill workspace; use a requester-writable skill workspace"), nil
+		return toolcontract.ToolFailureResult(toolcontract.FailurePermissionDenied, toolcontract.FailureCodes.AccessDenied, "actor_permission_denied", "skill.remove cannot modify the service-owned skill workspace; use a requester-writable skill workspace"), nil
 	}
 	skillName := strings.TrimSpace(input.Name)
 	if errorValue := validateUserManagedSkillName(skillName); errorValue != nil {
-		return bluecollar.ToolFailureResult(bluecollar.FailureInvalidInput, bluecollar.FailureCodes.InvalidInput, "skill_remove", errorValue.Error()), nil
+		return toolcontract.ToolFailureResult(toolcontract.FailureInvalidInput, toolcontract.FailureCodes.InvalidInput, "skill_remove", errorValue.Error()), nil
 	}
 	skillDirectoryPath := toolCatalogBuilder.userManagedSkillDirectoryPath(skillName)
 	if _, errorValue := os.Stat(skillDirectoryPath); os.IsNotExist(errorValue) {
-		return bluecollar.ToolFailureData(bluecollar.FailureNotFound, bluecollar.FailureCodes.NotFound, "skill_remove", "user-managed skill was not found", json.RawMessage(marshalToolResult(map[string]string{
+		return toolcontract.ToolFailureData(toolcontract.FailureNotFound, toolcontract.FailureCodes.NotFound, "skill_remove", "user-managed skill was not found", json.RawMessage(marshalToolResult(map[string]string{
 			"name":   skillName,
 			"path":   toolCatalogBuilder.agentWorkspacePath(skillDirectoryPath),
 			"status": "missing",
 		}))), nil
 	}
 	if errorValue := os.RemoveAll(skillDirectoryPath); errorValue != nil {
-		return bluecollar.ToolResult{}, errorValue
+		return toolcontract.ToolResult{}, errorValue
 	}
 	toolCatalogBuilder.refreshSkills(toolContext)
 	resultDocument := json.RawMessage(marshalToolResult(skillRemoveResult{
@@ -195,7 +195,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) removeSkillTool(toolContext contex
 		Status:  "removed",
 		Removed: true,
 	}))
-	return bluecollar.ToolSuccessData(string(resultDocument), resultDocument), nil
+	return toolcontract.ToolSuccessData(string(resultDocument), resultDocument), nil
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) userManagedSkillDirectoryPath(skillName string) string {

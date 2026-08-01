@@ -1,5 +1,9 @@
 package bluecollar
 
+import (
+	"github.com/Dawn-kim-official/blueclaw/internal/toolcontract"
+)
+
 import "strings"
 
 type ObservedFact struct {
@@ -30,7 +34,7 @@ type ObservedResultProjection struct {
 	RecoverableActions  []ProjectionRecoverableAction  `json:"recoverableActions,omitempty"`
 }
 
-func buildObservedResultProjection(request AgentTurnRequest, observations []turnObservation, _ []FileAttachment, actionDocument turnActionDocument) ObservedResultProjection {
+func buildObservedResultProjection(request AgentTurnRequest, observations []turnObservation, _ []toolcontract.FileAttachment, actionDocument turnActionDocument) ObservedResultProjection {
 	facts := observedFactsFromObservations(request.ToolSet, observations)
 	facts = deduplicateObservedFacts(facts)
 	return ObservedResultProjection{
@@ -40,7 +44,7 @@ func buildObservedResultProjection(request AgentTurnRequest, observations []turn
 	}
 }
 
-func observedFactsFromObservations(toolSet *ToolSet, observations []turnObservation) []ObservedFact {
+func observedFactsFromObservations(toolSet *toolcontract.ToolSet, observations []turnObservation) []ObservedFact {
 	facts := []ObservedFact{}
 	for _, observation := range observations {
 		if observation.Failed() {
@@ -51,7 +55,7 @@ func observedFactsFromObservations(toolSet *ToolSet, observations []turnObservat
 	return facts
 }
 
-func factsFromObservation(toolSet *ToolSet, observation turnObservation) []ObservedFact {
+func factsFromObservation(toolSet *toolcontract.ToolSet, observation turnObservation) []ObservedFact {
 	if toolSet == nil || len(observation.Effects) == 0 {
 		return nil
 	}
@@ -59,8 +63,8 @@ func factsFromObservation(toolSet *ToolSet, observation turnObservation) []Obser
 	if !isRegistered || descriptor.ResultContract == nil {
 		return nil
 	}
-	result := ToolResult{Output: observation.Output, Effects: observation.Effects}
-	if validateSuccessfulToolResult(*descriptor.ResultContract, result) != nil {
+	result := toolcontract.ToolResult{Output: observation.Output, Effects: observation.Effects}
+	if toolcontract.ValidateSuccessfulToolResult(*descriptor.ResultContract, result) != nil {
 		return nil
 	}
 	return observedFactsFromResourceEffects(observation)

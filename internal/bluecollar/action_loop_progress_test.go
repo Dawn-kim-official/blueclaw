@@ -2,6 +2,7 @@ package bluecollar
 
 import (
 	"encoding/json"
+	"github.com/Dawn-kim-official/blueclaw/internal/toolcontract"
 	"testing"
 )
 
@@ -10,7 +11,7 @@ func repeatedTaskUpdateFailure(observationID string, taskInput string) turnObser
 		ObservationID: observationID,
 		Action:        "continue",
 		Tool:          "task.update",
-		Failure:       &ToolFailure{Code: FailureCodes.OperationFailed.String(), Stage: "target_resolution"},
+		Failure:       &toolcontract.ToolFailure{Code: toolcontract.FailureCodes.OperationFailed.String(), Stage: "target_resolution"},
 		ToolInputKey:  "task.update\x00" + taskInput,
 	}
 }
@@ -42,7 +43,7 @@ func TestProgressEventsCapsFailureProgressWithoutSuccess(t *testing.T) {
 			ObservationID:      fingerprint,
 			Action:             "continue",
 			Tool:               fingerprint,
-			Failure:            &ToolFailure{},
+			Failure:            &toolcontract.ToolFailure{},
 			AttemptFingerprint: fingerprint,
 		})
 	}
@@ -51,7 +52,7 @@ func TestProgressEventsCapsFailureProgressWithoutSuccess(t *testing.T) {
 	}
 
 	withSuccess := append([]turnObservation{}, observations[:4]...)
-	withSuccess = append(withSuccess, turnObservation{ObservationID: "ok", Action: "continue", Tool: "file.write", Output: ToolOutput{Content: "wrote"}})
+	withSuccess = append(withSuccess, turnObservation{ObservationID: "ok", Action: "continue", Tool: "file.write", Output: toolcontract.ToolOutput{Content: "wrote"}})
 	withSuccess = append(withSuccess, observations[4:]...)
 	if got := countFailureProgress(progressEvents(withSuccess)); got != len(fingerprints) {
 		t.Fatalf("expected a success to reset the failure-progress cap, got %d", got)
@@ -92,13 +93,13 @@ func TestActionProgressTrackerResetsWhenProgressAppears(t *testing.T) {
 		ObservationID: "obs-001",
 		Action:        "continue",
 		Tool:          "web.search",
-		Output:        ToolOutput{Content: "ok"},
+		Output:        toolcontract.ToolOutput{Content: "ok"},
 	}})
 	afterProgress := tracker.evaluate([]turnObservation{{
 		ObservationID: "obs-001",
 		Action:        "continue",
 		Tool:          "web.search",
-		Output:        ToolOutput{Content: "ok"},
+		Output:        toolcontract.ToolOutput{Content: "ok"},
 	}})
 
 	if !progress.HasProgress {
@@ -114,7 +115,7 @@ func TestInspectionToolSuccessDoesNotCountAsLoopProgress(t *testing.T) {
 		ObservationID: "obs-001",
 		Action:        "continue",
 		Tool:          "site.list",
-		Output:        ToolOutput{Content: `{"workspaceHealth":"missing_source"}`},
+		Output:        toolcontract.ToolOutput{Content: `{"workspaceHealth":"missing_source"}`},
 	}}
 
 	if progressEventCount(observations) != 0 {
@@ -126,7 +127,7 @@ func TestTerminalProgressRequiresStructuredCompletion(t *testing.T) {
 	testCases := []struct {
 		name        string
 		data        json.RawMessage
-		failure     *ToolFailure
+		failure     *toolcontract.ToolFailure
 		hasProgress bool
 	}{
 		{name: "completed command", data: json.RawMessage(`{"mode":"command","completed":true}`), hasProgress: true},
@@ -136,15 +137,15 @@ func TestTerminalProgressRequiresStructuredCompletion(t *testing.T) {
 		{name: "session close", data: json.RawMessage(`{"mode":"session_close","completed":false}`)},
 		{name: "missing data"},
 		{name: "malformed data", data: json.RawMessage(`{`)},
-		{name: "failed command", data: json.RawMessage(`{"mode":"command","completed":true}`), failure: &ToolFailure{}},
+		{name: "failed command", data: json.RawMessage(`{"mode":"command","completed":true}`), failure: &toolcontract.ToolFailure{}},
 	}
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
 			observation := turnObservation{
 				ObservationID: "obs-001",
 				Action:        "continue",
-				Tool:          TerminalRunToolName,
-				Output: ToolOutput{
+				Tool:          toolcontract.TerminalRunToolName,
+				Output: toolcontract.ToolOutput{
 					Content: `{"exitCode":0,"completed":true}`,
 					Data:    testCase.data,
 				},

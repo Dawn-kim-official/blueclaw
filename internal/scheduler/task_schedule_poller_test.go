@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"github.com/Dawn-kim-official/blueclaw/internal/toolcontract"
 	"log/slog"
 	"strings"
 	"testing"
@@ -21,7 +22,7 @@ func TestScheduledTaskReplyPreservesModelWording(t *testing.T) {
 	turnResult := bluecollar.AgentTurnResult{
 		TaskRun:       task.TaskRun{TaskRunID: "task-1", Status: task.TaskStatusCompleted},
 		FinishMessage: "완료했습니다: sandbox:/mnt/data/report.pdf",
-		Attachments:   []bluecollar.FileAttachment{{Filename: "report.pdf", DevicePath: "/workspace/private/people/p1/artifacts/report.pdf"}},
+		Attachments:   []toolcontract.FileAttachment{{Filename: "report.pdf", DevicePath: "/workspace/private/people/p1/artifacts/report.pdf"}},
 	}
 
 	reply, errorValue := scheduledTaskReply(agentruntime.TaskScheduleRunResult{

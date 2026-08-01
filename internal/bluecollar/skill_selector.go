@@ -1,5 +1,9 @@
 package bluecollar
 
+import (
+	"github.com/Dawn-kim-official/blueclaw/internal/toolcontract"
+)
+
 import "strings"
 
 type SkillSelector struct{}
@@ -32,7 +36,7 @@ func allToolReferencesMissing(skillInstruction SkillInstruction, request AgentRe
 	}
 	consideredNames := []string{}
 	for _, referenceName := range referenceNames {
-		if !IsKernelToolName(referenceName) {
+		if !toolcontract.IsKernelToolName(referenceName) {
 			consideredNames = append(consideredNames, referenceName)
 		}
 	}
@@ -68,7 +72,7 @@ func requestHasToolName(request AgentRequest, toolName string) bool {
 	return requestToolSetCanReachTool(request.ToolSet, toolName)
 }
 
-func requestToolSetCanReachTool(toolSet *ToolSet, toolName string) bool {
+func requestToolSetCanReachTool(toolSet *toolcontract.ToolSet, toolName string) bool {
 	if toolSet == nil {
 		return false
 	}

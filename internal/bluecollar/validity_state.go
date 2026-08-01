@@ -2,6 +2,7 @@ package bluecollar
 
 import (
 	"encoding/base64"
+	"github.com/Dawn-kim-official/blueclaw/internal/toolcontract"
 	"os"
 	"path/filepath"
 	"strings"
@@ -31,7 +32,7 @@ func buildArtifactValidityState(artifacts []CompletionArtifact) ValidityState {
 	return summarizeArtifactValidity(validateCompletionArtifacts(artifacts))
 }
 
-func buildAttachmentValidityState(workspaceRootPath string, attachments []FileAttachment, _ ...time.Time) ValidityState {
+func buildAttachmentValidityState(workspaceRootPath string, attachments []toolcontract.FileAttachment, _ ...time.Time) ValidityState {
 	return summarizeArtifactValidity(validateAttachments(workspaceRootPath, attachments))
 }
 
@@ -58,7 +59,7 @@ func validateCompletionArtifacts(artifacts []CompletionArtifact) []ArtifactValid
 	return checkedArtifacts
 }
 
-func validateAttachments(workspaceRootPath string, attachments []FileAttachment) []ArtifactValidity {
+func validateAttachments(workspaceRootPath string, attachments []toolcontract.FileAttachment) []ArtifactValidity {
 	checkedArtifacts := []ArtifactValidity{}
 	for _, attachment := range attachments {
 		if strings.TrimSpace(attachment.ContentBase64) != "" {
@@ -74,7 +75,7 @@ func validateAttachments(workspaceRootPath string, attachments []FileAttachment)
 	return checkedArtifacts
 }
 
-func validateAttachmentPayload(attachment FileAttachment) ArtifactValidity {
+func validateAttachmentPayload(attachment toolcontract.FileAttachment) ArtifactValidity {
 	artifact := ArtifactValidity{
 		Filename:     attachmentFilenameForValidity(attachment),
 		RelativePath: strings.TrimSpace(attachment.DevicePath),
@@ -98,7 +99,7 @@ func validateAttachmentPayload(attachment FileAttachment) ArtifactValidity {
 	return validArtifact(artifact)
 }
 
-func checkableAttachmentPath(workspaceRootPath string, attachment FileAttachment) (string, bool) {
+func checkableAttachmentPath(workspaceRootPath string, attachment toolcontract.FileAttachment) (string, bool) {
 	devicePath := strings.TrimSpace(attachment.DevicePath)
 	if devicePath == "" {
 		return "", false
@@ -136,7 +137,7 @@ func firstRequesterArtifactPath(workspaceRootPath string, devicePath string) (st
 	return matches[0], true
 }
 
-func attachmentFilenameForValidity(attachment FileAttachment) string {
+func attachmentFilenameForValidity(attachment toolcontract.FileAttachment) string {
 	if strings.TrimSpace(attachment.Filename) != "" {
 		return strings.TrimSpace(attachment.Filename)
 	}

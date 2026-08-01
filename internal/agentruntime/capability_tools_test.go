@@ -3,6 +3,7 @@ package agentruntime
 import (
 	"context"
 	"encoding/json"
+	"github.com/Dawn-kim-official/blueclaw/internal/toolcontract"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -48,7 +49,7 @@ func TestToolCatalogKeepsCapabilityInputSchemaAuthoritative(t *testing.T) {
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"task.add"})
 
 	toolSet := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
-	actionSchema := toolSet.ActionSchema(false, nil, false)
+	actionSchema := bluecollar.ActionSchemaForToolSet(toolSet, false, nil, false)
 
 	if !strings.Contains(actionSchema, `"title"`) || !strings.Contains(actionSchema, `"endDate"`) {
 		t.Fatalf("expected registered task.add schema, got %s", actionSchema)
@@ -84,7 +85,7 @@ func TestCapabilityToolPreservesValidatedTaskResultEffects(t *testing.T) {
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"task.add"})
 	toolSet := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
 
-	result, errorValue := toolSet.Invoke(context.Background(), bluecollar.ToolInvocation{
+	result, errorValue := toolSet.Invoke(context.Background(), toolcontract.ToolInvocation{
 		ToolName: "task.add",
 		Input:    json.RawMessage(`{}`),
 	})
@@ -115,7 +116,7 @@ func TestCapabilityToolRejectsMismatchedTaskResultIdentity(t *testing.T) {
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"task.add"})
 	toolSet := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
 
-	result, errorValue := toolSet.Invoke(context.Background(), bluecollar.ToolInvocation{ToolName: "task.add", Input: json.RawMessage(`{}`)})
+	result, errorValue := toolSet.Invoke(context.Background(), toolcontract.ToolInvocation{ToolName: "task.add", Input: json.RawMessage(`{}`)})
 
 	if errorValue != nil {
 		t.Fatal(errorValue)
@@ -183,7 +184,7 @@ func TestContractedCapabilityPreservesApprovalDenial(t *testing.T) {
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"task.delete"})
 	toolSet := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
 
-	result, errorValue := toolSet.Invoke(context.Background(), bluecollar.ToolInvocation{ToolName: "task.delete", Input: json.RawMessage(`{}`)})
+	result, errorValue := toolSet.Invoke(context.Background(), toolcontract.ToolInvocation{ToolName: "task.delete", Input: json.RawMessage(`{}`)})
 
 	if errorValue != nil {
 		t.Fatal(errorValue)
@@ -287,9 +288,9 @@ func TestImageReadUsesExactPathInput(t *testing.T) {
 		},
 	})
 
-	result, errorValue := toolRegistry.Invoke(context.Background(), bluecollar.ToolInvocation{
+	result, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
 		ToolName: "image.read",
-		Input:    bluecollar.MarshalToolInput(map[string]string{"path": "/workspace/circles/staff/inbox/mattermost/thread-1/post-1/mascot.png"}),
+		Input:    toolcontract.MarshalToolInput(map[string]string{"path": "/workspace/circles/staff/inbox/mattermost/thread-1/post-1/mascot.png"}),
 	})
 
 	if errorValue != nil {
@@ -319,9 +320,9 @@ func TestCanonicalReadRejectsMaterialIDInput(t *testing.T) {
 
 	for _, toolName := range []string{"document.read", "image.read"} {
 		t.Run(toolName, func(t *testing.T) {
-			result, errorValue := toolRegistry.Invoke(context.Background(), bluecollar.ToolInvocation{
+			result, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
 				ToolName: toolName,
-				Input:    bluecollar.MarshalToolInput(map[string]string{"materialID": "mattermost:file-1"}),
+				Input:    toolcontract.MarshalToolInput(map[string]string{"materialID": "mattermost:file-1"}),
 			})
 			if errorValue != nil {
 				t.Fatal(errorValue)
@@ -341,7 +342,7 @@ func TestCanonicalReadDescriptorsExposePathOnlyInputAndResultContract(t *testing
 	})
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"document.read", "image.read"})
 	toolSet := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
-	actionSchema := toolSet.ActionSchema(false, nil, false)
+	actionSchema := bluecollar.ActionSchemaForToolSet(toolSet, false, nil, false)
 	if strings.Contains(actionSchema, "materialID") || !strings.Contains(actionSchema, "path") {
 		t.Fatalf("expected model action schema to expose exact path-only input, got %s", actionSchema)
 	}
@@ -423,7 +424,7 @@ func TestCanonicalReadRejectsIdentityAndResultSchemaDrift(t *testing.T) {
 			toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"document.read"})
 			toolSet := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
 
-			result, errorValue := toolSet.Invoke(context.Background(), bluecollar.ToolInvocation{ToolName: "document.read", Input: json.RawMessage(`{"path":"/workspace/report.md"}`)})
+			result, errorValue := toolSet.Invoke(context.Background(), toolcontract.ToolInvocation{ToolName: "document.read", Input: json.RawMessage(`{"path":"/workspace/report.md"}`)})
 
 			if errorValue != nil {
 				t.Fatal(errorValue)
@@ -442,7 +443,7 @@ func TestCanonicalReadRejectsEffects(t *testing.T) {
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"document.read"})
 	toolSet := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
 
-	result, errorValue := toolSet.Invoke(context.Background(), bluecollar.ToolInvocation{ToolName: "document.read", Input: json.RawMessage(`{"path":"/workspace/report.md"}`)})
+	result, errorValue := toolSet.Invoke(context.Background(), toolcontract.ToolInvocation{ToolName: "document.read", Input: json.RawMessage(`{"path":"/workspace/report.md"}`)})
 
 	if errorValue != nil {
 		t.Fatal(errorValue)
@@ -459,7 +460,7 @@ func TestCanonicalWebSearchAcceptsNormalizedResultContract(t *testing.T) {
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"web.search"})
 	toolSet := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
 
-	result, errorValue := toolSet.Invoke(context.Background(), bluecollar.ToolInvocation{ToolName: "web.search", Input: json.RawMessage(`{"query":"internkim"}`)})
+	result, errorValue := toolSet.Invoke(context.Background(), toolcontract.ToolInvocation{ToolName: "web.search", Input: json.RawMessage(`{"query":"internkim"}`)})
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
@@ -475,7 +476,7 @@ func TestCanonicalWebSearchRejectsReadEffects(t *testing.T) {
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"web.search"})
 	toolSet := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
 
-	result, errorValue := toolSet.Invoke(context.Background(), bluecollar.ToolInvocation{ToolName: "web.search", Input: json.RawMessage(`{"query":"internkim"}`)})
+	result, errorValue := toolSet.Invoke(context.Background(), toolcontract.ToolInvocation{ToolName: "web.search", Input: json.RawMessage(`{"query":"internkim"}`)})
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
@@ -495,7 +496,7 @@ func canonicalReadDescriptor(toolName string) CapabilityToolDescriptor {
 		CanonicalName:   toolName,
 		Namespace:       strings.SplitN(toolName, ".", 2)[0],
 		ModelName:       toolName,
-		ModelVisibility: bluecollar.ToolVisibilityModel,
+		ModelVisibility: toolcontract.ToolVisibilityModel,
 		Description:     "Canonical read test descriptor.",
 		PrivacyClass:    "workspace_document",
 		InputSchema:     json.RawMessage(inputSchema),
@@ -516,7 +517,7 @@ func canonicalWebSearchDescriptor() CapabilityToolDescriptor {
 		CanonicalName:   "web.search",
 		Namespace:       "web",
 		ModelName:       "web.search",
-		ModelVisibility: bluecollar.ToolVisibilityModel,
+		ModelVisibility: toolcontract.ToolVisibilityModel,
 		Description:     "Canonical web search test descriptor.",
 		PrivacyClass:    "public_web",
 		InputSchema:     json.RawMessage(inputSchema),
@@ -574,9 +575,9 @@ func TestImageGenerateSendsRequesterWorkspacePathToBridge(t *testing.T) {
 				},
 			})
 
-			result, errorValue := toolRegistry.Invoke(context.Background(), bluecollar.ToolInvocation{
+			result, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
 				ToolName: "image.generate",
-				Input: bluecollar.MarshalToolInput(map[string]string{
+				Input: toolcontract.MarshalToolInput(map[string]string{
 					"prompt": "a generated test image",
 					"path":   test.path,
 				}),
@@ -625,18 +626,18 @@ func TestToolCatalogQuarantinesCapabilityDescriptorCollidingWithKernelTool(t *te
 		}
 	}()
 	toolCatalogBuilder := NewToolCatalogBuilder()
-	reportedProviders := []bluecollar.QuarantinedToolProvider{}
-	toolCatalogBuilder.UseCapabilityQuarantineReporter(func(quarantinedProvider bluecollar.QuarantinedToolProvider) {
+	reportedProviders := []toolcontract.QuarantinedToolProvider{}
+	toolCatalogBuilder.UseCapabilityQuarantineReporter(func(quarantinedProvider toolcontract.QuarantinedToolProvider) {
 		reportedProviders = append(reportedProviders, quarantinedProvider)
 	})
 	toolCatalogBuilder.UseTestCapabilityToolDescriptors(capability.Client{}, []CapabilityToolDescriptor{{
-		Name:        bluecollar.FileReadToolName,
+		Name:        toolcontract.FileReadToolName,
 		Description: "Colliding capability tool.",
 	}})
 
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
 
-	if !toolRegistry.IsRegistered(bluecollar.FileReadToolName) {
+	if !toolRegistry.IsRegistered(toolcontract.FileReadToolName) {
 		t.Fatal("expected the trusted kernel tool to remain registered after the capability collision")
 	}
 	if len(reportedProviders) != 1 || reportedProviders[0].ProviderID != "capabilityd" {

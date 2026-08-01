@@ -1,10 +1,9 @@
 package connectors
 
 import (
+	"github.com/Dawn-kim-official/blueclaw/internal/toolcontract"
 	"strings"
 	"sync"
-
-	"github.com/Dawn-kim-official/blueclaw/internal/bluecollar"
 )
 
 const sentAttachmentSourceCapacity = 512
@@ -19,7 +18,7 @@ func newSentAttachmentSourceStore() *sentAttachmentSourceStore {
 	return &sentAttachmentSourceStore{pathsByKey: map[string]string{}}
 }
 
-func (store *sentAttachmentSourceStore) RecordReply(platform string, messageID string, attachments []bluecollar.FileAttachment) {
+func (store *sentAttachmentSourceStore) RecordReply(platform string, messageID string, attachments []toolcontract.FileAttachment) {
 	if store == nil || strings.TrimSpace(platform) == "" || strings.TrimSpace(messageID) == "" {
 		return
 	}
@@ -52,7 +51,7 @@ func (store *sentAttachmentSourceStore) record(key string, devicePath string) {
 	}
 }
 
-func unambiguousAttachmentSourcePaths(attachments []bluecollar.FileAttachment) map[string]string {
+func unambiguousAttachmentSourcePaths(attachments []toolcontract.FileAttachment) map[string]string {
 	pathsByFilename := map[string]string{}
 	ambiguousFilenames := map[string]bool{}
 	for _, attachment := range attachments {

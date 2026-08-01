@@ -3,6 +3,7 @@ package bluecollar
 import (
 	"context"
 	"errors"
+	"github.com/Dawn-kim-official/blueclaw/internal/toolcontract"
 	"strings"
 	"testing"
 	"time"
@@ -102,7 +103,7 @@ func TestElapsedClosingCompletesFromExactEvidenceBeforeReply(t *testing.T) {
 	}
 	toolSet := newTestCapabilityToolSet([]string{"task.add"})
 	toolCallCount := 0
-	registerTestTool(toolSet, ToolDefinition{Name: "task.add"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	registerTestTool(toolSet, toolcontract.ToolDefinition{Name: "task.add"}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
 		toolCallCount++
 		return testToolSuccess(`{"taskID":"task-1"}`), nil
 	})
@@ -185,7 +186,7 @@ func TestElapsedClosingUsesRemainingTotalBudget(t *testing.T) {
 		return onlyTaskStatus(services.taskRunService, "person-1")
 	}
 	toolSet := newTestCapabilityToolSet([]string{"task.add"})
-	registerTestTool(toolSet, ToolDefinition{Name: "task.add"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	registerTestTool(toolSet, toolcontract.ToolDefinition{Name: "task.add"}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
 		return testToolSuccess(`{"taskID":"task-1"}`), nil
 	})
 	resultChannel := make(chan AgentTurnResult, 1)
@@ -366,10 +367,10 @@ func TestAgentTurnRunnerCancelsToolCallAtExecutionEffortDeadline(t *testing.T) {
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxElapsedSecond: 1})
 	toolSet := newTestToolSet([]string{"slow.tool"})
 	toolCancelled := make(chan struct{})
-	registerTestTool(toolSet, ToolDefinition{Name: "slow.tool"}, func(toolContext context.Context, _ ToolInvocation) (ToolResult, error) {
+	registerTestTool(toolSet, toolcontract.ToolDefinition{Name: "slow.tool"}, func(toolContext context.Context, _ toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
 		<-toolContext.Done()
 		close(toolCancelled)
-		return ToolFailureResult(FailureExternalService, FailureCodes.OperationFailed, "slow.tool", toolContext.Err().Error()), nil
+		return toolcontract.ToolFailureResult(toolcontract.FailureExternalService, toolcontract.FailureCodes.OperationFailed, "slow.tool", toolContext.Err().Error()), nil
 	})
 
 	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
@@ -407,7 +408,7 @@ func TestMaxIterationsClosingDefersToElapsedClosing(t *testing.T) {
 		MaxElapsedSecond:  1,
 	})
 	toolSet := newTestCapabilityToolSet([]string{"task.add"})
-	registerTestTool(toolSet, ToolDefinition{Name: "task.add"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	registerTestTool(toolSet, toolcontract.ToolDefinition{Name: "task.add"}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
 		return testToolSuccess(`{"taskID":"task-1"}`), nil
 	})
 
@@ -444,12 +445,12 @@ func TestMaxToolCallsClosingDefersToElapsedClosing(t *testing.T) {
 		MaxElapsedSecond:  1,
 	})
 	toolSet := newTestCapabilityToolSet([]string{"first.tool", "second.tool"})
-	registerTestTool(toolSet, ToolDefinition{Name: "first.tool"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	registerTestTool(toolSet, toolcontract.ToolDefinition{Name: "first.tool"}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
 		return testToolSuccess(`{"status":"recorded"}`), nil
 	})
-	registerTestTool(toolSet, ToolDefinition{Name: "second.tool"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	registerTestTool(toolSet, toolcontract.ToolDefinition{Name: "second.tool"}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
 		t.Fatal("expected the tool-call limit before second tool execution")
-		return ToolResult{}, nil
+		return toolcontract.ToolResult{}, nil
 	})
 
 	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
@@ -686,10 +687,10 @@ func TestRequestForStepNarrowsActionPaletteAtNinetyTwoPercentElapsed(t *testing.
 		MaxToolCallCount:  30,
 		MaxElapsedSecond:  int((40 * time.Minute).Seconds()),
 	}}
-	toolSet := newTestCapabilityToolSet([]string{"file.read", FileDeliverToolName})
+	toolSet := newTestCapabilityToolSet([]string{"file.read", toolcontract.FileDeliverToolName})
 	request := AgentTurnRequest{
 		ToolSet:         toolSet,
-		PinnedToolNames: []string{"file.read", FileDeliverToolName},
+		PinnedToolNames: []string{"file.read", toolcontract.FileDeliverToolName},
 		OutcomeContract: OutcomeContract{ArtifactRequirement: ArtifactRequirementRequired},
 	}
 
@@ -697,7 +698,7 @@ func TestRequestForStepNarrowsActionPaletteAtNinetyTwoPercentElapsed(t *testing.
 	request.EffortStartedAt = time.Now().Add(-30 * time.Minute)
 	beforeNarrowing := runner.requestForStep(context.Background(), request, belowNarrowStage)
 	exploratoryToolNames := beforeNarrowing.ToolSet.ListToolNames()
-	if !stringSliceContains(exploratoryToolNames, "file.read") || !stringSliceContains(exploratoryToolNames, FileDeliverToolName) {
+	if !stringSliceContains(exploratoryToolNames, "file.read") || !stringSliceContains(exploratoryToolNames, toolcontract.FileDeliverToolName) {
 		t.Fatalf("expected the full working set below the narrow stage, got %v", exploratoryToolNames)
 	}
 
@@ -708,11 +709,11 @@ func TestRequestForStepNarrowsActionPaletteAtNinetyTwoPercentElapsed(t *testing.
 	if stringSliceContains(narrowedToolNames, "file.read") {
 		t.Fatalf("expected exploration tools dropped at the narrow_palette stage, got %v", narrowedToolNames)
 	}
-	if !stringSliceContains(narrowedToolNames, FileDeliverToolName) {
+	if !stringSliceContains(narrowedToolNames, toolcontract.FileDeliverToolName) {
 		t.Fatalf("expected the delivery-required tool retained at the narrow_palette stage, got %v", narrowedToolNames)
 	}
 
-	actionSchema := afterNarrowing.ToolSet.ActionSchema(false, nil, false)
+	actionSchema := ActionSchemaForToolSet(afterNarrowing.ToolSet, false, nil, false)
 	if !strings.Contains(actionSchema, `"enum":["finish"]`) {
 		t.Fatalf("expected the finish action to remain available at the narrow_palette stage, got %s", actionSchema)
 	}

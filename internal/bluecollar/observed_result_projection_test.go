@@ -3,6 +3,7 @@ package bluecollar
 import (
 	"context"
 	"encoding/json"
+	"github.com/Dawn-kim-official/blueclaw/internal/toolcontract"
 	"testing"
 )
 
@@ -11,11 +12,11 @@ func TestObservedResultProjectionAcceptsCalendarClaimWithCalendarFact(t *testing
 	descriptor, observation := canonicalEffectObservation(
 		"calendar.add",
 		`{"eventID":"event-1"}`,
-		[]ResourceEffect{{ObjectType: "calendar_event", Effect: "scheduled", ID: "event-1"}},
-		[]ResourceEffectContract{{ObjectType: "calendar_event", Effect: "scheduled", ResultField: "eventID", EffectIdentity: "id"}},
+		[]toolcontract.ResourceEffect{{ObjectType: "calendar_event", Effect: "scheduled", ID: "event-1"}},
+		[]toolcontract.ResourceEffectContract{{ObjectType: "calendar_event", Effect: "scheduled", ResultField: "eventID", EffectIdentity: "id"}},
 	)
 	projection := buildObservedResultProjection(
-		AgentTurnRequest{ToolSet: newTestToolSetWithDefinitions([]ToolDefinition{descriptor})},
+		AgentTurnRequest{ToolSet: newTestToolSetWithDefinitions([]toolcontract.ToolDefinition{descriptor})},
 		[]turnObservation{observation},
 		nil,
 		turnActionDocument{
@@ -35,9 +36,9 @@ func TestObservedResultProjectionAcceptsCalendarClaimWithCalendarFact(t *testing
 
 func TestObservedResultProjectionUsesCanonicalEffectsWithoutToolNameInference(t *testing.T) {
 	descriptor := testToolDescriptor("external.tasks.create")
-	descriptor.ResultContract = &ToolResultContract{
+	descriptor.ResultContract = &toolcontract.ToolResultContract{
 		Schema: json.RawMessage(`{"type":"object","properties":{"taskID":{"type":"string"}},"required":["taskID"],"additionalProperties":false}`),
-		Effects: []ResourceEffectContract{{
+		Effects: []toolcontract.ResourceEffectContract{{
 			ObjectType:     "task",
 			Effect:         "created",
 			ResultField:    "taskID",
@@ -46,9 +47,9 @@ func TestObservedResultProjectionUsesCanonicalEffectsWithoutToolNameInference(t 
 	}
 	observation := newContentObservation("obs-001", "continue", "external.tasks.create", `{"taskID":"task-1"}`)
 	observation.Output.Data = json.RawMessage(`{"taskID":"task-1"}`)
-	observation.Effects = []ResourceEffect{{ObjectType: "task", Effect: "created", ID: "task-1"}}
+	observation.Effects = []toolcontract.ResourceEffect{{ObjectType: "task", Effect: "created", ID: "task-1"}}
 
-	facts := factsFromObservation(newTestToolSetWithDefinitions([]ToolDefinition{descriptor}), observation)
+	facts := factsFromObservation(newTestToolSetWithDefinitions([]toolcontract.ToolDefinition{descriptor}), observation)
 
 	if len(facts) != 1 || facts[0].ObjectType != "task" || facts[0].Effect != "created" || facts[0].ID != "task-1" {
 		t.Fatalf("expected canonical resource effect, got %+v", facts)
@@ -58,15 +59,15 @@ func TestObservedResultProjectionUsesCanonicalEffectsWithoutToolNameInference(t 
 func TestObservedResultProjectionPreservesFileDeliveryEffect(t *testing.T) {
 	path := "/workspace/circles/staff/reports/quarterly.docx"
 	descriptor, observation := canonicalEffectObservation(
-		FileDeliverToolName,
+		toolcontract.FileDeliverToolName,
 		`{"deliveredPaths":["/workspace/circles/staff/reports/quarterly.docx"]}`,
-		[]ResourceEffect{{ObjectType: "file", Effect: "attached", Path: path}},
-		[]ResourceEffectContract{{ObjectType: "file", Effect: "attached", ResultField: "deliveredPaths", EffectIdentity: "path"}},
+		[]toolcontract.ResourceEffect{{ObjectType: "file", Effect: "attached", Path: path}},
+		[]toolcontract.ResourceEffectContract{{ObjectType: "file", Effect: "attached", ResultField: "deliveredPaths", EffectIdentity: "path"}},
 	)
 	projection := buildObservedResultProjection(
-		AgentTurnRequest{ToolSet: newTestToolSetWithDefinitions([]ToolDefinition{descriptor})},
+		AgentTurnRequest{ToolSet: newTestToolSetWithDefinitions([]toolcontract.ToolDefinition{descriptor})},
 		[]turnObservation{observation},
-		[]FileAttachment{{Filename: "quarterly.docx"}},
+		[]toolcontract.FileAttachment{{Filename: "quarterly.docx"}},
 		turnActionDocument{},
 	)
 
@@ -81,12 +82,12 @@ func TestObservedResultProjectionPreservesFileDeliveryEffect(t *testing.T) {
 
 func TestObservedResultProjectionRejectsEffectsWithoutContract(t *testing.T) {
 	observation := newContentObservation("obs-001", "continue", "external.tasks.create", `{"taskID":"task-1"}`)
-	observation.Effects = []ResourceEffect{{ObjectType: "task", Effect: "created", ID: "task-1"}}
-	toolSet := NewToolSet([]string{"external.tasks.create"})
-	if errorValue := toolSet.RegisterBoundTool(BoundTool{
-		Definition:   ToolDefinition{ID: "test:external.tasks.create", Name: "external.tasks.create", Visibility: ToolVisibilityInternal},
-		Availability: ToolAvailability{Status: ToolAvailabilityAvailable},
-		Handler: func(context.Context, ToolInvocation) (ToolResult, error) {
+	observation.Effects = []toolcontract.ResourceEffect{{ObjectType: "task", Effect: "created", ID: "task-1"}}
+	toolSet := toolcontract.NewToolSet([]string{"external.tasks.create"})
+	if errorValue := toolSet.RegisterBoundTool(toolcontract.BoundTool{
+		Definition:   toolcontract.ToolDefinition{ID: "test:external.tasks.create", Name: "external.tasks.create", Visibility: toolcontract.ToolVisibilityInternal},
+		Availability: toolcontract.ToolAvailability{Status: toolcontract.ToolAvailabilityAvailable},
+		Handler: func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
 			return testToolSuccess("ok"), nil
 		},
 	}); errorValue != nil {
@@ -144,11 +145,11 @@ func TestObservedResultProjectionAcceptsCurrentSiteModificationEffects(t *testin
 	fileDescriptor, fileObservation := canonicalEffectObservation(
 		"file.edit",
 		`{"paths":["/workspace/circles/staff/sites/pretty-gyul/draft/app/src/App.tsx"]}`,
-		[]ResourceEffect{
+		[]toolcontract.ResourceEffect{
 			{ObjectType: "file", Effect: "updated", Path: "/workspace/circles/staff/sites/pretty-gyul/draft/app/src/App.tsx"},
 			{ObjectType: "workspace", Effect: "modified", Path: "/workspace/circles/staff/sites/pretty-gyul/draft/app/src/App.tsx"},
 		},
-		[]ResourceEffectContract{
+		[]toolcontract.ResourceEffectContract{
 			{ObjectType: "file", Effect: "updated", ResultField: "paths", EffectIdentity: "path"},
 			{ObjectType: "workspace", Effect: "modified", ResultField: "paths", EffectIdentity: "path"},
 		},
@@ -156,12 +157,12 @@ func TestObservedResultProjectionAcceptsCurrentSiteModificationEffects(t *testin
 	publishDescriptor, publishObservation := canonicalEffectObservation(
 		"site.serve",
 		`{"siteID":"site-1"}`,
-		[]ResourceEffect{{ObjectType: "website", Effect: "published", ID: "site-1"}},
-		[]ResourceEffectContract{{ObjectType: "website", Effect: "published", ResultField: "siteID", EffectIdentity: "id"}},
+		[]toolcontract.ResourceEffect{{ObjectType: "website", Effect: "published", ID: "site-1"}},
+		[]toolcontract.ResourceEffectContract{{ObjectType: "website", Effect: "published", ResultField: "siteID", EffectIdentity: "id"}},
 	)
 	projection := buildObservedResultProjection(
 		AgentTurnRequest{
-			ToolSet: newTestToolSetWithDefinitions([]ToolDefinition{fileDescriptor, publishDescriptor}),
+			ToolSet: newTestToolSetWithDefinitions([]toolcontract.ToolDefinition{fileDescriptor, publishDescriptor}),
 			OutcomeContract: OutcomeContract{RequiredEffects: []OutcomeEffect{
 				{ObjectType: "workspace", Effect: "modified", SuggestedNextTools: []string{"file.edit"}},
 				{ObjectType: "website", Effect: "published", SuggestedNextTools: []string{"site.serve"}},
@@ -214,12 +215,12 @@ func TestObservedResultProjectionAllowsSiteDeleteEffect(t *testing.T) {
 	descriptor, observation := canonicalEffectObservation(
 		"site.unserve",
 		`{"siteID":"site-1"}`,
-		[]ResourceEffect{{ObjectType: "website", Effect: "deleted", ID: "site-1"}},
-		[]ResourceEffectContract{{ObjectType: "website", Effect: "deleted", ResultField: "siteID", EffectIdentity: "id"}},
+		[]toolcontract.ResourceEffect{{ObjectType: "website", Effect: "deleted", ID: "site-1"}},
+		[]toolcontract.ResourceEffectContract{{ObjectType: "website", Effect: "deleted", ResultField: "siteID", EffectIdentity: "id"}},
 	)
 	projection := buildObservedResultProjection(
 		AgentTurnRequest{
-			ToolSet: newTestToolSetWithDefinitions([]ToolDefinition{descriptor}),
+			ToolSet: newTestToolSetWithDefinitions([]toolcontract.ToolDefinition{descriptor}),
 			OutcomeContract: OutcomeContract{RequiredEffects: []OutcomeEffect{{
 				ObjectType:         "website",
 				Effect:             "deleted",
@@ -243,9 +244,9 @@ func TestObservedResultProjectionAllowsSiteDeleteEffect(t *testing.T) {
 	}
 }
 
-func canonicalEffectObservation(toolName string, resultData string, effects []ResourceEffect, contracts []ResourceEffectContract) (ToolDefinition, turnObservation) {
+func canonicalEffectObservation(toolName string, resultData string, effects []toolcontract.ResourceEffect, contracts []toolcontract.ResourceEffectContract) (toolcontract.ToolDefinition, turnObservation) {
 	descriptor := testToolDescriptor(toolName)
-	descriptor.ResultContract = &ToolResultContract{
+	descriptor.ResultContract = &toolcontract.ToolResultContract{
 		Schema:  json.RawMessage(`{"type":"object"}`),
 		Effects: contracts,
 	}
@@ -253,7 +254,7 @@ func canonicalEffectObservation(toolName string, resultData string, effects []Re
 		ObservationID: "obs-" + toolName,
 		Action:        "continue",
 		Tool:          toolName,
-		Output:        ToolOutput{Content: resultData, Data: json.RawMessage(resultData)},
+		Output:        toolcontract.ToolOutput{Content: resultData, Data: json.RawMessage(resultData)},
 		Effects:       effects,
 	}
 }

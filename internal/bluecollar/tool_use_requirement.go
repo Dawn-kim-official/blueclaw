@@ -1,6 +1,7 @@
 package bluecollar
 
 import (
+	"github.com/Dawn-kim-official/blueclaw/internal/toolcontract"
 	"strings"
 )
 
@@ -38,7 +39,7 @@ func evidenceToolRequirements(request AgentTurnRequest) []toolUseRequirement {
 		requirements = append(requirements, toolUseRequirement{
 			ToolName:                   trimmedToolName,
 			Reason:                     "selected workflow requires completion evidence",
-			RequiresAttachment:         IsArtifactDeliveryTool(trimmedToolName),
+			RequiresAttachment:         toolcontract.IsArtifactDeliveryTool(trimmedToolName),
 			RequiresSideEffectEvidence: requiredEvidenceToolNeedsSuccessfulSideEffect(request.ToolSet, trimmedToolName),
 			AttachmentSuffixes:         attachmentSuffixesForEvidenceTool(trimmedToolName, request.RequiredAttachmentSuffixes),
 		})
@@ -46,7 +47,7 @@ func evidenceToolRequirements(request AgentTurnRequest) []toolUseRequirement {
 	return requirements
 }
 
-func evidenceToolIsReadOnly(toolSet *ToolSet, toolName string) bool {
+func evidenceToolIsReadOnly(toolSet *toolcontract.ToolSet, toolName string) bool {
 	if toolSet == nil {
 		return false
 	}
@@ -54,24 +55,24 @@ func evidenceToolIsReadOnly(toolSet *ToolSet, toolName string) bool {
 	if !isFound {
 		return false
 	}
-	switch ToolDefinitionSideEffectClass(definition) {
-	case ToolSideEffectRead, ToolSideEffectComputation:
+	switch toolcontract.ToolDefinitionSideEffectClass(definition) {
+	case toolcontract.ToolSideEffectRead, toolcontract.ToolSideEffectComputation:
 		return true
 	default:
 		return false
 	}
 }
 
-func requiredEvidenceToolNeedsSuccessfulSideEffect(toolSet *ToolSet, toolName string) bool {
+func requiredEvidenceToolNeedsSuccessfulSideEffect(toolSet *toolcontract.ToolSet, toolName string) bool {
 	if toolSet == nil {
 		return false
 	}
 	toolDefinition, isFound := toolSet.ToolDefinition(toolName)
-	return isFound && ToolDefinitionRequiresSideEffectEvidence(toolDefinition)
+	return isFound && toolcontract.ToolDefinitionRequiresSideEffectEvidence(toolDefinition)
 }
 
 func attachmentSuffixesForEvidenceTool(toolName string, suffixes []string) []string {
-	if !IsArtifactDeliveryTool(toolName) {
+	if !toolcontract.IsArtifactDeliveryTool(toolName) {
 		return nil
 	}
 	trimmedSuffixes := []string{}

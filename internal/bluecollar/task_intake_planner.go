@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/Dawn-kim-official/blueclaw/internal/toolcontract"
 	"strconv"
 	"strings"
 	"time"
@@ -88,7 +89,7 @@ type AgentRequest struct {
 	ResponseLanguage           string
 	VisibleContext             VisibleContext
 	MemoryFacts                []memory.MemoryFact
-	ToolSet                    *ToolSet
+	ToolSet                    *toolcontract.ToolSet
 	PinnedToolNames            []string
 	PinnedSkillNames           []string
 	WorkspaceRootPath          string
@@ -454,7 +455,7 @@ func (turnRouter TurnRouter) buildMessages(request AgentRequest) []llm.Message {
 	return messages
 }
 
-func intakeToolDescriptions(toolSet *ToolSet) string {
+func intakeToolDescriptions(toolSet *toolcontract.ToolSet) string {
 	callableToolDescriptions := callableToolDescriptionsForIntake(toolSet)
 	lines := []string{}
 	if len(callableToolDescriptions) > 0 {
@@ -466,7 +467,7 @@ func intakeToolDescriptions(toolSet *ToolSet) string {
 	return strings.Join(lines, "\n")
 }
 
-func callableToolDescriptionsForIntake(toolSet *ToolSet) []string {
+func callableToolDescriptionsForIntake(toolSet *toolcontract.ToolSet) []string {
 	descriptions := []string{}
 	if toolSet == nil {
 		return descriptions
@@ -577,7 +578,7 @@ func decisionSuggestsSiteTool(decision TurnDecision) bool {
 	return false
 }
 
-func normalizeSideEffectTurnDecision(decision TurnDecision, toolSet *ToolSet) TurnDecision {
+func normalizeSideEffectTurnDecision(decision TurnDecision, toolSet *toolcontract.ToolSet) TurnDecision {
 	if decision.Classification != IntakeClassificationQuickReply || !includesRegisteredSideEffectEvidence(toolSet, decision.InitialToolNames) {
 		return decision
 	}
@@ -593,14 +594,14 @@ func normalizeSideEffectTurnDecision(decision TurnDecision, toolSet *ToolSet) Tu
 	return decision
 }
 
-func includesRegisteredSideEffectEvidence(toolSet *ToolSet, toolNames []string) bool {
+func includesRegisteredSideEffectEvidence(toolSet *toolcontract.ToolSet, toolNames []string) bool {
 	for _, toolName := range toolNames {
 		registeredToolName, isRegistered := requiredEvidenceRegisteredToolName(toolSet, toolName)
 		if !isRegistered || !requiredEvidenceToolCanBeSatisfied(toolSet, registeredToolName) {
 			continue
 		}
 		toolDefinition, isDefined := toolSet.ToolDefinition(registeredToolName)
-		if isDefined && ToolDefinitionRequiresSideEffectEvidence(toolDefinition) {
+		if isDefined && toolcontract.ToolDefinitionRequiresSideEffectEvidence(toolDefinition) {
 			return true
 		}
 	}
@@ -654,7 +655,7 @@ func normalizeTurnDecisionFileRequirement(decision TurnDecision) TurnDecision {
 		return decision
 	}
 	decision.ExpectedResults = removeExpectedResultsByType(decision.ExpectedResults, ExpectedResultTypeFile)
-	decision.InitialToolNames = removeToolName(decision.InitialToolNames, FileDeliverToolName)
+	decision.InitialToolNames = removeToolName(decision.InitialToolNames, toolcontract.FileDeliverToolName)
 	return decision
 }
 
@@ -1084,7 +1085,7 @@ func NormalizeReactionEmojiName(emojiName string) string {
 	return DefaultReactionEmojiName
 }
 
-func hasAllTools(toolRegistry *ToolSet, toolNames []string) bool {
+func hasAllTools(toolRegistry *toolcontract.ToolSet, toolNames []string) bool {
 	if toolRegistry == nil {
 		return false
 	}
@@ -1100,7 +1101,7 @@ func hasAllTools(toolRegistry *ToolSet, toolNames []string) bool {
 	return true
 }
 
-func hasTool(toolRegistry *ToolSet, toolName string) bool {
+func hasTool(toolRegistry *toolcontract.ToolSet, toolName string) bool {
 	if toolRegistry == nil {
 		return false
 	}
@@ -1112,7 +1113,7 @@ func hasTool(toolRegistry *ToolSet, toolName string) bool {
 	return false
 }
 
-func registeredToolNamesOnly(toolRegistry *ToolSet, toolNames []string) []string {
+func registeredToolNamesOnly(toolRegistry *toolcontract.ToolSet, toolNames []string) []string {
 	if toolRegistry == nil || len(toolNames) == 0 {
 		return nil
 	}

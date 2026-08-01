@@ -3,24 +3,25 @@ package bluecollar
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/Dawn-kim-official/blueclaw/internal/toolcontract"
 	"strings"
 )
 
-func (agentTurnRunner *AgentTurnRunner) buildActionSchema(toolRegistry *ToolSet, allowQualityCriteria bool, blockedToolNames map[string]bool, hasFailureDebt bool) string {
+func (agentTurnRunner *AgentTurnRunner) buildActionSchema(toolRegistry *toolcontract.ToolSet, allowQualityCriteria bool, blockedToolNames map[string]bool, hasFailureDebt bool) string {
 	if toolRegistry != nil {
-		return toolRegistry.ActionSchema(allowQualityCriteria, blockedToolNames, hasFailureDebt)
+		return ActionSchemaForToolSet(toolRegistry, allowQualityCriteria, blockedToolNames, hasFailureDebt)
 	}
 	return buildActionSchemaFromToolDefinitions(nil, allowQualityCriteria, blockedToolNames, hasFailureDebt)
 }
 
-func (toolSet *ToolSet) ActionSchema(allowQualityCriteria bool, blockedToolNames map[string]bool, hasFailureDebt bool, terminalActionValues ...bool) string {
+func ActionSchemaForToolSet(toolSet *toolcontract.ToolSet, allowQualityCriteria bool, blockedToolNames map[string]bool, hasFailureDebt bool, terminalActionValues ...bool) string {
 	if toolSet == nil {
 		return buildActionSchemaFromToolDefinitions(nil, allowQualityCriteria, blockedToolNames, hasFailureDebt, terminalActionValues...)
 	}
 	return buildActionSchemaFromToolDefinitions(toolSet.ListToolDefinitions(), allowQualityCriteria, blockedToolNames, hasFailureDebt, terminalActionValues...)
 }
 
-func buildActionSchemaFromToolDefinitions(toolDefinitions []ToolDefinition, allowQualityCriteria bool, blockedToolNames map[string]bool, hasFailureDebt bool, terminalActionValues ...bool) string {
+func buildActionSchemaFromToolDefinitions(toolDefinitions []toolcontract.ToolDefinition, allowQualityCriteria bool, blockedToolNames map[string]bool, hasFailureDebt bool, terminalActionValues ...bool) string {
 	allowFail := true
 	allowFinish := true
 	if len(terminalActionValues) > 0 {
@@ -151,7 +152,7 @@ func failActionSchema(hasFailureDebt bool) map[string]any {
 	return closedObjectSchema(properties, requiredFields...)
 }
 
-func continueActionSchema(toolDefinition ToolDefinition) (map[string]any, bool) {
+func continueActionSchema(toolDefinition toolcontract.ToolDefinition) (map[string]any, bool) {
 	inputSchema, isValid := toolInputSchema(toolDefinition)
 	if !isValid {
 		return nil, false
@@ -174,7 +175,7 @@ func continueActionSchema(toolDefinition ToolDefinition) (map[string]any, bool) 
 	return schema, true
 }
 
-func toolInputSchema(toolDefinition ToolDefinition) (any, bool) {
+func toolInputSchema(toolDefinition toolcontract.ToolDefinition) (any, bool) {
 	if len(toolDefinition.InputSchema) == 0 {
 		return nil, false
 	}

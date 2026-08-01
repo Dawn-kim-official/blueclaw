@@ -1,6 +1,7 @@
 package bluecollar
 
 import (
+	"github.com/Dawn-kim-official/blueclaw/internal/toolcontract"
 	"strings"
 	"testing"
 )
@@ -15,7 +16,7 @@ func TestMemorySearchWebSearchIsAlternateRecoveryRoute(t *testing.T) {
 }
 
 func TestMemorySearchUnavailableRecoveryGuidanceIncludesWebSearchRoute(t *testing.T) {
-	observation := newFailureObservation("obs-001", "continue", "memory.search", "Persistent memory search is unavailable.", FailureDependencyUnavailable, FailureCodes.Unavailable, "graphiti_search")
+	observation := newFailureObservation("obs-001", "continue", "memory.search", "Persistent memory search is unavailable.", toolcontract.FailureDependencyUnavailable, toolcontract.FailureCodes.Unavailable, "graphiti_search")
 	guidance := recoveryGuidanceContent(observation, "")
 
 	for _, expectedText := range []string{
@@ -30,7 +31,7 @@ func TestMemorySearchUnavailableRecoveryGuidanceIncludesWebSearchRoute(t *testin
 }
 
 func TestNonMemoryFailureDoesNotIncludeWebSearchRoute(t *testing.T) {
-	observation := newFailureObservation("obs-001", "continue", "terminal.run", "command failed", FailureExternalService, FailureCodes.OperationFailed, "terminal_run")
+	observation := newFailureObservation("obs-001", "continue", "terminal.run", "command failed", toolcontract.FailureExternalService, toolcontract.FailureCodes.OperationFailed, "terminal_run")
 	guidance := recoveryGuidanceContent(observation, "")
 
 	if strings.Contains(guidance, "web.search") {
@@ -39,7 +40,7 @@ func TestNonMemoryFailureDoesNotIncludeWebSearchRoute(t *testing.T) {
 }
 
 func TestNonMemoryUnavailableFailureDoesNotIncludeWebSearchRoute(t *testing.T) {
-	observation := newFailureObservation("obs-001", "continue", "terminal.run", "terminal unavailable", FailureDependencyUnavailable, FailureCodes.Unavailable, "terminal_run")
+	observation := newFailureObservation("obs-001", "continue", "terminal.run", "terminal unavailable", toolcontract.FailureDependencyUnavailable, toolcontract.FailureCodes.Unavailable, "terminal_run")
 	guidance := recoveryGuidanceContent(observation, "")
 
 	if strings.Contains(guidance, "web.search") {

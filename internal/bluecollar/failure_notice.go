@@ -3,6 +3,7 @@ package bluecollar
 import (
 	"context"
 	"errors"
+	"github.com/Dawn-kim-official/blueclaw/internal/toolcontract"
 	"regexp"
 	"strconv"
 	"strings"
@@ -71,7 +72,7 @@ func (notice FailureNotice) SendableMessage() string {
 	return strings.TrimSpace(notice.Message)
 }
 
-func buildFailureReport(request AgentTurnRequest, taskRunID string, phase string, stopReason string, observations []turnObservation, attachments []FileAttachment, executionState ExecutionState, decision recoveryDecision) FailureReport {
+func buildFailureReport(request AgentTurnRequest, taskRunID string, phase string, stopReason string, observations []turnObservation, attachments []toolcontract.FileAttachment, executionState ExecutionState, decision recoveryDecision) FailureReport {
 	report := FailureReport{
 		Phase:               strings.TrimSpace(phase),
 		StopReason:          compactWhitespace(strings.TrimSpace(stopReason)),
@@ -468,7 +469,7 @@ func latestSafeFailureSummary(observations []turnObservation, fallback string) s
 	return truncateText(compactWhitespace(redactUnsafeText(fallback)), 360)
 }
 
-func failureReportAttachmentFilenames(attachments []FileAttachment) []string {
+func failureReportAttachmentFilenames(attachments []toolcontract.FileAttachment) []string {
 	filenames := []string{}
 	seenFilenames := map[string]bool{}
 	for _, attachment := range attachments {

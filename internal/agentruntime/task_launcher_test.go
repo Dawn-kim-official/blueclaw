@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/Dawn-kim-official/blueclaw/internal/toolcontract"
 	"io"
 	"net/http"
 	"os"
@@ -399,7 +400,7 @@ func TestToolCatalogHidesHistoryAndQuarantinedMCPTools(t *testing.T) {
 		t.Fatalf("expected blocked MCP tool to be hidden, got %+v", toolNames)
 	}
 
-	toolResult, errorValue := toolRegistry.Invoke(context.Background(), bluecollar.ToolInvocation{ToolName: "blocked.tool", Input: json.RawMessage(`{}`)})
+	toolResult, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{ToolName: "blocked.tool", Input: json.RawMessage(`{}`)})
 	if errorValue != nil {
 		t.Fatalf("expected denied tool as result: %v", errorValue)
 	}
@@ -442,7 +443,7 @@ func TestInteractiveBrowserCapabilityUsesCompanion(t *testing.T) {
 		Platform:                "mattermost",
 	})
 
-	toolResult, errorValue := toolRegistry.Invoke(context.Background(), bluecollar.ToolInvocation{
+	toolResult, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
 		ToolName: "browser.open",
 		Input:    json.RawMessage(`{"url":"https://example.com"}`),
 	})
@@ -482,7 +483,7 @@ func TestPublicBrowserCapabilityWithRequesterUsesCompanion(t *testing.T) {
 		Platform:                "mattermost",
 	})
 
-	toolResult, errorValue := toolRegistry.Invoke(context.Background(), bluecollar.ToolInvocation{
+	toolResult, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
 		ToolName: "browser.open",
 		Input:    json.RawMessage(`{"url":"https://example.com"}`),
 	})
@@ -515,7 +516,7 @@ func TestPrivateBrowserCapabilityUsesCompanion(t *testing.T) {
 	}, nil)
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
 
-	toolResult, errorValue := toolRegistry.Invoke(context.Background(), bluecollar.ToolInvocation{
+	toolResult, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
 		ToolName: "browser.open",
 		Input:    json.RawMessage(`{"url":"http://127.0.0.1:3000"}`),
 	})
@@ -555,7 +556,7 @@ func TestBrowserFollowUpWithSensitiveVisibleContextUsesCompanion(t *testing.T) {
 		}},
 	})
 
-	toolResult, errorValue := toolRegistry.Invoke(context.Background(), bluecollar.ToolInvocation{
+	toolResult, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
 		ToolName: "browser.open",
 		Input:    json.RawMessage(`{"url":"https://console.cloud.google.com/"}`),
 	})
@@ -591,7 +592,7 @@ func TestCapabilityDenialPreservesRecoveryAction(t *testing.T) {
 		Prompt:      "브라우저 열어줘",
 	})
 
-	toolResult, errorValue := toolRegistry.Invoke(context.Background(), bluecollar.ToolInvocation{
+	toolResult, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
 		ToolName: "browser.open",
 		Input:    json.RawMessage(`{"url":"https://example.com"}`),
 	})
@@ -620,7 +621,7 @@ func TestPublicBrowserCapabilityUsesCompanion(t *testing.T) {
 	}, nil)
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
 
-	toolResult, errorValue := toolRegistry.Invoke(context.Background(), bluecollar.ToolInvocation{
+	toolResult, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
 		ToolName: "browser.open",
 		Input:    json.RawMessage(`{"url":"https://example.com"}`),
 	})
@@ -652,7 +653,7 @@ func TestCapabilityDescriptorAppearsInToolSetAndInvokesBridge(t *testing.T) {
 		InputSchema:      json.RawMessage(`{"type":"object","properties":{"url":{"type":"string"}},"required":["url"],"additionalProperties":false}`),
 		OutputSchema:     json.RawMessage(`{"type":"object","properties":{"status":{"type":"string"}},"additionalProperties":false}`),
 		PolicyResource:   "tool:browser.open",
-		SideEffectClass:  bluecollar.ToolSideEffectConnect,
+		SideEffectClass:  toolcontract.ToolSideEffectConnect,
 		RequiresApproval: true,
 	}})
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(map[string][]string{
@@ -661,7 +662,7 @@ func TestCapabilityDescriptorAppearsInToolSetAndInvokesBridge(t *testing.T) {
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
 
 	descriptions := toolRegistry.Descriptions()
-	actionSchema := toolRegistry.ActionSchema(false, nil, false)
+	actionSchema := bluecollar.ActionSchemaForToolSet(toolRegistry, false, nil, false)
 	if !strings.Contains(descriptions, "Test capability browser.open") || strings.Contains(descriptions, `"url"`) {
 		t.Fatalf("expected concise descriptor description without duplicated schema, got %s", descriptions)
 	}
@@ -669,7 +670,7 @@ func TestCapabilityDescriptorAppearsInToolSetAndInvokesBridge(t *testing.T) {
 		t.Fatalf("expected descriptor schema in the action schema, got %s", actionSchema)
 	}
 
-	toolResult, errorValue := toolRegistry.Invoke(context.Background(), bluecollar.ToolInvocation{
+	toolResult, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
 		ToolName: "browser.open",
 		Input:    json.RawMessage(`{"url":"https://example.com"}`),
 	})
@@ -702,7 +703,7 @@ func TestCapabilityToolExecutionUsesResourceAccess(t *testing.T) {
 			ResourceAccessRules: resourceAccessRules,
 		},
 	})
-	staffResult, errorValue := staffToolSet.Invoke(context.Background(), bluecollar.ToolInvocation{
+	staffResult, errorValue := staffToolSet.Invoke(context.Background(), toolcontract.ToolInvocation{
 		ToolName: "company.broadcast.send",
 		Input:    json.RawMessage(`{"message":"hello"}`),
 	})
@@ -727,7 +728,7 @@ func TestCapabilityToolExecutionUsesResourceAccess(t *testing.T) {
 			ResourceAccessRules: resourceAccessRules,
 		},
 	})
-	representativeResult, errorValue := representativeToolSet.Invoke(context.Background(), bluecollar.ToolInvocation{
+	representativeResult, errorValue := representativeToolSet.Invoke(context.Background(), toolcontract.ToolInvocation{
 		ToolName: "company.broadcast.send",
 		Input:    json.RawMessage(`{"message":"hello"}`),
 	})
@@ -762,7 +763,7 @@ func TestFlowTaskAddToolRequiresStaffCircle(t *testing.T) {
 			ResourceAccessRules: resourceAccessRules,
 		},
 	})
-	guestResult, errorValue := guestToolSet.Invoke(context.Background(), bluecollar.ToolInvocation{
+	guestResult, errorValue := guestToolSet.Invoke(context.Background(), toolcontract.ToolInvocation{
 		ToolName: "task.add",
 		Input:    json.RawMessage(`{"title":"10분 회의"}`),
 	})
@@ -784,7 +785,7 @@ func TestFlowTaskAddToolRequiresStaffCircle(t *testing.T) {
 			ResourceAccessRules: resourceAccessRules,
 		},
 	})
-	staffResult, errorValue := staffToolSet.Invoke(context.Background(), bluecollar.ToolInvocation{
+	staffResult, errorValue := staffToolSet.Invoke(context.Background(), toolcontract.ToolInvocation{
 		ToolName: "task.add",
 		Input:    json.RawMessage(`{"title":"10분 회의"}`),
 	})

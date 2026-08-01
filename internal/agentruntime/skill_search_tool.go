@@ -3,6 +3,7 @@ package agentruntime
 import (
 	"context"
 	"encoding/json"
+	"github.com/Dawn-kim-official/blueclaw/internal/toolcontract"
 	"strings"
 
 	"github.com/Dawn-kim-official/blueclaw/internal/bluecollar"
@@ -126,24 +127,24 @@ type skillSearchResultItem struct {
 	PromptTruncated *bool    `json:"promptTruncated,omitempty"`
 }
 
-func (toolCatalogBuilder *ToolCatalogBuilder) registerSkillSearchTool(toolRegistry *bluecollar.ToolSet, handlerContext toolHandlerContext, availableToolSet *bluecollar.ToolSet) {
+func (toolCatalogBuilder *ToolCatalogBuilder) registerSkillSearchTool(toolRegistry *toolcontract.ToolSet, handlerContext toolHandlerContext, availableToolSet *toolcontract.ToolSet) {
 	if toolCatalogBuilder.skillRetriever == nil || toolCatalogBuilder.instructionBundleLoader == nil {
 		return
 	}
-	bluecollar.RegisterToolFunction(toolRegistry, bluecollar.ToolFunction[skillSearchToolInput, bluecollar.ToolResult]{
-		Definition: bluecollar.ToolDefinition{
-			Name:        bluecollar.SkillSearchToolName,
+	toolcontract.RegisterToolFunction(toolRegistry, toolcontract.ToolFunction[skillSearchToolInput, toolcontract.ToolResult]{
+		Definition: toolcontract.ToolDefinition{
+			Name:        toolcontract.SkillSearchToolName,
 			Description: "Search available Blueclaw skills by concise skill-need descriptions. Call with no queries to list available skills. Call with name to fetch one available skill by exact name and include its full instructions.",
 			InputSchema: skillSearchInputSchema,
 		},
-		Handler: func(toolContext context.Context, input skillSearchToolInput) (bluecollar.ToolResult, error) {
+		Handler: func(toolContext context.Context, input skillSearchToolInput) (toolcontract.ToolResult, error) {
 			return toolCatalogBuilder.searchSkills(toolContext, input, handlerContext, availableToolSet)
 		},
-		Result: bluecollar.IdentityToolResult,
+		Result: toolcontract.IdentityToolResult,
 	})
 }
 
-func (toolCatalogBuilder *ToolCatalogBuilder) searchSkills(toolContext context.Context, input skillSearchToolInput, handlerContext toolHandlerContext, availableToolSet *bluecollar.ToolSet) (bluecollar.ToolResult, error) {
+func (toolCatalogBuilder *ToolCatalogBuilder) searchSkills(toolContext context.Context, input skillSearchToolInput, handlerContext toolHandlerContext, availableToolSet *toolcontract.ToolSet) (toolcontract.ToolResult, error) {
 	instructionBundle := toolCatalogBuilder.instructionBundleLoader()
 	visibleInstructions := bluecollar.VisibleSkillInstructionsForRequester(instructionBundle.Skills, handlerContext.request.PersonAccess.Circles)
 	availableInstructions := availableSkillSearchInstructions(visibleInstructions, availableToolSet)
@@ -158,7 +159,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) searchSkills(toolContext context.C
 	return successfulSkillSearchResult(searchSkillSearchResult(availableInstructions, retrievalResult, searchSkillResultLimit(input.Limit))), nil
 }
 
-func availableSkillSearchInstructions(skillInstructions []bluecollar.SkillInstruction, availableToolSet *bluecollar.ToolSet) []bluecollar.SkillInstruction {
+func availableSkillSearchInstructions(skillInstructions []bluecollar.SkillInstruction, availableToolSet *toolcontract.ToolSet) []bluecollar.SkillInstruction {
 	request := bluecollar.AgentRequest{ToolSet: availableToolSet}
 	selector := bluecollar.SkillSelector{}
 	availableInstructions := make([]bluecollar.SkillInstruction, 0, len(skillInstructions))
@@ -171,7 +172,7 @@ func availableSkillSearchInstructions(skillInstructions []bluecollar.SkillInstru
 	return availableInstructions
 }
 
-func (toolCatalogBuilder *ToolCatalogBuilder) searchSkillInstructions(toolContext context.Context, input skillSearchToolInput, handlerContext toolHandlerContext, availableToolSet *bluecollar.ToolSet, skillInstructions []bluecollar.SkillInstruction) bluecollar.SkillRetrievalResult {
+func (toolCatalogBuilder *ToolCatalogBuilder) searchSkillInstructions(toolContext context.Context, input skillSearchToolInput, handlerContext toolHandlerContext, availableToolSet *toolcontract.ToolSet, skillInstructions []bluecollar.SkillInstruction) bluecollar.SkillRetrievalResult {
 	request := bluecollar.AgentRequest{
 		ProfileName:       handlerContext.request.ProfileName,
 		Prompt:            handlerContext.request.Prompt,
@@ -201,10 +202,10 @@ func listSkillSearchResult(skillInstructions []bluecollar.SkillInstruction, requ
 	}
 }
 
-func skillSearchNameResult(skillInstructions []bluecollar.SkillInstruction, name string) bluecollar.ToolResult {
+func skillSearchNameResult(skillInstructions []bluecollar.SkillInstruction, name string) toolcontract.ToolResult {
 	skillInstruction, isFound := findSkillInstructionByName(skillInstructions, name)
 	if !isFound {
-		return bluecollar.ToolFailureResult(bluecollar.FailureNotFound, bluecollar.FailureCodes.NotFound, "skill_search", "visible skill was not found")
+		return toolcontract.ToolFailureResult(toolcontract.FailureNotFound, toolcontract.FailureCodes.NotFound, "skill_search", "visible skill was not found")
 	}
 	prompt, isTruncated := truncateSkillSearchPrompt(skillInstruction.Prompt)
 	item := publicSkillSearchItem(skillInstruction)
@@ -336,9 +337,9 @@ func searchSkillResultLimit(requestedLimit int) int {
 	return min(requestedLimit, maximumSkillSearchResultCount)
 }
 
-func successfulSkillSearchResult(output skillSearchToolOutput) bluecollar.ToolResult {
+func successfulSkillSearchResult(output skillSearchToolOutput) toolcontract.ToolResult {
 	document := json.RawMessage(marshalToolResult(output))
-	return bluecollar.ToolSuccessData(string(document), document)
+	return toolcontract.ToolSuccessData(string(document), document)
 }
 
 func booleanPointer(value bool) *bool {

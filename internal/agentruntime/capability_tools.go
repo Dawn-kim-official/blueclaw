@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"github.com/Dawn-kim-official/blueclaw/internal/toolcontract"
 	"net/url"
 	"path/filepath"
 	"sort"
@@ -29,7 +30,7 @@ func capabilityToolIdempotencyKey(toolContext context.Context, descriptor Capabi
 	return hex.EncodeToString(digest[:])
 }
 
-func (toolCatalogBuilder *ToolCatalogBuilder) registerMCPTools(toolRegistry *bluecollar.ToolSet, request ToolCatalogRequest) {
+func (toolCatalogBuilder *ToolCatalogBuilder) registerMCPTools(toolRegistry *toolcontract.ToolSet, request ToolCatalogRequest) {
 	quarantinedProviders, errorValue := toolRegistry.RegisterProviders(context.Background(), mcpToolProviders(toolCatalogBuilder.mcpRegistry, request))
 	if errorValue != nil {
 		panic(errorValue)
@@ -37,7 +38,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerMCPTools(toolRegistry *blu
 	toolCatalogBuilder.reportMCPQuarantines(quarantinedProviders)
 }
 
-func (toolCatalogBuilder *ToolCatalogBuilder) reportMCPQuarantines(quarantinedProviders []bluecollar.QuarantinedToolProvider) {
+func (toolCatalogBuilder *ToolCatalogBuilder) reportMCPQuarantines(quarantinedProviders []toolcontract.QuarantinedToolProvider) {
 	if toolCatalogBuilder.mcpQuarantineReporter == nil {
 		return
 	}
@@ -46,15 +47,15 @@ func (toolCatalogBuilder *ToolCatalogBuilder) reportMCPQuarantines(quarantinedPr
 	}
 }
 
-func (toolCatalogBuilder *ToolCatalogBuilder) registerCapabilityTools(toolRegistry *bluecollar.ToolSet, request ToolCatalogRequest) {
+func (toolCatalogBuilder *ToolCatalogBuilder) registerCapabilityTools(toolRegistry *toolcontract.ToolSet, request ToolCatalogRequest) {
 	provider := capabilityToolProvider{
 		toolCatalogBuilder: toolCatalogBuilder,
 		request:            request,
 		descriptors:        toolCatalogBuilder.reachableCapabilityToolDefinitions(),
 	}
-	quarantinedProviders, errorValue := toolRegistry.RegisterProviders(context.Background(), []bluecollar.ToolProviderRegistration{{
+	quarantinedProviders, errorValue := toolRegistry.RegisterProviders(context.Background(), []toolcontract.ToolProviderRegistration{{
 		Provider: provider,
-		Trust:    bluecollar.ToolProviderExternal,
+		Trust:    toolcontract.ToolProviderExternal,
 	}})
 	if errorValue != nil {
 		panic(errorValue)
@@ -62,7 +63,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerCapabilityTools(toolRegist
 	toolCatalogBuilder.reportCapabilityQuarantines(quarantinedProviders)
 }
 
-func (toolCatalogBuilder *ToolCatalogBuilder) reportCapabilityQuarantines(quarantinedProviders []bluecollar.QuarantinedToolProvider) {
+func (toolCatalogBuilder *ToolCatalogBuilder) reportCapabilityQuarantines(quarantinedProviders []toolcontract.QuarantinedToolProvider) {
 	if toolCatalogBuilder.capabilityQuarantineReporter == nil {
 		return
 	}
@@ -71,25 +72,25 @@ func (toolCatalogBuilder *ToolCatalogBuilder) reportCapabilityQuarantines(quaran
 	}
 }
 
-func (toolCatalogBuilder *ToolCatalogBuilder) invokeCapabilityOperation(toolContext context.Context, operation string, toolDescriptor CapabilityToolDescriptor, request ToolCatalogRequest, rawInput json.RawMessage) (bluecollar.ToolResult, error) {
+func (toolCatalogBuilder *ToolCatalogBuilder) invokeCapabilityOperation(toolContext context.Context, operation string, toolDescriptor CapabilityToolDescriptor, request ToolCatalogRequest, rawInput json.RawMessage) (toolcontract.ToolResult, error) {
 	var response struct {
-		Provider        string                      `json:"provider"`
-		SelectedBackend string                      `json:"selectedBackend"`
-		ToolName        string                      `json:"toolName"`
-		Outcome         string                      `json:"outcome"`
-		Effects         []bluecollar.ResourceEffect `json:"effects"`
-		Content         string                      `json:"content"`
-		IsError         bool                        `json:"isError"`
-		Status          string                      `json:"status"`
-		Message         string                      `json:"message"`
-		ErrorCode       string                      `json:"errorCode"`
-		FailureStage    string                      `json:"failureStage"`
-		Retryable       bool                        `json:"retryable"`
-		SafeRetry       bool                        `json:"safeRetry"`
-		Result          json.RawMessage             `json:"result"`
+		Provider        string                        `json:"provider"`
+		SelectedBackend string                        `json:"selectedBackend"`
+		ToolName        string                        `json:"toolName"`
+		Outcome         string                        `json:"outcome"`
+		Effects         []toolcontract.ResourceEffect `json:"effects"`
+		Content         string                        `json:"content"`
+		IsError         bool                          `json:"isError"`
+		Status          string                        `json:"status"`
+		Message         string                        `json:"message"`
+		ErrorCode       string                        `json:"errorCode"`
+		FailureStage    string                        `json:"failureStage"`
+		Retryable       bool                          `json:"retryable"`
+		SafeRetry       bool                          `json:"safeRetry"`
+		Result          json.RawMessage               `json:"result"`
 	}
 	if !access.CanAccess(access.Request{PersonAccess: request.PersonAccess, Action: access.ActionExecute, Resource: toolDescriptor.PolicyResource}) {
-		return bluecollar.ToolFailureResult(bluecollar.FailurePermissionDenied, bluecollar.FailureCodes.AccessDenied, "capability_access", "current account cannot execute this tool"), nil
+		return toolcontract.ToolFailureResult(toolcontract.FailurePermissionDenied, toolcontract.FailureCodes.AccessDenied, "capability_access", "current account cannot execute this tool"), nil
 	}
 	if unexpected := unexpectedCapabilityInputFields(toolDescriptor.InputSchema, rawInput); len(unexpected) > 0 {
 		return capabilityUnexpectedInputFailure(operation, toolDescriptor, unexpected), nil
@@ -99,7 +100,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) invokeCapabilityOperation(toolCont
 		return *toolFailure, nil
 	}
 	if errorValue != nil {
-		return bluecollar.ToolFailureResult(bluecollar.FailureInvalidInput, bluecollar.FailureCodes.InvalidInput, "capability_input", errorValue.Error()), nil
+		return toolcontract.ToolFailureResult(toolcontract.FailureInvalidInput, toolcontract.FailureCodes.InvalidInput, "capability_input", errorValue.Error()), nil
 	}
 	toolInput := preparedPayload.Input
 	if missing := missingRequiredCapabilityInputFields(toolDescriptor.InputSchema, toolInput); len(missing) > 0 {
@@ -107,11 +108,11 @@ func (toolCatalogBuilder *ToolCatalogBuilder) invokeCapabilityOperation(toolCont
 	}
 	errorValue = toolCatalogBuilder.capabilityClient.PostJSON(toolContext, "/v1/tools/"+url.PathEscape(operation)+"/invoke", capabilityToolRequest(toolContext, toolDescriptor, request, preparedPayload), &response)
 	if errorValue != nil {
-		return bluecollar.ToolResult{}, errorValue
+		return toolcontract.ToolResult{}, errorValue
 	}
 	isError := response.IsError || response.Status == "error" || response.Status == "denied"
 	if errorValue := validateCapabilityResultIdentity(operation, response.Provider, response.SelectedBackend, response.ToolName, response.Outcome, isError); errorValue != nil {
-		return bluecollar.ToolFailureResult(bluecollar.FailureExternalService, bluecollar.FailureCodes.OperationFailed, "capability_result_identity", errorValue.Error()), nil
+		return toolcontract.ToolFailureResult(toolcontract.FailureExternalService, toolcontract.FailureCodes.OperationFailed, "capability_result_identity", errorValue.Error()), nil
 	}
 	content := strings.TrimSpace(response.Content)
 	if content == "" && len(response.Result) > 0 {
@@ -280,9 +281,9 @@ func isEmptyCapabilityInputValue(value json.RawMessage) bool {
 	return trimmed == "" || trimmed == "null" || trimmed == `""` || trimmed == "{}" || trimmed == "[]"
 }
 
-func capabilityMissingInputFailure(operation string, toolDescriptor CapabilityToolDescriptor, missing []string) bluecollar.ToolResult {
+func capabilityMissingInputFailure(operation string, toolDescriptor CapabilityToolDescriptor, missing []string) toolcontract.ToolResult {
 	message := operation + " needs these input fields: " + strings.Join(missing, ", ") + ". Call " + operation + " with a JSON object containing them. See inputSkeleton in this failure's data for a fillable template."
-	result := bluecollar.ToolFailureData(bluecollar.FailureInvalidInput, bluecollar.FailureCodes.InvalidInput, "capability_input", message, capabilityInputSkeletonData(toolDescriptor.InputSchema, missing))
+	result := toolcontract.ToolFailureData(toolcontract.FailureInvalidInput, toolcontract.FailureCodes.InvalidInput, "capability_input", message, capabilityInputSkeletonData(toolDescriptor.InputSchema, missing))
 	if result.Failure == nil {
 		return result
 	}
@@ -290,7 +291,7 @@ func capabilityMissingInputFailure(operation string, toolDescriptor CapabilityTo
 	result.Failure.SafeRetry = true
 	result.Failure.FailureClass = "schema"
 	result.Failure.RetryPolicy = "different_input"
-	result.Failure.RecoveryHints = []bluecollar.RecoveryHint{{
+	result.Failure.RecoveryHints = []toolcontract.RecoveryHint{{
 		Action:    "Retry " + operation + " with real values for required fields: " + capabilityRequiredInputDescription(toolDescriptor.InputSchema, missing) + ".",
 		ToolNames: []string{operation},
 		Reason:    "Input schema for " + operation + ": " + capabilityCatalogParameters(toolDescriptor.InputSchema) + ". Never send an empty input.",
@@ -298,10 +299,10 @@ func capabilityMissingInputFailure(operation string, toolDescriptor CapabilityTo
 	return result
 }
 
-func capabilityUnexpectedInputFailure(operation string, toolDescriptor CapabilityToolDescriptor, unexpected []string) bluecollar.ToolResult {
+func capabilityUnexpectedInputFailure(operation string, toolDescriptor CapabilityToolDescriptor, unexpected []string) toolcontract.ToolResult {
 	allowedFields := capabilityInputFieldNames(toolDescriptor.InputSchema)
 	message := operation + " does not accept these input fields: " + strings.Join(unexpected, ", ") + ". Call " + operation + " using only these fields: " + strings.Join(allowedFields, ", ") + "."
-	result := bluecollar.ToolFailureResult(bluecollar.FailureInvalidInput, bluecollar.FailureCodes.InvalidInput, "capability_input", message)
+	result := toolcontract.ToolFailureResult(toolcontract.FailureInvalidInput, toolcontract.FailureCodes.InvalidInput, "capability_input", message)
 	if result.Failure == nil {
 		return result
 	}
@@ -309,7 +310,7 @@ func capabilityUnexpectedInputFailure(operation string, toolDescriptor Capabilit
 	result.Failure.SafeRetry = true
 	result.Failure.FailureClass = "schema"
 	result.Failure.RetryPolicy = "different_input"
-	result.Failure.RecoveryHints = []bluecollar.RecoveryHint{{
+	result.Failure.RecoveryHints = []toolcontract.RecoveryHint{{
 		Action:    "Retry " + operation + " using only the operation's declared input fields.",
 		ToolNames: []string{operation},
 		Reason:    "Input schema for " + operation + ": " + capabilityCatalogParameters(toolDescriptor.InputSchema) + ".",
@@ -332,10 +333,10 @@ func capabilityInputFieldNames(inputSchema json.RawMessage) []string {
 	return fieldNames
 }
 
-func capabilityInputNotObjectFailure(operation string, toolDescriptor CapabilityToolDescriptor) bluecollar.ToolResult {
+func capabilityInputNotObjectFailure(operation string, toolDescriptor CapabilityToolDescriptor) toolcontract.ToolResult {
 	requiredFields := requiredFieldsFromSchema(toolDescriptor.InputSchema)
 	message := operation + " requires input to be an object. Call " + operation + " with one JSON object, written directly or inside a string, not null and not prose. See inputSkeleton in this failure's data for a fillable template."
-	result := bluecollar.ToolFailureData(bluecollar.FailureInvalidInput, bluecollar.FailureCodes.InvalidInput, "capability_input", message, capabilityInputSkeletonData(toolDescriptor.InputSchema, requiredFields))
+	result := toolcontract.ToolFailureData(toolcontract.FailureInvalidInput, toolcontract.FailureCodes.InvalidInput, "capability_input", message, capabilityInputSkeletonData(toolDescriptor.InputSchema, requiredFields))
 	if result.Failure == nil {
 		return result
 	}
@@ -343,7 +344,7 @@ func capabilityInputNotObjectFailure(operation string, toolDescriptor Capability
 	result.Failure.SafeRetry = true
 	result.Failure.FailureClass = "schema"
 	result.Failure.RetryPolicy = "different_input"
-	result.Failure.RecoveryHints = []bluecollar.RecoveryHint{{
+	result.Failure.RecoveryHints = []toolcontract.RecoveryHint{{
 		Action:    "Retry " + operation + " with one JSON object, written directly or inside a string, holding that operation's fields.",
 		ToolNames: []string{operation},
 		Reason:    "Input schema for " + operation + ": " + capabilityCatalogParameters(toolDescriptor.InputSchema) + ".",
@@ -448,35 +449,35 @@ func (toolCatalogBuilder *ToolCatalogBuilder) capabilityToolDefinitions() []Capa
 	return copyCapabilityToolDescriptors(toolCatalogBuilder.capabilityToolDescriptors)
 }
 
-func capabilityToolAvailability(toolDescriptor CapabilityToolDescriptor, request ToolCatalogRequest) bluecollar.ToolAvailability {
+func capabilityToolAvailability(toolDescriptor CapabilityToolDescriptor, request ToolCatalogRequest) toolcontract.ToolAvailability {
 	switch strings.TrimSpace(toolDescriptor.Availability.State) {
 	case "not_allowed":
-		return bluecollar.ToolAvailability{Status: bluecollar.ToolAvailabilityDenied, Reason: toolDescriptor.Availability.Reason}
+		return toolcontract.ToolAvailability{Status: toolcontract.ToolAvailabilityDenied, Reason: toolDescriptor.Availability.Reason}
 	case "not_connected", "not_ready":
-		return bluecollar.ToolAvailability{Status: bluecollar.ToolAvailabilityUnavailable, Reason: toolDescriptor.Availability.Reason}
+		return toolcontract.ToolAvailability{Status: toolcontract.ToolAvailabilityUnavailable, Reason: toolDescriptor.Availability.Reason}
 	case "ok":
 	default:
-		return bluecollar.ToolAvailability{}
+		return toolcontract.ToolAvailability{}
 	}
 	if !access.CanAccess(access.Request{PersonAccess: request.PersonAccess, Action: access.ActionExecute, Resource: toolDescriptor.PolicyResource}) {
-		return bluecollar.ToolAvailability{Status: bluecollar.ToolAvailabilityDenied, Reason: "access denied"}
+		return toolcontract.ToolAvailability{Status: toolcontract.ToolAvailabilityDenied, Reason: "access denied"}
 	}
-	return bluecollar.ToolAvailability{Status: bluecollar.ToolAvailabilityAvailable}
+	return toolcontract.ToolAvailability{Status: toolcontract.ToolAvailabilityAvailable}
 }
 
-func capabilityToolResult(content string, data json.RawMessage, effects []bluecollar.ResourceEffect, isFailed bool, message string, errorCode string, failureStage string, retryable bool, safeRetry bool) bluecollar.ToolResult {
-	result := bluecollar.ToolResult{
-		Output:          bluecollar.ToolOutput{Content: content, Data: data},
-		Effects:         append([]bluecollar.ResourceEffect{}, effects...),
+func capabilityToolResult(content string, data json.RawMessage, effects []toolcontract.ResourceEffect, isFailed bool, message string, errorCode string, failureStage string, retryable bool, safeRetry bool) toolcontract.ToolResult {
+	result := toolcontract.ToolResult{
+		Output:          toolcontract.ToolOutput{Content: content, Data: data},
+		Effects:         append([]toolcontract.ResourceEffect{}, effects...),
 		Attachments:     capabilityAttachments(data),
 		RecoveryActions: capabilityRecoveryActions(data),
 	}
 	if !isFailed {
 		return result
 	}
-	resolvedErrorCode := firstNonEmptyString(errorCode, capabilityResultString(data, "errorCode"), bluecollar.FailureCodes.OperationFailed.String())
-	canonicalErrorCode := bluecollar.CanonicalFailureCode(bluecollar.FailureCode(resolvedErrorCode))
-	result.Failure = &bluecollar.ToolFailure{
+	resolvedErrorCode := firstNonEmptyString(errorCode, capabilityResultString(data, "errorCode"), toolcontract.FailureCodes.OperationFailed.String())
+	canonicalErrorCode := toolcontract.CanonicalFailureCode(toolcontract.FailureCode(resolvedErrorCode))
+	result.Failure = &toolcontract.ToolFailure{
 		Kind:             capabilityFailureKind(canonicalErrorCode),
 		Code:             canonicalErrorCode,
 		Stage:            firstNonEmptyString(failureStage, capabilityResultString(data, "failureStage"), "capability_invoke"),
@@ -489,24 +490,24 @@ func capabilityToolResult(content string, data json.RawMessage, effects []blueco
 	return result
 }
 
-func capabilityFailureKind(errorCode string) bluecollar.FailureKind {
+func capabilityFailureKind(errorCode string) toolcontract.FailureKind {
 	switch strings.TrimSpace(errorCode) {
-	case bluecollar.FailureCodes.AccessDenied.String():
-		return bluecollar.FailurePermissionDenied
-	case bluecollar.FailureCodes.InvalidInput.String():
-		return bluecollar.FailureInvalidInput
-	case bluecollar.FailureCodes.RateLimited.String():
-		return bluecollar.FailureRateLimited
-	case bluecollar.FailureCodes.NotFound.String():
-		return bluecollar.FailureNotFound
-	case bluecollar.FailureCodes.Unavailable.String():
-		return bluecollar.FailureDependencyUnavailable
-	case bluecollar.FailureCodes.PolicyBlocked.String():
-		return bluecollar.FailurePolicyBlocked
-	case bluecollar.FailureCodes.InteractionRequired.String():
-		return bluecollar.FailureInteractionRequired
+	case toolcontract.FailureCodes.AccessDenied.String():
+		return toolcontract.FailurePermissionDenied
+	case toolcontract.FailureCodes.InvalidInput.String():
+		return toolcontract.FailureInvalidInput
+	case toolcontract.FailureCodes.RateLimited.String():
+		return toolcontract.FailureRateLimited
+	case toolcontract.FailureCodes.NotFound.String():
+		return toolcontract.FailureNotFound
+	case toolcontract.FailureCodes.Unavailable.String():
+		return toolcontract.FailureDependencyUnavailable
+	case toolcontract.FailureCodes.PolicyBlocked.String():
+		return toolcontract.FailurePolicyBlocked
+	case toolcontract.FailureCodes.InteractionRequired.String():
+		return toolcontract.FailureInteractionRequired
 	default:
-		return bluecollar.FailureExternalService
+		return toolcontract.FailureExternalService
 	}
 }
 
@@ -565,7 +566,7 @@ func capabilityToolRequest(toolContext context.Context, descriptor CapabilityToo
 	return requestDocument
 }
 
-func (toolCatalogBuilder *ToolCatalogBuilder) prepareCapabilityToolInput(toolContext context.Context, toolName string, request ToolCatalogRequest, toolInput json.RawMessage) (preparedCapabilityToolPayload, *bluecollar.ToolResult, error) {
+func (toolCatalogBuilder *ToolCatalogBuilder) prepareCapabilityToolInput(toolContext context.Context, toolName string, request ToolCatalogRequest, toolInput json.RawMessage) (preparedCapabilityToolPayload, *toolcontract.ToolResult, error) {
 	if siteToolNeedsSourceBundle(toolName) {
 		transport, toolFailure, errorValue := toolCatalogBuilder.prepareSiteSourceBundle(toolContext, request, toolInput)
 		return preparedCapabilityToolPayload{Input: toolInput, Transport: transport}, toolFailure, errorValue
@@ -638,13 +639,13 @@ func (toolCatalogBuilder *ToolCatalogBuilder) capabilityBridgePath(request ToolC
 	return toolCatalogBuilder.agentWorkspacePath(toolCatalogBuilder.nativeRequesterPath(request, path))
 }
 
-func capabilityAttachments(result json.RawMessage) []bluecollar.FileAttachment {
+func capabilityAttachments(result json.RawMessage) []toolcontract.FileAttachment {
 	if len(result) == 0 {
 		return nil
 	}
 	var attachment capabilityFileAttachment
 	if errorValue := json.Unmarshal(result, &attachment); errorValue == nil && strings.TrimSpace(attachment.DevicePath) != "" {
-		return []bluecollar.FileAttachment{attachment.agentFileAttachment()}
+		return []toolcontract.FileAttachment{attachment.agentFileAttachment()}
 	}
 	var document struct {
 		Attachments []capabilityFileAttachment `json:"attachments"`
@@ -652,7 +653,7 @@ func capabilityAttachments(result json.RawMessage) []bluecollar.FileAttachment {
 	if errorValue := json.Unmarshal(result, &document); errorValue != nil {
 		return nil
 	}
-	attachments := []bluecollar.FileAttachment{}
+	attachments := []toolcontract.FileAttachment{}
 	for _, candidate := range document.Attachments {
 		if strings.TrimSpace(candidate.DevicePath) != "" {
 			attachments = append(attachments, candidate.agentFileAttachment())
@@ -670,8 +671,8 @@ type capabilityFileAttachment struct {
 	ContentBase64 string `json:"contentBase64,omitempty"`
 }
 
-func (attachment capabilityFileAttachment) agentFileAttachment() bluecollar.FileAttachment {
-	return bluecollar.FileAttachment{
+func (attachment capabilityFileAttachment) agentFileAttachment() toolcontract.FileAttachment {
+	return toolcontract.FileAttachment{
 		DevicePath:    attachment.DevicePath,
 		Filename:      attachment.Filename,
 		ContentType:   attachment.ContentType,
@@ -681,9 +682,9 @@ func (attachment capabilityFileAttachment) agentFileAttachment() bluecollar.File
 	}
 }
 
-func capabilityRecoveryActions(result json.RawMessage) []bluecollar.RecoveryAction {
+func capabilityRecoveryActions(result json.RawMessage) []toolcontract.RecoveryAction {
 	var document struct {
-		Recovery *bluecollar.RecoveryAction `json:"recovery"`
+		Recovery *toolcontract.RecoveryAction `json:"recovery"`
 	}
 	if json.Unmarshal(result, &document) != nil || document.Recovery == nil {
 		return nil
@@ -691,12 +692,12 @@ func capabilityRecoveryActions(result json.RawMessage) []bluecollar.RecoveryActi
 	if strings.TrimSpace(document.Recovery.Kind) == "" {
 		return nil
 	}
-	return []bluecollar.RecoveryAction{*document.Recovery}
+	return []toolcontract.RecoveryAction{*document.Recovery}
 }
 
-func capabilityRecoveryHints(result json.RawMessage) []bluecollar.RecoveryHint {
+func capabilityRecoveryHints(result json.RawMessage) []toolcontract.RecoveryHint {
 	var document struct {
-		Recovery *bluecollar.RecoveryAction `json:"recovery"`
+		Recovery *toolcontract.RecoveryAction `json:"recovery"`
 	}
 	if json.Unmarshal(result, &document) != nil || document.Recovery == nil {
 		return nil
@@ -704,7 +705,7 @@ func capabilityRecoveryHints(result json.RawMessage) []bluecollar.RecoveryHint {
 	if strings.TrimSpace(document.Recovery.Kind) == "" {
 		return nil
 	}
-	return []bluecollar.RecoveryHint{{
+	return []toolcontract.RecoveryHint{{
 		Action: strings.TrimSpace(document.Recovery.Kind),
 		Reason: "Capability returned a user-visible recovery action.",
 	}}

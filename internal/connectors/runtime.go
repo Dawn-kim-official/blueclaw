@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/Dawn-kim-official/blueclaw/internal/toolcontract"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -80,27 +81,27 @@ type ReactionTarget struct {
 }
 
 type OutboundReply struct {
-	Message         string                      `json:"message"`
-	TaskRunID       string                      `json:"taskRunID,omitempty"`
-	ReplyKind       string                      `json:"replyKind,omitempty"`
-	RawEventID      string                      `json:"rawEventID,omitempty"`
-	OutboxID        string                      `json:"outboxID,omitempty"`
-	Attachments     []bluecollar.FileAttachment `json:"attachments,omitempty"`
-	RecoveryActions []bluecollar.RecoveryAction `json:"recoveryActions,omitempty"`
-	FailureNotice   bluecollar.FailureNotice    `json:"failureNotice,omitempty"`
-	Interaction     *AskInteraction             `json:"interaction,omitempty"`
+	Message         string                        `json:"message"`
+	TaskRunID       string                        `json:"taskRunID,omitempty"`
+	ReplyKind       string                        `json:"replyKind,omitempty"`
+	RawEventID      string                        `json:"rawEventID,omitempty"`
+	OutboxID        string                        `json:"outboxID,omitempty"`
+	Attachments     []toolcontract.FileAttachment `json:"attachments,omitempty"`
+	RecoveryActions []toolcontract.RecoveryAction `json:"recoveryActions,omitempty"`
+	FailureNotice   bluecollar.FailureNotice      `json:"failureNotice,omitempty"`
+	Interaction     *AskInteraction               `json:"interaction,omitempty"`
 }
 
 type outboundReplyDocument struct {
-	Message         string                      `json:"message"`
-	TaskRunID       string                      `json:"taskRunID,omitempty"`
-	ReplyKind       string                      `json:"replyKind,omitempty"`
-	RawEventID      string                      `json:"rawEventID,omitempty"`
-	OutboxID        string                      `json:"outboxID,omitempty"`
-	Attachments     []outboundReplyAttachment   `json:"attachments,omitempty"`
-	RecoveryActions []bluecollar.RecoveryAction `json:"recoveryActions,omitempty"`
-	FailureNotice   bluecollar.FailureNotice    `json:"failureNotice,omitempty"`
-	Interaction     *AskInteraction             `json:"interaction,omitempty"`
+	Message         string                        `json:"message"`
+	TaskRunID       string                        `json:"taskRunID,omitempty"`
+	ReplyKind       string                        `json:"replyKind,omitempty"`
+	RawEventID      string                        `json:"rawEventID,omitempty"`
+	OutboxID        string                        `json:"outboxID,omitempty"`
+	Attachments     []outboundReplyAttachment     `json:"attachments,omitempty"`
+	RecoveryActions []toolcontract.RecoveryAction `json:"recoveryActions,omitempty"`
+	FailureNotice   bluecollar.FailureNotice      `json:"failureNotice,omitempty"`
+	Interaction     *AskInteraction               `json:"interaction,omitempty"`
 }
 
 type outboundReplyAttachment struct {
@@ -158,13 +159,13 @@ func (reply *OutboundReply) UnmarshalJSON(documentBytes []byte) error {
 	reply.RawEventID = document.RawEventID
 	reply.OutboxID = document.OutboxID
 	reply.Attachments = fileAttachmentsFromOutboundReplyAttachments(document.Attachments)
-	reply.RecoveryActions = append([]bluecollar.RecoveryAction{}, document.RecoveryActions...)
+	reply.RecoveryActions = append([]toolcontract.RecoveryAction{}, document.RecoveryActions...)
 	reply.FailureNotice = document.FailureNotice
 	reply.Interaction = document.Interaction
 	return nil
 }
 
-func outboundReplyAttachments(attachments []bluecollar.FileAttachment) []outboundReplyAttachment {
+func outboundReplyAttachments(attachments []toolcontract.FileAttachment) []outboundReplyAttachment {
 	replyAttachments := []outboundReplyAttachment{}
 	for _, attachment := range attachments {
 		replyAttachments = append(replyAttachments, outboundReplyAttachment{
@@ -179,10 +180,10 @@ func outboundReplyAttachments(attachments []bluecollar.FileAttachment) []outboun
 	return replyAttachments
 }
 
-func fileAttachmentsFromOutboundReplyAttachments(attachments []outboundReplyAttachment) []bluecollar.FileAttachment {
-	fileAttachments := []bluecollar.FileAttachment{}
+func fileAttachmentsFromOutboundReplyAttachments(attachments []outboundReplyAttachment) []toolcontract.FileAttachment {
+	fileAttachments := []toolcontract.FileAttachment{}
 	for _, attachment := range attachments {
-		fileAttachments = append(fileAttachments, bluecollar.FileAttachment{
+		fileAttachments = append(fileAttachments, toolcontract.FileAttachment{
 			DevicePath:    attachment.DevicePath,
 			Filename:      attachment.Filename,
 			ContentType:   attachment.ContentType,
@@ -2672,8 +2673,8 @@ func optionalAskInteraction(interaction AskInteraction, targetPlatformUserID str
 	return &interaction
 }
 
-func recoveryActionsForEvent(recoveryActions []bluecollar.RecoveryAction, event PlatformInboundEvent) []bluecollar.RecoveryAction {
-	enrichedRecoveryActions := []bluecollar.RecoveryAction{}
+func recoveryActionsForEvent(recoveryActions []toolcontract.RecoveryAction, event PlatformInboundEvent) []toolcontract.RecoveryAction {
+	enrichedRecoveryActions := []toolcontract.RecoveryAction{}
 	for _, recoveryAction := range recoveryActions {
 		if strings.TrimSpace(recoveryAction.Kind) == "" {
 			continue
@@ -3193,7 +3194,7 @@ func latestTime(values []time.Time) time.Time {
 	return latest
 }
 
-func (connectorRuntime *ConnectorRuntime) buildTurnToolSet(adapter PlatformAdapter, event PlatformInboundEvent, personID string, personAccess policy.PersonAccess) *bluecollar.ToolSet {
+func (connectorRuntime *ConnectorRuntime) buildTurnToolSet(adapter PlatformAdapter, event PlatformInboundEvent, personID string, personAccess policy.PersonAccess) *toolcontract.ToolSet {
 	requesterEmail := connectorRuntime.requesterEmailForEvent(personID, event)
 	return connectorRuntime.toolCatalogBuilder.BuildToolSet(agentruntime.ToolCatalogRequest{
 		ProfileName:                "default",

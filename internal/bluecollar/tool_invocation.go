@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/Dawn-kim-official/blueclaw/internal/toolcontract"
 	"strings"
 	"time"
 
@@ -31,7 +32,7 @@ func (agentTurnRunner *AgentTurnRunner) recordToolObservation(taskRunID string, 
 	successfulToolCalls[canonicalToolCallKey(actionDocument.ToolName, actionDocument.ToolInput)] = observation
 }
 
-func (agentTurnRunner *AgentTurnRunner) invokeTool(ctx context.Context, toolRegistry *ToolSet, taskRunID string, observationID string, toolName string, toolInput json.RawMessage, workspaceRootPath string, minimumModifiedAt time.Time, responseLanguage string, userFacingMessage string) turnObservation {
+func (agentTurnRunner *AgentTurnRunner) invokeTool(ctx context.Context, toolRegistry *toolcontract.ToolSet, taskRunID string, observationID string, toolName string, toolInput json.RawMessage, workspaceRootPath string, minimumModifiedAt time.Time, responseLanguage string, userFacingMessage string) turnObservation {
 	trimmedToolName := strings.TrimSpace(toolName)
 	toolInputKey := canonicalToolCallKey(trimmedToolName, toolInput)
 	if toolRegistry == nil {
@@ -51,9 +52,9 @@ func (agentTurnRunner *AgentTurnRunner) invokeTool(ctx context.Context, toolRegi
 	toolContext := WithUserFacingMessage(WithObservationID(WithResponseLanguage(WithTaskRunID(ctx, taskRunID), responseLanguage), observationID), userFacingMessage)
 	invocationStartedAt := time.Now()
 	toolDefinition, _ := toolRegistry.ToolDefinition(trimmedToolName)
-	toolResult, errorValue := toolRegistry.Invoke(toolContext, ToolInvocation{ToolName: trimmedToolName, Input: toolInput})
+	toolResult, errorValue := toolRegistry.Invoke(toolContext, toolcontract.ToolInvocation{ToolName: trimmedToolName, Input: toolInput})
 	if errorValue != nil {
-		toolResult = ToolFailureResult(FailureUnknown, FailureCodes.OperationFailed, trimmedToolName, errorValue.Error())
+		toolResult = toolcontract.ToolFailureResult(toolcontract.FailureUnknown, toolcontract.FailureCodes.OperationFailed, trimmedToolName, errorValue.Error())
 	}
 	observation := agentTurnRunner.saveToolObservation(ctx, taskRunID, observationID, trimmedToolName, toolDefinition.ID, toolInput, effectiveObservationToolName(trimmedToolName, toolInput), toolInputKey, toolResult, workspaceRootPath, minimumModifiedAt, time.Since(invocationStartedAt).Milliseconds())
 	return observation
@@ -64,10 +65,10 @@ func effectiveObservationToolName(toolName string, toolInput json.RawMessage) st
 }
 
 func toolFailureObservation(observationID string, toolName string, message string) turnObservation {
-	return newFailureObservation(observationID, "continue", toolName, message, FailureUnknown, FailureCodes.OperationFailed, firstNonEmptyString(toolName, "tool"))
+	return newFailureObservation(observationID, "continue", toolName, message, toolcontract.FailureUnknown, toolcontract.FailureCodes.OperationFailed, firstNonEmptyString(toolName, "tool"))
 }
 
-func (agentTurnRunner *AgentTurnRunner) saveToolObservation(ctx context.Context, taskRunID string, observationID string, toolName string, toolID string, toolInput json.RawMessage, observationToolName string, toolInputKey string, toolResult ToolResult, workspaceRootPath string, minimumModifiedAt time.Time, durationMS int64) turnObservation {
+func (agentTurnRunner *AgentTurnRunner) saveToolObservation(ctx context.Context, taskRunID string, observationID string, toolName string, toolID string, toolInput json.RawMessage, observationToolName string, toolInputKey string, toolResult toolcontract.ToolResult, workspaceRootPath string, minimumModifiedAt time.Time, durationMS int64) turnObservation {
 	toolResult = normalizeToolFailureResult(toolName, toolResult)
 	content := toolResult.ContentText()
 	originalContent := content
@@ -78,17 +79,17 @@ func (agentTurnRunner *AgentTurnRunner) saveToolObservation(ctx context.Context,
 		artifactID = taskArtifact.TaskArtifactID
 		content = content[:agentTurnRunner.options.ToolResultMaxBytes] + "\n[truncated; full result saved as artifact " + taskArtifact.TaskArtifactID + "]"
 	}
-	attachments := []FileAttachment{}
+	attachments := []toolcontract.FileAttachment{}
 	if !isError {
 		attachments = append(attachments, toolResult.Attachments...)
 	}
-	if !isError && IsArtifactDeliveryTool(toolName) && len(attachments) > 0 {
+	if !isError && toolcontract.IsArtifactDeliveryTool(toolName) && len(attachments) > 0 {
 		validityState := buildAttachmentValidityState(workspaceRootPath, attachments)
 		if !validityState.Passed {
 			content = validityFailureMessage(validityState)
 			originalContent = content
 			isError = true
-			toolResult.Failure = &ToolFailure{Kind: FailureInvalidInput, Code: FailureCodes.InvalidInput.String(), Stage: "artifact_validation", UserSafeSummary: content}
+			toolResult.Failure = &toolcontract.ToolFailure{Kind: toolcontract.FailureInvalidInput, Code: toolcontract.FailureCodes.InvalidInput.String(), Stage: "artifact_validation", UserSafeSummary: content}
 			attachments = nil
 			agentTurnRunner.appendEvent(taskRunID, "agent.artifact_attach_rejected", marshalEventBody(validityState))
 		}
@@ -100,10 +101,10 @@ func (agentTurnRunner *AgentTurnRunner) saveToolObservation(ctx context.Context,
 		ToolID:          strings.TrimSpace(toolID),
 		ToolInput:       append(json.RawMessage{}, toolInput...),
 		Output:          toolResult.Output,
-		Effects:         append([]ResourceEffect{}, toolResult.Effects...),
+		Effects:         append([]toolcontract.ResourceEffect{}, toolResult.Effects...),
 		Failure:         toolResult.Failure,
 		Attachments:     attachments,
-		RecoveryActions: append([]RecoveryAction{}, toolResult.RecoveryActions...),
+		RecoveryActions: append([]toolcontract.RecoveryAction{}, toolResult.RecoveryActions...),
 	}
 	observation.Output.Content = content
 	observation.ImageRefs = toolResultImageRefs(observationID, attachments)
@@ -117,17 +118,17 @@ func (agentTurnRunner *AgentTurnRunner) saveToolObservation(ctx context.Context,
 	return observation
 }
 
-func normalizeToolFailureResult(toolName string, toolResult ToolResult) ToolResult {
+func normalizeToolFailureResult(toolName string, toolResult toolcontract.ToolResult) toolcontract.ToolResult {
 	if !toolResult.Failed() {
 		return toolResult
 	}
 	if toolResult.Failure.Kind == "" {
-		toolResult.Failure.Kind = FailureUnknown
+		toolResult.Failure.Kind = toolcontract.FailureUnknown
 	}
 	if strings.TrimSpace(toolResult.Failure.Code) == "" {
-		toolResult.Failure.Code = FailureCodes.OperationFailed.String()
+		toolResult.Failure.Code = toolcontract.FailureCodes.OperationFailed.String()
 	} else {
-		toolResult.Failure.Code = CanonicalFailureCode(FailureCode(toolResult.Failure.Code))
+		toolResult.Failure.Code = toolcontract.CanonicalFailureCode(toolcontract.FailureCode(toolResult.Failure.Code))
 	}
 	if strings.TrimSpace(toolResult.Failure.Stage) == "" {
 		toolResult.Failure.Stage = firstNonEmptyString(toolName, "tool")
@@ -141,8 +142,8 @@ func normalizeToolFailureResult(toolName string, toolResult ToolResult) ToolResu
 	return toolResult
 }
 
-func recoveryActionsFromObservations(observations []turnObservation) []RecoveryAction {
-	recoveryActions := []RecoveryAction{}
+func recoveryActionsFromObservations(observations []turnObservation) []toolcontract.RecoveryAction {
+	recoveryActions := []toolcontract.RecoveryAction{}
 	seen := map[string]bool{}
 	for _, observation := range observations {
 		for _, recoveryAction := range observation.RecoveryActions {
@@ -157,10 +158,10 @@ func recoveryActionsFromObservations(observations []turnObservation) []RecoveryA
 	return recoveryActions
 }
 
-func (agentTurnRunner *AgentTurnRunner) buildToolResultSummary(ctx context.Context, taskRunID string, toolName string, content string, isError bool, attachments []FileAttachment, artifactID string, toolResult ToolResult) string {
+func (agentTurnRunner *AgentTurnRunner) buildToolResultSummary(ctx context.Context, taskRunID string, toolName string, content string, isError bool, attachments []toolcontract.FileAttachment, artifactID string, toolResult toolcontract.ToolResult) string {
 	observation := turnObservation{
 		Tool:        toolName,
-		Output:      ToolOutput{Content: content, Data: append(json.RawMessage{}, toolResult.Output.Data...)},
+		Output:      toolcontract.ToolOutput{Content: content, Data: append(json.RawMessage{}, toolResult.Output.Data...)},
 		Attachments: attachments,
 	}
 	if isError {
@@ -204,7 +205,7 @@ func modelVisibleToolResultSummary(ctx context.Context, languageModel llm.Langua
 
 func shouldUseSanitizedToolPresenter(toolName string) bool {
 	switch strings.TrimSpace(toolName) {
-	case "browser.snapshot", "browser.observe", "browser.screenshot", "file.pick", FileDeliverToolName, "file.read", "site.serve", "site.list", "terminal.run":
+	case "browser.snapshot", "browser.observe", "browser.screenshot", "file.pick", toolcontract.FileDeliverToolName, "file.read", "site.serve", "site.list", "terminal.run":
 		return true
 	default:
 		return false
@@ -231,7 +232,7 @@ func sanitizedToolResultSummary(observation turnObservation) string {
 		return summarizeSafeJSONFields(observation.ContentText(), []string{"capturedAt", "contentType", "filename", "sizeBytes"})
 	case "file.pick":
 		return attachmentResultSummary("User selected file", observation.Attachments)
-	case FileDeliverToolName:
+	case toolcontract.FileDeliverToolName:
 		return attachmentResultSummary("File attached", observation.Attachments)
 	case "file.read":
 		return summarizeFileReadObservation(observation)
@@ -249,7 +250,7 @@ func sanitizedToolResultSummary(observation turnObservation) string {
 	}
 }
 
-func attachmentResultSummary(prefix string, attachments []FileAttachment) string {
+func attachmentResultSummary(prefix string, attachments []toolcontract.FileAttachment) string {
 	if len(attachments) == 0 {
 		return prefix + "."
 	}
@@ -290,7 +291,7 @@ func deterministicLongToolResultSummary(content string) string {
 	return content[:headLimit] + "\n[truncated]\n" + content[len(content)-tailLimit:]
 }
 
-func toolResultImageRefs(observationID string, attachments []FileAttachment) []ToolResultImageRef {
+func toolResultImageRefs(observationID string, attachments []toolcontract.FileAttachment) []ToolResultImageRef {
 	imageRefs := []ToolResultImageRef{}
 	for index, attachment := range attachments {
 		if !strings.HasPrefix(strings.ToLower(strings.TrimSpace(attachment.ContentType)), "image/") {

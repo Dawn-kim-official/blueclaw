@@ -3,11 +3,11 @@ package agentruntime
 import (
 	"context"
 	"encoding/json"
+	"github.com/Dawn-kim-official/blueclaw/internal/toolcontract"
 	"sort"
 	"strings"
 
 	"github.com/Dawn-kim-official/blueclaw/internal/access"
-	"github.com/Dawn-kim-official/blueclaw/internal/bluecollar"
 	"github.com/Dawn-kim-official/blueclaw/internal/mcp"
 )
 
@@ -26,8 +26,8 @@ func (provider mcpToolProvider) ProviderID() string {
 	return "mcp:" + provider.serverName
 }
 
-func (provider mcpToolProvider) ListTools(context.Context) ([]bluecollar.BoundTool, error) {
-	boundTools := make([]bluecollar.BoundTool, 0, len(provider.definitions))
+func (provider mcpToolProvider) ListTools(context.Context) ([]toolcontract.BoundTool, error) {
+	boundTools := make([]toolcontract.BoundTool, 0, len(provider.definitions))
 	for _, definition := range provider.definitions {
 		if !mcpToolDefinitionIsRegistered(definition, provider.request) {
 			continue
@@ -41,10 +41,10 @@ func mcpToolDefinitionIsRegistered(definition mcp.ToolDefinition, request ToolCa
 	return !request.IsScheduledRun || !definition.Policy.RequiresUserPresence
 }
 
-func (provider mcpToolProvider) boundTool(definition mcp.ToolDefinition) bluecollar.BoundTool {
+func (provider mcpToolProvider) boundTool(definition mcp.ToolDefinition) toolcontract.BoundTool {
 	resultContract := mcpToolResultContract(definition.ResultContract)
-	return bluecollar.BoundTool{
-		Definition: bluecollar.ToolDescriptor{
+	return toolcontract.BoundTool{
+		Definition: toolcontract.ToolDescriptor{
 			ID:                   "mcp/" + provider.serverName + "/" + definition.Name,
 			ProviderID:           provider.ProviderID(),
 			Namespace:            definition.Namespace,
@@ -61,16 +61,16 @@ func (provider mcpToolProvider) boundTool(definition mcp.ToolDefinition) bluecol
 			PolicyResource:       definition.Policy.PolicyResource,
 			SideEffectClass:      definition.Policy.SideEffectClass,
 			RequiresApproval:     definition.Policy.RequiresApproval,
-			Completion: bluecollar.ToolCompletion{
+			Completion: toolcontract.ToolCompletion{
 				Mode: definition.Policy.CompletionMode,
 			},
 			Idempotency:      definition.Policy.Idempotency,
 			IdempotencyScope: definition.Policy.IdempotencyScope,
 		},
-		Availability: bluecollar.ToolAvailability{Status: bluecollar.ToolAvailabilityAvailable},
-		Handler: func(toolContext context.Context, toolInvocation bluecollar.ToolInvocation) (bluecollar.ToolResult, error) {
+		Availability: toolcontract.ToolAvailability{Status: toolcontract.ToolAvailabilityAvailable},
+		Handler: func(toolContext context.Context, toolInvocation toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
 			if !access.CanAccess(access.Request{PersonAccess: provider.request.PersonAccess, Action: access.ActionExecute, Resource: definition.Policy.PolicyResource}) {
-				return bluecollar.ToolFailureResult(bluecollar.FailurePermissionDenied, bluecollar.FailureCodes.AccessDenied, "capability_access", "current account cannot execute this tool"), nil
+				return toolcontract.ToolFailureResult(toolcontract.FailurePermissionDenied, toolcontract.FailureCodes.AccessDenied, "capability_access", "current account cannot execute this tool"), nil
 			}
 			output, errorValue := provider.registry.InvokeTool(toolContext, mcp.Invocation{
 				ServerName: provider.serverName,
@@ -78,59 +78,59 @@ func (provider mcpToolProvider) boundTool(definition mcp.ToolDefinition) bluecol
 				Input:      string(toolInvocation.Input),
 			})
 			if errorValue != nil {
-				return bluecollar.ToolResult{}, errorValue
+				return toolcontract.ToolResult{}, errorValue
 			}
 			result, errorValue := mcp.ParseToolResult(output)
 			if errorValue != nil {
-				return bluecollar.ToolResult{}, errorValue
+				return toolcontract.ToolResult{}, errorValue
 			}
 			if result.IsError {
-				return bluecollar.ToolFailureWithOutput(
-					bluecollar.FailureExternalService,
-					bluecollar.FailureCodes.OperationFailed,
+				return toolcontract.ToolFailureWithOutput(
+					toolcontract.FailureExternalService,
+					toolcontract.FailureCodes.OperationFailed,
 					"mcp_tool",
 					"MCP tool returned an error",
 					json.RawMessage(output),
 				), nil
 			}
-			toolResult := bluecollar.ToolSuccessData(output, result.StructuredContent)
-			toolResult.Effects = bluecollar.ProjectResourceEffects(resultContract, result.StructuredContent)
+			toolResult := toolcontract.ToolSuccessData(output, result.StructuredContent)
+			toolResult.Effects = toolcontract.ProjectResourceEffects(resultContract, result.StructuredContent)
 			return toolResult, nil
 		},
 	}
 }
 
-func mcpToolResultContract(contract *mcp.ToolResultContract) *bluecollar.ToolResultContract {
+func mcpToolResultContract(contract *mcp.ToolResultContract) *toolcontract.ToolResultContract {
 	if contract == nil {
 		return nil
 	}
-	effects := make([]bluecollar.ResourceEffectContract, 0, len(contract.Effects))
+	effects := make([]toolcontract.ResourceEffectContract, 0, len(contract.Effects))
 	for _, effect := range contract.Effects {
-		effects = append(effects, bluecollar.ResourceEffectContract{
+		effects = append(effects, toolcontract.ResourceEffectContract{
 			ObjectType:     strings.TrimSpace(effect.ObjectType),
 			Effect:         strings.TrimSpace(effect.Effect),
 			ResultField:    strings.TrimSpace(effect.ResultField),
 			EffectIdentity: strings.TrimSpace(effect.EffectIdentity),
 		})
 	}
-	return &bluecollar.ToolResultContract{
+	return &toolcontract.ToolResultContract{
 		Schema:            append(json.RawMessage{}, contract.Schema...),
 		Effects:           effects,
 		EvidenceCondition: mcpEvidenceCondition(contract.EvidenceCondition),
 	}
 }
 
-func mcpEvidenceCondition(condition *mcp.EvidenceCondition) *bluecollar.EvidenceCondition {
+func mcpEvidenceCondition(condition *mcp.EvidenceCondition) *toolcontract.EvidenceCondition {
 	if condition == nil {
 		return nil
 	}
-	return &bluecollar.EvidenceCondition{
+	return &toolcontract.EvidenceCondition{
 		ResultField: strings.TrimSpace(condition.ResultField),
 		Equals:      append(json.RawMessage{}, condition.Equals...),
 	}
 }
 
-func mcpToolProviders(registry *mcp.McpRegistry, request ToolCatalogRequest) []bluecollar.ToolProviderRegistration {
+func mcpToolProviders(registry *mcp.McpRegistry, request ToolCatalogRequest) []toolcontract.ToolProviderRegistration {
 	if registry == nil {
 		return nil
 	}
@@ -147,16 +147,16 @@ func mcpToolProviders(registry *mcp.McpRegistry, request ToolCatalogRequest) []b
 		serverNames = append(serverNames, serverName)
 	}
 	sort.Strings(serverNames)
-	registrations := make([]bluecollar.ToolProviderRegistration, 0, len(serverNames))
+	registrations := make([]toolcontract.ToolProviderRegistration, 0, len(serverNames))
 	for _, serverName := range serverNames {
-		registrations = append(registrations, bluecollar.ToolProviderRegistration{
+		registrations = append(registrations, toolcontract.ToolProviderRegistration{
 			Provider: mcpToolProvider{
 				serverName:  serverName,
 				registry:    registry,
 				definitions: definitionsByServer[serverName],
 				request:     request,
 			},
-			Trust: bluecollar.ToolProviderExternal,
+			Trust: toolcontract.ToolProviderExternal,
 		})
 	}
 	return registrations

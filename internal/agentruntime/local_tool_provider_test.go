@@ -3,15 +3,14 @@ package agentruntime
 import (
 	"context"
 	"encoding/json"
+	"github.com/Dawn-kim-official/blueclaw/internal/toolcontract"
 	"strings"
 	"testing"
-
-	"github.com/Dawn-kim-official/blueclaw/internal/bluecollar"
 )
 
 func TestLocalToolProviderUsesCanonicalDescriptors(t *testing.T) {
 	toolCatalogBuilder := NewToolCatalogBuilder()
-	handlerToolSet := bluecollar.NewToolSet(nil)
+	handlerToolSet := toolcontract.NewToolSet(nil)
 	toolCatalogBuilder.registerAskInputTool(handlerToolSet)
 
 	boundTools, errorValue := (localToolProvider{handlerToolSet: handlerToolSet}).ListTools(context.Background())
@@ -26,13 +25,13 @@ func TestLocalToolProviderUsesCanonicalDescriptors(t *testing.T) {
 	if inputDescriptor.Name != "ask.input" {
 		t.Fatalf("expected ask.input descriptor, got %+v", inputDescriptor)
 	}
-	if inputDescriptor.ID != "local/ask.input" || inputDescriptor.ProviderID != localToolProviderID || inputDescriptor.Namespace != "ask" || inputDescriptor.Visibility != bluecollar.ToolVisibilityModel {
+	if inputDescriptor.ID != "local/ask.input" || inputDescriptor.ProviderID != localToolProviderID || inputDescriptor.Namespace != "ask" || inputDescriptor.Visibility != toolcontract.ToolVisibilityModel {
 		t.Fatalf("unexpected ask.input descriptor: %+v", inputDescriptor)
 	}
-	if inputDescriptor.PolicyResource != "tool:ask.input" || inputDescriptor.Completion.Mode != bluecollar.ToolCompletionNone || inputDescriptor.Idempotency != bluecollar.ToolIdempotencyNone {
+	if inputDescriptor.PolicyResource != "tool:ask.input" || inputDescriptor.Completion.Mode != toolcontract.ToolCompletionNone || inputDescriptor.Idempotency != toolcontract.ToolIdempotencyNone {
 		t.Fatalf("unexpected ask.input metadata: %+v", inputDescriptor)
 	}
-	if !inputDescriptor.RequiresUserPresence || inputDescriptor.SideEffectClass != bluecollar.ToolSideEffectApproval {
+	if !inputDescriptor.RequiresUserPresence || inputDescriptor.SideEffectClass != toolcontract.ToolSideEffectApproval {
 		t.Fatalf("unexpected ask.input presence metadata: %+v", inputDescriptor)
 	}
 	if len(inputDescriptor.InputSchema) == 0 || len(inputDescriptor.OutputSchema) == 0 {
@@ -45,7 +44,7 @@ func TestLocalToolProviderUsesCanonicalDescriptors(t *testing.T) {
 
 func TestLocalToolProviderUsesTypedSkillMutationContracts(t *testing.T) {
 	toolCatalogBuilder := NewToolCatalogBuilder()
-	handlerToolSet := bluecollar.NewToolSet(nil)
+	handlerToolSet := toolcontract.NewToolSet(nil)
 	toolCatalogBuilder.registerSkillManagementTools(handlerToolSet)
 
 	boundTools, errorValue := (localToolProvider{handlerToolSet: handlerToolSet}).ListTools(context.Background())
@@ -87,14 +86,14 @@ func TestDeadCompatibilityToolsAreNotRegistered(t *testing.T) {
 
 func TestLocalToolProviderPreservesMemorySearchContract(t *testing.T) {
 	toolCatalogBuilder := NewToolCatalogBuilder()
-	handlerToolSet := bluecollar.NewToolSet(nil)
+	handlerToolSet := toolcontract.NewToolSet(nil)
 	registerMemoryTools(toolCatalogBuilder, handlerToolSet, ToolCatalogRequest{})
 
 	boundTools, errorValue := (localToolProvider{handlerToolSet: handlerToolSet}).ListTools(context.Background())
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
-	var descriptor bluecollar.ToolDescriptor
+	var descriptor toolcontract.ToolDescriptor
 	for _, boundTool := range boundTools {
 		if boundTool.Definition.Name == "memory.search" {
 			descriptor = boundTool.Definition
@@ -116,14 +115,14 @@ func TestLocalToolProviderPreservesMemorySearchContract(t *testing.T) {
 
 func TestLocalToolProviderPreservesMemoryRememberContract(t *testing.T) {
 	toolCatalogBuilder := NewToolCatalogBuilder()
-	handlerToolSet := bluecollar.NewToolSet(nil)
+	handlerToolSet := toolcontract.NewToolSet(nil)
 	registerMemoryTools(toolCatalogBuilder, handlerToolSet, ToolCatalogRequest{})
 
 	boundTools, errorValue := (localToolProvider{handlerToolSet: handlerToolSet}).ListTools(context.Background())
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
-	var descriptor bluecollar.ToolDescriptor
+	var descriptor toolcontract.ToolDescriptor
 	for _, boundTool := range boundTools {
 		if boundTool.Definition.Name == "memory.remember" {
 			descriptor = boundTool.Definition
@@ -145,25 +144,25 @@ func TestLocalToolProviderPreservesMemoryRememberContract(t *testing.T) {
 }
 
 func TestLocalToolProviderRejectsMalformedMemorySearchResult(t *testing.T) {
-	handlerToolSet := bluecollar.NewToolSet(nil)
-	if errorValue := handlerToolSet.RegisterTool(bluecollar.ToolDefinition{
+	handlerToolSet := toolcontract.NewToolSet(nil)
+	if errorValue := handlerToolSet.RegisterTool(toolcontract.ToolDefinition{
 		Name:        "memory.search",
 		Description: "Return a malformed memory result.",
 		InputSchema: memorySearchInputSchema,
-	}, func(context.Context, bluecollar.ToolInvocation) (bluecollar.ToolResult, error) {
+	}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
 		document := json.RawMessage(`{"facts":[],"searchStatus":"complete","sources":[]}`)
-		return bluecollar.ToolSuccessData(string(document), document), nil
+		return toolcontract.ToolSuccessData(string(document), document), nil
 	}); errorValue != nil {
 		t.Fatal(errorValue)
 	}
-	toolSet := bluecollar.NewToolSet([]string{"memory.search"})
+	toolSet := toolcontract.NewToolSet([]string{"memory.search"})
 	if errorValue := toolSet.RegisterProvider(context.Background(), localToolProvider{handlerToolSet: handlerToolSet}); errorValue != nil {
 		t.Fatal(errorValue)
 	}
 
-	result, errorValue := toolSet.Invoke(context.Background(), bluecollar.ToolInvocation{
+	result, errorValue := toolSet.Invoke(context.Background(), toolcontract.ToolInvocation{
 		ToolName: "memory.search",
-		Input:    bluecollar.MarshalToolInput(map[string]string{"query": "release notes"}),
+		Input:    toolcontract.MarshalToolInput(map[string]string{"query": "release notes"}),
 	})
 
 	if errorValue != nil {
@@ -175,12 +174,12 @@ func TestLocalToolProviderRejectsMalformedMemorySearchResult(t *testing.T) {
 }
 
 func TestLocalToolProviderRejectsUnregisteredDescriptor(t *testing.T) {
-	handlerToolSet := bluecollar.NewToolSet(nil)
-	if errorValue := handlerToolSet.RegisterTool(bluecollar.ToolDefinition{
+	handlerToolSet := toolcontract.NewToolSet(nil)
+	if errorValue := handlerToolSet.RegisterTool(toolcontract.ToolDefinition{
 		Name:        "ad_hoc.tool",
 		Description: "Unregistered tool",
-	}, func(context.Context, bluecollar.ToolInvocation) (bluecollar.ToolResult, error) {
-		return bluecollar.ToolSuccess("ok"), nil
+	}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
+		return toolcontract.ToolSuccess("ok"), nil
 	}); errorValue != nil {
 		t.Fatal(errorValue)
 	}

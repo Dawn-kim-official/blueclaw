@@ -1,6 +1,7 @@
 package bluecollar
 
 import (
+	"github.com/Dawn-kim-official/blueclaw/internal/toolcontract"
 	"sort"
 	"strings"
 )
@@ -114,11 +115,11 @@ func buildAmbientDutyInstruction(ambientDuty AmbientDutyContext) string {
 	return "Ambient duty context: the latest message was not addressed to you, but it matched standing duty " + ambientDuty.Name + ". Perform only that matched duty quietly. Preserve the named assignee, requester, subject, and due date or event time from the message. Before adding anything, call the relevant direct list tool to check whether this conversation already produced a task or event for the same subject and person, and update that existing item instead of creating a duplicate. Never send a text reply, checkpoint, confirmation, or clarification. If required details are insufficient, do not create an item. Finish internally after the duty is complete. Do not perform external sends."
 }
 
-func (agentTurnRunner *AgentTurnRunner) buildToolDescription(toolRegistry *ToolSet) string {
+func (agentTurnRunner *AgentTurnRunner) buildToolDescription(toolRegistry *toolcontract.ToolSet) string {
 	return buildAgentToolDescription(toolRegistry)
 }
 
-func buildAgentToolDescription(toolRegistry *ToolSet) string {
+func buildAgentToolDescription(toolRegistry *toolcontract.ToolSet) string {
 	if toolRegistry == nil {
 		return ""
 	}
@@ -155,28 +156,28 @@ func (agentTurnRunner *AgentTurnRunner) appendInstructionEvent(taskRunID string,
 	agentTurnRunner.appendEvent(taskRunID, "agent.instructions_loaded", marshalEventBody(body))
 }
 
-func toolNamesForEvent(toolSet *ToolSet) []string {
+func toolNamesForEvent(toolSet *toolcontract.ToolSet) []string {
 	if toolSet == nil {
 		return nil
 	}
 	return toolSet.ListToolNames()
 }
 
-func registeredToolCountForEvent(toolSet *ToolSet) int {
+func registeredToolCountForEvent(toolSet *toolcontract.ToolSet) int {
 	if toolSet == nil {
 		return 0
 	}
 	return len(toolSet.ListRegisteredToolNames())
 }
 
-func describedToolNamesForEvent(toolSet *ToolSet) []string {
+func describedToolNamesForEvent(toolSet *toolcontract.ToolSet) []string {
 	if toolSet == nil {
 		return nil
 	}
 	return toolSet.ListDescribedToolNames()
 }
 
-func hiddenDescribedToolNamesForEvent(toolSet *ToolSet) []string {
+func hiddenDescribedToolNamesForEvent(toolSet *toolcontract.ToolSet) []string {
 	if toolSet == nil {
 		return nil
 	}

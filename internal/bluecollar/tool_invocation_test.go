@@ -3,6 +3,7 @@ package bluecollar
 import (
 	"context"
 	"errors"
+	"github.com/Dawn-kim-official/blueclaw/internal/toolcontract"
 	"strings"
 	"testing"
 )
@@ -14,7 +15,7 @@ func TestAgentTurnRunnerRecordsToolRequestedEvent(t *testing.T) {
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{RecoveryBudget: exhaustedRecoveryBudgetForTest()})
 	toolRegistry := newTestCapabilityToolSet([]string{"alpha"})
-	registerTestTool(toolRegistry, ToolDefinition{Name: "alpha"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	registerTestTool(toolRegistry, toolcontract.ToolDefinition{Name: "alpha"}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
 		return testToolSuccess("alpha result"), nil
 	})
 
@@ -43,8 +44,8 @@ func TestAgentTurnRunnerTreatsToolFailureAsObservation(t *testing.T) {
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
 	toolRegistry := newTestCapabilityToolSet([]string{"unstable"})
-	registerTestTool(toolRegistry, ToolDefinition{Name: "unstable"}, func(context.Context, ToolInvocation) (ToolResult, error) {
-		return ToolResult{}, errors.New("tool failed")
+	registerTestTool(toolRegistry, toolcontract.ToolDefinition{Name: "unstable"}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
+		return toolcontract.ToolResult{}, errors.New("tool failed")
 	})
 
 	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
@@ -72,7 +73,7 @@ func TestAgentTurnRunnerStoresLargeToolResultAsArtifact(t *testing.T) {
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{ToolResultMaxBytes: 8})
 	toolRegistry := newTestCapabilityToolSet([]string{"large"})
-	registerTestTool(toolRegistry, ToolDefinition{Name: "large"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	registerTestTool(toolRegistry, toolcontract.ToolDefinition{Name: "large"}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
 		return testToolSuccess(strings.Repeat("x", 32)), nil
 	})
 
@@ -95,7 +96,7 @@ func TestModelVisibleToolResultSummaryKeepsPublishedSiteURL(t *testing.T) {
 	content := `{"siteID":"site-1","slug":"tangerine-hub","mode":"publish","publishedURL":"https://tangerine-hub.example-device.example.test","sourceSHA256":"` + strings.Repeat("a", 64) + `","description":"` + strings.Repeat("x", 4096) + `"}`
 	summary := modelVisibleToolResultSummary(context.Background(), nil, "site.serve", turnObservation{
 		Tool: "site.serve",
-		Output: ToolOutput{
+		Output: toolcontract.ToolOutput{
 			Content: content,
 		},
 	})
@@ -112,7 +113,7 @@ func TestModelVisibleToolResultSummaryKeepsPreviewURLForPreviewServe(t *testing.
 	content := `{"siteID":"site-1","slug":"draft-site","mode":"preview","previewURL":"https://draft-site.example-device.example.test/__preview/preview-1","sourceSHA256":"` + strings.Repeat("a", 64) + `"}`
 	summary := modelVisibleToolResultSummary(context.Background(), nil, "site.serve", turnObservation{
 		Tool: "site.serve",
-		Output: ToolOutput{
+		Output: toolcontract.ToolOutput{
 			Content: content,
 		},
 	})

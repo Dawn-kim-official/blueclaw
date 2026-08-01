@@ -3,6 +3,7 @@ package agentruntime
 import (
 	"context"
 	"encoding/json"
+	"github.com/Dawn-kim-official/blueclaw/internal/toolcontract"
 	"testing"
 
 	"github.com/Dawn-kim-official/blueclaw/internal/bluecollar"
@@ -10,10 +11,10 @@ import (
 
 func invokePlanUpdateTool(t *testing.T, input string) json.RawMessage {
 	t.Helper()
-	toolRegistry := bluecollar.NewToolSet(nil)
+	toolRegistry := toolcontract.NewToolSet(nil)
 	NewToolCatalogBuilder().registerPlanUpdateTool(toolRegistry)
-	result, errorValue := toolRegistry.InvokeInternal(context.Background(), bluecollar.ToolInvocation{
-		ToolName: bluecollar.PlanUpdateToolName,
+	result, errorValue := toolRegistry.InvokeInternal(context.Background(), toolcontract.ToolInvocation{
+		ToolName: toolcontract.PlanUpdateToolName,
 		Input:    json.RawMessage(input),
 	})
 	if errorValue != nil {
@@ -50,10 +51,10 @@ func TestPlanUpdateToolEchoesNormalizedPlan(t *testing.T) {
 }
 
 func TestPlanUpdateToolRejectsUnknownStatusAtTheSchemaBoundary(t *testing.T) {
-	toolRegistry := bluecollar.NewToolSet(nil)
+	toolRegistry := toolcontract.NewToolSet(nil)
 	NewToolCatalogBuilder().registerPlanUpdateTool(toolRegistry)
-	result, errorValue := toolRegistry.InvokeInternal(context.Background(), bluecollar.ToolInvocation{
-		ToolName: bluecollar.PlanUpdateToolName,
+	result, errorValue := toolRegistry.InvokeInternal(context.Background(), toolcontract.ToolInvocation{
+		ToolName: toolcontract.PlanUpdateToolName,
 		Input:    json.RawMessage(`{"steps":[{"title":"x","status":"weird"}]}`),
 	})
 	if errorValue != nil {
@@ -75,20 +76,20 @@ func TestPlanUpdateToolDescriptorIsRegisteredInKernelPalette(t *testing.T) {
 	toolCatalogBuilder := NewToolCatalogBuilder()
 	provider := newKernelToolProvider(toolCatalogBuilder, toolHandlerContext{
 		request: ToolCatalogRequest{HistoryProvider: kernelHistoryProvider{}},
-	}, bluecollar.NewToolSet(nil))
+	}, toolcontract.NewToolSet(nil))
 
 	boundTools, errorValue := provider.ListTools(context.Background())
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
 	for _, boundTool := range boundTools {
-		if boundTool.Definition.Name != bluecollar.PlanUpdateToolName {
+		if boundTool.Definition.Name != toolcontract.PlanUpdateToolName {
 			continue
 		}
-		if boundTool.Definition.SideEffectClass != bluecollar.ToolSideEffectNone {
+		if boundTool.Definition.SideEffectClass != toolcontract.ToolSideEffectNone {
 			t.Fatalf("expected a side-effect-free plan tool, got %+v", boundTool.Definition)
 		}
-		if boundTool.Definition.Completion.Mode != bluecollar.ToolCompletionNone {
+		if boundTool.Definition.Completion.Mode != toolcontract.ToolCompletionNone {
 			t.Fatalf("expected completion mode none, got %+v", boundTool.Definition.Completion)
 		}
 		return

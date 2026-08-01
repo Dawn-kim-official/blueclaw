@@ -2,6 +2,7 @@ package bluecollar
 
 import (
 	"encoding/base64"
+	"github.com/Dawn-kim-official/blueclaw/internal/toolcontract"
 	"strings"
 
 	"github.com/Dawn-kim-official/blueclaw/internal/llm"
@@ -61,7 +62,7 @@ func TextAgentPart(text string) AgentPart {
 	}
 }
 
-func FileAttachmentAgentPart(attachment FileAttachment, source AgentPartSource) AgentPart {
+func FileAttachmentAgentPart(attachment toolcontract.FileAttachment, source AgentPartSource) AgentPart {
 	file := &AgentFilePart{
 		Path:        strings.TrimSpace(attachment.DevicePath),
 		Filename:    strings.TrimSpace(attachment.Filename),

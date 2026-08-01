@@ -1,4 +1,4 @@
-package bluecollar
+package toolcontract
 
 import (
 	"bytes"
@@ -296,7 +296,7 @@ func validateExplicitlyClosedProviderSchemaObjects(value any) error {
 			}
 		}
 	case map[string]any:
-		if schemaTypeIncludesObject(document["type"]) {
+		if SchemaTypeIncludesObject(document["type"]) {
 			additionalProperties, exists := document["additionalProperties"]
 			if !exists || !isExplicitlyClosedAdditionalProperties(additionalProperties) {
 				return errors.New("object schema must explicitly set additionalProperties to false")
@@ -311,7 +311,7 @@ func validateExplicitlyClosedProviderSchemaObjects(value any) error {
 	return nil
 }
 
-func schemaTypeIncludesObject(value any) bool {
+func SchemaTypeIncludesObject(value any) bool {
 	if value == "object" {
 		return true
 	}
@@ -411,7 +411,7 @@ func validateProviderTool(boundTool BoundTool) error {
 }
 
 func validateInputIntentSchema(toolDescriptor ToolDescriptor) error {
-	if _, errorValue := validateToolInput(toolDescriptor.InputIntentSchema, json.RawMessage(`{}`)); errorValue != nil {
+	if _, errorValue := ValidateToolInput(toolDescriptor.InputIntentSchema, json.RawMessage(`{}`)); errorValue != nil {
 		return errors.New("inputIntentSchema must accept an empty object")
 	}
 	inputProperties, errorValue := toolSchemaPropertyNames(toolDescriptor.InputSchema)

@@ -1,5 +1,9 @@
 package bluecollar
 
+import (
+	"github.com/Dawn-kim-official/blueclaw/internal/toolcontract"
+)
+
 import "testing"
 
 func TestOutcomeContractNeedsQualityCriteriaOnlyForArtifacts(t *testing.T) {
@@ -18,9 +22,9 @@ func TestOutcomeContractNeedsQualityCriteriaOnlyForArtifacts(t *testing.T) {
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			toolSet := newTestToolSetWithDefinitions([]ToolDefinition{
-				{Name: "task.add", Namespace: "task", SideEffectClass: ToolSideEffectWorkspaceWrite},
-				{Name: "site.serve", Namespace: "site", SideEffectClass: ToolSideEffectExternalPublish},
+			toolSet := newTestToolSetWithDefinitions([]toolcontract.ToolDefinition{
+				{Name: "task.add", Namespace: "task", SideEffectClass: toolcontract.ToolSideEffectWorkspaceWrite},
+				{Name: "site.serve", Namespace: "site", SideEffectClass: toolcontract.ToolSideEffectExternalPublish},
 			})
 			if actual := outcomeContractNeedsQualityCriteria(toolSet, testCase.contract); actual != testCase.expected {
 				t.Fatalf("expected %t, got %t", testCase.expected, actual)

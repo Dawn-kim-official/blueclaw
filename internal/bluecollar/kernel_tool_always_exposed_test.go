@@ -2,6 +2,7 @@ package bluecollar
 
 import (
 	"context"
+	"github.com/Dawn-kim-official/blueclaw/internal/toolcontract"
 	"testing"
 )
 
@@ -13,20 +14,20 @@ import (
 // enforced at execution (POSIX/policy), never by hiding the tool from the
 // model or from required-evidence validation.
 func TestKernelToolsStayExposedEvenWhenAvailabilityDenied(t *testing.T) {
-	deniedTool := func(name string) BoundTool {
+	deniedTool := func(name string) toolcontract.BoundTool {
 		definition := testToolDescriptor(name)
 		definition.Description = name
-		return BoundTool{
+		return toolcontract.BoundTool{
 			Definition:   definition,
-			Availability: ToolAvailability{Status: ToolAvailabilityDenied, Reason: "policy"},
-			Handler: func(context.Context, ToolInvocation) (ToolResult, error) {
+			Availability: toolcontract.ToolAvailability{Status: toolcontract.ToolAvailabilityDenied, Reason: "policy"},
+			Handler: func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
 				return testToolSuccess("ok"), nil
 			},
 		}
 	}
 
-	toolSet := NewToolSet(append(append([]string{}, KernelToolNames()...), "domain.op"))
-	for _, kernelToolName := range []string{FileReadToolName, FileDeliverToolName, TerminalRunToolName} {
+	toolSet := toolcontract.NewToolSet(append(append([]string{}, toolcontract.KernelToolNames()...), "domain.op"))
+	for _, kernelToolName := range []string{toolcontract.FileReadToolName, toolcontract.FileDeliverToolName, toolcontract.TerminalRunToolName} {
 		toolSet.RegisterBoundTool(deniedTool(kernelToolName))
 		if !toolSet.IsAllowed(kernelToolName) {
 			t.Fatalf("%s must stay exposed even with denied availability", kernelToolName)

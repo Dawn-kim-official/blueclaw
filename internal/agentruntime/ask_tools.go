@@ -3,6 +3,7 @@ package agentruntime
 import (
 	"context"
 	"encoding/json"
+	"github.com/Dawn-kim-official/blueclaw/internal/toolcontract"
 	"strconv"
 	"strings"
 
@@ -35,30 +36,30 @@ var (
 	askInputResultSchema = json.RawMessage(`{"type":"object","properties":{"taskRunID":{"type":"string","minLength":1,"pattern":"\\S"},"status":{"const":"waiting_user_input"},"question":{"type":"string","minLength":1,"pattern":"\\S"},"kind":{"const":"ask_input"},"options":{"type":"array","items":{"type":"object","properties":{"key":{"type":"string","minLength":1,"pattern":"\\S"},"label":{"type":"string","minLength":1,"pattern":"\\S"},"value":{"type":"string","minLength":1,"pattern":"\\S"}},"required":["key","label","value"],"additionalProperties":false}}},"required":["taskRunID","status","question","kind","options"],"additionalProperties":false}`)
 )
 
-func (toolCatalogBuilder *ToolCatalogBuilder) registerAskInputTool(toolRegistry *bluecollar.ToolSet) {
-	bluecollar.RegisterToolFunction(toolRegistry, bluecollar.ToolFunction[askInputToolInput, bluecollar.ToolResult]{
-		Definition: bluecollar.ToolDefinition{
+func (toolCatalogBuilder *ToolCatalogBuilder) registerAskInputTool(toolRegistry *toolcontract.ToolSet) {
+	toolcontract.RegisterToolFunction(toolRegistry, toolcontract.ToolFunction[askInputToolInput, toolcontract.ToolResult]{
+		Definition: toolcontract.ToolDefinition{
 			Name:        "ask.input",
 			Description: "Pause the current task only when the typed outcome contract or a structured tool failure says user input is required. The nonblank question field is authoritative. Use choices=[] for free-form input, or provide choices to let the user pick one of them or type a different answer.",
 			InputSchema: askInputSchema,
 		},
 		Handler: toolCatalogBuilder.askInputTool,
-		Result:  bluecollar.IdentityToolResult,
+		Result:  toolcontract.IdentityToolResult,
 	})
 }
 
-func (toolCatalogBuilder *ToolCatalogBuilder) askInputTool(toolContext context.Context, input askInputToolInput) (bluecollar.ToolResult, error) {
+func (toolCatalogBuilder *ToolCatalogBuilder) askInputTool(toolContext context.Context, input askInputToolInput) (toolcontract.ToolResult, error) {
 	taskRunID := bluecollar.TaskRunIDFromContext(toolContext)
 	if taskRunID == "" || toolCatalogBuilder.taskRunService == nil {
-		return bluecollar.ToolFailureResult(bluecollar.FailureInvalidInput, bluecollar.FailureCodes.InvalidInput, "ask_input", "ask.input requires an active task run"), nil
+		return toolcontract.ToolFailureResult(toolcontract.FailureInvalidInput, toolcontract.FailureCodes.InvalidInput, "ask_input", "ask.input requires an active task run"), nil
 	}
 	question := strings.TrimSpace(input.Question)
 	if question == "" {
-		return bluecollar.ToolFailureResult(bluecollar.FailureInvalidInput, bluecollar.FailureCodes.InvalidInput, "ask_input", "ask.input requires a nonblank question"), nil
+		return toolcontract.ToolFailureResult(toolcontract.FailureInvalidInput, toolcontract.FailureCodes.InvalidInput, "ask_input", "ask.input requires a nonblank question"), nil
 	}
 	_, errorValue := toolCatalogBuilder.taskRunService.PauseTaskRun(taskRunID, task.TaskStatusWaitingUserInput, question)
 	if errorValue != nil {
-		return bluecollar.ToolFailureResult(bluecollar.FailureExternalService, bluecollar.FailureCodes.OperationFailed, "ask_input", errorValue.Error()), nil
+		return toolcontract.ToolFailureResult(toolcontract.FailureExternalService, toolcontract.FailureCodes.OperationFailed, "ask_input", errorValue.Error()), nil
 	}
 	choices := trimNonEmptyStrings(input.Choices)
 	options := make([]askInputOption, 0, len(choices))
@@ -84,7 +85,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) askInputTool(toolContext context.C
 		Kind:      "ask_input",
 		Options:   options,
 	}))
-	return bluecollar.ToolSuccessData(string(resultDocument), resultDocument), nil
+	return toolcontract.ToolSuccessData(string(resultDocument), resultDocument), nil
 }
 
 func selectionModeForOptions(optionCount int) string {

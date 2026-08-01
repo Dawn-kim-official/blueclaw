@@ -1,6 +1,7 @@
 package bluecollar
 
 import (
+	"github.com/Dawn-kim-official/blueclaw/internal/toolcontract"
 	"testing"
 )
 
@@ -27,12 +28,12 @@ func TestNormalizePersistedActiveGoalMigratesLegacyToolNames(t *testing.T) {
 
 	normalizedGoal := normalizePersistedActiveGoal(activeGoal)
 
-	assertSameStrings(t, normalizedGoal.RequiredNextTools, []string{TerminalRunToolName, "site.serve"})
-	assertSameStrings(t, normalizedGoal.SelectedToolNames, []string{TerminalRunToolName, "site.serve"})
-	assertSameStrings(t, normalizedGoal.OutcomeContract.RequiredEvidenceTools, []string{FileDeliverToolName})
-	assertSameStrings(t, normalizedGoal.OutcomeContract.RequiredEvidenceAnyOf[0], []string{AskInputToolName, TerminalRunToolName})
+	assertSameStrings(t, normalizedGoal.RequiredNextTools, []string{toolcontract.TerminalRunToolName, "site.serve"})
+	assertSameStrings(t, normalizedGoal.SelectedToolNames, []string{toolcontract.TerminalRunToolName, "site.serve"})
+	assertSameStrings(t, normalizedGoal.OutcomeContract.RequiredEvidenceTools, []string{toolcontract.FileDeliverToolName})
+	assertSameStrings(t, normalizedGoal.OutcomeContract.RequiredEvidenceAnyOf[0], []string{toolcontract.AskInputToolName, toolcontract.TerminalRunToolName})
 	assertSameStrings(t, normalizedGoal.OutcomeContract.SelectedEvidenceHints, []string{"site.serve"})
-	assertSameStrings(t, normalizedGoal.OutcomeContract.ExpectedResults[0].AcceptanceHints, []string{AskInputToolName})
+	assertSameStrings(t, normalizedGoal.OutcomeContract.ExpectedResults[0].AcceptanceHints, []string{toolcontract.AskInputToolName})
 	assertSameStrings(t, normalizedGoal.OutcomeContract.RequiredEffects[0].SuggestedNextTools, []string{"site.serve"})
 }
 
@@ -62,7 +63,7 @@ func TestNormalizeOutcomeContractRequiresDeliveryForRequiredFileResult(t *testin
 		}},
 	})
 
-	assertSameStrings(t, contract.RequiredEvidenceTools, []string{"file.write", FileDeliverToolName})
+	assertSameStrings(t, contract.RequiredEvidenceTools, []string{"file.write", toolcontract.FileDeliverToolName})
 	if contract.ArtifactRequirement != ArtifactRequirementRequired {
 		t.Fatalf("expected required artifact, got %q", contract.ArtifactRequirement)
 	}
@@ -77,7 +78,7 @@ func TestNormalizePersistedActiveGoalRestoresFileDeliveryInvariant(t *testing.T)
 		}},
 	}})
 
-	assertSameStrings(t, activeGoal.OutcomeContract.RequiredEvidenceTools, []string{FileDeliverToolName})
+	assertSameStrings(t, activeGoal.OutcomeContract.RequiredEvidenceTools, []string{toolcontract.FileDeliverToolName})
 	if activeGoal.OutcomeContract.ArtifactRequirement != ArtifactRequirementRequired {
 		t.Fatalf("expected persisted required artifact, got %q", activeGoal.OutcomeContract.ArtifactRequirement)
 	}

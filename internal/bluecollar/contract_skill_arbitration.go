@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/Dawn-kim-official/blueclaw/internal/toolcontract"
 	"strings"
 
 	"github.com/Dawn-kim-official/blueclaw/internal/llm"
@@ -142,7 +143,7 @@ func buildContractSkillArbitrationVocabulary(request AgentRequest, candidates []
 			}
 		}
 	}
-	for _, toolName := range KernelToolNames() {
+	for _, toolName := range toolcontract.KernelToolNames() {
 		if requestHasToolName(request, toolName) {
 			vocabulary.ToolNames = appendUniqueStrings(vocabulary.ToolNames, toolName)
 		}

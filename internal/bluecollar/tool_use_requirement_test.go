@@ -1,5 +1,9 @@
 package bluecollar
 
+import (
+	"github.com/Dawn-kim-official/blueclaw/internal/toolcontract"
+)
+
 import "testing"
 
 func TestGoogleWorkspaceAvoidanceDoesNotRequireBrowserEvidence(t *testing.T) {
@@ -121,9 +125,9 @@ func TestAttachmentRetryWithBrowserFailureContextDoesNotRequireBrowserEvidence(t
 }
 
 func TestEvidenceRequirementsSkipReadOnlyTools(t *testing.T) {
-	toolSet := newTestToolSetWithDefinitions([]ToolDefinition{
-		{Name: "message.search", SideEffectClass: ToolSideEffectRead},
-		{Name: "message.update", SideEffectClass: ToolSideEffectWorkspaceWrite},
+	toolSet := newTestToolSetWithDefinitions([]toolcontract.ToolDefinition{
+		{Name: "message.search", SideEffectClass: toolcontract.ToolSideEffectRead},
+		{Name: "message.update", SideEffectClass: toolcontract.ToolSideEffectWorkspaceWrite},
 	})
 	request := AgentTurnRequest{
 		ToolSet:               toolSet,

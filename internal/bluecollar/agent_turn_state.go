@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/Dawn-kim-official/blueclaw/internal/toolcontract"
 	"path/filepath"
 	"strings"
 	"time"
@@ -26,7 +27,7 @@ type agentTaskState struct {
 	Options                            TurnOptions
 	Observations                       []turnObservation
 	QualityCriteria                    []qualityCriterion
-	Attachments                        []FileAttachment
+	Attachments                        []toolcontract.FileAttachment
 	ExecutionState                     ExecutionState
 	ContextSummary                     TaskContextSummary
 	IterationCount                     int
@@ -72,7 +73,7 @@ const (
 type agentEffect struct {
 	Kind      agentEffectKind
 	ModelCall *llm.StructuredResponseRequest
-	ToolCall  *ToolInvocation
+	ToolCall  *toolcontract.ToolInvocation
 	UserWait  *agentPendingWait
 	Finish    *agentFinish
 	Failure   *agentFailure
@@ -80,7 +81,7 @@ type agentEffect struct {
 
 type agentFinish struct {
 	Reply       string
-	Attachments []FileAttachment
+	Attachments []toolcontract.FileAttachment
 }
 
 type agentFailure struct {
@@ -110,7 +111,7 @@ func buildInitialAgentTaskState(request AgentTurnRequest, options TurnOptions, t
 		TurnStartedAt:  request.TurnStartedAt,
 		Requirements:   deriveToolUseRequirements(request),
 		Observations:   []turnObservation{},
-		Attachments:    []FileAttachment{},
+		Attachments:    []toolcontract.FileAttachment{},
 		ToolCallCount:  0,
 		IterationCount: 0,
 	}
@@ -284,8 +285,8 @@ func advanceAgentTask(state agentTaskState) agentTransition {
 			State: state,
 			Effect: agentEffect{
 				Kind: agentEffectContinue,
-				ToolCall: &ToolInvocation{
-					ToolName: FileDeliverToolName,
+				ToolCall: &toolcontract.ToolInvocation{
+					ToolName: toolcontract.FileDeliverToolName,
 					Input:    completionArtifactDeliveryInput(state, completionState),
 				},
 			},
@@ -303,7 +304,7 @@ func advanceAgentTask(state agentTaskState) agentTransition {
 			},
 		}
 	case completionActionBlockedInvalidArtifact:
-		observation := newFailureObservation(nextObservationIDForObservations(state.Observations), "policy", "", invalidCompletionArtifactObservationContent(completionState), FailureInvalidInput, FailureCodes.InvalidInput, "completion_state")
+		observation := newFailureObservation(nextObservationIDForObservations(state.Observations), "policy", "", invalidCompletionArtifactObservationContent(completionState), toolcontract.FailureInvalidInput, toolcontract.FailureCodes.InvalidInput, "completion_state")
 		observation.PolicyCode = evidenceKindAttachmentValid
 		observation.RelatedPaths = appendUniqueStrings(completionValidityPaths(completionState))
 		state.Observations = append(state.Observations, observation)
@@ -315,7 +316,7 @@ func advanceAgentTask(state agentTaskState) agentTransition {
 }
 
 func completionArtifactDeliveryInput(state agentTaskState, completionState CompletionState) json.RawMessage {
-	return MarshalToolInput(map[string]any{"path": nextCompletionAttachmentPath(completionState)})
+	return toolcontract.MarshalToolInput(map[string]any{"path": nextCompletionAttachmentPath(completionState)})
 }
 
 func operationInputSelectsDeliveryFile(requiredInput map[string]any) bool {
@@ -432,7 +433,7 @@ func terminalStructuredGenerationOptions(options llm.GenerationOptions) llm.Gene
 	return options
 }
 
-func modelCallableToolSet(toolSet *ToolSet, restrictToTerminalActionsOnly bool) *ToolSet {
+func modelCallableToolSet(toolSet *toolcontract.ToolSet, restrictToTerminalActionsOnly bool) *toolcontract.ToolSet {
 	if restrictToTerminalActionsOnly {
 		return nil
 	}
@@ -482,11 +483,11 @@ func finishWasRejectedWithoutAnyToolEvidence(observations []turnObservation) boo
 	return true
 }
 
-func actionSchemaForToolSet(toolSet *ToolSet, allowQualityCriteria bool, blockedToolNames map[string]bool, hasFailureDebt bool, allowFailValues ...bool) string {
+func actionSchemaForToolSet(toolSet *toolcontract.ToolSet, allowQualityCriteria bool, blockedToolNames map[string]bool, hasFailureDebt bool, allowFailValues ...bool) string {
 	if toolSet == nil {
 		return buildActionSchemaFromToolDefinitions(nil, allowQualityCriteria, blockedToolNames, hasFailureDebt, allowFailValues...)
 	}
-	return toolSet.ActionSchema(allowQualityCriteria, blockedToolNames, hasFailureDebt, allowFailValues...)
+	return ActionSchemaForToolSet(toolSet, allowQualityCriteria, blockedToolNames, hasFailureDebt, allowFailValues...)
 }
 
 func ParseAgentActionResponse(response llm.StructuredResponse) (agentAction, error) {
@@ -1028,7 +1029,7 @@ func applyAgentAction(state agentTaskState, action agentAction) (agentTaskState,
 	return state, nil
 }
 
-func applyToolResult(state agentTaskState, invocation ToolInvocation, result ToolResult) agentTaskState {
+func applyToolResult(state agentTaskState, invocation toolcontract.ToolInvocation, result toolcontract.ToolResult) agentTaskState {
 	result = normalizeToolFailureResult(invocation.ToolName, result)
 	toolInputKey := canonicalToolCallKey(invocation.ToolName, invocation.Input)
 	observation := turnObservation{
@@ -1039,13 +1040,13 @@ func applyToolResult(state agentTaskState, invocation ToolInvocation, result Too
 		Failure:         result.Failure,
 		Summary:         modelVisibleToolResultSummary(context.Background(), nil, invocation.ToolName, turnObservation{Tool: invocation.ToolName, Output: result.Output, Failure: result.Failure, Attachments: result.Attachments}),
 		ToolInputKey:    toolInputKey,
-		RecoveryActions: append([]RecoveryAction{}, result.RecoveryActions...),
+		RecoveryActions: append([]toolcontract.RecoveryAction{}, result.RecoveryActions...),
 	}
 	if observation.Failed() {
 		observation.AttemptFingerprint = attemptFingerprint(toolInputKey, observation.FailureCode())
 	}
 	if !result.Failed() {
-		observation.Attachments = append([]FileAttachment{}, result.Attachments...)
+		observation.Attachments = append([]toolcontract.FileAttachment{}, result.Attachments...)
 		state.Attachments = appendObservationAttachments(state.Attachments, observation)
 	}
 	state.Observations = append(state.Observations, observation)
@@ -1086,8 +1087,8 @@ func observationsFromTaskEvents(events []task.TaskEvent) []turnObservation {
 	return observations
 }
 
-func attachmentsFromObservations(observations []turnObservation) []FileAttachment {
-	attachments := []FileAttachment{}
+func attachmentsFromObservations(observations []turnObservation) []toolcontract.FileAttachment {
+	attachments := []toolcontract.FileAttachment{}
 	for _, observation := range observations {
 		attachments = appendObservationAttachments(attachments, observation)
 	}
@@ -1110,25 +1111,25 @@ func isToolCallObservation(observation turnObservation) bool {
 }
 
 type legacyTurnObservation struct {
-	ObservationID        string           `json:"observationID"`
-	Action               string           `json:"action"`
-	Tool                 string           `json:"tool,omitempty"`
-	Content              string           `json:"content"`
-	Summary              string           `json:"summary,omitempty"`
-	IsError              bool             `json:"isError"`
-	Message              string           `json:"message,omitempty"`
-	ErrorCode            string           `json:"errorCode,omitempty"`
-	FailureStage         string           `json:"failureStage,omitempty"`
-	Retryable            bool             `json:"retryable,omitempty"`
-	SafeRetry            bool             `json:"safeRetry,omitempty"`
-	ToolInputKey         string           `json:"toolInputKey,omitempty"`
-	AttemptFingerprint   string           `json:"attemptFingerprint,omitempty"`
-	RecoveryAttemptKey   string           `json:"recoveryAttemptKey,omitempty"`
-	RecoveryStep         string           `json:"recoveryStep,omitempty"`
-	RecoveryAttemptSpent bool             `json:"recoveryAttemptSpent,omitempty"`
-	RecoveryPacket       *RecoveryPacket  `json:"recoveryPacket,omitempty"`
-	Attachments          []FileAttachment `json:"attachments,omitempty"`
-	RecoveryActions      []RecoveryAction `json:"recoveryActions,omitempty"`
+	ObservationID        string                        `json:"observationID"`
+	Action               string                        `json:"action"`
+	Tool                 string                        `json:"tool,omitempty"`
+	Content              string                        `json:"content"`
+	Summary              string                        `json:"summary,omitempty"`
+	IsError              bool                          `json:"isError"`
+	Message              string                        `json:"message,omitempty"`
+	ErrorCode            string                        `json:"errorCode,omitempty"`
+	FailureStage         string                        `json:"failureStage,omitempty"`
+	Retryable            bool                          `json:"retryable,omitempty"`
+	SafeRetry            bool                          `json:"safeRetry,omitempty"`
+	ToolInputKey         string                        `json:"toolInputKey,omitempty"`
+	AttemptFingerprint   string                        `json:"attemptFingerprint,omitempty"`
+	RecoveryAttemptKey   string                        `json:"recoveryAttemptKey,omitempty"`
+	RecoveryStep         string                        `json:"recoveryStep,omitempty"`
+	RecoveryAttemptSpent bool                          `json:"recoveryAttemptSpent,omitempty"`
+	RecoveryPacket       *RecoveryPacket               `json:"recoveryPacket,omitempty"`
+	Attachments          []toolcontract.FileAttachment `json:"attachments,omitempty"`
+	RecoveryActions      []toolcontract.RecoveryAction `json:"recoveryActions,omitempty"`
 }
 
 func decodeTurnObservation(document []byte) (turnObservation, error) {
@@ -1152,7 +1153,7 @@ func (legacyObservation legacyTurnObservation) toTurnObservation() turnObservati
 		ObservationID:        legacyObservation.ObservationID,
 		Action:               action,
 		Tool:                 legacyObservation.Tool,
-		Output:               ToolOutput{Content: legacyObservation.Content},
+		Output:               toolcontract.ToolOutput{Content: legacyObservation.Content},
 		Summary:              legacyObservation.Summary,
 		ToolInputKey:         legacyObservation.ToolInputKey,
 		AttemptFingerprint:   legacyObservation.AttemptFingerprint,
@@ -1160,13 +1161,13 @@ func (legacyObservation legacyTurnObservation) toTurnObservation() turnObservati
 		RecoveryStep:         legacyObservation.RecoveryStep,
 		RecoveryAttemptSpent: legacyObservation.RecoveryAttemptSpent,
 		RecoveryPacket:       legacyObservation.RecoveryPacket,
-		Attachments:          append([]FileAttachment{}, legacyObservation.Attachments...),
-		RecoveryActions:      append([]RecoveryAction{}, legacyObservation.RecoveryActions...),
+		Attachments:          append([]toolcontract.FileAttachment{}, legacyObservation.Attachments...),
+		RecoveryActions:      append([]toolcontract.RecoveryAction{}, legacyObservation.RecoveryActions...),
 	}
 	if legacyObservation.IsError {
-		observation.Failure = &ToolFailure{
-			Kind:            FailureUnknown,
-			Code:            CanonicalFailureCode(FailureCode(legacyObservation.ErrorCode)),
+		observation.Failure = &toolcontract.ToolFailure{
+			Kind:            toolcontract.FailureUnknown,
+			Code:            toolcontract.CanonicalFailureCode(toolcontract.FailureCode(legacyObservation.ErrorCode)),
 			Stage:           strings.TrimSpace(legacyObservation.FailureStage),
 			UserSafeSummary: firstNonEmptyString(strings.TrimSpace(legacyObservation.Message), strings.TrimSpace(legacyObservation.Content)),
 			Retryable:       legacyObservation.Retryable,
@@ -1176,10 +1177,10 @@ func (legacyObservation legacyTurnObservation) toTurnObservation() turnObservati
 	return observation
 }
 
-func attachmentsFromAttachedEvidence(evidence []CompletionAttachedEvidence) []FileAttachment {
-	attachments := []FileAttachment{}
+func attachmentsFromAttachedEvidence(evidence []CompletionAttachedEvidence) []toolcontract.FileAttachment {
+	attachments := []toolcontract.FileAttachment{}
 	for _, item := range evidence {
-		attachments = append(attachments, FileAttachment{
+		attachments = append(attachments, toolcontract.FileAttachment{
 			DevicePath:  item.DevicePath,
 			Filename:    item.Filename,
 			ContentType: item.ContentType,

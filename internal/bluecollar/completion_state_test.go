@@ -3,6 +3,7 @@ package bluecollar
 import (
 	"encoding/base64"
 	"encoding/json"
+	"github.com/Dawn-kim-official/blueclaw/internal/toolcontract"
 	"os"
 	"path/filepath"
 	"testing"
@@ -10,13 +11,13 @@ import (
 )
 
 func TestCompletionStateRequiresDeclaredResultCondition(t *testing.T) {
-	toolSet := newTestToolSetWithDefinitions([]ToolDefinition{{
+	toolSet := newTestToolSetWithDefinitions([]toolcontract.ToolDefinition{{
 		Name:         "artifact.review",
 		InputSchema:  json.RawMessage(`{"type":"object","properties":{},"additionalProperties":false}`),
 		OutputSchema: json.RawMessage(`{"type":"object","properties":{},"additionalProperties":false}`),
-		ResultContract: &ToolResultContract{
+		ResultContract: &toolcontract.ToolResultContract{
 			Schema: json.RawMessage(`{"type":"object","properties":{"passed":{"type":"boolean"}},"required":["passed"],"additionalProperties":false}`),
-			EvidenceCondition: &EvidenceCondition{
+			EvidenceCondition: &toolcontract.EvidenceCondition{
 				ResultField: "passed",
 				Equals:      json.RawMessage(`true`),
 			},
@@ -26,7 +27,7 @@ func TestCompletionStateRequiresDeclaredResultCondition(t *testing.T) {
 	failedReview := turnObservation{
 		ObservationID: "obs-001",
 		Tool:          "artifact.review",
-		Output:        ToolOutput{Data: json.RawMessage(`{"passed":false}`)},
+		Output:        toolcontract.ToolOutput{Data: json.RawMessage(`{"passed":false}`)},
 	}
 
 	state := buildCompletionState(AgentTurnRequest{ToolSet: toolSet}, requirements, []turnObservation{failedReview})
@@ -47,7 +48,7 @@ func TestCompletionStateRequiresDeclaredResultCondition(t *testing.T) {
 }
 
 func TestEvidenceConditionUsesSemanticJSONEquality(t *testing.T) {
-	condition := EvidenceCondition{
+	condition := toolcontract.EvidenceCondition{
 		ResultField: "review",
 		Equals:      json.RawMessage(`{"passed":true,"scores":[1,2]}`),
 	}
@@ -59,15 +60,15 @@ func TestEvidenceConditionUsesSemanticJSONEquality(t *testing.T) {
 }
 
 func TestTerminalCompletionRequiresCompletedResult(t *testing.T) {
-	toolSet := newTestToolSetWithDefinitions([]ToolDefinition{{
-		Name:            TerminalRunToolName,
+	toolSet := newTestToolSetWithDefinitions([]toolcontract.ToolDefinition{{
+		Name:            toolcontract.TerminalRunToolName,
 		InputSchema:     json.RawMessage(`{"type":"object","additionalProperties":false}`),
 		OutputSchema:    json.RawMessage(`{"type":"object","properties":{"completed":{"type":"boolean"}},"required":["completed"],"additionalProperties":true}`),
-		SideEffectClass: ToolSideEffectWorkspaceWrite,
-		Completion:      ToolCompletion{Mode: ToolCompletionObservation},
-		ResultContract: &ToolResultContract{
+		SideEffectClass: toolcontract.ToolSideEffectWorkspaceWrite,
+		Completion:      toolcontract.ToolCompletion{Mode: toolcontract.ToolCompletionObservation},
+		ResultContract: &toolcontract.ToolResultContract{
 			Schema: json.RawMessage(`{"type":"object","properties":{"completed":{"type":"boolean"}},"required":["completed"],"additionalProperties":true}`),
-			EvidenceCondition: &EvidenceCondition{
+			EvidenceCondition: &toolcontract.EvidenceCondition{
 				ResultField: "completed",
 				Equals:      json.RawMessage(`true`),
 			},
@@ -89,12 +90,12 @@ func TestTerminalCompletionRequiresCompletedResult(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			observation := turnObservation{
 				ObservationID: "obs-001",
-				Tool:          TerminalRunToolName,
-				Output:        ToolOutput{Data: testCase.data},
+				Tool:          toolcontract.TerminalRunToolName,
+				Output:        toolcontract.ToolOutput{Data: testCase.data},
 			}
 			state := buildCompletionState(
 				AgentTurnRequest{ToolSet: toolSet},
-				[]toolUseRequirement{{ToolName: TerminalRunToolName}},
+				[]toolUseRequirement{{ToolName: toolcontract.TerminalRunToolName}},
 				[]turnObservation{observation},
 			)
 			if state.Requirements[0].Satisfied != testCase.isSatisfied {
@@ -139,7 +140,7 @@ func TestCompletionStateFinalizesWhenRequiredAttachmentEvidenceExists(t *testing
 		[]turnObservation{{
 			ObservationID: "obs-001",
 			Tool:          "file.deliver",
-			Attachments: []FileAttachment{
+			Attachments: []toolcontract.FileAttachment{
 				{DevicePath: "artifacts/deck/deck.pptx", Filename: "deck.pptx"},
 				{DevicePath: "artifacts/deck/deck.pdf", Filename: "deck.pdf"},
 			},
@@ -165,18 +166,18 @@ func TestCompletionStateKeepsWorkingWithActiveFailureDebt(t *testing.T) {
 		"continue",
 		"file.read",
 		"permission denied",
-		FailurePermissionDenied,
-		FailureCodes.AccessDenied,
+		toolcontract.FailurePermissionDenied,
+		toolcontract.FailureCodes.AccessDenied,
 		"file_read",
 	)
 	failedObservation.ToolInputKey = "file.read\x00{}"
 	state := buildCompletionState(
 		AgentTurnRequest{},
-		[]toolUseRequirement{{ToolName: FileDeliverToolName, RequiresAttachment: true, AttachmentSuffixes: []string{".json"}}},
+		[]toolUseRequirement{{ToolName: toolcontract.FileDeliverToolName, RequiresAttachment: true, AttachmentSuffixes: []string{".json"}}},
 		[]turnObservation{{
 			ObservationID: "obs-001",
-			Tool:          FileDeliverToolName,
-			Attachments: []FileAttachment{{
+			Tool:          toolcontract.FileDeliverToolName,
+			Attachments: []toolcontract.FileAttachment{{
 				DevicePath: "artifacts/report/report.json",
 				Filename:   "report.json",
 			}},
@@ -195,7 +196,7 @@ func TestCompletionStateUsesAttachmentIndexesForRequiredSuffixEvidence(t *testin
 		[]turnObservation{{
 			ObservationID: "obs-001",
 			Tool:          "file.deliver",
-			Attachments: []FileAttachment{
+			Attachments: []toolcontract.FileAttachment{
 				{DevicePath: "artifacts/deck/DESIGN.md", Filename: "DESIGN.md"},
 				{DevicePath: "artifacts/deck/deck.pptx", Filename: "deck.pptx"},
 			},
@@ -220,7 +221,7 @@ func TestCompletionStateValidatesAttachedEvidenceFromPayload(t *testing.T) {
 		[]turnObservation{{
 			ObservationID: "obs-001",
 			Tool:          "file.deliver",
-			Attachments: []FileAttachment{{
+			Attachments: []toolcontract.FileAttachment{{
 				DevicePath:    "/workspace/private/people/person-1/artifacts/deck/note.txt",
 				Filename:      "note.txt",
 				SizeBytes:     4,
@@ -245,7 +246,7 @@ func TestCompletionStateDoesNotRepeatFailedAttachment(t *testing.T) {
 	}
 	writeValidPPTXTestFile(t, filepath.Join(artifactDirectoryPath, "deck.pptx"))
 
-	failedAttachment := newFailureObservation("obs-001", "continue", "file.deliver", filepath.Join(artifactDirectoryPath, "deck.pptx"), FailureUnknown, FailureCodes.OperationFailed, "file_attach")
+	failedAttachment := newFailureObservation("obs-001", "continue", "file.deliver", filepath.Join(artifactDirectoryPath, "deck.pptx"), toolcontract.FailureUnknown, toolcontract.FailureCodes.OperationFailed, "file_attach")
 	failedAttachment.RelatedPaths = []string{filepath.Join(artifactDirectoryPath, "deck.pptx")}
 	state := buildCompletionState(
 		AgentTurnRequest{WorkspaceRootPath: workspaceRootPath, ToolSet: newTestToolSet([]string{"file.deliver"})},

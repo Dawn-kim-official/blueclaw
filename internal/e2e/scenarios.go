@@ -2,6 +2,7 @@ package e2e
 
 import (
 	"fmt"
+	"github.com/Dawn-kim-official/blueclaw/internal/toolcontract"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -492,7 +493,7 @@ func ScheduleCreateAcceptanceScenario(artifactDirectoryPath string) VirtualSessi
 		SkillSearchQueries:     []string{"schedule a recurring interval reminder"},
 		ArtifactDirectoryPath:  artifactDirectoryPath,
 		Skills:                 []bluecollar.SkillInstruction{scheduledTaskSkill()},
-		AllowedTools:           append(bluecollar.KernelToolNames(), "schedule.create", "schedule.cancel"),
+		AllowedTools:           append(toolcontract.KernelToolNames(), "schedule.create", "schedule.cancel"),
 		InitialToolNames:       []string{"schedule.create", "schedule.cancel"},
 		RouterRequiredEvidence: []string{"schedule.create"},
 		Turns: []VirtualTurn{{
@@ -524,7 +525,7 @@ func ScheduleLifecycleAcceptanceScenario(artifactDirectoryPath string) VirtualSe
 		SkillSearchQueries:    []string{"schedule a recurring interval reminder"},
 		ArtifactDirectoryPath: artifactDirectoryPath,
 		Skills:                []bluecollar.SkillInstruction{scheduledTaskSkill()},
-		AllowedTools:          append(bluecollar.KernelToolNames(), "schedule.create", "schedule.update", "schedule.cancel"),
+		AllowedTools:          append(toolcontract.KernelToolNames(), "schedule.create", "schedule.update", "schedule.cancel"),
 		InitialToolNames:      []string{"schedule.create", "schedule.update", "schedule.cancel"},
 		Turns: []VirtualTurn{
 			{
@@ -576,7 +577,7 @@ func CalendarEventLifecycleAcceptanceScenario(artifactDirectoryPath string) Virt
 		Name:                  "calendar_event_lifecycle_acceptance",
 		ArtifactDirectoryPath: artifactDirectoryPath,
 		Skills:                []bluecollar.SkillInstruction{calendarSkill()},
-		AllowedTools:          append(bluecollar.KernelToolNames(), "calendar.add", "calendar.update", "calendar.delete"),
+		AllowedTools:          append(toolcontract.KernelToolNames(), "calendar.add", "calendar.update", "calendar.delete"),
 		CapabilityToolNames:   []string{"calendar.add", "calendar.update", "calendar.delete"},
 		InitialToolNames:      []string{"calendar.add"},
 		Turns: []VirtualTurn{
@@ -1065,7 +1066,7 @@ func SitePrototypeAcceptanceScenario(artifactDirectoryPath string) VirtualSessio
 		RouterRequiredEvidence: []string{"site.serve"},
 		RouterSiteEvidence:     "Local Fleet Studio",
 		Skills:                 []bluecollar.SkillInstruction{sitePrototypeSkill()},
-		AllowedTools:           append(bluecollar.KernelToolNames(), sitePrototypeCapabilityToolNames()...),
+		AllowedTools:           append(toolcontract.KernelToolNames(), sitePrototypeCapabilityToolNames()...),
 		CapabilityToolNames:    sitePrototypeCapabilityToolNames(),
 		InitialToolNames:       []string{"file.write", "site.serve"},
 		Turns: []VirtualTurn{{
@@ -1105,7 +1106,7 @@ func SiteEditRedeployAcceptanceScenario(artifactDirectoryPath string) VirtualSes
 		RouterRequiredEvidence: []string{"site.serve"},
 		RouterSiteEvidence:     "Local Fleet Studio website",
 		Skills:                 []bluecollar.SkillInstruction{sitePrototypeSkill()},
-		AllowedTools:           append(bluecollar.KernelToolNames(), sitePrototypeCapabilityToolNames()...),
+		AllowedTools:           append(toolcontract.KernelToolNames(), sitePrototypeCapabilityToolNames()...),
 		CapabilityToolNames:    sitePrototypeCapabilityToolNames(),
 		InitialToolNames:       []string{"site.serve", "site.list", "file.write"},
 		Turns: []VirtualTurn{
@@ -1157,7 +1158,7 @@ func SiteCustomStructureAcceptanceScenario(artifactDirectoryPath string) Virtual
 		RouterRequiredEvidence: []string{"site.serve"},
 		RouterSiteEvidence:     "Local Fleet Studio",
 		Skills:                 []bluecollar.SkillInstruction{sitePrototypeSkill()},
-		AllowedTools:           append(bluecollar.KernelToolNames(), sitePrototypeCapabilityToolNames()...),
+		AllowedTools:           append(toolcontract.KernelToolNames(), sitePrototypeCapabilityToolNames()...),
 		CapabilityToolNames:    sitePrototypeCapabilityToolNames(),
 		InitialToolNames:       []string{"site.serve", "file.write", "terminal.run"},
 		InitialSite: &VirtualSiteFixture{
@@ -1202,7 +1203,7 @@ func SiteLifecycleAcceptanceScenario(artifactDirectoryPath string) VirtualSessio
 		ArtifactDirectoryPath:     artifactDirectoryPath,
 		RouterSiteEvidence:        "Local Fleet Studio",
 		Skills:                    []bluecollar.SkillInstruction{sitePrototypeSkill()},
-		AllowedTools:              append(bluecollar.KernelToolNames(), sitePrototypeCapabilityToolNames()...),
+		AllowedTools:              append(toolcontract.KernelToolNames(), sitePrototypeCapabilityToolNames()...),
 		CapabilityToolNames:       sitePrototypeCapabilityToolNames(),
 		CapabilityToolDescriptors: []agentruntime.CapabilityToolDescriptor{{Name: "site.unserve", RequiresApproval: true}},
 		InitialToolNames:          []string{"site.serve", "site.list", "site.unserve", "file.write", "terminal.run"},
@@ -1296,7 +1297,7 @@ func AskChoiceReplyAcceptanceScenario(artifactDirectoryPath string) VirtualSessi
 		AllowedTools:          []string{"conversation.history", "memory.search", "ask.input"},
 		Turns: []VirtualTurn{{
 			Prompt:                 "둘 중 하나 고르게 해줘",
-			RouterRequiredEvidence: []string{bluecollar.AskInputToolName},
+			RouterRequiredEvidence: []string{toolcontract.AskInputToolName},
 			ActionResponses: []string{
 				actionCallToolWithMessage("ask.input", "어느 쪽으로 진행할까요?", `{"question":"어느 쪽으로 진행할까요?","choices":["첫 번째","두 번째"]}`),
 			},
@@ -1331,7 +1332,7 @@ func DirectMessageSendConfirmAcceptanceScenario(artifactDirectoryPath string) Vi
 			MissingInformation:      []string{},
 			ContinuationInstruction: "테스트이에게 오늘 오후 3시에 확인하자는 DM을 보낸다",
 		},
-		AllowedTools:     append(bluecollar.KernelToolNames(), "message.send"),
+		AllowedTools:     append(toolcontract.KernelToolNames(), "message.send"),
 		InitialToolNames: []string{"message.send"},
 		CapabilityToolDescriptors: []agentruntime.CapabilityToolDescriptor{{
 			Name:             "message.send",
@@ -1384,7 +1385,7 @@ func ChannelPostAcceptanceScenario(artifactDirectoryPath string) VirtualSessionS
 			MissingInformation:      []string{},
 			ContinuationInstruction: "announcements 채널에 오늘 5시 전체 공지 회의를 게시한다",
 		},
-		AllowedTools:              append(bluecollar.KernelToolNames(), "message.send"),
+		AllowedTools:              append(toolcontract.KernelToolNames(), "message.send"),
 		CapabilityToolNames:       []string{"message.send"},
 		InitialToolNames:          []string{"message.send"},
 		CapabilityToolDescriptors: []agentruntime.CapabilityToolDescriptor{{Name: "message.send", RequiresApproval: true}},
@@ -1424,7 +1425,7 @@ func PlatformMessageEditAcceptanceScenario(artifactDirectoryPath string) Virtual
 		Name:                   "platform_message_edit_acceptance",
 		ArtifactDirectoryPath:  artifactDirectoryPath,
 		RouterRequiredEvidence: []string{"message.update"},
-		AllowedTools:           append(bluecollar.KernelToolNames(), "message.update"),
+		AllowedTools:           append(toolcontract.KernelToolNames(), "message.update"),
 		CapabilityToolNames:    []string{"message.update"},
 		InitialToolNames:       []string{"message.update"},
 		Turns: []VirtualTurn{{

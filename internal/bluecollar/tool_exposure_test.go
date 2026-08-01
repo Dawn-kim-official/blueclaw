@@ -4,16 +4,17 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/Dawn-kim-official/blueclaw/internal/toolcontract"
 	"strings"
 	"testing"
 )
 
-func newHybridKernelCapabilityToolSet(kernelToolNames []string, operationNames []string) *ToolSet {
+func newHybridKernelCapabilityToolSet(kernelToolNames []string, operationNames []string) *toolcontract.ToolSet {
 	toolNames := append(append([]string{}, kernelToolNames...), operationNames...)
-	toolSet := NewToolSet(toolNames)
-	toolSet.allowsTestReplacement = true
+	toolSet := toolcontract.NewToolSet(toolNames)
+	toolSet.AllowTestReplacement()
 	for _, toolName := range toolNames {
-		registerTestTool(toolSet, ToolDefinition{Name: toolName}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		registerTestTool(toolSet, toolcontract.ToolDefinition{Name: toolName}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
 			return testToolSuccess("ok"), nil
 		})
 	}
@@ -22,7 +23,7 @@ func newHybridKernelCapabilityToolSet(kernelToolNames []string, operationNames [
 
 func TestPlannedToolsDropRepeatedFileRead(t *testing.T) {
 	observations := []turnObservation{
-		newFailureObservation("obs-001", "policy", "file.read", "Already read tmp/deck/presentation.md lines 1-400.", FailurePolicyBlocked, FailureCodes.PolicyBlocked, "file_read_repeat"),
+		newFailureObservation("obs-001", "policy", "file.read", "Already read tmp/deck/presentation.md lines 1-400.", toolcontract.FailurePolicyBlocked, toolcontract.FailureCodes.PolicyBlocked, "file_read_repeat"),
 	}
 
 	toolNames := filterExhaustedRecoveryToolNames([]string{"file.read", "terminal.run", "file.deliver"}, observations)
@@ -38,7 +39,7 @@ func TestPlannedToolsDropRepeatedFileRead(t *testing.T) {
 }
 
 func TestSelectedSkillExposesDirectTools(t *testing.T) {
-	toolSet := testToolSet(append(KernelToolNames(), "task.add", "task.list"))
+	toolSet := testToolSet(append(toolcontract.KernelToolNames(), "task.add", "task.list"))
 	instructionBundle := InstructionBundle{
 		Skills:         []SkillInstruction{{Name: "internkim-flow", ToolReferences: []string{"task.add", "task.list"}}},
 		SkillDecisions: []SkillSelectionDecision{{Name: "internkim-flow", Status: "selected"}},
@@ -51,7 +52,7 @@ func TestSelectedSkillExposesDirectTools(t *testing.T) {
 			t.Fatalf("expected selected skill tool %s, got %+v", toolName, filteredToolSet.ListToolNames())
 		}
 	}
-	if filteredToolSet.IsAllowed(SkillSearchToolName) {
+	if filteredToolSet.IsAllowed(toolcontract.SkillSearchToolName) {
 		t.Fatalf("expected loaded skill instructions to hide skill.search, got %+v", filteredToolSet.ListToolNames())
 	}
 	if !sameStringSet(event.SelectedSkillToolIDs, []string{"task.add", "task.list"}) {
@@ -64,7 +65,7 @@ func TestSelectedSkillExposesDirectTools(t *testing.T) {
 
 func TestAuthoritativeContractExposesWorkingSetWithSkillTools(t *testing.T) {
 	flowToolNames := []string{"task.add", "task.list", "task.update", "task.delete"}
-	toolSet := testToolSet(append(KernelToolNames(), flowToolNames...))
+	toolSet := testToolSet(append(toolcontract.KernelToolNames(), flowToolNames...))
 	instructionBundle := InstructionBundle{
 		Skills:                      []SkillInstruction{{Name: "internkim-flow", ToolReferences: flowToolNames}},
 		SkillDecisions:              []SkillSelectionDecision{{Name: "internkim-flow", Status: "selected"}},
@@ -98,7 +99,7 @@ func TestAuthoritativeContractExposesWorkingSetWithSkillTools(t *testing.T) {
 func TestAuthoritativeContractPreservesCompoundWorkflow(t *testing.T) {
 	flowToolNames := []string{"task.add", "task.list", "task.update", "task.delete"}
 	calendarToolNames := []string{"calendar.add", "calendar.list", "calendar.update", "calendar.delete"}
-	toolSet := testToolSet(append(append(KernelToolNames(), flowToolNames...), calendarToolNames...))
+	toolSet := testToolSet(append(append(toolcontract.KernelToolNames(), flowToolNames...), calendarToolNames...))
 	instructionBundle := InstructionBundle{
 		Skills: []SkillInstruction{
 			{Name: "internkim-flow", ToolReferences: flowToolNames},
@@ -131,16 +132,16 @@ func TestAuthoritativeContractPreservesCompoundWorkflow(t *testing.T) {
 
 func TestAuthoritativeContractPreservesTypedRecoveryTool(t *testing.T) {
 	flowToolNames := []string{"task.add", "task.update"}
-	toolSet := testToolSet(append(KernelToolNames(), flowToolNames...))
+	toolSet := testToolSet(append(toolcontract.KernelToolNames(), flowToolNames...))
 	instructionBundle := InstructionBundle{
 		Skills:                      []SkillInstruction{{Name: "internkim-flow", ToolReferences: flowToolNames}},
 		SkillDecisions:              []SkillSelectionDecision{{Name: "internkim-flow", Status: "selected"}},
 		RequiredNextTools:           []string{"task.add"},
 		HasContractSkillArbitration: true,
 	}
-	observation := newFailureObservation("obs-001", "continue", "task.add", "retry with an existing task", FailureInvalidInput, FailureCodes.InvalidInput, "invoke")
+	observation := newFailureObservation("obs-001", "continue", "task.add", "retry with an existing task", toolcontract.FailureInvalidInput, toolcontract.FailureCodes.InvalidInput, "invoke")
 	observation.ToolInputKey = "task.add\x00{}"
-	observation.Failure.RecoveryHints = []RecoveryHint{{ToolNames: []string{"task.update"}}}
+	observation.Failure.RecoveryHints = []toolcontract.RecoveryHint{{ToolNames: []string{"task.update"}}}
 
 	filteredToolSet, _ := toolSetForAgentTurnWithExposure(
 		toolSet,
@@ -160,7 +161,7 @@ func TestAuthoritativeContractPreservesTypedRecoveryTool(t *testing.T) {
 }
 
 func TestImmediateReplyWithoutToolIntentExposesNoTools(t *testing.T) {
-	toolSet := testToolSet(KernelToolNames())
+	toolSet := testToolSet(toolcontract.KernelToolNames())
 
 	filteredToolSet, event := toolSetForAgentTurnWithExposure(
 		toolSet,
@@ -181,7 +182,7 @@ func TestImmediateReplyWithoutToolIntentExposesNoTools(t *testing.T) {
 }
 
 func TestImmediateReplyWithPinnedToolExposesFullKernel(t *testing.T) {
-	toolSet := testToolSet(append(KernelToolNames(), "schedule.list"))
+	toolSet := testToolSet(append(toolcontract.KernelToolNames(), "schedule.list"))
 
 	filteredToolSet, _ := toolSetForAgentTurnWithExposure(
 		toolSet,
@@ -193,14 +194,14 @@ func TestImmediateReplyWithPinnedToolExposesFullKernel(t *testing.T) {
 		ToolExposureEvent{},
 	)
 
-	expectedToolNames := append(append([]string{}, KernelToolNames()...), "schedule.list")
+	expectedToolNames := append(append([]string{}, toolcontract.KernelToolNames()...), "schedule.list")
 	if !sameStringSet(filteredToolSet.ListToolNames(), expectedToolNames) {
 		t.Fatalf("expected full kernel with the pinned tool, got %+v", filteredToolSet.ListToolNames())
 	}
 }
 
 func TestEmptyArbitrationWorkingSetPreservesDocumentKernel(t *testing.T) {
-	toolSet := testToolSet(KernelToolNames())
+	toolSet := testToolSet(toolcontract.KernelToolNames())
 	instructionBundle := InstructionBundle{
 		Skills:                      []SkillInstruction{{Name: "document"}},
 		SkillDecisions:              []SkillSelectionDecision{{Name: "document", Status: "selected"}},
@@ -213,7 +214,7 @@ func TestEmptyArbitrationWorkingSetPreservesDocumentKernel(t *testing.T) {
 		AgentRequest{},
 		ExecutionPlan{},
 		false,
-		OutcomeContract{RequiredEvidenceTools: []string{FileDeliverToolName}},
+		OutcomeContract{RequiredEvidenceTools: []string{toolcontract.FileDeliverToolName}},
 		ToolExposureEvent{},
 	)
 
@@ -233,7 +234,7 @@ func TestSelectedSkillRankingControlsToolBudget(t *testing.T) {
 		"company.document.list", "company.document.search", "company.document.register",
 	}
 	flowToolNames := []string{"task.add", "task.list", "task.update", "task.delete"}
-	toolSet := testToolSet(append(append(KernelToolNames(), secondaryToolNames...), flowToolNames...))
+	toolSet := testToolSet(append(append(toolcontract.KernelToolNames(), secondaryToolNames...), flowToolNames...))
 	instructionBundle := InstructionBundle{
 		Skills: []SkillInstruction{
 			{Name: "secondary", ToolReferences: secondaryToolNames},
@@ -262,7 +263,7 @@ func TestPinnedDirectToolWinsSelectedSkillBudget(t *testing.T) {
 		"site.metrics", "site.backup", "site.scan", "site.verify", "site.export",
 		"file.read", "file.write", "file.edit", "terminal.run",
 	}
-	toolSet := testToolSet(append(KernelToolNames(), selectedToolNames...))
+	toolSet := testToolSet(append(toolcontract.KernelToolNames(), selectedToolNames...))
 	instructionBundle := InstructionBundle{
 		Skills:         []SkillInstruction{{Name: "website", ToolReferences: selectedToolNames}},
 		SkillDecisions: []SkillSelectionDecision{{Name: "website", Status: "selected"}},
@@ -302,7 +303,7 @@ func TestRequiredEvidenceWinsToolBudget(t *testing.T) {
 		"site.rollback", "site.unpublish", "site.restore", "site.unserve",
 		"file.read", "file.write", "file.edit", "terminal.run",
 	}
-	toolSet := testToolSet(append(append(KernelToolNames(), selectedToolNames...), "task.update"))
+	toolSet := testToolSet(append(append(toolcontract.KernelToolNames(), selectedToolNames...), "task.update"))
 	instructionBundle := InstructionBundle{
 		Skills:         []SkillInstruction{{Name: "website", ToolReferences: selectedToolNames}},
 		SkillDecisions: []SkillSelectionDecision{{Name: "website", Status: "selected"}},
@@ -329,7 +330,7 @@ func TestPendingRequiredToolWinsExtensionToolBudget(t *testing.T) {
 		"tool.06", "tool.07", "tool.08", "tool.09", "tool.10", "tool.11",
 		"tool.12", "tool.13", "tool.14", "tool.15", "tool.16",
 	}
-	toolSet := testToolSet(append(KernelToolNames(), selectedToolNames...))
+	toolSet := testToolSet(append(toolcontract.KernelToolNames(), selectedToolNames...))
 	instructionBundle := InstructionBundle{
 		Skills:            []SkillInstruction{{Name: "extension", ToolReferences: selectedToolNames}},
 		SkillDecisions:    []SkillSelectionDecision{{Name: "extension", Status: "selected"}},
@@ -361,7 +362,7 @@ func TestEachRequiredEvidenceAlternativeGroupKeepsOneTool(t *testing.T) {
 		"tool.11", "tool.12", "tool.13", "tool.14", "tool.15",
 	}
 	secondGroup := []string{"task.update"}
-	toolSet := testToolSet(append(append(KernelToolNames(), firstGroup...), secondGroup...))
+	toolSet := testToolSet(append(append(toolcontract.KernelToolNames(), firstGroup...), secondGroup...))
 
 	filteredToolSet, _ := toolSetForAgentTurnWithExposure(
 		toolSet,
@@ -381,7 +382,7 @@ func TestEachRequiredEvidenceAlternativeGroupKeepsOneTool(t *testing.T) {
 }
 
 func TestAuthoritativeWorkingSetKeepsSelectedSkillTools(t *testing.T) {
-	toolSet := testToolSet(append(KernelToolNames(), "site.serve", "site.list"))
+	toolSet := testToolSet(append(toolcontract.KernelToolNames(), "site.serve", "site.list"))
 	instructionBundle := InstructionBundle{
 		HasContractSkillArbitration: true,
 		RequiredNextTools:           []string{"file.write"},
@@ -417,11 +418,11 @@ func TestInterleaveToolNameListsKeepsEverySkillRepresented(t *testing.T) {
 }
 
 func TestRequestedToolNamesFromObservationsPinsSuccessfulRequests(t *testing.T) {
-	successful := newContentObservation("obs-001", "continue", RequestToolsToolName, "")
-	successful.Output = ToolOutput{Data: json.RawMessage(`{"requestedToolNames":["calendar.update","message.delete"]}`)}
-	failed := newContentObservation("obs-002", "continue", RequestToolsToolName, "")
-	failed.Output = ToolOutput{Data: json.RawMessage(`{"requestedToolNames":["task.delete"]}`)}
-	failed.Failure = &ToolFailure{Kind: FailureInvalidInput}
+	successful := newContentObservation("obs-001", "continue", toolcontract.RequestToolsToolName, "")
+	successful.Output = toolcontract.ToolOutput{Data: json.RawMessage(`{"requestedToolNames":["calendar.update","message.delete"]}`)}
+	failed := newContentObservation("obs-002", "continue", toolcontract.RequestToolsToolName, "")
+	failed.Output = toolcontract.ToolOutput{Data: json.RawMessage(`{"requestedToolNames":["task.delete"]}`)}
+	failed.Failure = &toolcontract.ToolFailure{Kind: toolcontract.FailureInvalidInput}
 
 	toolNames := requestedToolNamesFromObservations([]turnObservation{successful, failed})
 
@@ -444,8 +445,8 @@ func TestDroppedExposureToolNamesFlattenGroups(t *testing.T) {
 }
 
 func TestAdditionalToolsContextListsPageWithSummaries(t *testing.T) {
-	toolSet := NewToolSet([]string{"calendar.update"})
-	registerTestTool(toolSet, ToolDefinition{Name: "calendar.update", Description: "Update a calendar event. Provide an eventHint."}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	toolSet := toolcontract.NewToolSet([]string{"calendar.update"})
+	registerTestTool(toolSet, toolcontract.ToolDefinition{Name: "calendar.update", Description: "Update a calendar event. Provide an eventHint."}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
 		return testToolSuccess("ok"), nil
 	})
 	toolNames := []string{"calendar.update"}
@@ -469,8 +470,8 @@ func TestRequestedToolsAttachOwningSkillInstructions(t *testing.T) {
 		AvailableSkills: []SkillInstruction{calendarSkill},
 		SkillDecisions:  []SkillSelectionDecision{{Name: "internkim-flow", Status: "selected"}},
 	}
-	observation := newContentObservation("obs-001", "continue", RequestToolsToolName, "")
-	observation.Output = ToolOutput{Data: json.RawMessage(`{"requestedToolNames":["calendar.update"]}`)}
+	observation := newContentObservation("obs-001", "continue", toolcontract.RequestToolsToolName, "")
+	observation.Output = toolcontract.ToolOutput{Data: json.RawMessage(`{"requestedToolNames":["calendar.update"]}`)}
 
 	amendedRequest := requestWithStepWorkingSetTools(request, []turnObservation{observation})
 

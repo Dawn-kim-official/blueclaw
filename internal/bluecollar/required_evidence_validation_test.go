@@ -2,6 +2,7 @@ package bluecollar
 
 import (
 	"context"
+	"github.com/Dawn-kim-official/blueclaw/internal/toolcontract"
 	"testing"
 )
 
@@ -14,10 +15,10 @@ func TestRequiredEvidenceToolCanBeSatisfiedAcceptsDirectTool(t *testing.T) {
 }
 
 func TestRequiredEvidenceToolCanBeSatisfiedAcceptsRegisteredCapabilityOperation(t *testing.T) {
-	toolSet := NewToolSet([]string{TerminalRunToolName})
-	for _, toolName := range []string{TerminalRunToolName, "calendar.add"} {
+	toolSet := toolcontract.NewToolSet([]string{toolcontract.TerminalRunToolName})
+	for _, toolName := range []string{toolcontract.TerminalRunToolName, "calendar.add"} {
 		currentToolName := toolName
-		registerTestTool(toolSet, ToolDefinition{Name: currentToolName}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		registerTestTool(toolSet, toolcontract.ToolDefinition{Name: currentToolName}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
 			return testToolSuccess("ok"), nil
 		})
 	}
@@ -31,11 +32,11 @@ func TestRequiredEvidenceToolCanBeSatisfiedAcceptsRegisteredCapabilityOperation(
 }
 
 func TestRequiredEvidenceToolCanBeSatisfiedRejectsUnavailableTool(t *testing.T) {
-	toolSet := NewToolSet([]string{TerminalRunToolName})
-	toolSet.RegisterBoundTool(BoundTool{
-		Definition:   ToolDefinition{Name: "calendar.add"},
-		Availability: ToolAvailability{Status: ToolAvailabilityDenied},
-		Handler: func(context.Context, ToolInvocation) (ToolResult, error) {
+	toolSet := toolcontract.NewToolSet([]string{toolcontract.TerminalRunToolName})
+	toolSet.RegisterBoundTool(toolcontract.BoundTool{
+		Definition:   toolcontract.ToolDefinition{Name: "calendar.add"},
+		Availability: toolcontract.ToolAvailability{Status: toolcontract.ToolAvailabilityDenied},
+		Handler: func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
 			return testToolSuccess("ok"), nil
 		},
 	})
@@ -46,14 +47,14 @@ func TestRequiredEvidenceToolCanBeSatisfiedRejectsUnavailableTool(t *testing.T) 
 }
 
 func TestRequiredEvidenceToolCanBeSatisfiedRejectsDisallowedKernelTool(t *testing.T) {
-	toolSet := NewToolSet([]string{"file.write"})
-	for _, toolName := range []string{"file.write", FileDeliverToolName} {
-		registerTestTool(toolSet, ToolDefinition{Name: toolName}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	toolSet := toolcontract.NewToolSet([]string{"file.write"})
+	for _, toolName := range []string{"file.write", toolcontract.FileDeliverToolName} {
+		registerTestTool(toolSet, toolcontract.ToolDefinition{Name: toolName}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
 			return testToolSuccess("ok"), nil
 		})
 	}
 
-	if requiredEvidenceToolCanBeSatisfied(toolSet, FileDeliverToolName) {
+	if requiredEvidenceToolCanBeSatisfied(toolSet, toolcontract.FileDeliverToolName) {
 		t.Fatal("expected a disallowed kernel tool to be unsatisfiable")
 	}
 }
@@ -70,10 +71,10 @@ func TestRequiredEvidenceToolCanBeSatisfiedRejectsUnregisteredName(t *testing.T)
 }
 
 func TestWorkingSetEvidenceGroupKeepsReadsAndWrites(t *testing.T) {
-	toolSet := newTestToolSetWithDefinitions([]ToolDefinition{
-		{Name: "task.add", Namespace: "task", SideEffectClass: ToolSideEffectStateChange},
-		{Name: "task.list", Namespace: "task", SideEffectClass: ToolSideEffectRead},
-		{Name: "task.update", Namespace: "task", SideEffectClass: ToolSideEffectStateChange},
+	toolSet := newTestToolSetWithDefinitions([]toolcontract.ToolDefinition{
+		{Name: "task.add", Namespace: "task", SideEffectClass: toolcontract.ToolSideEffectStateChange},
+		{Name: "task.list", Namespace: "task", SideEffectClass: toolcontract.ToolSideEffectRead},
+		{Name: "task.update", Namespace: "task", SideEffectClass: toolcontract.ToolSideEffectStateChange},
 	})
 
 	group := workingSetEvidenceGroup(toolSet, []string{"task.add", "task.list", "task.update", "task.add", "unregistered.operation"})
@@ -87,8 +88,8 @@ func TestWorkingSetEvidenceGroupKeepsReadsAndWrites(t *testing.T) {
 }
 
 func TestWorkingSetEvidenceGroupEmptyWhenNoCandidatesAreDerivable(t *testing.T) {
-	toolSet := newTestToolSetWithDefinitions([]ToolDefinition{
-		{Name: "task.list", Namespace: "task", SideEffectClass: ToolSideEffectRead},
+	toolSet := newTestToolSetWithDefinitions([]toolcontract.ToolDefinition{
+		{Name: "task.list", Namespace: "task", SideEffectClass: toolcontract.ToolSideEffectRead},
 	})
 
 	group := workingSetEvidenceGroup(toolSet, []string{"unregistered.operation"})

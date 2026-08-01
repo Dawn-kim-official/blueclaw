@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/Dawn-kim-official/blueclaw/internal/toolcontract"
 	"os"
 	"path/filepath"
 	"slices"
@@ -504,8 +505,8 @@ func TestVirtualTaskCapabilityPreservesLifecycleState(t *testing.T) {
 	emptyListResponse := service.response("task.list", []byte(`{"input":{},"context":{}}`))
 
 	var addDocument struct {
-		Result  map[string]any              `json:"result"`
-		Effects []bluecollar.ResourceEffect `json:"effects"`
+		Result  map[string]any                `json:"result"`
+		Effects []toolcontract.ResourceEffect `json:"effects"`
 	}
 	if errorValue := json.Unmarshal([]byte(addResponse), &addDocument); errorValue != nil {
 		t.Fatal(errorValue)
@@ -525,7 +526,7 @@ func TestVirtualTaskCapabilityPreservesLifecycleState(t *testing.T) {
 	if participantNames := stringSliceValue(addDocument.Result["participantNames"]); !slices.Equal(participantNames, []string{"샘플"}) {
 		t.Fatalf("expected canonical participant names, got %s", addResponse)
 	}
-	if len(addDocument.Effects) != 1 || addDocument.Effects[0] != (bluecollar.ResourceEffect{ObjectType: "task", Effect: "created", ID: "task-1"}) {
+	if len(addDocument.Effects) != 1 || addDocument.Effects[0] != (toolcontract.ResourceEffect{ObjectType: "task", Effect: "created", ID: "task-1"}) {
 		t.Fatalf("expected canonical task.add effect, got %s", addResponse)
 	}
 	if !strings.Contains(updateResponse, `"content":"비용 테스트 회귀 확인 완료 준비"`) {
@@ -584,7 +585,7 @@ func TestDOCXAttachmentValidationRejectsTextAndAcceptsCanonicalPackage(t *testin
 	if errorValue := os.WriteFile(invalidPath, []byte("plain text renamed as docx"), 0600); errorValue != nil {
 		t.Fatal(errorValue)
 	}
-	if errorValue := validateDOCXAttachment(invalidPath, bluecollar.FileAttachment{DevicePath: invalidPath}); errorValue == nil {
+	if errorValue := validateDOCXAttachment(invalidPath, toolcontract.FileAttachment{DevicePath: invalidPath}); errorValue == nil {
 		t.Fatal("expected renamed text file to fail docx validation")
 	}
 
@@ -594,13 +595,13 @@ func TestDOCXAttachmentValidationRejectsTextAndAcceptsCanonicalPackage(t *testin
 		"word/document.xml":            "<xml/>",
 		"word/_rels/document.xml.rels": "<xml/>",
 	})
-	if errorValue := validateDOCXAttachment(placeholderPath, bluecollar.FileAttachment{DevicePath: placeholderPath}); errorValue == nil {
+	if errorValue := validateDOCXAttachment(placeholderPath, toolcontract.FileAttachment{DevicePath: placeholderPath}); errorValue == nil {
 		t.Fatal("expected placeholder XML to fail docx validation")
 	}
 
 	validPath := filepath.Join(t.TempDir(), "document.docx")
 	writeCanonicalDOCX(t, validPath)
-	if errorValue := validateDOCXAttachment(validPath, bluecollar.FileAttachment{DevicePath: validPath}); errorValue != nil {
+	if errorValue := validateDOCXAttachment(validPath, toolcontract.FileAttachment{DevicePath: validPath}); errorValue != nil {
 		t.Fatalf("expected canonical docx package to pass validation: %v", errorValue)
 	}
 }
@@ -721,7 +722,7 @@ func TestVirtualSiteToolsUseCanonicalThreeToolContracts(t *testing.T) {
 	}
 	for _, toolName := range expectedToolNames {
 		descriptor := virtualCapabilityToolDescriptor(toolName)
-		if descriptor.SideEffectClass != bluecollar.ToolSideEffectRead && len(descriptor.InputIntentSchema) == 0 {
+		if descriptor.SideEffectClass != toolcontract.ToolSideEffectRead && len(descriptor.InputIntentSchema) == 0 {
 			t.Fatalf("expected canonical %s input intent schema", toolName)
 		}
 		contract := virtualCapabilityToolResultContract(toolName)
@@ -768,7 +769,7 @@ func TestVirtualSiteToolsUseCanonicalThreeToolContracts(t *testing.T) {
 	if descriptor := virtualCapabilityToolDescriptor("site.unserve"); !descriptor.RequiresApproval {
 		t.Fatal("expected site.unserve to require approval")
 	}
-	if descriptor := virtualCapabilityToolDescriptor("site.serve"); descriptor.SideEffectClass != bluecollar.ToolSideEffectSitePublish {
+	if descriptor := virtualCapabilityToolDescriptor("site.serve"); descriptor.SideEffectClass != toolcontract.ToolSideEffectSitePublish {
 		t.Fatalf("expected site.serve site publish semantics, got %+v", descriptor)
 	}
 	expectedCompletionActions := map[string]string{
@@ -917,11 +918,11 @@ func TestVirtualMessageServiceReturnsCanonicalContextSearchDeleteAndChannelResul
 	}
 }
 
-func virtualCapabilityResponseResult(t *testing.T, response string) (map[string]any, []bluecollar.ResourceEffect) {
+func virtualCapabilityResponseResult(t *testing.T, response string) (map[string]any, []toolcontract.ResourceEffect) {
 	t.Helper()
 	var document struct {
-		Result  map[string]any              `json:"result"`
-		Effects []bluecollar.ResourceEffect `json:"effects"`
+		Result  map[string]any                `json:"result"`
+		Effects []toolcontract.ResourceEffect `json:"effects"`
 	}
 	if errorValue := json.Unmarshal([]byte(response), &document); errorValue != nil {
 		t.Fatal(errorValue)
