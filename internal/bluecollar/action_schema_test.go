@@ -11,7 +11,7 @@ import (
 
 func TestActionSchemasRecursivelyCloseEveryObject(t *testing.T) {
 	toolDefinitions := []toolcontract.ToolDefinition{{
-		Name: "test.create",
+		Name: "test_create",
 		InputSchema: json.RawMessage(`{
 			"type":"object",
 			"properties":{

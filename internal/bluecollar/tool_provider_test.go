@@ -690,19 +690,19 @@ func TestRegisterProvidersRejectsUnknownTrust(t *testing.T) {
 }
 
 func TestRegisterProvidersQuarantinesEveryExternalProviderInAModelNameCollision(t *testing.T) {
-	toolSet := toolcontract.NewToolSet([]string{"workspace.echo"})
+	toolSet := toolcontract.NewToolSet([]string{"workspace_echo"})
 	quarantinedProviders, errorValue := toolSet.RegisterProviders(context.Background(), []toolcontract.ToolProviderRegistration{
 		{
 			Provider: testToolProvider{
 				providerID: "mcp:first",
-				tools:      []toolcontract.BoundTool{validProviderTool("mcp/first/echo", "workspace", "workspace.echo")},
+				tools:      []toolcontract.BoundTool{validProviderTool("mcp/first/echo", "workspace", "workspace_echo")},
 			},
 			Trust: toolcontract.ToolProviderExternal,
 		},
 		{
 			Provider: testToolProvider{
 				providerID: "mcp:second",
-				tools:      []toolcontract.BoundTool{validProviderTool("mcp/second/echo", "workspace", "workspace.echo")},
+				tools:      []toolcontract.BoundTool{validProviderTool("mcp/second/echo", "workspace", "workspace_echo")},
 			},
 			Trust: toolcontract.ToolProviderExternal,
 		},
@@ -714,7 +714,7 @@ func TestRegisterProvidersQuarantinesEveryExternalProviderInAModelNameCollision(
 	if len(quarantinedProviders) != 2 {
 		t.Fatalf("expected both conflicting providers to be quarantined, got %+v", quarantinedProviders)
 	}
-	if toolSet.IsRegistered("workspace.echo") {
+	if toolSet.IsRegistered("workspace_echo") {
 		t.Fatal("expected a colliding external tool name to remain unregistered")
 	}
 }

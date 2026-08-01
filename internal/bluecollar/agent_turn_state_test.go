@@ -639,7 +639,7 @@ func TestDecideAgentActionNativeChatRejectsUnknownDiagnosticTool(t *testing.T) {
 		Code: "provider_response_invalid",
 		Diagnostic: model.StructuredOutputDiagnostic{
 			Category: model.StructuredOutputDiagnosticJSONParse,
-			ToolName: "unknown.tool",
+			ToolName: "unknown_tool",
 		},
 	}}
 	provider := nativeAgentActionLanguageModel{chatError: correctionError}
@@ -1155,22 +1155,22 @@ func TestDirectActionSchemaPreservesToolRequiredFields(t *testing.T) {
 
 func TestActionSchemaOmitsToolsWithoutAnObjectInputSchema(t *testing.T) {
 	schemaDocument := buildActionSchemaFromToolDefinitions([]toolcontract.ToolDefinition{
-		{Name: "missing.schema"},
-		{Name: "invalid.schema", InputSchema: json.RawMessage(`{"type":`)},
-		{Name: "scalar.schema", InputSchema: json.RawMessage(`{"type":"string"}`)},
-		{Name: "valid.schema", InputSchema: json.RawMessage(`{"type":"object","properties":{}}`)},
+		{Name: "missing_schema"},
+		{Name: "invalid_schema", InputSchema: json.RawMessage(`{"type":`)},
+		{Name: "scalar_schema", InputSchema: json.RawMessage(`{"type":"string"}`)},
+		{Name: "valid_schema", InputSchema: json.RawMessage(`{"type":"object","properties":{}}`)},
 	}, false, nil, false, false)
 
-	if strings.Contains(schemaDocument, "missing.schema") {
+	if strings.Contains(schemaDocument, "missing_schema") {
 		t.Fatalf("expected missing schema tool to be omitted, got %s", schemaDocument)
 	}
-	if strings.Contains(schemaDocument, "invalid.schema") {
+	if strings.Contains(schemaDocument, "invalid_schema") {
 		t.Fatalf("expected invalid schema tool to be omitted, got %s", schemaDocument)
 	}
-	if strings.Contains(schemaDocument, "scalar.schema") {
+	if strings.Contains(schemaDocument, "scalar_schema") {
 		t.Fatalf("expected non-object schema tool to be omitted, got %s", schemaDocument)
 	}
-	if !strings.Contains(schemaDocument, "valid.schema") {
+	if !strings.Contains(schemaDocument, "valid_schema") {
 		t.Fatalf("expected valid object schema tool to remain, got %s", schemaDocument)
 	}
 }

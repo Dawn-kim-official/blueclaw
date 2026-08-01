@@ -176,7 +176,7 @@ func TestLocalToolProviderRejectsMalformedMemorySearchResult(t *testing.T) {
 func TestLocalToolProviderRejectsUnregisteredDescriptor(t *testing.T) {
 	handlerToolSet := toolcontract.NewToolSet(nil)
 	if errorValue := handlerToolSet.RegisterTool(toolcontract.ToolDefinition{
-		Name:        "ad_hoc.tool",
+		Name:        "ad_hoc_tool",
 		Description: "Unregistered tool",
 	}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
 		return toolcontract.ToolSuccess("ok"), nil
