@@ -121,7 +121,7 @@ describe('llmd provider adapter', () => {
     if (descriptor === undefined) throw new Error('document.read descriptor is missing');
     const fallbackModel = chatLanguageModel('unused-local-model');
     const remoteModel = toolCallLanguageModel('served-remote-model', [{
-      toolName: DocumentToolName.Read,
+      toolName: 'document_read',
       input: '{"path":"/workspace/documents/review.docx"}',
     }]);
     const generateChatCompletion = createChatCompletionGenerator(
@@ -144,6 +144,9 @@ describe('llmd provider adapter', () => {
     });
     const response = await generateChatCompletion(request);
 
+    // OpenAI-family endpoints reject a function name containing a dot, so the
+    // namespace separator goes out sanitized and comes back canonical.
+    expect(remoteModel.doStreamCalls[0]?.tools?.map(tool => tool.name)).toEqual(['document_read']);
     expect(response.message.toolCalls?.[0]?.function.name).toBe(DocumentToolName.Read);
     expect(remoteModel.doStreamCalls).toHaveLength(1);
     expect(fallbackModel.doStreamCalls).toHaveLength(0);
@@ -447,7 +450,7 @@ describe('llmd provider adapter', () => {
   test('rejects schema-invalid native tool arguments without fallback', async () => {
     const request = multipleToolChatRequest();
     const llamaModel = successfulLanguageModel('unused-local-model', { ok: true });
-    const remoteModel = toolCallLanguageModel('served-remote-model', [{ toolName: 'task.add', input: '{' }]);
+    const remoteModel = toolCallLanguageModel('served-remote-model', [{ toolName: 'task_add', input: '{' }]);
     const generateChatCompletion = createChatCompletionGenerator(
       completeConfiguration(LLMDAutoRoute.RemoteFirst),
       languageModelFactory(llamaModel, remoteModel),
@@ -469,7 +472,7 @@ describe('llmd provider adapter', () => {
     }
     expect(remoteModel.doStreamCalls).toHaveLength(1);
     expect(remoteModel.doGenerateCalls).toHaveLength(1);
-    expect(remoteModel.doGenerateCalls[0]?.tools?.map(tool => tool.name)).toEqual(['task.add']);
+    expect(remoteModel.doGenerateCalls[0]?.tools?.map(tool => tool.name)).toEqual(['task_add']);
     const repairPrompt = JSON.stringify(remoteModel.doGenerateCalls[0]?.prompt);
     expect(repairPrompt).toContain('Malformed arguments: {');
     expect(repairPrompt).toContain('Validation failure: tool arguments are not valid JSON');
@@ -482,7 +485,7 @@ describe('llmd provider adapter', () => {
   test('repairs malformed native tool arguments with the failed tool only', async () => {
     const request = multipleToolChatRequest();
     const llamaModel = successfulLanguageModel('unused-local-model', { ok: true });
-    const remoteModel = sequencedNamedToolCallLanguageModel('served-remote-model', 'task.add', [
+    const remoteModel = sequencedNamedToolCallLanguageModel('served-remote-model', 'task_add', [
       '{',
       '{"title":"repaired task"}',
     ]);
@@ -499,8 +502,8 @@ describe('llmd provider adapter', () => {
     });
     expect(remoteModel.doStreamCalls).toHaveLength(1);
     expect(remoteModel.doGenerateCalls).toHaveLength(1);
-    expect(remoteModel.doStreamCalls[0]?.tools?.map(tool => tool.name)).toEqual(['lookup', 'task.add']);
-    expect(remoteModel.doGenerateCalls[0]?.tools?.map(tool => tool.name)).toEqual(['task.add']);
+    expect(remoteModel.doStreamCalls[0]?.tools?.map(tool => tool.name)).toEqual(['lookup', 'task_add']);
+    expect(remoteModel.doGenerateCalls[0]?.tools?.map(tool => tool.name)).toEqual(['task_add']);
     const repairPrompt = JSON.stringify(remoteModel.doGenerateCalls[0]?.prompt);
     expect(repairPrompt).toContain('Malformed arguments: {');
     expect(repairPrompt).toContain('"input":{}');
