@@ -1046,9 +1046,9 @@ func applyToolResult(state agentTaskState, invocation ToolInvocation, result Too
 	}
 	if !result.Failed() {
 		observation.Attachments = append([]FileAttachment{}, result.Attachments...)
+		state.Attachments = appendObservationAttachments(state.Attachments, observation)
 	}
 	state.Observations = append(state.Observations, observation)
-	state.Attachments = attachmentsFromObservations(state.Observations)
 	return state
 }
 
@@ -1086,23 +1086,9 @@ func observationsFromTaskEvents(events []task.TaskEvent) []turnObservation {
 	return observations
 }
 
-// The last successful file.deliver declares what the person receives. Earlier
-// deliveries are superseded rather than accumulated, so an agent that delivered
-// the wrong file corrects itself by delivering the right set. Without this a
-// single mistaken delivery is unrecoverable, and the turn thrashes against an
-// instruction to remove an attachment that no tool can carry out.
 func attachmentsFromObservations(observations []turnObservation) []FileAttachment {
-	lastDeliveryIndex := -1
-	for index, observation := range observations {
-		if !observation.Failed() && observation.Tool == FileDeliverToolName && len(observation.Attachments) > 0 {
-			lastDeliveryIndex = index
-		}
-	}
 	attachments := []FileAttachment{}
-	for index, observation := range observations {
-		if observation.Tool == FileDeliverToolName && index != lastDeliveryIndex {
-			continue
-		}
+	for _, observation := range observations {
 		attachments = appendObservationAttachments(attachments, observation)
 	}
 	return attachments
