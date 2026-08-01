@@ -148,10 +148,12 @@ func runTask(options runOptions) (TaskResult, error) {
 	toolCatalogBuilder.UseWorkspaceRootPath(options.WorkspacePath)
 	toolCatalogBuilder.UseTerminalService(terminalService)
 	toolCatalogBuilder.UseWorkspaceActorFactory(security.NewDirectWorkspaceActorFactory(terminalService))
+	// The requester identity has to be present or every tool call is refused for
+	// a missing actor. It also decides where a bare filename lands, so a
+	// standalone run points that person's home at the workspace itself.
 	toolSet := toolCatalogBuilder.BuildToolSet(agentruntime.ToolCatalogRequest{
 		Prompt:            options.Task,
 		RequesterPersonID: defaultRequesterPersonID,
-		ConversationID:    "bluecollar",
 	})
 
 	responseContext, cancel := context.WithTimeout(context.Background(), options.TurnTimeout)
@@ -162,7 +164,13 @@ func runTask(options runOptions) (TaskResult, error) {
 		RequesterPersonID: defaultRequesterPersonID,
 		ToolSet:           toolSet,
 		WorkspaceRootPath: options.WorkspacePath,
-		TurnStartedAt:     time.Now(),
+		InstructionPrompt: workspaceInstruction(options.WorkspacePath),
+		// A standalone harness works in the directory it was handed. The
+		// appliance layout - private/people/<id> - belongs to a deployment that
+		// keeps people apart, and recreating it here buries results where the
+		// caller never looks.
+		WorkspaceDefaultPath: options.WorkspacePath,
+		TurnStartedAt:        time.Now(),
 	})
 	if errorValue != nil {
 		return TaskResult{Workspace: options.WorkspacePath}, errorValue
@@ -191,4 +199,17 @@ func modelNameOrDefault(modelName string) string {
 		return modelName
 	}
 	return llm.DefaultModelTierNames().Low
+}
+
+// workspaceInstruction tells the agent what a harness run means: the directory it
+// was handed is the working directory. Tool descriptions teach an appliance
+// convention - a person's home under private/people, artifacts under documents -
+// which buries a benchmark's answer where its checker never looks.
+func workspaceInstruction(workspacePath string) string {
+	return strings.Join([]string{
+		"You are running as a standalone agent in a single working directory: " + workspacePath + ".",
+		"That directory is the entire workspace. Read and write files there with paths relative to it, for example ./notes.txt.",
+		"Never create or write into private/, people/, documents/, or any home-like subdirectory, and never use ~ paths.",
+		"Run commands from that directory. When the task names an output file, create it at that exact relative path.",
+	}, "\n")
 }
