@@ -52,7 +52,7 @@ func completionJudgeFinishActionDocument() turnActionDocument {
 
 func TestCompletionJudgeMessagesCarryTheFinishReplyAsDelivered(t *testing.T) {
 	actionDocument := turnActionDocument{Action: "finish", Message: "deploy complete: https://sites.example/launch"}
-	joined := joinedMessageContent(completionJudgeMessages(AgentTurnRequest{Prompt: "publish the site and give me the link"}, nil, actionDocument))
+	joined := joinedMessageContent(completionJudgeMessages(AgentTurnRequest{Prompt: "publish the site and give me the link"}, nil, nil, actionDocument))
 	if !strings.Contains(joined, "https://sites.example/launch") {
 		t.Fatalf("expected the finish reply text in the judge prompt, got %s", joined)
 	}
@@ -148,7 +148,7 @@ func TestCompletionJudgeMessagesIncludeOriginalInstructionAndExpectedResults(t *
 		OutcomeContract: OutcomeContract{ExpectedResults: []ExpectedResult{{Type: ExpectedResultTypeMessage, Description: "completion check", Required: true}}},
 	}
 
-	messages := completionJudgeMessages(request, nil, completionJudgeFinishActionDocument())
+	messages := completionJudgeMessages(request, nil, nil, completionJudgeFinishActionDocument())
 	joined := joinedMessageContent(messages)
 
 	if !strings.Contains(joined, "add a task to check the missing quarterly settlement") {
@@ -163,7 +163,7 @@ func TestCompletionJudgeMessagesIncludeTemporalContext(t *testing.T) {
 	turnStartedAt := time.Date(2026, 7, 23, 1, 43, 0, 0, time.UTC)
 	request := AgentTurnRequest{Prompt: "move tomorrow's schedule", TurnStartedAt: turnStartedAt}
 
-	joined := joinedMessageContent(completionJudgeMessages(request, nil, completionJudgeFinishActionDocument()))
+	joined := joinedMessageContent(completionJudgeMessages(request, nil, nil, completionJudgeFinishActionDocument()))
 
 	if !strings.Contains(joined, "Runtime temporal context:") {
 		t.Fatalf("expected temporal context in judge prompt, got %s", joined)
@@ -178,7 +178,7 @@ func TestEvaluateCompletionJudgeFailsOpenOnProviderError(t *testing.T) {
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
 	request := AgentTurnRequest{Prompt: "task", OutcomeContract: OutcomeContract{RequiredEvidenceTools: []string{"task.add"}}}
 
-	result := services.runner.evaluateCompletionJudge(context.Background(), "task-judge-1", request, nil, completionJudgeFinishActionDocument())
+	result := services.runner.evaluateCompletionJudge(context.Background(), "task-judge-1", request, nil, nil, completionJudgeFinishActionDocument())
 
 	if !result.IsSatisfied {
 		t.Fatalf("expected fail-open satisfied result on provider error, got %+v", result)
@@ -193,7 +193,7 @@ func TestEvaluateCompletionJudgeFailsOpenOnMalformedContent(t *testing.T) {
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
 	request := AgentTurnRequest{Prompt: "task", OutcomeContract: OutcomeContract{RequiredEvidenceTools: []string{"task.add"}}}
 
-	result := services.runner.evaluateCompletionJudge(context.Background(), "task-judge-2", request, nil, completionJudgeFinishActionDocument())
+	result := services.runner.evaluateCompletionJudge(context.Background(), "task-judge-2", request, nil, nil, completionJudgeFinishActionDocument())
 
 	if !result.IsSatisfied {
 		t.Fatalf("expected fail-open satisfied result on malformed judge content, got %+v", result)
@@ -208,7 +208,7 @@ func TestEvaluateCompletionJudgeRecordsUnsatisfiedVerdictEvent(t *testing.T) {
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
 	request := AgentTurnRequest{Prompt: "task", OutcomeContract: OutcomeContract{RequiredEvidenceTools: []string{"task.add"}}}
 
-	result := services.runner.evaluateCompletionJudge(context.Background(), "task-judge-3", request, nil, completionJudgeFinishActionDocument())
+	result := services.runner.evaluateCompletionJudge(context.Background(), "task-judge-3", request, nil, nil, completionJudgeFinishActionDocument())
 
 	if result.IsSatisfied {
 		t.Fatal("expected an unsatisfied judge result")
