@@ -29,7 +29,7 @@ func TestMCPStdIOToolCall(t *testing.T) {
 
 	output, errorValue := mcpRegistry.InvokeTool(context.Background(), mcp.Invocation{
 		ServerName: "echo",
-		ToolName:   "fake.echo",
+		ToolName:   "fake_echo",
 		Input:      `{"text":"blueclaw"}`,
 	})
 	if errorValue != nil {
