@@ -1,14 +1,18 @@
 # Blueclaw
 
-Blueclaw is an agent daemon for a company's own hardware. It sits in the team's
-chat, takes work assigned to it, and carries that work to a finished artifact —
-without the company's data, credentials, or memory ever leaving the appliance
-it runs on.
+**Blueclaw is the execution boundary for agents a whole company shares.** You
+pick the model. You pick the loop. Blueclaw owns the part neither of those can
+answer: *whose* permissions the work runs under.
 
-It is the runtime inside InternKim, an on-premise AI automation appliance.
-This repository is the daemon itself: the agent loop, the
-policy and permission model, the task engine, the connector runtime, the chat
-adapters, and the AI SDK sidecar.
+An agent that serves one person can run as that person. An agent that serves a
+team cannot — it needs to act as whoever asked, hold each person's files apart,
+stop before irreversible things, and still be there after a restart. That is
+what this repository is: per-person POSIX identity, a policy and approval model,
+durable delivery, and an audit trail. It ships with an agent loop and an AI SDK
+model sidecar, and both are replaceable.
+
+It is also the runtime inside InternKim, an on-premise AI automation appliance —
+that is one deployment of it, not what it is.
 
 ## What makes it different
 
@@ -17,7 +21,9 @@ policy projects to a real Linux user, every circle to a real group. When the
 agent writes a file or runs a command on someone's behalf, a setuid helper drops
 to that person's UID, GID, and supplementary groups first. There is no allowlist
 of permitted commands and no denied-path substring check — an action the actor
-may not take simply fails at the kernel.
+may not take simply fails at the kernel. Two people sharing one Blueclaw cannot
+read each other's work, and that is enforced by the kernel rather than by the
+agent's good behavior.
 
 **The model writes every sentence a human reads.** Replies, approval wording,
 recovery direction, failure reports. Deterministic code validates schemas,
@@ -31,6 +37,12 @@ a markdown link, or the model asserting it is done does not close it.
 **Delivery is durable.** Inbound events persist before they run, replies enqueue
 in an outbox keyed to the originating event, duplicates return the stored result
 instead of re-running, and a restart mid-task resumes rather than dropping it.
+
+**The layers above are yours.** The model reaches Blueclaw through `llmd`, an AI
+SDK sidecar, so any OpenAI-compatible endpoint or hosted provider works and the
+credentials never enter the guest. Domain operations — calendar, tasks, mail,
+sites — are capability plugins declared in configuration; with none declared,
+Blueclaw runs without them rather than failing.
 
 See [docs/architecture.md](docs/architecture.md) for how these fit together.
 
