@@ -409,7 +409,7 @@ func (taskLauncher *TaskLauncher) agentTurnRequestForLaunch(request TaskLaunchRe
 		IsPrecomputedDecisionExact: request.IsPrecomputedDecisionExact,
 		SkipSkillSelection:         request.SkipSkillSelection,
 		AmbientDuty:                request.AmbientDuty,
-		MemoryFacts:                memoryFacts,
+		MemoryFacts:                bluecollarMemoryFacts(memoryFacts),
 		ToolSet:                    toolSet,
 		PinnedToolNames:            append([]string{}, request.PinnedToolNames...),
 		PinnedSkillNames:           append([]string{}, request.PinnedSkillNames...),
@@ -499,4 +499,26 @@ func requesterPersonAccess(requesterPersonID string, personAccess policy.PersonA
 		personAccess.PersonID = strings.TrimSpace(requesterPersonID)
 	}
 	return policy.EnsureRequesterDefaults(personAccess)
+}
+
+// bluecollarMemoryFacts converts recalled facts into the loop's own shape. The
+// loop carries its own type so it never depends on the service that stores them;
+// this single call is where the two meet.
+func bluecollarMemoryFacts(facts []memory.MemoryFact) []bluecollar.MemoryFact {
+	converted := make([]bluecollar.MemoryFact, 0, len(facts))
+	for _, fact := range facts {
+		converted = append(converted, bluecollar.MemoryFact{
+			FactID:            fact.FactID,
+			ScopeType:         fact.ScopeType,
+			NamespaceID:       fact.NamespaceID,
+			Content:           fact.Content,
+			Score:             fact.Score,
+			SourceEpisodeID:   fact.SourceEpisodeID,
+			SourceKind:        fact.SourceKind,
+			ValidAt:           fact.ValidAt,
+			SecurityLevelRank: fact.SecurityLevelRank,
+			RequiredClasses:   append([]string{}, fact.RequiredClasses...),
+		})
+	}
+	return converted
 }

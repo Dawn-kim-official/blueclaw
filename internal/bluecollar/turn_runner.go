@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/Dawn-kim-official/blueclaw/internal/llm"
-	"github.com/Dawn-kim-official/blueclaw/internal/memory"
 	"github.com/Dawn-kim-official/blueclaw/internal/task"
 )
 
@@ -74,7 +73,7 @@ type AgentTurnRequest struct {
 	InputParts                   []AgentPart
 	ResponseLanguage             string
 	VisibleContext               VisibleContext
-	MemoryFacts                  []memory.MemoryFact
+	MemoryFacts                  []MemoryFact
 	ToolSet                      *toolcontract.ToolSet
 	AvailableSkills              []SkillInstruction
 	PinnedToolNames              []string
@@ -1219,7 +1218,7 @@ func agentRequestFromTurnRequest(request AgentTurnRequest) AgentRequest {
 		Prompt:                 request.Prompt,
 		ResponseLanguage:       request.ResponseLanguage,
 		VisibleContext:         request.VisibleContext,
-		MemoryFacts:            append([]memory.MemoryFact{}, request.MemoryFacts...),
+		MemoryFacts:            append([]MemoryFact{}, request.MemoryFacts...),
 		ToolSet:                request.ToolSet,
 		PinnedToolNames:        append([]string{}, request.PinnedToolNames...),
 		PinnedSkillNames:       append([]string{}, request.PinnedSkillNames...),

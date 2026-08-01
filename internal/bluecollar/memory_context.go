@@ -3,18 +3,16 @@ package bluecollar
 import (
 	"fmt"
 	"strings"
-
-	"github.com/Dawn-kim-official/blueclaw/internal/memory"
 )
 
 const memorySummaryContentLimit = 240
 
-func buildMemoryContext(memoryFacts []memory.MemoryFact) string {
+func buildMemoryContext(memoryFacts []MemoryFact) string {
 	sections := []string{}
-	userMemoryDescriptions := buildScopedMemoryDescriptions(memoryFacts, memory.ScopeTypeUser)
-	circleMemoryDescriptions := buildScopedMemoryDescriptions(memoryFacts, memory.ScopeTypeCircle)
-	workspaceMemoryDescriptions := buildScopedMemoryDescriptions(memoryFacts, memory.ScopeTypeWorkspace)
-	conversationMemoryDescriptions := buildScopedMemoryDescriptions(memoryFacts, memory.ScopeTypeConversation)
+	userMemoryDescriptions := buildScopedMemoryDescriptions(memoryFacts, MemoryScopeUser)
+	circleMemoryDescriptions := buildScopedMemoryDescriptions(memoryFacts, MemoryScopeCircle)
+	workspaceMemoryDescriptions := buildScopedMemoryDescriptions(memoryFacts, MemoryScopeWorkspace)
+	conversationMemoryDescriptions := buildScopedMemoryDescriptions(memoryFacts, MemoryScopeConversation)
 	if len(userMemoryDescriptions) > 0 {
 		sections = append(sections, "User memory:\n"+strings.Join(userMemoryDescriptions, "\n"))
 	}
@@ -33,7 +31,7 @@ func buildMemoryContext(memoryFacts []memory.MemoryFact) string {
 	return "Relevant Blueclaw memory (policy-filtered compact summaries):\n" + strings.Join(sections, "\n\n")
 }
 
-func buildScopedMemoryDescriptions(memoryFacts []memory.MemoryFact, scopeType string) []string {
+func buildScopedMemoryDescriptions(memoryFacts []MemoryFact, scopeType string) []string {
 	descriptions := []string{}
 	for _, memoryFact := range memoryFacts {
 		if normalizedMemoryScope(memoryFact.ScopeType) != scopeType {
@@ -47,7 +45,7 @@ func buildScopedMemoryDescriptions(memoryFacts []memory.MemoryFact, scopeType st
 	return descriptions
 }
 
-func formatMemorySummary(memoryFact memory.MemoryFact) string {
+func formatMemorySummary(memoryFact MemoryFact) string {
 	content := compactMemoryContent(memoryFact.Content)
 	if content == "" {
 		return ""
@@ -59,7 +57,7 @@ func formatMemorySummary(memoryFact memory.MemoryFact) string {
 	return "[" + strings.Join(attributes, " ") + "] " + content
 }
 
-func memorySummaryAttributes(memoryFact memory.MemoryFact) []string {
+func memorySummaryAttributes(memoryFact MemoryFact) []string {
 	attributes := []string{}
 	if memoryFact.Score != 0 {
 		attributes = append(attributes, fmt.Sprintf("score=%.2f", memoryFact.Score))
@@ -90,13 +88,13 @@ func compactMemoryContent(content string) string {
 
 func normalizedMemoryScope(scopeType string) string {
 	switch strings.TrimSpace(scopeType) {
-	case memory.ScopeTypeCircle:
-		return memory.ScopeTypeCircle
-	case memory.ScopeTypeWorkspace:
-		return memory.ScopeTypeWorkspace
-	case memory.ScopeTypeConversation:
-		return memory.ScopeTypeConversation
+	case MemoryScopeCircle:
+		return MemoryScopeCircle
+	case MemoryScopeWorkspace:
+		return MemoryScopeWorkspace
+	case MemoryScopeConversation:
+		return MemoryScopeConversation
 	default:
-		return memory.ScopeTypeUser
+		return MemoryScopeUser
 	}
 }

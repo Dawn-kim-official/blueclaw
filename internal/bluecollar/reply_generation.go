@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/Dawn-kim-official/blueclaw/internal/llm"
-	"github.com/Dawn-kim-official/blueclaw/internal/memory"
 )
 
 func formatContextTimestamp(sentAt time.Time) string {
@@ -22,11 +21,11 @@ func (agentKernel *AgentKernel) GenerateReply(responseContext context.Context, p
 	return agentKernel.GenerateReplyWithMemory(responseContext, prompt, nil)
 }
 
-func (agentKernel *AgentKernel) GenerateReplyWithMemory(responseContext context.Context, prompt string, memoryFacts []memory.MemoryFact) (string, error) {
+func (agentKernel *AgentKernel) GenerateReplyWithMemory(responseContext context.Context, prompt string, memoryFacts []MemoryFact) (string, error) {
 	return agentKernel.GenerateReplyWithContext(responseContext, prompt, VisibleContext{}, memoryFacts)
 }
 
-func (agentKernel *AgentKernel) GenerateReplyWithContext(responseContext context.Context, prompt string, visibleContext VisibleContext, memoryFacts []memory.MemoryFact) (string, error) {
+func (agentKernel *AgentKernel) GenerateReplyWithContext(responseContext context.Context, prompt string, visibleContext VisibleContext, memoryFacts []MemoryFact) (string, error) {
 	if agentKernel.languageModel == nil {
 		return "", errors.New("language model provider is not configured")
 	}
@@ -101,15 +100,15 @@ type VisibleContextMaterial struct {
 	ConversionMessage string
 }
 
-func (agentKernel *AgentKernel) buildReplyMessages(prompt string, visibleContext VisibleContext, memoryFacts []memory.MemoryFact) []llm.Message {
+func (agentKernel *AgentKernel) buildReplyMessages(prompt string, visibleContext VisibleContext, memoryFacts []MemoryFact) []llm.Message {
 	return buildReplyMessagesWithInstructions(prompt, visibleContext, memoryFacts, agentKernel.currentInstructionBundle().Prompt)
 }
 
-func buildReplyMessages(prompt string, visibleContext VisibleContext, memoryFacts []memory.MemoryFact) []llm.Message {
+func buildReplyMessages(prompt string, visibleContext VisibleContext, memoryFacts []MemoryFact) []llm.Message {
 	return buildReplyMessagesWithInstructions(prompt, visibleContext, memoryFacts, "")
 }
 
-func buildReplyMessagesWithInstructions(prompt string, visibleContext VisibleContext, memoryFacts []memory.MemoryFact, instructionPrompt string) []llm.Message {
+func buildReplyMessagesWithInstructions(prompt string, visibleContext VisibleContext, memoryFacts []MemoryFact, instructionPrompt string) []llm.Message {
 	return (PromptAssembler{}).BuildReplyMessages(prompt, visibleContext, buildMemoryContext(memoryFacts), instructionPrompt)
 }
 

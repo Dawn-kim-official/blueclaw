@@ -5,8 +5,6 @@ import (
 	"github.com/Dawn-kim-official/blueclaw/internal/toolcontract"
 	"strings"
 	"time"
-
-	"github.com/Dawn-kim-official/blueclaw/internal/memory"
 )
 
 type LLMContextBuilder struct{}
@@ -26,7 +24,7 @@ type LLMContextInput struct {
 	AdditionalToolNames   []string
 	WorkspaceContext      WorkspaceContext
 	VisibleContext        VisibleContext
-	MemoryFacts           []memory.MemoryFact
+	MemoryFacts           []MemoryFact
 	MemoryContext         string
 	ActiveGoal            ActiveGoal
 	PriorTask             PriorTaskContext
