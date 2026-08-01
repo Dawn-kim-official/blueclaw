@@ -5,7 +5,7 @@
       "availability": {
         "state": "ok"
       },
-      "canonicalName": "task.add",
+      "canonicalName": "task_add",
       "completionEvidence": {
         "action": "write_task",
         "mode": "success",
@@ -138,10 +138,10 @@
         "type": "object"
       },
       "inputSchemaStrict": true,
-      "modelName": "task.add",
+      "modelName": "task_add",
       "modelVisibility": "visible",
       "modelVisible": true,
-      "name": "task.add",
+      "name": "task_add",
       "namespace": "task",
       "outputSchema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -242,7 +242,7 @@
         "type": "object"
       },
       "outputSchemaStrict": true,
-      "policyResource": "tool:task.add",
+      "policyResource": "tool:task_add",
       "privacyClass": "workspace_task",
       "requiresUserPresence": false,
       "resultContract": {
@@ -362,7 +362,7 @@
       "availability": {
         "state": "ok"
       },
-      "canonicalName": "task.list",
+      "canonicalName": "task_list",
       "description": "List workspace tasks with optional filters. Use this to answer 'what tasks does X have', 'what is on my plate', or 'show incomplete items this week'. The default scope is the requester; set scope to all for the whole workspace.",
       "estimatedLatency": "low",
       "idempotency": {
@@ -410,10 +410,10 @@
         "type": "object"
       },
       "inputSchemaStrict": true,
-      "modelName": "task.list",
+      "modelName": "task_list",
       "modelVisibility": "visible",
       "modelVisible": true,
-      "name": "task.list",
+      "name": "task_list",
       "namespace": "task",
       "outputSchema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -552,7 +552,7 @@
         "type": "object"
       },
       "outputSchemaStrict": true,
-      "policyResource": "tool:task.list",
+      "policyResource": "tool:task_list",
       "privacyClass": "workspace_task",
       "requiresUserPresence": false,
       "resultContract": {
@@ -703,8 +703,8 @@
       "availability": {
         "state": "ok"
       },
-      "canonicalName": "task.definitions",
-      "description": "List the values a task field accepts in this workspace: businesses, task types, sizes, and statuses. Call this before task.add or task.update when the business or type is not already known to be registered, and before importing records from another system, because a value outside these lists is rejected.",
+      "canonicalName": "task_definitions",
+      "description": "List the values a task field accepts in this workspace: businesses, task types, sizes, and statuses. Call this before task_add or task_update when the business or type is not already known to be registered, and before importing records from another system, because a value outside these lists is rejected.",
       "estimatedLatency": "low",
       "idempotency": {
         "required": false,
@@ -724,10 +724,10 @@
         "type": "object"
       },
       "inputSchemaStrict": true,
-      "modelName": "task.definitions",
+      "modelName": "task_definitions",
       "modelVisibility": "visible",
       "modelVisible": true,
-      "name": "task.definitions",
+      "name": "task_definitions",
       "namespace": "task",
       "outputSchema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -791,7 +791,7 @@
         "type": "object"
       },
       "outputSchemaStrict": true,
-      "policyResource": "tool:task.definitions",
+      "policyResource": "tool:task_definitions",
       "privacyClass": "workspace_task",
       "requiresUserPresence": false,
       "resultContract": {
@@ -867,13 +867,13 @@
       "availability": {
         "state": "ok"
       },
-      "canonicalName": "task.update",
+      "canonicalName": "task_update",
       "completionEvidence": {
         "action": "write_task",
         "mode": "success",
         "targetKind": "task"
       },
-      "description": "Update explicit fields on an existing task. taskHint is the exact task ID or exact task title from a task.list result, resolved server-side to the canonical task; use task.list first when neither is known. At least one mutable field is required.",
+      "description": "Update explicit fields on an existing task. taskHint is the exact task ID or exact task title from a task_list result, resolved server-side to the canonical task; use task_list first when neither is known. At least one mutable field is required.",
       "estimatedLatency": "medium",
       "idempotency": {
         "required": false,
@@ -1007,7 +1007,7 @@
             "type": "string"
           },
           "taskHint": {
-            "description": "Identifies the existing task to act on: its exact task ID or its exact CURRENT title as it appears in a task.list result. Never a new or intended title. Resolved server-side to the canonical task; if it does not uniquely resolve, the call fails with a candidates list of the matching tasks to retry against.",
+            "description": "Identifies the existing task to act on: its exact task ID or its exact CURRENT title as it appears in a task_list result. Never a new or intended title. Resolved server-side to the canonical task; if it does not uniquely resolve, the call fails with a candidates list of the matching tasks to retry against.",
             "maxLength": 256,
             "minLength": 1,
             "type": "string"
@@ -1027,10 +1027,10 @@
         "type": "object"
       },
       "inputSchemaStrict": true,
-      "modelName": "task.update",
+      "modelName": "task_update",
       "modelVisibility": "visible",
       "modelVisible": true,
-      "name": "task.update",
+      "name": "task_update",
       "namespace": "task",
       "outputSchema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -1131,7 +1131,7 @@
         "type": "object"
       },
       "outputSchemaStrict": true,
-      "policyResource": "tool:task.update",
+      "policyResource": "tool:task_update",
       "privacyClass": "workspace_task",
       "requiresUserPresence": false,
       "resultContract": {
@@ -1251,13 +1251,13 @@
       "availability": {
         "state": "ok"
       },
-      "canonicalName": "task.delete",
+      "canonicalName": "task_delete",
       "completionEvidence": {
         "action": "delete_task",
         "mode": "success",
         "targetKind": "task"
       },
-      "description": "Permanently delete a task. taskHint is the exact task ID or exact task title from a task.list result, resolved server-side to the canonical task; use task.list first when neither is known. Requires approval; this action is irreversible.",
+      "description": "Permanently delete a task. taskHint is the exact task ID or exact task title from a task_list result, resolved server-side to the canonical task; use task_list first when neither is known. Requires approval; this action is irreversible.",
       "estimatedLatency": "medium",
       "idempotency": {
         "required": false,
@@ -1275,7 +1275,7 @@
         "additionalProperties": false,
         "properties": {
           "taskHint": {
-            "description": "Identifies the existing task to act on: its exact task ID or its exact CURRENT title as it appears in a task.list result. Never a new or intended title. Resolved server-side to the canonical task; if it does not uniquely resolve, the call fails with a candidates list of the matching tasks to retry against.",
+            "description": "Identifies the existing task to act on: its exact task ID or its exact CURRENT title as it appears in a task_list result. Never a new or intended title. Resolved server-side to the canonical task; if it does not uniquely resolve, the call fails with a candidates list of the matching tasks to retry against.",
             "maxLength": 256,
             "minLength": 1,
             "type": "string"
@@ -1287,10 +1287,10 @@
         "type": "object"
       },
       "inputSchemaStrict": true,
-      "modelName": "task.delete",
+      "modelName": "task_delete",
       "modelVisibility": "visible",
       "modelVisible": true,
-      "name": "task.delete",
+      "name": "task_delete",
       "namespace": "task",
       "outputSchema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -1313,7 +1313,7 @@
         "type": "object"
       },
       "outputSchemaStrict": true,
-      "policyResource": "tool:task.delete",
+      "policyResource": "tool:task_delete",
       "privacyClass": "workspace_task",
       "requiresApproval": true,
       "requiresUserPresence": false,
@@ -1356,13 +1356,13 @@
       "availability": {
         "state": "ok"
       },
-      "canonicalName": "calendar.add",
+      "canonicalName": "calendar_add",
       "completionEvidence": {
         "action": "write_calendar",
         "mode": "success",
         "targetKind": "calendar"
       },
-      "description": "Create a calendar event with a concrete time range. Resolve natural-language dates and times before calling. Use calendar.update for an existing event.",
+      "description": "Create a calendar event with a concrete time range. Resolve natural-language dates and times before calling. Use calendar_update for an existing event.",
       "estimatedLatency": "medium",
       "idempotency": {
         "required": false,
@@ -1483,10 +1483,10 @@
         "type": "object"
       },
       "inputSchemaStrict": true,
-      "modelName": "calendar.add",
+      "modelName": "calendar_add",
       "modelVisibility": "visible",
       "modelVisible": true,
-      "name": "calendar.add",
+      "name": "calendar_add",
       "namespace": "calendar",
       "outputSchema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -1573,7 +1573,7 @@
         "type": "object"
       },
       "outputSchemaStrict": true,
-      "policyResource": "tool:calendar.add",
+      "policyResource": "tool:calendar_add",
       "privacyClass": "workspace_calendar",
       "requiresUserPresence": false,
       "resultContract": {
@@ -1679,7 +1679,7 @@
       "availability": {
         "state": "ok"
       },
-      "canonicalName": "calendar.list",
+      "canonicalName": "calendar_list",
       "description": "List calendar events in a concrete time window, optionally filtered by title, description, or location. Resolve natural-language dates to startISO and endISO before calling.",
       "estimatedLatency": "low",
       "idempotency": {
@@ -1712,10 +1712,10 @@
         "type": "object"
       },
       "inputSchemaStrict": true,
-      "modelName": "calendar.list",
+      "modelName": "calendar_list",
       "modelVisibility": "visible",
       "modelVisible": true,
-      "name": "calendar.list",
+      "name": "calendar_list",
       "namespace": "calendar",
       "outputSchema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -1814,7 +1814,7 @@
         "type": "object"
       },
       "outputSchemaStrict": true,
-      "policyResource": "tool:calendar.list",
+      "policyResource": "tool:calendar_list",
       "privacyClass": "workspace_calendar",
       "requiresUserPresence": false,
       "resultContract": {
@@ -1925,13 +1925,13 @@
       "availability": {
         "state": "ok"
       },
-      "canonicalName": "calendar.update",
+      "canonicalName": "calendar_update",
       "completionEvidence": {
         "action": "write_calendar",
         "mode": "success",
         "targetKind": "calendar"
       },
-      "description": "Update explicit fields on a calendar event. eventHint is the exact event ID or exact event title from a calendar.list result, resolved server-side to the canonical event; use calendar.list first when neither is known. At least one mutable field is required.",
+      "description": "Update explicit fields on a calendar event. eventHint is the exact event ID or exact event title from a calendar_list result, resolved server-side to the canonical event; use calendar_list first when neither is known. At least one mutable field is required.",
       "estimatedLatency": "medium",
       "idempotency": {
         "required": false,
@@ -2010,7 +2010,7 @@
             "type": "string"
           },
           "eventHint": {
-            "description": "Identifies the existing calendar event to act on: its exact event ID or its exact CURRENT title as it appears in a calendar.list result. Never a new or intended title. Resolved server-side; if it does not uniquely resolve, the call fails with a candidates list of matching events.",
+            "description": "Identifies the existing calendar event to act on: its exact event ID or its exact CURRENT title as it appears in a calendar_list result. Never a new or intended title. Resolved server-side; if it does not uniquely resolve, the call fails with a candidates list of matching events.",
             "maxLength": 256,
             "minLength": 1,
             "type": "string"
@@ -2057,10 +2057,10 @@
         "type": "object"
       },
       "inputSchemaStrict": true,
-      "modelName": "calendar.update",
+      "modelName": "calendar_update",
       "modelVisibility": "visible",
       "modelVisible": true,
-      "name": "calendar.update",
+      "name": "calendar_update",
       "namespace": "calendar",
       "outputSchema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -2147,7 +2147,7 @@
         "type": "object"
       },
       "outputSchemaStrict": true,
-      "policyResource": "tool:calendar.update",
+      "policyResource": "tool:calendar_update",
       "privacyClass": "workspace_calendar",
       "requiresUserPresence": false,
       "resultContract": {
@@ -2253,13 +2253,13 @@
       "availability": {
         "state": "ok"
       },
-      "canonicalName": "calendar.delete",
+      "canonicalName": "calendar_delete",
       "completionEvidence": {
         "action": "write_calendar",
         "mode": "success",
         "targetKind": "calendar"
       },
-      "description": "Permanently delete a calendar event. eventHint is the exact event ID or exact event title from a calendar.list result, resolved server-side to the canonical event; use calendar.list first when neither is known. Requires approval; this action is irreversible.",
+      "description": "Permanently delete a calendar event. eventHint is the exact event ID or exact event title from a calendar_list result, resolved server-side to the canonical event; use calendar_list first when neither is known. Requires approval; this action is irreversible.",
       "estimatedLatency": "medium",
       "idempotency": {
         "required": false,
@@ -2277,7 +2277,7 @@
         "additionalProperties": false,
         "properties": {
           "eventHint": {
-            "description": "Identifies the existing calendar event to act on: its exact event ID or its exact CURRENT title as it appears in a calendar.list result. Never a new or intended title. Resolved server-side; if it does not uniquely resolve, the call fails with a candidates list of matching events.",
+            "description": "Identifies the existing calendar event to act on: its exact event ID or its exact CURRENT title as it appears in a calendar_list result. Never a new or intended title. Resolved server-side; if it does not uniquely resolve, the call fails with a candidates list of matching events.",
             "maxLength": 256,
             "minLength": 1,
             "type": "string"
@@ -2289,10 +2289,10 @@
         "type": "object"
       },
       "inputSchemaStrict": true,
-      "modelName": "calendar.delete",
+      "modelName": "calendar_delete",
       "modelVisibility": "visible",
       "modelVisible": true,
-      "name": "calendar.delete",
+      "name": "calendar_delete",
       "namespace": "calendar",
       "outputSchema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -2315,7 +2315,7 @@
         "type": "object"
       },
       "outputSchemaStrict": true,
-      "policyResource": "tool:calendar.delete",
+      "policyResource": "tool:calendar_delete",
       "privacyClass": "workspace_calendar",
       "requiresApproval": true,
       "requiresUserPresence": false,
@@ -2358,7 +2358,7 @@
       "availability": {
         "state": "ok"
       },
-      "canonicalName": "message.context",
+      "canonicalName": "message_context",
       "description": "Return the exact current Mattermost conversation, thread, requester, and bot identities.",
       "estimatedLatency": "low",
       "idempotency": {
@@ -2373,10 +2373,10 @@
         "type": "object"
       },
       "inputSchemaStrict": true,
-      "modelName": "message.context",
+      "modelName": "message_context",
       "modelVisibility": "visible",
       "modelVisible": true,
-      "name": "message.context",
+      "name": "message_context",
       "namespace": "message",
       "outputSchema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -2440,7 +2440,7 @@
         "type": "object"
       },
       "outputSchemaStrict": true,
-      "policyResource": "tool:message.context",
+      "policyResource": "tool:message_context",
       "privacyClass": "platform_message",
       "requiresUserPresence": false,
       "resultContract": {
@@ -2516,7 +2516,7 @@
       "availability": {
         "state": "ok"
       },
-      "canonicalName": "message.search",
+      "canonicalName": "message_search",
       "description": "Search Mattermost messages in an exact conversation scope and return message IDs for later update or delete operations.",
       "estimatedLatency": "low",
       "idempotency": {
@@ -2538,7 +2538,7 @@
             "type": "string"
           },
           "channelID": {
-            "description": "Exact channel ID from message.context or a prior result.",
+            "description": "Exact channel ID from message_context or a prior result.",
             "minLength": 1,
             "pattern": "^\\S(?:.*\\S)?$",
             "type": "string"
@@ -2548,7 +2548,7 @@
             "type": "string"
           },
           "cursor": {
-            "description": "Pagination cursor from a previous message.search result.",
+            "description": "Pagination cursor from a previous message_search result.",
             "type": "string"
           },
           "limit": {
@@ -2583,10 +2583,10 @@
         "type": "object"
       },
       "inputSchemaStrict": true,
-      "modelName": "message.search",
+      "modelName": "message_search",
       "modelVisibility": "visible",
       "modelVisible": true,
-      "name": "message.search",
+      "name": "message_search",
       "namespace": "message",
       "outputSchema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -2701,7 +2701,7 @@
         "type": "object"
       },
       "outputSchemaStrict": true,
-      "policyResource": "tool:message.search",
+      "policyResource": "tool:message_search",
       "privacyClass": "platform_message",
       "requiresUserPresence": false,
       "resultContract": {
@@ -2828,7 +2828,7 @@
       "availability": {
         "state": "ok"
       },
-      "canonicalName": "message.send",
+      "canonicalName": "message_send",
       "completionEvidence": {
         "action": "send_message",
         "mode": "success",
@@ -2846,7 +2846,7 @@
         "additionalProperties": false,
         "properties": {
           "channelID": {
-            "description": "Exact channel ID from message.context or a prior result.",
+            "description": "Exact channel ID from message_context or a prior result.",
             "minLength": 1,
             "pattern": "^\\S(?:.*\\S)?$",
             "type": "string"
@@ -2899,7 +2899,7 @@
         "additionalProperties": false,
         "properties": {
           "channelID": {
-            "description": "Exact channel ID from message.context or a prior result.",
+            "description": "Exact channel ID from message_context or a prior result.",
             "minLength": 1,
             "pattern": "^\\S(?:.*\\S)?$",
             "type": "string"
@@ -2952,10 +2952,10 @@
         "type": "object"
       },
       "inputSchemaStrict": true,
-      "modelName": "message.send",
+      "modelName": "message_send",
       "modelVisibility": "visible",
       "modelVisible": true,
-      "name": "message.send",
+      "name": "message_send",
       "namespace": "message",
       "outputSchema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -3011,7 +3011,7 @@
         "type": "object"
       },
       "outputSchemaStrict": true,
-      "policyResource": "tool:message.send",
+      "policyResource": "tool:message_send",
       "privacyClass": "platform_message",
       "requiresApproval": true,
       "requiresUserPresence": false,
@@ -3087,7 +3087,7 @@
       "availability": {
         "state": "ok"
       },
-      "canonicalName": "message.update",
+      "canonicalName": "message_update",
       "completionEvidence": {
         "action": "update_message",
         "mode": "success",
@@ -3114,7 +3114,7 @@
             "type": "string"
           },
           "messageID": {
-            "description": "Exact message ID from message.search or message.send.",
+            "description": "Exact message ID from message_search or message.send.",
             "minLength": 1,
             "pattern": "^\\S(?:.*\\S)?$",
             "type": "string"
@@ -3137,7 +3137,7 @@
             "type": "string"
           },
           "messageID": {
-            "description": "Exact message ID from message.search or message.send.",
+            "description": "Exact message ID from message_search or message.send.",
             "minLength": 1,
             "pattern": "^\\S(?:.*\\S)?$",
             "type": "string"
@@ -3149,10 +3149,10 @@
         "type": "object"
       },
       "inputSchemaStrict": true,
-      "modelName": "message.update",
+      "modelName": "message_update",
       "modelVisibility": "visible",
       "modelVisible": true,
-      "name": "message.update",
+      "name": "message_update",
       "namespace": "message",
       "outputSchema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -3182,7 +3182,7 @@
         "type": "object"
       },
       "outputSchemaStrict": true,
-      "policyResource": "tool:message.update",
+      "policyResource": "tool:message_update",
       "privacyClass": "platform_message",
       "requiresApproval": true,
       "requiresUserPresence": false,
@@ -3232,13 +3232,13 @@
       "availability": {
         "state": "ok"
       },
-      "canonicalName": "message.delete",
+      "canonicalName": "message_delete",
       "completionEvidence": {
         "action": "delete_message",
         "mode": "success",
         "targetKind": "message"
       },
-      "description": "Permanently delete exact Mattermost message IDs from message.search after approval. List only the exact messages the user asked to remove; when several search matches quote or mention the same text, pick the one message that is the target itself, never the whole match list.",
+      "description": "Permanently delete exact Mattermost message IDs from message_search after approval. List only the exact messages the user asked to remove; when several search matches quote or mention the same text, pick the one message that is the target itself, never the whole match list.",
       "estimatedLatency": "medium",
       "idempotency": {
         "required": false,
@@ -3287,10 +3287,10 @@
         "type": "object"
       },
       "inputSchemaStrict": true,
-      "modelName": "message.delete",
+      "modelName": "message_delete",
       "modelVisibility": "visible",
       "modelVisible": true,
-      "name": "message.delete",
+      "name": "message_delete",
       "namespace": "message",
       "outputSchema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -3346,7 +3346,7 @@
         "type": "object"
       },
       "outputSchemaStrict": true,
-      "policyResource": "tool:message.delete",
+      "policyResource": "tool:message_delete",
       "privacyClass": "platform_message",
       "requiresApproval": true,
       "requiresUserPresence": false,
@@ -3422,7 +3422,7 @@
       "availability": {
         "state": "ok"
       },
-      "canonicalName": "channel.update",
+      "canonicalName": "channel_update",
       "completionEvidence": {
         "action": "update_channel",
         "mode": "success",
@@ -3440,7 +3440,7 @@
         "additionalProperties": false,
         "properties": {
           "channelID": {
-            "description": "Exact channel ID from message.context or a prior result.",
+            "description": "Exact channel ID from message_context or a prior result.",
             "minLength": 1,
             "pattern": "^\\S(?:.*\\S)?$",
             "type": "string"
@@ -3476,7 +3476,7 @@
         "minProperties": 2,
         "properties": {
           "channelID": {
-            "description": "Exact channel ID from message.context or a prior result.",
+            "description": "Exact channel ID from message_context or a prior result.",
             "minLength": 1,
             "pattern": "^\\S(?:.*\\S)?$",
             "type": "string"
@@ -3507,10 +3507,10 @@
         "type": "object"
       },
       "inputSchemaStrict": true,
-      "modelName": "channel.update",
+      "modelName": "channel_update",
       "modelVisibility": "visible",
       "modelVisible": true,
-      "name": "channel.update",
+      "name": "channel_update",
       "namespace": "channel",
       "outputSchema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -3541,7 +3541,7 @@
         "type": "object"
       },
       "outputSchemaStrict": true,
-      "policyResource": "tool:channel.update",
+      "policyResource": "tool:channel_update",
       "privacyClass": "platform_message",
       "requiresApproval": true,
       "requiresUserPresence": false,
@@ -3592,7 +3592,7 @@
       "availability": {
         "state": "ok"
       },
-      "canonicalName": "web.search",
+      "canonicalName": "web_search",
       "description": "Search the public web and return ranked result snippets. Use this when you need current information, facts, or links that are not already in context. Do not use for workspace data, calendar, mail, or tasks — those have dedicated tools.",
       "estimatedLatency": "medium",
       "idempotency": {
@@ -3641,10 +3641,10 @@
         "type": "object"
       },
       "inputSchemaStrict": true,
-      "modelName": "web.search",
+      "modelName": "web_search",
       "modelVisibility": "visible",
       "modelVisible": true,
-      "name": "web.search",
+      "name": "web_search",
       "namespace": "web",
       "outputSchema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -3703,7 +3703,7 @@
         "type": "object"
       },
       "outputSchemaStrict": true,
-      "policyResource": "tool:web.search",
+      "policyResource": "tool:web_search",
       "privacyClass": "public_web",
       "requiresUserPresence": false,
       "resultContract": {
@@ -3774,7 +3774,7 @@
       "availability": {
         "state": "ok"
       },
-      "canonicalName": "site.serve",
+      "canonicalName": "site_serve",
       "completionEvidence": {
         "action": "serve_site",
         "mode": "success",
@@ -3800,7 +3800,7 @@
             "type": "string"
           },
           "siteReference": {
-            "description": "Exact slug or siteID of an EXISTING served site to update, from site.list or an earlier serve result. Omit on first serve so the server allocates a new slug.",
+            "description": "Exact slug or siteID of an EXISTING served site to update, from site_list or an earlier serve result. Omit on first serve so the server allocates a new slug.",
             "minLength": 1,
             "pattern": "^\\S(?:.*\\S)?$",
             "type": "string"
@@ -3832,7 +3832,7 @@
             "type": "string"
           },
           "siteReference": {
-            "description": "Exact slug or siteID of an EXISTING served site to update, from site.list or an earlier serve result. Omit on first serve so the server allocates a new slug.",
+            "description": "Exact slug or siteID of an EXISTING served site to update, from site_list or an earlier serve result. Omit on first serve so the server allocates a new slug.",
             "minLength": 1,
             "pattern": "^\\S(?:.*\\S)?$",
             "type": "string"
@@ -3857,10 +3857,10 @@
         "type": "object"
       },
       "inputSchemaStrict": true,
-      "modelName": "site.serve",
+      "modelName": "site_serve",
       "modelVisibility": "visible",
       "modelVisible": true,
-      "name": "site.serve",
+      "name": "site_serve",
       "namespace": "site",
       "outputSchema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -3907,7 +3907,7 @@
         "type": "object"
       },
       "outputSchemaStrict": true,
-      "policyResource": "tool:site.serve",
+      "policyResource": "tool:site_serve",
       "privacyClass": "workspace_site",
       "requiresUserPresence": false,
       "resultContract": {
@@ -3987,7 +3987,7 @@
       "availability": {
         "state": "ok"
       },
-      "canonicalName": "site.list",
+      "canonicalName": "site_list",
       "description": "List served sites with their exact siteID, slug, lifecycle status, and published URL. Pass siteReference to read one site.",
       "estimatedLatency": "low",
       "idempotency": {
@@ -4009,10 +4009,10 @@
         "type": "object"
       },
       "inputSchemaStrict": true,
-      "modelName": "site.list",
+      "modelName": "site_list",
       "modelVisibility": "visible",
       "modelVisible": true,
-      "name": "site.list",
+      "name": "site_list",
       "namespace": "site",
       "outputSchema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -4071,7 +4071,7 @@
         "type": "object"
       },
       "outputSchemaStrict": true,
-      "policyResource": "tool:site.list",
+      "policyResource": "tool:site_list",
       "privacyClass": "workspace_site",
       "requiresUserPresence": false,
       "resultContract": {
@@ -4142,7 +4142,7 @@
       "availability": {
         "state": "ok"
       },
-      "canonicalName": "site.unserve",
+      "canonicalName": "site_unserve",
       "completionEvidence": {
         "action": "delete_site",
         "mode": "success",
@@ -4164,7 +4164,7 @@
             "type": "string"
           },
           "siteReference": {
-            "description": "Exact slug or siteID of the served site to take down, from site.list or an earlier serve result.",
+            "description": "Exact slug or siteID of the served site to take down, from site_list or an earlier serve result.",
             "minLength": 1,
             "pattern": "^\\S(?:.*\\S)?$",
             "type": "string"
@@ -4181,7 +4181,7 @@
             "type": "string"
           },
           "siteReference": {
-            "description": "Exact slug or siteID of the served site to take down, from site.list or an earlier serve result.",
+            "description": "Exact slug or siteID of the served site to take down, from site_list or an earlier serve result.",
             "minLength": 1,
             "pattern": "^\\S(?:.*\\S)?$",
             "type": "string"
@@ -4193,10 +4193,10 @@
         "type": "object"
       },
       "inputSchemaStrict": true,
-      "modelName": "site.unserve",
+      "modelName": "site_unserve",
       "modelVisibility": "visible",
       "modelVisible": true,
-      "name": "site.unserve",
+      "name": "site_unserve",
       "namespace": "site",
       "outputSchema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -4225,7 +4225,7 @@
         "type": "object"
       },
       "outputSchemaStrict": true,
-      "policyResource": "tool:site.unserve",
+      "policyResource": "tool:site_unserve",
       "privacyClass": "workspace_site",
       "requiresApproval": true,
       "requiresUserPresence": false,
@@ -4274,8 +4274,8 @@
       "availability": {
         "state": "ok"
       },
-      "canonicalName": "document.read",
-      "description": "Read a workspace document from an exact /workspace path and return Markdown content. Use image.read for image files.",
+      "canonicalName": "document_read",
+      "description": "Read a workspace document from an exact /workspace path and return Markdown content. Use image_read for image files.",
       "estimatedLatency": "high",
       "idempotency": {
         "required": false,
@@ -4311,10 +4311,10 @@
         "type": "object"
       },
       "inputSchemaStrict": true,
-      "modelName": "document.read",
+      "modelName": "document_read",
       "modelVisibility": "visible",
       "modelVisible": true,
-      "name": "document.read",
+      "name": "document_read",
       "namespace": "document",
       "outputSchema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -4363,7 +4363,7 @@
         "type": "object"
       },
       "outputSchemaStrict": true,
-      "policyResource": "tool:document.read",
+      "policyResource": "tool:document_read",
       "privacyClass": "workspace_document",
       "requiresUserPresence": false,
       "resultContract": {
@@ -4424,8 +4424,8 @@
       "availability": {
         "state": "ok"
       },
-      "canonicalName": "image.read",
-      "description": "Read a workspace image from an exact /workspace path and return a base64 attachment. Use document.read for document files.",
+      "canonicalName": "image_read",
+      "description": "Read a workspace image from an exact /workspace path and return a base64 attachment. Use document_read for document files.",
       "estimatedLatency": "medium",
       "idempotency": {
         "required": false,
@@ -4449,10 +4449,10 @@
         "type": "object"
       },
       "inputSchemaStrict": true,
-      "modelName": "image.read",
+      "modelName": "image_read",
       "modelVisibility": "visible",
       "modelVisible": true,
-      "name": "image.read",
+      "name": "image_read",
       "namespace": "image",
       "outputSchema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -4517,7 +4517,7 @@
         "type": "object"
       },
       "outputSchemaStrict": true,
-      "policyResource": "tool:image.read",
+      "policyResource": "tool:image_read",
       "privacyClass": "workspace_document",
       "requiresUserPresence": false,
       "resultContract": {
@@ -4594,7 +4594,7 @@
       "availability": {
         "state": "ok"
       },
-      "canonicalName": "browser.open",
+      "canonicalName": "browser_open",
       "description": "Open an exact HTTP or HTTPS URL in the available browser and return the resulting page identity and initial structure.",
       "estimatedLatency": "interactive",
       "idempotency": {
@@ -4632,10 +4632,10 @@
         "type": "object"
       },
       "inputSchemaStrict": true,
-      "modelName": "browser.open",
+      "modelName": "browser_open",
       "modelVisibility": "visible",
       "modelVisible": true,
-      "name": "browser.open",
+      "name": "browser_open",
       "namespace": "browser",
       "outputSchema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -4679,7 +4679,7 @@
         "type": "object"
       },
       "outputSchemaStrict": true,
-      "policyResource": "tool:browser.open",
+      "policyResource": "tool:browser_open",
       "privacyClass": "user_browser",
       "requiresUserPresence": true,
       "resultContract": {
@@ -4735,7 +4735,7 @@
       "availability": {
         "state": "ok"
       },
-      "canonicalName": "browser.snapshot",
+      "canonicalName": "browser_snapshot",
       "description": "Read the current browser page structure and return stable interactive references for inspection and control.",
       "estimatedLatency": "interactive",
       "idempotency": {
@@ -4750,10 +4750,10 @@
         "type": "object"
       },
       "inputSchemaStrict": true,
-      "modelName": "browser.snapshot",
+      "modelName": "browser_snapshot",
       "modelVisibility": "visible",
       "modelVisible": true,
-      "name": "browser.snapshot",
+      "name": "browser_snapshot",
       "namespace": "browser",
       "outputSchema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -4796,7 +4796,7 @@
         "type": "object"
       },
       "outputSchemaStrict": true,
-      "policyResource": "tool:browser.snapshot",
+      "policyResource": "tool:browser_snapshot",
       "privacyClass": "user_browser",
       "requiresUserPresence": false,
       "resultContract": {
@@ -4851,7 +4851,7 @@
       "availability": {
         "state": "ok"
       },
-      "canonicalName": "browser.screenshot",
+      "canonicalName": "browser_screenshot",
       "description": "Capture the visible browser page and upload it to a temporary workspace-visible device path for visual review.",
       "estimatedLatency": "interactive",
       "idempotency": {
@@ -4872,10 +4872,10 @@
         "type": "object"
       },
       "inputSchemaStrict": true,
-      "modelName": "browser.screenshot",
+      "modelName": "browser_screenshot",
       "modelVisibility": "visible",
       "modelVisible": true,
-      "name": "browser.screenshot",
+      "name": "browser_screenshot",
       "namespace": "browser",
       "outputSchema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -4929,7 +4929,7 @@
         "type": "object"
       },
       "outputSchemaStrict": true,
-      "policyResource": "tool:browser.screenshot",
+      "policyResource": "tool:browser_screenshot",
       "privacyClass": "user_browser",
       "requiresUserPresence": false,
       "resultContract": {
@@ -4995,7 +4995,7 @@
       "availability": {
         "state": "ok"
       },
-      "canonicalName": "browser.click",
+      "canonicalName": "browser_click",
       "description": "Click one exact target from the current browser snapshot and return the completed action.",
       "estimatedLatency": "interactive",
       "idempotency": {
@@ -5049,10 +5049,10 @@
         "type": "object"
       },
       "inputSchemaStrict": true,
-      "modelName": "browser.click",
+      "modelName": "browser_click",
       "modelVisibility": "visible",
       "modelVisible": true,
-      "name": "browser.click",
+      "name": "browser_click",
       "namespace": "browser",
       "outputSchema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -5086,7 +5086,7 @@
         "type": "object"
       },
       "outputSchemaStrict": true,
-      "policyResource": "tool:browser.click",
+      "policyResource": "tool:browser_click",
       "privacyClass": "user_browser",
       "requiresUserPresence": false,
       "resultContract": {
@@ -5132,7 +5132,7 @@
       "availability": {
         "state": "ok"
       },
-      "canonicalName": "artifact.review",
+      "canonicalName": "artifact_review",
       "description": "Review rendered artifact screenshots against a concrete intent and rubric, returning typed visual issues and suggested fixes.",
       "estimatedLatency": "high",
       "idempotency": {
@@ -5279,10 +5279,10 @@
         "type": "object"
       },
       "inputSchemaStrict": true,
-      "modelName": "artifact.review",
+      "modelName": "artifact_review",
       "modelVisibility": "visible",
       "modelVisible": true,
-      "name": "artifact.review",
+      "name": "artifact_review",
       "namespace": "artifact",
       "outputSchema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -5355,7 +5355,7 @@
         "type": "object"
       },
       "outputSchemaStrict": true,
-      "policyResource": "tool:artifact.review",
+      "policyResource": "tool:artifact_review",
       "privacyClass": "workspace_document",
       "requiresUserPresence": false,
       "resultContract": {

@@ -83,18 +83,18 @@ func recoveryGuidanceContent(observation turnObservation, originalInstruction st
 }
 
 func browserPublicFetchRecoveryGuidance(observation turnObservation) string {
-	if !strings.HasPrefix(strings.TrimSpace(observation.Tool), "browser.") {
+	if !strings.HasPrefix(strings.TrimSpace(observation.Tool), "browser_") {
 		return ""
 	}
-	return "Recovery route: browser capability operations run on the user's Companion and are only for sign-in, page interaction, screenshots, or pages that block fetching. To read or copy public web page content, use web.fetch (or web.search) instead of a browser; only fall back to the browser handoff when fetching fails or the user explicitly asks for a visible browser. Do not pass a tool name or a localhost address as the browser URL."
+	return "Recovery route: browser capability operations run on the user's Companion and are only for sign-in, page interaction, screenshots, or pages that block fetching. To read or copy public web page content, use web_fetch (or web_search) instead of a browser; only fall back to the browser handoff when fetching fails or the user explicitly asks for a visible browser. Do not pass a tool name or a localhost address as the browser URL."
 }
 
 func terminalWorkingDirectoryRecoveryGuidance(observation turnObservation) string {
-	if strings.TrimSpace(observation.Tool) != "terminal.run" {
+	if strings.TrimSpace(observation.Tool) != "terminal_run" {
 		return ""
 	}
 	if strings.TrimSpace(observation.FailureStage()) == "terminal_working_directory_access" {
-		return "Recovery route: retry terminal.run with workingDirectoryPath set to ~/documents or another ~ path, use relative paths inside the command, then deliver accepted output with file.deliver."
+		return "Recovery route: retry terminal_run with workingDirectoryPath set to ~/documents or another ~ path, use relative paths inside the command, then deliver accepted output with file.deliver."
 	}
 	return ""
 }
@@ -110,11 +110,11 @@ func (recoveryRoute RecoveryRoute) Guidance() string {
 }
 
 func recoveryRoutesForObservation(observation turnObservation) []RecoveryRoute {
-	if strings.TrimSpace(observation.Tool) != "memory.search" || observation.FailureCode() != toolcontract.FailureCodes.Unavailable.String() {
+	if strings.TrimSpace(observation.Tool) != "memory_search" || observation.FailureCode() != toolcontract.FailureCodes.Unavailable.String() {
 		return nil
 	}
 	return []RecoveryRoute{{
-		ToolName:     "web.search",
+		ToolName:     "web_search",
 		UseWhen:      "the missing information is required and public, current, or external",
 		DoNotUseWhen: "private person or circle memory is required",
 	}}

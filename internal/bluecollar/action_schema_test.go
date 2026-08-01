@@ -108,7 +108,7 @@ func TestTerminalActionSchemasAreFlatAndSmallerThanTheLegacyRootOneOf(t *testing
 func TestTerminalActionSchemasAcceptFinishAndFailDocuments(t *testing.T) {
 	finishDocument := `{"action":"finish","message":"done","goalStatus":"satisfied","goalSatisfied":true,"hasRemainingWork":false,"completionEvidenceIDs":[],"qualityReview":[]}`
 	failDocument := `{"action":"fail","message":"","reason":"blocked by captcha","goalStatus":"blocked","goalSatisfied":false}`
-	failWithDebtDocument := `{"action":"fail","message":"","reason":"blocked by captcha","goalStatus":"blocked","goalSatisfied":false,"failureResolution":"failure_report","usedFailureFacts":{"attempts":[{"toolName":"terminal.run","errorCode":"operation_failed","failureStage":"terminal_run","message":"blocked"}],"budgetState":"failure_report_required"}}`
+	failWithDebtDocument := `{"action":"fail","message":"","reason":"blocked by captcha","goalStatus":"blocked","goalSatisfied":false,"failureResolution":"failure_report","usedFailureFacts":{"attempts":[{"toolName":"terminal_run","errorCode":"operation_failed","failureStage":"terminal_run","message":"blocked"}],"budgetState":"failure_report_required"}}`
 	finishWithDebtDocument := `{"action":"finish","message":"done from context","goalStatus":"satisfied","goalSatisfied":true,"hasRemainingWork":false,"completionEvidenceIDs":[],"qualityReview":[],"failureResolution":"no_tool_fallback"}`
 
 	assertDocumentValidatesAgainstSchema(t, finalizerActionSchema(), finishDocument)
@@ -153,8 +153,8 @@ func eightToolCapabilityCatalogFixture(t *testing.T) []toolcontract.ToolDefiniti
 		t.Fatal(errorValue)
 	}
 	selectedToolNames := map[string]bool{
-		"task.add": true, "task.update": true, "message.send": true, "message.search": true,
-		"document.read": true, "image.read": true, "web.search": true, "site.serve": true,
+		"task_add": true, "task_update": true, "message_send": true, "message_search": true,
+		"document_read": true, "image_read": true, "web_search": true, "site_serve": true,
 	}
 	toolDefinitions := make([]toolcontract.ToolDefinition, 0, len(selectedToolNames))
 	for _, tool := range catalog.Tools {

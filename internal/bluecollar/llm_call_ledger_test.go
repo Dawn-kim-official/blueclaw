@@ -82,7 +82,7 @@ func TestObserveLanguageModelRecordsSafeLLMDDiagnosticsAndRequestSizes(t *testin
 func TestObserveLanguageModelRecordsSafeChatToolDiagnostics(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(responseWriter http.ResponseWriter, request *http.Request) {
 		responseWriter.WriteHeader(http.StatusBadGateway)
-		_, _ = responseWriter.Write([]byte(`{"error":{"code":"provider_response_invalid","allowLegacyFallback":false,"message":"PRIVATE_GENERATED_CONTENT","diagnostic":{"category":"schema_validation","toolName":"task.add","validationIssues":[{"fieldPath":"/prompt","code":"required"}],"repairStatus":"failed"}}}`))
+		_, _ = responseWriter.Write([]byte(`{"error":{"code":"provider_response_invalid","allowLegacyFallback":false,"message":"PRIVATE_GENERATED_CONTENT","diagnostic":{"category":"schema_validation","toolName":"task_add","validationIssues":[{"fieldPath":"/prompt","code":"required"}],"repairStatus":"failed"}}}`))
 	}))
 	defer server.Close()
 	records := []llmCallRecord{}
@@ -102,7 +102,7 @@ func TestObserveLanguageModelRecordsSafeChatToolDiagnostics(t *testing.T) {
 	}
 	record := records[0]
 	if record.DiagnosticCategory != model.StructuredOutputDiagnosticSchemaValidation ||
-		record.DiagnosticToolName != "task.add" ||
+		record.DiagnosticToolName != "task_add" ||
 		record.DiagnosticRepairStatus != model.StructuredOutputRepairFailed ||
 		len(record.DiagnosticIssues) != 1 ||
 		record.DiagnosticIssues[0].FieldPath != "/prompt" ||
@@ -538,8 +538,8 @@ func TestChatCallRecordCountsNativeToolDefinitionBytes(t *testing.T) {
 	request := model.ChatCompletionRequest{
 		Messages: []model.ChatCompletionMessage{{Role: "user", Content: "hello"}},
 		Tools: []model.ChatCompletionTool{
-			{Type: "function", Function: model.ChatCompletionFunction{Name: "calendar.update", Parameters: json.RawMessage(`{"type":"object"}`)}},
-			{Type: "function", Function: model.ChatCompletionFunction{Name: "task.add", Parameters: json.RawMessage(`{"type":"object"}`)}},
+			{Type: "function", Function: model.ChatCompletionFunction{Name: "calendar_update", Parameters: json.RawMessage(`{"type":"object"}`)}},
+			{Type: "function", Function: model.ChatCompletionFunction{Name: "task_add", Parameters: json.RawMessage(`{"type":"object"}`)}},
 		},
 	}
 

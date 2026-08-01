@@ -94,9 +94,9 @@ func TestFailureCodeCollapsesUnknownCodesToOperationFailed(t *testing.T) {
 }
 
 func TestToolSetDescriptionsUseDescriptorDescription(t *testing.T) {
-	toolSet := NewToolSet([]string{"task.update"})
+	toolSet := NewToolSet([]string{"task_update"})
 	registerTestTool(toolSet, ToolDefinition{
-		Name:        "task.update",
+		Name:        "task_update",
 		Description: "Update the task identified by exact taskID.",
 		InputSchema: json.RawMessage(`{"type":"object","properties":{"taskID":{"type":"string"}}}`),
 	}, func(context.Context, ToolInvocation) (ToolResult, error) {
@@ -116,9 +116,9 @@ func TestToolSideEffectClassUsesOnlyDescriptorMetadata(t *testing.T) {
 		expectedSideEffect string
 		requiresCompletion bool
 	}{
-		{toolName: "task.add", sideEffectClass: ToolSideEffectStateChange, expectedSideEffect: ToolSideEffectStateChange, requiresCompletion: true},
-		{toolName: "task.list", sideEffectClass: ToolSideEffectRead, expectedSideEffect: ToolSideEffectRead, requiresCompletion: false},
-		{toolName: "message.send", sideEffectClass: ToolSideEffectExternalWrite, expectedSideEffect: ToolSideEffectExternalWrite, requiresCompletion: true},
+		{toolName: "task_add", sideEffectClass: ToolSideEffectStateChange, expectedSideEffect: ToolSideEffectStateChange, requiresCompletion: true},
+		{toolName: "task_list", sideEffectClass: ToolSideEffectRead, expectedSideEffect: ToolSideEffectRead, requiresCompletion: false},
+		{toolName: "message_send", sideEffectClass: ToolSideEffectExternalWrite, expectedSideEffect: ToolSideEffectExternalWrite, requiresCompletion: true},
 		{toolName: "llm.structured", sideEffectClass: ToolSideEffectComputation, expectedSideEffect: ToolSideEffectComputation, requiresCompletion: false},
 		{toolName: "looks.like.write", expectedSideEffect: "", requiresCompletion: false},
 	}
@@ -168,10 +168,10 @@ func TestToolSetInvokeRejectsHiddenTool(t *testing.T) {
 }
 
 func TestToolSetValidatesDescriptorInputSchemaBeforeHandler(t *testing.T) {
-	toolSet := NewToolSet([]string{"site.serve"})
+	toolSet := NewToolSet([]string{"site_serve"})
 	handlerCallCount := 0
 	registerTestTool(toolSet, ToolDefinition{
-		Name: "site.serve",
+		Name: "site_serve",
 		InputSchema: json.RawMessage(`{
 			"type":"object",
 			"properties":{
@@ -195,7 +195,7 @@ func TestToolSetValidatesDescriptorInputSchemaBeforeHandler(t *testing.T) {
 		json.RawMessage(`{"siteID":"site-1","revision":1,"confirm":true}`),
 	}
 	for _, input := range invalidInputs {
-		result, errorValue := toolSet.Invoke(context.Background(), ToolInvocation{ToolName: "site.serve", Input: input})
+		result, errorValue := toolSet.Invoke(context.Background(), ToolInvocation{ToolName: "site_serve", Input: input})
 		if errorValue != nil {
 			t.Fatal(errorValue)
 		}
@@ -208,7 +208,7 @@ func TestToolSetValidatesDescriptorInputSchemaBeforeHandler(t *testing.T) {
 	}
 
 	result, errorValue := toolSet.Invoke(context.Background(), ToolInvocation{
-		ToolName: "site.serve",
+		ToolName: "site_serve",
 		Input:    json.RawMessage(`{"siteID":"site-1","revision":1}`),
 	})
 	if errorValue != nil || result.Failed() {
@@ -274,7 +274,7 @@ func TestToolFunctionValidatesInputAndMarshalsOutput(t *testing.T) {
 		t.Fatalf("expected malformed input error, got %+v", malformedResult)
 	}
 
-	unknownFieldResult, errorValue := toolSet.Invoke(context.Background(), ToolInvocation{ToolName: "echo.tool", Input: []byte(`{"message":"hello","operation":"task.add"}`)})
+	unknownFieldResult, errorValue := toolSet.Invoke(context.Background(), ToolInvocation{ToolName: "echo.tool", Input: []byte(`{"message":"hello","operation":"task_add"}`)})
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}

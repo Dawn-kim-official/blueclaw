@@ -211,7 +211,7 @@ func durableDeliveryObservations(events []taskstate.TaskEvent) []turnObservation
 
 // producedSourcePaths recovers the workspace paths the model was writing or
 // editing before the restart, taken from the small result of each successful
-// file.write/file.edit (path only, never the file body, so no stale content is
+// file_write/file_edit (path only, never the file body, so no stale content is
 // carried forward). Surfacing them structurally lets the restart continue the
 // exact same source in place instead of guessing what it was building.
 func producedSourcePaths(events []taskstate.TaskEvent) []string {
@@ -231,14 +231,14 @@ func producedSourcePaths(events []taskstate.TaskEvent) []string {
 			continue
 		}
 		switch strings.TrimSpace(observation.Tool) {
-		case "file.write":
+		case "file_write":
 			var result struct {
 				Path string `json:"path"`
 			}
 			if json.Unmarshal([]byte(observation.Output.Content), &result) == nil {
 				addPath(result.Path)
 			}
-		case "file.edit":
+		case "file_edit":
 			var result struct {
 				EditedFiles []string `json:"editedFiles"`
 			}
@@ -257,7 +257,7 @@ func isDurableDeliveryObservation(observation turnObservation) bool {
 		return true
 	}
 	switch strings.TrimSpace(observation.Tool) {
-	case "site.serve":
+	case "site_serve":
 		return true
 	default:
 		return false

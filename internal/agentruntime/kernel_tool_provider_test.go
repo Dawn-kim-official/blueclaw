@@ -113,7 +113,7 @@ func TestLocalKernelToolNamesExcludeCapabilityBackedImageReader(t *testing.T) {
 		toolcontract.ConversationHistoryToolName,
 	}
 	if len(toolcontract.KernelToolNames()) != len(expectedKernelToolNames)+1 {
-		t.Fatalf("expected the kernel names to exceed local names by image.read only, got %+v", toolcontract.KernelToolNames())
+		t.Fatalf("expected the kernel names to exceed local names by image_read only, got %+v", toolcontract.KernelToolNames())
 	}
 	if len(localKernelToolNames()) != len(expectedKernelToolNames) {
 		t.Fatalf("expected every locally bound kernel tool accounted for, got %+v", localKernelToolNames())
@@ -247,7 +247,7 @@ func TestFileDeliverDescriptorKeepsGeneratedArtifactOutsideOperationIntent(t *te
 		}
 		return
 	}
-	t.Fatal("file.deliver descriptor is missing")
+	t.Fatal("file_deliver descriptor is missing")
 }
 
 func TestKernelToolProviderProjectsEveryResultPathEffect(t *testing.T) {

@@ -28,13 +28,13 @@ func recoverableWorkflowNextTools(request AgentTurnRequest, observations []turnO
 	if !sitePublishIsRequired(request) {
 		return nil
 	}
-	sourceChangeIndex := latestSuccessfulToolIndex(observations, []string{"file.write", "file.edit"})
+	sourceChangeIndex := latestSuccessfulToolIndex(observations, []string{"file_write", "file_edit"})
 	if sourceChangeIndex < 0 {
 		return nil
 	}
-	publishIndex := latestSuccessfulToolIndexAfter(observations, []string{"site.serve"}, sourceChangeIndex)
-	if publishIndex < 0 && request.ToolSet != nil && request.ToolSet.IsRegistered("site.serve") {
-		return []string{"site.serve"}
+	publishIndex := latestSuccessfulToolIndexAfter(observations, []string{"site_serve"}, sourceChangeIndex)
+	if publishIndex < 0 && request.ToolSet != nil && request.ToolSet.IsRegistered("site_serve") {
+		return []string{"site_serve"}
 	}
 	return nil
 }
@@ -46,10 +46,10 @@ func recoverableFileDeliveryNextTools(request AgentTurnRequest, observations []t
 	if latestSuccessfulToolIndex(observations, []string{toolcontract.FileDeliverToolName}) >= 0 {
 		return nil
 	}
-	if latestSuccessfulToolIndex(observations, []string{"file.write", "file.edit", "terminal.run"}) < 0 {
+	if latestSuccessfulToolIndex(observations, []string{"file_write", "file_edit", "terminal_run"}) < 0 {
 		return nil
 	}
-	return availableWorkflowTools(request.ToolSet, []string{"terminal.run", toolcontract.FileDeliverToolName})
+	return availableWorkflowTools(request.ToolSet, []string{"terminal_run", toolcontract.FileDeliverToolName})
 }
 
 func turnRequestLooksLikeSitePrototypeWork(request AgentTurnRequest) bool {

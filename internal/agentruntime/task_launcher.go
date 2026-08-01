@@ -271,10 +271,10 @@ func (buildToolSetLaunchStep) Run(_ context.Context, execution *taskLaunchExecut
 
 func ambientCaptureAllowedToolNames() []string {
 	return []string{
-		"task.add", "task.list", "task.update",
-		"calendar.add", "calendar.update", "calendar.list",
-		"ask.input",
-		"conversation.history",
+		"task_add", "task_list", "task_update",
+		"calendar_add", "calendar_update", "calendar_list",
+		"ask_input",
+		"conversation_history",
 	}
 }
 

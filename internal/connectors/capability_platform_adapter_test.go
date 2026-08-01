@@ -59,7 +59,7 @@ func TestCapabilityPlatformAdapterParsesNormalizedAskAction(t *testing.T) {
 	request := httptest.NewRequest(
 		http.MethodPost,
 		"/connectors/mattermost/events",
-		bytes.NewReader([]byte(`{"event":{"conversationID":"channel-1","messageID":"ask:post-1:ask.choice:interaction-1:B","senderID":"user-1","replyTargetID":"reply-target-1","prompt":"selected B","responseLanguage":"ko","context":{"channelID":"channel-1","conversationType":"direct"},"legacyFields":{"askAction":"choice","interactionID":"interaction-1","taskRunID":"task-1","choiceKey":"B","postID":"post-1"}}}`)),
+		bytes.NewReader([]byte(`{"event":{"conversationID":"channel-1","messageID":"ask:post-1:ask_choice:interaction-1:B","senderID":"user-1","replyTargetID":"reply-target-1","prompt":"selected B","responseLanguage":"ko","context":{"channelID":"channel-1","conversationType":"direct"},"legacyFields":{"askAction":"choice","interactionID":"interaction-1","taskRunID":"task-1","choiceKey":"B","postID":"post-1"}}}`)),
 	)
 
 	parseResult, errorValue := adapter.ParseHTTPEvent(context.Background(), request)
@@ -83,7 +83,7 @@ func TestCapabilityPlatformAdapterDoesNotParseMattermostRawAskAction(t *testing.
 	request := httptest.NewRequest(
 		http.MethodPost,
 		"/connectors/mattermost/events",
-		bytes.NewReader([]byte(`{"user_id":"user-1","post_id":"post-1","channel_id":"channel-1","context":{"action":"ask.choice","interactionID":"interaction-1","taskRunID":"task-1","conversationID":"channel-1","replyTargetID":"reply-target-1","choiceKey":"B","responseLanguage":"ko"}}`)),
+		bytes.NewReader([]byte(`{"user_id":"user-1","post_id":"post-1","channel_id":"channel-1","context":{"action":"ask_choice","interactionID":"interaction-1","taskRunID":"task-1","conversationID":"channel-1","replyTargetID":"reply-target-1","choiceKey":"B","responseLanguage":"ko"}}`)),
 	)
 
 	parseResult, errorValue := adapter.ParseHTTPEvent(context.Background(), request)

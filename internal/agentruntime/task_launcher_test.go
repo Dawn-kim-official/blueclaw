@@ -35,7 +35,7 @@ func TestTaskLauncherCreatesAuditedAgentRun(t *testing.T) {
 	toolCatalogBuilder := NewToolCatalogBuilder()
 	toolCatalogBuilder.UsePinnedMemoryStore(pinnedMemoryStore)
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(map[string][]string{
-		"default": {"conversation.history", "memory.search"},
+		"default": {"conversation_history", "memory_search"},
 	}, nil)
 
 	launchResult, errorValue := NewTaskLauncher(agentKernel, toolCatalogBuilder).Launch(context.Background(), TaskLaunchRequest{
@@ -59,7 +59,7 @@ func TestTaskLauncherCreatesAuditedAgentRun(t *testing.T) {
 	if len(launchResult.MemoryFacts) != 1 {
 		t.Fatalf("expected pinned memory result, got %+v", launchResult.MemoryFacts)
 	}
-	if !containsString(launchResult.ToolNames, "conversation.history") || !containsString(launchResult.ToolNames, "memory.search") {
+	if !containsString(launchResult.ToolNames, "conversation_history") || !containsString(launchResult.ToolNames, "memory_search") {
 		t.Fatalf("expected launch tool catalog, got %+v", launchResult.ToolNames)
 	}
 
@@ -115,7 +115,7 @@ func TestTaskLauncherAuditsPlatformMessageRegistryFingerprint(t *testing.T) {
 		HTTPClient: &recordingHTTPClient{responseBody: platformMessageLiveRegistryResponse(platformMessageDeleteCriteriaSchema())},
 	}, testPlatformMessageCapabilityDescriptors())
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(map[string][]string{
-		"default": {"message.context", "message.search", "message.delete"},
+		"default": {"message_context", "message_search", "message_delete"},
 	}, nil)
 
 	launchResult, errorValue := NewTaskLauncher(agentKernel, toolCatalogBuilder).Launch(context.Background(), TaskLaunchRequest{
@@ -164,7 +164,7 @@ func TestTaskLauncherAuditsPlatformMessageSchemaSkewWithoutBlocking(t *testing.T
 		HTTPClient: &recordingHTTPClient{responseBody: platformMessageLiveRegistryResponse(platformMessageDeleteIDsOnlySchema())},
 	}, testPlatformMessageCapabilityDescriptors())
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(map[string][]string{
-		"default": {"message.context", "message.search", "message.delete"},
+		"default": {"message_context", "message_search", "message_delete"},
 	}, nil)
 
 	launchResult, errorValue := NewTaskLauncher(agentKernel, toolCatalogBuilder).Launch(context.Background(), TaskLaunchRequest{
@@ -192,7 +192,7 @@ func TestTaskLauncherAuditsPlatformMessageSchemaSkewWithoutBlocking(t *testing.T
 
 func TestPlatformMessageDescriptorHashIncludesInputIntentSchema(t *testing.T) {
 	baseDescriptor := CapabilityToolDescriptor{
-		Name:              "message.delete",
+		Name:              "message_delete",
 		InputSchema:       platformMessageDeleteCriteriaSchema(),
 		InputIntentSchema: platformMessageDeleteIDsOnlySchema(),
 	}
@@ -213,15 +213,15 @@ func TestTaskLauncherRejectsStaleMessageToolRegistryBeforeModelCall(t *testing.T
 	toolCatalogBuilder.UseTestCapabilityToolDescriptors(capability.Client{
 		Endpoint: "http://capability.local",
 		HTTPClient: &recordingHTTPClient{responseBody: `{"deviceCapabilities":[
-			{"name":"message.context"},
-			{"name":"message.search"},
-			{"name":"message.send"},
-			{"name":"message.update"},
-			{"name":"message.delete"}
+			{"name":"message_context"},
+			{"name":"message_search"},
+			{"name":"message_send"},
+			{"name":"message_update"},
+			{"name":"message_delete"}
 		]}`},
-	}, []CapabilityToolDescriptor{{Name: "mattermost.post.delete", PolicyResource: "tool:mattermost.post.delete"}})
+	}, []CapabilityToolDescriptor{{Name: "mattermost_post_delete", PolicyResource: "tool:mattermost_post_delete"}})
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(map[string][]string{
-		"default": {"mattermost.post.delete"},
+		"default": {"mattermost_post_delete"},
 	}, nil)
 
 	launchResult, errorValue := NewTaskLauncher(agentKernel, toolCatalogBuilder).Launch(context.Background(), TaskLaunchRequest{
@@ -287,7 +287,7 @@ func TestTaskLauncherProvisionsRequesterWorkspaceBeforeToolSet(t *testing.T) {
 	toolCatalogBuilder := NewToolCatalogBuilder()
 	toolCatalogBuilder.UseWorkspaceRootPath(workspacePath)
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(map[string][]string{
-		"default": {"memory.search"},
+		"default": {"memory_search"},
 	}, nil)
 	taskLauncher := NewTaskLauncher(agentKernel, toolCatalogBuilder)
 	taskLauncher.UseRequesterWorkspaceProvisioner(provisioner)
@@ -342,7 +342,7 @@ func TestTaskLauncherAuditsPinnedMemoryFailureAndRunsWithoutMemory(t *testing.T)
 	toolCatalogBuilder := NewToolCatalogBuilder()
 	toolCatalogBuilder.UsePinnedMemoryStore(memory.NewMarkdownStore(rootPath, 1200))
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(map[string][]string{
-		"default": {"memory.search"},
+		"default": {"memory_search"},
 	}, nil)
 
 	launchResult, errorValue := NewTaskLauncher(agentKernel, toolCatalogBuilder).Launch(context.Background(), TaskLaunchRequest{
@@ -384,12 +384,12 @@ func TestToolCatalogHidesHistoryAndQuarantinedMCPTools(t *testing.T) {
 	toolCatalogBuilder := NewToolCatalogBuilder()
 	toolCatalogBuilder.UseMCPRegistry(mcpRegistry)
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(map[string][]string{
-		"default": {"allowed.tool", "memory.search"},
+		"default": {"allowed.tool", "memory_search"},
 	}, nil)
 
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
 	toolNames := toolRegistry.ListToolNames()
-	if containsString(toolNames, "conversation.history") {
+	if containsString(toolNames, "conversation_history") {
 		t.Fatalf("expected history tool to be hidden without provider, got %+v", toolNames)
 	}
 	if containsString(toolNames, "allowed.tool") {
@@ -411,27 +411,27 @@ func TestToolCatalogHidesHistoryAndQuarantinedMCPTools(t *testing.T) {
 func TestToolCatalogProfileFiltersBuiltInTerminalTools(t *testing.T) {
 	toolCatalogBuilder := NewToolCatalogBuilder()
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(map[string][]string{
-		"planner":   {"memory.search"},
-		"developer": {"memory.search", "terminal.run"},
+		"planner":   {"memory_search"},
+		"developer": {"memory_search", "terminal_run"},
 	}, nil)
 
 	plannerToolSet := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "planner"})
 	developerToolSet := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "developer"})
 
-	if containsString(plannerToolSet.ListToolNames(), "terminal.run") {
+	if containsString(plannerToolSet.ListToolNames(), "terminal_run") {
 		t.Fatalf("expected planner terminal tools to be hidden, got %+v", plannerToolSet.ListToolNames())
 	}
-	if !containsString(developerToolSet.ListToolNames(), "terminal.run") || containsString(developerToolSet.ListToolNames(), "terminal.session") {
-		t.Fatalf("expected developer terminal.run only, got %+v", developerToolSet.ListToolNames())
+	if !containsString(developerToolSet.ListToolNames(), "terminal_run") || containsString(developerToolSet.ListToolNames(), "terminal.session") {
+		t.Fatalf("expected developer terminal_run only, got %+v", developerToolSet.ListToolNames())
 	}
 }
 
 func TestInteractiveBrowserCapabilityUsesCompanion(t *testing.T) {
 	httpClient := &recordingHTTPClient{}
 	toolCatalogBuilder := NewToolCatalogBuilder()
-	toolCatalogBuilder.UseTestCapabilityTools(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, []string{"browser.open"})
+	toolCatalogBuilder.UseTestCapabilityTools(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, []string{"browser_open"})
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(map[string][]string{
-		"default": {"browser.open"},
+		"default": {"browser_open"},
 	}, nil)
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
 		ProfileName:             "default",
@@ -443,7 +443,7 @@ func TestInteractiveBrowserCapabilityUsesCompanion(t *testing.T) {
 	})
 
 	toolResult, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
-		ToolName: "browser.open",
+		ToolName: "browser_open",
 		Input:    json.RawMessage(`{"url":"https://example.com"}`),
 	})
 
@@ -469,9 +469,9 @@ func TestInteractiveBrowserCapabilityUsesCompanion(t *testing.T) {
 func TestPublicBrowserCapabilityWithRequesterUsesCompanion(t *testing.T) {
 	httpClient := &recordingHTTPClient{}
 	toolCatalogBuilder := NewToolCatalogBuilder()
-	toolCatalogBuilder.UseTestCapabilityTools(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, []string{"browser.open"})
+	toolCatalogBuilder.UseTestCapabilityTools(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, []string{"browser_open"})
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(map[string][]string{
-		"default": {"browser.open"},
+		"default": {"browser_open"},
 	}, nil)
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
 		ProfileName:             "default",
@@ -483,7 +483,7 @@ func TestPublicBrowserCapabilityWithRequesterUsesCompanion(t *testing.T) {
 	})
 
 	toolResult, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
-		ToolName: "browser.open",
+		ToolName: "browser_open",
 		Input:    json.RawMessage(`{"url":"https://example.com"}`),
 	})
 
@@ -509,14 +509,14 @@ func TestPublicBrowserCapabilityWithRequesterUsesCompanion(t *testing.T) {
 func TestPrivateBrowserCapabilityUsesCompanion(t *testing.T) {
 	httpClient := &recordingHTTPClient{}
 	toolCatalogBuilder := NewToolCatalogBuilder()
-	toolCatalogBuilder.UseTestCapabilityTools(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, []string{"browser.open"})
+	toolCatalogBuilder.UseTestCapabilityTools(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, []string{"browser_open"})
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(map[string][]string{
-		"default": {"browser.open"},
+		"default": {"browser_open"},
 	}, nil)
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
 
 	toolResult, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
-		ToolName: "browser.open",
+		ToolName: "browser_open",
 		Input:    json.RawMessage(`{"url":"http://127.0.0.1:3000"}`),
 	})
 
@@ -542,9 +542,9 @@ func TestPrivateBrowserCapabilityUsesCompanion(t *testing.T) {
 func TestBrowserFollowUpWithSensitiveVisibleContextUsesCompanion(t *testing.T) {
 	httpClient := &recordingHTTPClient{}
 	toolCatalogBuilder := NewToolCatalogBuilder()
-	toolCatalogBuilder.UseTestCapabilityTools(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, []string{"browser.open"})
+	toolCatalogBuilder.UseTestCapabilityTools(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, []string{"browser_open"})
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(map[string][]string{
-		"default": {"browser.open"},
+		"default": {"browser_open"},
 	}, nil)
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
 		ProfileName: "default",
@@ -556,7 +556,7 @@ func TestBrowserFollowUpWithSensitiveVisibleContextUsesCompanion(t *testing.T) {
 	})
 
 	toolResult, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
-		ToolName: "browser.open",
+		ToolName: "browser_open",
 		Input:    json.RawMessage(`{"url":"https://console.cloud.google.com/"}`),
 	})
 
@@ -580,11 +580,11 @@ func TestBrowserFollowUpWithSensitiveVisibleContextUsesCompanion(t *testing.T) {
 }
 
 func TestCapabilityDenialPreservesRecoveryAction(t *testing.T) {
-	httpClient := &recordingHTTPClient{responseBody: `{"provider":"companion","selectedBackend":"companion","toolName":"browser.open","outcome":"denied","status":"denied","content":"Companion이 연결되어 있지 않아 브라우저를 열 수 없습니다.","isError":true,"result":{"status":"denied","code":"not_connected","toolName":"browser.open","userReason":"Companion이 연결되어 있지 않아 브라우저를 열 수 없습니다.","recovery":{"kind":"companion_connect","delivery":"dm_preferred","downloadURL":"https://example.com/companion.dmg","connectCommand":"/connect"}}}`}
+	httpClient := &recordingHTTPClient{responseBody: `{"provider":"companion","selectedBackend":"companion","toolName":"browser_open","outcome":"denied","status":"denied","content":"Companion이 연결되어 있지 않아 브라우저를 열 수 없습니다.","isError":true,"result":{"status":"denied","code":"not_connected","toolName":"browser_open","userReason":"Companion이 연결되어 있지 않아 브라우저를 열 수 없습니다.","recovery":{"kind":"companion_connect","delivery":"dm_preferred","downloadURL":"https://example.com/companion.dmg","connectCommand":"/connect"}}}`}
 	toolCatalogBuilder := NewToolCatalogBuilder()
-	toolCatalogBuilder.UseTestCapabilityTools(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, []string{"browser.open"})
+	toolCatalogBuilder.UseTestCapabilityTools(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, []string{"browser_open"})
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(map[string][]string{
-		"default": {"browser.open"},
+		"default": {"browser_open"},
 	}, nil)
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
 		ProfileName: "default",
@@ -592,7 +592,7 @@ func TestCapabilityDenialPreservesRecoveryAction(t *testing.T) {
 	})
 
 	toolResult, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
-		ToolName: "browser.open",
+		ToolName: "browser_open",
 		Input:    json.RawMessage(`{"url":"https://example.com"}`),
 	})
 
@@ -614,14 +614,14 @@ func TestCapabilityDenialPreservesRecoveryAction(t *testing.T) {
 func TestPublicBrowserCapabilityUsesCompanion(t *testing.T) {
 	httpClient := &recordingHTTPClient{}
 	toolCatalogBuilder := NewToolCatalogBuilder()
-	toolCatalogBuilder.UseTestCapabilityTools(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, []string{"browser.open"})
+	toolCatalogBuilder.UseTestCapabilityTools(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, []string{"browser_open"})
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(map[string][]string{
-		"default": {"browser.open"},
+		"default": {"browser_open"},
 	}, nil)
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
 
 	toolResult, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
-		ToolName: "browser.open",
+		ToolName: "browser_open",
 		Input:    json.RawMessage(`{"url":"https://example.com"}`),
 	})
 
@@ -648,35 +648,35 @@ func TestCapabilityDescriptorAppearsInToolSetAndInvokesBridge(t *testing.T) {
 	httpClient := &recordingHTTPClient{}
 	toolCatalogBuilder := NewToolCatalogBuilder()
 	toolCatalogBuilder.UseTestCapabilityToolDescriptors(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, []CapabilityToolDescriptor{{
-		Name:             "browser.open",
+		Name:             "browser_open",
 		InputSchema:      json.RawMessage(`{"type":"object","properties":{"url":{"type":"string"}},"required":["url"],"additionalProperties":false}`),
 		OutputSchema:     json.RawMessage(`{"type":"object","properties":{"status":{"type":"string"}},"additionalProperties":false}`),
-		PolicyResource:   "tool:browser.open",
+		PolicyResource:   "tool:browser_open",
 		SideEffectClass:  toolcontract.ToolSideEffectConnect,
 		RequiresApproval: true,
 	}})
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(map[string][]string{
-		"default": {"browser.open"},
+		"default": {"browser_open"},
 	}, nil)
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
 
 	descriptions := toolRegistry.Descriptions()
 	actionSchema := bluecollar.ActionSchemaForToolSet(toolRegistry, false, nil, false)
-	if !strings.Contains(descriptions, "Test capability browser.open") || strings.Contains(descriptions, `"url"`) {
+	if !strings.Contains(descriptions, "Test capability browser_open") || strings.Contains(descriptions, `"url"`) {
 		t.Fatalf("expected concise descriptor description without duplicated schema, got %s", descriptions)
 	}
-	if !strings.Contains(actionSchema, `"browser.open"`) || !strings.Contains(actionSchema, `"url"`) {
+	if !strings.Contains(actionSchema, `"browser_open"`) || !strings.Contains(actionSchema, `"url"`) {
 		t.Fatalf("expected descriptor schema in the action schema, got %s", actionSchema)
 	}
 
 	toolResult, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
-		ToolName: "browser.open",
+		ToolName: "browser_open",
 		Input:    json.RawMessage(`{"url":"https://example.com"}`),
 	})
 	if errorValue != nil {
 		t.Fatalf("expected capability descriptor invocation: %v", errorValue)
 	}
-	if toolResult.Failed() || httpClient.requestPath != "/v1/tools/browser.open/invoke" {
+	if toolResult.Failed() || httpClient.requestPath != "/v1/tools/browser_open/invoke" {
 		t.Fatalf("expected capability bridge invocation, got result=%+v path=%s", toolResult, httpClient.requestPath)
 	}
 }
@@ -744,15 +744,15 @@ func TestCapabilityToolExecutionUsesResourceAccess(t *testing.T) {
 
 func TestFlowTaskAddToolRequiresStaffCircle(t *testing.T) {
 	resourceAccessRules := []policy.ResourceAccessPolicy{{
-		Resource: "tool:task.add",
+		Resource: "tool:task_add",
 		Actions:  []string{"execute"},
 		Circles:  []string{"staff"},
 	}}
 	httpClient := &recordingHTTPClient{}
 	toolCatalogBuilder := NewToolCatalogBuilder()
-	toolCatalogBuilder.UseTestCapabilityTools(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, []string{"task.add"})
+	toolCatalogBuilder.UseTestCapabilityTools(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, []string{"task_add"})
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(map[string][]string{
-		"default": {"task.add"},
+		"default": {"task_add"},
 	}, nil)
 
 	guestToolSet := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
@@ -763,7 +763,7 @@ func TestFlowTaskAddToolRequiresStaffCircle(t *testing.T) {
 		},
 	})
 	guestResult, errorValue := guestToolSet.Invoke(context.Background(), toolcontract.ToolInvocation{
-		ToolName: "task.add",
+		ToolName: "task_add",
 		Input:    json.RawMessage(`{"title":"10분 회의"}`),
 	})
 	if errorValue != nil {
@@ -785,7 +785,7 @@ func TestFlowTaskAddToolRequiresStaffCircle(t *testing.T) {
 		},
 	})
 	staffResult, errorValue := staffToolSet.Invoke(context.Background(), toolcontract.ToolInvocation{
-		ToolName: "task.add",
+		ToolName: "task_add",
 		Input:    json.RawMessage(`{"title":"10분 회의"}`),
 	})
 	if errorValue != nil {
@@ -794,7 +794,7 @@ func TestFlowTaskAddToolRequiresStaffCircle(t *testing.T) {
 	if staffResult.Failed() {
 		t.Fatalf("expected staff execution success, got %+v", staffResult)
 	}
-	if httpClient.requestPath != "/v1/tools/task.add/invoke" {
+	if httpClient.requestPath != "/v1/tools/task_add/invoke" {
 		t.Fatalf("expected Flow capability bridge call, got path=%s body=%s", httpClient.requestPath, httpClient.requestBody)
 	}
 }
@@ -862,22 +862,22 @@ func (languageModel failingRuntimeRouterLanguageModel) GenerateStructuredRespons
 
 func testPlatformMessageCapabilityDescriptors() []CapabilityToolDescriptor {
 	return []CapabilityToolDescriptor{
-		{Name: "message.context", PolicyResource: "tool:message.context", InputSchema: platformMessageEmptySchema()},
-		{Name: "message.search", PolicyResource: "tool:message.search", InputSchema: platformMessageEmptySchema()},
-		{Name: "message.send", PolicyResource: "tool:message.send", InputSchema: platformMessageEmptySchema()},
-		{Name: "message.update", PolicyResource: "tool:message.update", InputSchema: platformMessageEmptySchema()},
-		{Name: "message.delete", PolicyResource: "tool:message.delete", InputSchema: platformMessageDeleteCriteriaSchema()},
+		{Name: "message_context", PolicyResource: "tool:message_context", InputSchema: platformMessageEmptySchema()},
+		{Name: "message_search", PolicyResource: "tool:message_search", InputSchema: platformMessageEmptySchema()},
+		{Name: "message_send", PolicyResource: "tool:message_send", InputSchema: platformMessageEmptySchema()},
+		{Name: "message_update", PolicyResource: "tool:message_update", InputSchema: platformMessageEmptySchema()},
+		{Name: "message_delete", PolicyResource: "tool:message_delete", InputSchema: platformMessageDeleteCriteriaSchema()},
 	}
 }
 
 func platformMessageLiveRegistryResponse(deleteSchema json.RawMessage) string {
 	response := map[string]any{
 		"deviceCapabilities": []map[string]any{
-			{"name": "message.context", "inputSchema": platformMessageEmptySchema()},
-			{"name": "message.search", "inputSchema": platformMessageEmptySchema()},
-			{"name": "message.send", "inputSchema": platformMessageEmptySchema()},
-			{"name": "message.update", "inputSchema": platformMessageEmptySchema()},
-			{"name": "message.delete", "inputSchema": deleteSchema},
+			{"name": "message_context", "inputSchema": platformMessageEmptySchema()},
+			{"name": "message_search", "inputSchema": platformMessageEmptySchema()},
+			{"name": "message_send", "inputSchema": platformMessageEmptySchema()},
+			{"name": "message_update", "inputSchema": platformMessageEmptySchema()},
+			{"name": "message_delete", "inputSchema": deleteSchema},
 		},
 	}
 	document, errorValue := json.Marshal(response)

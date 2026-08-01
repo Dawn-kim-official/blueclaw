@@ -94,8 +94,8 @@ func TestAgentTurnRunnerStoresLargeToolResultAsArtifact(t *testing.T) {
 
 func TestModelVisibleToolResultSummaryKeepsPublishedSiteURL(t *testing.T) {
 	content := `{"siteID":"site-1","slug":"tangerine-hub","mode":"publish","publishedURL":"https://tangerine-hub.example-device.example.test","sourceSHA256":"` + strings.Repeat("a", 64) + `","description":"` + strings.Repeat("x", 4096) + `"}`
-	summary := modelVisibleToolResultSummary(context.Background(), nil, "site.serve", turnObservation{
-		Tool: "site.serve",
+	summary := modelVisibleToolResultSummary(context.Background(), nil, "site_serve", turnObservation{
+		Tool: "site_serve",
 		Output: toolcontract.ToolOutput{
 			Content: content,
 		},
@@ -111,8 +111,8 @@ func TestModelVisibleToolResultSummaryKeepsPublishedSiteURL(t *testing.T) {
 
 func TestModelVisibleToolResultSummaryKeepsPreviewURLForPreviewServe(t *testing.T) {
 	content := `{"siteID":"site-1","slug":"draft-site","mode":"preview","previewURL":"https://draft-site.example-device.example.test/__preview/preview-1","sourceSHA256":"` + strings.Repeat("a", 64) + `"}`
-	summary := modelVisibleToolResultSummary(context.Background(), nil, "site.serve", turnObservation{
-		Tool: "site.serve",
+	summary := modelVisibleToolResultSummary(context.Background(), nil, "site_serve", turnObservation{
+		Tool: "site_serve",
 		Output: toolcontract.ToolOutput{
 			Content: content,
 		},

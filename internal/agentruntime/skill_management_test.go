@@ -18,13 +18,13 @@ func TestSkillSearchToolUsesSharedRetriever(t *testing.T) {
 		return bluecollar.InstructionBundle{Skills: []bluecollar.SkillInstruction{{
 			Name:           "mail",
 			Description:    "Read, search, summarize, reply to, and send email messages.",
-			ToolReferences: []string{"file.read"},
+			ToolReferences: []string{"file_read"},
 		}}}
 	})
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
 
 	result, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
-		ToolName: "skill.search",
+		ToolName: "skill_search",
 		Input: toolcontract.MarshalToolInput(map[string]any{
 			"queries": []map[string]string{{"description": "Search and read recent email messages."}},
 			"limit":   5,
@@ -34,7 +34,7 @@ func TestSkillSearchToolUsesSharedRetriever(t *testing.T) {
 		t.Fatal(errorValue)
 	}
 	if result.Failed() {
-		t.Fatalf("expected skill.search success, got %s", result.ContentText())
+		t.Fatalf("expected skill_search success, got %s", result.ContentText())
 	}
 	var resultDocument skillSearchToolOutput
 	if errorValue := json.Unmarshal([]byte(result.ContentText()), &resultDocument); errorValue != nil {
@@ -43,7 +43,7 @@ func TestSkillSearchToolUsesSharedRetriever(t *testing.T) {
 	if resultDocument.Mode != skillSearchModeSearch || len(resultDocument.Skills) != 1 || resultDocument.Skills[0].Name != "mail" {
 		t.Fatalf("expected mail skill result, got %+v", resultDocument)
 	}
-	if !containsTestString(resultDocument.Skills[0].ToolReferences, "file.read") {
+	if !containsTestString(resultDocument.Skills[0].ToolReferences, "file_read") {
 		t.Fatalf("expected referenced operations in result, got %+v", resultDocument.Skills[0].ToolReferences)
 	}
 }
@@ -54,14 +54,14 @@ func TestSkillSearchToolExactNameIncludesToolReferences(t *testing.T) {
 		return bluecollar.InstructionBundle{Skills: []bluecollar.SkillInstruction{{
 			Name:           "site-prototype",
 			Description:    "Create sites.",
-			ToolReferences: []string{"file.read"},
+			ToolReferences: []string{"file_read"},
 			Source:         bluecollar.InstructionSource{Path: "skills/site-prototype/SKILL.md"},
 		}}}
 	})
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
 
 	result, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
-		ToolName: "skill.search",
+		ToolName: "skill_search",
 		Input: toolcontract.MarshalToolInput(map[string]any{
 			"queries": []map[string]string{{"description": "site-prototype"}},
 			"limit":   5,
@@ -70,7 +70,7 @@ func TestSkillSearchToolExactNameIncludesToolReferences(t *testing.T) {
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
-	if strings.Contains(result.ContentText(), `"sourcePath"`) || strings.Contains(result.ContentText(), `"score"`) || !strings.Contains(result.ContentText(), "file.read") {
+	if strings.Contains(result.ContentText(), `"sourcePath"`) || strings.Contains(result.ContentText(), `"score"`) || !strings.Contains(result.ContentText(), "file_read") {
 		t.Fatalf("expected exact skill metadata, got %s", result.ContentText())
 	}
 }
@@ -85,7 +85,7 @@ func TestSkillAddCreatesUserManagedSkillAndRefreshes(t *testing.T) {
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
 
 	result, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
-		ToolName: "skill.add",
+		ToolName: "skill_add",
 		Input: toolcontract.MarshalToolInput(map[string]string{
 			"name":    "research-helper",
 			"content": userSkillDocument("research-helper"),
@@ -95,10 +95,10 @@ func TestSkillAddCreatesUserManagedSkillAndRefreshes(t *testing.T) {
 		t.Fatal(errorValue)
 	}
 	if result.Failed() {
-		t.Fatalf("expected skill.add success, got %s", result.ContentText())
+		t.Fatalf("expected skill_add success, got %s", result.ContentText())
 	}
 	if len(result.Output.Data) == 0 {
-		t.Fatal("expected structured skill.add result data")
+		t.Fatal("expected structured skill_add result data")
 	}
 	if refreshCount != 1 {
 		t.Fatalf("expected skill index refresh, got %d", refreshCount)
@@ -116,7 +116,7 @@ func TestSkillAddCreatesUserManagedSkillAndRefreshes(t *testing.T) {
 	}
 	resultDocument := decodeSkillAddResult(t, result.ContentText())
 	if resultDocument.Name != "research-helper" || resultDocument.Status != "created" {
-		t.Fatalf("expected structured skill.add result, got %+v", resultDocument)
+		t.Fatalf("expected structured skill_add result, got %+v", resultDocument)
 	}
 }
 
@@ -132,7 +132,7 @@ Use references/reporting.md and scripts/build_report.sh when needed.
 `
 
 	result, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
-		ToolName: "skill.add",
+		ToolName: "skill_add",
 		Input: toolcontract.MarshalToolInput(map[string]any{
 			"name":    "report-helper",
 			"content": content,
@@ -147,7 +147,7 @@ Use references/reporting.md and scripts/build_report.sh when needed.
 		t.Fatal(errorValue)
 	}
 	if result.Failed() {
-		t.Fatalf("expected skill.add success, got %s", result.ContentText())
+		t.Fatalf("expected skill_add success, got %s", result.ContentText())
 	}
 	for _, path := range []string{"references/reporting.md", "scripts/build_report.sh", "assets/template.txt"} {
 		if _, errorValue := os.Stat(filepath.Join(workspacePath, ".agents", "skills", "report-helper", path)); errorValue != nil {
@@ -171,7 +171,7 @@ func TestSkillRemoveDeletesOnlyUserManagedSkill(t *testing.T) {
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
 
 	result, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
-		ToolName: "skill.remove",
+		ToolName: "skill_remove",
 		Input: toolcontract.MarshalToolInput(map[string]string{
 			"name": "research-helper",
 		}),
@@ -180,10 +180,10 @@ func TestSkillRemoveDeletesOnlyUserManagedSkill(t *testing.T) {
 		t.Fatal(errorValue)
 	}
 	if result.Failed() {
-		t.Fatalf("expected skill.remove success, got %s", result.ContentText())
+		t.Fatalf("expected skill_remove success, got %s", result.ContentText())
 	}
 	if len(result.Output.Data) == 0 {
-		t.Fatal("expected structured skill.remove result data")
+		t.Fatal("expected structured skill_remove result data")
 	}
 	if _, errorValue := os.Stat(skillDirectoryPath); !os.IsNotExist(errorValue) {
 		t.Fatalf("expected user-managed skill directory removed, got %v", errorValue)
@@ -196,7 +196,7 @@ func TestSkillRemoveMissingSkillFails(t *testing.T) {
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
 
 	result, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
-		ToolName: "skill.remove",
+		ToolName: "skill_remove",
 		Input: toolcontract.MarshalToolInput(map[string]string{
 			"name": "missing-skill",
 		}),
@@ -218,19 +218,19 @@ func TestSkillManagementRejectsInvalidAndBuiltInNames(t *testing.T) {
 		{"name": "presentation", "content": userSkillDocument("presentation")},
 	} {
 		result, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
-			ToolName: "skill.add",
+			ToolName: "skill_add",
 			Input:    toolcontract.MarshalToolInput(input),
 		})
 		if errorValue != nil {
 			t.Fatal(errorValue)
 		}
 		if !result.Failed() {
-			t.Fatalf("expected skill.add to reject %+v", input)
+			t.Fatalf("expected skill_add to reject %+v", input)
 		}
 	}
 
 	result, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
-		ToolName: "skill.remove",
+		ToolName: "skill_remove",
 		Input: toolcontract.MarshalToolInput(map[string]string{
 			"name": "agent-browser",
 		}),
@@ -239,7 +239,7 @@ func TestSkillManagementRejectsInvalidAndBuiltInNames(t *testing.T) {
 		t.Fatal(errorValue)
 	}
 	if !result.Failed() {
-		t.Fatalf("expected skill.remove to reject built-in skill, got %+v", result)
+		t.Fatalf("expected skill_remove to reject built-in skill, got %+v", result)
 	}
 }
 
@@ -252,7 +252,7 @@ func TestSkillAddRejectsMalformedOrCustomFrontmatter(t *testing.T) {
 		"---\nname: custom\nsummary: no\n---\nBody.",
 		"---\nname: custom\ntags: [one]\n---\nBody.",
 		"---\nname: custom\ntriggerHints: [one]\n---\nBody.",
-		"---\nname: custom\ncustomToolDependency: [terminal.run]\n---\nBody.",
+		"---\nname: custom\ncustomToolDependency: [terminal_run]\n---\nBody.",
 		"---\nname: custom\nallowedProfiles: [default]\n---\nBody.",
 		"---\nname: custom\nwhen_to_use: Use for custom work.\n---\nBody.",
 		"---\nname: custom\nactivation: {}\n---\nBody.",
@@ -261,7 +261,7 @@ func TestSkillAddRejectsMalformedOrCustomFrontmatter(t *testing.T) {
 		"---\nname: custom\nartifacts: {}\n---\nBody.",
 	} {
 		result, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
-			ToolName: "skill.add",
+			ToolName: "skill_add",
 			Input: toolcontract.MarshalToolInput(map[string]string{
 				"name":    "broken",
 				"content": content,
@@ -287,13 +287,13 @@ license: MIT
 metadata:
   category: productivity
   locale: ko-KR
-tool-references: file.read
+tool-references: file_read
 ---
 Use this skill when standard skill metadata should be preserved.
 `
 
 	result, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
-		ToolName: "skill.add",
+		ToolName: "skill_add",
 		Input: toolcontract.MarshalToolInput(map[string]string{
 			"name":    "metadata-helper",
 			"content": content,
@@ -319,7 +319,7 @@ func TestSkillAddRejectsInvalidResourcePaths(t *testing.T) {
 		"notes/file.md",
 	} {
 		result, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
-			ToolName: "skill.add",
+			ToolName: "skill_add",
 			Input: toolcontract.MarshalToolInput(map[string]any{
 				"name":    "resource-helper",
 				"content": userSkillDocument("resource-helper"),
@@ -350,7 +350,7 @@ Use references/missing.md.
 `
 
 	result, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
-		ToolName: "skill.add",
+		ToolName: "skill_add",
 		Input: toolcontract.MarshalToolInput(map[string]any{
 			"name":    "tiny-helper",
 			"content": content,
@@ -364,7 +364,7 @@ Use references/missing.md.
 		t.Fatal(errorValue)
 	}
 	if result.Failed() {
-		t.Fatalf("expected warning-only skill.add success, got %s", result.ContentText())
+		t.Fatalf("expected warning-only skill_add success, got %s", result.ContentText())
 	}
 	resultDocument := decodeSkillAddResult(t, result.ContentText())
 	for _, expectedWarning := range []string{
@@ -390,7 +390,7 @@ Use scripts/missing.sh when needed.
 ` + strings.Repeat("step\n", longSkillBodyLineCount+1)
 
 	result, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
-		ToolName: "skill.add",
+		ToolName: "skill_add",
 		Input: toolcontract.MarshalToolInput(map[string]string{
 			"name":    "long-helper",
 			"content": content,
@@ -400,7 +400,7 @@ Use scripts/missing.sh when needed.
 		t.Fatal(errorValue)
 	}
 	if result.Failed() {
-		t.Fatalf("expected warning-only skill.add success, got %s", result.ContentText())
+		t.Fatalf("expected warning-only skill_add success, got %s", result.ContentText())
 	}
 	resultDocument := decodeSkillAddResult(t, result.ContentText())
 	for _, expectedWarning := range []string{
@@ -416,11 +416,11 @@ Use scripts/missing.sh when needed.
 func TestSkillManagementRejectsProductionServiceOwnedWorkspace(t *testing.T) {
 	toolCatalogBuilder := NewToolCatalogBuilder()
 	toolCatalogBuilder.UseWorkspaceRootPath("/workspace")
-	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"skill.add"})
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"skill_add"})
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
 
 	result, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
-		ToolName: "skill.add",
+		ToolName: "skill_add",
 		Input: toolcontract.MarshalToolInput(map[string]string{
 			"name":    "demo-skill",
 			"content": "---\nname: demo-skill\ndescription: Demo skill for rejection testing.\n---\n# Demo\n",
@@ -430,7 +430,7 @@ func TestSkillManagementRejectsProductionServiceOwnedWorkspace(t *testing.T) {
 		t.Fatal(errorValue)
 	}
 	if !result.Failed() || result.Failure.Stage != "actor_permission_denied" {
-		t.Fatalf("expected actor_permission_denied for production skill.add, got %+v", result)
+		t.Fatalf("expected actor_permission_denied for production skill_add, got %+v", result)
 	}
 }
 
@@ -438,21 +438,21 @@ func TestSkillSearchToolListsAllSkillsWithoutQueries(t *testing.T) {
 	toolCatalogBuilder := NewToolCatalogBuilder()
 	toolCatalogBuilder.UseSkillSearch(skillSearchTestRetriever{}, func() bluecollar.InstructionBundle {
 		return bluecollar.InstructionBundle{Skills: []bluecollar.SkillInstruction{
-			{Name: "mail", Description: "Email skill.", ToolReferences: []string{"file.read"}},
-			{Name: "site-prototype", Description: "Create sites.", ToolReferences: []string{"file.read"}},
+			{Name: "mail", Description: "Email skill.", ToolReferences: []string{"file_read"}},
+			{Name: "site-prototype", Description: "Create sites.", ToolReferences: []string{"file_read"}},
 		}}
 	})
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
 
 	result, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
-		ToolName: "skill.search",
+		ToolName: "skill_search",
 		Input:    toolcontract.MarshalToolInput(map[string]any{}),
 	})
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
 	if result.Failed() {
-		t.Fatalf("expected skill.search success, got %s", result.ContentText())
+		t.Fatalf("expected skill_search success, got %s", result.ContentText())
 	}
 	var resultDocument skillSearchToolOutput
 	if errorValue := json.Unmarshal([]byte(result.ContentText()), &resultDocument); errorValue != nil {
@@ -470,21 +470,21 @@ func TestSkillSearchToolNameLookupReturnsPromptBody(t *testing.T) {
 			Name:           "site-prototype",
 			Description:    "Create sites.",
 			Prompt:         "Build the site, verify it, and attach promoted outputs.",
-			ToolReferences: []string{"file.read"},
+			ToolReferences: []string{"file_read"},
 			Source:         bluecollar.InstructionSource{Path: "skills/site-prototype/SKILL.md"},
 		}}}
 	})
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
 
 	result, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
-		ToolName: "skill.search",
+		ToolName: "skill_search",
 		Input:    toolcontract.MarshalToolInput(map[string]any{"name": "SITE-PROTOTYPE"}),
 	})
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
 	if result.Failed() {
-		t.Fatalf("expected skill.search success, got %s", result.ContentText())
+		t.Fatalf("expected skill_search success, got %s", result.ContentText())
 	}
 	var resultDocument skillSearchToolOutput
 	if errorValue := json.Unmarshal([]byte(result.ContentText()), &resultDocument); errorValue != nil {

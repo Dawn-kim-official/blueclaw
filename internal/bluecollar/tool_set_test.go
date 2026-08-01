@@ -112,12 +112,12 @@ func testExternalSendToolDefinition(toolName string) toolcontract.ToolDefinition
 }
 
 func testToolSideEffectClass(toolName string) string {
-	for _, suffix := range []string{".list", ".read", ".search", ".status", ".history", ".preview", ".snapshot"} {
+	for _, suffix := range []string{"_list", "_read", "_search", "_status", "_history", "_preview", "_snapshot"} {
 		if strings.HasSuffix(toolName, suffix) {
 			return toolcontract.ToolSideEffectRead
 		}
 	}
-	for _, suffix := range []string{".calculate", ".compare", ".classify"} {
+	for _, suffix := range []string{"_calculate", "_compare", "_classify"} {
 		if strings.HasSuffix(toolName, suffix) {
 			return toolcontract.ToolSideEffectComputation
 		}

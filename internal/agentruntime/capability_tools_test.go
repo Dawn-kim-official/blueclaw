@@ -16,9 +16,9 @@ import (
 func TestToolCatalogHidesPolicyDeniedCapabilityTools(t *testing.T) {
 	toolCatalogBuilder := NewToolCatalogBuilder()
 	toolCatalogBuilder.UseTestCapabilityToolDescriptors(capability.Client{}, []CapabilityToolDescriptor{{
-		Name:           "site.serve",
+		Name:           "site_serve",
 		Description:    "Create a site.",
-		PolicyResource: "tool:site.serve",
+		PolicyResource: "tool:site_serve",
 		InputSchema:    json.RawMessage(`{"type":"object","properties":{"slug":{"type":"string"}},"required":["slug"],"additionalProperties":false}`),
 	}})
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
@@ -27,14 +27,14 @@ func TestToolCatalogHidesPolicyDeniedCapabilityTools(t *testing.T) {
 			PersonID: "person-1",
 			Circles:  []string{"staff"},
 			ResourceAccessRules: []policy.ResourceAccessPolicy{{
-				Resource: "tool:site.serve",
+				Resource: "tool:site_serve",
 				Actions:  []string{"execute"},
 				Circles:  []string{"admin"},
 			}},
 		},
 	})
 
-	if strings.Contains(toolRegistry.Descriptions(), "site.serve") {
+	if strings.Contains(toolRegistry.Descriptions(), "site_serve") {
 		t.Fatalf("expected denied site tool to be omitted from catalog, got %s", toolRegistry.Descriptions())
 	}
 }
@@ -43,19 +43,19 @@ func TestToolCatalogKeepsCapabilityInputSchemaAuthoritative(t *testing.T) {
 	taskAddSchema := json.RawMessage(`{"type":"object","properties":{"title":{"type":"string"},"endDate":{"type":"string"}},"required":["title"],"additionalProperties":false}`)
 	toolCatalogBuilder := NewToolCatalogBuilder()
 	toolCatalogBuilder.UseTestCapabilityToolDescriptors(capability.Client{}, []CapabilityToolDescriptor{{
-		Name:        "task.add",
+		Name:        "task_add",
 		InputSchema: taskAddSchema,
 	}})
-	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"task.add"})
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"task_add"})
 
 	toolSet := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
 	actionSchema := bluecollar.ActionSchemaForToolSet(toolSet, false, nil, false)
 
 	if !strings.Contains(actionSchema, `"title"`) || !strings.Contains(actionSchema, `"endDate"`) {
-		t.Fatalf("expected registered task.add schema, got %s", actionSchema)
+		t.Fatalf("expected registered task_add schema, got %s", actionSchema)
 	}
 	if strings.Contains(actionSchema, `"prompt"`) {
-		t.Fatalf("expected no inferred legacy task.add fields, got %s", actionSchema)
+		t.Fatalf("expected no inferred legacy task_add fields, got %s", actionSchema)
 	}
 }
 
@@ -63,7 +63,7 @@ func TestCapabilityToolPreservesValidatedTaskResultEffects(t *testing.T) {
 	httpClient := &recordingHTTPClient{responseBody: `{
 		"provider":"internkim",
 		"selectedBackend":"device",
-		"toolName":"task.add",
+		"toolName":"task_add",
 		"outcome":"succeeded",
 		"status":"ok",
 		"result":{"taskID":"task-1"},
@@ -71,7 +71,7 @@ func TestCapabilityToolPreservesValidatedTaskResultEffects(t *testing.T) {
 	}`}
 	toolCatalogBuilder := NewToolCatalogBuilder()
 	toolCatalogBuilder.UseTestCapabilityToolDescriptors(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, []CapabilityToolDescriptor{{
-		Name: "task.add",
+		Name: "task_add",
 		ResultContract: &CapabilityToolResultContract{
 			Schema: json.RawMessage(`{"type":"object","properties":{"taskID":{"type":"string"}},"required":["taskID"],"additionalProperties":false}`),
 			Effects: []CapabilityResourceEffectContract{{
@@ -82,11 +82,11 @@ func TestCapabilityToolPreservesValidatedTaskResultEffects(t *testing.T) {
 			}},
 		},
 	}})
-	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"task.add"})
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"task_add"})
 	toolSet := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
 
 	result, errorValue := toolSet.Invoke(context.Background(), toolcontract.ToolInvocation{
-		ToolName: "task.add",
+		ToolName: "task_add",
 		Input:    json.RawMessage(`{}`),
 	})
 
@@ -102,7 +102,7 @@ func TestCapabilityToolRejectsMismatchedTaskResultIdentity(t *testing.T) {
 	httpClient := &recordingHTTPClient{responseBody: `{
 		"provider":"internkim",
 		"selectedBackend":"device",
-		"toolName":"task.update",
+		"toolName":"task_update",
 		"outcome":"succeeded",
 		"status":"ok",
 		"result":{"taskID":"task-1"},
@@ -110,13 +110,13 @@ func TestCapabilityToolRejectsMismatchedTaskResultIdentity(t *testing.T) {
 	}`}
 	toolCatalogBuilder := NewToolCatalogBuilder()
 	toolCatalogBuilder.UseTestCapabilityToolDescriptors(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, []CapabilityToolDescriptor{{
-		Name:           "task.add",
+		Name:           "task_add",
 		ResultContract: &CapabilityToolResultContract{Schema: json.RawMessage(`{"type":"object","properties":{"taskID":{"type":"string"}},"required":["taskID"],"additionalProperties":false}`)},
 	}})
-	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"task.add"})
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"task_add"})
 	toolSet := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
 
-	result, errorValue := toolSet.Invoke(context.Background(), toolcontract.ToolInvocation{ToolName: "task.add", Input: json.RawMessage(`{}`)})
+	result, errorValue := toolSet.Invoke(context.Background(), toolcontract.ToolInvocation{ToolName: "task_add", Input: json.RawMessage(`{}`)})
 
 	if errorValue != nil {
 		t.Fatal(errorValue)
@@ -130,19 +130,19 @@ func TestCapabilityToolRejectsMismatchedIdentityWithoutResultContract(t *testing
 	httpClient := &recordingHTTPClient{responseBody: `{
 		"provider":"internkim",
 		"selectedBackend":"device",
-		"toolName":"task.update",
+		"toolName":"task_update",
 		"outcome":"succeeded",
 		"status":"ok",
 		"result":{}
 	}`}
-	descriptor := completeTestCapabilityToolDescriptor(CapabilityToolDescriptor{Name: "task.add"})
+	descriptor := completeTestCapabilityToolDescriptor(CapabilityToolDescriptor{Name: "task_add"})
 	descriptor.ResultContract = nil
 	toolCatalogBuilder := NewToolCatalogBuilder()
 	toolCatalogBuilder.capabilityClient = capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}
 
 	result, errorValue := toolCatalogBuilder.invokeCapabilityOperation(
 		context.Background(),
-		"task.add",
+		"task_add",
 		descriptor,
 		ToolCatalogRequest{},
 		json.RawMessage(`{}`),
@@ -160,7 +160,7 @@ func TestContractedCapabilityPreservesApprovalDenial(t *testing.T) {
 	httpClient := &recordingHTTPClient{responseBody: `{
 		"provider":"internkim",
 		"selectedBackend":"device",
-		"toolName":"task.delete",
+		"toolName":"task_delete",
 		"outcome":"denied",
 		"status":"denied",
 		"isError":true,
@@ -170,7 +170,7 @@ func TestContractedCapabilityPreservesApprovalDenial(t *testing.T) {
 	}`}
 	toolCatalogBuilder := NewToolCatalogBuilder()
 	toolCatalogBuilder.UseTestCapabilityToolDescriptors(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, []CapabilityToolDescriptor{{
-		Name: "task.delete",
+		Name: "task_delete",
 		ResultContract: &CapabilityToolResultContract{
 			Schema: json.RawMessage(`{"type":"object","properties":{"taskID":{"type":"string"},"deleted":{"const":true}},"required":["taskID","deleted"],"additionalProperties":false}`),
 			Effects: []CapabilityResourceEffectContract{{
@@ -181,10 +181,10 @@ func TestContractedCapabilityPreservesApprovalDenial(t *testing.T) {
 			}},
 		},
 	}})
-	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"task.delete"})
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"task_delete"})
 	toolSet := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
 
-	result, errorValue := toolSet.Invoke(context.Background(), toolcontract.ToolInvocation{ToolName: "task.delete", Input: json.RawMessage(`{}`)})
+	result, errorValue := toolSet.Invoke(context.Background(), toolcontract.ToolInvocation{ToolName: "task_delete", Input: json.RawMessage(`{}`)})
 
 	if errorValue != nil {
 		t.Fatal(errorValue)
@@ -197,17 +197,17 @@ func TestContractedCapabilityPreservesApprovalDenial(t *testing.T) {
 func TestPlatformDMSendAvailabilityDependsOnTrustedContext(t *testing.T) {
 	toolCatalogBuilder := NewToolCatalogBuilder()
 	toolCatalogBuilder.UseTestCapabilityToolDescriptors(capability.Client{}, []CapabilityToolDescriptor{{
-		Name:             "message.send",
+		Name:             "message_send",
 		Description:      "Send a direct message",
 		RequiresApproval: true,
 	}})
-	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"message.send"})
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"message_send"})
 
 	immediateToolSet := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
 	if strings.Contains(immediateToolSet.Descriptions(), "ask approval before invoking") {
 		t.Fatalf("expected immediate DM to be available for runtime gating, got %s", immediateToolSet.Descriptions())
 	}
-	toolDefinition, isFound := immediateToolSet.ToolDefinition("message.send")
+	toolDefinition, isFound := immediateToolSet.ToolDefinition("message_send")
 	if !isFound || !toolDefinition.RequiresApproval {
 		t.Fatalf("expected immediate DM definition to require approval, got found=%v definition=%+v", isFound, toolDefinition)
 	}
@@ -223,8 +223,8 @@ func TestPlatformDMSendAvailabilityDependsOnTrustedContext(t *testing.T) {
 
 func TestCapabilityToolRequestIncludesTrustedExecutionContext(t *testing.T) {
 	descriptor := completeTestCapabilityToolDescriptor(CapabilityToolDescriptor{
-		Name:          "message.send",
-		CanonicalName: "message.send",
+		Name:          "message_send",
+		CanonicalName: "message_send",
 		PrivacyClass:  "platform_message",
 		Idempotency:   CapabilityIdempotency{Supported: true, Scope: "operation"},
 	})
@@ -260,7 +260,7 @@ func TestCapabilityToolRequestSeparatesModelInputFromTransport(t *testing.T) {
 	transport := map[string]any{"siteSourceBundle": map[string]any{"workspacePath": "/workspace/site"}}
 	requestDocument := capabilityToolRequest(
 		context.Background(),
-		completeTestCapabilityToolDescriptor(CapabilityToolDescriptor{Name: "site.serve", CanonicalName: "site.serve"}),
+		completeTestCapabilityToolDescriptor(CapabilityToolDescriptor{Name: "site_serve", CanonicalName: "site_serve"}),
 		ToolCatalogRequest{},
 		preparedCapabilityToolPayload{Input: input, Transport: transport},
 	)
@@ -277,9 +277,9 @@ func TestImageReadUsesExactPathInput(t *testing.T) {
 	workspacePath := t.TempDir()
 	imagePath := filepath.Join(workspacePath, "circles", "staff", "inbox", "mattermost", "thread-1", "post-1", "mascot.png")
 	writeTestFile(t, imagePath, "image")
-	httpClient := &recordingHTTPClient{responseBody: `{"provider":"internkim","selectedBackend":"device","toolName":"image.read","outcome":"succeeded","status":"ok","result":{"status":"ok","path":"/workspace/circles/staff/inbox/mattermost/thread-1/post-1/mascot.png","attachments":[{"devicePath":"/workspace/circles/staff/inbox/mattermost/thread-1/post-1/mascot.png","filename":"mascot.png","contentType":"image/png","sizeBytes":5,"contentBase64":"aW1hZ2U="}]}}`}
+	httpClient := &recordingHTTPClient{responseBody: `{"provider":"internkim","selectedBackend":"device","toolName":"image_read","outcome":"succeeded","status":"ok","result":{"status":"ok","path":"/workspace/circles/staff/inbox/mattermost/thread-1/post-1/mascot.png","attachments":[{"devicePath":"/workspace/circles/staff/inbox/mattermost/thread-1/post-1/mascot.png","filename":"mascot.png","contentType":"image/png","sizeBytes":5,"contentBase64":"aW1hZ2U="}]}}`}
 	toolCatalogBuilder := newFileToolTestCatalogBuilder(workspacePath)
-	toolCatalogBuilder.UseTestCapabilityToolDescriptors(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, []CapabilityToolDescriptor{canonicalReadDescriptor("image.read")})
+	toolCatalogBuilder.UseTestCapabilityToolDescriptors(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, []CapabilityToolDescriptor{canonicalReadDescriptor("image_read")})
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
 		ProfileName: "default",
 		PersonAccess: policy.PersonAccess{
@@ -289,7 +289,7 @@ func TestImageReadUsesExactPathInput(t *testing.T) {
 	})
 
 	result, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
-		ToolName: "image.read",
+		ToolName: "image_read",
 		Input:    toolcontract.MarshalToolInput(map[string]string{"path": "/workspace/circles/staff/inbox/mattermost/thread-1/post-1/mascot.png"}),
 	})
 
@@ -297,7 +297,7 @@ func TestImageReadUsesExactPathInput(t *testing.T) {
 		t.Fatal(errorValue)
 	}
 	if result.Failed() {
-		t.Fatalf("expected image.read success, got %s", result.ContentText())
+		t.Fatalf("expected image_read success, got %s", result.ContentText())
 	}
 	if !strings.Contains(httpClient.requestBody, `/workspace/circles/staff/inbox/mattermost/thread-1/post-1/mascot.png`) {
 		t.Fatalf("expected capability request to use exact path, got %s", httpClient.requestBody)
@@ -307,8 +307,8 @@ func TestImageReadUsesExactPathInput(t *testing.T) {
 func TestCanonicalReadRejectsMaterialIDInput(t *testing.T) {
 	toolCatalogBuilder := newFileToolTestCatalogBuilder(t.TempDir())
 	toolCatalogBuilder.UseTestCapabilityToolDescriptors(capability.Client{}, []CapabilityToolDescriptor{
-		canonicalReadDescriptor("document.read"),
-		canonicalReadDescriptor("image.read"),
+		canonicalReadDescriptor("document_read"),
+		canonicalReadDescriptor("image_read"),
 	})
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
 		ProfileName: "default",
@@ -318,7 +318,7 @@ func TestCanonicalReadRejectsMaterialIDInput(t *testing.T) {
 		},
 	})
 
-	for _, toolName := range []string{"document.read", "image.read"} {
+	for _, toolName := range []string{"document_read", "image_read"} {
 		t.Run(toolName, func(t *testing.T) {
 			result, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
 				ToolName: toolName,
@@ -337,17 +337,17 @@ func TestCanonicalReadRejectsMaterialIDInput(t *testing.T) {
 func TestCanonicalReadDescriptorsExposePathOnlyInputAndResultContract(t *testing.T) {
 	toolCatalogBuilder := NewToolCatalogBuilder()
 	toolCatalogBuilder.UseTestCapabilityToolDescriptors(capability.Client{}, []CapabilityToolDescriptor{
-		canonicalReadDescriptor("document.read"),
-		canonicalReadDescriptor("image.read"),
+		canonicalReadDescriptor("document_read"),
+		canonicalReadDescriptor("image_read"),
 	})
-	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"document.read", "image.read"})
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"document_read", "image_read"})
 	toolSet := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
 	actionSchema := bluecollar.ActionSchemaForToolSet(toolSet, false, nil, false)
 	if strings.Contains(actionSchema, "materialID") || !strings.Contains(actionSchema, "path") {
 		t.Fatalf("expected model action schema to expose exact path-only input, got %s", actionSchema)
 	}
 
-	for _, toolName := range []string{"document.read", "image.read"} {
+	for _, toolName := range []string{"document_read", "image_read"} {
 		t.Run(toolName, func(t *testing.T) {
 			descriptor, isFound := toolSet.ToolDefinition(toolName)
 			if !isFound {
@@ -381,37 +381,37 @@ func TestCanonicalReadRejectsIdentityAndResultSchemaDrift(t *testing.T) {
 	}{
 		{
 			name:         "missing provider",
-			responseBody: `{"provider":"","selectedBackend":"device","toolName":"document.read","outcome":"succeeded","status":"ok","result":{"status":"ok","path":"/workspace/report.md","format":"markdown","content":"report","warnings":[],"truncated":false}}`,
+			responseBody: `{"provider":"","selectedBackend":"device","toolName":"document_read","outcome":"succeeded","status":"ok","result":{"status":"ok","path":"/workspace/report.md","format":"markdown","content":"report","warnings":[],"truncated":false}}`,
 			failureStage: "capability_result_identity",
 		},
 		{
 			name:         "missing backend",
-			responseBody: `{"provider":"internkim","selectedBackend":"","toolName":"document.read","outcome":"succeeded","status":"ok","result":{"status":"ok","path":"/workspace/report.md","format":"markdown","content":"report","warnings":[],"truncated":false}}`,
+			responseBody: `{"provider":"internkim","selectedBackend":"","toolName":"document_read","outcome":"succeeded","status":"ok","result":{"status":"ok","path":"/workspace/report.md","format":"markdown","content":"report","warnings":[],"truncated":false}}`,
 			failureStage: "capability_result_identity",
 		},
 		{
 			name:         "wrong tool",
-			responseBody: `{"provider":"internkim","selectedBackend":"device","toolName":"image.read","outcome":"succeeded","status":"ok","result":{"status":"ok","path":"/workspace/report.md","format":"markdown","content":"report","warnings":[],"truncated":false}}`,
+			responseBody: `{"provider":"internkim","selectedBackend":"device","toolName":"image_read","outcome":"succeeded","status":"ok","result":{"status":"ok","path":"/workspace/report.md","format":"markdown","content":"report","warnings":[],"truncated":false}}`,
 			failureStage: "capability_result_identity",
 		},
 		{
 			name:         "wrong outcome",
-			responseBody: `{"provider":"internkim","selectedBackend":"device","toolName":"document.read","outcome":"failed","status":"ok","result":{"status":"ok","path":"/workspace/report.md","format":"markdown","content":"report","warnings":[],"truncated":false}}`,
+			responseBody: `{"provider":"internkim","selectedBackend":"device","toolName":"document_read","outcome":"failed","status":"ok","result":{"status":"ok","path":"/workspace/report.md","format":"markdown","content":"report","warnings":[],"truncated":false}}`,
 			failureStage: "capability_result_identity",
 		},
 		{
 			name:         "missing result field",
-			responseBody: `{"provider":"internkim","selectedBackend":"device","toolName":"document.read","outcome":"succeeded","status":"ok","result":{"status":"ok","path":"/workspace/report.md","format":"markdown","content":"report","warnings":[]}}`,
+			responseBody: `{"provider":"internkim","selectedBackend":"device","toolName":"document_read","outcome":"succeeded","status":"ok","result":{"status":"ok","path":"/workspace/report.md","format":"markdown","content":"report","warnings":[]}}`,
 			failureStage: "tool_result_contract",
 		},
 		{
 			name:         "missing result",
-			responseBody: `{"provider":"internkim","selectedBackend":"device","toolName":"document.read","outcome":"succeeded","status":"ok"}`,
+			responseBody: `{"provider":"internkim","selectedBackend":"device","toolName":"document_read","outcome":"succeeded","status":"ok"}`,
 			failureStage: "tool_result_contract",
 		},
 		{
 			name:         "generic scalar result",
-			responseBody: `{"provider":"internkim","selectedBackend":"device","toolName":"document.read","outcome":"succeeded","status":"ok","result":"report"}`,
+			responseBody: `{"provider":"internkim","selectedBackend":"device","toolName":"document_read","outcome":"succeeded","status":"ok","result":"report"}`,
 			failureStage: "tool_result_contract",
 		},
 	}
@@ -420,11 +420,11 @@ func TestCanonicalReadRejectsIdentityAndResultSchemaDrift(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			httpClient := &recordingHTTPClient{responseBody: testCase.responseBody}
 			toolCatalogBuilder := NewToolCatalogBuilder()
-			toolCatalogBuilder.UseTestCapabilityToolDescriptors(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, []CapabilityToolDescriptor{canonicalReadDescriptor("document.read")})
-			toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"document.read"})
+			toolCatalogBuilder.UseTestCapabilityToolDescriptors(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, []CapabilityToolDescriptor{canonicalReadDescriptor("document_read")})
+			toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"document_read"})
 			toolSet := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
 
-			result, errorValue := toolSet.Invoke(context.Background(), toolcontract.ToolInvocation{ToolName: "document.read", Input: json.RawMessage(`{"path":"/workspace/report.md"}`)})
+			result, errorValue := toolSet.Invoke(context.Background(), toolcontract.ToolInvocation{ToolName: "document_read", Input: json.RawMessage(`{"path":"/workspace/report.md"}`)})
 
 			if errorValue != nil {
 				t.Fatal(errorValue)
@@ -437,13 +437,13 @@ func TestCanonicalReadRejectsIdentityAndResultSchemaDrift(t *testing.T) {
 }
 
 func TestCanonicalReadRejectsEffects(t *testing.T) {
-	httpClient := &recordingHTTPClient{responseBody: `{"provider":"internkim","selectedBackend":"device","toolName":"document.read","outcome":"succeeded","status":"ok","result":{"status":"ok","path":"/workspace/report.md","format":"markdown","content":"report","warnings":[],"truncated":false},"effects":[{"objectType":"file","effect":"read","path":"/workspace/report.md"}]}`}
+	httpClient := &recordingHTTPClient{responseBody: `{"provider":"internkim","selectedBackend":"device","toolName":"document_read","outcome":"succeeded","status":"ok","result":{"status":"ok","path":"/workspace/report.md","format":"markdown","content":"report","warnings":[],"truncated":false},"effects":[{"objectType":"file","effect":"read","path":"/workspace/report.md"}]}`}
 	toolCatalogBuilder := NewToolCatalogBuilder()
-	toolCatalogBuilder.UseTestCapabilityToolDescriptors(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, []CapabilityToolDescriptor{canonicalReadDescriptor("document.read")})
-	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"document.read"})
+	toolCatalogBuilder.UseTestCapabilityToolDescriptors(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, []CapabilityToolDescriptor{canonicalReadDescriptor("document_read")})
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"document_read"})
 	toolSet := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
 
-	result, errorValue := toolSet.Invoke(context.Background(), toolcontract.ToolInvocation{ToolName: "document.read", Input: json.RawMessage(`{"path":"/workspace/report.md"}`)})
+	result, errorValue := toolSet.Invoke(context.Background(), toolcontract.ToolInvocation{ToolName: "document_read", Input: json.RawMessage(`{"path":"/workspace/report.md"}`)})
 
 	if errorValue != nil {
 		t.Fatal(errorValue)
@@ -454,13 +454,13 @@ func TestCanonicalReadRejectsEffects(t *testing.T) {
 }
 
 func TestCanonicalWebSearchAcceptsNormalizedResultContract(t *testing.T) {
-	httpClient := &recordingHTTPClient{responseBody: `{"provider":"openrouter","selectedBackend":"remote","toolName":"web.search","outcome":"succeeded","status":"ok","result":{"provider":"openrouter","remoteLLMInvolved":true,"compatibility":"openrouter_server_tool_auto","query":"internkim","answer":"result","results":[{"title":"InternKim","url":"https://internkim.example","snippet":"An agent platform"}]}}`}
+	httpClient := &recordingHTTPClient{responseBody: `{"provider":"openrouter","selectedBackend":"remote","toolName":"web_search","outcome":"succeeded","status":"ok","result":{"provider":"openrouter","remoteLLMInvolved":true,"compatibility":"openrouter_server_tool_auto","query":"internkim","answer":"result","results":[{"title":"InternKim","url":"https://internkim.example","snippet":"An agent platform"}]}}`}
 	toolCatalogBuilder := NewToolCatalogBuilder()
 	toolCatalogBuilder.UseTestCapabilityToolDescriptors(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, []CapabilityToolDescriptor{canonicalWebSearchDescriptor()})
-	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"web.search"})
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"web_search"})
 	toolSet := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
 
-	result, errorValue := toolSet.Invoke(context.Background(), toolcontract.ToolInvocation{ToolName: "web.search", Input: json.RawMessage(`{"query":"internkim"}`)})
+	result, errorValue := toolSet.Invoke(context.Background(), toolcontract.ToolInvocation{ToolName: "web_search", Input: json.RawMessage(`{"query":"internkim"}`)})
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
@@ -470,13 +470,13 @@ func TestCanonicalWebSearchAcceptsNormalizedResultContract(t *testing.T) {
 }
 
 func TestCanonicalWebSearchRejectsReadEffects(t *testing.T) {
-	httpClient := &recordingHTTPClient{responseBody: `{"provider":"openrouter","selectedBackend":"remote","toolName":"web.search","outcome":"succeeded","status":"ok","result":{"provider":"openrouter","remoteLLMInvolved":true,"compatibility":"openrouter_server_tool_auto","query":"internkim","answer":"result","results":[]},"effects":[{"objectType":"web","effect":"read","url":"https://internkim.example"}]}`}
+	httpClient := &recordingHTTPClient{responseBody: `{"provider":"openrouter","selectedBackend":"remote","toolName":"web_search","outcome":"succeeded","status":"ok","result":{"provider":"openrouter","remoteLLMInvolved":true,"compatibility":"openrouter_server_tool_auto","query":"internkim","answer":"result","results":[]},"effects":[{"objectType":"web","effect":"read","url":"https://internkim.example"}]}`}
 	toolCatalogBuilder := NewToolCatalogBuilder()
 	toolCatalogBuilder.UseTestCapabilityToolDescriptors(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, []CapabilityToolDescriptor{canonicalWebSearchDescriptor()})
-	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"web.search"})
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"web_search"})
 	toolSet := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
 
-	result, errorValue := toolSet.Invoke(context.Background(), toolcontract.ToolInvocation{ToolName: "web.search", Input: json.RawMessage(`{"query":"internkim"}`)})
+	result, errorValue := toolSet.Invoke(context.Background(), toolcontract.ToolInvocation{ToolName: "web_search", Input: json.RawMessage(`{"query":"internkim"}`)})
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
@@ -488,7 +488,7 @@ func TestCanonicalWebSearchRejectsReadEffects(t *testing.T) {
 func canonicalReadDescriptor(toolName string) CapabilityToolDescriptor {
 	resultSchema := `{"type":"object","additionalProperties":false,"properties":{"status":{"const":"ok","type":"string"},"path":{"minLength":1,"type":"string"},"format":{"const":"markdown","type":"string"},"content":{"type":"string"},"warnings":{"type":"array","items":{"type":"string"}},"truncated":{"type":"boolean"}},"required":["status","path","format","content","warnings","truncated"]}`
 	inputSchema := `{"type":"object","additionalProperties":false,"properties":{"path":{"minLength":1,"type":"string"}},"required":["path"]}`
-	if toolName == "image.read" {
+	if toolName == "image_read" {
 		resultSchema = `{"type":"object","additionalProperties":false,"properties":{"status":{"const":"ok","type":"string"},"path":{"minLength":1,"type":"string"},"attachments":{"type":"array","minItems":1,"items":{"type":"object","additionalProperties":false,"properties":{"devicePath":{"minLength":1,"type":"string"},"filename":{"minLength":1,"type":"string"},"contentType":{"minLength":1,"type":"string"},"sizeBytes":{"type":"integer","minimum":0},"contentBase64":{"minLength":1,"type":"string"}},"required":["devicePath","filename","contentType","sizeBytes","contentBase64"]}}},"required":["status","path","attachments"]}`
 	}
 	return CapabilityToolDescriptor{
@@ -513,17 +513,17 @@ func canonicalWebSearchDescriptor() CapabilityToolDescriptor {
 	inputSchema := `{"type":"object","additionalProperties":false,"properties":{"query":{"type":"string"},"location":{"type":"string"},"language":{"type":"string"},"limit":{"type":"integer","minimum":1,"maximum":10},"allowedDomains":{"type":"array","items":{"type":"string"}},"excludedDomains":{"type":"array","items":{"type":"string"}}},"required":["query"]}`
 	resultSchema := `{"type":"object","additionalProperties":false,"properties":{"provider":{"type":"string"},"remoteLLMInvolved":{"type":"boolean"},"compatibility":{"type":"string"},"query":{"type":"string"},"answer":{"type":"string"},"results":{"type":"array","items":{"type":"object","additionalProperties":false,"properties":{"title":{"type":"string"},"url":{"type":"string"},"snippet":{"type":"string"},"source":{"type":"string"}},"required":["title","url","snippet"]}}},"required":["provider","remoteLLMInvolved","compatibility","query","answer","results"]}`
 	return CapabilityToolDescriptor{
-		Name:            "web.search",
-		CanonicalName:   "web.search",
+		Name:            "web_search",
+		CanonicalName:   "web_search",
 		Namespace:       "web",
-		ModelName:       "web.search",
+		ModelName:       "web_search",
 		ModelVisibility: toolcontract.ToolVisibilityModel,
 		Description:     "Canonical web search test descriptor.",
 		PrivacyClass:    "public_web",
 		InputSchema:     json.RawMessage(inputSchema),
 		OutputSchema:    json.RawMessage(`{"type":"object","additionalProperties":false}`),
 		ResultContract:  &CapabilityToolResultContract{Schema: json.RawMessage(resultSchema)},
-		PolicyResource:  "tool:web.search",
+		PolicyResource:  "tool:web_search",
 		SideEffectClass: "read",
 		Availability:    CapabilityAvailability{State: "ok"},
 		Idempotency:     CapabilityIdempotency{Scope: "operation"},
@@ -556,15 +556,15 @@ func TestImageGenerateSendsRequesterWorkspacePathToBridge(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			workspacePath := t.TempDir()
-			httpClient := &recordingHTTPClient{responseBody: `{"provider":"internkim","selectedBackend":"device","toolName":"image.generate","outcome":"succeeded","content":"generated","status":"ok","result":{}}`}
+			httpClient := &recordingHTTPClient{responseBody: `{"provider":"internkim","selectedBackend":"device","toolName":"image_generate","outcome":"succeeded","content":"generated","status":"ok","result":{}}`}
 			toolCatalogBuilder := newFileToolTestCatalogBuilder(workspacePath)
 			toolCatalogBuilder.UseTestCapabilityToolDescriptors(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, []CapabilityToolDescriptor{{
-				Name:           "image.generate",
-				PolicyResource: "tool:image.generate",
+				Name:           "image_generate",
+				PolicyResource: "tool:image_generate",
 				InputSchema:    json.RawMessage(`{"type":"object","properties":{"prompt":{"type":"string"},"path":{"type":"string"}},"required":["prompt","path"],"additionalProperties":false}`),
 			}})
 			toolCatalogBuilder.UseAllowedToolNamesByProfile(map[string][]string{
-				"default": {"image.generate"},
+				"default": {"image_generate"},
 			}, nil)
 			toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
 				ProfileName:       "default",
@@ -576,7 +576,7 @@ func TestImageGenerateSendsRequesterWorkspacePathToBridge(t *testing.T) {
 			})
 
 			result, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
-				ToolName: "image.generate",
+				ToolName: "image_generate",
 				Input: toolcontract.MarshalToolInput(map[string]string{
 					"prompt": "a generated test image",
 					"path":   test.path,
@@ -586,10 +586,10 @@ func TestImageGenerateSendsRequesterWorkspacePathToBridge(t *testing.T) {
 				t.Fatal(errorValue)
 			}
 			if result.Failed() {
-				t.Fatalf("expected image.generate success, got %s", result.ContentText())
+				t.Fatalf("expected image_generate success, got %s", result.ContentText())
 			}
-			if httpClient.requestPath != "/v1/tools/image.generate/invoke" || !strings.Contains(httpClient.requestBody, test.expectedPath) {
-				t.Fatalf("expected image.generate bridge request with %s, got path=%s body=%s", test.expectedPath, httpClient.requestPath, httpClient.requestBody)
+			if httpClient.requestPath != "/v1/tools/image_generate/invoke" || !strings.Contains(httpClient.requestBody, test.expectedPath) {
+				t.Fatalf("expected image_generate bridge request with %s, got path=%s body=%s", test.expectedPath, httpClient.requestPath, httpClient.requestBody)
 			}
 		})
 	}
@@ -597,8 +597,8 @@ func TestImageGenerateSendsRequesterWorkspacePathToBridge(t *testing.T) {
 
 func TestCapabilityToolIdempotencyKeyOnlyForSendTools(t *testing.T) {
 	ctx := bluecollar.WithObservationID(bluecollar.WithTaskRunID(context.Background(), "run-1"), "obs-3")
-	sendDescriptor := CapabilityToolDescriptor{CanonicalName: "message.send", Idempotency: CapabilityIdempotency{Supported: true}}
-	readDescriptor := CapabilityToolDescriptor{CanonicalName: "web.search"}
+	sendDescriptor := CapabilityToolDescriptor{CanonicalName: "message_send", Idempotency: CapabilityIdempotency{Supported: true}}
+	readDescriptor := CapabilityToolDescriptor{CanonicalName: "web_search"}
 	sendKey := capabilityToolIdempotencyKey(ctx, sendDescriptor)
 	if sendKey == "" {
 		t.Fatal("expected idempotency key for send tool")

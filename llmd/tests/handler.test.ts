@@ -359,7 +359,7 @@ describe('llmd handler', () => {
           'provider returned schema-invalid tool arguments',
           {
             category: StructuredOutputDiagnosticCategory.SchemaValidation,
-            toolName: 'task.add',
+            toolName: 'task_add',
             validationIssues: [
               { fieldPath: '/prompt', code: StructuredOutputValidationCode.Required },
               { fieldPath: '/', code: StructuredOutputValidationCode.AdditionalProperty },
@@ -379,7 +379,7 @@ describe('llmd handler', () => {
         allowLegacyFallback: false,
         diagnostic: {
           category: StructuredOutputDiagnosticCategory.SchemaValidation,
-          toolName: 'task.add',
+          toolName: 'task_add',
           validationIssues: [
             { fieldPath: '/prompt', code: StructuredOutputValidationCode.Required },
             { fieldPath: '/', code: StructuredOutputValidationCode.AdditionalProperty },

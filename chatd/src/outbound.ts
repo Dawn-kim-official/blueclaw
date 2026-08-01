@@ -71,7 +71,7 @@ const capabilityHandlers: Record<string, CapabilityHandler> = {
 	"conversations.list": handleConversationsList,
 	"people.list": handlePeopleList,
 	"message.edit": handleMessageEdit,
-	"message.delete": handleMessageDelete,
+	"message_delete": handleMessageDelete,
 };
 
 export function createOutboundHandler(

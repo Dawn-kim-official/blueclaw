@@ -180,7 +180,7 @@ func awaitCommandCompletion(ctx context.Context, runResult <-chan error, abandon
 		case errorValue = <-runResult:
 			return errorValue, false
 		case <-heartbeatTicker.C:
-			slog.Info("terminal.run command still running", "elapsedSeconds", int(time.Since(waitStartedAt).Seconds()))
+			slog.Info("terminal_run command still running", "elapsedSeconds", int(time.Since(waitStartedAt).Seconds()))
 		case <-ctx.Done():
 			select {
 			case errorValue = <-runResult:
@@ -197,7 +197,7 @@ func (terminalSessionService *TerminalSessionService) abandonUnreapableProcessGr
 		return
 	}
 	processGroupID := command.Process.Pid
-	slog.Warn("terminal.run abandoned unreapable process group", "pgid", processGroupID, "command", command.Path)
+	slog.Warn("terminal_run abandoned unreapable process group", "pgid", processGroupID, "command", command.Path)
 	sweepEscapedCommandProcesses(scopeMarker)
 
 	go func() {
@@ -232,7 +232,7 @@ func sweepEscapedCommandProcesses(scopeMarker string) {
 		}
 	}
 	if killedCount > 0 {
-		slog.Warn("terminal.run killed escaped command processes", "count", killedCount, "scope", scopeMarker)
+		slog.Warn("terminal_run killed escaped command processes", "count", killedCount, "scope", scopeMarker)
 	}
 }
 

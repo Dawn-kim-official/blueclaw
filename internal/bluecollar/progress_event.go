@@ -48,7 +48,7 @@ func progressEvents(observations []turnObservation) []progressEvent {
 				recordSuccess(progressEvent{Kind: "attachment", Key: attachment.DevicePath})
 			}
 		}
-		if observation.Action == "continue" && (observation.Tool == "file.write" || observation.Tool == "file.edit") && !observation.Failed() {
+		if observation.Action == "continue" && (observation.Tool == "file_write" || observation.Tool == "file_edit") && !observation.Failed() {
 			recordSuccess(progressEvent{Kind: "file_rewrite", Key: observation.ToolInputKey + ":" + observation.Output.Content})
 		}
 	}
@@ -111,13 +111,13 @@ func qualifyingDurableProgressEvent(observation turnObservation) (qualifyingProg
 		return qualifyingProgressEvent{}, false
 	}
 	switch toolName {
-	case "file.write", "file.edit":
+	case "file_write", "file_edit":
 		return qualifyingProgressEvent{ObservationID: observation.ObservationID, Kind: "file_change", Tool: toolName}, true
-	case "site.serve":
+	case "site_serve":
 		return qualifyingProgressEvent{ObservationID: observation.ObservationID, Kind: "site_publish", Tool: toolName}, true
 	case toolcontract.FileDeliverToolName:
 		return qualifyingProgressEvent{ObservationID: observation.ObservationID, Kind: "attachment", Tool: toolName}, true
-	case "terminal.run":
+	case "terminal_run":
 		if terminalObservationCompleted(observation) {
 			return qualifyingProgressEvent{ObservationID: observation.ObservationID, Kind: "terminal_success", Tool: toolName}, true
 		}
@@ -130,7 +130,7 @@ func qualifyingDurableProgressEvent(observation turnObservation) (qualifyingProg
 
 func isInspectionProgressTool(toolName string) bool {
 	switch strings.TrimSpace(toolName) {
-	case "file.read", "memory.search", "site.list", "conversation.history":
+	case "file_read", "memory_search", "site_list", "conversation_history":
 		return true
 	default:
 		return false

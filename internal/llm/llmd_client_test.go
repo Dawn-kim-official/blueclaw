@@ -669,10 +669,10 @@ func TestLLMDClientParsesClosedStructuredOutputDiagnostics(t *testing.T) {
 		{name: "finish reason", diagnosticDocument: `{"category":"finish_reason","finishReason":"length"}`, expectedDiagnostic: StructuredOutputDiagnostic{Category: StructuredOutputDiagnosticFinishReason, FinishReason: StructuredOutputDiagnosticFinishLength}},
 		{
 			name:               "safe tool validation",
-			diagnosticDocument: `{"category":"schema_validation","toolName":"task.add","validationIssues":[{"fieldPath":"/prompt","code":"required"},{"fieldPath":"/","code":"additional_property"}],"repairStatus":"failed"}`,
+			diagnosticDocument: `{"category":"schema_validation","toolName":"task_add","validationIssues":[{"fieldPath":"/prompt","code":"required"},{"fieldPath":"/","code":"additional_property"}],"repairStatus":"failed"}`,
 			expectedDiagnostic: StructuredOutputDiagnostic{
 				Category:     StructuredOutputDiagnosticSchemaValidation,
-				ToolName:     "task.add",
+				ToolName:     "task_add",
 				RepairStatus: StructuredOutputRepairFailed,
 				ValidationIssues: []StructuredOutputValidationIssue{
 					{FieldPath: "/prompt", Code: StructuredOutputValidationRequired},
@@ -684,7 +684,7 @@ func TestLLMDClientParsesClosedStructuredOutputDiagnostics(t *testing.T) {
 		{name: "unknown finish reason", diagnosticDocument: `{"category":"finish_reason","finishReason":"unfinished"}`},
 		{name: "misplaced finish reason", diagnosticDocument: `{"category":"schema_validation","finishReason":"length"}`},
 		{name: "unknown field", diagnosticDocument: `{"category":"json_parse","generatedContent":"private"}`},
-		{name: "content-like tool name", diagnosticDocument: `{"category":"schema_validation","toolName":"task.add with private content"}`},
+		{name: "content-like tool name", diagnosticDocument: `{"category":"schema_validation","toolName":"task_add with private content"}`},
 		{name: "unknown validation code", diagnosticDocument: `{"category":"schema_validation","validationIssues":[{"fieldPath":"/prompt","code":"provider_message"}]}`},
 		{name: "content-like field path", diagnosticDocument: `{"category":"schema_validation","validationIssues":[{"fieldPath":"/prompt contains private content","code":"required"}]}`},
 		{name: "misplaced validation issues", diagnosticDocument: `{"category":"json_parse","validationIssues":[{"fieldPath":"/prompt","code":"required"}]}`},

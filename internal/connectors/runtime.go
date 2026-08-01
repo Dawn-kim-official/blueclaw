@@ -519,7 +519,7 @@ func (connectorRuntime *ConnectorRuntime) UseAllowedToolNames(allowedToolNames [
 }
 
 func connectorRuntimeDefaultAllowedToolNames() []string {
-	return append([]string{"conversation.history"}, agentruntime.DefaultAllowedToolNames()...)
+	return append([]string{"conversation_history"}, agentruntime.DefaultAllowedToolNames()...)
 }
 
 func (connectorRuntime *ConnectorRuntime) UseAllowedToolNamesByProfile(allowedToolNamesByProfile map[string][]string, defaultAllowedToolNames []string) {
@@ -1762,7 +1762,7 @@ func ambiguousTaskWaitTurnDecision(taskWaitTokens []task.TaskWaitToken, response
 		ResponseLanguage:       responseLanguage,
 		Reason:                 "ambiguous_wait_resolution",
 		ClarificationOptions:   taskWaitClarificationOptions(taskWaitTokens),
-		ExpectedResults:        []bluecollar.ExpectedResult{{ID: "wait-disambiguation", Type: "message", Description: "ask.choice", Required: true, AcceptanceHints: []string{"ask.choice"}}},
+		ExpectedResults:        []bluecollar.ExpectedResult{{ID: "wait-disambiguation", Type: "message", Description: "ask_choice", Required: true, AcceptanceHints: []string{"ask_choice"}}},
 		RequestedOutputFormats: nil,
 	}
 }
@@ -2170,7 +2170,7 @@ func pendingApprovalActiveGoal(approval pendingApproval, approvalReply string) b
 	activeGoal.TaskRunID = firstNonEmptyString(activeGoal.TaskRunID, approval.TaskRun.TaskRunID)
 	activeGoal.OriginalInstruction = firstNonEmptyString(activeGoal.OriginalInstruction, approval.IntentPrompt)
 	approvedAction := firstNonEmptyString(activeGoal.CurrentObjective, approval.ContinuationInstruction, approval.IntentPrompt)
-	executionDirective := "The user already approved this action; perform it now and do not call ask.confirm again."
+	executionDirective := "The user already approved this action; perform it now and do not call ask_confirm again."
 	activeGoal.CurrentObjective = strings.TrimSpace(approvedAction + " " + executionDirective)
 	activeGoal.KnownContext = append(activeGoal.KnownContext, "The user approved the pending action in the latest message: "+strings.TrimSpace(approvalReply))
 	activeGoal.Status = bluecollar.ActiveGoalStatusActive

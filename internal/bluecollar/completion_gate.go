@@ -311,7 +311,7 @@ func appendObservationAttachments(attachments []toolcontract.FileAttachment, obs
 		return attachments
 	}
 	nextAttachments := append([]toolcontract.FileAttachment{}, attachments...)
-	if observation.Tool == "browser.screenshot" {
+	if observation.Tool == "browser_screenshot" {
 		nextAttachments = removeBrowserScreenshotAttachments(nextAttachments)
 	}
 	for _, attachment := range observation.Attachments {
@@ -485,7 +485,7 @@ func validateExpectedResultCompletionGate(request AgentTurnRequest, observations
 	}
 	if expectedResultRequiresFileAttachment(request.OutcomeContract) && len(attachments) == 0 {
 		return completionGateResult{
-			Message:            "required file expected result must cite file.deliver completionEvidence",
+			Message:            "required file expected result must cite file_deliver completionEvidence",
 			EvidenceKind:       evidenceKindAttachment,
 			SuggestedNextTools: []string{toolcontract.FileDeliverToolName},
 		}
@@ -499,7 +499,7 @@ func validateExpectedResultCompletionGate(request AgentTurnRequest, observations
 	}
 	if expectedResultRequiresTool(request.OutcomeContract, toolcontract.AskInputToolName) && !hasSuccessfulToolObservationForTurn(observations, toolcontract.AskInputToolName) {
 		return completionGateResult{
-			Message:            "required interactive choice expected result must use ask.input",
+			Message:            "required interactive choice expected result must use ask_input",
 			EvidenceKind:       evidenceKindRequiredTool,
 			SuggestedNextTools: []string{toolcontract.AskInputToolName},
 		}
@@ -601,7 +601,7 @@ func requiredSendToolNamesForRequest(request AgentTurnRequest) []string {
 	if len(toolNames) > 0 {
 		return toolNames
 	}
-	return []string{"message.send"}
+	return []string{"message_send"}
 }
 
 func sendCompletionEvidenceRequiredMessage(toolNames []string) string {
@@ -792,7 +792,7 @@ func evidenceMissingGuidance(evidenceKind string, message string) string {
 	case "required_tool_missing":
 		return "The final reply needs successful tool evidence before completion. Use the required tool if it has not run, or cite an existing successful observation. " + message
 	case "attachment_missing":
-		return "The final reply needs an attached artifact before completion. Find or create the artifact, then use file.deliver before finish. " + message
+		return "The final reply needs an attached artifact before completion. Find or create the artifact, then use file_deliver before finish. " + message
 	case "attachment_invalid":
 		return "The final reply needs valid attachment evidence. Recheck the artifact path and required suffix, then attach a valid file. " + message
 	case "evidence_reference_invalid":
@@ -975,7 +975,7 @@ func toolProducesDeliveryAttachments(toolName string) bool {
 	if toolcontract.IsArtifactDeliveryTool(toolName) {
 		return true
 	}
-	return strings.TrimSpace(toolName) == "browser.screenshot"
+	return strings.TrimSpace(toolName) == "browser_screenshot"
 }
 
 func attachmentsForReference(observation turnObservation, reference completionEvidenceReference) []toolcontract.FileAttachment {

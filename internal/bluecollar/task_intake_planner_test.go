@@ -194,7 +194,7 @@ func TestTurnRouterPreservesUnsupportedArtifactDecision(t *testing.T) {
 		Reason:                 "unsupported",
 		UserFacingReply:        "지원하지 않습니다.",
 		PriorTaskReference:     PriorTaskReferenceNone,
-	}, AgentRequest{Prompt: "PDF 만들어줘", AllowGiveUp: true, ToolSet: newTestToolSet([]string{"terminal.run", "file.deliver"})})
+	}, AgentRequest{Prompt: "PDF 만들어줘", AllowGiveUp: true, ToolSet: newTestToolSet([]string{"terminal_run", "file_deliver"})})
 
 	if decision.Classification != IntakeClassificationUnsupported || decision.Route != TurnRouteGiveUp {
 		t.Fatalf("expected router decision to remain authoritative, got %+v", decision)
@@ -334,8 +334,8 @@ func TestTaskIntakePlannerUsesStructuredModelDecision(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		`{"route":"start_task","classification":"bounded_task","taskShape":"research_task","level":"low","estimatedMinutes":1,"requestedOutputFormats":null,"reason":"bounded tool work","userFacingReply":""}`,
 	}}
-	toolRegistry := newTestToolSet([]string{"memory.search"})
-	registerTestTool(toolRegistry, toolcontract.ToolDefinition{Name: "memory.search"}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
+	toolRegistry := newTestToolSet([]string{"memory_search"})
+	registerTestTool(toolRegistry, toolcontract.ToolDefinition{Name: "memory_search"}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
 		return toolcontract.ToolResult{}, nil
 	})
 	planner := NewTaskIntakePlanner(languageModel, IntakeOptions{
@@ -415,10 +415,10 @@ func TestTaskIntakePlannerUsesStructuredModelDecision(t *testing.T) {
 }
 
 func TestIntakeToolDescriptionsCoverReachableTools(t *testing.T) {
-	toolRegistry := toolcontract.NewToolSet([]string{"file.deliver"})
+	toolRegistry := toolcontract.NewToolSet([]string{"file_deliver"})
 	for _, toolDefinition := range []toolcontract.ToolDefinition{
-		{Name: "calendar.add", Description: "Create a calendar event with a long operation description."},
-		{Name: "file.deliver", Description: "Deliver a file to the requester."},
+		{Name: "calendar_add", Description: "Create a calendar event with a long operation description."},
+		{Name: "file_deliver", Description: "Deliver a file to the requester."},
 	} {
 		definition := toolDefinition
 		registerTestTool(toolRegistry, definition, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
@@ -428,20 +428,20 @@ func TestIntakeToolDescriptionsCoverReachableTools(t *testing.T) {
 
 	descriptions := intakeToolDescriptions(toolRegistry)
 
-	if !strings.Contains(descriptions, "- file.deliver: Deliver a file to the requester.") {
+	if !strings.Contains(descriptions, "- file_deliver: Deliver a file to the requester.") {
 		t.Fatalf("expected the callable tool description, got %q", descriptions)
 	}
 	if strings.Contains(descriptions, "Registered requiredEvidence names") {
 		t.Fatalf("expected no completion-evidence name listing, got %q", descriptions)
 	}
-	if !strings.Contains(descriptions, "- calendar.add: Create a calendar event with a long operation description.") {
+	if !strings.Contains(descriptions, "- calendar_add: Create a calendar event with a long operation description.") {
 		t.Fatalf("expected reachable capability operations to carry descriptions at intake, got %q", descriptions)
 	}
 }
 
 func TestTurnRouterBuildMessagesKeepsStablePrefixClockInvariantAndOrdersVolatileLast(t *testing.T) {
-	toolRegistry := toolcontract.NewToolSet([]string{"calendar.list"})
-	registerTestTool(toolRegistry, toolcontract.ToolDefinition{Name: "calendar.list", Description: "List calendar events."}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
+	toolRegistry := toolcontract.NewToolSet([]string{"calendar_list"})
+	registerTestTool(toolRegistry, toolcontract.ToolDefinition{Name: "calendar_list", Description: "List calendar events."}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
 		return testToolSuccess("ok"), nil
 	})
 	turnRouter := NewTurnRouter(nil, IntakeOptions{IsEnabled: true})
@@ -499,13 +499,13 @@ func TestTurnRouterBuildMessagesKeepsStablePrefixClockInvariantAndOrdersVolatile
 
 func TestTaskIntakePlannerExplainsTaskRecordSemantics(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"route":"start_task","classification":"bounded_task","taskShape":"maintenance_task","level":"low","estimatedMinutes":1,"requestedOutputFormats":null,"expectedResults":[],"responseLanguage":"ko","reason":"add the requested task record","userFacingReply":"","initialToolNames":["task.add"],"priorTaskReference":"none"}`,
+		`{"route":"start_task","classification":"bounded_task","taskShape":"maintenance_task","level":"low","estimatedMinutes":1,"requestedOutputFormats":null,"expectedResults":[],"responseLanguage":"ko","reason":"add the requested task record","userFacingReply":"","initialToolNames":["task_add"],"priorTaskReference":"none"}`,
 	}}
 	planner := NewTaskIntakePlanner(languageModel, IntakeOptions{IsEnabled: true})
 
 	decision := mustPlanIntake(t, planner, AgentRequest{
 		Prompt:  "금요일까지 결산 자료 누락 항목 확인 업무를 추가해줘",
-		ToolSet: newTestCapabilityToolSet([]string{"task.add"}),
+		ToolSet: newTestCapabilityToolSet([]string{"task_add"}),
 	})
 
 	if decision.Classification != IntakeClassificationBoundedTask {
@@ -518,13 +518,13 @@ func TestTaskIntakePlannerExplainsTaskRecordSemantics(t *testing.T) {
 
 func TestTurnRouterNormalizesSideEffectEvidenceIntoExecutableWork(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"route":"answer_question","classification":"quick_reply","taskShape":"immediate_reply","level":"low","estimatedMinutes":1,"requestedOutputFormats":[],"expectedResults":[],"responseLanguage":"ko","reason":"add the task","userFacingReply":"","initialToolNames":["task.add"],"priorTaskReference":"none"}`,
+		`{"route":"answer_question","classification":"quick_reply","taskShape":"immediate_reply","level":"low","estimatedMinutes":1,"requestedOutputFormats":[],"expectedResults":[],"responseLanguage":"ko","reason":"add the task","userFacingReply":"","initialToolNames":["task_add"],"priorTaskReference":"none"}`,
 	}}
 	turnRouter := NewTurnRouter(languageModel, IntakeOptions{IsEnabled: true})
 
 	decision, errorValue := turnRouter.Plan(context.Background(), AgentRequest{
 		Prompt:  "분기 결산 확인 업무를 추가해줘",
-		ToolSet: newTestCapabilityToolSet([]string{"task.add", "file.read"}),
+		ToolSet: newTestCapabilityToolSet([]string{"task_add", "file_read"}),
 	})
 
 	if errorValue != nil {
@@ -537,13 +537,13 @@ func TestTurnRouterNormalizesSideEffectEvidenceIntoExecutableWork(t *testing.T) 
 
 func TestTurnRouterDropsHTMLFormatWhenSiteToolsAreSuggested(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"route":"start_task","classification":"bounded_task","taskShape":"maintenance_task","level":"medium","estimatedMinutes":20,"requestedOutputFormats":["html"],"expectedResults":[],"responseLanguage":"ko","reason":"create the site","userFacingReply":"","initialToolNames":["site.serve","file.edit"],"priorTaskReference":"none"}`,
+		`{"route":"start_task","classification":"bounded_task","taskShape":"maintenance_task","level":"medium","estimatedMinutes":20,"requestedOutputFormats":["html"],"expectedResults":[],"responseLanguage":"ko","reason":"create the site","userFacingReply":"","initialToolNames":["site_serve","file_edit"],"priorTaskReference":"none"}`,
 	}}
 	turnRouter := NewTurnRouter(languageModel, IntakeOptions{IsEnabled: true})
 
 	decision, errorValue := turnRouter.Plan(context.Background(), AgentRequest{
 		Prompt:  "상담 안내 웹사이트를 초안으로 만들어줘",
-		ToolSet: newTestCapabilityToolSet([]string{"site.serve", "file.edit"}),
+		ToolSet: newTestCapabilityToolSet([]string{"site_serve", "file_edit"}),
 	})
 
 	if errorValue != nil {
@@ -556,13 +556,13 @@ func TestTurnRouterDropsHTMLFormatWhenSiteToolsAreSuggested(t *testing.T) {
 
 func TestTurnRouterKeepsReadOnlyEvidenceAsQuickReply(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"route":"answer_question","classification":"quick_reply","taskShape":"immediate_reply","level":"low","estimatedMinutes":1,"requestedOutputFormats":[],"expectedResults":[],"responseLanguage":"ko","reason":"list tasks","userFacingReply":"","initialToolNames":["task.list"],"priorTaskReference":"none"}`,
+		`{"route":"answer_question","classification":"quick_reply","taskShape":"immediate_reply","level":"low","estimatedMinutes":1,"requestedOutputFormats":[],"expectedResults":[],"responseLanguage":"ko","reason":"list tasks","userFacingReply":"","initialToolNames":["task_list"],"priorTaskReference":"none"}`,
 	}}
 	turnRouter := NewTurnRouter(languageModel, IntakeOptions{IsEnabled: true})
 
 	decision, errorValue := turnRouter.Plan(context.Background(), AgentRequest{
 		Prompt:  "내 업무 목록 보여줘",
-		ToolSet: newTestCapabilityToolSet([]string{"task.list"}),
+		ToolSet: newTestCapabilityToolSet([]string{"task_list"}),
 	})
 
 	if errorValue != nil {
@@ -581,7 +581,7 @@ func TestTurnRouterIgnoresUnregisteredSideEffectSuffix(t *testing.T) {
 		TaskLevel:        TaskLevelLow,
 		EstimatedMinutes: 1,
 		InitialToolNames: []string{"fake.delete"},
-	}, AgentRequest{ToolSet: newTestCapabilityToolSet([]string{"task.list"})})
+	}, AgentRequest{ToolSet: newTestCapabilityToolSet([]string{"task_list"})})
 
 	if decision.Route != TurnRouteAnswerQuestion || decision.Classification != IntakeClassificationQuickReply {
 		t.Fatalf("expected unregistered predicted tool to remain non-executable, got %+v", decision)
@@ -590,14 +590,14 @@ func TestTurnRouterIgnoresUnregisteredSideEffectSuffix(t *testing.T) {
 
 func TestTaskIntakePlannerReviewsExecutableTaskClarification(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"route":"clarify","classification":"needs_confirmation","taskShape":"approval_gated_task","level":"low","estimatedMinutes":10,"requestedOutputFormats":[],"expectedResults":[{"id":"result-1","type":"message","description":"작업 추가 완료 메시지","required":true}],"responseLanguage":"ko","reason":"작업 목록을 먼저 확인해야 합니다.","userFacingReply":"혹시 이미 작업 목록에 있는 작업인가요?","initialToolNames":["file.write"],"priorTaskReference":"none","clarificationQuestion":"이미 등록된 작업인가요?"}`,
-		`{"route":"start_task","classification":"bounded_task","taskShape":"maintenance_task","level":"low","estimatedMinutes":10,"requestedOutputFormats":[],"expectedResults":[{"id":"result-1","type":"message","description":"작업 추가 완료 메시지","required":true}],"responseLanguage":"ko","reason":"업무 기록을 바로 추가할 수 있습니다.","userFacingReply":"","initialToolNames":["task.add"],"priorTaskReference":"none"}`,
+		`{"route":"clarify","classification":"needs_confirmation","taskShape":"approval_gated_task","level":"low","estimatedMinutes":10,"requestedOutputFormats":[],"expectedResults":[{"id":"result-1","type":"message","description":"작업 추가 완료 메시지","required":true}],"responseLanguage":"ko","reason":"작업 목록을 먼저 확인해야 합니다.","userFacingReply":"혹시 이미 작업 목록에 있는 작업인가요?","initialToolNames":["file_write"],"priorTaskReference":"none","clarificationQuestion":"이미 등록된 작업인가요?"}`,
+		`{"route":"start_task","classification":"bounded_task","taskShape":"maintenance_task","level":"low","estimatedMinutes":10,"requestedOutputFormats":[],"expectedResults":[{"id":"result-1","type":"message","description":"작업 추가 완료 메시지","required":true}],"responseLanguage":"ko","reason":"업무 기록을 바로 추가할 수 있습니다.","userFacingReply":"","initialToolNames":["task_add"],"priorTaskReference":"none"}`,
 	}}
 	planner := NewTaskIntakePlanner(languageModel, IntakeOptions{IsEnabled: true})
 
 	decision := mustPlanIntake(t, planner, AgentRequest{
 		Prompt:  "이번 주 금요일까지 고객지원 분기 결산 누락 항목 확인 업무를 추가해줘",
-		ToolSet: newTestCapabilityToolSet([]string{"task.add", "task.list", "file.write"}),
+		ToolSet: newTestCapabilityToolSet([]string{"task_add", "task_list", "file_write"}),
 	})
 
 	if decision.Classification != IntakeClassificationBoundedTask {
@@ -609,12 +609,12 @@ func TestTaskIntakePlannerReviewsExecutableTaskClarification(t *testing.T) {
 }
 
 func TestTaskIntakePlannerPreservesClarificationWhenReviewFails(t *testing.T) {
-	languageModel := &clarificationReviewFailureLanguageModel{content: `{"route":"clarify","classification":"needs_confirmation","taskShape":"approval_gated_task","level":"low","estimatedMinutes":2,"requestedOutputFormats":[],"expectedResults":[],"responseLanguage":"ko","reason":"수정할 업무가 여러 개일 수 있습니다.","userFacingReply":"어떤 업무를 수정할까요?","initialToolNames":["task.update"],"priorTaskReference":"none","clarificationQuestion":"어떤 업무를 수정할까요?"}`}
+	languageModel := &clarificationReviewFailureLanguageModel{content: `{"route":"clarify","classification":"needs_confirmation","taskShape":"approval_gated_task","level":"low","estimatedMinutes":2,"requestedOutputFormats":[],"expectedResults":[],"responseLanguage":"ko","reason":"수정할 업무가 여러 개일 수 있습니다.","userFacingReply":"어떤 업무를 수정할까요?","initialToolNames":["task_update"],"priorTaskReference":"none","clarificationQuestion":"어떤 업무를 수정할까요?"}`}
 	planner := NewTaskIntakePlanner(languageModel, IntakeOptions{IsEnabled: true})
 
 	decision := mustPlanIntake(t, planner, AgentRequest{
 		Prompt:  "업무를 수정해줘",
-		ToolSet: newTestCapabilityToolSet([]string{"task.update"}),
+		ToolSet: newTestCapabilityToolSet([]string{"task_update"}),
 	})
 
 	if decision.Classification != IntakeClassificationNeedsConfirmation || decision.ClarificationQuestion != "어떤 업무를 수정할까요?" {
@@ -638,7 +638,7 @@ func TestTaskIntakePlannerPassesPriorTaskContext(t *testing.T) {
 			Prompt:                 "기업 문서 가이드를 워드 파일로 만들어줘",
 			RequestedOutputFormats: []string{"docx"},
 			OutcomeContract: OutcomeContract{
-				RequiredEvidenceTools:      []string{"file.deliver"},
+				RequiredEvidenceTools:      []string{"file_deliver"},
 				RequiredAttachmentSuffixes: []string{".docx"},
 				ArtifactRequirement:        ArtifactRequirementRequired,
 			},
@@ -667,10 +667,10 @@ func TestTaskIntakePlannerFallbackDoesNotInferPriorTaskIntent(t *testing.T) {
 
 func TestTaskIntakePlannerKeepsTypedFileContract(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"route":"start_task","classification":"bounded_task","taskShape":"maintenance_task","level":"low","estimatedMinutes":1,"requestedOutputFormats":["html"],"expectedResults":[{"id":"attached-file","type":"file","description":"attach a file","required":true}],"responseLanguage":"ko","reason":"calendar update","userFacingReply":"","initialToolNames":["calendar.update","file.deliver"],"priorTaskReference":"none"}`,
+		`{"route":"start_task","classification":"bounded_task","taskShape":"maintenance_task","level":"low","estimatedMinutes":1,"requestedOutputFormats":["html"],"expectedResults":[{"id":"attached-file","type":"file","description":"attach a file","required":true}],"responseLanguage":"ko","reason":"calendar update","userFacingReply":"","initialToolNames":["calendar_update","file_deliver"],"priorTaskReference":"none"}`,
 	}}
 	planner := NewTaskIntakePlanner(languageModel, IntakeOptions{IsEnabled: true})
-	toolRegistry := newTestCapabilityToolSet([]string{"calendar.update", "file.deliver"})
+	toolRegistry := newTestCapabilityToolSet([]string{"calendar_update", "file_deliver"})
 
 	decision := mustPlanIntake(t, planner, AgentRequest{Prompt: "일정을 오후 2시로 수정해줘", ToolSet: toolRegistry})
 
@@ -684,7 +684,7 @@ func TestTaskIntakePlannerKeepsTypedFileContract(t *testing.T) {
 
 func TestTaskIntakePlannerKeepsGroundedRequestedOutputFormat(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"route":"start_task","classification":"bounded_task","taskShape":"research_task","level":"medium","estimatedMinutes":1,"requestedOutputFormats":["html"],"expectedResults":[{"id":"attached-file","type":"file","description":"attach HTML","required":true}],"responseLanguage":"ko","reason":"presentation","userFacingReply":"","initialToolNames":["file.deliver"],"priorTaskReference":"none"}`,
+		`{"route":"start_task","classification":"bounded_task","taskShape":"research_task","level":"medium","estimatedMinutes":1,"requestedOutputFormats":["html"],"expectedResults":[{"id":"attached-file","type":"file","description":"attach HTML","required":true}],"responseLanguage":"ko","reason":"presentation","userFacingReply":"","initialToolNames":["file_deliver"],"priorTaskReference":"none"}`,
 	}}
 	planner := NewTaskIntakePlanner(languageModel, IntakeOptions{IsEnabled: true})
 	toolRegistry := newTestToolSet([]string{toolcontract.FileDeliverToolName})
@@ -716,7 +716,7 @@ func TestTaskIntakePlannerKeepsStructuredOutputFormats(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		`{"route":"start_task","classification":"bounded_task","taskShape":"research_task","level":"low","estimatedMinutes":1,"requestedOutputFormats":["html"],"reason":"explicit html output","userFacingReply":""}`,
 	}}
-	toolRegistry := newTestToolSet([]string{"terminal.run", "file.deliver"})
+	toolRegistry := newTestToolSet([]string{"terminal_run", "file_deliver"})
 	planner := NewTaskIntakePlanner(languageModel, IntakeOptions{IsEnabled: true})
 
 	decision := mustPlanIntake(t, planner, AgentRequest{
@@ -734,9 +734,9 @@ func TestTaskIntakePlannerKeepsStructuredOutputFormats(t *testing.T) {
 
 func TestTaskIntakePlannerKeepsJSONOutputFormat(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"route":"start_task","classification":"bounded_task","taskShape":"maintenance_task","level":"low","estimatedMinutes":1,"requestedOutputFormats":["json"],"expectedResults":[{"id":"memo","type":"file","description":"JSON memo","required":true}],"responseLanguage":"ko","reason":"create and deliver a JSON memo","userFacingReply":"","initialToolNames":["file.write","file.deliver"],"priorTaskReference":"none"}`,
+		`{"route":"start_task","classification":"bounded_task","taskShape":"maintenance_task","level":"low","estimatedMinutes":1,"requestedOutputFormats":["json"],"expectedResults":[{"id":"memo","type":"file","description":"JSON memo","required":true}],"responseLanguage":"ko","reason":"create and deliver a JSON memo","userFacingReply":"","initialToolNames":["file_write","file_deliver"],"priorTaskReference":"none"}`,
 	}}
-	toolRegistry := newTestToolSet([]string{"file.write", "file.deliver"})
+	toolRegistry := newTestToolSet([]string{"file_write", "file_deliver"})
 	planner := NewTaskIntakePlanner(languageModel, IntakeOptions{IsEnabled: true})
 
 	decision := mustPlanIntake(t, planner, AgentRequest{
@@ -759,7 +759,7 @@ func TestTaskIntakePlannerUsesStructuredArtifactEnumForFileDelivery(t *testing.T
 	languageModel := &sequenceLanguageModel{contents: []string{
 		`{"route":"give_up","classification":"unsupported","taskShape":"immediate_reply","level":"medium","estimatedMinutes":1,"requestedOutputFormats":["pdf"],"responseLanguage":"ko","reason":"mistaken unsupported file artifact","userFacingReply":"PDF 생성은 지원하지 않습니다.","priorTaskReference":"none"}`,
 	}}
-	toolRegistry := newTestToolSet([]string{"conversation.history", "file.read", "file.write", "terminal.run", "file.promote", "file.deliver"})
+	toolRegistry := newTestToolSet([]string{"conversation_history", "file_read", "file_write", "terminal_run", "file.promote", "file_deliver"})
 	planner := NewTaskIntakePlanner(languageModel, IntakeOptions{IsEnabled: true})
 
 	decision := mustPlanIntake(t, planner, AgentRequest{
@@ -786,9 +786,9 @@ func TestTaskIntakePlannerUsesStructuredArtifactEnumForFileDelivery(t *testing.T
 
 func TestTaskIntakePlannerPreservesTypedOutputFormatsAndExpectedResults(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"route":"start_task","classification":"bounded_task","taskShape":"research_task","level":"medium","estimatedMinutes":1,"requestedOutputFormats":["pdf"],"expectedResults":[{"id":"result-1","type":"file","description":"PDF document","required":true},{"id":"site-public-link","type":"link","description":"public URL","required":true}],"responseLanguage":"ko","reason":"conflicted artifact kind","userFacingReply":"","initialToolNames":["site.list"],"priorTaskReference":"none"}`,
+		`{"route":"start_task","classification":"bounded_task","taskShape":"research_task","level":"medium","estimatedMinutes":1,"requestedOutputFormats":["pdf"],"expectedResults":[{"id":"result-1","type":"file","description":"PDF document","required":true},{"id":"site-public-link","type":"link","description":"public URL","required":true}],"responseLanguage":"ko","reason":"conflicted artifact kind","userFacingReply":"","initialToolNames":["site_list"],"priorTaskReference":"none"}`,
 	}}
-	toolRegistry := newTestToolSet([]string{"conversation.history", "file.read", "file.write", "terminal.run", "file.promote", "file.deliver", "site.list"})
+	toolRegistry := newTestToolSet([]string{"conversation_history", "file_read", "file_write", "terminal_run", "file.promote", "file_deliver", "site_list"})
 	planner := NewTaskIntakePlanner(languageModel, IntakeOptions{IsEnabled: true})
 
 	decision := mustPlanIntake(t, planner, AgentRequest{
@@ -802,13 +802,13 @@ func TestTaskIntakePlannerPreservesTypedOutputFormatsAndExpectedResults(t *testi
 	if len(decision.ExpectedResults) != 2 || !expectedResultsContain(decision.ExpectedResults, ExpectedResultTypeFile, "PDF document") || !expectedResultsContain(decision.ExpectedResults, ExpectedResultTypeLink, "public URL") {
 		t.Fatalf("expected typed expected results to remain, got %+v", decision.ExpectedResults)
 	}
-	if !slices.Contains(decision.InitialToolNames, "site.list") {
+	if !slices.Contains(decision.InitialToolNames, "site_list") {
 		t.Fatalf("expected typed initial site tool to remain, got %+v", decision.InitialToolNames)
 	}
 }
 
 func TestTurnRouterSchemaUsesContextDependentPendingFields(t *testing.T) {
-	toolSet := newTestCapabilityToolSet([]string{"task.add", "task.update"})
+	toolSet := newTestCapabilityToolSet([]string{"task_add", "task_update"})
 	noPendingSchema := turnRouterSchema(AgentRequest{ToolSet: toolSet})
 	if strings.Contains(noPendingSchema, `"approval"`) {
 		t.Fatalf("expected no approval field without pending confirmation, got %s", noPendingSchema)
@@ -830,7 +830,7 @@ func TestTurnRouterSchemaUsesContextDependentPendingFields(t *testing.T) {
 	if strings.Count(noPendingSchema, `"maxItems"`) < 4 {
 		t.Fatalf("expected bounded router arrays, got %s", noPendingSchema)
 	}
-	for _, toolName := range []string{`"task.add"`, `"task.update"`} {
+	for _, toolName := range []string{`"task_add"`, `"task_update"`} {
 		if !strings.Contains(noPendingSchema, toolName) {
 			t.Fatalf("expected registered tool enum value %s in schema, got %s", toolName, noPendingSchema)
 		}
@@ -982,7 +982,7 @@ func TestTurnRouterRequiresDirectMessageConsumeFallback(t *testing.T) {
 
 func TestTurnRouterRejectsTaskfulConsumeRoute(t *testing.T) {
 	router := NewTurnRouter(nil, IntakeOptions{IsEnabled: false})
-	toolSet := newTestToolSet([]string{"task.add", "task.list", "task.update"})
+	toolSet := newTestToolSet([]string{"task_add", "task_list", "task_update"})
 	_, errorValue := router.normalizeDecision(TurnDecision{
 		Route:            TurnRouteConsume,
 		Classification:   IntakeClassificationBoundedTask,
@@ -991,7 +991,7 @@ func TestTurnRouterRejectsTaskfulConsumeRoute(t *testing.T) {
 		EstimatedMinutes: 1,
 		ResponseLanguage: "ko",
 		Reason:           "사용자가 명시적으로 업무 등록을 요청함",
-		InitialToolNames: []string{"task.add", "task.list", "task.update"},
+		InitialToolNames: []string{"task_add", "task_list", "task_update"},
 	}, AgentRequest{
 		Prompt:  "업무 등록해줘.\n\n- 메일 페이지 앱 비밀번호 개선",
 		ToolSet: toolSet,
@@ -1116,7 +1116,7 @@ func TestTaskIntakePlannerClampsBrowserControlEffort(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		`{"route":"start_task","classification":"bounded_task","taskShape":"browser_handoff_task","level":"xlow","estimatedMinutes":1,"requestedOutputFormats":null,"reason":"browser control","userFacingReply":""}`,
 	}}
-	toolRegistry := newTestToolSet([]string{"browser.open", "browser.screenshot"})
+	toolRegistry := newTestToolSet([]string{"browser_open", "browser_screenshot"})
 	planner := NewTaskIntakePlanner(languageModel, IntakeOptions{IsEnabled: true})
 
 	decision := mustPlanIntake(t, planner, AgentRequest{
@@ -1133,7 +1133,7 @@ func TestTaskIntakePlannerRespectsModelDecisionForShortFollowUp(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		`{"route":"start_task","classification":"bounded_task","taskShape":"browser_handoff_task","level":"low","estimatedMinutes":1,"requestedOutputFormats":null,"reason":"continues visible browser work","userFacingReply":""}`,
 	}}
-	toolRegistry := newTestToolSet([]string{"browser.open", "browser.snapshot"})
+	toolRegistry := newTestToolSet([]string{"browser_open", "browser_snapshot"})
 	planner := NewTaskIntakePlanner(languageModel, IntakeOptions{IsEnabled: true})
 
 	decision := mustPlanIntake(t, planner, AgentRequest{
@@ -1156,9 +1156,9 @@ func TestTaskIntakePlannerRespectsModelDecisionForShortFollowUp(t *testing.T) {
 func TestTaskIntakePlannerTreatsLocalArtifactConfirmationAsBoundedTask(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		`{"route":"clarify","classification":"needs_confirmation","taskShape":"approval_gated_task","level":"medium","estimatedMinutes":1,"requestedOutputFormats":["pdf"],"reason":"asks for generated files","userFacingReply":"승인하시겠습니까?"}`,
-		`{"route":"start_task","classification":"bounded_task","taskShape":"maintenance_task","level":"medium","estimatedMinutes":10,"requestedOutputFormats":["pdf"],"responseLanguage":"ko","reason":"request is executable","userFacingReply":"","initialToolNames":["file.write"]}`,
+		`{"route":"start_task","classification":"bounded_task","taskShape":"maintenance_task","level":"medium","estimatedMinutes":10,"requestedOutputFormats":["pdf"],"responseLanguage":"ko","reason":"request is executable","userFacingReply":"","initialToolNames":["file_write"]}`,
 	}}
-	toolRegistry := newTestToolSet([]string{"terminal.run", "file.write", "file.promote", "file.deliver"})
+	toolRegistry := newTestToolSet([]string{"terminal_run", "file_write", "file.promote", "file_deliver"})
 	planner := NewTaskIntakePlanner(languageModel, IntakeOptions{IsEnabled: true})
 
 	decision := mustPlanIntake(t, planner, AgentRequest{
@@ -1181,8 +1181,8 @@ func TestTaskIntakePlannerDoesNotOverrideScheduleRefusalWithoutSelectedSkill(t *
 	languageModel := &sequenceLanguageModel{contents: []string{
 		`{"route":"give_up","classification":"unsupported","taskShape":"immediate_reply","level":"medium","estimatedMinutes":1,"requestedOutputFormats":null,"reason":"background loops are unsupported","userFacingReply":"지원하지 않습니다."}`,
 	}}
-	toolRegistry := newTestToolSet([]string{"schedule.create"})
-	registerTestTool(toolRegistry, toolcontract.ToolDefinition{Name: "schedule.create"}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
+	toolRegistry := newTestToolSet([]string{"schedule_create"})
+	registerTestTool(toolRegistry, toolcontract.ToolDefinition{Name: "schedule_create"}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
 		return testToolSuccess("scheduled"), nil
 	})
 	planner := NewTaskIntakePlanner(languageModel, IntakeOptions{
@@ -1208,8 +1208,8 @@ func TestAgentKernelPreservesScheduledIntakeRefusalAfterSkillSelection(t *testin
 		`{"route":"give_up","classification":"unsupported","taskShape":"immediate_reply","level":"medium","estimatedMinutes":1,"requestedOutputFormats":null,"reason":"background loops are unsupported","userFacingReply":"지원하지 않습니다."}`,
 	}}
 	replyLanguageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"continue","toolName":"schedule.create","toolInput":{"taskInstruction":"현재 대화에 \"죄송합니다\"라고 보낸다.","kind":"interval","intervalSecond":60,"maxRunCount":10,"repeatPolicy":"finite","timeZone":"Asia/Seoul"}}`,
-		finishMessageWithEvidence("1분 간격으로 10번 보내도록 예약했습니다.", "obs-001", "schedule.create", 0),
+		`{"action":"continue","toolName":"schedule_create","toolInput":{"taskInstruction":"현재 대화에 \"죄송합니다\"라고 보낸다.","kind":"interval","intervalSecond":60,"maxRunCount":10,"repeatPolicy":"finite","timeZone":"Asia/Seoul"}}`,
+		finishMessageWithEvidence("1분 간격으로 10번 보내도록 예약했습니다.", "obs-001", "schedule_create", 0),
 	}}
 	services := newKernelIntakeTestServices(replyLanguageModel, intakeLanguageModel)
 	services.kernel.UseSkillRetriever(staticSkillRetriever{result: SkillRetrievalResult{SelectedCandidates: []SkillCandidate{{Name: "scheduled-task", Score: 1, Reason: "test"}}}})
@@ -1217,12 +1217,12 @@ func TestAgentKernelPreservesScheduledIntakeRefusalAfterSkillSelection(t *testin
 		return InstructionBundle{Skills: []SkillInstruction{{
 			Name:           "scheduled-task",
 			Description:    "Create scheduled, recurring, finite repeated reminders, interval messages, 1분에 한 번씩, and repeat N times.",
-			Prompt:         "Use schedule.create with taskInstruction for the run-time work, intervalSecond, repeatPolicy, and maxRunCount.",
-			ToolReferences: []string{"schedule.create"},
+			Prompt:         "Use schedule_create with taskInstruction for the run-time work, intervalSecond, repeatPolicy, and maxRunCount.",
+			ToolReferences: []string{"schedule_create"},
 			Source:         InstructionSource{Path: "skills/scheduled-task/SKILL.md", SkillName: "scheduled-task"},
 		}}}
 	})
-	toolRegistry := newTestCapabilityToolSet([]string{"schedule.create"})
+	toolRegistry := newTestCapabilityToolSet([]string{"schedule_create"})
 
 	result, errorValue := services.kernel.RunAgentRequest(context.Background(), AgentRequest{
 		RequesterPersonID: "person-1",
@@ -1243,11 +1243,11 @@ func TestAgentKernelPreservesScheduledIntakeRefusalAfterSkillSelection(t *testin
 
 func TestAgentKernelSelectsArtifactSkillOnceAfterRouting(t *testing.T) {
 	intakeLanguageModel := &sequenceLanguageModel{contents: []string{
-		`{"route":"start_task","classification":"bounded_task","taskShape":"maintenance_task","level":"medium","estimatedMinutes":1,"requestedOutputFormats":["pptx"],"initialToolNames":["file.deliver"],"reason":"create and deliver the requested presentation","userFacingReply":""}`,
+		`{"route":"start_task","classification":"bounded_task","taskShape":"maintenance_task","level":"medium","estimatedMinutes":1,"requestedOutputFormats":["pptx"],"initialToolNames":["file_deliver"],"reason":"create and deliver the requested presentation","userFacingReply":""}`,
 	}}
 	replyLanguageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"continue","toolName":"file.deliver","toolInput":{"path":"artifacts/deck/deck.pptx"}}`,
-		finishMessageWithEvidence("deck.pptx 파일을 첨부했습니다.", "obs-001", "file.deliver", 0),
+		`{"action":"continue","toolName":"file_deliver","toolInput":{"path":"artifacts/deck/deck.pptx"}}`,
+		finishMessageWithEvidence("deck.pptx 파일을 첨부했습니다.", "obs-001", "file_deliver", 0),
 	}}
 	services := newKernelIntakeTestServices(replyLanguageModel, intakeLanguageModel)
 	skillRetriever := &countingSkillRetriever{result: SkillRetrievalResult{
@@ -1262,12 +1262,12 @@ func TestAgentKernelSelectsArtifactSkillOnceAfterRouting(t *testing.T) {
 			Name:           "presentation",
 			Description:    "Create presentation decks, 피피티, 파워포인트, 발표자료, and PPTX files.",
 			Prompt:         "Create and attach PPTX files.",
-			ToolReferences: []string{"terminal.run", "file.write", "file.deliver"},
+			ToolReferences: []string{"terminal_run", "file_write", "file_deliver"},
 			Source:         InstructionSource{Path: "skills/presentation/SKILL.md", SkillName: "presentation"},
 		}}}
 	})
-	toolRegistry := newTestToolSet([]string{"terminal.run", "file.write", "file.promote", "file.deliver"})
-	registerTestTool(toolRegistry, toolcontract.ToolDefinition{Name: "file.deliver"}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
+	toolRegistry := newTestToolSet([]string{"terminal_run", "file_write", "file.promote", "file_deliver"})
+	registerTestTool(toolRegistry, toolcontract.ToolDefinition{Name: "file_deliver"}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
 		return toolcontract.ToolResult{
 			Output: toolcontract.ToolOutput{Content: "file attached"},
 			Attachments: []toolcontract.FileAttachment{{
@@ -1319,27 +1319,27 @@ func TestAgentKernelSelectsArtifactSkillOnceAfterRouting(t *testing.T) {
 func TestAgentKernelSelectsSkillForTypedToolContract(t *testing.T) {
 	intakeLanguageModel := &sequenceLanguageModel{contents: []string{
 		`{"queries":[{"description":"Create a task."}]}`,
-		`{"selectedSkillNames":["internkim-flow"],"rejectedSkillNames":[],"requiredNextToolNames":["task.add"],"expectedEvidence":["task.add"],"unmetPreconditions":[],"reason":"The task contract requires task creation."}`,
+		`{"selectedSkillNames":["internkim-flow"],"rejectedSkillNames":[],"requiredNextToolNames":["task_add"],"expectedEvidence":["task_add"],"unmetPreconditions":[],"reason":"The task contract requires task creation."}`,
 	}}
 	services := newKernelIntakeTestServices(&sequenceLanguageModel{}, intakeLanguageModel)
 	skillRetriever := &countingSkillRetriever{result: SkillRetrievalResult{
 		SelectedCandidates: []SkillCandidate{{Name: "internkim-flow", Score: 1}},
 	}}
 	services.kernel.UseSkillRetriever(skillRetriever)
-	toolSet := newTestCapabilityToolSet([]string{"task.add"})
+	toolSet := newTestCapabilityToolSet([]string{"task_add"})
 	request := AgentRequest{
 		Prompt:  "업무를 추가해줘",
 		ToolSet: toolSet,
 		ActiveGoal: ActiveGoal{OutcomeContract: OutcomeContract{
 			ArtifactRequirement:   ArtifactRequirementNone,
-			RequiredEvidenceTools: []string{"task.add"},
+			RequiredEvidenceTools: []string{"task_add"},
 		}},
 	}
 	bundle, _ := services.kernel.selectInstructionBundleForResolvedRequest(context.Background(), InstructionBundle{Skills: []SkillInstruction{{
 		Name:           "internkim-flow",
 		Description:    "Manage tasks.",
 		Prompt:         "Use task.add.",
-		ToolReferences: []string{"task.add"},
+		ToolReferences: []string{"task_add"},
 	}}}, request, IntakeDecision{
 		Classification:   IntakeClassificationBoundedTask,
 		TaskLevel:        TaskLevelLow,
@@ -1359,15 +1359,15 @@ func TestAgentKernelSelectsSkillForTypedToolContract(t *testing.T) {
 
 func TestAgentKernelPreservesUnsupportedArtifactWithoutSelectedSkill(t *testing.T) {
 	intakeLanguageModel := &sequenceLanguageModel{contents: []string{
-		`{"route":"give_up","classification":"unsupported","taskShape":"immediate_reply","level":"low","estimatedMinutes":1,"requestedOutputFormats":["pptx"],"initialToolNames":["file.deliver"],"responseLanguage":"ko","reason":"previous permission failure","userFacingReply":"PPTX 파일 생성은 불가능합니다."}`,
+		`{"route":"give_up","classification":"unsupported","taskShape":"immediate_reply","level":"low","estimatedMinutes":1,"requestedOutputFormats":["pptx"],"initialToolNames":["file_deliver"],"responseLanguage":"ko","reason":"previous permission failure","userFacingReply":"PPTX 파일 생성은 불가능합니다."}`,
 	}}
 	replyLanguageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"continue","toolName":"file.deliver","toolInput":{"path":"artifacts/deck/deck.pptx"}}`,
-		finishMessageWithEvidence("deck.pptx 파일을 첨부했습니다.", "obs-001", "file.deliver", 0),
+		`{"action":"continue","toolName":"file_deliver","toolInput":{"path":"artifacts/deck/deck.pptx"}}`,
+		finishMessageWithEvidence("deck.pptx 파일을 첨부했습니다.", "obs-001", "file_deliver", 0),
 	}}
 	services := newKernelIntakeTestServices(replyLanguageModel, intakeLanguageModel)
-	toolRegistry := newTestToolSet([]string{"terminal.run", "file.write", "file.promote", "file.deliver"})
-	registerTestTool(toolRegistry, toolcontract.ToolDefinition{Name: "file.deliver"}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
+	toolRegistry := newTestToolSet([]string{"terminal_run", "file_write", "file.promote", "file_deliver"})
+	registerTestTool(toolRegistry, toolcontract.ToolDefinition{Name: "file_deliver"}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
 		return toolcontract.ToolResult{
 			Output: toolcontract.ToolOutput{Content: "file attached"},
 			Attachments: []toolcontract.FileAttachment{{
@@ -1403,12 +1403,12 @@ func TestAgentKernelRecoversPriorTaskAttachmentContract(t *testing.T) {
 	}}
 	replyLanguageModel := &sequenceLanguageModel{contents: []string{
 		finishMessageDocument("기존 작업이 이미 완료되어 파일이 준비되었습니다."),
-		`{"action":"continue","toolName":"file.deliver","toolInput":{"path":"artifacts/company-guide/company-guide.docx"}}`,
-		finishMessageWithEvidence("company-guide.docx 파일을 첨부했습니다.", "obs-002", "file.deliver", 0),
+		`{"action":"continue","toolName":"file_deliver","toolInput":{"path":"artifacts/company-guide/company-guide.docx"}}`,
+		finishMessageWithEvidence("company-guide.docx 파일을 첨부했습니다.", "obs-002", "file_deliver", 0),
 	}}
 	services := newKernelIntakeTestServices(replyLanguageModel, intakeLanguageModel)
-	toolRegistry := newTestToolSet([]string{"file.deliver"})
-	registerTestTool(toolRegistry, toolcontract.ToolDefinition{Name: "file.deliver"}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
+	toolRegistry := newTestToolSet([]string{"file_deliver"})
+	registerTestTool(toolRegistry, toolcontract.ToolDefinition{Name: "file_deliver"}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
 		return toolcontract.ToolResult{
 			Output: toolcontract.ToolOutput{Content: "file attached"},
 			Attachments: []toolcontract.FileAttachment{{
@@ -1428,7 +1428,7 @@ func TestAgentKernelRecoversPriorTaskAttachmentContract(t *testing.T) {
 			Status:    string(taskstate.TaskStatusFailed),
 			Prompt:    "기업 문서 가이드를 워드 파일로 만들어줘",
 			OutcomeContract: OutcomeContract{
-				RequiredEvidenceTools:      []string{"file.deliver"},
+				RequiredEvidenceTools:      []string{"file_deliver"},
 				RequiredAttachmentSuffixes: []string{".docx"},
 				ExpectedResults: []ExpectedResult{{
 					ID:          "attached-file",
@@ -1466,16 +1466,16 @@ func TestAgentKernelRecoversPriorTaskAttachmentContract(t *testing.T) {
 
 func TestAgentKernelRecoversLegacyPriorAttachmentContractFromIntakeOutput(t *testing.T) {
 	intakeLanguageModel := &sequenceLanguageModel{contents: []string{
-		`{"route":"start_task","classification":"bounded_task","taskShape":"research_task","level":"low","estimatedMinutes":1,"requestedOutputFormats":["docx"],"responseLanguage":"ko","reason":"latest message asks for the prior Word file as an attachment","userFacingReply":"","initialToolNames":["file.deliver"],"priorTaskReference":"outcome_recovery"}`,
+		`{"route":"start_task","classification":"bounded_task","taskShape":"research_task","level":"low","estimatedMinutes":1,"requestedOutputFormats":["docx"],"responseLanguage":"ko","reason":"latest message asks for the prior Word file as an attachment","userFacingReply":"","initialToolNames":["file_deliver"],"priorTaskReference":"outcome_recovery"}`,
 	}}
 	replyLanguageModel := &sequenceLanguageModel{contents: []string{
 		finishMessageDocument("기존 작업이 이미 완료되어 파일이 준비되었습니다."),
-		`{"action":"continue","toolName":"file.deliver","toolInput":{"path":"artifacts/company-guide/company-guide.docx"}}`,
-		finishMessageWithEvidence("company-guide.docx 파일을 첨부했습니다.", "obs-002", "file.deliver", 0),
+		`{"action":"continue","toolName":"file_deliver","toolInput":{"path":"artifacts/company-guide/company-guide.docx"}}`,
+		finishMessageWithEvidence("company-guide.docx 파일을 첨부했습니다.", "obs-002", "file_deliver", 0),
 	}}
 	services := newKernelIntakeTestServices(replyLanguageModel, intakeLanguageModel)
-	toolRegistry := newTestToolSet([]string{"conversation.history", "file.read", "file.write", "terminal.run", "file.promote", "file.deliver"})
-	registerTestTool(toolRegistry, toolcontract.ToolDefinition{Name: "file.deliver"}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
+	toolRegistry := newTestToolSet([]string{"conversation_history", "file_read", "file_write", "terminal_run", "file.promote", "file_deliver"})
+	registerTestTool(toolRegistry, toolcontract.ToolDefinition{Name: "file_deliver"}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
 		return toolcontract.ToolResult{
 			Output: toolcontract.ToolOutput{Content: "file attached"},
 			Attachments: []toolcontract.FileAttachment{{
@@ -1520,9 +1520,9 @@ func TestAgentKernelRecoversLegacyPriorAttachmentContractFromIntakeOutput(t *tes
 func TestTaskIntakePlannerTreatsSupportedSitePrototypeConfirmationAsBoundedTask(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		`{"route":"clarify","classification":"needs_confirmation","taskShape":"approval_gated_task","level":"medium","estimatedMinutes":1,"requestedOutputFormats":null,"reason":"publishing needs approval","userFacingReply":"승인해주시겠어요?"}`,
-		`{"route":"start_task","classification":"bounded_task","taskShape":"maintenance_task","level":"medium","estimatedMinutes":15,"requestedOutputFormats":null,"responseLanguage":"ko","reason":"request is executable","userFacingReply":"","initialToolNames":["site.serve"]}`,
+		`{"route":"start_task","classification":"bounded_task","taskShape":"maintenance_task","level":"medium","estimatedMinutes":15,"requestedOutputFormats":null,"responseLanguage":"ko","reason":"request is executable","userFacingReply":"","initialToolNames":["site_serve"]}`,
 	}}
-	toolRegistry := newTestToolSet([]string{"site.serve", "site.serve"})
+	toolRegistry := newTestToolSet([]string{"site_serve", "site_serve"})
 	for _, toolName := range toolRegistry.ListToolNames() {
 		currentToolName := toolName
 		registerTestTool(toolRegistry, toolcontract.ToolDefinition{Name: currentToolName}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
@@ -1556,7 +1556,7 @@ func TestTaskIntakePlannerIncludesTemporalContext(t *testing.T) {
 	_ = mustPlanIntake(t, planner, AgentRequest{
 		Prompt:        "김인턴 구조 웹사이트 만들어줘",
 		TurnStartedAt: time.Date(2026, time.May, 17, 1, 2, 3, 0, time.UTC),
-		ToolSet:       newTestToolSet([]string{"site.serve", "site.serve"}),
+		ToolSet:       newTestToolSet([]string{"site_serve", "site_serve"}),
 	})
 
 	if len(languageModel.requests) != 1 {
@@ -1571,9 +1571,9 @@ func TestTaskIntakePlannerIncludesTemporalContext(t *testing.T) {
 func TestTaskIntakePlannerRoutesDestructiveArtifactWorkBeforeApprovalGate(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		`{"route":"clarify","classification":"needs_confirmation","taskShape":"approval_gated_task","level":"medium","estimatedMinutes":1,"requestedOutputFormats":null,"reason":"destructive","userFacingReply":"승인하시겠습니까?"}`,
-		`{"route":"start_task","classification":"bounded_task","taskShape":"maintenance_task","level":"medium","estimatedMinutes":10,"requestedOutputFormats":null,"responseLanguage":"ko","reason":"confirmation is handled after routing","userFacingReply":"","initialToolNames":["file.write"]}`,
+		`{"route":"start_task","classification":"bounded_task","taskShape":"maintenance_task","level":"medium","estimatedMinutes":10,"requestedOutputFormats":null,"responseLanguage":"ko","reason":"confirmation is handled after routing","userFacingReply":"","initialToolNames":["file_write"]}`,
 	}}
-	toolRegistry := newTestToolSet([]string{"terminal.run", "file.write", "file.deliver"})
+	toolRegistry := newTestToolSet([]string{"terminal_run", "file_write", "file_deliver"})
 	planner := NewTaskIntakePlanner(languageModel, IntakeOptions{IsEnabled: true})
 
 	decision := mustPlanIntake(t, planner, AgentRequest{
@@ -1683,7 +1683,7 @@ func TestAgentKernelCreatesChoiceAskForClarificationOptions(t *testing.T) {
 	}
 	events := services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID)
 	if !taskEventsContain(events, "ask.requested", `"kind":"ask_input"`) {
-		t.Fatalf("expected option-bearing ask.input event, got %+v", events)
+		t.Fatalf("expected option-bearing ask_input event, got %+v", events)
 	}
 	if !taskEventsContain(events, "ask.requested", `"recommendedOptionKey":"A"`) {
 		t.Fatalf("expected first option to be recommended, got %+v", events)
@@ -1701,7 +1701,7 @@ func TestAgentKernelQuickReplyAllowsToolFreeReplyWithoutAskInput(t *testing.T) {
 		finishMessageDocument("hello"),
 	}}
 	services := newKernelIntakeTestServices(replyLanguageModel, intakeLanguageModel)
-	toolRegistry := newTestToolSet([]string{"expensive", "ask.input"})
+	toolRegistry := newTestToolSet([]string{"expensive", "ask_input"})
 	registerTestTool(toolRegistry, toolcontract.ToolDefinition{Name: "expensive"}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
 		return testToolSuccess("expensive result"), nil
 	})
@@ -1723,7 +1723,7 @@ func TestAgentKernelQuickReplyAllowsToolFreeReplyWithoutAskInput(t *testing.T) {
 	}
 	actionSchema := string(replyLanguageModel.requests[0].StructuredOutputSchema.Document)
 	if strings.Contains(actionSchema, toolcontract.AskInputToolName) {
-		t.Fatalf("expected quick reply schema to hide ask.input without typed interaction, got %s", actionSchema)
+		t.Fatalf("expected quick reply schema to hide ask_input without typed interaction, got %s", actionSchema)
 	}
 	if !strings.Contains(strings.Join(result.ToolNames, ","), "expensive") {
 		t.Fatalf("expected quick reply result to preserve tools, got %+v", result.ToolNames)
@@ -1838,15 +1838,15 @@ func TestAgentKernelQuickReplyFailureDoesNotInventToolFailure(t *testing.T) {
 
 func TestAgentKernelQuickReplyCanUseInitialTool(t *testing.T) {
 	intakeLanguageModel := &sequenceLanguageModel{contents: []string{
-		`{"route":"start_task","classification":"quick_reply","taskShape":"immediate_reply","level":"xlow","estimatedMinutes":1,"requestedOutputFormats":null,"initialToolNames":["schedule.list"],"responseLanguage":"ko","reason":"schedule question","userFacingReply":""}`,
+		`{"route":"start_task","classification":"quick_reply","taskShape":"immediate_reply","level":"xlow","estimatedMinutes":1,"requestedOutputFormats":null,"initialToolNames":["schedule_list"],"responseLanguage":"ko","reason":"schedule question","userFacingReply":""}`,
 	}}
 	replyLanguageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"continue","toolName":"schedule.list","toolInput":{}}`,
-		finishMessageWithEvidence("오늘 등록된 일정은 없어요.", "obs-001", "schedule.list", 0),
+		`{"action":"continue","toolName":"schedule_list","toolInput":{}}`,
+		finishMessageWithEvidence("오늘 등록된 일정은 없어요.", "obs-001", "schedule_list", 0),
 	}}
 	services := newKernelIntakeTestServices(replyLanguageModel, intakeLanguageModel)
-	toolRegistry := newTestCapabilityToolSet([]string{"schedule.list"})
-	registerTestTool(toolRegistry, toolcontract.ToolDefinition{Name: "schedule.list"}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
+	toolRegistry := newTestCapabilityToolSet([]string{"schedule_list"})
+	registerTestTool(toolRegistry, toolcontract.ToolDefinition{Name: "schedule_list"}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
 		return testToolSuccess(`{"schedules":[]}`), nil
 	})
 
@@ -1862,22 +1862,22 @@ func TestAgentKernelQuickReplyCanUseInitialTool(t *testing.T) {
 	if result.FinishMessage != "오늘 등록된 일정은 없어요." {
 		t.Fatalf("expected initial-tool final reply, got %q", result.FinishMessage)
 	}
-	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "tool.schedule.list.result", "schedule.list") {
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "tool.schedule_list.result", "schedule_list") {
 		t.Fatal("expected initial tool event")
 	}
 }
 
 func TestAgentKernelQuickReplyUsesAskInputForExplicitChoiceRequest(t *testing.T) {
 	intakeLanguageModel := &sequenceLanguageModel{contents: []string{
-		`{"route":"start_task","classification":"quick_reply","taskShape":"immediate_reply","level":"xlow","estimatedMinutes":1,"requestedOutputFormats":null,"expectedResults":[{"id":"interactive-choice","type":"message","description":"사용자가 직접 고를 수 있는 선택지 UI가 표시됨","required":true,"acceptanceHints":["ask.input"]}],"responseLanguage":"ko","reason":"choice probe","userFacingReply":""}`,
+		`{"route":"start_task","classification":"quick_reply","taskShape":"immediate_reply","level":"xlow","estimatedMinutes":1,"requestedOutputFormats":null,"expectedResults":[{"id":"interactive-choice","type":"message","description":"사용자가 직접 고를 수 있는 선택지 UI가 표시됨","required":true,"acceptanceHints":["ask_input"]}],"responseLanguage":"ko","reason":"choice probe","userFacingReply":""}`,
 	}}
 	replyLanguageModel := &sequenceLanguageModel{contents: []string{
 		finishMessageDocument("아래 세 가지 중 하나를 선택해 주세요.\n\n1. 선택지 1\n2. 선택지 2\n3. 선택지 3"),
-		`{"action":"continue","toolName":"ask.input","toolInput":{"question":"아래 세 가지 중 하나를 선택해 주세요.","options":["선택지 1","선택지 2","선택지 3"],"recommendedOptionKey":"1","selectionMode":"single"}}`,
+		`{"action":"continue","toolName":"ask_input","toolInput":{"question":"아래 세 가지 중 하나를 선택해 주세요.","options":["선택지 1","선택지 2","선택지 3"],"recommendedOptionKey":"1","selectionMode":"single"}}`,
 	}}
 	services := newKernelIntakeTestServices(replyLanguageModel, intakeLanguageModel)
-	toolRegistry := newTestToolSet([]string{"ask.input"})
-	registerTestTool(toolRegistry, toolcontract.ToolDefinition{Name: "ask.input"}, func(toolContext context.Context, invocation toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
+	toolRegistry := newTestToolSet([]string{"ask_input"})
+	registerTestTool(toolRegistry, toolcontract.ToolDefinition{Name: "ask_input"}, func(toolContext context.Context, invocation toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
 		taskRunID := TaskRunIDFromContext(toolContext)
 		if taskRunID == "" {
 			return toolcontract.ToolFailureResult(toolcontract.FailureInvalidInput, toolcontract.FailureCodes.InvalidInput, "ask_choice", "missing task run"), nil
@@ -1903,14 +1903,14 @@ func TestAgentKernelQuickReplyUsesAskInputForExplicitChoiceRequest(t *testing.T)
 		t.Fatalf("expected waiting user input, got %s", result.TaskRun.Status)
 	}
 	events := services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID)
-	if !taskEventsContain(events, "agent.completion_required", "ask.input") {
+	if !taskEventsContain(events, "agent.completion_required", "ask_input") {
 		t.Fatalf("expected text-only finish to be rejected, got %+v", events)
 	}
 	if !taskEventsContain(events, "ask.requested", `"selectionMode":"single"`) {
-		t.Fatalf("expected ask.input request event, got %+v", events)
+		t.Fatalf("expected ask_input request event, got %+v", events)
 	}
 	if len(replyLanguageModel.requests) != 2 {
-		t.Fatalf("expected finish rejection then ask.input action, got %d requests", len(replyLanguageModel.requests))
+		t.Fatalf("expected finish rejection then ask_input action, got %d requests", len(replyLanguageModel.requests))
 	}
 }
 
@@ -1920,8 +1920,8 @@ func TestAgentKernelPreservesQuickReplyAfterSkillSelection(t *testing.T) {
 	}}
 	replyLanguageModel := &sequenceLanguageModel{contents: []string{
 		finishMessageDocument("deck created too early"),
-		`{"action":"continue","message":"deck attached: deck.pptx","toolName":"file.deliver","toolInput":{"path":"deck.pptx"}}`,
-		finishMessageWithEvidence("deck attached: deck.pptx", "obs-003", "file.deliver", 0),
+		`{"action":"continue","message":"deck attached: deck.pptx","toolName":"file_deliver","toolInput":{"path":"deck.pptx"}}`,
+		finishMessageWithEvidence("deck attached: deck.pptx", "obs-003", "file_deliver", 0),
 	}}
 	services := newKernelIntakeTestServices(replyLanguageModel, intakeLanguageModel)
 	services.kernel.UseSkillRetriever(staticSkillRetriever{result: SkillRetrievalResult{SelectedCandidates: []SkillCandidate{{Name: "presentation", Score: 1, Reason: "test"}}}})
@@ -1931,16 +1931,16 @@ func TestAgentKernelPreservesQuickReplyAfterSkillSelection(t *testing.T) {
 				Name:           "presentation",
 				Description:    "Create presentation slides, 피피티, and PPTX files.",
 				Prompt:         "Create and attach PPTX files.",
-				ToolReferences: []string{"terminal.run", "file.write", "file.deliver"},
+				ToolReferences: []string{"terminal_run", "file_write", "file_deliver"},
 				Source:         InstructionSource{Path: "skills/presentation/SKILL.md", SkillName: "presentation"},
 			}},
 		}
 	})
-	toolRegistry := newTestToolSet([]string{"terminal.run", "file.write", "file.deliver"})
+	toolRegistry := newTestToolSet([]string{"terminal_run", "file_write", "file_deliver"})
 	for _, toolName := range toolRegistry.ListToolNames() {
 		currentToolName := toolName
 		registerTestTool(toolRegistry, toolcontract.ToolDefinition{Name: currentToolName}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
-			if currentToolName == "file.deliver" {
+			if currentToolName == "file_deliver" {
 				return toolcontract.ToolResult{
 					Output: toolcontract.ToolOutput{Content: "attached"},
 					Attachments: []toolcontract.FileAttachment{{
@@ -1975,11 +1975,11 @@ func TestAgentKernelPreservesQuickReplyAfterSkillSelection(t *testing.T) {
 
 func TestAgentKernelUsesStructuredOutputFormatsForAttachmentRequirements(t *testing.T) {
 	intakeLanguageModel := &sequenceLanguageModel{contents: []string{
-		`{"route":"start_task","classification":"bounded_task","taskShape":"research_task","level":"low","estimatedMinutes":1,"requestedOutputFormats":["html"],"initialToolNames":["file.deliver"],"reason":"explicit html output","userFacingReply":""}`,
+		`{"route":"start_task","classification":"bounded_task","taskShape":"research_task","level":"low","estimatedMinutes":1,"requestedOutputFormats":["html"],"initialToolNames":["file_deliver"],"reason":"explicit html output","userFacingReply":""}`,
 	}}
 	replyLanguageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"continue","toolName":"file.deliver","toolInput":{"path":"deck.html"}}`,
-		finishMessageWithEvidence("HTML 파일을 첨부했습니다: deck.html", "obs-001", "file.deliver", 0),
+		`{"action":"continue","toolName":"file_deliver","toolInput":{"path":"deck.html"}}`,
+		finishMessageWithEvidence("HTML 파일을 첨부했습니다: deck.html", "obs-001", "file_deliver", 0),
 	}}
 	services := newKernelIntakeTestServices(replyLanguageModel, intakeLanguageModel)
 	services.kernel.UseSkillRetriever(NewEmbeddingSkillRetriever(nil, ""))
@@ -1987,13 +1987,13 @@ func TestAgentKernelUsesStructuredOutputFormatsForAttachmentRequirements(t *test
 		return InstructionBundle{Skills: []SkillInstruction{{
 			Name:           "html-attachment",
 			Description:    "Attach HTML deliverables for HTML output requests.",
-			Prompt:         "Use file.deliver for HTML deliverables.",
-			ToolReferences: []string{"file.deliver"},
+			Prompt:         "Use file_deliver for HTML deliverables.",
+			ToolReferences: []string{"file_deliver"},
 			Source:         InstructionSource{Path: "skills/html-attachment/SKILL.md", SkillName: "html-attachment"},
 		}}}
 	})
-	toolRegistry := newTestToolSet([]string{"file.deliver"})
-	registerTestTool(toolRegistry, toolcontract.ToolDefinition{Name: "file.deliver"}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
+	toolRegistry := newTestToolSet([]string{"file_deliver"})
+	registerTestTool(toolRegistry, toolcontract.ToolDefinition{Name: "file_deliver"}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
 		return toolcontract.ToolResult{
 			Output: toolcontract.ToolOutput{Content: "file attached"},
 			Attachments: []toolcontract.FileAttachment{{
@@ -2165,21 +2165,21 @@ func (failingLanguageModel) GenerateStructuredResponse(context.Context, model.St
 func TestNormalizeWebsiteDeliverableKindRoutesSiteNamespace(t *testing.T) {
 	decision := normalizeWebsiteDeliverableKind(TurnDecision{
 		DeliverableKind:  DeliverableKindWebsite,
-		InitialToolNames: []string{"file.write"},
+		InitialToolNames: []string{"file_write"},
 	})
 	if !decisionSuggestsSiteTool(decision) {
 		t.Fatalf("website deliverable must route the site namespace: %#v", decision.InitialToolNames)
 	}
 	unchanged := normalizeWebsiteDeliverableKind(TurnDecision{
 		DeliverableKind:  DeliverableKindDocument,
-		InitialToolNames: []string{"file.write"},
+		InitialToolNames: []string{"file_write"},
 	})
 	if decisionSuggestsSiteTool(unchanged) {
 		t.Fatalf("non-website deliverable must not gain site tools: %#v", unchanged.InitialToolNames)
 	}
 	alreadyRouted := normalizeWebsiteDeliverableKind(TurnDecision{
 		DeliverableKind:  DeliverableKindWebsite,
-		InitialToolNames: []string{"site.list"},
+		InitialToolNames: []string{"site_list"},
 	})
 	if len(alreadyRouted.InitialToolNames) != 1 {
 		t.Fatalf("existing site routing must stay untouched: %#v", alreadyRouted.InitialToolNames)

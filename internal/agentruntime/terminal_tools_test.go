@@ -24,7 +24,7 @@ func TestTerminalRunTranslatesAgentWorkspacePaths(t *testing.T) {
 	})
 
 	result, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
-		ToolName: "terminal.run",
+		ToolName: "terminal_run",
 		Input: toolcontract.MarshalToolInput(map[string]any{
 			"command":              "mkdir -p build && printf ok > build/result.txt",
 			"workingDirectoryPath": "tmp/deck",
@@ -34,7 +34,7 @@ func TestTerminalRunTranslatesAgentWorkspacePaths(t *testing.T) {
 		t.Fatal(errorValue)
 	}
 	if result.Failed() {
-		t.Fatalf("expected terminal.run success, got %s", result.ContentText())
+		t.Fatalf("expected terminal_run success, got %s", result.ContentText())
 	}
 	var resultDocument terminalCommandResultDocument
 	if errorValue := json.Unmarshal(result.Output.Data, &resultDocument); errorValue != nil {
@@ -44,7 +44,7 @@ func TestTerminalRunTranslatesAgentWorkspacePaths(t *testing.T) {
 		t.Fatalf("expected canonical completed command result, got %+v", resultDocument)
 	}
 	if len(result.Effects) != 0 {
-		t.Fatalf("expected terminal.run to avoid inferred resource effects, got %+v", result.Effects)
+		t.Fatalf("expected terminal_run to avoid inferred resource effects, got %+v", result.Effects)
 	}
 	content, errorValue := os.ReadFile(filepath.Join(workspacePath, "private", "people", "person-1", "tmp", "deck", "build", "result.txt"))
 	if errorValue != nil {
@@ -173,7 +173,7 @@ func invokeTerminalRunTestTool(t *testing.T, toolRegistry *toolcontract.ToolSet,
 		t.Fatal(errorValue)
 	}
 	if result.Failed() {
-		t.Fatalf("expected terminal.run success, got %+v", result)
+		t.Fatalf("expected terminal_run success, got %+v", result)
 	}
 	return result
 }
@@ -195,7 +195,7 @@ func TestTerminalRunAllowsStderrRedirection(t *testing.T) {
 	})
 
 	result, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
-		ToolName: "terminal.run",
+		ToolName: "terminal_run",
 		Input: toolcontract.MarshalToolInput(map[string]any{
 			"command":              "printf ok 2>&1",
 			"workingDirectoryPath": "tmp/deck",
@@ -205,7 +205,7 @@ func TestTerminalRunAllowsStderrRedirection(t *testing.T) {
 		t.Fatal(errorValue)
 	}
 	if result.Failed() {
-		t.Fatalf("expected terminal.run stderr redirection success, got %s", result.ContentText())
+		t.Fatalf("expected terminal_run stderr redirection success, got %s", result.ContentText())
 	}
 }
 
@@ -219,7 +219,7 @@ func TestTerminalRunAllowsSourceFileWrite(t *testing.T) {
 	})
 
 	result, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
-		ToolName: "terminal.run",
+		ToolName: "terminal_run",
 		Input: toolcontract.MarshalToolInput(map[string]any{
 			"command":              "printf 'export default function App(){}' > App.tsx",
 			"workingDirectoryPath": "tmp/deck",
@@ -229,7 +229,7 @@ func TestTerminalRunAllowsSourceFileWrite(t *testing.T) {
 		t.Fatal(errorValue)
 	}
 	if result.Failed() {
-		t.Fatalf("terminal.run must allow writing a source file directly, got %s", result.ContentText())
+		t.Fatalf("terminal_run must allow writing a source file directly, got %s", result.ContentText())
 	}
 }
 
@@ -243,7 +243,7 @@ func TestTerminalRunAllowsServiceOwnedPathText(t *testing.T) {
 	})
 
 	result, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
-		ToolName: "terminal.run",
+		ToolName: "terminal_run",
 		Input: toolcontract.MarshalToolInput(map[string]any{
 			"command": "printf '%s' /workspace/.blueclaw/tmp/deck",
 		}),
@@ -270,7 +270,7 @@ func TestTerminalRunDefaultsToPrivateScopeForDirectMessage(t *testing.T) {
 	})
 
 	result, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
-		ToolName: "terminal.run",
+		ToolName: "terminal_run",
 		Input: toolcontract.MarshalToolInput(map[string]any{
 			"command": "pwd",
 		}),
@@ -279,7 +279,7 @@ func TestTerminalRunDefaultsToPrivateScopeForDirectMessage(t *testing.T) {
 		t.Fatal(errorValue)
 	}
 	if result.Failed() {
-		t.Fatalf("expected terminal.run success, got %s", result.ContentText())
+		t.Fatalf("expected terminal_run success, got %s", result.ContentText())
 	}
 	var commandResult security.CommandResult
 	if errorValue := json.Unmarshal([]byte(result.ContentText()), &commandResult); errorValue != nil {
@@ -307,7 +307,7 @@ func TestTerminalRunMaterializesRequesterRuntimeEnvironment(t *testing.T) {
 	})
 
 	result, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
-		ToolName: "terminal.run",
+		ToolName: "terminal_run",
 		Input: toolcontract.MarshalToolInput(map[string]any{
 			"command": `test -d "$TMPDIR" && test -d "$BUN_TMPDIR" && test -d "$BUN_INSTALL" && printf '%s\n%s\n%s\n%s\n%s\n%s' "$HOME" "$PATH" "$TMPDIR" "$BUN_TMPDIR" "$BUN_INSTALL" "$BLUECLAW_BUILTIN_SKILLS_PYTHON"`,
 		}),
@@ -316,7 +316,7 @@ func TestTerminalRunMaterializesRequesterRuntimeEnvironment(t *testing.T) {
 		t.Fatal(errorValue)
 	}
 	if result.Failed() {
-		t.Fatalf("expected terminal.run success, got %s", result.ContentText())
+		t.Fatalf("expected terminal_run success, got %s", result.ContentText())
 	}
 	var commandResult security.CommandResult
 	if errorValue := json.Unmarshal([]byte(result.ContentText()), &commandResult); errorValue != nil {
@@ -361,7 +361,7 @@ func TestTerminalRunRelativeWorkingDirectoryUsesConversationDefault(t *testing.T
 	})
 
 	writeResult, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
-		ToolName: "file.write",
+		ToolName: "file_write",
 		Input: toolcontract.MarshalToolInput(map[string]string{
 			"path":    "tmp/deck/input.txt",
 			"content": "ok",
@@ -371,11 +371,11 @@ func TestTerminalRunRelativeWorkingDirectoryUsesConversationDefault(t *testing.T
 		t.Fatal(errorValue)
 	}
 	if writeResult.Failed() {
-		t.Fatalf("expected file.write success, got %s", writeResult.ContentText())
+		t.Fatalf("expected file_write success, got %s", writeResult.ContentText())
 	}
 
 	result, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
-		ToolName: "terminal.run",
+		ToolName: "terminal_run",
 		Input: toolcontract.MarshalToolInput(map[string]any{
 			"command":              "pwd && cat input.txt && printf built > result.txt",
 			"workingDirectoryPath": "tmp/deck",
@@ -385,7 +385,7 @@ func TestTerminalRunRelativeWorkingDirectoryUsesConversationDefault(t *testing.T
 		t.Fatal(errorValue)
 	}
 	if result.Failed() {
-		t.Fatalf("expected terminal.run success, got %s", result.ContentText())
+		t.Fatalf("expected terminal_run success, got %s", result.ContentText())
 	}
 	var commandResult security.CommandResult
 	if errorValue := json.Unmarshal([]byte(result.ContentText()), &commandResult); errorValue != nil {
@@ -403,7 +403,7 @@ func TestTerminalRunRelativeWorkingDirectoryUsesConversationDefault(t *testing.T
 		t.Fatalf("expected terminal output under private tmp, got %q", string(resultDocument))
 	}
 	if _, errorValue := os.Stat(filepath.Join(workspacePath, "tmp", "deck")); !os.IsNotExist(errorValue) {
-		t.Fatalf("terminal.run must not create workspace-root tmp for relative workingDirectoryPath")
+		t.Fatalf("terminal_run must not create workspace-root tmp for relative workingDirectoryPath")
 	}
 }
 
@@ -424,7 +424,7 @@ func TestTerminalRunFailsWhenPOSIXDeniesCircleWorkingDirectory(t *testing.T) {
 	})
 
 	result, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
-		ToolName: "terminal.run",
+		ToolName: "terminal_run",
 		Input: toolcontract.MarshalToolInput(map[string]any{
 			"command":              "printf no",
 			"workingDirectoryPath": "/workspace/circles/finance",
@@ -434,6 +434,6 @@ func TestTerminalRunFailsWhenPOSIXDeniesCircleWorkingDirectory(t *testing.T) {
 		t.Fatal(errorValue)
 	}
 	if !result.Failed() || !strings.Contains(strings.ToLower(result.ContentText()), "permission denied") {
-		t.Fatalf("expected the OS denial on the circle working directory to fail terminal.run, got %+v", result)
+		t.Fatalf("expected the OS denial on the circle working directory to fail terminal_run, got %+v", result)
 	}
 }

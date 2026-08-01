@@ -27,7 +27,7 @@ func (input terminalRunToolInput) commandRequest() security.CommandRequest {
 func (toolCatalogBuilder *ToolCatalogBuilder) registerTerminalTools(toolRegistry *toolcontract.ToolSet, handlerContext toolHandlerContext) {
 	toolcontract.RegisterToolFunction(toolRegistry, toolcontract.ToolFunction[terminalRunToolInput, toolcontract.ToolResult]{
 		Definition: toolcontract.ToolDefinition{
-			Name:        "terminal.run",
+			Name:        "terminal_run",
 			Description: "Run one command inside the requester workspace.",
 			RecoveryCard: toolcontract.ToolRecoveryCard{
 				Does:       "Runs workspace commands, build scripts, render checks, or tests.",
@@ -67,23 +67,23 @@ func (toolCatalogBuilder *ToolCatalogBuilder) runTerminalTool(toolContext contex
 	if actorFailure != nil {
 		return *actorFailure, nil
 	}
-	slog.Info("terminal.run actor acquired", "durationMs", time.Since(actorStartedAt).Milliseconds())
+	slog.Info("terminal_run actor acquired", "durationMs", time.Since(actorStartedAt).Milliseconds())
 	workingDirectoryStartedAt := time.Now()
 	if errorValue := workspaceActor.MkdirAll(toolContext, input.WorkingDirectoryPath); errorValue != nil {
 		return actorToolFailure("mkdir_all", "terminal_working_directory", input.WorkingDirectoryPath, errorValue), nil
 	}
-	slog.Info("terminal.run working directory prepared", "durationMs", time.Since(workingDirectoryStartedAt).Milliseconds())
+	slog.Info("terminal_run working directory prepared", "durationMs", time.Since(workingDirectoryStartedAt).Milliseconds())
 	materializeStartedAt := time.Now()
 	if toolFailure := materializeTerminalRuntimeDirectories(toolContext, workspaceActor, requesterHomePath, input.EnvironmentVariables); toolFailure != nil {
 		return *toolFailure, nil
 	}
-	slog.Info("terminal.run runtime directories materialized", "durationMs", time.Since(materializeStartedAt).Milliseconds())
+	slog.Info("terminal_run runtime directories materialized", "durationMs", time.Since(materializeStartedAt).Milliseconds())
 	input.ExecutionIdentity = toolCatalogBuilder.executionIdentityForRequester(handlerContext.request)
 	runStartedAt := time.Now()
 	stopHeartbeat := toolCatalogBuilder.startTerminalRunHeartbeat(toolContext, input.Command)
 	commandResult, errorValue := workspaceActor.Run(toolContext, input)
 	stopHeartbeat()
-	slog.Info("terminal.run command completed", "durationMs", time.Since(runStartedAt).Milliseconds(), "exitCode", commandResult.ExitCode, "timedOut", commandResult.TimedOut)
+	slog.Info("terminal_run command completed", "durationMs", time.Since(runStartedAt).Milliseconds(), "exitCode", commandResult.ExitCode, "timedOut", commandResult.TimedOut)
 	content := marshalToolResult(commandResult)
 	if errorValue != nil {
 		if runtimePathFailure := terminalRuntimePathFailure(input, commandResult, content); runtimePathFailure != nil {

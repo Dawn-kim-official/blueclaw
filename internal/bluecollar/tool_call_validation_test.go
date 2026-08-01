@@ -41,14 +41,14 @@ func TestAgentTurnRunnerRecordsDeniedToolAsObservation(t *testing.T) {
 
 func TestAgentTurnRunnerRejectsMalformedInputBeforeApproval(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		directToolAction("continue", "", "site.unserve", `{"siteID":42}`),
+		directToolAction("continue", "", "site_unserve", `{"siteID":42}`),
 		noToolFallbackFinishMessageDocument("could not read the delete request format."),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 3})
-	toolRegistry := newTestCapabilityToolSet([]string{"site.unserve"})
+	toolRegistry := newTestCapabilityToolSet([]string{"site_unserve"})
 	handlerCallCount := 0
 	registerTestTool(toolRegistry, toolcontract.ToolDefinition{
-		Name:             "site.unserve",
+		Name:             "site_unserve",
 		RequiresApproval: true,
 		InputSchema: json.RawMessage(`{
 			"type":"object",
@@ -66,7 +66,7 @@ func TestAgentTurnRunnerRejectsMalformedInputBeforeApproval(t *testing.T) {
 		ConversationID:    "conversation-1",
 		Prompt:            "delete the site",
 		ToolSet:           toolRegistry,
-		PinnedToolNames:   []string{"site.unserve"},
+		PinnedToolNames:   []string{"site_unserve"},
 	})
 	if errorValue != nil {
 		t.Fatalf("expected malformed call recovery: %v", errorValue)
@@ -78,7 +78,7 @@ func TestAgentTurnRunnerRejectsMalformedInputBeforeApproval(t *testing.T) {
 		t.Fatalf("expected malformed input to stay outside the handler, got %d calls", handlerCallCount)
 	}
 	events := services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID)
-	if !taskEventsContain(events, "agent.tool_input_malformed", "site.unserve") {
+	if !taskEventsContain(events, "agent.tool_input_malformed", "site_unserve") {
 		t.Fatalf("expected malformed input event, got %+v", events)
 	}
 	if taskEventsContain(events, "approval.pending_call", "") {
@@ -87,13 +87,13 @@ func TestAgentTurnRunnerRejectsMalformedInputBeforeApproval(t *testing.T) {
 }
 
 func TestValidateTerminalToolInputRejectsRegisteredToolNameAsCommand(t *testing.T) {
-	toolRegistry := newTestToolSet([]string{"terminal.run"})
-	registerTestTool(toolRegistry, toolcontract.ToolDefinition{Name: "site.serve"}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
+	toolRegistry := newTestToolSet([]string{"terminal_run"})
+	registerTestTool(toolRegistry, toolcontract.ToolDefinition{Name: "site_serve"}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
 		return testToolSuccess("created"), nil
 	})
-	input := toolcontract.MarshalToolInput(map[string]any{"command": "site.serve --slug demo"})
+	input := toolcontract.MarshalToolInput(map[string]any{"command": "site_serve --slug demo"})
 
-	errorValue := validateTerminalToolInput("terminal.run", input, toolRegistry)
+	errorValue := validateTerminalToolInput("terminal_run", input, toolRegistry)
 
 	if errorValue == nil || !isTerminalToolNameError(errorValue) {
 		t.Fatalf("expected terminal tool-name error, got %v", errorValue)
@@ -102,14 +102,14 @@ func TestValidateTerminalToolInputRejectsRegisteredToolNameAsCommand(t *testing.
 
 func TestAgentTurnRunnerRejectsSecondDMSendAfterSuccess(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"continue","toolName":"message.send","toolInput":{"targetType":"directMessage","personHint":"Dana","message":"first"}}`,
-		`{"action":"continue","toolName":"message.send","toolInput":{"targetType":"directMessage","personHint":"Dana","message":"second"}}`,
-		finishMessageWithEvidence("Sent the first message.", "obs-001", "message.send", 0),
+		`{"action":"continue","toolName":"message_send","toolInput":{"targetType":"directMessage","personHint":"Dana","message":"first"}}`,
+		`{"action":"continue","toolName":"message_send","toolInput":{"targetType":"directMessage","personHint":"Dana","message":"second"}}`,
+		finishMessageWithEvidence("Sent the first message.", "obs-001", "message_send", 0),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 5})
-	toolRegistry := newTestCapabilityToolSet([]string{"message.send"})
+	toolRegistry := newTestCapabilityToolSet([]string{"message_send"})
 	sendCallCount := 0
-	registerTestTool(toolRegistry, testExternalSendToolDefinition("message.send"), func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
+	registerTestTool(toolRegistry, testExternalSendToolDefinition("message_send"), func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
 		sendCallCount++
 		return testToolSuccess("sent"), nil
 	})
@@ -120,9 +120,9 @@ func TestAgentTurnRunnerRejectsSecondDMSendAfterSuccess(t *testing.T) {
 		Prompt:                "send Dana a DM",
 		ToolSet:               toolRegistry,
 		PinnedToolNames:       toolRegistry.ListToolNames(),
-		RequiredEvidenceTools: []string{"message.send"},
+		RequiredEvidenceTools: []string{"message_send"},
 		SkillDecisions:        []SkillSelectionDecision{{Name: "direct-message", Status: "selected"}},
-		OutcomeContract:       OutcomeContract{RequiredEvidenceTools: []string{"message.send"}},
+		OutcomeContract:       OutcomeContract{RequiredEvidenceTools: []string{"message_send"}},
 	})
 	if errorValue != nil {
 		t.Fatalf("expected turn to complete from first send: %v", errorValue)
@@ -140,14 +140,14 @@ func TestAgentTurnRunnerRejectsSecondDMSendAfterSuccess(t *testing.T) {
 
 func TestAgentTurnRunnerAllowsSendToDifferentRecipients(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"continue","toolName":"message.send","toolInput":{"targetType":"directMessage","personHint":"Dana","message":"please take a look"}}`,
-		`{"action":"continue","toolName":"message.send","toolInput":{"targetType":"directMessage","personHint":"Grace","message":"please take a look"}}`,
-		finishMessageWithEvidence("Sent a DM to Dana and Grace.", "obs-001", "message.send", 0),
+		`{"action":"continue","toolName":"message_send","toolInput":{"targetType":"directMessage","personHint":"Dana","message":"please take a look"}}`,
+		`{"action":"continue","toolName":"message_send","toolInput":{"targetType":"directMessage","personHint":"Grace","message":"please take a look"}}`,
+		finishMessageWithEvidence("Sent a DM to Dana and Grace.", "obs-001", "message_send", 0),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 5})
-	toolRegistry := newTestCapabilityToolSet([]string{"message.send"})
+	toolRegistry := newTestCapabilityToolSet([]string{"message_send"})
 	sendCallCount := 0
-	registerTestTool(toolRegistry, testExternalSendToolDefinition("message.send"), func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
+	registerTestTool(toolRegistry, testExternalSendToolDefinition("message_send"), func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
 		sendCallCount++
 		return testToolSuccess("sent"), nil
 	})
@@ -158,9 +158,9 @@ func TestAgentTurnRunnerAllowsSendToDifferentRecipients(t *testing.T) {
 		Prompt:                "send a DM to Dana and Grace",
 		ToolSet:               toolRegistry,
 		PinnedToolNames:       toolRegistry.ListToolNames(),
-		RequiredEvidenceTools: []string{"message.send"},
+		RequiredEvidenceTools: []string{"message_send"},
 		SkillDecisions:        []SkillSelectionDecision{{Name: "direct-message", Status: "selected"}},
-		OutcomeContract:       OutcomeContract{RequiredEvidenceTools: []string{"message.send"}},
+		OutcomeContract:       OutcomeContract{RequiredEvidenceTools: []string{"message_send"}},
 	})
 	if errorValue != nil {
 		t.Fatalf("expected fan-out turn to complete: %v", errorValue)
@@ -175,13 +175,13 @@ func TestAgentTurnRunnerAllowsSendToDifferentRecipients(t *testing.T) {
 
 func TestAgentTurnRunnerRejectsMessageSendWithoutExternalSendIntent(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"continue","toolName":"message.send","toolInput":{"targetType":"directMessage","personHint":"Dana","message":"can I stop at the rest area."}}`,
+		`{"action":"continue","toolName":"message_send","toolInput":{"targetType":"directMessage","personHint":"Dana","message":"can I stop at the rest area."}}`,
 		noToolFallbackFinishMessageDocument("stopping at the rest area is fine."),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 3})
-	toolRegistry := newTestCapabilityToolSet([]string{"message.send"})
-	registerTestTool(toolRegistry, testExternalSendToolDefinition("message.send"), func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
-		t.Fatal("message.send must not run without external send intent")
+	toolRegistry := newTestCapabilityToolSet([]string{"message_send"})
+	registerTestTool(toolRegistry, testExternalSendToolDefinition("message_send"), func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
+		t.Fatal("message_send must not run without external send intent")
 		return toolcontract.ToolResult{}, nil
 	})
 
@@ -193,7 +193,7 @@ func TestAgentTurnRunnerRejectsMessageSendWithoutExternalSendIntent(t *testing.T
 		PinnedToolNames:   toolRegistry.ListToolNames(),
 	})
 	if errorValue != nil {
-		t.Fatalf("expected turn to recover from rejected message.send: %v", errorValue)
+		t.Fatalf("expected turn to recover from rejected message_send: %v", errorValue)
 	}
 	if result.FinishMessage != "stopping at the rest area is fine." {
 		t.Fatalf("expected final reply in current conversation, got %q", result.FinishMessage)
@@ -205,13 +205,13 @@ func TestAgentTurnRunnerRejectsMessageSendWithoutExternalSendIntent(t *testing.T
 
 func TestAgentTurnRunnerAllowsCurrentThreadSendWithoutExternalSendContract(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"continue","toolName":"message.send","toolInput":{"targetType":"currentThread","message":"note: weekly customer support check done"}}`,
-		finishMessageWithEvidence("Left a note on this conversation.", "obs-001", "message.send", 0),
+		`{"action":"continue","toolName":"message_send","toolInput":{"targetType":"currentThread","message":"note: weekly customer support check done"}}`,
+		finishMessageWithEvidence("Left a note on this conversation.", "obs-001", "message_send", 0),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 3})
-	toolRegistry := newTestCapabilityToolSet([]string{"message.send"})
+	toolRegistry := newTestCapabilityToolSet([]string{"message_send"})
 	sendCallCount := 0
-	registerTestTool(toolRegistry, testExternalSendToolDefinition("message.send"), func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
+	registerTestTool(toolRegistry, testExternalSendToolDefinition("message_send"), func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
 		sendCallCount++
 		return testToolSuccess("sent"), nil
 	})
@@ -236,13 +236,13 @@ func TestAgentTurnRunnerAllowsCurrentThreadSendWithoutExternalSendContract(t *te
 
 func TestAgentTurnRunnerRejectsChannelSendWithoutExternalSendIntent(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"continue","toolName":"message.send","toolInput":{"targetType":"channel","channelName":"announcements","message":"this is an announcement."}}`,
+		`{"action":"continue","toolName":"message_send","toolInput":{"targetType":"channel","channelName":"announcements","message":"this is an announcement."}}`,
 		noToolFallbackFinishMessageDocument("Answering in the current conversation."),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 3})
-	toolRegistry := newTestCapabilityToolSet([]string{"message.send"})
-	registerTestTool(toolRegistry, testExternalSendToolDefinition("message.send"), func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
-		t.Fatal("channel message.send must not run without external send intent")
+	toolRegistry := newTestCapabilityToolSet([]string{"message_send"})
+	registerTestTool(toolRegistry, testExternalSendToolDefinition("message_send"), func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
+		t.Fatal("channel message_send must not run without external send intent")
 		return toolcontract.ToolResult{}, nil
 	})
 
@@ -263,26 +263,26 @@ func TestAgentTurnRunnerRejectsChannelSendWithoutExternalSendIntent(t *testing.T
 
 func TestAgentTurnRunnerRejectsRepeatedFailedFingerprint(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"continue","toolName":"message.send","toolInput":{"targetType":"directMessage","personHint":"Dana","message":"please take a look"}}`,
-		`{"action":"continue","toolName":"message.send","toolInput":{"targetType":"directMessage","personHint":"Dana","message":"please take a look"}}`,
-		`{"action":"continue","toolName":"message.context","toolInput":{}}`,
-		`{"action":"continue","toolName":"message.context","toolInput":{}}`,
-		`{"action":"continue","toolName":"message.send","toolInput":{"targetType":"directMessage","personHint":"Grace","message":"please take a look"}}`,
-		failureReportDocument("mattermost still unavailable", "message.send", "Grace", toolcontract.FailureCodes.Unavailable.String(), "mattermost_lookup", "temporary user lookup timeout"),
+		`{"action":"continue","toolName":"message_send","toolInput":{"targetType":"directMessage","personHint":"Dana","message":"please take a look"}}`,
+		`{"action":"continue","toolName":"message_send","toolInput":{"targetType":"directMessage","personHint":"Dana","message":"please take a look"}}`,
+		`{"action":"continue","toolName":"message_context","toolInput":{}}`,
+		`{"action":"continue","toolName":"message_context","toolInput":{}}`,
+		`{"action":"continue","toolName":"message_send","toolInput":{"targetType":"directMessage","personHint":"Grace","message":"please take a look"}}`,
+		failureReportDocument("mattermost still unavailable", "message_send", "Grace", toolcontract.FailureCodes.Unavailable.String(), "mattermost_lookup", "temporary user lookup timeout"),
 		recoveryDecisionDocument("check Mattermost availability before retrying", "report the failed stage and code"),
 	}, textResponses: []string{
 		"mattermost_lookup/unavailable stage kept failing to query Mattermost, so the DM was never sent.",
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 8, RecoveryAttemptLimit: 3})
-	toolRegistry := newTestCapabilityToolSet([]string{"message.send", "message.context"})
+	toolRegistry := newTestCapabilityToolSet([]string{"message_send", "message_context"})
 	callCount := 0
 	sendInputs := []string{}
-	registerTestTool(toolRegistry, testExternalSendToolDefinition("message.send"), func(_ context.Context, invocation toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
+	registerTestTool(toolRegistry, testExternalSendToolDefinition("message_send"), func(_ context.Context, invocation toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
 		callCount++
 		sendInputs = append(sendInputs, string(invocation.Input))
 		return structuredFailureToolResult("temporary user lookup timeout", "temporary user lookup timeout", "mattermost_unavailable", "mattermost_lookup", true, true), nil
 	})
-	registerTestTool(toolRegistry, toolcontract.ToolDefinition{Name: "message.context"}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
+	registerTestTool(toolRegistry, toolcontract.ToolDefinition{Name: "message_context"}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
 		return structuredFailureToolResult("mattermost still unavailable", "mattermost still unavailable", "mattermost_unavailable", "mattermost_lookup", true, true), nil
 	})
 
@@ -293,8 +293,8 @@ func TestAgentTurnRunnerRejectsRepeatedFailedFingerprint(t *testing.T) {
 		Prompt:                "send Dana a DM",
 		ToolSet:               toolRegistry,
 		PinnedToolNames:       toolRegistry.ListToolNames(),
-		RequiredEvidenceTools: []string{"message.send"},
-		OutcomeContract:       OutcomeContract{RequiredEvidenceTools: []string{"message.send"}},
+		RequiredEvidenceTools: []string{"message_send"},
+		OutcomeContract:       OutcomeContract{RequiredEvidenceTools: []string{"message_send"}},
 	})
 	if errorValue != nil {
 		t.Fatalf("expected exhausted retry failure result: %v", errorValue)
@@ -312,17 +312,17 @@ func TestAgentTurnRunnerRejectsRepeatedFailedFingerprint(t *testing.T) {
 
 func TestAgentTurnRunnerRejectsUnsafeRepeatedExternalSend(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"continue","toolName":"message.send","toolInput":{"targetType":"directMessage","personHint":"Dana","message":"please take a look"}}`,
-		`{"action":"continue","toolName":"message.send","toolInput":{"targetType":"directMessage","personHint":"Dana","message":"please take a look"}}`,
-		failureReportDocument("send failed", "message.send", "Dana", toolcontract.FailureCodes.OperationFailed.String(), "message_send", "Mattermost returned 503 after post create"),
+		`{"action":"continue","toolName":"message_send","toolInput":{"targetType":"directMessage","personHint":"Dana","message":"please take a look"}}`,
+		`{"action":"continue","toolName":"message_send","toolInput":{"targetType":"directMessage","personHint":"Dana","message":"please take a look"}}`,
+		failureReportDocument("send failed", "message_send", "Dana", toolcontract.FailureCodes.OperationFailed.String(), "message_send", "Mattermost returned 503 after post create"),
 		recoveryDecisionDocument("inspect delivery state before retrying", "report the failed stage and avoid duplicate send claims"),
 	}, textResponses: []string{
 		"message_send/operation_failed stage failed to send. The same message was not sent again because of the duplicate delivery risk.",
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{RecoveryAttemptLimit: 2, RecoveryBudget: exhaustedRecoveryBudgetForTest()})
-	toolRegistry := newTestCapabilityToolSet([]string{"message.send", "message.context"})
+	toolRegistry := newTestCapabilityToolSet([]string{"message_send", "message_context"})
 	callCount := 0
-	registerTestTool(toolRegistry, testExternalSendToolDefinition("message.send"), func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
+	registerTestTool(toolRegistry, testExternalSendToolDefinition("message_send"), func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
 		callCount++
 		return structuredFailureToolResult("Mattermost returned 503 after post create", "Mattermost returned 503 after post create", "send_failed", "message_send", true, false), nil
 	})
@@ -334,8 +334,8 @@ func TestAgentTurnRunnerRejectsUnsafeRepeatedExternalSend(t *testing.T) {
 		Prompt:                "send Dana a DM",
 		ToolSet:               toolRegistry,
 		PinnedToolNames:       toolRegistry.ListToolNames(),
-		RequiredEvidenceTools: []string{"message.send"},
-		OutcomeContract:       OutcomeContract{RequiredEvidenceTools: []string{"message.send"}},
+		RequiredEvidenceTools: []string{"message_send"},
+		OutcomeContract:       OutcomeContract{RequiredEvidenceTools: []string{"message_send"}},
 	})
 	if errorValue != nil {
 		t.Fatalf("expected safe failure: %v", errorValue)
@@ -357,9 +357,9 @@ func TestAgentTurnRunnerRejectsUnavailableToolBeforeInvoke(t *testing.T) {
 		noToolFallbackFinishMessageDocument("I can answer without that unavailable tool."),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
-	toolRegistry := newTestToolSet([]string{"schedule.list"})
-	registerTestTool(toolRegistry, toolcontract.ToolDefinition{Name: "schedule.list"}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
-		t.Fatal("unexpected schedule.list invocation")
+	toolRegistry := newTestToolSet([]string{"schedule_list"})
+	registerTestTool(toolRegistry, toolcontract.ToolDefinition{Name: "schedule_list"}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
+		t.Fatal("unexpected schedule_list invocation")
 		return toolcontract.ToolResult{}, nil
 	})
 
@@ -386,17 +386,17 @@ func TestAgentTurnRunnerRejectsUnavailableToolBeforeInvoke(t *testing.T) {
 
 func TestAgentTurnRunnerRejectsEmptyBrowserPressAfterFill(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"continue","toolName":"browser.fill","toolInput":{"target":"@e5","text":"hello world"}}`,
-		`{"action":"continue","toolName":"browser.press","toolInput":{}}`,
-		finishMessageWithEvidence("searched", "obs-001", "browser.fill", 0),
+		`{"action":"continue","toolName":"browser_fill","toolInput":{"target":"@e5","text":"hello world"}}`,
+		`{"action":"continue","toolName":"browser_press","toolInput":{}}`,
+		finishMessageWithEvidence("searched", "obs-001", "browser_fill", 0),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
 	pressCallCount := 0
-	toolRegistry := newTestCapabilityToolSet([]string{"browser.fill", "browser.press"})
-	registerTestTool(toolRegistry, toolcontract.ToolDefinition{Name: "browser.fill"}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
+	toolRegistry := newTestCapabilityToolSet([]string{"browser_fill", "browser_press"})
+	registerTestTool(toolRegistry, toolcontract.ToolDefinition{Name: "browser_fill"}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
 		return testToolSuccess(`{"ok":true}`), nil
 	})
-	registerTestTool(toolRegistry, toolcontract.ToolDefinition{Name: "browser.press"}, func(_ context.Context, toolInvocation toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
+	registerTestTool(toolRegistry, toolcontract.ToolDefinition{Name: "browser_press"}, func(_ context.Context, toolInvocation toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
 		pressCallCount++
 		return testToolSuccess(`{"ok":true}`), nil
 	})
@@ -417,24 +417,24 @@ func TestAgentTurnRunnerRejectsEmptyBrowserPressAfterFill(t *testing.T) {
 	if pressCallCount != 0 {
 		t.Fatalf("expected malformed press input not to invoke tool, got %d calls", pressCallCount)
 	}
-	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.tool_input_malformed", "browser.press") {
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.tool_input_malformed", "browser_press") {
 		t.Fatal("expected malformed browser press event")
 	}
 }
 
 func TestAgentTurnRunnerRejectsBrowserFillWithoutRequiredInput(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"continue","toolName":"browser.snapshot","toolInput":{}}`,
-		`{"action":"continue","toolName":"browser.fill","toolInput":{}}`,
-		finishMessageWithEvidence("filled", "obs-001", "browser.snapshot", 0),
+		`{"action":"continue","toolName":"browser_snapshot","toolInput":{}}`,
+		`{"action":"continue","toolName":"browser_fill","toolInput":{}}`,
+		finishMessageWithEvidence("filled", "obs-001", "browser_snapshot", 0),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
 	fillCallCount := 0
-	toolRegistry := newTestCapabilityToolSet([]string{"browser.snapshot", "browser.fill"})
-	registerTestTool(toolRegistry, toolcontract.ToolDefinition{Name: "browser.snapshot"}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
+	toolRegistry := newTestCapabilityToolSet([]string{"browser_snapshot", "browser_fill"})
+	registerTestTool(toolRegistry, toolcontract.ToolDefinition{Name: "browser_snapshot"}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
 		return testToolSuccess(`{"snapshotText":"- textbox \"Google search\" [ref=e5]"}`), nil
 	})
-	registerTestTool(toolRegistry, toolcontract.ToolDefinition{Name: "browser.fill"}, func(_ context.Context, toolInvocation toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
+	registerTestTool(toolRegistry, toolcontract.ToolDefinition{Name: "browser_fill"}, func(_ context.Context, toolInvocation toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
 		fillCallCount++
 		return testToolSuccess(`{"ok":true}`), nil
 	})
@@ -462,14 +462,14 @@ func TestAgentTurnRunnerRejectsBrowserFillWithoutRequiredInput(t *testing.T) {
 
 func TestAgentTurnRunnerRejectsEmptyGoogleNavigate(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"continue","toolName":"browser.open","toolInput":{}}`,
-		`{"action":"continue","toolName":"browser.open","toolInput":{"url":"https://www.google.com"}}`,
-		finishMessageWithEvidence("opened", "obs-002", "browser.open", 0),
+		`{"action":"continue","toolName":"browser_open","toolInput":{}}`,
+		`{"action":"continue","toolName":"browser_open","toolInput":{"url":"https://www.google.com"}}`,
+		finishMessageWithEvidence("opened", "obs-002", "browser_open", 0),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
 	navigateCallCount := 0
-	toolRegistry := newTestCapabilityToolSet([]string{"browser.open"})
-	registerTestTool(toolRegistry, toolcontract.ToolDefinition{Name: "browser.open"}, func(_ context.Context, toolInvocation toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
+	toolRegistry := newTestCapabilityToolSet([]string{"browser_open"})
+	registerTestTool(toolRegistry, toolcontract.ToolDefinition{Name: "browser_open"}, func(_ context.Context, toolInvocation toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
 		navigateCallCount++
 		return testToolSuccess(`{"url":"https://www.google.com"}`), nil
 	})
@@ -497,16 +497,16 @@ func TestAgentTurnRunnerRejectsEmptyGoogleNavigate(t *testing.T) {
 
 func TestAgentTurnRunnerStopsRepeatedMalformedToolInputByLimit(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"continue","toolName":"browser.fill","toolInput":{}}`,
-		`{"action":"continue","toolName":"browser.fill","toolInput":{}}`,
+		`{"action":"continue","toolName":"browser_fill","toolInput":{}}`,
+		`{"action":"continue","toolName":"browser_fill","toolInput":{}}`,
 		recoveryDecisionDocument("ask the model to retry with valid input", "explain that the run stopped before completion"),
 	}, textResponses: []string{
 		"I could not finish the browser fill request before this run stopped. Please try again with the current page still open.",
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 40})
 	fillCallCount := 0
-	toolRegistry := newTestToolSet([]string{"browser.fill"})
-	registerTestTool(toolRegistry, toolcontract.ToolDefinition{Name: "browser.fill"}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
+	toolRegistry := newTestToolSet([]string{"browser_fill"})
+	registerTestTool(toolRegistry, toolcontract.ToolDefinition{Name: "browser_fill"}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
 		fillCallCount++
 		return testToolSuccess(`{"ok":true}`), nil
 	})
@@ -534,14 +534,14 @@ func TestAgentTurnRunnerStopsRepeatedMalformedToolInputByLimit(t *testing.T) {
 
 func TestAgentTurnRunnerDoesNotChargeMalformedInputToToolEffort(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"continue","toolName":"browser.fill","toolInput":{}}`,
+		`{"action":"continue","toolName":"browser_fill","toolInput":{}}`,
 		`{"action":"continue","toolName":"alpha","toolInput":{}}`,
 		`{"action":"continue","toolName":"beta","toolInput":{}}`,
 		finishMessageDocument("done"),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 4, MaxToolCallCount: 2})
-	toolRegistry := newTestToolSet([]string{"browser.fill", "alpha", "beta"})
-	registerTestTool(toolRegistry, toolcontract.ToolDefinition{Name: "browser.fill"}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
+	toolRegistry := newTestToolSet([]string{"browser_fill", "alpha", "beta"})
+	registerTestTool(toolRegistry, toolcontract.ToolDefinition{Name: "browser_fill"}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
 		return testToolSuccess(`{"ok":true}`), nil
 	})
 	registerTestTool(toolRegistry, toolcontract.ToolDefinition{Name: "alpha"}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
@@ -564,7 +564,7 @@ func TestAgentTurnRunnerDoesNotChargeMalformedInputToToolEffort(t *testing.T) {
 	if result.FinishMessage != "done" {
 		t.Fatalf("expected final reply, got %q", result.FinishMessage)
 	}
-	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.tool_input_malformed", "browser.fill") {
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.tool_input_malformed", "browser_fill") {
 		t.Fatal("expected malformed tool event")
 	}
 }
@@ -572,17 +572,17 @@ func TestAgentTurnRunnerDoesNotChargeMalformedInputToToolEffort(t *testing.T) {
 func TestRepeatedSuccessfulCompletionCandidateUsesPersistedObservation(t *testing.T) {
 	toolSet := completionJudgeTestToolSet()
 	toolInput := json.RawMessage(`{"title":"settlement check"}`)
-	toolInputKey := canonicalToolCallKey("task.add", toolInput)
+	toolInputKey := canonicalToolCallKey("task_add", toolInput)
 	state := &agentTaskState{Request: AgentTurnRequest{ToolSet: toolSet}, Observations: []turnObservation{{
 		ObservationID: "obs-001",
 		Action:        "continue",
-		Tool:          "task.add",
+		Tool:          "task_add",
 		ToolInputKey:  toolInputKey,
 		Output:        toolcontract.ToolOutput{Content: `{"taskID":"a1"}`},
 	}}}
 
 	observation, isFound := repeatedSuccessfulCompletionCandidate(state, turnActionDocument{
-		ToolName:  "task.add",
+		ToolName:  "task_add",
 		ToolInput: toolInput,
 	}, map[string]turnObservation{})
 
@@ -594,20 +594,20 @@ func TestRepeatedSuccessfulCompletionCandidateUsesPersistedObservation(t *testin
 func TestRepeatedSuccessfulReadIsNotACompletionCandidateWhenContractExpectsMutation(t *testing.T) {
 	toolSet := completionJudgeTestToolSet()
 	toolInput := json.RawMessage(`{"query":"settlement"}`)
-	toolInputKey := canonicalToolCallKey("task.list", toolInput)
+	toolInputKey := canonicalToolCallKey("task_list", toolInput)
 	state := &agentTaskState{Request: AgentTurnRequest{
 		ToolSet:         toolSet,
-		OutcomeContract: OutcomeContract{RequiredEvidenceAnyOf: [][]string{{"task.add"}}},
+		OutcomeContract: OutcomeContract{RequiredEvidenceAnyOf: [][]string{{"task_add"}}},
 	}, Observations: []turnObservation{{
 		ObservationID: "obs-001",
 		Action:        "continue",
-		Tool:          "task.list",
+		Tool:          "task_list",
 		ToolInputKey:  toolInputKey,
 		Output:        toolcontract.ToolOutput{Content: `{"tasks":[]}`},
 	}}}
 
 	_, isFound := repeatedSuccessfulCompletionCandidate(state, turnActionDocument{
-		ToolName:  "task.list",
+		ToolName:  "task_list",
 		ToolInput: toolInput,
 	}, map[string]turnObservation{})
 
@@ -618,14 +618,14 @@ func TestRepeatedSuccessfulReadIsNotACompletionCandidateWhenContractExpectsMutat
 
 func TestAgentTurnRunnerRejectsRepeatedSuccessfulToolCall(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"continue","toolName":"terminal.run","toolInput":{"command":"marp --version"}}`,
-		`{"action":"continue","toolName":"terminal.run","toolInput":{"command":"marp --version"}}`,
+		`{"action":"continue","toolName":"terminal_run","toolInput":{"command":"marp --version"}}`,
+		`{"action":"continue","toolName":"terminal_run","toolInput":{"command":"marp --version"}}`,
 		finishMessageDocument("The command finished running.\n\n@marp-team/marp-cli v4.3.1"),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 4, MaxToolCallCount: 4})
 	toolCallCount := 0
-	toolRegistry := newTestToolSet([]string{"terminal.run"})
-	registerTestTool(toolRegistry, toolcontract.ToolDefinition{Name: "terminal.run"}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
+	toolRegistry := newTestToolSet([]string{"terminal_run"})
+	registerTestTool(toolRegistry, toolcontract.ToolDefinition{Name: "terminal_run"}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
 		toolCallCount++
 		return testToolSuccess(`{"exitCode":0,"stdout":"@marp-team/marp-cli v4.3.1\n","stderr":"","timedOut":false}`), nil
 	})
@@ -658,18 +658,18 @@ func TestRepeatedFileReadObservationReturnsCachedCoveredRange(t *testing.T) {
 	observations := []turnObservation{{
 		ObservationID: "obs-001",
 		Action:        "continue",
-		Tool:          "file.read",
+		Tool:          "file_read",
 		Output:        toolcontract.ToolOutput{Content: `{"path":"home/sites/site-1/draft/app/src/prototype-data.ts","content":"export const PROFILE = {}","startLine":1,"endLine":162,"totalLines":162,"sizeBytes":1000}`},
 	}}
 	actionDocument := turnActionDocument{
-		ToolName:  "file.read",
+		ToolName:  "file_read",
 		ToolInput: json.RawMessage(`{"path":"home/sites/site-1/draft/app/src/prototype-data.ts","startLine":120,"lineCount":40}`),
 	}
 
 	observation, isRepeated := repeatedFileReadObservation(observations, actionDocument, "obs-002")
 
 	if !isRepeated {
-		t.Fatal("expected covered file.read range to use cached context")
+		t.Fatal("expected covered file_read range to use cached context")
 	}
 	if observation.Failure != nil {
 		t.Fatalf("expected cached read not to fail, got %+v", observation)
@@ -683,18 +683,18 @@ func TestRepeatedFileReadObservationReturnsCachedOverlappingRange(t *testing.T) 
 	observations := []turnObservation{{
 		ObservationID: "obs-001",
 		Action:        "continue",
-		Tool:          "file.read",
+		Tool:          "file_read",
 		Output:        toolcontract.ToolOutput{Content: `{"path":"home/sites/site-1/draft/app/src/prototype-data.ts","content":"export const PROFILE = {}","startLine":1,"endLine":120,"totalLines":180,"sizeBytes":1000}`},
 	}}
 	actionDocument := turnActionDocument{
-		ToolName:  "file.read",
+		ToolName:  "file_read",
 		ToolInput: json.RawMessage(`{"path":"home/sites/site-1/draft/app/src/prototype-data.ts","startLine":1,"lineCount":150}`),
 	}
 
 	observation, isRepeated := repeatedFileReadObservation(observations, actionDocument, "obs-002")
 
 	if !isRepeated {
-		t.Fatal("expected overlapping file.read range to use cached context")
+		t.Fatal("expected overlapping file_read range to use cached context")
 	}
 	if observation.Failure != nil {
 		t.Fatalf("expected cached read not to fail, got %+v", observation)
@@ -728,7 +728,7 @@ func TestRepeatedFileReadObservationIgnoresCacheAfterFileWrite(t *testing.T) {
 	_, isRepeated := repeatedFileReadObservation(observations, actionDocument, "obs-003")
 
 	if isRepeated {
-		t.Fatal("expected file.read cache to be ignored after a newer file.write")
+		t.Fatal("expected file_read cache to be ignored after a newer file_write")
 	}
 }
 
@@ -756,7 +756,7 @@ func TestRepeatedFileReadObservationIgnoresCacheAfterFileEdit(t *testing.T) {
 	_, isRepeated := repeatedFileReadObservation(observations, actionDocument, "obs-003")
 
 	if isRepeated {
-		t.Fatal("expected file.read cache to be ignored after a newer file.edit")
+		t.Fatal("expected file_read cache to be ignored after a newer file_edit")
 	}
 }
 
@@ -789,15 +789,15 @@ func TestRepeatedFileReadObservationMatchesMutationPathAcrossTildeSpelling(t *te
 
 func TestAgentTurnRunnerRejectsRepeatedScheduleCreateWithoutExecutingAgain(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"continue","toolName":"schedule.create","toolInput":{"taskInstruction":"send \"sorry\" in the current conversation.","kind":"interval","intervalSecond":60,"maxRunCount":10,"repeatPolicy":"finite","timeZone":"Asia/Seoul"}}`,
-		`{"action":"continue","toolName":"schedule.create","toolInput":{"timeZone":"Asia/Seoul","maxRunCount":10,"repeatPolicy":"finite","intervalSecond":60,"kind":"interval","taskInstruction":"send \"sorry\" in the current conversation."}}`,
+		`{"action":"continue","toolName":"schedule_create","toolInput":{"taskInstruction":"send \"sorry\" in the current conversation.","kind":"interval","intervalSecond":60,"maxRunCount":10,"repeatPolicy":"finite","timeZone":"Asia/Seoul"}}`,
+		`{"action":"continue","toolName":"schedule_create","toolInput":{"timeZone":"Asia/Seoul","maxRunCount":10,"repeatPolicy":"finite","intervalSecond":60,"kind":"interval","taskInstruction":"send \"sorry\" in the current conversation."}}`,
 		finishMessageDocument("Created the schedule."),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 4, MaxToolCallCount: 4})
 	toolCallCount := 0
-	toolRegistry := newTestCapabilityToolSet([]string{"schedule.create"})
+	toolRegistry := newTestCapabilityToolSet([]string{"schedule_create"})
 	registerTestTool(toolRegistry, toolcontract.ToolDefinition{
-		Name:            "schedule.create",
+		Name:            "schedule_create",
 		Namespace:       "schedule",
 		SideEffectClass: toolcontract.ToolSideEffectStateChange,
 		Completion:      toolcontract.ToolCompletion{Mode: toolcontract.ToolCompletionObservation},

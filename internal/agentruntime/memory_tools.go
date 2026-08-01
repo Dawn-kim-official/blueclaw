@@ -60,7 +60,7 @@ var (
 func registerMemoryTools(toolCatalogBuilder *ToolCatalogBuilder, toolRegistry *toolcontract.ToolSet, request ToolCatalogRequest) {
 	toolcontract.RegisterToolFunction(toolRegistry, toolcontract.ToolFunction[memorySearchToolInput, toolcontract.ToolResult]{
 		Definition: toolcontract.ToolDefinition{
-			Name:        "memory.search",
+			Name:        "memory_search",
 			Description: "Search Blueclaw graph memory allowed for this requester and conversation. Returns durable facts, preferences, and relationships by meaning, not exact rows.",
 			InputSchema: memorySearchInputSchema,
 		},
@@ -71,7 +71,7 @@ func registerMemoryTools(toolCatalogBuilder *ToolCatalogBuilder, toolRegistry *t
 	})
 	toolcontract.RegisterToolFunction(toolRegistry, toolcontract.ToolFunction[memoryRememberToolInput, toolcontract.ToolResult]{
 		Definition: toolcontract.ToolDefinition{
-			Name:        "memory.remember",
+			Name:        "memory_remember",
 			Description: "Store one durable fact, preference, or relationship for the current person or active circle; nothing is remembered unless this tool is called. This is the assistant's private recall only: nothing becomes visible in any conversation. When the user asks to leave a note or message people can see, send a message instead. Keep content a single compact standalone fact. Do not store secrets, one-off requests, transient task details, or small talk.",
 			InputSchema: memoryRememberInputSchema,
 		},
@@ -85,10 +85,10 @@ func registerMemoryTools(toolCatalogBuilder *ToolCatalogBuilder, toolRegistry *t
 func (toolCatalogBuilder *ToolCatalogBuilder) searchMemoryTool(toolContext context.Context, input memorySearchToolInput, request ToolCatalogRequest) (toolcontract.ToolResult, error) {
 	query := strings.TrimSpace(input.Query)
 	if query == "" {
-		return toolcontract.ToolFailureResult(toolcontract.FailureInvalidInput, toolcontract.FailureCodes.InvalidInput, "memory_search", "memory.search query is required"), nil
+		return toolcontract.ToolFailureResult(toolcontract.FailureInvalidInput, toolcontract.FailureCodes.InvalidInput, "memory_search", "memory_search query is required"), nil
 	}
 	if request.ActiveCircleConflict {
-		return toolcontract.ToolFailureResult(toolcontract.FailureInvalidInput, toolcontract.FailureCodes.Conflict, "memory_search", "memory.search has multiple active circle candidates"), nil
+		return toolcontract.ToolFailureResult(toolcontract.FailureInvalidInput, toolcontract.FailureCodes.Conflict, "memory_search", "memory_search has multiple active circle candidates"), nil
 	}
 	memoryRequest := TaskMemoryRequest{
 		Query:                     query,
@@ -252,7 +252,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) rememberMemoryTool(toolContext con
 		return toolcontract.ToolFailureResult(toolcontract.FailureInvalidInput, toolcontract.FailureCodes.InvalidInput, "memory_remember", gateMessage), nil
 	}
 	if request.ActiveCircleConflict {
-		return toolcontract.ToolFailureResult(toolcontract.FailureInvalidInput, toolcontract.FailureCodes.Conflict, "memory_remember", "memory.remember has multiple active circle candidates"), nil
+		return toolcontract.ToolFailureResult(toolcontract.FailureInvalidInput, toolcontract.FailureCodes.Conflict, "memory_remember", "memory_remember has multiple active circle candidates"), nil
 	}
 	namespace, errorMessage := resolveRememberMemoryNamespace(request)
 	if errorMessage != "" {
@@ -383,7 +383,7 @@ func resolveRememberMemoryNamespace(request ToolCatalogRequest) (memory.MemoryNa
 
 func resolvePersonMemoryNamespace(request ToolCatalogRequest) (memory.MemoryNamespace, string) {
 	if strings.TrimSpace(request.RequesterPersonID) == "" {
-		return memory.MemoryNamespace{}, "memory.remember person scope requires requester person ID"
+		return memory.MemoryNamespace{}, "memory_remember person scope requires requester person ID"
 	}
 	for _, namespace := range request.MemoryNamespaces {
 		if namespace.ScopeType == memory.ScopeTypeUser && namespace.ScopePersonID == request.RequesterPersonID {
@@ -396,10 +396,10 @@ func resolvePersonMemoryNamespace(request ToolCatalogRequest) (memory.MemoryName
 func resolveCircleMemoryNamespace(circleID string, request ToolCatalogRequest) (memory.MemoryNamespace, string) {
 	normalizedCircleID := strings.ToLower(strings.TrimSpace(circleID))
 	if normalizedCircleID == "" {
-		return memory.MemoryNamespace{}, "memory.remember circle memory requires active circle context"
+		return memory.MemoryNamespace{}, "memory_remember circle memory requires active circle context"
 	}
 	if !personAccessIncludesCircle(request.PersonAccess, normalizedCircleID) {
-		return memory.MemoryNamespace{}, "memory.remember circle memory is not accessible"
+		return memory.MemoryNamespace{}, "memory_remember circle memory is not accessible"
 	}
 	for _, namespace := range request.MemoryNamespaces {
 		if namespace.ScopeType == memory.ScopeTypeCircle && namespace.ScopeCircleID == normalizedCircleID {

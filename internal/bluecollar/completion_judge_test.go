@@ -30,8 +30,8 @@ func (languageModel *completionJudgeStubLanguageModel) GenerateStructuredRespons
 
 func completionJudgeTestToolSet() *toolcontract.ToolSet {
 	return newTestToolSetWithDefinitions([]toolcontract.ToolDefinition{
-		testToolDescriptor("task.add"),
-		testToolDescriptor("task.list"),
+		testToolDescriptor("task_add"),
+		testToolDescriptor("task_list"),
 	})
 }
 
@@ -64,7 +64,7 @@ func TestCompletionJudgeMessagesCarryTheFinishReplyAsDelivered(t *testing.T) {
 
 func TestOutcomeContractHasSideEffectEvidenceForRequiredEvidenceTools(t *testing.T) {
 	toolSet := completionJudgeTestToolSet()
-	contract := OutcomeContract{RequiredEvidenceTools: []string{"task.add"}}
+	contract := OutcomeContract{RequiredEvidenceTools: []string{"task_add"}}
 	if !outcomeContractHasSideEffectEvidence(toolSet, contract) {
 		t.Fatal("expected a state-changing required evidence tool to trigger the judge")
 	}
@@ -72,7 +72,7 @@ func TestOutcomeContractHasSideEffectEvidenceForRequiredEvidenceTools(t *testing
 
 func TestOutcomeContractHasSideEffectEvidenceForRequiredEvidenceAnyOf(t *testing.T) {
 	toolSet := completionJudgeTestToolSet()
-	contract := OutcomeContract{RequiredEvidenceAnyOf: [][]string{{"task.list"}, {"task.add"}}}
+	contract := OutcomeContract{RequiredEvidenceAnyOf: [][]string{{"task_list"}, {"task_add"}}}
 	if !outcomeContractHasSideEffectEvidence(toolSet, contract) {
 		t.Fatal("expected a side-effect tool inside any RequiredEvidenceAnyOf group to trigger the judge")
 	}
@@ -80,7 +80,7 @@ func TestOutcomeContractHasSideEffectEvidenceForRequiredEvidenceAnyOf(t *testing
 
 func TestOutcomeContractHasSideEffectEvidenceFalseForReadOnlyTools(t *testing.T) {
 	toolSet := completionJudgeTestToolSet()
-	contract := OutcomeContract{RequiredEvidenceTools: []string{"task.list"}}
+	contract := OutcomeContract{RequiredEvidenceTools: []string{"task_list"}}
 	if outcomeContractHasSideEffectEvidence(toolSet, contract) {
 		t.Fatal("expected a read-only required evidence tool to not trigger the judge")
 	}
@@ -89,14 +89,14 @@ func TestOutcomeContractHasSideEffectEvidenceFalseForReadOnlyTools(t *testing.T)
 func TestCompletionJudgeLedgerIncludesSuccessfulReadsAndWrites(t *testing.T) {
 	toolSet := completionJudgeTestToolSet()
 	observations := []turnObservation{
-		successfulSideEffectObservation("obs-001", "task.add", `{"title":"a"}`, "created"),
-		successfulSideEffectObservation("obs-002", "task.list", `{}`, "listed"),
-		{ObservationID: "obs-003", Tool: "task.add", ToolID: "test:task.add", Failure: &toolcontract.ToolFailure{}},
+		successfulSideEffectObservation("obs-001", "task_add", `{"title":"a"}`, "created"),
+		successfulSideEffectObservation("obs-002", "task_list", `{}`, "listed"),
+		{ObservationID: "obs-003", Tool: "task_add", ToolID: "test:task_add", Failure: &toolcontract.ToolFailure{}},
 	}
 
 	ledger := completionJudgeLedger(toolSet, observations)
 
-	if len(ledger) != 2 || ledger[0].Tool != "task.add" || ledger[1].Tool != "task.list" {
+	if len(ledger) != 2 || ledger[0].Tool != "task_add" || ledger[1].Tool != "task_list" {
 		t.Fatalf("expected successful reads and writes without the failed call, got %+v", ledger)
 	}
 }
@@ -107,7 +107,7 @@ func TestCompletionJudgeLedgerBudgetsBytesAndNamesDroppedEntries(t *testing.T) {
 	observationCount := completionJudgeLedgerByteBudget/completionJudgeInputMaxLength + 4
 	for index := 0; index < observationCount; index++ {
 		bulkyInput := `{"page":` + strconv.Itoa(index) + `,"filler":"` + strings.Repeat("x", completionJudgeInputMaxLength-40) + `"}`
-		observations = append(observations, successfulSideEffectObservation("obs", "task.list", bulkyInput, "listed"))
+		observations = append(observations, successfulSideEffectObservation("obs", "task_list", bulkyInput, "listed"))
 	}
 
 	ledger := completionJudgeLedger(toolSet, observations)
@@ -127,7 +127,7 @@ func TestCompletionJudgeLedgerTruncatesInputAndResult(t *testing.T) {
 	longInput := strings.Repeat("a", completionJudgeInputMaxLength+50)
 	longResult := strings.Repeat("b", completionJudgeResultMaxLength+50)
 	toolSet := completionJudgeTestToolSet()
-	observation := successfulSideEffectObservation("obs-001", "task.add", `{"note":"`+longInput+`"}`, longResult)
+	observation := successfulSideEffectObservation("obs-001", "task_add", `{"note":"`+longInput+`"}`, longResult)
 
 	ledger := completionJudgeLedger(toolSet, []turnObservation{observation})
 
@@ -177,7 +177,7 @@ func TestCompletionJudgeMessagesIncludeTemporalContext(t *testing.T) {
 func TestEvaluateCompletionJudgeFailsOpenOnProviderError(t *testing.T) {
 	languageModel := &completionJudgeStubLanguageModel{errorValue: errors.New("provider unavailable")}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
-	request := AgentTurnRequest{Prompt: "task", OutcomeContract: OutcomeContract{RequiredEvidenceTools: []string{"task.add"}}}
+	request := AgentTurnRequest{Prompt: "task", OutcomeContract: OutcomeContract{RequiredEvidenceTools: []string{"task_add"}}}
 
 	result := services.runner.evaluateCompletionJudge(context.Background(), "task-judge-1", request, nil, nil, completionJudgeFinishActionDocument())
 
@@ -192,7 +192,7 @@ func TestEvaluateCompletionJudgeFailsOpenOnProviderError(t *testing.T) {
 func TestEvaluateCompletionJudgeFailsOpenOnMalformedContent(t *testing.T) {
 	languageModel := &completionJudgeStubLanguageModel{response: model.StructuredResponse{Content: "not json"}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
-	request := AgentTurnRequest{Prompt: "task", OutcomeContract: OutcomeContract{RequiredEvidenceTools: []string{"task.add"}}}
+	request := AgentTurnRequest{Prompt: "task", OutcomeContract: OutcomeContract{RequiredEvidenceTools: []string{"task_add"}}}
 
 	result := services.runner.evaluateCompletionJudge(context.Background(), "task-judge-2", request, nil, nil, completionJudgeFinishActionDocument())
 
@@ -207,7 +207,7 @@ func TestEvaluateCompletionJudgeFailsOpenOnMalformedContent(t *testing.T) {
 func TestEvaluateCompletionJudgeRecordsUnsatisfiedVerdictEvent(t *testing.T) {
 	languageModel := &completionJudgeStubLanguageModel{response: model.StructuredResponse{Content: `{"satisfied":false,"missingWork":["endDate is missing"],"reason":"missing due date"}`}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
-	request := AgentTurnRequest{Prompt: "task", OutcomeContract: OutcomeContract{RequiredEvidenceTools: []string{"task.add"}}}
+	request := AgentTurnRequest{Prompt: "task", OutcomeContract: OutcomeContract{RequiredEvidenceTools: []string{"task_add"}}}
 
 	result := services.runner.evaluateCompletionJudge(context.Background(), "task-judge-3", request, nil, nil, completionJudgeFinishActionDocument())
 
@@ -228,9 +228,9 @@ func TestValidateCompletionGateWithJudgeSkipsJudgeWithoutSideEffectEvidence(t *t
 	request := AgentTurnRequest{
 		Prompt:          "read only task",
 		ToolSet:         completionJudgeTestToolSet(),
-		OutcomeContract: OutcomeContract{RequiredEvidenceTools: []string{"task.list"}},
+		OutcomeContract: OutcomeContract{RequiredEvidenceTools: []string{"task_list"}},
 	}
-	observations := []turnObservation{successfulSideEffectObservation("obs-001", "task.list", `{}`, "listed")}
+	observations := []turnObservation{successfulSideEffectObservation("obs-001", "task_list", `{}`, "listed")}
 
 	result := services.runner.validateCompletionGateWithJudge(context.Background(), "task-judge-4", request, nil, observations, nil, nil, completionJudgeFinishActionDocument())
 
@@ -248,13 +248,13 @@ func TestValidateCompletionGateWithJudgeSkipsJudgeWhenDeterministicGateFails(t *
 	request := AgentTurnRequest{
 		Prompt:          "side effect task",
 		ToolSet:         completionJudgeTestToolSet(),
-		OutcomeContract: OutcomeContract{RequiredEvidenceTools: []string{"task.add"}},
+		OutcomeContract: OutcomeContract{RequiredEvidenceTools: []string{"task_add"}},
 	}
 
 	result := services.runner.validateCompletionGateWithJudge(context.Background(), "task-judge-5", request, nil, nil, nil, nil, completionJudgeFinishActionDocument())
 
 	if result.IsSatisfied {
-		t.Fatal("expected the deterministic gate to fail without any task.add evidence")
+		t.Fatal("expected the deterministic gate to fail without any task_add evidence")
 	}
 	if len(languageModel.requests) != 0 {
 		t.Fatalf("expected the judge to be skipped once the deterministic gate already failed, got %d calls", len(languageModel.requests))
@@ -267,9 +267,9 @@ func TestValidateCompletionGateWithJudgeReturnsJudgeUnsatisfied(t *testing.T) {
 	request := AgentTurnRequest{
 		Prompt:          "add a task to check the missing quarterly settlement, due July 24",
 		ToolSet:         completionJudgeTestToolSet(),
-		OutcomeContract: OutcomeContract{RequiredEvidenceTools: []string{"task.add"}},
+		OutcomeContract: OutcomeContract{RequiredEvidenceTools: []string{"task_add"}},
 	}
-	observations := []turnObservation{successfulSideEffectObservation("obs-001", "task.add", `{"title":"missing quarterly settlement check"}`, "created")}
+	observations := []turnObservation{successfulSideEffectObservation("obs-001", "task_add", `{"title":"missing quarterly settlement check"}`, "created")}
 
 	result := services.runner.validateCompletionGateWithJudge(context.Background(), "task-judge-6", request, nil, observations, nil, nil, completionJudgeFinishActionDocument())
 
@@ -285,7 +285,7 @@ func TestCompletionGateRunsJudgeFromLedgerWhenContractIsEmpty(t *testing.T) {
 	languageModel := &completionJudgeStubLanguageModel{response: model.StructuredResponse{Content: `{"satisfied":false,"missingWork":["endDate is empty"],"reason":"no due date set"}`}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
 	request := AgentTurnRequest{Prompt: "add task", ToolSet: completionJudgeTestToolSet()}
-	observations := []turnObservation{successfulSideEffectObservation("obs-001", "task.add", `{"title":"t"}`, `{"endDate":""}`)}
+	observations := []turnObservation{successfulSideEffectObservation("obs-001", "task_add", `{"title":"t"}`, `{"endDate":""}`)}
 
 	result := services.runner.validateCompletionGateWithJudge(context.Background(), "task-judge-ledger", request, nil, observations, nil, nil, completionJudgeFinishActionDocument())
 

@@ -112,12 +112,12 @@ func normalizePersistedToolNames(toolNames []string) []string {
 
 func normalizePersistedToolName(toolName string) string {
 	switch strings.TrimSpace(toolName) {
-	case "ask.choice":
+	case "ask_choice":
 		return toolcontract.AskInputToolName
 	case "artifact.deliver", "file.attach":
 		return toolcontract.FileDeliverToolName
 	case "site.promote", "site.publish", "site.preview":
-		return "site.serve"
+		return "site_serve"
 	case "terminal.session":
 		return toolcontract.TerminalRunToolName
 	default:

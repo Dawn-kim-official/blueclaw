@@ -27,12 +27,12 @@ func TestLLMDLiveLowCanonicalTerminalSchemaFromEnv(t *testing.T) {
 		SchemaName: "blueclaw_agent_turn_action",
 		Messages: []llm.ChatCompletionMessage{{
 			Role:    "user",
-			Content: "Call terminal.run with command printf llmd-terminal-ok.",
+			Content: "Call terminal_run with command printf llmd-terminal-ok.",
 		}},
 		Tools: []llm.ChatCompletionTool{{
 			Type: "function",
 			Function: llm.ChatCompletionFunction{
-				Name:        "terminal.run",
+				Name:        "terminal_run",
 				Description: "Run a command in the requester workspace.",
 				Parameters:  terminalRunInputSchema,
 			},
@@ -47,8 +47,8 @@ func TestLLMDLiveLowCanonicalTerminalSchemaFromEnv(t *testing.T) {
 		t.Fatalf("expected one terminal tool call, got %+v", response)
 	}
 	toolCall := response.Message.ToolCalls[0]
-	if toolCall.Function.Name != "terminal.run" {
-		t.Fatalf("expected terminal.run, got %+v", toolCall)
+	if toolCall.Function.Name != "terminal_run" {
+		t.Fatalf("expected terminal_run, got %+v", toolCall)
 	}
 	var input terminalRunToolInput
 	if errorValue := json.Unmarshal([]byte(toolCall.Function.Arguments), &input); errorValue != nil {

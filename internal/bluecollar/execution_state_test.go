@@ -12,7 +12,7 @@ import (
 
 func TestBuildAgentActionRequestIncludesExecutionStateAndTerminalTail(t *testing.T) {
 	state := agentTaskState{
-		Request: AgentTurnRequest{Prompt: "make a pptx", ToolSet: newTestToolSet([]string{"terminal.run"})},
+		Request: AgentTurnRequest{Prompt: "make a pptx", ToolSet: newTestToolSet([]string{"terminal_run"})},
 		Options: TurnOptions{RecoveryBudget: defaultRecoveryBudget()},
 		ExecutionState: ExecutionState{
 			Goal:           "create and attach pptx",
@@ -87,7 +87,7 @@ func TestTerminalObservationTailPreservesToolInteractionInputAndResult(t *testin
 	if !ok {
 		t.Fatal("expected terminal tail")
 	}
-	if tail.ObservationID != "obs-002" || tail.ToolName != "terminal.run" {
+	if tail.ObservationID != "obs-002" || tail.ToolName != "terminal_run" {
 		t.Fatalf("expected observation identity preserved, got %+v", tail)
 	}
 	if tail.WorkingDirectory != "tmp/site/app" || tail.Command != "bun run build" {
@@ -153,11 +153,11 @@ func terminalFailureObservation(observationID string, workingDirectoryPath strin
 	return turnObservation{
 		ObservationID:      observationID,
 		Action:             "continue",
-		Tool:               "terminal.run",
+		Tool:               "terminal_run",
 		Output:             toolcontract.ToolOutput{Content: "terminal command failed", Data: json.RawMessage(content)},
 		Failure:            &toolcontract.ToolFailure{Kind: toolcontract.FailureExternalService, Code: toolcontract.FailureCodes.OperationFailed.String(), Stage: "terminal_run", UserSafeSummary: content},
-		ToolInputKey:       canonicalToolCallKey("terminal.run", input),
-		AttemptFingerprint: attemptFingerprint(canonicalToolCallKey("terminal.run", input), toolcontract.FailureCodes.OperationFailed.String()),
+		ToolInputKey:       canonicalToolCallKey("terminal_run", input),
+		AttemptFingerprint: attemptFingerprint(canonicalToolCallKey("terminal_run", input), toolcontract.FailureCodes.OperationFailed.String()),
 	}
 }
 
@@ -175,9 +175,9 @@ func terminalSuccessObservation(observationID string, workingDirectoryPath strin
 	return turnObservation{
 		ObservationID: observationID,
 		Action:        "continue",
-		Tool:          "terminal.run",
+		Tool:          "terminal_run",
 		Output:        toolcontract.ToolOutput{Content: "terminal command completed", Data: json.RawMessage(content)},
-		ToolInputKey:  canonicalToolCallKey("terminal.run", input),
+		ToolInputKey:  canonicalToolCallKey("terminal_run", input),
 	}
 }
 
@@ -199,7 +199,7 @@ func messagesText(messages []model.Message) string {
 }
 
 func TestExecutionStateSchemaIsPresentOnToolCalls(t *testing.T) {
-	schemaDocument := buildActionSchemaFromToolDefinitions([]toolcontract.ToolDefinition{{Name: "terminal.run"}}, false, nil, false)
+	schemaDocument := buildActionSchemaFromToolDefinitions([]toolcontract.ToolDefinition{{Name: "terminal_run"}}, false, nil, false)
 	var schema struct {
 		OneOf []map[string]any `json:"oneOf"`
 	}

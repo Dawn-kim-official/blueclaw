@@ -58,7 +58,7 @@ func TestPresentationLocalMultiturnSuccessLive(t *testing.T) {
 		t.Fatalf("expected one turn result, got %d", len(result.TurnResults))
 	}
 	turnResult := result.TurnResults[0]
-	if !eventsContain(turnResult.Events, "tool.terminal.run.result", "exitCode") {
+	if !eventsContain(turnResult.Events, "tool.terminal_run.result", "exitCode") {
 		t.Fatal("expected terminal build to succeed")
 	}
 }
@@ -91,11 +91,11 @@ func TestCompletionJudgeRecoveryAcceptance(t *testing.T) {
 	if turnResult.TaskStatus != task.TaskStatusCompleted {
 		t.Fatalf("expected completed turn after judge recovery, got %s", turnResult.TaskStatus)
 	}
-	if countRequestedToolCalls(turnResult.Events, "task.add") != 1 {
-		t.Fatalf("expected exactly one task.add, got events: %s", summarizeEvents(turnResult.Events))
+	if countRequestedToolCalls(turnResult.Events, "task_add") != 1 {
+		t.Fatalf("expected exactly one task_add, got events: %s", summarizeEvents(turnResult.Events))
 	}
-	if countRequestedToolCalls(turnResult.Events, "task.update") != 1 {
-		t.Fatalf("expected a corrective task.update after the unsatisfied verdict, got events: %s", summarizeEvents(turnResult.Events))
+	if countRequestedToolCalls(turnResult.Events, "task_update") != 1 {
+		t.Fatalf("expected a corrective task_update after the unsatisfied verdict, got events: %s", summarizeEvents(turnResult.Events))
 	}
 	if countEvents(turnResult.Events, "completion_judge.verdict") != 2 {
 		t.Fatalf("expected two recorded completion judge verdicts, got events: %s", summarizeEvents(turnResult.Events))
@@ -116,13 +116,13 @@ func TestDocumentCreateAcceptanceUsesLiveCanonicalTools(t *testing.T) {
 	if len(scenario.Turns) != 1 || len(scenario.Turns[0].ActionResponses) != 0 {
 		t.Fatalf("expected one live-only document turn, got %+v", scenario.Turns)
 	}
-	if !slices.Equal(scenario.CapabilityToolNames, []string{"document.read"}) {
+	if !slices.Equal(scenario.CapabilityToolNames, []string{"document_read"}) {
 		t.Fatalf("expected canonical document capability, got %v", scenario.CapabilityToolNames)
 	}
 	if !slices.Equal(scenario.Turns[0].ExpectedSelectedSkills, []string{"document"}) {
 		t.Fatalf("expected document skill selection, got %v", scenario.Turns[0].ExpectedSelectedSkills)
 	}
-	if scenario.Turns[0].ExpectedToolCallCounts["file.deliver"] != 1 {
+	if scenario.Turns[0].ExpectedToolCallCounts["file_deliver"] != 1 {
 		t.Fatalf("expected one final document delivery, got %+v", scenario.Turns[0].ExpectedToolCallCounts)
 	}
 }
@@ -136,14 +136,14 @@ func TestAmbientTaskCaptureAcceptance(t *testing.T) {
 	if !eventsContain(turnResult.Events, "agent.ambient_duty_launch", `"dutyName":"team_flow_update"`) {
 		t.Fatalf("expected ambient duty launch for an other-person-mentioned task assignment; events: %s", summarizeEvents(turnResult.Events))
 	}
-	if eventsContain(turnResult.Events, "tool.terminal.run.requested", "") {
-		t.Fatalf("ambient capture must not reach terminal.run; events: %s", summarizeEvents(turnResult.Events))
+	if eventsContain(turnResult.Events, "tool.terminal_run.requested", "") {
+		t.Fatalf("ambient capture must not reach terminal_run; events: %s", summarizeEvents(turnResult.Events))
 	}
 	reviseResult := result.TurnResults[1]
-	if !requestedToolCallPresent(reviseResult.Events, "task.update") {
+	if !requestedToolCallPresent(reviseResult.Events, "task_update") {
 		t.Fatalf("expected a same-thread follow-up to update the existing task; events: %s", summarizeEvents(reviseResult.Events))
 	}
-	if countRequestedToolCalls(reviseResult.Events, "task.add") > 0 {
+	if countRequestedToolCalls(reviseResult.Events, "task_add") > 0 {
 		t.Fatalf("same-thread revision must update, not add a duplicate task; events: %s", summarizeEvents(reviseResult.Events))
 	}
 	if turnResult.DidReply || reviseResult.DidReply {
@@ -157,12 +157,12 @@ func TestScheduleCreateAcceptance(t *testing.T) {
 		t.Fatalf("expected schedule acceptance scenario to pass: %v", errorValue)
 	}
 	turnResult := result.TurnResults[0]
-	if !eventsContain(turnResult.Events, "tool.schedule.create.requested", "schedule.create") ||
-		!eventsContain(turnResult.Events, "tool.schedule.create.result", "intervalSecond") {
+	if !eventsContain(turnResult.Events, "tool.schedule_create.requested", "schedule_create") ||
+		!eventsContain(turnResult.Events, "tool.schedule_create.result", "intervalSecond") {
 		t.Fatalf("expected capability schedule create; events: %s", summarizeEvents(turnResult.Events))
 	}
-	if !strings.Contains(turnResult.ModelContext, "schedule.create") {
-		t.Fatal("expected model context to document schedule.create capability")
+	if !strings.Contains(turnResult.ModelContext, "schedule_create") {
+		t.Fatal("expected model context to document schedule_create capability")
 	}
 }
 
@@ -177,15 +177,15 @@ func TestScheduleLifecycleAcceptance(t *testing.T) {
 	firstTurnResult := result.TurnResults[0]
 	secondTurnResult := result.TurnResults[1]
 	thirdTurnResult := result.TurnResults[2]
-	if !eventsContain(firstTurnResult.Events, "tool.schedule.create.requested", "schedule.create") ||
-		!eventsContain(firstTurnResult.Events, "tool.schedule.create.result", "intervalSecond") {
+	if !eventsContain(firstTurnResult.Events, "tool.schedule_create.requested", "schedule_create") ||
+		!eventsContain(firstTurnResult.Events, "tool.schedule_create.result", "intervalSecond") {
 		t.Fatalf("expected initial interval schedule through the capability kernel; events: %s", summarizeEvents(firstTurnResult.Events))
 	}
-	if !eventsContain(secondTurnResult.Events, "tool.schedule.update.requested", "schedule.update") ||
-		!eventsContain(secondTurnResult.Events, "tool.schedule.update.result", "intervalSecond") {
+	if !eventsContain(secondTurnResult.Events, "tool.schedule_update.requested", "schedule_update") ||
+		!eventsContain(secondTurnResult.Events, "tool.schedule_update.result", "intervalSecond") {
 		t.Fatalf("expected modification through the capability kernel; events: %s", summarizeEvents(secondTurnResult.Events))
 	}
-	if !eventsContain(thirdTurnResult.Events, "tool.schedule.cancel.requested", "schedule.cancel") {
+	if !eventsContain(thirdTurnResult.Events, "tool.schedule_cancel.requested", "schedule_cancel") {
 		t.Fatalf("expected deletion through the capability kernel; events: %s", summarizeEvents(thirdTurnResult.Events))
 	}
 	if activeScheduleCount(result.TaskSchedules) != 0 {
@@ -205,22 +205,22 @@ func TestCalendarEventLifecycleAcceptance(t *testing.T) {
 	secondTurnResult := result.TurnResults[1]
 	thirdTurnResult := result.TurnResults[2]
 	approvalTurnResult := result.TurnResults[3]
-	if countEventsWithFragment(firstTurnResult.Events, "tool.calendar.add.requested", "calendar.add") != 1 {
+	if countEventsWithFragment(firstTurnResult.Events, "tool.calendar_add.requested", "calendar_add") != 1 {
 		t.Fatalf("expected one calendar add request; events: %s", summarizeEvents(firstTurnResult.Events))
 	}
-	if countEventsWithFragment(secondTurnResult.Events, "tool.calendar.update.requested", "calendar.update") != 1 {
+	if countEventsWithFragment(secondTurnResult.Events, "tool.calendar_update.requested", "calendar_update") != 1 {
 		t.Fatalf("expected one calendar update request; events: %s", summarizeEvents(secondTurnResult.Events))
 	}
-	if !eventsContain(secondTurnResult.Events, "tool.calendar.update.requested", "2026-06-13T14:00:00+09:00") {
+	if !eventsContain(secondTurnResult.Events, "tool.calendar_update.requested", "2026-06-13T14:00:00+09:00") {
 		t.Fatalf("expected updated time in calendar update input; events: %s", summarizeEvents(secondTurnResult.Events))
 	}
-	if !eventsContain(secondTurnResult.Events, "tool.calendar.update.result", "updated virtual calendar event") {
+	if !eventsContain(secondTurnResult.Events, "tool.calendar_update.result", "updated virtual calendar event") {
 		t.Fatalf("expected successful calendar update result; events: %s", summarizeEvents(secondTurnResult.Events))
 	}
-	if countEventsWithFragment(thirdTurnResult.Events, "tool.calendar.delete.requested", "calendar.delete") != 1 {
+	if countEventsWithFragment(thirdTurnResult.Events, "tool.calendar_delete.requested", "calendar_delete") != 1 {
 		t.Fatalf("expected one calendar delete request; events: %s", summarizeEvents(thirdTurnResult.Events))
 	}
-	if !eventsContain(approvalTurnResult.Events, "approval.executed", "calendar.delete") {
+	if !eventsContain(approvalTurnResult.Events, "approval.executed", "calendar_delete") {
 		t.Fatalf("expected approved calendar delete execution; events: %s", summarizeEvents(approvalTurnResult.Events))
 	}
 }
@@ -234,7 +234,7 @@ func TestAmbientDutyCalendarAcceptance(t *testing.T) {
 		t.Fatalf("expected one turn result, got %d", len(result.TurnResults))
 	}
 	turnResult := result.TurnResults[0]
-	if countRequestedToolCalls(turnResult.Events, "calendar.add") != 1 {
+	if countRequestedToolCalls(turnResult.Events, "calendar_add") != 1 {
 		t.Fatalf("expected one calendar add request; events: %s", summarizeEvents(turnResult.Events))
 	}
 	if !eventsContain(turnResult.Events, "agent.ambient_duty_launch", `"dutyName":"calendar_upkeep"`) {
@@ -254,15 +254,15 @@ func TestCapabilityQuestionAcceptance(t *testing.T) {
 		t.Fatalf("expected one turn result, got %d", len(result.TurnResults))
 	}
 	turnResult := result.TurnResults[0]
-	requestedBodies := eventBodies(turnResult.Events, "tool.skill.search.requested")
+	requestedBodies := eventBodies(turnResult.Events, "tool.skill_search.requested")
 	if len(requestedBodies) != 1 {
-		t.Fatalf("expected one skill.search request, got events: %s", summarizeEvents(turnResult.Events))
+		t.Fatalf("expected one skill_search request, got events: %s", summarizeEvents(turnResult.Events))
 	}
 	if strings.Contains(requestedBodies[0], "queries") || strings.Contains(requestedBodies[0], "limit") {
-		t.Fatalf("expected empty skill.search input, got %s", requestedBodies[0])
+		t.Fatalf("expected empty skill_search input, got %s", requestedBodies[0])
 	}
-	if !eventsContain(turnResult.Events, "tool.skill.search.result", "presentation") {
-		t.Fatalf("expected skill.search result to include presentation; events: %s", summarizeEvents(turnResult.Events))
+	if !eventsContain(turnResult.Events, "tool.skill_search.result", "presentation") {
+		t.Fatalf("expected skill_search result to include presentation; events: %s", summarizeEvents(turnResult.Events))
 	}
 	if !strings.Contains(turnResult.FinishMessage, "presentation") {
 		t.Fatalf("expected final reply to mention presentation, got %q", turnResult.FinishMessage)
@@ -278,10 +278,10 @@ func TestOneTimeScheduleAcceptance(t *testing.T) {
 		t.Fatalf("expected one turn result, got %d", len(result.TurnResults))
 	}
 	turnResult := result.TurnResults[0]
-	if countRequestedToolCalls(turnResult.Events, "schedule.create") != 1 {
+	if countRequestedToolCalls(turnResult.Events, "schedule_create") != 1 {
 		t.Fatalf("expected one-time schedule creation event; events: %s", summarizeEvents(turnResult.Events))
 	}
-	if !eventsContain(turnResult.Events, "tool.schedule.create.result", "schedule.create") {
+	if !eventsContain(turnResult.Events, "tool.schedule_create.result", "schedule_create") {
 		t.Fatalf("expected one-time schedule capability result; events: %s", summarizeEvents(turnResult.Events))
 	}
 }
@@ -295,10 +295,10 @@ func TestSitePrototypeAcceptance(t *testing.T) {
 	if !eventsContain(turnResult.Events, "agent.instructions_loaded", "website") {
 		t.Fatal("expected site-prototype skill to be selected")
 	}
-	if !eventsContain(turnResult.Events, "tool.site.serve.result", "publishedURL") {
+	if !eventsContain(turnResult.Events, "tool.site_serve.result", "publishedURL") {
 		t.Fatalf("expected site publish result to include a public URL; events: %s", summarizeEvents(turnResult.Events))
 	}
-	if !strings.Contains(turnResult.ModelContext, "site.serve") || !strings.Contains(turnResult.ModelContext, "site.serve") {
+	if !strings.Contains(turnResult.ModelContext, "site_serve") || !strings.Contains(turnResult.ModelContext, "site_serve") {
 		t.Fatal("expected model context to document site app capabilities")
 	}
 }
@@ -315,14 +315,14 @@ func TestSiteEditRedeployAcceptance(t *testing.T) {
 	if secondTurnResult.TaskStatus != task.TaskStatusCompleted {
 		t.Fatalf("expected second turn success, got %s", secondTurnResult.TaskStatus)
 	}
-	if countEvents(secondTurnResult.Events, "tool.terminal.run.requested") != 0 {
-		t.Fatalf("expected no terminal.run for a content-only edit in turn two; events: %s", summarizeEvents(secondTurnResult.Events))
+	if countEvents(secondTurnResult.Events, "tool.terminal_run.requested") != 0 {
+		t.Fatalf("expected no terminal_run for a content-only edit in turn two; events: %s", summarizeEvents(secondTurnResult.Events))
 	}
-	if countEventsWithFragment(secondTurnResult.Events, "tool.file.write.requested", "site-content.json") == 0 {
+	if countEventsWithFragment(secondTurnResult.Events, "tool.file_write.requested", "site-content.json") == 0 {
 		t.Fatalf("expected a content-only site-content.json edit in turn two; events: %s", summarizeEvents(secondTurnResult.Events))
 	}
-	if countEventsWithFragment(secondTurnResult.Events, "tool.site.serve.requested", "site.serve") == 0 {
-		t.Fatalf("expected site.serve capability invocation in turn two; events: %s", summarizeEvents(secondTurnResult.Events))
+	if countEventsWithFragment(secondTurnResult.Events, "tool.site_serve.requested", "site_serve") == 0 {
+		t.Fatalf("expected site_serve capability invocation in turn two; events: %s", summarizeEvents(secondTurnResult.Events))
 	}
 	if !strings.Contains(secondTurnResult.FinishMessage, "https://") {
 		t.Fatalf("expected final assistant message to contain a URL, got %q", secondTurnResult.FinishMessage)
@@ -338,17 +338,17 @@ func TestSiteCustomStructureAcceptance(t *testing.T) {
 	if turnResult.TaskStatus != task.TaskStatusCompleted {
 		t.Fatalf("expected completed turn, got %s", turnResult.TaskStatus)
 	}
-	if !eventsContain(turnResult.Events, "tool.site.serve.result", "app/dist") {
-		t.Fatalf("expected the first site.serve attempt to be rejected by the site owner for a missing build; events: %s", summarizeEvents(turnResult.Events))
+	if !eventsContain(turnResult.Events, "tool.site_serve.result", "app/dist") {
+		t.Fatalf("expected the first site_serve attempt to be rejected by the site owner for a missing build; events: %s", summarizeEvents(turnResult.Events))
 	}
-	if countEvents(turnResult.Events, "tool.terminal.run.requested") != 1 {
-		t.Fatalf("expected exactly one terminal.run build after the app/src change; events: %s", summarizeEvents(turnResult.Events))
+	if countEvents(turnResult.Events, "tool.terminal_run.requested") != 1 {
+		t.Fatalf("expected exactly one terminal_run build after the app/src change; events: %s", summarizeEvents(turnResult.Events))
 	}
-	if countEvents(turnResult.Events, "tool.site.serve.requested") != 2 {
-		t.Fatalf("expected site.serve to be attempted once before the build and once after; events: %s", summarizeEvents(turnResult.Events))
+	if countEvents(turnResult.Events, "tool.site_serve.requested") != 2 {
+		t.Fatalf("expected site_serve to be attempted once before the build and once after; events: %s", summarizeEvents(turnResult.Events))
 	}
-	if !eventsContain(turnResult.Events, "tool.site.serve.result", "device.example.test") {
-		t.Fatalf("expected the rebuilt site.serve to publish; events: %s", summarizeEvents(turnResult.Events))
+	if !eventsContain(turnResult.Events, "tool.site_serve.result", "device.example.test") {
+		t.Fatalf("expected the rebuilt site_serve to publish; events: %s", summarizeEvents(turnResult.Events))
 	}
 	if !strings.Contains(turnResult.FinishMessage, "https://") {
 		t.Fatalf("expected final assistant message to contain a URL, got %q", turnResult.FinishMessage)
@@ -367,14 +367,14 @@ func TestSiteLifecycleAcceptance(t *testing.T) {
 	if deleteRequestTurnResult.TaskStatus != task.TaskStatusWaitingApproval {
 		t.Fatalf("expected delete turn to wait for approval, got %s", deleteRequestTurnResult.TaskStatus)
 	}
-	if !eventsContain(deleteRequestTurnResult.Events, "approval.pending_call", "site.unserve") {
-		t.Fatalf("expected pending site.unserve approval; events: %s", summarizeEvents(deleteRequestTurnResult.Events))
+	if !eventsContain(deleteRequestTurnResult.Events, "approval.pending_call", "site_unserve") {
+		t.Fatalf("expected pending site_unserve approval; events: %s", summarizeEvents(deleteRequestTurnResult.Events))
 	}
 	deleteCompletionTurnResult := result.TurnResults[3]
 	if deleteCompletionTurnResult.TaskStatus != task.TaskStatusCompleted {
 		t.Fatalf("expected delete completion, got %s", deleteCompletionTurnResult.TaskStatus)
 	}
-	if !eventsContain(deleteCompletionTurnResult.Events, "tool.site.unserve.result", "deleted") {
-		t.Fatalf("expected site.unserve result; events: %s", summarizeEvents(deleteCompletionTurnResult.Events))
+	if !eventsContain(deleteCompletionTurnResult.Events, "tool.site_unserve.result", "deleted") {
+		t.Fatalf("expected site_unserve result; events: %s", summarizeEvents(deleteCompletionTurnResult.Events))
 	}
 }

@@ -182,7 +182,7 @@ that requester instead.
 
 ```mermaid
 flowchart LR
-  Tool["file.write / file.read / terminal.run"] --> Catalog["ToolCatalogBuilder"]
+  Tool["file_write / file_read / terminal_run"] --> Catalog["ToolCatalogBuilder"]
   Catalog --> Shell["requester shell command"]
   Shell --> Guardrail["CommandGuardrailService"]
   Guardrail --> Helper["blueclaw-posix-helper (root:root 4755)"]
@@ -190,8 +190,8 @@ flowchart LR
   Requester --> POSIX["POSIX decides"]
 ```
 
-File tools are not a separate code path from the terminal. `file.read`,
-`file.write`, `file.edit`, and the rest build a shell command and run it through
+File tools are not a separate code path from the terminal. `file_read`,
+`file_write`, `file_edit`, and the rest build a shell command and run it through
 the same requester-identity primitive, so tilde expansion, globs, and relative
 paths carry native POSIX semantics rather than a hand-written path vocabulary.
 Quoting arguments is serialization; mapping exit codes and stderr to failure

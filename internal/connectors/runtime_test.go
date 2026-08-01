@@ -357,7 +357,7 @@ func TestConnectorRuntimeAmbiguousWaitDoesNotSelectNewest(t *testing.T) {
 		t.Fatalf("ambiguous reply must not continue waits, older=%s newer=%s", olderTaskRun.Status, newerTaskRun.Status)
 	}
 	if !connectorTaskEventsContain(connectorRuntime, result.TaskRunID, "ask.requested", `"ask_input"`) {
-		t.Fatalf("expected disambiguation ask.input, taskRunID=%s", result.TaskRunID)
+		t.Fatalf("expected disambiguation ask_input, taskRunID=%s", result.TaskRunID)
 	}
 }
 
@@ -484,11 +484,11 @@ func TestConnectorRuntimeWritesResolvesAndExpiresTaskWaitRecord(t *testing.T) {
 	languageModel := agenttest.NewScriptedLanguageModel(agenttest.ScriptedLanguageModelOptions{
 		StructuredResponsesBySchema: map[string][]string{
 			"blueclaw_turn_router": {
-				`{"route":"start_task","classification":"bounded_task","taskShape":"maintenance_task","level":"low","estimatedMinutes":1,"requestedOutputFormats":null,"siteRequestEvidence":"","responseLanguage":"ko","reason":"input needed","userFacingReply":"","initialToolNames":["ask.input"]}`,
+				`{"route":"start_task","classification":"bounded_task","taskShape":"maintenance_task","level":"low","estimatedMinutes":1,"requestedOutputFormats":null,"siteRequestEvidence":"","responseLanguage":"ko","reason":"input needed","userFacingReply":"","initialToolNames":["ask_input"]}`,
 			},
 		},
 		ActionResponses: []string{
-			`{"action":"continue","message":"추가 정보가 필요합니다.","toolName":"ask.input","toolInput":{"question":"추가 정보가 필요합니다."},"nextStepPlan":{"objective":"wait","expectedTools":[],"expectedNextResults":["user replies"],"doneCriteria":["reply received"],"risk":"none","workingSetReason":"ask.input waits for the user"}}`,
+			`{"action":"continue","message":"추가 정보가 필요합니다.","toolName":"ask_input","toolInput":{"question":"추가 정보가 필요합니다."},"nextStepPlan":{"objective":"wait","expectedTools":[],"expectedNextResults":["user replies"],"doneCriteria":["reply received"],"risk":"none","workingSetReason":"ask_input waits for the user"}}`,
 		},
 	})
 	connectorRuntime, adapter, taskRunService, taskWaitRepository := newWaitRoutingTestConnectorRuntime(t, languageModel)
@@ -1124,7 +1124,7 @@ func TestConnectorRuntimeDoesNotContinueFailedSiteOnlyGoal(t *testing.T) {
 		OriginalInstruction: taskRun.Prompt,
 		Status:              bluecollar.ActiveGoalStatusBlocked,
 		OutcomeContract: bluecollar.OutcomeContract{
-			RequiredEvidenceTools: []string{"site.serve"},
+			RequiredEvidenceTools: []string{"site_serve"},
 			ExpectedResults: []bluecollar.ExpectedResult{{
 				ID:       "site-public-link",
 				Type:     bluecollar.ExpectedResultTypeLink,
@@ -2219,7 +2219,7 @@ func TestConnectorRuntimeAddsImportedImageAttachmentCatalog(t *testing.T) {
 		t.Fatalf("expected one attachment import request, got %+v", adapter.inputAttachmentImportRequests)
 	}
 	body := joinConnectorMessageContent(languageModel.request.Messages)
-	for _, expected := range []string{"Current attachments", "materialID=mattermost:file-1", "path=~/inbox/mattermost/direct-1/message-1/mascot.png", "availableTools=image.read"} {
+	for _, expected := range []string{"Current attachments", "materialID=mattermost:file-1", "path=~/inbox/mattermost/direct-1/message-1/mascot.png", "availableTools=image_read"} {
 		if !strings.Contains(body, expected) {
 			t.Fatalf("expected attachment catalog %q in model request, got %s", expected, body)
 		}
@@ -2299,7 +2299,7 @@ func TestConnectorRuntimeAddsDocumentAttachmentCatalog(t *testing.T) {
 		t.Fatalf("expected event to process: %v", errorValue)
 	}
 	body := joinConnectorMessageContent(languageModel.request.Messages)
-	for _, expected := range []string{"Current attachments", "materialID=mattermost:file-1", "path=/workspace/circles/staff/inbox/mattermost/direct-1/message-1/report.pdf", "availableTools=file.preview,file.read"} {
+	for _, expected := range []string{"Current attachments", "materialID=mattermost:file-1", "path=/workspace/circles/staff/inbox/mattermost/direct-1/message-1/report.pdf", "availableTools=file_preview,file_read"} {
 		if !strings.Contains(body, expected) {
 			t.Fatalf("expected attachment catalog %q in model request, got %s", expected, body)
 		}
@@ -2465,8 +2465,8 @@ func TestConnectorRuntimeFetchesInitialVisibleContextFromHistoryCursor(t *testin
 func TestConnectorRuntimeRunsAgentHistoryToolAndSendsOneFinishMessage(t *testing.T) {
 	languageModel := agenttest.NewScriptedLanguageModel(agenttest.ScriptedLanguageModelOptions{
 		ActionResponses: []string{
-			`{"action":"continue","toolName":"conversation.history","toolInput":{"limit":20}}`,
-			connectorFinishMessageWithEvidence("이전 대화를 확인했습니다", "obs-001", "conversation.history", 0),
+			`{"action":"continue","toolName":"conversation_history","toolInput":{"limit":20}}`,
+			connectorFinishMessageWithEvidence("이전 대화를 확인했습니다", "obs-001", "conversation_history", 0),
 		},
 		DefaultResponsesBySchema: map[string]string{
 			"blueclaw_turn_router": `{"route":"start_task","classification":"bounded_task","taskShape":"research_task","level":"low","estimatedMinutes":1,"requestedOutputFormats":null,"responseLanguage":"ko","reason":"scripted test default","userFacingReply":""}`,
@@ -2499,7 +2499,7 @@ func TestConnectorRuntimeRunsAgentHistoryToolAndSendsOneFinishMessage(t *testing
 func TestConnectorRuntimeCreatesScheduledTaskFromNaturalLanguagePrompt(t *testing.T) {
 	languageModel := agenttest.NewScriptedLanguageModel(agenttest.ScriptedLanguageModelOptions{
 		ActionResponses: []string{
-			`{"action":"continue","toolName":"schedule.create","toolInput":{"name":"daily research brief","taskInstruction":"업계 뉴스를 조사해서 핵심만 보고해줘.","kind":"cron","cronExpression":"0 7 * * *","repeatPolicy":"unbounded","timeZone":"Asia/Seoul"},"executionStateUpdate":{},"nextStepPlan":{"objective":"confirm schedule creation","expectedTools":[],"doneCriteria":["schedule is created"],"risk":"","workingSetReason":"schedule.create returns the created schedule"}}`,
+			`{"action":"continue","toolName":"schedule_create","toolInput":{"name":"daily research brief","taskInstruction":"업계 뉴스를 조사해서 핵심만 보고해줘.","kind":"cron","cronExpression":"0 7 * * *","repeatPolicy":"unbounded","timeZone":"Asia/Seoul"},"executionStateUpdate":{},"nextStepPlan":{"objective":"confirm schedule creation","expectedTools":[],"doneCriteria":["schedule is created"],"risk":"","workingSetReason":"schedule_create returns the created schedule"}}`,
 			connectorFinishMessage("매일 아침 7시에 조사해서 알려드릴게요."),
 		},
 		DefaultResponsesBySchema: map[string]string{
@@ -2507,7 +2507,7 @@ func TestConnectorRuntimeCreatesScheduledTaskFromNaturalLanguagePrompt(t *testin
 		},
 	})
 	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
-	connectorRuntime.UseAllowedToolNames([]string{"conversation.history", "schedule.create"})
+	connectorRuntime.UseAllowedToolNames([]string{"conversation_history", "schedule_create"})
 	useTestConnectorSkill(connectorRuntime, connectorScheduledTaskSkill())
 	repository := &connectorTaskScheduleRepository{}
 	connectorRuntime.UseTaskScheduleRepository(repository)
@@ -2556,15 +2556,15 @@ func TestConnectorRuntimeClassifiesConfirmationReplyBeforeResumingPendingTask(t 
 			},
 		},
 		ActionResponses: []string{
-			`{"action":"continue","toolName":"calendar.delete","toolInput":{"eventHint":"event-1","userConfirmed":true}}`,
-			connectorFinishMessageWithEvidence("내일 휴가 일정을 캘린더에서 삭제했습니다.", "obs-001", "calendar.delete", 0),
+			`{"action":"continue","toolName":"calendar_delete","toolInput":{"eventHint":"event-1","userConfirmed":true}}`,
+			connectorFinishMessageWithEvidence("내일 휴가 일정을 캘린더에서 삭제했습니다.", "obs-001", "calendar_delete", 0),
 		},
 	})
 	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
 	connectorRuntime.agentKernel.UseIntakeLanguageModelProvider(languageModel)
 	connectorRuntime.agentKernel.UseIntakeOptions(bluecollar.IntakeOptions{IsEnabled: true})
 	useTestConnectorSkill(connectorRuntime, connectorCalendarSkill())
-	connectorRuntime.UseAllowedToolNames([]string{"conversation.history", "memory.search", "ask.confirm", "calendar.add", "calendar.delete"})
+	connectorRuntime.UseAllowedToolNames([]string{"conversation_history", "memory_search", "ask_confirm", "calendar_add", "calendar_delete"})
 	connectorRuntime.UseTestCapabilityTools(capability.Client{
 		Endpoint: "http://capability.test",
 		HTTPClient: testHTTPDoer(func(request *http.Request) (*http.Response, error) {
@@ -2574,11 +2574,11 @@ func TestConnectorRuntimeClassifiesConfirmationReplyBeforeResumingPendingTask(t 
 			invokedTools = append(invokedTools, strings.TrimPrefix(request.URL.Path, "/v1/tools/"))
 			return &http.Response{
 				StatusCode: http.StatusOK,
-				Body:       io.NopCloser(strings.NewReader(`{"provider":"capabilityd","selectedBackend":"device","toolName":"calendar.delete","outcome":"succeeded","status":"ok","content":"calendar event deleted","result":{"eventID":"event-1"}}`)),
+				Body:       io.NopCloser(strings.NewReader(`{"provider":"capabilityd","selectedBackend":"device","toolName":"calendar_delete","outcome":"succeeded","status":"ok","content":"calendar event deleted","result":{"eventID":"event-1"}}`)),
 				Header:     http.Header{"Content-Type": []string{"application/json"}},
 			}, nil
 		}),
-	}, []string{"calendar.add", "calendar.delete"})
+	}, []string{"calendar_add", "calendar_delete"})
 	firstEvent := testInboundEvent("message-1")
 	firstEvent.Prompt = "내일 휴가 일정을 캘린더에서 삭제해줘"
 
@@ -2615,7 +2615,7 @@ func TestConnectorRuntimeClassifiesConfirmationReplyBeforeResumingPendingTask(t 
 	if !structuredMessagesContain(requests[actionIndex].Messages, "The user approved the pending action") {
 		t.Fatalf("expected active goal context to carry approval context, got %+v", requests[actionIndex].Messages)
 	}
-	if len(invokedTools) != 1 || invokedTools[0] != "calendar.delete/invoke" {
+	if len(invokedTools) != 1 || invokedTools[0] != "calendar_delete/invoke" {
 		t.Fatalf("expected calendar delete tool invocation, got %+v", invokedTools)
 	}
 	if len(adapter.sentReplies) != 2 || adapter.sentReplies[1].message != "내일 휴가 일정을 캘린더에서 삭제했습니다." {
@@ -2641,14 +2641,14 @@ func TestConnectorRuntimeClassifiesNaturalLanguageConfirmationRejection(t *testi
 			},
 		},
 		ActionResponses: []string{
-			`{"action":"continue","toolName":"calendar.delete","toolInput":{"eventHint":"event-1"}}`,
+			`{"action":"continue","toolName":"calendar_delete","toolInput":{"eventHint":"event-1"}}`,
 		},
 	})
 	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
 	connectorRuntime.agentKernel.UseIntakeLanguageModelProvider(languageModel)
 	connectorRuntime.agentKernel.UseIntakeOptions(bluecollar.IntakeOptions{IsEnabled: true})
 	useTestConnectorSkill(connectorRuntime, connectorCalendarSkill())
-	connectorRuntime.UseAllowedToolNames([]string{"conversation.history", "memory.search", "ask.confirm", "calendar.delete"})
+	connectorRuntime.UseAllowedToolNames([]string{"conversation_history", "memory_search", "ask_confirm", "calendar_delete"})
 	connectorRuntime.UseTestCapabilityTools(capability.Client{
 		Endpoint: "http://capability.test",
 		HTTPClient: testHTTPDoer(func(request *http.Request) (*http.Response, error) {
@@ -2657,11 +2657,11 @@ func TestConnectorRuntimeClassifiesNaturalLanguageConfirmationRejection(t *testi
 			}
 			return &http.Response{
 				StatusCode: http.StatusOK,
-				Body:       io.NopCloser(strings.NewReader(`{"provider":"capabilityd","selectedBackend":"device","toolName":"calendar.delete","outcome":"succeeded","status":"ok","content":"calendar event deleted","result":{"eventID":"event-1"}}`)),
+				Body:       io.NopCloser(strings.NewReader(`{"provider":"capabilityd","selectedBackend":"device","toolName":"calendar_delete","outcome":"succeeded","status":"ok","content":"calendar event deleted","result":{"eventID":"event-1"}}`)),
 				Header:     http.Header{"Content-Type": []string{"application/json"}},
 			}, nil
 		}),
-	}, []string{"calendar.delete"})
+	}, []string{"calendar_delete"})
 
 	firstEvent := testInboundEvent("message-1")
 	firstEvent.Prompt = "내일 휴가 일정을 캘린더에서 삭제해줘"
@@ -2705,15 +2705,15 @@ func TestConnectorRuntimeRoutesShortConfirmationReplyThroughRouter(t *testing.T)
 			},
 		},
 		ActionResponses: []string{
-			`{"action":"continue","toolName":"calendar.delete","toolInput":{"eventHint":"event-1","userConfirmed":true}}`,
-			connectorFinishMessageWithEvidence("내일 휴가 일정을 캘린더에서 삭제했습니다.", "obs-001", "calendar.delete", 0),
+			`{"action":"continue","toolName":"calendar_delete","toolInput":{"eventHint":"event-1","userConfirmed":true}}`,
+			connectorFinishMessageWithEvidence("내일 휴가 일정을 캘린더에서 삭제했습니다.", "obs-001", "calendar_delete", 0),
 		},
 	})
 	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
 	connectorRuntime.agentKernel.UseIntakeLanguageModelProvider(languageModel)
 	connectorRuntime.agentKernel.UseIntakeOptions(bluecollar.IntakeOptions{IsEnabled: true})
 	useTestConnectorSkill(connectorRuntime, connectorCalendarSkill())
-	connectorRuntime.UseAllowedToolNames([]string{"conversation.history", "memory.search", "ask.confirm", "calendar.add", "calendar.delete"})
+	connectorRuntime.UseAllowedToolNames([]string{"conversation_history", "memory_search", "ask_confirm", "calendar_add", "calendar_delete"})
 	connectorRuntime.UseTestCapabilityTools(capability.Client{
 		Endpoint: "http://capability.test",
 		HTTPClient: testHTTPDoer(func(request *http.Request) (*http.Response, error) {
@@ -2723,11 +2723,11 @@ func TestConnectorRuntimeRoutesShortConfirmationReplyThroughRouter(t *testing.T)
 			invokedTools = append(invokedTools, strings.TrimPrefix(request.URL.Path, "/v1/tools/"))
 			return &http.Response{
 				StatusCode: http.StatusOK,
-				Body:       io.NopCloser(strings.NewReader(`{"provider":"capabilityd","selectedBackend":"device","toolName":"calendar.delete","outcome":"succeeded","status":"ok","content":"calendar event deleted","result":{"eventID":"event-1"}}`)),
+				Body:       io.NopCloser(strings.NewReader(`{"provider":"capabilityd","selectedBackend":"device","toolName":"calendar_delete","outcome":"succeeded","status":"ok","content":"calendar event deleted","result":{"eventID":"event-1"}}`)),
 				Header:     http.Header{"Content-Type": []string{"application/json"}},
 			}, nil
 		}),
-	}, []string{"calendar.add", "calendar.delete"})
+	}, []string{"calendar_add", "calendar_delete"})
 
 	firstEvent := testInboundEvent("message-1")
 	firstEvent.Prompt = "내일 휴가 일정을 캘린더에서 삭제해줘"
@@ -2749,7 +2749,7 @@ func TestConnectorRuntimeRoutesShortConfirmationReplyThroughRouter(t *testing.T)
 	if connectorSchemaIndexAfter(languageModel.Requests(), "blueclaw_turn_router", 1) < 0 {
 		t.Fatalf("expected short reply to route through the turn router, got schemas=%+v", connectorRequestSchemaNames(languageModel.Requests()))
 	}
-	if len(invokedTools) != 1 || invokedTools[0] != "calendar.delete/invoke" {
+	if len(invokedTools) != 1 || invokedTools[0] != "calendar_delete/invoke" {
 		t.Fatalf("expected calendar delete tool invocation, got %+v", invokedTools)
 	}
 	if len(adapter.sentReplies) != 2 || adapter.sentReplies[1].message != "내일 휴가 일정을 캘린더에서 삭제했습니다." {
@@ -2775,14 +2775,14 @@ func TestConnectorRuntimeAnswersPendingConfirmationQuestionWithoutLaunching(t *t
 			},
 		},
 		ActionResponses: []string{
-			`{"action":"continue","toolName":"calendar.delete","toolInput":{"eventHint":"event-1"}}`,
+			`{"action":"continue","toolName":"calendar_delete","toolInput":{"eventHint":"event-1"}}`,
 		},
 	})
 	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
 	connectorRuntime.agentKernel.UseIntakeLanguageModelProvider(languageModel)
 	connectorRuntime.agentKernel.UseIntakeOptions(bluecollar.IntakeOptions{IsEnabled: true})
 	useTestConnectorSkill(connectorRuntime, connectorCalendarSkill())
-	connectorRuntime.UseAllowedToolNames([]string{"conversation.history", "memory.search", "ask.confirm", "calendar.delete"})
+	connectorRuntime.UseAllowedToolNames([]string{"conversation_history", "memory_search", "ask_confirm", "calendar_delete"})
 	connectorRuntime.UseTestCapabilityTools(capability.Client{
 		Endpoint: "http://capability.test",
 		HTTPClient: testHTTPDoer(func(request *http.Request) (*http.Response, error) {
@@ -2791,11 +2791,11 @@ func TestConnectorRuntimeAnswersPendingConfirmationQuestionWithoutLaunching(t *t
 			}
 			return &http.Response{
 				StatusCode: http.StatusOK,
-				Body:       io.NopCloser(strings.NewReader(`{"provider":"capabilityd","selectedBackend":"device","toolName":"calendar.delete","outcome":"succeeded","status":"ok","content":"calendar event deleted","result":{"eventID":"event-1"}}`)),
+				Body:       io.NopCloser(strings.NewReader(`{"provider":"capabilityd","selectedBackend":"device","toolName":"calendar_delete","outcome":"succeeded","status":"ok","content":"calendar event deleted","result":{"eventID":"event-1"}}`)),
 				Header:     http.Header{"Content-Type": []string{"application/json"}},
 			}, nil
 		}),
-	}, []string{"calendar.delete"})
+	}, []string{"calendar_delete"})
 
 	firstEvent := testInboundEvent("message-1")
 	firstEvent.Prompt = "내일 휴가 일정을 캘린더에서 삭제해줘"
@@ -2842,7 +2842,7 @@ func TestConnectorRuntimeRoutesPendingConfirmationRevisionAsNewTask(t *testing.T
 			},
 		},
 		ActionResponses: []string{
-			`{"action":"continue","toolName":"calendar.delete","toolInput":{"eventHint":"event-1"}}`,
+			`{"action":"continue","toolName":"calendar_delete","toolInput":{"eventHint":"event-1"}}`,
 			connectorFinishMessage("정정한 삭제 요청으로 새로 처리했습니다."),
 		},
 	})
@@ -2850,7 +2850,7 @@ func TestConnectorRuntimeRoutesPendingConfirmationRevisionAsNewTask(t *testing.T
 	connectorRuntime.agentKernel.UseIntakeLanguageModelProvider(languageModel)
 	connectorRuntime.agentKernel.UseIntakeOptions(bluecollar.IntakeOptions{IsEnabled: true})
 	useTestConnectorSkill(connectorRuntime, connectorCalendarSkill())
-	connectorRuntime.UseAllowedToolNames([]string{"conversation.history", "memory.search", "ask.confirm", "calendar.delete", "message.search", "message.delete"})
+	connectorRuntime.UseAllowedToolNames([]string{"conversation_history", "memory_search", "ask_confirm", "calendar_delete", "message_search", "message_delete"})
 	connectorRuntime.UseTestCapabilityTools(capability.Client{
 		Endpoint: "http://capability.test",
 		HTTPClient: testHTTPDoer(func(request *http.Request) (*http.Response, error) {
@@ -2859,11 +2859,11 @@ func TestConnectorRuntimeRoutesPendingConfirmationRevisionAsNewTask(t *testing.T
 			}
 			return &http.Response{
 				StatusCode: http.StatusOK,
-				Body:       io.NopCloser(strings.NewReader(`{"provider":"capabilityd","selectedBackend":"device","toolName":"calendar.delete","outcome":"succeeded","status":"ok","content":"calendar event deleted","result":{"eventID":"event-1"}}`)),
+				Body:       io.NopCloser(strings.NewReader(`{"provider":"capabilityd","selectedBackend":"device","toolName":"calendar_delete","outcome":"succeeded","status":"ok","content":"calendar event deleted","result":{"eventID":"event-1"}}`)),
 				Header:     http.Header{"Content-Type": []string{"application/json"}},
 			}, nil
 		}),
-	}, []string{"calendar.delete"})
+	}, []string{"calendar_delete"})
 
 	firstEvent := testInboundEvent("message-1")
 	firstEvent.Prompt = "내일 휴가 일정을 캘린더에서 삭제해줘"
@@ -2958,14 +2958,14 @@ func TestConnectorRuntimeConsumesInteractiveConfirmationCancel(t *testing.T) {
 			},
 		},
 		ActionResponses: []string{
-			`{"action":"continue","toolName":"calendar.delete","toolInput":{"eventHint":"event-1"}}`,
+			`{"action":"continue","toolName":"calendar_delete","toolInput":{"eventHint":"event-1"}}`,
 		},
 	})
 	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
 	connectorRuntime.agentKernel.UseIntakeLanguageModelProvider(languageModel)
 	connectorRuntime.agentKernel.UseIntakeOptions(bluecollar.IntakeOptions{IsEnabled: true})
 	useTestConnectorSkill(connectorRuntime, connectorCalendarSkill())
-	connectorRuntime.UseAllowedToolNames([]string{"conversation.history", "memory.search", "ask.confirm", "calendar.delete"})
+	connectorRuntime.UseAllowedToolNames([]string{"conversation_history", "memory_search", "ask_confirm", "calendar_delete"})
 	connectorRuntime.UseTestCapabilityTools(capability.Client{
 		Endpoint: "http://capability.test",
 		HTTPClient: testHTTPDoer(func(request *http.Request) (*http.Response, error) {
@@ -2974,11 +2974,11 @@ func TestConnectorRuntimeConsumesInteractiveConfirmationCancel(t *testing.T) {
 			}
 			return &http.Response{
 				StatusCode: http.StatusOK,
-				Body:       io.NopCloser(strings.NewReader(`{"provider":"capabilityd","selectedBackend":"device","toolName":"calendar.delete","outcome":"succeeded","status":"ok","content":"calendar event deleted","result":{"eventID":"event-1"}}`)),
+				Body:       io.NopCloser(strings.NewReader(`{"provider":"capabilityd","selectedBackend":"device","toolName":"calendar_delete","outcome":"succeeded","status":"ok","content":"calendar event deleted","result":{"eventID":"event-1"}}`)),
 				Header:     http.Header{"Content-Type": []string{"application/json"}},
 			}, nil
 		}),
-	}, []string{"calendar.delete"})
+	}, []string{"calendar_delete"})
 
 	firstEvent := testInboundEvent("message-1")
 	firstEvent.Prompt = "내일 휴가 일정을 캘린더에서 삭제해줘"
@@ -3024,15 +3024,15 @@ func TestConnectorRuntimeInteractiveConfirmRestoresPersistedIntakeState(t *testi
 			},
 		},
 		ActionResponses: []string{
-			`{"action":"continue","toolName":"calendar.delete","toolInput":{"eventHint":"event-1","userConfirmed":true}}`,
-			connectorFinishMessageWithEvidence("내일 휴가 일정을 캘린더에서 삭제했습니다.", "obs-001", "calendar.delete", 0),
+			`{"action":"continue","toolName":"calendar_delete","toolInput":{"eventHint":"event-1","userConfirmed":true}}`,
+			connectorFinishMessageWithEvidence("내일 휴가 일정을 캘린더에서 삭제했습니다.", "obs-001", "calendar_delete", 0),
 		},
 	})
 	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
 	connectorRuntime.agentKernel.UseIntakeLanguageModelProvider(languageModel)
 	connectorRuntime.agentKernel.UseIntakeOptions(bluecollar.IntakeOptions{IsEnabled: true})
 	useTestConnectorSkill(connectorRuntime, connectorCalendarSkill())
-	connectorRuntime.UseAllowedToolNames([]string{"conversation.history", "memory.search", "ask.confirm", "calendar.add", "calendar.delete"})
+	connectorRuntime.UseAllowedToolNames([]string{"conversation_history", "memory_search", "ask_confirm", "calendar_add", "calendar_delete"})
 	connectorRuntime.UseTestCapabilityTools(capability.Client{
 		Endpoint: "http://capability.test",
 		HTTPClient: testHTTPDoer(func(request *http.Request) (*http.Response, error) {
@@ -3042,11 +3042,11 @@ func TestConnectorRuntimeInteractiveConfirmRestoresPersistedIntakeState(t *testi
 			invokedTools = append(invokedTools, strings.TrimPrefix(request.URL.Path, "/v1/tools/"))
 			return &http.Response{
 				StatusCode: http.StatusOK,
-				Body:       io.NopCloser(strings.NewReader(`{"provider":"capabilityd","selectedBackend":"device","toolName":"calendar.delete","outcome":"succeeded","status":"ok","content":"calendar event deleted","result":{"eventID":"event-1"}}`)),
+				Body:       io.NopCloser(strings.NewReader(`{"provider":"capabilityd","selectedBackend":"device","toolName":"calendar_delete","outcome":"succeeded","status":"ok","content":"calendar event deleted","result":{"eventID":"event-1"}}`)),
 				Header:     http.Header{"Content-Type": []string{"application/json"}},
 			}, nil
 		}),
-	}, []string{"calendar.add", "calendar.delete"})
+	}, []string{"calendar_add", "calendar_delete"})
 
 	firstEvent := testInboundEvent("message-1")
 	firstEvent.Prompt = "내일 휴가 일정을 캘린더에서 삭제해줘"
@@ -3068,7 +3068,7 @@ func TestConnectorRuntimeInteractiveConfirmRestoresPersistedIntakeState(t *testi
 	if secondResult.TaskRunID != firstResult.TaskRunID || secondResult.TaskRunID == "" {
 		t.Fatalf("expected button confirm to reuse task, got first=%q second=%q", firstResult.TaskRunID, secondResult.TaskRunID)
 	}
-	if len(invokedTools) != 1 || invokedTools[0] != "calendar.delete/invoke" {
+	if len(invokedTools) != 1 || invokedTools[0] != "calendar_delete/invoke" {
 		t.Fatalf("expected exactly one held calendar delete execution, got %+v", invokedTools)
 	}
 	if len(adapter.resolutions) != 1 || adapter.resolutions[0].DispatchID != "ask-post-1" {
@@ -3129,8 +3129,8 @@ func TestConnectorRuntimeContinuesWaitingUserInputGoal(t *testing.T) {
 			},
 		},
 		ActionResponses: []string{
-			`{"action":"continue","toolName":"message.send","toolInput":{"targetType":"directMessage","personHint":"샘플","message":"우선 진행합니다."}}`,
-			connectorFinishMessageWithEvidence("샘플에게 DM을 보냈습니다.", "obs-001", "message.send", 0),
+			`{"action":"continue","toolName":"message_send","toolInput":{"targetType":"directMessage","personHint":"샘플","message":"우선 진행합니다."}}`,
+			connectorFinishMessageWithEvidence("샘플에게 DM을 보냈습니다.", "obs-001", "message_send", 0),
 		},
 	})
 	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
@@ -3139,21 +3139,21 @@ func TestConnectorRuntimeContinuesWaitingUserInputGoal(t *testing.T) {
 	useTestConnectorSkill(connectorRuntime, bluecollar.SkillInstruction{
 		Name:           "direct-message",
 		Description:    "사업계획서 작성과 메시지 전송 후보.",
-		Prompt:         "Use message.send only for explicit DM delivery.",
-		ToolReferences: []string{"message.send"},
+		Prompt:         "Use message_send only for explicit DM delivery.",
+		ToolReferences: []string{"message_send"},
 		Source:         bluecollar.InstructionSource{Path: "skills/direct-message/SKILL.md", SkillName: "direct-message"},
 	})
-	connectorRuntime.UseAllowedToolNames([]string{"conversation.history", "memory.search", "ask.confirm", "message.send"})
+	connectorRuntime.UseAllowedToolNames([]string{"conversation_history", "memory_search", "ask_confirm", "message_send"})
 	connectorRuntime.UseTestCapabilityTools(capability.Client{
 		Endpoint: "http://capability.test",
 		HTTPClient: testHTTPDoer(func(request *http.Request) (*http.Response, error) {
 			return &http.Response{
 				StatusCode: http.StatusOK,
-				Body:       io.NopCloser(strings.NewReader(`{"provider":"capabilityd","selectedBackend":"device","toolName":"message.send","outcome":"succeeded","status":"ok","content":"sent","result":{"messageID":"dm-1"}}`)),
+				Body:       io.NopCloser(strings.NewReader(`{"provider":"capabilityd","selectedBackend":"device","toolName":"message_send","outcome":"succeeded","status":"ok","content":"sent","result":{"messageID":"dm-1"}}`)),
 				Header:     http.Header{"Content-Type": []string{"application/json"}},
 			}, nil
 		}),
-	}, []string{"message.send"})
+	}, []string{"message_send"})
 	firstEvent := testInboundEvent("message-1")
 	firstEvent.Prompt = "샘플에게 DM 보내줘"
 
@@ -3210,7 +3210,7 @@ func TestConnectorRuntimeStartsNewTaskForClearNewRequest(t *testing.T) {
 	useTestConnectorSkill(connectorRuntime, bluecollar.SkillInstruction{
 		Name:           "direct-message",
 		Description:    "DM 후보.",
-		ToolReferences: []string{"message.send"},
+		ToolReferences: []string{"message_send"},
 	})
 
 	firstEvent := testInboundEvent("message-1")
@@ -3245,15 +3245,15 @@ func TestConnectorRuntimeAddsCalendarEventWithoutApproval(t *testing.T) {
 			`{"route":"start_task","classification":"bounded_task","taskShape":"maintenance_task","level":"low","estimatedMinutes":1,"requestedOutputFormats":null,"responseLanguage":"ko","reason":"calendar add is non-destructive tool work","userFacingReply":""}`,
 		}},
 		ActionResponses: []string{
-			`{"action":"continue","toolName":"calendar.add","toolInput":{"title":"휴가","startISO":"2026-05-09","endISO":"2026-05-10","isAllDay":true}}`,
-			connectorFinishMessageWithEvidence("내일 휴가 일정을 캘린더에 추가했습니다.", "obs-001", "calendar.add", 0),
+			`{"action":"continue","toolName":"calendar_add","toolInput":{"title":"휴가","startISO":"2026-05-09","endISO":"2026-05-10","isAllDay":true}}`,
+			connectorFinishMessageWithEvidence("내일 휴가 일정을 캘린더에 추가했습니다.", "obs-001", "calendar_add", 0),
 		},
 	})
 	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
 	connectorRuntime.agentKernel.UseIntakeLanguageModelProvider(languageModel)
 	connectorRuntime.agentKernel.UseIntakeOptions(bluecollar.IntakeOptions{IsEnabled: true})
 	useTestConnectorSkill(connectorRuntime, connectorCalendarSkill())
-	connectorRuntime.UseAllowedToolNames([]string{"conversation.history", "memory.search", "ask.confirm", "calendar.add", "calendar.delete"})
+	connectorRuntime.UseAllowedToolNames([]string{"conversation_history", "memory_search", "ask_confirm", "calendar_add", "calendar_delete"})
 	connectorRuntime.UseTestCapabilityTools(capability.Client{
 		Endpoint: "http://capability.test",
 		HTTPClient: testHTTPDoer(func(request *http.Request) (*http.Response, error) {
@@ -3263,11 +3263,11 @@ func TestConnectorRuntimeAddsCalendarEventWithoutApproval(t *testing.T) {
 			invokedTools = append(invokedTools, strings.TrimPrefix(request.URL.Path, "/v1/tools/"))
 			return &http.Response{
 				StatusCode: http.StatusOK,
-				Body:       io.NopCloser(strings.NewReader(`{"provider":"capabilityd","selectedBackend":"device","toolName":"calendar.add","outcome":"succeeded","status":"ok","content":"calendar event created","result":{"eventID":"event-1"}}`)),
+				Body:       io.NopCloser(strings.NewReader(`{"provider":"capabilityd","selectedBackend":"device","toolName":"calendar_add","outcome":"succeeded","status":"ok","content":"calendar event created","result":{"eventID":"event-1"}}`)),
 				Header:     http.Header{"Content-Type": []string{"application/json"}},
 			}, nil
 		}),
-	}, []string{"calendar.add", "calendar.delete"})
+	}, []string{"calendar_add", "calendar_delete"})
 	event := testInboundEvent("message-1")
 	event.Prompt = "나 내일 휴가라고 달력에 추가해줘"
 
@@ -3282,7 +3282,7 @@ func TestConnectorRuntimeAddsCalendarEventWithoutApproval(t *testing.T) {
 	if connectorContainsSchemaName(requests, "blueclaw_confirmation_reply_decision") {
 		t.Fatalf("expected no approval continuation classification, got %+v", connectorRequestSchemaNames(requests))
 	}
-	if len(invokedTools) != 1 || invokedTools[0] != "calendar.add/invoke" {
+	if len(invokedTools) != 1 || invokedTools[0] != "calendar_add/invoke" {
 		t.Fatalf("expected direct calendar add invocation, got %+v", invokedTools)
 	}
 	if len(adapter.sentReplies) != 1 || adapter.sentReplies[0].message != "내일 휴가 일정을 캘린더에 추가했습니다." {
@@ -3293,8 +3293,8 @@ func TestConnectorRuntimeAddsCalendarEventWithoutApproval(t *testing.T) {
 func TestConnectorRuntimeReadsTypedCapabilityToolResponse(t *testing.T) {
 	languageModel := agenttest.NewScriptedLanguageModel(agenttest.ScriptedLanguageModelOptions{
 		ActionResponses: []string{
-			`{"action":"continue","toolName":"browser.snapshot","toolInput":{},"nextStepPlan":{"objective":"observe the current browser","expectedTools":[],"expectedNextResults":["browser snapshot is available"],"doneCriteria":["snapshot result is available"],"risk":"browser may be unavailable","workingSetReason":"browser.snapshot was explicitly required"}}`,
-			connectorFinishMessageWithEvidence("브라우저를 확인했습니다", "obs-001", "browser.snapshot", 0),
+			`{"action":"continue","toolName":"browser_snapshot","toolInput":{},"nextStepPlan":{"objective":"observe the current browser","expectedTools":[],"expectedNextResults":["browser snapshot is available"],"doneCriteria":["snapshot result is available"],"risk":"browser may be unavailable","workingSetReason":"browser_snapshot was explicitly required"}}`,
+			connectorFinishMessageWithEvidence("브라우저를 확인했습니다", "obs-001", "browser_snapshot", 0),
 		},
 		DefaultResponsesBySchema: map[string]string{
 			"blueclaw_turn_router": `{"route":"start_task","classification":"bounded_task","taskShape":"research_task","level":"low","estimatedMinutes":1,"requestedOutputFormats":null,"responseLanguage":"ko","reason":"scripted test default","userFacingReply":""}`,
@@ -3302,23 +3302,23 @@ func TestConnectorRuntimeReadsTypedCapabilityToolResponse(t *testing.T) {
 	})
 	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
 	useTestConnectorSkill(connectorRuntime, connectorBrowserSnapshotSkill())
-	connectorRuntime.UseAllowedToolNames([]string{"conversation.history", "memory.search", "browser.snapshot"})
+	connectorRuntime.UseAllowedToolNames([]string{"conversation_history", "memory_search", "browser_snapshot"})
 	connectorRuntime.UseTestCapabilityTools(capability.Client{
 		Endpoint: "http://capability.test",
 		HTTPClient: testHTTPDoer(func(request *http.Request) (*http.Response, error) {
 			if request.URL.Path == "/v1/capabilities" {
 				return testCapabilityRegistrySelfHealResponse(), nil
 			}
-			if request.URL.Path != "/v1/tools/browser.snapshot/invoke" {
+			if request.URL.Path != "/v1/tools/browser_snapshot/invoke" {
 				t.Fatalf("unexpected capability path: %s", request.URL.Path)
 			}
 			return &http.Response{
 				StatusCode: http.StatusOK,
-				Body:       io.NopCloser(strings.NewReader(`{"provider":"companion","selectedBackend":"device","toolName":"browser.snapshot","outcome":"succeeded","status":"ok","result":{"url":"https://example.com","snapshotText":"Example","devicePath":"/tmp/internkim-companion-files/screen.png","filename":"screen.png","contentType":"image/png","sizeBytes":123}}`)),
+				Body:       io.NopCloser(strings.NewReader(`{"provider":"companion","selectedBackend":"device","toolName":"browser_snapshot","outcome":"succeeded","status":"ok","result":{"url":"https://example.com","snapshotText":"Example","devicePath":"/tmp/internkim-companion-files/screen.png","filename":"screen.png","contentType":"image/png","sizeBytes":123}}`)),
 				Header:     http.Header{"Content-Type": []string{"application/json"}},
 			}, nil
 		}),
-	}, []string{"browser.snapshot"})
+	}, []string{"browser_snapshot"})
 
 	event := testInboundEvent("message-1")
 	event.Prompt = "open browser and observe"
@@ -3502,7 +3502,7 @@ func TestConnectorRuntimeSendsCheckpointReplyKind(t *testing.T) {
 	errorValue := connectorRuntime.sendCheckpointReply(context.Background(), adapter.Name(), event, replyTarget, bluecollar.AgentCheckpoint{
 		TaskRunID: "task-1",
 		Message:   "작업 중입니다.",
-		ToolName:  "terminal.run",
+		ToolName:  "terminal_run",
 	}, adapter.SendReply)
 	if errorValue != nil {
 		t.Fatalf("expected checkpoint reply to send: %v", errorValue)
@@ -4506,8 +4506,8 @@ func connectorScheduledTaskSkill() bluecollar.SkillInstruction {
 	return bluecollar.SkillInstruction{
 		Name:           "scheduled-task",
 		Description:    "Create scheduled tasks, reminders, 매일, 예약, 알림, and recurring work.",
-		Prompt:         "Use schedule.create with taskInstruction for only the work to perform at run time. Put cadence and stop conditions in structured fields such as runAt, intervalSecond, cronExpression, expiresAt, and maxRunCount.",
-		ToolReferences: []string{"schedule.create"},
+		Prompt:         "Use schedule_create with taskInstruction for only the work to perform at run time. Put cadence and stop conditions in structured fields such as runAt, intervalSecond, cronExpression, expiresAt, and maxRunCount.",
+		ToolReferences: []string{"schedule_create"},
 		Source:         bluecollar.InstructionSource{Path: "skills/scheduled-task/SKILL.md", SkillName: "scheduled-task"},
 	}
 }
@@ -4516,8 +4516,8 @@ func connectorCalendarSkill() bluecollar.SkillInstruction {
 	return bluecollar.SkillInstruction{
 		Name:           "calendar",
 		Description:    "Create or list calendar events, 일정, 달력, 캘린더, and 휴가.",
-		Prompt:         "Use calendar.add to create calendar events without approval. Use calendar.delete only after approval.",
-		ToolReferences: []string{"calendar.add", "calendar.delete"},
+		Prompt:         "Use calendar_add to create calendar events without approval. Use calendar_delete only after approval.",
+		ToolReferences: []string{"calendar_add", "calendar_delete"},
 		Source:         bluecollar.InstructionSource{Path: "skills/calendar/SKILL.md", SkillName: "calendar"},
 	}
 }
@@ -4526,8 +4526,8 @@ func connectorBrowserSnapshotSkill() bluecollar.SkillInstruction {
 	return bluecollar.SkillInstruction{
 		Name:           "browser-snapshot",
 		Description:    "Observe browser pages, snapshots, screenshots, 브라우저, and 화면 확인.",
-		Prompt:         "Use browser.snapshot to observe the current browser state.",
-		ToolReferences: []string{"browser.snapshot"},
+		Prompt:         "Use browser_snapshot to observe the current browser state.",
+		ToolReferences: []string{"browser_snapshot"},
 		Source:         bluecollar.InstructionSource{Path: "skills/browser-snapshot/SKILL.md", SkillName: "browser-snapshot"},
 	}
 }

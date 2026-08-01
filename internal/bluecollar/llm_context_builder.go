@@ -102,7 +102,7 @@ func (builder LLMContextBuilder) additionalToolsContext(input LLMContextInput) s
 		lines = append(lines, "- "+toolName+additionalToolSummary(input.ToolSet, toolName))
 	}
 	if len(toolNames) > additionalToolsContextPageSize {
-		lines = append(lines, fmt.Sprintf("…and %d more; find them with skill.search or request them by exact name.", len(toolNames)-additionalToolsContextPageSize))
+		lines = append(lines, fmt.Sprintf("…and %d more; find them with skill_search or request them by exact name.", len(toolNames)-additionalToolsContextPageSize))
 	}
 	return strings.Join(lines, "\n")
 }
@@ -154,7 +154,7 @@ func (builder LLMContextBuilder) companyContext(input LLMContextInput) string {
 		return strings.Join([]string{
 			"Our company:",
 			"Not registered yet. The workspace has a company table for: name, brandName, slogan, description, representative, address, phone, email, bankAccount, legalAttributes such as the business registration number, plus metric/record/document ledgers.",
-			"When a task needs the company identity (documents, slides, mail, introductions) or the requester states company facts, proactively ask ONCE for the missing fields and store them with company.info.set; record numbers with company.metric.record and history with company.record.add.",
+			"When a task needs the company identity (documents, slides, mail, introductions) or the requester states company facts, proactively ask ONCE for the missing fields and store them with company_info_set; record numbers with company_metric_record and history with company.record.add.",
 		}, "\n")
 	}
 	identity := strings.TrimSpace(company.Name)
@@ -180,8 +180,8 @@ func (builder LLMContextBuilder) companyContext(input LLMContextInput) string {
 	}
 	lines = append(lines,
 		"This is the requester's company; first-person plural references such as \"we\" or \"our company\" refer to it. Use this identity in any company-branded output (documents, slides, mail).",
-		"Full company data lives behind capability operations: company.info.get (profile, business registration number, and so on), company.metric.list (revenue/headcount time series), company.record.list (history, funding, products), company.document.list/search (issued documents).",
-		"When the requester states a NEW or CHANGED company fact (headcount, revenue, address, funding, certification …), record it immediately — but never blindly append: first search existing rows for that year (company.metric.list with fromYear/toYear, or company.record.list for the category). Identical fact already stored → no write, just acknowledge. Existing row covers the same fact with different details → update it (same-period company.metric.record upsert / company.record.update). Nothing overlaps → add a new row. Profile changes go through company.info.set. Confirm what you stored in one line.")
+		"Full company data lives behind capability operations: company_info_get (profile, business registration number, and so on), company_metric_list (revenue/headcount time series), company_record_list (history, funding, products), company_document_list/search (issued documents).",
+		"When the requester states a NEW or CHANGED company fact (headcount, revenue, address, funding, certification …), record it immediately — but never blindly append: first search existing rows for that year (company_metric_list with fromYear/toYear, or company_record_list for the category). Identical fact already stored → no write, just acknowledge. Existing row covers the same fact with different details → update it (same-period company_metric_record upsert / company_record_update). Nothing overlaps → add a new row. Profile changes go through company.info.set. Confirm what you stored in one line.")
 	return strings.Join(lines, "\n")
 }
 

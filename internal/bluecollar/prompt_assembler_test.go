@@ -42,7 +42,7 @@ func TestBuildTurnMessagesKeepsStablePrefixClockInvariant(t *testing.T) {
 		ResponseLanguage:     "ko",
 	}
 	baseInstruction := buildAgentSystemInstruction(baseRequest)
-	toolDescription := "Available tool catalog:\n- calendar.list: List calendar events."
+	toolDescription := "Available tool catalog:\n- calendar_list: List calendar events."
 
 	earlyRequest := baseRequest
 	earlyRequest.TurnStartedAt = time.Date(2026, 5, 12, 8, 32, 27, 0, time.UTC)
@@ -80,7 +80,7 @@ func TestBuildTurnMessagesPlacesVolatileContentAfterStablePrefix(t *testing.T) {
 		TurnStartedAt:     time.Date(2026, 5, 12, 8, 32, 27, 0, time.UTC),
 		StepBudgetContext: "Step budget:\nTool calls: 10/24 used, 14 remaining.",
 	}
-	messages := (PromptAssembler{}).BuildTurnMessages(request, nil, "base instruction", "Available tool catalog:\n- file.read: Read a file.")
+	messages := (PromptAssembler{}).BuildTurnMessages(request, nil, "base instruction", "Available tool catalog:\n- file_read: Read a file.")
 	if len(messages) < 2 {
 		t.Fatalf("expected a context message, got %d messages", len(messages))
 	}
@@ -244,7 +244,7 @@ func TestPromptAssemblerIncludesKnownFileContextSnippet(t *testing.T) {
 	observations := []turnObservation{{
 		ObservationID: "obs-001",
 		Action:        "continue",
-		Tool:          "file.read",
+		Tool:          "file_read",
 		Output:        toolcontract.ToolOutput{Content: `{"path":"tmp/source.ts","content":"export const title = \"Known\"","startLine":1,"endLine":1,"totalLines":1,"totalLinesKnown":true,"originalSizeBytes":28,"returnedBytes":28,"isTruncated":false}`},
 	}}
 
@@ -264,7 +264,7 @@ func TestPromptAssemblerOmitsRawBrowserSnapshotOutput(t *testing.T) {
 	observations := []turnObservation{{
 		ObservationID: "obs-001",
 		Action:        "continue",
-		Tool:          "browser.snapshot",
+		Tool:          "browser_snapshot",
 		Output:        toolcontract.ToolOutput{Content: `{"url":"https://example.com","title":"Example","snapshotText":"VISIBLE START ` + strings.Repeat("raw-page-text ", 500) + ` SECRET_COOKIE_VALUE","interactiveRefs":["@e1","@e2"],"profilePath":"/Users/me/Profile","cdpURL":"ws://localhost:9222"}`},
 	}}
 
@@ -286,7 +286,7 @@ func TestPromptAssemblerIncludesRawToolResultSummary(t *testing.T) {
 	observations := []turnObservation{{
 		ObservationID: "obs-001",
 		Action:        "continue",
-		Tool:          "web.fetch",
+		Tool:          "web_fetch",
 		Output:        toolcontract.ToolOutput{Content: fetchResult},
 		Summary:       fetchResult,
 	}}
@@ -372,7 +372,7 @@ func TestPromptAssemblerDoesNotExposeAttachmentDevicePath(t *testing.T) {
 	observations := []turnObservation{{
 		ObservationID: "obs-001",
 		Action:        "continue",
-		Tool:          "browser.screenshot",
+		Tool:          "browser_screenshot",
 		Output:        toolcontract.ToolOutput{Content: `{"devicePath":"/tmp/internkim-companion-files/screen.png","filename":"screen.png","contentType":"image/png"}`},
 		Summary:       "Screenshot captured. Use the imageRefs for visual inspection.",
 		ImageRefs: []ToolResultImageRef{{
@@ -415,14 +415,14 @@ func TestPromptAssemblerCompressesLongObservationHistory(t *testing.T) {
 		observations = append(observations, turnObservation{
 			ObservationID: "obs-" + strings.Repeat("0", 2) + string(rune('a'+index)),
 			Action:        "continue",
-			Tool:          "browser.snapshot",
+			Tool:          "browser_snapshot",
 			Output:        toolcontract.ToolOutput{Content: `{"snapshotText":"` + strings.Repeat("very-long-page-output ", 200) + `","interactiveRefs":["@old"]}`},
 		})
 	}
 	observations = append(observations, turnObservation{
 		ObservationID: "obs-latest",
 		Action:        "continue",
-		Tool:          "browser.snapshot",
+		Tool:          "browser_snapshot",
 		Output:        toolcontract.ToolOutput{Content: `{"snapshotText":"latest form","interactiveRefs":["@latestSearch","@latestButton"]}`},
 	})
 

@@ -183,7 +183,7 @@ func modelVisibleToolResultSummary(ctx context.Context, languageModel model.Lang
 	if content == "" {
 		return summarizeObservationContent(observation)
 	}
-	if strings.TrimSpace(toolName) == "terminal.run" {
+	if strings.TrimSpace(toolName) == "terminal_run" {
 		if summary := summarizeTerminalRun(observation); summary != "" {
 			return summary
 		}
@@ -205,7 +205,7 @@ func modelVisibleToolResultSummary(ctx context.Context, languageModel model.Lang
 
 func shouldUseSanitizedToolPresenter(toolName string) bool {
 	switch strings.TrimSpace(toolName) {
-	case "browser.snapshot", "browser.observe", "browser.screenshot", "file.pick", toolcontract.FileDeliverToolName, "file.read", "site.serve", "site.list", "terminal.run":
+	case "browser_snapshot", "browser.observe", "browser_screenshot", "file_pick", toolcontract.FileDeliverToolName, "file_read", "site_serve", "site_list", "terminal_run":
 		return true
 	default:
 		return false
@@ -214,7 +214,7 @@ func shouldUseSanitizedToolPresenter(toolName string) bool {
 
 func shouldSummarizeLongToolResult(toolName string) bool {
 	switch strings.TrimSpace(toolName) {
-	case "web.fetch", "web.search", "memory.search", "conversation.history":
+	case "web_fetch", "web_search", "memory_search", "conversation_history":
 		return true
 	default:
 		return false
@@ -223,24 +223,24 @@ func shouldSummarizeLongToolResult(toolName string) bool {
 
 func sanitizedToolResultSummary(observation turnObservation) string {
 	switch strings.TrimSpace(observation.Tool) {
-	case "browser.snapshot", "browser.observe":
+	case "browser_snapshot", "browser.observe":
 		return summarizeBrowserSnapshot(observation.ContentText())
-	case "browser.screenshot":
+	case "browser_screenshot":
 		if len(observation.Attachments) > 0 {
 			return "Screenshot captured. Use the imageRefs for visual inspection."
 		}
 		return summarizeSafeJSONFields(observation.ContentText(), []string{"capturedAt", "contentType", "filename", "sizeBytes"})
-	case "file.pick":
+	case "file_pick":
 		return attachmentResultSummary("User selected file", observation.Attachments)
 	case toolcontract.FileDeliverToolName:
 		return attachmentResultSummary("File attached", observation.Attachments)
-	case "file.read":
+	case "file_read":
 		return summarizeFileReadObservation(observation)
-	case "site.serve":
+	case "site_serve":
 		return summarizeSafeJSONFields(observation.ContentText(), []string{"siteID", "slug", "mode", "previewURL", "publishedURL", "sourceSHA256"})
-	case "site.list":
+	case "site_list":
 		return summarizeSafeJSONFields(observation.ContentText(), []string{"sites", "siteID", "slug", "title", "status", "publishedURL", "updatedAt"})
-	case "terminal.run":
+	case "terminal_run":
 		if summary := summarizeTerminalFailure(observation); summary != "" {
 			return summary
 		}

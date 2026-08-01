@@ -22,23 +22,23 @@ func TestLocalToolProviderUsesCanonicalDescriptors(t *testing.T) {
 	}
 
 	inputDescriptor := boundTools[0].Definition
-	if inputDescriptor.Name != "ask.input" {
-		t.Fatalf("expected ask.input descriptor, got %+v", inputDescriptor)
+	if inputDescriptor.Name != "ask_input" {
+		t.Fatalf("expected ask_input descriptor, got %+v", inputDescriptor)
 	}
-	if inputDescriptor.ID != "local/ask.input" || inputDescriptor.ProviderID != localToolProviderID || inputDescriptor.Namespace != "ask" || inputDescriptor.Visibility != toolcontract.ToolVisibilityModel {
-		t.Fatalf("unexpected ask.input descriptor: %+v", inputDescriptor)
+	if inputDescriptor.ID != "local/ask_input" || inputDescriptor.ProviderID != localToolProviderID || inputDescriptor.Namespace != "ask" || inputDescriptor.Visibility != toolcontract.ToolVisibilityModel {
+		t.Fatalf("unexpected ask_input descriptor: %+v", inputDescriptor)
 	}
-	if inputDescriptor.PolicyResource != "tool:ask.input" || inputDescriptor.Completion.Mode != toolcontract.ToolCompletionNone || inputDescriptor.Idempotency != toolcontract.ToolIdempotencyNone {
-		t.Fatalf("unexpected ask.input metadata: %+v", inputDescriptor)
+	if inputDescriptor.PolicyResource != "tool:ask_input" || inputDescriptor.Completion.Mode != toolcontract.ToolCompletionNone || inputDescriptor.Idempotency != toolcontract.ToolIdempotencyNone {
+		t.Fatalf("unexpected ask_input metadata: %+v", inputDescriptor)
 	}
 	if !inputDescriptor.RequiresUserPresence || inputDescriptor.SideEffectClass != toolcontract.ToolSideEffectApproval {
-		t.Fatalf("unexpected ask.input presence metadata: %+v", inputDescriptor)
+		t.Fatalf("unexpected ask_input presence metadata: %+v", inputDescriptor)
 	}
 	if len(inputDescriptor.InputSchema) == 0 || len(inputDescriptor.OutputSchema) == 0 {
-		t.Fatal("expected ask.input schemas")
+		t.Fatal("expected ask_input schemas")
 	}
 	if inputDescriptor.ResultContract == nil || len(inputDescriptor.ResultContract.Effects) != 0 {
-		t.Fatalf("expected ask.input result contract without effects, got %+v", inputDescriptor.ResultContract)
+		t.Fatalf("expected ask_input result contract without effects, got %+v", inputDescriptor.ResultContract)
 	}
 }
 
@@ -52,7 +52,7 @@ func TestLocalToolProviderUsesTypedSkillMutationContracts(t *testing.T) {
 		t.Fatal(errorValue)
 	}
 	for _, boundTool := range boundTools {
-		if boundTool.Definition.Name != "skill.add" && boundTool.Definition.Name != "skill.remove" {
+		if boundTool.Definition.Name != "skill_add" && boundTool.Definition.Name != "skill_remove" {
 			continue
 		}
 		if boundTool.Definition.RequiresApproval || boundTool.Definition.ResultContract == nil {
@@ -95,18 +95,18 @@ func TestLocalToolProviderPreservesMemorySearchContract(t *testing.T) {
 	}
 	var descriptor toolcontract.ToolDescriptor
 	for _, boundTool := range boundTools {
-		if boundTool.Definition.Name == "memory.search" {
+		if boundTool.Definition.Name == "memory_search" {
 			descriptor = boundTool.Definition
 		}
 	}
 	if descriptor.Name == "" || descriptor.ResultContract == nil {
-		t.Fatalf("expected memory.search result contract, got %+v", descriptor)
+		t.Fatalf("expected memory_search result contract, got %+v", descriptor)
 	}
 	if !equalJSONSchema(descriptor.OutputSchema, memorySearchOutputSchema) || !equalJSONSchema(descriptor.ResultContract.Schema, memorySearchOutputSchema) {
 		t.Fatalf("expected canonical output schema preservation, got %+v", descriptor)
 	}
 	if len(descriptor.ResultContract.Effects) != 0 || descriptor.ResultContract.EvidenceCondition != nil {
-		t.Fatalf("expected schema-only memory.search contract, got %+v", descriptor.ResultContract)
+		t.Fatalf("expected schema-only memory_search contract, got %+v", descriptor.ResultContract)
 	}
 	if !strings.Contains(string(descriptor.InputSchema), `"required":["query"]`) || !strings.Contains(string(descriptor.InputSchema), `"pattern":"\\S"`) {
 		t.Fatalf("expected strict query schema preservation, got %s", descriptor.InputSchema)
@@ -124,12 +124,12 @@ func TestLocalToolProviderPreservesMemoryRememberContract(t *testing.T) {
 	}
 	var descriptor toolcontract.ToolDescriptor
 	for _, boundTool := range boundTools {
-		if boundTool.Definition.Name == "memory.remember" {
+		if boundTool.Definition.Name == "memory_remember" {
 			descriptor = boundTool.Definition
 		}
 	}
 	if descriptor.Name == "" || descriptor.ResultContract == nil {
-		t.Fatalf("expected memory.remember result contract, got %+v", descriptor)
+		t.Fatalf("expected memory_remember result contract, got %+v", descriptor)
 	}
 	if !equalJSONSchema(descriptor.OutputSchema, memoryRememberOutputSchema) || !equalJSONSchema(descriptor.ResultContract.Schema, memoryRememberOutputSchema) {
 		t.Fatalf("expected canonical output schema preservation, got %+v", descriptor)
@@ -146,7 +146,7 @@ func TestLocalToolProviderPreservesMemoryRememberContract(t *testing.T) {
 func TestLocalToolProviderRejectsMalformedMemorySearchResult(t *testing.T) {
 	handlerToolSet := toolcontract.NewToolSet(nil)
 	if errorValue := handlerToolSet.RegisterTool(toolcontract.ToolDefinition{
-		Name:        "memory.search",
+		Name:        "memory_search",
 		Description: "Return a malformed memory result.",
 		InputSchema: memorySearchInputSchema,
 	}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
@@ -155,13 +155,13 @@ func TestLocalToolProviderRejectsMalformedMemorySearchResult(t *testing.T) {
 	}); errorValue != nil {
 		t.Fatal(errorValue)
 	}
-	toolSet := toolcontract.NewToolSet([]string{"memory.search"})
+	toolSet := toolcontract.NewToolSet([]string{"memory_search"})
 	if errorValue := toolSet.RegisterProvider(context.Background(), localToolProvider{handlerToolSet: handlerToolSet}); errorValue != nil {
 		t.Fatal(errorValue)
 	}
 
 	result, errorValue := toolSet.Invoke(context.Background(), toolcontract.ToolInvocation{
-		ToolName: "memory.search",
+		ToolName: "memory_search",
 		Input:    toolcontract.MarshalToolInput(map[string]string{"query": "release notes"}),
 	})
 
@@ -211,7 +211,7 @@ func TestLocalToolDescriptorsAreComplete(t *testing.T) {
 func TestLocalToolProviderPreservesScheduleContracts(t *testing.T) {
 	toolCatalogBuilder := NewToolCatalogBuilder()
 	toolCatalogBuilder.UseTaskScheduleRepository(&memoryTaskScheduleRepository{})
-	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"schedule.list", "schedule.create", "schedule.update", "schedule.cancel"})
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"schedule_list", "schedule_create", "schedule_update", "schedule_cancel"})
 	toolSet := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
 		ProfileName:       "default",
 		RequesterPersonID: "person-1",
@@ -220,7 +220,7 @@ func TestLocalToolProviderPreservesScheduleContracts(t *testing.T) {
 		ReplyTargetID:     "reply-1",
 	})
 
-	for _, toolName := range []string{"schedule.list", "schedule.create", "schedule.update", "schedule.cancel"} {
+	for _, toolName := range []string{"schedule_list", "schedule_create", "schedule_update", "schedule_cancel"} {
 		descriptor, isFound := toolSet.ToolDefinition(toolName)
 		if !isFound || descriptor.ResultContract == nil {
 			t.Fatalf("expected %s result contract, found=%v descriptor=%+v", toolName, isFound, descriptor)
@@ -230,15 +230,15 @@ func TestLocalToolProviderPreservesScheduleContracts(t *testing.T) {
 		}
 	}
 
-	createDescriptor, _ := toolSet.ToolDefinition("schedule.create")
+	createDescriptor, _ := toolSet.ToolDefinition("schedule_create")
 	if len(createDescriptor.ResultContract.Effects) != 1 || createDescriptor.ResultContract.Effects[0].ResultField != "scheduleID" {
 		t.Fatalf("expected exact schedule create effect, got %+v", createDescriptor.ResultContract)
 	}
-	updateDescriptor, _ := toolSet.ToolDefinition("schedule.update")
+	updateDescriptor, _ := toolSet.ToolDefinition("schedule_update")
 	if len(updateDescriptor.ResultContract.Effects) != 1 || updateDescriptor.ResultContract.Effects[0].ResultField != "scheduleID" {
 		t.Fatalf("expected exact schedule update effect, got %+v", updateDescriptor.ResultContract)
 	}
-	cancelDescriptor, _ := toolSet.ToolDefinition("schedule.cancel")
+	cancelDescriptor, _ := toolSet.ToolDefinition("schedule_cancel")
 	condition := cancelDescriptor.ResultContract.EvidenceCondition
 	if condition == nil || condition.ResultField != "cancelled" || string(condition.Equals) != "true" {
 		t.Fatalf("expected explicit schedule cancel evidence, got %+v", cancelDescriptor.ResultContract)

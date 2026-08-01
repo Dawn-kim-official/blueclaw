@@ -10,7 +10,7 @@ import (
 func TestObservedResultProjectionAcceptsCalendarClaimWithCalendarFact(t *testing.T) {
 	goalSatisfied := true
 	descriptor, observation := canonicalEffectObservation(
-		"calendar.add",
+		"calendar_add",
 		`{"eventID":"event-1"}`,
 		[]toolcontract.ResourceEffect{{ObjectType: "calendar_event", Effect: "scheduled", ID: "event-1"}},
 		[]toolcontract.ResourceEffectContract{{ObjectType: "calendar_event", Effect: "scheduled", ResultField: "eventID", EffectIdentity: "id"}},
@@ -102,14 +102,14 @@ func TestObservedResultProjectionRejectsEffectsWithoutContract(t *testing.T) {
 }
 
 func TestObservedResultProjectionDoesNotInferScheduleFactsFromToolName(t *testing.T) {
-	observation := newContentObservation("obs-001", "continue", "schedule.create", `{"scheduleID":"schedule-1"}`)
+	observation := newContentObservation("obs-001", "continue", "schedule_create", `{"scheduleID":"schedule-1"}`)
 	if facts := factsFromObservation(nil, observation); len(facts) != 0 {
 		t.Fatalf("expected schedule facts to require canonical effects, got %+v", facts)
 	}
 }
 
 func TestObservedResultProjectionDoesNotTreatUnpublishedStatusAsPublished(t *testing.T) {
-	facts := factsFromObservation(newTestToolSet([]string{"site.list"}), newContentObservation("obs-001", "continue", "site.list", `{"siteID":"site-1","status":"published"}`))
+	facts := factsFromObservation(newTestToolSet([]string{"site_list"}), newContentObservation("obs-001", "continue", "site_list", `{"siteID":"site-1","status":"published"}`))
 
 	if projectionHasObservedFact(facts, "website", "published") {
 		t.Fatalf("status text must not synthesize a published fact, got %+v", facts)
@@ -120,13 +120,13 @@ func TestObservedResultProjectionRequiresCurrentSiteModificationEffects(t *testi
 	goalSatisfied := true
 	projection := buildObservedResultProjection(
 		AgentTurnRequest{
-			ToolSet: newTestToolSet([]string{"site.list", "file.edit", "site.serve"}),
+			ToolSet: newTestToolSet([]string{"site_list", "file_edit", "site_serve"}),
 			OutcomeContract: OutcomeContract{RequiredEffects: []OutcomeEffect{
-				{ObjectType: "workspace", Effect: "modified", SuggestedNextTools: []string{"file.edit"}},
-				{ObjectType: "website", Effect: "published", SuggestedNextTools: []string{"site.serve"}},
+				{ObjectType: "workspace", Effect: "modified", SuggestedNextTools: []string{"file_edit"}},
+				{ObjectType: "website", Effect: "published", SuggestedNextTools: []string{"site_serve"}},
 			}},
 		},
-		[]turnObservation{newContentObservation("obs-001", "continue", "site.list", `{"siteID":"site-1","status":"published","publishedURL":"https://pretty-gyul.example"}`)},
+		[]turnObservation{newContentObservation("obs-001", "continue", "site_list", `{"siteID":"site-1","status":"published","publishedURL":"https://pretty-gyul.example"}`)},
 		nil,
 		turnActionDocument{
 			Action:        "finish",
@@ -143,7 +143,7 @@ func TestObservedResultProjectionRequiresCurrentSiteModificationEffects(t *testi
 func TestObservedResultProjectionAcceptsCurrentSiteModificationEffects(t *testing.T) {
 	goalSatisfied := true
 	fileDescriptor, fileObservation := canonicalEffectObservation(
-		"file.edit",
+		"file_edit",
 		`{"paths":["/workspace/circles/staff/sites/pretty-gyul/draft/app/src/App.tsx"]}`,
 		[]toolcontract.ResourceEffect{
 			{ObjectType: "file", Effect: "updated", Path: "/workspace/circles/staff/sites/pretty-gyul/draft/app/src/App.tsx"},
@@ -155,7 +155,7 @@ func TestObservedResultProjectionAcceptsCurrentSiteModificationEffects(t *testin
 		},
 	)
 	publishDescriptor, publishObservation := canonicalEffectObservation(
-		"site.serve",
+		"site_serve",
 		`{"siteID":"site-1"}`,
 		[]toolcontract.ResourceEffect{{ObjectType: "website", Effect: "published", ID: "site-1"}},
 		[]toolcontract.ResourceEffectContract{{ObjectType: "website", Effect: "published", ResultField: "siteID", EffectIdentity: "id"}},
@@ -164,8 +164,8 @@ func TestObservedResultProjectionAcceptsCurrentSiteModificationEffects(t *testin
 		AgentTurnRequest{
 			ToolSet: newTestToolSetWithDefinitions([]toolcontract.ToolDefinition{fileDescriptor, publishDescriptor}),
 			OutcomeContract: OutcomeContract{RequiredEffects: []OutcomeEffect{
-				{ObjectType: "workspace", Effect: "modified", SuggestedNextTools: []string{"file.edit"}},
-				{ObjectType: "website", Effect: "published", SuggestedNextTools: []string{"site.serve"}},
+				{ObjectType: "workspace", Effect: "modified", SuggestedNextTools: []string{"file_edit"}},
+				{ObjectType: "website", Effect: "published", SuggestedNextTools: []string{"site_serve"}},
 			}},
 		},
 		[]turnObservation{fileObservation, publishObservation},
@@ -189,14 +189,14 @@ func TestObservedResultProjectionDoesNotInferSiteReadEffectFromStatus(t *testing
 	goalSatisfied := true
 	projection := buildObservedResultProjection(
 		AgentTurnRequest{
-			ToolSet: newTestToolSet([]string{"site.list"}),
+			ToolSet: newTestToolSet([]string{"site_list"}),
 			OutcomeContract: OutcomeContract{RequiredEffects: []OutcomeEffect{{
 				ObjectType:         "website",
 				Effect:             "read",
-				SuggestedNextTools: []string{"site.list"},
+				SuggestedNextTools: []string{"site_list"},
 			}}},
 		},
-		[]turnObservation{newContentObservation("obs-001", "continue", "site.list", `{"siteID":"site-1","status":"published"}`)},
+		[]turnObservation{newContentObservation("obs-001", "continue", "site_list", `{"siteID":"site-1","status":"published"}`)},
 		nil,
 		turnActionDocument{
 			Action:        "finish",
@@ -213,7 +213,7 @@ func TestObservedResultProjectionDoesNotInferSiteReadEffectFromStatus(t *testing
 func TestObservedResultProjectionAllowsSiteDeleteEffect(t *testing.T) {
 	goalSatisfied := true
 	descriptor, observation := canonicalEffectObservation(
-		"site.unserve",
+		"site_unserve",
 		`{"siteID":"site-1"}`,
 		[]toolcontract.ResourceEffect{{ObjectType: "website", Effect: "deleted", ID: "site-1"}},
 		[]toolcontract.ResourceEffectContract{{ObjectType: "website", Effect: "deleted", ResultField: "siteID", EffectIdentity: "id"}},
@@ -224,7 +224,7 @@ func TestObservedResultProjectionAllowsSiteDeleteEffect(t *testing.T) {
 			OutcomeContract: OutcomeContract{RequiredEffects: []OutcomeEffect{{
 				ObjectType:         "website",
 				Effect:             "deleted",
-				SuggestedNextTools: []string{"site.unserve"},
+				SuggestedNextTools: []string{"site_unserve"},
 			}}},
 		},
 		[]turnObservation{observation},

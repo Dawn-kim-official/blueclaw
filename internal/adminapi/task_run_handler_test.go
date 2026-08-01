@@ -23,7 +23,7 @@ func TestTaskRunHandlerLaunchesAdminTask(t *testing.T) {
 	useAdminTaskLanguageModel(agentKernel, languageModel)
 	toolCatalogBuilder := agentruntime.NewToolCatalogBuilder()
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(map[string][]string{
-		"admin": {"memory.search"},
+		"admin": {"memory_search"},
 	}, nil)
 	identityService := identity.NewIdentityService(policy.PolicyProjection{
 		PersonIDByEmail: map[string]string{"admin@example.com": "person-1"},
@@ -56,7 +56,7 @@ func TestTaskRunHandlerLaunchIgnoresClientCancellation(t *testing.T) {
 	useAdminTaskLanguageModel(agentKernel, languageModel)
 	toolCatalogBuilder := agentruntime.NewToolCatalogBuilder()
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(map[string][]string{
-		"admin": {"memory.search"},
+		"admin": {"memory_search"},
 	}, nil)
 	identityService := identity.NewIdentityService(policy.PolicyProjection{
 		PersonIDByEmail: map[string]string{"admin@example.com": "person-1"},
@@ -105,7 +105,7 @@ func TestTaskRunHandlerUsesLLMDTopologyPresetWithoutIntakeCall(t *testing.T) {
 	if len(languageModel.schemaNames) != 1 || languageModel.schemaNames[0] != "blueclaw_agent_turn_action" {
 		t.Fatalf("expected only agent action schema, got %v", languageModel.schemaNames)
 	}
-	if languageModel.schemaDocumentContains("terminal.run") {
+	if languageModel.schemaDocumentContains("terminal_run") {
 		t.Fatalf("expected diagnostic profile without tool schemas, got %+v", languageModel.schemaDocuments)
 	}
 	var responseDocument struct {
@@ -125,7 +125,7 @@ func TestTaskRunHandlerUsesLLMDTopologyPresetWithoutIntakeCall(t *testing.T) {
 func TestTaskRunHandlerRejectsTaskDecisionPresetOverrides(t *testing.T) {
 	overrides := []string{
 		`"profileName":"default"`,
-		`"pinnedToolNames":["terminal.run"]`,
+		`"pinnedToolNames":["terminal_run"]`,
 		`"pinnedSkillNames":["mail"]`,
 	}
 	for _, override := range overrides {

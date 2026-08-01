@@ -8,14 +8,14 @@ import (
 
 func TestAgentTurnRunnerAllowsCorrectedRetryAfterSafeFailure(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"continue","toolName":"message.send","toolInput":{"targetType":"directMessage","personHint":"Dana","message":"please take a look"}}`,
-		`{"action":"continue","toolName":"message.send","toolInput":{"targetType":"directMessage","personHint":"Dana Lee","message":"please take a look"}}`,
-		finishMessageWithEvidence("sent", "obs-003", "message.send", 0),
+		`{"action":"continue","toolName":"message_send","toolInput":{"targetType":"directMessage","personHint":"Dana","message":"please take a look"}}`,
+		`{"action":"continue","toolName":"message_send","toolInput":{"targetType":"directMessage","personHint":"Dana Lee","message":"please take a look"}}`,
+		finishMessageWithEvidence("sent", "obs-003", "message_send", 0),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{RecoveryAttemptLimit: 3})
-	toolRegistry := newTestCapabilityToolSet([]string{"message.send"})
+	toolRegistry := newTestCapabilityToolSet([]string{"message_send"})
 	callCount := 0
-	registerTestTool(toolRegistry, toolcontract.ToolDefinition{Name: "message.send"}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
+	registerTestTool(toolRegistry, toolcontract.ToolDefinition{Name: "message_send"}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
 		callCount++
 		if callCount == 1 {
 			return structuredFailureToolResult("temporary user lookup timeout", "temporary user lookup timeout", "mattermost_unavailable", "mattermost_lookup", true, true), nil
@@ -29,8 +29,8 @@ func TestAgentTurnRunnerAllowsCorrectedRetryAfterSafeFailure(t *testing.T) {
 		Prompt:                "send dm",
 		ToolSet:               toolRegistry,
 		PinnedToolNames:       toolRegistry.ListToolNames(),
-		RequiredEvidenceTools: []string{"message.send"},
-		OutcomeContract:       OutcomeContract{RequiredEvidenceTools: []string{"message.send"}},
+		RequiredEvidenceTools: []string{"message_send"},
+		OutcomeContract:       OutcomeContract{RequiredEvidenceTools: []string{"message_send"}},
 	})
 	if errorValue != nil {
 		t.Fatalf("expected retry recovery: %v", errorValue)
@@ -47,13 +47,13 @@ func TestAgentTurnRunnerAllowsCorrectedRetryAfterSafeFailure(t *testing.T) {
 }
 
 func TestRecoveryAttemptCountOnlyIncludesSpentInterventions(t *testing.T) {
-	failure := newFailureObservation("obs-001", "continue", "message.send", "failed", toolcontract.FailureExternalService, toolcontract.FailureCodes.OperationFailed, "message_send")
+	failure := newFailureObservation("obs-001", "continue", "message_send", "failed", toolcontract.FailureExternalService, toolcontract.FailureCodes.OperationFailed, "message_send")
 	passiveGuidance := recoveryGuidanceObservation(2, failure, "")
 	spentGuidance := recoveryGuidanceObservation(3, failure, "")
 	spentGuidance.RecoveryAttemptSpent = true
 	retryObservation := failure
 	retryObservation.ObservationID = "obs-004"
-	retryObservation.RecoveryAttemptKey = "message.send\x00{}"
+	retryObservation.RecoveryAttemptKey = "message_send\x00{}"
 	retryObservation.RecoveryAttemptSpent = true
 
 	if count := recoveryAttemptCount([]turnObservation{failure, passiveGuidance}); count != 0 {
@@ -67,7 +67,7 @@ func TestRecoveryAttemptCountOnlyIncludesSpentInterventions(t *testing.T) {
 func TestAgentTurnRunnerAllowsInspectionAfterAdjacentRecoveryBudgetExhausted(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		`{"action":"continue","toolName":"site.build","toolInput":{"siteID":"site-1"}}`,
-		`{"action":"continue","toolName":"file.read","toolInput":{"path":"home/sites/site-1/draft/app/src/App.tsx"}}`,
+		`{"action":"continue","toolName":"file_read","toolInput":{"path":"home/sites/site-1/draft/app/src/App.tsx"}}`,
 		finishMessageDocument("Checked."),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{
@@ -80,7 +80,7 @@ func TestAgentTurnRunnerAllowsInspectionAfterAdjacentRecoveryBudgetExhausted(t *
 			NoToolFallback: 0,
 		},
 	})
-	toolRegistry := newHybridKernelCapabilityToolSet([]string{"file.read", "file.edit"}, []string{"site.build"})
+	toolRegistry := newHybridKernelCapabilityToolSet([]string{"file_read", "file_edit"}, []string{"site.build"})
 	registerTestTool(toolRegistry, toolcontract.ToolDefinition{Name: "site.build"}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
 		return toolcontract.ToolResult{
 			Output: toolcontract.ToolOutput{Content: "source failed"},
@@ -92,16 +92,16 @@ func TestAgentTurnRunnerAllowsInspectionAfterAdjacentRecoveryBudgetExhausted(t *
 				Retryable:       true,
 				FailureClass:    failureClassQuality,
 				RetryPolicy:     retryPolicyAfterPrecondition,
-				RecoveryHints:   []toolcontract.RecoveryHint{{Action: "edit_resource", ToolNames: []string{"file.read", "file.edit"}}},
+				RecoveryHints:   []toolcontract.RecoveryHint{{Action: "edit_resource", ToolNames: []string{"file_read", "file_edit"}}},
 			},
 		}, nil
 	})
 	fileReadCount := 0
-	registerTestTool(toolRegistry, toolcontract.ToolDefinition{Name: "file.read"}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
+	registerTestTool(toolRegistry, toolcontract.ToolDefinition{Name: "file_read"}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
 		fileReadCount++
 		return testToolSuccess(`{"path":"home/sites/site-1/draft/app/src/App.tsx","content":"broken"}`), nil
 	})
-	registerTestTool(toolRegistry, toolcontract.ToolDefinition{Name: "file.edit"}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
+	registerTestTool(toolRegistry, toolcontract.ToolDefinition{Name: "file_edit"}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
 		return testToolSuccess(`{"path":"home/sites/site-1/draft/app/src/App.tsx","matchCount":1}`), nil
 	})
 
@@ -110,16 +110,16 @@ func TestAgentTurnRunnerAllowsInspectionAfterAdjacentRecoveryBudgetExhausted(t *
 		ConversationID:    "conversation-1",
 		Prompt:            "look into the site build problem",
 		ToolSet:           toolRegistry,
-		PinnedToolNames:   []string{"site.build", "file.read", "file.edit"},
+		PinnedToolNames:   []string{"site.build", "file_read", "file_edit"},
 	})
 	if errorValue != nil {
 		t.Fatalf("expected inspection recovery to continue: %v", errorValue)
 	}
 	if fileReadCount != 1 {
-		t.Fatalf("expected file.read to run despite exhausted adjacent budget, got %d", fileReadCount)
+		t.Fatalf("expected file_read to run despite exhausted adjacent budget, got %d", fileReadCount)
 	}
 	events := services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID)
-	if taskEventsContain(events, "agent.recovery_budget_exhausted", "file.read") {
+	if taskEventsContain(events, "agent.recovery_budget_exhausted", "file_read") {
 		t.Fatal("did not expect inspection tool to be blocked by adjacent recovery budget")
 	}
 	if !taskEventsContain(events, "agent.recovery_attempt", "inspection") {

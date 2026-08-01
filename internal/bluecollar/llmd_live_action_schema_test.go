@@ -26,7 +26,7 @@ func TestLLMDLiveXLowCurrentAgentActionSchemaFromEnv(t *testing.T) {
 		return testToolSuccess("not executed"), nil
 	})
 	request := BuildAgentActionRequest(agentTaskState{Request: AgentTurnRequest{
-		Prompt:  "Do not finish. Choose continue, call terminal.run, and set command to printf llmd-schema-ok.",
+		Prompt:  "Do not finish. Choose continue, call terminal_run, and set command to printf llmd-schema-ok.",
 		ToolSet: toolSet,
 	}})
 	client := llm.NewLLMDClient(llm.LLMDClientConfiguration{
@@ -44,6 +44,6 @@ func TestLLMDLiveXLowCurrentAgentActionSchemaFromEnv(t *testing.T) {
 		t.Fatalf("expected parsable llmd agent action, got %q: %v", response.Content, errorValue)
 	}
 	if action.Action != "continue" || action.ToolName != toolcontract.TerminalRunToolName {
-		t.Fatalf("expected llmd terminal.run continue action, got %+v", action)
+		t.Fatalf("expected llmd terminal_run continue action, got %+v", action)
 	}
 }

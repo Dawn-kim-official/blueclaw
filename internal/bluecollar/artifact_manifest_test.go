@@ -82,7 +82,7 @@ func TestPromptAssemblerIncludesArtifactManifest(t *testing.T) {
 		Prompt: "change the title",
 		ArtifactManifest: []ArtifactManifestEntry{{
 			RelativePath:  "private/people/person-1/artifacts/deck/deck.pptx",
-			ProducingTool: "file.deliver",
+			ProducingTool: "file_deliver",
 			ModifiedAt:    time.Date(2026, time.June, 12, 3, 0, 0, 0, time.UTC),
 		}},
 	}, nil, "base", "")

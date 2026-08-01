@@ -72,8 +72,8 @@ func TestTaskContextCompactionReplacesOldPromptObservationsOnly(t *testing.T) {
 
 func TestTaskContextCompactionPinsActiveFailureDebt(t *testing.T) {
 	observations := numberedContextSummaryObservations(5, 2000, "OLD_MARKER")
-	failureObservation := newFailureObservation("obs-006", "continue", "terminal.run", "ACTIVE_FAILURE_MARKER", toolcontract.FailureUnknown, toolcontract.FailureCodes.OperationFailed, "terminal_run")
-	failureObservation.ToolInputKey = "terminal.run\x00failed"
+	failureObservation := newFailureObservation("obs-006", "continue", "terminal_run", "ACTIVE_FAILURE_MARKER", toolcontract.FailureUnknown, toolcontract.FailureCodes.OperationFailed, "terminal_run")
+	failureObservation.ToolInputKey = "terminal_run\x00failed"
 	observations = append(observations, failureObservation)
 	for index := 7; index <= 18; index++ {
 		observation := newContentObservation(nextObservationID(index), "recovery_guidance", "", strings.Repeat("recovery ", 250))
@@ -121,7 +121,7 @@ func numberedContextSummaryObservations(count int, contentSize int, markerPrefix
 	observations := []turnObservation{}
 	for index := 1; index <= count; index++ {
 		marker := markerPrefix + "-" + strings.TrimPrefix(nextObservationID(index), "obs-")
-		observation := newContentObservation(nextObservationID(index), "continue", "terminal.run", marker+" "+strings.Repeat("x", contentSize))
+		observation := newContentObservation(nextObservationID(index), "continue", "terminal_run", marker+" "+strings.Repeat("x", contentSize))
 		observation.Summary = marker
 		observations = append(observations, observation)
 	}

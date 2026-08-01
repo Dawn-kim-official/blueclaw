@@ -17,11 +17,11 @@ func TestLoadScenarioFileReadsSequentialStepsAndResolvesSkills(t *testing.T) {
 	document := `{
   "name": "task-lifecycle",
   "skillDirectoryPaths": ["../../skills/flow"],
-  "allowedTools": ["task.add", "task.delete"],
-  "capabilityToolNames": ["task.add", "task.delete"],
-  "capabilityToolDescriptors": [{"name":"task.delete","requiresApproval":true}],
+  "allowedTools": ["task_add", "task_delete"],
+  "capabilityToolNames": ["task_add", "task_delete"],
+  "capabilityToolDescriptors": [{"name":"task_delete","requiresApproval":true}],
   "steps": [
-    {"prompt":"add task","expectedResponse":"background_action","expectedToolCalls":["task.add"]},
+    {"prompt":"add task","expectedResponse":"background_action","expectedToolCalls":["task_add"]},
     {"prompt":"delete approved","expectedEvents":["approval.executed"]}
   ]
 }`
@@ -40,7 +40,7 @@ func TestLoadScenarioFileReadsSequentialStepsAndResolvesSkills(t *testing.T) {
 	if len(scenario.SkillDirectoryPaths) != 1 || scenario.SkillDirectoryPaths[0] != expectedSkillPath {
 		t.Fatalf("expected resolved skill path %q, got %v", expectedSkillPath, scenario.SkillDirectoryPaths)
 	}
-	if scenario.Turns[0].ExpectedToolCalls[0] != "task.add" || scenario.Turns[1].ExpectedEvents[0] != "approval.executed" {
+	if scenario.Turns[0].ExpectedToolCalls[0] != "task_add" || scenario.Turns[1].ExpectedEvents[0] != "approval.executed" {
 		t.Fatalf("unexpected sequential steps: %+v", scenario.Turns)
 	}
 	if scenario.Turns[0].ExpectedResponse != VirtualResponseBackgroundAction {

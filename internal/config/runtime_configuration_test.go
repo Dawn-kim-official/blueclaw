@@ -20,13 +20,13 @@ func TestLoadRuntimeConfigurationIncludesFirecrackerAndBridge(t *testing.T) {
     "aggregateProtocolHash": "58ff1977989bacbf2db3fdce08fd57c9b52f344ca747a3322f4e60bdf6052a78",
     "toolDescriptors": [
       {
-        "name": "browser.open",
+        "name": "browser_open",
         "inputSchema": {"type": "object"},
         "inputIntentSchema": {"type": "object"},
         "sideEffectClass": "browser"
       },
       {
-        "name": "user.confirm",
+        "name": "user_confirm",
         "requiresApproval": true
       }
     ]
@@ -93,7 +93,7 @@ func TestLoadRuntimeConfigurationIncludesFirecrackerAndBridge(t *testing.T) {
   "agentProfiles": [
     {
       "name": "default",
-      "allowedToolNames": ["conversation.history", "memory.search", "echo"]
+      "allowedToolNames": ["conversation_history", "memory_search", "echo"]
     }
   ],
   "mcpServers": [

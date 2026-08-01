@@ -11,7 +11,7 @@ import (
 
 func TestHashCapabilityDescriptorsIncludesBroadenedFields(t *testing.T) {
 	baseDescriptor := CapabilityToolDescriptor{
-		Name:            "task.add",
+		Name:            "task_add",
 		InputSchema:     json.RawMessage(`{"type":"object","properties":{},"additionalProperties":false}`),
 		SideEffectClass: toolcontract.ToolSideEffectStateChange,
 		Idempotency:     CapabilityIdempotency{Supported: true, Scope: "operation"},
@@ -54,12 +54,12 @@ func TestBuildToolRegistryAuditRunsLiveCheckForNonMessageCapabilityDescriptors(t
 	toolCatalogBuilder.UseTestCapabilityToolDescriptors(capability.Client{
 		Endpoint: "http://capability.local",
 		HTTPClient: &recordingHTTPClient{responseBody: `{"deviceCapabilities":[{
-			"name":"task.add",
+			"name":"task_add",
 			"inputSchema":{"type":"object","properties":{},"additionalProperties":false},
 			"sideEffectClass":"state_change",
 			"idempotency":{"scope":"operation"}
 		}]}`},
-	}, []CapabilityToolDescriptor{{Name: "task.add"}})
+	}, []CapabilityToolDescriptor{{Name: "task_add"}})
 
 	audit, errorValue := toolCatalogBuilder.BuildToolRegistryAudit(context.Background(), toolcontract.NewToolSet(nil))
 
@@ -86,7 +86,7 @@ func TestBuildToolRegistryAuditSkipsLiveCheckWithoutCapabilityDescriptors(t *tes
 
 func TestBuildToolRegistryAuditDegradesWhenLiveCapabilityRegistryIsUnavailable(t *testing.T) {
 	toolCatalogBuilder := NewToolCatalogBuilder()
-	toolCatalogBuilder.UseTestCapabilityToolDescriptors(capability.Client{}, []CapabilityToolDescriptor{{Name: "task.add"}})
+	toolCatalogBuilder.UseTestCapabilityToolDescriptors(capability.Client{}, []CapabilityToolDescriptor{{Name: "task_add"}})
 
 	audit, errorValue := toolCatalogBuilder.BuildToolRegistryAudit(context.Background(), toolcontract.NewToolSet(nil))
 
@@ -100,8 +100,8 @@ func TestBuildToolRegistryAuditDegradesWhenLiveCapabilityRegistryIsUnavailable(t
 
 func TestBuildToolRegistryAuditServesCachedSnapshotWhenLiveFetchFails(t *testing.T) {
 	toolCatalogBuilder := NewToolCatalogBuilder()
-	toolCatalogBuilder.UseTestCapabilityToolDescriptors(capability.Client{}, []CapabilityToolDescriptor{{Name: "task.add"}})
-	toolCatalogBuilder.storeLiveCapabilitySnapshot([]CapabilityToolDescriptor{{Name: "task.add"}}, "snapshot-hash")
+	toolCatalogBuilder.UseTestCapabilityToolDescriptors(capability.Client{}, []CapabilityToolDescriptor{{Name: "task_add"}})
+	toolCatalogBuilder.storeLiveCapabilitySnapshot([]CapabilityToolDescriptor{{Name: "task_add"}}, "snapshot-hash")
 
 	audit, errorValue := toolCatalogBuilder.BuildToolRegistryAudit(context.Background(), toolcontract.NewToolSet(nil))
 
@@ -116,19 +116,19 @@ func TestBuildToolRegistryAuditServesCachedSnapshotWhenLiveFetchFails(t *testing
 func TestReachableCapabilityToolDefinitionsGateBrowserOnCompanionStatus(t *testing.T) {
 	toolCatalogBuilder := NewToolCatalogBuilder()
 	toolCatalogBuilder.UseCapabilityToolDescriptors(capability.Client{}, []CapabilityToolDescriptor{
-		{Name: "browser.open"},
-		{Name: "message.send"},
+		{Name: "browser_open", Namespace: "browser"},
+		{Name: "message_send", Namespace: "message"},
 	})
 
 	toolCatalogBuilder.UseCompanionStatus("unavailable")
 	gatedNames := capabilityDescriptorNames(toolCatalogBuilder.reachableCapabilityToolDefinitions())
-	if registryContainsString(gatedNames, "browser.open") || !registryContainsString(gatedNames, "message.send") {
+	if registryContainsString(gatedNames, "browser_open") || !registryContainsString(gatedNames, "message_send") {
 		t.Fatalf("expected browser tools hidden while the companion is unavailable, got %v", gatedNames)
 	}
 
 	toolCatalogBuilder.UseCompanionStatus("available")
 	openNames := capabilityDescriptorNames(toolCatalogBuilder.reachableCapabilityToolDefinitions())
-	if !registryContainsString(openNames, "browser.open") {
+	if !registryContainsString(openNames, "browser_open") {
 		t.Fatalf("expected browser tools back when the companion is available, got %v", openNames)
 	}
 }

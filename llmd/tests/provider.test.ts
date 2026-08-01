@@ -117,7 +117,7 @@ describe('llmd provider adapter', () => {
 
   test('sanitizes tool names in the history it sends back', async () => {
     const remoteModel = toolCallLanguageModel('served-remote-model', [{
-      toolName: 'task_add',
+      toolName: 'mcp_local_task_add',
       input: '{"title":"second turn"}',
     }]);
     const generateChatCompletion = createChatCompletionGenerator(
@@ -125,12 +125,16 @@ describe('llmd provider adapter', () => {
       languageModelFactory(chatLanguageModel('unused-local-model'), remoteModel),
     );
     const request = multipleToolChatRequest();
+    request.tools = request.tools?.map(tool => tool.function.name === 'task_add'
+      ? { ...tool, function: { ...tool.function, name: 'mcp.local.task_add' } }
+      : tool);
+    request.toolChoice = { type: 'function', function: { name: 'mcp.local.task_add' } };
     request.messages = [
       ...request.messages,
       {
         role: ChatCompletionMessageRole.Assistant,
         content: '',
-        toolCalls: [{ id: 'call-1', type: 'function', function: { name: 'task.add', arguments: '{"title":"first turn"}' } }],
+        toolCalls: [{ id: 'call-1', type: 'function', function: { name: 'mcp.local.task_add', arguments: '{"title":"first turn"}' } }],
       },
       { role: ChatCompletionMessageRole.Tool, toolCallId: 'call-1', content: 'created' },
     ];
@@ -141,14 +145,14 @@ describe('llmd provider adapter', () => {
     // request, history included, so the earlier call and its result go out
     // sanitized just like the declarations.
     const sentPrompt = JSON.stringify(remoteModel.doStreamCalls[0]?.prompt);
-    expect(sentPrompt).toContain('task_add');
-    expect(sentPrompt).not.toContain('task.add');
+    expect(sentPrompt).toContain('mcp_local_task_add');
+    expect(sentPrompt).not.toContain('mcp.local.task_add');
   });
 
   test('accepts canonical generated document tool schemas', async () => {
     const descriptor = buildCapabilityToolCatalog('test').tools
       .find(tool => tool.name === DocumentToolName.Read);
-    if (descriptor === undefined) throw new Error('document.read descriptor is missing');
+    if (descriptor === undefined) throw new Error('document_read descriptor is missing');
     const fallbackModel = chatLanguageModel('unused-local-model');
     const remoteModel = toolCallLanguageModel('served-remote-model', [{
       toolName: 'document_read',
@@ -495,7 +499,7 @@ describe('llmd provider adapter', () => {
         allowLegacyFallback: false,
         diagnostic: {
           category: StructuredOutputDiagnosticCategory.JSONParse,
-          toolName: 'task.add',
+          toolName: 'task_add',
           repairStatus: StructuredOutputRepairStatus.Failed,
         },
       });
@@ -527,7 +531,7 @@ describe('llmd provider adapter', () => {
     const response = await generateChatCompletion(request);
 
     expect(response.message.toolCalls?.[0]?.function).toEqual({
-      name: 'task.add',
+      name: 'task_add',
       arguments: '{"title":"repaired task"}',
     });
     expect(remoteModel.doStreamCalls).toHaveLength(1);
@@ -628,7 +632,7 @@ describe('llmd provider adapter', () => {
       [{ toolName: 'lookup', input: '{' }],
       [
         { toolName: 'lookup', input: '{"key":"repaired"}' },
-        { toolName: 'task.add', input: '{"title":"draft"}' },
+        { toolName: 'task_add', input: '{"title":"draft"}' },
       ],
     ]);
     const generateChatCompletion = createChatCompletionGenerator(
@@ -646,7 +650,7 @@ describe('llmd provider adapter', () => {
       warnSpy.mockRestore();
     }
 
-    expect(warningMessage).toContain('task.add');
+    expect(warningMessage).toContain('task_add');
     expect(warningMessage).toContain('lookup');
   });
 
@@ -2022,7 +2026,7 @@ function multipleToolChatRequest(): ChatCompletionRequest {
       {
         type: 'function',
         function: {
-          name: 'task.add',
+          name: 'task_add',
           description: 'Add a task.',
           parameters: {
             type: 'object',
@@ -2036,7 +2040,7 @@ function multipleToolChatRequest(): ChatCompletionRequest {
         },
       },
     ],
-    toolChoice: { type: 'function', function: { name: 'task.add' } },
+    toolChoice: { type: 'function', function: { name: 'task_add' } },
   };
 }
 

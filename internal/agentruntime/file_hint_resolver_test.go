@@ -31,7 +31,7 @@ func TestFileReadResolvesAttachmentFileHint(t *testing.T) {
 	})
 
 	result, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
-		ToolName: "file.read",
+		ToolName: "file_read",
 		Input: toolcontract.MarshalToolInput(map[string]string{
 			"fileHint": "attachment:mattermost:file-1",
 		}),
@@ -63,7 +63,7 @@ func TestFilePreviewResolvesArtifactFileHint(t *testing.T) {
 	})
 
 	result, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
-		ToolName: "file.preview",
+		ToolName: "file_preview",
 		Input: toolcontract.MarshalToolInput(map[string]string{
 			"fileHint": fileHint,
 		}),
@@ -89,7 +89,7 @@ func TestFileHintRejectsUnknownAndForgedValues(t *testing.T) {
 		"artifact:task-run-1:%2Fworkspace%2Fprivate%2Fpeople%2Fperson-1%2Fsecret.txt",
 	} {
 		result, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
-			ToolName: "file.read",
+			ToolName: "file_read",
 			Input: toolcontract.MarshalToolInput(map[string]string{
 				"fileHint": fileHint,
 			}),
@@ -117,7 +117,7 @@ func TestFileToolsPreserveExplicitPathResolutionAndAccess(t *testing.T) {
 	})
 
 	readResult, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
-		ToolName: "file.read",
+		ToolName: "file_read",
 		Input: toolcontract.MarshalToolInput(map[string]string{
 			"path":     "documents/notes.txt",
 			"fileHint": "attachment:mattermost:forged",
@@ -133,7 +133,7 @@ func TestFileToolsPreserveExplicitPathResolutionAndAccess(t *testing.T) {
 	otherPersonHomePath := filepath.Join(workspacePath, "private", "people", "person-2")
 	withoutDirectoryAccess(t, otherPersonHomePath)
 	accessResult, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
-		ToolName: "file.read",
+		ToolName: "file_read",
 		Input: toolcontract.MarshalToolInput(map[string]string{
 			"path": otherPath,
 		}),
@@ -148,7 +148,7 @@ func TestFileToolsPreserveExplicitPathResolutionAndAccess(t *testing.T) {
 
 func TestFileToolSchemasExposeFileHint(t *testing.T) {
 	toolRegistry := newFileToolTestCatalogBuilder(t.TempDir()).BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
-	for _, toolName := range []string{"file.read", "file.preview"} {
+	for _, toolName := range []string{"file_read", "file_preview"} {
 		toolDefinition, isFound := findToolDefinition(toolRegistry.ListToolDefinitions(), toolName)
 		if !isFound {
 			t.Fatalf("expected %s definition", toolName)

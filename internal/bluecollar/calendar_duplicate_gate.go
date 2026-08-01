@@ -10,7 +10,7 @@ import (
 	"github.com/Dawn-kim-official/blueclaw/internal/model"
 )
 
-const calendarAddOperation = "calendar.add"
+const calendarAddOperation = "calendar_add"
 
 type calendarAddInput struct {
 	Title    string   `json:"title"`

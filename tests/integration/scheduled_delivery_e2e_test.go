@@ -92,7 +92,7 @@ func newScheduledDeliveryPoller(languageModel staticScheduleLanguageModel, repos
 	useScheduleTestLanguageModel(agentKernel, languageModel)
 	toolCatalogBuilder := agentruntime.NewToolCatalogBuilder()
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(map[string][]string{
-		"default": {"memory.search"},
+		"default": {"memory_search"},
 	}, nil)
 	return scheduler.TaskSchedulePoller{
 		TaskScheduleRepository: repository,

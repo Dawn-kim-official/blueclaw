@@ -26,12 +26,12 @@ func TestQualityReviewRequiresPassingEvidence(t *testing.T) {
 	review := []qualityReviewItem{{
 		ID:       "original-request-is-preserved",
 		Passed:   true,
-		Evidence: []completionEvidenceReference{{ObservationID: "obs-001", ToolName: "terminal.run"}},
+		Evidence: []completionEvidenceReference{{ObservationID: "obs-001", ToolName: "terminal_run"}},
 	}}
 	observations := []turnObservation{{
 		ObservationID: "obs-001",
 		Action:        "continue",
-		Tool:          "terminal.run",
+		Tool:          "terminal_run",
 		Output:        toolcontract.ToolOutput{Content: "ok"},
 	}}
 
@@ -45,12 +45,12 @@ func TestQualityReviewRejectsFailedCriterion(t *testing.T) {
 	review := []qualityReviewItem{{
 		ID:       "all-requested-formats-are-attached",
 		Passed:   false,
-		Evidence: []completionEvidenceReference{{ObservationID: "obs-001", ToolName: "file.deliver"}},
+		Evidence: []completionEvidenceReference{{ObservationID: "obs-001", ToolName: "file_deliver"}},
 	}}
 	observations := []turnObservation{{
 		ObservationID: "obs-001",
 		Action:        "continue",
-		Tool:          "file.deliver",
+		Tool:          "file_deliver",
 		Output:        toolcontract.ToolOutput{Content: "file attached"},
 	}}
 
@@ -77,18 +77,18 @@ func TestCompletionGateTreatsFailedDeclaredQualityCriterionAsReviewHint(t *testi
 		Action:             "finish",
 		GoalStatus:         "satisfied",
 		GoalSatisfied:      boolPointer(true),
-		CompletionEvidence: []completionEvidenceReference{{ObservationID: "obs-001", ToolName: "site.serve"}},
+		CompletionEvidence: []completionEvidenceReference{{ObservationID: "obs-001", ToolName: "site_serve"}},
 		QualityReview: []qualityReviewItem{{
 			ID:       "business-plan-sample-is-complete",
 			Passed:   false,
-			Evidence: []completionEvidenceReference{{ObservationID: "obs-001", ToolName: "site.serve"}},
+			Evidence: []completionEvidenceReference{{ObservationID: "obs-001", ToolName: "site_serve"}},
 		}},
 		Message: "Done.",
 	}
 	observations := []turnObservation{{
 		ObservationID: "obs-001",
 		Action:        "continue",
-		Tool:          "site.serve",
+		Tool:          "site_serve",
 		Output:        toolcontract.ToolOutput{Content: `{"siteID":"site-1"}`},
 	}}
 
@@ -101,7 +101,7 @@ func TestCompletionGateTreatsFailedDeclaredQualityCriterionAsReviewHint(t *testi
 
 func TestCompletionGateUsesTypedEvidenceInsteadOfParsingFinishMessage(t *testing.T) {
 	criteria := normalizeQualityCriteria([]string{"HTML artifact is attached."})
-	evidence := []completionEvidenceReference{{ObservationID: "obs-001", ToolName: "file.deliver", AttachmentIndex: intPointer(0)}}
+	evidence := []completionEvidenceReference{{ObservationID: "obs-001", ToolName: "file_deliver", AttachmentIndex: intPointer(0)}}
 	actionDocument := turnActionDocument{
 		Action:             "finish",
 		GoalStatus:         "satisfied",
@@ -117,7 +117,7 @@ func TestCompletionGateUsesTypedEvidenceInsteadOfParsingFinishMessage(t *testing
 	observations := []turnObservation{{
 		ObservationID: "obs-001",
 		Action:        "continue",
-		Tool:          "file.deliver",
+		Tool:          "file_deliver",
 		Output:        toolcontract.ToolOutput{Content: "file attached"},
 		Attachments: []toolcontract.FileAttachment{{
 			Filename:   "hermes-analysis.html",
@@ -126,7 +126,7 @@ func TestCompletionGateUsesTypedEvidenceInsteadOfParsingFinishMessage(t *testing
 	}}
 
 	result := validateCompletionGateForRequest(AgentTurnRequest{}, []toolUseRequirement{{
-		ToolName:           "file.deliver",
+		ToolName:           "file_deliver",
 		RequiresAttachment: true,
 		AttachmentSuffixes: []string{".html"},
 	}}, observations, criteria, actionDocument)
@@ -141,13 +141,13 @@ func TestCompletionGateDoesNotInferAttachmentsFromFinishMessage(t *testing.T) {
 		Action:             "finish",
 		GoalStatus:         "satisfied",
 		GoalSatisfied:      boolPointer(true),
-		CompletionEvidence: []completionEvidenceReference{{ObservationID: "obs-001", ToolName: "file.deliver", AttachmentIndex: intPointer(0)}},
+		CompletionEvidence: []completionEvidenceReference{{ObservationID: "obs-001", ToolName: "file_deliver", AttachmentIndex: intPointer(0)}},
 		Message:            "Created the requested file and attached it: Hermes_Agent_Analysis.html",
 	}
 	observations := []turnObservation{{
 		ObservationID: "obs-001",
 		Action:        "continue",
-		Tool:          "file.deliver",
+		Tool:          "file_deliver",
 		Output:        toolcontract.ToolOutput{Content: "file attached"},
 		Attachments: []toolcontract.FileAttachment{{
 			Filename:   "hermes-analysis.html",
@@ -156,7 +156,7 @@ func TestCompletionGateDoesNotInferAttachmentsFromFinishMessage(t *testing.T) {
 	}}
 
 	result := validateCompletionGateForRequest(AgentTurnRequest{}, []toolUseRequirement{{
-		ToolName:           "file.deliver",
+		ToolName:           "file_deliver",
 		RequiresAttachment: true,
 		AttachmentSuffixes: []string{".html"},
 	}}, observations, nil, actionDocument)

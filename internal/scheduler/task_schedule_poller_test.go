@@ -405,7 +405,7 @@ func TestTaskSchedulePollerRejectsScheduledInteractionWithoutWaiting(t *testing.
 	poller := TaskSchedulePoller{
 		TaskScheduleRepository: repository,
 		DeliveryRepository:     deliveryRepository,
-		TaskScheduleRunner:     testTaskScheduleRunner(`{"action":"continue","toolName":"ask.confirm","toolInput":{"message":"확인이 필요해요."}}`),
+		TaskScheduleRunner:     testTaskScheduleRunner(`{"action":"continue","toolName":"ask_confirm","toolInput":{"message":"확인이 필요해요."}}`),
 		PersonAccessResolver:   staticPersonAccessResolver{},
 	}
 
@@ -694,7 +694,7 @@ func testTaskScheduleRunnerWithResponseCount(content string, generatedResponseCo
 	agentKernel.UseIntakeLanguageModelProvider(languageModel)
 	agentKernel.UseIntakeOptions(bluecollar.IntakeOptions{IsEnabled: true})
 	toolCatalogBuilder := agentruntime.NewToolCatalogBuilder()
-	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"ask.confirm"})
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"ask_confirm"})
 	toolCatalogBuilder.UseTaskRunService(taskRunService)
 	return agentruntime.NewTaskScheduleRunner(agentruntime.NewTaskLauncher(agentKernel, toolCatalogBuilder))
 }

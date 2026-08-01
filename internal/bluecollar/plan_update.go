@@ -47,7 +47,7 @@ func (agentTurnRunner *AgentTurnRunner) notePlanMissingBeforeStateChange(taskRun
 		return
 	}
 	state.DidNudgePlan = true
-	observation := newContentObservation(nextObservationIDForObservations(state.Observations), "policy", actionDocument.ToolName, "This multi-step task has no recorded plan yet. The current call proceeds; after it completes, record your goal and step plan with plan.update, then continue.")
+	observation := newContentObservation(nextObservationIDForObservations(state.Observations), "policy", actionDocument.ToolName, "This multi-step task has no recorded plan yet. The current call proceeds; after it completes, record your goal and step plan with plan_update, then continue.")
 	state.Observations = append(state.Observations, observation)
 	agentTurnRunner.appendEvent(taskRunID, "agent.plan.nudged", marshalEventBody(observation))
 }

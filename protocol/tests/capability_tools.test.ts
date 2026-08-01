@@ -82,11 +82,11 @@ describe('canonical capability tools', () => {
 
     expect(catalog.protocolVersion).toBe(protocolVersion);
     expect(catalog.tools.map(tool => tool.name)).toEqual([
-      'task.add',
-      'task.list',
-      'task.definitions',
-      'task.update',
-      'task.delete',
+      'task_add',
+      'task_list',
+      'task_definitions',
+      'task_update',
+      'task_delete',
       CalendarToolName.Add,
       CalendarToolName.List,
       CalendarToolName.Update,
@@ -125,9 +125,9 @@ describe('canonical capability tools', () => {
     );
 
     expect(stateChangingTools.map(tool => tool.name)).toEqual([
-      'task.add',
-      'task.update',
-      'task.delete',
+      'task_add',
+      'task_update',
+      'task_delete',
       CalendarToolName.Add,
       CalendarToolName.Update,
       CalendarToolName.Delete,
@@ -290,9 +290,9 @@ describe('canonical capability tools', () => {
 
   test('keeps task mutation contracts exact', () => {
     const catalog = buildCapabilityToolCatalog(protocolVersion);
-    const addTool = catalog.tools.find(tool => tool.name === 'task.add');
-    const updateTool = catalog.tools.find(tool => tool.name === 'task.update');
-    const deleteTool = catalog.tools.find(tool => tool.name === 'task.delete');
+    const addTool = catalog.tools.find(tool => tool.name === 'task_add');
+    const updateTool = catalog.tools.find(tool => tool.name === 'task_update');
+    const deleteTool = catalog.tools.find(tool => tool.name === 'task_delete');
 
     expect(addTool?.resultContract?.effects).toEqual([
       { objectType: 'task', effect: 'created', resultField: 'taskID', effectIdentity: ResourceEffectIdentity.ID },
@@ -323,7 +323,7 @@ describe('canonical capability tools', () => {
     expect(addTool).toMatchObject({
       namespace: 'calendar',
       privacyClass: 'workspace_calendar',
-      policyResource: 'tool:calendar.add',
+      policyResource: 'tool:calendar_add',
     });
     expect(addTool?.resultContract?.effects).toEqual([
       { objectType: 'calendar', effect: 'created', resultField: 'eventID', effectIdentity: ResourceEffectIdentity.ID },
@@ -545,7 +545,7 @@ describe('canonical capability tools', () => {
 
   test('publishes provider-portable minimum mutation property counts', () => {
     const catalog = buildCapabilityToolCatalog(protocolVersion);
-    const taskUpdateTool = catalog.tools.find(tool => tool.name === 'task.update');
+    const taskUpdateTool = catalog.tools.find(tool => tool.name === 'task_update');
     const calendarAddTool = catalog.tools.find(tool => tool.name === CalendarToolName.Add);
     const calendarUpdateTool = catalog.tools.find(tool => tool.name === CalendarToolName.Update);
 

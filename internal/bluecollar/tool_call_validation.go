@@ -174,7 +174,7 @@ func duplicateSuccessFinalizationRequirements(toolSet *toolcontract.ToolSet, req
 }
 
 func repeatedFileReadObservation(observations []turnObservation, actionDocument turnActionDocument, observationID string) (turnObservation, bool) {
-	if strings.TrimSpace(actionDocument.ToolName) != "file.read" {
+	if strings.TrimSpace(actionDocument.ToolName) != "file_read" {
 		return turnObservation{}, false
 	}
 	requestedRange, ok := fileReadRequestedRange(actionDocument.ToolInput)
@@ -196,7 +196,7 @@ func repeatedFileReadObservation(observations []turnObservation, actionDocument 
 				continue
 			}
 			if coveredRange.StartLine <= requestedRange.StartLine && coveredRange.EndLine >= requestedRange.EndLine {
-				return cachedFileReadObservation(observationID, observation, "Already read "+requestedRange.Path+" lines "+readRange+" as "+observation.ObservationID+". Reuse the cached content below instead of spending another file.read call."+recoveryDirective), true
+				return cachedFileReadObservation(observationID, observation, "Already read "+requestedRange.Path+" lines "+readRange+" as "+observation.ObservationID+". Reuse the cached content below instead of spending another file_read call."+recoveryDirective), true
 			}
 			if fileReadRangesOverlap(coveredRange, requestedRange) {
 				return cachedFileReadObservation(observationID, observation, "Already read overlapping lines "+readRange+" from "+requestedRange.Path+" as "+observation.ObservationID+". Reuse cached content and request only an uncovered range such as "+uncoveredFileReadHint(coveredRange, requestedRange)+" if more text is needed."+recoveryDirective), true
@@ -264,7 +264,7 @@ func stalledReadRecoveryDirective(observations []turnObservation) string {
 	if failedTool == "" {
 		return ""
 	}
-	return " You already have the file content and an unresolved " + failedTool + " failure. Stop re-reading: edit the file with file.edit to fix the cause, then re-run " + failedTool + "."
+	return " You already have the file content and an unresolved " + failedTool + " failure. Stop re-reading: edit the file with file_edit to fix the cause, then re-run " + failedTool + "."
 }
 
 func cachedFileReadObservation(observationID string, previousObservation turnObservation, message string) turnObservation {
@@ -276,9 +276,9 @@ func cachedFileReadObservation(observationID string, previousObservation turnObs
 	payload["cachedObservationID"] = previousObservation.ObservationID
 	payload["message"] = strings.TrimSpace(message)
 	content := marshalEventBody(payload)
-	observation := newContentObservation(observationID, "policy", "file.read", content)
+	observation := newContentObservation(observationID, "policy", "file_read", content)
 	observation.Output.Data = json.RawMessage(content)
-	observation.Summary = "file.read cache hit for " + firstNonEmptyString(stringField(payload, "path"), "previous range")
+	observation.Summary = "file_read cache hit for " + firstNonEmptyString(stringField(payload, "path"), "previous range")
 	return observation
 }
 
@@ -347,17 +347,17 @@ func parseFileReadRange(value string) (fileReadRange, bool) {
 
 func validateBrowserToolInput(toolName string, toolInput json.RawMessage) error {
 	switch strings.TrimSpace(toolName) {
-	case "browser.open":
+	case "browser_open":
 		return validateRequiredToolInputFields(toolName, toolInput, "url")
-	case "browser.fill":
+	case "browser_fill":
 		return validateBrowserTargetToolInput(toolName, toolInput, "text")
-	case "browser.click":
+	case "browser_click":
 		return validateBrowserTargetToolInput(toolName, toolInput)
-	case "browser.select":
+	case "browser_select":
 		return validateBrowserTargetToolInput(toolName, toolInput, "value")
-	case "browser.press":
+	case "browser_press":
 		return validateRequiredToolInputFields(toolName, toolInput, "key")
-	case "browser.wait":
+	case "browser_wait":
 		return validateBrowserWaitInput(toolInput)
 	default:
 		return nil
@@ -468,7 +468,7 @@ func validateRequiredToolInputFields(toolName string, toolInput json.RawMessage,
 }
 
 func validateBrowserWaitInput(toolInput json.RawMessage) error {
-	inputDocument, errorValue := parseToolInputDocument("browser.wait", toolInput)
+	inputDocument, errorValue := parseToolInputDocument("browser_wait", toolInput)
 	if errorValue != nil {
 		return errorValue
 	}
@@ -484,22 +484,22 @@ func validateBrowserWaitInput(toolInput json.RawMessage) error {
 	if numberValue(inputDocument["milliseconds"]) > 0 {
 		return nil
 	}
-	return errors.New("missing required tool input for browser.wait: target or milliseconds")
+	return errors.New("missing required tool input for browser_wait: target or milliseconds")
 }
 
 func validInputExampleSuffix(toolName string) string {
 	switch strings.TrimSpace(toolName) {
-	case "browser.open":
+	case "browser_open":
 		return `. Valid input example: {"url":"https://www.google.com"}`
-	case "browser.fill":
+	case "browser_fill":
 		return `. Valid input example: {"target":"@e1","text":"hello world"}`
-	case "browser.click":
+	case "browser_click":
 		return `. Valid input example: {"target":"@e1"}`
-	case "browser.select":
+	case "browser_select":
 		return `. Valid input example: {"target":"@e1","value":"option"}`
-	case "browser.press":
+	case "browser_press":
 		return `. Valid input example: {"key":"Enter"}`
-	case "browser.wait":
+	case "browser_wait":
 		return `. Valid input example: {"target":"@e1"} or {"milliseconds":1000}`
 	default:
 		return ""
@@ -536,11 +536,11 @@ func canonicalToolInput(toolInput json.RawMessage) string {
 	return string(content)
 }
 
-// terminalRerunAfterWorkspaceMutation frees an identical terminal.run command
+// terminalRerunAfterWorkspaceMutation frees an identical terminal_run command
 // from duplicate rejection once the workspace changed after the previous run —
 // a revise-then-rebuild loop legitimately repeats the same build command.
 func terminalRerunAfterWorkspaceMutation(actionDocument turnActionDocument, observations []turnObservation, duplicateObservation turnObservation) bool {
-	if strings.TrimSpace(actionDocument.ToolName) != "terminal.run" {
+	if strings.TrimSpace(actionDocument.ToolName) != "terminal_run" {
 		return false
 	}
 	seenDuplicateObservation := false
@@ -560,7 +560,7 @@ func terminalRerunAfterWorkspaceMutation(actionDocument turnActionDocument, obse
 }
 
 func handlesDuplicateSuccessfulToolCall(toolSet *toolcontract.ToolSet, toolName string, toolInput json.RawMessage) bool {
-	if strings.TrimSpace(toolName) == "terminal.run" {
+	if strings.TrimSpace(toolName) == "terminal_run" {
 		return true
 	}
 	return isOneShotCompletionEvidenceTool(toolSet, toolName)
@@ -672,7 +672,7 @@ func requestRequiresExternalSendTool(request AgentTurnRequest, toolName string) 
 
 func isTerminalExecutionTool(toolName string) bool {
 	switch strings.TrimSpace(toolName) {
-	case "terminal.run":
+	case "terminal_run":
 		return true
 	default:
 		return false

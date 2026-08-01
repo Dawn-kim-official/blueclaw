@@ -92,38 +92,38 @@ type VirtualSiteFixture struct {
 var virtualSiteSlugPattern = regexp.MustCompile(`^[a-z0-9]+(?:-[a-z0-9]+)*$`)
 
 var virtualCanonicalMessageToolNames = []string{
-	"message.context",
-	"message.search",
-	"message.send",
-	"message.update",
-	"message.delete",
-	"channel.update",
+	"message_context",
+	"message_search",
+	"message_send",
+	"message_update",
+	"message_delete",
+	"channel_update",
 }
 
 var virtualGeneratedDescriptorToolNames = []string{
-	"message.context",
-	"message.search",
-	"message.send",
-	"message.update",
-	"message.delete",
-	"channel.update",
-	"document.read",
-	"image.read",
+	"message_context",
+	"message_search",
+	"message_send",
+	"message_update",
+	"message_delete",
+	"channel_update",
+	"document_read",
+	"image_read",
 }
 
 var virtualGeneratedResultContractToolNames = []string{
-	"task.add",
-	"task.list",
-	"task.update",
-	"task.delete",
-	"calendar.add",
-	"calendar.list",
-	"calendar.update",
-	"calendar.delete",
-	"web.search",
-	"site.serve",
-	"site.list",
-	"site.unserve",
+	"task_add",
+	"task_list",
+	"task_update",
+	"task_delete",
+	"calendar_add",
+	"calendar_list",
+	"calendar_update",
+	"calendar_delete",
+	"web_search",
+	"site_serve",
+	"site_list",
+	"site_unserve",
 }
 
 var virtualCanonicalCapabilityToolDescriptorByName = mustLoadVirtualCanonicalCapabilityToolDescriptors()
@@ -1026,7 +1026,7 @@ func virtualCapabilityToolDescriptor(toolName string) agentruntime.CapabilityToo
 		ResultContract:    virtualCapabilityToolResultContract(toolName),
 		PolicyResource:    "tool:" + toolName,
 		SideEffectClass:   sideEffectClass,
-		RequiresApproval:  toolName == "site.unserve",
+		RequiresApproval:  toolName == "site_unserve",
 		Availability:      agentruntime.CapabilityAvailability{State: "ok"},
 		Idempotency:       agentruntime.CapabilityIdempotency{Scope: "operation"},
 	}
@@ -1048,8 +1048,8 @@ func virtualGeneratedToolDescriptor(toolName string) (agentruntime.CapabilityToo
 
 func virtualCapabilityCompletionEvidence(toolName string, sideEffectClass string) *agentruntime.CapabilityCompletionEvidence {
 	siteActionByToolName := map[string]string{
-		"site.serve":   "serve_site",
-		"site.unserve": "delete_site",
+		"site_serve":   "serve_site",
+		"site_unserve": "delete_site",
 	}
 	if action := siteActionByToolName[toolName]; action != "" {
 		return &agentruntime.CapabilityCompletionEvidence{Mode: "success", Action: action, TargetKind: "site"}
@@ -1086,13 +1086,13 @@ func mergeVirtualCapabilityToolDescriptor(base agentruntime.CapabilityToolDescri
 
 func virtualCapabilitySideEffectClass(toolName string) string {
 	switch toolName {
-	case "web.search", "image.read", "document.read", "task.list", "calendar.list", "site.list":
+	case "web_search", "image_read", "document_read", "task_list", "calendar_list", "site_list":
 		return toolcontract.ToolSideEffectRead
-	case "task.delete", "calendar.delete", "schedule.cancel", "site.unserve", "message.delete":
+	case "task_delete", "calendar_delete", "schedule_cancel", "site_unserve", "message_delete":
 		return toolcontract.ToolSideEffectDestructive
-	case "message.send":
+	case "message_send":
 		return toolcontract.ToolSideEffectExternalSend
-	case "site.serve":
+	case "site_serve":
 		return toolcontract.ToolSideEffectSitePublish
 	default:
 		return toolcontract.ToolSideEffectWorkspaceWrite
@@ -1428,11 +1428,11 @@ func (service *virtualCapabilityService) response(toolName string, requestBody [
 	service.mutex.Lock()
 	defer service.mutex.Unlock()
 	switch toolName {
-	case "task.add", "task.list", "task.update", "task.delete":
+	case "task_add", "task_list", "task_update", "task_delete":
 		return service.taskResponse(toolName, requestBody)
-	case "calendar.add", "calendar.list", "calendar.update", "calendar.delete":
+	case "calendar_add", "calendar_list", "calendar_update", "calendar_delete":
 		return service.calendarResponse(toolName, requestBody)
-	case "site.serve":
+	case "site_serve":
 		input := virtualCapabilityInput(requestBody)
 		mode := stringValue(input["mode"])
 		if mode != "preview" && mode != "publish" {
@@ -1473,7 +1473,7 @@ func (service *virtualCapabilityService) response(toolName string, requestBody [
 			result["previewURL"] = "https://" + slug + ".device.example.test/__preview/preview-1"
 		}
 		return virtualSiteServeSuccess(toolName, mode, result)
-	case "site.list":
+	case "site_list":
 		input := virtualCapabilityInput(requestBody)
 		if reference := stringValue(input["siteReference"]); reference != "" && !service.hasVirtualSiteReference(requestBody) {
 			return virtualCapabilityNotFound(toolName, "site")
@@ -1493,7 +1493,7 @@ func (service *virtualCapabilityService) response(toolName string, requestBody [
 			sites = append(sites, entry)
 		}
 		return virtualCapabilitySuccess(toolName, "listed virtual sites", map[string]any{"sites": sites})
-	case "site.unserve":
+	case "site_unserve":
 		if virtualCapabilityRequestNeedsApproval(requestBody) {
 			return virtualCapabilityApprovalRequired(toolName)
 		}
@@ -1506,7 +1506,7 @@ func (service *virtualCapabilityService) response(toolName string, requestBody [
 		service.sitePublished = false
 		result := map[string]any{"siteID": unservedSiteID, "slug": unservedSlug, "unserved": true}
 		return virtualCapabilityWebsiteSuccess(toolName, "deleted", unservedSiteID, result)
-	case "image.read":
+	case "image_read":
 		path := stringValue(virtualCapabilityInput(requestBody)["path"])
 		result := map[string]any{"attachments": []map[string]any{{
 			"devicePath":    path,
@@ -1516,7 +1516,7 @@ func (service *virtualCapabilityService) response(toolName string, requestBody [
 			"contentBase64": "dmlydHVhbC1pbWFnZQ==",
 		}}, "path": path, "status": "ok"}
 		return virtualCapabilitySuccess(toolName, "image loaded", result)
-	case "document.read":
+	case "document_read":
 		path := stringValue(virtualCapabilityInput(requestBody)["path"])
 		content, errorValue := virtualDocumentContent(service.workspacePath, path)
 		if errorValue != nil {
@@ -1531,7 +1531,7 @@ func (service *virtualCapabilityService) response(toolName string, requestBody [
 			"truncated": false,
 		}
 		return virtualCapabilitySuccess(toolName, content, result)
-	case "web.search":
+	case "web_search":
 		query := stringValue(virtualCapabilityInput(requestBody)["query"])
 		answer := "BlueclawSearchStubToken virtual search result"
 		result := map[string]any{
@@ -1547,11 +1547,11 @@ func (service *virtualCapabilityService) response(toolName string, requestBody [
 			}},
 		}
 		return virtualCapabilitySuccess(toolName, answer, result)
-	case "message.context":
+	case "message_context":
 		return virtualCapabilitySuccess(toolName, "virtual Mattermost conversation context", virtualMessageContextResult())
-	case "message.search":
+	case "message_search":
 		return virtualCapabilitySuccess(toolName, "found virtual Mattermost message", virtualMessageSearchResult(requestBody))
-	case "message.send":
+	case "message_send":
 		messageInput := virtualCapabilityInput(requestBody)
 		if errorValue := validateVirtualMessageSendInput(messageInput); errorValue != nil {
 			return virtualCapabilityInvalidInput(toolName, errorValue.Error())
@@ -1562,7 +1562,7 @@ func (service *virtualCapabilityService) response(toolName string, requestBody [
 		messageID := "virtual-platform-message-001"
 		result := map[string]any{"messageIDs": []string{messageID}, "deliveryStatus": "sent"}
 		return virtualCapabilityMessageSuccess(toolName, "sent", []string{messageID}, "sent virtual platform message "+messageID, result)
-	case "message.update":
+	case "message_update":
 		if virtualCapabilityRequestNeedsApproval(requestBody) {
 			return virtualCapabilityApprovalRequired(toolName)
 		}
@@ -1577,14 +1577,14 @@ func (service *virtualCapabilityService) response(toolName string, requestBody [
 			result["isPinned"] = isPinned
 		}
 		return virtualCapabilityMessageSuccess(toolName, "updated", []string{messageID}, "updated virtual platform message "+messageID, result)
-	case "message.delete":
+	case "message_delete":
 		if virtualCapabilityRequestNeedsApproval(requestBody) {
 			return virtualCapabilityApprovalRequired(toolName)
 		}
 		messageIDs := stringSliceValue(virtualCapabilityInput(requestBody)["messageIDs"])
 		result := map[string]any{"messageIDs": messageIDs, "deliveryStatus": "deleted"}
 		return virtualCapabilityMessageSuccess(toolName, "deleted", messageIDs, "deleted virtual platform messages", result)
-	case "channel.update":
+	case "channel_update":
 		if virtualCapabilityRequestNeedsApproval(requestBody) {
 			return virtualCapabilityApprovalRequired(toolName)
 		}
@@ -1913,15 +1913,15 @@ func extractDOCXText(content []byte) (string, error) {
 func (service *virtualCapabilityService) taskResponse(toolName string, requestBody []byte) string {
 	input := virtualCapabilityInput(requestBody)
 	switch toolName {
-	case "task.add":
+	case "task_add":
 		taskID := fmt.Sprintf("task-%d", len(service.tasks)+1)
 		record := virtualCapabilityRecord{ID: taskID, Values: virtualTaskResultFromAddInput(taskID, input)}
 		service.tasks = append(service.tasks, record)
 		return virtualCapabilityTaskSuccess(toolName, "created", record.ID, "created virtual task", record.Values)
-	case "task.list":
+	case "task_list":
 		tasks := virtualCapabilityRecordValues(service.tasks)
 		return virtualCapabilitySuccess(toolName, "listed virtual tasks", map[string]any{"tasks": tasks, "count": len(tasks), "scope": "virtual"})
-	case "task.update":
+	case "task_update":
 		if len(input) < 2 {
 			return virtualCapabilityInvalidInput(toolName, "at least one task field must be updated")
 		}
@@ -1973,18 +1973,18 @@ func (service *virtualCapabilityService) calendarResponse(toolName string, reque
 	input := virtualCapabilityInput(requestBody)
 	requester := virtualCapabilityRequesterFromRequest(requestBody)
 	switch toolName {
-	case "calendar.add":
+	case "calendar_add":
 		eventID := fmt.Sprintf("calendar-event-%03d", len(service.events)+1)
 		record := virtualCapabilityRecord{ID: eventID, Values: service.virtualCalendarEventValues(eventID, input, requester)}
 		service.events = append(service.events, record)
 		return virtualCapabilityCalendarSuccess(toolName, "created", record.ID, "created virtual calendar event", record.Values)
-	case "calendar.list":
+	case "calendar_list":
 		events, errorValue := virtualCalendarEventList(service.events, input)
 		if errorValue != nil {
 			return virtualCapabilityInvalidInput(toolName, errorValue.Error())
 		}
 		return virtualCapabilitySuccess(toolName, "listed virtual calendar events", map[string]any{"events": events})
-	case "calendar.update":
+	case "calendar_update":
 		if len(input) < 2 {
 			return virtualCapabilityInvalidInput(toolName, "at least one calendar event field must be updated")
 		}
@@ -2614,7 +2614,7 @@ func assertNoScriptedResponseResidue(scriptedModel *agenttest.ScriptedLanguageMo
 func virtualEvidenceRequiresExternalSend(requiredEvidence []string) bool {
 	for _, toolName := range requiredEvidence {
 		switch strings.TrimSpace(toolName) {
-		case "message.send", "mail.message.send", "google.gmail.send", "slack.message.send":
+		case "message_send", "mail_message_send", "google.gmail.send", "slack.message.send":
 			return true
 		}
 	}
@@ -3591,7 +3591,7 @@ func allowedToolsOrDefault(allowedTools []string) []string {
 	if len(allowedTools) > 0 {
 		return append([]string{}, allowedTools...)
 	}
-	return []string{"conversation.history", "memory.search", "terminal.run", "ask.input", "file.read", "file.write", "file.edit", "file.deliver"}
+	return []string{"conversation_history", "memory_search", "terminal_run", "ask_input", "file_read", "file_write", "file_edit", "file_deliver"}
 }
 
 func terminalConfiguration(workspacePath string) config.TerminalConfiguration {
@@ -3854,7 +3854,7 @@ func (queue virtualMemoryUpdateQueue) Enqueue(job memory.MemoryUpdateJob) (memor
 		Prompt:          job.Content,
 		OccurredAt:      job.OccurredAt,
 		Namespaces:      []memory.MemoryNamespace{job.Namespace},
-		Source:          "memory.remember",
+		Source:          "memory_remember",
 		SourceReference: job.SourceReference,
 	})
 	if errorValue != nil {
@@ -4045,7 +4045,7 @@ func actionNoToolFallbackFinishMessage(reply string) string {
 }
 
 func actionFailMessage(reason string) string {
-	return `{"action":"fail","reason":` + quote(reason) + `,"goalStatus":"blocked","goalSatisfied":false,"remainingWork":"The requested task could not complete.","failureResolution":"failure_report","usedFailureFacts":{"attempts":[{"toolName":"terminal.run","inputSummary":"printf 'permission denied blocked_by_captcha' >&2; exit 126","errorCode":"operation_failed","failureStage":"terminal_run","message":"errorCode=operation_failed; failureStage=terminal_run; exitCode=126; stderrTail=permission denied blocked_by_captcha"}],"budgetState":"failure_report_required"},"executionStateUpdate":{}}`
+	return `{"action":"fail","reason":` + quote(reason) + `,"goalStatus":"blocked","goalSatisfied":false,"remainingWork":"The requested task could not complete.","failureResolution":"failure_report","usedFailureFacts":{"attempts":[{"toolName":"terminal_run","inputSummary":"printf 'permission denied blocked_by_captcha' >&2; exit 126","errorCode":"operation_failed","failureStage":"terminal_run","message":"errorCode=operation_failed; failureStage=terminal_run; exitCode=126; stderrTail=permission denied blocked_by_captcha"}],"budgetState":"failure_report_required"},"executionStateUpdate":{}}`
 }
 
 func actionCallTool(toolName string, input string) string {
@@ -4054,12 +4054,12 @@ func actionCallTool(toolName string, input string) string {
 
 // Shell-native file tools resolve paths through the OS, so the harness rewrites the guest /workspace root onto its temporary host root.
 var shellNativeFileToolNames = map[string]bool{
-	"file.write":   true,
-	"file.read":    true,
-	"file.edit":    true,
-	"file.delete":  true,
-	"file.preview": true,
-	"file.deliver": true,
+	"file_write":   true,
+	"file_read":    true,
+	"file_edit":    true,
+	"file_delete":  true,
+	"file_preview": true,
+	"file_deliver": true,
 }
 
 func materializeScriptedWorkspacePaths(workspaceRootPath string, actionResponses []string) []string {

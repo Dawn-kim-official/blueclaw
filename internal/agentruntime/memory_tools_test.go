@@ -17,7 +17,7 @@ func TestMemoryRememberToolEnqueuesPersonMemory(t *testing.T) {
 	queue := &recordingMemoryUpdateQueue{}
 	toolCatalogBuilder := NewToolCatalogBuilder()
 	toolCatalogBuilder.UseMemoryUpdateQueue(queue)
-	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"memory.remember"})
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"memory_remember"})
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
 		ProfileName:       "default",
 		RequesterPersonID: "person-1",
@@ -28,7 +28,7 @@ func TestMemoryRememberToolEnqueuesPersonMemory(t *testing.T) {
 	})
 
 	result, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
-		ToolName: "memory.remember",
+		ToolName: "memory_remember",
 		Input:    toolcontract.MarshalToolInput(map[string]string{"content": "Call the user master."}),
 	})
 
@@ -36,7 +36,7 @@ func TestMemoryRememberToolEnqueuesPersonMemory(t *testing.T) {
 		t.Fatal(errorValue)
 	}
 	if result.Failed() {
-		t.Fatalf("expected memory.remember success, got %s", result.ContentText())
+		t.Fatalf("expected memory_remember success, got %s", result.ContentText())
 	}
 	if len(queue.jobs) != 1 {
 		t.Fatalf("expected one queued memory job, got %+v", queue.jobs)
@@ -57,7 +57,7 @@ func TestMemoryRememberToolLeavesMeaningToTheModel(t *testing.T) {
 	queue := &recordingMemoryUpdateQueue{}
 	toolCatalogBuilder := NewToolCatalogBuilder()
 	toolCatalogBuilder.UseMemoryUpdateQueue(queue)
-	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"memory.remember"})
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"memory_remember"})
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
 		ProfileName:       "default",
 		RequesterPersonID: "person-1",
@@ -65,7 +65,7 @@ func TestMemoryRememberToolLeavesMeaningToTheModel(t *testing.T) {
 	})
 
 	result, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
-		ToolName: "memory.remember",
+		ToolName: "memory_remember",
 		Input:    toolcontract.MarshalToolInput(map[string]string{"content": "thanks"}),
 	})
 
@@ -86,7 +86,7 @@ func TestMemoryRememberToolLeavesMeaningToTheModel(t *testing.T) {
 func TestMemoryRememberToolRejectsInvalidBoundaryInput(t *testing.T) {
 	toolCatalogBuilder := NewToolCatalogBuilder()
 	toolCatalogBuilder.UseMemoryUpdateQueue(&recordingMemoryUpdateQueue{})
-	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"memory.remember"})
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"memory_remember"})
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
 		ProfileName:       "default",
 		RequesterPersonID: "person-1",
@@ -100,7 +100,7 @@ func TestMemoryRememberToolRejectsInvalidBoundaryInput(t *testing.T) {
 		toolcontract.MarshalToolInput(map[string]string{"content": strings.Repeat("a", memory.RememberContentRuneLimit+1)}),
 	} {
 		result, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
-			ToolName: "memory.remember",
+			ToolName: "memory_remember",
 			Input:    input,
 		})
 		if errorValue != nil {
@@ -114,7 +114,7 @@ func TestMemoryRememberToolRejectsInvalidBoundaryInput(t *testing.T) {
 
 func TestMemoryRememberToolReportsQueueFailure(t *testing.T) {
 	toolCatalogBuilder := NewToolCatalogBuilder()
-	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"memory.remember"})
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"memory_remember"})
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
 		ProfileName:       "default",
 		RequesterPersonID: "person-1",
@@ -122,7 +122,7 @@ func TestMemoryRememberToolReportsQueueFailure(t *testing.T) {
 	})
 
 	result, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
-		ToolName: "memory.remember",
+		ToolName: "memory_remember",
 		Input:    toolcontract.MarshalToolInput(map[string]string{"content": "The requester prefers short reports."}),
 	})
 
@@ -142,7 +142,7 @@ func TestMemoryRememberToolRejectsInaccessibleActiveCircle(t *testing.T) {
 	queue := &recordingMemoryUpdateQueue{}
 	toolCatalogBuilder := NewToolCatalogBuilder()
 	toolCatalogBuilder.UseMemoryUpdateQueue(queue)
-	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"memory.remember"})
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"memory_remember"})
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
 		ProfileName:       "default",
 		RequesterPersonID: "person-1",
@@ -152,7 +152,7 @@ func TestMemoryRememberToolRejectsInaccessibleActiveCircle(t *testing.T) {
 	})
 
 	result, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
-		ToolName: "memory.remember",
+		ToolName: "memory_remember",
 		Input:    toolcontract.MarshalToolInput(map[string]string{"content": "Shared circle fact."}),
 	})
 
@@ -171,7 +171,7 @@ func TestMemoryRememberToolEnqueuesCircleMemoryForActiveCircle(t *testing.T) {
 	queue := &recordingMemoryUpdateQueue{}
 	toolCatalogBuilder := NewToolCatalogBuilder()
 	toolCatalogBuilder.UseMemoryUpdateQueue(queue)
-	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"memory.remember"})
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"memory_remember"})
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
 		ProfileName:       "default",
 		RequesterPersonID: "person-1",
@@ -181,7 +181,7 @@ func TestMemoryRememberToolEnqueuesCircleMemoryForActiveCircle(t *testing.T) {
 	})
 
 	result, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
-		ToolName: "memory.remember",
+		ToolName: "memory_remember",
 		Input:    toolcontract.MarshalToolInput(map[string]string{"content": "Compensation data belongs to HR."}),
 	})
 
@@ -189,7 +189,7 @@ func TestMemoryRememberToolEnqueuesCircleMemoryForActiveCircle(t *testing.T) {
 		t.Fatal(errorValue)
 	}
 	if result.Failed() {
-		t.Fatalf("expected memory.remember success, got %s", result.ContentText())
+		t.Fatalf("expected memory_remember success, got %s", result.ContentText())
 	}
 	if len(queue.jobs) != 1 {
 		t.Fatalf("expected one queued memory job, got %+v", queue.jobs)
@@ -203,7 +203,7 @@ func TestMemoryRememberToolRejectsMultipleActiveCircleCandidates(t *testing.T) {
 	queue := &recordingMemoryUpdateQueue{}
 	toolCatalogBuilder := NewToolCatalogBuilder()
 	toolCatalogBuilder.UseMemoryUpdateQueue(queue)
-	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"memory.remember"})
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"memory_remember"})
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
 		ProfileName:             "default",
 		RequesterPersonID:       "person-1",
@@ -213,7 +213,7 @@ func TestMemoryRememberToolRejectsMultipleActiveCircleCandidates(t *testing.T) {
 	})
 
 	result, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
-		ToolName: "memory.remember",
+		ToolName: "memory_remember",
 		Input:    toolcontract.MarshalToolInput(map[string]string{"content": "Shared fact."}),
 	})
 
@@ -250,7 +250,7 @@ func TestMemorySearchUsesPersonAndActiveCircleNamespaces(t *testing.T) {
 	})
 	toolCatalogBuilder := NewToolCatalogBuilder()
 	toolCatalogBuilder.UseMemoryService(memoryService)
-	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"memory.search"})
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"memory_search"})
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
 		ProfileName:       "default",
 		RequesterPersonID: "person-1",
@@ -267,7 +267,7 @@ func TestMemorySearchUsesPersonAndActiveCircleNamespaces(t *testing.T) {
 	})
 
 	result, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
-		ToolName: "memory.search",
+		ToolName: "memory_search",
 		Input:    toolcontract.MarshalToolInput(map[string]string{"query": "memory"}),
 	})
 
@@ -275,7 +275,7 @@ func TestMemorySearchUsesPersonAndActiveCircleNamespaces(t *testing.T) {
 		t.Fatal(errorValue)
 	}
 	if result.Failed() {
-		t.Fatalf("expected memory.search success, got %s", result.ContentText())
+		t.Fatalf("expected memory_search success, got %s", result.ContentText())
 	}
 	if !strings.Contains(result.ContentText(), "master") || !strings.Contains(result.ContentText(), "Salary files") {
 		t.Fatalf("expected person and active circle memory, got %s", result.ContentText())
@@ -287,7 +287,7 @@ func TestMemorySearchUsesPersonAndActiveCircleNamespaces(t *testing.T) {
 
 func TestMemorySearchRequiresExplicitNonblankQuery(t *testing.T) {
 	toolCatalogBuilder := NewToolCatalogBuilder()
-	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"memory.search"})
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"memory_search"})
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
 		ProfileName: "default",
 		Prompt:      "Use this prompt as an implicit memory query.",
@@ -298,7 +298,7 @@ func TestMemorySearchRequiresExplicitNonblankQuery(t *testing.T) {
 		toolcontract.MarshalToolInput(map[string]string{"query": " \t "}),
 	} {
 		result, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
-			ToolName: "memory.search",
+			ToolName: "memory_search",
 			Input:    input,
 		})
 		if errorValue != nil {
@@ -328,7 +328,7 @@ func TestMemorySearchProjectsCompleteGraphResult(t *testing.T) {
 	}}})
 	toolCatalogBuilder := NewToolCatalogBuilder()
 	toolCatalogBuilder.UseMemoryService(memoryService)
-	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"memory.search"})
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"memory_search"})
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
 		ProfileName:       "default",
 		RequesterPersonID: "person-1",
@@ -337,7 +337,7 @@ func TestMemorySearchProjectsCompleteGraphResult(t *testing.T) {
 	})
 
 	result, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
-		ToolName: "memory.search",
+		ToolName: "memory_search",
 		Input:    toolcontract.MarshalToolInput(map[string]string{"query": "reports"}),
 	})
 
@@ -366,11 +366,11 @@ func TestMemorySearchNormalizesEmptyGraphResult(t *testing.T) {
 	memoryService.UseGraphStore(staticGraphMemoryStore{})
 	toolCatalogBuilder := NewToolCatalogBuilder()
 	toolCatalogBuilder.UseMemoryService(memoryService)
-	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"memory.search"})
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"memory_search"})
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
 
 	result, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
-		ToolName: "memory.search",
+		ToolName: "memory_search",
 		Input:    toolcontract.MarshalToolInput(map[string]string{"query": "missing"}),
 	})
 
@@ -394,7 +394,7 @@ func TestMemorySearchReturnsRecoverableToolErrorWhenGraphitiFails(t *testing.T) 
 	memoryService.UseGraphStore(failingGraphMemoryStore{errorValue: errors.New("http://127.0.0.1:7791 internal graphiti failure")})
 	toolCatalogBuilder := NewToolCatalogBuilder()
 	toolCatalogBuilder.UseMemoryService(memoryService)
-	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"memory.search"})
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"memory_search"})
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
 		ProfileName:       "default",
 		RequesterPersonID: "person-1",
@@ -403,7 +403,7 @@ func TestMemorySearchReturnsRecoverableToolErrorWhenGraphitiFails(t *testing.T) 
 	})
 
 	result, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
-		ToolName: "memory.search",
+		ToolName: "memory_search",
 		Input:    toolcontract.MarshalToolInput(map[string]string{"query": "Graphiti release notes"}),
 	})
 
@@ -411,12 +411,12 @@ func TestMemorySearchReturnsRecoverableToolErrorWhenGraphitiFails(t *testing.T) 
 		t.Fatal(errorValue)
 	}
 	if !result.Failed() {
-		t.Fatalf("expected recoverable memory.search tool error, got %+v", result)
+		t.Fatalf("expected recoverable memory_search tool error, got %+v", result)
 	}
 	if result.FailureCode() != toolcontract.FailureCodes.Unavailable.String() || result.FailureStage() != "graphiti_search" {
 		t.Fatalf("expected structured memory search failure, got %+v", result)
 	}
-	if strings.Contains(result.ContentText(), "web.search") {
+	if strings.Contains(result.ContentText(), "web_search") {
 		t.Fatalf("expected recovery guidance to stay out of raw tool output, got %q", result.ContentText())
 	}
 	if strings.Contains(result.ContentText(), "127.0.0.1") || strings.Contains(result.UserSafeFailureSummary(), "127.0.0.1") {
@@ -442,7 +442,7 @@ func TestMemorySearchDegradedWithPinnedFallback(t *testing.T) {
 	toolCatalogBuilder := NewToolCatalogBuilder()
 	toolCatalogBuilder.UseMemoryService(memoryService)
 	toolCatalogBuilder.UsePinnedMemoryStore(pinnedMemoryStore)
-	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"memory.search"})
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"memory_search"})
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
 		ProfileName:       "default",
 		RequesterPersonID: "person-1",
@@ -451,7 +451,7 @@ func TestMemorySearchDegradedWithPinnedFallback(t *testing.T) {
 	})
 
 	result, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
-		ToolName: "memory.search",
+		ToolName: "memory_search",
 		Input:    toolcontract.MarshalToolInput(map[string]string{"query": "release notes"}),
 	})
 
@@ -459,7 +459,7 @@ func TestMemorySearchDegradedWithPinnedFallback(t *testing.T) {
 		t.Fatal(errorValue)
 	}
 	if result.Failed() {
-		t.Fatalf("expected degraded memory.search success, got %s", result.ContentText())
+		t.Fatalf("expected degraded memory_search success, got %s", result.ContentText())
 	}
 	document := decodeMemorySearchToolOutput(t, result.ContentText())
 	if document.SearchStatus != "degraded" {
@@ -482,7 +482,7 @@ func TestMemorySearchReturnsUnavailableWhenFallbackEmpty(t *testing.T) {
 	toolCatalogBuilder := NewToolCatalogBuilder()
 	toolCatalogBuilder.UseMemoryService(memoryService)
 	toolCatalogBuilder.UsePinnedMemoryStore(memory.NewMarkdownStore(t.TempDir(), 1200))
-	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"memory.search"})
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"memory_search"})
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
 		ProfileName:       "default",
 		RequesterPersonID: "person-1",
@@ -491,7 +491,7 @@ func TestMemorySearchReturnsUnavailableWhenFallbackEmpty(t *testing.T) {
 	})
 
 	result, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
-		ToolName: "memory.search",
+		ToolName: "memory_search",
 		Input:    toolcontract.MarshalToolInput(map[string]string{"query": "missing"}),
 	})
 
@@ -499,7 +499,7 @@ func TestMemorySearchReturnsUnavailableWhenFallbackEmpty(t *testing.T) {
 		t.Fatal(errorValue)
 	}
 	if !result.Failed() {
-		t.Fatalf("expected unavailable memory.search result, got %s", result.ContentText())
+		t.Fatalf("expected unavailable memory_search result, got %s", result.ContentText())
 	}
 	if result.FailureCode() != toolcontract.FailureCodes.Unavailable.String() {
 		t.Fatalf("expected unavailable failure code, got %+v", result.Failure)
@@ -519,7 +519,7 @@ func TestMemorySearchPinnedFallbackScopesRequesterNamespace(t *testing.T) {
 	toolCatalogBuilder := NewToolCatalogBuilder()
 	toolCatalogBuilder.UseMemoryService(memoryService)
 	toolCatalogBuilder.UsePinnedMemoryStore(pinnedMemoryStore)
-	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"memory.search"})
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"memory_search"})
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
 		ProfileName:       "default",
 		RequesterPersonID: "person-1",
@@ -531,7 +531,7 @@ func TestMemorySearchPinnedFallbackScopesRequesterNamespace(t *testing.T) {
 	})
 
 	result, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
-		ToolName: "memory.search",
+		ToolName: "memory_search",
 		Input:    toolcontract.MarshalToolInput(map[string]string{"query": "plans"}),
 	})
 
@@ -555,7 +555,7 @@ func TestMemoryRememberToolPersistsMarkdownBeforeQueue(t *testing.T) {
 	toolCatalogBuilder := NewToolCatalogBuilder()
 	toolCatalogBuilder.UseMemoryUpdateQueue(queue)
 	toolCatalogBuilder.UsePinnedMemoryStore(pinnedMemoryStore)
-	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"memory.remember"})
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"memory_remember"})
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
 		ProfileName:       "default",
 		RequesterPersonID: "person-1",
@@ -565,7 +565,7 @@ func TestMemoryRememberToolPersistsMarkdownBeforeQueue(t *testing.T) {
 	})
 
 	result, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
-		ToolName: "memory.remember",
+		ToolName: "memory_remember",
 		Input:    toolcontract.MarshalToolInput(map[string]string{"content": "The user prefers markdown memory."}),
 	})
 
@@ -573,7 +573,7 @@ func TestMemoryRememberToolPersistsMarkdownBeforeQueue(t *testing.T) {
 		t.Fatal(errorValue)
 	}
 	if result.Failed() {
-		t.Fatalf("expected memory.remember success, got %s", result.ContentText())
+		t.Fatalf("expected memory_remember success, got %s", result.ContentText())
 	}
 	document := decodeMemoryUpdateAccepted(t, result.ContentText())
 	if document.Status != "persisted" || document.Durability != "durable" {

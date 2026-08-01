@@ -37,11 +37,11 @@ func TestDecideAgentActionUsesNativeChatForFinishAndContinue(t *testing.T) {
 		},
 		{
 			name:         "continue",
-			toolName:     "terminal.run",
+			toolName:     "terminal_run",
 			arguments:    `{"command":"pwd"}`,
 			expectedType: "continue",
 			check: func(t *testing.T, action agentAction) {
-				if action.ToolName != "terminal.run" || string(action.ToolInput) != `{"command":"pwd"}` {
+				if action.ToolName != "terminal_run" || string(action.ToolInput) != `{"command":"pwd"}` {
 					t.Fatalf("expected continue tool fields to survive native action parsing, got %+v", action)
 				}
 			},
@@ -181,9 +181,9 @@ func TestDecideAgentActionNativeChatRejectsInvalidCallsWithoutStructuredFallback
 
 func TestDecideAgentActionNativeChatRecoversTaskAddAndInvokesItOnce(t *testing.T) {
 	executionCount := 0
-	toolSet := toolcontract.NewToolSet([]string{"task.add"})
+	toolSet := toolcontract.NewToolSet([]string{"task_add"})
 	registerTestTool(toolSet, toolcontract.ToolDefinition{
-		Name:        "task.add",
+		Name:        "task_add",
 		Description: "Add a task.",
 		InputSchema: json.RawMessage(`{"type":"object","properties":{"title":{"type":"string"}},"required":["title"],"additionalProperties":false}`),
 	}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
@@ -195,7 +195,7 @@ func TestDecideAgentActionNativeChatRecoversTaskAddAndInvokesItOnce(t *testing.T
 		Code: "provider_response_invalid",
 		Diagnostic: model.StructuredOutputDiagnostic{
 			Category:     model.StructuredOutputDiagnosticJSONParse,
-			ToolName:     "task.add",
+			ToolName:     "task_add",
 			RepairStatus: model.StructuredOutputRepairFailed,
 		},
 	}}
@@ -203,7 +203,7 @@ func TestDecideAgentActionNativeChatRecoversTaskAddAndInvokesItOnce(t *testing.T
 		chatErrors: []error{correctionError, nil},
 		chatResponses: []model.ChatCompletionResponse{
 			{},
-			nativeAgentActionChatResponse("task.add", `{"title":"plan review"}`),
+			nativeAgentActionChatResponse("task_add", `{"title":"plan review"}`),
 		},
 	}
 
@@ -211,12 +211,12 @@ func TestDecideAgentActionNativeChatRecoversTaskAddAndInvokesItOnce(t *testing.T
 	if errorValue != nil {
 		t.Fatalf("expected corrected native action: %v", errorValue)
 	}
-	if action.Action != "continue" || action.ToolName != "task.add" || string(action.ToolInput) != `{"title":"plan review"}` {
-		t.Fatalf("expected parsed task.add action, got %+v", action)
+	if action.Action != "continue" || action.ToolName != "task_add" || string(action.ToolInput) != `{"title":"plan review"}` {
+		t.Fatalf("expected parsed task_add action, got %+v", action)
 	}
 	result, invokeError := state.Request.ToolSet.Invoke(context.Background(), toolcontract.ToolInvocation{ToolName: action.ToolName, Input: action.ToolInput})
 	if invokeError != nil || result.Failure != nil {
-		t.Fatalf("expected task.add invocation, got %+v, %v", result, invokeError)
+		t.Fatalf("expected task_add invocation, got %+v, %v", result, invokeError)
 	}
 	if executionCount != 1 || provider.chatCalls != 2 || provider.structuredCalls != 0 {
 		t.Fatalf("expected one side effect after two native calls, got executions=%d chat=%d structured=%d", executionCount, provider.chatCalls, provider.structuredCalls)
@@ -228,7 +228,7 @@ func TestDecideAgentActionNativeChatRetryRequiresExactDiagnosticTool(t *testing.
 		Code: "structured_output_invalid",
 		Diagnostic: model.StructuredOutputDiagnostic{
 			Category: model.StructuredOutputDiagnosticSchemaValidation,
-			ToolName: "task.add",
+			ToolName: "task_add",
 			ValidationIssues: []model.StructuredOutputValidationIssue{{
 				FieldPath: "/title",
 				Code:      model.StructuredOutputValidationRequired,
@@ -239,10 +239,10 @@ func TestDecideAgentActionNativeChatRetryRequiresExactDiagnosticTool(t *testing.
 		chatErrors: []error{correctionError, nil},
 		chatResponses: []model.ChatCompletionResponse{
 			{},
-			nativeAgentActionChatResponse("task.add", `{"title":"plan review"}`),
+			nativeAgentActionChatResponse("task_add", `{"title":"plan review"}`),
 		},
 	}
-	state := nativeAgentActionTestStateWithTools("task.add", toolcontract.TerminalRunToolName)
+	state := nativeAgentActionTestStateWithTools("task_add", toolcontract.TerminalRunToolName)
 
 	_, errorValue := DecideAgentAction(context.Background(), &provider, state)
 	if errorValue != nil {
@@ -252,7 +252,7 @@ func TestDecideAgentActionNativeChatRetryRequiresExactDiagnosticTool(t *testing.
 		t.Fatalf("expected two native requests, got %d", len(provider.chatRequests))
 	}
 	retryRequest := provider.chatRequests[1]
-	if len(retryRequest.Tools) != 1 || retryRequest.Tools[0].Function.Name != "task.add" {
+	if len(retryRequest.Tools) != 1 || retryRequest.Tools[0].Function.Name != "task_add" {
 		t.Fatalf("expected exact diagnostic tool retry, got %+v", retryRequest.Tools)
 	}
 	if string(retryRequest.ToolChoice) != `"required"` || retryRequest.ParallelToolCalls {
@@ -276,14 +276,14 @@ func TestDecideAgentActionNativeChatRetryRequiresSinglePendingContractTool(t *te
 		observations     []turnObservation
 		expectedToolName string
 	}{
-		{name: "first operation", expectedToolName: "file.write"},
+		{name: "first operation", expectedToolName: "file_write"},
 		{
 			name: "next operation",
 			observations: []turnObservation{{
 				ObservationID: "observation-1",
 				Action:        "continue",
-				Tool:          "file.write",
-				ToolID:        "kernel:file.write",
+				Tool:          "file_write",
+				ToolID:        "kernel:file_write",
 				ToolInput:     json.RawMessage(`{"path":"report.txt"}`),
 				Output:        toolcontract.ToolOutput{Content: "written"},
 			}},
@@ -360,7 +360,7 @@ func TestAgentActionFinishCorrectionUsesCompleteTypedState(t *testing.T) {
 		{
 			name: "recovery pending",
 			updateState: func(state *agentTaskState) {
-				state.Observations[0].RecoveryPacket = &RecoveryPacket{AllowedTools: []string{"task.list"}}
+				state.Observations[0].RecoveryPacket = &RecoveryPacket{AllowedTools: []string{"task_list"}}
 			},
 		},
 		{
@@ -379,8 +379,8 @@ func TestAgentActionFinishCorrectionUsesCompleteTypedState(t *testing.T) {
 				state.Observations = append(state.Observations, turnObservation{
 					ObservationID: "observation-2",
 					Action:        "continue",
-					Tool:          "task.add",
-					ToolInputKey:  "task.add\x00{}",
+					Tool:          "task_add",
+					ToolInputKey:  "task_add\x00{}",
 					Failure:       &toolcontract.ToolFailure{Code: toolcontract.FailureCodes.OperationFailed.String()},
 				})
 			},
@@ -410,7 +410,7 @@ func TestAgentActionFinishCorrectionPrecedenceAndFailClosed(t *testing.T) {
 	t.Run("required next tool precedes finish", func(t *testing.T) {
 		state := nativeAgentActionContractState()
 
-		assertRequiredAgentActionTool(t, finishReasonRetryRequest(t, state), "file.write")
+		assertRequiredAgentActionTool(t, finishReasonRetryRequest(t, state), "file_write")
 	})
 
 	t.Run("finish absent from request", func(t *testing.T) {
@@ -444,8 +444,8 @@ func TestDecideAgentActionNativeChatRetryPreservesModelChoiceOutsidePendingContr
 			name: "contract satisfied",
 			updateState: func(state agentTaskState) agentTaskState {
 				state.Observations = []turnObservation{
-					successfulContractObservation("observation-1", "file.write", "kernel:file.write", `{"path":"report.txt"}`),
-					successfulContractObservation("observation-2", toolcontract.TerminalRunToolName, "kernel:terminal.run", `{"command":"wc report.txt"}`),
+					successfulContractObservation("observation-1", "file_write", "kernel:file_write", `{"path":"report.txt"}`),
+					successfulContractObservation("observation-2", toolcontract.TerminalRunToolName, "kernel:terminal_run", `{"command":"wc report.txt"}`),
 				}
 				return state
 			},
@@ -457,8 +457,8 @@ func TestDecideAgentActionNativeChatRetryPreservesModelChoiceOutsidePendingContr
 				state.Observations = []turnObservation{{
 					ObservationID: "observation-1",
 					Action:        "continue",
-					Tool:          "file.write",
-					ToolInputKey:  "file.write\x00{}",
+					Tool:          "file_write",
+					ToolInputKey:  "file_write\x00{}",
 					Failure:       &toolcontract.ToolFailure{Code: "write_failed"},
 				}}
 				return state
@@ -512,13 +512,13 @@ func TestDecideAgentActionNativeChatRetryFailsClosedWhenContractToolIsUnavailabl
 func TestFirstPendingActionToolNameUsesRequiredNextTools(t *testing.T) {
 	state := nativeAgentActionContractState()
 
-	if toolName := firstPendingActionToolName(state); toolName != "file.write" {
+	if toolName := firstPendingActionToolName(state); toolName != "file_write" {
 		t.Fatalf("expected first required next tool, got %q", toolName)
 	}
 
 	state.Observations = []turnObservation{
-		successfulContractObservation("observation-1", toolcontract.TerminalRunToolName, "kernel:terminal.run", `{"command":"ls"}`),
-		successfulContractObservation("observation-2", "file.write", "kernel:file.write", `{"path":"report.txt"}`),
+		successfulContractObservation("observation-1", toolcontract.TerminalRunToolName, "kernel:terminal_run", `{"command":"ls"}`),
+		successfulContractObservation("observation-2", "file_write", "kernel:file_write", `{"path":"report.txt"}`),
 		{
 			ObservationID: "observation-3",
 			Action:        "continue",
@@ -547,7 +547,7 @@ func TestDecideAgentActionNativeChatSucceedsAfterTwoCorrections(t *testing.T) {
 		Code: "provider_response_invalid",
 		Diagnostic: model.StructuredOutputDiagnostic{
 			Category: model.StructuredOutputDiagnosticSchemaValidation,
-			ToolName: "file.write",
+			ToolName: "file_write",
 			ValidationIssues: []model.StructuredOutputValidationIssue{
 				{FieldPath: "/content_type", Code: model.StructuredOutputValidationAdditionalProperty},
 				{FieldPath: "/summary", Code: model.StructuredOutputValidationAdditionalProperty},
@@ -560,7 +560,7 @@ func TestDecideAgentActionNativeChatSucceedsAfterTwoCorrections(t *testing.T) {
 		chatResponses: []model.ChatCompletionResponse{
 			{},
 			{},
-			nativeAgentActionChatResponse("file.write", `{}`),
+			nativeAgentActionChatResponse("file_write", `{}`),
 		},
 	}
 
@@ -569,16 +569,16 @@ func TestDecideAgentActionNativeChatSucceedsAfterTwoCorrections(t *testing.T) {
 	if errorValue != nil {
 		t.Fatalf("expected corrected native action: %v", errorValue)
 	}
-	if action.Action != "continue" || action.ToolName != "file.write" {
-		t.Fatalf("expected corrected file.write action, got %+v", action)
+	if action.Action != "continue" || action.ToolName != "file_write" {
+		t.Fatalf("expected corrected file_write action, got %+v", action)
 	}
 	if provider.chatCalls != 3 || provider.structuredCalls != 0 {
 		t.Fatalf("expected three native calls without structured fallback, got chat=%d structured=%d", provider.chatCalls, provider.structuredCalls)
 	}
 	for requestIndex := 1; requestIndex < len(provider.chatRequests); requestIndex++ {
 		request := provider.chatRequests[requestIndex]
-		if len(request.Tools) != 1 || request.Tools[0].Function.Name != "file.write" {
-			t.Fatalf("expected retry %d to stay on exact file.write, got %+v", requestIndex, request.Tools)
+		if len(request.Tools) != 1 || request.Tools[0].Function.Name != "file_write" {
+			t.Fatalf("expected retry %d to stay on exact file_write, got %+v", requestIndex, request.Tools)
 		}
 		if string(request.ToolChoice) != `"required"` || request.ParallelToolCalls {
 			t.Fatalf("expected retry %d portable single-tool requirement, got choice=%s parallel=%t", requestIndex, request.ToolChoice, request.ParallelToolCalls)
@@ -595,12 +595,12 @@ func TestDecideAgentActionNativeChatStopsAfterTwoCorrections(t *testing.T) {
 		Code: "provider_response_invalid",
 		Diagnostic: model.StructuredOutputDiagnostic{
 			Category: model.StructuredOutputDiagnosticToolCallContract,
-			ToolName: "terminal.run",
+			ToolName: "terminal_run",
 		},
 	}}
 	finalError := testStructuredOutputCorrectionError{correction: model.StructuredOutputCorrection{
 		Code:       "third_invalid",
-		Diagnostic: model.StructuredOutputDiagnostic{Category: model.StructuredOutputDiagnosticToolCallContract, ToolName: "terminal.run"},
+		Diagnostic: model.StructuredOutputDiagnostic{Category: model.StructuredOutputDiagnosticToolCallContract, ToolName: "terminal_run"},
 	}}
 	provider := nativeAgentActionLanguageModel{chatErrors: []error{correctionError, correctionError, finalError}}
 
@@ -769,13 +769,13 @@ func nativeAgentActionTestStateWithTools(toolNames ...string) agentTaskState {
 }
 
 func nativeAgentActionContractState() agentTaskState {
-	state := nativeAgentActionTestStateWithTools("file.write", toolcontract.TerminalRunToolName)
-	state.Request.ContractToolWorkingSet.RequiredNextTools = []string{"file.write", toolcontract.TerminalRunToolName}
+	state := nativeAgentActionTestStateWithTools("file_write", toolcontract.TerminalRunToolName)
+	state.Request.ContractToolWorkingSet.RequiredNextTools = []string{"file_write", toolcontract.TerminalRunToolName}
 	return state
 }
 
 func nativeAgentActionCompletionReadyState() agentTaskState {
-	toolDefinition := testToolDescriptor("task.add")
+	toolDefinition := testToolDescriptor("task_add")
 	toolDefinition.SideEffectClass = toolcontract.ToolSideEffectStateChange
 	toolDefinition.Completion = toolcontract.ToolCompletion{Mode: toolcontract.ToolCompletionObservation}
 	toolDefinition.ResultContract = &toolcontract.ToolResultContract{
@@ -796,9 +796,9 @@ func nativeAgentActionCompletionReadyState() agentTaskState {
 		Request: AgentTurnRequest{
 			Prompt:                "add task",
 			ToolSet:               toolSet,
-			RequiredEvidenceTools: []string{"task.add"},
+			RequiredEvidenceTools: []string{"task_add"},
 			OutcomeContract: OutcomeContract{
-				RequiredEvidenceTools: []string{"task.add"},
+				RequiredEvidenceTools: []string{"task_add"},
 				RequiredEffects: []OutcomeEffect{{
 					ObjectType: "task",
 					Effect:     "created",
@@ -808,7 +808,7 @@ func nativeAgentActionCompletionReadyState() agentTaskState {
 		Observations: []turnObservation{{
 			ObservationID: "observation-1",
 			Action:        "continue",
-			Tool:          "task.add",
+			Tool:          "task_add",
 			ToolID:        toolDefinition.ID,
 			ToolInput:     json.RawMessage(`{"title":"first"}`),
 			Output:        toolcontract.ToolOutput{Content: "added", Data: json.RawMessage(`{"taskID":"task-1","created":true}`)},
@@ -996,7 +996,7 @@ func (provider *structuredOnlyAgentActionLanguageModel) GenerateStructuredRespon
 func TestBuildAgentActionRequestPreservesNativeToolCallingWireShape(t *testing.T) {
 	seed := int64(77)
 	temperature := 0.4
-	toolSet := toolcontract.NewToolSet([]string{toolcontract.TerminalRunToolName, "site.serve"})
+	toolSet := toolcontract.NewToolSet([]string{toolcontract.TerminalRunToolName, "site_serve"})
 	registerTestTool(toolSet, toolcontract.ToolDefinition{
 		Name:        toolcontract.TerminalRunToolName,
 		Description: "Run a command.",
@@ -1005,7 +1005,7 @@ func TestBuildAgentActionRequestPreservesNativeToolCallingWireShape(t *testing.T
 		return testToolSuccess("ran"), nil
 	})
 	registerTestTool(toolSet, toolcontract.ToolDefinition{
-		Name:        "site.serve",
+		Name:        "site_serve",
 		Description: "Publish a site.",
 		InputSchema: json.RawMessage(`{"type":"object","properties":{"siteID":{"type":"string"}},"required":["siteID"],"additionalProperties":false}`),
 	}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
@@ -1071,10 +1071,10 @@ func TestBuildAgentActionRequestPreservesNativeToolCallingWireShape(t *testing.T
 	if strings.Contains(request.StructuredOutputSchema.Document, `"call_tool"`) || strings.Contains(request.StructuredOutputSchema.Document, `"final_reply"`) || strings.Contains(request.StructuredOutputSchema.Document, `"finalReply"`) {
 		t.Fatalf("expected model-facing schema to omit legacy action aliases, got %s", request.StructuredOutputSchema.Document)
 	}
-	if !strings.Contains(request.StructuredOutputSchema.Document, `"toolName":{"enum":["terminal.run"]`) {
+	if !strings.Contains(request.StructuredOutputSchema.Document, `"toolName":{"enum":["terminal_run"]`) {
 		t.Fatalf("expected kernel toolName enum to be preserved, got %s", request.StructuredOutputSchema.Document)
 	}
-	if !strings.Contains(request.StructuredOutputSchema.Document, `"toolName":{"enum":["site.serve"]`) {
+	if !strings.Contains(request.StructuredOutputSchema.Document, `"toolName":{"enum":["site_serve"]`) {
 		t.Fatalf("expected selected domain operation to remain in the model-facing schema, got %s", request.StructuredOutputSchema.Document)
 	}
 	if !strings.Contains(request.StructuredOutputSchema.Document, `"toolInput"`) {
@@ -1133,14 +1133,14 @@ func TestBuildAgentActionRequestPreservesTypedInteractionTool(t *testing.T) {
 
 	request := BuildAgentActionRequest(agentTaskState{Request: AgentTurnRequest{ToolSet: toolSet}})
 
-	if !strings.Contains(request.StructuredOutputSchema.Document, `"toolName":{"enum":["ask.input"]`) {
-		t.Fatalf("expected typed ask.input exposure to remain in the action schema, got %s", request.StructuredOutputSchema.Document)
+	if !strings.Contains(request.StructuredOutputSchema.Document, `"toolName":{"enum":["ask_input"]`) {
+		t.Fatalf("expected typed ask_input exposure to remain in the action schema, got %s", request.StructuredOutputSchema.Document)
 	}
 }
 
 func TestDirectActionSchemaPreservesToolRequiredFields(t *testing.T) {
 	schemaDocument := buildActionSchemaFromToolDefinitions([]toolcontract.ToolDefinition{{
-		Name:        "calendar.add",
+		Name:        "calendar_add",
 		InputSchema: json.RawMessage(`{"type":"object","properties":{"title":{"type":"string"}},"required":["title"]}`),
 	}}, false, nil, false, false)
 
@@ -1177,7 +1177,7 @@ func TestActionSchemaOmitsToolsWithoutAnObjectInputSchema(t *testing.T) {
 
 func TestActionSchemaPreservesRequiredFieldsOnArrayOfNestedObjects(t *testing.T) {
 	schemaDocument := buildActionSchemaFromToolDefinitions([]toolcontract.ToolDefinition{{
-		Name:        "calendar.add",
+		Name:        "calendar_add",
 		InputSchema: json.RawMessage(`{"type":"object","properties":{"items":{"type":"array","items":{"type":"object","properties":{"name":{"type":"string"}},"required":["name"]}}},"required":["items"]}`),
 	}}, false, nil, false, false)
 
@@ -1200,8 +1200,8 @@ func TestActionSchemaPreservesRequiredFieldsOnArrayOfNestedObjects(t *testing.T)
 func TestBuildAgentActionRequestGenerationOptionsDoNotChangeSchema(t *testing.T) {
 	seed := int64(88)
 	temperature := 0.5
-	toolSet := toolcontract.NewToolSet([]string{"browser.open"})
-	registerTestTool(toolSet, toolcontract.ToolDefinition{Name: "browser.open"}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
+	toolSet := toolcontract.NewToolSet([]string{"browser_open"})
+	registerTestTool(toolSet, toolcontract.ToolDefinition{Name: "browser_open"}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
 		return testToolSuccess("opened"), nil
 	})
 	state := agentTaskState{
@@ -1313,7 +1313,7 @@ func TestParseAgentActionResponseNormalizesStringGoalSatisfied(t *testing.T) {
 }
 
 func TestParseAgentActionResponseRejectsAmbiguousNestedActionBlocks(t *testing.T) {
-	_, errorValue := ParseAgentActionResponse(model.StructuredResponse{Content: `{"finish":{"message":"done"},"continue":{"toolName":"browser.open","toolInput":{}}}`})
+	_, errorValue := ParseAgentActionResponse(model.StructuredResponse{Content: `{"finish":{"message":"done"},"continue":{"toolName":"browser_open","toolInput":{}}}`})
 	if errorValue == nil {
 		t.Fatal("expected ambiguous action blocks to be rejected")
 	}
@@ -1333,11 +1333,11 @@ func TestParseAgentActionResponseExpandsShallowEvidenceIDs(t *testing.T) {
 }
 
 func TestParseAgentActionResponseParsesToolCall(t *testing.T) {
-	action, errorValue := ParseAgentActionResponse(model.StructuredResponse{Content: `{"action":"continue","toolName":"browser.open","toolInput":{"url":"https://example.com"}}`})
+	action, errorValue := ParseAgentActionResponse(model.StructuredResponse{Content: `{"action":"continue","toolName":"browser_open","toolInput":{"url":"https://example.com"}}`})
 	if errorValue != nil {
 		t.Fatalf("expected parsed action: %v", errorValue)
 	}
-	if action.Action != "continue" || action.ToolName != "browser.open" {
+	if action.Action != "continue" || action.ToolName != "browser_open" {
 		t.Fatalf("expected tool call action, got %+v", action)
 	}
 	if string(action.ToolInput) != `{"url":"https://example.com"}` {
@@ -1346,11 +1346,11 @@ func TestParseAgentActionResponseParsesToolCall(t *testing.T) {
 }
 
 func TestParseAgentActionResponseNormalizesContinueToolCall(t *testing.T) {
-	action, errorValue := ParseAgentActionResponse(model.StructuredResponse{Content: `{"action":"continue","toolName":"browser.open","message":"opening it","toolInput":{"url":"https://example.com"}}`})
+	action, errorValue := ParseAgentActionResponse(model.StructuredResponse{Content: `{"action":"continue","toolName":"browser_open","message":"opening it","toolInput":{"url":"https://example.com"}}`})
 	if errorValue != nil {
 		t.Fatalf("expected parsed action: %v", errorValue)
 	}
-	if action.Action != "continue" || action.ToolName != "browser.open" || action.Message != "opening it" {
+	if action.Action != "continue" || action.ToolName != "browser_open" || action.Message != "opening it" {
 		t.Fatalf("expected continue action to normalize, got %+v", action)
 	}
 	if string(action.ToolInput) != `{"url":"https://example.com"}` {
@@ -1359,12 +1359,12 @@ func TestParseAgentActionResponseNormalizesContinueToolCall(t *testing.T) {
 }
 
 func TestParseAgentActionResponsePreservesDirectToolName(t *testing.T) {
-	action, errorValue := ParseAgentActionResponse(model.StructuredResponse{Content: `{"action":"continue","toolName":"task.add","toolInput":{"title":"quarterly settlement"}}`})
+	action, errorValue := ParseAgentActionResponse(model.StructuredResponse{Content: `{"action":"continue","toolName":"task_add","toolInput":{"title":"quarterly settlement"}}`})
 	if errorValue != nil {
 		t.Fatalf("expected parsed action: %v", errorValue)
 	}
-	if action.ToolName != "task.add" {
-		t.Fatalf("expected direct tool name to stay task.add, got %+v", action)
+	if action.ToolName != "task_add" {
+		t.Fatalf("expected direct tool name to stay task_add, got %+v", action)
 	}
 	if string(action.ToolInput) != `{"title":"quarterly settlement"}` {
 		t.Fatalf("expected direct tool input to be preserved, got %s", action.ToolInput)
@@ -1389,13 +1389,13 @@ func TestApplyToolResultAppendsObservationDeterministically(t *testing.T) {
 		}},
 	}
 
-	nextState := applyToolResult(state, toolcontract.ToolInvocation{ToolName: "file.deliver", Input: json.RawMessage(`{"path":"file.html"}`)}, result)
+	nextState := applyToolResult(state, toolcontract.ToolInvocation{ToolName: "file_deliver", Input: json.RawMessage(`{"path":"file.html"}`)}, result)
 
 	if len(nextState.Observations) != 1 {
 		t.Fatalf("expected one observation, got %+v", nextState.Observations)
 	}
 	observation := nextState.Observations[0]
-	if observation.ObservationID != "obs-001" || observation.Tool != "file.deliver" || observation.ContentText() != "attached" {
+	if observation.ObservationID != "obs-001" || observation.Tool != "file_deliver" || observation.ContentText() != "attached" {
 		t.Fatalf("unexpected observation: %+v", observation)
 	}
 	if len(nextState.Attachments) != 1 || nextState.Attachments[0].Filename != "file.html" {
@@ -1452,7 +1452,7 @@ func TestAdvanceAgentTaskReturnsAttachExistingArtifactEffect(t *testing.T) {
 		t.Fatalf("expected file delivery effect, got %+v", transition.Effect)
 	}
 	if transition.Effect.ToolCall == nil || transition.Effect.ToolCall.ToolName != toolcontract.FileDeliverToolName {
-		t.Fatalf("expected file.deliver tool call, got %+v", transition.Effect.ToolCall)
+		t.Fatalf("expected file_deliver tool call, got %+v", transition.Effect.ToolCall)
 	}
 	if !strings.Contains(string(transition.Effect.ToolCall.Input), artifactPath) {
 		t.Fatalf("expected artifact path in tool input, got %s", string(transition.Effect.ToolCall.Input))
@@ -1466,20 +1466,20 @@ func TestAdvanceAgentTaskReturnsFinishMessageEffectForSatisfiedBrowserOpen(t *te
 			TaskShape: TaskShapeBrowserHandoffTask,
 			TaskLevel: TaskLevelXLow,
 			ToolSet: newTestToolSetWithDefinitions([]toolcontract.ToolDefinition{{
-				Name:            "browser.open",
+				Name:            "browser_open",
 				Namespace:       "browser",
 				SideEffectClass: toolcontract.ToolSideEffectConnect,
 				Completion:      toolcontract.ToolCompletion{Mode: toolcontract.ToolCompletionObservation},
 			}}),
-			RequiredEvidenceTools: []string{"browser.open"},
+			RequiredEvidenceTools: []string{"browser_open"},
 		},
 		Requirements: []toolUseRequirement{{
-			ToolName: "browser.open",
+			ToolName: "browser_open",
 		}},
 		Observations: []turnObservation{{
 			ObservationID: "obs-001",
 			Action:        "continue",
-			Tool:          "browser.open",
+			Tool:          "browser_open",
 			Output:        toolcontract.ToolOutput{Content: "opened"},
 		}},
 	}
@@ -1496,8 +1496,8 @@ func TestAdvanceAgentTaskReturnsFinishMessageEffectForSatisfiedBrowserOpen(t *te
 
 func TestRestoreAgentTaskStateRestoresToolProgressOnly(t *testing.T) {
 	events := []taskstate.TaskEvent{{
-		Name: "tool.browser.open.result",
-		Body: `{"observationID":"obs-001","action":"continue","tool":"browser.open","content":"opened","isError":false}`,
+		Name: "tool.browser_open.result",
+		Body: `{"observationID":"obs-001","action":"continue","tool":"browser_open","content":"opened","isError":false}`,
 	}}
 
 	state, errorValue := restoreAgentTaskState(AgentTurnRequest{Prompt: "continue"}, TurnOptions{}, taskstate.TaskRun{
@@ -1511,7 +1511,7 @@ func TestRestoreAgentTaskStateRestoresToolProgressOnly(t *testing.T) {
 	if state.Status != taskstate.TaskStatusWaitingUserInput {
 		t.Fatalf("expected restored status, got %s", state.Status)
 	}
-	if len(state.Observations) != 1 || state.Observations[0].Tool != "browser.open" {
+	if len(state.Observations) != 1 || state.Observations[0].Tool != "browser_open" {
 		t.Fatalf("expected restored observation, got %+v", state.Observations)
 	}
 }
@@ -1524,7 +1524,7 @@ func TestWaitingTaskResumeRestoresObservationsWithoutFlags(t *testing.T) {
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
-	taskRunService.AppendTaskEvent(runningTaskRun.TaskRunID, "tool.message.search.result", `{"observationID":"obs-001","action":"continue","tool":"message.search","content":"{\"messageIDs\":[\"message-1\"]}","isError":false}`)
+	taskRunService.AppendTaskEvent(runningTaskRun.TaskRunID, "tool.message_search.result", `{"observationID":"obs-001","action":"continue","tool":"message_search","content":"{\"messageIDs\":[\"message-1\"]}","isError":false}`)
 	waitingTaskRun, errorValue := taskRunService.PauseTaskRun(runningTaskRun.TaskRunID, taskstate.TaskStatusWaitingUserInput, "ask input")
 	if errorValue != nil {
 		t.Fatal(errorValue)
@@ -1538,7 +1538,7 @@ func TestWaitingTaskResumeRestoresObservationsWithoutFlags(t *testing.T) {
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
-	if len(state.Observations) != 1 || state.Observations[0].Tool != "message.search" {
+	if len(state.Observations) != 1 || state.Observations[0].Tool != "message_search" {
 		t.Fatalf("expected the pre-pause observation to survive an input resume, got %+v", state.Observations)
 	}
 }
@@ -1551,8 +1551,8 @@ func TestBlockedResumeRestoresPriorObservations(t *testing.T) {
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
-	taskRunService.AppendTaskEvent(runningTaskRun.TaskRunID, "tool.file.write.result", `{"observationID":"obs-001","action":"continue","tool":"file.write","content":"wrote app","isError":false}`)
-	taskRunService.AppendTaskEvent(runningTaskRun.TaskRunID, "tool.file.read.result", `{"observationID":"obs-003","action":"continue","tool":"file.read","content":"read app","isError":false}`)
+	taskRunService.AppendTaskEvent(runningTaskRun.TaskRunID, "tool.file_write.result", `{"observationID":"obs-001","action":"continue","tool":"file_write","content":"wrote app","isError":false}`)
+	taskRunService.AppendTaskEvent(runningTaskRun.TaskRunID, "tool.file_read.result", `{"observationID":"obs-003","action":"continue","tool":"file_read","content":"read app","isError":false}`)
 	blockedTaskRun, errorValue := taskRunService.PauseTaskRun(runningTaskRun.TaskRunID, taskstate.TaskStatusBlocked, "max_iterations")
 	if errorValue != nil {
 		t.Fatal(errorValue)
@@ -1571,20 +1571,20 @@ func TestBlockedResumeRestoresPriorObservations(t *testing.T) {
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
-	if len(state.Observations) != 2 || state.Observations[0].Tool != "file.write" || state.Observations[1].Tool != "file.read" {
+	if len(state.Observations) != 2 || state.Observations[0].Tool != "file_write" || state.Observations[1].Tool != "file_read" {
 		t.Fatalf("expected prior observations to be restored, got %+v", state.Observations)
 	}
 	if state.ToolCallCount != 2 {
 		t.Fatalf("expected restored tool call count, got %d", state.ToolCallCount)
 	}
-	state = applyToolResult(state, toolcontract.ToolInvocation{ToolName: "file.write", Input: json.RawMessage(`{"path":"app.txt","content":"next"}`)}, testToolSuccess("wrote next"))
+	state = applyToolResult(state, toolcontract.ToolInvocation{ToolName: "file_write", Input: json.RawMessage(`{"path":"app.txt","content":"next"}`)}, testToolSuccess("wrote next"))
 	if state.Observations[2].ObservationID != "obs-004" {
 		t.Fatalf("expected observation IDs to continue after the highest restored ID, got %+v", state.Observations)
 	}
 }
 
 func TestDecodeLegacyObservationNormalizesMemorySearchFailureCode(t *testing.T) {
-	observation, errorValue := decodeTurnObservation([]byte(`{"observationID":"obs-001","action":"continue","tool":"memory.search","content":"memory failed","isError":true,"errorCode":"memory_search_unavailable","failureStage":"graphiti_search","message":"memory failed"}`))
+	observation, errorValue := decodeTurnObservation([]byte(`{"observationID":"obs-001","action":"continue","tool":"memory_search","content":"memory failed","isError":true,"errorCode":"memory_search_unavailable","failureStage":"graphiti_search","message":"memory failed"}`))
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
@@ -1596,13 +1596,13 @@ func TestDecodeLegacyObservationNormalizesMemorySearchFailureCode(t *testing.T) 
 
 func TestUserResumeClearsInheritedFailureDebt(t *testing.T) {
 	observations := []turnObservation{
-		{ObservationID: "obs-001", Action: "continue", Tool: "site.serve", Output: toolcontract.ToolOutput{Content: `{"siteID":"site-1"}`}},
+		{ObservationID: "obs-001", Action: "continue", Tool: "site_serve", Output: toolcontract.ToolOutput{Content: `{"siteID":"site-1"}`}},
 		{
 			ObservationID: "obs-002",
 			Action:        "continue",
-			Tool:          "site.serve",
+			Tool:          "site_serve",
 			Failure:       &toolcontract.ToolFailure{Code: toolcontract.FailureCodes.OperationFailed.String()},
-			ToolInputKey:  "site.serve\x00{\"siteID\":\"site-1\"}",
+			ToolInputKey:  "site_serve\x00{\"siteID\":\"site-1\"}",
 		},
 	}
 	if _, hasDebt := activeFailureDebt(observations); !hasDebt {
@@ -1633,9 +1633,9 @@ func TestUserResumeClearsInheritedFailureDebt(t *testing.T) {
 
 func TestProducedSourcePathsRecoversSourceFilesFromDurableResults(t *testing.T) {
 	events := []taskstate.TaskEvent{
-		toolResultTestEvent("tool.file.write.result", "obs-1", "file.write", `{"path":"tmp/deck/slides.html","sizeBytes":20}`, false),
-		toolResultTestEvent("tool.file.edit.result", "obs-2", "file.edit", `{"editedFiles":["tmp/deck/slides.html","tmp/deck/DESIGN.md"]}`, false),
-		toolResultTestEvent("tool.file.write.result", "obs-3", "file.write", `{"path":"tmp/deck/notes.md"}`, true),
+		toolResultTestEvent("tool.file_write.result", "obs-1", "file_write", `{"path":"tmp/deck/slides.html","sizeBytes":20}`, false),
+		toolResultTestEvent("tool.file_edit.result", "obs-2", "file_edit", `{"editedFiles":["tmp/deck/slides.html","tmp/deck/DESIGN.md"]}`, false),
+		toolResultTestEvent("tool.file_write.result", "obs-3", "file_write", `{"path":"tmp/deck/notes.md"}`, true),
 	}
 	paths := producedSourcePaths(events)
 	if len(paths) != 2 || paths[0] != "tmp/deck/slides.html" || paths[1] != "tmp/deck/DESIGN.md" {

@@ -13,11 +13,11 @@ var connectorTestCapabilityClosedSchema = json.RawMessage(`{"type":"object","pro
 
 func connectorTestCapabilityInputSchemaForTool(toolName string) json.RawMessage {
 	switch toolName {
-	case "calendar.add":
+	case "calendar_add":
 		return json.RawMessage(`{"type":"object","properties":{"title":{"type":"string"},"startISO":{"type":"string"},"endISO":{"type":"string"},"isAllDay":{"type":"boolean"}},"additionalProperties":false}`)
-	case "calendar.delete":
+	case "calendar_delete":
 		return json.RawMessage(`{"type":"object","properties":{"eventHint":{"type":"string"},"userConfirmed":{"type":"boolean"}},"additionalProperties":false}`)
-	case "message.send":
+	case "message_send":
 		return json.RawMessage(`{"type":"object","properties":{"targetType":{"type":"string"},"personHint":{"type":"string"},"message":{"type":"string"}},"additionalProperties":false}`)
 	default:
 		return connectorTestCapabilityClosedSchema
@@ -26,11 +26,11 @@ func connectorTestCapabilityInputSchemaForTool(toolName string) json.RawMessage 
 
 func connectorTestCapabilityResultSchemaForTool(toolName string) json.RawMessage {
 	switch toolName {
-	case "calendar.add", "calendar.delete":
+	case "calendar_add", "calendar_delete":
 		return json.RawMessage(`{"type":"object","properties":{"eventID":{"type":"string"}},"additionalProperties":false}`)
-	case "message.send":
+	case "message_send":
 		return json.RawMessage(`{"type":"object","properties":{"messageID":{"type":"string"}},"additionalProperties":false}`)
-	case "browser.snapshot":
+	case "browser_snapshot":
 		return json.RawMessage(`{"type":"object","properties":{"url":{"type":"string"},"snapshotText":{"type":"string"},"devicePath":{"type":"string"},"filename":{"type":"string"},"contentType":{"type":"string"},"sizeBytes":{"type":"number"}},"additionalProperties":false}`)
 	default:
 		return connectorTestCapabilityClosedSchema
@@ -63,7 +63,7 @@ func connectorTestCapabilityToolDescriptor(toolName string) agentruntime.Capabil
 		Availability:    agentruntime.CapabilityAvailability{State: "ok"},
 		Idempotency:     agentruntime.CapabilityIdempotency{Scope: "operation"},
 	}
-	if toolName == "browser.snapshot" {
+	if toolName == "browser_snapshot" {
 		descriptor.PrivacyClass = "user_browser"
 	}
 	if sideEffectClass != toolcontract.ToolSideEffectRead {
@@ -80,11 +80,11 @@ func connectorTestCapabilityToolDescriptor(toolName string) agentruntime.Capabil
 
 func connectorTestCapabilitySideEffect(toolName string) string {
 	switch toolName {
-	case "browser.snapshot":
+	case "browser_snapshot":
 		return toolcontract.ToolSideEffectRead
-	case "calendar.delete":
+	case "calendar_delete":
 		return toolcontract.ToolSideEffectDestructive
-	case "message.send":
+	case "message_send":
 		return toolcontract.ToolSideEffectExternalSend
 	default:
 		return toolcontract.ToolSideEffectWorkspaceWrite
