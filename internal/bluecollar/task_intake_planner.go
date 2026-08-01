@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/Dawn-kim-official/blueclaw/internal/llm"
-	"github.com/Dawn-kim-official/blueclaw/internal/memory"
 )
 
 type IntakeClassification string
@@ -88,7 +87,7 @@ type AgentRequest struct {
 	InputParts                 []AgentPart
 	ResponseLanguage           string
 	VisibleContext             VisibleContext
-	MemoryFacts                []memory.MemoryFact
+	MemoryFacts                []MemoryFact
 	ToolSet                    *toolcontract.ToolSet
 	PinnedToolNames            []string
 	PinnedSkillNames           []string

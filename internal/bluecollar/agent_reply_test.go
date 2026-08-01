@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/Dawn-kim-official/blueclaw/internal/llm"
-	"github.com/Dawn-kim-official/blueclaw/internal/memory"
 	"github.com/Dawn-kim-official/blueclaw/internal/task"
 )
 
@@ -151,7 +150,7 @@ func TestAgentKernelInjectsMemoryIntoChatReplyRequest(t *testing.T) {
 	_, errorValue := agentKernel.GenerateReplyWithMemory(
 		context.Background(),
 		"what did I ask for last time?",
-		[]memory.MemoryFact{
+		[]MemoryFact{
 			{
 				Content: "the user asked for help debugging Mattermost DM replies.",
 			},
@@ -185,9 +184,9 @@ func TestAgentKernelInjectsCompactAttributedMemorySummary(t *testing.T) {
 	_, errorValue := agentKernel.GenerateReplyWithMemory(
 		context.Background(),
 		"use what you remember",
-		[]memory.MemoryFact{
+		[]MemoryFact{
 			{
-				ScopeType:       memory.ScopeTypeWorkspace,
+				ScopeType:       MemoryScopeWorkspace,
 				Content:         longContent,
 				Score:           0.87,
 				SourceEpisodeID: "episode-1",
@@ -229,7 +228,7 @@ func TestAgentKernelPlacesVisibleContextBeforeMemoryAndPrompt(t *testing.T) {
 			HasMoreBefore: true,
 			HistoryCursor: "cursor-1",
 		},
-		[]memory.MemoryFact{
+		[]MemoryFact{
 			{Content: "the user prefers a design without redundancy."},
 		},
 	)
