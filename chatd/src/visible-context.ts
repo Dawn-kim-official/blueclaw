@@ -20,6 +20,11 @@ export type MessageAttachmentDocument = {
 	sizeBytes?: number;
 };
 
+export type CustomEmojiDocument = {
+	name: string;
+	url: string;
+};
+
 export type VisibleContextMessageDocument = {
 	id: string;
 	threadRootId?: string;
@@ -33,6 +38,7 @@ export type VisibleContextMessageDocument = {
 	isError?: boolean;
 	reactions?: ReactionSummary[];
 	attachments?: MessageAttachmentDocument[];
+	customEmoji?: CustomEmojiDocument[];
 };
 
 export type VisibleContextSenderDocument = {
@@ -178,7 +184,24 @@ function toVisibleContextMessage(
 		isError: isErrorMessage(message.raw),
 		reactions: reactions && reactions.length > 0 ? reactions : undefined,
 		attachments: attachmentsOf(message),
+		customEmoji: customEmojiOf(message.raw),
 	};
+}
+
+function customEmojiOf(raw: unknown): CustomEmojiDocument[] | undefined {
+	if (typeof raw !== "object" || raw === null || !("tags" in raw)) return undefined;
+	const { tags } = raw as { tags?: unknown };
+	if (!Array.isArray(tags)) return undefined;
+	const documents: CustomEmojiDocument[] = [];
+	for (const tag of tags) {
+		if (!Array.isArray(tag) || tag[0] !== "emoji") continue;
+		const name = tag[1];
+		const url = tag[2];
+		if (typeof name === "string" && typeof url === "string" && name && url) {
+			documents.push({ name, url });
+		}
+	}
+	return documents.length > 0 ? documents : undefined;
 }
 
 function isErrorMessage(raw: unknown): boolean {
