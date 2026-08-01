@@ -2,170 +2,40 @@ package llm
 
 import "context"
 
-type ChatCompleterAccessor interface {
-	TextChatCompleter() (ChatCompleter, bool)
-}
-
-type RecoveryChatCompleterAccessor interface {
-	RecoveryChatCompleter() (RecoveryChatCompleter, bool)
-}
-
-type LocalRecoveryChatCompleterAccessor interface {
-	LocalRecoveryChatCompleter() (LocalRecoveryChatCompleter, bool)
-}
-
-func ResolveTextChatCompleter(provider LanguageModelProvider) (ChatCompleter, bool) {
-	if provider == nil {
-		return nil, false
-	}
-	if fallbackProvider, isFallback := textFallbackProvider(provider); isFallback {
-		return resolveFallbackTextChatCompleterWrapper(fallbackProvider)
-	}
-	if completer, isAvailable := provider.(ChatCompleter); isAvailable {
-		return completer, true
-	}
-	if accessor, isAvailable := provider.(ChatCompleterAccessor); isAvailable {
-		completer, isAvailable := accessor.TextChatCompleter()
-		if !isAvailable || completer == nil {
-			return nil, false
-		}
-		return completer, true
-	}
-	if wrappedProvider, isWrapped := provider.(interface {
-		primaryLanguageModelProvider() LanguageModelProvider
-	}); isWrapped {
-		return ResolveTextChatCompleter(wrappedProvider.primaryLanguageModelProvider())
-	}
-
-	switch provider := provider.(type) {
-	case VisionFallbackProvider:
-		return resolveVisionTextChatCompleter(provider.TextOnlyModel, provider.VisionModel)
-	case *VisionFallbackProvider:
-		if provider == nil {
-			return nil, false
-		}
-		return resolveVisionTextChatCompleter(provider.TextOnlyModel, provider.VisionModel)
-	default:
-		return nil, false
-	}
-}
-
-func textFallbackProvider(provider LanguageModelProvider) (FallbackLanguageModelProvider, bool) {
-	switch provider := provider.(type) {
-	case FallbackLanguageModelProvider:
-		return provider, true
-	case *FallbackLanguageModelProvider:
-		if provider == nil {
-			return FallbackLanguageModelProvider{}, false
-		}
-		return *provider, true
-	default:
-		return FallbackLanguageModelProvider{}, false
-	}
-}
-
-// resolveFallbackTextChatCompleterWrapper reports the wrapper itself as available only when at
-// least one of its primary or fallback providers genuinely supports chat completion, so callers
-// route through the wrapper's own primary-then-fallback GenerateChatCompletion at call time
-// instead of committing to a chat path neither side can serve.
-func resolveFallbackTextChatCompleterWrapper(provider FallbackLanguageModelProvider) (ChatCompleter, bool) {
-	_, hasPrimary := ResolveTextChatCompleter(provider.PrimaryProvider)
-	_, hasFallback := ResolveTextChatCompleter(provider.FallbackProvider)
+func (fallbackLanguageModelProvider FallbackLanguageModelProvider) TextChatCompleter() (ChatCompleter, bool) {
+	_, hasPrimary := ResolveTextChatCompleter(fallbackLanguageModelProvider.PrimaryProvider)
+	_, hasFallback := ResolveTextChatCompleter(fallbackLanguageModelProvider.FallbackProvider)
 	if !hasPrimary && !hasFallback {
 		return nil, false
 	}
-	return provider, true
+	return fallbackLanguageModelProvider, true
 }
 
-func ResolveRecoveryChatCompleter(provider LanguageModelProvider) (RecoveryChatCompleter, bool) {
-	if provider == nil {
+func (fallbackLanguageModelProvider FallbackLanguageModelProvider) RecoveryChatCompleter() (RecoveryChatCompleter, bool) {
+	primaryProvider, hasPrimary := adaptRecoveryChatProvider(fallbackLanguageModelProvider.PrimaryProvider)
+	fallbackProvider, hasFallback := adaptRecoveryChatProvider(fallbackLanguageModelProvider.FallbackProvider)
+	if !hasPrimary && !hasFallback {
 		return nil, false
 	}
-	if fallbackProvider, isFallback := recoveryFallbackProvider(provider); isFallback {
-		return resolveFallbackRecoveryChatCompleter(fallbackProvider)
-	}
-	if completer, isAvailable := provider.(RecoveryChatCompleter); isAvailable {
-		return completer, true
-	}
-	if accessor, isAvailable := provider.(RecoveryChatCompleterAccessor); isAvailable {
-		completer, isAvailable := accessor.RecoveryChatCompleter()
-		if !isAvailable || completer == nil {
-			return nil, false
-		}
-		return completer, true
-	}
-	if wrappedProvider, isWrapped := provider.(interface {
-		primaryLanguageModelProvider() LanguageModelProvider
-	}); isWrapped {
-		return ResolveRecoveryChatCompleter(wrappedProvider.primaryLanguageModelProvider())
-	}
-
-	switch provider := provider.(type) {
-	case FallbackLanguageModelProvider:
-		return resolveFallbackRecoveryChatCompleter(provider)
-	case *FallbackLanguageModelProvider:
-		if provider == nil {
-			return nil, false
-		}
-		return resolveFallbackRecoveryChatCompleter(*provider)
-	case VisionFallbackProvider:
-		return resolveVisionRecoveryChatCompleter(provider.TextOnlyModel, provider.VisionModel)
-	case *VisionFallbackProvider:
-		if provider == nil {
-			return nil, false
-		}
-		return resolveVisionRecoveryChatCompleter(provider.TextOnlyModel, provider.VisionModel)
-	default:
-		return nil, false
-	}
+	fallbackLanguageModelProvider.PrimaryProvider = primaryProvider
+	fallbackLanguageModelProvider.FallbackProvider = fallbackProvider
+	return fallbackLanguageModelProvider, true
 }
 
-func ResolveLocalRecoveryChatCompleter(provider LanguageModelProvider) (LocalRecoveryChatCompleter, bool) {
-	if provider == nil {
+func (fallbackLanguageModelProvider FallbackLanguageModelProvider) LocalRecoveryChatCompleter() (LocalRecoveryChatCompleter, bool) {
+	primaryProvider, hasPrimary := adaptLocalRecoveryChatProvider(fallbackLanguageModelProvider.PrimaryProvider)
+	fallbackProvider, hasFallback := adaptLocalRecoveryChatProvider(fallbackLanguageModelProvider.FallbackProvider)
+	if !hasPrimary && !hasFallback {
 		return nil, false
 	}
-	if fallbackProvider, isFallback := recoveryFallbackProvider(provider); isFallback {
-		return resolveFallbackLocalRecoveryChatCompleter(fallbackProvider)
-	}
-	if completer, isAvailable := provider.(LocalRecoveryChatCompleter); isAvailable {
-		return completer, true
-	}
-	if accessor, isAvailable := provider.(LocalRecoveryChatCompleterAccessor); isAvailable {
-		completer, isAvailable := accessor.LocalRecoveryChatCompleter()
-		if !isAvailable || completer == nil {
-			return nil, false
-		}
-		return completer, true
-	}
-	if wrappedProvider, isWrapped := provider.(interface {
-		primaryLanguageModelProvider() LanguageModelProvider
-	}); isWrapped {
-		return ResolveLocalRecoveryChatCompleter(wrappedProvider.primaryLanguageModelProvider())
-	}
-
-	switch provider := provider.(type) {
-	case FallbackLanguageModelProvider:
-		return resolveFallbackLocalRecoveryChatCompleter(provider)
-	case *FallbackLanguageModelProvider:
-		if provider == nil {
-			return nil, false
-		}
-		return resolveFallbackLocalRecoveryChatCompleter(*provider)
-	case VisionFallbackProvider:
-		return resolveVisionLocalRecoveryChatCompleter(provider.TextOnlyModel, provider.VisionModel)
-	case *VisionFallbackProvider:
-		if provider == nil {
-			return nil, false
-		}
-		return resolveVisionLocalRecoveryChatCompleter(provider.TextOnlyModel, provider.VisionModel)
-	default:
-		return nil, false
-	}
+	fallbackLanguageModelProvider.PrimaryProvider = primaryProvider
+	fallbackLanguageModelProvider.FallbackProvider = fallbackProvider
+	return fallbackLanguageModelProvider, true
 }
 
-func resolveVisionTextChatCompleter(textOnlyModel LanguageModelProvider, visionModel LanguageModelProvider) (ChatCompleter, bool) {
-	textOnlyCompleter, hasTextOnlyCompleter := ResolveTextChatCompleter(textOnlyModel)
-	visionCompleter, hasVisionCompleter := ResolveTextChatCompleter(visionModel)
+func (provider VisionFallbackProvider) TextChatCompleter() (ChatCompleter, bool) {
+	textOnlyCompleter, hasTextOnlyCompleter := ResolveTextChatCompleter(provider.TextOnlyModel)
+	visionCompleter, hasVisionCompleter := ResolveTextChatCompleter(provider.VisionModel)
 	if !hasTextOnlyCompleter {
 		return visionCompleter, hasVisionCompleter
 	}
@@ -173,6 +43,20 @@ func resolveVisionTextChatCompleter(textOnlyModel LanguageModelProvider, visionM
 		return textOnlyCompleter, true
 	}
 	return visionChatCompleter{textOnlyCompleter: textOnlyCompleter, visionCompleter: visionCompleter}, true
+}
+
+func (provider VisionFallbackProvider) RecoveryChatCompleter() (RecoveryChatCompleter, bool) {
+	if completer, isAvailable := ResolveRecoveryChatCompleter(provider.TextOnlyModel); isAvailable {
+		return completer, true
+	}
+	return ResolveRecoveryChatCompleter(provider.VisionModel)
+}
+
+func (provider VisionFallbackProvider) LocalRecoveryChatCompleter() (LocalRecoveryChatCompleter, bool) {
+	if completer, isAvailable := ResolveLocalRecoveryChatCompleter(provider.TextOnlyModel); isAvailable {
+		return completer, true
+	}
+	return ResolveLocalRecoveryChatCompleter(provider.VisionModel)
 }
 
 type visionChatCompleter struct {
@@ -185,56 +69,6 @@ func (completer visionChatCompleter) GenerateChatCompletion(responseContext cont
 		return completer.visionCompleter.GenerateChatCompletion(responseContext, request)
 	}
 	return completer.textOnlyCompleter.GenerateChatCompletion(responseContext, request)
-}
-
-func resolveFallbackRecoveryChatCompleter(provider FallbackLanguageModelProvider) (RecoveryChatCompleter, bool) {
-	primaryProvider, hasPrimary := adaptRecoveryChatProvider(provider.PrimaryProvider)
-	fallbackProvider, hasFallback := adaptRecoveryChatProvider(provider.FallbackProvider)
-	if !hasPrimary && !hasFallback {
-		return nil, false
-	}
-	provider.PrimaryProvider = primaryProvider
-	provider.FallbackProvider = fallbackProvider
-	return provider, true
-}
-
-func resolveFallbackLocalRecoveryChatCompleter(provider FallbackLanguageModelProvider) (LocalRecoveryChatCompleter, bool) {
-	primaryProvider, hasPrimary := adaptLocalRecoveryChatProvider(provider.PrimaryProvider)
-	fallbackProvider, hasFallback := adaptLocalRecoveryChatProvider(provider.FallbackProvider)
-	if !hasPrimary && !hasFallback {
-		return nil, false
-	}
-	provider.PrimaryProvider = primaryProvider
-	provider.FallbackProvider = fallbackProvider
-	return provider, true
-}
-
-func resolveVisionRecoveryChatCompleter(textOnlyModel LanguageModelProvider, visionModel LanguageModelProvider) (RecoveryChatCompleter, bool) {
-	if completer, isAvailable := ResolveRecoveryChatCompleter(textOnlyModel); isAvailable {
-		return completer, true
-	}
-	return ResolveRecoveryChatCompleter(visionModel)
-}
-
-func resolveVisionLocalRecoveryChatCompleter(textOnlyModel LanguageModelProvider, visionModel LanguageModelProvider) (LocalRecoveryChatCompleter, bool) {
-	if completer, isAvailable := ResolveLocalRecoveryChatCompleter(textOnlyModel); isAvailable {
-		return completer, true
-	}
-	return ResolveLocalRecoveryChatCompleter(visionModel)
-}
-
-func recoveryFallbackProvider(provider LanguageModelProvider) (FallbackLanguageModelProvider, bool) {
-	switch provider := provider.(type) {
-	case FallbackLanguageModelProvider:
-		return provider, true
-	case *FallbackLanguageModelProvider:
-		if provider == nil {
-			return FallbackLanguageModelProvider{}, false
-		}
-		return *provider, true
-	default:
-		return FallbackLanguageModelProvider{}, false
-	}
 }
 
 type recoveryChatProviderAdapter struct {

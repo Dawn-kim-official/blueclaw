@@ -6,7 +6,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/llm"
 	"github.com/Dawn-kim-official/blueclaw/internal/model"
 )
 
@@ -105,7 +104,7 @@ func (observedModel observedLanguageModel) observedInnerProvider() model.Languag
 }
 
 func (observedModel observedLanguageModel) TextChatCompleter() (model.ChatCompleter, bool) {
-	completer, isAvailable := llm.ResolveTextChatCompleter(observedModel.provider)
+	completer, isAvailable := model.ResolveTextChatCompleter(observedModel.provider)
 	if !isAvailable {
 		return nil, false
 	}
@@ -113,7 +112,7 @@ func (observedModel observedLanguageModel) TextChatCompleter() (model.ChatComple
 }
 
 func (observedModel observedLanguageModel) RecoveryChatCompleter() (model.RecoveryChatCompleter, bool) {
-	completer, isAvailable := llm.ResolveRecoveryChatCompleter(observedModel.provider)
+	completer, isAvailable := model.ResolveRecoveryChatCompleter(observedModel.provider)
 	if !isAvailable {
 		return nil, false
 	}
@@ -121,7 +120,7 @@ func (observedModel observedLanguageModel) RecoveryChatCompleter() (model.Recove
 }
 
 func (observedModel observedLanguageModel) LocalRecoveryChatCompleter() (model.LocalRecoveryChatCompleter, bool) {
-	completer, isAvailable := llm.ResolveLocalRecoveryChatCompleter(observedModel.provider)
+	completer, isAvailable := model.ResolveLocalRecoveryChatCompleter(observedModel.provider)
 	if !isAvailable {
 		return nil, false
 	}

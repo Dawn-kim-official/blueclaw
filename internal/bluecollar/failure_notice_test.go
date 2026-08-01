@@ -6,7 +6,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/llm"
 	"github.com/Dawn-kim-official/blueclaw/internal/model"
 )
 
@@ -44,11 +43,11 @@ func (accessor recoveryChatNoticeAccessor) GenerateStructuredResponse(ctx contex
 }
 
 func (accessor recoveryChatNoticeAccessor) RecoveryChatCompleter() (model.RecoveryChatCompleter, bool) {
-	return llm.ResolveRecoveryChatCompleter(accessor.provider)
+	return model.ResolveRecoveryChatCompleter(accessor.provider)
 }
 
 func (accessor recoveryChatNoticeAccessor) LocalRecoveryChatCompleter() (model.LocalRecoveryChatCompleter, bool) {
-	return llm.ResolveLocalRecoveryChatCompleter(accessor.provider)
+	return model.ResolveLocalRecoveryChatCompleter(accessor.provider)
 }
 
 func (provider *recoveryChatNoticeProvider) GenerateResponse(context.Context, string) (string, error) {

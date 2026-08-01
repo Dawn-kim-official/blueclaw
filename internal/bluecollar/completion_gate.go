@@ -7,7 +7,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/llm"
 	"github.com/Dawn-kim-official/blueclaw/internal/model"
 	"github.com/Dawn-kim-official/blueclaw/internal/task"
 )
@@ -183,7 +182,7 @@ func (agentTurnRunner *AgentTurnRunner) finalizeCompletionState(ctx context.Cont
 	}
 	modelWording := deliverableModelWording(lastModelMessage)
 	if modelWording == "" {
-		chatCompleter, isAvailable := llm.ResolveTextChatCompleter(agentTurnRunner.languageModel)
+		chatCompleter, isAvailable := model.ResolveTextChatCompleter(agentTurnRunner.languageModel)
 		if !isAvailable {
 			return completionTransition{Observations: observations, Attachments: attachments}
 		}

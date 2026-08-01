@@ -10,7 +10,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/llm"
 	"github.com/Dawn-kim-official/blueclaw/internal/model"
 	"github.com/Dawn-kim-official/blueclaw/internal/task"
 )
@@ -685,7 +684,7 @@ func evidenceReferencesFromIDs(values []string) []completionEvidenceReference {
 }
 
 func DecideAgentAction(ctx context.Context, languageModel model.LanguageModelProvider, state agentTaskState) (agentAction, error) {
-	if chatCompleter, isAvailable := llm.ResolveTextChatCompleter(languageModel); isAvailable {
+	if chatCompleter, isAvailable := model.ResolveTextChatCompleter(languageModel); isAvailable {
 		chatRequestSource := buildAgentActionRequest(state, false)
 		if chatRequest, isRepresentable := buildAgentActionChatCompletionRequest(chatRequestSource); isRepresentable {
 			return decideAgentActionWithChat(ctx, chatCompleter, chatRequest, state)

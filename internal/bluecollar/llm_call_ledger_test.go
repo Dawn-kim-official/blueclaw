@@ -90,7 +90,7 @@ func TestObserveLanguageModelRecordsSafeChatToolDiagnostics(t *testing.T) {
 	observed := observeLanguageModel(client, func(record llmCallRecord) {
 		records = append(records, record)
 	})
-	chatCompleter, isAvailable := llm.ResolveTextChatCompleter(observed)
+	chatCompleter, isAvailable := model.ResolveTextChatCompleter(observed)
 	if !isAvailable {
 		t.Fatal("expected observed LLMD Chat capability")
 	}
@@ -121,7 +121,7 @@ func TestObserveLanguageModelRecordsExplicitChatSchemaOnly(t *testing.T) {
 	observed := observeLanguageModel(recoveryCapableTestModel{}, func(record llmCallRecord) {
 		records = append(records, record)
 	})
-	chatCompleter, isAvailable := llm.ResolveTextChatCompleter(observed)
+	chatCompleter, isAvailable := model.ResolveTextChatCompleter(observed)
 	if !isAvailable {
 		t.Fatal("expected observed chat capability")
 	}
@@ -227,7 +227,7 @@ func TestObserveLanguageModelProvidesObservedChatCapability(t *testing.T) {
 	if _, isDirectChat := observed.(model.ChatCompleter); isDirectChat {
 		t.Fatal("expected observer to expose ChatCompleter only through the optional accessor")
 	}
-	chatCompleter, isAvailable := llm.ResolveTextChatCompleter(observed)
+	chatCompleter, isAvailable := model.ResolveTextChatCompleter(observed)
 	if !isAvailable {
 		t.Fatal("expected observed chat capability")
 	}
@@ -245,7 +245,7 @@ func TestObserveLanguageModelProvidesObservedChatCapability(t *testing.T) {
 func TestObserveLanguageModelResolvesNestedChatAccessors(t *testing.T) {
 	inner := nestedChatAccessorTestModel{provider: recoveryCapableTestModel{}}
 	observed := observeLanguageModel(inner, func(llmCallRecord) {})
-	chatCompleter, isAvailable := llm.ResolveTextChatCompleter(observed)
+	chatCompleter, isAvailable := model.ResolveTextChatCompleter(observed)
 	if !isAvailable {
 		t.Fatal("expected nested observed chat capability")
 	}
@@ -260,7 +260,7 @@ func TestObserveLanguageModelRecordsChatErrorsAndMetadata(t *testing.T) {
 	observed := observeLanguageModel(chatErrorTestModel{}, func(record llmCallRecord) {
 		records = append(records, record)
 	})
-	chatCompleter, isAvailable := llm.ResolveTextChatCompleter(observed)
+	chatCompleter, isAvailable := model.ResolveTextChatCompleter(observed)
 	if !isAvailable {
 		t.Fatal("expected observed chat capability")
 	}
@@ -280,7 +280,7 @@ func TestObserveLanguageModelRecordsRecoveryChatErrorsAndMetadata(t *testing.T) 
 	observed := observeLanguageModel(chatErrorTestModel{}, func(record llmCallRecord) {
 		records = append(records, record)
 	})
-	recoveryProvider, isAvailable := llm.ResolveRecoveryChatCompleter(observed)
+	recoveryProvider, isAvailable := model.ResolveRecoveryChatCompleter(observed)
 	if !isAvailable {
 		t.Fatal("expected observed recovery chat capability")
 	}
@@ -308,10 +308,10 @@ func TestObserveLanguageModelPreservesMissingRecoveryCapability(t *testing.T) {
 	if _, hasLocalRecoveryChat := observed.(model.LocalRecoveryChatCompleter); hasLocalRecoveryChat {
 		t.Fatal("expected wrapper without local recovery chat capability for plain provider")
 	}
-	if _, isAvailable := llm.ResolveRecoveryChatCompleter(observed); isAvailable {
+	if _, isAvailable := model.ResolveRecoveryChatCompleter(observed); isAvailable {
 		t.Fatal("expected recovery chat resolver to report unavailable")
 	}
-	if _, isAvailable := llm.ResolveLocalRecoveryChatCompleter(observed); isAvailable {
+	if _, isAvailable := model.ResolveLocalRecoveryChatCompleter(observed); isAvailable {
 		t.Fatal("expected local recovery chat resolver to report unavailable")
 	}
 }
@@ -341,10 +341,10 @@ func TestObserveLanguageModelDoesNotInventChatCapability(t *testing.T) {
 	if _, hasLocalRecoveryChat := observed.(model.LocalRecoveryChatCompleter); hasLocalRecoveryChat {
 		t.Fatal("expected wrapper not to invent local recovery chat capability")
 	}
-	if _, isAvailable := llm.ResolveRecoveryChatCompleter(observed); isAvailable {
+	if _, isAvailable := model.ResolveRecoveryChatCompleter(observed); isAvailable {
 		t.Fatal("expected recovery chat resolver to report unavailable")
 	}
-	if _, isAvailable := llm.ResolveLocalRecoveryChatCompleter(observed); isAvailable {
+	if _, isAvailable := model.ResolveLocalRecoveryChatCompleter(observed); isAvailable {
 		t.Fatal("expected local recovery chat resolver to report unavailable")
 	}
 }
@@ -435,7 +435,7 @@ func (languageModel nestedChatAccessorTestModel) GenerateStructuredResponse(ctx 
 }
 
 func (languageModel nestedChatAccessorTestModel) TextChatCompleter() (model.ChatCompleter, bool) {
-	return llm.ResolveTextChatCompleter(languageModel.provider)
+	return model.ResolveTextChatCompleter(languageModel.provider)
 }
 
 func TestObserveLanguageModelKeepsRecoveryCapabilityAndRecords(t *testing.T) {
@@ -472,7 +472,7 @@ func TestObserveLanguageModelKeepsRecoveryChatCapabilityAndRecords(t *testing.T)
 		records = append(records, record)
 	})
 
-	recoveryProvider, hasRecoveryChat := llm.ResolveRecoveryChatCompleter(observed)
+	recoveryProvider, hasRecoveryChat := model.ResolveRecoveryChatCompleter(observed)
 	if !hasRecoveryChat {
 		t.Fatal("expected recovery chat capability to be preserved")
 	}
@@ -500,11 +500,11 @@ func TestObserveLanguageModelPreservesNestedRecoveryChatCapabilities(t *testing.
 		outerRecords = append(outerRecords, record)
 	}}
 
-	recoveryProvider, hasRecoveryChat := llm.ResolveRecoveryChatCompleter(outer)
+	recoveryProvider, hasRecoveryChat := model.ResolveRecoveryChatCompleter(outer)
 	if !hasRecoveryChat {
 		t.Fatal("expected nested recovery chat capability")
 	}
-	localRecoveryProvider, hasLocalRecoveryChat := llm.ResolveLocalRecoveryChatCompleter(outer)
+	localRecoveryProvider, hasLocalRecoveryChat := model.ResolveLocalRecoveryChatCompleter(outer)
 	if !hasLocalRecoveryChat {
 		t.Fatal("expected nested local recovery chat capability")
 	}
