@@ -131,8 +131,28 @@ func completionJudgeMessages(request AgentTurnRequest, observations []turnObserv
 	if planContext := completionJudgePlanContext(observations); planContext != "" {
 		messages = append(messages, llm.Message{Role: "system", Content: planContext})
 	}
+	messages = append(messages, llm.Message{Role: "system", Content: completionJudgeAttachmentDescription(attachmentsFromObservations(observations))})
 	messages = append(messages, llm.Message{Role: "user", Content: "Recorded successful operations this turn, reads and state changes alike:\n" + completionJudgeLedgerDocument(request.ToolSet, observations)})
 	return messages
+}
+
+// The ledger records every delivery ever attempted, including ones a later
+// delivery replaced. Only the runtime knows which files the person actually
+// receives, so state it rather than letting the judge infer it from history and
+// fail a superseded delivery the executor already corrected.
+func completionJudgeAttachmentDescription(attachments []FileAttachment) string {
+	if len(attachments) == 0 {
+		return "Files this completion attaches for the user: none."
+	}
+	filenames := make([]string, 0, len(attachments))
+	for _, attachment := range attachments {
+		filenames = append(filenames, firstNonEmptyString(attachment.Filename, attachment.DevicePath))
+	}
+	return strings.Join([]string{
+		"Files this completion attaches for the user, superseded deliveries already removed:",
+		strings.Join(filenames, "\n"),
+		"Judge attachment requirements against exactly this list. An earlier delivery that is absent here was replaced and is not attached.",
+	}, "\n")
 }
 
 func completionJudgeInstruction() string {
