@@ -21,7 +21,7 @@ import {
 } from '@blueclaw/protocol';
 import { MockLanguageModelV3, simulateReadableStream } from 'ai/test';
 
-import { LLMDAutoRoute, type LLMDConfiguration } from '../src/configuration.ts';
+import { LLMDStructuredOutputMode, LLMDAutoRoute, type LLMDConfiguration } from '../src/configuration.ts';
 import {
   createChatCompletionGenerator,
   createStructuredResponseGenerator,
@@ -75,6 +75,46 @@ const chatRequest: ChatCompletionRequest = {
 };
 
 describe('llmd provider adapter', () => {
+  test('asks a schema-constrained provider for the object itself, with no tool', async () => {
+    const localModel = jsonTextLanguageModel('unused-local-model', { ok: true });
+    const remoteModel = jsonTextLanguageModel('served-remote-model', { ok: true });
+    const generateStructuredResponse = createStructuredResponseGenerator(
+      nativeStructuredConfiguration(LLMDAutoRoute.RemoteFirst),
+      languageModelFactory(localModel, remoteModel),
+    );
+
+    const response = await generateStructuredResponse(structuredRequest);
+
+    expect(response.content).toBe('{"ok":true}');
+    expect(response.constraintMode).toBe(StructuredOutputConstraintMode.OpenAIJSONSchema);
+    expect(remoteModel.doStreamCalls[0]?.tools ?? []).toHaveLength(0);
+    expect(remoteModel.doStreamCalls[0]?.toolChoice).toBeUndefined();
+  });
+
+  test('falls back to a forced tool call when the provider rejects the response format', async () => {
+    const localModel = jsonTextLanguageModel('unused-local-model', { ok: true });
+    let remoteAttempt = 0;
+    const remoteModel = new MockLanguageModelV3({
+      modelId: 'served-remote-model',
+      doGenerate: async () => successfulGeneration('served-remote-model', { ok: true }, defaultUsage()),
+      doStream: async () => {
+        remoteAttempt += 1;
+        if (remoteAttempt === 1) throw new Error('response_format json_schema is not supported by this model');
+        return streamResultFromGeneration(successfulGeneration('served-remote-model', { ok: true }, defaultUsage()));
+      },
+    });
+    const generateStructuredResponse = createStructuredResponseGenerator(
+      nativeStructuredConfiguration(LLMDAutoRoute.RemoteFirst),
+      languageModelFactory(localModel, remoteModel),
+    );
+
+    const response = await generateStructuredResponse(structuredRequest);
+
+    expect(response.content).toBe('{"ok":true}');
+    expect(response.constraintMode).toBe(StructuredOutputConstraintMode.NativeToolCall);
+    expect(remoteAttempt).toBe(2);
+  });
+
   test('accepts canonical generated document tool schemas', async () => {
     const descriptor = buildCapabilityToolCatalog('test').tools
       .find(tool => tool.name === DocumentToolName.Read);
@@ -1595,6 +1635,21 @@ describe('llmd provider adapter', () => {
   });
 });
 
+function nativeStructuredConfiguration(autoRoute: LLMDAutoRoute): LLMDConfiguration {
+  return { ...completeConfiguration(autoRoute), structuredOutputMode: LLMDStructuredOutputMode.Native };
+}
+
+function jsonTextLanguageModel(modelID: string, output: unknown): MockLanguageModelV3 {
+  return generationBackedLanguageModel(modelID, () => ({
+    content: [{ type: 'text', text: JSON.stringify(output) }],
+    finishReason: { unified: 'stop', raw: 'stop' },
+    usage: defaultUsage(),
+    response: { modelId: modelID },
+    warnings: [],
+  }));
+}
+
+
 function completeConfiguration(autoRoute: LLMDAutoRoute): LLMDConfiguration {
   return {
     authKey: 'installation-key',
@@ -1606,6 +1661,7 @@ function completeConfiguration(autoRoute: LLMDAutoRoute): LLMDConfiguration {
     localOnly: false,
     openRouterAPIKey: 'remote-key',
     openRouterBaseURL: 'https://openrouter.invalid/api/v1',
+    structuredOutputMode: LLMDStructuredOutputMode.ToolCall,
     socketPath: '/tmp/blueclaw-llmd-provider-test.sock',
   };
 }
