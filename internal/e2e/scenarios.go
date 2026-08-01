@@ -2,6 +2,7 @@ package e2e
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"runtime"
 
@@ -25,9 +26,29 @@ func workspaceSkillInstruction(skillName string) agent.SkillInstruction {
 }
 
 func rootWorkspaceSkillDirectoryPath(skillName string) string {
+	return filepath.Join(RootWorkspaceSkillsPath(), skillName)
+}
+
+// RootWorkspaceSkillsPath finds the bundled workspace skills these scenarios
+// drive. They belong to the appliance that ships them, not to Blueclaw, so a
+// standalone checkout has no copy: search upward rather than assuming Blueclaw
+// sits at a fixed depth beneath its consumer, and report absence so the suite
+// can say it is skipping instead of panicking on a missing file.
+func RootWorkspaceSkillsPath() string {
 	_, sourceFilePath, _, _ := runtime.Caller(0)
-	blueclawRootPath := filepath.Dir(filepath.Dir(filepath.Dir(sourceFilePath)))
-	return filepath.Join(blueclawRootPath, "..", "..", "assets", "blueclaw-workspace", "skills", skillName)
+	directoryPath := filepath.Dir(filepath.Dir(filepath.Dir(sourceFilePath)))
+	for range 5 {
+		candidatePath := filepath.Join(directoryPath, "assets", "blueclaw-workspace", "skills")
+		if information, errorValue := os.Stat(candidatePath); errorValue == nil && information.IsDir() {
+			return candidatePath
+		}
+		parentPath := filepath.Dir(directoryPath)
+		if parentPath == directoryPath {
+			break
+		}
+		directoryPath = parentPath
+	}
+	return ""
 }
 
 func completionJudgeSatisfiedResponse() string {
