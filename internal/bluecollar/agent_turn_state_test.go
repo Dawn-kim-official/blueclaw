@@ -13,7 +13,7 @@ import (
 	"time"
 
 	"github.com/Dawn-kim-official/blueclaw/internal/model"
-	"github.com/Dawn-kim-official/blueclaw/internal/task"
+	"github.com/Dawn-kim-official/blueclaw/internal/taskstate"
 )
 
 func TestDecideAgentActionUsesNativeChatForFinishAndContinue(t *testing.T) {
@@ -1225,7 +1225,7 @@ func TestBuildAgentActionRequestGenerationOptionsDoNotChangeSchema(t *testing.T)
 }
 
 func TestRestoreAgentTaskStateRestoresTaskContextSummary(t *testing.T) {
-	events := []task.TaskEvent{{
+	events := []taskstate.TaskEvent{{
 		Name: taskContextSummaryEventName,
 		Body: marshalEventBody(TaskContextSummary{
 			ObservationID:                 "context-summary-001",
@@ -1237,9 +1237,9 @@ func TestRestoreAgentTaskStateRestoresTaskContextSummary(t *testing.T) {
 		}),
 	}}
 
-	state, errorValue := restoreAgentTaskState(AgentTurnRequest{Prompt: "continue"}, TurnOptions{}, task.TaskRun{
+	state, errorValue := restoreAgentTaskState(AgentTurnRequest{Prompt: "continue"}, TurnOptions{}, taskstate.TaskRun{
 		TaskRunID: "task-1",
-		Status:    task.TaskStatusRunning,
+		Status:    taskstate.TaskStatusRunning,
 	}, events)
 
 	if errorValue != nil {
@@ -1495,20 +1495,20 @@ func TestAdvanceAgentTaskReturnsFinishMessageEffectForSatisfiedBrowserOpen(t *te
 }
 
 func TestRestoreAgentTaskStateRestoresToolProgressOnly(t *testing.T) {
-	events := []task.TaskEvent{{
+	events := []taskstate.TaskEvent{{
 		Name: "tool.browser.open.result",
 		Body: `{"observationID":"obs-001","action":"continue","tool":"browser.open","content":"opened","isError":false}`,
 	}}
 
-	state, errorValue := restoreAgentTaskState(AgentTurnRequest{Prompt: "continue"}, TurnOptions{}, task.TaskRun{
+	state, errorValue := restoreAgentTaskState(AgentTurnRequest{Prompt: "continue"}, TurnOptions{}, taskstate.TaskRun{
 		TaskRunID: "task-1",
-		Status:    task.TaskStatusWaitingUserInput,
+		Status:    taskstate.TaskStatusWaitingUserInput,
 	}, events)
 
 	if errorValue != nil {
 		t.Fatalf("expected restored state: %v", errorValue)
 	}
-	if state.Status != task.TaskStatusWaitingUserInput {
+	if state.Status != taskstate.TaskStatusWaitingUserInput {
 		t.Fatalf("expected restored status, got %s", state.Status)
 	}
 	if len(state.Observations) != 1 || state.Observations[0].Tool != "browser.open" {
@@ -1517,15 +1517,15 @@ func TestRestoreAgentTaskStateRestoresToolProgressOnly(t *testing.T) {
 }
 
 func TestWaitingTaskResumeRestoresObservationsWithoutFlags(t *testing.T) {
-	taskEventService := task.NewTaskEventService()
-	taskRunService := task.NewTaskRunService(taskEventService)
+	taskEventService := taskstate.NewTaskEventService()
+	taskRunService := taskstate.NewTaskRunService(taskEventService)
 	taskRun := taskRunService.CreateTaskRun("person-1", "conversation-1", "find the note and tell me")
 	runningTaskRun, errorValue := taskRunService.AdvanceTaskRun(taskRun.TaskRunID, "assistant")
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
 	taskRunService.AppendTaskEvent(runningTaskRun.TaskRunID, "tool.message.search.result", `{"observationID":"obs-001","action":"continue","tool":"message.search","content":"{\"messageIDs\":[\"message-1\"]}","isError":false}`)
-	waitingTaskRun, errorValue := taskRunService.PauseTaskRun(runningTaskRun.TaskRunID, task.TaskStatusWaitingUserInput, "ask input")
+	waitingTaskRun, errorValue := taskRunService.PauseTaskRun(runningTaskRun.TaskRunID, taskstate.TaskStatusWaitingUserInput, "ask input")
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
@@ -1544,8 +1544,8 @@ func TestWaitingTaskResumeRestoresObservationsWithoutFlags(t *testing.T) {
 }
 
 func TestBlockedResumeRestoresPriorObservations(t *testing.T) {
-	taskEventService := task.NewTaskEventService()
-	taskRunService := task.NewTaskRunService(taskEventService)
+	taskEventService := taskstate.NewTaskEventService()
+	taskRunService := taskstate.NewTaskRunService(taskEventService)
 	taskRun := taskRunService.CreateTaskRun("person-1", "conversation-1", "build site")
 	runningTaskRun, errorValue := taskRunService.AdvanceTaskRun(taskRun.TaskRunID, "assistant")
 	if errorValue != nil {
@@ -1553,7 +1553,7 @@ func TestBlockedResumeRestoresPriorObservations(t *testing.T) {
 	}
 	taskRunService.AppendTaskEvent(runningTaskRun.TaskRunID, "tool.file.write.result", `{"observationID":"obs-001","action":"continue","tool":"file.write","content":"wrote app","isError":false}`)
 	taskRunService.AppendTaskEvent(runningTaskRun.TaskRunID, "tool.file.read.result", `{"observationID":"obs-003","action":"continue","tool":"file.read","content":"read app","isError":false}`)
-	blockedTaskRun, errorValue := taskRunService.PauseTaskRun(runningTaskRun.TaskRunID, task.TaskStatusBlocked, "max_iterations")
+	blockedTaskRun, errorValue := taskRunService.PauseTaskRun(runningTaskRun.TaskRunID, taskstate.TaskStatusBlocked, "max_iterations")
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
@@ -1632,7 +1632,7 @@ func TestUserResumeClearsInheritedFailureDebt(t *testing.T) {
 }
 
 func TestProducedSourcePathsRecoversSourceFilesFromDurableResults(t *testing.T) {
-	events := []task.TaskEvent{
+	events := []taskstate.TaskEvent{
 		toolResultTestEvent("tool.file.write.result", "obs-1", "file.write", `{"path":"tmp/deck/slides.html","sizeBytes":20}`, false),
 		toolResultTestEvent("tool.file.edit.result", "obs-2", "file.edit", `{"editedFiles":["tmp/deck/slides.html","tmp/deck/DESIGN.md"]}`, false),
 		toolResultTestEvent("tool.file.write.result", "obs-3", "file.write", `{"path":"tmp/deck/notes.md"}`, true),

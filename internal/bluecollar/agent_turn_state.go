@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/Dawn-kim-official/blueclaw/internal/model"
-	"github.com/Dawn-kim-official/blueclaw/internal/task"
+	"github.com/Dawn-kim-official/blueclaw/internal/taskstate"
 )
 
 const defaultAgentActionMaxTokens = 4096
@@ -22,7 +22,7 @@ type agentAction = turnActionDocument
 
 type agentTaskState struct {
 	TaskRunID                          string
-	Status                             task.TaskStatus
+	Status                             taskstate.TaskStatus
 	Request                            AgentTurnRequest
 	Options                            TurnOptions
 	Observations                       []turnObservation
@@ -105,7 +105,7 @@ func buildInitialAgentTaskState(request AgentTurnRequest, options TurnOptions, t
 	}
 	return agentTaskState{
 		TaskRunID:      taskRunID,
-		Status:         task.TaskStatusRunning,
+		Status:         taskstate.TaskStatusRunning,
 		Request:        request,
 		Options:        normalizeTurnOptions(options),
 		TurnStartedAt:  request.TurnStartedAt,
@@ -117,7 +117,7 @@ func buildInitialAgentTaskState(request AgentTurnRequest, options TurnOptions, t
 	}
 }
 
-func agentTaskStateForTurn(request AgentTurnRequest, options TurnOptions, taskRun task.TaskRun, events []task.TaskEvent, isPausedTaskResume bool) (agentTaskState, error) {
+func agentTaskStateForTurn(request AgentTurnRequest, options TurnOptions, taskRun taskstate.TaskRun, events []taskstate.TaskEvent, isPausedTaskResume bool) (agentTaskState, error) {
 	if !request.IsRuntimeRestartResume && !request.IsApprovalContinuation && !isPausedTaskResume {
 		state := buildInitialAgentTaskState(request, options, taskRun.TaskRunID)
 		state.Status = taskRun.Status
@@ -126,7 +126,7 @@ func agentTaskStateForTurn(request AgentTurnRequest, options TurnOptions, taskRu
 	return restoreAgentTaskState(request, options, taskRun, events)
 }
 
-func restoreAgentTaskState(request AgentTurnRequest, options TurnOptions, taskRun task.TaskRun, events []task.TaskEvent) (agentTaskState, error) {
+func restoreAgentTaskState(request AgentTurnRequest, options TurnOptions, taskRun taskstate.TaskRun, events []taskstate.TaskEvent) (agentTaskState, error) {
 	if shouldCleanRestartRestoredTask(events) {
 		return cleanRestartedAgentTaskState(request, options, taskRun, events), nil
 	}
@@ -163,7 +163,7 @@ func observationsWithoutFailures(observations []turnObservation) []turnObservati
 	return retained
 }
 
-func shouldCleanRestartRestoredTask(events []task.TaskEvent) bool {
+func shouldCleanRestartRestoredTask(events []taskstate.TaskEvent) bool {
 	lastStallIndex := -1
 	for index, event := range events {
 		switch event.Name {
@@ -182,7 +182,7 @@ func shouldCleanRestartRestoredTask(events []task.TaskEvent) bool {
 	return false
 }
 
-func cleanRestartedAgentTaskState(request AgentTurnRequest, options TurnOptions, taskRun task.TaskRun, events []task.TaskEvent) agentTaskState {
+func cleanRestartedAgentTaskState(request AgentTurnRequest, options TurnOptions, taskRun taskstate.TaskRun, events []taskstate.TaskEvent) agentTaskState {
 	state := buildInitialAgentTaskState(scrubRestoredGoalContext(request), options, taskRun.TaskRunID)
 	state.Status = taskRun.Status
 	durableObservations := durableDeliveryObservations(events)
@@ -196,7 +196,7 @@ func scrubRestoredGoalContext(request AgentTurnRequest) AgentTurnRequest {
 	return request
 }
 
-func durableDeliveryObservations(events []task.TaskEvent) []turnObservation {
+func durableDeliveryObservations(events []taskstate.TaskEvent) []turnObservation {
 	durable := []turnObservation{}
 	for _, observation := range observationsFromTaskEvents(events) {
 		if observation.Failed() {
@@ -214,7 +214,7 @@ func durableDeliveryObservations(events []task.TaskEvent) []turnObservation {
 // file.write/file.edit (path only, never the file body, so no stale content is
 // carried forward). Surfacing them structurally lets the restart continue the
 // exact same source in place instead of guessing what it was building.
-func producedSourcePaths(events []task.TaskEvent) []string {
+func producedSourcePaths(events []taskstate.TaskEvent) []string {
 	const maxSourcePaths = 8
 	seen := map[string]bool{}
 	paths := []string{}
@@ -1022,9 +1022,9 @@ func applyAgentAction(state agentTaskState, action agentAction) (agentTaskState,
 	case "continue":
 		state.ToolCallCount++
 	case "finish":
-		state.Status = task.TaskStatusCompleted
+		state.Status = taskstate.TaskStatusCompleted
 	case "fail":
-		state.Status = task.TaskStatusFailed
+		state.Status = taskstate.TaskStatusFailed
 	}
 	return state, nil
 }
@@ -1058,7 +1058,7 @@ func applyUserReply(state agentTaskState, reply agentUserReply) (agentTaskState,
 		return state, nil
 	}
 	state.PendingWait = nil
-	state.Status = task.TaskStatusRunning
+	state.Status = taskstate.TaskStatusRunning
 	state.Request.VisibleContext.Messages = append(state.Request.VisibleContext.Messages, VisibleContextMessage{
 		Speaker: state.Request.RequesterName,
 		Text:    strings.TrimSpace(reply.Text),
@@ -1073,7 +1073,7 @@ func qualityCriteriaForActionRequest(allowQualityCriteria bool) []qualityCriteri
 	return []qualityCriterion{{ID: "existing", Description: "existing criteria"}}
 }
 
-func observationsFromTaskEvents(events []task.TaskEvent) []turnObservation {
+func observationsFromTaskEvents(events []taskstate.TaskEvent) []turnObservation {
 	observations := []turnObservation{}
 	for _, event := range events {
 		if !strings.HasPrefix(event.Name, "tool.") || !strings.HasSuffix(event.Name, ".result") {

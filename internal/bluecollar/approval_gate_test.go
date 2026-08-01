@@ -6,7 +6,7 @@ import (
 	"github.com/Dawn-kim-official/blueclaw/internal/toolcontract"
 	"testing"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/task"
+	"github.com/Dawn-kim-official/blueclaw/internal/taskstate"
 )
 
 func TestTerminalRunModelApprovalPausesBeforeExecution(t *testing.T) {
@@ -35,7 +35,7 @@ func TestTerminalRunModelApprovalPausesBeforeExecution(t *testing.T) {
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
-	if firstResult.TaskRun.Status != task.TaskStatusWaitingApproval || len(invokedInputs) != 0 {
+	if firstResult.TaskRun.Status != taskstate.TaskStatusWaitingApproval || len(invokedInputs) != 0 {
 		t.Fatalf("expected approval before terminal execution, calls=%d result=%+v", len(invokedInputs), firstResult)
 	}
 
@@ -52,7 +52,7 @@ func TestTerminalRunModelApprovalPausesBeforeExecution(t *testing.T) {
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
-	if secondResult.TaskRun.Status != task.TaskStatusCompleted || len(invokedInputs) != 1 || invokedInputs[0] != terminalInput {
+	if secondResult.TaskRun.Status != taskstate.TaskStatusCompleted || len(invokedInputs) != 1 || invokedInputs[0] != terminalInput {
 		t.Fatalf("expected one approved terminal execution, calls=%+v result=%+v", invokedInputs, secondResult)
 	}
 }
@@ -130,7 +130,7 @@ func TestExecuteApprovedHeldCallConsumesGrantAfterVerbatimExecution(t *testing.T
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
-	if firstResult.TaskRun.Status != task.TaskStatusWaitingApproval {
+	if firstResult.TaskRun.Status != taskstate.TaskStatusWaitingApproval {
 		t.Fatalf("expected held call before execution, result=%+v", firstResult)
 	}
 
@@ -195,7 +195,7 @@ func TestApprovalContinuationKeepsPrePauseObservations(t *testing.T) {
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
-	if firstResult.TaskRun.Status != task.TaskStatusWaitingApproval || searchCallCount != 1 || deleteCallCount != 0 {
+	if firstResult.TaskRun.Status != taskstate.TaskStatusWaitingApproval || searchCallCount != 1 || deleteCallCount != 0 {
 		t.Fatalf("expected search then held delete, got search=%d delete=%d result=%+v", searchCallCount, deleteCallCount, firstResult)
 	}
 
@@ -217,7 +217,7 @@ func TestApprovalContinuationKeepsPrePauseObservations(t *testing.T) {
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
-	if secondResult.TaskRun.Status != task.TaskStatusCompleted {
+	if secondResult.TaskRun.Status != taskstate.TaskStatusCompleted {
 		t.Fatalf("expected the continuation to finish from restored evidence, got %+v", secondResult)
 	}
 	if searchCallCount != 1 || deleteCallCount != 1 {

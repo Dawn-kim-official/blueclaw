@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"strings"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/task"
+	"github.com/Dawn-kim-official/blueclaw/internal/taskstate"
 )
 
 const executionStateMaxCharacters = 2500
@@ -150,7 +150,7 @@ func executionStateIsEmpty(state ExecutionState) bool {
 		state.NextPlan == ""
 }
 
-func executionStateFromTaskEvents(events []task.TaskEvent) ExecutionState {
+func executionStateFromTaskEvents(events []taskstate.TaskEvent) ExecutionState {
 	for index := len(events) - 1; index >= 0; index-- {
 		event := events[index]
 		if strings.TrimSpace(event.Name) != "agent.execution_state" {

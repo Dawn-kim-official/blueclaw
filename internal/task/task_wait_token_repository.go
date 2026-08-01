@@ -21,7 +21,7 @@ func NewInMemoryTaskWaitTokenRepository() *InMemoryTaskWaitTokenRepository {
 func (repository *InMemoryTaskWaitTokenRepository) InsertTaskWaitToken(taskWaitToken TaskWaitToken) error {
 	taskWaitToken = normalizeTaskWaitToken(taskWaitToken)
 	if taskWaitToken.WaitID == "" {
-		taskWaitToken.WaitID = newIdentifier()
+		taskWaitToken.WaitID = NewIdentifier()
 	}
 	repository.mutex.Lock()
 	repository.taskWaitTokens[taskWaitToken.WaitID] = taskWaitToken

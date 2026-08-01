@@ -8,14 +8,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/task"
+	"github.com/Dawn-kim-official/blueclaw/internal/taskstate"
 )
 
 func TestArtifactManifestBoundsNewestFirstAndFiltersConversation(t *testing.T) {
 	workspaceRootPath := t.TempDir()
 	workspaceDefaultPath := filepath.Join(workspaceRootPath, "private", "people", "person-1")
-	taskRunService := task.NewTaskRunService(task.NewTaskEventService())
-	taskArtifactService := task.NewTaskArtifactService()
+	taskRunService := taskstate.NewTaskRunService(taskstate.NewTaskEventService())
+	taskArtifactService := taskstate.NewTaskArtifactService()
 	baseModifiedAt := time.Date(2026, time.June, 12, 1, 0, 0, 0, time.UTC)
 
 	for index := 0; index < 12; index++ {
@@ -56,8 +56,8 @@ func TestArtifactManifestBoundsNewestFirstAndFiltersConversation(t *testing.T) {
 func TestArtifactManifestIncludesTaskArtifactLedgerPath(t *testing.T) {
 	workspaceRootPath := t.TempDir()
 	workspaceDefaultPath := filepath.Join(workspaceRootPath, "private", "people", "person-1")
-	taskRunService := task.NewTaskRunService(task.NewTaskEventService())
-	taskArtifactService := task.NewTaskArtifactService()
+	taskRunService := taskstate.NewTaskRunService(taskstate.NewTaskEventService())
+	taskArtifactService := taskstate.NewTaskArtifactService()
 	modifiedAt := time.Date(2026, time.June, 12, 2, 0, 0, 0, time.UTC)
 	createManifestTestArtifact(t, workspaceDefaultPath, "ledger", modifiedAt)
 	taskRun := taskRunService.CreateTaskRun("person-1", "conversation-1", "make deck")

@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/task"
+	"github.com/Dawn-kim-official/blueclaw/internal/taskstate"
 )
 
 const artifactManifestEntryLimit = 10
@@ -30,7 +30,7 @@ type artifactManifestCandidate struct {
 	producingSkill string
 }
 
-func buildConversationArtifactManifest(request AgentTurnRequest, taskRunService *task.TaskRunService, taskArtifactService *task.TaskArtifactService) []ArtifactManifestEntry {
+func buildConversationArtifactManifest(request AgentTurnRequest, taskRunService taskstate.TaskRunStore, taskArtifactService taskstate.TaskArtifactStore) []ArtifactManifestEntry {
 	if taskRunService == nil || strings.TrimSpace(request.ConversationID) == "" {
 		return nil
 	}
@@ -47,10 +47,10 @@ func buildConversationArtifactManifest(request AgentTurnRequest, taskRunService 
 	return boundedArtifactManifestEntries(request, candidates)
 }
 
-func conversationArtifactTaskRuns(request AgentTurnRequest, taskRuns []task.TaskRun) []task.TaskRun {
+func conversationArtifactTaskRuns(request AgentTurnRequest, taskRuns []taskstate.TaskRun) []taskstate.TaskRun {
 	trimmedConversationID := strings.TrimSpace(request.ConversationID)
 	currentTaskRunID := strings.TrimSpace(request.ExistingTaskRunID)
-	matchingTaskRuns := []task.TaskRun{}
+	matchingTaskRuns := []taskstate.TaskRun{}
 	for _, taskRun := range taskRuns {
 		if strings.TrimSpace(taskRun.OriginConversationID) != trimmedConversationID {
 			continue
@@ -63,7 +63,7 @@ func conversationArtifactTaskRuns(request AgentTurnRequest, taskRuns []task.Task
 	return matchingTaskRuns
 }
 
-func artifactManifestCandidatesFromTaskEvents(taskRunID string, taskEvents []task.TaskEvent, producingSkill string) []artifactManifestCandidate {
+func artifactManifestCandidatesFromTaskEvents(taskRunID string, taskEvents []taskstate.TaskEvent, producingSkill string) []artifactManifestCandidate {
 	candidates := []artifactManifestCandidate{}
 	for _, taskEvent := range taskEvents {
 		toolName := artifactManifestToolNameFromEvent(taskEvent.Name)
@@ -75,7 +75,7 @@ func artifactManifestCandidatesFromTaskEvents(taskRunID string, taskEvents []tas
 	return candidates
 }
 
-func artifactManifestCandidatesFromTaskArtifacts(taskRunID string, taskArtifacts []task.TaskArtifact, producingSkill string) []artifactManifestCandidate {
+func artifactManifestCandidatesFromTaskArtifacts(taskRunID string, taskArtifacts []taskstate.TaskArtifact, producingSkill string) []artifactManifestCandidate {
 	candidates := []artifactManifestCandidate{}
 	for _, taskArtifact := range taskArtifacts {
 		toolName := artifactManifestToolNameFromEvent(taskArtifact.Name)
@@ -236,7 +236,7 @@ func artifactFileHint(taskRunID string, relativePath string) string {
 	return "artifact:" + url.PathEscape(strings.TrimSpace(taskRunID)) + ":" + url.QueryEscape(filepath.ToSlash(strings.TrimSpace(relativePath)))
 }
 
-func BuildConversationArtifactManifest(request AgentTurnRequest, taskRunService *task.TaskRunService, taskArtifactService *task.TaskArtifactService) []ArtifactManifestEntry {
+func BuildConversationArtifactManifest(request AgentTurnRequest, taskRunService taskstate.TaskRunStore, taskArtifactService taskstate.TaskArtifactStore) []ArtifactManifestEntry {
 	return buildConversationArtifactManifest(request, taskRunService, taskArtifactService)
 }
 
@@ -259,7 +259,7 @@ func pathIsInsideDirectory(directoryPath string, path string) bool {
 	return errorValue == nil && relativePath != "." && !strings.HasPrefix(relativePath, "..")
 }
 
-func selectedSkillNameFromTaskEvents(taskEvents []task.TaskEvent) string {
+func selectedSkillNameFromTaskEvents(taskEvents []taskstate.TaskEvent) string {
 	for eventIndex := len(taskEvents) - 1; eventIndex >= 0; eventIndex-- {
 		if strings.TrimSpace(taskEvents[eventIndex].Name) != "agent.instructions_loaded" {
 			continue

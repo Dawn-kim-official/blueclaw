@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/Dawn-kim-official/blueclaw/internal/model"
-	"github.com/Dawn-kim-official/blueclaw/internal/task"
+	"github.com/Dawn-kim-official/blueclaw/internal/taskstate"
 )
 
 func TestAgentTurnRunnerGeneratesFailureReplyAfterStructuredModelFailure(t *testing.T) {
@@ -27,7 +27,7 @@ func TestAgentTurnRunnerGeneratesFailureReplyAfterStructuredModelFailure(t *test
 	if errorValue != nil {
 		t.Fatalf("expected generated failure result, got error: %v", errorValue)
 	}
-	if result.TaskRun.Status != task.TaskStatusFailed {
+	if result.TaskRun.Status != taskstate.TaskStatusFailed {
 		t.Fatalf("expected failed task, got %s", result.TaskRun.Status)
 	}
 	if result.UserNotice != languageModel.reply {
@@ -107,7 +107,7 @@ func TestAgentTurnRunnerReportsRawErrorWhenAllModelCallsFail(t *testing.T) {
 	if errorValue != nil {
 		t.Fatalf("expected dynamic failure result, got error: %v", errorValue)
 	}
-	if result.TaskRun.Status != task.TaskStatusFailed {
+	if result.TaskRun.Status != taskstate.TaskStatusFailed {
 		t.Fatalf("expected failed task, got %s", result.TaskRun.Status)
 	}
 	if result.ReplySuppressed || !strings.Contains(result.UserNotice, "llm action failed: model unavailable") {
@@ -140,7 +140,7 @@ func TestAgentTurnRunnerHonorsCallerDeadlineDuringFailureReply(t *testing.T) {
 	if elapsed := time.Since(startedAt); elapsed >= 500*time.Millisecond {
 		t.Fatalf("expected one bounded failure grace, took %s", elapsed)
 	}
-	if result.TaskRun.Status != task.TaskStatusFailed || result.FailureNotice.Source != "raw_error" {
+	if result.TaskRun.Status != taskstate.TaskStatusFailed || result.FailureNotice.Source != "raw_error" {
 		t.Fatalf("expected failed raw-error result, got %+v", result)
 	}
 	if result.UserNotice == "" || result.TaskRun.Result != result.UserNotice {
@@ -189,14 +189,14 @@ func TestAgentTurnRunnerFinalizesFailureNoticeBeforeTerminalStatus(t *testing.T)
 		t.Fatal("expected failure notice generation to start")
 	}
 	taskRuns := services.taskRunService.ListTaskRunByPersonID("person-1")
-	if len(taskRuns) != 1 || taskRuns[0].Status != task.TaskStatusRunning {
+	if len(taskRuns) != 1 || taskRuns[0].Status != taskstate.TaskStatusRunning {
 		t.Fatalf("expected task to remain running during failure notice generation, got %+v", taskRuns)
 	}
 
 	close(recoveryChatRelease)
 	select {
 	case result := <-resultChannel:
-		if result.TaskRun.Status != task.TaskStatusFailed || result.UserNotice != languageModel.recoveryChatReply {
+		if result.TaskRun.Status != taskstate.TaskStatusFailed || result.UserNotice != languageModel.recoveryChatReply {
 			t.Fatalf("expected failed task with generated notice, got %+v", result)
 		}
 		if result.TaskRun.Result != result.UserNotice || result.FailureNotice.Source != "generated" {
@@ -208,7 +208,7 @@ func TestAgentTurnRunnerFinalizesFailureNoticeBeforeTerminalStatus(t *testing.T)
 	}
 }
 
-func assertFailureNoticeEventsBeforeTerminalStatus(t *testing.T, taskEvents []task.TaskEvent) {
+func assertFailureNoticeEventsBeforeTerminalStatus(t *testing.T, taskEvents []taskstate.TaskEvent) {
 	t.Helper()
 	eventIndexes := map[string]int{}
 	for eventIndex, taskEvent := range taskEvents {
@@ -275,7 +275,7 @@ func TestAgentTurnRunnerHonorsCallerDeadlineDuringMaxIterationsReply(t *testing.
 	if elapsed := time.Since(startedAt); elapsed >= 500*time.Millisecond {
 		t.Fatalf("expected bounded max-iterations reply grace, took %s", elapsed)
 	}
-	if result.TaskRun.Status != task.TaskStatusBlocked || result.FailureNotice.Source != "raw_error" {
+	if result.TaskRun.Status != taskstate.TaskStatusBlocked || result.FailureNotice.Source != "raw_error" {
 		t.Fatalf("expected blocked raw-error limit result, got %+v", result)
 	}
 	if result.UserNotice == "" || result.TaskRun.Result != result.UserNotice {
@@ -400,7 +400,7 @@ func TestAgentTurnRunnerDoesNotUseDeterministicCapabilityFallbackWhenActionModel
 	if errorValue != nil {
 		t.Fatalf("expected failed turn without deterministic capability reply: %v", errorValue)
 	}
-	if result.TaskRun.Status != task.TaskStatusFailed || result.ReplySuppressed || !strings.Contains(result.UserNotice, "structured action unavailable") {
+	if result.TaskRun.Status != taskstate.TaskStatusFailed || result.ReplySuppressed || !strings.Contains(result.UserNotice, "structured action unavailable") {
 		t.Fatalf("expected raw failed task notice, got status=%s reply=%q suppressed=%v", result.TaskRun.Status, result.UserNotice, result.ReplySuppressed)
 	}
 	if taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.capability_fallback", "schedule.list") {
@@ -512,7 +512,7 @@ func TestAgentTurnRunnerDeliversSafeDegradedFailureReplyWithoutStageAndCode(t *t
 	registerTestTool(toolRegistry, toolcontract.ToolDefinition{Name: "message.send"}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
 		return structuredFailureToolResult("recipient not found", "approved active Mattermost recipient was not found", "recipient_not_found", "recipient_resolve", false, false), nil
 	})
-	existingTaskRun := services.taskRunService.CreateTaskRunWithOrigin("person-1", task.TaskRunOrigin{ConversationID: "conversation-1"}, "정국에게 DM 보내줘")
+	existingTaskRun := services.taskRunService.CreateTaskRunWithOrigin("person-1", taskstate.TaskRunOrigin{ConversationID: "conversation-1"}, "정국에게 DM 보내줘")
 	services.taskEventService.AppendTaskEvent(existingTaskRun.TaskRunID, "agent.no_progress_loop_paused", "previous stall pause")
 
 	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
@@ -527,7 +527,7 @@ func TestAgentTurnRunnerDeliversSafeDegradedFailureReplyWithoutStageAndCode(t *t
 	if errorValue != nil {
 		t.Fatalf("expected structured failure result: %v", errorValue)
 	}
-	if result.TaskRun.Status != task.TaskStatusFailed {
+	if result.TaskRun.Status != taskstate.TaskStatusFailed {
 		t.Fatalf("expected failed task on exhausted recovery, got %s", result.TaskRun.Status)
 	}
 	if result.UserNotice != "요청을 처리하지 못했습니다." || result.ReplySuppressed {
@@ -565,7 +565,7 @@ func TestAgentTurnRunnerAcceptsGeneratedStructuredFailureReplyWithStageAndCode(t
 	if errorValue != nil {
 		t.Fatalf("expected structured failure result: %v", errorValue)
 	}
-	if result.TaskRun.Status != task.TaskStatusFailed {
+	if result.TaskRun.Status != taskstate.TaskStatusFailed {
 		t.Fatalf("expected failed task after exhausted recovery, got %s", result.TaskRun.Status)
 	}
 	if result.UserNotice != generatedReply {

@@ -4,7 +4,7 @@ import (
 	"github.com/Dawn-kim-official/blueclaw/internal/toolcontract"
 	"strings"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/task"
+	"github.com/Dawn-kim-official/blueclaw/internal/taskstate"
 )
 
 func expectedResultsIncludeSiteRequirement(results []ExpectedResult) bool {
@@ -867,7 +867,7 @@ func activeGoalFromExecutionPlan(taskRunID string, executionPlan ExecutionPlan, 
 	}
 }
 
-func activeGoalFromIntakeOnly(taskRunID string, request AgentRequest, intakeDecision IntakeDecision, status task.TaskStatus) ActiveGoal {
+func activeGoalFromIntakeOnly(taskRunID string, request AgentRequest, intakeDecision IntakeDecision, status taskstate.TaskStatus) ActiveGoal {
 	return ActiveGoal{
 		GoalID:              strings.TrimSpace(taskRunID),
 		TaskRunID:           strings.TrimSpace(taskRunID),
@@ -877,30 +877,30 @@ func activeGoalFromIntakeOnly(taskRunID string, request AgentRequest, intakeDeci
 	}
 }
 
-func activeGoalStatusForTaskStatus(status task.TaskStatus) ActiveGoalStatus {
+func activeGoalStatusForTaskStatus(status taskstate.TaskStatus) ActiveGoalStatus {
 	switch status {
-	case task.TaskStatusWaitingUserInput:
+	case taskstate.TaskStatusWaitingUserInput:
 		return ActiveGoalStatusWaitingUserInput
-	case task.TaskStatusWaitingApproval:
+	case taskstate.TaskStatusWaitingApproval:
 		return ActiveGoalStatusWaitingApproval
-	case task.TaskStatusCompleted:
+	case taskstate.TaskStatusCompleted:
 		return ActiveGoalStatusCompleted
-	case task.TaskStatusBlocked, task.TaskStatusFailed, task.TaskStatusCancelled:
+	case taskstate.TaskStatusBlocked, taskstate.TaskStatusFailed, taskstate.TaskStatusCancelled:
 		return ActiveGoalStatusBlocked
 	default:
 		return ActiveGoalStatusActive
 	}
 }
 
-func activeGoalEventNameForTaskStatus(status task.TaskStatus) string {
+func activeGoalEventNameForTaskStatus(status taskstate.TaskStatus) string {
 	switch status {
-	case task.TaskStatusWaitingUserInput:
+	case taskstate.TaskStatusWaitingUserInput:
 		return "agent.goal.waiting_user_input"
-	case task.TaskStatusWaitingApproval:
+	case taskstate.TaskStatusWaitingApproval:
 		return "agent.goal.waiting_approval"
-	case task.TaskStatusCompleted:
+	case taskstate.TaskStatusCompleted:
 		return "agent.goal.completed"
-	case task.TaskStatusBlocked, task.TaskStatusFailed, task.TaskStatusCancelled:
+	case taskstate.TaskStatusBlocked, taskstate.TaskStatusFailed, taskstate.TaskStatusCancelled:
 		return "agent.goal.blocked"
 	default:
 		return "agent.goal.updated"

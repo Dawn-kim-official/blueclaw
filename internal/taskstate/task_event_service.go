@@ -1,4 +1,4 @@
-package task
+package taskstate
 
 import (
 	"sync"
@@ -9,12 +9,6 @@ type TaskEventRepository interface {
 	InsertTaskEvent(TaskEvent) error
 	ListTaskEvent(string) ([]TaskEvent, error)
 	ListTaskEventByNameForTaskRuns([]string, string) ([]TaskEvent, error)
-}
-
-type RawTurnEvent struct {
-	TaskRunID string
-	Name      string
-	Body      string
 }
 
 type TaskEventService struct {
@@ -81,7 +75,7 @@ func (taskEventService *TaskEventService) AppendTaskEvent(taskRunID string, name
 
 func (taskEventService *TaskEventService) AppendTaskEventWithError(taskRunID string, name string, body string) (TaskEvent, error) {
 	taskEvent := TaskEvent{
-		TaskEventID: newIdentifier(),
+		TaskEventID: NewIdentifier(),
 		TaskRunID:   taskRunID,
 		Name:        name,
 		Body:        body,
