@@ -124,11 +124,14 @@ function basenameOf(url: string): string {
 
 function reactionDisplayOf(event: BuzzEvent): { emoji: string; imageURL?: string } {
 	const content = event.content.trim();
-	if (content.startsWith(":") && content.endsWith(":")) {
-		const shortcode = content.slice(1, -1);
-		const emojiTag = event.tags.find((tag) => tag[0] === "emoji" && tag[1] === shortcode);
-		return { emoji: content, imageURL: emojiTag?.[2] };
-	}
+	const shortcode =
+		content.startsWith(":") && content.endsWith(":") ? content.slice(1, -1) : content;
+	const emojiTag = event.tags.find((tag) => tag[0] === "emoji" && tag[1] === shortcode);
+	if (emojiTag?.[2]) return { emoji: content, imageURL: emojiTag[2] };
+	// A bare emoji name (e.g. white_check_mark, mirrored from Mattermost) resolves
+	// to its unicode; content that is already unicode is not a shortcode name and
+	// passes through untouched.
+	if (/^[a-z0-9_+-]+$/i.test(shortcode)) return { emoji: reactionContentOf(shortcode) };
 	return { emoji: content };
 }
 
