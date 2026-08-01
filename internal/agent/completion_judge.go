@@ -52,18 +52,18 @@ func (agentTurnRunner *AgentTurnRunner) validateCompletionGateWithJudge(ctx cont
 		!observationsIncludeSideEffect(request.ToolSet, observations) {
 		return completionGateResult
 	}
-	if judgeResult := agentTurnRunner.evaluateCompletionJudge(ctx, taskRunID, request, observations, actionDocument); !judgeResult.IsSatisfied {
+	if judgeResult := agentTurnRunner.evaluateCompletionJudge(ctx, taskRunID, request, observations, deliveredCompletionAttachments(observations, actionDocument), actionDocument); !judgeResult.IsSatisfied {
 		return judgeResult
 	}
 	return completionGateResult
 }
 
-func (agentTurnRunner *AgentTurnRunner) evaluateCompletionJudge(ctx context.Context, taskRunID string, request AgentTurnRequest, observations []turnObservation, actionDocument turnActionDocument) completionGateResult {
+func (agentTurnRunner *AgentTurnRunner) evaluateCompletionJudge(ctx context.Context, taskRunID string, request AgentTurnRequest, observations []turnObservation, attachments []FileAttachment, actionDocument turnActionDocument) completionGateResult {
 	if agentTurnRunner.languageModel == nil {
 		agentTurnRunner.appendEvent(taskRunID, "completion_judge.degraded", marshalEventBody(map[string]string{"error": "completion judge language model was not configured"}))
 		return completionGateResult{IsSatisfied: true}
 	}
-	response, errorValue := agentTurnRunner.languageModel.GenerateStructuredResponse(ctx, completionJudgeRequest(request, observations, actionDocument))
+	response, errorValue := agentTurnRunner.languageModel.GenerateStructuredResponse(ctx, completionJudgeRequest(request, observations, attachments, actionDocument))
 	if errorValue != nil {
 		agentTurnRunner.appendEvent(taskRunID, "completion_judge.degraded", marshalEventBody(map[string]string{"error": errorValue.Error()}))
 		return completionGateResult{IsSatisfied: true}
@@ -104,9 +104,9 @@ func completionJudgeUnsatisfiedMessage(verdict completionJudgeVerdict) string {
 	return reason + " Missing: " + missingWorkText
 }
 
-func completionJudgeRequest(request AgentTurnRequest, observations []turnObservation, actionDocument turnActionDocument) llm.StructuredResponseRequest {
+func completionJudgeRequest(request AgentTurnRequest, observations []turnObservation, attachments []FileAttachment, actionDocument turnActionDocument) llm.StructuredResponseRequest {
 	return llm.StructuredResponseRequest{
-		Messages: completionJudgeMessages(request, observations, actionDocument),
+		Messages: completionJudgeMessages(request, observations, attachments, actionDocument),
 		StructuredOutputSchema: llm.StructuredOutputSchema{
 			Name:               completionJudgeSchemaName,
 			Document:           completionJudgeSchema(),
@@ -116,7 +116,7 @@ func completionJudgeRequest(request AgentTurnRequest, observations []turnObserva
 	}
 }
 
-func completionJudgeMessages(request AgentTurnRequest, observations []turnObservation, actionDocument turnActionDocument) []llm.Message {
+func completionJudgeMessages(request AgentTurnRequest, observations []turnObservation, attachments []FileAttachment, actionDocument turnActionDocument) []llm.Message {
 	messages := []llm.Message{
 		{Role: "system", Content: completionJudgeInstruction()},
 		{Role: "system", Content: buildTemporalContextDescription(request.TurnStartedAt)},
@@ -131,14 +131,15 @@ func completionJudgeMessages(request AgentTurnRequest, observations []turnObserv
 	if planContext := completionJudgePlanContext(observations); planContext != "" {
 		messages = append(messages, llm.Message{Role: "system", Content: planContext})
 	}
-	messages = append(messages, llm.Message{Role: "system", Content: completionJudgeAttachmentDescription(attachmentsFromObservations(observations))})
+	messages = append(messages, llm.Message{Role: "system", Content: completionJudgeAttachmentDescription(attachments)})
 	messages = append(messages, llm.Message{Role: "user", Content: "Recorded successful operations this turn, reads and state changes alike:\n" + completionJudgeLedgerDocument(request.ToolSet, observations)})
 	return messages
 }
 
-// The ledger records deliveries as individual operations, leaving the judge to
-// reconstruct the resulting attachment set from history. Only the runtime knows
-// that set, so state it instead of having the judge infer it.
+// The ledger records every delivery the turn performed, but only the ones this
+// completion cites are actually sent. Judging attachment requirements against
+// the ledger therefore fails a turn for files the person never receives, and
+// passes one whose cited file is not the deliverable. State the sent set.
 func completionJudgeAttachmentDescription(attachments []FileAttachment) string {
 	if len(attachments) == 0 {
 		return "Files this completion attaches for the user: none."
@@ -152,6 +153,13 @@ func completionJudgeAttachmentDescription(attachments []FileAttachment) string {
 		strings.Join(filenames, "\n"),
 		"Judge attachment requirements against exactly this list.",
 	}, "\n")
+}
+
+// The attachments a finish sends are the ones its completion evidence cites,
+// resolved the same way the gate resolves them, so the judge and the delivery
+// never disagree about what the person receives.
+func deliveredCompletionAttachments(observations []turnObservation, actionDocument turnActionDocument) []FileAttachment {
+	return collectReferenceDeliveryAttachments(observations, actionDocument.CompletionEvidence)
 }
 
 func completionJudgeInstruction() string {

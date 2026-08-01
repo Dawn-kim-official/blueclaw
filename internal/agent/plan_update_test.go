@@ -246,14 +246,14 @@ func TestCompletionJudgeMessagesIncludePlanChecklistHint(t *testing.T) {
 		planUpdateSuccessObservation("obs-001", `{"goal":"ship","steps":[{"title":"build the deck","status":"done"}]}`),
 	}
 
-	messages := completionJudgeMessages(AgentTurnRequest{Prompt: "make a deck"}, observations, turnActionDocument{})
+	messages := completionJudgeMessages(AgentTurnRequest{Prompt: "make a deck"}, observations, nil, turnActionDocument{})
 	joined := joinedMessageContent(messages)
 
 	if !strings.Contains(joined, "checklist hint") || !strings.Contains(joined, "build the deck") {
 		t.Fatalf("expected plan checklist hint in judge prompt, got %s", joined)
 	}
 
-	messagesWithoutPlan := completionJudgeMessages(AgentTurnRequest{Prompt: "make a deck"}, nil, turnActionDocument{})
+	messagesWithoutPlan := completionJudgeMessages(AgentTurnRequest{Prompt: "make a deck"}, nil, nil, turnActionDocument{})
 	if strings.Contains(joinedMessageContent(messagesWithoutPlan), "checklist hint") {
 		t.Fatal("expected no plan hint without a plan.update observation")
 	}
