@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/Dawn-kim-official/blueclaw/internal/llm"
+	"github.com/Dawn-kim-official/blueclaw/internal/model"
 	"github.com/Dawn-kim-official/blueclaw/internal/task"
 )
 
@@ -35,7 +36,7 @@ func TestAgentKernelGeneratesChatReplyWithoutTools(t *testing.T) {
 	taskStepService := task.NewTaskStepService()
 	agentKernel := NewAgentKernel(taskRunService, taskStepService)
 	replyProvider := &chatReplyProvider{
-		response: llm.ChatCompletionResponse{Message: llm.ChatCompletionMessage{Role: "assistant", Content: "  hello from chat  "}},
+		response: model.ChatCompletionResponse{Message: model.ChatCompletionMessage{Role: "assistant", Content: "  hello from chat  "}},
 	}
 	agentKernel.UseLanguageModelProvider(replyProvider)
 
@@ -67,7 +68,7 @@ func TestAgentKernelResolvesChatReplyThroughFallbackProvider(t *testing.T) {
 	taskStepService := task.NewTaskStepService()
 	agentKernel := NewAgentKernel(taskRunService, taskStepService)
 	replyProvider := &chatReplyProvider{
-		response: llm.ChatCompletionResponse{Message: llm.ChatCompletionMessage{Content: "fallback chat"}},
+		response: model.ChatCompletionResponse{Message: model.ChatCompletionMessage{Content: "fallback chat"}},
 	}
 	agentKernel.UseLanguageModelProvider(llm.FallbackLanguageModelProvider{
 		PrimaryProvider:  staticReplyProvider{content: `{"reply":"structured"}`},
@@ -89,7 +90,7 @@ func TestAgentKernelRejectsEmptyChatReply(t *testing.T) {
 	taskStepService := task.NewTaskStepService()
 	agentKernel := NewAgentKernel(taskRunService, taskStepService)
 	replyProvider := &chatReplyProvider{
-		response: llm.ChatCompletionResponse{Message: llm.ChatCompletionMessage{Content: "  "}},
+		response: model.ChatCompletionResponse{Message: model.ChatCompletionMessage{Content: "  "}},
 	}
 	agentKernel.UseLanguageModelProvider(replyProvider)
 
@@ -266,10 +267,10 @@ func (replyProvider staticReplyProvider) GenerateResponse(responseContext contex
 	return replyProvider.content, nil
 }
 
-func (replyProvider staticReplyProvider) GenerateStructuredResponse(responseContext context.Context, structuredResponseRequest llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
+func (replyProvider staticReplyProvider) GenerateStructuredResponse(responseContext context.Context, structuredResponseRequest model.StructuredResponseRequest) (model.StructuredResponse, error) {
 	_ = responseContext
 	_ = structuredResponseRequest
-	return llm.StructuredResponse{Content: replyProvider.content}, nil
+	return model.StructuredResponse{Content: replyProvider.content}, nil
 }
 
 func (replyProvider *structuredOnlyReplyProvider) GenerateResponse(responseContext context.Context, prompt string) (string, error) {
@@ -278,22 +279,22 @@ func (replyProvider *structuredOnlyReplyProvider) GenerateResponse(responseConte
 	return "", nil
 }
 
-func (replyProvider *structuredOnlyReplyProvider) GenerateStructuredResponse(responseContext context.Context, structuredResponseRequest llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
+func (replyProvider *structuredOnlyReplyProvider) GenerateStructuredResponse(responseContext context.Context, structuredResponseRequest model.StructuredResponseRequest) (model.StructuredResponse, error) {
 	_ = responseContext
 	_ = structuredResponseRequest
 	replyProvider.structuredCallCount++
-	return llm.StructuredResponse{}, nil
+	return model.StructuredResponse{}, nil
 }
 
 type capturingReplyProvider struct {
 	content string
-	request llm.ChatCompletionRequest
+	request model.ChatCompletionRequest
 }
 
 type chatReplyProvider struct {
-	response            llm.ChatCompletionResponse
+	response            model.ChatCompletionResponse
 	chatError           error
-	request             llm.ChatCompletionRequest
+	request             model.ChatCompletionRequest
 	responseContext     context.Context
 	structuredCallCount int
 }
@@ -304,14 +305,14 @@ func (replyProvider *chatReplyProvider) GenerateResponse(responseContext context
 	return "", nil
 }
 
-func (replyProvider *chatReplyProvider) GenerateStructuredResponse(responseContext context.Context, structuredResponseRequest llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
+func (replyProvider *chatReplyProvider) GenerateStructuredResponse(responseContext context.Context, structuredResponseRequest model.StructuredResponseRequest) (model.StructuredResponse, error) {
 	_ = responseContext
 	_ = structuredResponseRequest
 	replyProvider.structuredCallCount++
-	return llm.StructuredResponse{}, nil
+	return model.StructuredResponse{}, nil
 }
 
-func (replyProvider *chatReplyProvider) GenerateChatCompletion(responseContext context.Context, request llm.ChatCompletionRequest) (llm.ChatCompletionResponse, error) {
+func (replyProvider *chatReplyProvider) GenerateChatCompletion(responseContext context.Context, request model.ChatCompletionRequest) (model.ChatCompletionResponse, error) {
 	replyProvider.responseContext = responseContext
 	replyProvider.request = request
 	return replyProvider.response, replyProvider.chatError
@@ -323,24 +324,24 @@ func (replyProvider *capturingReplyProvider) GenerateResponse(responseContext co
 	return replyProvider.content, nil
 }
 
-func (replyProvider *capturingReplyProvider) GenerateStructuredResponse(responseContext context.Context, structuredResponseRequest llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
+func (replyProvider *capturingReplyProvider) GenerateStructuredResponse(responseContext context.Context, structuredResponseRequest model.StructuredResponseRequest) (model.StructuredResponse, error) {
 	_ = responseContext
 	_ = structuredResponseRequest
-	return llm.StructuredResponse{}, errors.New("structured reply generation is not supported")
+	return model.StructuredResponse{}, errors.New("structured reply generation is not supported")
 }
 
-func (replyProvider *capturingReplyProvider) GenerateChatCompletion(responseContext context.Context, request llm.ChatCompletionRequest) (llm.ChatCompletionResponse, error) {
+func (replyProvider *capturingReplyProvider) GenerateChatCompletion(responseContext context.Context, request model.ChatCompletionRequest) (model.ChatCompletionResponse, error) {
 	_ = responseContext
 	replyProvider.request = request
-	return llm.ChatCompletionResponse{
-		Message: llm.ChatCompletionMessage{
+	return model.ChatCompletionResponse{
+		Message: model.ChatCompletionMessage{
 			Role:    "assistant",
 			Content: replyProvider.content,
 		},
 	}, nil
 }
 
-func joinChatMessageContent(messages []llm.ChatCompletionMessage) string {
+func joinChatMessageContent(messages []model.ChatCompletionMessage) string {
 	content := make([]string, 0, len(messages))
 	for _, message := range messages {
 		content = append(content, message.Content)

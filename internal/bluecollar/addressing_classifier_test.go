@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/llm"
+	"github.com/Dawn-kim-official/blueclaw/internal/model"
 )
 
 func TestAddressingClassificationSchemaOmitsReasonByDefault(t *testing.T) {
@@ -117,6 +117,6 @@ func (languageModel addressingStaticLanguageModel) GenerateResponse(context.Cont
 	return "", nil
 }
 
-func (languageModel addressingStaticLanguageModel) GenerateStructuredResponse(context.Context, llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
-	return llm.StructuredResponse{Content: languageModel.content}, nil
+func (languageModel addressingStaticLanguageModel) GenerateStructuredResponse(context.Context, model.StructuredResponseRequest) (model.StructuredResponse, error) {
+	return model.StructuredResponse{Content: languageModel.content}, nil
 }

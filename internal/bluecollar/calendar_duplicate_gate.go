@@ -7,7 +7,7 @@ import (
 	"github.com/Dawn-kim-official/blueclaw/internal/toolcontract"
 	"strings"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/llm"
+	"github.com/Dawn-kim-official/blueclaw/internal/model"
 )
 
 const calendarAddOperation = "calendar.add"
@@ -94,9 +94,9 @@ func (agentTurnRunner *AgentTurnRunner) judgeCalendarDuplicate(ctx context.Conte
 	if agentTurnRunner.languageModel == nil {
 		return false
 	}
-	response, errorValue := agentTurnRunner.languageModel.GenerateStructuredResponse(ctx, llm.StructuredResponseRequest{
+	response, errorValue := agentTurnRunner.languageModel.GenerateStructuredResponse(ctx, model.StructuredResponseRequest{
 		Messages: calendarDuplicateJudgeMessages(addInput, existingEvents),
-		StructuredOutputSchema: llm.StructuredOutputSchema{
+		StructuredOutputSchema: model.StructuredOutputSchema{
 			Name:               "blueclaw_calendar_duplicate_judge",
 			Document:           calendarDuplicateJudgeSchema(),
 			IsStrictlyEnforced: true,
@@ -121,7 +121,7 @@ func calendarDuplicateSkippedMessage(existingEvent calendarListedEvent, response
 	return fmt.Sprintf("이미 같은 시각에 '%s' 일정이 등록돼 있어 새로 추가하지 않았습니다. 기존 일정(id=%s)을 그대로 유지합니다.", title, eventID)
 }
 
-func calendarDuplicateJudgeMessages(addInput calendarAddInput, existingEvents []calendarListedEvent) []llm.Message {
+func calendarDuplicateJudgeMessages(addInput calendarAddInput, existingEvents []calendarListedEvent) []model.Message {
 	existingLines := []string{}
 	for _, event := range existingEvents {
 		existingLines = append(existingLines, fmt.Sprintf("- id=%s | %s | %s ~ %s", strings.TrimSpace(event.ID), strings.TrimSpace(event.Title), event.StartISO, event.EndISO))
@@ -134,7 +134,7 @@ func calendarDuplicateJudgeMessages(addInput calendarAddInput, existingEvents []
 		"Existing events:",
 		strings.Join(existingLines, "\n"),
 	}, "\n")
-	return []llm.Message{
+	return []model.Message{
 		{Role: "system", Content: "You are a calendar duplicate judge. Output only the structured judgment."},
 		{Role: "user", Content: userContent},
 	}

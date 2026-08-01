@@ -10,22 +10,22 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/llm"
+	"github.com/Dawn-kim-official/blueclaw/internal/model"
 )
 
 type completionJudgeStubLanguageModel struct {
-	response   llm.StructuredResponse
+	response   model.StructuredResponse
 	errorValue error
-	requests   []llm.StructuredResponseRequest
+	requests   []model.StructuredResponseRequest
 }
 
-func (model *completionJudgeStubLanguageModel) GenerateResponse(context.Context, string) (string, error) {
+func (languageModel *completionJudgeStubLanguageModel) GenerateResponse(context.Context, string) (string, error) {
 	return "", nil
 }
 
-func (model *completionJudgeStubLanguageModel) GenerateStructuredResponse(_ context.Context, request llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
-	model.requests = append(model.requests, request)
-	return model.response, model.errorValue
+func (languageModel *completionJudgeStubLanguageModel) GenerateStructuredResponse(_ context.Context, request model.StructuredResponseRequest) (model.StructuredResponse, error) {
+	languageModel.requests = append(languageModel.requests, request)
+	return languageModel.response, languageModel.errorValue
 }
 
 func completionJudgeTestToolSet() *toolcontract.ToolSet {
@@ -190,7 +190,7 @@ func TestEvaluateCompletionJudgeFailsOpenOnProviderError(t *testing.T) {
 }
 
 func TestEvaluateCompletionJudgeFailsOpenOnMalformedContent(t *testing.T) {
-	languageModel := &completionJudgeStubLanguageModel{response: llm.StructuredResponse{Content: "not json"}}
+	languageModel := &completionJudgeStubLanguageModel{response: model.StructuredResponse{Content: "not json"}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
 	request := AgentTurnRequest{Prompt: "task", OutcomeContract: OutcomeContract{RequiredEvidenceTools: []string{"task.add"}}}
 
@@ -205,7 +205,7 @@ func TestEvaluateCompletionJudgeFailsOpenOnMalformedContent(t *testing.T) {
 }
 
 func TestEvaluateCompletionJudgeRecordsUnsatisfiedVerdictEvent(t *testing.T) {
-	languageModel := &completionJudgeStubLanguageModel{response: llm.StructuredResponse{Content: `{"satisfied":false,"missingWork":["endDate is missing"],"reason":"missing due date"}`}}
+	languageModel := &completionJudgeStubLanguageModel{response: model.StructuredResponse{Content: `{"satisfied":false,"missingWork":["endDate is missing"],"reason":"missing due date"}`}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
 	request := AgentTurnRequest{Prompt: "task", OutcomeContract: OutcomeContract{RequiredEvidenceTools: []string{"task.add"}}}
 
@@ -223,7 +223,7 @@ func TestEvaluateCompletionJudgeRecordsUnsatisfiedVerdictEvent(t *testing.T) {
 }
 
 func TestValidateCompletionGateWithJudgeSkipsJudgeWithoutSideEffectEvidence(t *testing.T) {
-	languageModel := &completionJudgeStubLanguageModel{response: llm.StructuredResponse{Content: `{"satisfied":false,"missingWork":[],"reason":"should not run"}`}}
+	languageModel := &completionJudgeStubLanguageModel{response: model.StructuredResponse{Content: `{"satisfied":false,"missingWork":[],"reason":"should not run"}`}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
 	request := AgentTurnRequest{
 		Prompt:          "read only task",
@@ -243,7 +243,7 @@ func TestValidateCompletionGateWithJudgeSkipsJudgeWithoutSideEffectEvidence(t *t
 }
 
 func TestValidateCompletionGateWithJudgeSkipsJudgeWhenDeterministicGateFails(t *testing.T) {
-	languageModel := &completionJudgeStubLanguageModel{response: llm.StructuredResponse{Content: `{"satisfied":true,"missingWork":[],"reason":"unused"}`}}
+	languageModel := &completionJudgeStubLanguageModel{response: model.StructuredResponse{Content: `{"satisfied":true,"missingWork":[],"reason":"unused"}`}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
 	request := AgentTurnRequest{
 		Prompt:          "side effect task",
@@ -262,7 +262,7 @@ func TestValidateCompletionGateWithJudgeSkipsJudgeWhenDeterministicGateFails(t *
 }
 
 func TestValidateCompletionGateWithJudgeReturnsJudgeUnsatisfied(t *testing.T) {
-	languageModel := &completionJudgeStubLanguageModel{response: llm.StructuredResponse{Content: `{"satisfied":false,"missingWork":["endDate is missing"],"reason":"missing due date"}`}}
+	languageModel := &completionJudgeStubLanguageModel{response: model.StructuredResponse{Content: `{"satisfied":false,"missingWork":["endDate is missing"],"reason":"missing due date"}`}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
 	request := AgentTurnRequest{
 		Prompt:          "add a task to check the missing quarterly settlement, due July 24",
@@ -282,7 +282,7 @@ func TestValidateCompletionGateWithJudgeReturnsJudgeUnsatisfied(t *testing.T) {
 }
 
 func TestCompletionGateRunsJudgeFromLedgerWhenContractIsEmpty(t *testing.T) {
-	languageModel := &completionJudgeStubLanguageModel{response: llm.StructuredResponse{Content: `{"satisfied":false,"missingWork":["endDate is empty"],"reason":"no due date set"}`}}
+	languageModel := &completionJudgeStubLanguageModel{response: model.StructuredResponse{Content: `{"satisfied":false,"missingWork":["endDate is empty"],"reason":"no due date set"}`}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
 	request := AgentTurnRequest{Prompt: "add task", ToolSet: completionJudgeTestToolSet()}
 	observations := []turnObservation{successfulSideEffectObservation("obs-001", "task.add", `{"title":"t"}`, `{"endDate":""}`)}

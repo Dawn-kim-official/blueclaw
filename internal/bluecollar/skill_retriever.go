@@ -12,7 +12,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/llm"
+	"github.com/Dawn-kim-official/blueclaw/internal/model"
 )
 
 const defaultEmbeddingModelName = "embedding.create"
@@ -60,7 +60,7 @@ type SkillSearchDocument struct {
 }
 
 type EmbeddingSkillRetriever struct {
-	EmbeddingProvider llm.EmbeddingProvider
+	EmbeddingProvider model.EmbeddingProvider
 	IndexPath         string
 	EmbeddingModel    string
 	mutex             sync.Mutex
@@ -68,7 +68,7 @@ type EmbeddingSkillRetriever struct {
 	isLoaded          bool
 }
 
-func NewEmbeddingSkillRetriever(embeddingProvider llm.EmbeddingProvider, indexPath string) *EmbeddingSkillRetriever {
+func NewEmbeddingSkillRetriever(embeddingProvider model.EmbeddingProvider, indexPath string) *EmbeddingSkillRetriever {
 	return &EmbeddingSkillRetriever{
 		EmbeddingProvider: embeddingProvider,
 		IndexPath:         strings.TrimSpace(indexPath),

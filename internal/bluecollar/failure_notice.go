@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/Dawn-kim-official/blueclaw/internal/llm"
+	"github.com/Dawn-kim-official/blueclaw/internal/model"
 )
 
 const (
@@ -54,7 +55,7 @@ type FailureNoticeGenerationStatus struct {
 const elapsedLimitRawErrorSummary = "Execution limit reached; completed progress was saved for continuation."
 
 type FailureNoticeGenerator struct {
-	LanguageModel llm.LanguageModelProvider
+	LanguageModel model.LanguageModelProvider
 }
 
 type IntakeReport struct {
@@ -101,7 +102,7 @@ func buildFailureReport(request AgentTurnRequest, taskRunID string, phase string
 }
 
 func recoveryFinalizationContextWithParent(parentContext context.Context, request AgentTurnRequest) (context.Context, context.CancelFunc) {
-	recoveryContext := llm.ContextWithRequestContext(parentContext, llm.RequestContext{
+	recoveryContext := model.ContextWithRequestContext(parentContext, model.RequestContext{
 		RequesterPersonID:       request.RequesterPersonID,
 		RequesterEmail:          request.RequesterEmail,
 		RequesterName:           request.RequesterName,
@@ -276,7 +277,7 @@ func (generator FailureNoticeGenerator) generateLocalRecoveryText(ctx context.Co
 	return reply, errorValue
 }
 
-func generateRecoveryChatText(ctx context.Context, provider llm.LanguageModelProvider, schemaName string, prompt string) (string, error, bool) {
+func generateRecoveryChatText(ctx context.Context, provider model.LanguageModelProvider, schemaName string, prompt string) (string, error, bool) {
 	recoveryProvider, isAvailable := llm.ResolveRecoveryChatCompleter(provider)
 	if !isAvailable {
 		return "", nil, false
@@ -285,11 +286,11 @@ func generateRecoveryChatText(ctx context.Context, provider llm.LanguageModelPro
 	if errorValue != nil {
 		return "", errorValue, true
 	}
-	reply, errorValue := llm.RecoveryChatCompletionText(response)
+	reply, errorValue := model.RecoveryChatCompletionText(response)
 	return reply, errorValue, true
 }
 
-func generateLocalRecoveryChatText(ctx context.Context, provider llm.LanguageModelProvider, schemaName string, prompt string) (string, error, bool) {
+func generateLocalRecoveryChatText(ctx context.Context, provider model.LanguageModelProvider, schemaName string, prompt string) (string, error, bool) {
 	localRecoveryProvider, isAvailable := llm.ResolveLocalRecoveryChatCompleter(provider)
 	if !isAvailable {
 		return "", nil, false
@@ -298,14 +299,14 @@ func generateLocalRecoveryChatText(ctx context.Context, provider llm.LanguageMod
 	if errorValue != nil {
 		return "", errorValue, true
 	}
-	reply, errorValue := llm.RecoveryChatCompletionText(response)
+	reply, errorValue := model.RecoveryChatCompletionText(response)
 	return reply, errorValue, true
 }
 
-func recoveryChatCompletionRequest(schemaName string, prompt string) llm.ChatCompletionRequest {
-	return llm.ChatCompletionRequest{
+func recoveryChatCompletionRequest(schemaName string, prompt string) model.ChatCompletionRequest {
+	return model.ChatCompletionRequest{
 		SchemaName: schemaName,
-		Messages: []llm.ChatCompletionMessage{{
+		Messages: []model.ChatCompletionMessage{{
 			Role:    "user",
 			Content: prompt,
 		}},

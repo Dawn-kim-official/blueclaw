@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/llm"
+	"github.com/Dawn-kim-official/blueclaw/internal/model"
 )
 
 func (agentTurnRunner *AgentTurnRunner) recordToolObservation(taskRunID string, state *agentTaskState, actionDocument turnActionDocument, successfulToolCalls map[string]turnObservation, observation turnObservation, recoveryStep string) {
@@ -178,7 +178,7 @@ const rawToolResultInlineLimit = 2000
 
 const semanticToolSummaryTarget = 1200
 
-func modelVisibleToolResultSummary(ctx context.Context, languageModel llm.LanguageModelProvider, toolName string, observation turnObservation) string {
+func modelVisibleToolResultSummary(ctx context.Context, languageModel model.LanguageModelProvider, toolName string, observation turnObservation) string {
 	content := strings.TrimSpace(observation.ContentText())
 	if content == "" {
 		return summarizeObservationContent(observation)
@@ -267,7 +267,7 @@ func attachmentResultSummary(prefix string, attachments []toolcontract.FileAttac
 	return strings.Join(parts, "\n")
 }
 
-func summarizeLongToolResult(ctx context.Context, languageModel llm.LanguageModelProvider, toolName string, content string) (string, error) {
+func summarizeLongToolResult(ctx context.Context, languageModel model.LanguageModelProvider, toolName string, content string) (string, error) {
 	prompt := strings.Join([]string{
 		"Summarize this tool result for the next agent action.",
 		"Preserve concrete facts needed for the next action.",

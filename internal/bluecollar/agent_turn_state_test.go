@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/llm"
+	"github.com/Dawn-kim-official/blueclaw/internal/model"
 	"github.com/Dawn-kim-official/blueclaw/internal/task"
 )
 
@@ -86,7 +86,7 @@ func TestBuildAgentActionChatRequestExposesDirectToolsAndTerminalControls(t *tes
 	seed := int64(77)
 	temperature := 0.4
 	maxTokens := 321
-	state.Options.GenerationOptions = llm.GenerationOptions{
+	state.Options.GenerationOptions = model.GenerationOptions{
 		Seed:        &seed,
 		Temperature: &temperature,
 		MaxTokens:   &maxTokens,
@@ -155,9 +155,9 @@ func TestDecideAgentActionNativeChatRejectsInvalidCallsWithoutStructuredFallback
 	blankToolCallIDResponse.Message.ToolCalls[0].ID = " "
 	testCases := []struct {
 		name     string
-		response llm.ChatCompletionResponse
+		response model.ChatCompletionResponse
 	}{
-		{name: "empty calls", response: llm.ChatCompletionResponse{FinishReason: "tool_calls", Message: llm.ChatCompletionMessage{Role: "assistant"}}},
+		{name: "empty calls", response: model.ChatCompletionResponse{FinishReason: "tool_calls", Message: model.ChatCompletionMessage{Role: "assistant"}}},
 		{name: "unknown tool", response: nativeAgentActionChatResponse("unknown", `{}`)},
 		{name: "malformed arguments", response: nativeAgentActionChatResponse(toolcontract.TerminalRunToolName, "{invalid")},
 		{name: "non-object arguments", response: nativeAgentActionChatResponse(toolcontract.TerminalRunToolName, `[]`)},
@@ -191,17 +191,17 @@ func TestDecideAgentActionNativeChatRecoversTaskAddAndInvokesItOnce(t *testing.T
 		return testToolSuccess("added"), nil
 	})
 	state := agentTaskState{Request: AgentTurnRequest{Prompt: "add a task", ToolSet: toolSet}}
-	correctionError := testStructuredOutputCorrectionError{correction: llm.StructuredOutputCorrection{
+	correctionError := testStructuredOutputCorrectionError{correction: model.StructuredOutputCorrection{
 		Code: "provider_response_invalid",
-		Diagnostic: llm.StructuredOutputDiagnostic{
-			Category:     llm.StructuredOutputDiagnosticJSONParse,
+		Diagnostic: model.StructuredOutputDiagnostic{
+			Category:     model.StructuredOutputDiagnosticJSONParse,
 			ToolName:     "task.add",
-			RepairStatus: llm.StructuredOutputRepairFailed,
+			RepairStatus: model.StructuredOutputRepairFailed,
 		},
 	}}
 	provider := nativeAgentActionLanguageModel{
 		chatErrors: []error{correctionError, nil},
-		chatResponses: []llm.ChatCompletionResponse{
+		chatResponses: []model.ChatCompletionResponse{
 			{},
 			nativeAgentActionChatResponse("task.add", `{"title":"plan review"}`),
 		},
@@ -224,20 +224,20 @@ func TestDecideAgentActionNativeChatRecoversTaskAddAndInvokesItOnce(t *testing.T
 }
 
 func TestDecideAgentActionNativeChatRetryRequiresExactDiagnosticTool(t *testing.T) {
-	correctionError := testStructuredOutputCorrectionError{correction: llm.StructuredOutputCorrection{
+	correctionError := testStructuredOutputCorrectionError{correction: model.StructuredOutputCorrection{
 		Code: "structured_output_invalid",
-		Diagnostic: llm.StructuredOutputDiagnostic{
-			Category: llm.StructuredOutputDiagnosticSchemaValidation,
+		Diagnostic: model.StructuredOutputDiagnostic{
+			Category: model.StructuredOutputDiagnosticSchemaValidation,
 			ToolName: "task.add",
-			ValidationIssues: []llm.StructuredOutputValidationIssue{{
+			ValidationIssues: []model.StructuredOutputValidationIssue{{
 				FieldPath: "/title",
-				Code:      llm.StructuredOutputValidationRequired,
+				Code:      model.StructuredOutputValidationRequired,
 			}},
 		},
 	}}
 	provider := nativeAgentActionLanguageModel{
 		chatErrors: []error{correctionError, nil},
-		chatResponses: []llm.ChatCompletionResponse{
+		chatResponses: []model.ChatCompletionResponse{
 			{},
 			nativeAgentActionChatResponse("task.add", `{"title":"plan review"}`),
 		},
@@ -264,10 +264,10 @@ func TestDecideAgentActionNativeChatRetryRequiresExactDiagnosticTool(t *testing.
 }
 
 func TestDecideAgentActionNativeChatRetryRequiresSinglePendingContractTool(t *testing.T) {
-	correctionError := testStructuredOutputCorrectionError{correction: llm.StructuredOutputCorrection{
+	correctionError := testStructuredOutputCorrectionError{correction: model.StructuredOutputCorrection{
 		Code: "structured_output_invalid",
-		Diagnostic: llm.StructuredOutputDiagnostic{
-			Category:     llm.StructuredOutputDiagnosticFinishReason,
+		Diagnostic: model.StructuredOutputDiagnostic{
+			Category:     model.StructuredOutputDiagnosticFinishReason,
 			FinishReason: "stop",
 		},
 	}}
@@ -297,7 +297,7 @@ func TestDecideAgentActionNativeChatRetryRequiresSinglePendingContractTool(t *te
 			state.Observations = testCase.observations
 			provider := nativeAgentActionLanguageModel{
 				chatErrors: []error{correctionError, nil},
-				chatResponses: []llm.ChatCompletionResponse{
+				chatResponses: []model.ChatCompletionResponse{
 					{},
 					nativeAgentActionChatResponse(testCase.expectedToolName, `{}`),
 				},
@@ -416,7 +416,7 @@ func TestAgentActionFinishCorrectionPrecedenceAndFailClosed(t *testing.T) {
 	t.Run("finish absent from request", func(t *testing.T) {
 		state := nativeAgentActionCompletionReadyState()
 		request := nativeAgentActionChatCompletionRequest(t, state)
-		request.Tools = slices.DeleteFunc(request.Tools, func(tool llm.ChatCompletionTool) bool {
+		request.Tools = slices.DeleteFunc(request.Tools, func(tool model.ChatCompletionTool) bool {
 			return tool.Function.Name == "finish"
 		})
 
@@ -428,10 +428,10 @@ func TestAgentActionFinishCorrectionPrecedenceAndFailClosed(t *testing.T) {
 }
 
 func TestDecideAgentActionNativeChatRetryPreservesModelChoiceOutsidePendingContract(t *testing.T) {
-	correctionError := testStructuredOutputCorrectionError{correction: llm.StructuredOutputCorrection{
+	correctionError := testStructuredOutputCorrectionError{correction: model.StructuredOutputCorrection{
 		Code: "structured_output_invalid",
-		Diagnostic: llm.StructuredOutputDiagnostic{
-			Category:     llm.StructuredOutputDiagnosticFinishReason,
+		Diagnostic: model.StructuredOutputDiagnostic{
+			Category:     model.StructuredOutputDiagnosticFinishReason,
 			FinishReason: "stop",
 		},
 	}}
@@ -472,7 +472,7 @@ func TestDecideAgentActionNativeChatRetryPreservesModelChoiceOutsidePendingContr
 			state := testCase.updateState(nativeAgentActionContractState())
 			provider := nativeAgentActionLanguageModel{
 				chatErrors: []error{correctionError, nil},
-				chatResponses: []llm.ChatCompletionResponse{
+				chatResponses: []model.ChatCompletionResponse{
 					{},
 					nativeAgentActionChatResponse(testCase.expectedCall, `{}`),
 				},
@@ -491,9 +491,9 @@ func TestDecideAgentActionNativeChatRetryPreservesModelChoiceOutsidePendingContr
 }
 
 func TestDecideAgentActionNativeChatRetryFailsClosedWhenContractToolIsUnavailable(t *testing.T) {
-	correctionError := testStructuredOutputCorrectionError{correction: llm.StructuredOutputCorrection{
+	correctionError := testStructuredOutputCorrectionError{correction: model.StructuredOutputCorrection{
 		Code:       "structured_output_invalid",
-		Diagnostic: llm.StructuredOutputDiagnostic{Category: llm.StructuredOutputDiagnosticFinishReason, FinishReason: "stop"},
+		Diagnostic: model.StructuredOutputDiagnostic{Category: model.StructuredOutputDiagnosticFinishReason, FinishReason: "stop"},
 	}}
 	state := nativeAgentActionContractState()
 	state.Request.ContractToolWorkingSet.RequiredNextTools[0] = "missing.tool"
@@ -536,28 +536,28 @@ func TestFirstPendingActionToolNameUsesRequiredNextTools(t *testing.T) {
 }
 
 func TestDecideAgentActionNativeChatSucceedsAfterTwoCorrections(t *testing.T) {
-	finishReasonError := testStructuredOutputCorrectionError{correction: llm.StructuredOutputCorrection{
+	finishReasonError := testStructuredOutputCorrectionError{correction: model.StructuredOutputCorrection{
 		Code: "structured_output_invalid",
-		Diagnostic: llm.StructuredOutputDiagnostic{
-			Category:     llm.StructuredOutputDiagnosticFinishReason,
-			FinishReason: llm.StructuredOutputDiagnosticFinishStop,
+		Diagnostic: model.StructuredOutputDiagnostic{
+			Category:     model.StructuredOutputDiagnosticFinishReason,
+			FinishReason: model.StructuredOutputDiagnosticFinishStop,
 		},
 	}}
-	schemaValidationError := testStructuredOutputCorrectionError{correction: llm.StructuredOutputCorrection{
+	schemaValidationError := testStructuredOutputCorrectionError{correction: model.StructuredOutputCorrection{
 		Code: "provider_response_invalid",
-		Diagnostic: llm.StructuredOutputDiagnostic{
-			Category: llm.StructuredOutputDiagnosticSchemaValidation,
+		Diagnostic: model.StructuredOutputDiagnostic{
+			Category: model.StructuredOutputDiagnosticSchemaValidation,
 			ToolName: "file.write",
-			ValidationIssues: []llm.StructuredOutputValidationIssue{
-				{FieldPath: "/content_type", Code: llm.StructuredOutputValidationAdditionalProperty},
-				{FieldPath: "/summary", Code: llm.StructuredOutputValidationAdditionalProperty},
+			ValidationIssues: []model.StructuredOutputValidationIssue{
+				{FieldPath: "/content_type", Code: model.StructuredOutputValidationAdditionalProperty},
+				{FieldPath: "/summary", Code: model.StructuredOutputValidationAdditionalProperty},
 			},
-			RepairStatus: llm.StructuredOutputRepairFailed,
+			RepairStatus: model.StructuredOutputRepairFailed,
 		},
 	}}
 	provider := nativeAgentActionLanguageModel{
 		chatErrors: []error{finishReasonError, schemaValidationError, nil},
-		chatResponses: []llm.ChatCompletionResponse{
+		chatResponses: []model.ChatCompletionResponse{
 			{},
 			{},
 			nativeAgentActionChatResponse("file.write", `{}`),
@@ -591,16 +591,16 @@ func TestDecideAgentActionNativeChatSucceedsAfterTwoCorrections(t *testing.T) {
 }
 
 func TestDecideAgentActionNativeChatStopsAfterTwoCorrections(t *testing.T) {
-	correctionError := testStructuredOutputCorrectionError{correction: llm.StructuredOutputCorrection{
+	correctionError := testStructuredOutputCorrectionError{correction: model.StructuredOutputCorrection{
 		Code: "provider_response_invalid",
-		Diagnostic: llm.StructuredOutputDiagnostic{
-			Category: llm.StructuredOutputDiagnosticToolCallContract,
+		Diagnostic: model.StructuredOutputDiagnostic{
+			Category: model.StructuredOutputDiagnosticToolCallContract,
 			ToolName: "terminal.run",
 		},
 	}}
-	finalError := testStructuredOutputCorrectionError{correction: llm.StructuredOutputCorrection{
+	finalError := testStructuredOutputCorrectionError{correction: model.StructuredOutputCorrection{
 		Code:       "third_invalid",
-		Diagnostic: llm.StructuredOutputDiagnostic{Category: llm.StructuredOutputDiagnosticToolCallContract, ToolName: "terminal.run"},
+		Diagnostic: model.StructuredOutputDiagnostic{Category: model.StructuredOutputDiagnosticToolCallContract, ToolName: "terminal.run"},
 	}}
 	provider := nativeAgentActionLanguageModel{chatErrors: []error{correctionError, correctionError, finalError}}
 
@@ -615,10 +615,10 @@ func TestDecideAgentActionNativeChatStopsAfterTwoCorrections(t *testing.T) {
 }
 
 func TestDecideAgentActionNativeChatStopsCorrectionLoopOnCancellation(t *testing.T) {
-	correctionError := testStructuredOutputCorrectionError{correction: llm.StructuredOutputCorrection{
+	correctionError := testStructuredOutputCorrectionError{correction: model.StructuredOutputCorrection{
 		Code: "provider_response_invalid",
-		Diagnostic: llm.StructuredOutputDiagnostic{
-			Category: llm.StructuredOutputDiagnosticToolCallContract,
+		Diagnostic: model.StructuredOutputDiagnostic{
+			Category: model.StructuredOutputDiagnosticToolCallContract,
 			ToolName: toolcontract.TerminalRunToolName,
 		},
 	}}
@@ -635,10 +635,10 @@ func TestDecideAgentActionNativeChatStopsCorrectionLoopOnCancellation(t *testing
 }
 
 func TestDecideAgentActionNativeChatRejectsUnknownDiagnosticTool(t *testing.T) {
-	correctionError := testStructuredOutputCorrectionError{correction: llm.StructuredOutputCorrection{
+	correctionError := testStructuredOutputCorrectionError{correction: model.StructuredOutputCorrection{
 		Code: "provider_response_invalid",
-		Diagnostic: llm.StructuredOutputDiagnostic{
-			Category: llm.StructuredOutputDiagnosticJSONParse,
+		Diagnostic: model.StructuredOutputDiagnostic{
+			Category: model.StructuredOutputDiagnosticJSONParse,
 			ToolName: "unknown.tool",
 		},
 	}}
@@ -700,9 +700,9 @@ func TestDecideAgentActionKeepsImagePartsOnNativeChatPath(t *testing.T) {
 func TestDecideAgentActionNativeChatPropagatesProviderErrorAndCancellation(t *testing.T) {
 	deadlineContext, cancelDeadline := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
 	defer cancelDeadline()
-	correctionError := testStructuredOutputCorrectionError{correction: llm.StructuredOutputCorrection{
+	correctionError := testStructuredOutputCorrectionError{correction: model.StructuredOutputCorrection{
 		Code:       "provider_response_invalid",
-		Diagnostic: llm.StructuredOutputDiagnostic{Category: llm.StructuredOutputDiagnosticJSONParse},
+		Diagnostic: model.StructuredOutputDiagnostic{Category: model.StructuredOutputDiagnosticJSONParse},
 	}}
 	testCases := []struct {
 		name      string
@@ -731,7 +731,7 @@ func TestDecideAgentActionNativeChatPropagatesProviderErrorAndCancellation(t *te
 
 func TestDecideAgentActionUsesStructuredProviderWithoutChatCapability(t *testing.T) {
 	provider := structuredOnlyAgentActionLanguageModel{
-		response: llm.StructuredResponse{Content: `{"action":"finish","message":"done"}`},
+		response: model.StructuredResponse{Content: `{"action":"finish","message":"done"}`},
 	}
 	action, errorValue := DecideAgentAction(context.Background(), &provider, agentTaskState{})
 	if errorValue != nil || action.Action != "finish" {
@@ -817,7 +817,7 @@ func nativeAgentActionCompletionReadyState() agentTaskState {
 	}
 }
 
-func finishReasonRetryRequest(t *testing.T, state agentTaskState) llm.ChatCompletionRequest {
+func finishReasonRetryRequest(t *testing.T, state agentTaskState) model.ChatCompletionRequest {
 	t.Helper()
 	request := nativeAgentActionChatCompletionRequest(t, state)
 	retryRequest, canRetry := retryAgentActionChatCompletionRequest(request, finishReasonCorrection(), state)
@@ -827,7 +827,7 @@ func finishReasonRetryRequest(t *testing.T, state agentTaskState) llm.ChatComple
 	return retryRequest
 }
 
-func nativeAgentActionChatCompletionRequest(t *testing.T, state agentTaskState) llm.ChatCompletionRequest {
+func nativeAgentActionChatCompletionRequest(t *testing.T, state agentTaskState) model.ChatCompletionRequest {
 	t.Helper()
 	requestSource := buildAgentActionRequest(state, false)
 	request, isRepresentable := buildAgentActionChatCompletionRequest(requestSource)
@@ -837,7 +837,7 @@ func nativeAgentActionChatCompletionRequest(t *testing.T, state agentTaskState) 
 	return request
 }
 
-func assertRequiredAgentActionTool(t *testing.T, request llm.ChatCompletionRequest, toolName string) {
+func assertRequiredAgentActionTool(t *testing.T, request model.ChatCompletionRequest, toolName string) {
 	t.Helper()
 	if len(request.Tools) != 1 || request.Tools[0].Function.Name != toolName {
 		t.Fatalf("expected only %q, got %+v", toolName, request.Tools)
@@ -847,12 +847,12 @@ func assertRequiredAgentActionTool(t *testing.T, request llm.ChatCompletionReque
 	}
 }
 
-func finishReasonCorrection() llm.StructuredOutputCorrection {
-	return llm.StructuredOutputCorrection{
+func finishReasonCorrection() model.StructuredOutputCorrection {
+	return model.StructuredOutputCorrection{
 		Code: "structured_output_invalid",
-		Diagnostic: llm.StructuredOutputDiagnostic{
-			Category:     llm.StructuredOutputDiagnosticFinishReason,
-			FinishReason: llm.StructuredOutputDiagnosticFinishStop,
+		Diagnostic: model.StructuredOutputDiagnostic{
+			Category:     model.StructuredOutputDiagnosticFinishReason,
+			FinishReason: model.StructuredOutputDiagnosticFinishStop,
 		},
 	}
 }
@@ -868,22 +868,22 @@ func successfulContractObservation(observationID string, toolName string, toolID
 	}
 }
 
-func nativeAgentActionChatResponse(toolName string, arguments string) llm.ChatCompletionResponse {
-	return llm.ChatCompletionResponse{
+func nativeAgentActionChatResponse(toolName string, arguments string) model.ChatCompletionResponse {
+	return model.ChatCompletionResponse{
 		FinishReason: "tool_calls",
-		Message: llm.ChatCompletionMessage{
+		Message: model.ChatCompletionMessage{
 			Role:      "assistant",
-			ToolCalls: []llm.ChatCompletionToolCall{nativeAgentActionToolCall(toolName, arguments)},
+			ToolCalls: []model.ChatCompletionToolCall{nativeAgentActionToolCall(toolName, arguments)},
 		},
 	}
 }
 
-func nativeAgentActionMultipleCallsResponse() llm.ChatCompletionResponse {
-	return llm.ChatCompletionResponse{
+func nativeAgentActionMultipleCallsResponse() model.ChatCompletionResponse {
+	return model.ChatCompletionResponse{
 		FinishReason: "tool_calls",
-		Message: llm.ChatCompletionMessage{
+		Message: model.ChatCompletionMessage{
 			Role: "assistant",
-			ToolCalls: []llm.ChatCompletionToolCall{
+			ToolCalls: []model.ChatCompletionToolCall{
 				nativeAgentActionToolCall(toolcontract.TerminalRunToolName, `{"command":"pwd"}`),
 				nativeAgentActionToolCall("finish", `{}`),
 			},
@@ -891,18 +891,18 @@ func nativeAgentActionMultipleCallsResponse() llm.ChatCompletionResponse {
 	}
 }
 
-func nativeAgentActionToolCall(toolName string, arguments string) llm.ChatCompletionToolCall {
-	return llm.ChatCompletionToolCall{
+func nativeAgentActionToolCall(toolName string, arguments string) model.ChatCompletionToolCall {
+	return model.ChatCompletionToolCall{
 		ID:   "call-1",
 		Type: "function",
-		Function: llm.ChatCompletionToolCallFunction{
+		Function: model.ChatCompletionToolCallFunction{
 			Name:      toolName,
 			Arguments: arguments,
 		},
 	}
 }
 
-func nativeChatTool(t *testing.T, tools []llm.ChatCompletionTool, toolName string) llm.ChatCompletionTool {
+func nativeChatTool(t *testing.T, tools []model.ChatCompletionTool, toolName string) model.ChatCompletionTool {
 	t.Helper()
 	for _, tool := range tools {
 		if tool.Function.Name == toolName {
@@ -910,7 +910,7 @@ func nativeChatTool(t *testing.T, tools []llm.ChatCompletionTool, toolName strin
 		}
 	}
 	t.Fatalf("expected native tool %q in %+v", toolName, tools)
-	return llm.ChatCompletionTool{}
+	return model.ChatCompletionTool{}
 }
 
 func cancelledContext() context.Context {
@@ -920,38 +920,38 @@ func cancelledContext() context.Context {
 }
 
 type testStructuredOutputCorrectionError struct {
-	correction llm.StructuredOutputCorrection
+	correction model.StructuredOutputCorrection
 }
 
 func (errorValue testStructuredOutputCorrectionError) Error() string {
 	return errorValue.correction.Code
 }
 
-func (errorValue testStructuredOutputCorrectionError) StructuredOutputCorrection() (llm.StructuredOutputCorrection, bool) {
+func (errorValue testStructuredOutputCorrectionError) StructuredOutputCorrection() (model.StructuredOutputCorrection, bool) {
 	return errorValue.correction, true
 }
 
 type nativeAgentActionLanguageModel struct {
-	chatResponse    llm.ChatCompletionResponse
+	chatResponse    model.ChatCompletionResponse
 	chatError       error
-	chatResponses   []llm.ChatCompletionResponse
+	chatResponses   []model.ChatCompletionResponse
 	chatErrors      []error
 	chatCalls       int
 	structuredCalls int
-	lastRequest     llm.ChatCompletionRequest
-	chatRequests    []llm.ChatCompletionRequest
+	lastRequest     model.ChatCompletionRequest
+	chatRequests    []model.ChatCompletionRequest
 }
 
 func (provider *nativeAgentActionLanguageModel) GenerateResponse(context.Context, string) (string, error) {
 	return "", nil
 }
 
-func (provider *nativeAgentActionLanguageModel) GenerateStructuredResponse(context.Context, llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
+func (provider *nativeAgentActionLanguageModel) GenerateStructuredResponse(context.Context, model.StructuredResponseRequest) (model.StructuredResponse, error) {
 	provider.structuredCalls++
 	return provider.chatResponseAsStructured(), nil
 }
 
-func (provider *nativeAgentActionLanguageModel) GenerateChatCompletion(_ context.Context, request llm.ChatCompletionRequest) (llm.ChatCompletionResponse, error) {
+func (provider *nativeAgentActionLanguageModel) GenerateChatCompletion(_ context.Context, request model.ChatCompletionRequest) (model.ChatCompletionResponse, error) {
 	callIndex := provider.chatCalls
 	provider.chatCalls++
 	provider.lastRequest = request
@@ -967,11 +967,11 @@ func (provider *nativeAgentActionLanguageModel) GenerateChatCompletion(_ context
 	return response, errorValue
 }
 
-func (provider *nativeAgentActionLanguageModel) chatResponseAsStructured() llm.StructuredResponse {
-	return llm.StructuredResponse{Content: `{"action":"finish","message":"done"}`}
+func (provider *nativeAgentActionLanguageModel) chatResponseAsStructured() model.StructuredResponse {
+	return model.StructuredResponse{Content: `{"action":"finish","message":"done"}`}
 }
 
-func chatMessageContent(messages []llm.ChatCompletionMessage) string {
+func chatMessageContent(messages []model.ChatCompletionMessage) string {
 	contents := make([]string, 0, len(messages))
 	for _, message := range messages {
 		contents = append(contents, message.Content)
@@ -980,7 +980,7 @@ func chatMessageContent(messages []llm.ChatCompletionMessage) string {
 }
 
 type structuredOnlyAgentActionLanguageModel struct {
-	response        llm.StructuredResponse
+	response        model.StructuredResponse
 	structuredCalls int
 }
 
@@ -988,7 +988,7 @@ func (provider *structuredOnlyAgentActionLanguageModel) GenerateResponse(context
 	return "", nil
 }
 
-func (provider *structuredOnlyAgentActionLanguageModel) GenerateStructuredResponse(context.Context, llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
+func (provider *structuredOnlyAgentActionLanguageModel) GenerateStructuredResponse(context.Context, model.StructuredResponseRequest) (model.StructuredResponse, error) {
 	provider.structuredCalls++
 	return provider.response, nil
 }
@@ -1022,7 +1022,7 @@ func TestBuildAgentActionRequestPreservesNativeToolCallingWireShape(t *testing.T
 			}}},
 			ToolSet: toolSet,
 		},
-		Options: TurnOptions{GenerationOptions: llm.GenerationOptions{
+		Options: TurnOptions{GenerationOptions: model.GenerationOptions{
 			Seed:        &seed,
 			Temperature: &temperature,
 		}},
@@ -1211,7 +1211,7 @@ func TestBuildAgentActionRequestGenerationOptionsDoNotChangeSchema(t *testing.T)
 		},
 	}
 	seededState := state
-	seededState.Options.GenerationOptions = llm.GenerationOptions{Seed: &seed, Temperature: &temperature}
+	seededState.Options.GenerationOptions = model.GenerationOptions{Seed: &seed, Temperature: &temperature}
 
 	request := BuildAgentActionRequest(state)
 	seededRequest := BuildAgentActionRequest(seededState)
@@ -1254,7 +1254,7 @@ func TestRestoreAgentTaskStateRestoresTaskContextSummary(t *testing.T) {
 }
 
 func TestParseAgentActionResponseUsesReplyPartsForFinishMessage(t *testing.T) {
-	action, errorValue := ParseAgentActionResponse(llm.StructuredResponse{Content: `{"action":"finish","message":"summary","replyParts":[{"type":"text","text":"done"}],"goalStatus":"satisfied","goalSatisfied":true,"completionEvidenceIDs":[],"qualityReview":[]}`})
+	action, errorValue := ParseAgentActionResponse(model.StructuredResponse{Content: `{"action":"finish","message":"summary","replyParts":[{"type":"text","text":"done"}],"goalStatus":"satisfied","goalSatisfied":true,"completionEvidenceIDs":[],"qualityReview":[]}`})
 	if errorValue != nil {
 		t.Fatalf("expected parsed action: %v", errorValue)
 	}
@@ -1264,7 +1264,7 @@ func TestParseAgentActionResponseUsesReplyPartsForFinishMessage(t *testing.T) {
 }
 
 func TestParseAgentActionResponseNormalizesUntypedFinishReplyParts(t *testing.T) {
-	action, errorValue := ParseAgentActionResponse(llm.StructuredResponse{Content: `{"action":"finish","message":"Delivering it directly.","replyParts":[{"type":"","text":"Still pending. It will be delivered as an attachment later."}],"goalStatus":"satisfied","goalSatisfied":true,"completionEvidenceIDs":[],"qualityReview":[]}`})
+	action, errorValue := ParseAgentActionResponse(model.StructuredResponse{Content: `{"action":"finish","message":"Delivering it directly.","replyParts":[{"type":"","text":"Still pending. It will be delivered as an attachment later."}],"goalStatus":"satisfied","goalSatisfied":true,"completionEvidenceIDs":[],"qualityReview":[]}`})
 	if errorValue != nil {
 		t.Fatalf("expected parsed action: %v", errorValue)
 	}
@@ -1274,7 +1274,7 @@ func TestParseAgentActionResponseNormalizesUntypedFinishReplyParts(t *testing.T)
 }
 
 func TestParseAgentActionResponseCoercesStringCompletionEvidenceIDs(t *testing.T) {
-	action, errorValue := ParseAgentActionResponse(llm.StructuredResponse{Content: `{"action":"finish","message":"Done.","goalStatus":"satisfied","goalSatisfied":true,"completionEvidenceIDs":"obs-005, obs-008","qualityReview":[]}`})
+	action, errorValue := ParseAgentActionResponse(model.StructuredResponse{Content: `{"action":"finish","message":"Done.","goalStatus":"satisfied","goalSatisfied":true,"completionEvidenceIDs":"obs-005, obs-008","qualityReview":[]}`})
 	if errorValue != nil {
 		t.Fatalf("expected string completionEvidenceIDs to parse: %v", errorValue)
 	}
@@ -1284,7 +1284,7 @@ func TestParseAgentActionResponseCoercesStringCompletionEvidenceIDs(t *testing.T
 }
 
 func TestParseAgentActionResponseNormalizesNestedFinishBlock(t *testing.T) {
-	action, errorValue := ParseAgentActionResponse(llm.StructuredResponse{Content: `{"executionStateUpdate":{"goal":"answer user"},"finish":{"message":"done","replyParts":[{"type":"text","text":"done"}],"goalStatus":"satisfied","goalSatisfied":true,"completionEvidenceIDs":["obs-001"],"qualityReview":[{"id":"complete","passed":true,"evidenceIDs":["obs-001"]}]}}`})
+	action, errorValue := ParseAgentActionResponse(model.StructuredResponse{Content: `{"executionStateUpdate":{"goal":"answer user"},"finish":{"message":"done","replyParts":[{"type":"text","text":"done"}],"goalStatus":"satisfied","goalSatisfied":true,"completionEvidenceIDs":["obs-001"],"qualityReview":[{"id":"complete","passed":true,"evidenceIDs":["obs-001"]}]}}`})
 	if errorValue != nil {
 		t.Fatalf("expected parsed action: %v", errorValue)
 	}
@@ -1303,7 +1303,7 @@ func TestParseAgentActionResponseNormalizesNestedFinishBlock(t *testing.T) {
 }
 
 func TestParseAgentActionResponseNormalizesStringGoalSatisfied(t *testing.T) {
-	action, errorValue := ParseAgentActionResponse(llm.StructuredResponse{Content: `{"action":"finish","message":"done","goalStatus":"satisfied","goalSatisfied":"true","completionEvidenceIDs":[],"qualityReview":[]}`})
+	action, errorValue := ParseAgentActionResponse(model.StructuredResponse{Content: `{"action":"finish","message":"done","goalStatus":"satisfied","goalSatisfied":"true","completionEvidenceIDs":[],"qualityReview":[]}`})
 	if errorValue != nil {
 		t.Fatalf("expected parsed action: %v", errorValue)
 	}
@@ -1313,14 +1313,14 @@ func TestParseAgentActionResponseNormalizesStringGoalSatisfied(t *testing.T) {
 }
 
 func TestParseAgentActionResponseRejectsAmbiguousNestedActionBlocks(t *testing.T) {
-	_, errorValue := ParseAgentActionResponse(llm.StructuredResponse{Content: `{"finish":{"message":"done"},"continue":{"toolName":"browser.open","toolInput":{}}}`})
+	_, errorValue := ParseAgentActionResponse(model.StructuredResponse{Content: `{"finish":{"message":"done"},"continue":{"toolName":"browser.open","toolInput":{}}}`})
 	if errorValue == nil {
 		t.Fatal("expected ambiguous action blocks to be rejected")
 	}
 }
 
 func TestParseAgentActionResponseExpandsShallowEvidenceIDs(t *testing.T) {
-	action, errorValue := ParseAgentActionResponse(llm.StructuredResponse{Content: `{"action":"finish","message":"done","goalStatus":"satisfied","goalSatisfied":true,"completionEvidenceIDs":["obs-001"],"qualityReview":[{"id":"done","passed":true,"evidenceIDs":["obs-001"]}]}`})
+	action, errorValue := ParseAgentActionResponse(model.StructuredResponse{Content: `{"action":"finish","message":"done","goalStatus":"satisfied","goalSatisfied":true,"completionEvidenceIDs":["obs-001"],"qualityReview":[{"id":"done","passed":true,"evidenceIDs":["obs-001"]}]}`})
 	if errorValue != nil {
 		t.Fatalf("expected parsed action: %v", errorValue)
 	}
@@ -1333,7 +1333,7 @@ func TestParseAgentActionResponseExpandsShallowEvidenceIDs(t *testing.T) {
 }
 
 func TestParseAgentActionResponseParsesToolCall(t *testing.T) {
-	action, errorValue := ParseAgentActionResponse(llm.StructuredResponse{Content: `{"action":"continue","toolName":"browser.open","toolInput":{"url":"https://example.com"}}`})
+	action, errorValue := ParseAgentActionResponse(model.StructuredResponse{Content: `{"action":"continue","toolName":"browser.open","toolInput":{"url":"https://example.com"}}`})
 	if errorValue != nil {
 		t.Fatalf("expected parsed action: %v", errorValue)
 	}
@@ -1346,7 +1346,7 @@ func TestParseAgentActionResponseParsesToolCall(t *testing.T) {
 }
 
 func TestParseAgentActionResponseNormalizesContinueToolCall(t *testing.T) {
-	action, errorValue := ParseAgentActionResponse(llm.StructuredResponse{Content: `{"action":"continue","toolName":"browser.open","message":"opening it","toolInput":{"url":"https://example.com"}}`})
+	action, errorValue := ParseAgentActionResponse(model.StructuredResponse{Content: `{"action":"continue","toolName":"browser.open","message":"opening it","toolInput":{"url":"https://example.com"}}`})
 	if errorValue != nil {
 		t.Fatalf("expected parsed action: %v", errorValue)
 	}
@@ -1359,7 +1359,7 @@ func TestParseAgentActionResponseNormalizesContinueToolCall(t *testing.T) {
 }
 
 func TestParseAgentActionResponsePreservesDirectToolName(t *testing.T) {
-	action, errorValue := ParseAgentActionResponse(llm.StructuredResponse{Content: `{"action":"continue","toolName":"task.add","toolInput":{"title":"quarterly settlement"}}`})
+	action, errorValue := ParseAgentActionResponse(model.StructuredResponse{Content: `{"action":"continue","toolName":"task.add","toolInput":{"title":"quarterly settlement"}}`})
 	if errorValue != nil {
 		t.Fatalf("expected parsed action: %v", errorValue)
 	}
@@ -1372,7 +1372,7 @@ func TestParseAgentActionResponsePreservesDirectToolName(t *testing.T) {
 }
 
 func TestParseAgentActionResponseRejectsMalformedJSON(t *testing.T) {
-	_, errorValue := ParseAgentActionResponse(llm.StructuredResponse{Content: `{"action":`})
+	_, errorValue := ParseAgentActionResponse(model.StructuredResponse{Content: `{"action":`})
 	if errorValue == nil {
 		t.Fatal("expected malformed JSON error")
 	}

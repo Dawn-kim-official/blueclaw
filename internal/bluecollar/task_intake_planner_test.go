@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/llm"
+	"github.com/Dawn-kim-official/blueclaw/internal/model"
 	"github.com/Dawn-kim-official/blueclaw/internal/task"
 )
 
@@ -57,14 +57,14 @@ func TestTurnRouterPropagatesLanguageModelError(t *testing.T) {
 func TestTurnRouterCorrectsAuthoritativeStructuredOutputOnce(t *testing.T) {
 	correctionError := turnRouterStructuredCorrectionError{
 		message: "raw provider response must not enter the correction prompt",
-		correction: llm.StructuredOutputCorrection{
+		correction: model.StructuredOutputCorrection{
 			Code: "structured_output_invalid",
-			Diagnostic: llm.StructuredOutputDiagnostic{
-				Category: llm.StructuredOutputDiagnosticSchemaValidation,
-				ValidationIssues: []llm.StructuredOutputValidationIssue{
-					{FieldPath: "/expectedResults/0/start", Code: llm.StructuredOutputValidationAdditionalProperty},
-					{FieldPath: "/expectedResults/0/end", Code: llm.StructuredOutputValidationAdditionalProperty},
-					{FieldPath: "/expectedResults/0/userFacingReply", Code: llm.StructuredOutputValidationAdditionalProperty},
+			Diagnostic: model.StructuredOutputDiagnostic{
+				Category: model.StructuredOutputDiagnosticSchemaValidation,
+				ValidationIssues: []model.StructuredOutputValidationIssue{
+					{FieldPath: "/expectedResults/0/start", Code: model.StructuredOutputValidationAdditionalProperty},
+					{FieldPath: "/expectedResults/0/end", Code: model.StructuredOutputValidationAdditionalProperty},
+					{FieldPath: "/expectedResults/0/userFacingReply", Code: model.StructuredOutputValidationAdditionalProperty},
 				},
 			},
 		},
@@ -145,10 +145,10 @@ func TestTurnRouterBoundsStructuredOutputCorrection(t *testing.T) {
 func TestTurnRouterDoesNotRetryNonCorrectableStructuredOutput(t *testing.T) {
 	nonCorrectableError := turnRouterStructuredCorrectionError{
 		message: "serialization failed",
-		correction: llm.StructuredOutputCorrection{
+		correction: model.StructuredOutputCorrection{
 			Code: "structured_output_invalid",
-			Diagnostic: llm.StructuredOutputDiagnostic{
-				Category: llm.StructuredOutputDiagnosticSerialization,
+			Diagnostic: model.StructuredOutputDiagnostic{
+				Category: model.StructuredOutputDiagnosticSerialization,
 			},
 		},
 	}
@@ -2027,7 +2027,7 @@ func TestAgentKernelUsesStructuredOutputFormatsForAttachmentRequirements(t *test
 	}
 }
 
-func joinedMessageContent(messages []llm.Message) string {
+func joinedMessageContent(messages []model.Message) string {
 	parts := []string{}
 	for _, message := range messages {
 		parts = append(parts, message.Content)
@@ -2041,7 +2041,7 @@ type kernelIntakeTestServices struct {
 	taskEventService *task.TaskEventService
 }
 
-func newKernelIntakeTestServices(replyLanguageModel llm.LanguageModelProvider, intakeLanguageModel llm.LanguageModelProvider) kernelIntakeTestServices {
+func newKernelIntakeTestServices(replyLanguageModel model.LanguageModelProvider, intakeLanguageModel model.LanguageModelProvider) kernelIntakeTestServices {
 	taskEventService := task.NewTaskEventService()
 	taskRunService := task.NewTaskRunService(taskEventService)
 	taskStepService := task.NewTaskStepService()
@@ -2081,20 +2081,20 @@ type turnRouterCorrectionContextKey struct{}
 
 type turnRouterStructuredCorrectionError struct {
 	message    string
-	correction llm.StructuredOutputCorrection
+	correction model.StructuredOutputCorrection
 	cause      error
 }
 
 func newTurnRouterCorrectionError(message string) turnRouterStructuredCorrectionError {
 	return turnRouterStructuredCorrectionError{
 		message: message,
-		correction: llm.StructuredOutputCorrection{
+		correction: model.StructuredOutputCorrection{
 			Code: "structured_output_invalid",
-			Diagnostic: llm.StructuredOutputDiagnostic{
-				Category: llm.StructuredOutputDiagnosticSchemaValidation,
-				ValidationIssues: []llm.StructuredOutputValidationIssue{{
+			Diagnostic: model.StructuredOutputDiagnostic{
+				Category: model.StructuredOutputDiagnosticSchemaValidation,
+				ValidationIssues: []model.StructuredOutputValidationIssue{{
 					FieldPath: "/expectedResults/0/start",
-					Code:      llm.StructuredOutputValidationAdditionalProperty,
+					Code:      model.StructuredOutputValidationAdditionalProperty,
 				}},
 			},
 		},
@@ -2109,13 +2109,13 @@ func (errorValue turnRouterStructuredCorrectionError) Unwrap() error {
 	return errorValue.cause
 }
 
-func (errorValue turnRouterStructuredCorrectionError) StructuredOutputCorrection() (llm.StructuredOutputCorrection, bool) {
+func (errorValue turnRouterStructuredCorrectionError) StructuredOutputCorrection() (model.StructuredOutputCorrection, bool) {
 	return errorValue.correction, true
 }
 
 type turnRouterCorrectionLanguageModel struct {
 	contexts     []context.Context
-	requests     []llm.StructuredResponseRequest
+	requests     []model.StructuredResponseRequest
 	contents     []string
 	errorsByCall map[int]error
 }
@@ -2124,17 +2124,17 @@ func (languageModel *turnRouterCorrectionLanguageModel) GenerateResponse(context
 	return "", nil
 }
 
-func (languageModel *turnRouterCorrectionLanguageModel) GenerateStructuredResponse(responseContext context.Context, request llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
+func (languageModel *turnRouterCorrectionLanguageModel) GenerateStructuredResponse(responseContext context.Context, request model.StructuredResponseRequest) (model.StructuredResponse, error) {
 	languageModel.contexts = append(languageModel.contexts, responseContext)
 	languageModel.requests = append(languageModel.requests, request)
 	callIndex := len(languageModel.requests) - 1
 	if errorValue := languageModel.errorsByCall[callIndex]; errorValue != nil {
-		return llm.StructuredResponse{}, errorValue
+		return model.StructuredResponse{}, errorValue
 	}
 	if callIndex >= len(languageModel.contents) {
-		return llm.StructuredResponse{}, nil
+		return model.StructuredResponse{}, nil
 	}
-	return llm.StructuredResponse{Content: languageModel.contents[callIndex]}, nil
+	return model.StructuredResponse{Content: languageModel.contents[callIndex]}, nil
 }
 
 type clarificationReviewFailureLanguageModel struct {
@@ -2146,20 +2146,20 @@ func (languageModel *clarificationReviewFailureLanguageModel) GenerateResponse(c
 	return "", errors.New("model failed")
 }
 
-func (languageModel *clarificationReviewFailureLanguageModel) GenerateStructuredResponse(context.Context, llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
+func (languageModel *clarificationReviewFailureLanguageModel) GenerateStructuredResponse(context.Context, model.StructuredResponseRequest) (model.StructuredResponse, error) {
 	languageModel.callCount++
 	if languageModel.callCount == 1 {
-		return llm.StructuredResponse{Content: languageModel.content}, nil
+		return model.StructuredResponse{Content: languageModel.content}, nil
 	}
-	return llm.StructuredResponse{}, errors.New("model failed")
+	return model.StructuredResponse{}, errors.New("model failed")
 }
 
 func (failingLanguageModel) GenerateResponse(context.Context, string) (string, error) {
 	return "", errors.New("model failed")
 }
 
-func (failingLanguageModel) GenerateStructuredResponse(context.Context, llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
-	return llm.StructuredResponse{}, errors.New("model failed")
+func (failingLanguageModel) GenerateStructuredResponse(context.Context, model.StructuredResponseRequest) (model.StructuredResponse, error) {
+	return model.StructuredResponse{}, errors.New("model failed")
 }
 
 func TestNormalizeWebsiteDeliverableKindRoutesSiteNamespace(t *testing.T) {

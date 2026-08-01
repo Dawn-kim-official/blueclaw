@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/Dawn-kim-official/blueclaw/internal/llm"
+	"github.com/Dawn-kim-official/blueclaw/internal/model"
 )
 
 func formatContextTimestamp(sentAt time.Time) string {
@@ -38,8 +39,8 @@ func (agentKernel *AgentKernel) GenerateReplyWithContext(responseContext context
 	return generateChatReply(responseContext, chatCompleter, messages)
 }
 
-func generateChatReply(responseContext context.Context, chatCompleter llm.ChatCompleter, messages []llm.Message) (string, error) {
-	response, errorValue := chatCompleter.GenerateChatCompletion(responseContext, llm.ChatCompletionRequest{
+func generateChatReply(responseContext context.Context, chatCompleter model.ChatCompleter, messages []model.Message) (string, error) {
+	response, errorValue := chatCompleter.GenerateChatCompletion(responseContext, model.ChatCompletionRequest{
 		SchemaName: "blueclaw_reply",
 		Messages:   chatMessages(messages),
 	})
@@ -54,10 +55,10 @@ func generateChatReply(responseContext context.Context, chatCompleter llm.ChatCo
 	return reply, nil
 }
 
-func chatMessages(messages []llm.Message) []llm.ChatCompletionMessage {
-	chatMessages := make([]llm.ChatCompletionMessage, 0, len(messages))
+func chatMessages(messages []model.Message) []model.ChatCompletionMessage {
+	chatMessages := make([]model.ChatCompletionMessage, 0, len(messages))
 	for _, message := range messages {
-		chatMessages = append(chatMessages, llm.ChatCompletionMessage{
+		chatMessages = append(chatMessages, model.ChatCompletionMessage{
 			Role:    message.Role,
 			Content: message.Content,
 		})
@@ -100,15 +101,15 @@ type VisibleContextMaterial struct {
 	ConversionMessage string
 }
 
-func (agentKernel *AgentKernel) buildReplyMessages(prompt string, visibleContext VisibleContext, memoryFacts []MemoryFact) []llm.Message {
+func (agentKernel *AgentKernel) buildReplyMessages(prompt string, visibleContext VisibleContext, memoryFacts []MemoryFact) []model.Message {
 	return buildReplyMessagesWithInstructions(prompt, visibleContext, memoryFacts, agentKernel.currentInstructionBundle().Prompt)
 }
 
-func buildReplyMessages(prompt string, visibleContext VisibleContext, memoryFacts []MemoryFact) []llm.Message {
+func buildReplyMessages(prompt string, visibleContext VisibleContext, memoryFacts []MemoryFact) []model.Message {
 	return buildReplyMessagesWithInstructions(prompt, visibleContext, memoryFacts, "")
 }
 
-func buildReplyMessagesWithInstructions(prompt string, visibleContext VisibleContext, memoryFacts []MemoryFact, instructionPrompt string) []llm.Message {
+func buildReplyMessagesWithInstructions(prompt string, visibleContext VisibleContext, memoryFacts []MemoryFact, instructionPrompt string) []model.Message {
 	return (PromptAssembler{}).BuildReplyMessages(prompt, visibleContext, buildMemoryContext(memoryFacts), instructionPrompt)
 }
 

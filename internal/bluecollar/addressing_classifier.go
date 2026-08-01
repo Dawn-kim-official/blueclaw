@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/llm"
+	"github.com/Dawn-kim-official/blueclaw/internal/model"
 )
 
 type AddressingTarget string
@@ -87,7 +87,7 @@ func (agentKernel *AgentKernel) ClassifyAddressing(ctx context.Context, request 
 		return AddressingDecision{}, errors.New("language model is not configured")
 	}
 	includeReason := agentKernel.intakeOptions.DebugAddressingReason
-	structuredResponse, errorValue := languageModel.GenerateStructuredResponse(ctx, llm.StructuredResponseRequest{
+	structuredResponse, errorValue := languageModel.GenerateStructuredResponse(ctx, model.StructuredResponseRequest{
 		Messages:               addressingClassificationMessages(request),
 		StructuredOutputSchema: addressingClassificationSchema(includeReason),
 	})
@@ -122,12 +122,12 @@ func (agentKernel *AgentKernel) ClassifyAddressing(ctx context.Context, request 
 	return decision, nil
 }
 
-func (agentKernel *AgentKernel) addressingLanguageModel() llm.LanguageModelProvider {
+func (agentKernel *AgentKernel) addressingLanguageModel() model.LanguageModelProvider {
 	return agentKernel.classificationLanguageModel()
 }
 
-func addressingClassificationMessages(request AddressingClassificationRequest) []llm.Message {
-	return []llm.Message{
+func addressingClassificationMessages(request AddressingClassificationRequest) []model.Message {
+	return []model.Message{
 		{Role: "system", Content: "Classify the intended target of the latest message in a multi-person conversation. Return only the requested JSON. Do not answer the user."},
 		{Role: "user", Content: addressingClassificationPrompt(request)},
 	}
@@ -189,13 +189,13 @@ func firstNonEmptyAddressingText(values ...string) string {
 	return ""
 }
 
-func addressingClassificationSchema(includeReason bool) llm.StructuredOutputSchema {
+func addressingClassificationSchema(includeReason bool) model.StructuredOutputSchema {
 	reactionEmojiProperty := `"reactionEmoji":{"type":"string","enum":` + addressingReactionEmojiEnumJSON() + `}`
 	document := `{"type":"object","properties":{"target":{"type":"string","enum":["bot","human","anyone","none","unclear"]},"shouldRespond":{"type":"boolean"},` + reactionEmojiProperty + `,"dutyMatch":{"type":"boolean"},"dutyName":{"type":"string"},"dutyConfidence":{"type":"number"}},"required":["target","shouldRespond","reactionEmoji","dutyMatch","dutyName","dutyConfidence"],"additionalProperties":false}`
 	if includeReason {
 		document = `{"type":"object","properties":{"target":{"type":"string","enum":["bot","human","anyone","none","unclear"]},"shouldRespond":{"type":"boolean"},` + reactionEmojiProperty + `,"dutyMatch":{"type":"boolean"},"dutyName":{"type":"string"},"dutyConfidence":{"type":"number"},"reason":{"type":"string"}},"required":["target","shouldRespond","reactionEmoji","dutyMatch","dutyName","dutyConfidence","reason"],"additionalProperties":false}`
 	}
-	return llm.StructuredOutputSchema{
+	return model.StructuredOutputSchema{
 		Name:               "blueclaw_addressing_classification",
 		Document:           document,
 		IsStrictlyEnforced: true,

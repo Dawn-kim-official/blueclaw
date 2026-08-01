@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/Dawn-kim-official/blueclaw/internal/llm"
+	"github.com/Dawn-kim-official/blueclaw/internal/model"
 	"github.com/Dawn-kim-official/blueclaw/internal/task"
 )
 
@@ -72,7 +73,7 @@ const (
 
 type agentEffect struct {
 	Kind      agentEffectKind
-	ModelCall *llm.StructuredResponseRequest
+	ModelCall *model.StructuredResponseRequest
 	ToolCall  *toolcontract.ToolInvocation
 	UserWait  *agentPendingWait
 	Finish    *agentFinish
@@ -371,11 +372,11 @@ func nextCompletionAttachmentPaths(state CompletionState) []string {
 	return paths
 }
 
-func BuildAgentActionRequest(state agentTaskState) llm.StructuredResponseRequest {
+func BuildAgentActionRequest(state agentTaskState) model.StructuredResponseRequest {
 	return buildAgentActionRequest(state, true)
 }
 
-func buildAgentActionRequest(state agentTaskState, includeToolDescription bool) llm.StructuredResponseRequest {
+func buildAgentActionRequest(state agentTaskState, includeToolDescription bool) model.StructuredResponseRequest {
 	allowQualityCriteria := len(state.QualityCriteria) == 0
 	requirements := state.Requirements
 	if requirements == nil {
@@ -399,14 +400,14 @@ func buildAgentActionRequest(state agentTaskState, includeToolDescription bool) 
 		state.ExecutionState,
 	)
 	if hasFailureDebt {
-		messages = append(messages, llm.Message{
+		messages = append(messages, model.Message{
 			Role:    "system",
 			Content: failureDebtActionContractMessage(failureFacts),
 		})
 	}
-	return llm.StructuredResponseRequest{
+	return model.StructuredResponseRequest{
 		Messages: messages,
-		StructuredOutputSchema: llm.StructuredOutputSchema{
+		StructuredOutputSchema: model.StructuredOutputSchema{
 			Name:               "blueclaw_agent_turn_action",
 			Document:           actionSchemaForToolSet(modelToolSet, allowQualityCriteria, blockedToolNames, hasFailureDebt, allowFail, allowFinish),
 			IsStrictlyEnforced: true,
@@ -415,7 +416,7 @@ func buildAgentActionRequest(state agentTaskState, includeToolDescription bool) 
 	}
 }
 
-func agentActionGenerationOptions(options llm.GenerationOptions) llm.GenerationOptions {
+func agentActionGenerationOptions(options model.GenerationOptions) model.GenerationOptions {
 	if options.MaxTokens != nil {
 		return options
 	}
@@ -424,7 +425,7 @@ func agentActionGenerationOptions(options llm.GenerationOptions) llm.GenerationO
 	return options
 }
 
-func terminalStructuredGenerationOptions(options llm.GenerationOptions) llm.GenerationOptions {
+func terminalStructuredGenerationOptions(options model.GenerationOptions) model.GenerationOptions {
 	if options.MaxTokens != nil {
 		return options
 	}
@@ -490,7 +491,7 @@ func actionSchemaForToolSet(toolSet *toolcontract.ToolSet, allowQualityCriteria 
 	return ActionSchemaForToolSet(toolSet, allowQualityCriteria, blockedToolNames, hasFailureDebt, allowFailValues...)
 }
 
-func ParseAgentActionResponse(response llm.StructuredResponse) (agentAction, error) {
+func ParseAgentActionResponse(response model.StructuredResponse) (agentAction, error) {
 	content, errorValue := normalizeAgentActionResponseContent([]byte(response.Content))
 	if errorValue != nil {
 		return turnActionDocument{}, errorValue
@@ -683,7 +684,7 @@ func evidenceReferencesFromIDs(values []string) []completionEvidenceReference {
 	return references
 }
 
-func DecideAgentAction(ctx context.Context, languageModel llm.LanguageModelProvider, state agentTaskState) (agentAction, error) {
+func DecideAgentAction(ctx context.Context, languageModel model.LanguageModelProvider, state agentTaskState) (agentAction, error) {
 	if chatCompleter, isAvailable := llm.ResolveTextChatCompleter(languageModel); isAvailable {
 		chatRequestSource := buildAgentActionRequest(state, false)
 		if chatRequest, isRepresentable := buildAgentActionChatCompletionRequest(chatRequestSource); isRepresentable {
@@ -698,7 +699,7 @@ func DecideAgentAction(ctx context.Context, languageModel llm.LanguageModelProvi
 	return ParseAgentActionResponse(structuredResponse)
 }
 
-func decideAgentActionWithChat(ctx context.Context, chatCompleter llm.ChatCompleter, request llm.ChatCompletionRequest, state agentTaskState) (agentAction, error) {
+func decideAgentActionWithChat(ctx context.Context, chatCompleter model.ChatCompleter, request model.ChatCompletionRequest, state agentTaskState) (agentAction, error) {
 	currentRequest := request
 	for correctionCount := 0; ; correctionCount++ {
 		response, errorValue := chatCompleter.GenerateChatCompletion(ctx, currentRequest)
@@ -711,7 +712,7 @@ func decideAgentActionWithChat(ctx context.Context, chatCompleter llm.ChatComple
 		if correctionCount >= maximumAgentActionCorrectionCount {
 			return turnActionDocument{}, errorValue
 		}
-		correction, isCorrectable := llm.StructuredOutputCorrectionFromError(errorValue)
+		correction, isCorrectable := model.StructuredOutputCorrectionFromError(errorValue)
 		if !isCorrectable {
 			return turnActionDocument{}, errorValue
 		}
@@ -723,17 +724,17 @@ func decideAgentActionWithChat(ctx context.Context, chatCompleter llm.ChatComple
 	}
 }
 
-func retryAgentActionChatCompletionRequest(request llm.ChatCompletionRequest, correction llm.StructuredOutputCorrection, state agentTaskState) (llm.ChatCompletionRequest, bool) {
+func retryAgentActionChatCompletionRequest(request model.ChatCompletionRequest, correction model.StructuredOutputCorrection, state agentTaskState) (model.ChatCompletionRequest, bool) {
 	retryRequest := request
-	retryRequest.Messages = append([]llm.ChatCompletionMessage{}, request.Messages...)
-	retryRequest.Messages = append(retryRequest.Messages, llm.ChatCompletionMessage{
+	retryRequest.Messages = append([]model.ChatCompletionMessage{}, request.Messages...)
+	retryRequest.Messages = append(retryRequest.Messages, model.ChatCompletionMessage{
 		Role:    "system",
 		Content: agentActionCorrectionMessage(correction),
 	})
 	toolName := strings.TrimSpace(correction.Diagnostic.ToolName)
 	if toolName == "" {
-		if correction.Diagnostic.Category != llm.StructuredOutputDiagnosticFinishReason ||
-			correction.Diagnostic.FinishReason != llm.StructuredOutputDiagnosticFinishStop {
+		if correction.Diagnostic.Category != model.StructuredOutputDiagnosticFinishReason ||
+			correction.Diagnostic.FinishReason != model.StructuredOutputDiagnosticFinishStop {
 			return retryRequest, true
 		}
 		toolName = firstPendingActionToolName(state)
@@ -747,17 +748,17 @@ func retryAgentActionChatCompletionRequest(request llm.ChatCompletionRequest, co
 	return restrictAgentActionChatCompletionRequest(retryRequest, toolName)
 }
 
-func restrictAgentActionChatCompletionRequest(request llm.ChatCompletionRequest, toolName string) (llm.ChatCompletionRequest, bool) {
+func restrictAgentActionChatCompletionRequest(request model.ChatCompletionRequest, toolName string) (model.ChatCompletionRequest, bool) {
 	for _, tool := range request.Tools {
 		if tool.Function.Name != toolName {
 			continue
 		}
-		request.Tools = []llm.ChatCompletionTool{tool}
+		request.Tools = []model.ChatCompletionTool{tool}
 		request.ToolChoice = json.RawMessage(`"required"`)
 		request.ParallelToolCalls = false
 		return request, true
 	}
-	return llm.ChatCompletionRequest{}, false
+	return model.ChatCompletionRequest{}, false
 }
 
 func firstPendingActionToolName(state agentTaskState) string {
@@ -825,7 +826,7 @@ func agentActionCompletionIsBlocked(state agentTaskState) bool {
 	return hasFailureDebt
 }
 
-func agentActionCorrectionMessage(correction llm.StructuredOutputCorrection) string {
+func agentActionCorrectionMessage(correction model.StructuredOutputCorrection) string {
 	diagnostic := correction.Diagnostic
 	messageParts := []string{
 		"The previous native action response was invalid.",
@@ -844,20 +845,20 @@ func agentActionCorrectionMessage(correction llm.StructuredOutputCorrection) str
 	return strings.Join(messageParts, " ")
 }
 
-func buildAgentActionChatCompletionRequest(structuredRequest llm.StructuredResponseRequest) (llm.ChatCompletionRequest, bool) {
-	messages := make([]llm.ChatCompletionMessage, 0, len(structuredRequest.Messages))
+func buildAgentActionChatCompletionRequest(structuredRequest model.StructuredResponseRequest) (model.ChatCompletionRequest, bool) {
+	messages := make([]model.ChatCompletionMessage, 0, len(structuredRequest.Messages))
 	for _, message := range structuredRequest.Messages {
-		messages = append(messages, llm.ChatCompletionMessage{
+		messages = append(messages, model.ChatCompletionMessage{
 			Role:    message.Role,
 			Content: message.Content,
-			Parts:   append([]llm.MessagePart{}, message.Parts...),
+			Parts:   append([]model.MessagePart{}, message.Parts...),
 		})
 	}
 	tools, errorValue := nativeAgentActionTools(structuredRequest.StructuredOutputSchema.Document)
 	if errorValue != nil || len(tools) == 0 {
-		return llm.ChatCompletionRequest{}, false
+		return model.ChatCompletionRequest{}, false
 	}
-	return llm.ChatCompletionRequest{
+	return model.ChatCompletionRequest{
 		SchemaName:        agentActionSchemaName,
 		Messages:          messages,
 		Tools:             tools,
@@ -867,14 +868,14 @@ func buildAgentActionChatCompletionRequest(structuredRequest llm.StructuredRespo
 	}, true
 }
 
-func nativeAgentActionTools(schemaDocument string) ([]llm.ChatCompletionTool, error) {
+func nativeAgentActionTools(schemaDocument string) ([]model.ChatCompletionTool, error) {
 	var schema struct {
 		OneOf []json.RawMessage `json:"oneOf"`
 	}
 	if errorValue := json.Unmarshal([]byte(schemaDocument), &schema); errorValue != nil {
 		return nil, errorValue
 	}
-	tools := make([]llm.ChatCompletionTool, 0, len(schema.OneOf))
+	tools := make([]model.ChatCompletionTool, 0, len(schema.OneOf))
 	toolNames := map[string]bool{}
 	for _, variant := range schema.OneOf {
 		tool, errorValue := nativeAgentActionTool(variant)
@@ -890,18 +891,18 @@ func nativeAgentActionTools(schemaDocument string) ([]llm.ChatCompletionTool, er
 	return tools, nil
 }
 
-func nativeAgentActionTool(variant json.RawMessage) (llm.ChatCompletionTool, error) {
+func nativeAgentActionTool(variant json.RawMessage) (model.ChatCompletionTool, error) {
 	var document map[string]json.RawMessage
 	if errorValue := json.Unmarshal(variant, &document); errorValue != nil {
-		return llm.ChatCompletionTool{}, errorValue
+		return model.ChatCompletionTool{}, errorValue
 	}
 	var properties map[string]json.RawMessage
 	if errorValue := json.Unmarshal(document["properties"], &properties); errorValue != nil {
-		return llm.ChatCompletionTool{}, errors.New("native agent action variant has no properties")
+		return model.ChatCompletionTool{}, errors.New("native agent action variant has no properties")
 	}
 	actionName, errorValue := singleSchemaEnumValue(properties["action"])
 	if errorValue != nil {
-		return llm.ChatCompletionTool{}, errorValue
+		return model.ChatCompletionTool{}, errorValue
 	}
 	toolName := actionName
 	parameters := variant
@@ -912,17 +913,17 @@ func nativeAgentActionTool(variant json.RawMessage) (llm.ChatCompletionTool, err
 	case isNativeTerminalAction(actionName):
 		parameters, errorValue = nativeTerminalActionParameters(document)
 	default:
-		return llm.ChatCompletionTool{}, fmt.Errorf("native agent action %q is unsupported", actionName)
+		return model.ChatCompletionTool{}, fmt.Errorf("native agent action %q is unsupported", actionName)
 	}
 	if errorValue != nil {
-		return llm.ChatCompletionTool{}, errorValue
+		return model.ChatCompletionTool{}, errorValue
 	}
 	if len(parameters) == 0 {
-		return llm.ChatCompletionTool{}, errors.New("native agent action parameters are empty")
+		return model.ChatCompletionTool{}, errors.New("native agent action parameters are empty")
 	}
 	var description string
 	_ = json.Unmarshal(document["description"], &description)
-	return llm.ChatCompletionTool{Type: "function", Function: llm.ChatCompletionFunction{
+	return model.ChatCompletionTool{Type: "function", Function: model.ChatCompletionFunction{
 		Name: toolName, Description: description, Parameters: parameters,
 	}}, nil
 }
@@ -964,7 +965,7 @@ func nativeTerminalActionParameters(document map[string]json.RawMessage) (json.R
 	return json.Marshal(document)
 }
 
-func parseNativeAgentActionResponse(response llm.ChatCompletionResponse, tools []llm.ChatCompletionTool) (agentAction, error) {
+func parseNativeAgentActionResponse(response model.ChatCompletionResponse, tools []model.ChatCompletionTool) (agentAction, error) {
 	if response.FinishReason != "tool_calls" {
 		return turnActionDocument{}, fmt.Errorf("native agent action chat finish reason is %q", response.FinishReason)
 	}
@@ -994,10 +995,10 @@ func parseNativeAgentActionResponse(response llm.ChatCompletionResponse, tools [
 	if errorValue != nil {
 		return turnActionDocument{}, errorValue
 	}
-	return ParseAgentActionResponse(llm.StructuredResponse{Content: string(normalizedInput)})
+	return ParseAgentActionResponse(model.StructuredResponse{Content: string(normalizedInput)})
 }
 
-func containsNativeAgentTool(tools []llm.ChatCompletionTool, toolName string) bool {
+func containsNativeAgentTool(tools []model.ChatCompletionTool, toolName string) bool {
 	for _, tool := range tools {
 		if tool.Function.Name == toolName {
 			return true

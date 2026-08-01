@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/llm"
+	"github.com/Dawn-kim-official/blueclaw/internal/model"
 )
 
 func TestSelectInstructionBundleIncludesPresentationForKoreanPPTRequest(t *testing.T) {
@@ -1512,44 +1512,44 @@ func (languageModel staticStructuredLanguageModel) GenerateResponse(context.Cont
 	return "", nil
 }
 
-func (languageModel staticStructuredLanguageModel) GenerateStructuredResponse(context.Context, llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
-	return llm.StructuredResponse{Content: languageModel.content}, nil
+func (languageModel staticStructuredLanguageModel) GenerateStructuredResponse(context.Context, model.StructuredResponseRequest) (model.StructuredResponse, error) {
+	return model.StructuredResponse{Content: languageModel.content}, nil
 }
 
 type schemaStructuredLanguageModel struct {
 	contentBySchema map[string]string
-	requests        []llm.StructuredResponseRequest
+	requests        []model.StructuredResponseRequest
 }
 
 type contractArbitrationSequenceLanguageModel struct {
 	contents []string
-	requests []llm.StructuredResponseRequest
+	requests []model.StructuredResponseRequest
 }
 
 func (languageModel *contractArbitrationSequenceLanguageModel) GenerateResponse(context.Context, string) (string, error) {
 	return "", nil
 }
 
-func (languageModel *contractArbitrationSequenceLanguageModel) GenerateStructuredResponse(_ context.Context, request llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
+func (languageModel *contractArbitrationSequenceLanguageModel) GenerateStructuredResponse(_ context.Context, request model.StructuredResponseRequest) (model.StructuredResponse, error) {
 	languageModel.requests = append(languageModel.requests, request)
 	index := len(languageModel.requests) - 1
 	if index >= len(languageModel.contents) {
 		index = len(languageModel.contents) - 1
 	}
-	return llm.StructuredResponse{Content: languageModel.contents[index]}, nil
+	return model.StructuredResponse{Content: languageModel.contents[index]}, nil
 }
 
 func (languageModel *schemaStructuredLanguageModel) GenerateResponse(context.Context, string) (string, error) {
 	return "", nil
 }
 
-func (languageModel *schemaStructuredLanguageModel) GenerateStructuredResponse(_ context.Context, request llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
+func (languageModel *schemaStructuredLanguageModel) GenerateStructuredResponse(_ context.Context, request model.StructuredResponseRequest) (model.StructuredResponse, error) {
 	languageModel.requests = append(languageModel.requests, request)
 	content := languageModel.contentBySchema[request.StructuredOutputSchema.Name]
 	if strings.TrimSpace(content) == "" {
 		content = `{}`
 	}
-	return llm.StructuredResponse{Content: content}, nil
+	return model.StructuredResponse{Content: content}, nil
 }
 
 type staticSkillRetriever struct {
@@ -1600,7 +1600,7 @@ func skillDecisionHasReason(skillDecisions []SkillSelectionDecision, skillName s
 	return false
 }
 
-func structuredRequestHasSchema(requests []llm.StructuredResponseRequest, schemaName string) bool {
+func structuredRequestHasSchema(requests []model.StructuredResponseRequest, schemaName string) bool {
 	for _, request := range requests {
 		if request.StructuredOutputSchema.Name == schemaName {
 			return true
@@ -1609,7 +1609,7 @@ func structuredRequestHasSchema(requests []llm.StructuredResponseRequest, schema
 	return false
 }
 
-func structuredRequestSchemaNames(requests []llm.StructuredResponseRequest) []string {
+func structuredRequestSchemaNames(requests []model.StructuredResponseRequest) []string {
 	names := []string{}
 	for _, request := range requests {
 		names = append(names, request.StructuredOutputSchema.Name)

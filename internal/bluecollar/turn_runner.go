@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/Dawn-kim-official/blueclaw/internal/llm"
+	"github.com/Dawn-kim-official/blueclaw/internal/model"
 	"github.com/Dawn-kim-official/blueclaw/internal/task"
 )
 
@@ -22,7 +23,7 @@ type TurnOptions struct {
 	RecoveryBudget       RecoveryBudget
 	TaskLevel            TaskLevel
 	ToolResultMaxBytes   int
-	GenerationOptions    llm.GenerationOptions
+	GenerationOptions    model.GenerationOptions
 }
 
 const maximumElapsedClosingDuration = time.Minute
@@ -38,8 +39,8 @@ type AgentTurnRunner struct {
 	taskRunService        *task.TaskRunService
 	taskStepService       *task.TaskStepService
 	taskArtifactService   *task.TaskArtifactService
-	languageModel         llm.LanguageModelProvider
-	recoveryLanguageModel llm.LanguageModelProvider
+	languageModel         model.LanguageModelProvider
+	recoveryLanguageModel model.LanguageModelProvider
 	options               TurnOptions
 }
 
@@ -265,11 +266,11 @@ func withObservationContent(observation turnObservation, content string) turnObs
 	return observation
 }
 
-func NewAgentTurnRunner(taskRunService *task.TaskRunService, taskStepService *task.TaskStepService, taskArtifactService *task.TaskArtifactService, languageModel llm.LanguageModelProvider, options TurnOptions) *AgentTurnRunner {
+func NewAgentTurnRunner(taskRunService *task.TaskRunService, taskStepService *task.TaskStepService, taskArtifactService *task.TaskArtifactService, languageModel model.LanguageModelProvider, options TurnOptions) *AgentTurnRunner {
 	return NewAgentTurnRunnerWithRecoveryModel(taskRunService, taskStepService, taskArtifactService, languageModel, languageModel, options)
 }
 
-func NewAgentTurnRunnerWithRecoveryModel(taskRunService *task.TaskRunService, taskStepService *task.TaskStepService, taskArtifactService *task.TaskArtifactService, languageModel llm.LanguageModelProvider, recoveryLanguageModel llm.LanguageModelProvider, options TurnOptions) *AgentTurnRunner {
+func NewAgentTurnRunnerWithRecoveryModel(taskRunService *task.TaskRunService, taskStepService *task.TaskStepService, taskArtifactService *task.TaskArtifactService, languageModel model.LanguageModelProvider, recoveryLanguageModel model.LanguageModelProvider, options TurnOptions) *AgentTurnRunner {
 	if taskArtifactService == nil {
 		taskArtifactService = task.NewTaskArtifactService()
 	}
@@ -323,7 +324,7 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 	}
 
 	turnContext := ctx
-	turnContext = llm.ContextWithRequestContext(turnContext, llm.RequestContext{
+	turnContext = model.ContextWithRequestContext(turnContext, model.RequestContext{
 		RequesterPersonID:       request.RequesterPersonID,
 		RequesterEmail:          request.RequesterEmail,
 		RequesterName:           request.RequesterName,
@@ -1232,7 +1233,7 @@ func agentRequestFromTurnRequest(request AgentTurnRequest) AgentRequest {
 	}
 }
 
-func (agentTurnRunner *AgentTurnRunner) buildTurnMessages(request AgentTurnRequest, observations []turnObservation, executionState ExecutionState) []llm.Message {
+func (agentTurnRunner *AgentTurnRunner) buildTurnMessages(request AgentTurnRequest, observations []turnObservation, executionState ExecutionState) []model.Message {
 	if len(request.ArtifactManifest) == 0 {
 		request.ArtifactManifest = buildConversationArtifactManifest(request, agentTurnRunner.taskRunService, agentTurnRunner.taskArtifactService)
 	}
@@ -1903,13 +1904,13 @@ func completionEvidenceIncludesSuccessfulTool(observations []turnObservation, re
 
 func (agentTurnRunner *AgentTurnRunner) finalizerAction(ctx context.Context, request AgentTurnRequest, observations []turnObservation, executionState ExecutionState) (turnActionDocument, error) {
 	messages := agentTurnRunner.buildTurnMessages(request, observations, executionState)
-	messages = append(messages, llm.Message{
+	messages = append(messages, model.Message{
 		Role:    "system",
 		Content: "The required evidence is already available. Do not call tools. Use finish with goalSatisfied=true and cite successful completionEvidence. If the evidence does not actually satisfy the user's request, return a concise fail reply that accurately says what is missing.",
 	})
-	structuredResponse, errorValue := agentTurnRunner.languageModel.GenerateStructuredResponse(ctx, llm.StructuredResponseRequest{
+	structuredResponse, errorValue := agentTurnRunner.languageModel.GenerateStructuredResponse(ctx, model.StructuredResponseRequest{
 		Messages: messages,
-		StructuredOutputSchema: llm.StructuredOutputSchema{
+		StructuredOutputSchema: model.StructuredOutputSchema{
 			Name:               "blueclaw_agent_turn_finalizer",
 			Document:           finalizerActionSchema(),
 			IsStrictlyEnforced: true,
@@ -1951,13 +1952,13 @@ func (agentTurnRunner *AgentTurnRunner) runTerminalNoToolsStep(ctx context.Conte
 
 func (agentTurnRunner *AgentTurnRunner) terminalNoToolsAction(ctx context.Context, request AgentTurnRequest, observations []turnObservation, executionState ExecutionState, rejectionReason string) (turnActionDocument, error) {
 	messages := agentTurnRunner.buildTurnMessages(request, observations, executionState)
-	messages = append(messages, llm.Message{
+	messages = append(messages, model.Message{
 		Role:    "system",
 		Content: terminalNoToolsInstruction(observations, agentTurnRunner.options.RecoveryBudget, rejectionReason),
 	})
-	structuredResponse, errorValue := agentTurnRunner.languageModel.GenerateStructuredResponse(ctx, llm.StructuredResponseRequest{
+	structuredResponse, errorValue := agentTurnRunner.languageModel.GenerateStructuredResponse(ctx, model.StructuredResponseRequest{
 		Messages: messages,
-		StructuredOutputSchema: llm.StructuredOutputSchema{
+		StructuredOutputSchema: model.StructuredOutputSchema{
 			Name:               "blueclaw_agent_terminal_no_tools_action",
 			Document:           terminalNoToolsActionSchema(),
 			IsStrictlyEnforced: true,
@@ -2137,15 +2138,15 @@ func (agentTurnRunner *AgentTurnRunner) generateElapsedClosingReply(ctx context.
 	}
 	closingContext, cancelClosing := agentTurnRunner.elapsedClosingContext(ctx, request.EffortStartedAt)
 	defer cancelClosing()
-	response, errorValue := chatCompleter.GenerateChatCompletion(closingContext, llm.ChatCompletionRequest{
+	response, errorValue := chatCompleter.GenerateChatCompletion(closingContext, model.ChatCompletionRequest{
 		SchemaName: "blueclaw_elapsed_reply",
-		Messages: []llm.ChatCompletionMessage{{
+		Messages: []model.ChatCompletionMessage{{
 			Role:    "user",
 			Content: prompt,
 		}},
 	})
 	if errorValue == nil {
-		reply, responseError := llm.RecoveryChatCompletionText(response)
+		reply, responseError := model.RecoveryChatCompletionText(response)
 		if responseError == nil {
 			return reply, limitReplyStatus{Source: "generated"}
 		}

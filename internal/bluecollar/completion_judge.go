@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/llm"
+	"github.com/Dawn-kim-official/blueclaw/internal/model"
 )
 
 const (
@@ -105,35 +105,35 @@ func completionJudgeUnsatisfiedMessage(verdict completionJudgeVerdict) string {
 	return reason + " Missing: " + missingWorkText
 }
 
-func completionJudgeRequest(request AgentTurnRequest, observations []turnObservation, attachments []toolcontract.FileAttachment, actionDocument turnActionDocument) llm.StructuredResponseRequest {
-	return llm.StructuredResponseRequest{
+func completionJudgeRequest(request AgentTurnRequest, observations []turnObservation, attachments []toolcontract.FileAttachment, actionDocument turnActionDocument) model.StructuredResponseRequest {
+	return model.StructuredResponseRequest{
 		Messages: completionJudgeMessages(request, observations, attachments, actionDocument),
-		StructuredOutputSchema: llm.StructuredOutputSchema{
+		StructuredOutputSchema: model.StructuredOutputSchema{
 			Name:               completionJudgeSchemaName,
 			Document:           completionJudgeSchema(),
 			IsStrictlyEnforced: true,
 		},
-		GenerationOptions: terminalStructuredGenerationOptions(llm.GenerationOptions{}),
+		GenerationOptions: terminalStructuredGenerationOptions(model.GenerationOptions{}),
 	}
 }
 
-func completionJudgeMessages(request AgentTurnRequest, observations []turnObservation, attachments []toolcontract.FileAttachment, actionDocument turnActionDocument) []llm.Message {
-	messages := []llm.Message{
+func completionJudgeMessages(request AgentTurnRequest, observations []turnObservation, attachments []toolcontract.FileAttachment, actionDocument turnActionDocument) []model.Message {
+	messages := []model.Message{
 		{Role: "system", Content: completionJudgeInstruction()},
 		{Role: "system", Content: buildTemporalContextDescription(request.TurnStartedAt)},
 		{Role: "system", Content: "Original instruction:\n" + completionJudgeOriginalInstruction(request)},
 	}
 	if expectedResultsDescription := completionJudgeExpectedResultsDescription(request.OutcomeContract.ExpectedResults); expectedResultsDescription != "" {
-		messages = append(messages, llm.Message{Role: "system", Content: "Expected results:\n" + expectedResultsDescription})
+		messages = append(messages, model.Message{Role: "system", Content: "Expected results:\n" + expectedResultsDescription})
 	}
 	if finishReply := strings.TrimSpace(finishActionMessage(actionDocument)); finishReply != "" {
-		messages = append(messages, llm.Message{Role: "system", Content: "Finish reply that accepting this completion delivers to the user:\n" + truncateForLedger(finishReply, completionJudgeInputMaxLength)})
+		messages = append(messages, model.Message{Role: "system", Content: "Finish reply that accepting this completion delivers to the user:\n" + truncateForLedger(finishReply, completionJudgeInputMaxLength)})
 	}
 	if planContext := completionJudgePlanContext(observations); planContext != "" {
-		messages = append(messages, llm.Message{Role: "system", Content: planContext})
+		messages = append(messages, model.Message{Role: "system", Content: planContext})
 	}
-	messages = append(messages, llm.Message{Role: "system", Content: completionJudgeAttachmentDescription(attachments)})
-	messages = append(messages, llm.Message{Role: "user", Content: "Recorded successful operations this turn, reads and state changes alike:\n" + completionJudgeLedgerDocument(request.ToolSet, observations)})
+	messages = append(messages, model.Message{Role: "system", Content: completionJudgeAttachmentDescription(attachments)})
+	messages = append(messages, model.Message{Role: "user", Content: "Recorded successful operations this turn, reads and state changes alike:\n" + completionJudgeLedgerDocument(request.ToolSet, observations)})
 	return messages
 }
 

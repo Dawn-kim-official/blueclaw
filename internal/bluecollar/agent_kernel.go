@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/llm"
+	"github.com/Dawn-kim-official/blueclaw/internal/model"
 	"github.com/Dawn-kim-official/blueclaw/internal/task"
 )
 
@@ -17,14 +17,14 @@ type AgentKernel struct {
 	taskRunService          *task.TaskRunService
 	taskStepService         *task.TaskStepService
 	taskArtifactService     *task.TaskArtifactService
-	languageModel           llm.LanguageModelProvider
-	maxTaskLanguageModel    llm.LanguageModelProvider
-	xHighTaskLanguageModel  llm.LanguageModelProvider
-	highTaskLanguageModel   llm.LanguageModelProvider
-	mediumTaskLanguageModel llm.LanguageModelProvider
-	xLowTaskLanguageModel   llm.LanguageModelProvider
-	codingTaskLanguageModel llm.LanguageModelProvider
-	intakeLanguageModel     llm.LanguageModelProvider
+	languageModel           model.LanguageModelProvider
+	maxTaskLanguageModel    model.LanguageModelProvider
+	xHighTaskLanguageModel  model.LanguageModelProvider
+	highTaskLanguageModel   model.LanguageModelProvider
+	mediumTaskLanguageModel model.LanguageModelProvider
+	xLowTaskLanguageModel   model.LanguageModelProvider
+	codingTaskLanguageModel model.LanguageModelProvider
+	intakeLanguageModel     model.LanguageModelProvider
 	turnOptions             TurnOptions
 	intakeOptions           IntakeOptions
 	instructionPrompt       string
@@ -43,11 +43,11 @@ func NewAgentKernel(taskRunService *task.TaskRunService, taskStepService *task.T
 	}
 }
 
-func (agentKernel *AgentKernel) UseLanguageModelProvider(languageModel llm.LanguageModelProvider) {
+func (agentKernel *AgentKernel) UseLanguageModelProvider(languageModel model.LanguageModelProvider) {
 	agentKernel.languageModel = languageModel
 }
 
-func (agentKernel *AgentKernel) UseTaskTierLanguageModels(maxTaskLanguageModel llm.LanguageModelProvider, xHighTaskLanguageModel llm.LanguageModelProvider, highTaskLanguageModel llm.LanguageModelProvider, mediumTaskLanguageModel llm.LanguageModelProvider, xLowTaskLanguageModel llm.LanguageModelProvider, codingTaskLanguageModel llm.LanguageModelProvider) {
+func (agentKernel *AgentKernel) UseTaskTierLanguageModels(maxTaskLanguageModel model.LanguageModelProvider, xHighTaskLanguageModel model.LanguageModelProvider, highTaskLanguageModel model.LanguageModelProvider, mediumTaskLanguageModel model.LanguageModelProvider, xLowTaskLanguageModel model.LanguageModelProvider, codingTaskLanguageModel model.LanguageModelProvider) {
 	agentKernel.maxTaskLanguageModel = maxTaskLanguageModel
 	agentKernel.xHighTaskLanguageModel = xHighTaskLanguageModel
 	agentKernel.highTaskLanguageModel = highTaskLanguageModel
@@ -66,7 +66,7 @@ func (agentKernel *AgentKernel) UseTurnOptions(turnOptions TurnOptions) {
 	agentKernel.turnOptions = normalizeTurnOptions(turnOptions)
 }
 
-func (agentKernel *AgentKernel) UseIntakeLanguageModelProvider(languageModel llm.LanguageModelProvider) {
+func (agentKernel *AgentKernel) UseIntakeLanguageModelProvider(languageModel model.LanguageModelProvider) {
 	agentKernel.intakeLanguageModel = languageModel
 }
 
@@ -937,7 +937,7 @@ func promoteArtifactTaskLevelForRequest(request AgentRequest, intakeDecision Int
 	return promoteArtifactTaskLevel(request, intakeDecision)
 }
 
-func (agentKernel *AgentKernel) taskLanguageModelForLevel(taskLevel TaskLevel) llm.LanguageModelProvider {
+func (agentKernel *AgentKernel) taskLanguageModelForLevel(taskLevel TaskLevel) model.LanguageModelProvider {
 	switch NormalizeTaskLevel(string(taskLevel)) {
 	case TaskLevelMax:
 		if agentKernel.maxTaskLanguageModel != nil {
@@ -963,7 +963,7 @@ func (agentKernel *AgentKernel) taskLanguageModelForLevel(taskLevel TaskLevel) l
 	return agentKernel.languageModel
 }
 
-func (agentKernel *AgentKernel) classificationLanguageModel() llm.LanguageModelProvider {
+func (agentKernel *AgentKernel) classificationLanguageModel() model.LanguageModelProvider {
 	if agentKernel.xLowTaskLanguageModel != nil {
 		return agentKernel.xLowTaskLanguageModel
 	}
@@ -973,7 +973,7 @@ func (agentKernel *AgentKernel) classificationLanguageModel() llm.LanguageModelP
 	return agentKernel.languageModel
 }
 
-func (agentKernel *AgentKernel) turnRouterLanguageModel() llm.LanguageModelProvider {
+func (agentKernel *AgentKernel) turnRouterLanguageModel() model.LanguageModelProvider {
 	if agentKernel.intakeLanguageModel != nil {
 		return agentKernel.intakeLanguageModel
 	}
