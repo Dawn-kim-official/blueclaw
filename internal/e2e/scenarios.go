@@ -25,20 +25,28 @@ func workspaceSkillInstruction(skillName string) agent.SkillInstruction {
 	return skillInstructionFromBundle(skillBundle)
 }
 
+// ScenarioSkillNames are the workspace skills these scenarios drive. Blueclaw
+// ships the ones that need nothing beyond its own kernel; the rest belong to the
+// appliance whose capability tools they call, so a standalone checkout can only
+// find some of them.
+var ScenarioSkillNames = []string{"presentation", "scheduled-task", "calendar", "internkim-flow", "website"}
+
 func rootWorkspaceSkillDirectoryPath(skillName string) string {
-	return filepath.Join(RootWorkspaceSkillsPath(), skillName)
+	skillDirectoryPath := findWorkspaceSkillDirectory(skillName)
+	if skillDirectoryPath == "" {
+		panic(fmt.Errorf("workspace skill %q is not bundled here or beside this checkout", skillName))
+	}
+	return skillDirectoryPath
 }
 
-// RootWorkspaceSkillsPath finds the bundled workspace skills these scenarios
-// drive. They belong to the appliance that ships them, not to Blueclaw, so a
-// standalone checkout has no copy: search upward rather than assuming Blueclaw
-// sits at a fixed depth beneath its consumer, and report absence so the suite
-// can say it is skipping instead of panicking on a missing file.
-func RootWorkspaceSkillsPath() string {
+// findWorkspaceSkillDirectory looks in Blueclaw's own bundle first, then walks
+// up toward a consumer that ships the capability-backed skills, rather than
+// assuming Blueclaw sits at a fixed depth beneath it.
+func findWorkspaceSkillDirectory(skillName string) string {
 	_, sourceFilePath, _, _ := runtime.Caller(0)
 	directoryPath := filepath.Dir(filepath.Dir(filepath.Dir(sourceFilePath)))
 	for range 5 {
-		candidatePath := filepath.Join(directoryPath, "assets", "blueclaw-workspace", "skills")
+		candidatePath := filepath.Join(directoryPath, "assets", "blueclaw-workspace", "skills", skillName)
 		if information, errorValue := os.Stat(candidatePath); errorValue == nil && information.IsDir() {
 			return candidatePath
 		}
@@ -49,6 +57,16 @@ func RootWorkspaceSkillsPath() string {
 		directoryPath = parentPath
 	}
 	return ""
+}
+
+func MissingScenarioSkills() []string {
+	missing := []string{}
+	for _, skillName := range ScenarioSkillNames {
+		if findWorkspaceSkillDirectory(skillName) == "" {
+			missing = append(missing, skillName)
+		}
+	}
+	return missing
 }
 
 func completionJudgeSatisfiedResponse() string {
