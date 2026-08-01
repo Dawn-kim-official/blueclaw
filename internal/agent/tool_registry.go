@@ -39,9 +39,7 @@ type ToolDescriptor struct {
 type ToolDefinition = ToolDescriptor
 
 type ToolCompletion struct {
-	Mode       string `json:"mode,omitempty"`
-	Action     string `json:"action,omitempty"`
-	TargetKind string `json:"targetKind,omitempty"`
+	Mode string `json:"mode,omitempty"`
 }
 
 type ToolResultContract struct {

@@ -240,8 +240,6 @@ func normalizeProviderTool(providerID string, boundTool BoundTool) (BoundTool, e
 	toolDescriptor.Idempotency = strings.TrimSpace(toolDescriptor.Idempotency)
 	toolDescriptor.IdempotencyScope = strings.TrimSpace(toolDescriptor.IdempotencyScope)
 	toolDescriptor.Completion.Mode = strings.TrimSpace(toolDescriptor.Completion.Mode)
-	toolDescriptor.Completion.Action = strings.TrimSpace(toolDescriptor.Completion.Action)
-	toolDescriptor.Completion.TargetKind = strings.TrimSpace(toolDescriptor.Completion.TargetKind)
 	normalizedInputSchema, errorValue := normalizeProviderToolSchema(toolDescriptor.InputSchema)
 	if errorValue != nil {
 		return BoundTool{}, fmt.Errorf("invalid tool descriptor %s: inputSchema %w", firstNonEmptyString(toolDescriptor.ID, toolDescriptor.Name), errorValue)
@@ -382,9 +380,6 @@ func validateProviderTool(boundTool BoundTool) error {
 	}
 	if !isOneOf(toolDescriptor.Completion.Mode, ToolCompletionNone, ToolCompletionObservation) {
 		return errors.New("completion.mode is invalid")
-	}
-	if toolDescriptor.Completion.Mode == ToolCompletionObservation && (toolDescriptor.Completion.Action == "" || toolDescriptor.Completion.TargetKind == "") {
-		return errors.New("completion.action and completion.targetKind are required for observation")
 	}
 	if !isOneOf(toolDescriptor.Idempotency, ToolIdempotencyNone, ToolIdempotencySupported, ToolIdempotencyRequired) {
 		return errors.New("idempotency is invalid")

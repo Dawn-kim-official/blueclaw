@@ -306,18 +306,6 @@ func TestRegisterProviderRejectsNonObjectOutputSchema(t *testing.T) {
 	}
 }
 
-func TestRegisterProviderRejectsIncompleteObservationMetadata(t *testing.T) {
-	toolSet := NewToolSet([]string{"task.add"})
-	providerTool := validProviderTool("capabilityd/task/task.add", "task", "task.add")
-	providerTool.Definition.Completion.Action = ""
-
-	errorValue := toolSet.RegisterProvider(context.Background(), testToolProvider{providerID: "capabilityd", tools: []BoundTool{providerTool}})
-
-	if errorValue == nil || !strings.Contains(errorValue.Error(), "completion.action and completion.targetKind are required") {
-		t.Fatalf("expected incomplete observation metadata rejection, got %v", errorValue)
-	}
-}
-
 func TestRegisterProviderRequiresIdempotencyScopeWhenSupported(t *testing.T) {
 	for _, idempotency := range []string{ToolIdempotencySupported, ToolIdempotencyRequired} {
 		toolSet := NewToolSet([]string{"task.add"})
@@ -810,7 +798,7 @@ func validProviderTool(toolID string, namespace string, name string) BoundTool {
 			Visibility:        ToolVisibilityModel,
 			PolicyResource:    "tool:" + name,
 			SideEffectClass:   ToolSideEffectStateChange,
-			Completion:        ToolCompletion{Mode: ToolCompletionObservation, Action: "write_task", TargetKind: "task"},
+			Completion:        ToolCompletion{Mode: ToolCompletionObservation},
 			Idempotency:       ToolIdempotencyNone,
 		},
 		Availability: ToolAvailability{Status: ToolAvailabilityAvailable},

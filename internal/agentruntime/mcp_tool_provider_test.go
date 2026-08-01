@@ -329,15 +329,13 @@ func TestMCPToolProviderProjectsExactResultEvidence(t *testing.T) {
 			}},
 		},
 		Policy: mcp.PolicyMetadata{
-			PrivacyClass:         "workspace",
-			ModelVisibility:      agent.ToolVisibilityModel,
-			PolicyResource:       "tool:site.serve",
-			SideEffectClass:      agent.ToolSideEffectExternalPublish,
-			CompletionMode:       agent.ToolCompletionObservation,
-			CompletionAction:     "publish_site",
-			CompletionTargetKind: "site",
-			Idempotency:          agent.ToolIdempotencySupported,
-			IdempotencyScope:     "operation",
+			PrivacyClass:     "workspace",
+			ModelVisibility:  agent.ToolVisibilityModel,
+			PolicyResource:   "tool:site.serve",
+			SideEffectClass:  agent.ToolSideEffectExternalPublish,
+			CompletionMode:   agent.ToolCompletionObservation,
+			Idempotency:      agent.ToolIdempotencySupported,
+			IdempotencyScope: "operation",
 		},
 	}
 	provider := mcpToolProvider{

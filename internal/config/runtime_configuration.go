@@ -153,8 +153,6 @@ type MCPToolPolicyMetadata struct {
 	SideEffectClass      string `json:"sideEffectClass"`
 	RequiresApproval     bool   `json:"requiresApproval"`
 	CompletionMode       string `json:"completionMode"`
-	CompletionAction     string `json:"completionAction"`
-	CompletionTargetKind string `json:"completionTargetKind"`
 	Idempotency          string `json:"idempotency"`
 	IdempotencyScope     string `json:"idempotencyScope"`
 }

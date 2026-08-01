@@ -776,7 +776,7 @@ func nativeAgentActionContractState() agentTaskState {
 func nativeAgentActionCompletionReadyState() agentTaskState {
 	toolDefinition := testToolDescriptor("task.add")
 	toolDefinition.SideEffectClass = ToolSideEffectStateChange
-	toolDefinition.Completion = ToolCompletion{Mode: ToolCompletionObservation, Action: "add_task", TargetKind: "task"}
+	toolDefinition.Completion = ToolCompletion{Mode: ToolCompletionObservation}
 	toolDefinition.ResultContract = &ToolResultContract{
 		Schema: json.RawMessage(`{"type":"object","properties":{"taskID":{"type":"string"},"created":{"type":"boolean"}},"required":["taskID","created"],"additionalProperties":false}`),
 		Effects: []ResourceEffectContract{{
@@ -1468,7 +1468,7 @@ func TestAdvanceAgentTaskReturnsFinishMessageEffectForSatisfiedBrowserOpen(t *te
 				Name:            "browser.open",
 				Namespace:       "browser",
 				SideEffectClass: ToolSideEffectConnect,
-				Completion:      ToolCompletion{Mode: ToolCompletionObservation, Action: "open_browser", TargetKind: "browser"},
+				Completion:      ToolCompletion{Mode: ToolCompletionObservation},
 			}}),
 			RequiredEvidenceTools: []string{"browser.open"},
 		},

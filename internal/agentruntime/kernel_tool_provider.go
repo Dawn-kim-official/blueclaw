@@ -13,20 +13,18 @@ import (
 const kernelToolProviderID = "kernel"
 
 type kernelToolDescriptorSpec struct {
-	Name                 string
-	Namespace            string
-	PrivacyClass         string
-	Visibility           string
-	PolicyResource       string
-	SideEffectClass      string
-	RequiresApproval     bool
-	CompletionMode       string
-	CompletionAction     string
-	CompletionTargetKind string
-	Idempotency          string
-	InputIntentSchema    json.RawMessage
-	OutputSchema         json.RawMessage
-	ResultContract       *agent.ToolResultContract
+	Name              string
+	Namespace         string
+	PrivacyClass      string
+	Visibility        string
+	PolicyResource    string
+	SideEffectClass   string
+	RequiresApproval  bool
+	CompletionMode    string
+	Idempotency       string
+	InputIntentSchema json.RawMessage
+	OutputSchema      json.RawMessage
+	ResultContract    *agent.ToolResultContract
 }
 
 var (
@@ -146,18 +144,16 @@ var (
 
 var kernelToolDescriptorSpecs = []kernelToolDescriptorSpec{
 	{
-		Name:                 agent.TerminalRunToolName,
-		Namespace:            "terminal",
-		PrivacyClass:         "workspace",
-		Visibility:           agent.ToolVisibilityModel,
-		PolicyResource:       "tool:terminal.run",
-		SideEffectClass:      agent.ToolSideEffectWorkspaceWrite,
-		CompletionMode:       agent.ToolCompletionObservation,
-		CompletionAction:     "run_command",
-		CompletionTargetKind: "workspace",
-		Idempotency:          agent.ToolIdempotencyNone,
-		InputIntentSchema:    terminalRunInputIntentSchema,
-		OutputSchema:         terminalRunResultSchema,
+		Name:              agent.TerminalRunToolName,
+		Namespace:         "terminal",
+		PrivacyClass:      "workspace",
+		Visibility:        agent.ToolVisibilityModel,
+		PolicyResource:    "tool:terminal.run",
+		SideEffectClass:   agent.ToolSideEffectWorkspaceWrite,
+		CompletionMode:    agent.ToolCompletionObservation,
+		Idempotency:       agent.ToolIdempotencyNone,
+		InputIntentSchema: terminalRunInputIntentSchema,
+		OutputSchema:      terminalRunResultSchema,
 		ResultContract: &agent.ToolResultContract{
 			Schema: terminalRunResultSchema,
 			EvidenceCondition: &agent.EvidenceCondition{
@@ -167,18 +163,16 @@ var kernelToolDescriptorSpecs = []kernelToolDescriptorSpec{
 		},
 	},
 	{
-		Name:                 agent.FileDeliverToolName,
-		Namespace:            "file",
-		PrivacyClass:         "workspace",
-		Visibility:           agent.ToolVisibilityModel,
-		PolicyResource:       "tool:file.deliver",
-		SideEffectClass:      agent.ToolSideEffectExternalWrite,
-		CompletionMode:       agent.ToolCompletionObservation,
-		CompletionAction:     "deliver_file",
-		CompletionTargetKind: "artifact",
-		Idempotency:          agent.ToolIdempotencyNone,
-		InputIntentSchema:    fileDeliverInputIntentSchema,
-		OutputSchema:         fileDeliverResultSchema,
+		Name:              agent.FileDeliverToolName,
+		Namespace:         "file",
+		PrivacyClass:      "workspace",
+		Visibility:        agent.ToolVisibilityModel,
+		PolicyResource:    "tool:file.deliver",
+		SideEffectClass:   agent.ToolSideEffectExternalWrite,
+		CompletionMode:    agent.ToolCompletionObservation,
+		Idempotency:       agent.ToolIdempotencyNone,
+		InputIntentSchema: fileDeliverInputIntentSchema,
+		OutputSchema:      fileDeliverResultSchema,
 		ResultContract: &agent.ToolResultContract{
 			Schema: fileDeliverResultSchema,
 			Effects: []agent.ResourceEffectContract{{
@@ -218,18 +212,16 @@ var kernelToolDescriptorSpecs = []kernelToolDescriptorSpec{
 		},
 	},
 	{
-		Name:                 agent.FileWriteToolName,
-		Namespace:            "file",
-		PrivacyClass:         "workspace",
-		Visibility:           agent.ToolVisibilityModel,
-		PolicyResource:       "tool:file.write",
-		SideEffectClass:      agent.ToolSideEffectWorkspaceWrite,
-		CompletionMode:       agent.ToolCompletionObservation,
-		CompletionAction:     "write_file",
-		CompletionTargetKind: "file",
-		Idempotency:          agent.ToolIdempotencyNone,
-		InputIntentSchema:    fileWriteInputIntentSchema,
-		OutputSchema:         fileWriteResultSchema,
+		Name:              agent.FileWriteToolName,
+		Namespace:         "file",
+		PrivacyClass:      "workspace",
+		Visibility:        agent.ToolVisibilityModel,
+		PolicyResource:    "tool:file.write",
+		SideEffectClass:   agent.ToolSideEffectWorkspaceWrite,
+		CompletionMode:    agent.ToolCompletionObservation,
+		Idempotency:       agent.ToolIdempotencyNone,
+		InputIntentSchema: fileWriteInputIntentSchema,
+		OutputSchema:      fileWriteResultSchema,
 		ResultContract: &agent.ToolResultContract{
 			Schema: fileWriteResultSchema,
 			Effects: []agent.ResourceEffectContract{
@@ -249,19 +241,17 @@ var kernelToolDescriptorSpecs = []kernelToolDescriptorSpec{
 		},
 	},
 	{
-		Name:                 agent.FileDeleteToolName,
-		Namespace:            "file",
-		PrivacyClass:         "workspace",
-		Visibility:           agent.ToolVisibilityModel,
-		PolicyResource:       "tool:file.delete",
-		SideEffectClass:      agent.ToolSideEffectDestructive,
-		RequiresApproval:     true,
-		CompletionMode:       agent.ToolCompletionObservation,
-		CompletionAction:     "delete_file",
-		CompletionTargetKind: "file",
-		Idempotency:          agent.ToolIdempotencyNone,
-		InputIntentSchema:    fileDeleteInputIntentSchema,
-		OutputSchema:         fileDeleteResultSchema,
+		Name:              agent.FileDeleteToolName,
+		Namespace:         "file",
+		PrivacyClass:      "workspace",
+		Visibility:        agent.ToolVisibilityModel,
+		PolicyResource:    "tool:file.delete",
+		SideEffectClass:   agent.ToolSideEffectDestructive,
+		RequiresApproval:  true,
+		CompletionMode:    agent.ToolCompletionObservation,
+		Idempotency:       agent.ToolIdempotencyNone,
+		InputIntentSchema: fileDeleteInputIntentSchema,
+		OutputSchema:      fileDeleteResultSchema,
 		ResultContract: &agent.ToolResultContract{
 			Schema: fileDeleteResultSchema,
 			Effects: []agent.ResourceEffectContract{{
@@ -273,18 +263,16 @@ var kernelToolDescriptorSpecs = []kernelToolDescriptorSpec{
 		},
 	},
 	{
-		Name:                 agent.FileEditToolName,
-		Namespace:            "file",
-		PrivacyClass:         "workspace",
-		Visibility:           agent.ToolVisibilityModel,
-		PolicyResource:       "tool:file.edit",
-		SideEffectClass:      agent.ToolSideEffectWorkspaceWrite,
-		CompletionMode:       agent.ToolCompletionObservation,
-		CompletionAction:     "edit_file",
-		CompletionTargetKind: "file",
-		Idempotency:          agent.ToolIdempotencyNone,
-		InputIntentSchema:    fileEditInputIntentSchema,
-		OutputSchema:         fileEditResultSchema,
+		Name:              agent.FileEditToolName,
+		Namespace:         "file",
+		PrivacyClass:      "workspace",
+		Visibility:        agent.ToolVisibilityModel,
+		PolicyResource:    "tool:file.edit",
+		SideEffectClass:   agent.ToolSideEffectWorkspaceWrite,
+		CompletionMode:    agent.ToolCompletionObservation,
+		Idempotency:       agent.ToolIdempotencyNone,
+		InputIntentSchema: fileEditInputIntentSchema,
+		OutputSchema:      fileEditResultSchema,
 		ResultContract: &agent.ToolResultContract{
 			Schema: fileEditResultSchema,
 			Effects: []agent.ResourceEffectContract{
@@ -450,11 +438,7 @@ func canonicalKernelToolDescriptor(toolDefinition agent.ToolDefinition) (agent.T
 	toolDefinition.PolicyResource = descriptorSpec.PolicyResource
 	toolDefinition.SideEffectClass = descriptorSpec.SideEffectClass
 	toolDefinition.RequiresApproval = descriptorSpec.RequiresApproval
-	toolDefinition.Completion = agent.ToolCompletion{
-		Mode:       descriptorSpec.CompletionMode,
-		Action:     descriptorSpec.CompletionAction,
-		TargetKind: descriptorSpec.CompletionTargetKind,
-	}
+	toolDefinition.Completion = agent.ToolCompletion{Mode: descriptorSpec.CompletionMode}
 	toolDefinition.Idempotency = descriptorSpec.Idempotency
 	toolDefinition.InputIntentSchema = append(json.RawMessage{}, descriptorSpec.InputIntentSchema...)
 	toolDefinition.OutputSchema = append(json.RawMessage{}, descriptorSpec.OutputSchema...)

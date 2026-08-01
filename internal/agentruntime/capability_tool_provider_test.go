@@ -262,9 +262,9 @@ func TestToolCatalogReportsEveryCapabilityQuarantine(t *testing.T) {
 	}
 }
 
-func TestCapabilityToolProviderRejectsIncompleteCompletionEvidence(t *testing.T) {
+func TestCapabilityToolProviderRejectsUnknownCompletionEvidenceMode(t *testing.T) {
 	descriptor := completeTestCapabilityToolDescriptor(CapabilityToolDescriptor{Name: "task.add"})
-	descriptor.CompletionEvidence = &CapabilityCompletionEvidence{Mode: "success"}
+	descriptor.CompletionEvidence = &CapabilityCompletionEvidence{Mode: "unknown"}
 	provider := capabilityToolProvider{
 		toolCatalogBuilder: NewToolCatalogBuilder(),
 		descriptors:        []CapabilityToolDescriptor{descriptor},
@@ -272,7 +272,7 @@ func TestCapabilityToolProviderRejectsIncompleteCompletionEvidence(t *testing.T)
 
 	errorValue := agent.NewToolSet(nil).RegisterProvider(context.Background(), provider)
 
-	if errorValue == nil || !strings.Contains(errorValue.Error(), "action and targetKind are required") {
-		t.Fatalf("expected incomplete completion evidence rejection, got %v", errorValue)
+	if errorValue == nil || !strings.Contains(errorValue.Error(), "completion evidence mode is invalid") {
+		t.Fatalf("expected unknown completion evidence mode rejection, got %v", errorValue)
 	}
 }
