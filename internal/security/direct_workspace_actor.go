@@ -1,4 +1,4 @@
-package actortest
+package security
 
 import (
 	"archive/tar"
@@ -11,45 +11,48 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-
-	"github.com/Dawn-kim-official/blueclaw/internal/security"
 )
 
+// DirectWorkspaceActorFactory runs work as the process itself, with no POSIX
+// projection between the agent and the workspace. That is what a standalone
+// harness needs - a coding agent pointed at a directory it already owns - and
+// what an appliance must never use, because there the whole point is that work
+// runs as whoever asked for it.
 type DirectWorkspaceActorFactory struct {
-	terminalService *security.TerminalSessionService
+	terminalService *TerminalSessionService
 }
 
 type DirectWorkspaceActor struct {
-	identity        security.ExecutionIdentity
-	terminalService *security.TerminalSessionService
+	identity        ExecutionIdentity
+	terminalService *TerminalSessionService
 }
 
-func NewDirectWorkspaceActorFactory(terminalServices ...*security.TerminalSessionService) DirectWorkspaceActorFactory {
+func NewDirectWorkspaceActorFactory(terminalServices ...*TerminalSessionService) DirectWorkspaceActorFactory {
 	return DirectWorkspaceActorFactory{terminalService: firstTerminalService(terminalServices)}
 }
 
-func firstTerminalService(terminalServices []*security.TerminalSessionService) *security.TerminalSessionService {
+func firstTerminalService(terminalServices []*TerminalSessionService) *TerminalSessionService {
 	if len(terminalServices) == 0 {
 		return nil
 	}
 	return terminalServices[0]
 }
 
-func (factory DirectWorkspaceActorFactory) Requester(ctx context.Context, request security.WorkspaceActorRequest) (security.WorkspaceActor, error) {
+func (factory DirectWorkspaceActorFactory) Requester(ctx context.Context, request WorkspaceActorRequest) (WorkspaceActor, error) {
 	_ = ctx
 	personAccess := request.PersonAccess
 	if strings.TrimSpace(personAccess.PersonID) == "" {
-		return nil, security.WorkspaceActorError{Operation: "requester", Stage: "identity", Code: security.ActorErrorCodeIdentityMissing, Detail: security.ActorErrorCodeIdentityMissing}
+		return nil, WorkspaceActorError{Operation: "requester", Stage: "identity", Code: ActorErrorCodeIdentityMissing, Detail: ActorErrorCodeIdentityMissing}
 	}
 	return DirectWorkspaceActor{
-		identity:        security.ExecutionIdentityForPersonAccess(personAccess, request.WorkspaceRootPath),
+		identity:        ExecutionIdentityForPersonAccess(personAccess, request.WorkspaceRootPath),
 		terminalService: factory.terminalService,
 	}, nil
 }
 
-func (actor DirectWorkspaceActor) Run(ctx context.Context, commandRequest security.CommandRequest) (security.CommandResult, error) {
+func (actor DirectWorkspaceActor) Run(ctx context.Context, commandRequest CommandRequest) (CommandResult, error) {
 	if actor.terminalService == nil {
-		return security.CommandResult{}, errors.New("direct test actor does not run shell commands")
+		return CommandResult{}, errors.New("direct test actor does not run shell commands")
 	}
 	if strings.TrimSpace(commandRequest.ExecutionIdentity.UserName) == "" {
 		commandRequest.ExecutionIdentity = actor.identity
@@ -73,20 +76,20 @@ func (actor DirectWorkspaceActor) WriteFile(ctx context.Context, path string, co
 	return nil
 }
 
-func (actor DirectWorkspaceActor) BundleDirectory(ctx context.Context, path string, options security.WorkspaceActorBundleOptions) (security.WorkspaceActorBundle, error) {
+func (actor DirectWorkspaceActor) BundleDirectory(ctx context.Context, path string, options WorkspaceActorBundleOptions) (WorkspaceActorBundle, error) {
 	_ = ctx
 	document, errorValue := actor.bundleDirectoryDocument(path, options)
 	if errorValue != nil {
-		return security.WorkspaceActorBundle{}, errorValue
+		return WorkspaceActorBundle{}, errorValue
 	}
-	return security.WorkspaceActorBundle{
+	return WorkspaceActorBundle{
 		Format:        "tar.gz",
 		ContentBase64: base64.StdEncoding.EncodeToString(document),
 		SizeBytes:     int64(len(document)),
 	}, nil
 }
 
-func (actor DirectWorkspaceActor) bundleDirectoryDocument(path string, options security.WorkspaceActorBundleOptions) ([]byte, error) {
+func (actor DirectWorkspaceActor) bundleDirectoryDocument(path string, options WorkspaceActorBundleOptions) ([]byte, error) {
 	buffer := bytes.Buffer{}
 	gzipWriter := gzip.NewWriter(&buffer)
 	tarWriter := tar.NewWriter(gzipWriter)
@@ -156,13 +159,13 @@ func writeBundleEntry(tarWriter *tar.Writer, path string, relativePath string, i
 	return errorValue
 }
 
-func (actor DirectWorkspaceActor) Stat(ctx context.Context, path string) (security.WorkspaceActorStat, error) {
+func (actor DirectWorkspaceActor) Stat(ctx context.Context, path string) (WorkspaceActorStat, error) {
 	_ = ctx
 	fileInformation, errorValue := os.Stat(path)
 	if errorValue != nil {
-		return security.WorkspaceActorStat{}, actor.actorError("stat", "direct", path, errorValue)
+		return WorkspaceActorStat{}, actor.actorError("stat", "direct", path, errorValue)
 	}
-	return security.WorkspaceActorStat{
+	return WorkspaceActorStat{
 		Path:        path,
 		IsRegular:   fileInformation.Mode().IsRegular(),
 		IsDirectory: fileInformation.IsDir(),
@@ -172,7 +175,7 @@ func (actor DirectWorkspaceActor) Stat(ctx context.Context, path string) (securi
 }
 
 func (actor DirectWorkspaceActor) actorError(operation string, stage string, path string, errorValue error) error {
-	return security.WorkspaceActorError{
+	return WorkspaceActorError{
 		Operation:   operation,
 		Stage:       stage,
 		ActorUser:   actor.identity.UserName,
@@ -184,13 +187,13 @@ func (actor DirectWorkspaceActor) actorError(operation string, stage string, pat
 
 func actorErrorCode(errorValue error) string {
 	if os.IsNotExist(errorValue) {
-		return security.ActorErrorCodeNotFound
+		return ActorErrorCodeNotFound
 	}
 	if os.IsPermission(errorValue) {
-		return security.ActorErrorCodePermissionDenied
+		return ActorErrorCodePermissionDenied
 	}
 	if os.IsExist(errorValue) {
-		return security.ActorErrorCodeAlreadyExists
+		return ActorErrorCodeAlreadyExists
 	}
-	return security.ActorErrorCodeOperationFailed
+	return ActorErrorCodeOperationFailed
 }
