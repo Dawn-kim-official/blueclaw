@@ -84,6 +84,7 @@ describe('canonical capability tools', () => {
     expect(catalog.tools.map(tool => tool.name)).toEqual([
       'task.add',
       'task.list',
+      'task.definitions',
       'task.update',
       'task.delete',
       CalendarToolName.Add,
