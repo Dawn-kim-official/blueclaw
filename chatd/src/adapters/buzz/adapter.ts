@@ -37,6 +37,17 @@ import { originOfTags } from "../../mirror/origin.ts";
 
 const STREAM_MESSAGE_KIND = 9;
 const TYPING_INDICATOR_KIND = 20002;
+
+function encodeCreatedAtCursor(createdAt: number): string {
+	return String(createdAt);
+}
+
+function decodeCreatedAtCursor(cursor?: string): number | undefined {
+	if (!cursor) return undefined;
+	const parsed = Number.parseInt(cursor, 10);
+	return Number.isFinite(parsed) ? parsed : undefined;
+}
+
 const REACTION_KIND = 7;
 const PROFILE_KIND = 0;
 const GROUP_METADATA_KIND = 39000;
@@ -522,21 +533,43 @@ export class BuzzAdapter implements Adapter<BuzzThreadId, BuzzEvent> {
 	async fetchMessages(threadId: string, options?: FetchOptions): Promise<FetchResult<BuzzEvent>> {
 		const decoded = this.decodeThreadId(threadId);
 		const limit = options?.limit && options.limit > 0 ? options.limit : 20;
-		const events = await this.relay.query({
+		if (decoded.rootEventId) return this.fetchThreadMessages(decoded.channelId, decoded.rootEventId, limit);
+		const until = decodeCreatedAtCursor(options?.cursor);
+		const filter: Record<string, unknown> = {
 			kinds: [STREAM_MESSAGE_KIND],
 			"#h": [decoded.channelId],
+			limit,
+		};
+		if (until !== undefined) filter.until = until;
+		const events = await this.relay.query(filter);
+		const chronological = events.sort((first, second) => first.created_at - second.created_at);
+		const messages: Message<BuzzEvent>[] = [];
+		for (const event of chronological) {
+			messages.push(this.buildMessage(event, await this.fetchProfile(event.pubkey)));
+		}
+		const oldest = chronological[0];
+		const nextCursor =
+			oldest && events.length >= limit ? encodeCreatedAtCursor(oldest.created_at) : undefined;
+		return { messages, nextCursor };
+	}
+
+	private async fetchThreadMessages(
+		channelId: string,
+		rootEventId: string,
+		limit: number,
+	): Promise<FetchResult<BuzzEvent>> {
+		const events = await this.relay.query({
+			kinds: [STREAM_MESSAGE_KIND],
+			"#h": [channelId],
 			limit: Math.max(limit * 3, limit),
 		});
 		const chronological = events.sort((first, second) => first.created_at - second.created_at);
-		const relevant = decoded.rootEventId
-			? chronological.filter((event) => {
-					const { rootEventId } = threadTagsOf(event);
-					return event.id === decoded.rootEventId || rootEventId === decoded.rootEventId;
-				})
-			: chronological;
-		const window = relevant.slice(-limit);
+		const relevant = chronological.filter((event) => {
+			const { rootEventId: eventRootId } = threadTagsOf(event);
+			return event.id === rootEventId || eventRootId === rootEventId;
+		});
 		const messages: Message<BuzzEvent>[] = [];
-		for (const event of window) {
+		for (const event of relevant.slice(-limit)) {
 			messages.push(this.buildMessage(event, await this.fetchProfile(event.pubkey)));
 		}
 		return { messages, nextCursor: undefined };
