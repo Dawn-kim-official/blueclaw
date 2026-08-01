@@ -8,7 +8,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/config"
 	"github.com/Dawn-kim-official/blueclaw/internal/llm"
 )
 
@@ -33,7 +32,7 @@ func TestLLMDLiveXLowCurrentAgentActionSchemaFromEnv(t *testing.T) {
 	client := llm.NewLLMDClient(llm.LLMDClientConfiguration{
 		UnixSocketPath: socketPath,
 		AuthKey:        authKey,
-		ModelName:      llm.ResolveModelTierNames(config.RuntimeConfiguration{}).XLow,
+		ModelName:      llm.DefaultModelTierNames().XLow,
 		ExecutionMode:  "remote",
 	})
 	response, errorValue := client.GenerateStructuredResponse(context.Background(), request)
