@@ -109,7 +109,7 @@ func TestRegisterProviderRejectsNonCanonicalToolName(t *testing.T) {
 		toolName string
 	}{
 		{name: "contains a space", toolName: "task add"},
-		{name: "exceeds 128 characters", toolName: "task." + strings.Repeat("a", 128)},
+		{name: "exceeds 128 characters", toolName: "task_" + strings.Repeat("a", 128)},
 	}
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
@@ -147,10 +147,10 @@ func TestRegisterProviderRejectsModelVisibleToolWithoutResultContract(t *testing
 }
 
 func TestRegisterProviderAllowsHiddenToolWithoutResultContract(t *testing.T) {
-	providerTool := validProviderTool("capabilityd/internal/llm.text", "internal", "llm.text")
+	providerTool := validProviderTool("capabilityd/internal/llm.text", "internal", "llm_text")
 	providerTool.Definition.Visibility = toolcontract.ToolVisibilityInternal
 	providerTool.Definition.ResultContract = nil
-	toolSet := toolcontract.NewToolSet([]string{"llm.text"})
+	toolSet := toolcontract.NewToolSet([]string{"llm_text"})
 
 	errorValue := toolSet.RegisterProvider(context.Background(), testToolProvider{
 		providerID: "capabilityd",
@@ -160,7 +160,7 @@ func TestRegisterProviderAllowsHiddenToolWithoutResultContract(t *testing.T) {
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
-	if toolSet.IsAllowed("llm.text") || !toolSet.IsRegistered("llm.text") {
+	if toolSet.IsAllowed("llm_text") || !toolSet.IsRegistered("llm_text") {
 		t.Fatal("expected hidden uncontracted tool to remain internal")
 	}
 }
@@ -764,9 +764,9 @@ func TestRegisterBoundToolRejectsOverwrite(t *testing.T) {
 }
 
 func TestProviderVisibilityControlsModelExposure(t *testing.T) {
-	hiddenTool := validProviderTool("capabilityd/internal/llm.text", "internal", "llm.text")
+	hiddenTool := validProviderTool("capabilityd/internal/llm.text", "internal", "llm_text")
 	hiddenTool.Definition.Visibility = toolcontract.ToolVisibilityInternal
-	toolSet := toolcontract.NewToolSet([]string{"llm.text"})
+	toolSet := toolcontract.NewToolSet([]string{"llm_text"})
 
 	errorValue := toolSet.RegisterProvider(context.Background(), testToolProvider{
 		providerID: "capabilityd",
@@ -776,10 +776,10 @@ func TestProviderVisibilityControlsModelExposure(t *testing.T) {
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
-	if toolSet.IsAllowed("llm.text") {
+	if toolSet.IsAllowed("llm_text") {
 		t.Fatal("expected hidden descriptor to stay out of model exposure")
 	}
-	if !toolSet.IsRegistered("llm.text") {
+	if !toolSet.IsRegistered("llm_text") {
 		t.Fatal("expected hidden descriptor to remain internally registered")
 	}
 }
