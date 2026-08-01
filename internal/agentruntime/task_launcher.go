@@ -3,6 +3,8 @@ package agentruntime
 import (
 	"context"
 	"errors"
+	"github.com/Dawn-kim-official/blueclaw/internal/task"
+	"github.com/Dawn-kim-official/blueclaw/internal/taskstate"
 	"github.com/Dawn-kim-official/blueclaw/internal/toolcontract"
 	"path/filepath"
 	"strings"
@@ -419,6 +421,15 @@ func (taskLauncher *TaskLauncher) agentTurnRequestForLaunch(request TaskLaunchRe
 	}
 }
 
+// A missing artifact service must reach the harness as an absent store, not as a
+// non-nil port holding a nil pointer.
+func conversationArtifactStore(taskArtifactService *task.TaskArtifactService) taskstate.TaskArtifactStore {
+	if taskArtifactService == nil {
+		return nil
+	}
+	return taskArtifactService
+}
+
 func (taskLauncher *TaskLauncher) visibleContextWithArtifactManifest(request TaskLaunchRequest, profileName string) bluecollar.VisibleContext {
 	if taskLauncher.toolCatalogBuilder.taskRunService == nil {
 		return request.VisibleContext
@@ -429,7 +440,7 @@ func (taskLauncher *TaskLauncher) visibleContextWithArtifactManifest(request Tas
 		ExistingTaskRunID:    request.ExistingTaskRunID,
 		WorkspaceRootPath:    taskLauncher.toolCatalogBuilder.WorkspaceRootPath(),
 		WorkspaceDefaultPath: conversationScope.DefaultDirectoryPath,
-	}, taskLauncher.toolCatalogBuilder.taskRunService, taskLauncher.toolCatalogBuilder.taskArtifactService)
+	}, taskLauncher.toolCatalogBuilder.taskRunService, conversationArtifactStore(taskLauncher.toolCatalogBuilder.taskArtifactService))
 	for _, artifact := range manifest {
 		request.VisibleContext.Materials = append(request.VisibleContext.Materials, bluecollar.VisibleContextMaterial{
 			FileHint:    artifact.FileHint,

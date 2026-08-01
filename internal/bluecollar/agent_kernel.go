@@ -9,14 +9,14 @@ import (
 	"time"
 
 	"github.com/Dawn-kim-official/blueclaw/internal/model"
-	"github.com/Dawn-kim-official/blueclaw/internal/task"
+	"github.com/Dawn-kim-official/blueclaw/internal/taskstate"
 )
 
 type AgentKernel struct {
 	planCompiler            PlanCompiler
-	taskRunService          *task.TaskRunService
-	taskStepService         *task.TaskStepService
-	taskArtifactService     *task.TaskArtifactService
+	taskRunService          taskstate.TaskRunStore
+	taskStepService         taskstate.TaskStepStore
+	taskArtifactService     taskstate.TaskArtifactStore
 	languageModel           model.LanguageModelProvider
 	maxTaskLanguageModel    model.LanguageModelProvider
 	xHighTaskLanguageModel  model.LanguageModelProvider
@@ -34,12 +34,12 @@ type AgentKernel struct {
 	companyProvider         func() CompanyContext
 }
 
-func NewAgentKernel(taskRunService *task.TaskRunService, taskStepService *task.TaskStepService) *AgentKernel {
+func NewAgentKernel(taskRunService taskstate.TaskRunStore, taskStepService taskstate.TaskStepStore) *AgentKernel {
 	return &AgentKernel{
 		planCompiler:        PlanCompiler{},
 		taskRunService:      taskRunService,
 		taskStepService:     taskStepService,
-		taskArtifactService: task.NewTaskArtifactService(),
+		taskArtifactService: taskstate.NewTaskArtifactService(),
 	}
 }
 
@@ -56,7 +56,7 @@ func (agentKernel *AgentKernel) UseTaskTierLanguageModels(maxTaskLanguageModel m
 	agentKernel.codingTaskLanguageModel = codingTaskLanguageModel
 }
 
-func (agentKernel *AgentKernel) UseTaskArtifactService(taskArtifactService *task.TaskArtifactService) {
+func (agentKernel *AgentKernel) UseTaskArtifactService(taskArtifactService taskstate.TaskArtifactStore) {
 	if taskArtifactService != nil {
 		agentKernel.taskArtifactService = taskArtifactService
 	}
@@ -116,35 +116,35 @@ func (agentKernel *AgentKernel) AppendTaskEvent(taskRunID string, name string, b
 	agentKernel.taskRunService.AppendTaskEvent(taskRunID, name, body)
 }
 
-func (agentKernel *AgentKernel) ListTaskRunByPersonID(personID string) []task.TaskRun {
+func (agentKernel *AgentKernel) ListTaskRunByPersonID(personID string) []taskstate.TaskRun {
 	return agentKernel.taskRunService.ListTaskRunByPersonID(personID)
 }
 
-func (agentKernel *AgentKernel) FindTaskRun(taskRunID string) (task.TaskRun, bool) {
+func (agentKernel *AgentKernel) FindTaskRun(taskRunID string) (taskstate.TaskRun, bool) {
 	return agentKernel.taskRunService.FindTaskRun(taskRunID)
 }
 
-func (agentKernel *AgentKernel) ListTaskEvent(taskRunID string) []task.TaskEvent {
+func (agentKernel *AgentKernel) ListTaskEvent(taskRunID string) []taskstate.TaskEvent {
 	return agentKernel.taskRunService.ListTaskEvent(taskRunID)
 }
 
-func (agentKernel *AgentKernel) CompleteTask(taskRunID string, result string) (task.TaskRun, error) {
+func (agentKernel *AgentKernel) CompleteTask(taskRunID string, result string) (taskstate.TaskRun, error) {
 	return agentKernel.taskRunService.CompleteTaskRun(taskRunID, result)
 }
 
-func (agentKernel *AgentKernel) CancelTask(taskRunID string, requesterPersonID string, reason string) (task.TaskRun, error) {
+func (agentKernel *AgentKernel) CancelTask(taskRunID string, requesterPersonID string, reason string) (taskstate.TaskRun, error) {
 	return agentKernel.taskRunService.CancelTaskRunWithReason(taskRunID, requesterPersonID, reason)
 }
 
-func (agentKernel *AgentKernel) CancelActiveTasks(request task.TaskRunCancelRequest) []task.TaskRun {
+func (agentKernel *AgentKernel) CancelActiveTasks(request taskstate.TaskRunCancelRequest) []taskstate.TaskRun {
 	return agentKernel.taskRunService.CancelActiveTaskRuns(request)
 }
 
-func (agentKernel *AgentKernel) IsTaskRunActuallyRunning(taskRun task.TaskRun) bool {
+func (agentKernel *AgentKernel) IsTaskRunActuallyRunning(taskRun taskstate.TaskRun) bool {
 	return agentKernel.taskRunService.IsTaskRunActuallyRunning(taskRun)
 }
 
-func (agentKernel *AgentKernel) InterruptInactiveTaskRun(taskRunID string, reason string) (task.TaskRun, bool) {
+func (agentKernel *AgentKernel) InterruptInactiveTaskRun(taskRunID string, reason string) (taskstate.TaskRun, bool) {
 	return agentKernel.taskRunService.InterruptInactiveTaskRun(taskRunID, reason)
 }
 
@@ -194,7 +194,7 @@ func (agentKernel *AgentKernel) CompleteLaunchFailure(responseContext context.Co
 	}
 	failedTaskRun, failError := agentKernel.taskRunService.FailTaskRun(taskRun.TaskRunID, reason)
 	if failError != nil {
-		taskRun.Status = task.TaskStatusFailed
+		taskRun.Status = taskstate.TaskStatusFailed
 		taskRun.FailureReason = firstNonEmptyString(reason, failError.Error())
 		failedTaskRun = taskRun
 	}
@@ -215,13 +215,13 @@ func (agentKernel *AgentKernel) CompleteLaunchFailure(responseContext context.Co
 	return AgentTurnResult{TaskRun: failedTaskRun, UserNotice: failedTaskRun.Result, FailureNotice: failureNotice, ToolNames: toolNamesForEvent(request.ToolSet)}
 }
 
-func (agentKernel *AgentKernel) taskRunForLaunchFailure(request AgentTurnRequest) (task.TaskRun, error) {
+func (agentKernel *AgentKernel) taskRunForLaunchFailure(request AgentTurnRequest) (taskstate.TaskRun, error) {
 	if taskRunID := strings.TrimSpace(request.ExistingTaskRunID); taskRunID != "" {
 		if taskRun, isFound := agentKernel.taskRunService.FindTaskRun(taskRunID); isFound {
 			return taskRun, nil
 		}
 	}
-	return agentKernel.taskRunService.CreateTaskRunWithOriginAndError(request.RequesterPersonID, task.TaskRunOrigin{
+	return agentKernel.taskRunService.CreateTaskRunWithOriginAndError(request.RequesterPersonID, taskstate.TaskRunOrigin{
 		ConversationID: request.ConversationID,
 		ReplyTargetID:  request.OriginReplyTargetID,
 		IsThread:       request.OriginIsThread,
@@ -332,12 +332,12 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 	request.PinnedSkillNames = appendUniqueStrings(request.PinnedSkillNames, selectedSkillNameList(instructionBundle.SkillDecisions)...)
 	intakeRequest.PinnedSkillNames = request.PinnedSkillNames
 	if intakeDecision.Classification == IntakeClassificationNeedsConfirmation {
-		result, errorValue := agentKernel.completeIntakeOnlyRequest(taskContext, intakeRequest, intakeDecision, task.TaskStatusWaitingUserInput, routerCallLedger.records)
+		result, errorValue := agentKernel.completeIntakeOnlyRequest(taskContext, intakeRequest, intakeDecision, taskstate.TaskStatusWaitingUserInput, routerCallLedger.records)
 		result.TurnRoute = turnDecision.Route
 		return result, errorValue
 	}
 	if intakeDecision.Classification == IntakeClassificationUnsupported {
-		result, errorValue := agentKernel.completeIntakeOnlyRequest(taskContext, intakeRequest, intakeDecision, task.TaskStatusBlocked, routerCallLedger.records)
+		result, errorValue := agentKernel.completeIntakeOnlyRequest(taskContext, intakeRequest, intakeDecision, taskstate.TaskStatusBlocked, routerCallLedger.records)
 		result.TurnRoute = turnDecision.Route
 		return result, errorValue
 	}
@@ -626,7 +626,7 @@ func (agentKernel *AgentKernel) pauseForClarification(responseContext context.Co
 	if errorValue != nil {
 		return AgentTurnResult{TaskRun: taskRun}, errorValue
 	}
-	waitingTaskRun, errorValue := agentKernel.taskRunService.PauseTaskRun(taskRun.TaskRunID, task.TaskStatusWaitingUserInput, reply)
+	waitingTaskRun, errorValue := agentKernel.taskRunService.PauseTaskRun(taskRun.TaskRunID, taskstate.TaskStatusWaitingUserInput, reply)
 	if errorValue != nil {
 		return AgentTurnResult{}, errorValue
 	}
@@ -647,35 +647,35 @@ func (agentKernel *AgentKernel) pauseForClarification(responseContext context.Co
 	return AgentTurnResult{TaskRun: waitingTaskRun, UserNotice: reply, ToolNames: toolNamesForEvent(request.ToolSet)}, nil
 }
 
-func (agentKernel *AgentKernel) RunTask(requesterPersonID string, originConversationID string, prompt string) (task.TaskRun, error) {
-	return agentKernel.RunTaskWithOrigin(requesterPersonID, task.TaskRunOrigin{ConversationID: originConversationID}, prompt)
+func (agentKernel *AgentKernel) RunTask(requesterPersonID string, originConversationID string, prompt string) (taskstate.TaskRun, error) {
+	return agentKernel.RunTaskWithOrigin(requesterPersonID, taskstate.TaskRunOrigin{ConversationID: originConversationID}, prompt)
 }
 
-func (agentKernel *AgentKernel) RunTaskWithOrigin(requesterPersonID string, origin task.TaskRunOrigin, prompt string) (task.TaskRun, error) {
+func (agentKernel *AgentKernel) RunTaskWithOrigin(requesterPersonID string, origin taskstate.TaskRunOrigin, prompt string) (taskstate.TaskRun, error) {
 	taskRun := agentKernel.taskRunService.CreateTaskRunWithOrigin(requesterPersonID, origin, prompt)
 	taskPlan, errorValue := agentKernel.planCompiler.CompilePlan(prompt)
 	if errorValue != nil {
-		return task.TaskRun{}, errorValue
+		return taskstate.TaskRun{}, errorValue
 	}
 
 	for _, taskPlanStep := range taskPlan.TaskSteps {
-		agentKernel.taskStepService.AddTaskStep(task.TaskStep{
+		agentKernel.taskStepService.AddTaskStep(taskstate.TaskStep{
 			TaskStepID:               taskRun.TaskRunID + ":" + taskPlanStep.Name,
 			TaskRunID:                taskRun.TaskRunID,
 			AssignedAgentProfileName: taskPlanStep.AssignedAgentProfileName,
 			Instruction:              taskPlanStep.Instruction,
-			Status:                   task.TaskStatusPlanned,
+			Status:                   taskstate.TaskStatusPlanned,
 		})
 	}
 
 	return agentKernel.taskRunService.AdvanceTaskRun(taskRun.TaskRunID, "planner")
 }
 
-func (agentKernel *AgentKernel) ResumeTask(taskRunID string) (task.TaskRun, error) {
+func (agentKernel *AgentKernel) ResumeTask(taskRunID string) (taskstate.TaskRun, error) {
 	return agentKernel.taskRunService.ResumeTaskRun(taskRunID)
 }
 
-func (agentKernel *AgentKernel) completeIntakeOnlyRequest(responseContext context.Context, request AgentRequest, intakeDecision IntakeDecision, status task.TaskStatus, routerCallRecords []llmCallRecord) (AgentTurnResult, error) {
+func (agentKernel *AgentKernel) completeIntakeOnlyRequest(responseContext context.Context, request AgentRequest, intakeDecision IntakeDecision, status taskstate.TaskStatus, routerCallRecords []llmCallRecord) (AgentTurnResult, error) {
 	taskRun := agentKernel.createTaskRunForRequest(request)
 	agentKernel.appendTurnRouterCallRecords(taskRun.TaskRunID, routerCallRecords)
 	agentKernel.AppendTaskEvent(taskRun.TaskRunID, "agent.intake", marshalEventBody(intakeDecision))
@@ -696,7 +696,7 @@ func (agentKernel *AgentKernel) completeIntakeOnlyRequest(responseContext contex
 	if errorValue != nil {
 		return AgentTurnResult{}, errorValue
 	}
-	if status == task.TaskStatusWaitingUserInput && intakeDecision.Classification == IntakeClassificationNeedsConfirmation && len(intakeDecision.ClarificationOptions) >= 2 {
+	if status == taskstate.TaskStatusWaitingUserInput && intakeDecision.Classification == IntakeClassificationNeedsConfirmation && len(intakeDecision.ClarificationOptions) >= 2 {
 		agentKernel.AppendTaskEvent(taskRun.TaskRunID, "ask.requested", marshalEventBody(map[string]any{
 			"kind":                 "ask_input",
 			"question":             finishMessage,
@@ -712,8 +712,8 @@ func (agentKernel *AgentKernel) completeIntakeOnlyRequest(responseContext contex
 	return AgentTurnResult{TaskRun: blockedTaskRun, UserNotice: finishMessage, ToolNames: toolNamesForEvent(request.ToolSet)}, nil
 }
 
-func (agentKernel *AgentKernel) createTaskRunForRequest(request AgentRequest) task.TaskRun {
-	return agentKernel.taskRunService.CreateTaskRunWithOrigin(request.RequesterPersonID, task.TaskRunOrigin{
+func (agentKernel *AgentKernel) createTaskRunForRequest(request AgentRequest) taskstate.TaskRun {
+	return agentKernel.taskRunService.CreateTaskRunWithOrigin(request.RequesterPersonID, taskstate.TaskRunOrigin{
 		ConversationID: request.ConversationID,
 		ReplyTargetID:  request.OriginReplyTargetID,
 		IsThread:       request.OriginIsThread,
@@ -726,7 +726,7 @@ func (agentKernel *AgentKernel) appendTurnRouterCallRecords(taskRunID string, re
 	}
 }
 
-func (agentKernel *AgentKernel) appendGoalLifecycleEvent(taskRun task.TaskRun, activeGoal ActiveGoal) {
+func (agentKernel *AgentKernel) appendGoalLifecycleEvent(taskRun taskstate.TaskRun, activeGoal ActiveGoal) {
 	if strings.TrimSpace(taskRun.TaskRunID) == "" {
 		return
 	}
@@ -828,9 +828,9 @@ func (agentKernel *AgentKernel) completeIntakeElapsed(turnBudget turnBudgetConte
 	if turnBudget.didClampAnchor {
 		agentKernel.AppendTaskEvent(taskRun.TaskRunID, "agent.turn_anchor_clamped", marshalEventBody(turnAnchorClampedEventBody(turnBudget)))
 	}
-	blockedTaskRun, errorValue := agentKernel.taskRunService.PauseTaskRun(taskRun.TaskRunID, task.TaskStatusBlocked, "max_elapsed")
+	blockedTaskRun, errorValue := agentKernel.taskRunService.PauseTaskRun(taskRun.TaskRunID, taskstate.TaskStatusBlocked, "max_elapsed")
 	if errorValue != nil {
-		taskRun.Status = task.TaskStatusBlocked
+		taskRun.Status = taskstate.TaskStatusBlocked
 		taskRun.FailureReason = "max_elapsed"
 		blockedTaskRun = taskRun
 	}
@@ -838,7 +838,7 @@ func (agentKernel *AgentKernel) completeIntakeElapsed(turnBudget turnBudgetConte
 	replyStatus := limitReplyStatus{Source: noticeStatus.Source, Reason: noticeStatus.Reason, TextRecoveryError: noticeStatus.TextRecoveryError}
 	agentKernel.AppendTaskEvent(taskRun.TaskRunID, "agent.limit_reply", marshalEventBody(replyStatus))
 	blockedTaskRun = persistTaskRunResult(agentKernel.taskRunService, blockedTaskRun, failureNotice.SendableMessage())
-	agentKernel.appendGoalLifecycleEvent(blockedTaskRun, activeGoalFromIntakeOnly(taskRun.TaskRunID, request, intakeDecision, task.TaskStatusBlocked))
+	agentKernel.appendGoalLifecycleEvent(blockedTaskRun, activeGoalFromIntakeOnly(taskRun.TaskRunID, request, intakeDecision, taskstate.TaskStatusBlocked))
 	return AgentTurnResult{
 		TaskRun:       blockedTaskRun,
 		UserNotice:    failureNotice.SendableMessage(),
@@ -860,7 +860,7 @@ func (agentKernel *AgentKernel) generateIntakeElapsedNotice(responseContext cont
 	return (FailureNoticeGenerator{LanguageModel: agentKernel.languageModel}).Generate(responseContext, report)
 }
 
-func (agentKernel *AgentKernel) taskRunForIntakeLimit(request AgentRequest) task.TaskRun {
+func (agentKernel *AgentKernel) taskRunForIntakeLimit(request AgentRequest) taskstate.TaskRun {
 	if taskRunID := strings.TrimSpace(request.ExistingTaskRunID); taskRunID != "" {
 		if taskRun, isFound := agentKernel.taskRunService.FindTaskRun(taskRunID); isFound {
 			return taskRun
@@ -1011,7 +1011,7 @@ type budgetEscalatedEventBody struct {
 	QualifyingEventIDs []string  `json:"qualifyingEventIDs,omitempty"`
 }
 
-func highestEscalatedTaskLevel(taskEvents []task.TaskEvent) TaskLevel {
+func highestEscalatedTaskLevel(taskEvents []taskstate.TaskEvent) TaskLevel {
 	highestTaskLevel := TaskLevel("")
 	for _, taskEvent := range taskEvents {
 		if taskEvent.Name != "agent.budget_escalated" {

@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"github.com/Dawn-kim-official/blueclaw/internal/model"
-	"github.com/Dawn-kim-official/blueclaw/internal/task"
+	"github.com/Dawn-kim-official/blueclaw/internal/taskstate"
 )
 
 func TestCompletionStateWaitsForModelWordingBeforeCompleting(t *testing.T) {
@@ -61,7 +61,7 @@ func TestFinalizeCompletionStateCompletesDespiteJudgeContextDeadlineExceeded(t *
 	if !transition.IsCompleted || !transition.DidTransition {
 		t.Fatalf("expected the turn to complete despite judge context expiry, got %+v", transition)
 	}
-	if transition.Result.TaskRun.Status != task.TaskStatusCompleted {
+	if transition.Result.TaskRun.Status != taskstate.TaskStatusCompleted {
 		t.Fatalf("expected task run to be completed, got status %q", transition.Result.TaskRun.Status)
 	}
 	if !strings.Contains(transition.Result.FinishMessage, "오래된 작업을 삭제했습니다.") {
@@ -92,7 +92,7 @@ func TestFinalizeCompletionStateDeliversBestEffortWhenJudgeUnsatisfiedAndBudgetE
 	if !transition.IsCompleted || !transition.DidTransition {
 		t.Fatalf("expected best-effort completion when the judge is unsatisfied and the budget is expired, got %+v", transition)
 	}
-	if transition.Result.TaskRun.Status != task.TaskStatusCompleted {
+	if transition.Result.TaskRun.Status != taskstate.TaskStatusCompleted {
 		t.Fatalf("expected task run to be completed, got status %q", transition.Result.TaskRun.Status)
 	}
 	if !strings.Contains(transition.Result.FinishMessage, "오래된 작업을 삭제했습니다.") {
@@ -123,7 +123,7 @@ func TestFinalizeCompletionStateKeepsRetryingWhenJudgeUnsatisfiedAndBudgetRemain
 		t.Fatalf("expected the turn to keep retrying when the judge is unsatisfied and the budget is not expired, got %+v", transition)
 	}
 	completedTaskRun, isFound := services.taskRunService.FindTaskRun(taskRun.TaskRunID)
-	if !isFound || completedTaskRun.Status == task.TaskStatusCompleted {
+	if !isFound || completedTaskRun.Status == taskstate.TaskStatusCompleted {
 		t.Fatalf("expected the task run to remain uncompleted, got %+v", completedTaskRun)
 	}
 	if !taskEventsContain(services.taskEventService.ListTaskEvent(taskRun.TaskRunID), "agent.completion_state_rejected", "완료 확인 불가") {
@@ -450,7 +450,7 @@ func TestAgentTurnRunnerRejectsRequiredFileWithoutAttachmentEvidence(t *testing.
 	if errorValue != nil {
 		t.Fatalf("expected turn to finish: %v", errorValue)
 	}
-	if result.TaskRun.Status != task.TaskStatusFailed {
+	if result.TaskRun.Status != taskstate.TaskStatusFailed {
 		t.Fatalf("expected failed task after missing file evidence, got %s", result.TaskRun.Status)
 	}
 	if !strings.Contains(result.UserNotice, "근거가 없어") {
@@ -531,7 +531,7 @@ func TestAgentTurnRunnerRejectsHtmlClaimBackedByMarkdownAttachment(t *testing.T)
 	if errorValue != nil {
 		t.Fatalf("expected turn to finish: %v", errorValue)
 	}
-	if result.TaskRun.Status != task.TaskStatusFailed {
+	if result.TaskRun.Status != taskstate.TaskStatusFailed {
 		t.Fatalf("expected failed task after mismatched attachment claim, got %s", result.TaskRun.Status)
 	}
 	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.completion_required", ".html") {
@@ -569,7 +569,7 @@ func TestAgentTurnRunnerAcceptsHtmlRequestWithHtmlAttachment(t *testing.T) {
 	if errorValue != nil {
 		t.Fatalf("expected turn to finish: %v", errorValue)
 	}
-	if result.TaskRun.Status != task.TaskStatusCompleted {
+	if result.TaskRun.Status != taskstate.TaskStatusCompleted {
 		t.Fatalf("expected completed task, got %s events=%+v", result.TaskRun.Status, services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID))
 	}
 	if len(result.Attachments) != 1 || result.Attachments[0].Filename != "deck.html" {
@@ -729,7 +729,7 @@ func TestAgentTurnRunnerDoesNotRequireNonAttachmentToolInCompletionEvidence(t *t
 	if errorValue != nil {
 		t.Fatalf("expected required evidence to recover: %v", errorValue)
 	}
-	if result.TaskRun.Status != task.TaskStatusCompleted {
+	if result.TaskRun.Status != taskstate.TaskStatusCompleted {
 		events := services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID)
 		t.Fatalf("expected completed task, got %s events=%+v", result.TaskRun.Status, events)
 	}
@@ -822,7 +822,7 @@ func TestAgentTurnRunnerAcceptsReadableFileAttachObservation(t *testing.T) {
 	if errorValue != nil {
 		t.Fatalf("expected completed turn without runner error: %v", errorValue)
 	}
-	if result.TaskRun.Status != task.TaskStatusCompleted {
+	if result.TaskRun.Status != taskstate.TaskStatusCompleted {
 		events := services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID)
 		t.Fatalf("expected completed task, got %s events=%+v", result.TaskRun.Status, events)
 	}
@@ -1142,7 +1142,7 @@ func TestAgentTurnRunnerRejectsCompletionEvidenceFromErrorObservation(t *testing
 	if errorValue != nil {
 		t.Fatalf("expected turn to fail safely: %v", errorValue)
 	}
-	if result.TaskRun.Status != task.TaskStatusFailed {
+	if result.TaskRun.Status != taskstate.TaskStatusFailed {
 		t.Fatalf("expected failed task, got %s", result.TaskRun.Status)
 	}
 	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.completion_required", "unknown or failed observation") {
@@ -1419,7 +1419,7 @@ func TestAgentTurnRunnerCanonicalLinkGateBlocksEarlyFinish(t *testing.T) {
 	if strings.Join(toolCalls, ",") != "file.write,site.serve" {
 		t.Fatalf("expected draft creation then serve, got %+v", toolCalls)
 	}
-	if result.TaskRun.Status != task.TaskStatusCompleted {
+	if result.TaskRun.Status != taskstate.TaskStatusCompleted {
 		t.Fatalf("expected completed task, got %s", result.TaskRun.Status)
 	}
 	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.completion_required", "canonical link result") {
@@ -1566,7 +1566,7 @@ func TestAgentTurnRunnerUsesNoToolChatWhenCompletionEvidenceIsReady(t *testing.T
 		},
 	})
 
-	if errorValue != nil || result.TaskRun.Status != task.TaskStatusCompleted {
+	if errorValue != nil || result.TaskRun.Status != taskstate.TaskStatusCompleted {
 		t.Fatalf("expected completed file delivery, got result=%+v error=%v", result, errorValue)
 	}
 	if result.FinishMessage != "JSON 보고서를 첨부했습니다." || len(result.Attachments) != 1 {
@@ -1646,7 +1646,7 @@ func TestRejectedFinishWordingSurvivesAttachmentRepair(t *testing.T) {
 		},
 	})
 
-	if errorValue != nil || result.TaskRun.Status != task.TaskStatusCompleted {
+	if errorValue != nil || result.TaskRun.Status != taskstate.TaskStatusCompleted {
 		t.Fatalf("expected completed delivery repair, got result=%+v error=%v", result, errorValue)
 	}
 	if result.FinishMessage != finishMessage {
@@ -1802,7 +1802,7 @@ func TestAgentTurnRunnerExpectedResultsRequireTheirTypedToolEvidence(t *testing.
 	if errorValue != nil {
 		t.Fatalf("expected run to complete: %v", errorValue)
 	}
-	if result.TaskRun.Status != task.TaskStatusCompleted {
+	if result.TaskRun.Status != taskstate.TaskStatusCompleted {
 		t.Fatalf("expected completed task, got %s", result.TaskRun.Status)
 	}
 	if strings.Contains(result.FinishMessage, "첨부") {
@@ -1855,7 +1855,7 @@ func TestAgentTurnRunnerFileExpectedResultRequiresAttachment(t *testing.T) {
 	if errorValue != nil {
 		t.Fatalf("expected run to complete after attachment: %v", errorValue)
 	}
-	if result.TaskRun.Status != task.TaskStatusCompleted {
+	if result.TaskRun.Status != taskstate.TaskStatusCompleted {
 		t.Fatalf("expected completed task, got %s", result.TaskRun.Status)
 	}
 	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.completion_required", "file.deliver") {
@@ -1890,7 +1890,7 @@ func TestAgentTurnRunnerFinalizesOneShotEvidenceToolAfterSuccess(t *testing.T) {
 	if errorValue != nil {
 		t.Fatalf("expected completed calendar turn: %v", errorValue)
 	}
-	if result.TaskRun.Status != task.TaskStatusCompleted {
+	if result.TaskRun.Status != taskstate.TaskStatusCompleted {
 		t.Fatalf("expected completed task, got %s", result.TaskRun.Status)
 	}
 	if toolCallCount != 1 {
@@ -1931,7 +1931,7 @@ func TestAgentTurnRunnerFinalizesScheduleCreateAfterSuccess(t *testing.T) {
 	if errorValue != nil {
 		t.Fatalf("expected completed schedule turn: %v", errorValue)
 	}
-	if result.TaskRun.Status != task.TaskStatusCompleted {
+	if result.TaskRun.Status != taskstate.TaskStatusCompleted {
 		t.Fatalf("expected completed task, got %s", result.TaskRun.Status)
 	}
 	if toolCallCount != 1 {
@@ -1985,7 +1985,7 @@ func TestAgentTurnRunnerDoesNotBlockTerminalRerunForMissingFile(t *testing.T) {
 	if errorValue != nil {
 		t.Fatalf("expected turn to succeed: %v", errorValue)
 	}
-	if result.TaskRun.Status != task.TaskStatusCompleted {
+	if result.TaskRun.Status != taskstate.TaskStatusCompleted {
 		t.Fatalf("expected completed task, got %s", result.TaskRun.Status)
 	}
 	if terminalCallCount != 2 {
@@ -2027,7 +2027,7 @@ func TestAgentTurnRunnerStopsRepeatedMissingEvidenceState(t *testing.T) {
 	if errorValue != nil {
 		t.Fatalf("expected repeated state stop without error: %v", errorValue)
 	}
-	if result.TaskRun.Status == task.TaskStatusRunning {
+	if result.TaskRun.Status == taskstate.TaskStatusRunning {
 		t.Fatalf("expected the repeated missing-evidence loop to terminate, got status %s", result.TaskRun.Status)
 	}
 	if terminalCallCount != 1 {
@@ -2079,7 +2079,7 @@ func TestAgentTurnRunnerDoesNotBlockTerminalRerunForMissingDesignFile(t *testing
 	if errorValue != nil {
 		t.Fatalf("expected turn to succeed: %v", errorValue)
 	}
-	if result.TaskRun.Status != task.TaskStatusCompleted {
+	if result.TaskRun.Status != taskstate.TaskStatusCompleted {
 		t.Fatalf("expected completed task, got %s", result.TaskRun.Status)
 	}
 	if terminalCallCount != 2 {
@@ -2125,7 +2125,7 @@ func TestAgentTurnRunnerDoesNotBlockTerminalBeforeRequiredFileWrite(t *testing.T
 	if errorValue != nil {
 		t.Fatalf("expected turn to succeed: %v", errorValue)
 	}
-	if result.TaskRun.Status != task.TaskStatusCompleted {
+	if result.TaskRun.Status != taskstate.TaskStatusCompleted {
 		t.Fatalf("expected completed task, got %s", result.TaskRun.Status)
 	}
 	if terminalCallCount != 2 {

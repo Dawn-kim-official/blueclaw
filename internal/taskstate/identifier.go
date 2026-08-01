@@ -1,4 +1,4 @@
-package task
+package taskstate
 
 import (
 	"crypto/rand"
@@ -12,8 +12,4 @@ func NewIdentifier() string {
 		return "0000000000000000"
 	}
 	return hex.EncodeToString(identifierBytes)
-}
-
-func newIdentifier() string {
-	return NewIdentifier()
 }

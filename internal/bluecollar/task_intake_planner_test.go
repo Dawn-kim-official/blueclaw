@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/Dawn-kim-official/blueclaw/internal/model"
-	"github.com/Dawn-kim-official/blueclaw/internal/task"
+	"github.com/Dawn-kim-official/blueclaw/internal/taskstate"
 )
 
 func mustNormalizeTurn(t *testing.T, router TurnRouter, decision TurnDecision, request AgentRequest) TurnDecision {
@@ -1233,7 +1233,7 @@ func TestAgentKernelPreservesScheduledIntakeRefusalAfterSkillSelection(t *testin
 	if errorValue != nil {
 		t.Fatalf("expected unsupported intake to complete: %v", errorValue)
 	}
-	if result.TaskRun.Status != task.TaskStatusBlocked {
+	if result.TaskRun.Status != taskstate.TaskStatusBlocked {
 		t.Fatalf("expected blocked scheduled task, got %s", result.TaskRun.Status)
 	}
 	if taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.action", "continue") {
@@ -1286,7 +1286,7 @@ func TestAgentKernelSelectsArtifactSkillOnceAfterRouting(t *testing.T) {
 	if errorValue != nil {
 		t.Fatalf("expected routed artifact task to run: %v", errorValue)
 	}
-	if result.TaskRun.Status != task.TaskStatusCompleted {
+	if result.TaskRun.Status != taskstate.TaskStatusCompleted {
 		t.Fatalf("expected completed task, got %s events=%+v", result.TaskRun.Status, services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID))
 	}
 	if len(result.Attachments) != 1 || result.Attachments[0].Filename != "deck.pptx" {
@@ -1386,7 +1386,7 @@ func TestAgentKernelPreservesUnsupportedArtifactWithoutSelectedSkill(t *testing.
 	if errorValue != nil {
 		t.Fatalf("expected unsupported intake to complete: %v", errorValue)
 	}
-	if result.TaskRun.Status != task.TaskStatusBlocked {
+	if result.TaskRun.Status != taskstate.TaskStatusBlocked {
 		t.Fatalf("expected blocked task, got %s", result.TaskRun.Status)
 	}
 	if len(result.Attachments) != 0 {
@@ -1425,7 +1425,7 @@ func TestAgentKernelRecoversPriorTaskAttachmentContract(t *testing.T) {
 		ToolSet:           toolRegistry,
 		PriorTask: PriorTaskContext{
 			TaskRunID: "88894f",
-			Status:    string(task.TaskStatusFailed),
+			Status:    string(taskstate.TaskStatusFailed),
 			Prompt:    "기업 문서 가이드를 워드 파일로 만들어줘",
 			OutcomeContract: OutcomeContract{
 				RequiredEvidenceTools:      []string{"file.deliver"},
@@ -1445,7 +1445,7 @@ func TestAgentKernelRecoversPriorTaskAttachmentContract(t *testing.T) {
 	if errorValue != nil {
 		t.Fatalf("expected prior task attachment recovery to complete: %v", errorValue)
 	}
-	if result.TaskRun.Status != task.TaskStatusCompleted {
+	if result.TaskRun.Status != taskstate.TaskStatusCompleted {
 		events := services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID)
 		t.Fatalf("expected completed recovery task, got %s events=%+v", result.TaskRun.Status, events)
 	}
@@ -1492,7 +1492,7 @@ func TestAgentKernelRecoversLegacyPriorAttachmentContractFromIntakeOutput(t *tes
 		ToolSet:           toolRegistry,
 		PriorTask: PriorTaskContext{
 			TaskRunID: "88894f",
-			Status:    string(task.TaskStatusCompleted),
+			Status:    string(taskstate.TaskStatusCompleted),
 			Prompt:    "기업 문서 가이드를 워드 파일로 만들어줘",
 			Result:    "요청하신 작업이 이미 성공적으로 완료되었습니다.",
 		},
@@ -1501,7 +1501,7 @@ func TestAgentKernelRecoversLegacyPriorAttachmentContractFromIntakeOutput(t *tes
 	if errorValue != nil {
 		t.Fatalf("expected fallback prior task attachment recovery to complete: %v", errorValue)
 	}
-	if result.TaskRun.Status != task.TaskStatusCompleted {
+	if result.TaskRun.Status != taskstate.TaskStatusCompleted {
 		events := services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID)
 		t.Fatalf("expected completed recovery task, got %s events=%+v", result.TaskRun.Status, events)
 	}
@@ -1645,7 +1645,7 @@ func TestAgentKernelUsesIntakeBeforeRunningTools(t *testing.T) {
 	if result.UserNotice != "Which one do you mean?" {
 		t.Fatalf("expected clarification reply, got %q", result.UserNotice)
 	}
-	if result.TaskRun.Status != task.TaskStatusWaitingUserInput {
+	if result.TaskRun.Status != taskstate.TaskStatusWaitingUserInput {
 		t.Fatalf("expected waiting user input, got %s", result.TaskRun.Status)
 	}
 	if len(replyLanguageModel.requests) != 0 {
@@ -1678,7 +1678,7 @@ func TestAgentKernelCreatesChoiceAskForClarificationOptions(t *testing.T) {
 	if result.UserNotice != "어떤 형식으로 만들까요?" {
 		t.Fatalf("expected clarification question, got %q", result.UserNotice)
 	}
-	if result.TaskRun.Status != task.TaskStatusWaitingUserInput {
+	if result.TaskRun.Status != taskstate.TaskStatusWaitingUserInput {
 		t.Fatalf("expected waiting user input, got %s", result.TaskRun.Status)
 	}
 	events := services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID)
@@ -1758,7 +1758,7 @@ func TestAgentKernelRunTurnPreservesCheckpointSender(t *testing.T) {
 	if errorValue != nil {
 		t.Fatalf("expected task to complete: %v", errorValue)
 	}
-	if result.TaskRun.Status != task.TaskStatusCompleted {
+	if result.TaskRun.Status != taskstate.TaskStatusCompleted {
 		t.Fatalf("expected completed task, got %s", result.TaskRun.Status)
 	}
 	if len(checkpoints) != 1 || checkpoints[0].Message != "확인 중입니다." {
@@ -1882,7 +1882,7 @@ func TestAgentKernelQuickReplyUsesAskInputForExplicitChoiceRequest(t *testing.T)
 		if taskRunID == "" {
 			return toolcontract.ToolFailureResult(toolcontract.FailureInvalidInput, toolcontract.FailureCodes.InvalidInput, "ask_choice", "missing task run"), nil
 		}
-		_, errorValue := services.taskRunService.PauseTaskRun(taskRunID, task.TaskStatusWaitingUserInput, "아래 세 가지 중 하나를 선택해 주세요.")
+		_, errorValue := services.taskRunService.PauseTaskRun(taskRunID, taskstate.TaskStatusWaitingUserInput, "아래 세 가지 중 하나를 선택해 주세요.")
 		if errorValue != nil {
 			return toolcontract.ToolFailureResult(toolcontract.FailureExternalService, toolcontract.FailureCodes.OperationFailed, "ask_choice", errorValue.Error()), nil
 		}
@@ -1899,7 +1899,7 @@ func TestAgentKernelQuickReplyUsesAskInputForExplicitChoiceRequest(t *testing.T)
 	if errorValue != nil {
 		t.Fatalf("expected choice request: %v", errorValue)
 	}
-	if result.TaskRun.Status != task.TaskStatusWaitingUserInput {
+	if result.TaskRun.Status != taskstate.TaskStatusWaitingUserInput {
 		t.Fatalf("expected waiting user input, got %s", result.TaskRun.Status)
 	}
 	events := services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID)
@@ -2013,7 +2013,7 @@ func TestAgentKernelUsesStructuredOutputFormatsForAttachmentRequirements(t *test
 	if errorValue != nil {
 		t.Fatalf("expected structured output format task to complete: %v", errorValue)
 	}
-	if result.TaskRun.Status != task.TaskStatusCompleted {
+	if result.TaskRun.Status != taskstate.TaskStatusCompleted {
 		t.Fatalf("expected completed task, got %s", result.TaskRun.Status)
 	}
 	if len(result.Attachments) != 1 || result.Attachments[0].Filename != "deck.html" {
@@ -2037,14 +2037,14 @@ func joinedMessageContent(messages []model.Message) string {
 
 type kernelIntakeTestServices struct {
 	kernel           *AgentKernel
-	taskRunService   *task.TaskRunService
-	taskEventService *task.TaskEventService
+	taskRunService   *taskstate.TaskRunService
+	taskEventService *taskstate.TaskEventService
 }
 
 func newKernelIntakeTestServices(replyLanguageModel model.LanguageModelProvider, intakeLanguageModel model.LanguageModelProvider) kernelIntakeTestServices {
-	taskEventService := task.NewTaskEventService()
-	taskRunService := task.NewTaskRunService(taskEventService)
-	taskStepService := task.NewTaskStepService()
+	taskEventService := taskstate.NewTaskEventService()
+	taskRunService := taskstate.NewTaskRunService(taskEventService)
+	taskStepService := taskstate.NewTaskStepService()
 	kernel := NewAgentKernel(taskRunService, taskStepService)
 	kernel.UseLanguageModelProvider(replyLanguageModel)
 	kernel.UseIntakeLanguageModelProvider(intakeLanguageModel)

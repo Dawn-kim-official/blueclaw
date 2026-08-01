@@ -5,7 +5,7 @@ import (
 	"github.com/Dawn-kim-official/blueclaw/internal/toolcontract"
 	"testing"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/task"
+	"github.com/Dawn-kim-official/blueclaw/internal/taskstate"
 )
 
 func continueWithMessageDocument(operationName string, message string) string {
@@ -138,7 +138,7 @@ func indexOfTurnEventKind(turnEvents []TurnEvent, kind TurnEventKind) int {
 	return -1
 }
 
-func taskEventNames(taskEvents []task.TaskEvent) []string {
+func taskEventNames(taskEvents []taskstate.TaskEvent) []string {
 	names := make([]string, len(taskEvents))
 	for index, taskEvent := range taskEvents {
 		names[index] = taskEvent.Name
@@ -146,7 +146,7 @@ func taskEventNames(taskEvents []task.TaskEvent) []string {
 	return names
 }
 
-func onlyTaskRunID(taskRunService *task.TaskRunService) string {
+func onlyTaskRunID(taskRunService *taskstate.TaskRunService) string {
 	taskRuns := taskRunService.ListTaskRun()
 	if len(taskRuns) != 1 {
 		return ""

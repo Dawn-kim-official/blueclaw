@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/task"
+	"github.com/Dawn-kim-official/blueclaw/internal/taskstate"
 )
 
 type TurnEventKind string
@@ -37,7 +37,7 @@ func (agentTurnRunner *AgentTurnRunner) StreamTurn(ctx context.Context, request 
 		default:
 		}
 	}
-	unregisterObserver := agentTurnRunner.taskRunService.RegisterTaskRunObserver(taskRun.TaskRunID, func(rawTurnEvent task.RawTurnEvent) {
+	unregisterObserver := agentTurnRunner.taskRunService.RegisterTaskRunObserver(taskRun.TaskRunID, func(rawTurnEvent taskstate.RawTurnEvent) {
 		if turnEvent, isStreamable := decodeTurnEvent(rawTurnEvent); isStreamable {
 			send(turnEvent)
 		}
@@ -57,7 +57,7 @@ type checkpointEventBody struct {
 	Message  string `json:"message"`
 }
 
-func decodeTurnEvent(rawTurnEvent task.RawTurnEvent) (TurnEvent, bool) {
+func decodeTurnEvent(rawTurnEvent taskstate.RawTurnEvent) (TurnEvent, bool) {
 	if rawTurnEvent.Name == "agent.checkpoint.sent" {
 		checkpointBody := decodeCheckpointEventBody(rawTurnEvent.Body)
 		return TurnEvent{Kind: TurnEventReply, Message: checkpointBody.Message, ToolName: checkpointBody.ToolName}, true

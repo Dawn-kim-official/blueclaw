@@ -1,4 +1,4 @@
-package task
+package taskstate
 
 import (
 	"context"
@@ -42,21 +42,6 @@ func (transitionError ErrIllegalTransition) Error() string {
 	return "illegal task run transition from " + string(transitionError.CurrentStatus) + " to " + string(transitionError.ToState) + " for task run " + transitionError.TaskRunID
 }
 
-type TaskRunTransition struct {
-	TaskRunID               string
-	FromStates              []TaskStatus
-	ToState                 TaskStatus
-	CurrentAgentProfileName string
-	Result                  string
-	FailureReason           string
-	StartedAttempt          *TaskAttempt
-	FinishCurrentAttempt    bool
-	FinishedAttemptStatus   TaskAttemptStatus
-	RunnerID                string
-	Event                   *TaskEvent
-	UpdatedAt               time.Time
-}
-
 type TaskRunService struct {
 	mutex            sync.RWMutex
 	taskRuns         map[string]TaskRun
@@ -72,22 +57,6 @@ type activeTaskAttempt struct {
 	CancelFunction           context.CancelFunc
 	CurrentToolName          string
 	CurrentToolObservationID string
-}
-
-type TaskRunCancelRequest struct {
-	TaskRunIDs                 []string
-	RequesterPersonID          string
-	OriginConversationIDs      []string
-	OriginConversationIDPrefix string
-	ScheduleOnly               bool
-	StaleBefore                *time.Time
-	Reason                     string
-}
-
-type TaskRunOrigin struct {
-	ConversationID string
-	ReplyTargetID  string
-	IsThread       bool
 }
 
 type InterruptedTaskResumeSelection struct {
@@ -120,7 +89,7 @@ func (taskRunService *TaskRunService) CreateTaskRunWithOrigin(requesterPersonID 
 
 func (taskRunService *TaskRunService) CreateTaskRunWithOriginAndError(requesterPersonID string, origin TaskRunOrigin, prompt string) (TaskRun, error) {
 	taskRun := TaskRun{
-		TaskRunID:            newIdentifier(),
+		TaskRunID:            NewIdentifier(),
 		RequesterPersonID:    requesterPersonID,
 		OriginConversationID: strings.TrimSpace(origin.ConversationID),
 		OriginReplyTargetID:  strings.TrimSpace(origin.ReplyTargetID),
@@ -228,7 +197,7 @@ func (taskRunService *TaskRunService) ListTaskEvent(taskRunID string) []TaskEven
 func (taskRunService *TaskRunService) AdvanceTaskRun(taskRunID string, currentAgentProfileName string) (TaskRun, error) {
 	now := time.Now()
 	taskAttempt := TaskAttempt{
-		TaskAttemptID: newIdentifier(),
+		TaskAttemptID: NewIdentifier(),
 		TaskRunID:     taskRunID,
 		RunnerID:      taskRunService.runnerID,
 		Status:        TaskAttemptStatusRunning,
@@ -307,7 +276,7 @@ func (taskRunService *TaskRunService) normalizeTaskRunTransition(transition Task
 	}
 	if transition.Event != nil && strings.TrimSpace(transition.Event.TaskEventID) == "" {
 		taskEvent := *transition.Event
-		taskEvent.TaskEventID = newIdentifier()
+		taskEvent.TaskEventID = NewIdentifier()
 		transition.Event = &taskEvent
 	}
 	return transition
@@ -397,7 +366,7 @@ func taskStatusAllowed(status TaskStatus, allowedStatuses []TaskStatus) bool {
 
 func newTaskRunTransitionEvent(taskRunID string, name string, body string, createdAt time.Time) *TaskEvent {
 	return &TaskEvent{
-		TaskEventID: newIdentifier(),
+		TaskEventID: NewIdentifier(),
 		TaskRunID:   taskRunID,
 		Name:        name,
 		Body:        body,

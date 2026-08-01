@@ -10,13 +10,13 @@ import (
 
 	"github.com/Dawn-kim-official/blueclaw/internal/llm"
 	"github.com/Dawn-kim-official/blueclaw/internal/model"
-	"github.com/Dawn-kim-official/blueclaw/internal/task"
+	"github.com/Dawn-kim-official/blueclaw/internal/taskstate"
 )
 
 func TestAgentKernelRejectsProviderWithoutChatCompletion(t *testing.T) {
-	taskEventService := task.NewTaskEventService()
-	taskRunService := task.NewTaskRunService(taskEventService)
-	taskStepService := task.NewTaskStepService()
+	taskEventService := taskstate.NewTaskEventService()
+	taskRunService := taskstate.NewTaskRunService(taskEventService)
+	taskStepService := taskstate.NewTaskStepService()
 	agentKernel := NewAgentKernel(taskRunService, taskStepService)
 	replyProvider := &structuredOnlyReplyProvider{}
 	agentKernel.UseLanguageModelProvider(replyProvider)
@@ -31,9 +31,9 @@ func TestAgentKernelRejectsProviderWithoutChatCompletion(t *testing.T) {
 }
 
 func TestAgentKernelGeneratesChatReplyWithoutTools(t *testing.T) {
-	taskEventService := task.NewTaskEventService()
-	taskRunService := task.NewTaskRunService(taskEventService)
-	taskStepService := task.NewTaskStepService()
+	taskEventService := taskstate.NewTaskEventService()
+	taskRunService := taskstate.NewTaskRunService(taskEventService)
+	taskStepService := taskstate.NewTaskStepService()
 	agentKernel := NewAgentKernel(taskRunService, taskStepService)
 	replyProvider := &chatReplyProvider{
 		response: model.ChatCompletionResponse{Message: model.ChatCompletionMessage{Role: "assistant", Content: "  hello from chat  "}},
@@ -63,9 +63,9 @@ func TestAgentKernelGeneratesChatReplyWithoutTools(t *testing.T) {
 }
 
 func TestAgentKernelResolvesChatReplyThroughFallbackProvider(t *testing.T) {
-	taskEventService := task.NewTaskEventService()
-	taskRunService := task.NewTaskRunService(taskEventService)
-	taskStepService := task.NewTaskStepService()
+	taskEventService := taskstate.NewTaskEventService()
+	taskRunService := taskstate.NewTaskRunService(taskEventService)
+	taskStepService := taskstate.NewTaskStepService()
 	agentKernel := NewAgentKernel(taskRunService, taskStepService)
 	replyProvider := &chatReplyProvider{
 		response: model.ChatCompletionResponse{Message: model.ChatCompletionMessage{Content: "fallback chat"}},
@@ -85,9 +85,9 @@ func TestAgentKernelResolvesChatReplyThroughFallbackProvider(t *testing.T) {
 }
 
 func TestAgentKernelRejectsEmptyChatReply(t *testing.T) {
-	taskEventService := task.NewTaskEventService()
-	taskRunService := task.NewTaskRunService(taskEventService)
-	taskStepService := task.NewTaskStepService()
+	taskEventService := taskstate.NewTaskEventService()
+	taskRunService := taskstate.NewTaskRunService(taskEventService)
+	taskStepService := taskstate.NewTaskStepService()
 	agentKernel := NewAgentKernel(taskRunService, taskStepService)
 	replyProvider := &chatReplyProvider{
 		response: model.ChatCompletionResponse{Message: model.ChatCompletionMessage{Content: "  "}},
@@ -104,9 +104,9 @@ func TestAgentKernelRejectsEmptyChatReply(t *testing.T) {
 }
 
 func TestAgentKernelPropagatesChatErrorWithoutStructuredRetry(t *testing.T) {
-	taskEventService := task.NewTaskEventService()
-	taskRunService := task.NewTaskRunService(taskEventService)
-	taskStepService := task.NewTaskStepService()
+	taskEventService := taskstate.NewTaskEventService()
+	taskRunService := taskstate.NewTaskRunService(taskEventService)
+	taskStepService := taskstate.NewTaskStepService()
 	agentKernel := NewAgentKernel(taskRunService, taskStepService)
 	chatError := errors.New("chat contract rejected")
 	replyProvider := &chatReplyProvider{chatError: chatError}
@@ -122,9 +122,9 @@ func TestAgentKernelPropagatesChatErrorWithoutStructuredRetry(t *testing.T) {
 }
 
 func TestAgentKernelPreservesChatCancellationContext(t *testing.T) {
-	taskEventService := task.NewTaskEventService()
-	taskRunService := task.NewTaskRunService(taskEventService)
-	taskStepService := task.NewTaskStepService()
+	taskEventService := taskstate.NewTaskEventService()
+	taskRunService := taskstate.NewTaskRunService(taskEventService)
+	taskStepService := taskstate.NewTaskStepService()
 	agentKernel := NewAgentKernel(taskRunService, taskStepService)
 	replyProvider := &chatReplyProvider{chatError: context.Canceled}
 	agentKernel.UseLanguageModelProvider(replyProvider)
@@ -141,9 +141,9 @@ func TestAgentKernelPreservesChatCancellationContext(t *testing.T) {
 }
 
 func TestAgentKernelInjectsMemoryIntoChatReplyRequest(t *testing.T) {
-	taskEventService := task.NewTaskEventService()
-	taskRunService := task.NewTaskRunService(taskEventService)
-	taskStepService := task.NewTaskStepService()
+	taskEventService := taskstate.NewTaskEventService()
+	taskRunService := taskstate.NewTaskRunService(taskEventService)
+	taskStepService := taskstate.NewTaskStepService()
 	agentKernel := NewAgentKernel(taskRunService, taskStepService)
 	replyProvider := &capturingReplyProvider{content: "remembered"}
 	agentKernel.UseLanguageModelProvider(replyProvider)
@@ -174,9 +174,9 @@ func TestAgentKernelInjectsMemoryIntoChatReplyRequest(t *testing.T) {
 }
 
 func TestAgentKernelInjectsCompactAttributedMemorySummary(t *testing.T) {
-	taskEventService := task.NewTaskEventService()
-	taskRunService := task.NewTaskRunService(taskEventService)
-	taskStepService := task.NewTaskStepService()
+	taskEventService := taskstate.NewTaskEventService()
+	taskRunService := taskstate.NewTaskRunService(taskEventService)
+	taskStepService := taskstate.NewTaskStepService()
 	agentKernel := NewAgentKernel(taskRunService, taskStepService)
 	replyProvider := &capturingReplyProvider{content: "remembered"}
 	agentKernel.UseLanguageModelProvider(replyProvider)
@@ -212,9 +212,9 @@ func TestAgentKernelInjectsCompactAttributedMemorySummary(t *testing.T) {
 }
 
 func TestAgentKernelPlacesVisibleContextBeforeMemoryAndPrompt(t *testing.T) {
-	taskEventService := task.NewTaskEventService()
-	taskRunService := task.NewTaskRunService(taskEventService)
-	taskStepService := task.NewTaskStepService()
+	taskEventService := taskstate.NewTaskEventService()
+	taskRunService := taskstate.NewTaskRunService(taskEventService)
+	taskStepService := taskstate.NewTaskStepService()
 	agentKernel := NewAgentKernel(taskRunService, taskStepService)
 	replyProvider := &capturingReplyProvider{content: "contextual"}
 	agentKernel.UseLanguageModelProvider(replyProvider)

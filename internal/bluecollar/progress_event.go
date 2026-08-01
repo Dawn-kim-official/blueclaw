@@ -5,7 +5,7 @@ import (
 	"github.com/Dawn-kim-official/blueclaw/internal/toolcontract"
 	"strings"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/task"
+	"github.com/Dawn-kim-official/blueclaw/internal/taskstate"
 )
 
 type progressEvent struct {
@@ -59,7 +59,7 @@ func progressEventCount(observations []turnObservation) int {
 	return len(progressEvents(observations))
 }
 
-func qualifyingDurableProgressEventsSinceTierStart(taskEvents []task.TaskEvent, observations []turnObservation) []qualifyingProgressEvent {
+func qualifyingDurableProgressEventsSinceTierStart(taskEvents []taskstate.TaskEvent, observations []turnObservation) []qualifyingProgressEvent {
 	startObservationID := currentTierStartedAfterObservationID(taskEvents)
 	startIndex := observationIndex(observations, startObservationID)
 	events := []qualifyingProgressEvent{}
@@ -74,7 +74,7 @@ func qualifyingDurableProgressEventsSinceTierStart(taskEvents []task.TaskEvent, 
 	return events
 }
 
-func currentTierStartedAfterObservationID(taskEvents []task.TaskEvent) string {
+func currentTierStartedAfterObservationID(taskEvents []taskstate.TaskEvent) string {
 	for index := len(taskEvents) - 1; index >= 0; index-- {
 		taskEvent := taskEvents[index]
 		if taskEvent.Name != "agent.budget_escalated" {

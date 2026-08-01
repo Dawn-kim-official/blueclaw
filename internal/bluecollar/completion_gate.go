@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/Dawn-kim-official/blueclaw/internal/model"
-	"github.com/Dawn-kim-official/blueclaw/internal/task"
+	"github.com/Dawn-kim-official/blueclaw/internal/taskstate"
 )
 
 type completionEvidenceReference struct {
@@ -248,7 +248,7 @@ func (agentTurnRunner *AgentTurnRunner) completeTaskRunBestEffort(ctx context.Co
 	detachedContext, cancelDetached := context.WithTimeout(context.WithoutCancel(ctx), completionPersistenceTimeout)
 	defer cancelDetached()
 	finalReply := agentTurnRunner.prepareFinishMessageForPlatform(detachedContext, request, reply)
-	agentTurnRunner.saveStep(taskRunID, taskStepID, task.TaskStatusCompleted, stepAction, finalReply)
+	agentTurnRunner.saveStep(taskRunID, taskStepID, taskstate.TaskStatusCompleted, stepAction, finalReply)
 	completedTaskRun, completionError := agentTurnRunner.taskRunService.CompleteTaskRun(taskRunID, finalReply)
 	if completionError != nil {
 		agentTurnRunner.appendEvent(taskRunID, "agent.completion_persist_failed", marshalEventBody(map[string]string{"error": completionError.Error()}))

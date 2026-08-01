@@ -1,4 +1,4 @@
-package task
+package taskstate
 
 import "sync"
 
@@ -32,7 +32,7 @@ func (taskArtifactService *TaskArtifactService) AddTaskArtifact(taskArtifact Tas
 
 func (taskArtifactService *TaskArtifactService) AddTaskArtifactBody(taskRunID string, name string, body string) TaskArtifact {
 	taskArtifact := TaskArtifact{
-		TaskArtifactID: newIdentifier(),
+		TaskArtifactID: NewIdentifier(),
 		TaskRunID:      taskRunID,
 		Name:           name,
 		Body:           body,

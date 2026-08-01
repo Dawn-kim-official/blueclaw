@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	"github.com/Dawn-kim-official/blueclaw/internal/model"
-	"github.com/Dawn-kim-official/blueclaw/internal/task"
+	"github.com/Dawn-kim-official/blueclaw/internal/taskstate"
 )
 
 const taskContextSummaryEventName = "agent.context_summary"
@@ -30,7 +30,7 @@ type TaskContextSummary struct {
 	NextPlan                      []string `json:"nextPlan,omitempty"`
 }
 
-func taskContextSummaryFromTaskEvents(events []task.TaskEvent) TaskContextSummary {
+func taskContextSummaryFromTaskEvents(events []taskstate.TaskEvent) TaskContextSummary {
 	for index := len(events) - 1; index >= 0; index-- {
 		if strings.TrimSpace(events[index].Name) != taskContextSummaryEventName {
 			continue
@@ -68,7 +68,7 @@ func (agentTurnRunner *AgentTurnRunner) promptVisibleObservationsForAction(ctx c
 	return promptVisibleObservations(state.Observations, summary, pinnedObservationIDs)
 }
 
-func latestTaskContextSummary(fallback TaskContextSummary, events []task.TaskEvent) TaskContextSummary {
+func latestTaskContextSummary(fallback TaskContextSummary, events []taskstate.TaskEvent) TaskContextSummary {
 	summary := taskContextSummaryFromTaskEvents(events)
 	if strings.TrimSpace(summary.ObservationID) != "" {
 		return summary
@@ -162,7 +162,7 @@ func summaryObservation(summary TaskContextSummary) turnObservation {
 	}
 }
 
-func pinnedPromptObservationIDs(observations []turnObservation, events []task.TaskEvent) map[string]bool {
+func pinnedPromptObservationIDs(observations []turnObservation, events []taskstate.TaskEvent) map[string]bool {
 	pinnedObservationIDs := completionEvidenceObservationIDs(events)
 	pinActiveFailureDebtObservations(pinnedObservationIDs, observations)
 	return pinnedObservationIDs
@@ -184,7 +184,7 @@ func pinActiveFailureDebtObservations(pinnedObservationIDs map[string]bool, obse
 	}
 }
 
-func completionEvidenceObservationIDs(events []task.TaskEvent) map[string]bool {
+func completionEvidenceObservationIDs(events []taskstate.TaskEvent) map[string]bool {
 	observationIDs := map[string]bool{}
 	for _, event := range events {
 		if strings.TrimSpace(event.Name) != "agent.action" {

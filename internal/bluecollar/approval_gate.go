@@ -10,7 +10,7 @@ import (
 	"strings"
 
 	"github.com/Dawn-kim-official/blueclaw/internal/model"
-	"github.com/Dawn-kim-official/blueclaw/internal/task"
+	"github.com/Dawn-kim-official/blueclaw/internal/taskstate"
 )
 
 type approvalHeldCall struct {
@@ -40,7 +40,7 @@ func (agentTurnRunner *AgentTurnRunner) requestHeldCallApproval(ctx context.Cont
 		Confirmation: confirmation,
 	}
 	agentTurnRunner.appendEvent(taskRunID, "approval.pending_call", marshalEventBody(heldCall))
-	pausedTaskRun, errorValue := agentTurnRunner.taskRunService.PauseTaskRun(taskRunID, task.TaskStatusWaitingApproval, confirmation)
+	pausedTaskRun, errorValue := agentTurnRunner.taskRunService.PauseTaskRun(taskRunID, taskstate.TaskStatusWaitingApproval, confirmation)
 	if errorValue != nil {
 		result, _ := agentTurnRunner.failTurn(taskRunID, request, errorValue.Error(), state.Observations, state.Attachments, state.ExecutionState)
 		return toolCallActionOutcome{Result: result, ShouldReturn: true, WasHandled: true}
@@ -59,7 +59,7 @@ func (agentTurnRunner *AgentTurnRunner) requestHeldCallApproval(ctx context.Cont
 		"reasonDetail":     "runtime approval gate for " + heldCall.ToolName,
 		"responseLanguage": request.ResponseLanguage,
 	}))
-	agentTurnRunner.saveStep(taskRunID, stepID, task.TaskStatusWaitingApproval, "approval "+heldCall.ToolName, confirmation)
+	agentTurnRunner.saveStep(taskRunID, stepID, taskstate.TaskStatusWaitingApproval, "approval "+heldCall.ToolName, confirmation)
 	return toolCallActionOutcome{
 		Result:       AgentTurnResult{TaskRun: pausedTaskRun, UserNotice: confirmation, Attachments: state.Attachments},
 		ShouldReturn: true,
@@ -83,7 +83,7 @@ func (agentTurnRunner *AgentTurnRunner) executeApprovedHeldCall(ctx context.Cont
 		ToolInput: copyJSONRawMessage(heldCall.ToolInput),
 	}
 	stepID := taskRunID + ":approval-continuation"
-	agentTurnRunner.saveStep(taskRunID, stepID, task.TaskStatusRunning, "approval "+heldCall.ToolName, heldCall.Confirmation)
+	agentTurnRunner.saveStep(taskRunID, stepID, taskstate.TaskStatusRunning, "approval "+heldCall.ToolName, heldCall.Confirmation)
 	state.ToolCallCount++
 	observationID := nextApprovalExecutionObservationID(taskEvents)
 	executionToolSet := toolSetWithApprovedHeldCall(request.ToolSet, heldCall.ToolName)
@@ -96,7 +96,7 @@ func (agentTurnRunner *AgentTurnRunner) executeApprovedHeldCall(ctx context.Cont
 		agentTurnRunner.saveStep(taskRunID, stepID, pausedResult.TaskRun.Status, "approval "+heldCall.ToolName, observation.ContentText())
 		return request, pausedResult, true
 	}
-	agentTurnRunner.saveStep(taskRunID, stepID, task.TaskStatusCompleted, "approval "+heldCall.ToolName, observation.ContentText())
+	agentTurnRunner.saveStep(taskRunID, stepID, taskstate.TaskStatusCompleted, "approval "+heldCall.ToolName, observation.ContentText())
 	return request, AgentTurnResult{}, false
 }
 
@@ -109,7 +109,7 @@ func toolSetWithApprovedHeldCall(toolSet *toolcontract.ToolSet, toolName string)
 	return toolSet.WithAllowedToolNames(appendUniqueStrings(allowedToolNames))
 }
 
-func nextApprovalExecutionObservationID(taskEvents []task.TaskEvent) string {
+func nextApprovalExecutionObservationID(taskEvents []taskstate.TaskEvent) string {
 	highestObservationIndex := 0
 	for _, taskEvent := range taskEvents {
 		if strings.HasPrefix(taskEvent.Name, "tool.") && strings.HasSuffix(taskEvent.Name, ".result") {
@@ -147,7 +147,7 @@ func requestWithHeldCallTool(request AgentTurnRequest, toolName string) AgentTur
 	return request
 }
 
-func pendingApprovalHeldCall(taskEvents []task.TaskEvent) (approvalHeldCall, bool) {
+func pendingApprovalHeldCall(taskEvents []taskstate.TaskEvent) (approvalHeldCall, bool) {
 	for index := len(taskEvents) - 1; index >= 0; index-- {
 		taskEvent := taskEvents[index]
 		if taskEvent.Name != "approval.pending_call" {
@@ -162,7 +162,7 @@ func pendingApprovalHeldCall(taskEvents []task.TaskEvent) (approvalHeldCall, boo
 	return approvalHeldCall{}, false
 }
 
-func approvalHeldCallFromEvent(taskEvent task.TaskEvent) (approvalHeldCall, bool) {
+func approvalHeldCallFromEvent(taskEvent taskstate.TaskEvent) (approvalHeldCall, bool) {
 	var heldCall approvalHeldCall
 	if errorValue := json.Unmarshal([]byte(taskEvent.Body), &heldCall); errorValue != nil {
 		return approvalHeldCall{}, false
@@ -176,7 +176,7 @@ func approvalHeldCallFromEvent(taskEvent task.TaskEvent) (approvalHeldCall, bool
 	return heldCall, true
 }
 
-func approvalHeldCallExecutedAfter(taskEvents []task.TaskEvent, toolName string) bool {
+func approvalHeldCallExecutedAfter(taskEvents []taskstate.TaskEvent, toolName string) bool {
 	for _, taskEvent := range taskEvents {
 		if taskEvent.Name != "approval.executed" {
 			continue
