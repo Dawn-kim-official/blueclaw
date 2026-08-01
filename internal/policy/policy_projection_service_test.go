@@ -52,7 +52,7 @@ func TestPolicyProjectionAddsAdminWithoutGrantingCLevel(t *testing.T) {
 func TestPolicyProjectionNormalizesExplicitCircles(t *testing.T) {
 	policyProjection := PolicyProjectionService{}.ReplacePolicyProjectionTransactionally(PolicyDocument{
 		ResourceAccess: []ResourceAccessPolicy{{
-			Resource: "tool:company.broadcast.send",
+			Resource: "tool:company_broadcast_send",
 			Actions:  []string{"execute"},
 			Circles:  []string{"representative"},
 		}},

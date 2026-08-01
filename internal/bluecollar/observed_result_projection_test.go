@@ -83,7 +83,7 @@ func TestObservedResultProjectionPreservesFileDeliveryEffect(t *testing.T) {
 func TestObservedResultProjectionRejectsEffectsWithoutContract(t *testing.T) {
 	observation := newContentObservation("obs-001", "continue", "external.tasks.create", `{"taskID":"task-1"}`)
 	observation.Effects = []toolcontract.ResourceEffect{{ObjectType: "task", Effect: "created", ID: "task-1"}}
-	toolSet := toolcontract.NewToolSet([]string{"external.tasks.create"})
+	toolSet := toolcontract.NewToolSet([]string{"external_tasks_create"})
 	if errorValue := toolSet.RegisterBoundTool(toolcontract.BoundTool{
 		Definition:   toolcontract.ToolDefinition{ID: "test:external.tasks.create", Name: "external.tasks.create", Visibility: toolcontract.ToolVisibilityInternal},
 		Availability: toolcontract.ToolAvailability{Status: toolcontract.ToolAvailabilityAvailable},

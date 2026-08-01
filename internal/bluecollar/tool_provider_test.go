@@ -585,8 +585,8 @@ func TestToolSetValidatesEveryArrayEffectIdentity(t *testing.T) {
 }
 
 func TestToolSetRejectsEffectsWithoutResultContract(t *testing.T) {
-	toolSet := toolcontract.NewToolSet([]string{"external.tasks.create"})
-	boundTool := validProviderTool("external/tasks/create", "tasks", "external.tasks.create")
+	toolSet := toolcontract.NewToolSet([]string{"external_tasks_create"})
+	boundTool := validProviderTool("external/tasks/create", "tasks", "external_tasks_create")
 	boundTool.Definition.ResultContract = nil
 	boundTool.Handler = func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
 		return toolcontract.ToolResult{
@@ -609,15 +609,15 @@ func TestRegisterProviderRejectsCanonicalIdentityAndModelNameCollisions(t *testi
 		{
 			name: "identifier",
 			tools: []toolcontract.BoundTool{
-				validProviderTool("external/tasks/create", "tasks", "external.task.create"),
-				validProviderTool("external/tasks/create", "tasks", "external.task.copy"),
+				validProviderTool("external/tasks/create", "tasks", "external_task_create"),
+				validProviderTool("external/tasks/create", "tasks", "external_task_copy"),
 			},
 		},
 		{
 			name: "model name",
 			tools: []toolcontract.BoundTool{
-				validProviderTool("external/tasks/create", "tasks", "external.task.create"),
-				validProviderTool("external/tasks/copy", "tasks", "external.task.create"),
+				validProviderTool("external/tasks/create", "tasks", "external_task_create"),
+				validProviderTool("external/tasks/copy", "tasks", "external_task_create"),
 			},
 		},
 	}

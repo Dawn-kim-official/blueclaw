@@ -48,17 +48,17 @@ func TestPrivateFileOnlyAllowsOwner(t *testing.T) {
 
 func TestRepresentativeToolPolicy(t *testing.T) {
 	resourceAccessRules := []policy.ResourceAccessPolicy{{
-		Resource: "tool:company.broadcast.send",
+		Resource: "tool:company_broadcast_send",
 		Actions:  []string{ActionExecute},
 		Circles:  []string{"representative"},
 	}}
 	representativeAccess := policy.PersonAccess{PersonID: "person-1", Circles: []string{"staff", "representative"}, ResourceAccessRules: resourceAccessRules}
 	staffAccess := policy.PersonAccess{PersonID: "person-2", Circles: []string{"staff"}, ResourceAccessRules: resourceAccessRules}
 
-	if !CanAccess(Request{PersonAccess: representativeAccess, Action: ActionExecute, Resource: "tool:company.broadcast.send"}) {
+	if !CanAccess(Request{PersonAccess: representativeAccess, Action: ActionExecute, Resource: "tool:company_broadcast_send"}) {
 		t.Fatal("representative should execute representative tool")
 	}
-	if CanAccess(Request{PersonAccess: staffAccess, Action: ActionExecute, Resource: "tool:company.broadcast.send"}) {
+	if CanAccess(Request{PersonAccess: staffAccess, Action: ActionExecute, Resource: "tool:company_broadcast_send"}) {
 		t.Fatal("staff should not execute representative tool")
 	}
 }

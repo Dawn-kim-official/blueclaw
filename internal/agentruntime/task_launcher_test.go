@@ -683,15 +683,15 @@ func TestCapabilityDescriptorAppearsInToolSetAndInvokesBridge(t *testing.T) {
 
 func TestCapabilityToolExecutionUsesResourceAccess(t *testing.T) {
 	resourceAccessRules := []policy.ResourceAccessPolicy{{
-		Resource: "tool:company.broadcast.send",
+		Resource: "tool:company_broadcast_send",
 		Actions:  []string{"execute"},
 		Circles:  []string{"representative"},
 	}}
 	httpClient := &recordingHTTPClient{}
 	toolCatalogBuilder := NewToolCatalogBuilder()
-	toolCatalogBuilder.UseTestCapabilityTools(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, []string{"company.broadcast.send"})
+	toolCatalogBuilder.UseTestCapabilityTools(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, []string{"company_broadcast_send"})
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(map[string][]string{
-		"default": {"company.broadcast.send"},
+		"default": {"company_broadcast_send"},
 	}, nil)
 
 	staffToolSet := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
@@ -703,7 +703,7 @@ func TestCapabilityToolExecutionUsesResourceAccess(t *testing.T) {
 		},
 	})
 	staffResult, errorValue := staffToolSet.Invoke(context.Background(), toolcontract.ToolInvocation{
-		ToolName: "company.broadcast.send",
+		ToolName: "company_broadcast_send",
 		Input:    json.RawMessage(`{"message":"hello"}`),
 	})
 	if errorValue != nil {
@@ -712,7 +712,7 @@ func TestCapabilityToolExecutionUsesResourceAccess(t *testing.T) {
 	if !staffResult.Failed() || !strings.Contains(staffResult.ContentText(), "tool is not allowed") {
 		t.Fatalf("expected staff execution denial, got %+v", staffResult)
 	}
-	if strings.Contains(staffToolSet.Descriptions(), "company.broadcast.send") {
+	if strings.Contains(staffToolSet.Descriptions(), "company_broadcast_send") {
 		t.Fatalf("expected denied tool to be omitted from catalog, got %s", staffToolSet.Descriptions())
 	}
 	if httpClient.requestPath != "" {
@@ -728,7 +728,7 @@ func TestCapabilityToolExecutionUsesResourceAccess(t *testing.T) {
 		},
 	})
 	representativeResult, errorValue := representativeToolSet.Invoke(context.Background(), toolcontract.ToolInvocation{
-		ToolName: "company.broadcast.send",
+		ToolName: "company_broadcast_send",
 		Input:    json.RawMessage(`{"message":"hello"}`),
 	})
 	if errorValue != nil {
@@ -737,7 +737,7 @@ func TestCapabilityToolExecutionUsesResourceAccess(t *testing.T) {
 	if representativeResult.Failed() {
 		t.Fatalf("expected representative execution success, got %+v", representativeResult)
 	}
-	if httpClient.requestPath != "/v1/tools/company.broadcast.send/invoke" {
+	if httpClient.requestPath != "/v1/tools/company_broadcast_send/invoke" {
 		t.Fatalf("expected capability bridge call, got path=%s body=%s", httpClient.requestPath, httpClient.requestBody)
 	}
 }

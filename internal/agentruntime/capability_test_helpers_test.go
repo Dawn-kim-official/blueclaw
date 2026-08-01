@@ -39,7 +39,7 @@ func testCapabilityInputSchemaForTool(toolName string) json.RawMessage {
 	switch strings.TrimSpace(toolName) {
 	case "browser_open":
 		return json.RawMessage(`{"type":"object","properties":{"url":{"type":"string"}},"required":["url"],"additionalProperties":false}`)
-	case "company.broadcast.send":
+	case "company_broadcast_send":
 		return json.RawMessage(`{"type":"object","properties":{"message":{"type":"string"}},"required":["message"],"additionalProperties":false}`)
 	case "task_add":
 		return json.RawMessage(`{"type":"object","properties":{"title":{"type":"string"}},"required":["title"],"additionalProperties":false}`)
