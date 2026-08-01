@@ -179,3 +179,10 @@ func firstNonEmptyModelName(candidates ...string) string {
 	}
 	return ""
 }
+
+// DefaultModelTierNames answers the tier names a deployment gets before it
+// configures any, so a caller that has no runtime configuration - a test, or a
+// standalone run - does not have to build an empty one to ask.
+func DefaultModelTierNames() ModelTierNames {
+	return ResolveModelTierNames(config.RuntimeConfiguration{})
+}

@@ -8,7 +8,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/config"
 	"github.com/Dawn-kim-official/blueclaw/internal/llm"
 )
 
@@ -33,7 +32,7 @@ func TestOpenRouterLiveLowTierCurrentAgentActionSchemaFromEnv(t *testing.T) {
 		Prompt:  "Do not finish. Choose continue, call terminal.run, and set command to printf low-tier-schema-ok.",
 		ToolSet: toolSet,
 	}})
-	modelName := llm.ResolveModelTierNames(config.RuntimeConfiguration{}).XLow
+	modelName := llm.DefaultModelTierNames().XLow
 	client := llm.OpenRouterClient{
 		APIKey:       apiKey,
 		BaseURL:      llm.DefaultOpenRouterChatCompletionsURL,
