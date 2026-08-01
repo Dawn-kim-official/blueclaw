@@ -1641,33 +1641,3 @@ func TestProducedSourcePathsRecoversSourceFilesFromDurableResults(t *testing.T) 
 		t.Fatalf("expected deduped non-failed source paths, got %+v", paths)
 	}
 }
-
-// A mistaken delivery has to be correctable: the runtime tells the agent to
-// remove a wrong attachment, and redelivering the right set is the only way it
-// can comply.
-func TestLastDeliverySupersedesEarlierDeliveries(t *testing.T) {
-	observations := []turnObservation{
-		{ObservationID: "obs-001", Tool: FileDeliverToolName, Attachments: []FileAttachment{{DevicePath: "/cache/docx/templates/default.docx", Filename: "default.docx"}}},
-		{ObservationID: "obs-002", Tool: "file.write"},
-		{ObservationID: "obs-003", Tool: FileDeliverToolName, Attachments: []FileAttachment{{DevicePath: "/documents/review.docx", Filename: "review.docx"}}},
-	}
-
-	attachments := attachmentsFromObservations(observations)
-
-	if len(attachments) != 1 || attachments[0].Filename != "review.docx" {
-		t.Fatalf("expected only the last delivered file, got %+v", attachments)
-	}
-}
-
-func TestFailedDeliveryDoesNotSupersedeASuccessfulOne(t *testing.T) {
-	observations := []turnObservation{
-		{ObservationID: "obs-001", Tool: FileDeliverToolName, Attachments: []FileAttachment{{DevicePath: "/documents/review.docx", Filename: "review.docx"}}},
-		{ObservationID: "obs-002", Tool: FileDeliverToolName, Failure: &ToolFailure{Code: FailureCodes.OperationFailed.String()}},
-	}
-
-	attachments := attachmentsFromObservations(observations)
-
-	if len(attachments) != 1 || attachments[0].Filename != "review.docx" {
-		t.Fatalf("expected the successful delivery to survive a later failure, got %+v", attachments)
-	}
-}

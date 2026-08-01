@@ -17,7 +17,7 @@ func (agentTurnRunner *AgentTurnRunner) recordToolObservation(taskRunID string, 
 		observation.RecoveryAttemptKey = canonicalToolCallKey(actionDocument.ToolName, actionDocument.ToolInput)
 	}
 	state.Observations = append(state.Observations, observation)
-	state.Attachments = attachmentsFromObservations(state.Observations)
+	state.Attachments = appendObservationAttachments(state.Attachments, observation)
 	if observation.Failed() {
 		agentTurnRunner.appendEvent(taskRunID, "agent.failure_debt_created", marshalEventBody(activeFailureDebtEventBody(state.Observations, agentTurnRunner.options.RecoveryBudget)))
 		if recoveryAttemptCount(state.Observations) < agentTurnRunner.options.RecoveryAttemptLimit {
