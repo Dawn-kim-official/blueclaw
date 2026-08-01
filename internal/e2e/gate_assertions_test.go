@@ -75,13 +75,13 @@ func TestStreamProgressObserverFormatsReplyAndTool(t *testing.T) {
 	buffer := &bytes.Buffer{}
 	observe := streamProgressObserver(buffer)
 	observe(task.RawTurnEvent{Name: "agent.checkpoint.sent", Body: `{"toolName":"alpha","message":"in progress"}`})
-	observe(task.RawTurnEvent{Name: "tool.web.search.requested", Body: "{}"})
-	observe(task.RawTurnEvent{Name: "tool.web.search.result", Body: "{}"})
+	observe(task.RawTurnEvent{Name: "tool.web_search.requested", Body: "{}"})
+	observe(task.RawTurnEvent{Name: "tool.web_search.result", Body: "{}"})
 	output := buffer.String()
 	if !strings.Contains(output, "reply: in progress") {
 		t.Fatalf("expected reply line, got %q", output)
 	}
-	if !strings.Contains(output, "tool: web.search") {
+	if !strings.Contains(output, "tool: web_search") {
 		t.Fatalf("expected tool line, got %q", output)
 	}
 	if strings.Count(output, "\n") != 2 {

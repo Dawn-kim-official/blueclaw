@@ -27,7 +27,7 @@ func TestSelectInstructionBundleIncludesPresentationForKoreanPPTRequest(t *testi
 				Tags:           []string{"slides", "pptx"},
 				Prompt:         "Generate PPTX with Marp.",
 				TriggerHints:   []string{"피피티", "파워포인트", "발표자료", "pptx"},
-				ToolReferences: []string{"terminal.run", "file.write", "file.deliver"},
+				ToolReferences: []string{"terminal_run", "file_write", "file_deliver"},
 				Source:         InstructionSource{Path: "skills/presentation/SKILL.md", SkillName: "presentation"},
 			},
 		},
@@ -35,7 +35,7 @@ func TestSelectInstructionBundleIncludesPresentationForKoreanPPTRequest(t *testi
 
 	selectedBundle := selectInstructionBundleForRequest(instructionBundle, AgentRequest{
 		Prompt:  "너 뭐 할 수 있는지 피피티 만들어서 보내줘봐",
-		ToolSet: testToolSet([]string{"terminal.run", "file.write", "file.deliver"}),
+		ToolSet: testToolSet([]string{"terminal_run", "file_write", "file_deliver"}),
 	})
 
 	if !strings.Contains(selectedBundle.Prompt, "Generate PPTX with Marp.") {
@@ -72,7 +72,7 @@ func TestSelectInstructionBundleDoesNotUseStaleVisibleContextForRetrieval(t *tes
 				WhenToUse:      "Use for 피피티 and PPTX requests.",
 				Prompt:         "Generate PPTX with Marp.",
 				TriggerHints:   []string{"피피티", "pptx"},
-				ToolReferences: []string{"terminal.run", "file.write", "file.deliver"},
+				ToolReferences: []string{"terminal_run", "file_write", "file_deliver"},
 				Source:         InstructionSource{Path: "skills/presentation/SKILL.md", SkillName: "presentation"},
 			},
 		},
@@ -83,7 +83,7 @@ func TestSelectInstructionBundleDoesNotUseStaleVisibleContextForRetrieval(t *tes
 		VisibleContext: VisibleContext{Messages: []VisibleContextMessage{
 			{Speaker: "user", Text: "너 뭐 할 수 있는지 8장 피피티 만들어서 보내줘봐"},
 		}},
-		ToolSet: testToolSet([]string{"terminal.run", "file.write", "file.deliver"}),
+		ToolSet: testToolSet([]string{"terminal_run", "file_write", "file_deliver"}),
 	})
 
 	if len(selectedBundle.SkillDecisions) != 0 {
@@ -102,8 +102,8 @@ func TestSelectInstructionBundleDoesNotUseTriggerHintOutsideRetrievalCandidates(
 				Name:           "site-prototype",
 				Description:    "Create and publish web prototypes.",
 				WhenToUse:      "Use for website prototype requests.",
-				Prompt:         "Use site.serve, terminal.run, and site.serve.",
-				ToolReferences: []string{"terminal.run", "site.serve", "site.serve"},
+				Prompt:         "Use site_serve, terminal_run, and site.serve.",
+				ToolReferences: []string{"terminal_run", "site_serve", "site_serve"},
 				Source:         InstructionSource{Path: "skills/site-prototype/SKILL.md", SkillName: "site-prototype"},
 			},
 		},
@@ -111,10 +111,10 @@ func TestSelectInstructionBundleDoesNotUseTriggerHintOutsideRetrievalCandidates(
 
 	selectedBundle := selectInstructionBundleForRequest(instructionBundle, AgentRequest{
 		Prompt:  "웹사이트 하나 만들어서 배포해봐",
-		ToolSet: testToolSet([]string{"terminal.run", "site.serve", "site.serve"}),
+		ToolSet: testToolSet([]string{"terminal_run", "site_serve", "site_serve"}),
 	})
 
-	if strings.Contains(selectedBundle.Prompt, "Use site.serve") {
+	if strings.Contains(selectedBundle.Prompt, "Use site_serve") {
 		t.Fatalf("expected trigger hint not to load full skill body, got %q", selectedBundle.Prompt)
 	}
 	for _, skillDecision := range selectedBundle.SkillDecisions {
@@ -126,22 +126,22 @@ func TestSelectInstructionBundleDoesNotUseTriggerHintOutsideRetrievalCandidates(
 
 func TestToolSetForAgentTurnExposesSelectedSkillToolsAlongsideKernel(t *testing.T) {
 	fullToolSet := testToolSet([]string{
-		"conversation.history",
-		"memory.search",
-		"terminal.run",
-		"site.serve",
-		"site.serve",
-		"schedule.create",
+		"conversation_history",
+		"memory_search",
+		"terminal_run",
+		"site_serve",
+		"site_serve",
+		"schedule_create",
 	})
 	instructionBundle := InstructionBundle{
 		Skills: []SkillInstruction{
 			{
 				Name:           "site-prototype",
-				ToolReferences: []string{"terminal.run", "site.serve", "site.serve"},
+				ToolReferences: []string{"terminal_run", "site_serve", "site_serve"},
 			},
 			{
 				Name:           "scheduled-task",
-				ToolReferences: []string{"schedule.create"},
+				ToolReferences: []string{"schedule_create"},
 			},
 		},
 		SkillDecisions: []SkillSelectionDecision{{Name: "site-prototype", Status: "selected"}},
@@ -149,18 +149,18 @@ func TestToolSetForAgentTurnExposesSelectedSkillToolsAlongsideKernel(t *testing.
 
 	filteredToolSet := toolSetForAgentTurn(fullToolSet, instructionBundle, AgentRequest{Prompt: "사이트 만들어줘"}, ExecutionPlan{}, false, OutcomeContract{})
 
-	// terminal.run and conversation.history are kernel tools in this fixture; memory.search is not.
-	for _, toolName := range []string{"terminal.run", "conversation.history"} {
+	// terminal_run and conversation_history are kernel tools in this fixture; memory_search is not.
+	for _, toolName := range []string{"terminal_run", "conversation_history"} {
 		if !filteredToolSet.IsAllowed(toolName) {
 			t.Fatalf("expected kernel tool %s to remain available, got %+v", toolName, filteredToolSet.ListToolNames())
 		}
 	}
-	for _, toolName := range []string{"memory.search", "schedule.create"} {
+	for _, toolName := range []string{"memory_search", "schedule_create"} {
 		if filteredToolSet.IsAllowed(toolName) {
 			t.Fatalf("expected unselected tool %s to stay hidden, got %+v", toolName, filteredToolSet.ListToolNames())
 		}
 	}
-	for _, toolName := range []string{"site.serve", "site.serve"} {
+	for _, toolName := range []string{"site_serve", "site_serve"} {
 		if !filteredToolSet.IsAllowed(toolName) {
 			t.Fatalf("expected selected skill tool %s to be directly callable, got %+v", toolName, filteredToolSet.ListToolNames())
 		}
@@ -169,14 +169,14 @@ func TestToolSetForAgentTurnExposesSelectedSkillToolsAlongsideKernel(t *testing.
 
 func TestSelectedFlowSkillExposesRegisteredDirectToolsFromKernelPalette(t *testing.T) {
 	toolSet := toolcontract.NewToolSet(toolcontract.KernelToolNames())
-	for _, toolName := range append(toolcontract.KernelToolNames(), "task.add", "task.list", "task.update", "task.delete") {
+	for _, toolName := range append(toolcontract.KernelToolNames(), "task_add", "task_list", "task_update", "task_delete") {
 		registerTestTool(toolSet, toolcontract.ToolDefinition{Name: toolName}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
 			return testToolSuccess("ok"), nil
 		})
 	}
 	flowSkill := SkillInstruction{
 		Name:           "internkim-flow",
-		ToolReferences: []string{"task.add", "task.list", "task.update", "task.delete"},
+		ToolReferences: []string{"task_add", "task_list", "task_update", "task_delete"},
 	}
 	request := AgentRequest{ToolSet: toolSet}
 
@@ -199,33 +199,33 @@ func TestSelectedFlowSkillExposesRegisteredDirectToolsFromKernelPalette(t *testi
 
 func TestToolSetForAgentTurnExposesOnlyPinnedNonKernelTools(t *testing.T) {
 	fullToolSet := testToolSet([]string{
-		"conversation.history",
-		"memory.search",
-		"schedule.list",
-		"terminal.run",
-		"file.write",
-		"schedule.create",
-		"mail.message.search",
+		"conversation_history",
+		"memory_search",
+		"schedule_list",
+		"terminal_run",
+		"file_write",
+		"schedule_create",
+		"mail_message_search",
 	})
 	instructionBundle := InstructionBundle{
 		Skills: []SkillInstruction{
-			{Name: "scheduled-task", ToolReferences: []string{"schedule.create"}},
-			{Name: "mail", ToolReferences: []string{"mail.message.search"}},
+			{Name: "scheduled-task", ToolReferences: []string{"schedule_create"}},
+			{Name: "mail", ToolReferences: []string{"mail_message_search"}},
 		},
 		SkillDecisions: []SkillSelectionDecision{{Name: "scheduled-task", Status: "selected"}},
 	}
 
 	filteredToolSet := toolSetForAgentTurn(fullToolSet, instructionBundle, AgentRequest{
 		Prompt:          "내일 알려줘",
-		PinnedToolNames: []string{"schedule.create"},
+		PinnedToolNames: []string{"schedule_create"},
 	}, ExecutionPlan{}, false, OutcomeContract{})
 
-	for _, toolName := range []string{"terminal.run", "file.write", "schedule.create", "conversation.history"} {
+	for _, toolName := range []string{"terminal_run", "file_write", "schedule_create", "conversation_history"} {
 		if !filteredToolSet.IsAllowed(toolName) {
 			t.Fatalf("expected tool %s to remain available, got %+v", toolName, filteredToolSet.ListToolNames())
 		}
 	}
-	for _, toolName := range []string{"memory.search", "schedule.list", "mail.message.search"} {
+	for _, toolName := range []string{"memory_search", "schedule_list", "mail_message_search"} {
 		if filteredToolSet.IsAllowed(toolName) {
 			t.Fatalf("expected unpinned non-kernel tool %s to be hidden, got %+v", toolName, filteredToolSet.ListToolNames())
 		}
@@ -233,29 +233,29 @@ func TestToolSetForAgentTurnExposesOnlyPinnedNonKernelTools(t *testing.T) {
 }
 
 func TestToolSetForAgentTurnHidesSendToolButKeepsKernelToolForNonSendOutcome(t *testing.T) {
-	fullToolSet := testToolSet([]string{"message.send", "file.write"})
+	fullToolSet := testToolSet([]string{"message_send", "file_write"})
 	instructionBundle := InstructionBundle{
 		Skills: []SkillInstruction{{
 			Name:           "direct-message",
-			ToolReferences: []string{"message.send"},
+			ToolReferences: []string{"message_send"},
 		}},
 		SkillDecisions: []SkillSelectionDecision{{Name: "direct-message", Status: "selected"}},
 	}
-	contract := OutcomeContract{SelectedEvidenceHints: []string{"message.send"}}
+	contract := OutcomeContract{SelectedEvidenceHints: []string{"message_send"}}
 
 	filteredToolSet := toolSetForAgentTurn(fullToolSet, instructionBundle, AgentRequest{Prompt: "사업계획서 작성해줘"}, ExecutionPlan{}, false, contract)
 
-	if !filteredToolSet.IsAllowed("message.send") {
+	if !filteredToolSet.IsAllowed("message_send") {
 		t.Fatalf("expected selected send tool to be directly callable, got %+v", filteredToolSet.ListToolNames())
 	}
-	if !filteredToolSet.IsAllowed("file.write") {
-		t.Fatalf("expected kernel tool file.write to remain available, got %+v", filteredToolSet.ListToolNames())
+	if !filteredToolSet.IsAllowed("file_write") {
+		t.Fatalf("expected kernel tool file_write to remain available, got %+v", filteredToolSet.ListToolNames())
 	}
 }
 
 func TestAgentKernelActionSchemaExposesTypedInitialTools(t *testing.T) {
 	intakeLanguageModel := &sequenceLanguageModel{contents: []string{
-		`{"route":"start_task","classification":"bounded_task","taskShape":"maintenance_task","level":"low","estimatedMinutes":1,"requestedOutputFormats":null,"initialToolNames":["schedule.create"],"reason":"schedule request","userFacingReply":""}`,
+		`{"route":"start_task","classification":"bounded_task","taskShape":"maintenance_task","level":"low","estimatedMinutes":1,"requestedOutputFormats":null,"initialToolNames":["schedule_create"],"reason":"schedule request","userFacingReply":""}`,
 	}}
 	replyLanguageModel := &sequenceLanguageModel{contents: []string{
 		finishMessageDocument("done"),
@@ -268,22 +268,22 @@ func TestAgentKernelActionSchemaExposesTypedInitialTools(t *testing.T) {
 				Name:           "scheduled-task",
 				Description:    "Create schedule, scheduled, reminder, repeat, and repeated tasks.",
 				WhenToUse:      "Use for reminders, scheduled tasks, repeat requests, 1분에 한 번씩, and 10번 repeated work.",
-				Prompt:         "Use schedule.create for reminders.",
+				Prompt:         "Use schedule_create for reminders.",
 				TriggerHints:   []string{"schedule", "reminder", "repeat", "10번"},
-				ToolReferences: []string{"schedule.create"},
+				ToolReferences: []string{"schedule_create"},
 				Source:         InstructionSource{Path: "skills/scheduled-task/SKILL.md", SkillName: "scheduled-task"},
 			},
 			{
 				Name:           "mail",
 				Description:    "Search mail.",
 				Prompt:         "Use mail.message.search.",
-				ToolReferences: []string{"mail.message.search"},
+				ToolReferences: []string{"mail_message_search"},
 				Source:         InstructionSource{Path: "skills/mail/SKILL.md", SkillName: "mail"},
 			},
 		}}
 	})
 	// The initial tool list contains direct typed tools; skill selection can add more direct tools later.
-	toolRegistry := newTestCapabilityToolSet([]string{"schedule.create", "mail.message.search", "schedule.list"})
+	toolRegistry := newTestCapabilityToolSet([]string{"schedule_create", "mail_message_search", "schedule_list"})
 	registerTestTool(toolRegistry, toolcontract.ToolDefinition{Name: toolcontract.AskInputToolName}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
 		return toolcontract.ToolResult{}, nil
 	})
@@ -301,13 +301,13 @@ func TestAgentKernelActionSchemaExposesTypedInitialTools(t *testing.T) {
 		t.Fatal("expected action request")
 	}
 	actionSchema := replyLanguageModel.requests[0].StructuredOutputSchema.Document
-	if !strings.Contains(actionSchema, `"toolName":{"enum":["schedule.create"]`) {
-		t.Fatalf("expected direct initial schedule.create in action schema, got %s", actionSchema)
+	if !strings.Contains(actionSchema, `"toolName":{"enum":["schedule_create"]`) {
+		t.Fatalf("expected direct initial schedule_create in action schema, got %s", actionSchema)
 	}
 	if strings.Contains(actionSchema, toolcontract.AskInputToolName) {
-		t.Fatalf("expected ask.input to stay hidden without a typed interaction requirement, got %s", actionSchema)
+		t.Fatalf("expected ask_input to stay hidden without a typed interaction requirement, got %s", actionSchema)
 	}
-	for _, domainToolName := range []string{"mail.message.search", "schedule.list"} {
+	for _, domainToolName := range []string{"mail_message_search", "schedule_list"} {
 		if strings.Contains(actionSchema, `"toolName":{"enum":["`+domainToolName+`"`) {
 			t.Fatalf("expected unselected tool %s not to be directly callable, got %s", domainToolName, actionSchema)
 		}
@@ -319,9 +319,9 @@ func TestSkillSelectorOnlyChecksSkillAvailability(t *testing.T) {
 	skillInstruction := SkillInstruction{
 		Name:           "presentation",
 		TriggerHints:   []string{"피피티", "파워포인트", "발표자료", "pptx"},
-		ToolReferences: []string{"terminal.run", "file.write", "file.deliver"},
+		ToolReferences: []string{"terminal_run", "file_write", "file_deliver"},
 	}
-	request := AgentRequest{Prompt: "피피티 만들어줘", ToolSet: testToolSet([]string{"terminal.run", "file.write", "file.deliver"})}
+	request := AgentRequest{Prompt: "피피티 만들어줘", ToolSet: testToolSet([]string{"terminal_run", "file_write", "file_deliver"})}
 
 	if skillSelector.ShouldInclude(skillInstruction, request) {
 		t.Fatal("expected prompt hints not to select skills outside retrieval")
@@ -333,11 +333,11 @@ func TestSkillSelectorKeepsSkillWithPartiallyReachableTools(t *testing.T) {
 	skillInstruction := SkillInstruction{
 		Name:           "presentation",
 		TriggerHints:   []string{"피피티"},
-		ToolReferences: []string{"terminal.run", "file.write", "file.deliver"},
+		ToolReferences: []string{"terminal_run", "file_write", "file_deliver"},
 	}
 	request := AgentRequest{
 		Prompt:  "피피티 만들어줘",
-		ToolSet: testToolSet([]string{"terminal.run", "file.write"}),
+		ToolSet: testToolSet([]string{"terminal_run", "file_write"}),
 	}
 
 	if !skillSelector.IsAvailable(skillInstruction, request) {
@@ -353,9 +353,9 @@ func TestSkillSelectorSkipsSkillWhenEveryToolIsMissing(t *testing.T) {
 	skillSelector := SkillSelector{}
 	skillInstruction := SkillInstruction{
 		Name:           "mattermost",
-		ToolReferences: []string{"message.send", "message.update"},
+		ToolReferences: []string{"message_send", "message_update"},
 	}
-	request := AgentRequest{ToolSet: testToolSet([]string{"terminal.run"})}
+	request := AgentRequest{ToolSet: testToolSet([]string{"terminal_run"})}
 
 	if skillSelector.IsAvailable(skillInstruction, request) {
 		t.Fatal("expected the skill to be unavailable when no tool reference is reachable")
@@ -367,8 +367,8 @@ func TestSkillSelectorSkipsSkillWhenEveryToolIsMissing(t *testing.T) {
 }
 
 func TestSelectInstructionBundleKeepsSkillWhenDirectToolsAreAvailable(t *testing.T) {
-	toolSet := toolcontract.NewToolSet([]string{"terminal.run", "site.serve", "site.serve"})
-	for _, toolName := range []string{"terminal.run", "site.serve", "site.serve"} {
+	toolSet := toolcontract.NewToolSet([]string{"terminal_run", "site_serve", "site_serve"})
+	for _, toolName := range []string{"terminal_run", "site_serve", "site_serve"} {
 		currentToolName := toolName
 		registerTestTool(toolSet, toolcontract.ToolDefinition{Name: currentToolName}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
 			return testToolSuccess("ok"), nil
@@ -378,7 +378,7 @@ func TestSelectInstructionBundleKeepsSkillWhenDirectToolsAreAvailable(t *testing
 		Name:           "site-prototype",
 		Description:    "Create and publish website prototypes.",
 		Prompt:         "SITE BODY",
-		ToolReferences: []string{"terminal.run", "site.serve", "site.serve"},
+		ToolReferences: []string{"terminal_run", "site_serve", "site_serve"},
 	}}}
 	retriever := staticSkillRetriever{result: SkillRetrievalResult{
 		RetrievalMode: "test",
@@ -398,17 +398,17 @@ func TestSelectInstructionBundleKeepsSkillWhenDirectToolsAreAvailable(t *testing
 		t.Fatalf("expected directly callable site skill to be selected, got %+v", selectedBundle.SkillDecisions)
 	}
 	filteredToolSet := toolSetForAgentTurn(toolSet, selectedBundle, AgentRequest{Prompt: "김인턴 소개 웹사이트 만들어줘"}, ExecutionPlan{}, false, OutcomeContract{})
-	if !filteredToolSet.IsAllowed("site.serve") || !filteredToolSet.IsAllowed("site.serve") {
+	if !filteredToolSet.IsAllowed("site_serve") || !filteredToolSet.IsAllowed("site_serve") {
 		t.Fatalf("expected selected skill tools to be directly callable, got %+v", filteredToolSet.ListToolNames())
 	}
 }
 
 func TestSelectInstructionBundleSkipsSkillWhenDirectToolIsUnavailable(t *testing.T) {
-	toolSet := toolcontract.NewToolSet([]string{"terminal.run"})
-	registerTestTool(toolSet, toolcontract.ToolDefinition{Name: "terminal.run"}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
+	toolSet := toolcontract.NewToolSet([]string{"terminal_run"})
+	registerTestTool(toolSet, toolcontract.ToolDefinition{Name: "terminal_run"}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
 		return testToolSuccess("ok"), nil
 	})
-	for _, toolName := range []string{"site.serve", "site.serve"} {
+	for _, toolName := range []string{"site_serve", "site_serve"} {
 		toolSet.RegisterBoundTool(toolcontract.BoundTool{
 			Definition:   toolcontract.ToolDefinition{Name: toolName},
 			Availability: toolcontract.ToolAvailability{Status: toolcontract.ToolAvailabilityUnavailable},
@@ -421,7 +421,7 @@ func TestSelectInstructionBundleSkipsSkillWhenDirectToolIsUnavailable(t *testing
 		Name:           "site-prototype",
 		Description:    "Create and publish website prototypes.",
 		Prompt:         "SITE BODY",
-		ToolReferences: []string{"terminal.run", "site.serve", "site.serve"},
+		ToolReferences: []string{"terminal_run", "site_serve", "site_serve"},
 	}}}
 	retriever := staticSkillRetriever{result: SkillRetrievalResult{
 		RetrievalMode: "test",
@@ -451,21 +451,21 @@ func TestSelectInstructionBundleKeepsUnselectedFullSkillBodyOutOfPrompt(t *testi
 				Description:    "Create decks.",
 				Prompt:         "Generate PPTX with Marp.",
 				TriggerHints:   []string{"피피티"},
-				ToolReferences: []string{"terminal.run"},
+				ToolReferences: []string{"terminal_run"},
 			},
 			{
 				Name:           "create-gws-file",
 				Description:    "Create spreadsheets.",
 				Prompt:         "SECRET FULL BODY",
 				TriggerHints:   []string{"spreadsheet"},
-				ToolReferences: []string{"terminal.run"},
+				ToolReferences: []string{"terminal_run"},
 			},
 		},
 	}
 
 	selectedBundle := selectInstructionBundleForRequest(instructionBundle, AgentRequest{
 		Prompt:  "피피티 만들어줘",
-		ToolSet: testToolSet([]string{"terminal.run"}),
+		ToolSet: testToolSet([]string{"terminal_run"}),
 	})
 
 	if strings.Contains(selectedBundle.Prompt, "SECRET FULL BODY") {
@@ -592,7 +592,7 @@ func TestNonArtifactFlowTaskRequestIsNotDominatedByPresentation(t *testing.T) {
 				Description:    "Generate clean presentation slides with Marp and attach the requested files.",
 				WhenToUse:      "Use for slides, slide decks, presentations, PPTX, PowerPoint, 발표자료, 파워포인트, 피피티.",
 				Prompt:         "Follow slides workflow.",
-				ToolReferences: []string{"terminal.run", "file.write", "file.deliver"},
+				ToolReferences: []string{"terminal_run", "file_write", "file_deliver"},
 				Source:         InstructionSource{Path: "skills/presentation/SKILL.md", SkillName: "presentation"},
 			},
 			{
@@ -600,7 +600,7 @@ func TestNonArtifactFlowTaskRequestIsNotDominatedByPresentation(t *testing.T) {
 				Description:    "Manage InternKim todo tasks with flow.task capability operations.",
 				WhenToUse:      "Use for 업무, 할 일, todo, task 등록, 목록, 완료, 수정 requests.",
 				Prompt:         "Use flow.task capability operations.",
-				ToolReferences: []string{"task.add", "task.list", "task.update"},
+				ToolReferences: []string{"task_add", "task_list", "task_update"},
 				Source:         InstructionSource{Path: "skills/internkim-flow/SKILL.md", SkillName: "internkim-flow"},
 			},
 		},
@@ -617,12 +617,12 @@ func TestNonArtifactFlowTaskRequestIsNotDominatedByPresentation(t *testing.T) {
 	selectedBundle := selectInstructionBundleForRequestWithRetriever(context.Background(), instructionBundle, AgentRequest{
 		Prompt: "업무 등록해줘\n- 메일 페이지 앱 비밀번호, 다양한 사이트 관련 링크로 이동으로 개선하기",
 		ToolSet: testToolSet([]string{
-			"terminal.run",
-			"file.write",
-			"file.deliver",
-			"task.add",
-			"task.list",
-			"task.update",
+			"terminal_run",
+			"file_write",
+			"file_deliver",
+			"task_add",
+			"task_list",
+			"task_update",
 		}),
 	}, retriever)
 
@@ -644,7 +644,7 @@ func TestBM25RetrieverSelectsSkillManagement(t *testing.T) {
 				Name:        "skill-management",
 				Description: "Create, add, update, or remove user-managed Blueclaw skills, 스킬, and SKILL.md files.",
 				WhenToUse:   "Use for skill 만들기, 스킬 추가, 스킬 삭제, SKILL.md 작성, and /skill-management.",
-				Prompt:      "Use skill.add and skill.remove.",
+				Prompt:      "Use skill_add and skill.remove.",
 				Source:      InstructionSource{Path: "skills/skill-management/SKILL.md", SHA256: "one", SkillName: "skill-management"},
 			},
 			{
@@ -667,7 +667,7 @@ func TestBM25RetrieverSelectsSkillManagement(t *testing.T) {
 	if len(selectedBundle.SkillDecisions) != 1 || selectedBundle.SkillDecisions[0].Name != "skill-management" || selectedBundle.SkillDecisions[0].Status != "selected" {
 		t.Fatalf("expected skill-management selected, got %+v", selectedBundle.SkillDecisions)
 	}
-	if !strings.Contains(selectedBundle.Prompt, "Use skill.add and skill.remove.") {
+	if !strings.Contains(selectedBundle.Prompt, "Use skill_add and skill.remove.") {
 		t.Fatalf("expected selected skill-management body, got %q", selectedBundle.Prompt)
 	}
 	if strings.Contains(selectedBundle.Prompt, "Follow calendar workflow.") {
@@ -682,8 +682,8 @@ func TestBM25RetrieverSelectsScheduledTaskForFiniteRepeat(t *testing.T) {
 				Name:           "scheduled-task",
 				Description:    "Create scheduled, recurring, and finite repeated messages, 1분에 한 번씩, 10번, reminders, and repeats.",
 				WhenToUse:      "Use for reminders, interval messages, 1분에 한 번씩, 10번, finite repeated message, and repeat N times requests.",
-				Prompt:         "Use schedule.create with taskInstruction for the run-time work, intervalSecond, and maxRunCount.",
-				ToolReferences: []string{"schedule.create"},
+				Prompt:         "Use schedule_create with taskInstruction for the run-time work, intervalSecond, and maxRunCount.",
+				ToolReferences: []string{"schedule_create"},
 				Source:         InstructionSource{Path: "skills/scheduled-task/SKILL.md", SHA256: "schedule", SkillName: "scheduled-task"},
 			},
 			{
@@ -698,7 +698,7 @@ func TestBM25RetrieverSelectsScheduledTaskForFiniteRepeat(t *testing.T) {
 
 	selectedBundle := selectInstructionBundleForRequestWithRetriever(context.Background(), instructionBundle, AgentRequest{
 		Prompt:  `1분에 한 번씩 나한테 "죄송합니다" 10번 해봐`,
-		ToolSet: testToolSet([]string{"schedule.create"}),
+		ToolSet: testToolSet([]string{"schedule_create"}),
 	}, retriever)
 
 	if selectedBundle.RetrievalMode != "bm25_fallback" || selectedBundle.IndexStatus != "embedding_unavailable" {
@@ -743,8 +743,8 @@ func TestStructuredSkillQuerySelectsMailSkill(t *testing.T) {
 			{
 				Name:           "mail",
 				Description:    "Read, search, summarize, reply to, and send email messages.",
-				Prompt:         "Use mail.message.search and mail.message.read.",
-				ToolReferences: []string{"mail.message.search", "mail.message.read"},
+				Prompt:         "Use mail_message_search and mail.message.read.",
+				ToolReferences: []string{"mail_message_search", "mail_message_read"},
 				Source:         InstructionSource{Path: "skills/mail/SKILL.md", SkillName: "mail"},
 			},
 			{
@@ -759,7 +759,7 @@ func TestStructuredSkillQuerySelectsMailSkill(t *testing.T) {
 
 	selectedBundle := selectInstructionBundleForRequestWithRetrieverAndRouter(context.Background(), instructionBundle, AgentRequest{
 		Prompt:  "나 최근 github한테 온 메일 있어?",
-		ToolSet: testToolSet([]string{"mail.message.search", "mail.message.read"}),
+		ToolSet: testToolSet([]string{"mail_message_search", "mail_message_read"}),
 	}, retriever, router)
 
 	if len(selectedBundle.SkillDecisions) != 1 || selectedBundle.SkillDecisions[0].Name != "mail" || selectedBundle.SkillDecisions[0].Status != "selected" {
@@ -768,7 +768,7 @@ func TestStructuredSkillQuerySelectsMailSkill(t *testing.T) {
 	if len(selectedBundle.SkillQueries) != 2 || selectedBundle.SkillQueries[0] != "나 최근 github한테 온 메일 있어?" || !strings.Contains(selectedBundle.SkillQueries[1], "email messages") {
 		t.Fatalf("expected raw request and supplemental query to be recorded, got %+v", selectedBundle.SkillQueries)
 	}
-	if !strings.Contains(selectedBundle.Prompt, "mail.message.search") {
+	if !strings.Contains(selectedBundle.Prompt, "mail_message_search") {
 		t.Fatalf("expected selected mail instructions, got %q", selectedBundle.Prompt)
 	}
 }
@@ -782,7 +782,7 @@ func TestContractSkillArbitrationSelectsUsefulCandidateFromTopK(t *testing.T) {
 				Description:    "Create, update, build, and publish website prototypes with public URLs.",
 				WhenToUse:      "Use for website, homepage, web app, landing page, deploy, and publish requests.",
 				Prompt:         "Follow website build and publish workflow.",
-				ToolReferences: []string{"file.write", "terminal.run", "site.serve", "site.build", "site.serve"},
+				ToolReferences: []string{"file_write", "terminal_run", "site_serve", "site.build", "site_serve"},
 				Source:         InstructionSource{Path: "skills/public-web-builder/SKILL.md", SkillName: "public-web-builder"},
 			},
 			{
@@ -790,7 +790,7 @@ func TestContractSkillArbitrationSelectsUsefulCandidateFromTopK(t *testing.T) {
 				Description:    "Create, verify, promote, and attach Word documents in .docx format.",
 				WhenToUse:      "Use for Word documents, .docx files, memos, reports, and enterprise document deliverables.",
 				Prompt:         "Create the document, validate it, promote it, then attach it.",
-				ToolReferences: []string{"file.write", "terminal.run", "file.promote", "file.deliver"},
+				ToolReferences: []string{"file_write", "terminal_run", "file.promote", "file_deliver"},
 				Source:         InstructionSource{Path: "skills/enterprise-document-maker/SKILL.md", SkillName: "enterprise-document-maker"},
 			},
 		},
@@ -805,22 +805,22 @@ func TestContractSkillArbitrationSelectsUsefulCandidateFromTopK(t *testing.T) {
 	}}
 	languageModel := &schemaStructuredLanguageModel{contentBySchema: map[string]string{
 		"blueclaw_skill_search_queries":       `{"queries":[{"description":"Recover and attach the requested .docx enterprise guide file."}]}`,
-		"blueclaw_contract_skill_arbitration": `{"selectedSkillNames":["enterprise-document-maker"],"rejectedSkillNames":["public-web-builder"],"requiredNextToolNames":["file.write","terminal.run","file.promote","file.deliver"],"expectedEvidence":["file.deliver"],"unmetPreconditions":[],"reason":"The outcome contract requires a .docx attachment, not a public website."}`,
+		"blueclaw_contract_skill_arbitration": `{"selectedSkillNames":["enterprise-document-maker"],"rejectedSkillNames":["public-web-builder"],"requiredNextToolNames":["file_write","terminal_run","file.promote","file_deliver"],"expectedEvidence":["file_deliver"],"unmetPreconditions":[],"reason":"The outcome contract requires a .docx attachment, not a public website."}`,
 	}}
 
 	selectedBundle := selectInstructionBundleForRequestWithRetrieverAndRouter(context.Background(), instructionBundle, AgentRequest{
 		Prompt: "링크로 전달된 적 없어. 첨부파일로 줘야지 그리고.",
 		ToolSet: testToolSet([]string{
-			"file.write",
-			"terminal.run",
+			"file_write",
+			"terminal_run",
 			"file.promote",
-			"file.deliver",
-			"site.serve",
+			"file_deliver",
+			"site_serve",
 			"site.build",
-			"site.serve",
+			"site_serve",
 		}),
 		ActiveGoal: ActiveGoal{OutcomeContract: OutcomeContract{
-			RequiredEvidenceTools:      []string{"file.deliver"},
+			RequiredEvidenceTools:      []string{"file_deliver"},
 			RequiredAttachmentSuffixes: []string{".docx"},
 			ArtifactRequirement:        ArtifactRequirementRequired,
 			ExpectedResults: []ExpectedResult{{
@@ -843,7 +843,7 @@ func TestContractSkillArbitrationSelectsUsefulCandidateFromTopK(t *testing.T) {
 	if !strings.Contains(selectedBundle.Prompt, "Create the document") || strings.Contains(selectedBundle.Prompt, "Use website build") {
 		t.Fatalf("expected only arbitrated document instructions, got %q", selectedBundle.Prompt)
 	}
-	if !selectedBundle.HasContractSkillArbitration || !reflect.DeepEqual(selectedBundle.RequiredEvidenceTools, []string{"file.deliver"}) {
+	if !selectedBundle.HasContractSkillArbitration || !reflect.DeepEqual(selectedBundle.RequiredEvidenceTools, []string{"file_deliver"}) {
 		t.Fatalf("expected exact arbitrated evidence, got %+v", selectedBundle.RequiredEvidenceTools)
 	}
 }
@@ -855,7 +855,7 @@ func TestContractSkillArbitrationDoesNotRunWithoutOutcomeContract(t *testing.T) 
 			Name:           "mail",
 			Description:    "Read mail.",
 			Prompt:         "Follow mail workflow.",
-			ToolReferences: []string{"mail.message.search"},
+			ToolReferences: []string{"mail_message_search"},
 		}},
 	}
 	languageModel := &schemaStructuredLanguageModel{contentBySchema: map[string]string{
@@ -865,7 +865,7 @@ func TestContractSkillArbitrationDoesNotRunWithoutOutcomeContract(t *testing.T) 
 
 	_ = selectInstructionBundleForRequestWithRetrieverAndRouter(context.Background(), instructionBundle, AgentRequest{
 		Prompt:  "메일 확인해줘",
-		ToolSet: testToolSet([]string{"mail.message.search"}),
+		ToolSet: testToolSet([]string{"mail_message_search"}),
 	}, NewEmbeddingSkillRetriever(nil, ""), NewSkillSearchQueryRouter(languageModel))
 
 	if structuredRequestHasSchema(languageModel.requests, "blueclaw_contract_skill_arbitration") {
@@ -877,16 +877,16 @@ func TestContractSkillArbitrationReportsExplicitStatuses(t *testing.T) {
 	skillInstruction := SkillInstruction{
 		Name:           "internkim-flow",
 		Description:    "Manage tasks.",
-		ToolReferences: []string{"task.add"},
+		ToolReferences: []string{"task_add"},
 	}
 	candidates := []SkillInstruction{skillInstruction}
 	candidateByName := map[string]SkillCandidate{
 		skillInstruction.Name: {Name: skillInstruction.Name, Score: 1, Reason: "required_evidence_tool"},
 	}
 	request := AgentRequest{
-		ToolSet: testToolSet([]string{"task.add"}),
+		ToolSet: testToolSet([]string{"task_add"}),
 		ActiveGoal: ActiveGoal{OutcomeContract: OutcomeContract{
-			RequiredEvidenceTools: []string{"task.add"},
+			RequiredEvidenceTools: []string{"task_add"},
 		}},
 	}
 
@@ -919,7 +919,7 @@ func TestContractSkillArbitrationReportsExplicitStatuses(t *testing.T) {
 		{
 			name: "missing side effect evidence",
 			router: NewSkillSearchQueryRouter(staticStructuredLanguageModel{
-				content: `{"selectedSkillNames":["internkim-flow"],"rejectedSkillNames":[],"requiredNextToolNames":["task.add"],"expectedEvidence":[],"unmetPreconditions":[],"reason":"create task"}`,
+				content: `{"selectedSkillNames":["internkim-flow"],"rejectedSkillNames":[],"requiredNextToolNames":["task_add"],"expectedEvidence":[],"unmetPreconditions":[],"reason":"create task"}`,
 			}),
 			request:        request,
 			expectedStatus: contractSkillArbitrationFailed,
@@ -927,7 +927,7 @@ func TestContractSkillArbitrationReportsExplicitStatuses(t *testing.T) {
 		{
 			name: "succeeded",
 			router: NewSkillSearchQueryRouter(staticStructuredLanguageModel{
-				content: `{"selectedSkillNames":["internkim-flow"],"rejectedSkillNames":[],"requiredNextToolNames":["task.add"],"expectedEvidence":["task.add"],"unmetPreconditions":[],"reason":"The task contract requires task creation."}`,
+				content: `{"selectedSkillNames":["internkim-flow"],"rejectedSkillNames":[],"requiredNextToolNames":["task_add"],"expectedEvidence":["task_add"],"unmetPreconditions":[],"reason":"The task contract requires task creation."}`,
 			}),
 			request:        request,
 			expectedStatus: contractSkillArbitrationSucceeded,
@@ -947,17 +947,17 @@ func TestContractSkillArbitrationReportsExplicitStatuses(t *testing.T) {
 func TestContractSkillArbitrationCorrectsProseToExactCanonicalNames(t *testing.T) {
 	candidates := []SkillInstruction{{
 		Name:           "document",
-		ToolReferences: []string{"document.read"},
+		ToolReferences: []string{"document_read"},
 	}}
 	request := AgentRequest{
-		ToolSet: testToolSet([]string{"document.read", toolcontract.TerminalRunToolName, toolcontract.FileWriteToolName, toolcontract.FileDeliverToolName}),
+		ToolSet: testToolSet([]string{"document_read", toolcontract.TerminalRunToolName, toolcontract.FileWriteToolName, toolcontract.FileDeliverToolName}),
 		ActiveGoal: ActiveGoal{OutcomeContract: OutcomeContract{
 			RequiredEvidenceTools: []string{toolcontract.FileWriteToolName, toolcontract.FileDeliverToolName},
 		}},
 	}
 	languageModel := &contractArbitrationSequenceLanguageModel{contents: []string{
-		`{"selectedSkillNames":["document"],"rejectedSkillNames":[],"requiredNextToolNames":["file.write","terminal.run","file.deliver"],"expectedEvidence":["file.deliver attaches the DOCX"],"unmetPreconditions":[],"reason":"document workflow"}`,
-		`{"selectedSkillNames":["document"],"rejectedSkillNames":[],"requiredNextToolNames":["file.write","terminal.run","file.deliver"],"expectedEvidence":["file.deliver"],"unmetPreconditions":[],"reason":"document workflow"}`,
+		`{"selectedSkillNames":["document"],"rejectedSkillNames":[],"requiredNextToolNames":["file_write","terminal_run","file_deliver"],"expectedEvidence":["file_deliver attaches the DOCX"],"unmetPreconditions":[],"reason":"document workflow"}`,
+		`{"selectedSkillNames":["document"],"rejectedSkillNames":[],"requiredNextToolNames":["file_write","terminal_run","file_deliver"],"expectedEvidence":["file_deliver"],"unmetPreconditions":[],"reason":"document workflow"}`,
 	}}
 
 	result := NewSkillSearchQueryRouter(languageModel).ArbitrateContractSkills(
@@ -970,10 +970,10 @@ func TestContractSkillArbitrationCorrectsProseToExactCanonicalNames(t *testing.T
 	if result.Status != contractSkillArbitrationSucceeded {
 		t.Fatalf("expected corrected arbitration, got %+v", result)
 	}
-	if !reflect.DeepEqual(result.Arbitration.RequiredNextTools, []string{"file.write", "terminal.run", "file.deliver"}) {
+	if !reflect.DeepEqual(result.Arbitration.RequiredNextTools, []string{"file_write", "terminal_run", "file_deliver"}) {
 		t.Fatalf("expected exact kernel workflow, got %v", result.Arbitration.RequiredNextTools)
 	}
-	if !reflect.DeepEqual(result.Arbitration.ExpectedEvidence, []string{"file.deliver"}) {
+	if !reflect.DeepEqual(result.Arbitration.ExpectedEvidence, []string{"file_deliver"}) {
 		t.Fatalf("expected exact delivery evidence, got %v", result.Arbitration.ExpectedEvidence)
 	}
 	if len(languageModel.requests) != 2 || !strings.Contains(joinedMessageContent(languageModel.requests[1].Messages), "previous candidate was invalid") {
@@ -982,8 +982,8 @@ func TestContractSkillArbitrationCorrectsProseToExactCanonicalNames(t *testing.T
 	assertContractArbitrationSchemaEnums(t, languageModel.requests[0].StructuredOutputSchema.Document, map[string][]string{
 		"selectedSkillNames":    {"document"},
 		"rejectedSkillNames":    {"document"},
-		"requiredNextToolNames": {"document.read", "terminal.run", "file.deliver", "file.write"},
-		"expectedEvidence":      {"file.write", "file.deliver", "document.read"},
+		"requiredNextToolNames": {"document_read", "terminal_run", "file_deliver", "file_write"},
+		"expectedEvidence":      {"file_write", "file_deliver", "document_read"},
 	})
 }
 
@@ -994,15 +994,15 @@ func TestContractSkillArbitrationFailureDegradesToScoreSelection(t *testing.T) {
 			Name:           "internkim-flow",
 			Description:    "Manage company tasks.",
 			Prompt:         "Task workflow instructions must not load after arbitration failure.",
-			ToolReferences: []string{"task.add", "task.list"},
+			ToolReferences: []string{"task_add", "task_list"},
 		}},
 	}
 	languageModel := &schemaStructuredLanguageModel{contentBySchema: map[string]string{
 		"blueclaw_skill_search_queries":       `{"queries":[{"description":"Create a company task."}]}`,
 		"blueclaw_contract_skill_arbitration": `{}`,
 	}}
-	toolSet := testToolSet([]string{toolcontract.TerminalRunToolName, "task.add", "task.list"})
-	outcomeContract := OutcomeContract{RequiredEvidenceTools: []string{"task.add"}}
+	toolSet := testToolSet([]string{toolcontract.TerminalRunToolName, "task_add", "task_list"})
+	outcomeContract := OutcomeContract{RequiredEvidenceTools: []string{"task_add"}}
 	request := AgentRequest{
 		Prompt:     "고객지원 분기 결산 누락 항목 확인 업무를 추가해줘",
 		ToolSet:    toolSet,
@@ -1042,10 +1042,10 @@ func TestContractSkillArbitrationFailureDegradesToScoreSelection(t *testing.T) {
 		outcomeContract,
 		ToolExposureEvent{},
 	)
-	if !exposedToolSet.IsAllowed(toolcontract.TerminalRunToolName) || !exposedToolSet.IsAllowed("task.add") {
+	if !exposedToolSet.IsAllowed(toolcontract.TerminalRunToolName) || !exposedToolSet.IsAllowed("task_add") {
 		t.Fatalf("expected kernel and explicit evidence tools, got %+v", exposedToolSet.ListToolNames())
 	}
-	if !exposedToolSet.IsAllowed("task.list") {
+	if !exposedToolSet.IsAllowed("task_list") {
 		t.Fatalf("expected score-selected skill tools after degraded arbitration, got %+v", exposedToolSet.ListToolNames())
 	}
 }
@@ -1076,12 +1076,12 @@ func assertContractArbitrationSchemaEnums(t *testing.T, schemaDocument string, e
 func TestRequiredEvidenceAddsOwningSkillCandidate(t *testing.T) {
 	skillInstructions := []SkillInstruction{{
 		Name:           "internkim-flow",
-		ToolReferences: []string{"task.add", "task.list", "task.update", "task.delete"},
+		ToolReferences: []string{"task_add", "task_list", "task_update", "task_delete"},
 	}}
 	request := AgentRequest{
-		ToolSet: newTestToolSet([]string{"task.add", "task.list", "task.update", "task.delete"}),
+		ToolSet: newTestToolSet([]string{"task_add", "task_list", "task_update", "task_delete"}),
 		ActiveGoal: ActiveGoal{OutcomeContract: OutcomeContract{
-			RequiredEvidenceTools: []string{"task.add"},
+			RequiredEvidenceTools: []string{"task_add"},
 		}},
 	}
 
@@ -1101,7 +1101,7 @@ func TestSkillQueryRouterMessagesPrioritizeLatestRequest(t *testing.T) {
 			{Speaker: "user", Text: "example.com 스타일로 사업계획서 PPT 만들어줘."},
 		}},
 		ActiveGoal:    ActiveGoal{CurrentObjective: "example.com 발표 자료 생성"},
-		ToolSet:       testToolSet([]string{"site.serve", "site.serve", "terminal.run"}),
+		ToolSet:       testToolSet([]string{"site_serve", "site_serve", "terminal_run"}),
 		TurnStartedAt: time.Date(2026, time.May, 17, 1, 2, 3, 0, time.UTC),
 	})
 
@@ -1128,8 +1128,8 @@ func TestStructuredSkillQueryRecordsLatestRequestWebsiteQueryWithStaleContext(t 
 		Skills: []SkillInstruction{{
 			Name:           "site-prototype",
 			Description:    "Create and publish website prototypes.",
-			Prompt:         "Use site.serve and site.serve.",
-			ToolReferences: []string{"site.serve", "site.serve"},
+			Prompt:         "Use site_serve and site.serve.",
+			ToolReferences: []string{"site_serve", "site_serve"},
 			Source:         InstructionSource{Path: "skills/site-prototype/SKILL.md", SkillName: "site-prototype"},
 		}},
 	}
@@ -1141,7 +1141,7 @@ func TestStructuredSkillQueryRecordsLatestRequestWebsiteQueryWithStaleContext(t 
 		VisibleContext: VisibleContext{Messages: []VisibleContextMessage{
 			{Speaker: "user", Text: "https://example.com 내용으로 사업계획서 PPT 만들어줘."},
 		}},
-		ToolSet: testToolSet([]string{"site.serve", "site.serve"}),
+		ToolSet: testToolSet([]string{"site_serve", "site_serve"}),
 	}, retriever, router)
 
 	if len(selectedBundle.SkillQueries) != 2 || selectedBundle.SkillQueries[0] != "김인턴의 구조에 대해 웹사이트 하나 소개 형식으로 만들어줘." || !strings.Contains(selectedBundle.SkillQueries[1], "InternKim") {
@@ -1177,7 +1177,7 @@ func TestSkillRetrievalDoesNotSynthesizeArtifactContractQueries(t *testing.T) {
 		Prompt: "이어서 수정해줘",
 		ActiveGoal: ActiveGoal{OutcomeContract: OutcomeContract{
 			ArtifactRequirement:        ArtifactRequirementRequired,
-			RequiredEvidenceTools:      []string{"file.deliver"},
+			RequiredEvidenceTools:      []string{"file_deliver"},
 			RequiredAttachmentSuffixes: []string{".docx"},
 		}},
 	}, retriever, router)
@@ -1308,7 +1308,7 @@ func TestWebsiteSkillSurvivesWhenSkillIsFifthCandidate(t *testing.T) {
 			Name:           "site-prototype",
 			Description:    "Create and publish website prototypes.",
 			Prompt:         "SITE BODY",
-			ToolReferences: []string{"terminal.run", "site.serve", "site.serve"},
+			ToolReferences: []string{"terminal_run", "site_serve", "site_serve"},
 			Source:         InstructionSource{Path: "skills/site-prototype/SKILL.md", SkillName: "site-prototype"},
 		},
 		{Name: "extra", Description: "Extra skill.", Prompt: "EXTRA BODY"},
@@ -1326,9 +1326,9 @@ func TestWebsiteSkillSurvivesWhenSkillIsFifthCandidate(t *testing.T) {
 	selectedBundle := selectInstructionBundleForRequestWithRetriever(context.Background(), instructionBundle, AgentRequest{
 		Prompt: "김인턴의 구조에 대해 웹사이트 하나 소개 형식으로 만들어줘.",
 		ToolSet: testToolSet([]string{
-			"terminal.run",
-			"site.serve",
-			"site.serve",
+			"terminal_run",
+			"site_serve",
+			"site_serve",
 		}),
 	}, retriever)
 

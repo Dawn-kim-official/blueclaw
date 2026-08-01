@@ -17,8 +17,8 @@ compatibility: Requires a POSIX shell.
 metadata:
   author: InternKim
 tool-references:
-  - terminal.run
-  - file.write
+  - terminal_run
+  - file_write
 ---
 # Simple Slides
 
@@ -39,7 +39,7 @@ Build slides.
 	if skillBundle.Description != "Create presentation decks." {
 		t.Fatalf("expected description from frontmatter, got %q", skillBundle.Description)
 	}
-	if !containsToolReference(skillBundle.ToolReferences, "terminal.run") || !containsToolReference(skillBundle.ToolReferences, "file.write") {
+	if !containsToolReference(skillBundle.ToolReferences, "terminal_run") || !containsToolReference(skillBundle.ToolReferences, "file_write") {
 		t.Fatalf("expected tool references, got %+v", skillBundle.ToolReferences)
 	}
 	if skillBundle.Instruction != "# Simple Slides\n\nBuild slides." {
@@ -79,7 +79,7 @@ func TestSkillLoaderParsesSpaceSeparatedToolReferences(t *testing.T) {
 	document := `---
 name: file-work
 description: Work with files.
-tool-references: file.read file.write
+tool-references: file_read file_write
 ---
 Use files.
 `
@@ -92,7 +92,7 @@ Use files.
 		t.Fatal(errorValue)
 	}
 
-	if !containsToolReference(skillBundle.ToolReferences, "file.read") || !containsToolReference(skillBundle.ToolReferences, "file.write") {
+	if !containsToolReference(skillBundle.ToolReferences, "file_read") || !containsToolReference(skillBundle.ToolReferences, "file_write") {
 		t.Fatalf("expected space separated tool references, got %+v", skillBundle.ToolReferences)
 	}
 }
@@ -128,8 +128,8 @@ func TestSkillLoaderIgnoresAllowedToolsWhenToolReferencesExist(t *testing.T) {
 	document := `---
 name: file-work
 description: Work with files.
-tool-references: file.read file.write
-allowed-tools: terminal.run
+tool-references: file_read file_write
+allowed-tools: terminal_run
 ---
 Use files.
 `
@@ -142,7 +142,7 @@ Use files.
 		t.Fatal(errorValue)
 	}
 
-	expectedToolReferences := []ToolReference{"file.read", "file.write"}
+	expectedToolReferences := []ToolReference{"file_read", "file_write"}
 	if len(skillBundle.ToolReferences) != len(expectedToolReferences) {
 		t.Fatalf("expected unique tool references, got %+v", skillBundle.ToolReferences)
 	}

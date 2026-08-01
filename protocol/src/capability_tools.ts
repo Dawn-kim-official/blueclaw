@@ -52,22 +52,22 @@ export enum WorkspaceTaskScope {
 }
 
 export enum CalendarToolName {
-  Add = 'calendar.add',
-  List = 'calendar.list',
-  Update = 'calendar.update',
-  Delete = 'calendar.delete',
+  Add = 'calendar_add',
+  List = 'calendar_list',
+  Update = 'calendar_update',
+  Delete = 'calendar_delete',
 }
 
 export enum MessageToolName {
-  Context = 'message.context',
-  Search = 'message.search',
-  Send = 'message.send',
-  Update = 'message.update',
-  Delete = 'message.delete',
+  Context = 'message_context',
+  Search = 'message_search',
+  Send = 'message_send',
+  Update = 'message_update',
+  Delete = 'message_delete',
 }
 
 export enum ChannelToolName {
-  Update = 'channel.update',
+  Update = 'channel_update',
 }
 
 export enum MessageTargetType {
@@ -97,26 +97,26 @@ export enum MessageDeliveryStatus {
 }
 
 export enum DocumentToolName {
-  Read = 'document.read',
+  Read = 'document_read',
 }
 
 export enum ImageToolName {
-  Read = 'image.read',
+  Read = 'image_read',
 }
 
 export enum BrowserToolName {
-  Open = 'browser.open',
-  Snapshot = 'browser.snapshot',
-  Screenshot = 'browser.screenshot',
-  Click = 'browser.click',
+  Open = 'browser_open',
+  Snapshot = 'browser_snapshot',
+  Screenshot = 'browser_screenshot',
+  Click = 'browser_click',
 }
 
 export enum ArtifactToolName {
-  Review = 'artifact.review',
+  Review = 'artifact_review',
 }
 
 export enum WebToolName {
-  Search = 'web.search',
+  Search = 'web_search',
 }
 
 export enum ArtifactKind {
@@ -149,9 +149,9 @@ export enum ArtifactEvidenceMimeType {
 }
 
 export enum SiteToolName {
-  Serve = 'site.serve',
-  List = 'site.list',
-  Unserve = 'site.unserve',
+  Serve = 'site_serve',
+  List = 'site_list',
+  Unserve = 'site_unserve',
 }
 
 export enum SiteServeMode {
@@ -273,7 +273,7 @@ export const taskListInputSchema = z.strictObject({
 });
 
 const taskHintSchema = z.string().min(1).max(256).describe(
-  'Identifies the existing task to act on: its exact task ID or its exact CURRENT title as it appears in a task.list result. Never a new or intended title. Resolved server-side to the canonical task; if it does not uniquely resolve, the call fails with a candidates list of the matching tasks to retry against.',
+  'Identifies the existing task to act on: its exact task ID or its exact CURRENT title as it appears in a task_list result. Never a new or intended title. Resolved server-side to the canonical task; if it does not uniquely resolve, the call fails with a candidates list of the matching tasks to retry against.',
 );
 
 const taskUpdateObjectSchema = z.strictObject({
@@ -394,7 +394,7 @@ export const calendarListInputSchema = z.strictObject({
 });
 
 const calendarEventHintSchema = z.string().min(1).max(256).describe(
-  'Identifies the existing calendar event to act on: its exact event ID or its exact CURRENT title as it appears in a calendar.list result. Never a new or intended title. Resolved server-side; if it does not uniquely resolve, the call fails with a candidates list of matching events.',
+  'Identifies the existing calendar event to act on: its exact event ID or its exact CURRENT title as it appears in a calendar_list result. Never a new or intended title. Resolved server-side; if it does not uniquely resolve, the call fails with a candidates list of matching events.',
 );
 
 const calendarUpdateObjectSchema = z.strictObject({
@@ -442,19 +442,19 @@ export const messageSearchInputSchema = z.strictObject({
     .describe('Where to search. Current conversation scopes use the active Mattermost context.')
     .optional(),
   channelName: z.string().describe('Exact Mattermost channel name without the # prefix.').optional(),
-  channelID: resourceIDSchema.describe('Exact channel ID from message.context or a prior result.').optional(),
+  channelID: resourceIDSchema.describe('Exact channel ID from message_context or a prior result.').optional(),
   personHint: z.string().describe('Exact name, @handle, or email of the direct-message counterpart.').optional(),
   authoredBy: z.enum(MessageAuthor).describe('Message author filter. Defaults to anyone.').optional(),
   queries: z.array(z.string().min(1)).describe('Keyword queries matched against message content.').optional(),
   limit: z.number().int().min(1).max(25).describe('Maximum messages to return. Defaults to 20.').optional(),
-  cursor: z.string().describe('Pagination cursor from a previous message.search result.').optional(),
+  cursor: z.string().describe('Pagination cursor from a previous message_search result.').optional(),
 });
 
 export const messageSendInputSchema = z.strictObject({
   targetType: z.enum(MessageTargetType).describe('Destination for the new message.'),
   message: z.string().min(1).regex(/\S/, 'Message must contain a non-whitespace character.'),
   channelName: z.string().describe('Exact Mattermost channel name without the # prefix.').optional(),
-  channelID: resourceIDSchema.describe('Exact channel ID from message.context or a prior result.').optional(),
+  channelID: resourceIDSchema.describe('Exact channel ID from message_context or a prior result.').optional(),
   personHint: z.string().describe('Name, @handle, or email of one direct-message recipient. Omit for a direct message to the requester themself.').optional(),
   personHints: z.array(z.string().min(1)).max(50).describe('Direct-message recipients for one fan-out send.').optional(),
   pin: z.boolean().describe('Whether to pin the created message. Defaults to false.').optional(),
@@ -464,7 +464,7 @@ export const messageSendInputSchema = z.strictObject({
 export const messageSendInputIntentSchema = messageSendInputSchema.partial();
 
 const messageUpdateObjectSchema = z.strictObject({
-  messageID: resourceIDSchema.describe('Exact message ID from message.search or message.send.'),
+  messageID: resourceIDSchema.describe('Exact message ID from message_search or message.send.'),
   message: z.string().min(1).regex(/\S/, 'Message must contain a non-whitespace character.').optional(),
   isPinned: z.boolean().describe('Whether the message should be pinned.').optional(),
 });
@@ -545,7 +545,7 @@ export const messageDeleteResultSchema = z.strictObject({
 });
 
 const channelUpdateObjectSchema = z.strictObject({
-  channelID: resourceIDSchema.describe('Exact channel ID from message.context or a prior result.').optional(),
+  channelID: resourceIDSchema.describe('Exact channel ID from message_context or a prior result.').optional(),
   channelName: z.string().min(1).describe('Exact Mattermost channel name without the # prefix.').optional(),
   header: z.string().describe('New channel header. Use an empty string to clear it.').optional(),
   displayName: z.string().min(1).describe('New channel display name.').optional(),
@@ -573,7 +573,7 @@ export const siteServeInputSchema = z.strictObject({
   title: z.string().min(1).describe('Human-readable site title. The server derives and owns the URL slug from this title on first serve.'),
   sourceWorkspacePath: resourceIDSchema.describe('Exact workspace path of the site project root to serve — the directory containing DESIGN.md and app/, e.g. ~/sites/my-site.'),
   mode: z.enum(SiteServeMode).describe("Serve target: 'preview' for a temporary review URL, 'publish' for the public URL."),
-  siteReference: resourceIDSchema.describe('Exact slug or siteID of an EXISTING served site to update, from site.list or an earlier serve result. Omit on first serve so the server allocates a new slug.').optional(),
+  siteReference: resourceIDSchema.describe('Exact slug or siteID of an EXISTING served site to update, from site_list or an earlier serve result. Omit on first serve so the server allocates a new slug.').optional(),
 });
 
 export const siteServeInputIntentSchema = siteServeInputSchema.partial();
@@ -583,7 +583,7 @@ export const siteListInputSchema = z.strictObject({
 });
 
 export const siteUnserveInputSchema = z.strictObject({
-  siteReference: resourceIDSchema.describe('Exact slug or siteID of the served site to take down, from site.list or an earlier serve result.'),
+  siteReference: resourceIDSchema.describe('Exact slug or siteID of the served site to take down, from site_list or an earlier serve result.'),
   reason: z.string().describe('Reason shown in the approval prompt.').optional(),
 });
 
@@ -809,10 +809,10 @@ type CapabilityToolDefinition = {
 
 const taskToolDefinitions: CapabilityToolDefinition[] = [
   {
-    name: 'task.add',
+    name: 'task_add',
     namespace: 'task',
     privacyClass: 'workspace_task',
-    policyResource: 'tool:task.add',
+    policyResource: 'tool:task_add',
     description: 'Create a new workspace task with typed task fields. Use this to add a todo or assignment for the requester or another team member. Do not use this to update an existing task — use task.update.',
     version: '3',
     estimatedLatency: CapabilityEstimatedLatency.Medium,
@@ -831,10 +831,10 @@ const taskToolDefinitions: CapabilityToolDefinition[] = [
     completionEvidence: { mode: 'success', action: 'write_task', targetKind: 'task' },
   },
   {
-    name: 'task.list',
+    name: 'task_list',
     namespace: 'task',
     privacyClass: 'workspace_task',
-    policyResource: 'tool:task.list',
+    policyResource: 'tool:task_list',
     description: "List workspace tasks with optional filters. Use this to answer 'what tasks does X have', 'what is on my plate', or 'show incomplete items this week'. The default scope is the requester; set scope to all for the whole workspace.",
     version: '2',
     estimatedLatency: CapabilityEstimatedLatency.Low,
@@ -843,11 +843,11 @@ const taskToolDefinitions: CapabilityToolDefinition[] = [
     sideEffect: CapabilitySideEffect.Read,
   },
   {
-    name: 'task.definitions',
+    name: 'task_definitions',
     namespace: 'task',
     privacyClass: 'workspace_task',
-    policyResource: 'tool:task.definitions',
-    description: 'List the values a task field accepts in this workspace: businesses, task types, sizes, and statuses. Call this before task.add or task.update when the business or type is not already known to be registered, and before importing records from another system, because a value outside these lists is rejected.',
+    policyResource: 'tool:task_definitions',
+    description: 'List the values a task field accepts in this workspace: businesses, task types, sizes, and statuses. Call this before task_add or task_update when the business or type is not already known to be registered, and before importing records from another system, because a value outside these lists is rejected.',
     version: '1',
     estimatedLatency: CapabilityEstimatedLatency.Low,
     inputSchema: taskDefinitionsInputSchema,
@@ -856,11 +856,11 @@ const taskToolDefinitions: CapabilityToolDefinition[] = [
     sideEffect: CapabilitySideEffect.Read,
   },
   {
-    name: 'task.update',
+    name: 'task_update',
     namespace: 'task',
     privacyClass: 'workspace_task',
-    policyResource: 'tool:task.update',
-    description: 'Update explicit fields on an existing task. taskHint is the exact task ID or exact task title from a task.list result, resolved server-side to the canonical task; use task.list first when neither is known. At least one mutable field is required.',
+    policyResource: 'tool:task_update',
+    description: 'Update explicit fields on an existing task. taskHint is the exact task ID or exact task title from a task_list result, resolved server-side to the canonical task; use task_list first when neither is known. At least one mutable field is required.',
     version: '3',
     estimatedLatency: CapabilityEstimatedLatency.Medium,
     inputSchema: taskUpdateInputSchema,
@@ -878,11 +878,11 @@ const taskToolDefinitions: CapabilityToolDefinition[] = [
     completionEvidence: { mode: 'success', action: 'write_task', targetKind: 'task' },
   },
   {
-    name: 'task.delete',
+    name: 'task_delete',
     namespace: 'task',
     privacyClass: 'workspace_task',
-    policyResource: 'tool:task.delete',
-    description: 'Permanently delete a task. taskHint is the exact task ID or exact task title from a task.list result, resolved server-side to the canonical task; use task.list first when neither is known. Requires approval; this action is irreversible.',
+    policyResource: 'tool:task_delete',
+    description: 'Permanently delete a task. taskHint is the exact task ID or exact task title from a task_list result, resolved server-side to the canonical task; use task_list first when neither is known. Requires approval; this action is irreversible.',
     version: '3',
     estimatedLatency: CapabilityEstimatedLatency.Medium,
     inputSchema: taskDeleteInputSchema,
@@ -907,8 +907,8 @@ const calendarToolDefinitions: CapabilityToolDefinition[] = [
     name: CalendarToolName.Add,
     namespace: 'calendar',
     privacyClass: 'workspace_calendar',
-    policyResource: 'tool:calendar.add',
-    description: 'Create a calendar event with a concrete time range. Resolve natural-language dates and times before calling. Use calendar.update for an existing event.',
+    policyResource: 'tool:calendar_add',
+    description: 'Create a calendar event with a concrete time range. Resolve natural-language dates and times before calling. Use calendar_update for an existing event.',
     version: '2',
     estimatedLatency: CapabilityEstimatedLatency.Medium,
     inputSchema: calendarAddInputSchema,
@@ -929,7 +929,7 @@ const calendarToolDefinitions: CapabilityToolDefinition[] = [
     name: CalendarToolName.List,
     namespace: 'calendar',
     privacyClass: 'workspace_calendar',
-    policyResource: 'tool:calendar.list',
+    policyResource: 'tool:calendar_list',
     description: 'List calendar events in a concrete time window, optionally filtered by title, description, or location. Resolve natural-language dates to startISO and endISO before calling.',
     version: '2',
     estimatedLatency: CapabilityEstimatedLatency.Low,
@@ -941,8 +941,8 @@ const calendarToolDefinitions: CapabilityToolDefinition[] = [
     name: CalendarToolName.Update,
     namespace: 'calendar',
     privacyClass: 'workspace_calendar',
-    policyResource: 'tool:calendar.update',
-    description: 'Update explicit fields on a calendar event. eventHint is the exact event ID or exact event title from a calendar.list result, resolved server-side to the canonical event; use calendar.list first when neither is known. At least one mutable field is required.',
+    policyResource: 'tool:calendar_update',
+    description: 'Update explicit fields on a calendar event. eventHint is the exact event ID or exact event title from a calendar_list result, resolved server-side to the canonical event; use calendar_list first when neither is known. At least one mutable field is required.',
     version: '3',
     estimatedLatency: CapabilityEstimatedLatency.Medium,
     inputSchema: calendarUpdateInputSchema,
@@ -963,8 +963,8 @@ const calendarToolDefinitions: CapabilityToolDefinition[] = [
     name: CalendarToolName.Delete,
     namespace: 'calendar',
     privacyClass: 'workspace_calendar',
-    policyResource: 'tool:calendar.delete',
-    description: 'Permanently delete a calendar event. eventHint is the exact event ID or exact event title from a calendar.list result, resolved server-side to the canonical event; use calendar.list first when neither is known. Requires approval; this action is irreversible.',
+    policyResource: 'tool:calendar_delete',
+    description: 'Permanently delete a calendar event. eventHint is the exact event ID or exact event title from a calendar_list result, resolved server-side to the canonical event; use calendar_list first when neither is known. Requires approval; this action is irreversible.',
     version: '2',
     estimatedLatency: CapabilityEstimatedLatency.Medium,
     inputSchema: calendarDeleteInputSchema,
@@ -989,7 +989,7 @@ const messageToolDefinitions: CapabilityToolDefinition[] = [
     name: MessageToolName.Context,
     namespace: 'message',
     privacyClass: 'platform_message',
-    policyResource: 'tool:message.context',
+    policyResource: 'tool:message_context',
     description: 'Return the exact current Mattermost conversation, thread, requester, and bot identities.',
     version: '2',
     estimatedLatency: CapabilityEstimatedLatency.Low,
@@ -1001,7 +1001,7 @@ const messageToolDefinitions: CapabilityToolDefinition[] = [
     name: MessageToolName.Search,
     namespace: 'message',
     privacyClass: 'platform_message',
-    policyResource: 'tool:message.search',
+    policyResource: 'tool:message_search',
     description: 'Search Mattermost messages in an exact conversation scope and return message IDs for later update or delete operations.',
     version: '2',
     estimatedLatency: CapabilityEstimatedLatency.Low,
@@ -1013,7 +1013,7 @@ const messageToolDefinitions: CapabilityToolDefinition[] = [
     name: MessageToolName.Send,
     namespace: 'message',
     privacyClass: 'platform_message',
-    policyResource: 'tool:message.send',
+    policyResource: 'tool:message_send',
     description: 'Send a Mattermost message to a direct message, channel, or the current conversation after approval.',
     version: '2',
     estimatedLatency: CapabilityEstimatedLatency.Medium,
@@ -1037,7 +1037,7 @@ const messageToolDefinitions: CapabilityToolDefinition[] = [
     name: MessageToolName.Update,
     namespace: 'message',
     privacyClass: 'platform_message',
-    policyResource: 'tool:message.update',
+    policyResource: 'tool:message_update',
     description: 'Update the text or pinned state of the exact Mattermost message ID after approval.',
     version: '2',
     estimatedLatency: CapabilityEstimatedLatency.Medium,
@@ -1060,8 +1060,8 @@ const messageToolDefinitions: CapabilityToolDefinition[] = [
     name: MessageToolName.Delete,
     namespace: 'message',
     privacyClass: 'platform_message',
-    policyResource: 'tool:message.delete',
-    description: 'Permanently delete exact Mattermost message IDs from message.search after approval. List only the exact messages the user asked to remove; when several search matches quote or mention the same text, pick the one message that is the target itself, never the whole match list.',
+    policyResource: 'tool:message_delete',
+    description: 'Permanently delete exact Mattermost message IDs from message_search after approval. List only the exact messages the user asked to remove; when several search matches quote or mention the same text, pick the one message that is the target itself, never the whole match list.',
     version: '2',
     estimatedLatency: CapabilityEstimatedLatency.Medium,
     inputSchema: messageDeleteInputSchema,
@@ -1086,7 +1086,7 @@ const channelToolDefinitions: CapabilityToolDefinition[] = [
     name: ChannelToolName.Update,
     namespace: 'channel',
     privacyClass: 'platform_message',
-    policyResource: 'tool:channel.update',
+    policyResource: 'tool:channel_update',
     description: 'Update an exact Mattermost channel display name, header, or membership after approval.',
     version: '2',
     estimatedLatency: CapabilityEstimatedLatency.Medium,
@@ -1112,7 +1112,7 @@ const siteToolDefinitions: CapabilityToolDefinition[] = [
     name: SiteToolName.Serve,
     namespace: 'site',
     privacyClass: 'workspace_site',
-    policyResource: 'tool:site.serve',
+    policyResource: 'tool:site_serve',
     description: 'Serve a site project directory you built in the workspace: preview mode returns a temporary review URL, publish mode deploys to the public URL. First serve allocates the slug from the title; pass siteReference to update an existing served site.',
     version: '3',
     estimatedLatency: CapabilityEstimatedLatency.High,
@@ -1144,7 +1144,7 @@ const siteToolDefinitions: CapabilityToolDefinition[] = [
     name: SiteToolName.List,
     namespace: 'site',
     privacyClass: 'workspace_site',
-    policyResource: 'tool:site.list',
+    policyResource: 'tool:site_list',
     description: 'List served sites with their exact siteID, slug, lifecycle status, and published URL. Pass siteReference to read one site.',
     version: '3',
     estimatedLatency: CapabilityEstimatedLatency.Low,
@@ -1156,7 +1156,7 @@ const siteToolDefinitions: CapabilityToolDefinition[] = [
     name: SiteToolName.Unserve,
     namespace: 'site',
     privacyClass: 'workspace_site',
-    policyResource: 'tool:site.unserve',
+    policyResource: 'tool:site_unserve',
     description: 'Take a served site down after explicit runtime approval: unpublishes it, frees its slug, and deletes the server-side record. Workspace source files are not touched.',
     version: '3',
     estimatedLatency: CapabilityEstimatedLatency.Medium,
@@ -1182,8 +1182,8 @@ const fileToolDefinitions: CapabilityToolDefinition[] = [
     name: DocumentToolName.Read,
     namespace: 'document',
     privacyClass: 'workspace_document',
-    policyResource: 'tool:document.read',
-    description: 'Read a workspace document from an exact /workspace path and return Markdown content. Use image.read for image files.',
+    policyResource: 'tool:document_read',
+    description: 'Read a workspace document from an exact /workspace path and return Markdown content. Use image_read for image files.',
     version: '1',
     estimatedLatency: CapabilityEstimatedLatency.High,
     inputSchema: documentReadInputSchema,
@@ -1194,8 +1194,8 @@ const fileToolDefinitions: CapabilityToolDefinition[] = [
     name: ImageToolName.Read,
     namespace: 'image',
     privacyClass: 'workspace_document',
-    policyResource: 'tool:image.read',
-    description: 'Read a workspace image from an exact /workspace path and return a base64 attachment. Use document.read for document files.',
+    policyResource: 'tool:image_read',
+    description: 'Read a workspace image from an exact /workspace path and return a base64 attachment. Use document_read for document files.',
     version: '1',
     estimatedLatency: CapabilityEstimatedLatency.Medium,
     inputSchema: imageReadInputSchema,
@@ -1209,7 +1209,7 @@ const browserToolDefinitions: CapabilityToolDefinition[] = [
     name: BrowserToolName.Open,
     namespace: 'browser',
     privacyClass: 'user_browser',
-    policyResource: 'tool:browser.open',
+    policyResource: 'tool:browser_open',
     description: 'Open an exact HTTP or HTTPS URL in the available browser and return the resulting page identity and initial structure.',
     version: '2',
     estimatedLatency: CapabilityEstimatedLatency.Interactive,
@@ -1223,7 +1223,7 @@ const browserToolDefinitions: CapabilityToolDefinition[] = [
     name: BrowserToolName.Snapshot,
     namespace: 'browser',
     privacyClass: 'user_browser',
-    policyResource: 'tool:browser.snapshot',
+    policyResource: 'tool:browser_snapshot',
     description: 'Read the current browser page structure and return stable interactive references for inspection and control.',
     version: '2',
     estimatedLatency: CapabilityEstimatedLatency.Interactive,
@@ -1235,7 +1235,7 @@ const browserToolDefinitions: CapabilityToolDefinition[] = [
     name: BrowserToolName.Screenshot,
     namespace: 'browser',
     privacyClass: 'user_browser',
-    policyResource: 'tool:browser.screenshot',
+    policyResource: 'tool:browser_screenshot',
     description: 'Capture the visible browser page and upload it to a temporary workspace-visible device path for visual review.',
     version: '2',
     estimatedLatency: CapabilityEstimatedLatency.Interactive,
@@ -1247,7 +1247,7 @@ const browserToolDefinitions: CapabilityToolDefinition[] = [
     name: BrowserToolName.Click,
     namespace: 'browser',
     privacyClass: 'user_browser',
-    policyResource: 'tool:browser.click',
+    policyResource: 'tool:browser_click',
     description: 'Click one exact target from the current browser snapshot and return the completed action.',
     version: '2',
     estimatedLatency: CapabilityEstimatedLatency.Interactive,
@@ -1263,7 +1263,7 @@ const artifactToolDefinitions: CapabilityToolDefinition[] = [
     name: ArtifactToolName.Review,
     namespace: 'artifact',
     privacyClass: 'workspace_document',
-    policyResource: 'tool:artifact.review',
+    policyResource: 'tool:artifact_review',
     description: 'Review rendered artifact screenshots against a concrete intent and rubric, returning typed visual issues and suggested fixes.',
     version: '2',
     estimatedLatency: CapabilityEstimatedLatency.High,
@@ -1282,7 +1282,7 @@ const webToolDefinitions: CapabilityToolDefinition[] = [
     name: WebToolName.Search,
     namespace: 'web',
     privacyClass: 'public_web',
-    policyResource: 'tool:web.search',
+    policyResource: 'tool:web_search',
     description: 'Search the public web and return ranked result snippets. Use this when you need current information, facts, or links that are not already in context. Do not use for workspace data, calendar, mail, or tasks — those have dedicated tools.',
     version: '1',
     estimatedLatency: CapabilityEstimatedLatency.Medium,

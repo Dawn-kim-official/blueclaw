@@ -11,14 +11,14 @@ func TestActiveFailureDebtKeepsDebtAfterInspectionToolWithoutRecoveryStep(t *tes
 		{
 			ObservationID: "obs-001",
 			Action:        "continue",
-			Tool:          "site.serve",
+			Tool:          "site_serve",
 			Failure:       &toolcontract.ToolFailure{Code: toolcontract.FailureCodes.OperationFailed.String()},
-			ToolInputKey:  "site.serve\x00{\"siteReference\":\"site-1\"}",
+			ToolInputKey:  "site_serve\x00{\"siteReference\":\"site-1\"}",
 		},
 		{
 			ObservationID: "obs-002",
 			Action:        "continue",
-			Tool:          "site.list",
+			Tool:          "site_list",
 			Output:        toolcontract.ToolOutput{Content: `{"siteID":"site-1","status":"failed","publishedURL":"https://portfolio.example"}`},
 		},
 	})
@@ -33,9 +33,9 @@ func TestActiveFailureDebtIgnoresMissingOptionalSiteControlFile(t *testing.T) {
 		{
 			ObservationID: "obs-001",
 			Action:        "continue",
-			Tool:          "file.read",
+			Tool:          "file_read",
 			Failure:       &toolcontract.ToolFailure{Code: toolcontract.FailureCodes.NotFound.String()},
-			ToolInputKey:  "file.read\x00{\"path\":\"home/sites/site-1/.internkim/artifact-brief.md\"}",
+			ToolInputKey:  "file_read\x00{\"path\":\"home/sites/site-1/.internkim/artifact-brief.md\"}",
 		},
 	})
 

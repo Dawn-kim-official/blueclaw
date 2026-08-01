@@ -11,7 +11,7 @@ func TestProtocolAgentActionFixtureMatchesTurnActionDocument(t *testing.T) {
 	if errorValue := json.Unmarshal(protocolAgentFixture(t, "agent-action"), &document); errorValue != nil {
 		t.Fatal(errorValue)
 	}
-	if document.Action != "continue" || document.ToolName != "file.read" {
+	if document.Action != "continue" || document.ToolName != "file_read" {
 		t.Fatalf("unexpected action fixture: %#v", document)
 	}
 	if len(document.ToolInput) == 0 || document.ExecutionStateUpdate.Goal == "" {

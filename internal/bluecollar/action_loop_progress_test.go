@@ -10,9 +10,9 @@ func repeatedTaskUpdateFailure(observationID string, taskInput string) turnObser
 	return turnObservation{
 		ObservationID: observationID,
 		Action:        "continue",
-		Tool:          "task.update",
+		Tool:          "task_update",
 		Failure:       &toolcontract.ToolFailure{Code: toolcontract.FailureCodes.OperationFailed.String(), Stage: "target_resolution"},
-		ToolInputKey:  "task.update\x00" + taskInput,
+		ToolInputKey:  "task_update\x00" + taskInput,
 	}
 }
 
@@ -52,7 +52,7 @@ func TestProgressEventsCapsFailureProgressWithoutSuccess(t *testing.T) {
 	}
 
 	withSuccess := append([]turnObservation{}, observations[:4]...)
-	withSuccess = append(withSuccess, turnObservation{ObservationID: "ok", Action: "continue", Tool: "file.write", Output: toolcontract.ToolOutput{Content: "wrote"}})
+	withSuccess = append(withSuccess, turnObservation{ObservationID: "ok", Action: "continue", Tool: "file_write", Output: toolcontract.ToolOutput{Content: "wrote"}})
 	withSuccess = append(withSuccess, observations[4:]...)
 	if got := countFailureProgress(progressEvents(withSuccess)); got != len(fingerprints) {
 		t.Fatalf("expected a success to reset the failure-progress cap, got %d", got)
@@ -92,13 +92,13 @@ func TestActionProgressTrackerResetsWhenProgressAppears(t *testing.T) {
 	progress := tracker.evaluate([]turnObservation{{
 		ObservationID: "obs-001",
 		Action:        "continue",
-		Tool:          "web.search",
+		Tool:          "web_search",
 		Output:        toolcontract.ToolOutput{Content: "ok"},
 	}})
 	afterProgress := tracker.evaluate([]turnObservation{{
 		ObservationID: "obs-001",
 		Action:        "continue",
-		Tool:          "web.search",
+		Tool:          "web_search",
 		Output:        toolcontract.ToolOutput{Content: "ok"},
 	}})
 
@@ -114,7 +114,7 @@ func TestInspectionToolSuccessDoesNotCountAsLoopProgress(t *testing.T) {
 	observations := []turnObservation{{
 		ObservationID: "obs-001",
 		Action:        "continue",
-		Tool:          "site.list",
+		Tool:          "site_list",
 		Output:        toolcontract.ToolOutput{Content: `{"workspaceHealth":"missing_source"}`},
 	}}
 

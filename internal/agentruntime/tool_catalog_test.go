@@ -299,18 +299,18 @@ func newTerminalToolTestCatalogBuilder(workspacePath string) *ToolCatalogBuilder
 
 func internalTestToolNames() []string {
 	return []string{
-		"conversation.history",
-		"document.read",
-		"file.deliver",
-		"file.edit",
-		"file.preview",
-		"file.read",
-		"file.write",
-		"image.read",
-		"skill.add",
-		"skill.remove",
-		"skill.search",
-		"terminal.run",
+		"conversation_history",
+		"document_read",
+		"file_deliver",
+		"file_edit",
+		"file_preview",
+		"file_read",
+		"file_write",
+		"image_read",
+		"skill_add",
+		"skill_remove",
+		"skill_search",
+		"terminal_run",
 	}
 }
 
@@ -352,7 +352,7 @@ func userSkillDocument(skillName string) string {
 	return `---
 name: ` + skillName + `
 description: Research source material and organize source lookups when the user asks for research help.
-tool-references: memory.search
+tool-references: memory_search
 ---
 Research helper handles source lookups.
 `

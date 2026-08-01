@@ -276,7 +276,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerHistoryTool(toolRegistry *
 	}
 	toolcontract.RegisterToolFunction(toolRegistry, toolcontract.ToolFunction[historyToolInput, toolcontract.ToolResult]{
 		Definition: toolcontract.ToolDefinition{
-			Name:        "conversation.history",
+			Name:        "conversation_history",
 			Description: "Fetch earlier visible messages for this conversation using the opaque history cursor.",
 			InputSchema: conversationHistoryInputSchema,
 		},

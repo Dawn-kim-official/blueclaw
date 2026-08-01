@@ -12,19 +12,19 @@ func TestOutcomeContractNeedsQualityCriteriaOnlyForArtifacts(t *testing.T) {
 		contract OutcomeContract
 		expected bool
 	}{
-		{name: "task CRUD", contract: OutcomeContract{RequiredEvidenceTools: []string{"task.add"}}},
+		{name: "task CRUD", contract: OutcomeContract{RequiredEvidenceTools: []string{"task_add"}}},
 		{name: "required artifact", contract: OutcomeContract{ArtifactRequirement: ArtifactRequirementRequired}, expected: true},
 		{name: "file result", contract: OutcomeContract{ExpectedResults: []ExpectedResult{{Type: ExpectedResultTypeFile}}}, expected: true},
 		{name: "link result", contract: OutcomeContract{ExpectedResults: []ExpectedResult{{Type: ExpectedResultTypeLink}}}, expected: true},
 		{name: "attachment", contract: OutcomeContract{RequiredAttachmentSuffixes: []string{".docx"}}, expected: true},
-		{name: "website", contract: OutcomeContract{RequiredEvidenceTools: []string{"site.serve"}}, expected: true},
+		{name: "website", contract: OutcomeContract{RequiredEvidenceTools: []string{"site_serve"}}, expected: true},
 	}
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
 			toolSet := newTestToolSetWithDefinitions([]toolcontract.ToolDefinition{
-				{Name: "task.add", Namespace: "task", SideEffectClass: toolcontract.ToolSideEffectWorkspaceWrite},
-				{Name: "site.serve", Namespace: "site", SideEffectClass: toolcontract.ToolSideEffectExternalPublish},
+				{Name: "task_add", Namespace: "task", SideEffectClass: toolcontract.ToolSideEffectWorkspaceWrite},
+				{Name: "site_serve", Namespace: "site", SideEffectClass: toolcontract.ToolSideEffectExternalPublish},
 			})
 			if actual := outcomeContractNeedsQualityCriteria(toolSet, testCase.contract); actual != testCase.expected {
 				t.Fatalf("expected %t, got %t", testCase.expected, actual)

@@ -83,7 +83,7 @@ func TestApplyPlanUpdateObservationIgnoresFailedAndForeignObservations(t *testin
 	state := &agentTaskState{}
 	failedObservation := planUpdateSuccessObservation("obs-001", `{"steps":[{"title":"x","status":"pending"}]}`)
 	failedObservation.Failure = &toolcontract.ToolFailure{Kind: toolcontract.FailureUnknown}
-	foreignObservation := successfulSideEffectObservation("obs-002", "task.add", `{}`, "created")
+	foreignObservation := successfulSideEffectObservation("obs-002", "task_add", `{}`, "created")
 
 	services.runner.applyPlanUpdateObservation("task-plan-3", state, failedObservation)
 	services.runner.applyPlanUpdateObservation("task-plan-3", state, foreignObservation)
@@ -100,8 +100,8 @@ func nudgeTestRequest(taskLevel TaskLevel) AgentTurnRequest {
 	return AgentTurnRequest{
 		TaskLevel: taskLevel,
 		ToolSet: newTestToolSetWithDefinitions([]toolcontract.ToolDefinition{
-			testToolDescriptor("task.add"),
-			testToolDescriptor("task.list"),
+			testToolDescriptor("task_add"),
+			testToolDescriptor("task_list"),
 			testToolDescriptor(toolcontract.PlanUpdateToolName),
 		}),
 	}
@@ -111,15 +111,15 @@ func TestNudgePlanFiresOnceForStateChangingToolWithoutPlan(t *testing.T) {
 	services := newTurnRunnerTestServices(&completionJudgeStubLanguageModel{}, TurnOptions{})
 	request := nudgeTestRequest(TaskLevelMedium)
 	state := &agentTaskState{}
-	actionDocument := turnActionDocument{Action: "continue", ToolName: "task.add", ToolInput: json.RawMessage(`{}`)}
+	actionDocument := turnActionDocument{Action: "continue", ToolName: "task_add", ToolInput: json.RawMessage(`{}`)}
 
 	services.runner.notePlanMissingBeforeStateChange("task-nudge-1", request, state, actionDocument)
 
 	if !state.DidNudgePlan {
 		t.Fatal("expected DidNudgePlan to be set")
 	}
-	if len(state.Observations) != 1 || !strings.Contains(state.Observations[0].ContentText(), "plan.update") {
-		t.Fatalf("expected a plan.update policy observation, got %+v", state.Observations)
+	if len(state.Observations) != 1 || !strings.Contains(state.Observations[0].ContentText(), "plan_update") {
+		t.Fatalf("expected a plan_update policy observation, got %+v", state.Observations)
 	}
 	if !hasTaskEvent(services, "task-nudge-1", "agent.plan.nudged") {
 		t.Fatal("expected agent.plan.nudged event")
@@ -134,7 +134,7 @@ func TestNudgePlanFiresOnceForStateChangingToolWithoutPlan(t *testing.T) {
 func TestNudgePlanDoesNotFireForReadTools(t *testing.T) {
 	services := newTurnRunnerTestServices(&completionJudgeStubLanguageModel{}, TurnOptions{})
 	state := &agentTaskState{}
-	actionDocument := turnActionDocument{Action: "continue", ToolName: "task.list", ToolInput: json.RawMessage(`{}`)}
+	actionDocument := turnActionDocument{Action: "continue", ToolName: "task_list", ToolInput: json.RawMessage(`{}`)}
 
 	services.runner.notePlanMissingBeforeStateChange("task-nudge-2", nudgeTestRequest(TaskLevelMedium), state, actionDocument)
 
@@ -145,7 +145,7 @@ func TestNudgePlanDoesNotFireForReadTools(t *testing.T) {
 
 func TestNudgePlanDoesNotFireBelowMediumLevel(t *testing.T) {
 	services := newTurnRunnerTestServices(&completionJudgeStubLanguageModel{}, TurnOptions{})
-	actionDocument := turnActionDocument{Action: "continue", ToolName: "task.add", ToolInput: json.RawMessage(`{}`)}
+	actionDocument := turnActionDocument{Action: "continue", ToolName: "task_add", ToolInput: json.RawMessage(`{}`)}
 	for _, taskLevel := range []TaskLevel{TaskLevelXLow, TaskLevelLow, ""} {
 		state := &agentTaskState{}
 		services.runner.notePlanMissingBeforeStateChange("task-nudge-3", nudgeTestRequest(taskLevel), state, actionDocument)
@@ -158,7 +158,7 @@ func TestNudgePlanDoesNotFireBelowMediumLevel(t *testing.T) {
 func TestNudgePlanDoesNotFireOnceStepsExist(t *testing.T) {
 	services := newTurnRunnerTestServices(&completionJudgeStubLanguageModel{}, TurnOptions{})
 	state := &agentTaskState{ExecutionState: ExecutionState{Steps: []PlanStep{{Title: "step", Status: "pending"}}}}
-	actionDocument := turnActionDocument{Action: "continue", ToolName: "task.add", ToolInput: json.RawMessage(`{}`)}
+	actionDocument := turnActionDocument{Action: "continue", ToolName: "task_add", ToolInput: json.RawMessage(`{}`)}
 
 	services.runner.notePlanMissingBeforeStateChange("task-nudge-4", nudgeTestRequest(TaskLevelHigh), state, actionDocument)
 
@@ -169,7 +169,7 @@ func TestNudgePlanDoesNotFireOnceStepsExist(t *testing.T) {
 
 func TestRunTurnMergesPlanUpdateObservationIntoExecutionState(t *testing.T) {
 	languageModel := &sequenceLanguageModel{modelTier: "low", contents: []string{
-		`{"action":"continue","toolName":"plan.update","toolInput":{"goal":"answer the question","steps":[{"title":"look up the fact","status":"in_progress"}]}}`,
+		`{"action":"continue","toolName":"plan_update","toolInput":{"goal":"answer the question","steps":[{"title":"look up the fact","status":"in_progress"}]}}`,
 		finishMessageDocument("done"),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 5})
@@ -208,13 +208,13 @@ func TestRunTurnMergesPlanUpdateObservationIntoExecutionState(t *testing.T) {
 
 func TestRunTurnExecutesTheStateChangingCallTheNudgeAnnotates(t *testing.T) {
 	languageModel := &sequenceLanguageModel{modelTier: "low", contents: []string{
-		`{"action":"continue","toolName":"task.add","toolInput":{}}`,
+		`{"action":"continue","toolName":"task_add","toolInput":{}}`,
 		finishMessageDocument("done"),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 5})
-	toolSet := newTestToolSet([]string{"task.add", toolcontract.PlanUpdateToolName})
+	toolSet := newTestToolSet([]string{"task_add", toolcontract.PlanUpdateToolName})
 	wasToolInvoked := false
-	registerTestTool(toolSet, testToolDescriptor("task.add"), func(_ context.Context, _ toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
+	registerTestTool(toolSet, testToolDescriptor("task_add"), func(_ context.Context, _ toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
 		wasToolInvoked = true
 		return toolcontract.ToolSuccessData(`{"taskID":"task-1"}`, json.RawMessage(`{"taskID":"task-1"}`)), nil
 	})
@@ -224,7 +224,7 @@ func TestRunTurnExecutesTheStateChangingCallTheNudgeAnnotates(t *testing.T) {
 		ConversationID:    "conversation-1",
 		Prompt:            "do it",
 		TaskLevel:         TaskLevelMedium,
-		PinnedToolNames:   []string{"task.add"},
+		PinnedToolNames:   []string{"task_add"},
 		ToolSet:           toolSet,
 	})
 	if errorValue != nil {
@@ -256,7 +256,7 @@ func TestCompletionJudgeMessagesIncludePlanChecklistHint(t *testing.T) {
 
 	messagesWithoutPlan := completionJudgeMessages(AgentTurnRequest{Prompt: "make a deck"}, nil, nil, turnActionDocument{})
 	if strings.Contains(joinedMessageContent(messagesWithoutPlan), "checklist hint") {
-		t.Fatal("expected no plan hint without a plan.update observation")
+		t.Fatal("expected no plan hint without a plan_update observation")
 	}
 }
 
@@ -265,11 +265,11 @@ func TestNudgePlanSkipsWhenPlanToolIsUnavailable(t *testing.T) {
 	request := AgentTurnRequest{
 		TaskLevel: TaskLevelMedium,
 		ToolSet: newTestToolSetWithDefinitions([]toolcontract.ToolDefinition{
-			testToolDescriptor("task.add"),
+			testToolDescriptor("task_add"),
 		}),
 	}
 	state := &agentTaskState{}
-	actionDocument := turnActionDocument{Action: "continue", ToolName: "task.add", ToolInput: json.RawMessage(`{}`)}
+	actionDocument := turnActionDocument{Action: "continue", ToolName: "task_add", ToolInput: json.RawMessage(`{}`)}
 
 	services.runner.notePlanMissingBeforeStateChange("task-nudge-2", request, state, actionDocument)
 

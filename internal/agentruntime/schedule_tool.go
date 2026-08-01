@@ -100,7 +100,7 @@ var (
 	errScheduleCancelIDsInvalid   = errors.New("scheduleIDs must be exact nonblank identifiers")
 	errScheduleKindInvalid        = errors.New("schedule kind is invalid")
 	errScheduleIDRequired         = errors.New("scheduleID must be an exact nonblank identifier")
-	errScheduleUpdateRequired     = errors.New("schedule.update requires at least one field to change")
+	errScheduleUpdateRequired     = errors.New("schedule_update requires at least one field to change")
 )
 
 func validateScheduleID(value string) error {
@@ -154,7 +154,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerScheduleTools(toolRegistry
 	if toolCatalogBuilder.taskScheduleRepository != nil && strings.TrimSpace(handlerContext.request.RequesterPersonID) != "" {
 		toolcontract.RegisterToolFunction(toolRegistry, toolcontract.ToolFunction[scheduleListToolInput, scheduleListToolOutput]{
 			Definition: toolcontract.ToolDefinition{
-				Name:        "schedule.list",
+				Name:        "schedule_list",
 				Description: "List active scheduled tasks created by the current requester. Use it to answer what reminders or recurring tasks are currently scheduled.",
 				InputSchema: scheduleListInputSchema,
 			},
@@ -167,7 +167,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerScheduleTools(toolRegistry
 	if !handlerContext.request.IsScheduledRun {
 		toolcontract.RegisterToolFunction(toolRegistry, toolcontract.ToolFunction[scheduleCreateToolInput, toolcontract.ToolResult]{
 			Definition: toolcontract.ToolDefinition{
-				Name:        "schedule.create",
+				Name:        "schedule_create",
 				Description: "Create a scheduled task for the current requester and reply target. Put only the work to perform at run time in taskInstruction. Do not copy the original scheduling request into taskInstruction. Cadence and stop conditions must be represented only by kind, runAt, intervalSecond, cronExpression, expiresAt, and maxRunCount. For interval or cron schedules, set repeatPolicy to finite when the user gave an end condition and include expiresAt or maxRunCount; set repeatPolicy to unbounded only when the user explicitly wants no end.",
 				InputSchema: scheduleCreateInputSchema,
 			},
@@ -178,7 +178,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerScheduleTools(toolRegistry
 		})
 		toolcontract.RegisterToolFunction(toolRegistry, toolcontract.ToolFunction[scheduleUpdateToolInput, toolcontract.ToolResult]{
 			Definition: toolcontract.ToolDefinition{
-				Name:        "schedule.update",
+				Name:        "schedule_update",
 				Description: "Update an active scheduled task created by the current requester. Provide scheduleID and only the scalar fields that should change. Keep only the work to perform at run time in taskInstruction; represent cadence and stop conditions only with kind, runAt, intervalSecond, cronExpression, expiresAt, maxRunCount, and repeatPolicy.",
 				InputSchema: scheduleUpdateInputSchema,
 			},
@@ -190,7 +190,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerScheduleTools(toolRegistry
 	}
 	toolcontract.RegisterToolFunction(toolRegistry, toolcontract.ToolFunction[scheduleCancelToolInput, toolcontract.ToolResult]{
 		Definition: toolcontract.ToolDefinition{
-			Name:        "schedule.cancel",
+			Name:        "schedule_cancel",
 			Description: "Cancel active scheduled tasks and pending approval or user-input waits. Use scope mine for schedules created by the current requester. Use scope currentConversation when the user wants messages or reminders delivered to this conversation to stop, even if another person created that delivery schedule. Use scope scheduleIDs for explicit schedule IDs visible from prior tool results. Cancellation expires records instead of deleting audit history.",
 			InputSchema: scheduleCancelInputSchema,
 		},
@@ -334,7 +334,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) cancelScheduledTaskRuns(cancelRequ
 	}
 	taskRunCancelRequest := task.TaskRunCancelRequest{
 		ScheduleOnly: true,
-		Reason:       "schedule.cancel",
+		Reason:       "schedule_cancel",
 	}
 	if cancelRequest.Scope == task.TaskScheduleCancelScopeMine {
 		taskRunCancelRequest.RequesterPersonID = strings.TrimSpace(cancelRequest.RequesterPersonID)
@@ -356,7 +356,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) cancelPendingWaits(cancelRequest t
 	if cancelRequest.Scope == task.TaskScheduleCancelScopeCurrentConversation {
 		originConversationID = cancelRequest.ConversationID
 	}
-	cancelledTaskRuns := toolCatalogBuilder.taskRunService.CancelWaitingTaskRuns(cancelRequest.RequesterPersonID, originConversationID, "schedule.cancel")
+	cancelledTaskRuns := toolCatalogBuilder.taskRunService.CancelWaitingTaskRuns(cancelRequest.RequesterPersonID, originConversationID, "schedule_cancel")
 	return len(cancelledTaskRuns)
 }
 

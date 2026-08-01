@@ -9,12 +9,12 @@
     },
     {
       "action": "continue",
-      "toolName": "file.read",
+      "toolName": "file_read",
       "toolInput": {
         "path": "home/project/README.md"
       },
       "requestTools": [
-        "file.read"
+        "file_read"
       ],
       "executionStateUpdate": {}
     }

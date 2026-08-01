@@ -8,7 +8,7 @@ import (
 
 // Regression guard for a device incident: a legitimate artifact task
 // ("rebuild the IR deck") was blocked with "required evidence must name a
-// registered native tool or capability operation" because file.read's
+// registered native tool or capability operation" because file_read's
 // Availability had been set to denied, which made IsAllowed report it as
 // hidden. Kernel tools are always model-callable; the permission boundary is
 // enforced at execution (POSIX/policy), never by hiding the tool from the

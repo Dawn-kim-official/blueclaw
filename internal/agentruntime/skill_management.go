@@ -103,7 +103,7 @@ var (
 func (toolCatalogBuilder *ToolCatalogBuilder) registerSkillManagementTools(toolRegistry *toolcontract.ToolSet) {
 	toolcontract.RegisterToolFunction(toolRegistry, toolcontract.ToolFunction[skillAddInput, toolcontract.ToolResult]{
 		Definition: toolcontract.ToolDefinition{
-			Name:        "skill.add",
+			Name:        "skill_add",
 			Description: "Create or update a user-managed SKILL.md under /workspace/.agents/skills/<name>.",
 			InputSchema: skillAddInputSchema,
 		},
@@ -112,7 +112,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerSkillManagementTools(toolR
 	})
 	toolcontract.RegisterToolFunction(toolRegistry, toolcontract.ToolFunction[skillRemoveInput, toolcontract.ToolResult]{
 		Definition: toolcontract.ToolDefinition{
-			Name:        "skill.remove",
+			Name:        "skill_remove",
 			Description: "Remove a user-managed skill under /workspace/.agents/skills/<name>.",
 			InputSchema: skillRemoveInputSchema,
 		},
@@ -127,7 +127,7 @@ type skillRemoveInput struct {
 
 func (toolCatalogBuilder *ToolCatalogBuilder) addSkillTool(toolContext context.Context, input skillAddInput) (toolcontract.ToolResult, error) {
 	if toolCatalogBuilder.isProductionServiceOwnedSkillWorkspace() {
-		return toolcontract.ToolFailureResult(toolcontract.FailurePermissionDenied, toolcontract.FailureCodes.AccessDenied, "actor_permission_denied", "skill.add cannot modify the service-owned skill workspace; use a requester-writable skill workspace"), nil
+		return toolcontract.ToolFailureResult(toolcontract.FailurePermissionDenied, toolcontract.FailureCodes.AccessDenied, "actor_permission_denied", "skill_add cannot modify the service-owned skill workspace; use a requester-writable skill workspace"), nil
 	}
 	skillName := strings.TrimSpace(input.Name)
 	if errorValue := validateUserManagedSkillName(skillName); errorValue != nil {
@@ -171,7 +171,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) addSkillTool(toolContext context.C
 
 func (toolCatalogBuilder *ToolCatalogBuilder) removeSkillTool(toolContext context.Context, input skillRemoveInput) (toolcontract.ToolResult, error) {
 	if toolCatalogBuilder.isProductionServiceOwnedSkillWorkspace() {
-		return toolcontract.ToolFailureResult(toolcontract.FailurePermissionDenied, toolcontract.FailureCodes.AccessDenied, "actor_permission_denied", "skill.remove cannot modify the service-owned skill workspace; use a requester-writable skill workspace"), nil
+		return toolcontract.ToolFailureResult(toolcontract.FailurePermissionDenied, toolcontract.FailureCodes.AccessDenied, "actor_permission_denied", "skill_remove cannot modify the service-owned skill workspace; use a requester-writable skill workspace"), nil
 	}
 	skillName := strings.TrimSpace(input.Name)
 	if errorValue := validateUserManagedSkillName(skillName); errorValue != nil {

@@ -79,14 +79,14 @@ type fileAttachFileInput struct {
 func (toolCatalogBuilder *ToolCatalogBuilder) registerFileTools(toolRegistry *toolcontract.ToolSet, handlerContext toolHandlerContext) {
 	toolcontract.RegisterToolFunction(toolRegistry, toolcontract.ToolFunction[fileWriteToolInput, toolcontract.ToolResult]{
 		Definition: toolcontract.ToolDefinition{
-			Name:        "file.write",
+			Name:        "file_write",
 			Description: "Overwrite one UTF-8 text file under the Blueclaw workspace. Treat content as the complete file body, like terminal redirection to a file: include the text exactly as it should appear in the file, with real line breaks for multiline source.",
 			RecoveryCard: toolcontract.ToolRecoveryCard{
 				Does:       "Overwrites one workspace text file with the exact content string.",
 				Produces:   "A written source, document, script, or config file at the requested path.",
 				SideEffect: "workspace_write",
 				UseWhen:    "A new file must be created, or an existing file is being replaced wholesale.",
-				AvoidWhen:  "An existing file only needs a targeted change — use file.edit to keep the rest of the work instead of rewriting the whole file; or you only need to inspect files, append shell output, or run commands. Do not pass escaped newline sequences when writing multiline source.",
+				AvoidWhen:  "An existing file only needs a targeted change — use file_edit to keep the rest of the work instead of rewriting the whole file; or you only need to inspect files, append shell output, or run commands. Do not pass escaped newline sequences when writing multiline source.",
 			},
 			InputSchema: json.RawMessage(`{"type":"object","properties":{"path":{"type":"string","description":"Workspace path to create or overwrite."},"content":{"type":"string","description":"Complete file body as plain UTF-8 text. Use real line breaks for multiline files; this is the text that will be written exactly."}},"required":["path","content"],"additionalProperties":false}`),
 		},
@@ -97,16 +97,16 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerFileTools(toolRegistry *to
 	})
 	toolcontract.RegisterToolFunction(toolRegistry, toolcontract.ToolFunction[fileReadToolInput, toolcontract.ToolResult]{
 		Definition: toolcontract.ToolDefinition{
-			Name:        "file.read",
-			Description: "Read exact UTF-8 workspace text or a real file line range with honest size and truncation metadata. Use file.preview first for attached HTML, PDF, DOCX, PPTX, XLSX, or other documents.",
+			Name:        "file_read",
+			Description: "Read exact UTF-8 workspace text or a real file line range with honest size and truncation metadata. Use file_preview first for attached HTML, PDF, DOCX, PPTX, XLSX, or other documents.",
 			RecoveryCard: toolcontract.ToolRecoveryCard{
 				Does:       "Reads a text file or requested line range from the actual workspace file; attachment materialID falls back to cached preview text.",
 				Produces:   "Text content plus path, line range, original size, returned size, line count if known, and truncation metadata.",
 				SideEffect: "read",
-				UseWhen:    "You need current file content before file.edit or file.write.",
+				UseWhen:    "You need current file content before file_edit or file.write.",
 				AvoidWhen:  "The file is binary, an attached document needing conversion, or you already have the exact current text needed for an edit.",
 			},
-			InputSchema: json.RawMessage(`{"type":"object","properties":{"path":{"type":"string","description":"Workspace text file path to read."},"fileHint":{"type":"string","description":"Exact fileHint from Current attachments or Previous attachments."},"materialID":{"type":"string","description":"Attachment materialID from Current attachments or Previous attachments. Use file.preview first; file.read returns cached preview text if no exact workspace file is available."},"startLine":{"type":"integer","description":"Optional 1-based first line to return. Avoid for minified or few-line files; use startByte instead."},"lineCount":{"type":"integer","description":"Optional number of lines to return from startLine."},"startByte":{"type":"integer","description":"Optional 0-based byte offset for byte-range reads. Use this for minified or single-line files; continue from the nextByte value of the previous read until isEndOfFile is true."}},"additionalProperties":false}`),
+			InputSchema: json.RawMessage(`{"type":"object","properties":{"path":{"type":"string","description":"Workspace text file path to read."},"fileHint":{"type":"string","description":"Exact fileHint from Current attachments or Previous attachments."},"materialID":{"type":"string","description":"Attachment materialID from Current attachments or Previous attachments. Use file_preview first; file_read returns cached preview text if no exact workspace file is available."},"startLine":{"type":"integer","description":"Optional 1-based first line to return. Avoid for minified or few-line files; use startByte instead."},"lineCount":{"type":"integer","description":"Optional number of lines to return from startLine."},"startByte":{"type":"integer","description":"Optional 0-based byte offset for byte-range reads. Use this for minified or single-line files; continue from the nextByte value of the previous read until isEndOfFile is true."}},"additionalProperties":false}`),
 		},
 		Handler: func(toolContext context.Context, input fileReadToolInput) (toolcontract.ToolResult, error) {
 			return toolCatalogBuilder.readFileTool(toolContext, input, handlerContext)
@@ -115,14 +115,14 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerFileTools(toolRegistry *to
 	})
 	toolcontract.RegisterToolFunction(toolRegistry, toolcontract.ToolFunction[filePreviewToolInput, toolcontract.ToolResult]{
 		Definition: toolcontract.ToolDefinition{
-			Name:        "file.preview",
-			Description: "Preview an attached or workspace file path from the conversation attachment catalog using cached AgentPart markdownPreview when available, or the existing document.read MarkItDown provider for convertible documents.",
+			Name:        "file_preview",
+			Description: "Preview an attached or workspace file path from the conversation attachment catalog using cached AgentPart markdownPreview when available, or the existing document_read MarkItDown provider for convertible documents.",
 			RecoveryCard: toolcontract.ToolRecoveryCard{
 				Does:       "Returns a document preview or file metadata without inventing content.",
 				Produces:   "Path, filename, content type, size, markdown preview, conversion status, and conversion message.",
 				SideEffect: "read",
 				UseWhen:    "The attachment catalog lists a materialID or path for an HTML, PDF, DOCX, PPTX, XLSX, text, or data file and you need to understand it.",
-				AvoidWhen:  "You need exact source lines for an edit; use file.read after previewing.",
+				AvoidWhen:  "You need exact source lines for an edit; use file_read after previewing.",
 			},
 			InputSchema: json.RawMessage(`{"type":"object","properties":{"path":{"type":"string","description":"Workspace file path to preview. Use this when the attachment catalog has a readable path."},"fileHint":{"type":"string","description":"Exact fileHint from Current attachments or Previous attachments."},"materialID":{"type":"string","description":"Attachment materialID from Current attachments or Previous attachments. Use this when the catalog lists a materialID, especially if no readable path is available."}},"additionalProperties":false}`),
 		},
@@ -133,14 +133,14 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerFileTools(toolRegistry *to
 	})
 	toolcontract.RegisterToolFunction(toolRegistry, toolcontract.ToolFunction[filePatchToolInput, toolcontract.ToolResult]{
 		Definition: toolcontract.ToolDefinition{
-			Name:        "file.edit",
+			Name:        "file_edit",
 			Description: "Apply one or more exact text replacements to workspace files as one atomic edit. Each oldText must appear exactly once where it is applied. This is the tool for every targeted change to an existing file: pass a single edit for one change, or group related changes into one call. Read the file first so each oldText matches exactly.",
 			RecoveryCard: toolcontract.ToolRecoveryCard{
 				Does:       "Replaces exact oldText occurrences with newText across one or more workspace text files, all-or-nothing.",
 				Produces:   "Modified source, document, script, or config files with match metadata.",
 				SideEffect: "workspace_write",
 				UseWhen:    "An existing file needs one or more targeted changes and the current oldText snippets are known.",
-				AvoidWhen:  "The change creates a new file or replaces most of a file (use file.write), or oldText is missing or ambiguous (use file.read first).",
+				AvoidWhen:  "The change creates a new file or replaces most of a file (use file_write), or oldText is missing or ambiguous (use file_read first).",
 			},
 			InputSchema: json.RawMessage(`{"type":"object","properties":{"edits":{"type":"array","items":{"type":"object","properties":{"path":{"type":"string","description":"Workspace text file path to modify."},"oldText":{"type":"string","description":"Exact existing text to replace; must appear exactly once when this edit is applied."},"newText":{"type":"string","description":"Replacement text."}},"required":["path","oldText","newText"],"additionalProperties":false}}},"required":["edits"],"additionalProperties":false}`),
 		},
@@ -151,17 +151,17 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerFileTools(toolRegistry *to
 	})
 	toolcontract.RegisterToolFunction(toolRegistry, toolcontract.ToolFunction[fileDeleteToolInput, toolcontract.ToolResult]{
 		Definition: toolcontract.ToolDefinition{
-			Name:             "file.delete",
+			Name:             "file_delete",
 			RequiresApproval: true,
-			Description:      "Delete one file from the Blueclaw workspace by its path. Use the same path form as file.write and file.read, for example ~/documents/notes.docx or ~/documents/report.pdf. The runtime pauses for the user's approval before the file is removed, so find the file yourself and call this directly — do not ask the user which file.",
+			Description:      "Delete one file from the Blueclaw workspace by its path. Use the same path form as file_write and file_read, for example ~/documents/notes.docx or ~/documents/report.pdf. The runtime pauses for the user's approval before the file is removed, so find the file yourself and call this directly — do not ask the user which file.",
 			RecoveryCard: toolcontract.ToolRecoveryCard{
 				Does:       "Removes one workspace file at the requested path.",
 				Produces:   "Confirmation that the file no longer exists.",
 				SideEffect: "workspace_write",
 				UseWhen:    "A workspace file the requester created or owns should be removed; resolve the path with the same form used to write it.",
-				AvoidWhen:  "You only need to overwrite a file (use file.write), the path is a directory, or it is a built-in resource.",
+				AvoidWhen:  "You only need to overwrite a file (use file_write), the path is a directory, or it is a built-in resource.",
 			},
-			InputSchema: json.RawMessage(`{"type":"object","properties":{"path":{"type":"string","description":"Workspace file path to delete, in the same form as file.write (for example tmp/notes.txt)."}},"required":["path"],"additionalProperties":false}`),
+			InputSchema: json.RawMessage(`{"type":"object","properties":{"path":{"type":"string","description":"Workspace file path to delete, in the same form as file_write (for example tmp/notes.txt)."}},"required":["path"],"additionalProperties":false}`),
 		},
 		Handler: func(toolContext context.Context, input fileDeleteToolInput) (toolcontract.ToolResult, error) {
 			return toolCatalogBuilder.deleteFileTool(toolContext, input, handlerContext)
@@ -312,14 +312,14 @@ func (toolCatalogBuilder *ToolCatalogBuilder) readFileTool(toolContext context.C
 		return toolcontract.ToolFailureResult(toolcontract.FailureExternalService, toolcontract.FailureCodes.OperationFailed, "file_read", "file size probe returned unreadable output"), nil
 	}
 	if originalSizeBytes > int64(readMaximumBytes) {
-		return toolcontract.ToolFailureResult(toolcontract.FailureInvalidInput, toolcontract.FailureCodes.InvalidInput, "file_read", "file is too large for exact text read; use file.preview for document or attachment understanding"), nil
+		return toolcontract.ToolFailureResult(toolcontract.FailureInvalidInput, toolcontract.FailureCodes.InvalidInput, "file_read", "file is too large for exact text read; use file_preview for document or attachment understanding"), nil
 	}
 	isFileTruncated := len(content) > readMaximumBytes
 	if isFileTruncated {
 		content = content[:readMaximumBytes]
 	}
 	if !utf8.ValidString(content) || strings.IndexByte(content, 0) >= 0 {
-		return toolcontract.ToolFailureResult(toolcontract.FailureInvalidInput, toolcontract.FailureCodes.InvalidInput, "file_read", "file.read supports UTF-8 text files; use file.preview or a specialized document tool for binary files"), nil
+		return toolcontract.ToolFailureResult(toolcontract.FailureInvalidInput, toolcontract.FailureCodes.InvalidInput, "file_read", "file_read supports UTF-8 text files; use file_preview or a specialized document tool for binary files"), nil
 	}
 	readResult := fileReadResult(content, input, maxOutputBytes)
 	return fileToolSuccess(fileReadResultMap(map[string]any{
@@ -460,7 +460,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) fileReadFallbackFromAttachmentMate
 		return attachmentResolutionFailure("file_read", errorValue), nil, true
 	}
 	if attachmentMaterialLooksLikeImage(resolvedMaterial) {
-		return toolcontract.ToolFailureResult(toolcontract.FailureInvalidInput, toolcontract.FailureCodes.InvalidInput, "file_read", "attachment material is an image; use image.read"), nil, true
+		return toolcontract.ToolFailureResult(toolcontract.FailureInvalidInput, toolcontract.FailureCodes.InvalidInput, "file_read", "attachment material is an image; use image_read"), nil, true
 	}
 	if preview, hasPreview := filePreviewResultFromVisibleMaterial(resolvedMaterial); hasPreview {
 		return cachedFileReadResultFromPreview(preview, input), nil, true
@@ -662,7 +662,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) previewFileTool(toolContext contex
 	}
 	contentType := previewContentType(previewPath)
 	if strings.HasPrefix(contentType, "image/") {
-		return fileToolSuccess(filePreviewResult(previewPath, contentType, sizeBytes, "", "image", "use the image input part or image.read for visual inspection")), nil
+		return fileToolSuccess(filePreviewResult(previewPath, contentType, sizeBytes, "", "image", "use the image input part or image_read for visual inspection")), nil
 	}
 	if toolCatalogBuilder.capabilityClient.HTTPClient != nil {
 		bridgePath := toolCatalogBuilder.capabilityBridgePath(handlerContext.request, previewPath)
@@ -682,7 +682,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) filePreviewResolvedMaterial(toolCo
 		return attachmentResolutionFailure("file_preview", errorValue), true
 	}
 	if attachmentMaterialLooksLikeImage(material) {
-		return toolcontract.ToolFailureResult(toolcontract.FailureInvalidInput, toolcontract.FailureCodes.InvalidInput, "file_preview", "attachment material is an image; use image.read"), true
+		return toolcontract.ToolFailureResult(toolcontract.FailureInvalidInput, toolcontract.FailureCodes.InvalidInput, "file_preview", "attachment material is an image; use image_read"), true
 	}
 	if result, hasPreview := filePreviewResultFromVisibleMaterial(material); hasPreview {
 		return fileToolSuccess(result), true
@@ -716,7 +716,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) filePreviewFallbackPath(toolContex
 		return "", &result, true
 	}
 	if attachmentMaterialLooksLikeImage(resolvedMaterial) {
-		result := toolcontract.ToolFailureResult(toolcontract.FailureInvalidInput, toolcontract.FailureCodes.InvalidInput, "file_preview", "attachment material is an image; use image.read")
+		result := toolcontract.ToolFailureResult(toolcontract.FailureInvalidInput, toolcontract.FailureCodes.InvalidInput, "file_preview", "attachment material is an image; use image_read")
 		return "", &result, true
 	}
 	if previewResult, hasPreview := filePreviewResultFromVisibleMaterial(resolvedMaterial); hasPreview {
@@ -813,7 +813,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) filePreviewPath(toolContext contex
 		return "", &result
 	}
 	if attachmentMaterialLooksLikeImage(material) {
-		result := toolcontract.ToolFailureResult(toolcontract.FailureInvalidInput, toolcontract.FailureCodes.InvalidInput, "file_preview", "attachment material is an image; use image.read")
+		result := toolcontract.ToolFailureResult(toolcontract.FailureInvalidInput, toolcontract.FailureCodes.InvalidInput, "file_preview", "attachment material is an image; use image_read")
 		return "", &result
 	}
 	return toolCatalogBuilder.resolveAgentWorkspacePath(material.Path), nil
@@ -896,11 +896,11 @@ func (toolCatalogBuilder *ToolCatalogBuilder) convertFilePreviewWithCapability(t
 		Result       json.RawMessage `json:"result"`
 	}
 	input := toolcontract.MarshalToolInput(map[string]any{"path": bridgePath, "maxOutputBytes": maximumFilePreviewBytes})
-	requestDocument, errorValue := toolCatalogBuilder.capabilityRequestForOperation(toolContext, "document.read", request, input)
+	requestDocument, errorValue := toolCatalogBuilder.capabilityRequestForOperation(toolContext, "document_read", request, input)
 	if errorValue != nil {
 		return toolcontract.ToolResult{}, false
 	}
-	errorValue = toolCatalogBuilder.capabilityClient.PostJSON(toolContext, "/v1/tools/document.read/invoke", requestDocument, &response)
+	errorValue = toolCatalogBuilder.capabilityClient.PostJSON(toolContext, "/v1/tools/document_read/invoke", requestDocument, &response)
 	if errorValue != nil || response.IsError || response.Status == "error" || response.Status == "denied" {
 		return toolcontract.ToolResult{}, false
 	}
@@ -1246,7 +1246,7 @@ func fileEditMatchFailureGuidance(content string, oldText string, matchCount int
 	if similar := closestFileLines(content, oldText); similar != "" {
 		return "oldText was not found, even after allowing whitespace and quote differences. The closest current lines in the file are:\n" + similar + "\nCopy the exact text shown above into oldText and retry file.edit. Do not rewrite the whole file — that discards the rest of the work."
 	}
-	return "oldText was not found, even after allowing whitespace and quote differences. Read the file with file.read to copy the exact current text, then retry file.edit. Do not rewrite the whole file."
+	return "oldText was not found, even after allowing whitespace and quote differences. Read the file with file_read to copy the exact current text, then retry file.edit. Do not rewrite the whole file."
 }
 
 func closestFileLines(content string, oldText string) string {
@@ -1341,7 +1341,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) loadEditableFile(toolContext conte
 		return &result
 	}
 	if !utf8.ValidString(content) || strings.IndexByte(content, 0) >= 0 {
-		result := toolcontract.ToolFailureResult(toolcontract.FailureInvalidInput, toolcontract.FailureCodes.InvalidInput, "file_edit", "file.edit supports UTF-8 text files; use a specialized document or artifact tool for binary files")
+		result := toolcontract.ToolFailureResult(toolcontract.FailureInvalidInput, toolcontract.FailureCodes.InvalidInput, "file_edit", "file_edit supports UTF-8 text files; use a specialized document or artifact tool for binary files")
 		return &result
 	}
 	patchState.originalContents[path] = content
@@ -1381,8 +1381,8 @@ func fileExactEditFailure(stage string, path string, editIndex int, matchCount i
 	result.Failure.RetryPolicy = "different_input"
 	result.Failure.RecoveryHints = []toolcontract.RecoveryHint{{
 		Action:    "inspect_then_targeted_edit",
-		ToolNames: []string{"file.read", "file.edit"},
-		Reason:    "The oldText no longer matches the file on disk. Read the current file with file.read, copy the exact snippet, then retry a targeted file.edit. Do not rewrite the whole file — a targeted edit keeps the rest of the work and is far cheaper.",
+		ToolNames: []string{"file_read", "file_edit"},
+		Reason:    "The oldText no longer matches the file on disk. Read the current file with file_read, copy the exact snippet, then retry a targeted file.edit. Do not rewrite the whole file — a targeted edit keeps the rest of the work and is far cheaper.",
 	}}
 	return result
 }
@@ -1576,7 +1576,7 @@ func attachmentFilename(input fileAttachFileInput, resolvedPath string) string {
 }
 
 func attachmentResolutionFailure(stage string, errorValue error) toolcontract.ToolResult {
-	summary := strings.TrimSpace(errorValue.Error()) + ". This attachment reference is not openable in the current conversation. If it is a file you created or saved earlier, it persists as a workspace file: find it by name (for example `ls ~/documents`) and open that workspace path with file.read or file.preview, or edit it with your document skill's script. Only if no such workspace file exists, summarize from the conversation or tell the user it could not be opened."
+	summary := strings.TrimSpace(errorValue.Error()) + ". This attachment reference is not openable in the current conversation. If it is a file you created or saved earlier, it persists as a workspace file: find it by name (for example `ls ~/documents`) and open that workspace path with file_read or file_preview, or edit it with your document skill's script. Only if no such workspace file exists, summarize from the conversation or tell the user it could not be opened."
 	return toolcontract.ToolFailureResult(toolcontract.FailureInvalidInput, toolcontract.FailureCodes.InvalidInput, stage, summary)
 }
 
@@ -1597,13 +1597,13 @@ func resolveReadableAttachmentMaterial(toolContext context.Context, request Tool
 func validateAttachmentMaterialTool(toolName string, material bluecollar.VisibleContextMaterial) error {
 	contentType := strings.ToLower(strings.TrimSpace(material.ContentType))
 	switch strings.TrimSpace(toolName) {
-	case "image.read":
+	case "image_read":
 		if contentType != "" && !strings.HasPrefix(contentType, "image/") {
-			return errors.New("attachment material is not an image; use document.read")
+			return errors.New("attachment material is not an image; use document_read")
 		}
-	case "document.read":
+	case "document_read":
 		if strings.HasPrefix(contentType, "image/") {
-			return errors.New("attachment material is an image; use image.read")
+			return errors.New("attachment material is an image; use image_read")
 		}
 	}
 	return nil

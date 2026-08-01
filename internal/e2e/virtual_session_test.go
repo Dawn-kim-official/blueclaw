@@ -41,12 +41,12 @@ func (virtualStructuredOutputCorrectionTestError) StructuredOutputCorrection() (
 
 func TestDefaultToolPaletteUsesCanonicalNames(t *testing.T) {
 	toolNames := allowedToolsOrDefault(nil)
-	for _, toolName := range []string{"terminal.run", "ask.input", "file.deliver"} {
+	for _, toolName := range []string{"terminal_run", "ask_input", "file_deliver"} {
 		if !slices.Contains(toolNames, toolName) {
 			t.Fatalf("expected canonical tool %s, got %+v", toolName, toolNames)
 		}
 	}
-	for _, toolName := range []string{"terminal.session", "browser_handoff.openURL", "ask.choice", "file.promote", "file.attach", "task.history", "db.sql"} {
+	for _, toolName := range []string{"terminal.session", "browser_handoff.openURL", "ask_choice", "file.promote", "file.attach", "task.history", "db.sql"} {
 		if slices.Contains(toolNames, toolName) {
 			t.Fatalf("expected dead tool %s to be absent, got %+v", toolName, toolNames)
 		}
@@ -56,7 +56,7 @@ func TestDefaultToolPaletteUsesCanonicalNames(t *testing.T) {
 func TestExpectedEventCountRejectsRepeatedReadResults(t *testing.T) {
 	virtualTurn := VirtualTurn{
 		ExpectedEventCounts: []VirtualEventCount{{
-			Name:         "tool.task.list.result",
+			Name:         "tool.task_list.result",
 			BodyFragment: "customer task",
 			Count:        1,
 		}},
@@ -64,8 +64,8 @@ func TestExpectedEventCountRejectsRepeatedReadResults(t *testing.T) {
 	turnResult := VirtualTurnResult{
 		FinishMessage: "found",
 		Events: []task.TaskEvent{
-			{Name: "tool.task.list.result", Body: `{"title":"customer task"}`},
-			{Name: "tool.task.list.result", Body: `{"title":"customer task"}`},
+			{Name: "tool.task_list.result", Body: `{"title":"customer task"}`},
+			{Name: "tool.task_list.result", Body: `{"title":"customer task"}`},
 		},
 	}
 	errorValue := assertTurnResult(t.TempDir(), virtualTurn, turnResult)
@@ -495,14 +495,14 @@ func TestFailedAssertionReturnsObservedTurnResult(t *testing.T) {
 
 func TestVirtualTaskCapabilityPreservesLifecycleState(t *testing.T) {
 	service := virtualCapabilityService{}
-	addResponse := service.response("task.add", []byte(`{"input":{"title":"비용 테스트 회귀 확인","goal":"회귀 방지","targetPersonHint":"예시","participantPersonHints":["샘플"]},"context":{}}`))
-	discoveryResponse := service.response("task.list", []byte(`{"input":{"query":"비용 테스트 회귀 확인"},"context":{}}`))
+	addResponse := service.response("task_add", []byte(`{"input":{"title":"비용 테스트 회귀 확인","goal":"회귀 방지","targetPersonHint":"예시","participantPersonHints":["샘플"]},"context":{}}`))
+	discoveryResponse := service.response("task_list", []byte(`{"input":{"query":"비용 테스트 회귀 확인"},"context":{}}`))
 	taskID := virtualTaskID(t, discoveryResponse)
-	updateResponse := service.response("task.update", []byte(fmt.Sprintf(`{"input":{"taskHint":%q,"title":"비용 테스트 회귀 확인 완료 준비"},"context":{}}`, taskID)))
-	listResponse := service.response("task.list", []byte(`{"input":{},"context":{}}`))
-	approvalResponse := service.response("task.delete", []byte(fmt.Sprintf(`{"input":{"taskHint":%q},"context":{}}`, taskID)))
-	deleteResponse := service.response("task.delete", []byte(fmt.Sprintf(`{"input":{"taskHint":%q},"context":{"isApprovalContinuation":true}}`, taskID)))
-	emptyListResponse := service.response("task.list", []byte(`{"input":{},"context":{}}`))
+	updateResponse := service.response("task_update", []byte(fmt.Sprintf(`{"input":{"taskHint":%q,"title":"비용 테스트 회귀 확인 완료 준비"},"context":{}}`, taskID)))
+	listResponse := service.response("task_list", []byte(`{"input":{},"context":{}}`))
+	approvalResponse := service.response("task_delete", []byte(fmt.Sprintf(`{"input":{"taskHint":%q},"context":{}}`, taskID)))
+	deleteResponse := service.response("task_delete", []byte(fmt.Sprintf(`{"input":{"taskHint":%q},"context":{"isApprovalContinuation":true}}`, taskID)))
+	emptyListResponse := service.response("task_list", []byte(`{"input":{},"context":{}}`))
 
 	var addDocument struct {
 		Result  map[string]any                `json:"result"`
@@ -518,16 +518,16 @@ func TestVirtualTaskCapabilityPreservesLifecycleState(t *testing.T) {
 		t.Fatalf("expected canonical created task result, got %s", addResponse)
 	}
 	if _, isFound := addDocument.Result["targetPersonHint"]; isFound {
-		t.Fatalf("task.add result must not expose input-only targetPersonHint: %s", addResponse)
+		t.Fatalf("task_add result must not expose input-only targetPersonHint: %s", addResponse)
 	}
 	if _, isFound := addDocument.Result["participantPersonHints"]; isFound {
-		t.Fatalf("task.add result must not expose input-only participantPersonHints: %s", addResponse)
+		t.Fatalf("task_add result must not expose input-only participantPersonHints: %s", addResponse)
 	}
 	if participantNames := stringSliceValue(addDocument.Result["participantNames"]); !slices.Equal(participantNames, []string{"샘플"}) {
 		t.Fatalf("expected canonical participant names, got %s", addResponse)
 	}
 	if len(addDocument.Effects) != 1 || addDocument.Effects[0] != (toolcontract.ResourceEffect{ObjectType: "task", Effect: "created", ID: "task-1"}) {
-		t.Fatalf("expected canonical task.add effect, got %s", addResponse)
+		t.Fatalf("expected canonical task_add effect, got %s", addResponse)
 	}
 	if !strings.Contains(updateResponse, `"content":"비용 테스트 회귀 확인 완료 준비"`) {
 		t.Fatalf("expected updated title, got %s", updateResponse)
@@ -568,11 +568,11 @@ func virtualTaskID(t *testing.T, response string) string {
 
 func TestVirtualTaskMutationRejectsUnknownTaskID(t *testing.T) {
 	service := virtualCapabilityService{}
-	service.response("task.add", []byte(`{"input":{"title":"비용 테스트 회귀 확인"},"context":{}}`))
+	service.response("task_add", []byte(`{"input":{"title":"비용 테스트 회귀 확인"},"context":{}}`))
 
 	for _, response := range []string{
-		service.response("task.update", []byte(`{"input":{"taskHint":"task-missing","title":"변경됨"},"context":{}}`)),
-		service.response("task.delete", []byte(`{"input":{"taskHint":"task-missing"},"context":{"isApprovalContinuation":true}}`)),
+		service.response("task_update", []byte(`{"input":{"taskHint":"task-missing","title":"변경됨"},"context":{}}`)),
+		service.response("task_delete", []byte(`{"input":{"taskHint":"task-missing"},"context":{"isApprovalContinuation":true}}`)),
 	} {
 		if !strings.Contains(response, `"errorCode":"not_found"`) {
 			t.Fatalf("expected mutation without a resolvable taskHint to fail, got %s", response)
@@ -617,18 +617,18 @@ func TestVirtualSiteServeRequiresValidSourceBundle(t *testing.T) {
 	service := virtualCapabilityService{workspacePath: t.TempDir()}
 	input := `{"title":"Local Fleet Studio","sourceWorkspacePath":"~/sites/demo","mode":"publish"}`
 
-	withoutBundle := service.response("site.serve", []byte(`{"input":`+input+`}`))
+	withoutBundle := service.response("site_serve", []byte(`{"input":`+input+`}`))
 	if !strings.Contains(withoutBundle, `"status":"error"`) || service.sitePublished {
 		t.Fatalf("expected serve without a source bundle to fail closed, got %s", withoutBundle)
 	}
 
 	tamperedBundle := []byte(strings.Replace(string(virtualServeRequestBody(input)), `"sha256":"`, `"sha256":"0000`, 1))
-	tampered := service.response("site.serve", tamperedBundle)
+	tampered := service.response("site_serve", tamperedBundle)
 	if !strings.Contains(tampered, `"status":"error"`) || service.sitePublished {
 		t.Fatalf("expected serve with a tampered bundle hash to fail closed, got %s", tampered)
 	}
 
-	response := service.response("site.serve", virtualServeRequestBody(input))
+	response := service.response("site_serve", virtualServeRequestBody(input))
 	if !strings.Contains(response, `"status":"published"`) ||
 		!strings.Contains(response, `"slug":"local-fleet-studio"`) ||
 		!strings.Contains(response, `"mode":"publish"`) ||
@@ -643,7 +643,7 @@ func TestVirtualSiteServeRequiresValidSourceBundle(t *testing.T) {
 	}
 
 	previewInput := `{"title":"Local Fleet Studio","sourceWorkspacePath":"~/sites/demo","mode":"preview","siteReference":"local-fleet-studio"}`
-	previewResponse := service.response("site.serve", virtualServeRequestBody(previewInput))
+	previewResponse := service.response("site_serve", virtualServeRequestBody(previewInput))
 	if !strings.Contains(previewResponse, `"status":"previewed"`) ||
 		!strings.Contains(previewResponse, `"previewURL":"https://local-fleet-studio.device.example.test/__preview/preview-1"`) ||
 		!strings.Contains(previewResponse, `"effect":"previewed"`) {
@@ -654,9 +654,9 @@ func TestVirtualSiteServeRequiresValidSourceBundle(t *testing.T) {
 func TestVirtualSiteOperationsNeverCreateMissingSites(t *testing.T) {
 	service := virtualCapabilityService{workspacePath: t.TempDir()}
 	requests := map[string][]byte{
-		"site.serve":   virtualServeRequestBody(`{"title":"Ghost","sourceWorkspacePath":"~/sites/demo","mode":"publish","siteReference":"missing-site"}`),
-		"site.list":    []byte(`{"input":{"siteReference":"missing-site"}}`),
-		"site.unserve": []byte(`{"input":{"siteReference":"missing-site"},"context":{"isApprovalContinuation":true}}`),
+		"site_serve":   virtualServeRequestBody(`{"title":"Ghost","sourceWorkspacePath":"~/sites/demo","mode":"publish","siteReference":"missing-site"}`),
+		"site_list":    []byte(`{"input":{"siteReference":"missing-site"}}`),
+		"site_unserve": []byte(`{"input":{"siteReference":"missing-site"},"context":{"isApprovalContinuation":true}}`),
 	}
 
 	for toolName, requestBody := range requests {
@@ -683,12 +683,12 @@ func TestVirtualSiteFixtureUsesExactIdentity(t *testing.T) {
 	}
 
 	for _, siteReference := range []string{"site-1", "demo"} {
-		response := service.response("site.list", []byte(`{"input":{"siteReference":"`+siteReference+`"}}`))
+		response := service.response("site_list", []byte(`{"input":{"siteReference":"`+siteReference+`"}}`))
 		if !strings.Contains(response, `"siteID":"site-1"`) || !strings.Contains(response, `"status":"published"`) {
 			t.Fatalf("expected fixture lookup by %s, got %s", siteReference, response)
 		}
 	}
-	response := service.response("site.serve", virtualServeRequestBody(`{"title":"Local Fleet Studio","sourceWorkspacePath":"~/sites/demo","mode":"publish","siteReference":"other-site"}`))
+	response := service.response("site_serve", virtualServeRequestBody(`{"title":"Local Fleet Studio","sourceWorkspacePath":"~/sites/demo","mode":"publish","siteReference":"other-site"}`))
 	if !strings.Contains(response, `"errorCode":"not_found"`) {
 		t.Fatalf("expected serve with an unknown reference to fail exact lookup, got %s", response)
 	}
@@ -705,20 +705,20 @@ func TestVirtualSiteFixtureUsesExactIdentity(t *testing.T) {
 }
 
 func TestVirtualSiteToolsUseCanonicalThreeToolContracts(t *testing.T) {
-	expectedToolNames := []string{"site.serve", "site.list", "site.unserve"}
+	expectedToolNames := []string{"site_serve", "site_list", "site_unserve"}
 	if toolNames := sitePrototypeCapabilityToolNames(); !slices.Equal(toolNames, expectedToolNames) {
 		t.Fatalf("expected canonical site tool surface, got %v", toolNames)
 	}
 
-	listInputSchema := virtualCapabilityInputSchema("site.list")
+	listInputSchema := virtualCapabilityInputSchema("site_list")
 	if strings.Contains(listInputSchema, `"siteID"`) || strings.Contains(listInputSchema, `"checkLive"`) {
-		t.Fatalf("expected site.list to accept only an optional siteReference, got %s", listInputSchema)
+		t.Fatalf("expected site_list to accept only an optional siteReference, got %s", listInputSchema)
 	}
 
 	expectedRequiredFields := map[string][]string{
-		"site.serve":   {"siteID", "slug", "mode", "sourceSHA256"},
-		"site.list":    {"sites"},
-		"site.unserve": {"siteID", "slug", "unserved"},
+		"site_serve":   {"siteID", "slug", "mode", "sourceSHA256"},
+		"site_list":    {"sites"},
+		"site_unserve": {"siteID", "slug", "unserved"},
 	}
 	for _, toolName := range expectedToolNames {
 		descriptor := virtualCapabilityToolDescriptor(toolName)
@@ -738,7 +738,7 @@ func TestVirtualSiteToolsUseCanonicalThreeToolContracts(t *testing.T) {
 		}
 	}
 
-	serveContract := virtualCapabilityToolResultContract("site.serve")
+	serveContract := virtualCapabilityToolResultContract("site_serve")
 	if len(serveContract.Effects) != 2 ||
 		serveContract.Effects[0].Effect != "previewed" ||
 		serveContract.Effects[0].ResultField != "previewURL" ||
@@ -753,28 +753,28 @@ func TestVirtualSiteToolsUseCanonicalThreeToolContracts(t *testing.T) {
 		string(serveContract.Effects[1].When.Equals) != `"publish"` {
 		t.Fatalf("expected mode-conditional serve effects, got %+v", serveContract.Effects)
 	}
-	listContract := virtualCapabilityToolResultContract("site.list")
+	listContract := virtualCapabilityToolResultContract("site_list")
 	if len(listContract.Effects) != 0 {
-		t.Fatalf("expected site.list to have no effects, got %+v", listContract.Effects)
+		t.Fatalf("expected site_list to have no effects, got %+v", listContract.Effects)
 	}
-	unserveContract := virtualCapabilityToolResultContract("site.unserve")
+	unserveContract := virtualCapabilityToolResultContract("site_unserve")
 	if len(unserveContract.Effects) != 1 ||
 		unserveContract.Effects[0].ObjectType != "website" ||
 		unserveContract.Effects[0].Effect != "deleted" ||
 		unserveContract.Effects[0].ResultField != "siteID" ||
 		unserveContract.Effects[0].EffectIdentity != "id" {
-		t.Fatalf("expected exact site.unserve effect contract, got %+v", unserveContract.Effects)
+		t.Fatalf("expected exact site_unserve effect contract, got %+v", unserveContract.Effects)
 	}
 
-	if descriptor := virtualCapabilityToolDescriptor("site.unserve"); !descriptor.RequiresApproval {
-		t.Fatal("expected site.unserve to require approval")
+	if descriptor := virtualCapabilityToolDescriptor("site_unserve"); !descriptor.RequiresApproval {
+		t.Fatal("expected site_unserve to require approval")
 	}
-	if descriptor := virtualCapabilityToolDescriptor("site.serve"); descriptor.SideEffectClass != toolcontract.ToolSideEffectSitePublish {
-		t.Fatalf("expected site.serve site publish semantics, got %+v", descriptor)
+	if descriptor := virtualCapabilityToolDescriptor("site_serve"); descriptor.SideEffectClass != toolcontract.ToolSideEffectSitePublish {
+		t.Fatalf("expected site_serve site publish semantics, got %+v", descriptor)
 	}
 	expectedCompletionActions := map[string]string{
-		"site.serve":   "serve_site",
-		"site.unserve": "delete_site",
+		"site_serve":   "serve_site",
+		"site_unserve": "delete_site",
 	}
 	for toolName, action := range expectedCompletionActions {
 		descriptor := virtualCapabilityToolDescriptor(toolName)
@@ -816,18 +816,18 @@ func TestVirtualDomainToolsUseGeneratedResultContracts(t *testing.T) {
 
 func TestVirtualMessageToolsUseGeneratedCanonicalContracts(t *testing.T) {
 	expectedRequiredFields := map[string][]string{
-		"message.context": {"platform", "conversationID", "conversationType", "channelID", "channelName", "replyTargetID", "rootMessageID", "currentMessageID", "requesterPersonID", "requesterPlatformUserID", "botUserID", "botUsername"},
-		"message.search":  {"scope", "queries", "authoredBy", "messageIDs", "candidates", "hasMore"},
-		"message.send":    {"messageIDs", "deliveryStatus"},
-		"message.update":  {"messageID", "deliveryStatus", "messageUpdated"},
-		"message.delete":  {"messageIDs", "deliveryStatus"},
-		"channel.update":  {"channelID", "updated"},
+		"message_context": {"platform", "conversationID", "conversationType", "channelID", "channelName", "replyTargetID", "rootMessageID", "currentMessageID", "requesterPersonID", "requesterPlatformUserID", "botUserID", "botUsername"},
+		"message_search":  {"scope", "queries", "authoredBy", "messageIDs", "candidates", "hasMore"},
+		"message_send":    {"messageIDs", "deliveryStatus"},
+		"message_update":  {"messageID", "deliveryStatus", "messageUpdated"},
+		"message_delete":  {"messageIDs", "deliveryStatus"},
+		"channel_update":  {"channelID", "updated"},
 	}
 	expectedEffects := map[string]agentruntime.CapabilityResourceEffectContract{
-		"message.send":   {ObjectType: "message", Effect: "sent", ResultField: "messageIDs", EffectIdentity: "id"},
-		"message.update": {ObjectType: "message", Effect: "updated", ResultField: "messageID", EffectIdentity: "id"},
-		"message.delete": {ObjectType: "message", Effect: "deleted", ResultField: "messageIDs", EffectIdentity: "id"},
-		"channel.update": {ObjectType: "channel", Effect: "updated", ResultField: "channelID", EffectIdentity: "id"},
+		"message_send":   {ObjectType: "message", Effect: "sent", ResultField: "messageIDs", EffectIdentity: "id"},
+		"message_update": {ObjectType: "message", Effect: "updated", ResultField: "messageID", EffectIdentity: "id"},
+		"message_delete": {ObjectType: "message", Effect: "deleted", ResultField: "messageIDs", EffectIdentity: "id"},
+		"channel_update": {ObjectType: "channel", Effect: "updated", ResultField: "channelID", EffectIdentity: "id"},
 	}
 
 	for _, toolName := range virtualCanonicalMessageToolNames {
@@ -862,8 +862,8 @@ func TestVirtualMessageToolsUseGeneratedCanonicalContracts(t *testing.T) {
 
 func TestVirtualCapabilityDescriptorMergePreservesCanonicalInputIntentSchema(t *testing.T) {
 	descriptor := mergeVirtualCapabilityToolDescriptor(
-		virtualCapabilityToolDescriptor("task.update"),
-		agentruntime.CapabilityToolDescriptor{Name: "task.update", RequiresApproval: true},
+		virtualCapabilityToolDescriptor("task_update"),
+		agentruntime.CapabilityToolDescriptor{Name: "task_update", RequiresApproval: true},
 	)
 	if len(descriptor.InputIntentSchema) == 0 || !descriptor.RequiresApproval {
 		t.Fatalf("expected canonical intent and configured approval, got %+v", descriptor)
@@ -872,7 +872,7 @@ func TestVirtualCapabilityDescriptorMergePreservesCanonicalInputIntentSchema(t *
 	overrideSchema := json.RawMessage(`{"type":"object","properties":{"taskID":{"type":"string"}},"additionalProperties":false}`)
 	descriptor = mergeVirtualCapabilityToolDescriptor(
 		descriptor,
-		agentruntime.CapabilityToolDescriptor{Name: "task.update", InputIntentSchema: overrideSchema},
+		agentruntime.CapabilityToolDescriptor{Name: "task_update", InputIntentSchema: overrideSchema},
 	)
 	if string(descriptor.InputIntentSchema) != string(overrideSchema) {
 		t.Fatalf("expected explicit input intent override, got %s", descriptor.InputIntentSchema)
@@ -882,24 +882,24 @@ func TestVirtualCapabilityDescriptorMergePreservesCanonicalInputIntentSchema(t *
 func TestVirtualMessageServiceReturnsCanonicalContextSearchDeleteAndChannelResults(t *testing.T) {
 	service := virtualCapabilityService{}
 
-	contextResult, contextEffects := virtualCapabilityResponseResult(t, service.response("message.context", []byte(`{"input":{}}`)))
+	contextResult, contextEffects := virtualCapabilityResponseResult(t, service.response("message_context", []byte(`{"input":{}}`)))
 	if contextResult["platform"] != "mattermost" || contextResult["conversationID"] != "virtual-conversation-1" || len(contextEffects) != 0 {
 		t.Fatalf("unexpected message context result=%+v effects=%+v", contextResult, contextEffects)
 	}
 
-	searchResult, searchEffects := virtualCapabilityResponseResult(t, service.response("message.search", []byte(`{"input":{"scope":"currentChannel","queries":["공지"],"authoredBy":"assistant"}}`)))
+	searchResult, searchEffects := virtualCapabilityResponseResult(t, service.response("message_search", []byte(`{"input":{"scope":"currentChannel","queries":["공지"],"authoredBy":"assistant"}}`)))
 	if !slices.Equal(stringSliceValue(searchResult["messageIDs"]), []string{"virtual-platform-message-001"}) ||
 		searchResult["scope"] != "currentChannel" ||
 		len(searchEffects) != 0 {
 		t.Fatalf("unexpected message search result=%+v effects=%+v", searchResult, searchEffects)
 	}
 
-	approvalResponse := service.response("message.delete", []byte(`{"input":{"messageIDs":["virtual-platform-message-001"]},"context":{}}`))
+	approvalResponse := service.response("message_delete", []byte(`{"input":{"messageIDs":["virtual-platform-message-001"]},"context":{}}`))
 	if !strings.Contains(approvalResponse, `"errorCode":"approval_required"`) {
 		t.Fatalf("expected message delete approval, got %s", approvalResponse)
 	}
 	deleteResult, deleteEffects := virtualCapabilityResponseResult(t, service.response(
-		"message.delete",
+		"message_delete",
 		[]byte(`{"input":{"messageIDs":["virtual-platform-message-001","virtual-platform-message-002"]},"context":{"isApprovalContinuation":true}}`),
 	))
 	if deleteResult["deliveryStatus"] != "deleted" ||
@@ -909,7 +909,7 @@ func TestVirtualMessageServiceReturnsCanonicalContextSearchDeleteAndChannelResul
 	}
 
 	channelResult, channelEffects := virtualCapabilityResponseResult(t, service.response(
-		"channel.update",
+		"channel_update",
 		[]byte(`{"input":{"channelID":"virtual-channel-1","header":"분기 공지"},"context":{"isApprovalContinuation":true}}`),
 	))
 	if channelResult["channelID"] != "virtual-channel-1" || channelResult["updated"] != true || len(channelEffects) != 1 ||
@@ -957,7 +957,7 @@ func TestVirtualDocumentReadReturnsCanonicalWorkspaceContent(t *testing.T) {
 	}
 	for _, testCase := range testCases {
 		result, effects := virtualCapabilityResponseResult(t, service.response(
-			"document.read",
+			"document_read",
 			[]byte(`{"input":{"path":`+quote(testCase.path)+`}}`),
 		))
 		if result["status"] != "ok" || result["path"] != testCase.path || result["format"] != "markdown" || result["truncated"] != false {
@@ -970,7 +970,7 @@ func TestVirtualDocumentReadReturnsCanonicalWorkspaceContent(t *testing.T) {
 			}
 		}
 		if len(effects) != 0 {
-			t.Fatalf("document.read must remain read-only, got %+v", effects)
+			t.Fatalf("document_read must remain read-only, got %+v", effects)
 		}
 	}
 }
@@ -1020,7 +1020,7 @@ func TestVirtualCapabilityCatalogUsesOperationSchemas(t *testing.T) {
 			} `json:"inputSchema"`
 		} `json:"deviceCapabilities"`
 	}
-	if errorValue := json.Unmarshal([]byte(virtualCapabilityCatalogResponse(map[string]bool{"task.update": true, "task.delete": true})), &catalog); errorValue != nil {
+	if errorValue := json.Unmarshal([]byte(virtualCapabilityCatalogResponse(map[string]bool{"task_update": true, "task_delete": true})), &catalog); errorValue != nil {
 		t.Fatal(errorValue)
 	}
 	if len(catalog.DeviceCapabilities) != 2 {
@@ -1042,10 +1042,10 @@ func TestVirtualCapabilityCatalogUsesOperationSchemas(t *testing.T) {
 		updateSchema = catalog.DeviceCapabilities[0].InputSchema.Properties
 	}
 	if _, hasTitle := updateSchema["title"]; !hasTitle {
-		t.Fatal("task.update input schema must expose title")
+		t.Fatal("task_update input schema must expose title")
 	}
 	if _, hasEndDate := updateSchema["endDate"]; !hasEndDate {
-		t.Fatal("task.update input schema must expose endDate")
+		t.Fatal("task_update input schema must expose endDate")
 	}
 }
 
@@ -1058,8 +1058,8 @@ func TestWebSearchAcceptance(t *testing.T) {
 		t.Fatalf("expected one turn result, got %d", len(result.TurnResults))
 	}
 	turnResult := result.TurnResults[0]
-	if countEvents(turnResult.Events, "tool.web.search.requested") != 1 {
-		t.Fatalf("expected one web.search request, got events: %s", summarizeEvents(turnResult.Events))
+	if countEvents(turnResult.Events, "tool.web_search.requested") != 1 {
+		t.Fatalf("expected one web_search request, got events: %s", summarizeEvents(turnResult.Events))
 	}
 	if !strings.Contains(turnResult.FinishMessage, "BlueclawSearchStubToken") {
 		t.Fatalf("expected final reply to contain search stub token, got %q", turnResult.FinishMessage)
@@ -1075,20 +1075,20 @@ func TestFileWriteAcceptance(t *testing.T) {
 	if turnResult.TaskStatus != task.TaskStatusCompleted {
 		t.Fatalf("expected completed turn, got %s", turnResult.TaskStatus)
 	}
-	if countEvents(turnResult.Events, "tool.file.write.requested") != 1 {
-		t.Fatalf("expected one file.write request, got events: %s", summarizeEvents(turnResult.Events))
+	if countEvents(turnResult.Events, "tool.file_write.requested") != 1 {
+		t.Fatalf("expected one file_write request, got events: %s", summarizeEvents(turnResult.Events))
 	}
-	if countEvents(turnResult.Events, "tool.file.deliver.requested") != 1 {
-		t.Fatalf("expected one file.deliver request, got events: %s", summarizeEvents(turnResult.Events))
+	if countEvents(turnResult.Events, "tool.file_deliver.requested") != 1 {
+		t.Fatalf("expected one file_deliver request, got events: %s", summarizeEvents(turnResult.Events))
 	}
-	if countEvents(turnResult.Events, "tool.terminal.run.requested") != 0 {
-		t.Fatalf("file.write result contract must avoid redundant terminal verification, got events: %s", summarizeEvents(turnResult.Events))
+	if countEvents(turnResult.Events, "tool.terminal_run.requested") != 0 {
+		t.Fatalf("file_write result contract must avoid redundant terminal verification, got events: %s", summarizeEvents(turnResult.Events))
 	}
 }
 
 func TestFileWriteAcceptanceRejectsWrongPersistedContent(t *testing.T) {
 	scenario := FileWriteAcceptanceScenario(t.TempDir())
-	scenario.Turns[0].ActionResponses[0] = actionCallTool("file.write", `{"path":"work/customer-support/faq-revision.json","content":"{}\n"}`)
+	scenario.Turns[0].ActionResponses[0] = actionCallTool("file_write", `{"path":"work/customer-support/faq-revision.json","content":"{}\n"}`)
 
 	_, errorValue := RunVirtualSession(context.Background(), scenario)
 	if errorValue == nil || !strings.Contains(errorValue.Error(), "FAQ 개편") {
@@ -1130,7 +1130,7 @@ func TestGWSDisabled(t *testing.T) {
 
 func TestVirtualCalendarMutationUsesExactEventHint(t *testing.T) {
 	service := virtualCapabilityService{}
-	addResponse := service.calendarResponse("calendar.add", []byte(`{"input":{"title":"비용 테스트 일정","startISO":"2026-07-16T10:00:00+09:00","endISO":"2026-07-16T11:00:00+09:00","people":["지원팀"]},"context":{"requesterPersonID":"person-1","requesterName":"이수현","requesterEmail":"soohyun@example.com"}}`))
+	addResponse := service.calendarResponse("calendar_add", []byte(`{"input":{"title":"비용 테스트 일정","startISO":"2026-07-16T10:00:00+09:00","endISO":"2026-07-16T11:00:00+09:00","people":["지원팀"]},"context":{"requesterPersonID":"person-1","requesterName":"이수현","requesterEmail":"soohyun@example.com"}}`))
 	if !strings.Contains(addResponse, `"eventID":"calendar-event-001"`) ||
 		!strings.Contains(addResponse, `"objectType":"calendar"`) ||
 		!strings.Contains(addResponse, `"effect":"created"`) ||
@@ -1138,23 +1138,23 @@ func TestVirtualCalendarMutationUsesExactEventHint(t *testing.T) {
 		!strings.Contains(addResponse, `"name":"이수현"`) {
 		t.Fatalf("expected canonical created event and effect, got %s", addResponse)
 	}
-	updateResponse := service.calendarResponse("calendar.update", []byte(`{"input":{"eventHint":"calendar-event-001","startISO":"2026-07-16T14:00:00+09:00","endISO":"2026-07-16T15:00:00+09:00"}}`))
+	updateResponse := service.calendarResponse("calendar_update", []byte(`{"input":{"eventHint":"calendar-event-001","startISO":"2026-07-16T14:00:00+09:00","endISO":"2026-07-16T15:00:00+09:00"}}`))
 	if !strings.Contains(updateResponse, `"status":"ok"`) || !strings.Contains(updateResponse, `T14:00:00+09:00`) {
 		t.Fatalf("expected exact-ID hint update, got %s", updateResponse)
 	}
-	titleUpdateResponse := service.calendarResponse("calendar.update", []byte(`{"input":{"eventHint":"비용 테스트 일정","title":"비용 테스트 일정 완료"}}`))
+	titleUpdateResponse := service.calendarResponse("calendar_update", []byte(`{"input":{"eventHint":"비용 테스트 일정","title":"비용 테스트 일정 완료"}}`))
 	if !strings.Contains(titleUpdateResponse, `"status":"ok"`) || !strings.Contains(titleUpdateResponse, `"title":"비용 테스트 일정 완료"`) {
 		t.Fatalf("expected exact-title hint update, got %s", titleUpdateResponse)
 	}
-	noPatchResponse := service.calendarResponse("calendar.update", []byte(`{"input":{"eventHint":"calendar-event-001"}}`))
+	noPatchResponse := service.calendarResponse("calendar_update", []byte(`{"input":{"eventHint":"calendar-event-001"}}`))
 	if !strings.Contains(noPatchResponse, `"errorCode":"invalid_input"`) {
 		t.Fatalf("expected hint-only update to fail, got %s", noPatchResponse)
 	}
-	queryResponse := service.calendarResponse("calendar.update", []byte(`{"input":{"query":"비용 테스트","title":"새 일정 이름"}}`))
+	queryResponse := service.calendarResponse("calendar_update", []byte(`{"input":{"query":"비용 테스트","title":"새 일정 이름"}}`))
 	if !strings.Contains(queryResponse, `"status":"error"`) || !strings.Contains(queryResponse, `not found`) {
 		t.Fatalf("expected query update without eventHint to fail, got %s", queryResponse)
 	}
-	deleteResponse := service.calendarResponse("calendar.delete", []byte(`{"input":{"eventHint":"calendar-event-001"},"context":{"isApprovalContinuation":true}}`))
+	deleteResponse := service.calendarResponse("calendar_delete", []byte(`{"input":{"eventHint":"calendar-event-001"},"context":{"isApprovalContinuation":true}}`))
 	if !strings.Contains(deleteResponse, `"eventID":"calendar-event-001"`) ||
 		!strings.Contains(deleteResponse, `"deleted":true`) ||
 		!strings.Contains(deleteResponse, `"effect":"deleted"`) {
@@ -1169,9 +1169,9 @@ func TestVirtualCalendarListHonorsWindowQueryAndLimit(t *testing.T) {
 		`{"title":"채용 점검","startISO":"2026-07-16T12:00:00+09:00","endISO":"2026-07-16T13:00:00+09:00"}`,
 		`{"title":"비용 점검 B","startISO":"2026-07-17T10:00:00+09:00","endISO":"2026-07-17T11:00:00+09:00"}`,
 	} {
-		service.calendarResponse("calendar.add", []byte(`{"input":`+input+`}`))
+		service.calendarResponse("calendar_add", []byte(`{"input":`+input+`}`))
 	}
-	response := service.calendarResponse("calendar.list", []byte(`{"input":{"startISO":"2026-07-16T00:00:00+09:00","endISO":"2026-07-17T00:00:00+09:00","query":"비용","limit":1}}`))
+	response := service.calendarResponse("calendar_list", []byte(`{"input":{"startISO":"2026-07-16T00:00:00+09:00","endISO":"2026-07-17T00:00:00+09:00","query":"비용","limit":1}}`))
 	if !strings.Contains(response, `"eventID":"calendar-event-001"`) ||
 		strings.Contains(response, `"eventID":"calendar-event-002"`) ||
 		strings.Contains(response, `"eventID":"calendar-event-003"`) {
@@ -1181,7 +1181,7 @@ func TestVirtualCalendarListHonorsWindowQueryAndLimit(t *testing.T) {
 		`{"startISO":"2026-07-16T00:00:00+09:00"}`,
 		`{"limit":1.5}`,
 	} {
-		response = service.calendarResponse("calendar.list", []byte(`{"input":`+input+`}`))
+		response = service.calendarResponse("calendar_list", []byte(`{"input":`+input+`}`))
 		if !strings.Contains(response, `"errorCode":"invalid_input"`) {
 			t.Fatalf("expected invalid bounded listing for %s, got %s", input, response)
 		}
@@ -1190,8 +1190,8 @@ func TestVirtualCalendarListHonorsWindowQueryAndLimit(t *testing.T) {
 
 func TestVirtualTaskUpdateRequiresHintAndPatch(t *testing.T) {
 	service := virtualCapabilityService{}
-	service.taskResponse("task.add", []byte(`{"input":{"title":"고객지원 결산"}}`))
-	response := service.taskResponse("task.update", []byte(`{"input":{"taskHint":"task-1"}}`))
+	service.taskResponse("task_add", []byte(`{"input":{"title":"고객지원 결산"}}`))
+	response := service.taskResponse("task_update", []byte(`{"input":{"taskHint":"task-1"}}`))
 	if !strings.Contains(response, `"errorCode":"invalid_input"`) {
 		t.Fatalf("expected hint-only task update to fail, got %s", response)
 	}
@@ -1206,9 +1206,9 @@ func TestVirtualCapabilityCatalogUsesRuntimeRegistryContract(t *testing.T) {
 		} `json:"deviceCapabilities"`
 	}
 	document := virtualCapabilityCatalogResponse(map[string]bool{
-		"calendar.list":   true,
-		"calendar.update": true,
-		"calendar.delete": true,
+		"calendar_list":   true,
+		"calendar_update": true,
+		"calendar_delete": true,
 	})
 	if errorValue := json.Unmarshal([]byte(document), &catalog); errorValue != nil {
 		t.Fatalf("expected valid capability catalog, got %v: %s", errorValue, document)
@@ -1250,11 +1250,11 @@ func TestSkillLifecycleAcceptance(t *testing.T) {
 	}
 	firstTurnResult := result.TurnResults[0]
 	secondTurnResult := result.TurnResults[1]
-	if countEvents(firstTurnResult.Events, "tool.skill.add.requested") != 1 {
-		t.Fatalf("expected one skill.add request; events: %s", summarizeEvents(firstTurnResult.Events))
+	if countEvents(firstTurnResult.Events, "tool.skill_add.requested") != 1 {
+		t.Fatalf("expected one skill_add request; events: %s", summarizeEvents(firstTurnResult.Events))
 	}
-	if countEvents(secondTurnResult.Events, "tool.skill.remove.requested") != 1 {
-		t.Fatalf("expected one skill.remove request; events: %s", summarizeEvents(secondTurnResult.Events))
+	if countEvents(secondTurnResult.Events, "tool.skill_remove.requested") != 1 {
+		t.Fatalf("expected one skill_remove request; events: %s", summarizeEvents(secondTurnResult.Events))
 	}
 	skillDirectoryPath := filepath.Join(result.ArtifactDirectoryPath, "workspace", ".agents", "skills", "memo-helper")
 	if _, errorValue := os.Stat(skillDirectoryPath); !os.IsNotExist(errorValue) {
@@ -1271,11 +1271,11 @@ func TestTaskHistoryQuestionAcceptance(t *testing.T) {
 		t.Fatalf("expected two turn results, got %d", len(result.TurnResults))
 	}
 	secondTurnResult := result.TurnResults[1]
-	if countEvents(secondTurnResult.Events, "tool.conversation.history.requested") != 1 {
-		t.Fatalf("expected one conversation.history request; events: %s", summarizeEvents(secondTurnResult.Events))
+	if countEvents(secondTurnResult.Events, "tool.conversation_history.requested") != 1 {
+		t.Fatalf("expected one conversation_history request; events: %s", summarizeEvents(secondTurnResult.Events))
 	}
-	if !eventsContain(secondTurnResult.Events, "tool.conversation.history.result", "계약서 확인 요약 작업") {
-		t.Fatalf("expected conversation.history result to include prior task prompt; events: %s", summarizeEvents(secondTurnResult.Events))
+	if !eventsContain(secondTurnResult.Events, "tool.conversation_history.result", "계약서 확인 요약 작업") {
+		t.Fatalf("expected conversation_history result to include prior task prompt; events: %s", summarizeEvents(secondTurnResult.Events))
 	}
 	if !strings.Contains(secondTurnResult.FinishMessage, "계약서 확인 요약") {
 		t.Fatalf("expected final reply to mention prior task, got %q", secondTurnResult.FinishMessage)
@@ -1298,14 +1298,14 @@ func TestMemoryExplicitToolAcceptance(t *testing.T) {
 	if secondTurnResult.TaskStatus != task.TaskStatusCompleted {
 		t.Fatalf("expected second turn success, got %s", secondTurnResult.TaskStatus)
 	}
-	if countEvents(firstTurnResult.Events, "tool.memory.remember.requested")+countEvents(secondTurnResult.Events, "tool.memory.remember.requested") != 1 {
-		t.Fatalf("expected exactly one memory.remember request; first events: %s second events: %s", summarizeEvents(firstTurnResult.Events), summarizeEvents(secondTurnResult.Events))
+	if countEvents(firstTurnResult.Events, "tool.memory_remember.requested")+countEvents(secondTurnResult.Events, "tool.memory_remember.requested") != 1 {
+		t.Fatalf("expected exactly one memory_remember request; first events: %s second events: %s", summarizeEvents(firstTurnResult.Events), summarizeEvents(secondTurnResult.Events))
 	}
-	if !eventsContain(firstTurnResult.Events, "tool.memory.remember.requested", "Korean") {
-		t.Fatalf("expected memory.remember input to include Korean; events: %s", summarizeEvents(firstTurnResult.Events))
+	if !eventsContain(firstTurnResult.Events, "tool.memory_remember.requested", "Korean") {
+		t.Fatalf("expected memory_remember input to include Korean; events: %s", summarizeEvents(firstTurnResult.Events))
 	}
-	if countEvents(firstTurnResult.Events, "tool.memory.search.requested")+countEvents(secondTurnResult.Events, "tool.memory.search.requested") != 1 {
-		t.Fatalf("expected exactly one memory.search request; first events: %s second events: %s", summarizeEvents(firstTurnResult.Events), summarizeEvents(secondTurnResult.Events))
+	if countEvents(firstTurnResult.Events, "tool.memory_search.requested")+countEvents(secondTurnResult.Events, "tool.memory_search.requested") != 1 {
+		t.Fatalf("expected exactly one memory_search request; first events: %s second events: %s", summarizeEvents(firstTurnResult.Events), summarizeEvents(secondTurnResult.Events))
 	}
 	if !strings.Contains(secondTurnResult.FinishMessage, "Korean") {
 		t.Fatalf("expected final reply to mention Korean, got %q", secondTurnResult.FinishMessage)
@@ -1331,11 +1331,11 @@ func TestFailureExplanationAcceptance(t *testing.T) {
 	if secondTurnResult.TaskStatus != task.TaskStatusCompleted {
 		t.Fatalf("expected second turn success, got %s", secondTurnResult.TaskStatus)
 	}
-	if countEvents(secondTurnResult.Events, "tool.conversation.history.requested") != 1 {
-		t.Fatalf("expected one conversation.history request in second turn; events: %s", summarizeEvents(secondTurnResult.Events))
+	if countEvents(secondTurnResult.Events, "tool.conversation_history.requested") != 1 {
+		t.Fatalf("expected one conversation_history request in second turn; events: %s", summarizeEvents(secondTurnResult.Events))
 	}
-	if !eventsContain(secondTurnResult.Events, "tool.conversation.history.result", "permission denied") {
-		t.Fatalf("expected conversation.history result to include failure reason; events: %s", summarizeEvents(secondTurnResult.Events))
+	if !eventsContain(secondTurnResult.Events, "tool.conversation_history.result", "permission denied") {
+		t.Fatalf("expected conversation_history result to include failure reason; events: %s", summarizeEvents(secondTurnResult.Events))
 	}
 	if !strings.Contains(secondTurnResult.FinishMessage, "permission denied") {
 		t.Fatalf("expected final reply to mention permission denied, got %q", secondTurnResult.FinishMessage)
@@ -1365,16 +1365,16 @@ func TestDirectMessageSendConfirmAcceptance(t *testing.T) {
 	if !eventsContain(firstTurnResult.Events, "confirmation.requested", "external_send") {
 		t.Fatalf("expected confirmation request before send; events: %s", summarizeEvents(firstTurnResult.Events))
 	}
-	if countRequestedToolCalls(firstTurnResult.Events, "message.send") != 0 {
+	if countRequestedToolCalls(firstTurnResult.Events, "message_send") != 0 {
 		t.Fatalf("expected confirmation before any send attempt; events: %s", summarizeEvents(firstTurnResult.Events))
 	}
-	if countRequestedToolCalls(secondTurnResult.Events, "message.send") != 1 {
+	if countRequestedToolCalls(secondTurnResult.Events, "message_send") != 1 {
 		t.Fatalf("expected exactly one approved send request; events: %s", summarizeEvents(secondTurnResult.Events))
 	}
-	if !eventsContain(secondTurnResult.Events, "tool.message.send.result", "virtual-platform-message-001") {
+	if !eventsContain(secondTurnResult.Events, "tool.message_send.result", "virtual-platform-message-001") {
 		t.Fatalf("expected send result message id observation; events: %s", summarizeEvents(secondTurnResult.Events))
 	}
-	if !eventsContain(secondTurnResult.Events, "tool.message.send.result", `"messageIDs":["virtual-platform-message-001"]`) {
+	if !eventsContain(secondTurnResult.Events, "tool.message_send.result", `"messageIDs":["virtual-platform-message-001"]`) {
 		t.Fatalf("expected canonical messageIDs result; events: %s", summarizeEvents(secondTurnResult.Events))
 	}
 	if !strings.Contains(secondTurnResult.FinishMessage, "보냈습니다") {
@@ -1390,17 +1390,17 @@ func TestChannelPostAcceptance(t *testing.T) {
 	if len(result.TurnResults) != 2 {
 		t.Fatalf("expected confirmation and execution turns, got %+v", result)
 	}
-	if countRequestedToolCalls(result.TurnResults[0].Events, "message.send") != 0 {
+	if countRequestedToolCalls(result.TurnResults[0].Events, "message_send") != 0 {
 		t.Fatalf("expected confirmation before channel send; events: %s", summarizeEvents(result.TurnResults[0].Events))
 	}
 	turnResult := result.TurnResults[1]
-	if countRequestedToolCalls(turnResult.Events, "message.send") != 1 {
+	if countRequestedToolCalls(turnResult.Events, "message_send") != 1 {
 		t.Fatalf("expected one send request, got events: %s", summarizeEvents(turnResult.Events))
 	}
-	if !eventsContain(turnResult.Events, "tool.message.send.requested", `"targetType":"channel"`) {
+	if !eventsContain(turnResult.Events, "tool.message_send.requested", `"targetType":"channel"`) {
 		t.Fatalf("expected channel delivery target; events: %s", summarizeEvents(turnResult.Events))
 	}
-	if eventsContain(turnResult.Events, "tool.message.send.requested", `"targetType":"directMessage"`) {
+	if eventsContain(turnResult.Events, "tool.message_send.requested", `"targetType":"directMessage"`) {
 		t.Fatalf("expected no direct message target; events: %s", summarizeEvents(turnResult.Events))
 	}
 }
@@ -1413,20 +1413,20 @@ func TestPlatformMessageEditAcceptance(t *testing.T) {
 	if len(result.TurnResults) != 2 {
 		t.Fatalf("expected approval and execution turns, got %+v", result)
 	}
-	if !eventsContain(result.TurnResults[0].Events, "approval.pending_call", `"message.update"`) {
+	if !eventsContain(result.TurnResults[0].Events, "approval.pending_call", `"message_update"`) {
 		t.Fatalf("expected message update approval; events: %s", summarizeEvents(result.TurnResults[0].Events))
 	}
 	turnResult := result.TurnResults[1]
-	if countRequestedToolCalls(turnResult.Events, "message.update") != 1 {
+	if countRequestedToolCalls(turnResult.Events, "message_update") != 1 {
 		t.Fatalf("expected one message update request; events: %s", summarizeEvents(turnResult.Events))
 	}
-	if !eventsContain(turnResult.Events, "tool.message.update.requested", `"messageID":"virtual-platform-message-001"`) {
+	if !eventsContain(turnResult.Events, "tool.message_update.requested", `"messageID":"virtual-platform-message-001"`) {
 		t.Fatalf("expected message ID in update input; events: %s", summarizeEvents(turnResult.Events))
 	}
-	if !eventsContain(turnResult.Events, "tool.message.update.requested", `"message":"오늘 오후 6시에 전체 공지 회의가 있습니다."`) {
+	if !eventsContain(turnResult.Events, "tool.message_update.requested", `"message":"오늘 오후 6시에 전체 공지 회의가 있습니다."`) {
 		t.Fatalf("expected new text in update input; events: %s", summarizeEvents(turnResult.Events))
 	}
-	if !eventsContain(turnResult.Events, "tool.message.update.result", `"messageUpdated":true`) {
+	if !eventsContain(turnResult.Events, "tool.message_update.result", `"messageUpdated":true`) {
 		t.Fatalf("expected canonical update result; events: %s", summarizeEvents(turnResult.Events))
 	}
 }
@@ -1437,17 +1437,17 @@ func TestAttachmentMaterialRead(t *testing.T) {
 		t.Fatalf("expected attachment material read scenario to pass: %v", errorValue)
 	}
 	turnResult := result.TurnResults[0]
-	if !eventsContain(turnResult.Events, "tool.image.read.requested", `"path":"/workspace/circles/staff/inbox/virtual/virtual-conversation-1/virtual-message-001/mascot.png"`) {
-		t.Fatalf("expected image.read to use the exact workspace path; events: %s", summarizeEvents(turnResult.Events))
+	if !eventsContain(turnResult.Events, "tool.image_read.requested", `"path":"/workspace/circles/staff/inbox/virtual/virtual-conversation-1/virtual-message-001/mascot.png"`) {
+		t.Fatalf("expected image_read to use the exact workspace path; events: %s", summarizeEvents(turnResult.Events))
 	}
-	if eventsContain(turnResult.Events, "tool.terminal.run.requested", "terminal.run") {
+	if eventsContain(turnResult.Events, "tool.terminal_run.requested", "terminal_run") {
 		t.Fatalf("expected attachment read not to search the workspace; events: %s", summarizeEvents(turnResult.Events))
 	}
 	if turnResult.UserModelImagePartCount == 0 {
-		t.Fatalf("expected image.read result to reach the model as a user image part; context: %s", turnResult.ModelContext)
+		t.Fatalf("expected image_read result to reach the model as a user image part; context: %s", turnResult.ModelContext)
 	}
 	if len(turnResult.Attachments) != 0 {
-		t.Fatalf("expected image.read result not to be reattached, got %+v", turnResult.Attachments)
+		t.Fatalf("expected image_read result not to be reattached, got %+v", turnResult.Attachments)
 	}
 }
 
@@ -1457,10 +1457,10 @@ func TestAttachmentHTMLPreviewRecovery(t *testing.T) {
 		t.Fatalf("expected attachment html preview recovery scenario to pass: %v", errorValue)
 	}
 	turnResult := result.TurnResults[0]
-	if eventsContain(turnResult.Events, "tool.terminal.run.requested", "terminal.run") {
+	if eventsContain(turnResult.Events, "tool.terminal_run.requested", "terminal_run") {
 		t.Fatalf("expected html attachment preview not to search the workspace; events: %s", summarizeEvents(turnResult.Events))
 	}
-	if !eventsContain(turnResult.Events, "tool.file.preview.result", "Virtual HTML Title") {
+	if !eventsContain(turnResult.Events, "tool.file_preview.result", "Virtual HTML Title") {
 		t.Fatalf("expected html preview content in tool result; events: %s", summarizeEvents(turnResult.Events))
 	}
 }
@@ -1471,10 +1471,10 @@ func TestAttachmentHTMLPreviousPreviewRecovery(t *testing.T) {
 		t.Fatalf("expected previous attachment html preview recovery scenario to pass: %v", errorValue)
 	}
 	turnResult := result.TurnResults[0]
-	if eventsContain(turnResult.Events, "tool.terminal.run.requested", "terminal.run") {
+	if eventsContain(turnResult.Events, "tool.terminal_run.requested", "terminal_run") {
 		t.Fatalf("expected previous html attachment preview not to search the workspace; events: %s", summarizeEvents(turnResult.Events))
 	}
-	if !eventsContain(turnResult.Events, "tool.file.preview.result", "Virtual HTML Title") {
+	if !eventsContain(turnResult.Events, "tool.file_preview.result", "Virtual HTML Title") {
 		t.Fatalf("expected previous html preview content in tool result; events: %s", summarizeEvents(turnResult.Events))
 	}
 }
@@ -1491,10 +1491,10 @@ func TestAttachmentCurrentImageInput(t *testing.T) {
 	if turnResult.UserModelImagePartCount == 0 {
 		t.Fatalf("expected current image attachment to reach the model as a user image part; context: %s", turnResult.ModelContext)
 	}
-	if eventsContain(turnResult.Events, "tool.image.read.requested", "image.read") {
-		t.Fatalf("expected current image input not to require image.read; events: %s", summarizeEvents(turnResult.Events))
+	if eventsContain(turnResult.Events, "tool.image_read.requested", "image_read") {
+		t.Fatalf("expected current image input not to require image_read; events: %s", summarizeEvents(turnResult.Events))
 	}
-	if eventsContain(turnResult.Events, "tool.terminal.run.requested", "terminal.run") {
+	if eventsContain(turnResult.Events, "tool.terminal_run.requested", "terminal_run") {
 		t.Fatalf("expected current image input not to search the workspace; events: %s", summarizeEvents(turnResult.Events))
 	}
 	if len(turnResult.Attachments) != 0 {

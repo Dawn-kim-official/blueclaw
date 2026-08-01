@@ -16,22 +16,22 @@ import (
 const toolRegistryVersion = "platform-message-v1"
 
 var newPlatformMessageToolNames = []string{
-	"message.context",
-	"message.search",
-	"message.send",
-	"message.update",
-	"message.delete",
+	"message_context",
+	"message_search",
+	"message_send",
+	"message_update",
+	"message_delete",
 }
 
 var oldPlatformMessageToolNames = []string{
 	"platform.dm.inspect",
 	"platform.dm.send",
-	"mattermost.context.inspect",
-	"mattermost.post.search",
-	"mattermost.channel.posts.list",
-	"mattermost.channel.post",
-	"mattermost.post.update",
-	"mattermost.post.delete",
+	"mattermost_context_inspect",
+	"mattermost_post_search",
+	"mattermost_channel_posts_list",
+	"mattermost_channel_post",
+	"mattermost_post_update",
+	"mattermost_post_delete",
 }
 
 type ToolRegistryAudit struct {
@@ -100,9 +100,9 @@ func (toolCatalogBuilder *ToolCatalogBuilder) BuildToolRegistryAudit(ctx context
 		CapabilityDescriptorHash:      hashCapabilityDescriptors(configuredDescriptors),
 		PlatformMessageDescriptorHash: hashCapabilityDescriptors(configuredPlatformMessageDescriptors),
 		AllowedToolHash:               hashStrings(allowedToolNames),
-		HasScheduleUpdate:             registryContainsString(allowedToolNames, "schedule.update"),
-		HasPlatformMessageDelete:      registryContainsString(configuredNames, "message.delete"),
-		HasOldMattermostPostDelete:    registryContainsString(configuredNames, "mattermost.post.delete"),
+		HasScheduleUpdate:             registryContainsString(allowedToolNames, "schedule_update"),
+		HasPlatformMessageDelete:      registryContainsString(configuredNames, "message_delete"),
+		HasOldMattermostPostDelete:    registryContainsString(configuredNames, "mattermost_post_delete"),
 		HasOldPlatformDMInspect:       registryContainsString(configuredNames, "platform.dm.inspect"),
 	}
 
@@ -125,8 +125,8 @@ func (toolCatalogBuilder *ToolCatalogBuilder) BuildToolRegistryAudit(ctx context
 	liveNames := capabilityDescriptorNames(liveDescriptors)
 	audit.LiveCapabilityHash = liveHash
 	audit.LivePlatformMessageDescriptorHash = hashCapabilityDescriptors(platformMessageCapabilityDescriptors(liveDescriptors))
-	audit.LiveHasPlatformMessageDelete = registryContainsString(liveNames, "message.delete")
-	audit.LiveHasOldMattermostPostDelete = registryContainsString(liveNames, "mattermost.post.delete")
+	audit.LiveHasPlatformMessageDelete = registryContainsString(liveNames, "message_delete")
+	audit.LiveHasOldMattermostPostDelete = registryContainsString(liveNames, "mattermost_post_delete")
 	audit.LiveHasOldPlatformDMInspect = registryContainsString(liveNames, "platform.dm.inspect")
 
 	if hasMessageRegistryMismatch(audit) {
@@ -293,7 +293,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) reachableCapabilityToolDefinitions
 	}
 	reachableDescriptors := []CapabilityToolDescriptor{}
 	for _, descriptor := range descriptors {
-		if strings.HasPrefix(strings.TrimSpace(descriptor.Name), "browser.") {
+		if descriptorIsBrowserCapability(descriptor) {
 			continue
 		}
 		reachableDescriptors = append(reachableDescriptors, descriptor)
@@ -303,11 +303,19 @@ func (toolCatalogBuilder *ToolCatalogBuilder) reachableCapabilityToolDefinitions
 
 func containsBrowserDescriptor(descriptors []CapabilityToolDescriptor) bool {
 	for _, descriptor := range descriptors {
-		if strings.HasPrefix(strings.TrimSpace(descriptor.Name), "browser.") {
+		if descriptorIsBrowserCapability(descriptor) {
 			return true
 		}
 	}
 	return false
+}
+
+// The namespace is what makes a tool a browser tool. Matching its name would
+// break the moment a tool is renamed or a browser tool stops starting with it.
+const browserCapabilityNamespace = "browser"
+
+func descriptorIsBrowserCapability(descriptor CapabilityToolDescriptor) bool {
+	return strings.TrimSpace(descriptor.Namespace) == browserCapabilityNamespace
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) companionBrowserAvailable() bool {

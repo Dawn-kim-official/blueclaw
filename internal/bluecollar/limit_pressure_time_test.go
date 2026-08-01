@@ -96,14 +96,14 @@ func TestElapsedClosingDurationIsPartOfTheTotalBudget(t *testing.T) {
 }
 
 func TestElapsedClosingCompletesFromExactEvidenceBeforeReply(t *testing.T) {
-	languageModel := newElapsedClosingLanguageModel("task.add", `{"title":"분기 결산 운영 검토"}`, "분기 결산 운영 검토 업무를 등록했습니다.")
+	languageModel := newElapsedClosingLanguageModel("task_add", `{"title":"분기 결산 운영 검토"}`, "분기 결산 운영 검토 업무를 등록했습니다.")
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxElapsedSecond: 1})
 	languageModel.observeTaskStatus = func() taskstate.TaskStatus {
 		return onlyTaskStatus(services.taskRunService, "person-1")
 	}
-	toolSet := newTestCapabilityToolSet([]string{"task.add"})
+	toolSet := newTestCapabilityToolSet([]string{"task_add"})
 	toolCallCount := 0
-	registerTestTool(toolSet, toolcontract.ToolDefinition{Name: "task.add"}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
+	registerTestTool(toolSet, toolcontract.ToolDefinition{Name: "task_add"}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
 		toolCallCount++
 		return testToolSuccess(`{"taskID":"task-1"}`), nil
 	})
@@ -115,7 +115,7 @@ func TestElapsedClosingCompletesFromExactEvidenceBeforeReply(t *testing.T) {
 		ResponseLanguage:      ResponseLanguageKorean,
 		ToolSet:               toolSet,
 		PinnedToolNames:       toolSet.ListToolNames(),
-		RequiredEvidenceTools: []string{"task.add"},
+		RequiredEvidenceTools: []string{"task_add"},
 		EffortStartedAt:       time.Now().Add(-500 * time.Millisecond),
 	})
 
@@ -146,7 +146,7 @@ func TestElapsedClosingBlocksBeforeReplyWhenEvidenceIsMissing(t *testing.T) {
 	languageModel.observeTaskStatus = func() taskstate.TaskStatus {
 		return onlyTaskStatus(services.taskRunService, "person-1")
 	}
-	toolSet := newTestCapabilityToolSet([]string{"task.add"})
+	toolSet := newTestCapabilityToolSet([]string{"task_add"})
 
 	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
 		RequesterPersonID:     "person-1",
@@ -155,7 +155,7 @@ func TestElapsedClosingBlocksBeforeReplyWhenEvidenceIsMissing(t *testing.T) {
 		ResponseLanguage:      ResponseLanguageKorean,
 		ToolSet:               toolSet,
 		PinnedToolNames:       toolSet.ListToolNames(),
-		RequiredEvidenceTools: []string{"task.add"},
+		RequiredEvidenceTools: []string{"task_add"},
 		EffortStartedAt:       time.Now().Add(-500 * time.Millisecond),
 	})
 
@@ -178,15 +178,15 @@ func TestElapsedClosingBlocksBeforeReplyWhenEvidenceIsMissing(t *testing.T) {
 }
 
 func TestElapsedClosingUsesRemainingTotalBudget(t *testing.T) {
-	languageModel := newElapsedClosingLanguageModel("task.add", `{}`, "")
+	languageModel := newElapsedClosingLanguageModel("task_add", `{}`, "")
 	languageModel.closingStarted = make(chan struct{})
 	languageModel.blockClosing = true
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxElapsedSecond: 1})
 	languageModel.observeTaskStatus = func() taskstate.TaskStatus {
 		return onlyTaskStatus(services.taskRunService, "person-1")
 	}
-	toolSet := newTestCapabilityToolSet([]string{"task.add"})
-	registerTestTool(toolSet, toolcontract.ToolDefinition{Name: "task.add"}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
+	toolSet := newTestCapabilityToolSet([]string{"task_add"})
+	registerTestTool(toolSet, toolcontract.ToolDefinition{Name: "task_add"}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
 		return testToolSuccess(`{"taskID":"task-1"}`), nil
 	})
 	resultChannel := make(chan AgentTurnResult, 1)
@@ -199,7 +199,7 @@ func TestElapsedClosingUsesRemainingTotalBudget(t *testing.T) {
 			Prompt:                "분기 결산 운영 검토 업무를 등록해줘",
 			ToolSet:               toolSet,
 			PinnedToolNames:       toolSet.ListToolNames(),
-			RequiredEvidenceTools: []string{"task.add"},
+			RequiredEvidenceTools: []string{"task_add"},
 			EffortStartedAt:       time.Now().Add(-500 * time.Millisecond),
 		})
 		resultChannel <- result
@@ -400,15 +400,15 @@ func TestAgentTurnRunnerCancelsToolCallAtExecutionEffortDeadline(t *testing.T) {
 }
 
 func TestMaxIterationsClosingDefersToElapsedClosing(t *testing.T) {
-	languageModel := newElapsedClosingLanguageModel("task.add", `{"title":"분기 결산 운영 검토"}`, "작업 시간이 끝나 진행 상황을 저장했습니다.")
+	languageModel := newElapsedClosingLanguageModel("task_add", `{"title":"분기 결산 운영 검토"}`, "작업 시간이 끝나 진행 상황을 저장했습니다.")
 	languageModel.blockStructured = true
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{
 		MaxIterationCount: 1,
 		MaxToolCallCount:  4,
 		MaxElapsedSecond:  1,
 	})
-	toolSet := newTestCapabilityToolSet([]string{"task.add"})
-	registerTestTool(toolSet, toolcontract.ToolDefinition{Name: "task.add"}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
+	toolSet := newTestCapabilityToolSet([]string{"task_add"})
+	registerTestTool(toolSet, toolcontract.ToolDefinition{Name: "task_add"}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
 		return testToolSuccess(`{"taskID":"task-1"}`), nil
 	})
 
@@ -687,10 +687,10 @@ func TestRequestForStepNarrowsActionPaletteAtNinetyTwoPercentElapsed(t *testing.
 		MaxToolCallCount:  30,
 		MaxElapsedSecond:  int((40 * time.Minute).Seconds()),
 	}}
-	toolSet := newTestCapabilityToolSet([]string{"file.read", toolcontract.FileDeliverToolName})
+	toolSet := newTestCapabilityToolSet([]string{"file_read", toolcontract.FileDeliverToolName})
 	request := AgentTurnRequest{
 		ToolSet:         toolSet,
-		PinnedToolNames: []string{"file.read", toolcontract.FileDeliverToolName},
+		PinnedToolNames: []string{"file_read", toolcontract.FileDeliverToolName},
 		OutcomeContract: OutcomeContract{ArtifactRequirement: ArtifactRequirementRequired},
 	}
 
@@ -698,7 +698,7 @@ func TestRequestForStepNarrowsActionPaletteAtNinetyTwoPercentElapsed(t *testing.
 	request.EffortStartedAt = time.Now().Add(-30 * time.Minute)
 	beforeNarrowing := runner.requestForStep(context.Background(), request, belowNarrowStage)
 	exploratoryToolNames := beforeNarrowing.ToolSet.ListToolNames()
-	if !stringSliceContains(exploratoryToolNames, "file.read") || !stringSliceContains(exploratoryToolNames, toolcontract.FileDeliverToolName) {
+	if !stringSliceContains(exploratoryToolNames, "file_read") || !stringSliceContains(exploratoryToolNames, toolcontract.FileDeliverToolName) {
 		t.Fatalf("expected the full working set below the narrow stage, got %v", exploratoryToolNames)
 	}
 
@@ -706,7 +706,7 @@ func TestRequestForStepNarrowsActionPaletteAtNinetyTwoPercentElapsed(t *testing.
 	request.EffortStartedAt = time.Now().Add(-38 * time.Minute)
 	afterNarrowing := runner.requestForStep(context.Background(), request, atNarrowStage)
 	narrowedToolNames := afterNarrowing.ToolSet.ListToolNames()
-	if stringSliceContains(narrowedToolNames, "file.read") {
+	if stringSliceContains(narrowedToolNames, "file_read") {
 		t.Fatalf("expected exploration tools dropped at the narrow_palette stage, got %v", narrowedToolNames)
 	}
 	if !stringSliceContains(narrowedToolNames, toolcontract.FileDeliverToolName) {
@@ -720,7 +720,7 @@ func TestRequestForStepNarrowsActionPaletteAtNinetyTwoPercentElapsed(t *testing.
 	if !strings.Contains(actionSchema, `"enum":["fail"]`) {
 		t.Fatalf("expected the fail action to remain available at the narrow_palette stage, got %s", actionSchema)
 	}
-	if strings.Contains(actionSchema, `"file.read"`) {
+	if strings.Contains(actionSchema, `"file_read"`) {
 		t.Fatalf("expected no continue variant for the dropped exploration tool, got %s", actionSchema)
 	}
 }

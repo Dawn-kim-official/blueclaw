@@ -286,27 +286,27 @@ func summarizeObservationContent(observation turnObservation) string {
 	}
 	content := observation.ContentText()
 	switch strings.TrimSpace(observation.Tool) {
-	case "browser.snapshot", "browser.observe":
+	case "browser_snapshot", "browser.observe":
 		return summarizeBrowserSnapshot(content)
-	case "browser.screenshot":
+	case "browser_screenshot":
 		if len(observation.Attachments) > 0 {
 			return "Screenshot captured with attachment evidence."
 		}
 		return summarizeSafeJSONFields(content, []string{"capturedAt", "contentType", "filename", "sizeBytes"})
-	case "file.pick":
+	case "file_pick":
 		if len(observation.Attachments) > 0 {
 			return "User selected a file and it is available as attachment evidence."
 		}
 		return summarizeSafeJSONFields(content, []string{"filename", "sizeBytes", "contentType", "expiresAt"})
-	case "file.read":
+	case "file_read":
 		return summarizeFileReadObservation(observation)
-	case "browser.open":
+	case "browser_open":
 		return summarizeSafeJSONFields(content, []string{"url", "title", "status", "ok"})
-	case "browser.click", "browser.fill", "browser.select", "browser.press", "browser.wait":
+	case "browser_click", "browser_fill", "browser_select", "browser_press", "browser_wait":
 		return summarizeSafeJSONFields(content, []string{"ok", "action", "target", "capturedAt"})
-	case "site.serve":
+	case "site_serve":
 		return summarizeSafeJSONFields(content, []string{"siteID", "slug", "mode", "previewURL", "publishedURL", "sourceSHA256"})
-	case "memory.search", "conversation.history":
+	case "memory_search", "conversation_history":
 		return summarizeCollection(content)
 	default:
 		if observation.Failed() {
@@ -367,7 +367,7 @@ func recentFileContexts(observations []turnObservation) []ProgressFileContext {
 
 func progressFileContextFromObservation(observation turnObservation) (ProgressFileContext, bool) {
 	toolName := strings.TrimSpace(observation.Tool)
-	if (toolName != "file.read" && toolName != "file.preview") || observation.Failed() {
+	if (toolName != "file_read" && toolName != "file_preview") || observation.Failed() {
 		return ProgressFileContext{}, false
 	}
 	payload := map[string]any{}
@@ -379,7 +379,7 @@ func progressFileContextFromObservation(observation turnObservation) (ProgressFi
 	if path == "" {
 		return ProgressFileContext{}, false
 	}
-	if toolName == "file.preview" {
+	if toolName == "file_preview" {
 		return ProgressFileContext{
 			Path:              path,
 			LastObservationID: observation.ObservationID,
@@ -549,7 +549,7 @@ func summarizeStructuredFailure(observation turnObservation) string {
 	return strings.Join(parts, "; ")
 }
 
-// summarizeTerminalRun keeps a terminal.run result diagnosable instead of
+// summarizeTerminalRun keeps a terminal_run result diagnosable instead of
 // collapsing a long build log to a bare "success": it always surfaces the exit
 // code and the tail of stdout and stderr, so warnings like a failed browser
 // render are visible in the task record and to the model.
@@ -578,7 +578,7 @@ func summarizeTerminalRun(observation turnObservation) string {
 }
 
 func summarizeTerminalFailure(observation turnObservation) string {
-	if strings.TrimSpace(observation.Tool) != "terminal.run" {
+	if strings.TrimSpace(observation.Tool) != "terminal_run" {
 		return ""
 	}
 	tail, ok := terminalObservationTail(observation)

@@ -48,7 +48,7 @@ func TestTaskIntakeControllerStartsUnquiesced(t *testing.T) {
 func TestCapabilityToolDescriptorsPreserveResultContracts(t *testing.T) {
 	inputIntentSchema := json.RawMessage(`{"type":"object","properties":{"title":{"type":"string"}},"additionalProperties":false}`)
 	descriptors := capabilityToolDescriptors([]config.CapabilityToolDescriptor{{
-		Name:              "task.add",
+		Name:              "task_add",
 		InputIntentSchema: inputIntentSchema,
 		ResultContract: &config.CapabilityToolResultContract{
 			Schema: json.RawMessage(`{"type":"object","properties":{"taskID":{"type":"string"}},"required":["taskID"],"additionalProperties":false}`),
@@ -397,25 +397,25 @@ Research helper body.
 func TestDeriveAllowedToolNamesByProfileKeepsDomainCapabilitiesOutOfBaseline(t *testing.T) {
 	runtimeConfiguration := config.RuntimeConfiguration{}
 	runtimeConfiguration.AgentProfiles = []config.AgentProfileConfiguration{
-		{Name: "default", AllowedToolNames: []string{"terminal.run"}},
+		{Name: "default", AllowedToolNames: []string{"terminal_run"}},
 	}
-	runtimeConfiguration.Capabilities.ToolDescriptors = []config.CapabilityToolDescriptor{{Name: "site.serve"}}
+	runtimeConfiguration.Capabilities.ToolDescriptors = []config.CapabilityToolDescriptor{{Name: "site_serve"}}
 
 	allowedToolNamesByProfile := deriveAllowedToolNamesByProfile(runtimeConfiguration)
 	defaultProfileToolNames := allowedToolNamesByProfile["default"]
 
-	if containsString(defaultProfileToolNames, "site.serve") {
+	if containsString(defaultProfileToolNames, "site_serve") {
 		t.Fatalf("expected domain capability to stay out of profile baseline, got %+v", defaultProfileToolNames)
 	}
-	for _, expectedToolName := range []string{"terminal.run", "file.deliver", "skill.search", "file.read", "file.write", "file.edit", "file.preview", "image.read"} {
+	for _, expectedToolName := range []string{"terminal_run", "file_deliver", "skill_search", "file_read", "file_write", "file_edit", "file_preview", "image_read"} {
 		if !containsString(defaultProfileToolNames, expectedToolName) {
 			t.Fatalf("expected baseline tool %q, got %+v", expectedToolName, defaultProfileToolNames)
 		}
 	}
-	if containsString(defaultProfileToolNames, "ask.confirm") {
+	if containsString(defaultProfileToolNames, "ask_confirm") {
 		t.Fatalf("expected runtime-owned confirmation to stay out of model tools, got %+v", defaultProfileToolNames)
 	}
-	if containsString(defaultProfileToolNames, "ask.input") {
+	if containsString(defaultProfileToolNames, "ask_input") {
 		t.Fatalf("expected typed user input to stay out of the baseline tools, got %+v", defaultProfileToolNames)
 	}
 }

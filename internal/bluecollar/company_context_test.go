@@ -20,8 +20,8 @@ func TestCompanyContextRendersIdentityAndSelfUpdateRule(t *testing.T) {
 		"Our company:",
 		"주식회사 여명거리 (brand: 김인턴) — AI 인턴을 모든 회사에",
 		"represented by 김여명",
-		"company.info.get",
-		"company.metric.record",
+		"company_info_get",
+		"company_metric_record",
 	} {
 		if !strings.Contains(contextText, expected) {
 			t.Fatalf("company context missing %q in:\n%s", expected, contextText)
@@ -31,7 +31,7 @@ func TestCompanyContextRendersIdentityAndSelfUpdateRule(t *testing.T) {
 
 func TestCompanyContextEmptyStateAdvertisesSchemaAndProactiveAsk(t *testing.T) {
 	contextText := (LLMContextBuilder{}).Build(LLMContextInput{})
-	for _, expected := range []string{"Our company:", "Not registered yet", "company.info.set", "proactively ask"} {
+	for _, expected := range []string{"Our company:", "Not registered yet", "company_info_set", "proactively ask"} {
 		if !strings.Contains(contextText, expected) {
 			t.Fatalf("empty company state missing %q in:\n%s", expected, contextText)
 		}

@@ -5,13 +5,13 @@
     "unixSocketPath": "/run/internkim/capability.sock",
     "timeoutSecond": 15,
     "toolNames": [
-      "browser.open",
-      "user.confirm",
-      "file.pick"
+      "browser_open",
+      "user_confirm",
+      "file_pick"
     ],
     "toolDescriptors": [
       {
-        "name": "browser.open",
+        "name": "browser_open",
         "version": "1",
         "privacyClass": "user_browser",
         "estimatedLatency": "interactive",
@@ -32,7 +32,7 @@
         "sideEffectClass": "browser"
       },
       {
-        "name": "user.confirm",
+        "name": "user_confirm",
         "version": "1",
         "privacyClass": "user_input",
         "estimatedLatency": "interactive",
@@ -57,7 +57,7 @@
         "requiresApproval": true
       },
       {
-        "name": "file.pick",
+        "name": "file_pick",
         "version": "1",
         "privacyClass": "local_file",
         "estimatedLatency": "interactive",

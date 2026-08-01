@@ -500,7 +500,7 @@ func TestSeedGuestConfigRefreshesRuntimeButPreservesPolicy(t *testing.T) {
 	if errorValue := os.MkdirAll(hostConfig, 0o755); errorValue != nil {
 		t.Fatal(errorValue)
 	}
-	writeConfigFile(t, hostConfig, "runtime.json", `{"op":"task.add"}`)
+	writeConfigFile(t, hostConfig, "runtime.json", `{"op":"task_add"}`)
 	writeConfigFile(t, hostConfig, "policy.json", `{"people":["host-stale"]}`)
 
 	guestMount := t.TempDir()
@@ -515,7 +515,7 @@ func TestSeedGuestConfigRefreshesRuntimeButPreservesPolicy(t *testing.T) {
 		t.Fatal(errorValue)
 	}
 
-	if got := readConfigFile(t, guestConfig, "runtime.json"); got != `{"op":"task.add"}` {
+	if got := readConfigFile(t, guestConfig, "runtime.json"); got != `{"op":"task_add"}` {
 		t.Fatalf("runtime.json should be refreshed from host, got %q", got)
 	}
 	if got := readConfigFile(t, guestConfig, "policy.json"); got != `{"people":["guest-live"]}` {

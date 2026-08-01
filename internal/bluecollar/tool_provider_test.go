@@ -24,21 +24,21 @@ func (provider testToolProvider) ListTools(context.Context) ([]toolcontract.Boun
 }
 
 func TestRegisterProviderAddsValidatedTools(t *testing.T) {
-	toolSet := toolcontract.NewToolSet([]string{"task.add"})
+	toolSet := toolcontract.NewToolSet([]string{"task_add"})
 
 	errorValue := toolSet.RegisterProvider(context.Background(), testToolProvider{
 		providerID: "capabilityd",
-		tools:      []toolcontract.BoundTool{validProviderTool("capabilityd/task/task.add", "task", "task.add")},
+		tools:      []toolcontract.BoundTool{validProviderTool("capabilityd/task/task_add", "task", "task_add")},
 	})
 
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
-	toolDescriptor, isFound := toolSet.ToolDefinition("task.add")
+	toolDescriptor, isFound := toolSet.ToolDefinition("task_add")
 	if !isFound {
 		t.Fatal("expected registered tool")
 	}
-	if toolDescriptor.ID != "capabilityd/task/task.add" || toolDescriptor.ProviderID != "capabilityd" {
+	if toolDescriptor.ID != "capabilityd/task/task_add" || toolDescriptor.ProviderID != "capabilityd" {
 		t.Fatalf("unexpected canonical identity: %+v", toolDescriptor)
 	}
 }
@@ -55,7 +55,7 @@ func TestRegisterProviderRequiresValidInputIntentSchemaForVisibleMutation(t *tes
 	}
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			boundTool := validProviderTool("capabilityd/task/task.add", "task", "task.add")
+			boundTool := validProviderTool("capabilityd/task/task_add", "task", "task_add")
 			boundTool.Definition.InputIntentSchema = testCase.inputIntentSchema
 			provider := &testToolProvider{providerID: "capabilityd", tools: []toolcontract.BoundTool{boundTool}}
 
@@ -69,7 +69,7 @@ func TestRegisterProviderRequiresValidInputIntentSchemaForVisibleMutation(t *tes
 }
 
 func TestRegisterProviderPreservesInputIntentSchema(t *testing.T) {
-	boundTool := validProviderTool("capabilityd/task/task.add", "task", "task.add")
+	boundTool := validProviderTool("capabilityd/task/task_add", "task", "task_add")
 	boundTool.Definition.InputSchema = json.RawMessage(`{"type":"object","properties":{"title":{"type":"string"}},"required":["title"],"additionalProperties":false}`)
 	boundTool.Definition.InputIntentSchema = json.RawMessage(`{"type":"object","properties":{"title":{"type":"string"}},"additionalProperties":false}`)
 	provider := &testToolProvider{providerID: "capabilityd", tools: []toolcontract.BoundTool{boundTool}}
@@ -78,17 +78,17 @@ func TestRegisterProviderPreservesInputIntentSchema(t *testing.T) {
 	if errorValue := toolSet.RegisterProvider(context.Background(), provider); errorValue != nil {
 		t.Fatal(errorValue)
 	}
-	descriptor, isFound := toolSet.ToolDefinition("task.add")
+	descriptor, isFound := toolSet.ToolDefinition("task_add")
 	if !isFound || !strings.Contains(string(descriptor.InputIntentSchema), `"title"`) {
 		t.Fatalf("expected canonical input intent schema, got %+v", descriptor)
 	}
 }
 
 func TestRegisterProviderRejectsMissingSchemaAtomically(t *testing.T) {
-	validTool := validProviderTool("capabilityd/task/task.add", "task", "task.add")
-	invalidTool := validProviderTool("capabilityd/task/task.list", "task", "task.list")
+	validTool := validProviderTool("capabilityd/task/task_add", "task", "task_add")
+	invalidTool := validProviderTool("capabilityd/task/task_list", "task", "task_list")
 	invalidTool.Definition.OutputSchema = nil
-	toolSet := toolcontract.NewToolSet([]string{"task.add", "task.list"})
+	toolSet := toolcontract.NewToolSet([]string{"task_add", "task_list"})
 
 	errorValue := toolSet.RegisterProvider(context.Background(), testToolProvider{
 		providerID: "capabilityd",
@@ -129,9 +129,9 @@ func TestRegisterProviderRejectsNonCanonicalToolName(t *testing.T) {
 }
 
 func TestRegisterProviderRejectsModelVisibleToolWithoutResultContract(t *testing.T) {
-	providerTool := validProviderTool("capabilityd/task/task.add", "task", "task.add")
+	providerTool := validProviderTool("capabilityd/task/task_add", "task", "task_add")
 	providerTool.Definition.ResultContract = nil
-	toolSet := toolcontract.NewToolSet([]string{"task.add"})
+	toolSet := toolcontract.NewToolSet([]string{"task_add"})
 
 	errorValue := toolSet.RegisterProvider(context.Background(), testToolProvider{
 		providerID: "capabilityd",
@@ -141,7 +141,7 @@ func TestRegisterProviderRejectsModelVisibleToolWithoutResultContract(t *testing
 	if errorValue == nil || !strings.Contains(errorValue.Error(), "resultContract is required for model-visible tools") {
 		t.Fatalf("expected missing result contract rejection, got %v", errorValue)
 	}
-	if toolSet.IsRegistered("task.add") {
+	if toolSet.IsRegistered("task_add") {
 		t.Fatal("expected rejected provider tool to remain unregistered")
 	}
 }
@@ -188,8 +188,8 @@ func TestRegisterProviderRejectsUnresolvableSchemasAtomically(t *testing.T) {
 	}
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			toolSet := toolcontract.NewToolSet([]string{"task.add"})
-			providerTool := validProviderTool("capabilityd/task/task.add", "task", "task.add")
+			toolSet := toolcontract.NewToolSet([]string{"task_add"})
+			providerTool := validProviderTool("capabilityd/task/task_add", "task", "task_add")
 			providerTool.Definition.ResultContract = &toolcontract.ToolResultContract{
 				Schema: json.RawMessage(`{"type":"object","properties":{},"additionalProperties":false}`),
 			}
@@ -211,8 +211,8 @@ func TestRegisterProviderRejectsUnresolvableSchemasAtomically(t *testing.T) {
 }
 
 func TestRegisterProviderRequiresExplicitlyClosedObjectSchemas(t *testing.T) {
-	toolSet := toolcontract.NewToolSet([]string{"task.add"})
-	providerTool := validProviderTool("capabilityd/task/task.add", "task", "task.add")
+	toolSet := toolcontract.NewToolSet([]string{"task_add"})
+	providerTool := validProviderTool("capabilityd/task/task_add", "task", "task_add")
 	providerTool.Definition.InputSchema = json.RawMessage(`{"type":"object","properties":{"patch":{"type":"object","properties":{}}}}`)
 
 	errorValue := toolSet.RegisterProvider(context.Background(), testToolProvider{providerID: "capabilityd", tools: []toolcontract.BoundTool{providerTool}})
@@ -220,7 +220,7 @@ func TestRegisterProviderRequiresExplicitlyClosedObjectSchemas(t *testing.T) {
 	if errorValue == nil || !strings.Contains(errorValue.Error(), "object schema must explicitly set additionalProperties to false") {
 		t.Fatalf("expected implicitly open schema rejection, got %v", errorValue)
 	}
-	if toolSet.IsRegistered("task.add") {
+	if toolSet.IsRegistered("task_add") {
 		t.Fatal("expected rejected provider tool to remain unregistered")
 	}
 }
@@ -230,8 +230,8 @@ func TestRegisterProviderRejectsOpenObjectSchema(t *testing.T) {
 		json.RawMessage(`{"type":"object","additionalProperties":true}`),
 		json.RawMessage(`{"type":"object","additionalProperties":{}}`),
 	} {
-		toolSet := toolcontract.NewToolSet([]string{"task.add"})
-		providerTool := validProviderTool("capabilityd/task/task.add", "task", "task.add")
+		toolSet := toolcontract.NewToolSet([]string{"task_add"})
+		providerTool := validProviderTool("capabilityd/task/task_add", "task", "task_add")
 		providerTool.Definition.InputSchema = inputSchema
 
 		errorValue := toolSet.RegisterProvider(context.Background(), testToolProvider{providerID: "capabilityd", tools: []toolcontract.BoundTool{providerTool}})
@@ -261,7 +261,7 @@ func TestRegisterProvidersRequiresExplicitlyClosedExternalObjectSchemas(t *testi
 	for _, testCase := range testCases {
 		for _, schemaField := range []string{"input", "output"} {
 			t.Run(testCase.name+"/"+schemaField, func(t *testing.T) {
-				providerTool := validProviderTool("mcp/schema/task.add", "task", "task.add")
+				providerTool := validProviderTool("mcp/schema/task_add", "task", "task_add")
 				providerTool.Definition.OutputSchema = json.RawMessage(`{"type":"object","properties":{},"additionalProperties":false}`)
 				if schemaField == "input" {
 					providerTool.Definition.InputSchema = testCase.schema
@@ -269,7 +269,7 @@ func TestRegisterProvidersRequiresExplicitlyClosedExternalObjectSchemas(t *testi
 					providerTool.Definition.OutputSchema = testCase.schema
 				}
 
-				toolSet := toolcontract.NewToolSet([]string{"task.add"})
+				toolSet := toolcontract.NewToolSet([]string{"task_add"})
 				quarantinedProviders, errorValue := toolSet.RegisterProviders(context.Background(), []toolcontract.ToolProviderRegistration{{
 					Provider: testToolProvider{providerID: "mcp:schema", tools: []toolcontract.BoundTool{providerTool}},
 					Trust:    toolcontract.ToolProviderExternal,
@@ -279,7 +279,7 @@ func TestRegisterProvidersRequiresExplicitlyClosedExternalObjectSchemas(t *testi
 				}
 
 				if testCase.shouldRegister {
-					if len(quarantinedProviders) != 0 || !toolSet.IsRegistered("task.add") {
+					if len(quarantinedProviders) != 0 || !toolSet.IsRegistered("task_add") {
 						t.Fatalf("expected external provider to register, quarantined=%+v", quarantinedProviders)
 					}
 					return
@@ -287,7 +287,7 @@ func TestRegisterProvidersRequiresExplicitlyClosedExternalObjectSchemas(t *testi
 				if len(quarantinedProviders) != 1 || !strings.Contains(quarantinedProviders[0].Reason, "explicitly set additionalProperties to false") {
 					t.Fatalf("expected external provider quarantine, got %+v", quarantinedProviders)
 				}
-				if toolSet.IsRegistered("task.add") {
+				if toolSet.IsRegistered("task_add") {
 					t.Fatal("expected rejected external provider to remain unregistered")
 				}
 			})
@@ -296,8 +296,8 @@ func TestRegisterProvidersRequiresExplicitlyClosedExternalObjectSchemas(t *testi
 }
 
 func TestRegisterProviderRejectsNonObjectOutputSchema(t *testing.T) {
-	toolSet := toolcontract.NewToolSet([]string{"task.add"})
-	providerTool := validProviderTool("capabilityd/task/task.add", "task", "task.add")
+	toolSet := toolcontract.NewToolSet([]string{"task_add"})
+	providerTool := validProviderTool("capabilityd/task/task_add", "task", "task_add")
 	providerTool.Definition.OutputSchema = json.RawMessage(`{"type":"string"}`)
 
 	errorValue := toolSet.RegisterProvider(context.Background(), testToolProvider{providerID: "capabilityd", tools: []toolcontract.BoundTool{providerTool}})
@@ -309,8 +309,8 @@ func TestRegisterProviderRejectsNonObjectOutputSchema(t *testing.T) {
 
 func TestRegisterProviderRequiresIdempotencyScopeWhenSupported(t *testing.T) {
 	for _, idempotency := range []string{toolcontract.ToolIdempotencySupported, toolcontract.ToolIdempotencyRequired} {
-		toolSet := toolcontract.NewToolSet([]string{"task.add"})
-		providerTool := validProviderTool("capabilityd/task/task.add", "task", "task.add")
+		toolSet := toolcontract.NewToolSet([]string{"task_add"})
+		providerTool := validProviderTool("capabilityd/task/task_add", "task", "task_add")
 		providerTool.Definition.Idempotency = idempotency
 
 		errorValue := toolSet.RegisterProvider(context.Background(), testToolProvider{providerID: "capabilityd", tools: []toolcontract.BoundTool{providerTool}})
@@ -322,11 +322,11 @@ func TestRegisterProviderRequiresIdempotencyScopeWhenSupported(t *testing.T) {
 }
 
 func TestRegisterProviderAllowsMissingIdempotencyScopeWhenUnsupported(t *testing.T) {
-	toolSet := toolcontract.NewToolSet([]string{"task.add"})
+	toolSet := toolcontract.NewToolSet([]string{"task_add"})
 
 	errorValue := toolSet.RegisterProvider(context.Background(), testToolProvider{
 		providerID: "capabilityd",
-		tools:      []toolcontract.BoundTool{validProviderTool("capabilityd/task/task.add", "task", "task.add")},
+		tools:      []toolcontract.BoundTool{validProviderTool("capabilityd/task/task_add", "task", "task_add")},
 	})
 
 	if errorValue != nil {
@@ -335,8 +335,8 @@ func TestRegisterProviderAllowsMissingIdempotencyScopeWhenUnsupported(t *testing
 }
 
 func TestRegisterProviderRejectsUnboundResultEffectIdentity(t *testing.T) {
-	toolSet := toolcontract.NewToolSet([]string{"task.add"})
-	providerTool := validProviderTool("capabilityd/task/task.add", "task", "task.add")
+	toolSet := toolcontract.NewToolSet([]string{"task_add"})
+	providerTool := validProviderTool("capabilityd/task/task_add", "task", "task_add")
 	providerTool.Definition.ResultContract = &toolcontract.ToolResultContract{
 		Schema: json.RawMessage(`{"type":"object","properties":{"taskID":{"type":"string"}},"required":["taskID"],"additionalProperties":false}`),
 		Effects: []toolcontract.ResourceEffectContract{{
@@ -355,8 +355,8 @@ func TestRegisterProviderRejectsUnboundResultEffectIdentity(t *testing.T) {
 }
 
 func TestRegisterProviderAcceptsDistinctIdentitiesForOneEffect(t *testing.T) {
-	toolSet := toolcontract.NewToolSet([]string{"site.serve"})
-	providerTool := validProviderTool("capabilityd/site/site.serve", "site", "site.serve")
+	toolSet := toolcontract.NewToolSet([]string{"site_serve"})
+	providerTool := validProviderTool("capabilityd/site/site_serve", "site", "site_serve")
 	providerTool.Definition.ResultContract = &toolcontract.ToolResultContract{
 		Schema: json.RawMessage(`{"type":"object","properties":{"siteID":{"type":"string"},"publishedURL":{"type":"string"}},"required":["siteID","publishedURL"],"additionalProperties":false}`),
 		Effects: []toolcontract.ResourceEffectContract{
@@ -373,7 +373,7 @@ func TestRegisterProviderAcceptsDistinctIdentitiesForOneEffect(t *testing.T) {
 }
 
 func TestRegisterProviderValidatesEvidenceConditionAgainstResultSchema(t *testing.T) {
-	providerTool := validProviderTool("capabilityd/artifact/artifact.review", "artifact", "artifact.review")
+	providerTool := validProviderTool("capabilityd/artifact/artifact_review", "artifact", "artifact_review")
 	providerTool.Definition.ResultContract = &toolcontract.ToolResultContract{
 		Schema: json.RawMessage(`{"type":"object","properties":{"passed":{"type":"boolean"}},"required":["passed"],"additionalProperties":false}`),
 		EvidenceCondition: &toolcontract.EvidenceCondition{
@@ -382,7 +382,7 @@ func TestRegisterProviderValidatesEvidenceConditionAgainstResultSchema(t *testin
 		},
 	}
 
-	errorValue := toolcontract.NewToolSet([]string{"artifact.review"}).RegisterProvider(context.Background(), testToolProvider{
+	errorValue := toolcontract.NewToolSet([]string{"artifact_review"}).RegisterProvider(context.Background(), testToolProvider{
 		providerID: "capabilityd",
 		tools:      []toolcontract.BoundTool{providerTool},
 	})
@@ -393,8 +393,8 @@ func TestRegisterProviderValidatesEvidenceConditionAgainstResultSchema(t *testin
 }
 
 func TestRegisterProviderAcceptsStringArrayResultEffectIdentity(t *testing.T) {
-	toolSet := toolcontract.NewToolSet([]string{"file.edit"})
-	providerTool := validProviderTool("kernel/file.edit", "file", "file.edit")
+	toolSet := toolcontract.NewToolSet([]string{"file_edit"})
+	providerTool := validProviderTool("kernel/file_edit", "file", "file_edit")
 	providerTool.Definition.ResultContract = &toolcontract.ToolResultContract{
 		Schema: json.RawMessage(`{
 			"type":"object",
@@ -426,8 +426,8 @@ func TestRegisterProviderRejectsNoncanonicalStringArrayResultEffectIdentity(t *t
 		json.RawMessage(`{"type":"object","properties":{"paths":{"type":"array","items":{"type":"string"},"minItems":1}},"required":["paths"],"additionalProperties":false}`),
 		json.RawMessage(`{"type":"object","properties":{"paths":{"type":"array","items":{"type":"number"},"minItems":1,"uniqueItems":true}},"required":["paths"],"additionalProperties":false}`),
 	} {
-		toolSet := toolcontract.NewToolSet([]string{"file.edit"})
-		providerTool := validProviderTool("kernel/file.edit", "file", "file.edit")
+		toolSet := toolcontract.NewToolSet([]string{"file_edit"})
+		providerTool := validProviderTool("kernel/file_edit", "file", "file_edit")
 		providerTool.Definition.ResultContract = &toolcontract.ToolResultContract{
 			Schema: schema,
 			Effects: []toolcontract.ResourceEffectContract{{
@@ -480,8 +480,8 @@ func TestToolSetValidatesCanonicalResultContract(t *testing.T) {
 	}
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			toolSet := toolcontract.NewToolSet([]string{"task.add"})
-			boundTool := validProviderTool("capabilityd/task.add", "task", "task.add")
+			toolSet := toolcontract.NewToolSet([]string{"task_add"})
+			boundTool := validProviderTool("capabilityd/task_add", "task", "task_add")
 			boundTool.Definition.ResultContract = &toolcontract.ToolResultContract{
 				Schema: json.RawMessage(`{"type":"object","properties":{"taskID":{"type":"string"}},"required":["taskID"],"additionalProperties":false}`),
 				Effects: []toolcontract.ResourceEffectContract{{
@@ -498,7 +498,7 @@ func TestToolSetValidatesCanonicalResultContract(t *testing.T) {
 				t.Fatal(errorValue)
 			}
 
-			result, errorValue := toolSet.Invoke(context.Background(), toolcontract.ToolInvocation{ToolName: "task.add", Input: json.RawMessage(`{}`)})
+			result, errorValue := toolSet.Invoke(context.Background(), toolcontract.ToolInvocation{ToolName: "task_add", Input: json.RawMessage(`{}`)})
 
 			if errorValue != nil {
 				t.Fatal(errorValue)
@@ -546,8 +546,8 @@ func TestToolSetValidatesEveryArrayEffectIdentity(t *testing.T) {
 	}
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			toolSet := toolcontract.NewToolSet([]string{"file.edit"})
-			boundTool := validProviderTool("kernel/file.edit", "file", "file.edit")
+			toolSet := toolcontract.NewToolSet([]string{"file_edit"})
+			boundTool := validProviderTool("kernel/file_edit", "file", "file_edit")
 			boundTool.Definition.ResultContract = &toolcontract.ToolResultContract{
 				Schema: json.RawMessage(`{
 					"type":"object",
@@ -572,7 +572,7 @@ func TestToolSetValidatesEveryArrayEffectIdentity(t *testing.T) {
 				t.Fatal(errorValue)
 			}
 
-			result, errorValue := toolSet.Invoke(context.Background(), toolcontract.ToolInvocation{ToolName: "file.edit", Input: json.RawMessage(`{}`)})
+			result, errorValue := toolSet.Invoke(context.Background(), toolcontract.ToolInvocation{ToolName: "file_edit", Input: json.RawMessage(`{}`)})
 
 			if errorValue != nil {
 				t.Fatal(errorValue)
@@ -637,7 +637,7 @@ func TestRegisterProviderRejectsCanonicalIdentityAndModelNameCollisions(t *testi
 }
 
 func TestRegisterProvidersQuarantinesOnlyExternalFailure(t *testing.T) {
-	toolSet := toolcontract.NewToolSet([]string{"task.add"})
+	toolSet := toolcontract.NewToolSet([]string{"task_add"})
 	quarantinedProviders, errorValue := toolSet.RegisterProviders(context.Background(), []toolcontract.ToolProviderRegistration{
 		{
 			Provider: testToolProvider{providerID: "broken-mcp", errorValue: errors.New("offline")},
@@ -646,7 +646,7 @@ func TestRegisterProvidersQuarantinesOnlyExternalFailure(t *testing.T) {
 		{
 			Provider: testToolProvider{
 				providerID: "capabilityd",
-				tools:      []toolcontract.BoundTool{validProviderTool("capabilityd/task/task.add", "task", "task.add")},
+				tools:      []toolcontract.BoundTool{validProviderTool("capabilityd/task/task_add", "task", "task_add")},
 			},
 			Trust: toolcontract.ToolProviderTrusted,
 		},
@@ -658,7 +658,7 @@ func TestRegisterProvidersQuarantinesOnlyExternalFailure(t *testing.T) {
 	if len(quarantinedProviders) != 1 || quarantinedProviders[0].ProviderID != "broken-mcp" {
 		t.Fatalf("unexpected quarantine result: %+v", quarantinedProviders)
 	}
-	if !toolSet.IsRegistered("task.add") {
+	if !toolSet.IsRegistered("task_add") {
 		t.Fatal("expected trusted provider to remain available")
 	}
 }
@@ -720,19 +720,19 @@ func TestRegisterProvidersQuarantinesEveryExternalProviderInAModelNameCollision(
 }
 
 func TestRegisterProvidersQuarantinesExternalCollisionWithTrustedTool(t *testing.T) {
-	toolSet := toolcontract.NewToolSet([]string{"task.add"})
+	toolSet := toolcontract.NewToolSet([]string{"task_add"})
 	quarantinedProviders, errorValue := toolSet.RegisterProviders(context.Background(), []toolcontract.ToolProviderRegistration{
 		{
 			Provider: testToolProvider{
 				providerID: "mcp:tasks",
-				tools:      []toolcontract.BoundTool{validProviderTool("mcp/tasks/add", "task", "task.add")},
+				tools:      []toolcontract.BoundTool{validProviderTool("mcp/tasks/add", "task", "task_add")},
 			},
 			Trust: toolcontract.ToolProviderExternal,
 		},
 		{
 			Provider: testToolProvider{
 				providerID: "capabilityd",
-				tools:      []toolcontract.BoundTool{validProviderTool("capabilityd/task/add", "task", "task.add")},
+				tools:      []toolcontract.BoundTool{validProviderTool("capabilityd/task/add", "task", "task_add")},
 			},
 			Trust: toolcontract.ToolProviderTrusted,
 		},
@@ -744,15 +744,15 @@ func TestRegisterProvidersQuarantinesExternalCollisionWithTrustedTool(t *testing
 	if len(quarantinedProviders) != 1 || quarantinedProviders[0].ProviderID != "mcp:tasks" {
 		t.Fatalf("expected only the external provider to be quarantined, got %+v", quarantinedProviders)
 	}
-	descriptor, isFound := toolSet.ToolDefinition("task.add")
+	descriptor, isFound := toolSet.ToolDefinition("task_add")
 	if !isFound || descriptor.ProviderID != "capabilityd" {
 		t.Fatalf("expected the trusted tool to remain registered, got %+v", descriptor)
 	}
 }
 
 func TestRegisterBoundToolRejectsOverwrite(t *testing.T) {
-	toolSet := toolcontract.NewToolSet([]string{"task.add"})
-	firstTool := validProviderTool("capabilityd/task/task.add", "task", "task.add")
+	toolSet := toolcontract.NewToolSet([]string{"task_add"})
+	firstTool := validProviderTool("capabilityd/task/task_add", "task", "task_add")
 	secondTool := firstTool
 
 	if errorValue := toolSet.RegisterBoundTool(firstTool); errorValue != nil {

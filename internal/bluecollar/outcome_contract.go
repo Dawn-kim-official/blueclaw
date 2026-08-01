@@ -39,10 +39,10 @@ func shouldBuildExecutionPlanForConfirmation(request AgentRequest, intakeDecisio
 }
 
 func requestIsNonDestructiveSitePrototypePublish(request AgentRequest, requiredEvidenceTools []string) bool {
-	if !hasAllTools(request.ToolSet, []string{"site.serve"}) {
+	if !hasAllTools(request.ToolSet, []string{"site_serve"}) {
 		return false
 	}
-	if !requiredEvidenceContains(requiredEvidenceTools, "site.serve") && !hasTool(request.ToolSet, "site.serve") {
+	if !requiredEvidenceContains(requiredEvidenceTools, "site_serve") && !hasTool(request.ToolSet, "site_serve") {
 		return false
 	}
 	if !contractRequiresToolNamespace(request.ToolSet, request.ActiveGoal.OutcomeContract, "site") &&
@@ -286,7 +286,7 @@ func filterStaleOutcomeHints(request AgentRequest, executionPlan ExecutionPlan, 
 		if toolIsInNamespace(request.ToolSet, trimmedToolName, "site") && !outcomeAllowsSiteTools(request.ToolSet, executionPlan, hasExecutionPlan, contract) {
 			continue
 		}
-		if trimmedToolName == "artifact.review" && !outcomeAllowsVisualArtifactReview(request, contract) {
+		if trimmedToolName == "artifact_review" && !outcomeAllowsVisualArtifactReview(request, contract) {
 			continue
 		}
 		filteredToolNames = appendUniqueStrings(filteredToolNames, trimmedToolName)
@@ -406,9 +406,9 @@ func outcomeContractRequiresPlatformMessageMaintenance(toolSet *toolcontract.Too
 }
 
 func removePlatformMessageSendContract(contract OutcomeContract) OutcomeContract {
-	contract.RequiredEvidenceTools = removeToolName(contract.RequiredEvidenceTools, "message.send")
-	contract.SelectedEvidenceHints = removeToolName(contract.SelectedEvidenceHints, "message.send")
-	contract.RequiredEvidenceAnyOf = removeToolNameGroups(contract.RequiredEvidenceAnyOf, "message.send")
+	contract.RequiredEvidenceTools = removeToolName(contract.RequiredEvidenceTools, "message_send")
+	contract.SelectedEvidenceHints = removeToolName(contract.SelectedEvidenceHints, "message_send")
+	contract.RequiredEvidenceAnyOf = removeToolNameGroups(contract.RequiredEvidenceAnyOf, "message_send")
 	return contract
 }
 

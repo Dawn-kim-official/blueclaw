@@ -549,7 +549,7 @@ func normalizeWebsiteDeliverableKind(decision TurnDecision) TurnDecision {
 	if decision.DeliverableKind != DeliverableKindWebsite || decisionSuggestsSiteTool(decision) {
 		return decision
 	}
-	decision.InitialToolNames = appendUniqueStrings(decision.InitialToolNames, "site.serve")
+	decision.InitialToolNames = appendUniqueStrings(decision.InitialToolNames, "site_serve")
 	return decision
 }
 
@@ -570,7 +570,7 @@ func normalizeSiteDeliverableFormats(decision TurnDecision) TurnDecision {
 
 func decisionSuggestsSiteTool(decision TurnDecision) bool {
 	for _, toolName := range decision.InitialToolNames {
-		if strings.HasPrefix(strings.TrimSpace(toolName), "site.") {
+		if strings.HasPrefix(strings.TrimSpace(toolName), "site_") {
 			return true
 		}
 	}

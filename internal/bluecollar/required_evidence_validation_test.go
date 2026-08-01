@@ -7,48 +7,48 @@ import (
 )
 
 func TestRequiredEvidenceToolCanBeSatisfiedAcceptsDirectTool(t *testing.T) {
-	toolSet := newTestToolSet([]string{"calendar.add"})
+	toolSet := newTestToolSet([]string{"calendar_add"})
 
-	if !requiredEvidenceToolCanBeSatisfied(toolSet, "calendar.add") {
-		t.Fatal("expected directly callable calendar.add to be satisfiable")
+	if !requiredEvidenceToolCanBeSatisfied(toolSet, "calendar_add") {
+		t.Fatal("expected directly callable calendar_add to be satisfiable")
 	}
 }
 
 func TestRequiredEvidenceToolCanBeSatisfiedAcceptsRegisteredCapabilityOperation(t *testing.T) {
 	toolSet := toolcontract.NewToolSet([]string{toolcontract.TerminalRunToolName})
-	for _, toolName := range []string{toolcontract.TerminalRunToolName, "calendar.add"} {
+	for _, toolName := range []string{toolcontract.TerminalRunToolName, "calendar_add"} {
 		currentToolName := toolName
 		registerTestTool(toolSet, toolcontract.ToolDefinition{Name: currentToolName}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
 			return testToolSuccess("ok"), nil
 		})
 	}
 
-	if !requiredEvidenceToolCanBeSatisfied(toolSet, "calendar.add") {
-		t.Fatal("expected registered capability operation calendar.add to be satisfiable")
+	if !requiredEvidenceToolCanBeSatisfied(toolSet, "calendar_add") {
+		t.Fatal("expected registered capability operation calendar_add to be satisfiable")
 	}
-	if toolSet.IsAllowed("calendar.add") {
-		t.Fatal("expected calendar.add to remain hidden until selected")
+	if toolSet.IsAllowed("calendar_add") {
+		t.Fatal("expected calendar_add to remain hidden until selected")
 	}
 }
 
 func TestRequiredEvidenceToolCanBeSatisfiedRejectsUnavailableTool(t *testing.T) {
 	toolSet := toolcontract.NewToolSet([]string{toolcontract.TerminalRunToolName})
 	toolSet.RegisterBoundTool(toolcontract.BoundTool{
-		Definition:   toolcontract.ToolDefinition{Name: "calendar.add"},
+		Definition:   toolcontract.ToolDefinition{Name: "calendar_add"},
 		Availability: toolcontract.ToolAvailability{Status: toolcontract.ToolAvailabilityDenied},
 		Handler: func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
 			return testToolSuccess("ok"), nil
 		},
 	})
 
-	if requiredEvidenceToolCanBeSatisfied(toolSet, "calendar.add") {
-		t.Fatal("expected an unavailable calendar.add to be unsatisfiable")
+	if requiredEvidenceToolCanBeSatisfied(toolSet, "calendar_add") {
+		t.Fatal("expected an unavailable calendar_add to be unsatisfiable")
 	}
 }
 
 func TestRequiredEvidenceToolCanBeSatisfiedRejectsDisallowedKernelTool(t *testing.T) {
-	toolSet := toolcontract.NewToolSet([]string{"file.write"})
-	for _, toolName := range []string{"file.write", toolcontract.FileDeliverToolName} {
+	toolSet := toolcontract.NewToolSet([]string{"file_write"})
+	for _, toolName := range []string{"file_write", toolcontract.FileDeliverToolName} {
 		registerTestTool(toolSet, toolcontract.ToolDefinition{Name: toolName}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
 			return testToolSuccess("ok"), nil
 		})
@@ -60,26 +60,26 @@ func TestRequiredEvidenceToolCanBeSatisfiedRejectsDisallowedKernelTool(t *testin
 }
 
 func TestRequiredEvidenceToolCanBeSatisfiedRejectsUnregisteredName(t *testing.T) {
-	toolSet := newTestToolSet([]string{"calendar.add", "schedule.create"})
+	toolSet := newTestToolSet([]string{"calendar_add", "schedule_create"})
 
 	if requiredEvidenceToolCanBeSatisfied(toolSet, "calendar.create") {
 		t.Fatal("expected an unregistered tool name to be unsatisfiable")
 	}
-	if !requiredEvidenceToolCanBeSatisfied(toolSet, "schedule.create") {
+	if !requiredEvidenceToolCanBeSatisfied(toolSet, "schedule_create") {
 		t.Fatal("expected a registered tool name to remain satisfiable")
 	}
 }
 
 func TestWorkingSetEvidenceGroupKeepsReadsAndWrites(t *testing.T) {
 	toolSet := newTestToolSetWithDefinitions([]toolcontract.ToolDefinition{
-		{Name: "task.add", Namespace: "task", SideEffectClass: toolcontract.ToolSideEffectStateChange},
-		{Name: "task.list", Namespace: "task", SideEffectClass: toolcontract.ToolSideEffectRead},
-		{Name: "task.update", Namespace: "task", SideEffectClass: toolcontract.ToolSideEffectStateChange},
+		{Name: "task_add", Namespace: "task", SideEffectClass: toolcontract.ToolSideEffectStateChange},
+		{Name: "task_list", Namespace: "task", SideEffectClass: toolcontract.ToolSideEffectRead},
+		{Name: "task_update", Namespace: "task", SideEffectClass: toolcontract.ToolSideEffectStateChange},
 	})
 
-	group := workingSetEvidenceGroup(toolSet, []string{"task.add", "task.list", "task.update", "task.add", "unregistered.operation"})
+	group := workingSetEvidenceGroup(toolSet, []string{"task_add", "task_list", "task_update", "task_add", "unregistered.operation"})
 
-	if len(group) != 3 || !stringSliceContains(group, "task.add") || !stringSliceContains(group, "task.list") || !stringSliceContains(group, "task.update") {
+	if len(group) != 3 || !stringSliceContains(group, "task_add") || !stringSliceContains(group, "task_list") || !stringSliceContains(group, "task_update") {
 		t.Fatalf("expected deduplicated satisfiable tools including reads, got %+v", group)
 	}
 	if stringSliceContains(group, "unregistered.operation") {
@@ -89,7 +89,7 @@ func TestWorkingSetEvidenceGroupKeepsReadsAndWrites(t *testing.T) {
 
 func TestWorkingSetEvidenceGroupEmptyWhenNoCandidatesAreDerivable(t *testing.T) {
 	toolSet := newTestToolSetWithDefinitions([]toolcontract.ToolDefinition{
-		{Name: "task.list", Namespace: "task", SideEffectClass: toolcontract.ToolSideEffectRead},
+		{Name: "task_list", Namespace: "task", SideEffectClass: toolcontract.ToolSideEffectRead},
 	})
 
 	group := workingSetEvidenceGroup(toolSet, []string{"unregistered.operation"})

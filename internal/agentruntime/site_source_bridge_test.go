@@ -9,10 +9,10 @@ import (
 )
 
 func TestSiteToolNeedsSourceBundleOnlyForServe(t *testing.T) {
-	if !siteToolNeedsSourceBundle("site.serve") || !siteToolNeedsSourceBundle(" site.serve ") {
-		t.Fatal("expected site.serve to require a source bundle")
+	if !siteToolNeedsSourceBundle("site_serve") || !siteToolNeedsSourceBundle(" site_serve ") {
+		t.Fatal("expected site_serve to require a source bundle")
 	}
-	for _, toolName := range []string{"site.list", "site.unserve", "file.write", ""} {
+	for _, toolName := range []string{"site_list", "site_unserve", "file_write", ""} {
 		if siteToolNeedsSourceBundle(toolName) {
 			t.Fatalf("expected %q not to require a source bundle", toolName)
 		}

@@ -8,9 +8,9 @@ import "testing"
 
 func TestToolExposureUsesKernelWithoutSelectedSkills(t *testing.T) {
 	toolSet := testToolSet(append(toolcontract.KernelToolNames(),
-		"site.serve",
-		"site.serve",
-		"message.send",
+		"site_serve",
+		"site_serve",
+		"message_send",
 	))
 
 	filteredToolSet, event := toolSetForAgentTurnWithExposure(
@@ -26,12 +26,12 @@ func TestToolExposureUsesKernelWithoutSelectedSkills(t *testing.T) {
 	if got := filteredToolSet.ListToolNames(); !sameStringSet(got, toolcontract.KernelToolNames()) {
 		t.Fatalf("expected fixed kernel tools, got %+v", got)
 	}
-	for _, hiddenToolName := range []string{"site.serve", "site.serve", "message.send"} {
+	for _, hiddenToolName := range []string{"site_serve", "site_serve", "message_send"} {
 		if filteredToolSet.IsAllowed(hiddenToolName) {
 			t.Fatalf("expected non-kernel tool %s to be hidden, got %+v", hiddenToolName, filteredToolSet.ListToolNames())
 		}
 	}
-	for _, kernelToolName := range []string{"file.read", "file.write", "file.edit", "file.preview", "image.read"} {
+	for _, kernelToolName := range []string{"file_read", "file_write", "file_edit", "file_preview", "image_read"} {
 		if !filteredToolSet.IsAllowed(kernelToolName) {
 			t.Fatalf("expected coding kernel tool %s to be exposed, got %+v", kernelToolName, filteredToolSet.ListToolNames())
 		}
@@ -42,9 +42,9 @@ func TestToolExposureUsesKernelWithoutSelectedSkills(t *testing.T) {
 }
 
 func TestToolExposureHidesSkillSearchAfterSelectedInstructionsLoad(t *testing.T) {
-	toolSet := testToolSet(append(toolcontract.KernelToolNames(), "task.add"))
+	toolSet := testToolSet(append(toolcontract.KernelToolNames(), "task_add"))
 	instructionBundle := InstructionBundle{
-		Skills:         []SkillInstruction{{Name: "internkim-flow", ToolReferences: []string{"task.add"}}},
+		Skills:         []SkillInstruction{{Name: "internkim-flow", ToolReferences: []string{"task_add"}}},
 		SkillDecisions: []SkillSelectionDecision{{Name: "internkim-flow", Status: "selected"}},
 	}
 
@@ -59,9 +59,9 @@ func TestToolExposureHidesSkillSearchAfterSelectedInstructionsLoad(t *testing.T)
 	)
 
 	if filteredToolSet.IsAllowed(toolcontract.SkillSearchToolName) {
-		t.Fatalf("expected loaded skill instructions to hide skill.search, got %+v", filteredToolSet.ListToolNames())
+		t.Fatalf("expected loaded skill instructions to hide skill_search, got %+v", filteredToolSet.ListToolNames())
 	}
-	if !filteredToolSet.IsAllowed("task.add") {
+	if !filteredToolSet.IsAllowed("task_add") {
 		t.Fatalf("expected selected skill tool to remain exposed, got %+v", filteredToolSet.ListToolNames())
 	}
 }
@@ -83,7 +83,7 @@ func TestToolExposureKeepsSkillSearchWhenSelectedInstructionIsMissing(t *testing
 	)
 
 	if !filteredToolSet.IsAllowed(toolcontract.SkillSearchToolName) {
-		t.Fatalf("expected unresolved skill discovery to keep skill.search, got %+v", filteredToolSet.ListToolNames())
+		t.Fatalf("expected unresolved skill discovery to keep skill_search, got %+v", filteredToolSet.ListToolNames())
 	}
 }
 
@@ -108,7 +108,7 @@ func TestToolExposureAddsAskInputOnlyForTypedInteraction(t *testing.T) {
 	)
 
 	if !filteredToolSet.IsAllowed(toolcontract.AskInputToolName) {
-		t.Fatalf("expected typed interactive outcome to expose ask.input, got %+v", filteredToolSet.ListToolNames())
+		t.Fatalf("expected typed interactive outcome to expose ask_input, got %+v", filteredToolSet.ListToolNames())
 	}
 }
 
@@ -126,7 +126,7 @@ func TestToolExposureRequiresExplicitSkillSearchForImmediateReply(t *testing.T) 
 		ToolExposureEvent{},
 	)
 	if filteredToolSet.IsAllowed(toolcontract.SkillSearchToolName) {
-		t.Fatalf("expected immediate reply to hide unrequested skill.search, got %+v", filteredToolSet.ListToolNames())
+		t.Fatalf("expected immediate reply to hide unrequested skill_search, got %+v", filteredToolSet.ListToolNames())
 	}
 
 	request.PinnedToolNames = []string{toolcontract.SkillSearchToolName}
@@ -140,31 +140,31 @@ func TestToolExposureRequiresExplicitSkillSearchForImmediateReply(t *testing.T) 
 		ToolExposureEvent{},
 	)
 	if !filteredToolSet.IsAllowed(toolcontract.SkillSearchToolName) {
-		t.Fatalf("expected typed initial tool to expose skill.search, got %+v", filteredToolSet.ListToolNames())
+		t.Fatalf("expected typed initial tool to expose skill_search, got %+v", filteredToolSet.ListToolNames())
 	}
 }
 
 func TestInstructionBundleFromTurnRequestPreservesContractWorkingSet(t *testing.T) {
 	instructionBundle := instructionBundleFromTurnRequest(AgentTurnRequest{
 		ContractToolWorkingSet: ContractToolWorkingSet{
-			RequiredNextTools:     []string{"task.add"},
-			RequiredEvidenceTools: []string{"task.add"},
+			RequiredNextTools:     []string{"task_add"},
+			RequiredEvidenceTools: []string{"task_add"},
 		},
 	})
 
-	if !sameStringSet(instructionBundle.RequiredNextTools, []string{"task.add"}) {
+	if !sameStringSet(instructionBundle.RequiredNextTools, []string{"task_add"}) {
 		t.Fatalf("expected required next tools to survive reconstruction, got %+v", instructionBundle)
 	}
 	if !instructionBundle.HasContractSkillArbitration {
 		t.Fatalf("expected arbitration authority to survive reconstruction, got %+v", instructionBundle)
 	}
-	if !sameStringSet(instructionBundle.RequiredEvidenceTools, []string{"task.add"}) {
+	if !sameStringSet(instructionBundle.RequiredEvidenceTools, []string{"task_add"}) {
 		t.Fatalf("expected arbitrated evidence to survive reconstruction, got %+v", instructionBundle)
 	}
 }
 
 func TestReconstructedEvidenceOnlyArbitrationPreservesEvidenceWorkingSet(t *testing.T) {
-	flowToolNames := []string{"task.add", "task.list", "task.update", "task.delete"}
+	flowToolNames := []string{"task_add", "task_list", "task_update", "task_delete"}
 	toolSet := testToolSet(append(toolcontract.KernelToolNames(), flowToolNames...))
 	request := AgentTurnRequest{
 		ToolSet: toolSet,
@@ -174,9 +174,9 @@ func TestReconstructedEvidenceOnlyArbitrationPreservesEvidenceWorkingSet(t *test
 		}},
 		SkillDecisions: []SkillSelectionDecision{{Name: "internkim-flow", Status: "selected"}},
 		ContractToolWorkingSet: ContractToolWorkingSet{
-			RequiredEvidenceTools: []string{"task.add"},
+			RequiredEvidenceTools: []string{"task_add"},
 		},
-		OutcomeContract: OutcomeContract{RequiredEvidenceTools: []string{"task.add"}},
+		OutcomeContract: OutcomeContract{RequiredEvidenceTools: []string{"task_add"}},
 	}
 
 	filteredToolSet, _ := toolSetForAgentTurnWithExposure(

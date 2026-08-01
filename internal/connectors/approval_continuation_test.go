@@ -20,7 +20,7 @@ func TestPendingApprovalActiveGoalIsActiveAndDirectsExecution(t *testing.T) {
 	if goal.Status != bluecollar.ActiveGoalStatusActive {
 		t.Fatalf("expected active goal status after approval, got %q", goal.Status)
 	}
-	if !strings.Contains(goal.CurrentObjective, "do not call ask.confirm again") {
+	if !strings.Contains(goal.CurrentObjective, "do not call ask_confirm again") {
 		t.Fatalf("expected execution directive in objective, got %q", goal.CurrentObjective)
 	}
 	if !strings.Contains(goal.CurrentObjective, "send Chris a calendar reminder DM") {

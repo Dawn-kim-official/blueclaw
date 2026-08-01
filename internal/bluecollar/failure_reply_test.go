@@ -64,7 +64,7 @@ func TestAgentTurnRunnerRepairsInvalidFailureReply(t *testing.T) {
 		RequesterPersonID:          "person-1",
 		ConversationID:             "conversation-1",
 		Prompt:                     "https://example.com 보고 사업계획서 ppt로 만들어줘",
-		RequiredEvidenceTools:      []string{"file.deliver"},
+		RequiredEvidenceTools:      []string{"file_deliver"},
 		RequiredAttachmentSuffixes: []string{".pptx"},
 		OutcomeContract:            OutcomeContract{ArtifactRequirement: ArtifactRequirementRequired},
 	})
@@ -380,7 +380,7 @@ func TestAgentTurnRunnerUsesLocalRecoveryWhenRemoteAndRecoveryModelsFail(t *test
 func TestAgentTurnRunnerDoesNotUseDeterministicCapabilityFallbackWhenActionModelFails(t *testing.T) {
 	languageModel := failingRecoveryLanguageModel{errorValue: errors.New("structured action unavailable")}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 4})
-	toolRegistry := newTestToolSet([]string{"schedule.list", "file.write", "schedule.create"})
+	toolRegistry := newTestToolSet([]string{"schedule_list", "file_write", "schedule_create"})
 	for _, toolName := range toolRegistry.ListToolNames() {
 		currentToolName := toolName
 		registerTestTool(toolRegistry, toolcontract.ToolDefinition{Name: currentToolName}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
@@ -403,22 +403,22 @@ func TestAgentTurnRunnerDoesNotUseDeterministicCapabilityFallbackWhenActionModel
 	if result.TaskRun.Status != taskstate.TaskStatusFailed || result.ReplySuppressed || !strings.Contains(result.UserNotice, "structured action unavailable") {
 		t.Fatalf("expected raw failed task notice, got status=%s reply=%q suppressed=%v", result.TaskRun.Status, result.UserNotice, result.ReplySuppressed)
 	}
-	if taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.capability_fallback", "schedule.list") {
+	if taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.capability_fallback", "schedule_list") {
 		t.Fatal("expected no deterministic capability fallback event")
 	}
 }
 
 func TestAgentTurnRunnerUsesNaturalCaptchaFailureReply(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"continue","toolName":"browser.snapshot","toolInput":{}}`,
+		`{"action":"continue","toolName":"browser_snapshot","toolInput":{}}`,
 		`{"action":"fail","reason":"blocked_by_captcha"}`,
 		recoveryDecisionDocument("ask for another source or direct access", "explain that automated access was blocked"),
 	}, textResponses: []string{
 		"샘플 님, 날씨를 확인하려고 시도했지만 페이지가 자동화 접근을 막아서 정확한 확인을 끝내지 못했어요. 다른 출처를 주시면 거기서 다시 확인해볼게요.",
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 4})
-	toolRegistry := newTestToolSet([]string{"browser.snapshot"})
-	registerTestTool(toolRegistry, toolcontract.ToolDefinition{Name: "browser.snapshot"}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
+	toolRegistry := newTestToolSet([]string{"browser_snapshot"})
+	registerTestTool(toolRegistry, toolcontract.ToolDefinition{Name: "browser_snapshot"}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
 		return toolcontract.ToolFailureResult(toolcontract.FailureInteractionRequired, toolcontract.FailureCodes.InteractionRequired, "browser_snapshot", "automated access requires user interaction"), nil
 	})
 
@@ -429,7 +429,7 @@ func TestAgentTurnRunnerUsesNaturalCaptchaFailureReply(t *testing.T) {
 		Prompt:                "내일 서울 날씨 검색해줘",
 		ToolSet:               toolRegistry,
 		PinnedToolNames:       toolRegistry.ListToolNames(),
-		RequiredEvidenceTools: []string{"browser.snapshot"},
+		RequiredEvidenceTools: []string{"browser_snapshot"},
 	})
 	if errorValue != nil {
 		t.Fatalf("expected dynamic captcha result, got error: %v", errorValue)
@@ -449,7 +449,7 @@ func TestFailureReportRejectsMissingUsedFailureFacts(t *testing.T) {
 		FailureResolution: failureResolutionFailureReport,
 	}, failureReportFacts{
 		Attempts: []failureReportAttempt{{
-			ToolName:     "schedule.list",
+			ToolName:     "schedule_list",
 			InputSummary: "today",
 			ErrorCode:    toolcontract.FailureCodes.OperationFailed.String(),
 			FailureStage: "schedule_lookup",
@@ -464,15 +464,15 @@ func TestFailureReportRejectsMissingUsedFailureFacts(t *testing.T) {
 
 func TestAgentTurnRunnerPreservesStructuredToolFailure(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"continue","toolName":"message.send","toolInput":{"targetType":"directMessage","personHint":"정국","message":"확인 부탁해"}}`,
-		failureReportDocument("recipient missing", "message.send", "정국", toolcontract.FailureCodes.NotFound.String(), "recipient_resolve", "approved active Mattermost recipient was not found"),
+		`{"action":"continue","toolName":"message_send","toolInput":{"targetType":"directMessage","personHint":"정국","message":"확인 부탁해"}}`,
+		failureReportDocument("recipient missing", "message_send", "정국", toolcontract.FailureCodes.NotFound.String(), "recipient_resolve", "approved active Mattermost recipient was not found"),
 		recoveryDecisionDocument("inspect candidate recipients before retrying", "report the exact failure stage and code"),
 	}, textResponses: []string{
 		"recipient_resolve/not_found 단계에서 수신자를 찾지 못해 DM을 보내지 못했습니다.",
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{RecoveryAttemptLimit: 1, RecoveryBudget: exhaustedRecoveryBudgetForTest()})
-	toolRegistry := newTestCapabilityToolSet([]string{"message.send", "message.context"})
-	registerTestTool(toolRegistry, toolcontract.ToolDefinition{Name: "message.send"}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
+	toolRegistry := newTestCapabilityToolSet([]string{"message_send", "message_context"})
+	registerTestTool(toolRegistry, toolcontract.ToolDefinition{Name: "message_send"}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
 		return structuredFailureToolResult("recipient not found", "approved active Mattermost recipient was not found", "recipient_not_found", "recipient_resolve", false, false), nil
 	})
 
@@ -483,8 +483,8 @@ func TestAgentTurnRunnerPreservesStructuredToolFailure(t *testing.T) {
 		Prompt:                "정국에게 DM 보내줘",
 		ToolSet:               toolRegistry,
 		PinnedToolNames:       toolRegistry.ListToolNames(),
-		RequiredEvidenceTools: []string{"message.send"},
-		OutcomeContract:       OutcomeContract{RequiredEvidenceTools: []string{"message.send"}},
+		RequiredEvidenceTools: []string{"message_send"},
+		OutcomeContract:       OutcomeContract{RequiredEvidenceTools: []string{"message_send"}},
 	})
 	if errorValue != nil {
 		t.Fatalf("expected structured failure result: %v", errorValue)
@@ -493,7 +493,7 @@ func TestAgentTurnRunnerPreservesStructuredToolFailure(t *testing.T) {
 		t.Fatalf("expected structured failure in final reply, got %q", result.UserNotice)
 	}
 	taskEvents := services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID)
-	if !taskEventsContain(taskEvents, "tool.message.send.result", toolcontract.FailureCodes.NotFound.String()) {
+	if !taskEventsContain(taskEvents, "tool.message_send.result", toolcontract.FailureCodes.NotFound.String()) {
 		t.Fatal("expected structured tool failure event")
 	}
 }
@@ -501,15 +501,15 @@ func TestAgentTurnRunnerPreservesStructuredToolFailure(t *testing.T) {
 func TestAgentTurnRunnerDeliversSafeDegradedFailureReplyWithoutStageAndCode(t *testing.T) {
 	languageModel := &sequenceLanguageModel{
 		contents: []string{
-			`{"action":"continue","toolName":"message.send","toolInput":{"targetType":"directMessage","personHint":"정국","message":"확인 부탁해"}}`,
-			failureReportDocument("recipient missing", "message.send", "정국", toolcontract.FailureCodes.NotFound.String(), "recipient_resolve", "approved active Mattermost recipient was not found"),
+			`{"action":"continue","toolName":"message_send","toolInput":{"targetType":"directMessage","personHint":"정국","message":"확인 부탁해"}}`,
+			failureReportDocument("recipient missing", "message_send", "정국", toolcontract.FailureCodes.NotFound.String(), "recipient_resolve", "approved active Mattermost recipient was not found"),
 			recoveryDecisionDocument("inspect candidate recipients before retrying", "report the exact failure stage and code"),
 		},
 		textResponses: []string{"요청을 처리하지 못했습니다."},
 	}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{RecoveryAttemptLimit: 1, RecoveryBudget: exhaustedRecoveryBudgetForTest()})
-	toolRegistry := newTestCapabilityToolSet([]string{"message.send"})
-	registerTestTool(toolRegistry, toolcontract.ToolDefinition{Name: "message.send"}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
+	toolRegistry := newTestCapabilityToolSet([]string{"message_send"})
+	registerTestTool(toolRegistry, toolcontract.ToolDefinition{Name: "message_send"}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
 		return structuredFailureToolResult("recipient not found", "approved active Mattermost recipient was not found", "recipient_not_found", "recipient_resolve", false, false), nil
 	})
 	existingTaskRun := services.taskRunService.CreateTaskRunWithOrigin("person-1", taskstate.TaskRunOrigin{ConversationID: "conversation-1"}, "정국에게 DM 보내줘")
@@ -542,15 +542,15 @@ func TestAgentTurnRunnerAcceptsGeneratedStructuredFailureReplyWithStageAndCode(t
 	generatedReply := "recipient_resolve/not_found 단계에서 수신자를 찾지 못했습니다."
 	languageModel := &sequenceLanguageModel{
 		contents: []string{
-			`{"action":"continue","toolName":"message.send","toolInput":{"targetType":"directMessage","personHint":"정국","message":"확인 부탁해"}}`,
-			failureReportDocument("recipient missing", "message.send", "정국", toolcontract.FailureCodes.NotFound.String(), "recipient_resolve", "approved active Mattermost recipient was not found"),
+			`{"action":"continue","toolName":"message_send","toolInput":{"targetType":"directMessage","personHint":"정국","message":"확인 부탁해"}}`,
+			failureReportDocument("recipient missing", "message_send", "정국", toolcontract.FailureCodes.NotFound.String(), "recipient_resolve", "approved active Mattermost recipient was not found"),
 			recoveryDecisionDocument("inspect candidate recipients before retrying", "report the exact failure stage and code"),
 		},
 		textResponses: []string{generatedReply},
 	}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{RecoveryAttemptLimit: 1, RecoveryBudget: exhaustedRecoveryBudgetForTest()})
-	toolRegistry := newTestCapabilityToolSet([]string{"message.send"})
-	registerTestTool(toolRegistry, toolcontract.ToolDefinition{Name: "message.send"}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
+	toolRegistry := newTestCapabilityToolSet([]string{"message_send"})
+	registerTestTool(toolRegistry, toolcontract.ToolDefinition{Name: "message_send"}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
 		return structuredFailureToolResult("recipient not found", "approved active Mattermost recipient was not found", "recipient_not_found", "recipient_resolve", false, false), nil
 	})
 
@@ -578,13 +578,13 @@ func TestAgentTurnRunnerAcceptsGeneratedStructuredFailureReplyWithStageAndCode(t
 
 func TestLimitFailureNoticePreservesTypedFailureFacts(t *testing.T) {
 	observations := []turnObservation{
-		newFailureObservation("obs-001", "continue", "terminal.run", `{"exitCode":1,"stderr":"mkdir: cannot create directory 'artifacts': Permission denied"}`, toolcontract.FailureExternalService, toolcontract.FailureCodes.OperationFailed, "terminal_run"),
+		newFailureObservation("obs-001", "continue", "terminal_run", `{"exitCode":1,"stderr":"mkdir: cannot create directory 'artifacts': Permission denied"}`, toolcontract.FailureExternalService, toolcontract.FailureCodes.OperationFailed, "terminal_run"),
 	}
 	report := buildFailureReport(AgentTurnRequest{Prompt: "pptx 만들어줘"}, "task-1", "limit", "max_iterations", observations, nil, ExecutionState{}, recoveryDecision{})
 	prompt := buildFailureNoticePrompt(report)
 
 	for _, expectedText := range []string{
-		"terminal.run",
+		"terminal_run",
 		"Permission denied",
 	} {
 		if !strings.Contains(prompt, expectedText) {
@@ -596,12 +596,12 @@ func TestLimitFailureNoticePreservesTypedFailureFacts(t *testing.T) {
 func TestRequiredArtifactFailureNoticeForbidsTextSubstitute(t *testing.T) {
 	request := AgentTurnRequest{
 		Prompt:                     "사업계획서 발표 자료 pptx 만들어줘",
-		RequiredEvidenceTools:      []string{"file.deliver"},
+		RequiredEvidenceTools:      []string{"file_deliver"},
 		RequiredAttachmentSuffixes: []string{".pptx"},
 		OutcomeContract:            OutcomeContract{ArtifactRequirement: ArtifactRequirementRequired},
 	}
 
-	report := buildFailureReport(request, "task-1", "failure", "terminal.run failed", nil, nil, ExecutionState{}, recoveryDecision{})
+	report := buildFailureReport(request, "task-1", "failure", "terminal_run failed", nil, nil, ExecutionState{}, recoveryDecision{})
 	prompt := buildFailureNoticePrompt(report)
 
 	if !strings.Contains(prompt, "Do not offer chat text as a substitute") {

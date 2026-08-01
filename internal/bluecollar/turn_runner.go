@@ -1382,7 +1382,7 @@ func stalledOnRedundantInspection(observations []turnObservation) bool {
 		return false
 	}
 	lastObservation := observations[len(observations)-1]
-	if lastObservation.Action != "policy" || lastObservation.Tool != "file.read" {
+	if lastObservation.Action != "policy" || lastObservation.Tool != "file_read" {
 		return false
 	}
 	document := map[string]any{}
@@ -1394,7 +1394,7 @@ func stalledOnRedundantInspection(observations []turnObservation) bool {
 
 func stalledRecoveryDirectiveObservation(observationID string, failureDebt FailureDebt) turnObservation {
 	failedTool := strings.TrimSpace(failureDebt.LatestFailure.Tool)
-	message := "You are repeating actions without progress while " + failedTool + " is still failing. You already have the information you need. Make one concrete fix now by editing the offending file with file.edit, then re-run " + failedTool + ". Do not read the same content again and do not ask the user how to proceed."
+	message := "You are repeating actions without progress while " + failedTool + " is still failing. You already have the information you need. Make one concrete fix now by editing the offending file with file_edit, then re-run " + failedTool + ". Do not read the same content again and do not ask the user how to proceed."
 	observation := newContentObservation(observationID, "policy", "", marshalEventBody(map[string]string{
 		"directive":           message,
 		"failedTool":          failedTool,

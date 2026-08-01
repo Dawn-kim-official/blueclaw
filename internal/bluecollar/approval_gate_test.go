@@ -12,7 +12,7 @@ import (
 func TestTerminalRunModelApprovalPausesBeforeExecution(t *testing.T) {
 	terminalInput := `{"command":"publish-release","approvalRequired":true,"approvalReason":"This command publishes the release."}`
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"continue","toolName":"terminal.run","toolInput":` + terminalInput + `}`,
+		`{"action":"continue","toolName":"terminal_run","toolInput":` + terminalInput + `}`,
 		`{"question":"릴리스를 게시할까요?"}`,
 		finishMessageDocument("릴리스를 게시했습니다."),
 	}}
@@ -66,32 +66,32 @@ func TestIsApprovedHeldCallVerbatimMatch(t *testing.T) {
 	}{
 		{
 			name:                "exact tool and input matches",
-			approvedHeldCallKey: canonicalToolCallKey("task.delete", []byte(`{"taskID":"task-A"}`)),
-			actionDocument:      turnActionDocument{ToolName: "task.delete", ToolInput: []byte(`{"taskID":"task-A"}`)},
+			approvedHeldCallKey: canonicalToolCallKey("task_delete", []byte(`{"taskID":"task-A"}`)),
+			actionDocument:      turnActionDocument{ToolName: "task_delete", ToolInput: []byte(`{"taskID":"task-A"}`)},
 			expectMatch:         true,
 		},
 		{
 			name:                "same tool with different input does not match",
-			approvedHeldCallKey: canonicalToolCallKey("task.delete", []byte(`{"taskID":"task-A"}`)),
-			actionDocument:      turnActionDocument{ToolName: "task.delete", ToolInput: []byte(`{"taskID":"task-B"}`)},
+			approvedHeldCallKey: canonicalToolCallKey("task_delete", []byte(`{"taskID":"task-A"}`)),
+			actionDocument:      turnActionDocument{ToolName: "task_delete", ToolInput: []byte(`{"taskID":"task-B"}`)},
 			expectMatch:         false,
 		},
 		{
 			name:                "different tool with the same input does not match",
-			approvedHeldCallKey: canonicalToolCallKey("task.delete", []byte(`{"taskID":"task-A"}`)),
-			actionDocument:      turnActionDocument{ToolName: "message.delete", ToolInput: []byte(`{"taskID":"task-A"}`)},
+			approvedHeldCallKey: canonicalToolCallKey("task_delete", []byte(`{"taskID":"task-A"}`)),
+			actionDocument:      turnActionDocument{ToolName: "message_delete", ToolInput: []byte(`{"taskID":"task-A"}`)},
 			expectMatch:         false,
 		},
 		{
 			name:                "consumed grant never matches",
 			approvedHeldCallKey: "",
-			actionDocument:      turnActionDocument{ToolName: "task.delete", ToolInput: []byte(`{"taskID":"task-A"}`)},
+			actionDocument:      turnActionDocument{ToolName: "task_delete", ToolInput: []byte(`{"taskID":"task-A"}`)},
 			expectMatch:         false,
 		},
 		{
 			name:                "key ignores unrelated json field ordering",
-			approvedHeldCallKey: canonicalToolCallKey("task.delete", []byte(`{"taskID":"task-A","reason":"cleanup"}`)),
-			actionDocument:      turnActionDocument{ToolName: "task.delete", ToolInput: []byte(`{"reason":"cleanup","taskID":"task-A"}`)},
+			approvedHeldCallKey: canonicalToolCallKey("task_delete", []byte(`{"taskID":"task-A","reason":"cleanup"}`)),
+			actionDocument:      turnActionDocument{ToolName: "task_delete", ToolInput: []byte(`{"reason":"cleanup","taskID":"task-A"}`)},
 			expectMatch:         true,
 		},
 	}
@@ -107,13 +107,13 @@ func TestIsApprovedHeldCallVerbatimMatch(t *testing.T) {
 func TestExecuteApprovedHeldCallConsumesGrantAfterVerbatimExecution(t *testing.T) {
 	heldInput := `{"taskID":"task-A"}`
 	languageModel := &sequenceLanguageModel{contents: []string{
-		directToolAction("continue", "", "task.delete", heldInput),
+		directToolAction("continue", "", "task_delete", heldInput),
 		`{"question":"task-A를 삭제할까요?"}`,
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 4})
-	toolRegistry := newTestCapabilityToolSet([]string{"task.delete"})
+	toolRegistry := newTestCapabilityToolSet([]string{"task_delete"})
 	invokedInputs := []string{}
-	registerTestTool(toolRegistry, toolcontract.ToolDefinition{Name: "task.delete", RequiresApproval: true}, func(_ context.Context, invocation toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
+	registerTestTool(toolRegistry, toolcontract.ToolDefinition{Name: "task_delete", RequiresApproval: true}, func(_ context.Context, invocation toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
 		invokedInputs = append(invokedInputs, string(invocation.Input))
 		return testToolSuccess(`{"status":"deleted"}`), nil
 	})
@@ -124,7 +124,7 @@ func TestExecuteApprovedHeldCallConsumesGrantAfterVerbatimExecution(t *testing.T
 		Prompt:            "task-A 삭제해줘",
 		ResponseLanguage:  ResponseLanguageKorean,
 		ToolSet:           toolRegistry,
-		PinnedToolNames:   []string{"task.delete"},
+		PinnedToolNames:   []string{"task_delete"},
 		WorkspaceRootPath: t.TempDir(),
 	})
 	if errorValue != nil {
@@ -143,7 +143,7 @@ func TestExecuteApprovedHeldCallConsumesGrantAfterVerbatimExecution(t *testing.T
 		IsApprovalContinuation: true,
 		ConversationID:         "conversation-1",
 		ToolSet:                toolRegistry,
-		PinnedToolNames:        []string{"task.delete"},
+		PinnedToolNames:        []string{"task_delete"},
 		WorkspaceRootPath:      t.TempDir(),
 	}
 	state := buildInitialAgentTaskState(continuationRequest, TurnOptions{}, firstResult.TaskRun.TaskRunID)
@@ -164,20 +164,20 @@ func TestExecuteApprovedHeldCallConsumesGrantAfterVerbatimExecution(t *testing.T
 
 func TestApprovalContinuationKeepsPrePauseObservations(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"continue","toolName":"message.search","toolInput":{"queries":["고객지원 월간회의"]}}`,
-		`{"action":"continue","toolName":"message.delete","toolInput":{"messageIDs":["message-1"]}}`,
+		`{"action":"continue","toolName":"message_search","toolInput":{"queries":["고객지원 월간회의"]}}`,
+		`{"action":"continue","toolName":"message_delete","toolInput":{"messageIDs":["message-1"]}}`,
 		`{"question":"메모를 삭제할까요?"}`,
 		finishMessageDocument("메모를 삭제했습니다."),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 6})
-	toolRegistry := newTestCapabilityToolSet([]string{"message.search", "message.delete"})
+	toolRegistry := newTestCapabilityToolSet([]string{"message_search", "message_delete"})
 	searchCallCount := 0
-	registerTestTool(toolRegistry, toolcontract.ToolDefinition{Name: "message.search"}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
+	registerTestTool(toolRegistry, toolcontract.ToolDefinition{Name: "message_search"}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
 		searchCallCount++
 		return testToolSuccess(`{"messageIDs":["message-1"]}`), nil
 	})
 	deleteCallCount := 0
-	registerTestTool(toolRegistry, toolcontract.ToolDefinition{Name: "message.delete", RequiresApproval: true}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
+	registerTestTool(toolRegistry, toolcontract.ToolDefinition{Name: "message_delete", RequiresApproval: true}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
 		deleteCallCount++
 		return testToolSuccess(`{"deletedMessageIDs":["message-1"]}`), nil
 	})
@@ -189,7 +189,7 @@ func TestApprovalContinuationKeepsPrePauseObservations(t *testing.T) {
 		ResponseLanguage:      ResponseLanguageKorean,
 		ToolSet:               toolRegistry,
 		PinnedToolNames:       toolRegistry.ListToolNames(),
-		RequiredEvidenceTools: []string{"message.search", "message.delete"},
+		RequiredEvidenceTools: []string{"message_search", "message_delete"},
 		WorkspaceRootPath:     t.TempDir(),
 	})
 	if errorValue != nil {
@@ -211,7 +211,7 @@ func TestApprovalContinuationKeepsPrePauseObservations(t *testing.T) {
 		ResponseLanguage:       ResponseLanguageKorean,
 		ToolSet:                toolRegistry,
 		PinnedToolNames:        toolRegistry.ListToolNames(),
-		RequiredEvidenceTools:  []string{"message.search", "message.delete"},
+		RequiredEvidenceTools:  []string{"message_search", "message_delete"},
 		WorkspaceRootPath:      t.TempDir(),
 	})
 	if errorValue != nil {
@@ -226,20 +226,20 @@ func TestApprovalContinuationKeepsPrePauseObservations(t *testing.T) {
 }
 
 func TestCurrentThreadSendSkipsRuntimeApproval(t *testing.T) {
-	sendDefinition := testToolDescriptor("message.send")
+	sendDefinition := testToolDescriptor("message_send")
 	sendDefinition.RequiresApproval = true
 	sendDefinition.SideEffectClass = toolcontract.ToolSideEffectExternalSend
 	toolSet := newTestToolSetWithDefinitions([]toolcontract.ToolDefinition{sendDefinition})
 
-	currentThreadCall := turnActionDocument{ToolName: "message.send", ToolInput: json.RawMessage(`{"targetType":"currentThread","message":"요약"}`)}
+	currentThreadCall := turnActionDocument{ToolName: "message_send", ToolInput: json.RawMessage(`{"targetType":"currentThread","message":"요약"}`)}
 	if toolCallRequiresRuntimeApproval(toolSet, currentThreadCall) {
 		t.Fatal("expected a current-thread send to run without approval, like a reply")
 	}
-	currentChannelCall := turnActionDocument{ToolName: "message.send", ToolInput: json.RawMessage(`{"targetType":"currentChannel","message":"메모"}`)}
+	currentChannelCall := turnActionDocument{ToolName: "message_send", ToolInput: json.RawMessage(`{"targetType":"currentChannel","message":"메모"}`)}
 	if toolCallRequiresRuntimeApproval(toolSet, currentChannelCall) {
 		t.Fatal("expected a current-channel send to run without approval, like a reply")
 	}
-	directMessageCall := turnActionDocument{ToolName: "message.send", ToolInput: json.RawMessage(`{"targetType":"directMessage","personHint":"테스트","message":"안내"}`)}
+	directMessageCall := turnActionDocument{ToolName: "message_send", ToolInput: json.RawMessage(`{"targetType":"directMessage","personHint":"테스트","message":"안내"}`)}
 	if !toolCallRequiresRuntimeApproval(toolSet, directMessageCall) {
 		t.Fatal("expected an external send to keep requiring approval")
 	}

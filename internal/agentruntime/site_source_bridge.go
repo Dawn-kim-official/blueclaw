@@ -16,7 +16,7 @@ import (
 const siteSourceBundleMaximumBytes = 64 * 1024 * 1024
 
 func siteToolNeedsSourceBundle(toolName string) bool {
-	return strings.TrimSpace(toolName) == "site.serve"
+	return strings.TrimSpace(toolName) == "site_serve"
 }
 
 func siteSourceBundleExcludeNames() []string {

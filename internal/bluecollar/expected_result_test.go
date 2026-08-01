@@ -38,7 +38,7 @@ func TestCanonicalExpectedResultURLsUseValidatedEffects(t *testing.T) {
 }
 
 func TestCanonicalExpectedResultURLsPreferRequiredEffectIdentity(t *testing.T) {
-	searchDefinition := canonicalLinkToolDefinition("web.search")
+	searchDefinition := canonicalLinkToolDefinition("web_search")
 	searchDefinition.ResultContract.Effects[0].ObjectType = "reference"
 	searchDefinition.ResultContract.Effects[0].Effect = "found"
 	searchResult := canonicalLinkToolResult("https://reference.example")
@@ -46,14 +46,14 @@ func TestCanonicalExpectedResultURLsPreferRequiredEffectIdentity(t *testing.T) {
 	searchResult.Effects[0].Effect = "found"
 	searchObservation := turnObservation{
 		ObservationID: "obs-001",
-		Tool:          "web.search",
+		Tool:          "web_search",
 		Output:        searchResult.Output,
 		Effects:       searchResult.Effects,
 	}
-	publishToolSet, publishObservation := canonicalLinkObservation("site.serve", "https://portfolio.example")
+	publishToolSet, publishObservation := canonicalLinkObservation("site_serve", "https://portfolio.example")
 	toolSet := newTestToolSetWithDefinitions([]toolcontract.ToolDefinition{
 		searchDefinition,
-		mustToolDefinition(t, publishToolSet, "site.serve"),
+		mustToolDefinition(t, publishToolSet, "site_serve"),
 	})
 	request := AgentTurnRequest{
 		ToolSet: toolSet,
@@ -69,7 +69,7 @@ func TestCanonicalExpectedResultURLsPreferRequiredEffectIdentity(t *testing.T) {
 }
 
 func TestExpectedResultDeliveryRequiresExactCanonicalURL(t *testing.T) {
-	toolSet, observation := canonicalLinkObservation("site.serve", "https://portfolio.example")
+	toolSet, observation := canonicalLinkObservation("site_serve", "https://portfolio.example")
 	request := AgentTurnRequest{
 		ToolSet: toolSet,
 		OutcomeContract: OutcomeContract{
@@ -158,14 +158,14 @@ func finishDocument(message string) turnActionDocument {
 }
 
 func TestLinkExpectationWithoutLinkCapableToolDoesNotHardBlock(t *testing.T) {
-	toolSet := newTestToolSet([]string{"task.list"})
+	toolSet := newTestToolSet([]string{"task_list"})
 	expectation := ExpectedResult{Type: ExpectedResultTypeLink, Required: true}
 
 	if message := missingExpectedResultDelivery(expectation, toolSet, nil, nil, "Here are the results."); message != "" {
 		t.Fatalf("expected an unsatisfiable link expectation to defer to the judge, got %q", message)
 	}
 
-	linkToolSet := newTestToolSetWithDefinitions([]toolcontract.ToolDefinition{canonicalLinkToolDefinition("site.serve")})
+	linkToolSet := newTestToolSetWithDefinitions([]toolcontract.ToolDefinition{canonicalLinkToolDefinition("site_serve")})
 	if message := missingExpectedResultDelivery(expectation, linkToolSet, nil, nil, "Created it."); message == "" {
 		t.Fatal("expected a link-capable working set to keep requiring the canonical link")
 	}

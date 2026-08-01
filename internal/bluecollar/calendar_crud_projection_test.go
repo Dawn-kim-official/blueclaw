@@ -8,9 +8,9 @@ import "testing"
 
 func TestCalendarFullCrudFinishIsBackedByObservedFacts(t *testing.T) {
 	goalSatisfied := true
-	addDescriptor, addObservation := calendarEffectObservation("calendar.add", "scheduled")
-	updateDescriptor, updateObservation := calendarEffectObservation("calendar.update", "updated")
-	deleteDescriptor, deleteObservation := calendarEffectObservation("calendar.delete", "deleted")
+	addDescriptor, addObservation := calendarEffectObservation("calendar_add", "scheduled")
+	updateDescriptor, updateObservation := calendarEffectObservation("calendar_update", "updated")
+	deleteDescriptor, deleteObservation := calendarEffectObservation("calendar_delete", "deleted")
 	projection := buildObservedResultProjection(
 		AgentTurnRequest{
 			ToolSet: newTestToolSetWithDefinitions([]toolcontract.ToolDefinition{addDescriptor, updateDescriptor, deleteDescriptor}),

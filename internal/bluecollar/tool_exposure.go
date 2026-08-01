@@ -289,7 +289,7 @@ func exhaustedRecoveryToolNames(observations []turnObservation) map[string]bool 
 	exhaustedToolNames := map[string]bool{}
 	for _, observation := range observations {
 		if observationLooksLikeFileReadRepeat(observation) {
-			exhaustedToolNames["file.read"] = true
+			exhaustedToolNames["file_read"] = true
 			continue
 		}
 		if !observationLooksLikeRecoveryBudgetExhausted(observation) {
@@ -304,7 +304,7 @@ func exhaustedRecoveryToolNames(observations []turnObservation) map[string]bool 
 }
 
 func observationLooksLikeFileReadRepeat(observation turnObservation) bool {
-	return strings.TrimSpace(observation.Tool) == "file.read" &&
+	return strings.TrimSpace(observation.Tool) == "file_read" &&
 		observation.Failure != nil &&
 		strings.TrimSpace(observation.Failure.Stage) == "file_read_repeat"
 }

@@ -52,10 +52,10 @@ func TestCapabilityToolProviderRegistersCanonicalDescriptor(t *testing.T) {
 		toolCatalogBuilder: NewToolCatalogBuilder(),
 		request:            ToolCatalogRequest{},
 		descriptors: []CapabilityToolDescriptor{{
-			Name:              "task.add",
-			CanonicalName:     "task.add",
+			Name:              "task_add",
+			CanonicalName:     "task_add",
 			Namespace:         "task",
-			ModelName:         "task.add",
+			ModelName:         "task_add",
 			ModelVisibility:   toolcontract.ToolVisibilityModel,
 			Description:       "Create a task.",
 			PrivacyClass:      "workspace_task",
@@ -69,23 +69,23 @@ func TestCapabilityToolProviderRegistersCanonicalDescriptor(t *testing.T) {
 					Equals:      json.RawMessage(`"task-1"`),
 				},
 			},
-			PolicyResource:     "tool:task.add",
+			PolicyResource:     "tool:task_add",
 			SideEffectClass:    toolcontract.ToolSideEffectWorkspaceWrite,
 			CompletionEvidence: &CapabilityCompletionEvidence{Mode: "success", Action: "write_task", TargetKind: "task"},
 			Availability:       CapabilityAvailability{State: "ok"},
 			Idempotency:        CapabilityIdempotency{Scope: "operation"},
 		}},
 	}
-	toolSet := toolcontract.NewToolSet([]string{"task.add"})
+	toolSet := toolcontract.NewToolSet([]string{"task_add"})
 
 	if errorValue := toolSet.RegisterProvider(context.Background(), provider); errorValue != nil {
 		t.Fatal(errorValue)
 	}
-	descriptor, isFound := toolSet.ToolDefinition("task.add")
+	descriptor, isFound := toolSet.ToolDefinition("task_add")
 	if !isFound {
-		t.Fatal("expected task.add")
+		t.Fatal("expected task_add")
 	}
-	if descriptor.ID != "capabilityd/task.add" || descriptor.ProviderID != "capabilityd" || descriptor.Completion.Mode != toolcontract.ToolCompletionObservation || descriptor.IdempotencyScope != "operation" {
+	if descriptor.ID != "capabilityd/task_add" || descriptor.ProviderID != "capabilityd" || descriptor.Completion.Mode != toolcontract.ToolCompletionObservation || descriptor.IdempotencyScope != "operation" {
 		t.Fatalf("unexpected descriptor: %+v", descriptor)
 	}
 	if descriptor.ResultContract == nil || descriptor.ResultContract.EvidenceCondition == nil ||
@@ -102,14 +102,14 @@ func TestCapabilityToolProviderPreservesCanonicalReadResultContract(t *testing.T
 	provider := capabilityToolProvider{
 		toolCatalogBuilder: NewToolCatalogBuilder(),
 		request:            ToolCatalogRequest{},
-		descriptors:        []CapabilityToolDescriptor{canonicalReadDescriptor("document.read")},
+		descriptors:        []CapabilityToolDescriptor{canonicalReadDescriptor("document_read")},
 	}
-	toolSet := toolcontract.NewToolSet([]string{"document.read"})
+	toolSet := toolcontract.NewToolSet([]string{"document_read"})
 
 	if errorValue := toolSet.RegisterProvider(context.Background(), provider); errorValue != nil {
 		t.Fatal(errorValue)
 	}
-	descriptor, isFound := toolSet.ToolDefinition("document.read")
+	descriptor, isFound := toolSet.ToolDefinition("document_read")
 	if !isFound || descriptor.ResultContract == nil {
 		t.Fatalf("expected canonical read result contract, found=%v descriptor=%+v", isFound, descriptor)
 	}
@@ -124,7 +124,7 @@ func TestCapabilityToolProviderPreservesCanonicalReadResultContract(t *testing.T
 func TestCapabilityToolProviderRejectsIncompleteDescriptor(t *testing.T) {
 	provider := capabilityToolProvider{
 		toolCatalogBuilder: NewToolCatalogBuilder(),
-		descriptors:        []CapabilityToolDescriptor{{Name: "task.add"}},
+		descriptors:        []CapabilityToolDescriptor{{Name: "task_add"}},
 	}
 
 	errorValue := toolcontract.NewToolSet(nil).RegisterProvider(context.Background(), provider)
@@ -145,7 +145,7 @@ func TestCapabilityToolProviderRejectsMissingOrMalformedStateChangingInputIntent
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
 			descriptor := completeTestCapabilityToolDescriptor(CapabilityToolDescriptor{
-				Name:            "task.add",
+				Name:            "task_add",
 				SideEffectClass: toolcontract.ToolSideEffectStateChange,
 			})
 			descriptor.InputIntentSchema = testCase.inputIntentSchema
@@ -160,20 +160,20 @@ func TestCapabilityToolProviderRejectsMissingOrMalformedStateChangingInputIntent
 }
 
 func TestCapabilityToolProviderRejectsModelVisibleDescriptorWithoutResultContract(t *testing.T) {
-	descriptor := completeTestCapabilityToolDescriptor(CapabilityToolDescriptor{Name: "task.add"})
+	descriptor := completeTestCapabilityToolDescriptor(CapabilityToolDescriptor{Name: "task_add"})
 	descriptor.ResultContract = nil
 	provider := capabilityToolProvider{
 		toolCatalogBuilder: NewToolCatalogBuilder(),
 		descriptors:        []CapabilityToolDescriptor{descriptor},
 	}
-	toolSet := toolcontract.NewToolSet([]string{"task.add"})
+	toolSet := toolcontract.NewToolSet([]string{"task_add"})
 
 	errorValue := toolSet.RegisterProvider(context.Background(), provider)
 
 	if errorValue == nil || !strings.Contains(errorValue.Error(), "resultContract is required for model-visible tools") {
 		t.Fatalf("expected missing result contract rejection, got %v", errorValue)
 	}
-	if toolSet.IsRegistered("task.add") {
+	if toolSet.IsRegistered("task_add") {
 		t.Fatal("expected rejected capability descriptor to remain unregistered")
 	}
 }
@@ -197,7 +197,7 @@ func TestCapabilityToolProviderAllowsHiddenDescriptorWithoutResultContract(t *te
 }
 
 func TestCapabilityToolProviderRejectsMissingIdempotencyScopeWhenSupported(t *testing.T) {
-	descriptor := completeTestCapabilityToolDescriptor(CapabilityToolDescriptor{Name: "task.add"})
+	descriptor := completeTestCapabilityToolDescriptor(CapabilityToolDescriptor{Name: "task_add"})
 	descriptor.Idempotency = CapabilityIdempotency{Supported: true}
 	provider := capabilityToolProvider{
 		toolCatalogBuilder: NewToolCatalogBuilder(),
@@ -212,25 +212,25 @@ func TestCapabilityToolProviderRejectsMissingIdempotencyScopeWhenSupported(t *te
 }
 
 func TestCapabilityToolProviderAllowsMissingIdempotencyScopeWhenIdempotencyIsNone(t *testing.T) {
-	descriptor := completeTestCapabilityToolDescriptor(CapabilityToolDescriptor{Name: "task.add"})
+	descriptor := completeTestCapabilityToolDescriptor(CapabilityToolDescriptor{Name: "task_add"})
 	descriptor.Idempotency = CapabilityIdempotency{}
 	provider := capabilityToolProvider{
 		toolCatalogBuilder: NewToolCatalogBuilder(),
 		descriptors:        []CapabilityToolDescriptor{descriptor},
 	}
-	toolSet := toolcontract.NewToolSet([]string{"task.add"})
+	toolSet := toolcontract.NewToolSet([]string{"task_add"})
 
 	if errorValue := toolSet.RegisterProvider(context.Background(), provider); errorValue != nil {
 		t.Fatal(errorValue)
 	}
-	descriptorDefinition, isFound := toolSet.ToolDefinition("task.add")
+	descriptorDefinition, isFound := toolSet.ToolDefinition("task_add")
 	if !isFound || descriptorDefinition.Idempotency != toolcontract.ToolIdempotencyNone || descriptorDefinition.IdempotencyScope != "" {
 		t.Fatalf("expected registered tool with no idempotency scope, got %+v", descriptorDefinition)
 	}
 }
 
 func TestCapabilityToolProviderRejectsScalarSchema(t *testing.T) {
-	descriptor := completeTestCapabilityToolDescriptor(CapabilityToolDescriptor{Name: "task.add"})
+	descriptor := completeTestCapabilityToolDescriptor(CapabilityToolDescriptor{Name: "task_add"})
 	descriptor.InputSchema = json.RawMessage(`{"type":"string"}`)
 	provider := capabilityToolProvider{
 		toolCatalogBuilder: NewToolCatalogBuilder(),
@@ -251,7 +251,7 @@ func TestToolCatalogReportsEveryCapabilityQuarantine(t *testing.T) {
 		reportedProviders = append(reportedProviders, quarantinedProvider)
 	})
 	expectedProviders := []toolcontract.QuarantinedToolProvider{
-		{ProviderID: "capabilityd", Reason: "tool name collides with a trusted provider: file.read"},
+		{ProviderID: "capabilityd", Reason: "tool name collides with a trusted provider: file_read"},
 	}
 
 	toolCatalogBuilder.reportCapabilityQuarantines(expectedProviders)
@@ -262,7 +262,7 @@ func TestToolCatalogReportsEveryCapabilityQuarantine(t *testing.T) {
 }
 
 func TestCapabilityToolProviderRejectsUnknownCompletionEvidenceMode(t *testing.T) {
-	descriptor := completeTestCapabilityToolDescriptor(CapabilityToolDescriptor{Name: "task.add"})
+	descriptor := completeTestCapabilityToolDescriptor(CapabilityToolDescriptor{Name: "task_add"})
 	descriptor.CompletionEvidence = &CapabilityCompletionEvidence{Mode: "unknown"}
 	provider := capabilityToolProvider{
 		toolCatalogBuilder: NewToolCatalogBuilder(),

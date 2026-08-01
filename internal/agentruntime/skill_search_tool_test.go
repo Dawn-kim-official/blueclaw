@@ -106,7 +106,7 @@ func TestSkillSearchNameModeReturnsCanonicalPromptMetadata(t *testing.T) {
 		Name:           "site-prototype",
 		Description:    "Create sites.",
 		Prompt:         longPrompt,
-		ToolReferences: []string{"file.read"},
+		ToolReferences: []string{"file_read"},
 		Source:         bluecollar.InstructionSource{Path: "/host/private/workspace/skills/site-prototype/SKILL.md"},
 	}})
 
@@ -119,7 +119,7 @@ func TestSkillSearchNameModeReturnsCanonicalPromptMetadata(t *testing.T) {
 	if len([]rune(skill.Prompt)) != maximumSkillSearchPromptLength || skill.PromptTruncated == nil || !*skill.PromptTruncated {
 		t.Fatalf("expected explicit prompt truncation metadata, got promptRunes=%d item=%+v", len([]rune(skill.Prompt)), skill)
 	}
-	if strings.Contains(skill.Prompt, "skill.search truncated") {
+	if strings.Contains(skill.Prompt, "skill_search truncated") {
 		t.Fatalf("expected prompt without prose suffix, got %q", skill.Prompt)
 	}
 	if skill.SourcePath != "/workspace/skills/site-prototype/SKILL.md" {
@@ -160,7 +160,7 @@ func TestSkillSearchRejectsConflictingAndMalformedInputs(t *testing.T) {
 
 func TestSkillSearchFiltersUnavailableToolReferencesBeforeEveryMode(t *testing.T) {
 	instructions := []bluecollar.SkillInstruction{
-		{Name: "available", Description: "Available skill.", ToolReferences: []string{"file.read"}},
+		{Name: "available", Description: "Available skill.", ToolReferences: []string{"file_read"}},
 		{Name: "unavailable", Description: "Unavailable skill.", ToolReferences: []string{"missing.tool"}},
 	}
 	retriever := &recordingSkillSearchRetriever{candidates: []bluecollar.SkillCandidate{

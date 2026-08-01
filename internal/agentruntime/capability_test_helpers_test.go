@@ -21,14 +21,14 @@ func (toolCatalogBuilder *ToolCatalogBuilder) UseTestCapabilityTools(capabilityC
 			Name:        toolName,
 			InputSchema: testCapabilityInputSchemaForTool(toolName),
 		}
-		if toolName == "browser.open" {
+		if toolName == "browser_open" {
 			descriptor.PrivacyClass = "user_browser"
 			descriptor.RequiresUserPresence = true
 		}
 		descriptors = append(descriptors, descriptor)
 	}
 	descriptors = append(descriptors, CapabilityToolDescriptor{
-		Name:                 "browser.handoff",
+		Name:                 "browser_handoff",
 		PrivacyClass:         "user_browser",
 		RequiresUserPresence: true,
 	})
@@ -37,11 +37,11 @@ func (toolCatalogBuilder *ToolCatalogBuilder) UseTestCapabilityTools(capabilityC
 
 func testCapabilityInputSchemaForTool(toolName string) json.RawMessage {
 	switch strings.TrimSpace(toolName) {
-	case "browser.open":
+	case "browser_open":
 		return json.RawMessage(`{"type":"object","properties":{"url":{"type":"string"}},"required":["url"],"additionalProperties":false}`)
 	case "company.broadcast.send":
 		return json.RawMessage(`{"type":"object","properties":{"message":{"type":"string"}},"required":["message"],"additionalProperties":false}`)
-	case "task.add":
+	case "task_add":
 		return json.RawMessage(`{"type":"object","properties":{"title":{"type":"string"}},"required":["title"],"additionalProperties":false}`)
 	default:
 		return testCapabilityInputSchema

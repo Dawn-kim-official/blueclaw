@@ -256,7 +256,7 @@ func TestFailureNoticePromptForcesCompletedSummaryOnMaxElapsedLimit(t *testing.T
 	report := FailureReport{
 		Phase:            "limit",
 		StopReason:       "max_elapsed",
-		CompletedSummary: "- message.search: found 3 candidate messages about the Q3 launch\n- skill.search: matched \"weekly-report\" skill",
+		CompletedSummary: "- message_search: found 3 candidate messages about the Q3 launch\n- skill_search: matched \"weekly-report\" skill",
 		OriginalRequest:  "이번 주 업무 관련 메시지 찾아줘",
 		ResponseLanguage: ResponseLanguageKorean,
 	}

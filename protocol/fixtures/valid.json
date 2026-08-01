@@ -2,7 +2,7 @@
   "agent-action": [
     {
       "action": "continue",
-      "toolName": "file.read",
+      "toolName": "file_read",
       "toolInput": {
         "path": "home/project/README.md"
       },
@@ -46,10 +46,10 @@
   ],
   "capability-descriptor": [
     {
-      "name": "calendar.add",
-      "canonicalName": "calendar.add",
+      "name": "calendar_add",
+      "canonicalName": "calendar_add",
       "namespace": "calendar",
-      "modelName": "calendar.add",
+      "modelName": "calendar_add",
       "modelVisibility": "visible",
       "modelVisible": true,
       "description": "Create a new calendar event",
@@ -100,7 +100,7 @@
       },
       "inputSchemaStrict": true,
       "outputSchemaStrict": true,
-      "policyResource": "tool:calendar.add",
+      "policyResource": "tool:calendar_add",
       "sideEffectClass": "workspace_write",
       "sideEffect": "workspace_write",
       "requiresApproval": false,
@@ -516,7 +516,7 @@
   ],
   "tool-invoke-request": [
     {
-      "toolName": "calendar.add",
+      "toolName": "calendar_add",
       "input": {
         "title": "Weekly sync",
         "startISO": "2026-07-15T09:00:00+09:00",
@@ -553,7 +553,7 @@
     {
       "provider": "internkim",
       "selectedBackend": "device",
-      "toolName": "calendar.add",
+      "toolName": "calendar_add",
       "outcome": "succeeded",
       "effects": [
         {

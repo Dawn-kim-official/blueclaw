@@ -426,19 +426,19 @@ func capabilityInputSkeleton(inputSchema json.RawMessage, requiredFields []strin
 
 func defaultCapabilityToolDescription(toolName string) string {
 	switch strings.TrimSpace(toolName) {
-	case "document.read":
-		return "Read a workspace document path as Markdown using the shared document conversion pipeline. Prefer file.preview for paths listed in the conversation attachment catalog."
-	case "image.read":
+	case "document_read":
+		return "Read a workspace document path as Markdown using the shared document conversion pipeline. Prefer file_preview for paths listed in the conversation attachment catalog."
+	case "image_read":
 		return "Load an image path from the conversation attachment catalog or workspace into the model as an image input. Use only when visual inspection is needed; do not call for PDFs or text documents."
-	case "message.context":
+	case "message_context":
 		return "Read the current platform conversation, thread, channel, requester, and bot message context."
-	case "message.search":
+	case "message_search":
 		return "Search platform messages by scope, author, and queries. queries is an OR list; use one item for a single keyword. Returns compact messageIDs before previews. Use before deleting or editing messages described in natural language."
-	case "message.delete":
+	case "message_delete":
 		return "Delete assistant bot messages by exact messageIDs returned from message.search. Deletes one selected page at a time and never searches internally."
-	case "message.send":
+	case "message_send":
 		return "Send a platform message to a direct message, current thread, current channel, or named channel. Recipient resolution and ambiguity are handled by this tool."
-	case "message.update":
+	case "message_update":
 		return "Update an assistant bot message text or pin state. Use only for platform messages that should be edited or pinned."
 	default:
 		return "Workspace capability tool"
@@ -512,7 +512,7 @@ func capabilityFailureKind(errorCode string) toolcontract.FailureKind {
 }
 
 func isApprovalExemptCapabilityTool(toolName string, request ToolCatalogRequest) bool {
-	if strings.TrimSpace(toolName) != "message.send" {
+	if strings.TrimSpace(toolName) != "message_send" {
 		return false
 	}
 	return request.IsScheduledRun || request.IsApprovalContinuation
@@ -580,7 +580,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) prepareCapabilityToolInput(toolCon
 
 func capabilityToolNeedsWorkspacePath(toolName string) bool {
 	switch strings.TrimSpace(toolName) {
-	case "document.read", "image.read", "image.generate":
+	case "document_read", "image_read", "image_generate":
 		return true
 	default:
 		return false

@@ -45,23 +45,23 @@ func kernelTestRequest(prompt string) AgentRequest {
 		ConversationID:    "conversation-kernel-test",
 		Prompt:            prompt,
 		ResponseLanguage:  "ko",
-		ToolSet:           newTestToolSet([]string{"web.search"}),
+		ToolSet:           newTestToolSet([]string{"web_search"}),
 	}
 }
 
 func TestApprovalContinuationRestoresSelectedToolDecision(t *testing.T) {
 	request := AgentRequest{
-		PinnedToolNames:  []string{"file.read"},
+		PinnedToolNames:  []string{"file_read"},
 		PinnedSkillNames: []string{"calendar"},
 		ActiveGoal: ActiveGoal{
-			SelectedToolNames:  []string{"message.send"},
+			SelectedToolNames:  []string{"message_send"},
 			SelectedSkillNames: []string{"direct-message"},
 		},
 	}
 
 	restoredRequest := restorePersistedToolSelection(request)
 
-	if !sameStringSet(restoredRequest.PinnedToolNames, []string{"file.read", "message.send"}) {
+	if !sameStringSet(restoredRequest.PinnedToolNames, []string{"file_read", "message_send"}) {
 		t.Fatalf("expected selected tool decision to be restored, got %+v", restoredRequest.PinnedToolNames)
 	}
 	if !sameStringSet(restoredRequest.PinnedSkillNames, []string{"calendar", "direct-message"}) {
@@ -73,16 +73,16 @@ func TestFreshTaskPinsRouterInitialAndRequiredEvidenceTools(t *testing.T) {
 	pinnedToolNames := pinnedToolNamesForResolvedRequest(
 		[]string{"manual.tool"},
 		[]string{"manual.tool", "previous.tool"},
-		[]string{"file.read"},
-		[]string{"task.add"},
+		[]string{"file_read"},
+		[]string{"task_add"},
 		true,
 	)
 
-	if !sameStringSet(pinnedToolNames, []string{"manual.tool", "file.read", "task.add"}) {
+	if !sameStringSet(pinnedToolNames, []string{"manual.tool", "file_read", "task_add"}) {
 		t.Fatalf("expected manual, router, and required evidence tools, got %+v", pinnedToolNames)
 	}
 	activeGoal := activeGoalForTurn(AgentRequest{PinnedToolNames: pinnedToolNames}, OutcomeContract{}, ExecutionPlan{}, false)
-	if !sameStringSet(activeGoal.SelectedToolNames, []string{"manual.tool", "file.read", "task.add"}) {
+	if !sameStringSet(activeGoal.SelectedToolNames, []string{"manual.tool", "file_read", "task_add"}) {
 		t.Fatalf("expected the typed working set to persist in active goal, got %+v", activeGoal.SelectedToolNames)
 	}
 }
@@ -91,11 +91,11 @@ func TestFreshTaskKeepsRouterInitialToolsWithoutRequiredEvidence(t *testing.T) {
 	pinnedToolNames := pinnedToolNamesForResolvedRequest(
 		[]string{"manual.tool"},
 		[]string{"manual.tool", "previous.tool"},
-		[]string{"file.read"},
+		[]string{"file_read"},
 		nil,
 		true,
 	)
-	if !sameStringSet(pinnedToolNames, []string{"manual.tool", "file.read"}) {
+	if !sameStringSet(pinnedToolNames, []string{"manual.tool", "file_read"}) {
 		t.Fatalf("expected router fallback without required evidence, got %+v", pinnedToolNames)
 	}
 }
@@ -110,21 +110,21 @@ func TestRequiredNextToolsPreferPersistedThenArbitratedThenRouterOrder(t *testin
 	}{
 		{
 			name:              "persisted continuation",
-			activeGoal:        ActiveGoal{RequiredNextTools: []string{"task.update", "file.deliver"}},
-			arbitratedTools:   []string{"calendar.update"},
-			routerTools:       []string{"file.write"},
-			expectedToolNames: []string{"task.update", "file.deliver"},
+			activeGoal:        ActiveGoal{RequiredNextTools: []string{"task_update", "file_deliver"}},
+			arbitratedTools:   []string{"calendar_update"},
+			routerTools:       []string{"file_write"},
+			expectedToolNames: []string{"task_update", "file_deliver"},
 		},
 		{
 			name:              "arbitrated workflow",
-			arbitratedTools:   []string{"file.write", toolcontract.TerminalRunToolName, toolcontract.FileDeliverToolName},
-			routerTools:       []string{"file.write", toolcontract.FileDeliverToolName},
-			expectedToolNames: []string{"file.write", toolcontract.TerminalRunToolName, toolcontract.FileDeliverToolName},
+			arbitratedTools:   []string{"file_write", toolcontract.TerminalRunToolName, toolcontract.FileDeliverToolName},
+			routerTools:       []string{"file_write", toolcontract.FileDeliverToolName},
+			expectedToolNames: []string{"file_write", toolcontract.TerminalRunToolName, toolcontract.FileDeliverToolName},
 		},
 		{
 			name:              "router fallback",
-			routerTools:       []string{"file.write", toolcontract.FileDeliverToolName},
-			expectedToolNames: []string{"file.write", toolcontract.FileDeliverToolName},
+			routerTools:       []string{"file_write", toolcontract.FileDeliverToolName},
+			expectedToolNames: []string{"file_write", toolcontract.FileDeliverToolName},
 		},
 	}
 
@@ -141,13 +141,13 @@ func TestRequiredNextToolsPreferPersistedThenArbitratedThenRouterOrder(t *testin
 func TestContinuationKeepsPersistedToolsAuthoritative(t *testing.T) {
 	pinnedToolNames := pinnedToolNamesForResolvedRequest(
 		[]string{"manual.tool"},
-		[]string{"manual.tool", "message.send"},
-		[]string{"file.read"},
-		[]string{"task.add"},
+		[]string{"manual.tool", "message_send"},
+		[]string{"file_read"},
+		[]string{"task_add"},
 		false,
 	)
 
-	if !sameStringSet(pinnedToolNames, []string{"manual.tool", "message.send", "file.read"}) {
+	if !sameStringSet(pinnedToolNames, []string{"manual.tool", "message_send", "file_read"}) {
 		t.Fatalf("expected persisted and router continuation tools without arbitration replacement, got %+v", pinnedToolNames)
 	}
 }
@@ -210,18 +210,18 @@ func TestAgentKernelRejectsExecutableConsumeContradiction(t *testing.T) {
 		EstimatedMinutes: 1,
 		ResponseLanguage: "ko",
 		Reason:           "사용자가 명시적으로 업무 등록을 요청함",
-		InitialToolNames: []string{"task.add"},
+		InitialToolNames: []string{"task_add"},
 	}})
 
 	toolCallCount := 0
-	toolSet := newTestCapabilityToolSet([]string{"task.add", "task.list", "task.update"})
-	registerTestTool(toolSet, toolcontract.ToolDefinition{Name: "task.add"}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
+	toolSet := newTestCapabilityToolSet([]string{"task_add", "task_list", "task_update"})
+	registerTestTool(toolSet, toolcontract.ToolDefinition{Name: "task_add"}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
 		toolCallCount++
 		return testToolSuccess(`{"taskID":"task-1","content":"메일 페이지 앱 비밀번호 개선"}`), nil
 	})
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"continue","toolName":"task.add","toolInput":{"prompt":"메일 페이지 앱 비밀번호 개선"}}`,
-		finishMessageWithEvidence("업무를 등록했습니다.", "obs-001", "task.add", 0),
+		`{"action":"continue","toolName":"task_add","toolInput":{"prompt":"메일 페이지 앱 비밀번호 개선"}}`,
+		finishMessageWithEvidence("업무를 등록했습니다.", "obs-001", "task_add", 0),
 	}}
 	agentKernel.UseLanguageModelProvider(languageModel)
 
@@ -301,13 +301,13 @@ func TestAgentKernelPreservesActiveContractOnApprovalContinuation(t *testing.T) 
 		TaskShape:        TaskShapeMaintenanceTask,
 		TaskLevel:        TaskLevelLow,
 		EstimatedMinutes: 1,
-		InitialToolNames: []string{"site.unserve"},
+		InitialToolNames: []string{"site_unserve"},
 		ResponseLanguage: "ko",
 		Reason:           "approval reply classified with hallucinated evidence",
 	}})
 
 	toolCallCount := 0
-	siteDeleteDefinition := testToolDescriptor("site.unserve")
+	siteDeleteDefinition := testToolDescriptor("site_unserve")
 	siteDeleteDefinition.InputSchema = json.RawMessage(`{"type":"object","properties":{"siteID":{"type":"string"}},"required":["siteID"],"additionalProperties":false}`)
 	toolSet := newTestToolSetWithDefinitions([]toolcontract.ToolDefinition{siteDeleteDefinition})
 	registerTestTool(toolSet, siteDeleteDefinition, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
@@ -315,8 +315,8 @@ func TestAgentKernelPreservesActiveContractOnApprovalContinuation(t *testing.T) 
 		return testToolSuccess(`{"deleted":true}`), nil
 	})
 	agentKernel.UseLanguageModelProvider(&sequenceLanguageModel{contents: []string{
-		`{"action":"continue","toolName":"site.unserve","toolInput":{"siteID":"site-1"}}`,
-		finishMessageWithEvidence("웹사이트를 삭제했습니다.", "obs-001", "site.unserve", 0),
+		`{"action":"continue","toolName":"site_unserve","toolInput":{"siteID":"site-1"}}`,
+		finishMessageWithEvidence("웹사이트를 삭제했습니다.", "obs-001", "site_unserve", 0),
 	}})
 
 	request := kernelTestRequest("응 확인했어, 진행해줘")
@@ -326,10 +326,10 @@ func TestAgentKernelPreservesActiveContractOnApprovalContinuation(t *testing.T) 
 		GoalID:              "goal-approval-continuation",
 		TaskRunID:           "task-approval-continuation",
 		OriginalInstruction: "테스트 웹사이트를 삭제해줘",
-		CurrentObjective:    "site.unserve 승인 후 실행",
+		CurrentObjective:    "site_unserve 승인 후 실행",
 		Status:              ActiveGoalStatusActive,
 		OutcomeContract: OutcomeContract{
-			RequiredEvidenceTools: []string{"site.unserve"},
+			RequiredEvidenceTools: []string{"site_unserve"},
 		},
 	}
 
@@ -350,10 +350,10 @@ func TestExistingTaskRunIDDoesNotAuthorizeConfirmationBypass(t *testing.T) {
 	agentKernel.UseIntakeLanguageModelProvider(intakeDecisionLanguageModel{decision: destructiveSiteDeleteDecision()})
 	agentKernel.UseLanguageModelProvider(&sequenceLanguageModel{contents: []string{
 		destructiveSiteDeleteExecutionPlan(),
-		`{"action":"continue","toolName":"site.unserve","toolInput":{}}`,
+		`{"action":"continue","toolName":"site_unserve","toolInput":{}}`,
 		`{"question":"site-1 웹사이트를 삭제할까요?"}`,
 	}})
-	siteDeleteDefinition := testToolDescriptor("site.unserve")
+	siteDeleteDefinition := testToolDescriptor("site_unserve")
 	siteDeleteDefinition.RequiresApproval = true
 	toolSet := newTestToolSetWithDefinitions([]toolcontract.ToolDefinition{siteDeleteDefinition})
 	toolCallCount := 0
@@ -387,14 +387,14 @@ func TestSemanticRevisionStartsNewTaskRun(t *testing.T) {
 		TaskShape:        TaskShapeMaintenanceTask,
 		TaskLevel:        TaskLevelLow,
 		EstimatedMinutes: 1,
-		InitialToolNames: []string{"task.add"},
+		InitialToolNames: []string{"task_add"},
 		ResponseLanguage: "ko",
 	}})
 	agentKernel.UseLanguageModelProvider(&sequenceLanguageModel{contents: []string{
-		`{"action":"continue","toolName":"task.add","toolInput":{"title":"새 업무"}}`,
-		finishMessageWithEvidence("새 업무를 추가했습니다.", "obs-001", "task.add", 0),
+		`{"action":"continue","toolName":"task_add","toolInput":{"title":"새 업무"}}`,
+		finishMessageWithEvidence("새 업무를 추가했습니다.", "obs-001", "task_add", 0),
 	}})
-	taskAddDefinition := testToolDescriptor("task.add")
+	taskAddDefinition := testToolDescriptor("task_add")
 	toolSet := newTestToolSetWithDefinitions([]toolcontract.ToolDefinition{taskAddDefinition})
 	registerTestTool(toolSet, taskAddDefinition, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
 		return testToolSuccess(`{"taskID":"new-task"}`), nil
@@ -406,7 +406,7 @@ func TestSemanticRevisionStartsNewTaskRun(t *testing.T) {
 	request.ActiveGoal = ActiveGoal{
 		TaskRunID: existingTaskRun.TaskRunID,
 		OutcomeContract: OutcomeContract{
-			RequiredEvidenceTools: []string{"task.add"},
+			RequiredEvidenceTools: []string{"task_add"},
 		},
 	}
 
@@ -429,8 +429,8 @@ func TestInvalidPersistedActiveGoalBlocksBeforeToolHandler(t *testing.T) {
 		recoveryDecisionDocument("report the failure", "explain that the task could not safely resume"),
 	}})
 	toolCallCount := 0
-	toolSet := newTestCapabilityToolSet([]string{"task.add"})
-	registerTestTool(toolSet, testToolDescriptor("task.add"), func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
+	toolSet := newTestCapabilityToolSet([]string{"task_add"})
+	registerTestTool(toolSet, testToolDescriptor("task_add"), func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
 		toolCallCount++
 		return testToolSuccess(`{"taskID":"unexpected"}`), nil
 	})
@@ -458,7 +458,7 @@ func destructiveSiteDeleteDecision() TurnDecision {
 		TaskShape:        TaskShapeApprovalGatedTask,
 		TaskLevel:        TaskLevelLow,
 		EstimatedMinutes: 1,
-		InitialToolNames: []string{"site.unserve"},
+		InitialToolNames: []string{"site_unserve"},
 		ResponseLanguage: "ko",
 	}
 }
@@ -480,13 +480,13 @@ func TestAgentKernelSideEffectTaskProceedsWithoutRouterPredictedEvidence(t *test
 		Reason:           "side effect tool planned without a predicted evidence name",
 	}})
 	toolCallCount := 0
-	toolSet := newTestToolSet([]string{toolcontract.TerminalRunToolName, "task.update"})
+	toolSet := newTestToolSet([]string{toolcontract.TerminalRunToolName, "task_update"})
 	registerTestTool(toolSet, toolcontract.ToolDefinition{Name: toolcontract.TerminalRunToolName}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
 		toolCallCount++
 		return testToolSuccess(`{"exitCode":0,"stdout":"done","stderr":"","timedOut":false}`), nil
 	})
 	agentKernel.UseLanguageModelProvider(&sequenceLanguageModel{contents: []string{
-		`{"action":"continue","toolName":"terminal.run","toolInput":{"command":"do the side effect"}}`,
+		`{"action":"continue","toolName":"terminal_run","toolInput":{"command":"do the side effect"}}`,
 		finishMessageWithEvidence("완료했습니다.", "obs-001", toolcontract.TerminalRunToolName, 0),
 	}})
 	request := kernelTestRequest("서버에 배포 스크립트 실행해줘")
@@ -687,14 +687,14 @@ func TestAgentKernelPersistsTurnRouterFailureWithoutFallbackRoute(t *testing.T) 
 func TestSitePrototypeIntakePromotesToXHighLimits(t *testing.T) {
 	agentKernel, _ := newKernelTestServices()
 	siteToolSet := newTestToolSetWithDefinitions([]toolcontract.ToolDefinition{{
-		Name:            "site.serve",
+		Name:            "site_serve",
 		Namespace:       "site",
 		SideEffectClass: toolcontract.ToolSideEffectExternalPublish,
 	}})
 	request := AgentRequest{
 		ToolSet: siteToolSet,
 		ActiveGoal: ActiveGoal{
-			OutcomeContract: OutcomeContract{RequiredEvidenceTools: []string{"site.serve"}},
+			OutcomeContract: OutcomeContract{RequiredEvidenceTools: []string{"site_serve"}},
 		},
 	}
 	intakeDecision := promoteArtifactTaskLevel(request, IntakeDecision{

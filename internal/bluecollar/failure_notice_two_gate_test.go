@@ -68,7 +68,7 @@ func TestFailureNoticeChatReviewRewritesFalseDeliveryClaim(t *testing.T) {
 
 	notice, status := generator.Generate(context.Background(), FailureReport{
 		Phase:            "stall",
-		StopReason:       "required artifact completion lacked file.deliver evidence",
+		StopReason:       "required artifact completion lacked file_deliver evidence",
 		ResponseLanguage: "ko",
 		ArtifactRequired: true,
 		HasAttachments:   false,

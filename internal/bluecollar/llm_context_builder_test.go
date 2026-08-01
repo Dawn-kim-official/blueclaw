@@ -58,7 +58,7 @@ func TestLLMContextBuilderFlattensConversationMemoryAndFailure(t *testing.T) {
 		MemoryContext: "사용자는 구체적인 실패 이유를 원한다.",
 		Observations: []turnObservation{{
 			ObservationID: "obs-1",
-			Tool:          "message.send",
+			Tool:          "message_send",
 			Failure: &toolcontract.ToolFailure{
 				Code:            "send_failed",
 				Stage:           "message_send",
@@ -66,7 +66,7 @@ func TestLLMContextBuilderFlattensConversationMemoryAndFailure(t *testing.T) {
 			},
 		}},
 		FailureFacts: failureReportFacts{Attempts: []failureReportAttempt{{
-			ToolName:     "message.send",
+			ToolName:     "message_send",
 			ErrorCode:    "send_failed",
 			FailureStage: "message_send",
 			Message:      "Mattermost returned 503",
@@ -103,7 +103,7 @@ func TestLLMContextBuilderOmitsEmptyOptionalSections(t *testing.T) {
 
 func TestLLMContextBuilderIncludesObservedResultProjection(t *testing.T) {
 	descriptor, observation := canonicalEffectObservation(
-		"calendar.add",
+		"calendar_add",
 		`{"eventID":"event-1"}`,
 		[]toolcontract.ResourceEffect{{ObjectType: "calendar_event", Effect: "scheduled", ID: "event-1"}},
 		[]toolcontract.ResourceEffectContract{{ObjectType: "calendar_event", Effect: "scheduled", ResultField: "eventID", EffectIdentity: "id"}},
@@ -161,7 +161,7 @@ func TestLLMContextBuilderIncludesAttachmentCatalog(t *testing.T) {
 		"Current attachments:",
 		"materialID=mattermost:file-0",
 		"path=home/inbox/mattermost/thread-1/post-0/current.html",
-		"availableTools=file.preview,file.read",
+		"availableTools=file_preview,file_read",
 		"admin attached materialID=mattermost:file-1",
 		"Previous attachments:",
 		"materialID=mattermost:file-2",
@@ -210,7 +210,7 @@ func TestLLMContextBuilderIncludesUnavailableAttachmentMetadata(t *testing.T) {
 		"sourceMessageID=post-1",
 		"available=false",
 		"errorCode=mattermost_download_failed",
-		"availableTools=file.preview,file.read",
+		"availableTools=file_preview,file_read",
 		"materialID=mattermost:file-2",
 		"sourceMessageID=post-2",
 	} {
@@ -236,12 +236,12 @@ func TestRecordedEffectsContextListsSuccessfulSideEffects(t *testing.T) {
 	observations := []turnObservation{
 		{
 			ObservationID: "obs-001",
-			Tool:          "task.add",
+			Tool:          "task_add",
 			Effects:       []toolcontract.ResourceEffect{{ObjectType: "task", Effect: "created", ID: "af8271"}},
 		},
 		{
 			ObservationID: "obs-002",
-			Tool:          "task.delete",
+			Tool:          "task_delete",
 			Failure:       &toolcontract.ToolFailure{Kind: toolcontract.FailureUnknown},
 			Effects:       []toolcontract.ResourceEffect{{ObjectType: "task", Effect: "deleted", ID: "dead01"}},
 		},
@@ -249,7 +249,7 @@ func TestRecordedEffectsContextListsSuccessfulSideEffects(t *testing.T) {
 
 	context := recordedEffectsContext(observations)
 
-	if !strings.Contains(context, "task created af8271 (task.add, obs-001)") {
+	if !strings.Contains(context, "task created af8271 (task_add, obs-001)") {
 		t.Fatalf("expected created effect line, got %q", context)
 	}
 	if strings.Contains(context, "dead01") {
@@ -261,7 +261,7 @@ func TestRecordedEffectsContextListsSuccessfulSideEffects(t *testing.T) {
 }
 
 func TestRecordedEffectsContextEmptyWithoutEffects(t *testing.T) {
-	if context := recordedEffectsContext([]turnObservation{{ObservationID: "obs-001", Tool: "task.list"}}); context != "" {
+	if context := recordedEffectsContext([]turnObservation{{ObservationID: "obs-001", Tool: "task_list"}}); context != "" {
 		t.Fatalf("expected empty context without effects, got %q", context)
 	}
 }

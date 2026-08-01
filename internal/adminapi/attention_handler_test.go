@@ -15,7 +15,7 @@ func TestAttentionHandlerReturnsSilentDecision(t *testing.T) {
 	handler := AttentionHandler{LanguageModel: languageModel}
 	request := httptest.NewRequest(http.MethodPost, "/admin/api/attention/run", strings.NewReader(`{
 		"jobID":"job-1",
-		"toolName":"user.confirm",
+		"toolName":"user_confirm",
 		"localDecision":{
 			"shouldEscalate":true,
 			"importance":"medium",
@@ -44,7 +44,7 @@ func TestAttentionHandlerReturnsMessageDecision(t *testing.T) {
 	handler := AttentionHandler{LanguageModel: &recordingAttentionLanguageModel{content: `{"status":"ATTENTION_MESSAGE","message":"This looks like it needs a check.","reason":"blocked"}`}}
 	request := httptest.NewRequest(http.MethodPost, "/admin/api/attention/run", strings.NewReader(`{
 		"jobID":"job-1",
-		"toolName":"browser.handoff",
+		"toolName":"browser_handoff",
 		"localDecision":{
 			"shouldEscalate":true,
 			"importance":"high",
@@ -70,7 +70,7 @@ func TestAttentionHandlerRejectsSilentLocalDecision(t *testing.T) {
 	handler := AttentionHandler{LanguageModel: &recordingAttentionLanguageModel{content: `{"status":"ATTENTION_SILENT","message":"","reason":"not_useful"}`}}
 	request := httptest.NewRequest(http.MethodPost, "/admin/api/attention/run", strings.NewReader(`{
 		"jobID":"job-1",
-		"toolName":"user.confirm",
+		"toolName":"user_confirm",
 		"localDecision":{
 			"shouldEscalate":false,
 			"summaryForRemote":"Waiting for confirmation."

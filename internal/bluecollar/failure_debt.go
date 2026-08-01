@@ -118,7 +118,7 @@ func activeFailureDebt(observations []turnObservation) (FailureDebt, bool) {
 }
 
 func failureObservationDoesNotCreateDebt(observation turnObservation) bool {
-	if strings.TrimSpace(observation.Tool) != "file.read" {
+	if strings.TrimSpace(observation.Tool) != "file_read" {
 		return false
 	}
 	if observation.FailureCode() != toolcontract.FailureCodes.NotFound.String() {
@@ -203,7 +203,7 @@ func classifyRecoveryStep(failureDebt FailureDebt, toolName string) string {
 
 func isInspectionRecoveryTool(toolName string) bool {
 	switch strings.TrimSpace(toolName) {
-	case "file.read", "site.list", "conversation.history":
+	case "file_read", "site_list", "conversation_history":
 		return true
 	default:
 		return false
@@ -220,15 +220,15 @@ func isAlternateRouteToolPair(firstToolName string, secondToolName string) bool 
 }
 
 func isMemorySearchWebSearchRoute(firstToolName string, secondToolName string) bool {
-	return strings.TrimSpace(firstToolName) == "memory.search" && strings.TrimSpace(secondToolName) == "web.search"
+	return strings.TrimSpace(firstToolName) == "memory_search" && strings.TrimSpace(secondToolName) == "web_search"
 }
 
 func recoveryRouteGroup(toolName string) string {
 	trimmedToolName := strings.TrimSpace(toolName)
 	switch {
-	case strings.HasPrefix(trimmedToolName, "browser.") || strings.HasPrefix(trimmedToolName, "browser_handoff.") || strings.HasPrefix(trimmedToolName, "web."):
+	case strings.HasPrefix(trimmedToolName, "browser_") || strings.HasPrefix(trimmedToolName, "browser_handoff_") || strings.HasPrefix(trimmedToolName, "web_"):
 		return "web"
-	case strings.HasPrefix(trimmedToolName, "terminal."):
+	case strings.HasPrefix(trimmedToolName, "terminal_"):
 		return "terminal"
 	default:
 		return ""

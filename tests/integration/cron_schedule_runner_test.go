@@ -19,7 +19,7 @@ func TestCronScheduleRunsDailyResearchPromptAndAdvancesToNextDay(t *testing.T) {
 	useScheduleTestLanguageModel(agentKernel, staticScheduleLanguageModel{content: scheduleFinishMessage("Today's research surfaced three key changes.")})
 	toolCatalogBuilder := agentruntime.NewToolCatalogBuilder()
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(map[string][]string{
-		"default": {"memory.search"},
+		"default": {"memory_search"},
 	}, nil)
 	runAt := time.Date(2026, 5, 6, 9, 0, 0, 0, time.UTC)
 	nextRunAt := runAt

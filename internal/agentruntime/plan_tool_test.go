@@ -94,5 +94,5 @@ func TestPlanUpdateToolDescriptorIsRegisteredInKernelPalette(t *testing.T) {
 		}
 		return
 	}
-	t.Fatal("expected plan.update in the kernel palette")
+	t.Fatal("expected plan_update in the kernel palette")
 }

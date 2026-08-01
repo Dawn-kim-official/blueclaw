@@ -10,12 +10,12 @@ func TestRecoveryPacketDoesNotHardCodeToolAllowedList(t *testing.T) {
 	observation := turnObservation{
 		ObservationID: "obs-001",
 		Action:        "continue",
-		Tool:          "site.serve",
+		Tool:          "site_serve",
 		Output:        toolcontract.ToolOutput{Content: "site workspace must contain app/dist; build in Blueclaw before publishing"},
 		Failure: &toolcontract.ToolFailure{
 			Kind:            toolcontract.FailureExternalService,
 			Code:            toolcontract.FailureCodes.OperationFailed.String(),
-			Stage:           "site.serve",
+			Stage:           "site_serve",
 			UserSafeSummary: "site workspace must contain app/dist; build in Blueclaw before publishing",
 		},
 	}
@@ -34,13 +34,13 @@ func TestRecoveryPacketSchemaFailureRetriesSameToolWithFixedInput(t *testing.T) 
 	observation := turnObservation{
 		ObservationID: "obs-002",
 		Action:        "continue",
-		Tool:          "ask.confirm",
-		ToolInputKey:  "ask.confirm\x00{}",
+		Tool:          "ask_confirm",
+		ToolInputKey:  "ask_confirm\x00{}",
 		Failure: &toolcontract.ToolFailure{
 			Kind:            toolcontract.FailureInvalidInput,
 			Code:            toolcontract.FailureCodes.InvalidInput.String(),
 			Stage:           "ask_confirm",
-			UserSafeSummary: "ask.confirm requires userFacingMessage",
+			UserSafeSummary: "ask_confirm requires userFacingMessage",
 		},
 	}
 
@@ -59,15 +59,15 @@ func TestRecoveryPacketKeepsTypedHintTools(t *testing.T) {
 	failedObservation := turnObservation{
 		ObservationID: "obs-001",
 		Action:        "continue",
-		Tool:          "site.serve",
-		ToolInputKey:  "site.serve\x00{\"siteID\":\"site-1\"}",
+		Tool:          "site_serve",
+		ToolInputKey:  "site_serve\x00{\"siteID\":\"site-1\"}",
 		Failure: &toolcontract.ToolFailure{
-			RecoveryHints: []toolcontract.RecoveryHint{{ToolNames: []string{"file.edit"}}},
+			RecoveryHints: []toolcontract.RecoveryHint{{ToolNames: []string{"file_edit"}}},
 		},
 	}
 
 	packet := buildRecoveryPacket(failedObservation)
-	if len(packet.AllowedTools) != 1 || packet.AllowedTools[0] != "file.edit" {
+	if len(packet.AllowedTools) != 1 || packet.AllowedTools[0] != "file_edit" {
 		t.Fatalf("expected typed recovery hint tools to remain available, got %+v", packet.AllowedTools)
 	}
 }

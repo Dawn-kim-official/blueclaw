@@ -44,7 +44,7 @@ func TestTaskLauncherInjectsGraphMemoryAtLaunch(t *testing.T) {
 	toolCatalogBuilder.UsePinnedMemoryStore(pinnedMemoryStore)
 	toolCatalogBuilder.UseMemoryService(memoryService)
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(map[string][]string{
-		"default": {"memory.search"},
+		"default": {"memory_search"},
 	}, nil)
 
 	launchResult, errorValue := NewTaskLauncher(agentKernel, toolCatalogBuilder).Launch(context.Background(), TaskLaunchRequest{
@@ -86,7 +86,7 @@ func TestTaskLauncherKeepsPinnedMemoryWhenGraphSearchFails(t *testing.T) {
 	toolCatalogBuilder.UsePinnedMemoryStore(pinnedMemoryStore)
 	toolCatalogBuilder.UseMemoryService(memoryService)
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(map[string][]string{
-		"default": {"memory.search"},
+		"default": {"memory_search"},
 	}, nil)
 
 	launchResult, errorValue := NewTaskLauncher(agentKernel, toolCatalogBuilder).Launch(context.Background(), TaskLaunchRequest{

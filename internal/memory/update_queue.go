@@ -172,7 +172,7 @@ func memoryEpisodeFromUpdateJob(job MemoryUpdateJob) MemoryEpisode {
 		Prompt:          job.Content,
 		OccurredAt:      occurredAt,
 		Namespaces:      []MemoryNamespace{job.Namespace},
-		Source:          "memory.remember",
+		Source:          "memory_remember",
 		SourceReference: job.SourceReference,
 	}
 }

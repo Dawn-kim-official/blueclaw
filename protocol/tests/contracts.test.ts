@@ -73,7 +73,7 @@ describe('closed protocol values', () => {
 
   test('keeps internal conflict resolution typed and outside tool input', () => {
     const request = {
-      toolName: 'calendar.add',
+      toolName: 'calendar_add',
       input: {
         title: 'customer support check',
         startISO: '2026-07-24T14:00:00+09:00',
@@ -112,7 +112,7 @@ describe('closed protocol values', () => {
 
   test('keeps trusted site source transport outside model input', () => {
     const request = {
-      toolName: 'site.serve',
+      toolName: 'site_serve',
       input: { title: 'Site 1', sourceWorkspacePath: '~/sites/site-1', mode: 'publish' },
       transport: {
         siteSourceBundle: {
@@ -139,7 +139,7 @@ describe('closed protocol values', () => {
   test('keeps structured output diagnostics closed and content-free', () => {
     expect(structuredOutputDiagnosticSchema.parse({
       category: StructuredOutputDiagnosticCategory.SchemaValidation,
-      toolName: 'task.add',
+      toolName: 'task_add',
       validationIssues: [
         { fieldPath: '/prompt', code: StructuredOutputValidationCode.Required },
         { fieldPath: '/', code: StructuredOutputValidationCode.AdditionalProperty },
@@ -147,7 +147,7 @@ describe('closed protocol values', () => {
       repairStatus: StructuredOutputRepairStatus.Failed,
     })).toEqual({
       category: StructuredOutputDiagnosticCategory.SchemaValidation,
-      toolName: 'task.add',
+      toolName: 'task_add',
       validationIssues: [
         { fieldPath: '/prompt', code: StructuredOutputValidationCode.Required },
         { fieldPath: '/', code: StructuredOutputValidationCode.AdditionalProperty },
@@ -177,7 +177,7 @@ describe('closed protocol values', () => {
     }).success).toBe(false);
     expect(structuredOutputDiagnosticSchema.safeParse({
       category: StructuredOutputDiagnosticCategory.SchemaValidation,
-      toolName: 'task.add with user content',
+      toolName: 'task_add with user content',
     }).success).toBe(false);
     expect(structuredOutputDiagnosticSchema.safeParse({
       category: StructuredOutputDiagnosticCategory.SchemaValidation,
@@ -260,7 +260,7 @@ describe('closed protocol values', () => {
       selectionMode: 'any',
     }).success).toBe(false);
     expect(capabilityDescriptorSchema.safeParse({
-      name: 'calendar.add',
+      name: 'calendar_add',
       version: '1',
       privacyClass: 'workspace_calendar',
       estimatedLatency: 'instant',
@@ -270,14 +270,14 @@ describe('closed protocol values', () => {
     expect(toolInvokeResponseSchema.safeParse({
       provider: 'internkim',
       selectedBackend: 'device',
-      toolName: 'task.add',
+      toolName: 'task_add',
       outcome: 'complete',
       result: { taskID: 'task-1' },
     }).success).toBe(false);
     expect(toolInvokeResponseSchema.safeParse({
       provider: 'internkim',
       selectedBackend: 'device',
-      toolName: 'task.add',
+      toolName: 'task_add',
       outcome: 'succeeded',
       effects: [{ objectType: 'task', effect: 'created' }],
       result: { taskID: 'task-1' },

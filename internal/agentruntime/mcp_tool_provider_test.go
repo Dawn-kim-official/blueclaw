@@ -312,7 +312,7 @@ func TestMCPToolProviderValidatesStructuredSuccess(t *testing.T) {
 func TestMCPToolProviderProjectsExactResultEvidence(t *testing.T) {
 	resultSchema := json.RawMessage(`{"type":"object","properties":{"siteID":{"type":"string"}},"required":["siteID"],"additionalProperties":false}`)
 	definition := mcp.ToolDefinition{
-		Name:              "site.serve",
+		Name:              "site_serve",
 		Namespace:         "site",
 		ServerName:        "workspace",
 		Description:       "Publish a site",
@@ -331,7 +331,7 @@ func TestMCPToolProviderProjectsExactResultEvidence(t *testing.T) {
 		Policy: mcp.PolicyMetadata{
 			PrivacyClass:     "workspace",
 			ModelVisibility:  toolcontract.ToolVisibilityModel,
-			PolicyResource:   "tool:site.serve",
+			PolicyResource:   "tool:site_serve",
 			SideEffectClass:  toolcontract.ToolSideEffectExternalPublish,
 			CompletionMode:   toolcontract.ToolCompletionObservation,
 			Idempotency:      toolcontract.ToolIdempotencySupported,
@@ -343,12 +343,12 @@ func TestMCPToolProviderProjectsExactResultEvidence(t *testing.T) {
 		registry:    mcpToolProviderTestInvoker{output: `{"content":[],"structuredContent":{"siteID":"site-1"},"isError":false}`},
 		definitions: []mcp.ToolDefinition{definition},
 	}
-	toolSet := toolcontract.NewToolSet([]string{"site.serve"})
+	toolSet := toolcontract.NewToolSet([]string{"site_serve"})
 	if errorValue := toolSet.RegisterProvider(context.Background(), provider); errorValue != nil {
 		t.Fatal(errorValue)
 	}
 
-	result, errorValue := toolSet.Invoke(context.Background(), toolcontract.ToolInvocation{ToolName: "site.serve", Input: json.RawMessage(`{}`)})
+	result, errorValue := toolSet.Invoke(context.Background(), toolcontract.ToolInvocation{ToolName: "site_serve", Input: json.RawMessage(`{}`)})
 
 	if errorValue != nil {
 		t.Fatal(errorValue)
@@ -414,14 +414,14 @@ func TestMCPToolProviderProjectsEveryArrayResultEffect(t *testing.T) {
 }
 
 func TestMCPToolProviderCollisionQuarantinesExternalServer(t *testing.T) {
-	toolSet := toolcontract.NewToolSet([]string{"file.read"})
-	toolSet.RegisterTool(toolcontract.ToolDefinition{Name: "file.read"}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
+	toolSet := toolcontract.NewToolSet([]string{"file_read"})
+	toolSet.RegisterTool(toolcontract.ToolDefinition{Name: "file_read"}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
 		return toolcontract.ToolSuccess("ok"), nil
 	})
 	provider := mcpToolProvider{
 		serverName: "collision",
 		definitions: []mcp.ToolDefinition{{
-			Name:           "file.read",
+			Name:           "file_read",
 			Namespace:      "file",
 			ServerName:     "collision",
 			Description:    "Colliding file reader",
@@ -431,7 +431,7 @@ func TestMCPToolProviderCollisionQuarantinesExternalServer(t *testing.T) {
 			Policy: mcp.PolicyMetadata{
 				PrivacyClass:     "workspace",
 				ModelVisibility:  toolcontract.ToolVisibilityModel,
-				PolicyResource:   "tool:file.read",
+				PolicyResource:   "tool:file_read",
 				SideEffectClass:  toolcontract.ToolSideEffectRead,
 				CompletionMode:   toolcontract.ToolCompletionNone,
 				Idempotency:      toolcontract.ToolIdempotencySupported,

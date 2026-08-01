@@ -18,7 +18,7 @@ func TestScheduleCreateToolStoresCurrentReplyTarget(t *testing.T) {
 	repository := &memoryTaskScheduleRepository{}
 	toolCatalogBuilder := NewToolCatalogBuilder()
 	toolCatalogBuilder.UseTaskScheduleRepository(repository)
-	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"schedule.create"})
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"schedule_create"})
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
 		ProfileName:       "default",
 		RequesterPersonID: "person-1",
@@ -28,7 +28,7 @@ func TestScheduleCreateToolStoresCurrentReplyTarget(t *testing.T) {
 	})
 
 	result, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
-		ToolName: "schedule.create",
+		ToolName: "schedule_create",
 		Input: toolcontract.MarshalToolInput(map[string]any{
 			"name":            "daily research",
 			"taskInstruction": "research the important industry news and tell me.",
@@ -42,7 +42,7 @@ func TestScheduleCreateToolStoresCurrentReplyTarget(t *testing.T) {
 		t.Fatal(errorValue)
 	}
 	if result.Failed() {
-		t.Fatalf("expected schedule.create success, got %s", result.ContentText())
+		t.Fatalf("expected schedule_create success, got %s", result.ContentText())
 	}
 	if len(result.Effects) != 1 || result.Effects[0].ObjectType != "schedule" || result.Effects[0].Effect != "created" || result.Effects[0].ID == "" {
 		t.Fatalf("expected exact schedule create effect, got %+v", result.Effects)
@@ -129,7 +129,7 @@ func TestScheduleListToolRequiresRequesterPersonID(t *testing.T) {
 	toolRegistry := newScheduleListTestRegistry(repository, "")
 
 	result, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
-		ToolName: "schedule.list",
+		ToolName: "schedule_list",
 		Input:    toolcontract.MarshalToolInput(map[string]any{}),
 	})
 
@@ -137,17 +137,17 @@ func TestScheduleListToolRequiresRequesterPersonID(t *testing.T) {
 		t.Fatal(errorValue)
 	}
 	if !result.Failed() {
-		t.Fatalf("expected schedule.list to be unregistered without requester, got %s", result.ContentText())
+		t.Fatalf("expected schedule_list to be unregistered without requester, got %s", result.ContentText())
 	}
 }
 
 func TestScheduleCreateSchemaUsesTaskInstruction(t *testing.T) {
 	toolCatalogBuilder := NewToolCatalogBuilder()
-	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"schedule.create"})
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"schedule_create"})
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
-	toolDefinition, isFound := findToolDefinition(toolRegistry.ListToolDefinitions(), "schedule.create")
+	toolDefinition, isFound := findToolDefinition(toolRegistry.ListToolDefinitions(), "schedule_create")
 	if !isFound {
-		t.Fatal("expected schedule.create definition")
+		t.Fatal("expected schedule_create definition")
 	}
 	var schema struct {
 		Properties map[string]json.RawMessage `json:"properties"`
@@ -160,11 +160,11 @@ func TestScheduleCreateSchemaUsesTaskInstruction(t *testing.T) {
 		t.Fatalf("expected taskInstruction to be required, got %+v", schema.Required)
 	}
 	if !strings.Contains(string(toolDefinition.InputSchema), `"additionalProperties":false`) {
-		t.Fatalf("expected schedule.create schema to reject unknown fields, got %s", toolDefinition.InputSchema)
+		t.Fatalf("expected schedule_create schema to reject unknown fields, got %s", toolDefinition.InputSchema)
 	}
 	for _, hiddenField := range []string{"prompt", "message", "schedule", "executionMode"} {
 		if _, isFound := schema.Properties[hiddenField]; isFound {
-			t.Fatalf("expected %s to stay out of schedule.create model-facing schema, got %+v", hiddenField, schema.Properties)
+			t.Fatalf("expected %s to stay out of schedule_create model-facing schema, got %+v", hiddenField, schema.Properties)
 		}
 	}
 }
@@ -173,7 +173,7 @@ func TestScheduleCreateRejectsLegacyPromptAndUnknownFields(t *testing.T) {
 	repository := &memoryTaskScheduleRepository{}
 	toolCatalogBuilder := NewToolCatalogBuilder()
 	toolCatalogBuilder.UseTaskScheduleRepository(repository)
-	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"schedule.create"})
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"schedule_create"})
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
 		ProfileName:       "default",
 		RequesterPersonID: "person-1",
@@ -183,7 +183,7 @@ func TestScheduleCreateRejectsLegacyPromptAndUnknownFields(t *testing.T) {
 	})
 
 	result, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
-		ToolName: "schedule.create",
+		ToolName: "schedule_create",
 		Input: toolcontract.MarshalToolInput(map[string]any{
 			"prompt":         "legacy prompt",
 			"kind":           "interval",
@@ -203,7 +203,7 @@ func TestScheduleCreateRejectsUnknownKindWithoutInference(t *testing.T) {
 	repository := &memoryTaskScheduleRepository{}
 	toolCatalogBuilder := NewToolCatalogBuilder()
 	toolCatalogBuilder.UseTaskScheduleRepository(repository)
-	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"schedule.create"})
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"schedule_create"})
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
 		ProfileName:       "default",
 		RequesterPersonID: "person-1",
@@ -213,7 +213,7 @@ func TestScheduleCreateRejectsUnknownKindWithoutInference(t *testing.T) {
 	})
 
 	result, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
-		ToolName: "schedule.create",
+		ToolName: "schedule_create",
 		Input: toolcontract.MarshalToolInput(map[string]any{
 			"taskInstruction": "inspect the status",
 			"kind":            "unexpected",
@@ -241,11 +241,11 @@ func TestScheduleUpdateRejectsNonExactScheduleID(t *testing.T) {
 	}}}
 	toolCatalogBuilder := NewToolCatalogBuilder()
 	toolCatalogBuilder.UseTaskScheduleRepository(repository)
-	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"schedule.update"})
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"schedule_update"})
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default", RequesterPersonID: "person-1"})
 
 	result, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
-		ToolName: "schedule.update",
+		ToolName: "schedule_update",
 		Input: toolcontract.MarshalToolInput(map[string]any{
 			"scheduleID": " schedule-owned ",
 			"name":       "changed",
@@ -271,11 +271,11 @@ func TestScheduleUpdateRequiresAChange(t *testing.T) {
 	}}}
 	toolCatalogBuilder := NewToolCatalogBuilder()
 	toolCatalogBuilder.UseTaskScheduleRepository(repository)
-	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"schedule.update"})
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"schedule_update"})
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default", RequesterPersonID: "person-1"})
 
 	result, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
-		ToolName: "schedule.update",
+		ToolName: "schedule_update",
 		Input:    toolcontract.MarshalToolInput(map[string]any{"scheduleID": "schedule-owned"}),
 	})
 	if errorValue != nil {
@@ -290,11 +290,11 @@ func TestScheduleCancelRejectsUnknownScopeWithoutMutation(t *testing.T) {
 	repository := &memoryTaskScheduleRepository{}
 	toolCatalogBuilder := NewToolCatalogBuilder()
 	toolCatalogBuilder.UseTaskScheduleRepository(repository)
-	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"schedule.cancel"})
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"schedule_cancel"})
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default", RequesterPersonID: "person-1"})
 
 	result, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
-		ToolName: "schedule.cancel",
+		ToolName: "schedule_cancel",
 		Input:    toolcontract.MarshalToolInput(map[string]any{"scope": "unknown"}),
 	})
 	if errorValue != nil {
@@ -309,7 +309,7 @@ func TestScheduleCreateToolStoresTaskInstructionAsAgentTask(t *testing.T) {
 	repository := &memoryTaskScheduleRepository{}
 	toolCatalogBuilder := NewToolCatalogBuilder()
 	toolCatalogBuilder.UseTaskScheduleRepository(repository)
-	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"schedule.create"})
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"schedule_create"})
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
 		ProfileName:       "default",
 		RequesterPersonID: "person-1",
@@ -319,7 +319,7 @@ func TestScheduleCreateToolStoresTaskInstructionAsAgentTask(t *testing.T) {
 	})
 
 	result, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
-		ToolName: "schedule.create",
+		ToolName: "schedule_create",
 		Input: toolcontract.MarshalToolInput(map[string]any{
 			"taskInstruction": "say sorry.",
 			"kind":            "interval",
@@ -333,7 +333,7 @@ func TestScheduleCreateToolStoresTaskInstructionAsAgentTask(t *testing.T) {
 		t.Fatal(errorValue)
 	}
 	if result.Failed() {
-		t.Fatalf("expected schedule.create success, got %s", result.ContentText())
+		t.Fatalf("expected schedule_create success, got %s", result.ContentText())
 	}
 	if len(repository.taskSchedules) != 1 {
 		t.Fatalf("expected one schedule, got %+v", repository.taskSchedules)
@@ -356,7 +356,7 @@ func TestScheduleCreateToolRejectsBoundedRepeatWithoutFiniteBound(t *testing.T) 
 	repository := &memoryTaskScheduleRepository{}
 	toolCatalogBuilder := NewToolCatalogBuilder()
 	toolCatalogBuilder.UseTaskScheduleRepository(repository)
-	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"schedule.create"})
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"schedule_create"})
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
 		ProfileName:       "default",
 		Prompt:            "send one line of song lyrics every hour, only until 18:00 today",
@@ -367,7 +367,7 @@ func TestScheduleCreateToolRejectsBoundedRepeatWithoutFiniteBound(t *testing.T) 
 	})
 
 	result, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
-		ToolName: "schedule.create",
+		ToolName: "schedule_create",
 		Input: toolcontract.MarshalToolInput(map[string]any{
 			"taskInstruction": "write one line of song lyrics and send it as a DM.",
 			"kind":            "interval",
@@ -393,7 +393,7 @@ func TestScheduleCreateToolStoresExpiresAtForBoundedRepeat(t *testing.T) {
 	expiresAt := time.Now().UTC().Add(2 * time.Hour).Format(time.RFC3339)
 	toolCatalogBuilder := NewToolCatalogBuilder()
 	toolCatalogBuilder.UseTaskScheduleRepository(repository)
-	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"schedule.create"})
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"schedule_create"})
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
 		ProfileName:       "default",
 		Prompt:            "send one line of song lyrics every hour, only until 18:00 today",
@@ -404,7 +404,7 @@ func TestScheduleCreateToolStoresExpiresAtForBoundedRepeat(t *testing.T) {
 	})
 
 	result, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
-		ToolName: "schedule.create",
+		ToolName: "schedule_create",
 		Input: toolcontract.MarshalToolInput(map[string]any{
 			"taskInstruction": "write one line of song lyrics and send it as a DM.",
 			"kind":            "interval",
@@ -419,7 +419,7 @@ func TestScheduleCreateToolStoresExpiresAtForBoundedRepeat(t *testing.T) {
 		t.Fatal(errorValue)
 	}
 	if result.Failed() {
-		t.Fatalf("expected schedule.create success, got %s", result.ContentText())
+		t.Fatalf("expected schedule_create success, got %s", result.ContentText())
 	}
 	if len(repository.taskSchedules) != 1 || repository.taskSchedules[0].ExpiresAt == nil {
 		t.Fatalf("expected one expiring schedule, got %+v", repository.taskSchedules)
@@ -432,22 +432,22 @@ func TestScheduleCreateToolStoresExpiresAtForBoundedRepeat(t *testing.T) {
 func TestScheduledToolSetKeepsOnlyAskInputAvailable(t *testing.T) {
 	toolCatalogBuilder := NewToolCatalogBuilder()
 	toolCatalogBuilder.UseTestCapabilityToolDescriptors(capability.Client{}, []CapabilityToolDescriptor{{
-		Name:            "user.confirm",
+		Name:            "user_confirm",
 		Description:     "Ask the user to confirm",
 		ModelVisibility: toolcontract.ToolVisibilityInternal,
 	}})
-	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"ask.input", "ask.confirm", "user.confirm", "schedule.create"})
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"ask_input", "ask_confirm", "user_confirm", "schedule_create"})
 
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default", IsScheduledRun: true})
 
-	if !toolRegistry.IsRegistered("ask.input") || !toolRegistry.IsAllowed("ask.input") {
-		t.Fatalf("expected scheduled run to keep ask.input, got %+v", toolRegistry.ListToolNames())
+	if !toolRegistry.IsRegistered("ask_input") || !toolRegistry.IsAllowed("ask_input") {
+		t.Fatalf("expected scheduled run to keep ask_input, got %+v", toolRegistry.ListToolNames())
 	}
-	if toolRegistry.IsRegistered("ask.confirm") || toolRegistry.IsAllowed("ask.confirm") {
+	if toolRegistry.IsRegistered("ask_confirm") || toolRegistry.IsAllowed("ask_confirm") {
 		t.Fatalf("expected runtime-owned confirmation to stay hidden, got %+v", toolRegistry.ListToolNames())
 	}
-	if toolRegistry.IsRegistered("user.confirm") || toolRegistry.IsAllowed("user.confirm") {
-		t.Fatalf("expected legacy user.confirm to stay hidden, got %+v", toolRegistry.ListToolNames())
+	if toolRegistry.IsRegistered("user_confirm") || toolRegistry.IsAllowed("user_confirm") {
+		t.Fatalf("expected legacy user_confirm to stay hidden, got %+v", toolRegistry.ListToolNames())
 	}
 }
 
@@ -482,7 +482,7 @@ func TestScheduleCancelToolCancelsRequesterSchedules(t *testing.T) {
 	toolCatalogBuilder := NewToolCatalogBuilder()
 	toolCatalogBuilder.UseTaskScheduleRepository(repository)
 	toolCatalogBuilder.UseTaskRunService(taskRunService)
-	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"schedule.cancel"})
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"schedule_cancel"})
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
 		ProfileName:       "default",
 		RequesterPersonID: "person-1",
@@ -490,7 +490,7 @@ func TestScheduleCancelToolCancelsRequesterSchedules(t *testing.T) {
 	})
 
 	result, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
-		ToolName: "schedule.cancel",
+		ToolName: "schedule_cancel",
 		Input: toolcontract.MarshalToolInput(map[string]any{
 			"scope": "mine",
 		}),
@@ -500,7 +500,7 @@ func TestScheduleCancelToolCancelsRequesterSchedules(t *testing.T) {
 		t.Fatal(errorValue)
 	}
 	if result.Failed() {
-		t.Fatalf("expected schedule.cancel success, got %s", result.ContentText())
+		t.Fatalf("expected schedule_cancel success, got %s", result.ContentText())
 	}
 	if !strings.Contains(result.ContentText(), `"cancelledScheduleIDs":["schedule-owned"]`) || !strings.Contains(result.ContentText(), `"cancelledScheduleCount":1`) || !strings.Contains(result.ContentText(), `"cancelledWaitCount":1`) || strings.Contains(result.ContentText(), `"taskSchedules"`) {
 		t.Fatalf("expected one schedule and one wait cancelled, got %s", result.ContentText())
@@ -550,7 +550,7 @@ func TestScheduleCancelToolCancelsCurrentConversationDeliverySchedules(t *testin
 	toolCatalogBuilder := NewToolCatalogBuilder()
 	toolCatalogBuilder.UseTaskScheduleRepository(repository)
 	toolCatalogBuilder.UseTaskRunService(taskRunService)
-	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"schedule.cancel"})
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"schedule_cancel"})
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
 		ProfileName:       "default",
 		RequesterPersonID: "person-recipient",
@@ -558,7 +558,7 @@ func TestScheduleCancelToolCancelsCurrentConversationDeliverySchedules(t *testin
 	})
 
 	result, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
-		ToolName: "schedule.cancel",
+		ToolName: "schedule_cancel",
 		Input: toolcontract.MarshalToolInput(map[string]any{
 			"scope": "currentConversation",
 		}),
@@ -568,7 +568,7 @@ func TestScheduleCancelToolCancelsCurrentConversationDeliverySchedules(t *testin
 		t.Fatal(errorValue)
 	}
 	if result.Failed() {
-		t.Fatalf("expected schedule.cancel success, got %s", result.ContentText())
+		t.Fatalf("expected schedule_cancel success, got %s", result.ContentText())
 	}
 	if !strings.Contains(result.ContentText(), `"cancelledScheduleCount":1`) || !strings.Contains(result.ContentText(), `"cancelledTaskRunCount":1`) || !strings.Contains(result.ContentText(), `"effectiveCancellationCount":2`) {
 		t.Fatalf("expected delivered schedule and active run cancelled, got %s", result.ContentText())
@@ -593,7 +593,7 @@ func TestScheduleCancelToolFailsWhenNothingMatched(t *testing.T) {
 	toolCatalogBuilder := NewToolCatalogBuilder()
 	toolCatalogBuilder.UseTaskScheduleRepository(&memoryTaskScheduleRepository{})
 	toolCatalogBuilder.UseTaskRunService(taskRunService)
-	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"schedule.cancel"})
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"schedule_cancel"})
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
 		ProfileName:       "default",
 		RequesterPersonID: "person-1",
@@ -601,7 +601,7 @@ func TestScheduleCancelToolFailsWhenNothingMatched(t *testing.T) {
 	})
 
 	result, errorValue := toolRegistry.Invoke(bluecollar.WithTaskRunID(context.Background(), taskRun.TaskRunID), toolcontract.ToolInvocation{
-		ToolName: "schedule.cancel",
+		ToolName: "schedule_cancel",
 		Input: toolcontract.MarshalToolInput(map[string]any{
 			"scope": "currentConversation",
 		}),
@@ -637,14 +637,14 @@ func TestScheduleUpdateToolUpdatesIntervalSchedule(t *testing.T) {
 	}}}
 	toolCatalogBuilder := NewToolCatalogBuilder()
 	toolCatalogBuilder.UseTaskScheduleRepository(repository)
-	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"schedule.update"})
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"schedule_update"})
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
 		ProfileName:       "default",
 		RequesterPersonID: "person-1",
 	})
 
 	result, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
-		ToolName: "schedule.update",
+		ToolName: "schedule_update",
 		Input: toolcontract.MarshalToolInput(map[string]any{
 			"scheduleID":     "schedule-owned",
 			"intervalSecond": 3600,
@@ -657,7 +657,7 @@ func TestScheduleUpdateToolUpdatesIntervalSchedule(t *testing.T) {
 		t.Fatal(errorValue)
 	}
 	if result.Failed() {
-		t.Fatalf("expected schedule.update success, got %s", result.ContentText())
+		t.Fatalf("expected schedule_update success, got %s", result.ContentText())
 	}
 	updatedSchedule := repository.taskSchedules[0]
 	if updatedSchedule.IntervalSecond != 3600 || updatedSchedule.MaxRunCount != 5 || updatedSchedule.NextRunAt == nil {
@@ -688,14 +688,14 @@ func TestScheduleUpdateToolUpdatesOneOffRunAt(t *testing.T) {
 	}}}
 	toolCatalogBuilder := NewToolCatalogBuilder()
 	toolCatalogBuilder.UseTaskScheduleRepository(repository)
-	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"schedule.update"})
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"schedule_update"})
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
 		ProfileName:       "default",
 		RequesterPersonID: "person-1",
 	})
 
 	result, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
-		ToolName: "schedule.update",
+		ToolName: "schedule_update",
 		Input: toolcontract.MarshalToolInput(map[string]any{
 			"scheduleID": "schedule-owned",
 			"kind":       "once",
@@ -707,7 +707,7 @@ func TestScheduleUpdateToolUpdatesOneOffRunAt(t *testing.T) {
 		t.Fatal(errorValue)
 	}
 	if result.Failed() {
-		t.Fatalf("expected schedule.update success, got %s", result.ContentText())
+		t.Fatalf("expected schedule_update success, got %s", result.ContentText())
 	}
 	updatedSchedule := repository.taskSchedules[0]
 	if updatedSchedule.Kind != task.TaskScheduleKindOnce || updatedSchedule.RunAt == nil || !updatedSchedule.RunAt.Equal(runAt) {
@@ -727,14 +727,14 @@ func TestScheduleUpdateToolUpdatesOneOffRunAt(t *testing.T) {
 func TestScheduleUpdateToolFailsForNonexistentID(t *testing.T) {
 	toolCatalogBuilder := NewToolCatalogBuilder()
 	toolCatalogBuilder.UseTaskScheduleRepository(&memoryTaskScheduleRepository{})
-	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"schedule.update"})
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"schedule_update"})
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
 		ProfileName:       "default",
 		RequesterPersonID: "person-1",
 	})
 
 	result, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
-		ToolName: "schedule.update",
+		ToolName: "schedule_update",
 		Input: toolcontract.MarshalToolInput(map[string]any{
 			"scheduleID":     "schedule-missing",
 			"intervalSecond": 3600,
@@ -767,14 +767,14 @@ func TestScheduleUpdateToolFailsForWrongOwnerID(t *testing.T) {
 	}}}
 	toolCatalogBuilder := NewToolCatalogBuilder()
 	toolCatalogBuilder.UseTaskScheduleRepository(repository)
-	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"schedule.update"})
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"schedule_update"})
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
 		ProfileName:       "default",
 		RequesterPersonID: "person-1",
 	})
 
 	result, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
-		ToolName: "schedule.update",
+		ToolName: "schedule_update",
 		Input: toolcontract.MarshalToolInput(map[string]any{
 			"scheduleID":     "schedule-other",
 			"intervalSecond": 3600,
@@ -798,7 +798,7 @@ func TestScheduleCreateToolRejectsIntervalWithoutExplicitCadence(t *testing.T) {
 	repository := &memoryTaskScheduleRepository{}
 	toolCatalogBuilder := NewToolCatalogBuilder()
 	toolCatalogBuilder.UseTaskScheduleRepository(repository)
-	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"schedule.create"})
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"schedule_create"})
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
 		ProfileName:       "default",
 		Prompt:            "every minute, send \"a minute has passed\"",
@@ -809,7 +809,7 @@ func TestScheduleCreateToolRejectsIntervalWithoutExplicitCadence(t *testing.T) {
 	})
 
 	result, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
-		ToolName: "schedule.create",
+		ToolName: "schedule_create",
 		Input: toolcontract.MarshalToolInput(map[string]any{
 			"taskInstruction": "1say that the minutes have passed.",
 			"kind":            "interval",
@@ -823,7 +823,7 @@ func TestScheduleCreateToolRejectsIntervalWithoutExplicitCadence(t *testing.T) {
 		t.Fatal(errorValue)
 	}
 	if !result.Failed() {
-		t.Fatalf("expected schedule.create to reject missing intervalSecond, got %s", result.ContentText())
+		t.Fatalf("expected schedule_create to reject missing intervalSecond, got %s", result.ContentText())
 	}
 	if len(repository.taskSchedules) != 0 {
 		t.Fatalf("expected no schedule to be created, got %+v", repository.taskSchedules)
@@ -834,7 +834,7 @@ func TestScheduleCreateToolStoresMaxRunCount(t *testing.T) {
 	repository := &memoryTaskScheduleRepository{}
 	toolCatalogBuilder := NewToolCatalogBuilder()
 	toolCatalogBuilder.UseTaskScheduleRepository(repository)
-	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"schedule.create"})
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"schedule_create"})
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
 		ProfileName:       "default",
 		Prompt:            `every minute, say "sorry" to me ten times`,
@@ -845,7 +845,7 @@ func TestScheduleCreateToolStoresMaxRunCount(t *testing.T) {
 	})
 
 	result, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
-		ToolName: "schedule.create",
+		ToolName: "schedule_create",
 		Input: toolcontract.MarshalToolInput(map[string]any{
 			"taskInstruction": "say sorry.",
 			"kind":            "interval",
@@ -860,7 +860,7 @@ func TestScheduleCreateToolStoresMaxRunCount(t *testing.T) {
 		t.Fatal(errorValue)
 	}
 	if result.Failed() {
-		t.Fatalf("expected schedule.create success, got %s", result.ContentText())
+		t.Fatalf("expected schedule_create success, got %s", result.ContentText())
 	}
 	if len(repository.taskSchedules) != 1 {
 		t.Fatalf("expected one schedule, got %+v", repository.taskSchedules)
@@ -877,7 +877,7 @@ func TestScheduleCreateToolSeparatesRepeatFieldsFromTaskInstruction(t *testing.T
 	repository := &memoryTaskScheduleRepository{}
 	toolCatalogBuilder := NewToolCatalogBuilder()
 	toolCatalogBuilder.UseTaskScheduleRepository(repository)
-	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"schedule.create"})
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"schedule_create"})
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
 		ProfileName:       "default",
 		Prompt:            `every minute, send hello to Wendy three times`,
@@ -888,7 +888,7 @@ func TestScheduleCreateToolSeparatesRepeatFieldsFromTaskInstruction(t *testing.T
 	})
 
 	result, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
-		ToolName: "schedule.create",
+		ToolName: "schedule_create",
 		Input: toolcontract.MarshalToolInput(map[string]any{
 			"taskInstruction": "send \"hello\" to Wendy.",
 			"kind":            "interval",
@@ -903,7 +903,7 @@ func TestScheduleCreateToolSeparatesRepeatFieldsFromTaskInstruction(t *testing.T
 		t.Fatal(errorValue)
 	}
 	if result.Failed() {
-		t.Fatalf("expected schedule.create success, got %s", result.ContentText())
+		t.Fatalf("expected schedule_create success, got %s", result.ContentText())
 	}
 	if len(repository.taskSchedules) != 1 {
 		t.Fatalf("expected one schedule, got %+v", repository.taskSchedules)
@@ -940,7 +940,7 @@ func TestScheduleCancelToolCancelsActiveScheduledTaskRuns(t *testing.T) {
 	toolCatalogBuilder := NewToolCatalogBuilder()
 	toolCatalogBuilder.UseTaskScheduleRepository(repository)
 	toolCatalogBuilder.UseTaskRunService(taskRunService)
-	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"schedule.cancel"})
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"schedule_cancel"})
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
 		ProfileName:       "default",
 		RequesterPersonID: "person-1",
@@ -950,7 +950,7 @@ func TestScheduleCancelToolCancelsActiveScheduledTaskRuns(t *testing.T) {
 	})
 
 	result, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
-		ToolName: "schedule.cancel",
+		ToolName: "schedule_cancel",
 		Input:    toolcontract.MarshalToolInput(map[string]any{"scope": "mine"}),
 	})
 
@@ -958,7 +958,7 @@ func TestScheduleCancelToolCancelsActiveScheduledTaskRuns(t *testing.T) {
 		t.Fatal(errorValue)
 	}
 	if result.Failed() {
-		t.Fatalf("expected schedule.cancel success, got %s", result.ContentText())
+		t.Fatalf("expected schedule_cancel success, got %s", result.ContentText())
 	}
 	cancelledTaskRun, isFound := taskRunService.FindTaskRun(taskRun.TaskRunID)
 	if !isFound || cancelledTaskRun.Status != task.TaskStatusCancelled {
@@ -969,7 +969,7 @@ func TestScheduleCancelToolCancelsActiveScheduledTaskRuns(t *testing.T) {
 func TestScheduleCreateToolRejectsMissingReplyTarget(t *testing.T) {
 	toolCatalogBuilder := NewToolCatalogBuilder()
 	toolCatalogBuilder.UseTaskScheduleRepository(&memoryTaskScheduleRepository{})
-	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"schedule.create"})
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"schedule_create"})
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
 		ProfileName:       "default",
 		RequesterPersonID: "person-1",
@@ -978,7 +978,7 @@ func TestScheduleCreateToolRejectsMissingReplyTarget(t *testing.T) {
 	})
 
 	result, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
-		ToolName: "schedule.create",
+		ToolName: "schedule_create",
 		Input: toolcontract.MarshalToolInput(map[string]any{
 			"taskInstruction": "check today's schedule and brief me.",
 			"kind":            "cron",
@@ -1015,14 +1015,14 @@ func TestScheduleCreateExecutorRejectsScheduledRunContext(t *testing.T) {
 		t.Fatal(errorValue)
 	}
 	if !result.Failed() || !strings.Contains(result.ContentText(), "scheduled task executions cannot create new schedules") {
-		t.Fatalf("expected scheduled run schedule.create failure, got %+v", result)
+		t.Fatalf("expected scheduled run schedule_create failure, got %+v", result)
 	}
 }
 
 func newScheduleListTestRegistry(repository *memoryTaskScheduleRepository, requesterPersonID string) *toolcontract.ToolSet {
 	toolCatalogBuilder := NewToolCatalogBuilder()
 	toolCatalogBuilder.UseTaskScheduleRepository(repository)
-	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"schedule.list"})
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"schedule_list"})
 	return toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
 		ProfileName:       "default",
 		RequesterPersonID: requesterPersonID,
@@ -1032,14 +1032,14 @@ func newScheduleListTestRegistry(repository *memoryTaskScheduleRepository, reque
 func invokeScheduleList(t *testing.T, toolRegistry *toolcontract.ToolSet, input map[string]any) scheduleListToolOutput {
 	t.Helper()
 	result, errorValue := toolRegistry.Invoke(context.Background(), toolcontract.ToolInvocation{
-		ToolName: "schedule.list",
+		ToolName: "schedule_list",
 		Input:    toolcontract.MarshalToolInput(input),
 	})
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
 	if result.Failed() {
-		t.Fatalf("expected schedule.list success, got %s", result.ContentText())
+		t.Fatalf("expected schedule_list success, got %s", result.ContentText())
 	}
 	var output scheduleListToolOutput
 	if errorValue := json.Unmarshal([]byte(result.ContentText()), &output); errorValue != nil {

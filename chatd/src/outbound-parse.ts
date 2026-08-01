@@ -146,7 +146,7 @@ export function parseMessageEditRequest(value: unknown): MessageEditRequest {
 }
 
 export function parseMessageDeleteRequest(value: unknown): MessageDeleteRequest {
-	const record = requireRecord(value, "message.delete request");
+	const record = requireRecord(value, "message_delete request");
 	return {
 		replyTargetID: requireString(record, "replyTargetID"),
 		messageID: requireString(record, "messageID"),
