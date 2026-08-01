@@ -14,7 +14,7 @@ import {
 import { buildProtocolArtifacts } from '@blueclaw/protocol/artifacts';
 
 import type { LLMDConfiguration } from './configuration.ts';
-import { classifyLLMDError } from './errors.ts';
+import { classifyLLMDError, diagnoseResponseValidation } from './errors.ts';
 import type { ChatCompletionGenerator, StructuredResponseGenerator } from './provider.ts';
 
 const protocolManifest = buildProtocolArtifacts().manifest;
@@ -57,7 +57,7 @@ export function createLLMDHandler(dependencies: HandlerDependencies) {
       const response = await dependencies.generateStructuredResponse(parsedRequest.data, requestDeadlineSignal);
       const parsedResponse = structuredResponseSchema.safeParse(response);
       if (!parsedResponse.success) {
-        return errorResponse(502, 'provider_response_invalid', false);
+        return errorResponse(502, 'provider_response_invalid', false, diagnoseResponseValidation(parsedResponse.error));
       }
       return Response.json(parsedResponse.data);
     } catch (errorValue) {
@@ -74,7 +74,9 @@ async function handleChatRequest(value: unknown, abortSignal: AbortSignal, depen
   try {
     const response = await dependencies.generateChatCompletion(parsedRequest.data, abortSignal);
     const parsedResponse = chatCompletionResponseSchema.safeParse(response);
-    if (!parsedResponse.success) return errorResponse(502, 'provider_response_invalid', false);
+    if (!parsedResponse.success) {
+      return errorResponse(502, 'provider_response_invalid', false, diagnoseResponseValidation(parsedResponse.error));
+    }
     return Response.json(parsedResponse.data);
   } catch (errorValue) {
     const llmdError = classifyLLMDError(errorValue);
