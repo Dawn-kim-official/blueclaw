@@ -737,7 +737,7 @@ async function generateChatForRoute(
     Object.keys(tools),
     request.parallelToolCalls,
   );
-  const messages = convertChatMessages(request);
+  const messages = convertChatMessages(request, wireNameByCanonicalName);
   const system = systemMessages(request);
   const chatRoute = routeForChatRequest(request, route, requestedToolChoice, canonicalNameByWireName);
   let repairAttempted = false;
@@ -1037,11 +1037,16 @@ function convertToolChoice(toolChoice: unknown, toolNames: string[]): ToolChoice
   return { type: 'tool', toolName };
 }
 
-function convertChatMessages(request: ChatCompletionRequest): ModelMessage[] {
+// History carries tool names back to the provider - the assistant's earlier
+// calls and their results - so it needs the same sanitizing the declarations
+// get. Miss it and a second turn is rejected for a name the first turn was
+// careful never to send.
+function convertChatMessages(request: ChatCompletionRequest, wireNameByCanonicalName: Map<string, string>): ModelMessage[] {
   const toolNames = toolNamesByCallID(request);
+  const wireName = (canonicalName: string) => wireNameByCanonicalName.get(canonicalName) ?? canonicalName;
   return request.messages.filter(message => message.role !== 'system').map(message => {
     if (message.role === 'user') return { role: 'user', content: userContent(message) };
-    if (message.role === 'assistant') return assistantMessage(message);
+    if (message.role === 'assistant') return assistantMessage(message, wireName);
     const toolName = toolNames.get(message.toolCallId ?? '');
     if (!toolName) throw new LLMDError('request_invalid', 400, false, `tool result ${message.toolCallId ?? ''} has no matching tool call`);
     return {
@@ -1049,14 +1054,14 @@ function convertChatMessages(request: ChatCompletionRequest): ModelMessage[] {
       content: [{
         type: 'tool-result' as const,
         toolCallId: message.toolCallId ?? '',
-        toolName,
+        toolName: wireName(toolName),
         output: toolResultOutput(message.content ?? ''),
       }],
     };
   });
 }
 
-function assistantMessage(message: ChatCompletionRequest['messages'][number]): ModelMessage {
+function assistantMessage(message: ChatCompletionRequest['messages'][number], wireName: (canonicalName: string) => string): ModelMessage {
   const toolCalls = message.toolCalls ?? [];
   if (toolCalls.length === 0) return { role: 'assistant', content: message.content ?? '' };
   const content: Array<{ type: 'text'; text: string } | { type: 'tool-call'; toolCallId: string; toolName: string; input: unknown }> = [];
@@ -1065,7 +1070,7 @@ function assistantMessage(message: ChatCompletionRequest['messages'][number]): M
     content.push({
       type: 'tool-call',
       toolCallId: toolCall.id,
-      toolName: toolCall.function.name,
+      toolName: wireName(toolCall.function.name),
       input: parseToolArguments(toolCall.function.arguments),
     });
   }

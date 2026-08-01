@@ -115,6 +115,36 @@ describe('llmd provider adapter', () => {
     expect(remoteAttempt).toBe(2);
   });
 
+  test('sanitizes tool names in the history it sends back', async () => {
+    const remoteModel = toolCallLanguageModel('served-remote-model', [{
+      toolName: 'task_add',
+      input: '{"title":"second turn"}',
+    }]);
+    const generateChatCompletion = createChatCompletionGenerator(
+      completeConfiguration(LLMDAutoRoute.RemoteFirst),
+      languageModelFactory(chatLanguageModel('unused-local-model'), remoteModel),
+    );
+    const request = multipleToolChatRequest();
+    request.messages = [
+      ...request.messages,
+      {
+        role: ChatCompletionMessageRole.Assistant,
+        content: '',
+        toolCalls: [{ id: 'call-1', type: 'function', function: { name: 'task.add', arguments: '{"title":"first turn"}' } }],
+      },
+      { role: ChatCompletionMessageRole.Tool, toolCallId: 'call-1', content: 'created' },
+    ];
+
+    await generateChatCompletion(request);
+
+    // OpenAI-family endpoints reject a dotted function name anywhere in the
+    // request, history included, so the earlier call and its result go out
+    // sanitized just like the declarations.
+    const sentPrompt = JSON.stringify(remoteModel.doStreamCalls[0]?.prompt);
+    expect(sentPrompt).toContain('task_add');
+    expect(sentPrompt).not.toContain('task.add');
+  });
+
   test('accepts canonical generated document tool schemas', async () => {
     const descriptor = buildCapabilityToolCatalog('test').tools
       .find(tool => tool.name === DocumentToolName.Read);
