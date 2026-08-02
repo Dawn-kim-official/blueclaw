@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Dawn-kim-official/blueclaw/agentcontract"
 	"github.com/Dawn-kim-official/blueclaw/internal/agentruntime"
-	"github.com/Dawn-kim-official/blueclaw/internal/bluecollar"
 	"github.com/Dawn-kim-official/blueclaw/internal/identity"
 	"github.com/Dawn-kim-official/blueclaw/internal/memory"
 	"github.com/Dawn-kim-official/blueclaw/internal/policy"
@@ -129,7 +129,7 @@ func hasTaskDecisionPresetOverrides(runRequest taskRunRequest) bool {
 		len(runRequest.PinnedSkillNames) > 0
 }
 
-func (taskRunHandler TaskRunHandler) resolveTaskDecisionPreset(preset string) (*bluecollar.TurnDecision, int, error) {
+func (taskRunHandler TaskRunHandler) resolveTaskDecisionPreset(preset string) (*agentcontract.TurnDecision, int, error) {
 	normalizedPreset := strings.TrimSpace(preset)
 	if normalizedPreset == "" {
 		return nil, 0, nil
@@ -140,13 +140,13 @@ func (taskRunHandler TaskRunHandler) resolveTaskDecisionPreset(preset string) (*
 	if normalizedPreset != llmdTopologyTaskDecisionPreset {
 		return nil, http.StatusBadRequest, errors.New("task decision preset is unsupported")
 	}
-	return &bluecollar.TurnDecision{
-		Route:              bluecollar.TurnRouteStartTask,
-		Classification:     bluecollar.IntakeClassificationQuickReply,
-		TaskShape:          bluecollar.TaskShapeImmediateReply,
-		TaskLevel:          bluecollar.TaskLevelXLow,
+	return &agentcontract.TurnDecision{
+		Route:              agentcontract.TurnRouteStartTask,
+		Classification:     agentcontract.IntakeClassificationQuickReply,
+		TaskShape:          agentcontract.TaskShapeImmediateReply,
+		TaskLevel:          agentcontract.TaskLevelXLow,
 		EstimatedMinutes:   1,
-		PriorTaskReference: bluecollar.PriorTaskReferenceNone,
+		PriorTaskReference: agentcontract.PriorTaskReferenceNone,
 		Reason:             "llmd topology diagnostic",
 	}, 0, nil
 }

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Dawn-kim-official/blueclaw/agentcontract"
 	"github.com/Dawn-kim-official/blueclaw/internal/agentruntime"
 	"github.com/Dawn-kim-official/blueclaw/internal/bluecollar"
 	"github.com/Dawn-kim-official/blueclaw/internal/identity"
@@ -93,7 +94,7 @@ func TestTaskRunHandlerUsesLLMDTopologyPresetWithoutIntakeCall(t *testing.T) {
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
-	if presetDecision.TaskLevel != bluecollar.TaskLevelXLow {
+	if presetDecision.TaskLevel != agentcontract.TaskLevelXLow {
 		t.Fatalf("expected xlow diagnostic task level, got %s", presetDecision.TaskLevel)
 	}
 	request := httptest.NewRequest(http.MethodPost, "/admin/api/task/run", strings.NewReader(`{"requesterPersonID":"person-1","prompt":"reply exactly","taskDecisionPreset":"llmd_topology"}`))
@@ -264,7 +265,7 @@ func newPresetTaskRunHandler(isPresetAllowed bool) (TaskRunHandler, *task.TaskRu
 	languageModel := &schemaRecordingAdminLanguageModel{}
 	agentKernel.UseLanguageModelProvider(languageModel)
 	agentKernel.UseIntakeLanguageModelProvider(languageModel)
-	agentKernel.UseIntakeOptions(bluecollar.IntakeOptions{IsEnabled: true, DefaultTaskLevel: bluecollar.TaskLevelLow})
+	agentKernel.UseIntakeOptions(agentcontract.IntakeOptions{IsEnabled: true, DefaultTaskLevel: agentcontract.TaskLevelLow})
 	toolCatalogBuilder := agentruntime.NewToolCatalogBuilder()
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(map[string][]string{
 		llmdTopologyDiagnosticProfileName: {"llmd.diagnostic.no_tools"},
@@ -306,7 +307,7 @@ func (languageModel staticAdminLanguageModel) GenerateStructuredResponse(_ conte
 func useAdminTaskLanguageModel(agentKernel *bluecollar.AgentKernel, languageModel llm.LanguageModelProvider) {
 	agentKernel.UseLanguageModelProvider(languageModel)
 	agentKernel.UseIntakeLanguageModelProvider(languageModel)
-	agentKernel.UseIntakeOptions(bluecollar.IntakeOptions{IsEnabled: true})
+	agentKernel.UseIntakeOptions(agentcontract.IntakeOptions{IsEnabled: true})
 }
 
 func adminTaskTurnRouterResponse() string {
