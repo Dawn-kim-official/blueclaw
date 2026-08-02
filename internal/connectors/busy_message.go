@@ -275,7 +275,7 @@ func (connectorRuntime *ConnectorRuntime) handlePossibleFinishedTaskFollowUp(
 	if event.RawReceivedAt.IsZero() || !event.RawReceivedAt.Before(finishedTaskRun.UpdatedAt) {
 		return busyMessageResult{}, nil
 	}
-	isRelated, errorValue := connectorRuntime.harness.ClassifyActiveTaskFollowUp(ctx, agentcontract.ActiveTaskFollowUpClassificationRequest{
+	isRelated, errorValue := connectorRuntime.intakeClassifier.ClassifyActiveTaskFollowUp(ctx, agentcontract.ActiveTaskFollowUpClassificationRequest{
 		ActiveTaskPrompt: finishedTaskRun.Prompt,
 		ActiveTaskStatus: string(finishedTaskRun.Status),
 		LatestMessage:    event.Prompt,

@@ -35,12 +35,14 @@ import (
 	"github.com/Dawn-kim-official/blueclaw/internal/connectors"
 	"github.com/Dawn-kim-official/blueclaw/internal/harnessdriver"
 	"github.com/Dawn-kim-official/blueclaw/internal/identity"
+	"github.com/Dawn-kim-official/blueclaw/internal/intake"
 	"github.com/Dawn-kim-official/blueclaw/internal/llm"
 	"github.com/Dawn-kim-official/blueclaw/internal/memory"
 	"github.com/Dawn-kim-official/blueclaw/internal/policy"
 	"github.com/Dawn-kim-official/blueclaw/internal/security"
 	"github.com/Dawn-kim-official/blueclaw/internal/skill"
 	"github.com/Dawn-kim-official/blueclaw/internal/task"
+	"github.com/Dawn-kim-official/blueclaw/model"
 	capabilitycatalog "github.com/Dawn-kim-official/blueclaw/protocol/generated"
 )
 
@@ -833,6 +835,7 @@ func NewVirtualSessionHarness(scenario VirtualSessionScenario) (*VirtualSessionH
 	identityService := identity.NewIdentityService(testPolicyProjection())
 	runtime := connectors.NewConnectorRuntime(identityService, agentHarness, taskRunService, slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError})))
 	adapter := &virtualAdapter{workspacePath: workspacePath}
+	runtime.UseIntakeClassifier(intake.NewClassifier(firstAvailableLanguageModel(xLowLanguageModel, intakeLanguageModel, highLanguageModel)))
 	runtime.RegisterAdapter(adapter)
 	runtime.UseWorkspaceID("e2e")
 	runtime.UseWorkspaceRootPath(workspacePath)
@@ -4114,4 +4117,13 @@ func actionCallToolWithMessage(toolName string, message string, input string) st
 func quote(value string) string {
 	encoded, _ := json.Marshal(value)
 	return string(encoded)
+}
+
+func firstAvailableLanguageModel(candidates ...model.LanguageModelProvider) model.LanguageModelProvider {
+	for _, candidate := range candidates {
+		if candidate != nil {
+			return candidate
+		}
+	}
+	return nil
 }

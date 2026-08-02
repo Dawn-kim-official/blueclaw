@@ -26,7 +26,6 @@ type AddressingDecision struct {
 	Target         AddressingTarget
 	ShouldRespond  bool
 	ReactionEmoji  string
-	Reason         string
 	DutyMatch      bool
 	DutyName       string
 	DutyConfidence float64

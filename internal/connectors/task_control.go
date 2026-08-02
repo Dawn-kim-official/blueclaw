@@ -171,7 +171,7 @@ func (connectorRuntime *ConnectorRuntime) looksLikeActiveTaskFollowUp(ctx contex
 	if !isFound {
 		return false
 	}
-	isRelated, errorValue := connectorRuntime.harness.ClassifyActiveTaskFollowUp(ctx, agentcontract.ActiveTaskFollowUpClassificationRequest{
+	isRelated, errorValue := connectorRuntime.intakeClassifier.ClassifyActiveTaskFollowUp(ctx, agentcontract.ActiveTaskFollowUpClassificationRequest{
 		ActiveTaskPrompt: activeTaskRun.Prompt,
 		ActiveTaskStatus: string(activeTaskRun.Status),
 		LatestMessage:    event.Prompt,

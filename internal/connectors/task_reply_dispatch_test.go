@@ -17,7 +17,9 @@ import (
 func TestCompletedTaskReplyCarriesModelWordingAndNativeAttachments(t *testing.T) {
 	identityService := identity.NewIdentityService(policy.PolicyProjection{})
 	taskRunService := task.NewTaskRunService(task.NewTaskEventService())
-	connectorRuntime := NewConnectorRuntime(identityService, harnesstest.New(taskRunService), taskRunService, slog.Default())
+	connectorRuntimeHarness := harnesstest.New(taskRunService)
+	connectorRuntime := NewConnectorRuntime(identityService, connectorRuntimeHarness, taskRunService, slog.Default())
+	connectorRuntime.UseIntakeClassifier(connectorRuntimeHarness)
 
 	var sentReply OutboundReply
 	sendReply := func(_ context.Context, _ ReplyTarget, reply OutboundReply) (string, error) {

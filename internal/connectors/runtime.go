@@ -352,6 +352,7 @@ const connectorReplyKindPermissionNotice = "permission_notice"
 type ConnectorRuntime struct {
 	identityService      *identity.IdentityService
 	harness              agentcontract.Harness
+	intakeClassifier     IntakeClassifier
 	taskRunService       *taskstate.TaskRunService
 	taskLauncher         *agentruntime.TaskLauncher
 	toolCatalogBuilder   *agentruntime.ToolCatalogBuilder
@@ -527,6 +528,15 @@ func connectorRuntimeDefaultAllowedToolNames() []string {
 
 func (connectorRuntime *ConnectorRuntime) UseAllowedToolNamesByProfile(allowedToolNamesByProfile map[string][]string, defaultAllowedToolNames []string) {
 	connectorRuntime.toolCatalogBuilder.UseAllowedToolNamesByProfile(allowedToolNamesByProfile, defaultAllowedToolNames)
+}
+
+type IntakeClassifier interface {
+	ClassifyAddressing(context.Context, agentcontract.AddressingClassificationRequest) (agentcontract.AddressingDecision, error)
+	ClassifyActiveTaskFollowUp(context.Context, agentcontract.ActiveTaskFollowUpClassificationRequest) (bool, error)
+}
+
+func (connectorRuntime *ConnectorRuntime) UseIntakeClassifier(intakeClassifier IntakeClassifier) {
+	connectorRuntime.intakeClassifier = intakeClassifier
 }
 
 func (connectorRuntime *ConnectorRuntime) UseTaskLauncher(taskLauncher *agentruntime.TaskLauncher) {

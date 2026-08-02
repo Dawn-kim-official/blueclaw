@@ -24,8 +24,7 @@ type TurnOptions struct {
 }
 
 type IntakeOptions struct {
-	IsEnabled             bool
-	DefaultTaskLevel      TaskLevel
-	SkillTaskLevelFloor   TaskLevel
-	DebugAddressingReason bool
+	IsEnabled           bool
+	DefaultTaskLevel    TaskLevel
+	SkillTaskLevelFloor TaskLevel
 }

@@ -21,6 +21,7 @@ import (
 	"github.com/Dawn-kim-official/blueclaw/internal/capability"
 	"github.com/Dawn-kim-official/blueclaw/internal/config"
 	"github.com/Dawn-kim-official/blueclaw/internal/identity"
+	"github.com/Dawn-kim-official/blueclaw/internal/intake"
 	"github.com/Dawn-kim-official/blueclaw/internal/llm"
 	"github.com/Dawn-kim-official/blueclaw/internal/mcp"
 	"github.com/Dawn-kim-official/blueclaw/internal/memory"
@@ -1184,7 +1185,9 @@ func TestConnectorRuntimeRequesterEmailFallsBackToVisibleSenderEmail(t *testing.
 		},
 	})
 	taskRunService := task.NewTaskRunService(task.NewTaskEventService())
-	connectorRuntime := NewConnectorRuntime(identityService, harnesstest.New(taskRunService), taskRunService, nil)
+	connectorRuntimeHarness := harnesstest.New(taskRunService)
+	connectorRuntime := NewConnectorRuntime(identityService, connectorRuntimeHarness, taskRunService, nil)
+	connectorRuntime.UseIntakeClassifier(connectorRuntimeHarness)
 	event := testInboundEvent("message-1")
 	event.Context.Sender.Email = "Sender@Example.com"
 
@@ -1203,7 +1206,9 @@ func TestConnectorRuntimeRequesterEmailPrefersPolicyPrimaryEmail(t *testing.T) {
 		},
 	})
 	taskRunService := task.NewTaskRunService(task.NewTaskEventService())
-	connectorRuntime := NewConnectorRuntime(identityService, harnesstest.New(taskRunService), taskRunService, nil)
+	connectorRuntimeHarness := harnesstest.New(taskRunService)
+	connectorRuntime := NewConnectorRuntime(identityService, connectorRuntimeHarness, taskRunService, nil)
+	connectorRuntime.UseIntakeClassifier(connectorRuntimeHarness)
 	event := testInboundEvent("message-1")
 	event.Context.Sender.Email = "sender@example.com"
 
@@ -1488,7 +1493,7 @@ func TestConnectorRuntimeUsesIntakeLanguageModelForAddressingClassifier(t *testi
 	replyLanguageModel := &addressingTestLanguageModel{addressingTarget: string(agentcontract.AddressingTargetHuman), reply: "ok"}
 	intakeLanguageModel := &addressingTestLanguageModel{addressingTarget: string(agentcontract.AddressingTargetBot), reply: "unused"}
 	connectorRuntime, adapter := newTestConnectorRuntime(t, replyLanguageModel)
-	connectorRuntimeAgentKernel(connectorRuntime).UseIntakeLanguageModelProvider(intakeLanguageModel)
+	connectorRuntime.UseIntakeClassifier(intake.NewClassifier(intakeLanguageModel))
 
 	result, errorValue := connectorRuntime.HandleInboundEvent(context.Background(), adapter, testChannelInboundEvent("message-1"))
 	if errorValue != nil {
@@ -4143,7 +4148,7 @@ func newTestConnectorRuntime(t *testing.T, languageModel llm.LanguageModelProvid
 	t.Helper()
 
 	taskRunService := task.NewTaskRunService(task.NewTaskEventService())
-	return connectorRuntimeForHarness(t, testConnectorAgentKernel(taskRunService, languageModel), taskRunService)
+	return connectorRuntimeForHarness(t, testConnectorAgentKernel(taskRunService, languageModel), intake.NewClassifier(languageModel), taskRunService)
 }
 
 func newStubbedTestConnectorRuntime(t *testing.T) (*ConnectorRuntime, *testAdapter, *harnesstest.Harness) {
@@ -4151,14 +4156,15 @@ func newStubbedTestConnectorRuntime(t *testing.T) (*ConnectorRuntime, *testAdapt
 
 	taskRunService := task.NewTaskRunService(task.NewTaskEventService())
 	harness := harnesstest.New(taskRunService)
-	connectorRuntime, adapter := connectorRuntimeForHarness(t, harness, taskRunService)
+	connectorRuntime, adapter := connectorRuntimeForHarness(t, harness, harness, taskRunService)
 	return connectorRuntime, adapter, harness
 }
 
-func connectorRuntimeForHarness(t *testing.T, harness agentcontract.Harness, taskRunService *task.TaskRunService) (*ConnectorRuntime, *testAdapter) {
+func connectorRuntimeForHarness(t *testing.T, harness agentcontract.Harness, intakeClassifier IntakeClassifier, taskRunService *task.TaskRunService) (*ConnectorRuntime, *testAdapter) {
 	t.Helper()
 
 	connectorRuntime := NewConnectorRuntime(testConnectorIdentityService(), harness, taskRunService, nil)
+	connectorRuntime.UseIntakeClassifier(intakeClassifier)
 	connectorRuntime.UseTaskRunService(taskRunService)
 	adapter := &testAdapter{senderEmail: "invited@example.com"}
 	connectorRuntime.RegisterAdapter(adapter)
@@ -4212,7 +4218,7 @@ func newWaitRoutingTestConnectorRuntime(t *testing.T, languageModel llm.Language
 	taskRunService := task.NewTaskRunService(task.NewTaskEventService())
 	taskWaitRepository := task.NewInMemoryTaskWaitTokenRepository()
 
-	connectorRuntime, adapter := connectorRuntimeForHarness(t, testConnectorAgentKernel(taskRunService, languageModel), taskRunService)
+	connectorRuntime, adapter := connectorRuntimeForHarness(t, testConnectorAgentKernel(taskRunService, languageModel), intake.NewClassifier(languageModel), taskRunService)
 	connectorRuntime.UseTaskWaitTokenRepository(taskWaitRepository)
 	return connectorRuntime, adapter, taskRunService, taskWaitRepository
 }
@@ -4285,7 +4291,7 @@ func newStubbedRepositoryBackedTestConnectorRuntime(t *testing.T, taskRunReposit
 	taskRunService.UseRepository(taskRunRepository)
 
 	harness := harnesstest.New(taskRunService)
-	connectorRuntime, adapter := connectorRuntimeForHarness(t, harness, taskRunService)
+	connectorRuntime, adapter := connectorRuntimeForHarness(t, harness, harness, taskRunService)
 	return connectorRuntime, adapter, taskEventService, harness
 }
 
