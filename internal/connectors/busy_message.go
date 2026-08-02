@@ -28,7 +28,7 @@ func (connectorRuntime *ConnectorRuntime) handleBusyMessageIfNeeded(
 	if !isFound {
 		return connectorRuntime.handlePossibleFinishedTaskFollowUp(ctx, platform, event, replyTarget, personID, sendReply)
 	}
-	decision, errorValue := connectorRuntime.agentKernel.RouteTurn(ctx, agentcontract.AgentRequest{
+	decision, errorValue := connectorRuntime.harness.RouteTurn(ctx, agentcontract.AgentRequest{
 		RequesterPersonID: personID,
 		ConversationID:    event.ConversationID,
 		Prompt:            event.Prompt,
@@ -169,7 +169,7 @@ func (connectorRuntime *ConnectorRuntime) resumePausedTaskForSteer(
 	launchRequest := connectorRuntime.interruptedTaskLaunchRequest(activeTaskRun, taskEvents, launchContext, event, adapter, userSteerTaskProfile(platform, activeTaskRun.TaskRunID), sendReply)
 	launchResult, errorValue := connectorRuntime.currentTaskLauncher().Launch(ctx, launchRequest)
 	if errorValue != nil {
-		failureTurnResult := connectorRuntime.agentKernel.CompleteLaunchFailure(ctx, agentcontract.AgentTurnRequest{
+		failureTurnResult := connectorRuntime.harness.CompleteLaunchFailure(ctx, agentcontract.AgentTurnRequest{
 			RequesterPersonID: activeTaskRun.RequesterPersonID,
 			ExistingTaskRunID: activeTaskRun.TaskRunID,
 			Platform:          platform,
@@ -247,7 +247,7 @@ func (connectorRuntime *ConnectorRuntime) generateBusyReply(ctx context.Context,
 		"Do not expose internal event names or task IDs.",
 		"Status and steer replies must not claim the task is complete. Cancel replies may say the active task has been stopped.",
 	}, "\n")
-	return connectorRuntime.agentKernel.GenerateReplyWithContext(ctx, prompt, event.Context.ToAgentVisibleContext(), nil)
+	return connectorRuntime.harness.GenerateReplyWithContext(ctx, prompt, event.Context.ToAgentVisibleContext(), nil)
 }
 
 // recentlyFinishedTaskFollowUpWindow bounds how long after a task leaves active status a
@@ -275,7 +275,7 @@ func (connectorRuntime *ConnectorRuntime) handlePossibleFinishedTaskFollowUp(
 	if event.RawReceivedAt.IsZero() || !event.RawReceivedAt.Before(finishedTaskRun.UpdatedAt) {
 		return busyMessageResult{}, nil
 	}
-	isRelated, errorValue := connectorRuntime.agentKernel.ClassifyActiveTaskFollowUp(ctx, agentcontract.ActiveTaskFollowUpClassificationRequest{
+	isRelated, errorValue := connectorRuntime.harness.ClassifyActiveTaskFollowUp(ctx, agentcontract.ActiveTaskFollowUpClassificationRequest{
 		ActiveTaskPrompt: finishedTaskRun.Prompt,
 		ActiveTaskStatus: string(finishedTaskRun.Status),
 		LatestMessage:    event.Prompt,
@@ -307,7 +307,7 @@ func (connectorRuntime *ConnectorRuntime) generateFinishedTaskFollowUpReply(ctx 
 		"Latest user message: " + strings.TrimSpace(event.Prompt),
 		"Tell the user the task already finished before this message could apply to it, and ask whether they want it undone/redone or want to start something new. Do not silently start new work.",
 	}, "\n")
-	return connectorRuntime.agentKernel.GenerateReplyWithContext(ctx, prompt, event.Context.ToAgentVisibleContext(), nil)
+	return connectorRuntime.harness.GenerateReplyWithContext(ctx, prompt, event.Context.ToAgentVisibleContext(), nil)
 }
 
 func (connectorRuntime *ConnectorRuntime) latestRecentlyFinishedConversationTask(personID string, conversationID string) (task.TaskRun, bool) {

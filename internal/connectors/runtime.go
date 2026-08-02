@@ -15,7 +15,6 @@ import (
 
 	"github.com/Dawn-kim-official/blueclaw/agentcontract"
 	"github.com/Dawn-kim-official/blueclaw/internal/agentruntime"
-	"github.com/Dawn-kim-official/blueclaw/internal/bluecollar"
 	"github.com/Dawn-kim-official/blueclaw/internal/capability"
 	"github.com/Dawn-kim-official/blueclaw/internal/identity"
 	"github.com/Dawn-kim-official/blueclaw/internal/mcp"
@@ -352,7 +351,7 @@ const connectorReplyKindPermissionNotice = "permission_notice"
 
 type ConnectorRuntime struct {
 	identityService      *identity.IdentityService
-	agentKernel          *bluecollar.AgentKernel
+	harness              agentcontract.Harness
 	taskRunService       *taskstate.TaskRunService
 	taskLauncher         *agentruntime.TaskLauncher
 	toolCatalogBuilder   *agentruntime.ToolCatalogBuilder
@@ -408,7 +407,7 @@ type inboundTaskWaitResolution struct {
 	Reason             string
 }
 
-func NewConnectorRuntime(identityService *identity.IdentityService, agentKernel *bluecollar.AgentKernel, taskRunService *taskstate.TaskRunService, logger *slog.Logger) *ConnectorRuntime {
+func NewConnectorRuntime(identityService *identity.IdentityService, harness agentcontract.Harness, taskRunService *taskstate.TaskRunService, logger *slog.Logger) *ConnectorRuntime {
 	if logger == nil {
 		logger = slog.Default()
 	}
@@ -417,7 +416,7 @@ func NewConnectorRuntime(identityService *identity.IdentityService, agentKernel 
 
 	return &ConnectorRuntime{
 		identityService:       identityService,
-		agentKernel:           agentKernel,
+		harness:               harness,
 		taskRunService:        taskRunService,
 		toolCatalogBuilder:    toolCatalogBuilder,
 		logger:                logger,
@@ -1063,7 +1062,7 @@ func (connectorRuntime *ConnectorRuntime) processInboundEventWithReplySender(ctx
 	launchResult, errorValue := connectorRuntime.currentTaskLauncher().Launch(ctx, connectorRuntime.buildTaskLaunchRequest(conversationTurn))
 	if errorValue != nil {
 		connectorRuntime.logger.Error("connector."+platform+".agent.failed", slog.String("messageID", event.MessageID), slog.String("error", errorValue.Error()))
-		failureTurnResult := connectorRuntime.agentKernel.CompleteLaunchFailure(ctx, agentcontract.AgentTurnRequest{
+		failureTurnResult := connectorRuntime.harness.CompleteLaunchFailure(ctx, agentcontract.AgentTurnRequest{
 			RequesterPersonID: personID,
 			RequesterEmail:    requesterEmail,
 			Platform:          platform,
@@ -1243,7 +1242,7 @@ func (connectorRuntime *ConnectorRuntime) resolveConfirmationReply(ctx context.C
 			return approval, agentcontract.TurnDecision{Route: agentcontract.TurnRouteConsume, Approval: &approvalSignal, Classification: agentcontract.IntakeClassificationQuickReply, TaskShape: agentcontract.TaskShapeImmediateReply, TaskLevel: agentcontract.TaskLevelXLow, ResponseLanguage: responseLanguageForEvent(event), Reason: "interactive_cancel"}, true, nil
 		}
 	}
-	decision, errorValue := connectorRuntime.agentKernel.RouteTurn(ctx, agentcontract.AgentRequest{
+	decision, errorValue := connectorRuntime.harness.RouteTurn(ctx, agentcontract.AgentRequest{
 		RequesterPersonID: personID,
 		ConversationID:    event.ConversationID,
 		Prompt:            event.Prompt,
@@ -1285,7 +1284,7 @@ func (connectorRuntime *ConnectorRuntime) resolveAskReply(ctx context.Context, p
 		return resolveAskInteractiveReply(event, pendingInteraction, action), decision, true, nil
 	}
 	if pendingInteraction.Kind == "ask_input" {
-		decision, errorValue := connectorRuntime.agentKernel.RouteTurn(ctx, agentcontract.AgentRequest{
+		decision, errorValue := connectorRuntime.harness.RouteTurn(ctx, agentcontract.AgentRequest{
 			RequesterPersonID: personID,
 			ConversationID:    event.ConversationID,
 			Prompt:            event.Prompt,
@@ -1323,7 +1322,7 @@ func (connectorRuntime *ConnectorRuntime) resolveAskReply(ctx context.Context, p
 		event.Prompt = resolvedChoicePrompt(pendingInteraction, decision.Choices)
 		return event, decision, true, nil
 	}
-	decision, errorValue := connectorRuntime.agentKernel.RouteTurn(ctx, agentcontract.AgentRequest{
+	decision, errorValue := connectorRuntime.harness.RouteTurn(ctx, agentcontract.AgentRequest{
 		RequesterPersonID: personID,
 		ConversationID:    event.ConversationID,
 		Prompt:            event.Prompt,
@@ -2219,7 +2218,7 @@ func (connectorRuntime *ConnectorRuntime) handleRejectedConfirmation(ctx context
 		"messageID": event.MessageID,
 		"reason":    decision.Reason,
 	}))
-	reply, errorValue := connectorRuntime.agentKernel.GenerateReply(ctx, rejectedConfirmationReplyPrompt(event.Prompt, approval.ResponseLanguage))
+	reply, errorValue := connectorRuntime.harness.GenerateReply(ctx, rejectedConfirmationReplyPrompt(event.Prompt, approval.ResponseLanguage))
 	if errorValue != nil {
 		connectorRuntime.logger.Warn("connector."+platform+".confirmation.reject_reply_failed", slog.String("messageID", event.MessageID), slog.String("taskRunID", approval.TaskRun.TaskRunID), slog.String("error", errorValue.Error()))
 		return ConnectorRuntimeResult{Handled: true, Platform: platform, TaskRunID: approval.TaskRun.TaskRunID, Reason: "confirmation_rejected"}, nil
@@ -2235,7 +2234,7 @@ func (connectorRuntime *ConnectorRuntime) handleRejectedConfirmation(ctx context
 
 func (connectorRuntime *ConnectorRuntime) handlePendingConfirmationQuestion(ctx context.Context, platform string, adapter PlatformAdapter, event PlatformInboundEvent, replyTarget ReplyTarget, approval pendingApproval, decision agentcontract.TurnDecision, sendReply func(context.Context, ReplyTarget, OutboundReply) (string, error)) (ConnectorRuntimeResult, error) {
 	connectorRuntime.cancelPendingConfirmation(event, approval, decision)
-	reply, errorValue := connectorRuntime.agentKernel.GenerateReplyWithContext(ctx, event.Prompt, event.Context.ToAgentVisibleContext(), nil)
+	reply, errorValue := connectorRuntime.harness.GenerateReplyWithContext(ctx, event.Prompt, event.Context.ToAgentVisibleContext(), nil)
 	if errorValue != nil {
 		connectorRuntime.logger.Warn("connector."+platform+".confirmation.question_reply_failed", slog.String("messageID", event.MessageID), slog.String("taskRunID", approval.TaskRun.TaskRunID), slog.String("error", errorValue.Error()))
 		return ConnectorRuntimeResult{Handled: true, Platform: platform, TaskRunID: approval.TaskRun.TaskRunID, Reason: "confirmation_question"}, nil
@@ -3250,7 +3249,7 @@ func (connectorRuntime *ConnectorRuntime) currentTaskLauncher() *agentruntime.Ta
 	if connectorRuntime.taskLauncher != nil {
 		return connectorRuntime.taskLauncher
 	}
-	taskLauncher := agentruntime.NewTaskLauncher(connectorRuntime.agentKernel, connectorRuntime.taskRunService, connectorRuntime.toolCatalogBuilder)
+	taskLauncher := agentruntime.NewTaskLauncher(connectorRuntime.harness, connectorRuntime.taskRunService, connectorRuntime.toolCatalogBuilder)
 	taskLauncher.UseRequesterEmailResolver(connectorRuntime.identityService)
 	return taskLauncher
 }

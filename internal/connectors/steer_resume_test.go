@@ -34,7 +34,7 @@ func TestResumePausedTaskForSteerWithoutLaunchContextSendsNoticeWithoutOrphan(t 
 		},
 	})
 	connectorRuntime, _ := newTestConnectorRuntime(t, languageModel)
-	pausedTaskRun, errorValue := connectorRuntime.agentKernel.RunTask("person-1", "direct-1", "사이트 만들어")
+	pausedTaskRun, errorValue := connectorRuntimeAgentKernel(connectorRuntime).RunTask("person-1", "direct-1", "사이트 만들어")
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
