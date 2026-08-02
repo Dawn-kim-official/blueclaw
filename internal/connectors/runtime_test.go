@@ -74,7 +74,7 @@ func TestConnectorRuntimeSuppressesStaleRetryWhileOriginalTaskIsRunning(t *testi
 	// model when no intake model is configured, which would block on the same channel
 	// as the task turn itself and fire "started" before the task is source-tagged. Give
 	// classification its own non-blocking model so "started" reflects the actual turn.
-	connectorRuntime.agentKernel.UseIntakeLanguageModelProvider(testLanguageModel{reply: "classified"})
+	connectorRuntimeAgentKernel(connectorRuntime).UseIntakeLanguageModelProvider(testLanguageModel{reply: "classified"})
 	event := testInboundEvent("message-stale-retry")
 	firstResultChannel := make(chan ConnectorRuntimeResult, 1)
 	firstErrorChannel := make(chan error, 1)
@@ -230,7 +230,7 @@ func TestActiveTaskFollowUpBypassesConversationLockWhenClassifiedAsRelated(t *te
 		},
 	})
 	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
-	if _, errorValue := connectorRuntime.agentKernel.RunTask("person-1", "direct-1", "보고서 작성"); errorValue != nil {
+	if _, errorValue := connectorRuntimeAgentKernel(connectorRuntime).RunTask("person-1", "direct-1", "보고서 작성"); errorValue != nil {
 		t.Fatal(errorValue)
 	}
 	connectorRuntime.identityService.RememberPlatformAccount(identity.PlatformAccountIdentity{Platform: "test", ExternalUserID: "sender-user", Email: "invited@example.com", PersonID: "person-1"})
@@ -250,7 +250,7 @@ func TestActiveTaskFollowUpDoesNotBypassConversationLockWhenClassifiedAsUnrelate
 		},
 	})
 	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
-	if _, errorValue := connectorRuntime.agentKernel.RunTask("person-1", "direct-1", "보고서 작성"); errorValue != nil {
+	if _, errorValue := connectorRuntimeAgentKernel(connectorRuntime).RunTask("person-1", "direct-1", "보고서 작성"); errorValue != nil {
 		t.Fatal(errorValue)
 	}
 	connectorRuntime.identityService.RememberPlatformAccount(identity.PlatformAccountIdentity{Platform: "test", ExternalUserID: "sender-user", Email: "invited@example.com", PersonID: "person-1"})
@@ -265,7 +265,7 @@ func TestActiveTaskFollowUpDoesNotBypassConversationLockWhenClassifiedAsUnrelate
 
 func TestActiveTaskFollowUpClassificationErrorDoesNotBypassConversationLock(t *testing.T) {
 	connectorRuntime, adapter := newTestConnectorRuntime(t, testLanguageModel{errorValue: errors.New("model unavailable")})
-	if _, errorValue := connectorRuntime.agentKernel.RunTask("person-1", "direct-1", "보고서 작성"); errorValue != nil {
+	if _, errorValue := connectorRuntimeAgentKernel(connectorRuntime).RunTask("person-1", "direct-1", "보고서 작성"); errorValue != nil {
 		t.Fatal(errorValue)
 	}
 	connectorRuntime.identityService.RememberPlatformAccount(identity.PlatformAccountIdentity{Platform: "test", ExternalUserID: "sender-user", Email: "invited@example.com", PersonID: "person-1"})
@@ -543,7 +543,7 @@ func TestConnectorRuntimeWritesResolvesAndExpiresTaskWaitRecord(t *testing.T) {
 
 func TestConnectorRuntimeStopCommandCancelsCurrentConversationTask(t *testing.T) {
 	connectorRuntime, adapter := newTestConnectorRuntime(t, testLanguageModel{reply: "ignored"})
-	taskRun, errorValue := connectorRuntime.agentKernel.RunTask("person-1", "direct-1", "long task")
+	taskRun, errorValue := connectorRuntimeAgentKernel(connectorRuntime).RunTask("person-1", "direct-1", "long task")
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
@@ -570,7 +570,7 @@ func TestConnectorRuntimeStopCommandCancelsCurrentConversationTask(t *testing.T)
 
 func TestConnectorRuntimeStopCommandCancelsLatestThreadScopedTask(t *testing.T) {
 	connectorRuntime, adapter := newTestConnectorRuntime(t, testLanguageModel{reply: "ignored"})
-	topLevelTaskRun, errorValue := connectorRuntime.agentKernel.RunTaskWithOrigin("person-1", task.TaskRunOrigin{
+	topLevelTaskRun, errorValue := connectorRuntimeAgentKernel(connectorRuntime).RunTaskWithOrigin("person-1", task.TaskRunOrigin{
 		ConversationID: "channel-1",
 		ReplyTargetID:  "root-1",
 		IsThread:       false,
@@ -579,7 +579,7 @@ func TestConnectorRuntimeStopCommandCancelsLatestThreadScopedTask(t *testing.T) 
 		t.Fatal(errorValue)
 	}
 	time.Sleep(time.Millisecond)
-	threadTaskRun, errorValue := connectorRuntime.agentKernel.RunTaskWithOrigin("person-1", task.TaskRunOrigin{
+	threadTaskRun, errorValue := connectorRuntimeAgentKernel(connectorRuntime).RunTaskWithOrigin("person-1", task.TaskRunOrigin{
 		ConversationID: "channel-1",
 		ReplyTargetID:  "root-1",
 		IsThread:       true,
@@ -588,7 +588,7 @@ func TestConnectorRuntimeStopCommandCancelsLatestThreadScopedTask(t *testing.T) 
 		t.Fatal(errorValue)
 	}
 	time.Sleep(time.Millisecond)
-	otherThreadTaskRun, errorValue := connectorRuntime.agentKernel.RunTaskWithOrigin("person-1", task.TaskRunOrigin{
+	otherThreadTaskRun, errorValue := connectorRuntimeAgentKernel(connectorRuntime).RunTaskWithOrigin("person-1", task.TaskRunOrigin{
 		ConversationID: "channel-1",
 		ReplyTargetID:  "root-2",
 		IsThread:       true,
@@ -621,7 +621,7 @@ func TestConnectorRuntimeStopCommandCancelsLatestThreadScopedTask(t *testing.T) 
 
 func TestConnectorRuntimeStopCommandAtChannelRootCancelsLatestRootScopedTask(t *testing.T) {
 	connectorRuntime, adapter := newTestConnectorRuntime(t, testLanguageModel{reply: "ignored"})
-	oldRootTaskRun, errorValue := connectorRuntime.agentKernel.RunTaskWithOrigin("person-1", task.TaskRunOrigin{
+	oldRootTaskRun, errorValue := connectorRuntimeAgentKernel(connectorRuntime).RunTaskWithOrigin("person-1", task.TaskRunOrigin{
 		ConversationID: "channel-1",
 		ReplyTargetID:  "root-old",
 		IsThread:       false,
@@ -630,7 +630,7 @@ func TestConnectorRuntimeStopCommandAtChannelRootCancelsLatestRootScopedTask(t *
 		t.Fatal(errorValue)
 	}
 	time.Sleep(time.Millisecond)
-	latestRootTaskRun, errorValue := connectorRuntime.agentKernel.RunTaskWithOrigin("person-1", task.TaskRunOrigin{
+	latestRootTaskRun, errorValue := connectorRuntimeAgentKernel(connectorRuntime).RunTaskWithOrigin("person-1", task.TaskRunOrigin{
 		ConversationID: "channel-1",
 		ReplyTargetID:  "root-latest",
 		IsThread:       false,
@@ -639,7 +639,7 @@ func TestConnectorRuntimeStopCommandAtChannelRootCancelsLatestRootScopedTask(t *
 		t.Fatal(errorValue)
 	}
 	time.Sleep(time.Millisecond)
-	threadTaskRun, errorValue := connectorRuntime.agentKernel.RunTaskWithOrigin("person-1", task.TaskRunOrigin{
+	threadTaskRun, errorValue := connectorRuntimeAgentKernel(connectorRuntime).RunTaskWithOrigin("person-1", task.TaskRunOrigin{
 		ConversationID: "channel-1",
 		ReplyTargetID:  "thread-root",
 		IsThread:       true,
@@ -682,9 +682,9 @@ func TestConnectorRuntimeBusyStatusDoesNotCreateNewTask(t *testing.T) {
 		},
 	})
 	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
-	connectorRuntime.agentKernel.UseIntakeLanguageModelProvider(languageModel)
-	connectorRuntime.agentKernel.UseIntakeOptions(agentcontract.IntakeOptions{IsEnabled: true})
-	activeTaskRun, errorValue := connectorRuntime.agentKernel.RunTask("person-1", "direct-1", "보고서 작성")
+	connectorRuntimeAgentKernel(connectorRuntime).UseIntakeLanguageModelProvider(languageModel)
+	connectorRuntimeAgentKernel(connectorRuntime).UseIntakeOptions(agentcontract.IntakeOptions{IsEnabled: true})
+	activeTaskRun, errorValue := connectorRuntimeAgentKernel(connectorRuntime).RunTask("person-1", "direct-1", "보고서 작성")
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
@@ -775,9 +775,9 @@ func TestConnectorRuntimeBusySteerAppendsInstructionWithoutNewTask(t *testing.T)
 		},
 	})
 	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
-	connectorRuntime.agentKernel.UseIntakeLanguageModelProvider(languageModel)
-	connectorRuntime.agentKernel.UseIntakeOptions(agentcontract.IntakeOptions{IsEnabled: true})
-	activeTaskRun, errorValue := connectorRuntime.agentKernel.RunTask("person-1", "direct-1", "PDF 보고서 작성")
+	connectorRuntimeAgentKernel(connectorRuntime).UseIntakeLanguageModelProvider(languageModel)
+	connectorRuntimeAgentKernel(connectorRuntime).UseIntakeOptions(agentcontract.IntakeOptions{IsEnabled: true})
+	activeTaskRun, errorValue := connectorRuntimeAgentKernel(connectorRuntime).RunTask("person-1", "direct-1", "PDF 보고서 작성")
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
@@ -818,9 +818,9 @@ func TestConnectorRuntimeBusyCancelStopsActiveTaskWithoutNewTask(t *testing.T) {
 		},
 	})
 	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
-	connectorRuntime.agentKernel.UseIntakeLanguageModelProvider(languageModel)
-	connectorRuntime.agentKernel.UseIntakeOptions(agentcontract.IntakeOptions{IsEnabled: true})
-	activeTaskRun, errorValue := connectorRuntime.agentKernel.RunTask("person-1", "direct-1", "긴 작업")
+	connectorRuntimeAgentKernel(connectorRuntime).UseIntakeLanguageModelProvider(languageModel)
+	connectorRuntimeAgentKernel(connectorRuntime).UseIntakeOptions(agentcontract.IntakeOptions{IsEnabled: true})
+	activeTaskRun, errorValue := connectorRuntimeAgentKernel(connectorRuntime).RunTask("person-1", "direct-1", "긴 작업")
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
@@ -937,9 +937,9 @@ func TestConnectorRuntimeBusyReplaceCancelsActiveTaskAndStartsNewTask(t *testing
 		},
 	})
 	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
-	connectorRuntime.agentKernel.UseIntakeLanguageModelProvider(languageModel)
-	connectorRuntime.agentKernel.UseIntakeOptions(agentcontract.IntakeOptions{IsEnabled: true})
-	activeTaskRun, errorValue := connectorRuntime.agentKernel.RunTask("person-1", "direct-1", "기존 작업")
+	connectorRuntimeAgentKernel(connectorRuntime).UseIntakeLanguageModelProvider(languageModel)
+	connectorRuntimeAgentKernel(connectorRuntime).UseIntakeOptions(agentcontract.IntakeOptions{IsEnabled: true})
+	activeTaskRun, errorValue := connectorRuntimeAgentKernel(connectorRuntime).RunTask("person-1", "direct-1", "기존 작업")
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
@@ -977,9 +977,9 @@ func TestConnectorRuntimeBusyNewTaskSupersedesActiveTaskAndStartsNewTask(t *test
 		ActionResponses: []string{connectorFinishMessage("휴게소 들러도 괜찮습니다.")},
 	})
 	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
-	connectorRuntime.agentKernel.UseIntakeLanguageModelProvider(languageModel)
-	connectorRuntime.agentKernel.UseIntakeOptions(agentcontract.IntakeOptions{IsEnabled: true})
-	activeTaskRun, errorValue := connectorRuntime.agentKernel.RunTask("person-1", "direct-1", "경산 영남대 근처 맛집 추천")
+	connectorRuntimeAgentKernel(connectorRuntime).UseIntakeLanguageModelProvider(languageModel)
+	connectorRuntimeAgentKernel(connectorRuntime).UseIntakeOptions(agentcontract.IntakeOptions{IsEnabled: true})
+	activeTaskRun, errorValue := connectorRuntimeAgentKernel(connectorRuntime).RunTask("person-1", "direct-1", "경산 영남대 근처 맛집 추천")
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
@@ -1340,8 +1340,8 @@ func TestConnectorRuntimeReactsToConsumedAddressedMessageWithoutReply(t *testing
 		},
 	})
 	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
-	connectorRuntime.agentKernel.UseIntakeLanguageModelProvider(languageModel)
-	connectorRuntime.agentKernel.UseIntakeOptions(agentcontract.IntakeOptions{IsEnabled: true})
+	connectorRuntimeAgentKernel(connectorRuntime).UseIntakeLanguageModelProvider(languageModel)
+	connectorRuntimeAgentKernel(connectorRuntime).UseIntakeOptions(agentcontract.IntakeOptions{IsEnabled: true})
 	event := testInboundEvent("message-consume")
 
 	result, errorValue := connectorRuntime.HandleInboundEvent(context.Background(), adapter, event)
@@ -1376,8 +1376,8 @@ func TestConnectorRuntimeDirectConsumeFallsBackToReplyWhenReactionFails(t *testi
 		},
 	})
 	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
-	connectorRuntime.agentKernel.UseIntakeLanguageModelProvider(languageModel)
-	connectorRuntime.agentKernel.UseIntakeOptions(agentcontract.IntakeOptions{IsEnabled: true})
+	connectorRuntimeAgentKernel(connectorRuntime).UseIntakeLanguageModelProvider(languageModel)
+	connectorRuntimeAgentKernel(connectorRuntime).UseIntakeOptions(agentcontract.IntakeOptions{IsEnabled: true})
 	adapter.reactionError = errors.New("reaction failed")
 	event := testInboundEvent("message-direct-consume")
 	event.Context.ConversationType = "D"
@@ -1407,8 +1407,8 @@ func TestConnectorRuntimeDirectConsumeFallsBackWithoutReactionAdapter(t *testing
 		},
 	})
 	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
-	connectorRuntime.agentKernel.UseIntakeLanguageModelProvider(languageModel)
-	connectorRuntime.agentKernel.UseIntakeOptions(agentcontract.IntakeOptions{IsEnabled: true})
+	connectorRuntimeAgentKernel(connectorRuntime).UseIntakeLanguageModelProvider(languageModel)
+	connectorRuntimeAgentKernel(connectorRuntime).UseIntakeOptions(agentcontract.IntakeOptions{IsEnabled: true})
 	event := testInboundEvent("message-direct-consume")
 	event.Context.ConversationType = "D"
 
@@ -1431,8 +1431,8 @@ func TestConnectorRuntimeConsumeWithoutReactionAdapterDoesNotReply(t *testing.T)
 		},
 	})
 	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
-	connectorRuntime.agentKernel.UseIntakeLanguageModelProvider(languageModel)
-	connectorRuntime.agentKernel.UseIntakeOptions(agentcontract.IntakeOptions{IsEnabled: true})
+	connectorRuntimeAgentKernel(connectorRuntime).UseIntakeLanguageModelProvider(languageModel)
+	connectorRuntimeAgentKernel(connectorRuntime).UseIntakeOptions(agentcontract.IntakeOptions{IsEnabled: true})
 	noReactionAdapter := testAdapterWithoutReaction{adapter: adapter}
 
 	result, errorValue := connectorRuntime.HandleInboundEvent(context.Background(), noReactionAdapter, testInboundEvent("message-consume"))
@@ -1457,8 +1457,8 @@ func TestConnectorRuntimeReactionFailureDoesNotSendFallbackReply(t *testing.T) {
 		},
 	})
 	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
-	connectorRuntime.agentKernel.UseIntakeLanguageModelProvider(languageModel)
-	connectorRuntime.agentKernel.UseIntakeOptions(agentcontract.IntakeOptions{IsEnabled: true})
+	connectorRuntimeAgentKernel(connectorRuntime).UseIntakeLanguageModelProvider(languageModel)
+	connectorRuntimeAgentKernel(connectorRuntime).UseIntakeOptions(agentcontract.IntakeOptions{IsEnabled: true})
 	adapter.reactionError = errors.New("reaction failed")
 
 	result, errorValue := connectorRuntime.HandleInboundEvent(context.Background(), adapter, testInboundEvent("message-consume"))
@@ -1625,7 +1625,7 @@ func TestConnectorRuntimeUsesIntakeLanguageModelForAddressingClassifier(t *testi
 	replyLanguageModel := &addressingTestLanguageModel{addressingTarget: string(agentcontract.AddressingTargetHuman), reply: "ok"}
 	intakeLanguageModel := &addressingTestLanguageModel{addressingTarget: string(agentcontract.AddressingTargetBot), reply: "unused"}
 	connectorRuntime, adapter := newTestConnectorRuntime(t, replyLanguageModel)
-	connectorRuntime.agentKernel.UseIntakeLanguageModelProvider(intakeLanguageModel)
+	connectorRuntimeAgentKernel(connectorRuntime).UseIntakeLanguageModelProvider(intakeLanguageModel)
 
 	result, errorValue := connectorRuntime.HandleInboundEvent(context.Background(), adapter, testChannelInboundEvent("message-1"))
 	if errorValue != nil {
@@ -2018,7 +2018,7 @@ func TestConnectorRuntimeAddsSenderToRecoveryActions(t *testing.T) {
 
 func TestConnectorRuntimeSendsFailureNoticeWhenTurnReturnsError(t *testing.T) {
 	connectorRuntime, adapter := newTestConnectorRuntime(t, testLanguageModel{reply: "요청을 분류하지 못해 작업을 시작하지 못했습니다. 다시 요청해 주세요."})
-	connectorRuntime.agentKernel.UseIntakeLanguageModelProvider(testLanguageModel{errorValue: errors.New("provider unavailable")})
+	connectorRuntimeAgentKernel(connectorRuntime).UseIntakeLanguageModelProvider(testLanguageModel{errorValue: errors.New("provider unavailable")})
 
 	result, errorValue := connectorRuntime.HandleInboundEvent(context.Background(), adapter, testInboundEvent("message-1"))
 	if errorValue != nil {
@@ -2095,7 +2095,7 @@ func TestConnectorRuntimeInjectsRequesterPinnedMemoryIntoLanguageModel(t *testin
 	}
 	toolCatalogBuilder := agentruntime.NewToolCatalogBuilder()
 	toolCatalogBuilder.UsePinnedMemoryStore(pinnedMemoryStore)
-	connectorRuntime.UseTaskLauncher(agentruntime.NewTaskLauncher(connectorRuntime.agentKernel, connectorRuntime.taskRunService, toolCatalogBuilder))
+	connectorRuntime.UseTaskLauncher(agentruntime.NewTaskLauncher(connectorRuntime.harness, connectorRuntime.taskRunService, toolCatalogBuilder))
 
 	_, errorValue := connectorRuntime.HandleInboundEvent(context.Background(), adapter, testInboundEvent("message-1"))
 	if errorValue != nil {
@@ -2127,7 +2127,7 @@ func TestConnectorRuntimeInjectsVisibleContextBeforeMemory(t *testing.T) {
 	}
 	toolCatalogBuilder := agentruntime.NewToolCatalogBuilder()
 	toolCatalogBuilder.UsePinnedMemoryStore(pinnedMemoryStore)
-	connectorRuntime.UseTaskLauncher(agentruntime.NewTaskLauncher(connectorRuntime.agentKernel, connectorRuntime.taskRunService, toolCatalogBuilder))
+	connectorRuntime.UseTaskLauncher(agentruntime.NewTaskLauncher(connectorRuntime.harness, connectorRuntime.taskRunService, toolCatalogBuilder))
 
 	_, errorValue := connectorRuntime.HandleInboundEvent(context.Background(), adapter, event)
 	if errorValue != nil {
@@ -2564,8 +2564,8 @@ func TestConnectorRuntimeClassifiesConfirmationReplyBeforeResumingPendingTask(t 
 		},
 	})
 	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
-	connectorRuntime.agentKernel.UseIntakeLanguageModelProvider(languageModel)
-	connectorRuntime.agentKernel.UseIntakeOptions(agentcontract.IntakeOptions{IsEnabled: true})
+	connectorRuntimeAgentKernel(connectorRuntime).UseIntakeLanguageModelProvider(languageModel)
+	connectorRuntimeAgentKernel(connectorRuntime).UseIntakeOptions(agentcontract.IntakeOptions{IsEnabled: true})
 	useTestConnectorSkill(connectorRuntime, connectorCalendarSkill())
 	connectorRuntime.UseAllowedToolNames([]string{"conversation_history", "memory_search", "ask_confirm", "calendar_add", "calendar_delete"})
 	connectorRuntime.UseTestCapabilityTools(capability.Client{
@@ -2648,8 +2648,8 @@ func TestConnectorRuntimeClassifiesNaturalLanguageConfirmationRejection(t *testi
 		},
 	})
 	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
-	connectorRuntime.agentKernel.UseIntakeLanguageModelProvider(languageModel)
-	connectorRuntime.agentKernel.UseIntakeOptions(agentcontract.IntakeOptions{IsEnabled: true})
+	connectorRuntimeAgentKernel(connectorRuntime).UseIntakeLanguageModelProvider(languageModel)
+	connectorRuntimeAgentKernel(connectorRuntime).UseIntakeOptions(agentcontract.IntakeOptions{IsEnabled: true})
 	useTestConnectorSkill(connectorRuntime, connectorCalendarSkill())
 	connectorRuntime.UseAllowedToolNames([]string{"conversation_history", "memory_search", "ask_confirm", "calendar_delete"})
 	connectorRuntime.UseTestCapabilityTools(capability.Client{
@@ -2713,8 +2713,8 @@ func TestConnectorRuntimeRoutesShortConfirmationReplyThroughRouter(t *testing.T)
 		},
 	})
 	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
-	connectorRuntime.agentKernel.UseIntakeLanguageModelProvider(languageModel)
-	connectorRuntime.agentKernel.UseIntakeOptions(agentcontract.IntakeOptions{IsEnabled: true})
+	connectorRuntimeAgentKernel(connectorRuntime).UseIntakeLanguageModelProvider(languageModel)
+	connectorRuntimeAgentKernel(connectorRuntime).UseIntakeOptions(agentcontract.IntakeOptions{IsEnabled: true})
 	useTestConnectorSkill(connectorRuntime, connectorCalendarSkill())
 	connectorRuntime.UseAllowedToolNames([]string{"conversation_history", "memory_search", "ask_confirm", "calendar_add", "calendar_delete"})
 	connectorRuntime.UseTestCapabilityTools(capability.Client{
@@ -2782,8 +2782,8 @@ func TestConnectorRuntimeAnswersPendingConfirmationQuestionWithoutLaunching(t *t
 		},
 	})
 	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
-	connectorRuntime.agentKernel.UseIntakeLanguageModelProvider(languageModel)
-	connectorRuntime.agentKernel.UseIntakeOptions(agentcontract.IntakeOptions{IsEnabled: true})
+	connectorRuntimeAgentKernel(connectorRuntime).UseIntakeLanguageModelProvider(languageModel)
+	connectorRuntimeAgentKernel(connectorRuntime).UseIntakeOptions(agentcontract.IntakeOptions{IsEnabled: true})
 	useTestConnectorSkill(connectorRuntime, connectorCalendarSkill())
 	connectorRuntime.UseAllowedToolNames([]string{"conversation_history", "memory_search", "ask_confirm", "calendar_delete"})
 	connectorRuntime.UseTestCapabilityTools(capability.Client{
@@ -2850,8 +2850,8 @@ func TestConnectorRuntimeRoutesPendingConfirmationRevisionAsNewTask(t *testing.T
 		},
 	})
 	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
-	connectorRuntime.agentKernel.UseIntakeLanguageModelProvider(languageModel)
-	connectorRuntime.agentKernel.UseIntakeOptions(agentcontract.IntakeOptions{IsEnabled: true})
+	connectorRuntimeAgentKernel(connectorRuntime).UseIntakeLanguageModelProvider(languageModel)
+	connectorRuntimeAgentKernel(connectorRuntime).UseIntakeOptions(agentcontract.IntakeOptions{IsEnabled: true})
 	useTestConnectorSkill(connectorRuntime, connectorCalendarSkill())
 	connectorRuntime.UseAllowedToolNames([]string{"conversation_history", "memory_search", "ask_confirm", "calendar_delete", "message_search", "message_delete"})
 	connectorRuntime.UseTestCapabilityTools(capability.Client{
@@ -2965,8 +2965,8 @@ func TestConnectorRuntimeConsumesInteractiveConfirmationCancel(t *testing.T) {
 		},
 	})
 	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
-	connectorRuntime.agentKernel.UseIntakeLanguageModelProvider(languageModel)
-	connectorRuntime.agentKernel.UseIntakeOptions(agentcontract.IntakeOptions{IsEnabled: true})
+	connectorRuntimeAgentKernel(connectorRuntime).UseIntakeLanguageModelProvider(languageModel)
+	connectorRuntimeAgentKernel(connectorRuntime).UseIntakeOptions(agentcontract.IntakeOptions{IsEnabled: true})
 	useTestConnectorSkill(connectorRuntime, connectorCalendarSkill())
 	connectorRuntime.UseAllowedToolNames([]string{"conversation_history", "memory_search", "ask_confirm", "calendar_delete"})
 	connectorRuntime.UseTestCapabilityTools(capability.Client{
@@ -3032,8 +3032,8 @@ func TestConnectorRuntimeInteractiveConfirmRestoresPersistedIntakeState(t *testi
 		},
 	})
 	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
-	connectorRuntime.agentKernel.UseIntakeLanguageModelProvider(languageModel)
-	connectorRuntime.agentKernel.UseIntakeOptions(agentcontract.IntakeOptions{IsEnabled: true})
+	connectorRuntimeAgentKernel(connectorRuntime).UseIntakeLanguageModelProvider(languageModel)
+	connectorRuntimeAgentKernel(connectorRuntime).UseIntakeOptions(agentcontract.IntakeOptions{IsEnabled: true})
 	useTestConnectorSkill(connectorRuntime, connectorCalendarSkill())
 	connectorRuntime.UseAllowedToolNames([]string{"conversation_history", "memory_search", "ask_confirm", "calendar_add", "calendar_delete"})
 	connectorRuntime.UseTestCapabilityTools(capability.Client{
@@ -3094,8 +3094,8 @@ func TestConnectorRuntimeConsumesBareConfirmationReplyWithoutPendingTask(t *test
 		},
 	})
 	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
-	connectorRuntime.agentKernel.UseIntakeLanguageModelProvider(languageModel)
-	connectorRuntime.agentKernel.UseIntakeOptions(agentcontract.IntakeOptions{IsEnabled: true})
+	connectorRuntimeAgentKernel(connectorRuntime).UseIntakeLanguageModelProvider(languageModel)
+	connectorRuntimeAgentKernel(connectorRuntime).UseIntakeOptions(agentcontract.IntakeOptions{IsEnabled: true})
 
 	event := testInboundEvent("message-approved")
 	event.Prompt = "approved"
@@ -3137,8 +3137,8 @@ func TestConnectorRuntimeContinuesWaitingUserInputGoal(t *testing.T) {
 		},
 	})
 	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
-	connectorRuntime.agentKernel.UseIntakeLanguageModelProvider(languageModel)
-	connectorRuntime.agentKernel.UseIntakeOptions(agentcontract.IntakeOptions{IsEnabled: true})
+	connectorRuntimeAgentKernel(connectorRuntime).UseIntakeLanguageModelProvider(languageModel)
+	connectorRuntimeAgentKernel(connectorRuntime).UseIntakeOptions(agentcontract.IntakeOptions{IsEnabled: true})
 	useTestConnectorSkill(connectorRuntime, agentcontract.SkillInstruction{
 		Name:           "direct-message",
 		Description:    "사업계획서 작성과 메시지 전송 후보.",
@@ -3208,8 +3208,8 @@ func TestConnectorRuntimeStartsNewTaskForClearNewRequest(t *testing.T) {
 		},
 	})
 	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
-	connectorRuntime.agentKernel.UseIntakeLanguageModelProvider(languageModel)
-	connectorRuntime.agentKernel.UseIntakeOptions(agentcontract.IntakeOptions{IsEnabled: true})
+	connectorRuntimeAgentKernel(connectorRuntime).UseIntakeLanguageModelProvider(languageModel)
+	connectorRuntimeAgentKernel(connectorRuntime).UseIntakeOptions(agentcontract.IntakeOptions{IsEnabled: true})
 	useTestConnectorSkill(connectorRuntime, agentcontract.SkillInstruction{
 		Name:           "direct-message",
 		Description:    "DM 후보.",
@@ -3253,8 +3253,8 @@ func TestConnectorRuntimeAddsCalendarEventWithoutApproval(t *testing.T) {
 		},
 	})
 	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
-	connectorRuntime.agentKernel.UseIntakeLanguageModelProvider(languageModel)
-	connectorRuntime.agentKernel.UseIntakeOptions(agentcontract.IntakeOptions{IsEnabled: true})
+	connectorRuntimeAgentKernel(connectorRuntime).UseIntakeLanguageModelProvider(languageModel)
+	connectorRuntimeAgentKernel(connectorRuntime).UseIntakeOptions(agentcontract.IntakeOptions{IsEnabled: true})
 	useTestConnectorSkill(connectorRuntime, connectorCalendarSkill())
 	connectorRuntime.UseAllowedToolNames([]string{"conversation_history", "memory_search", "ask_confirm", "calendar_add", "calendar_delete"})
 	connectorRuntime.UseTestCapabilityTools(capability.Client{
@@ -4256,6 +4256,11 @@ func appendConnectorActiveGoal(t *testing.T, taskRunService *task.TaskRunService
 	taskRunService.AppendTaskEvent(taskRun.TaskRunID, "agent.goal.blocked", string(document))
 }
 
+func connectorRuntimeAgentKernel(connectorRuntime *ConnectorRuntime) *bluecollar.AgentKernel {
+	agentKernel, _ := connectorRuntime.harness.(*bluecollar.AgentKernel)
+	return agentKernel
+}
+
 func newTestConnectorRuntime(t *testing.T, languageModel llm.LanguageModelProvider) (*ConnectorRuntime, *testAdapter) {
 	t.Helper()
 
@@ -4499,8 +4504,8 @@ func (repository *testTaskRunRepository) DeleteTaskRunsBefore(time.Time, []strin
 }
 
 func useTestConnectorSkill(connectorRuntime *ConnectorRuntime, skillInstruction agentcontract.SkillInstruction) {
-	connectorRuntime.agentKernel.UseSkillRetriever(bluecollar.NewEmbeddingSkillRetriever(nil, ""))
-	connectorRuntime.agentKernel.UseInstructionBundleLoader(func() agentcontract.InstructionBundle {
+	connectorRuntimeAgentKernel(connectorRuntime).UseSkillRetriever(bluecollar.NewEmbeddingSkillRetriever(nil, ""))
+	connectorRuntimeAgentKernel(connectorRuntime).UseInstructionBundleLoader(func() agentcontract.InstructionBundle {
 		return agentcontract.InstructionBundle{Skills: []agentcontract.SkillInstruction{skillInstruction}}
 	})
 }

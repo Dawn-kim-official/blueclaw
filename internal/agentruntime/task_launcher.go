@@ -25,7 +25,7 @@ const (
 )
 
 type TaskLauncher struct {
-	agentKernel                   *bluecollar.AgentKernel
+	harness                       agentcontract.Harness
 	taskRunService                *taskstate.TaskRunService
 	toolCatalogBuilder            *ToolCatalogBuilder
 	requesterWorkspaceProvisioner RequesterWorkspaceProvisioner
@@ -129,12 +129,12 @@ type launchMemoryResult struct {
 	Error           string
 }
 
-func NewTaskLauncher(agentKernel *bluecollar.AgentKernel, taskRunService *taskstate.TaskRunService, toolCatalogBuilder *ToolCatalogBuilder) *TaskLauncher {
+func NewTaskLauncher(harness agentcontract.Harness, taskRunService *taskstate.TaskRunService, toolCatalogBuilder *ToolCatalogBuilder) *TaskLauncher {
 	if toolCatalogBuilder == nil {
 		toolCatalogBuilder = NewToolCatalogBuilder()
 	}
 	return &TaskLauncher{
-		agentKernel:        agentKernel,
+		harness:            harness,
 		taskRunService:     taskRunService,
 		toolCatalogBuilder: toolCatalogBuilder,
 	}
@@ -350,7 +350,7 @@ func (runTurnLaunchStep) Name() string {
 }
 
 func (step runTurnLaunchStep) Run(ctx context.Context, execution *taskLaunchExecution) (agentcontract.AgentTurnResult, error) {
-	return execution.Launcher.agentKernel.RunTurn(ctx, execution.Launcher.agentTurnRequestForLaunch(
+	return execution.Launcher.harness.RunTurn(ctx, execution.Launcher.agentTurnRequestForLaunch(
 		execution.Request,
 		execution.NormalizedProfileName,
 		step.MemoryFacts,
@@ -373,7 +373,7 @@ func errorFromStepRecord(record launchStepRecord) error {
 
 func (taskLauncher *TaskLauncher) completeLaunchFailure(ctx context.Context, request TaskLaunchRequest, profileName string, toolNames []string, stepName string, records []launchStepRecord, errorValue error) TaskLaunchResult {
 	turnRequest := taskLauncher.agentTurnRequestForLaunch(request, profileName, nil, nil, ConversationResourceScope{})
-	turnResult := taskLauncher.agentKernel.CompleteLaunchFailure(ctx, turnRequest, "launch", stepName, errorValue)
+	turnResult := taskLauncher.harness.CompleteLaunchFailure(ctx, turnRequest, "launch", stepName, errorValue)
 	turnResult.ToolNames = append([]string{}, toolNames...)
 	taskLauncher.appendLaunchStepRecords(turnResult.TaskRun.TaskRunID, records)
 	taskLauncher.appendAmbientDutyLaunchEvent(turnResult.TaskRun.TaskRunID, request)
