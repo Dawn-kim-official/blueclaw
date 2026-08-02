@@ -3,6 +3,7 @@ package bluecollar
 import (
 	"context"
 	"encoding/json"
+	"reflect"
 	"strings"
 	"time"
 
@@ -101,6 +102,31 @@ func observeLanguageModel(provider model.LanguageModelProvider, observe llmCallO
 
 func (observedModel observedLanguageModel) observedInnerProvider() model.LanguageModelProvider {
 	return observedModel.provider
+}
+
+func observedInnerLanguageModel(provider model.LanguageModelProvider) model.LanguageModelProvider {
+	observedProvider, isObserved := provider.(interface {
+		observedInnerProvider() model.LanguageModelProvider
+	})
+	if !isObserved {
+		return provider
+	}
+	return observedProvider.observedInnerProvider()
+}
+
+func isSameLanguageModelProvider(left model.LanguageModelProvider, right model.LanguageModelProvider) bool {
+	if left == nil || right == nil {
+		return left == nil && right == nil
+	}
+	leftValue := reflect.ValueOf(left)
+	rightValue := reflect.ValueOf(right)
+	if leftValue.Type() != rightValue.Type() {
+		return false
+	}
+	if !leftValue.Comparable() {
+		return reflect.DeepEqual(left, right)
+	}
+	return left == right
 }
 
 func (observedModel observedLanguageModel) TextChatCompleter() (model.ChatCompleter, bool) {

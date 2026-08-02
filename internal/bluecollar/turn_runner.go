@@ -16,13 +16,16 @@ import (
 const maximumElapsedClosingDuration = time.Minute
 
 type AgentTurnRunner struct {
-	taskRunService        taskstate.TaskRunStore
-	taskStepService       taskstate.TaskStepStore
-	taskArtifactService   taskstate.TaskArtifactStore
-	languageModel         model.LanguageModelProvider
-	recoveryLanguageModel model.LanguageModelProvider
-	options               TurnOptions
+	taskRunService                 taskstate.TaskRunStore
+	taskStepService                taskstate.TaskStepStore
+	taskArtifactService            taskstate.TaskArtifactStore
+	languageModel                  model.LanguageModelProvider
+	recoveryLanguageModel          model.LanguageModelProvider
+	taskLevelLanguageModelResolver TaskLevelLanguageModelResolver
+	options                        TurnOptions
 }
+
+type TaskLevelLanguageModelResolver func(TaskLevel) model.LanguageModelProvider
 
 type turnActionDocument struct {
 	Action                string                        `json:"action"`
@@ -175,6 +178,16 @@ func NewAgentTurnRunnerWithRecoveryModel(taskRunService taskstate.TaskRunStore, 
 	}
 }
 
+func (agentTurnRunner *AgentTurnRunner) UseTaskLevelLanguageModelResolver(resolver TaskLevelLanguageModelResolver) {
+	agentTurnRunner.taskLevelLanguageModelResolver = resolver
+}
+
+func (agentTurnRunner *AgentTurnRunner) llmCallObserverForTaskRun(taskRunID string) llmCallObserver {
+	return func(record llmCallRecord) {
+		agentTurnRunner.appendEvent(taskRunID, "llm.call", marshalEventBody(record))
+	}
+}
+
 func normalizeTurnOptions(options TurnOptions) TurnOptions {
 	taskLevelProfile := TaskLevelProfileForLevel(options.TaskLevel)
 	if options.TaskLevel == "" {
@@ -243,9 +256,7 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 		}))
 	}
 	agentTurnRunner.appendTaskSourceEvent(taskRun.TaskRunID, request.SourceReference)
-	observeRecord := func(record llmCallRecord) {
-		agentTurnRunner.appendEvent(taskRun.TaskRunID, "llm.call", marshalEventBody(record))
-	}
+	observeRecord := agentTurnRunner.llmCallObserverForTaskRun(taskRun.TaskRunID)
 	agentTurnRunner.languageModel = observeLanguageModel(agentTurnRunner.languageModel, observeRecord)
 	if agentTurnRunner.recoveryLanguageModel == nil {
 		agentTurnRunner.recoveryLanguageModel = agentTurnRunner.languageModel
@@ -1661,6 +1672,22 @@ func (agentTurnRunner *AgentTurnRunner) escalateBudgetTier(taskRunID string, qua
 		UsedIterationCount: usedIterationCount,
 		UsedToolCallCount:  usedToolCallCount,
 		QualifyingEventIDs: qualifyingProgressEventIDs(qualifyingEvents),
+	}))
+	agentTurnRunner.escalateLanguageModel(taskRunID, previousTaskLevel, taskLevelProfile.TaskLevel)
+}
+
+func (agentTurnRunner *AgentTurnRunner) escalateLanguageModel(taskRunID string, previousTaskLevel TaskLevel, newTaskLevel TaskLevel) {
+	if agentTurnRunner.taskLevelLanguageModelResolver == nil {
+		return
+	}
+	escalatedLanguageModel := agentTurnRunner.taskLevelLanguageModelResolver(newTaskLevel)
+	if escalatedLanguageModel == nil || isSameLanguageModelProvider(escalatedLanguageModel, observedInnerLanguageModel(agentTurnRunner.languageModel)) {
+		return
+	}
+	agentTurnRunner.languageModel = observeLanguageModel(escalatedLanguageModel, agentTurnRunner.llmCallObserverForTaskRun(taskRunID))
+	agentTurnRunner.appendEvent(taskRunID, "agent.model_escalated", marshalEventBody(modelEscalatedEventBody{
+		PreviousTaskLevel: previousTaskLevel,
+		NewTaskLevel:      newTaskLevel,
 	}))
 }
 

@@ -2005,6 +2005,68 @@ func TestAgentTurnRunnerEscalatesIterationLimitAfterDurableProgress(t *testing.T
 	}
 }
 
+func TestAgentTurnRunnerSwapsLanguageModelWhenBudgetTierEscalates(t *testing.T) {
+	xLowLanguageModel := &sequenceLanguageModel{
+		modelTier: "xlow",
+		contents: []string{
+			`{"action":"continue","toolName":"file_write","toolInput":{"path":"tmp/app/index.html","content":"one"}}`,
+			`{"action":"continue","toolName":"terminal_run","toolInput":{"command":"npm run build"}}`,
+		},
+	}
+	lowLanguageModel := &sequenceLanguageModel{
+		modelTier: "low",
+		contents:  []string{finishMessageDocument("continued on the escalated model")},
+	}
+	services := newTurnRunnerTestServices(xLowLanguageModel, TurnOptions{
+		TaskLevel:         TaskLevelXLow,
+		MaxIterationCount: 2,
+		MaxToolCallCount:  10,
+	})
+	services.runner.UseTaskLevelLanguageModelResolver(func(taskLevel TaskLevel) model.LanguageModelProvider {
+		if taskLevel == TaskLevelXLow {
+			return xLowLanguageModel
+		}
+		return lowLanguageModel
+	})
+	toolRegistry := newTestToolSet([]string{"file_write", "terminal_run"})
+	registerTestTool(toolRegistry, toolcontract.ToolDefinition{Name: "file_write"}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
+		return testToolSuccess(`{"path":"tmp/app/index.html"}`), nil
+	})
+	registerTestTool(toolRegistry, terminalRunTestToolDefinition(), func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
+		data := json.RawMessage(`{"mode":"command","completed":true,"exitCode":0,"stdout":"built","stderr":"","timedOut":false,"outputTrimmed":false}`)
+		return toolcontract.ToolSuccessData(string(data), data), nil
+	})
+
+	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
+		RequesterPersonID: "person-1",
+		ConversationID:    "conversation-1",
+		Prompt:            "build the site",
+		ToolSet:           toolRegistry,
+		PinnedToolNames:   []string{"file_write", "terminal_run"},
+	})
+
+	if errorValue != nil {
+		t.Fatalf("expected escalated run, got error: %v", errorValue)
+	}
+	if result.TaskRun.Status != taskstate.TaskStatusCompleted {
+		t.Fatalf("expected completed task after the model swap, got %s", result.TaskRun.Status)
+	}
+	if len(xLowLanguageModel.requests) != 2 {
+		t.Fatalf("expected the starting tier to answer twice, got %d", len(xLowLanguageModel.requests))
+	}
+	if len(lowLanguageModel.requests) != 1 {
+		t.Fatalf("expected the escalated tier to answer the next action, got %d", len(lowLanguageModel.requests))
+	}
+	taskEvents := services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID)
+	if !taskEventsContain(taskEvents, "agent.model_escalated", `"previousTaskLevel":"xlow"`) ||
+		!taskEventsContain(taskEvents, "agent.model_escalated", `"newTaskLevel":"low"`) {
+		t.Fatalf("expected an xlow to low model escalation event, got %+v", taskEvents)
+	}
+	if !taskEventsContain(taskEvents, "llm.call", `"modelTier":"low"`) {
+		t.Fatalf("expected the escalated model call to stay observed in the ledger, got %+v", taskEvents)
+	}
+}
+
 func TestAgentTurnRunnerDoesNotEscalateIterationLimitForInspectionOnlyProgress(t *testing.T) {
 	languageModel := &sequenceLanguageModel{
 		contents: []string{
